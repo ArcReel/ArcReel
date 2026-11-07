@@ -1,4 +1,4 @@
-"""文本生成服务层核心接口定义。"""
+"""Core text-generation service interfaces."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ from lib.infra.text_utils import strip_json_code_fences
 
 _logger = logging.getLogger(__name__)
 
-# Chat Completions 输出上限参数名：官方 OpenAI 端点已弃用 max_tokens（推理模型
-# 直接拒绝），改用 max_completion_tokens；第三方兼容端点对新参数支持情况不一，
-# 须保守沿用 max_tokens。由调用方按端点选择。
+# Chat Completions output-limit parameter: official OpenAI endpoints deprecated max_tokens (reasoning models
+# reject it), replacing it with max_completion_tokens. Third-party compatible endpoints vary in support,
+# so conservatively retain max_tokens there. Callers select by endpoint.
 TokenParam = Literal["max_tokens", "max_completion_tokens"]
 
 
@@ -33,11 +33,11 @@ def warn_if_truncated(
     output_tokens: int | None = None,
     truncation_values: tuple[str, ...] = ("length", "MAX_TOKENS", "max_tokens"),
 ) -> bool:
-    """检测模型响应是否因 token 上限被截断，若是则 logger.warning。
+    """Detect token-limit truncation and log a warning when present.
 
-    返回 True 表示被截断（供调用方用于进一步处理）。自由文本（无 response_schema）
-    的截断只告警不抛错，由结果的 ``truncated`` 标记带给调用方；结构化输出的截断须走
-    :func:`check_truncation` 升级为硬错误。
+    Return True for truncation so callers can handle it further. Free text (no response_schema)
+    only warns, exposing ``truncated`` on results; structured-output truncation must use
+    :func:`check_truncation` to become a hard error.
     """
     if finish_reason is None:
         return False
@@ -55,20 +55,20 @@ def warn_if_truncated(
 
 
 class TextOutputTruncatedError(NonRetryableError):
-    """文本模型输出被输出上限截断，结果不完整、不可直接使用。
+    """Text model output hit its output limit, leaving incomplete results unsafe for direct use.
 
-    backend 只在请求带 response_schema（结构化输出诉求）时抛出；自由文本截断只告警并在结果上
-    标记 ``truncated``（见 docs/adr/0044），调用方要求完整输出时由
-    :meth:`lib.backends.text_generator.TextGenerator.generate` 升级为本异常。
+    Backends raise this only for response_schema requests (structured-output intent); free-text truncation only warns and
+    marks results ``truncated`` (docs/adr/0044). When callers require complete output,
+    :meth:`lib.backends.text_generator.TextGenerator.generate` upgrades it to this exception.
 
-    继承 NonRetryableError（而非直接 RuntimeError）：消息内嵌的 output_tokens 是任意
-    整数，其十进制文本可能偶然包含 with_retry_async 瞬态错误模式的子串（如 429/500/
-    502/503/504），若不显式标记为不可重试，会被误判为瞬态错误进而在各后端的
-    @with_retry_async() 包裹下重发同一份必然再截断的请求。
+    Inherit NonRetryableError rather than RuntimeError directly: embedded output_tokens can be any
+    integer, whose decimal text might accidentally contain with_retry_async transient patterns (429/500/
+    502/503/504). Without explicit nonretryability, backend
+    @with_retry_async() decorators could resend the same inevitably truncated request.
 
-    ``provider_id`` 是解析层的 registry provider_id（自定义供应商为 ``custom-<id>``），``custom_model``
-    标明该模型由自定义供应商提供；二者由 :class:`lib.backends.text_generator.TextGenerator` 补齐，
-    界面据此给出「去登记最大输出长度」或「换一个文本模型」的出路。backend 层抛出时二者缺省。
+    ``provider_id`` is resolution-layer registry provider_id (``custom-<id>`` for custom providers); ``custom_model``
+    identifies custom-provider models. Both are supplied by :class:`lib.backends.text_generator.TextGenerator`,
+    letting UI suggest registering maximum output length or switching text models. Both default absent in backend exceptions.
     """
 
     def __init__(
@@ -92,15 +92,15 @@ class TextOutputTruncatedError(NonRetryableError):
 
 
 class StructuredOutputExhaustedError(NonRetryableError):
-    """结构化输出降级链已走完，模型仍未产出满足 schema 的内容。
+    """Structured-output fallback chains finished without schema-compliant content.
 
-    各后端把「结构化输出能力不足」的终局失败统一收敛到本异常：Instructor 档内校验重试
-    耗尽、Gemini prompt 注入降级耗尽，都抛它而非各自的内部异常（``InstructorRetryException``、
-    裸 ``ValueError``），调用方据此给用户一句可行动的解释，而不是把 SDK 内部异常原文透出去。
+    Backends converge terminal insufficient-structured-output failures here: exhausted Instructor validation retries
+    and exhausted Gemini prompt-injection fallback both raise this rather than internal exceptions (``InstructorRetryException``,
+    raw ``ValueError``), allowing actionable user explanations instead of exposing SDK exceptions verbatim.
 
-    继承 NonRetryableError 的理由同 :class:`TextOutputTruncatedError`：消息里嵌的失败原因
-    含模型侧动态文本，可能偶然命中 with_retry_async 的瞬态错误字符串模式。语义上也确实
-    不该重试——降级链本身已经把该试的档位与档内重试都试过了。
+    Inherit NonRetryableError for the same reason as :class:`TextOutputTruncatedError`: embedded failure reasons
+    contain dynamic model text that may match with_retry_async transient patterns. Retrying is also semantically
+    wrong: fallback chains already attempted all applicable tiers and within-tier retries.
     """
 
     def __init__(self, *, provider: str, model: str, reason: str):
@@ -110,17 +110,17 @@ class StructuredOutputExhaustedError(NonRetryableError):
         super().__init__(f"{provider}/{model} 的结构化输出能力不足：{reason}。请更换文本模型或供应商后重试。")
 
 
-# 诊断日志里模型原始输出的截断长度：够看清结构性问题（是散文还是 JSON、顶层是对象还是数组、
-# 哪个字段缺了），又不至于把整份生成内容写进日志。
+# Raw-model-output diagnostic log limit: enough to reveal structural issues (prose vs JSON, object vs array,
+# missing fields), without logging entire generated content.
 RAW_OUTPUT_LOG_LIMIT = 500
 
 
 def truncate_for_log(text: str | None, limit: int = RAW_OUTPUT_LOG_LIMIT) -> str:
-    """把模型原始输出压到可入日志的长度。
+    """Limit raw model output to a loggable length.
 
-    结构化输出降级与解析拒绝由「模型实际输出了什么」决定，只记摘要（字段路径、错误类型）
-    事后无法复盘，故这里刻意保留原文片段。与 :func:`summarize_validation_error` 的取舍不同：
-    后者是每次校验失败都会走的高频路径，本函数只用在 warning 级的降级 / 拒绝分支。
+    Structured-output fallback and parsing rejection depend on what models actually produced; summaries alone (field paths/error types)
+    cannot reconstruct failures, so deliberately retain raw excerpts here. This differs from :func:`summarize_validation_error`:
+    that high-frequency path runs on every validation failure, while this function serves warning-level fallback/rejection branches only.
     """
     if not text:
         return "<空>"
@@ -134,11 +134,11 @@ _THINK_CLOSE = "</think>"
 
 
 def strip_leading_think_block(text: str) -> str:
-    """剥掉输出开头的 ``<think>…</think>`` 思考块，返回其后的正文。
+    """Strip a leading ``<think>…</think>`` thinking block, returning the following body.
 
-    走 OpenAI 兼容接口的思考模型（如 MiniMax M2 / M3）默认把思考过程直接写进 ``content``，
-    用 ``<think>`` 标签包住，正式回答跟在 ``</think>`` 之后；结构化输出的 JSON 也在其后。
-    只认开头的一个块：块不在开头，或闭合标签缺失（多为输出被截断）时原样返回，不做猜测。
+    Thinking models over OpenAI-compatible APIs (such as MiniMax M2 / M3) embed reasoning in ``content`` by default,
+    inside ``<think>`` tags, followed by the answer after ``</think>``; structured JSON follows too.
+    Recognize one leading block only: preserve unchanged if not at the start or missing its closing tag (usually truncation), without guessing.
     """
     body = text.lstrip()
     if not body.startswith(_THINK_OPEN):
@@ -150,10 +150,10 @@ def strip_leading_think_block(text: str) -> str:
 
 
 def strip_json_code_fence(text: str) -> str:
-    """剥掉包裹整个输出的 Markdown JSON 代码围栏，返回围栏内的 JSON 文本。
+    """Strip Markdown JSON fences surrounding the entire output, returning the enclosed JSON text.
 
-    只处理首尾成对的 ``json`` / 无语言围栏；正文前后空白与无尾换行的形态都归一化。
-    非围栏内容原样返回，避免误改普通文本或截断的 JSON。
+    Handle paired ``json`` / unlabelled fences only; normalize surrounding body whitespace and missing final newlines.
+    Preserve unfenced content unchanged to avoid altering ordinary text or truncated JSON.
     """
     stripped = text.strip()
     if not stripped.startswith("```"):
@@ -170,10 +170,10 @@ def strip_json_code_fence(text: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
-# 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
-# drama script_plan 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
-# 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
-# 这一处（见 docs/adr/0044）。
+# Text output ceiling: a nonbinding safety valve against pathological runaway, never a functional budget. Normal episode planning, script generation,
+# and drama script_plan normalization volumes are naturally bounded by their schemas/content and never approach this high value.
+# Only pathologically large batches or user-selected low-output-capacity models hit it. All three share this constant; adjust only
+# here (docs/adr/0044).
 DEFAULT_MAX_OUTPUT_TOKENS = 64000
 
 
@@ -186,15 +186,15 @@ def check_truncation(
     output_tokens: int | None = None,
     truncation_values: tuple[str, ...] = ("length", "MAX_TOKENS", "max_tokens"),
 ) -> bool:
-    """检测输出截断：结构化输出（``structured=True``）截断是硬错误，自由文本告警并返回 True。
+    """Detect truncation: structured output (``structured=True``) raises hard errors; free text warns and returns True.
 
-    ``structured`` 由调用方按本次 ``generate()`` 的原始请求是否带 response_schema 传入——
-    判断口径是"这次生成诉求"而非"这次具体 wire 调用是否真的带了 schema 参数"，故内部降级
-    路径即使为兜底策略（如把 schema 写进 prompt）临时清空了 response_schema，仍应把
-    ``structured=True`` 显式传下来。
+    Callers supply ``structured`` from whether the original ``generate()`` request has response_schema:
+    the criterion is generation intent, not whether this specific wire call carries schema parameters. Internal fallback
+    paths temporarily clearing response_schema for strategies such as prompt-injected schemas must still
+    explicitly pass ``structured=True``.
 
-    截断即抛 :class:`TextOutputTruncatedError`，天然短路调用方的校验重试循环——重发同一份
-    必然再截断的请求没有意义（见 docs/adr/0044）。
+    Truncation raises :class:`TextOutputTruncatedError`, naturally short-circuiting caller validation retry loops:
+    resending the same inevitably truncated request is pointless (docs/adr/0044).
     """
     truncated = warn_if_truncated(
         finish_reason,
@@ -209,7 +209,7 @@ def check_truncation(
 
 
 class TextCapability(StrEnum):
-    """文本后端支持的能力枚举。"""
+    """Text backend capability enum."""
 
     TEXT_GENERATION = "text_generation"
     STRUCTURED_OUTPUT = "structured_output"
@@ -217,7 +217,7 @@ class TextCapability(StrEnum):
 
 
 class TextTaskType(StrEnum):
-    """文本生成任务类型。"""
+    """Text-generation task types."""
 
     SCRIPT = "script"
     OVERVIEW = "overview"
@@ -225,18 +225,18 @@ class TextTaskType(StrEnum):
 
 
 class TextTaskTier(StrEnum):
-    """文本任务档位。
+    """Text-task tiers.
 
-    调用点在代码里固定归档（见 TEXT_TASK_TIERS），用户只配置「每档用哪个文本 backend」，
-    不配置映射本身（docs/adr/0051）。
+    Call sites have fixed code-level assignments (TEXT_TASK_TIERS); users configure which text backend each tier uses,
+    not the mapping itself (docs/adr/0051).
     """
 
     SIMPLE = "simple"
     COMPLEX = "complex"
 
 
-# TextTaskType → 档位的唯一映射。新增任务类型必须在此显式归档，
-# 缺档在模块导入时即失败（另有穷举测试兜底）。
+# Sole TextTaskType → tier mapping. Explicitly assign every new task type here;
+# missing assignments fail at import, backed by exhaustive tests.
 TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
     TextTaskType.SCRIPT: TextTaskTier.COMPLEX,
     TextTaskType.OVERVIEW: TextTaskTier.SIMPLE,
@@ -246,13 +246,13 @@ TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
 if _missing := set(TextTaskType) - set(TEXT_TASK_TIERS):
     raise RuntimeError(f"TextTaskType 成员未归档到 TEXT_TASK_TIERS: {sorted(m.value for m in _missing)}")
 
-# 需要图像输入（vision）能力的任务。解析出的模型不支持 vision 时直接报错，不静默换模型。
+# Tasks requiring image input (vision). Reject unsupported resolved models instead of silently switching models.
 VISION_REQUIRED_TASKS: frozenset[TextTaskType] = frozenset({TextTaskType.STYLE_ANALYSIS})
 
 
 @dataclass
 class ImageInput:
-    """图片输入（用于 vision）。"""
+    """Image input for vision."""
 
     path: Path | None = None
     url: str | None = None
@@ -260,7 +260,7 @@ class ImageInput:
 
 @dataclass
 class TextGenerationRequest:
-    """通用文本生成请求。各 Backend 忽略不支持的字段。"""
+    """Common text-generation request. Backends ignore unsupported fields."""
 
     prompt: str
     response_schema: dict | type | None = None
@@ -271,17 +271,17 @@ class TextGenerationRequest:
 
 @dataclass
 class TextGenerationResult:
-    """通用文本生成结果。
+    """Common text-generation result.
 
-    ``truncated`` 标明自由文本输出被模型输出上限截断（结构化输出截断直接抛
-    :class:`TextOutputTruncatedError`，不会带着这个标记返回）。
+    ``truncated`` marks free-text output truncated by model output limits (structured-output truncation directly raises
+    :class:`TextOutputTruncatedError` instead of returning this flag).
 
-    用量按用量契约上报（docs/adr/0100）：``input_tokens`` 是总输入，含缓存读与缓存写；``cache_read_tokens``、
-    ``cache_write_5m_tokens``、``cache_write_1h_tokens`` 是其中缓存读与两档缓存写的部分，未缓存输入由总输入减去
-    这三项得出。各家 usage 的语义差异（缓存是否计入输入）由各 backend 在填这些字段前处理。
+    Usage follows the usage contract (docs/adr/0100): ``input_tokens`` is total input, including cache reads/writes; ``cache_read_tokens``,
+    ``cache_write_5m_tokens``, and ``cache_write_1h_tokens`` are its cache-read/two cache-write portions. Uncached input is total minus
+    these three. Each backend resolves vendor usage semantics (whether cache counts in input) before populating fields.
 
-    结果含降级链上的多次请求时，上面各计量是各次之和，``billed_requests`` 按请求列出各次的计量，供计费逐次落
-    上下文档；只含一次请求时为空，用 :meth:`request_tokens` 统一读取。
+    For multiple fallback-chain requests, these measurements sum all calls; ``billed_requests`` lists each call's measurements so billing
+    chooses context tiers per request. For a single request it is empty; read uniformly through :meth:`request_tokens`.
     """
 
     text: str
@@ -296,7 +296,7 @@ class TextGenerationResult:
     billed_requests: list[RequestTokens] = field(default_factory=list)
 
     def request_tokens(self) -> list[RequestTokens]:
-        """各次已计费请求的计量；没有任何计量（未追踪）时为空。"""
+        """Measurements for each billed request; empty when all measurements are absent (untracked)."""
         if self.billed_requests:
             return list(self.billed_requests)
         own = RequestTokens(
@@ -311,7 +311,7 @@ class TextGenerationResult:
 
 @dataclass(frozen=True)
 class RequestTokens:
-    """一次供应商请求的 token 计量，字段语义同 :class:`TextGenerationResult` 的同名字段。"""
+    """Token measurements for one provider request, with the same field semantics as :class:`TextGenerationResult`."""
 
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -321,11 +321,11 @@ class RequestTokens:
 
 
 def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
-    """把降级路径上被丢弃的那次调用的 token 并入保留结果的计量。
+    """Merge tokens from a discarded fallback-path call into retained result measurements.
 
-    降级前的调用只要拿到过 HTTP 200 就已被计费，不并账会系统性漏记用量与成本。
-    仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token——
-    「未追踪」与「零消耗」在成本口径上不是一回事。
+    Any pre-fallback call receiving HTTP 200 was billed; omitting it systematically undercounts usage/cost.
+    Sum only if at least one side has measurements; keep None when both are None (untracked), never collapse into literal zero tokens:
+    untracked and zero consumption differ for cost accounting.
     """
     if kept is None and discarded is None:
         return None
@@ -335,10 +335,10 @@ def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
 def chat_completion_result(
     *, text: str, provider: str, model: str, usage: object | None, truncated: bool = False
 ) -> TextGenerationResult:
-    """按 Chat Completions 的 usage 形态填结果的计量。
+    """Populate result measurements from Chat Completions usage.
 
-    ``prompt_tokens`` 是总输入，其中缓存命中的部分在 ``prompt_tokens_details.cached_tokens``；``completion_tokens``
-    含推理 token。usage 缺失时各计量为 ``None``。
+    ``prompt_tokens`` is total input, with cache hits in ``prompt_tokens_details.cached_tokens``; ``completion_tokens``
+    includes reasoning tokens. Missing usage leaves measurements ``None``.
     """
     details = getattr(usage, "prompt_tokens_details", None)
     return TextGenerationResult(
@@ -353,9 +353,9 @@ def chat_completion_result(
 
 
 def merge_billed_usage(kept: TextGenerationResult, discarded: TextGenerationResult) -> None:
-    """把降级路径上被丢弃的那次调用的全部 token 计量并入保留结果（原地修改 ``kept``）。
+    """Merge all token measurements from discarded fallback calls into retained results (mutating ``kept``).
 
-    各计量相加，各次请求的计量另记进 ``billed_requests``：上下文档按单次请求的输入总量落档，不能按合计落档。
+    Sum measurements and separately record each call in ``billed_requests``: context tiers use each request's total input, never the aggregate.
     """
     kept.billed_requests = [*kept.request_tokens(), *discarded.request_tokens()]
     kept.input_tokens = merge_billed_tokens(kept.input_tokens, discarded.input_tokens)
@@ -366,14 +366,14 @@ def merge_billed_usage(kept: TextGenerationResult, discarded: TextGenerationResu
 
 
 class _ModelFacingJsonSchema(GenerateJsonSchema):
-    """只生成给模型看的 schema：类 docstring 不进 ``description``。
+    """Generate model-facing schemas only: class docstrings never enter ``description``.
 
-    类 docstring 是写给维护者的实现说明（ADR 编号、迁移口径等），Pydantic 默认把它渲染成模型、枚举等定义上的
-    ``description`` 随结构化输出请求发出；字段上显式写的 ``description`` 才是给模型的说明，原样保留。
+    Class docstrings explain implementations to maintainers (ADR numbers, migration policies, etc.). Pydantic normally renders them
+    as ``description`` on model/enum definitions, sending them with structured requests; explicit field ``description`` values are model-facing and preserved.
 
-    枚举与 RootModel 的 docstring 说明由 Pydantic 在各类型方法返回之后才写入，故不在 ``model_schema`` 等方法里拦，
-    而是生成途中记下遇到的类 docstring，生成完成后从顶层与各 ``$defs`` 定义上剥除同文的说明；经
-    ``json_schema_extra`` 等显式给出的不同说明保留。
+    Pydantic inserts enum/RootModel docstrings after type methods return, so do not intercept inside ``model_schema`` and similar methods.
+    Instead collect class docstrings during generation, then strip identical descriptions from top-level and ``$defs`` definitions afterward;
+    preserve differing descriptions explicitly supplied through ``json_schema_extra`` and similar mechanisms.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -387,7 +387,7 @@ class _ModelFacingJsonSchema(GenerateJsonSchema):
         return super().generate_inner(schema)
 
     def handle_ref_overrides(self, json_schema: JsonSchemaValue) -> JsonSchemaValue:
-        # Pydantic 会去掉与被引用定义同文的字段 description；定义上的 docstring 说明随后被剥除，字段说明须留下。
+        # Pydantic removes field descriptions identical to referenced definitions; since definition docstrings are stripped afterward, retain field descriptions.
         reduced = super().handle_ref_overrides(json_schema)
         if "description" in json_schema and "description" not in reduced:
             reduced = {**reduced, "description": json_schema["description"]}
@@ -402,14 +402,14 @@ class _ModelFacingJsonSchema(GenerateJsonSchema):
 
 
 def model_facing_response_model[M: BaseModel](model: type[M]) -> type[M]:
-    """供自行生成 schema、不经 :func:`resolve_schema` 的库（Instructor、xai_sdk）使用的 ``model`` 子类。
+    """Subclass ``model`` for libraries generating their own schemas without :func:`resolve_schema` (Instructor, xai_sdk).
 
-    子类不带 docstring，``model_json_schema`` 默认改用 :class:`_ModelFacingJsonSchema`，库据此生成的 schema
-    与工具说明都不含类 docstring；字段、校验与序列化沿用 ``model``。
+    The subclass has no docstring; ``model_json_schema`` defaults to :class:`_ModelFacingJsonSchema`, so generated schemas
+    and tool descriptions contain no class docstrings. Fields, validation, and serialization reuse ``model``.
     """
 
     def model_json_schema(cls: type[M], *args: Any, **kwargs: Any) -> dict[str, Any]:
-        # 子类不增改字段，schema 即 model 的 schema；类 docstring 由生成器剥除
+        # Subclasses add/change no fields, retaining model schemas; generator strips class docstrings.
         kwargs.setdefault("schema_generator", _ModelFacingJsonSchema)
         return model.model_json_schema(*args, **kwargs)
 
@@ -423,10 +423,10 @@ def model_facing_response_model[M: BaseModel](model: type[M]) -> type[M]:
 
 
 def resolve_schema(schema: dict | type[BaseModel]) -> dict:
-    """将 response_schema 转为发给模型的、无 $ref 的纯 JSON Schema dict。
+    """Convert response_schema into a model-facing pure JSON Schema dict without $ref.
 
-    - BaseModel 子类: 生成不含类 docstring 说明的 schema（见 :class:`_ModelFacingJsonSchema`）后内联 $ref
-    - dict: 直接内联 $ref（如果有）
+    - BaseModel subclass: generate schemas without class docstrings (see :class:`_ModelFacingJsonSchema`), then inline $ref
+    - dict: directly inline $ref if present
     """
     if isinstance(schema, type):
         schema_dict: dict = schema.model_json_schema(schema_generator=_ModelFacingJsonSchema)
@@ -457,10 +457,10 @@ def resolve_schema(schema: dict | type[BaseModel]) -> dict:
 
 
 def is_valid_json(text: str) -> bool:
-    """判断字符串是否为合法 JSON。
+    """Determine whether a string is valid JSON.
 
-    一些原生结构化通道（OpenAI 兼容代理、自定义供应商常见情况）会静默忽略结构化输出
-    参数并返回纯文本/markdown，需要据此触发降级。
+    Some native structured channels (commonly OpenAI-compatible proxies/custom providers) silently ignore structured-output
+    parameters and return plain text/markdown, requiring fallback detection here.
     """
     if not text or not text.strip():
         return False
@@ -472,11 +472,11 @@ def is_valid_json(text: str) -> bool:
 
 
 def summarize_validation_error(exc: ValidationError) -> str:
-    """把 ValidationError 压成简短的字段定位摘要。
+    """Reduce ValidationError to brief field-location summaries.
 
-    只取字段路径（loc）与错误数，**不含模型原始输入值**——后者可能很大且会把
-    模型生成内容写进日志（经诊断日志打包外泄），也避免单条日志膨胀到数 KB。
-    用 include_input=False 在源头剔除 input，不让原始值进入 error dict（防御纵深）。
+    Include field paths (loc) and error counts only, **never raw model input values**: these may be large and expose
+    generated content in logs (potentially through diagnostic bundles), also inflating individual logs to several KB.
+    Strip input at source with include_input=False, preventing raw values entering error dicts (defense in depth).
     """
     locs = [
         ".".join(str(part) for part in err.get("loc", ())) or "<root>" for err in exc.errors(include_input=False)[:5]
@@ -486,29 +486,29 @@ def summarize_validation_error(exc: ValidationError) -> str:
 
 
 def structured_fallback_reason(text: str, response_schema: dict | type | None, *, strict: bool = True) -> str | None:
-    """判断原生结构化调用 HTTP 200 的返回是否需要降级到带校验的路径。
+    """Determine whether a native structured HTTP 200 response needs validated fallback.
 
-    与 provider / client 类型 / 原生 API 形态无关的纯函数，全文本后端共享。返回降级原因
-    （用于日志）；None 表示原生输出可直接采用。两类触发场景：
+    Pure function independent of provider/client/native API shape, shared by all text backends. Return a fallback reason
+    for logs, or None if native output is usable. Two triggers:
 
-    1. 返回非 JSON：供应商静默忽略结构化输出参数，吐出纯文本/markdown。
-    2. 返回违反 schema 的合法 JSON：供应商接受结构化输出参数却不真正强制 schema（代理网关 /
-       非原厂模型常见），枚举值非法或缺必填字段。此类违例 JSON 若直接放行，会一路漏到下游
-       Pydantic 校验或渲染处才抛裸 ValidationError。
+    1. Non-JSON: providers silently ignore structured parameters, returning plain text/markdown.
+    2. Valid JSON violating schemas: providers accept structured parameters without enforcing schemas (common with proxies /
+       nonoriginal models), giving invalid enums or missing required fields. Accepting these would leak into downstream
+       Pydantic validation or rendering and raise raw ValidationError.
 
-    ``strict`` 由调用方按各后端原生请求是否声明 strict 传入对齐：声明了 strict 的后端用
-    strict=True（可强转但类型不严格匹配的值，如 int 字段给 "30"，也判为未强制 schema）；
-    未声明 strict 的后端用 strict=False（容忍可强转值，只对真正无法满足 schema 的输出降级），
-    避免对供应商已接受的合法响应触发多余的计费降级调用。
+    Callers align ``strict`` with native request declarations: strict-declaring backends use
+    strict=True (coercible but type-mismatched values, such as "30" for int, still indicate unenforced schemas);
+    others use strict=False (tolerate coercible values; fall back only for truly schema-unsatisfying output),
+    avoiding unnecessary billed fallback calls for valid provider-accepted responses.
 
-    仅 Pydantic 模型可做 schema 校验；dict schema 无对应模型，沿用「仅校验是否合法 JSON」的
-    既有行为，不额外收紧。response_schema 为 None（无结构化输出诉求）直接视为无需降级。
+    Only Pydantic models support schema validation; dict schemas lack corresponding models, preserving existing
+    JSON-validity-only checks without tightening them. None response_schema (no structured intent) requires no fallback.
     """
     if response_schema is None:
-        # 纯文本生成无结构化诉求，原生输出直接采用，不能按「非 JSON」误判触发降级。
+        # Plain text has no structured intent: accept native output, never trigger non-JSON fallback.
         return None
     if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
-        # model_validate_json 单次解析即同时覆盖「非 JSON」与「违反 schema」两种情况。
+        # One model_validate_json parse covers both non-JSON and schema violations.
         try:
             response_schema.model_validate_json(text, strict=strict)
         except ValidationError as exc:
@@ -519,8 +519,8 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     return None
 
 
-# prompt 注入降级的最大调用次数：首次注入 schema + 一次带校验错误反馈的重试。
-# 每次都是计费调用；schema 注入后仍两连败的模型/代理网关，再多重试收益趋零。
+# Prompt-injection fallback maximum calls: initial schema injection + one validation-error-feedback retry.
+# Every call is billed; additional attempts have negligible value after two schema-injected failures on a model/proxy.
 PROMPT_JSON_FALLBACK_MAX_ATTEMPTS = 2
 
 
@@ -531,14 +531,14 @@ async def prompt_json_fallback(
     provider: str,
     model: str,
 ) -> TextGenerationResult:
-    """Prompt 注入降级：schema 写进 prompt 重发纯文本调用，剥栅栏后校验，失败带反馈重试。
+    """Prompt-injection fallback: inject schemas, repeat plain-text calls, strip fences and validate, retrying failures with feedback.
 
-    触发场景是供应商拒收或静默忽略 wire 级结构化参数，此时把 schema 约束写进 prompt 是唯一
-    不依赖 wire 参数的手段。``generate_once`` 是后端的单次原生调用（含日志、截断处理与瞬态
-    错误重试），收到的请求 ``response_schema`` 已置空；它仍是一次结构化输出尝试，截断须按
-    结构化口径处理。校验通过后返回规范化 JSON（model_dump_json），下游解析必定成功。
+    When providers reject or silently ignore wire-level structured parameters, prompt schemas are the sole strategy independent
+    of wire parameters. ``generate_once`` is the backend's single native call (including logging, truncation handling, and transient
+    retries), receiving requests with cleared ``response_schema``; they remain structured-output attempts requiring
+    structured truncation handling. Return normalized JSON (model_dump_json) after validation, ensuring downstream parsing succeeds.
     """
-    assert request.response_schema is not None  # 调用方（generate 复验分支）保证
+    assert request.response_schema is not None  # Guaranteed by the caller (generate revalidation branch).
     schema_dict = resolve_schema(request.response_schema)
     schema_model = request.response_schema if isinstance(request.response_schema, type) else None
 
@@ -576,10 +576,10 @@ async def prompt_json_fallback(
 
 
 def _validate_fallback_text(text: str, schema_model: type | None) -> tuple[str | None, str]:
-    """校验降级输出并规范化。返回 (规范化 JSON 文本, "") 或 (None, 失败原因)。
+    """Validate and normalize fallback output. Return (normalized JSON text, "") or (None, failure reason).
 
-    Pydantic 模型走完整 schema 校验并以 model_dump_json 规范化；dict schema 无对应模型，
-    沿用「合法 JSON 即放行」口径（与 structured_fallback_reason 对 dict schema 的行为对齐）。
+    Pydantic models get full schema validation and model_dump_json normalization; dict schemas lack corresponding models,
+    preserving valid-JSON-only acceptance, aligned with structured_fallback_reason for dict schemas.
     """
     if schema_model is not None and issubclass(schema_model, BaseModel):
         try:
@@ -592,7 +592,7 @@ def _validate_fallback_text(text: str, schema_model: type | None) -> tuple[str |
 
 
 class TextBackend(Protocol):
-    """文本生成后端协议。"""
+    """Text-generation backend protocol."""
 
     @property
     def name(self) -> str: ...

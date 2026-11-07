@@ -14,13 +14,13 @@ import type { EpisodeItemKind } from "@/utils/episode-item";
 import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 import { NEW_ASSET_BUCKET, NEW_ASSET_DECISIONS } from "@/utils/plan-new-assets";
 
-/** 一个规划条目引用到的名字与它的原文片段，供新增项展开出场位置。 */
+/** Names referenced by one planning entry plus its source excerpt, expanding new-asset appearances. */
 export interface NewAssetEntryRefs {
   id: string;
-  /** 条目在规划里的位置，从 1 起；出场位置以它称呼条目。 */
+  /** One-based planning-entry position, used to address appearance locations. */
   position: number;
   kind: EpisodeItemKind;
-  /** 条目里引用到的全部名字（引用数组、说话人、正文 `@[名]`），未归一。 */
+  /** All unnormalized names referenced in entries: arrays, speakers, body `@[名]`. */
   names: string[];
   snippet: string;
 }
@@ -28,7 +28,7 @@ export interface NewAssetEntryRefs {
 interface NewAssetsSectionProps {
   items: PlanNewAsset[];
   entries: NewAssetEntryRefs[];
-  /** 已确认或由 Agent 编辑中：只展示处理，不可改。 */
+  /** Confirmed or Agent-editing state: display decisions without editing. */
   readOnly: boolean;
   disabled: boolean;
   onChange: (items: PlanNewAsset[]) => void;
@@ -45,7 +45,7 @@ const GROUP_LABEL_KEY: Record<Group, string> = {
   prop: "segment_refs_badge_prop",
 };
 
-/** 行左侧细边按处理方式着色：一眼分出会新建资产、归并、衍生与不登记的项。 */
+/** Thin left edges color decisions: new asset, merge, derivative, or unregistered at a glance. */
 const DECISION_EDGE: Record<NewAssetDecision, string> = {
   register: "border-l-primary",
   merge: "border-l-muted-foreground",
@@ -61,7 +61,7 @@ function registeredNames(project: ProjectData | null, type: NewAssetType): strin
   return Object.keys(project?.[NEW_ASSET_BUCKET[type]] ?? {});
 }
 
-/** 确认时自动归到的已登记同类资产：称呼与它同名（规范化后）的任意项，或登记名与它同名的「登记为新资产」项。 */
+/** Registered same-type assets auto-assigned at confirmation: any equivalent normalized reference name, or equivalent registration names on register-as-new entries. */
 function autoMergeTarget(item: PlanNewAsset, registered: string[]): string | null {
   const find = (value: string) => {
     const key = normalizeAssetName(value);
@@ -200,7 +200,7 @@ function NewAssetRow({
   const autoTarget = autoMergeTarget(item, registered);
   const key = normalizeAssetName(item.name);
   const appearances = entries.filter((entry) => entry.names.some((name) => normalizeAssetName(name) === key));
-  // 归到已有资产：同类已登记资产，加上本集其他登记为新资产的同类新增项。
+  // Merge targets: registered same-type assets plus other episode additions registered as new within the same type.
   const otherNewNames = items
     .filter((other, i) => i !== index && other.type === item.type && other.decision === "register")
     .map((other) => other.asset_name || other.name);
@@ -323,8 +323,8 @@ function NewAssetRow({
 }
 
 /**
- * 内容确认页的「本集新增资产」区：按角色、衍生、场景、道具分组列出 AI 规划带出的新增项与处理，
- * 默认照 AI 的决定确认，可逐项改动。确认时由后端按这份处理登记资产并改写引用。
+ * Content-confirmation new-assets section: AI-planned additions/decisions grouped by character/derivative/scene/prop.
+ * Defaults accept AI decisions, editable per item. Backend confirmation registers assets/rewrites references according to these decisions.
  */
 export function NewAssetsSection({ items, entries, readOnly, disabled, onChange }: NewAssetsSectionProps) {
   const { t } = useTranslation("dashboard");

@@ -1,0 +1,43 @@
+{
+  "status": "accepted",
+  "reviewer": "passive_translation; independent of root author",
+  "coverage": {
+    "spans": 159,
+    "indexes_inclusive": [
+      0,
+      158
+    ],
+    "files": [
+      {
+        "path": "server/draft_workflow.py",
+        "before_sha256": "bbfc16bcf972d099d96a47aae1e66871886ef7fcbe7b525342c8d5c9fcf40590",
+        "after_sha256": "6cd55c1598fba6a1295e51fc9fbfb4e35424eabf561692ed4f8abd7c0ba0fa54"
+      },
+      {
+        "path": "server/tool_runtime.py",
+        "before_sha256": "5d9271d2157194a16c4feaeb2317d4e133fe50c860e6412728060b72097d77d4",
+        "after_sha256": "61c39cc4746109c72d92a3fb016e65ef1b572c982d73cd1ad898b6eecfcd8a22"
+      }
+    ],
+    "method": "Read every original Chinese span alongside its complete English mapping, joining adjacent comments; checked all mappings are installed in actual candidate source, normalizing indentation/whitespace only for docstrings."
+  },
+  "schema_class_clause_review": {
+    "PatchDraftRequest": "Presence distinguishes omission from explicit null; omitted accept_formal_revision means no acceptance, omitted source means no change. Preserved.",
+    "ScriptSpeechAdmission": "Identified-unit speech admission on composition rejection; same SpeechAdmission.to_dict() shape. Preserved.",
+    "ScriptPatchResult": "Successful changes to image/video prompts require immediate corresponding regeneration; speech_admission includes all identified-unit issues only when first issue is composition; unbound mention hints remain warnings. Preserved.",
+    "NoArguments": "Tool request without arguments. Preserved."
+  },
+  "semantic_checks": [
+    "Source validation before persistence, no silent fallback on missing meta.source, and current-capability/source reassessment preserved.",
+    "Schema-invalid drafts retain original malformed fields and non-dict placeholders; no silent unit loss/coercion or overwrite.",
+    "Formal-file revision conflict handling, server-only nonreused IDs, same-lock concurrency and no persistent invalid-input side effects preserved.",
+    "Hard versus soft violations, Agent/Web diagnostic distinction, locale rendering, readonly/no-cost preview and explicit consent/revision boundaries preserved.",
+    "Planning window cancellation versus running completion, candidate retention, gap endpoint, no successor enqueue and ledger-derived resume constraints preserved."
+  ],
+  "findings": [],
+  "limits": [
+    "This is bilingual semantic review, not an independent test rerun or model evaluation.",
+    "Coordinator separately reports actual 61 MCP input schemas equal despite five direct model-description occurrences changing; this report does not relabel exposed class docs as passive.",
+    "Review hashes delimit the exact candidate reviewed; later changes need reconciliation."
+  ]
+}

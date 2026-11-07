@@ -1,0 +1,20 @@
+[
+  {
+    "path": "packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json",
+    "reviewed_annotations": 39,
+    "all_other_json_equal": true,
+    "candidate_sha256": "ce19e18d1b5393d67f52c7172badd17550c3acf1aa06c57d192fc946d6276020"
+  },
+  {
+    "path": "packages/arcreel-market-core/src/arcreel_market_core/comfyui/schema.json",
+    "reviewed_annotations": 54,
+    "all_other_json_equal": true,
+    "candidate_sha256": "1a4b3f8340c77ab494a3ce04d37ffb3cfeb3f4773eb6af6d25919dfff8e4e58a"
+  },
+  {
+    "path": "packages/arcreel-market-core/src/arcreel_market_core/market/index_schema.json",
+    "reviewed_annotations": 5,
+    "all_other_json_equal": true,
+    "candidate_sha256": "a3d6fb1d44892b7f438d8ac6bb93977cf8c7e001fbf7f5a1bba95075e2162038"
+  }
+]

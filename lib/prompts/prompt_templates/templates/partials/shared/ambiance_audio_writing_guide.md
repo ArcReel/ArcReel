@@ -1,1 +1,1 @@
-只描写画内音（diegetic sound）：环境声、脚步、物体声响。不要写 BGM、配乐、画外音、旁白。
+Describe only diegetic sound: environmental sounds, footsteps, and sounds made by objects. Do not write BGM, musical scores, off-screen voice, or narration.

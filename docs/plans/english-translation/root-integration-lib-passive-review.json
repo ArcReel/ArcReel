@@ -1,0 +1,207 @@
+{
+  "snapshot": "/tmp/arcreel-root-integration-lib-before",
+  "translated_spans": 712,
+  "files": [
+    {
+      "path": "tests/integration/lib/generation/conftest.py",
+      "candidate_sha256": "62bc641817eecf6644fa50c8bb6e61fc51cdaaaa065e4f5b670866069d8b3399",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 3,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_provider_failure.py",
+      "candidate_sha256": "a53d1af75ab615460d2eeccea8ac1fb081262646471584288d000929f80aa1a7",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_capacity_table.py",
+      "candidate_sha256": "4184786a2893ec7beca67cec2f36e6c1eccaf562878ab660fe64b8d9f6b68e78",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 43,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "candidate_sha256": "7f955b47c9b656696e3726e1fa949cb1b8380147a16c34cdcf4f5ac2b0ca03d0",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 90,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_render_lane.py",
+      "candidate_sha256": "61982870aaf0b0f321c7ab31c77ba106739c194d9de34b6a0f302fbadb6d2a43",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "candidate_sha256": "b96dda65d8fdbcd8699a7a2d6840f7578afa5125831f48d2a41b75ffc72e3d9c",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 85,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_restart_recovery.py",
+      "candidate_sha256": "ccf098f53f89d210011caa7ba918fe06c70f6916a9f0d1d141193a5825987223",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 67,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "candidate_sha256": "c3415e6839f4af84627d8b4b81624bb4c50b9003fe01aa20af5b7ab34f6c32ff",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 75,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_terminal_events.py",
+      "candidate_sha256": "774e48bdd4fbcc55c1e1bf0f5d018422ffccd719de308f83cf8bf303096f58a1",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 9,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_video_request_facts.py",
+      "candidate_sha256": "84c501b25913eb99262ef641cbd46d0adf2f5895bc2b6c8e42440d927886f6c9",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 12,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/test_video_resume.py",
+      "candidate_sha256": "249babf206277aa9c8195447b8cd3599a9cae005f6863f612d099bc408713334",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 14,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "candidate_sha256": "6d80e1cac1f0730a5be42b86b387e614780866950fecff03060c96cf62cf127a",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 8,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_projection_provider_assets.py",
+      "candidate_sha256": "b395adc16bddb7dee70be42bc154999cdc01dbb1f356ede6c69df3e229bbc4a8",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 12,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_request_projection_consumers.py",
+      "candidate_sha256": "48ef7c15faf3e9ea7bdd2ee8f2d85247dee256c8c89eeb01bd83054fc367567f",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_video_audio_path_resolution.py",
+      "candidate_sha256": "d82de2c354c6ab1f1d9db70a3335196927f2d050dd3b9ce7752355124b6fc410",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_video_duration_migration.py",
+      "candidate_sha256": "11f082f05c8dd9bec9036505ace3e7b0b7fc6d2d2dc9cae91041765474900cc7",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 9,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_video_execution_checkpoint.py",
+      "candidate_sha256": "434d7f6d088da5c8c4e291960f84442e4b2392872f0fed99058ef2fd68adbda9",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 7,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_blank_script.py",
+      "candidate_sha256": "25ca7dcba1c176c014036aa78c2a6ab69e669d099cdf73e5d9587549c77baeae",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_end_frame_model.py",
+      "candidate_sha256": "6e73422f3f80ed5949d3259681248e7cc8ac604d21cbd520135ad28580ad0793",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 8,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_batch_edit.py",
+      "candidate_sha256": "ae36e64a38b5cfbcc0f3d1b70a900955a1f21b89ebd26b2a4ca7177d9ae6ec12",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 9,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "candidate_sha256": "34403a5898d40c6a7b19bfcc598e93798eca95848cfcd70cf33efca9c1459a1c",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 122,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_ad_prompt_authoring.py",
+      "candidate_sha256": "a58aab6d59b0b866d76cdac5865845cc3b6379ac4dc09c20522f58bbdd12bb6f",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 5,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_ad_whole_generation.py",
+      "candidate_sha256": "a22c8c09d6dce3107ef0f9101981e2abbe6945d5aa77bc4c8d3f512423c5e2bd",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 4,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "candidate_sha256": "506582f633817161073c9860324b2fe5fde4c2eb6cc3375a7c5b883cf039e897",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 43,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "candidate_sha256": "893caedf5f631a81aa96d5955c65762b857bc6a98ca335682fa64590e9dca18b",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 80,
+      "remaining_original_spans": 0
+    }
+  ],
+  "qualification": "Completed translator-owned passive span mappings; schema/tool input docs and executable strings/assertions unchanged by strict immediate-snapshot AST proof. Separate helper-consumer and literal checks required; no model calls."
+}

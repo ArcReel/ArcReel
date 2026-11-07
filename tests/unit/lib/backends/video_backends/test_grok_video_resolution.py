@@ -1,4 +1,4 @@
-"""测试 GrokVideoBackend 对 resolution=None 的处理（对照 #387 回归）。"""
+"""Test GrokVideoBackend handling of resolution=None (regression coverage for #387)."""
 
 from datetime import timedelta
 from unittest.mock import MagicMock
@@ -38,7 +38,7 @@ async def test_resolution_none_not_in_generate_kwargs(tmp_path):
         await backend._create_video(req)
 
     assert "resolution" not in captured
-    # 其他字段仍正常透传
+    # Other fields still pass through normally.
     assert captured["aspect_ratio"] == "9:16"
     assert captured["duration"] == 5
 
@@ -68,7 +68,7 @@ async def test_resolution_passed_when_set(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sdk_timeout_follows_the_request_poll_timeout(tmp_path):
-    """Grok 的轮询在 SDK 内部，超时仍取请求快照里的全局设置，否则该设置独独对它不生效。"""
+    """Grok polls within its SDK, but must still use the global timeout from the request snapshot; otherwise that setting would uniquely fail to apply here."""
     backend = _make_backend()
     captured: dict = {}
 

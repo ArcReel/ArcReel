@@ -1,68 +1,55 @@
 # arcreel-market-core
 
-ArcReel 的市场源工具与端点定义校验器。ArcReel 应用、市场源仓库的 CI 与官方服务共用这一份实现，
-同一份定义在三处得到同样的判定。
+ArcReel's market-source tools and endpoint-definition validator. The ArcReel application, market-source repository CI, and official services share this implementation, giving the same definition the same validation result in all three places.
 
-## 与 `arcreel-market` 的关系
+## Relationship to `arcreel-market`
 
-[`ArcReel/arcreel-market`](https://github.com/ArcReel/arcreel-market) 是官方市场源仓库，条目以
-`endpoints/<slug>/definition.json`（外加可选的 `icon.<png|webp|svg>`）的目录约定存放，根目录的
-`arcreel-market.json` 是由这些目录生成的索引。本包负责：
+[`ArcReel/arcreel-market`](https://github.com/ArcReel/arcreel-market) is the official market-source repository. Entries follow the `endpoints/<slug>/definition.json` directory convention (plus optional `icon.<png|webp|svg>`); root `arcreel-market.json` is the index generated from those directories. This package handles:
 
-- 按目录生成索引（`generate`）；
-- 按全部规则校验市场源目录（`check`）：索引结构、slug、旁置文件与图标、条目定义、索引条目与定义
-  `meta` 的投影一致性、版本门槛格式；
-- 供客户端使用的市场源地址解析、索引解析与远程抓取边界。
+- Generating indexes from directories (`generate`);
+- Validating market-source directories against all rules (`check`): index structure, slugs, sidecar files and icons, entry definitions, index-entry consistency with the definition `meta` projection, and version-threshold format;
+- Market-source address parsing, index parsing, and remote-fetch boundaries for clients.
 
-市场源仓库不维护任何校验逻辑。它的 PR 校验与索引发布调用 ArcReel 仓库的两条可复用工作流
-（`market-validate.yml`、`market-publish-index.yml`），工作流安装本包，通过主仓的
-`scripts.market` 注入应用翻译，运行上面两个命令。第三方
-市场源（fork 或自建）用同样的方式接入。
+Market-source repositories maintain no validation logic. Their PR validation and index publishing invoke two reusable workflows from the ArcReel repository (`market-validate.yml`, `market-publish-index.yml`). The workflows install this package, inject application translations through the main repository's `scripts.market`, and run the two commands above. Third-party market sources (forked or self-built) integrate the same way.
 
-## 为什么包含视频后端契约等叶子模块
+## Why include leaf modules such as video backend contracts
 
-端点定义校验器有两层：`schema.json` 管结构，语义层检查占位符、取值路径、状态映射与能力声明。
-语义层依赖几个与市场无关的叶子模块，因此一并收在本包：
+The endpoint-definition validator has two layers: `schema.json` governs structure; semantic validation checks placeholders, extraction paths, state mappings, and capability declarations. The semantic layer depends on several market-independent leaf modules, included in this package:
 
-| 模块 | 校验器用它做什么 |
+| Module | Validator use |
 |---|---|
-| `video_backend_contract` | 供应商任务状态的四档归一、参考音频模式及其与数量的一致性判定 |
-| `aspect_size` | 模板引擎按画幅与分辨率档位推导宽高 |
-| `auth_section` | 两种 `kind` 共用的 `auth` 节模板原语与检查 |
-| `definition_diagnostics`、`definition_schema_errors` | 诊断载体与 jsonschema 报错的归一 |
-| `comfyui` | `kind: comfyui` 定义的结构契约与语义判定 |
-| `validation_messages` | locale-neutral 的消息载体 |
+| `video_backend_contract` | Four-category provider-job status normalization, reference-audio modes, and their consistency with counts |
+| `aspect_size` | Template-engine dimension derivation from aspect ratio and resolution tier |
+| `auth_section` | Shared `auth` template primitives and checks for both `kind` values |
+| `definition_diagnostics`, `definition_schema_errors` | Diagnostic carriers and normalization of jsonschema errors |
+| `comfyui` | Structure contracts and semantic validation for `kind: comfyui` definitions |
+| `validation_messages` | Locale-neutral message carriers |
 
-这些模块只依赖标准库与本包的第三方依赖，不依赖 ArcReel 应用的任何部分；ArcReel 应用在运行时直接
-导入它们，不另存副本。
+These modules depend only on the standard library and this package's third-party dependencies, without depending on any part of the ArcReel application. The application imports them directly at runtime rather than keeping copies.
 
-## 诊断与翻译
+## Diagnostics and translation
 
-诊断一律是稳定码加参数（`ValidationMessage(key, params)`），本包不携带翻译目录。渲染由调用方传入
-translator；没有翻译目录的边界（本包的 CLI、异常文本）用 `code_translator` 输出键名与参数本身。
-本包能产出的全部消息键见 `arcreel_market_core.message_keys.MESSAGE_KEYS`，ArcReel 应用的
-zh / en / vi 目录覆盖其中每一个键，由应用侧的一致性测试保护。
+Diagnostics always consist of stable codes and parameters (`ValidationMessage(key, params)`); this package carries no translation catalogs. Callers supply a translator for rendering. Boundaries without translation catalogs (this package's CLI and exception text) use `code_translator` to output keys and parameters themselves. All emitted message keys are listed in `arcreel_market_core.message_keys.MESSAGE_KEYS`. ArcReel's zh / en / vi catalogs cover every key, protected by application-side consistency tests.
 
-## 使用
+## Usage
 
-命令行：
+Command line:
 
 ```bash
-python -m arcreel_market_core generate <市场源目录> [--name ...] [--default-name ...] [--dry-run]
-python -m arcreel_market_core check <市场源目录>
+python -m arcreel_market_core generate <market-source-directory> [--name ...] [--default-name ...] [--dry-run]
+python -m arcreel_market_core check <market-source-directory>
 ```
 
-退出码非零即不通过，诊断逐行输出为 `文件:定位: [code] key(params)`，汇总同样输出键名与参数。
-在 ArcReel 仓库内需要自然语言诊断时，使用工作流同款入口：
+A nonzero exit code means failure. Diagnostics appear one per line as `file:location: [code] key(params)`; summaries also output keys and parameters. For natural-language diagnostics inside the ArcReel repository, use the same entry point as the workflows:
 
 ```bash
-python -m scripts.market [--locale zh|en|vi] check <市场源目录>
-python -m scripts.market [--locale zh|en|vi] generate <市场源目录>
+python -m scripts.market [--locale zh|en|vi] check <market-source-directory>
+python -m scripts.market [--locale zh|en|vi] generate <market-source-directory>
 ```
 
-默认中文；`arcreel_market_core.market.cli.main` 也接受 `translate=`，由宿主注入自己的 translator。
+Chinese is the default; `arcreel_market_core.market.cli.main` also accepts `translate=` for the host to inject its own translator.
 
-作为依赖引入（以 git tag 固定版本）：
+Install as a dependency pinned to a Git tag:
 
 ```bash
 pip install "arcreel-market-core @ git+https://github.com/ArcReel/ArcReel@<tag>#subdirectory=packages/arcreel-market-core"
@@ -76,9 +63,9 @@ diagnostics = validate_definition(definition)
 payload = diagnostics.to_payload(translate)  # {"errors": [{"path", "code", "message"}], "warnings": [...]}
 ```
 
-## 开发
+## Development
 
-本包是 ArcReel 仓库 uv workspace 的成员，测试在本目录的 `tests/` 下，与应用测试分开运行：
+This package belongs to the ArcReel repository's uv workspace. Tests live in this directory's `tests/` and run separately from application tests:
 
 ```bash
 uv run python -m pytest packages/arcreel-market-core/tests

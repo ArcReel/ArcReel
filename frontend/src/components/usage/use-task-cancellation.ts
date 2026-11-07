@@ -10,7 +10,7 @@ interface CascadeTask {
   resource_ref?: EpisodeItemRef | null;
 }
 
-/** 待确认的取消请求。单个取消带级联预览，全部取消带排队中条数。 */
+/** Awaiting-confirmation cancellations; single tasks include cascade previews, Cancel all queued counts. */
 export type CancelRequest =
   | {
       kind: "single";
@@ -25,13 +25,13 @@ export type CancelRequest =
 
 export interface TaskCancellation {
   request: CancelRequest | null;
-  /** 确认按钮的在途状态。 */
+  /** Confirmation-button pending state. */
   cancelling: boolean;
-  /** 上一次确认的取消请求失败；确认态保留，用户可重试。 */
+  /** Latest confirmed cancellation failed; retain confirmation for retries. */
   failed: boolean;
-  /** 服务端拒绝取消时给出的已本地化原因（如任务已开始执行）；网络类失败为 null。 */
+  /** Localized server rejection reasons (e.g. tasks already started); null for network failures. */
   failureDetail: string | null;
-  /** 取消请求在途的任务 id；行内把 × 换成 spinner 用它判定。 */
+  /** Task IDs with pending cancellations, replacing inline × with spinners. */
   cancellingTaskIds: ReadonlySet<string>;
   requestSingle: (taskId: string) => Promise<void>;
   requestAll: (projectName: string) => Promise<void>;
@@ -40,14 +40,14 @@ export interface TaskCancellation {
 }
 
 /**
- * 取消任务的两步交互：先取预览、再由 `alertdialog` 二次确认。取消只对排队中的任务开放
- * （ADR 0006）——单个取消预览会被级联取消的排队中下游，全部取消只清排队中、不动执行中。
+ * Two-step task cancellation: preview, then `alertdialog` confirmation. Queued tasks only
+ * (ADR 0006); single previews include queued downstream cascades, while Cancel all clears queued tasks without touching running tasks.
  *
- * 预览接口在任务已离开可取消状态时报错，此时静默收场：这一行马上会被下一轮任务刷新
- * 改写，弹一个「取消失败」反而让用户以为自己漏点了。确认时任务恰好已开始执行，服务端
- * 以 409 拒绝，确认态展示服务端给出的原因。
+ * Preview errors after tasks leave cancellable states settle silently: next refreshes immediately replace rows,
+ * and Cancel failed would imply missed clicks. Tasks starting at confirmation time receive server
+ * 409 rejections; confirmations display server reasons.
  */
-/** 一次确认会话的状态。gen 在切换作用域或关闭确认时递增，旧会话的异步结果按 gen 丢弃。 */
+/** Confirmation-session states; gen increments on scope switches/closing, discarding old async results by gen. */
 interface ConfirmSession {
   gen: number;
   request: CancelRequest | null;
@@ -69,7 +69,7 @@ export function useTaskCancellation(
   onCancelled?: () => void | Promise<void>,
 ): TaskCancellation {
   const [session, setSession] = useState(() => idleSession(0));
-  // 切换作用域即开启新会话：旧项目的确认态在同一次渲染里消失，旧会话在途请求的结果不再写回
+  // Scope switches create sessions: old-project confirmations disappear in the same render, and old pending results cannot write back.
   const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
   if (scopeKey !== prevScopeKey) {
     setPrevScopeKey(scopeKey);
@@ -79,12 +79,12 @@ export function useTaskCancellation(
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
 
-  // 只在发起时的会话仍是当前会话时写入
+  // Write only while initiating sessions remain current.
   const updateSession = useCallback((forGen: number, patch: Partial<Omit<ConfirmSession, "gen">>) => {
     setSession((current) => (current.gen === forGen ? { ...current, ...patch } : current));
   }, []);
 
-  // 作废旧作用域在途的预览请求
+  // Invalidate pending previews from old scopes.
   useEffect(
     () => () => {
       previewAbort.current?.abort();
@@ -112,7 +112,7 @@ export function useTaskCancellation(
           failureDetail: null,
         });
       } catch {
-        // 任务已不在可取消状态，或预览被更新的操作接管
+        // Tasks no longer cancellable, or previews superseded by newer operations.
       }
     },
     [beginPreview, gen, updateSession],
@@ -132,7 +132,7 @@ export function useTaskCancellation(
           failureDetail: null,
         });
       } catch {
-        // 没有排队中的任务，或预览被更新的操作接管
+        // No queued tasks, or previews superseded by newer operations.
       }
     },
     [beginPreview, gen, updateSession],
@@ -150,14 +150,14 @@ export function useTaskCancellation(
         if (request.kind === "single") await API.cancelTask(request.taskId);
         else await API.cancelAllQueued(request.projectName);
       } catch (error) {
-        // 取消没有落到服务端：确认态留在原地并标记失败，用户看得到原因、也能重试。
+        // Cancellations not committed server-side retain failed confirmations, with visible causes/retry.
         updateSession(gen, {
           failed: true,
           failureDetail: error instanceof ApiRequestError && error.status === 409 ? error.message : null,
         });
         return;
       }
-      // 取消已落地，确认态先收起；随后的重取失败是刷新问题，不再算取消失败。
+      // Committed cancellations close confirmations first; subsequent refetch failures are refresh problems, never cancellation failures.
       updateSession(gen, { request: null });
       await onCancelled?.();
     } finally {
@@ -173,7 +173,7 @@ export function useTaskCancellation(
     }
   }, [request, gen, updateSession, onCancelled]);
 
-  // 确认在途时两个按钮都禁用，关闭只发生在没有在途确认时
+  // Both buttons disable during confirmation requests; closing occurs only without pending confirmations.
   const dismiss = useCallback(() => {
     setSession((current) => idleSession(current.gen + 1));
   }, []);

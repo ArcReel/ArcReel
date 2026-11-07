@@ -1,7 +1,7 @@
-"""assemble_backend 内置（简单族）async 装载段单测：内存 SQLite + 真 ConfigResolver。
+"""assemble_backend simple built-in async loading: in-memory SQLite and real ConfigResolver.
 
-镜像 test_config_resolver.py 的内存 DB 范式：不 mock resolver，断言凭证 overlay 真进 LoadedConfig
-信封、端到端经 assemble_backend 造出简单族 backend、未登记 provider × media fail-loud。
+Mirror test_config_resolver.py without resolver mocks: credential overlays reach LoadedConfig,
+assembly constructs simple-family backends end-to-end, and unknown provider/media pairs fail loudly.
 """
 
 from __future__ import annotations
@@ -46,12 +46,12 @@ class TestLoadBuiltinConfig:
         config = await _load_builtin_config(resolver, "ark", rate_limiter=None)
         assert config.credentials.get("api_key") == "ark-secret"
         assert config.credentials.get("base_url") == "https://relay.test/api/v3"
-        # registry meta 进信封：用于 default_base_url 回退
+        # Registry metadata enters envelopes for default_base_url fallback.
         assert config.provider_meta is not None
         assert config.provider_meta.default_base_url == "https://ark.cn-beijing.volces.com/api/v3"
 
     async def test_active_credential_record_id_enters_envelope(self, db_factory):
-        """生效凭证记录的 ID 随凭证进信封；凭证只来自供应商配置时没有记录 ID。"""
+        """Effective credential-record IDs accompany credentials; provider-config-only credentials have no record IDs."""
         from lib.db.repositories.credential_repository import CredentialRepository
 
         await _seed_provider_config(db_factory, "ark", api_key="TEST-config-key")
@@ -80,7 +80,7 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(
                 provider_id="ark", media_type="image", model_id="doubao-seedream-5-0-lite-260128", resolver=resolver
             )
-        # 用户未配 base_url → 回落 registry default；凭证 overlay 经装载真进构造参数
+        # Absent user base_url falls back to registry defaults; loaded overlays reach constructor arguments.
         assert built == [
             {
                 "media": "image",
@@ -94,7 +94,7 @@ class TestAssembleBuiltinEndToEnd:
         ]
 
     async def test_model_outside_provider_listing_is_rejected_without_fallback(self, db_factory):
-        """不在供应商清单中、本地也没有条目的模型：报错由用户重新选择，不构造 backend、不回落到别的模型。"""
+        """Models absent from provider lists/local entries error for reselection, never construct or silently switch models."""
         await _seed_provider_config(db_factory, "openai", api_key="sk")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
@@ -108,7 +108,7 @@ class TestAssembleBuiltinEndToEnd:
         )
 
     async def test_unlisted_model_with_a_discontinued_local_entry_reports_the_lifecycle(self, db_factory):
-        """清单里已经没有、但名字对应到本地已下线条目的模型（sora-2）：报下线错误，同样不构造 backend。"""
+        """Removed provider-list models matching retired local entries, sora-2, report retirement without backend construction."""
         await _seed_provider_config(db_factory, "openai", api_key="sk")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
@@ -120,7 +120,7 @@ class TestAssembleBuiltinEndToEnd:
         )
 
     async def test_discontinued_model_is_rejected_with_its_successor(self, db_factory, monkeypatch):
-        """调用已下线的内置模型：报错带下线日期与官方后继，不构造 backend。"""
+        """Retired built-in models error with dates/official successors, never constructing backends."""
         install_catalog(
             monkeypatch,
             with_entry_changes(
@@ -145,7 +145,7 @@ class TestAssembleBuiltinEndToEnd:
         }
 
     async def test_default_resolution_skips_a_discontinued_default(self, db_factory, monkeypatch):
-        """目录默认模型已下线：装配不取它、也不落到 backend 写死的模型名；自动推断同样跳过这个供应商。"""
+        """Retired catalog defaults never assemble or fall back to hardcoded backend names; automatic inference skips their providers."""
         from lib.db.repositories.credential_repository import CredentialRepository
 
         async with db_factory() as session:
@@ -162,12 +162,12 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(provider_id="ark", media_type="image", model_id=None, resolver=resolver)
         assert built == []
         assert excinfo.value.code == "provider_unsupported_media"
-        # 唯一 ready 的供应商没有可用的默认图片模型：自动推断找不到候选，不选中已下线的模型
+        # Only ready provider lacks usable default images; inference has no candidate and never selects retired models.
         with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
             await resolver.resolve_image_backend(None, None, generation_type="t2i")
 
     async def test_version_gated_default_is_neither_assembled_nor_resolved(self, db_factory, monkeypatch):
-        """目录默认模型的最低应用版本高于当前版本：点名调用与补默认都不装配它，按没有默认处理；自动推断同样跳过。"""
+        """Catalog defaults requiring newer app versions never assemble, explicit or defaulted; treat as absent defaults and skip inference."""
         from lib.db.repositories.credential_repository import CredentialRepository
 
         async with db_factory() as session:
@@ -195,7 +195,7 @@ class TestAssembleBuiltinEndToEnd:
         assert built[0]["kwargs"]["model"] == "doubao-seedance-2-0-mini-260615"
 
     async def test_missing_model_skips_a_disabled_default(self, db_factory):
-        """用户停用了目录默认模型：没给模型的装配不取它，按没有默认模型报错，不构造 backend。"""
+        """User-disabled catalog defaults error as no default when model is omitted, never constructing backends."""
         from lib.db.models.builtin_provider_model import BuiltinProviderModelState
 
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
@@ -216,7 +216,7 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(provider_id="ark", media_type="audio", model_id="x", resolver=resolver)
 
     async def test_gemini_aistudio_image_end_to_end(self, db_factory):
-        # gemini 特例族：provider_id 直接决定 backend_type，凭证 overlay + 共享 rate_limiter 经装载进闭包
+        # Gemini provider_id selects backend_type; loaded overlays/shared rate_limiter enter closures.
         await _seed_provider_config(db_factory, "gemini-aistudio", api_key="g-secret", base_url="https://g.relay.test")
         sentinel = object()
         resolver = ConfigResolver(db_factory)
@@ -243,7 +243,7 @@ class TestAssembleBuiltinEndToEnd:
         ]
 
     async def test_text_simple_end_to_end(self, db_factory):
-        # 文本简单族：凭证 overlay 经装载真进构造参数，base_url 回落 registry default
+        # Simple text overlays reach constructor arguments; base_url falls back to registry defaults.
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
@@ -263,7 +263,7 @@ class TestAssembleBuiltinEndToEnd:
         ]
 
     async def test_text_dashscope_compat_end_to_end(self, db_factory):
-        # dashscope 文本 OpenAI-compat：base_url 经 helper 派生、透传 provider_name 计费归因，端到端经缝
+        # DashScope OpenAI-compatible text derives helper URLs and provider_name billing through the unified seam.
         await _seed_provider_config(db_factory, "dashscope", api_key="ds-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
@@ -318,7 +318,7 @@ class TestAssembleBuiltinEndToEnd:
         mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
     async def test_kling_image_api_model_name_decoupled_end_to_end(self, db_factory):
-        # kling 特例族：双 secret overlay 真进闭包；api_model_name 解耦从 registry models 读到（别名键）
+        # Kling dual-secret overlays reach closures; registry aliases supply decoupled api_model_name.
         await _seed_provider_config(db_factory, "kling", access_key="ak-1", secret_key="sk-1")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
@@ -342,7 +342,7 @@ class TestAssembleBuiltinEndToEnd:
 
 
 def _any_listed_model(provider_id: str, media_type: str) -> str | None:
-    """该供应商该媒体类型的默认模型；目录没指定默认时取清单里第一个未下线的同媒体类型模型，一个都没有时为 None。"""
+    """Provider/media defaults use catalog choices, otherwise first nonretired same-media listed model, or None when none exists."""
     default = catalog.default_model(provider_id, media_type)
     if default is not None:
         return default
@@ -357,10 +357,10 @@ def _any_listed_model(provider_id: str, media_type: str) -> str | None:
 
 
 class TestAssembleBuiltinWithRealSdkClients:
-    """不替换任何 SDK 客户端，经 assemble_backend 的线程构造路径造出每个内置 backend。
+    """Construct every built-in backend through assemble_backend worker threads without substituting SDK clients.
 
-    构造在 asyncio.to_thread 的工作线程里跑，那里没有事件循环：构造时就要求事件循环的 SDK 客户端
-    （如 xai_sdk.AsyncClient 的 grpc.aio 通道）会在这里失败。
+    asyncio.to_thread workers have no event loops; construction-time loop-dependent clients
+    such as xai_sdk.AsyncClient grpc.aio channels would fail here.
     """
 
     @pytest.mark.parametrize(("provider_id", "media_type"), sorted(PROVIDER_SPEC_REGISTRY))
@@ -377,7 +377,7 @@ class TestAssembleBuiltinWithRealSdkClients:
             credentials_path=str(credentials_file),
             gcs_bucket="demo-bucket",
         )
-        # 服务账号私钥解析与事件循环无关，替掉它免得在测试里生成真私钥。
+        # Service-account private-key parsing is loop-independent; substitute it rather than generate real private keys.
         with captured_vertex_credentials():
             backend = await assemble_backend(
                 provider_id=provider_id,
@@ -458,7 +458,7 @@ class TestAssembleCustomEndToEnd:
 
     @patch("lib.custom_provider.endpoints.OpenAITextBackend")
     async def test_custom_text_provider_delegates_to_loader(self, mock_cls, db_factory):
-        # 文本自定义路径与媒体共用 load_custom_backend：text media_type 同经统一缝
+        # Custom text/media share load_custom_backend and unified assembly seams.
         from lib.custom_provider import make_provider_id
         from lib.custom_provider.backends import CustomTextBackend
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -504,7 +504,7 @@ class TestAssembleCustomEndToEnd:
 
     @staticmethod
     def _retire_seedream_lite(monkeypatch) -> str:
-        """方舟 Seedream 5.0 lite 的条目于 2026-11-24 关停、后继为 Seedream 5.0 pro；今天即关停当天。返回条目引用。"""
+        """Ark Seedream 5.0 lite retires 2026-11-24, succeeded by Seedream 5.0 pro; today is retirement day. Return entry references."""
         install_catalog(
             monkeypatch,
             with_entry_changes(
@@ -524,7 +524,7 @@ class TestAssembleCustomEndToEnd:
     async def test_explicit_discontinued_custom_model_is_rejected_without_falling_back(
         self, mock_cls, db_factory, monkeypatch
     ):
-        """显式引用的自定义模型所绑定的条目已下线：报下线错误带日期与后继，不回退到默认模型、不构造 backend。"""
+        """Explicit custom-model bindings to retired entries error with dates/successors, never default-fallback or construct."""
         ref = self._retire_seedream_lite(monkeypatch)
         pid = await self._seed_relay_image_models(
             db_factory,
@@ -547,7 +547,7 @@ class TestAssembleCustomEndToEnd:
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_disabled_discontinued_custom_model_is_still_rejected(self, mock_cls, db_factory, monkeypatch):
-        """停用的模型本会回退默认；条目已下线时同样报下线错误，用户才知道要换模型。"""
+        """Disabled models normally default-fallback; retired entries still error so users know to change models."""
         self._retire_seedream_lite(monkeypatch)
         pid = await self._seed_relay_image_models(
             db_factory,
@@ -564,7 +564,7 @@ class TestAssembleCustomEndToEnd:
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_default_resolution_skips_a_discontinued_custom_default(self, mock_cls, db_factory, monkeypatch):
-        """自定义供应商唯一的默认模型已下线（按名字对应到条目）：没给模型时按没有默认模型报错，不构造它。"""
+        """Custom providers whose sole default matches retired entries by name error as no default when model is omitted, never constructing it."""
         self._retire_seedream_lite(monkeypatch)
         pid = await self._seed_relay_image_models(
             db_factory, [{"model_id": SEEDREAM_LITE, "is_enabled": True, "is_default": True}]

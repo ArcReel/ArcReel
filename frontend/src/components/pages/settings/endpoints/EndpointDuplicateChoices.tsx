@@ -11,16 +11,16 @@ type EndpointDuplicateChoicesProps = {
   disabled: boolean;
 } & (
   | {
-      /** 导入：每行一个「覆盖」按钮，点击即执行。 */
+      /** Import: one Overwrite button per row, executing immediately on click. */
       onOverwrite: (id: number) => void;
       selection?: undefined;
       blockedSources?: undefined;
     }
   | {
       onOverwrite?: undefined;
-      /** 市场安装：单选覆盖目标或新建副本（`null`），由调用方统一确认。 */
+      /** Market installation: select one overwrite target or a new copy (`null`); the caller handles overall confirmation. */
       selection: { value: number | null; onChange: (id: number | null) => void };
-      /** 已持有安装记录的端点 id → 来源名；这些端点只展示来源，不可选。 */
+      /** Endpoint IDs with existing installation records → source names; show their source only and make them unselectable. */
       blockedSources: Record<number, string>;
     }
 );

@@ -25,25 +25,25 @@ class SkillStructureTest(unittest.TestCase):
         reference = (
             ROOT / "references" / "controlled-technical-chinese.md"
         ).read_text(encoding="utf-8")
-        for heading in ("操作手册", "API 文档", "故障排查", "产品介绍"):
+        for heading in ("Operating manuals", "API documentation", "Troubleshooting", "Product introductions"):
             with self.subTest(heading=heading):
                 self.assertIn(f"### {heading}", reference)
-        self.assertEqual(len(re.findall(r"^#### 样例 \d+$", reference, re.MULTILINE)), 12)
+        self.assertEqual(len(re.findall(r"^#### Example \d+$", reference, re.MULTILINE)), 12)
 
     def test_paragraph_wrapping_rule_is_documented(self):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         reference = (
             ROOT / "references" / "terminology-and-typography.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("一段一行", skill)
-        self.assertIn("## 段落换行与源文件行宽", reference)
+        self.assertIn("each Chinese paragraph on one source line", skill)
+        self.assertIn("## Paragraph wrapping and source line width", reference)
         self.assertIn("scripts/unwrap_md_paragraphs.py", reference)
 
     def test_project_override_is_explicitly_a_template(self):
         reference = (
             ROOT / "references" / "project-overrides-example.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("本文件只是模板", reference)
+        self.assertIn("This file is only a template", reference)
         self.assertFalse((ROOT / "references" / "Project-Overrides.md").exists())
 
 

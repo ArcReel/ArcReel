@@ -69,11 +69,11 @@ describe("MediaModelSection", () => {
     for (const name of ["默认视频模型", "默认图片模型", "默认模型"]) {
       expect(await screen.findByRole("combobox", { name })).toBeInTheDocument();
     }
-    // video / image / text 三处折叠区，初始收起
+    // Video/image/text expandable sections start collapsed.
     const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(sections).toHaveLength(3);
     expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
-    // 界面文案不出现内部术语
+    // UI copy excludes internal terms.
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
   });
 
@@ -98,7 +98,7 @@ describe("MediaModelSection", () => {
     const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
     await user.clear(timeout);
     await user.type(timeout, "60.5");
-    // 编辑期间保留原始字符串，小数点等中间态不被吞掉
+    // Retain raw editing strings, preserving decimal points/intermediate states.
     expect(timeout).toHaveValue("60.5");
     await user.tab();
     expect(timeout).toHaveValue("61");
@@ -112,36 +112,36 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
-    // 先键入有效值（键入过程会把中间值写进未保存修改），再清空离开
+    // Type valid values, recording intermediate unsaved values, then clear/blur.
     await user.clear(timeout);
     await user.type(timeout, "7200");
     await user.clear(timeout);
     expect(timeout).toHaveValue("");
     await user.tab();
 
-    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在未保存修改里
+    // Empty inputs withdraw unsaved edits and echo saved values; typed 7200 must not remain pending.
     expect(timeout).toHaveValue("3600");
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {
-    // 候选接口失败不应让已生效的全局覆盖从界面消失——它在后端仍参与解析，藏起来用户无从察觉
+    // Candidate failures must not hide effective global overrides; backends still resolve them and users need visibility.
     mockConfig({ default_video_backend_i2v: "ark/seedance" });
     vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
     render(<MediaModelSection />);
     const i2v = await screen.findByRole("combobox", { name: "图生视频" });
     expect(i2v).toHaveTextContent("seedance");
-    // 未配置的细分项没有候选可选，仍不渲染
+    // Unconfigured subtiers without candidates remain hidden.
     expect(screen.queryByRole("combobox", { name: "参考生视频" })).not.toBeInTheDocument();
   });
 
   it("shows an explicit error notice with a retry entry when the candidate fetch fails, even with no saved overrides", async () => {
-    // 全局层未配置过任何细分项时折叠区本会整块消失，失败态须把它留下，用户才拿得到失败信号
+    // Without configured global subtiers, whole sections normally disappear; failure states must retain them to expose failures.
     vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
     render(<MediaModelSection />);
     await screen.findByRole("combobox", { name: "默认视频模型" });
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
+    expect(alerts.length).toBeGreaterThanOrEqual(2); // Video/image expandable sections.
     for (const alert of alerts) {
       expect(alert).toHaveTextContent(/模型列表加载失败/);
     }
@@ -161,7 +161,7 @@ describe("MediaModelSection", () => {
 
     await waitFor(() => expect(getCandidates).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
-    // 失败态强制展开过折叠区，重试成功后仍展开，无需再次点开
+    // Failure states force expansion, retained after successful retries without reopening.
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
     expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
   });
@@ -220,7 +220,7 @@ describe("MediaModelSection", () => {
     expect(screen.getByRole("combobox", { name: "默认图片模型" })).toHaveTextContent(
       "自动选择（当前：gemini · nano-banana）",
     );
-    // 自动推断按用途过滤：图生图选不出模型时如实说没有可用供应商
+    // Automatic inference filters purposes; unavailable image-to-image reports no available providers truthfully.
     await user.click(screen.getAllByText("按用途指定模型")[1]);
     expect(screen.getByRole("combobox", { name: "图生图" })).toHaveTextContent("自动选择（没有可用的供应商）");
   });
@@ -261,8 +261,8 @@ describe("MediaModelSection", () => {
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ default_video_backend: "ark/seedance" }),
     );
-    // 保存结束的可观测证据：保存栏显示「已保存」——PATCH 已返回但流程仍卡在候选请求上时，
-    // 保存栏会一直停在「正在保存」。
+    // Observable save completion: save bars show Saved. Returned PATCH still blocked on candidates
+    // otherwise leaves bars Saving forever.
     expect(await screen.findByText("已保存")).toBeInTheDocument();
   });
 
@@ -326,8 +326,8 @@ describe("MediaModelSection", () => {
       await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_generate_audio: true }));
     });
 
-    // 置灰要求两个生效桶同为不可控，提示只要一个桶恒有声就给：两桶判定不一致时置灰会连带
-    // 禁掉可控桶的合法关闭。判据漏掉细分桶则会让这份配置一路带到入队才被拒。
+    // Disabling requires both effective buckets uncontrollable, but one always-audible bucket warrants warnings. Divergence must not
+    // disable legitimate audio-off in controllable buckets; ignoring subtiers defers rejection until enqueue.
     it("warns about a stored off setting when only a capability-bucket override is always audible", async () => {
       const user = userEvent.setup();
       mockConfig({ default_video_backend_i2v: "dashscope/wan" });
@@ -367,8 +367,8 @@ describe("MediaModelSection", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
-    // 各层全空时执行期用自动选中的模型，勾选框判据与规格条要按它取，否则恒有声的自动模型
-    // 配上「关闭」时一路到入队预检才被拒。
+    // Empty layers execute automatically selected models. Checkbox predicates/specifications must use them, or always-audible auto models
+    // with audio off survive until enqueue preflight rejection.
     it("judges the checkbox and shows the spec bar by the auto-selected model when every layer is unset", async () => {
       mockConfig({ default_video_backend: "" });
       vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, i2v: "dashscope/wan", r2v: "gemini/veo-3" });
@@ -392,8 +392,8 @@ describe("MediaModelSection", () => {
       expect(screen.getByText(/没有声音/)).toBeInTheDocument();
     });
 
-    // 全局页无项目上下文，默认模型两条路径都会用到，能力线只能给目录位；但两个细分项下拉
-    // 各自就是一条路径，与上方按桶取值的勾选框判据同源，不能共用默认层那一个答案。
+    // Global pages lack project context; defaults serve both routes, so capabilities use catalog signals. Subtier dropdowns
+    // each represent one path, matching bucket-aware checkbox predicates, never sharing default-layer answers.
     describe("候选下拉的音轨能力线", () => {
       function mockOmni() {
         vi.spyOn(API, "getSystemConfig").mockResolvedValue({
@@ -416,7 +416,7 @@ describe("MediaModelSection", () => {
         ]);
       }
 
-      /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
+      /** Open dropdowns, read v3-omni capability lines, then close; only one open at once. */
       async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
         await user.click(screen.getByRole("combobox", { name: comboboxName }));
         const text = (await screen.findByRole("option", { name: /v3-omni/ })).textContent ?? "";
@@ -433,7 +433,7 @@ describe("MediaModelSection", () => {
 
         await user.click(screen.getAllByText("按用途指定模型")[0]);
         expect(await omniRowIn(user, "图生视频")).toContain("有声");
-        // 与同屏 r2vAudioControl（always_off）判定的勾选框一致：一屏之内两句话不能互相矛盾
+        // Match same-screen r2vAudioControl always_off checkbox predicates; displayed statements must not contradict.
         expect(await omniRowIn(user, "参考生视频")).toContain("无声");
       });
     });
@@ -487,7 +487,7 @@ describe("MediaModelSection", () => {
 });
 
 describe("MediaModelSection – 语言切换", () => {
-  // 译名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
+  // Backend Accept-Language names are simulated with current-language fake translations.
   function candidatesFor(language: string) {
     const en = language.startsWith("en");
     return {
@@ -528,11 +528,11 @@ describe("MediaModelSection – 语言切换", () => {
     });
 
     await waitFor(() => expect(trigger).toHaveTextContent("Gemini · Veo 3"));
-    // 语言切换只重取候选，不重取整页配置——后者会 setDraft({}) 丢掉这里未保存的输入
+    // Language switches refetch candidates only, never whole configuration, whose setDraft({}) would lose unsaved inputs.
     expect(timeout).toHaveValue("7200");
 
     await user.click(trigger);
-    // 选项行主行为译名，model id 仍在行内可辨识
+    // Option primary rows use translated names, keeping model IDs identifiable inline.
     expect(await screen.findByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });
@@ -565,7 +565,7 @@ describe("MediaModelSection – 引用处的下线提示", () => {
         shutdown_date: "2026-11-24",
         successor: "google/veo-4",
         successor_name: "Veo 4",
-        // 后继不支持图生视频：这一处没有切换目标，只写后继名称
+        // Successors lack image-to-video: no replacement target here, names only.
         switch_targets: { default: "gemini/veo-4", i2v: null, r2v: null },
       },
     });
@@ -576,13 +576,13 @@ describe("MediaModelSection – 引用处的下线提示", () => {
 
     const notices = await screen.findAllByText("即将下线（2026-11-24），官方建议改用 Veo 4");
     expect(notices).toHaveLength(2);
-    // 只有默认层有切换入口
+    // Only default layers offer replacement actions.
     expect(screen.getAllByRole("button", { name: "切换到 Veo 4" })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "切换到 Veo 4" }));
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    // 一键切换只改这一处：图生视频的引用原样保留
+    // One-click replacement changes this field only, retaining image-to-video references.
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ default_video_backend: "gemini/veo-4" }));
   });
 
@@ -605,7 +605,7 @@ describe("MediaModelSection – 引用处的下线提示", () => {
 
   it("offers the successor switch for a discontinued reference that has left the provider list", async () => {
     const user = userEvent.setup();
-    // 官方数据删除了清单项、只剩本地保留条目的旧型号：值不在任何候选里，提示照样给出
+    // Official catalogs removed entries, leaving locally retained legacy models absent from candidates; warnings still appear.
     mockConfig({ default_video_backend: "gemini/veo-3-preview" });
     mockLifecycle({
       "gemini/veo-3-preview": {

@@ -7,7 +7,7 @@ import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-/** 从自定义供应商跳来时的返回目标（地址里的 `from` 参数解析出的供应商）。 */
+/** Custom-provider return targets, parsed from address `from`. */
 export interface EndpointBackTarget {
   providerId: number;
   providerName: string;
@@ -15,19 +15,19 @@ export interface EndpointBackTarget {
 
 interface EndpointHeaderProps {
   back: EndpointBackTarget | null;
-  /** 标题；ComfyUI 端点的名称是可编辑字段，标题显示的是当前值。 */
+  /** Titles; editable ComfyUI endpoint names show current values. */
   title: string;
-  /** 标题后的类型与状态标记。 */
+  /** Type/status badges after titles. */
   badges?: ReactNode;
-  /** 标题下一行：作者与版本、来源、节点数等。 */
+  /** Subtitle rows: authors/versions, origins, node counts, etc. */
   meta?: ReactNode;
-  /** 页头主操作：「新建供应商并使用」「复制为我的端点」或「重新导入」。 */
+  /** Main header actions: New provider using endpoint, Copy to my endpoints or Reimport. */
   primary?: ReactNode;
-  /** 更多操作菜单的条目；没有条目时不显示菜单按钮。 */
+  /** More-menu entries; no entries means hidden buttons. */
   menu?: ReactNode;
 }
 
-/** 端点详情的页头：返回原供应商、名称与标记、主操作与更多操作菜单。 */
+/** Endpoint-detail headers: return providers, names/badges, primary/More actions. */
 export function EndpointHeader({ back, title, badges, meta, primary, menu }: EndpointHeaderProps) {
   const { t } = useTranslation("dashboard");
   return (

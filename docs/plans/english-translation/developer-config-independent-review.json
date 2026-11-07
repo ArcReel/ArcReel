@@ -1,0 +1,83 @@
+{
+  "reviewer": "Coordinator, independent of config translator",
+  "status": "PASS for all19 human annotation values",
+  "scope": "Four Ruff messages reviewed from exact author report and installed-source consumer/probe; all six marker suffixes and nine contract display names reviewed in full here. Names/types/modules, positive/negative dependency relations, fixture scopes, database/network restrictions and CI selection semantics preserved.",
+  "additional_changes_reviewed": [
+    {
+      "field": "tool.pytest.ini_options.markers[0]",
+      "before": "unit: 快速、隔离的测试；可只读访问仓库内已提交的文件，写文件只落在 tmp_path，不触达真实 DB、子进程、网络或外部服务",
+      "after": "unit: Fast, isolated tests; may read committed repository files; writes stay in tmp_path, without real databases, subprocesses, networks, or external services"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[1]",
+      "before": "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
+      "after": "integration: Real collaboration across modules; do not mock the tested module's public entry points (that would test the mock itself)"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[2]",
+      "before": "e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过",
+      "after": "e2e: End-to-end tests requiring real external resources (remote APIs, model calls, heavy ffmpeg, etc.); skipped by default in CI"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[3]",
+      "before": "sqlite_only: 仅适用于 SQLite 的测试（依赖 SQLite 特定 fixture / 行为，PG CI job 会跳过）",
+      "after": "sqlite_only: SQLite-specific tests (requiring SQLite-specific fixtures/behavior); skipped by the PostgreSQL CI job"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[4]",
+      "before": "uses_db: 触达真实数据库的测试（repo/DAO/ORM/迁移）；PG job 用 `-m uses_db` 选集合。由 conftest 根据 fixture 使用自动注入",
+      "after": "uses_db: Tests accessing real databases (repositories/DAOs/ORM/migrations); PostgreSQL jobs select them with `-m uses_db`. Automatically injected by conftest based on fixture use"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[5]",
+      "before": "local_port: 绑定 127.0.0.1 端口的测试；在禁止绑定本地端口的环境（如 Agent 沙箱）中由 conftest 跳过并给出原因",
+      "after": "local_port: Tests binding 127.0.0.1 ports; conftest skips these with a reason where local port binding is forbidden (e.g. Agent sandboxes)"
+    },
+    {
+      "field": "tool.importlinter.contracts[0].name",
+      "before": "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 分层契约",
+      "after": "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market layering contract"
+    },
+    {
+      "field": "tool.importlinter.contracts[1].name",
+      "before": "ComfyUI 端点实现不依赖声明式运行时",
+      "after": "ComfyUI endpoint implementations do not depend on the declarative runtime"
+    },
+    {
+      "field": "tool.importlinter.contracts[2].name",
+      "before": "arcreel_market_core 不依赖主仓",
+      "after": "arcreel_market_core does not depend on the main repository"
+    },
+    {
+      "field": "tool.importlinter.contracts[3].name",
+      "before": "arcreel_catalog_core 不依赖主仓",
+      "after": "arcreel_catalog_core does not depend on the main repository"
+    },
+    {
+      "field": "tool.importlinter.contracts[4].name",
+      "before": "路线中立层不依赖参考生视频子包",
+      "after": "Route-neutral layer does not depend on the reference-video subpackage"
+    },
+    {
+      "field": "tool.importlinter.contracts[5].name",
+      "before": "视频请求事实不依赖参考生视频子包",
+      "after": "Video-request facts do not depend on the reference-video subpackage"
+    },
+    {
+      "field": "tool.importlinter.contracts[6].name",
+      "before": "核心库不依赖服务端",
+      "after": "Core library does not depend on the server"
+    },
+    {
+      "field": "tool.importlinter.contracts[7].name",
+      "before": "核心库不依赖 HTTP 框架",
+      "after": "Core library does not depend on HTTP frameworks"
+    },
+    {
+      "field": "tool.importlinter.contracts[8].name",
+      "before": "Agent 工具集声明不依赖宿主 SDK",
+      "after": "Agent toolset declarations do not depend on the host SDK"
+    }
+  ],
+  "constraints": "Marker prefixes and all structural configuration remain literal. Contract selectors use explicit id, not display name, according to installed-source trace. No dependency updates. Final author parsed-TOML proof and checks are separate."
+}

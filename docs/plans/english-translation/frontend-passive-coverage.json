@@ -1,0 +1,2286 @@
+{
+  "files": [
+    {
+      "path": "frontend/src/__mocks__/ScriptReviewGate.tsx",
+      "candidate_sha256": "fa0809f3a317b732756a4fe3e960ba22eba864e2922c002c63493193d7663805",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/actions/render.ts",
+      "candidate_sha256": "faf75966f87ae6d2fc794d70efb6e7c0a40622d438c4f817766b233f3d557e6e",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/api.ts",
+      "candidate_sha256": "9e24fbb6f1ede65d77035d9cb9d697ca42b3cdebda601cfd199b9c1eb14fcd11",
+      "batch_reports": [
+        "frontend-passive-batch10-review.json",
+        "frontend-passive-batch11-review.json",
+        "frontend-passive-batch12-review.json",
+        "frontend-passive-batch13-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/agent-memory/AgentMemorySection.tsx",
+      "candidate_sha256": "88272373f1e4ff85ed3dbdede6d51f6025e03dbbf991c2ccda772fbf4f71415d",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/agent-memory/MemoryConfirmDialog.tsx",
+      "candidate_sha256": "5daba80a022eae83590b25b1c75fef185a46fb8949179af253ff69529fe7277e",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/agent-memory/ProjectMemoryFiles.tsx",
+      "candidate_sha256": "46ad3e545dca9a4090a2731924a493022a4fe8f1d28841053ec28c9140c4cab6",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/agent/CredentialList.tsx",
+      "candidate_sha256": "ddc83f953d12f61ecd0764197c87bb58db2a643d76469a5a86f444675c6db6ee",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/agent/ModelIdField.tsx",
+      "candidate_sha256": "b9bc82dd6045d553a62468909003e7a7eb9890095deff95ffb5d2f6838555f68",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/agent/TestResultPanel.tsx",
+      "candidate_sha256": "36454a6ab2d69ef8e8d99daba9f25692e5a7023662c3f06124ac4f5ec9a664e9",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/ApplyToProjectDialog.tsx",
+      "candidate_sha256": "85f63ad4cf9add5e8aa48a14770c6249f09fb387c70c8542b56679098aa43b1e",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/AssetCard.tsx",
+      "candidate_sha256": "711c94efcf62ce65ffa612747fc21da9bc8fe1e1212fe12bee539eb01f7edd62",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/AssetCreateDialog.tsx",
+      "candidate_sha256": "42a56998682f9c091dd98e1a93329ecd288363ec7e1f77e8958c74d761e6d2ae",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/AssetPickerModal.tsx",
+      "candidate_sha256": "d2a90c84a29bc0eeb043333e79f2fe509458eb709fec5f40d999af76b9132005",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/AssetThumb.tsx",
+      "candidate_sha256": "665e548e174a5c4dd6cae6b2df3f4adadaa5aa606df62446ab29aa20d25da22b",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/DeleteAssetDialog.tsx",
+      "candidate_sha256": "11e14bde578dc8b5d25cf7f55972203d4ebd85fbfc5cc1d9afdaceb32b0d0900",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/LoadMoreSentinel.tsx",
+      "candidate_sha256": "a27b5d1a57a5e3abebac0b2b7b4af9f7bd5215b0df26dff575e8ce21af632658",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/assets/asset-type-icons.ts",
+      "candidate_sha256": "181933412ec83282a9c958ff43d0ad44fe8ca262128c1aa1a3442a149e66f87f",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/WorkspaceNotFound.tsx",
+      "candidate_sha256": "5d65772c0660646feaa4c41f760d6cc613c5eb0b182235742156738e9ef6e067",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/create-script-timeline.ts",
+      "candidate_sha256": "5fffb9d83b42959c97317919186e445a69aa436ab554ad13f7039ef1e5db12cb",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/edit-render-model.ts",
+      "candidate_sha256": "0020e6eced2224693f7cb939d1a70ea0d07e5cc42c46e2ba67f9c831b361f798",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/useBlockedReason.ts",
+      "candidate_sha256": "5dd89386946b1ddcf756248c694d828f6c836eaf249d4f93391fcdda14fa0585",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineMenu.tsx",
+      "candidate_sha256": "0629a5ee60f2dfad8609fad3c59382cd42fd9119590dd33daecdfde4b907e905",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeHead.tsx",
+      "candidate_sha256": "7cc6ccada5faf54094965086e829331b3499ad8b4839ea6e66ba39b7b492da6a",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeHeaderActions.tsx",
+      "candidate_sha256": "b3eb34a2c129257b7140bcce37b9f1f3958a8ac81a7386f7d33d21cfd93a4dbf",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeViewScope.tsx",
+      "candidate_sha256": "44668b38cac67a02559077b8a4b1b81b41921a783647a0dbbbbdd8e5b29dca58",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/StorySettingView.tsx",
+      "candidate_sha256": "2e37c88f17ea0f8138ab90f7396256fe085d7be48ce18fc572b967f6df9dba8b",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodePlanningPanel.tsx",
+      "candidate_sha256": "39877be561950881d0c9372146fbaa1df30953ab59a5e1fe01db7a24a4939cda",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodesHeader.tsx",
+      "candidate_sha256": "3a5ed7900ff473604421ba2e004a1072458ab3bfa471cb4047a2297f72c8ddf0",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ExternalChangeNotice.tsx",
+      "candidate_sha256": "f0cc1bccd40a764098089817eca62c77921c89a3793177fa2062979a0da89122",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ManualSplitToolbar.tsx",
+      "candidate_sha256": "2de4d343896cb72b34ef4742b23d682c2efae725b52f630f1ae20485a48f8120",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/PlanGapButton.tsx",
+      "candidate_sha256": "427beeb7c5533abc07b3411e2062be426bd10753ac5dc0e941fdccfda923de43",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ReplannedBadge.tsx",
+      "candidate_sha256": "07314a852ccbbe78f1544b9feffd7e33ea4df837ff24b2149896cff0ab714df3",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceFileKindControl.tsx",
+      "candidate_sha256": "79e11d188df3f80c275557c18fb6433c71bdf29e651a6cfe91a3f2bee63a42d1",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceKindSelect.tsx",
+      "candidate_sha256": "2017d846ff4700fcb25d809c899031275d3e097491d1088b399a1bbe0324a83e",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useDeleteEpisode.tsx",
+      "candidate_sha256": "5b1d871037dc6c66ece080d68adf934160b794f00c5d8d250f369799412bfedb",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useMoveEpisode.ts",
+      "candidate_sha256": "fdddbb8b11378bf0f076f44f1c2da40db6fa5103204e6895fe9552c7659ad592",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useReplanEpisode.tsx",
+      "candidate_sha256": "65955dfa33420e37742a72923f15ba22993485446bd2e637a8f7359093880887",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useSourceFileChange.tsx",
+      "candidate_sha256": "8a04722a1190f714144493afc692caa2f1e0d702dfcd37993f0421ab008f9dd6",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/files/FilePreview.tsx",
+      "candidate_sha256": "c2c8da6f0165ebe9a2aeb7af3853379278059cddb1074787fe839e0f219d4d9d",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/files/TrashSection.tsx",
+      "candidate_sha256": "9ce9f46ab273f3cbf9f8b76444762dbe93282b921a0ac9a2d696ba86334e45f3",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/files/file-view-model.ts",
+      "candidate_sha256": "4858e4e13ead7f57450cc7a2e1838dc62a784ce1438af80dab1f309cd790c9d1",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/grid-preview-model.ts",
+      "candidate_sha256": "15af1ea29f95d8ec38bb2e3af7c358b53c0f952477619058643927778373c01a",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetBrowseCard.tsx",
+      "candidate_sha256": "8a4cd6aa8fba9c46547cf2bd615823a5f2f5fbf360601eebfae0686e2ef11bf1",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.tsx",
+      "candidate_sha256": "22b70be28667ee8bd1a4607218ff2eb3af8f19386f2a039f3e331b392bf61410",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetImageDialog.tsx",
+      "candidate_sha256": "67f3ea2609b5afedff737c929f572a8c1bfaf260f9c19561dbf88ec90bf43359",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetImageViewer.tsx",
+      "candidate_sha256": "f0a27e589a9b056606182b799b36b51f2f0d630b37fa10545290fa03700cb426",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetSheetBatchControls.tsx",
+      "candidate_sha256": "ec8f6c7ee7f8d9221e518f2078d96aeb55b19f3bd4e9b4d1791345b092800a2a",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetSheetBatchDialog.tsx",
+      "candidate_sha256": "663ddc14ff4a8acdb745d5ff41c740f7a1e02bb0fc15ca5025f805b80c03ab30",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetSheetStatusBadge.tsx",
+      "candidate_sha256": "6f7849222cafa40692a354ae766df5a364434fa82f3f6bf655eed4ebc16ebbbd",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharactersPage.tsx",
+      "candidate_sha256": "8f5310bb6a890a84deedc8b0d96268b23f048856d384403444f2d84f7f2e61e2",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/GalleryEmptyState.tsx",
+      "candidate_sha256": "3cba248510826798cd6c9852136eff5371db7fe8336efc4e03ab960f1b677d21",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/GalleryStatusMarker.tsx",
+      "candidate_sha256": "4625fd41f4eb1bae3454dd78f0b888f90101a6df36c1b0cf50511f8b07086da5",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/GenerateButton.tsx",
+      "candidate_sha256": "f837adea6d39d710088762cbb264db07bf7131e382c7f12624964084c18bf31f",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/ProductsPage.tsx",
+      "candidate_sha256": "a4aaee27ca1ce804766f9a1dc9c553a7d2fd79b13357ce1418dd3379e45fff33",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/PropsPage.tsx",
+      "candidate_sha256": "8abc663374d31052fbc14a00288f6c2929b44a7c1940762c2a863fcf9fba9644",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/ScenesPage.tsx",
+      "candidate_sha256": "dfd9d756f36290f76fd74ebea3e97be2ec3d82e573e4ff60557f9dccfdce11d7",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useAssetWrites.ts",
+      "candidate_sha256": "ecdc1555889c6566054dcfab54c102cb4155ae6ae9ce4a4ea22b72e10e1f682a",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useCharacterDerivativeSheets.ts",
+      "candidate_sha256": "1fe0ec980ab1832805a5fe22e7bd64d586295aadd6e4bc3c0f5ea85412c63a6e",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/AdBrief.tsx",
+      "candidate_sha256": "8ae391ba1b4a1f58a4a48424a69fcf79a8c49cc2d3bfb8928642012ea186b802",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/AdProducts.tsx",
+      "candidate_sha256": "38a773e752698358c696ef92a75cab0ada85d493eb3ed7903d7d1e3d720e0fca",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/AssetProgressLine.tsx",
+      "candidate_sha256": "8f942203461f0ad7f6eaf00850d284032b629b6d2dc6f1e355ddea4429adef9e",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/HandoffTip.tsx",
+      "candidate_sha256": "d378a66bb2ee538ae1c0c0e8ab31911d75d3aed6992022a811dafab8e2032599",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/OverviewHeader.tsx",
+      "candidate_sha256": "acece220919b696b3b85e39a5033b38ef7a62586f12dffacbc46fbe895e8459a",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/WelcomeCanvas.tsx",
+      "candidate_sha256": "cf0d14abeb569611f322d71a37813ddf3f13cad02d36d90875ebf15eac1af6c2",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceSplitAlert.tsx",
+      "candidate_sha256": "6107879e2f79fcbfbfc2f3676a6c2b082e823beba64e8a03432f1a4358f45e7e",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceUnitAddDialog.tsx",
+      "candidate_sha256": "79650ad1b4dbf847b9a3306bd4c23f8f26fcd20719f1e873075a1d37b19c0588",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitRail.tsx",
+      "candidate_sha256": "2b52a139d3698e16aab32f63c239a22f597557d7be84e7a609b61964cb23fb8f",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitStatusBadge.tsx",
+      "candidate_sha256": "b5a6bacba3068233309571cd88cd1d88dbff55161e5d88fa8810392fd3ca377d",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/VoiceLegacyBanner.tsx",
+      "candidate_sha256": "011f3546008598a4e40b19936dafcaa6f0a32bf6a85c619db79d80ee03dada79",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/advisory-problems.ts",
+      "candidate_sha256": "13198d1c20dca1fa19b22194f4f6db47b9e76f2f173fc4e6f7eaece5b6ecf786",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/unit-tier-problem.ts",
+      "candidate_sha256": "a8db97ec62366b1c0bfc6921ca2dbf8d42661db8f391c14c07f49eda68db4e9f",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/CrossfadeImage.tsx",
+      "candidate_sha256": "4d700b31cded419935830e82060759db4dca1ffe6dcc70ace56335e0f6d667c1",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PlanDurationSelect.tsx",
+      "candidate_sha256": "afbeef3eb3b9f62f0f061b47ffc3e2d9e09af9dce352e26f6ef3903863b6ccf9",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PlanStructureHint.tsx",
+      "candidate_sha256": "a6daa1b06658a015b9645025e5cadaaa7b54f5f0485bda7335e927833ecd6ee9",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PreviewableImageFrame.tsx",
+      "candidate_sha256": "7afa3c13774c19bf20e0fe97741c8f7da4a761cef3b359f3ac04e15c67bf4aac",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PromptAuthoringButton.tsx",
+      "candidate_sha256": "de7fe68df5b0bfde04048079187369327209252483ad9c952698b4447855e50e",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PromptAuthoringDialog.tsx",
+      "candidate_sha256": "d3ef38b1a10598d09037333df4464d8c531c71ccc99867224ee492705862fc89",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/ScriptPlanButton.tsx",
+      "candidate_sha256": "6dd4c05e0d62b4cf22da4e4d4106515e1ec0b24c15845bfb61701a90fb144c60",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/UploadIconButton.tsx",
+      "candidate_sha256": "48fe4b1a2b14de9fee755afcc9b84978fe74746783bf048e56afb480ab03510f",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/duration-incompatible.ts",
+      "candidate_sha256": "74d2410cf8cccdec24319a8c4ba1797594daa6edb4dcfe2f8b952f1fe7fb5314",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/prompt-authoring-entries.ts",
+      "candidate_sha256": "2ed619727d887e94f6835e02e12500612fb8cb260fcb2258d4121968e0b6b388",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/prompt-authoring-handoff.ts",
+      "candidate_sha256": "e744c78902c54f1f567a2a73c1ec66e3986131562ddfd7f4a3aec84bd68c9b83",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/text-task-failure.ts",
+      "candidate_sha256": "fc6bee024bdc5c6ee0024c5e8cf7503cfe46069b98e8e97a59c7c547cd238d9c",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/AvatarStack.tsx",
+      "candidate_sha256": "19adca7b68ce05d53b09983f87100ce3ea6a73946177e71218cee8cfc5d1db83",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/CompactInput.tsx",
+      "candidate_sha256": "9922e1f31ea3fed73bfbf91c9a5917d9fdd99ab51e13c897d2bd7d71dbd3a1e4",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EmptyScriptState.tsx",
+      "candidate_sha256": "a581a496ec04c6b6b17a6db367df9b8f5b0eae9729907f902c5de053ebeddea9",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ImageEditButton.tsx",
+      "candidate_sha256": "5fa8bb175ed15a0a69b8cc08f8fb591bf04809d7cf61c62889e8ccb87109cd3a",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ImagePromptEditor.tsx",
+      "candidate_sha256": "cb99430830a73793daf5b5e833e241e42ce7afd9e8ab44412398d265407f511f",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/PromptFieldGrid.tsx",
+      "candidate_sha256": "3a447c33ea1728b83bd0f89e624a529c64727382d2d67289a49c8327d2148f95",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/PromptFieldSelect.tsx",
+      "candidate_sha256": "da2558c1b87c2b98f3aeffb51eeb0b53615180c85409a67b757a3e88a5bd9074",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/RefThumbnail.tsx",
+      "candidate_sha256": "6e1d00ba5e8c3bff16b610489f0b3373370dfbfb72eaf8dad13f1723e395d11c",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ReferencesSection.tsx",
+      "candidate_sha256": "4670a30741061e602680f74f0898ee6ad46a58bf4569507be97f89058a901dc8",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/SegmentBreakToggle.tsx",
+      "candidate_sha256": "a614c0a14353090415a0d10ab88be3727a8b99603e1d3c76c94741fb2cb81f36",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotShortcutHint.tsx",
+      "candidate_sha256": "6e975baa36ce1a12aefd47dcfbb70f50cfe94844ff21e7dd39c641f6eebe8ac6",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotStructureActions.tsx",
+      "candidate_sha256": "81a6df282885e9a4451f3e2ea85b238ac15c5b53372c58c5ad80a87d9dde7d51",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/StoryboardBatchDialog.tsx",
+      "candidate_sha256": "6c08b048ec9b5b9a0c31c94d0e545b9d6c827fbec75988d9befd2d49db9baad5",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TooltipIconButton.tsx",
+      "candidate_sha256": "884da32e982fd279199c2b4476914f244d349380dc6037d5a126da6d24e4087d",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/VideoPromptEditor.tsx",
+      "candidate_sha256": "5ffda7a9cf979c25f8d0437ca9f5f8c25ff2d15f39e1d07f0cabbf69f16dab5a",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/shot-status.ts",
+      "candidate_sha256": "2705f1a6def88cf9616ff6306fcd0aa69b995703f74cde4b07615aee09c7fe96",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/AgentComposer.tsx",
+      "candidate_sha256": "0a7581536ba3e779474e996367ef90a4f2f0193a8a08735cddffd5ce86164cd0",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/QueuedMessageTray.tsx",
+      "candidate_sha256": "ba26afa24326d3082238a3b27e8c0705ef84b5a2df879c91ea12012d14ce60a6",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/TodoProgress.tsx",
+      "candidate_sha256": "5eb885b892f107f4f9b3ec5cab97998905fefa295afd37d3a06d375126f243d6",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/ChatImage.tsx",
+      "candidate_sha256": "ac4394dbae3dca4f3ab4d97f898ddd1e0cada308f212b1f5ecd7a3830c3c4e39",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/CompactionMarker.tsx",
+      "candidate_sha256": "b03e262980f384609d13d6642a75dad7847f21eacc2fdcc5a9d35236e3ee73a9",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/SkillChip.tsx",
+      "candidate_sha256": "379932dcd3b8e086f79215383c5407313bf0086c07a3d863d6f624061cdd92f4",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/TaskProgressBlock.tsx",
+      "candidate_sha256": "a14268b79d63ea4ee640f686317f8a4aeba04b15a7ac1aa20aa2b7ed35022cd6",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/ThinkingBlock.tsx",
+      "candidate_sha256": "aa3825b7b4eed87ed3461e078dc1e2883c7e376e0df32b212a4fa5ab9bb528ef",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/ToolCallWithResult.tsx",
+      "candidate_sha256": "24d7bd51956c3f4e43faf2de1dbfbac641baab9471227ba9241659a0dcaef031",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/arrived-failures.ts",
+      "candidate_sha256": "8030bbaa35d8d1eb7eef7451be78f4134b028cac1d3f8db410b06dbab4b89eca",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/copilot/session-title.ts",
+      "candidate_sha256": "05d8ce89c21783f33a8ebe95157a50956ac0356ab63e86ba2de4cf3430ea3031",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/AgentPanelToggle.tsx",
+      "candidate_sha256": "9cd7cb50d65378784133d652841c44d1d274e96d04958aa84e6fb484af598f8f",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/GlobalHeader.tsx",
+      "candidate_sha256": "f7deb6675569e05e4c2d450512b786fe8eebe58cf24e40c347c549a12d8f563d",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/MigrationReportNotice.tsx",
+      "candidate_sha256": "dc9b770bf2cc9da0f822f46a77d2f6174c642c9fc1949e70f2763237a888fcb2",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/ProjectMenu.tsx",
+      "candidate_sha256": "a6b91eff420fffbcc70991e93f416cb18c821f6f5f141dba079c4908ca35746d",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/ScriptGenerationNoticeListener.tsx",
+      "candidate_sha256": "40a5caa65e926b60ae8033eeb8be53facc4ff89121d008955423008118b35dce",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/TaskFailureListener.tsx",
+      "candidate_sha256": "62a2d06e666f92b6ac59b5d57e489a9ba249809388d6236d941a6da597557c39",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/layout/WorkspaceNotificationsDrawer.tsx",
+      "candidate_sha256": "f247a8e701bec3c67af739ebd62548bd74eed13dda1d54b6dba6d8eb5fff6448",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/AgentConfigTab.tsx",
+      "candidate_sha256": "1699afe6547af2c4939856a98577b7392917697cffa3778cfeebf6ce0b17797a",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/AssetLibraryPage.tsx",
+      "candidate_sha256": "0e07ad3380e521a6c53739f5a88ffcd8d4cc43feb70293c699faa6979ead35d1",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/LoginPage.tsx",
+      "candidate_sha256": "191f2bc8411cf4b36effba5927dd125ef8d9a3f401a426f6efd2a4809d3d2938",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/ProviderSection.tsx",
+      "candidate_sha256": "7bee1b2be4c960698b981a17c3e8691de7e0586a95ff4ae9178f576e767f01eb",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/SystemConfigPage.tsx",
+      "candidate_sha256": "c49271f7c3d9732ef5de458b38755f227813e7f39f26d70e0dcbba342b5fbdfc",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/create-project/WizardSection.tsx",
+      "candidate_sha256": "83a5d7104b99f249cc17b18808c0438a518d16efa058f32d10c96a02f33ccce9",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/create-project/WizardStepper.tsx",
+      "candidate_sha256": "fdc74212811cec7a3d9d561081e4746057ee1460d07ea224a8978bf24243fee2",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/DeletedProjectsDialog.tsx",
+      "candidate_sha256": "2e3a1333b70b6c4eceab703ab2ed70aa616058c8c6adc18b8e463960612570f4",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/ImportConflictDialog.tsx",
+      "candidate_sha256": "e903225987a00625c65a42b5f7c54c345ec6187cba1e11050e6891c6c42b411d",
+      "batch_reports": [
+        "frontend-passive-batch6-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/ImportReportConfirmDialog.tsx",
+      "candidate_sha256": "3afff1ad980fbe1af2d3ec22effebc79327ae52f818dfab3e687e72072009032",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/LobbyGreeting.tsx",
+      "candidate_sha256": "7595720c8259d6740d8587d9b6d5e42d40ea3c036f1fb51bdb387ff281e3b045",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/LobbyHeader.tsx",
+      "candidate_sha256": "a8d83efcc051dd3b76a9b88b6ca4d26b8bd6ae07cf66e023d0dd058564579152",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/LobbyToolbar.tsx",
+      "candidate_sha256": "bff97ebf61434a1c501a98dbbd377e21d643129af5082ff1673cf540b685b4b3",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/ProjectDialogs.tsx",
+      "candidate_sha256": "504cd87fb47a7f12c3fcecfc46d362d8a2b62f77d3e549beed80a8c51d037f6d",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/lobby-projects.ts",
+      "candidate_sha256": "b90f6b44d0df8fc5d0ebde4f996eb6c225e7edf96c3c5784ec38a14d265e878f",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/project-settings/BasicsTab.tsx",
+      "candidate_sha256": "32b6d3462eef1346b373f701f932a5a0461c5f0fe871f2f8f4a4cd15188eeb86",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/project-settings/SettingsBlock.tsx",
+      "candidate_sha256": "d9e0646b229e1e10f8434fe8274db97ac7238336e0414fa01e9ef61616e050fb",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/AboutSection.tsx",
+      "candidate_sha256": "d1433efd2beb39d4e92df55929d780b6f017141fee345c202b9158d4448b133d",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/BuiltinEndpointSelect.tsx",
+      "candidate_sha256": "03738d0f2c230aadbb72e7f654e0da5a7289b6f76a1de1e3317fca64d6d075f5",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ConfigIssueNotice.tsx",
+      "candidate_sha256": "8a9885935e3ef4add3d4a9fbef644557ebd6efd2c915557fc4a6f7faa7210188",
+      "batch_reports": [
+        "frontend-passive-batch4-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/CustomProviderDetail.tsx",
+      "candidate_sha256": "500a6d803a1c6aa74aca104ac9ddc58989c0b1124847806cc0ac65d7baa0c7f9",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/CustomProviderFieldRow.tsx",
+      "candidate_sha256": "1c19523f2ecacced2b0b17f233043b4168cf0577be85d35c166a8b935fe3508e",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/EndpointSelect.tsx",
+      "candidate_sha256": "d1cf019c3681695084939f884b5600627dceb85f5ccb25e562a3abb57576ac11",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/GeneralSection.tsx",
+      "candidate_sha256": "ed76aef04d62ac6439b6845cf34979dc4a9609fc62f7d08f32a0364f11b61c31",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/PromptPartialDetailView.tsx",
+      "candidate_sha256": "0b7e437f6b1797b4e7aa6c70a8f28f09f8cb61b35518c7201325b51f9787e8f6",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/PromptTemplateDetailView.tsx",
+      "candidate_sha256": "1f602e3f85077ae9fd5c4799cd68df0e402632379bff05d9c3e5fde9b5358b92",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/PromptTemplateSource.tsx",
+      "candidate_sha256": "899ca695fd42f33560473654d0a42a36db8cee93fd910f1038a01e8afce8a72c",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/PromptTemplatesSection.tsx",
+      "candidate_sha256": "d12f12bacc277d814af4bf0fdcf0f6df1833da1d9abf9c17b6b0ef048532fb18",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ProviderModelFlags.tsx",
+      "candidate_sha256": "a7f633368385ed8f40a5d880aefa77ab7563506790d12dbf90fad2f32adce3f4",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/agent-access/AccessTokensSection.tsx",
+      "candidate_sha256": "6c3ecc570c2b8cac92244c0a8f0d595d2b39267ad3ed90b16eca2bc9364bac8c",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/agent-access/CreateAccessTokenDialog.tsx",
+      "candidate_sha256": "9335a1e1090f42025e96ee4fc139e82c082f24dd6d24f6fc2037b505aa6267eb",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/agent-access/ExternalAgentSection.tsx",
+      "candidate_sha256": "fa2e0705a6678b3b121e9c18e95d2ec06ee540558cccd7bd83ac9448ccfde7b8",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/asset-library/AssetLibraryBindingsBlock.tsx",
+      "candidate_sha256": "95a9ec7e14fc8084bcf9e595b9818f994768a5e4b7fed1cdfb37a6923e5cc145",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/asset-library/AssetLibrarySection.tsx",
+      "candidate_sha256": "b8e4098ec709a7222e4c35e32374680d7f4a06d3ece09454232cfee05ad69e6b",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/asset-library/asset-library-labels.ts",
+      "candidate_sha256": "01fba6ff098298088793097dc46acce5edeff15a1af3a966cb471e30c0d3cd76",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/capabilityValues.ts",
+      "candidate_sha256": "d37a79771f6492b12fbf1b4384a3f43120182755e73f81b4d60eda2752766db2",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/durationErrors.ts",
+      "candidate_sha256": "3b4297227503d62d02fd63aed5168f3d239ec9bb5c36cac3b9f92b2219f2228b",
+      "batch_reports": [
+        "frontend-passive-batch2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+      "candidate_sha256": "221ce122efa57578aa6f30c756a4834acb6739361ee3e8ac9e55bd403323ac8e",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointDiagnostics.tsx",
+      "candidate_sha256": "feeb177bcd9383ef3b680b8b5ff2fba077a86f3054311b3940578f185bc39093",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointDuplicateChoices.tsx",
+      "candidate_sha256": "98260988106248e71893a78b9d777278a51fa5ee858615a870ff99b0e4357cf3",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointMarketInfo.tsx",
+      "candidate_sha256": "a993a5c74a08c9bcd4b1052e284555d7eef6f7edfd71abc85d2dddad9f80b348",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointReferenceList.tsx",
+      "candidate_sha256": "4b674ab4cc3226122bd975aab152c86bec1bd53af3fefd46b7d285752dc282f5",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointUsageList.tsx",
+      "candidate_sha256": "cdb9ba00031d89a59c2a16bcd17c20da054392dcae761f426e291edb0f9d9e20",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+      "candidate_sha256": "9d20272f400c0bb68eedfc3655217050bbd5d152d76ca5a25031d01b6755c833",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/JsonBodyEditor.tsx",
+      "candidate_sha256": "69e2b9848403a65800809125318fe8dcb61cd31b44d50a79227712475fb08939",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/endpoint-references.ts",
+      "candidate_sha256": "df7a07fc0cfa78ba27b0203bad1e54652fea4d4ee435934aa6f5e81598c15451",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/endpoint-test-primitives.tsx",
+      "candidate_sha256": "3eadc08613d1d5a602c7d0fda53729897c9e33a99b0b596e49acfe6cbd3055ae",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/endpoint-usages.ts",
+      "candidate_sha256": "d642e7275e612cc7cdc38df527e9aa9f7821e097ee2d7499b9786eb0868ae9be",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/example-templates.ts",
+      "candidate_sha256": "1385782ee44cc5b1cb2464b4d594883936bb3cec1884dfa833687b2f7a67f382",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/export-endpoint-definition.ts",
+      "candidate_sha256": "a66edb147e0ed307fb98aea984148c07ad7b57df9630d990422369849762002e",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketEntryRating.tsx",
+      "candidate_sha256": "bfd72b22ded8f49be9249125efd30f0e09d8006b875fc00336e5841e7f007343",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketEntryStats.tsx",
+      "candidate_sha256": "d15c3d23b83a1c96ec6fcc0ddb03c482b8689d01c8687b68ce609d3247903276",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketInstallBadges.tsx",
+      "candidate_sha256": "8fd80ae0f06a27bd708464fec7ee393b497422438753d63f7d51fa92d2476987",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketSettingsTab.tsx",
+      "candidate_sha256": "5421e17e8794bf839f791fea9eb28042ce183c56e7690c85642f805ee17ae831",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketSharedTab.tsx",
+      "candidate_sha256": "d247e00d8a97744b5b7987b48bd5f50c45d9024e3fde8b89584f789d79b39df7",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketSourceList.tsx",
+      "candidate_sha256": "3d11a1ce096716b3a5cd5caf8207a56685fe12162c66cbf4693cff47c9e00402",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketSubmissionBadge.tsx",
+      "candidate_sha256": "e1eeee4aa6ba19b0ce333b0edf46689229d9ce50cf528c5d65a238f220bbf405",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/OfficialServiceNotice.tsx",
+      "candidate_sha256": "07f705f04f9d9d55ddcc1b2022224cd0eb84cb04cb23b53009eb21066cb77db4",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/market-keys.ts",
+      "candidate_sha256": "11a0815e6be193f0980d40d4e5c6375784115b166ea74bec7b561f840f2f900c",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/market-links.ts",
+      "candidate_sha256": "b89b4b2275d666eeb749b800ed5c7d12cc142436aca856651b2846d260bba526",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/market-source-status.tsx",
+      "candidate_sha256": "0de59c45a517b719eedeb08ce031416923c479f787541b703291f22ede2bc272",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/promptTemplateCategory.ts",
+      "candidate_sha256": "723cf4f1c96f4422ce88145b9d7f19946c360c060d6da91bd2ab88ee3e96769f",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/promptTemplateShared.tsx",
+      "candidate_sha256": "7955d6d493667c45e765b72cd8cc21ed02c574365a41cdd8a2a35669c8ae73bf",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/providerModelDisplay.ts",
+      "candidate_sha256": "54192f8ebc1d81e6994f453e47fe921306057295f821a868851a4db44b016f3d",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/pages/settings/providerModelEntry.ts",
+      "candidate_sha256": "ba5c5c7db3913a3e05415d93fbdc77b2209fa7b6c9ec63cec2c93552cfb90a98",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/ArchiveDiagnosticsDialog.tsx",
+      "candidate_sha256": "b23efd27649196c190e73e11e42796b6cc7b38df3c8e76b6e4c41424e9e219b1",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/CopyButton.tsx",
+      "candidate_sha256": "8ad1840b83e1f31d960ee2e076e14f90806e443f4b3ae8ad9b67d5ac0322e130",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/GridStoryboardBar.tsx",
+      "candidate_sha256": "b5b4de7518cd8a956b2f05453b9b7012e364acf54d75d2fde4dcd8c061c0de36",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/LoadingState.tsx",
+      "candidate_sha256": "37c6d9f3d10e55de50de9832ab62011c8c31321e8fc5404197854e9d7a7f2700",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/MigrationReportContent.tsx",
+      "candidate_sha256": "f8c8d7f4bb5f5cf58829eb4d2b50a2803ead71cc6dfc570ba467b770ccf78afd",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/NarrationDeliveryFields.tsx",
+      "candidate_sha256": "c7dc2fbb02c88ef119853e1f41369921404fbea6799a7fbee8f76e177746703b",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/NarrationVoiceInput.tsx",
+      "candidate_sha256": "2a04591d5ad1651fa66888a32e0661694fd08a3fb11c6884afe329a5b7825def",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/OutputTruncationHint.tsx",
+      "candidate_sha256": "2246dac834d6b113afee76c7478476929e8eb7d336b0540401e4847cfdbe1d90",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/RequestErrorNotice.tsx",
+      "candidate_sha256": "5e4c029b508d650364a88a4bb24966bd180121609a54679e715228fe240742f4",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/ResolutionPicker.tsx",
+      "candidate_sha256": "3447dcd8827200b2cae18cf47d02520ce5cafad9e117036e6ea49af0b4aa8bd0",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/ScriptHighlight.tsx",
+      "candidate_sha256": "a7f55a1edf71304d555f8be385dfe5ddbb0ad015a08e27f5fd2d081296836fe7",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/ScriptOverwriteConfirmDialog.tsx",
+      "candidate_sha256": "660bec34b8036ad2d0e29512ad3479e24c2dc9bf25e86348404a749509f7b29e",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/SourceTextReadonly.tsx",
+      "candidate_sha256": "8c3feb67e309c3b9799961209d613330b73798db65a924804a4a490ee2c13f46",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/VideoModelUnresolvedNotice.tsx",
+      "candidate_sha256": "519c8f461f789dfe209fb6e2fd22813737dd90fd944ad8265dbb757661b9a968",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/draft-text.ts",
+      "candidate_sha256": "9d9d283fbc8efa26e4043185547032ee939f9e7fac83a11a61f375c440e7229e",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/RetainedEditUnit.tsx",
+      "candidate_sha256": "8d84053ab20320413e3e0b3c50a0480221a8c1e225ede555e380942ca2896c01",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/SaveBar.tsx",
+      "candidate_sha256": "2a8ea542499239125d3d9baea0def58115a4bf98a2f80c05a965eaf48126c956",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/SaveStatus.tsx",
+      "candidate_sha256": "2147ba8fdb92ae343b1f2a8d67a53387ccfa089ac4d55a3d34f363cb230e5279",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/UnsavedChangesBar.tsx",
+      "candidate_sha256": "a5ae65c765e19fed1c69d5c9307a4ed9de98116c0abf55888f6085e68fd82d51",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/edit-unit-retention.ts",
+      "candidate_sha256": "f4c3040ba58c4272a9fc929c1cd07f54c726a07fd77f3138784a376a7b9a6112",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/episode-item/ItemPositionBadge.tsx",
+      "candidate_sha256": "103cdc1698d03be383cf2f5465fe76962df18943756626bae9cd22495d80a86b",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/episode-item/ItemPositionOfTotal.tsx",
+      "candidate_sha256": "1547734f154be378e92c16469a2ea2e62bccf33550d3fa49f5cf9635709aaaf7",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/episode-item/useEpisodeItem.ts",
+      "candidate_sha256": "ca906b0d6e8f3134b54f02d45a0494688e1782aa4b6a50ecdbc5f5d0962e55ea",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/episode-target-duration.ts",
+      "candidate_sha256": "1f689078a539a14d10700e9792faf3e66744ad8c2707109ac4d85993b9d50606",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/generation-route-meta.ts",
+      "candidate_sha256": "95076958f3617e60acddfdd8c793c0ba238f725cfb8faf1522bf4e5033c76eb8",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/model-overrides.ts",
+      "candidate_sha256": "32d5278237c71b7e5079bc96cc59709a150540db92fa7a807a5bb4ee974c49d1",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/narration-delivery.ts",
+      "candidate_sha256": "ff372bab3d543fc3903b2eeb213bc4bcff4084e13c49127d48cf583ec7f74b72",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/page-shell/PageHeader.tsx",
+      "candidate_sha256": "a4543843389d37f2c092725b0be301bdd2ad7cb6fff2038b556ea103960506e5",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/prefill-assistant.ts",
+      "candidate_sha256": "cc4beaebcae2071970733f42c15820b7e52c3052d78991c5257d0a91b1ee01f5",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/sortable/BufferedKeyboardSensor.ts",
+      "candidate_sha256": "b1cd2e02b1c6c808b6e9be592a339ba836d3c8a369ea991d7f0d10f03e2c9297",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/speech-rate.ts",
+      "candidate_sha256": "ee0767c3ff3f0b46418429dfb79f16e44dcbb416aab9a78f6e2a5976cb53f57b",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/shared/useCatalogEntrySearch.ts",
+      "candidate_sha256": "cfad422f90da84974a63bb2d6b6f308a3cf20c17600c50610396dc023e78d196",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/attachment.tsx",
+      "candidate_sha256": "e3bd01a80aa80f4283f1f713563fde2b0bb0f0910b72c6f12f8e6807e09c08cc",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/badge.tsx",
+      "candidate_sha256": "4c5d29fac929f4bf0c015da6b6a0fce4ca43babd98c6977274424aedc21ddf44",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/bubble.tsx",
+      "candidate_sha256": "87815454cfc6173ee9c14780965705a1f9df2bc0406bbc54a3b5a7b9b0764bad",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/button.tsx",
+      "candidate_sha256": "61849ca13a9f4678d9884c097b2f52c9a3256a38c6e650b94d237e9df0c582b8",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json",
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/checkbox.tsx",
+      "candidate_sha256": "c625684d9d253ce6673b3c1b576159c11caf423262aca560bf68a78b97f40c24",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/combobox.tsx",
+      "candidate_sha256": "173b8d83e9f0f720bfb390a39e6f2d75dd8244814130419c4afc234b5443a64d",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json",
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/command.tsx",
+      "candidate_sha256": "504170a508a15f016a9481a8b79faefc6c3e53b24a0a6d904c55da2e5bc62ac3",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/dropdown-menu.tsx",
+      "candidate_sha256": "cdab6aa2ab0226c9ca7a44a38e1aca27c5eef01f834fcad5b57df32a9e77504f",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json",
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/hover-card.tsx",
+      "candidate_sha256": "81fdb7cc0e1b7403a8c4abc5328b8b47a7189b081cc5ffca86dd76f23dbf6edb",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/input.tsx",
+      "candidate_sha256": "9ab97be2a5b9dbe3c266ae2d785419d82ee277e5acc9dd639a33675b80e4331f",
+      "batch_reports": [
+        "frontend-passive-batch8-review.json",
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/label.tsx",
+      "candidate_sha256": "50a17c5594b7dd02cf98c95866877bb012a1ecd4cce02b6821ee7390bf9b00e1",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/popover.tsx",
+      "candidate_sha256": "d8c5caeaab461a3ff92c079f677456bddb7732c91d8205dfb8fcd764b5d2735b",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json",
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/questionnaire.tsx",
+      "candidate_sha256": "a3981e6a7e20a37b828d35d743be6bb4eda5320e4cb26c9e681a6b0e5a3dfe73",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/radio-group.tsx",
+      "candidate_sha256": "dae4ed35771acf741a89eb4f9d4917ccf93dc9820d9834c685e0a45de3d7b82a",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/resizable.tsx",
+      "candidate_sha256": "04b616b308c1a4cca35f8323fa00c85eef3eba0f14fa9e98932c3e1c61a44200",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/select.tsx",
+      "candidate_sha256": "d9670a3c512fefa7825743dce9fd1b15e18eebcb57f1d9cd3df8e5486ab69952",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json",
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/switch.tsx",
+      "candidate_sha256": "91e027bdf6d8c677a85a9fa73aaf12bf8ab010907f5268ee78ab8815b55905cc",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/tabs.tsx",
+      "candidate_sha256": "5a0624c8645319dc48cc7e8bdfe51923d8f2f9c9856c8275d2d1fa70b4ed735e",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/textarea.tsx",
+      "candidate_sha256": "e4f5042ad9f58e2c895a60bdf694889cab04db016c781c98b409fe0a748eb565",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/toast.tsx",
+      "candidate_sha256": "7fa339efce771cd88b22ccd7a6e1259a6b6deb737dcd24077ea4f632907afb86",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/toggle.tsx",
+      "candidate_sha256": "c8bf1cd567b749c39b9444c1d0f259e7ed6f9b72b8529b747515034956e6e67e",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/ui/tooltip.tsx",
+      "candidate_sha256": "23498a0214bb698e1dbe4dc69e3a7ed1f709824af815f757c53c29bb9fb22007",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/RecordRow.tsx",
+      "candidate_sha256": "8c9878b4030cb1d6d4d2a841a4db80c024d7a99cd9dc560dd7b0a6fd6b8337ed",
+      "batch_reports": [
+        "frontend-passive-reuse2-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/SeriesSwatch.tsx",
+      "candidate_sha256": "1c46568ca9a5063ab4be58e0477b3e902ef0879e55aaa6a1b9c09d19c2fc1d61",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageActiveRow.tsx",
+      "candidate_sha256": "c24ae506c351b3759ac1428d9b019df17b33a39a7f7ea96c062e38bbbbb69451",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageAttentionCard.tsx",
+      "candidate_sha256": "2f5f250e13c5fef62c9acb9cc1fa8099ac75c10313613dcd2afbfc2ef1d8ded3",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageHeaderEntry.tsx",
+      "candidate_sha256": "b3ed78e69442f308f6e2f5d60046869e867c11deb3bccdd3458dfc59f70217b9",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageKpiStrip.tsx",
+      "candidate_sha256": "4bfebcd3a0d9327bdd7e4eda4b52e36a55150c9223f91659190461ceef11c0cc",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsagePager.tsx",
+      "candidate_sha256": "49b63d32cfad2bca360ad3edd0ea79139ce09b130cf97e1b5201f16e459121a8",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsCard.tsx",
+      "candidate_sha256": "302c78d0240d9447ac9b3a295dfbbc7938291d3647d9618a0309ed5e2c97d1fc",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageSessionsCard.tsx",
+      "candidate_sha256": "167ae2c5a996c4a451c14db504ea265a8c9cdc167c1618696651ca5c93e22bb1",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/UsageTrendCard.tsx",
+      "candidate_sha256": "7e7df7881e92fce8d66d291e29d848ca85f06719f3dfe1607237267801d5cd8a",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/usage-fixtures.ts",
+      "candidate_sha256": "ebe69e188181e7e92073e6d72a5b4a000e8a78b94adc3f8cc7083a29741cba1c",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/usage/usage-header-test-utils.tsx",
+      "candidate_sha256": "aff8b34669cb62122e10fdfa1ef1e94fb41a70d2c51d1c1f958631bb61310d8e",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/workflow/CheckpointNote.tsx",
+      "candidate_sha256": "abad9cd5385c2a16a2e031143541517d9f4ae95ba4e426cdaec67f39ab1d7f54",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/workflow/ProblemList.tsx",
+      "candidate_sha256": "c873eb5613861489327c544d208537c8be5e089f3c15457fb16aa29505ddb18f",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/components/workflow/state-language.ts",
+      "candidate_sha256": "9b05bbf72090fcc50475d3beef2d8ccfa4684dd6e82650e1463b08c6b0471bea",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/data/style-templates.ts",
+      "candidate_sha256": "ba76be173b833c1f46e21602877e8018604527aff182051a6fcc33fc94e808a6",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/useCredentialForm.ts",
+      "candidate_sha256": "d0e59ed4a27eaad81f280a397fe5c03126a6bca2ee594fbee76bad91b4860365",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/useDebouncedValue.ts",
+      "candidate_sha256": "02ecdb7207d62961d21ab023c17ebaa78b681d69fb36362dddf9ae6c2bb61cc3",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/useEpisodeLedger.ts",
+      "candidate_sha256": "e84de213628e7c38af7d1d4343a50502c2f14ecd4448f19670979c08058704fa",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/useOpenAppLink.ts",
+      "candidate_sha256": "a9f8f1d4c8c2df2b4b6bf000be50597914872db6f549dcffefc3f8068783dfdc",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/usePlaybackStart.ts",
+      "candidate_sha256": "504f082fdeb9ec613a84b655a49338854fae641faf8a719b6f7e39cd8e5ec3fd",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/useScriptPlanSubmit.ts",
+      "candidate_sha256": "ac5fccefa9d9db9f1bc0953720de803cf711612094f9d0e32f0a82e38a464771",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/hooks/useTtsModelCapabilities.ts",
+      "candidate_sha256": "4de87d24c1fc4a068d732d4f0d5662789a27b580bd66e418a6597f7df11685c5",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/onboarding/DemoEpisodePlaceholder.tsx",
+      "candidate_sha256": "b310b010738960e817836f1644b58d736b2f31abeb8028c28bd630a680bfcb80",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/onboarding/DemoReadOnlyBadge.tsx",
+      "candidate_sha256": "a9bc10fa6cc536327f4ea85fde4793454185f75fd0f1dea8d2c2db61d5eab990",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/stores/ad-script-store.ts",
+      "candidate_sha256": "ee975443547ffdbecf92283327220e9cff46e172c469dcdd8e44f47b08fbefd0",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/stores/asset-sheet-batch-store.ts",
+      "candidate_sha256": "7ab7febf946b3f9cc016f2d54a789f00284b0664395f3e3f3010cea403918252",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/stores/auth-store.ts",
+      "candidate_sha256": "e92e1d3be9c76dd83838f67afd0f8c45b5d3fb8311453ed38b960c8763815eb2",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/stores/episode-surface-store.ts",
+      "candidate_sha256": "e879a6ea7f64000f4f871818e0e289966ff1bbdb3d3390af913a6e5481318bfa",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/stores/prompt-authoring-store.ts",
+      "candidate_sha256": "15d3809299fa079f6810a6f62a09f7f7e85d26b689a95507d0ba2c704eb94e8d",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/theme.ts",
+      "candidate_sha256": "c34d2e4a5ddf9901ae2d069c25e628e93e5b36b0a4097e3cf8a0dc64fbacaf96",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/async.ts",
+      "candidate_sha256": "97466d7f2b9bab9534f5db37e51f07d0ec84e5a64a6cda3e5b353b1f64c932e3",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/auth.ts",
+      "candidate_sha256": "bac295d67aaea3fc28cfc2e574aa8753272997e93d709bddba656a190ea5e7f2",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/clipboard.ts",
+      "candidate_sha256": "8ddf4dac87ae9f79e685ca764ed488a0a26ce7fbb382d51ef896958d6b3aa983",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/cost-format.ts",
+      "candidate_sha256": "da18b9fc87902646b156dd1dffa9daaaabb368debf048221929d7e9e9899c70c",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/download.ts",
+      "candidate_sha256": "2ec92434685459b3f9a1ebcf80ea8778b68b93c65087eb5fc60c90fe1e658cce",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/draft-violations.ts",
+      "candidate_sha256": "f87fad9c545cad4c2a2f565f74df7e50902d79e8bcf0de434d0e97d0e2ed359b",
+      "batch_reports": [
+        "frontend-passive-batch9-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/episode-item.ts",
+      "candidate_sha256": "9189b052ede89ce680aefbf75b0561d1a44d02bcdf746ec6defae00f747c618a",
+      "batch_reports": [
+        "frontend-passive-reuse-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/episode-order.ts",
+      "candidate_sha256": "b1a6497cf1194e592da4daf5332554c84c3162f7b2ce88ee3f6b56ee7e8892e4",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/file-size.ts",
+      "candidate_sha256": "1c44a02ce0f9e1f177f61292d7e719c30c15cee033973f0f1fc10e6f61d186d0",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/last-instruction.ts",
+      "candidate_sha256": "754d915462b90bc5ae75cdc661cf2a7a619419bb5511ee7815fa63e75103a5b2",
+      "batch_reports": [
+        "frontend-passive-batch1-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/list-format.ts",
+      "candidate_sha256": "7196bf5a7943f5aee1307ec21470132864773e3d50c057fe282ee25b062ecd14",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/move-anchor.ts",
+      "candidate_sha256": "f18eedad03502020e110fd7712e5d35a7f2220d7401680186213b6d36f26e982",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/multiplier.ts",
+      "candidate_sha256": "6d51aa73f29bedab2e06a636b2a83b4319bde79b1f318b1d4a98a1f3f69dadcc",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/output-truncation.ts",
+      "candidate_sha256": "35beb1372de1eaa9b52bd08b218c920f4943c770c49fc93e605109091b155c7e",
+      "batch_reports": [
+        "frontend-passive-batch7-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/preview-aspect.ts",
+      "candidate_sha256": "7cfb40cfc6affce2383eecaf9a5dbff32bd38c860d067c65e95b8ac5d252f49e",
+      "batch_reports": [
+        "frontend-passive-batch3-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/project-display.ts",
+      "candidate_sha256": "20f41de350632fb861a920553f78d877ce3cceb0563ca0d2eba8f6a85fa24998",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    },
+    {
+      "path": "frontend/src/utils/safe-url.ts",
+      "candidate_sha256": "3fa8a3cf13b6f17a3bdbc9133c7d15947454fecbe5f5daed349a3bd1e1ca77f1",
+      "batch_reports": [
+        "frontend-passive-batch5-review.json"
+      ],
+      "coverage": "Only the translated comment spans, not every text literal or all remaining comments in this file."
+    }
+  ],
+  "bounds": "Per-batch TypeScript printer comparison removes comments and preserves executable source. Directive prefixes, line counts and inline-code examples are checked separately. Localized runtime strings and user fixtures remain unchanged. API comments are fully translated, preserving three original Chinese inline-code placeholders."
+}

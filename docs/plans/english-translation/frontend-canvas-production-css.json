@@ -1,0 +1,21 @@
+{
+  "baseline_css": [
+    {
+      "path": "assets/index-D4iHU1rK.css",
+      "bytes": 221969,
+      "sha256": "9ccaff6f33408e088c34e47e624c6be8683e5f55884357757c88b29a074db2c7"
+    }
+  ],
+  "candidate_css": [
+    {
+      "path": "assets/index-D4iHU1rK.css",
+      "bytes": 221969,
+      "sha256": "9ccaff6f33408e088c34e47e624c6be8683e5f55884357757c88b29a074db2c7"
+    }
+  ],
+  "stylesheet_content_multisets_identical": true,
+  "scope": "CSS bytes only, built with the same frozen dependencies and configuration. Does not certify runtime/model behavior.",
+  "build_command": "pnpm --dir frontend exec vite build --outDir /tmp/arcreel-canvas-css-final",
+  "build_log": "/tmp/arcreel-canvas-production-build-final.log",
+  "build_log_sha256": "9701df1775bfa2c7c4d3475c8d0943b31b0f3c2e2058e795bbada39a70bb369d"
+}

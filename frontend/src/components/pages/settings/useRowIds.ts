@@ -1,9 +1,9 @@
 import { useState } from "react";
 
 /*
- * 可增删、可编辑的行列表的客户端行 id：只做 React key，不进数据，不随保存发出。
- * 行在数据里没有身份（价目表的档、路径列表），或身份就是正在编辑的字段（请求头名、变量名），
- * 用下标或字段作 key 时，删掉中间一行会让后面的行错位接手别人的输入状态，改名会重建输入框、丢焦点。
+ * Client row IDs for editable/addable/removable lists: React keys only, outside data and saved requests.
+ * Rows lack data identities (price tiers, path lists), or identities are edited fields (header/variable names).
+ * Index/field keys let subsequent rows inherit others' input states after middle deletion; renaming rebuilds inputs and loses focus.
  */
 
 interface IndexedIds {
@@ -16,8 +16,8 @@ function freshIds(count: number, start: number): IndexedIds {
 }
 
 /**
- * 数组行的 id，与行一一对应。增行、删行时在发出 `onChange` 的同一个处理函数里调用 `append`、`remove`；
- * 行数与 id 数对不上即外部整体换了值（采用官方值、放弃修改），全部重建。
+ * Array-row IDs correspond one-to-one. Call `append`/`remove` in the same handlers issuing `onChange`;
+ * mismatched row/ID counts mean external whole-value replacement (official adoption/discard), rebuilding all IDs.
  */
 export function useRowIds(count: number) {
   const [state, setState] = useState(() => freshIds(count, 0));
@@ -48,9 +48,9 @@ function withNames(state: NamedIds, names: readonly string[]): NamedIds {
 }
 
 /**
- * 以名字为键的记录行的 id。改名时在同一个处理函数里调用 `rename`，id 跟着名字走：
- * 对象键的枚举顺序会把整数形式的键提到前面，行的位置在改名中可能变化，所以不按下标对应。
- * 没见过的名字（新增的行、外部换进来的值）在渲染时补发 id。
+ * Named-record row IDs: call `rename` within the same handler, moving IDs with names.
+ * Object enumeration moves integer-like keys first, potentially changing row positions during renames; never match by index.
+ * Unseen names (new rows/external replacements) receive IDs during rendering.
  */
 export function useNamedRowIds(names: readonly string[]) {
   const [state, setState] = useState(() => withNames({ byName: {}, next: 0 }, names));

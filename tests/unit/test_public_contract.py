@@ -1,4 +1,4 @@
-"""公开契约行为测试：Agent 安装指引、OpenAPI 可写字段与枚举语义。"""
+"""Public behavior contracts: Agent installation guides, writable OpenAPI fields, enum semantics."""
 
 import pytest
 from fastapi import FastAPI
@@ -10,12 +10,12 @@ from lib.agent.profile_manifest import ContentMode
 from lib.episode.source_kinds import SourceKind
 
 # ---------------------------------------------------------------------------
-# Agent 安装指引内容验证
+# Agent installation-guide content.
 # ---------------------------------------------------------------------------
 
 
 class TestAgentInstallationGuide:
-    """验证公开指引只承载外部 Agent 的安装与接线步骤。"""
+    """Public guides contain only external-Agent installation/wiring steps."""
 
     @pytest.fixture(autouse=True)
     def _load_template(self):
@@ -28,7 +28,7 @@ class TestAgentInstallationGuide:
         assert "setup-arcreel-skills" in self.guide
         assert "video-workflow" in self.guide
         assert "{{BASE_URL}}/mcp" in self.guide
-        assert "工作区的本地配置惯例" in self.guide
+        assert "host/workspace local conventions" in self.guide
 
     def test_excludes_rest_workflow_reference(self):
         assert "/api/v1/" not in self.guide
@@ -37,12 +37,12 @@ class TestAgentInstallationGuide:
 
 
 # ---------------------------------------------------------------------------
-# Agent 安装指引端点行为
+# Agent installation-guide endpoint behavior.
 # ---------------------------------------------------------------------------
 
 
 def _installation_guide_app() -> FastAPI:
-    """把真实的安装指引处理函数挂到 mini app 上，避免测试复制实现。"""
+    """Mount the real installation-guide handler in a mini app instead of copying its implementation."""
     from server.app import serve_agent_installation_guide
 
     app = FastAPI()
@@ -51,7 +51,7 @@ def _installation_guide_app() -> FastAPI:
 
 
 class TestAgentInstallationGuideEndpoint:
-    """验证安装指引端点的响应语义。"""
+    """Verify installation-endpoint response semantics."""
 
     def test_returns_text_not_json(self):
         client = TestClient(_installation_guide_app())
@@ -80,12 +80,12 @@ class TestAgentInstallationGuideEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# OpenAPI 写模型：不可写字段不在 UpdateProjectRequest 中
+# OpenAPI write model: unwritable fields stay out of UpdateProjectRequest.
 # ---------------------------------------------------------------------------
 
 
 class TestUpdateProjectWritableFields:
-    """验证 UpdateProjectRequest 不暴露服务端必然拒绝的字段。"""
+    """UpdateProjectRequest must not expose fields the server always rejects."""
 
     def test_content_mode_not_in_update_model(self):
         from server.routers.projects import UpdateProjectRequest
@@ -104,12 +104,12 @@ class TestUpdateProjectWritableFields:
 
 
 # ---------------------------------------------------------------------------
-# 枚举语义：content_mode / generation_mode / source_kind
+# Enum semantics: content_mode / generation_mode / source_kind.
 # ---------------------------------------------------------------------------
 
 
 class TestEnumSemantics:
-    """验证枚举类型的取值集合与 GLOSSARY.md 一致。"""
+    """Enum value sets agree with GLOSSARY.md."""
 
     def test_content_mode_values(self):
         from typing import get_args

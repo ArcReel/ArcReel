@@ -1,11 +1,12 @@
-"""官方同步表：官方同步取回的目录数据与同步状态
+"""Official sync table: fetched catalog data and sync state
 
 Revision ID: b5d1e8f3a627
 Revises: a7c3e91d4b58
 Create Date: 2026-10-21 10:00:00.000000
 
-实例从目录数据仓库取回的整份数据集存进这张表，只有一行，带数据集版本；同时记上次成功同步的时间与最近一次
-失败原因，供系统诊断信息使用（docs/adr/0103）。存量实例尚未同步过，新表为空，目录照旧使用出厂快照。
+Store the entire fetched catalog dataset in one row with dataset version, last successful sync time,
+and latest failure reason for system diagnostics (docs/adr/0103). Existing instances have never synced,
+so the table is empty and the catalog continues using its shipped snapshot.
 """
 
 from __future__ import annotations

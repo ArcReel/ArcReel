@@ -1,9 +1,9 @@
-"""市场源地址解析：用户输入 → 索引地址 + 规范键。
+"""Market-source address parsing: user input to index URL + canonical key.
 
-接受四种形态：``owner/repo``、``owner/repo@ref``、``https://github.com/owner/repo``（可带
-``/tree/<ref>``）、以 ``arcreel-market.json`` 结尾的任意 ``https://`` 直链。GitHub 形态默认 ref
-``HEAD``，解析到 raw 文件地址；规范键是 ``github:owner/repo@ref`` 或 ``url:<index_url>``，同键
-视为同一个市场源。``http://``、本地路径与 ``git@`` 一律拒绝。纯逻辑，不发请求。
+Accept four forms: ``owner/repo``, ``owner/repo@ref``, ``https://github.com/owner/repo`` (optionally with
+``/tree/<ref>``), and any direct ``https://`` URL ending in ``arcreel-market.json``. GitHub forms default ref to
+``HEAD`` and resolve to raw file URLs; canonical keys are ``github:owner/repo@ref`` or ``url:<index_url>``. Equal keys
+mean the same market source. Reject all ``http://``, local paths, and ``git@`` forms. Pure logic; sends no requests.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from .issues import INDEX_FILENAME
 
 GITHUB_RAW_HOST = "raw.githubusercontent.com"
 DEFAULT_GITHUB_REF = "HEAD"
-#: 解析出的索引地址与规范键的长度上限，与 ``market_source`` 表对应列宽一致。
+#: Maximum lengths for resolved index URLs and canonical keys, matching corresponding ``market_source`` column widths.
 MAX_RESOLVED_LENGTH = 2048
 
 _OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -45,7 +45,7 @@ class ResolvedSourceAddress:
 
 
 def resolve_source_address(address: str) -> ResolvedSourceAddress:
-    """解析一个市场源地址；不合法时抛 :class:`SourceAddressError`。"""
+    """Parse a market-source address; raise :class:`SourceAddressError` when invalid."""
     text = address.strip()
     if not text:
         raise SourceAddressError(SourceAddressErrorCode.EMPTY)
@@ -66,7 +66,7 @@ def github_source(owner: str, repo: str, ref: str = DEFAULT_GITHUB_REF) -> Resol
 
 
 def source_identity(canonical_key: str) -> str:
-    """规范键的身份形态，相等即同一市场源：GitHub owner/repo 折叠大小写，ref 与直链保持原样。"""
+    """Canonical identity key: equality means the same market source. Fold GitHub owner/repo case; preserve refs and direct URLs."""
     prefix = "github:"
     repository, separator, ref = canonical_key.removeprefix(prefix).rpartition("@")
     if not canonical_key.startswith(prefix) or not separator:
@@ -86,7 +86,7 @@ def _resolve_https(text: str) -> ResolvedSourceAddress:
     try:
         parts = urlsplit(text)
         hostname = parts.hostname
-        parts.port  # noqa: B018 -- 访问即校验端口，非法端口抛 ValueError
+        parts.port  # noqa: B018 -- Access validates the port; invalid ports raise ValueError
     except ValueError as exc:
         raise SourceAddressError(SourceAddressErrorCode.UNSUPPORTED) from exc
     if not hostname or parts.username is not None or parts.password is not None or parts.query or parts.fragment:

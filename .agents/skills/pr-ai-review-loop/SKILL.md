@@ -1,61 +1,61 @@
 ---
 name: pr-ai-review-loop
-description: PR AI review 收敛。用户或 team-lead 要求启动或继续审查与修复循环时使用；不用于以 GitHub reviewer 身份产出审查意见，或只处理单条评论。
+description: Converge PR AI review. Use when a user or team-lead requests starting or continuing a review-and-fix loop; not for producing feedback as a GitHub reviewer or handling only one comment.
 ---
 
-# PR AI Review 收敛
+# Converge PR AI review
 
-以可合并的代码质量为目标。完成意味着每条发现都有处置，而不是所有 bot 都停止提建议。
+Aim for mergeable code quality. Completion means every finding has a disposition, not that every bot has stopped suggesting changes.
 
-委派方指发起循环的用户或 team-lead。进入前确认已有非 draft PR，checkout 对应其最新 HEAD，并理解 PR 的验收边界；创建 PR、转为 ready 和合并由委派方或上层流程负责。
+The delegator is the user or team-lead who starts the loop. Before entering, confirm a non-draft PR exists, the checkout matches its latest HEAD, and you understand its acceptance boundaries. PR creation, marking ready, and merging belong to the delegator or higher-level workflow.
 
-## 工程判断
+## Engineering judgment
 
-发现是待证实的线索：你能从代码和契约还原出触发路径与错误结果，它才成立；未能证实的按误报或 YAGNI 结案。是否属于本 PR、怎样修复，同样由你判断。AI reviewer 对任何可想象的路径都会提建议，每采纳一条，下一轮就多一段新代码要审；判断的产出是处置，修改只是其中一种。
+Findings are leads to verify: a finding is valid only when you can reconstruct its trigger path and incorrect result from code and contracts. Close unconfirmed findings as false positives or YAGNI. You also decide whether a finding belongs to this PR and how to fix it. AI reviewers suggest changes for any imaginable path; every accepted suggestion creates more code to review next round. Judgment produces a disposition; modification is only one kind.
 
-**定性。** 读完整批，先逐条定性再动代码：本 PR 的**缺陷**才修；**YAGNI**、**nitpick**、**存量**与**误报**以回复结案，存量按 [escalation.md](../../../docs/agents/escalation.md) 分流。缺陷须常规可达，判据见 [general.md](../../../docs/standards/general.md)「防御只针对常规可达的场景」。严重度标签是 reviewer 的估计，定性是你的结论。
+**Classify.** Read the whole batch and classify every finding before changing code. Fix only **defects** belonging to this PR; close **YAGNI**, **nitpicks**, **preexisting issues**, and **false positives** with replies. Route preexisting issues under [escalation.md](../../../docs/agents/escalation.md). Defects must be routinely reachable; see “Defend only against routinely reachable scenarios” in [general.md](../../../docs/standards/general.md). Severity labels are reviewer estimates; classification is your conclusion.
 
-**证据。** 从项目契约、真实调用路径和信任边界判断实际后果。触发路径存在只是起点，还要说明当前行为为什么错误。可执行的行为缺陷优先用修复前失败、修复后通过的测试验证；难以稳定复现时，用明确的代码因果链或接口契约支撑。安全与数据完整性风险优先核实，修法仍独立判断；仍需取舍时按 escalation.md 判断是否交委派方裁决。
+**Evidence.** Assess actual consequences from project contracts, real call paths, and trust boundaries. A trigger path is only the starting point; explain why current behavior is wrong. Prefer a test that fails before and passes after the fix for executable behavioral defects. If stable reproduction is difficult, support the finding with an explicit code causal chain or interface contract. Prioritize verifying security and data-integrity risks, but judge fixes independently; use escalation.md to decide whether remaining tradeoffs need the delegator's decision.
 
-**根因。** 修根因而非症状。reviewer 指的位置和附带的 patch 通常停在症状处；修改落在负责该保证的那一层，利用已有的不变量、抽象和错误处理。在症状处加防御是补丁的信号。以最终设计的清晰度衡量最小修复，而非改动行数。验证后通看整个 PR diff，确认各轮修改仍组成一份连贯的实现。
+**Root cause.** Fix the root cause rather than symptoms. Reviewer locations and patches usually stop at symptoms; make changes in the layer responsible for the guarantee, using existing invariants, abstractions, and error handling. Adding defenses at the symptom is a sign of patchwork. Judge the smallest fix by final design clarity rather than line count. After verification, read the entire PR diff to confirm the rounds' changes still form a coherent implementation.
 
-**收敛。** 后续审查重点是已接受修复及其回归；新发现仍先定性。已裁决的议题仅在出现新证据或相关前提变化时重开。多轮围绕同一处加补丁时，回到根因重新整理实现，而不是继续叠加局部防御。
+**Convergence.** Subsequent reviews focus on accepted fixes and regressions they introduce; still classify new findings first. Reopen decided topics only when new evidence appears or relevant premises change. If multiple rounds add patches around the same place, return to the root cause and reorganize the implementation instead of accumulating local defenses.
 
-## 推进循环
+## Advance the loop
 
-首次进入读 [reviewers.md](references/reviewers.md)，按各家的协议确认审查覆盖、读取发现、补齐必要复审。下列命令从本 skill 目录执行，`<repo-root>` 始终指向目标 PR checkout；参数和字段定义以脚本头注释为准。
+On first entry, read [reviewers.md](references/reviewers.md) and follow each reviewer's protocol to confirm coverage, read findings, and request necessary rereviews. Run the commands below from this skill's directory; `<repo-root>` always points to the target PR checkout. Script header comments define arguments and fields.
 
 ```bash
 bash scripts/poll.sh --repo-root <repo-root> <PR_NUMBER>
 bash scripts/query.sh --repo-root <repo-root> <PR_NUMBER> details <id>...
 ```
 
-索引用于定位，正文按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。索引出现新发现时带 `triage_hint`，提示回到定性。
+Use the index for navigation and read bodies as needed. `no_change` only means the index has not changed; after context loss, recover with `query.sh ... index`. New findings carry `triage_hint`, prompting classification again.
 
-合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复、运行相关测试与闸门并集中 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
+Combine all reviewers' findings for the round, CI failures, and new security alerts. Classify the complete batch, then fix, run relevant tests and gates, and push together. If CI's root cause is already fixed on main, synchronize main and reverify. Record every disposition under “Write back dispositions” in reviewers.md; findings with one root cause may reference the same disposition.
 
-每处置一批记一轮，包括全部以回复结案、没有 push 的批次：
+Count each disposed batch as one round, including batches closed entirely by replies without a push:
 
 ```bash
-bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n> --pushback <n> --note "根因与处置"
+bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n> --pushback <n> --note "root cause and disposition"
 ```
 
-`--pushback` 计入以回复结案的发现。CI 修复、rebase 和触发命令本身不计轮。继续拉取状态；仅在缺少审查或检查结果且无可执行动作时，前台运行 `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>`。超时、配额、权限或 bot 异常按 [faults.md](references/faults.md) 处理。
+`--pushback` counts findings closed with replies. CI fixes, rebases, and trigger commands alone do not count as rounds. Continue polling status; run `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>` in the foreground only when review or check results are missing and no actionable work remains. Handle timeouts, quotas, permissions, or bot failures under [faults.md](references/faults.md).
 
-## 完成条件
+## Completion criteria
 
-宣布收敛前，确认当前 HEAD 同时满足：
+Before declaring convergence, confirm the current HEAD meets all of these:
 
-- **覆盖有效**：每家参审 reviewer 的审查已完成，覆盖当前变更；允许沿用的情形见 reviewers.md「身份与触发」。故障停用单独报告，不能记作通过。
-- **发现已处置**：本循环的每条实质发现，包括历史 inline、review body 和 summary，都已定性；缺陷已修复，其余已在案回复，不存在未裁决的重要风险。在案即可，无需等待 bot 同意或撤回。
-- **检查通过**：相关测试、闸门与当前 HEAD 的 required checks 通过，CodeQL 分析和新增安全告警满足 reviewers.md「CodeQL 安全退出门槛」。`checks_failing` 为空不代表所有检查已完成。
+- **Valid coverage**: every participating reviewer's review is complete and covers current changes; see “Identity and triggering” in reviewers.md for permitted reuse. Report fault-disabled reviewers separately; do not count them as passing.
+- **Findings disposed**: every substantive finding in this loop, including historical inline comments, review bodies, and summaries, is classified. Defects are fixed; others have recorded replies. No important risk remains undecided. Recording the disposition suffices; do not wait for bot agreement or retraction.
+- **Checks pass**: relevant tests, gates, and required checks for the current HEAD pass, and CodeQL analysis and new security alerts satisfy “CodeQL security exit threshold” in reviewers.md. Empty `checks_failing` does not mean every check is complete.
 
-终核重新 poll；对 CodeRabbit 与 Codex 各查一次 `query.sh ... unacked <bot[bot]>`，并用 `history` / `details` 补齐尚未核对的正文。旧发现是否遗漏以实际修复和 PR 回复为准，不以 bot 的 ack 数量判断。终核期间 HEAD 改变时，按新 HEAD 重新核对。
+Poll again for final checks. Query `query.sh ... unacked <bot[bot]>` once each for CodeRabbit and Codex, using `history` / `details` to read any bodies not yet checked. Judge whether old findings were missed by actual fixes and PR replies, not bot acknowledgment counts. If HEAD changes during final checks, reconcile again against the new HEAD.
 
-## 预算与交接
+## Budget and handoff
 
-默认评估点 **3**、硬停 **6**，委派方可覆盖。账本用 `round.sh ... show` 恢复，接力沿用累计轮数。到评估点简要报告进展：仍在消除真实缺陷，还是主要在往复、扩大范围。定性标准各轮一致，不因临近预算而放宽或收紧。
+The default evaluation point is **3** and hard stop **6**; the delegator may override them. Recover the ledger with `round.sh ... show`; takeovers retain the cumulative round count. At the evaluation point, briefly report whether progress is still removing real defects or mainly cycling and expanding scope. Keep classification standards consistent across rounds, without loosening or tightening them near the budget.
 
-达到硬停后，只等待最后一批的必要复审并终核；满足完成条件即可退出，否则停止并交接未决事项。预算耗尽不等于质量通过。
+At the hard stop, wait only for the last batch's necessary rereviews and perform final checks. Exit if completion criteria are met; otherwise stop and hand off unresolved matters. Exhausting the budget does not mean quality passes.
 
-按 escalation.md 需要找用户的事项及时交委派方裁决；reviewer 冲突与其余分歧先核验证据，再自行判断。退出时报告最终 HEAD、轮数、验证结果、关键修复、不修改的依据和未决事项。超出现有记录或范围的线索附依据并区分事实与猜测：委派方是 team-lead 时作为 follow-up 交给它；否则自行按 escalation.md「不找用户的事项怎么处理」分流。已有记录覆盖的不重复提出。退出前按 [lessons.md](../../../docs/agents/lessons.md)「收尾自查」自查，候选以 `lesson-candidate` 评论发在本 PR。
+Refer matters requiring the user under escalation.md to the delegator promptly. For reviewer conflicts and other disagreements, verify evidence first, then judge yourself. On exit, report final HEAD, round count, verification results, key fixes, reasons for leaving findings unchanged, and unresolved matters. For leads beyond existing records or scope, attach evidence and distinguish facts from guesses: hand them to a team-lead delegator as follow-ups; otherwise route them yourself under “Handling matters that do not need the user” in escalation.md. Do not repeat leads already covered by existing records. Before exiting, perform the “Closing self-check” in [lessons.md](../../../docs/agents/lessons.md) and post candidates as `lesson-candidate` comments on this PR.

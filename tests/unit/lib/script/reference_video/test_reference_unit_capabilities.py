@@ -1,4 +1,4 @@
-"""逐单元定桶：按可用参考图落桶、取所落桶事实、点名分裂的引用。"""
+"""Per-unit buckets: select by usable references, obtain bucket facts, and identify divergent references."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def _project(tmp_path: Path, *, sheet_present: bool) -> dict:
 
 @pytest.mark.asyncio
 async def test_registered_reference_without_image_lands_in_i2v_with_its_tiers(tmp_path: Path) -> None:
-    """已登记但缺图的引用：单元落 i2v、档位取 i2v 事实，并点名不可用引用与桶改变。"""
+    """Registered references without images select i2v and its tier facts, naming unavailable references and the bucket change."""
     project = _project(tmp_path, sheet_present=False)
     unit = {"unit_id": "E1U1", "text": "@[阿离] 抬头。", "duration_seconds": 8}
 
@@ -205,7 +205,7 @@ async def test_endpoint_fixed_bucket_reports_flag_and_reason(tmp_path: Path) -> 
 async def test_configured_lookup_evaluates_each_bucket_once_for_many_units(
     tmp_path: Path, set_video_request_facts, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """读侧按桶查找在同一次请求内每桶至多求值一次：单元数不放大配置解析次数。"""
+    """Read-side bucket lookup evaluates each bucket at most once per request; unit count must not multiply configuration resolution."""
     project = _project(tmp_path, sheet_present=True)
     set_video_request_facts({"i2v": I2V_FACTS, "r2v": R2V_FACTS})
     evaluate = cast(AsyncMock, request_projection.evaluate_video_request_facts)
@@ -242,7 +242,7 @@ class _CountingAvailableAssets(_AvailableAssets):
 async def test_batch_hydration_cost_follows_the_asset_count_not_the_unit_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int
 ) -> None:
-    """整批单元引用同一张图：路径解析与可用性判定的次数不随单元数增长。"""
+    """When all units reference one image, path resolution and availability-check counts do not grow with unit count."""
     project = _project(tmp_path, sheet_present=True)
     units = [{"unit_id": f"E1U{index}", "text": "@[阿离] 抬头。", "duration_seconds": 8} for index in range(count)]
     counts = {"realpaths": 0}
@@ -266,7 +266,7 @@ async def test_batch_hydration_cost_follows_the_asset_count_not_the_unit_count(
 
 @pytest.mark.asyncio
 async def test_read_side_bucket_matches_execution_projector_for_missing_sheet(tmp_path: Path) -> None:
-    """画布读到的桶与执行投影的桶出自同一判据：登记了角色图却缺文件的单元两侧都落 i2v。"""
+    """Canvas and execution projections share bucket criteria; registered character images with missing files select i2v on both sides."""
     project = _project(tmp_path, sheet_present=False)
     unit = {"unit_id": "E1U1", "text": "@[阿离] 抬头。", "duration_seconds": 8}
     facts = _CountingFacts()

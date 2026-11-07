@@ -3,14 +3,14 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 
 interface SourceTextReadonlyProps {
-  /** 条目的对应原文；手动新增的条目没有对应原文。 */
+  /** Source text corresponding to the entry; manually added entries have none. */
   text: string | undefined;
   className?: string;
 }
 
 /**
- * 分镜 / 视频单元的对应原文，只读展示供对照来源。
- * 时间线不提供编辑：重新锚定由 Agent 写入，服务端校验它是源文的逐字片段。
+ * Read-only corresponding source text for storyboard / video units, allowing comparison against the source.
+ * The timeline offers no editing: the Agent writes reanchoring and the server validates a verbatim source excerpt.
  */
 export function SourceTextReadonly({ text, className }: SourceTextReadonlyProps) {
   const { t } = useTranslation("dashboard");

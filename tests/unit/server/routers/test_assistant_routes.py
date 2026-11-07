@@ -50,10 +50,10 @@ _INTERNAL_ERROR_DETAIL = make_translator()("internal_server_error")
 
 
 def _assert_generic_500(response, sentinel: str) -> None:
-    """兜底 500 契约：响应体 detail 必须是通用 i18n 文案、且不泄露内部哨兵串。
+    """Fallback 500 contract: response detail must be generic localized text without leaking internal sentinels.
 
-    仅断言 ``sentinel not in text`` 不够——detail 被清空或 i18n key 打错时也不含哨兵串，
-    回归会静默通过；故同时正向锁定 detail 等于翻译后的 internal_server_error 文案。
+    ``sentinel not in text`` alone is insufficient: empty detail or misspelled i18n keys also omit sentinels,
+    silently passing regressions. Also positively assert detail equals translated internal_server_error text.
     """
     assert response.status_code == 500
     assert response.json()["detail"] == _INTERNAL_ERROR_DETAIL
@@ -163,7 +163,7 @@ class TestAssistantRoutes:
         [("resend_queued_message", "/resend"), ("send_queued_message_now", "/send-now")],
     )
     def test_queued_message_reconnect_failures_explain_the_cause(self, service_method: str, path: str):
-        # 对「未发送」消息的重新发送与立即发送都会重建会话连接
+        # Resending unsent messages and immediate sends both rebuild session connections.
         with (
             patch.object(
                 assistant.assistant_service, service_method, new=AsyncMock(side_effect=SessionCapacityError("full"))
@@ -214,7 +214,7 @@ class TestAssistantRoutes:
         assert response.status_code == 404
 
     def test_send_unexpected_error_no_leak(self):
-        """send 末端 catch-all：未预期异常返回通用 500，不泄露内部细节。"""
+        """Final send catch-all: unexpected exceptions return generic 500 without internal detail leaks."""
         with (
             patch.object(
                 assistant.assistant_service,
@@ -315,7 +315,7 @@ class TestAssistantRoutes:
         _assert_generic_500(response, "LEAK_skills")
 
     def test_send_endpoint_translates_agent_startup_error_to_502(self):
-        """启动失败通过结构化故障观测返回，空异常消息也不能丢掉异常类型。"""
+        """Startup failures return structured failure observations; empty exception messages must still retain exception types."""
         from server.agent_runtime.session_manager import AgentStartupError
 
         stderr_text = (

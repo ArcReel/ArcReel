@@ -56,10 +56,10 @@ export interface ProviderAssetBrowserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  /** 版本历史里的资源类型，如 `characters`。 */
+  /** Version-history resource types, e.g. `characters`. */
   resourceType: string;
   resourceId: string;
-  /** 导入成功后调用，用于刷新资产图；对话框随后关闭。 */
+  /** Called after successful imports to refresh asset images, then dialogs close. */
   onImported: (result: ProviderAssetImportResult) => Promise<RefreshProjectResult>;
   checkBusy: () => boolean;
   onImportingChange: (importing: boolean) => void;
@@ -68,9 +68,9 @@ export interface ProviderAssetBrowserDialogProps {
 type ImportTarget = Omit<ProviderAssetBrowserDialogProps, "open" | "onOpenChange" | "onImportingChange">;
 
 /**
- * 从供应商素材库选择：按所选素材库账号的站点、区域与项目范围分页列出素材，选择一张可用的图片后，
- * ArcReel 取回原图保存为这张资产图的新版本，并为该版本建立关联。素材库账号在全局设置「素材库与存储」中配置。
- * 导入进行中不能关闭对话框，避免误以为已取消。
+ * Choose from provider material libraries: paginate assets within selected library-account site/region/project scopes; after selecting available images,
+ * ArcReel retrieves originals, saves new asset-image versions and associates those versions. Configure library accounts in global Material libraries and storage settings.
+ * Dialogs cannot close during imports, preventing mistaken cancellation assumptions.
  */
 export function ProviderAssetBrowserDialog({
   open,
@@ -151,7 +151,7 @@ function BrowserBody({
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开对话框时拉取素材库账号后回写，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Fetch library accounts on dialog opening and write back as controlled initialization
     void fetchAccounts();
     return () => accountsController.current?.abort();
   }, [fetchAccounts]);
@@ -174,13 +174,13 @@ function BrowserBody({
 
   useEffect(() => {
     if (accountId === null) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 换账号或翻页后拉取该页素材，旧请求随之作废
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Fetch page materials on account/page changes, invalidating old requests
     void fetchPage(accountId, pageNumber);
     return () => pageController.current?.abort();
   }, [accountId, pageNumber, fetchPage]);
 
-  // 页面卸载（返回或切换项目）时 abort；导入请求本身不接这个 signal（它是写入请求，abort 只会断开客户端），
-  // 只在 await 之后据此判断用户是否已离开，离开后的结果改用提示告知，不随对话框静默丢失。
+  // Abort on unmount (Back/project switches); imports do not receive this signal (writes only disconnect clients on abort).
+  // After await, use it only to detect departure; departed users receive result notifications instead of losing them silently with dialogs.
   const unmountAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -206,8 +206,8 @@ function BrowserBody({
     } catch (error) {
       onImportingChange(false);
       if (leftSignal?.aborted) {
-        // 4xx 是服务端在提交前的明确拒绝，导入已整体回滚。连接中断与 5xx（含网关超时）无法确认服务端
-        // 是否已经提交，只提示结果待确认，避免用户据「未导入」重试而多出一个版本。
+        // 4xx explicitly rejects before server commit and imports fully roll back. Connection loss/5xx (including gateway timeouts) cannot confirm
+        // server commit; report unconfirmed results only, avoiding duplicate versions from retries based on Not imported.
         if (error instanceof ApiRequestError && error.status !== undefined && error.status >= 400 && error.status < 500) {
           pushToast(t("provider_asset_import_failed_left", { project: target.projectName, message: errMsg(error) }), "error");
         } else {
@@ -215,7 +215,7 @@ function BrowserBody({
         }
         return;
       }
-      // 导入失败时原选中版本不变，错误留在对话框里，可以换一张素材重试
+      // Import failures preserve selected versions and keep errors in dialogs so users can retry different materials.
       setImportError(error);
       setImportingId(null);
       return;
@@ -232,7 +232,7 @@ function BrowserBody({
       if ((await target.onImported(result)) === "success") {
         pushToast(t("provider_asset_import_done", { version: result.content_version.version }), "success");
       } else if (leftSignal?.aborted) {
-        // 刷新期间离开：刷新按取消结算，不会自行提示，导入本身已经成功
+        // Leaving during refresh: refresh settles as canceled without notifications, while imports themselves already succeeded.
         pushToast(
           t("provider_asset_import_done_left", { project: target.projectName, version: result.content_version.version }),
           "success",

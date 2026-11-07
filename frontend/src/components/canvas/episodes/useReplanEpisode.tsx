@@ -21,8 +21,8 @@ interface PendingReplan {
 }
 
 /**
- * 「从这一集开始重新规划」：先向服务端取重新规划的范围，确认框写明采纳前现有分集不变、会被替换的集里
- * 哪些已开始制作，可附加要求；确认后发起生成，再以发起的集 ID 调用 `onStarted`（须传稳定引用）。
+ * Replan from this episode: first obtain the server's affected range; the dialog explains existing episodes remain unchanged before adoption and
+ * which replacement targets have entered production. Allow extra requirements; confirm to generate, then call `onStarted` with the initiating episode ID (stable callback required).
  */
 export function useReplanEpisode(projectName: string, onStarted: (episode: number) => void) {
   const { t } = useTranslation(["dashboard", "common"]);

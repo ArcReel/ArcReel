@@ -78,7 +78,7 @@ export default {
   'lorebook': 'Lorebook',
   'no_episodes_yet': 'No episodes yet',
   'confirm_delete_file': 'Are you sure you want to delete "{{name}}"?',
-  // 全局设置侧栏
+  // Global-settings sidebar.
   'settings_group_generation': 'Generation',
   'settings_group_agent': 'Agent',
   'settings_group_system': 'System',
@@ -1012,7 +1012,7 @@ export default {
   'agent_profile_reset_confirm': 'Confirm reset',
   'agent_profile_resetting': 'Resetting…',
   'agent_profile_reset_failed': 'Could not reset Agent profile: {{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
+  // Project settings: sidebar tabs, style dialogs and model-channel origins.
   'project_settings_group_project': 'Project',
   'project_settings_group_agent': 'Agent',
   'project_settings_tab_basics': 'Basics',
@@ -1418,7 +1418,7 @@ export default {
   'pm_multiplier_help': 'Costs are the official price times this multiplier. For example, 0.8 means 20% off.',
   'pm_multiplier_help_subscription': 'Subscription plan. Defaults to 0, so no cost is recorded.',
   'pm_multiplier_save_failed': "Advanced configuration saved, but the multiplier wasn't: {{message}}",
-  // 供应商模型 Sheet
+  // Provider model Sheets.
   'pm_sheet_provider_settings': 'Provider settings',
   'pm_sheet_model_info': 'Model info',
   'pm_sheet_enabled': 'Enabled',
@@ -2878,7 +2878,7 @@ export default {
   'lobby_no_filter_match': 'No matching projects',
   'lobby_no_filter_match_hint': 'Try clearing filters or a different keyword.',
   'lobby_clear_filters': 'Clear filters',
-  // 外部 Agent 接入与访问令牌
+  // External Agent access and access tokens.
   'ext_agent_desc': 'External agents use [[brand]]\'s creative tools through public skills and remote MCP. Complete the three steps below to connect.',
   'ext_agent_steps': 'Setup steps',
   'ext_agent_step_skills_title': 'Install public skills',
@@ -3030,7 +3030,7 @@ export default {
   'script_edit_commit_failed': 'The script could not be saved safely. Retry the edit.',
   'script_edit_rejected': 'The script edit was rejected. Review the affected operation and retry.',
 
-  // 自定义调用端点
+  // Custom endpoints.
   'ce_section_title': 'Endpoints',
   'ce_rail_label': 'Endpoint list',
   'ce_rail_mine_empty': 'No custom endpoints yet.',
@@ -3384,7 +3384,7 @@ export default {
   'ce_download_policy_image': 'When both the image URL and base64 are configured, the URL is used first. The image URL is downloaded automatically, carrying the key when it is on the same host as the base URL and no credentials otherwise. Base64 is accepted as a bare string or a data URI and saved after decoding.',
   'cp_no_api_key': 'This provider needs no key',
   'cp_no_api_key_conflict': 'These models use endpoints that require a key: {{models}}. Their requests will go out without credentials.',
-  // ---- 市场 ----
+  // ---- Market ----
   'market_section_title': 'Market',
   'market_refresh_all': 'Refresh all',
   'market_sources_desc': 'Entries are shown in the order of this list. Disabled market sources stay in the list but their entries are hidden.',
@@ -3915,9 +3915,9 @@ export default {
   'ad_brief_placeholder': 'Describe the video you want: audience, tone, key selling points, call to action...',
   'ad_products_view_all': 'View all',
   'ad_products_empty_hint': 'Add product photos and selling points, and AI script generation will build around the product. Without a product, you can still generate from the creative brief alone.',
-  // 共享组件：缩略图的查看大图
+  // Shared components: thumbnail image zoom.
   'image_fullscreen_preview': 'View full-size image of {{name}}',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
+  // Shared components: model-catalog pickers, using conventional vendor brand names.
   'catalog_picker_title': 'Choose from model catalog',
   'catalog_picker_description': 'Search the model catalog and pick a model.',
   'catalog_picker_search': 'Search model name',

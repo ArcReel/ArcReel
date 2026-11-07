@@ -1,11 +1,11 @@
 name: Docker Hub Description
 
-# 把 docs/dockerhub-README.md 同步为 Docker Hub 仓库页的描述。描述是低频改动，
-# 不挂在发布流程上：绑在 release 里等于每次发布都做一次无意义的 API 写入，
-# 还给发布多一个可能失败的点。
+# Sync docs/dockerhub-README.md to the Docker Hub repository description. Descriptions rarely change;
+# keep this separate from releases, which would otherwise make a pointless API write on every release
+# and add another potential release failure.
 #
-# 该 action 调用 Docker Hub 的仓库元数据接口，要求 PAT 具备 read/write/delete
-# 作用域；DOCKERHUB_TOKEN 按这里的要求取该作用域，发布流程共用同一份。
+# This action uses the Docker Hub repository metadata API, requiring a PAT with read/write/delete
+# scopes. Give DOCKERHUB_TOKEN those scopes here; the release workflow shares the same token.
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # 与 docker-release.yml 同一份坐标来源：Docker Hub 命名空间与 GitHub 组织同名
+      # Same coordinates as docker-release.yml: Docker Hub namespace matches the GitHub organization.
       - name: Compute lowercase image name
         run: echo "IMAGE_NAME_LC=${REPO,,}" >> "$GITHUB_ENV"
         env:

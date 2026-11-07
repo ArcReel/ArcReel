@@ -2,31 +2,31 @@
 status: accepted
 ---
 
-# 节点绑定是 ComfyUI 端点的唯一真相：显式保存、能力只推导不存储
+# Node bindings are the sole truth for ComfyUI endpoints: save explicitly, derive capabilities without storing them
 
-一份 ComfyUI workflow 没有任何官方参数化约定：导出物每个节点只有 `inputs` / `class_type` / `_meta.title`，哪个节点的哪个输入承接提示词、首帧、尺寸、种子，哪个节点产出最终文件，全靠外部推断。生态里的做法分两派：装专用节点（ComfyUI-Deploy、comfy-pack）以 `class_type` 换无误判，或零安装靠字段名与标题启发式（ViewComfy、dramaclaw-gateway）；两派都在每次提交时现推。
+ComfyUI workflows have no official parameterization convention: exported nodes contain only `inputs` / `class_type` / `_meta.title`, leaving external inference to determine which node/input accepts prompts, first frames, dimensions, and seeds and which node produces the final file. Ecosystem approaches split between dedicated nodes (ComfyUI-Deploy, comfy-pack), using `class_type` for unambiguous identification, and zero-install field-name/title heuristics (ViewComfy, dramaclaw-gateway). Both infer afresh on every submission.
 
-我们决定**节点绑定显式落盘、保存后即唯一真相**：导入时自动推断（信号自高到低：`ARCREEL:<slot>` 标题前缀、外部约定节点族、采样器端口反溯、字段名 × 节点类型白名单、单独字段名、连线回溯，打分取最高、并列即歧义）只产出候选，用户在绑定编辑器里确认或改选后写进定义的 `bindings` 节；运行时填值只读绑定，不再推断。每项语义三态：已绑定、显式不支持、从未推断；歧义未选不可保存，提示词与产物两项未绑定不可保存。节点 id 在 workflow 编辑后不稳定，绑定因此同时记节点类型与标题用于重导入时重匹配；重导入总是进绑定编辑器，不静默保存。
+**Persist node bindings explicitly; once saved, they are the sole truth**. Import-time inference produces only candidates (signals descending in strength: `ARCREEL:<slot>` title prefixes, externally conventional node families, sampler-port backtracking, field names × node-type allowlists, field names alone, connection backtracking; highest score wins, ties are ambiguous). Users confirm or reselect in a binding editor before saving to the definition's `bindings` section. Runtime value filling reads only bindings, without further inference. Each semantic has three states: bound, explicitly unsupported, never inferred. Ambiguity without selection prevents saving; unbound prompt or output also prevents saving. Node IDs are unstable after workflow edits, so bindings additionally record node types/titles for reimport matching. Reimport always enters the binding editor without silent saving.
 
-**能力只从节点绑定推导，定义不存 `capabilities` 节。** 首帧 / 尾帧 / 参考图上限直接对应三项图绑定，`text_to_video` 仅在没有任何图绑定时为真，音轨看产物节点的 `audio` 入口有无连线；图像端点无参考图绑定即仅 t2i、有即仅 i2i。ComfyUI 协议供应商的模型行关闭 `capability_overrides`：不显示、拒绝写入、读侧忽略。这与声明式端点的「`capabilities` 节 + 用户覆盖 + 执行层反向闸」三层刻意不同构：那三层服务的是「一个协议端点挂多个上游型号、协议说不清型号级差异」，而一份 workflow 恰是一个型号，绑定已是型号级完整事实，覆盖层没有信息增量，两处真相只会打架。用户改能力只有一个入口：改绑定。
+**Derive capabilities only from node bindings; definitions contain no `capabilities` section.** First-frame / last-frame / reference-image limits correspond directly to three image bindings; `text_to_video` is true only without any image binding. Audio depends on whether the output node's `audio` input is connected. Image endpoints without reference-image bindings are t2i-only; with them, i2i-only. Disable `capability_overrides` for ComfyUI-protocol provider model rows: hide them, reject writes, ignore them on reads. This intentionally differs from declarative endpoints' three layers ("`capabilities` section + user overrides + reverse execution gate"): those address "one protocol endpoint serves multiple upstream models, whose model-level differences the protocol cannot express." A workflow is exactly one model; bindings already hold complete model-level facts, so overrides add no information and competing truths only conflict. Users change capabilities through one entry: edit bindings.
 
-**明确不采用**：① **每次提交现推**（两派参考实现的做法）——同一 workflow 在两次提交间可能被推到不同节点，任务不可复现，且歧义无处交给用户。② **要求用户装 ArcReel 专用节点**——原生 ComfyUI 零安装是接入的前提，标题前缀约定（改 `_meta.title`，被 ComfyUI 后端忽略）已足够让作者显式标记。③ **绑定表之外再存一份能力声明**——两处真相；能力若与绑定不符，运行时只会按绑定填值，声明成了谎言。
+**Explicitly rejected**: ① **Infer on every submission** (both reference-implementation camps): the same workflow could resolve to different nodes between submissions, making tasks unreproducible without a place for user ambiguity resolution. ② **Require ArcReel-specific nodes**: native ComfyUI zero installation is a prerequisite; title-prefix conventions (editing `_meta.title`, ignored by the ComfyUI backend) suffice for explicit author marking. ③ **Store capabilities separately from bindings**: two truths; if declarations disagree with bindings, runtime still fills values through bindings, making declarations false.
 
-## 负向提示词在此通道成为供应商参数
+## Negative prompts become provider parameters on this channel
 
-ArcReel 的负向提示词以正文里的 `Avoid:` 行渲染、不是供应商参数（`docs/adr/0077`）。开源模型的文本编码器不理解否定，`Avoid` 段写进正向只会把画面往反方向推。ComfyUI 端点是唯一例外：提交时把 `Avoid` 段从正文拆出填入负向提示词的节点绑定，该绑定不存在则整段丢弃、不进正向。其余通道不变。
+ArcReel renders negative prompts as `Avoid:` body lines, not provider parameters (`docs/adr/0077`). Open-source model text encoders do not understand negation, so placing an `Avoid` section in positive text pushes images in the opposite direction. ComfyUI endpoints are the sole exception: on submission, extract the `Avoid` section into the negative-prompt node binding; without that binding, discard the entire section rather than putting it in positive text. Other channels stay unchanged.
 
-## 尺寸与时长沿用既有约束，不静默忽略用户意图
+## Dimensions and durations retain existing constraints without silently ignoring user intent
 
-尺寸由项目比例 × 分辨率档经 `aspect_size` 派生（`docs/adr/0011` 比例优先），按绑定条目的步长对齐；分辨率未选时短边取 workflow 字面值。时长经 `frames = round(duration × fps) + 1` 换算，可选时长默认只含 workflow 字面时长、用户可增删，增删后的档位存为供应商模型上可选时长这一维的能力覆盖（见 `docs/adr/0104`）。尺寸或帧数没有节点绑定时，该维度由 workflow 固定，对应选择器禁用并明示，而不是像参考实现那样推不到即跳过、选 10 秒出 5 秒无提示。参考图张数少于绑定格子数时按消费者形态改图（摘可选入口、旁路两两合并节点），不重复填充。
+Derive dimensions from project ratio × resolution tier through `aspect_size` (ratio-first, `docs/adr/0011`), aligning to binding-entry step sizes. Without selected resolution, use the workflow's literal short-edge value. Convert duration through `frames = round(duration × fps) + 1`; selectable durations initially contain only the workflow's literal duration, editable by users. Store edited tiers as provider-model capability overrides only for the selectable-duration dimension (see `docs/adr/0104`). When dimensions or frame count lack bindings, the workflow fixes that dimension; disable the corresponding selector and explain it, rather than silently skipping unresolved dimensions as reference implementations do, producing 5 seconds after users choose 10. With fewer reference images than binding slots, modify the graph by consumer shape (remove optional inputs, bypass pairwise merge nodes), without duplicate filling.
 
-## 时长由端点固定
+## The endpoint fixes duration
 
-`frames` 未绑定或读不到帧率来源时时长这一维不存在，`supported_durations` 是合法空集。这个豁免落在全部消费点，不只落在界面：剧本规划借一份固定篇幅当分镜依据，请求投影不收窄、不要求时长确认、把规划秒数原样透传（端点会忽略请求体里的秒数），界面的时长控件禁用并说明原因。三处缺一处，一份配置完整的 workflow 就会以「型号声明缺失」的名义被挡住。预检与执行是同一条判定的两次求解，执行期按当前能力重算：该标志随 video lane 一并带到 worker，worker 自己重建投影候选时也按它跳过档位校验，否则预检放行的请求会在提交前被执行期按「声明缺失」再拒一次。
+When `frames` is unbound or frame-rate sources are unreadable, duration is not a dimension and `supported_durations` is a valid empty set. Apply the exemption to every consumer, not only the UI: script planning uses fixed content length for storyboard basis; request projection neither narrows tiers nor requires duration confirmation, passing planned seconds unchanged (the endpoint ignores seconds in the request body); duration controls are disabled with an explanation. Missing any of these three blocks fully configured workflows as "missing model declarations." Preflight and execution solve the same decision twice, recalculating at execution from current capabilities: carry the flag with the video lane to workers, which must also skip tier validation when rebuilding projection candidates. Otherwise execution would reject a preflight-approved request as "missing declarations" again immediately before submission.
 
 ## Consequences
 
-- 绑定编辑器是 ComfyUI 端点的核心界面：推断在服务端进行并附带命中信号的说明，界面只呈现候选与收集选择。
-- 推断所依赖的字段名别名、节点类型白名单、步长、可选入口与合并节点识别、音轨判定都是数据而非代码，按媒体类型各一份。
-- 与声明式端点不同，ComfyUI 端点的能力合成不看模型名，只看节点绑定。
-- 静态覆盖节（`overrides`，不改 workflow 本体而在 ArcReel 内改固定值）首期不做，workflow 本体即用户可编辑底稿；将来若加入，同样不得成为第二处能力真相。
+- The binding editor is the core ComfyUI-endpoint interface. Inference runs server-side with explanations of matched signals; the interface only presents candidates and collects selections.
+- Field-name aliases, node-type allowlists, steps, optional inputs/merge-node recognition, and audio decisions used by inference are data rather than code, with one set per media type.
+- Unlike declarative endpoints, ComfyUI endpoint capability composition ignores model names and reads only node bindings.
+- The initial release omits static overrides (`overrides`, changing fixed values inside ArcReel without modifying the workflow). The workflow itself is the user-editable source. If added later, overrides likewise must not become a second capability truth.

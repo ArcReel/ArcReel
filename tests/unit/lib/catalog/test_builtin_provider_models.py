@@ -1,4 +1,4 @@
-"""出厂快照里各内置供应商的模型清单与模型事实：默认模型、能力、可选时长与分辨率等对照官方文档的登记。"""
+"""Shipped built-in model lists/facts: defaults, capabilities, durations, and resolutions registered against official docs."""
 
 from typing import ClassVar
 
@@ -28,7 +28,7 @@ def _models_of(provider_id: str, media_type: str) -> dict[str, CatalogModel]:
 
 
 class TestListings:
-    # vidu 仅图片+视频、kling 仅图片+视频，均跳过文本相关断言
+    # vidu and kling support images/videos only; skip text assertions for both.
     _TEXT_PROVIDERS: ClassVar[list[str]] = [pid for pid in PROVIDER_REGISTRY if pid not in ("vidu", "kling")]
 
     def test_text_providers_have_text_models(self):
@@ -50,12 +50,12 @@ class TestListings:
                 assert catalog.default_model(provider_id, media_type) == expected
 
     def test_api_model_name_only_differs_for_amphibious_aliases(self):
-        # 只有两栖模型沿用的旧模型键与 API 模型名不同，其余模型键就是 API 模型名。
+        # Only multimodal models retain legacy keys differing from API names; all other keys equal API names.
         declared = {f"{pid}/{mid}": m.api_model_name for pid, mid, m in _all_models() if m.api_model_name is not None}
         assert declared == {"kling/kling-v3-omni-image": "kling-v3-omni"}
 
     def test_video_capability_tokens_are_not_declared(self):
-        # 视频模型的输入模式与音轨形态都不进能力 token，真相源是 backend 的 VideoCapabilities。
+        # Video input modes/audio forms are excluded from capability tokens; backend VideoCapabilities is authoritative.
         assert "generate_audio" not in catalog.provider_capabilities("gemini-aistudio")
 
 
@@ -111,7 +111,7 @@ class TestResolutions:
                 assert m.resolutions == [], f"{pid}/{mid}: text 模型不应声明 resolutions"
 
     def test_ark_seedream_image_resolutions_empty(self):
-        """Ark Seedream 当前不传分辨率，留空 → UI 不展示下拉。"""
+        """Ark Seedream currently sends no resolution; unset means no UI dropdown."""
         for pid in ("ark", "ark-agent-plan"):
             for mid, m in _models_of(pid, "image").items():
                 assert m.resolutions == [], f"{pid}/{mid}: Ark Seedream 应留空"
@@ -127,7 +127,7 @@ class TestVideoDurations:
 
     @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
     def test_veo_declares_high_resolution_constraints(self, provider_id):
-        """两侧 Veo 模型每个可选高分辨率档都声明「仅 8s」，UI 才能据此收窄时长选项。"""
+        """Both Veo providers declare 8s-only for every optional high-resolution tier, enabling UI duration narrowing."""
         for model_id, model in _models_of(provider_id, "video").items():
             for resolution in model.resolutions:
                 if resolution in ("1080p", "4k"):
@@ -137,12 +137,12 @@ class TestVideoDurations:
 
     @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
     def test_veo_declares_reference_image_durations(self, provider_id):
-        """Veo 带参考图时只接受 8s，两侧全系声明，与 backend 的执行期拒绝对齐。"""
+        """Reference-image Veo accepts only 8s; both providers declare this across all models, matching runtime rejection."""
         for model_id, model in _models_of(provider_id, "video").items():
             assert model.reference_image_durations == [8], f"{provider_id}/{model_id} 参考图时长约束缺失"
 
     def test_veo_4k_only_where_officially_supported(self):
-        """4k 仅 Veo 3.1 Standard 两侧 + AI Studio 的 Fast 支持；Lite 与 Vertex Fast 不支持。"""
+        """4k is supported by both Veo 3.1 Standard providers and AI Studio Fast, not Lite or Vertex Fast."""
         expected_4k = {
             ("gemini-aistudio", "veo-3.1-generate-preview"): True,
             ("gemini-aistudio", "veo-3.1-fast-generate-preview"): True,
@@ -187,10 +187,10 @@ class TestProviderListings:
     def test_dashscope_video_models_include_happyhorse_11(self):
         video_models = _models_of("dashscope", "video")
         for mid in ("happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"):
-            # 三模态均为 3–15s 整数
+            # All three modalities use integer 3–15s.
             assert video_models[mid].supported_durations == list(range(3, 16))
             assert video_models[mid].resolutions == ["480p", "720p", "1080p"]
-        # 默认视频模型是 1.1-i2v；1.0 三条仍在售，保留但非默认
+        # Default video is 1.1-i2v; all three 1.0 models remain available, nondefault.
         assert catalog.default_model("dashscope", "video") == "happyhorse-1.1-i2v"
         for mid in ("happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v"):
             assert video_models[mid].resolutions == ["720p", "1080p"]
@@ -207,19 +207,19 @@ class TestProviderListings:
         assert len(video_models) == 4
         for mid in ("doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128", "doubao-seedance-2-0-mini-260615"):
             assert mid in video_models
-        # fast 与 mini 都只支持 480p/720p，不含 1080p/4k
+        # fast and mini support only 480p/720p, excluding 1080p/4k.
         assert video_models["doubao-seedance-2-0-fast-260128"].resolutions == ["480p", "720p"]
         assert video_models["doubao-seedance-2-0-mini-260615"].resolutions == ["480p", "720p"]
-        # mini 是默认视频模型
+        # mini is the default video model.
         assert catalog.default_model("ark", "video") == "doubao-seedance-2-0-mini-260615"
 
     def test_ark_video_models_include_seedance_2_5(self):
         seedance_25 = _model("ark", "doubao-seedance-2-5-260628")
         assert seedance_25.media_type == "video"
-        # 30 秒直出全展开为离散档；官方的 -1（模型自选时长）不登记
+        # Expand 30-second direct output to discrete options; omit official -1 automatic duration.
         assert seedance_25.supported_durations == list(range(4, 31))
         assert seedance_25.resolutions == ["480p", "720p", "1080p"]
-        # 2.0 mini 仍是默认，2.5 只是可选
+        # 2.0 mini remains default; 2.5 is optional only.
         assert seedance_25.default is False
 
     def test_ark_agent_plan_includes_the_declared_seedance_2_5_model(self):

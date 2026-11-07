@@ -1,4 +1,4 @@
-"""音频 provider 解析：resolve_audio_backend（payload > project > 全局默认 / auto）与新建 TTS 项目的预填值。"""
+"""Audio resolution: resolve_audio_backend payload > project > global default / auto, plus new-TTS-project prefills."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class TestResolveAudioProviderModel:
         assert result == ProviderModel("dashscope", "qwen3-tts-flash")
 
     async def test_payload_untrusted_provider_ignored(self):
-        # 未知 provider 不予信任 → 回退 project
+        # Untrusted unknown providers fall back to project.
         resolver = ConfigResolver.__new__(ConfigResolver)
         result = await resolver._resolve_audio_provider_model(
             _FakeSvc(),
@@ -74,7 +74,7 @@ class TestResolveAudioProviderModel:
         assert result == ProviderModel("dashscope", "qwen3-tts-flash")
 
     async def test_falls_back_to_auto_resolve(self):
-        # 无 payload / project / 全局设置 → auto-resolve 挑首个 ready 且支持 audio 的 provider
+        # Without payload/project/global setting, auto-resolve chooses the first ready audio-capable provider.
         resolver = ConfigResolver.__new__(ConfigResolver)
         svc = _FakeSvc(settings={}, ready=[_ready("dashscope", ["audio"])])
         result = await resolver._resolve_audio_provider_model(svc, None, None, None)
@@ -94,7 +94,7 @@ class TestResolveDefaultAudioBackend:
 
 
 class TestDefaultNarrationTts:
-    """全局音频默认、音色与语速只作为新建 TTS 项目的预填值。"""
+    """Global audio defaults, voice, and rate only prefill newly created TTS projects."""
 
     async def test_reads_global_settings(self, db_factory):
         from lib.config.service import ConfigService
@@ -153,7 +153,7 @@ class TestServiceDefaultAudioBackend:
 
 class TestServiceNarrationVoice:
     async def test_blank_setting_falls_back_to_default(self, db_factory):
-        # 全局 setting 被保存成空白时回退默认值，与项目级覆盖的 strip 语义一致
+        # Blank global settings fall back to defaults, matching project-override stripping.
         from lib.config.service import ConfigService
 
         async with db_factory() as session:

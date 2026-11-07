@@ -1,4 +1,4 @@
-"""分享提交记录：本地端点与官方服务提交令牌的绑定，以及最近一次取回的状态。"""
+"""Sharing submission records: local endpoint bindings to official-service submission tokens and the last retrieved status."""
 
 from datetime import datetime
 
@@ -9,7 +9,7 @@ from lib.db.base import Base, utc_now
 
 
 class MarketSubmission(Base):
-    """每个端点只记最近一次提交；再次提交以官方服务返回的令牌覆盖。"""
+    """Keep only the latest submission per endpoint; resubmission overwrites it with the official-service token."""
 
     __tablename__ = "market_submission"
 
@@ -19,7 +19,7 @@ class MarketSubmission(Base):
     token: Mapped[str] = mapped_column(String(64), nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
-    #: ``open`` / ``merged`` / ``closed``，官方服务不可达时保留上次取回的值。
+    #: ``open`` / ``merged`` / ``closed``; retain the last retrieved value when the official service is unreachable.
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     pr_url: Mapped[str] = mapped_column(Text, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)

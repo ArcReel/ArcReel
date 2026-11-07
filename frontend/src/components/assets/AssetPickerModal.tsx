@@ -24,16 +24,16 @@ import { LoadMoreSentinel } from "./LoadMoreSentinel";
 import { useAssetPages } from "./useAssetPages";
 
 interface Props {
-  /** 当前画廊的类型，选择器只列这一类。 */
+  /** Current gallery type; the picker lists only this type. */
   type: AssetType;
-  /** 项目里已有的同类资产名，对应条目不可选。 */
+  /** Existing project asset names of the same type; matching entries cannot be selected. */
   existingNames: Set<string>;
   onClose: () => void;
   onImport: (assetIds: string[]) => void;
 }
 
 /**
- * 项目画廊里的「从资产库导入」：列出资产库里当前类型的资产，可搜索、滚动到底自动加载，显示匹配总数；多选后导入。
+ * Import from asset library in the project gallery: list library assets of the current type with search, infinite scroll and total matches; import selected assets in bulk.
  */
 export function AssetPickerModal({ type, existingNames, onClose, onImport }: Props) {
   const { t } = useTranslation("assets");

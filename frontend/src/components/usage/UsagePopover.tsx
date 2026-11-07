@@ -40,7 +40,7 @@ interface UsagePopoverProps {
   projectName: string;
 }
 
-/** 下载失败的调用可以就地重试；其余失败码没有可就地补救的动作。 */
+/** Failed downloads can retry in place; other failure codes lack local remedies. */
 const DOWNLOAD_FAILED_CODE = "download_failed";
 
 function KpiCell({ label, value, sub }: { label: string; value: string; sub: string }) {
@@ -53,7 +53,7 @@ function KpiCell({ label, value, sub }: { label: string; value: string; sub: str
   );
 }
 
-/** KPI 一行 4 格，口径与入口按钮一致：本项目全部时间。 */
+/** Four KPI cells, matching entry-button scope: this project, all time. */
 function KpiStrip({ summary }: { summary: UsageSummary | null }) {
   const { t, i18n } = useTranslation("dashboard");
   const kpi = summary?.kpi ?? null;
@@ -101,8 +101,8 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
 }
 
 /**
- * 顶栏用量入口的悬浮层：左栏本项目进行中的调用、右栏最近已结束的调用，顶部是与入口
- * 按钮同口径的 KPI，底部通往设置页的全量记录。
+ * Header usage popovers: left current-project running calls, right recently finished calls; top KPIs match entry
+ * buttons, and footers link to full settings records.
  */
 export function UsagePopover({ projectName }: UsagePopoverProps) {
   const { t, i18n } = useTranslation("dashboard");
@@ -121,7 +121,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
   const closeDetail = useUsageHeaderStore((s) => s.closeDetail);
   const refresh = useUsageHeaderStore((s) => s.refresh);
 
-  // 进行中区按占用谓词取：与后端去重口径一致的排队中 / 执行中任务。
+  // Running regions use occupation predicates: queued/running tasks matching backend deduplication criteria.
   const activeTasks = useTasksStore(
     useShallow((s) =>
       s.tasks.filter(
@@ -129,7 +129,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
       ),
     ),
   );
-  // 只数列表里显示的排队任务：本地渲染任务不列出，服务端批量取消也不含它们。
+  // Count only listed queued tasks; local rendering tasks are absent and excluded from server batch cancellation.
   const queuedCount = activeTasks.filter(
     (task) => task.status === "queued" && taskToUsageRecordView(task) !== null,
   ).length;
@@ -143,7 +143,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
   );
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set());
 
-  // 悬浮层常驻挂载：收起后不留确认条，下次打开不该看到上一次没做完的取消确认。
+  // Popovers remain mounted; closing clears confirmation bars so reopenings never retain unfinished previous confirmations.
   const dismissCancellation = cancellation.dismiss;
   useEffect(() => {
     if (!open) dismissCancellation();
@@ -170,15 +170,15 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
 
   const finishedRows = useMemo(() => recent.map(usageRecordToView), [recent]);
 
-  // 「没有任何调用」以 summary 为准：它是本项目全部时间的口径，与入口按钮一致。
+  // Summary determines No calls: all-time current-project scope matches entry buttons.
   const empty =
     summary !== null &&
     summary.kpi.calls === 0 &&
     activeRows.length === 0 &&
     finishedRows.length === 0;
 
-  // 按 task_id 分别记在途：多条下载失败的行可以同时重试，用单个 id 会让先返回的那条
-  // 把后点的那条的加载态一并清掉。
+  // Track pending requests per task_id so multiple failed-download rows retry concurrently; single IDs would let earlier
+  // responses clear later-request loading states.
   const markRetrying = useCallback((taskId: string, retrying: boolean) => {
     setRetryingIds((prev) => {
       const next = new Set(prev);
@@ -195,8 +195,8 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
         await API.retryTaskDownload(taskId);
         await Promise.all([useTasksStore.getState().refreshTasks(), refresh()]);
       } catch {
-        // 这一行看不出任何变化（仍是失败态、按钮恢复可用），不给回执用户无从判断究竟是
-        // 没点上还是被拒了。属「用户在场、可立即重试的同步失败」，按 store 的分工走 toast。
+        // Rows show no change (still Failed, buttons reenabled); without feedback users cannot tell missed clicks from
+        // rejected requests. These are synchronous failures with users present for immediate retries, so use store-assigned toasts.
         useAppStore.getState().pushToast(t("retry_download_failed"), "error");
       } finally {
         markRetrying(taskId, false);
@@ -205,7 +205,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     [markRetrying, refresh, t],
   );
 
-  // 跳到设置页是导航，渲染为链接而不是 button；工作台在嵌套路由里，`~` 取绝对路径。
+  // Settings navigation uses links rather than buttons; nested workbench routes require `~` for absolute paths.
   const viewAllButton = (
     <Link
       href={`~${settingsSectionPath("usage", { u_project: projectName })}`}
@@ -217,7 +217,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
   );
 
   return (
-    // 宽面板贴着顶栏向下展开；空间不够时不翻到侧面盖住顶栏，而是收矮、两栏内部滚动。
+    // Wide panels open below headers; insufficient space reduces heights with internal two-column scrolling rather than flipping sideways over headers.
     <PopoverContent align="end" sideOffset={6} collisionAvoidance={{ side: "none" }} className="w-160">
       <div className="flex items-center gap-2">
         <PopoverHeader className="min-w-0 flex-1">
@@ -246,7 +246,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
       ) : (
         <>
           <KpiStrip summary={summary} />
-          {/* 两栏各自滚动；高度上限让短窗口下的面板仍落在视口内 */}
+          {/* Columns scroll independently; height caps keep panels inside short-window viewports. */}
           <div className="flex max-h-96 min-h-0">
             <section aria-label={t("usage_in_progress")} className="flex w-72 shrink-0 flex-col border-r border-border">
               <div className="flex items-center gap-2 px-2 py-1.5">

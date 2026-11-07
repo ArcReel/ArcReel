@@ -1,4 +1,4 @@
-"""对象存储连接、中转副本与正式素材对象 ORM model。"""
+"""ORM models for object-storage connections, relay copies and formal material objects."""
 
 from __future__ import annotations
 
@@ -9,18 +9,21 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
 
-#: 当前连接的 ``slot`` 值；唯一索引让实例同一时刻只有一条当前连接。
+#: ``slot`` value of the current connection; a unique index permits only one current connection per instance.
 CURRENT_CONNECTION_SLOT = 1
 
 
 class ObjectStorageConnection(TimestampMixin, Base):
-    """用户自有对象存储的连接配置，独立于媒体生成供应商的凭证。
+    """Connection configuration for user-owned object storage, separate from media-generation provider credentials.
 
-    首期只有 TOS 一种 ``kind``，实例至多一条当前连接：``slot`` 为 1 且唯一，并发首次保存也只能建出一条。
-    ``slot`` 为空的是退役连接，只在迁移合并历史重复记录时为保留仍被引用的定位而留下，不作为当前连接读出。
-    ``access_key_id`` / ``secret_access_key``
-    明文落库，读出 API 时经 ``mask_secret`` 掩码，与供应商凭证同一规则。删除的连接 ID 不回收：
-    之后保存在对象存储里的内容按连接 ID 记录所属连接，复用 ID 会让旧定位指向另一个桶。
+    Initially TOS is the only ``kind``. Each instance has at most one current connection:
+    ``slot`` is 1 and unique, including concurrent first saves. Empty ``slot`` marks retired
+    connections retained only when migration merges historical duplicates to preserve
+    still-referenced locators; never read them as current connections.
+    ``access_key_id`` / ``secret_access_key`` are stored in plaintext and masked by
+    ``mask_secret`` in read APIs, as with provider credentials. Never reuse deleted
+    connection IDs: stored content records its owning connection by ID, so reuse would
+    point old locators at a different bucket.
     """
 
     __tablename__ = "object_storage_connection"
@@ -40,13 +43,15 @@ class ObjectStorageConnection(TimestampMixin, Base):
 
 
 class RelayObject(TimestampMixin, Base):
-    """为供应商取图写进用户对象存储的中转副本，与正式素材对象分开管理。
+    """Relay copy written to user object storage for provider image retrieval, managed separately from formal material objects.
 
-    记录在写入对象之前创建，写入中途失败也能找回定位。``connection_id`` / ``endpoint`` / ``bucket``
-    是写入时的连接；连接之后被改成另一个桶时不删除，避免按同名 key 误删另一个桶里的对象。
-    签名下载地址只交给供应商，不落库，清理只按这里的定位进行。
+    Create the record before writing the object so its locator remains recoverable on
+    partial-write failure. ``connection_id`` / ``endpoint`` / ``bucket`` describe the
+    connection at write time. If it later changes to another bucket, do not delete,
+    avoiding removal of an identically keyed object in another bucket. Give signed
+    download URLs only to providers, never store them; cleanup uses only this locator.
 
-    ``state``：``retained`` 等待清理，``deleted`` 已删除。删除失败记下原因与下次重试时间。
+    ``state``: ``retained`` awaits cleanup; ``deleted`` is removed. Record deletion failures and next retry times.
     """
 
     __tablename__ = "object_storage_relay_object"
@@ -60,10 +65,10 @@ class RelayObject(TimestampMixin, Base):
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    # 使用这份副本的入库任务（provider_asset_link.id）；保留期据它的状态判断。
+    # Library-ingestion job using this copy (provider_asset_link.id); its state determines retention.
     link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="retained")
-    # 签发给供应商的下载地址到期时间；没有签发时为空。
+    # Expiry of the download URL issued to the provider; empty when none was issued.
     url_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delete_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -72,14 +77,17 @@ class RelayObject(TimestampMixin, Base):
 
 
 class FormalObject(TimestampMixin, Base):
-    """保存在用户对象存储里的正式素材对象：远端内容版本的持久定位指向它。
+    """Formal material object in user-owned object storage, targeted by persistent locators for remote content versions.
 
-    对象 key 按内容摘要命名（``arcreel-materials/`` 前缀，与中转副本分开），同一连接里同字节的内容版本共用一个
-    对象，归属由 :class:`FormalObjectRef` 记录。记录在上传之前创建，上传中途失败或进程退出也能找回定位。
+    Keys use content digests (under ``arcreel-materials/``, separate from relay copies).
+    Content versions with identical bytes on one connection share an object, with ownership
+    recorded by :class:`FormalObjectRef`. Create the record before upload so its locator
+    remains recoverable after partial-upload failure or process exit.
 
-    ``state``：``uploading`` 已登记、远端尚未确认；``stored`` 远端已确认保存；``orphaned`` 确认没有任何引用，
-    等待删除（失败时记下原因与下次重试时间）；``deleted`` 已删除。
-    ``created_attempt`` 是最近一次负责上传它的正式提交，启动补做据此找回中断的提交。
+    ``state``: ``uploading`` is registered but unconfirmed remotely; ``stored`` is confirmed;
+    ``orphaned`` has no references and awaits deletion (record failures and next retry times);
+    ``deleted`` is removed. ``created_attempt`` identifies the latest formal commit responsible
+    for upload, allowing startup recovery to locate interrupted commits.
     """
 
     __tablename__ = "object_storage_formal_object"
@@ -105,12 +113,15 @@ class FormalObject(TimestampMixin, Base):
 
 
 class FormalObjectRef(TimestampMixin, Base):
-    """一条对正式素材对象的引用：某引用方的一个内容版本使用它，或一次进行中的正式提交占用它。
+    """Reference to a formal material object: a holder's content version uses it, or an in-progress formal commit occupies it.
 
-    ``project_name`` 是引用方：项目名（项目整体删除后改挂墓碑名），或不是项目的消费者的带冒号键。
-    ``state``：``pending`` 正式提交进行中（``attempt_id`` 是该提交），提交结算时按版本历史转为 ``active``
-    或删除；``active`` 引用方正在使用内容版本 ``content_version_id``（项目里即版本历史中的版本）；``trashed``
-    项目回收站里的删除记录仍可恢复出该内容版本。对象只要还有任何引用就不删除（见 ``docs/adr/0118``）。
+    ``project_name`` identifies the holder: a project name (reassigned to its tombstone
+    name after whole-project deletion), or a colon-containing key for non-project consumers.
+    ``state``: ``pending`` is an in-progress formal commit (``attempt_id`` identifies it);
+    settlement changes it to ``active`` or deletes it according to version history.
+    ``active`` means the holder uses ``content_version_id`` (a version-history entry in
+    projects); ``trashed`` means a project-trash deletion record can still restore it.
+    Never delete an object while any reference remains (``docs/adr/0118``).
     """
 
     __tablename__ = "object_storage_formal_object_ref"

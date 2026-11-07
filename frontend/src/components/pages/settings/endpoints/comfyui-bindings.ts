@@ -14,11 +14,11 @@ import {
   type ComfyuiWorkflowNode,
 } from "@/types";
 
-// 绑定编辑器的读写辅助：从 workflow 读出可手选的落点，把推断结果与用户的选择合成一份待保存的
-// 节点绑定，并算出保存门控的原因。校验的唯一职责在服务端，这里只复现它会拒绝的那几条硬闸门，
-// 让用户在点保存之前就看到原因。
+// Binding-editor helpers: read selectable workflow targets, combine inference/user choices into pending
+// bindings and derive save-blocking reasons. Servers exclusively validate; reproduce hard refusals only
+// so users see causes before saves.
 
-/** 语义键顺序即绑定表的行顺序；图像端点没有首尾帧与时间轴那四个。 */
+/** Semantic-key order is table order; image endpoints omit the four first/last-frame and timeline keys. */
 export function bindingKeysFor(mediaType: ComfyuiMediaType): readonly ComfyuiBindingKey[] {
   return mediaType === "image" ? COMFYUI_IMAGE_BINDING_KEYS : COMFYUI_VIDEO_BINDING_KEYS;
 }
@@ -27,22 +27,22 @@ export function isRequiredBindingKey(key: ComfyuiBindingKey): boolean {
   return COMFYUI_REQUIRED_BINDING_KEYS.includes(key);
 }
 
-/** 参考图是一条有序列表：列表次序即参考图序号，勾选与取消都要按次序重排。 */
+/** References are ordered lists; order defines image indices, maintained on selection/deselection. */
 export function isListBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "reference_images";
 }
 
 /**
- * 这些键可以有多个落点，且次序不带含义：一份 workflow 里两路消费者各有自己的宽高，帧数同理；
- * `fps` 允许多个只读落点（校验只禁止它们的值互相冲突）。构造层写宽高帧数时逐个写、读帧率时逐个
- * 读，因此编辑器里点中一个候选只能增删这一条，不能把同键的其余落点顶掉——顶掉之后那几路分支
- * 就再也收不到尺寸与帧数了。
+ * These keys allow multiple unordered targets: workflow consumers can each own dimensions/frame counts;
+ * `fps` allows multiple readonly targets, rejecting conflicting values only. Construction writes each dimension/frame binding and reads each rate,
+ * so selecting candidates adds/removes only that target, never replacing other same-key bindings, or other branches
+ * stop receiving dimensions/frame counts.
  */
 export function isMultiTargetBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "width" || key === "height" || key === "frames" || key === "fps";
 }
 
-/** 无序多落点键的勾选与取消：在场即移除，不在场即追加，其余落点原样留着。 */
+/** Unordered multitarget toggles remove present targets/append absent targets, preserving others. */
 export function toggleSetTarget(
   current: ComfyuiBindingTarget[],
   target: ComfyuiBindingTarget,
@@ -52,7 +52,7 @@ export function toggleSetTarget(
     : [...current, target];
 }
 
-/** 一行在绑定表里的状态。`required_unbound` 由必填键没有落点派生，不是服务端的推断状态。 */
+/** Binding-row states; `required_unbound` derives missing required targets, never server inference states. */
 export type ComfyuiRowStatus =
   | "auto"
   | "manual"
@@ -72,7 +72,7 @@ export interface ComfyuiNodeEntry {
   inputs: Record<string, unknown>;
 }
 
-/** 节点 id 在 ComfyUI 里是数字串，按数值排序；非数字的排在其后按字典序。 */
+/** ComfyUI node IDs are numeric strings sorted numerically; nonnumeric IDs follow lexically. */
 function nodeOrder(id: string): [number, string] {
   const digits = /^(\d+)/.exec(id);
   return digits ? [Number(digits[1]), id] : [Number.MAX_SAFE_INTEGER, id];
@@ -90,7 +90,7 @@ function asNode(value: unknown): ComfyuiWorkflowNode | null {
   return typeof node.class_type === "string" ? node : null;
 }
 
-/** 读出 workflow 的全部节点，按节点 id 升序——绑定表与手选下拉共用这一个顺序。 */
+/** Read every workflow node by ascending id, shared by binding tables/manual dropdowns. */
 export function workflowNodes(workflow: Record<string, unknown>): ComfyuiNodeEntry[] {
   const entries: ComfyuiNodeEntry[] = [];
   for (const [id, raw] of Object.entries(workflow)) {
@@ -106,7 +106,7 @@ export function workflowNodes(workflow: Record<string, unknown>): ComfyuiNodeEnt
   return entries.sort((a, b) => compareNodeIds(a.id, b.id));
 }
 
-/** 每个 `class_type` 在 workflow 里出现了几次，按出现次数降序、同次数按名称排序。 */
+/** Count each workflow `class_type`, descending by count then name. */
 export function classTypeCounts(nodes: ComfyuiNodeEntry[]): { classType: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const node of nodes) counts.set(node.classType, (counts.get(node.classType) ?? 0) + 1);
@@ -116,11 +116,11 @@ export function classTypeCounts(nodes: ComfyuiNodeEntry[]): { classType: string;
 }
 
 /**
- * 一个输入是不是连线。ComfyUI 的连线形如 `[上游节点 id, 输出序号]`；`{"__value__": [...]}`
- * 是生态里给数组字面值加的包装，作者刻意声明的字面数组，因此绑得上去。
+ * Whether inputs are links. ComfyUI links use `[上游节点 id, 输出序号]`; `{"__value__": [...]}`
+ * wraps ecosystem array literals, explicitly author-declared and bindable.
  *
- * 先看包装再判形状，与服务端的 `workflow.is_link` 同序：反过来先解包会把
- * `{"__value__": ["4", 0]}` 判成连线，于是一个真能填值的输入在手选下拉里不见了。
+ * Inspect wrappers before shapes, matching server `workflow.is_link`; unwrapping first would misclassify
+ * `{"__value__": ["4", 0]}` as links, hiding genuinely assignable inputs from manual selectors.
  */
 export function isLinkInput(value: unknown): boolean {
   if (isWrappedValue(value)) return false;
@@ -141,7 +141,7 @@ function unwrapValue(value: unknown): unknown {
   return isWrappedValue(value) ? value.__value__ : value;
 }
 
-/** 该输入当前的字面值，供手选下拉展示；连线与缺席都得不到值。 */
+/** Current input literals for manual selectors; links/absent inputs yield no values. */
 export function literalInputText(node: ComfyuiNodeEntry, input: string): string {
   const value = unwrapValue(node.inputs[input]);
   if (value === undefined) return "";
@@ -150,8 +150,8 @@ export function literalInputText(node: ComfyuiNodeEntry, input: string): string 
 }
 
 /**
- * 可手选的落点全集。产物是节点级的（没有 `input`），其余语义键只能落在字面值输入上——
- * 往连线上填值会被上游覆盖，服务端的校验器直接拒。
+ * All manually selectable targets. Outputs are node-level (without `input`); other semantic keys require literal inputs,
+ * because values written into links are overwritten upstream and server validators reject them.
  */
 export function manualTargets(nodes: ComfyuiNodeEntry[], key: ComfyuiBindingKey): ComfyuiBindingTarget[] {
   const targets: ComfyuiBindingTarget[] = [];
@@ -175,8 +175,8 @@ function withTitle(target: ComfyuiBindingTarget, title: string): ComfyuiBindingT
 }
 
 /**
- * 有序列表键的勾选与取消。选中项按候选列表的次序排（推断侧的并列次序就是节点序），
- * 手选进来、不在候选列表里的条目排在其后并保持加入顺序——列表顺序即参考图序号。
+ * Ordered-list selection/deselection: candidates follow candidate-list order (inference ties follow node order),
+ * manually selected noncandidates append in insertion order; list positions define reference-image indices.
  */
 export function toggleListTarget(
   candidates: ComfyuiBindingCandidate[],
@@ -196,24 +196,24 @@ export function toggleListTarget(
     .map((item) => item.entry);
 }
 
-/** 两条目标指向同一个落点：产物比节点，其余比节点加字段。 */
+/** Targets match by node for outputs, node plus field otherwise. */
 export function sameTarget(a: ComfyuiBindingTarget, b: ComfyuiBindingTarget): boolean {
   return a.node === b.node && (a.input ?? null) === (b.input ?? null);
 }
 
-/** 一条目标写进 workflow 的哪一格；只读的 `fps` 不写值，因此不占格子。 */
+/** Workflow cells written by targets; readonly `fps` writes no values and occupies no cells. */
 function targetLanding(target: ComfyuiBindingTarget): string | null {
   if (target.direction === "read") return null;
   return target.input === undefined ? `#${target.node}` : `#${target.node}.${target.input}`;
 }
 
 // ---------------------------------------------------------------------------
-// 推断结果 → 待保存的节点绑定
+// Inference results → pending bindings
 // ---------------------------------------------------------------------------
 
 /**
- * 推断结果的落盘形态：只有「唯一最高分」的键会自动带上条目，歧义与待确认一条也不带——
- * 那正是要用户来定的。显式不支持沿用它的空列表，其余键缺席（从未推断）。
+ * Persisted inference shape: only unique highest-score keys automatically include entries; ambiguous/unconfirmed keys include none,
+ * requiring user decisions. Explicit unsupported retains empty lists; other keys remain absent, never inferred.
  */
 export function bindingsFromInference(
   inference: ComfyuiInferResponse,
@@ -234,7 +234,7 @@ export function bindingsFromInference(
   return bindings;
 }
 
-/** 媒体类型改了之后，越界的语义键连同它的条目一起摘掉——它本就不会被填值。 */
+/** Changed media removes out-of-scope semantic keys and entries, which would never receive values anyway. */
 export function pruneBindings(bindings: ComfyuiBindings, mediaType: ComfyuiMediaType): ComfyuiBindings {
   const allowed = new Set<string>(bindingKeysFor(mediaType));
   const next: ComfyuiBindings = {};
@@ -244,7 +244,7 @@ export function pruneBindings(bindings: ComfyuiBindings, mediaType: ComfyuiMedia
   return next;
 }
 
-/** 该键当前选中的条目在候选列表里的下标集合。 */
+/** Candidate-list indices of currently selected entries for this key. */
 export function selectedCandidateIndexes(
   candidates: ComfyuiBindingCandidate[],
   targets: ComfyuiBindingTarget[] | undefined,
@@ -258,8 +258,8 @@ export function selectedCandidateIndexes(
 }
 
 /**
- * 一行的状态。用户本轮改过、或条目来自已保存的定义（沿用与重匹配都是），都算手动指定——
- * 按 `docs/adr/0082`，保存下来的每一条节点绑定本来就是用户确认过的。
+ * Row states: user edits this round or entries from saved definitions (reused/rematched) count as manually specified;
+ * `docs/adr/0082` treats every saved binding as already user-confirmed.
  */
 export function rowStatus(
   key: ComfyuiBindingKey,
@@ -271,7 +271,7 @@ export function rowStatus(
     return isRequiredBindingKey(key) ? "required_unbound" : "unsupported";
   }
   if (targets === undefined) {
-    // 并列候选优先于「必填未绑定」：有候选摆在那里时，该做的事是选一个，不是从头找。
+    // Tied candidates precede required-unbound states: users should choose available candidates rather than search anew.
     if (state === "ambiguous" || state === "needs_confirmation") return "ambiguous";
     return isRequiredBindingKey(key) ? "required_unbound" : "not_found";
   }
@@ -280,7 +280,7 @@ export function rowStatus(
   return origins.length > 0 && origins.every((origin) => origin === "inferred") ? "auto" : "manual";
 }
 
-/** 这一行的条目各自是怎么来的；手选进来、不在候选列表里的条目不在其中。 */
+/** Origins of row entries; manually selected noncandidate entries are absent. */
 function boundOrigins(
   candidates: ComfyuiBindingCandidate[],
   targets: ComfyuiBindingTarget[],
@@ -291,8 +291,8 @@ function boundOrigins(
 }
 
 /**
- * 重导入在这一行留下的记号：只要有一条是按类型加标题迁移过来的就报「已重匹配」——它是更需要
- * 用户过目的那一种；全都原样沿用时报「沿用」；本轮新推断或手选的行没有记号。
+ * Reimport marks: any type-plus-title-migrated entry means Rematched, requiring closer user review;
+ * all unchanged entries mean Reused; freshly inferred/manual rows show no marks.
  */
 export function rowOrigin(
   candidates: ComfyuiBindingCandidate[],
@@ -304,7 +304,7 @@ export function rowOrigin(
   return origins.length > 0 && origins.every((origin) => origin === "kept") ? "kept" : null;
 }
 
-/** 表头右侧的四类计数。 */
+/** Four header-side count categories. */
 export function statusTally(statuses: ComfyuiRowStatus[]): {
   bound: number;
   ambiguous: number;
@@ -320,21 +320,21 @@ export function statusTally(statuses: ComfyuiRowStatus[]): {
 }
 
 // ---------------------------------------------------------------------------
-// 保存门控
+// Save gates
 // ---------------------------------------------------------------------------
 
-/** 一条挡住保存的原因：`key` 用来渲染语义键名，`code` 决定说哪一句。 */
+/** Save-blocking reasons: `key` renders semantic names, `code` selects explanatory copy. */
 export interface ComfyuiSaveBlocker {
   code: "required_unbound" | "needs_choice" | "needs_binding" | "target_taken" | "placeholder_name";
   key?: ComfyuiBindingKey;
-  /** `target_taken` 专属：撞在同一格子上的另一个语义键。 */
+  /** `target_taken` only: other semantic keys occupying identical cells. */
   otherKey?: ComfyuiBindingKey;
 }
 
 /**
- * 保存门控的原因清单，空表即可以保存。三条都是服务端校验器的硬闸门：提示词与产物必须有着落、
- * 并列候选必须有人来定、两个语义键不能写同一个字段；另加一条改名——自动包装的 `meta` 是占位值，
- * 两份不相干的 workflow 会因同作者同名被判成重复。
+ * Save-blocking reasons, empty when saveable. Three server hard gates require prompt/output targets,
+ * user resolution of tied candidates, and distinct fields for semantic keys; additionally require renaming placeholder `meta`,
+ * preventing unrelated same-author/name workflows from counting as duplicates.
  */
 export function saveBlockers(
   bindings: ComfyuiBindings,
@@ -355,7 +355,7 @@ export function saveBlockers(
     const result = inference.bindings[key];
     if (result === undefined) continue;
     if (result.state !== "ambiguous" && result.state !== "needs_confirmation") continue;
-    // 重导入把条目判丢、重跑推断又一无所获时，这一行一个候选也没有：该做的是手选或标为不支持。
+    // Bindings lost on reimport with no reinferred candidates require manual selection or explicit unsupported marking.
     blockers.push({ code: result.candidates.length > 0 ? "needs_choice" : "needs_binding", key });
   }
   const seen = new Map<string, ComfyuiBindingKey>();
@@ -372,24 +372,24 @@ export function saveBlockers(
 }
 
 /**
- * 这份定义连端点测试都过不去吗。
+ * Whether definitions fail even endpoint tests.
  *
- * 保存门控里只有这两条同时是服务端**校验器**的硬闸门（`comfyui_binding_required` 与
- * `comfyui_target_collision`），带着它们去预览或测试连接只会换回一条 422。另外三条不是：并列
- * 候选未定与原绑定失效只是这一维没绑上，预览照样渲得出来——换算说明里那个「未驱动这份 workflow」
- * 正是它该有的样子；占位名只挡保存。
+ * Only two save blockers are also server **validator** hard gates (`comfyui_binding_required` and
+ * `comfyui_target_collision`), causing preview/test 422s. Three others are not: unresolved tied candidates
+ * and invalidated old bindings merely leave dimensions unbound; previews still render, correctly explaining dimensions
+ * not driving workflows. Placeholder names block saving only.
  */
 export function testRefused(blockers: readonly ComfyuiSaveBlocker[]): boolean {
   return blockers.some((blocker) => blocker.code === "required_unbound" || blocker.code === "target_taken");
 }
 
 /**
- * 一份定义用于「改过没有」比对的规范形。
+ * Canonical definition shapes for changed-state comparison.
  *
- * 直接串比会把两份内容相同的定义判成不同：空标题在手选那一侧是「不写 `title` 这个键」
- * （见 `withTitle`），服务端重匹配回来的却是 `"title": ""`；键的次序也各按各的来源。
- * 递归按键名排序、并把空 `title` 一律当作缺省，两侧才在同一把尺子上。这只影响按钮文案与
- * 可点性，落盘的仍是原样的 `draft`。
+ * Raw string comparison misclassifies identical contents: manually selected empty titles omit `title`
+ * (see `withTitle`), whereas server rematches return `"title": ""`; key order also varies by origin.
+ * Recursively sort keys and treat empty `title` as absent for common comparison. Only button copy/enabled states change;
+ * persisted values remain original `draft`.
  */
 export function definitionFingerprint(definition: object): string {
   return JSON.stringify(canonical(definition));

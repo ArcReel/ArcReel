@@ -14,24 +14,24 @@ import {
   type ReferenceVideoUnit,
 } from "@/types/reference-video";
 
-// mention 胶囊改用 inline box-shadow 伪描边 + 背景色，不额外占宽：以前用 `px-0.5`
-// 每遇到一个 mention 视觉层比 textarea 字符宽度多 4px，导致光标定位与可见字符偏移。
-// 该类只应用颜色/背景/圆角，不改变盒模型宽度。
+// Mention pills use inline box-shadow pseudo-borders/background without width; previous `px-0.5`
+// added 4px per mention versus textarea text, offsetting cursors from visible characters.
+// Classes affect color/background/radius only, never box-model width.
 const MENTION_SPAN_CLASS = "rounded-sm";
 
-// 着色镜像层与输入框必须逐像素同排版：preflight 给 pre 等宽字体、给 textarea `font: inherit`，
-// 两层都显式用正文比例字体，否则字宽不同，光标与选区落在可见字符旁边；输入框出现滚动条时
-// 可用宽度变窄、折行位置也会分叉，所以两层都预留滚动条槽位。
+// Highlight mirrors/inputs require pixel-identical layout: preflight gives pre monospace, textarea `font: inherit`;
+// explicitly use proportional body fonts on both or differing widths offset cursors/selections. Input scrollbars
+// also narrow available width/change wrapping, so reserve scrollbar gutters on both layers.
 const EDITOR_LAYER_CLASS = "p-3 font-sans text-sm leading-6 [scrollbar-gutter:stable]";
 
 /**
- * 渲染 pre 层的 token span 串；当 caretOffset 命中某个 token 内部或边界时，在该位置
- * 切一刀并插入一个零尺寸 caret anchor（给 picker 定位用）。
+ * Render pre-layer token spans; when caretOffset hits token interiors/boundaries, split there
+ * and insert zero-size caret anchors for picker positioning.
  *
- * anchor 只在 pickerOpen 下被使用（调用方传 null 时跳过插入）。为避免 anchor 的
- * inline-block 影响行内 layout，用 `w-0 h-[1em] inline-block align-baseline`。
+ * Anchors are used only with pickerOpen; null from callers skips insertion. Avoid inline-layout impact
+ * through `w-0 h-[1em] inline-block align-baseline`.
  *
- * anchor 元素通过 callback ref 回传给调用方，再交给 floating-ui 做 portal 定位。
+ * Callback refs return anchors to callers, then floating-ui uses portal positioning.
  */
 function renderHighlightedTokens(
   tokens: Token[],
@@ -61,8 +61,8 @@ function renderHighlightedTokens(
       );
     }
     if (tk.kind === "speech") {
-      // 与预览的 `ScriptHighlight` 同一套着色：底色标出「这段被认成台词了」，说话人配色跟
-      // 资产档位走（画外音无说话人，恒是 unknown 档）。原文逐字保留，只加颜色与 title。
+      // Match preview `ScriptHighlight`: backgrounds mark parsed dialogue, speaker colors follow
+      // asset categories (voiceover has no speaker, always unknown). Preserve source verbatim, adding only colors/titles.
       const palette = assetColor(tk.speakerKind);
       return (
         <span
@@ -82,14 +82,14 @@ function renderHighlightedTokens(
     const nextAcc = acc + tk.text.length;
     if (!inserted && caretOffset !== null && caretOffset >= acc && caretOffset <= nextAcc) {
       const local = caretOffset - acc;
-      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 正文按位置切出的着色片段，只读、无状态，位置即身份
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Body highlight spans are positional, read-only/stateless; position identifies them
       out.push(<Fragment key={`pre-${i}`}>{renderPiece(tk, tk.text.slice(0, local), `pre-${i}`)}</Fragment>);
       if (anchorEl) out.push(anchorEl);
-      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 同上：光标后半段的着色片段
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Same for the post-cursor highlight portion
       out.push(<Fragment key={`post-${i}`}>{renderPiece(tk, tk.text.slice(local), `post-${i}`)}</Fragment>);
       inserted = true;
     } else {
-      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 同上：完整的着色片段
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Same for complete highlight spans
       out.push(<Fragment key={`t-${i}`}>{renderPiece(tk, tk.text, `t-${i}`)}</Fragment>);
     }
     acc = nextAcc;
@@ -113,7 +113,7 @@ export interface ReferenceVideoCardProps {
   saving?: boolean;
 }
 
-/** 提示词预览里的参考图；单独订阅这张图的指纹，地址随重新生成换版本。 */
+/** Prompt-preview reference image, individually subscribed to fingerprints for regenerated URL versions. */
 function ReferencePreviewImage({ projectName, path, name }: { projectName: string; path: string; name: string }) {
   const fingerprint = useProjectsStore((s) => s.getAssetFingerprint(path));
   return (
@@ -138,14 +138,14 @@ export function ReferenceVideoCard({
   const { t } = useTranslation("dashboard");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
-  // caret anchor 通过 callback ref 转成 state，供 MentionPicker 的 floating-ui
-  // 作为参考元素。使用 state 而非 ref：floating-ui 的 `refs.setReference` 必须
-  // 在 reference 元素变更时感知到（初次 null → 挂载后的 span），state 变更会触发
-  // Picker 的 effect 重新 setReference。
+  // Callback refs convert caret anchors to state for MentionPicker floating-ui
+  // reference elements. Use state rather than refs: floating-ui `refs.setReference` must
+  // observe reference changes (initial null → mounted span), and state changes trigger
+  // Picker effects to call setReference again.
   const [anchorEl, setAnchorEl] = useState<HTMLSpanElement | null>(null);
 
-  // 父组件把 prompt 当作受控值传入（可能是服务端原值，也可能是未保存的草稿）。
-  // 本地 state 仅保留 MentionPicker 相关的 UI 细节。
+  // Parents control prompt values, either server originals or unsaved drafts.
+  // Local state holds only MentionPicker UI details.
   const currentText = value;
 
   const project = useProjectsStore((s) => s.currentProjectData);
@@ -156,9 +156,9 @@ export function ReferenceVideoCard({
 
   const voiceoverLabel = t("script_highlight_voiceover");
 
-  // pickerOpen=false 是绝对多数路径（打字时 picker 只在 @ 触发短暂打开）。
-  // tokens 已被 useUnitPromptHighlight memo 化，这里再把 tokens→ReactNode 列表缓存一层，
-  // 父组件或其他 state 引起的 re-render 就不会重新跑 renderHighlightedTokens 的 forEach。
+  // Most paths have pickerOpen=false; typing briefly opens pickers only on @.
+  // useUnitPromptHighlight memoizes tokens; additionally cache tokens→ReactNode lists here,
+  // avoiding renderHighlightedTokens forEach reruns on parent/other-state rerenders.
   const staticHighlightedNodes = useMemo(
     () => renderHighlightedTokens(tokens, null, () => {}, voiceoverLabel),
     [tokens, voiceoverLabel],
@@ -179,8 +179,8 @@ export function ReferenceVideoCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
-  // atStart 既决定 caret anchor 何时插入（picker 定位用），又在 picker-select 时
-  // 定位 @ 插入点。用 state 以便 re-render 时 pre 能在正确位置插 caret anchor。
+  // atStart controls caret-anchor insertion for positioning and locates @ insertion on picker selection.
+  // Use state so rerendered pre places caret anchors correctly.
   const [atStart, setAtStart] = useState<number | null>(null);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
@@ -197,7 +197,7 @@ export function ReferenceVideoCard({
         imagePath: (data as Partial<Record<(typeof SHEET_FIELD)[AssetKind], string>>)[SHEET_FIELD[kind]] ?? null,
       }));
     }
-    // 角色候选含衍生：`本体名/衍生名` 是独立的引用名，取的是该形态自己的资产图。
+    // Character candidates include derivatives: `本体名/衍生名` is an independent reference using that appearance's own sheet.
     out.character = characterReferenceForms(project?.characters).map((form) => ({
       name: form.name,
       imagePath: form.asset.character_sheet ?? null,
@@ -206,16 +206,16 @@ export function ReferenceVideoCard({
   }, [project?.products, project?.characters, project?.scenes, project?.props]);
 
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
-    // 向左扫描寻找 @ 触发符。旧格式只允许 `\w` + CJK + `/` 作为正在输入的 query；
-    // 包裹格式 `@[query` 则允许标点参与过滤，直到遇到空白或闭合括号。
-    // `/` 是衍生引用名的分隔符（`本体/衍生`）：不放行它，键入 `@阿岚/` 会当场关掉候选列表，
-    // 衍生就只能靠包裹形态或整段搜索才选得到。插入的仍是包裹形态 `@[本体/衍生]`。
+    // Scan left for @. Legacy queries allow only `\w` + CJK + `/`;
+    // wrapped `@[query` permits punctuation until whitespace/closing brackets.
+    // `/` separates derivative names (`本体/衍生`); disallowing it closes candidates on typing `@阿岚/`,
+    // limiting derivative selection to wrapped names/full searches. Insert wrapped `@[本体/衍生]` regardless.
     let i = cursor - 1;
     while (i >= 0) {
       const ch = nextValue[i];
       if (ch === "@") {
         const prev = nextValue[i - 1];
-        // 与 MENTION_RE `(?<!\w)` 对齐：@ 左侧不能是 ASCII 词字符，否则视为 email/id 残片。
+        // Match MENTION_RE `(?<!\w)`: ASCII word characters before @ mean email/ID fragments, not mentions.
         if (i === 0 || !/\w/.test(prev ?? "")) {
           const rawQuery = nextValue.slice(i + 1, cursor);
           const isWrapped = rawQuery.startsWith("[");
@@ -256,9 +256,9 @@ export function ReferenceVideoCard({
     setActiveOptionId(null);
   }, []);
 
-  // Backspace 两次删除：当光标紧挨在一个完整 @mention 的末尾且无选区时，
-  // 第一次退格仅选中该 mention（让用户看到高亮），默认行为不删除；第二次按下时
-  // selectionStart !== selectionEnd，浏览器默认就会删除整个选区。
+  // Two-step Backspace when cursor directly follows complete @mentions without selection:
+  // first selects/highlights the mention without default deletion; second sees
+  // selectionStart !== selectionEnd, so browser defaults delete the whole selection.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Backspace") return;
     const ta = e.currentTarget;
@@ -266,8 +266,8 @@ export function ReferenceVideoCard({
     const end = ta.selectionEnd ?? 0;
     if (start !== end) return;
     const text = ta.value;
-    // 向左扫到最近的 @，用 MENTION_RE 判断它是否是一个完整 mention。
-    // 限制扫描范围（光标前 64 字符）避免长文本里 O(n) 扫每次 backspace。
+    // Scan left to nearest @, checking complete mentions with MENTION_RE.
+    // Limit scans to 64 preceding characters, avoiding O(n) backspace scans in long text.
     const scanFrom = Math.max(0, start - 64);
     const slice = text.slice(scanFrom, start);
     for (const m of slice.matchAll(MENTION_RE)) {
@@ -332,7 +332,7 @@ export function ReferenceVideoCard({
                 {result.references.length ? (
                   <ol className="space-y-2">
                     {result.references.map((reference, index) => (
-                      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 预览结果整份替换、只读，同一张参考图可出现多次，行内无状态
+                      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Preview results replace whole read-only lists; references may repeat and rows are stateless
                       <li key={`${reference.path}-${index}`} className="flex items-center gap-3 text-xs text-subtle-foreground">
                         <ReferencePreviewImage projectName={projectName} path={reference.path} name={reference.name} />
                         <span>{t("reference_prompt_preview_image", { index: index + 1, name: reference.name })}</span>
@@ -355,12 +355,12 @@ export function ReferenceVideoCard({
         </div>
       )}
 
-      {/* 编辑框随栏高撑开，栏太矮时不低于 12rem，由外层滚动。 */}
+      {/* Editor fills column height, at least 12rem in short columns with outer scrolling. */}
       <div className="relative min-h-48 flex-1 rounded-md border border-input bg-background/60 transition-colors duration-fast focus-within:border-ring">
         <pre
           ref={preRef}
           aria-hidden
-          // 着色镜像层：只显示与输入框同步滚动的那一段，溢出部分由输入框自己滚动到达。
+          // Highlight mirrors display only the input-synchronized scroll window; inputs themselves scroll overflow.
           data-overflow-ok="与输入框同步滚动的着色镜像层"
           className={`pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words ${EDITOR_LAYER_CLASS}`}
         >
@@ -370,7 +370,7 @@ export function ReferenceVideoCard({
           {currentText.endsWith("\n") ? "\u200b" : null}
         </pre>
 
-        {/* eslint-disable-next-line no-restricted-syntax -- 与着色镜像层逐字对齐、同步滚动，Textarea 的自动撑高会破坏对齐 */}
+        {/* eslint-disable-next-line no-restricted-syntax -- Align verbatim with highlight mirrors and synchronize scrolling; Textarea auto-height would break alignment */}
         <textarea
           ref={taRef}
           value={currentText}

@@ -107,7 +107,7 @@ def test_blank_start_discards_the_unconfirmed_plan_and_its_draft(tmp_path: Path)
     assert not draft.exists()
     project = pm.load_project("demo")
     assert script_review.review_status(project_path, project, 1) == "no_script_plan"
-    # 规划与草稿各成一条删除记录
+    # Planning and drafts each create a deletion record.
     trashed = sorted(path for record in project_trash.list_records(project_path) for path in record.files)
     assert trashed == sorted(p.relative_to(project_path).as_posix() for p in (plan, draft))
 

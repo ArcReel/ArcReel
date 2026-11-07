@@ -13,8 +13,8 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * 通过隐藏 <a> 让浏览器导航到下载地址，避免 window.open 产生空白标签页。
- * 同源的媒体文件传 `filename`，让浏览器保存而不是在标签页里播放。
+ * Navigate the browser to the download URL through a hidden <a>, avoiding the blank tab produced by window.open.
+ * For same-origin media files, pass `filename` so the browser saves them instead of playing them in a tab.
  */
 export function triggerBrowserDownload(url: string, filename?: string): void {
   const anchor = document.createElement("a");

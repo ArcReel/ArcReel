@@ -1,1 +1,1 @@
-单张道具资产图，纯净浅灰背景。
+A single prop asset sheet, clean light-gray background.

@@ -6,7 +6,7 @@ import { TruncatedText } from "./TruncatedText";
 
 const PATH = "episodes/episode_12/storyboards/scene_07_shot_03_final_render.png";
 
-// jsdom 不排版：用内容宽度与可见宽度模拟截断。
+// jsdom has no layout; simulate truncation through content/visible widths.
 function mockWidths(scrollWidth: number, clientWidth: number) {
   Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get: () => scrollWidth });
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => clientWidth });
@@ -25,7 +25,7 @@ function renderText() {
   );
 }
 
-// 全文提示出现时，页面上同时有截断的原文与弹出的全文两份文字。
+// Full-text notices coexist with truncated source text in pages.
 const shownTimes = () => screen.queryAllByText(PATH).length;
 
 describe("TruncatedText", () => {

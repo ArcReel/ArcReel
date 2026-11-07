@@ -1,16 +1,16 @@
-# Stage AI 审查循环契约
+# Stage AI review loop contract
 
-你负责把一个 stage PR 推进到 **green HEAD**、审查收敛且可合并；收敛以 `pr-ai-review-loop` 的完成条件为准，不以所有 bot 都给出通过措辞为准。
+Advance one stage PR to a **green HEAD**, converged review, and merge readiness. Convergence follows the completion criteria in `pr-ai-review-loop`, not whether every bot uses approval wording.
 
-输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
+Inputs: PR, stage branch, stage worktree, this stage's issues, batch handoff directory, absolute stage handoff path, and optional `rounds` budget in the form `evaluation-point/hard-stop`.
 
-1. 确认 stage worktree、branch 与远程最新提交一致：首次启动时该提交是最新交付的 **green HEAD**，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
-2. 将 PR 转为 ready。
-3. 使用 Skill 工具调用 `pr-ai-review-loop`，采用其工程判断、覆盖核对、等待、轮次与终核约定；委派方为 team-lead，轮次预算以输入的 `rounds` 为准（省略即该 skill 的默认值）。
-   - wait.sh 与完整闸门等长任务前台阻塞执行。
-   - 普通修复以额外 integration-fix commits push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；完整闸门卡住（同一失败特征第 2 次出现）时记为 `fault` 并上报 team-lead。
-   - 评估汇报、按 [escalation.md](../../../../docs/agents/escalation.md) 需要找用户的事项与故障询问均发给 team-lead。
-   - 达到硬停后，按该 skill 完成最后一批必要复审与终核：新发现都能以回复结案时，回复后进入第 6 步；需要改代码时，按 [handoff.md](handoff.md) 追加「审查循环」段，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，向 team-lead 作硬停汇报并停止。
-4. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑完整闸门，以 `--force-with-lease` push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。保留每个 issue 的单个 conventional commit 与 `Refs #<N>`。
-5. reviewer 的发现超出批次范围时，按该 skill 定性；属于存量的，回复边界并记为 follow-up 候选。发现按 escalation.md 需要找用户时请示 team-lead，收到裁决后回执确认；team-lead 按主流程的暂停边界持久化 issue 状态并阻断当前 stage 合并，直到用户裁决并完成对应恢复或重建。
-6. 终核通过后，将本 stage 的所有非 issue commits 压成一个同规范的 integration-fix commit。确认压缩前后 tree 一致后，以 `--force-with-lease` push；新 HEAD 的 required checks 通过后，按 lessons.md「收尾自查」自查，按 [handoff.md](handoff.md) 追加「审查循环」段，回报达标 HEAD 与轮数并停止。
+1. Confirm the stage worktree, branch, and latest remote commit agree. At initial startup this commit is the latest delivered **green HEAD**; at takeover it is the predecessor's hard-stop HEAD. Read every stage issue and its handoff, using existing stage-handoff sections as the already-decided starting point. Always write Git commands as `git -C <absolute-stage-worktree-path>`.
+2. Mark the PR ready.
+3. Invoke `pr-ai-review-loop` through the Skill tool, following its engineering judgment, coverage reconciliation, waiting, round, and final-check conventions. The delegator is the team-lead; use the supplied `rounds` budget, or the skill's default if omitted.
+   - Run long tasks such as wait.sh and full gates as blocking foreground commands.
+   - Push ordinary fixes as additional integration-fix commits with messages following [the `CONTRIBUTING.md` commit conventions](../../../../CONTRIBUTING.md). If the full gate gets stuck (the same failure signature appears a second time), record a `fault` and report to the team-lead.
+   - Send evaluation reports, matters requiring the user under [escalation.md](../../../../docs/agents/escalation.md), and failure questions to the team-lead.
+   - At the hard stop, complete the final necessary rereviews and final checks under that skill. If every new finding can be closed by a reply, reply and proceed to step 6. If code changes are needed, append a “Review loop” section under [handoff.md](handoff.md), perform the “Closing self-check” in [lessons.md](../../../../docs/agents/lessons.md), report the hard stop to the team-lead, and stop.
+4. On a rebase instruction, rebase onto the latest `origin/main`, resolve conflicts, rerun the full gate, push with `--force-with-lease`, and record old and new HEADs under [handoff.md](handoff.md). Preserve one conventional commit and `Refs #<N>` per issue.
+5. Classify reviewer findings outside batch scope according to that skill; for preexisting findings, reply with the boundary and record follow-up candidates. Consult the team-lead for findings requiring the user under escalation.md and acknowledge its decision upon receipt. The team-lead persists issue state under the main workflow's pause boundaries and blocks the current stage's merge until the user decides and corresponding recovery or rebuilding is complete.
+6. After final checks pass, squash every non-issue commit in this stage into one integration-fix commit following the same conventions. Verify the tree is identical before and after squashing, then push with `--force-with-lease`. Once required checks pass for the new HEAD, perform the “Closing self-check” in lessons.md, append a “Review loop” section under [handoff.md](handoff.md), report the qualifying HEAD and round count, and stop.

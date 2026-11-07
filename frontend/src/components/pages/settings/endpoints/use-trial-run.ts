@@ -12,7 +12,7 @@ import type {
 const TRIAL_POLL_INTERVAL_MS = 2000;
 const TRIAL_POLL_MAX_CONSECUTIVE_FAILURES = 5;
 
-/** 创建一次测试连接的载荷：内联定义或模型行引用二选一。 */
+/** Connection-test creation payloads: inline definitions or model-row references, mutually exclusive. */
 export interface TrialRunRequest {
   definition?: unknown;
   model_ref?: TrialRunModelRef;
@@ -22,26 +22,26 @@ export interface TrialRunRequest {
 
 export interface TrialRunHandle {
   run: TrialRunInfo | null;
-  /** 终态：成功或失败。 */
+  /** Terminal success/failure states. */
   finished: boolean;
   starting: boolean;
-  /** 创建、回读或取产物时的出错说明。 */
+  /** Creation/readback/output-retrieval errors. */
   error: string | null;
-  /** 上一次 run 是被用户放弃的。 */
+  /** Previous runs abandoned by users. */
   cancelled: boolean;
-  /** 回读连续失败到上限，已停止轮询；run 仍占着服务端名额，取消入口照旧可用。 */
+  /** Consecutive read failures reached limits, stopping polling; runs still occupy server slots, retaining cancellation. */
   pollStopped: boolean;
-  /** 产物的本地对象 URL；没有产物或还没取回为 null。 */
+  /** Local output object URLs; null without outputs or before retrieval. */
   artifactUrl: string | null;
   start: (request: TrialRunRequest, assets?: EndpointTestAssets) => Promise<void>;
   cancel: () => Promise<void>;
 }
 
 /**
- * 一次测试连接的生命周期：创建 → 轮询回读 → 取回产物 → 取消。
+ * Connection-test lifecycle: create → poll readback → retrieve outputs → cancel.
  *
- * 两种 kind 的测试连接卡各有自己的参数、素材与展示，但这条生命周期完全一致——轮询的放弃计数、
- * 404 的就地清空、取消后的名额释放都是踩过的坑，抄第二份等于把坑也抄一遍。
+ * Both kinds' test cards own parameters/materials/presentation, but lifecycles are identical. Poll-abandonment counts,
+ * in-place 404 cleanup and postcancel slot release already exposed bugs; duplicating lifecycle duplicates pitfalls.
  */
 export function useTrialRun(): TrialRunHandle {
   const [starting, setStarting] = useState(false);
@@ -49,10 +49,10 @@ export function useTrialRun(): TrialRunHandle {
   const [error, setError] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<{ runId: string; url: string } | null>(null);
   const [cancelled, setCancelled] = useState(false);
-  // 轮询放弃态：连续失败达上限后只停读回，不动 run——服务端名额仍被占用，
-  // runId 与取消入口必须保留，否则重新创建会撞 trial_run_already_running。
+  // Poll abandonment stops reads after failure limits without touching runs, whose server slots remain occupied;
+  // retain runId/cancellation or new creation hits trial_run_already_running.
   const [pollStopped, setPollStopped] = useState(false);
-  // 每次开始测试加一：取消与回读期间旧 run 可能已终结、用户又开了新的一次，晚到的结果不能改写新 run。
+  // Increment per start: old runs may finish during cancellation/readback and users start new ones; late results cannot overwrite new runs.
   const generation = useRef(0);
 
   const runId = run?.id ?? null;
@@ -79,15 +79,15 @@ export function useTrialRun(): TrialRunHandle {
     };
   }, [artifactRunId]);
 
-  // 试跑是进程内异步 run：创建后轮询读回，终态即停。递归 setTimeout 保证上一次
-  // 读回落地后才排下一次，响应慢于间隔时不会堆积并发请求。
-  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- 每轮的定时器号写进同一个 timer，cleanup 统一 clearTimeout 并 abort；abort 后的回调不再排下一轮
+  // Trials are process-local async runs: create, poll until terminal, then stop. Recursive setTimeout schedules only after
+  // prior read settlement, preventing concurrent accumulation when responses exceed intervals.
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- every timer uses the same timer variable; cleanup clearTimeout/abort, with aborted callbacks scheduling nothing
   useEffect(() => {
     if (!runId || finished || pollStopped) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
-    // 连续失败达到上限即停：run 被删或凭证过期时 401/404 不会自愈，无限重试只会刷请求。
-    // 单次失败不弃轮询，瞬时网络抖动在下一轮成功后计数归零。
+    // Stop at consecutive failure limits: deleted runs/expired credentials produce nonhealing 401/404; infinite retries only flood requests.
+    // Single failures retain polling; next success clears transient-network counters.
     let consecutiveFailures = 0;
     const poll = () => {
       void API.getTrialRun(runId, { signal: controller.signal })
@@ -101,8 +101,8 @@ export function useTrialRun(): TrialRunHandle {
         .catch((e) => {
           if (controller.signal.aborted) return;
           setError(errMsg(e));
-          // 明确的 404 表示 run 已不在服务端（TTL 过期或重启丢失），名额已释放，
-          // 就地清空本地状态；只有瞬时网络/服务错误才走重试与放弃计数。
+          // Explicit 404 means absent server runs (TTL/restarts), releasing slots;
+          // clear local state immediately. Only transient network/server failures use retry/abandonment counts.
           if (e instanceof ApiRequestError && e.status === 404) {
             setRun(null);
             return;
@@ -138,8 +138,8 @@ export function useTrialRun(): TrialRunHandle {
     }
   }, []);
 
-  // 取消会让服务端连同结果一起丢弃这次 run，回读只会拿到 404；就地清空本地状态，
-  // 让「开始测试」重新可用。远端任务不受影响，已经发生的费用照算。
+  // Cancellation discards server runs/results, leaving readback 404. Clear local state
+  // to enable Start test. Remote jobs remain unaffected; incurred costs still apply.
   const cancel = useCallback(async () => {
     if (!runId) return;
     const started = generation.current;
@@ -152,8 +152,8 @@ export function useTrialRun(): TrialRunHandle {
         setError(errMsg(e));
         return;
       }
-      // 404 有两种：供应商已经返回、取消来晚了，服务端保留着结果；或 run 已过期不在。
-      // 先回读一次，读到就展示（未到终态时轮询照常接手），回读也 404 才当作已取消清空。
+      // Two 404 meanings: provider returned before late cancellation, retaining server results; or expired absent runs.
+      // Read once first, showing retained results and polling nonterminal runs; only readback 404 clears as cancelled.
       try {
         const kept = await API.getTrialRun(runId);
         if (superseded()) return;

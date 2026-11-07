@@ -1,0 +1,1028 @@
+{
+  "reviewer": "Coordinator, independent of translator",
+  "status": "PASS after two precision refinements",
+  "schema_annotation_occurrences": 93,
+  "unique_description_pairs_reviewed": 31,
+  "scope": "All 52 editing-timeline and 41 workflow direct/nested description deltas. Semantic clauses inspected independently; no model calls.",
+  "refinements": [
+    "RevisionSummary explicitly assigns null to changed-clip information only for historical revisions without records.",
+    "WorkflowProblem params denotes text-interpolation parameters, avoiding ambiguous copy-operation wording."
+  ],
+  "invariants_reviewed": [
+    "Transition half-window and unchanged total duration",
+    "Version-bound trim, current-video selection, whole-video/null and hard-cut semantics",
+    "Monotonic no-reuse clip IDs, immutable revisions, rollback creating new revision",
+    "Read-time missing/deleted/unknown media states, BGM clipping and fade distinctions",
+    "Closed admission codes and UI/Agent presentation roles",
+    "Queued/running state distinct from problems; capability checkpoints contain no internal IDs",
+    "Content completeness, stale artifacts, recommendations, blockers and issues retain separate meanings",
+    "Verified versus registered artifact currency and needs_replan handling",
+    "Project summary source-reading restrictions and temporary ledger/source disagreement"
+  ],
+  "deltas": [
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.Transition",
+        "description"
+      ],
+      "before": "相邻两个剪辑片段之间的转场；窗口以切点为中心，前后各占一半，不改变总时长。",
+      "after": "Transition between adjacent editing clips; its window is centered on the cut, half on each side, without changing total duration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.ClipTrim",
+        "description"
+      ],
+      "before": "剪辑片段的截取：入出点只对 ``basis_version`` 这一视频版本有效。",
+      "after": "Clip trim whose in/out points apply only to video version ``basis_version``."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditClip",
+        "$defs",
+        "ClipTrim",
+        "description"
+      ],
+      "before": "剪辑片段的截取：入出点只对 ``basis_version`` 这一视频版本有效。",
+      "after": "Clip trim whose in/out points apply only to video version ``basis_version``."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditClip",
+        "$defs",
+        "Transition",
+        "description"
+      ],
+      "before": "相邻两个剪辑片段之间的转场；窗口以切点为中心，前后各占一半，不改变总时长。",
+      "after": "Transition between adjacent editing clips; its window is centered on the cut, half on each side, without changing total duration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditClip",
+        "description"
+      ],
+      "before": "主轨上的一格：引用视频单元，画面一律取该单元的 current 视频版本。\n\n``trim`` 为 None 时整段使用；``transition_to_next`` 为 None 时与下一片段硬切。",
+      "after": "One main-track slot referencing a video unit, always using its current video version.\n\n``trim`` None uses the entire video; ``transition_to_next`` None makes a hard cut to the next clip."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.BgmClip",
+        "description"
+      ],
+      "before": "BGM 轨上的一段：同一时刻只有一首，超出时间线末尾的部分截断。",
+      "after": "One BGM-track clip: only one plays at a time, with portions beyond timeline end truncated."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineContent",
+        "$defs",
+        "BgmClip",
+        "description"
+      ],
+      "before": "BGM 轨上的一段：同一时刻只有一首，超出时间线末尾的部分截断。",
+      "after": "One BGM-track clip: only one plays at a time, with portions beyond timeline end truncated."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineContent",
+        "$defs",
+        "ClipTrim",
+        "description"
+      ],
+      "before": "剪辑片段的截取：入出点只对 ``basis_version`` 这一视频版本有效。",
+      "after": "Clip trim whose in/out points apply only to video version ``basis_version``."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineContent",
+        "$defs",
+        "EditClip",
+        "description"
+      ],
+      "before": "主轨上的一格：引用视频单元，画面一律取该单元的 current 视频版本。\n\n``trim`` 为 None 时整段使用；``transition_to_next`` 为 None 时与下一片段硬切。",
+      "after": "One main-track slot referencing a video unit, always using its current video version.\n\n``trim`` None uses the entire video; ``transition_to_next`` None makes a hard cut to the next clip."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineContent",
+        "$defs",
+        "Transition",
+        "description"
+      ],
+      "before": "相邻两个剪辑片段之间的转场；窗口以切点为中心，前后各占一半，不改变总时长。",
+      "after": "Transition between adjacent editing clips; its window is centered on the cut, half on each side, without changing total duration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineContent",
+        "description"
+      ],
+      "before": "一个修订的剪辑内容：主轨按相对顺序排列，绝对时间由读取时计算。",
+      "after": "One revision's editing content: relative main-track order, with absolute times computed on read."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "$defs",
+        "BgmClip",
+        "description"
+      ],
+      "before": "BGM 轨上的一段：同一时刻只有一首，超出时间线末尾的部分截断。",
+      "after": "One BGM-track clip: only one plays at a time, with portions beyond timeline end truncated."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "$defs",
+        "ClipTrim",
+        "description"
+      ],
+      "before": "剪辑片段的截取：入出点只对 ``basis_version`` 这一视频版本有效。",
+      "after": "Clip trim whose in/out points apply only to video version ``basis_version``."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "$defs",
+        "EditClip",
+        "description"
+      ],
+      "before": "主轨上的一格：引用视频单元，画面一律取该单元的 current 视频版本。\n\n``trim`` 为 None 时整段使用；``transition_to_next`` 为 None 时与下一片段硬切。",
+      "after": "One main-track slot referencing a video unit, always using its current video version.\n\n``trim`` None uses the entire video; ``transition_to_next`` None makes a hard cut to the next clip."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "$defs",
+        "EditTimelineContent",
+        "description"
+      ],
+      "before": "一个修订的剪辑内容：主轨按相对顺序排列，绝对时间由读取时计算。",
+      "after": "One revision's editing content: relative main-track order, with absolute times computed on read."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "$defs",
+        "Transition",
+        "description"
+      ],
+      "before": "相邻两个剪辑片段之间的转场；窗口以切点为中心，前后各占一半，不改变总时长。",
+      "after": "Transition between adjacent editing clips; its window is centered on the cut, half on each side, without changing total duration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.TimelineRevision",
+        "description"
+      ],
+      "before": "不可变修订；回滚与复制同样追加新修订，不改写旧修订。",
+      "after": "Immutable revision; rollback and copy likewise append new revisions without rewriting old ones."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "BgmClip",
+        "description"
+      ],
+      "before": "BGM 轨上的一段：同一时刻只有一首，超出时间线末尾的部分截断。",
+      "after": "One BGM-track clip: only one plays at a time, with portions beyond timeline end truncated."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "ClipTrim",
+        "description"
+      ],
+      "before": "剪辑片段的截取：入出点只对 ``basis_version`` 这一视频版本有效。",
+      "after": "Clip trim whose in/out points apply only to video version ``basis_version``."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "EditClip",
+        "description"
+      ],
+      "before": "主轨上的一格：引用视频单元，画面一律取该单元的 current 视频版本。\n\n``trim`` 为 None 时整段使用；``transition_to_next`` 为 None 时与下一片段硬切。",
+      "after": "One main-track slot referencing a video unit, always using its current video version.\n\n``trim`` None uses the entire video; ``transition_to_next`` None makes a hard cut to the next clip."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "EditTimelineContent",
+        "description"
+      ],
+      "before": "一个修订的剪辑内容：主轨按相对顺序排列，绝对时间由读取时计算。",
+      "after": "One revision's editing content: relative main-track order, with absolute times computed on read."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "TimelineRevision",
+        "description"
+      ],
+      "before": "不可变修订；回滚与复制同样追加新修订，不改写旧修订。",
+      "after": "Immutable revision; rollback and copy likewise append new revisions without rewriting old ones."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "$defs",
+        "Transition",
+        "description"
+      ],
+      "before": "相邻两个剪辑片段之间的转场；窗口以切点为中心，前后各占一半，不改变总时长。",
+      "after": "Transition between adjacent editing clips; its window is centered on the cut, half on each side, without changing total duration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.model.EditTimelineDocument",
+        "description"
+      ],
+      "before": "一条剪辑时间线的持久化形态。\n\n``next_clip_number`` / ``next_bgm_number`` 是片段编号分配器：编号在这条时间线内稳定、不复用。",
+      "after": "Persisted form of one editing timeline.\n\n``next_clip_number`` / ``next_bgm_number`` allocate clip IDs, stable and never reused within this timeline."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.TimelineIssue",
+        "$defs",
+        "IssueScope",
+        "description"
+      ],
+      "before": "issue 影响的渲染版本：全部版本，或只影响带旁白版本。",
+      "after": "Render versions affected by an issue: all versions, or only versions with narration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.NarrationView",
+        "description"
+      ],
+      "before": "旁白从承载片段的起点开始；配音时长未知（没有旁白配音）时 ``end`` 为 None。",
+      "after": "Narration starts at its carrier clip's start; ``end`` is None when voiceover duration is unknown (no narration audio)."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.ClipView",
+        "$defs",
+        "NarrationView",
+        "description"
+      ],
+      "before": "旁白从承载片段的起点开始；配音时长未知（没有旁白配音）时 ``end`` 为 None。",
+      "after": "Narration starts at its carrier clip's start; ``end`` is None when voiceover duration is unknown (no narration audio)."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.ClipView",
+        "description"
+      ],
+      "before": "剪辑片段的读取形态。\n\n``status`` 为 ``unit_deleted`` 时渲染跳过，时长计 0；为 ``video_missing`` 时时长暂按编排时长占位。\n``source_duration`` 是 current 视频的全长，没有可用视频或时长探测不出时为 None。",
+      "after": "Read representation of an editing clip.\n\n``status`` ``unit_deleted`` skips rendering with zero duration; ``video_missing`` temporarily uses planned\nduration as a placeholder. ``source_duration`` is current video full length, None without usable video\nor when duration probing fails."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.BgmView",
+        "description"
+      ],
+      "before": "BGM 片段的读取形态。``end`` 是截到时间线末尾后的实际结束时间，片段完全落在末尾之后时等于 ``start``；\n``fade_in`` / ``fade_out`` 是摆放后实际生效的淡入淡出（截断处固定淡出、超出片段时长时缩短），片段完全落在\n末尾之后时是所设的值；``name`` 是所引用 BGM 的名称，BGM 不在项目里时为 None。",
+      "after": "Read representation of a BGM clip. ``end`` is actual end after truncating to timeline end, equal to ``start`` for clips wholly beyond it.\n``fade_in`` / ``fade_out`` are effective placed fades (fixed fade-out at cutoff, shortened when exceeding\nclip duration), or configured values for clips wholly beyond timeline end. ``name`` is the referenced\nBGM name, None if absent from the project."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.EditTimelineReadout",
+        "$defs",
+        "BgmView",
+        "description"
+      ],
+      "before": "BGM 片段的读取形态。``end`` 是截到时间线末尾后的实际结束时间，片段完全落在末尾之后时等于 ``start``；\n``fade_in`` / ``fade_out`` 是摆放后实际生效的淡入淡出（截断处固定淡出、超出片段时长时缩短），片段完全落在\n末尾之后时是所设的值；``name`` 是所引用 BGM 的名称，BGM 不在项目里时为 None。",
+      "after": "Read representation of a BGM clip. ``end`` is actual end after truncating to timeline end, equal to ``start`` for clips wholly beyond it.\n``fade_in`` / ``fade_out`` are effective placed fades (fixed fade-out at cutoff, shortened when exceeding\nclip duration), or configured values for clips wholly beyond timeline end. ``name`` is the referenced\nBGM name, None if absent from the project."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.EditTimelineReadout",
+        "$defs",
+        "ClipView",
+        "description"
+      ],
+      "before": "剪辑片段的读取形态。\n\n``status`` 为 ``unit_deleted`` 时渲染跳过，时长计 0；为 ``video_missing`` 时时长暂按编排时长占位。\n``source_duration`` 是 current 视频的全长，没有可用视频或时长探测不出时为 None。",
+      "after": "Read representation of an editing clip.\n\n``status`` ``unit_deleted`` skips rendering with zero duration; ``video_missing`` temporarily uses planned\nduration as a placeholder. ``source_duration`` is current video full length, None without usable video\nor when duration probing fails."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.EditTimelineReadout",
+        "$defs",
+        "IssueScope",
+        "description"
+      ],
+      "before": "issue 影响的渲染版本：全部版本，或只影响带旁白版本。",
+      "after": "Render versions affected by an issue: all versions, or only versions with narration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.readout.EditTimelineReadout",
+        "$defs",
+        "NarrationView",
+        "description"
+      ],
+      "before": "旁白从承载片段的起点开始；配音时长未知（没有旁白配音）时 ``end`` 为 None。",
+      "after": "Narration starts at its carrier clip's start; ``end`` is None when voiceover duration is unknown (no narration audio)."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.TimelineSummary",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.TimelineSummary",
+        "description"
+      ],
+      "before": "列表里的一条剪辑时间线；``updated_*`` 描述最新修订。",
+      "after": "One timeline in a list; ``updated_*`` describes the latest revision."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.RevisionSummary",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.RevisionSummary",
+        "description"
+      ],
+      "before": "修订历史里的一条：谁在什么时候为什么改，以及改动了哪些片段（旧修订没有记录时为 null）。",
+      "after": "Revision-history entry: who changed what clips, when, and why (changed-clip information is null for old revisions lacking it)."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.RevisionHistory",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.RevisionHistory",
+        "$defs",
+        "RevisionSummary",
+        "description"
+      ],
+      "before": "修订历史里的一条：谁在什么时候为什么改，以及改动了哪些片段（旧修订没有记录时为 null）。",
+      "after": "Revision-history entry: who changed what clips, when, and why (changed-clip information is null for old revisions lacking it)."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.RevisionHistory",
+        "description"
+      ],
+      "before": "一条剪辑时间线的修订历史，按修订号从旧到新排列。",
+      "after": "One timeline's revision history in ascending revision order."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.ConcurrentRevision",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.ConcurrentRevision",
+        "description"
+      ],
+      "before": "写入所依据的修订之后、本次写入之前由他人追加的修订。",
+      "after": "Revision appended by someone else after the write's base revision and before this write."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "$defs",
+        "BgmView",
+        "description"
+      ],
+      "before": "BGM 片段的读取形态。``end`` 是截到时间线末尾后的实际结束时间，片段完全落在末尾之后时等于 ``start``；\n``fade_in`` / ``fade_out`` 是摆放后实际生效的淡入淡出（截断处固定淡出、超出片段时长时缩短），片段完全落在\n末尾之后时是所设的值；``name`` 是所引用 BGM 的名称，BGM 不在项目里时为 None。",
+      "after": "Read representation of a BGM clip. ``end`` is actual end after truncating to timeline end, equal to ``start`` for clips wholly beyond it.\n``fade_in`` / ``fade_out`` are effective placed fades (fixed fade-out at cutoff, shortened when exceeding\nclip duration), or configured values for clips wholly beyond timeline end. ``name`` is the referenced\nBGM name, None if absent from the project."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "$defs",
+        "ClipView",
+        "description"
+      ],
+      "before": "剪辑片段的读取形态。\n\n``status`` 为 ``unit_deleted`` 时渲染跳过，时长计 0；为 ``video_missing`` 时时长暂按编排时长占位。\n``source_duration`` 是 current 视频的全长，没有可用视频或时长探测不出时为 None。",
+      "after": "Read representation of an editing clip.\n\n``status`` ``unit_deleted`` skips rendering with zero duration; ``video_missing`` temporarily uses planned\nduration as a placeholder. ``source_duration`` is current video full length, None without usable video\nor when duration probing fails."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "$defs",
+        "ConcurrentRevision",
+        "description"
+      ],
+      "before": "写入所依据的修订之后、本次写入之前由他人追加的修订。",
+      "after": "Revision appended by someone else after the write's base revision and before this write."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "$defs",
+        "IssueScope",
+        "description"
+      ],
+      "before": "issue 影响的渲染版本：全部版本，或只影响带旁白版本。",
+      "after": "Render versions affected by an issue: all versions, or only versions with narration."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "$defs",
+        "NarrationView",
+        "description"
+      ],
+      "before": "旁白从承载片段的起点开始；配音时长未知（没有旁白配音）时 ``end`` 为 None。",
+      "after": "Narration starts at its carrier clip's start; ``end`` is None when voiceover duration is unknown (no narration audio)."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "$defs",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "domain": "timeline",
+      "path": [
+        "lib.edit_timeline.service.EditTimelineWriteResult",
+        "description"
+      ],
+      "before": "一批编辑的写入结果：只含受影响片段的新状态与更新后的 issues，不含整份时间线。\n\n``clips`` 按播放顺序列出本批点名或改动过的片段（含新插入的片段、跟随相邻关系恢复硬切的\n片段与旁白改挂到的片段）；``bgm`` 按起点列出本批点名或改动过的 BGM 片段；``deleted_clip_ids``\n是本批删除的剪辑片段与 BGM 片段。",
+      "after": "Write result for one edit batch: only affected clips' new states and updated issues, without the whole timeline.\n\n``clips`` lists clips named or changed by this batch in playback order, including newly inserted clips,\nclips reset to hard cuts after adjacency changes, and clips receiving reassigned narration. ``bgm`` lists\nBGM clips named or changed in start-time order; ``deleted_clip_ids`` contains editing and BGM clips\ndeleted by this batch."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.operation_admission.OperationAdmission",
+        "$defs",
+        "AdmissionReason",
+        "description"
+      ],
+      "before": "不能执行的理由码闭集；界面按码取文案，Agent 按码转述。",
+      "after": "Closed set of inability reason codes; UI localizes by code, Agents paraphrase by code."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.operation_admission.OperationAdmission",
+        "$defs",
+        "AdmissionState",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的准入结论。",
+      "after": "Current admission conclusion for one AI operation."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.operation_admission.OperationAdmission",
+        "description"
+      ],
+      "before": "一个 AI 操作的结构准入结论：放行时 ``reason`` 为空，其余两态必带理由码。",
+      "after": "Structural admission for one AI operation: ``reason`` empty when allowed, required in the other two states."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowProblem",
+        "description"
+      ],
+      "before": "计划里的一条提示：稳定问题码、所属单元与可本地化参数。\n\n只下发界面与 Agent 能据以陈述的结构：``code`` 是本地化的机器 key，``params`` 是文案参数。\n原始理由文本（``GenerationProblem.detail``）与发声准入的整份载荷不进这里；需要逐字段定位\n改脚本时，Agent 读 ``patch_episode_script`` 动作 ``args.problems`` 里的完整问题。",
+      "after": "One plan notice: stable problem code, owning unit, and localizable parameters.\n\nSend only structure UI/Agents can state: ``code`` is a localization machine key; ``params`` contains text-interpolation parameters.\nExclude raw reason text (``GenerationProblem.detail``) and complete speech-admission payloads. Agents\nneeding field-level locations to edit scripts read full problems in ``patch_episode_script`` action\n``args.problems``."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowProviderCheckpoint",
+        "description"
+      ],
+      "before": "供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。",
+      "after": "Whether the provider accepted submission; state only this fact, excluding provider IDs/job numbers as internal handles."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowTaskObservation",
+        "$defs",
+        "WorkflowProviderCheckpoint",
+        "description"
+      ],
+      "before": "供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。",
+      "after": "Whether the provider accepted submission; state only this fact, excluding provider IDs/job numbers as internal handles."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowTaskObservation",
+        "description"
+      ],
+      "before": "One task axis, kept separate from provider submission and artifact currency.\n\n计划只观测排队中与运行中的任务，它们是进度而不是问题，所以这里不带问题。",
+      "after": "One task axis, kept separate from provider submission and artifact currency.\n\nPlans observe only queued/running tasks, which are progress rather than problems; carry no problems here."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlanStep",
+        "$defs",
+        "WorkflowActionType",
+        "description"
+      ],
+      "before": "``WorkflowNextAction.type`` 的闭集。\n\n三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时\n额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。\n消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即\n自动进入各处覆盖检查，不必再手抄一份清单。",
+      "after": "Closed set of ``WorkflowNextAction.type`` values.\n\nCombines three sources: this module's next actions/alternatives, additional actions injected during\n``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``\nreturned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action\ntables, action translations) derive from this enum. New members automatically enter all coverage checks\nwithout manually maintaining another list."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlanStep",
+        "$defs",
+        "WorkflowProblem",
+        "description"
+      ],
+      "before": "计划里的一条提示：稳定问题码、所属单元与可本地化参数。\n\n只下发界面与 Agent 能据以陈述的结构：``code`` 是本地化的机器 key，``params`` 是文案参数。\n原始理由文本（``GenerationProblem.detail``）与发声准入的整份载荷不进这里；需要逐字段定位\n改脚本时，Agent 读 ``patch_episode_script`` 动作 ``args.problems`` 里的完整问题。",
+      "after": "One plan notice: stable problem code, owning unit, and localizable parameters.\n\nSend only structure UI/Agents can state: ``code`` is a localization machine key; ``params`` contains text-interpolation parameters.\nExclude raw reason text (``GenerationProblem.detail``) and complete speech-admission payloads. Agents\nneeding field-level locations to edit scripts read full problems in ``patch_episode_script`` action\n``args.problems``."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlanStep",
+        "$defs",
+        "WorkflowProviderCheckpoint",
+        "description"
+      ],
+      "before": "供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。",
+      "after": "Whether the provider accepted submission; state only this fact, excluding provider IDs/job numbers as internal handles."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlanStep",
+        "$defs",
+        "WorkflowTaskObservation",
+        "description"
+      ],
+      "before": "One task axis, kept separate from provider submission and artifact currency.\n\n计划只观测排队中与运行中的任务，它们是进度而不是问题，所以这里不带问题。",
+      "after": "One task axis, kept separate from provider submission and artifact currency.\n\nPlans observe only queued/running tasks, which are progress rather than problems; carry no problems here."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "AdmissionReason",
+        "description"
+      ],
+      "before": "不能执行的理由码闭集；界面按码取文案，Agent 按码转述。",
+      "after": "Closed set of inability reason codes; UI localizes by code, Agents paraphrase by code."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "AdmissionState",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的准入结论。",
+      "after": "Current admission conclusion for one AI operation."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowActionType",
+        "description"
+      ],
+      "before": "``WorkflowNextAction.type`` 的闭集。\n\n三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时\n额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。\n消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即\n自动进入各处覆盖检查，不必再手抄一份清单。",
+      "after": "Closed set of ``WorkflowNextAction.type`` values.\n\nCombines three sources: this module's next actions/alternatives, additional actions injected during\n``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``\nreturned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action\ntables, action translations) derive from this enum. New members automatically enter all coverage checks\nwithout manually maintaining another list."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowContent",
+        "description"
+      ],
+      "before": "内容现状：各类内容此刻是什么样，不含「该做哪一步」的判断。\n\n集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、\n脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。\n\n``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的\n下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、\n没有待重新规划的集，且整本源文没有剩余。",
+      "after": "Current content state without deciding which step should come next.\n\nEpisode fields have values only with a target episode. ``episode_plan_stale`` means episode planning\nis stale and script planning awaits rebuilding: state it here without adding it to suggested next actions.\n\n``episode_complete`` indicates target-episode completion (``is_episode_complete``); completed episodes\nmay still have within-episode suggestions, e.g. pending authoring or missing sheets. ``project_complete``\nappears only in queries without a specified episode: every episode complete, none awaiting replanning,\nand no remaining whole-source text."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowDraft",
+        "description"
+      ],
+      "before": "目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。",
+      "after": "One draft present on the target episode; ``needs_repair`` distinguishes quarantined drafts from Agent-editable drafts."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowOperation",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的结构准入：与操作入口调用同一份谓词（见 ``lib.workflow.operation_admission``）。",
+      "after": "Current structural admission for one AI operation, sharing entry-point predicates (``lib.workflow.operation_admission``)."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowProblem",
+        "description"
+      ],
+      "before": "计划里的一条提示：稳定问题码、所属单元与可本地化参数。\n\n只下发界面与 Agent 能据以陈述的结构：``code`` 是本地化的机器 key，``params`` 是文案参数。\n原始理由文本（``GenerationProblem.detail``）与发声准入的整份载荷不进这里；需要逐字段定位\n改脚本时，Agent 读 ``patch_episode_script`` 动作 ``args.problems`` 里的完整问题。",
+      "after": "One plan notice: stable problem code, owning unit, and localizable parameters.\n\nSend only structure UI/Agents can state: ``code`` is a localization machine key; ``params`` contains text-interpolation parameters.\nExclude raw reason text (``GenerationProblem.detail``) and complete speech-admission payloads. Agents\nneeding field-level locations to edit scripts read full problems in ``patch_episode_script`` action\n``args.problems``."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowProviderCheckpoint",
+        "description"
+      ],
+      "before": "供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。",
+      "after": "Whether the provider accepted submission; state only this fact, excluding provider IDs/job numbers as internal handles."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowStatus",
+        "description"
+      ],
+      "before": "Shared response model serialized unchanged by REST and MCP adapters.\n\n制作状态陈述三件事（见 ``docs/adr/0091``）：``content`` 与 ``artifacts`` 是内容现状；\n``operations`` 是每个 AI 操作能否执行及原因；``next_action`` 是建议的下一步，分岔处的并列\n选项在 ``next_alternatives``。``blockers`` 只表示项目整体不可用，内容本身的数据问题进\n``issues``，只陈述、不阻断其余内容。",
+      "after": "Shared response model serialized unchanged by REST and MCP adapters.\n\nProduction status states three things (``docs/adr/0091``): ``content`` and ``artifacts`` describe current\ncontent, ``operations`` describes each AI operation's availability/reason, and ``next_action`` suggests\nthe next step, with branch alternatives in ``next_alternatives``. ``blockers`` means only whole-project\nunavailability; content-data problems enter ``issues`` as information without blocking other content."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_plan.WorkflowPlan",
+        "$defs",
+        "WorkflowTaskObservation",
+        "description"
+      ],
+      "before": "One task axis, kept separate from provider submission and artifact currency.\n\n计划只观测排队中与运行中的任务，它们是进度而不是问题，所以这里不带问题。",
+      "after": "One task axis, kept separate from provider submission and artifact currency.\n\nPlans observe only queued/running tasks, which are progress rather than problems; carry no problems here."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowNextAction",
+        "$defs",
+        "WorkflowActionType",
+        "description"
+      ],
+      "before": "``WorkflowNextAction.type`` 的闭集。\n\n三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时\n额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。\n消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即\n自动进入各处覆盖检查，不必再手抄一份清单。",
+      "after": "Closed set of ``WorkflowNextAction.type`` values.\n\nCombines three sources: this module's next actions/alternatives, additional actions injected during\n``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``\nreturned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action\ntables, action translations) derive from this enum. New members automatically enter all coverage checks\nwithout manually maintaining another list."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowOperation",
+        "$defs",
+        "AdmissionReason",
+        "description"
+      ],
+      "before": "不能执行的理由码闭集；界面按码取文案，Agent 按码转述。",
+      "after": "Closed set of inability reason codes; UI localizes by code, Agents paraphrase by code."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowOperation",
+        "$defs",
+        "AdmissionState",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的准入结论。",
+      "after": "Current admission conclusion for one AI operation."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowOperation",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的结构准入：与操作入口调用同一份谓词（见 ``lib.workflow.operation_admission``）。",
+      "after": "Current structural admission for one AI operation, sharing entry-point predicates (``lib.workflow.operation_admission``)."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowDraft",
+        "description"
+      ],
+      "before": "目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。",
+      "after": "One draft present on the target episode; ``needs_repair`` distinguishes quarantined drafts from Agent-editable drafts."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowContent",
+        "$defs",
+        "WorkflowDraft",
+        "description"
+      ],
+      "before": "目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。",
+      "after": "One draft present on the target episode; ``needs_repair`` distinguishes quarantined drafts from Agent-editable drafts."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowContent",
+        "description"
+      ],
+      "before": "内容现状：各类内容此刻是什么样，不含「该做哪一步」的判断。\n\n集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、\n脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。\n\n``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的\n下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、\n没有待重新规划的集，且整本源文没有剩余。",
+      "after": "Current content state without deciding which step should come next.\n\nEpisode fields have values only with a target episode. ``episode_plan_stale`` means episode planning\nis stale and script planning awaits rebuilding: state it here without adding it to suggested next actions.\n\n``episode_complete`` indicates target-episode completion (``is_episode_complete``); completed episodes\nmay still have within-episode suggestions, e.g. pending authoring or missing sheets. ``project_complete``\nappears only in queries without a specified episode: every episode complete, none awaiting replanning,\nand no remaining whole-source text."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "$defs",
+        "AdmissionReason",
+        "description"
+      ],
+      "before": "不能执行的理由码闭集；界面按码取文案，Agent 按码转述。",
+      "after": "Closed set of inability reason codes; UI localizes by code, Agents paraphrase by code."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "$defs",
+        "AdmissionState",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的准入结论。",
+      "after": "Current admission conclusion for one AI operation."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "$defs",
+        "WorkflowActionType",
+        "description"
+      ],
+      "before": "``WorkflowNextAction.type`` 的闭集。\n\n三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时\n额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。\n消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即\n自动进入各处覆盖检查，不必再手抄一份清单。",
+      "after": "Closed set of ``WorkflowNextAction.type`` values.\n\nCombines three sources: this module's next actions/alternatives, additional actions injected during\n``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``\nreturned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action\ntables, action translations) derive from this enum. New members automatically enter all coverage checks\nwithout manually maintaining another list."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "$defs",
+        "WorkflowContent",
+        "description"
+      ],
+      "before": "内容现状：各类内容此刻是什么样，不含「该做哪一步」的判断。\n\n集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、\n脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。\n\n``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的\n下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、\n没有待重新规划的集，且整本源文没有剩余。",
+      "after": "Current content state without deciding which step should come next.\n\nEpisode fields have values only with a target episode. ``episode_plan_stale`` means episode planning\nis stale and script planning awaits rebuilding: state it here without adding it to suggested next actions.\n\n``episode_complete`` indicates target-episode completion (``is_episode_complete``); completed episodes\nmay still have within-episode suggestions, e.g. pending authoring or missing sheets. ``project_complete``\nappears only in queries without a specified episode: every episode complete, none awaiting replanning,\nand no remaining whole-source text."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "$defs",
+        "WorkflowDraft",
+        "description"
+      ],
+      "before": "目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。",
+      "after": "One draft present on the target episode; ``needs_repair`` distinguishes quarantined drafts from Agent-editable drafts."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "$defs",
+        "WorkflowOperation",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的结构准入：与操作入口调用同一份谓词（见 ``lib.workflow.operation_admission``）。",
+      "after": "Current structural admission for one AI operation, sharing entry-point predicates (``lib.workflow.operation_admission``)."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.WorkflowStatus",
+        "description"
+      ],
+      "before": "Shared response model serialized unchanged by REST and MCP adapters.\n\n制作状态陈述三件事（见 ``docs/adr/0091``）：``content`` 与 ``artifacts`` 是内容现状；\n``operations`` 是每个 AI 操作能否执行及原因；``next_action`` 是建议的下一步，分岔处的并列\n选项在 ``next_alternatives``。``blockers`` 只表示项目整体不可用，内容本身的数据问题进\n``issues``，只陈述、不阻断其余内容。",
+      "after": "Shared response model serialized unchanged by REST and MCP adapters.\n\nProduction status states three things (``docs/adr/0091``): ``content`` and ``artifacts`` describe current\ncontent, ``operations`` describes each AI operation's availability/reason, and ``next_action`` suggests\nthe next step, with branch alternatives in ``next_alternatives``. ``blockers`` means only whole-project\nunavailability; content-data problems enter ``issues`` as information without blocking other content."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.ArtifactCount",
+        "description"
+      ],
+      "before": "一组产物的计数：可用 = current ∪ stale，stale 另计。\n\nstale 不从 available 里扣——比当前内容旧的产物仍然可用（见 ADR 0062），\n它是「可以决定要不要重生」的提示，不是缺口。",
+      "after": "Artifact-group counts: available = current ∪ stale, with stale counted separately.\n\nDo not subtract stale from available: artifacts older than current content remain usable (ADR 0062).\nStaleness suggests deciding whether to regenerate, not a gap."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.EpisodeSummary",
+        "$defs",
+        "ArtifactCount",
+        "description"
+      ],
+      "before": "一组产物的计数：可用 = current ∪ stale，stale 另计。\n\nstale 不从 available 里扣——比当前内容旧的产物仍然可用（见 ADR 0062），\n它是「可以决定要不要重生」的提示，不是缺口。",
+      "after": "Artifact-group counts: available = current ∪ stale, with stale counted separately.\n\nDo not subtract stale from available: artifacts older than current content remain usable (ADR 0062).\nStaleness suggests deciding whether to regenerate, not a gap."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.ProjectSummary",
+        "$defs",
+        "ArtifactCount",
+        "description"
+      ],
+      "before": "一组产物的计数：可用 = current ∪ stale，stale 另计。\n\nstale 不从 available 里扣——比当前内容旧的产物仍然可用（见 ADR 0062），\n它是「可以决定要不要重生」的提示，不是缺口。",
+      "after": "Artifact-group counts: available = current ∪ stale, with stale counted separately.\n\nDo not subtract stale from available: artifacts older than current content remain usable (ADR 0062).\nStaleness suggests deciding whether to regenerate, not a gap."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.ProjectSummary",
+        "description"
+      ],
+      "before": "项目在广度视图上的投影：资产可用计数、分集汇总与各集进度。\n\n与 ``WorkflowStatus`` 同源不同粒度——后者回答「这个项目下一步做什么」，本模型回答\n「几十个项目各自完成了几集、手上有多少可用产物」；项目的进度就是各集的进度。因此它只读\n项目元数据、各集脚本、产物清单与剪辑时间线的文件名：源文正文与源文修订号（sha256）不参与，否则列出\nN 个项目就要读 N 份小说。剪辑时间线不解析内容，文件损坏只在制作状态里报 issue。\n\n「源文是否还有未规划的原文」只能由源文得出，本投影读取写账本的命令记在 ``project.json`` 里的结论\n（``source_remaining``），与制作状态的「继续分集规划」同一判定；源文在 ArcReel 之外被改动、账本\n尚未更新时两处可能短暂不一致。产物口径本身两处一致：可用与 stale 都取自同一份产物清单。\n\n产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能\n区分 current 与 stale；``registered`` 只看清单登记与文件在场，产物比对不产生 stale。\n前者供单个项目的详情与剧集卡，后者供项目列表——列出 N 个项目时不读任何产物内容。\n参考生视频的重规划壳（``needs_replan``）在两种口径下都计 stale：那是脚本条目自身的\n标记，不是产物比对的结果。",
+      "after": "Broad-view project projection: available asset counts, episode summaries, and per-episode progress.\n\nSame source as ``WorkflowStatus`` at different granularity: status answers what to do next; this answers\nhow many episodes dozens of projects finished and how many artifacts are usable. Project progress is\nepisode progress. Read only project metadata, episode scripts, manifest, and timeline filenames, excluding\nsource bodies and source revisions (sha256), or listing N projects would read N novels. Do not parse\ntimelines; production status alone reports corrupt files as issues.\n\nOnly source text determines unplanned-source availability. Read the ledger-writing commands' conclusion\nin ``project.json`` (``source_remaining``), matching production status's continue-planning criterion.\nExternal source edits before ledger updates may temporarily disagree between these views. Artifact\nrules themselves agree: available/stale both come from the same manifest.\n\nTwo currency rules (``ProjectSummaryCurrency``): ``verified`` compares each artifact with canonical\nstate, distinguishing current/stale; ``registered`` checks only manifest registration and file presence,\nnever producing stale through comparison. The former serves individual details/episode cards, the latter\nproject lists without reading artifact content for N projects. Reference-to-video replan shells\n(``needs_replan``) count stale under both: a script-entry marker, not an artifact-comparison result."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.EpisodeNextStep",
+        "$defs",
+        "WorkflowActionType",
+        "description"
+      ],
+      "before": "``WorkflowNextAction.type`` 的闭集。\n\n三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时\n额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。\n消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即\n自动进入各处覆盖检查，不必再手抄一份清单。",
+      "after": "Closed set of ``WorkflowNextAction.type`` values.\n\nCombines three sources: this module's next actions/alternatives, additional actions injected during\n``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``\nreturned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action\ntables, action translations) derive from this enum. New members automatically enter all coverage checks\nwithout manually maintaining another list."
+    },
+    {
+      "domain": "workflow",
+      "path": [
+        "lib.workflow.workflow_state.EpisodeNextStep",
+        "description"
+      ],
+      "before": "账本中一集建议的下一步，供项目层的逐集清单使用；与按集查询制作状态的 ``next_action`` 相同。",
+      "after": "Suggested next step for one ledger episode in project-level episode lists; matches episode-query ``next_action``."
+    }
+  ],
+  "candidate_sha256": {
+    "lib/artifacts/artifact_input_claims.py": "37879ba688c711c5aebad9142f460b7e90dfd3c0a889fede812c7c6b3a7ad444",
+    "lib/artifacts/version_manager.py": "5f0dd5535c6dd1f0ea1768ad63ad8a4791e7146fcdbe11025fbbf6a2a801d245",
+    "lib/artifacts/artifact_currency.py": "967c57f7d32c545b52634e7e9ad54a594d2f8f2c72e76f20325c0558f84893a2",
+    "lib/artifacts/artifact_planner.py": "52471ec803ae06358cf745c9a33b3cd29e92a53dce6c04efb06dd825efe26cd2",
+    "lib/artifacts/artifact_version_provenance.py": "c93eac8701d8565e3a3baffa241be11bffdc0a56bb251e6c1c078f4e36079096",
+    "lib/artifacts/artifact_registration.py": "1badbf38d1524df0011b1809a3dc98997b61ea910d59fa2dfa3ad1dd02cc6689",
+    "lib/artifacts/artifact_activation.py": "152a638812aa2a1e4495323018f7d18f6acf25c466661f9d2acf36920e0b96b6",
+    "lib/artifacts/video_visual_provenance.py": "bdf2bd2af594cdb60fee08ab4f4062b5477fb289839a7f3479bd8155cffcef42",
+    "lib/artifacts/artifact_manifest.py": "a4f0846c7cfe6b34338b16441a2295f7b589ceb07b76e6b100e273df9ae06a06",
+    "lib/artifacts/rendered_artifact.py": "d5b0fd212aae8ba9320e0e6d2377c5dc04e13c5c1e2dc8739391245405f52f62",
+    "lib/artifacts/image_reference_snapshot.py": "0ab8fe20f72963f4a5e5089b32a9a76b0113141da4a25f786b1f67b2f8914a84",
+    "lib/artifacts/generation_input.py": "bbb03350ec39bf14fda53b7ad4ed3ef6d601cbd639ffafe09aa398eef9b70c28",
+    "lib/artifacts/video_artifact_facts.py": "24fec0d32d751de08301a1474bab0905bf29806de1ad9b58ca1d432daa7fd332",
+    "lib/artifacts/visual_artifact_provenance.py": "dee2e3b70a5da21d58c08def66e243bf4dbefaec635c11a40fa3b5fa1d4e545b",
+    "lib/artifacts/artifact_provenance.py": "e7366fd7daace62bb2f6c340e0455049eec4898b79667ada3bbfc5a0ca7fd399",
+    "lib/artifacts/input_gap.py": "0e78fce645f9e90ae0eaf69352e461af0b8a310e4dfce06055d17ef086a8b850",
+    "lib/artifacts/media_artifact_currency.py": "932e5aa8267b93d55cdedada0158ea562b4130ea3f8e210c02baf90e1ab8a2bb",
+    "lib/artifacts/formal_write.py": "0a34197300916e03522e57095f7e0314c834ccdf3c936010e3802e84030dc4e6",
+    "lib/edit_timeline/store.py": "6ff7c3a70170f3aaeaa5b93c0b96b5222c738e1e22b615b3917e53f104f8e3ca",
+    "lib/edit_timeline/service.py": "b509a5ad1b45704c1cf71a516ffabc820f0cb11a4e05ce1cb582ba7d5076608d",
+    "lib/edit_timeline/__init__.py": "64e5f69d43c74d370f5763a542eaa96f9dcdad0cf18cd58f7a269102f567899a",
+    "lib/edit_timeline/bgm.py": "338b147803b211b0732907b51fb51e5a66fad4f8e4c8e95c5ce11f5cad689522",
+    "lib/edit_timeline/model.py": "8a1cc90d6fa005ef6e37849e8665342d6e41dadacf572d65b50a16de48362acd",
+    "lib/edit_timeline/operations.py": "7cac51397a8adbcf6cb5c3d231091c9e6dcd51057dbcf0576e1e191ec3874e58",
+    "lib/edit_timeline/trash.py": "1c2263a121bc6e308e43e1c26990d69500e69ec542b65b13927ed267a279c687",
+    "lib/edit_timeline/sources.py": "1289a8618b9706e4fa509ddf3993961d4022c10c98ecd41afa8b6193b0f7ea1b",
+    "lib/edit_timeline/transitions.py": "8a27c57f6e4496ea00c632858ce5789ade9ca69137c850a092c2b77f21051563",
+    "lib/edit_timeline/readout.py": "9536d223a7873e6b3753727611024a00caf42ace1051a36c70f52e030e843ad2",
+    "lib/edit_timeline/errors.py": "c817d21254d03960b53956f090417df3256a7508872177710463a918ce4330a1",
+    "lib/workflow/operation_admission.py": "2297d1f8ad17871861073a29f16a28f335824f2d7d001bc39f4b33f422cc16b2",
+    "lib/workflow/workflow_plan.py": "7bd50079133e8202ac64756e40ebc0cd849c853b6d676ab5dc76cf6594af9521",
+    "lib/workflow/workflow_state.py": "5a1d4a9bb3ceb81193d26b6f608621c6227b0633d7cc2402705e0c8022ad4ba8"
+  },
+  "limitations": "Local schema/prose review only; real-model behavioral evaluation remains pending."
+}

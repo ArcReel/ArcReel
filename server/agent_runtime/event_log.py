@@ -1,10 +1,9 @@
-"""会话事件日志 — UI 时间线唯一读源。
+"""Session event log: sole read source for the UI timeline.
 
-条目在写入点定型：SDK 消息流在入日志一处完成规范化（tool_result 定型为独立
-条目、subagent 消息带 parent_tool_use_id 标记、stream_event 不进日志），
-渲染端与读取端不做语义嗅探、不做去重。日志是 SDK transcript 的物化视图：
-仅有 transcript 的旧会话首次访问时重放重建（懒生成）。
-"""
+Entries take their final form at the write boundary: normalize the SDK message stream once on logging
+(tool_result becomes a standalone entry, subagent messages carry parent_tool_use_id, stream_event is
+excluded). Renderers and readers perform no semantic sniffing or deduplication. The log is a materialized
+view of the SDK transcript: replay and reconstruct legacy transcript-only sessions on first access (lazy generation)."""
 
 from __future__ import annotations
 
@@ -49,54 +48,54 @@ SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
 
 _TASK_SUBTYPES = {"task_started", "task_progress", "task_notification"}
 
-# skill 注入用户消息的识别前缀。语义嗅探只允许发生在写入点这一处：
-# 定型后日志只存 skill 名与入参，读取端与渲染端不再接触注入文本。
+# Prefix recognizing skill-injected user messages. Semantic sniffing is permitted only at this write boundary:
+# the finalized log stores only skill name and arguments; readers and renderers no longer encounter injection text.
 _SKILL_INJECTION_PREFIXES = ("Base directory for this skill:", "Skill content:")
 
-# SDK 消息与 transcript 载荷对 subagent 归属键的大小写变体，
-# 写入点统一归一化为 parent_tool_use_id。
+# Case variants of subagent ownership keys in SDK messages and transcript payloads;
+# normalize them to parent_tool_use_id at the write boundary.
 _PARENT_KEY_VARIANTS = ("parent_tool_use_id", "parentToolUseID", "parentToolUseId")
 
-# CLI 注入的中断回显前缀。具体措辞是 CLI 内部实现细节（非稳定 API），
-# 只在写入点做一次前缀识别，定型后读取端不再嗅探。
+# CLI-injected interruption echo prefixes. Exact wording is an internal CLI detail (not a stable API);
+# recognize prefixes once at the write boundary, with no sniffing by readers afterward.
 _INTERRUPT_ECHO_PREFIX = "[Request interrupted"
 
-# 上下文压缩后 CLI 注入的续接摘要。transcript 载荷带结构化标记 isCompactSummary
-# （适配器回填为 is_compact_summary）；live 消息的解析结果不携带该标记，只能按
-# 摘要开头的固定措辞识别。措辞是 CLI 内部实现细节，只在写入点识别一次。
+# CLI-injected continuation summary after compaction. Transcript payloads carry isCompactSummary
+# (backfilled as is_compact_summary by the adapter); parsed live messages lack that marker, so identify
+# them by fixed summary-opening wording. This is an internal CLI detail, recognized only once at the write boundary.
 _COMPACT_SUMMARY_PREFIX = "This session is being continued from a previous conversation"
 
-# 推断出的子代理描述合并为一行后截到这个长度。
+# Truncate inferred subagent descriptions to this length after joining lines.
 _SUBAGENT_DESCRIPTION_MAX_CHARS = 200
 
-# SDK 以用户消息形态注入的后台任务通知 XML。
+# Background-task notification XML injected by the SDK as user messages.
 _TASK_NOTIFICATION_RE = re.compile(r"<task-notification>\s*.*?</task-notification>", re.DOTALL)
 
 _ASK_USER_QUESTION_TOOL = "askuserquestion"
 
-# 与 DbSessionStore.append 相同的 seq 竞争重试参数。
+# Same seq-contention retry parameters as DbSessionStore.append.
 _MAX_APPEND_RETRY = 16
 _APPEND_BACKOFF_CAP_S = 0.05
 
-# PostgreSQL 唯一约束冲突的 SQLSTATE（asyncpg 经 SQLAlchemy 适配后暴露在
+# PostgreSQL unique-constraint SQLSTATE (exposed by asyncpg after SQLAlchemy adaptation on
 # exc.orig.sqlstate / pgcode）。
 _PG_UNIQUE_VIOLATION_SQLSTATE = "23505"
 
-# SQLite 唯一约束冲突的扩展错误名：复合主键走 PRIMARYKEY、普通唯一索引走
-# UNIQUE，两者对本表都意味着唯一约束冲突。
+# SQLite extended error names for unique-constraint violations: PRIMARYKEY for composite primary keys,
+# UNIQUE for ordinary unique indexes; both mean unique-constraint violation for this table.
 _SQLITE_UNIQUE_ERRORNAMES = {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"}
 
-# 标记 CLI 回放的用户消息副本（条目在消息被接纳时已写入），供写入点跳过。
-# 只存活在进程内消息 dict 上，不落任何持久化层。
+# Mark CLI-replayed user-message copies (entries already logged on acceptance) for the write boundary to skip.
+# Exists only on in-process message dicts, never in persistence.
 REPLAYED_USER_ECHO_KEY = "_replayed_user_echo"
 
-# 随回放副本捎带的事件日志用户条目 uuid：写入点据此把「服务端消息 id ↔ SDK
-# transcript entry uuid」写入映射表。与上一个键同为进程内标记，不入条目 payload。
+# Event-log user-entry uuid carried on replay copies: the write boundary records the server message id ↔ SDK
+# transcript entry uuid mapping. Like the previous key, this is an in-process marker, excluded from entry payloads.
 REPLAYED_USER_ECHO_ENTRY_UUID_KEY = "_replayed_user_echo_entry_uuid"
 
 
 def _extract_parent(message: dict[str, Any]) -> str | None:
-    """写入点归一化 subagent 归属键（大小写变体只在此处识别）。"""
+    """Normalize subagent ownership keys at the write boundary (recognize case variants only here)."""
     for key in _PARENT_KEY_VARIANTS:
         parent = message.get(key)
         if isinstance(parent, str) and parent.strip():
@@ -115,7 +114,7 @@ def _is_skill_injection_text(text: str) -> bool:
 
 
 def _parse_skill_name_from_injection(text: str) -> str | None:
-    """从注入首行的 skill 基目录路径提取名称（无先行 Skill tool_use 时的兜底）。"""
+    """Extract the skill name from the base-directory path in the injection's first line (fallback without a preceding Skill tool_use)."""
     first_line = text.split("\n", 1)[0].strip()
     prefix = "Base directory for this skill:"
     if not first_line.startswith(prefix):
@@ -132,7 +131,7 @@ def build_interrupt_entry(
     uuid: str | None = None,
     timestamp: str | None = None,
 ) -> dict[str, Any]:
-    """构造中断的 typed 条目（时间线事件，进日志）。"""
+    """Build a typed interruption entry (a logged timeline event)."""
     return {
         "type": ENTRY_TYPE_SYSTEM,
         "subtype": ENTRY_SUBTYPE_INTERRUPT,
@@ -150,7 +149,7 @@ def _blocks_text(blocks: list[dict[str, Any]]) -> str:
 
 
 def _is_interrupt_echo(blocks: list[dict[str, Any]]) -> bool:
-    """整条内容即单个中断回显文本块时才判定，正文中途出现同字样不误判。"""
+    """Match only when the entire content is one interruption-echo text block, not the same wording inside the body."""
     if len(blocks) != 1 or blocks[0].get("type") != "text":
         return False
     return str(blocks[0].get("text") or "").strip().startswith(_INTERRUPT_ECHO_PREFIX)
@@ -163,7 +162,7 @@ def _is_compact_summary(message: dict[str, Any], blocks: list[dict[str, Any]]) -
 
 
 def _extract_task_notifications(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """提取消息文本中的全部 task-notification XML（同一 tick 可能批了多条）。"""
+    """Extract all task-notification XML from message text (multiple notifications may be batched in one tick)."""
     text = _blocks_text(blocks)
 
     def _tag(xml: str, name: str) -> str:
@@ -182,7 +181,7 @@ def _extract_task_notifications(blocks: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _extract_structured_answers(message: dict[str, Any]) -> dict[str, str] | None:
-    """从消息级 tool_use_result（CLI 的结构化工具结果）提取答案映射。"""
+    """Extract the answer mapping from message-level tool_use_result (CLI structured tool results)."""
     tool_use_result = message.get("tool_use_result")
     if not isinstance(tool_use_result, dict):
         return None
@@ -197,7 +196,7 @@ def build_user_entry(
     *,
     timestamp: str | None = None,
 ) -> dict[str, Any]:
-    """构造用户消息的权威条目：身份在发送时分配，消息被 Agent 接纳时写入日志。"""
+    """Build the authoritative user-message entry: allocate identity on send and log when the Agent accepts the message."""
     return {
         "type": ENTRY_TYPE_USER,
         "content": normalize_content(content_blocks),
@@ -234,7 +233,7 @@ def _build_turn_failure_entry(
 
 
 def build_failure_entry(observation: dict[str, Any]) -> dict[str, Any]:
-    """把已脱敏的故障观测定型为系统事件。"""
+    """Finalize an already-redacted failure observation as a system event."""
     timestamp = observation.get("timestamp")
     return {
         "type": ENTRY_TYPE_SYSTEM,
@@ -246,41 +245,38 @@ def build_failure_entry(observation: dict[str, Any]) -> dict[str, Any]:
 
 
 class SdkMessageNormalizer:
-    """写入点定型器：把 SDK 消息 dict 规范化为零或多个日志条目。
+    """Write-boundary normalizer: convert SDK message dicts into zero or more log entries.
 
-    - assistant(error) → 暂存到 result 后定型为单条 agent_turn_failure 系统
-      条目；普通 assistant → 单条 assistant 条目（携带 message_id，供 draft 精确替换）；
-      AskUserQuestion 的 tool_use_id 登记进实例状态，供答复定型；Skill
-      tool_use 登记进实例状态，供随后到达的注入消息定型为 skill_invocation
-      系统条目
-    - user → interrupt 回显定型为 system/interrupt 条目；task 通知 XML
-      （同一 tick 可能批多条）定型为 system/task_notification 条目；
-      AskUserQuestion 的 tool_result 定型为 user/question_answer 条目
-      （结构化答案取自消息级 tool_use_result）；skill 注入文本定型为
-      skill_invocation 系统条目（只记 skill 名与入参，注入全文不进日志）；
-      其余 tool_result 块定型为独立条目（引用 tool_use_id）；剩余内容以
-      通用 user 条目收录；SDK 回放副本（已打标）不入日志
-    - system(task_*) → typed system 条目
-    - result(error) → 与暂存的 assistant(error) 合并为 agent_turn_failure；
-      stream_event / 其它 → 不进日志
+    - assistant(error) → buffer until result, then finalize as one agent_turn_failure system entry;
+      ordinary assistant → one assistant entry (with message_id for exact draft replacement).
+      Register AskUserQuestion tool_use_id in instance state to finalize answers; register Skill
+      tool_use in instance state to finalize subsequent injection messages as skill_invocation system entries.
+    - user → finalize interruption echoes as system/interrupt entries; task-notification XML
+      (possibly multiple in one tick) as system/task_notification entries; AskUserQuestion tool_result
+      as user/question_answer entries (structured answers from message-level tool_use_result);
+      skill injection text as skill_invocation system entries (skill name and arguments only, not the full
+      injection text); remaining tool_result blocks as standalone entries referencing tool_use_id;
+      remaining content as generic user entries. Marked SDK replay copies are not logged.
+    - system(task_*) → typed system entries.
+    - result(error) → merge with buffered assistant(error) into agent_turn_failure;
+      stream_event / others → not logged.
 
-    实例维护跨消息关联状态：Skill tool_use → 随后到达的注入用户消息；
-    AskUserQuestion tool_use → 随后到达的答复 tool_result。Skill 状态按
-    归属上下文（parent_tool_use_id，主线为 None）分槽——live 流中主线与各
-    subagent 的消息交错到达，各自独立关联。live 管道与懒生成重放共用本类，
-    保证两条路径产出相同的 typed 条目。
-    """
+    Instances maintain cross-message correlations: Skill tool_use → subsequent injected user message;
+    AskUserQuestion tool_use → subsequent answer tool_result. Slot Skill state by ownership context
+    (parent_tool_use_id, None for the main line): main-line and subagent messages interleave in live
+    streams and correlate independently. Live pipelines and lazy-generation replay share this class,
+    ensuring both paths produce the same typed entries."""
 
     def __init__(self, *, capture_failures: bool = True) -> None:
         self._capture_failures = capture_failures
-        # 上下文 → 未被注入消息消费的 Skill tool_use 元数据队列（FIFO）。
-        # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
-        # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
+        # Context → FIFO queue of Skill tool_use metadata not yet consumed by injection messages.
+        # A context may launch multiple Skill calls concurrently (multiple tool_use blocks in one assistant
+        # message); consume in invocation order to prevent later calls overwriting earlier ones.
         self._pending_skills: dict[str | None, list[dict[str, Any]]] = {}
-        # 已登记但尚未收到答复的 AskUserQuestion tool_use_id。
+        # Registered AskUserQuestion tool_use_id values still awaiting answers.
         self.question_tool_use_ids: set[str] = set()
-        # 主线与多个 subagent 的消息会交错到达；按 parent 上下文分别等待
-        # 各自的 result，禁止把两个执行上下文的故障对象拼成虚假观测。
+        # Main-line and subagent messages interleave; wait for each result by parent context
+        # rather than combining failures from two execution contexts into a false observation.
         self._pending_turn_failures: dict[str | None, dict[str, Any]] = {}
 
     def normalize(
@@ -386,8 +382,8 @@ class SdkMessageNormalizer:
                 ]
             task_infos = _extract_task_notifications(blocks)
             if task_infos:
-                # 单条通知（绝大多数场景）保留原 uuid 不变；同一消息批了多条时才
-                # 加序号后缀区分，避免同 uuid 的多条系统条目在前端归并/查找时互相覆盖。
+                # Preserve the original uuid for a single notification (most cases); add numbered suffixes only
+                # when batching multiple notifications, preventing same-uuid system entries from overwriting each other in frontend grouping/lookups.
                 multiple = len(task_infos) > 1
                 notification_entries = [
                     {
@@ -410,10 +406,10 @@ class SdkMessageNormalizer:
                         notification_entry["parent_tool_use_id"] = parent
                 return notification_entries
 
-        # tool_use_result 是消息级字段（CLI 单条 toolUseResult，非按 tool_use_id
-        # 分片）：仅当本消息只批了一个待答复的 tool_result 时，才能确定该结构化
-        # 答案属于它；同一消息里批了多个提问的 tool_result 时无法判定各自归属，
-        # 宁可回退到原始文本也不要把同一份答案错配给多个问题。
+        # tool_use_result is message-level (CLI single toolUseResult, not partitioned by tool_use_id):
+        # structured answers are attributable only when the message batches exactly one pending-answer tool_result.
+        # With tool_result for several questions in one message, ownership cannot be determined;
+        # prefer raw-text fallback over misassigning one answer set to multiple questions.
         question_result_count = sum(
             1
             for block in tool_results
@@ -515,13 +511,13 @@ class SdkMessageNormalizer:
 
 
 def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:
-    """一次性定型单条消息（skill 注入/AskUserQuestion 的跨消息关联需持有
-    SdkMessageNormalizer 实例）。"""
+    """Normalize a single message once (cross-message correlations for skill injection/AskUserQuestion
+    require retaining a SdkMessageNormalizer instance)."""
     return SdkMessageNormalizer().normalize(message)
 
 
 def _assistant_tool_use_ids(message: Any) -> list[str]:
-    """assistant 消息内 tool_use 块的 id 列表（subagent 子时间线的锚定候选）。"""
+    """List of tool_use block IDs in an assistant message (candidate anchors for subagent timelines)."""
     if not isinstance(message, dict) or message.get("type") != "assistant":
         return []
     content = message.get("content")
@@ -541,14 +537,14 @@ def infer_subagent_outcome(
     messages: list[dict[str, Any]],
     description: str | None = None,
 ) -> dict[str, Any] | None:
-    """为主线缺锚点 tool_use 的子代理，按子时间线推断描述与终态。
+    """Infer description and terminal state from subagent timelines lacking main-line anchor tool_use.
 
-    压缩续接后，主线从续接摘要开始，摘要之前发起的子代理没有锚点，也就没有
-    调用参数里的描述与 tool_result。描述优先用原始载荷里调用参数的
-    ``description``（由调用方传入），没有时取子时间线的首条指令；多行合并为
-    一行再截断。最后一条是不再调用工具的回答时视为已完成，结论即回答正文；
-    最后一条带 SDK 错误标记时视为失败；其余（停在工具调用中途）视为已停止。
-    """
+    After compaction continuation, the main line starts with the continuation summary. Subagents started
+    before it lack anchors, hence their invocation descriptions and tool_result. Prefer ``description``
+    from original-payload invocation arguments (passed by caller); otherwise use the sub-timeline's first
+    instruction. Join multiple lines before truncating. A final answer with no further tool calls means
+    completed, with the answer body as conclusion; a final SDK error marker means failed; other cases
+    (stopped during a tool call) mean stopped."""
     conversation = [m for m in messages if m.get("type") in (ENTRY_TYPE_USER, ENTRY_TYPE_ASSISTANT)]
     if not conversation:
         return None
@@ -589,14 +585,14 @@ def infer_subagent_outcome(
 
 
 def _first_driver_attr(exc: IntegrityError, *attr_names: str) -> Any:
-    """沿 ``exc.orig`` 的 ``__cause__``/``__context__`` 链查找首个非 None 的驱动侧属性值。
+    """Find the first non-None driver attribute along the ``__cause__``/``__context__`` chain of ``exc.orig``.
 
-    SQLAlchemy 的 asyncpg 适配把原始驱动异常挂在翻译后异常的 cause 上，
-    唯一约束判定与 client_key 冲突判定都需要沿此链探测驱动暴露的属性。
-    优先取显式 ``__cause__``（``raise ... from ...``）；驱动或中间层改为隐式
-    包装（裸 ``raise``）时回退 ``__context__``。按 ``id()`` 记录已访问异常，
-    防御性异常链本身出现环（正常传播不会产生，但不排除病态构造）导致死循环。
-    """
+    SQLAlchemy's asyncpg adapter attaches the original driver exception as the translated exception's cause.
+    Unique-constraint and client_key-conflict detection both inspect driver attributes along this chain.
+    Prefer explicit ``__cause__`` (``raise ... from ...``); fall back to ``__context__`` when drivers or
+    intermediate layers wrap implicitly (bare ``raise``). Track visited exceptions by ``id()`` to prevent
+    infinite loops in defensive handling of cyclic exception chains (not produced by normal propagation,
+    but pathological construction is possible)."""
     err: BaseException | None = exc.orig
     seen: set[int] = set()
     while err is not None and id(err) not in seen:
@@ -610,12 +606,11 @@ def _first_driver_attr(exc: IntegrityError, *attr_names: str) -> Any:
 
 
 def _is_unique_violation(exc: IntegrityError) -> bool:
-    """判定唯一约束冲突：错误码优先（PostgreSQL SQLSTATE / SQLite errorname），
-    文案子串仅作兜底。
+    """Detect unique-constraint violations, preferring error codes (PostgreSQL SQLSTATE / SQLite errorname)
+    and using message substrings only as fallback.
 
-    PostgreSQL 错误文案随服务端 lc_messages 本地化，非英文环境下不含
-    "duplicate key" 字样，子串匹配会把可重试的竞态误判为真实错误。
-    """
+    PostgreSQL localizes messages using server lc_messages, so non-English messages lack "duplicate key";
+    substring matching would misclassify retryable races as real errors."""
     sqlstate = _first_driver_attr(exc, "sqlstate", "pgcode")
     if sqlstate is not None:
         return str(sqlstate) == _PG_UNIQUE_VIOLATION_SQLSTATE
@@ -627,15 +622,14 @@ def _is_unique_violation(exc: IntegrityError) -> bool:
 
 
 def _is_client_key_violation(exc: IntegrityError) -> bool:
-    """判定冲突是否落在 client_key 唯一索引：约束名优先（不随 locale 翻译），
-    驱动未暴露约束名时回退错误文本——两个后端的文案都会带索引/列名。
+    """Determine whether a conflict concerns the client_key unique index: prefer constraint names (unaffected
+    by locale), falling back to error text if the driver exposes no name. Both backends include index/column names.
 
-    ``exc.orig`` 为 None 时的兜底不能直接用 ``str(exc)`` 全文匹配：
-    SQLAlchemy 的 ``StatementError`` 文本里带 ``[SQL: INSERT INTO ...
-    client_key ...]``，INSERT 语句本身的列名就含 "client_key"，会让任何
-    （包括与 client_key 无关的 seq 主键竞争）异常都误判为 client_key 冲突，
-    需先剥离 ``[SQL: ...]`` 之后的部分再匹配。
-    """
+    When ``exc.orig`` is None, do not match against the entire ``str(exc)``: SQLAlchemy ``StatementError``
+    text includes ``[SQL: INSERT INTO ...
+    client_key ...]``. The INSERT column name itself contains "client_key", misclassifying every exception
+    (including unrelated seq primary-key races) as client_key conflicts. Strip the portion starting at
+    ``[SQL: ...]`` before matching."""
     constraint = _first_driver_attr(exc, "constraint_name")
     if constraint:
         return "client_key" in str(constraint)
@@ -644,7 +638,7 @@ def _is_client_key_violation(exc: IntegrityError) -> bool:
 
 
 class EventLogStore:
-    """事件日志 DB 访问：seq 单调分配（append-only）+ 幂等键查重。"""
+    """Event-log DB access: monotonic seq allocation (append-only) and idempotency-key deduplication."""
 
     def __init__(self, *, session_factory=None, user_id: str = DEFAULT_USER_ID):
         self._session_factory = session_factory or safe_session_factory
@@ -657,11 +651,10 @@ class EventLogStore:
         *,
         client_key: str | None = None,
     ) -> list[dict[str, Any]]:
-        """追加条目并返回带 seq 的权威条目列表。
+        """Append entries and return the authoritative entry list with seq.
 
-        seq 分配采用 max+1 + 主键冲突重试（与 DbSessionStore.append 同模式）；
-        ``client_key`` 只对单条 user 条目有意义，唯一索引兜底并发重试。
-        """
+        Allocate seq using max+1 with primary-key-conflict retries (as in DbSessionStore.append).
+        ``client_key`` matters only for a single user entry; its unique index handles concurrent retries."""
         if not entries:
             return []
         for attempt in range(_MAX_APPEND_RETRY):
@@ -669,20 +662,20 @@ class EventLogStore:
                 return await self._append_once(session_id, entries, client_key)
             except IntegrityError as exc:
                 unique_violation = _is_unique_violation(exc)
-                # client_key 为 None 时本次写入根本没有 client_key 值，不可能
-                # 是 client_key 唯一约束冲突——即便 _is_client_key_violation
-                # 因兜底文本匹配误判，也在此结构性排除，不让它把普通 seq
-                # 竞争的重试关掉。
+                # With client_key None, this write has no client_key value and cannot violate its unique constraint.
+                # Even if _is_client_key_violation misclassifies via fallback text matching,
+                # exclude it structurally here so it does not disable ordinary seq-contention
+                # retries.
                 client_key_conflict = unique_violation and client_key is not None and _is_client_key_violation(exc)
                 if client_key_conflict and client_key is not None:
-                    # 幂等键并发冲突：另一请求已写入同键条目，返回其权威条目。
+                    # Concurrent idempotency-key conflict: another request wrote the same key; return its authoritative entry.
                     existing = await self.find_by_client_key(session_id, client_key)
                     if existing is not None:
                         return [existing]
                     raise
-                # 表上只有两个唯一约束（(session_id, seq) 主键 + client_key 唯一索引）；
-                # 排除 client_key 冲突即可确定是 seq 竞争，不依赖驱动/配置相关的
-                # 错误信息措辞（不同驱动对主键冲突的 DETAIL 文案不一定含 "seq"）。
+                # Only two unique constraints exist ((session_id, seq) primary key + client_key unique index);
+                # excluding client_key conflict establishes seq contention without relying on driver/configuration-specific
+                # error wording (primary-key DETAIL text does not necessarily contain "seq" across drivers).
                 is_seq_race = unique_violation and not client_key_conflict
                 if not is_seq_race or attempt == _MAX_APPEND_RETRY - 1:
                     raise
@@ -730,18 +723,17 @@ class EventLogStore:
         *,
         client_key: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
-        """幂等追加用户条目：同一幂等键重试返回既有条目，不产生重复。
+        """Append a user entry idempotently: retries with the same key return the existing entry without duplication.
 
         Returns:
-            (权威条目, 是否新写入)
-        """
+            (authoritative entry, whether newly written)"""
         if client_key:
             existing = await self.find_by_client_key(session_id, client_key)
             if existing is not None:
                 return existing, False
         appended = await self.append(session_id, [entry], client_key=client_key)
         authoritative = appended[0]
-        # append 在幂等键冲突时返回既有条目；用 uuid 区分是否为本次写入。
+        # append returns the existing entry on idempotency-key conflict; use uuid to identify whether this write created it.
         created = authoritative.get("uuid") == entry.get("uuid")
         return authoritative, created
 
@@ -759,13 +751,12 @@ class EventLogStore:
         return {"seq": int(row.seq), **row.payload}
 
     async def find_new_session_by_client_key(self, client_key: str) -> tuple[str, dict[str, Any]] | None:
-        """跨会话按幂等键定位新会话的受理条目（seq 0），返回 (session_id, 权威条目)。
+        """Find a new-session acceptance entry (seq 0) across sessions by idempotency key, returning (session_id, authoritative entry).
 
-        client_key 唯一索引按 (session_id, client_key) 分区，覆盖不到
-        session_id 尚不存在的新会话受理；进程内映射在重启 / LRU 淘汰后丢失时，
-        由本查询兜底让重试命中既有会话，而非重复建会话。限定 seq 0 是因为只有
-        新会话的首条用户条目落在该位置，常规消息的幂等键不参与匹配。
-        """
+        The client_key unique index partitions by (session_id, client_key), so it cannot cover new-session
+        acceptance before session_id exists. When restart / LRU eviction loses the in-process mapping, this
+        query ensures retries find the existing session rather than duplicate creation. Restrict to seq 0 because
+        only a new session's first user entry occupies it; ordinary message idempotency keys do not participate."""
         async with self._session_factory() as session:
             result = await session.execute(
                 select(
@@ -804,11 +795,10 @@ class EventLogStore:
         user_entry_uuid: str,
         sdk_entry_uuid: str,
     ) -> None:
-        """记录用户消息条目 ↔ SDK transcript entry 的身份映射（幂等）。
+        """Record user-message entry ↔ SDK transcript entry identity mapping idempotently.
 
-        同一条目重复记录（回放副本被二次处理）不产生第二行，也不改写既有映射：
-        transcript entry 身份一旦确定就不再变化，首次写入即权威。
-        """
+        Repeated recording (a replay copy processed twice) creates no second row and does not rewrite an
+        existing mapping: transcript-entry identity never changes once established; the first write is authoritative."""
         now_dt = utc_now()
         try:
             async with self._session_factory() as session:
@@ -828,7 +818,7 @@ class EventLogStore:
                 raise
 
     async def find_user_message_link(self, session_id: str, user_entry_uuid: str) -> str | None:
-        """按事件日志用户条目 uuid 查回 SDK transcript entry uuid；无映射返回 None。"""
+        """Look up the SDK transcript entry uuid by event-log user-entry uuid; return None without a mapping."""
         async with self._session_factory() as session:
             result = await session.execute(
                 select(AgentSessionUserMessageLink.sdk_entry_uuid).where(
@@ -855,7 +845,7 @@ class EventLogStore:
             return bool(result.scalar())
 
     async def last_entry(self, session_id: str) -> dict[str, Any] | None:
-        """尾条条目（interrupt 相邻去重的写入点检查用）。"""
+        """Last entry (for write-boundary checks deduplicating adjacent interrupts)."""
         async with self._session_factory() as session:
             result = await session.execute(
                 select(AgentSessionEventLogEntry.seq, AgentSessionEventLogEntry.payload)
@@ -870,7 +860,7 @@ class EventLogStore:
 
 
 class TranscriptReader(Protocol):
-    """懒生成读取 transcript 的最小接口（SdkTranscriptAdapter 满足）。"""
+    """Minimal transcript-reading interface for lazy generation (satisfied by SdkTranscriptAdapter)."""
 
     async def read_raw_messages(
         self,
@@ -893,12 +883,12 @@ class TranscriptReader(Protocol):
 
 
 class EventLogService:
-    """事件日志读取入口：懒生成 + 游标列举。"""
+    """Event-log read entry point: lazy generation and cursor-based listing."""
 
     def __init__(self, store: EventLogStore, transcript_adapter: TranscriptReader):
         self._store = store
         self._adapter = transcript_adapter
-        # 每会话一把懒生成锁：无协程持有/等待时自动回收，空会话锁不残留内存
+        # Per-session lazy-generation lock: automatically reclaimed with no coroutine holding/waiting; empty-session locks do not persist in memory.
         self._backfill_locks = KeyedLocks()
 
     @property
@@ -906,12 +896,11 @@ class EventLogService:
         return self._store
 
     async def ensure_backfilled(self, session_id: str, project_cwd: Path | str | None) -> None:
-        """仅有 transcript 的旧会话首次访问时重放重建日志。
+        """Replay and reconstruct the log on first access to legacy transcript-only sessions.
 
-        合并 transcript 的 subagent subpath：子时间线条目带 parent_tool_use_id
-        标记，插在携带对应 Task tool_use 的主线条目之后，子组内部按自身顺序，
-        无需全局排序。
-        """
+        Merge transcript subagent subpaths: sub-timeline entries carry parent_tool_use_id and follow the
+        main-line entry containing the corresponding Task tool_use. Preserve each subgroup's own order;
+        no global sorting is needed."""
         if await self._store.has_entries(session_id):
             return
         lock = self._backfill_locks.lock_for(session_id)
@@ -924,8 +913,8 @@ class EventLogService:
             except Exception:
                 logger.exception("subagent 子时间线读取失败，跳过合并 session_id=%s", session_id)
                 subagent_groups = {}
-            # 历史 transcript 只重建既有时间线；ADR 0052 明确禁止据此
-            # 反推并新增故障事件。故障定型只发生在 live 写入点。
+            # Historical transcripts reconstruct only existing timelines; ADR 0052 explicitly prohibits inferring
+            # and adding failure events from them. Failures are finalized only at the live write boundary.
             normalizer = SdkMessageNormalizer(capture_failures=False)
             entries: list[dict[str, Any]] = []
             project_name = Path(project_cwd).name if project_cwd is not None else None
@@ -939,14 +928,14 @@ class EventLogService:
                         project_name=project_name,
                         session_id=session_id,
                     ):
-                        # 相邻 interrupt 回显（SDK 回显 + 竞态副本）收敛为一条，
-                        # 与 live 写入点的尾检去重语义一致。
+                        # Collapse adjacent interrupt echoes (SDK echo + racing copies) into one,
+                        # matching live write-boundary tail-check deduplication semantics.
                         if is_interrupt_entry(entry) and entries and is_interrupt_entry(entries[-1]):
                             continue
                         entries.append(entry)
                 except Exception:
-                    # 容错：历史 transcript 跨版本演进，单条脏数据不应让整个旧
-                    # 会话的历史记录懒生成失败。
+                    # Tolerate historical transcript evolution across versions: one dirty entry must not fail lazy generation
+                    # of an entire legacy session's history.
                     logger.exception("历史消息规范化失败，跳过该条 session_id=%s", session_id)
 
             for message in raw_messages:
@@ -954,9 +943,9 @@ class EventLogService:
                 for tool_use_id in _assistant_tool_use_ids(message):
                     for sub_message in subagent_groups.pop(tool_use_id, []):
                         _consume(sub_message, tool_use_id)
-            # 主线缺失锚点 tool_use 的残余组（多见于压缩续接）仍全量入日志：
-            # 前端按 parent 归组，无锚时呈现为独立卡片，不丢子时间线数据。
-            # 组末附一条推断出的描述与终态，卡片据此显示，而不是一律「已停止」。
+            # Log all remaining subgroups missing main-line anchor tool_use (common after compaction continuation):
+            # frontend groups by parent and shows independent cards without anchors, preserving all sub-timeline data.
+            # Append an inferred description and terminal state to each group for card display instead of always showing stopped.
             descriptions: dict[str, str] = {}
             if subagent_groups:
                 try:
@@ -973,9 +962,9 @@ class EventLogService:
                     entries.append(outcome)
             if entries:
                 await self._store.append(session_id, entries)
-                # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与
-                # 新造锁的后来者都会在二次检查处短路。空 transcript 时保留锁，
-                # 否则后来者 setdefault 出新锁，与旧锁等待者并发重放、重复灌入。
+                # Clear lock references only after successful writing: has_entries stays true thereafter, so both old-lock waiters
+                # and new-lock arrivals short-circuit at the second check. Keep the lock for empty transcripts;
+                # otherwise later setdefault creates a new lock, allowing replay concurrent with old-lock waiters and duplicate ingestion.
                 self._backfill_locks.discard(session_id)
 
     async def list_entries(
@@ -994,20 +983,19 @@ class EventLogService:
         entry_uuid: str,
         project_cwd: Path | str | None,
     ) -> str | None:
-        """把事件日志里的用户条目 uuid 解析为 transcript 域的 entry uuid。
+        """Resolve an event-log user-entry uuid to a transcript-domain entry uuid.
 
-        两段：身份映射表优先，未命中时按恒等性回退。映射表是活跃路径的唯一
-        通路——POST 受理时 mint 的 ``user-<hex>`` 先于 SDK 分配 uuid，两个域
-        天然不同名，只能靠映射对上。其余条目的两域 uuid 本就相同：懒生成时
-        用户条目直接取 transcript 条目的 uuid，前缀分叉复制时 uuid 原样保留，
-        因此分支的分支同样成立。
+        Two stages: identity mapping first, then identity-equality fallback on a miss. The mapping table is the
+        only live-path route: ``user-<hex>`` minted at POST acceptance precedes SDK uuid allocation, so the
+        two domains naturally have different names and require a mapping. Other entries already share uuids
+        across domains: lazy generation takes user-entry uuids directly from transcript entries, and prefix
+        branch copying preserves them, so branches of branches also work.
 
-        回退只接受主线 plain user 条目（无 subtype、无 parent_tool_use_id）：
-        问答回复、tool_result、skill 注入等条目的 uuid 都是派生或定型产物，
-        作锚点没有意义。返回的 uuid 未经 transcript 存在性校验——映射缺失的
-        活跃路径条目会走到这里并返回一个 transcript 查无此条的 uuid，由前缀
-        分叉在切片时 fail loud，不静默改切别处。
-        """
+        Fallback accepts only main-line plain user entries (no subtype or parent_tool_use_id): question answers,
+        tool_result, skill injections, etc. have derived/finalized uuids that are meaningless as anchors. The
+        returned uuid is not checked for transcript existence. A live-path entry with no mapping reaches here
+        and returns a uuid absent from the transcript; prefix branching fails loudly during slicing instead
+        of silently switching to another location."""
         linked = await self._store.find_user_message_link(session_id, entry_uuid)
         if linked is not None:
             return linked

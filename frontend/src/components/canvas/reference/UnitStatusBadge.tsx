@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { UnitStatus } from "@/types";
 import { STATUS_CONF } from "./unit-status";
 
-/** 视频单元的状态徽标。 */
+/** Video-unit status badge. */
 export function UnitStatusBadge({ status }: { status: UnitStatus }) {
   const { t } = useTranslation("dashboard");
   const conf = STATUS_CONF[status];

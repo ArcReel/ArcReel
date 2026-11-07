@@ -29,7 +29,7 @@ from server.draft_workflow import PositiveEpisode
 from server.media_tools.context import tool_error, tool_problem
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest
 
-_TIMELINE_ID_DESCRIPTION = "剪辑时间线 ID（如 tl-3f9a0c21），取自 list_timelines 或 create_timeline 的结果"
+_TIMELINE_ID_DESCRIPTION = "Edit timeline ID (for example tl-3f9a0c21) from list_timelines or create_timeline results"
 
 
 class CreateTimelineRequest(BaseModel):
@@ -38,27 +38,27 @@ class CreateTimelineRequest(BaseModel):
     source: Literal["script", "timeline"] = Field(
         alias="from",
         description=(
-            "新建方式。script：按当前脚本顺序排列每个视频单元，整段使用、全部硬切，需要 episode；"
-            "timeline：复制一条已有剪辑时间线（需要 timeline，可选 revision），新时间线落在同一集"
+            "Creation source. script: arrange each video unit in current script order, use whole clips and hard cuts throughout; requires episode. timeline: copy an existing edit timeline (requires timeline, optional revision); the new timeline belongs to the same episode"
         ),
     )
     name: str = Field(
         min_length=1,
         max_length=TIMELINE_NAME_MAX_LENGTH,
-        description="显示名，同一集内不能重名，写成创作者一眼认得出的剪法，如「完整版」「快节奏版」",
+        description="Display name, unique within the episode; describe the cut recognizably for the creator, for example Full version or Fast-paced version",
     )
     episode: PositiveEpisode | None = Field(
-        default=None, description="集的集 ID（项目详情 episodes[].episode），不是第几集；from=script 时必填"
+        default=None,
+        description="Episode ID (project details episodes[].episode), not episode ordinal; required when from=script",
     )
     timeline: str | None = Field(
         default=None,
         min_length=1,
-        description=f"被复制的剪辑时间线 ID；from=timeline 时必填。{_TIMELINE_ID_DESCRIPTION}",
+        description=f"Edit timeline ID to copy; required when from=timeline. {_TIMELINE_ID_DESCRIPTION}",
     )
     revision: int | None = Field(
         default=None,
         ge=1,
-        description="被复制的修订号，取自 list_revisions；省略时复制最新修订。只在 from=timeline 时可用",
+        description="Revision to copy, from list_revisions; omit to copy the latest. Available only when from=timeline",
     )
 
     @model_validator(mode="after")
@@ -79,7 +79,9 @@ class CreateTimelineRequest(BaseModel):
 class ListTimelinesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode | None = Field(default=None, description="只列这一集；省略时列出全部集")
+    episode: PositiveEpisode | None = Field(
+        default=None, description="List only this episode; omit to list all episodes"
+    )
 
 
 class ReadTimelineRequest(BaseModel):
@@ -92,13 +94,15 @@ class EditTimelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     timeline: str = Field(min_length=1, description=_TIMELINE_ID_DESCRIPTION)
-    base_revision: int = Field(ge=1, description="这批操作所依据的修订号，取自 read_timeline 的 revision")
+    base_revision: int = Field(ge=1, description="Base revision for these operations, from read_timeline revision")
     summary: str = Field(
         min_length=1,
         max_length=REVISION_SUMMARY_MAX_LENGTH,
-        description="改动摘要，一句话写给创作者看，如「压低开场原声，把推门镜头提前」",
+        description="Change summary in one sentence for the creator, for example Lower the opening original audio and move the door-opening shot earlier",
     )
-    operations: list[TimelineOperation] = Field(min_length=1, description="按顺序执行的操作，整批原子提交")
+    operations: list[TimelineOperation] = Field(
+        min_length=1, description="Operations executed in order, committing the whole batch atomically"
+    )
 
 
 class RenameTimelineRequest(BaseModel):
@@ -108,7 +112,7 @@ class RenameTimelineRequest(BaseModel):
     name: str = Field(
         min_length=1,
         max_length=TIMELINE_NAME_MAX_LENGTH,
-        description="新的显示名，同一集内不能重名",
+        description="New display name, unique within the episode",
     )
 
 
@@ -122,7 +126,7 @@ class RestoreRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     timeline: str = Field(min_length=1, description=_TIMELINE_ID_DESCRIPTION)
-    revision: int = Field(ge=1, description="要回滚到的修订号，取自 list_revisions")
+    revision: int = Field(ge=1, description="Revision to roll back to, from list_revisions")
 
 
 def _author(caller: CallerContext) -> RevisionAuthor:

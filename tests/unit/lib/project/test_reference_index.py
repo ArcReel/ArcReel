@@ -1,4 +1,4 @@
-"""引用索引：按项目数据给任意路径定角色，并判断资源是否仍在项目中。"""
+"""Reference index: assign roles to arbitrary paths from project data and determine whether resources remain in the project."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ def indexed_project_dir(tmp_path: Path) -> Path:
             FileReference(FileRole.REFERENCED, FileOwner("episode", episode=1)),
         ),
         ("thumbnails/scene_E1S01.jpg", FileReference(FileRole.DERIVED, FileOwner("segment", id="E1S01", episode=1))),
-        # 历史版本按版本历史判定，current 版本的快照同样在版本历史里并带当前标识；被删资产留下的版本仍是历史版本。
+        # Historical versions follow version history; current snapshots also appear there with current markers, and deleted-asset versions remain historical.
         (
             "versions/storyboards/E1S01_v1_20260101T000000.png",
             FileReference(FileRole.HISTORY, FileOwner("segment", id="E1S01", episode=1)),
@@ -152,7 +152,7 @@ def indexed_project_dir(tmp_path: Path) -> Path:
         ("source/snapshots/novel.txt", FileReference(FileRole.DERIVED, FileOwner("source"))),
         ("source/episode_1.txt", FileReference(FileRole.DERIVED, FileOwner("episode", episode=1))),
         ("source/episode_2.txt", FileReference(FileRole.STRUCTURE, FileOwner("episode", episode=2))),
-        # 未纳入整本源文的源文件与它的原始上传件交给分集视图。
+        # Source files outside the whole-book source and their original uploads belong to episode views.
         ("source/draft.txt", FileReference(FileRole.UNREFERENCED, FileOwner("source"))),
         ("source/raw/draft.docx", FileReference(FileRole.UNREFERENCED, FileOwner("source"))),
         ("storyboards/scene_E1S09.png", FileReference(FileRole.UNREFERENCED)),
@@ -180,10 +180,10 @@ def test_contains_resource_tracks_project_data(indexed_project_dir: Path) -> Non
     assert index.contains_resource("storyboards", "E1S01")
     assert index.contains_resource("videos", "E1S01")
     assert index.contains_resource("reference_videos", "E2U1")
-    # 视频单元的旁白配音同样按单元 ID 登记。
+    # Video-unit narration voiceovers also register by unit ID.
     assert index.contains_resource("audio", "E2U1")
     assert index.contains_resource("grids", "grid_0123456789ab")
-    # 只剩版本历史的资产、已移除的分镜都不在项目中。
+    # Assets with only version history and removed storyboards are no longer in the project.
     assert not index.contains_resource("characters", "旧人")
     assert not index.contains_resource("storyboards", "E1S09")
     assert not index.contains_resource("reference_videos", "E1S01")
@@ -202,7 +202,7 @@ def test_contains_resource_compares_asset_names_in_nfc(tmp_path: Path) -> None:
 
 
 def test_pending_grid_record_is_structure_before_any_reference(indexed_project_dir: Path) -> None:
-    # 排队中的宫格只有 grids/<id>.json，还没有产物登记或剧本 grid_id。
+    # Queued grids have only grids/<id>.json, without artifact registration or script grid_id.
     _write(indexed_project_dir / "grids/grid_fedcba987654.json", {"id": "grid_fedcba987654", "status": "pending"})
 
     index = ReferenceIndex.build(indexed_project_dir)
@@ -210,14 +210,14 @@ def test_pending_grid_record_is_structure_before_any_reference(indexed_project_d
     assert index.reference_of("grids/grid_fedcba987654.json") == FileReference(
         FileRole.STRUCTURE, FileOwner("grid", id="grid_fedcba987654")
     )
-    # 已有剧本引用的宫格仍带所属集。
+    # Script-referenced grids retain their owning episode.
     assert index.reference_of("grids/grid_0123456789ab.json").owner == FileOwner(
         "grid", id="grid_0123456789ab", episode=1
     )
 
 
 def test_legacy_script_plan_is_structure_of_its_episode(indexed_project_dir: Path) -> None:
-    # 只剩旧版 .md 规划时，分集视图仍读取它作为该集的脚本规划。
+    # With only legacy .md plans remaining, episode views still read them as that episode's script plan.
     _write(indexed_project_dir / "drafts/episode_1/script_plan_normalized_script.md", "# 规划")
 
     assert ReferenceIndex.build(indexed_project_dir).reference_of(

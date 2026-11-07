@@ -1,8 +1,8 @@
-"""内置 HTTP 式 backend 的提交与轮询请求经产物下载同一道出站目的地校验。
+"""Built-in HTTP backend submissions/polling share artifact-download outbound validation.
 
-这些 backend 的 base URL 可由管理员配置（内置供应商的 ``base_url`` 设置、自定义供应商挂载的内置
-端点），故提交与轮询的目的地与供应商回传的产物地址一样按不可信处置：落在链路本地或云元数据地址上
-的请求在发出前被拦下，API Key 不会随请求出站。
+Administrators configure base URLs through built-in ``base_url`` settings or built-in endpoints
+under custom providers. Treat submission/poll destinations as untrusted like artifact URLs,
+blocking link-local/cloud-metadata requests before sending and preventing API Key exposure.
 """
 
 from __future__ import annotations

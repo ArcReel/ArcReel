@@ -1,13 +1,13 @@
-"""剧本结构校验器（纯函数）。
+"""Pure script-structure validation.
 
-把「一个剧本 dict 是否结构良构」这个判断收敛到唯一一处：喂入 dict、返回
-`ValidationResult`，不读磁盘、不依赖项目状态。写盘统一入口、测试、未来其它写入面都复用它。
+Centralize dict well-formedness: take a dict and return `ValidationResult`, without disk or project-state
+dependencies. Central persistence, tests, and future writers share this implementation.
 
-校验对象是结构层 Pydantic 模型（`lib.script.script_models`），而非 FS 感知的 `DataValidator`
-——后者会读磁盘并拒绝合法的半成品草稿（分镜图尚未生成）。模型已编码所有结构约束
-（必填、`duration_seconds` 范围、id 格式、prompt 形状、参考单元 shots↔duration 一致性），
-本校验器只负责「按模式选对模型」并把 Pydantic 的 `ValidationError` 转成 `ValidationResult`，
-不复制任何约束——模型变更即校验变更（单一真相源）。
+Validate structural Pydantic models (`lib.script.script_models`), not filesystem-aware `DataValidator`,
+which reads disk and rejects legitimate incomplete drafts lacking images. Models encode every structural
+constraint (required fields, `duration_seconds` bounds, IDs, prompt shapes, reference shots↔duration consistency).
+This validator selects models and converts Pydantic `ValidationError` into `ValidationResult`, never
+duplicating constraints. Model changes directly change validation as the single source of truth.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-# pydantic 顶层不 re-export ErrorDetails，只能直接依赖 pydantic-core。
+# pydantic does not re-export ErrorDetails; depend directly on pydantic-core.
 from pydantic_core import ErrorDetails
 
 from arcreel_market_core.validation_messages import ValidationMessage
@@ -31,7 +31,7 @@ from lib.script.script_skeleton import resolve_script_kind
 
 
 class ScriptStructureValidationError(ValueError):
-    """剧本结构校验失败。携带 `ValidationResult`，供 router 转 i18n 4xx 响应。"""
+    """Invalid script structure; carries `ValidationResult` for routers to produce localized 4xx responses."""
 
     def __init__(self, result: ValidationResult) -> None:
         self.result = result
@@ -47,14 +47,14 @@ _KIND_MODEL: dict[str, type[BaseModel]] = {
 
 
 def _select_model(script: dict[str, Any]) -> type[BaseModel]:
-    """按模式判别该用哪个剧本模型，判别逻辑收归 `script_skeleton.resolve_script_kind`（取证解析，
-    单一真相源，与编辑核心、写盘统一入口的 metadata 重算共用，不漂移）；kind → 模型的映射
-    (`_KIND_MODEL`) 留本地（模型不进注册表）。
+    """Select script models through `script_skeleton.resolve_script_kind` forensic resolution, shared with
+    editing and persistence metadata recalculation. Keep the kind→model mapping (`_KIND_MODEL`)
+    local rather than placing models in the registry.
 
-    判别**数据形状优先**(详见 `resolve_script_kind` docstring):video_units 唯一存在时才路由
-    reference,否则按 content_mode → segments/scenes(空场景 drama 仍走 DramaEpisodeScript)。
-    ``generation_mode`` 不参与判别——caller 端的生成路径(server/media_tools/videos.py 等)自己按
-    generation_mode 分流;此函数只决定**结构校验**用哪个 Pydantic 模型。
+    **Data shape first** (see `resolve_script_kind`): reference only when video_units is the sole array,
+    otherwise content_mode → segments/scenes (empty drama scenes still use DramaEpisodeScript).
+    ``generation_mode`` never participates: generation callers (server/media_tools/videos.py, etc.) dispatch
+    by generation_mode themselves; this function chooses only **structural-validation** Pydantic models.
     """
     return _KIND_MODEL[resolve_script_kind(script)]
 
@@ -66,16 +66,16 @@ def _format_error(err: ErrorDetails) -> str:
 
 
 def validate_script_structure(script: dict[str, Any]) -> ValidationResult:
-    """校验剧本 dict 的结构是否良构，返回 `ValidationResult`。
+    """Validate script dict structure, returning `ValidationResult`.
 
-    纯函数：不读磁盘、不查文件引用、不查跨 project.json 的角色/场景名一致性
-    （那些是 `DataValidator.validate_project_tree` 的归档层职责）。
+    Pure: no disk reads, file-reference checks, or cross-project.json character/scene-name consistency
+    (those belong to archive-layer `DataValidator.validate_project_tree`).
     """
     model = _select_model(script)
     try:
         model.model_validate(script)
     except ValidationError as exc:
-        # Pydantic 报错已是成品文本（无可翻译结构），经 literal 通道并入同一消息载体。
+        # Pydantic errors are final text without translatable structure; include through the same message carrier's literal channel.
         return ValidationResult(
             valid=False,
             error_messages=[ValidationMessage.literal(_format_error(e)) for e in exc.errors()],

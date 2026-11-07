@@ -1,6 +1,6 @@
-# 市场源索引发布（可复用工作流）。
+# Market source index publication (reusable workflow).
 #
-# 调用方：ArcReel/arcreel-market 及其 fork，在默认分支 push 后触发：
+# Callers: ArcReel/arcreel-market and forks, triggered after pushes to the default branch:
 #
 #   on:
 #     push:
@@ -10,21 +10,21 @@
 #       uses: ArcReel/ArcReel/.github/workflows/market-publish-index.yml@main
 #       permissions:
 #         contents: write
-#       secrets: # 可选：仅在配置了下面两个 App secret 时需要
+#       secrets: # Optional: required only when both App secrets below are configured.
 #         MARKET_APP_CLIENT_ID: ${{ secrets.MARKET_APP_CLIENT_ID }}
 #         MARKET_APP_PRIVATE_KEY: ${{ secrets.MARKET_APP_PRIVATE_KEY }}
 #
-# 参数：无。权限：调用方须授予 contents: write，用于提交并推送重生成的索引。
+# Parameters: none. Permissions: caller must grant contents: write to commit and push the regenerated index.
 #
-# 可选 secrets（默认分支受保护、GITHUB_TOKEN 无法直推时使用；两者须同时配置）：
-#   MARKET_APP_CLIENT_ID    被 ruleset 列为 bypass actor 的 GitHub App 的 client id
-#   MARKET_APP_PRIVATE_KEY  该 App 的 private key
-# 推荐调用方仓库以同名 secret 配置，并在 `uses:` 块下显式映射这两个名字；同组织仓库也可用 `secrets: inherit`。
-# 两者齐备时，用 actions/create-github-app-token 换取只对调用方仓库 contents: write 的安装令牌，
-# 以该 App 的 bot 身份（<app-slug>[bot]）提交并推送；任一缺失时以 github-actions[bot] 身份用 GITHUB_TOKEN 推送。
-# 用 GITHUB_TOKEN 推送的提交不会再次触发工作流；用 App 令牌时会再跑一次，索引无变化即不提交。
+# Optional secrets (when branch protection prevents GITHUB_TOKEN from pushing directly; configure both together):
+#   MARKET_APP_CLIENT_ID    Client ID of the GitHub App listed as a ruleset bypass actor.
+#   MARKET_APP_PRIVATE_KEY  That App’s private key.
+# Prefer same-named secrets in the caller repository and explicitly map both names under `uses:`; same-organization repositories may use `secrets: inherit`.
+# With both present, actions/create-github-app-token obtains an installation token limited to contents: write on the caller repository;
+# commit/push as the App bot (<app-slug>[bot]). If either is absent, push with GITHUB_TOKEN as github-actions[bot].
+# Commits pushed with GITHUB_TOKEN do not trigger workflows again; App tokens cause another run, which does not commit when the index is unchanged.
 #
-# 同一分支的运行按 concurrency 串行；每次运行检出分支最新提交，因而排队的运行看得到上一次的 bot 提交。
+# concurrency serializes runs for the same branch; each run checks out the latest branch commit, so queued runs see the preceding bot commit.
 name: Market publish index
 
 on:
@@ -49,9 +49,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # 提交并推送重生成的 arcreel-market.json
+      contents: write # Commit and push regenerated arcreel-market.json.
     env:
-      # secrets 不能直接用于 step 的 if，先在 job 级折算成不含密文的布尔字符串
+      # secrets cannot be referenced directly in a step if; first derive non-secret boolean strings at job level.
       USE_APP_TOKEN: ${{ secrets.MARKET_APP_CLIENT_ID != '' && secrets.MARKET_APP_PRIVATE_KEY != '' }}
       APP_SECRETS_PARTIAL: ${{ (secrets.MARKET_APP_CLIENT_ID != '') != (secrets.MARKET_APP_PRIVATE_KEY != '') }}
     steps:
@@ -90,13 +90,13 @@ jobs:
 
       - name: Install market tooling
         working-directory: arcreel
-        # 只装子包及其依赖；scripts.market 从检出的源码加载纯 Python 翻译目录
+        # Install only the subpackage and its dependencies; scripts.market loads the pure Python translation catalog from checked-out source.
         run: uv sync --locked --no-dev --package arcreel-market-core
 
       - name: Generate index
         working-directory: arcreel
         run: |
-          # 既有索引给不出 name 时取仓库名，而不是检出目录名
+          # If the existing index supplies no name, use the repository name rather than the checkout directory name.
           uv run --no-sync python -m scripts.market generate "${GITHUB_WORKSPACE}/market" --default-name "${GITHUB_REPOSITORY#*/}"
 
       - name: Check index

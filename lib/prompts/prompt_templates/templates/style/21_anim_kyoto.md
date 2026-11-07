@@ -1,8 +1,8 @@
 ---
 id: style/anim_kyoto
 category: style
-title: 商业动画 京都
-description: "动画画风，柔和赛璐珞 · 石立太一。"
+title: "Kyoto Animation"
+description: "Animation, soft cel shading · Taichi Ishidate."
 stage: style
 invoked_by:
   kind: user_action

@@ -17,7 +17,7 @@ function grid(
   return { id, episode, scene_ids, created_at };
 }
 
-// 阶梯必须与后端 lib/script/grid/layout.py 一致,否则批次预览数与实际入队张数会漂移
+// Ladders must match backend lib/script/grid/layout.py or batch previews drift from actual enqueued image counts.
 describe("computeGridSize", () => {
   it.each([
     [1, "grid_4", 2],

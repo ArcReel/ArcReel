@@ -1,0 +1,64 @@
+{
+  "reviewer": "Coordinator, independent of test-prose translator",
+  "author_report_sha256": "f122d726c9c30a73ef3f918ff0162347c05184f5f90cd1252047a52b31d45ab1",
+  "scope": "All nine frozen input-doc records independently compared as raw AST source occurrences against the immediate candidate snapshot. Same-name repeated definitions compared as ordered lists, not dictionaries. All recorded helper-class consumer traces read independently.",
+  "frozen_checks": [
+    {
+      "path": "tests/integration/server/routers/projects_router_support.py",
+      "symbol": "_OverviewProbe",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 1
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "symbol": "Tone",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 1
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "symbol": "Inner",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 2
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "symbol": "Explicit",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 1
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "symbol": "Outer",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 2
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "symbol": "Inner",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 2
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "symbol": "Outer",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 2
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_message_serialization.py",
+      "symbol": "TextBlock",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 1
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_message_serialization.py",
+      "symbol": "ContentMessage",
+      "all_same_name_occurrences_preserved": true,
+      "occurrences": 1
+    }
+  ],
+  "helper_class_traces_reviewed": 35,
+  "schema_tool_input_documentation_changed": false,
+  "limits": "Snapshot evidence for this report hash only; ongoing translations must refresh author and integration audits. Does not claim universal equivalence or independently read every test explanation."
+}

@@ -1,8 +1,6 @@
-"""
-API 调用统计路由
+"""API usage-statistics routes.
 
-提供调用记录查询和统计摘要接口。
-"""
+Provide call-record queries and statistical summaries."""
 
 import asyncio
 from collections.abc import Callable, Iterable
@@ -36,13 +34,13 @@ from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
 
-# 使用记录的两个视图：「生成调用」不含 Agent 记录，「Agent 会话」只含 Agent 记录。
+# Usage views: generation calls exclude Agent records; Agent sessions include only Agent records.
 UsageView = Literal["generation", "agent"]
 _VIEW_DESCRIPTION = "视图：generation（生成调用，默认，不含 Agent 记录）或 agent（Agent 会话的记录）"
 
 
 def _view_filter(view: UsageView) -> bool:
-    """视图 → ``UsageFilters.agent``。"""
+    """View → ``UsageFilters.agent``."""
     return view == "agent"
 
 
@@ -50,28 +48,28 @@ _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 
 
 # ---------------------------------------------------------------------------
-# 使用记录读接口；响应形状由 Pydantic 模型声明。
+# Usage-record read API; Pydantic models declare response shapes.
 # ---------------------------------------------------------------------------
 
 
 class EpisodeItemRef(BaseModel):
-    """条目所属集的标题与播出位置、条目在本集里的当前位置；界面据此显示「标题 · 5」，不显示条目 ID。"""
+    """Owning episode title/broadcast position and current item position; the UI displays “Title · 5” rather than item IDs."""
 
     episode_title: str
     episode_position: int
     item_id: str
-    # 分镜或视频单元在本集条目数组里的当前位置（从 1 起）；条目已不在剧本里时为 None。
+    # Current one-based shot/unit position in the episode array; None when absent from the script.
     item_position: int | None = None
     item_excerpt: str = ""
     item_thumbnail: str | None = None
 
 
 class UsageRecord(BaseModel):
-    """一次供应商调用在列表里的投影。``user_id`` 不出现。"""
+    """List projection of one provider call, omitting ``user_id``."""
 
     id: int
     project_name: str
-    # 项目标题；项目已删除、读不到或未设标题时为 None，界面回退到项目名。
+    # Project title, None if deleted/unreadable/untitled; UI falls back to project name.
     project_title: str | None = None
     purpose: str | None = None
     task_id: str | None = None
@@ -89,12 +87,12 @@ class UsageRecord(BaseModel):
     started_at: str
     finished_at: str | None = None
     duration_ms: int | None = None
-    # None 表示未定价；0 是定价为零。
+    # None means unpriced; 0 means priced at zero.
     cost_amount: float | None
-    # 未定价的原因码（``lib.billing.metering.UnpricedReason``）；已定价的记录为 None。
+    # Unpriced reason (``lib.billing.metering.UnpricedReason``); None for priced records.
     unpriced_reason: str | None = None
     currency: str
-    # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
+    # input_tokens includes cache reads/writes; uncached input = input_tokens minus cache reads and both cache-write tiers.
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
@@ -112,32 +110,32 @@ class UsageRecord(BaseModel):
 
 
 class UsageRecordDetail(UsageRecord):
-    """详情比列表多三项重载荷，列表里不返回。"""
+    """Details add three heavy payloads omitted from lists."""
 
     prompt: str | None = None
     inputs: Any = None
     last_provider_response: Any = None
-    #: 调用的供应商仍在供应商设置里（内置供应商，或没有删除的自定义供应商），详情据此链接到供应商模型的设置。
-    #: Agent 凭证、已删除的自定义供应商与已不再内置的旧值为 ``False``。
+    #: Provider still exists in settings, built-in or undeleted custom, enabling detail links to its model settings.
+    #: ``False`` for Agent credentials, deleted custom providers and obsolete former built-ins.
     provider_in_settings: bool = False
 
 
 class UsageRecordPage(BaseModel):
-    """keyset 分页的一页；``next_cursor`` 为空表示已到末页。"""
+    """One keyset page; empty ``next_cursor`` means the last page."""
 
     items: list[UsageRecord]
     next_cursor: str | None = None
     total: int
 
 
-# 时间参数可表示的 UTC 区间：留出一天余量，任何时区偏移、半开右端的减一微秒与本地日折算
-# 都不会越过 datetime 的边界。
+# Representable UTC interval leaves one day for timezone offsets, subtracting a microsecond from half-open ends and local-day conversion
+# without crossing datetime boundaries.
 _EARLIEST_INSTANT = datetime(1, 1, 2, tzinfo=UTC)
 _LATEST_INSTANT = datetime(9999, 12, 30, tzinfo=UTC)
 
 
 def _utc_instant(value: datetime | None) -> datetime | None:
-    """时间参数换算到 UTC；落在可表示区间之外的时刻 422，而不是在换算或折日时溢出成 500。"""
+    """Convert time parameters to UTC; reject unrepresentable times with 422 rather than overflow to 500 during conversion/day bucketing."""
     if value is None:
         return None
     aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
@@ -147,7 +145,7 @@ def _utc_instant(value: datetime | None) -> datetime | None:
 
 
 def _multi(value: str | None) -> tuple[str, ...]:
-    """逗号分隔的多选参数；空串与纯空白项丢弃，整体为空表示该维度不筛。"""
+    """Comma-separated multiselection; discard empty/whitespace items, with an empty result disabling this filter dimension."""
     if not value:
         return ()
     return tuple(item.strip() for item in value.split(",") if item.strip())
@@ -156,16 +154,18 @@ def _multi(value: str | None) -> tuple[str, ...]:
 @router.get("/usage/records", response_model=UsageRecordPage)
 async def list_usage_records(
     _t: Translator,
-    project_name: str | None = Query(None, description="项目名称；端点试跑记录用空串"),
-    provider: str | None = Query(None, description="供应商 id，逗号分隔多选"),
-    model: str | None = Query(None, description="模型，逗号分隔多选"),
-    media_type: str | None = Query(None, description="媒体类型 (image/video/text/audio)，逗号分隔多选"),
+    project_name: str | None = Query(None, description="Project name; use an empty string for endpoint trial records"),
+    provider: str | None = Query(None, description="Provider IDs, comma-separated for multiple selections"),
+    model: str | None = Query(None, description="Models, comma-separated for multiple selections"),
+    media_type: str | None = Query(
+        None, description="Media types (image/video/text/audio), comma-separated for multiple selections"
+    ),
     status: str | None = Query(None, description=f"{_CALL_STATUS_DESCRIPTION}，逗号分隔多选"),
-    segment_id: str | None = Query(None, description="分镜 id，逗号分隔多选"),
-    since: datetime | None = Query(None, description="起始时刻（含），ISO 8601，无时区按 UTC"),
-    until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
-    limit: int = Query(20, ge=1, le=200, description="每页记录数"),
-    cursor: str | None = Query(None, description="上一页返回的不透明游标"),
+    segment_id: str | None = Query(None, description="Storyboard IDs, comma-separated for multiple selections"),
+    since: datetime | None = Query(None, description="Inclusive start time, ISO 8601; timezone-naive values use UTC"),
+    until: datetime | None = Query(None, description="Exclusive end time, ISO 8601; timezone-naive values use UTC"),
+    limit: int = Query(20, ge=1, le=200, description="Records per page"),
+    cursor: str | None = Query(None, description="Opaque cursor returned by the previous page"),
     view: UsageView = Query("generation", description=_VIEW_DESCRIPTION),
 ) -> UsageRecordPage:
     try:
@@ -200,11 +200,10 @@ def _with_segment_refs(items: list[dict[str, Any]], translate: Callable[..., str
 
 
 def _project_titles(project_names: Iterable[str]) -> dict[str, str]:
-    """项目名 → 标题，只含读得到且标题非空的项目。
+    """Project name → title for readable projects with nonempty titles only.
 
-    记录按项目名（目录名）落账，界面显示标题。已删除项目的记录挂在墓碑名上，读不到项目，
-    与读取失败、未设标题的项目一样不进映射，由界面回退显示项目名。
-    """
+    Records store project directory names, while UI shows titles. Deleted projects use tombstone names with no readable
+    project, so omit them like unreadable/untitled projects and let UI fall back to names."""
     projects = get_project_manager()
     titles: dict[str, str] = {}
     for name in set(project_names):
@@ -238,7 +237,7 @@ async def get_usage_record(record_id: int, _t: Translator) -> UsageRecordDetail:
 
 
 async def _provider_in_settings(session: AsyncSession, provider_id: str) -> bool:
-    """供应商设置里还有这个供应商：内置供应商恒在；自定义供应商要求没有删除。"""
+    """Whether provider settings still contain this provider: built-ins always exist; custom providers must not be deleted."""
     if provider_id in PROVIDER_REGISTRY:
         return True
     if not is_custom_provider(provider_id):
@@ -250,26 +249,26 @@ async def _provider_in_settings(session: AsyncSession, provider_id: str) -> bool
     return await CustomProviderRepository(session).get_provider(db_id) is not None
 
 
-# --- Agent 会话视图 ---------------------------------------------------------------------
-# 记账粒度不变（每轮每个模型一条记录），这里把 Agent 记录按 session_id 聚合成每个会话一行。
+# --- Agent session view -------------------------------------------------------
+# Preserve one record per model/turn; aggregate Agent records by session_id into one row per session.
 
 
 class UsageAgentSession(BaseModel):
-    """一个 Agent 会话在会话列表里的一行；合计只含落在筛选内的记录。"""
+    """One Agent-session list row, totaling only records matching filters."""
 
     session_id: str
-    # 会话标题取自会话元数据；元数据已删除时为 None（``session_deleted`` 同时为真），空串表示尚未命名。
+    # Titles come from session metadata; deleted metadata yields None with ``session_deleted`` true; empty means unnamed.
     title: str | None
     session_deleted: bool
     project_name: str
     project_title: str | None = None
-    # 会话里用到的模型，按首次出现的先后。
+    # Session models in first-occurrence order.
     models: list[str]
     calls: int
-    # input_tokens 是总输入，含缓存读写。
+    # input_tokens is total input, including cache reads/writes.
     input_tokens: int
     output_tokens: int
-    # 已定价记录的费用，按币种分别合计；未定价（NULL）的记录不计入，数量见 unpriced_calls。
+    # Total priced costs separately by currency; exclude unpriced NULL amounts and count them in unpriced_calls.
     cost: dict[str, float]
     unpriced_calls: int
     first_started_at: str
@@ -277,7 +276,7 @@ class UsageAgentSession(BaseModel):
 
 
 class UsageAgentSessionPage(BaseModel):
-    """keyset 分页的一页，按最近一轮的时间倒序；``next_cursor`` 为空表示已到末页。"""
+    """One keyset page ordered by latest turn descending; empty ``next_cursor`` means the last page."""
 
     items: list[UsageAgentSession]
     next_cursor: str | None = None
@@ -285,22 +284,22 @@ class UsageAgentSessionPage(BaseModel):
 
 
 class UsageAgentSessionRecord(BaseModel):
-    """会话明细里的一条记录：一轮里某个模型的用量与费用。"""
+    """One session-detail record: one model’s usage and cost in a turn."""
 
     id: int
     started_at: str
     status: str
-    # 这一轮的用户消息，超长时截断。
+    # This turn’s user message, truncated when too long.
     prompt: str | None = None
     provider: str
     model: str
-    # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
+    # input_tokens includes cache reads/writes; uncached input = input_tokens minus cache reads and both cache-write tiers.
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
     cache_write_5m_tokens: int | None = None
     cache_write_1h_tokens: int | None = None
-    # None 表示未定价，原因见 unpriced_reason；0 是定价为零。
+    # None means unpriced, explained by unpriced_reason; 0 means priced at zero.
     cost_amount: float | None
     unpriced_reason: str | None = None
     currency: str
@@ -313,19 +312,18 @@ class UsageAgentSessionDetail(BaseModel):
 
 @router.get("/usage/sessions", response_model=UsageAgentSessionPage)
 async def list_usage_sessions(
-    project_name: str | None = Query(None, description="项目名称"),
-    provider: str | None = Query(None, description="供应商 id，逗号分隔多选"),
-    model: str | None = Query(None, description="模型，逗号分隔多选"),
-    since: datetime | None = Query(None, description="起始时刻（含），ISO 8601，无时区按 UTC"),
-    until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
-    limit: int = Query(20, ge=1, le=200, description="每页会话数"),
-    cursor: str | None = Query(None, description="上一页返回的不透明游标"),
+    project_name: str | None = Query(None, description="Project name"),
+    provider: str | None = Query(None, description="Provider IDs, comma-separated for multiple selections"),
+    model: str | None = Query(None, description="Models, comma-separated for multiple selections"),
+    since: datetime | None = Query(None, description="Inclusive start time, ISO 8601; timezone-naive values use UTC"),
+    until: datetime | None = Query(None, description="Exclusive end time, ISO 8601; timezone-naive values use UTC"),
+    limit: int = Query(20, ge=1, le=200, description="Sessions per page"),
+    cursor: str | None = Query(None, description="Opaque cursor returned by the previous page"),
 ) -> UsageAgentSessionPage:
-    """Agent 会话列表：按 ``session_id`` 聚合，每个会话一行，按最近一轮的时间倒序。
+    """Agent sessions aggregated by ``session_id``, one row per session ordered by latest turn descending.
 
-    筛选与 ``/usage/records`` 同口径（时间范围、项目、供应商、模型）；已经以 ``anthropic`` 落库的
-    历史记录同样按会话聚合。
-    """
+    Share time/project/provider/model filters with ``/usage/records``. Historical records stored as ``anthropic``
+    also aggregate by session."""
     try:
         decoded = UsageSessionCursor.decode(cursor) if cursor else None
     except UsageCursorError as exc:
@@ -350,7 +348,7 @@ async def list_usage_sessions(
 
 @router.get("/usage/sessions/{session_id}", response_model=UsageAgentSessionDetail)
 async def get_usage_session(session_id: str) -> UsageAgentSessionDetail:
-    """一个 Agent 会话的明细：按时间每条记录一行，不套列表的筛选。"""
+    """Agent-session details, one chronological row per record, without list filters."""
     async with async_session_factory() as session:
         items = await UsageRepository(session).list_agent_session_records(session_id)
     if not items:
@@ -358,26 +356,26 @@ async def get_usage_session(session_id: str) -> UsageAgentSessionDetail:
     return UsageAgentSessionDetail(session_id=session_id, items=[UsageAgentSessionRecord(**item) for item in items])
 
 
-# --- 汇总读接口（GET /usage/summary）---------------------------------------------------
-# 设置页总览与顶栏入口共用这一次请求：KPI、日桶趋势、三维构成、需要关注与筛选候选值。
-# 聚合规则在 lib/billing/usage_summary.py，这里只负责取参、取行与形状声明。
+# --- Summary read API (GET /usage/summary) -------------------------------------
+# Settings overview/top-bar entry share this request: KPIs, daily trends, three-dimensional composition, attention and filter candidates.
+# lib/billing/usage_summary.py owns aggregation; only resolve parameters/rows and declare shapes here.
 
 
 class UsageStats(BaseModel):
-    """一组调用的计数与分币种参考费用。"""
+    """Call counts and reference costs separated by currency."""
 
     calls: int
     success: int
     failed: int
     cancelled: int
     success_rate: float | None
-    # 只合计已定价的调用；未定价的调用不计入金额，数量见 unpriced_calls。
+    # Total only priced calls; exclude unpriced amounts and count them in unpriced_calls.
     cost: dict[str, float]
     unpriced_calls: int
 
 
 class UsageRange(BaseModel):
-    """趋势覆盖的本地日区间，两端均含，与 daily 首尾桶一致。"""
+    """Inclusive local-day trend interval, matching first/last daily buckets."""
 
     since: str
     until: str
@@ -396,7 +394,7 @@ class UsageProjectRow(UsageStats):
 
 
 class UsageProviderRow(UsageStats):
-    # Agent 记录合并成一项：``agent`` 为真，``provider`` 为空。
+    # Agent records combine into one item: ``agent`` true, empty ``provider``.
     provider: str
     agent: bool = False
 
@@ -408,7 +406,7 @@ class UsageModelRow(UsageStats):
 
 
 class UsageBreakdownOther(UsageStats):
-    """构成表列表外的余量：被合并的分组数与它们的合计。"""
+    """Remainder outside the composition list: merged group count and totals."""
 
     groups: int
 
@@ -468,7 +466,7 @@ class UsageModelOption(BaseModel):
 
 class UsageFilterOptionsResponse(BaseModel):
     projects: list[str]
-    # 候选项目里读得到标题的那部分：项目名 → 标题。构成表与需要关注里的项目名同样在候选范围内。
+    # Candidate projects with readable titles, name → title; composition/attention project names are also within candidate scope.
     project_titles: dict[str, str] = Field(default_factory=dict)
     providers: list[UsageProviderOption]
     models: list[UsageModelOption]
@@ -489,26 +487,29 @@ class UsageSummaryResponse(BaseModel):
 @router.get("/usage/summary", response_model=UsageSummaryResponse)
 async def get_usage_summary(
     locale: Locale,
-    tz: str = Query("UTC", description="IANA 时区名，按此切天"),
-    project_name: str | None = Query(None, description="项目名称（空串筛选端点试跑）"),
-    provider: str | None = Query(None, description="按供应商筛选"),
-    model: str | None = Query(None, description="按模型筛选"),
-    media_type: CallType | None = Query(None, description="媒体类型 (image/video/text/audio)"),
-    since: datetime | None = Query(None, description="起始时刻（含），ISO 8601，无时区按 UTC"),
-    until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
-    view: UsageView = Query("generation", description="决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图"),
+    tz: str = Query("UTC", description="IANA timezone name used for day boundaries"),
+    project_name: str | None = Query(None, description="Project name (an empty string filters endpoint trials)"),
+    provider: str | None = Query(None, description="Filter by provider"),
+    model: str | None = Query(None, description="Filter by model"),
+    media_type: CallType | None = Query(None, description="Media type (image/video/text/audio)"),
+    since: datetime | None = Query(None, description="Inclusive start time, ISO 8601; timezone-naive values use UTC"),
+    until: datetime | None = Query(None, description="Exclusive end time, ISO 8601; timezone-naive values use UTC"),
+    view: UsageView = Query(
+        "generation",
+        description="Select which view supplies project, provider and model filter candidates; totals do not distinguish views",
+    ),
 ) -> dict[str, object]:
-    """一次返回总览所需的全部聚合；不传 since / until 即全部时间。
+    """Return all overview aggregates at once; omitted since / until means all time.
 
-    合计、趋势与构成包含 Agent 记录（构成里 Agent 会话单独占一项），「需要关注」只统计生成调用。
+    Totals, trends and composition include Agent records, with sessions as a separate composition item; attention-needed
+    counts include generation calls only.
 
-    不收 ``status``：pending 不进聚合，其余三个终态一起构成 KPI 的口径，按状态再切会让
-    调用次数与成功率互相矛盾。记录表的状态筛选带上来时在此被忽略。
+    Do not accept ``status``: pending is excluded and all three terminal states jointly define KPIs. Further status slicing
+    would contradict call counts and success rates, so ignore record-table status filters here.
 
-    since / until 展开的日桶超过 ``MAX_DAILY_BUCKETS`` 返回 422：桶数由这两个时刻直接决定，
-    不设上界会让一对离谱的时刻在服务端同步铺出几百万个桶。
-    """
-    # 解析不了的时区名直接 422，不静默回落 UTC——切天口径错了整张趋势图都会错位。
+    Return 422 when since / until expands beyond ``MAX_DAILY_BUCKETS``. Those timestamps directly determine bucket count;
+    without a limit, extreme dates could synchronously allocate millions of daily buckets."""
+    # Unresolvable timezone names return 422, never silently UTC; wrong day boundaries misalign the entire trend.
     try:
         zone = await asyncio.to_thread(ZoneInfo, tz)
     except (KeyError, ValueError, OSError) as exc:
@@ -529,8 +530,8 @@ async def get_usage_summary(
         rows = await repo.fetch_summary_rows(filters=filters)
         options = await repo.fetch_usage_filter_options(agent=_view_filter(view), locale=locale)
 
-    # 仓储按默认语言给出目录里的显示名；有译名表的内置供应商按请求语言改写，自定义供应商
-    # 用户自填的名字原样保留，与 /providers 目录同一张表。
+    # Repository catalog names use the default language; translate mapped built-in provider names to request language while retaining
+    # custom user names unchanged, sharing the /providers catalog table.
     localized = UsageFilterOptions(
         projects=options.projects,
         providers=[

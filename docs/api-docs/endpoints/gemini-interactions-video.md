@@ -1,23 +1,23 @@
 # gemini-interactions-video
 
-- 协议：[Gemini Omni](https://ai.google.dev/gemini-api/docs/omni)、[Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview)、[Interactions 请求与响应字段](https://ai.google.dev/api/interactions)
-- 模型：[Gemini Omni Flash](https://ai.google.dev/gemini-api/docs/models/gemini-omni-flash)
-- 计费：[Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing)
-- 代码：`lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["gemini-interactions-video"]`、`lib/backends/video_backends/gemini_interactions.py::GeminiInteractionsVideoBackend`
+- Protocol: [Gemini Omni](https://ai.google.dev/gemini-api/docs/omni), [Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview), [Interactions request and response fields](https://ai.google.dev/api/interactions)
+- Model: [Gemini Omni Flash](https://ai.google.dev/gemini-api/docs/models/gemini-omni-flash)
+- Pricing: [Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing)
+- Code: `lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["gemini-interactions-video"]`, `lib/backends/video_backends/gemini_interactions.py::GeminiInteractionsVideoBackend`
 
-## 自定义供应商
+## Custom providers
 
-此端点使用 AI Studio API Key。Base URL 指向兼容 Gemini Interactions API 的服务；支持分别覆盖提交与轮询路径。默认提交 `POST /v1beta/interactions`，轮询 `GET /v1beta/interactions/{task_id}`，成片从完成响应的内联视频数据取回，不另发下载请求。续跑按已保存的 interaction ID 查询，不重新提交。
+This endpoint uses an AI Studio API Key. The Base URL points to a Gemini Interactions API-compatible service; submission and polling paths can be overridden independently. Defaults are `POST /v1beta/interactions` for submission and `GET /v1beta/interactions/{task_id}` for polling. Retrieve the video from inline data in the completed response without a separate download request. Resume by querying the saved interaction ID, not by submitting again.
 
-`gemini-vertex-interactions-video` 使用服务账号，仍只供内置 Vertex AI 供应商使用。它与此端点的凭证不可互换。
+`gemini-vertex-interactions-video` uses a service account and remains exclusive to the built-in Vertex AI provider. Its credentials are not interchangeable with this endpoint's credentials.
 
-## 依赖的契约
+## Required contracts
 
-- 请求：`input` 图片与文本、`generation_config.video_config.task`、`response_format` 与后台轮询，覆盖文生视频、首帧、首尾帧与参考图生成；见 [Gemini Omni](https://ai.google.dev/gemini-api/docs/omni)。音轨由模型生成，请求没有独立的音轨开关，不支持参考音频。
-- 取件：从完成响应的 `output_video.data` 内联解码。官方对较大成片建议的 `delivery="uri"` 此通道尚未实现。
-- 计量：读取 Interactions 响应的输出视频 token，缺少模态拆分时读取总输出 token；字段见 [Interactions 请求与响应字段](https://ai.google.dev/api/interactions)。预估沿用 backend 内分辨率到视频 token 的换算，换算依据见计费页。
-- 模型名：按模型名预填覆盖 `gemini-omni-1.2-*`，不改写发送的模型名；型号路由与版本说明见[模型页](https://ai.google.dev/gemini-api/docs/models/gemini-omni-flash)。
+- Request: `input` images and text, `generation_config.video_config.task`, `response_format` and background polling cover text-to-video, first-frame, first-and-last-frame and reference-image generation; see [Gemini Omni](https://ai.google.dev/gemini-api/docs/omni). The model generates audio; requests have no separate audio toggle and do not support reference audio.
+- Retrieval: decode inline `output_video.data` from the completed response. This backend does not yet implement `delivery="uri"`, which the official documentation recommends for larger videos.
+- Metering: read output video tokens from the Interactions response, falling back to total output tokens when modality breakdown is absent; see [Interactions request and response fields](https://ai.google.dev/api/interactions). Estimates use the backend's resolution-to-video-token conversion; the pricing page provides its basis.
+- Model name: model-name-based prefill covers `gemini-omni-1.2-*` without rewriting the submitted model name; see the [model page](https://ai.google.dev/gemini-api/docs/models/gemini-omni-flash) for routing and version details.
 
-参考图张数与时长范围由模型目录条目声明。首尾帧插值的时长范围比普通生成更窄；目录的时长约束目前只能按分辨率或参考图收窄，无法表达首尾帧形态，此通道也不做该项前置校验，超出范围的首尾帧请求由上游拒绝。
+The catalog entry declares reference-image counts and duration ranges. First-and-last-frame interpolation has a narrower duration range than ordinary generation. Catalog duration constraints currently narrow only by resolution or reference images and cannot express first-and-last-frame mode. This backend does not prevalidate that restriction; the upstream rejects out-of-range first-and-last-frame requests.
 
-HTTP 替身只验证请求序列化、取件与计量；真实账户可用性、服务端限制与实际 usage 回报仍需外部平台验证。
+HTTP test doubles verify only request serialization, retrieval and metering. Real-account availability, server limits and actual usage reports still require validation on the external platform.

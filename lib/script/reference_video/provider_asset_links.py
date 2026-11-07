@@ -1,10 +1,11 @@
-"""请求投影里的供应商素材关联核对：读侧与执行侧各一份实现，共用同一套选择规则。
+"""Check provider asset links in request projections: read/execution implementations share selection rules.
 
-选择规则只有一份（:mod:`lib.asset_library.generation_inputs`）。读侧（接收任务、批量预览、报价）以当前配置装配的
-调用通道求素材库范围，执行侧以实际调用通道求范围。同一份配置与同一批图片得到同一结论：适用的关联尚未可用或
-入库失败时，两侧报同一个问题码与参数，提交前就能指出；执行时暂存参考图之后，再按实发字节核对一次。
+One selection policy (:mod:`lib.asset_library.generation_inputs`): read-side task admission/batch previews/quotes
+use current-configuration backends to resolve library scope; execution uses the actual backend. Identical
+configuration/images give identical conclusions. Applicable links pending/unavailable or failed upload report the
+same codes/parameters before submission and execution. Recheck actual bytes after reference staging.
 
-核对只产生阻断问题，不改变请求投影的其余事实，也不进入产物时效依据。
+Checks produce blocking problems only, changing no other projection facts and entering no artifact-currency basis.
 """
 
 from __future__ import annotations
@@ -40,12 +41,12 @@ logger = logging.getLogger(__name__)
 
 
 def asset_link_problem(error: ProviderAssetLinkUnavailableError) -> ProjectionProblem:
-    """关联不可用折成投影的阻断问题：问题码与参数原样保留，提示与执行期失败一致。"""
+    """Convert unavailable links to blocking projection problems, preserving codes/parameters consistently with execution failures."""
     return ProjectionProblem(code=error.code, blocking=True, params=tuple(error.params.items()))
 
 
 async def _sources(project_path: Path, assets: Sequence[ResolvedReferenceAsset]) -> list[ReferenceImageSource] | None:
-    """将要发出的参考图按当下字节给出来源；有图片在可用性判定之后被移走时为 None，由缺图判定报出。"""
+    """Identify outgoing reference images by their current bytes; return None if an image moved after availability assessment, leaving missing-image assessment to report it."""
     images = [(asset.path, str(asset.reference.name)) for asset in assets]
     try:
         return await asyncio.to_thread(reference_image_sources, project_path, images)
@@ -73,7 +74,7 @@ def lane_asset_link_check(
     choose: Callable[[Sequence[ReferenceImageSource]], Awaitable[object]],
     project_path: Path,
 ) -> ReferenceAssetLinkCheck:
-    """执行侧：用实际调用通道的选择核对，``choose`` 即 ``MediaGenerator.choose_reference_image_assets``。"""
+    """Execution check using actual backend selection; ``choose`` is ``MediaGenerator.choose_reference_image_assets``."""
 
     async def check(facts: VideoRequestFacts, assets: Sequence[ResolvedReferenceAsset]) -> ProjectionProblem | None:
         del facts
@@ -88,10 +89,10 @@ def configured_asset_link_check(
     resolver: ConfigResolver,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> ReferenceAssetLinkCheck:
-    """读侧：按投影所落桶的执行模型，以当前配置装配调用通道求素材库范围。
+    """Read-side check: assemble the projected bucket's effective backend from current configuration to resolve library scope.
 
-    同一个核对内每个执行模型只装配一次，批量调用方整批共用一份。装配不出调用通道（凭证缺失、模型已不可用）时
-    按没有范围处理，这类问题由视频请求事实或执行时的装配报出。没有范围时不计算参考图摘要。
+    Assemble each effective model once per check, shared across batches. Missing credentials/unavailable models
+    yield no scope, with those failures reported by request facts or execution assembly. No scope means no image hashing.
     """
     scopes: dict[tuple[str, str], AssetLibraryScope | None] = {}
 

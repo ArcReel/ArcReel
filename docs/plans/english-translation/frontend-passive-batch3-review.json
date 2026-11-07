@@ -1,0 +1,146 @@
+[
+  {
+    "path": "frontend/src/components/pages/settings/endpoints/EndpointDiagnostics.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/endpoints/JsonBodyEditor.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/endpoints/endpoint-usages.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/endpoints/example-templates.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/market/MarketEntryRating.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/market/MarketEntryStats.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/shared/NarrationVoiceInput.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/shared/OutputTruncationHint.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/shared/VideoModelUnresolvedNotice.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/shared/episode-item/ItemPositionOfTotal.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/shared/episode-target-duration.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/shared/generation-route-meta.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/attachment.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/hover-card.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/questionnaire.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/resizable.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/tabs.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/toggle.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/usage/UsageRecordsCard.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/workflow/state-language.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/onboarding/DemoReadOnlyBadge.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/utils/download.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/utils/list-format.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/utils/preview-aspect.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

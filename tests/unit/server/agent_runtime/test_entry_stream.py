@@ -1,4 +1,4 @@
-"""SSE entry 流与 REST entries：cursor 续传、draft 首帧、状态事件、常驻不关流。"""
+"""SSE entry streams and REST entries: cursor continuation, initial draft snapshots, status events and persistent streams."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ class _FakeEntrySessionManager:
         return []
 
     def end_stream(self):
-        """模拟客户端离开：常驻流本身不会结束，测试据此收尾。"""
+        """Simulate client departure to finalize tests of streams that otherwise stay open."""
         self.queue.put_nowait(None)
 
     @contextlib.asynccontextmanager
@@ -103,7 +103,7 @@ async def entry_service(db_factory, tmp_path):
     return service, store
 
 
-# CLI 报 idle 后会话层广播的终态（见 SessionManager._settle_cli_idle）
+# Terminal state broadcast after CLI reports idle (SessionManager._settle_cli_idle).
 _CLI_IDLE_COMPLETED = {"type": "runtime_status", "status": "completed", "reason": "cli idle", "subtype": "success"}
 
 
@@ -140,13 +140,13 @@ class TestStreamEntryEvents:
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 
         assert [name for name, _, _ in events] == ["entry", "entry", "draft", "queue", "status"]
-        # SSE 事件 id 即 seq
+        # SSE event id equals seq.
         assert [sse_id for _, _, sse_id in events[:2]] == ["0", "1"]
         assert events[3][1]["messages"] == []
         assert events[4][1]["status"] == "completed"
 
     async def test_queue_upsert_on_a_terminal_stream_is_preceded_by_running(self, entry_service):
-        """另一端发来的消息让会话重回 running：排队消息之前先推 running，不落在旧终态之下。"""
+        """A message from another client returns the session to running; emit running before queued messages so they do not appear beneath stale terminal state."""
         service, _store = entry_service
         manager = _FakeEntrySessionManager(status="completed")
         service.session_manager = manager
@@ -167,7 +167,7 @@ class TestStreamEntryEvents:
         assert events[-1][1]["message"] == message
 
     async def test_stream_stays_open_after_terminal_status_and_pushes_later_entries(self, entry_service):
-        """终态 status 只更新状态、不关流：之后发送产生的新一轮照常推送。"""
+        """Terminal status updates state without closing the stream; later sends deliver new turns normally."""
         service, store = entry_service
         manager = _FakeEntrySessionManager(status="running")
         service.session_manager = manager
@@ -201,7 +201,7 @@ class TestStreamEntryEvents:
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
 
     async def test_heartbeat_reports_status_change_without_broadcast(self, entry_service):
-        """驱逐等不经广播的状态变化由心跳补推，流不关闭。"""
+        """Heartbeats forward state changes without broadcasts, such as eviction, while keeping the stream open."""
         service, _store = entry_service
         manager = _FakeEntrySessionManager(status="running")
         service.session_manager = manager
@@ -240,8 +240,8 @@ class TestStreamEntryEvents:
         service.session_manager = manager
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
 
-        # 直播队列：重复条目（seq 1，已在存量中）须被 seq 门槛跳过；
-        # 新条目 seq 2 放行；delta 透传；CLI 报 idle 后的 runtime_status 产出终态 status。
+        # Live queue: skip duplicate entry seq 1, already in history, at the seq threshold;
+        # allow new seq 2, forward deltas, and derive terminal status from runtime_status after CLI idle.
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
         )
@@ -268,20 +268,20 @@ class TestStreamEntryEvents:
 
         names = [name for name, _, _ in events]
         assert names == ["entry", "entry", "draft", "queue", "status", "entry", "delta", "status"]
-        # 存量 entry：seq 0、1；直播放行的只有 seq 2（seq 1 重复被跳过）
+        # Historical entries seq 0/1; only seq 2 passes live (duplicate seq 1 is skipped).
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
-        # draft 首帧快照携带累积态与 rev 门槛
+        # Initial draft snapshot carries accumulated state and the rev threshold.
         draft_payload = events[2][1]
         assert draft_payload["draft"]["message_id"] == "msg_9"
         assert draft_payload["rev"] == 7
-        # delta 事件不带 SSE id（不推进 Last-Event-ID）
+        # Delta events lack SSE id and do not advance Last-Event-ID.
         delta_event = next(e for e in events if e[0] == "delta")
         assert delta_event[2] is None
         assert delta_event[1]["text"] == "内容"
         assert events[-1][1]["status"] == "completed"
 
     async def test_running_stream_reconnect_cursor_no_full_replay(self, entry_service):
-        """携带 cursor 订阅只收到其后的条目，重连不整帧重算。"""
+        """Cursor subscriptions receive only later entries; reconnect does not recompute whole frames."""
         service, store = entry_service
         manager = _FakeEntrySessionManager(status="running")
         service.session_manager = manager
@@ -299,13 +299,13 @@ class TestStreamEntryEvents:
         assert [e[2] for e in entry_events] == ["2"]
 
     async def test_result_does_not_push_status_before_cli_idle(self, entry_service):
-        """result 只代表一轮结束：状态停在 running，CLI 报 idle 后的 runtime_status 才推终态，排在本轮条目之后。"""
+        """result ends only a turn and leaves running; runtime_status after CLI idle emits terminal state after that turn's entries."""
         service, store = entry_service
         manager = _FakeEntrySessionManager(status="running")
         service.session_manager = manager
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}])
 
-        # actor 回调先广播原始 result，末条 assistant 的 log_entry 随后才到
+        # Actor callback broadcasts raw result before the final assistant log_entry arrives.
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
@@ -368,7 +368,7 @@ PREFIX = f"/api/v1/projects/{PROJECT}/assistant"
 
 
 class _CursorCapturingService:
-    """记录 stream_entry_events 收到的 after_seq，验证路由层游标优先级。"""
+    """Record stream_entry_events after_seq to verify route cursor precedence."""
 
     def __init__(self):
         self.captured_after = None

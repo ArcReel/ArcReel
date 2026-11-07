@@ -1,4 +1,4 @@
-"""宫格提交的规划与落地：选目标、在途复用 / 冲突、未切分跳过、整批准入。"""
+"""Grid-submission planning/application: target selection, in-flight reuse/conflicts, unsplit skipping and whole-batch admission."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _segment(index: int, *, segment_break: bool = False) -> dict[str, Any]:
 
 
 def _script(*, groups: int = 2, per_group: int = 4) -> dict[str, Any]:
-    """``groups`` 个分组，每组 ``per_group`` 个分镜（默认 4，恰好一张 grid_4）。"""
+    """``groups`` groups of ``per_group`` storyboards each (default four, exactly one grid_4)."""
     return {
         "episode": 1,
         "content_mode": "narration",
@@ -78,7 +78,7 @@ def project_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 async def section(project_path: Path) -> AsyncIterator[GridSubmissionSection]:
-    """规划与落地同在一个临界区内。"""
+    """Planning and application share one critical section."""
     async with grid_submission_section(str(project_path)) as held:
         yield held
 
@@ -88,7 +88,7 @@ async def _no_large_grid(_project: dict[str, Any]) -> bool:
 
 
 def _write_project(project_path: Path, project: dict[str, Any], script: dict[str, Any]) -> None:
-    # 产物清单的取证只读磁盘上的规范文件
+    # Manifest evidence reads only canonical on-disk files.
     (project_path / "scripts").mkdir(exist_ok=True)
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script), encoding="utf-8")
@@ -104,7 +104,7 @@ async def _plan(
     orphaned: frozenset[str] = frozenset(),
     active_grid_tasks: ActiveGridTaskProbe | None = None,
 ):
-    """``orphaned`` 列出停在 pending / generating 却已没有活动任务的宫格；其余记录的任务都在队列里。"""
+    """``orphaned`` lists pending/generating grids without active tasks; all other records have queued tasks."""
     project = project or _project()
     script = script or _script()
     _write_project(project_path, project, script)
@@ -126,7 +126,7 @@ async def _plan(
 
 
 def _complete(project_path: Path, grid: GridGeneration, *, split: bool = False, registered: bool = True) -> None:
-    """按执行器出图成功的样子落盘：联合图写入、记录置 completed，并登记为当前产物。"""
+    """Persist like successful executor output: write combined image, mark completed and register current artifact."""
     grid.status = "completed"
     grid.grid_image_path = f"grids/{grid.id}.png"
     Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
@@ -185,7 +185,7 @@ async def test_missing_only_generates_every_group_without_storyboards(
     records = GridManager(project_path).list_all()
     assert sorted(g.id for g in records) == sorted(t.grid.id for t in tasks)
     assert [t.payload["scene_ids"] for t in tasks] == [GROUP_1, GROUP_2]
-    # 生成任务只产出联合图：payload 不再携带随任务落格的范围
+    # Generation tasks produce combined images only; payloads no longer carry automatic per-task splitting scope.
     assert all("report_scene_ids" not in t.payload for t in tasks)
     assert all(t.payload["prompt"] == g.prompt for t, g in zip(tasks, records, strict=True))
 
@@ -193,8 +193,7 @@ async def test_missing_only_generates_every_group_without_storyboards(
 async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the_untouched_chunk(
     project_path: Path, section: GridSubmissionSection
 ) -> None:
-    """16 格分组按非 4K 档切成 9 + 7：点名重画第一张时，横跨两张的旧 4×4 记录已不合当前分块，
-    第二张自己的旧记录不受影响。"""
+    """Split a 16-cell group at non-4K into 9 + 7: redrawing the first invalidates an old 4×4 spanning both new groups, without affecting the second group's own old record."""
     ids = [f"E1S{i:02d}" for i in range(1, 17)]
     spanning = _record(project_path, ids, status="completed", split=True, registered=False)
     untouched = _record(project_path, ids[9:], status="completed", split=True, registered=False)
@@ -240,7 +239,7 @@ async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(
 async def test_a_record_left_generating_without_an_active_task_does_not_block(
     project_path: Path, section: GridSubmissionSection
 ) -> None:
-    """任务被取消或重启丢失后记录停在 generating：它不再在途，分组变了也照常出图。"""
+    """Cancelled/restart-lost tasks may leave generating records, but they are no longer in flight; changed grouping can generate normally."""
     orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating")
 
     plan = await _plan(project_path, section, orphaned=frozenset({orphan.id}))
@@ -252,11 +251,11 @@ async def test_a_record_left_generating_without_an_active_task_does_not_block(
 async def test_a_grid_finishing_while_its_task_is_probed_is_kept_not_paid_for_again(
     project_path: Path, section: GridSubmissionSection
 ) -> None:
-    """记录读出时还在生成，探测队列时任务已跑完：联合图刚出好，等待切分，不当孤儿删掉重画。"""
+    """A record is generating when read but its task finishes before queue inspection: retain its newly ready combined image for splitting rather than deleting/redrawing as orphaned."""
     generating = _record(project_path, GROUP_1, status="generating")
 
     async def worker_finishes_first(_grid_ids: list[str]) -> list[str]:
-        # worker 在另一个线程里落盘出图
+        # Worker writes generated images in another thread.
         await asyncio.to_thread(_complete, project_path, generating)
         return []
 
@@ -339,7 +338,7 @@ async def test_missing_only_waits_on_an_unsplit_composite_instead_of_paying_agai
 async def test_missing_only_regenerates_a_composite_the_split_would_refuse(
     project_path: Path, section: GridSubmissionSection
 ) -> None:
-    """盘上有图但产物清单没有登记：切分不认这张联合图，缺失即生成照常重新出图。"""
+    """On-disk but unregistered combined images cannot be split; missing-only mode regenerates normally."""
     _record(project_path, GROUP_1, status="completed", registered=False)
 
     plan = await _plan(project_path, section, script=_script(groups=1))
@@ -365,7 +364,7 @@ async def test_explicit_request_regenerates_and_supersedes_an_unsplit_composite(
 async def test_a_split_composite_does_not_stop_missing_storyboards_from_regenerating(
     project_path: Path, section: GridSubmissionSection
 ) -> None:
-    """已切分过的联合图不是「未切分」：分镜图仍缺时照常重新出图。"""
+    """Previously split combined images are not unsplit; regenerate normally if storyboard images remain missing."""
     _record(project_path, GROUP_1, status="completed", split=True)
 
     plan = await _plan(project_path, section, script=_script(groups=1))
@@ -388,7 +387,7 @@ async def test_a_script_of_the_other_route_is_refused(project_path: Path, sectio
 async def test_a_plan_cannot_be_committed_once_its_section_has_ended(
     project_path: Path, section: GridSubmissionSection
 ) -> None:
-    """临界区结束后，另一提交可能已改动记录与队列，规划里的在途与弃置判断不再可信。"""
+    """After the critical section ends, other submissions may change records/queue; planned in-flight and abandonment decisions are no longer reliable."""
     plan = await _plan(project_path, section)
     section.end()
 
@@ -420,7 +419,7 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
     await asyncio.sleep(0)
     assert entered == ["first"]
 
-    # 另一个项目不受这个临界区影响
+    # This critical section does not affect another project.
     async with grid_submission_section(str(tmp_path / "other")):
         pass
 

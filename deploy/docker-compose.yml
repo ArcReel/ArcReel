@@ -1,17 +1,17 @@
 services:
   arcreel:
     image: arcreel/arcreel:latest
-    # build: ../  # 本地构建时取消注释，注释掉 image 行
+    # build: ../  # For local builds uncomment this and comment out image
     ports:
       - "1241:1241"
-    # 端口发布到宿主机所有网卡：远程部署不得在 .env 中设置 AUTH_ENABLED=false。
+    # Published on all host interfaces: remote deployments must not set AUTH_ENABLED=false in .env.
     env_file: .env
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-    # Agent Bash 沙箱 (bwrap) 需要：
-    # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
-    # 2) bwrap 嵌套出的 net namespace 内配置 loopback → 容器需要 NET_ADMIN cap
-    #    （否则报 "loopback: Failed RTM_NEWADDR: Operation not permitted"）
+    # Agent Bash sandbox (bwrap) requires:
+    # 1) Unprivileged user namespaces: relax Docker default seccomp/apparmor profiles.
+    # 2) Loopback setup in bwrap’s nested network namespace: NET_ADMIN capability
+    #    (otherwise "loopback: Failed RTM_NEWADDR: Operation not permitted")
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined

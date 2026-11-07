@@ -1,7 +1,7 @@
-/** 参考费用：货币 → 金额映射。 */
+/** Reference cost: currency → amount mapping. */
 export type CostBreakdown = Record<string, number>;
 
-/** 按类型拆分的费用 */
+/** Costs broken down by type */
 export interface CostByType {
   image?: CostBreakdown;
   video?: CostBreakdown;
@@ -13,7 +13,7 @@ export interface CostByType {
   unassigned?: CostBreakdown;
 }
 
-/** 单个 segment 的费用 */
+/** Costs for a single segment */
 export interface SegmentCost {
   segment_id: string;
   duration_seconds: number;
@@ -21,7 +21,7 @@ export interface SegmentCost {
   actual: { image: CostBreakdown; video: CostBreakdown; audio?: CostBreakdown };
 }
 
-/** 单集费用 */
+/** Costs for one episode */
 export interface EpisodeCost {
   episode: number;
   title: string;
@@ -29,13 +29,13 @@ export interface EpisodeCost {
   totals: { estimate: CostByType; actual: CostByType };
 }
 
-/** 模型信息 */
+/** Model information */
 export interface ModelInfo {
   provider: string;
   model: string;
 }
 
-/** 没有价格、未计入费用的预估项或调用，按模型汇总。`provider` 是供应商 id（自定义供应商为 `custom-<id>`）。 */
+/** Unpriced estimate items or calls excluded from costs, grouped by model. `provider` is the provider ID (`custom-<id>` for custom providers). */
 export interface UnpricedModel {
   call_type: "image" | "video" | "audio";
   provider: string;
@@ -44,14 +44,14 @@ export interface UnpricedModel {
   count: number;
 }
 
-/** 费用估算 API 响应 */
+/** Cost estimation API response */
 export interface CostEstimateResponse {
   project_name: string;
   models: { image: ModelInfo; video: ModelInfo; audio?: ModelInfo };
   episodes: EpisodeCost[];
   project_totals: { estimate: CostByType; actual: CostByType };
-  /** 两侧没有价格、未计入合计的部分；为空时合计是完整的。 */
+  /** Unpriced parts on both sides excluded from totals; when empty, the totals are complete. */
   unpriced: { estimate: UnpricedModel[]; actual: UnpricedModel[] };
-  /** 项目已有生成出的内容，本机却没有它成功的媒体调用记录（如导入的项目）：已花无法统计。 */
+  /** The project has generated content without successful local media call records (for example, an imported project), so spending cannot be calculated. */
   missing_local_calls: boolean;
 }

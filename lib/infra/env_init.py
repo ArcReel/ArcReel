@@ -1,11 +1,8 @@
-"""
-环境初始化模块
+"""Initialize the environment and load .env.
 
-加载 .env 文件。
-
-provider 密钥的真相源是 DB。如果 .env 残留 provider key 写入 os.environ，
-父进程 fork 出的 Bash 沙箱子进程会继承到，违反安全红线 — 由
-`server.app.assert_no_provider_secrets_in_environ()` 在 lifespan 启动期 fail-fast。
+The database owns provider secrets. Stale .env provider keys in os.environ would
+be inherited by forked Bash sandbox subprocesses, violating the security boundary.
+``server.app.assert_no_provider_secrets_in_environ()`` fails fast during lifespan startup.
 """
 
 import logging
@@ -16,7 +13,7 @@ from pathlib import Path
 try:
     from dotenv import find_dotenv
     from dotenv.main import DotEnv
-except ImportError:  # pragma: no cover - python-dotenv 是运行依赖，缺失时不加载 .env
+except ImportError:  # pragma: no cover - python-dotenv is a runtime dependency; skip .env loading when absent
     DotEnv = None
     find_dotenv = None
 
@@ -25,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _EnvFileLoad:
-    """最近一次读取 .env 的结果，供启动后补记告警（读取发生在 import 期，日志尚未配置）。"""
+    """Result of the last .env read, retained for startup warnings because imports happen before logging is configured."""
 
     path: Path | None
     diverged_keys: tuple[str, ...]
@@ -35,15 +32,18 @@ _last_load = _EnvFileLoad(path=None, diverged_keys=())
 
 
 def load_env_file(env_path: Path) -> tuple[str, ...]:
-    """把 ``env_path`` 中的变量载入进程环境，返回与进程环境取值不一致的键名。
+    """Load ``env_path`` into the process environment and return keys whose file values differ.
 
-    覆盖规则：
-    - 进程环境里不存在的键，取 .env 中的值（含空值）；
-    - 进程环境里为空串的键视为未设置，.env 中的非空值生效。Docker Compose 的 ``env_file``
-      会把模板里的 ``AUTH_PASSWORD=`` 注入为空串，不这样处理时 .env 里后来写入的值永远进不来；
-    - 进程环境里显式设置的非空值优先，不被 .env 覆盖。与文件值不同的键名记入返回值。
+    Precedence:
+    - Missing process keys take file values, including empty values.
+    - Empty process strings count as unset, allowing nonempty file values. Docker
+      Compose ``env_file`` injects template ``AUTH_PASSWORD=`` as an empty string; otherwise
+      a value later added to .env would never take effect.
+    - Explicit nonempty process values take precedence; record keys differing from
+      their file values in the return value.
 
-    文件读不了（沙箱拒读、不存在）或 PYTHON_DOTENV_DISABLED 开启时，返回空元组。
+    Return an empty tuple if the file cannot be read (sandbox denial or absence),
+    or when PYTHON_DOTENV_DISABLED is enabled.
     """
     global _last_load
     if DotEnv is None:
@@ -51,7 +51,7 @@ def load_env_file(env_path: Path) -> tuple[str, ...]:
     if os.environ.get("PYTHON_DOTENV_DISABLED", "").casefold() in {"1", "true", "t", "yes", "y"}:
         return ()
     try:
-        # 插值沿用 load_dotenv 的进程环境优先级，避免文件中的引用改变显式配置。
+        # Keep load_dotenv process-environment precedence so file interpolation cannot change explicit configuration.
         file_values = DotEnv(env_path, encoding="utf-8", override=False).dict()
     except OSError:
         return ()
@@ -69,13 +69,13 @@ def load_env_file(env_path: Path) -> tuple[str, ...]:
 
 
 def reset_env_file_load_for_tests() -> None:
-    """清掉最近一次读取 .env 的记录。"""
+    """Clear the last .env read record."""
     global _last_load
     _last_load = _EnvFileLoad(path=None, diverged_keys=())
 
 
 def warn_if_env_diverges_from_file() -> None:
-    """进程环境与 .env 取值不一致时记一条警告；只列键名，不输出取值。"""
+    """Warn about differing process/.env values, listing keys only and never values."""
     if not _last_load.diverged_keys:
         return
     logger.warning(
@@ -88,13 +88,12 @@ def warn_if_env_diverges_from_file() -> None:
 
 
 def init_environment():
-    """初始化项目环境：定位项目根 + load .env。
+    """Locate the project root and load ``.env``.
 
-    在 Agent Bash 沙箱子进程里，``.env`` 会被沙箱拒读（macOS sandbox-exec /
-    Linux bwrap deny list），``env_path.exists()`` 会抛 PermissionError。
-    沙箱子进程不需要 .env —— provider/Anthropic env 已由 SessionManager
-    通过 ``options.env`` 显式注入。这里吞掉 OSError 让 ``import lib`` 链
-    不被沙箱拦截。
+    The Agent Bash sandbox denies .env reads (macOS sandbox-exec / Linux bwrap deny
+    list); ``env_path.exists()`` can raise PermissionError. These subprocesses do not
+    need .env because SessionManager explicitly injects provider/Anthropic values
+    through ``options.env``. Swallow OSError so sandbox restrictions do not break ``import lib``.
     """
     lib_dir = Path(__file__).parent.parent
     project_root = lib_dir.parent
@@ -103,12 +102,12 @@ def init_environment():
         return project_root
 
     env_path = project_root / ".env"
-    # 沙箱里 stat 与 open 是两次独立 syscall：exists() 可能放行而
-    # 读取仍被 denyRead 拦截。整段统一用 OSError 兜底，
-    # 任何文件访问失败都视为 ".env 不可用"，降级继续 import。
+    # In the sandbox, stat and open are separate syscalls: exists() may succeed while
+    # denyRead still blocks reading. Catch OSError around the whole sequence;
+    # any file-access failure means .env is unavailable; continue importing without it.
     try:
         if not env_path.exists():
-            # 项目根没有 .env 时沿用 python-dotenv 默认的向上回溯查找
+            # Without a root .env, retain python-dotenv's default upward search.
             found = find_dotenv()
             env_path = Path(found) if found else None
         if env_path is not None:

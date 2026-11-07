@@ -1,15 +1,16 @@
-"""节点绑定推断的规则表：随包数据文件的读入与形状化。
+"""Binding-inference rule tables: load/shape bundled data.
 
-推断要认的东西——input 名别名、原生节点白名单、步长、可选入口、合并节点、外部约定节点族、
-产物候选顺序、音轨判定——全是 ComfyUI 生态的节点知识，不是 ArcReel 的逻辑。它们随节点包的
-迭代长期漂移，因此放在 ``inference_rules.<media_type>.json`` 里，改一行 JSON 不动一行 Python。
+Input aliases/native-node allowlists/steps/optional inputs/merge nodes/external conventions/output priorities/audio
+are ComfyUI ecosystem knowledge, not ArcReel logic. They drift with node packages,
+so live in ``inference_rules.<media_type>.json``, changing JSON without Python edits.
 
-两种媒体类型各一份：图像端点没有首尾帧与时间轴，产物候选顺序也不同，合成一份就得在每条规则上
-再挂一个「这条只对视频有效」的开关。节点类型的事实那几节（常量节点、可选入口、合并节点、外部
-节点族、种子闸门）与端点产图还是产视频无关，两份里逐字相同，由测试守住不漂移。
+Separate media tables: images lack first/last frames/timelines and differ in output priorities; combined rules
+would require video-only flags everywhere. Node-type facts (constants/optional inputs/merge nodes/external
+families/seed gates) do not depend on image/video outputs and remain byte-identical across tables,
+protected by tests.
 
-文件在读入时即过 ``inference_rules.schema.json``，再核一遍它提到的语义键都在该媒体类型的名录
-里：它是随包发布的数据，写坏了该在启动时炸，而不是变成某个语义键悄悄推断不出来。
+Validate at load against ``inference_rules.schema.json`` and media-specific semantic-key vocabularies:
+bundled invalid data must fail startup, never silently disable inference for particular keys.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from arcreel_market_core.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
 
 RULES_SCHEMA_PATH = Path(__file__).parent / "inference_rules.schema.json"
 
-#: 媒体类型 → 该媒体类型的规则文件。
+#: Media → rule files.
 RULES_PATHS: Mapping[str, Path] = {
     "image": Path(__file__).parent / "inference_rules.image.json",
     "video": Path(__file__).parent / "inference_rules.video.json",
@@ -36,19 +37,19 @@ RULES_PATHS: Mapping[str, Path] = {
 
 @dataclass(frozen=True)
 class SemanticKeyRules:
-    """认出一个语义键的字段级线索。"""
+    """Field-level clues identifying semantic keys."""
 
-    #: 该语义键的 input 名别名。
+    #: Semantic-key input aliases.
     input_names: tuple[str, ...]
-    #: 承载该语义键的原生节点白名单。
+    #: Native carrier-node allowlists.
     class_types: frozenset[str]
-    #: 条件规则：某个 input 名只在这些节点上算本键。
+    #: Conditional rules: input names count for this key only on these nodes.
     input_name_class_types: Mapping[str, frozenset[str]]
-    #: 标题里的次级线索，大小写不敏感子串匹配。
+    #: Secondary title clues, case-insensitive substring matching.
     title_keywords: tuple[str, ...]
 
     def accepts(self, input_name: str, class_type: str) -> bool:
-        """这个 ``(input 名, 承载节点)`` 组合算不算本键的线索。"""
+        """Whether ``(input 名, 承载节点)`` combinations provide clues for this key."""
         if input_name not in self.input_names:
             return False
         limited = self.input_name_class_types.get(input_name)
@@ -61,7 +62,7 @@ class SemanticKeyRules:
 
 @dataclass(frozen=True)
 class NodeInput:
-    """一个节点上的一个入口。"""
+    """One node input."""
 
     class_type: str
     input: str
@@ -69,10 +70,10 @@ class NodeInput:
 
 @dataclass(frozen=True)
 class InputName:
-    """规则条目里的入口名：精确名，或 ComfyUI autogrow 口那样按前缀认的一族槽位。"""
+    """Exact rule input names, or prefix families such as ComfyUI autogrow slots."""
 
     text: str
-    #: ``True`` 时 ``text`` 是前缀，``ref_images.ref_image_`` 认得出 ``ref_images.ref_image_0`` 起的每一格。
+    #: When ``True``, ``text`` is a prefix; ``ref_images.ref_image_`` recognizes every slot from ``ref_images.ref_image_0`` onward.
     prefix: bool = False
 
     def matches(self, input_name: str) -> bool:
@@ -81,7 +82,7 @@ class InputName:
 
 @dataclass(frozen=True)
 class OptionalInput:
-    """一个节点上的可选入口：上游的读图节点删掉后摘键即可，节点本身照跑。"""
+    """Optional inputs: remove keys after upstream image-loader deletion, retaining executable nodes."""
 
     class_type: str
     input: InputName
@@ -89,10 +90,10 @@ class OptionalInput:
 
 @dataclass(frozen=True)
 class ConsumerPort:
-    """读图节点的输出接到这个入口时，它承载的就是对应的语义键。"""
+    """Image-loader outputs entering this port carry its corresponding semantic key."""
 
     input: InputName
-    #: 限定这个入口名只在这些节点上算数；空集即不限定。
+    #: Restrict input names to nodes, unrestricted for empty sets.
     class_types: frozenset[str]
 
     def matches(self, input_name: str, class_type: str) -> bool:
@@ -103,16 +104,16 @@ class ConsumerPort:
 
 @dataclass(frozen=True)
 class OutputCandidate:
-    """产物节点候选。"""
+    """Artifact-node candidates."""
 
     class_type: str
-    #: 该入口取 false 时此节点只预览不落盘。
+    #: False input values make nodes preview-only without persistence.
     requires_true: str | None
 
 
 @dataclass(frozen=True)
 class StepRules:
-    """某个语义键的步长预填。"""
+    """Step prefills per semantic key."""
 
     default: int
     by_class_type: Mapping[str, int]
@@ -123,7 +124,7 @@ class StepRules:
 
 @dataclass(frozen=True)
 class MergeNode:
-    """两两合并节点：少一张图时对该级做 bypass。"""
+    """Pairwise merge nodes: bypass this stage when images are missing."""
 
     class_type: str
     inputs: tuple[str, ...]
@@ -131,19 +132,19 @@ class MergeNode:
 
 @dataclass(frozen=True)
 class ExternalFamily:
-    """外部参数化约定的节点族。只按前缀识别，不做完整兼容。"""
+    """External parameterized node conventions, prefix recognition only, without full compatibility."""
 
     name: str
     prefix: str
-    #: 参数名写在哪个 input 上；写在标题上时为 ``None``。
+    #: Inputs carrying parameter names; ``None`` for names in titles.
     parameter_input: str | None
-    #: 参数名是否取自 ``_meta.title``。
+    #: Whether parameter names come from ``_meta.title``.
     parameter_from_title: bool
-    #: 承载参数名本身、不作为可绑落点的字段。
+    #: Fields carrying parameter names themselves, never bindable targets.
     ignored_inputs: frozenset[str]
 
     def parameter_of(self, inputs: Mapping[str, Any], title: str) -> str | None:
-        """读出这个节点声明的参数名。"""
+        """Read node-declared parameter names."""
         if self.parameter_from_title:
             return title.strip() or None
         raw = inputs.get(self.parameter_input) if self.parameter_input else None
@@ -152,18 +153,18 @@ class ExternalFamily:
 
 @dataclass(frozen=True)
 class AudioTrackSource:
-    """音轨判定：这个入口有连线即成片带音轨。"""
+    """Audio detection: connected inputs mean audible outputs."""
 
     class_type: str
     audio_input: str
-    #: 音频入口不在产物节点自身上时，先沿这个入口走到上游的成片节点。
+    #: If audio inputs live outside output nodes, follow this input upstream to completed-video nodes.
     through_input: str | None
     through_class_types: frozenset[str]
 
 
 @dataclass(frozen=True)
 class SeedGate:
-    """种子闸门：闸门字段不取 ``enabled_value`` 的采样器不真正吃种子。"""
+    """Seed gates: samplers ignore seeds unless gate fields equal ``enabled_value``."""
 
     class_type: str
     input: str
@@ -172,17 +173,17 @@ class SeedGate:
 
 @dataclass(frozen=True)
 class ManualOnlyNode:
-    """已知推断不出、只能手动绑的节点形态。"""
+    """Known uninferable shapes requiring manual bindings."""
 
     class_type: str
     binding_keys: tuple[str, ...]
-    #: 这个节点上收图、但收的不是参考图的入口。
+    #: Inputs accepting images other than references.
     blocked_inputs: frozenset[str]
 
 
 @dataclass(frozen=True)
 class InferenceRules:
-    """一种媒体类型的全部推断规则。"""
+    """All rules for one media type."""
 
     media_type: str
     semantic_keys: Mapping[str, SemanticKeyRules]
@@ -205,14 +206,14 @@ class InferenceRules:
     manual_only_class_types: tuple[ManualOnlyNode, ...]
 
     def port_of(self, binding_key: str) -> str | None:
-        """语义键对应的采样器条件端口名。"""
+        """Sampler conditioning-port names for semantic keys."""
         for port, key in self.sampler_ports.items():
             if key == binding_key:
                 return port
         return None
 
     def tier_of(self, binding_key: str, class_type: str) -> int:
-        """承载节点在该语义键的优先级分档里的位置：靠前的档位得分更高，档外为 0。"""
+        """Carrier-node priority tiers for semantic keys; earlier scores higher, outside tiers zero."""
         tiers = self.class_type_tiers.get(binding_key, ())
         for index, tier in enumerate(tiers):
             if class_type in tier:
@@ -230,7 +231,7 @@ class InferenceRules:
         return None
 
     def loader_input(self, class_type: str) -> str | None:
-        """这个节点是读图节点吗；是则回它承载文件名的入口。"""
+        """Whether nodes load images; if so, return filename inputs."""
         for loader in self.image_loaders:
             if loader.class_type == class_type:
                 return loader.input
@@ -246,10 +247,10 @@ class InferenceRules:
         return None
 
     def adjustable_input(self, class_type: str, input_name: str) -> bool:
-        """图里少一张图时，这个入口改得动吗：可选入口摘键、两两合并节点 bypass，其余都不认识。
+        """Whether missing-image graphs can adjust inputs: optional keys remove, pairwise merges bypass, others unknown.
 
-        推断与实发构造读的是同一条判据：推断据此提示「这个格子在张数变少时改不动图」，构造据此
-        决定改图还是重复填充最后一张。两侧分开实现过一次，提示与实际处置就会各说各话。
+        Inference/execution share predicates: inference warns slots cannot adjust when counts shrink; construction decides graph edits
+        versus repeating last images. Separate implementations would diverge warnings/actual handling.
         """
         if self.is_optional_input(class_type, input_name):
             return True
@@ -263,13 +264,13 @@ class InferenceRules:
         return None
 
     def blocks_image(self, class_type: str, input_name: str) -> bool:
-        """这个入口收的图不是参考图：控制视频、掩码一类，流向它的读图节点不进图像类候选。"""
+        """Inputs accepting nonreference images such as control video/masks; their upstream loaders cannot be image candidates."""
         return any(
             node.class_type == class_type and input_name in node.blocked_inputs for node in self.manual_only_class_types
         )
 
     def output_rank(self, class_type: str) -> int:
-        """产物候选的优先级：靠前的候选分更高，不在候选表里为 0。"""
+        """Artifact candidate priorities: earlier scores higher, unlisted zero."""
         for index, candidate in enumerate(self.output_candidates):
             if candidate.class_type == class_type:
                 return len(self.output_candidates) - index
@@ -284,13 +285,13 @@ class InferenceRules:
 
 @cache
 def load_rules_schema() -> dict[str, Any]:
-    """读入并缓存规则表的 schema。对外公开，供测试与文档站取同一份契约。"""
+    """Load/cache public rule schemas, shared by tests/documentation sites."""
     return json.loads(RULES_SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 @cache
 def load_inference_rules(media_type: str) -> InferenceRules:
-    """读入某种媒体类型的规则表。未登记的媒体类型是调用方的错，直接 ``KeyError``。"""
+    """Load media rule tables; unregistered media are caller errors raising ``KeyError``."""
     document = json.loads(RULES_PATHS[media_type].read_text(encoding="utf-8"))
     _validator().validate(document)
     unknown = sorted(semantic_key_names(document) - set(BINDING_KEYS_BY_MEDIA_TYPE[media_type]))
@@ -300,11 +301,10 @@ def load_inference_rules(media_type: str) -> InferenceRules:
 
 
 def semantic_key_names(document: Mapping[str, Any]) -> frozenset[str]:
-    """一份规则表里提到的全部语义键名，无论写在键位上还是值位上。
+    """All semantic keys mentioned by tables, in key or value positions.
 
-    schema 管不到这一层：两种媒体类型共用一份 schema，可用的键集却各有一份。写错一个键名——
-    ``reference_images`` 写成 ``reference_image``、或者把 ``frames`` 写进图像表——schema 照样过，
-    结果是那一节规则谁都读不到，那个语义键悄悄推断不出来。
+    Shared schemas cannot enforce media-specific vocabularies: misspelled ``reference_images`` as ``reference_image``,
+    or ``frames`` in image tables, still validates structurally but leaves rules unread and semantic inference silently absent.
     """
     keyed = {
         key
@@ -421,14 +421,14 @@ def _node_inputs(raw: object) -> tuple[NodeInput, ...]:
 
 
 def _input_name(item: Mapping[str, Any]) -> InputName:
-    """``input`` 与 ``input_prefix`` 恰好写一个，由 schema 在读入时保证。"""
+    """Exactly one ``input`` / ``input_prefix``, guaranteed by load-time schemas."""
     if "input_prefix" in item:
         return InputName(str(item["input_prefix"]), prefix=True)
     return InputName(str(item["input"]))
 
 
 def _items(raw: object) -> Iterable[Any]:
-    """只认外层是不是数组；元素的形状由 schema 在读入时保证。"""
+    """Check outer arrays only; schemas guarantee element shapes at load."""
     return raw if isinstance(raw, list) else ()
 
 

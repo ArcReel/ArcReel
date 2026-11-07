@@ -1,4 +1,4 @@
-"""市场源地址解析：四种合法形态落到索引地址与规范键，其余形态拒绝。"""
+"""Market-source address parsing: four valid forms resolve to index URLs and canonical keys; reject others."""
 
 from __future__ import annotations
 
@@ -122,11 +122,11 @@ def test_rejected_address_forms(address: str, code: SourceAddressErrorCode) -> N
 @pytest.mark.parametrize(
     "address",
     [
-        # 直链本身在上限内，加上 ``url:`` 前缀的规范键超出
+        # Direct URL fits the limit, but canonical key with ``url:`` prefix exceeds it
         "https://mirror.example.com/"
         + "a" * (2048 - len("https://mirror.example.com/") - len("/arcreel-market.json"))
         + "/arcreel-market.json",
-        # 简写在上限内，展开成 raw 索引地址后超出
+        # Shorthand fits the limit but its expanded raw index URL exceeds it
         "someone/market@" + "/".join(["r" * 99] * 20),
     ],
     ids=["direct-url-canonical-key", "shorthand-index-url"],

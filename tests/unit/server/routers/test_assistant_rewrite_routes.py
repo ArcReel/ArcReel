@@ -1,4 +1,4 @@
-"""消息改写端点的 HTTP 契约：响应形态与各拒绝理由的可辨识性。"""
+"""Message-rewrite endpoint HTTP contract: response shape and distinguishable rejection reasons."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -48,7 +48,7 @@ def _build_client() -> TestClient:
 
 
 def _post(rewrite_result, body: dict | None = None):
-    """以替身服务发一次改写请求；``rewrite_result`` 为返回值或抛出的异常。"""
+    """Send rewrite requests through fake services; ``rewrite_result`` is returned or raised."""
     payload = {"anchor_entry_uuid": "user-abc", "content": "改写后的指令", "client_key": "ck-1"}
     payload.update(body or {})
     fake = AsyncMock()
@@ -74,7 +74,7 @@ class TestRewriteContract:
 
         assert response.status_code == 200
         payload = response.json()
-        # 与发送端点同构：status + session_id + 权威 entry；session_id 是新分支。
+        # Same shape as send endpoints: status + session_id + authoritative entry; session_id identifies new branches.
         assert payload["status"] == "accepted"
         assert payload["session_id"] == "branch-session"
         assert payload["origin_session_id"] == ORIGIN
@@ -105,7 +105,7 @@ class TestRewriteContract:
 
 
 class TestRewriteRejections:
-    """每种拒绝理由都要能从响应里分辨出来——前端据此决定下一步提示。"""
+    """Responses must distinguish every rejection reason, guiding frontend next-step notices."""
 
     @pytest.mark.parametrize(
         ("exc", "status", "key"),

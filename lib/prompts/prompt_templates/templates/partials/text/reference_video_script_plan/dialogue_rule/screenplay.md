@@ -1,4 +1,4 @@
-- 作者写下的台词写成台词记号（`@[角色]{台词}`），画外音 / 旁白写成画外音记号（`{台词}`），**逐字照搬**：
-  不改写、不润色、不删减、不补写。泛指群演（老人甲 / 村民若干）不是登记角色，他们的台词写成画外音记号，
-  说话人写进画面描述。台词是内容契约的一部分，prompt_authoring 不会再改动它。
-- 运镜、景别、舞台提示里可见的动作转写为画面描述；排版符号（markdown、△、各类标签、表格、emoji）一律剥离。
+- Write the author’s dialogue as dialogue tokens (`@[角色]{台词}`), and off-screen speech / narration as off-screen speech tokens (`{dialogue}`), **copying verbatim**:
+  do not rewrite, polish, remove, or add content. Generic extras (old man A / several villagers) are not registered characters; write their dialogue as off-screen speech tokens,
+  and identify the speaker in the visual description. Dialogue is part of the content contract and will not be changed by prompt_authoring.
+- Convert visible action in camera directions, shot sizes, and stage directions into visual descriptions; strip formatting symbols (Markdown, △, all kinds of tags, tables, emoji).

@@ -1,4 +1,4 @@
-"""归档导入针对 ad + 参考生视频自包含 video_units 的修复测试。"""
+"""Archive-import repairs for self-contained ad + reference-to-video video_units."""
 
 import json
 import shutil

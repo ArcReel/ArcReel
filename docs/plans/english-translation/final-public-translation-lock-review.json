@@ -1,0 +1,55 @@
+{
+  "commands": [
+    {
+      "command": "pnpm --dir website sync-contributing",
+      "exit_code": 0
+    },
+    {
+      "command": "node .claude/skills/translate-docs/scripts/translation-lock.mjs record CONTRIBUTING.md website/docs/guide/providers.md",
+      "exit_code": 0,
+      "stdout": "Recorded 2 source hashes."
+    },
+    {
+      "command": "node .claude/skills/translate-docs/scripts/translation-lock.mjs status --json",
+      "exit_code": 0,
+      "stdout": "[]"
+    }
+  ],
+  "selected_sources": [
+    "CONTRIBUTING.md",
+    "website/docs/guide/providers.md"
+  ],
+  "actual_changed_lock_entries": [],
+  "all_unselected_entries_identical": true,
+  "all_source_keys_identical": true,
+  "before_lock_sha256": "a2d80ef2df3308ba1dbe6f7c8598f69a9d968d586ba5687195ac39465144a875",
+  "after_lock_sha256": "a2d80ef2df3308ba1dbe6f7c8598f69a9d968d586ba5687195ac39465144a875",
+  "files": [
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "d4e76d0aee6c697b8bfa794590d8aea27086120f79792371a20430cfabc636e6"
+    },
+    {
+      "path": "website/docs/guide/providers.md",
+      "sha256": "3faf3ef80b68d80f4b4ab04af695a26b6a232b4497765c3e6f710286e0895557"
+    },
+    {
+      "path": "website/docs/dev/contributing.md",
+      "sha256": "c6fd581d0f9426e5eec8ed9baca283bd42cd2720eaf1d688aac8ae934ac5aedc"
+    },
+    {
+      "path": "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md",
+      "sha256": "b51fb6105b583f27e58fc083df3b12d8fdd83429896d44ad94530f8ff9ea357c"
+    },
+    {
+      "path": "website/i18n/en/docusaurus-plugin-content-docs/current/guide/providers.md",
+      "sha256": "c89558e289b31c8ff0f1a9df51c688064c52ebf8a8a9ac7438b91caf80432d15"
+    }
+  ],
+  "semantic_completion_evidence": [
+    "providers-english-completion-review.json",
+    "final-public-english-independent-review.json"
+  ],
+  "source_policy": "Existing Chinese→English flow retained. ProviderChinese source untouched; coordinator separately approved/reviewed one contributing-policy clarification. No arbitrary target-locale or reverse-flow change.",
+  "limits": "A current source fingerprint alone is insufficient proof of translation fidelity; full9block bilingual provider review and coordinator independent review precede this record. Final website checks/build remain coordinator-owned."
+}

@@ -35,7 +35,7 @@ import {
 } from "@/utils/project-changes";
 
 
-/** 可作视频单元参考图的资产实体：它们的增删改会改变单元的可用参考图与所落的桶。 */
+/** Asset entities usable as video-unit references: additions/changes/removals alter available references and bucket selection. */
 const REFERENCE_ASSET_ENTITY_TYPES: ReadonlySet<ProjectChange["entity_type"]> = new Set([
   "character",
   "scene",
@@ -45,7 +45,7 @@ const REFERENCE_ASSET_ENTITY_TYPES: ReadonlySet<ProjectChange["entity_type"]> = 
 
 const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
-  // drama/ad/参考生视频骨架条目的 updated 与 narration 分镜同优先级，四种骨架通知排序一致。
+  // drama/ad/reference-video skeleton-entry updates share narration-storyboard priority, aligning all four skeleton notification orders.
   "drama_scene:updated": 0,
   "shot:updated": 0,
   "reference_unit:updated": 0,
@@ -69,17 +69,17 @@ const CHANGE_PRIORITY: Record<string, number> = {
   voice_sample_ready: 12,
 };
 
-/** 任务终态变更（刷新信号，非项目实体变更）。 */
+/** Task terminal-state changes (refresh signals, never project entity changes). */
 function isTaskChange(change: ProjectChange): boolean {
   return change.entity_type === "task";
 }
 
-/** 记账结算变更（刷新信号，非项目实体变更）。 */
+/** Accounting settlement changes (refresh signals, never project entity changes). */
 function isUsageRecordChange(change: ProjectChange): boolean {
   return change.entity_type === "usage_record";
 }
 
-/** 项目回收站变化（刷新信号，非项目实体变更）。 */
+/** Project-trash changes (refresh signals, never project entity changes). */
 function isTrashChange(change: ProjectChange): boolean {
   return change.entity_type === "trash";
 }
@@ -98,7 +98,7 @@ function isNavigableChange(change: ProjectChange): boolean {
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
 }
 
-/** 定位窗格 → 工作区路由，按窗格联合类型穷尽；返回 null 表示该事件缺少路由所需信息、不可导航。 */
+/** Exhaustive pane-union → workspace routes; null means missing routing information, not navigable. */
 const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => string | null> = {
   characters: () => `/${WORKSPACE_ROUTE_CHARACTERS}`,
   scenes: () => `/${WORKSPACE_ROUTE_SCENES}`,
@@ -108,7 +108,7 @@ const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => stri
     typeof focus.episode === "number" ? `/${WORKSPACE_ROUTE_EPISODES}/${focus.episode}` : null,
 };
 
-/** 草稿视图订阅的实体 ID 后缀：`draft:episode_N_<kind>`。 */
+/** Draft-view entity-ID suffixes: `draft:episode_N_<kind>`. */
 const DRAFT_DOC_KINDS = ["script_plan", "prompt_authoring"] as const;
 
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
@@ -153,8 +153,8 @@ function getPrimaryGroupTarget(
 }
 
 /**
- * 用户正在编辑时，Agent 改动带来的自动定位与跳转一律不执行：焦点在输入控件里、旧式卡片标了编辑中，
- * 或有编辑单元带着未保存修改（分镜详情、视频单元正文等不靠焦点判断，切走会触发离开拦截）。
+ * Never automatically focus/navigate Agent edits while users edit: focused inputs, legacy editing cards,
+ * or unsaved edit units such as storyboard/unit bodies, whose departure guards cannot rely on focus alone.
  */
 function isWorkspaceEditing(hasUnsavedChanges: () => boolean): boolean {
   if (hasUnsavedChanges()) return true;
@@ -173,8 +173,8 @@ function isWorkspaceEditing(hasUnsavedChanges: () => boolean): boolean {
 
 export function useProjectEventsSSE(projectName?: string | null): void {
   const { t } = useTranslation("dashboard");
-  // 把 t 通过 ref 暴露给 callback，避免 i18n 切语言时 refreshProject
-  // 重建 → 事件流 effect 跟着重连 → 通知/focus 提示丢失。
+  // Expose latest t via refs to avoid language changes rebuilding refreshProject,
+  // reconnecting stream effects and losing notifications/focus notices.
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -229,19 +229,19 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
   const refreshProject = useCallback(async (): Promise<RefreshProjectResult> => {
     if (!projectName) return "cancelled";
-    // 在途合并逻辑（单飞 + 排队再跑一轮 + 失败留旧）已下沉到 projects-store.refreshProject；
-    // 此处只保留 SSE 专属包装：失败时告警、刷新落定后消费排队的聚焦目标。
+    // Merge coordination (single flight/queued follow-up/retain on failure) lives in projects-store.refreshProject;
+    // retain SSE-only wrappers: failure notices and settled-refresh queued focus consumption.
     //
-    // refreshProject 现在按轮次各自 resolve（见 projects-store），因此本次调用落定时，
-    // 可能已有更晚一批 onChanges 把 queuedFocusRef 改写为它自己的目标——那个新目标
-    // 对应的数据要等它自己那一轮 getProject 完成才会写入 store。无条件消费 ref 会拿着
-    // 尚未落库的目标提前导航/滚动，且消费后 ref 被清空，那一批之后也不会再重试；这个
-    // 风险不局限于「本次调用自己设置了新目标」的场景——不设置新目标的调用（onSnapshot、
-    // webui 来源、draftHandled 分支）同样可能在等待落定期间被别的调用改写 ref。
+    // refreshProject resolves per round (projects-store); by settlement,
+    // newer onChanges may have replaced queuedFocusRef with their own targets, whose data
+    // waits for their own getProject rounds. Unconditional consumption navigates/scrolls
+    // before target persistence, then clears refs so later batches never retry. This risk
+    // also affects calls setting no targets: onSnapshot, webui sources and draftHandled
+    // branches can all have refs replaced during waits.
     //
-    // 因此改为在发起请求前对 ref 拍快照，落定后只在 ref 仍等于快照时才消费——说明这段
-    // 等待期间没有别的调用改写过它，可以放心视为「跟自己这一轮对应」；ref 已变则跳过，
-    // 交由改写它的那次调用在自己对应轮次落定后消费。
+    // Snapshot refs before requests, consuming only if still identical after settlement:
+    // no intervening writes means safe ownership by this round. Changed refs yield
+    // consumption to their own writing calls after corresponding rounds settle.
     const focusSnapshot = queuedFocusRef.current;
     const result = await useProjectsStore.getState().refreshProject(projectName, {
       onError: (err) =>
@@ -273,7 +273,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       sourceRef.current = null;
     }
 
-    // 断线重建由流式客户端承担；重建后服务端重发 snapshot，fingerprint 变了才刷新项目。
+    // Streaming clients own reconnections; resent snapshots refresh projects only on changed fingerprints.
     const source = API.openProjectEventStream({
       projectName,
       onSnapshot(payload) {
@@ -281,7 +281,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const previousFingerprint = lastFingerprintRef.current;
         lastFingerprintRef.current = payload.fingerprint;
         if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
-          // 草稿视图各自取数、只随 draft 事件重拉；断线期间错过的草稿变化在这里一并作废。
+          // Draft views fetch independently on draft events; invalidate missed disconnected-period changes here too.
           const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
           invalidateEntities(
             episodes.flatMap(({ episode }) =>
@@ -290,15 +290,15 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           );
           void refreshProject();
         }
-        // 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与
-        // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取。
+        // Snapshots arrive on every connection; all after initial imply disconnects. Missed settlements/
+        // task terminals require full header-usage refetch, since usage otherwise refreshes by events.
         if (previousFingerprint) {
           void useUsageHeaderStore.getState().refresh();
-          // 回收站不在快照指纹里，断线期间的增删同样只能在这里补拉。
+          // Trash is absent from snapshot fingerprints; disconnected changes also require refetch here.
           useAppStore.getState().invalidateTrash();
         }
-        // 会话恢复通知只推一次，订阅建立之前（含首次建连前的失败重试）发出的已经错过；
-        // 首次快照也要核对：会话 hook 的加载读到的状态可能早于这次恢复。
+        // Recovery notices emit once, potentially before subscriptions/initial connection retries;
+        // reconcile initial snapshots too, since session-hook loads may predate recovery.
         useAssistantStore.getState().requestSessionResync(projectName);
       },
       onChanges(payload: ProjectChangeBatchPayload) {
@@ -306,15 +306,15 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         lastFingerprintRef.current = payload.fingerprint;
         setAssistantToolActivitySuppressed(true);
 
-        // 任务终态是刷新信号而非实体变更，先与实体变更分开：下方的实体失效、分组通知与
-        // 聚焦跳转都只针对实体变更。混入任务变更会有两处实际损害——每个终态任务都会在
-        // `entityRevisions` 里留下一个从未被消费的 `task:<uuid>` 键（该表不随切项目清空，
-        // 且每次失效整表复制，长会话下无界增长）；而任务批次没有可导航目标，走到聚焦逻辑
-        // 会把前一批实体变更排队等待 refreshProject 的 `queuedFocusRef` 清成 null，用户
-        // 因此丢失本该发生的自动导航与高亮。
+        // Task terminals are refresh signals, not entity changes; separate before invalidation/grouping/
+        // focus handling. Mixing causes two concrete failures: terminal tasks leave
+        // unused `task:<uuid>` in `entityRevisions`, never cleared on project switches,
+        // with full copies per invalidation and unbounded long-session growth. Targetless task batches
+        // also clear prior queued entity `queuedFocusRef` waiting on refreshProject,
+        // losing expected navigation/highlights.
         const taskChanges = payload.changes.filter(isTaskChange);
-        // 记账结算与任务终态同为刷新信号：混进实体变更会在 entityRevisions 里留下永不
-        // 被消费的 `usage_record:<id>` 键，并把前一批实体变更排队的聚焦目标清空。
+        // Settlements are refresh signals too; mixing leaves unused entityRevisions
+        // `usage_record:<id>` keys and clears prior entity focus targets.
         const entityChanges = payload.changes.filter(
           (c) => !isTaskChange(c) && !isUsageRecordChange(c) && !isTrashChange(c),
         );
@@ -322,7 +322,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           useAppStore.getState().invalidateTrash();
         }
 
-        // 提取并更新 asset fingerprints（零延迟，立即写入 store）
+        // Extract/update asset fingerprints immediately into stores.
         const mergedFingerprints: Record<string, number> = {};
         for (const change of entityChanges) {
           if (change.asset_fingerprints) {
@@ -336,15 +336,15 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const invalidationKeys = entityChanges.map((change) =>
           buildEntityRevisionKey(change.entity_type, change.entity_id),
         );
-        // 正式脚本规划不在项目快照里，重新规划完成不会产生实体变更；按任务终态作废各集的
-        // 脚本规划视图，内容确认页据此重拉。任务事件不带集号，逐集作废，只有挂载的视图会发请求。
+        // Formal script plans are outside snapshots; replanning completion has no entity changes. Terminal tasks invalidate
+        // every episode plan view, refetching mounted confirmation views only because events lack episode IDs.
         if (taskChanges.some((c) => c.action === "task_succeeded" && SCRIPT_PLAN_TASK_TYPES.has(c.task_type ?? ""))) {
           const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
           invalidationKeys.push(
             ...episodes.map(({ episode }) => buildEntityRevisionKey("draft", `episode_${episode}_script_plan`)),
           );
         }
-        // 草稿 AI 修复由 worker 写回草稿或采用为正式内容，同样没有实体变更；按终态作废各集的草稿视图。
+        // Worker AI repairs write/adopt drafts without entity changes; terminal events likewise invalidate episode draft views.
         if (
           taskChanges.some(
             (c) =>
@@ -372,7 +372,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           [];
 
         if (notifyChanges) {
-          // Draft 事件 — 自动导航到剧集脚本规划 Tab
+          // Draft events automatically navigate episode script-planning tabs.
           let draftHandled = false;
           for (const change of entityChanges) {
             if (
@@ -406,14 +406,14 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
         }
 
-        // 任务终态：立即重拉任务列表与统计，不等兜底轮询的间隔。
+        // Task terminals immediately refetch tasks/statistics without polling delays.
         if (taskChanges.length > 0) {
           void useTasksStore.getState().refreshTasks();
         }
 
-        // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片；资产增删改会改变
-        // 单元此刻可用的参考图，服务端逐单元的桶与档位随之变化。三类事件都要作废
-        // reference-video-store 的独立列表缓存，同一批只自增一次。
+        // Unit changes from Agents/other browsers, finished generation and asset changes alter
+        // available references and server-derived per-unit buckets/tiers; all three invalidate
+        // independent reference-video-store caches once per batch.
         if (
           entityChanges.some(
             (c) => c.entity_type === "reference_unit" || REFERENCE_ASSET_ENTITY_TYPES.has(c.entity_type),
@@ -425,11 +425,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           useAppStore.getState().invalidateReferenceVideoUnits();
         }
 
-        // 只在含实体变更时重拉项目：任务终态与记账结算是刷新信号，不改项目快照里的内容；
-        // 重建窗口内落盘、却未被任何在途批次描述的变更，后端会补扫后单独广播。
-        // 通知里的集标题与播出位置取刷新后的账本：Agent 新建、改名或调序的集在事件到达时
-        // 还不在本地账本里，按旧账本成文会显示成未命名集或旧标题，推出后无法再改。
-        // 刷新没有成功时不成文：旧剧本里还没有新建的条目，会被写成「已删除」；同步失败已另行告警。
+        // Refetch projects only for entity changes; task terminals/settlements do not alter snapshots.
+        // Backend rescans/broadcasts reconnect-window changes absent from in-flight batches separately.
+        // Notification titles/positions use refreshed ledgers: Agent-created/renamed/reordered episodes
+        // are absent/stale locally on arrival; old-ledger notices irreversibly show unnamed/old titles.
+        // Failed refreshes emit no notices: new entries absent from old scripts appear Deleted; sync failures already notify.
         if (entityChanges.length > 0) {
           void refreshProject().then((result) => {
             if (disposed || !notifyChanges || result !== "success") return;
@@ -457,25 +457,25 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const hasCompletionEvent = entityChanges.some((c) =>
           COMPLETION_ACTIONS.has(c.action),
         );
-        // voice_sample 的计费发生在合成成功之后、时长/大小校验（或用户取消）之前：
-        // 校验不通过落 failed、执行期间被取消落 cancelled，两种情形都不会触发上面的
-        // voice_sample_ready（只在 emit_generation_success_batch 里跟着执行器成功返回
-        // 一起发），但供应商费用已经产生——非成功终态同样要刷新成本，否则用户会看到
-        // 一个已经真实花费但成本面板未更新的任务。
+        // voice_sample billing occurs after synthesis success, before duration/size checks or cancellation:
+        // invalid outputs fail and midexecution cancellations settle cancelled, neither emitting
+        // voice_sample_ready, sent only through emit_generation_success_batch when executors return
+        // successfully. Costs already occurred, so nonsuccess terminals must also refresh costs,
+        // avoiding real charges with stale cost panels.
         const hasBilledVoiceSampleTerminal = taskChanges.some(
           (c) =>
             (c.action === "task_failed" || c.action === "task_cancelled") &&
             c.task_type === "voice_sample",
         );
-        // 切分本身不计费，但它把各分镜的 generated_assets.grid_id 写回，宫格已发生的
-        // 成本随之从「未归属」桶转入本集均摊（ADR 0053）。归属变了就要重拉，否则成本面板
-        // 一直显示切分前的分配；grid_split_done 不进 COMPLETION_ACTIONS（那是完成通知
-        // 类别，切分不是一次生成），故在这里单列。
+        // Splitting itself costs nothing but assigns generated_assets.grid_id, moving incurred grid
+        // costs from unattributed to episode allocation (ADR 0053). Refetch changed ownership or panels
+        // retain presplit allocation. grid_split_done is outside COMPLETION_ACTIONS, which classifies
+        // generation-completion notices, so handle separately.
         const hasGridSplit = entityChanges.some((c) => c.action === "grid_split_done");
-        // 一次供应商调用结算落库（成功/失败/取消）就是一笔费用变动；无任务的文本调用与
-        // 助手会话只有这一个信号，没有对应的任务终态或完成通知可依赖。
+        // Persisted provider-call settlement (success/failure/cancel) means cost changes; taskless text
+        // and assistant sessions rely solely on this signal, lacking task terminals/completion notices.
         const hasUsageRecord = payload.changes.some(isUsageRecordChange);
-        // 顶栏用量只认这两个信号：记账结算改金额与已结束列表，任务终态改进行中列表。
+        // Header usage uses two signals: settlements update money/completed lists, terminals update ongoing lists.
         if (hasUsageRecord || taskChanges.length > 0) {
           void useUsageHeaderStore.getState().refresh();
         }
@@ -497,7 +497,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       },
       onProjectDeleted() {
         if (disposed) return;
-        // 项目目录已被删除：后端正常关流，关闭句柄停止自动重建——不对已删项目周期性发起请求。
+        // Deleted project directories close server streams normally; close handles to stop periodically requesting absent projects.
         if (sourceRef.current) {
           sourceRef.current.close();
           sourceRef.current = null;

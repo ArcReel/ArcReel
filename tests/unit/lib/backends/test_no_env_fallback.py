@@ -1,6 +1,6 @@
-"""所有 provider backend 在缺失 api_key 时必须 raise，不再走 env fallback。
+"""Missing api_key always raises across provider backends, without environment fallback.
 
-spec §5.4。
+Spec §5.4.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ def test_ark_shared_no_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ark_shared_ignores_env_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """即使 env 里有 ARK_API_KEY，也不应被 fallback 读到。"""
+    """Even existing ARK_API_KEY must never supply fallback."""
     monkeypatch.setenv("ARK_API_KEY", "should-be-ignored")
     from lib.backends.ark_shared import resolve_ark_api_key
 

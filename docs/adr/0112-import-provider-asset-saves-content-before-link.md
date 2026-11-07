@@ -2,16 +2,16 @@
 status: accepted
 ---
 
-# 导入已有供应商素材先保存实际内容，关联随正式写入一起提交
+# Import actual provider content first; commit links with formal writes
 
-从供应商素材库选择已有图片时，关联要证明 ArcReel 里看到的内容就是那个供应商素材。因此导入先经 `GetAsset` 取得素材的签名访问地址，下载原图并校验成 PNG、JPEG 或 WebP 图片，再按手动上传成品的语义保存为资产图或角色衍生图的新版本（版本来源 `manual_upload`，时效判定与上传一致），最后为这个新内容版本建立关联。取不回内容时拒绝导入，不留下只有素材 ID 的占位图片，也不把素材 ID 贴到已有的另一张图片上。只有供应商状态为 `Active` 的图片素材可以导入，关联直接以可用状态选定，记录来源 `import`，不经入库任务，也不经对象存储中转。
+Selecting existing provider images must prove ArcReel displays that content. Use `GetAsset` signed URLs, download originals, validate PNG/JPEG/WebP, save a new sheet/derivative version as finished manual content (`manual_upload`, same currency), then link that version. Failed retrieval rejects imports without ID-only placeholders or attaching IDs to unrelated images. Only `Active` image assets import; select available links with origin `import`, bypassing upload jobs/object-storage relays.
 
-签名访问地址只用于这一次下载：只接受 HTTPS 与公网地址，每一跳重定向都重新校验，响应体上限 30 MB。地址不回传前端、不持久保存，也不写日志与诊断。httpx 的请求日志会记录完整 URL，日志配置在记录前去掉 query。
+URLs are download-only: HTTPS/public addresses, revalidate every redirect, 30 MB response cap. Never return/store/log them, including diagnostics. httpx logs full URLs, so logging strips query before recording.
 
-正式写入在文件事务里完成，关联记录在数据库里，两者无法放进同一个事务。关联在正式写入的提交钩子里落库：钩子在资产图、元数据指针、版本记录与产物登记都写好之后执行，经 `EventLoopBridge` 回到事件循环提交会话。落库失败时，正式写入整体回滚，原选中版本不变。落库之后的收尾步骤失败时，正式写入同样回滚，关联指向的内容版本身份已不在版本历史里，不会被任何查询选中，导入服务再尽力删除这条记录。不采用「先写图片、再写关联」：关联写入失败时图片已经换成新版本，页面却显示导入失败。也不采用「先写关联、再写图片」：图片写入失败前，关联会短暂指向一个尚未保存的版本，而内容版本身份只能由版本历史生成。
+Formal files use file transactions while links use DB, with no shared transaction. Persist links in final-write commit hooks after sheet, pointer, version, and registration writes, using `EventLoopBridge` to commit on the loop. DB failures roll back the whole formal write and preserve old selection. Post-DB cleanup failures also roll back; missing version identity makes links unselectable and import best-effort deletes them. Reject image-then-link (failed linking leaves new images despite error) and link-then-image (brief unsaved references and IDs generated only by history).
 
-## 后果
+## Consequences
 
-导入保留经过校验的原始字节，不复用手动上传的有损压缩：压缩会产生不同内容，而已有供应商素材仍指向原图，无法保证内容版本与实发内容一致。
+Preserve validated original bytes, not lossy upload compression: changed content would no longer match provider originals.
 
-四类资产图与角色衍生图都可以导入，各自走已有的手动上传成品路径，关联的建立与回滚共用同一编排：衍生图经 `commit_manual_derivative_upload` 提交，钩子同样在提交的最后执行。衍生图的规范路径固定为 `.png`（ADR 0072），所以 PNG 原样保存，JPEG 与 WebP 按解码后的原像素换成 PNG 封装，不缩放，也不做有损压缩。不采用「拒绝非 PNG 素材」：素材库里的 JPEG 很常见，换封装不改变像素。也不采用「衍生图允许其他扩展名」：规范路径、版本快照与产物规划都按 `.png` 寻址衍生图，改动面远大于收益。范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+All four sheets and character derivatives use existing manual-finished paths with shared link/rollback orchestration. `commit_manual_derivative_upload` hooks run last too. Canonical derivative paths are `.png` (ADR 0072): preserve PNG bytes; repackage JPEG/WebP decoded pixels as PNG without resizing/loss. Reject PNG-only imports because JPEG is common and repackaging preserves pixels. Reject other derivative extensions because paths/snapshots/planning all address `.png`, making scope disproportionate. Scope/acceptance: [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559).

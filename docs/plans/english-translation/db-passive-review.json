@@ -1,0 +1,240 @@
+{
+  "baseline": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "scope": "All changed lib/db Python modules, including models, engine/helpers and repositories. Strip only leading module/class/function docstrings; comments are not AST nodes. Historical inline-code placeholders and the 玉佩 deduplication fixture name remain unchanged.",
+  "files": [
+    {
+      "path": "lib/db/__init__.py",
+      "baseline_sha256": "2d211d1daf44f78a9c8d5792900036db00281a1650026ea6d8653dac5b43601a",
+      "candidate_sha256": "b55ba9f261b1d71a4f8694374cccc91a5c71c4f1f2b6a8362ae2cc631658a03d",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/engine.py",
+      "baseline_sha256": "f479cd91f061064d12f5d486e3cf618acc7517c702f042d8bfb36d48b6dae89c",
+      "candidate_sha256": "01eccad1e9492a504320c8b8a1f12d3aac1b2c5c78fedba9e1c808e60d4f3d73",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/migration_helpers.py",
+      "baseline_sha256": "6f92d36e57081e617af3c4d7a481f409eda08973c408f53155d15f576499d1c1",
+      "candidate_sha256": "30f578cb0146f57dae9358de471af1e84eabf1c2dfbdf70450187ba3f4039ec9",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/__init__.py",
+      "baseline_sha256": "42aa8299648e290d6badbf05dc7f6d37e4c520b88ca024a89b8e0aaa3262f2ed",
+      "candidate_sha256": "c219fb54c3076549e85f22e3f685e33ced6c6fef68e07eb8cf539e71d2d01325",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/agent_credential.py",
+      "baseline_sha256": "6ca6e56194a2dceadfb033440255b54722b5e5199a22ed98aa75430339cca863",
+      "candidate_sha256": "2a55d01d754249d30d0e94669aa7f30778f4d97e1cda548671c4154fba000f0e",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/api_call.py",
+      "baseline_sha256": "b9fcae7d2ac48f0c959b3ea2f694bfe5a3bff1168c8e3a87c674b1c2fd725d66",
+      "candidate_sha256": "d00daed91de2d29e7baeb1c9b77f809f11e603d5dd5bf6b988d80656f66e9f8f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/asset.py",
+      "baseline_sha256": "acdff0a6ca90c6bcc7bd4b0bb81577600e42b709943c5e736fd14b91ae4a8424",
+      "candidate_sha256": "df88564c876a2549d09c1ae70a5672ed38416fcd991ef458936867837539b485",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/asset_library.py",
+      "baseline_sha256": "a7e666dd667be5831750bc4fe2597cd5520cf9b896b1be7430e63d8f234c2d31",
+      "candidate_sha256": "88f30322cf10730fa3fce7dbda529658e8fe510e1499603baece2f1942d202d3",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/builtin_provider_model.py",
+      "baseline_sha256": "a02025103b0e7c658bbf70b244913e07aa803a3c56c1c477199ffff6a2d7dec1",
+      "candidate_sha256": "9644b61a388a26263cd9c0a1276d10a6036cefafa9a11d279cd1ba58e26cc25f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/catalog_official_sync.py",
+      "baseline_sha256": "dbf8038f226a0fcf7fa173f550b719279376132f7c4e42e5cc5c105b8db062b0",
+      "candidate_sha256": "1f7bbd5fd32c77e5a6c26caab2ef792358bcbe46f3f9efb941661679dab6fd2f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/catalog_user_entry.py",
+      "baseline_sha256": "d2ba9a22bcc8f2edc0d9b42b5cfb4f80c69e68bde0bd00eb720493ec87073476",
+      "candidate_sha256": "d2845e5399d56e29faa3c07e928613b586e2735596ec38c047cf2fa5fdf99a49",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/credential.py",
+      "baseline_sha256": "d66e2d52c6e469a0b7542e77c01308c693b42407d19ef5144281d6e2f5f0ebc2",
+      "candidate_sha256": "bb66c711633c95504113ac336e50b2b835ca897ff1672eea46016657dbdece10",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/custom_endpoint.py",
+      "baseline_sha256": "c657f2ee80e2f048002248d72f37c551b5118dd2d73d0f98873a1820d39fb5fc",
+      "candidate_sha256": "8c02ca2e186aab8419acbb579a85c6862ea8c0532399ed2c2d39ac71d6798c09",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/custom_provider.py",
+      "baseline_sha256": "60cd54e04afd6df871f987af5873557533df4459a216691a2fc87c3015ed26b0",
+      "candidate_sha256": "a3c65bd671e35b6fbc7e85ae4ea04c03488ec6041e4b2f274c167bdf81fedb13",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/market_installation.py",
+      "baseline_sha256": "6bb12f382fe4eadb608afe20bdd7f6266ac8361f546f656cddff6c3b556ddc16",
+      "candidate_sha256": "e242f685e8ff8ce52587c577f2d4f0d7973de0dae67a28921aa42bbe5d24393e",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/market_source.py",
+      "baseline_sha256": "510484a82d48700386b6f64c1735f569b533eff52e2fe517ccf4c1e2fc487c32",
+      "candidate_sha256": "0b9b620a68a2b1aa3ebb3bcf71fbb8c1d568a0f616935a44f6eab3ef23e539a3",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/market_submission.py",
+      "baseline_sha256": "161190e372315829ce3c9463301ef63ead1f9b999930aa363bc8a9acc51d564c",
+      "candidate_sha256": "a0e53770186c828f1cf6a4d70d22650229fe7de4a982f70a81ffaf4922e496ec",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/object_storage.py",
+      "baseline_sha256": "d174ae0718c0e746b2d0f85960504caf89a0196623df2e645f7cbcfd52fafb34",
+      "candidate_sha256": "c25e7c8160d141bf067d3990d61ae7f1191e2ee94007f6919e960f48624f1d5f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/session.py",
+      "baseline_sha256": "8ca3809c68fb586247abee14de975567d482379d8752be161fab962542e79c74",
+      "candidate_sha256": "8b2c60c4c0aca8d0a278e6fbe463748326f8b6dd533515575c6a713cd4303fa5",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/session_event.py",
+      "baseline_sha256": "3d21bcbbd255b323779eb4c406efa5e8b50836a6fb4b2c437e812a7815c83d84",
+      "candidate_sha256": "9d135215623ed8115fe8c204169eb347ec979f5e65784f441ee6d4f7c07e621b",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/session_message_link.py",
+      "baseline_sha256": "4ab7bb7146a12d14f18464d8a2cc92930ab4ec77680a36cf17979b74ba201a3b",
+      "candidate_sha256": "02816b6d04fcc4129d61c6b9f93212380c079134be9874d186fa5b1bfb7c1afd",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/models/task.py",
+      "baseline_sha256": "2fca5fee138a24d104fa1b6e9dcf026e10ed18abb6be815284c085a349850b92",
+      "candidate_sha256": "c537aa0c3bb4fc78bd998dea93945ea2dc0ef25f77224cae904b5398886aca54",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/agent_credential_repo.py",
+      "baseline_sha256": "fde03befe1734a5f6efc24a10bb4da6e2375fda2d547412c9692e3d0b0af573e",
+      "candidate_sha256": "22bf351b6c7a363823cf50833022d02660f097fdd1f01e93972dda051865e604",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/asset_library_repo.py",
+      "baseline_sha256": "15853bcbdd3ebd86f4bc16b21e862efda9da194f9dbc465b7741b8dcf6db2ac5",
+      "candidate_sha256": "3643fd739049b2fcbb04024d36e17aa1c7c2bf05ab51718244b2cdf4219a6852",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/asset_repo.py",
+      "baseline_sha256": "12be7c84c9c2ac8410e5cb0b7500e34526eccaa590fcad00a287e80177c74631",
+      "candidate_sha256": "2f7b42888bdb6c53c1efbf1ee7f44095093b3c374698a0a58ed5c9838b062148",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/base.py",
+      "baseline_sha256": "bb395845944a68c9aafaf61616f7ec6519ccd5b1b27d7804dd19ea65174507db",
+      "candidate_sha256": "d011a6b80e0cf1ec94be456cf3f6b7327e076ea53cca4d578c8dfd54bd280cfe",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/builtin_provider_model_repo.py",
+      "baseline_sha256": "b45d4214980fdfc4e472d39ac77b8b0e9ba841070af507c21721265b39d3979a",
+      "candidate_sha256": "37713f3bdd2826bb2dd9d07f5930f19a882cc56181d618529d23e307e2a9dc40",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/catalog_user_entry_repo.py",
+      "baseline_sha256": "7588e23c8e9cb5b6be05c000a949c3b7a5e1aff2ff6e09a9715bd6944c2732b9",
+      "candidate_sha256": "e0aa6080ecee346d031c0bbe25cfddacde01ea63a92b5faf729779d93f01df57",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/credential_repository.py",
+      "baseline_sha256": "e306460acb93fb40a929a652bbafea6c872a5591e8fe917a923f6b9472ce63ce",
+      "candidate_sha256": "ecabc9a147def4131a01e41479088b7ff94c7c3728dbcd7fe98a0f9c2862c880",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/custom_endpoint_repo.py",
+      "baseline_sha256": "091c061fe42366c3208c0fffc9c2f933dfd5b51cc647b1800d81ab29db14fcf9",
+      "candidate_sha256": "2f9dc6b39697d0a4f4f6a0e2803567ac208eccf482289f3d870b75e7a4ac0730",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/custom_provider_repo.py",
+      "baseline_sha256": "1859993bce415e8ccbe5e77c0241980f19c502250855c44bcc49595c01930601",
+      "candidate_sha256": "43ff8f426e9285f471e066a1ab12230d1315e76f188616e60a720e1d812c5231",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/display_names.py",
+      "baseline_sha256": "1ae0e88752e76a85d643493014f5be4d79450ae7a72b710ae3645e02fad943af",
+      "candidate_sha256": "c90c14e9863574dab0d5e4b719261fc4082d5efa2eabbaee502a1fcd36282592",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/episode_id_records.py",
+      "baseline_sha256": "8756ab1844127c08244cfacfb287efdb68447eeeed455d21b3ce7d0092f9290c",
+      "candidate_sha256": "b7b467802c93dd738ef7765e9aabe6b56ff2a6f7e8fdb5155acecc165d90758a",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/market_source_repo.py",
+      "baseline_sha256": "87bb5e24311cabb39255d2edbfd173d13355e82af93b44fe1fb6a82c6fe6c258",
+      "candidate_sha256": "f6c5ee7772388b5dc7bb83329f08acc2eeeb33137ef9692582e8868c0d54b2b3",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/object_storage_repo.py",
+      "baseline_sha256": "39060d8dfbd7c1dfe149b43916929866d5ec213e58126c3c8938a37704f0b373",
+      "candidate_sha256": "39f7da44585031b45f75ced96d70f2b74d41f5ad3ce73180a1d6676d68709985",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/project_records.py",
+      "baseline_sha256": "d3add9812fec69649866e0a95e7aca559438285485231d78e799e07d667df339",
+      "candidate_sha256": "75c9e5211e3a9b74c971a026512179526bdabf79060c72a74ba3654d18142732",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/session_repo.py",
+      "baseline_sha256": "8f40c62e2bf47040829ccf96f55136a65fe8cf199675fe6074328dde78b93cf5",
+      "candidate_sha256": "2dffe531f1722693a263412a54ecadbcaf9a4697648e5475d3e0b4009bcd0a84",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/task_repo.py",
+      "baseline_sha256": "74d0b30a4e4029475efde60c56e7709fe9a455d0a5acabd6a58930d68a4f333f",
+      "candidate_sha256": "4b97df8aa9ce3090a07c516f1ff56ab6c4fec1dd83e96458cf41f0027a215f3d",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "lib/db/repositories/usage_repo.py",
+      "baseline_sha256": "34e22c325b7593755dec06a80350d171b0dd98511c18eadae411b67b7a21b8d4",
+      "candidate_sha256": "26aa66d968fad1678cd102e6ee27322f5ca065622a0c980c8413e4507b8deb72",
+      "executable_ast_equal": true
+    }
+  ]
+}

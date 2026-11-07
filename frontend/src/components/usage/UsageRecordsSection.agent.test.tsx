@@ -58,7 +58,7 @@ describe("UsageRecordsSection Agent sessions view", () => {
     const query = lastQuery(location.history);
     expect(query.has("u_provider")).toBe(false);
     expect(query.has("u_media")).toBe(false);
-    // Agent 记录都是文本，媒体类型下拉不再出现
+    // Agent records are all text; hide media-type dropdowns.
     expect(screen.queryByRole("combobox", { name: "媒体类型" })).not.toBeInTheDocument();
   });
 
@@ -130,17 +130,17 @@ describe("UsageRecordsSection Agent sessions view", () => {
 
     const table = await screen.findByRole("table", { name: "「分镜讨论」的明细" });
     const rows = within(table).getAllByRole("row");
-    // 表头 + 两条记录
+    // Headers plus two records.
     expect(rows).toHaveLength(3);
     const priced = within(rows[1]);
-    // 「输入」不含缓存命中与缓存写入的部分：1000 - 600 - 100 - 50
+    // Input excludes cache hits/writes:1000-600-100-50.
     expect(priced.getByText("250")).toBeInTheDocument();
     expect(priced.getByText("600")).toBeInTheDocument();
     expect(priced.getByText("150")).toBeInTheDocument();
     expect(priced.getByText("200")).toBeInTheDocument();
     expect(priced.getByText("$0.0031")).toBeInTheDocument();
     expect(within(rows[2]).getByText("未定价")).toBeInTheDocument();
-    // 原因放在悬停提示里
+    // Reasons live in hover explanations.
     await userEvent.hover(within(rows[2]).getByText("未定价"));
     expect(await screen.findByText("这个供应商模型没有对应的模型条目")).toBeInTheDocument();
     expect(API.getUsageSession).toHaveBeenCalledWith("sess-1", expect.anything());

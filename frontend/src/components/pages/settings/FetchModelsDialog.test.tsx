@@ -30,7 +30,7 @@ const RESPONSE: FetchProviderModelsResponse = {
     }),
     fetched({ model_id: "already-there", recognized: true }),
     fetched({ model_id: "relay-mystery" }),
-    // 清单外、名字对应上条目的模型：已定价的显示条目名，条目没有价格的仍提示未定价
+    // Unlisted models matching entries by name: priced models show entry names; entries lacking prices remain unpriced.
     fetched({
       model_id: "GPT-5.5-relay",
       matched_entry: { maker: "openai", name: "gpt-5.5", media_type: "text", display_name: "GPT-5.5", priced: true },
@@ -101,7 +101,7 @@ describe("FetchModelsDialog", () => {
     await user.click(await screen.findByRole("button", { name: "为 relay-mystery 选择对应模型" }));
     await user.click(await screen.findByRole("option", { name: /GPT Image 2/ }));
 
-    // 选了对应模型的行随之勾选，媒体类型取对应模型的
+    // Selecting matching models checks corresponding rows, adopting matching model media types.
     expect(screen.getByRole("checkbox", { name: /relay-mystery/ })).toBeChecked();
     await user.click(screen.getByRole("button", { name: "添加 2 个模型" }));
 

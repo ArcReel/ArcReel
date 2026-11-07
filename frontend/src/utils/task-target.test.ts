@@ -36,11 +36,11 @@ const projectData = {
   ],
 } as unknown as ProjectData;
 
-// 回显 key 与参数，便于断言文案选择逻辑。
+// Echo keys/parameters to assert copy-selection logic.
 const t = ((key: string, params?: Record<string, unknown>) =>
   key === "common:episode_unlisted_name" ? "未命名集" : `${key}|${params?.id ?? params?.unitId ?? params?.episode ?? ""}|${params?.reason ?? ""}`) as unknown as TFunction;
 
-// 失败通知按条目在本集里的当前位置称呼：E1S01 与 E1U1 都排在第 2 位，与 ID 序号不同。
+// Failure notifications use current episode positions: E1S01/E1U1 both occupy position 2, unlike ID suffixes.
 const SCRIPTS = {
   "ep1.json": { episode: 1, segments: [{ segment_id: "E1S02" }, { segment_id: "E1S01" }] },
   "ep1_reference.json": { episode: 1, video_units: [{ unit_id: "E1U3" }, { unit_id: "E1U1" }] },
@@ -70,7 +70,7 @@ describe("buildTaskFailureTarget", () => {
   });
 
   it("normalizes scripts/ prefix on either side when matching episode", () => {
-    // task.script_file 带前缀也能匹配 episodes 中带前缀的记录
+    // Prefixed task.script_file matches prefixed episode records.
     const target = buildTaskFailureTarget(
       makeTask({ task_type: "storyboard", script_file: "scripts/ep1.json" }),
       projectData,
@@ -143,7 +143,7 @@ describe("buildTaskFailureTarget", () => {
   });
 
   it("keeps the segment target for a task rejected upstream", () => {
-    // 拒因只进通知文案，不参与 target 解析。
+    // Rejections enter notification copy only, never target resolution.
     const task = makeTask({
       task_type: "storyboard",
       resource_id: "E1S01",
@@ -222,8 +222,8 @@ describe("describeTaskFailure", () => {
   it("renders the provider reason after the per-type text with the real i18n bundle", async () => {
     await i18n.loadNamespaces("dashboard");
     const realT = i18n.getFixedT("zh", "dashboard");
-    // error_message 是上游原文，可能带 i18next 占位符字面量；它不参与插值，
-    // 拒因必须仍落在后缀里。
+    // Raw upstream error_message may contain literal i18next placeholders; never interpolate it,
+    // preserving rejection suffix positions.
     const text = describeFailure(
       realT,
       makeTask({
@@ -246,7 +246,7 @@ describe("describeTaskFailure", () => {
   });
 
   it("keeps the plain text when there is no provider reason", () => {
-    // 级联失败等非 provider_rejected 失败没有拒因字段，文案不变。
+    // Non-provider_rejected failures such as cascades lack rejection fields, leaving copy unchanged.
     expect(
       describeFailure(
         t,

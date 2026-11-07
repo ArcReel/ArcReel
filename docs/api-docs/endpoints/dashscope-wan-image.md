@@ -1,5 +1,5 @@
 # dashscope-wan-image
 
-- 协议：[阿里云百炼图像生成](https://help.aliyun.com/zh/model-studio/image-generation)、[Qwen-Image API](https://help.aliyun.com/zh/model-studio/qwen-image-api)、[Qwen-Image-Edit API](https://help.aliyun.com/zh/model-studio/qwen-image-edit-guide)、[Wan 图像生成与编辑 API](https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference)；本端点：Wan 任意像素请求，带参考图时只用标准像素预算
-- 计费：[模型价格](https://help.aliyun.com/zh/model-studio/model-pricing)
-- 代码：`lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["dashscope-wan-image"]`、`lib/backends/image_backends/dashscope.py::DashScopeWanImageBackend`
+- Protocol: [DashScope image generation](https://help.aliyun.com/zh/model-studio/image-generation), [Qwen-Image API](https://help.aliyun.com/zh/model-studio/qwen-image-api), [Qwen-Image-Edit API](https://help.aliyun.com/zh/model-studio/qwen-image-edit-guide), [Wan image generation and editing API](https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference); this endpoint uses Wan arbitrary-pixel requests; requests with reference images use only the standard pixel budget
+- Pricing: [Model pricing](https://help.aliyun.com/zh/model-studio/model-pricing)
+- Code: `lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["dashscope-wan-image"]`, `lib/backends/image_backends/dashscope.py::DashScopeWanImageBackend`

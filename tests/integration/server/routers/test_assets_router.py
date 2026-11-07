@@ -1,4 +1,4 @@
-"""assets 路由基础 CRUD 测试。"""
+"""Basic assets-route CRUD tests."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ class TestAssetsCRUD:
         assert r.status_code == 400
 
     def test_product_type_excluded_from_global_library(self, assets_env):
-        """product 是多图列表型资产，单图列模型的全局库不收：create 与 from-project 均 400。"""
+        """Products are multi-image lists unsupported by single-image global libraries; create/from-project both return 400."""
         client = assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "product", "name": "保温杯"})
         assert r.status_code == 400
@@ -196,7 +196,7 @@ class TestFromProject:
     def test_from_project_copies_image(self, assets_env):
         client = assets_env["client"]
         pm = assets_env["pm"]
-        # 造 project + character + sheet 文件
+        # Create project/character/sheet files.
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -221,7 +221,7 @@ class TestFromProject:
         ip = r.json()["asset"]["image_path"]
         assert ip
         assert ip.startswith("global_assets/character/")
-        # 落盘文件与源文件相同字节
+        # Persisted files match source bytes.
         assert (pm.data_root / ip).read_bytes() == b"img"
 
     def test_from_project_conflict_409_and_overwrite(self, assets_env):
@@ -326,7 +326,7 @@ class TestFromProject:
 
         assert "角色" in zh.json()["detail"]
         assert "character" not in zh.json()["detail"]
-        # en 显示名与内部标识同形，区分不了裸透传，只能断言整句按 asset_type_* 渲染
+        # en names match internal IDs, indistinguishable from raw forwarding; assert whole sentences rendered via asset_type_*.
         assert en.json()["detail"] == translate_message(
             "asset_source_resource_not_found",
             locale="en",
@@ -338,7 +338,7 @@ class TestFromProject:
         assert "character" not in vi.json()["detail"]
 
     def test_from_project_copies_audio(self, assets_env):
-        """character 的 reference_audio 随 character_sheet 一起复制到全局资产库。"""
+        """Character reference_audio copies into libraries with character_sheet."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("demo")
@@ -364,7 +364,7 @@ class TestFromProject:
         assert (pm.data_root / ap).read_bytes() == b"audio-bytes"
 
     def test_from_project_audio_copy_failure_cleans_up_image(self, assets_env, monkeypatch):
-        """图片拷贝成功后音频拷贝失败：不留孤儿图片文件，异常正常传播。"""
+        """Successful image copies followed by audio failure leave no orphan images and propagate exceptions normally."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("demo")
@@ -403,9 +403,9 @@ class TestFromProject:
         assert leftover == []
 
     def test_from_project_ignores_reference_audio_outside_refs_audio_dir(self, assets_env):
-        """reference_audio 可经通用角色 PATCH 被写成项目内任意字符串；仅路径不越界
-        不足以防止把 project.json 等其它项目文件当作音频复制进全局库，须额外确认
-        父目录命中 characters/refs_audio（与 files.py::_resolve_audio_ref_path 同口径）。"""
+        """Generic character PATCH can set reference_audio to arbitrary project strings; path containment alone
+        cannot prevent copying project.json or other files into global audio libraries. Also require
+        characters/refs_audio parents, matching files.py::_resolve_audio_ref_path."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("demo")
@@ -413,8 +413,8 @@ class TestFromProject:
         pm.add_project_character("demo", "王", "d", "")
 
         def _set_fields(project):
-            # 项目内真实存在、但不在 characters/refs_audio 下的文件——模拟经通用 PATCH
-            # 写入的越权路径。
+            # Existing project files outside characters/refs_audio simulate unauthorized paths written through generic
+            # PATCH.
             project["characters"]["王"]["reference_audio"] = "project.json"
 
         pm.update_project("demo", _set_fields)
@@ -446,7 +446,7 @@ class TestFromProject:
         assert r.json()["asset"]["audio_path"] is None
 
     def test_from_project_missing_audio_file_degrades_quietly(self, assets_env):
-        """reference_audio 字段指向不存在的文件时静默降级为无音频，不中断入库。"""
+        """Missing reference_audio files silently degrade to no audio without aborting library imports."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("demo")
@@ -540,7 +540,7 @@ class TestApplyToProject:
         client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
         aid = client.get("/api/v1/assets?type=prop").json()["items"][0]["id"]
 
-        # Apply first — creates "玉佩"
+        # Apply first: creates "玉佩"
         client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -549,7 +549,7 @@ class TestApplyToProject:
                 "conflict_policy": "rename",
             },
         )
-        # Apply again with rename — creates "玉佩 (2)"
+        # Apply again with rename: creates "玉佩 (2)"
         r = client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -593,7 +593,7 @@ class TestApplyToProject:
         assert data["characters"]["王"]["description"] == "library desc"
 
     def test_overwrite_policy_keeps_the_target_character_derivatives(self, assets_env):
-        """库里那条角色没有衍生时，覆盖导入不得抹掉目标项目里已登记的衍生。"""
+        """Library characters without derivatives must not erase registered target derivatives on overwrite application."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("target")
@@ -625,7 +625,7 @@ class TestApplyToProject:
         assert entry["derivatives"] == table
 
     def test_imported_character_carries_an_empty_derivative_table(self, assets_env):
-        """新建条目一律带空衍生表，与创建路径和迁移同一不变量。"""
+        """New entries always contain empty derivative tables, sharing creation/migration invariants."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("target")
@@ -1075,7 +1075,7 @@ class TestApplyToProject:
         assert "A" not in (data.get("scenes") or {})
 
     def test_audio_missing_adds_to_failed(self, assets_env):
-        """asset.audio_path 有值但磁盘文件缺失时记 failed，不中断整批（与 image_path 同口径）。"""
+        """Nonempty asset.audio_path with missing files records failed without aborting batches, matching image_path."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("source")
@@ -1116,7 +1116,7 @@ class TestApplyToProject:
         assert "王" not in (data.get("characters") or {})
 
     def test_audio_copied_to_target_project(self, assets_env):
-        """端到端：from-project → 资产库 → apply-to-project 把音频也随图一起复制回项目。"""
+        """End to end: from-project → library → apply-to-project copies audio back with images."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("source")
@@ -1150,7 +1150,7 @@ class TestApplyToProject:
         assert target_audio.read_bytes() == b"audio-bytes"
         data = pm.load_project("target")
         assert data["characters"]["王"]["reference_audio"] == "characters/refs_audio/王.wav"
-        # 「资产即开关」：导入即视为该项目新设置了这个声音，存量过渡横幅计数须能感知到
+        # Assets act as switches: imports newly set project voices, which existing transition-banner counts must detect.
         assert data["characters"]["王"]["voice_updated_at"]
 
     def test_image_copied_to_target_project(self, assets_env):
@@ -1319,11 +1319,11 @@ class TestApplyToProject:
 
 
 class TestDerivativesThroughTheLibrary:
-    """角色的衍生随本体整套进出全局资产库（见 ``docs/adr/0072``）。"""
+    """Character derivatives enter/leave global libraries with bases (see ``docs/adr/0072``)."""
 
     @staticmethod
     def _seed_character_with_derivatives(pm, project: str, owner: str, derivatives: dict[str, tuple[str, bytes]]):
-        """在项目里造一个带资产图的角色，并给它登记若干带图的衍生。"""
+        """Create project characters with base images and several imaged derivative registrations."""
         pm.create_project(project)
         pm.create_project_metadata(project, project)
         pm.add_project_character(project, owner, "白衣少年", "清朗")
@@ -1366,7 +1366,7 @@ class TestDerivativesThroughTheLibrary:
         assert (pm.data_root / by_name["便装"]["image_path"]).read_bytes() == b"casual-sheet"
 
     def test_from_project_keeps_a_derivative_whose_sheet_file_is_gone(self, assets_env):
-        """图缺失只丢那张图：名与描述才是衍生的身份，图可在目标项目里重新生成。"""
+        """Missing images lose images only; derivative identities are names/descriptions, allowing target regeneration."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         project_dir = self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
@@ -1437,7 +1437,7 @@ class TestDerivativesThroughTheLibrary:
         assert client.get("/api/v1/assets?type=character").json()["items"] == []
 
     def test_round_trip_restores_name_description_and_sheet_in_a_new_project(self, assets_env):
-        """验收主线：带衍生的角色存入库后应用到新项目，三样完整还原且产物清单键正确。"""
+        """Acceptance path: library-stored derivative characters apply to new projects, restoring all three aspects with correct manifest keys."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         self._seed_character_with_derivatives(
@@ -1508,7 +1508,7 @@ class TestDerivativesThroughTheLibrary:
         assert adapter.get_entry(derivative_key) is None
 
     def test_rename_policy_puts_the_derivative_sheets_under_the_renamed_owner(self, assets_env):
-        """冲突策略 rename 只改角色名；衍生名不变，图跟着搬到新本体名下的目录。"""
+        """rename conflicts change base character names only; derivative names stay, images move under renamed base directories."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
@@ -1532,7 +1532,7 @@ class TestDerivativesThroughTheLibrary:
         assert (target_dir / "characters/derivatives/王 (2)/战斗装.png").read_bytes() == b"battle-sheet"
 
     def test_overwrite_merges_library_derivatives_over_the_ones_already_in_the_project(self, assets_env):
-        """库里带来的衍生按名覆盖，库里没有的存量衍生保留——覆盖导入不抹用户已登记的衍生。"""
+        """Imported same-name derivatives overwrite; unrepresented existing derivatives remain, preserving user registrations."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
@@ -1568,7 +1568,7 @@ class TestDerivativesThroughTheLibrary:
         }
 
     def test_apply_writes_a_derivative_whose_library_image_file_is_gone(self, assets_env):
-        """库里的图文件消失只丢那张图：整批不失败，衍生的名与描述照常落地。"""
+        """Missing library images lose those images only, retaining derivative names/descriptions without batch failure."""
         client = assets_env["client"]
         pm = assets_env["pm"]
         self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
@@ -1591,7 +1591,7 @@ class TestDerivativesThroughTheLibrary:
         assert entry[DERIVATIVES_FIELD] == {"战斗装": {"description": "黑甲", "character_sheet": ""}}
 
     def test_scene_assets_never_carry_derivatives(self, assets_env):
-        """只有 character 开启衍生能力；其它类型序列化恒为空列表。"""
+        """Only characters support derivatives; other asset types always serialize empty lists."""
         client = assets_env["client"]
         created = client.post("/api/v1/assets", data={"type": "scene", "name": "庙宇"})
 

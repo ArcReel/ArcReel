@@ -1,36 +1,36 @@
-# 什么时候找用户
+# When to involve the user
 
-判断一件事由自己定、开 issue 还是找用户时读本文。适用于所有 agent：交互式会话、AFK 角色、审查循环与教训巡检。
+Read this document when deciding whether to decide independently, open an issue, or ask the user. It applies to every agent: interactive sessions, AFK roles, review loops, and lesson sweeps.
 
-## 判断顺序
+## Decision order
 
-按顺序判断，命中即停：
+Apply these checks in order and stop at the first match:
 
-1. **事实问题**（是否存在、是否成立、证据冲突）：自己核验，得出结论后继续。
-2. **能从现有事实源推出答案**：照推出的答案做。事实源包括 spec、ADR、规范、`GLOSSARY.md`、设计系统、项目定位（`PRODUCT.md`）与现有代码先例。
-3. **推不出、做错代价低**：按项目定位自行决定，在 PR 里留一行理由供用户抽查。
-4. **推不出、做错代价高**：找用户。
+1. **A factual question** (existence, correctness, conflicting evidence): verify it yourself, reach a conclusion, and continue.
+2. **The answer follows from existing sources of truth**: follow that answer. Sources include specs, ADRs, standards, `GLOSSARY.md`, the design system, product positioning (`PRODUCT.md`), and precedents in existing code.
+3. **No answer follows, and a wrong choice has low cost**: decide according to the product positioning and leave one line of reasoning in the PR for the user to inspect.
+4. **No answer follows, and a wrong choice has high cost**: ask the user.
 
-做错代价高指满足以下任一条：
+A wrong choice has high cost if any of these applies:
 
-- 难以回滚。
-- 对外：公开 API、发布内容、会真实产生费用的操作、许可证、安全边界。
-- 改变现有用户依赖的行为或数据：删功能、改默认值、迁移数据。
-- 定下以后都要沿用的方向：新能力范围、新交互范式。
-- 超出授权范围的扩张。
+- It is hard to reverse.
+- It has external effects: public APIs, published content, actions that incur real costs, licenses, or security boundaries.
+- It changes behavior or data that existing users rely on: removing features, changing defaults, or migrating data.
+- It establishes an ongoing direction: the scope of a new capability or a new interaction pattern.
+- It expands beyond the authorized scope.
 
-判断只看上述代价，与它属于技术决策还是产品决策无关。
+Judge by those costs alone, regardless of whether the decision is technical or product-related.
 
-## 怎么问
+## How to ask
 
-需要用户的事项在收尾时合成一条消息。每项编号，给出推荐选项，措辞让用户回答「是」即接受推荐。流程自带暂停点的（如 `afk-team-workflow` 的暂停边界），在暂停点按同一格式提问。
+Combine matters needing the user into one message at closing. Number each item, give a recommended option, and phrase it so “yes” accepts the recommendation. At built-in workflow pauses (such as the pause boundaries in `afk-team-workflow`), ask in the same format.
 
-## 不找用户的事项怎么处理
+## Handling matters that do not need the user
 
-- **范围外的真缺陷**：依次走完下面三步后，开一个 `ready-for-agent` issue。
-  1. 门槛：复现过或有代码证据，并且影响正确性或用户体验。「可以更好」类建议不开 issue。
-  2. 查重：命中已有 open issue 时，在原 issue 补一条证据评论。
-  3. 合并：同一批次在同一模块发现的多个小缺陷合成一个 issue。
+- **A real defect outside scope**: complete these three steps in order, then open a `ready-for-agent` issue.
+  1. Qualification: reproduce it or provide code evidence that it affects correctness or user experience. Do not open issues for “could be better” suggestions.
+  2. Deduplication: if a matching open issue exists, add an evidence comment there.
+  3. Consolidation: combine small defects found in the same module during one batch into one issue.
 
-  修法符合做错代价高的判据时，改开 `needs-triage` issue，写明选项与推荐。
-- **价值不明的建议**：由一次出错引出、且这次出错符合 [lessons.md](lessons.md)「收尾自查」判据的，写成教训候选；其余丢弃。
+  If the fix meets the high-cost criteria, open a `needs-triage` issue instead, with options and a recommendation.
+- **Suggestions of uncertain value**: if a mistake led to the suggestion and that mistake meets the [lessons.md](lessons.md) “Closing self-check” criteria, record a lesson candidate; otherwise discard it.

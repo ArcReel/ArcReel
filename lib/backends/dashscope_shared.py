@@ -1,15 +1,15 @@
-"""阿里百炼 DashScope (Model Studio) 共享工具模块。
+"""Shared Alibaba Bailian DashScope (Model Studio) utilities.
 
-供 image_backends / video_backends / text_backends factory / custom_provider / config
-复用。包含：
-- DASHSCOPE_BASE_URL — 百炼 host 段（不含路径后缀），北京地域起点
-- resolve_dashscope_api_key — API Key 解析（缺失即 raise，不走 env fallback）
-- dashscope_text_base_url / dashscope_native_base_url — 由 host 派生双 base
-  （文本走 /compatible-mode/v1，原生图像/视频走 /api/v1），容忍带/不带后缀
-- dashscope_headers — Bearer 鉴权头，视频异步额外带 X-DashScope-Async: enable
-- 视频异步任务工具 — 状态判定 / 失败原因 / task_id / video_url / 计费时长提取
-- extract_image_url — 同步图像响应（multimodal choices）URL 提取
-- safe_body_for_log — 日志白名单视图（避免 base64 图片或长 prompt 进日志）
+Reused by image_backends / video_backends / text_backends factories / custom_provider / config.
+Includes:
+- DASHSCOPE_BASE_URL: host without suffixes, Beijing starting region.
+- resolve_dashscope_api_key: raise for missing keys without environment fallback.
+- dashscope_text_base_url / dashscope_native_base_url: derive text /compatible-mode/v1 and native
+  image/video /api/v1 bases from hosts, accepting configured suffixes or bare hosts.
+- dashscope_headers: Bearer headers, asynchronous video adds X-DashScope-Async: enable.
+- Async video helpers: states/failure reasons/task_id/video_url/billed durations.
+- extract_image_url: synchronous multimodal-choices image URLs.
+- safe_body_for_log: allowlisted logs excluding base64 images/long prompts.
 """
 
 from __future__ import annotations
@@ -23,24 +23,24 @@ from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
 logger = logging.getLogger(__name__)
 
-# host 段（scheme://host），不含 /api/v1 或 /compatible-mode/v1 后缀；两 base 由此派生。
+# Host scheme://host without /api/v1 or /compatible-mode/v1; derive both bases from it.
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com"
 
-# 重试判定按响应状态码而非异常字符串：HTTPStatusError 的 str() 携带 URL/task_id，其中的
-# "503"/"timeout" 子串可能让 4xx 业务错误被误判为可重试。各 DashScope 后端使用
-# lib.backends.backend_runtime 的状态码谓词——创建/提交（非幂等 POST）走 should_retry_submit（4xx
-# fail-fast、5xx/429 重试、歧义传输错误经 submit_post 转 AmbiguousSubmitError 不重试），轮询
-# （幂等 GET）走 should_retry_poll（404 视为未就绪重试），下载已签发结果 URL 走 should_retry_download
-# （4xx 含 404 一律 fail-fast）。HTTPStatusError 一律按 response.status_code 显式闸门判定，状态码
-# 语义也因此被保留，供咽喉层识别 413 做降档兜底。
+# Retry by response statuses, never exception strings: HTTPStatusError str() contains URLs/task_ids whose
+# 503/timeout substrings could misclassify 4xx business failures. DashScope backends use
+# lib.backends.backend_runtime status predicates: nonidempotent POST create/submit uses should_retry_submit,
+# 4xx fail fast, 5xx/429 retry, ambiguous transport becomes nonretryable AmbiguousSubmitError through submit_post.
+# Idempotent polling GET uses should_retry_poll, treating 404 as not ready; issued result URLs use should_retry_download,
+# failing fast for every 4xx including 404. Explicit response.status_code gates preserve status semantics,
+# letting central request handling recognize 413 for lower-tier fallback.
 
-# 任务状态机（图像/视频异步两步式）
+# Asynchronous image/video task states.
 DASHSCOPE_STATUS_PENDING = "PENDING"
 DASHSCOPE_STATUS_RUNNING = "RUNNING"
 DASHSCOPE_STATUS_SUCCEEDED = "SUCCEEDED"
 DASHSCOPE_STATUS_FAILED = "FAILED"
 DASHSCOPE_STATUS_CANCELED = "CANCELED"
-# task_id 超过 24h 有效期后查询返回 UNKNOWN（resume 路径据此判过期）
+# Queries after task_id 24-hour expiry return UNKNOWN, identifying expired resume.
 DASHSCOPE_STATUS_UNKNOWN = "UNKNOWN"
 
 _TERMINAL_STATES = frozenset(
@@ -61,10 +61,10 @@ _IMAGE_MIME_TYPES: dict[str, str] = {
     ".bmp": "image/bmp",
 }
 
-# 百炼建议轮询间隔 15 秒；task_id / video_url 均 24h 过期。
+# Bailian recommends 15-second polling; task_id / video_url both expire after 24h.
 DASHSCOPE_POLL_INTERVAL_SECONDS = 15.0
 
-# 已知路径后缀，派生 host 时剥除以容忍用户填入完整 base（含地域切换）。
+# Strip known suffixes to derive hosts from full bases, including region changes.
 _KNOWN_SUFFIXES = ("/compatible-mode/v1", "/api/v1")
 
 
@@ -75,9 +75,9 @@ def resolve_dashscope_api_key(api_key: str | None = None) -> str:
 
 
 def _dashscope_host(configured: str | None) -> str:
-    """从配置的 base_url 提取 host 段（剥除已知路径后缀），缺省回落北京 host。"""
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后，
-    # 否则 base 变空串、派生出 "/api/v1" 这类非法相对 URL。
+    """Extract hosts by stripping known suffixes from configured base_url, defaulting to Beijing."""
+    # Strip before emptiness checks: whitespace-only strings are truthy and bypass or, so fall back after stripping,
+    # otherwise derive invalid relative URLs such as "/api/v1" from empty bases.
     base = ((configured or "").strip() or DASHSCOPE_BASE_URL).rstrip("/")
     for suffix in _KNOWN_SUFFIXES:
         if base.endswith(suffix):
@@ -86,17 +86,17 @@ def _dashscope_host(configured: str | None) -> str:
 
 
 def dashscope_text_base_url(configured: str | None = None) -> str:
-    """文本（OpenAI 兼容模式）base：{host}/compatible-mode/v1。"""
+    """OpenAI-compatible text base: {host}/compatible-mode/v1."""
     return f"{_dashscope_host(configured)}/compatible-mode/v1"
 
 
 def dashscope_native_base_url(configured: str | None = None) -> str:
-    """原生（图像/视频）base：{host}/api/v1。"""
+    """Native image/video base: {host}/api/v1."""
     return f"{_dashscope_host(configured)}/api/v1"
 
 
 def dashscope_headers(api_key: str, *, async_mode: bool = False) -> dict[str, str]:
-    """Bearer 鉴权头；视频/异步图像须带 X-DashScope-Async: enable，同步图像不带。"""
+    """Bearer headers; video/asynchronous images require X-DashScope-Async: enable, synchronous images omit it."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -107,18 +107,18 @@ def dashscope_headers(api_key: str, *, async_mode: bool = False) -> dict[str, st
 
 
 def image_to_data_uri(image_path: Path) -> str:
-    """本地图片 → base64 data URI（百炼 media/image 接受 URL 或 data URI）。"""
+    """Local image → base64 data URI; Bailian media/image accepts URLs/data URIs."""
     return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
-# ── 视频异步任务状态工具 ──────────────────────────────────────────────────────
+# Asynchronous video task helpers.
 
 
 def _as_dict(value: object) -> dict:
-    """把任意值归一化为 dict：非 dict（含 None / list / str 等异常上游结构）一律回空 dict。
+    """Normalize values to dicts; every nondict, including malformed upstream None/list/str, becomes empty.
 
-    DashScope 文档保证 output/usage 为对象，但代理中转或错误响应可能给出非 dict 真值，
-    用此 helper 统一兜底，避免对其调用 .get 抛 AttributeError。
+    DashScope specifies object output/usage, but relays/errors may return truthy nondicts. Centralize
+    fallback here to prevent .get AttributeError.
     """
     return value if isinstance(value, dict) else {}
 
@@ -132,19 +132,19 @@ def is_dashscope_succeeded(payload: dict) -> bool:
 
 
 def is_dashscope_terminal(payload: dict) -> bool:
-    """SUCCEEDED / FAILED / CANCELED / UNKNOWN 均视为终态，停止轮询。"""
+    """SUCCEEDED / FAILED / CANCELED / UNKNOWN are terminal and stop polling."""
     return _task_status(payload) in _TERMINAL_STATES
 
 
 def is_dashscope_expired(payload: dict) -> bool:
-    """task_id 过期（24h）查询返回 UNKNOWN；resume 路径据此抛 ResumeExpiredError。"""
+    """Expired 24-hour task_id queries return UNKNOWN, causing ResumeExpiredError on resume."""
     return _task_status(payload) == DASHSCOPE_STATUS_UNKNOWN
 
 
 def dashscope_failure_reason(payload: dict) -> str | None:
-    """FAILED/CANCELED 返回错误描述；UNKNOWN 不算失败（由 expired 单独处理）。
+    """Error descriptions for FAILED/CANCELED; UNKNOWN is expiration, handled separately rather than failure.
 
-    同时兜底提交阶段的顶层错误响应（``{code, message, request_id}`` 无 output）。
+    Also handle submission top-level ``{code, message, request_id}`` errors without output.
     """
     output = _as_dict(payload.get("output"))
     status = output.get("task_status")
@@ -152,14 +152,14 @@ def dashscope_failure_reason(payload: dict) -> str | None:
         code = output.get("code") or "unknown"
         message = output.get("message") or ""
         return f"DashScope 任务失败 status={status} code={code}: {message}".strip()
-    # 提交阶段顶层错误（如 InvalidApiKey），无 output.task_status
+    # Submission top-level errors such as InvalidApiKey lack output.task_status.
     if status is None and payload.get("code"):
         return f"DashScope 提交失败 code={payload.get('code')}: {payload.get('message', '')}".strip()
     return None
 
 
 def extract_task_id(submit_payload: dict) -> str:
-    """从提交响应提取 output.task_id。"""
+    """Extract output.task_id from submission responses."""
     task_id = _as_dict(submit_payload.get("output")).get("task_id")
     if not task_id:
         reason = dashscope_failure_reason(submit_payload)
@@ -168,7 +168,7 @@ def extract_task_id(submit_payload: dict) -> str:
 
 
 def extract_video_url(payload: dict) -> str:
-    """从 SUCCEEDED 轮询响应提取 output.video_url。"""
+    """Extract output.video_url from SUCCEEDED polling responses."""
     url = _as_dict(payload.get("output")).get("video_url")
     if not url:
         raise RuntimeError(f"DashScope 任务完成但缺少 video_url: {payload}")
@@ -176,19 +176,19 @@ def extract_video_url(payload: dict) -> str:
 
 
 def extract_billing_duration(payload: dict) -> int | None:
-    """从 usage.duration 取真实计费时长（wan2.7-r2v 含输入视频时长）。
+    """Read actual usage.duration, including input-video duration for wan2.7-r2v.
 
-    容忍 int / float / 数字字符串；按 half-up 取整（4.5→5）而非截断或银行家舍入，避免少计费秒数。
-    非正值（0 / 负 / 无法解析）与超出合理上限（24h，防超大数值写入 DB Integer 列溢出）
-    一律回 None，由 caller 回落请求时长，不记 0 秒账。
+    Accept int/float/numeric strings, rounding half-up (4.5→5), never truncating or bankers rounding,
+    to avoid undercounting billed seconds. Nonpositive/unparseable values and values above 24h reasonable
+    limits return None, preventing DB Integer overflow. Callers fall back to requested duration, never zero bills.
     """
     raw = _as_dict(payload.get("usage")).get("duration")
     if raw is None:
         return None
     try:
         decimal_value = Decimal(str(raw))
-        # 上限基于取整前的原始数值判断：86400.4 已超 24h，不得因 half-up 落回上限内被接受
-        # （NaN 参与比较抛 InvalidOperation，与解析失败同路径回 None）
+        # Check raw values before rounding: 86400.4 exceeds 24h and cannot be accepted by rounding back within limits.
+        # NaN comparisons raise InvalidOperation, returning None like parse failures.
         if not 0 < decimal_value <= MAX_BILLED_DURATION_SECONDS:
             return None
         value = int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
@@ -197,19 +197,19 @@ def extract_billing_duration(payload: dict) -> int | None:
     return value if value > 0 else None
 
 
-# ── 同步图像响应工具 ──────────────────────────────────────────────────────────
+# Synchronous image-response helpers.
 
 
 def extract_image_url(payload: dict) -> str:
-    """从同步图像响应 output.choices[0].message.content[*].image 提取首个 URL。"""
+    """First output.choices[0].message.content[*].image URL from synchronous image responses."""
     choices = _as_dict(payload.get("output")).get("choices")
     if not isinstance(choices, list) or not choices:
         reason = dashscope_failure_reason(payload)
         raise RuntimeError(reason or f"DashScope 图像响应缺少 choices: {payload}")
-    # 上游异常结构（choices[0]/message 非 dict）归一化为空 dict，避免 .get 抛 AttributeError
+    # Normalize malformed choices[0]/message nondicts to empty, preventing .get AttributeError.
     content = _as_dict(_as_dict(choices[0]).get("message")).get("content")
-    # 显式校验 list：content 为 truthy 非 list（如 int / bool / dict）时 `or []` 兜不住，
-    # 直接 for 会抛 TypeError；isinstance 守卫统一落到下方 RuntimeError。
+    # Require lists explicitly: truthy nonlist content, such as int/bool/dict, bypasses `or []`,
+    # and direct iteration raises TypeError; isinstance guards route to RuntimeError below.
     if isinstance(content, list):
         for item in content:
             if isinstance(item, dict) and (url := item.get("image")):
@@ -217,11 +217,11 @@ def extract_image_url(payload: dict) -> str:
     raise RuntimeError(f"DashScope 图像响应 content 无 image 字段: {payload}")
 
 
-# ── 同步音频响应工具 ──────────────────────────────────────────────────────────
+# Synchronous audio-response helpers.
 
 
 def extract_audio_url(payload: dict) -> str:
-    """从同步语音合成响应 output.audio.url 提取音频文件 URL（wav，24h 有效）。"""
+    """Synchronous synthesis output.audio.url, wav with 24-hour validity."""
     url = _as_dict(_as_dict(payload.get("output")).get("audio")).get("url")
     if not url:
         reason = dashscope_failure_reason(payload)
@@ -229,22 +229,22 @@ def extract_audio_url(payload: dict) -> str:
     return url
 
 
-# ── 日志脱敏 ──────────────────────────────────────────────────────────────────
+# Log redaction.
 
-# 仅允许进日志的标量字段白名单；其余（含 base64 image / media url）一律不入日志。
+# Allowlisted scalars only, never base64 images/media URLs.
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
     {"model", "size", "resolution", "ratio", "duration", "n", "watermark", "prompt_extend", "seed"}
 )
 
 
 def safe_body_for_log(body: dict) -> dict:
-    """生成安全日志视图：白名单标量 + prompt 截断 + media/messages 仅计数。
+    """Safe log views: allowlisted scalars, truncated prompts, media/messages counts only.
 
-    body 含 input.messages（图像）或 input.media（视频），内部嵌 base64/URL；
-    一律不展开，避免敏感数据进日志（对齐 CodeQL clear-text-logging 约束）。
+    input.messages images and input.media video contain embedded base64/URLs. Never expand them into
+    logs, aligning with CodeQL clear-text-logging restrictions.
     """
-    # _as_dict 而非 `or {}`：truthy 非 dict（如 parameters/input 为 list/str）下 `or {}` 兜不住，
-    # 后续 .get / in 会抛 AttributeError/TypeError，反而让 fail-safe 日志辅助遮蔽原始异常。
+    # Use _as_dict rather than `or {}`: truthy nondict parameters/input lists/strings bypass `or {}`,
+    # causing .get / in AttributeError/TypeError and masking original failures in supposedly fail-safe logs.
     params = _as_dict(body.get("parameters"))
     view: dict = {"model": body.get("model")}
     for key in _SAFE_LOG_KEYS:

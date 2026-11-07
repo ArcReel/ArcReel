@@ -1,4 +1,4 @@
-"""generate_narration_audio handler 的 ``ToolOutcome``。"""
+"""generate_narration_audio handler ``ToolOutcome``."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _narration_audio_script() -> dict[str, Any]:
 
 
 class _CapturingBatch:
-    """内嵌批次等待器替身：记下入队的 spec，逐个报告成功。"""
+    """Embedded batch-wait substitute records specs and reports success per item."""
 
     def __init__(self) -> None:
         self.specs: list[Any] = []
@@ -74,7 +74,7 @@ async def _generate(fake_ctx: ToolHarness, arguments: dict[str, Any], batch: Any
 
 
 async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: ToolHarness) -> None:
-    """不传 segment_ids → 只为缺 narration_audio 的段入队 tts 任务，合成文本留给 worker 读取。"""
+    """Absent segment_ids queues TTS only for missing narration_audio, leaving synthesis text for workers to read."""
     fake_ctx.pm.script_payload = _narration_audio_script()
     batch = _CapturingBatch()
 
@@ -157,7 +157,7 @@ def _reference_narrator_unit(fake_ctx: ToolHarness) -> None:
 async def test_generate_narration_audio_takes_the_narrator_unit_of_every_skeleton(
     fake_ctx: ToolHarness, arrange: Any, expected: str
 ) -> None:
-    """入口按当前骨架取 narrator 拥有发声的单元，不限内容模式与生成模式。"""
+    """Entry selects narrator-owned speech units by current skeleton, across all content/generation modes."""
     arrange(fake_ctx)
     batch = _CapturingBatch()
 
@@ -180,7 +180,7 @@ async def test_generate_narration_audio_rejects_unbound_active_script_before_enq
 
 
 async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(fake_ctx: ToolHarness) -> None:
-    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    """Nondict corrupt generated_assets, such as strings, counts as missing without AttributeError."""
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = "corrupt"
     fake_ctx.pm.script_payload = script
@@ -192,7 +192,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
 
 
 async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolHarness) -> None:
-    """传 segment_ids → 即使该段已有 narration_audio 也重新入队（批量范围/单段重生语义）。"""
+    """Explicit segment_ids requeue even existing narration_audio, matching batch-scope/single-segment regeneration semantics."""
     fake_ctx.pm.script_payload = _narration_audio_script()
     batch = _CapturingBatch()
 
@@ -202,18 +202,18 @@ async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolHa
 
 
 async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolHarness) -> None:
-    """novel_text 空白的段不能静默丢弃：扫描时不算缺口，显式点名时按错误上报。"""
+    """Blank novel_text must not silently vanish: scans treat it as no gap; explicit requests report errors."""
     script = _narration_audio_script()
     script["segments"].append({"segment_id": "E1S03", "novel_text": "   ", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script
 
-    # 扫描模式：空白段根本不是缺口，不进 requested，也不阻塞其余段
+    # Scans exclude blank segments from requested without blocking siblings.
     batch = _CapturingBatch()
     out = await _generate(fake_ctx, {"script": "episode_1.json"}, batch)
     assert batch.resource_ids == ["E1S01"]
     assert "E1S03" not in read_generation_result(out).requested
 
-    # 显式点名空白段：该段按 blocked 上报，带稳定 code 与下一步动作
+    # Explicit blank segments report blocked with stable codes/actions.
     batch = _CapturingBatch()
     out = await _generate(fake_ctx, {"script": "episode_1.json", "segment_ids": ["E1S03"]}, batch)
     assert batch.specs == []
@@ -222,13 +222,13 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolHarnes
     assert result.blocked == ["E1S03"]
     problem = result.items[0].problem
     assert problem is not None
-    # 发声准入自己的问题码原样透出，调用方不必读文本判断下一步。
+    # Expose speech-admission codes unchanged; callers need no text parsing for next steps.
     assert problem.code == "parse_failed"
     assert problem.action.value == "fix_input"
 
 
 async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: ToolHarness) -> None:
-    """部分 id 不命中不能静默丢弃：命中的照常入队，未命中的按 blocked 逐 ID 上报。"""
+    """Missing IDs do not silently disappear: enqueue matches normally and report each unmatched ID blocked."""
     fake_ctx.pm.script_payload = _narration_audio_script()
     batch = _CapturingBatch()
 
@@ -245,7 +245,7 @@ async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: Too
 
 
 async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: ToolHarness) -> None:
-    """分镜图生视频项目下的 video_units 骨架剧本：结构报错 + 重拆指引，不静默换路径。"""
+    """video_units in storyboard-image-to-video projects report structural errors/resplitting guidance without silent route changes."""
     fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
@@ -262,7 +262,7 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
 @pytest.mark.parametrize(
     "arguments",
     [
-        # 裸字符串会被逐字符迭代成 {'E','1','S'...}，必须显式拒绝。
+        # Bare strings iterate characters into sets such as E/1/S; reject explicitly.
         pytest.param({"script": "episode_1.json", "segment_ids": "E1S01"}, id="string-segment-ids"),
         pytest.param({"script": "episode_1.json", "segment_ids": []}, id="empty-segment-ids"),
         pytest.param({"script": "../etc/passwd"}, id="path-in-script"),
@@ -282,9 +282,9 @@ async def test_generate_narration_audio_rejects_a_malformed_request(
 
 
 async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolHarness) -> None:
-    """缺 segment_id 的分镜不能让整批中断：无 ID 可寻址故不进契约，其余分镜照常入队。"""
+    """Storyboards without segment_id are unaddressable and outside the contract, without aborting valid sibling enqueue."""
     script = _narration_audio_script()
-    # 两个分镜都缺配音：本用例的主题是无 ID 分镜的可寻址性，不掺入已有配音的复用判定。
+    # Both lack voiceovers; test missing-ID addressability without mixing existing-voiceover reuse.
     script["segments"][1]["generated_assets"] = {}
     script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script

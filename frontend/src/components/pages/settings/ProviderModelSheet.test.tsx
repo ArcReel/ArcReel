@@ -57,7 +57,7 @@ function item(overrides: Partial<ProviderModelItem> = {}): ProviderModelItem {
   };
 }
 
-/** 自定义供应商下对应不上条目的视频模型：媒体类型来自调用端点，原值是运行时回落。 */
+/** Unmatched custom-provider video models: media types come from endpoints, originals from runtime fallbacks. */
 function unmatchedVideo(overrides: Partial<ProviderModelDetail> = {}): ProviderModelDetail {
   return {
     model: item(),
@@ -126,7 +126,7 @@ describe("ProviderModelSheet", () => {
 
     const sheet = await screen.findByRole("dialog");
     await within(sheet).findByText("这个供应商支持的参数");
-    // 视频的维度，没有文本模型的维度
+    // Video dimensions, without text-model dimensions.
     expect(within(rowOf("可选时长")).getByText("4, 8 秒")).toBeInTheDocument();
     expect(within(rowOf("首帧")).getByText("支持")).toBeInTheDocument();
     expect(screen.queryByText("图片输入")).not.toBeInTheDocument();
@@ -243,7 +243,7 @@ describe("ProviderModelSheet", () => {
   });
 
   it("shows image-to-image as unsupported when the entry records zero reference images, as candidates and execution do", async () => {
-    // 服务端按候选、执行同一个求值结果给出：条目记 0 张时图生图不支持
+    // Servers use identical candidate/execution evaluation: declared zero images disables image-to-image.
     const effective = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
     vi.spyOn(API, "getProviderModel").mockResolvedValue({
       ...unmatchedVideo(),
@@ -308,7 +308,7 @@ describe("ProviderModelSheet", () => {
 
     expect(screen.getByText("更换调用端点后，修改过的请求地址会恢复默认。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "请求路径 /videos" })).toBeInTheDocument();
-    // 参数随调用端点变化，换了端点先保存再改
+    // Endpoint-dependent parameters: save changed endpoints before editing.
     expect(screen.queryByRole("button", { name: "修改「可选时长」" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() =>
@@ -334,7 +334,7 @@ describe("ProviderModelSheet", () => {
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["MiniMax 海螺", "MiniMax H3"]);
     await user.click(screen.getByRole("option", { name: "MiniMax H3" }));
 
-    // 参数随调用端点变化，换了端点先保存再改
+    // Endpoint-dependent parameters: save changed endpoints before editing.
     expect(screen.getByText("调用端点已更换。保存后，再按新的调用端点修改这些参数。")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "在调用端点中打开" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -420,7 +420,7 @@ describe("ProviderModelSheet", () => {
     expect(within(info).getByText("「Vertex AI」也使用这些信息，修改会一起生效。")).toBeInTheDocument();
     await user.clear(within(info).getByLabelText("显示名称"));
     await user.type(within(info).getByLabelText("显示名称"), "My Veo");
-    // 保存前提示：停止跟随官方，共用的供应商一起改变
+    // Presave warning: stop following official entries, changing every sharing provider.
     expect(screen.getByText(/保存后，这个模型改用你修改的信息，不再随官方更新。/)).toHaveTextContent(
       "「Vertex AI」也会一起改变。",
     );
@@ -449,7 +449,7 @@ describe("ProviderModelSheet", () => {
     expect(within(info).getByText("信息由官方维护，随官方数据更新。")).toBeInTheDocument();
     expect(get).toHaveBeenCalledTimes(2);
     expect(onSaved).toHaveBeenLastCalledWith(official.model, "relay-video");
-    // 恢复不经保存栏
+    // Restore bypasses save bars.
     expect(update).toHaveBeenCalledTimes(1);
   });
 
@@ -465,7 +465,7 @@ describe("ProviderModelSheet", () => {
     await user.click(within(info).getByRole("button", { name: "添加计费项" }));
     await user.click(await screen.findByRole("menuitem", { name: "视频时长" }));
 
-    // 单价还没填：保存被拦下，不发请求
+    // Empty prices block saves without requests.
     expect(within(info).getByText("请填写单价。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "保存" }));
     expect(await screen.findByText(/「模型信息」里有填写不正确的值。/)).toBeInTheDocument();
@@ -568,7 +568,7 @@ describe("ProviderModelSheet", () => {
       await waitFor(() =>
         expect(update).toHaveBeenCalledWith("custom-3", "relay-video", { entry_binding: "google/veo-3" }),
       );
-      // 关联的条目按显示名称呼，不出现「厂商/官方模型名」
+      // Refer to linked entries by display names, never vendor/official-model names.
       expect(await within(info).findByText("已关联到「Veo 3」，不再按名字对应。")).toBeInTheDocument();
     });
 
@@ -614,7 +614,7 @@ describe("ProviderModelSheet", () => {
       const info = await infoSection();
       await user.click(within(info).getByRole("button", { name: "手动填写" }));
       const dialog = await screen.findByRole("dialog", { name: "手动填写模型信息" });
-      // 模型名称取模型 ID；视频的可选时长按名字预设预填
+      // Model names use IDs; video durations prefill from name presets.
       expect(within(dialog).getByLabelText("模型名称")).toHaveValue("relay-video");
       await waitFor(() => expect(within(dialog).getByRole("textbox", { name: "「可选时长」的值" })).toHaveValue("5, 10"));
       expect(within(dialog).getByText("不填价格时，调用费用记为未定价。")).toBeInTheDocument();
@@ -624,7 +624,7 @@ describe("ProviderModelSheet", () => {
       await user.type(within(dialog).getByLabelText("显示名称"), "My Video");
       await user.click(within(dialog).getByRole("button", { name: "确定" }));
 
-      // 只改草稿：条目还没有写入
+      // Draft changes only, entries not persisted yet.
       expect(update).not.toHaveBeenCalled();
       expect(within(info).getByText(/保存后新增模型信息「My Video」/)).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "保存" }));
@@ -721,7 +721,7 @@ describe("ProviderModelSheet", () => {
   });
 });
 
-/** 自定义供应商下对应到 Veo 3 条目的视频模型。 */
+/** Custom-provider video models matching Veo 3 entries. */
 function veoDetail(entry: Partial<NonNullable<ProviderModelDetail["entry"]>> = {}): ProviderModelDetail {
   return unmatchedVideo({
     model: item({ display_name: entry.display_name ?? "Veo 3", flags: [] }),

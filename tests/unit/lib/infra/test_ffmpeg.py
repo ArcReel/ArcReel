@@ -1,4 +1,4 @@
-"""随包 ffmpeg 查找器的自检结论（不启动子进程，由 run_version 注入自检结果）。"""
+"""Bundled ffmpeg locator self-checks, with run_version injecting results rather than subprocesses."""
 
 from __future__ import annotations
 

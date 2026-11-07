@@ -1,4 +1,4 @@
-"""剪辑视图预览的素材层：旁白版本取项目默认值，字幕与剪映草稿取自同一份呈现模型。"""
+"""Editing-preview media layer: narration variant defaults from project; subtitles and Jianying drafts share one presentation model."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ async def test_tts_project_previews_narration_audio_and_subtitles_that_follow_it
     media = await TimelinePreviewService(pm).media("demo", timeline_id)
 
     assert (media.timeline_id, media.revision, media.narration) == (timeline_id, 2, "with_narration")
-    # 字幕从旁白起点算起、按旁白时长分布；S02 的旁白比视频长，字幕照样覆盖整段旁白
+    # Subtitles start with narration and span its duration; S02 narration exceeds video, and subtitles still cover all narration.
     assert _rows(media) == [
         ("E1S01", {"path": "audio/segment_E1S01.wav", "version": 1}, True, [("旁白一句", 0.0, 1.2)]),
         ("E1S02", {"path": "audio/segment_E1S02.wav", "version": 1}, True, [("第二段", 0.0, 2.0)]),
@@ -56,7 +56,7 @@ async def test_provider_audio_switch_follows_the_current_video_version_record(tm
         ("E1S02", True),
     ]
 
-    # 生成时关闭了供应商原声：文件里即使带音轨，成片与预览都不用
+    # Provider original audio was disabled during generation: neither final cuts nor previews use tracks even if present.
     VersionManager(project_path).update_version_metadata("videos", "E1S02", 1, execution_generate_audio=False)
 
     assert [(unit.unit_id, unit.provider_audio) for unit in (await service.media("demo", timeline_id)).units] == [

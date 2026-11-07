@@ -7,7 +7,7 @@ import type {
   UsageSummary,
 } from "@/types";
 
-/** 一行使用记录；未覆写的列取一组不影响筛选与渲染的中性值。 */
+/** One usage-record row; unspecified columns use neutral values that do not affect filtering or rendering. */
 export function makeUsageRecord(overrides: Partial<UsageRecord> = {}): UsageRecord {
   return {
     id: 1,
@@ -96,7 +96,7 @@ export function makeUsageSummary(overrides: Partial<UsageSummary> = {}): UsageSu
   };
 }
 
-/** 从 `from` 起连续 `days` 天的日桶；`fill` 决定每天的计数与分媒体费用。 */
+/** Daily buckets for `days` consecutive days from `from`; `fill` sets each day's counts and per-media costs. */
 export function makeUsageDaily(
   days: number,
   from = "2026-03-01",
@@ -117,7 +117,7 @@ export function makeUsageDaily(
   });
 }
 
-/** 会话列表的一行；未覆写的列取一个已定价、无未定价记录的会话。 */
+/** One session-list row; unspecified columns represent a priced session with no unpriced records. */
 export function makeUsageAgentSession(overrides: Partial<UsageAgentSession> = {}): UsageAgentSession {
   return {
     session_id: "sess-1",
@@ -137,7 +137,7 @@ export function makeUsageAgentSession(overrides: Partial<UsageAgentSession> = {}
   };
 }
 
-/** 会话明细里的一条记录；未覆写的列取一条已定价、无缓存的记录。 */
+/** One session-detail record; unspecified columns represent a priced, uncached record. */
 export function makeUsageAgentSessionRecord(
   overrides: Partial<UsageAgentSessionRecord> = {},
 ): UsageAgentSessionRecord {

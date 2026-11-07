@@ -79,7 +79,7 @@ export default {
   'lorebook': 'Лорбук',
   'no_episodes_yet': 'Серий пока нет',
   'confirm_delete_file': 'Удалить «{{name}}»?',
-  // 全局设置侧栏
+  // Global-settings sidebar.
   'settings_group_generation': 'Генерация',
   'settings_group_agent': 'Агент',
   'settings_group_system': 'Система',
@@ -1033,7 +1033,7 @@ export default {
   'agent_profile_reset_confirm': 'Подтвердить сброс',
   'agent_profile_resetting': 'Сброс…',
   'agent_profile_reset_failed': 'Не удалось сбросить профиль агента: {{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
+  // Project settings: sidebar tabs, style dialogs and model-channel origins.
   'project_settings_group_project': 'Проект',
   'project_settings_group_agent': 'Агент',
   'project_settings_tab_basics': 'Основное',
@@ -1457,7 +1457,7 @@ export default {
   'pm_multiplier_help': 'Стоимость равна официальной цене, умноженной на этот множитель. Например, 0,8 означает скидку 20%.',
   'pm_multiplier_help_subscription': 'Тариф по подписке. По умолчанию 0, поэтому стоимость не записывается.',
   'pm_multiplier_save_failed': "Расширенные настройки сохранены, но множитель не сохранён: {{message}}",
-  // 供应商模型 Sheet
+  // Provider model Sheets.
   'pm_sheet_provider_settings': 'Настройки провайдера',
   'pm_sheet_model_info': 'Сведения о модели',
   'pm_sheet_enabled': 'Включена',
@@ -2964,7 +2964,7 @@ export default {
   'lobby_no_filter_match': 'Подходящих проектов нет',
   'lobby_no_filter_match_hint': 'Попробуйте сбросить фильтры или изменить ключевое слово.',
   'lobby_clear_filters': 'Сбросить фильтры',
-  // 外部 Agent 接入与访问令牌
+  // External Agent access and access tokens.
   'ext_agent_desc': 'Внешние агенты используют инструменты [[brand]] через публичные навыки и удалённый MCP. Чтобы подключиться, выполните три шага ниже.',
   'ext_agent_steps': 'Шаги подключения',
   'ext_agent_step_skills_title': 'Установите публичные навыки',
@@ -3116,7 +3116,7 @@ export default {
   'script_edit_commit_failed': 'Не удалось безопасно сохранить сценарий. Повторите правку.',
   'script_edit_rejected': 'Правка сценария отклонена. Проверьте затронутую операцию и повторите.',
 
-  // 自定义调用端点
+  // Custom endpoints.
   'ce_section_title': 'Эндпоинты',
   'ce_rail_label': 'Список эндпоинтов',
   'ce_rail_mine_empty': 'Пользовательских эндпоинтов пока нет.',
@@ -3472,7 +3472,7 @@ export default {
   'ce_download_policy_image': 'Если указаны и URL изображения, и base64, сначала используется URL. URL изображения скачивается автоматически: с ключом, если он на том же хосте, что и базовый URL, и без учётных данных в остальных случаях. base64 принимается как обычная строка или data URI и сохраняется после декодирования.',
   'cp_no_api_key': 'Этому провайдеру не нужен ключ',
   'cp_no_api_key_conflict': 'Эти модели используют эндпоинты, которым нужен ключ: {{models}}. Их запросы будут уходить без учётных данных.',
-  // ---- 市场 ----
+  // ---- Market ----
   'market_section_title': 'Маркет',
   'market_refresh_all': 'Обновить всё',
   'market_sources_desc': 'Эндпоинты показываются в порядке этого списка. Отключённые источники маркета остаются в списке, но их эндпоинты скрыты.',
@@ -4035,9 +4035,9 @@ export default {
   'ad_brief_placeholder': 'Опишите нужное видео: аудитория, тон, ключевые преимущества, призыв к действию…',
   'ad_products_view_all': 'Показать все',
   'ad_products_empty_hint': 'Добавьте фото товара и преимущества, и генерация сценария с ИИ будет строить сюжет вокруг товара. Без товара можно генерировать только по брифу.',
-  // 共享组件：缩略图的查看大图
+  // Shared components: thumbnail image zoom.
   'image_fullscreen_preview': 'Открыть изображение {{name}} в полном размере',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
+  // Shared components: model-catalog pickers, using conventional vendor brand names.
   'catalog_picker_title': 'Выбрать из каталога моделей',
   'catalog_picker_description': 'Найдите модель в каталоге и выберите её.',
   'catalog_picker_search': 'Поиск по названию модели',

@@ -1,6 +1,6 @@
-"""把读入后的条目写回目录数据的 JSON 形状，与 ``parse_entry`` 互逆。
+"""Write parsed entries back into catalog-data JSON shape, the inverse of ``parse_entry``.
 
-用户修改存下的条目副本用它落库：副本与目录数据同一格式，读回时过同一个实例侧校验。
+Persists user-modified entry copies: copies use the catalog data format and pass the same instance-side validation when read back.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from .model import AudioFacts, CatalogEntry, ImageFacts, Meter, ModelFacts, Pric
 
 
 def _put_recorded(raw: dict[str, object], optional: dict[str, object]) -> None:
-    """写入已收录的可选模型事实；``None`` 表示未收录，不写出。显式 ``0`` 与 ``false`` 照常写出。"""
+    """Write recorded optional model facts; ``None`` means unrecorded and is omitted. Explicit ``0`` and ``false`` are written normally."""
     raw.update({key: value for key, value in optional.items() if value is not None})
 
 
@@ -85,7 +85,7 @@ def _price(price: PriceTable) -> dict[str, object]:
 
 
 def dump_entry(entry: CatalogEntry) -> dict[str, object]:
-    """条目的 JSON 形状（可直接 ``json.dumps``）。缺省值的可选字段省略。"""
+    """JSON shape of an entry (ready for ``json.dumps``). Optional fields with default values are omitted."""
     raw: dict[str, object] = {
         "maker": entry.maker,
         "name": entry.name,

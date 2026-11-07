@@ -1,12 +1,12 @@
-"""导入分流：一份粘进来的 JSON 是端点定义、API 格式 workflow，还是 UI 格式 workflow。
+"""Import routing: pasted JSON definitions versus API/UI workflows.
 
-用户手上最常见的文件不是端点定义，而是 ComfyUI 自己导出的 workflow，且导出菜单有两项：
-「Export」给出 UI 格式（带 ``nodes`` / ``links`` 的画布存档，没有 ``class_type``，提交不了），
-「Export (API)」给出提交用的节点表。两者都不带 ``kind``，靠形状区分：分不出来就只能让用户对着
-一堆字段级报错猜自己导错了菜单项。
+Users commonly have exported workflows, not endpoint definitions. ComfyUI Export creates UI
+``nodes`` / ``links`` canvas archives without ``class_type``, impossible to submit;
+Export (API) creates submit-ready node tables. Neither carries ``kind``; distinguish shapes
+rather than forcing users to infer wrong menu choices from field diagnostics.
 
-API 格式在这里被包成一份 ``kind: comfyui`` 定义，节点绑定留空——包装只是把它接进端点定义这条
-路，绑定推断是另一步，此刻还没有任何一项语义有着落。
+Wrap API workflows as ``kind: comfyui`` with empty bindings: wrapping enters definition
+flows only; binding inference is separate, with no resolved semantics yet.
 """
 
 from __future__ import annotations
@@ -25,32 +25,32 @@ from arcreel_market_core.definition_diagnostics import (
 )
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 
-#: 自动包装时写进 ``meta`` 的占位值：原始 workflow 里没有作者与名称可取，保存前由用户改写。
+#: Auto-wrapper ``meta`` placeholders: raw workflows lack authors/names; users change before saving.
 PLACEHOLDER_META_NAME = "ComfyUI workflow"
 PLACEHOLDER_META_AUTHOR = "unknown"
 PLACEHOLDER_META_VERSION = "1.0.0"
 
 
 class ImportShape(StrEnum):
-    """一份导入载荷的形状。"""
+    """Imported payload shapes."""
 
-    #: 带 ``kind`` 的端点定义，按它自己的 kind 校验。
+    #: Definitions with ``kind`` validate according to their own kind.
     ENDPOINT_DEFINITION = "endpoint_definition"
-    #: ComfyUI「Export (API)」的节点表，自动包成 ComfyUI 端点定义。
+    #: ComfyUI Export (API) node tables auto-wrap as endpoint definitions.
     COMFYUI_API_WORKFLOW = "comfyui_api_workflow"
-    #: ComfyUI「Export」的画布存档，提交不了，拒绝并让用户改用 Export (API)。
+    #: ComfyUI Export canvas archives cannot submit; reject, directing users to Export (API).
     COMFYUI_UI_WORKFLOW = "comfyui_ui_workflow"
 
 
 def route_import_payload(document: object, *, media_type: str) -> tuple[ImportShape, Any]:
-    """判定一份导入载荷的形状，并在它是 API workflow 时一并包成端点定义。
+    """Identify payload shapes, wrapping API workflows into definitions.
 
-    非对象一律按端点定义走：定义的容器层已经会报出「定义必须是对象」，改口说「这不是 workflow」
-    只会把根上的同一个类型错误说成两件事。UI 格式认 ``nodes`` 是数组加一个 ``links``——API 格式
-    的键是节点 id，它的值是节点对象而非数组，两者撞不上。
+    Nonobjects follow definition validation, already reporting definitions-must-be-objects; saying not-workflow
+    would split one root type error into two. UI requires array ``nodes`` plus ``links``; API
+    keys are node ids with object values, never arrays, so shapes cannot collide.
 
-    一个节点也没有的对象同样按端点定义走：漏写 ``kind`` 的端点定义此时该听见「缺 kind」，
-    而不是它的每一节都被当成节点、报回一串定位到 ``workflow.<节名>`` 的次生错误。
+    Objects without nodes also follow definitions: omitted ``kind`` should report missing kind,
+    not treat sections as nodes and produce secondary ``workflow.<节名>`` errors.
     """
     if not isinstance(document, Mapping) or "kind" in document:
         return ImportShape.ENDPOINT_DEFINITION, document
@@ -62,15 +62,15 @@ def route_import_payload(document: object, *, media_type: str) -> tuple[ImportSh
 
 
 def ui_workflow_refusal() -> DefinitionDiagnostics:
-    """UI 格式的拒绝理由：它不进定义校验器，一条结构化的诊断说清该改用哪个导出菜单。"""
+    """Structured UI-format refusal, outside definition validators, identifying the correct export menu."""
     return DefinitionDiagnostics(errors=(DefinitionIssue(ROOT_PATH, DefinitionErrorCode.COMFYUI_UI_FORMAT_WORKFLOW),))
 
 
 def wrap_api_workflow(workflow: Mapping[str, Any], *, media_type: str) -> dict[str, Any]:
-    """把一份原始 API workflow 包成 ComfyUI 端点定义。
+    """Wrap raw API workflows as ComfyUI definitions.
 
-    ``bindings`` 是空对象而不是逐键的空列表：空列表表示「显式不支持」，而此刻每一项都只是还没
-    推断过。产出的定义因此过不了「提示词与产物必须绑定」，这正是它的真实状态。
+    ``bindings`` is empty objects, not per-key empty lists: lists explicitly mean unsupported, while here
+    nothing was inferred. Resulting definitions fail required prompt/output bindings, accurately reflecting their state.
     """
     return {
         "kind": COMFYUI_KIND,

@@ -1,4 +1,4 @@
-"""lib/backends/grok_shared.py 测试：xAI 客户端工厂与 grok_should_retry 重试谓词。"""
+"""lib/backends/grok_shared.py client factories/grok_should_retry predicates."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tests.fakes import bounded_poll_clock
 
 
 def _make_aio_rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.AioRpcError:
-    """构造一个 AioRpcError 用于测试。"""
+    """Construct test AioRpcError."""
     return grpc.aio.AioRpcError(
         code=code,
         initial_metadata=grpc.aio.Metadata(),
@@ -28,7 +28,7 @@ def _make_aio_rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.Ai
 
 class TestCreateGrokClient:
     async def test_client_created_off_the_event_loop_works_on_it(self):
-        """在没有事件循环的工作线程里创建，回到事件循环里能拿到真实的 SDK 子客户端。"""
+        """Construct in loopless workers, then obtain real SDK child clients back on event loops."""
         client = await asyncio.to_thread(create_grok_client, api_key="xai-key")
 
         assert isinstance(client.chat, chat.Client)
@@ -42,7 +42,7 @@ class TestCreateGrokClient:
 
 
 class TestGrokShouldRetry:
-    """grok_should_retry 谓词测试。"""
+    """grok_should_retry predicates."""
 
     def test_unavailable_is_retryable(self):
         exc = _make_aio_rpc_error(grpc.StatusCode.UNAVAILABLE, "Socket closed")
@@ -77,7 +77,7 @@ class TestGrokShouldRetry:
         assert grok_should_retry(exc) is False
 
     def test_non_grpc_connection_error_retryable(self):
-        """非 gRPC 异常回退到默认 should_retry 逻辑。"""
+        """NongRPC errors fall back to default should_retry."""
         assert grok_should_retry(ConnectionError("reset")) is True
 
     def test_non_grpc_timeout_error_retryable(self):
@@ -88,10 +88,10 @@ class TestGrokShouldRetry:
 
 
 class TestGrokRetryIntegration:
-    """验证 grok_should_retry 与 with_retry_async 集成。"""
+    """Integrate grok_should_retry with with_retry_async."""
 
     async def test_grpc_unavailable_triggers_retry(self):
-        """gRPC UNAVAILABLE 应触发重试并最终成功。"""
+        """gRPC UNAVAILABLE retries and eventually succeeds."""
         exc = _make_aio_rpc_error(grpc.StatusCode.UNAVAILABLE, "Socket closed")
         mock_fn = AsyncMock(side_effect=[exc, "ok"])
 
@@ -106,7 +106,7 @@ class TestGrokRetryIntegration:
         assert mock_fn.call_count == 2
 
     async def test_grpc_invalid_argument_no_retry(self):
-        """gRPC INVALID_ARGUMENT 不应重试，直接抛出。"""
+        """gRPC INVALID_ARGUMENT raises without retry."""
         exc = _make_aio_rpc_error(grpc.StatusCode.INVALID_ARGUMENT, "bad prompt")
         mock_fn = AsyncMock(side_effect=exc)
 

@@ -1,4 +1,4 @@
-"""同一调用端点更换型号名，请求与计量保持一致。"""
+"""Changing the model name on one endpoint preserves requests and metering."""
 
 import pytest
 

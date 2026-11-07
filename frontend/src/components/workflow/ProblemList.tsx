@@ -5,17 +5,17 @@ import type { ProblemView } from "./problem-views";
 
 interface Props {
   problems: ProblemView[];
-  /** 列表的无障碍名，通常绑到上方的小标题。 */
+  /** Accessible list name, usually associated with the small heading above. */
   labelledBy?: string;
   className?: string;
 }
 
 /**
- * 逐条问题的清单。每行按「在哪 · 什么原因 · 下一步」固定顺序陈述；带服务端原文的（数据损坏的
- * 阻断、批量端点的结论）把原文收进 `<details>`——先给一句能读懂的，排障细节要展开才出现。
+ * Itemized problems. Each row follows Where · Reason · Next step. For raw server details, including corruption blockers
+ * and batch-endpoint decisions, place originals in `<details>`: readable explanation first, troubleshooting detail only on expansion.
  *
- * 这里只陈述，不提供动作按钮：动作属于步骤，由步骤自己按后端给的 `next_action` 呈现。
- * 问题行长出按钮就等于界面在替用户推断下一步，那正是这个面板要避免的事。
+ * State facts here without action buttons: actions belong to steps and follow backend `next_action`.
+ * Adding buttons to problem rows would infer the user's next step, which this panel must avoid.
  */
 export function ProblemList({ problems, labelledBy, className }: Props) {
   const { t } = useTranslation("workflow");

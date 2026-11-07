@@ -3,15 +3,15 @@ import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
 import { Popover, PopoverContent, PopoverTrigger } from "./popover"
 
-// 说明性提示（infotip）：触发元素只为打开说明而存在，按 Base UI 的建议用悬停可开的 Popover 而不是 Tooltip，
-// 触屏点按、键盘 Enter/Space 与读屏都能取到说明。触发元素另有用途、说明只是附带的，仍用 Tooltip。
+// Infotips: triggers exist solely to open explanations; follow Base UI advice using hover-opening Popovers rather than Tooltips,
+// making explanations available by touch, Enter/Space and screen readers. Use Tooltips when triggers have another purpose and explanations are supplementary.
 function InfoTip({ ...props }: PopoverPrimitive.Root.Props) {
   return <Popover data-slot="info-tip" {...props} />
 }
 
-// 默认渲染原生 <button type="button">。虚线下划线、徽标这类外观由调用处经
-// render={<button type="button" className="..." />} 给出（先例同 ProjectStatusBar 的 PopoverTrigger），
-// render 的 className 与这里的 focus-ring 拼接。
+// Render native <button type="button"> by default. Callers supply dotted-underlined/badge appearances through
+// render={<button type="button" className="..." />} (following ProjectStatusBar PopoverTrigger precedent),
+// merging render className with focus-ring here.
 function InfoTipTrigger({
   className,
   ...props
@@ -20,7 +20,7 @@ function InfoTipTrigger({
     <PopoverTrigger
       data-slot="info-tip-trigger"
       openOnHover
-      // 与 TooltipProvider 的 delay 一致：悬停即开
+      // Match TooltipProvider delay: open immediately on hover.
       delay={0}
       className={cn("focus-ring", className)}
       {...props}
@@ -35,7 +35,7 @@ function InfoTipContent({
   children,
   ...props
 }: Omit<React.ComponentProps<typeof PopoverContent>, "title"> & {
-  /** 弹层的可访问名称，通常就是触发元素上的文字；不显示，只供读屏播报。 */
+  /** Accessible popover names, usually trigger text; hidden visually, announced by screen readers only. */
   title: React.ReactNode
 }) {
   return (
@@ -46,7 +46,7 @@ function InfoTipContent({
       {...props}
     >
       <PopoverPrimitive.Title className="sr-only">{title}</PopoverPrimitive.Title>
-      {/* 说明挂成弹层的 aria-describedby，读屏打开时连同弹层一起播报 */}
+      {/* Attach explanations through popover aria-describedby so screen readers announce them when opening. */}
       <PopoverPrimitive.Description>{children}</PopoverPrimitive.Description>
     </PopoverContent>
   )

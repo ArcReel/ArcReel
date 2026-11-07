@@ -1,8 +1,8 @@
-"""供应商调用的共享词汇：供应商名称常量与调用的类型 / 状态 / 来源。
+"""Shared provider-call vocabulary: provider-name constants and call types/statuses/purposes.
 
-供应商名称供 image_backends / video_backends 共用；调用词汇（``CallType`` / ``CallStatus`` /
-``CallPurpose``）供记账层、仓储与路由共用——``api_calls`` 的状态与来源取值只在这里定义一次，
-调用点不再各写字符串字面量。
+Provider names serve image_backends / video_backends; ``CallType`` / ``CallStatus`` / ``CallPurpose``
+serve accounting, repositories, and routers. Define ``api_calls`` statuses/purposes once here,
+never duplicate string literals at call sites.
 """
 
 from enum import StrEnum
@@ -30,9 +30,9 @@ CALL_TYPE_AUDIO: CallType = "audio"
 
 
 class CallStatus(StrEnum):
-    """一次供应商调用的状态。与任务状态是两套词汇，互不取用。
+    """Provider-call states, separate from task states; neither borrows the other's vocabulary.
 
-    ``cancelled`` 是用户放弃的调用（零费用），与 ``failed`` 分开，免得取消污染失败率。
+    ``cancelled`` identifies user-abandoned zero-cost calls, distinct from ``failed`` to keep cancellations out of failure rates.
     """
 
     PENDING = "pending"
@@ -42,9 +42,9 @@ class CallStatus(StrEnum):
 
 
 class CallPurpose(StrEnum):
-    """一次供应商调用被发起的原因（GLOSSARY.md「来源（purpose）」词条的七个取值）。
+    """Why provider calls were initiated: seven values in GLOSSARY.md's purpose entry.
 
-    生成任务经 ``api_calls.task_id`` 回指它服务的任务，其余六个是无任务的调用各自的来源。
+    Generation calls trace served tasks through ``api_calls.task_id``; the remaining six identify taskless call origins.
     """
 
     SCRIPT_GENERATION = "script_generation"
@@ -57,12 +57,12 @@ class CallPurpose(StrEnum):
 
 
 def require_provider_pair(kind: str, backend: object | None, provider_id: str | None) -> None:
-    """构造期成对不变量：媒体/文本 backend 与其解析层 registry provider_id 必须同在同缺。
+    """Construction invariant: media/text backends and resolved registry provider_id must both exist or both be absent.
 
-    记账 provider 一律取解析层 provider_id（单一真相源），backend 仅承担生成调用与日志/错误
-    上下文。二者缺一即为装配错误：backend 有而 provider_id 无 → 记账失去身份来源；provider_id
-    有而 backend 无 → 声明了该 lane 却没有可用 backend。此处一次性拦截，调用期不再逐次校验、
-    也不设豁免名单。
+    Accounting always uses resolved provider_id as sole authority; backends handle generation and log/error
+    context only. Missing either is assembly failure: backend without provider_id loses accounting identity;
+    provider_id without backend declares an unusable lane. Check once here, without repeated call-time
+    validation or exemption lists.
     """
     if (backend is None) != (provider_id is None):
         raise ValueError(

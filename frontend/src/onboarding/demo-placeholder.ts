@@ -1,18 +1,18 @@
 /**
- * 演示数据的配图：按名字现算一张 SVG，以 data URI 形式交给现有的 <img>。
+ * Demo images: derive SVGs by names, supplying data URIs to existing <img> elements.
  *
- * 引导要展示一个「推进到一半」的项目，每个角色、场景、道具和分镜都得有画面。这些画面
- * 不能是真图 —— 二进制大图入库会随分辨率和数量膨胀仓库，也没法随主题色走。所以这里按
- * 资源名派生色相、按类别画一套几何母题，四类共用同一个取景标记（四角 L 形），让人一眼
- * 看出这些格子里放的是「还没拍的镜头」而不是加载失败。
+ * Onboarding shows partially produced projects, requiring images for every character/scene/prop/storyboard.
+ * Never real images: binary assets inflate repositories with resolution/counts and cannot follow themes. Derive
+ * hues from names and geometric motifs from kinds, sharing four-corner L framing marks so users recognize
+ * unfilmed shots rather than loading failures.
  *
- * 母题都收在画布中央 60% 的范围内：消费方的画框比例从 1:1 到 9:16 不等，都用
- * object-cover 裁切，只有居中的构图能在各比例下都完整。
+ * Motifs occupy central 60%: consumers use frames from 1:1 to 9:16 with
+ * object-cover cropping; centered compositions alone remain complete across ratios.
  */
 
 export type DemoPlaceholderMotif = "character" | "scene" | "prop" | "storyboard";
 
-/** 取景标记：四角 L 形，四类母题共用的签名元素。 */
+/** Four-corner L framing marks, shared signature across four motifs. */
 const FRAMING_BRACKETS = [
   "M26 33 L26 26 L33 26",
   "M67 26 L74 26 L74 33",
@@ -22,29 +22,29 @@ const FRAMING_BRACKETS = [
   .map((d) => `<path d="${d}" fill="none" stroke="var(--pl-line)" stroke-width="1.1"/>`)
   .join("");
 
-/** 各类别的几何母题。坐标系为 100×100，构图收在中央。 */
+/** Per-kind geometry, centered within 100×100 coordinates. */
 const MOTIFS: Record<DemoPlaceholderMotif, string> = {
-  // 半身像：头 + 肩线
+  // Busts: heads + shoulders.
   character:
     '<circle cx="50" cy="40" r="10" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>' +
     '<path d="M32 72 Q50 52 68 72" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>',
-  // 外景：地平线 + 远山 + 天体
+  // Exteriors: horizons + distant mountains + celestial objects.
   scene:
     '<path d="M28 62 H72" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>' +
     '<path d="M32 62 L44 44 L56 62 Z M52 62 L62 48 L72 62 Z" fill="none" stroke="var(--pl-line)" stroke-width="1.4"/>' +
     '<circle cx="64" cy="38" r="5" fill="var(--pl-line)" opacity="0.5"/>',
-  // 器物：菱形嵌套
+  // Objects: nested diamonds.
   prop:
     '<path d="M50 30 L70 50 L50 70 L30 50 Z" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>' +
     '<path d="M50 41 L59 50 L50 59 L41 50 Z" fill="var(--pl-line)" opacity="0.35"/>',
-  // 镜头：三分线 + 对角构图线 + 视觉焦点
+  // Shots: thirds + diagonals + focal points.
   storyboard:
     '<path d="M43 30 V70 M57 30 V70 M30 43 H70 M30 57 H70" fill="none" stroke="var(--pl-line)" stroke-width="0.8" opacity="0.55"/>' +
     '<path d="M30 70 L70 30" fill="none" stroke="var(--pl-line)" stroke-width="1.2"/>' +
     '<circle cx="57" cy="43" r="4.5" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>',
 };
 
-/** 由资源名派生稳定色相（0–359）：同名同 salt 恒得同色，换名字才换色。 */
+/** Stable name-derived hues 0–359; equal names/salts yield equal colors, changed names change colors. */
 function hashHue(name: string, salt: number): number {
   let hash = salt;
   for (let i = 0; i < name.length; i += 1) {
@@ -54,10 +54,10 @@ function hashHue(name: string, salt: number): number {
 }
 
 /**
- * 按 seed 现算一张占位图，返回可直接放进 `<img src>` 的 data URI。
+ * Derive placeholders from seeds, returning data URIs usable directly in `<img src>`.
  *
- * @param seed 资源名。同名恒得同图，界面重渲染不会换色。
- * @param motif 类别母题。
+ * @param seed Asset names; equal names give equal images, never color changes on rerenders.
+ * @param motif Kind-specific motifs.
  */
 export function demoPlaceholder(seed: string, motif: DemoPlaceholderMotif): string {
   const hue = hashHue(seed, 17);

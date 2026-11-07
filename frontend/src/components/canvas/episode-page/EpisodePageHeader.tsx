@@ -7,8 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { episodeViewTabId, type EpisodeView, type EpisodeViewTab } from "./episode-view";
 
 /**
- * 置灰的视图 tab：目前只在还没有正式脚本时出现（分镜、多宫格分镜图），悬停与读屏都说明「脚本生成后可用」。
- * 置灰的 tab 不接收指针事件，提示挂在外层；方向键仍能聚焦到它，焦点进入时同样显示提示。
+ * Disabled view tabs currently occur only without formal scripts (storyboards/grids); hover and screen readers explain availability after script generation.
+ * Disabled tabs ignore pointer events, so wrap hints outside; arrow keys can still focus them, showing hints on focus too.
  */
 function DisabledViewTab({ view, label }: { view: EpisodeView; label: string }) {
   const { t } = useTranslation("dashboard");
@@ -29,8 +29,8 @@ function DisabledViewTab({ view, label }: { view: EpisodeView; label: string }) 
 }
 
 /**
- * 集页页头，两行共约 85px：第一行是集头与行尾的制作进度入口，第二行是视图 tab 与当前视图的动作插槽。
- * 动作由各视图经 `EpisodeHeaderActions` 放进插槽，页头不认识具体动作。
+ * Two-row episode header, about 85px: episode head/progress entry first, view tabs/current-view action slot second.
+ * Views populate the slot through `EpisodeHeaderActions`; headers do not know specific actions.
  */
 export function EpisodePageHeader({
   head,
@@ -42,12 +42,12 @@ export function EpisodePageHeader({
   onActionsSlot,
 }: {
   head: ReactNode;
-  /** 制作进度入口；演示项目没有。 */
+  /** Production-progress entry, absent in demo projects. */
   progress: ReactNode;
   tabs: EpisodeViewTab[];
   view: EpisodeView;
   onViewChange: (view: EpisodeView) => void;
-  /** 「分镜」tab 的名称：参考生视频项目称「视频单元」。 */
+  /** Storyboard-tab label: video units for reference-to-video projects. */
   boardLabel: string;
   onActionsSlot: (node: HTMLDivElement | null) => void;
 }) {
@@ -79,7 +79,7 @@ export function EpisodePageHeader({
             )}
           </TabsList>
         </Tabs>
-        {/* 动作多到放不下时横向滚动；插槽靠右，溢出时从左端开始滚，不裁掉第一个动作。 */}
+        {/* Horizontally scroll overflowing actions; right-aligned slot starts scrolling at the left edge so the first action remains accessible. */}
         <div className="relative flex min-w-0 flex-1 overflow-x-auto scroll-fade-x">
           <div ref={onActionsSlot} className="ml-auto flex shrink-0 items-center gap-1.5" />
         </div>

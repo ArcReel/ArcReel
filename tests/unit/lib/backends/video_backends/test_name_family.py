@@ -1,4 +1,4 @@
-"""视频调用通道按名字族认定请求形态：名字的取法；对应不上条目时生效能力的保守回落。"""
+"""Video channels determine request shape by name family: name selection and conservative effective-capability fallback when no entry matches."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def test_names_fall_back_to_api_model_name_without_an_entry():
 
 @pytest.mark.parametrize("backend_name", sorted(get_registered_backends()))
 def test_unrecognized_model_falls_back_to_text_and_first_frame_only(backend_name: str):
-    """对应不上条目的模型：文生与首帧跟随通道，尾帧与参考音频不开，参考图上限只受通道约束（docs/adr/0104）。"""
+    """Unmatched models follow the channel for text-to-video and first frames, disable last frames/reference audio, and limit reference-image count only by the channel (docs/adr/0104)."""
     channel = video_capabilities_for_model(backend_name, "acme-video-9")
     caps = effective_video_capabilities(channel, UNRECORDED_VIDEO_FACTS)
 
@@ -43,7 +43,7 @@ def test_alias_of_the_mapped_entry_selects_the_family(monkeypatch: pytest.Monkey
 
 
 def test_relay_spelling_of_an_entry_name_selects_the_family():
-    """命名空间前缀与大小写在对应条目时归一化，调用通道按条目的官方模型名认定能力。"""
+    """Normalize namespace prefixes and case when matching entries; the channel determines capabilities from the entry's official model name."""
     caps = video_capabilities_for_model("vidu", "vidu/ViduQ3-Turbo")
 
     assert caps == video_capabilities_for_model("vidu", "viduq3-turbo")

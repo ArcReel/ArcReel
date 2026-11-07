@@ -1,21 +1,21 @@
-"""资产合并的纯函数层：引用改指保留方、衍生去留规划与影响报告。
+"""Pure asset-merge layer: redirect references, plan derivative retention, and report impact.
 
-合并把同一身份被登记成的两个同类型资产并成一个（见 ``docs/adr/0057``、``docs/adr/0092``）：
-被并方的全部引用改指保留方，保留方原样不动，只追加别名或衍生。它不是「重命名到已有名字」，
-重命名遇到同名一律拒绝。
+Merge two same-type assets registered as one identity (``docs/adr/0057``, ``docs/adr/0092``), redirecting
+all source references to retained targets. Preserve targets, appending only aliases/derivatives. This
+is not renaming into existing names: renames always reject collisions.
 
-两种并法：
+Two forms:
 
-- **并为本体**：被并方的名字与别名追加进保留方的别名；``被并方/衍生`` 改指 ``保留方/衍生``。
-- **并为衍生**（仅角色）：被并方成为保留方的一个衍生，衍生名就是被并方的名字，不记为别名。
-  画面引用改指 ``保留方/被并方``，说话人只承载本体名（见 ``docs/adr/0072``），改指保留方。
+- **Merge as base**: append source names/aliases to target aliases; ``被并方/衍生`` → ``保留方/衍生``.
+- **Merge as derivative**, characters only: source becomes a target derivative named after source,
+  without adding aliases. Visuals reference ``保留方/被并方``; speakers carry base names only
+  (``docs/adr/0072``), redirecting to targets.
 
-两种并法里，衍生与保留方已有衍生同名（按 :func:`find_derivative_name`，只差大小写也算）时并入
-已有的那个，引用改写到它的名字。
+In both forms, derivatives matching existing target names via :func:`find_derivative_name` (including
+case-only variants) merge there, rewriting references to retained names.
 
-本模块只承载无副作用的部分（就地改写载荷、返回计数与规划），供
-:meth:`lib.project.project_manager.ProjectManager.merge_asset` 在与重命名同一组锁内先扫描、再落盘。
-"""
+Only side-effect-free payload rewrites/counts/plans live here, used by
+:meth:`lib.project.project_manager.ProjectManager.merge_asset` for scan-then-persist under rename-equivalent locks."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from lib.script.script_references import iter_reference_lists, iter_reference_si
 from lib.speech.speech_artifact_provenance import build_video_speech_basis
 from lib.speech.speech_composition import admit_script_unit
 
-#: 可以合并的资产类型：带别名的类型（角色、场景、道具）。商品没有别名，合并后被并名无处可记。
+#: Mergeable alias-bearing types: characters/scenes/props. Products lack aliases to retain removed names.
 MERGEABLE_ASSET_TYPES: tuple[str, ...] = tuple(
     asset_type for asset_type, spec in ASSET_SPECS.items() if ALIASES_FIELD in spec.extra_list_fields
 )
@@ -46,7 +46,7 @@ MergeRejection = Literal["type_not_mergeable", "same_asset", "derivative_needs_c
 
 
 class AssetMergeNotFoundError(KeyError):
-    """被并方或保留方在资产表中不存在。"""
+    """Source or target is absent from asset tables."""
 
     def __init__(self, name: str):
         super().__init__(name)
@@ -54,7 +54,7 @@ class AssetMergeNotFoundError(KeyError):
 
 
 class AssetMergeRejectedError(ValueError):
-    """这次合并不成立（类型不可合并、并入自己、非角色并为衍生），整体拒绝、不落盘。"""
+    """Invalid merge (unsupported type, self-merge, noncharacter derivative merge): reject wholly without persistence."""
 
     def __init__(self, reason: MergeRejection, detail: str):
         super().__init__(detail)
@@ -63,7 +63,7 @@ class AssetMergeRejectedError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ReferenceChanges:
-    """一份载荷里改写的引用处数，按落点分：引用数组、说话人、正文与画面描述里的记号。"""
+    """Rewritten-reference counts per payload, split by arrays, speakers, and body/visual markers."""
 
     names: int = 0
     speakers: int = 0
@@ -76,11 +76,10 @@ class ReferenceChanges:
 
 @dataclass(frozen=True, slots=True)
 class AssetMergeEpisodeImpact:
-    """合并对一集的影响：各处改写的引用数，以及将从现行转为过期的分镜图与视频数。
+    """Episode merge impact: rewrite counts and current storyboard/video counts becoming stale.
 
-    ``script_plan`` / ``script`` / ``draft`` 只数引用数组（按所在文件分），说话人与记号
-    不分文件，分别计入 ``speaker`` 与 ``prompt_text``，各项之和即这一集的引用改写总数。
-    """
+    ``script_plan`` / ``script`` / ``draft`` count arrays by file only. Speakers/markers aggregate across
+    files into ``speaker`` / ``prompt_text``; all fields sum to total episode rewrites."""
 
     episode: int
     script_plan: int = 0
@@ -98,19 +97,19 @@ class AssetMergeEpisodeImpact:
 
 @dataclass(frozen=True, slots=True)
 class AssetMergeReport:
-    """资产合并的影响报告。dry-run 预览与实际执行共用同一次扫描，数字必然一致。"""
+    """Merge impact report; dry-run/execution share one scan and necessarily identical counts."""
 
     table: str
     source: str
     target: str
     as_derivative: bool
-    #: 追加进保留方别名的名字（并为衍生时为空）。
+    #: Names appended to target aliases; empty for derivative merges.
     aliases_added: tuple[str, ...]
-    #: 并为衍生时新建的衍生名；保留方已有同名（只差大小写也算）衍生时并入那个，这里为 ``None``。
+    #: New derivative name, or ``None`` when merging a same-name/case-only existing target derivative.
     derivative_created: str | None
-    #: 被并方名下迁到保留方的衍生。
+    #: Source derivatives carried to targets.
     derivatives_moved: tuple[str, ...]
-    #: 被并方名下与保留方已有衍生同名（只差大小写也算）、并入已有那个的衍生（这些衍生的描述与资产图不保留）。
+    #: Source derivatives merging same-name/case-only target derivatives; their descriptions/sheets are not retained.
     derivatives_folded: tuple[str, ...]
     episodes: tuple[AssetMergeEpisodeImpact, ...]
     dry_run: bool
@@ -122,25 +121,24 @@ class AssetMergeReport:
 
 @dataclass(frozen=True, slots=True)
 class DerivativeMergePlan:
-    """被并角色的衍生怎么处理：新建、迁移或并入保留方已有的同名衍生，以及引用随之改写成的衍生名。"""
+    """Source-character derivative handling: create, carry, or merge into existing target derivatives, with resulting reference names."""
 
     created: str | None = None
     moved: tuple[str, ...] = ()
     folded: tuple[str, ...] = ()
-    #: 并为衍生时被并方本体在保留方名下的衍生名（新建的，或并入的已有衍生），比对坐标。
+    #: Source-base derivative name under target (new/existing), in comparison coordinates.
     source_derivative: str | None = None
-    #: 被并方的衍生（比对坐标）→ 它在保留方名下的衍生名（比对坐标）；并入只差大小写的已有衍生时两者不同。
+    #: Source derivative → target derivative comparison names, differing for case-only existing matches.
     derivative_names: Mapping[str, str] = field(default_factory=dict)
 
     def kept_derivative(self, derivative: str) -> str:
-        """被并方名下的衍生（比对坐标）合并后在保留方名下叫什么；不是被并方的衍生时原样返回。"""
+        """Resulting target derivative name for source comparison-coordinate names; unchanged if not source derivatives."""
         return self.derivative_names.get(derivative, derivative)
 
     def carried_references(self, source: str, target: str) -> dict[str, str]:
-        """迁到保留方名下的衍生：合并后的引用名 → 合并前的引用名（比对坐标）。
+        """Carried derivatives: after-name → before-name in comparison coordinates.
 
-        迁移的衍生连图带过来，引用只是换了名字；并入已有衍生的换成了另一张图，不在其列。
-        """
+        They carry images and only rename references. Derivatives merging into existing ones change image content and are excluded."""
         return {
             derivative_reference(asset_name_comparison_key(target), asset_name_comparison_key(name)): (
                 derivative_reference(asset_name_comparison_key(source), asset_name_comparison_key(name))
@@ -158,12 +156,12 @@ def merged_reference(
     speaker: bool,
     derivatives: DerivativeMergePlan,
 ) -> str | None:
-    """把一个引用名按一次合并改写；与被并方无关时返回 ``None``。
+    """Rewrite one reference for a merge, returning ``None`` if unrelated to source.
 
-    *source* / *target* 是资产表里的条目名。``被并方/衍生`` 一律改指 ``保留方/衍生``（衍生随之
-    迁到保留方名下）；被并方本体在并为衍生时改指 ``保留方/被并方``，但说话人位只认本体，仍改指保留方。
-    衍生名按 *derivatives* 规划改写：并入只差大小写的已有衍生时，改用已有衍生的名字。
-    """
+    *source* / *target* are table names. ``被并方/衍生`` always becomes ``保留方/衍生``, carrying
+    base ownership. Source bases merged as derivatives become ``保留方/被并方`` except speakers,
+    which still use target bases. *derivatives* supplies resulting names, retaining existing target
+    spellings when merging case-only matches."""
     key = asset_name_comparison_key(name)
     source_key = asset_name_comparison_key(source)
     base, derivative = split_derivative_reference(key)
@@ -185,12 +183,11 @@ def merge_payload_references(
     as_derivative: bool = False,
     derivatives: DerivativeMergePlan,
 ) -> ReferenceChanges:
-    """就地把剧本 / 草稿载荷里指向被并方的引用改指保留方，返回各落点的改写数。
+    """Redirect script/draft source references to targets in place, returning counts by site.
 
-    落点与重命名同一份（:func:`lib.script.script_references.iter_reference_sites`）。与重命名不同的是
-    保留方本来就可能写在同一个引用数组里，改写后按比对坐标去重，只留第一次出现的那个。旧式剧本内嵌
-    的顶层 ``characters`` 镜像里被并方那条直接删除，计入引用数组的改写数。
-    """
+    Share rename sites (:func:`lib.script.script_references.iter_reference_sites`). Targets may already
+    appear in arrays, so deduplicate by comparison coordinates after rewriting, retaining first occurrences.
+    Delete source entries from embedded legacy top-level ``characters`` mirrors, counting as array rewrites."""
     spec = ASSET_SPECS[asset_type]
     names = speakers = mentions = 0
     written: set[str] = set()
@@ -224,7 +221,7 @@ def merge_payload_references(
                 write(rewritten)
                 mentions += hits[0]
             continue
-        # 新增资产清单的 target 与说话人一样只认本体：并为衍生时改指保留方，不写成 ``保留方/被并方``。
+        # New-asset targets, like speakers, carry bases only; derivative merges point to retained bases, never ``保留方/被并方``.
         merged = merged_reference(
             value,
             source,
@@ -266,11 +263,10 @@ def merge_payload_references(
 
 
 def visual_reference_signature(item: Mapping[str, Any], asset_type: str) -> tuple[object, ...]:
-    """一个条目里决定其画面产物的引用：引用数组、画面描述与正文里的画面记号（不含说话人位）。
+    """Visual artifact references: arrays, visual descriptions, and visual body markers, excluding speakers.
 
-    合并前后签名不同的条目，其分镜图或参考生视频的登记依据随之对不上，由现行转为过期。
-    说话人与台词记号的说话人位不进入画面依据，只改它们的条目不算。
-    """
+    Changed signatures stale storyboard/reference-video registrations through mismatched basis. Speakers
+    and speech-marker speaker positions do not enter visual basis; speaker-only changes do not count."""
     spec = ASSET_SPECS[asset_type]
     lists = tuple(
         tuple(item.get(name) or ()) for name in spec.reference_list_fields if isinstance(item.get(name), list)
@@ -285,11 +281,10 @@ def visual_reference_signature(item: Mapping[str, Any], asset_type: str) -> tupl
 def storyboard_reference_signature(
     item: Mapping[str, Any], asset_type: str, identities: Mapping[str, str]
 ) -> tuple[object, ...]:
-    """一个条目里决定其分镜图的引用，按引用到的图比较。
+    """Storyboard references compared by referenced image content.
 
-    分镜图依据不记资产名、只记参考图内容（``without_asset_names``）：可用参考图的名字换成
-    *identities* 中的内容身份；缺图仍按名字区分缺口。正文只替换引用数组里实际选中的参考图。
-    """
+    Basis omits asset names (``without_asset_names``): replace usable image names with content identities
+    from *identities*. Missing-image gaps remain name-distinct. In bodies, replace only references actually selected by arrays."""
     remapped = dict(item)
     spec = ASSET_SPECS[asset_type]
     selected: dict[str, str] = {}
@@ -315,8 +310,8 @@ def storyboard_reference_signature(
 
 
 def storyboard_reference_identities(project_dir: Path, project: dict[str, Any], asset_type: str) -> dict[str, str]:
-    """已登记且可用的资产参考图：引用名 → 内容身份；没有图的引用不在映射里。"""
-    # 生成输入经规划器依赖 ProjectManager，惰性导入避免环。
+    """Registered usable asset images: reference name → content identity; omit references without images."""
+    # Generation inputs depend on ProjectManager through planners; lazy import avoids cycles.
     from lib.artifacts.generation_input import project_input_observation
     from lib.artifacts.visual_artifact_provenance import visual_file_digest
 
@@ -340,17 +335,17 @@ def storyboard_reference_identities(project_dir: Path, project: dict[str, Any], 
     return identities
 
 
-#: 问「这件产物此刻是现行的、且依据会随剧本引用变化吗」：``(清单键, 产物路径字段值) → bool``。
+#: Whether artifacts are current and reference-dependent: ``(清单键, 产物路径字段值) → bool``.
 CurrentArtifactProbe = Callable[[ArtifactKey, object], bool]
 
 
 def current_artifact_probe(project_dir: Path) -> CurrentArtifactProbe:
-    """按产物清单判定现行与否的探针；项目没有可用的清单（未升级、清单损坏）时一律答「否」。
+    """Manifest-currentness probe; always false without usable manifests (unupgraded/corrupt).
 
-    选中手动上传的分镜图或视频按上传字节判定时效，剧本引用、说话人与宫格参考图都不是它的输入，
-    合并不会让它过期，同样答「否」。上传依据由规划器判定（选中版本是上传且字节与正式文件一致），这里不另行推断。
-    """
-    # artifact_currency 经产物规划依赖 project_manager，模块级导入会成环。
+    Selected uploads judge currency by uploaded bytes, not script references/speakers/grid images, so
+    merges cannot stale them; return false too. Planners determine upload basis (selected upload matching
+    formal bytes), without separate inference here."""
+    # artifact_currency depends on project_manager through planning; top-level imports would cycle.
     from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
     from lib.artifacts.visual_artifact_provenance import (
         UPLOADED_STORYBOARD_BASIS_KIND,
@@ -385,10 +380,9 @@ def current_artifact_probe(project_dir: Path) -> CurrentArtifactProbe:
 
 
 def speech_signature(kind: str, item: Mapping[str, Any]) -> str | None:
-    """一个条目进入视频声音依据的部分（角色台词的说话人与文本）；不能进入声音合成时为 ``None``。
+    """Item components entering video voice basis (dialogue speakers/text); ``None`` when unsynthesizable.
 
-    不含声音设置：合并只改说话人，说话人没变时双方的声音设置都不会进入这个条目的依据。
-    """
+    Exclude voice settings: merges only change speakers; without speaker changes neither side's settings enter this item's basis."""
     try:
         admission = admit_script_unit(kind, item)
         if not admission.allowed:
@@ -401,7 +395,7 @@ def speech_signature(kind: str, item: Mapping[str, Any]) -> str | None:
 def grid_merge_references(
     project_dir: Path, asset_type: str, source: str, folded_derivatives: Sequence[str]
 ) -> tuple[set[str], dict[str, tuple[str, ...]]]:
-    """会丢失共享参考图的宫格 ID，以及每张宫格当前可用的冻结参考图名字。"""
+    """Grid IDs losing shared references plus currently available frozen reference names for each grid."""
     from lib.artifacts.artifact_planner import TargetStatePlanner
 
     removed = [
@@ -416,7 +410,7 @@ def grid_merge_references(
     try:
         grids = TargetStatePlanner(project_dir).load_grid_records()
     except (ArtifactManifestError, OSError, ValueError):
-        # 同 current_artifact_probe：无法读取依据的产物不计为从现行转成过期。
+        # Like current_artifact_probe, unreadable basis never counts as current-to-stale.
         return set(), {}
     outdated = {
         grid.id
@@ -435,7 +429,7 @@ def grid_merge_references(
 
 
 def grid_storyboard_reference_signature(item: Mapping[str, Any], reference_names: Sequence[str]) -> str | None:
-    """合并只改写本格画面提示词中的 mention；它按整组冻结参考图编号，不按本格引用数组编号。"""
+    """Merge changes this cell's visual mentions only; number against whole-grid frozen references, not cell arrays."""
     image_prompt = item.get("image_prompt")
     scene = image_prompt.get("scene") if isinstance(image_prompt, Mapping) else image_prompt
     if not isinstance(scene, str):
@@ -458,17 +452,17 @@ def count_outdated_artifacts(
     outdated_grid_ids: Collection[str],
     grid_reference_names: Mapping[str, Sequence[str]],
 ) -> tuple[int, int]:
-    """一份正式剧本经合并改写后，将从现行转为过期的 ``(分镜图数, 视频数)``。
+    """Current-to-stale ``(分镜图数, 视频数)`` after merging one formal script.
 
-    只数此刻是现行、且依据随引用变化的产物（选中手动上传的分镜图不计，见 :func:`current_artifact_probe`），
-    判据取各自登记依据里与引用有关的部分：
+    Count only current artifacts with reference-dependent basis, excluding selected uploaded storyboards
+    (:func:`current_artifact_probe`). Compare reference-related basis portions:
 
-    - 分镜图：引用到的图变了（:func:`storyboard_reference_signature`）；随图迁来的衍生只换了名字，不算。
-      切格分镜的依据取宫格记录冻结的参考图，合并只把随图迁来的衍生（*carried_references*，
-      合并后的引用名 → 合并前的引用名）在记录里改名改路径；共享参考图丢失时整组切格分镜计入。
-    - 参考生视频：画面引用变了，或角色台词的说话人变了（:func:`speech_signature`）。
-    - 分镜图生视频：说话人变了。它的画面输入是分镜图本身，分镜图重新生成之前不受画面引用影响。
-    """
+    - Storyboards: changed images (:func:`storyboard_reference_signature`); carried derivatives merely
+      renamed with images do not count. Split cells use frozen grid references, where carried derivatives
+      (*carried_references*, after→before reference names) only change names/paths. Lost shared images count all split cells.
+    - Reference video: changed visuals or dialogue speakers (:func:`speech_signature`).
+    - Storyboard video: changed speakers. Visual input is the storyboard itself, unaffected by reference
+      changes until that image regenerates."""
     try:
         before_items, id_field, kind = resolve_items(before)
         after_items, _id_field, _kind = resolve_items(after)
@@ -512,13 +506,12 @@ def plan_derivative_merge(
     *,
     as_derivative: bool,
 ) -> DerivativeMergePlan:
-    """规划被并角色的衍生去留：迁到保留方名下，与保留方已有衍生同名的并入那个。
+    """Plan source derivatives carried to targets or merged into same-name existing target derivatives.
 
-    同名按 :func:`find_derivative_name` 判定，只差大小写也算（衍生图按名落盘，两者会落到同一个
-    文件）；并入的衍生在引用里改用已有衍生的名字。并为衍生时先新建以被并方命名的衍生；保留方
-    已有同名衍生时并入它，不新建。被并方名下与之同名的衍生同样并入。
-    """
-    # 保留方名下的衍生：已有的，加上本次新建与迁入的。
+    Use :func:`find_derivative_name`, including case-only collisions sharing file paths; references retain
+    existing names. Merge-as-derivative first creates source-named derivatives, or merges existing matches
+    without creation. Same-named derivatives already under source merge there too."""
+    # Target derivatives: existing plus newly created/carried.
     kept: dict[str, None] = dict.fromkeys(derivative_table(target_entry))
     created: str | None = None
     source_derivative: str | None = None

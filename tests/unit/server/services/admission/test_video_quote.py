@@ -1,4 +1,4 @@
-"""视频预检报价单：已定价的单元合计，未定价的单元如实列出。"""
+"""Video preflight quote: total priced units and explicitly list unpriced ones."""
 
 from __future__ import annotations
 

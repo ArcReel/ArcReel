@@ -1,7 +1,8 @@
-"""内置供应商图片调用的预估用量（docs/adr/0100）。
+"""Estimated built-in provider image usage (docs/adr/0100).
 
-预估与结算用同一个计算器：结算时调用通道上报实际发生的计量项，预估时由同一条调用通道按请求事实推出
-（见各内置调用通道的 ``estimate_usage``），选择维度取自它会发给供应商的请求字段（docs/adr/0056）。
+Estimates and settlement share calculators: channels report actual metered items at settlement and
+derive estimates from request facts (built-in ``estimate_usage`` implementations). Selection dimensions
+come from fields actually sent to providers (docs/adr/0056).
 """
 
 from __future__ import annotations
@@ -16,9 +17,10 @@ from lib.catalog import query as catalog
 
 
 def estimate_builtin_image_usage(provider_id: str, facts: ImageRequestFacts) -> Usage:
-    """内置供应商一次图片调用的预估用量；供应商没有图片调用通道时抛 ``ValueError``。
+    """Estimate one built-in image call; raise ``ValueError`` when providers lack image-call channels.
 
-    调用通道按模型对应的条目估算（``facts.entry``）：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
+    Channels estimate by model entries (``facts.entry``): catalog-referenced entries for official models,
+    bound entries or live name lookup results for user-added models.
     """
     estimator = channel_usage_estimator(builtin_model_spec(provider_id, "image", facts.model).registry_backend)
     return estimator(replace(facts, entry=catalog.provider_model_entry(provider_id, facts.model, "image")))

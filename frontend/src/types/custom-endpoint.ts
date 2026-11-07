@@ -1,21 +1,21 @@
 import type { EndpointInstallation } from "./market";
-// 自定义调用端点（custom endpoint）——端点定义的前端类型，按 kind 分声明式与 ComfyUI 两种。
-// 定义 JSON 本身是唯一真相源，导入导出零封套：文件即 definition 原样 JSON。
-// 后端 schema 是 packages/arcreel-market-core/src/arcreel_market_core/ 下的
-// endpoint_definition/schema.json 与 comfyui/schema.json，最终判定以 POST /custom-endpoints/validate 为准，
-// 这里只描述 UI 需要读写的形状。
+// Custom endpoints: frontend endpoint definition types, divided by kind into declarative and ComfyUI.
+// The definition JSON is the sole source of truth, imported/exported without an envelope: the file is the unchanged definition JSON.
+// Backend schemas are endpoint_definition/schema.json and comfyui/schema.json under
+// packages/arcreel-market-core/src/arcreel_market_core/; POST /custom-endpoints/validate is authoritative,
+// and these types describe only shapes the UI needs to read and write.
 
-/** 素材在 ArcReel 侧的来源槽位。 */
+/** Source slot for media on the ArcReel side. */
 export type EndpointInputSource =
   | "start_image"
   | "end_image"
   | "reference_images"
   | "reference_audio_files";
 
-/** 素材发送到供应商时的编码形态。 */
+/** Encoding used when sending media to the provider. */
 export type EndpointInputEncoding = "data_uri" | "base64";
 
-/** 标准状态四档，与后端 ProviderJobStatus 同名。 */
+/** The four standard states, matching backend ProviderJobStatus. */
 export type EndpointStandardStatus = "queued" | "running" | "succeeded" | "failed";
 
 export interface EndpointInputSpec {
@@ -24,12 +24,12 @@ export interface EndpointInputSpec {
   required?: boolean;
 }
 
-/** 取值路径项：JSONPath 串，或带 json_decode 的 JSON-in-string 后缀形态。 */
+/** Extraction path item: a JSONPath string, or a JSON-in-string suffix form with json_decode. */
 export type EndpointPathItem =
   | string
   | { path: string; json_decode?: boolean; then?: string[] };
 
-/** 取值声明：简写为路径优先级数组，全写可另带 accept。 */
+/** Extraction declaration: shorthand is an array of paths in priority order; the full form may also include accept. */
 export type EndpointExtractSpec =
   | EndpointPathItem[]
   | { paths: EndpointPathItem[]; accept?: "string" | "scalar" };
@@ -45,7 +45,7 @@ export interface EndpointMeta {
   version: string;
   description?: string;
   homepage?: string;
-  /** 运行该定义所需的最低 ArcReel 版本（semver）。 */
+  /** Minimum ArcReel version required to run this definition (semver). */
   min_app_version?: string;
   hints?: EndpointMetaHints;
 }
@@ -98,8 +98,8 @@ export interface EndpointResultSpec {
 }
 
 /**
- * 能力字段按媒体类型分集合：视频定义写 VideoCapabilities 同名字段，
- * 图片定义写 text_to_image、image_to_image 与 max_reference_images。
+ * Capability fields are grouped by media type: video definitions use fields matching VideoCapabilities,
+ * while image definitions use text_to_image, image_to_image, and max_reference_images.
  */
 export interface EndpointCapabilities {
   text_to_video?: boolean;
@@ -118,11 +118,11 @@ export interface EndpointCapabilities {
   reference_route_audio_track?: "controllable" | "always_on" | "always_off" | null;
 }
 
-/** 一份完整的声明式定义。未知字段原样保留，表单不会在往返中丢弃它们。 */
+/** A complete declarative definition. Unknown fields are preserved unchanged across form round trips. */
 export interface EndpointDefinition {
   kind: "declarative";
   schema_version: string;
-  /** 定义产出的媒体类型，不写即视频。 */
+  /** Media type produced by the definition; defaults to video when omitted. */
   media_type?: "image" | "video";
   meta: EndpointMeta;
   auth: EndpointAuth;
@@ -137,8 +137,8 @@ export interface EndpointDefinition {
 }
 
 /**
- * 节点绑定的语义键名录。视频端点用全部十一个，图像端点没有首尾帧与时间轴那四个。
- * 与服务端 `packages/arcreel-market-core/src/arcreel_market_core/comfyui/bindings.py` 同名同序。
+ * Semantic key list for node bindings. Video endpoints use all eleven; image endpoints omit the four for first/last frames and timing.
+ * Matches the names and order in server-side `packages/arcreel-market-core/src/arcreel_market_core/comfyui/bindings.py`.
  */
 export const COMFYUI_VIDEO_BINDING_KEYS = [
   "prompt",
@@ -166,13 +166,13 @@ export const COMFYUI_IMAGE_BINDING_KEYS: readonly ComfyuiBindingKey[] = [
   "output",
 ];
 
-/** 两种媒体类型都必须绑定的语义键：没有提示词无从下笔，没有产物取不到成片。 */
+/** Semantic keys required for both media types: a prompt is needed to generate, and an output is needed to retrieve the result. */
 export const COMFYUI_REQUIRED_BINDING_KEYS: readonly ComfyuiBindingKey[] = ["prompt", "output"];
 
-/** 一份 ComfyUI workflow 产出图像还是视频。 */
+/** Whether a ComfyUI workflow produces images or video. */
 export type ComfyuiMediaType = "image" | "video";
 
-/** 一条节点绑定指向的读图节点接到谁的哪个入口；张数少于格子数时据此改图。 */
+/** The node and input consuming the bound image-loading node; used to rewrite the graph when image count is below slot count. */
 export interface ComfyuiConsumerTarget {
   node: string;
   input: string;
@@ -181,9 +181,9 @@ export interface ComfyuiConsumerTarget {
 }
 
 /**
- * 一条节点绑定的落点。各语义键的可选键由服务端 schema 约束：`output` 没有 `input`，
- * `fps` 的 `direction` 恒为 `read`，`width` / `height` / `frames` 带 `step`，
- * `frames` 可带手填 `fps`，`seed` 带 `policy`，`reference_images` 带 `consumer`。
+ * Target of a node binding. The server schema constrains optional fields per semantic key: `output` has no `input`,
+ * `fps` always has `direction: read`; `width` / `height` / `frames` carry `step`,
+ * `frames` may carry a manually entered `fps`, `seed` carries `policy`, and `reference_images` carries `consumer`.
  */
 export interface ComfyuiBindingTarget {
   node: string;
@@ -198,15 +198,15 @@ export interface ComfyuiBindingTarget {
 }
 
 /**
- * 语义键 → 目标列表。三态：非空列表是已绑定，空列表是显式不支持，键缺失是从未推断。
+ * Semantic key → target list. Three states: a nonempty list means bound, an empty list means explicitly unsupported, and an absent key means never inferred.
  */
 export type ComfyuiBindings = Partial<Record<ComfyuiBindingKey, ComfyuiBindingTarget[]>>;
 
 /**
- * 一份 ComfyUI 端点定义：API 格式 workflow 连同它的节点绑定。
+ * A ComfyUI endpoint definition: an API-format workflow together with its node bindings.
  *
- * 能力只从 `bindings` 推导，定义不含 `capabilities` 节。`workflow` 保持松类型：ArcReel 不改写
- * 它的结构，提交时原样发出，前端只读每个节点的 `class_type`、`inputs` 与 `_meta.title`。
+ * Capabilities derive only from `bindings`; the definition has no `capabilities` section. `workflow` remains loosely typed: ArcReel does not rewrite
+ * its structure and submits it unchanged; the frontend reads only each node's `class_type`, `inputs`, and `_meta.title`.
  */
 export interface ComfyuiEndpointDefinition {
   kind: "comfyui";
@@ -218,7 +218,7 @@ export interface ComfyuiEndpointDefinition {
   bindings: ComfyuiBindings;
 }
 
-/** workflow 里的一个节点。`inputs` 的值或是字面值，或是 `[节点 id, 输出序号]` 形态的连线。 */
+/** One workflow node. `inputs` values are either literals or connections shaped as `[node id, output index]`. */
 export interface ComfyuiWorkflowNode {
   class_type: string;
   inputs?: Record<string, unknown>;
@@ -226,12 +226,12 @@ export interface ComfyuiWorkflowNode {
 }
 
 // ---------------------------------------------------------------------------
-// 节点绑定推断（POST /custom-endpoints/comfyui/infer）
+// Node binding inference (POST /custom-endpoints/comfyui/infer)
 // ---------------------------------------------------------------------------
 
 /**
- * 一个语义键的推断状态。`needs_confirmation` 是重导入专属：既有条目有丢失的，该键重跑了
- * 推断，保存前必须由用户确认。
+ * Inference state for a semantic key. `needs_confirmation` applies only to reimport: existing entries were lost, this key was
+ * reinferred, and the user must confirm before saving.
  */
 export type ComfyuiBindingState =
   | "auto_selected"
@@ -240,30 +240,30 @@ export type ComfyuiBindingState =
   | "unsupported"
   | "needs_confirmation";
 
-/** 候选是怎么来的：本轮推断、原样沿用已保存的条目、或按类型加标题重匹配到新节点 id。 */
+/** Candidate origin: inferred this round, kept unchanged from saved entries, or rematched to a new node ID by type and title. */
 export type ComfyuiMatchOrigin = "inferred" | "kept" | "rematched";
 
-/** 一条命中的信号与它贡献的分量；`message` 已按请求语言渲染好。 */
+/** One matched signal and its weight contribution; `message` is rendered in the request language. */
 export interface ComfyuiBindingSignal {
   signal: string;
   weight: number;
   message: string;
 }
 
-/** 一条提示。不拦保存，但有它用户才知道某个形态会怎么表现。 */
+/** An informational note. Does not block saving, but explains how a particular configuration will behave. */
 export interface ComfyuiInferenceNote {
   code: string;
   message: string;
 }
 
 export interface ComfyuiBindingCandidate {
-  /** 可直接写进 `bindings` 的条目，`step` / `policy` / `direction` / `consumer` 都已填好。 */
+  /** Entry ready to write into `bindings`, with `step` / `policy` / `direction` / `consumer` already populated. */
   target: ComfyuiBindingTarget;
   score: number;
   signals: ComfyuiBindingSignal[];
   selected: boolean;
   origin: ComfyuiMatchOrigin;
-  /** 产物候选的上游链长度，用来解释「为什么是这一个」；其余语义键为 null。 */
+  /** Upstream chain length of an output candidate, explaining why it was selected; null for other semantic keys. */
   depth: number | null;
 }
 
@@ -275,16 +275,16 @@ export interface ComfyuiKeyInference {
 
 export interface ComfyuiInferResponse {
   media_type: ComfyuiMediaType;
-  /** 照这份结果直接落盘能不能过校验；真闸门仍是保存时的校验器。 */
+  /** Whether persisting this result directly would pass validation; the actual gate remains the save-time validator. */
   savable: boolean;
   bindings: Partial<Record<ComfyuiBindingKey, ComfyuiKeyInference>>;
   notes: ComfyuiInferenceNote[];
   import_shape: EndpointImportShape;
-  /** 原始 API workflow 的包装结果；载荷本就是定义时为 null。 */
+  /** Wrapped raw API workflow; null when the payload is already a definition. */
   wrapped_definition: ComfyuiEndpointDefinition | null;
 }
 
-/** 导入、校验与保存这条路上流过的定义：两种 kind 都可能。 */
+/** Definition flowing through import, validation, and save: either kind is possible. */
 export type AnyEndpointDefinition = EndpointDefinition | ComfyuiEndpointDefinition;
 
 // ---------------------------------------------------------------------------
@@ -294,19 +294,19 @@ export type AnyEndpointDefinition = EndpointDefinition | ComfyuiEndpointDefiniti
 export interface CustomEndpointInfo {
   installation: EndpointInstallation | null;
   id: number;
-  /** 系统分配的 `ce-<id>`；对用户无意义，界面不展示。 */
+  /** System-assigned `ce-<id>`; meaningless to users and not displayed. */
   key: string;
   display_name: string;
   kind: string;
   schema_version: string;
   media_type: string;
-  /** 两种 kind 都可能：ComfyUI 定义没有 `submit` / `poll`，读它之前先用 `isDeclarativeDefinition` 收窄。 */
+  /** Either kind is possible: ComfyUI definitions have no `submit` / `poll`; narrow with `isDeclarativeDefinition` before reading them. */
   definition: AnyEndpointDefinition;
   created_at: string | null;
   updated_at: string | null;
 }
 
-/** 删除端点被拒时，服务端返回的实际引用模型行。 */
+/** Actual referencing model rows returned by the server when endpoint deletion is refused. */
 export interface EndpointReference {
   provider_id: number;
   provider_display_name: string;
@@ -315,14 +315,14 @@ export interface EndpointReference {
 }
 
 export interface EndpointDefinitionIssue {
-  /** 定义 JSON 内的定位串，根为 `$`，如 `poll.extract.video_url[0]`。 */
+  /** Location within definition JSON, rooted at `$`, such as `poll.extract.video_url[0]`. */
   path: string;
   code: string;
-  /** 服务端已按 Accept-Language 渲染好的说明，前端直接展示。 */
+  /** Explanation rendered by the server according to Accept-Language, displayed directly by the frontend. */
   message: string;
 }
 
-/** 导入时按 meta.author + meta.name 判定的同作者同名的既有定义。 */
+/** Existing definition with the same author and name, identified during import by meta.author + meta.name. */
 export interface EndpointDuplicateDescriptor {
   id: number;
   key: string;
@@ -337,7 +337,7 @@ export interface EndpointSchemaVersionInfo {
   level: "direct" | "warning" | "confirm";
 }
 
-/** meta.min_app_version 与当前应用版本的比对；不满足只提示，不拦导入。 */
+/** Comparison of meta.min_app_version with the current app version; unmet requirements produce a notice without blocking import. */
 export interface EndpointMinAppVersionInfo {
   required: string;
   current: string;
@@ -345,10 +345,10 @@ export interface EndpointMinAppVersionInfo {
 }
 
 /**
- * 服务端把这份载荷当成什么收的。
+ * How the server classified the received payload.
  *
- * 用户手上最常见的文件是 ComfyUI 自己导出的 workflow 而不是端点定义，导出菜单又有两项：
- * `Export (API)` 能提交、`Export` 的画布存档不能。
+ * Users most commonly have a workflow exported by ComfyUI rather than an endpoint definition, and the export menu has two options:
+ * `Export (API)` can be submitted; the canvas archive from `Export` cannot.
  */
 export type EndpointImportShape = "endpoint_definition" | "comfyui_api_workflow" | "comfyui_ui_workflow";
 
@@ -358,15 +358,15 @@ export interface EndpointValidateResponse {
   duplicates: EndpointDuplicateDescriptor[];
   hints: EndpointMetaHints | null;
   schema_version: EndpointSchemaVersionInfo;
-  /** 定义未声明门槛或应用版本读不出时为 null。 */
+  /** Null when the definition declares no minimum or the app version cannot be read. */
   min_app_version: EndpointMinAppVersionInfo | null;
   import_shape: EndpointImportShape;
-  /** 原始 API workflow 的包装结果；另两种形状为 null，客户端继续用自己手上那份。 */
+  /** Wrapped raw API workflow; null for the other two shapes, for which the client continues using its own copy. */
   wrapped_definition: ComfyuiEndpointDefinition | null;
 }
 
 // ---------------------------------------------------------------------------
-// 端点测试三模式
+// Three endpoint test modes
 // ---------------------------------------------------------------------------
 
 export interface EndpointTestParameters {
@@ -378,14 +378,14 @@ export interface EndpointTestParameters {
   generate_audio?: boolean;
 }
 
-/** 凭证来源二选一：已保存的自定义供应商，或本次测试临时输入。 */
+/** Mutually exclusive credential sources: a saved custom provider, or temporary input for this test. */
 export interface EndpointTestCredentials {
   provider_id?: string;
   base_url?: string;
   api_key?: string;
 }
 
-/** 端点测试 multipart 素材；键与服务端表单字段同名。 */
+/** Multipart media for endpoint testing; keys match the server's form fields. */
 export type EndpointTestAssets = Partial<Record<EndpointInputSource, File[]>>;
 
 export interface PreviewedRequest {
@@ -396,14 +396,14 @@ export interface PreviewedRequest {
 }
 
 /**
- * 「这份请求是怎么算出来的」。ComfyUI 端点的尺寸、帧数、种子与改图都是算出来的，光看一份几十个
- * 节点的 workflow JSON 答不出「我选的 720p 到底变成了多少像素」。
+ * How this request was calculated. ComfyUI endpoint dimensions, frame counts, seeds, and graph rewrites are calculated; inspecting a workflow JSON with dozens of
+ * nodes cannot explain exactly how many pixels the selected 720p became.
  *
- * `width` / `height` / `frames` / `seed` 为 null 表示这一维没有驱动这份 workflow（未绑定，或尺寸
- * 只绑了一侧因而判为固定），workflow 里的字面值原样保留。
+ * Null `width` / `height` / `frames` / `seed` means that dimension did not drive this workflow (unbound, or only one size dimension
+ * was bound and size was therefore considered fixed); literal workflow values remain unchanged.
  */
 export interface ComfyuiRequestConversions {
-  /** 实发 workflow 的指纹，与成片版本元数据里记的是同一个值。 */
+  /** Fingerprint of the workflow actually sent, matching the value recorded in output version metadata. */
   workflow_sha256: string;
   aspect_ratio: string;
   resolution: string | null;
@@ -413,7 +413,7 @@ export interface ComfyuiRequestConversions {
   frames: number | null;
   seed: number | null;
   negative_prompt: string;
-  /** 这次按参考图张数改图删掉的节点。 */
+  /** Nodes removed by the graph rewrite for this reference image count. */
   dropped_nodes: string[];
 }
 
@@ -421,7 +421,7 @@ export interface EndpointPreviewResponse {
   submit: PreviewedRequest;
   poll: PreviewedRequest;
   result: PreviewedRequest | null;
-  /** 声明式端点的请求全部来自模板直填，没有可说明的换算，为 null。 */
+  /** Null for declarative endpoints: all requests come directly from template substitution, with no conversions to explain. */
   conversions: ComfyuiRequestConversions | null;
 }
 
@@ -440,7 +440,7 @@ export interface EndpointExtractionField {
   attempts: EndpointExtractionAttempt[];
 }
 
-/** 单个阶段的取值报告，check-response 的响应与试跑结果的 extractions 同形。 */
+/** Extraction report for one stage; check-response responses and trial result extractions share this shape. */
 export interface EndpointStageReport {
   stage: EndpointTestStage;
   fields: EndpointExtractionField[];
@@ -449,7 +449,7 @@ export interface EndpointStageReport {
   status?: EndpointStandardStatus | null;
   video_url?: string | null;
   image_url?: string | null;
-  /** `image_b64` 取到的图片解码后的字节数；解不出图片为 null。 */
+  /** Decoded image byte count extracted from `image_b64`; null when no image can be decoded. */
   image_bytes?: number | null;
   error?: string | null;
   result_id?: string | null;
@@ -458,12 +458,12 @@ export interface EndpointStageReport {
 
 export type TrialRunStatus = "queued" | "running" | "succeeded" | "failed";
 
-/** 测试连接的四段：提交、轮询、取得结果、取回产物。 */
+/** Four stages of a connection test: submit, poll, obtain result, retrieve artifact. */
 export const TRIAL_RUN_STAGES = ["submit", "poll", "result", "artifact"] as const;
 
 export type TrialRunStage = (typeof TRIAL_RUN_STAGES)[number];
 
-/** 到达过的段是 done；没到达的段终态上是 skipped、运行中是 pending。不标「失败落在哪一段」。 */
+/** Reached stages are done; unreached stages are skipped in terminal states or pending while running. Does not mark which stage failed. */
 export type TrialRunStageState = "done" | "pending" | "skipped";
 
 export interface TrialRunInfo {
@@ -471,13 +471,13 @@ export interface TrialRunInfo {
   status: TrialRunStatus;
   provider: string;
   model: string;
-  /** 这一笔产的是视频还是图像；产物按哪种形态展示读它。 */
+  /** Whether this run produces video or an image; determines how its artifact is displayed. */
   media_type: ComfyuiMediaType;
-  /** epoch 秒。 */
+  /** Epoch seconds. */
   created_at: number;
   finished_at: number | null;
   api_call_id: number | null;
-  /** 供应商给这一笔的 id（ComfyUI 即 `prompt_id`）；提交之前或认不出时为 null。 */
+  /** Provider-assigned ID for this run (`prompt_id` in ComfyUI); null before submission or when unrecognized. */
   provider_job_id: string | null;
   stages: Partial<Record<TrialRunStage, TrialRunStageState>>;
   request: PreviewedRequest | null;
@@ -488,9 +488,9 @@ export interface TrialRunInfo {
   video_url: string | null;
   duration_seconds: number | null;
   error: string | null;
-  /** `error` 背后那个稳定失败码；裸异常文本没有码，为 null。 */
+  /** Stable failure code behind `error`; null for raw exception text without a code. */
   error_code: string | null;
-  /** 这条失败码该让用户去做什么，取值同项目页生成失败那一套 `GenerationAction`。 */
+  /** What this failure code asks the user to do, using the same `GenerationAction` values as generation failures on project pages. */
   error_action: string | null;
   has_artifact: boolean;
 }

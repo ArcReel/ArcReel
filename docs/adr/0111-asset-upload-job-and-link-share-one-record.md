@@ -2,16 +2,16 @@
 status: accepted
 ---
 
-# 入库任务与供应商素材关联共用一条记录，选定只由用户操作改变
+# Upload jobs and provider links share records; only user actions change selection
 
-上传到供应商素材库是异步的：CreateAsset 返回素材 ID 时供应商可能还没有取图，`GetAsset` 返回 `Active` 才可用；请求还可能在供应商已接受后超时。若等到取得素材 ID 才建立关联，处理中、失败与结果不确定的上传就没有可查询的位置，生成侧会把「尚未取得素材 ID」误判为没有关联、悄悄改发普通图片。因此入库任务从用户发起上传起就是一条关联记录，按项目、内容版本身份与调用范围（账号、站点、区域、供应商项目）键控，状态依次为等待上传、提交中、处理中，再到可用或失败；提交结果不确定的单列一个状态。
+Library uploads are asynchronous: CreateAsset may return before fetching, and only `GetAsset` `Active` is usable. Requests may time out after acceptance. Creating links only after IDs leaves pending/failed/uncertain uploads unqueryable and lets generation silently send ordinary images. From user initiation, an upload is one link record keyed by project, content-version identity, and account/site/region/provider-project scope. States are waiting, submitting, processing, available/failed, plus explicit uncertain submission.
 
-每个内容版本在同一调用范围内至多一条选定记录，由部分唯一索引保证，生成、导入已有素材与 Agent 工具都经 `lib/asset_library/links.py` 查询它，不随机挑选多条记录。选定只由用户的上传与解除关联改变：后台推进只按条件更新状态事实，不写选定。这样入库期间改选另一张图片，结果仍归属提交时的内容版本；解除关联后迟到的结果也不会恢复关系。同一范围已有选定记录时拒绝再次上传，重新上传前先解除，避免结果不确定时重复创建。不采用「按资产条目记一个可变素材 ID」：它把选图、内容版本与账号混在一起，换图就会让新图继承旧图的素材。
+Each version/scope has at most one selected record through a partial unique index. Generation, existing-asset import, and Agent tools query through `lib/asset_library/links.py`, never choose arbitrary records. Only user upload/unlink changes selection; background updates conditionally change state facts only. Image changes during upload preserve the submitted version's ownership; late results after unlink cannot restore links. Reject repeat uploads while a selection exists; unlink first to avoid duplicate creation after uncertainty. Reject mutable asset-entry IDs that mix selection, versions, and accounts and transfer links to new images.
 
-提交结果不确定时不重新创建：每次提交使用唯一的素材名称，后台在素材组内按名称查回素材 ID。进程在提交中途退出的任务，启动时一律按结果不确定处理。
+Never recreate uncertain submissions. Every submission has a unique asset name; background queries its group by name to recover IDs. Jobs interrupted mid-submit become uncertain at startup.
 
-中转副本单独记录，按入库任务状态决定保留期，不在取得素材 ID 时删除。供应商文档没有给出取图时限，下载地址有效期取 24 小时；任务有结果后副本自写入起至少保留 1 小时，一直没有结果的保留到地址过期后 1 小时。删除失败按退避重试；连接改到另一个桶时不删，避免按同名 key 误删别处的对象。这些时长是 ArcReel 的选择，不是供应商 SLA，真实账号验证后可以调整。
+Track relay copies separately, retaining by upload status rather than deleting when IDs arrive. With no documented provider fetch limit, URLs last 24 hours. After outcomes, keep copies at least one hour from creation; without outcomes, retain until one hour after URL expiry. Retry deletion with backoff; changed buckets suppress deletion to avoid same-key mistakes elsewhere. These are ArcReel choices, not provider SLAs, adjustable after real-account validation.
 
-## 后果
+## Consequences
 
-用户重新上传前需要先解除关联，多一步操作，但每条结果都能追溯到提交时的内容版本与范围。项目删除与恢复时，关联随任务、调用记录一起改挂墓碑名，同名新项目不会继承。调用范围的组成由 [ADR 0115](0115-provider-asset-link-scope-frozen-by-cloud-account-identity.md) 修订：以冻结的云账号身份代替账号记录 ID。范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+Reupload requires unlinking first, but results trace to submitted versions/scopes. Project deletion/restoration rekeys links to tombstone names alongside tasks/calls, preventing same-name inheritance. [ADR 0115](0115-provider-asset-link-scope-frozen-by-cloud-account-identity.md) replaces account record IDs with frozen cloud identity in scope. Scope/acceptance: [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559).

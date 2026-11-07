@@ -32,13 +32,13 @@ class SelectVideoVersionRequest(BaseModel):
 
     unit_id: str = Field(
         min_length=1,
-        description="视频单元 ID：分镜图生视频为分镜 ID（如 E1S01），参考生视频为 unit_id（如 E1U1）",
+        description="Video-unit ID: storyboard ID (for example E1S01) for storyboard-to-video, unit_id (for example E1U1) for reference-to-video",
     )
-    version: StrictInt = Field(ge=1, description="要设为 current 的视频版本号（从 1 起）")
+    version: StrictInt = Field(ge=1, description="Video version number to set as current (starting at 1)")
 
 
 def project_video_unit_ids(projects: ProjectManager, project_name: str, project: dict[str, Any]) -> set[str]:
-    """项目全部剧本里的视频单元 ID：分镜图生视频为分镜 ID，参考生视频为 unit_id。"""
+    """Video-unit IDs across project scripts: storyboard IDs for storyboard-to-video, unit_id for reference-to-video."""
     kind = "video_units" if is_reference_video_project(project) else None
     found: set[str] = set()
     for script_name in sorted(projects.list_scripts(project_name)):
@@ -46,7 +46,7 @@ def project_video_unit_ids(projects: ProjectManager, project_name: str, project:
             script = projects.load_script_readonly(project_name, script_name)
             items, id_field, _kind = resolve_items(script, kind=kind)
         except (ScriptEditError, ValueError, OSError):
-            # 读不出的剧本无法证明单元存在，跳过；其余剧本照常判定
+            # Unreadable scripts cannot establish unit existence; skip them and inspect other scripts normally.
             logger.warning("查找视频单元时跳过无法读取的剧本: %s", script_name, exc_info=True)
             continue
         found.update(str(item.get(id_field)) for item in items if isinstance(item, dict) and item.get(id_field))
@@ -54,7 +54,7 @@ def project_video_unit_ids(projects: ProjectManager, project_name: str, project:
 
 
 def _api_problem(exc: ApiError, *, unit_id: str, versions: VersionManager, resource_type: str) -> ToolOutcome[Any]:
-    """服务的领域异常按默认语言转述给 Agent，问题码沿用异常的 i18n key。"""
+    """Relay service domain exceptions to the Agent in the default language, retaining their i18n keys as problem codes."""
     detail = translate(exc.key, DEFAULT_LOCALE, **exc.params)
     params: dict[str, Any] | None = None
     if exc.key == "version_not_found":

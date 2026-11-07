@@ -1,4 +1,4 @@
-"""集管理的服务命令：新建、调序与删除，在真实的临时项目目录上只经公开命令验证账本与盘上文件。"""
+"""Episode-management commands: create, reorder, and delete; verify ledgers/files in real temporary project directories through public commands only."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ class TestCreate:
         assert _order(project_dir) == [1, 2, 8]
         entry = _entry(project_dir, 8)
         assert entry["source_origin"] == "none"
-        # 标题留空：界面按播出位置显示「第 N 集」，插入或调序后仍然连续
+        # Leave titles empty; UI displays 第 N 集 by broadcast position, remaining sequential after insertion/reordering.
         assert entry["title"] == ""
         assert not (project_dir / "source" / "episode_8.txt").exists()
 
@@ -140,7 +140,7 @@ class TestCreate:
         assert episode == 2
         assert _entry(project_dir, 2)["source_origin"] == "own"
         assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == "番外：山中一日。\n"
-        # 盘上同名、没有登记的文件改名留底，不被覆盖
+        # Rename same-named unregistered disk files for preservation instead of overwriting.
         assert any(p.name.startswith("_episode_2") for p in (project_dir / "source").iterdir())
 
     def test_blank_source_text_counts_as_no_source(self, tmp_path: Path):

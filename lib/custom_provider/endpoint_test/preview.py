@@ -1,9 +1,9 @@
-"""预览请求：按定义与参数渲染出将要发出的请求，一个字节都不外发。
+"""Request previews: render would-be requests from definitions/parameters, transmitting no bytes.
 
-渲染走的是运行时那一份 :func:`render_request`，因此预览出来的形状与真发出去的完全一致；差别只
-在三处替换，且都不改模板语义：凭证以打码值进渲染上下文（api_key 占位符只允许出现在 auth 节，
-打码因此天然只落在凭证注入点上，不碰 host / prompt / 请求体里恰好相同的无关子串）、素材换成
-体积摘要、轮询节的 ``task_id`` / ``result_id`` 保持占位符原样（提交之前它们本就还不存在）。
+Use runtime :func:`render_request`, matching actual sent shapes with three template-semantics-preserving substitutions:
+masked credential context (api_key placeholders allowed only in auth, so masking naturally targets credential injection,
+never unrelated matching host/prompt/body substrings), asset size summaries,
+and unchanged ``task_id`` / ``result_id`` polling placeholders that do not exist before submission.
 """
 
 from __future__ import annotations
@@ -32,23 +32,23 @@ from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides,
 from .errors import EndpointTestDefinitionError
 from .inputs import ASSET_SOURCES, EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
 
-#: 无凭证预览时保持原样的占位符：预览的用途是对照供应商文档核字段，凭证缺席不该让请求形状塌掉。
+#: Keep placeholders unchanged without credentials: previews compare provider-doc fields, so missing credentials must not collapse request shapes.
 UNRESOLVED_API_KEY = "{{ api_key }}"
 UNRESOLVED_BASE_URL = "{{ base_url }}"
 
-#: 轮询与二次取件节里提交后才有的值：预览恒保持占位符。
+#: Postsubmission polling/secondary-retrieval values always remain preview placeholders.
 UNRESOLVED_TASK_ID = "{{ task_id }}"
 UNRESOLVED_RESULT_ID = "{{ result_id }}"
 
 _MASK_TAIL = 4
 _MASK = "****"
-#: auth.query 追加项做百分号编码，打码记号会变成 ``%2A%2A%2A%2A``；预览 URL 把它还原成惯用形。
+#: auth.query percent-encodes masking into ``%2A%2A%2A%2A``; restore conventional preview URL forms.
 _ENCODED_MASK = quote(_MASK, safe="")
 
 
 @dataclass(frozen=True)
 class PreviewedRequest:
-    """渲染并脱敏后的一节请求。"""
+    """One rendered/redacted request section."""
 
     method: str
     url: str
@@ -58,11 +58,11 @@ class PreviewedRequest:
 
 @dataclass(frozen=True)
 class RequestPreview:
-    """一次预览的全部产出：提交、轮询，以及定义声明了二次取件节时的取件请求。
+    """Complete previews: submission/polling plus secondary retrieval if declared.
 
-    ``conversions`` 是「这份请求是怎么算出来的」的说明，形状由 kind 决定、原样进响应体：声明式
-    端点的请求全部来自模板直填，没有可说明的换算，故为 ``None``；ComfyUI 端点的尺寸、帧数、种子
-    与改图都是算出来的，键见 :class:`~.comfyui.ComfyuiConversions`。
+    ``conversions`` explains derivations with kind-dependent shapes passed unchanged: declarative
+    templates directly substitute without explainable conversions, so ``None``; ComfyUI computes dimensions/frames/seeds/workflow
+    changes, with keys in :class:`~.comfyui.ComfyuiConversions`.
     """
 
     submit: PreviewedRequest
@@ -80,13 +80,13 @@ def preview_request(
     placeholder_missing_assets: bool = True,
     path_overrides: PathOverrides = NO_PATH_OVERRIDES,
 ) -> RequestPreview:
-    """渲染 submit / poll / result 三节请求。定义须已过共享校验器。
+    """Render submit/poll/result sections from shared-validator-approved definitions.
 
-    ``path_overrides`` 是模型行的路径覆盖（``docs/adr/0101``），与真发同样相对原样 base_url。
+    ``path_overrides`` are model-row overrides (``docs/adr/0101``), relative to unchanged base_url like execution.
 
-    ``placeholder_missing_assets`` 只在独立预览为 True：那里未上传的素材按声明生成占位摘要，
-    好让用户对照文档核字段。测试连接的结果体传 False——记录的必须是真发出去的形状，运行时对
-    缺席素材是整个字段删除。
+    ``placeholder_missing_assets`` is True for standalone previews only, generating declared placeholder summaries for missing uploads,
+    so users compare fields with docs. Connection-test responses pass False: record actual sent shapes, where runtime
+    removes entire fields for absent assets.
     """
     api_key = masked_api_key(credentials.api_key) if credentials else UNRESOLVED_API_KEY
     base_url = _preview_base_url(definition, credentials)
@@ -127,9 +127,9 @@ def preview_request(
 def _video_variables(
     definition: Mapping[str, Any], parameters: EndpointTestParameters, inputs: Mapping[str, object]
 ) -> dict[str, object]:
-    """视频定义的生成参数变量。"""
-    # 渲染出的请求要与真发的一致：声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上
-    # 只接受 adaptive，按实际渲进请求的首帧有无施加同一条覆盖。
+    """Generation-parameter variables for video definitions."""
+    # Preview shapes must match actual sends: first_frame_ratio_adaptive_only endpoints accept only adaptive with first frames;
+    # apply the same override according to first-frame presence actually rendered.
     aspect_ratio = resolve_first_frame_aspect_ratio(
         caps=declarative_video_capabilities(definition),
         aspect_ratio=parameters.aspect_ratio,
@@ -156,12 +156,12 @@ def asset_summaries(
     *,
     placeholder_missing: bool = True,
 ) -> dict[str, object]:
-    """把素材换成 ``<data:image/png;base64, 1234 bytes>`` 这样的摘要。
+    """Replace assets with summaries such as ``<data:image/png;base64, 1234 bytes>``.
 
-    ``placeholder_missing`` 为 True 时（独立预览），未上传的来源按声明生成占位摘要而不是留空：
-    留空会让 ``$when`` 守卫与整串占位符把整个字段删掉，预览出来的请求就少了一节，而真发时用户
-    是会带上素材的。为 False 时（测试连接结果体）保持缺席为 ``None``——与运行时
-    ``encode_inputs`` 同形，字段照真发那样被删除。
+    True ``placeholder_missing`` in standalone previews creates declared missing-upload summaries instead of empty values:
+    empty values let ``$when`` guards/whole placeholders delete entire fields, hiding request sections despite actual
+    users supplying assets. False in connection responses preserves absent ``None``, matching runtime
+    ``encode_inputs`` and actual field deletion.
     """
     summaries: dict[str, object] = {}
     for name, declaration in declarations.items():
@@ -183,22 +183,22 @@ def asset_summaries(
 
 
 def masked_api_key(api_key: str) -> str:
-    """凭证的打码形：``****`` 加尾 4 位。空串原样返回——空凭证没有可打码的内容。"""
+    """Masked credentials: ``****`` plus final 4 characters; empty strings unchanged, with nothing to mask."""
     if not api_key:
         return api_key
     return f"{_MASK}{api_key[-_MASK_TAIL:]}" if len(api_key) > _MASK_TAIL else _MASK
 
 
 def restore_mask_in_url(url: str) -> str:
-    """把 URL 里百分号编码过的打码记号还原成 ``****``。
+    """Restore URL-percent-encoded masking markers to ``****``.
 
-    只替换编码形，不对凭证本身做任何子串替换——``****`` 的编码形不会出现在一个真实的地址里。
+    Replace encoded forms only, never credential substrings: real addresses never contain encoded ``****``.
     """
     return url.replace(_ENCODED_MASK, _MASK)
 
 
 def _preview_base_url(definition: Mapping[str, Any], credentials: EndpointTestCredentials | None) -> str:
-    # 归一化与运行时同一份：定义带显式版本段时剥掉配置末尾的版本段，预览与真发的 URL 必须一致。
+    # Share runtime normalization: strip configured trailing versions for explicit-version definitions, keeping preview/execution URLs identical.
     if credentials:
         return normalize_declarative_base_url(credentials.base_url, definition)
     meta = definition.get("meta")
@@ -217,7 +217,7 @@ def _preview_section(
     rendered = _render(definition, section, context)
     return PreviewedRequest(
         method=rendered.method,
-        # 只把百分号编码后的打码记号还原成 ****，不对凭证本身做任何子串替换。
+        # Restore percent-encoded masking only to ****, never replace actual credential substrings.
         url=rendered.url.replace(_ENCODED_MASK, _MASK),
         headers=dict(rendered.headers),
         body=rendered.body,

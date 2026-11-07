@@ -1,6 +1,7 @@
-"""`next_action.type` 闭集的跨语言契约。
+"""Cross-language closed-set contract for `next_action.type`.
 
-枚举是唯一真相源；前端联合类型与 profile 受控动作表都从它派生，这里守住派生结果没有漂移。
+The enum is the only source; frontend union and profile controlled-action table derive from it.
+These tests prevent derived-output drift.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ def _frontend_action_types() -> list[str]:
 
 
 def test_generation_actions_are_all_dispatchable_next_actions() -> None:
-    """整批准入判定被拒时 problems[0].action 会原样成为 next_action.type，闭集必须容得下它。"""
+    """Batch-admission rejection projects problems[0].action unchanged into next_action.type; the closed set must include it."""
 
     missing = {action.value for action in GenerationAction} - {action.value for action in WorkflowActionType}
 
@@ -38,13 +39,13 @@ def test_generation_actions_are_all_dispatchable_next_actions() -> None:
 
 
 def test_migration_retry_action_is_in_the_closed_set() -> None:
-    """升级失败的项目只报这一个动作；它与闭集脱钩就等于状态查询整体不可用。"""
+    """Migration-failed projects report only this action; disconnecting it from the set breaks status queries entirely."""
 
     assert WorkflowActionType.RETRY_PROJECT_MIGRATION.value == RETRY_MIGRATION_ACTION
 
 
 def test_frontend_union_matches_the_backend_enum() -> None:
-    """前端按这份闭集分派动作；漏一个就是界面把后端明确给出的一步讲成未知动作。"""
+    """Frontend dispatches using this set; missing an action renders an explicit backend step as unknown."""
 
     assert _frontend_action_types() == [action.value for action in WorkflowActionType]
 
@@ -57,7 +58,7 @@ PROFILE_ACTION_READERS = (
 
 @pytest.mark.parametrize("relative_path", PROFILE_ACTION_READERS)
 def test_author_prompts_action_is_mirrored_in_the_profile(relative_path: str) -> None:
-    """补提示词是下一步动作：动作表要能路由它，generate-script skill 要写明它的调用契约。"""
+    """Authoring prompts is a next action: the table must route it and generate-script must specify its invocation contract."""
     md = (REPO / relative_path).read_text(encoding="utf-8")
 
     assert f"`{WorkflowActionType.AUTHOR_PROMPTS.value}`" in md, (
@@ -66,7 +67,7 @@ def test_author_prompts_action_is_mirrored_in_the_profile(relative_path: str) ->
 
 
 def _author_prompts_section(md: str) -> str:
-    """取标题里点名 ``author_prompts`` 动作的那一小节，到下一个同级或更高级标题为止。"""
+    """Extract the heading naming ``author_prompts`` through the next same-or-higher-level heading."""
     action = f"`{WorkflowActionType.AUTHOR_PROMPTS.value}`"
     match = re.search(rf"^### [^\n]*{re.escape(action)}[^\n]*\n(.*?)(?=^#{{1,3}} |\Z)", md, re.DOTALL | re.MULTILINE)
     assert match is not None, f"generate-script skill 没有以 {action} 为标题的小节"
@@ -74,10 +75,11 @@ def _author_prompts_section(md: str) -> str:
 
 
 def test_generate_script_skill_pins_the_author_prompts_contract() -> None:
-    """补提示词小节点名的参数与问题码都取自请求模型与工具问题：改名或删字段而 skill 没跟上会红。
+    """Prompt-authoring arguments/problem codes derive from request models/tool problems; stale skills fail on rename/removal.
 
-    默认补缺、``entry_ids`` 只划范围、``rewrite`` 显式重写、覆盖前经 ``overwrite_revision`` 确认，
-    这几条规则落在参数上；已取消的 ``scope`` 由请求模型拒绝，skill 里也不得再出现。
+    Default fill-missing, ``entry_ids`` scope only, explicit ``rewrite``, and pre-overwrite
+    ``overwrite_revision`` confirmation are parameter contracts. The request model rejects retired
+    ``scope``, which must also disappear from the skill.
     """
     md = (REPO / "agent_runtime_profile/.claude/skills/generate-script/SKILL.md").read_text(encoding="utf-8")
     section = _author_prompts_section(md)

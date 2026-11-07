@@ -46,7 +46,7 @@ async def test_summary_mtime_monotonic_across_appends(session_factory):
 
 @pytest.mark.asyncio
 async def test_summary_skipped_for_subpath(session_factory):
-    """SDK 协议：subagent transcripts (subpath != '') 不参与 main summary fold."""
+    """SDK protocol: subagent transcripts (subpath != '') do not participate in main summary folding."""
     store = DbSessionStore(session_factory, user_id="u1")
     sub_key = {"project_key": "proj", "session_id": "sess", "subpath": "subagents/a"}
     await store.append(sub_key, [{"type": "user", "uuid": "x"}])

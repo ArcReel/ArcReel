@@ -7,13 +7,13 @@ interface Props {
   id: string;
   value: string;
   onChange: (next: string) => void;
-  /** 所选模型的音色表；为空时只是普通输入框。 */
+  /** Voice list for the selected model; when empty, this is an ordinary input. */
   voices: readonly TtsVoiceOption[];
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
 }
 
-/** 音色表只作候选，克隆音色与表外系统音色照常手填。 */
+/** The voice list only supplies suggestions; cloned voices and system voices outside the list can still be entered manually. */
 export function NarrationVoiceInput({ id, value, onChange, voices, ...aria }: Props) {
   return (
     <Autocomplete.Root items={voices} itemToStringValue={(voice) => voice.id} value={value} onValueChange={onChange} openOnInputClick>

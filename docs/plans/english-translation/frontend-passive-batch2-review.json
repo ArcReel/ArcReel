@@ -1,0 +1,212 @@
+[
+  {
+    "path": "frontend/src/components/agent/TestResultPanel.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/agent-memory/AgentMemorySection.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/assets/AssetThumb.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/edit-render/useBlockedReason.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/ManualSplitToolbar.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/PlanGapButton.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/ReplannedBadge.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/SourceKindSelect.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/useMoveEpisode.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/useReplanEpisode.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/grid/grid-preview-model.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/GenerateButton.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/ProductsPage.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/overview/HandoffTip.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceSplitAlert.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/UnitRail.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/duration-incompatible.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/CompactInput.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/EmptyScriptState.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/ImagePromptEditor.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/PromptFieldGrid.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/VideoPromptEditor.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/CompactionMarker.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/TaskProgressBlock.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/arrived-failures.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/layout/TaskFailureListener.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/LoginPage.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/lobby/LobbyGreeting.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/lobby/LobbyHeader.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/project-settings/BasicsTab.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/GeneralSection.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/PromptPartialDetailView.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/PromptTemplateDetailView.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/ProviderModelFlags.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/durationErrors.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

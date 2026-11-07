@@ -2,32 +2,32 @@
 status: accepted
 ---
 
-# 资产图版式按下游消费定，角色保留三视图
+# Asset-sheet layout follows downstream consumption; characters retain three views
 
-资产图（sheet）的首要身份是**条件输入**：分镜图生成的 i2i 参考、宫格图参考、参考生视频路线上直接驱动视频的那张图。版式据此定——场景、道具、商品各出**单张图**，角色出**正面 / 正侧 / 背面三视图横排**。人在资产卡片上查看与确认是次要用途，不参与版式取舍。
+An asset sheet is primarily a **conditioning input**: an i2i reference for storyboard generation, a grid reference, or the image directly driving reference-to-video generation. Layout follows that purpose: scenes, props, and products each use **a single image**; characters use **front / profile / back views arranged horizontally**. Human viewing/confirmation on asset cards is secondary and does not determine layout.
 
-**单张图是证据指向的形态。** 本仓库的调研（`docs/research/arcreel-asset-sheet-prompt-research.md`）逐页核对八家图像供应商官方指南，无一家推荐把同一主体的多个视图排进一张图：Google 为「同一角色的多个角度」专设 360 view 小节，做法是逐角度分别出图、把已生成图回灌为参考；Black Forest Labs 的漫画分格章节要求逐格分别生成；Seedream 把成套设计需求导向多图输出。官方给出的一致性路径只有两条——多参考图通道，或成组多图生成。机制侧亦有论文证据：参考图未与文本概念绑定时产生 copy-paste 效应，且注意力图不聚焦目标主体（arXiv:2503.06568，实测对象为开源适配器架构，闭源商用 API 属推断）。
+**Single images are the evidence-supported shape.** Repository research (`docs/research/arcreel-asset-sheet-prompt-research.md`) checked eight image providers' official guides page by page; none recommends arranging multiple views of one subject into one image. Google's dedicated 360-view section generates each angle separately, feeding generated images back as references; Black Forest Labs' comic-panel section generates panels individually; Seedream directs design sets toward multi-image output. Official consistency paths are only multi-reference channels or grouped multi-image generation. Mechanistic paper evidence also exists: references not bound to textual concepts cause copy-paste effects, with attention maps failing to focus on target subjects (arXiv:2503.06568, tested on open-source adapter architectures; application to closed commercial APIs is inference).
 
-**角色三视图是与上述证据相悖的选择，依据是市面常见创作产品的通行做法**（角色三视图、道具与场景单视图），不是一手证据。随之接受的代价是：多格版式经 i2i / r2v 继承到下游的风险在角色一类上继续存在；参考生视频路径上参考图上限为 1 的模型，收到的是一张三格拼贴图。不为此加裁切主图区或按格选图的补偿层——补偿层建立在「版式不对」这个前提上，而这里的版式是有意选定的。
+**Character three-view sheets contradict this evidence and instead follow common practice in creative products** (three views for characters, single views for props/scenes), not primary evidence. Accept the resulting costs: multi-panel layouts may continue propagating downstream through i2i / r2v for characters; reference-to-video models limited to one reference receive one three-panel collage. Do not compensate by cropping a main area or selecting panels: those layers assume "the layout is wrong," whereas this layout is intentional.
 
-**guard 句只保留正向排除项形态。** 场景声明画面中没有人物出镜，商品声明外观忠实于参考图、画面只呈现商品本体。这类声明与 Google、Black Forest Labs 官方「描述你要什么，而非你不要什么」的口径同形；论文侧另有多篇同向证据支持参考图应去除身份无关内容（Subject-Diffusion 的分割消融、PhotoMaker 对人物以外区域填噪声、PuLID 把背景与构图归为 ID-irrelevant），场景一类的无关内容是人物而非背景。解剖类防崩断言（五官对称、手指数量、肢体比例）与质量词（结构完整、焦点清晰、透视正常）不写入 prompt：八家官方文档零背书，且质量词稀释 CFG 权重。角色的跨面板一致性要求保留——它约束的是同一张图内三个面板之间的关系，不是解剖质量。
+**Keep guard sentences only as positive exclusion statements.** Scenes state that no people appear; products state fidelity to reference appearance and display only the product itself. These statements match Google and Black Forest Labs' official guidance to "describe what you want, not what you do not want." Several papers likewise support removing identity-irrelevant reference content (Subject-Diffusion's segmentation ablation, PhotoMaker's noise outside human regions, PuLID treating background/composition as ID-irrelevant); for scenes, people rather than backgrounds are irrelevant. Do not put anatomical safeguards (facial symmetry, finger counts, limb proportions) or quality words (complete structure, clear focus, normal perspective) into prompts: none of the eight official guides endorses them, and quality words dilute CFG weights. Retain cross-panel character consistency requirements: these constrain relations among three panels within one image, not anatomical quality.
 
-**纯色背景保留**：角色纯白，道具与商品纯净浅灰。场景不适用，环境本身即主体。
+**Retain solid backgrounds**: pure white for characters, clean light gray for props/products. Not applicable to scenes, whose environment is the subject itself.
 
-**反向排除项维持文本形态、按图种各自定义，追加在 prompt 末尾。** 官方口径按目标模型分裂——OpenAI 明确鼓励在正文写 `no watermark / no extra text / no logos`，Google 与 Black Forest Labs 明确要求改写为正向描述，FLUX.2 不支持 negative prompt——而本仓库的 prompt 构建不锁定 backend，同一串尾句会同时发往口径相反的模型。文本否定的服从率有论文证据表明很低（arXiv:2411.17066 在 DALL·E 3 上测得 12.3%；arXiv:2501.09425 指出 CLIP 族对否定的理解接近随机），但无一手来源表明写了比不写更差，故维持。
+**Keep negative exclusions textual, defined per image type and appended to prompts.** Official guidance differs by target model: OpenAI explicitly encourages `no watermark / no extra text / no logos` in body text; Google and Black Forest Labs explicitly require positive rewrites, and FLUX.2 does not support negative prompts. Repository prompt construction is backend-independent, so identical suffixes reach models with opposing guidance. Papers report low compliance with textual negation (12.3% on DALL·E 3 in arXiv:2411.17066; CLIP-family negation comprehension near random in arXiv:2501.09425), but no primary source shows writing it is worse than omitting it, so retain it.
 
-**资产图生成必须显式指定宽高比。** Google 官方说明：未指定时输出尺寸跟随输入图，否则生成 1:1。任一生成路径漏传比例，资产图的比例就会成为下游输出比例的来源，取代项目设置。
+**Asset-image generation must explicitly specify aspect ratio.** Google's official guidance says unspecified output dimensions follow input images, otherwise defaulting to 1:1. Any generation path omitting the ratio lets the asset image's ratio replace project settings as the downstream output-ratio source.
 
-## 明确不采用
+## Explicitly rejected
 
-- **一资产多图**（多张独立角度图喂供应商的多参考图通道）：论文侧支持多张分离参考图优于单张（DreamBooth 的 1→5 张消融、PhotoMaker 的推理期增益、SynCD 的 1→3 张提升），但它要求 sheet 字段从单路径改为多路径，波及数据校验、资产重命名级联、版本历史与前端卡片。那是资产模型议题，不是版式议题。
-- **布局按项目或画风覆盖**：prompt 构建维持单一真相源、零配置维度。
-- **喂参考图前按版式裁切主图区，或按模型的参考图上限动态选格**：见上文，补偿层的前提不成立。
-- **negative_prompt 参数通道**：该通道有独立且被论文刻画的作用机制（arXiv:2406.02965 的 Delayed Effect 与 Deletion Through Neutralization），放弃它是既定选择，与本文的版式决定无关。
-- **无来源的量化与目的性表述**：面板宽度百分比、画面区域占比、背景色的十六进制值，以及为某个视角附加的「体现立体感」这类目的状语。删除后不以另一批无来源的数值或说法替换。
+- **Multiple images per asset** (separate angle images sent through providers' multi-reference channels): papers support multiple separate references over one (DreamBooth's 1→5-image ablation, PhotoMaker's inference-time benefit, SynCD's 1→3-image improvement), but this changes sheet fields from one path to multiple paths, affecting data validation, asset-rename cascades, version history, and frontend cards. This is an asset-model issue, not a layout issue.
+- **Project- or style-specific layout overrides**: keep prompt construction as one source of truth with zero configuration dimensions.
+- **Cropping a main region by layout before reference submission or dynamically selecting panels by model reference limits**: as above, the compensation layer's premise does not hold.
+- **A negative_prompt parameter channel**: that channel has independent mechanisms characterized by papers (Delayed Effect and Deletion Through Neutralization in arXiv:2406.02965); abandoning it is an existing choice, independent of this layout decision.
+- **Unsourced quantities and purpose statements**: panel-width percentages, frame-area proportions, background-color hex values, and angle-specific purposes such as "show depth." Do not replace removed material with another set of unsourced values or claims.
 
 ## Consequences
 
-- **景别、视角、姿态与宽高比四项没有一手证据支撑**，当前取值是未经验证的默认值。四类资产图的宽高比均为 16:9：角色的横排理由随三视图成立，其余三类无版式理由而沿用该值。
-- **版式变更没有自动防线**：不设断言模板文本的测试，模板漂移不会报警。验收走人工 QA——同一资产按新旧模板各出一张，再各自跑一次下游 i2i，比对拼贴继承与身份保真。
-- 场景资产图不再出现主画面之外的嵌入小图，其经 i2i 传导到分镜图的构图污染随之消除。
+- **Shot size, angle, pose, and aspect ratio lack primary evidence**; current values are unvalidated defaults. All four asset-image types use 16:9: horizontal character layout follows three-view sheets, while the other three types inherit it without a layout rationale.
+- **No automated defense protects layout changes**: do not write tests asserting template text; template drift does not alert. Acceptance uses manual QA: generate one image per asset under old/new templates, run downstream i2i for each, and compare collage inheritance and identity fidelity.
+- Scene asset images no longer contain embedded smaller images outside the main view, eliminating the composition contamination they propagate into storyboards through i2i.

@@ -1,4 +1,4 @@
-"""视频与音频产物登记时记下正式文件自身的内容事实：内容指纹、字节数与纳秒 mtime。"""
+"""Registering video/audio artifacts records formal-file content facts: content fingerprint, byte count, and nanosecond mtime."""
 
 from __future__ import annotations
 

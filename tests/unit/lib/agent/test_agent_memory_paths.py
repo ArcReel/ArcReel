@@ -1,4 +1,4 @@
-"""项目记忆目录派生与用户 id 校验：纯函数、零 I/O，目录不存在也照常派生。"""
+"""Project-memory path derivation/user-ID validation: pure, zero I/O, works without existing directories."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def test_project_memory_dir_is_arcreel_memory_under_project() -> None:
 
 
 def test_derivation_does_no_io(tmp_path: Path) -> None:
-    """派生不建目录、不要求目录存在。"""
+    """Derivation neither creates nor requires directories."""
     assert not project_memory_dir(tmp_path / "demo").exists()
 
 

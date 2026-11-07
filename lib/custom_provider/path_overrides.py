@@ -1,8 +1,8 @@
-"""路径覆盖（``docs/adr/0101``）：调用端点的请求声明、覆盖路径的校验与生效值。
+"""Path overrides (``docs/adr/0101``): endpoint request declarations, path validation/effective values.
 
-每个调用端点在 :attr:`EndpointSpec.requests <lib.custom_provider.endpoints.EndpointSpec.requests>`
-里声明自己发出的可覆盖请求；供应商模型的 ``path_overrides`` 按请求名记录整条替换的路径，
-路径相对供应商填写的 base_url 原样值，不再经过端点的 base_url 归一化。
+Each endpoint declares overridable requests in
+:attr:`EndpointSpec.requests <lib.custom_provider.endpoints.EndpointSpec.requests>`; model ``path_overrides``
+replace whole paths by request name, relative to unchanged configured base_url, bypassing endpoint normalization.
 """
 
 from __future__ import annotations
@@ -19,16 +19,16 @@ from urllib.parse import urlsplit
 
 import httpx
 
-#: 请求名 → 整条替换的路径。
+#: Request names → whole replacement paths.
 PathOverrides = Mapping[str, str]
 NO_PATH_OVERRIDES: PathOverrides = MappingProxyType({})
 
-#: 没有覆盖时，端点在默认路径之前怎样归一化 base_url；界面据此还原最终请求地址。
-#: ``as_is`` 只去尾斜杠；``strip_version`` 剥去末尾的版本段（如 ``/v1``）；``append_v1``
-#: 末尾没有版本段时补 ``/v1``；``ensure_<后缀>`` 末尾不是该后缀时补上（方舟 ``/api/v3``、Vidu ``/ent/v2``、
-#: 可灵与 MiniMax ``/v1``）；``dashscope_api_v1`` 剥去百炼已知后缀后接 ``/api/v1``；``strip_messages`` 剥去整条
-#: 复制进来的 ``/v1/messages`` 后缀（``normalize_anthropic_base_url``）。
-#: 有覆盖的请求一律相对原样值，不按本规则归一化。
+#: How endpoints normalize base_url before default paths without overrides; UI reconstructs final addresses from this.
+#: ``as_is`` strips trailing slashes; ``strip_version`` removes final versions such as ``/v1``; ``append_v1``
+#: appends absent versions as ``/v1``; ``ensure_<后缀>`` appends absent suffixes (Ark ``/api/v3``, Vidu ``/ent/v2``,
+#: Kling/MiniMax ``/v1``). ``dashscope_api_v1`` strips known Bailian suffixes then appends ``/api/v1``; ``strip_messages`` removes
+#: copied ``/v1/messages`` endings (``normalize_anthropic_base_url``).
+#: Overrides always use raw bases, never this normalization.
 BaseUrlRule = Literal[
     "as_is",
     "strip_version",
@@ -40,11 +40,11 @@ BaseUrlRule = Literal[
     "strip_messages",
 ]
 
-#: 路径中的占位符写法，与声明式定义的模板同形：``{{ model }}``、``{{ task_id }}``。
+#: Path placeholders match declarative templates: ``{{ model }}`` / ``{{ task_id }}``.
 _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 _MAX_PATH_LENGTH = 512
 
-#: 续跑回放的提交时 base_url（任务行的 ``submitted_base_url``）；路径覆盖层据此认出发往提交时 base 的请求。
+#: Resume-submitted base_url from task ``submitted_base_url``, identifying requests to submitted bases.
 _replay_base_url: ContextVar[str | None] = ContextVar("path_override_replay_base_url", default=None)
 
 PathProblem = Literal["path_override_invalid_path", "path_override_placeholder_not_allowed"]
@@ -52,15 +52,15 @@ PathProblem = Literal["path_override_invalid_path", "path_override_placeholder_n
 
 @dataclass(frozen=True)
 class EndpointRequest:
-    """调用端点发出的一条可覆盖路径的请求。"""
+    """One endpoint request with overridable paths."""
 
-    #: 请求名，路径覆盖按它记录，例如声明式定义的 ``submit`` / ``poll`` / ``result``。
+    #: Request names used by overrides, such as declarative ``submit`` / ``poll`` / ``result``.
     name: str
-    #: 前端 i18n key（dashboard ns），端点有多条请求时标在各自的地址条上方。
+    #: Frontend dashboard i18n keys, shown above individual addresses when endpoints have multiple requests.
     display_name_key: str
-    #: 归一化后的 base_url 之后的默认路径，可含占位符。
+    #: Default paths after normalized base_url, potentially containing placeholders.
     default_path: str
-    #: 覆盖路径里允许出现的占位符：只限该请求本身已有的值（API 模型名、任务 id 等）。
+    #: Allowed override placeholders limited to values already belonging to requests, such as API names/task ids.
     placeholders: tuple[str, ...]
     base_url_rule: BaseUrlRule = "as_is"
 
@@ -70,9 +70,9 @@ def placeholder_names(path: str) -> set[str]:
 
 
 def path_problem(request: EndpointRequest, path: str) -> PathProblem | None:
-    """覆盖路径不合法的原因；合法时 None。
+    """Invalid-path reasons; None when valid.
 
-    路径必须以 ``/`` 开头，占位符之外不含空白、花括号与 ``#``（片段不随请求发出）；占位符只能取请求声明的那几个。
+    Paths start with ``/``, without whitespace/braces/``#`` outside placeholders (fragments are never sent); only declared placeholders are allowed.
     """
     literal = _PLACEHOLDER.sub("", path)
     if not path.startswith("/") or len(path) > _MAX_PATH_LENGTH or any(c.isspace() or c in "{}#" for c in literal):
@@ -83,7 +83,7 @@ def path_problem(request: EndpointRequest, path: str) -> PathProblem | None:
 
 
 def effective_path_overrides(stored: object, requests: Iterable[EndpointRequest]) -> dict[str, str]:
-    """库里存的覆盖中仍然生效的部分：端点定义里已不存在的请求名忽略。"""
+    """Still-effective stored overrides, ignoring request names removed from endpoint definitions."""
     if not isinstance(stored, Mapping):
         return {}
     names = {r.name for r in requests}
@@ -91,15 +91,15 @@ def effective_path_overrides(stored: object, requests: Iterable[EndpointRequest]
 
 
 def raw_base_url(base_url: str) -> str:
-    """覆盖路径所相对的 base_url：供应商填写的原样值，只补缺失的协议、去尾斜杠。"""
+    """Override-relative configured base_url, adding absent schemes/removing trailing slashes only."""
     stripped = base_url.strip().rstrip("/")
     return f"https://{stripped}" if stripped and "://" not in stripped else stripped
 
 
 def endpoint_guard(endpoint: str, overrides: PathOverrides) -> str:
-    """续跑比对的协议标识：调用端点键，有覆盖时附上覆盖的规范 JSON。
+    """Resume protocol identities: endpoint keys plus canonical override JSON when present.
 
-    没有覆盖时与端点键逐字相等，存量执行检查点照旧比对。
+    Without overrides, exactly equal endpoint keys, preserving existing-checkpoint comparisons.
     """
     if not overrides:
         return endpoint
@@ -108,10 +108,10 @@ def endpoint_guard(endpoint: str, overrides: PathOverrides) -> str:
 
 @contextmanager
 def replaying_base_url(base_url: str | None) -> Generator[None]:
-    """续跑期间告诉路径覆盖层：请求按提交时的 base_url 回放。
+    """Tell override layers to replay submission-time base_url during resume.
 
-    backend 续跑时把轮询与取件发往提交时的 base；用户在途只改了 base 的路径时，这些请求的路径前缀不再是
-    当下配置的，覆盖层要按提交时的前缀认出请求，并按提交时的原样路径拼覆盖路径。
+    Resume polling/retrieval uses submitted bases. If users changed only base paths, prefixes differ from current
+    configuration; recognize submitted prefixes and compose overrides against submitted raw paths.
     """
     token = _replay_base_url.set(base_url)
     try:
@@ -121,18 +121,18 @@ def replaying_base_url(base_url: str | None) -> Generator[None]:
 
 
 def _path_pattern(prefix: str, default_path: str, placeholder: str) -> re.Pattern[str]:
-    """``prefix + default_path`` 的整串匹配式，占位符按 ``placeholder`` 匹配。"""
-    parts = _PLACEHOLDER.split(default_path)  # 字面量与占位符名交替
+    """Whole ``prefix + default_path`` matches, with placeholders matched through ``placeholder``."""
+    parts = _PLACEHOLDER.split(default_path)  # Alternate literals/placeholder names.
     body = "".join(re.escape(part) if i % 2 == 0 else f"(?P<{part}>{placeholder})" for i, part in enumerate(parts))
     return re.compile(re.escape(prefix) + body)
 
 
 class PathOverrideLayer:
-    """Python 端点的路径覆盖：按请求路径认出请求名，有覆盖时把路径换成「原样 base_url 的路径 + 覆盖路径」。
+    """Python endpoint overrides: identify request names by paths, replacing with raw base_url path + override path.
 
-    只认「归一化 base_url 的路径 + 默认路径」整串相符的请求，取自响应的下载地址不会被认成任何请求。
-    不改域名：续跑回放提交时的域名照旧生效。续跑处在 :func:`replaying_base_url` 之内时，先按提交时的
-    base 认请求。
+    Recognize whole normalized-base-path + default-path matches only, never response download URLs.
+    Hosts remain unchanged, preserving resume-submission-host replay. Within :func:`replaying_base_url`, recognize submitted
+    bases first.
     """
 
     def __init__(self, routes: list[tuple[str, str]], prefix: str, raw_path: str, model: str, placeholder: str) -> None:
@@ -146,9 +146,9 @@ class PathOverrideLayer:
         return _PathOverrideTransport(inner, self)
 
     def _replayed_raw_path(self, prefix: str) -> str:
-        """提交时 base 的原样路径：按当下配置「原样路径 → 归一化路径」的差量从提交时的归一化路径还原。
+        """Submitted raw paths restored from submitted normalized paths using current raw→normalized deltas.
 
-        落库的提交 base 是归一化后的值；用户只改了路径前缀时差量不变，还原结果与提交时的原样路径一致。
+        Persisted submission bases are normalized; changing path prefixes only preserves deltas and restores original raw paths.
         """
         shared = 0
         for normalized_char, raw_char in zip(self._prefix, self._raw_path, strict=False):
@@ -164,7 +164,7 @@ class PathOverrideLayer:
         return prefix + raw_suffix
 
     def _bases(self) -> Iterator[tuple[str, str]]:
-        """依次尝试的（归一化路径前缀, 原样路径）：续跑时先提交时的 base，再当下配置的。"""
+        """Normalized-prefix/raw-path pairs to try: submitted bases first on resume, then current configuration."""
         replayed = _replay_base_url.get()
         if replayed:
             prefix = urlsplit(replayed).path.rstrip("/")
@@ -173,7 +173,7 @@ class PathOverrideLayer:
         yield self._prefix, self._raw_path
 
     def rewrite(self, request: httpx.Request) -> None:
-        # 按未解码的路径匹配：前缀取自 base_url 原文，%2F 这类转义解码后就对不上；捕获的占位符值也原样写回
+        # Match undecoded paths: raw base_url prefixes would mismatch decoded %2F; captured placeholders replay unchanged too.
         raw_path = request.url.raw_path.decode("ascii").partition("?")[0]
         found = next(
             (
@@ -189,7 +189,7 @@ class PathOverrideLayer:
         match, override, base_raw_path = found
         values = {"model": self._model, **match.groupdict()}
         target = base_raw_path + _PLACEHOLDER.sub(lambda p: values.get(p.group(1), p.group(0)), override)
-        # 覆盖带 query 时整体替换原 query（docs/adr/0101）
+        # Override queries replace entire originals (docs/adr/0101).
         path, has_query, query = target.partition("?")
         request.url = (
             request.url.copy_with(path=path, query=query.encode()) if has_query else request.url.copy_with(path=path)
@@ -228,10 +228,10 @@ def path_override_layer(
     model: str,
     placeholder: str = "[^/]+",
 ) -> PathOverrideLayer | None:
-    """Python 端点注入调用通道的路径覆盖层；没有覆盖时 None，调用通道照原样构造。
+    """Python channel-injected override layers; None without overrides, preserving normal construction.
 
-    ``normalized_base_url`` 是端点没有覆盖时实际使用的 base_url，默认路径相对它匹配。``placeholder`` 是占位符的
-    匹配式，默认只匹配一段路径；值本身含 ``/`` 的家族（Google 的 operation name）按自己的路径形态另给。
+    ``normalized_base_url`` is actual bases without overrides, against which default paths match. ``placeholder`` patterns
+    default to single segments; families containing ``/``, such as Google operation names, supply their own path patterns.
     """
     routes = [(r.default_path, overrides[r.name]) for r in requests if r.name in overrides]
     if not routes:

@@ -1,0 +1,407 @@
+{
+  "scope": "Coordinator-owned687 spans, 13 helper classes and33 helper functions. Existing English TextBlock/ContentMessage fixture docs unchanged. Full executable AST comparison preserves all assigned strings, IDs, assertions and scenarios.",
+  "records": [
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_actor.py",
+      "symbol": "_Collector",
+      "kind": "ClassDef",
+      "bases": [
+        "list"
+      ],
+      "decorators": [],
+      "consumer_trace": "List subclass collects callback values and awaits count; no schema/doc reflection."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_actor.py",
+      "symbol": "_HangingCancelClient",
+      "kind": "ClassDef",
+      "bases": [
+        "FakeSDKClient"
+      ],
+      "decorators": [],
+      "consumer_trace": "FakeSDKClient subclass overrides withdrawal control behavior; actor consumes methods and frames only."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_actor.py",
+      "symbol": "_HangingClient",
+      "kind": "ClassDef",
+      "bases": [
+        "FakeSDKClient"
+      ],
+      "decorators": [],
+      "consumer_trace": "FakeSDKClient subclass controls query/interrupt responses; actor consumes methods and frames only."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_assistant_service.py",
+      "symbol": "_MultiProjectPM",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "ProjectManager substitute resolves accepted project names through explicit methods."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_assistant_service.py",
+      "symbol": "_FakeEventLogService",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "No-op event logging methods; no schema serialization or metadata consumers."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_agent_startup_error.py",
+      "symbol": "_RecordingClient",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "SDK client substitute records explicit assembled options; no class-documentation consumption."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_event_log.py",
+      "symbol": "_FakeDriverError",
+      "kind": "ClassDef",
+      "bases": [
+        "Exception"
+      ],
+      "decorators": [],
+      "consumer_trace": "Exception supplies driver sqlstate/constraint attributes; classifier reads those values and error text, not class docs."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_sdk_frames.py",
+      "symbol": "_ScriptedCLITransport",
+      "kind": "ClassDef",
+      "bases": [
+        "Transport"
+      ],
+      "decorators": [],
+      "consumer_trace": "SDK Transport implementation sends/reads scripted raw frames; SDK invokes transport methods, not class docs."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_entry_pipeline.py",
+      "symbol": "_RecordingStore",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Store substitute records append calls and assigns explicit seq values."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_entry_stream.py",
+      "symbol": "_CursorCapturingService",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "SSE service substitute records after_seq and yields explicit events."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_failure_observation.py",
+      "symbol": "_NoSubprocessEventLoop",
+      "kind": "ClassDef",
+      "bases": [
+        "asyncio.SelectorEventLoop"
+      ],
+      "decorators": [],
+      "consumer_trace": "SelectorEventLoop subclass models unavailable subprocess support through base implementation; no schema/doc use."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "_EchoBackend",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [
+        "dataclass"
+      ],
+      "consumer_trace": "Dataclass backend substitute reflects model identity and writes outputs; no BaseModel/TypeAdapter or documentation consumers."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_resume_executor.py",
+      "symbol": "_FakeGenerator",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "MediaGenerator substitute implements resume and version lookup; explicit result values only."
+    },
+    {
+      "path": "tests/unit/server/app_lifespan_support.py",
+      "symbol": "stub_lifespan_dependencies",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_sandbox.py",
+      "symbol": "_init_message",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_store_injection.py",
+      "symbol": "_fake_provider_env",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_assistant_service.py",
+      "symbol": "_make_project_scoped_service",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_options_assembler.py",
+      "symbol": "_denied_by_pre_tool_use",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_event_log.py",
+      "symbol": "file_log_store",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_lifecycle.py",
+      "symbol": "_feed",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_project_scope.py",
+      "symbol": "_fake_provider_env",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager.py",
+      "symbol": "_make_managed_for_state_test",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_sdk_transcript_adapter.py",
+      "symbol": "_main_payloads",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_entry_stream.py",
+      "symbol": "end_stream",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_agent_access_policy.py",
+      "symbol": "_make_policy",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_execute_tts_task.py",
+      "symbol": "_audio_ctx",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_execute_tts_task.py",
+      "symbol": "_forget_script_claim",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_execute_tts_task.py",
+      "symbol": "_clear_backend_cache",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "patched_session_factory",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "_patch_common",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "sync_disk",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "register_artifacts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "_ctx_env",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "symbol": "_old_image_size",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_resume_executor.py",
+      "symbol": "_fake_video_context",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_resume_executor.py",
+      "symbol": "_patch_resume_executor_deps",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_resume_executor.py",
+      "symbol": "_as_schema_v3",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/admission/test_video_batch_admission.py",
+      "symbol": "_activated_project_with_unclaimed_sheet",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_cover.py",
+      "symbol": "_mk_manager",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_cover.py",
+      "symbol": "_real_manager",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/project/test_narration_settings.py",
+      "symbol": "_clear_backend_cache",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_submission.py",
+      "symbol": "_script",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_submission.py",
+      "symbol": "section",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_submission.py",
+      "symbol": "_plan",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_submission.py",
+      "symbol": "_complete",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_split_service.py",
+      "symbol": "grid_with_image",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/assertion/setup/callback helper consumed through its implementation and explicit return values. No tool/schema decorators and no __doc__/getdoc/model_json_schema/TypeAdapter consumers in changed scope."
+    }
+  ]
+}

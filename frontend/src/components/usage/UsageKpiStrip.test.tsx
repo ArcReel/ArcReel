@@ -15,12 +15,12 @@ describe("UsageKpiStrip", () => {
 
     render(<UsageKpiStrip summary={makeUsageSummary()} />);
 
-    // 构成表、趋势 tooltip 与悬浮层同走 formatRatio，vi 下一律逗号小数点。
+    // Breakdowns/trend tooltips/popovers share formatRatio, always comma decimals in vi.
     expect(screen.getByText("90,3%")).toBeInTheDocument();
   });
 
   it("renders the counts with the language's thousands separator", async () => {
-    // 调用次数、失败数与成功率同处一条 KPI：分隔习惯跟界面语言，不跟浏览器语言。
+    // Call counts/failures/success rates share KPI rows; separators follow UI languages, not browser languages.
     for (const [language, calls, failed] of [
       ["zh", "12,340", "1,205"],
       ["en", "12,340", "1,205"],
@@ -40,7 +40,7 @@ describe("UsageKpiStrip", () => {
   });
 
   it("renders the range subline as dates in the current language", async () => {
-    // 原样直出的 `2026-02-14 – 2026-03-15` 三语一个样，这里逐语言各挂一次。
+    // Raw `2026-02-14 – 2026-03-15` would be identical across three languages; mount each language separately.
     for (const [language, expected] of [
       ["zh", "2026年2月14日 – 2026年3月15日"],
       ["en", "Feb 14, 2026 – Mar 15, 2026"],

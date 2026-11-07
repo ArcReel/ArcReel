@@ -2,25 +2,25 @@
 status: accepted
 ---
 
-# 视频请求事实只求值一次：读侧与执行侧只差身份来源
+# Evaluate video request facts once; reads and execution differ only in identity source
 
-一次视频生成请求的执行事实——执行模型、下发的分辨率、收窄后的可选时长及成因、时长是否由端点固定、音轨形态——曾由报价、预检、剧本规划、界面、Agent 与执行各自推算，彼此分叉：预检要求确认的秒数与执行实际申请的不同，报价按一个分辨率而扣费按另一个。我们决定把它们收成「视频请求事实」，按「项目 × 路线 × 任务类型桶 × 身份来源」对每次请求求值一次，各消费方只读结果；读侧以当前配置解析出的执行模型为身份，执行侧以实际构造的调用通道为身份（`docs/adr/0049` ③），其余求值相同。
+Effective models, submitted resolution, narrowed durations/reasons, endpoint-fixed duration, and audio-track shape were independently computed by pricing, preflight, planning, UI, Agent, and execution. Confirmation seconds differed from submitted seconds; pricing resolution differed from billed resolution. Consolidate video request facts, evaluated once per project × route × generation bucket × identity source. Consumers read results only. Reads use current-config effective identity; execution uses the constructed backend (`docs/adr/0049` item 3), with identical remaining evaluation.
 
-随之确定三条口径：
+Three resulting rules:
 
-- **分辨率未设置即不下发，两条视频路线同口径**：参考生视频路线不再下发兜底分辨率；时长约束与报价按请求实际下发的分辨率求值（`docs/adr/0019`、`docs/adr/0056`）。
-- **i2v 桶不可用即「未知」**：参考生视频项目中无参考图单元的档位只取自 i2v 桶；该桶解析不出时如实呈现为「未知」并给出原因，不回退到 r2v 模型的档位。
-- **执行期不再空值放行**：时长这一维在执行期解析失败或收成空集时阻断并记录失败码（时长由端点固定的合法空集不在此列，`docs/adr/0082`），不再按「能力查询失败即空值放行」交给供应商以付费失败暴露。
+- **Unset resolution is omitted on both video routes**: reference video loses fallback resolution; duration constraints/pricing use actual submitted resolution (`docs/adr/0019`, `docs/adr/0056`).
+- **Unavailable i2v means unknown**: no-reference units in reference projects use i2v only. Failure reports unknown with reasons, never r2v tiers.
+- **No empty execution allowance**: failed/empty duration resolution blocks with codes, except legal endpoint-fixed empty sets (`docs/adr/0082`), instead of paid provider failures after capability-query fallback.
 
-## 明确不采用
+## Rejected alternatives
 
-- **i2v 桶不可用时软回退到 r2v 档位**（不挡创作流）：执行期这类单元必然被阻断，回退只会让规划阶段放行一份执行不了的方案。
-- **参考生视频路线保留按供应商的兜底分辨率**：该例外的成因已不存在，兜底值会覆盖 ComfyUI workflow 的字面尺寸（`docs/adr/0082`）、在只接受特定档位的端点上失败，并让报价与扣费各取一值。
-- **读侧与执行侧各自组装、只共享底层规则**：两份组装各自补缺省值，分叉在字段缺失时悄然发生。
-- **界面保留「单元是否带参考图」的镜像判定**：它只看声明引用不看可用参考图，会与服务端的定桶结果相左。
+- **Soft r2v tier fallback when i2v is unavailable**: admits plans execution necessarily blocks.
+- **Provider fallback resolution on reference routes**: its cause disappeared; it overrides ComfyUI literal dimensions (`docs/adr/0082`), fails specific-tier endpoints, and splits quotes/billing.
+- **Independent assembly sharing only low-level rules**: separate defaults diverge silently on missing fields.
+- **UI mirrors of reference presence**: declared references are not available references and disagree with server buckets.
 
 ## Consequences
 
-- 参考生视频未设分辨率的项目改为不下发后，执行指纹随之改变，已选视频不再命中同档免费复用；产物时效不受影响（`docs/adr/0062`）。
-- `docs/adr/0049` 中 video lane 的兜底分辨率与时长这一维的空值放行由本 ADR 取代；`docs/adr/0019` 对参考生视频路线不再有例外。
-- 测试：报价、预检、执行等消费方的测试用 `tests/factories.py` 的 `make_video_request_facts` 构造结果、直接构造 `VideoRequestFactsFailure` 作失败对象，不在能力解析器层造假，也不手搭能力 dict；能力求值本身用真实 `ConfigResolver` 加测试数据库测。
+- Omitting unset reference resolution changes execution fingerprints and stops same-tier free reuse, without changing artifact currency (`docs/adr/0062`).
+- Supersede video fallback resolution/empty-duration allowance in `docs/adr/0049`; `docs/adr/0019` has no reference-route exception.
+- Consumer tests use `make_video_request_facts` in `tests/factories.py` and direct `VideoRequestFactsFailure`, not fake resolvers/handbuilt capability dicts. Test capability evaluation with real `ConfigResolver` and test DB.

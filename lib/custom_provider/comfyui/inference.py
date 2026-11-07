@@ -1,18 +1,18 @@
-"""节点绑定推断：从一份 workflow 里认出每个语义键的候选，并给出分数与命中信号。
+"""Binding inference: identify candidates per workflow semantic key, returning scores/hit signals.
 
-ComfyUI 没有任何官方参数化约定，导出物每个节点只有 ``inputs`` / ``class_type`` / ``_meta.title``，
-哪个节点承接提示词、哪个产出成片全靠外部推断。生态里两家参考实现都在每次提交时现推，任务因此
-不可复现、歧义无处交给用户。ArcReel 把推断收在一处、只产出**候选**：分数与信号说明一并回给
-前端，用户确认后显式落盘才算节点绑定（``docs/adr/0082``）。
+ComfyUI has no official parameterization conventions, only ``inputs`` / ``class_type`` / ``_meta.title``.
+Prompts/outputs require external inference. Two ecosystem references infer anew on every submission,
+making tasks irreproducible and hiding ambiguity. ArcReel centralizes **candidates** only, returning scores/signals
+for user confirmation and explicit persistence before bindings become authoritative (``docs/adr/0082``).
 
-**打分制**消掉了「按 input 名匹配」与「按 class_type 白名单匹配」的主键之争：两种线索都只是
-信号，各自计一份分，同一个语义键上取最高分。信号自高到低分七级，每一级的权重都大于它以下全部
-级别之和，因此高级信号一旦命中就压得住任何数量的低级信号；三个次级信号（承载节点档位、是否落
-在产物链路上、标题里的正负子串）权重更小，只在同分时决出先后，压不过任何一级。
+**Scoring** removes competing primary-key assumptions between input aliases/class allowlists: both contribute
+signals, highest totals win per semantic key. Seven ranked levels each outweigh all lower levels combined,
+so stronger evidence dominates any weaker combination. Three secondary signals, carrier tiers/output-chain
+membership/positive-negative title substrings, break ties only, never outranking any primary level.
 
-同一个语义键落多个节点是常态（base + refiner 两段的提示词、MoE 的双采样器），故候选的选中是
-按分而不是按数量：唯一最高分即「自动识别」，并列不自动选，零候选标「未找到」。参考图是例外——
-它的多个候选是有序的格子而不是互相竞争的答案，同分全选，列表顺序即参考图序号。
+Multiple nodes per key are normal, such as base/refiner prompts or MoE samplers. Unique highest scores auto-select,
+ties remain unresolved, no candidates mean not found. References differ:
+multiple candidates are ordered slots, not competitors; select all tied candidates, list order defining reference indices.
 """
 
 from __future__ import annotations
@@ -41,30 +41,30 @@ from lib.infra.validation_messages import default_translate
 
 from .inference_rules import ConsumerPort, InferenceRules, load_inference_rules
 
-#: 推断消息的键前缀：信号说明与提示各有一条，与诊断码共用 ``val_ce_`` 命名空间。
+#: Inference-message prefixes for signals/notes, sharing diagnostic ``val_ce_`` namespaces.
 MESSAGE_KEY_PREFIX = "val_ce_infer_"
 
-#: 标题约定的前缀，大小写不敏感，截到首个空白。
+#: Case-insensitive title prefixes, ending at first whitespace.
 TITLE_MARKER_PREFIX = "arcreel:"
 
-#: 只读的语义键：ArcReel 从 workflow 读出它的字面值，不写回。
+#: Readonly semantics: read literal workflow values, never write.
 READ_ONLY_BINDING_KEYS = frozenset({"fps"})
 
-#: 候选即有序格子、并列不算歧义的语义键。
+#: Ordered-slot semantic keys whose ties are not ambiguity.
 LIST_BINDING_KEYS = frozenset({"reference_images"})
 
-#: 条目上记着 ``consumer``（这张图接到了谁的哪个入口）的语义键。
+#: Semantic keys storing ``consumer`` node/input destinations.
 CONSUMER_BINDING_KEYS = frozenset({"reference_images"})
 
-#: 值本身是一张图的语义键：它们的落点只能是读图节点承载文件名的那个字段。与
-#: :data:`.bindings.IMAGE_BINDING_KEYS`（图像端点允许的语义键）不是一回事。
+#: Image-value semantics target loader filename fields only, distinct from
+#: :data:`.bindings.IMAGE_BINDING_KEYS`, allowed image-endpoint semantics.
 IMAGE_VALUED_KEYS = frozenset({"start_image", "end_image", "reference_images"})
 
 _NUMERIC_PREFIX = re.compile(r"^(\d+)")
 
 
 class BindingSignal(StrEnum):
-    """一条候选上命中的信号。前七项是分级信号，其后三项是只决同分先后的次级信号。"""
+    """Candidate-hit signals: seven primary levels followed by three secondary tie-breakers."""
 
     MANUAL_BINDING = "manual_binding"
     TITLE_MARKER = "title_marker"
@@ -78,8 +78,8 @@ class BindingSignal(StrEnum):
     TITLE_POLARITY = "title_polarity"
 
 
-#: 分级信号的权重。每一级都大于它以下全部级别之和（含次级信号的上限），高级信号因此不可能被
-#: 一堆低级信号累加压过。
+#: Primary weights each exceed all lower weights combined, including secondary maxima,
+#: preventing weaker accumulation from outranking stronger signals.
 SIGNAL_WEIGHTS: Mapping[BindingSignal, int] = {
     BindingSignal.MANUAL_BINDING: 2048,
     BindingSignal.TITLE_MARKER: 1024,
@@ -92,12 +92,12 @@ SIGNAL_WEIGHTS: Mapping[BindingSignal, int] = {
     BindingSignal.TITLE_POLARITY: 1,
 }
 
-#: 最弱的分级信号：次级信号的权重之和必须小于它，否则次级信号就不再「只决同分先后」。
+#: Weakest primary weight must exceed all secondary weights combined, preserving tie-breaking only.
 WEAKEST_GRADED_WEIGHT = SIGNAL_WEIGHTS[BindingSignal.LINK_TRACE]
 
 
 class InferenceNote(StrEnum):
-    """推断给出的提示：不拦保存，但有它用户才知道某个形态会怎么表现。"""
+    """Nonblocking inference notes explaining behavior users need to know."""
 
     REFERENCE_CONSUMER_UNKNOWN = "reference_consumer_unknown"
     BATCH_SIZE_ABOVE_ONE = "batch_size_above_one"
@@ -109,33 +109,33 @@ class InferenceNote(StrEnum):
 
 
 class BindingState(StrEnum):
-    """一个语义键的推断结果状态。"""
+    """Inference states per semantic key."""
 
-    #: 唯一最高分，已按它选好。
+    #: Unique highest scores, already selected.
     AUTO_SELECTED = "auto_selected"
-    #: 最高分并列，不自动选，全部候选按分排序交用户挑。
+    #: Tied highest scores, none auto-selected; sort all candidates for users.
     AMBIGUOUS = "ambiguous"
-    #: 一个候选也没有，允许用户从全部 ``(node, input)`` 手选。
+    #: No candidates; users may manually choose any ``(node, input)``.
     NOT_FOUND = "not_found"
-    #: 定义里该键是空列表：用户确认过这份 workflow 不支持这项语义，不再推断。
+    #: Existing empty lists mean confirmed unsupported, never reinfer.
     UNSUPPORTED = "unsupported"
-    #: 既有条目有丢失的，该键重跑了推断，保存前必须让用户确认。
+    #: Lost saved entries trigger reinference/confirmation before save.
     NEEDS_CONFIRMATION = "needs_confirmation"
 
 
 class MatchOrigin(StrEnum):
-    """候选是怎么来的。"""
+    """Candidate origins."""
 
     INFERRED = "inferred"
-    #: 既有条目的节点与类型都没变，原样沿用。
+    #: Same node id/type reuses saved entries unchanged.
     KEPT = "kept"
-    #: 节点 id 变了，按类型加标题在全图唯一匹配到新 id。
+    #: Changed ids rematch unique graph-wide type/title.
     REMATCHED = "rematched"
 
 
 @dataclass(frozen=True)
 class SignalHit:
-    """一条命中的信号与它的分量。"""
+    """Hit signals with weights."""
 
     signal: BindingSignal
     weight: int
@@ -155,7 +155,7 @@ class SignalHit:
 
 @dataclass(frozen=True)
 class Note:
-    """一条提示。"""
+    """One note."""
 
     code: InferenceNote
     params: Mapping[str, Any] = field(default_factory=dict)
@@ -170,13 +170,13 @@ class Note:
 
 @dataclass(frozen=True)
 class Candidate:
-    """一条候选：一个可落盘的目标，加上它凭什么被选中。"""
+    """Persistable targets plus selection evidence."""
 
     target: Mapping[str, Any]
     signals: tuple[SignalHit, ...]
     selected: bool
     origin: MatchOrigin
-    #: 产物候选的上游链长度；其余语义键为 ``None``。多个产物时按它取最靠下游的一个。
+    #: Upstream artifact-chain lengths, ``None`` for other keys; choose deepest among outputs.
     depth: int | None = None
 
     @property
@@ -207,7 +207,7 @@ class Candidate:
 
 @dataclass(frozen=True)
 class KeyInference:
-    """一个语义键的推断结果。"""
+    """Inference results for one semantic key."""
 
     state: BindingState
     candidates: tuple[Candidate, ...]
@@ -215,7 +215,7 @@ class KeyInference:
 
     @property
     def selected_targets(self) -> tuple[Mapping[str, Any], ...]:
-        """可直接写进 ``bindings`` 的条目；状态不是「自动识别」时为空。"""
+        """Entries directly persistable into ``bindings``; empty unless automatically recognized."""
         if self.state is not BindingState.AUTO_SELECTED:
             return ()
         return tuple(candidate.target for candidate in self.candidates if candidate.selected)
@@ -230,7 +230,7 @@ class KeyInference:
 
 @dataclass(frozen=True)
 class BindingInference:
-    """一份 workflow 的完整推断结果。"""
+    """Complete workflow inference results."""
 
     media_type: str
     keys: Mapping[str, KeyInference]
@@ -238,10 +238,10 @@ class BindingInference:
 
     @property
     def savable(self) -> bool:
-        """照这份结果直接落盘能不能过校验。
+        """Whether saving inference as-is passes validation.
 
-        三条：任何键处于歧义或待确认都不行——用户要么选一个，要么把它清空为显式不支持；提示词
-        与产物必须有着落；两个语义键不能写同一个字段。三条都是校验器的硬闸门，这里报的是同一件事。
+        Three rules: no ambiguous/unconfirmed keys, requiring selection or explicit unsupported empties; prompts/outputs
+        must resolve; no shared writable fields between keys. Same hard gates as validators.
         """
         blocked = {BindingState.AMBIGUOUS, BindingState.NEEDS_CONFIRMATION}
         if any(result.state in blocked for result in self.keys.values()):
@@ -265,15 +265,15 @@ class BindingInference:
         }
 
 
-#: 某个语义键根本没出现在结果里时的占位：它的 ``selected_targets`` 为空，与「没绑上」同义。
+#: Placeholder for absent semantics: empty ``selected_targets`` means unbound.
 _MISSING = KeyInference(BindingState.NOT_FOUND, ())
 
 
 def infer_bindings(definition: Mapping[str, Any]) -> BindingInference:
-    """对一份 ComfyUI 端点定义跑推断；定义里已有的节点绑定按三态参与。
+    """Infer ComfyUI bindings, respecting three existing-binding states.
 
-    键缺失即从未推断过，跑全套推断；空列表是用户确认过的「此 workflow 不支持」，不再推断；
-    非空列表是已保存的节点绑定，走重匹配，逐条沿用或迁移，有丢失的条目才重跑该键的推断。
+    Missing keys mean never inferred, running full inference; empty lists mean user-confirmed unsupported, never reinferred;
+    nonempty saved bindings rematch/reuse/migrate individually, rerunning key inference only for lost entries.
     """
     media_type = str(definition["media_type"])
     workflow: Mapping[str, Any] = definition["workflow"]
@@ -293,7 +293,7 @@ def infer_bindings(definition: Mapping[str, Any]) -> BindingInference:
 
 
 def _target_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
-    """这个目标会往哪个字段写值。只读目标不写回，节点级的产物目标没有字段。"""
+    """Writable target fields; readonly targets never write, node-level output targets lack fields."""
     if target.get("direction") == "read":
         return None
     name = target.get("input")
@@ -301,27 +301,26 @@ def _target_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
 
 
 def _resolve_target_collisions(results: dict[str, KeyInference]) -> None:
-    """同一个字段不能同时是两个语义键的写入落点。
+    """One field cannot receive two semantic keys.
 
-    标题标记这类强信号是按节点给的，一个字段可以同时满足两个键的判据：节点 7 标上
-    ``ARCREEL:prompt`` 后，``prompt`` 与 ``negative_prompt`` 都会落在它的 ``text`` 上，实发构造
-    先写正向提示词、再把 Avoid 文本追加到同一个字段，用户拿到的负向提示词其实是正向那条。分数高
-    的那个键留下，另一个让出这条候选并重新定状态——让出后它多半报「没找到」，那正是实情。
+    Node-level strong title signals may satisfy both: node 7 marked
+    ``ARCREEL:prompt`` puts ``prompt`` / ``negative_prompt`` on ``text``. Actual construction writes positive prompts,
+    then appends Avoid to the same field, making supposedly negative prompts positive. Keep higher-scored keys,
+    remove losing candidates/recompute states, often truthfully not-found.
 
-    分数并列时谁都不留：两个键同样有理由要这个字段，交给用户挑比替他挑一个强。已保存的节点绑定
-    权重最高，自然赢过推断出来的候选；两边都是已保存条目时不动它们，那是定义本身不自洽，由校验器
-    在保存时拦下。
+    Ties keep neither, leaving user decisions. Saved bindings outweigh inferred candidates;
+    when both saved, preserve them as definition inconsistency caught by save validators.
 
-    一次让出算一轮，让完重新收集认领：让出的键会改选它的次选，而那条次选可能又落在另一个键已经
-    认领的字段上——只收集一次的话这第二次撞车没人处理，两个键一起落在同一个字段上出去。每轮至少
-    从某个键上去掉一条候选，候选总数有限，循环必停。
+    Each yielding round recollects claims: losing keys may choose second candidates already claimed elsewhere.
+    One-pass handling would miss secondary collisions and send two keys to one field. Every round
+    removes candidates from finite totals, guaranteeing termination.
     """
     while _yield_one_collision(results):
         pass
 
 
 def _claimants_by_landing(results: Mapping[str, KeyInference]) -> dict[tuple[str, str], list[tuple[str, int]]]:
-    """落点 → 认领它的 ``(语义键, 分数)``。只看已自动选中的键，待定的键还没认领任何字段。"""
+    """Landings → claiming ``(语义键, 分数)``; auto-selected keys only, unresolved keys claim nothing."""
     claims: dict[tuple[str, str], list[tuple[str, int]]] = {}
     for key, result in results.items():
         if result.state is not BindingState.AUTO_SELECTED:
@@ -334,10 +333,10 @@ def _claimants_by_landing(results: Mapping[str, KeyInference]) -> dict[tuple[str
 
 
 def _yield_one_collision(results: dict[str, KeyInference]) -> bool:
-    """按文档序找第一个有人能让出的争抢落点，让分低的一方让出；没有这样的落点时返回 ``False``。
+    """First yieldable conflict in document order yields lower scores; ``False`` if none.
 
-    没人能让出的落点（两边都是已保存条目）要跳过接着找下一个，否则这一轮报了「有冲突」却什么也
-    没改，外层就停不下来。
+    Skip unyieldable saved/saved conflicts and continue, otherwise reporting unchanged conflicts would
+    prevent outer-loop termination.
     """
     for landing, claimants in sorted(_claimants_by_landing(results).items()):
         if len({key for key, _score in claimants}) < 2:
@@ -355,14 +354,14 @@ def _yield_one_collision(results: dict[str, KeyInference]) -> bool:
 
 
 def _from_saved_bindings(result: KeyInference) -> bool:
-    """这个键的候选来自已保存的节点绑定：用户确认过的落点不由推断让出。"""
+    """Candidates derived from saved bindings; inference cannot displace user-confirmed targets."""
     return any(hit.signal is BindingSignal.MANUAL_BINDING for c in result.candidates for hit in c.signals)
 
 
 def _yield_landing(
     key: str, result: KeyInference, landing: tuple[str, str], claimants: Sequence[tuple[str, int]]
 ) -> KeyInference:
-    """把某个落点上的候选从这个键里去掉，并按剩下的候选重新定状态。"""
+    """Remove one landing's candidates for a key and recompute states from survivors."""
     others = sorted({other for other, _score in claimants if other != key})
     note = Note(
         InferenceNote.TARGET_TAKEN,
@@ -373,11 +372,11 @@ def _yield_landing(
 
 
 def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine: _Engine) -> KeyInference:
-    """已保存的节点绑定对上新 workflow：逐条沿用、迁移或判丢。
+    """Match saved bindings to new workflows, reusing/migrating/losing individually.
 
-    三级按可靠度递减：节点 id、类型与标题都没变即原样沿用；类型加标题在全图唯一时迁移到新 id 并标
-    「已重匹配」；再不成该条目就丢了。丢了条目的语义键整键重跑推断并标「需确认」——重导入不静默
-    保存，用户要看见哪些沿用、哪些重新识别。
+    Three decreasing reliability levels: same node id/type/title reuses unchanged; unique whole-graph type/title migrates
+    to new ids and marks rematched; otherwise lost. Lost keys rerun wholly, requiring confirmation: reimport never silently
+    saves, exposing reused/reidentified targets.
     """
     kept: list[Candidate] = []
     migrated: list[str] = []
@@ -412,7 +411,7 @@ def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine
     fresh = engine.infer_key(key)
     landed = {(candidate.node, candidate.input) for candidate in kept}
     merged = [*kept, *(c for c in fresh.candidates if (c.node, c.input) not in landed)]
-    # 有条目丢失时一个也不自动选：沿用下来的那几条同样要在用户眼前过一遍。
+    # Lost entries prevent any auto-selection, requiring review even for reused survivors.
     pending = tuple(
         Candidate(c.target, c.signals, selected=False, origin=c.origin, depth=c.depth)
         for c in sorted(merged, key=lambda c: (-c.score, _node_order(c.node)))
@@ -421,7 +420,7 @@ def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine
 
 
 def _relocate(entry: Mapping[str, Any], workflow: Mapping[str, Any]) -> tuple[str, MatchOrigin] | None:
-    """一个既有条目在新 workflow 里的落点。"""
+    """Existing-entry locations in new workflows."""
     class_type = str(entry.get("class_type", ""))
     input_name = entry.get("input")
     node = workflow.get(str(entry.get("node")))
@@ -444,12 +443,12 @@ def _relocate(entry: Mapping[str, Any], workflow: Mapping[str, Any]) -> tuple[st
 
 
 def _same_title(entry: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
-    """条目记下的标题与新图里同 id 那个节点的标题一致。
+    """Whether saved titles equal same-id node titles in new graphs.
 
-    同类同入口的两个节点（正负 ``CLIPTextEncode`` 是最常见的一对）在重新导出时互换编号，只比类型
-    与字段可写的话旧 id 仍然匹配得上，一侧的值就会悄悄写进另一侧。两边都没有标题时（导出物里
-    ``_meta`` 可能整节缺失）这一条核对不出任何东西，按一致处置；条目没记 ``title`` 也一样——它在
-    定义 schema 上是可选字段，没记不等于当时没有标题。
+    Same-type/input nodes, commonly positive/negative ``CLIPTextEncode``, may swap ids during exports. Type/writability alone
+    would match old ids and silently swap values. Both titles absent, including missing entire
+    ``_meta``, cannot verify and count equal; absent saved ``title`` likewise, because optional
+    schema fields do not establish whether titles existed originally.
     """
     if "title" not in entry:
         return True
@@ -457,11 +456,11 @@ def _same_title(entry: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
 
 
 def _refresh_consumer(target: dict[str, Any], key: str, node_id: str, engine: _Engine) -> None:
-    """条目落位后从活图重推它嵌套的 ``consumer``。
+    """Reinfer nested ``consumer`` from live graphs after relocation.
 
-    ``consumer`` 只由推断得出，用户没有编辑它的面，因此不必像 ``step`` / ``policy`` 那样原样随迁。
-    重新导出一份 workflow 时读图节点与它的消费者常常一起换号，照搬旧值会留下一个指向不存在节点的
-    落点。重推不出来就把这个键摘掉：那正是「这张图接到了谁没看懂」，与从未推断出 ``consumer`` 同义。
+    ``consumer`` is inference-only without user controls, unlike preserved ``step`` / ``policy``.
+    Reexported loaders/consumers often renumber together; stale values would point to nonexistent nodes.
+    Remove uninferable keys, meaning unknown image destinations just like never inferred ``consumer``.
     """
     if key not in CONSUMER_BINDING_KEYS:
         return
@@ -473,7 +472,7 @@ def _refresh_consumer(target: dict[str, Any], key: str, node_id: str, engine: _E
 
 
 def _consumer_entry(consumer: Consumer) -> dict[str, Any]:
-    """一条 ``consumer`` 记录：写进 ``bindings`` 的那四项。"""
+    """One ``consumer`` record, four persisted ``bindings`` fields."""
     return {
         "node": consumer.node,
         "input": consumer.input,
@@ -483,9 +482,9 @@ def _consumer_entry(consumer: Consumer) -> dict[str, Any]:
 
 
 def _writable(node: Mapping[str, Any], input_name: object) -> bool:
-    """条目指的那个字段还在，且仍是字面值。产物条目是节点级的，没有字段要查。
+    """Target fields still exist as literals; node-level artifacts lack fields.
 
-    按键判在不在：``"text": null`` 是个存在的字面值字段，与校验器同口径——那一侧也按键判。
+    Check key presence: ``"text": null`` exists as literal, matching validators.
     """
     if not isinstance(input_name, str):
         return True
@@ -494,7 +493,7 @@ def _writable(node: Mapping[str, Any], input_name: object) -> bool:
 
 
 class _Engine:
-    """一份 workflow 上的推断：索引建一次，各语义键复用。"""
+    """Inference per workflow, building indexes once for all keys."""
 
     def __init__(self, workflow: Mapping[str, Any], rules: InferenceRules) -> None:
         self.workflow = workflow
@@ -504,7 +503,7 @@ class _Engine:
         self.polarity = _polarity_by_node(workflow, rules)
         self.output_chain = self._output_chain()
 
-    # -- 对外入口 ---------------------------------------------------------
+    # Public entries.
 
     def infer_key(self, key: str) -> KeyInference:
         if key == "output":
@@ -513,7 +512,7 @@ class _Engine:
         return self._select(key, collected, notes)
 
     def workflow_notes(self) -> tuple[Note, ...]:
-        """与某个语义键无关、整份 workflow 层面的提示。"""
+        """Workflow-wide notes independent of semantic keys."""
         notes: list[Note] = []
         for node_id, node in _nodes(self.workflow):
             class_type = class_type_of(node)
@@ -536,14 +535,14 @@ class _Engine:
             )
         return tuple(notes)
 
-    # -- 候选生成 ---------------------------------------------------------
+    # Candidate generation.
 
     def _candidates_for(self, key: str) -> tuple[list[Candidate], tuple[Note, ...]]:
         builder = _Collector()
         notes: list[Note] = []
         marked = self.markers.get(key, ())
         if marked:
-            # 标题标记按语义键抑制推断：这个键上只认打了标记的节点，其余信号一律不再参与。
+            # Semantic title markers suppress other signals for that key, considering marked nodes only.
             for node_id in marked:
                 for target in self._marked_targets(key, node_id):
                     builder.add(target, SignalHit(BindingSignal.TITLE_MARKER, _weight(BindingSignal.TITLE_MARKER)))
@@ -555,14 +554,14 @@ class _Engine:
         return builder.done(), tuple(notes)
 
     def _marked_targets(self, key: str, node_id: str) -> Iterator[Mapping[str, Any]]:
-        """标记是节点级的：节点有多个可参数化字段时按 input 名做二级判定。"""
+        """Node-level markers use input names for secondary decisions on multiparameter nodes."""
         node = self.workflow[node_id]
         if key == "output":
             yield self._target(key, node_id, None, node_id)
             return
         loader = self.rules.loader_input(class_type_of(node)) if key in IMAGE_VALUED_KEYS else None
         if loader is not None:
-            # 读图节点还带着 upload 一类的界面字段，图像类语义的落点只有承载文件名的那一个。
+            # Loaders include upload UI fields; image semantics target filenames only.
             yield self._target(key, node_id, loader, node_id, consumer=self._marked_consumer(key, node_id))
             return
         rules = self.rules.semantic_keys.get(key)
@@ -572,12 +571,12 @@ class _Engine:
             yield self._target(key, node_id, name, node_id)
 
     def _marked_consumer(self, key: str, node_id: str) -> Consumer | None:
-        """被标记的参考图节点仍要记下它接到谁的哪个入口，张数变少时才改得动图。"""
+        """Marked references still record consumer nodes/inputs, enabling graph adjustment for fewer images."""
         ports = self.rules.consumer_ports.get(key, ())
         return self._matching_consumer(node_id, ports) if ports else None
 
     def _external_candidates(self, key: str, builder: _Collector) -> None:
-        """外部约定节点族：只按 class_type 前缀认，参数名按各家的载体读。"""
+        """External node conventions recognized by class_type prefixes, reading their parameter-name carriers."""
         for node_id, node in _nodes(self.workflow):
             class_type = class_type_of(node)
             family = self.rules.family_of(class_type)
@@ -599,11 +598,11 @@ class _Engine:
                 )
 
     def _sampler_port_candidates(self, key: str, builder: _Collector) -> None:
-        """条件端口的多跳反溯，只服务正负提示词。
+        """Multihop conditioning backtrace for positive/negative prompts only.
 
-        起点是任何带 ``positive`` / ``negative`` 端口的节点，不只是采样器：模型条件节点自己也
-        带这两个端口，从它起步与从采样器起步反溯到的是同一个文本节点，而有些社区图里能指名
-        极性的只有它。信号说明因此说「节点」而不说「采样器」。
+        Start any nodes with ``positive`` / ``negative``, not samplers alone: model-conditioning nodes
+        have both and reach the same texts, sometimes uniquely identifying
+        polarity in community workflows. Signal descriptions therefore say nodes, never samplers.
         """
         port = self.rules.port_of(key)
         if port is None:
@@ -626,7 +625,7 @@ class _Engine:
                         )
 
     def _alias_candidates(self, key: str, builder: _Collector, notes: list[Note]) -> None:
-        """input 名别名表命中；落在白名单节点上时线索更强。"""
+        """Input alias matches, stronger on allowlisted nodes."""
         rules = self.rules.semantic_keys.get(key)
         if rules is None:
             return
@@ -638,7 +637,7 @@ class _Engine:
                 if not rules.accepts(name, class_type):
                     continue
                 if self.polarity.get((node_id, name), key) != key:
-                    # 已由条件端口判给另一极的文本字段，不再作为本键的候选。
+                    # Text already assigned opposite polarity by ports cannot compete here.
                     continue
                 landing = resolve_literal(self.workflow, node_id, name, constants=self.rules.constant_nodes)
                 if landing.node is None or landing.input is None:
@@ -669,7 +668,7 @@ class _Engine:
                 builder.add(self._target(key, landing.node, landing.input, node_id), *hits)
 
     def _link_trace_candidates(self, key: str, builder: _Collector, notes: list[Note]) -> None:
-        """顺输出找下游消费者的入口名反推。图像类语义只有这一条路走得通。"""
+        """Infer semantics from downstream consumer input names; sole workable route for image semantics."""
         if key in IMAGE_VALUED_KEYS:
             self._image_candidates(key, builder, notes)
             return
@@ -692,10 +691,10 @@ class _Engine:
                     )
 
     def _image_candidates(self, key: str, builder: _Collector, notes: list[Note]) -> None:
-        """读图节点承载文件名的那个字段，是图像类语义唯一写得动的落点。
+        """Loader filename fields are image semantics' sole writable targets.
 
-        它是首帧、尾帧还是参考图，取决于这张图流向了谁的哪个入口——``image`` 这个名字在
-        ``LoadImage`` 上是文件名，在 ``LTXVImgToVideo`` 上是首帧，在缩放节点上只是中间连线。
+        First/last/reference roles depend on consumer nodes/ports: ``image`` on
+        ``LoadImage`` means filenames, ``LTXVImgToVideo`` first frames, scaling nodes intermediate links.
         """
         ports = self.rules.consumer_ports.get(key, ())
         if not ports:
@@ -724,10 +723,10 @@ class _Engine:
                 )
 
     def _downstream(self, node_id: str) -> Iterator[Consumer]:
-        """顺着图往下游走，逐个交出接在这条图流上的入口，由近及远。
+        """Walk downstream image streams, yielding inputs nearest-first.
 
-        中间常隔着缩放、变量传递一类只把图原样递下去的节点，只看直接消费者会漏判；每个节点最多
-        走一次，图里有环也停得下来。
+        Scaling/variable-pass-through nodes often intervene, so direct consumers alone miss matches;
+        visit each node at most once, terminating cycles too.
         """
         seen = {node_id}
         queue = [node_id]
@@ -739,11 +738,11 @@ class _Engine:
                     queue.append(consumer.node)
 
     def consumer_of(self, key: str, node_id: str) -> Consumer | None:
-        """这个读图节点在本图上承载该语义键时，它的图流落在谁的哪个入口。"""
+        """Where this loader's image stream lands as this semantic key."""
         return self._matching_consumer(node_id, self.rules.consumer_ports.get(key, ()))
 
     def _matching_consumer(self, node_id: str, ports: Sequence[ConsumerPort]) -> Consumer | None:
-        """这条图流上第一个落在这些入口上的消费者。"""
+        """First stream consumers matching these inputs."""
         return next(
             (
                 consumer
@@ -754,10 +753,10 @@ class _Engine:
         )
 
     def _feeds_blocked_input(self, node_id: str) -> bool:
-        """这条图流最终喂进了收图但不收参考图的入口吗。
+        """Whether image streams ultimately feed nonreference inputs.
 
-        首尾帧被拼成图像批次送进控制视频的形态（VACE）会先撞上合并节点的 ``image1`` / ``image2``——
-        那两个入口名在别处正是参考图的格子，只看直接消费者会把首尾帧报成参考图。
+        VACE first/last frames merge into control-video batches, first hitting merge ``image1`` / ``image2``:
+        elsewhere these name reference slots, so direct-only checks would misidentify frames as references.
         """
         return any(
             self.rules.blocks_image(consumer.class_type, consumer.input) for consumer in self._downstream(node_id)
@@ -784,7 +783,7 @@ class _Engine:
                 candidate.requires_true is not None
                 and unwrap_value(node_inputs(node).get(candidate.requires_true)) is False
             ):
-                # 只预览不落盘的节点取不到成片。
+                # Preview-only nodes cannot yield final artifacts.
                 continue
             builder.add(
                 self._target("output", node_id, None, node_id),
@@ -803,7 +802,7 @@ class _Engine:
         ]
 
     def _output_chain(self) -> frozenset[str]:
-        """最终产物那条链路上的全部节点；产物本身尚不唯一时为空集。"""
+        """All final-artifact-chain nodes; empty while output remains ambiguous."""
         candidates = self._output_candidates()
         if not candidates:
             return frozenset()
@@ -813,15 +812,15 @@ class _Engine:
         node = candidates[best[0]].node
         return ancestors(self.workflow, node) | {node}
 
-    # -- 组装 -------------------------------------------------------------
+    # Assembly.
 
     def _target(
         self, key: str, node_id: str, input_name: str | None, carrier: str, *, consumer: Consumer | None = None
     ) -> Mapping[str, Any]:
-        """把一个落点拼成可直接写进 ``bindings`` 的条目。
+        """Assemble persistable ``bindings`` entries from landings.
 
-        ``carrier`` 是推断出这一项的承载节点：字段值是连线时落点会上溯到常量节点，而步长这类
-        约束属于承载节点。
+        ``carrier`` is the inference carrier: linked values relocate targets to constants,
+        while constraints such as steps belong to carriers.
         """
         node = self.workflow[node_id]
         target: dict[str, Any] = {"node": node_id, "class_type": class_type_of(node), "title": node_title(node)}
@@ -835,17 +834,17 @@ class _Engine:
             target["direction"] = "read"
         if key == "seed":
             target["policy"] = "random"
-        # 只有参考图的条目声明了 consumer（schema 里 writeTarget 是 additionalProperties: false）：
-        # 别的键附上它，推断出来的结果就存不回去。与 _refresh_consumer 同一道口径。
+        # Only reference entries declare consumer (schema writeTarget additionalProperties:false);
+        # adding to other keys would make inferred definitions unsavable. Match _refresh_consumer.
         if consumer is not None and key in CONSUMER_BINDING_KEYS:
             target["consumer"] = _consumer_entry(consumer)
         return target
 
     def _gated_out(self, node: Mapping[str, Any]) -> bool:
-        """这个节点被闸门关掉了吗：关掉的节点整个不参与别名扫描。
+        """Whether gates disable whole nodes from alias scanning.
 
-        MoE 的低噪档与 refiner 段的 ``add_noise`` 是 disable，种子恒为 0；闸门判的是节点而不是
-        某个语义键，只是这类节点上能被别名认出的字段目前只有种子。
+        MoE low-noise/refiner ``add_noise`` disable fixes seeds at 0; gates classify nodes,
+        not semantic keys, though seeds are currently their only alias-recognizable fields.
         """
         gate = self.rules.seed_gate(class_type_of(node))
         if gate is None:
@@ -865,7 +864,7 @@ class _Engine:
 
 
 class _Collector:
-    """按落点归并候选：同一个 ``(node, input)`` 上的多条信号累加成一个候选。"""
+    """Merge signals into one candidate per ``(node, input)`` landing."""
 
     def __init__(self) -> None:
         self._targets: dict[tuple[str, str | None], Mapping[str, Any]] = {}
@@ -892,7 +891,7 @@ class _Collector:
 
 
 def _pick(candidates: Sequence[Candidate], key: str) -> tuple[int, ...]:
-    """按分选中；没有唯一赢家就一个也不选（参考图除外，它的并列是格子序号）。"""
+    """Select by scores, none without unique winners except reference ties defining slot indices."""
     if not candidates:
         return ()
     best = max(candidate.score for candidate in candidates)
@@ -902,7 +901,7 @@ def _pick(candidates: Sequence[Candidate], key: str) -> tuple[int, ...]:
     if len(tied) == 1:
         return (tied[0],)
     if key == "output":
-        # 两段式 workflow 的第二段产物上游更深；深度相当则是并行分支，交用户选。
+        # Second-stage outputs have deeper upstream chains; similar depth means parallel branches for user selection.
         deepest = max(candidates[index].depth or 0 for index in tied)
         at_depth = [index for index in tied if (candidates[index].depth or 0) == deepest]
         return (at_depth[0],) if len(at_depth) == 1 else ()
@@ -910,7 +909,7 @@ def _pick(candidates: Sequence[Candidate], key: str) -> tuple[int, ...]:
 
 
 def _title_markers(workflow: Mapping[str, Any], rules: InferenceRules) -> Mapping[str, tuple[str, ...]]:
-    """``_meta.title`` 上的 ``ARCREEL:<key>`` 标记：语义键 → 打了标记的节点，按节点 id 升序。"""
+    """``_meta.title`` ``ARCREEL:<key>`` markers: keys → marked nodes sorted by node ids."""
     found: dict[str, list[str]] = {}
     allowed = set(rules.semantic_keys) | {"output"} | set(rules.consumer_ports)
     for node_id, node in _nodes(workflow):
@@ -925,10 +924,10 @@ def _title_markers(workflow: Mapping[str, Any], rules: InferenceRules) -> Mappin
 
 
 def _polarity_by_node(workflow: Mapping[str, Any], rules: InferenceRules) -> Mapping[tuple[str, str], str]:
-    """条件端口反溯判给某一极的文本字段：另一极不再把它当候选。
+    """Text fields assigned polarities through conditioning backtrace, excluded from opposite candidates.
 
-    没有负向路径的 workflow（正向条件被清零、或整图无 CFG）最常见的误判就是把正向那个文本节点
-    同时报成负向候选——两个键的别名表都收 ``text``，不靠端口这一层分不开。
+    Workflows without negative paths, zeroed positives/no CFG, commonly misidentify positive text as
+    negative because both alias vocabularies include ``text``; conditioning ports disambiguate.
     """
     assigned: dict[tuple[str, str], str] = {}
     for port, key in rules.sampler_ports.items():
@@ -945,11 +944,11 @@ def _polarity_by_node(workflow: Mapping[str, Any], rules: InferenceRules) -> Map
 
 
 def _trace_condition(workflow: Mapping[str, Any], rules: InferenceRules, node_id: str, port: str) -> Iterator[str]:
-    """从某个节点的条件端口往上走，穿过透传节点，停在第一个不透传的节点上。
+    """Trace conditioning ports upstream through pass-through nodes, stopping at first nonpass-through.
 
-    条件在到达采样器前常经过模型条件节点：它们的输出序号定了透传的是哪一极（0 号 positive、
-    1 号 negative），继续往上走时端口名随之切换。清零一类的节点不在透传表里，反溯停在那里——
-    「负向条件是把正向清零得来的」正确的答案就是「这个 workflow 没有负向文本」。
+    Model-conditioning nodes before samplers encode polarities in output indices (0 positive,
+    1 negative), switching port names during traversal. Zeroing nodes are absent from pass-through tables,
+    correctly stopping negative-derived-from-positive-zeroing as no negative text.
     """
     link = link_of(node_inputs(workflow.get(node_id, {})).get(port))
     if link is None:
@@ -989,12 +988,12 @@ def _weight(signal: BindingSignal) -> int:
 
 
 def _normalized(parameter: str) -> str:
-    """外部约定里的参数名规范化后与语义键比对：各家的参数名由用户自己起。"""
+    """Normalize user-chosen external parameter names against semantic keys."""
     return re.sub(r"[^a-z0-9]+", "_", parameter.strip().lower()).strip("_")
 
 
 def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> KeyInference:
-    """按分排序定选中项与状态。分数已经算全，同一批候选反复跑结果一致。"""
+    """Sort scores into selections/states; complete scores make repeated candidate sets deterministic."""
     if not scored:
         return KeyInference(BindingState.NOT_FOUND, (), notes)
     ranked = sorted(scored, key=lambda candidate: (-candidate.score, _node_order(candidate.node)))
@@ -1007,6 +1006,6 @@ def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> K
 
 
 def _node_order(node_id: str) -> tuple[int, str]:
-    """节点 id 的排序：数字串按数值比，其余按字面。"""
+    """Node-id sorting: numeric strings by value, others literal."""
     match = _NUMERIC_PREFIX.match(node_id)
     return (int(match.group(1)), node_id) if match else (2**31, node_id)

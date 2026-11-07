@@ -133,14 +133,14 @@ function cardNames(): string[] {
   return screen.queryAllByRole("article").map((card) => within(card).getByRole("heading").textContent ?? "");
 }
 
-/** 市场源列表里的顺序，按每行拖动把手的名称读出。 */
+/** Market-source list order, read through row drag-handle names. */
 function sourceOrder(): string[] {
   return screen
     .getAllByRole("button", { name: /^调整「.+」的顺序$/ })
     .map((handle) => handle.getAttribute("aria-label")?.replace(/^调整「(.+)」的顺序$/, "$1") ?? "");
 }
 
-/** 「设置」Tab 先渲染空的市场源区，列表数据随后到达：等到行出现再同步查询行内控件。 */
+/** Settings first renders empty source sections; await rows before synchronously querying their controls. */
 async function sourcesLoaded() {
   await screen.findByRole("button", { name: "调整「ArcReel Market」的顺序" });
 }
@@ -211,7 +211,7 @@ describe("MarketSection", () => {
       expect(within(team).getByText("团队市场")).toBeInTheDocument();
       const alpha = screen.getByRole("article", { name: "Alpha Video" });
       expect(within(alpha).getByRole("img", { name: "官方" })).toBeInTheDocument();
-      // 条目类型目前只有调用端点，不显示类型筛选
+      // Endpoints are the only entry type; omit type filters.
       expect(screen.getByRole("group", { name: "媒体类型" })).toBeInTheDocument();
       expect(screen.queryByRole("group", { name: "条目类型" })).not.toBeInTheDocument();
     });
@@ -684,7 +684,7 @@ describe("MarketSection", () => {
       await waitFor(() => expect(confirm).not.toBeInTheDocument());
       expect(sourceOrder()).toContain("团队市场");
 
-      // 再次打开同一个源时不残留上一次的错误。
+      // Reopening identical sources retains no previous errors.
       await chooseSourceAction("团队市场", "删除");
       expect(within(await screen.findByRole("alertdialog")).queryByRole("alert")).not.toBeInTheDocument();
     });

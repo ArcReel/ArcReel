@@ -19,8 +19,9 @@ class Task(UserOwnedMixin, Base):
     task_type: Mapped[str] = mapped_column(String, nullable=False)
     media_type: Mapped[str] = mapped_column(String, nullable=False)
     resource_id: Mapped[str] = mapped_column(String, nullable=False)
-    # 仅 image_edit 任务写入（其余任务类型 task_type 本身已按资源种类区分，无需此列）：
-    # 纳入去重键，避免不同资产类型同名（如角色和道具都叫「玉佩」）时活动任务互相误判去重。
+    # Written only for image_edit tasks (other task_type values already distinguish resource kinds):
+    # included in deduplication keys so same-named assets of different types (for example, a character
+    # and prop both named 玉佩) do not incorrectly deduplicate active tasks.
     resource_type: Mapped[str | None] = mapped_column(String)
     script_file: Mapped[str | None] = mapped_column(String)
     payload_json: Mapped[str | None] = mapped_column(Text)
@@ -34,15 +35,18 @@ class Task(UserOwnedMixin, Base):
     cancelled_by: Mapped[str | None] = mapped_column(String)
     provider_id: Mapped[str | None] = mapped_column(String)
     provider_job_id: Mapped[str | None] = mapped_column(String)
-    # 提交该供应商任务时所用的协议标识（协议维度），只有自定义供应商有这个维度，内置供应商恒 NULL。
-    # 与 provider_job_id 同一次写入落地，记录这笔供应商任务按哪套协议提交，供排障时归因。不存请求
-    # 域名。续跑的协议比对不读这一列——那道闸的权威是 execution_checkpoint_json 里的 endpoint_guard。
+    # Protocol identifier used to submit the provider job (protocol dimension), custom providers only;
+    # always NULL for built-ins. Persist together with provider_job_id for troubleshooting submission
+    # protocol attribution, without the request hostname. Resume protocol comparison does not read
+    # this column: execution_checkpoint_json endpoint_guard is authoritative for that gate.
     provider_endpoint: Mapped[str | None] = mapped_column(String)
-    # 提交该供应商任务时实际请求的域名（连接维度），两类供应商通用，与 provider_job_id 同一次
-    # 写入落地。域名随用户配置变化，续跑据此回放原域名轮询，避免按新域名轮旧任务查无。
+    # Actual request hostname at job submission (connection dimension), shared by both provider kinds
+    # and persisted with provider_job_id. Configuration may change the hostname; resume replays polling
+    # against this original hostname to avoid looking up an old job on a new host.
     submitted_base_url: Mapped[str | None] = mapped_column(String)
-    # 参考生视频首次提交前冻结的严格执行事实。独立列避免与可变 enqueue payload 混合，且让
-    # checkpoint/job 组合在重启时可无歧义分流；只由 worker 内部消费，不属于 tasks API 契约。
+    # Strict execution facts frozen before initial reference-video submission. A separate column avoids
+    # mixing with mutable enqueue payloads and permits unambiguous checkpoint/job dispatch on restart.
+    # Consumed only internally by workers; not part of the tasks API contract.
     execution_checkpoint_json: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

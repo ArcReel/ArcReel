@@ -1,21 +1,27 @@
-"""脚本规划的本集新增资产：处理决定的解析、规划校验的叠加视图、确认时的引用改写与登记。
+"""Episode-new assets in script planning: resolve decisions, overlay validation views, rewrite references, and register on confirmation.
 
-规划条目里的引用一律写新增项的 ``name``（称呼），确认时按处理决定统一改写（见 ``docs/adr/0092``）：
+Planning references always use new items' ``name`` (appellation); confirmation rewrites them according
+to handling decisions (see ``docs/adr/0092``):
 
-- 称呼与已登记的同类资产（规范化后）相同的新增项，无论处理决定，一律归到该资产，不改它的描述。
-- ``register``：登记为新资产，引用改为登记名；登记名与已登记的同类资产相同即归到该资产；
-  本集新增项之间同类同名的合为一项。
-- ``merge``：归到 ``target``（已登记的同类资产，或本集另一项新增资产的最终归属），称呼记为别名。
-  ``target`` 写另一项新增资产时，取它的称呼或登记名均可；衍生的本体同理。
-- ``derivative``：登记为 ``target`` 角色的衍生，画面引用改为 ``本体/衍生``，台词说话人（剧情演绎的
-  ``utterances`` 与广告分镜视频提示词的 ``dialogue``）改为本体。
-- ``skip``：不登记。引用数组里移除；剧情演绎台词的说话人保留原名；参考生视频正文里画面位的
-  ``@[名]`` 退为纯文本，说话人位保持原样。
+- New items whose appellation matches an existing asset of the same type after normalization always
+  resolve to that asset, regardless of their handling decision, without changing its description.
+- ``register``: register a new asset and rewrite references to its registered name. Names matching
+  existing same-type assets resolve to those assets; same-type/name episode-new items merge into one.
+- ``merge``: resolve to ``target``, an existing same-type asset or another new item's final asset,
+  recording the appellation as an alias. ``target`` may address other new items by appellation or registered
+  name; the same applies to derivative base characters.
+- ``derivative``: register a derivative under the ``target`` character. Rewrite visual references as
+  ``本体/衍生`` and dialogue speakers (drama ``utterances`` and ad storyboard video-prompt ``dialogue``)
+  to the base character.
+- ``skip``: do not register. Remove from reference arrays; retain drama speakers' original names.
+  In reference-to-video bodies, visual ``@[名]`` references become plain text, while speaker slots remain unchanged.
 
-规划从不改已登记资产的描述：登记只新增条目、衍生与别名。程序只按名字归并，别名不参与匹配。
+Planning never changes existing asset descriptions: registration only adds entries, derivatives,
+and aliases. Programs merge by name only; aliases do not participate in matching.
 
-改写之后，引用数组与参考生视频正文画面位里留下的名字必须是已登记资产、本集登记的新增资产或其衍生
-（:func:`unregistered_references`）；说话人不在此列，可以写未登记的群演。
+After rewriting, names left in reference arrays and reference-to-video visual positions must belong
+to existing assets, episode-registered new assets, or their derivatives
+(:func:`unregistered_references`). Speakers are excluded and may name unregistered extras.
 """
 
 from __future__ import annotations
@@ -48,7 +54,7 @@ _TYPES: tuple[NewAssetType, ...] = ("character", "scene", "prop")
 
 @dataclass(frozen=True)
 class NewAssetProblem:
-    """一项新增资产无法按处理决定落地的原因；``index`` 是它在 ``new_assets`` 里的下标。"""
+    """Why a new asset cannot realize its handling decision; ``index`` is its position in ``new_assets``."""
 
     code: str
     message: str
@@ -56,7 +62,7 @@ class NewAssetProblem:
 
 
 class NewAssetsError(ValueError):
-    """新增资产的处理决定解析不出：确认整笔拒绝，项目与正式脚本都不改。"""
+    """Unresolvable new-asset decisions reject the entire confirmation, changing neither project nor formal script."""
 
     def __init__(self, problems: Sequence[NewAssetProblem]):
         super().__init__("；".join(problem.message for problem in problems))
@@ -65,14 +71,14 @@ class NewAssetsError(ValueError):
 
 @dataclass(frozen=True)
 class UnregisteredReference:
-    """一个规划条目引用了、却既未登记也不是本集登记的新增资产的名字。"""
+    """A planning item references a name neither already registered nor newly registered for this episode."""
 
     item_id: str
     names: tuple[str, ...]
 
 
 class UnregisteredReferencesError(ValueError):
-    """改写后仍有引用落不到资产上：确认整笔拒绝，项目与正式脚本都不改。"""
+    """References still unresolved after rewriting reject the entire confirmation, changing neither project nor formal script."""
 
     def __init__(self, references: Sequence[UnregisteredReference]):
         self.references = list(references)
@@ -82,7 +88,7 @@ class UnregisteredReferencesError(ValueError):
 @dataclass(frozen=True)
 class _Outcome:
     kind: Literal["asset", "derivative", "skip"]
-    #: ``asset`` 为资产名，``derivative`` 为本体角色名，``skip`` 为称呼本身。
+    #: ``asset`` is the asset name, ``derivative`` the base character name, and ``skip`` the appellation itself.
     name: str
     derivative: str = ""
 
@@ -107,17 +113,17 @@ class _Registration:
 
 @dataclass
 class NewAssetResolution:
-    """处理决定解析后的结果：引用怎么改、项目里新增哪些条目、衍生与别名。"""
+    """Resolved handling decisions: reference rewrites and project additions of entries, derivatives, and aliases."""
 
     outcomes: dict[tuple[str, str], _Outcome]
     registrations: dict[str, dict[str, _Registration]]
     derivatives: list[tuple[str, str, str]]
     aliases: list[tuple[str, str, str]]
-    #: 与已登记的同类资产同名、确认时自动归并的新增项：``(类型, 称呼, 资产名)``。
+    #: New items matching existing same-type names, automatically merged on confirmation: ``(类型, 称呼, 资产名)``.
     auto_merged: list[tuple[str, str, str]]
 
     def rewrite_entries(self, entries: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-        """返回改写引用后的规划条目副本。"""
+        """Return copies of planning items with rewritten references."""
         by_name = {key: outcome for (_type, key), outcome in self.outcomes.items()}
         return [self._rewrite_entry(dict(copy.deepcopy(entry)), by_name) for entry in entries]
 
@@ -162,7 +168,7 @@ class NewAssetResolution:
         return result
 
     def registered(self) -> list[dict[str, str]]:
-        """本次新登记的资产与衍生（``{"type", "name"}``，衍生名写作 ``本体/衍生``），按类型、登记顺序。"""
+        """Assets/derivatives newly registered here (``{"type", "name"}``, derivatives named ``本体/衍生``), in type/registration order."""
         assets = [
             {"type": asset_type, "name": name}
             for asset_type, registrations in self.registrations.items()
@@ -175,7 +181,7 @@ class NewAssetResolution:
         return assets
 
     def apply_to_project(self, project: dict[str, Any]) -> None:
-        """把新增资产、衍生与别名写进项目载荷；已登记资产的描述不动。"""
+        """Write new assets, derivatives, and aliases into project payloads, leaving existing asset descriptions unchanged."""
         for asset_type, registrations in self.registrations.items():
             spec = ASSET_SPECS[asset_type]
             bucket = project.setdefault(spec.bucket_key, {})
@@ -233,7 +239,7 @@ def _parse_items(raw_items: object) -> tuple[list[PlanNewAsset | None], list[New
 
 
 def _registered_names(project: Mapping[str, Any]) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
-    """``(按类型的 判等键→登记名, 判等键→占用它的类型)``；名称空间跨四类资产。"""
+    """``(按类型的 判等键→登记名, 判等键→占用它的类型)``; the namespace spans all four asset types."""
     registered: dict[str, dict[str, str]] = {asset_type: {} for asset_type in _TYPES}
     owners: dict[str, str] = {}
     for asset_type, spec in ASSET_SPECS.items():
@@ -249,8 +255,9 @@ def _registered_names(project: Mapping[str, Any]) -> tuple[dict[str, dict[str, s
 
 
 def _namespace_names(project: Mapping[str, Any]) -> dict[str, tuple[str, str]]:
-    """``判重键→(类型, 登记名)``：新登记的名字与已有资产只差大小写也算重名，与
-    :func:`ensure_project_asset_name_available` 同口径。"""
+    """``判重键→(类型, 登记名)``: new names differing from existing assets only by case also collide,
+    matching :func:`ensure_project_asset_name_available`.
+    """
     names: dict[str, tuple[str, str]] = {}
     for asset_type, spec in ASSET_SPECS.items():
         bucket = project.get(spec.bucket_key)
@@ -273,9 +280,9 @@ class _Resolver:
         parsed, self.problems = _parse_items(raw_items)
         self.registered, self.owners = _registered_names(project)
         self.namespace = _namespace_names(project)
-        #: 判重键 → 本次已登记的 (类型, 登记名)；两项新增的登记名只差大小写时后一项落不了地。
+        #: Deduplication key → newly registered (type, registered name); case-only new-name collisions reject the latter item.
         self.claimed: dict[str, tuple[str, str]] = {}
-        #: (类型, 称呼判等键) → (下标, 新增项)；同类同名只留第一项。
+        #: (Type, appellation equality key) → (index, new item); retain only the first same-type/name item.
         self.items: dict[tuple[str, str], tuple[int, PlanNewAsset]] = {}
         item_types: dict[str, str] = {}
         for index, item in enumerate(parsed):
@@ -297,7 +304,7 @@ class _Resolver:
                 continue
             item_types[key] = item.type
             self.items[(item.type, key)] = (index, item)
-        #: (类型, 登记名判等键) → 称呼判等键：``target`` 可以写另一项新增资产改过的登记名。
+        #: (Type, registered-name equality key) → appellation equality key: ``target`` may use another new asset's renamed registration.
         self.registration_keys: dict[tuple[str, str], str] = {}
         for (asset_type, key), (_index, item) in self.items.items():
             if item.decision == "register" and item.asset_name:
@@ -305,7 +312,7 @@ class _Resolver:
         self.registrations: dict[str, dict[str, _Registration]] = {asset_type: {} for asset_type in _TYPES}
         self.aliases: list[tuple[str, str, str]] = []
         self.derivatives: list[tuple[str, str, str]] = []
-        #: 本体 → 本次新登记的衍生名（值不用）；同一本体下两项新增衍生只差大小写时后一项落不了地。
+        #: Base → newly registered derivative names (values unused); case-only collisions under one base reject the latter derivative.
         self.claimed_derivatives: dict[str, dict[str, None]] = {}
         self.auto_merged: list[tuple[str, str, str]] = []
         self.outcomes: dict[tuple[str, str], _Outcome] = {}
@@ -347,7 +354,7 @@ class _Resolver:
         )
 
     def _asset(self, asset_type: str, key: str, chain: tuple[str, ...]) -> str | None:
-        """把一个名字解析为它最终归属的资产名；不是资产（衍生 / 不登记 / 未知 / 解析失败）时为 None。"""
+        """Resolve a name to its final asset name; None for nonassets (derivatives / skipped / unknown / resolution failures)."""
         if (asset_type, key) in self._assets:
             return self._assets[(asset_type, key)]
         registered = self.registered[asset_type].get(key)
@@ -409,7 +416,7 @@ class _Resolver:
             self.aliases.append((asset_type, registered, alias))
 
     def _target_key(self, asset_type: str, target: str) -> str:
-        """``target`` 的判等键：已登记名或新增项称呼原样取，否则按新增项的登记名找回它的称呼。"""
+        """Equality key of ``target``: use existing names/new appellations directly, otherwise recover appellations by new registered names."""
         key = asset_name_comparison_key(target)
         if not key or key in self.registered[asset_type] or (asset_type, key) in self.items:
             return key
@@ -455,12 +462,12 @@ def _label(asset_type: str) -> str:
 
 
 def resolve_new_assets(project: Mapping[str, Any], raw_items: object) -> NewAssetResolution:
-    """按项目现状解析规划的新增资产；有项落不了地时抛 :class:`NewAssetsError`。"""
+    """Resolve planned new assets against current project state; raise :class:`NewAssetsError` if any cannot be realized."""
     return _Resolver(project, raw_items).resolve()
 
 
 def new_asset_violations(project: Mapping[str, Any], raw_items: object) -> list[DraftViolation]:
-    """规划校验：新增资产的处理决定解析不出的项，逐条成为整集层面的违约。"""
+    """Planning validation: turn each unresolved new-asset handling decision into an episode-level violation."""
     try:
         resolve_new_assets(project, raw_items)
     except NewAssetsError as exc:
@@ -478,9 +485,9 @@ def new_asset_violations(project: Mapping[str, Any], raw_items: object) -> list[
 def unregistered_references(
     project: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], *, id_field: str
 ) -> list[UnregisteredReference]:
-    """按 ``project``（已登记本集新增资产）列出各条目里落不到资产上的引用，名字按条目内出现顺序。
+    """List unresolved item references against ``project`` with this episode's new assets registered, in per-item appearance order.
 
-    查引用数组与参考生视频正文的画面位 ``@[名]``；台词说话人不查。
+    Check reference arrays and visual ``@[名]`` positions in reference-to-video bodies, excluding dialogue speakers.
     """
     catalog = build_reference_catalog(dict(project))
     visual = set().union(*(catalog.reference_names(asset_type) for asset_type in ASSET_SPECS))
@@ -512,7 +519,7 @@ def unregistered_references(
 
 
 def dedupe_new_assets(raw_items: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """同类同名（规范化后）的新增项只留第一项。"""
+    """Keep only the first new item of each normalized same-type/name pair."""
     seen: set[tuple[object, str]] = set()
     result: list[dict[str, Any]] = []
     for item in raw_items:
@@ -526,7 +533,7 @@ def dedupe_new_assets(raw_items: Iterable[Mapping[str, Any]]) -> list[dict[str, 
 
 
 def with_new_assets(content: Mapping[str, Any], raw_items: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
-    """把去重后的本集新增项放进规划内容。没有新增项时不写这个键，内容与不带新增项的规划同形。"""
+    """Add deduplicated episode-new items to planning content. Omit the key when none exist, matching plans without new assets."""
     result = {key: value for key, value in content.items() if key != NEW_ASSETS_FIELD}
     items = dedupe_new_assets(raw_items)
     if items:
@@ -535,9 +542,10 @@ def with_new_assets(content: Mapping[str, Any], raw_items: Iterable[Mapping[str,
 
 
 def planning_project(project: Mapping[str, Any], raw_items: object) -> dict[str, Any]:
-    """规划校验用的项目视图：本集新增项按称呼叠加在同类资产表上，引用它们即视为已登记。
+    """Project view for planning validation: overlay episode-new items by appellation in same-type asset tables, treating references as registered.
 
-    只供校验读取，不落盘。与其他类型重名的新增项不叠加（它已由处理决定的校验报出）。
+    Read-only validation view, never persisted. Exclude names colliding with other types, already reported
+    by handling-decision validation.
     """
     overlay = dict(project)
     items, _problems = _parse_items(raw_items)

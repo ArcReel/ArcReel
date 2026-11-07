@@ -1,4 +1,4 @@
-"""资产候选块的引用名与外观展开：角色的本体与衍生。"""
+"""Asset-candidate reference names/appearance expansion: base characters and derivatives."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def test_character_names_list_each_form_after_its_ontology():
 def test_a_derivative_appearance_is_the_ontology_description_plus_its_change():
     appearances = dict(iter_asset_appearances("character", _characters()))
 
-    assert appearances["张三/劲装"] == "青年剑客，玄色长衫\n当前形态：换上黑色劲装"
+    assert appearances["张三/劲装"] == "青年剑客，玄色长衫\nCurrent appearance: 换上黑色劲装"
     assert appearances["张三"] == "青年剑客，玄色长衫"
 
 
@@ -44,7 +44,7 @@ def test_a_derivative_without_a_change_description_keeps_only_the_ontology_line(
 def test_a_derivative_of_a_character_without_a_description_keeps_only_its_change():
     characters = {"张三": {"derivatives": {"劲装": {"description": "换上黑色劲装"}}}}
 
-    assert dict(iter_asset_appearances("character", characters))["张三/劲装"] == "当前形态：换上黑色劲装"
+    assert dict(iter_asset_appearances("character", characters))["张三/劲装"] == "Current appearance: 换上黑色劲装"
 
 
 def test_malformed_entries_degrade_to_names_without_raising():

@@ -1,6 +1,6 @@
-// 项目显示名解析:trim 后非空用原值,否则塌成调用方传入的 i18n 兜底文案。
-// 抽出 helper 是因为 fallback 模式在多处显示位置重复,且早期把内部 slug-style
-// project_name 当显示名暴露给用户引发过报障(中文标题被 NFKD 后剩纯 hex)。
+// Project display-name resolution: use the original value if nonempty after trim; otherwise use the caller's i18n fallback.
+// Extract this helper because fallback display recurs in multiple places, and earlier exposure of internal slug-style
+// project_name as a display name caused reports when NFKD processing left Chinese titles as pure hex.
 export function getProjectDisplayName(
   rawTitle: string | null | undefined,
   untitledLabel: string,

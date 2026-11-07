@@ -17,8 +17,8 @@ const FLAG_TONE: Record<ProviderModelFlag, string> = {
 };
 
 /**
- * 模型的状态标记（即将下线、已下线、未定价、已修改），列表行与 Sheet 标题共用。
- * 「即将下线」写明关停日期，取自 `shutdownDate`。
+ * Model status markers (retiring, retired, unpriced, modified), shared by list rows and Sheet headings.
+ * Retiring states show the shutdown date from `shutdownDate`.
  */
 export function ProviderModelFlags({
   flags,

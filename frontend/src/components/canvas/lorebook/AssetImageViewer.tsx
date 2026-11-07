@@ -26,14 +26,14 @@ import { VERSION_RESOURCE, type GalleryAsset } from "./gallery-model";
 
 export interface AssetImageViewerProps {
   projectName: string;
-  /** 可以查看的资产：有资产图的资产，按画廊筛选后的顺序。 */
+  /** Viewable assets have sheets and follow filtered-gallery order. */
   assets: readonly GalleryAsset[];
-  /** 正在查看的资产名；为 null 或不在 `assets` 里时关闭。 */
+  /** Viewed asset name; null or absent from `assets` closes. */
   name: string | null;
   onNameChange: (name: string | null) => void;
-  /** 「编辑」：打开这个资产的详情。只读时不传。 */
+  /** Edit opens asset details; omit when read-only. */
   onEdit?: (name: string) => void;
-  /** 资产图被占用的资产：任务在跑，或卡片上有上传、版本恢复、删除在途。 */
+  /** Sheet-occupied assets: running tasks or card upload/version-restore/delete requests. */
   busyNames: ReadonlySet<string>;
   readOnly: boolean;
   onRestoreVersion?: () => Promise<unknown> | void;
@@ -44,8 +44,8 @@ type VersionsState =
   | { phase: "failed"; message: string };
 
 /**
- * 画廊里的图片查看器：←/→ 按画廊筛选后的顺序在有资产图的资产之间切换，底部是这张资产图的版本条。
- * 点旧版本只切换查看；「还原到此版本」经单独确认后才改写资产图。
+ * Gallery image viewer: ←/→ switches sheet-bearing assets in filtered order, with sheet version strip below.
+ * Old-version selection changes viewing only; separate restore confirmation is required to rewrite sheets.
  */
 export function AssetImageViewer({
   projectName,
@@ -61,7 +61,7 @@ export function AssetImageViewer({
   const busyHintId = useId();
   const index = name === null ? -1 : assets.findIndex((item) => item.name === name);
   const live = index >= 0 ? assets[index] : undefined;
-  // 关闭动画期间沿用最后一次查看的资产
+  // Retain last viewed asset during closing animation.
   const [last, setLast] = useState(live);
   if (live && live !== last) setLast(live);
   const asset = live ?? last;
@@ -74,7 +74,7 @@ export function AssetImageViewer({
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [versions, setVersions] = useState<VersionsState | null>(null);
-  // 每次打开或换资产都从当前版本看起，版本条重新加载；关闭动画期间保持原样
+  // Opening/asset changes start at current version and reload version strips; preserve through closing animation.
   const liveName = live?.name ?? null;
   const [session, setSession] = useState<string | null>(null);
   if (liveName !== session) {
@@ -92,7 +92,7 @@ export function AssetImageViewer({
   const sheetPath = asset?.sheetPath ?? null;
   const fingerprint = useProjectsStore((s) => (sheetPath ? s.getAssetFingerprint(sheetPath) : null));
   const currentUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, fingerprint) : null;
-  // 资产图换了（生成、上传、还原）就重新读版本记录；读取期间沿用上一次的结果
+  // Sheet generation/upload/restore changes reread versions, retaining previous results during reads.
   const [reload, setReload] = useState(0);
   const open = live !== undefined;
   useEffect(() => {
@@ -115,7 +115,7 @@ export function AssetImageViewer({
   const current = versions?.phase === "ready" ? versions.current : 0;
   const list = versions?.phase === "ready" ? versions.versions : [];
   const viewedInfo = viewing !== null ? list.find((v) => v.version === viewing) : undefined;
-  // 正在看的不是当前版本时，图片换成那个版本的文件
+  // Viewing noncurrent versions switches images to their version files.
   const oldInfo = viewedInfo !== undefined && !viewedInfo.is_current ? viewedInfo : undefined;
   const shownVersion = viewedInfo?.version ?? (current > 0 ? current : null);
   const src = oldInfo ? (oldInfo.file_url ?? null) : currentUrl;
@@ -125,7 +125,7 @@ export function AssetImageViewer({
     if (to !== undefined && !restoring) onNameChange(to);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // 还原确认框嵌在查看器里，它的按键也会冒泡到这里
+    // Nested restoration-confirmation keys bubble to this viewer too.
     if (confirming !== null || restoring) return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const to = event.key === "ArrowLeft" ? previous : event.key === "ArrowRight" ? next : undefined;
@@ -143,7 +143,7 @@ export function AssetImageViewer({
 
   const executeRestore = async (version: number) => {
     if (busy || restoring) return;
-    // 确认框打开期间资产图可能刚被别处占用，提交前再读一次
+    // Another action may occupy sheets while confirmation is open; reread before submission.
     if (rejectIfAssetBusy(asset.type, projectName, asset.name, t, "assets:viewer_restore_busy_hint")) return;
     setRestoring(true);
     setRestoreError(null);
@@ -154,7 +154,7 @@ export function AssetImageViewer({
       }
       await onRestoreVersion?.();
       setReload((n) => n + 1);
-      // 还原的版本成了当前版本，回到看当前；成功不弹提示
+      // Restored versions become current; return to current viewing without success toasts.
       setViewing(null);
       setConfirming(null);
     } catch (err) {
@@ -168,11 +168,11 @@ export function AssetImageViewer({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        // 还原在途时不响应关闭，请求落定前画廊的其他入口不能再写这张资产图
+        // Ignore closing during restoration; no sibling gallery action may write sheets before settlement.
         if (!nextOpen && !restoring) onNameChange(null);
       }}
     >
-      {/* 看图区域固定深色：浅底会干扰对画面明暗的判断 */}
+      {/* Keep the viewing area dark: light backgrounds interfere with judgments of image brightness */}
       <DialogContent size="viewer" className="dark" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
@@ -308,7 +308,7 @@ export function AssetImageViewer({
   );
 }
 
-/** 底部版本条：每个版本一张缩略图，点选只切换查看。 */
+/** Bottom version strip: one thumbnail per version, selection changes viewing only. */
 function VersionStrip({
   state,
   shownVersion,

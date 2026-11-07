@@ -1,4 +1,4 @@
-"""失败文案按显示名目录把供应商与模型 ID 换成名称。"""
+"""Failure copy replaces provider/model IDs through the display-name catalog."""
 
 import string
 
@@ -13,7 +13,7 @@ MODEL_ID = "relay-video-x"
 PROVIDER_NAME = "我的中转站"
 MODEL_NAME = "中转视频模型"
 
-#: 名字像供应商或模型参数、但按原值显示的占位符，及其原因。
+#: Placeholders resembling provider/model parameters but displayed raw, with reasons.
 RAW_ID_PLACEHOLDERS = {
     "model_id": "自定义供应商设置页的模型行校验，主语是用户正在填写的模型 ID",
 }
@@ -42,7 +42,7 @@ def test_every_provider_or_model_placeholder_renders_the_display_name(locale: st
         assert not unregistered, (
             f"{locale}/{key} 的占位符 {sorted(unregistered)} 不在 DISPLAY_NAME_PARAMS 里，渲染时不会换成显示名"
         )
-        # 其余占位符填数值：兼容 {limit:g} 这类格式说明
+        # Fill other placeholders numerically, supporting format specifications such as {limit:g}.
         params: dict[str, object] = dict.fromkeys(fields, 1)
         params.update({field: MODEL_ID if field == MODEL_PARAM else PROVIDER_ID for field in id_fields})
 
@@ -67,7 +67,7 @@ def test_a_provider_missing_from_the_catalog_is_named_generically_and_its_model_
 
 
 def test_a_successor_entry_reference_renders_as_the_entry_display_name():
-    """后继存条目引用（「模型厂商/官方模型名」），渲染时换成条目显示名，与设置页内联提示同一写法。"""
+    """Successors store vendor/official-model entry references, rendered as entry display names like settings inline hints."""
     names = make_display_names("zh")
 
     params = names.apply({"successor": "bytedance/doubao-seedream-5-0-pro"})
@@ -78,8 +78,8 @@ def test_a_successor_entry_reference_renders_as_the_entry_display_name():
 @pytest.mark.parametrize(
     "ref",
     [
-        "acme/never-registered",  # 目录里没有这个条目
-        "kuaishou/kling-v3-omni",  # 两栖条目：图像与视频条目的显示名不同，无从判断指哪一个
+        "acme/never-registered",  # Entry absent from catalog.
+        "kuaishou/kling-v3-omni",  # Multimodal entry: differing image/video display names make the intended one ambiguous.
     ],
 )
 def test_a_successor_without_a_single_display_name_keeps_the_entry_reference(ref: str):

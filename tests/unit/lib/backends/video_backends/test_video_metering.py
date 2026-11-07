@@ -1,4 +1,4 @@
-"""视频调用通道按用量契约上报的计量（docs/adr/0100）：计量项、选择维度与方舟视频 token 估算。"""
+"""Video-channel metering under usage contracts (docs/adr/0100): items, selection dimensions, and Ark video-token estimation."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class TestVideoUsage:
         )
 
         assert usage.quantities["output_seconds"] == billed
-        # 时长档按发出的请求取，不随回报的秒数变
+        # Duration tiers follow the emitted request, not reported seconds.
         assert usage.dimensions["duration"] == 8
 
     def test_settlement_takes_reported_audio_flag(self) -> None:
@@ -86,7 +86,7 @@ class TestVideoUsage:
 
 
 class TestArkVideoTokens:
-    """视频 token 估算与服务档随 Seedance 端点声明，与型号名无关。"""
+    """Video-token estimation and service tiers follow Seedance endpoint declarations, independent of model name."""
 
     @pytest.mark.parametrize(
         ("backend", "resolution", "ratio", "seconds", "tokens"),
@@ -94,9 +94,9 @@ class TestArkVideoTokens:
             (Seedance2VideoBackend, "720p", "16:9", 5, 5 * 1280 * 720 * 24 / 1024),
             (Seedance2VideoBackend, "1080p", "9:16", 8, 8 * 1080 * 1920 * 24 / 1024),
             (Seedance2VideoBackend, "4k", "16:9", 5, 5 * 3840 * 2160 * 24 / 1024),
-            # 不发送分辨率时方舟按 720p 生成
+            # Without a sent resolution, Ark generates at 720p.
             (Seedance2VideoBackend, None, "1:1", 4, 4 * 960 * 960 * 24 / 1024),
-            # 2.5 的 480p 横竖屏像素与 2.0 不同
+            # 2.5 landscape/portrait 480p pixel counts differ from 2.0.
             (Seedance25VideoBackend, "480p", "16:9", 5, 5 * 854 * 480 * 24 / 1024),
             (Seedance25VideoBackend, "480p", "9:16", 5, 5 * 480 * 854 * 24 / 1024),
         ],
@@ -111,11 +111,11 @@ class TestArkVideoTokens:
     @pytest.mark.parametrize(
         ("backend", "resolution", "ratio"),
         [
-            # 宽高比交给上游自适应，像素数不可知
+            # Upstream adapts the aspect ratio, so pixel count is unknown.
             (Seedance2VideoBackend, "720p", "adaptive"),
-            # 2.5 没有 4k 档
+            # 2.5 has no 4k tier.
             (Seedance25VideoBackend, "4k", "16:9"),
-            # 1.x 端点不按视频 token 计量
+            # 1.x endpoints do not meter video tokens.
             (Seedance1VideoBackend, "720p", "16:9"),
         ],
     )
@@ -164,14 +164,14 @@ class TestArkVideoTokens:
 
 
 class TestSeedanceSelectableResolutions:
-    """方舟《创建视频生成任务 API》：Seedance 2.0 可选 480p/720p/1080p/4k，2.5 可选 480p/720p/1080p。"""
+    """Ark Create Video Generation Task API: Seedance 2.0 offers 480p/720p/1080p/4k; 2.5 offers 480p/720p/1080p."""
 
     @pytest.mark.parametrize(
         ("provider", "model", "resolutions"),
         [
             ("ark", "doubao-seedance-2-0-260128", ["480p", "720p", "1080p", "4k"]),
             ("ark", "doubao-seedance-2-5-260628", ["480p", "720p", "1080p"]),
-            # agent plan 共用同一条目，套餐未纳入 2.5
+            # Agent plan shares the entry, but the plan does not include 2.5.
             ("ark-agent-plan", "doubao-seedance-2.0", ["480p", "720p", "1080p", "4k"]),
         ],
     )
@@ -209,7 +209,7 @@ class TestKlingMetering:
         assert usage.dimensions["resolution"] == dimension
 
     def test_estimate_follows_user_relaxed_audio_track(self) -> None:
-        """用户添加的型号把音轨放宽为可控：预估与执行同一份叠加覆盖后的能力，按有声计。"""
+        """A user-added model widens audio to controllable: estimates/execution share the overlaid capabilities and count audio as present."""
         catalog.install_user_added_models(
             [
                 catalog.UserAddedModel(
@@ -274,10 +274,10 @@ class TestViduMetering:
 
 
 class TestEntryBoundMetering:
-    """不透明 API 模型名带上对应的条目时，各调用通道的计量与同条目的官方模型相同（docs/adr/0105）。
+    """Opaque API model names with matching entries meter identically to each entry's official model on all channels (docs/adr/0105).
 
-    覆盖按模型名派生计量的全部读点：方舟各端点的视频 token 与服务档（与条目无关，同样相等）、可灵的有声约束、Vidu 的时长校正与音轨、Agnes 的
-    契约有声、OpenAI 的 ``size``、百炼的音轨与参考图上限。
+    Cover every model-name-derived metering read: Ark endpoint video tokens/service tiers (entry-independent, still equal), Kling audio constraints, Vidu duration correction/audio, Agnes
+    contract audio, OpenAI ``size``, and Dashscope audio/reference-image limits.
     """
 
     _OPAQUE = "relay-opaque-video"

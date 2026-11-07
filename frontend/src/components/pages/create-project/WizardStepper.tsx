@@ -13,7 +13,7 @@ const STEP_LABEL_KEYS: Record<WizardStep, string> = {
 
 const STEPS: readonly WizardStep[] = [1, 2, 3];
 
-/** 横向步骤条：当前步骤高亮，已完成的步骤显示对勾。只做指示，不可点击跳转。 */
+/** Horizontal stepper: highlight the current step and check completed steps; indication only, without clickable navigation. */
 export function WizardStepper({ current }: { current: WizardStep }) {
   const { t } = useTranslation(["dashboard", "templates"]);
   return (

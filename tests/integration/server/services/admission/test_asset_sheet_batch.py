@@ -1,4 +1,4 @@
-"""资产图批量生成服务：选目标、批内依赖、集范围与卡片状态，落在真实项目目录与真实队列上。"""
+"""Asset-image batch service: target selection, within-batch dependencies, episode scope and card states using real project directories/queues."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
-# Provider 官方文档索引
+# Official provider documentation index
 
-文件名与 `lib.config.registry.PROVIDER_REGISTRY` 的规范 provider id 一致。Agent 凭证 preset、运行时 `custom-{id}` 和 legacy provider 名不在本清单内。
+Filenames match canonical provider IDs in `lib.config.registry.PROVIDER_REGISTRY`. Agent credential presets, runtime `custom-{id}` identities and legacy provider names are outside this list.
 
 - [agnes](agnes.md)
 - [ark](ark.md)

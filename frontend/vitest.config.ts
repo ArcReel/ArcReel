@@ -4,12 +4,12 @@ import path from "path";
 
 const mockIconsPath = path.resolve(__dirname, "src/__mocks__/@lobehub/icons.tsx");
 
-// 只收 .test.*：eslint 的测试规则块与 scripts/audit_tests.py 的前端发现都以此为界，
-// 放开 vitest 默认的 .spec.* 会让这类文件被执行却不受两道闸门约束。
+// Collect .test.* only, matching ESLint test rules/scripts/audit_tests.py discovery;
+// default .spec.* would execute outside both gates.
 const TEST_FILES = "src/**/*.test.{ts,tsx}";
 
-// 这两份用例改写 window.location、把 fetch 替身挂到全局：vmThreads 的 VM context 不允许
-// 重定义 location，跨 realm 的全局替身也接不到调用。它们留在 forks 池，其余文件走 vmThreads。
+// Two cases rewrite window.location/install global fetch fakes. vmThreads VM contexts cannot
+// redefine location or receive cross-realm fakes; use forks for these, vmThreads elsewhere.
 const REALM_BOUND_TESTS = ["src/api.test.ts", "src/utils/sse-stream.test.ts"];
 
 export default defineConfig({
@@ -30,8 +30,8 @@ export default defineConfig({
     setupFiles: ["src/test/setup.ts"],
     restoreMocks: true,
     clearMocks: true,
-    // vmThreads 每个 worker 只建一次 jsdom，每个文件换一个 VM context；forks 每个文件新起进程
-    // 并重建 jsdom。测试文件数以百计，按文件重建环境的固定开销压过了用例本身。
+    // vmThreads creates jsdom once per worker/new VM per file; forks recreates processes/jsdom
+    // per file. Hundreds of test files make environment setup overhead exceed case execution.
     projects: [
       {
         extends: true,

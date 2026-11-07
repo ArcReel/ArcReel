@@ -1,4 +1,4 @@
-"""自定义调用端点 ORM model。"""
+"""Custom invocation-endpoint ORM model."""
 
 from __future__ import annotations
 
@@ -11,25 +11,26 @@ from lib.db.base import Base, TimestampMixin
 
 
 class CustomEndpoint(TimestampMixin, Base):
-    """用户导入或手工创建的调用端点定义。
+    """Invocation-endpoint definition imported or manually created by the user.
 
-    ``definition`` 整份 JSON 是唯一真相源；其余列都是写入时由定义派生的只读镜像，供 DB 层
-    在不解析 JSON 的前提下过滤与排序（``docs/adr/0067``）。镜像列不接受独立编辑——改名即改
-    ``meta.name``，改协议即改定义本体。
+    The complete ``definition`` JSON is the sole source of truth. Other columns are
+    read-only mirrors derived at write time for DB filtering/sorting without JSON parsing
+    (``docs/adr/0067``). Never edit mirrors independently: rename through ``meta.name``
+    and change protocol through the definition itself.
 
-    全局实体，无 user 维度（与 :class:`~lib.db.models.custom_provider.CustomProvider` 一致）。
-    ``display_name`` 不加唯一约束：重复导入是提示而非拒绝，血统按 ``meta.author + meta.name``
-    判定并由客户端处置。
+    Global entity without a user dimension, like :class:`~lib.db.models.custom_provider.CustomProvider`.
+    ``display_name`` is not unique: duplicate imports prompt rather than reject; clients
+    handle lineage determined by ``meta.author + meta.name``.
     """
 
     __tablename__ = "custom_endpoint"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    # 容器类型，取自 definition.kind（declarative / comfyui；Python 插件是独立议题的预留槽位）
+    # Container kind from definition.kind (declarative / comfyui; Python plugins are a reserved slot for a separate topic)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    # 定义遵循的格式版本，原样保留文件里的值、不改写，也不做迁移
+    # Definition format version; preserve the file value unchanged, without rewriting or migration
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
-    # 取自定义里的 media_type；声明式定义不写时为 "video"
+    # From definition media_type; defaults to "video" when omitted in declarative definitions
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)  # ← definition.meta.name

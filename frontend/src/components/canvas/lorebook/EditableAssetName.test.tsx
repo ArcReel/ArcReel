@@ -21,7 +21,7 @@ function renameResult(overrides: Partial<AssetRenameResult> = {}): AssetRenameRe
   };
 }
 
-// 编辑时标题由调用方视觉隐藏，这里直接移出无障碍树
+// Callers visually hide headings during editing; here remove directly from accessibility trees.
 const title = (hidden: boolean) => <h2 hidden={hidden}>李白</h2>;
 
 describe("EditableAssetName", () => {
@@ -56,13 +56,13 @@ describe("EditableAssetName", () => {
     fireEvent.change(input, { target: { value: "  青莲  " } });
     await userEvent.type(input, "{Enter}");
 
-    // dry-run 预览先行，确认框展示影响数字
+    // dry-run previews precede confirmation displaying impact counts.
     await waitFor(() =>
       expect(renameSpy).toHaveBeenCalledWith("demo", "character", "李白", "青莲", { dryRun: true }),
     );
     expect(await screen.findByText("将更新 2 集共 5 处引用，重命名 3 个文件。")).toBeInTheDocument();
 
-    // 编辑态下铅笔已隐藏，此时唯一名为「重命名」的按钮是确认框的确认按钮
+    // Editing hides pencils, leaving the confirmation button as the sole rename-named button.
     const dialogButtons = screen.getAllByRole("button", { name: "重命名" });
     fireEvent.click(dialogButtons[dialogButtons.length - 1]);
 
@@ -72,7 +72,7 @@ describe("EditableAssetName", () => {
     await waitFor(() =>
       expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo"),
     );
-    // 调用方据此把选中项改到新名称上；改名是立即执行的动作，成功不弹提示
+    // Callers update selected names accordingly; rename executes immediately without success toasts.
     expect(onRenamed).toHaveBeenCalledWith("李白", "青莲");
     expect(useAppStore.getState().toast).toBeNull();
   });
@@ -81,7 +81,7 @@ describe("EditableAssetName", () => {
     vi.spyOn(API, "renameProjectAsset")
       .mockResolvedValueOnce(renameResult())
       .mockResolvedValueOnce(renameResult({ dry_run: false }));
-    // refreshProject 以结算值报告失败而不 reject，重命名本身已经成功
+    // refreshProject reports failure through settlement values, never rejects; rename itself succeeded.
     vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("failed");
 
     render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
@@ -133,7 +133,7 @@ describe("EditableAssetName", () => {
     const input = screen.getByRole("textbox", { name: "重命名" });
     fireEvent.change(input, { target: { value: "青莲" } });
 
-    // 打开输入框后详情里起了一次写请求（上传原图等），该占用只体现在本地 state 上
+    // After input opens, details begin uploads/other writes visible only in local state.
     rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} busy />);
     await userEvent.type(input, "{Enter}");
 
@@ -158,11 +158,11 @@ describe("EditableAssetName", () => {
     const confirmButton = () => within(screen.getByRole("alertdialog")).getByRole("button", { name: "重命名" });
     await waitFor(() => expect(confirmButton()).toBeEnabled());
 
-    // 确认框打开后详情里起了一次本地写入
+    // Detail-local writes begin after confirmation opens.
     rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} busy />);
     expect(confirmButton()).toBeDisabled();
 
-    // 本地写入结束后队列里又有了该资产的任务
+    // After local writes end, queues gain another task for this asset.
     rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
     expect(confirmButton()).toBeEnabled();
     act(() => {
@@ -193,7 +193,7 @@ describe("EditableAssetName", () => {
     const dialogButtons = await screen.findAllByRole("button", { name: "重命名" });
     fireEvent.click(dialogButtons[dialogButtons.length - 1]);
 
-    // 刷新未结算前 name 仍是旧值，此时重新进入编辑会拿过期基准名再提交一次
+    // Before refresh settles, name stays old; reentering editing would resubmit stale base names.
     const pencil = await screen.findByRole("button", { name: "重命名" });
     await waitFor(() => expect(pencil).toBeDisabled());
 

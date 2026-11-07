@@ -1,4 +1,4 @@
-"""ArkTextBackend — 火山方舟文本生成后端。"""
+"""ArkTextBackend: Volcengine Ark text-generation backend."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ DEFAULT_MODEL = "doubao-seed-2-1-lite-260915"
 
 
 class ArkTextBackend:
-    """Ark (火山方舟) 文本生成后端。"""
+    """Ark (Volcengine Ark) text-generation backend."""
 
     def __init__(
         self,
@@ -33,8 +33,8 @@ class ArkTextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
-        # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
+        # Instructor requires an openai.OpenAI instance, incompatible with Ark SDK client types.
+        # Ark APIs are OpenAI-compatible, so create an additional native OpenAI client for fallback.
         resolved_key = resolve_ark_api_key(api_key)
         effective_base_url = ark_base_url(base_url)
         self._client = create_ark_client(api_key=resolved_key, base_url=effective_base_url)
@@ -43,18 +43,18 @@ class ArkTextBackend:
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
     def _resolve_capabilities(self) -> set[TextCapability]:
-        """根据模型目录中的模型声明构建能力集合。"""
+        """Build capabilities from model declarations in the model catalog."""
         from lib.catalog import query as catalog
 
         base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
-        # 同一 backend 类同时服务 ark 与 ark-agent-plan，模型 ID 命名格式不同，
-        # 任一 provider 命中即可解析 STRUCTURED_OUTPUT。
+        # One backend class serves ark and ark-agent-plan with different model ID naming formats;
+        # a match in either provider can resolve STRUCTURED_OUTPUT.
         for provider_id in ("ark", "ark-agent-plan"):
             model_info = catalog.get_model(provider_id, self._model)
             if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
                 base.add(TextCapability.STRUCTURED_OUTPUT)
                 break
-        # 未注册模型不加 STRUCTURED_OUTPUT：宁可走 Instructor 降级也不调用会报错的原生 API
+        # Unregistered models do not gain STRUCTURED_OUTPUT: prefer Instructor fallback over failing native APIs.
         return base
 
     @property
@@ -70,11 +70,11 @@ class ArkTextBackend:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。
+        """Generate a text response.
 
-        本方法不带重试装饰器：瞬态错误重试在单次调用层（:meth:`_call_chat_completions`
-        与 :meth:`_structured_fallback`）完成。若把复验/降级也包进重试范围，降级尝试的
-        失败会连带重放已成功的原生调用（重试叠乘）。
+        No retry decorator here: transient errors retry per call (:meth:`_call_chat_completions`
+        and :meth:`_structured_fallback`). Including validation/fallback in the retry scope would let failed
+        fallback attempts replay successful native calls, multiplying retries.
         """
         if request.response_schema:
             return await self._generate_structured(request)
@@ -82,7 +82,7 @@ class ArkTextBackend:
 
     @with_retry_async()
     async def _call_chat_completions(self, kwargs: dict, *, structured: bool) -> TextGenerationResult:
-        """单次 chat.completions 调用：日志、发请求、解析与截断处理，瞬态错误重试。"""
+        """One chat.completions call: logging, request, parsing, truncation handling, and transient-error retries."""
         logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await asyncio.to_thread(
             self._client.chat.completions.create,
@@ -121,16 +121,16 @@ class ArkTextBackend:
             try:
                 native = await self._call_chat_completions(kwargs, structured=True)
             except TextOutputTruncatedError:
-                # 截断是可操作硬错误，不是"原生通道不兼容"——降级到 Instructor 重发同一份
-                # 必然再截断的请求毫无意义，直接冒泡让调用方感知并换模型/调小规模。
+                # Truncation is an actionable hard error, not native-channel incompatibility. Resending the same
+                # inevitably truncated request through Instructor is pointless: propagate it so callers switch models/reduce scope.
                 raise
             except Exception as exc:
                 logger.warning("原生 response_format 调用或解析失败 (%s)，降级到 Instructor/json_object 路径", exc)
                 return await self._structured_fallback(request, messages)
 
-            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema，违例（非 JSON / 违反 schema）则降级。
-            # 不严格强制 schema 的模型/代理网关会返回违例 JSON，若直接放行会一路漏到下游校验才报错。
-            # ark 原生 response_format 未声明 strict，复验同样用 strict=False，避免对可强转值误判违例。
+            # Revalidate successful HTTP 200 responses against schemas; fall back for non-JSON or schema violations.
+            # Models/proxies without strict enforcement may return invalid JSON that otherwise leaks into downstream validation.
+            # Ark native response_format omits strict; revalidate with strict=False too, avoiding false violations for coercible values.
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
                 from lib.backends.text_backends.base import truncate_for_log
@@ -141,7 +141,7 @@ class ArkTextBackend:
                     truncate_for_log(native.text),
                 )
                 result = await self._structured_fallback(request, messages)
-                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
+                # This native 200 call was already billed by the proxy; merge its tokens into the fallback result.
                 merge_billed_usage(result, native)
                 return result
             return native
@@ -150,10 +150,10 @@ class ArkTextBackend:
 
     @with_retry_async()
     async def _structured_fallback(self, request: TextGenerationRequest, messages: list[dict]) -> TextGenerationResult:
-        """Instructor / json_object 降级路径。
+        """Instructor / json_object fallback path.
 
-        instructor_fallback_sync 自身不做瞬态重试，这里补一层重试；范围仅覆盖降级自身，
-        失败不会重放已成功的原生调用。
+        instructor_fallback_sync has no transient retries itself, so add retries here, covering only fallback;
+        failures do not replay successful native calls.
         """
         from lib.backends.text_backends.instructor_support import instructor_fallback_sync
 

@@ -1,8 +1,8 @@
 ---
 id: text/style_analysis
 category: text
-title: 风格参考图分析
-description: 从用户上传的风格参考图提炼画风描述，写入项目的风格描述。
+title: "Style-reference image analysis"
+description: "Extract a visual-style description from the user’s uploaded style-reference image and write it to the project style description."
 stage: style_analysis
 invoked_by:
   kind: user_action

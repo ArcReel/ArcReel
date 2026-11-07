@@ -7,14 +7,14 @@ import {
 } from "./episode-target-duration";
 
 /**
- * 单集目标时长（秒）的项目级可选输入。
+ * Optional project-level episode target duration in seconds.
  *
- * 与「默认时长」是两个尺度：那个是单个分镜 / 视频单元的默认秒数（受视频模型档位约束，
- * 落在模型配置栏内），这个是整集成片的期望体量，驱动脚本规划决定本集拆多少个单元。
- * 两者同为软偏好，可被内容需要覆盖；超出目标只提示、不阻断确认与后续生成。
+ * Different scale from Default duration, which sets per-shot/video-unit seconds constrained by model tiers
+ * within model settings. Episode targets describe desired whole-output volume, guiding how many units script planning creates.
+ * Both are soft preferences overridable by content; exceeding targets warns without blocking confirmation/generation.
  *
- * 广告/短片项目不呈现该输入：整集体量已由目标总时长（target_duration）预算表达，
- * 两套总量口径并存会互相竞争。
+ * Ads/short films omit this input: target_duration already budgets whole-output volume,
+ * and simultaneous total-volume policies would compete.
  */
 
 export interface EpisodeTargetDurationFieldProps {

@@ -1,11 +1,11 @@
-"""并发首次保存对象存储连接只建出一条连接，两个请求都得到明确结果。
+"""Concurrent first object-storage saves create one connection and give both requests explicit outcomes.
 
-两个请求都先读到「还没有连接」再各自插入，是先查后插会留下两条连接的交错；用屏障让两次读取都完成
-后再继续，确定性地复现这一交错。``concurrent_session_factory`` 为每个请求提供独立连接，PostgreSQL 与
-SQLite（WAL 文件库）上都按真实的唯一索引冲突运行。
+Both reads first see no connection, then insert, reproducing check-then-insert duplicates deterministically through barriers
+after both reads. ``concurrent_session_factory`` supplies independent connections, exercising actual unique-index conflicts on PostgreSQL and
+SQLite WAL files.
 
-同一进程里连接变更经连接锁串行（``connection_change_lock``），这一交错只会发生在锁之外（例如另一个进程）。
-用例为每个请求换一把独立的锁，验证唯一索引与重做这道兜底仍然成立。
+Process-local ``connection_change_lock`` serializes changes, so races occur outside it, such as other processes.
+Give requests independent locks to verify unique-index/retry safeguards.
 """
 
 from __future__ import annotations
@@ -81,6 +81,6 @@ async def test_concurrent_first_saves_leave_one_connection(
         conn = await original_get(ObjectStorageConnectionRepository(session))
     assert count == 1
     assert conn is not None
-    # 后提交的请求按更新那一条处理：最终连接整体是其中一个请求的内容，不会混合两份。
+    # Later requests update existing connections; final state equals one complete request, never mixed contents.
     saved = {"bucket-a": "A", "bucket-b": "B"}[conn.bucket]
     assert (conn.access_key_id, conn.secret_access_key) == (f"TEST-TOS-AK-{saved}", f"TEST-TOS-SECRET-{saved}")

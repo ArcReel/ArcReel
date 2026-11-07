@@ -33,15 +33,15 @@ function PopoverContent({
         side={side}
         sideOffset={sideOffset}
         collisionAvoidance={collisionAvoidance}
-        // 透传 anchor：没有 Trigger 的弹层（如输入框上方的斜杠命令菜单）按指定元素定位
+        // Pass through anchor: position overlays without Trigger, such as slash-command menus above inputs, against the specified element
         anchor={anchor}
-        // 透传 positionMethod：盖在页面控件上的编辑弹层用 fixed，与对话框同属固定定位的浮层
+        // Pass through positionMethod: editing overlays covering page controls use fixed positioning, like dialogs
         positionMethod={positionMethod}
         className="isolate z-overlay"
       >
-        {/* 高度夹到触发点与视口边缘之间的可用空间，超出时弹层内部滚动，不越出视口 */}
+        {/* Clamp height to space between the trigger and viewport edge; overflow scrolls within the overlay without leaving the viewport */}
         <PopoverPrimitive.Popup
-          // 补 relative：滚动容器须是定位元素，绝对定位的子元素才不会撑出文档滚动
+          // Add relative: the scroll container must be positioned so absolutely positioned children do not expand document scrolling
           data-slot="popover-content"
           className={cn(
             "relative z-overlay flex max-h-(--available-height) w-72 origin-(--transform-origin) flex-col gap-2.5 overflow-y-auto rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",

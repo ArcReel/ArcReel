@@ -1,8 +1,8 @@
-"""视频生成入口预检 ``require_video_bucket_capability`` 的行为：
+"""Video-entry ``require_video_bucket_capability`` preflight:
 
-- 解析结果缺桶所需能力 / 悬空引用 → ``BadRequestError``（携带 errors 目录 key 与参数）；
-- 引用的模型不在供应商清单中 → 原样抛 ``ModelNotInCatalogError``，由 app 级 handler 返回 400；
-- 其余解析失败（未配置任何供应商）→ 放行，不把非能力类失败升级为提交期拒绝。
+- Missing required capabilities/dangling references → ``BadRequestError`` with error-catalog keys/parameters;
+- Unlisted referenced models → unchanged ``ModelNotInCatalogError``, app handlers return 400;
+- Other resolution failures, no providers configured → admit, never escalate noncapability failures into submission rejection.
 """
 
 from __future__ import annotations
@@ -35,23 +35,23 @@ class TestRequireVideoBucketCapability:
         assert exc_info.value.params == {"provider": "minimax", "model": "MiniMax-Hailuo-2.3"}
 
     async def test_project_r2v_bucket_overrides_incapable_default(self, db_factory, monkeypatch):
-        """配置 r2v 桶后参考生视频改用桶内模型：默认模型缺参考图能力也不再拦截。"""
+        """Configured r2v buckets use bucket models; incapable defaults no longer block reference video."""
         await _set_default_video_backend(db_factory, "minimax/MiniMax-Hailuo-2.3")
         bind_session_factory(monkeypatch, db_factory)
 
-        # 预检放行即静默返回 None
+        # Admitted preflight silently returns None.
         assert (
             await require_video_bucket_capability({"video_provider_r2v": "dashscope/happyhorse-1.1-r2v"}, "r2v") is None
         )
 
     async def test_no_provider_configured_passes_through(self, db_factory, monkeypatch):
-        """未配置任何供应商（自动推断失败）→ 放行入队，由 worker 在任务面板暴露。"""
+        """No providers/failed automatic inference admits enqueue; workers expose failures in task panels."""
         bind_session_factory(monkeypatch, db_factory)
 
         assert await require_video_bucket_capability({}, "i2v") is None
 
     async def test_bare_builtin_provider_without_video_model_is_rejected(self, db_factory, monkeypatch):
-        """项目层裸写的内置供应商在目录里没有视频默认模型：提交期就报重新选择模型，不放行入队。"""
+        """Bare built-in project providers without default catalog video models reject at submission with reselection guidance, never enqueue."""
         bind_session_factory(monkeypatch, db_factory)
 
         with pytest.raises(ModelNotInCatalogError) as exc_info:

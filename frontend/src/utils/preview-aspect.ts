@@ -3,8 +3,8 @@ import type { ProjectData } from "@/types/project";
 export type PreviewAspect = "9:16" | "16:9";
 
 /**
- * 分镜时间线与剪辑视图的预览画幅，只分竖屏、横屏两档，3:4、1:1 等回退为横屏。
- * 项目未设置画幅时，narration 与 ad 按竖屏，其余按横屏，与后端 ScriptGenerator._resolve_aspect_ratio 同口径。
+ * Preview aspect ratios in the storyboard timeline and editing view have only portrait and landscape categories; 3:4, 1:1, and other ratios fall back to landscape.
+ * When no project ratio is set, narration and ad use portrait and other modes use landscape, matching backend ScriptGenerator._resolve_aspect_ratio.
  */
 export function previewAspect(
   project: Pick<ProjectData, "aspect_ratio" | "content_mode"> | null | undefined,

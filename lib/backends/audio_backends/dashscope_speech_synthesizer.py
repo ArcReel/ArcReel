@@ -1,22 +1,24 @@
-"""DashScopeSpeechSynthesizerBackend — 阿里百炼 qwen-audio TTS 语音合成后端（同步 SpeechSynthesizer）。
+"""DashScopeSpeechSynthesizerBackend: synchronous Alibaba Bailian qwen-audio TTS SpeechSynthesizer.
 
-走 ``POST {host}/api/v1/services/audio/tts/SpeechSynthesizer``，收录 ``qwen-audio-3.1-tts-flash`` /
-``qwen-audio-3.1-tts-plus`` / ``qwen-audio-3.0-tts-flash`` / ``qwen-audio-3.0-tts-plus``。与
-multimodal-generation 端点（:class:`DashScopeAudioBackend`）的差异：
+Use ``POST {host}/api/v1/services/audio/tts/SpeechSynthesizer`` for ``qwen-audio-3.1-tts-flash`` /
+``qwen-audio-3.1-tts-plus`` / ``qwen-audio-3.0-tts-flash`` / ``qwen-audio-3.0-tts-plus``.
+Differences from multimodal-generation (:class:`DashScopeAudioBackend`):
 
-- 请求体 ``input`` 携带 ``text`` / ``voice`` / ``format`` / ``sample_rate``，语速字段是 ``rate``
-  （0.5–2.0），没有 ``language_type``。
-- 音色按模型区分，不能跨模型混用（不匹配时供应商回 ``InvalidParameter``），音色表因此按模型声明。
-- 非流式响应同样在 ``output.audio.url`` 给出音频文件 URL（24h 有效，``output.audio.data`` 为空串），
-  用量在 ``usage``：``characters`` 是计费字符数，3.1 系另报 ``input_tokens`` / ``output_tokens``。
-  官方说明 3.1-tts-flash 按输入与输出 token 计费，3.1-tts-plus 与 3.0 系按字符计费；本后端有 token
-  就如实上报，计价口径由价目表决定。
+- ``input`` carries ``text`` / ``voice`` / ``format`` / ``sample_rate``; speed is ``rate`` 0.5–2.0,
+  without ``language_type``.
+- Voices are model-specific and noninterchangeable: providers return ``InvalidParameter`` for mismatches,
+  so declare voice tables per model.
+- Nonstreaming returns ``output.audio.url`` with 24-hour lifetime and empty ``output.audio.data``.
+  ``usage`` reports billed ``characters``, plus ``input_tokens`` / ``output_tokens`` for 3.1.
+  Official pricing uses input/output tokens for 3.1-tts-flash and characters for 3.1-tts-plus / 3.0.
+  Report available tokens faithfully; price tables determine pricing dimensions.
 
-接入域名：官方示例用业务空间专属域名 ``{WorkspaceId}.{地域}.maas.aliyuncs.com``，DashScope 域名
-（``dashscope.aliyuncs.com``）是同一套 ``/api/v1`` 路径的存量域名；两者都由供应商配置的 base_url 决定，
-本后端只拼路径。出处：https://help.aliyun.com/zh/model-studio/qwen-audio-tts-http-api 、
-https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list 、
-https://help.aliyun.com/zh/model-studio/regions 。
+Domains: official examples use workspace-specific ``{WorkspaceId}.{地域}.maas.aliyuncs.com``;
+``dashscope.aliyuncs.com`` is the legacy domain for identical ``/api/v1`` paths. Provider base_url
+configuration determines either; this backend only appends paths. Sources:
+https://help.aliyun.com/zh/model-studio/qwen-audio-tts-http-api ,
+https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list ,
+https://help.aliyun.com/zh/model-studio/regions .
 """
 
 from __future__ import annotations
@@ -35,28 +37,28 @@ DEFAULT_MODEL = "qwen-audio-3.1-tts-flash"
 
 SPEECH_SYNTHESIZER_PATH = "/services/audio/tts/SpeechSynthesizer"
 
-# 非流式可用的输出格式，按落盘扩展名选取，保证文件内容与扩展名一致（资源路径约定 .wav）。
+# Nonstreaming formats selected by output extension to keep bytes/extensions consistent (.wav resource paths).
 _SUPPORTED_FORMATS = frozenset({"mp3", "pcm", "wav", "opus"})
 _FALLBACK_FORMAT = "wav"
-# 官方示例取 24000；该值对 opus 与其他格式都合法。
+# Official examples use 24000, valid for opus and other formats.
 _SAMPLE_RATE = 24000
-# ``rate`` 的合法区间，超出的语速收拢到边界而不是让供应商 400。
+# Legal ``rate`` interval; clamp excess rates instead of causing provider 400 errors.
 _RATE_MIN = 0.5
 _RATE_MAX = 2.0
 
 
 def _voices(*voice_ids: str) -> tuple[VoiceOption, ...]:
-    # label 是 lib/i18n 翻译 key（voice_label_dashscope_*，见 lib/i18n/<locale>/assets.py），由音色接口按请求
-    # locale 渲染；点号不进 key。
+    # label uses lib/i18n keys (voice_label_dashscope_*, lib/i18n/<locale>/assets.py), rendered by voice APIs in request
+    # locales; dots never enter keys.
     return tuple(
         VoiceOption(id=voice_id, label=f"voice_label_dashscope_{voice_id.lower().replace('.', '_')}")
         for voice_id in voice_ids
     )
 
 
-# 各模型的系统音色子集，出处：https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list 。
-# 只收旁白与角色配音常用的普通话与英文音色；小语种音色与 3.0 系 500+ 基础音色不在此暴露，
-# 照文档填写 voice 照常可用（设置页的音色是可自由填写的输入框）。
+# Model-specific system voice subsets, sourced from https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list .
+# Expose common Mandarin/English narration and character voices only, not minor-language voices or 500+ 3.0 basics.
+# Other documented voice values still work: settings accept freely entered voice ids.
 _V31_FLAGSHIP = ("longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1", "xunanchuan_v3.1")
 _VOICES_BY_MODEL: tuple[tuple[str, tuple[VoiceOption, ...]], ...] = (
     ("qwen-audio-3.1-tts-plus", _voices(*_V31_FLAGSHIP)),
@@ -98,12 +100,12 @@ _VOICES_BY_MODEL: tuple[tuple[str, tuple[VoiceOption, ...]], ...] = (
         ),
     ),
 )
-# 名字认不出代际的模型（中转别名、后续同端点的新模型）取 3.1 两款共有的旗舰音色。
+# Models with unrecognized generations, such as relay aliases/future same-endpoint models, use shared flagship 3.1 voices.
 _FALLBACK_VOICES = _voices(*_V31_FLAGSHIP)
 
 
 def voices_for_model(model: str) -> tuple[VoiceOption, ...]:
-    """该模型可用的音色子集：剥去中转命名空间前缀后按型号前缀匹配（带日期快照后缀的同代型号同表）。"""
+    """Available voice subsets by model prefix after stripping relay namespaces; dated snapshots share their generation's table."""
     canonical = re.split(r"[/:]", model.strip().lower())[-1]
     for prefix, voices in _VOICES_BY_MODEL:
         if canonical.startswith(prefix):
@@ -117,14 +119,14 @@ def _format_for(request: AudioSynthesisRequest) -> str:
 
 
 def _token_count(value: object) -> int | None:
-    """用量字段取非负整数；缺失、布尔或其他类型一律视为没有回报。"""
+    """Read nonnegative integer usage; missing, boolean, and other types mean unreported."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
 
 
 class DashScopeSpeechSynthesizerBackend(DashScopeAudioBackend):
-    """阿里百炼语音合成后端（同步 SpeechSynthesizer 端点）。"""
+    """Synchronous Alibaba Bailian SpeechSynthesizer synthesis backend."""
 
     _endpoint_path = SPEECH_SYNTHESIZER_PATH
 
@@ -153,8 +155,8 @@ class DashScopeSpeechSynthesizerBackend(DashScopeAudioBackend):
         return list(voices_for_model(self._model))
 
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
-        # language_type 不发送：本端点的 language_hints 是可选的目标语种提示，而上游传来的
-        # language_type 是固定缺省值（Chinese），并非按文本判定，发出去反会误导英文等文本的合成。
+        # Omit language_type: optional language_hints targets languages, but incoming language_type is a fixed Chinese default,
+        # not text-derived; sending it would misdirect English and other synthesis.
         body: dict[str, Any] = {
             "text": request.text,
             "voice": request.voice,

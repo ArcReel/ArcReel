@@ -48,7 +48,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
 
   const patch = (partial: Partial<EndpointDefinition>) => onChange({ ...definition, ...partial });
 
-  // 媒体类型决定可选素材、产物取值键、可插入的变量与能力字段；视频专属的说明文案在图片定义下换成 `_image` 版本。
+  // Media types determine available materials, output-value keys, insertable variables and capabilities; image definitions replace video-specific copy with `_image` variants.
   const mediaType = definitionMediaType(definition);
   const isImage = mediaType === "image";
   const profile = MEDIA_TYPE_FORM_PROFILES[mediaType];
@@ -60,7 +60,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
   const authHeaders = definition.auth?.headers ?? {};
   const authQuery = definition.auth?.query ?? {};
   const noAuth = Object.keys(authHeaders).length === 0 && Object.keys(authQuery).length === 0;
-  // 行名就是正在编辑的键：行 key 用随名字转移的客户端 id，改名不重建输入框、不丢焦点
+  // Edited row keys use name-transferring client IDs; renames never recreate inputs or lose focus.
   const headerIds = useNamedRowIds(Object.keys(authHeaders));
   const inputIds = useNamedRowIds(Object.keys(inputs));
   const statusIds = useNamedRowIds(Object.keys(statusMap));
@@ -146,7 +146,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
 
   return (
     <div>
-      {/* 1 基本信息 */}
+      {/* 1 Basics */}
       <FormSection id="meta" step={1} title={t("ce_section_meta")} desc={t("ce_section_meta_desc")}>
         <div className="grid grid-cols-1 gap-3 @md/page:grid-cols-3">
           <TextField
@@ -189,7 +189,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         </div>
       </FormSection>
 
-      {/* 2 访问凭证 */}
+      {/* 2 Credentials */}
       <FormSection id="auth" step={2} title={t("ce_section_auth")} desc={t("ce_section_auth_desc")}>
         <CheckboxField
           label={t("ce_auth_none")}
@@ -269,7 +269,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         )}
       </FormSection>
 
-      {/* 3 输入素材 */}
+      {/* 3 Input materials */}
       <FormSection id="inputs" step={3} title={t("ce_section_inputs")} desc={t("ce_section_inputs_desc")}>
         <div className="space-y-2">
           <div className="grid grid-cols-[1fr_180px_150px_110px_32px] gap-3 text-xs text-muted-foreground">
@@ -343,7 +343,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         <span className={HINT_CLS}>{t("ce_inputs_hint")}</span>
       </FormSection>
 
-      {/* 4 提交生成任务 */}
+      {/* 4 Submit generation tasks */}
       <FormSection id="submit" step={4} title={t("ce_section_submit")} desc={t("ce_section_submit_desc")}>
         <div className="grid grid-cols-[120px_1fr] gap-3">
           <div>
@@ -393,7 +393,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         </div>
       </FormSection>
 
-      {/* 5 查询进度与结果 */}
+      {/* 5 Query progress/results */}
       <FormSection id="poll" step={5} title={t("ce_section_poll")} desc={mediaCopy("ce_section_poll_desc")}>
         <div className="grid grid-cols-[120px_1fr] gap-3">
           <div>
@@ -507,7 +507,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         </div>
       </FormSection>
 
-      {/* 6 状态对照 */}
+      {/* 6 Status mappings */}
       <FormSection id="status" step={6} title={t("ce_section_status")} desc={t("ce_section_status_desc")}>
         <div className="space-y-2">
           <div className="grid grid-cols-[1fr_16px_180px_32px] gap-3 text-xs text-muted-foreground">
@@ -563,7 +563,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         )}
       </FormSection>
 
-      {/* 7 支持的功能 */}
+      {/* 7 Supported features */}
       <FormSection
         id="capabilities"
         step={7}

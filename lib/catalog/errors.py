@@ -1,17 +1,17 @@
-"""目录查询相关的错误。"""
+"""Catalog query errors."""
 
 from __future__ import annotations
 
 
 class ModelNotInCatalogError(ValueError):
-    """内置供应商的模型引用不在该供应商的模型清单中（已改名或从未收录；已下线的见 :class:`ModelDiscontinuedError`）。
+    """Built-in model references absent from provider manifests, renamed or never listed; discontinued models use :class:`ModelDiscontinuedError`.
 
-    引用原样保留在设置与项目里，不静默回落到别的模型；用户重新选择模型后即可继续。
-    ``code`` 是稳定失败码、``params`` 是其渲染参数，经 ``lib.generation.task_failure.FAILURE_CODE_KEYS``
-    对应到 errors 目录 key；worker 落库经 ``encode_failure`` 结构化编码。``str(exc)`` 是英文技术消息。
+    Keep references unchanged in settings/projects, never silently substitute other models; users resume after choosing again.
+    Stable failure ``code`` and rendering ``params`` map through ``lib.generation.task_failure.FAILURE_CODE_KEYS``
+    to errors directory keys; workers persist structured ``encode_failure``. ``str(exc)`` is English technical text.
 
-    ``model_id`` 为空表示引用只写了供应商、而该供应商在模型清单里没有这一媒体类型的模型，此时报
-    ``provider_unsupported_media``（该供应商给不出这一类生成），不渲染残缺的「供应商/」引用。
+    Empty ``model_id`` means provider-only references lacking that media type in manifests: report
+    ``provider_unsupported_media`` (provider cannot generate this type), never render incomplete provider/ references.
     """
 
     code: str
@@ -33,11 +33,11 @@ class ModelNotInCatalogError(ValueError):
 
 
 class ModelDiscontinuedError(ModelNotInCatalogError):
-    """引用的模型已下线（docs/adr/0103）：报错带上下线日期与官方后继，引用同样原样保留、由用户重新选择。
+    """Referenced models discontinued (docs/adr/0103): errors carry lifecycle dates/official successors; references remain unchanged for user reselection.
 
-    是 :class:`ModelNotInCatalogError` 的子类，凡是按「请重新选择模型」处理清单外引用的地方都照旧接得住。
-    ``shutdown_date`` 是 ISO 日期，``successor`` 是「模型厂商/官方模型名」；没有登记时不出现在 ``params`` 里，
-    渲染时按 :func:`lib.generation.task_failure.failure_message_key` 选用省去这一句的文案。
+    Subclass :class:`ModelNotInCatalogError` so existing reselection handling for unlisted references still applies.
+    ``shutdown_date`` is ISO dates; ``successor`` is model vendor/official name. Unregistered values are absent from ``params``;
+    :func:`lib.generation.task_failure.failure_message_key` selects wording omitting the unavailable sentence.
     """
 
     def __init__(

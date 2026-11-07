@@ -1,4 +1,4 @@
-"""音频后端注册与工厂。"""
+"""Audio backend registration and factories."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ _BACKEND_FACTORIES: dict[str, Callable[..., AudioBackend]] = {}
 
 
 def register_backend(name: str, factory: Callable[..., AudioBackend]) -> None:
-    """注册一个音频后端工厂函数。"""
+    """Register an audio backend factory."""
     _BACKEND_FACTORIES[name] = factory
 
 
 def create_backend(name: str, **kwargs: Any) -> AudioBackend:
-    """根据名称创建音频后端实例。"""
+    """Construct audio backends by name."""
     if name not in _BACKEND_FACTORIES:
         raise ValueError(f"Unknown audio backend: {name}")
     return _BACKEND_FACTORIES[name](**kwargs)
 
 
 def get_registered_backends() -> list[str]:
-    """返回所有已注册的后端名称。"""
+    """Return all registered backend names."""
     return list(_BACKEND_FACTORIES.keys())

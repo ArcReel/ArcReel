@@ -23,11 +23,11 @@ _TASK_ID_INDEX = "idx_api_calls_task_id"
 
 
 def _backfill_task_id_from_task_payload() -> None:
-    """把历史 video 任务的 ``payload_json.api_call_id`` 反向写成 ``api_calls.task_id``。
+    """Backfill historical video ``payload_json.api_call_id`` into ``api_calls.task_id``.
 
-    ``payload_json`` 是 Text 列（两种方言上都不是原生 JSON 类型），故解析放在 Python 侧，
-    不用任一方言的 JSON 函数。回填只做能精确得到的：反查得到的行同时标记
-    ``purpose = generation_task``，其余新列留空。
+    ``payload_json`` is Text, not native JSON in either dialect, so parse in Python without dialect JSON
+    functions. Backfill only exact reverse matches, also marking them ``purpose = generation_task``;
+    leave other new columns unset.
     """
     bind = op.get_bind()
     rows = bind.execute(
@@ -43,7 +43,7 @@ def _backfill_task_id_from_task_payload() -> None:
         if not isinstance(payload, dict):
             continue
         call_id = payload.get("api_call_id")
-        # bool 是 int 的子类，单独排除，避免把 payload 里的布尔值当成行号。
+        # bool subclasses int; exclude it explicitly to avoid treating payload Booleans as row IDs.
         if isinstance(call_id, bool) or not isinstance(call_id, int):
             continue
         updates.append({"call_id": call_id, "task_id": task_id})

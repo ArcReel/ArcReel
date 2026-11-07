@@ -80,7 +80,7 @@ from tests.fakes import FakeTextGenerator, refuse_resume_execution, use_text_gen
 
 
 def _admit_text_operations(projects: ProjectManager, project_name: str) -> None:
-    """放上文本长调用的准入输入：整本源文与第 1 集集原文；广告/短片填创作灵感。"""
+    """Prepare long-text-call admission input: whole-book source and episode 1 source; advertisements/shorts use creative inspiration."""
     if projects.load_project(project_name).get("content_mode") == "ad":
         projects.update_project(project_name, lambda project: project.update(brief="夏季新品"))
         return
@@ -178,7 +178,7 @@ async def test_all_text_long_calls_submit_single_member_batches(
 
 
 async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: Path, file_db_factory) -> None:
-    """Web 入口与 Agent 同一个服务命令：提交即返批次句柄，任务按 Web 来源登记，载荷带范围与模式。"""
+    """Web and Agent use one service command: submission returns a batch handle, records Web-origin tasks, and includes scope/mode."""
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "demo", "", "ad")
@@ -216,7 +216,7 @@ async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: 
 async def test_prompt_authoring_off_tier_fails_as_fix_input_through_the_worker(
     file_db_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """提交、执行、落库保留时长越档的修改输入指引，并在付费调用前停止。"""
+    """Submission, execution, and persistence retain duration-tier input-change guidance and stop before paid calls."""
     projects = ProjectManager(DataRootLayout.current().root)
     project_path = projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -293,9 +293,9 @@ def _narration_segment(**overrides: Any) -> dict[str, Any]:
 
 
 def _narration_project_with_draft(segments: list[dict[str, Any]]) -> tuple[ProjectManager, str]:
-    """当前数据根下的旁白/解说项目，第 1 集留着一份待修复的脚本规划草稿；返回项目管理器与草稿 revision。
+    """Narration/commentary project under the current data root, episode 1 with a repairable script-plan draft; return manager/revision.
 
-    worker 执行未登记服务的任务时按当前配置解析数据根，项目须建在那里。
+    Workers resolve unregistered-service tasks against current data-root configuration, so create the project there.
     """
     projects = ProjectManager(DataRootLayout.current().root)
     projects.create_project("demo")
@@ -323,7 +323,7 @@ def _narration_project_with_draft(segments: list[dict[str, Any]]) -> tuple[Proje
 async def test_web_draft_repair_queues_a_text_task_that_adopts_the_repaired_draft(
     file_db_factory, monkeypatch: pytest.MonkeyPatch, spelling: str
 ) -> None:
-    """AI 修复以排队文本任务提交，占用本份草稿的槽；worker 修完照常重判，违约清零即采用。"""
+    """AI repair queues a text task occupying this draft's slot; workers rejudge afterward and adopt only with zero violations."""
     projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
     if spelling == "bare":
         revision = revision.removeprefix("sha256-v1:")
@@ -436,7 +436,7 @@ async def test_draft_repair_failing_before_the_write_back_does_not_claim_the_dra
 async def test_truncated_draft_repair_fails_with_the_way_out_and_keeps_the_draft(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AI 修复的回复被截断：任务以分集规划同一个问题码失败，带出路参数，草稿不变。"""
+    """Truncated AI-repair replies fail with the episode-planning problem code and recovery parameters, leaving drafts unchanged."""
     projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
     model = FakeTextGenerator(
         TextOutputTruncatedError(
@@ -467,7 +467,7 @@ async def test_truncated_draft_repair_fails_with_the_way_out_and_keeps_the_draft
 async def test_draft_repair_with_a_retired_model_fails_with_a_reselectable_problem(
     monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
-    """AI 修复时引用的模型已不在供应商清单：任务以稳定码失败并带「去配置供应商」，不归为 draft_repair_failed，草稿不变。"""
+    """AI-repair model absent from provider inventory: stable failure code + configure-provider guidance, not draft_repair_failed; draft unchanged."""
     projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
     retired = ModelNotInCatalogError(provider_id="gemini-aistudio", model_id="retired-model", media_type="text")
 
@@ -499,7 +499,7 @@ async def test_draft_repair_with_a_retired_model_fails_with_a_reselectable_probl
 async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_position(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """提示词编写草稿修完晋升，被正式剧本单元挡下：任务失败按「视频单元 N」本地化、归为修改输入，草稿不变。"""
+    """Repaired prompt-authoring draft promotion blocked by formal units: localized 视频单元 N failure, input-change classification, draft unchanged."""
     projects = ProjectManager(DataRootLayout.current().root)
     projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -525,7 +525,7 @@ async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_positio
     draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
     assert draft is not None
     revision = draft_revision(draft)
-    # 草稿无违约，修复不调用模型直接按保存口径重判；替身只为晋升装配 ScriptGenerator。
+    # No draft violations: repair skips the model and rejudges as on save; the substitute only assembles ScriptGenerator for promotion.
     use_text_generator(monkeypatch, FakeTextGenerator("").create)
     payload = {"episode_id": 1, "doc_type": "reference_prompt_authoring", "base_revision": revision}
     task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
@@ -544,7 +544,7 @@ async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_positio
 
 
 async def test_draft_repair_blocked_by_the_video_model_fails_with_the_real_problem(set_video_request_facts) -> None:
-    """AI 修复重判被视频模型配置挡下：任务失败带真实问题码与「去配置供应商」，草稿不变。"""
+    """Video configuration blocks AI-repair rejudgment: actual problem code + configure-provider guidance, draft unchanged."""
     projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
     set_video_request_facts(
         VideoRequestFactsFailure("video_capability_missing_i2v", (("provider", "custom-2"), ("model", "I2V_H3")))
@@ -683,8 +683,8 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
         task_type="text_drama_script_plan",
         media_type="text",
         resource_id="episode-1" if cancel_state == "membership" else "old",
-        # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
-        # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
+        # Derive payload from the request projection: this case's membership variant must equate the new submission and running task,
+        # requiring field-for-field identical facts. Hardcoded literals break when request fields are added/removed.
         payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.data_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
@@ -742,7 +742,7 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     payload: dict[str, Any] = {"instructions": "按章节"}
     if legacy_data_root:
-        # 旧版本排入的任务在载荷里带着入队时的数据根；数据根此后已挪走。
+        # A legacy queued payload retains its enqueue-time data root, since moved elsewhere.
         payload["projects_root"] = str(tmp_path / "moved-away")
     task = {
         "task_id": "task-plan",
@@ -850,7 +850,7 @@ async def test_queued_plan_failure_carries_the_way_out(
 async def test_queued_text_task_with_a_retired_text_model_fails_with_a_reselectable_problem(
     monkeypatch: pytest.MonkeyPatch, content_mode: str, task_type: str
 ) -> None:
-    """项目引用的文本模型已不在供应商清单：剧本、规划与分集规划任务都以稳定码失败并带「去配置供应商」，不归为通用失败。"""
+    """Project text model absent from provider inventory: script/plan/episode-plan tasks fail with stable codes + configure-provider guidance, not generic failure."""
     projects = ProjectManager(DataRootLayout.current().root)
     projects.create_project("retired", content_mode=content_mode)
     projects.create_project_metadata("retired", "Retired", "", content_mode)
@@ -874,13 +874,13 @@ async def test_queued_text_task_with_a_retired_text_model_fails_with_a_reselecta
 
 
 def _content_filter_rejection() -> Exception:
-    """OpenAI 兼容端点的内容策略拒绝：错误体 ``code`` 挂在 SDK 异常上。"""
+    """OpenAI-compatible content-policy rejection: SDK exceptions carry the error-body ``code``."""
     response = httpx.Response(400, request=httpx.Request("POST", "https://llm.example/v1/chat/completions"))
     return openai.BadRequestError("blocked", response=response, body={"code": "content_filter"})
 
 
 def _provider_rejected() -> Exception:
-    """httpx 通道的确定性 4xx 拒绝，与图片任务落 ``provider_rejected`` 的是同一个异常类型。"""
+    """Deterministic httpx 4xx rejection uses the same exception type that produces ``provider_rejected`` for image tasks."""
     request = httpx.Request("POST", "https://llm.example/v1/generate")
     return ProviderRejectedError(
         "422 response", request=request, response=httpx.Response(422, request=request), provider_reason="bad input"
@@ -919,7 +919,7 @@ async def test_queued_text_task_failure_is_refused_only_when_the_provider_refuse
     code: str,
     action: GenerationAction,
 ) -> None:
-    """意外异常按任务失败给出重试，与图片任务一致；只有供应商真正拒绝了内容或输入才归为修改输入。"""
+    """Unexpected failures offer retries, like image tasks; classify as input changes only when providers actually reject content/input."""
     projects = ProjectManager(DataRootLayout.current().root)
     projects.create_project("failing", content_mode=content_mode)
     projects.create_project_metadata("failing", "Failing", "", content_mode)
@@ -941,7 +941,7 @@ async def test_queued_text_task_failure_is_refused_only_when_the_provider_refuse
 
 
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:
-    """所选视频模型不支持参考生视频：任务失败带真实问题码与「去配置供应商」，而不是笼统的拒绝。"""
+    """Selected video model lacks reference-video support: actual problem code + configure-provider guidance, rather than generic rejection."""
     projects = ProjectManager(DataRootLayout.current().root)
     projects.create_project("reference", content_mode="narration")
     projects.create_project_metadata("reference", "Reference", "", "narration")
@@ -972,7 +972,7 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     tmp_path: Path, file_db_factory, monkeypatch
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    # worker 按当前配置解析数据根。
+    # Workers resolve data roots from current configuration.
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("script", content_mode="ad")
     projects.create_project_metadata("script", "Script", "", "ad")
@@ -995,7 +995,7 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
 
         @classmethod
         async def create(cls, *_args, **_kwargs):
-            # 与生产的工厂一样在工作线程里构造：构造时读项目文件。
+            # Like the production factory, construct in a worker thread: construction reads project files.
             return await asyncio.to_thread(cls)
 
         async def generate(self, *_args, **_kwargs):
@@ -1060,7 +1060,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     monkeypatch,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    # worker 按当前配置解析数据根。
+    # Workers resolve data roots from current configuration.
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
@@ -1088,7 +1088,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
             return result
 
     async def create_planner(_cls, path):
-        # 与 EpisodePlanner.create 一样在工作线程里构造：构造 ProjectManager 会建目录。
+        # Like EpisodePlanner.create, construct in a worker thread: ProjectManager construction creates directories.
         def _build() -> EpisodePlanner:
             planner = EpisodePlanner(path, generator=Generator())
             planner.pm = BlockingProjectManager(projects.data_root)
@@ -1170,7 +1170,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     generated_text: str,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    # worker 按当前配置解析数据根。
+    # Workers resolve data roots from current configuration.
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project(project_name, content_mode="narration")
     projects.create_project_metadata(project_name, project_name, "", "narration")

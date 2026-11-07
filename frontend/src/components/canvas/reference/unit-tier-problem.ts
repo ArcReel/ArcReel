@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import type { ReferenceVideoBucket, VideoCapabilityProblem } from "@/types";
 
-/** 单元所落桶的用户可读名，随问题文案插值。 */
+/** User-readable name of the unit's bucket, interpolated into problem copy. */
 export function bucketLabel(t: TFunction<"dashboard">, bucket: ReferenceVideoBucket): string {
   return t(bucket === "r2v" ? "reference_bucket_r2v" : "reference_bucket_i2v");
 }
@@ -27,8 +27,8 @@ function tierProblemReasonKey(code: string): string {
 }
 
 /**
- * 所落桶的视频请求事实失败 → 「档位未知」标签与只写成因与修复指引的提示（问题码不进界面）。
- * 成因文案按桶插值：i2v 桶失败说图生视频模型，r2v 桶失败说参考生视频模型，不混用。
+ * Failure to resolve video-request facts for the selected bucket produces an unknown-tier label and a hint with only cause and repair guidance; no problem code enters the UI.
+ * Interpolate causes by bucket: i2v failures name the image-to-video model and r2v failures the reference-to-video model; do not mix them.
  */
 export function tierProblemText(
   t: TFunction<"dashboard">,

@@ -27,7 +27,7 @@ describe("ToastOverlay", () => {
 
     expect(await screen.findByText("已删除分镜")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "撤销" })).toBeInTheDocument();
-    // 错误提示另有一份供读屏立即播报的副本
+    // Error notices also have immediate screen-reader announcement copies.
     expect(screen.getAllByText("视频生成失败").length).toBeGreaterThan(0);
   });
 
@@ -46,7 +46,7 @@ describe("ToastOverlay", () => {
     render(<ToastOverlay />);
     act(() => useAppStore.getState().pushToast("已保存", "success"));
 
-    // 关闭按钮在指针移入或键盘聚焦提示区后才对读屏开放
+    // Close buttons become screen-reader-accessible only after pointer entry/keyboard focus within notices.
     fireEvent.mouseEnter(await screen.findByRole("region", { name: "提示" }));
     fireEvent.click(await screen.findByRole("button", { name: "关闭提示" }));
 

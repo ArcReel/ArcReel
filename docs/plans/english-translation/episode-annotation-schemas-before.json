@@ -1,0 +1,516 @@
+{
+  "NarrationEpisodeDraft": {
+    "direct": {
+      "additionalProperties": false,
+      "description": "narration 条目：精确切分锚点 + 钩子。",
+      "properties": {
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "hook": {
+          "minLength": 1,
+          "title": "Hook",
+          "type": "string"
+        },
+        "end_anchor": {
+          "minLength": 2,
+          "title": "End Anchor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "hook",
+        "end_anchor"
+      ],
+      "title": "NarrationEpisodeDraft",
+      "type": "object"
+    },
+    "model_facing": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "hook": {
+          "minLength": 1,
+          "title": "Hook",
+          "type": "string"
+        },
+        "end_anchor": {
+          "minLength": 2,
+          "title": "End Anchor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "hook",
+        "end_anchor"
+      ],
+      "title": "NarrationEpisodeDraft",
+      "type": "object"
+    }
+  },
+  "DramaEpisodeDraft": {
+    "direct": {
+      "additionalProperties": false,
+      "description": "drama 条目加厚为分集大纲：故事节点 + 下集预告语。",
+      "properties": {
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "hook": {
+          "minLength": 1,
+          "title": "Hook",
+          "type": "string"
+        },
+        "end_anchor": {
+          "minLength": 2,
+          "title": "End Anchor",
+          "type": "string"
+        },
+        "story_beats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Story Beats",
+          "type": "array"
+        },
+        "next_episode_teaser": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Episode Teaser"
+        }
+      },
+      "required": [
+        "title",
+        "hook",
+        "end_anchor",
+        "story_beats"
+      ],
+      "title": "DramaEpisodeDraft",
+      "type": "object"
+    },
+    "model_facing": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "hook": {
+          "minLength": 1,
+          "title": "Hook",
+          "type": "string"
+        },
+        "end_anchor": {
+          "minLength": 2,
+          "title": "End Anchor",
+          "type": "string"
+        },
+        "story_beats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Story Beats",
+          "type": "array"
+        },
+        "next_episode_teaser": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Episode Teaser"
+        }
+      },
+      "required": [
+        "title",
+        "hook",
+        "end_anchor",
+        "story_beats"
+      ],
+      "title": "DramaEpisodeDraft",
+      "type": "object"
+    }
+  },
+  "NarrationPlanDraft": {
+    "direct": {
+      "$defs": {
+        "NarrationEpisodeDraft": {
+          "additionalProperties": false,
+          "description": "narration 条目：精确切分锚点 + 钩子。",
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "hook": {
+              "minLength": 1,
+              "title": "Hook",
+              "type": "string"
+            },
+            "end_anchor": {
+              "minLength": 2,
+              "title": "End Anchor",
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "hook",
+            "end_anchor"
+          ],
+          "title": "NarrationEpisodeDraft",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "空列表表示窗口内找不到剧情弧完整的切分点。",
+      "properties": {
+        "episodes": {
+          "items": {
+            "$ref": "#/$defs/NarrationEpisodeDraft"
+          },
+          "title": "Episodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "episodes"
+      ],
+      "title": "NarrationPlanDraft",
+      "type": "object"
+    },
+    "model_facing": {
+      "additionalProperties": false,
+      "properties": {
+        "episodes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "minLength": 1,
+                "title": "Title",
+                "type": "string"
+              },
+              "hook": {
+                "minLength": 1,
+                "title": "Hook",
+                "type": "string"
+              },
+              "end_anchor": {
+                "minLength": 2,
+                "title": "End Anchor",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "hook",
+              "end_anchor"
+            ],
+            "title": "NarrationEpisodeDraft",
+            "type": "object"
+          },
+          "title": "Episodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "episodes"
+      ],
+      "title": "NarrationPlanDraft",
+      "type": "object"
+    }
+  },
+  "DramaPlanDraft": {
+    "direct": {
+      "$defs": {
+        "DramaEpisodeDraft": {
+          "additionalProperties": false,
+          "description": "drama 条目加厚为分集大纲：故事节点 + 下集预告语。",
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "hook": {
+              "minLength": 1,
+              "title": "Hook",
+              "type": "string"
+            },
+            "end_anchor": {
+              "minLength": 2,
+              "title": "End Anchor",
+              "type": "string"
+            },
+            "story_beats": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Story Beats",
+              "type": "array"
+            },
+            "next_episode_teaser": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Episode Teaser"
+            }
+          },
+          "required": [
+            "title",
+            "hook",
+            "end_anchor",
+            "story_beats"
+          ],
+          "title": "DramaEpisodeDraft",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "空列表表示窗口内找不到剧情弧完整的切分点。",
+      "properties": {
+        "episodes": {
+          "items": {
+            "$ref": "#/$defs/DramaEpisodeDraft"
+          },
+          "title": "Episodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "episodes"
+      ],
+      "title": "DramaPlanDraft",
+      "type": "object"
+    },
+    "model_facing": {
+      "additionalProperties": false,
+      "properties": {
+        "episodes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "minLength": 1,
+                "title": "Title",
+                "type": "string"
+              },
+              "hook": {
+                "minLength": 1,
+                "title": "Hook",
+                "type": "string"
+              },
+              "end_anchor": {
+                "minLength": 2,
+                "title": "End Anchor",
+                "type": "string"
+              },
+              "story_beats": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "title": "Story Beats",
+                "type": "array"
+              },
+              "next_episode_teaser": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Next Episode Teaser"
+              }
+            },
+            "required": [
+              "title",
+              "hook",
+              "end_anchor",
+              "story_beats"
+            ],
+            "title": "DramaEpisodeDraft",
+            "type": "object"
+          },
+          "title": "Episodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "episodes"
+      ],
+      "title": "DramaPlanDraft",
+      "type": "object"
+    }
+  },
+  "SourceRange": {
+    "direct": {
+      "additionalProperties": false,
+      "description": "集对应的原文素材范围，可以沿整本源文的文件顺序跨文件（ADR 0097）。\n\n起点是 ``source_file`` 里的 ``start``，终点是 ``end_file`` 里的 ``end``（不含）；``end_file`` 缺省时与\n``source_file`` 相同。偏移量落在 ``normalize_source_text`` 的归一化坐标系内（narration 为精确切分点，\ndrama 为软素材范围），是各自文件内的下标。路径是项目根相对 POSIX 路径（如 ``source/novel.txt``）。\n两个文件之间的先后由整本源文清单决定，这里不校验。",
+      "properties": {
+        "source_file": {
+          "title": "Source File",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "end_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End File"
+        }
+      },
+      "required": [
+        "source_file",
+        "start",
+        "end"
+      ],
+      "title": "SourceRange",
+      "type": "object"
+    },
+    "model_facing": {
+      "additionalProperties": false,
+      "properties": {
+        "source_file": {
+          "title": "Source File",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "end_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End File"
+        }
+      },
+      "required": [
+        "source_file",
+        "start",
+        "end"
+      ],
+      "title": "SourceRange",
+      "type": "object"
+    }
+  },
+  "EpisodeOutline": {
+    "direct": {
+      "additionalProperties": false,
+      "description": "drama 分集大纲：故事节点 + 下集预告语（由规划工具产出）。",
+      "properties": {
+        "story_beats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Story Beats",
+          "type": "array"
+        },
+        "next_episode_teaser": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Episode Teaser"
+        }
+      },
+      "title": "EpisodeOutline",
+      "type": "object"
+    },
+    "model_facing": {
+      "additionalProperties": false,
+      "properties": {
+        "story_beats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Story Beats",
+          "type": "array"
+        },
+        "next_episode_teaser": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Episode Teaser"
+        }
+      },
+      "title": "EpisodeOutline",
+      "type": "object"
+    }
+  }
+}

@@ -12,9 +12,7 @@ from server.services.tasks.reference_video_tasks import (
 
 
 def test_render_unit_prompt_rejects_empty_text():
-    """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
-    入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
-    被当成有效 prompt 提交给付费 backend。"""
+    """Keep a defensive execution blank check: prompts come from mutable scripts reread at execution. Even after structural validation moves to enqueue guards, block prompts cleared afterward or in legacy in-flight tasks, preventing appended trailers from making empty prompts appear billable-valid."""
     with pytest.raises(ValueError, match="empty"):
         _render_unit_prompt(
             {"text": "   \n  "},
@@ -48,4 +46,4 @@ def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
     )
 
     assert "<商品甲>@图片1、<商品甲>@图片2。" in rendered.prompt
-    assert "商品高保真还原（最高优先级" in rendered.prompt
+    assert "High-fidelity product reproduction (highest priority" in rendered.prompt

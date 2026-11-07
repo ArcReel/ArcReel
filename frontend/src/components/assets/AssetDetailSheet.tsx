@@ -32,9 +32,9 @@ const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";
 const UPDATED_AT_OPTS: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
 
 /**
- * 资产库的详情 Sheet：先展示大图与全部信息，点「编辑」才进入表单。
- * 编辑时名称、描述与声音风格是一个编辑单元，统一保存；更换图片立即执行。
- * 有未保存修改时，关闭 Sheet 或返回详情会弹出离开拦截。
+ * Asset-library detail Sheets first show large images/all information; Edit opens forms.
+ * Names, descriptions and voice styles form one edit unit saved together; image replacements execute immediately.
+ * Unsaved changes trigger leave guards when closing Sheets or returning to details.
  */
 export function AssetDetailSheet({
   asset,
@@ -45,14 +45,14 @@ export function AssetDetailSheet({
   onDelete,
   onChanged,
 }: {
-  /** 为 null 时关闭；关闭动画期间仍显示上一个资产。 */
+  /** Null closes; previous assets remain visible during closing animations. */
   asset: Asset | null;
   mode: AssetSheetMode;
   onModeChange: (mode: AssetSheetMode) => void;
   onClose: () => void;
   onApply: (asset: Asset) => void;
   onDelete: (asset: Asset) => void;
-  /** 保存或更换图片后的资产。 */
+  /** Assets after saving/image replacement. */
   onChanged: (asset: Asset) => void;
 }) {
   const confirmLeave = useConfirmLeave();
@@ -121,7 +121,7 @@ function AssetDetails({
         </SheetTitle>
         <SheetDescription>{t(`type.${asset.type}`)}</SheetDescription>
       </SheetHeader>
-      {/* 只读详情里可能没有可聚焦的元素，正文自身可聚焦，键盘用户才能滚动它 */}
+      {/* Read-only details may contain no focusable elements; make bodies focusable so keyboard users can scroll them. */}
       <SheetBody tabIndex={0} role="region" aria-label={t("details_label", { name: asset.name })}>
         <div className="flex flex-col gap-5">
           <AssetThumb
@@ -147,7 +147,7 @@ function AssetDetails({
                 {asset.voice_style || <span className="text-muted-foreground">{t("voice_style_none")}</span>}
               </p>
               {audioUrl ? (
-                // eslint-disable-next-line jsx-a11y/media-has-caption -- 参考音频是音色样本，没有字幕源
+                // eslint-disable-next-line jsx-a11y/media-has-caption -- Reference audio is a timbre sample without caption sources
                 <audio controls preload="none" src={audioUrl} aria-label={t("reference_audio")} className="w-full" />
               ) : (
                 <p className="text-sm text-muted-foreground">{t("reference_audio_none")}</p>

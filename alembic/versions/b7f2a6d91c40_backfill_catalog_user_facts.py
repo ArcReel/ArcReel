@@ -1,23 +1,28 @@
-"""用户条目副本补齐模型事实：参考图上限、视频输入方式与参考音频、图片 token 估算基数
+"""Backfill model facts in user-entry copies: reference limits, video inputs/audio, image-token estimate base
 
 Revision ID: b7f2a6d91c40
 Revises: d5a9c3e71f28
 Create Date: 2026-11-03 22:00:00.000000
 
-模型条目新增了几项可选的模型事实（视频与图片的参考图上限，视频是否接受文生视频、首帧、尾帧和参考音频及参考音频
-的数量与总时长上限，图片的 token 估算基数）。官方数据补录了这些字段，但用户条目副本不跟随官方同步，补不到它们；
-实例改读条目之后，副本上的「未收录」会让模型失去升级前可用的能力或估算。条目未收录首帧、尾帧时实例只开首帧，
-因此升级前接受尾帧的副本必须显式记下尾帧。
+Optional model facts now include video/image reference limits; text-to-video, first/last frame and reference
+audio support with audio count/total-duration limits; and image-token estimate base. Official data has these
+fields, but user copies do not follow official sync. After instances start reading entries, unlisted values
+would lose pre-upgrade capabilities or estimates. When first/last-frame facts are absent, only first frame
+is enabled, so copies previously accepting last frames must explicitly record that fact.
 
-本迁移按升级前调用通道按名字认定的规则，给副本补上这些字段：拿来比对的名字是副本的官方模型名与模型别名，
-与升级前按条目认定通道能力时用的名字相同；第一个认得的名字决定取值。规则在此冻结一份、不 import 应用代码：
-这些规则会从调用通道里删去，跨多个版本直接升级时结果也要相同。取值是升级前代码的结果，不是官方新数据。
+Use pre-upgrade backend name-recognition rules, comparing the copy’s official name and aliases, exactly
+the inputs previously used for entry-based capability recognition; first recognized name determines values.
+Freeze the rules here without importing application code: backend rules will be removed, and upgrades
+skipping versions must produce identical results. Values reflect old code, not new official data.
 
-- 只补副本上没有的字段，用户填过的保持不变；参考音频的三项按一组处理，填过其中一项就整组不补。
-- 认不得的名字升级前只有通道的统一回落，不是模型事实，保持未收录。图片参考图上限只补按型号名区分的几家，
-  整条通道共用的常量（以及「0 = 不裁剪」）留给调用端点声明。
-- 不改 ``user_created``、``updated_at``，有行即停止同步的状态不变。读不出的副本（不是对象或缺 ``facts``）跳过。
-- 降级不删除补上的字段：旧版本读条目时忽略不认识的字段，补上的值与当时的行为一致。
+- Fill only missing fields, preserving user values. Treat the three reference-audio fields as one group;
+  if any is populated, skip the entire group.
+- Unrecognized names formerly used a backend-wide fallback, not model facts; leave unlisted. Backfill
+  image reference limits only where model-specific, leaving backend-wide constants (and zero meaning
+  no cropping) to endpoint declarations.
+- Preserve ``user_created`` and ``updated_at``; a row still stops syncing. Skip unreadable copies
+  (nonobjects or missing ``facts``).
+- Downgrade keeps added fields: old entry readers ignore unknown fields and values match old behavior.
 """
 
 from __future__ import annotations
@@ -47,7 +52,7 @@ def _video(
     max_reference_images: int = 0,
     audio: tuple[int, float | None] | None = None,
 ) -> Facts:
-    """一组视频事实；``audio`` 是接受参考音频时的（段数上限，总时长上限），``None`` 表示不接受。"""
+    """Video facts; ``audio`` is (max segments, max total duration) when references are accepted, else ``None``."""
     facts: Facts = {
         "max_reference_images": max_reference_images,
         "text_to_video": text_to_video,
@@ -63,7 +68,7 @@ def _video(
     return facts
 
 
-# ── 方舟 Seedance（lib/backends/video_backends/ark.py）─────────────────────
+# ── Ark Seedance (lib/backends/video_backends/ark.py) ─────────────────────
 
 _SEEDANCE_KNOWN_SUFFIX = re.compile(r"^(-\d+)?$")
 _SEEDANCE_2_5_VERIFIED = ("seedance-2-5", "seedance-2.5")
@@ -94,7 +99,7 @@ _SEEDANCE_1_REFERENCE_IMAGES = ("seedance-1-5-pro", "seedance-1.5-pro")
 
 
 def _seedance_known(lowered: str, prefixes: tuple[str, ...]) -> bool:
-    """已验证型号：前缀第一次出现之后只剩空串或纯数字日期戳。"""
+    """Verified model: after the prefix first occurs, only an empty suffix or numeric date stamp remains."""
     for prefix in prefixes:
         index = lowered.find(prefix)
         if index != -1 and _SEEDANCE_KNOWN_SUFFIX.match(lowered[index + len(prefix) :]):
@@ -124,14 +129,14 @@ def _seedance(name: str) -> Facts | None:
 
 
 def _veo(name: str) -> Facts | None:
-    # normalize_model_name：去命名空间、忽略大小写、点号视同连字符。
+    # normalize_model_name: remove namespaces, ignore case, and treat dots as hyphens.
     if not name.rpartition("/")[2].lower().replace(".", "-").startswith("veo-3-1-"):
         return None
     return _video(last_frame=True, max_reference_images=3)
 
 
 def _sora(name: str) -> Facts | None:
-    # 首帧与参考图共用 input_reference 一个槽位。
+    # First frame and references share the input_reference slot.
     return _video(max_reference_images=1) if name.startswith("sora-2") else None
 
 
@@ -144,9 +149,9 @@ def _grok(name: str) -> Facts | None:
     )
 
 
-# ── 可灵（lib/backends/video_backends/kling.py）────────────────────────────
-# （文生视频，尾帧，参考图上限）。kling-v2-5-turbo / kling-v2-6 的尾帧只在 pro 档可用，档位约束属于调用端点，
-# 模型本身接受尾帧，记 true。
+# ── Kling (lib/backends/video_backends/kling.py) ──────────────────────────
+# (text-to-video, last frame, max references). kling-v2-5-turbo / kling-v2-6 last frames require pro tier;
+# tier restrictions belong to the endpoint; the model accepts last frames, so record true.
 
 _KLING: dict[str, tuple[bool, bool, int]] = {
     "kling-v2-5-turbo": (True, True, 0),
@@ -165,7 +170,7 @@ def _kling(name: str) -> Facts | None:
     return _video(text_to_video=text_to_video, last_frame=last_frame, max_reference_images=max_reference_images)
 
 
-# ── 百炼 HappyHorse / 万相（lib/backends/video_backends/dashscope.py）──────────
+# ── Bailian HappyHorse / Wan (lib/backends/video_backends/dashscope.py) ───
 
 _DASHSCOPE: dict[str, Facts] = {
     "happyhorse-1.1-t2v": _video(first_frame=False),
@@ -189,7 +194,7 @@ _S2V_V2V = re.compile(r"(?<![a-z0-9])[sv]2v(?![a-z0-9])", re.I)
 
 
 def _dashscope_key(normalized: str, keys: Iterable[str]) -> str | None:
-    """按标识符边界在 ``normalized`` 里找第一个出现的已知型号。"""
+    """Find the first known model in ``normalized`` at identifier boundaries."""
     for key in keys:
         if re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", normalized):
             return key
@@ -272,7 +277,7 @@ def _agnes(name: str) -> Facts | None:
 
 
 def _minimax(name: str) -> Facts | None:
-    # 内置 MiniMax 按名字选的声明式端点（lib/backends/backend_assembly/specs.py）与各端点定义的能力。
+    # Name-selected built-in MiniMax declarative endpoints (lib/backends/backend_assembly/specs.py) and their capabilities.
     lowered = name.lower()
     if name == "S2V-01":
         return _video(text_to_video=False, first_frame=False, max_reference_images=1)
@@ -296,7 +301,7 @@ _VIDEO_RULES: tuple[Callable[[str], Facts | None], ...] = (
 )
 
 
-# ── 图片 ─────────────────────────────────────────────────────────────────────
+# ── Images ─────────────────────────────────────────────────────────────
 
 _SEEDREAM_5_PRO_FLASH = re.compile(r"seedream-5[-.]0-(?:pro|flash)")
 _GEMINI_14_REFERENCES = frozenset(
@@ -305,7 +310,7 @@ _GEMINI_14_REFERENCES = frozenset(
 
 
 def _gpt_image_2(name: str) -> Facts | None:
-    # gpt-image-2 与它的日期快照，不含 2.5 等后续型号（lib/backends/image_backends/openai.py）。
+    # gpt-image-2 and dated snapshots, excluding later models such as 2.5 (lib/backends/image_backends/openai.py).
     if name == "gpt-image-2" or name.startswith("gpt-image-2-"):
         return {"output_token_bases": {"low": 16, "medium": 48, "high": 96}}
     return None
@@ -330,7 +335,7 @@ _IMAGE_RULES: tuple[Callable[[str], Facts | None], ...] = (_gpt_image_2, _image_
 
 
 def _pre_upgrade_facts(media_type: str, names: Sequence[str]) -> Facts:
-    """升级前按名字认定的模型事实。视频取第一条认得的通道规则；图片的估算基数与参考图上限各自认定。"""
+    """Pre-upgrade name-recognized facts: first recognized video backend rule; image estimate base and limit separately."""
     rules = {"video": _VIDEO_RULES, "image": _IMAGE_RULES}.get(media_type, ())
     found: Facts = {}
     for rule in rules:
@@ -345,7 +350,7 @@ def _pre_upgrade_facts(media_type: str, names: Sequence[str]) -> Facts:
 
 
 def _backfilled(entry: object, media_type: str) -> dict[str, object] | None:
-    """补齐后的副本；没有可补的字段或副本读不出时为 ``None``。"""
+    """Backfilled copy, or ``None`` if no fields can be filled or the copy is unreadable."""
     if not isinstance(entry, dict) or entry.get("media_type") != media_type:
         return None
     facts = entry.get("facts")

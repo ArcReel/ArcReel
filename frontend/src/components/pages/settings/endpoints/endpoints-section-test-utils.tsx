@@ -15,8 +15,8 @@ import type {
 } from "@/types";
 import { EndpointsSection } from "./EndpointsSection";
 
-// EndpointsSection 的测试按行为域拆成多个文件（主流程、ComfyUI、市场集成、分享到官方市场），
-// 样本数据、渲染入口与对话框驱动都在这里，各文件只写用例。
+// EndpointsSection tests split by behavior (main flow, ComfyUI, market integration, official-market sharing);
+// shared fixtures/rendering/dialog drivers live here, leaving tests in individual files.
 
 export function makeDefinition(overrides?: Partial<EndpointDefinition>): EndpointDefinition {
   return {
@@ -135,7 +135,7 @@ export function validation(overrides?: Partial<EndpointValidateResponse>): Endpo
   };
 }
 
-/** 与设置页一样，只在 section=endpoints 时渲染本分区；跳去别的分区后它随之卸载。 */
+/** Like settings pages, render only for section=endpoints, unmounting after other-section navigation. */
 function SectionHost() {
   const search = useSearch();
   return new URLSearchParams(search).get("section") === "endpoints" ? <EndpointsSection /> : null;
@@ -153,23 +153,23 @@ export function renderSection(search = "section=endpoints", { guarded = false } 
   return { ...render(<Router hook={location.hook}>{host}</Router>), location };
 }
 
-/** 点二级栏里的条目。标准档与图标栏各渲染一份（jsdom 不跑容器查询），取第一份。 */
+/** Click sidebar entries; regular/icon layouts both render in jsdom without container queries, so choose first. */
 export async function clickRail(name: string | RegExp) {
   await userEvent.click((await screen.findAllByRole("link", { name }))[0]);
 }
 
-/** 打开页头「更多操作」菜单里的一项。 */
+/** Open header More menu items. */
 export async function chooseMenu(name: string) {
   await userEvent.click(await screen.findByRole("button", { name: "更多操作" }));
   await userEvent.click(await screen.findByRole("menuitem", { name }));
 }
 
 /**
- * 从「新建端点」页打开导入对话框。新建页会先校验一次空白定义，等它发出后清掉调用记录，
- * 后面的断言只看导入这一路的校验。
+ * Open import dialogs from New endpoint pages. Creation first validates blank definitions; await dispatch then clear calls,
+ * isolating later assertions to import validation.
  */
 async function openImport() {
-  // 方法已在 stubEndpointsSection 里替身化，这里再 spyOn 拿到的是同一个 spy。
+  // stubEndpointsSection already fakes methods; spyOn returns those same spies.
   const validate = vi.spyOn(API, "validateCustomEndpoint");
   await clickRail("新建端点");
   await waitFor(() => expect(validate).toHaveBeenCalled());
@@ -177,20 +177,20 @@ async function openImport() {
   await userEvent.click(await screen.findByRole("button", { name: "导入定义" }));
 }
 
-/** 导入对话框里的文件选择框；新建页的端点测试区也有上传框，只在对话框里找。 */
+/** Import-dialog file inputs, scoped because new-page endpoint tests also contain upload inputs. */
 function importFileInput(): HTMLInputElement {
   const picker = screen.getByRole("dialog").querySelector<HTMLInputElement>('input[type="file"]');
   if (picker === null) throw new Error("no file input");
   return picker;
 }
 
-/** 在导入弹窗里选一份文件。隐藏的 file input 在 jsdom 里只能这样驱动。 */
+/** Select files in import dialogs; hidden inputs in jsdom require this driver. */
 export async function pickFile(file: File) {
   await openImport();
   fireEvent.change(importFileInput(), { target: { files: [file] } });
 }
 
-/** 在导入弹窗里粘贴一份载荷，与上传走同一条分流。 */
+/** Paste import payloads, sharing upload routing. */
 export async function pasteSource(text: string) {
   await openImport();
   await userEvent.click(screen.getByLabelText("粘贴端点定义或 workflow"));
@@ -215,7 +215,7 @@ export function captureDownloads() {
 }
 
 
-/** 各拆分文件共用的起点：空 store、目录里只有 MINE、列表与校验接口的替身就位。 */
+/** Shared starting point: empty stores, catalogs containing MINE only, list/validation fakes installed. */
 export function stubEndpointsSection() {
   useAppStore.setState(useAppStore.getInitialState(), true);
   useEndpointCatalogStore.setState({

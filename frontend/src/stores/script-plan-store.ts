@@ -1,11 +1,11 @@
 import { create } from "zustand";
 
 /**
- * 重新规划会替换掉的现有内容（本集还没有任何内容时的首次规划走集页起步区，不经这里）：
- * - `formal_script`：没有脚本规划，但已有正式脚本（如从空白开始），新规划待确认，确认时再走正式脚本的覆盖确认；
- * - `confirmed_plan`：规划已确认，新规划待确认，确认时再走正式脚本的覆盖确认；
- * - `pending_plan`：未确认的规划，整份替换，内容确认页上的修改会丢失；
- * - `draft`：待修复草稿，整份替换，草稿上的修改会丢失。
+ * Existing content replaced by replanning (initial planning without episode content uses episode startup sections, bypassing this):
+ * - `formal_script`: no script plan but formal scripts exist (for example started blank); new plans await confirmation, then formal-script overwrite confirmation;
+ * - `confirmed_plan`: confirmed plans; new plans await confirmation, then formal-script overwrite confirmation;
+ * - `pending_plan`: unconfirmed plans, replaced entirely; content-confirmation-page edits are lost;
+ * - `draft`: drafts needing repairs, replaced entirely; draft edits are lost.
  */
 export type ScriptPlanReplacement = "formal_script" | "confirmed_plan" | "pending_plan" | "draft";
 
@@ -22,8 +22,8 @@ interface ScriptPlanState {
 }
 
 /**
- * 「AI 规划脚本」弹窗的开关：集页、内容确认页与制作状态的下一步只登记要打开的集和会替换的内容，
- * 弹窗由集页上唯一的宿主渲染。
+ * Plan script dialog visibility: episode pages, content-confirmation pages and production-state next actions only register target episodes/replaced content;
+ * the episode page's sole host renders dialogs.
  */
 export const useScriptPlanStore = create<ScriptPlanState>((set) => ({
   request: null,

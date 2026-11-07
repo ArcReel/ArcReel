@@ -1,9 +1,13 @@
-"""剪映草稿产物的身份、落盘路径与生成依据（``docs/adr/0090``、``docs/adr/0095``）。
+"""Jianying draft identities, formal paths, and generation bases (``docs/adr/0090``, ``docs/adr/0095``).
 
-产物身份是「集 + 剪辑时间线 + 旁白版本」。生成依据只收录草稿实际消费的内容：剪辑时间线的修订号与修订里
-参与渲染的部分、画幅，以及每个被引用视频单元作为素材层的呈现模型依据（其中已含视频版本、字幕草稿，
-带旁白版本还含旁白配音）；有 BGM 时另收所引用每首 BGM 的内容指纹与静态增益。修订号标识本次剪辑决策快照，任何新修订都让旧修订导出的草稿过期；剪辑理由不单独进入依据。
-本机草稿目录与剪映版本在下载时才代入，不进依据。登记与比对都经 :func:`build_jianying_draft_basis` 构造依据。
+Identity combines episode + timeline + narration variant. Bases contain only draft inputs:
+revision number and rendering-relevant revision content, aspect ratio, and presentation-model
+bases for referenced unit material layers (including video versions/subtitle drafts, plus voiceovers
+for narration variants). With BGM, add each referenced track’s fingerprint/static gain. Revision
+numbers identify editing-decision snapshots; every new revision expires drafts exported from old
+ones. Editing rationales do not separately enter bases.
+Local draft directories/Jianying versions substitute only at download, outside bases. Registration
+and comparison both construct through :func:`build_jianying_draft_basis`.
 """
 
 from __future__ import annotations
@@ -28,14 +32,14 @@ JIANYING_DRAFT_BASIS_KIND = "artifact-jianying-draft"
 JIANYING_DRAFT_BASIS_VERSION = 1
 
 type DraftNarration = Literal["without_narration", "with_narration"]
-"""剪映草稿的旁白版本：带旁白版本多一条旁白轨，只对 TTS 配音项目开放。"""
+"""Jianying draft narration variant: the narrated variant adds a narration track and is available only for TTS-dubbed projects."""
 
 WITHOUT_NARRATION: DraftNarration = "without_narration"
 WITH_NARRATION: DraftNarration = "with_narration"
 
 
 def default_draft_narration(project: Mapping[str, Any]) -> DraftNarration:
-    """省略旁白版本时的默认值：TTS 配音项目带旁白，后期配音项目不带旁白。"""
+    """Default omitted narration variant: include narration for TTS-dubbing projects, omit it for post-production dubbing."""
     return WITH_NARRATION if project_narration_delivery(project) == USE_TTS else WITHOUT_NARRATION
 
 
@@ -44,12 +48,12 @@ def jianying_draft_key(episode: int, timeline_id: str, narration: DraftNarration
 
 
 def jianying_draft_artifact_path(episode: int, timeline_id: str, narration: DraftNarration) -> str:
-    """剪映草稿产物的正式路径；每个产物身份只保留最新一份。"""
+    """Formal Jianying draft artifact path; retain only the latest per identity."""
     return f"{timeline_renders_dir(episode, timeline_id)}/jianying_draft.{narration}.zip"
 
 
 def timeline_render_fingerprint(content: EditTimelineContent) -> str:
-    """剪辑时间线修订里参与渲染部分的指纹；剪辑理由渲染时忽略，不计入。"""
+    """Fingerprint rendering-relevant timeline revision content; omit editing rationales ignored by rendering."""
     payload = content.model_dump(mode="json")
     for clip in payload["clips"]:
         clip.pop("reason", None)
@@ -57,7 +61,7 @@ def timeline_render_fingerprint(content: EditTimelineContent) -> str:
 
 
 def draft_unit_ids(content: EditTimelineContent, script_unit_ids: Iterable[str]) -> tuple[str, ...]:
-    """草稿引用的视频单元，按首次出现的顺序；已从脚本删除的单元渲染时跳过，不计入。"""
+    """Draft-referenced units in first-occurrence order; omit script-deleted units skipped by rendering."""
     in_script = set(script_unit_ids)
     return tuple(dict.fromkeys(clip.unit_id for clip in content.clips if clip.unit_id in in_script))
 
@@ -65,7 +69,7 @@ def draft_unit_ids(content: EditTimelineContent, script_unit_ids: Iterable[str])
 def effective_unit_variant(
     narration: DraftNarration, speech_mode: SpeechMode | None, *, has_narration_audio: bool
 ) -> RenditionVariant:
-    """视频单元实际取用的呈现版本：带旁白版本只作用于已有旁白配音的画外音单元，其余单元保持不带旁白。"""
+    """Actual unit presentation variant: narration applies only to voiceover units with existing recordings; all others stay without narration."""
     if narration == WITH_NARRATION and speech_mode is SpeechMode.NARRATOR_VOICEOVER and has_narration_audio:
         return USE_TTS
     return POST_PRODUCTION
@@ -73,11 +77,12 @@ def effective_unit_variant(
 
 @dataclass(frozen=True, slots=True)
 class DraftUnitBasis:
-    """一个被引用视频单元的素材层指纹。
+    """Material-layer fingerprint for one referenced video unit.
 
-    有类型化来源的视频取所用呈现模型的依据摘要；手动上传的视频没有呈现模型依据，取选中版本号与内容摘要。
-    比对时当前素材层投影不出（视频已换版本而尚未物化呈现模型、视频不在等）记为不可用：这样的依据不会
-    与任何登记相等，草稿读作过期而不是失去登记。
+    Typed-source videos use consumed presentation-model basis digests. Manual uploads have no
+    presentation-model basis and use selected version/content digest. At comparison, unavailable
+    current projections (video versions changed without materialized presentations, missing videos,
+    etc.) cannot equal any registration; drafts read stale rather than losing registration.
     """
 
     unit_id: str
@@ -110,7 +115,7 @@ def build_jianying_draft_basis(
     units: Sequence[DraftUnitBasis],
     bgm_sources: Mapping[str, BgmSource] | None = None,
 ) -> ArtifactBasis:
-    """``bgm_sources`` 是 BGM 轨所引用的 BGM；修订没有 BGM 时依据不含这一项，形态与没有 BGM 的草稿相同。"""
+    """``bgm_sources`` contains referenced BGM; revisions without BGM omit this basis item, matching BGM-free draft shapes."""
     inputs: dict[str, object] = {
         "timeline": {
             "id": timeline_id,

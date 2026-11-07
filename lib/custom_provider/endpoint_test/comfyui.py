@@ -1,15 +1,15 @@
-"""ComfyUI 端点在端点测试里的两种模式：预览请求与测试连接。
+"""Two ComfyUI endpoint-test modes: request previews and connection tests.
 
-预览请求渲染的是运行时真会 POST 给 ``/prompt`` 的那一份请求体——同一个 :func:`build_workflow`、
-同一份 ``auth`` 渲染、同一个 ``client_id`` 形状，差别只有三处且都不改语义：凭证以打码值进
-``auth`` 渲染、素材换成体积摘要（预览不上传，服务端认的引用名要到上传响应里才有）、``prompt_id``
-保持占位符。声明式那一侧的三处替换与此一一对应。
+Preview actual ``/prompt`` POST bodies using runtime :func:`build_workflow`,
+``auth`` rendering, and ``client_id`` shapes. Only three semantic-preserving substitutions: masked credentials into
+``auth``, asset size summaries because server references exist only after uploads, and placeholder ``prompt_id``.
+These correspond one-to-one with declarative substitutions.
 
-请求体之外还附一段换算说明：尺寸、帧数、种子与「这次改图删了哪些节点」都是算出来的，光看一份
-几十个节点的 JSON 没法回答「我选的 720p 到底变成了多少像素」。
+Also explain computed dimensions/frames/seeds/deleted nodes: dozens of JSON nodes alone cannot explain
+how selected 720p becomes actual pixels.
 
-「验证响应」不在这里——ComfyUI 的产物提取读的是 ``output`` 绑定那个节点的固定三个键，没有用户
-可配的取值路径可验（``docs/adr/0081``），模式矩阵在 :mod:`.modes` 里已把它挡掉。
+No response validation here: ComfyUI reads three fixed keys from ``output``-bound nodes without configurable
+paths (``docs/adr/0081``); :mod:`.modes` already rejects that mode.
 """
 
 from __future__ import annotations
@@ -39,36 +39,36 @@ from .preview import (
 )
 from .trial_run import TrialRunTarget, provider_from_base_url
 
-#: 提交之后才有的值：预览恒保持占位符，与声明式那一侧的 ``{{ task_id }}`` 同形。
+#: Postsubmission-only values remain placeholders, matching declarative ``{{ task_id }}``.
 UNRESOLVED_PROMPT_ID = "{{ prompt_id }}"
 
-#: 测试连接发出的那一笔在 ComfyUI 上的名字前缀，接一段随机后缀。
+#: Connection-test job-name prefixes in ComfyUI, followed by random suffixes.
 _TRIAL_RUN_LABEL_PREFIX = "endpoint-test-"
 
 
 @dataclass(frozen=True)
 class ComfyuiConversions:
-    """预览请求附的换算说明：这份 workflow 里的几个值是怎么从一次生成请求算出来的。
+    """Preview conversions explaining workflow values from generation requests.
 
-    ``width`` / ``height`` / ``frames`` / ``seed`` 为 ``None`` 表示这一维没有驱动这份 workflow
-    （未绑定，或尺寸这一维只绑了一侧因而判为固定），workflow 里的字面值原样保留——这正是用户最
-    需要看见的一格：他在项目页选的分辨率对这个端点根本不起作用。
+    ``width`` / ``height`` / ``frames`` / ``seed`` = ``None`` means dimensions do not drive workflows,
+    unbound or fixed with only one size dimension bound. Preserve literals, exposing that
+    project resolution choices have no effect on these endpoints.
     """
 
-    #: 实发 workflow 的指纹，与成片版本元数据里记的是同一个值，可据此核对某一版是照哪份图出的。
+    #: Actual workflow fingerprints, identical to version metadata, verifying source graphs per version.
     workflow_sha256: str
-    #: 换算的输入：请求侧的比例、分辨率档与时长。
+    #: Conversion inputs: request ratio/resolution tier/duration.
     aspect_ratio: str
     resolution: str | None
     duration_seconds: float | None
-    #: 换算的产物：填进 workflow 的像素、帧数与种子。
+    #: Conversion outputs: workflow pixels/frames/seeds.
     width: int | None
     height: int | None
     frames: int | None
     seed: int | None
-    #: 从正文里拆出、写进负向节点的排除项文本。
+    #: Exclusion text split from bodies into negative nodes.
     negative_prompt: str
-    #: 这次按参考图张数改图删掉的节点。空元组即没删。
+    #: Deleted nodes for this reference-count edit; empty tuples mean no deletions.
     dropped_nodes: tuple[str, ...]
 
     @classmethod
@@ -111,16 +111,16 @@ def preview_comfyui_request(
     path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     rng: Random | None = None,
 ) -> RequestPreview:
-    """渲染 ``POST /prompt`` 的请求体与随它的换算说明。定义须已过共享校验器。
+    """Render ``POST /prompt`` bodies/conversions from shared-validator-approved definitions.
 
-    轮询那一节一并给出（``GET /history/{prompt_id}``）：它与提交带的是同一份凭据，而 ComfyUI
-    多半套在反向代理后面，用户要核的正是「这组头会不会原样发到每一条路由上」。产物下载那一节
-    不给——``/view`` 的查询参数要到产物条目回来之后才知道，凭空编一个文件名不是预览。
+    Include polling ``GET /history/{prompt_id}`` because it shares submission credentials; reverse-proxied ComfyUI
+    users need to verify identical headers across every route. Omit artifact download:
+    ``/view`` query parameters require returned artifacts; fabricated filenames are not previews.
 
-    ComfyUI 端点不开放路径覆盖（``docs/adr/0101``），``path_overrides`` 恒为空。
+    ComfyUI lacks path overrides (``docs/adr/0101``), so ``path_overrides`` always empty.
 
-    ``rng`` 是随机种子的注入点，与 :func:`build_workflow` 同一个缝；``policy: random`` 的条目每次
-    预览都会给出一个新的种子，那正是真提交时会发生的事。
+    ``rng`` injects random seeds through the same :func:`build_workflow` seam; ``policy: random`` produces new seeds
+    on each preview, matching actual submissions.
     """
     api_key = masked_api_key(credentials.api_key) if credentials else UNRESOLVED_API_KEY
     base_url = normalize_comfyui_base_url(credentials.base_url) if credentials and credentials.base_url else ""
@@ -130,7 +130,7 @@ def preview_comfyui_request(
         prompt=parameters.prompt,
         aspect_ratio=parameters.aspect_ratio,
         resolution=parameters.resolution,
-        # 时长原样转交，与 backend 同一处置：``frames`` 未绑定或读不到帧率时构造层自己跳过换算。
+        # Pass duration unchanged like backends: unbound ``frames``/unreadable fps makes construction skip conversion.
         duration_seconds=parameters.duration_seconds,
         media=_preview_media(definition, assets, placeholder_missing=placeholder_missing_assets),
         rng=rng,
@@ -140,8 +140,8 @@ def preview_comfyui_request(
             method="POST",
             url=_preview_url(base_url, "/prompt", query),
             headers=dict(headers),
-            # ``client_id`` 与真发同一个构造：预览给出的必须是真发的那个形状，而这一串正是用户
-            # 在 ComfyUI 队列界面上认 ArcReel 的记号。
+            # ``client_id`` construction matches actual requests; previews must show the same shape users recognize
+            # as ArcReel jobs in ComfyUI queues.
             body={"prompt": built.workflow, "client_id": client_id_for(UNRESOLVED_PROMPT_ID)},
         ),
         poll=PreviewedRequest(
@@ -156,13 +156,13 @@ def preview_comfyui_request(
 
 
 def comfyui_credential_needs(definition: Mapping[str, Any]) -> tuple[bool, bool]:
-    """这份定义要不要 ``base_url`` / ``api_key``。
+    """Whether definitions need ``base_url`` / ``api_key``.
 
-    ``base_url`` 恒需要：ComfyUI 的路由全在服务地址根下，定义里一个绝对地址都不写。``api_key``
-    只在 ``auth`` 节真会发出凭据时需要——ComfyUI 原生无鉴权，凭据只有套在反向代理后面的部署才
-    有。「非空」按两张表里有没有条目算（:func:`declares_credentials`），不按 ``auth`` 这个对象
-    本身算：``{"headers": {}}`` 是合法定义、渲染出来一个头都没有，为它索要 api_key 会把一台不
-    设防的 ComfyUI 挡在预览与测试连接之外。
+    ``base_url`` always required: all routes live under service roots, without absolute definition URLs. ``api_key``
+    only when ``auth`` actually sends credentials; native ComfyUI has none, unlike reverse-proxy deployments.
+    Nonempty means entries in either table (:func:`declares_credentials`), not the ``auth`` object
+    itself. Valid ``{"headers": {}}`` renders no headers; requiring api_key would exclude unauthenticated
+    ComfyUI from previews/connection tests.
     """
     return True, declares_credentials(definition.get("auth") or {})
 
@@ -174,23 +174,23 @@ def comfyui_target(
     *,
     provider: str | None = None,
 ) -> TrialRunTarget:
-    """内联 ComfyUI 定义的目标：按定义声明的媒体类型构造 backend，跑的是生产那一条路。
+    """Inline-definition targets: construct media-specific backends through production paths.
 
-    两类端点走同一条路：图像端点的 backend 与视频端点的除请求 / 结果类型外完全同构（提交、轮询、
-    取件、叫停都在共用的执行层上），故这里只按 ``media_type`` 换一个类，不为图像另开一条测试路径。
+    Image/video endpoints share submission/polling/retrieval/stopping execution and differ only in request/result types;
+    select classes by ``media_type``, without separate image test paths.
 
-    不跑能力闸（见 :attr:`TrialRunTarget.gate_capabilities`）：ComfyUI 端点费用固定 0，能力又只
-    从节点绑定推导，而内联定义这条入口拿不到推导结果。
+    Skip capability gates (:attr:`TrialRunTarget.gate_capabilities`): ComfyUI costs fixed zero and derives capabilities
+    from bindings, while inline-definition entries cannot access those derivations.
 
-    结果体里不放渲染后的提交请求：实发 workflow 的随机种子与素材引用名要到提交那一刻才定下来，
-    把一份预览摆进结果体会让用户以为提交的就是它。请求形状去预览请求那张卡看。
+    Omit rendered submission requests in results: actual random seeds/asset names resolve only at submission,
+    so previews would falsely imply actual submitted values. Inspect request shapes in preview cards.
     """
     label = provider or provider_from_base_url(credentials.base_url)
     media_type = str(definition.get("media_type") or "video")
-    # 这一笔在 ComfyUI 队列界面上的名字（``client_id`` 是 ``arcreel-<job_label>``，上传的素材
-    # 也按它命名）。测试连接不走 worker，没有 task_id，backend 的回落值是一串随机 hex——用户
-    # 在自己手动跑的队列里认不出哪一笔是刚点的「测试连接」。后缀保留一段随机串：同一个端点可以
-    # 被连着测好几次，重名会让上传的素材互相覆盖。
+    # ComfyUI queue names: ``client_id`` = ``arcreel-<job_label>``, with uploads named accordingly.
+    # Connection tests lack workers/task_id; backend random hex would leave users unable to identify newly tested jobs
+    # in manual queues. Keep random suffixes because repeated tests on one endpoint
+    # otherwise collide and overwrite uploaded assets.
     job_label = f"{_TRIAL_RUN_LABEL_PREFIX}{token_hex(4)}"
 
     async def build() -> ComfyuiVideoBackend | ComfyuiImageBackend:
@@ -215,7 +215,7 @@ def comfyui_target(
 
 
 def _preview_url(base_url: str, path: str, query: Mapping[str, str]) -> str:
-    """一条路由的预览地址。凭证缺席时主机段保持占位符，请求形状不因此塌掉。"""
+    """Route preview addresses; absent credentials leave host placeholders, preserving request shapes."""
     url = f"{base_url or UNRESOLVED_BASE_URL}{path}"
     return restore_mask_in_url(f"{url}?{urlencode(query)}") if query else url
 
@@ -226,12 +226,12 @@ def _preview_media(
     *,
     placeholder_missing: bool,
 ) -> MediaInputs:
-    """把素材换成摘要填进读图节点。
+    """Replace assets with summaries in loader nodes.
 
-    ``placeholder_missing`` 为 True 时（独立预览），绑定了却没上传的格子按声明生成占位摘要：
-    留空会让改图那一步把这些读图节点连同下游删掉，预览出来的就是一份缺了半条链路的图，而真发时
-    用户是会带上素材的。参考图只按**实际上传的张数**填——张数少于格子数正是会触发改图的那种输入，
-    删了哪些节点由换算说明给出，这一格恰恰是预览最该说清的事。
+    True ``placeholder_missing`` for standalone previews generates summaries for bound-but-unuploaded slots:
+    emptiness would trigger graph edits deleting loaders/downstream nodes, showing half-missing graphs despite users
+    supplying assets on real calls. References use **actual uploaded counts** only: fewer references than slots is exactly
+    what triggers graph edits, with deleted nodes explained by conversions, a critical preview outcome.
     """
     bindings: Mapping[str, Any] = definition.get("bindings") or {}
     uploaded = assets.items("reference_images") if assets else []

@@ -1,14 +1,14 @@
 name: Nightly Full CI
 
-# 每日全量测试，不应用路径裁剪，兜底按域裁剪可能漏掉的跨域回归
-# （例如后端改动破坏镜像构建、依赖升级破坏 PG 方言测试）。
+# Daily full tests without path filtering, catching cross-domain regressions missed by domain selection
+# (e.g. backend changes breaking image builds or dependency upgrades breaking PG dialect tests).
 
 on:
   schedule:
-    - cron: "0 20 * * *" # 北京时间 04:00
+    - cron: "0 20 * * *" # 04:00 Beijing time
   workflow_dispatch:
 
-# report job 读改 issue 无法并发幂等，串行整个工作流
+# Issue reads/updates in the report job are not concurrently idempotent; serialize the entire workflow.
 concurrency:
   group: nightly-full-ci
   cancel-in-progress: false
@@ -23,13 +23,13 @@ jobs:
       contents: read
       pull-requests: read
     secrets:
-      # 只传被调 workflow 声明需要的 secret；新增 secret 时两边都要显式声明
+      # Pass only secrets declared by the called workflow; explicitly declare new secrets on both sides.
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     with:
       full: true
 
   report:
-    # 失败时开/更新带 ci 标签的追踪 issue，恢复时自动关闭
+    # Open/update a tracking issue with the ci label on failure; close it automatically after recovery.
     needs: full-suite
     if: always()
     runs-on: ubuntu-latest

@@ -2,15 +2,15 @@ import { useId, type ReactNode } from "react";
 
 interface FieldRowProps {
   label: ReactNode;
-  /** 单个控件：标签用 `<label htmlFor>` 关联它。 */
+  /** Single control associated with its label through `<label htmlFor>`. */
   htmlFor?: string;
-  /** 一行里有多个控件（如价格）：整行作为以标签命名的 group，控件各自带 `aria-label`。 */
+  /** Multiple controls in one row, such as prices: make the row a label-named group, with each control carrying `aria-label`. */
   group?: boolean;
   hint?: ReactNode;
   children: ReactNode;
 }
 
-/** 自定义供应商表单的一行属性：左侧是共用宽度的标签列，右侧是控件与说明。 */
+/** Custom-provider form property row: shared-width label column on the left, controls and explanations on the right. */
 export function FieldRow({ label, htmlFor, group, hint, children }: FieldRowProps) {
   const labelId = useId();
   return (
@@ -36,7 +36,7 @@ export function FieldRow({ label, htmlFor, group, hint, children }: FieldRowProp
   );
 }
 
-/** 控件下方的一行说明；`tone="warn"` 用于格式错误等需要用户修改的提示。 */
+/** One explanatory line below controls; `tone="warn"` indicates issues requiring user edits, such as malformed input. */
 export function FieldHint({ children, tone }: { children: ReactNode; tone?: "warn" }) {
   return <p className={tone === "warn" ? "text-xs text-warn" : "text-xs text-muted-foreground"}>{children}</p>;
 }

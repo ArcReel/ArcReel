@@ -15,8 +15,8 @@ const SETUP_SKILL = "setup-arcreel-skills";
 const INSTALL_GUIDE_URL = `${window.location.origin}/agent-installation-guide.md`;
 
 /**
- * 全局设置「外部 Agent 接入」：按安装公开 skills、配置远程 MCP、准备访问令牌三步展示，
- * 之后给出把提示词交给 AI Agent 代为接入的做法。第三步就地创建访问令牌；令牌列表只在「访问令牌」分区管理。
+ * Global External Agent Access settings: show three steps for installing public skills, configuring remote MCP and preparing an access token,
+ * then explain handing the prompt to an AI Agent for setup. Create tokens in place in step three; manage the token list only in Access tokens.
  */
 export function ExternalAgentSection() {
   const { t } = useTranslation("dashboard");
@@ -61,7 +61,7 @@ export function ExternalAgentSection() {
                 <Plus aria-hidden data-icon="inline-start" />
                 {t("access_token_create")}
               </Button>
-              {/* 跳到另一个分区是导航，渲染为链接而不是 button */}
+              {/* Jumping to another section is navigation; render a link instead of a button */}
               <Link href={settingsSectionPath("access-tokens")} className={buttonVariants({ variant: "ghost" })}>
                 {t("ext_agent_manage_tokens")}
               </Link>

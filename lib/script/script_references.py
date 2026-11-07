@@ -1,14 +1,14 @@
-"""剧本 / 草稿载荷里名称引用的落点遍历：改写与扫描共用同一份「引用写在哪些位置」。
+"""Traverse name-reference sites in script/draft payloads, sharing locations for scans and rewrites.
 
-引用名（资产名，或角色的 ``本体名/衍生名``）在剧本载荷里有五种落点：各骨架的引用数组
-（``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``）、``speaker`` 字段、
-单元正文里的 ``@[名称]`` 记号、分镜画面描述里的 ``@[名称]`` 记号，以及脚本规划「新增资产」清单
-里并入项与衍生项的 ``target``。级联改名与合并要把它们一次改齐，「这条资产被脚本引用了吗」要把
-它们一次数清——两者只在「读到的名字怎么处理」上不同，落点集合必须是同一份：分成两套遍历时，
-新增一种落点只被其中一侧认识，改名会漏改或引用状态会漏报。
+Reference names (assets or character ``本体名/衍生名``) occur in five places: skeleton reference arrays
+(``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``), ``speaker`` fields,
+unit-body ``@[名称]`` markers, visual-description ``@[名称]`` markers, and merge/derivative ``target``
+fields in plan new-assets lists. Cascade rename/merge must update all; reference checks must count all.
+They differ only in how names are processed, never the site set; separate traversals would let new sites
+be recognized by only one side, missing renames or usage reports.
 
-分镜画面描述里的记号只指认该分镜引用字段里已声明的资产、不派生参考图（见
-:mod:`lib.script.storyboard_mentions`），所以改名要改它，「引用了吗」不数它。
+Visual-description markers only identify assets already declared in reference fields, never derive images
+(:mod:`lib.script.storyboard_mentions`); rename them, but do not count them as independent references.
 """
 
 from __future__ import annotations
@@ -21,20 +21,20 @@ from lib.references.reference_catalog import derivative_reference
 from lib.script.reference_video.text_parser import mention_names
 from lib.script.script_models import NEW_ASSETS_FIELD
 
-#: 承载单元正文的列表字段。参考生视频的 mention 落在 ``video_units[].text``（草稿里是
-#: ``units[].text``），ad 分镜的 shot 还带引用数组与 ``video_prompt.dialogue``。
+#: List fields containing unit bodies. Reference mentions live in ``video_units[].text`` (draft
+#: ``units[].text``); ad shots additionally contain reference arrays and ``video_prompt.dialogue``.
 _TEXT_ITEM_FIELDS: frozenset[str] = frozenset({"shots", "units", "video_units"})
 
-#: 全部资产类型的引用数组字段。扫描不限类型（要数的是「这个名字出现了吗」），改写按类型
-#: 取子集（改角色名不该动 ``scenes`` 数组）。
+#: Reference arrays for all asset types. Scans are type-independent (name occurrence); rewrites select
+#: type-specific subsets (character renames must not alter ``scenes`` arrays).
 _ALL_REFERENCE_LIST_FIELDS: frozenset[str] = frozenset(
     field for spec in ASSET_SPECS.values() for field in spec.reference_list_fields
 )
 
-#: 引用落点的五种形态：``name`` 是引用数组里的一个完整引用名，``speaker`` 是承载角色本体名的
-#: 说话人字段，``text`` 是含 ``@[名称]`` 记号的单元正文，``scene`` 是含 ``@[名称]`` 记号的分镜画面
-#: 描述（``image_prompt.scene``，或字符串形态的 ``image_prompt``），``target`` 是新增资产清单里
-#: 并入项归入的资产名或衍生项的本体角色名——与说话人一样只写资产表的条目名，不写 ``本体名/衍生名``。
+#: Five site shapes: ``name`` is a full array reference, ``speaker`` holds a base-character name,
+#: ``text`` is a unit body containing ``@[名称]``, ``scene`` is a visual description containing ``@[名称]``
+#: (``image_prompt.scene`` or text-form ``image_prompt``), and ``target`` names merge targets or derivative
+#: bases in new-asset lists. Like speakers, targets use table-entry names, never ``本体名/衍生名``.
 SiteKind = Literal["name", "speaker", "text", "scene", "target"]
 
 
@@ -55,11 +55,11 @@ def _list_writer(items: list[Any], index: int) -> Callable[[str], None]:
 def _new_asset_target_sites(
     items: list[Any], list_fields: frozenset[str]
 ) -> Iterator[tuple[SiteKind, str, Callable[[str], None]]]:
-    """新增资产清单里的 ``target`` 落点；只产出指向的资产类型落在 ``list_fields`` 覆盖范围内的那些。
+    """New-asset ``target`` sites whose asset type belongs to ``list_fields``.
 
-    并入项的 ``target`` 指向同类资产，衍生项的指向本体角色；其余处理决定的 ``target`` 留空，不是
-    落点。``list_fields`` 即调用方关心的资产类型：改角色名时只给角色的引用数组字段，并入场景的
-    那一项就不该被当成落点。
+    Merge ``target`` names same-type assets; derivative targets name base characters. Other dispositions
+    leave ``target`` empty and create no site. ``list_fields`` defines concerned types: character renames
+    supply only character array fields, never considering scene-merge targets as character sites.
     """
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get("target"), str):
@@ -77,13 +77,13 @@ def iter_reference_sites(
     *,
     with_speaker: bool,
 ) -> Iterator[tuple[SiteKind, str, Callable[[str], None]]]:
-    """遍历载荷里承载名称引用的位置，产出 ``(类别, 当前值, 写回)``。
+    """Traverse name-bearing payload locations, yielding ``(类别, 当前值, 写回)``.
 
-    只识别骨架结构、不校验语义：结构校验由写盘统一入口的「不更坏」守卫兜底。写回只替换已
-    存在的键 / 下标，不增删元素，故遍历期间就地改写是安全的。
+    Recognize skeleton structure, not semantics; centralized persistence no-worse validation enforces structure.
+    Writes replace existing keys/indices without adding/removing entries, so in-place changes during traversal are safe.
 
-    ``with_speaker`` 控制 ``speaker`` 字段是否算落点：它只承载角色本体名（衍生共享本体的
-    声音，见 ``docs/adr/0072``），改场景 / 道具 / 商品名时不该扫它。
+    ``with_speaker`` controls inclusion of ``speaker`` fields, which carry only base-character names
+    (derivatives share base voices, ``docs/adr/0072``); exclude them for scene/prop/product renames.
     """
     if isinstance(payload, dict):
         for key, value in payload.items():
@@ -119,10 +119,10 @@ def iter_reference_sites(
 
 
 def payload_reference_names(payload: object) -> set[str]:
-    """载荷里写下的全部引用名，已在比对坐标系中；跨类型合并、不分归属。
+    """All payload reference names in normalized comparison space, merged across asset types without ownership.
 
-    问的是「这个名字写在剧本里了吗」，故不限资产类型也不判登记——归属与登记由
-    :class:`lib.references.reference_catalog.ReferenceCatalog` 回答。
+    Answers whether a name appears in scripts, without checking type or registration;
+    :class:`lib.references.reference_catalog.ReferenceCatalog` answers ownership/registration.
     """
     names: set[str] = set()
     for kind, value, _write in iter_reference_sites(payload, _ALL_REFERENCE_LIST_FIELDS, with_speaker=True):
@@ -134,10 +134,10 @@ def payload_reference_names(payload: object) -> set[str]:
 
 
 def iter_reference_lists(payload: object, list_fields: frozenset[str]) -> Iterator[list[Any]]:
-    """遍历载荷里的引用数组本身，供需要增删元素的调用方（如合并后去重）使用。
+    """Traverse reference arrays themselves for callers adding/removing entries (such as post-merge deduplication).
 
-    与 :func:`iter_reference_sites` 认同一组数组：键在 ``list_fields`` 中、值是列表即是。
-    产出的列表可就地增删元素，遍历不会再进入已产出的列表。
+    Recognize the same arrays as :func:`iter_reference_sites`: keys in ``list_fields`` with list values.
+    Yielded lists may mutate in place; traversal does not descend into them afterward.
     """
     if isinstance(payload, dict):
         for key, value in payload.items():
@@ -154,14 +154,14 @@ def iter_reference_lists(payload: object, list_fields: frozenset[str]) -> Iterat
 
 
 def annotate_derivative_references(project: object, payloads: Iterable[object]) -> dict[str, Any]:
-    """返回给每个衍生条目补上 ``referenced`` 的项目载荷副本：脚本里有没有写 ``本体名/衍生名``。
+    """Return a project copy with each derivative's ``referenced`` flag: whether scripts contain ``本体名/衍生名``.
 
-    读时计算、不落盘：衍生表的落盘字段只有 ``description`` 与资产图路径（见 ``docs/adr/0072``），
-    本字段只随读取接口返回，供浮层呈现「这套外观用上了没有」。故不就地改写入参——写盘路径与
-    读取路径共用同一份载荷时，就地改写会把这个派生字段带进 project.json。
+    Compute on read, never persist: derivative storage contains only ``description`` and image paths
+    (``docs/adr/0072``). Read APIs expose this for appearance-use overlays. Never mutate inputs, since
+    shared read/write payloads would otherwise persist the derived field into project.json.
 
-    判定与级联改名同一份落点集合（:func:`iter_reference_sites`）：作者写在哪里算引用，改名就
-    改哪里，两者不会各说各话。
+    Share the cascade-rename site set (:func:`iter_reference_sites`): any author-written reference
+    is also renamed, keeping usage checks and rewriting consistent.
     """
     payload: dict[str, Any] = dict(project) if isinstance(project, dict) else {}
     referenced: set[str] = set()
@@ -181,7 +181,7 @@ def annotate_derivative_references(project: object, payloads: Iterable[object]) 
 
 
 def _annotated_entry(asset: object, base_name: str, referenced: set[str]) -> object:
-    """资产条目的副本，其衍生表每条带上 ``referenced``；没有衍生表时原样返回。"""
+    """Copy an asset with ``referenced`` on each derivative; return unchanged when no derivative table exists."""
     if not isinstance(asset, dict):
         return asset
     table = asset.get(DERIVATIVES_FIELD)

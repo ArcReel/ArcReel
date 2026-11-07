@@ -220,8 +220,7 @@ class TestSdkTranscriptAdapterStorePath:
 
     @pytest.mark.asyncio
     async def test_read_via_store_backfills_tool_use_result_from_store_payload(self):
-        """AskUserQuestion 等工具的结构化结果（toolUseResult）从 store payload 回填，
-        懒生成重放据此产出与 live 相同的 typed 答复条目。"""
+        """Backfill structured tool results (toolUseResult, such as AskUserQuestion) from store payloads so lazy replay yields the same typed answers as live streams."""
         mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
         mock_msg.type = "user"
         mock_msg.message = {"content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}]}
@@ -252,7 +251,7 @@ class TestSdkTranscriptAdapterStorePath:
 
     @pytest.mark.asyncio
     async def test_read_via_store_carries_compact_summary_flag_from_store_payload(self):
-        """压缩续接摘要的 isCompactSummary 只在 store payload 上，回填后写入点据此打标记。"""
+        """Compaction-continuation isCompactSummary exists only in store payloads; backfill it for write-time tagging."""
         mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
         mock_msg.type = "user"
         mock_msg.message = {"content": "This session is being continued from a previous conversation..."}
@@ -322,11 +321,11 @@ class TestSdkTranscriptAdapterStorePath:
 
 
 class TestSubagentTimelines:
-    """read_subagent_timelines — subagent subpath 读取与 Task tool_use 锚定。"""
+    """read_subagent_timelines: read subagent subpaths and anchor Task tool_use."""
 
     @staticmethod
     def _main_payloads():
-        """主线原始载荷：Task tool_result 携带 toolUseResult.agentId 锚定元数据。"""
+        """Raw main-line payload: Task tool_result carries toolUseResult.agentId anchor metadata."""
         return [
             {
                 "type": "user",
@@ -375,7 +374,7 @@ class TestSubagentTimelines:
         assert set(result.keys()) == {"toolu_agent"}
         assert result["toolu_agent"][0]["type"] == "assistant"
         assert result["toolu_agent"][0]["uuid"] == "sub-uuid-1"
-        # 子时间线时间戳从 subpath 载荷回填
+        # Backfill child-timeline timestamps from subpath payloads.
         assert result["toolu_agent"][0]["timestamp"] == "2026-05-01T00:00:05Z"
 
     async def test_agent_without_anchor_is_skipped(self):
@@ -398,7 +397,7 @@ class TestSubagentTimelines:
         assert result == {}
 
     async def test_concurrent_agents_resolved_independently_one_failure_does_not_drop_others(self):
-        """多个 subagent 并发读取：各自独立解析，一个读取失败不影响其余结果。"""
+        """Read multiple subagents concurrently with independent parsing; one failure does not affect other results."""
         payloads = [
             {
                 "type": "user",
@@ -454,7 +453,7 @@ class TestSubagentTimelines:
         assert result["toolu_1"][0]["uuid"] == "sub-1"
 
     async def test_legacy_filesystem_path_degrades_to_empty(self):
-        """文件系统回退（无 store）：公开读取接口不携带锚定元数据，降级为不合并。"""
+        """Filesystem fallback without store: public reading lacks anchor metadata, so degrade to no merging."""
         adapter = SdkTranscriptAdapter()
         assert await adapter.read_subagent_timelines("sdk-session") == {}
 
@@ -464,7 +463,7 @@ class TestSubagentTimelines:
         assert await adapter.read_subagent_timelines(None) == {}
 
     async def test_reads_the_description_of_the_requested_subagent_calls(self):
-        """压缩前的子代理调用不在主线里，原始载荷仍有调用参数。"""
+        """Pre-compaction subagent calls are absent from main line, but raw payload retains call arguments."""
         payloads = [
             {
                 "type": "assistant",

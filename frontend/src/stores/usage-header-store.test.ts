@@ -41,7 +41,7 @@ describe("usage-header-store", () => {
     stubRecords();
     await useUsageHeaderStore.getState().setProject("星海列车");
 
-    // 顶栏从设置页返回后重新登记同一项目：离开期间的事件已错过，要补一轮重取。
+    // Header re-registers the same project after returning from settings: events were missed while away, so refetch once.
     await useUsageHeaderStore.getState().setProject("星海列车");
 
     expect(API.getUsageSummary).toHaveBeenCalledTimes(2);
@@ -69,7 +69,7 @@ describe("usage-header-store", () => {
     vi.mocked(API.getUsageSummary).mockRejectedValueOnce(new Error("network down"));
     await useUsageHeaderStore.getState().refresh();
 
-    // 面板宁可显示上一轮的数据加一行提示，也不该悄悄清空或停在旧数据上不作声。
+    // Panels should retain prior data with a notice instead of silently clearing or showing stale data without explanation.
     expect(useUsageHeaderStore.getState().loadFailed).toBe(true);
     expect(useUsageHeaderStore.getState().summary?.primary_currency).toBe("CNY");
     expect(useUsageHeaderStore.getState().recent).toHaveLength(1);
@@ -110,7 +110,7 @@ describe("usage-header-store", () => {
     await vi.waitFor(() =>
       expect(useUsageHeaderStore.getState().summary).not.toBeNull(),
     );
-    // 第一轮是被接管方主动作废的，不是接口失败，不该在面板上报错。
+    // Successors proactively invalidated the first request; not API failures, so panels must not report errors.
     expect(useUsageHeaderStore.getState().loadFailed).toBe(false);
   });
 
@@ -136,7 +136,7 @@ describe("usage-header-store", () => {
     void useUsageHeaderStore.getState().setProject("雨夜侦探");
     await vi.waitFor(() => expect(pending).toHaveLength(2));
 
-    // 迟到的第一轮响应属于已离开的项目，不得写回。
+    // Late first responses belong to departed projects and must not write back.
     pending[0].resolve(makeUsageSummary({ primary_currency: "JPY" }));
     pending[1].resolve(makeUsageSummary({ primary_currency: "USD" }));
 

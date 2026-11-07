@@ -1,13 +1,17 @@
-"""项目的旁白交付配置（``docs/adr/0089``）。
+"""Project narration delivery configuration (``docs/adr/0089``).
 
-旁白交付方式是必填的项目配置，取值「TTS 配音」或「后期配音」。TTS 配音项目在 ``project.json``
-上保存 TTS 模型、音色与配音语速的快照：创建时以全局默认值预填，之后不再继承全局默认。
+Narration delivery is required: TTS narration or post-production narration. TTS
+projects store a model, voice and speech-rate snapshot in ``project.json``.
+Creation prefills global defaults; later changes do not inherit those defaults.
 
-快照与交付方式相互独立：改为后期配音后快照保留，已有旁白配音的生成依据照旧可以复算，时效不变；
-只有生成旁白配音要求项目当前选的是 TTS 配音。旁白配音的时效按当前快照复算，修改快照后，
-按旧设置生成的配音读作 stale。
+The snapshot and delivery mode are independent. Switching to post-production
+preserves the snapshot, so existing narration provenance can still be recomputed
+without changing currency. Only generating narration requires current TTS delivery.
+Currency uses the current snapshot; changing it makes audio generated with the
+old settings stale.
 
-本模块只依赖标准库，``lib.project`` 等底层模块可以直接引用。
+This module uses only the standard library, so lower layers such as lib.project
+can import it directly.
 """
 
 from __future__ import annotations
@@ -22,13 +26,13 @@ USE_TTS = "use_tts"
 NarrationDelivery = Literal["post_production", "use_tts"]
 
 NARRATION_DELIVERY_FIELD = "narration_delivery"
-#: TTS 快照的三个 project.json 字段。``audio_backend`` 必须是完整的 ``provider/model``；
-#: ``narration_speed`` 缺省表示不向供应商传语速。
+#: Three project.json TTS snapshot fields. ``audio_backend`` must be a complete ``provider/model``;
+#: absent ``narration_speed`` means no speech rate is sent to the provider.
 TTS_BACKEND_FIELD = "audio_backend"
 TTS_VOICE_FIELD = "narration_voice"
 TTS_SPEED_FIELD = "narration_speed"
 NARRATION_CONFIG_FIELDS = (NARRATION_DELIVERY_FIELD, TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD)
-#: 自这一项目 schema 起 TTS 快照是旁白配音时效的输入；更早的 schema 没有快照。
+#: From this project schema onward, narration currency includes the TTS snapshot; earlier schemas have none.
 PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION = 16
 
 
@@ -53,7 +57,7 @@ class TtsSynthesisSettings:
 
 
 class NarrationConfigError(ValueError):
-    """项目旁白配置不满足约束；``code`` 是 errors 目录的 key。"""
+    """The project narration configuration violates a constraint; ``code`` is an errors-catalog key."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -61,7 +65,7 @@ class NarrationConfigError(ValueError):
 
 
 def parse_tts_backend(raw: object) -> tuple[str, str] | None:
-    """``"provider/model"`` → (provider, model)；裸供应商或缺一段的值不是完整快照。"""
+    """Parse ``"provider/model"`` into (provider, model); a bare provider or missing part is not a complete snapshot."""
 
     if not isinstance(raw, str) or "/" not in raw:
         return None
@@ -72,7 +76,7 @@ def parse_tts_backend(raw: object) -> tuple[str, str] | None:
 
 
 def parse_tts_speed(raw: object) -> float | None:
-    """正的有限数值（数字或数字字符串）→ float，其余返回 None。"""
+    """Convert a positive finite number or numeric string to float; otherwise return None."""
 
     if isinstance(raw, bool):
         return None
@@ -91,13 +95,13 @@ def parse_tts_speed(raw: object) -> float | None:
 
 
 def project_narration_delivery(project: Mapping[str, object]) -> NarrationDelivery:
-    """项目的旁白交付方式；缺失或取值不认识时按后期配音处理。"""
+    """Return project delivery; missing or unrecognized values mean post-production."""
 
     return USE_TTS if project.get(NARRATION_DELIVERY_FIELD) == USE_TTS else POST_PRODUCTION
 
 
 def project_tts_settings(project: Mapping[str, object]) -> TtsSynthesisSettings | None:
-    """项目的 TTS 快照；模型或音色缺失、语速损坏时返回 None。不读取交付方式。"""
+    """Return the TTS snapshot, or None for missing model/voice or invalid speed; do not read delivery mode."""
 
     backend = parse_tts_backend(project.get(TTS_BACKEND_FIELD))
     voice = project.get(TTS_VOICE_FIELD)
@@ -111,7 +115,7 @@ def project_tts_settings(project: Mapping[str, object]) -> TtsSynthesisSettings 
 
 
 def tts_snapshot_fields(settings: TtsSynthesisSettings) -> dict[str, object]:
-    """把 TTS 设置写成 project.json 快照字段；``narration_speed`` 为 None 时调用方删除该键。"""
+    """Serialize TTS settings into project.json snapshot fields; callers remove ``narration_speed`` when None."""
 
     return {
         TTS_BACKEND_FIELD: f"{settings.provider_id}/{settings.model_id}",
@@ -130,14 +134,14 @@ def _missing_snapshot_code(project: Mapping[str, object]) -> str:
 
 
 def validate_project_narration_config(project: Mapping[str, object]) -> None:
-    """TTS 配音项目必须带完整的 TTS 快照。"""
+    """Require a complete TTS snapshot for projects using TTS narration."""
 
     if project_narration_delivery(project) == USE_TTS and project_tts_settings(project) is None:
         raise NarrationConfigError(_missing_snapshot_code(project))
 
 
 def require_project_tts_generation(project: Mapping[str, object]) -> TtsSynthesisSettings:
-    """生成旁白配音的前提：项目选了 TTS 配音且快照完整。返回这份快照。"""
+    """Require TTS delivery and a complete snapshot before generating narration; return the snapshot."""
 
     if project_narration_delivery(project) != USE_TTS:
         raise NarrationConfigError("narration_delivery_post_production")
@@ -148,7 +152,7 @@ def require_project_tts_generation(project: Mapping[str, object]) -> TtsSynthesi
 
 
 class ProjectTtsSettingsResolver:
-    """按项目快照回答当前 TTS 设置；快照不完整时抛 ValueError（读侧视为未配置）。"""
+    """Resolve TTS settings from the project snapshot; incomplete snapshots raise ValueError and count as unconfigured on reads."""
 
     async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
         settings = project_tts_settings(project)

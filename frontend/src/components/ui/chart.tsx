@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "cn"
-// react-doctor-disable-next-line react-doctor/prefer-dynamic-import -- 本模块就是 recharts 的封装原语，懒加载边界设在使用图表的组件处
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import -- This module wraps recharts primitives; chart-using components establish lazy boundaries
 import * as RechartsPrimitive from "recharts"
 import type { TooltipValueType } from "recharts"
 
@@ -61,7 +61,7 @@ function ChartContainer({
   React.useEffect(() => {
     if (!document.fonts) return
     const controller = new AbortController()
-    // Recharts 缓存刻度文本的测量结果；首次测量必须使用已加载的项目字体。
+    // Recharts caches tick-text measurements; initial measurements must use loaded project fonts.
     void document.fonts.ready.then(() => {
       if (!controller.signal.aborted) setFontsReady(true)
     })
@@ -104,7 +104,7 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   }
 
   return (
-    // eslint-disable-next-line shadcn/no-inline-styles -- ChartConfig 的系列色按图表实例注入 --color-* 变量，这是 shadcn Chart 的配色机制
+    // eslint-disable-next-line shadcn/no-inline-styles -- ChartConfig injects per-instance series colors as --color-* variables, the shadcn Chart color mechanism
     <style
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
@@ -160,7 +160,7 @@ function ChartTooltipContent({
   >) {
   const { config } = useChart()
 
-  // react-doctor-disable-next-line react-doctor/rerender-memo-before-early-return -- 提示框未激活时 payload 为空，memo 回调第一行就返回 null，没有可省下的 JSX 构建
+  // react-doctor-disable-next-line react-doctor/rerender-memo-before-early-return -- Inactive tooltip payloads are empty; memo callbacks return null immediately, leaving no JSX construction to save
   const tooltipLabel = React.useMemo(() => {
     if (hideLabel || !payload?.length) {
       return null
@@ -222,7 +222,7 @@ function ChartTooltipContent({
               color ?? payloadFill(itemPayload) ?? item.color
 
             return (
-              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- recharts 每次悬停重新生成 payload，行按系列顺序排列、不带状态；name 与 dataKey 不保证唯一（dataKey 还可能是函数）
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- recharts recreates hover payloads; stateless rows follow series order; name/dataKey need not be unique (dataKey may be a function)
               <div
                 key={index}
                 className={cn(
@@ -321,7 +321,7 @@ function ChartLegendContent({
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
 
           return (
-            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 图例 payload 由 recharts 按系列顺序生成，行不带状态；dataKey 不保证唯一且可能是函数
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- recharts generates legend payloads in series order; rows are stateless, and dataKey need not be unique or may be a function
             <div
               key={index}
               className={cn(

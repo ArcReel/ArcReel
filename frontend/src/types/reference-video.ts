@@ -64,7 +64,7 @@ export interface ReferenceVideoUnit {
   /** Planning duration in seconds — provider request duration is resolved during precheck. */
   duration_seconds: number;
   note: string | null;
-  /** 尚未生成过任何产物的单元不带这一节——后端只在生成时写入，故读侧一律按可能缺席处理。 */
+  /** Units with no generated artifacts omit this section; the backend writes it only during generation, so readers must always allow its absence. */
   generated_assets?: UnitGeneratedAssets;
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
@@ -74,7 +74,7 @@ export interface ReferenceVideoUnit {
   source_text?: string;
 }
 
-/** 任务类型桶：无可用参考图落 i2v，有则落 r2v。 */
+/** Task type bucket: i2v when no usable reference images exist, otherwise r2v. */
 export type ReferenceVideoBucket = "i2v" | "r2v";
 
 export interface ReferenceDeclaredResource {
@@ -83,11 +83,11 @@ export interface ReferenceDeclaredResource {
 }
 
 /**
- * 服务端对一个单元的定桶结论——镜像 lib/script/reference_video/unit_capabilities.py 的信封。
+ * Server bucket determination for one unit, mirroring the envelope in lib/script/reference_video/unit_capabilities.py.
  *
- * 桶按**可用参考图**（水合后）判定，与执行侧同一判据；前端不按「名字已登记」自判。
- * `problem` 是所落桶的视频请求事实失败；`problems` 是声明引用与可用参考图分裂的阻断问题
- * （未登记 / 缺图 / 桶改变），`unavailable_references` 点名缺图的引用。
+ * Buckets are determined from **usable reference images** (after hydration), using execution-side criteria; the frontend does not infer them merely from registered names.
+ * `problem` is a video request facts failure for the resolved bucket; `problems` contains blocking mismatches between declared references and usable reference images
+ * (unregistered / missing image / changed bucket); `unavailable_references` names references with missing images.
  */
 export interface ReferenceUnitCapability {
   unit_id: string;
@@ -96,7 +96,7 @@ export interface ReferenceUnitCapability {
   declared_references: ReferenceDeclaredResource[];
   unavailable_references: ReferenceDeclaredResource[];
   unregistered_references: string[];
-  /** 所落桶收窄后的档位；事实失败时为 null。端点固定时为合法空集。 */
+  /** Narrowed tiers for the resolved bucket; null on a facts failure. An endpoint-fixed duration legitimately yields an empty set. */
   allowed_durations: number[] | null;
   excluded_durations: Record<string, DurationExclusionReason> | null;
   duration_endpoint_fixed: boolean;
@@ -105,7 +105,7 @@ export interface ReferenceUnitCapability {
   problems: ReferenceProjectionProblem[];
 }
 
-/** 按 `unit_id` 索引的逐单元结论。 */
+/** Per-unit results indexed by `unit_id`. */
 export type ReferenceUnitCapabilityMap = Record<string, ReferenceUnitCapability>;
 
 export interface ReferenceGenerationRequestOptions {
@@ -137,17 +137,17 @@ export interface ReferenceProjectionAdmission {
 }
 
 /**
- * 时长取档预检结果。`adjustment` 说明申请秒数相对取档输入的偏移方向：
- * `exact` 一致、`up` 成片更长、`down` 成片更短。能力元数据不可解析时预检直接失败。
+ * Duration tier precheck result. `adjustment` describes how requested seconds differ from tier-selection input:
+ * `exact` matches, `up` produces a longer clip, `down` a shorter clip. Unparseable capability metadata fails precheck immediately.
  */
 export interface ReferenceDurationPrecheck {
-  /** 请求档位与当前视觉档位（无成片时为剧本档位）不一致时为 true */
+  /** True when the requested tier differs from the current visual tier (or script tier when no output exists) */
   needs_confirmation: boolean;
-  /** 剧本编排时长（秒） */
+  /** Script arrangement duration (seconds) */
   script_duration: number;
-  /** 取档输入，即剧本编排时长 */
+  /** Tier-selection input, namely the script arrangement duration */
   duration_input: number;
-  /** 将向模型申请的档位秒数 */
+  /** Tier duration in seconds to request from the model */
   request_duration: number;
   adjustment: "exact" | "up" | "down";
   declared_capability: "i2v" | "r2v";
@@ -158,8 +158,8 @@ export interface ReferenceDurationPrecheck {
 }
 
 /**
- * 一个没能入队的目标。已创建的任务不因此被撤销，它们照常执行；这里列出的 unit
- * 本次没有任务、也没有计费，下次「缺失即生成」会正好补上它们。
+ * A target that could not be enqueued. Already created tasks are not withdrawn and execute normally; units listed here
+ * have no tasks or charges this time, and the next "generate missing" run will include precisely these units.
  */
 export interface ReferenceBatchEnqueueFailure {
   unit_id: string;
@@ -168,39 +168,39 @@ export interface ReferenceBatchEnqueueFailure {
 
 export interface ReferenceBatchAdmission extends WorkflowAdmission {
   skipped_unit_ids: string[];
-  /** 仅 admitted 时非空 */
+  /** Nonempty only when admitted */
   task_ids: string[];
-  /** 逐 unit 的任务行，供调用方各自兑现自己的乐观占用标记。 */
+  /** Task rows per unit, allowing callers to reconcile their own optimistic occupancy markers. */
   task_ids_by_unit: Record<string, string>;
-  /** 入队中断时没轮到的 unit；整批入队成功时为空数组。 */
+  /** Units not reached when enqueueing was interrupted; an empty array when the whole batch was enqueued. */
   enqueue_failures: ReferenceBatchEnqueueFailure[];
   deduped: boolean;
 }
 
-/** 批量预览：与提交同一份准入结论，外加已定价部分的预估费用；一个任务也不建。 */
+/** Batch preview: the same admission result as submission, plus estimated costs of priced items; creates no tasks. */
 export interface ReferenceBatchPreview extends WorkflowAdmission {
-  /** 已有成片、本次跳过的 unit。 */
+  /** Units with existing videos that are skipped this time. */
   skipped_unit_ids: string[];
-  /** 只合计已报价的单元，按币种分开；一个都没报价时为 `null`。 */
+  /** Totals only quoted units, separately by currency; `null` when none have quotes. */
   estimated_cost: CostBreakdown | null;
-  /** 没有报价、未计入 `estimated_cost` 的单元数。 */
+  /** Number of units without quotes, excluded from `estimated_cost`. */
   unpriced_count: number;
 }
 
-/** 批量端点请求体：省略 unit_ids 表示「缺失即生成」，空数组会被后端拒绝。 */
+/** Batch endpoint request body: omitted unit_ids means "generate missing"; an empty array is rejected by the backend. */
 export interface ReferenceBatchGenerateRequest {
   unit_ids?: string[];
-  /** 用户已确认的申请档位，按 unit 给 */
+  /** Requested tiers confirmed by the user, keyed by unit */
   confirmed_request_durations?: Record<string, number>;
 }
 
 /**
- * 视频单元正文的读时派生结果——编辑器解析预览面板的内容源。
+ * Read-time derivation from a video unit's body, supplying the editor's parsed preview panel.
  *
- * 正文是唯一真相：utterances 与参考图都是机械派生物，不落盘。
- * `warnings` 已按请求语言渲染成文本（`key` 保留供测试与埋点定位）。
+ * The body is the sole source of truth: utterances and reference images are mechanically derived and not persisted.
+ * `warnings` is rendered as text in the request language (`key` remains for tests and instrumentation).
  */
-/** `index` 是 1-based 的 utterance 序号，按正文出现顺序编号。 */
+/** `index` is a 1-based utterance number, assigned in order of appearance in the body. */
 export type ScriptPreviewUtterance =
   | { index: number; kind: "dialogue"; speaker: string; text: string }
   | { index: number; kind: "voiceover"; speaker: null; text: string };
@@ -216,17 +216,17 @@ export interface ScriptPreview {
 }
 
 /**
- * reference_video script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端
- * lib/script/script_models.py 的 ReferenceScriptPlanUnit / ReferenceScriptPlanDraft：script_plan 定内容层
- * （unit 边界 + unit 时长 + 单元正文），prompt_authoring 视觉编排由用户确认后才触发。
+ * Structured intermediate state for reference_video script_plan (reviewable/editable at content confirmation). Maps to backend
+ * ReferenceScriptPlanUnit / ReferenceScriptPlanDraft in lib/script/script_models.py: script_plan defines the content layer
+ * (unit boundaries + unit durations + unit bodies); prompt_authoring visual arrangement starts only after user confirmation.
  */
 export interface ReferenceScriptPlanUnit {
   unit_id: string;
-  /** 单元正文，用 `@[名称]` 引用已登记资产。 */
+  /** Unit body, using `@[名称]` to reference registered assets. */
   text: string;
   /** Unit duration in seconds — one generation call, one duration. */
   duration_seconds: number;
-  /** 逐字原文摘录（追溯锚）；存量草稿可能为空串。 */
+  /** Verbatim source excerpt (traceability anchor); may be an empty string in legacy drafts. */
   source_text: string;
 }
 
@@ -236,9 +236,9 @@ export interface ReferenceScriptPlanDraft {
 }
 
 /**
- * script_plan 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceScriptPlanDraft`）：
- * `unit_id` 机器派生，落盘前才有——草稿中只有时长 + 原文锚 + 一段引用语法正文。
- * Mirrors lib/script/script_models.py ReferenceScriptPlanFlatUnit。
+ * Flat script_plan draft shape (drafts contain this rather than the persisted `ReferenceScriptPlanDraft`):
+ * `unit_id` is machine-derived only before persistence; drafts contain only duration + source anchor + a body using reference syntax.
+ * Mirrors lib/script/script_models.py ReferenceScriptPlanFlatUnit.
  */
 export interface ReferenceScriptPlanFlatUnit {
   duration_seconds: number;
@@ -247,11 +247,11 @@ export interface ReferenceScriptPlanFlatUnit {
 }
 
 /**
- * 草稿违约条目。Mirrors lib/script/draft_quarantine.py::violation_entries。
- * `label` 是定位前缀，形如 `"unit E1U02"`（参考生视频，数组下标 = 派生 unit 序号 - 1）或
- * `"segment E1S03"`（narration，与 `segment_id` 对应）；集级违约无定位、为空串。
- * `line` 是该单元正文内 0-based 原始行号（与 `useUnitPromptHighlight.ts` 的 `sourceLine` 同
- * 坐标系），仅语法类违约才有；单元级违约（无自然行归属）为 null，呈现层落卡内聚合区。
+ * Draft violation entry. Mirrors lib/script/draft_quarantine.py::violation_entries.
+ * `label` is a location prefix such as `"unit E1U02"` (reference video, array index = derived unit number - 1) or
+ * `"segment E1S03"` (narration, corresponding to `segment_id`); episode-level violations have no location and use an empty string.
+ * `line` is the 0-based original line number in the unit body (in the same coordinate system as `sourceLine` in `useUnitPromptHighlight.ts`);
+ * present only for syntax violations. Unit-level violations without a natural line use null and appear in the card's aggregate area.
  */
 export interface ScriptReviewViolation {
   code: string;
@@ -261,14 +261,14 @@ export interface ScriptReviewViolation {
   locations?: Array<{ path: Array<string | number>; line: number | null }>;
   reason?: string;
   action?: string;
-  /** 违约所在条目在草稿正文条目数组里的下标；与 `item_id` 同缺即整集层面的违约。 */
+  /** Index of the violating entry in the draft body entry array; absent together with `item_id` for episode-level violations. */
   item_index?: number | null;
   item_id?: string | null;
-  /** 视频模型配置问题的渲染参数：`code` 即问题码，`message` 已由服务端按问题码本地化。 */
+  /** Rendering parameters for video model configuration problems: `code` is the problem code, and the server has localized `message` from it. */
   params?: Record<string, unknown>;
 }
 
-/** 降级提示：不阻断采用，随条目呈现。`message` 由服务端按请求语言成文。 */
+/** Degradation notice: does not block adoption and appears with the entry. The server renders `message` in the request language. */
 export interface DraftSoftViolation {
   code: string;
   params: Record<string, unknown>;
@@ -277,39 +277,39 @@ export interface DraftSoftViolation {
   message: string;
 }
 
-/** 草稿对应的文档，取值同 Agent 草稿工具的 `doc_type`。 */
+/** Document represented by the draft, using the same values as `doc_type` in Agent draft tools. */
 export type DraftDocType =
   | "drama_script_plan"
   | "narration_script_plan"
   | "reference_script_plan"
   | "reference_prompt_authoring";
 
-/** 草稿的处置方：`user` 为待修复草稿（创作者可直接改），`agent` 为 Agent 的可编辑草稿（只展示状态）。 */
+/** Draft handler: `user` means a draft awaiting repair (directly editable by the creator), and `agent` means an Agent-editable draft (status display only). */
 export type DraftOwner = "user" | "agent";
 
 /**
- * 草稿的呈现视图（`ScriptReviewState.quarantine` 与草稿端点共用）：草稿在场时才非 null。
- * `content` 是草稿正文原样，供创作者就地修改；脚本规划草稿的 `violations` 是读时按同一校验器重算的
- * 结果，提示词编写草稿取最近一次生成 / 保存时的报告。
+ * Draft presentation view (shared by `ScriptReviewState.quarantine` and draft endpoints): non-null only when a draft exists.
+ * `content` is the unchanged draft body for in-place creator editing; script planning draft `violations` are recomputed at read time using the same validator,
+ * while prompt authoring drafts use the report from the latest generation / save.
  *
- * `content` 的形状随路线不同（参考生视频脚本规划 `{ units }`、提示词编写 `{ title, units }`、drama
- * `{ title, scenes }`、narration `{ segments }`），且草稿可能被 Agent 手改过——字段可能缺失或类型不对。
- * 故这里只声明到「一个对象」，各面板按自己那条路线逐项收窄后渲染，不信任声明。
+ * `content` varies by route (reference video script planning `{ units }`, prompt authoring `{ title, units }`, drama
+ * `{ title, scenes }`, narration `{ segments }`), and drafts may have been manually edited by the Agent, with missing or incorrectly typed fields.
+ * Therefore only an object is declared here; each panel narrows its own route field by field before rendering, without trusting the declaration.
  */
 export interface ScriptReviewQuarantine {
   doc_type: DraftDocType;
-  /** 保存与丢弃的并发令牌；草稿文件已损坏时为 null。 */
+  /** Concurrency token for saving and discarding; null when the draft file is corrupt. */
   revision: string | null;
   editable_by: DraftOwner;
-  /** 草稿文件已损坏、或是 Agent 的可编辑草稿时为 null。 */
+  /** Null when the draft file is corrupt or the draft is Agent-editable. */
   content: Record<string, unknown> | null;
   violations: ScriptReviewViolation[];
   soft_violations: DraftSoftViolation[];
-  /** 丢弃后是否有正式内容可回。 */
+  /** Whether formal content remains to return to after discarding. */
   formal_exists: boolean;
 }
 
-/** 草稿端点返回的视图：`item_ids` 为提示词编写草稿各条目对应的正式剧本单元 ID。 */
+/** View returned by draft endpoints: `item_ids` contains the formal script unit IDs corresponding to prompt authoring draft entries. */
 export interface EpisodeDraftView extends ScriptReviewQuarantine {
   episode: number;
   item_ids: string[] | null;
@@ -321,7 +321,7 @@ export interface EpisodeDraftSummary {
   violation_count: number;
 }
 
-/** 手修保存的结果：违约清零即采用（`draft` 为 null），否则带回刷新后的草稿视图。 */
+/** Manual repair save result: adopted when no violations remain (`draft` is null); otherwise returns the refreshed draft view. */
 export interface SaveEpisodeDraftResult {
   episode: number;
   doc_type: DraftDocType;
@@ -330,7 +330,7 @@ export interface SaveEpisodeDraftResult {
 }
 
 
-/** 当前草稿按模型能力投影后的最终文本与实发图片，图片顺序对应提示词中的图号。 */
+/** Final text and actual images after projecting the current draft against model capabilities; image order matches image numbers in the prompt. */
 export interface ReferenceUnitPromptPreview extends RenderedPromptPreview {
   references: { type: AssetKind; name: string; path: string }[];
 }

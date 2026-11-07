@@ -1,13 +1,12 @@
-"""v4→v5 迁移：生成模式收缩为二值，宫格降为 grid_storyboard 开关。
+"""v4→v5: reduce generation modes to two values; grids become the grid_storyboard switch.
 
-四项职责：
-- ``generation_mode == "grid"`` 重编码为 ``storyboard + grid_storyboard=true``（宫格不是生成模式，
-  只是分镜图的生产方式）；
-- ``generation_mode`` 缺失或非二值脏值补写显式 ``storyboard``（与迁移前读侧对未知值回退
-  storyboard 的口径一致，行为不变）；
-- 剔除全部集级 ``episodes[].generation_mode`` 覆盖字段（生成模式一律按项目定轴）；
-- 不触碰剧本文件。
-"""
+Four duties:
+- Reencode ``generation_mode == "grid"`` as ``storyboard + grid_storyboard=true`` (grid changes
+  storyboard-image production, not generation mode).
+- Replace absent/invalid nonbinary ``generation_mode`` with explicit ``storyboard``, matching prior
+  read-side unknown-mode fallback without behavior changes.
+- Remove all episode-level ``episodes[].generation_mode`` overrides; project mode determines axes.
+- Leave scripts untouched."""
 
 from __future__ import annotations
 
@@ -19,18 +18,17 @@ _ROUTE_MODES = {"storyboard", "reference_video"}
 
 
 def migrate_project_dict(project: dict) -> dict:
-    """纯函数：把 v4 形态的 project dict 转为 v5 形态。幂等。
+    """Pure, idempotent v4→v5 project-dict conversion.
 
-    不改 schema_version（由文件级 migrate 提交时写入）。
-    """
+    Leave schema_version to file-level commit."""
     data = dict(project)
 
     mode = data.get("generation_mode")
     if mode == "grid":
         data["generation_mode"] = "storyboard"
         data["grid_storyboard"] = True
-    # 先判类型再做集合成员检查：project.json 是明文文件，generation_mode 可能被写成
-    # list / dict 等不可哈希值，直接 `in` 会抛 TypeError 令启动期迁移中止
+    # Check types before set membership: plaintext project.json may contain unhashable
+    # list/dict generation_mode; direct `in` would raise TypeError and abort startup migration.
     elif not isinstance(mode, str) or mode not in _ROUTE_MODES:
         data["generation_mode"] = "storyboard"
     data.setdefault("grid_storyboard", False)
@@ -45,12 +43,12 @@ def migrate_project_dict(project: dict) -> dict:
 
 
 def migrate_v4_to_v5(project_dir: Path) -> None:
-    """v4→v5 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。"""
+    """File-level v4→v5 migration: one atomic write, retryable after crashes with old/new values and no partial state."""
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = load_json(pj)
-    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
+    # Match runner int normalization: legacy project.json may store version strings.
     if int(data.get("schema_version") or 0) >= 5:
         return
     migrated = migrate_project_dict(data)

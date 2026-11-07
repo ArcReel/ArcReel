@@ -1,4 +1,4 @@
-"""`server.routers.tasks._localize_task` 的渲染行为：失败原因 + 生成警示。"""
+"""`server.routers.tasks._localize_task` renders failure reasons/generation warnings."""
 
 from typing import Any
 
@@ -115,7 +115,7 @@ class TestWarningRendering:
         assert len({result["error_message"] for result in localized.values()}) == 3
 
     def test_prompt_authoring_unit_failure_names_the_unit_by_position(self):
-        """提示词编写预判失败：摘要按界面位置称呼视频单元，不带内部前缀，面向 Agent 的原文收进详情。"""
+        """Prompt-authoring preflight failures name UI-position units without internal prefixes; Agent-facing originals stay in details."""
         detail = "正式脚本 的 unit E1U04 的台词念完约需 4.2 秒"
         task = _task(
             status="failed",

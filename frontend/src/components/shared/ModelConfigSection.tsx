@@ -37,11 +37,11 @@ import type { AutoBackendsResponse, ModelCandidatesResponse } from "@/types/syst
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
 
 export interface ModelConfigValue {
-  /** 项目默认视频模型；两个视频细分项留空时回退到它，再回退全局层。 */
+  /** Project default video models; both empty video subdivisions fall back here, then globally. */
   videoBackend: string;
   videoProviderI2V: string;
   videoProviderR2V: string;
-  /** 项目默认图片模型；两个图片细分项留空时回退到它，再回退全局层。 */
+  /** Project default image models; both empty image subdivisions fall back here, then globally. */
   imageBackendDefault: string;
   imageBackendT2I: string;
   imageBackendI2I: string;
@@ -58,8 +58,8 @@ export interface ModelConfigSectionProps {
   value: ModelConfigValue;
   onChange: (next: ModelConfigValue) => void;
   /**
-   * 所属项目名。项目已存在时（设置页）传入；创建向导的项目尚不存在，
-   * 省略时能力管线按候选模型走无项目端点。
+   * Owning project names, supplied for existing projects (settings); creation-wizard projects do not yet exist,
+   * so omission makes capability pipelines query projectless candidate-model endpoints.
    */
   projectName?: string | null;
   options: {
@@ -67,29 +67,29 @@ export interface ModelConfigSectionProps {
     imageBackends: string[];
     textBackends: string[];
     providerNames: Record<string, string>;
-    /** "provider/model" → 当前语言下的模型名，与 `providerNames` 同源；缺键退回 model id。 */
+    /** "provider/model" → current-language names sharing `providerNames` sources; missing keys fall back to model IDs. */
     modelNames?: Record<string, string>;
   };
   /**
-   * 是否呈现「按用途指定模型」这一层（媒体细分下拉与文本档位）。false 即只留默认层，
-   * 创建向导用它。与 candidates 分工：这里表达意图，candidates 只提供媒体细分的候选数据，
-   * 后者拉取失败时文本档位不受影响。
+   * Whether to show Specify models by use layers (media subdivisions/text tiers). False leaves defaults only,
+   * used by creation wizards. Unlike candidates, this expresses intent; candidates provide media-subdivision data only,
+   * so failed fetching does not affect text tiers.
    */
   showSubFields?: boolean;
   /**
-   * 媒体细分项的候选（docs/adr/0054）。缺席（拉取失败）时细分区降级：只保留已配置的细分项、
-   * 候选只列其当前值，未配置项不渲染；全部未配置即整块折叠区不渲染。
+   * Media subdivision candidates (docs/adr/0054). Absent after fetch failures: retain configured subdivisions only,
+   * with current values as sole candidates; omit unconfigured rows, hiding entire collapsible regions if all are unconfigured.
    */
   candidates?: ModelCandidatesResponse | null;
   /**
-   * 候选拉取的失败态与重试入口；非空时视频 / 图片两处折叠区各渲染一条错误提示。与
-   * `candidates` 缺席但未失败（仍在加载中）区分——后者沿用上面的静默降级，不显示错误态。
-   * 文本档位不取用候选数据，不参与。
+   * Candidate fetch failures/retry entries; nonempty values show errors in both video/image collapsible regions. Distinct from
+   * missing `candidates` while still loading, which uses silent fallback above without errors.
+   * Text tiers use no candidate data and do not participate.
    */
   candidatesError?: { onRetry: () => void; retrying?: boolean };
   providers: ProviderInfo[];
   customProviders?: CustomProviderInfo[];
-  /** 全局各层的已配置值（原样传入、不在调用处折叠回退），穿透演算按解析链就地推导。 */
+  /** Global configured layer values passed unchanged without caller-side fallback folding; derive full resolution locally along chains. */
   globalDefaults: {
     video: string;
     videoI2V: string;
@@ -100,29 +100,29 @@ export interface ModelConfigSectionProps {
     textDefault: string;
     textSimple: string;
     textComplex: string;
-    /** 各层全空时后端自动选中的模型（`API.getAutoBackends`）；缺席即不显示、也不参与能力查询。 */
+    /** Backend automatic models when all layers are empty (`API.getAutoBackends`); absent values neither display nor enter capability queries. */
     auto?: AutoBackendsResponse | null;
   };
   /**
-   * 项目级「生成有声视频」覆盖（null=跟随全局，true/false=显式覆盖）。
-   * 仅在传入 onVideoGenerateAudioChange 时于视频通道内渲染该开关——此项是视频模型的能力开关，
-   * 与旁白配音（TTS）无关，故归在视频通道而非单列。创建项目向导不传则不渲染。
+   * Project Generate audio video overrides (null follows global, true/false explicit overrides).
+   * Render within video channels only when onVideoGenerateAudioChange exists; this controls video-model capabilities,
+   * unrelated to narration TTS, so belongs within video channels rather than standalone. Creation wizards omit it to hide controls.
    */
   videoGenerateAudio?: boolean | null;
   /**
-   * 全局「生成有声视频」的生效值，用于把 `videoGenerateAudio` 的 null（跟随全局）折叠成实际
-   * 生效值——矛盾提示要按生效值给，否则项目留空而全局为「关闭」时界面无从察觉。省略即按开启处理。
+   * Effective global Generate audio video values resolve `videoGenerateAudio` null (follow global) into actual
+   * values for contradiction hints; otherwise empty projects following global Off would be undetectable. Omission means On.
    */
   globalVideoGenerateAudio?: boolean;
   onVideoGenerateAudioChange?: (next: boolean | null) => void;
   /**
-   * 当前项目是否走参考生视频（资产图直出）。部分模型在参考图路径下把时长收窄到单一取值，
-   * 时长选项据此过滤——该模式由所在页面持有，故从外部传入而非在本组件推断。
+   * Whether projects use reference-to-video (direct asset-image output). Some models restrict reference-path durations to single values;
+   * filter duration options accordingly. Owning pages know modes, supplying them externally instead of inference here.
    */
   usesReferenceImages?: boolean;
   /**
-   * 标出各通道的来源（项目设置用）：顶部说明本项目覆盖了几项全局默认，并可全部恢复；每个通道标题行
-   * 显示「本项目」与「恢复全局」，或「跟随全局 · 全局默认模型名」。
+   * Show channel origins (project settings): top explanations count overridden global fields and offer Restore all; channel headings
+   * show This project/Restore global or Follow global ·Global default model name.
    */
   showOverrideSources?: boolean;
   enable?: {
@@ -145,7 +145,7 @@ function ChannelCard({ title, source, children }: { title: string; source?: Reac
   );
 }
 
-/** 通道内的字段小标题：本地化常规字，不用等宽大写。 */
+/** Channel field subheadings: localized regular text, never monospace uppercase. */
 function FieldTitle({ children }: { children: React.ReactNode }) {
   return <div className="text-xs font-medium text-muted-foreground">{children}</div>;
 }
@@ -184,21 +184,21 @@ export function ModelConfigSection({
 
   const bucketLabels = useGenerationTypeBucketLabels();
 
-  // 时长 / 分辨率 / 声音档位按模型查能力，问的必须是当前配置真正会执行的模型：细分项被覆盖时
-  // 它不是默认层那个模型，拿默认层去查会把用户引到执行时并不支持的时长与分辨率上。
+  // Duration/resolution/voice tiers query actual execution-model capabilities; overridden subdivisions mean
+  // default-layer models differ, so querying defaults would suggest unsupported runtime durations/resolutions.
   const executingVideo = executingVideoModel(value, globalDefaults, usesReferenceImages);
   const executingI2V = executingVideoModel(value, globalDefaults, false);
   const executingImage = executingImageModel(value, globalDefaults);
 
-  // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
+  // Full project-priority resolution (docs/adr/0054): empty subdivision → project default → global same-name subdivision → global default.
   const mediaCandidates = showSubFields ? candidates : null;
   const mediaCandidatesError = showSubFields ? candidatesError : undefined;
 
-  // 时长与分辨率都按执行模型取值，故默认层与细分项的任何一次改动都先看执行模型变没变：
-  // 没变（细分项已覆盖时改默认层就是这种）原样写入，变了才清掉不再适用的分辨率、并把落在
-  // 新模型声明全集之外的时长退回自动。两条路径共用一处，避免只有主下拉做校验、细分项漏做。
-  // 全集在目录里同步可得；新模型走参考图路径时若把该值收窄掉，由下方按成因的提示引导重选，
-  // 事件处理器里拿不到服务端的收窄结果。
+  // Durations/resolutions follow execution models; every default/subdivision edit first checks whether execution models changed:
+  // unchanged (e.g. default edits under overridden subdivisions) writes unchanged; changed models clear inapplicable resolutions and reset durations
+  // outside newly declared complete sets to Automatic. Both paths share handling, avoiding validation only on primary selects.
+  // Complete sets exist synchronously in catalogs; reference paths may further narrow new-model values, with cause-specific hints below guiding reselection,
+  // because event handlers cannot read server narrowing results.
   const withVideoLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
     const next = { ...base, ...patch };
     const nextExecuting = executingVideoModel(next, globalDefaults, usesReferenceImages);
@@ -221,7 +221,7 @@ export function ModelConfigSection({
   const applyVideoLayer = (patch: Partial<ModelConfigValue>) => onChange(withVideoLayer(value, patch));
   const applyImageLayer = (patch: Partial<ModelConfigValue>) => onChange(withImageLayer(value, patch));
 
-  // 恢复全局：清空通道的模型字段，经与下拉相同的路径校正时长与分辨率；视频通道连同「生成有声视频」。
+  // Restore global clears channel model fields, correcting durations/resolutions through select paths; video channels also restore Generate audio video.
   const clearedFields = (channel: ModelChannel): Partial<ModelConfigValue> =>
     Object.fromEntries(CHANNEL_MODEL_FIELDS[channel].map((field) => [field, ""]));
   const resetChannel = (channel: ModelChannel) => {
@@ -296,9 +296,9 @@ export function ModelConfigSection({
       ], !!mediaCandidates)
     : undefined;
 
-  // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
-  // 本组件是表单：候选模型与分辨率都是编辑中的未保存值，显式带给服务端按它们求值；分辨率为
-  // null 即「自动」，服务端不回退到已保存档位。无项目（创建向导）时走无项目端点。
+  // All capabilities come through useModelCapabilities (see its source-of-truth rules); this component never queries tables itself.
+  // Forms use unsaved candidate-model/resolution edits, explicitly passing them for server evaluation; null resolution
+  // means Automatic without falling back to saved tiers. Projectless creation wizards use projectless endpoints.
   const capabilities = useModelCapabilities({
     projectName,
     videoBackend: executingVideo,
@@ -312,9 +312,9 @@ export function ModelConfigSection({
     usesReferenceImages: false,
     enabled: !!usesReferenceImages && !!value.videoResolutions,
   });
-  // 这条生成路径的执行模型取自本卡片的引用（该路径的细分项优先，其次默认层），且那里已显示「已下线」或「不可用」
-  // 提示时，能力查询的报错说的是同一件事，不再重复显示。即将下线的模型仍可调用，报错另有原因，照常显示；执行模型
-  // 来自全局默认、或来自本页未显示的细分项时，本页没有对应提示，也照常显示。别的路径引用了同一模型不算。
+  // When this execution-path model comes from this card references (subdivision before default) and already shows Retired/Unavailable
+  // notices there, capability errors describe the same issue and are suppressed. Retiring models remain callable, so errors have other causes and remain visible; execution models
+  // from global defaults or subdivisions hidden here lack corresponding notices, so also show errors. Other paths referencing identical models do not count.
   const videoModelError = (bucketReference: string, error: string | null) => {
     const reference = bucketReference ? (showSubFields ? bucketReference : "") : value.videoBackend;
     const status = reference ? candidates?.lifecycle?.[reference]?.status : undefined;
@@ -326,22 +326,22 @@ export function ModelConfigSection({
   );
   const executingI2VError = videoModelError(value.videoProviderI2V, i2vCapabilities.videoModelError);
   const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
-  // 约束上下文（分辨率 / 参考图路径）变了但模型没变时，旧的收窄结果会一直挂到新结果落地：
-  // 这样切档位不闪加载态，但这段窗口里的选项属于上一个上下文。期间只展示、不接受选择，
-  // 用户就不会从过期列表里挑一个新上下文并不允许的时长。
+  // Changed constraint contexts (resolution/reference paths) with unchanged models retain old narrowed results until new results arrive:
+  // switching tiers avoids loading flashes, but interim options belong to previous contexts. Display only, without selection,
+  // preventing users choosing new-context-invalid durations from stale lists.
   const durationStale = capabilities.loading;
 
-  // 声音一致性档位：有项目上下文时服务端按「候选模型 × 本项目 generation_mode」派生（能力查询
-  // 已带上 videoBackend，故编辑中未保存的选择也对得上）；无项目上下文时读目录端点的同名字段，
-  // 同样由服务端派生，前端两条路径都不含派生公式。
+  // Voice-consistency tiers: project contexts derive server-side from candidate models × project generation_mode (capability queries
+  // already include videoBackend, covering unsaved selections); without projects, read same-named catalog-endpoint fields,
+  // likewise server-derived. Neither frontend path contains derivation formulas.
   const videoSpecTier: VoiceConsistencyTier | null = projectName
     ? voiceConsistency
     : (lookupCatalogVideoAudio(providers, executingVideo)?.voiceConsistency ?? null);
 
-  // 音频开关按执行模型的可控性判定：恒有声 / 恒无声的模型收不到音轨开关，置灰并展示成片的
-  // 实际音轨状态（而非存量配置值），存量的「关闭」由下方警告给一键修正入口，不静默改写配置。
-  // 按路径取值而非按模型：可灵 v3-omni 图生可控、参考生无开关，只按模型取会让参考生视频放行一个
-  // 执行期必然被丢弃的开关。
+  // Audio toggles follow execution-model controllability; always-audio/never-audio models receive no toggle, so disable controls and show actual output
+  // audio rather than stored configuration. Existing Off values get one-click corrections below, never silent rewrites.
+  // Resolve by path, not model: Kling v3-omni controls image-to-video audio but has no reference-to-video toggle; model-only lookup would permit
+  // controls reference-to-video execution necessarily discards.
   const audioControl = lookupVideoAudioControl(providers, executingVideo, usesReferenceImages ? "r2v" : "i2v");
   const audioLocked = audioControl === "always_on" || audioControl === "always_off";
   const audioDisplayValue = audioLocked
@@ -354,13 +354,13 @@ export function ModelConfigSection({
           : "dashboard:audio_switch_locked_always_off",
       )
     : null;
-  // 按生效值判矛盾：项目级 null 表示跟随全局，全局为「关闭」时同样落在恒有声模型上。
+  // Detect contradictions from effective values: project null follows global, so global Off also conflicts with always-audio models.
   const audioConflict =
     audioControl === "always_on" && (videoGenerateAudio ?? globalVideoGenerateAudio) === false;
 
-  // 该端点给不出任何时长档位时，档位空集是如实声明而非配置缺陷（docs/adr/0082）。判据取
-  // durationTierEmpty 而非 durationFixed：frames 绑了却读不到帧率来源的那一支档位同样是空集，
-  // 用户在项目页看到的结果一样是「这一维不由 ArcReel 驱动」。
+  // Endpoints providing no duration tiers truthfully declare empty sets rather than configuration defects (docs/adr/0082). Use
+  // durationTierEmpty rather than durationFixed: bound frames without readable frame-rate sources also yield empty tiers,
+  // giving project-page users the same This dimension is not controlled by ArcReel result.
   const videoDurationNotDriven =
     lookupEndpointConstraints(executingVideo, customProviders, endpointConstraints)?.durationTierEmpty ?? false;
 
@@ -371,8 +371,8 @@ export function ModelConfigSection({
     endpointToMediaType,
   ).options;
 
-  // 默认层下拉展示的是本项目实际会执行的那条路径（与上方 audioControl 同口径）；两个细分项
-  // 下拉各按自己的桶取值，不受此处影响。
+  // Default selects show actual project execution paths (same criteria as audioControl above); subdivision selects
+  // use their own buckets independently.
   const renderVideoOptionMeta = videoOptionMetaRenderer({
     t,
     providers,
@@ -389,14 +389,14 @@ export function ModelConfigSection({
     onChange({ ...value, defaultDuration: d });
   };
 
-  // 已保存时长落在当前模型支持集之外（后端不变、支持集被外部缩小的挂载/重渲染场景）：
-  // 不自动篡改存值，仅渲染提示并提供一键回退 auto，保留用户感知与重选机会。
+  // Saved durations outside current supported sets (unchanged backends, externally narrowed sets during mounting/rerendering):
+  // never silently mutate; show hints/one-click auto fallback, preserving awareness/reselection opportunities.
   //
-  // 提示文案按越界成因分开：模型全集就不含该值才是「模型不支持」，被联动约束收窄掉时说清
-  // 是分辨率还是参考图路径——用户据此改对应设置，而不是被引去换模型。
+  // Separate hint wording by cause: Model unsupported only when complete model sets exclude values; contextual narrowing explains
+  // resolution versus reference-path causes, guiding relevant settings edits rather than model replacements.
   const durationNoticeKey = useMemo(() => {
-    // 过期上下文算不出成因：此时不给提示，也不报“无问题”——两者都会误导，
-    // 控件在同一窗口内不接受选择，新结果落地后提示按新上下文重算。
+    // Stale contexts cannot establish causes; offer neither hints nor No problems, both misleading;
+    // controls reject selection during the same window; new results recompute hints against new contexts.
     if (durationStale) return null;
     const reason = durationOutOfRangeReason(value.defaultDuration, capabilities);
     if (reason === null) return null;
@@ -415,8 +415,8 @@ export function ModelConfigSection({
   ) => {
     const res = lookupResolutions(providers, backend, customProviders, endpointToMediaType);
     if (res.options.length === 0) return null;
-    // 尺寸被 workflow 固定时选择器只展示不接受选择：比例与分辨率对该模型行无效，照收再丢弃
-    // 只会让用户以为自己选的档位生效了。
+    // Workflow-fixed dimensions make selectors display-only: ratios/resolutions do not affect these model rows; accepting then discarding
+    // would falsely imply selected tiers applied.
     const constraints = lookupEndpointConstraints(backend, customProviders, endpointConstraints);
     const sizeFixed = constraints?.sizeFixed ?? false;
     return (
@@ -433,13 +433,13 @@ export function ModelConfigSection({
             disabled={sizeFixed}
           />
         </div>
-        {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
+        {/* Disabled reasons require visible explanation lines; titles are inaccessible to keyboards/touch. */}
         {sizeFixed && <p className="text-xs text-muted-foreground">{t("resolution_fixed_hint")}</p>}
       </div>
     );
   };
 
-  // 项目只记录覆盖了哪些字段；「生成有声视频」只在本表单渲染它时计入。
+  // Projects record only overridden fields; count Generate audio video only when rendered in this form.
   const audioOverride = onVideoGenerateAudioChange ? (videoGenerateAudio ?? null) : null;
   const overrideCount = countModelOverrides(value, audioOverride);
 
@@ -448,14 +448,14 @@ export function ModelConfigSection({
     if (idx === -1) return options.providerNames[fullValue] || fullValue;
     return options.modelNames?.[fullValue] || fullValue.slice(idx + 1);
   };
-  // 跟随全局时实际生效的全局模型：视频按本项目走的路径取细分项，图片取文生图，文本取默认档。
+  // Effective inherited global models: video uses project-path subdivisions, images text-to-image, text default tiers.
   const globalChannelModel: Record<ModelChannel, string | undefined> = {
     video: effectiveModel(usesReferenceImages ? globalDefaults.videoR2V : globalDefaults.videoI2V, globalDefaults.video),
     image: effectiveModel(globalDefaults.imageT2I, globalDefaults.image),
     text: effectiveModel(globalDefaults.textDefault),
   };
-  // 全局层也全空时各通道的自动选择：路径与 globalChannelModel 同口径。只在全局层全空时有值——
-  // 默认层下拉的 fallbackValue 只看全局默认模型，全局细分项有值时不能让它显示成自动选择。
+  // Automatic selections for globally empty channels follow globalChannelModel paths. Present only when all global layers are empty:
+  // default-select fallbackValue sees only global defaults; nonempty global subdivisions must not appear Automatic.
   const channelAuto: Record<ModelChannel, string | null | undefined> = {
     video: globalChannelModel.video ? undefined : globalDefaults.auto?.[usesReferenceImages ? "r2v" : "i2v"],
     image: globalChannelModel.image ? undefined : globalDefaults.auto?.t2i,
@@ -563,8 +563,8 @@ export function ModelConfigSection({
           )}
           {executingVideoError && <InlineWarning message={executingVideoError} />}
 
-          {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
-              否则用户只会看见时长这一节凭空消失。 */}
+          {/* Empty tiers where model duration is inherently outside ArcReel control cannot render controls, but require explanations,
+              otherwise duration sections would seemingly vanish. */}
           {showDuration && supportedDurations?.length === 0 && videoDurationNotDriven && (
             <div className="flex flex-col gap-2">
               <FieldTitle>{t("duration_label")}</FieldTitle>
@@ -611,7 +611,7 @@ export function ModelConfigSection({
               <FieldTitle>{t("dashboard:generate_audio_label")}</FieldTitle>
               <RadioGroup
                 aria-label={t("dashboard:audio_settings_sr_label")}
-                // 三态值映射成字符串：RadioGroup 的值不能是 null
+                // Convert tristates into strings: RadioGroup values cannot be null.
                 value={String(audioDisplayValue)}
                 onValueChange={(next) => onVideoGenerateAudioChange(next === "null" ? null : next === "true")}
                 disabled={audioLocked}
@@ -694,9 +694,9 @@ export function ModelConfigSection({
             modelNames={options.modelNames}
             defaultLabel={t("use_global_default")}
             fallbacks={{
-              // 项目优先解析链（docs/adr/0051）：档位留空时的实际生效值。
-              // default 档回退全局默认模型；simple/complex 先看本表单的项目默认模型，
-              // 再全局对应档，最后全局默认模型。
+              // Project-priority chains (docs/adr/0051): effective values for empty tiers.
+              // default falls back to global default models; simple/complex first consult this form project defaults,
+              // then matching global tiers, finally global defaults.
               default: effectiveModel(globalDefaults.textDefault),
               simple: effectiveModel(
                 value.textBackendDefault,
@@ -724,8 +724,8 @@ export function ModelConfigSection({
 // ---------------------------------------------------------------------------
 
 /**
- * 时长档位的单选项：选中项用 secondary 底色。过期上下文下用 aria-disabled 而不是 disabled，
- * 选项仍可聚焦，不打断键盘走位。
+ * Duration radio options: selected values use secondary fills. Stale contexts use aria-disabled rather than disabled,
+ * preserving focus and keyboard movement.
  */
 function DurationOption({
   checked,
@@ -769,13 +769,13 @@ function DurationButtonGroup({
   onChange: (next: number | null) => void;
   ariaLabel: string;
   autoLabel: string;
-  /** 选项属于已过期的约束上下文：仍可聚焦（不打断键盘走位），但不接受选择。 */
+  /** Options belong to stale constraint contexts; retain focus/keyboard movement but reject selection. */
   disabled?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const isAutoActive = value === null;
-  // 存值越界（既非 null 又不在 options 内）时无任何 radio 选中——roving tabindex 下需让 auto
-  // 兜底为可聚焦入口，否则整个 radiogroup 无 tabIndex=0 元素，键盘 Tab 无法触达、用户无从重选。
+  // Out-of-range saved values (nonnull and absent from options) select no radios; roving tabindex needs auto
+  // as focusable fallbacks, otherwise entire radiogroups lack tabIndex=0 and keyboard Tab cannot reach reselection.
   const hasActiveOption = value !== null && options.includes(value);
   const isAutoTabbable = isAutoActive || !hasActiveOption;
   const select = (next: number | null) => {
@@ -783,7 +783,7 @@ function DurationButtonGroup({
   };
   return (
     <div
-      // 过期选项保留聚焦而不用原生 disabled，按钮自带的禁用淡化不生效，由整组淡化表明不可选
+      // Stale options remain focusable without native disabled; button disabled fading does not apply, so dim entire groups to signal unavailability.
       className={cn("flex flex-wrap gap-2", disabled && "opacity-50")}
       role="radiogroup"
       aria-label={ariaLabel}
@@ -826,16 +826,16 @@ function DurationSlider({
   onChange: (next: number | null) => void;
   ariaLabel: string;
   autoLabel: string;
-  /** 同 {@link DurationButtonGroup}：过期上下文下只展示、不接受选择。 */
+  /** Like {@link DurationButtonGroup}: stale contexts display only, rejecting selection. */
   disabled?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const min = options[0];
   const max = options[options.length - 1];
-  // 越界存值（非 null 且不在 options 内）的 thumb 无法落在区间内，归位到 min;但读数与
-  // aria-valuetext 仍忠实显示原值——显示 auto 会与未激活的 auto 钮、以及点名秒数的越界提示
-  // 自相矛盾，更让 slider 的 aria-valuetext 误报为 auto 态（实则无任何控件处于 auto）。读数
-  // 只在 value 为 null（真正的 auto）时才显示 auto;越界值的不可呈现由外层越界提示兜底解释。
+  // Out-of-range saved-value thumbs (nonnull, outside options) cannot fit ranges, so reset to min; readouts/
+  // aria-valuetext faithfully retain original values. Showing auto would contradict inactive auto buttons and second-specific out-of-range hints,
+  // falsely reporting auto through slider aria-valuetext when no controls are auto. Readouts
+  // show auto only for null values (true auto); outer out-of-range hints explain unrepresentable values.
   const isValueInRange = value !== null && options.includes(value);
   const sliderValue = isValueInRange ? value : min;
   const isAutoActive = value === null;

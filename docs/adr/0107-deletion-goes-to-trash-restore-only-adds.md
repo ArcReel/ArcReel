@@ -2,22 +2,22 @@
 status: accepted
 ---
 
-# 删除可恢复，恢复只新增，删除记录借项目迁移链跨版本恢复
+# Recoverable deletion, additive restoration, and cross-version recovery through project migrations
 
-项目内的删除过去都是硬删除，结构移除按 `docs/adr/0003` 把媒体留在盘上，`docs/adr/0080` 为项目回收站留了位置。决定：项目内的一切删除，无论由创作者还是 Agent 发起，都成为项目回收站中的删除记录；整体删除的项目成为已删除项目。恢复只新增、不覆盖、不阻塞：被恢复的对象原身份空闲则沿用、被占用则换新身份，不与现有内容合并，也不因冲突拒绝。删除记录保存删除前的项目结构状态，旧记录恢复时与归档导入一样经项目迁移链升级到当前 schema 再取出对象，因此跨版本仍可恢复，迁移步也无需知道项目回收站存在。
+Project deletes were hard deletes, structure removal left media per `docs/adr/0003`, and `docs/adr/0080` reserved future trash. Every creator/Agent project deletion now creates a project-trash record; whole-project deletions become deleted projects. Restore adds without overwriting or blocking: retain free identities, allocate new ones on conflicts, never merge with existing content or reject conflicts. Records contain pre-deletion project structure. Like archive import, upgrade old records through the full project migration chain before extracting objects, preserving cross-version restoration without trash-aware migration steps.
 
 ## Considered Options
 
-- **把领域对象恢复回原位**：每类对象都要一套冲突规则（集原文范围已被重新规划占用、资产已同名重建、剧本已被多轮修改），恢复结果可能比删除前更乱。
-- **只回收文件**：结构删除实际找不回来，项目回收站形同虚设。
-- **原地软删除**：每条读取路径都要过滤被删对象，被删对象还继续占着资产名与整本源文的范围。
-- **删除记录只存摘下的结构片段**：项目 schema 几乎每个发行版都变，跨版本后要么只能恢复文件，要么每个迁移步都要额外改写片段；迁移链只能处理完整项目。
-- **删除记录自定一套与版本无关的格式**：等于另造一套随项目 schema 演进的序列化。
+- **Restore objects in place**: each needs conflict rules for reused source ranges, recreated names, and repeatedly edited scripts, potentially worsening state.
+- **Recycle files only**: cannot recover actual structured deletions, making trash ineffective.
+- **In-place soft deletion**: every reader filters deleted objects while they still occupy names/source ranges.
+- **Store only detached fragments**: near-every-release schemas require either file-only restoration or per-step fragment migrations; the chain accepts complete projects only.
+- **A separate version-independent trash format**: reinvents serialization that must evolve with project schemas.
 
 ## Consequences
 
-- 被删的集恢复为自带原文的集，即使原本切自整本源文，也不再占用整本源文的范围。
-- `docs/adr/0003`「结构 remove 只移除剧本引用，项目内已有文件继续保留」由本 ADR 取代；删除资产也不再把资产图留在原位。
-- 被覆盖产生的旧版本留在版本历史，不进项目回收站。
-- 分镜与视频单元例外：编号只分配、不复用（`docs/adr/0090`），恢复时一律取新编号，原编号即使空闲也不沿用，免得仍引用原编号的剪辑片段与裁切接到恢复回来的条目上。
-- Agent 只能经由项目回收站删除项目内容，不能直接删除媒体与版本历史；清空与彻底删除只属于创作者。
+- Restored episodes have own source even when originally whole-source splits, no longer occupying whole-source ranges.
+- Supersede `docs/adr/0003`'s leave-media-on-remove policy; deleted sheets no longer stay in place.
+- Overwritten versions stay in version history, not trash.
+- Storyboard/video-unit IDs are the exception: allocate fresh IDs even if old ones are free (`docs/adr/0090`), preventing old clip/crop references attaching to restored entries.
+- Agents delete project content only through trash, never direct media/history deletion. Emptying/permanent deletion is creator-only.

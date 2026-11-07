@@ -1,8 +1,8 @@
-"""生成 Worker 的重启自愈：回收孤儿任务、结算被打断的调用、分桶派发续跑。
+"""Generation Worker restart recovery: reclaim orphan tasks, settle interrupted calls and dispatch bucketed resumptions.
 
-孤儿只来自进程重启（部署与判定前提见 ``lib.generation.generation_worker`` 与
-``docs/adr/0007``）。分流原则是**不主动产生额外扣费**：worker 不能确认能接续供应商已收单的
-job 时，把孤儿标记为失败丢弃，绝不重新提交。「重试下载」复用同一条续跑派发。
+Orphans arise only from process restarts (deployment and detection prerequisites in ``lib.generation.generation_worker`` and
+``docs/adr/0007``). Routing must **never proactively incur extra charges**: if workers cannot confirm that accepted provider
+jobs can resume, fail and discard their orphans, never resubmit. Download retries reuse the same resumption dispatch.
 """
 
 from __future__ import annotations
@@ -32,31 +32,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 不实现 VideoBackend.resume_video 的视频 provider：孤儿扫描把它们的 running 孤儿标记为
-# [resume_unsupported] 失败，而非主动 requeue 重跑——避免对已经提交给供应商的请求二次扣费
-# （Grok 同步型无 job_id；Vidu 的 generate 内联 poll，没有独立 resume）。
-# 新增不支持 resume 的 backend 时同步在这里登记。
+# Video providers without VideoBackend.resume_video: orphan scans fail their running orphans as
+# [resume_unsupported], never proactively requeue/rerun, avoiding double billing of already submitted provider requests
+# (Grok is synchronous without job_id; Vidu polls inline in generate without independent resume).
+# Register newly added nonresumable backends here too.
 NON_RESUMABLE_VIDEO_PROVIDERS = frozenset({PROVIDER_GROK, PROVIDER_VIDU})
 
 
 def _cleanup_orphan_render_staging(project_name: str) -> None:
-    """在工作线程里定位项目目录并清理中断渲染留下的临时文件。"""
+    """Locate project directories and clean interrupted-render temporary files in worker threads."""
 
     cleanup_interrupted_render_staging(get_project_manager().get_project_path(project_name))
 
 
 class InterruptedCallSettler(Protocol):
-    """启动收口入口：返回已翻成终态的 pending 调用行数。无任务身份的 pending 行只收口在
-    ``taskless_started_before`` 之前发起的，传 ``None`` 则只收口绑定了任务的行。"""
+    """Startup settlement entry: return pending-call rows transitioned to terminal states. Settle taskless pending rows only when started before
+    ``taskless_started_before``; ``None`` settles task-bound rows only."""
 
     def __call__(self, *, taskless_started_before: datetime | None) -> Awaitable[int]: ...
 
 
 class RestartRecovery:
-    """重启自愈协作者，由 ``GenerationWorker`` 持有。
+    """Restart-recovery collaborator held by ``GenerationWorker``.
 
-    与 worker 共用同一张容量表、占用台账与停止信号（引用恒定，不被重建）：续跑 sub-task 登记
-    进同一份占用台账，由 worker 主循环 drain、关停时一并等待。
+    Share the worker's capacity table, slot ledger and stop signal (stable references, never rebuilt). Register resumption subtasks
+    in the same slot ledger, drained by the worker main loop and awaited together on shutdown.
     """
 
     def __init__(
@@ -79,33 +79,33 @@ class RestartRecovery:
         self._provider_projection = provider_projection
         self._resume = resume
         self._settle_interrupted_calls = settle_interrupted_calls
-        # Orphan dispatcher 句柄持久化：shutdown 时 await 它跑完；lease 切换重夺时
-        # 第二次进 handle_orphans，旧句柄未 done 不能直接覆盖。
+        # Persist orphan dispatcher handles for shutdown awaits; if lease takeover invokes handle_orphans
+        # again, unfinished old handles cannot simply be overwritten.
         self.orphan_dispatcher_task: asyncio.Task | None = None
-        # 「重试下载」的派发是即发即忘的：不持强引用的话，事件循环之外无人引用该 task，
-        # 它可能在挂起点被 GC 静默回收。完成即从集合摘除。
+        # Download-retry dispatch is fire-and-forget. Without strong references, nothing outside the event loop retains tasks,
+        # so GC may silently collect them at suspension points. Remove them from the set on completion.
         self._retry_dispatch_tasks: set[asyncio.Task] = set()
 
     async def wait_dispatchers(self) -> None:
-        """shutdown：等 dispatcher 派完最后一批 sub-task（否则 sub-task 可能在 dispatcher 退出后
-        才创建）。dispatcher 异常不能断 shutdown 链。"""
+        """On shutdown, wait for dispatchers to dispatch their last subtasks (which can otherwise be created after dispatcher exit).
+        Dispatcher errors must not break the shutdown chain."""
         if self.orphan_dispatcher_task is not None and not self.orphan_dispatcher_task.done():
             try:
                 await self.orphan_dispatcher_task
             except Exception:
                 logger.exception("orphan dispatcher 在 shutdown 等待时异常")
 
-        # 「重试下载」的 dispatcher 同理：任务在派发之前就已经被翻成 running，dispatcher 还没
-        # 登记 sub-task 就退出的话，这一笔要等到下次启动的孤儿扫描才被接手。
+        # The same applies to download-retry dispatchers: tasks become running before dispatch. If dispatchers exit before
+        # registering subtasks, those tasks wait until the next startup orphan scan.
         if retry_dispatchers := [t for t in self._retry_dispatch_tasks if not t.done()]:
             await asyncio.gather(*retry_dispatchers, return_exceptions=True)
 
     async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> None:
-        """孤儿任务处理之后收口没有存活任务的 pending 调用行（与孤儿扫描共用一次性开关）。
+        """After orphan handling, settle pending call rows without live tasks (sharing the orphan scan's one-shot switch).
 
-        顺序不能反：孤儿处理先把无法接续的任务翻成终态，收口才能按任务的结局判定它的调用行；
-        反过来那些任务还是 running，它们的调用行会被当成「任务还活着」跳过。收口失败只记日志，
-        不阻断认领循环——账目收尾比不上 worker 起不来。
+        Order matters: orphan handling first makes unresumable tasks terminal, allowing settlement to use task outcomes;
+        reversed, those tasks remain running and their calls are skipped as live. Log settlement failures without blocking
+        claims: accounting cleanup is less important than worker startup.
         """
         try:
             settled = await self._settle_interrupted_calls(taskless_started_before=taskless_started_before)
@@ -120,36 +120,36 @@ class RestartRecovery:
             )
 
     async def handle_orphans(self) -> None:
-        """重启自愈：扫 running 孤儿，按"是否可安全 resume"分流。
+        """Restart recovery: scan running orphans and route by safe resumability.
 
-        原则——**不主动产生额外扣费**：只要 worker 不能确认能接续供应商已收单的 job，
-        就把孤儿标记为失败丢弃，绝不重新提交。
+        Principle: **never proactively incur extra charges**. Unless workers can confirm that accepted provider jobs can resume,
+        fail and discard orphans, never resubmit.
 
-        - image running → [restart_lost]（image 任务不持久化 job_id，无法接续；
-          且 image 提交本身已计费，重跑等于双重扣费）
-        - video running，provider ∈ NON_RESUMABLE_VIDEO_PROVIDERS（Grok/Vidu）
-          → [resume_unsupported]（backend 不实现 resume_video，原 job 无接续手段）
-        - video running，可 resume backend (ark/gemini/openai/newapi)：
-          - 无 provider_job_id → [restart_lost]
-          - 有 job_id → 收集到 `resumable_by_provider` 桶，后台 dispatcher 受
-            video 容量约束分批 dispatch
+        - image running → [restart_lost] (image tasks do not persist job_id and cannot resume;
+          image submission is already billed, so rerunning doubles charges)
+        - video running, provider ∈ NON_RESUMABLE_VIDEO_PROVIDERS (Grok/Vidu)
+          → [resume_unsupported] (backends do not implement resume_video; original jobs cannot resume)
+        - video running, resumable backend (ark/gemini/openai/newapi):
+          - no provider_job_id → [restart_lost]
+          - job_id present → collect into `resumable_by_provider` buckets; background dispatchers
+            dispatch batches within video capacity
 
-        启动期 fast path（本函数）**只做终结类处理**，立刻返回；可 resume 的视频孤儿
-        派发给后台 dispatcher 处理，避免 N 个 Sora orphan × 每个 5min poll 把启动期
-        阻塞数十分钟。Dispatcher 不 drain 占用台账，完全依赖 worker 主循环每 cycle
-        清理；停止信号触发时 dispatcher 自然退出。
+        The startup fast path (this function) **only performs terminal transitions** and returns immediately. Background dispatchers
+        handle resumable video orphans, preventing N Sora orphans × 5 min polling each from blocking startup
+        for tens of minutes. Dispatchers do not drain slot ledgers; they rely entirely on the worker main loop each cycle.
+        Dispatchers naturally exit when the stop signal fires.
         """
         orphans = await self._queue.list_orphan_tasks_on_start()
         if not orphans:
             return
         logger.info("等待 lease 获取后开始扫孤儿（待处理 %d 个）", len(orphans))
 
-        # self-active 防 self-preemption：lease flap > 3×TTL 后一次性扫描开关
-        # 重置，再扫 DB running 会包含本进程仍 inflight 的 task。若不排除：
-        # - image 任务 → 错误标 [restart_lost]（任务还在跑就被标失败）
-        # - video 任务 → 启动重复 resume 流，同一 provider job 被并发 poll/finalize，
-        #   崩溃窗口可能导致 provider 端双重扣费（违反 ADR 0007 红线）
-        # active_task_ids 含 pending+inflight 全部占用，DB 扫到的同 id task 视为本进程的活。
+        # Self-active prevents self-preemption: lease flaps beyond 3×TTL reset the one-shot scan switch;
+        # rescanning DB running rows includes this process's still-inflight tasks. Without exclusion:
+        # - image tasks → wrongly [restart_lost] while still running
+        # - video tasks → duplicate resume flows polling/finalizing the same provider job concurrently;
+        #   crash windows can double provider charges (violating ADR 0007's red line)
+        # active_task_ids includes all pending+inflight occupancy; scanned DB tasks with those IDs are locally alive.
         self_active_task_ids = self._slots.active_task_ids()
 
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
@@ -169,8 +169,8 @@ class RestartRecovery:
             else:
                 media_type = "image"
 
-            # image 任务不持久化 job_id 也无 resume 入口——已提交给供应商的请求无法回收，
-            # 主动 requeue 会双重扣费。直接丢弃，等用户决定是否手动重试。
+            # Image tasks persist no job_id and expose no resume entry; accepted provider requests cannot be recovered,
+            # and proactive requeueing doubles charges. Discard directly; users decide whether to retry manually.
             if media_type == "image":
                 logger.warning("孤儿 image running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(
@@ -179,8 +179,8 @@ class RestartRecovery:
                 )
                 continue
 
-            # audio（TTS）同步、不持久化 job_id、无 resume 入口——与 image 同样降级为
-            # [restart_lost]，不重新提交以免重复计费。
+            # Audio (TTS) is synchronous, persists no job_id and exposes no resume entry; degrade like image to
+            # [restart_lost], without resubmission that could double bill.
             if media_type == "audio":
                 logger.warning("孤儿 audio running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(
@@ -189,15 +189,15 @@ class RestartRecovery:
                 )
                 continue
 
-            # text 同步调用可能在线程中继续运行，但进程重启后没有可接续的 job identity；
-            # 与 image/audio 一样不自动重交，避免重复计费。
+            # Synchronous text calls may continue in threads, but no resumable job identity survives process restarts;
+            # like image/audio, never resubmit automatically, avoiding duplicate charges.
             if media_type == "text":
                 logger.warning("孤儿 text running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_text"))
                 continue
 
-            # 本地渲染不续跑；重启时清理临时文件，lease 重夺时保留本进程仍在执行的渲染。
-            # 不自动重排，由用户决定是否重新渲染。
+            # Local renders do not resume; clean temporary files on restart, but retain this process's ongoing renders on lease takeover.
+            # Never requeue automatically; users decide whether to render again.
             if media_type == RENDER_MEDIA_TYPE:
                 logger.warning("孤儿 render running → [restart_lost]: %s", task_id)
                 if not self._slots.occupied_providers(RENDER_MEDIA_TYPE):
@@ -225,17 +225,17 @@ class RestartRecovery:
                     await cleanup_video_staging(task)
                     continue
 
-            # video 路径：判断 provider 是否支持 resume。两种生成模式均只用不可变 checkpoint；
-            # 否则项目配置在重启前后切换时，provider 投影会按当前项目重新解析，可能把原本
-            # Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
+            # Video path: determine provider resumability. Both generation modes use immutable checkpoints only;
+            # otherwise, project configuration changes across restarts make provider projection resolve current state, potentially
+            # misclassifying original Grok/Vidu orphans as resumable or routing resumable tasks to wrong pools.
             provider_id = (
                 checkpoint.provider_id
                 if checkpoint is not None
                 else task.get("provider_id") or await self._provider_projection(task)
             )
             if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
-                # Grok/Vidu 当前不实现 resume_video——原 job 已发给供应商无接续手段，
-                # 重跑会重复扣费。丢弃，由用户手动决定是否重试。
+                # Grok/Vidu currently lack resume_video. Already submitted original jobs cannot resume,
+                # and rerunning doubles charges. Discard; users manually decide whether to retry.
                 logger.warning(
                     "孤儿 video running (provider=%s 不支持 resume) → [resume_unsupported]: %s",
                     provider_id,
@@ -255,8 +255,8 @@ class RestartRecovery:
                 await cleanup_video_staging(task)
                 continue
 
-            # 收集到 provider 桶，交给后台 dispatcher 受 pool 容量约束分批处理。
-            # 顺便把 resolve 出的 provider_id 写回 task dict，dispatcher 路由用。
+            # Collect into provider buckets for background dispatchers to process batches within pool capacity.
+            # Also write resolved provider_id into task dicts for dispatcher routing.
             task["provider_id"] = provider_id
             resumable_by_provider.setdefault(provider_id, []).append(task)
 
@@ -270,15 +270,15 @@ class RestartRecovery:
                 "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
                 total,
             )
-            # lease 重夺时旧 dispatcher 可能还在跑（典型场景：resume_video 内 poll provider
-            # 需要几分钟到 10+ 分钟）。本轮**不 await 不 cancel** 直接覆盖句柄：
-            # - 不 await：避免阻塞主循环 → liveness 问题（无法续 lease 心跳/无法响应 cancel API）
-            # - 不 cancel：cancel 会让旧 dispatcher 的 _run_one 抛 CancelledError，进入
-            #   进程级打断的兜底路径，把仍在接续的 in-flight resume 错误标为 cancelled，
-            #   且让 provider 端已扣费 job 失去归属
-            # - 直接覆盖：旧 dispatcher_task 的 sub-task 仍由占用台账（SlotTable）持有引用
-            #   + asyncio.gather 内部 callback 链持有，旧 task 不会被 GC detached
-            # - shutdown 仍能感知：worker 关停经 _slots.all_active_tasks() 等到旧 sub-task
+            # On lease takeover, old dispatchers may still run (typically provider polling inside resume_video
+            # takes minutes to 10+ minutes). This pass overwrites handles **without awaiting or cancelling**:
+            # - Never await: avoid blocking the main loop and harming liveness (lease heartbeats/cancel API responses).
+            # - Never cancel: cancellation makes old dispatcher _run_one raise CancelledError, entering
+            #   process-interruption fallback, wrongly marking still-resuming inflight tasks cancelled
+            #   and leaving already billed provider jobs without owners.
+            # - Overwrite directly: old dispatcher_task subtasks remain strongly referenced by the slot ledger (SlotTable)
+            #   and asyncio.gather's internal callback chain; old tasks cannot become GC-detached.
+            # - Shutdown still sees them: worker shutdown awaits old subtasks through _slots.all_active_tasks().
             if self.orphan_dispatcher_task is not None and not self.orphan_dispatcher_task.done():
                 logger.warning(
                     "旧 orphan dispatcher 仍在运行，本轮直接覆盖句柄不等待——"
@@ -295,14 +295,14 @@ class RestartRecovery:
         self,
         resumable_by_provider: dict[str, list[dict[str, Any]]],
     ) -> None:
-        """后台 dispatcher：按 provider 分桶并发，受 video 容量约束分批入 inflight。
+        """Background dispatcher: concurrent provider buckets, batch inflight admission constrained by video capacity.
 
-        - 不同 provider 之间无容量耦合 → 并发跑独立 sub-task；
-        - 同 provider 内顺序入队：满则 `asyncio.wait(inflight, FIRST_COMPLETED)` 等任一
-          完成（精确感知，不 sleep 轮询）；
-        - worker 主循环每 cycle drain 已 done 的 task → dispatcher 下次 has_room 判定就有
-          空位（解耦关键假设）；
-        - 停止信号触发时 dispatcher 自然退出，不持有 lease 资源。
+        - Different providers have independent capacities, so run independent subtasks concurrently;
+        - Within a provider, enqueue sequentially; when full, `asyncio.wait(inflight, FIRST_COMPLETED)` waits for
+          any completion (exact notification, no sleep polling);
+        - The worker main loop drains done tasks each cycle, making slots available on the next dispatcher has_room
+          check (the key decoupling assumption);
+        - Naturally exit on the stop signal, holding no lease resources.
         """
         if self._stop_event.is_set():
             return
@@ -317,7 +317,7 @@ class RestartRecovery:
         logger.info("孤儿后台 dispatcher 完成")
 
     async def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
-        """按原 provider job 派发一次下载恢复，不重新提交供应商任务。"""
+        """Dispatch one download recovery against the original provider job, never resubmit provider tasks."""
         provider_id = task.get("provider_id")
         if not isinstance(provider_id, str) or not provider_id:
             raise ValueError("retry-download task has no provider_id")
@@ -334,28 +334,28 @@ class RestartRecovery:
         provider_id: str,
         tasks: list[dict[str, Any]],
     ) -> None:
-        """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
+        """Run resume tasks concurrently within provider buckets; phase flags precisely track pending/inflight capacity and cancellation.
 
-        - ``cap <= 0``：fail-fast mark_failed[resume_unsupported]，不进 ``Semaphore(0)``
-          死锁；reload 一次兜底，避免启动期 capability 抖动误判。
-        - sub-task 由父协程同步预先以 PENDING 登记到占用台账——避免 ``create_task``
-          异步调度还未触发时主循环 ``has_room`` 看占用=0 误判可有容量。
-        - sem acquire 成功后 ``promote`` 把该占用翻成 INFLIGHT（同一 sub-task，只翻标志）；
-          finally ``release``。
-        - sem 容量在 dispatch 顶部从 CapacityTable 读一次定型：reload 期间改的容量表
-          不影响本批 dispatch 的并发上限。这是已知设计选择，非 bug。
+        - ``cap <= 0``: fail fast with mark_failed[resume_unsupported], never enter ``Semaphore(0)``
+          deadlocks; reload once to avoid misclassification from startup capability fluctuations.
+        - Parent coroutines synchronously preregister subtasks as PENDING in the slot ledger, preventing ``create_task``
+          scheduling delays from letting main-loop ``has_room`` see zero occupancy and falsely available capacity.
+        - Successful semaphore acquisition uses ``promote`` to turn occupancy INFLIGHT (same subtask, flag change only);
+          finally ``release``.
+        - Read semaphore capacity once from CapacityTable at dispatch entry. Capacity-table changes during reload
+          do not affect this batch's concurrency limit. This is a known design choice, not a bug.
         """
         cap = self._capacity.get(provider_id, "video")
         if cap <= 0:
-            # 启动期 reload 兜底：DB 加载可能晚于第一次 orphan 扫描。
+            # Startup reload fallback: DB loading may follow the first orphan scan.
             try:
                 await self._reload_limits()
             except Exception:
                 logger.warning("reload_limits 兜底失败", exc_info=True)
             cap = self._capacity.get(provider_id, "video")
         if cap <= 0:
-            # 派发前就判死，手上没有异常对象：这一句就是这些调用行的失败原文，与 backend 抛出的
-            # 过期/换端点消息同一登记册（agent-facing 原文，不进 i18n，也没有可分类的机器码）。
+            # Fail before dispatch, without exception objects: this sentence is the original failure text for these call rows, registered with backend
+            # expiry/endpoint-change messages (agent-facing raw text, outside i18n, without classifiable machine codes).
             no_capacity = f"resume unsupported: provider {provider_id} has no video capacity"
             for t in tasks:
                 await self._queue.mark_task_failed(
@@ -376,15 +376,15 @@ class RestartRecovery:
                 acquired = True
                 if self._stop_event.is_set():
                     return
-                # 占用对象恒定（SlotTable 引用不被 reload 重建），promote 直接翻 PENDING→INFLIGHT
+                # Stable slot objects (SlotTable references never rebuilt by reload); promote simply changes PENDING→INFLIGHT.
                 self._slots.promote(provider_id, "video", task_id)
                 logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
                 await self._resume.run(t)
             except asyncio.CancelledError:
-                # 进程级打断落在三处都在这里兜底——SQL 守卫只放行 queued / running，保证幂等：
-                # 1) sem.acquire 等待期 → 续跑还没开始，必须由此落终态
-                # 2) acquired=True 后但续跑内 try 块外 → 内部落终态路径不会触发，必须由此落终态
-                # 3) 续跑内部 → 内部已落终态，此处再调命中终态行返回 0 rows，无副作用
+                # Catch process-level interruptions at all three points here; SQL guards allow only queued / running, ensuring idempotence:
+                # 1) While awaiting sem.acquire → resumption has not started; persist terminal state here.
+                # 2) After acquired=True but before the inner resumption try → inner terminal paths do not run; persist terminal state here.
+                # 3) Inside resumption → already made terminal internally; repeating here returns 0 rows for terminal rows, without side effects.
                 try:
                     await asyncio.shield(self._queue.mark_task_interrupted(task_id))
                     await asyncio.shield(self._resume.settle_unresumable_call(t, cancelled=True))
@@ -401,8 +401,8 @@ class RestartRecovery:
         for t in tasks:
             if self._stop_event.is_set():
                 break
-            # 父协程同步：先 create_task、再立即以 PENDING 登记——避免「create_task
-            # 是异步调度，has_room 在调度未发生前看占用=0 误判可有容量」的瞬时 race。
+            # Parent coroutine synchronously creates tasks then immediately registers PENDING, avoiding the brief race where asynchronous
+            # create_task scheduling has not run yet and has_room sees zero occupancy as available capacity.
             sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
             self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
             sub.append(sub_task)

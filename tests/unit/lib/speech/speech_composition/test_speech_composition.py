@@ -129,7 +129,7 @@ def test_legacy_string_video_prompt_has_no_structured_character_dialogue(snapsho
 
 
 def test_pending_video_prompt_has_no_structured_dialogue_and_no_parse_problem() -> None:
-    """机械转换后 video_prompt 为 None（待生成）：与文本形态同口径，旁白仍取 novel_text，不报 parse_failed。"""
+    """Mechanically converted video_prompt=None remains pending: narration uses novel_text like plain text, without parse_failed."""
     admission = admit_script_unit(
         "segments", {"segment_id": "E1S01", "novel_text": "风吹过旷野。", "video_prompt": None, "image_prompt": None}
     )
@@ -491,10 +491,10 @@ def test_reference_video_adapter_preserves_utterance_order_across_lines() -> Non
 
 
 def test_reference_video_adapter_binds_inline_speech_the_same_as_a_whole_line() -> None:
-    """内联写法与整行写法产生同一组发声准入：说话人、归属、文本、发声模式逐项相同。
+    """Inline and whole-line syntax yield identical speaker, ownership, text, and speech-mode admission.
 
-    音频绑定走的是这条路径（说话人决定绑哪段参考音频），故等价性要在这里钉住，
-    而不只在解析器单测里。只有 location 的行号按物理行不同——它是行粒度坐标，与绑定无关。
+    Audio binding uses this path (speaker selects reference audio), so assert equivalence here, not
+    only in parser tests. Only location line numbers differ by physical layout, unrelated to binding.
     """
     legacy = SpeechComposition.prepare(
         adapt_video_unit(
@@ -521,7 +521,7 @@ def test_reference_video_adapter_binds_inline_speech_the_same_as_a_whole_line() 
 
 
 def test_reference_video_adapter_keeps_a_recognized_mark_when_the_same_line_has_stray_braces() -> None:
-    """同一行另有花括号残余时，已识别的台词照常准入，残余单独报解析问题——不连坐。"""
+    """Brace residue on the same line does not reject recognized dialogue; report residue separately as a parse problem."""
     snapshot = adapt_video_unit(
         {
             "unit_id": "E1U11",

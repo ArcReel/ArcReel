@@ -1,13 +1,14 @@
-"""校验与归档诊断消息（中文）。
+"""Validation/archive diagnostics in Chinese.
 
-由 ``lib.project.data_validator`` / ``server.services.project.project_archive`` / ``lib.script.script_skeleton``
-以 ``arcreel_market_core.validation_messages.ValidationMessage`` 的形式产出、在各消费边界渲染。
+Produced by ``lib.project.data_validator`` / ``server.services.project.project_archive`` /
+``lib.script.script_skeleton`` as ``arcreel_market_core.validation_messages.ValidationMessage``,
+then rendered at consumer boundaries.
 """
 
 MESSAGES = {
-    # ---- 透传 ----
+    # ---- Passthrough ----
     "val_literal": "{text}",
-    # ---- 通用字段形状 ----
+    # ---- Common field shapes ----
     "val_missing_field": "缺少必填字段：{field}",
     "val_missing_field_at": "{prefix}: 缺少必填字段 {field}",
     "val_field_type_string": "字段类型错误：{field} 应为字符串",
@@ -28,13 +29,13 @@ MESSAGES = {
     "val_field_bad_timestamp": "{field} 不是合法的 ISO8601 时间戳：{value}",
     "val_item_must_be_object": "{prefix}: 必须是对象",
     "val_item_format_object": "{prefix}: 数据格式错误，应为对象",
-    # ---- 路径引用 ----
+    # ---- Path references ----
     "val_path_empty": "{field}: 路径不能为空",
     "val_path_traversal": "{field}: 引用路径越界：{path}",
     "val_path_outside_dir": "{field}: 引用路径必须位于 {dir}/ 目录下：{path}",
     "val_path_missing": "{field}: 引用的文件不存在：{path}",
     "val_path_must_be_relative": "{field} 必须是项目内相对路径：{path}",
-    # ---- 项目级字段 ----
+    # ---- Project-level fields ----
     "val_content_mode_invalid": "content_mode 值无效：'{value}'，必须是 {allowed}",
     "val_source_kind_invalid": "{prefix}: source_kind 值无效：'{value}'，必须是 {allowed}",
     "val_generation_mode_invalid": "generation_mode 值无效：'{value}'，必须是 {allowed}",
@@ -44,7 +45,7 @@ MESSAGES = {
     "val_cannot_load_script": "无法加载脚本文件：{path}",
     "val_unrecognized_entry": "发现未识别的附加文件/目录：{name}",
     "val_novel_must_be_object": "novel 字段必须是对象",
-    # ---- 剧集条目与账本 ----
+    # ---- Episode entries and ledger ----
     "val_ledger_status_type": "{prefix}: ledger_status 必须是字符串，当前取值：{value}",
     "val_source_origin_invalid": "{prefix}: source_origin 值无效：'{value}'，必须是 {allowed}",
     "val_source_range_requires_whole_source": "{prefix}: 只有切自整本源文（source_origin 为 whole_source）的集可以带 source_range",
@@ -52,7 +53,7 @@ MESSAGES = {
     "val_episode_missing_num_at": "{prefix}: 缺少必填字段 episode (整数)",
     "val_episode_missing_title_at": "{prefix}: 缺少必填字段 title (字符串，可为空)",
     "val_episode_missing_num": "缺少必填字段：episode (整数)",
-    # ---- 广告/短片项目 ----
+    # ---- Advertising/short-film projects ----
     "val_ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
     "val_ad_missing_target_duration": "缺少必填字段：target_duration（广告/短片项目的目标总时长，秒）",
     "val_ad_target_duration_invalid": "target_duration 值无效：{value}，必须为正整数秒",
@@ -65,7 +66,7 @@ MESSAGES = {
         "脚本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta:.0%}，"
         "超过 {threshold:.0%} 观察阈值（仅提示，不阻塞保存）"
     ),
-    # ---- 资产目录 ----
+    # ---- Asset catalog ----
     "val_asset_format_object": "{asset_type} '{name}' 数据格式错误，应为对象",
     "val_asset_field_must_be_object": "{asset_type} '{name}'.{field} 必须是对象",
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} 必须是字符串，当前为 {actual}",
@@ -76,10 +77,10 @@ MESSAGES = {
         "项目资产名称重复：{duplicate_type}「{duplicate_name}」与{first_type}「{first_name}」"
         "按 strip + Unicode NFC 判定同名"
     ),
-    # ---- 条目级引用 ----
+    # ---- Entry-level references ----
     "val_refs_unregistered": "{prefix}: {field} 引用了不存在于 project.json 的{asset_type}: {names}",
     "val_missing_defaults_empty_array": "{prefix}: 缺少 {field}，将使用默认空数组",
-    # ---- 条目通用 ----
+    # ---- Common entry fields ----
     "val_id_format": "{prefix}: {field} 格式错误 '{value}'，应为 E{{n}}S{{nn}}",
     "val_missing_duration_default": "{prefix}: 缺少 duration_seconds，将使用默认值 {default}",
     "val_duration_invalid": "{prefix}: duration_seconds 值无效 '{value}'，必须为正整数",
@@ -94,19 +95,19 @@ MESSAGES = {
         "{prefix}: 估算说话时长 {spoken:.1f} 秒超过分镜时长 {duration} 秒逾 {tolerance:.0%}"
         "（容差上界 {budget:.1f} 秒），长对白可能说不完或语速畸快（仅提示，不阻塞保存）"
     ),
-    # ---- ad 分镜 ----
+    # ---- ad storyboards ----
     "val_shot_duration_missing_zero": "{prefix}: 缺少 duration_seconds，将按 0 计入总时长",
     "val_shot_duration_out_of_range": (
         "{prefix}: duration_seconds 值无效 '{value}'，reference_video 路径必须是 {low}～{high} 之间的整数"
     ),
     "val_shot_missing_voiceover_text": "{prefix}: 缺少必填字段 voiceover_text（口播文案，可为空字符串）",
-    # ---- 参考生视频单元 ----
+    # ---- Reference-to-video units ----
     "val_unit_id_missing": "{prefix}: 缺少 unit_id",
     "val_unit_id_missing_required": "{prefix}: 缺少必填字段 unit_id",
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}～{high} 之间的整数",
-    # ---- 骨架与生成模式失配 ----
+    # ---- Skeleton/generation-mode mismatches ----
     "val_skeleton_noun_segments": "分镜",
     "val_skeleton_noun_scenes": "分镜",
     "val_skeleton_noun_shots": "分镜",
@@ -133,10 +134,10 @@ MESSAGES = {
         "当前脚本没有任何骨架数组。"
         "请重跑分集拆分（script_plan）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
-    # ---- 参考生视频时长收编迁移 ----
+    # ---- Reference-to-video duration-adoption migration ----
     "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}～{high}s 合理区间，已裁剪为 {clamped}s",
     "val_unit_duration_slotted": ("unit {unit_id} 时长 {duration}s 不是模型档位（{durations}）成员，已取档为 {slot}s"),
-    # ---- 归档修复与导入导出诊断 ----
+    # ---- Archive repair/import/export diagnostics ----
     "arch_source_encoding_unconverted": "源文件编码无法识别，未转换为 UTF-8：source/{name}（分集规划无法读取该文件）",
     "arch_provider_asset_links_not_restored": "项目已导入，但 {count} 条供应商素材关联没能保存，生成时这些图片照常发送图片内容；需要时重新上传或从素材库选择",
     "arch_non_standard_entry_excluded": "非标准顶层目录/文件 '{entry}' 未包含在导出中",
@@ -162,7 +163,7 @@ MESSAGES = {
     "arch_canonical_path_normalized": "{location}: 规范化为 {path}",
     "arch_current_asset_materialized": "{location}: 从 {source} 恢复当前文件 {target}",
     "arch_current_asset_restored_from_version": "{location}: 从 {source} 恢复当前文件 {target}",
-    # ---- 归档导入异常 ----
+    # ---- Archive import exceptions ----
     "arch_invalid_conflict_policy": "无效的冲突策略",
     "arch_conflict_policy_unsupported": "conflict_policy 仅支持 prompt、rename 或 overwrite，收到：{value}",
     "arch_import_validation_failed": "导入包校验失败",
@@ -182,7 +183,7 @@ MESSAGES = {
     "arch_extract_path_traversal": "解压路径越界：{path}",
     "arch_conflict_detected": "检测到项目编号冲突",
     "arch_project_name_conflict": "项目编号 '{name}' 已存在，请选择覆盖现有项目或自动重命名导入。",
-    # ---- 自定义调用端点 · 定义校验 ----
+    # ---- Custom call endpoints · Definition validation ----
     "val_ce_missing_field": "缺少必填字段：{field}",
     "val_ce_unknown_field": "不认识的字段：{field}",
     "val_ce_removed_field": "字段已移除：{field}——{reason}",
@@ -259,7 +260,7 @@ MESSAGES = {
     "val_ce_template_text_variable_null": "变量 {name} 为空，不能嵌入混合文本",
     "val_ce_each_value_not_list": "$each.in 指向的 {name} 在运行时不是列表",
     "val_ce_each_key_duplicate": "对象式 $each 铺出的键 {field} 与同一对象里的其他键重名，请求无法承载全部素材",
-    # ---- ComfyUI 端点 · 节点绑定与导入分流 ----
+    # ---- ComfyUI endpoints · Node binding and import dispatch ----
     "val_ce_comfyui_binding_required": "语义键 {binding_key} 必须绑定到节点后才能保存：提示词决定画什么，产物决定取哪个文件",
     "val_ce_comfyui_binding_key_not_allowed": "{media_type} 端点没有 {binding_key} 这一项语义，可用的语义键：{allowed}",
     "val_ce_comfyui_node_not_found": "workflow 里没有节点 {node}：workflow 改过之后节点 id 会变，请重新导入并确认节点绑定",
@@ -280,7 +281,7 @@ MESSAGES = {
         "帧率有多个互相矛盾的来源（{values}）：时长换算成帧数只能按一个帧率，请只保留一处帧率来源"
     ),
     "val_ce_comfyui_ui_format_workflow": "这是 ComfyUI 的 UI 格式 workflow，提交不了：请在 ComfyUI 里改用「Export (API)」导出",
-    # ---- ComfyUI 端点 · 节点绑定推断的信号说明与提示 ----
+    # ---- ComfyUI endpoints · Node-binding inference signal explanations/hints ----
     "val_ce_infer_manual_binding": "已保存的节点绑定，沿用用户确认过的落点",
     "val_ce_infer_title_marker": "节点标题带 ARCREEL: 标记，按标记认定",
     "val_ce_infer_external_node_family": "{family} 的参数化节点，声明的参数名是 {parameter}",
@@ -314,7 +315,7 @@ MESSAGES = {
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"
     ),
-    # ---- 市场源校验 ----
+    # ---- Market source validation ----
     "val_market_index_unreadable": "无法读取索引文件：{detail}",
     "val_market_unsupported_schema_version": "索引格式版本 {version} 高于本工具支持的 {supported}",
     "val_market_missing_field": "缺少必填字段：{field}",

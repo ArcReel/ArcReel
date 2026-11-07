@@ -1,21 +1,23 @@
-"""图片的生效能力：模型条目与调用通道都满足的部分（docs/adr/0104）。
+"""Effective image capabilities: intersection of model entries and call channels (docs/adr/0104).
 
-文生图与图生图在两侧各是一个维度：模型条目说模型接不接受（模型事实），调用通道说这条通道实现了没有
-（通道事实，内置调用通道见 ``CHANNEL_CAPABILITIES``，自定义供应商见端点声明）。任务类型桶的候选与执行时
-的校验都取这里的结果。
+Text/image-to-image are separate dimensions on both sides: entries state model acceptance; channels
+state implemented paths (built-in ``CHANNEL_CAPABILITIES``, custom endpoint declarations). Bucket
+candidates and execution validation both use these results.
 
-模型事实按供应商模型对应的条目取：内置供应商取清单所引的条目，自定义供应商按模型名现查（docs/adr/0105）。
-对应不上条目时模型事实不加约束，生效能力就是通道事实，超出模型能力的请求由上游拒绝。自定义供应商的模型
-可以用能力覆盖整维替换文生图或图生图（见 :mod:`lib.custom_provider.model_facts`），替换的是模型事实这一侧，
-通道没实现的能力覆盖也打不开（写入侧拒绝）。
+Model facts use provider-model entries: catalog-referenced built-ins, live name lookup for custom providers
+(docs/adr/0105). Unmatched entries impose no model constraints, leaving channel facts effective and
+upstream rejecting model-limit violations. Custom capability overrides replace model-side text/image
+whole dimensions (see :mod:`lib.custom_provider.model_facts`), never enabling unsupported channel paths;
+write validation refuses those.
 
-ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082）：模型行的名字由用户随手填，与 workflow 能做什么无关，
-不按名字对应条目，也不接受能力覆盖，生效能力就是端点声明。
+ComfyUI capabilities derive only from node bindings (docs/adr/0082): user-chosen model names do not
+identify workflow capabilities. No entry lookup or overrides; endpoint declarations are effective.
 
-参考图上限同样两侧求值（:func:`image_reference_limit`）：条目记录的上限与调用通道的上限取较小值；图生图不在
-生效能力里时为不支持；两侧都没有声明时为未收录，不裁剪、超出由上游拒绝。能力覆盖在两侧求值后整维替换上限，0 表示不接受参考图；
-图生图的路径仍须调用通道实现。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个结果。
-ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目。
+Reference limits also evaluate both sides (:func:`image_reference_limit`), taking minimum entry/channel
+limits. Without effective image-to-image, inputs are unsupported. Neither declared means unlisted:
+no clipping, upstream rejects excess. Overrides replace the entire evaluated limit, zero refusing images,
+while channels must still implement image-to-image. Candidates, validation, clipping, and settings share
+this result. ComfyUI limits use only bound reference-slot counts, ignoring entries.
 """
 
 from __future__ import annotations
@@ -46,17 +48,17 @@ def _builtin_image_spec(provider_id: str, model_id: str, endpoint: str | None) -
 def builtin_channel_capabilities(
     provider_id: str, model_id: str, *, endpoint: str | None = None
 ) -> frozenset[ImageCapability]:
-    """内置供应商模型挂接的图片调用端点实现了文生图还是图生图（通道事实）；供应商没有图片调用通道时抛 ``ValueError``。
+    """Text/image-to-image implemented by built-in model endpoints (channel facts), or ``ValueError`` without image channels.
 
-    ``endpoint`` 给出时按它求值，供保存前核对换端点后的能力覆盖。
+    With ``endpoint``, evaluate it for pre-save checks of overrides after endpoint changes.
     """
     return channel_capabilities(_builtin_image_spec(provider_id, model_id, endpoint).registry_backend)
 
 
 def builtin_channel_reference_limit(provider_id: str, model_id: str) -> int | None:
-    """内置供应商模型挂接的图片调用端点静态声明的参考图上限（通道事实），``None`` 为通道不限张数。
+    """Static built-in model endpoint reference limit (channel facts), ``None`` for channel-unbounded counts.
 
-    供应商没有图片调用通道时抛 ``ValueError``。
+    Raise ``ValueError`` without image channels.
     """
     return channel_reference_limit(builtin_model_spec(provider_id, "image", model_id).registry_backend)
 
@@ -68,10 +70,11 @@ def image_model_capabilities(
     overrides: object | None = None,
     entry_binding: str | None = None,
 ) -> frozenset[ImageCapability] | None:
-    """模型事实一侧允许的文生图 / 图生图；两维都不加约束时为 ``None``。
+    """Model-side permitted text/image-to-image; ``None`` when neither dimension constrains.
 
-    ``builtin_provider`` 是内置供应商 id，按清单取条目；自定义供应商的模型传 ``None``，按模型名现查，
-    ``overrides`` 是它的能力覆盖（整维替换条目的值），``entry_binding`` 是它的条目绑定。不加约束的那一维按允许算。
+    ``builtin_provider`` identifies built-ins for catalog entries; custom models pass ``None`` for live
+    name lookup. ``overrides`` replaces whole entry dimensions; ``entry_binding`` binds entries.
+    Unconstrained dimensions count as allowed.
     """
     if builtin_provider is not None:
         model = catalog.get_model(builtin_provider, model_id, media_type="image")
@@ -91,7 +94,7 @@ def image_model_capabilities(
 def custom_image_model_capabilities(
     model_id: str, *, overrides: object | None, endpoint_kind: str, entry_binding: str | None = None
 ) -> frozenset[ImageCapability] | None:
-    """自定义供应商图片模型的模型事实一侧；ComfyUI 端点只看节点绑定，恒为 ``None``（不加约束）。"""
+    """Custom image-model facts; ComfyUI uses node bindings only and always returns unconstrained ``None``."""
     if endpoint_kind == COMFYUI_KIND:
         return None
     return image_model_capabilities(model_id, builtin_provider=None, overrides=overrides, entry_binding=entry_binding)
@@ -100,7 +103,7 @@ def custom_image_model_capabilities(
 def intersect_image_capabilities(
     channel: Iterable[ImageCapability], model: frozenset[ImageCapability] | None
 ) -> frozenset[ImageCapability]:
-    """调用通道实现了、且模型事实一侧允许的部分；``model`` 为 ``None`` 时就是通道事实。"""
+    """Channel-implemented and model-permitted capabilities; ``model`` ``None`` leaves channel facts unchanged."""
     implemented = frozenset(channel)
     return implemented if model is None else implemented & model
 
@@ -108,16 +111,16 @@ def intersect_image_capabilities(
 def effective_image_capabilities(
     channel: Iterable[ImageCapability], *, model_id: str, builtin_provider: str | None
 ) -> frozenset[ImageCapability]:
-    """调用通道实现了、且模型条目接受的文生图 / 图生图。参数含义同 :func:`image_model_capabilities`。"""
+    """Channel-implemented text/image-to-image accepted by model entries; parameters match :func:`image_model_capabilities`."""
     return intersect_image_capabilities(channel, image_model_capabilities(model_id, builtin_provider=builtin_provider))
 
 
 def entry_reference_limit(
     model_id: str, *, builtin_provider: str | None, endpoint_kind: str = "python", entry_binding: str | None = None
 ) -> int | None:
-    """条目记录的参考图上限（模型事实一侧）；未收录、对应不上条目或 ComfyUI 端点为 ``None``。
+    """Model-side entry reference limit; ``None`` for unlisted/unmatched entries or ComfyUI endpoints.
 
-    参数含义同 :func:`image_model_capabilities`；``endpoint_kind`` 只对自定义供应商的模型有意义。
+    Parameters match :func:`image_model_capabilities`; ``endpoint_kind`` applies only to custom models.
     """
     if builtin_provider is not None:
         model = catalog.get_model(builtin_provider, model_id, media_type="image")
@@ -128,7 +131,7 @@ def entry_reference_limit(
 
 
 def image_reference_override(overrides: object | None, *, endpoint_kind: str = "python") -> int | None:
-    """图片参考图上限的合法覆盖；ComfyUI 只读节点绑定，不接受覆盖。"""
+    """Valid image-reference limit overrides; ComfyUI reads node bindings only, refusing overrides."""
     if endpoint_kind == COMFYUI_KIND:
         return None
     value = model_fact_overrides(overrides, "image").get("max_reference_images")
@@ -142,9 +145,10 @@ def image_reference_limit(
     channel_limit: int | None,
     override: int | None = None,
 ) -> InputLimit[int]:
-    """参考图上限的生效值。``capabilities`` 是生效的文生图 / 图生图（:func:`intersect_image_capabilities` 的结果）。
+    """Effective reference limit. ``capabilities`` is effective text/image-to-image from :func:`intersect_image_capabilities`.
 
-    图生图不在生效能力里时为不支持；否则先取条目值与通道值中较小的那个，再由 ``override`` 整维替换；两侧都为 ``None`` 且没有覆盖时为未收录。
+    Unsupported without image-to-image; otherwise minimum entry/channel value, then whole-dimension
+    ``override`` replacement. Both sides ``None`` without overrides means unlisted.
     """
     return effective_input_limit(
         path_supported=ImageCapability.IMAGE_TO_IMAGE in frozenset(capabilities),
@@ -154,10 +158,11 @@ def image_reference_limit(
 
 
 async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: str) -> InputLimit[int]:
-    """一个已构造的图片后端的参考图上限生效值，供编排层裁剪与执行时的校验共用。
+    """Effective constructed-backend reference limit, shared by orchestration clipping and execution checks.
 
-    通道值取后端的 ``reference_image_limit()``（可能要向供应商查询，如 OpenRouter）。自定义供应商的包装后端带着
-    工厂按模型行注入的生效能力与条目上限；其余后端按 ``provider_id`` 取条目。
+    Read channel ``reference_image_limit()``, which may query providers such as OpenRouter. Custom
+    wrappers carry factory-injected effective capabilities and entry limits from model rows; other
+    backends resolve entries through ``provider_id``.
     """
     from lib.custom_provider.backends import CustomImageBackend
 
@@ -183,16 +188,17 @@ async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: s
 
 
 async def gate_image_request(backend: ImageBackend, *, provider_id: str, reference_count: int) -> None:
-    """提交前的图片能力校验，生产出图与测试连接共用；不满足时抛 :class:`ImageCapabilityError`。
+    """Pre-submission capability checks shared by production/connection tests; raise :class:`ImageCapabilityError` on failure.
 
-    ``reference_count`` 是本次请求实际带的参考图张数：为 0 时要求文生图，否则要求图生图，且参考图上限
-    （:func:`backend_reference_image_limit`）接受输入、张数不超出正数上限。超限说明调用方没有按编排层同一个
-    生效值裁剪，在提交前拒绝，后端不截断。
+    ``reference_count`` is actual input count: zero requires text-to-image, otherwise image-to-image plus
+    accepting :func:`backend_reference_image_limit` and counts within positive bounds. Overflow means
+    callers failed to clip using orchestration's same effective value; reject before submitting,
+    never truncate inside backends.
     """
     from lib.custom_provider.backends import CustomImageBackend
 
     if isinstance(backend, CustomImageBackend):
-        # 自定义供应商：工厂已按模型行注入模型事实一侧（条目 ⊕ 能力覆盖，ComfyUI 端点不加约束）。
+        # Custom factories already injected model-side facts: entries plus overrides, with unconstrained ComfyUI endpoints.
         available = backend.effective_capabilities
     else:
         available = effective_image_capabilities(

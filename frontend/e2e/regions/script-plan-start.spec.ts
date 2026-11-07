@@ -4,7 +4,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页「脚本规划」tab：没有脚本的集的起步态（起步区、本集原文与导览）、重新规划对话框与内容确认页。
+// Episode Script planning tabs: initial no-script states with startup/sources/navigation, replanning dialogs/content confirmation.
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SOURCE_PATH = "GET /api/v1/projects/demo/source/episode_1.txt";
 const TASKS_PATH = "GET /api/v1/tasks?page_size=200&project_name=demo";
@@ -26,7 +26,7 @@ interface RecordedPlan {
 const project = recorded<RecordedProject>("project-demo.json");
 const plan = recorded<RecordedPlan>("project-demo-workflow-plan.json");
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+// Project events are unrecorded SSE; reject with nonretryable statuses, retaining recorded project data.
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -50,7 +50,7 @@ const SOURCE_TEXT = Array.from(
     `第 ${i + 1} 段。夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响。沈砚停在拐角，听见护城河那边传来一声闷响，像是什么沉甸甸的东西落了水。他没有回头，只把灯往袖子里收了收，沿着墙根慢慢往河边走去。`,
 ).join("\n\n");
 
-/** 没有脚本规划也没有正式脚本的集：页面进入「脚本规划」tab 的起步态。 */
+/** Episodes lacking script plans/formal scripts enter initial Script planning tab states. */
 function scriptlessProject(episode: Record<string, unknown>): ApiOverrides[string] {
   const { script_file: _scriptFile, script_status: _scriptStatus, ...recordedEpisode } = project.project.episodes[0];
   return {
@@ -66,7 +66,7 @@ function scriptlessProject(episode: Record<string, unknown>): ApiOverrides[strin
   };
 }
 
-// 制作状态：本集已有集原文、还没有规划与正式脚本，下一步是规划脚本。
+// Production states: episode sources exist without plans/formal scripts; next steps are script planning.
 const PLANNING_NEXT = { type: "prepare_script_plan", args: { episode_id: 1 }, requested_ids: [], requires_confirmation: false, reason: "next" };
 const SCRIPTLESS_PLAN: ApiOverrides[string] = {
   status: 200,
@@ -88,7 +88,7 @@ const SCRIPTLESS_PLAN: ApiOverrides[string] = {
   },
 };
 
-// 切自整本源文的集：长原文、十条节拍与长尾钩子。
+// Episodes cut from whole sources: long source text, ten beats and long end hooks.
 const CUT_EPISODE: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo": scriptlessProject({
@@ -102,7 +102,7 @@ const CUT_EPISODE: ApiOverrides = {
   [SOURCE_PATH]: { status: 200, body: SOURCE_TEXT },
 };
 
-// 自带原文的集：原文就地编辑。原文取三段，编辑区连同提示条能整块截进视口。
+// Episodes owning sources: edit sources in place. Three paragraphs let editor/notice bars fit fully in viewport screenshots.
 const OWN_TEXT = SOURCE_TEXT.split("\n\n").slice(0, 3).join("\n\n");
 const OWN_EPISODE: ApiOverrides = {
   ...CUT_EPISODE,
@@ -110,7 +110,7 @@ const OWN_EPISODE: ApiOverrides = {
   [SOURCE_PATH]: { status: 200, body: OWN_TEXT },
 };
 
-// 本集的脚本规划任务正在跑：起步区换成状态说明。
+// Episode script-planning tasks run; replace initial regions with status explanations.
 const PLANNING_RUNNING: ApiOverrides = {
   ...CUT_EPISODE,
   [TASKS_PATH]: {
@@ -158,8 +158,8 @@ const NO_PLAN = {
   script_overwrite: null,
 };
 
-// 录制的集已有正式脚本、还没有规划：「AI 规划脚本」打开的是重新规划对话框。录制的制作状态里集原文缺失，
-// 这里补成规划准入成立。
+// Recorded episodes have formal scripts without plans; AI plan script opens replanning dialogs. Recorded states lack episode sources,
+// supplied here to satisfy planning admission.
 const SCRIPTED_NO_PLAN: ApiOverrides = {
   ...BASE,
   "POST /api/v1/projects/demo/workflow-plan": {
@@ -179,7 +179,7 @@ const SCRIPTED_NO_PLAN: ApiOverrides = {
   },
 };
 
-// 内容确认页压力：二十四条长原文分镜，视频模型给出 4/6/8 秒三档。
+// Content-confirmation stress: 24 long-source storyboards, with 4/6/8-second model tiers.
 const REVIEW_STRESS: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo/video-capabilities": {
@@ -220,7 +220,7 @@ const REVIEW_STRESS: ApiOverrides = {
   },
 };
 
-// 起步态在视图宽 860px 以上把导览放到右侧栏。
+// Initial views wider than 860px place guidance in right sidebars.
 const GUIDE_RAIL_MIN_WIDTH = 860;
 
 const viewTabs = (page: Page) => page.getByRole("tablist", { name: "集视图" });
@@ -235,9 +235,9 @@ const progressPopover = (page: Page) => page.getByRole("dialog", { name: "制作
 
 
 
-/** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
+/** Wait for entry animations before measurements/axe; do not wait for ongoing spinners or other loops. */
 
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再操作右侧的入口。 */
+/** Compact Agent panels cover canvas right sides; collapse before operating right-side entries. */
 
 async function starterReady(page: Page) {
   await starterTitle(page).waitFor();
@@ -249,7 +249,7 @@ async function cutSourceReady(page: Page) {
   await sourceRegion(page).getByText("第 18 段。", { exact: false }).waitFor();
 }
 
-/** 起步态的视图宽：导览放右栏还是原文上方由它决定。 */
+/** Initial-view widths determine whether guidance sits right or above sources. */
 async function railLayout(page: Page) {
   return (await box(planPanel(page))).width >= GUIDE_RAIL_MIN_WIDTH;
 }
@@ -261,14 +261,14 @@ defineRegionScenarios("脚本规划起步态", [
     api: CUT_EPISODE,
     ready: cutSourceReady,
     act: async (page) => {
-      // 紧凑档 Agent 面板盖住画布右侧，收起后才看得到完整的起步态
+      // Compact Agent panels cover canvas right sides; collapse to reveal entire initial states.
       await clearAgentOverlay(page);
       await expect(viewTabs(page).getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
       await expect(viewTabs(page).getByRole("tab", { name: "原文" })).toHaveCount(0);
       const source = sourceRegion(page);
       await expect(source.getByRole("textbox")).toHaveCount(0);
       await expect(source.getByRole("link", { name: "去分集" })).toBeVisible();
-      // 起步区在原文之上
+      // Initial regions sit above sources.
       expect((await box(starterTitle(page))).y).toBeLessThan((await box(source)).y);
       if (await railLayout(page)) {
         await expect(guideRail(page)).toBeVisible();

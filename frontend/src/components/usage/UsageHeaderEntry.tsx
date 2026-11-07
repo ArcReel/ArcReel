@@ -10,12 +10,12 @@ import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import { UsagePopover } from "./UsagePopover";
 
-/** 无使用记录时也占住同样的宽度：第一笔参考费用出现时顶栏不能抖动。 */
+/** Reserve the same width even without usage records so the first reference cost cannot shift the header. */
 const FALLBACK_CURRENCY = "USD";
 
 /**
- * 顶栏用量入口。按钮上是本项目全部时间的参考费用（多币种全列，主币种正常字号），
- * 有任务运行或排队时图标呼吸并挂计数角标。点开是同一份数据的悬浮层。
+ * Header usage entry. The button shows all-time project reference costs, listing every currency with the primary one at normal font size;
+ * while tasks run or queue, pulse the icon and show a count badge. Open an overlay of the same data on click.
  */
 export function UsageHeaderEntry({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
@@ -28,7 +28,7 @@ export function UsageHeaderEntry({ projectName }: { projectName: string }) {
   const queued = useTasksStore((s) => s.stats.queued);
   const activeCount = running + queued;
 
-  // 打开即取一轮：面板平时靠事件刷新，打开这一刻拿到的应当是最新的。
+  // Fetch once on opening: events normally refresh the panel, but it must show current data at opening time.
   useEffect(() => {
     if (open) void refresh();
   }, [open, refresh]);

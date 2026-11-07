@@ -1,4 +1,4 @@
-"""随包字幕字体的缺字预检：按字体 cmap 找出画不出的字符。"""
+"""Bundled subtitle-font glyph preflight identifies unsupported characters through cmap."""
 
 from __future__ import annotations
 

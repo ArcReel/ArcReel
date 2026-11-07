@@ -2,27 +2,27 @@
 status: accepted
 ---
 
-# 保留核心库与服务端两个根，目录按领域术语表分包
+# Keep separate core-library and server roots; organize packages by the domain glossary
 
-后端代码分两个根：`lib/`（核心库）与 `server/`（服务端）。核心库顶层有 131 个 Python 文件，其中根 `__init__.py` 之外平铺着 130 个散模块；文件名前缀早已是事实上的子领域，应用服务层 `server/services/` 也有 30 个平铺模块，目录与领域术语表（`GLOSSARY.md`）不同构，读完术语表仍不知道去哪里找代码。
+Backend code has two roots: `lib/` (core library) and `server/` (server). The core-library top level has 131 Python files, with 130 loose modules alongside root `__init__.py`; filename prefixes already form de facto subdomains. The application-service layer `server/services/` likewise has 30 flat modules. Directories do not match the domain glossary (`GLOSSARY.md`), so reading it still does not reveal where to find code.
 
-我们决定**保留 `lib` 与 `server` 两个根且名字不变，服务端的外部启动入口不变；两个根之下按术语表分包**：核心库顶层只留包、不留散文件，一个模块归哪个包看它实现的是术语表哪一节的术语，文件名前缀只作初筛；包内再次出现前缀聚类就再拆（「脚本与分镜」一节因此是 `script` / `episode` / `prompts` 三个包），不设文件数上限，也不建 `common` / `utils` 一类的包，纯技术工具集中在命名明确的 `infra`。应用服务层按既有聚类建子包；其中不依赖服务端、也没有隐式耦合（模块级全局状态、会话生命周期、交付层契约）的纯领域模块移入核心库对应的包。分界的判据是「模块是什么」而不是「谁在用它」：只被服务端使用的领域模块仍属核心库。
+**Retain both `lib` and `server` roots and names, preserving external server startup entry points; package each root according to the glossary**. Keep only packages, no loose files, at the core-library top level. Choose a module's package by the glossary section whose terms it implements; filename prefixes are only an initial filter. Split again when prefix clusters emerge inside packages (hence the "Scripts and storyboards" section becomes `script` / `episode` / `prompts` packages). Impose no file-count limit and create no `common` / `utils` packages; place purely technical utilities in explicitly named `infra`. Create application-service subpackages from existing clusters; move pure domain modules that neither depend on the server nor have implicit coupling (module-level global state, session lifecycle, delivery-layer contracts) into corresponding core-library packages. The boundary criterion is "what is the module," not "who uses it": domain modules used only by the server still belong to the core library.
 
-每个模块的新归属写在一份映射表里，它是这次归组的唯一真相源：搬迁脚本照表执行，预演脚本用它与现有导入图算出新包边界下的包间环、既有 import-linter 契约改写后的判定与镜像测试的去向。搬迁不留任何旧路径兼容层（不做 re-export），文件名默认不变、只换目录。映射表与两个脚本是临时进入主干的，搬迁完成后已删除；它们的最终版本留在提交 `e00e28b8` 的 `scripts/regroup/` 下。
+Record each module's new home in one mapping table, the sole source of truth for this regrouping. The relocation script follows it; the dry-run script combines it with the current import graph to calculate inter-package cycles under new boundaries, results of rewritten import-linter contracts, and destinations for mirrored tests. Leave no old-path compatibility layer (no re-exports); filenames remain unchanged by default, with only directories changing. The mapping and both scripts entered main temporarily and were deleted after relocation; their final versions remain under `scripts/regroup/` at commit `e00e28b8`.
 
-**明确不采用**：
+**Explicitly rejected**:
 
-- **按领域垂直切片**（每个领域一个目录，内含它的路由、Agent 工具、服务与核心逻辑）。同一个领域核心同时被 HTTP 路由、Agent 工具、远端 MCP 与生成 Worker 四类入口共用；切片会把 Agent 工具运行时（统一的工具注册、权限与会话上下文）打散到各领域目录，并让每个领域目录都依赖交付层，核心库「不知道 HTTP、Agent SDK、SSE 的存在」这条分界也就无从检验。
-- **合并为单一根包**（例如 `arcreel/`，下挂 `core` 与 `server`）。收益只是名字更规范；代价是服务端的外部启动入口（容器镜像、本地开发命令与外部启动器都按 `server.app:app` 启动）全部要跟着改，而且合并本身不让目录更贴近术语表。
-- **只给核心库改名**。`lib` 这个名字确实什么也没说，但换一个名字同样说不出它由哪些领域构成——表达领域的是它下面的包，不是根的名字；改名的代价与合并为单一根包相同。
+- **Vertical domain slices** (one directory per domain containing its routes, Agent tools, services, and core logic). HTTP routes, Agent tools, remote MCP, and generation Workers share the same domain core. Slicing would scatter Agent-tool runtime (unified registration, permissions, session context) among domain directories and make every domain depend on the delivery layer, preventing checks of the boundary "the core library knows nothing of HTTP, Agent SDK, or SSE."
+- **Merging into one root package** (such as `arcreel/` with `core` and `server`). The benefit is only a more conventional name; the cost is changing all external server startup entry points (container images, local-development commands, external launchers all start through `server.app:app`), while merging alone does not bring directories closer to the glossary.
+- **Renaming only the core library**. `lib` indeed conveys little, but another root name also cannot express its constituent domains; its child packages do that. Renaming costs the same as merging into one root package.
 
-## 包间环如实登记，不靠改名或拆文件消除
+## Record inter-package cycles honestly; do not eliminate them through renaming or file splitting
 
-新包边界下，核心库顶层有 14 个包处于同一个强连通分量里。成因有二：当前代码里已经有一个 77 个模块的模块级环（项目管理器、产物清单一族、配置解析、自定义供应商与部分仓储互相可达），它横跨十个以上领域，任何按术语节的归属都拆不开；`project` 包同时持有被各领域引用的底层词汇（资产类型、资源路径、项目 schema 版本）与引用各领域的顶层编排者（项目管理器）。处置顺序是先调整归属、其次记为存量豁免；拆文件属于行为重构，不在归组范围。三处归属因此偏离了文件名前缀的直觉：任务类型桶归 `backends` 而不是 `config`（放进 `config` 会让分层契约的最底层直接依赖上层），参考图快照归 `artifacts`、图N 编号归 `prompts`（放进 `references` 会让参考图包传递依赖参考生视频子包，破坏路线中立约束）。其余包间环当时逐条登记在映射表的 `[accepted_edges]`，每条写明为什么不能靠调整归属消除。
+Under the new boundaries, 14 top-level core-library packages belong to one strongly connected component. There are two causes: existing code already has a 77-module cycle (the project manager, artifact-inventory family, configuration resolution, custom providers, and some repositories are mutually reachable), spanning more than ten domains and unsplittable through glossary-section assignments; and `project` holds both low-level vocabulary referenced across domains (asset types, resource paths, project-schema versions) and high-level orchestrators referencing those domains (the project manager). First adjust assignments, then record existing exemptions; file splitting is behavioral refactoring outside regrouping scope. Three assignments therefore depart from filename-prefix intuition: task-type buckets belong to `backends`, not `config` (placing them in `config` would make the lowest layer of the layering contract directly depend on higher layers); reference-image snapshots belong to `artifacts`, and image-N numbering to `prompts` (placing them in `references` would transitively make the reference-image package depend on the reference-to-video subpackage, breaking route neutrality). Other inter-package cycles were individually recorded in the mapping's `[accepted_edges]`, each explaining why assignment adjustments could not eliminate it.
 
 ## Consequences
 
-- 读完术语表就能按章节找到包；新增模块时按「它实现哪一节的术语」落位，归属有争议时以当时映射表 `[rulings]` 里的裁定为先例。
-- 核心库的包之间不是分层的：包间环是存量，是否为包间方向立契约、何时立，按某个方向实际出问题时再针对性补，不为每个新包预先立契约。
-- 主干只发生这一次大规模路径变更。搬迁前切出的分支同步主线后，可以从上述提交取回搬迁脚本（`git checkout e00e28b8 -- scripts/regroup`），运行 `migrate.py` 改写自己新增的代码，再用 `migrate.py --check` 自检，用完不提交。
-- 文件名保留原样，部分路径因此带有与包名重复的前缀（如 `lib/artifacts/artifact_manifest.py`）。去掉前缀会让全仓的打桩路径与检索词再变一次，收益只是少几个字符，本次不做。
+- Reading glossary sections reveals packages; assign new modules by "which section's terms does it implement?" Resolve disputed ownership using the mapping's historical `[rulings]` as precedents.
+- Core-library packages are not layered: inter-package cycles are existing state. Add directional contracts for package relationships when a direction actually causes problems, rather than establishing them preemptively for every new package.
+- Main undergoes this large-scale path change only once. Branches created before relocation can retrieve the relocation scripts from the commit above (`git checkout e00e28b8 -- scripts/regroup`) after syncing main, run `migrate.py` to rewrite their new code, and check with `migrate.py --check`; do not commit the scripts after use.
+- Filenames remain unchanged, leaving some paths with prefixes repeating package names (such as `lib/artifacts/artifact_manifest.py`). Removing prefixes would change repository-wide mocking paths and search terms again for only a few characters' benefit, so it is outside this change.

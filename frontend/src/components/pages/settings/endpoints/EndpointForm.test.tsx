@@ -68,7 +68,7 @@ describe("EndpointForm", () => {
       screen.getByLabelText("端点状态值"),
     ];
     for (const field of mono) expect(field).toHaveClass("font-mono");
-    // 标签里连带着说明文字，按开头匹配。
+    // Labels include explanations; match beginnings.
     for (const label of [/^默认接口地址/, /^版本/, /^名称/]) {
       expect(screen.getByLabelText(label).closest(".font-mono")).toBeNull();
     }
@@ -100,7 +100,7 @@ describe("EndpointForm", () => {
       const input = statusInputs()[1];
       input.focus();
 
-      // 整数形式的键在对象枚举里排到最前，这一行随之移到第一位
+      // Integer-like keys enumerate first, moving this row to the top.
       fireEvent.change(input, { target: { value: "2" } });
 
       expect(statusInputs()[0]).toBe(input);

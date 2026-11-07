@@ -1,3 +1,3 @@
 {% for entry in context_entries %}
-- 第 {{ entry.episode }} 集《{% if entry.title %}{{ entry.title }}{% else %}（无标题）{% endif %}》 钩子：{{ entry.hook }}
+- Episode {{ entry.episode }} “{% if entry.title %}{{ entry.title }}{% else %}(untitled){% endif %}” Hook: {{ entry.hook }}
 {% endfor %}

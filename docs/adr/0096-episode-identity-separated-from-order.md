@@ -2,20 +2,20 @@
 status: accepted
 ---
 
-# 集的身份与播出顺序分离：集号降为内部 ID
+# Separate episode identity and broadcast order: episode numbers become internal IDs
 
-集号曾同时是一集的身份（贯穿路径、条目 ID、媒体文件名、产物清单、任务与链接）、显示名与播出顺序；身份必须冻结，显示名和顺序也随之冻结，于是出现跳号、删集留空、不能在中间插入、其他来源的集夹在切出集之间。决定三者分开：现有整数集号降为内部集 ID，只分配、不复用，取项目历史最高号之后的下一个；分集账本的条目顺序即播出顺序；创作者以标题与一集在播出顺序中的位置认集，集 ID 不出现在创作者可见的文字里。
+Episode numbers formerly combined identity (paths, item IDs, media filenames, manifests, tasks, links), display name, and broadcast order. Freezing identity froze the others, causing gaps, holes after deletion, no middle insertion, and other-origin episodes between split episodes. Separate all three: retain integer numbers as internal episode IDs, allocated above the historical maximum without reuse; ledger entry order becomes broadcast order. Creators identify episodes by title and position, never internal IDs in visible text.
 
 ## Considered Options
 
-- **按需重新编号**：一次改写全部产物名，任何一步失败即断链，跳号与空号之后照样会再现。
-- **换成不透明 ID**：存量产物全量改名，得到的只是与沿用整数相同的稳定性。
-- **按集的来源分多条编号线**：集的来源会变（无原文的集可以补上原文），自带原文也不等于番外，多条编号线最终仍要合并出同一个播出顺序。
+- **Renumber on demand**: rewrites all artifact names, breaks links on any failed step, and gaps recur afterward.
+- **Opaque IDs**: requires renaming all existing artifacts for the same stability as existing integers.
+- **Separate numbering by source origin**: origins change (source-free episodes may gain source), own-source does not mean bonus content, and all lines still need one broadcast order.
 
 ## Consequences
 
-- 条目 ID 带集 ID 前缀（`E3S01`），它可能出现在播出位置为第 5 个的集里，所以创作者可见处只显示集内部分，脱离集页面时以集标题限定。
-- 切自整本源文的集之间恒按源文位置排列；自带原文与无原文的集可以放在任意位置，包括两个切出集之间；规划改动切出集时，它们按 `docs/adr/0032` 的规则落位。
-- 重新规划的候选集一律分配新集 ID，旧产物不按位置挂回新集；新旧确实是同一集的手工切分才保留集 ID（见 `docs/adr/0032`）。
-- 历史最高号须覆盖项目内一切仍带集 ID 的记录（账本、磁盘残留产物、任务与调用记录），否则复用的集 ID 会让新集认领旧集的产物与费用。
-- Agent 工具以集 ID 指称一集，对创作者则说标题与位置。
+- Item IDs carry episode prefixes (`E3S01`) even when their episode is fifth in broadcast order. Creator-visible text shows only the within-episode part, qualified by episode title outside its page.
+- Whole-source episodes remain in source order; own-source and source-free episodes may go anywhere, including between splits. Planning changes place them by `docs/adr/0032`.
+- Replanning candidates always receive new IDs, never attaching old artifacts by position. Only manual splits preserving the same episode retain identity (see `docs/adr/0032`).
+- Historical maxima include every remaining episode-ID record (ledger, disk remnants, tasks, calls), or reuse makes new episodes claim old artifacts/costs.
+- Agent tools address episodes by ID; creator explanations use titles/positions.

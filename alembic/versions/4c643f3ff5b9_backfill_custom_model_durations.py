@@ -1,8 +1,8 @@
 """backfill custom_model supported_durations
 
-按 model_id 启发式填充 video endpoint 模型的 NULL supported_durations。
-PRESETS 在迁移内 inline 复制（不 import lib.custom_provider.duration_presets），
-让历史迁移与未来代码改动解耦。
+Heuristically fill NULL supported_durations for video-endpoint models by model_id. Copy PRESETS
+inline without importing lib.custom_provider.duration_presets, decoupling historical migrations from
+future code changes.
 
 Revision ID: 4c643f3ff5b9
 Revises: 5b87accc10dd
@@ -27,7 +27,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-# --- inline 快照（与 lib/custom_provider/duration_presets.py 同步，但解耦演进）---
+# --- Inline snapshot matching lib/custom_provider/duration_presets.py, with independent evolution ---
 _DEFAULT_FALLBACK: list[int] = [4, 8]
 
 _PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
@@ -48,7 +48,7 @@ _PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"pika", re.I), [3, 5, 10]),
 ]
 
-# 视频类 endpoint key 集合（与 lib/custom_provider/endpoints.py ENDPOINT_REGISTRY 同步快照）
+# Video endpoint keys, snapshotted from lib/custom_provider/endpoints.py ENDPOINT_REGISTRY.
 _VIDEO_ENDPOINTS = ("openai-video", "newapi-video")
 
 
@@ -77,5 +77,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 不主动清除（回填后保留即可，避免破坏数据）
+    # Do not clear proactively; retain backfilled data to avoid damage.
     pass

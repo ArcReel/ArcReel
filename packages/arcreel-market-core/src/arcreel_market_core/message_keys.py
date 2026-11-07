@@ -1,7 +1,7 @@
-"""本包能产出的全部消息键。
+"""All message keys this package can produce.
 
-本包不携带翻译目录，诊断只带 ``key + params``；渲染成自然语言的一方（ArcReel 应用、官方服务的
-客户端）须为这里的每个键备好各语言文案。集合按码表与键表派生，新增码或键即自动进入。
+This package carries no translation catalog; diagnostics contain only ``key + params``. Natural-language renderers (the ArcReel app and official service
+clients) must supply copy for every key in each language. The set derives from code and key tables, automatically including new codes and keys.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from arcreel_market_core.market.issues import MarketIssueCode
 from arcreel_market_core.market.issues import message_key as market_message_key
 from arcreel_market_core.validation_messages import LITERAL_KEY
 
-#: 端点定义诊断用到的全部消息键：诊断码、「字段已移除」的去处说明与 jsonschema 约束细节。
+#: All message keys for endpoint diagnostics: diagnostic codes, destinations for removed fields, and jsonschema constraint details.
 DEFINITION_MESSAGE_KEYS: frozenset[str] = frozenset(
     {definition_message_key(code) for code in DefinitionErrorCode}
     | set(DECLARATIVE_REMOVED_FIELD_REASONS.values())
@@ -24,7 +24,7 @@ DEFINITION_MESSAGE_KEYS: frozenset[str] = frozenset(
     | set(SCHEMA_CONSTRAINT_KEYS)
 )
 
-#: 市场源诊断用到的全部消息键。
+#: All message keys used by market source diagnostics.
 MARKET_MESSAGE_KEYS: frozenset[str] = frozenset(
     {market_message_key(code) for code in MarketIssueCode}
     | {
@@ -36,5 +36,5 @@ MARKET_MESSAGE_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: 本包能产出的全部消息键，含透传成品文本的 ``LITERAL_KEY``。
+#: All message keys this package can produce, including ``LITERAL_KEY`` for passing finished text through.
 MESSAGE_KEYS: frozenset[str] = DEFINITION_MESSAGE_KEYS | MARKET_MESSAGE_KEYS | {LITERAL_KEY}

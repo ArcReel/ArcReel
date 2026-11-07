@@ -1,7 +1,6 @@
-"""本目录共用的选角项目：角色 Alice、Bob 与 Alice 的衍生，第 1 集分镜图、第 2 集参考生视频都已登记。
+"""Shared casting project: Alice, Bob and Alice's derivative; episode 1 storyboard images and episode 2 reference-video artifacts are registered.
 
-产物文件、输入依据与版本记录均落盘，现行和过期由真实产物清单判定。
-"""
+Persist artifact files, input bases and version records; real manifests determine current/stale state."""
 
 from __future__ import annotations
 

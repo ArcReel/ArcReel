@@ -1,4 +1,4 @@
-"""按需图片缩略图：宽度吸附、WebP 编码、原图回退与磁盘缓存。"""
+"""On-demand thumbnails: width snapping, WebP encoding, original fallback, disk caching."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def test_jpeg_source_is_resized(tmp_path: Path) -> None:
 
 
 def test_exif_rotation_is_applied_before_comparing_width(tmp_path: Path) -> None:
-    """EXIF 方向 6（顺时针 90°）：存储 1000x400，显示 400x1000。"""
+    """EXIF orientation 6, clockwise 90°: stored 1000x400, displayed 400x1000."""
     exif = Image.Exif()
     exif[_EXIF_ORIENTATION] = 6
     source = _write_image(tmp_path / "src" / "a.jpg", (1000, 400), fmt="JPEG", exif=exif.tobytes())
@@ -132,7 +132,7 @@ def test_cache_hit_reuses_file_without_decoding_source(tmp_path: Path) -> None:
     first = _thumb(source, tmp_path / "cache", 320)
     assert first is not None
     source_stat = source.stat()
-    # 源文件字节被换成不可解码的内容但 mtime / size 不变：命中缓存时不应再读源图
+    # Undecodable replacement bytes retain mtime/size; cache hits must not reread sources.
     source.write_bytes(b"x" * source_stat.st_size)
     os.utime(source, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
 
@@ -177,7 +177,7 @@ def _replace_source(source: Path, size: tuple[int, int], mtime_ns: int) -> None:
 
 
 def test_worker_holding_a_stale_source_stat_publishes_nothing(tmp_path: Path) -> None:
-    # 请求 A 拿到旧 stat 后源图被替换，请求 B 已发布新版本缩略图；A 随后才开始生成
+    # A reads old stat, source changes, B publishes a new thumbnail; A then starts generation.
     cache_dir = tmp_path / "cache"
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
     os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
@@ -193,7 +193,7 @@ def test_worker_holding_a_stale_source_stat_publishes_nothing(tmp_path: Path) ->
 
 
 def test_pruning_keeps_the_version_the_source_currently_has(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # 请求 A 发布旧版本后、清理前，源图被替换且请求 B 发布了新版本：A 的清理不得删掉 B 的文件
+    # After A publishes old output but before cleanup, B publishes replacement; A must not remove B’s file.
     cache_dir = tmp_path / "cache"
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
     os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
@@ -244,7 +244,7 @@ def test_cache_key_separates_source_paths(tmp_path: Path) -> None:
 def test_unwritable_cache_falls_back_to_original(tmp_path: Path) -> None:
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
     blocker = tmp_path / "cache"
-    blocker.write_bytes(b"")  # 缓存根是一个文件，目录建不出来
+    blocker.write_bytes(b"")  # Cache root is a file, preventing directory creation.
 
     assert _thumb(source, blocker, 320) is None
 

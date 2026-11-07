@@ -1,4 +1,4 @@
-"""续跑协议守卫：退役端点名映射到协议等价的后继，其余变化一律拒绝。"""
+"""Resume protocol guards map retired endpoints to equivalent successors, rejecting all other changes."""
 
 import pytest
 
@@ -16,7 +16,7 @@ _PATHS = {"poll": "/v2/tasks/{{ task_id }}"}
         ("kling-video", "kling-video-pro-audio"),
         (builtin_endpoint_guard("kling-video"), builtin_endpoint_guard("kling-video-audio")),
         (endpoint_guard("kling-video", _PATHS), endpoint_guard("kling-video-silent", _PATHS)),
-        # 升级前经 ark-seedance 提交，模型现在挂它的任一后继
+        # Previously submitted ark-seedance now uses any successor.
         ("ark-seedance", "ark-seedance-2"),
         ("ark-seedance", "ark-seedance-1"),
         ("dashscope-async-video", "dashscope-always-on-video"),
@@ -24,7 +24,7 @@ _PATHS = {"poll": "/v2/tasks/{{ task_id }}"}
         (builtin_endpoint_guard("agnes-video"), builtin_endpoint_guard("agnes-video-2-5")),
         (builtin_endpoint_guard("gemini-video"), builtin_endpoint_guard("gemini-vertex-video")),
         (endpoint_guard("ark-seedance", _PATHS), endpoint_guard("ark-seedance-2-5", _PATHS)),
-        # 升级前提交的内置任务没有守卫，当下仍是内置供应商
+        # Pre-upgrade built-in submissions lack guards but remain built-in providers.
         (None, builtin_endpoint_guard("ark-seedance-2")),
         (builtin_endpoint_guard("ark-seedance-2"), builtin_endpoint_guard("ark-seedance-2")),
         (builtin_endpoint_guard("kling-video-model-path"), builtin_endpoint_guard("kling-video-model-path")),
@@ -46,7 +46,7 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         ("grok-video", "kling-video-audio"),
         ("kling-video", "kling-video-pro-audio paths={}"),
         ("kling-video-audio", "kling-video-pro-audio"),
-        # 可灵旧版 API 与新版 API（模型名在路径里）之间换了协议，退役的 kling-video 也不以新版为后继
+        # Kling legacy/new model-in-path APIs differ; retired kling-video has no new-API successor.
         ("kling-video", "kling-video-model-path"),
         (builtin_endpoint_guard("kling-video-pro-audio"), builtin_endpoint_guard("kling-video-model-path")),
         (builtin_endpoint_guard("kling-video-model-path"), builtin_endpoint_guard("kling-video-audio")),
@@ -55,17 +55,17 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         (builtin_endpoint_guard("gemini-interactions-video"), builtin_endpoint_guard("gemini-video")),
         (builtin_endpoint_guard("gemini-vertex-video"), builtin_endpoint_guard("gemini-vertex-interactions-video")),
         (builtin_endpoint_guard("gemini-vertex-interactions-video"), builtin_endpoint_guard("gemini-vertex-video")),
-        # 换了协议
+        # Protocol changed.
         ("ark-seedance", "openai-video"),
-        # 后继之间互换仍是换了端点
+        # Switching successors still changes endpoints.
         ("ark-seedance-1", "ark-seedance-2"),
         ("dashscope-wan3-video", "dashscope-always-on-video"),
         (builtin_endpoint_guard("agnes-video-2"), builtin_endpoint_guard("agnes-video-2-5")),
-        # 内置供应商下用户添加的模型提交后换了端点
+        # User-added built-in-provider models switched endpoints after submission.
         (builtin_endpoint_guard("ark-seedance-2"), builtin_endpoint_guard("ark-seedance-1")),
-        # 路径覆盖变了
+        # Path overrides changed.
         (endpoint_guard("ark-seedance", _PATHS), "ark-seedance-2"),
-        # 内置与自定义之间切换，即使端点同名
+        # Built-in/custom switching rejects even equal endpoint names.
         ("ark-seedance", builtin_endpoint_guard("ark-seedance-2")),
         (builtin_endpoint_guard("ark-seedance-2"), "ark-seedance-2"),
         (None, "ark-seedance-2"),

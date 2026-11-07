@@ -1,20 +1,20 @@
 """Shared pytest fixtures for the ArcReel test suite.
 
-本文件只放 fixture、收集期钩子与会话启动期的定向选择校验，不被任何模块 import；
-替身实现放在 `tests/fakes.py`，测试输入构造器放在 `tests/factories.py`。
+Only fixtures, collection hooks, and startup selection validation live here; no modules import this file.
+Substitute implementations live in `tests/fakes.py`; input builders in `tests/factories.py`.
 
-DB fixture 一律派生自唯一的 engine 构造点 `make_test_engine`：
+All DB fixtures derive from the sole `make_test_engine` construction entry:
 
-- `session_factory` / `async_session` 方言感知，`DATABASE_URL` 指向 PostgreSQL 时走真实 PostgreSQL；
-  `concurrent_session_factory` 同样方言感知，并为 SQLite 提供允许独立连接的 WAL 文件库；
-  `file_session_factory` 恒为文件 SQLite，消费方是标了 `sqlite_only` 的边界用例。
-  四者由 `pytest_collection_modifyitems` 注入 `uses_db`，构成需要数据库的选择集；
-  PostgreSQL 兼容 job 取其中 `uses_db and not sqlite_only` 的部分。
-- `db_engine` / `db_session` / `db_factory`（内存）与 `file_db_factory`（文件）固定走 SQLite、
-  不带 `uses_db`，供不进该选择集的 models 与 repositories 单测使用。
-- 唯一的例外是 `async_session` 的 PostgreSQL 分支：它绑定 CI job 已 `alembic upgrade head` 建好的
-  public schema，隔离原语是外层事务 + SAVEPOINT，与 `make_test_engine` 的 per-test schema +
-  `create_all` 不同，故自建 engine。
+- `session_factory` / `async_session` are dialect-aware, using real PostgreSQL when `DATABASE_URL` selects it.
+  `concurrent_session_factory` is likewise dialect-aware, with independently connected WAL-file SQLite locally.
+  `file_session_factory` always uses file SQLite for `sqlite_only` boundary cases.
+  `pytest_collection_modifyitems` injects `uses_db` for all four, forming the database selection;
+  PostgreSQL compatibility jobs select `uses_db and not sqlite_only`.
+- `db_engine` / `db_session` / `db_factory` (memory) and `file_db_factory` (file) always use SQLite
+  without `uses_db`, for model/repository unit tests outside that selection.
+- The sole exception is PostgreSQL `async_session`, bound to public schemas already created by CI
+  `alembic upgrade head`. Outer transactions + SAVEPOINT differ from `make_test_engine` per-test schemas
+  and `create_all`, requiring a separate engine.
 """
 
 from __future__ import annotations
@@ -35,35 +35,35 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-# pytest 收集期解析命令行位置参数、并对缺失项抛 UsageError 的同一入口；
-# 下方 `pytest_sessionstart` 复用它，使会话启动期的校验与收集期同源。
+# The same pytest entry parses positional collection arguments and raises UsageError for missing selections;
+# reuse it in `pytest_sessionstart` so startup/collection validation shares one source.
 from _pytest.main import resolve_collection_argument
 from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.memory_db_guard import install_shared_connection_write_guard
 
-# `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
-# 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
-# `projects/arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
-# 的用例顺带建出——用例间因此存在隐式顺序依赖。钉到本进程独占的临时库上，schema 由
-# `shared_db_schema` 显式建立。DATABASE_URL 已由外部给定（postgres-compat job、
-# 逐个用例 monkeypatch 的 alembic 用例）时不介入。
+# `lib.db.engine` binds module-level engines to `DATABASE_URL` at import, without in-process reconstruction.
+# Override before any imports reaching that module. Otherwise repository-root
+# `projects/arcreel.db` is shared by xdist workers, with schema created incidentally by whichever test
+# runs first, creating implicit ordering dependencies. Bind process-exclusive temporary DBs instead,
+# with schema explicitly created by `shared_db_schema`. Preserve external DATABASE_URL values from postgres-compat
+# jobs or per-case Alembic monkeypatches.
 #
-# xdist 的 worker 从 controller 继承 environ，会连这里写下的 URL 一起带过去；
-# `_OWNED_DB_MARKER` 让 worker 认出「这是测试自己铸的、不是外部给的」，各自另铸一份，
-# 从而每个进程都独占一个库。
+# xdist workers inherit controller environments, including URLs written here;
+# `_OWNED_DB_MARKER` identifies test-created rather than externally supplied URLs, making workers create separate DBs
+# so every process owns one exclusively.
 _OWNED_DB_MARKER = "ARCREEL_TEST_OWNED_DB"
 _OWNED_TEST_DB_DIR: str | None = None
 _OWNED_TEST_DB_OWNER_PID = os.getpid()
 
 
 def _remove_owned_test_db_dir() -> None:
-    """只在铸造临时库的进程里回收它。
+    """Reclaim temporary DBs only in their creating process.
 
-    atexit 登记表随 fork 复制到子进程。mutmut 按 mutant fork 出的 pytest 会话若走了
-    正常退出路径而非 ``os._exit``，会带着父进程的登记表跑一遍；不设 pid 守卫时它会
-    删掉所有并行子进程共用的库，之后每个子进程的会话级 DB fixture 都报错。
+    fork copies atexit registrations into children. Mutmut per-mutant pytest children exiting normally
+    instead of ``os._exit`` would run parent callbacks; without PID guards they could delete DBs shared
+    by parallel children, causing all session-level DB fixtures to fail.
     """
     if _OWNED_TEST_DB_DIR is None or os.getpid() != _OWNED_TEST_DB_OWNER_PID:
         return
@@ -74,40 +74,40 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
     _OWNED_TEST_DB_DIR = tempfile.mkdtemp(prefix="arcreel-test-db-")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/arcreel.db"
     os.environ[_OWNED_DB_MARKER] = "1"
-    # 回收挂在 atexit 而非 fixture teardown 上：`--collect-only`（CI 的分类 marker 闸门）
-    # 与收集期中断都只 import conftest、不跑 fixture。
+    # Use atexit rather than fixture teardown: `--collect-only` marker gates and collection interruptions
+    # import conftest without executing fixtures.
     atexit.register(_remove_owned_test_db_dir)
 
-# 数据根与 Claude SDK 配置目录同理：默认值是仓库根下的 `projects/` 与用户的 `~/.claude`，
-# 布局迁移会在其上挪目录、改会话目录。收集期 import `server.app` 就会建出 Assistant 服务
-# 单例并按当时的数据根固定下来，所以须在任何 import 之前钉到本进程独占的临时目录；
-# 每个用例再由 `isolated_data_root` 换成各自的空数据根。
+# Data roots/Claude SDK directories likewise default to repository `projects/` and user `~/.claude`.
+# Layout migration moves directories/sessions there; collecting `server.app` creates Assistant singletons
+# bound to that root, so pin process-exclusive temporary directories before any imports.
+# `isolated_data_root` then supplies empty per-case roots.
 _OWNED_TEST_HOME_DIR = tempfile.mkdtemp(prefix="arcreel-test-home-")
 os.environ["ARCREEL_DATA_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "data")
 os.environ["CLAUDE_CONFIG_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "claude-config")
 os.environ.pop("AI_ANIME_PROJECTS", None)
 
-# 未设置 AUTH_TOKEN_SECRET 时，签名密钥由 lifespan 在启动期从数据根读出或生成，之后缓存在进程内。
-# 不经 lifespan 直接签发 token 的用例会在事件循环上首次读写密钥文件，缓存又跨用例共享，
-# 哪条用例撞上首次读写取决于执行顺序。钉一个固定值；验证密钥持久化的用例自行 delenv。
+# Without AUTH_TOKEN_SECRET, lifespan reads/generates signing keys under the data root and caches them process-wide.
+# Direct token issuance without lifespan would first read/write keys on event loops, with cross-test caches
+# making first access order-dependent. Pin a value; persistence tests delete their environment override themselves.
 if not os.environ.get("AUTH_TOKEN_SECRET"):
     os.environ["AUTH_TOKEN_SECRET"] = "arcreel-test-token-secret-0123456789abcdef"
 
-# `import lib` 时 `lib.infra.env_init` 读取 .env：项目根没有 .env 就向上回溯，`.worktrees/` 下的
-# worktree 会读到主检出的 .env，其中的 provider 密钥让走 lifespan 的用例被启动期密钥检查拦下。
-# 测试结果不应依赖 checkout 里外的 .env，故整个测试进程（含其子进程）不读 .env；
-# 验证读取规则的用例自行 delenv。
+# `import lib` loads .env through `lib.infra.env_init`; absent local .env searches upward, so `.worktrees/`
+# can inherit main-checkout provider keys that cause startup-key checks to block lifespan tests.
+# Results must not depend on checkout or ancestor .env, so disable reads for the entire test process and children;
+# tests of loading rules remove the override themselves.
 os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 
-# lifespan 的 `ensure_auth_password` 在 AUTH_PASSWORD 未设置时生成口令并回写项目根的 .env。
-# 钉一个固定值，未替换该步骤的 lifespan 用例不再改写仓库里的 .env；验证生成与回写的用例
-# 自行清掉 AUTH_PASSWORD 并传入 tmp 下的 env_path。
+# Lifespan `ensure_auth_password` generates/writes root .env when AUTH_PASSWORD is absent.
+# Pin it so lifespan cases retaining that step do not modify repository .env; generation/writeback cases
+# clear AUTH_PASSWORD and supply temporary env_path themselves.
 if not os.environ.get("AUTH_PASSWORD"):
     os.environ["AUTH_PASSWORD"] = "arcreel-test-password"
 
 
 def _remove_owned_test_home_dir() -> None:
-    """只在创建临时目录的进程里回收（pid 守卫的理由同 ``_remove_owned_test_db_dir``）。"""
+    """Reclaim temporary directories only in their creating process; PID rationale matches ``_remove_owned_test_db_dir``."""
     if os.getpid() == _OWNED_TEST_DB_OWNER_PID:
         shutil.rmtree(_OWNED_TEST_HOME_DIR, ignore_errors=True)
 
@@ -121,8 +121,8 @@ from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFa
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
-# 事件循环阻塞护栏：同步与异步用例全程启用，豁免清单外的阻塞调用让用例失败，见 tests/blocking_guard。
-# 挂起诊断：设了 ARCREEL_TEST_HANG_DUMP_DIR 时，进程长时间无进展就转储全部线程的调用栈，见 tests/hang_watchdog.py。
+# Enable event-loop blocking guards throughout sync/async tests; nonexempt blocking fails, see tests/blocking_guard.
+# With ARCREEL_TEST_HANG_DUMP_DIR, dump all thread stacks after stalled progress; see tests/hang_watchdog.py.
 pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog"]
 
 
@@ -130,7 +130,7 @@ pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog"]
 def set_admission_video_request_facts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Callable[[VideoRequestFacts | VideoRequestFactsFailure], None]:
-    """让批量准入消费测试显式提供的视频请求事实。"""
+    """Let batch admission consume explicitly supplied test video-request facts."""
     from server.services.admission import video_batch_admission
 
     def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
@@ -146,10 +146,10 @@ VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 def set_video_request_facts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Callable[[VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]], None]:
-    """让视频能力消费方读取测试构造的事实结果，求值测试仍使用真实解析器。
+    """Capability consumers read constructed facts; evaluation tests retain real resolvers.
 
-    传单个结果时所有桶同一份；传按任务类型桶（``"i2v"`` / ``"r2v"``）索引的映射时按桶作答，
-    供两桶配置不同的消费方用例。
+    A single result serves all buckets; mappings keyed ``"i2v"`` / ``"r2v"`` answer per task bucket
+    for consumers with differing bucket configurations.
     """
     from lib.script import script_generator
     from lib.script.reference_video import request_projection
@@ -174,7 +174,7 @@ def set_video_request_facts(
 
 @pytest.fixture
 def video_request_facts(set_video_request_facts) -> None:
-    """为无关时长分支的消费方用例提供确定的 i2v 档位。"""
+    """Supply deterministic i2v tiers for consumer cases unrelated to duration branches."""
     from tests.factories import make_video_request_facts
 
     set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
@@ -182,10 +182,10 @@ def video_request_facts(set_video_request_facts) -> None:
 
 @pytest.fixture
 def set_error_handler_sessions(monkeypatch: pytest.MonkeyPatch) -> Callable[[async_sessionmaker[AsyncSession]], None]:
-    """让 app 级错误处理器加载显示名目录时用测试给定的会话工厂。
+    """App error handlers load display-name catalogs through supplied session factories.
 
-    错误处理器拿不到依赖注入，自开会话（见 ``server.i18n.request_display_names``），
-    ``dependency_overrides[get_async_session]`` 管不到它。
+    They open sessions without dependency injection (``server.i18n.request_display_names``),
+    outside ``dependency_overrides[get_async_session]`` control.
     """
     from server import i18n
 
@@ -196,13 +196,13 @@ def set_error_handler_sessions(monkeypatch: pytest.MonkeyPatch) -> Callable[[asy
 
 
 def _discard_pooled_connections_in_forked_child() -> None:
-    """fork 出的子进程丢弃模块级 engine 池里从父进程继承的连接。
+    """Fork children discard module-engine pooled connections inherited from parents.
 
-    aiosqlite 每个连接由一条专属工作线程驱动，fork 只复制调用线程，子进程里池中
-    连接的工作线程不存在，经它发出的任何查询都永远等不到结果。``close=False``
-    只丢引用不关连接，父进程那份连接不受影响。mutmut 按 mutant fork 跑测试，
-    子进程首个走 ``lib.db.engine`` 的用例会就此挂到超时。父进程从未 import 过
-    该模块时池中无连接可丢，也不在子进程里触发 engine 创建。
+    Each aiosqlite connection has a worker thread, but fork copies only the calling thread; inherited pooled
+    connections lack their workers and queries wait forever. ``close=False`` discards references without
+    closing parent connections. Mutmut forks per-mutant tests, whose first ``lib.db.engine`` access
+    would otherwise hang until timeout. If parents never imported it, there are no connections to discard,
+    and do not create engines in children.
     """
     engine_module = sys.modules.get("lib.db.engine")
     if engine_module is None:
@@ -215,10 +215,10 @@ _fork_hook_registered = False
 
 @pytest.fixture(scope="session", autouse=True)
 def discard_pooled_connections_after_fork() -> None:
-    """把 ``_discard_pooled_connections_in_forked_child`` 挂到本进程的 fork 钩子上。
+    """Register ``_discard_pooled_connections_in_forked_child`` as this process's fork hook.
 
-    钩子是进程级、不可注销的；mutmut 会在同一父进程里连开几个 pytest 会话再按 mutant
-    fork，故只注册一次。
+    Hooks are process-wide and cannot unregister; mutmut may start multiple pytest sessions in one parent
+    before forking mutants, so register once.
     """
     global _fork_hook_registered
     if _fork_hook_registered or not hasattr(os, "register_at_fork"):
@@ -229,11 +229,11 @@ def discard_pooled_connections_after_fork() -> None:
 
 @pytest.fixture(autouse=True)
 def isolated_data_root(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
-    """每个用例默认使用一个空的临时数据根。
+    """Give every test an empty temporary data root by default.
 
-    ``app_data_dir()`` 与 ``get_project_manager()`` 在进程内缓存，用例前后都清掉，
-    用例自己 setenv ``ARCREEL_DATA_DIR`` 后首次调用即按新值解析。会 import 应用模块的
-    autouse fixture 须声明依赖本 fixture，其间触发的解析才落在临时根上。
+    Clear process caches for ``app_data_dir()`` / ``get_project_manager()`` before/after each case;
+    first access after setting ``ARCREEL_DATA_DIR`` resolves the new root. Autouse fixtures importing app
+    modules must depend on this fixture so intermediate resolutions remain temporary.
     """
     from lib.infra.app_data_dir import reset_for_tests
     from lib.project.project_manager import reset_project_manager_for_tests
@@ -248,14 +248,13 @@ def isolated_data_root(tmp_path_factory: pytest.TempPathFactory, monkeypatch: py
 
 @pytest.fixture(autouse=True)
 def stub_sandbox_check(isolated_data_root, monkeypatch, request):
-    """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
+    """Make ``check_sandbox_available`` return True without requiring actual bwrap support.
 
-    GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``
-    会让 ``server.app.check_sandbox_available`` 的 bwrap probe 启动失败，连带
-    把任何走 FastAPI lifespan 的测试（TestClient / lifespan / startup hook 集成测试）
-    全部拖崩。测试本不该依赖 host 能跑非特权 user namespace；该函数本身的契约
-    由 ``tests/unit/server/test_startup_assertions.py`` 独立覆盖（用更精细的 subprocess.run
-    stub）— 那个文件需要走真实函数，故按文件名跳过此 autouse stub。
+    Ubuntu 24.04 GitHub runners with ``apparmor_restrict_unprivileged_userns=1`` fail
+    ``server.app.check_sandbox_available`` bwrap probes, breaking all lifespan-based TestClient/startup
+    integrations. Tests must not depend on host unprivileged namespaces. Independent
+    ``tests/unit/server/test_startup_assertions.py`` cases use finer subprocess.run stubs to cover
+    the real function, so skip this autouse substitute by that filename.
     """
     if request.path.name == "test_startup_assertions.py":
         return
@@ -264,13 +263,13 @@ def stub_sandbox_check(isolated_data_root, monkeypatch, request):
 
 @pytest.fixture(autouse=True)
 def offline_official_catalog_sync(isolated_data_root, monkeypatch):
-    """应用 lifespan 启动的模型目录官方同步换成不发请求的空任务。
+    """Replace lifespan official-catalog synchronization with a nonrequesting idle task.
 
-    真实 lifespan 会立刻向目录数据仓库的 raw 地址取清单文件，用例结果随之依赖外网与网络时序：
-    断网时抓取立即失败、在后台写同步表并改进程内的同步状态，联网时又可能卡在建连上拖住关停。
-    这里只换 lifespan 引用的入口，autouse 让以后新增的 lifespan 用例同样不外发；空任务照常由
-    ``stop_official_sync`` 取消。同步本身的行为由 ``tests/integration/lib/catalog/test_official_sync.py``
-    直接调用 ``lib.catalog.official_sync`` 覆盖，不受影响。
+    Real startup immediately fetches manifests from catalog raw URLs, making results depend on network timing.
+    Offline failures write sync tables/process status; online connection stalls can delay shutdown.
+    Replace only the lifespan-imported entry; autouse also prevents new lifespan cases from sending traffic.
+    ``stop_official_sync`` still cancels idle tasks. Direct ``lib.catalog.official_sync`` coverage in
+    ``tests/integration/lib/catalog/test_official_sync.py`` remains unaffected.
     """
 
     def start_offline(*args, **kwargs) -> asyncio.Task[bool]:
@@ -281,11 +280,11 @@ def offline_official_catalog_sync(isolated_data_root, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def idle_asset_library_ingest(monkeypatch):
-    """应用 lifespan 启动的素材库入库循环换成不访问数据库与网络的空循环。
+    """Replace lifespan material-library ingest with an idle loop using neither DB nor network.
 
-    真实循环启动时即查询入库任务表并按间隔轮询，lifespan 用例的数据库与关停时序会随之变化。入库循环本身由
-    ``tests/unit/lib/asset_library`` 与 ``tests/unit/server/routers/test_provider_asset_links_api.py`` 直接调用
-    ``lib.asset_library.ingest.run_once`` 覆盖。
+    Real startup queries ingest tables and polls, changing test database/shutdown timing. Ingest behavior is covered directly
+    through ``lib.asset_library.ingest.run_once`` in ``tests/unit/lib/asset_library`` and
+    ``tests/unit/server/routers/test_provider_asset_links_api.py``.
     """
     from lib.asset_library import ingest
 
@@ -303,10 +302,10 @@ def idle_asset_library_ingest(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def idle_material_maintenance(monkeypatch):
-    """应用 lifespan 启动的远端素材维护循环换成空循环，理由同 ``idle_asset_library_ingest``。
+    """Replace lifespan remote-material maintenance with idle loops, for the same reason as ``idle_asset_library_ingest``.
 
-    结算、补偿删除与工作文件清理由 ``tests/integration/server/routers/test_remote_material_storage.py``
-    直接调用 ``lib.material`` 的入口覆盖。
+    Settlement, compensating deletion, and working-file cleanup call ``lib.material`` directly in
+    ``tests/integration/server/routers/test_remote_material_storage.py``.
     """
     from lib.material import maintenance
 
@@ -324,16 +323,16 @@ def idle_material_maintenance(monkeypatch):
     monkeypatch.setattr("server.app.start_material_maintenance", start_idle)
 
 
-#: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
+#: All test hostnames resolve here: TEST-NET-3, public but nonroutable.
 _OFFLINE_DNS_ADDRESS = "203.0.113.10"
 
 
 @pytest.fixture(autouse=True)
 def offline_dns(monkeypatch):
-    """事件循环的 ``getaddrinfo`` 对主机名一律回 ``_OFFLINE_DNS_ADDRESS``，不发真实 DNS 查询。
+    """Event-loop hostname ``getaddrinfo`` returns ``_OFFLINE_DNS_ADDRESS`` without real DNS.
 
-    产物下载入口在每次请求前解析目标主机；出站流量由 respx 在 transport 层拦截，解析这一步
-    却会落到本机解析器上。IP 字面量与 ``localhost``（本地数据库、测试服务器）仍走真实解析。
+    Downloads resolve hosts before each request; respx intercepts transports but DNS would still reach
+    local resolvers. IP literals and ``localhost`` for local DBs/test servers retain real resolution.
     """
     real_getaddrinfo = asyncio.base_events.BaseEventLoop.getaddrinfo
 
@@ -396,12 +395,11 @@ def fd_count():
 
 @pytest.fixture(scope="session", autouse=True)
 def shared_db_schema():
-    """把模块级 engine 所指的库迁到 head，使任何用例都能直接用它。
+    """Migrate module-engine DBs to head for direct use by any test.
 
-    只对本 conftest 自建的临时库执行：外部给定 DATABASE_URL 时（postgres-compat job）
-    schema 由该 job 的 alembic 步骤负责。走 alembic 而非 ``create_all``，因为
-    ``lib.db.init_db()`` 对「有表无 alembic_version」的库会先 stamp base 再 upgrade，
-    预置的 create_all schema 会让它重复建表。
+    Only conftest-created temporary DBs migrate here; external DATABASE_URL schemas belong to postgres-compat
+    jobs. Use Alembic, not ``create_all``: ``lib.db.init_db()`` stamps base then upgrades databases
+    with tables but no alembic_version, duplicating precreated create_all tables.
     """
     if _OWNED_TEST_DB_DIR is None:
         return
@@ -443,10 +441,10 @@ async def _seed_pg_users(engine: AsyncEngine) -> None:
 
 
 def _register_models() -> None:
-    """把全部 ORM 模型登记到 ``Base.metadata``。
+    """Register every ORM model with ``Base.metadata``.
 
-    不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
-    schema 不同。
+    Otherwise tested-module import chains determine created tables, giving the same fixture
+    different schemas across files.
     """
     from lib.agent.agent_session_store.models import register_models as register_agent_session_models
     from lib.db.models import register_models as register_db_models
@@ -457,19 +455,19 @@ def _register_models() -> None:
 
 @asynccontextmanager
 async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncGenerator[AsyncEngine]:
-    """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PostgreSQL 分支。
+    """DB fixture engine construction, except PostgreSQL `async_session`.
 
-    那条分支绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层
-    事务 + SAVEPOINT，与这里的 per-test schema + `create_all` 不同，故自建 engine。
+    That branch binds CI-created public schemas after `alembic upgrade head`, isolating with outer
+    transactions + SAVEPOINT rather than per-test schemas + `create_all`, requiring separate construction.
 
-    ``dialect_aware`` 且 ``DATABASE_URL`` 指向 PG 时建 per-test schema 并按 search_path
-    建表、播种 FK 依赖的 user 行，退出时 ``DROP SCHEMA CASCADE``——方言相关代码路径
-    （partial unique index + ON CONFLICT、SELECT ... FOR UPDATE）由此被真实覆盖。
+    With ``dialect_aware`` and PG ``DATABASE_URL``, create per-test schemas via search_path, seed user
+    FK dependencies, then ``DROP SCHEMA CASCADE`` on exit. This genuinely covers dialect-sensitive
+    partial unique indexes + ON CONFLICT and SELECT ... FOR UPDATE.
 
-    其余情况建 SQLite：``file_path`` 为 None 时用内存库；给了路径则用 NullPool 文件库，
-    供必须绕开 StaticPool 串行化的并发用例。内存库挂 ``tests.memory_db_guard`` 的并发写检查：
-    多个任务同时写库时用例失败，提示改用对应的文件库夹具。``dialect_aware=False`` 固定走 SQLite，
-    postgres-compat job 里也不改道——unit 档用例不该被拉去跑 PG。
+    Otherwise use SQLite: ``file_path`` None means memory; supplied paths use NullPool files for concurrency
+    bypassing StaticPool serialization. Memory DBs attach ``tests.memory_db_guard`` write checks, failing concurrent
+    task writes with guidance to matching file fixtures. ``dialect_aware=False`` fixes SQLite even in postgres-compat
+    jobs; unit tests must not be redirected to PG.
     """
     pg_url = _pg_url_from_env() if dialect_aware else None
     if pg_url:
@@ -493,7 +491,7 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
     write_guard = None
     if file_path is None:
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        # 内存库所有 session 共用一个连接，多个任务并发写时直接失败并指向对应的文件库夹具。
+        # Memory sessions share one connection; concurrent task writes fail with matching file-fixture guidance.
         write_guard = install_shared_connection_write_guard(
             engine, file_fixture="concurrent_session_factory" if dialect_aware else "file_db_factory"
         )
@@ -524,14 +522,14 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
 
 @pytest.fixture
 async def db_engine() -> AsyncIterator[AsyncEngine]:
-    """内存 SQLite engine —— models / repositories 单测的共享入口。"""
+    """In-memory SQLite engine, shared by model/repository unit tests."""
     async with make_test_engine(dialect_aware=False) as engine:
         yield engine
 
 
 @pytest.fixture
 async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    """``db_engine`` 上的 AsyncSession。"""
+    """AsyncSession on ``db_engine``."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
     async with factory() as session:
         yield session
@@ -539,10 +537,10 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 @pytest.fixture
 async def file_db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """文件 SQLite + NullPool 的 factory —— 需要独立连接的并发用例用它。
+    """File SQLite + NullPool factory for independent-connection concurrency tests.
 
-    与 ``file_session_factory`` 的差别只在不带 `uses_db`：unit 档的并发用例
-    不该被拉进 postgres-compat 选集。
+    Unlike ``file_session_factory``, omit `uses_db` so unit concurrency cases
+    stay outside postgres-compat selection.
     """
     async with make_test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
@@ -550,23 +548,23 @@ async def file_db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[As
 
 @pytest.fixture
 async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """``db_engine`` 上的 session factory。"""
+    """Session factory on ``db_engine``."""
     return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
 @pytest.fixture
 async def custom_providers_app_session_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """``custom_providers_app`` 绑定的 session factory；用例也直接用它预置端点与模型行。"""
+    """Session factory bound to ``custom_providers_app``, also used to seed endpoint/model rows."""
     return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
 @pytest.fixture
 def custom_providers_app(custom_providers_app_session_factory):
-    """只挂自定义供应商路由、绑内存库、以管理员身份免鉴权的 FastAPI 应用。
+    """Admin-auth-bypassed FastAPI app with custom-provider routes and an in-memory DB.
 
-    三个测试文件（协议无关的 CRUD、能力覆盖、ComfyUI 协议）按行为域分文件，共用的是同一个
-    被测应用。import 放在函数体内：根 conftest 由整个测试会话加载，不该为三个文件把 server
-    包拉进每一次收集。
+    Three behavior-specific files (protocol-neutral CRUD, overrides, ComfyUI) share the tested app.
+    Import within functions: root conftest loads across all tests and must not pull server packages
+    into every collection just for three files.
     """
     from fastapi import FastAPI
 
@@ -591,14 +589,14 @@ def custom_providers_app(custom_providers_app_session_factory):
 
 @pytest.fixture
 async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """方言敏感的 session factory：PG 下走 per-test schema，否则内存 SQLite。"""
+    """Dialect-aware session factory: PG per-test schemas, otherwise memory SQLite."""
     async with make_test_engine() as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
 
 
 @pytest.fixture
 async def concurrent_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """方言敏感且允许独立连接：PG 走真实 schema，本地 SQLite 走 WAL 文件库。"""
+    """Dialect-aware independent connections: real PG schemas or local WAL-file SQLite."""
     async with make_test_engine(file_path=tmp_path / "concurrency-aware.db") as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
 
@@ -638,7 +636,7 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 
 
 # ---------------------------------------------------------------------------
-# 收集期钩子：档位 marker 注入与边界校验
+# Collection hooks: tier markers and boundary validation.
 # ---------------------------------------------------------------------------
 
 
@@ -647,7 +645,7 @@ CLASSIFICATION_MARKS = ("unit", "integration", "e2e")
 
 
 def _tier_from_path(item: pytest.Item) -> str | None:
-    """用例所在的档位目录名（`tests/unit|integration|e2e/…` 的第一段）。"""
+    """Case tier directory name, the first `tests/unit|integration|e2e/…` segment."""
     try:
         rel = Path(str(item.path)).relative_to(TESTS_ROOT)
     except ValueError:
@@ -657,11 +655,11 @@ def _tier_from_path(item: pytest.Item) -> str | None:
 
 
 def _validate_selection_args(config: pytest.Config) -> None:
-    """把每个命令行位置参数交给 pytest 自身的解析器，缺失的路径或模块抛 UsageError。
+    """Pass every positional argument through pytest resolution, raising UsageError for missing paths/modules.
 
-    判据完全取自 ``resolve_collection_argument``：路径存在性、``--pyargs`` 的模块解析
-    （含 namespace package 是否按 ``consider_namespace_packages`` 接受）、目录不得带
-    ``::`` 选择段、``[]`` 参数化的位置，都与收集期一致。
+    ``resolve_collection_argument`` alone determines existence, ``--pyargs`` module/namespace resolution
+    under ``consider_namespace_packages``, forbidden directory ``::`` selectors, and parameterization
+    ``[]`` positions, matching collection exactly.
     """
     invocation_path = config.invocation_params.dir
     as_pypath = bool(config.getoption("pyargs"))
@@ -677,23 +675,22 @@ def _validate_selection_args(config: pytest.Config) -> None:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """定向选择里有不存在的路径或模块时直接报用法错误。
+    """Missing targeted paths/modules immediately raise usage errors.
 
-    不带 -n 时 pytest 自己会在收集期报出同样的 UsageError 并以 4 退出；xdist 下
-    controller 只从 worker 汇总结果，缺失选择连同同批的真实文件一起丢掉，只留下
-    「no tests ran」与退出码 5，没有任何错误行。两种模式统一为收集前 fail loud。
+    Without -n, pytest collection gives UsageError/exit 4; xdist controllers only aggregate workers,
+    dropping missing selections together with valid files and leaving no-tests-ran/exit 5 without
+    error lines. Make both fail loudly before collection.
     """
     _validate_selection_args(session.config)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """按目录注入分类 marker，再按 fixture 来源注入 `uses_db`，最后跑收集期校验。
+    """Inject directory-based tier markers, fixture-origin `uses_db`, then validate collection.
 
-    分类 marker 由用例所在的 `tests/unit|integration|e2e/` 段决定，不手写。
-    `uses_db` 只在用例消费本 conftest 的方言敏感 fixture（`async_session` /
-    `session_factory` / `concurrent_session_factory` / `file_session_factory`）时注入；用例在本地覆写同名 fixture
-    为硬编码 SQLite engine 时不注入，使 postgres-compat job 保持真实的方言信号，
-    而不是把只跑 SQLite 的代码算进 `postgres` 覆盖率标记。
+    Tiers derive from `tests/unit|integration|e2e/`, never handwritten. Inject `uses_db` only
+    for this conftest's dialect-aware `async_session` / `session_factory` / `concurrent_session_factory` /
+    `file_session_factory`. Local same-named hardcoded-SQLite overrides must not receive it, preserving
+    genuine dialect signals instead of counting SQLite-only code toward the `postgres` coverage marker.
     """
     for item in items:
         tier = _tier_from_path(item)
@@ -726,10 +723,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 def _skip_local_port_tests_without_bind_permission(items: list[pytest.Item]) -> None:
-    """环境禁止绑定 127.0.0.1 时，把 `local_port` 用例标成带原因的 skip。
+    """Skip `local_port` cases with reasons when environments forbid 127.0.0.1 binding.
 
-    Agent 沙箱可能拒绝绑定本地端口；这类用例在那里只会以 `PermissionError` 失败，
-    跳过并注明原因，提示到允许绑定端口的环境里再跑一次。
+    Agent sandboxes may deny local ports, producing only `PermissionError`; explain skips
+    and direct reruns in environments permitting binds.
     """
     port_items = [item for item in items if item.get_closest_marker("local_port") is not None]
     if not port_items:
@@ -744,11 +741,11 @@ def _skip_local_port_tests_without_bind_permission(items: list[pytest.Item]) -> 
 
 
 def _enforce_classification_markers(items: list[pytest.Item]) -> None:
-    """收集期强制：分类 marker 恰好一个且来自目录，`unit` 档不得触达真实数据库。
+    """Collection enforces exactly one directory-derived tier marker and forbids real DB access in `unit`.
 
-    分类 marker 由目录注入，所以「缺失」等价于用例不在三个档位目录之下，「多标」
-    等价于文件里还留着与目录相冲突的手写 marker——两者都拦在收集期，不进 CI。
-    `uses_db` ∧ `unit` 是档位边界本身：unit 档禁真实 DB，命中说明用例放错了目录。
+    Missing markers mean cases outside all three directories; multiple markers mean handwritten
+    conflicts with directories. Reject both before CI. `uses_db` ∧ `unit` is itself a tier
+    violation indicating misplaced tests.
     """
     missing = []
     conflicting = []
@@ -800,8 +797,8 @@ async def async_session():
     """
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("postgresql"):
-        # 唯一不走 `make_test_engine` 的分支：它绑定 CI job 已 alembic 建好的 public schema，
-        # 而 `make_test_engine` 建 per-test schema 并 create_all，两者的隔离原语不同。
+        # The sole branch outside `make_test_engine` binds CI Alembic-created public schemas;
+        # `make_test_engine` creates per-test schemas/create_all, a different isolation primitive.
         # Per-test engine with NullPool: avoids cross-event-loop reuse of
         # asyncpg connections (each pytest-asyncio test runs on a fresh loop).
         from sqlalchemy.pool import NullPool
@@ -855,9 +852,9 @@ async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
 
 @pytest.fixture
 def poll_clock():
-    """``bounded_poll_clock`` 的 fixture 形态：整条用例的轮询与退避等待都走假表。
+    """Fixture form of ``bounded_poll_clock``: use fake clocks for whole-case polling/backoff.
 
-    压缩语义与超时兜底与上下文管理器形态完全一致，适用于整条用例都需要假表的场景。
+    Compression/timeouts exactly match context-manager semantics for cases needing the clock throughout.
     """
     from tests.fakes import bounded_poll_clock
 
@@ -872,7 +869,7 @@ def poll_clock():
 
 @pytest.fixture
 def timeline_project(tmp_path: Path):
-    """参考生视频模式的项目 ``demo``：第 1 集含 E1U1、E1U2 两个视频单元，尚无视频；返回其 ProjectManager。"""
+    """Reference-video ``demo`` project with episode 1 units E1U1/E1U2 and no videos; return ProjectManager."""
     from lib.project.project_manager import ProjectManager
 
     manager = ProjectManager(tmp_path / "projects")

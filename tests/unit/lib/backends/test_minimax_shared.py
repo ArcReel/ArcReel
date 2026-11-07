@@ -1,4 +1,4 @@
-"""lib.backends.minimax_shared 纯函数单元测试（不打真实 HTTP）。"""
+"""Pure lib.backends.minimax_shared tests, without real HTTP."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class TestBaseUrlDerivation:
         assert minimax_text_base_url(MINIMAX_INTL_BASE_URL) == "https://api.minimax.io/v1"
 
     def test_host_only_gets_v1_suffix(self):
-        # 用户只填 host，派生时补 /v1
+        # Host-only URLs gain /v1.
         assert minimax_text_base_url("https://api.minimax.io") == "https://api.minimax.io/v1"
 
     def test_full_v1_base_is_idempotent(self):
@@ -48,8 +48,8 @@ class TestBaseUrlDerivation:
         assert minimax_text_base_url("https://api.minimax.io/") == "https://api.minimax.io/v1"
 
     def test_whitespace_falls_back_to_default(self):
-        # 纯空白 base_url 是真值会绕过 or，须 strip 后回落默认 host，
-        # 不能 strip 成空串派生出 "/v1" 这类非法相对 URL
+        # Truthy whitespace base_url strips then falls back to hosts,
+        # never invalid relative /v1 from empty strings.
         assert minimax_text_base_url("   ") == MINIMAX_BASE_URL
 
 
@@ -62,7 +62,7 @@ class TestApiKeyResolution:
             resolve_minimax_api_key(None)
 
     def test_blank_raises(self):
-        # 不走 env fallback：缺失即明确报错
+        # No environment fallback; missing keys fail explicitly.
         with pytest.raises(ValueError, match=r"请到系统配置页填写 MiniMax API Key"):
             resolve_minimax_api_key("   ")
 
@@ -92,7 +92,7 @@ class TestExtractImageUrl:
         assert extract_image_url({"data": ["x"]}) is None
 
     def test_non_dict_payload_tolerated(self):
-        # 中转代理 / 错误响应可能返回非 dict 顶层（list / str）：不得抛 AttributeError
+        # Relay/error top-level nondicts, list/str, never raise AttributeError.
         assert extract_image_url(["not", "a", "dict"]) is None
         assert extract_image_url("error") is None
         assert extract_image_url(None) is None
@@ -108,7 +108,7 @@ class TestExtractImageBase64:
         assert extract_image_base64({}) is None
 
     def test_non_dict_payload_tolerated(self):
-        # 顶层非 dict（代理 / 错误响应）一律回 None，不抛 AttributeError
+        # Nondict top-level relay/errors return None without AttributeError.
         assert extract_image_base64(["x"]) is None
         assert extract_image_base64(None) is None
 
@@ -121,7 +121,7 @@ class TestFailureReason:
         assert minimax_failure_reason({}) is None
 
     def test_non_dict_payload_returns_none(self):
-        # 顶层非 dict（代理 / 错误响应）不抛 AttributeError，按"无业务错误"回 None
+        # Nondicts return no-business-error None without AttributeError.
         assert minimax_failure_reason(["x"]) is None
         assert minimax_failure_reason("boom") is None
 
@@ -146,7 +146,7 @@ class TestSafeBodyForLog:
             "subject_reference": [{"type": "character", "image_file": "data:image/png;base64,AAAA"}],
         }
         view = safe_body_for_log(body)
-        # 白名单标量保留
+        # Retain allowlisted scalars.
         assert view["model"] == "image-01"
         assert view["width"] == 1152
         assert view["height"] == 2048
@@ -154,7 +154,7 @@ class TestSafeBodyForLog:
         assert view["n"] == 1
         assert view["prompt_optimizer"] is False
         assert view["seed"] == 7
-        # prompt 仅长度、subject_reference 仅计数；base64/URL 不出现
+        # Log prompt lengths/reference counts only, never base64/URLs.
         assert view["prompt_len"] == len(body["prompt"])
         assert "prompt" not in view
         assert view["subject_reference"] == "<1 ref>"
@@ -165,7 +165,7 @@ class TestSafeBodyForLog:
         assert view == {"model": "image-01", "prompt_len": 1}
 
     def test_empty_subject_reference_omitted(self):
-        # 空列表显式跳过：不漏 subject_reference 字段（日志脱敏是安全关键路径，边界须显式覆盖）
+        # Explicitly skip empty lists, omitting subject_reference; logging sanitation needs boundary coverage.
         view = safe_body_for_log({"model": "image-01", "subject_reference": []})
         assert "subject_reference" not in view
         assert view == {"model": "image-01"}
@@ -173,7 +173,7 @@ class TestSafeBodyForLog:
 
 class TestVideoBaseUrl:
     def test_shares_v1_base_with_text(self):
-        # 视频原生端点与文本同走单 /v1 base
+        # Native video/text share one /v1 base.
         assert minimax_video_base_url(None) == MINIMAX_BASE_URL
         assert minimax_video_base_url(MINIMAX_INTL_BASE_URL) == "https://api.minimax.io/v1"
         assert minimax_video_base_url("https://api.minimax.io") == "https://api.minimax.io/v1"
@@ -213,7 +213,7 @@ class TestVideoStateMachine:
         assert "2013" in reason
 
     def test_query_base_resp_hard_error_is_failure(self):
-        # 查询接口本身失败（如 task_id 不存在）：base_resp 非 0 即终态失败
+        # Query failures such as unknown task_id with nonzero base_resp are terminal.
         payload = {"status": "", "base_resp": {"status_code": 1004, "status_msg": "invalid task_id"}}
         assert minimax_video_failure_reason(payload) is not None
 

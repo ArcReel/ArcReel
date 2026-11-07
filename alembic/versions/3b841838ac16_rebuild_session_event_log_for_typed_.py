@@ -4,9 +4,9 @@ Revision ID: 3b841838ac16
 Revises: f3d21ac90b17
 Create Date: 2026-07-06 16:55:43.613251
 
-事件日志是 SDK transcript 的物化视图，删除不丢真相：写入点定型规则演进
-（skill 调用条目只记名与入参、懒生成合并 subagent subpath）后，按旧规则
-生成的存量条目整表清空，各会话首次访问时按新规则从 transcript 懒生成重建。
+The event log is an SDK-transcript materialized view; deleting it loses no source truth. As write-time
+shaping evolves (skill entries retain only names/arguments, lazy generation merges subagent subpaths),
+clear all existing entries built by old rules; first session access lazily rebuilds them from transcripts.
 
 """
 
@@ -30,4 +30,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # 数据迁移不可逆；旧代码同样按需懒生成，无需回填
+    # Irreversible data migration; old code also rebuilds lazily on demand, so no backfill needed.

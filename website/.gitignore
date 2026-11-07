@@ -1,11 +1,11 @@
-# Docusaurus 构建产物与缓存
+# Docusaurus build outputs and caches
 /build/
 /.docusaurus/
 /node_modules/
 
-# 构建时从仓库根 CONTRIBUTING.md 复制而来（scripts/sync-contributing.mjs），真相源在仓库根
+# Copied at build time from repository-root CONTRIBUTING.md (scripts/sync-contributing.mjs); the root is authoritative.
 /docs/dev/contributing.md
 
-# 依赖工具产物
+# Dependency-tool outputs
 .pnpm-store/
 *.tsbuildinfo

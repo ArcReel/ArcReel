@@ -1,6 +1,6 @@
-"""生成输入 interface：分镜图与宫格的装配序、缺口定性与一次报全、依据与冻结。
+"""Generation-input interface: storyboard/grid assembly order, complete gap classification, provenance, freezing.
 
-观测走执行器的 adapter，配内存清单 adapter；参考图是临时目录里的真实小图。
+Observe executor adapters with an in-memory manifest adapter; references are real small temporary images.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from lib.artifacts.generation_input import (
 TARGET = "E1S02"
 _REGISTERED_BASIS = ArtifactBasis.build("test/registered", kind_version=1, inputs={}).digest
 
-#: 缺省登记在清单里的资产图与上一分镜图：键 → 路径。
+#: Default registered sheets/preceding storyboard: key → path.
 _SHEETS: dict[ArtifactKey, str] = {
     ArtifactKey.asset_sheet("character", "张三"): "characters/张三.png",
     ArtifactKey.asset_sheet("character", "张三/劲装"): "characters/derivatives/张三/劲装.png",
@@ -105,7 +105,7 @@ def _script(**target_fields: Any) -> dict[str, Any]:
 
 
 class _Fixture:
-    """项目目录里的真实小图 + 内存清单：每个用例在其上做一处改动。"""
+    """Real small project images plus in-memory manifest; each test changes one aspect."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -473,7 +473,7 @@ class TestFreeze:
             assert frozen.warnings == (
                 {"key": "ref_too_many_images", "params": {"count": 6, "model": "m", "max_count": 2}},
             )
-            assert "图1、图2为商品参考图" in frozen.prompt
+            assert "图1, 图2: product reference images" in frozen.prompt
             assert "图3" not in frozen.prompt
             assert snapshot_dir.is_dir()
 
@@ -487,7 +487,7 @@ class TestFreeze:
             frozen_digests = [visual.content_digest for visual in frozen.references.visual_references]
             claimed = {claim.artifact_path: claim.content_digest for claim in frozen.claims}
 
-        # 原图不是登记产物，没有 claim；其余每张参考图的 claim 绑定到冻结时读到的字节。
+        # Originals are not registered artifacts and have no claim; other reference claims bind frozen bytes.
         claimable = [ref for ref in generation_input.references if ref.claim is not None]
         assert [claim.key for claim in frozen.claims] == [ref.claim.key for ref in claimable if ref.claim]
         assert claimed == {

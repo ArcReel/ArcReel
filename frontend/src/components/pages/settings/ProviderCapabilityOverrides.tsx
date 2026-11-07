@@ -21,7 +21,7 @@ import {
 } from "./capabilityValues";
 import { DURATION_ERROR_KEY } from "./durationErrors";
 
-/** 数值维度：`nullable` 的留空表示未收录，`min` 是允许的最小值。 */
+/** Numeric dimensions: blank `nullable` means uncataloged; `min` is the minimum allowed value. */
 const NUMBER_KEYS: Partial<Record<CapabilityKey, { min: number; nullable: boolean; float?: boolean }>> = {
   max_output_tokens: { min: 1, nullable: false },
   max_reference_images: { min: 0, nullable: false },
@@ -38,34 +38,34 @@ interface Props {
   capabilities: ProviderModelCapabilities;
   value: CapabilityOverrides;
   onChange: (next: CapabilityOverrides) => void;
-  /** 某个维度的输入是否可以保存；输入不合法时保存栏拦下保存。 */
+  /** Whether dimension inputs can save; save bars block invalid inputs. */
   onValidityChange: (key: string, valid: boolean) => void;
 }
 
 /**
- * 「这个供应商支持的参数」：每个维度一行。可以修改的维度显示原值与「修改」，修改后整维替换并可编辑，「恢复」即去掉
- * 这一维的覆盖；不能修改的维度（官方收录的模型的全部维度等）只读显示生效值。原值是没有修改时运行时
- * 采用的值（模型条目与调用通道两侧求值的结果），两侧都没有声明的数值显示「未收录」。可选时长下方紧跟时长联动约束。
+ * Provider-supported parameters, one dimension per row. Editable dimensions show originals/Modify; modification replaces whole dimensions with editable values. Restore removes
+ * dimension overrides. Uneditable dimensions (all officially cataloged model dimensions, etc.) show effective values readonly. Originals are runtime
+ * values without edits (evaluating model entries and channels together); numbers undeclared on both sides show uncataloged. Duration-linked constraints directly follow selectable durations.
  */
 export function ProviderCapabilityOverrides({ capabilities, value, onChange, onValidityChange }: Props) {
   const { t } = useTranslation("dashboard");
 
   const set = (key: CapabilityKey, next: unknown) => {
     const draft: Record<string, unknown> = { ...value };
-    // 「恢复」卸载这一维的编辑器，编辑器里没改对的输入在卸载时自己收回「不合法」
+    // Restore unmounts dimension editors; invalid inputs withdraw their invalid states during unmount.
     if (next === undefined) {
       delete draft[key];
     } else {
       draft[key] = next;
     }
-    // 去掉的分辨率不再出现在时长联动约束里
+    // Removed resolutions no longer appear in duration-linked constraints.
     if (key === "resolutions" && Array.isArray(next) && draft.duration_constraints) {
       draft.duration_constraints = withoutDroppedResolutions(draft.duration_constraints, next as string[]);
     }
     onChange(draft);
   };
 
-  // 时长联动约束按分辨率填写：分辨率取修改后的值，没有约束时取约束里已有的分辨率
+  // Fill duration-linked constraints by resolution, using modified resolutions or existing constraint resolutions without constraints.
   const effectiveResolutions = (() => {
     const resolutions = "resolutions" in value ? value.resolutions : capabilities.base.resolutions;
     if (Array.isArray(resolutions)) return resolutions as string[];
@@ -145,7 +145,7 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
   );
 }
 
-/** 点「修改」时的起始值：原值；未收录的维度给一个可直接编辑的起点。 */
+/** Modify starts with original values; uncataloged dimensions get directly editable starting values. */
 function initialOverride(key: CapabilityKey, base: unknown): unknown {
   if (base !== null && base !== undefined) return structuredClone(base);
   if (BOOL_KEYS.has(key)) return true;
@@ -161,15 +161,15 @@ interface EditorProps {
   label: string;
   value: unknown;
   resolutions: string[];
-  /** 数值输入下方的提示，给出时替换该维度的默认提示（如图片参考图上限的 0 与图生图的关系）。 */
+  /** Numeric-input hints replace dimension defaults when supplied, such as zero reference-image limits versus image-to-image. */
   hint?: string;
   onChange: (next: unknown) => void;
   onValidityChange: (valid: boolean) => void;
 }
 
 /**
- * 一个能力维度的取值编辑器，「这个供应商支持的参数」与「模型信息」共用。文本输入只在挂载时取 `value` 作初值，
- * 外部改了取值（放弃修改、采用官方值）时由调用方换 `key` 重新挂载；卸载的文本输入不再拦着保存。
+ * Shared capability-dimension editors for Provider-supported parameters and Model information. Text inputs initialize from `value` only at mount;
+ * callers change `key` to remount on external changes (discard/adopt official), and unmounted inputs no longer block saves.
  */
 export function CapabilityValueEditor({ dimension, label, value, resolutions, hint, onChange, onValidityChange }: EditorProps) {
   const { t } = useTranslation("dashboard");
@@ -295,8 +295,8 @@ interface ParsedInputProps {
 }
 
 /**
- * 文本输入：每次输入都解析，合法时写回修改，不合法时就地提示并让保存栏拦下保存。
- * 卸载时收回自己报的「不合法」：换一代重新挂载、约束行随分辨率删除后，没改对的旧输入不再拦着保存。
+ * Text inputs parse every edit: valid values update drafts; invalid values show inline reasons and make save bars block saves.
+ * Unmount withdraws invalid states: remounted generations/removed-resolution constraints leave no obsolete invalid inputs blocking saves.
  */
 function ParsedInput({ label, initial, hint, inputMode, parse, onChange, onValidityChange }: ParsedInputProps) {
   const [text, setText] = useState(initial);
@@ -342,10 +342,10 @@ interface ConstraintsEditorProps {
   onValidityChange: (valid: boolean) => void;
 }
 
-/** 时长联动约束：每个分辨率一行可选时长，另有「使用参考图时」一行；留空表示这一行不限定时长。 */
+/** Duration-linked constraints: one duration row per resolution plus With reference images; blank rows impose no duration limit. */
 function ConstraintsEditor({ value, resolutions, onChange, onValidityChange }: ConstraintsEditorProps) {
   const { t } = useTranslation("dashboard");
-  // 各行输入是否合法只用来汇总成整维的合法性，不参与渲染
+  // Per-row validity aggregates whole-dimension validity only, without affecting rendering.
   const invalid = useRef(new Set<string>());
   const markValid = (row: string, valid: boolean) => {
     if (valid) invalid.current.delete(row);

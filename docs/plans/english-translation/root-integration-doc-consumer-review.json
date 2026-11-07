@@ -1,0 +1,1172 @@
+{
+  "scope": "Root542service spans and712generation/script spans; source-AST/executable fixture values strictly preserved relative to immediate candidate snapshots.",
+  "helper_records": [
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_video_task.py",
+      "symbol": "_legacy_drama_script",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_derivative_sheet_tasks.py",
+      "symbol": "_wire",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_script_units.py",
+      "symbol": "_legacy_script",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "_registry_video_model",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "_backend_video_caps",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "patched_session_factory",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "project_env",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "clean_backend_cache",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "fake_assemble",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "_seed_custom_video_provider",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "_seed_custom_image_provider",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "reference_image_limit",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_generation_context.py",
+      "symbol": "list_voices",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_cost_estimation_service.py",
+      "symbol": "_seed_call",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_cost_estimation_service.py",
+      "symbol": "_make_ad_script",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_cost_estimation_service.py",
+      "symbol": "active_video_pricing_models",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_prompt_preview.py",
+      "symbol": "_drama_pm",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_entry_bound_video_pricing.py",
+      "symbol": "_quote_and_usage",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_storyboard_batch.py",
+      "symbol": "_with_storyboard",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/currency/test_video_artifact_currency.py",
+      "symbol": "_reference_video_state",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/currency/test_asset_rename_currency.py",
+      "symbol": "current_grid",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/presentation/timeline_render_support.py",
+      "symbol": "setup_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/presentation/timeline_render_support.py",
+      "symbol": "edited_timeline",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/presentation/test_timeline_jianying_draft.py",
+      "symbol": "_transitions",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/presentation/test_timeline_final_cut.py",
+      "symbol": "_bright_pixels",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/presentation/test_timeline_final_cut.py",
+      "symbol": "_peak",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "clean_backend_cache",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "chain_project",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "_seed_custom_video_rows",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "_storyboard_checkpoint_json",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "_seed_running_video_task",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "_run_orphan_recovery",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "retired_model",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "_assert_new_submission_rejected",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resume_custom_endpoint_chain.py",
+      "symbol": "_seed_relay_model",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/reference_video_tasks_support.py",
+      "symbol": "register_asset_sheet",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resolve_reference_assets.py",
+      "symbol": "_register_derivative",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_image_clamping.py",
+      "symbol": "_expected_basis",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_image_clamping.py",
+      "symbol": "_run_storyboard",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "symbol": "_wire_locked_script",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "symbol": "_wire_context",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "symbol": "_edit_source_before_staging",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/generation_tasks_support.py",
+      "symbol": "fake_resolve_ctx",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/generation_tasks_support.py",
+      "symbol": "SheetGenerator",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Generator substitute commits via formal-image activation callback; consumed through methods/results, not schema or documentation."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/generation_tasks_support.py",
+      "symbol": "pm_with_eight_references",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/generation_tasks_support.py",
+      "symbol": "ad_pm",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/generation_tasks_support.py",
+      "symbol": "skip_artifact_registration",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_storyboard_canvas_ratio_currency.py",
+      "symbol": "_persist_with_ratio",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "symbol": "cycle",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "symbol": "_build_worker",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "symbol": "_CyclingQueue",
+      "kind": "ClassDef",
+      "bases": [
+        "FakeWorkerQueue"
+      ],
+      "decorators": [],
+      "consumer_trace": "FakeWorkerQueue subclass sets cycle events via queue methods only."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_terminal_events.py",
+      "symbol": "captured_batches",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_terminal_events.py",
+      "symbol": "_commit_failing_factory",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_terminal_events.py",
+      "symbol": "_task_changes",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "symbol": "_FakeLedger",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Async ledger-bracket substitute captures explicit results/errors; no schema/Tool use."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "symbol": "_ConfigurableImageBackend",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Backend substitute records image paths and raises configured HTTP413; consumed through generate methods."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "symbol": "_BuiltinConfig",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Credential/config collaborator returns explicit provider configuration for assembly."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "symbol": "_builtin_video_backend",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "symbol": "_custom_video_backend",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "symbol": "user_added_video_model",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_capacity_table.py",
+      "symbol": "_stub_from_db_sources",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_capacity_table.py",
+      "symbol": "_fake_custom_provider",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_capacity_table.py",
+      "symbol": "_registry_with_declared_defaults",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "_ExecutorStubs",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Constructor-injected dispatch object forwards execute/execute_resume methods; docs are not request input."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "use_worker_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "capacity_table",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "seed_running_task",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "db_queue",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "stage_task_dir",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/worker_support.py",
+      "symbol": "session_factory",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "property"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_video_resume.py",
+      "symbol": "_stored_calls",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "symbol": "patch_empty_db",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "symbol": "_CountingProjection",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Callable provider projection returns explicit current identity and records tasks."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_module.py",
+      "symbol": "_GatedExecution",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Async executor gate records claim slots and controls release events; no metadata consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_edit_plan",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_write_project_json",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_activate_project_artifacts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_write_drama_ledger_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_drama_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_drama_script_plan_content",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_drama_visual_response",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_FakeTextGenerator",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "TextGenerator wrapper around fake backend; executes methods returning preset objects, never used as a model/schema input."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_sg_with_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_bare_generator",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_write_script_plan_json",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_write_drama_script_plan_json",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_narration_visual_response",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_materialized_script",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_fixed_tier_facts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "symbol": "_generator",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_request_projection_consumers.py",
+      "symbol": "_stub_batch_admission_queue",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_projection_provider_assets.py",
+      "symbol": "_configured_projection",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_projection_provider_assets.py",
+      "symbol": "link",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_projection_provider_assets.py",
+      "symbol": "read_side",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_projection_provider_assets.py",
+      "symbol": "execution_side",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_video_execution_checkpoint.py",
+      "symbol": "_redigest",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_restart_recovery.py",
+      "symbol": "_phase_ids",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_restart_recovery.py",
+      "symbol": "_active_task_named",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_import_aliases",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_exception_name",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_enclosing_function",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_static_str_choices",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_keyword_value",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_scan_tree",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_scan_raised_codes",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_template_placeholders",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_scan_param_contracts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_translator",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/test_task_failure_capability.py",
+      "symbol": "_oversized_envelope",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/conftest.py",
+      "symbol": "worker_db",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/generation/conftest.py",
+      "symbol": "staged_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_ad_prompt_authoring.py",
+      "symbol": "ad_video_request_facts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_ad_prompt_authoring.py",
+      "symbol": "_generator",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_ad_prompt_authoring.py",
+      "symbol": "_storyboard_script",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_ad_whole_generation.py",
+      "symbol": "ad_video_request_facts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_prompt_authoring_response",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_idle_generator",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_activate_project_artifacts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_claim_character_sheet",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_write_script_plan",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_write_formal_units",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "reference_request_facts",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(autouse=True)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_materialize",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_write_reference_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "plan_only_reference_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "reference_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "wide_tier_reference_project",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "symbol": "_quarantine_then_edit_formal_unit",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_fake_generator",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_Variant",
+      "kind": "ClassDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Internal variant test descriptor holds fixture assembly differences; not supplied as response_schema/Tool input or TypeAdapter."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_stamp_user_fields",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_converter",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_materialize",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_converted_and_authored",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_authored_with",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "prompt_variant",
+      "kind": "FunctionDef",
+      "bases": [],
+      "decorators": [
+        "pytest.fixture(params=[NARRATION, DRAMA], ids=lambda variant: variant.name)"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_incremental.py",
+      "symbol": "_converted_with_pending",
+      "kind": "AsyncFunctionDef",
+      "bases": [],
+      "decorators": [
+        "staticmethod"
+      ],
+      "consumer_trace": "Fixture/setup/assertion/source-AST utility consumed through implementation and explicit returned values; no model/tool registration decorators or documentation-introspection consumers."
+    }
+  ],
+  "literal_checks": [
+    {
+      "scope": "integration-services",
+      "mapped_spans": 542,
+      "all_original_inline_code_multisets_preserved": true
+    },
+    {
+      "scope": "integration-lib",
+      "mapped_spans": 712,
+      "all_original_inline_code_multisets_preserved": true
+    }
+  ],
+  "limits": "Consumer-trace audit, not universal reflection proof. Global frozen schema-input occurrence audit remains separate."
+}

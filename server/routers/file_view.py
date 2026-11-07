@@ -1,9 +1,8 @@
-"""文件视图：按目录懒加载项目文件并标出角色，预览与下载任意单个文件（鉴权，含文本与 JSON）。
+"""File views: lazily list project directories with file roles, and preview/download individual files with authentication, including text and JSON.
 
-与匿名媒体端点（``files.public_router``）分开：那边的白名单不变，这里挂在受保护的 router 上。
-基础设施文件、符号链接与非法路径一律与文件不存在同形返回 404。缓存已清理的远端内容版本照常列出，
-预览、下载与删除前从对象存储取回（见 :mod:`lib.project.file_view`）。
-"""
+Separate from anonymous media endpoints (``files.public_router``): their allowlist is unchanged; these routes are protected.
+Infrastructure files, symlinks and invalid paths return the same 404 shape as missing files. List remote-content versions
+even after cache cleanup, retrieving them from object storage before preview, download or deletion (:mod:`lib.project.file_view`)."""
 
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ from server.routers._file_responses import guess_media_type
 
 router = APIRouter(prefix="/projects/{project_name}/file-view")
 
-#: 文本类文件按 UTF-8 文本返回，便于预览；其余按扩展名推断。
+#: Return text files as UTF-8 for previews; infer other types by extension.
 _TEXT_SUFFIXES = frozenset({".txt", ".md", ".json", ".py", ".yaml", ".yml", ".srt", ".log", ".csv"})
 
 
@@ -39,7 +38,7 @@ def _project_dir(project_name: str) -> Path:
 
 @router.get("")
 async def list_file_view_directory(project_name: str, path: str = Query("")):
-    """列出 ``path`` 目录（缺省为项目根）的直接子项。"""
+    """List direct children of ``path``, defaulting to the project root."""
 
     project_dir = await asyncio.to_thread(_project_dir, project_name)
     try:
@@ -51,7 +50,7 @@ async def list_file_view_directory(project_name: str, path: str = Query("")):
 
 @router.delete("")
 async def delete_file_view_entry(project_name: str, path: str = Query(...)):
-    """把一个未引用文件移进项目回收站；其余角色在服务端一律拒绝。"""
+    """Move an unreferenced file to the project trash; the server rejects all other file roles."""
 
     project_dir = await asyncio.to_thread(_project_dir, project_name)
 
@@ -69,7 +68,7 @@ async def delete_file_view_entry(project_name: str, path: str = Query(...)):
 
 @router.get("/content")
 async def read_file_view_content(project_name: str, path: str = Query(...), download: bool = Query(False)):
-    """预览或下载单个文件。"""
+    """Preview or download one file."""
 
     name = Path(path).name
     project_dir = await asyncio.to_thread(_project_dir, project_name)
@@ -81,26 +80,26 @@ async def read_file_view_content(project_name: str, path: str = Query(...), down
             raise NotFoundError("file_not_found", path=path) from exc
         return handle, info.st_size, content_media_type(name)
 
-    # 打开之后句柄不随清理失效，使用登记只需覆盖到打开为止
+    # Cleanup cannot invalidate an open handle, so usage registration only needs to cover opening.
     async with local_file(project_dir, path):
         handle, size, media_type = await asyncio.to_thread(_sync)
     return stream_file(handle, size, name, media_type, download=download)
 
 
 def content_media_type(name: str) -> str:
-    """文本类文件按 UTF-8 文本返回，便于预览；其余按扩展名推断（首次调用读系统 mime 表，放进工作线程）。"""
+    """Return text files as UTF-8 for previews; infer other types by extension (the first call reads the system MIME table, so use a worker thread)."""
     return "text/plain; charset=utf-8" if Path(name).suffix.lower() in _TEXT_SUFFIXES else guess_media_type(name)
 
 
 def stream_file(handle: BinaryIO, size: int, name: str, media_type: str, *, download: bool) -> StreamingResponse:
-    """把已打开的文件流式返回；项目回收站的下载共用。"""
+    """Stream an already opened file; shared with project-trash downloads."""
     disposition = "attachment" if download else "inline"
     headers = {
         "Content-Length": str(size),
         "Content-Disposition": f"{disposition}; filename*=utf-8''{quote(name)}",
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
-        # 项目里可能有 Agent 写下的 HTML / SVG，直接打开时不让其中的脚本以本站身份运行。
+        # Projects may contain Agent-authored HTML / SVG; prevent scripts from running as this site when opened directly.
         "Content-Security-Policy": "sandbox",
     }
     return StreamingResponse(iter_file_chunks(handle), media_type=media_type, headers=headers)

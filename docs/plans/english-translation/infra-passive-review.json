@@ -1,0 +1,106 @@
+[
+  {
+    "path": "lib/infra/data_root_layout_migration.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/image_utils.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/content_digest.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/validation_messages.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/json_io.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/logging_config.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/text_utils.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/task_cancel.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/api_errors.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/thumbnail.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/ffmpeg.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/schema_guards.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/httpx_shared.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/loop_stall_probe.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/media_probe.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/retry.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/env_init.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/mp4_faststart.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/image_thumbnails.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/path_safety.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/text_metrics.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/data_root_layout.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/logging_utils.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/infra/subprocess_deadline.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/speech/speech_artifact_provenance.py",
+    "executable_ast_equal": true
+  },
+  {
+    "path": "lib/speech/speech_composition/__init__.py",
+    "executable_ast_equal": true
+  }
+]

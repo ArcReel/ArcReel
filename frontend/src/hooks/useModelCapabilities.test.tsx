@@ -102,8 +102,8 @@ describe("useModelCapabilities 时长维度", () => {
   });
 
   it("裸 provider 后端下 resolvedVideoBackend 给出服务端补全的 provider/model", async () => {
-    // 裸 provider 是合法项目配置（服务端补全默认视频模型）。调用方按「项目为该后端保存了什么」
-    // 查配置时必须用这个已解析值，拿裸值去查会把 provider ID 当成 model ID、读不到实际档位。
+    // Bare providers are valid project configuration (servers supply default video models). Configuration queries for what projects saved
+    // for backends must use resolved values; bare values mistake provider IDs for model IDs and miss actual tiers.
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
     const { result } = renderHook(() =>
       useModelCapabilities({ projectName: PROJECT, videoBackend: "gemini" }),
@@ -122,7 +122,7 @@ describe("useModelCapabilities 时长维度", () => {
     await waitFor(() => expect(result.current.rawDurations).toEqual([7]));
     spy.mockReturnValue(new Promise(() => {}));
     rerender({ projectName: "a", videoBackend: "b c" });
-    // 拼接 key 下两组会撞成 "a b c"，前一组结果被当作本组已落地。
+    // Concatenated keys make both groups collide as "a b c", misclassifying previous results as current.
     expect(result.current.rawDurations).toBeNull();
     expect(result.current.loading).toBe(true);
   });
@@ -196,7 +196,7 @@ describe("useModelCapabilities 约束上下文", () => {
 
     spy.mockReturnValue(new Promise(() => {}));
     rerender("1080p");
-    // 同一模型下旧的收窄结果仍是当前最优估计：时长选择器不该整块消失再出现。
+    // Old narrowed results remain best estimates for identical models; duration selectors must not disappear/reappear entirely.
     expect(result.current.supportedDurations).toEqual([4, 6, 8]);
     expect(result.current.loading).toBe(true);
     expect(spy).toHaveBeenCalledTimes(2);
@@ -300,7 +300,7 @@ describe("useModelCapabilities 首尾帧维度", () => {
 
     spy.mockResolvedValue(caps({ last_frame: false }));
     rerender("ark/seedance");
-    // 新 key 未落地前是未知而非旧的 true。
+    // New keys remain unknown before results, never previous true values.
     expect(result.current.lastFrame).toBeNull();
     await waitFor(() => expect(result.current.lastFrame).toBe(false));
   });
@@ -346,7 +346,7 @@ describe("useModelCapabilities 失效时机", () => {
 
     spy.mockReturnValue(new Promise(() => {}));
     act(() => useCapabilitiesStore.getState().invalidate());
-    // 同一上下文的重取：旧值仍是当前最优估计，否则警告会闪一次消失。
+    // Same-context refetch: old values remain best estimates, preventing warning flashes.
     expect(result.current.lastFrame).toBe(false);
   });
 });
@@ -362,7 +362,7 @@ describe("durationOutOfRangeReason", () => {
     expect(durationOutOfRangeReason(5, capsIn)).toBe("model");
   });
 
-  // 成因决定提示把用户引向哪里：分辨率 / 参考图两条改对应设置也能解决，不该被引去换模型。
+  // Causes determine guidance: resolution/reference issues resolve by changing corresponding settings, never direct users to switch models.
   it("被约束剔除的值按服务端给出的成因分类", () => {
     expect(durationOutOfRangeReason(4, capsIn)).toBe("resolution");
     expect(durationOutOfRangeReason(6, capsIn)).toBe("reference");

@@ -5,18 +5,18 @@ import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory
 import { errMsg } from "@/utils/async";
 
 export interface AgentMemoryState {
-  /** 当前 scope 的目录内容；未加载完成或加载失败时为 null，切换 scope 后立即回到 null。 */
+  /** Current scope directory contents; null before loading or on failure, reset to null immediately after scope switches. */
   overview: AgentMemoryOverview | null;
   loading: boolean;
-  /** 当前 scope 的拉取失败说明；成功后清空。 */
+  /** Current scope fetch-failure explanation, cleared on success. */
   error: string | null;
-  /** 记忆目录标识，调用点把它原样传给写类 API，两级因此共用同一批调用。 */
+  /** Memory directory identity, passed unchanged by callers to write APIs so both levels share the same calls. */
   scope: AgentMemoryScope;
-  /** 重新拉取列表；在途请求作废，卸载时一并取消。 */
+  /** Refetch lists, invalidating in-flight requests and cancelling them on unmount. */
   reload: () => Promise<void>;
 }
 
-/** 一次加载的结果与产出它的 scope；`target` 由 `useMemo` 保持引用稳定，故按引用比对。 */
+/** One loaded result paired with its originating scope; `useMemo` stabilizes `target`, allowing reference comparison. */
 interface LoadedMemory {
   target: AgentMemoryScope;
   data: AgentMemoryOverview | null;
@@ -24,16 +24,16 @@ interface LoadedMemory {
 }
 
 /**
- * 一个记忆目录的列表加载态：挂载时拉一次，写操作后由调用点 `reload()` 重拉。
+ * One memory directory's loading state: fetch once on mount; callers invoke `reload()` after writes.
  *
- * 不轮询、不监听窗口聚焦：记忆由创作者与 Agent 各自写入，服务端无冲突检测，跟随外部更新
- * 会在创作者正在编辑时替换掉编辑器内容。
+ * No polling/window-focus listeners: creators and Agents both write memories without server conflict detection; external refreshes
+ * would replace editor contents while creators edit.
  *
- * 入参按 `level` 与项目名解构后再重建 scope：调用点惯常在 JSX 里传字面量对象，直接把它列进
- * 依赖会让每次渲染都重新拉取。
+ * Destructure `level` and project names before rebuilding scopes: callers commonly supply literal JSX objects, whose direct
+ * inclusion in dependencies would refetch on every render.
  *
- * 结果与产出它的 scope 成对存放，只在两者匹配时对外可见：切换项目后新目录的请求尚未返回的
- * 窗口里，旧目录的路径与文件列表会挂在新项目的标题下，点开还会把旧文件名发往新目录。
+ * Pair results with originating scopes, exposing only matching pairs: after project switches, before new directory requests return,
+ * old directory paths/file lists would otherwise appear beneath new project titles, and opening them sends old filenames to new directories.
  */
 export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
   const level = scope.level;
@@ -48,33 +48,33 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
   const abortRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
-    // 接管方轮换 controller（见 docs/standards/frontend.md）。
+    // Taking-over requests rotate controllers (see docs/standards/frontend.md).
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     try {
       const next = await API.getAgentMemory(target, { signal: controller.signal });
-      // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
+      // State-write checkpoint after network awaits: abort may follow already-resolved responses.
       if (controller.signal.aborted) return;
       setLoaded({ target, data: next, error: null });
     } catch (err) {
       if (controller.signal.aborted) return;
       setLoaded({ target, data: null, error: errMsg(err) });
     } finally {
-      // 被接管方让位：作废后不复位共享状态，否则会灭掉接管方刚点亮的加载态。
-      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 复位已在 finally 中；条件只让被作废的一轮把复位交给接管方
+      // Superseded requests yield: never reset shared state after invalidation, or newly activated successor loading state disappears.
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- reset is already in finally; the condition delegates invalidated-request resets to successors only
       if (!controller.signal.aborted) setLoading(false);
     }
   }, [target]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉一次，reload 同步点亮加载态，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch once on mount; reload synchronously activates loading state as controlled initialization
     void reload();
     return () => abortRef.current?.abort();
   }, [reload]);
 
-  // 结果属于上一个 scope 时视同尚未加载：加载态一直持续到当前 scope 的响应落地。
+  // Results from previous scopes count as unloaded; loading continues until current-scope responses arrive.
   const current = loaded !== null && loaded.target === target ? loaded : null;
   return {
     overview: current?.data ?? null,

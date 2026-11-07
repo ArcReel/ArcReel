@@ -1,10 +1,10 @@
-"""恢复删除的集（``docs/adr/0107``）：沿用原集 ID，一律作为自带原文的集排到播出顺序末尾。
+"""Restore deleted episodes (``docs/adr/0107``): reuse IDs, always append broadcast order as standalone-source episodes.
 
-删除前的集原文成为这一集的源文：切自整本源文的集不再占用原范围，那段原文保持未切分。没有集原文的集仍是无原文的集。
-剧本、规划草稿、剪辑时间线与成片、宫格、媒体按原路径加回；版本历史与产物清单的登记取自迁移后的临时项目，
-产物照常按产物时效判定，删除之后输入变过的读为过期。
+Predeletion episode sources become standalone material; whole-source splits release original ranges as unsplit. Sourceless episodes remain sourceless.
+Restore scripts/planning drafts/editing timelines/final videos/grids/media to original paths. Version histories/artifact registrations come from migrated temporary projects;
+normal artifact currency applies, with changed postdeletion inputs reading stale.
 
-所属集已删除的剪辑时间线、分镜等对象，在集恢复之后才能按原结构恢复（:func:`require_live_episode`）。
+Episode-owned timelines/storyboards restore original structures only after parent episodes (:func:`require_live_episode`).
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ __all__ = ["EPISODE_KIND", "require_live_episode", "take_episode"]
 
 
 def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """按集 ID 从迁移后的临时项目取出账本条目、这一集的文件、版本记录与产物清单登记。"""
+    """Take ledger entries/episode files/version records/artifact registrations by ID from migrated temporary projects."""
     episode = obj.get("id")
     staged_project = json.loads((staged / "project.json").read_text(encoding="utf-8"))
     entry = find_episode(staged_project, episode if isinstance(episode, int) else None)
@@ -55,7 +55,7 @@ def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Res
 
     def append(project: dict[str, Any]) -> None:
         if find_episode(project, number) is not None:
-            # 集 ID 不复用，原 ID 总是空闲；仍被占用时不合并进别的集。
+            # Never reuse IDs, so original IDs should be free; occupied IDs never merge into other episodes.
             raise ConflictError("trash_restore_failed", id=str(number))
         if own:
             record_episode_kind(project, restored, kind)
@@ -72,7 +72,7 @@ def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Res
             versions.attach_resources(content.versions)
             projects.update_project_locked(project_dir.name, append)
             if claims:
-                # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
+                # Backfill registrations from predeletion migrated manifests, keeping basis digests; changed inputs still read stale.
                 register_artifact_entries_atomically(project_dir, claims)
         return obj
 
@@ -83,10 +83,10 @@ def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Res
 
 
 def require_live_episode(project_dir: Path, episode: object, identity: str) -> None:
-    """恢复挂在集上的对象前核对所属的集仍在。
+    """Verify live parent episodes before restoring attached objects.
 
-    集也在项目回收站里时抛 :class:`RestoreBlocked`：只能随集恢复，先恢复集、再恢复这条记录，记录不降级。
-    集已不在、也没有删除记录（已彻底删除）时抛 ``trash_restore_failed``，按取不出对象降级。
+    Episodes still in project trash raise :class:`RestoreBlocked`: restore episodes first, then records, without degradation.
+    Absent episodes without deletion records, permanently deleted, raise ``trash_restore_failed`` for unavailable-object degradation.
     """
     number = episode if isinstance(episode, int) and not isinstance(episode, bool) else None
     project = ProjectManager.for_project_dir(project_dir).load_project(project_dir.name)

@@ -1,34 +1,39 @@
-"""供应商素材关联：内容版本在某个调用范围里对应的供应商素材，连同取得素材 ID 之前的入库任务。
+"""Provider asset links: content versions’ scoped provider assets, including ingest tasks before asset IDs exist.
 
-一条关联记录（:class:`~lib.db.models.asset_library.ProviderAssetLink`）从提交入库起就存在，状态如下：
+Link records (:class:`~lib.db.models.asset_library.ProviderAssetLink`) exist from ingest submission:
 
-- ``pending``：已选定，等待中转上传与提交入库；
-- ``submitting``：CreateAsset 请求已经或即将发出，进程在此中断时结果未知；
-- ``processing``：已取得供应商素材 ID，供应商仍在处理；
-- ``active``：供应商处理完成，只有这一状态可用于生成；
-- ``failed``：入库失败，或 ArcReel 在提交前失败（此时供应商侧没有创建素材）；
-- ``uncertain``：提交请求的结果未知，还没有素材 ID。不重新创建，由后台按提交时的名称查回。
+- ``pending``: selected, awaiting relay upload/submission;
+- ``submitting``: CreateAsset has been/is about to be sent; process interruption leaves unknown outcomes;
+- ``processing``: provider IDs obtained, still processing;
+- ``active``: processing complete, the only state usable for generation;
+- ``failed``: ingest failure or pre-submission ArcReel failure (providers created no asset);
+- ``uncertain``: unknown submission outcome without IDs; never recreate, recover by submission name in background.
 
-从素材库导入已有图片（``origin="import"``）时，关联在导入保存的新内容版本上直接以 ``active`` 建立：
-导入只接受供应商已处理完成的图片素材，内容取自该素材本身，没有入库任务要推进。
+Importing existing images (``origin="import"``) directly creates ``active`` links on newly saved
+versions: only processed provider images are accepted, content comes from that asset, and no
+ingest task needs advancement.
 
-**调用范围**按提交或导入时冻结的云账号身份、站点、区域与供应商项目判断，不按账号记录 ID：账号记录
-改成另一个云账号的 Access Key 后，旧关联保留原范围，不适用于新身份，也不会被新身份的上传顶替。
+**Call scopes** use frozen submission/import cloud-account identity, site, region, provider
+project, never account-record IDs. Switching records to another cloud account’s Access Key leaves
+old scopes intact, inapplicable to new identities and never replaced by new-identity uploads.
 
-**选定**：同一项目、同一内容版本、同一调用范围至多一条 ``selected``
-记录，即生成时要用的关联或要等待的入库任务。选定只由用户的上传或解除关联改变；后台查询结果只更新状态
-事实，不改变选定，所以入库期间改选了另一张图片，结果仍归属提交时的内容版本，已解除的关系也不会因
-迟到的结果恢复。
+**Selection**: at most one ``selected`` record per project/content-version/call-scope, identifying
+the generation link or awaited task. Only user upload/unlink changes selection; background
+queries change state facts only. Selecting another image during ingest leaves results on original
+versions; late results never restore unlinked relationships.
 
-**复制**：同一实例里以相同内容保存到全局资产库或应用到另一个项目时，目标经 :func:`copy_usable_links` 得到来源
-可用关联的副本，连同原调用范围。副本由目标独立持有：解除或替换任一副本不改写其他副本；生成时仍按目标实际
-推理凭证的绑定范围选用，复制不授予新账号资格。
+**Copying**: equal-content saves into global libraries or other projects obtain usable-link
+copies with original scopes through :func:`copy_usable_links`. Targets independently hold copies:
+unlinking/replacing one never changes others. Generation still chooses by actual target inference
+credential bindings; copying grants no new-account eligibility.
 
-**归档**：项目归档携带范围内内容版本的可用关联（:class:`ArchivedLink`），连同冻结的调用范围；其他状态依赖源实例的
-中转副本或后台任务，不携带。导入实例经 :func:`adopt_archived_links` 为内容一致的内容版本写入副本，规则同复制：
-账号身份不同的副本保留但不被选用，素材 ID 能否使用仍由供应商按账号鉴权。
+**Archives** carry usable in-scope version links (:class:`ArchivedLink`) with frozen scopes;
+other states depend on source-instance relays/tasks and are excluded. Importers use
+:func:`adopt_archived_links` for equal-content versions, sharing copy rules. Retain differently
+identified account copies without selecting them for calls; provider account authorization
+still determines asset-ID usability.
 
-生成、导入已有素材与 Agent 工具都经本模块查询与改变关联，不在路由里各自实现。
+Generation, existing-asset import, and Agent tools query/change links here, never independently in routes.
 """
 
 from __future__ import annotations
@@ -58,27 +63,27 @@ from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 
 LinkState = Literal["pending", "submitting", "processing", "active", "failed", "uncertain"]
 
-#: 还没有定论、后台仍会推进或查询的状态。
+#: Unresolved states still advanced/queried in background.
 IN_FLIGHT_STATES: frozenset[str] = frozenset({"pending", "submitting", "processing", "uncertain"})
 
-#: 可以上传到供应商素材库的图片资源类型：资产图与角色衍生图。
+#: Uploadable image resources: asset sheets and character-derivative sheets.
 UPLOADABLE_RESOURCE_TYPES: frozenset[str] = frozenset(
     {"characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE}
 )
 
-#: 入库请求里素材名称的上限（供应商限制 64 个字符）。
+#: Ingest asset-name limit, provider maximum 64 characters.
 _NAME_LIMIT = 64
 
 
 @dataclass(frozen=True)
 class UploadTarget:
-    """一次上传冻结的内容版本：身份、摘要与持久定位，在提交请求时确定，之后不随改选变化。"""
+    """Upload-frozen content version: identity, digest, durable locator fixed at submission and unchanged by later selection."""
 
     content_version: ContentVersion
 
 
 def scope_of(link: ProviderAssetLink) -> AssetLibraryScope:
-    """关联提交时的调用范围。"""
+    """Call scope captured at link submission."""
     return AssetLibraryScope(
         account_id=link.account_id,
         account_identity=link.account_identity,
@@ -89,12 +94,12 @@ def scope_of(link: ProviderAssetLink) -> AssetLibraryScope:
 
 
 def is_usable(link: ProviderAssetLink) -> bool:
-    """关联此刻能否用于生成：仍被选定、供应商处理完成且有素材 ID。"""
+    """Whether links are currently generation-usable: still selected, provider-complete, and possessing asset IDs."""
     return bool(link.selected and link.state == "active" and link.provider_asset_id)
 
 
 def asset_uri(link: ProviderAssetLink) -> str | None:
-    """可用关联在生成请求里的素材引用。"""
+    """Generation-request asset reference for a usable link."""
     return f"asset://{link.provider_asset_id}" if is_usable(link) else None
 
 
@@ -110,7 +115,7 @@ def _scope_filter(scope: AssetLibraryScope):
 async def selected_link(
     session: AsyncSession, *, project_name: str, content_version_id: str, scope: AssetLibraryScope
 ) -> ProviderAssetLink | None:
-    """内容版本在调用范围里当前选定的关联或入库任务；没有时返回 None，即该范围没有适用关联。"""
+    """Selected scoped link/task for a content version, or None when no link applies in that scope."""
     stmt = select(ProviderAssetLink).where(
         ProviderAssetLink.project_name == project_name,
         ProviderAssetLink.content_version_id == content_version_id,
@@ -123,7 +128,7 @@ async def selected_link(
 async def selected_links(
     session: AsyncSession, *, project_name: str, content_version_id: str
 ) -> list[ProviderAssetLink]:
-    """内容版本在各个调用范围里当前选定的关联或入库任务。"""
+    """Currently selected content-version links/tasks across call scopes."""
     stmt = (
         select(ProviderAssetLink)
         .where(
@@ -144,9 +149,10 @@ async def get_link(session: AsyncSession, *, project_name: str, link_id: int) ->
 
 
 def _current_content_version(project_path: Path, resource_type: str, resource_id: str) -> ContentVersion:
-    """资源当前选中的内容版本，按记录的摘要校验快照；早期记录在这里补写身份与摘要。
+    """Resource’s selected content version, verifying snapshot digests; backfill identities/digests for early records here.
 
-    远端内容版本的持久内容在对象存储里，本地工作文件可能已清理，这里不读本地文件，由入库时取用。
+    Remote content persists in object storage; local work files may be cleaned. Do not read
+    local files here; ingestion retrieves them when needed.
     """
     manager = VersionManager(project_path)
     current = manager.get_current_version(resource_type, resource_id)
@@ -163,7 +169,7 @@ def _current_content_version(project_path: Path, resource_type: str, resource_id
 
 
 async def resolve_upload_target(project_path: Path, resource_type: str, resource_id: str) -> UploadTarget:
-    """冻结要上传的内容版本：资源此刻选中的版本。"""
+    """Freeze the resource’s currently selected content version for upload."""
     if resource_type not in UPLOADABLE_RESOURCE_TYPES:
         raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
     content_version = await asyncio.to_thread(_current_content_version, project_path, resource_type, resource_id)
@@ -171,7 +177,7 @@ async def resolve_upload_target(project_path: Path, resource_type: str, resource
 
 
 def _submit_name(resource_id: str) -> str:
-    """入库请求里的素材名称：资源名便于在供应商控制台辨认，随机后缀让名称唯一，结果不确定时据此查回。"""
+    """Ingest asset name: recognizable resource names plus random uniqueness suffixes, enabling uncertain-outcome recovery."""
     token = f"arc-{uuid.uuid4().hex[:16]}"
     label = resource_id.replace("/", "-").strip()[: _NAME_LIMIT - len(token) - 1]
     return f"{label}-{token}" if label else token
@@ -185,15 +191,15 @@ async def request_upload(
     account_id: int,
     now: datetime | None = None,
 ) -> ProviderAssetLink:
-    """为冻结的内容版本创建入库任务并选定它，由后台完成中转上传、提交与状态查询。不提交事务。
+    """Create/select frozen-version ingest tasks for background relay/upload/query work; do not commit transactions.
 
-    同一调用范围里已有选定的关联或入库任务时拒绝：重新上传前先解除当前关系，避免结果不确定时
-    盲目重复创建，也避免两条记录争当选定。
+    Reject scopes already containing selected links/tasks; require unlinking before reupload to
+    avoid blind duplicate creation on uncertain outcomes and competing selected records.
 
     Raises:
-        NotFoundError: 账号不存在。
-        UnprocessableError: 没有配置对象存储连接，无法为供应商准备下载地址。
-        ConflictError: 该内容版本在这个范围里已有选定的关联或入库任务。
+        NotFoundError: Account absent.
+        UnprocessableError: No object-storage connection to prepare provider download URLs.
+        ConflictError: This scoped version already has a selected link/task.
     """
     account = await AssetLibraryRepository(session).get_account(account_id)
     if account is None:
@@ -237,9 +243,9 @@ async def request_upload(
 
 
 async def _insert_selected(session: AsyncSession, link: ProviderAssetLink) -> None:
-    """写入一条选定记录。先查后写之间并发的同范围请求由唯一索引拦下，按已有关联报冲突。
+    """Write selected records; unique indexes catch concurrent same-scope requests between read/write, reporting existing-link conflicts.
 
-    写入放在 SAVEPOINT 里：冲突只回滚这一条，调用方事务里之前的写入仍可继续使用。
+    Use SAVEPOINT so conflicts roll back this record only, preserving prior caller-transaction writes.
     """
     try:
         async with session.begin_nested():
@@ -258,15 +264,15 @@ async def record_imported_link(
     asset: ProviderAssetDetail,
     now: datetime | None = None,
 ) -> ProviderAssetLink:
-    """为导入得到的内容版本建立与所选供应商素材的关联并选定它。不提交事务。
+    """Link imported content versions to selected provider assets and select them, without committing.
 
-    ``content_version`` 必须是用该素材的实际内容刚保存的新版本：关联证明的是本地内容与供应商素材对应，
-    不能把素材 ID 贴到另一张图片上。只有可用的图片素材能建立关联，其余状态在这里拒绝，不会留下
-    看似可用的记录。
+    ``content_version`` must be newly saved from that asset’s actual content: links prove local/
+    provider correspondence, never attach IDs to another image. Only available images can link;
+    reject other states without leaving apparently usable records.
 
     Raises:
-        UnprocessableError: 素材不是图片、还不可用，或内容版本没有身份与摘要。
-        ConflictError: 该内容版本在账号范围里已有选定的关联或入库任务。
+        UnprocessableError: Not an available image, or version lacks identity/digest.
+        ConflictError: Existing selected link/task for this version/account scope.
     """
     if asset.asset_type != "Image":
         raise UnprocessableError("provider_asset_import_not_image")
@@ -313,10 +319,10 @@ async def record_imported_link(
 
 @dataclass(frozen=True)
 class LinkHolder:
-    """持有关联的一方：某个项目（或全局资产库的保留持有方）里的一个内容。
+    """Link holder: one content item in a project or retained global-library holder.
 
-    ``resource_type`` / ``resource_id`` / ``version`` / ``locator_path`` 只供展示与诊断，查找关联只按
-    ``project_name`` 与 ``content_version_id``。
+    ``resource_type`` / ``resource_id`` / ``version`` / ``locator_path`` serve display/diagnostics
+    only; lookup uses ``project_name`` / ``content_version_id`` exclusively.
     """
 
     project_name: str
@@ -329,7 +335,7 @@ class LinkHolder:
 
     @classmethod
     def of(cls, project_name: str, content_version: ContentVersion) -> LinkHolder | None:
-        """项目里一个内容版本作为持有方；早期没有身份或摘要的记录不能持有关联，返回 ``None``。"""
+        """Project content-version holder, or ``None`` for early records lacking identity/digest and thus unable to hold links."""
         if content_version.id is None or content_version.digest is None:
             return None
         material = content_version.material
@@ -345,7 +351,7 @@ class LinkHolder:
 
 
 def _usable_copy(source: ProviderAssetLink | ArchivedLink, target: LinkHolder, *, account_id: int) -> ProviderAssetLink:
-    """一条可用关联交给目标持有的副本：保留供应商素材 ID 与冻结的调用范围，以可用状态选定，尚未写入。"""
+    """Unwritten target-held usable-link copy, retaining provider ID/frozen scope and selected as active."""
     return ProviderAssetLink(
         project_name=target.project_name,
         content_version_id=target.content_version_id,
@@ -375,11 +381,12 @@ def _usable_copy(source: ProviderAssetLink | ArchivedLink, target: LinkHolder, *
 async def copy_usable_links(
     session: AsyncSession, *, source_project: str, source_content_version_id: str, target: LinkHolder
 ) -> list[ProviderAssetLink]:
-    """把来源内容当前可用的关联复制给内容相同的目标，返回新建的副本。不提交事务。
+    """Copy currently usable source links to equal-content targets; return new copies without committing.
 
-    只复制选定、可用且摘要与目标内容一致的关联：关联证明的是这份内容与供应商素材对应，内容不同时不复制。
-    入库中或失败的任务不复制，否则后台会为同一张图重复提交入库。副本保留来源的供应商素材 ID 与冻结的调用范围，
-    以可用状态选定，之后与来源各自解除、互不影响。目标在同一范围已有选定的关联时保留目标自己的。
+    Copy selected/available links only when digests match target content, since links prove exact
+    content correspondence. Never copy processing/failed tasks, which would cause duplicate ingest
+    submissions. Retain provider IDs/frozen scopes, selected as active; source/target later unlink
+    independently. Preserve target-selected links already occupying the same scope.
     """
     copies: list[ProviderAssetLink] = []
     for link in await selected_links(
@@ -401,7 +408,7 @@ async def copy_usable_links(
     return copies
 
 
-#: 归档导入的关联不经本实例的任何账号记录提交或查询，账号记录 ID 记为 0；账号记录 ID 从 1 起，不会与它相等。
+#: Imported links use no local account records for submission/query, so record ID 0; account IDs start at 1 and cannot collide.
 ARCHIVED_LINK_ACCOUNT_ID = 0
 
 _ARCHIVED_ORIGINS = frozenset({"upload", "import"})
@@ -441,11 +448,12 @@ def _iso(value: datetime | None) -> str | None:
 
 @dataclass(frozen=True)
 class ArchivedLink:
-    """项目归档携带的一条可用关联：它属于哪个内容版本、证明的是哪份内容，以及冻结的调用范围与供应商素材。
+    """Usable archived link: owning version, proven content, frozen call scope, and provider asset.
 
-    不含账号记录 ID、密钥、签名地址或中转副本：账号记录 ID 只在源实例里有意义，导入后记为
-    :data:`ARCHIVED_LINK_ACCOUNT_ID`；调用范围按冻结的云账号身份、站点、区域与供应商项目原样保留，不按目标实例的
-    账号改写。资源、版本号与定位取目标项目里的版本记录。
+    Exclude account-record IDs, secrets, signed URLs, and relays. IDs are source-instance-only;
+    imports use :data:`ARCHIVED_LINK_ACCOUNT_ID`. Preserve frozen cloud-account identity, site,
+    region, and provider project unchanged rather than rewriting for target accounts. Resource,
+    version number, and locator come from target-project version records.
     """
 
     content_version_id: str
@@ -463,7 +471,7 @@ class ArchivedLink:
 
     @classmethod
     def of(cls, link: ProviderAssetLink) -> ArchivedLink:
-        """可用关联的归档形式；调用方先用 :func:`is_usable` 筛选。"""
+        """Archive form of usable links; callers first filter with :func:`is_usable`."""
         if link.provider_asset_id is None:
             raise ValueError(f"provider asset link {link.id} has no provider asset id")
         return cls(
@@ -499,7 +507,7 @@ class ArchivedLink:
 
     @classmethod
     def from_payload(cls, payload: object) -> ArchivedLink | None:
-        """读取归档里的一条关联；形状或取值不合法（包可能被手工改过）时返回 ``None``，由调用方丢弃。"""
+        """Read archived links, returning ``None`` for invalid shape/values (possibly edited packages) for callers to discard."""
         if not isinstance(payload, dict):
             return None
         try:
@@ -542,10 +550,11 @@ class ArchivedLink:
 async def archivable_links(
     session: AsyncSession, *, project_name: str, content_digests: dict[str, str]
 ) -> list[ArchivedLink]:
-    """项目里这些内容版本（内容版本身份 → 摘要）当前可用的关联，按归档形式给出。
+    """Archive-form usable links for these project content versions (identity → digest).
 
-    只带选定且可用、摘要与版本记录一致的关联。等待上传、提交中、处理中与结果待确认的任务依赖源实例的中转副本
-    或后台查询，失败的任务没有素材，已解除的关系不再生效，这些都不带。
+    Include selected/active links with record-matching digests only. Waiting/submitting/processing/
+    uncertain tasks depend on source relays/background queries; failed tasks lack assets, unlinked
+    relationships are inactive. Exclude them all.
     """
     if not content_digests:
         return []
@@ -568,11 +577,12 @@ async def archivable_links(
 async def adopt_archived_links(
     session: AsyncSession, links: Iterable[tuple[ArchivedLink, LinkHolder]]
 ) -> list[ProviderAssetLink]:
-    """为导入项目里内容一致的内容版本写入归档带来的关联，返回写入的记录。不提交事务。
+    """Write archived links for equal-content imported versions; return records without committing.
 
-    调用方已核对 ``holder`` 的内容版本身份、摘要与实际内容都和关联一致。副本原样保留冻结的调用范围，以可用状态
-    选定；目标在同一范围已有选定的关联时保留目标自己的。账号身份与目标实例的绑定不一致的副本照样写入，
-    生成时按实际推理凭证的绑定范围选不中它。
+    Callers verified ``holder`` identity/digest/actual content matches links. Preserve frozen
+    scopes, selected as active; keep target-selected links already in the same scope. Write
+    copies even when account identities differ from target bindings; actual inference scopes
+    simply cannot select them during generation.
     """
     adopted: list[ProviderAssetLink] = []
     for archived, holder in links:
@@ -590,7 +600,7 @@ async def adopt_archived_links(
         try:
             await _insert_selected(session, copy)
         except ConflictError:
-            continue  # 包里同一内容版本在同一范围有两条关联：先写入的一条为准
+            continue  # Duplicate archived links for one version/scope: retain the first written.
         adopted.append(copy)
     return adopted
 
@@ -598,9 +608,9 @@ async def adopt_archived_links(
 async def delete_holder_links(
     session: AsyncSession, *, project_name: str, content_version_ids: Iterable[str] | None = None
 ) -> None:
-    """删除持有方名下这些内容（缺省为全部内容）的关联记录，只删记录，不涉及供应商素材与其他副本。不提交事务。
+    """Delete these content links under holders (all by default), records only, never provider assets/other copies; do not commit.
 
-    供不再持有某个内容的一方（全局资产库条目换图或删除）丢弃它那份副本。
+    Holders no longer owning content (library-entry image replacement/deletion) discard their own copies here.
     """
     condition = ProviderAssetLink.project_name == project_name
     if content_version_ids is not None:
@@ -612,9 +622,9 @@ async def delete_holder_links(
 
 
 async def release_link(session: AsyncSession, link: ProviderAssetLink, *, now: datetime | None = None) -> None:
-    """解除关联：只解除当前选定关系，不删除 ArcReel 图片或供应商素材。不提交事务。
+    """Unlink current selection only; never delete ArcReel images/provider assets, and do not commit.
 
-    入库任务尚未提交时，后台在发出 CreateAsset 前会看到已解除而放弃提交。
+    For unsubmitted tasks, background workers observe unlinking before CreateAsset and abandon submission.
     """
     if not link.selected:
         return
@@ -627,7 +637,7 @@ async def release_link(session: AsyncSession, link: ProviderAssetLink, *, now: d
 
 
 async def request_recheck(session: AsyncSession, link: ProviderAssetLink, *, now: datetime | None = None) -> None:
-    """让后台尽快重新查询这条关联的状态；已有定论（可用或失败）的不再查询。不提交事务。"""
+    """Request prompt background requery; resolved active/failed links never requery. Do not commit."""
     if link.state not in IN_FLIGHT_STATES:
         return
     link.next_check_at = now or utc_now()

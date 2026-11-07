@@ -1,0 +1,87 @@
+{
+  "baseline": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "review_scope": "Ten exact nonwebsite paths from final provenance-gap list. Full semantic diff review by coordinator; no edits. Existing English quotes, executable configs, IDs and command syntax preserved. This is not external-provider fact verification or live-model release.",
+  "files": [
+    {
+      "path": "lib/custom_provider/builtin_endpoints/README.md",
+      "baseline_sha256": "fb12b6859561667824061b70aa005e017f3f3e13269ffc7201a5b1910d19086c",
+      "candidate_sha256": "31164ffc312151c916fe53c0ac4a187743820f55f7b76101c372e4a467bd60d3",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read: import-time validator/author/ce-prefix/startup restrictions, shared namespace, immutable bundled definitions/user copies, HTTP methods/body/task_id substitutions, unencoded slash limitation and example-template boundary retained."
+    },
+    {
+      "path": "packages/arcreel-catalog-core/README.md",
+      "baseline_sha256": "3e1a4aeca069e4a96aa60d92565e37fe2f80f4337dc6f33efbceb452fb9f9f37",
+      "candidate_sha256": "91375896ea8ce3de7be90a2fd5072e098e5a93734e639d90ed178191ff4891ac",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read in bounded segments: identity and aliases, optional/unrecorded/zero distinctions, UTC retirement dates, successor media types, model facts, unit-price categories/counts/cjk_double, provider/default/endpoint rules, minimum-version derivation, parser-vs-validator tolerance matrix, CLI commands and package independence retained. Human diagnostic/argument placeholders translated, not real IDs."
+    },
+    {
+      "path": "packages/arcreel-catalog-core/pyproject.toml",
+      "baseline_sha256": "89ee641587696b09e2794dd1bf137d430bb882533ffaf956e78cbf0ac6ba043f",
+      "candidate_sha256": "7a7a588fbfd49ceb9b8c8c1ad4b24a23a625731916f39d7122f7abe97af35fb2",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Parsed TOML exact; only test import-mode explanatory comment translated."
+    },
+    {
+      "path": "packages/arcreel-market-core/README.md",
+      "baseline_sha256": "5f201ebc86d23803ebe0481f112b188c317044d7eda57ef8440046cd3dbd19f6",
+      "candidate_sha256": "7aac7a3a5427ef2da7a2469ad298c9399a972b1335fa7716b78a1c0156166bb9",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read: source-index/metadata projection rules, reusable workflows, dependency boundaries, stable key/params diagnostics and all locale/default/code-translator rules preserved. CLI human directory/diagnostic placeholders translate without changing commands/flags."
+    },
+    {
+      "path": "packages/arcreel-market-core/pyproject.toml",
+      "baseline_sha256": "79989221d9a19b0f90a4ec6b25cbe2bb8ffe39724d4b092bc82de1b88bc9377e",
+      "candidate_sha256": "047376e74aae843d7176d12a5c928ba78d8a3558e1a15eaa1ff61c6c84b4910a",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Parsed TOML exact; only test import-mode explanatory comment translated."
+    },
+    {
+      "path": "skills/setup-arcreel-skills/agents/openai.yaml",
+      "baseline_sha256": "666128be1873a3aa14daac7e942f5285394d4da45f8ca65fc95d0b993b8b40b1",
+      "candidate_sha256": "81391e03b0a7bb7912b665a35b747c6466a0629b377945cc7d291836369a94d5",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "All three display/trigger prompt values independently compared; setup skill literal and connection intent preserved. Earlier runtime-remaining-independent-review.md also covers these values."
+    },
+    {
+      "path": "skills/video-workflow/SKILL.md",
+      "baseline_sha256": "368b6167f1b6e66a86d12d20df6302727f98c93375f0675fbf4853c57a7573a6",
+      "candidate_sha256": "9cb0d56c96bb487d4bb774744ebe8be31b4547531e955573d799da42dee40365",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read: sole MCP project authority, explicit project/episode identity, plan/admission routing, progress read-only behavior, branch selection, bounded polling, mode matrix, per-request temporary choices, blocker recovery, paid/destructive consent, artifact state axes, ID omission/selection, provider-library consent and user-driven regeneration retained."
+    },
+    {
+      "path": "skills/video-workflow/references/generation-modes.md",
+      "baseline_sha256": "c99a26dc26694d3d1f58021c429cfcadf35307944d458593d66fad58eb1d86d5",
+      "candidate_sha256": "2da4641e4d731e12ded3dfe6a8d4d750ccecbe531a7fb9e3e8c69911f146f3a2",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read: sole MCP project authority, explicit project/episode identity, plan/admission routing, progress read-only behavior, branch selection, bounded polling, mode matrix, per-request temporary choices, blocker recovery, paid/destructive consent, artifact state axes, ID omission/selection, provider-library consent and user-driven regeneration retained."
+    },
+    {
+      "path": "skills/video-workflow/references/generation-results.md",
+      "baseline_sha256": "559b688de84510e39c8d43beecd60a63dc67b313b2bd9707a8c735fb1f8ad3dd",
+      "candidate_sha256": "4afed556c42714911df001e2081f9ee56957b7ea4473a4c9d9a3bd9b3ccbb2db",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read: sole MCP project authority, explicit project/episode identity, plan/admission routing, progress read-only behavior, branch selection, bounded polling, mode matrix, per-request temporary choices, blocker recovery, paid/destructive consent, artifact state axes, ID omission/selection, provider-library consent and user-driven regeneration retained."
+    },
+    {
+      "path": "skills/video-workflow/references/plan-safety.md",
+      "baseline_sha256": "c07e3ff2328ec0289fdb4dbe09cd9ce474124657b0fa77b2e727740032a84079",
+      "candidate_sha256": "ebab557164e1b262b373f801f5c003db6f54bddd2a3fbd9fbaf95c43f3b8f3fa",
+      "disposition": "accepted",
+      "reviewer": "root",
+      "proof": "Full bilingual diff read: sole MCP project authority, explicit project/episode identity, plan/admission routing, progress read-only behavior, branch selection, bounded polling, mode matrix, per-request temporary choices, blocker recovery, paid/destructive consent, artifact state axes, ID omission/selection, provider-library consent and user-driven regeneration retained."
+    }
+  ],
+  "website_followup": "English CONTRIBUTING one-clause fidelity correction accepted; provider-page stale-source omissions are being completed and independently reviewed in separate final-public-english-review artifact. Do not infer website acceptance from this record."
+}

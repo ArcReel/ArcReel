@@ -1,16 +1,16 @@
-"""KlingModelPathVideoBackend — 可灵新版 API 的视频调用通道（端点 ``kling-video-model-path``）。
+"""KlingModelPathVideoBackend: new Kling API video channel (endpoint ``kling-video-model-path``).
 
-新版 API 把模型名写在路径里，只收 API Key（Bearer），出处见 ``docs/api-docs/endpoints/kling-video-model-path.md``：
+New APIs put model names in paths and accept API Key (Bearer) only; see ``docs/api-docs/endpoints/kling-video-model-path.md``:
 
-- 文生视频 ``POST /text-to-video/<模型名>``：顶层 ``prompt`` 加 ``settings.{resolution,duration,aspect_ratio}``。
-- 图生视频 ``POST /image-to-video/<模型名>``：``contents[]`` 放提示词（``prompt``）、首帧（``first_frame``）与可选的
-  尾帧（``last_frame``），``settings`` 只有 ``resolution`` 与 ``duration``，画面比例跟随首帧。
-- 提交响应取 ``data.id``；``GET /tasks?task_ids=<id>`` 轮询到 ``status=succeeded``，取 ``outputs[type=video].url``，
-  计费时长取 ``usage.output_duration``。
+- Text-to-video ``POST /text-to-video/<模型名>``: top-level ``prompt`` plus ``settings.{resolution,duration,aspect_ratio}``.
+- Image-to-video ``POST /image-to-video/<模型名>``: ``contents[]`` contains prompts (``prompt``), first frames (``first_frame``), optional
+  last frames (``last_frame``); ``settings`` contains only ``resolution`` and ``duration``, with aspect ratio following first frames.
+- Read ``data.id`` on submission; poll ``GET /tasks?task_ids=<id>`` until ``status=succeeded``, retrieve ``outputs[type=video].url``,
+  and bill duration from ``usage.output_duration``.
 
-请求体没有音轨开关，成片固定有声（官方「音画同步与智能分镜无开关，默认开启。API 也同样默认开启」）。
-本通道不接参考图、参考视频与主体（全能参考 ``/omni-video``）：带输入视频时官方按「输出×2」与「输入+输出」取大计费，
-现有计量表达不了。各型号接受哪些输入、时长与分辨率记在模型条目上，与本通道的声明两侧求值（docs/adr/0104）。
+No audio switch exists in bodies; output always has audio (officially audiovisual synchronization/intelligent storyboarding have no switch and default on, including APIs).
+This channel accepts no reference images/videos or subjects (omni reference ``/omni-video``): official input-video billing takes the greater of
+output×2 and input+output, unrepresentable by current metering. Model entries record accepted inputs/durations/resolutions, evaluated jointly with channel declarations (docs/adr/0104).
 """
 
 from __future__ import annotations
@@ -64,15 +64,15 @@ TEXT_TO_VIDEO = "text-to-video"
 IMAGE_TO_VIDEO = "image-to-video"
 TASKS_PATH = "tasks"
 
-# 持久化 job_id 的前缀：新版 API 只有一个按 id 查询的 /tasks，不需要像旧版那样把子路径编进去；
-# 前缀用来认出旧版通道写下的 ``text2video:<id>:<audio>`` 一类 job_id，避免把它们发到新版查询端点。
+# Persisted job_id prefix: new API has one id-based /tasks query, without encoding subpaths as old APIs did.
+# Prefix recognizes old-channel ids such as ``text2video:<id>:<audio>`` to avoid sending them to new query endpoints.
 _JOB_ID_PREFIX = "tasks:"
 
-# 未指定分辨率时下发 720p：kling-4.0、kling-4.0-flash、kling-3.0-turbo 都接受，
-# 也避免上游按各自默认值（kling-4.0 默认 1080p）出片，与计量的分辨率档位对不上。
+# Send 720p when unspecified, accepted by kling-4.0, kling-4.0-flash, and kling-3.0-turbo;
+# avoid upstream defaults (kling-4.0 defaults to 1080p) mismatching metered resolution tiers.
 _DEFAULT_RESOLUTION = "720p"
 
-# 通道对任何型号都发得出文生视频、首帧与尾帧；参考图与参考音频没有对应的请求字段。
+# Channel can send text, first frames, and last frames for all models; no reference-image/audio request fields.
 _CHANNEL_CAPABILITIES = VideoCapabilities(
     text_to_video=True,
     first_frame=True,
@@ -99,7 +99,7 @@ def encode_job_id(task_id: str) -> str:
 
 
 def decode_job_id(job_id: str) -> str:
-    """从持久化 job_id 复原新版 API 的任务 id；不是本通道写下的 job_id 时拒绝，不拿它去查询。"""
+    """Restore new-API task ids from persisted job_id; reject ids not written by this channel instead of querying them."""
     task_id = job_id.removeprefix(_JOB_ID_PREFIX)
     if task_id == job_id or not task_id:
         raise ValueError(f"可灵新版 API 认不出这个任务 ID，它不是由本调用端点提交的: {job_id}")
@@ -107,7 +107,7 @@ def decode_job_id(job_id: str) -> str:
 
 
 class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdPersistenceMixin):
-    """可灵新版 API 视频后端（Bearer API Key，异步轮询）。"""
+    """New Kling API video backend (Bearer API Key, asynchronous polling)."""
 
     _media_label = "视频"
     endpoint_key = ENDPOINT_KEY
@@ -125,7 +125,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         transport_layer: TransportLayer | None = None,
     ) -> None:
         if auth_mode != "bearer":
-            # 官方「接口鉴权」：Access Key / Secret Key 只适用于旧版设计标准的 API，新版只收 API Key。
+            # Official authentication: Access Key / Secret Key apply only to old-standard APIs; new APIs accept API Key only.
             raise ValueError("可灵新版 API 只支持 API Key 鉴权，请到系统配置页填写可灵 Kling 的 API Key")
         super().__init__(
             auth_mode=auth_mode,
@@ -139,13 +139,13 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         )
         self._base_url = kling_model_path_base_url(base_url)
 
-    # ── 能力与计量 ──────────────────────────────────────────────────────
+    # Capabilities and metering.
 
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """通道事实：文生、首帧、尾帧可发，参考图与参考音频不收，成片固定有声。
+        """Channel facts: text, first frames, and last frames can be sent; references/audio references cannot; output always has audio.
 
-        尾帧只有 kling-4.0 接受（kling-4.0-flash 与 kling-3.0-turbo 仅首帧），这是模型事实，由条目收窄。
+        Only kling-4.0 accepts last frames (kling-4.0-flash/kling-3.0-turbo accept first frames only), a model fact narrowed by entries.
         """
         return _CHANNEL_CAPABILITIES
 
@@ -166,10 +166,10 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+        """This request's measurements (:mod:`lib.backends.video_backends.metering`).
 
-        分辨率取实际下发的 ``settings.resolution``（未指定时下发 720p），成片固定有声；结算的输出秒数取
-        ``usage.output_duration``（官方计费时长，只有 kling-4.0 系列回报），缺失时取下发的时长。
+        Resolution is actual sent ``settings.resolution`` (720p if unspecified); output always has audio. Settled output seconds use
+        ``usage.output_duration`` (official billing duration, reported only by kling-4.0 families), otherwise sent duration.
         """
         return video_usage(
             request,
@@ -180,7 +180,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             reference_images=0,
         )
 
-    # ── 响应解读 ────────────────────────────────────────────────────────
+    # Response interpretation.
 
     def _task_id_from(self, submit_payload: dict) -> str:
         return kling_model_path_task_id(submit_payload)
@@ -194,15 +194,15 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
     def _failure_reason(self, payload: dict) -> str | None:
         return kling_model_path_failure_reason(payload)
 
-    # ── 请求构造 ────────────────────────────────────────────────────────
+    # Request construction.
 
     def _build_payload(self, request: VideoGenerationRequest) -> tuple[str, dict]:
-        """返回 (提交路径, 请求体)；发不出的输入在付费前拒绝，不静默丢弃。"""
+        """Return (submission path, body); reject unsendable inputs before billing, never silently discard."""
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         if request.reference_images and any(_has_image(p) for p in request.reference_images):
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-        # 请求体没有音轨开关；静音请求只在能力被用户覆盖放宽时走到这里。
+        # No body audio switch; silent requests reach here only when users relax capability overrides.
         if not request.generate_audio:
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
@@ -227,11 +227,11 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             if not caps.last_frame:
                 raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
             contents.append({"type": "last_frame", "url": self._encode_frame(Path(cast(Path, request.end_image)))})
-        # 图生视频没有 aspect_ratio 字段，画面比例跟随首帧。
+        # Image-to-video has no aspect_ratio field; ratio follows first frames.
         return model_path, {"contents": contents, "settings": settings}
 
     def _encode_frame(self, path: Path) -> str:
-        # 官方帧图字段接受 URL 或 base64；声明了帧图却不可读即中止，不静默退化成文生视频。
+        # Official frame fields accept URL/base64; declared unreadable frames abort instead of silently degrading to text-to-video.
         if not path.is_file():
             raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name)
         try:
@@ -241,7 +241,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
 
     @staticmethod
     def _safe_log_view(path: str, payload: dict) -> dict:
-        """预脱敏标量视图：帧图 base64 与提示词不展开。"""
+        """Preredacted scalar views: never expand frame base64 or prompts."""
         raw_settings = payload.get("settings")
         settings: dict = raw_settings if isinstance(raw_settings, dict) else {}
         raw_contents = payload.get("contents")
@@ -267,14 +267,14 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, path, payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
+            # Persist actual request host too: resume replays it, otherwise changed base_url would query old tasks on new hosts.
             await self._persist_provider_job_id(
                 request, encode_job_id(task_id), provider=PROVIDER_KLING, endpoint=self._base_url
             )
             return await self._poll_and_build(client, task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """接续已提交的任务：只轮询、取件，不重新提交（ADR 0007）。"""
+        """Resume submitted tasks with polling/retrieval only, never resubmit (ADR 0007)."""
         task_id = decode_job_id(job_id)
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             return await self._poll_and_build(client, task_id, request, resume_job_id=job_id)

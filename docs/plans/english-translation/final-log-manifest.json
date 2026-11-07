@@ -1,0 +1,143 @@
+{
+  "scope": "Portable completed-run logs, including failed/rejected runs retained explicitly. Counts overlap. Intermediate earlier batch logs remain in the temporary evidence directory referenced by their reports. Logs are not universal behavioral proof.",
+  "logs": [
+    {
+      "path": "logs/backend-final-stable-candidate.log",
+      "sha256": "f300b822dd19e98dc85d20079fe9c5f0ee325ad35c389fcdcd2e5d25c06915b5",
+      "bytes": 34780,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/final-audit-helper-tests.log",
+      "sha256": "b7f795685aec8b49cbdb528d42b123ada770b5e025cf3338fca573dd28c6aab2",
+      "bytes": 673,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/final-passive-python-static.log",
+      "sha256": "f114d83b30c5c657ee43a847a45bafccaea255d82673feb87c26d252c61e29c1",
+      "bytes": 26,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/final-public-tests-conventions-gates.log",
+      "sha256": "889b1337dd31f81d02f92866c5a7889381a6f2ff3b09b0f340d7a3618aaac3d2",
+      "bytes": 1398,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/final-residual-layout-tests.log",
+      "sha256": "e18f4c0f1836375dc7302f8d54cc3438e066ab03c9245cea04a24e9c3245dc08",
+      "bytes": 3338,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/final-stable-domain-gates.log",
+      "sha256": "fa488c5465aad4910924def48e7469c5773d845b6dbc02744e3ce102de7560aa",
+      "bytes": 6486,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/final-tests-conventions.log",
+      "sha256": "ea9c17a7b72ea7a0b32d4320c9ddcf9a6edac921cce74aa1dca830a1b3a10508",
+      "bytes": 215,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-final-code-with-diagnostics-proof.log",
+      "sha256": "0a5f9949d31aa0c48aa25ffd3130e01aa545fcd48ea559b10704ae262c0a6892",
+      "bytes": 122,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-final-complete-gate.log",
+      "sha256": "e7b7cf0c9c604db08451038cb89461afc560b5b58fc896da8dd20bb772dc4f15",
+      "bytes": 3316,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-native-final-reference-alignment.log",
+      "sha256": "da4eb06f2e19bf8ebb9bec2ca8675f9bb7e700547f96e1f25ca1962e3616ebc3",
+      "bytes": 4060,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-official-final-rebuild-after-css-repair.log",
+      "sha256": "a4c39ee7fb54fb3001bf0e323232325574f71ea57969e2c2497c3f3aa6db6b58",
+      "bytes": 11421,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-official-final-rebuild.log",
+      "sha256": "d9c6a316080b96bd595f01961f76f250fc1d095242dcce2c3a1ce19e82042561",
+      "bytes": 11421,
+      "scope": "build succeeded but emitted CSS comparison rejected; repaired build logged separately"
+    },
+    {
+      "path": "logs/frontend-official-full-e2e-rerun.log",
+      "sha256": "b5ae2e88e3444d11732dcf555b61641224aaf53ada5cd29d54aaec3bc9f4b162",
+      "bytes": 245103,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-official-full-e2e.log",
+      "sha256": "07bbaf8aebe423c7a49a4451b7830e53b9876187bed3ac1656b752e9b080b3b7",
+      "bytes": 247817,
+      "scope": "retained failed first official full run"
+    },
+    {
+      "path": "logs/frontend-official-toast-baseline-repeat.log",
+      "sha256": "88c387b8ea4196d299c136591721ad0bc10ae57aa9309c5d368737ec7fe89e7a",
+      "bytes": 4206,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-official-toast-candidate-repeat.log",
+      "sha256": "a351fff17132c7fa8a878a391688f1549cbe756d01f11634b2bb7d37345e2faa",
+      "bytes": 4211,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/frontend-onboarding-official-candidate-repeat.log",
+      "sha256": "98bd448e8586fb2fe714d6abe2f373b362e05ee886f8a1faa0dc0d2eddacb916",
+      "bytes": 3267,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    },
+    {
+      "path": "logs/markdown-final-audit.log",
+      "sha256": "3663d8653b113e5ebd2b965e5870ab871f657c976d0d266514124f65a61c19cf",
+      "bytes": 5475,
+      "scope": "raw exit1 with45 exact independently reviewed findings across446Markdown files"
+    },
+    {
+      "path": "logs/precommit-review-frontend-build.log",
+      "scope": "Additional final pre-commit review validation run.",
+      "sha256": "17230d8ccab6cf6dd3a13a88075714a9b8e09c77e11a1862bb216927790d505c",
+      "bytes": 11421
+    },
+    {
+      "path": "logs/precommit-review-gates.log",
+      "scope": "Additional final pre-commit review validation run.",
+      "sha256": "5214b3efc76460e749fca8a8eb776552557b48ffd9ceee636ffec36fabfff53e",
+      "bytes": 215
+    },
+    {
+      "path": "logs/precommit-review-profile-lint.log",
+      "scope": "Additional final pre-commit review validation run.",
+      "sha256": "7ea2e645e784c95667fbb8d6e7bb14ad77bfa6a1e3ea0b3a530a9bacbc252075",
+      "bytes": 57
+    },
+    {
+      "path": "logs/precommit-review-related-tests.log",
+      "scope": "Additional final pre-commit review validation run.",
+      "sha256": "f5dfd15199956e2dab3a7f3724dced1c0edc7c2a0d15956472d28feaf4b68c8f",
+      "bytes": 5656
+    },
+    {
+      "path": "logs/website-final-production-build.log",
+      "sha256": "0df26272d0f998d3f13d4d36d4e4396b317aecb89f8347524c79f10f90cbe450",
+      "bytes": 1146,
+      "scope": "completed validation run; result interpreted in validation/evidence reports"
+    }
+  ]
+}

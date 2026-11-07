@@ -1,8 +1,8 @@
 ---
 id: style/live_cinematic_ancient
 category: style
-title: 精品古装
-description: "真人画风，专业打光 · 电视剧质感。"
+title: "Cinematic Historical"
+description: "Live action, professional lighting · television-drama texture."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-精品古装真人短剧风格，专业打光，高质量电视剧质感
+Premium live-action period short-drama style, professional lighting, high-quality television-drama texture

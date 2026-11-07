@@ -1,4 +1,4 @@
-"""BGM 登记：在真实临时项目上用随包 ffmpeg 实测响度，按字节登记为项目级产物。"""
+"""Register BGM on real temporary projects, measuring loudness with bundled ffmpeg and registering bytes as project artifacts."""
 
 from __future__ import annotations
 

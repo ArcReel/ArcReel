@@ -104,7 +104,7 @@ def _assert_v25_core_body(body: dict, *, mode: str, seconds: str, size: str) -> 
 
 class TestV25RequestBodies:
     async def test_duration_is_passed_through_without_backend_check(self, tmp_path: Path):
-        """时长不在 backend 另做检查，4–12 秒之外的值也原样下发，由上游判定。"""
+        """Backends do not independently constrain durations; values outside 4–12 seconds pass unchanged for upstream judgment."""
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued())
             routes.query.mock(return_value=_completed(seconds="13"))
@@ -260,7 +260,7 @@ class TestV25PreSubmitValidation:
         [("agnes-video-2.5-flash", 6), ("agnes-video-2.5", 9)],
     )
     def test_reference_image_limit_is_model_specific(self, tmp_path: Path, model: str, count: int):
-        """各型号的参考图上限来自条目，执行闸门在提交前按两侧求值的结果拒绝。"""
+        """Model reference caps come from entries; execution gates reject before submission using joint evaluations."""
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.backends.video_frame_slots import gate_video_request
 

@@ -1,4 +1,4 @@
-"""MediaGenerator 在调用 image backend 前 gating；不匹配抛 ImageCapabilityError。"""
+"""MediaGenerator gates before image backend calls; mismatches raise ImageCapabilityError."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -65,7 +65,7 @@ async def test_i2i_call_with_t2i_only_backend_raises(tmp_path):
 
 @pytest.mark.asyncio
 async def test_t2i_call_rejected_when_entry_only_accepts_i2i(tmp_path):
-    """通道两者都实现，模型条目只接受图生图（vidu/viduq1）：执行与任务类型桶同一个结果，文生图被拒。"""
+    """Channels implement both, but vidu/viduq1 entries accept image-to-image only; execution/task buckets agree and reject text-to-image."""
     from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES
     from lib.generation.media_generator import MediaGenerator
 
@@ -85,7 +85,7 @@ async def test_t2i_call_rejected_when_entry_only_accepts_i2i(tmp_path):
 async def test_reference_images_beyond_the_effective_limit_are_rejected_before_submission(
     tmp_path, monkeypatch, entry_limit: int, refs: int, code: str
 ):
-    """执行时的校验读与编排层裁剪同一个生效上限：条目记 0 张时不接受图生图；超出正数上限时不交给后端静默截断。"""
+    """Execution and orchestration read identical effective limits: entry 0 rejects image-to-image; positive overflow never silently truncates in backends."""
     from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES
     from lib.catalog import query
     from lib.generation.media_generator import MediaGenerator

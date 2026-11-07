@@ -25,15 +25,16 @@ _NEW_ENDPOINTS = ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01
 
 
 def _endpoint_for_model(model_id: object) -> str:
-    """模型名 → 新键，每档的宽度各自固定。
+    """Model name → new key, with independently fixed width per tier.
 
-    H3 按 `"minimax-h3" in lowered` 判，容忍大小写与命名空间前缀；Fast 与 S2V 按精确型号名
-    判（`MiniMax-Hailuo-2.3-Fast` / `S2V-01`），`proxy/MiniMax-Hailuo-2.3-Fast` 一类中转别名
-    因此落通用海螺键，而不是首帧必需的 Fast 定义——中转别名的上游是不是 Fast 无从确知，迁移
-    不替用户判定；要改判由用户在模型行上自己换端点。
+    H3 uses `"minimax-h3" in lowered`, tolerating case and namespace prefixes. Fast and S2V use exact
+    names (`MiniMax-Hailuo-2.3-Fast` / `S2V-01`), so relay aliases such as
+    `proxy/MiniMax-Hailuo-2.3-Fast` use the generic Hailuo key rather than the first-frame-required
+    Fast definition. Their upstream cannot be verified as Fast; migration does not decide for users,
+    who can change endpoints on the model row.
 
-    迁移是时点快照，字面量在此各存一份而不 import 应用代码：日后路由改口径也不该改写
-    已迁移过的历史行。
+    Freeze literals here without application imports: migrations are point-in-time snapshots, and
+    later routing-rule changes must not rewrite historical migrated rows.
     """
     model = str(model_id or "")
     lowered = model.lower()
@@ -67,7 +68,7 @@ def _rewrite_checkpoints(*, upgrading: bool) -> None:
         )
     )
     for task_id, raw in rows:
-        # 坏掉的 checkpoint 是单条任务的身份问题（运行时按不可恢复处理），不该让整个迁移中止。
+        # A broken checkpoint is one task’s identity problem (unrecoverable at runtime), not grounds to abort the migration.
         try:
             checkpoint = json.loads(raw)
         except ValueError:

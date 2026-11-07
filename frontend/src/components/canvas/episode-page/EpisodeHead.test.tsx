@@ -40,7 +40,7 @@ function renderHead(meta: EpisodeMeta = FIRST, overrides: Partial<Parameters<typ
   );
 }
 
-/** 已花与剩余在花费摘要的说明弹层里：点开摘要，返回弹层。 */
+/** Spent/remaining appear in the cost summary popover: open the summary and return the popover. */
 async function openCostDetail(summary: string) {
   fireEvent.click(screen.getByRole("button", { name: summary }));
   return screen.findByRole("dialog");
@@ -78,7 +78,7 @@ describe("EpisodeHead", () => {
 
     renderHead();
 
-    // 已花含历史支出；剩余仍是整笔预估——那 $10 花在已被替换掉的旧剧本上，当前剧本的工作一件也没做
+    // Spent includes history; remaining is the full estimate: that $10 paid for a replaced script, with no work done on the current one.
     expect(await openCostDetail("预估 $10.00")).toHaveAccessibleDescription("已花 $10.00，剩余 $10.00");
   });
 

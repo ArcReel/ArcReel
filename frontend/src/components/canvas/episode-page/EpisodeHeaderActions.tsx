@@ -2,19 +2,19 @@ import { createContext, useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
- * 页头第二行右侧的动作插槽。`undefined` 表示不在集页里，`null` 表示插槽节点还没挂上。
+ * Action slot on the right of the header's second row. `undefined` means outside an episode page; `null` means its node has not mounted.
  */
 const EpisodeHeaderSlotContext = createContext<HTMLElement | null | undefined>(undefined);
 
-/** 集页提供插槽节点：挂载前为 null。 */
+/** Episode page supplies the slot node; null before mount. */
 export function EpisodeHeaderSlotProvider({ value, children }: { value: HTMLElement | null; children: ReactNode }) {
   return <EpisodeHeaderSlotContext.Provider value={value}>{children}</EpisodeHeaderSlotContext.Provider>;
 }
 
 /**
- * 各视图往集页页头放当前视图的动作（批量补齐、编写提示词、出片等）。子元素经 portal 渲染到页头，
- * 状态与事件仍留在调用方的组件树里。一个视图只放一处，按当前视图条件渲染；
- * 不在集页里（如画布单独渲染的测试）时就地渲染。
+ * Views place current actions such as batch generation, prompt authoring and rendering in the episode header. Portal children into the header,
+ * retaining state/events in the caller's component tree. Use one instance per view, rendered conditionally for the active view;
+ * render in place outside episode pages, such as standalone canvas tests.
  */
 export function EpisodeHeaderActions({ children }: { children: ReactNode }) {
   const slot = useContext(EpisodeHeaderSlotContext);

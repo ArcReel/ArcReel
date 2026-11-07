@@ -1,4 +1,4 @@
-"""URL 规范化工具单元测试。"""
+"""URL normalization utility unit tests."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class TestNormalizeAnthropicBaseUrl:
         ],
     )
     def test_keeps_everything_else(self, raw: str) -> None:
-        """不再剥 /vN、单独的 /messages，也不识别 anthropic 子路径。"""
+        """No longer strip /vN or standalone /messages, nor recognize anthropic subpaths."""
         assert normalize_anthropic_base_url(raw) == raw
 
 
@@ -76,7 +76,7 @@ class TestAnthropicEndpointUrl:
             ("https://x", "https://x/v1/messages"),
             ("https://x/anthropic", "https://x/anthropic/v1/messages"),
             ("https://api.deepseek.com/anthropic/v1", "https://api.deepseek.com/anthropic/v1/v1/messages"),
-            # 已转义的路径分隔符逐字保留：运行时 CLI 也是字符串拼接，探测不能打到另一个端点。
+            # Preserve escaped separators literally: runtime CLI concatenates strings, so probes must not reach different endpoints.
             ("https://example.com/gateway%2Ftenant", "https://example.com/gateway%2Ftenant/v1/messages"),
         ],
     )
@@ -96,7 +96,7 @@ class TestAnthropicEndpointUrl:
         ("https://relay.test/v2beta", "https://relay.test"),
         ("https://relay.test/v1.5", "https://relay.test"),
         ("https://relay.test/api", "https://relay.test/api"),
-        # 前端 RequestAddresses 的 VERSION_SUFFIX 只认 ASCII 数字，两侧用例表同口径
+        # Frontend RequestAddresses VERSION_SUFFIX accepts ASCII digits only; both case tables agree.
         ("https://relay.test/v\uff11", "https://relay.test/v\uff11"),
     ],
 )

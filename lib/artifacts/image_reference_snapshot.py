@@ -25,11 +25,10 @@ class FrozenImageReferences:
     _directory: Path | None
 
     def sent(self, count: int) -> FrozenImageReferences:
-        """只把前 ``count`` 张交给供应商的视图；快照目录与本对象共享，清理任一即可。
+        """View of only the first ``count`` images sent to the provider; shares the snapshot directory, so cleaning either suffices.
 
-        依据与 claim 仍按完整冻结集登记，供应商按图像后端上限只收前几张：两者读同一批
-        不可变字节，编号也只指认这份视图里的图。
-        """
+        Bases/claims still register the full frozen set while providers receive only the first images within
+        backend limits. Both read the same immutable bytes; numbering identifies only images in this view."""
 
         if count < 0 or count > len(self.visual_references):
             raise ValueError("sent reference count must stay within the frozen references")
@@ -45,7 +44,9 @@ class FrozenImageReferences:
         """Remove snapshots after the awaited provider submission completes."""
 
         if self._directory is not None:
-            shutil.rmtree(self._directory, ignore_errors=True)  # hard-delete: temp -- 冻结参考图的临时副本目录
+            shutil.rmtree(
+                self._directory, ignore_errors=True
+            )  # hard-delete: temp -- frozen reference-image temporary-copy directory
 
 
 def freeze_image_references(
@@ -94,7 +95,9 @@ def freeze_image_references(
             if source.resolve(strict=True) != resolved or visual_file_digest(source) != source_digest:
                 raise OSError("reference images changed while they were frozen")
     except BaseException:
-        shutil.rmtree(directory, ignore_errors=True)  # hard-delete: temp -- 冻结参考图失败时的临时副本目录
+        shutil.rmtree(
+            directory, ignore_errors=True
+        )  # hard-delete: temp -- temporary-copy directory after reference-image freezing failure
         raise
     return FrozenImageReferences(frozen_provider, tuple(frozen_visuals), directory)
 

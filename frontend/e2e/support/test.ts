@@ -1,4 +1,4 @@
-// 页面级套件的 test：每条用例自动回放录制的接口替身、固定时间并拦住外网请求。
+// Page-suite test automatically replays recorded APIs, fixes time and blocks external requests per case.
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test as base, type Page } from "@playwright/test";
 import { inspectLayout } from "./layout-probe.ts";
@@ -7,8 +7,8 @@ import { FIXED_NOW, loadRecordedResponses, recordedKey, type RecordedResponse } 
 const RECORDED = loadRecordedResponses();
 
 /**
- * 场景对某个接口的替换响应，用于长文本、多条目等压力变体；键形如 `GET /api/v1/projects`，带查询串的请求写全查询串。
- * `body` 是字符串时按 text/plain 原样返回，其余按 JSON 返回。
+ * Scenario API overrides for long-text/many-item stress variants; keys like `GET /api/v1/projects` include full query strings when present.
+ * String `body` returns unchanged as text/plain, others as JSON.
  */
 export type ApiOverrides = Record<string, Pick<RecordedResponse, "status" | "body">>;
 
@@ -27,7 +27,7 @@ export const test = base.extend<{ api: ApiStub }>({
       const unrecorded: string[] = [];
 
       await page.clock.setFixedTime(new Date(FIXED_NOW));
-      // 外网资源（如在线字体）不进入断言，拦掉以免网络波动影响结果。
+      // External resources such as online fonts are outside assertions; block them to avoid network variability.
       await page.route(
         (url) => !isLoopback(url),
         (route) => route.abort(),
@@ -41,7 +41,7 @@ export const test = base.extend<{ api: ApiStub }>({
           await route.fulfill({ status: 501, json: { detail: `没有录制 ${key}` } });
           return;
         }
-        // 记忆文件正文等接口按 text/plain 返回原文：替换响应的 body 写成字符串
+        // Memory-file bodies and similar endpoints return text/plain originals; replacement response bodies use strings.
         if (typeof response.body === "string") {
           await route.fulfill({ status: response.status, body: response.body, contentType: "text/plain; charset=utf-8" });
           return;
@@ -68,7 +68,7 @@ export const test = base.extend<{ api: ApiStub }>({
 
 export { expect };
 
-/** 文档本身不滚动，没有被 overflow 裁切、用户够不到的内容，也没有未声明的横向滚动。 */
+/** Documents themselves never scroll; no overflow-clipped unreachable contents or undeclared horizontal scrolling. */
 export async function expectReachableLayout(page: Page) {
   const report = await page.evaluate(inspectLayout);
   expect
@@ -84,7 +84,7 @@ export async function expectReachableLayout(page: Page) {
   expect(report.clipped, "有内容被 overflow 裁切且无法滚动到达").toEqual([]);
 }
 
-// axe 的 WCAG 2.2 规则（含 target-size）默认关闭，需要显式开启 wcag22aa。
+// axe WCAG 2.2 rules (including target-size) default off; explicitly enable wcag22aa.
 const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 export async function expectAccessible(page: Page) {

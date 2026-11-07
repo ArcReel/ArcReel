@@ -1,4 +1,4 @@
-"""按集保存的附加指令：脚本规划与提示词编写各存一份，重新生成时预填；空白即清除。"""
+"""Per-episode additional instructions persist separately for planning/authoring, prefilling regeneration; blanks clear."""
 
 from __future__ import annotations
 

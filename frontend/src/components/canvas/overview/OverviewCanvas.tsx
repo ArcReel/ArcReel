@@ -18,7 +18,7 @@ import { WelcomeCanvas } from "./WelcomeCanvas";
 interface OverviewCanvasProps {
   projectName: string;
   projectData: ProjectData | null;
-  /** 只读展示（引导演示项目）：不渲染编辑与生成入口。 */
+  /** Read-only onboarding demos omit editing/generation entry points. */
   readOnly?: boolean;
 }
 
@@ -27,28 +27,28 @@ function hasStorySetting(overview: ProjectOverview | undefined): boolean {
 }
 
 /**
- * 项目概览：单列限宽的设定页（页头、资产完成度、费用、故事设定）；空项目显示欢迎页。
- * 从欢迎页上传整本原文后立即切到概览，故事设定区显示骨架，生成完成后就地填入。
- * 广告项目没有初始化页：概览常驻「创作灵感」与「商品」区承担首次录入，故事设定在视频页的「故事设定」tab。
+ * Project overview: width-limited single-column settings (header, asset completion, costs, story settings), welcome for empty projects.
+ * Whole-source welcome uploads immediately switch to overview with story-setting skeletons, filled in place on completion.
+ * Ads have no initialization page: persistent inspiration/products sections handle initial input; story settings live on the video-page story-settings tab.
  */
 export function OverviewCanvas({ projectName, projectData, readOnly = false }: OverviewCanvasProps) {
   const isAd = projectData?.content_mode === "ad";
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
 
   useEffect(() => {
-    // 演示项目的费用请求交给费用 store 自身的 isDemoProject 分支跳过并失效：
-    // 那条分支会取消已排队的防抖计时器、abort 在途的真实项目请求、清空费用状态。
+    // Cost stores' isDemoProject branch skips/invalidates demo requests itself:
+    // it cancels queued debounce timers, aborts real-project requests, and clears cost state.
     if (!projectName) return;
     debouncedFetch(projectName);
   }, [projectName, projectData?.episodes, debouncedFetch]);
 
-  // 上传对话框按项目记录，切项目后不沿用。对话框打开期间保留欢迎页（见 showWelcome），
-  // 上传登记出整本源文或第一集后背景不会先闪成概览。
+  // Upload-dialog state is project-scoped, never reused across projects. Retain welcome while open (showWelcome),
+  // avoiding background flashes to overview once whole-source/first-episode registration lands.
   const [upload, setUpload] = useState<{ projectName: string; files: File[] } | null>(null);
   const uploadFiles = upload?.projectName === projectName ? upload.files : null;
 
-  // 从原文生成故事设定：首次上传后自动开始，或由「从原文生成」触发。状态在 store 里按项目记录，
-  // 生成途中离开概览再回来仍显示读取中，完成后就地填入。
+  // Generate story settings from source automatically after initial upload or through generate-from-source; state is stored per project,
+  // so leaving/returning during generation still shows reading and fills results in place.
   const generating = useOverviewGenerateStore((s) => Boolean(s.generating[projectName]));
   const generateError = useOverviewGenerateStore((s) => s.errors[projectName] ?? null);
   const generate = useOverviewGenerateStore((s) => s.generate);
@@ -56,15 +56,15 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
 
   const handleUploaded = useCallback(
     (result: SourceUploadResult) => {
-      // 第一次放进整本源文时就地读取原文；只登记了逐集原文时不生成
+      // First whole-source insertion reads sources in place; registering only episode sources does not generate.
       if (result.wholeSourceFiles.length > 0) runGenerate();
     },
     [runGenerate],
   );
 
-  // 交接提示：本次会话内故事设定由空变为有内容时触发一次；只读态与广告项目不触发。
-  // 上一次看到的状态按项目记在 store 里：切项目时不把上一个项目的状态当成这个项目的变化，
-  // 离开概览期间后台生成填入的故事设定，回来时也算一次变化。
+  // Handoff tip triggers once per session when story settings change empty→populated; excludes read-only/ads.
+  // Store prior observed states per project, never interpreting previous-project state as current-project changes;
+  // background-completed story settings during absence count as changes on return too.
   const observeStorySetting = useHandoffTipStore((s) => s.observe);
   useEffect(() => {
     if (readOnly || isAd || !projectData) return;
@@ -72,7 +72,7 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
   }, [projectData, projectName, readOnly, isAd, observeStorySetting]);
 
   if (!projectData) {
-    // 项目数据加载期间保留空容器，避免「居中提示 → 顶端内容」的位置跳动
+    // Retain empty containers while project data loads, avoiding centered-hint to top-content position shifts.
     return <div className="relative flex min-h-0 flex-1" aria-busy="true" />;
   }
 

@@ -1,7 +1,7 @@
-"""「从空白开始」：在本集没有正式脚本时建出一份空的正式脚本，由创作者在时间线上逐条手写。
+"""“Start from blank”: create an empty formal script when an episode has none, for creator-authored timeline entries.
 
-四种骨架是同一个动作，按项目两轴定条目数组。未确认的脚本规划与其待修复草稿随之弃置，确认记录一并
-删去：此后生成的规划没有确认指纹，一律待确认，经覆盖确认才整集替换。
+All four skeletons use one action, selecting entry arrays by project axes. Discard unconfirmed plans and their repair
+drafts, deleting confirmation records too: future plans have no confirmed fingerprint and remain pending until overwrite confirmation.
 """
 
 from __future__ import annotations
@@ -25,12 +25,12 @@ from lib.script.script_document import build_blank_script
 
 
 class BlankScriptError(ValueError):
-    """从空白开始被拒；``code`` 是稳定的拒绝码。
+    """Starting from blank refused; ``code`` is a stable reason.
 
-    - ``episode_not_found``：账本里没有这一集；
-    - ``formal_script_exists``：本集已有正式脚本（按产物清单判，与制作状态同一口径），或规范路径上
-      放着别集剧本；
-    - ``draft_agent_owned``：Agent 正在编辑本集的脚本规划草稿。
+    - ``episode_not_found``: episode absent from the ledger;
+    - ``formal_script_exists``: formal script exists (by artifact manifest, matching production status), or the
+      canonical path contains another episode's script;
+    - ``draft_agent_owned``: Agent is editing this episode's script-plan draft.
     """
 
     def __init__(self, code: str, detail: str) -> None:
@@ -39,11 +39,11 @@ class BlankScriptError(ValueError):
 
 
 def start_blank_script(pm: ProjectManager, project_name: str, episode: int) -> str:
-    """为本集建出空的正式脚本，返回剧本文件名。
+    """Create an empty formal episode script and return its filename.
 
-    锁序与内容确认一致：草稿 → 正式脚本规划 → 正式脚本。先写正式脚本再弃置规划：弃置失败时留下的是
-    一份待确认的规划，不会出现规划已删、正式脚本没建成的半场。规范路径上未登记进产物清单的剧本文件
-    不算正式脚本，会被空脚本覆盖。
+    Lock order matches content confirmation: draft → formal script plan → formal script. Write the script before discarding
+    plans: discard failure leaves an unconfirmed plan, never deleted planning with no script. Script files at canonical
+    paths but unregistered in the artifact manifest are not formal scripts and are overwritten by the empty script.
     """
     project = pm.load_project(project_name)
     if find_episode(project, episode) is None:
@@ -82,7 +82,7 @@ def start_blank_script(pm: ProjectManager, project_name: str, episode: int) -> s
             entry = find_episode(p, episode)
             if entry is None:
                 raise BlankScriptError("episode_not_found", f"集（id={episode}）不在分集账本里")
-            # 旧的确认记录属于已弃置的规划，留着会让之后同内容的规划被当成已确认。
+            # Old confirmation belongs to the discarded plan; retaining it would falsely confirm later identical plans.
             entry.pop(script_review.REVIEW_FIELD, None)
 
         pm.save_script(project_name, build_blank_script(project, episode), filename, project_update=_drop_review)

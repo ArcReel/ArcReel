@@ -1,6 +1,6 @@
-"""构造一份合法的目录数据，覆盖四种媒体类型、两栖模型、价目表的各种形状，以及显式声明调用端点的供应商模型。
+"""Build valid catalog data covering four media types, dual-media models, varied price-table shapes, and provider models explicitly declaring invocation endpoints.
 
-每次调用返回新的副本，用例在副本上改出要验证的情形。
+Each call returns a fresh copy; tests mutate it into the scenario to verify.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def video_entry() -> dict[str, Any]:
 
 
 def amphibious_image_entry() -> dict[str, Any]:
-    """与 ``video_entry`` 同名的图片条目：两栖模型的另一半。"""
+    """Image entry sharing ``video_entry``'s name: the other half of a dual-media model."""
     return {
         "maker": "kuaishou",
         "name": "kling-v3-omni",

@@ -1,4 +1,4 @@
-"""MP4 faststart：顶层 box 解析与重封装的降级路径，子进程由 spawn 替身驱动。"""
+"""MP4 faststart: top-level box parsing/remux fallback paths, with substituted spawn subprocesses."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _box(kind: bytes, payload: bytes = b"") -> bytes:
 
 
 def _large_box(kind: bytes, payload: bytes = b"") -> bytes:
-    """size=1 + 64 位 largesize 的写法。"""
+    """size=1 with 64-bit largesize encoding."""
     return (1).to_bytes(4, "big") + kind + (16 + len(payload)).to_bytes(8, "big") + payload
 
 
@@ -44,16 +44,16 @@ class TestReadMp4Layout:
         [
             pytest.param(MOOV_FIRST, Mp4Layout(major_brand=b"isom", moov_first=True), id="moov-first"),
             pytest.param(MOOV_LAST, Mp4Layout(major_brand=b"isom", moov_first=False), id="moov-last"),
-            # 64 位 largesize 的 mdat 照样越过
+            # Skip 64-bit-largesize mdat normally.
             pytest.param(
                 _FTYP + _large_box(b"mdat", b"\x01" * 64) + _MOOV,
                 Mp4Layout(major_brand=b"isom", moov_first=False),
                 id="largesize-mdat",
             ),
-            # 首个 box 不是 ftyp：老式 QuickTime
+            # First box not ftyp: old QuickTime.
             pytest.param(_box(b"wide") + _MDAT + _MOOV, Mp4Layout(major_brand=None, moov_first=False), id="no-ftyp"),
             pytest.param(_FTYP_QT + _MDAT + _MOOV, Mp4Layout(major_brand=b"qt  ", moov_first=False), id="quicktime"),
-            # ftyp 装不下 major brand：不越界去读后一个 box 的字节
+            # ftyp cannot contain major brand; never read out of bounds into the next box.
             pytest.param(_box(b"ftyp") + _MDAT + _MOOV, Mp4Layout(major_brand=None, moov_first=False), id="empty-ftyp"),
         ],
     )
@@ -67,7 +67,7 @@ class TestReadMp4Layout:
             pytest.param(b"x" * 1024, id="not-iso-bmff"),
             pytest.param(_FTYP + _MDAT, id="no-moov"),
             pytest.param(_FTYP + _MOOV, id="no-mdat"),
-            # size=0 的 mdat 延伸到文件尾，其后不可能再有 moov
+            # size=0 mdat extends to EOF, leaving no later moov.
             pytest.param(_FTYP + (0).to_bytes(4, "big") + b"mdat" + b"\x01" * 32, id="mdat-to-eof"),
             pytest.param(_FTYP + _MDAT[:-10] + _MOOV[:4], id="truncated"),
             pytest.param(_FTYP + (4).to_bytes(4, "big") + b"mdat" + _MOOV, id="size-below-header"),
@@ -83,7 +83,7 @@ class TestReadMp4Layout:
 
 
 class _ExitedProcess:
-    """已退出的子进程替身（asyncio Process 形状）。"""
+    """Already-exited subprocess substitute with asyncio Process shape."""
 
     def __init__(self, returncode: int) -> None:
         self.returncode = returncode
@@ -102,12 +102,12 @@ class _ExitedProcess:
 
 
 async def _write_output(ffmpeg_args: tuple[str, ...], payload: bytes) -> None:
-    """ffmpeg 的输出路径是末位参数。真实输出由子进程写，替身放进工作线程，不占事件循环。"""
+    """ffmpeg output paths are final arguments; real subprocess writes are simulated in worker threads, never blocking the loop."""
     await asyncio.to_thread(Path(ffmpeg_args[-1]).write_bytes, payload)
 
 
 def _remux_writing(payload: bytes | None, *, returncode: int = 0) -> tuple[Callable[..., Any], list[tuple[str, ...]]]:
-    """spawn 替身：向 ffmpeg 输出路径（末位参数）写入 ``payload`` 后以 ``returncode`` 退出。"""
+    """spawn substitute writes ``payload`` to final ffmpeg output arguments, then exits with ``returncode``."""
     calls: list[tuple[str, ...]] = []
 
     async def spawn(*args: str, **_kwargs: Any) -> _ExitedProcess:
@@ -140,7 +140,7 @@ class TestEnsureFaststart:
 
         assert video.read_bytes() == MOOV_FIRST
         assert _siblings(video) == [video]
-        # 无扩展名的 .part 也能重封装：封装格式显式给出
+        # Extensionless .part still remuxes with explicit container format.
         args = calls[0]
         assert args[args.index("-f") + 1] == "mp4"
         assert args[args.index("-c") + 1] == "copy"
@@ -195,7 +195,7 @@ class TestEnsureFaststart:
     async def test_temp_cleanup_failure_keeps_the_remux_best_effort(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # 临时文件删不掉（如 Windows 上被其他进程占用）不能把尽力而为的优化变成失败
+        # Undeletable temporary files, e.g. Windows process locks, must not turn best-effort optimizations into failures.
         video = _write(tmp_path, "clip.mp4", MOOV_LAST)
         spawn, _ = _remux_writing(MOOV_LAST)
 

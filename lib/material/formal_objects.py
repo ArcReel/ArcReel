@@ -1,29 +1,34 @@
-"""正式提交与对象存储里的正式素材对象（见 ``docs/adr/0116``）。
+"""Formal commits and formal objects in object storage (``docs/adr/0116``).
 
-**正式提交入口** 是 :func:`formal_commit`：调用方在其中执行既有的正式写入编排（写正式文件、版本记录、产物清单），
-入口按全局设置决定这次新写入的内容版本保存在本地还是对象存储。远端保存发生在版本管理器写版本记录之前
-（:class:`ObjectContentStorage.persist`）：对象写入并经 HEAD 确认后才返回持久定位，失败时版本管理器与调用方
-照旧回滚，旧版本、产物清单与正式文件不变。只有图片类资源写进对象存储，视频与音频照旧保存在本地。
+**Formal commit entry**: :func:`formal_commit` wraps existing formal-write orchestration (formal
+files, version records, artifact manifests), selecting local/object storage for newly written
+content versions by global settings. Remote saves occur before version-record writes
+(:class:`ObjectContentStorage.persist`); return durable locators only after upload and HEAD
+confirmation. Failures preserve existing rollback behavior, leaving old versions/manifests/formal
+files unchanged. Only image resources use object storage; videos/audio stay local.
 
-**对象与归属**：对象 key 按内容摘要命名（:data:`FORMAL_PREFIX`，与中转副本的前缀分开），同一连接里同字节的内容
-版本共用一个对象。``object_storage_formal_object`` 在上传前登记对象，``object_storage_formal_object_ref`` 记录
-引用：进行中的提交占用（``pending``）与版本历史中的内容版本使用（``active``）。规则：
+**Objects/ownership**: digest-named keys under :data:`FORMAL_PREFIX` stay separate from relay
+copies; equal bytes share objects within connections. Register ``object_storage_formal_object``
+before upload; ``object_storage_formal_object_ref`` records in-progress commit claims
+(``pending``) and version-history content use (``active``). Rules:
 
-- 对象只要还有任何引用就不删除；
-- 失败补偿只删除本次提交新建、结算后确认没有任何引用的对象，复用的对象一律不删；
-- 删除失败保留定位与原因（``last_error``），由 :func:`sweep_formal_objects` 按退避重试；
-- 结算（:meth:`ObjectContentStorage.settle`）在项目锁与版本锁内按项目此刻的版本历史与回收站判断引用，不以提交是否抛错为准；
-  进程在提交中途退出时，下次启动由 :func:`recover_formal_commits` 补做结算。
+- Retain objects while any reference remains;
+- Failure compensation deletes only objects created by this commit and confirmed unreferenced after settlement; never delete reused objects;
+- Preserve failed-deletion locators/reasons (``last_error``); :func:`sweep_formal_objects` retries with backoff;
+- Settlement (:meth:`ObjectContentStorage.settle`) judges references from current version history/recycle bins under project/version locks, not whether commits raised;
+  if processes exit mid-commit, :func:`recover_formal_commits` settles at next startup.
 
-**保留契约**（见 ``docs/adr/0118``）：引用记在引用方名下，引用方是项目（项目名；整体删除后改挂墓碑名），
-或不是项目的消费者（带冒号的引用方键）。对象只要还有任何引用就保留，失去全部引用后由
-:func:`collect_unreferenced_objects` 这一处统一转为待删除并删除；各生命周期只维护自己名下的引用：
+**Retention contract** (``docs/adr/0118``): references belong to holders, either projects (project
+names, changed to tombstone names after whole deletion) or nonproject consumers (colon-bearing
+keys). Retain objects while referenced; only :func:`collect_unreferenced_objects` transitions
+fully unreferenced objects to pending deletion and deletes them. Each lifecycle maintains only
+its own references:
 
-- 项目：版本历史里的内容版本记 ``active``，项目回收站里仍可恢复的记 ``trashed``，由
-  :func:`reconcile_project_references` 按项目此刻的状态重算；回收站彻底删除、清空、过期后调用
-  :func:`reconcile_and_collect`，已删除项目彻底删除后调用 :func:`release_holder`。维护循环
-  （:func:`retain_formal_objects`）定期对所有项目重算一遍兜底。
-- 跨项目消费者：使用前 :func:`add_reference`，不再使用时 :func:`remove_reference`，整体消失时 :func:`release_holder`。
+- Projects: version-history content is ``active``, recoverable recycle-bin content ``trashed``;
+  :func:`reconcile_project_references` recomputes from current state. Call :func:`reconcile_and_collect`
+  after permanent deletion, clearing, or expiry; :func:`release_holder` after permanently deleting
+  deleted projects. Maintenance (:func:`retain_formal_objects`) periodically reconciles all projects as fallback.
+- Cross-project consumers call :func:`add_reference` before use, :func:`remove_reference` after use, and :func:`release_holder` when disappearing entirely.
 """
 
 from __future__ import annotations
@@ -66,16 +71,16 @@ from lib.project.resource_paths import resource_extension
 
 logger = logging.getLogger(__name__)
 
-#: 正式素材对象的 key 前缀，与中转副本（``arcreel-relay/``）分开。
+#: Formal-object key prefix, separate from relay copies (``arcreel-relay/``).
 FORMAL_PREFIX = "arcreel-materials/"
-#: 新内容版本保存位置的全局设置键；取值 :data:`NewContentTarget`，缺省本地。设置页经对象存储路由修改，
-#: 没有对象存储连接时不能设为 ``object_storage``。
+#: Global setting for new-content storage, :data:`NewContentTarget`, default local. Settings edits through object-storage routes;
+#: ``object_storage`` requires a configured connection.
 MATERIAL_STORAGE_TARGET_SETTING = "material_storage_target"
 NewContentTarget = Literal["local", "object_storage"]
-#: 仍可能被读取、占用连接的对象状态：这些对象在，连接就不能换桶、换 Endpoint 或区域，也不能删除。等待删除的对象
-#: 只在仍有引用时占用连接；没有任何引用的不会再被读取，连接变更时标为脱离当前连接（见 :func:`detach_orphaned_objects`）。
+#: Readable/connection-holding object states: these prevent bucket/Endpoint/region changes and deletion. Pending deletions
+#: hold connections only while referenced; unreferenced objects are never reread and detach on changes (:func:`detach_orphaned_objects`).
 HOLDING_OBJECT_STATES = frozenset({"uploading", "stored"})
-#: 脱离当前连接的待删除对象记下的原因：连接已换桶、换 Endpoint 或已删除，不再向当前连接重试删除。
+#: Detached pending-object reason: bucket/Endpoint changed or connection deleted; never retry deletion against current connections.
 CONNECTION_CHANGED = "connection_changed"
 
 _RETRY_BASE = timedelta(minutes=5)
@@ -84,7 +89,7 @@ _IMAGE_EXTENSION = ".png"
 
 
 class RemoteSaveFailedError(BadGatewayError):
-    """对象存储没有确认保存，这次正式提交不发布新版本。"""
+    """Object storage did not confirm persistence; this formal commit publishes no new version."""
 
     def __init__(self, reason: str) -> None:
         super().__init__("material_remote_save_failed", reason=reason)
@@ -96,14 +101,14 @@ class ObjectStorageRequiredError(ConflictError):
 
 
 class ProjectRetiringError(ConflictError):
-    """项目正在整体删除或被覆盖导入替换，这次提交不再把新图片保存为正式对象。"""
+    """Project is being deleted entirely or replaced by overwrite import; this commit no longer saves new images as formal objects."""
 
     def __init__(self) -> None:
         super().__init__("material_project_retiring")
 
 
-#: 正在收尾（整体删除或被覆盖导入替换）的项目目录（真实路径 → 进行中的收尾数）。收尾补齐引用之后、目录移走之前
-#: 发布的远端内容版本不会被墓碑持有，所以收尾期间这些目录上的远端保存在上传前失败。
+#: Retiring project directories (real paths → active retirement counts), deleted entirely or replaced by overwrite import. Remote versions
+#: published between reference backfill and directory moves would lack tombstone holders, so saves fail before upload throughout retirement.
 _RETIRING_PROJECTS: dict[str, int] = {}
 _RETIRING_GUARD = threading.Lock()
 
@@ -113,18 +118,18 @@ def _retiring_key(project_path: Path) -> str:
 
 
 def project_is_retiring(project_path: Path) -> bool:
-    """``project_path`` 的项目此刻是否正在收尾。"""
+    """Whether ``project_path`` is currently retiring."""
     with _RETIRING_GUARD:
         return _RETIRING_PROJECTS.get(_retiring_key(project_path), 0) > 0
 
 
 def formal_object_key(digest: str, suffix: str) -> str:
-    """正式素材对象的 key：按内容摘要命名，不带项目或资源名。"""
+    """Formal-object key named by content digest, without project/resource names."""
     return f"{FORMAL_PREFIX}sha256/{digest[:2]}/{digest}{suffix.lower()}"
 
 
 def stores_remotely(resource_type: str) -> bool:
-    """该资源类型的新内容版本是否随全局设置保存到对象存储（只有图片）。"""
+    """Whether this resource type’s new content versions follow global object-storage settings (images only)."""
     try:
         return resource_extension(resource_type) == _IMAGE_EXTENSION
     except ValueError:
@@ -137,7 +142,7 @@ async def new_content_target(session: AsyncSession) -> NewContentTarget:
 
 
 async def set_new_content_target(session: AsyncSession, target: NewContentTarget) -> None:
-    """改写新内容版本的保存位置（不提交）。只影响之后的正式提交，已有版本照旧按各自的定位读取。"""
+    """Change new-content save location without committing; affect future formal commits only, reading existing versions through their own locators."""
     await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, target)
 
 
@@ -152,13 +157,13 @@ def _retry_delay(attempts: int) -> timedelta:
 
 
 _KEY_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
-#: 本进程进行中、尚未结束结算的正式提交（单进程部署，见 ADR 0007）。
+#: This process’s ongoing formal commits not yet settled (single process, ADR 0007).
 _LIVE_ATTEMPTS: set[str] = set()
 _CONNECTION_LOCKS: dict[int, asyncio.Lock] = {}
 
 
 def _key_lock(key: str) -> asyncio.Lock:
-    """同一对象的登记、复用与删除串行进行（单进程部署，见 ADR 0007）。"""
+    """Serialize same-object registration/reuse/deletion in single-process deployments (ADR 0007)."""
     loop_key = (id(asyncio.get_running_loop()), key)
     lock = _KEY_LOCKS.get(loop_key)
     if lock is None:
@@ -167,11 +172,12 @@ def _key_lock(key: str) -> asyncio.Lock:
 
 
 def connection_change_lock() -> asyncio.Lock:
-    """对象存储连接的变更与正式对象的登记共用的串行边界（单进程部署，见 ADR 0007）。
+    """Shared serialization boundary for connection changes/formal-object registration (single process, ADR 0007).
 
-    更换桶、Endpoint、区域与删除连接在锁内核对连接上没有仍占用它的正式对象，标记脱离连接的待删除对象，再提交；
-    正式提交登记对象时也持有它，并在锁内复核提交开始时取得的连接仍是当前连接；登记引用复活待删除对象时持有它，
-    只复活仍在当前连接上的对象。锁序：连接锁在对象 key 锁之外。
+    Bucket/Endpoint/region changes or deletion verify no holding formal objects, detach pending
+    deletion objects, and commit under this lock. Formal-object registration also holds it,
+    rechecking the connection captured at commit start. Reference-based resurrection holds it
+    and resurrects only objects still on the current connection. Lock order: connection before object key.
     """
     loop_key = id(asyncio.get_running_loop())
     lock = _CONNECTION_LOCKS.get(loop_key)
@@ -201,7 +207,7 @@ class _ConnectionSnapshot:
         )
 
     def is_current(self, connection: ObjectStorageConnection | None) -> bool:
-        """``connection`` 仍是提交开始时取得的那条连接：没有换桶、Endpoint、区域或类型，也没有删除重建。"""
+        """``connection`` still matches commit-start capture: no bucket/Endpoint/region/type changes or deletion/recreation."""
         return connection is not None and (
             connection.id,
             connection.kind,
@@ -221,11 +227,12 @@ def same_connection(row: FormalObject, connection: ObjectStorageConnection | Non
 
 
 class ObjectContentStorage:
-    """把一次正式提交里新写入的图片内容版本保存到对象存储。
+    """Persist newly written image content versions from one formal commit into object storage.
 
-    :meth:`persist` 在版本管理器的工作线程里调用，:meth:`store` 由不经版本管理器写记录的调用方（归档导入）直接调用；
-    两者经 :class:`EventLoopBridge` 在事件循环上登记对象与引用，在当前线程里同步上传。:meth:`settle` 在提交结束后
-    （无论成败）于事件循环上调用一次。
+    Version-manager workers call :meth:`persist`; callers writing records outside version managers
+    (archive import) call :meth:`store` directly. Both register objects/references on the event loop
+    through :class:`EventLoopBridge` and upload synchronously in the current thread. Invoke
+    :meth:`settle` once on the event loop after commit completion, successful or otherwise.
     """
 
     def __init__(
@@ -242,17 +249,17 @@ class ObjectContentStorage:
         self.bridge = bridge
         self.attempt_id = uuid.uuid4().hex
         self._project_paths: set[Path] = set()
-        # 登记早于任何占用落库：启动补做读到的占用若属于本进程进行中的提交，按这份登记跳过
+        # Register before persisting claims: startup recovery skips claims belonging to this process’s registered ongoing commits.
         _LIVE_ATTEMPTS.add(self.attempt_id)
 
-    # ---- 工作线程一侧 -------------------------------------------------------------------------
+    # ---- Worker-thread side ------------------------------------------------------------------
 
     def persist(self, project_path: Path, resource_type: str, source: Path, slot: LocalLocator) -> PersistedContent:
-        # 在版本锁内核对：收尾先登记、再在版本锁内读取，读取之后发布的远端版本到不了这里
+        # Verify under version locks: retirement registers first, then reads under locks; remote versions published afterward cannot reach here.
         if stores_remotely(resource_type) and project_is_retiring(project_path):
             raise ProjectRetiringError()
         local = LocalMaterialStorage(project_path)
-        # 版本快照位置先写一份工作文件：摘要取自它，上传的也是它，记下的摘要与远端字节一致。
+        # Write a working version snapshot first, deriving both digest and uploaded bytes from it so recorded digests match remote content.
         digest = local.persist(source, slot)
         if not stores_remotely(resource_type):
             return PersistedContent(digest)
@@ -260,14 +267,15 @@ class ObjectContentStorage:
         return PersistedContent(digest, self.store(Path(project_path) / slot.path, digest))
 
     def track(self, project_path: Path) -> None:
-        """结算时按 ``project_path`` 的版本历史判断这次提交的对象是否被引用；路径届时不存在时跳过。"""
+        """At settlement, judge object references from ``project_path`` history; skip if the path no longer exists."""
         self._project_paths.add(Path(project_path))
 
     def store(self, work_file: Path, digest: str) -> ObjectLocator:
-        """把本地已有、摘要为 ``digest`` 的图片保存为正式对象，确认后返回持久定位。
+        """Save an existing local image with ``digest`` as a formal object; return its durable locator after confirmation.
 
-        不登记项目：调用方写好引用它的版本记录后，经 :meth:`track` 指明结算读取的项目。
-        归档导入用它把暂存目录里的图片保存到目标实例，再安装到项目目录。
+        Do not register projects: callers write referencing version records, then :meth:`track`
+        identifies settlement projects. Archive imports use this to save staged images into the
+        target instance before installing project directories.
         """
         data = work_file.read_bytes()
         if hashlib.sha256(data).hexdigest() != digest:
@@ -277,7 +285,7 @@ class ObjectContentStorage:
         needs_upload = self.bridge.run(self._begin(key, digest, len(data)))
         client = self.connection.client
         try:
-            # 复用已保存的对象也先确认它仍在桶里：被人在控制台删掉时按新内容重新上传
+            # Verify reused saved objects still exist in buckets; console-deleted objects upload again as new content.
             if not needs_upload and not _present(client, key, len(data)):
                 needs_upload = True
             if needs_upload:
@@ -290,13 +298,13 @@ class ObjectContentStorage:
             self.bridge.run(self._confirm(key))
         return ObjectLocator(self.connection.id, self.connection.bucket, key)
 
-    # ---- 事件循环一侧 -------------------------------------------------------------------------
+    # ---- Event-loop side ---------------------------------------------------------------------
 
     async def _begin(self, key: str, digest: str, size: int) -> bool:
-        """登记对象与本次提交的占用，返回是否需要上传。对象已确认保存时复用，不再上传。
+        """Register objects/commit claims and return whether upload is needed; reuse confirmed saved objects without uploading.
 
-        在连接锁内复核提交开始时取得的连接仍是当前连接，过时的提交在上传前失败；登记之后连接上就有了
-        正式对象，连接变更会被拒绝。
+        Recheck captured connection under its lock; stale commits fail before upload. Registration
+        creates a formal object holding the connection, so later connection changes are rejected.
         """
         async with connection_change_lock(), _key_lock(key), self.session_factory() as session:
             if not self.connection.is_current(await ObjectStorageConnectionRepository(session).get()):
@@ -318,8 +326,8 @@ class ObjectContentStorage:
                 session.add(row)
                 await session.flush()
             elif needs_upload:
-                # 等待删除、已删除或另一次上传未确认的对象：由本次提交重新上传并负责失败补偿。连接换过 Endpoint 时
-                # 记录改为当前 Endpoint：对象写在这里，之后的删除与连接保护都按它判断。
+                # For pending-deletion/deleted/unconfirmed-other-upload objects, this commit reuploads and owns compensation. After Endpoint changes,
+                # record the current Endpoint where objects are written; subsequent deletion/connection protection follows it.
                 row.state = "uploading"
                 row.endpoint = self.connection.endpoint
                 row.delete_attempts = 0
@@ -336,10 +344,11 @@ class ObjectContentStorage:
             return needs_upload
 
     async def _confirm(self, key: str) -> None:
-        """上传已经确认落在桶里：对象记为已保存。
+        """Upload is confirmed in the bucket: mark the object saved.
 
-        确认的是对象本身，不限于记录里的负责提交：同一内容的另一次提交可能在本次上传期间接手了失败补偿，它之后上传
-        失败时，已确认的对象仍按已保存处理，可以入库取图，失去引用后照常回收。
+        Confirmation concerns the object, not just its recorded responsible commit: another same-
+        content commit may take over failure compensation during upload. If its later upload fails,
+        confirmed objects remain saved, usable for ingest/retrieval, and collectible after references vanish.
         """
         async with self.session_factory() as session:
             row = await _object_row(session, self.connection.id, self.connection.bucket, key)
@@ -348,7 +357,7 @@ class ObjectContentStorage:
                 await session.commit()
 
     async def finish(self) -> None:
-        """提交结束时结算一次；结算失败只记日志，由下次启动补做，不掩盖提交本身的结果。"""
+        """Settle once on commit completion; failures only log for next-startup recovery, never masking commit outcomes."""
         try:
             await run_noninterruptible_async(self.settle())
         except Exception:
@@ -357,7 +366,7 @@ class ObjectContentStorage:
             _LIVE_ATTEMPTS.discard(self.attempt_id)
 
     async def settle(self) -> None:
-        """按项目此刻的状态结算本次提交：版本历史与回收站用到的对象转为项目持有的引用，其余占用撤下，再补偿删除。"""
+        """Settle against current project state: history/recycle objects become project-held references; remove other claims, then compensate deletions."""
         await _settle_attempt(self.session_factory, self.attempt_id, self._project_paths, connection=self.connection)
 
 
@@ -371,7 +380,7 @@ def _present(client: ObjectStorageClient, key: str, size: int) -> bool:
 
 
 def iter_version_records(data: object) -> Iterable[tuple[str, str, dict[str, Any]]]:
-    """遍历 versions.json 内容里的每条版本记录。"""
+    """Iterate every version record in versions.json content."""
     if not isinstance(data, dict):
         return
     for resource_type, bucket in data.items():
@@ -403,11 +412,13 @@ async def _settle_attempt(
     *,
     connection: _ConnectionSnapshot | None,
 ) -> None:
-    """结算一次正式提交：在 ``project_paths`` 的项目锁与版本锁内读取版本历史与回收站，并在锁内把占用改成项目
-        持有的引用；读结构与改写引用之间不会插入删除进回收站之类的迁移。之后本次用到或新建的对象已无引用时回收：未确认
-    保存的是失败补偿，已保存的按统一回收规则处理，与对象由哪次提交新建无关。
+    """Settle one formal commit: read version history/recycle bins under ``project_paths`` project/version locks and
+    convert claims into project-held references within those locks, preventing intervening recycle-bin moves.
+    Reclaim used/new objects once unreferenced: unconfirmed saves follow failure compensation, confirmed
+    saves unified collection, independent of which commit created them.
 
-        目录已不在（项目已删除或被替换）的路径跳过。回收站记录读不出时抛错，占用原样保留，下次启动补做。
+    Skip absent directories (deleted/replaced projects). Unreadable recycle records raise, preserving
+    claims for next-startup recovery.
     """
     paths = sorted({Path(path) for path in project_paths})
     bridge = EventLoopBridge.capture()
@@ -424,14 +435,14 @@ async def _settle_attempt(
             return bridge.run(_resolve_pending(session_factory, attempt_id, uses))
 
     candidates = await run_sync_transaction(_locked)
-    # 结算是唯一处理未确认上传的地方：撤下最后一个占用后再没有提交会确认它
+    # Only settlement handles unconfirmed uploads: after removing the last claim, no commit can still confirm it.
     await _collect_unreferenced(
         session_factory, candidates, frozenset({"uploading", "stored"}), connection.client if connection else None
     )
 
 
 def _enter_project(stack: ExitStack, project_path: Path) -> dict[str, Any] | None:
-    """在 ``stack`` 里取项目锁与版本锁并返回版本历史；目录不在或项目已在任务执行期间删除时返回 ``None``。"""
+    """Acquire project/version locks in ``stack`` and return history, or ``None`` if the directory vanished/project was deleted during execution."""
     from lib.artifacts.formal_write import project_metadata_lock
     from lib.artifacts.version_manager import VersionManager
     from lib.project.task_project_claim import ProjectDeletedDuringTaskError
@@ -448,7 +459,7 @@ def _enter_project(stack: ExitStack, project_path: Path) -> dict[str, Any] | Non
 async def _resolve_pending(
     session_factory: async_sessionmaker[AsyncSession], attempt_id: str, uses: _Uses
 ) -> list[int]:
-    """把本次提交的占用改成 ``uses`` 里对应的持有引用（记在占用的引用方名下），撤下占用；返回需要补偿复核的对象 ID。"""
+    """Convert this commit’s claims to holder references from ``uses`` under the claim’s holder, then remove claims; return object IDs needing compensation review."""
     async with session_factory() as session:
         pending = list(
             (await session.execute(select(FormalObjectRef).where(FormalObjectRef.attempt_id == attempt_id))).scalars()
@@ -471,7 +482,7 @@ async def _resolve_pending(
                 await _ensure_ref(session, ref.object_id, ref.project_name, content_version_id, state)
             await session.delete(ref)
         await session.commit()
-        # 本次用到或新建的对象都复核：同内容的提交并发时，先结算的那次看到别人的占用还在，回收落在最后撤下占用的这一次
+        # Recheck every used/new object: concurrent same-content commits may see others’ claims during early settlement; collect when the last claim is removed.
         return list(objects)
 
 
@@ -499,8 +510,8 @@ async def _collect_unreferenced(
     states: frozenset[str],
     client: ObjectStorageClient | None,
 ) -> int:
-    """统一回收规则的唯一实现：``object_ids`` 中处于 ``states``、已没有任何引用的对象转为待删除并立即尝试删除，
-    返回删除的数量。仍有任何引用（含进行中提交的占用）的对象保留。"""
+    """Sole unified-collection implementation: unreferenced ``object_ids`` in ``states`` become pending deletion and are
+    deleted immediately where possible; return deletion count. Retain all referenced objects, including active commit claims."""
     deleted = 0
     for object_id in sorted(set(object_ids)):
         async with session_factory() as session:
@@ -529,7 +540,7 @@ async def _delete_orphan(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """删除一个待删除对象；调用方持有该对象的 key 锁并负责提交。返回是否已删除。"""
+    """Delete one pending object; callers hold its key lock and commit. Return whether deletion succeeded."""
     now = now or utc_now()
     row.delete_attempts += 1
     if not same_connection(row, current):
@@ -557,7 +568,7 @@ async def _delete_orphan(
 async def sweep_formal_objects(
     session_factory: async_sessionmaker[AsyncSession] | None = None, *, now: datetime | None = None
 ) -> int:
-    """重试删除到期的待删除对象，返回本轮删除的数量。删除前再次确认没有任何引用，有引用时恢复为已保存。"""
+    """Retry due pending deletions and return this round’s count; recheck references first, restoring referenced objects to saved."""
     session_factory = session_factory or _default_session_factory()
     now = now or utc_now()
     async with session_factory() as session:
@@ -582,7 +593,7 @@ async def sweep_formal_objects(
                 row.state = "stored"
                 row.next_attempt_at = None
             else:
-                # 有引用却已脱离当前连接：不删除，也不当作当前连接上的已保存对象
+                # Referenced but detached objects are neither deleted nor treated as saved on the current connection.
                 row.last_error = CONNECTION_CHANGED
                 row.next_attempt_at = now + _RETRY_CAP
             await session.commit()
@@ -599,10 +610,10 @@ async def recover_formal_commits(
     project_path_of: Callable[[str], Path] | None = None,
     running: Collection[str] | None = None,
 ) -> int:
-    """启动时结算上一个进程未结算的正式提交，返回结算的提交数。只在应用启动时调用（单进程部署）。
+    """Settle previous-process unfinished commits at startup; return settlement count. Startup-only, single-process deployment.
 
-    补做在后台进行，应用这时已经接受请求：``running``（缺省为本进程进行中的提交）不是中断的提交，跳过，
-    由它们自己结束时结算。
+    Recovery runs in background after requests are accepted. Skip ``running`` commits (defaulting
+    to this process’s active commits): they are not interrupted and settle themselves on completion.
     """
     session_factory = session_factory or _default_session_factory()
     project_path_of = project_path_of or _default_project_path
@@ -625,7 +636,7 @@ async def recover_formal_commits(
         for attempt_id in stale_uploads:
             if attempt_id is not None:
                 attempts.setdefault(attempt_id, None)
-        # 读完占用之后再取进行中的提交：读到的占用若属于进行中的提交，它的登记早于占用落库，必然在这里
+        # Read ongoing commits after claims; any read claim belonging to an ongoing commit was registered before persistence and must appear here.
         for attempt_id in set(_LIVE_ATTEMPTS if running is None else running):
             attempts.pop(attempt_id, None)
     for attempt_id, project_name in attempts.items():
@@ -635,7 +646,7 @@ async def recover_formal_commits(
 
 
 def _project_paths_of(project_path_of: Callable[[str], Path], project_name: str) -> list[Path]:
-    """引用方是项目时它的目录；不是项目（带冒号的键）或项目已不在时为空。"""
+    """Holder project directory, or empty for nonprojects (colon-bearing keys) or absent projects."""
     try:
         return [project_path_of(project_name)]
     except (FileNotFoundError, ValueError):
@@ -648,17 +659,17 @@ def _default_project_path(project_name: str) -> Path:
     return get_project_manager().get_project_path(project_name)
 
 
-# ---- 保留契约：引用方与统一回收（见 ``docs/adr/0118``） ------------------------------------------
+# ---- Retention contract: holders and unified collection (``docs/adr/0118``) ----------------
 
-#: 引用的状态。``pending`` 进行中的正式提交占用；``active`` 引用方正在使用（项目版本历史里的内容版本，
-#: 或跨项目消费者登记的使用）；``trashed`` 项目回收站里的删除记录仍可恢复出这个内容版本。
+#: Reference states: ``pending`` active formal-commit claims; ``active`` holder use (project history content
+#: or registered cross-project consumer use); ``trashed`` recoverable recycle-bin records containing this version.
 REF_PENDING = "pending"
 REF_ACTIVE = "active"
 REF_TRASHED = "trashed"
 _HELD_STATES = frozenset({REF_ACTIVE, REF_TRASHED})
 
 _VERSIONS_FILE = "versions/versions.json"
-#: 引用方持有的使用：对象定位 (连接 ID, 桶, key) → {(内容版本身份, 引用状态)}。
+#: Holder uses: object locator (connection ID, bucket, key) → {(content-version identity, reference state)}.
 type _Uses = dict[tuple[int, str, str], set[tuple[str, str]]]
 
 
@@ -677,10 +688,11 @@ def _add_use(uses: _Uses, record: object, state: str) -> None:
 
 
 def _trash_uses(project_path: Path, uses: _Uses) -> None:
-    """项目回收站里仍可恢复的远端内容版本：删除的历史版本，以及结构删除记录快照里的版本历史。
+    """Recoverable remote content versions in project recycle bins: deleted historical versions and history within structural-deletion snapshots.
 
-    结构快照收的是删除前整份版本历史，其中也有删除后仍留在项目里的版本；多算只会让对象多保留到记录清除，
-    不会少算。快照读不出时抛错，调用方放弃这次重算，不据此撤下引用。
+    Structural snapshots include whole pre-deletion histories, including versions still in projects
+    afterward. Overcounting only retains objects until records clear; never undercounts. Unreadable
+    snapshots raise so callers abandon reconciliation without removing references.
     """
     from lib.project import project_trash
 
@@ -700,9 +712,9 @@ def _trash_uses(project_path: Path, uses: _Uses) -> None:
 async def _replace_holder_uses(
     session_factory: async_sessionmaker[AsyncSession], holder: str, uses: _Uses, states: frozenset[str]
 ) -> set[int]:
-    """把引用方 ``holder`` 在 ``states`` 里的引用改成恰好是 ``uses``，返回被撤下引用的对象 ID。不删除对象。
+    """Replace ``holder`` references in ``states`` with exactly ``uses``; return removed-reference object IDs without deleting objects.
 
-    ``uses`` 里没有登记的对象（例如另一个实例保存的）不建引用。
+    Do not create references for unregistered objects in ``uses`` (e.g. saved by another instance).
     """
     async with session_factory() as session:
         rows = (
@@ -751,12 +763,13 @@ async def reconcile_project_references(
     project_path: Path,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> set[int]:
-    """按项目此刻的版本历史与项目回收站重算它持有的引用，返回被撤下引用的对象 ID。不删除对象。
+    """Reconcile project-held references from current version history/recycle bin; return removed-reference IDs without deleting objects.
 
-    版本历史里的远端内容版本记为 ``active``，回收站里仍可恢复的记为 ``trashed``。读取与改写引用都在项目锁与
-    版本锁内进行，与删除、恢复、正式提交互不交错：不会在内容版本从版本历史搬进回收站的途中撤下它的引用。
-    项目目录不在时抛错，不撤下任何引用。失去全部引用的对象经 :func:`collect_unreferenced_objects` 回收，
-    或直接调用 :func:`reconcile_and_collect`。
+    Remote history content becomes ``active``; recoverable recycle content ``trashed``. Read/update
+    under project/version locks, preventing interleaving with delete/restore/formal commit and
+    reference removal midway through history-to-recycle moves. Missing directories raise without
+    removing references. Collect fully unreferenced objects through :func:`collect_unreferenced_objects`
+    or call :func:`reconcile_and_collect` directly.
     """
     from lib.artifacts.formal_write import project_metadata_lock
     from lib.artifacts.version_manager import VersionManager
@@ -781,14 +794,17 @@ async def reconcile_project_references(
 async def retiring_project_references(
     session: AsyncSession, project_name: str, project_path: Path
 ) -> AsyncGenerator[None]:
-    """项目整体删除或被覆盖导入替换的收尾期间：进入时在收尾事务 ``session`` 里补齐项目此刻实际持有的引用（不提交），
-    整段期间这个目录上的新远端保存在上传前失败（:class:`ProjectRetiringError`），退出时解除。
+    """During whole-project deletion/overwrite-import retirement, fill current actual references in retirement ``session`` without committing;
+    new remote saves fail before upload with :class:`ProjectRetiringError` throughout, clearing the guard on exit.
 
-    先登记收尾、再在项目锁与版本锁内读取版本历史与回收站：读取之前发布的版本都在读到的状态里，之后的发布
-    都会失败，补登的引用因此覆盖墓碑里的全部远端版本。按项目名补登缺少的 ``active`` / ``trashed`` 引用，不撤下
-    任何引用；调用方随后在同一事务里把这些引用改挂墓碑名。已发布、尚未结算的提交只有占用，占用留在项目名下给
-    之后的提交结算（覆盖导入新图片的占用由此记到新项目名下），旧项目用到的对象由补登的引用随墓碑保留。
-    目录不在时不补登；回收站记录读不出时只按版本历史补登，不阻止收尾。
+    Register retirement before reading history/recycle under project/version locks: earlier published
+    versions appear in the read state, later publications fail, so backfilled references cover all
+    tombstoned remote versions. Add missing ``active`` / ``trashed`` references under project names,
+    removing none; callers rekey them to tombstone names in the same transaction. Published but
+    unsettled commits have only claims, retained under project names for later settlement (overwrite
+    import new-image claims thereby attach to the new project). Backfilled references retain old
+    project objects with tombstones. Skip absent directories; unreadable recycle records backfill
+    from version history alone without blocking retirement.
     """
     bridge = EventLoopBridge.capture()
     project_path = Path(project_path)
@@ -841,10 +857,11 @@ async def _add_holder_uses(session: AsyncSession, holder: str, uses: _Uses) -> N
 async def collect_unreferenced_objects(
     object_ids: Iterable[int], session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> int:
-    """统一回收规则：``object_ids`` 中已没有任何引用的已保存对象转为待删除并立即尝试删除，返回删除的数量。
+    """Unified collection: saved ``object_ids`` with no references become pending deletion and are deleted immediately where possible; return count.
 
-    仍有任何引用（含进行中提交的占用）的对象保留；删除失败记下原因，由 :func:`sweep_formal_objects` 退避重试；
-    连接已换桶时记 ``connection_changed``、不删除。上传未确认的对象归它的正式提交补偿，这里不碰。
+    Retain anything referenced, including active commit claims. Record deletion failures for
+    :func:`sweep_formal_objects` backoff; changed buckets record ``connection_changed`` without deletion.
+    Unconfirmed uploads belong to their formal commit’s compensation, untouched here.
     """
     session_factory = session_factory or _default_session_factory()
     return await _collect_unreferenced(session_factory, object_ids, frozenset({"stored"}), None)
@@ -855,9 +872,9 @@ async def reconcile_and_collect(
     project_path: Path,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> int:
-    """重算项目持有的引用（:func:`reconcile_project_references`），再回收因此失去全部引用的对象；返回删除的数量。
+    """Reconcile references (:func:`reconcile_project_references`), then collect newly unreferenced objects; return deletion count.
 
-    项目回收站彻底删除、清空或过期清理之后调用。
+    Call after permanent project-recycle deletion, clearing, or expiry cleanup.
     """
     released = await reconcile_project_references(project_name, project_path, session_factory)
     return await collect_unreferenced_objects(released, session_factory)
@@ -869,14 +886,14 @@ async def add_reference(
     content_version_id: str,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> bool:
-    """为引用方 ``project_name`` 的内容版本登记它使用 ``locator`` 指向的对象，返回对象是否已登记且未删除。
+    """Register ``project_name`` holder content as using ``locator`` objects; return whether objects are registered and undeleted.
 
-    供跨项目复用同一对象的操作在写入目标版本记录前调用：对象有了引用才不会被补偿删除或回收。
-    引用方是项目时传项目名；不是项目的消费者（如全局资产库）用带冒号的引用方键（如 ``asset-library:<id>``），
-    它不会与项目名或已删除项目的墓碑名重名，项目的重算也不会碰它。
+    Cross-project reuse calls before writing target version records: references prevent compensation
+    deletion/collection. Projects pass project names; nonproject consumers such as global libraries
+    use colon-bearing keys (``asset-library:<id>``), avoiding project/tombstone names and project reconciliation.
     """
     session_factory = session_factory or _default_session_factory()
-    # 与连接变更串行：脱离当前连接的待删除对象不再复活为已保存对象，复活的对象随即占用连接
+    # Serialize with connection changes: detached pending objects cannot resurrect as saved; resurrected objects immediately hold connections.
     async with connection_change_lock(), _key_lock(locator.key), session_factory() as session:
         row = await _object_row(session, locator.connection_id, locator.bucket, locator.key)
         if row is None or row.state not in {"stored", "orphaned"}:
@@ -896,7 +913,7 @@ async def remove_reference(
     content_version_id: str,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> int:
-    """撤下引用方 ``holder`` 的内容版本对 ``locator`` 的 ``active`` 引用，并回收因此失去全部引用的对象；返回删除的数量。"""
+    """Remove ``holder`` content’s ``active`` reference to ``locator``, collect newly unreferenced objects, and return deletion count."""
     session_factory = session_factory or _default_session_factory()
     async with session_factory() as session:
         row = await _object_row(session, locator.connection_id, locator.bucket, locator.key)
@@ -920,16 +937,16 @@ async def remove_reference(
 
 
 async def release_holder(holder: str, session_factory: async_sessionmaker[AsyncSession] | None = None) -> int:
-    """引用方 ``holder`` 不复存在（如已删除项目被彻底删除）：撤下它的全部引用并回收失去全部引用的对象；返回删除的数量。
+    """When ``holder`` disappears (e.g. permanent deletion of deleted projects), release all its references and collect unreferenced objects; return count.
 
-    进行中提交的占用不撤，由该提交结算。
+    Leave active commit claims for their own settlement.
     """
     session_factory = session_factory or _default_session_factory()
     released = await _replace_holder_uses(session_factory, holder, {}, _HELD_STATES)
     return await collect_unreferenced_objects(released, session_factory)
 
 
-#: 已删除项目超过保留期这么久、目录也已不在时，维护循环撤下仍挂在墓碑名下的引用（彻底删除后的显式撤下失败时兜底）。
+#: After deleted-project retention plus this interval, with directories absent, maintenance releases tombstone references as fallback for failed explicit permanent-deletion release.
 _TOMBSTONE_GRACE = timedelta(days=1)
 
 
@@ -940,9 +957,9 @@ async def retain_formal_objects(
     *,
     now: datetime | None = None,
 ) -> int:
-    """维护循环的保留校正：逐个项目重算引用并回收，再撤下早已彻底删除的已删除项目的引用；返回删除的数量。
+    """Maintenance retention correction: reconcile/collect each project, then release references for long-permanently-deleted projects; return count.
 
-    单个项目失败只记日志，不影响其余项目。
+    Individual project failures only log, leaving others unaffected.
     """
     from lib.db.repositories.project_records import parse_deleted_project_name
     from lib.infra.data_root_layout import list_project_dirs
@@ -980,9 +997,10 @@ def _has_ref() -> Any:
 
 
 async def holding_object_count(session: AsyncSession, connection_id: int) -> int:
-    """仍占用这条连接的正式素材对象数量：上传未确认（进行中的提交）、已保存，以及仍有引用的待删除对象。
+    """Formal objects still holding this connection: unconfirmed uploads (active commits), saved objects, and referenced pending deletions.
 
-    没有任何引用、只等待补偿删除的对象不计：它们不会再被读取，不阻止连接变更。调用方持有 :func:`connection_change_lock`。
+    Exclude fully unreferenced objects awaiting compensation: never read again, they do not block
+    connection changes. Callers hold :func:`connection_change_lock`.
     """
     stmt = (
         select(func.count())
@@ -1003,11 +1021,12 @@ async def detach_orphaned_objects(
     bucket: str | None = None,
     now: datetime | None = None,
 ) -> int:
-    """连接改成 ``endpoint`` / ``bucket``（都为 ``None`` 表示删除连接）之前，把这条连接上没有任何引用的待删除对象标为
-    脱离当前连接：保留定位，原因记为 :data:`CONNECTION_CHANGED`，不再向变更后的连接重试删除。返回标记的数量（不提交）。
+    """Before changing to ``endpoint`` / ``bucket`` (both ``None`` means deletion), detach unreferenced pending-deletion objects:
+    retain locators, record :data:`CONNECTION_CHANGED`, and never retry against the changed connection. Return count without committing.
 
-    只改区域时 Endpoint 与桶不变，对象仍按原位置删除，不标记。调用方持有 :func:`connection_change_lock`，
-    并已用 :func:`holding_object_count` 确认连接上没有仍占用它的对象。
+    Region-only changes retain Endpoint/bucket and original deletion locations, so do not detach.
+    Callers hold :func:`connection_change_lock` and already verified no holding objects through
+    :func:`holding_object_count`.
     """
     if endpoint is not None and bucket is not None and (endpoint, bucket) == (connection.endpoint, connection.bucket):
         return 0
@@ -1032,14 +1051,14 @@ async def detach_orphaned_objects(
 
 
 async def count_unreleased_objects(session: AsyncSession) -> int:
-    """没有任何引用、还没有删除的正式对象数量（含已脱离当前连接的）：更换桶或 Endpoint、删除连接后它们不再自动删除，
-    写进过桶里的需要在对象存储控制台清理。"""
+    """Undeleted, fully unreferenced formal-object count, including detached objects. After bucket/Endpoint changes or connection deletion,
+    these no longer auto-delete; objects actually written into buckets require object-storage console cleanup."""
     stmt = select(func.count()).select_from(FormalObject).where(FormalObject.state == "orphaned", ~_has_ref())
     return int((await session.execute(stmt)).scalar_one())
 
 
 async def stored_object_keys(session: AsyncSession, locators: Iterable[ObjectLocator]) -> set[ObjectLocator]:
-    """``locators`` 中远端已确认保存的那些；本地工作文件只在这种情况下可以清理。"""
+    """``locators`` whose remote persistence was confirmed; only these allow local working-file cleanup."""
     wanted = set(locators)
     if not wanted:
         return set()
@@ -1052,7 +1071,7 @@ async def stored_object_keys(session: AsyncSession, locators: Iterable[ObjectLoc
 async def formal_object_sizes(
     locators: Iterable[ObjectLocator], *, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> dict[ObjectLocator, int]:
-    """``locators`` 中已登记对象的字节数（不论状态，不访问对象存储）；没有登记的定位不出现。"""
+    """Registered object byte sizes among ``locators``, regardless of state and without remote access; omit unregistered locations."""
     wanted = set(locators)
     if not wanted:
         return {}
@@ -1094,14 +1113,16 @@ async def formal_commit(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     target: NewContentTarget | None = None,
 ) -> AsyncGenerator[ObjectContentStorage | None]:
-    """正式提交入口：这段上下文里写入的新图片内容版本按 ``target``（缺省取全局设置）保存。
+    """Formal commit entry: new image versions written inside this context save according to ``target`` (global setting by default).
 
-    本地时不改变任何行为，产出 ``None``。对象存储时进入前确认连接存在，产出这次提交的
-    :class:`ObjectContentStorage`；退出时（无论成败、含取消）结算一次，结算失败只记日志，不掩盖提交本身的结果。
-    在上下文里调用的同步正式写入须经 ``asyncio.to_thread`` 一类会复制上下文变量的方式进入工作线程。
+    Local storage changes no behavior and yields ``None``. Object storage verifies connection
+    existence on entry, yielding this commit’s :class:`ObjectContentStorage`; settle once on exit,
+    including failure/cancellation. Settlement failures only log, never masking commit results.
+    Synchronous formal writes inside must enter worker threads through context-variable-copying
+    mechanisms such as ``asyncio.to_thread``.
 
     Raises:
-        ObjectStorageRequiredError: 目标是对象存储而实例没有配置连接。
+        ObjectStorageRequiredError: Object-storage target with no configured instance connection.
     """
     storage = await _open_formal_commit(project_name, session_factory=session_factory, target=target)
     if storage is None:
@@ -1117,11 +1138,12 @@ async def formal_commit(
 def formal_commit_on(
     bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> Callable[[str], AbstractContextManager[ObjectContentStorage | None]]:
-    """给工作线程里的同步流程用的正式提交：进出 ``with`` 块时投回 ``bridge`` 的事件循环，块本身留在调用线程。
+    """Formal commit for synchronous worker flows: enter/exit ``with`` on the ``bridge`` event loop while its body stays in the calling thread.
 
-    与 :func:`formal_commit` 同样按全局设置选择保存位置、退出时结算，但不设置新内容版本的上下文变量：
-    块内经产出的 :meth:`ObjectContentStorage.store` 显式保存，再用 :meth:`ObjectContentStorage.track`
-    指明结算读取的项目。归档导入在确定目标项目名之后使用。
+    Like :func:`formal_commit`, choose location globally and settle on exit, but do not set new-
+    content context variables. Explicitly save through yielded :meth:`ObjectContentStorage.store`,
+    then :meth:`ObjectContentStorage.track` identifies settlement projects. Archive imports use
+    this after resolving target project names.
     """
 
     @contextmanager

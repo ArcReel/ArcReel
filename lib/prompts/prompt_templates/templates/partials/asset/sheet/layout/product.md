@@ -1,1 +1,1 @@
-单张商品资产图，纯净浅灰背景、均匀棚拍布光。
+A single product asset sheet, clean light-gray background, even studio lighting.

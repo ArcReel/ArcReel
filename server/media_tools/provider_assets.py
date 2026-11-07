@@ -27,21 +27,21 @@ from server.services.project.provider_asset_import import import_provider_asset
 from server.services.tasks.image_edit_tasks import edit_version_resource_type
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest
 
-#: 可上传到素材库、也可从素材库选择已有图片的类型（与 inspect_images 同一套单数名称）。
+#: Types supporting library upload and selection, using the same singular names as inspect_images.
 LinkableImageType = Literal["character", "scene", "prop", "product", "character_derivative"]
 
-_RESOURCE_ID = "资源 ID：资产为资产名称；character_derivative 为「本体名/衍生名」"
-_ACCOUNT_ID = "素材库账号 ID，取自 get_provider_asset_links 返回的 accounts[].id"
+_RESOURCE_ID = "Resource ID: asset name for assets; base name/derivative name for character_derivative"
+_ACCOUNT_ID = "Asset-library account ID from get_provider_asset_links accounts[].id"
 
 
 class ProviderAssetLinksRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    resource_type: LinkableImageType = Field(description="图片类型")
+    resource_type: LinkableImageType = Field(description="Image type")
     resource_id: str = Field(min_length=1, max_length=512, description=_RESOURCE_ID)
     recheck: StrictBool = Field(
         default=False,
-        description="为 true 时请后台立即重新查询这张图片仍在处理中的入库任务；只在 polling=false 且状态未定时需要",
+        description="When true, ask the backend to immediately recheck this image's still-processing ingestion job; needed only when polling=false and the state is unresolved",
     )
 
 
@@ -49,20 +49,19 @@ class ListProviderLibraryAssetsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     account_id: StrictInt = Field(ge=1, description=_ACCOUNT_ID)
-    page: StrictInt = Field(default=1, ge=1, le=200, description="页码，从 1 起")
-    page_size: StrictInt = Field(default=20, ge=1, le=100, description="每页条数")
+    page: StrictInt = Field(default=1, ge=1, le=200, description="Page number, starting at 1")
+    page_size: StrictInt = Field(default=20, ge=1, le=100, description="Items per page")
 
 
 class UploadToProviderAssetLibraryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    resource_type: LinkableImageType = Field(description="图片类型")
+    resource_type: LinkableImageType = Field(description="Image type")
     resource_id: str = Field(min_length=1, max_length=512, description=_RESOURCE_ID)
     account_id: StrictInt = Field(ge=1, description=_ACCOUNT_ID)
     user_requested: Literal[True] = Field(
         description=(
-            "用户在对话中明确要求把这张图片上传到供应商素材库时才传 true。"
-            "生成被拒、你认为上传会有帮助、或用户只是询问素材库，都不构成要求，此时不要调用本工具"
+            "Pass true only when the user explicitly requested uploading this image to the provider asset library in the conversation. Rejected generation, your belief that uploading would help, or a user merely asking about the library do not constitute a request; do not call this tool in those cases"
         ),
     )
 
@@ -70,18 +69,18 @@ class UploadToProviderAssetLibraryRequest(BaseModel):
 class SelectProviderLibraryAssetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    resource_type: LinkableImageType = Field(description="要保存到的图片类型")
+    resource_type: LinkableImageType = Field(description="Image type to save to")
     resource_id: str = Field(min_length=1, max_length=512, description=_RESOURCE_ID)
     account_id: StrictInt = Field(ge=1, description=_ACCOUNT_ID)
     asset_id: str = Field(
-        min_length=1, max_length=256, description="供应商素材 ID，取自 list_provider_library_assets 的 items[].id"
+        min_length=1, max_length=256, description="Provider asset ID from list_provider_library_assets items[].id"
     )
 
 
 class ReleaseProviderAssetLinkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    link_id: StrictInt = Field(ge=1, description="关联 ID，取自 get_provider_asset_links 返回的 links[].id")
+    link_id: StrictInt = Field(ge=1, description="Link ID from get_provider_asset_links links[].id")
 
 
 async def _project_path(services: Services, scope: ProjectScope) -> Path:
@@ -89,7 +88,7 @@ async def _project_path(services: Services, scope: ProjectScope) -> Path:
 
 
 async def _run(operation: str, services: Services, func: Callable[[AsyncSession], Awaitable[Any]]) -> ToolOutcome[Any]:
-    """在一个数据库会话里执行操作；领域异常按默认语言转述，问题码沿用异常的 i18n key。"""
+    """Run an operation in one database session; relay domain exceptions in the default language, retaining their i18n keys as problem codes."""
     try:
         async with services.sessions() as session:
             return ToolOutcome(value=await func(session))

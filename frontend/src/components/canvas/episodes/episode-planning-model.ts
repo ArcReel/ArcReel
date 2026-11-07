@@ -4,7 +4,7 @@ import { outputTruncationOf, type OutputTruncation } from "@/utils/output-trunca
 const EPISODE_PLAN_TASK_TYPE = "text_episode_plan";
 const CASCADE_FAILURE_CODE = "cascade_blocked_dependency";
 
-/** 规划起点之后还没分集的原文体量：各文件最后一个切出集之后的部分，不含夹在切出集之间的未切分原文。 */
+/** Unplanned source volume after the planning start: portions after each file's last extracted episode, excluding unsplit gaps between extracted episodes. */
 export function remainingUnits(view: EpisodesView): number {
   return view.files.reduce(
     (sum, file) =>
@@ -14,11 +14,11 @@ export function remainingUnits(view: EpisodesView): number {
   );
 }
 
-/** 上一次分集规划停在失败上时的原因。 */
+/** Failure reason when the previous episode-planning run failed. */
 export interface PlanningFailure {
   code: string | null;
   message: string;
-  /** 输出被截断时的模型。 */
+  /** Model whose output was truncated. */
   truncated: OutputTruncation | null;
 }
 
@@ -27,9 +27,9 @@ function failureOf(task: TaskItem): PlanningFailure {
 }
 
 /**
- * 本项目最近一次分集规划的结局若是失败，返回失败原因；否则返回 null。
+ * Return this project's latest episode-planning failure reason, or null if its latest outcome was not failure.
  *
- * 逐窗串联时，出错那一窗之后排着的窗口随之以「依赖任务失败」收尾，这时沿依赖找回真正出错的那一窗。
+ * Window chains fail later queued windows through dependency failure; follow dependencies back to the window that actually failed.
  */
 export function lastPlanningFailure(tasks: TaskItem[], projectName: string): PlanningFailure | null {
   const planning = tasks.filter((task) => task.project_name === projectName && task.task_type === EPISODE_PLAN_TASK_TYPE);
@@ -51,7 +51,7 @@ export function lastPlanningFailure(tasks: TaskItem[], projectName: string): Pla
   return failureOf(root);
 }
 
-/** 整本源文分集后的体量统计：集数、中位体量与中位朗读时长。 */
+/** Whole-source episode statistics: count, median volume and median reading duration. */
 export interface WholeSourceStats {
   count: number;
   medianUnits: number;

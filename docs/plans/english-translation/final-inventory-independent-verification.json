@@ -1,0 +1,14 @@
+{
+  "reviewer": "root independent of inventory author",
+  "baseline_entries": 4423,
+  "current_hash_blob_mode_verified": 4422,
+  "symlinks_verified": 48,
+  "metadata_only_path": "docs/LESSONS.md",
+  "metadata_only_reason": "Clean Git status only; contents never read by this check. Historical hash inherited from recorded baseline.",
+  "mismatches": [],
+  "scope": "All explicitly listed baseline paths independently rechecked after the pre-commit review. Unrelated untracked user paths not read. New ADR0121 is normally visible through its exact repository ignore exception; no staging or global Git change.",
+  "source_manifest_sha256_at_review": "6399b7507855c93a10f0081509f33506679d4e46bea5bf417e825e7a0bc46da8",
+  "verified_source_entries_payload_sha256": "9bd6b214a52ac9efd27086f90b04066b6189f45e36464dff4760e6b62957e163",
+  "snapshot_note": "Source-entry payload is frozen; whole manifest additionally snapshots mutable delivery/evidence files and may be regenerated. Whole-file SHA above identifies the actual reviewed snapshot rather than claiming self-referential final equality.",
+  "additional_precommit_review": "precommit-review.json"
+}

@@ -1,4 +1,4 @@
-"""图片后端注册与工厂。"""
+"""Image backend registration and factories."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def get_registered_backends() -> list[str]:
 
 
 def channel_capabilities(name: str) -> frozenset[ImageCapability]:
-    """读某个内置调用通道声明实现了的文生图 / 图生图（类属性 ``CHANNEL_CAPABILITIES``），不构造实例。"""
+    """Read built-in channel text/image-to-image declarations (class ``CHANNEL_CAPABILITIES``) without constructing instances."""
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:
         raise ValueError(f"Unknown image backend: {name}")
@@ -37,10 +37,10 @@ def channel_capabilities(name: str) -> frozenset[ImageCapability]:
 
 
 def channel_reference_limit(name: str) -> int | None:
-    """读某个内置调用通道静态声明的参考图上限（类属性 ``CHANNEL_REFERENCE_LIMIT``），不构造实例。
+    """Read static built-in channel reference limits (class ``CHANNEL_REFERENCE_LIMIT``) without instances.
 
-    ``None`` 表示通道本身不限张数，上限由条目给出。按模型运行时查询的通道（OpenRouter）在这里给出端点的静态上限，
-    运行时再按模型收窄。
+    ``None`` means channel-unbounded counts, constrained by entries. Runtime model-querying channels
+    such as OpenRouter expose static endpoint limits here, narrowing by models at runtime.
     """
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:
@@ -49,7 +49,7 @@ def channel_reference_limit(name: str) -> int | None:
 
 
 def reference_limit_of(backend_class: object) -> int | None:
-    """调用通道类上的 ``CHANNEL_REFERENCE_LIMIT``；没有声明时抛 ``ValueError``。"""
+    """Channel-class ``CHANNEL_REFERENCE_LIMIT``; raise ``ValueError`` when undeclared."""
     declared = getattr(backend_class, "CHANNEL_REFERENCE_LIMIT", _UNDECLARED)
     if declared is _UNDECLARED:
         raise ValueError(f"image backend {backend_class!r} does not declare CHANNEL_REFERENCE_LIMIT")
@@ -59,7 +59,7 @@ def reference_limit_of(backend_class: object) -> int | None:
 
 
 def channel_usage_estimator(name: str) -> ImageUsageEstimator:
-    """读某个内置调用通道的预估函数（类上的 ``estimate_usage``），不构造实例。"""
+    """Read built-in channel estimators (class ``estimate_usage``) without instances."""
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:
         raise ValueError(f"Unknown image backend: {name}")

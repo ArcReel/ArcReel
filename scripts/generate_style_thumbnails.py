@@ -1,9 +1,9 @@
-"""一次性脚本：用 Grok (Aurora) 生成 36 条风格缩略图。
+"""One-shot Grok (Aurora) generation of 36 style thumbnails.
 
-运行：
+Run:
     uv run python scripts/generate_style_thumbnails.py
 
-输出：frontend/public/style-thumbnails/<id>.png（1:1，半身像 + 背景）
+Output: frontend/public/style-thumbnails/<id>.png (1:1, half-body portrait + background)
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ OUT_DIR = ROOT / "frontend" / "public" / "style-thumbnails"
 
 CONCURRENCY = 4
 
-# 每个风格的人物主体 + 背景氛围（subject）
+# Per-style character subject + background mood (subject).
 SUBJECTS: dict[str, str] = {
     # ===== live (18) =====
     "live_cinematic_ancient": "一位身着唐代青色广袖长裙的东方女子，眉目清丽，发髻别玉簪，背景：朱红木格窗与暖色烛光的古装内室",
@@ -93,7 +93,7 @@ async def generate_one(
     tpl_id: str,
     out_path: Path,
 ) -> tuple[str, bool, str]:
-    out_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 一次性脚本清理输出文件，本地元数据
+    out_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- One-shot output cleanup; local metadata
     prompt = build_prompt(tpl_id)
     async with sem:
         try:

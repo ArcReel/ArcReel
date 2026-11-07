@@ -39,21 +39,21 @@ function isAssetType(value: unknown): value is (typeof ASSET_TYPES)[number] {
 }
 
 /**
- * 分镜与视频单元按删除时的称呼快照指称：「集名 · 5」，集名取当前账本。
- * 没有快照的旧记录返回 null，由调用方退回编号显示。
+ * Shots/video units use deletion-time label snapshots: episode name · 5, taking current ledger names.
+ * Old records without snapshots return null; callers fall back to IDs.
  */
 function itemAtDeletion(t: TFunction<"dashboard">, object: TrashRecord["object"], episodes: EpisodeLedger) {
   if (typeof object.episode !== "number" || typeof object.item_position !== "number") return null;
   return `${episodeDisplayName(episodes, object.episode, t)} · ${object.item_position}`;
 }
 
-/** 名称后接删除时的正文摘录，同一集的多条记录凭它区分；没有摘录时只有名称。 */
+/** Append deletion-time body excerpts to distinguish same-episode records; names only without excerpts. */
 function withExcerpt(t: TFunction<"dashboard">, name: string, object: TrashRecord["object"]): string {
   const excerpt = object.item_excerpt;
   return typeof excerpt === "string" && excerpt !== "" ? t("trash_object_with_excerpt", { name, excerpt }) : name;
 }
 
-/** 对象名：按对象类型显示，只涉及文件的对象取被删文件的路径。 */
+/** Object name by type; file-only objects use deleted paths. */
 function objectTitle(
   t: TFunction<"dashboard">,
   object: TrashRecord["object"],
@@ -100,7 +100,7 @@ function recordTitle(t: TFunction<"dashboard">, record: TrashRecord, episodes: E
   return objectTitle(t, record.object, episodes) ?? record.files[0] ?? record.id;
 }
 
-/** 恢复结果的提示：降级时说明找回了什么、哪些只能下载；对象换了名时给出新名，文件换了位置时给出真实落点。 */
+/** Restore notices explain recovered/download-only content after degradation, new names on rename, and actual destinations after moves. */
 function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result: RestoreResult): string {
   const { currentScripts, currentProjectData } = useProjectsStore.getState();
   const episodes = currentProjectData?.episodes ?? [];
@@ -115,7 +115,7 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
     const label = episodeItemLabel(String(result.object.id), currentScripts, episodes, t);
     return t("trash_restored_object", { name: label });
   }
-  // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
+  // Named objects (timelines) describe renaming by name; others describe file destinations.
   if (record.has_snapshot && typeof record.object.name === "string") {
     const landed = result.object.name;
     return typeof landed === "string" && landed !== record.object.name
@@ -127,7 +127,7 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
   return renamed ? t("trash_restored_renamed", { name, path: renamed.path }) : t("trash_restored", { name });
 }
 
-/** 生成完成时目标已删除的结果：不是谁删的，单独说明来历。 */
+/** Results whose targets disappeared before generation completion: explain origin separately, not as someone's deletion. */
 function recordMetaKey(record: TrashRecord): string {
   return record.object.note === "target_deleted_during_generation"
     ? "trash_record_meta_target_deleted"
@@ -135,7 +135,7 @@ function recordMetaKey(record: TrashRecord): string {
 }
 
 interface PurgeRequest {
-  /** 彻底删除的那条记录；清空时为空，与所有恢复中的记录冲突。 */
+  /** Permanently deleted record; null for emptying, conflicting with every restoring record. */
   recordId?: string;
   title: string;
   description: string;
@@ -144,19 +144,19 @@ interface PurgeRequest {
 }
 
 /**
- * 文件视图的「回收站」分区：列出删除记录，可以恢复、彻底删除或清空。
- * 恢复可以再删回去，直接执行；彻底删除与清空不可逆，先用 AlertDialog 确认。
+ * Files-view Trash lists deletion records for restore, permanent deletion, or emptying.
+ * Restore executes directly since it can be deleted again; irreversible permanent deletion/emptying requires AlertDialog confirmation.
  */
 export function TrashSection({ projectName, refreshKey }: { projectName: string; refreshKey: number }) {
   const { t } = useTranslation("dashboard");
   const trashRevision = useAppStore((s) => s.trashRevision);
   const episodes = useProjectsStore((s) => s.currentProjectData?.episodes) ?? NO_EPISODES;
   const [state, setState] = useState<ListingState>({ status: "loading" });
-  // 可以同时恢复多条记录：每条记录各自占用，完成时只释放自己。
+  // Multiple records restore concurrently, each owning/releasing only its occupancy.
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [purge, setPurge] = useState<PurgeRequest | null>(null);
 
-  // 自动重拉与「重试」共用一个控制器：每次加载都取消上一次，旧响应不会覆盖新列表。
+  // Automatic refetch/retry share one controller: each load cancels prior requests, preventing stale-response overwrites.
   const controllerRef = useRef<AbortController | null>(null);
   const load = useCallback(() => {
     controllerRef.current?.abort();
@@ -181,8 +181,8 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   const afterChange = () => useAppStore.getState().invalidateTrash();
 
   /**
-   * 服务端已确认移除的记录立即从列表里拿掉，不等重拉：否则已恢复或已删除的记录还留在列表里、又解除了占用，可以被再操作一次。
-   * 在途的列表请求可能早于这次变更，先取消；随后的重拉以服务端为准。
+   * Immediately remove server-confirmed records rather than awaiting refetch; otherwise restored/deleted records remain actionable after occupancy clears.
+   * In-flight lists may predate changes; cancel first and trust subsequent refetches.
    */
   const dropRecords = (keep: (record: TrashRecord) => boolean) => {
     controllerRef.current?.abort();
@@ -198,7 +198,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
     setBusyIds((current) => new Set(current).add(record.id));
     try {
       const result = await API.restoreTrashRecord(projectName, record.id);
-      // 降级后留下只能下载的结构文件时记录还在，由随后的重拉换成只能下载的样子
+      // Degraded restores leaving download-only structures retain records; subsequent refetch shows download-only state.
       if (result.download_only.length === 0) dropRecords((item) => item.id !== record.id);
       if (record.object.kind === "script_entry" && !result.degraded) {
         if (await refreshAfterWrite(projectName, t) !== "success") return;
@@ -233,7 +233,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   const { records, total_size: totalSize, retention_days: retentionDays } = state.listing;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* 清空按钮靠左：窄屏下 Agent 面板浮在画布右侧，靠右的控件会被盖住 */}
+      {/* Emptying aligns left: narrow-screen Agent panels overlay right canvas controls. */}
       <div className="flex shrink-0 flex-col items-start gap-2 border-b border-border px-6 py-3">
         <p className="min-w-0 text-sm text-subtle-foreground">
           {t("trash_summary", { total: records.length, size: formatFileSize(totalSize), days: retentionDays })}
@@ -324,7 +324,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
       <PurgeConfirmDialog
         request={purge}
         onSucceeded={(request) => dropRecords(request.recordId ? (item) => item.id !== request.recordId : () => false)}
-        // 打开后才开始的恢复同样挡住确认：提交时再按当前占用判一次
+        // Restores starting after confirmation opens also block it; recheck current occupancy on submission.
         blocked={purge !== null && (purge.recordId ? busyIds.has(purge.recordId) : busyIds.size > 0)}
         onClose={() => setPurge(null)}
         onDone={afterChange}
@@ -333,7 +333,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   );
 }
 
-/** 降级恢复后留下的结构文件：说明为什么只能下载，逐个提供下载。 */
+/** Structures left after degraded restoration: explain download-only reasons and provide individual downloads. */
 function DownloadOnlyFiles({ projectName, record }: { projectName: string; record: TrashRecord }) {
   const { t } = useTranslation("dashboard");
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -378,7 +378,7 @@ function DownloadOnlyFiles({ projectName, record }: { projectName: string; recor
   );
 }
 
-/** 彻底删除与清空的确认：不可恢复。`request` 为 null 时关闭。 */
+/** Permanent deletion/emptying confirmation, irreversible; null `request` closes. */
 function PurgeConfirmDialog({
   request,
   blocked,
@@ -395,7 +395,7 @@ function PurgeConfirmDialog({
   const { t } = useTranslation("dashboard");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间沿用上一次的内容；换了请求时清掉上一次的错误
+  // Retain the last content during closing animation; clear the previous error when the request changes
   const [shown, setShown] = useState(request);
   if (request !== null && request !== shown) {
     setShown(request);
@@ -422,7 +422,7 @@ function PurgeConfirmDialog({
     <AlertDialog
       open={request !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during submission so the dialog cannot disappear before the request completes
         if (!next && !running) onClose();
       }}
     >

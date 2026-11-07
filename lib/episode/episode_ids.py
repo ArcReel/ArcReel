@@ -1,12 +1,12 @@
-"""集 ID 与播出顺序（ADR 0096）。
+"""Episode IDs/broadcast order (ADR 0096).
 
-整数集号是一集的内部集 ID：贯穿路径、条目 ID（``E3S01``）、产物清单与任务记录，只分配、不复用。
-分集账本 ``episodes[]`` 的数组顺序就是播出顺序；创作者以标题与播出位置认集。
+Integer episode numbers are internal identities across paths/item IDs (``E3S01``)/artifacts/tasks, allocated never reused.
+Ledger ``episodes[]`` array order is broadcast order; creators identify through titles/positions.
 
-项目历史最高号记在 ``project.json`` 顶层 :data:`EPISODE_ID_HIGH_WATER_KEY`，与账本分开持久化：
-重置或删集把条目移出账本后它不回退，新集 ID 恒取它的下一个。``ProjectManager`` 每次写
-``project.json`` 时把它抬到账本最大集 ID（:func:`raise_episode_id_high_water`），
-任何写入路径登记的集 ID 都被它覆盖。
+Persist historical maxima at ``project.json`` top-level :data:`EPISODE_ID_HIGH_WATER_KEY`, separate from ledgers:
+reset/deletion never lowers it, allocating next IDs above it. ``ProjectManager`` raises maxima on each
+``project.json`` write (:func:`raise_episode_id_high_water`), covering
+IDs registered by every write path.
 """
 
 from __future__ import annotations
@@ -21,17 +21,17 @@ from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 
-#: ``project.json`` 顶层字段：项目内出现过的最大集 ID。
+#: ``project.json`` top-level maximum historical episode ID.
 EPISODE_ID_HIGH_WATER_KEY = "episode_id_high_water"
 
-#: 条目 ID 的集 ID 前缀（``E3S01`` / ``E3U02`` / ``E3G01``）。
+#: Item prefixes ``E3S01`` / ``E3U02`` / ``E3G01``.
 _ITEM_ID_PREFIX_RE = re.compile(r"^E(\d+)(?=[A-Z]\d)")
-#: 名字里的集 ID：``episode_3`` 形态（剧本、草稿目录、派生集文件及其留底、呈现与字幕目录），
-#: 以及媒体文件名里的 ``E3S01`` / ``E3U02`` 前缀（``scene_E3S01.png``）。
+#: Names with ``episode_3``: scripts/drafts/derived-source backups/render/subtitle directories;
+#: media ``E3S01`` / ``E3U02`` prefixes such as ``scene_E3S01.png``.
 _NAME_EPISODE_RE = re.compile(r"(?:^|[^A-Za-z0-9])episode[_-](\d+)(?![0-9])")
 _NAME_ITEM_ID_RE = re.compile(r"(?:^|[^A-Za-z0-9])E(\d+)[A-Z]\d")
-#: 资产图所在的目录（相对项目根，版本快照在 ``versions/`` 下的同名目录）。资产名由创作者命名，
-#: 形似条目 ID（``E12A1``）时也不是集 ID。
+#: Asset directories relative to project roots, same-named snapshots under ``versions/``. Creator asset names
+#: resembling IDs, such as ``E12A1``, are not episode IDs.
 _ASSET_DIRS = frozenset(spec.subdir for spec in ASSET_SPECS.values())
 
 
@@ -48,7 +48,7 @@ def _ledger_entries(project: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
 
 
 def ledger_episode_ids(project: Mapping[str, Any]) -> list[int]:
-    """账本里可解析的集 ID，按播出顺序。"""
+    """Parseable ledger IDs in broadcast order."""
 
     ids: list[int] = []
     for entry in _ledger_entries(project):
@@ -59,13 +59,13 @@ def ledger_episode_ids(project: Mapping[str, Any]) -> list[int]:
 
 
 def episode_id_high_water(project: Mapping[str, Any]) -> int:
-    """项目历史最高号：已记录值与账本最大集 ID 取大。"""
+    """Historical maxima, max of recorded and ledger IDs."""
 
     return max(_stored_high_water(project), *ledger_episode_ids(project), 0)
 
 
 def raise_episode_id_high_water(project: dict[str, Any], *recorded: int) -> None:
-    """把历史最高号抬到账本与 ``recorded`` 中的最大集 ID；只升不降，没有集 ID 时不写字段。"""
+    """Raise maxima over ledger/``recorded`` IDs, never lower; omit fields without IDs."""
 
     high_water = max(episode_id_high_water(project), *recorded, 0)
     if high_water > _stored_high_water(project):
@@ -73,7 +73,7 @@ def raise_episode_id_high_water(project: dict[str, Any], *recorded: int) -> None
 
 
 def allocate_episode_ids(project: dict[str, Any], count: int) -> list[int]:
-    """为 ``count`` 个新集分配集 ID，并把历史最高号推进到最后一个。"""
+    """Allocate ``count`` episode IDs, advancing historical maxima to last."""
 
     first = episode_id_high_water(project) + 1
     ids = list(range(first, first + count))
@@ -83,7 +83,7 @@ def allocate_episode_ids(project: dict[str, Any], count: int) -> list[int]:
 
 
 def episode_position(project: Mapping[str, Any], episode_id: int) -> int | None:
-    """一集在播出顺序中的位置（从 1 起）；不在账本里时返回 None。"""
+    """1-based broadcast positions; None outside ledgers."""
 
     for index, candidate in enumerate(ledger_episode_ids(project), start=1):
         if candidate == episode_id:
@@ -99,7 +99,7 @@ def find_ledger_entry(project: Mapping[str, Any], episode_id: int) -> Mapping[st
 
 
 def following_ledger_entry(project: Mapping[str, Any], episode_id: int) -> Mapping[str, Any] | None:
-    """播出顺序中紧接 ``episode_id`` 的那一集；它是末集或不在账本里时返回 None。"""
+    """Episodes immediately after ``episode_id``; None for final/absent episodes."""
 
     entries = [entry for entry in _ledger_entries(project) if parse_positive_episode_num(entry.get("episode"))]
     for index, entry in enumerate(entries[:-1]):
@@ -115,9 +115,9 @@ def episode_title(project: Mapping[str, Any], episode_id: int) -> str:
 
 
 def episode_display_name(project: Mapping[str, Any], episode_id: int, translate: Callable[..., str]) -> str:
-    """创作者看到的集名：账本标题；标题为空时按当下播出位置派生「第 N 集」，不在账本里时是未命名集。
+    """Creator names: ledger titles, otherwise Episode N from current broadcast positions; unnamed outside ledgers.
 
-    派生值只在呈现时成文、不落盘，插集或调序后跟随播出位置。
+    Derived display values never persist and follow insertion/reordering positions.
     """
 
     title = episode_title(project, episode_id)
@@ -130,7 +130,7 @@ def episode_display_name(project: Mapping[str, Any], episode_id: int, translate:
 
 
 def episode_file_label(project: Mapping[str, Any], episode_id: int, translate: Callable[..., str]) -> str | None:
-    """文件与文件夹名里的集指称：``{两位播出位置}_{集名}``；集不在账本里时返回 None。"""
+    """Filesystem episode labels: ``{两位播出位置}_{集名}``; None outside ledgers."""
 
     position = episode_position(project, episode_id)
     if position is None:
@@ -139,9 +139,9 @@ def episode_file_label(project: Mapping[str, Any], episode_id: int, translate: C
 
 
 def describe_episode_for_agent(project: Mapping[str, Any], episode_id: int) -> str:
-    """Agent 工具输出里的集指称：``《标题》（第 N 个，id=X）``。
+    """Agent output labels: ``《标题》（第 N 个，id=X）``.
 
-    没有标题时省去书名号，不在账本里时只给 ID。
+    Omit title brackets without titles, IDs only outside ledgers.
     """
 
     position = episode_position(project, episode_id)
@@ -153,7 +153,7 @@ def describe_episode_for_agent(project: Mapping[str, Any], episode_id: int) -> s
 
 
 def item_id_within_episode(item_id: str) -> str:
-    """条目 ID 去掉集 ID 前缀后的集内部分：``E3S01`` → ``S01``；没有前缀时原样返回。"""
+    """Strip episode prefixes: ``E3S01`` → ``S01``; unchanged without prefixes."""
 
     return _ITEM_ID_PREFIX_RE.sub("", item_id, count=1)
 
@@ -164,10 +164,10 @@ def item_id_episode(item_id: str) -> int | None:
 
 
 def episode_item_ref(project: Mapping[str, Any], item_id: str) -> dict[str, Any] | None:
-    """集页面之外指称条目所需的结构：所属集的标题与播出位置、集内 ID（``S01``）。
+    """References outside episode pages: parent titles/positions plus local IDs (``S01``).
 
-    界面按用户语言拼成「标题 · S01」，标题为空时用播出位置。ID 不带集前缀、或所属集已不在账本里
-    时返回 None，Web 调用方以未命名集与集内 ID 兜底。
+    UI localizes title · S01, positions when untitled. Missing prefixes/absent parent episodes return
+    None, with Web fallback to unnamed episodes/local IDs.
     """
 
     episode_id = item_id_episode(item_id)
@@ -189,7 +189,7 @@ def _is_asset_path(name: str) -> bool:
 
 
 def episode_ids_in_names(names: Iterable[str]) -> set[int]:
-    """名字（文件名、相对路径、资源 ID）里出现的集 ID；资产图与资产版本快照的路径不算。"""
+    """Episode IDs in filenames/relative paths/resource IDs, excluding asset images/version snapshot paths."""
 
     found: set[int] = set()
     for name in names:
@@ -201,7 +201,7 @@ def episode_ids_in_names(names: Iterable[str]) -> set[int]:
 
 
 def episode_ids_in_record(value: object) -> set[int]:
-    """持久化结构里的路径、资源键与显式集 ID；不解析提示词与创作正文。"""
+    """IDs from persisted paths/resource keys/explicit fields, never prompts/creative prose."""
     if isinstance(value, str):
         return episode_ids_in_names([value])
     found: set[int] = set()
@@ -221,16 +221,16 @@ def episode_ids_in_record(value: object) -> set[int]:
 
 
 def episode_ids_on_disk(project_dir: Path) -> set[int]:
-    """项目目录里仍带集 ID 的文件与目录名（剧本、草稿目录、源文留底、媒体名前缀等）。
+    """Disk filenames/directories with IDs: scripts/drafts/source backups/media prefixes/etc.
 
-    资产图、资产版本快照与版本历史里的资产类记录不算。
+    Exclude asset images/snapshots/asset version-history records.
     """
 
     project_dir = Path(project_dir)
     found = episode_ids_in_names(
         path.name for path in project_dir.rglob("*") if not _is_asset_path(path.relative_to(project_dir).as_posix())
     )
-    # 版本历史与宫格记录可以在媒体删去后独自留在盘上，文件名本身不一定带集 ID。
+    # Version/grid records may outlive media on disk without IDs in filenames.
     for directory in (project_dir / "versions", project_dir / "grids"):
         for path in directory.rglob("*.json"):
             try:

@@ -1,9 +1,9 @@
-"""一次已提交的 ComfyUI 执行：轮询到终态、判成败、取件落盘，取消与超时顺手叫停远端。
+"""Submitted ComfyUI execution: poll terminals, classify outcomes, retrieve/persist, stopping remotes on cancellation/timeouts.
 
-图像与视频两条通道从提交那一刻起做的是同一件事——``prompt_id`` 到手之后，剩下的只有「这次执行
-走完了没有」「走完是成功还是失败」「产物是哪个文件」「本地不要了怎么把远端也停掉」。这四个判断
-与媒体类型无关（差别只在产物扩展名白名单，收在 :mod:`.artifacts` 的那张表上），两个
-backend 各写一份的话，判丢失与叫停这类只在异常路径上跑到的逻辑迟早各判各的。
+After obtaining ``prompt_id``, images/videos share four questions: is execution complete, did it succeed, which artifact,
+and how to stop unwanted remotes. All are media-independent except extension allowlists
+in :mod:`.artifacts`. Duplicated backends would eventually diverge
+in unusual lost-task/stop branches.
 """
 
 from __future__ import annotations
@@ -42,24 +42,24 @@ from lib.custom_provider.comfyui.failures import (
 
 logger = logging.getLogger(__name__)
 
-#: 生成路径上每个 HTTP 请求的超时。
+#: Per-HTTP-call generation timeout.
 HTTP_TIMEOUT_SECONDS = 60
 
-#: 叫停远端用的超时。比生成路径的短得多：这几个请求发在任务已被取消之后，一台不响应的
-#: ComfyUI 不该把 worker 的关停拖上几分钟。
+#: Remote-stop timeout, much shorter: after cancellation, unresponsive services
+#: must not delay worker shutdown by minutes.
 _STOP_TIMEOUT_SECONDS = 15
 
-#: 从这一版起 ``POST /api/jobs/{id}/cancel`` 一个动作同时覆盖排队中与执行中；更早的版本
-#: 只有「删队列项」与「打断当前执行」两个分开的动作。
+#: From this version, ``POST /api/jobs/{id}/cancel`` handles queued/running tasks together;
+#: older versions separate queue deletion and active interruption.
 _JOB_CANCEL_MIN_VERSION = (0, 26, 0)
 
 
 @dataclass(frozen=True)
 class PickedArtifact:
-    """这次执行取走的那个产物，以及它是从几个里挑出来的。
+    """Selected artifacts plus available counts.
 
-    ``count`` 交给调用方：多产物在视频通道上落成任务 ``result.warnings`` 的一条提示，在图像通道
-    上只有日志（``ImageGenerationResult`` 没有提示位），两处该说什么由各自决定。
+    Callers interpret ``count``: videos add task ``result.warnings``, images log only because
+    ``ImageGenerationResult`` lacks warning slots; each channel decides wording.
     """
 
     artifact: Mapping[str, Any]
@@ -71,10 +71,10 @@ class PickedArtifact:
 
 
 class ComfyuiExecution:
-    """接在一台 ComfyUI 上、围绕一个 ``prompt_id`` 的那半次生成。
+    """Postsubmission generation around one ``prompt_id`` on one ComfyUI service.
 
-    构造只记连接与定义，不发请求：一次生成的 HTTP 客户端由 backend 持有（素材上传与提交也用
-    它），本类的取件方法收它作参数。叫停那一路例外——它自己另开一个短超时的客户端。
+    Construction records connections/definitions without requests. Backends own generation HTTP clients for uploads/submission,
+    passed into retrieval methods. Stopping instead creates separate short-timeout clients.
     """
 
     def __init__(self, *, client: ComfyuiClient, definition: Mapping[str, Any], media_type: str) -> None:
@@ -92,14 +92,14 @@ class ComfyuiExecution:
         record: RecordResponse | None = None,
         lost_error: Callable[[str], BaseException] | None = None,
     ) -> PickedArtifact:
-        """轮询到终态、挑出产物、下载到 ``output_path``；本地不要这次执行了就顺手停掉远端。
+        """Poll terminals, select/download into ``output_path``; stop remotes if local execution is abandoned.
 
-        ``lost_error`` 换掉「执行在 ComfyUI 上找不着了」这一格抛的异常：生成路径用
-        ``comfyui_job_lost``（可就地重试的生成失败），续跑路径要的是 ``ResumeExpiredError``
-        ——worker 据此结算那条 pending 的调用行，而不是把它当成一次可重试的生成。
+        ``lost_error`` replaces missing-execution exceptions: generation uses
+        ``comfyui_job_lost`` for locally retryable generation, resume requires ``ResumeExpiredError``
+        so workers settle pending calls instead of retrying generation.
 
-        叫停只包轮询与取件：提交之前没有 ``prompt_id`` 可停，而提交本身的歧义态由 ``submit_post``
-        处置。ComfyUI 跑在用户自己的显卡上，扔下一个没人要的执行会一直占着卡。
+        Stop handling wraps polling/retrieval only: before submission no ``prompt_id`` exists; ``submit_post``
+        handles ambiguous submission. User GPUs remain occupied by abandoned ComfyUI execution otherwise.
         """
         try:
             entry = await self._poll_to_terminal(
@@ -122,7 +122,7 @@ class ComfyuiExecution:
             raise
 
     def view_url(self, artifact: Mapping[str, Any]) -> str:
-        """产物在这台 ComfyUI 上的取件地址，作为这一版的来源留痕。"""
+        """Artifact retrieval addresses on this ComfyUI, retained as version provenance."""
         query = urlencode(
             {
                 "filename": filename_of(artifact),
@@ -132,7 +132,7 @@ class ComfyuiExecution:
         )
         return f"{self._client.base_url}/view?{query}"
 
-    # ------------------------------------------------------------------ 轮询与取件
+    # Polling/retrieval.
 
     async def _poll_to_terminal(
         self,
@@ -143,10 +143,10 @@ class ComfyuiExecution:
         record: RecordResponse | None,
         lost_error: Callable[[str], BaseException] | None,
     ) -> Mapping[str, Any]:
-        """轮询到 history 里出现这次执行的记录，并按记录判成败；失败即抛失败码。"""
+        """Poll until history contains execution, interpreting outcomes and raising failure codes."""
 
-        # 单元素列表包住这一轮的执行记录：``poll_with_retry`` 按 is_done 判终态，而「有没有记录」
-        # 正是终态本身，空列表即「还没轮到」。
+        # Single-element lists wrap execution records: ``poll_with_retry`` uses is_done, and record presence
+        # itself means terminal; empty lists mean not yet executed.
         async def poll_once() -> list[Mapping[str, Any]]:
             entry = await self._client.fetch_history(http, prompt_id)
             if entry is None:
@@ -159,7 +159,7 @@ class ComfyuiExecution:
 
         found = await poll_with_retry(
             poll_fn=poll_once,
-            # 有记录即终态：ComfyUI 只在一次执行走完（成功、报错或被打断）之后才往 history 写。
+            # History records imply terminal states: ComfyUI writes only after success/failure/interruption.
             is_done=bool,
             is_failed=lambda _found: None,
             max_wait=poll_timeout_seconds,
@@ -173,7 +173,7 @@ class ComfyuiExecution:
         return entry
 
     def _pick(self, entry: Mapping[str, Any]) -> PickedArtifact:
-        """从一条成功的终态记录里挑出这一类媒体的产物。"""
+        """Select media-compatible artifacts from successful terminal histories."""
         artifacts = output_artifacts(entry, self._output_nodes)
         if not artifacts:
             raise ComfyuiError(OUTPUT_MISSING, nodes=" / ".join(self._output_nodes))
@@ -185,29 +185,31 @@ class ComfyuiExecution:
         return PickedArtifact(artifact=artifact, count=len(artifacts))
 
     async def _verify_container(self, output_path: Path, picked: PickedArtifact) -> None:
-        """核实落盘字节的容器，对不上即删掉文件并判容器不符。
+        """Verify persisted containers; delete mismatches and report container errors.
 
-        扩展名白名单只管 history 里那个字符串：一个保存节点可以把 webm 的字节写进 ``.mp4`` 的
-        名字，而入库路径按扩展名定资源路径、下发时按扩展名声明 MIME。删掉文件而不是留在产物路径
-        上——这一笔按失败结算，路径上留一份打不开的文件会被后续的产物判定当成这一版已存在。
+        History extension checks alone permit webm bytes named ``.mp4``, while persistence resource paths/served MIME
+        follow extensions. Remove files instead of leaving artifact paths:
+        failed calls otherwise leave unreadable files misclassified as already-existing versions.
         """
         head = await asyncio.to_thread(_read_head, output_path)
         if container_matches(head, self._media_type):
             return
-        await asyncio.to_thread(output_path.unlink, True)  # hard-delete: temp -- 刚下载、容器格式不符的输出
+        await asyncio.to_thread(
+            output_path.unlink, True
+        )  # hard-delete: temp -- newly downloaded container-mismatched output
         raise ComfyuiError(OUTPUT_CONTAINER_MISMATCH, filename=picked.filename, media_type=self._media_type)
 
     async def _history_or_lost(
         self, http: httpx.AsyncClient, prompt_id: str, *, lost_error: Callable[[str], BaseException] | None
     ) -> Mapping[str, Any] | None:
-        """history 还空着的这一轮：确认这次执行仍在队列上，否则判丢失。
+        """With empty history, verify execution remains queued, otherwise classify lost.
 
-        ComfyUI 重启会把队列连同尚未写进 history 的执行一起丢掉，而客户端这一侧看到的只是
-        history 永远为空——不查队列就会一路轮询到全局超时。
+        ComfyUI restart loses queues/in-flight execution before history writes; clients otherwise see
+        perpetually empty history until global timeout.
 
-        队列与 history 是两次独立的请求，一次执行恰好在两次之间走完时，它既已离开队列、第一次
-        history 又还没看到它。故「不在队列里」之后再查一次 history，查到即照常收下，把这一格与
-        真丢失分开。
+        Queue/history are independent queries: completion between them may leave execution out of queues yet absent
+        from first history reads. Requery history after queue absence, accepting matches normally and distinguishing
+        races from genuine loss.
         """
         snapshot = await self._queue_snapshot(http)
         if snapshot is None:
@@ -223,12 +225,12 @@ class ComfyuiExecution:
         raise ComfyuiError(JOB_LOST, prompt_id=prompt_id)
 
     async def _queue_snapshot(self, http: httpx.AsyncClient) -> tuple[list[str], list[str]] | None:
-        """丢失判定用的队列快照：这张表读不出时给 ``None``（继续轮询），不占轮询的失败预算。
+        """Queue snapshots for loss checks; ``None`` on unreadable queues continues polling without spending failure budgets.
 
-        ``/queue`` 只是丢失判定的辅助判据，而任务本身的地址是 ``/history``——走到这里时它这一轮
-        是好的，坏的只有 ``/queue``。把它的 HTTP 失败抛给 ``poll_with_retry`` 会让一条只挡掉
-        ``/queue`` 的反向代理在连续十轮空态之后把一次仍在出片的执行判成失败，而这条路的本意正是
-        「读不出时『不知道』比『判死』安全」。
+        ``/queue`` merely assists loss detection; task addresses are ``/history``, already healthy this round.
+        Forwarding auxiliary ``/queue`` HTTP failures into ``poll_with_retry`` would let proxies blocking
+        only ``/queue`` fail still-generating tasks after ten empty rounds. Unknown
+        is safer than false terminal failure here.
         """
         try:
             return await self._client.queue_snapshot(http)
@@ -236,18 +238,18 @@ class ComfyuiExecution:
             logger.info("ComfyUI 队列读取失败，本轮不判丢失", exc_info=True)
             return None
 
-    # ------------------------------------------------------------------ 叫停远端
+    # Stop remotes.
 
     async def stop_remote(self, prompt_id: str) -> None:
-        """best-effort 叫停远端：失败只记日志，本地状态机不动。
+        """Best-effort remote stops: failures log only, preserving local state machines.
 
-        另开一个短超时的客户端而不是复用生成那一路的：这几个请求发在任务已经取消或超时之后，
-        一台不响应的 ComfyUI 不该把 worker 的关停再拖上生成路径那一份超时。这个客户端同样经
-        :func:`~lib.backends.artifact_download_guard.artifact_http_client` 做目的地校验，被拒的
-        目的地与其他失败一样只记日志。
+        Separate short-timeout clients instead of generation clients: after cancellations/timeouts,
+        unresponsive ComfyUI services must not prolong worker shutdown by generation-sized timeouts. These clients also use
+        :func:`~lib.backends.artifact_download_guard.artifact_http_client` destination validation;
+        rejected destinations log like other failures.
 
-        版本现打一次 ``/system_stats`` 而不是构造时缓存：一台 ComfyUI 会在两次生成之间被升级，
-        而这个判断只在取消的那一刻用得上，读不到就按低版本路径走。
+        Query current ``/system_stats`` versions, not construction caches: servers may upgrade between calls,
+        and this decision matters only at cancellation. Unreadable versions use legacy routes.
         """
         try:
             async with artifact_http_client(timeout=_STOP_TIMEOUT_SECONDS) as http:
@@ -261,8 +263,8 @@ class ComfyuiExecution:
                 if prompt_id in pending:
                     await self._client.drop_from_queue(http, prompt_id)
                 elif prompt_id in running:
-                    # ``/interrupt`` 打断的是「当前正在执行的那一个」、不认 id：running 里不是
-                    # 自己这一笔时发出去，停掉的是别人的活。
+                    # ``/interrupt`` targets current execution, ignoring ids. Sending when running excludes
+                    # this task would stop someone else's work.
                     await self._client.interrupt(http)
         except Exception:
             logger.warning("ComfyUI 远端叫停失败 prompt_id=%s", prompt_id, exc_info=True)
@@ -271,22 +273,22 @@ class ComfyuiExecution:
         try:
             return await self._client.server_version(http)
         except Exception:
-            # 版本读不到不是失败：老版本与部分代理本就不回这一字段，走低版本那条路一样能停下来。
+            # Unreadable versions are not failures: old services/proxies omit them; legacy routes still stop execution.
             logger.info("ComfyUI 版本读取失败，按低版本路径叫停", exc_info=True)
             return None
 
 
 def _read_head(path: Path) -> bytes:
-    """落盘产物的前几个字节；判容器只要这一段。"""
+    """Leading persisted artifact bytes, sufficient for container checks."""
     with open(path, "rb") as handle:
         return handle.read(CONTAINER_HEAD_BYTES)
 
 
 def _supports_job_cancel(version: str | None) -> bool:
-    """这台 ComfyUI 是否有 ``POST /api/jobs/{id}/cancel``。
+    """Whether ComfyUI supports ``POST /api/jobs/{id}/cancel``.
 
-    版本读不到、或不是 ``x.y.z`` 形状时按「没有」处置：低版本那条路（查队列 + 删项 / 打断）在
-    新版本上同样有效，猜错的代价是多发两个请求；反过来猜错会打在一个 404 上、什么都没停掉。
+    Unreadable/non-``x.y.z`` versions mean unsupported: old queue+delete/interrupt routes work on newer versions too,
+    costing two extra requests if misclassified; guessing new support wrongly yields 404 without stopping anything.
     """
     if not version:
         return False

@@ -1,4 +1,4 @@
-"""广告/短片「AI 生成脚本」的 Web 入口：POST /projects/{name}/episodes/{n}/ad-script 的准入拒绝与覆盖确认。"""
+"""Ad/short-film AI-script Web entry: POST /projects/{name}/episodes/{n}/ad-script admission rejections/overwrite confirmations."""
 
 from pathlib import Path
 

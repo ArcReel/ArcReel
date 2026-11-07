@@ -1,4 +1,4 @@
-"""项目快照读盘入口对 ``drafts/`` 下目录名的处理：只认目录，路径沿用磁盘真实目录名。"""
+"""Project-snapshot disk reads under ``drafts/`` recognize only directories and retain their actual on-disk names."""
 
 from __future__ import annotations
 

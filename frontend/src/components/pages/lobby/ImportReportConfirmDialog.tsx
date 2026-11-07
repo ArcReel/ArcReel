@@ -22,7 +22,7 @@ export interface PendingImportReport {
 }
 
 interface ImportReportConfirmDialogProps {
-  /** 待确认的升级报告；为 null 时对话框关闭。 */
+  /** Upgrade report awaiting confirmation; null closes the dialog. */
   pending: PendingImportReport | null;
   importing: boolean;
   onConfirm: () => void;
@@ -30,12 +30,12 @@ interface ImportReportConfirmDialogProps {
 }
 
 /**
- * 导入包升级时调整了内容或有没能带入的文件：项目出现在项目列表之前请用户确认一次。
- * 取消时服务端没有留下任何项目数据；确认后带上确认重新提交导入。
+ * If import-package upgrades adjust content or cannot bring files over, obtain one confirmation before the project appears in the list.
+ * Cancellation leaves no project data server-side; after confirmation, resubmit the import with that confirmation.
  */
 export function ImportReportConfirmDialog({ pending, importing, onConfirm, onCancel }: ImportReportConfirmDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 关闭动画期间保留上一份报告，避免内容闪成空白。
+  // Retain the last report during closing animation to prevent blank-content flashes.
   const [shown, setShown] = useState(pending);
   if (pending !== null && pending !== shown) setShown(pending);
 
@@ -43,7 +43,7 @@ export function ImportReportConfirmDialog({ pending, importing, onConfirm, onCan
     <AlertDialog
       open={pending !== null}
       onOpenChange={(open) => {
-        // 导入中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during import so the dialog cannot disappear before the request completes
         if (!open && !importing) onCancel();
       }}
     >

@@ -1,19 +1,22 @@
-"""生成入口的引用准入：未登记的引用名与没有资产图的角色/场景/道具一律阻断。
+"""Generation reference admission: block every unregistered reference name and character/scene/prop without an asset sheet.
 
-参考视频、分镜图、宫格图、图生视频四条路线的单条生成与整批准入共用本模块的判定
-（见 ``docs/adr/0073``）。视频生成是最贵的生成行为，准入结论必须只有一份：分成各入口
-自行判定时，批量预览放行的目标会在单条提交时被拒，或者反过来——用户为同一份数据在两个
-面板拿到相反的答复。
+Single and batch admission for reference-video, storyboard-image, grid-image, and image-to-video
+routes share these decisions (``docs/adr/0073``). Video generation is the most expensive generation
+action, requiring one admission conclusion. Separate entry-point decisions would let batch previews
+admit targets rejected by single submissions, or vice versa, showing opposite answers for the
+same data in two panels.
 
-两条阻断轴：
+Two blocking axes:
 
-- **未登记引用**：正文的 ``@[名称]`` 或分镜条目的 ``characters_in_*`` / ``scenes`` /
-  ``props`` / ``products_in_shot`` 写了引用目录里没有的名字。删除资产后残留的引用与从未
-  登记过的名字在这里同一出路——都不再被静默丢弃。
-- **无资产图**：角色、场景、道具已登记但没有资产图。原图只是生成资产图的输入，不进分镜
-  与视频请求；商品例外，它的原图是验收锚点（见 ``docs/adr/0034``）。
+- **Unregistered references**: body ``@[名称]`` or storyboard ``characters_in_*`` / ``scenes`` /
+  ``props`` / ``products_in_shot`` names absent from the reference catalog. Leftovers after asset
+  deletion and never-registered names take the same path; neither is silently dropped.
+- **Missing sheets**: registered characters/scenes/props without asset sheets. Original images only
+  feed sheet generation, not storyboard/video requests. Products are the exception: their original
+  images anchor fidelity acceptance (``docs/adr/0034``).
 
-编辑与保存路径不消费本模块：作者写作时不必先建资产，那里仍只发警告（见 ``docs/adr/0064``）。
+Editing/save paths do not consume this module: authors need not create assets before writing,
+and those paths still emit warnings only (``docs/adr/0064``).
 """
 
 from __future__ import annotations
@@ -24,15 +27,15 @@ from dataclasses import dataclass
 from lib.project.asset_types import ASSET_SPECS
 from lib.references.reference_catalog import ReferenceCatalog
 
-#: 引用了目录里没有的名字。``reference_asset_missing`` 说的是「这条资产没有可用的图」，
-#: 与「根本没有这条资产」是两种修法（前者去生成资产图，后者去登记资产或改正文），故另立一码。
+#: A name absent from the catalog. ``reference_asset_missing`` means an existing asset lacks an available image;
+#: absence of the asset itself needs a different repair (register it or edit text, versus generate a sheet), hence a separate code.
 UNREGISTERED_REFERENCE_CODE = "reference_asset_unregistered"
 
-#: 已登记但没有资产图，沿用参考素材缺失家族的失败码。
+#: Registered but lacking a sheet; reuse the reference-material-missing failure-code family.
 SHEET_MISSING_CODE = "reference_asset_missing"
 
-#: 必须有资产图才放行的资产类型。商品不在其中：没有资产图时它的原图直接进下游参考，
-#: 是保真验收的锚点（``docs/adr/0034``）。
+#: Asset types requiring sheets for admission. Products are excluded: without sheets, originals go straight downstream as references,
+#: anchoring fidelity acceptance (``docs/adr/0034``).
 SHEET_REQUIRED_ASSET_TYPES: frozenset[str] = frozenset({"character", "scene", "prop"})
 
 
@@ -42,38 +45,40 @@ def _missing_text(entries: Iterable[tuple[str, str]]) -> str:
 
 @dataclass(frozen=True)
 class ReferenceAdmission:
-    """一次生成请求的引用准入结论。
+    """Reference admission outcome for one generation request.
 
-    两条轴分开落地而不是折成一个布尔：失败码与修复动作按轴不同，调用方要能分别报出
-    「这些名字没登记」与「这些资产还没出图」，而不是给用户一句合并后的含混提示。
+    Keep both axes separate rather than reducing them to one boolean: failure codes and repair
+    actions differ. Callers must distinguish unregistered names from assets lacking sheets,
+    rather than showing users one ambiguous combined message.
     """
 
-    #: 目录里没有的引用名，按首次出现顺序。
+    #: Reference names absent from the catalog, in first-occurrence order.
     unregistered: tuple[str, ...] = ()
-    #: 已登记但没有资产图的引用，``(资产类型, 名称)``，按首次出现顺序。
+    #: Registered references lacking sheets, ``(资产类型, 名称)``, in first-occurrence order.
     without_sheet: tuple[tuple[str, str], ...] = ()
 
     @property
     def admitted(self) -> bool:
-        """两条轴都没有缺口时放行。"""
+        """Admit only when both axes have no gaps."""
         return not self.unregistered and not self.without_sheet
 
     def unregistered_text(self) -> str:
-        """未登记名字的展示串，逐个列名——用户要改的就是这些字。"""
+        """Display unregistered names individually: these exact characters are what users must fix."""
         return ", ".join(self.unregistered)
 
     def without_sheet_text(self) -> str:
-        """无资产图引用的展示串，带类型前缀，与 ``reference_asset_missing`` 同形。"""
+        """Display missing-sheet references with type prefixes, matching ``reference_asset_missing`` shape."""
         return _missing_text(self.without_sheet)
 
 
 def _entry_has_sheet(asset: object, sheet_field: str) -> bool:
-    """该资产条目登记了资产图路径。
+    """Whether the asset entry has a registered sheet path.
 
-    只问「登记了没有」，不碰文件系统：文件是否读得出来由各路线自己的可用性判定回答
-    （参考生视频经 ``ReferenceAssetAvailability``、分镜路线经装配时的存在性检查），
-    准入在此重复一遍 IO 只会让同一份数据出两个结论。条目不是 dict 的坏数据按没有
-    资产图处理——它的结构错误由 ``lib.project.data_validator.DataValidator`` 另行报告。
+    Check registration only, never the filesystem. Each route judges file readability itself
+    (reference-to-video through ``ReferenceAssetAvailability``, storyboard routes through assembly
+    existence checks); duplicate admission I/O would produce two conclusions for the same data.
+    Malformed nondict entries count as missing sheets; ``lib.project.data_validator.DataValidator``
+    reports their structural errors separately.
     """
     if not isinstance(asset, dict):
         return False
@@ -87,14 +92,15 @@ def admit_references(
     references: Iterable[tuple[str, str]],
     unregistered: Iterable[str] = (),
 ) -> ReferenceAdmission:
-    """按引用目录判定一组已归属引用的准入。
+    """Admit a set of already-attributed references against the catalog.
 
-    ``references`` 是 ``(资产类型, 引用名)``，由调用方从各自的引用载体派生——正文经
-    ``derive_references_from_text``，分镜条目经 :func:`admit_storyboard_item`。
-    ``unregistered`` 收正文派生已经认定未登记的名字：正文的归属决议在派生时就做完了，
-    这里不重做一遍。
+    ``references`` contains ``(资产类型, 引用名)`` derived by callers from their reference carriers:
+    body text through ``derive_references_from_text``, storyboards through :func:`admit_storyboard_item`.
+    ``unregistered`` contains names already judged unregistered during body derivation; attribution
+    was settled then and is not repeated here.
 
-    两条轴都保序去重：用户按提示逐个修名字，顺序抖动会让两次提交的报错读起来像换了内容。
+    Deduplicate both axes while preserving order: users fix names one by one, and shifting error
+    order would make successive submissions appear to have changed content.
     """
 
     unregistered_names: list[str] = []
@@ -127,10 +133,10 @@ def admit_references(
 
 
 def _item_reference_names(item: Mapping[str, object]) -> list[tuple[str, str]]:
-    """分镜条目的引用字段 → ``(资产类型, 名称)``，按 ``ASSET_SPECS`` 的字段声明顺序。
+    """Storyboard reference fields → ``(资产类型, 名称)``, in ``ASSET_SPECS`` declaration order.
 
-    条目来自磁盘剧本 JSON：字段值不是列表、元素不是字符串的坏数据在此跳过而不抛——
-    结构校验是 ``lib.project.data_validator`` 的职责，准入不该把脏剧本打成 500。
+    Entries come from on-disk script JSON. Skip nonlist fields/nonstring elements without raising:
+    ``lib.project.data_validator`` owns structural validation; admission must not turn dirty scripts into 500 errors.
     """
     names: list[tuple[str, str]] = []
     for spec in ASSET_SPECS.values():
@@ -143,11 +149,11 @@ def _item_reference_names(item: Mapping[str, object]) -> list[tuple[str, str]]:
 
 
 def admit_storyboard_item(catalog: ReferenceCatalog, item: object) -> ReferenceAdmission:
-    """判定一条分镜条目的引用准入——分镜图、宫格图与图生视频共用。
+    """Admit one storyboard entry’s references, shared by storyboard images, grids, and image-to-video.
 
-    引用字段按字段名限定类型（``scenes`` 写的就是场景），故走
-    :meth:`ReferenceCatalog.lookup` 而不是跨类型决议：跨类型重名不该把「场景没登记」
-    偷换成「有个同名角色，那就算登记了」。
+    Field names constrain types (``scenes`` means scenes), so use :meth:`ReferenceCatalog.lookup`
+    instead of cross-type attribution. Equal names across types must not replace “unregistered scene”
+    with “a same-named character exists, so registered”.
     """
     if not isinstance(item, Mapping):
         return ReferenceAdmission()
@@ -155,10 +161,10 @@ def admit_storyboard_item(catalog: ReferenceCatalog, item: object) -> ReferenceA
 
 
 def admit_storyboard_items(catalog: ReferenceCatalog, items: Iterable[object]) -> ReferenceAdmission:
-    """整批分镜条目的合并准入结论，缺口按首次出现顺序合并去重。
+    """Combined batch storyboard admission, merging/deduplicating gaps in first-occurrence order.
 
-    宫格图按分段成图、一次请求覆盖多条分镜：逐条报出后用户要提交多次才看全，合并成一份
-    清单才是一次就能改完的修复指引。
+    Grid generation groups storyboard entries into one request. Reporting gaps one entry at a time
+    requires repeated submissions; one combined list lets users repair everything at once.
     """
     unregistered: list[str] = []
     without_sheet: list[tuple[str, str]] = []

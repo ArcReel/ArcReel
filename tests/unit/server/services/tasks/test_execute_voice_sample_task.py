@@ -1,5 +1,4 @@
-"""execute_character_voice_sample_task 执行链单测：文本/音色显式必填、
-生成产物落盘 + 与上传同口径的时长/大小校验、resource_id 隔离命名空间、任务注册表。"""
+"""execute_character_voice_sample_task unit coverage: explicitly required text/voice, persisted output and upload-equivalent duration/size validation, resource_id namespace isolation and task registry."""
 
 from __future__ import annotations
 
@@ -58,7 +57,7 @@ class _FakeAudioGenerator:
             {"text": text, "resource_id": resource_id, "voice": voice, "speed": speed, "task_id": task_id}
         )
         path = self._project_path / resource_relative_path("audio", resource_id)
-        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        # Production backends write artifacts in worker threads; substitutes likewise avoid blocking the event loop.
         await write_backend_output(path, self._content)
         return path, 1
 
@@ -98,7 +97,7 @@ class TestExecuteCharacterVoiceSampleTask:
                 "task_id": "task-1",
             }
         ]
-        # 试听样本归属角色：角色被删时样本进回收站，而不是按样本自身的资源 ID 复核。
+        # Voice samples belong to characters: deleting the character trashes samples; do not recheck by the sample's own resource ID.
         assert gen.target_resource == ("characters", "艾莉")
         assert result["resource_type"] == "audio"
         assert result["resource_id"] == "voice_sample__艾莉__task-1"
@@ -108,7 +107,7 @@ class TestExecuteCharacterVoiceSampleTask:
         assert result["file_path"] == resource_relative_path("audio", "voice_sample__艾莉__task-1")
 
     async def test_provider_changed_since_claim_is_raised_before_synthesis(self, voice_sample_env):
-        """执行入口解析出的音频供应商与认领槽不一致：不合成，交给 worker 改记录并回队。"""
+        """If resolved audio provider differs from the claimed slot, do not synthesize; let the worker update the record and requeue."""
         _pm, gen = voice_sample_env
         with pytest.raises(DispatchProviderChanged) as caught:
             await generation_tasks.execute_character_voice_sample_task(
@@ -123,7 +122,7 @@ class TestExecuteCharacterVoiceSampleTask:
         assert gen.audio_calls == []
 
     async def test_resource_id_namespaced_away_from_narration_segments(self, voice_sample_env):
-        # 旁白 segment id 与角色名可能撞字面量；voice_sample_resource_id 前缀确保命名空间隔离。
+        # Narration segment IDs may collide with character names; voice_sample_resource_id prefixes isolate namespaces.
         _pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
             "demo", "E1S01", {"prompt": "文本", "voice": "Ethan"}, task_id="task-1"
@@ -132,8 +131,8 @@ class TestExecuteCharacterVoiceSampleTask:
         assert gen.audio_calls[0]["resource_id"] != "E1S01"
 
     async def test_distinct_tasks_get_distinct_files(self, voice_sample_env):
-        # 前一次成功样本未确认时重新生成会开新任务：资源 id 必须随 task_id 变化，
-        # 否则新任务落盘会原地覆盖前一任务 result.file_path 仍指向的文件。
+        # Regenerating before confirming a previous successful sample creates a new task; resource ID must vary with task_id,
+        # or the new write would overwrite the file still referenced by the earlier result.file_path.
         _pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
             "demo", "艾莉", {"prompt": "文本 A", "voice": "Cherry"}, task_id="task-A"
@@ -179,7 +178,7 @@ class TestExecuteCharacterVoiceSampleTask:
             )
 
     async def test_duration_none_skips_validation(self, voice_sample_env, monkeypatch):
-        # 随包 ffmpeg 不可用时 probe_audio_duration_seconds 返回 None，按仓库惯例降级放行。
+        # Without bundled ffmpeg, probe_audio_duration_seconds returns None; allow degraded behavior by repository convention.
         async def _unavailable(content, suffix):
             return None
 
@@ -197,7 +196,7 @@ class TestExecuteCharacterVoiceSampleTask:
             )
 
     async def test_character_deleted_after_enqueue_raises(self, voice_sample_env):
-        # 入队后、worker 取到任务前角色被删除：不应再花钱调用合成 API 产出孤儿预览。
+        # Character deleted after enqueue but before worker claim: do not spend on synthesis API calls for orphan previews.
         pm, gen = voice_sample_env
         del pm.project["characters"]["艾莉"]
         with pytest.raises(ValueError, match="character not found"):
@@ -215,8 +214,8 @@ class TestExecuteCharacterVoiceSampleTask:
     def test_voice_sample_resource_id_truncates_long_character_names(self):
         long_name = "A" * 200
         resource_id = generation_tasks.voice_sample_resource_id(long_name, "task-1")
-        # 裁剪后的角色名部分不超过 _SAMPLE_ID_NAME_MAX_BYTES，任务专属后缀完整保留，
-        # 整体长度留足余量给 VersionManager 的版本文件名后缀，避免 NAME_MAX 溢出。
+        # Trim character-name portions to _SAMPLE_ID_NAME_MAX_BYTES while retaining the complete task-specific suffix,
+        # leaving room for VersionManager filename suffixes to avoid NAME_MAX overflow.
         assert resource_id.endswith("__task-1")
         assert len(resource_id.encode("utf-8")) < 128
 
@@ -226,8 +225,8 @@ class TestExecuteCharacterVoiceSampleTask:
         prefix = "voice_sample__"
         suffix = "__task-1"
         safe_name = resource_id[len(prefix) : -len(suffix)]
-        # 按字节裁剪落在多字节字符中间时须整字符丢弃，断言实际裁剪到的字符数（而不只是
-        # 验证能重新编解码）——错误的上限或过度裁剪不会被单纯的 encode/decode 校验发现。
+        # If byte trimming cuts a multibyte character, drop the entire character. Assert actual retained character count, not only
+        # successful encoding/decoding: that alone would miss wrong limits or excessive trimming.
         expected_chars = generation_tasks._SAMPLE_ID_NAME_MAX_BYTES // len("艾".encode())
         assert safe_name == "艾" * expected_chars
         assert len(safe_name.encode("utf-8")) <= generation_tasks._SAMPLE_ID_NAME_MAX_BYTES

@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
 
 /**
- * 集规划状态为 stale 的标记「原文已重新规划」。
+ * Source-replanned marker for stale episode planning.
  *
- * 与产物过期（琥珀色实底）区分：品牌色虚线框，只说这一集的原文动过，不说产物旧了。
+ * Distinct from stale artifacts (solid amber): a brand-colored dashed border indicates changed episode source, without claiming artifacts are stale.
  */
 export function ReplannedBadge() {
   const { t } = useTranslation("dashboard");

@@ -10,7 +10,7 @@ const assistant = (uuid: string, content: ContentBlock[], timestamp?: string): T
   timestamp,
 });
 const text = (value: string): ContentBlock => ({ type: "text", text: value });
-// 只有签名的思考块：投影里常见的空 turn，没有任何可见内容
+// Signature-only thinking blocks: common empty projected turns, without visible content.
 const signedThinking: ContentBlock = { type: "thinking", thinking: "" };
 const interrupt: Turn = { type: "system", uuid: "sys-interrupt", content: [{ type: "interrupt_notice" }] };
 
@@ -31,7 +31,7 @@ describe("buildDisplayItems", () => {
 
     expect(items.map((item) => item.turn.type)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(items[1].turn.content).toEqual([text("先读计划"), toolUse, text("读完了")]);
-    // 一轮的时间取最后一段回复的时间
+    // Turn timestamps use last reply segments.
     expect(items[1].turn.timestamp).toBe("2026-01-01T08:00:09Z");
   });
 

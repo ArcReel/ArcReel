@@ -24,10 +24,10 @@ import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { errMsg } from "@/utils/async";
 
-/** 样本文案长度上限（与后端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。
- *  参考音频要求 2-10 秒，而「多少字合成出几秒」随语种与音色而变，无法在提交前精确判定；
- *  此处只作粗护栏挡住整段粘贴——真正的时长判定仍在执行层落盘后做。三语默认文案约 120 字符，
- *  上限取 200 以留出编辑余量。 */
+/** Sample-text length limit, matching backend VOICE_SAMPLE_TEXT_MAX_LENGTH.
+ *  References require 2-10 seconds; character-to-duration ratios vary by language/voice, preventing exact pre-submit decisions.
+ *  This coarse guard only prevents pasting whole passages; actual duration checks occur after execution persists files. Three-language defaults are about 120 characters;
+ *  limit 200 leaves editing room. */
 const VOICE_SAMPLE_TEXT_MAX_LENGTH = 200;
 
 interface VoiceOption {
@@ -38,15 +38,15 @@ interface VoiceOption {
 interface VoiceSampleButtonProps {
   projectName: string;
   characterName: string;
-  /** 详情编辑器里其它生成/写入占用中：禁用入口 */
+  /** Other detail generation/writes occupy the asset; disable entry. */
   busy?: boolean;
-  /** 确认保存成功后触发，供调用方重新加载角色资产 */
+  /** Called after confirmed saving succeeds so callers reload character assets. */
   onSaved: () => Promise<unknown> | void;
 }
 
 /**
- * 角色详情「声音」区块的 TTS 试听样本入口：选音色 → 编辑默认文案 → 生成 → 试听 → 确认落资产。
- * 取消/关闭弹窗不落资产——只有点击「确认并保存」才把已生成样本提升为角色 reference_audio。
+ * Character voice TTS sample: choose voice → edit defaults → generate → listen → confirm asset persistence.
+ * Cancel/close never persists assets; only confirm-and-save promotes generated samples to character reference_audio.
  */
 export function VoiceSampleButton({
   projectName,
@@ -71,19 +71,19 @@ export function VoiceSampleButton({
   const voiceFieldId = useId();
   const textFieldId = useId();
 
-  // audio 供应商可用性走全局 config-status-store（路由启动时已拉取一次），不为每个角色
-  // 预取音色列表——入口在未配置时即禁用，符合「audio_backend 未配置该入口不可用」的口径。
+  // Audio-provider availability uses global config-status-store fetched at routing startup, without per-character
+  // voice-list prefetches. Unconfigured entry is disabled, matching audio_backend-required availability.
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
   const liveTask = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
 
-  // tasks-store 只保留最新 TASKS_PAGE_SIZE(200) 行快照：任务行可能在到达终态之前就被更多
-  // 新任务挤出快照。把「尚未落地」（generating 该继续按占用处理）与「落地过、还在
-  // running/queued 时被挤出」（同样该继续按占用处理——它很可能仍在服务端跑，只是客户端看
-  // 不到了；一旦在这个状态下放行关闭/编辑/重新生成，会丢失一个仍在计费任务的追踪，或让
-  // 新提交被 dedupe 误合并进这个隐形任务）两者都保守地当作占用中；只有明确观察到过
-  // succeeded/failed 终态后再消失，才不再继续锁定。缓存「最近一次观察到的该 taskId 任务行」
-  // 而非单纯的布尔标记，让这个判断能落到具体状态而不是「有没有出现过」。
+  // tasks-store retains only latest TASKS_PAGE_SIZE(200) rows; newer tasks may evict rows before terminal states.
+  // Conservatively preserve occupancy both when rows have not yet arrived (generating must stay occupied) and when
+  // observed queued/running rows are evicted. They likely still run server-side but are invisible to the client;
+  // allowing close/edit/regenerate would lose tracking for still-billing tasks or falsely deduplicate new
+  // submissions into invisible tasks. Both states stay occupied; only after explicitly observing
+  // succeeded/failed terminal states may later disappearance release locking. Cache the latest observed taskId row,
+  // not a boolean, so decisions use concrete states rather than whether rows ever appeared.
   const [lastSeenTask, setLastSeenTask] = useState<TaskItem | null>(null);
   useEffect(() => {
     if (taskId == null) return;
@@ -91,8 +91,8 @@ export function VoiceSampleButton({
       const found = tasks.find((item) => item.task_id === taskId);
       if (found) setLastSeenTask(found);
     };
-    // 订阅回调里 setState 是响应外部 store 变化，不是效应体内的同步 setState；首次挂载时
-    // store 里可能已经有这一行，延后到微任务里查一次初始值，避免在订阅建立期间嵌套 dispatch。
+    // Subscription setState responds to external stores, not synchronous effect-body updates. Initial mounting may
+    // find existing rows; defer initial lookup to microtasks, avoiding nested dispatch during subscription establishment.
     const unsubscribe = useTasksStore.subscribe((state) => captureIfPresent(state.tasks));
     void Promise.resolve().then(() => captureIfPresent(useTasksStore.getState().tasks));
     return unsubscribe;
@@ -113,7 +113,7 @@ export function VoiceSampleButton({
     const controller = new AbortController();
     API.getAudioBackendVoices(projectName, { signal: controller.signal })
       .then((res) => {
-        // 响应已 resolve 之后才发生的 abort 也要拦住，别把过期结果写进组件状态。
+        // Also reject aborts occurring after responses resolve, preventing stale results entering component state.
         if (controller.signal.aborted) return;
         setVoicesConfigured(res.configured);
         setVoices(res.voices);
@@ -133,7 +133,7 @@ export function VoiceSampleButton({
 
   const openModal = () => {
     if (disabled) return;
-    // 打开时复核占用态：渲染快照之外，角色可能刚被 Agent 或其他标签页的任务占用。
+    // Recheck occupancy on opening; Agents/other-tab tasks may occupy characters after render snapshots.
     if (busy || isAssetBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
@@ -141,11 +141,11 @@ export function VoiceSampleButton({
     setText(t("voice_sample_text_default"));
     setSelectedVoice("");
     setTaskId(null);
-    // 复位播放态：上一次打开期间播放过的样本，其 <audio> 元素随 taskId 清空已卸载，
-    // 但 isPreviewPlaying 独立于 taskId,不会跟着卸载自动复位——不重置的话，本次新样本
-    // 挂载的全新（未播放）<audio> 元素会因这个陈旧的 true 值渲染成「暂停」图标。
+    // Reset playback state: previous samples' <audio> unmount when taskId clears,
+    // but isPreviewPlaying is independent and does not reset automatically. Without reset, newly mounted unplayed
+    // <audio> would show pause icons due to stale true state.
     setIsPreviewPlaying(false);
-    // 弹窗打开这一事件处理器内同步置位（非 effect 内），紧随其后的 effect 据此拉取音色列表。
+    // Set synchronously in the dialog-open handler, not effects; the next effect fetches voices accordingly.
     setVoicesLoading(true);
     setOpen(true);
   };
@@ -155,10 +155,10 @@ export function VoiceSampleButton({
     setOpen(false);
   };
 
-  // 样本已生成成功后，若用户改选音色或改动文案却没有点「重新生成」，Confirm 按钮仍会显示
-  // 且仍指向旧样本——用户看到的是新输入，确认保存的却是旧音色/旧文案合成的字节。只在
-  // succeeded 时清空 taskId 让预览/确认区一并隐藏，逼用户重新生成；不在生成中途清空，
-  // 否则会丢失一个仍在合成、且已计费任务的追踪入口。
+  // After generation succeeds, changing voice/text without regenerating would leave Confirm visible
+  // and pointing to old samples: users see new input but save bytes synthesized from old voice/text. Clear taskId only
+  // on succeeded, hiding preview/confirmation and requiring regeneration. Never clear mid-generation,
+  // or tracking for still-synthesizing, already-billed tasks is lost.
   const invalidateStalePreview = () => {
     if (succeeded) {
       setTaskId(null);
@@ -179,17 +179,17 @@ export function VoiceSampleButton({
   const handleGenerate = async () => {
     const trimmed = text.trim();
     if (!trimmed || !selectedVoice || generating || confirming) return;
-    // 弹窗打开期间占用态可能已变化，提交前从 store 读取最新占用态复核（见 docs/standards/frontend.md）。
+    // Occupancy may change while open; recheck latest store state before submission (docs/standards/frontend.md).
     if (busy || isAssetBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
     setLocalSubmitting(true);
     setTaskId(null);
-    // 上一条预览的 <audio> 元素随 taskId 清空即刻卸载，但 isPreviewPlaying 是独立 state，
-    // 不会跟着卸载自动复位——不重置的话，新样本挂载的全新（未播放）<audio> 元素会因这个
-    // 陈旧的 true 值渲染成「暂停」图标，点击对一个已暂停的元素调 pause() 不产生新事件，
-    // 播放态就此卡死，永远进不了播放。
+    // Clearing taskId immediately unmounts the previous preview <audio>, but independent isPreviewPlaying state
+    // does not automatically reset. Otherwise newly mounted unplayed <audio> shows a pause icon from stale
+    // true; clicking pause() on already-paused elements emits no new event,
+    // permanently trapping playback state before it can start.
     setIsPreviewPlaying(false);
     try {
       const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, selectedVoice);
@@ -298,7 +298,7 @@ export function VoiceSampleButton({
 
                 {previewUrl && (
                   <div className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
-                    {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS 试听样本，无对白内容，无字幕源 */}
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS preview sample without dialogue content or subtitle sources */}
                     <audio
                       ref={previewAudioRef}
                       src={previewUrl}

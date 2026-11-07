@@ -1,12 +1,12 @@
-# 新增资产（new_assets）
+# New assets (new_assets)
 
-上方资产表列出全部已登记的角色、场景、道具，括号里是别名。短片里要出场的资产，先对照表里的名字、别名与描述：表里已有的直接引用登记名。表里没有、需要固定外观的角色 / 场景 / 道具，在引用处写一个简短的称呼，并在 `new_assets` 里为它列一项；列进 `new_assets` 的称呼与登记名一样可以引用。同类同名的称呼只列一项，没有新增资产时写空数组 `[]`。商品只引用已登记的商品名，不列进 `new_assets`。
+The asset table above lists all registered characters, scenes, and props, with aliases in parentheses. For assets needed on screen, first compare names, aliases, and descriptions; directly reference the registered name when already listed. For a character / scene / prop absent from the table that needs a fixed appearance, use a short designation at the reference and list an entry in `new_assets`; names listed in `new_assets` can be referenced just like registered names. List each same-type, same-name designation only once; use an empty array `[]` if there are no new assets. Products reference only registered product names and are not listed in `new_assets`.
 
-每项写 `type`、`name`（引用处写的称呼）、`decision` 和一句 `reason`（依据，如「开场到结尾的主角」）。`decision` 取以下四种之一：
+Each entry contains `type`, `name` (the designation used at the reference), `decision`, and a one-sentence `reason` (the basis, such as “the protagonist from opening to ending”). `decision` is one of:
 
-- `register`：登记为新资产。`description` 写能直接用来生成资产图的外观（角色写长相与服装，场景写空间与陈设，道具写形制与材质）；其他称呼写进 `aliases`；需要比称呼更正式的登记名时填 `asset_name`。
-- `merge`：已登记资产的另一种称呼（如「姐姐」指的是已登记的「小美」）。`target` 填同类登记名，或本次另一项新增资产的称呼。
-- `derivative`：仅限角色，指已登记角色的另一套外观（如换装）。`target` 填本体登记名，`asset_name` 填衍生名，`description` 只写相对本体的变化。
-- `skip`：一闪而过、无需固定外观的人或物，只用文字描述，不登记。
+- `register`: register a new asset. Write appearance directly usable to generate an asset sheet in `description` (features and clothing for characters, space and furnishings for scenes, form and material for props); put other designations in `aliases`; use `asset_name` if a more formal registered name is needed.
+- `merge`: another designation for a registered asset (for example, “older sister” refers to registered “Xiaomei”). `target` is a registered name of the same type or the designation of another new asset in this batch.
+- `derivative`: characters only, another appearance of a registered character (such as a change of clothing). `target` is the registered base name, `asset_name` is the derivative name, and `description` contains only changes relative to the base.
+- `skip`: a briefly appearing person or object that needs no fixed appearance; describe it in text without registering it.
 
-`name` 与 `asset_name` 都是单个名字，衍生关系由 `target` 表达。已登记资产的描述保持原样，`merge` 与 `skip` 的 `description` 留空。
+`name` and `asset_name` are each a single name; `target` expresses the derivative relationship. Keep descriptions of registered assets unchanged; leave `description` empty for `merge` and `skip`.

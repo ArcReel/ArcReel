@@ -1,10 +1,10 @@
-"""GeminiAudioBackend — Gemini TTS 语音合成后端（``generateContent`` + ``response_modalities=["AUDIO"]``）。
+"""GeminiAudioBackend: Gemini synthesis (``generateContent`` + ``response_modalities=["AUDIO"]``).
 
-内置 Gemini（AI Studio / Vertex）与自定义供应商的 ``gemini-tts`` 端点共用本后端。音频在
-``candidates[0].content.parts[].inline_data`` 里返回：Gemini 3.8 TTS 的非流式请求默认给完整 WAV，
-更早的 TTS 模型给不带头的 16-bit PCM（``audio/L16;codec=pcm;rate=24000``）。后者按 mime 声明的
-采样率与声道封装为 WAV，落盘产物一律可直接播放和剪辑。schema 依据
-docs/api-docs/endpoints/gemini-tts.md 所列官方文档。
+Built-in Gemini AI Studio / Vertex and custom ``gemini-tts`` endpoints share this backend. Audio returns
+in ``candidates[0].content.parts[].inline_data``. Gemini 3.8 TTS nonstreaming defaults to complete WAV;
+earlier models return headerless 16-bit PCM (``audio/L16;codec=pcm;rate=24000``). Wrap PCM into WAV using
+declared MIME sample rates/channels so all persisted artifacts play/edit directly. Official schema
+sources are indexed in docs/api-docs/endpoints/gemini-tts.md.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3.8-flash-tts"
 
-# 官方 30 个预置音色，出处见 docs/api-docs/endpoints/gemini-tts.md。label 取 id 本身，与 openai-tts 同口径。
+# Official 30 preset voices, sourced through docs/api-docs/endpoints/gemini-tts.md. Labels use ids, like openai-tts.
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id)
     for voice_id in (
@@ -71,13 +71,13 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     )
 )
 
-# 未带 rate 参数时的官方缺省输出：24 kHz、单声道、16-bit
+# Official defaults without rate parameters: 24 kHz, mono, 16-bit.
 _DEFAULT_SAMPLE_RATE = 24000
 _PCM_SAMPLE_WIDTH = 2
 
 
 def _pcm_params(mime_type: str | None) -> tuple[int, int]:
-    """从 ``audio/L16;codec=pcm;rate=24000`` 形态的 mime 读出 (采样率, 声道数)。"""
+    """Read (sample rate, channel count) from MIME forms like ``audio/L16;codec=pcm;rate=24000``."""
     params: dict[str, str] = {}
     for item in (mime_type or "").split(";")[1:]:
         key, _, value = item.partition("=")
@@ -92,7 +92,7 @@ def _write_audio(data: bytes, mime_type: str | None, output_path: Path) -> None:
     if data[:4] == b"RIFF":
         output_path.write_bytes(data)
         return
-    # 只有裸 PCM 才能封装成 WAV；中转站回了 mp3 等压缩格式时，硬封装只会得到一段噪声
+    # Wrap only raw PCM as WAV; wrapping compressed relay mp3 responses creates noise.
     if mime_type and not mime_type.lower().startswith(("audio/l16", "audio/pcm")):
         raise RuntimeError(f"Gemini 语音合成返回了不支持的音频格式: {mime_type}")
     rate, channels = _pcm_params(mime_type)
@@ -104,7 +104,7 @@ def _write_audio(data: bytes, mime_type: str | None, output_path: Path) -> None:
 
 
 class GeminiAudioBackend:
-    """Gemini TTS 语音合成后端，支持 AI Studio 与 Vertex AI。"""
+    """Gemini synthesis backend supporting AI Studio and Vertex AI."""
 
     def __init__(
         self,
@@ -123,7 +123,7 @@ class GeminiAudioBackend:
         self._types = types
         self._backend_type = backend_type.strip().lower()
         self._model = model or DEFAULT_MODEL
-        # 自定义供应商经 gemini-tts 接入时用真实 provider 记账，与包装层 .name 一致
+        # Custom gemini-tts accounts under actual providers, matching wrapper .name.
         self._provider_name = provider_name or f"gemini-{self._backend_type}"
 
         if self._backend_type == "vertex":
@@ -137,7 +137,7 @@ class GeminiAudioBackend:
             credentials = service_account.Credentials.from_service_account_file(
                 str(credentials_file), scopes=VERTEX_SCOPES
             )
-            # Gemini 3.8 TTS 只在 global 提供
+            # Gemini 3.8 TTS is global-only.
             self._client = genai.Client(vertexai=True, project=project_id, location="global", credentials=credentials)
         else:
             effective_base_url = normalize_base_url(base_url)
@@ -156,7 +156,7 @@ class GeminiAudioBackend:
 
     @property
     def capabilities(self) -> set[AudioCapability]:
-        # 不声明 SPEECH_SPEED：Gemini TTS 没有语速参数，语速只能写进风格指令，给不出可复现的倍率。
+        # Do not declare SPEECH_SPEED: Gemini lacks rate parameters; style instructions cannot provide reproducible multipliers.
         return {AudioCapability.TEXT_TO_SPEECH}
 
     def list_voices(self) -> list[VoiceOption]:
@@ -165,8 +165,8 @@ class GeminiAudioBackend:
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         if request.speed is not None:
             logger.debug("Gemini TTS 不支持语速参数 speed=%s，已忽略", request.speed)
-        # language_type 不发送：Gemini TTS 按输入文本自动识别语种。
-        # 计费调用与写盘分离：重试只包 API 调用，写盘失败不回头重跑会再次计费的合成请求。
+        # Omit language_type: Gemini detects languages from input text.
+        # Separate billed calls/writes: retries wrap APIs only, never repeating paid synthesis after write failures.
         data, mime_type, usage = await self._request_speech(request)
         await run_noninterruptible_sync(_write_audio, data, mime_type, request.output_path)
 
@@ -176,7 +176,7 @@ class GeminiAudioBackend:
             model=self._model,
             text=request.text,
             output_path=request.output_path,
-            # 按 token 计价：输入是文本 token，输出全是音频 token。
+            # Token pricing: input tokens are text, output tokens entirely audio.
             input_tokens=usage.prompt_token_count if usage is not None else None,
             audio_output_tokens=usage.candidates_token_count if usage is not None else None,
         )
@@ -185,9 +185,9 @@ class GeminiAudioBackend:
     async def _request_speech(
         self, request: AudioSynthesisRequest
     ) -> tuple[bytes, str | None, GenerateContentResponseUsageMetadata | None]:
-        """提交合成请求（计费段），返回音频字节、mime 与这次调用的 usage。"""
+        """Submit billed synthesis, returning audio bytes, MIME, and this call's usage."""
         types = self._types
-        # prebuilt_voice_config 新旧 TTS 模型都接受；3.8 新增的 voice_config.voice 旧模型不认
+        # Old/new TTS accept prebuilt_voice_config; older models do not recognize 3.8 voice_config.voice.
         config = types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
@@ -210,5 +210,5 @@ class GeminiAudioBackend:
             for part in (candidate.content.parts if candidate.content else None) or []:
                 if part.inline_data is not None and part.inline_data.data:
                     return part.inline_data.data, part.inline_data.mime_type, response.usage_metadata
-        # 合成已在供应商侧计费，重试等于再次计费，直接失败交由任务层处理
+        # Already billed by providers: retries bill again, so fail directly for task handling.
         raise RuntimeError("Gemini 语音合成未返回音频")

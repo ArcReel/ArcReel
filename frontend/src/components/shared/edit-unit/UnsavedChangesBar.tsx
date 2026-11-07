@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { SaveStatus, type EditUnitControls } from "./SaveStatus";
 
 /**
- * 画布内容（资产描述、分镜提示词、故事设定等）的内联未保存提示条，放在所属内容下方。
- * 只在有修改、保存中、刚保存或保存失败时出现；外部更新时提供「采用新内容」。
- * `busy`：保存之外的在途操作正占用本单元（如提示词形态切换），与保存中一样禁用保存和放弃。
+ * Inline unsaved notice for canvas content such as asset descriptions, storyboard prompts and story settings, placed below its content.
+ * Appears only with changes, while saving, just saved or on save failure; offers Adopt new content for external updates.
+ * `busy`: another in-flight operation occupies this unit, such as prompt-shape switching; disable save and discard as while saving.
  */
 export function UnsavedChangesBar({
   unit,

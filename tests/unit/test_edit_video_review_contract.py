@@ -1,7 +1,7 @@
-"""edit-video 的审阅—交付—验收链路：skill 与审片子智能体里写死的机器契约须与代码真相源一致。
+"""edit-video review/delivery/acceptance contracts in skills/subagents must match code sources.
 
-这些写法是 Agent 照抄的契约：链接格式由前端解析、子智能体名由访问策略按名约束、工具参数由请求模型校验，
-任一处改了而 .md 没跟上，Agent 生成的链接点不开、子智能体失去只读约束，或提交被参数校验拒绝。
+Agents copy these contracts: frontend parses links, name-based policies constrain subagents, and request
+models validate arguments. Stale Markdown breaks links, read-only constraints, or submission validation.
 """
 
 from __future__ import annotations
@@ -22,12 +22,12 @@ REVIEWER = REPO / "agent_runtime_profile/.claude/agents/review-footage.md"
 APP_LINK = REPO / "frontend/src/utils/app-link.ts"
 
 _LINK_TEMPLATE = re.compile(r"`(/app/projects/\{项目名\}/episodes/[^`]+)`")
-#: 勾选清单的类目是缩进列表项开头的加粗名，交付与执行两节用同一组名字对上。
+#: Checklist categories are bold names at indented-list starts, shared by delivery/execution sections.
 _CHECKLIST_CATEGORY = re.compile(r"^\s*- \*\*([^*]+)\*\*", re.MULTILINE)
 
 
 def _section(text: str, heading: str) -> str:
-    """取一个 ``##`` 节的正文，到下一个 ``##`` 为止。"""
+    """Extract a ``##`` section body through the next ``##`` heading."""
 
     start = text.index(f"## {heading}\n")
     end = text.find("\n## ", start + 1)
@@ -40,7 +40,7 @@ def _frontmatter(path: Path) -> dict[str, object]:
 
 
 def test_review_footage_definition_grants_exactly_the_tools_the_access_policy_allows() -> None:
-    """frontmatter 的 tools 由 CLI 收窄，访问策略在 hook 上再拒一次；两份名单不一致时总有一层失效。"""
+    """CLI narrows frontmatter tools and hooks enforce access again; differing lists invalidate one layer."""
 
     meta = _frontmatter(REVIEWER)
     tools = {tool.strip() for tool in str(meta["tools"]).split(",")}
@@ -53,14 +53,14 @@ def test_edit_video_dispatches_the_reviewer_by_its_defined_name() -> None:
     skill = SKILL.read_text(encoding="utf-8")
     name = str(_frontmatter(REVIEWER)["name"])
 
-    assert f"`{name}`" in _section(skill, "首轮全量审阅")
-    assert f"`{name}`" in _section(skill, "执行勾选项")
+    assert f"`{name}`" in _section(skill, "Full first-round review")
+    assert f"`{name}`" in _section(skill, "Execute selected items")
 
 
 def test_jump_links_in_the_delivery_use_the_formats_the_app_parses() -> None:
-    """交付里的两种「跳到这里看」链接逐字取自前端解析器文件头的格式说明。"""
+    """Both jump-to-review link formats come verbatim from frontend-parser header specifications."""
 
-    delivery = _section(SKILL.read_text(encoding="utf-8"), "一轮结束的交付")
+    delivery = _section(SKILL.read_text(encoding="utf-8"), "Delivery at the end of a round")
     app_formats = set(_LINK_TEMPLATE.findall(APP_LINK.read_text(encoding="utf-8")))
     skill_formats = set(_LINK_TEMPLATE.findall(delivery))
 
@@ -69,9 +69,9 @@ def test_jump_links_in_the_delivery_use_the_formats_the_app_parses() -> None:
 
 
 def test_checklist_is_asked_through_a_registered_multi_select_question() -> None:
-    """勾选清单经 AskUserQuestion 多选一次问完：工具名与参数都是 SDK 契约，写错 Agent 就问不出清单。"""
+    """Ask the whole checklist once through AskUserQuestion multiselect; SDK tool/argument errors prevent asking."""
 
-    delivery = _section(SKILL.read_text(encoding="utf-8"), "一轮结束的交付")
+    delivery = _section(SKILL.read_text(encoding="utf-8"), "Delivery at the end of a round")
 
     assert "AskUserQuestion" in SessionManager.DEFAULT_ALLOWED_TOOLS
     assert "AskUserQuestion" in delivery
@@ -79,13 +79,14 @@ def test_checklist_is_asked_through_a_registered_multi_select_question() -> None
 
 
 def test_every_checklist_category_has_an_execution_rule() -> None:
-    """清单里的每类待决定事项都要在「执行勾选项」里有对应的执行办法，反之亦然：
-    多出一类就是创作者勾了却没人执行，少一类就是执行规则无从触发。只比对两处的加粗类目名，不看措辞。
-    重新生成视频与重配旁白两类付费事项须各有一条执行规则点名对应工具，两节同删一类也会红。"""
+    """Every checklist category needs matching execution guidance under “Execute selected items”, and vice versa.
+    Extra categories leave selections unexecuted; missing ones leave rules unreachable. Compare only bold
+    category names, not prose. Paid video regeneration and narration redubbing each require an execution
+    rule naming its tool; deleting either category from both sections must still fail."""
 
     skill = SKILL.read_text(encoding="utf-8")
-    offered = set(_CHECKLIST_CATEGORY.findall(_section(skill, "一轮结束的交付")))
-    execution = _section(skill, "执行勾选项")
+    offered = set(_CHECKLIST_CATEGORY.findall(_section(skill, "Delivery at the end of a round")))
+    execution = _section(skill, "Execute selected items")
     executed = set(_CHECKLIST_CATEGORY.findall(execution))
     rule_lines = [line for line in execution.splitlines() if _CHECKLIST_CATEGORY.match(line)]
 
@@ -96,24 +97,24 @@ def test_every_checklist_category_has_an_execution_rule() -> None:
 
 
 def test_paid_regeneration_option_quotes_the_previewed_cost() -> None:
-    """重新生成是付费动作，选项须带预检报价让创作者勾选前知道花多少。
-    这是费用防线，只断言该类目行同时点名预检工具与「费用」，不锁整句。"""
+    """Regeneration is paid; choices need preflight quotes so creators know costs before selecting.
+    Cost defense checks only that the category row names preflight and cost, without fixing the sentence."""
 
-    delivery = _section(SKILL.read_text(encoding="utf-8"), "一轮结束的交付")
+    delivery = _section(SKILL.read_text(encoding="utf-8"), "Delivery at the end of a round")
     paid = [line for line in delivery.splitlines() if _CHECKLIST_CATEGORY.match(line) and "generate_videos" in line]
 
     assert len(paid) == 1
     assert "`preview: true`" in paid[0]
-    assert "费用" in paid[0]
+    assert "cost" in paid[0]
 
 
 def test_preview_and_submission_name_real_generate_videos_parameters() -> None:
-    """预检与正式提交照抄的参数名都是请求模型的字段：写错一个，提交就被参数校验拒绝。"""
+    """Copied preflight/submission argument names must be request fields; one typo rejects submission."""
 
     skill = SKILL.read_text(encoding="utf-8")
     fields = set(GenerateVideosRequest.model_fields)
-    preview = _section(skill, "一轮结束的交付")
-    submit = _section(skill, "执行勾选项")
+    preview = _section(skill, "Delivery at the end of a round")
+    submit = _section(skill, "Execute selected items")
 
     assert {"preview", "target", "force"} <= fields
     assert "`preview: true`" in preview

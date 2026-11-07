@@ -1,4 +1,4 @@
-"""角色声音绑定方式的取值与归一。"""
+"""Character-voice binding values and normalization."""
 
 import pytest
 
@@ -6,7 +6,7 @@ from lib.speech.character_voice import DEFAULT_CHARACTER_VOICE_BINDING, characte
 
 
 def test_no_project_context_returns_none():
-    """无项目上下文（模型目录查询等）返回 None，不渲染成用户显式选过某种绑定方式。"""
+    """Without project context (e.g. catalog queries), return None rather than implying explicit user binding selection."""
     assert character_voice_binding(None) is None
 
 
@@ -21,5 +21,5 @@ def test_missing_field_falls_back_to_default():
 
 @pytest.mark.parametrize("dirty", [None, "", "REFERENCE_AUDIO", "audio", 1, True, ["prompt"], {"v": "prompt"}])
 def test_unreadable_value_falls_back_to_default(dirty):
-    """手编脏值按默认档解读：这一侧的降级只会少挂参考音频，比按参考音频档解读一个读不懂的值安全。"""
+    """Manual invalid values use default mode: this fallback attaches less reference audio, safer than treating unknown values as reference mode."""
     assert character_voice_binding({"character_voice_binding": dirty}) == DEFAULT_CHARACTER_VOICE_BINDING

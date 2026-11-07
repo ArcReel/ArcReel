@@ -1,4 +1,4 @@
-"""视频的生效输入能力：调用通道与模型条目两侧求值，候选与执行时的校验读同一个结果（docs/adr/0104）。"""
+"""Video inputs jointly evaluate channels/catalog entries, sharing candidate/execution conclusions (docs/adr/0104)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from lib.custom_provider.capabilities import (
 from lib.custom_provider.endpoints import comfyui_endpoint_spec
 from tests.factories import comfyui_endpoint_definition
 
-#: 实现了全部输入路径、参考图与参考音频段数都不设上限的调用通道。
+#: Channel supports every input path with unlimited reference-image/audio counts.
 _OPEN_CHANNEL = VideoCapabilities(
     text_to_video=True,
     first_frame=True,
@@ -72,7 +72,7 @@ class TestTwoSidedEvaluation:
         assert reference_image_limit(caps) == InputLimit.at_most(0)
 
     def test_unrecorded_entry_keeps_the_conservative_fallback(self):
-        """条目未收录：文生与首帧跟随通道，尾帧与参考音频不开，数值只受通道约束。"""
+        """Unknown entries inherit channel text/first-frame support, disable last-frame/audio references, and constrain numbers only by channels."""
         caps = effective_video_capabilities(_OPEN_CHANNEL, UNRECORDED_VIDEO_FACTS)
         assert (caps.text_to_video, caps.first_frame, caps.last_frame) == (True, True, False)
         assert reference_image_limit(caps) == InputLimit.unrecorded()
@@ -117,10 +117,10 @@ class TestTwoSidedEvaluation:
 
 
 class TestCandidatesAndExecutionReadTheSameResult:
-    """候选（任务类型桶、能力字典）与执行时的校验对同一个模型给出一致的结论。"""
+    """Task buckets/capability dictionaries and execution agree for the same model."""
 
     def test_entry_rejects_last_frame_while_the_builtin_channel_supports_it(self, tmp_path: Path):
-        """百炼通道实现了尾帧；HappyHorse 1.0 i2v 的条目记录不接受。"""
+        """DashScope implements last frames, but HappyHorse 1.0 i2v entries reject them."""
         caps = builtin_video_capabilities_for_model("dashscope", "happyhorse-1.0-i2v")
         assert caps.last_frame is False
         with pytest.raises(VideoCapabilityError) as exc:
@@ -136,7 +136,7 @@ class TestCandidatesAndExecutionReadTheSameResult:
         assert exc.value.code == "video_last_frame_unsupported"
 
     def test_unrecorded_model_follows_the_channel(self, tmp_path: Path):
-        """对应不上条目：参考生视频是候选，上限未收录，执行时不裁剪；尾帧与参考音频不开。"""
+        """Unmatched entries admit reference-video candidates with unrecorded/uncropped caps, disabling last frames/audio references."""
         caps = two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="relay-video-x1")
         assert custom_model_buckets(endpoint="ark-seedance-2", model_id="relay-video-x1") == frozenset({"i2v", "r2v"})
         _gate(caps, tmp_path, reference_images=_images(tmp_path, 12))
@@ -148,7 +148,7 @@ class TestCandidatesAndExecutionReadTheSameResult:
         assert exc.value.code == "video_reference_audio_unsupported"
 
     def test_explicit_zero_drops_the_candidate_and_rejects_at_execution(self, tmp_path: Path):
-        """Veo 3.1 Lite 的条目记录参考图上限 0：通道实现了参考图，Lite 仍不进参考生视频候选，带参考图被拒。"""
+        """Veo 3.1 Lite entry cap 0 excludes reference-video despite channel implementation and rejects references."""
         lite = catalog.get_model("gemini-aistudio", "veo-3.1-lite-generate-preview")
         regular = catalog.get_model("gemini-aistudio", "veo-3.1-generate-preview")
         assert lite is not None
@@ -162,7 +162,7 @@ class TestCandidatesAndExecutionReadTheSameResult:
         assert exc.value.code == "video_reference_images_unsupported"
 
     def test_custom_override_replaces_the_whole_dimension(self, tmp_path: Path):
-        """Vidu Q3 Pro 的条目不接受参考图；用户覆盖上限 3 后候选列出参考生视频，执行时按 3 校验。"""
+        """Vidu Q3 Pro entries reject references; cap 3 overrides admit r2v candidates and validate 3 at execution."""
         assert "r2v" not in custom_model_buckets(endpoint="vidu-video-q3-turbo", model_id="viduq3-pro")
         overrides = {"max_reference_images": 3}
         assert "r2v" in custom_model_buckets(
@@ -176,7 +176,7 @@ class TestCandidatesAndExecutionReadTheSameResult:
         assert exc.value.code == "video_reference_images_exceeded"
 
     def test_custom_override_can_open_a_dimension_the_entry_rejects(self, tmp_path: Path):
-        """Vidu Q3 的条目不接受首尾帧（只做参考生视频）；覆盖整维替换后执行时放行。"""
+        """Vidu Q3 entries support reference-video only, not first/last frames; whole-dimension overrides admit them."""
         assert two_sided_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3").last_frame is False
         caps = synthesize_video_capabilities(
             endpoint="vidu-video-q3-turbo", model_id="viduq3", overrides={"first_frame": True, "last_frame": True}
@@ -208,7 +208,7 @@ class TestCandidatesAndExecutionReadTheSameResult:
 
 class TestComfyuiDoesNotReadEntries:
     def test_comfyui_capabilities_come_only_from_node_bindings(self):
-        """模型行的名字恰好对应一个条目（Hailuo 2.3 Fast 不接受文生），ComfyUI 端点的能力也不受它约束。"""
+        """Matching Hailuo 2.3 Fast entries rejecting text-to-video never constrain ComfyUI endpoints."""
         spec = comfyui_endpoint_spec("ce-7", comfyui_endpoint_definition())
         model_id = "MiniMax-Hailuo-2.3-Fast"
         assert catalog.find_entry(model_id, media_type="video") is not None
@@ -218,7 +218,7 @@ class TestComfyuiDoesNotReadEntries:
 
 
 class TestCustomBackendTierPath:
-    """自定义供应商的执行层能力：按档位解析的通道声明同样与条目两侧求值，再叠加覆盖。"""
+    """Custom-provider tier-aware channel declarations jointly evaluate with entries before overlays."""
 
     @staticmethod
     def _backend(*, overrides=None) -> CustomVideoBackend:

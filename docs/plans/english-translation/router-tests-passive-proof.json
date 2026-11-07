@@ -1,0 +1,340 @@
+{
+  "status": "complete: translation, static verification and related tests passed",
+  "scope": "tests/unit/server/routers/** passive comments and leading module/class/function docstrings only",
+  "snapshot": "/tmp/arcreel-root-unit-server-before",
+  "inventoried_translated_spans": 617,
+  "changed_files": 43,
+  "all_router_python_files": 49,
+  "preservation": [
+    "Executable AST equal after removing leading docstrings only, including every fixture/input/assertion/default/schema/error string.",
+    "All double-backtick docstring literal multisets preserved exactly.",
+    "No assertion removal, weakening, snapshot updates, source implementation changes, or localization changes."
+  ],
+  "static_validation": {
+    "ruff_check": "passed",
+    "ruff_format_check": "passed: 49 modules already formatted",
+    "executable_ast": "passed: 43 changed files",
+    "docstring_double_backtick_literals": "exact multiset equality for every file"
+  },
+  "related_test_command": ".venv/bin/python -m pytest tests/unit/server/routers -q",
+  "related_test_log": "/tmp/arcreel-router-passive-tests.log",
+  "residual_chinese_examples": [
+    {
+      "path": "tests/unit/server/routers/test_providers_api.py",
+      "kind": "doc",
+      "line": 218,
+      "text": "One Chinese-display-name model (可灵 v3) and one pure-brand-name model (Kling 2.1)."
+    },
+    {
+      "path": "tests/unit/server/routers/test_character_derivatives_router.py",
+      "kind": "doc",
+      "line": 283,
+      "text": "Renaming is a cascade transaction: script ``@[角色/旧衍生名]`` references update accordingly (docs/adr/0072)."
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/unit/server/routers/test_agent_config_router.py",
+      "changed": true,
+      "before_sha256": "d2b13fe2f6ed15f51e8fc04d2a9944d69bdbac039ef816d3a36131c015418ab7",
+      "after_sha256": "d6b37eea6ecd01870c4cb5a3b37add4cb8fadd49be534b9ffb56e3c750523d5b",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_api_keys_router.py",
+      "changed": true,
+      "before_sha256": "30ff314e397ee73c4272f2e74f737f2f6768a71aaf0cacbfec25bb7393fce5fb",
+      "after_sha256": "882fe3347a5dbf720ab5a2d78f52dfa68aa47bb6041932c5da8d11bdf3a611ff",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_asset_library_api.py",
+      "changed": true,
+      "before_sha256": "a472e507c75f808988732ee285b8f1efb663e0b79ce1a4c4b6e42fa66f611515",
+      "after_sha256": "86fad38e5ae587536321926179542bb40c07bab79e5c8e4aa80d3d5ee92adeec",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_asset_router_factory.py",
+      "changed": true,
+      "before_sha256": "88c7d601b74b950770096a60b927da29313fbd81d860ab59aad81e5364978376",
+      "after_sha256": "09deaf703f8467f4ec214bfb89a1575417f8e36bc53eff9a6d06432c6038c910",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_assistant_attachment_limits.py",
+      "changed": true,
+      "before_sha256": "f8281e91134b0a625cead178759338050c3c38ef092e84d65203d1d86e5364d3",
+      "after_sha256": "1311c7b5366fa44f5debab992e46f7de095d20cb68353ec37bbef91aaabfa43f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_assistant_rewrite_routes.py",
+      "changed": true,
+      "before_sha256": "5af519064be548c3aa3f3fcf637d5ce115621431f098de607a8f5eef5d06de4c",
+      "after_sha256": "5cbe0c66f4374c0c1a611c0e4bcc27b95bef52ac614fbdb0d877db3c010d85f8",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_assistant_router.py",
+      "changed": true,
+      "before_sha256": "024e2f988909fa6ef360cb2d21e92c770a3f7f012006a89a91eeaf3cea882996",
+      "after_sha256": "1eca8d79b4843853c8acc33849879d7d0117ab9bec826cc3671c9e9bc1929856",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_assistant_routes.py",
+      "changed": true,
+      "before_sha256": "0f691b27216af62df8f40675101149e0e380267af15dd62048194536734a904c",
+      "after_sha256": "54ba8c8ca6af6ee179831f81a7620b17d91c8db80dca8eb29106ca7cd6a4b9a9",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_catalog_router.py",
+      "changed": true,
+      "before_sha256": "e90c7cfe965a8aebe06e25311f950815431531c9b799f3bfaa2f384fce1752f4",
+      "after_sha256": "5ac90e90a056168dc6c276dce6ba8c4cfa66a3735b896aa71185c6b076d27edd",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_character_derivatives_router.py",
+      "changed": true,
+      "before_sha256": "79bf1d1a334f29d2cc765a43a5bb1db29cbd484f39fe6ebeb74efae427681581",
+      "after_sha256": "a2a6cbc45628e3e7d76171917ea9afee5eeca5d3e6c3a19cfadbbfa655055d2c",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_comfyui_inference_api.py",
+      "changed": true,
+      "before_sha256": "d22d6f1892a3e7aada1bd27bc2534f77ace4a0cf0ea7a1ff4c11fba5357d335c",
+      "after_sha256": "e3b244bc91f17061beaf3b68600dcde3b415176d0dda6151960cbdbb076f7e2c",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_cost_estimation_router.py",
+      "changed": true,
+      "before_sha256": "ed4fe723f4100084ac62444b5c0978024e69aa41cbd8424bfc15e8a21550685c",
+      "after_sha256": "9fd5dd993e118f1016b9dcc4077e25c6c538eeb5db9b712e292f2d14945ca599",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_custom_endpoints_api.py",
+      "changed": true,
+      "before_sha256": "7930141baa110c4d9529d07055b154146057387cd6921b86bd7f0db36c7d25ed",
+      "after_sha256": "e2011965626c075c5f6f94666151a439ac527995409a8ff6d0c6cf726438fe79",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_custom_providers_api.py",
+      "changed": true,
+      "before_sha256": "d643edb63391f0c84f381bbc4e58d3e46549a5254f5020fe9fc82b5d914c066b",
+      "after_sha256": "a478c0a4e321a4d3a66d1b633b81815dc4d4053b3a19510191cc77add27647bc",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_custom_providers_comfyui.py",
+      "changed": true,
+      "before_sha256": "6c73565365dade6a291767de9cf80ee06f5f5269ed34ea0eb98342dc0d47dc6d",
+      "after_sha256": "2dee5fa59ec715f32f642482e3558771208bedf2cd6194304120ef52ea3d6902",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_discover_anthropic_fallback.py",
+      "changed": true,
+      "before_sha256": "5bc4b8fccd936dabf44eff6301eaa0b64585609d7daa32cb6075393c5067c571",
+      "after_sha256": "51c6ae615c0b32ddd3090307cfd6ae5696dc8f62e4adf0127c92faca2b1b449f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_endpoint_tests_api.py",
+      "changed": true,
+      "before_sha256": "e998a10f82cc0a6725cbd9f147eea104a351da1fdeaa7334463e95083ccf5bd4",
+      "after_sha256": "f79610bf20342d3ec05518082ccefacdd88e6fe93b375b5e26e76ab5464c5569",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_file_responses.py",
+      "changed": true,
+      "before_sha256": "d92b3310c81df8fb0376580b90d6bff64e0a8844f0bfae7160a53152d5b2b08c",
+      "after_sha256": "7d16960c19824f3f138ef8a590417327b020c72d024ca65e7c916c1f48bb4caf",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_generate_router_tts.py",
+      "changed": true,
+      "before_sha256": "8fede899c29cc0abc3b8ce01c513728402d747c968a7b16f072b969f57547206",
+      "after_sha256": "4b4c43def37ffb811697456c6f32e99111925de4f8f38597f471b452d433bbe1",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_generate_router_voice_sample.py",
+      "changed": true,
+      "before_sha256": "a3938e85cbb4a6825a962fe95bf6866106804fbd2d029897cb00c569a76c74cf",
+      "after_sha256": "7eb2f43e104bd455773567155102daa8c58f76dde803471f5f88e2791bd1a151",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_grid_router.py",
+      "changed": true,
+      "before_sha256": "9023e6c112ddfbff13447ff1eebbaba369489f5f2d175f14a8499fa4a8187c91",
+      "after_sha256": "f59af8fec245a1266f88e98f3b57a38247d008016d7be38d2f549ce85ea92a60",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_grids_router.py",
+      "changed": true,
+      "before_sha256": "6ca427fd116ffa2177c3bbbd08b21365ad1f40db01c8425ff1ce1e2d2d957f0e",
+      "after_sha256": "bfeabc768b36168814edb4216260769304948de5eb507de3944a09dc20540626",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_image_edit_router.py",
+      "changed": true,
+      "before_sha256": "8e4bbbd71303c1e5b64113254dc9e012164813573f80311785dbe0f6d0070a75",
+      "after_sha256": "1550f28451c0259a26bcb630217a84b1d5b9bbac4d3de86bde22d8d30236d15a",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_market_entries_api.py",
+      "changed": true,
+      "before_sha256": "093275c3bb34f4777f4fefe5f2ad509856ee8e4795db87acbf0b972f6e7e9ec4",
+      "after_sha256": "be6b6369121563bab50a8fdac5b731663ac851730511958f3d9d03fa2d1f0ddf",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_market_sources_api.py",
+      "changed": true,
+      "before_sha256": "8d637ba0b1a4d7985301ccd645416fa2052b1bea365291dc6509a10e9cf6e24a",
+      "after_sha256": "e632a38741fad106d4428352d1640c2960fe27822c0be5258591273f39599011",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_object_storage_api.py",
+      "changed": true,
+      "before_sha256": "5e1c98d352ff43a07ca4ffc2316af6a122832ac8ca15c341bc36b63a8bfb1587",
+      "after_sha256": "159196c830fbfbbb55c925fe5ef758cd0c981e4fcb750466969996aae829e748",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_openai_connection.py",
+      "changed": true,
+      "before_sha256": "8279171fc8c94582cf3eebd3eb21d14676b3b68f89c042d9def5e07185f1e18a",
+      "after_sha256": "6200d4756356ff25581d0db02119800a68cdb87ad762ad00c35398b9a42e8bbf",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_products_router.py",
+      "changed": true,
+      "before_sha256": "1f5576055058a7b5e3f02c25ec1e85b4241a31fa527fb3d1158207e364d6ad77",
+      "after_sha256": "54ddbc89443bee21d982b7db0bab6b579cba3dc85b9dcb8edbf6d6d38dc375f6",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_project_events_router.py",
+      "changed": true,
+      "before_sha256": "ab8432983262757d7660315e86838fb83dd676d1a9cb8ba6a873a4d5eea58300",
+      "after_sha256": "05766720f03ba6a1dd14d18687cf2c4a7df9dedfe22980de8f1cd7ecff64a52e",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_project_migration_routes.py",
+      "changed": true,
+      "before_sha256": "54e44834b6a9396cc7e607b71801cc84bfb6233261f6c502eaf2fb0119bd4b79",
+      "after_sha256": "ed4b471b7d4cb140870eb4b5413e4b958f5df2d8ab08fc701f2a6e3d0adb154f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_projects_archive_routes.py",
+      "changed": true,
+      "before_sha256": "af2765b4d75f0c912b6175fa575eaed5c0f816ea56277de235a53fba01ac078d",
+      "after_sha256": "ea33ed33efe70c8bdd49c69314d2d0f2d364109c7d6993012e58e447b2c7918f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_providers_api.py",
+      "changed": true,
+      "before_sha256": "14e22a101421ef86267734056f4220fa4242c499c308e495ecdcb8e83b4b9ed8",
+      "after_sha256": "70db2ce1f7cb405291fcc8758510d0f2b3411d00793ed55305db77a4c5b85e3a",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_scenes_router.py",
+      "changed": true,
+      "before_sha256": "e56cca08ce78436b811914f77152e4122ef90cece549f0ca88b68c9f19109864",
+      "after_sha256": "36f8f2ff6645ce449b92394b0dd123cc6c007c6d475edf4afd69806094bccf87",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_script_review_errors.py",
+      "changed": true,
+      "before_sha256": "f41086a17b828923904656be05e61f7edbe24c707afebfce3e026f8f5f614871",
+      "after_sha256": "8df4c2195d9151217761e582e5b1f28cf9aef99117a67fb5f5eaa705d630760d",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_shot_uploads_router.py",
+      "changed": true,
+      "before_sha256": "1cd6edccdd6124da832a591fab98e04aecc62adbacc5296971f9c3c69101d8f1",
+      "after_sha256": "b4e18cc9d6c9abe835207ae9a0a510aa226a366c9917764fc84b0d9761f629f9",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_system_config_options.py",
+      "changed": true,
+      "before_sha256": "41fd2733733212708b672e5f47606ab15e34b57f22eee34e8b8750f778eceb36",
+      "after_sha256": "c18693b133246aaf463e6ff3bef95cce3d6097d5d8d816f62d30c9b1d2bb460c",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_system_config_router.py",
+      "changed": true,
+      "before_sha256": "557860be94801acd7ba6023d33ff62f5e53a2828295eeac42bd6d2935ade04c7",
+      "after_sha256": "6bbaac3d4cadba0cb972412c3ead335763a8103c9eec728b5a012e565081e381",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_system_logs_router.py",
+      "changed": true,
+      "before_sha256": "23656bb8644836c07423f84e00de87be5c7aac504e7f72130730d9be3f7d133f",
+      "after_sha256": "da5f1f25c3a9a1ce33f5855abd9082d1cdf3fadd3781ed0d8fe8e682c0eccff5",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_system_version_api.py",
+      "changed": true,
+      "before_sha256": "9486ed2478b2145c75147e87e4036e5c0418a973ef816a40548987b30ca56f11",
+      "after_sha256": "a94e82b99190c0710f43c95e93d0e72d47e54db9b9f9bf63faec7ab4169c4d66",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_task_cancel_router.py",
+      "changed": true,
+      "before_sha256": "7d349466ccacb20f56cd56daf07d41001eff101c04554a6d0a44d930c52245ec",
+      "after_sha256": "d848d9e84907da14cbb1e6e69e4e6aabc0df838b40e7ac2cad71dd5c9d45ce96",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_tasks_router.py",
+      "changed": true,
+      "before_sha256": "1bf8f6eb9365f549fa4097f42aef71d9dd5940525042d09f4e74f6660c72153a",
+      "after_sha256": "3c08dae356c00b1461fb868eb099a3c2a8b5ae498a05895af8332b76d6d7c908",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_versions_router.py",
+      "changed": true,
+      "before_sha256": "f8949025a59fc27a72654be586f3bdcbd54d6e190342dfe9380c6118622ee145",
+      "after_sha256": "ea3154e44fed246064f3ed6f54cf119157ce1b2bf6ae75a3bad974e75536eaf4",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/unit/server/routers/test_web_write_change_source_marking.py",
+      "changed": true,
+      "before_sha256": "6e596f44c9092c240e4ecbf740c112a26bef7b36e0445cb207b3d6ff77ba18bd",
+      "after_sha256": "9998821f54cb982976bb70c1d29dc89a6c44a66f8997b59780aac0658af2b280",
+      "executable_ast_equal": true
+    }
+  ],
+  "related_test_result": "1010 passed, 2 warnings in 40.52s",
+  "related_test_log_sha256": "0241d14629b58b378a7146c6f7847a732eab9583643e6eded50d8d2917a47639"
+}

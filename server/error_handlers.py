@@ -1,14 +1,14 @@
-"""app 级异常处理器：异常→状态码→detail 映射的单点。
+"""Application-level exception handlers: the single exception-to-status-to-detail mapping point.
 
-路由函数体只保留 happy path，领域异常与 lib 层异常在此统一完成：
+Route bodies retain only happy paths; domain and library exceptions are handled consistently here:
 
-- 状态码映射（``ApiError`` 自带；lib 异常按类型固定）
-- 按请求 ``Accept-Language`` 翻译（复用 ``get_translator``），供应商与模型 ID 换成显示名
-- 脱敏：除 i18n key 显式声明的 params 外，异常消息一律不回传客户端——
-  ``FileNotFoundError`` / 未预期异常的 ``str(exc)`` 可能含服务器绝对路径，只进日志
+- Status mapping (carried by ``ApiError``; fixed by type for library exceptions)
+- Translation by request ``Accept-Language`` (reuse ``get_translator``), replacing provider/model IDs with display names
+- Redaction: never return exception messages to clients beyond params explicitly declared by i18n keys;
+  ``FileNotFoundError`` / unexpected-exception ``str(exc)`` may contain absolute server paths and goes only to logs
 
-渐进迁移：仍自行 try/except 的路由不受影响（异常不会传播到这里）；
-迁移一个端点 = 删掉它的 except 阶梯，让异常自然传播。
+Incremental migration: routes retaining their own try/except are unaffected (exceptions never propagate here);
+migrating an endpoint means removing its except ladder and letting exceptions propagate.
 """
 
 import logging
@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 
 
 def script_edit_detail(exc: ScriptEditError, _t: Callable[..., str]) -> str:
-    """``ScriptEditError`` → 用户可见 detail 的单点映射。
+    """Single mapping from ``ScriptEditError`` to user-visible detail.
 
-    reason 走 ``exc.key``/``exc.params`` 按请求语言翻译，不嵌 ``str(exc)``——后者文案固定
-    中文，会在 en/vi 响应里混入中文原文。仍自行 ``except ScriptEditError`` 的路由与本模块
-    的全局 handler 共用本函数，避免同一表达式散落多处各自演化。
+    Translate reason via ``exc.key``/``exc.params`` in the request language, without embedding ``str(exc)``: the latter is fixed
+    Chinese and would mix Chinese into en/vi responses. Routes retaining ``except ScriptEditError`` and this module's
+    global handler share this function to prevent scattered copies of the same expression evolving separately.
     """
     return _t("script_data_corrupted", reason=_t(exc.key, **exc.params))
 
@@ -48,14 +48,14 @@ def _cors_headers_for(
     allow_origins: Sequence[str],
     allow_credentials: bool,
 ) -> dict[str, str]:
-    """为兜底 500 响应手工补 CORS 头，逻辑对齐 Starlette ``CORSMiddleware.send()``。
+    """Manually attach CORS headers to fallback 500 responses, matching Starlette ``CORSMiddleware.send()``.
 
-    ``ServerErrorMiddleware`` 发送未预期异常的 500 响应时用的是最外层原始
-    ``send``（闭包参数），绕过所有内层中间件的 send 包装——包括注册在更内层的
-    ``CORSMiddleware``。跨域前端因此只会看到 network error，看不到真正的
-    500 body。调整中间件注册顺序无效（``Exception``/500 恒定路由到
-    ``ServerErrorMiddleware``），只能在 handler 内按与 app 一致的 CORS 配置
-    手工计算并附加响应头。
+    ``ServerErrorMiddleware`` sends unexpected-exception 500 responses using the outermost original
+    ``send`` (closure argument), bypassing every inner middleware send wrapper, including the inner
+    ``CORSMiddleware``. Cross-origin frontends therefore see only a network error rather than the actual
+    500 body. Changing middleware registration order has no effect (``Exception``/500 always routes to
+    ``ServerErrorMiddleware``); the handler must use the app's CORS configuration to
+    calculate and attach headers manually.
     """
     origin = request.headers.get("origin")
     if origin is None:
@@ -81,11 +81,11 @@ def register_error_handlers(
     cors_allow_origins: Sequence[str] = ("*",),
     cors_allow_credentials: bool = False,
 ) -> None:
-    """注册全部 app 级异常处理器。测试中对 bare ``FastAPI()`` 同样适用。
+    """Register all application-level exception handlers. Also works with bare ``FastAPI()`` in tests.
 
-    ``cors_allow_origins``/``cors_allow_credentials`` 须与 app 上实际注册的
-    ``CORSMiddleware`` 配置一致（见 ``_handle_unexpected`` 内的说明与
-    ``server/app.py`` 调用处），默认值对应「未配置 CORS」的保守场景。
+    ``cors_allow_origins``/``cors_allow_credentials`` must match the app's registered
+    ``CORSMiddleware`` configuration (see ``_handle_unexpected`` explanations and the
+    ``server/app.py`` call site); defaults represent the conservative no-CORS-configuration case.
     """
 
     @app.exception_handler(ApiError)
@@ -122,7 +122,7 @@ def register_error_handlers(
 
     @app.exception_handler(ModelNotInCatalogError)
     async def _handle_model_not_in_catalog(request: Request, exc: ModelNotInCatalogError) -> JSONResponse:
-        # 设置或项目里引用的内置模型已下线或不在供应商的模型清单中：提示用户重新选择，不当作服务器错误
+        # A built-in model referenced by settings or projects is retired or absent from the provider catalog: ask users to reselect, not a server error
         _t = get_translator(request)
         names = await request_display_names(request)
         message = render_message(failure_message_key(exc.code, exc.params), exc.params, _t, names)
@@ -145,27 +145,27 @@ def register_error_handlers(
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:
-        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误
+        # Invalid scripts (such as damaged storyboard-array keys) map to 4xx client errors
         _t = get_translator(request)
         detail = await present_request_diagnostics(script_edit_detail(exc, _t), request, _t)
         return JSONResponse(status_code=400, content={"detail": detail})
 
     @app.exception_handler(FileNotFoundError)
     async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:
-        # 不回传 str(exc)：load_script 等异常消息含服务器绝对路径，只进日志
+        # Do not return str(exc): load_script and similar exceptions contain absolute server paths, logged only
         logger.warning("资源不存在: %s %s (%s)", request.method, request.url.path, exc)
         _t = get_translator(request)
         return JSONResponse(status_code=404, content={"detail": _t("resource_not_found")})
 
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
-        # 未预期异常的消息可能含服务器路径等内部细节，一律通用 500。
-        # Starlette 发送本响应后会 re-raise，堆栈由 request_logging_middleware /
-        # uvicorn 记录，此处不重复打印。
+        # Unexpected-exception messages may contain server paths or other internal details; always use generic 500.
+        # Starlette re-raises after sending this response; request_logging_middleware /
+        # uvicorn logs the stack, so do not duplicate it here.
         #
-        # ServerErrorMiddleware 恒定用最外层原始 send 发送本响应，绕过
-        # CORSMiddleware（见 _cors_headers_for 文档）——手工补上 CORS 头，
-        # 否则跨域前端会把这个 500 当成 network error。
+        # ServerErrorMiddleware always sends this response through the outermost original send, bypassing
+        # CORSMiddleware (see _cors_headers_for docs); attach CORS headers manually,
+        # or cross-origin frontends interpret this 500 as a network error.
         _t = get_translator(request)
         headers = _cors_headers_for(
             request,

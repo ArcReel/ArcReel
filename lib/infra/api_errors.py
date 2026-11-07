@@ -1,10 +1,10 @@
-"""携带 (status_code, i18n key, params) 的领域异常。
+"""Domain exceptions carrying (status_code, i18n key, params).
 
-约定：
-- lib / service 层抛出时只带 i18n key 与 params，不带成品文案；
-- server 注册的 app 级 exception handler（``server/error_handlers.py``）单点完成
-  状态码映射、按请求 Accept-Language 翻译与脱敏，路由函数体只保留 happy path；
-- ``str(exc)`` 只进服务端日志，永不面向客户端输出。
+Conventions:
+- lib / service layers raise with i18n keys and params only, not finished copy.
+- The app-level exception handler (``server/error_handlers.py``) owns status-code
+  mapping, request Accept-Language translation and redaction; routes retain the happy path.
+- ``str(exc)`` goes only to server logs, never to clients.
 """
 
 from __future__ import annotations
@@ -13,19 +13,22 @@ from typing import Self
 
 
 class ApiError(Exception):
-    """领域异常基类：由 app 级 exception handler 统一翻译为 ``{"detail": ...}`` 响应。
+    """Domain-error base, translated by the app handler into a ``{"detail": ...}`` response.
 
-    ``detail`` 是产品语言摘要（i18n key + params 渲染），面向使用者；字段名、schema、
-    工具标识这类只有开发者看得懂的信息不进摘要，改挂到可选的 ``diagnostic`` 上，
-    由 handler 在非空时附加为响应体的同名字段。
+    ``detail`` is a product-language summary rendered from i18n key + params for the
+    user. Developer-only information such as field names, schemas and tool IDs
+    belongs in optional ``diagnostic`` instead; the handler adds that response field
+    only when nonempty.
 
-    ``diagnostic`` 刻意不进构造函数：``params`` 以 ``**kwargs`` 收集渲染参数，若诊断
-    信息也占用同一关键字空间，任何名为 ``diagnostic`` 的渲染参数都会被静默吞掉。
-    改用链式的 :meth:`with_diagnostic` 附加。
+    ``diagnostic`` is deliberately absent from the constructor: ``params`` collects
+    rendering parameters through ``**kwargs``. Sharing that keyword namespace would
+    silently consume any rendering parameter named ``diagnostic``. Attach it with
+    :meth:`with_diagnostic` instead.
 
-    ``diagnostic`` 随响应体原样下发（可以是一段说明，也可以是结构化的诊断清单），因此只放
-    请求侧可复述的信息（字段名、schema 期望、客户端提交内容触发的异常原文）；服务端绝对路径、
-    凭证与内部栈只进日志。
+    ``diagnostic`` is sent unchanged (explanatory text or structured diagnostics), so
+    include only information reproducible from the request: field names, expected
+    schemas and original exceptions caused by submitted content. Server absolute
+    paths, credentials and internal stacks belong only in logs.
     """
 
     def __init__(self, key: str, *, status_code: int, **params: object) -> None:
@@ -36,48 +39,48 @@ class ApiError(Exception):
         self.diagnostic: object | None = None
 
     def with_diagnostic(self, diagnostic: object) -> Self:
-        """附加技术诊断信息并返回自身，便于 ``raise XxxError(key).with_diagnostic(...)``。"""
+        """Attach technical diagnostics and return self for ``raise XxxError(key).with_diagnostic(...)``."""
         self.diagnostic = diagnostic
         return self
 
 
 class BadRequestError(ApiError):
-    """客户端请求错误（HTTP 400）。"""
+    """Client request error (HTTP 400)."""
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=400, **params)
 
 
 class UnprocessableError(ApiError):
-    """请求格式或内容不可处理（HTTP 422）。"""
+    """Request format or content cannot be processed (HTTP 422)."""
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=422, **params)
 
 
 class NotFoundError(ApiError):
-    """请求的资源不存在（HTTP 404）。"""
+    """Requested resource does not exist (HTTP 404)."""
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=404, **params)
 
 
 class ConflictError(ApiError):
-    """与资源当前状态冲突（HTTP 409）。"""
+    """Conflict with the current resource state (HTTP 409)."""
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=409, **params)
 
 
 class BadGatewayError(ApiError):
-    """上游返回的内容不可用或没有取回（HTTP 502）。"""
+    """Upstream content is unusable or could not be retrieved (HTTP 502)."""
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=502, **params)
 
 
 class ServiceUnavailableError(ApiError):
-    """服务暂时不可用（HTTP 503）。"""
+    """Service temporarily unavailable (HTTP 503)."""
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=503, **params)

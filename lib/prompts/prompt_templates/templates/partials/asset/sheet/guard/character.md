@@ -1,1 +1,1 @@
-三个面板中角色的面部与头部特征、毛发或发型、服装或体表花纹、体型、配饰完全一致。
+The character must have exactly the same facial and head features, fur or hairstyle, clothing or body markings, body shape, and accessories in all three panels.

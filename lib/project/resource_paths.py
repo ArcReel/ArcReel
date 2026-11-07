@@ -1,12 +1,11 @@
-"""资源路径解析器 — 「资源类型 → 项目内相对路径」的唯一真相源。
+"""Resource paths: sole source for resource type → project-relative path.
 
-纯函数，不读盘、不持有项目状态。独家拥有各资源类型的子目录、文件名模板、
-扩展名，以及 storyboards/end_frames/videos（``scene_``）、audio（``segment_``）的文件名前缀。
+Pure functions, no disk reads/project state. Own subdirectories, filename templates, extensions, and
+prefixes for storyboards/end_frames/videos (``scene_``) and audio (``segment_``).
 
-写侧（MediaGenerator）、版本回溯（versions 路由）、导入修复（project_archive）、
-版本管理（VersionManager）都从这里取形状，避免副本各自漂移。越界校验不在此处，
-由调用方拼绝对路径时自行负责。
-"""
+Writers (MediaGenerator), restoration (versions routes), import repair (project_archive), and
+VersionManager share these shapes without independent drift. Callers own boundary checks when
+joining absolute paths; they are outside this module."""
 
 from __future__ import annotations
 
@@ -15,33 +14,32 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ResourcePattern:
-    """单一资源类型的路径形状。
+    """Path shape for one resource type.
 
-    ``id_segments`` 是 resource id 占用的路径段数：默认 1（id 就是文件名主体）；
-    角色衍生资产图为 2（id 写作 ``本体名/衍生名``，本体名是一级目录）。
-    """
+    ``id_segments`` is resource-ID segment count, default 1 (filename body). Character derivatives use 2
+    (``本体名/衍生名``, base name as directory)."""
 
     subdir: str
     extension: str
-    prefix: str = ""  # 文件名前缀：storyboards/videos 用 "scene_"，audio 用 "segment_"，其余空
+    prefix: str = ""  # Prefixes: storyboards/videos "scene_", audio "segment_", others empty.
     id_segments: int = 1
 
 
-# 尾帧快照的资源类型名。独立导出到这个无反向依赖的纯函数模块，供
-# server/services/project/end_frame.py（写侧）与 generation_tasks.py（读侧）共用，避免二者互相
-# import 对方所在的 server.services 包造成循环依赖；同时作为 `_PATTERNS` 对应 key 的唯一
-# 来源，防止两处字面量各自维护后读写侧路径口径分叉。
+# End-frame resource type, exported from this dependency-free pure module for
+# server/services/project/end_frame.py writers and generation_tasks.py readers, avoiding mutual
+# server.services imports/cycles. Also the sole source for its `_PATTERNS` key,
+# preventing independent literals from splitting read/write path rules.
 END_FRAME_RESOURCE_TYPE = "end_frames"
 
-#: 角色衍生资产图的资源类型名。衍生共享本体的身份，资源 id 写作 ``本体名/衍生名``，
-#: 因此它不能落在 ``characters/`` 下（本体可以叫 ``derivatives``），单列一层子目录。
-#: 与 END_FRAME_RESOURCE_TYPE 同理导出到这个无反向依赖的模块，供写侧、版本管理与
-#: 产物规划共用一个字面量。
+#: Character-derivative sheet type: shared base identity, resource ID ``本体名/衍生名``;
+#: use a dedicated subdirectory, not ``characters/``, since bases may themselves be named ``derivatives``.
+#: Like END_FRAME_RESOURCE_TYPE, export from this dependency-free module so writers/history/
+#: artifact planning share one literal.
 CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives"
 
 _PATTERNS: dict[str, ResourcePattern] = {
     "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
-    # 尾帧快照与分镜图、分镜视频同按分镜 id 命名，故共用 scene_ 前缀。
+    # End frames share storyboard IDs and scene_ prefixes with storyboard images/videos.
     END_FRAME_RESOURCE_TYPE: ResourcePattern(END_FRAME_RESOURCE_TYPE, ".png", prefix="scene_"),
     "videos": ResourcePattern("videos", ".mp4", prefix="scene_"),
     "characters": ResourcePattern("characters", ".png"),
@@ -65,38 +63,35 @@ def _pattern(resource_type: str) -> ResourcePattern:
 
 
 def resource_relative_path(resource_type: str, resource_id: str) -> str:
-    """返回资源在项目内的相对路径（posix，正斜杠）。
+    """Return resource project-relative POSIX paths with forward slashes.
 
-    storyboards/end_frames/videos 形如 ``storyboards/scene_{id}.png``、audio 形如 ``audio/segment_{id}.wav``；
-    其余 ``{subdir}/{id}{ext}``。未知类型抛 ``ValueError``。
-    """
+    storyboards/end_frames/videos use ``storyboards/scene_{id}.png`` shapes; audio uses
+    ``audio/segment_{id}.wav``; others ``{subdir}/{id}{ext}``. Unknown types raise ``ValueError``."""
     pattern = _pattern(resource_type)
     filename = f"{pattern.prefix}{resource_id}"
     return f"{pattern.subdir}/{filename}{pattern.extension}"
 
 
 def resource_extension(resource_type: str) -> str:
-    """返回资源类型的文件扩展名（含点，如 ``.png``）。未知类型抛 ``ValueError``。"""
+    """Resource extensions including dots, e.g. ``.png``; unknown types raise ``ValueError``."""
     return _pattern(resource_type).extension
 
 
 def resource_id_segments(resource_type: str) -> int:
-    """返回该资源类型的 resource id 占用的路径段数。未知类型抛 ``ValueError``。"""
+    """Resource-ID path-segment count for this type; unknown types raise ``ValueError``."""
     return _pattern(resource_type).id_segments
 
 
 def version_snapshot_dir(resource_type: str) -> str:
-    """返回该资源类型版本快照桶的项目内相对目录（posix）。未知类型抛 ``ValueError``。"""
+    """Project-relative POSIX snapshot bucket; unknown types raise ``ValueError``."""
     return f"versions/{_pattern(resource_type).subdir}"
 
 
 def version_snapshot_relative_path(resource_type: str, resource_id: str, *, version: int, timestamp: str) -> str:
-    """返回一份版本快照在项目内的相对路径（posix）。
+    """Return project-relative POSIX version-snapshot paths.
 
-    形如 ``versions/{subdir}/{id 的前置段}/{id 末段}_v{n}_{timestamp}{ext}``：多段 id
-    的前置段原样成为目录层级，与当前图 ``{subdir}/{id}{ext}`` 的层级一一对应。
-    未知类型抛 ``ValueError``。
-    """
+    ``versions/{subdir}/{id 的前置段}/{id 末段}_v{n}_{timestamp}{ext}`` preserves preceding ID segments
+    as directories, matching current ``{subdir}/{id}{ext}`` hierarchy. Unknown types raise ``ValueError``."""
     pattern = _pattern(resource_type)
     parent, _, stem = resource_id.rpartition("/")
     parent_prefix = f"{parent}/" if parent else ""
@@ -104,10 +99,9 @@ def version_snapshot_relative_path(resource_type: str, resource_id: str, *, vers
 
 
 def resource_of_path(rel: str) -> tuple[str, str] | None:
-    """:func:`resource_relative_path` 的逆运算：项目内相对路径对应的 ``(资源类型, 资源 ID)``，不是资源当前文件时返回 ``None``。
+    """Inverse :func:`resource_relative_path`: relative path → ``(资源类型, 资源 ID)``, or ``None`` unless a current-resource file.
 
-    子目录更深的类型先匹配：``characters/derivatives/a/b.png`` 是衍生 ``a/b``，不是角色 ``derivatives/a/b``。
-    """
+    Match deeper types first: ``characters/derivatives/a/b.png`` is derivative ``a/b``, not character ``derivatives/a/b``."""
     for resource_type, pattern in sorted(_PATTERNS.items(), key=lambda item: -item[1].subdir.count("/")):
         head = f"{pattern.subdir}/{pattern.prefix}"
         if not (rel.startswith(head) and rel.endswith(pattern.extension)):

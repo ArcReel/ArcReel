@@ -21,24 +21,24 @@ import { CompactionMarker } from "./CompactionMarker";
 // Block types:
 //   text             -> TextBlock (markdown)
 //   tool_use         -> SubagentCard (Agent/Task) / SkillChip (Skill)
-//                       / ToolCallWithResult，三者都是单行工序（WorkRow）
-//   tool_result      -> StandaloneToolResult（孤立结果，很少见）
+//                       / ToolCallWithResult, all three single-line work rows (WorkRow)
+//   tool_result      -> StandaloneToolResult (rare orphaned results)
 //   thinking         -> ThinkingBlock (single line; streaming or summary)
 //   skill_invocation -> SkillChip (standalone, no anchoring tool_use)
 //   task_progress    -> TaskProgressBlock (in-place updated task state)
-//   interrupt_notice -> 分隔线「已停止，这一轮的回复没有完成」
+//   interrupt_notice -> Stopped; this reply was incomplete separator
 //   question_answer  -> QuestionAnswerBlock (AskUserQuestion answer)
-//   agent_failure    -> AgentFailureCard（一句话结论，原始信息折叠在「详情」里）
-//   compact_summary  -> CompactionMarker（「上下文已压缩」分隔线，点开看摘要）
-//   image            -> ChatImage（点开看原图）
+//   agent_failure    -> AgentFailureCard (one-sentence conclusions, raw details collapsed)
+//   compact_summary  -> CompactionMarker (Context compacted separators, expandable summaries)
+//   image            -> ChatImage (open originals)
 // ---------------------------------------------------------------------------
 
 interface ContentBlockRendererProps {
   block: ContentBlock;
   index: number;
-  /** 该块正在流式生成（draft turn 的末尾块）。 */
+  /** Blocks currently streaming (final draft-turn blocks). */
   streaming?: boolean;
-  /** 该块是查看期间新到达的，失败卡片据此播报。 */
+  /** Blocks newly arriving during viewing; failure cards announce accordingly. */
   announce?: boolean;
 }
 
@@ -57,7 +57,7 @@ export function ContentBlockRenderer({ block, index, streaming, announce }: Cont
       return <TextBlock key={block.id ?? `block-${index}`} text={block.text} />;
 
     case "tool_use":
-      // subagent 锚点（Agent/Task tool_use 或挂有子时间线）→ 单一折叠卡片
+      // subagent anchors (Agent/Task tool_use or attached sub-timelines) → single collapsible cards.
       if (block.name === "Agent" || block.name === "Task" || block.sub_turns) {
         return <SubagentCard key={block.id ?? `block-${index}`} block={block} />;
       }
@@ -157,7 +157,7 @@ function extractSkillArgs(input: Record<string, unknown> | undefined): string {
   return typeof input.args === "string" ? input.args : "";
 }
 
-// 孤立的工具结果（没有对应的 tool_use，很少见）：同样是一行工序，展开看结果原文。
+// Rare orphaned tool results without matching tool_use also use work rows, expanding raw results.
 function StandaloneToolResult({ block }: Readonly<{ block: ContentBlock }>) {
   const { t } = useTranslation("dashboard");
   const result = stringifyResult(block.content);
@@ -183,8 +183,8 @@ function InterruptNoticeBlock() {
   );
 }
 
-// AskUserQuestion 答复：结构化答案逐条呈现（问题、所选选项），
-// 无结构化答案时回退展示原始结果文本。
+// AskUserQuestion replies: show structured answers individually (questions/selected options),
+// falling back to raw result text without structured answers.
 function QuestionAnswerBlock({ block }: Readonly<{ block: ContentBlock }>) {
   const answers =
     block.answers && Object.keys(block.answers).length > 0 ? block.answers : null;

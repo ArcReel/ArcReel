@@ -1,6 +1,6 @@
-"""Vertex 凭证文件位置：经 ConfigResolver 的供应商配置取到的凭证文件能被加载。
+"""Load Vertex credential files resolved through ConfigResolver provider configuration.
 
-位置由凭证 id 经数据根布局推导；推导位置没有文件时回退到凭证记录上的路径（存量凭证）。
+Derive location from credential ID/data-root layout; if absent, fall back to recorded legacy paths.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 def layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DataRootLayout:
     data_root = tmp_path / "data"
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
-    # 建库夹具可能已按默认数据根解析过一次。
+    # DB setup fixtures may already have resolved the default data root once.
     reset_for_tests()
     return DataRootLayout.current()
 

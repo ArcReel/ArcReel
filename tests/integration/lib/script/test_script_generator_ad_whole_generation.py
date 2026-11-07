@@ -1,4 +1,4 @@
-"""广告/短片整份生成：结果直接写成正式脚本，本次新增的资产随之登记；违约时不写盘、不落草稿。"""
+"""Whole ad/short-film generation writes formal scripts directly and registers additions; violations write neither files nor drafts."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture(autouse=True)
 def ad_video_request_facts(video_request_facts) -> None:
-    """分镜路线的档位来自共享 fixture 的 (4, 6, 8)。"""
+    """Storyboard tiers use shared fixture (4,6,8)."""
 
 
 def _write_ad_project(tmp_path: Path, generation_mode: str = "storyboard", **overrides: Any) -> Path:
@@ -232,7 +232,7 @@ async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_ac
 
     script = _script(project_dir)
     assert script["title"] == ""
-    # 整份重新生成一律发新号：模型给的 E1S01 已被上一版用过，落成 E1S03
+    # Whole regeneration always issues fresh IDs: model E1S01 was already used, so persist E1S03.
     assert [shot["shot_id"] for shot in script["shots"]] == ["E1S03"]
     assert "阿杰" in _project(project_dir)["characters"]
 
@@ -242,7 +242,7 @@ async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_ac
 async def test_whole_generation_keeps_the_ledger_title_over_the_model_title(
     tmp_path: Path, generation_mode: str, ledger_title: str
 ) -> None:
-    """模型给出的标题照填、不采用：剧本与账本的集标题保持账本原值，空标题仍为空。"""
+    """Model output may supply titles but never adopts them: script/ledger episode titles retain original ledger values, including empty titles."""
     project_dir = _write_ad_project(
         tmp_path,
         generation_mode,

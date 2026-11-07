@@ -27,7 +27,7 @@ function makeScene(overrides: Partial<DramaScene> = {}): DramaScene {
   };
 }
 
-// 统一构造 ShotDetail 元素，供首渲染与 rerender 共用，避免重复整段 props 列表。
+// Share ShotDetail element construction between initial renders/rerenders, avoiding duplicated props lists.
 function detailElement(scene: DramaScene, props: Partial<Parameters<typeof ShotDetail>[0]> = {}) {
   return (
     <ShotDetail
@@ -57,7 +57,7 @@ describe("ShotDetail 剧情演绎", () => {
     expect(screen.getByDisplayValue("三年后。")).toBeInTheDocument();
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
     expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
-    // drama 不再渲染扁平对白编辑器的空态占位
+    // Drama no longer renders flat-dialogue editor empty placeholders.
     expect(screen.queryByText("（暂无对话）")).not.toBeInTheDocument();
   });
 
@@ -121,16 +121,16 @@ describe("ShotDetail 剧情演绎", () => {
   });
 
   it("上游画外音缺省 speaker 时：类型往返切换不产生虚假脏态（归一化签名）", () => {
-    // 存量画外音只有 kind/text、缺 speaker 键（类型允许 speaker?: null）
+    // Legacy voiceover has kind/text without speaker keys, permitted by speaker?: null.
     const scene = makeScene({ utterances: [{ kind: "voiceover", text: "三年后。" }] });
     render(detailElement(scene, { onUpdatePrompt: vi.fn() }));
-    // 初始干净：保存栏不渲染
+    // Initially clean: no save bar.
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
 
-    // 切到台词：真实变更 → 变脏 → 保存栏出现
+    // Switch to dialogue: real change → dirty → save bar.
     fireEvent.click(screen.getByRole("button", { name: "画外音" }));
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
-    // 切回画外音（speaker 归 null，文本不变）：归一化后与上游等价 → 复归干净 → 保存栏消失
+    // Switch back to voiceover (speaker null, unchanged text): normalized equality → clean → no save bar.
     fireEvent.click(screen.getByRole("button", { name: "台词" }));
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
@@ -202,7 +202,7 @@ describe("ShotDetail 剧情演绎", () => {
     });
 
     it("移除分镜先弹 danger 确认框说明产物去向，确认后才移除", async () => {
-      // 标题按本集位置称呼分镜：E1S01 排在第 2 位
+      // Header addresses episode positions; E1S01 is second.
       useProjectsStore.setState({
         currentScripts: {
           "episode_1.json": { episode: 1, content_mode: "drama", scenes: [makeScene({ scene_id: "E1S00" }), makeScene()] } as never,

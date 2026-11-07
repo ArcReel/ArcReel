@@ -1,4 +1,4 @@
-"""随包 ffmpeg 查找器在真实环境中的取用：只认 imageio-ffmpeg 自带的二进制。"""
+"""Use the bundled ffmpeg locator in a real environment: accept only imageio-ffmpeg’s bundled binary."""
 
 from __future__ import annotations
 

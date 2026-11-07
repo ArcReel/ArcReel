@@ -1,8 +1,7 @@
-"""用户自主上传资产图、衍生资产图、分镜图与视频的 finalize 服务层。
+"""Finalization services for manually uploaded asset/derivative/storyboard images and videos.
 
-复用生成链路的元数据回写、缩略图与版本记录原语，让上传产出的资产
-在状态推导、SSE 刷新、版本回滚上与 AI 生成的资产行为一致。
-"""
+Reuse generation metadata writeback, thumbnails and version primitives so uploaded assets share AI-generation
+state derivation, SSE refresh and version rollback behavior."""
 
 from __future__ import annotations
 
@@ -35,14 +34,14 @@ from server.services.tasks.generation_tasks import emit_generation_success_batch
 
 logger = logging.getLogger(__name__)
 
-# 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
+# Version source identifying manual uploads; frontend uses it for translated labels.
 UPLOAD_VERSION_SOURCE = MANUAL_UPLOAD_VERSION_SOURCE
 
-# 上传策略（shot_uploads 与 reference_videos 两个路由共用，避免口径漂移）。
-# 视频宽松校验：只看扩展名与大小上限，宽高比/时长不阻塞——用户自主上传即自己负责。
+# Upload policy shared by shot_uploads/reference_videos to prevent drift.
+# Lenient video validation checks extension/size only; ratio/duration do not block user-controlled uploads.
 UPLOAD_IMAGE_EXTENSIONS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
-# 不收 webm：字节原样存为 canonical .mp4，VP8/VP9 在 Safari/剪映一侧解码不可用，
-# 错误扩展名还会误导排查；mp4/mov/m4v 同属 ISO BMFF 容器家族
+# Reject webm: bytes persist unchanged as canonical .mp4, but Safari/Jianying cannot decode VP8/VP9,
+# and wrong extensions mislead diagnosis; mp4/mov/m4v share the ISO BMFF container family.
 UPLOAD_VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".m4v")
 UPLOAD_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 UPLOAD_VIDEO_MAX_BYTES = 200 * 1024 * 1024
@@ -51,7 +50,7 @@ _COPY_CHUNK_SIZE = 1024 * 1024
 
 
 class UploadValidationError(Exception):
-    """上传校验失败。路由层按 (status_code, key, params) 翻译为 HTTP 响应。"""
+    """Upload validation failed; routes translate (status_code, key, params) into HTTP responses."""
 
     def __init__(self, key: str, *, status_code: int = 400, **params: object):
         super().__init__(key)
@@ -61,7 +60,7 @@ class UploadValidationError(Exception):
 
 
 class UploadTooLargeError(UploadValidationError):
-    """上传字节数超过上限。"""
+    """Uploaded bytes exceed the limit."""
 
     def __init__(self, max_bytes: int):
         super().__init__("upload_too_large", status_code=413, max_mb=max_bytes // (1024 * 1024))
@@ -69,10 +68,9 @@ class UploadTooLargeError(UploadValidationError):
 
 
 def validate_upload(filename: str | None, declared_size: int | None, *, kind: Literal["image", "video"]) -> int:
-    """按上传策略校验文件名扩展名与申报大小，返回该类型的字节上限。
+    """Validate extension/declared size against upload policy and return this type’s byte limit.
 
-    declared_size 只做 Content-Length 预拒；实际写入字节数由落盘函数兜底。
-    """
+    declared_size only prechecks Content-Length; persistence functions enforce actual written bytes."""
     if kind == "image":
         extensions, max_bytes = UPLOAD_IMAGE_EXTENSIONS, UPLOAD_IMAGE_MAX_BYTES
         type_error_key = "unsupported_image_type"
@@ -91,7 +89,7 @@ def validate_upload(filename: str | None, declared_size: int | None, *, kind: Li
 
 
 def _upload_tmp_path(target: Path) -> Path:
-    """同目录 dot-tmp 路径，带每次调用唯一的后缀，避免并发上传交错写同一 tmp 文件。"""
+    """Same-directory dot-tmp path with a unique per-call suffix, preventing concurrent uploads from interleaving writes."""
     return target.with_name(f".{target.stem}.{uuid.uuid4().hex[:8]}.tmp{target.suffix}")
 
 
@@ -109,12 +107,11 @@ def _copy_limited(src: BinaryIO, dst_path: Path, max_bytes: int) -> None:
 
 
 async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: int) -> None:
-    """把上传流分块写入 target（不整体读入内存）。
+    """Write uploaded streams to target in chunks without loading the whole file into memory.
 
-    先写同目录 dot-tmp 再 ``Path.replace``：跨卷 rename 在 Windows 会失败，
-    且避免半截文件被 canonical 路径的读取方看到。超限抛 UploadTooLargeError。
-    改名前尽力做 faststart（moov 挪到 mdat 之前），失败时保留上传的原样字节。
-    """
+    Write same-directory dot-tmp files before ``Path.replace`` to avoid Windows cross-volume rename failures and
+    partially visible canonical files. Exceeding the limit raises UploadTooLargeError. Before renaming, attempt
+    faststart by moving moov before mdat; retain original uploaded bytes if that fails."""
     tmp_path = _upload_tmp_path(target)
 
     def _write_tmp() -> None:
@@ -126,35 +123,34 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
         await ensure_faststart(tmp_path)
         await run_sync_transaction(tmp_path.replace, target)
     except BaseException:
-        await asyncio.to_thread(tmp_path.unlink, missing_ok=True)  # hard-delete: temp -- 上传临时文件
+        await asyncio.to_thread(tmp_path.unlink, missing_ok=True)  # hard-delete: temp -- temporary upload file
         raise
 
 
 async def stage_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: int) -> Path:
-    """把上传视频写入 canonical 同目录的唯一 staging 路径，尚不改变正式选择。"""
+    """Write uploaded video to a unique staging path beside canonical output, without changing formal selection yet."""
 
     staged_file = _upload_tmp_path(target)
     try:
         await save_uploaded_video_stream(src, staged_file, max_bytes=max_bytes)
         return staged_file
     except BaseException:
-        await asyncio.to_thread(staged_file.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+        await asyncio.to_thread(staged_file.unlink, missing_ok=True)  # hard-delete: temp -- staged upload file
         raise
 
 
 def write_bytes_atomic(content: bytes, target: Path) -> None:
-    """同步版本：把内存中的内容原子写入 target（同 dot-tmp + replace + 失败清理）。
+    """Synchronous atomic in-memory write to target using dot-tmp, replace and failure cleanup.
 
-    阻塞 I/O，供调用方自行决定线程化时机——需要与其它阻塞操作（如剧本锁）共享
-    同一临界区时（见 `server/services/project/end_frame.py`），不能各自套一层 `asyncio.to_thread`。
-    """
+    Blocking I/O lets callers choose threading boundaries. Operations sharing one critical section with other blocking
+    work, such as script locks (`server/services/project/end_frame.py`), cannot each use separate `asyncio.to_thread` calls."""
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = _upload_tmp_path(target)
     try:
         tmp_path.write_bytes(content)
         tmp_path.replace(target)
     except BaseException:
-        tmp_path.unlink(missing_ok=True)  # hard-delete: temp -- 上传临时文件
+        tmp_path.unlink(missing_ok=True)  # hard-delete: temp -- temporary upload file
         raise
 
 
@@ -167,12 +163,12 @@ def stage_uploaded_bytes(content: bytes, target: Path) -> Path:
         staged_file.write_bytes(content)
         return staged_file
     except BaseException:
-        staged_file.unlink(missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+        staged_file.unlink(missing_ok=True)  # hard-delete: temp -- staged upload file
         raise
 
 
 async def save_uploaded_bytes(content: bytes, target: Path) -> None:
-    """把内存中的上传内容原子写入 target（同 dot-tmp + replace + 失败清理）。"""
+    """Atomically write in-memory uploaded content to target using dot-tmp, replace and failure cleanup."""
     await run_sync_transaction(write_bytes_atomic, content, target)
 
 
@@ -282,7 +278,7 @@ async def commit_manual_storyboard_upload(
         async with formal_commit(project_name):
             return await run_noninterruptible_sync(_commit)
     finally:
-        await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+        await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- staged upload file
 
 
 async def commit_manual_derivative_upload(
@@ -296,13 +292,12 @@ async def commit_manual_derivative_upload(
     project_manager: ProjectManager | None = None,
     on_commit: Callable[[ContentVersion], None] | None = None,
 ) -> int:
-    """把作者上传的衍生资产图作为成品选中：衍生条目指针、版本记录与清单登记同一次提交。
+    """Select creator-uploaded derivative images as finished content, committing derivative pointers, versions and manifest registration together.
 
-    上传只替换资产图，变化描述不动；登记由规划器按上传字节投影，本体资产图与描述都不参与。
-    新内容版本按全局存储选择保存（``formal_commit``），远端没有确认保存时不发布新版本。
-    ``on_commit`` 在同一次提交的最后收到新选中的内容版本，抛错时整次提交回滚；
-    导入供应商素材在这里记录关联。
-    """
+    Uploads replace only images, preserving change descriptions. Planners project basis from uploaded bytes without base
+    images/descriptions. New versions follow global storage through ``formal_commit`` and publish only after confirmed
+    remote persistence. ``on_commit`` receives newly selected content last in the same commit; errors roll back the whole
+    commit. Provider imports record their links here."""
 
     metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
     if original_filename:
@@ -331,12 +326,12 @@ async def commit_manual_derivative_upload(
         async with formal_commit(project_name):
             return await run_noninterruptible_sync(_commit)
     finally:
-        await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+        await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- staged upload file
 
 
 @dataclass(frozen=True, slots=True)
 class DerivativeUploadTarget:
-    """一次衍生资产图上传的写入坐标：落盘真名、规范路径上的当前文件与版本管理器。"""
+    """Derivative-upload coordinates: actual persisted names, current canonical file and version manager."""
 
     target: DerivativeSheetTarget
     current_image: Path
@@ -346,19 +341,18 @@ class DerivativeUploadTarget:
 @dataclass(frozen=True, slots=True)
 class ManualDerivativeUpload:
     version: int
-    #: 受影响文件的指纹，与衍生资产图生成完成的变更事件同一份。
+    #: Affected-file fingerprints, shared with derivative-generation completion events.
     asset_fingerprints: dict[str, int]
 
 
 def resolve_derivative_upload_target(
     project_manager: ProjectManager, project_name: str, owner_name: str, derivative_name: str
 ) -> DerivativeUploadTarget:
-    """解析衍生的落盘坐标。阻塞 I/O，由调用方线程化。
+    """Resolve persisted derivative coordinates with blocking I/O; callers handle threading.
 
     Raises:
-        NotFoundError: 项目、本体或衍生不存在。
-        BadRequestError: 规范路径越出项目目录。
-    """
+        NotFoundError: Missing project, base or derivative.
+        BadRequestError: Canonical path escapes the project."""
     try:
         project_path = project_manager.get_project_path(project_name)
     except FileNotFoundError as exc:
@@ -383,16 +377,15 @@ async def install_manual_derivative_upload(
     project_manager: ProjectManager | None = None,
     on_commit: Callable[[ContentVersion], None] | None = None,
 ) -> ManualDerivativeUpload:
-    """把一张 PNG 作为衍生资产图的成品写入：暂存、正式提交，再发出与衍生生成完成同形状的变更事件。
+    """Persist a finished derivative PNG through staging/formal submission, then emit the same change event shape as derivative generation.
 
-    Web 上传与导入供应商素材共用这条路径。变更来源取调用方的 ``project_change_source``。函数返回即表示
-    正式写入已提交：变更事件发送失败只记日志，返回的指纹为空，由调用方刷新项目数据取得。
+    Web uploads/provider imports share this path using caller ``project_change_source``. Return means formal persistence
+    committed: event failures only log and return empty fingerprints, which callers recover by refreshing project data.
 
     Raises:
-        NotFoundError: 解析之后、提交之前本体或衍生被并发删除。
-    """
-    # 暂存文件一落盘就登记：暂存进行中被取消时返回值随之丢弃，按登记回收；
-    # 暂存成功后由 commit_manual_derivative_upload 的 finally 回收。
+        NotFoundError: Base/derivative deleted concurrently between resolution and submission."""
+    # Register staged files immediately; cancellation loses staging returns, so registration drives cleanup;
+    # after successful staging, commit_manual_derivative_upload finally cleans up.
     staged_images: list[Path] = []
 
     def _stage() -> None:
@@ -402,7 +395,7 @@ async def install_manual_derivative_upload(
         await run_sync_transaction(_stage)
     except BaseException:
         for path in staged_images:
-            await run_noninterruptible_sync(path.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+            await run_noninterruptible_sync(path.unlink, missing_ok=True)  # hard-delete: temp -- staged upload file
         raise
     target = upload.target
     try:
@@ -427,7 +420,7 @@ async def install_manual_derivative_upload(
             payload={},
         )
     except Exception:
-        # 正式写入已经提交，事件只用于提示其他页面刷新；失败不改写这次写入的结果
+        # Formal writes committed already; events only refresh other views, so failures do not alter write outcomes.
         logger.warning("衍生资产图上传已提交，变更事件发送失败", exc_info=True)
         fingerprints = {}
     return ManualDerivativeUpload(version=version, asset_fingerprints=fingerprints)
@@ -450,12 +443,11 @@ async def commit_manual_video_upload(
     original_filename: str | None,
     commit_metadata: ManualVideoMetadataCommit,
 ) -> int:
-    """把手动视频、版本选择、缩略图、剧本元数据与清单登记作为一个正式提交。
+    """Commit manual video, version selection, thumbnail, script metadata and manifest registration as one formal submission.
 
-    缩略图先从不可见的 staging 视频生成。正式提交随后复用 ProjectManager 的剧本/项目
-    事务、VersionManager 的 staged activation 与 Manifest 自身的事务补偿；任一步失败
-    都会逐层恢复旧选择。同步提交一旦开始便不可被请求取消打断。
-    """
+    First generate thumbnails from invisible staged video. Submission reuses ProjectManager script/project transactions,
+    VersionManager staged activation and Manifest transaction compensation; any failure restores prior selection through
+    each layer. Once synchronous commit starts, request cancellation cannot interrupt it."""
 
     staged_thumbnail = _upload_tmp_path(thumbnail_file)
     try:
@@ -467,7 +459,7 @@ async def commit_manual_video_upload(
 
             def _activate(_script_path: Path) -> None:
                 def _claim() -> None:
-                    # 选中的已是这次上传，规划器按上传字节投影依据，投影不出即遗忘。
+                    # This upload is selected; planners project basis from its bytes, forgetting basis when projection fails.
                     register_current_resource_artifact(
                         project_path,
                         resource_type=resource_type,
@@ -477,7 +469,7 @@ async def commit_manual_video_upload(
 
                 with formal_write_transaction(thumbnail_file):
                     if selected_thumbnail is None:
-                        # hard-delete: derived -- 新上传的视频没有缩略图时清掉旧缩略图
+                        # hard-delete: derived -- remove old thumbnails when new uploaded videos have none
                         thumbnail_file.unlink(missing_ok=True)
                     else:
                         thumbnail_file.parent.mkdir(parents=True, exist_ok=True)
@@ -506,8 +498,8 @@ async def commit_manual_video_upload(
         return await run_noninterruptible_sync(_commit)
     finally:
         await asyncio.gather(
-            asyncio.to_thread(staged_video.unlink, missing_ok=True),  # hard-delete: temp -- 上传暂存文件
-            asyncio.to_thread(staged_thumbnail.unlink, missing_ok=True),  # hard-delete: temp -- 上传暂存文件
+            asyncio.to_thread(staged_video.unlink, missing_ok=True),  # hard-delete: temp -- staged upload file
+            asyncio.to_thread(staged_thumbnail.unlink, missing_ok=True),  # hard-delete: temp -- staged upload file
         )
 
 
@@ -522,7 +514,7 @@ async def finalize_shot_video_upload(
     versions: VersionManager,
     original_filename: str | None,
 ) -> int:
-    """通过共享正式写入 seam 提交分镜视频及其所有 sidecar。"""
+    """Submit storyboard video and all sidecars through the shared formal-write interface."""
 
     def _commit_metadata(thumb_rel: str | None, on_commit: Callable[[Path], None]) -> None:
         get_project_manager().batch_update_scene_assets(

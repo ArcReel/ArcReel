@@ -1,0 +1,138 @@
+[
+  {
+    "path": "frontend/src/components/copilot/QueuedMessageTray.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/TodoProgress.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/layout/GlobalHeader.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/ProviderSection.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/PromptTemplateSource.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/button.tsx",
+    "comments": 2,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/combobox.tsx",
+    "comments": 2,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/dropdown-menu.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/input.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/popover.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/select.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/textarea.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/ui/toast.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/usage/UsageSessionsCard.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/utils/episode-item.ts",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

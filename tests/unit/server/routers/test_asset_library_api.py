@@ -1,6 +1,6 @@
-"""供应商素材库 API：控制面账号、推理凭证绑定与素材浏览。
+"""Provider asset-library API: control-plane accounts, inference-credential bindings, asset browsing.
 
-只替换供应商网络边界：控制面请求经 respx 拦截，断言实发主机、签名与请求体。
+Replace provider network boundaries only: respx intercepts control-plane requests, asserting actual hosts/signatures/bodies.
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ class TestBindings:
             )
             assert scope is not None
             assert (scope.site, scope.region, scope.project_name) == ("volcengine", "cn-beijing", "film")
-            # 本次调用实际用的 endpoint 与确认时不同：不适用
+            # Actual invocation endpoints differ from confirmation: not applicable.
             assert (
                 await resolve_bound_scope(
                     session,
@@ -136,7 +136,7 @@ class TestBindings:
                 )
                 is None
             )
-            # 同一条记录换成另一个 Key：记录 ID 没变也不继承
+            # Replacing Keys on the same record never inherits consent, even with unchanged record IDs.
             await CredentialRepository(session).update(ark_id, api_key="ark-key-of-another-account")
             await session.commit()
 
@@ -257,7 +257,7 @@ class TestBrowseAssets:
             ("asset-20260101-a", "Image", "active", None),
             ("asset-20260101-b", "Image", "failed", "InputImageSensitiveContentDetected"),
         ]
-        # 供应商的签名下载地址不下发
+        # Never return provider signed download URLs.
         assert "X-Tos-Signature" not in resp.text
         assert SK not in caplog.text
         assert SK not in str(request.headers)

@@ -18,9 +18,9 @@ interface AssetAliasesFieldProps {
   name: string;
   assetType: AliasAssetType;
   aliases: string[];
-  /** 只读展示（引导演示项目）：只列出别名，不渲染增删入口。 */
+  /** Read-only onboarding demos list aliases without add/remove entry points. */
   readOnly?: boolean;
-  /** 详情里其它写入占用中：增删入口一起禁用。 */
+  /** Other detail writes are occupied; disable alias additions/removals together. */
   busy?: boolean;
 }
 
@@ -31,9 +31,9 @@ const UPDATE: Record<AliasAssetType, (project: string, name: string, updates: Re
 };
 
 /**
- * 资产详情里的别名：增删是立即执行的动作，不进入未保存修改。添加经「添加别名」弹层里的表单
- * 显式提交，删除后的提示里可以撤销。别名只供 AI 规划时认人参考，不参与引用；后端按名称判等
- * 去空白、去重并去掉与资产同名的一项。
+ * Detail aliases: add/remove execute immediately, outside unsaved edits. Adding explicitly submits the add-alias popover form;
+ * removal notices offer undo. Aliases help AI planning recognize identities, never reference matching; backend name comparison
+ * trims/deduplicates and removes aliases equivalent to asset names.
  */
 export function AssetAliasesField({
   projectName,
@@ -50,15 +50,15 @@ export function AssetAliasesField({
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const track = useTrackWrite();
-  // 撤销在提示里触发，可能晚于下一次刷新：以那一刻的别名为准再加回去
+  // Notice-triggered undo may follow later refreshes: add back against aliases current at that moment.
   const latest = useRef({ aliases, name, busy, saving });
   useEffect(() => {
     latest.current = { aliases, name, busy, saving };
   }, [aliases, name, busy, saving]);
 
   /**
-   * 保存整份别名列表。`stale` 表示已保存但没有同步到最新数据（刷新失败已提示，或项目已切走）：
-   * 此时列表仍是旧数据，基于它的后续动作（如撤销）不再可靠。
+   * Save the whole alias list. `stale` means saved without current-data synchronization (refresh failed with feedback, or project changed);
+   * remaining old lists cannot reliably support subsequent actions such as undo.
    */
   const save = async (target: string, next: string[]): Promise<"saved" | "stale" | "failed"> => {
     if (latest.current.busy || latest.current.saving || rejectIfAssetBusy(assetType, projectName, target, t, "assets:gallery_busy_hint")) return "failed";
@@ -67,7 +67,7 @@ export function AssetAliasesField({
       const refreshed = await track(
         UPDATE[assetType](projectName, target, { aliases: next }).then(() => refreshAfterWrite(projectName, t)),
       );
-      // 撤销基于刷新后的列表，只有真正同步了才可靠；cancelled 是项目已切走
+      // Undo needs truly refreshed lists for reliability; cancelled means project navigation.
       return refreshed === "success" ? "saved" : "stale";
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:aliases_save_failed", { message: errMsg(err) }), "error");
@@ -99,7 +99,7 @@ export function AssetAliasesField({
     });
   };
 
-  // 只读且没有别名时由调用方整块不渲染
+  // Callers omit the whole block when read-only without aliases.
   if (readOnly) {
     return (
       <ul className="flex flex-wrap gap-1.5">
@@ -138,7 +138,7 @@ export function AssetAliasesField({
         <Popover
           open={adding}
           onOpenChange={(next) => {
-            // 提交中不响应关闭，请求在途时输入不丢
+            // Ignore closing during submission to preserve input while requests run.
             if (!next && saving) return;
             if (next && rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
             setAdding(next);

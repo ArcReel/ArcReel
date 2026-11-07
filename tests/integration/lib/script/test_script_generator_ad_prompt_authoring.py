@@ -1,4 +1,4 @@
-"""广告/短片的提示词编写：已有正式脚本时只填待编写的分镜 / 单元，尚无正式脚本时整份生成。"""
+"""Ad/short-film prompt authoring fills pending storyboards/units when formal scripts exist; otherwise generates whole scripts."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture(autouse=True)
 def ad_video_request_facts(video_request_facts) -> None:
-    """分镜与参考生视频两条路线的档位都来自视频请求事实：本模块统一用共享 fixture 的 (4, 6, 8)。"""
+    """Storyboard/reference-video tiers both come from request facts; this module shares fixture (4,6,8)."""
 
 
 def _write_ad_project(tmp_path: Path, generation_mode: str) -> Path:
@@ -53,7 +53,7 @@ def _write_ad_project(tmp_path: Path, generation_mode: str) -> Path:
 
 
 def _generator(project_dir: Path, responses: list[str]) -> ScriptGenerator:
-    """按调用次序吐出预置响应；多调一次即耗尽，用例据此断言「本轮没有调用模型」。"""
+    """Yield prepared responses in call order, exhausting on extra calls to assert no model invocation this round."""
     text_generator = MagicMock()
     text_generator.model = "mock"
     text_generator.generate = AsyncMock(side_effect=[MagicMock(text=text) for text in responses])
@@ -127,7 +127,7 @@ def _shot_visual(*shot_ids: str, mark: str) -> str:
 
 
 async def _storyboard_script(tmp_path: Path) -> Path:
-    """尚无正式脚本时整份生成两个分镜，得到一份无待编写标记的 ad 正式脚本。"""
+    """Without formal scripts, whole generation creates two storyboards and an ad script without pending markers."""
     project_dir = _write_ad_project(tmp_path, "storyboard")
     response = {
         "title": "速干杯短片",
@@ -180,7 +180,7 @@ class TestAdShotAuthoring:
         assert PENDING_AUTHORING_FIELD not in added
 
     async def test_timeline_insert_and_remove_survive_default_authoring(self, tmp_path: Path) -> None:
-        """时间线新增 / 移除分镜之后编写：新增的空分镜被填充，移除的分镜不会被生成回来。"""
+        """After timeline additions/removals, author new blank storyboards without recreating removed ones."""
         project_dir = await _storyboard_script(tmp_path)
         pm = ProjectManager.for_project_dir(project_dir)
         editor = ScriptBatchEditor(pm)

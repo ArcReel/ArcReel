@@ -99,18 +99,18 @@ import { stepAnchor } from "@/utils/move-anchor";
 export interface ReferenceVideoCanvasProps extends EpisodeCanvasContext {
   projectName: string;
   episode: number;
-  /** prompt_authoring 剧本（scripts/episode_N.json）是否已生成：没有时单元列表无脚本可读，不拉取。 */
+  /** Whether prompt_authoring scripts/episode_N.json exists; without scripts, unit lists have nothing to read and do not fetch. */
   hasScript?: boolean;
-  /** ad 参考生视频一阶段产出，不展示 script_plan 脚本规划页。 */
+  /** Ad reference-to-video produces in one stage, without script_plan pages. */
   showPreprocess?: boolean;
-  /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
+  /** Unit duration is any positive integer, not constrained by provider tiers for composition. */
   freeDuration?: boolean;
   /**
-   * 画布根部的能力请求明确答复视频模型无法解析（400/422）。逐单元的桶、档位与端点固定
-   * 标志不从这里来：它们随单元列表由服务端按可用参考图逐单元给出（`unitCapabilitiesByEpisode`）。
+   * Root capability queries explicitly report unresolvable video models (400/422). Per-unit buckets/tiers/endpoint-fixed
+   * flags instead arrive with server unit lists based on usable references (`unitCapabilitiesByEpisode`).
    */
   videoModelUnresolved?: boolean;
-  /** 剧本规划档位（能力端点的 `duration_constraints.planning`）：内容确认页上端点固定的单元按它选时长、判越档。 */
+  /** Script-plan tiers (`duration_constraints.planning`) select/check endpoint-fixed unit durations on confirmation pages. */
   planDurationOptions?: number[];
 }
 
@@ -118,10 +118,10 @@ const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
 const EMPTY_CAPABILITIES: ReferenceUnitCapabilityMap = Object.freeze({});
 
 /**
- * 画布层自记的按 unit 占用位（不产生任务行、进不了 tasks-store 占用集的那些写入路径）。
+ * Canvas-owned per-unit occupancy for writes without task rows, outside tasks-store occupancy.
  *
- * `ids` 供渲染，`ref` 供提交时刻新鲜读：state 要等 render 冲刷才可见，而「点击发生在状态
- * 已变、渲染未到」的窗口正是提交时复核要挡的（与 isUnitBusy 的新鲜读同理）。
+ * `ids` serves rendering, `ref` fresh submit-time reads. State appears only after rendering; guarding clicks
+ * after state changes but before render is exactly the recheck's purpose, like fresh isUnitBusy reads.
  */
 function useUnitFlagSet() {
   const [ids, setIds] = useState<Set<string>>(() => new Set());
@@ -142,9 +142,9 @@ function toastError(e: unknown, format?: (msg: string) => string): void {
 }
 
 /**
- * 提交时刻的占用复核：按钮渲染期捕获的占用态未必是最新的（批量循环、Agent 入队、
- * SSE 落库都可能在渲染之后、点击之前占用同一 unit），故一律用 getState() 新鲜读。
- * 入队动作层在请求发出前就打乐观标记，因此同一 tick 内的连点也会被这一读拦下。
+ * Submit-time recheck: captured button occupancy may be stale after batch loops, Agent enqueue,
+ * or SSE persistence occupies units between render/click. Always read fresh getState().
+ * Enqueue actions optimistically mark before requests, so same-tick double-clicks are blocked too.
  */
 function isUnitBusy(projectName: string, unitId: string): boolean {
   return isResourceBusy("reference_video", projectName, unitId);
@@ -167,8 +167,8 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
 }
 
 /**
- * 选中单元的正文编辑单元。按 unit_id 作 key 挂载：切换单元前由离开拦截询问，
- * 外部移除时由 RetainedEditUnit 保留可见编辑器，放弃或保存后才跟随真实列表。
+ * Selected-unit body editing unit, keyed by unit_id. Leave guards ask before switching;
+ * external removal uses RetainedEditUnit to retain visible editors until discard/save follows live lists.
  */
 function UnitPromptEdit({
   unit,
@@ -178,7 +178,7 @@ function UnitPromptEdit({
   children,
 }: {
   unit: ReferenceVideoUnit;
-  /** 离开确认里称呼这个单元：「视频单元 5」。 */
+  /** Leave-confirmation unit label, e.g. video unit 5. */
   unitLabel: string;
   onSave: (unitId: string, prompt: string) => Promise<string>;
   allowNavigation: (to: string) => boolean;
@@ -196,12 +196,12 @@ function UnitPromptEdit({
   return <>{children(edit)}</>;
 }
 
-/** 自由时长的合法范围（秒），与服务端校验一致。 */
+/** Legal free-duration seconds range, matching server validation. */
 const FREE_DURATION_MAX = 300;
 
 /**
- * 自由时长输入：失焦或回车时提交一次，中间输入的数字不落盘。
- * 尚未提交的值登记到离开拦截，并与正文一起参与外部移除保留；非法值在提交时回到已保存的时长。
+ * Free-duration inputs submit on blur/Enter, not intermediate numeric edits.
+ * Register pending values with leave guards/external-removal retention alongside bodies; invalid submissions revert to saved duration.
  */
 function FreeDurationInput({
   unit,
@@ -211,17 +211,17 @@ function FreeDurationInput({
 }: {
   unit: ReferenceVideoUnit;
   disabled: boolean;
-  /** 正文的提示条已在说明外部移除，这里不再重复。 */
+  /** Body notices already explain external removal; do not duplicate here. */
   externalChangeShown: boolean;
   onCommit: (seconds: number) => Promise<boolean>;
 }) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState<string | null>(null);
-  // 失焦触发的提交在途：离开拦截据此等它落定再判断，避免「放弃修改」放走已发出的提交或「保存」重复提交
+  // Blur-triggered saves in flight make leave guards wait, avoiding discard bypass of sent writes or duplicate save submissions.
   const [committing, setCommitting] = useState(false);
   const seconds = Number(draft);
   const valid = Number.isInteger(seconds) && seconds >= 1 && seconds <= FREE_DURATION_MAX;
-  // 与已保存值相同的显式提交也有意义：它确认了只差时长的重新规划标记
+  // Explicitly submitting unchanged duration still confirms duration-only replanning marks.
   const dirty =
     draft !== null && (!valid || seconds !== unit.duration_seconds || Boolean(unit.needs_replan));
 
@@ -235,7 +235,7 @@ function FreeDurationInput({
     setCommitting(true);
     try {
       const saved = await onCommit(seconds);
-      // 提交期间又改过的值留着，等下一次提交
+      // Preserve values edited during submission for the next submission.
       if (saved) setDraft((current) => (current === draft ? null : current));
       return saved;
     } finally {
@@ -269,7 +269,7 @@ function FreeDurationInput({
   );
 }
 
-/** 单元头部的图标按钮：可访问名称同时作为悬停提示。 */
+/** Unit-header icon button: accessible names also provide hover hints. */
 function HeaderIconButton({
   label,
   disabled,
@@ -324,20 +324,20 @@ export function ReferenceVideoCanvas({
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
-  // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
+  // Shared namespaces from schema v6 mean names are declared once across buckets.
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
-  // 提示词编写草稿：待修复草稿在视频单元页取代工作台呈现，Agent 的可编辑草稿只在工作台上方提示。
+  // Quarantined prompt drafts replace unit workbenches; Agent-editable drafts only show notices above them.
   const { view: promptDraft, refresh: refreshPromptDraft } = usePromptAuthoringDraft(projectName, episode);
 
   const voiceLegacyNotice = useMemo(
     () => computeVoiceLegacyNotice(units, project?.characters ?? {}, project?.character_voice_binding),
     [units, project],
   );
-  // 关闭 = 「已确认到该角色当前这一版声音」，故写回该角色自己的 voice_updated_at 而非
-  // 本机当前时间：两侧都由后端戳出，比较不受客户端时钟偏差影响（时钟落后会让关闭永不生效），
-  // 也不受 ISO 格式差异影响。下一次声音更新使 voice_updated_at 前移，横幅自然重新出现。
+  // Dismissal acknowledges the character's current voice version, writing its own voice_updated_at rather than
+  // local now. Both backend timestamps avoid client drift (slow clocks would prevent dismissal)
+  // and ISO-format differences. Later updates advance voice_updated_at, naturally reshowing banners.
   const handleDismissVoiceLegacyNotice = useCallback(async () => {
-    // 提交时刻新鲜读：横幅渲染后声音可能又被更新，须确认到最新那一版。
+    // Fresh submit-time read: voices may update after banner render; acknowledge the latest version.
     const characters = useProjectsStore.getState().currentProjectData?.characters ?? {};
     try {
       await Promise.all(
@@ -347,27 +347,27 @@ export function ReferenceVideoCanvas({
           return API.updateCharacter(projectName, name, { voice_notice_dismissed_at: acknowledgedAt });
         }),
       );
-      // refreshProject 失败时 resolve "failed" 而非 reject，须传 onError，否则 PATCH 已成功
-      // 但本地 store 未同步时会静默吞掉，横幅带着旧数据留在页面上却不提示用户。
+      // refreshProject resolves "failed", never rejects; require onError or successful PATCH with unsynchronized stores
+      // silently leaves banners showing old data without informing users.
       await useProjectsStore.getState().refreshProject(projectName, {
         onError: (err) => toastError(err, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg })),
       });
     } catch (e) {
-      // 静默失败会让横幅原样留在页面上而用户以为已关闭，必须可见。
+      // Silent failures leave banners intact while users think dismissed; make failures visible.
       toastError(e, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg }));
     }
   }, [projectName, t, voiceLegacyNotice.characterNames]);
 
-  // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
-  // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
+  // Resource (=unit) → latest task row. Latest-row-wins belongs in store selectors:
+  // stores do not guarantee ordering (in-place SSE upserts), so old failures must not hide retry rows.
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
-  // 参考生视频任务完成时经项目事件 SSE 自增，驱动本 effect 重拉分组展示成片。
+  // Reference-video completion increments project-event SSE signals, rerunning this effect to refresh grouped final videos.
   const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
 
   useEffect(() => {
-    // prompt_authoring 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
-    // hasScript 转 true 后本 effect 随依赖变化重跑，补上首次拉取。
+    // Without prompt_authoring scripts, /episodes/{episode}/units returns backend 404, lacking scripts to split;
+    // hasScript becoming true reruns the effect for initial fetching.
     if (!hasScript) return;
     void loadUnits(projectName, episode);
   }, [loadUnits, projectName, episode, hasScript, unitsRevision]);
@@ -377,10 +377,10 @@ export function ReferenceVideoCanvas({
     [units, selectedUnitId],
   );
 
-  // 单元落哪个桶、可选哪些档位，由服务端按此刻可用的参考图逐单元判定（与执行侧
-  // ReferenceUnitRequestProjector 同一判据），随单元列表与写入响应到达；画布不按正文里
-  // 「名字已登记」自判——登记了资产却缺图的引用不算带图，执行会落 i2v，画布就按 i2v 取档。
-  // 结论尚未到达时控件降级为只读，不编造档位。
+  // Server buckets/tiers use currently usable references per unit, sharing execution
+  // ReferenceUnitRequestProjector rules, arriving with lists/write responses. Never infer from
+  // registered body names: registered-but-imageless assets do not count as images; execution falls to i2v, so use i2v tiers.
+  // Pending conclusions make controls read-only, never invented tiers.
   const selectedCapability = selected ? (unitCapabilities[selected.unit_id] ?? null) : null;
   const effectiveDurationOptions = selectedCapability?.allowed_durations ?? undefined;
   const selectedDurationEndpointFixed = selectedCapability?.duration_endpoint_fixed ?? false;
@@ -397,14 +397,14 @@ export function ReferenceVideoCanvas({
     }
   }, [units, selected, select]);
 
-  // 乐观占用来自 tasks-store：入队动作层在请求发出前打标、失败回滚，真实任务行落库后
-  // 让位，故「请求发出 → 任务行落库」全程都被覆盖，画布无须自备请求在途标记。
+  // tasks-store enqueue actions mark optimistically before requests, roll back on failure, yielding to persisted real rows;
+  // this covers request→persistence without canvas-local request markers.
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
   const ttsBusyUnitIds = useActiveResourceIds("tts", projectName);
 
-  // 成片上传、版本恢复与时长保存都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
-  // 存在这里而非 UnitPreviewPanel 内：该面板随选中项切换复用，面板内的单个布尔量会把 A 的
-  // 占用态串到 B 上；没有选中项时它也会卸载，在途请求不会因此取消。
+  // Final uploads/version restoration/duration saves produce no rows, so record per-unit occupancy in canvas.
+  // Keep outside UnitPreviewPanel: selection reuse would leak local booleans from A
+  // to B, and no selection unmounts panels without canceling requests.
   const uploading = useUnitFlagSet();
   const restoring = useUnitFlagSet();
   const durationSaving = useUnitFlagSet();
@@ -413,7 +413,7 @@ export function ReferenceVideoCanvas({
   const handleRestoringChange = restoring.set;
   const setDurationSaving = durationSaving.set;
 
-  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传、版本恢复或时长保存。 */
+  /** Whether any write occupies units: generation through tasks-store, final upload, version restoration, or duration save. */
   const isUnitLocked = useCallback(
     (unitId: string) =>
       isUnitBusy(projectName, unitId) ||
@@ -431,17 +431,17 @@ export function ReferenceVideoCanvas({
         queueRow: tasksByUnit.get(u.unit_id),
         busy: busyUnitIds.has(u.unit_id),
         uploading: uploading.ids.has(u.unit_id),
-        // 本画布提供成片上传入口：上传后单元已有可播放资产，历史失败不再覆盖 ready
-        // （与 timeline/grid 画布用 toast 提示失败的语义对齐）。
+        // Canvas permits final uploads: uploaded playable assets mean historical failures must no longer override ready
+        // (matching timeline/grid failure-toasts).
         supportsManualUpload: true,
       });
     }
     return map;
   }, [units, tasksByUnit, busyUnitIds, uploading.ids]);
 
-  // 独立于 statusMap 传给 UnitPreviewPanel：重试（旧失败行在）与重新生成（旧成功行在）
-  // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
-  // 任务行落库之间的窗口内漏禁用生成按钮。
+  // Pass separately from statusMap to UnitPreviewPanel: retry/regenerate keep failed/successful rows,
+  // so queueRow stays nonempty and optimistic status branches never apply. Status alone would miss disabling
+  // generation between enqueue and row persistence.
   const selectedBusy = !!(selected && busyUnitIds.has(selected.unit_id));
 
   const failureMessage = useMemo(() => {
@@ -450,7 +450,7 @@ export function ReferenceVideoCanvas({
     return tasksByUnit.get(selected.unit_id)?.error_message ?? null;
   }, [selected, statusMap, tasksByUnit]);
 
-  // 切换选中单元会卸载当前单元的编辑单元：有未保存的正文或时长时先询问
+  // Switching units unmounts current editors; ask first for unsaved body/duration.
   const confirmLeave = useConfirmLeave();
   const selectUnit = useCallback(
     (unitId: string) => {
@@ -459,8 +459,8 @@ export function ReferenceVideoCanvas({
     [confirmLeave, select, t],
   );
 
-  // 新增先弹框填写正文：空正文的单元服务端以 needs_replan 拒绝创建。
-  // `afterUnitId` 缺省时追加到末尾；新单元不继承同号旧单元的产物与版本历史。
+  // Ask for new-unit bodies first: servers reject empty creation with needs_replan.
+  // Omitted `afterUnitId` appends; new units never inherit same-ID historical artifacts/history.
   const [addTarget, setAddTarget] = useState<{ afterUnitId?: string } | null>(null);
   const [addPrompt, setAddPrompt] = useState("");
   const [addingUnit, setAddingUnit] = useState(false);
@@ -470,7 +470,7 @@ export function ReferenceVideoCanvas({
     setAddPrompt("");
     setAddTarget({ afterUnitId });
   }, []);
-  // store 新增后选中新单元：离开拦截放在提交这一步，取消新增不会白丢当前单元的修改。
+  // Select after store insertion; guard leaving at submission, so canceled creation does not waste current edits.
   const handleAddSubmit = useCallback(
     (prompt: string) => {
       if (!addTarget || addingUnit) return;
@@ -498,7 +498,7 @@ export function ReferenceVideoCanvas({
     [addTarget, addingUnit, confirmLeave, addUnit, projectName, episode, t],
   );
 
-  // 改序不弹确认；请求在途时丢弃后续操作，避免基于过期顺序计算锚点。
+  // Reorder without confirmation; drop later actions while requests run, avoiding stale anchors.
   const [movingUnit, setMovingUnit] = useState(false);
   const handleMove = useCallback(async (unitId: string, afterUnitId: string | null) => {
     if (movingUnit) return;
@@ -512,13 +512,13 @@ export function ReferenceVideoCanvas({
     }
   }, [moveUnit, projectName, episode, movingUnit]);
 
-  // 移除比其他写入多挡一类占用：在跑的配音任务同样指向该单元（与时间线分镜的移除守卫一致）。
+  // Removal additionally blocks running voiceover tasks targeting units, matching timeline-shot guards.
   const isUnitRemovalBlocked = useCallback(
     (unitId: string) => isUnitLocked(unitId) || ttsBusyUnitIds.has(unitId),
     [isUnitLocked, ttsBusyUnitIds],
   );
   const [removeUnitId, setRemoveUnitId] = useState<string | null>(null);
-  /** 确认框里称呼单元：「视频单元 5」，已不在列表里时「已删除」。 */
+  /** Confirmation addresses video unit 5, or deleted if absent. */
   const unitPositionOf = useCallback(
     (unitId: string | null) => {
       const index = unitId ? units.findIndex((u) => u.unit_id === unitId) : -1;
@@ -529,7 +529,7 @@ export function ReferenceVideoCanvas({
   const [removingUnit, setRemovingUnit] = useState(false);
   const openRemoveDialog = useCallback(
     (unitId: string) => {
-      // 渲染期的禁用态未必最新，打开确认前再复核一次占用
+      // Render disabled state may be stale; recheck occupancy before opening confirmation.
       if (isUnitRemovalBlocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
@@ -538,10 +538,10 @@ export function ReferenceVideoCanvas({
     },
     [isUnitRemovalBlocked, t],
   );
-  // 返回是否移除成功：离开拦截据此决定是否丢弃未保存修改
+  // Return removal success so leave guards decide whether to discard unsaved edits.
   const handleRemoveUnit = useCallback(async () => {
     if (!removeUnitId || removingUnit) return false;
-    // 询问未保存修改期间单元可能已被占用，提交时刻再复核
+    // Occupancy may change while users consider dirty edits; recheck at submission.
     if (isUnitRemovalBlocked(removeUnitId)) {
       useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
       return false;
@@ -561,7 +561,7 @@ export function ReferenceVideoCanvas({
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
-  // 时长取档闸门：申请秒数与请求时长基准不一致时先确认，取消则一个都不入队
+  // Duration-tier gate confirms requested seconds differing from request-duration bases; cancellation queues nothing.
   const isUnitGenerationBlocked = useCallback(
     (unitId: string) =>
       Boolean(
@@ -572,30 +572,30 @@ export function ReferenceVideoCanvas({
       ),
     [projectName, episode],
   );
-  /** 单元入口的复核：无占用且规划状态可生成。 */
+  /** Per-unit entry recheck: unoccupied and planning state generatable. */
   const canEnqueueUnit = useCallback(
     (unitId: string) => !isUnitLocked(unitId) && !isUnitGenerationBlocked(unitId),
     [isUnitLocked, isUnitGenerationBlocked],
   );
 
   /**
-   * 批量入口的复核：只问「这个 unit 还缺成片吗」。
+   * Batch-entry recheck asks only whether final video is still missing.
    *
-   * needs_replan、在途任务这类问题不在这里过滤——它们正是服务端准入要逐条报告、并据此
-   * 让整批零任务入队的缺口；在浏览器里先摘掉，服务端看到的就只剩健康子集，会照常建任务，
-   * 用户既看不到缺口也失去了全有或全无的保证。
+   * Never filter needs_replan/in-flight tasks here: these are server admission gaps individually reported
+   * to reject whole batches with zero tasks. Removing them first would present only healthy subsets,
+   * creating tasks while hiding gaps and losing all-or-nothing guarantees.
    *
-   * 已有成片的单元不同：它已经不是「缺成片」的目标。任务完成后该 unit 不再 busy，而队列
-   * 去重只看 queued/running，确认弹窗停留期间完成的单元若原样提交，会再跑一次
-   * 生成、重复计费并覆盖刚出的成片。实时读 store 而非渲染期 units 快照。
+   * Existing final videos differ: they are no longer missing targets. Completed tasks release occupancy; queues
+   * deduplicate only queued/running. Resubmitting units completed during confirmation would rerun generation,
+   * double-charge and overwrite fresh finals. Read live stores, not rendered units snapshots.
    *
-   * 本地写入（成片上传、版本恢复、时长保存）服务端看不见，也即将改写该 unit，同样排除。
+   * Local upload/restore/duration writes are invisible to servers and about to change units; exclude them too.
    *
-   * 返回排除的原因，确认框据此列出跳过项；`null` 表示可以提交。
+   * Return exclusion reasons for confirmation skips; `null` means submittable.
    */
   const batchSkipReason = useCallback(
     (unitId: string): ReferenceBatchSkipReason | null => {
-      // 只排除本画布自己的写入（服务端看不到它们）：生成占用与 needs_replan 交给准入去报告。
+      // Exclude only server-invisible local writes; admission reports generation occupancy/needs_replan.
       const hasLocalWrite =
         uploading.ref.current.has(unitId) ||
         restoring.ref.current.has(unitId) ||
@@ -610,16 +610,16 @@ export function ReferenceVideoCanvas({
   );
 
   const durationGate = useReferenceDurationGate({ projectName, episode });
-  /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
+  /** Pending whole-batch admission outcomes (confirmation/blocked); admitted uses toasts, excluded here. */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
-  /** 提交前确认框的输入：本轮要预览的单元与画布摘掉的跳过项。 */
+  /** Presubmit confirmation inputs: units to preview plus canvas-filtered skips. */
   const [batchPlan, setBatchPlan] = useState<{ unitIds: string[]; skipped: ReferenceBatchSkip[] } | null>(null);
 
   const enqueue = useCallback(
     async (unitId: string, confirmedRequestDuration: number | undefined) => {
-      // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
-      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
-      // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
+      // Fresh getState() before submission: button render snapshots may be stale
+      // after batch loops/Agent enqueue/SSE persistence occupy units between render/click;
+      // duration confirmations leave the same window, so recheck exactly at enqueue.
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
@@ -629,7 +629,7 @@ export function ReferenceVideoCanvas({
         return;
       }
       try {
-        // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
+        // Actions own optimistic marking before requests, rollback, and queued/deduped notices.
         await enqueueReferenceVideoUnit(
           projectName,
           episode,
@@ -644,19 +644,19 @@ export function ReferenceVideoCanvas({
   );
 
   /**
-   * 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
+   * Sequential enqueue triggers backend dedup checks in order; backend workers still run concurrently.
    *
-   * 每次 POST 前都用入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
-   * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
+   * Before each POST recheck entry conditions: waits between requests let other entries finish later units,
+   * which filtering only before loops would miss.
    *
-   * 单元入口专用：批量入口走服务端的全有或全无准入，一次请求评估全部目标。
+   * Unit entries only: batches use server all-or-nothing admission evaluating every target in one request.
    */
   const makeEnqueueSerially = useCallback(
     (canEnqueue: (unitId: string) => boolean) =>
       async (unitIds: string[], confirmedDurations: ReadonlyMap<string, number>) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
-        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 有意串行：每次入队前按最新状态复核，让后端依次做去重检查
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Intentionally sequential: recheck fresh state per enqueue and trigger backend dedup checks in order
         await enqueue(id, confirmedDurations.get(id));
       }
     },
@@ -692,8 +692,8 @@ export function ReferenceVideoCanvas({
 
   const handleUploadVideo = useCallback(
     async (unitId: string, file: File) => {
-      // 上传与生成回写同一个成片文件，故与生成入口同一套占用判定：文件选择对话框
-      // 打开期间同一 unit 可能已被占用，按钮渲染期的禁用态挡不住这段窗口。
+      // Upload/generation write the same final file and share occupancy rules; file pickers may remain
+      // open while units become occupied, beyond render-time disabled states.
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
@@ -708,7 +708,7 @@ export function ReferenceVideoCanvas({
           toastError(e, (msg) => t("media_upload_failed", { message: msg }));
           return;
         }
-        // 上传已成功落盘：刷新失败单独提示，不误报为上传失败（SSE/重进页面兜底最终一致）
+        // Upload persisted successfully: report refresh failures separately, not upload failures; SSE/reentry eventually reconcile.
         try {
           await loadUnits(projectName, episode);
         } catch (e) {
@@ -749,21 +749,21 @@ export function ReferenceVideoCanvas({
     },
     [handleGenerateNarration],
   );
-  // 后期配音项目不生成旁白配音：收起生成入口，已有配音照常试听。
+  // Post-production projects hide narration-generation entries while existing audio remains previewable.
   const onGenerateNarration = project?.narration_delivery === "use_tts" ? onGenerateNarrationVoid : undefined;
 
-  // 批量生成的作用对象：全部尚无成片的 unit（含 needs_replan、在途、失败重试）。按钮禁用须与
-  // 它同一口径——只看当前选中 unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在
-  // 没有任何待生成 unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
+  // Batch targets are all units missing finals, including needs_replan/in-flight/retries. Disabled-button criteria must
+  // match targets rather than selected-unit state: idle selection otherwise enables empty batches,
+  // running selection blocks unrelated eligible units.
   const batchTargets = useMemo(
     () => units.filter((u) => statusMap[u.unit_id] !== "ready"),
     [units, statusMap],
   );
 
   /**
-   * 一次请求走服务端的全有或全无准入，{@link referenceBatchOutcome} 的五种结局都是评估
-   * 成功。只有整批干净入队那一种由动作层那句提示收尾，其余四种都留下结论面板：档位待拍板、
-   * 准入受阻，以及没排上队列的是哪几个、各自为什么。
+   * One request uses server all-or-nothing admission; all five {@link referenceBatchOutcome} outcomes mean evaluation
+   * succeeded. Only clean whole-batch enqueue closes with action notices; four others retain outcome panels: tier decisions,
+   * blocked admission, and which units failed enqueue with reasons.
    */
   const runBatch = useCallback(
     async (unitIds: string[], confirmedDurations?: Record<string, number>) => {
@@ -772,7 +772,7 @@ export function ReferenceVideoCanvas({
           unit_ids: unitIds,
           ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
         });
-        // 确认框与结论弹窗在同一次渲染里交接，不叠两层弹窗。
+        // Confirmation hands off to outcome dialogs within the same render, never stacking dialogs.
         setBatchPlan(null);
         setBatchAdmission(referenceBatchOutcome(admission) === "queued" ? null : admission);
       } catch (e) {
@@ -790,9 +790,9 @@ export function ReferenceVideoCanvas({
       return;
     }
     setStackTab("preview");
-    // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
-    // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
-    // 逐个报错只会刷屏；跳过的单元连同原因列在确认框里。
+    // Recheck live, not render snapshots: unit actions/Agents/SSE may already occupy
+    // units. Skip matches without error spam: batches enqueue everything still generatable,
+    // listing skipped units/reasons in confirmation instead.
     const skipped = batchTargets.flatMap((unit): ReferenceBatchSkip[] => {
       const reason = batchSkipReason(unit.unit_id);
       return reason === null ? [] : [{ unit_id: unit.unit_id, reason }];
@@ -803,23 +803,23 @@ export function ReferenceVideoCanvas({
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
       return;
     }
-    // 付费视频先确认再提交：确认框列出名单、跳过项与预估费用，时长档位待确认时一并拍板。
+    // Paid video confirms before submission with membership/skips/estimates and duration-tier decisions together.
     setBatchPlan({ unitIds, skipped });
   }, [batchTargets, batchSkipReason, t]);
 
   /**
-   * 按一份准入结论提交：档位按 tier 摊回各 unit，目标集合是结论里的全部单元（无需确认的
-   * 单元也在其中，否则它们永远排不上）。
+   * Submit an admission outcome: distribute tiers back to units, targeting every outcome unit, including those not needing
+   * confirmation, which otherwise would never enqueue.
    *
-   * 提交时刻再复核一次：确认框停留期间（用户思考时长，可以很长）清单里的单元可能已被
-   * 别处生成完成——按冻结清单原样重发会重复计费并覆盖刚出的成片。
+   * Recheck at submission: units may finish elsewhere during potentially long user deliberation;
+   * frozen-list resubmission would double-charge and overwrite fresh finals.
    */
   const submitAdmitted = useCallback(
     async (admission: WorkflowAdmission) => {
       const durationByUnit = new Map<string, number>();
       for (const tier of admission.confirmation?.tiers ?? []) {
-        // 档位没解析出来的组没有可确认的值：略过后重发，服务端会照旧把它算成缺口，
-        // 而不是收到一个空档位当成用户已拍板。
+        // Unresolved tier groups have no confirmable value: omit and resend so servers still report gaps,
+        // rather than treating empty tiers as explicit user decisions.
         if (tier.request_duration_seconds == null) continue;
         for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
       }
@@ -828,7 +828,7 @@ export function ReferenceVideoCanvas({
       ).filter((unitId) => batchSkipReason(unitId) === null);
       if (targets.length === 0) {
         setBatchPlan(null);
-        // 弹窗此刻已关闭，不给反馈的话界面只是静静地什么也没发生。
+        // Dialog is now closed; without feedback users would see nothing happen.
         useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
         return;
       }
@@ -843,8 +843,8 @@ export function ReferenceVideoCanvas({
   );
 
   /**
-   * 提交时档位与预览时不同（预览之后剧本或模型配置有变），结论弹窗会再请一次确认：
-   * 那是一份新的结论，确认后按它重发。
+   * Submission tiers differing from preview after script/model changes trigger another confirmation:
+   * a new outcome, resubmitted according to that outcome after confirmation.
    */
   const handleBatchConfirm = useCallback(() => {
     const admission = batchAdmission;
@@ -855,10 +855,10 @@ export function ReferenceVideoCanvas({
 
   const onAdd = useCallback(() => handleAdd(), [handleAdd]);
 
-  // 时长与正文分开提交：时长不是文本的一部分，改档位立即落盘，不牵连未保存的正文草稿。
+  // Submit duration separately from body: not text content; tier changes persist immediately without affecting dirty body drafts.
   const handleDurationChange = useCallback(
     async (unitId: string, seconds: number): Promise<boolean> => {
-      // 渲染期的禁用态未必最新（SSE / Agent 入队可能刚占用），提交时刻再复核一次
+      // Render disabled states may lag SSE/Agent occupancy; recheck fresh at submission.
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return false;
@@ -866,8 +866,8 @@ export function ReferenceVideoCanvas({
       setDurationSaving(unitId, true);
       try {
         await patchUnit(projectName, episode, unitId, { duration_seconds: seconds });
-        // 参考生视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
-        // 在本地写成功时主动刷新，给当前浏览器即时反馈。
+        // Reference-to-video prices requested seconds; SSE unit invalidation eventually syncs lists, but costs still need
+        // immediate local-success refresh for current-browser feedback.
         useCostStore.getState().debouncedFetch(projectName);
         return true;
       } catch (e) {
@@ -891,14 +891,14 @@ export function ReferenceVideoCanvas({
   );
   const allowNavigation = useStaysInEpisodeView();
 
-  // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
-  // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
+  // Editor-column modes: write body/view parsing. Read-only parse projection shares body text
+  // and editor-column space, leaving the right column for final preview.
   const [editorView, setEditorView] = useState<"script" | "parse">("script");
 
   const videoGap = useBatchGap(projectName, episode, "videos", "reference_video");
 
-  // 通知回跳：收到 reference_unit scroll target 时切到视频单元视图并选中对应 unit
-  // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
+  // Notification return: reference_unit scroll targets switch to unit view and select targets
+  // like ShotSplitView. Asynchronous units retrigger dependencies until matched/expired.
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
@@ -906,27 +906,27 @@ export function ReferenceVideoCanvas({
     const requestId = scrollTarget.request_id;
     if (units.some((u) => u.unit_id === scrollTarget.id)) {
       const unitId = scrollTarget.id;
-      // 应用内链接要求打开该单元的预览时，窄屏下把预览子页签切到前台。
+      // Preview links bring the preview subtab forward on narrow screens.
       const start = useAppStore.getState().playbackStart;
       const openPreview = start?.resource_type === "reference_videos" && start.resource_id === unitId;
-      // 切视图与选中合成一次离开拦截：分两次请求时，拦截只保留后一次，放行后会停在原视图
+      // Combine view switch/selection into one leave guard; separate requests retain only the latter and would leave the old view after approval.
       const focusUnit = () => {
         onViewChange("board", { replace: true });
         select(unitId);
         if (openPreview) setStackTab("preview");
       };
-      // 已在视频单元视图且就是当前单元：不卸载任何编辑单元，不必询问
+      // Already in unit view/current unit unmounts no editing units, so no question.
       if (view === "board" && unitId === selectedUnitId) focusUnit();
       else confirmLeave(focusUnit, { saveLabel: t("common:save_and_switch") });
       clearScrollTarget(requestId);
       return;
     }
-    // units 加载中：等待，不安排过期清理——否则慢网/冷启动下 loadUnits 尚未返回就
-    // 到期，target 会被提前清除，units 到达也无法再选中目标 unit。
+    // While units load, wait without expiration cleanup; slow/cold loadUnits responses otherwise arrive
+    // after premature target removal, making selection impossible.
     if (loading) return;
-    // 加载完成仍未命中：挂一个到 expires_at 的一次性兜底清理，避免此后 units/loading
-    // 都不再变化时 effect 不再重跑、过期 target 永久残留 store。units 若晚到会触发
-    // 依赖变化、重跑本 effect 并清掉该定时器。
+    // Loaded but unmatched: one-shot expires_at cleanup prevents permanently stale store targets when units/loading
+    // stop changing and effects never rerun. Late units change dependencies, rerun this effect,
+    // and clear the timer.
     const remaining = scrollTarget.expires_at - Date.now();
     if (remaining <= 0) {
       clearScrollTarget(requestId);
@@ -987,7 +987,7 @@ export function ReferenceVideoCanvas({
       return <span className="font-medium text-warn">{selectedTierProblem.label}</span>;
     }
     if (!selectedDurationEndpointFixed && effectiveDurationOptions && effectiveDurationOptions.length > 0) {
-      // 已保存的越界值（换模型后档位收窄）留一项，避免下拉把它静默改写成别的秒数
+      // Retain out-of-range saved options after model-tier narrowing, preventing silent selection of different seconds.
       const options = effectiveDurationOptions.includes(unit.duration_seconds)
         ? effectiveDurationOptions
         : [...effectiveDurationOptions, unit.duration_seconds].sort((a, b) => a - b);
@@ -1035,7 +1035,7 @@ export function ReferenceVideoCanvas({
       narrationGenerating={selected ? ttsBusyUnitIds.has(selected.unit_id) : false}
       narrationEstimatedCost={narrationEstimatedCost}
       onGenerateNarration={onGenerateNarration && edit ? (id) => void edit.saveAndGenerate(() => onGenerateNarration(id)) : onGenerateNarration}
-      // 正文有未保存修改时先保存再生成，生成用的是服务端上的正文
+      // Save dirty bodies before generation, which uses server bodies.
       onGenerate={edit ? (id) => void edit.saveAndGenerate(() => handleGenerate(id)) : onGenerateVoid}
       saveFirst={edit?.dirty}
       saving={edit?.status === "saving"}
@@ -1053,7 +1053,7 @@ export function ReferenceVideoCanvas({
     const status = statusMap[unit.unit_id];
     return (
       <>
-        {/* 中栏上方：单元头部、单元提示与窄屏下的编辑 / 预览切换 */}
+        {/* Upper middle: unit header/notices plus narrow-screen editor/preview switch. */}
         <div className="col-start-2 row-start-1 flex min-w-0 flex-col border-b border-border">
           <div className="flex flex-wrap items-center gap-2 px-4 py-2">
             <ItemPositionOfTotal itemId={unit.unit_id} kind="unit" position={selectedIndex + 1} total={units.length} />
@@ -1147,7 +1147,7 @@ export function ReferenceVideoCanvas({
           </Tabs>
         </div>
 
-        {/* 中栏：文稿编辑器与解析预览。窄屏下与预览栏占同一格，由上方的切换决定显示哪一个 */}
+        {/* Middle: body editor/parse preview; narrow layouts share the preview cell, selected by the switch above. */}
         <div
           data-inactive={stackTab !== "editor" || undefined}
           className="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col data-inactive:hidden @4xl/canvas:data-inactive:flex"
@@ -1187,7 +1187,7 @@ export function ReferenceVideoCanvas({
           <UnsavedChangesBar unit={edit} className="mx-3 mb-3 shrink-0" />
         </div>
 
-        {/* 右栏：成片预览。窄屏下叠进中栏，由编辑 / 预览切换显示 */}
+        {/* Right: final preview, stacked into middle on narrow layouts under edit/preview switching. */}
         <div
           data-inactive={stackTab !== "preview" || undefined}
           className="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col border-border data-inactive:hidden @4xl/canvas:col-start-3 @4xl/canvas:row-start-1 @4xl/canvas:row-end-3 @4xl/canvas:border-l @4xl/canvas:data-inactive:flex"
@@ -1202,7 +1202,7 @@ export function ReferenceVideoCanvas({
     <div className="flex min-h-0 flex-1 flex-col">
       {view === "board" && (
         <EpisodeHeaderActions>
-          {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
+          {/* Unprocessed reference canvases serve ads/short films only; existing formal scripts may regenerate wholly. */}
           {hasScript && !showPreprocess && (
             <AdScriptButton projectName={projectName} episode={episode} regenerate />
           )}
@@ -1224,11 +1224,11 @@ export function ReferenceVideoCanvas({
         </EpisodeHeaderActions>
       )}
 
-      {/* 工作台上方的提示：限高并自带滚动，提示再多也不把编辑器与预览挤到高度下限以下 */}
+      {/* Notices above workbench have capped height/own scrolling so they never squeeze editor/preview below minimum height. */}
       {notices && (
         <section
           aria-label={t("reference_notices_aria")}
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 提示超出限高时只能在这里滚动，键盘须能聚焦
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Overflowing capped notices scroll only here; keyboard focus is required
           tabIndex={0}
           className="focus-ring relative max-h-[30dvh] shrink-0 overflow-y-auto border-b border-border"
         >
@@ -1291,9 +1291,9 @@ export function ReferenceVideoCanvas({
           </div>
         </div>
       ) : (
-        // 工作台按画布宽度分档，列宽固定：
-        //   窄于 4xl：单元图标栏 + 中栏，预览叠进中栏；4xl 起预览单独成栏；
-        //   6xl 起图标栏换成完整列表；7xl 起预览栏加宽。
+        // Workbench responds to canvas width with fixed columns:
+        //   below 4xl: unit-icon strip + middle with preview stacked; 4xl adds separate preview;
+        //   6xl expands icons to full lists; 7xl widens preview.
         <div className="grid min-h-0 flex-1 grid-cols-[3.5rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] @4xl/canvas:grid-cols-[3.5rem_minmax(0,1fr)_20rem] @6xl/canvas:grid-cols-[20rem_minmax(0,1fr)_20rem] @7xl/canvas:grid-cols-[20rem_minmax(0,1fr)_22.5rem]">
           <div className="col-start-1 row-start-1 row-end-3 flex min-h-0 @6xl/canvas:hidden">
             <UnitRail
@@ -1331,7 +1331,7 @@ export function ReferenceVideoCanvas({
             <>
               <div className="col-start-2 row-start-1 row-end-3 flex min-h-0 flex-col">
                 {!hasScript && !showPreprocess ? (
-                  // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
+                  // Ads/short films have no script planning; start blank directly without formal scripts.
                   <NoScriptBlankState projectName={projectName} episode={episode} className="flex-1 text-xs" />
                 ) : hasScript && units.length === 0 ? (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
@@ -1359,7 +1359,7 @@ export function ReferenceVideoCanvas({
         {(content) => content}
       </RetainedEditUnit>
 
-      {/* 图标栏展开的完整列表：搜索、新增与排序 */}
+      {/* Expanded icon-strip list: search/add/sort. */}
       <Sheet open={listSheetOpen} onOpenChange={setListSheetOpen}>
         <SheetContent
           side="left"
@@ -1388,7 +1388,7 @@ export function ReferenceVideoCanvas({
       <AlertDialog
         open={removeUnitId !== null}
         onOpenChange={(open) => {
-          // 移除请求在途时不响应关闭，结果出来前对话框留在原处
+          // Ignore closing during removal so dialogs remain until outcomes arrive.
           if (!open && !removingUnit) setRemoveUnitId(null);
         }}
       >
@@ -1404,7 +1404,7 @@ export function ReferenceVideoCanvas({
             <AlertDialogAction
               variant="destructive"
               disabled={removingUnit || (removeUnitId !== null && isUnitRemovalBlocked(removeUnitId))}
-              // 离开拦截放在确认移除这一步：先问未保存修改再确认移除，放弃后取消移除就白丢了修改
+              // Guard leaving at removal confirmation: discarding edits before confirming removal would waste them if removal is canceled.
               onClick={() => confirmLeave(handleRemoveUnit)}
             >
               {removingUnit ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}

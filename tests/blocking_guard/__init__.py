@@ -1,40 +1,43 @@
-"""测试期的事件循环阻塞护栏：lib/server 代码在事件循环线程上的阻塞调用让用例失败。
+"""Test-time event-loop blocking guard: blocking lib/server calls on the event-loop thread fail cases.
 
-由根 conftest 的 ``pytest_plugins`` 加载，会话内全程启用，同步与异步用例都覆盖：同步
-``TestClient`` 的应用代码跑在 anyio portal 线程自己的事件循环上，同样受检。
+Loaded by root conftest ``pytest_plugins`` throughout the session, covering synchronous and asynchronous
+cases: synchronous ``TestClient`` application code runs on the anyio portal thread's own event loop and is checked too.
 
-检测借用 blockbuster 的拦截点（文件、``os``、socket、sqlite、``time.sleep``、有竞争的
-``threading.Lock``），另补四类锁等待：阻塞模式的 portalocker 文件锁（项目文件锁、生成准入
-同步锁等）、产物清单锁的轮询等待、版本管理的线程锁。非阻塞的尝试加锁不算违规。
+Detection uses blockbuster interception points (files, ``os``, sockets, sqlite, ``time.sleep``, contended
+``threading.Lock``), adding four lock-wait categories: blocking portalocker file locks (project files,
+synchronous generation admission, etc.), artifact-manifest polling waits, and version-management thread locks.
+Nonblocking acquisition attempts are not violations.
 
-**记录而不抛错。** blockbuster 默认在拦截点抛 ``BlockingError``，业务代码的宽泛异常捕获会把
-它吞掉（推算失败回退默认值、执行器把异常记成任务失败），违规就此隐身。这里把每个拦截点的
-放行谓词换成「判定、记录、放行」：调用照常执行，违规记进当前用例，用例每个阶段出报告时
-把豁免清单外的违规改判为失败，没有别的豁免途径。
+**Record instead of raising.** blockbuster normally raises ``BlockingError`` at interception; broad business
+exception handlers swallow it (estimation falls back to defaults; executors record task failures), hiding violations.
+Replace each allow predicate with detect-record-allow: execute the original call and record violations against
+the current case. On each phase report, violations outside the exemption list fail the case. No other exemption exists.
 
-**归属。** 从阻塞点沿调用栈向外找，第一个 lib/server 的 async 函数就是违规条目（文件 +
-限定名），途中经过 ``tests/`` 的帧也一样：lib/server 的 async 函数调用的替身在 ``tests/`` 下
-读写磁盘，换成生产依赖后同一位置同样阻塞事件循环。替身自身做了生产实现不会做的 I/O 时，
-把替身改成内存实现。整条栈没有 lib/server 的 async 帧时，经过 ``tests/`` 帧说明阻塞由
-测试自身驱动（测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层的
-lib/server 帧。测试内联的 ``to_thread`` 在工作线程上执行，本就不受检。
+**Attribution.** Walk outward from the blocking point; the first lib/server async function identifies the violation
+(file + qualified name), even through ``tests/`` frames: a substitute called by lib/server async code that reads/writes
+disk under ``tests/`` would block at the same location with production dependencies. Replace substitute-only I/O
+with memory implementations. Without any lib/server async frame, a ``tests/`` frame means test-driven blocking
+(a direct test call to synchronous lib code), ignored; otherwise use the outermost lib/server frame for a synchronous
+event-loop callback. Inline test ``to_thread`` runs on a worker thread and is inherently outside checks.
 
-**始终放行**：日志落盘、traceback 取源码行、``realpath`` 解析符号链接、函数内的延迟 import、
-asyncpg 建连时解析连接参数、coverage 记录覆盖数据时等待自身的数据锁，以及模块级的无上限缓存
-（``functools.cache``）或无参缓存加载器的函数体。后两类每个进程只执行一次，首次调用落在哪个用例
-取决于调度顺序；有容量上限、按参数缓存的函数会被淘汰后重读，不放行。
+**Always allowed:** log writes, traceback source-line reads, ``realpath`` symlink resolution, delayed imports
+inside functions, asyncpg connection-parameter parsing, coverage waiting for its own data lock, and bodies of
+module-level unbounded caches (``functools.cache``) or zero-argument cached loaders. The last two run only once
+per process; scheduling determines the first caller. Bounded argument-keyed caches can evict and reread and are not allowed.
 
-**栈预览。** 报错列出 lib/server/tests 帧，另按真实调用顺序保留拦截点到第一个仓库帧之间最内层的
-几条非仓库帧（标准库、第三方包），阻塞由业务代码 await 处被调起的非仓库代码触发时，靠它们分辨是谁。
+**Stack preview.** Errors list lib/server/tests frames and retain, in actual call order, the innermost non-repository
+frames (stdlib/third-party) between interception and the first repository frame. These identify non-repository code
+triggered at a business await point as the blocker.
 
-永久豁免清单 ``exemptions.toml`` 只收应用启动与关停路径上的一次性阻塞，每条写明理由。
-完整运行（未做任何选择或筛选）结束时，豁免清单里本次未触发的条目让会话以失败收场；带
-``--blocking-guard-expect-all-exemptions`` 时筛选过的运行也一样（CI 只有 unit job 带它）：
-启动与关停路径改了就同步删掉对应条目。
+Permanent ``exemptions.toml`` accepts only one-time blocking on application startup/shutdown paths, each justified.
+At the end of a full run (no selection/filtering), untriggered exemptions fail the session; the same applies to
+filtered runs with ``--blocking-guard-expect-all-exemptions`` (CI enables this only in the unit job). Remove obsolete
+entries whenever startup/shutdown paths change.
 
-**已知局限。** 无上限缓存的放行分不清键集合固定与键随输入增长：后者每个新键都阻塞一次，
-靠审查按「事件循环线程只做调度」识别。护栏只覆盖用例跑到的路径：没有用例的路由，或用例把
-文件系统整体换成替身的路由，阻塞照样漏网；给这类路由补用例时让替身保留真实 I/O 的那一步。
+**Known limits.** Unbounded-cache exemptions cannot distinguish fixed key sets from input-growing sets; every new
+key in the latter blocks once, requiring review under the rule that event-loop threads only schedule. Only executed
+paths are checked: untested routes or routes whose tests replace the entire filesystem can still hide blocking.
+When adding such tests, retain the real-I/O step in the substitute.
 """
 
 from __future__ import annotations
@@ -67,7 +70,7 @@ _GUARD_DIR = str(Path(__file__).resolve().parent) + os.sep
 _GUARD_MODULE = __name__
 _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
 _BLOCKBUSTER_DIR = str(Path(blockbuster.__file__).resolve().parent) + os.sep
-# 非仓库帧在预览里去掉这些前缀，只留包内或标准库内的相对路径。
+# Remove these prefixes from non-repository stack-preview frames, leaving package/stdlib-relative paths.
 _STDLIB_DIRS = tuple(
     sorted(
         {
@@ -80,17 +83,17 @@ _STDLIB_DIRS = tuple(
     )
 )
 
-# 与业务阻塞无关、在任何栈上都放行的帧：日志落盘、traceback 取源码行、函数内延迟 import。
-# realpath 逐段 lstat（不在拦截点内），只有路径经过符号链接时才 readlink：macOS 的临时目录
-# 在 /var -> /private/var 之下，Linux 不是，不放行会让同一段代码只在 macOS 上违规。
-# asyncpg 解析连接参数时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接
-# 一次。违规会记到恰好让连接池新建连接的调用方头上，随运行顺序变化，也只在 PostgreSQL 下出现，
-# 只在 PostgreSQL 下出现的违规在 SQLite 的运行里看不到。
-# coverage 的 tracer 每进入或恢复一个被测帧，都经 lock_data 阻塞地获取自身的数据锁（concurrency 含
-# thread 时才有这把锁），工作线程上的 tracer 恰好持锁时事件循环线程就等它。违规会随线程交错落在任意
-# 被测协程头上，常见的是生成队列 worker 主循环在 await 处恢复的那一刻；这把锁只在开 coverage 的运行里
-# 存在，生产路径上没有。只放行经 lock_data 的这一条；栈里没有 lock_data 的 lock.acquire 照常记为违规，
-# 拿锁的非仓库帧见栈预览。
+# Frames always allowed on any stack, unrelated to business blocking: log writes, traceback source reads, delayed imports.
+# realpath uses lstat per component (outside interception), then readlink only for symlinks: macOS temporary directories
+# live under /var -> /private/var, unlike Linux. Without this exemption identical code violates only on macOS.
+# asyncpg probes ~/.pgpass and certificate files under ~/.postgresql on the event loop once per new connection
+# while parsing connection parameters. Violations attach to whichever caller creates a pooled connection, vary with order,
+# and occur only on PostgreSQL, making them invisible in SQLite runs.
+# On each entry/resumption of a tested frame, coverage's tracer acquires its own data lock through lock_data (only with
+# thread in concurrency). The event-loop thread waits when a worker tracer holds it. Depending on thread interleaving,
+# violations attach to arbitrary tested coroutines, often the generation-queue worker loop resuming at await. This lock
+# exists only with coverage, never in production. Exempt only this lock_data path; lock.acquire without lock_data in its
+# stack remains a violation. The non-repository frame acquiring it appears in the stack preview.
 _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("posixpath.py", frozenset({"realpath", "_joinrealpath"})),
     ("<frozen posixpath>", frozenset({"realpath", "_joinrealpath"})),
@@ -101,15 +104,15 @@ _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("coverage/collector.py", frozenset({"lock_data"})),
 )
 
-# 栈预览的两份预算互不挤占：仓库帧（lib/server/tests）至多这么多条，看得出调用方；拦截点到第一个
-# 仓库帧之间的非仓库帧另取最内层的几条，看得出阻塞的到底是谁，超出的注明省略条数。
+# Independent preview budgets: at most this many repository frames (lib/server/tests) show the caller; separately retain
+# the innermost non-repository frames before the first repository frame to show the blocker, noting omitted counts.
 _REPO_PREVIEW_FRAMES = 6
 _NON_REPO_PREVIEW_FRAMES = 4
 
 
 @dataclass(frozen=True, slots=True)
 class Violation:
-    """一次被拦截的阻塞调用。"""
+    """One intercepted blocking call."""
 
     key: str
     call: str
@@ -119,7 +122,7 @@ class Violation:
 
 @dataclass(slots=True)
 class BlockingGuard:
-    """会话级状态：拦截点、待结算的违规与豁免清单的触发情况。"""
+    """Session state: interception points, unsettled violations, and triggered exemptions."""
 
     root: Path
     exemptions: dict[str, str]
@@ -136,11 +139,11 @@ class BlockingGuard:
         self.scanned_prefixes = tuple(str(self.root / name) + os.sep for name in SCANNED_DIRS)
         self.tests_prefix = str(self.root / TESTS_DIR) + os.sep
 
-    # ------------------------------------------------------------------ 启停
+    # ------------------------------------------------------------------ Startup/shutdown
 
     def activate(self) -> None:
         blockbuster = BlockBuster()
-        # 绝对路径的 abspath 只做字符串规范化，不碰文件系统；相对路径才会读 cwd。
+        # abspath only normalizes strings for absolute paths; only relative paths read cwd.
         blockbuster.functions["os.path.abspath"].can_block_predicate = _absolute_path_arg
         self._blockbuster = blockbuster
         self._extra_functions = _lock_rules(self._restore)
@@ -156,7 +159,7 @@ class BlockingGuard:
         while self._restore:
             self._restore.pop()()
 
-    # ------------------------------------------------------------------ 记录
+    # ------------------------------------------------------------------ Recording
 
     def _recording_predicate(self, function: BlockBusterFunction) -> Callable[..., bool]:
         allowed = function.can_block_predicate
@@ -164,8 +167,8 @@ class BlockingGuard:
         call = function.full_name
 
         def predicate(*args: Any, **kwargs: Any) -> bool:
-            # blockbuster 只在当前线程有运行中的事件循环时才走到这里，并在谓词期间
-            # 屏蔽了嵌套拦截；返回 True 即放行原调用，所以这里只判定和记录，从不抛错。
+            # blockbuster reaches this only when the current thread has a running event loop and suppresses nested interception
+            # during the predicate; returning True permits the original call, so only detect and record here, never raise.
             if not allowed(*args, **kwargs):
                 self._inspect(call, allowed_frames, sys._getframe(1))
             return True
@@ -189,8 +192,8 @@ class BlockingGuard:
             if _is_guard_frame(candidate):
                 continue
             if self._is_tests_frame(candidate):
-                # 替身、测试辅助函数的帧不终止查找：外层若有 lib/server 的 async 函数，
-                # 换成生产依赖后同一位置同样阻塞事件循环，照样记到它名下。
+                # Substitute/helper frames do not stop the search: an outer lib/server async function would block at the same location
+                # with production dependencies and remains responsible.
                 driven_by_tests = True
                 continue
             if filename.startswith(self.scanned_prefixes):
@@ -199,8 +202,8 @@ class BlockingGuard:
                     break
                 outermost_scanned = candidate
         if key is None:
-            # 没有 lib/server 的 async 函数包住阻塞点：经过 tests/ 帧说明由测试自身驱动
-            # （测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层。
+            # No lib/server async function encloses the blocking point: a tests/ frame means test-driven blocking
+            # (the test calls synchronous lib code directly), ignored; otherwise use the outermost synchronous event-loop callback.
             if outermost_scanned is None or driven_by_tests:
                 return
             key = self._key(outermost_scanned)
@@ -208,7 +211,7 @@ class BlockingGuard:
         self.pending.append(Violation(key, call, threading.current_thread().name, self._stack_preview(frames)))
 
     def _stack_preview(self, frames: list[FrameType]) -> tuple[str, ...]:
-        """由内向外的栈预览：拦截点到第一个仓库帧之间最内层的非仓库帧，接着是仓库帧。"""
+        """Inside-out preview: innermost non-repository frames before the first repository frame, then repository frames."""
         non_repo: list[FrameType] = []
         repo: list[FrameType] = []
         for frame in frames:
@@ -238,7 +241,7 @@ class BlockingGuard:
         return self._relpath(filename)
 
     def _is_tests_frame(self, frame: FrameType) -> bool:
-        # 模块名兜底：pytest 断言重写的缓存不修正 co_filename，跨机器复用缓存时路径对不上。
+        # Module-name fallback: pytest assertion-rewrite caches retain co_filename, so cross-machine cache reuse breaks paths.
         return frame.f_code.co_filename.startswith(self.tests_prefix) or frame.f_globals.get("__name__", "").startswith(
             f"{TESTS_DIR}."
         )
@@ -249,10 +252,10 @@ class BlockingGuard:
     def _key(self, frame: FrameType) -> str:
         return f"{self._relpath(frame.f_code.co_filename)}::{frame.f_code.co_qualname}"
 
-    # ------------------------------------------------------------------ 结算
+    # ------------------------------------------------------------------ Settlement
 
     def settle(self) -> list[Violation]:
-        """取走待结算的违规，登记豁免的触发情况，返回豁免之外的部分。"""
+        """Drain pending violations, register triggered exemptions, and return nonexempt violations."""
         drained, self.pending[:] = list(self.pending), []
         unexpected = []
         for violation in drained:
@@ -270,12 +273,12 @@ def _is_guard_frame(frame: FrameType) -> bool:
 
 
 def _runs_once_per_process(frame: FrameType) -> bool:
-    """帧是否是模块级、每个进程按参数只执行一次的缓存加载器的函数体。
+    """Whether the frame is a module-level cache-loader body executed once per argument set per process.
 
-    这类加载器（随包分发的 schema、规则表）与函数内的延迟 import 同类，首次调用落在哪个用例
-    取决于 xdist 的调度，不放行会让违规随运行顺序出现或消失。只认无上限的 ``functools.cache``
-    （``lru_cache(maxsize=None)``）和无参函数：有容量上限、按参数缓存的函数会淘汰后重读，
-    每次重读都是一次真实的阻塞。
+    These loaders (bundled schemas/rule tables) resemble delayed imports; xdist scheduling determines
+    the first caller. Without exemption, violations appear or disappear with execution order. Accept only
+    unbounded ``functools.cache`` (``lru_cache(maxsize=None)``) and zero-argument functions:
+    bounded argument-keyed caches can evict and reread, and every reread is real blocking.
     """
     code = frame.f_code
     candidate = frame.f_globals.get(code.co_name)
@@ -303,13 +306,13 @@ def _frame_allowed(filename: str, function: str, allowed_frames: Iterable[tuple[
     return any(normalized.endswith(suffix) and function in names for suffix, names in allowed_frames)
 
 
-# ---------------------------------------------------------------------- 锁规则
+# ---------------------------------------------------------------------- Lock rules
 
 
 class _WatchedRLock:
-    """包住版本管理的 ``RLock``，让 ``with`` 加锁经过可拦截的 Python 层 ``acquire``。
+    """Wrap version-management ``RLock`` so ``with`` acquisition passes through interceptable Python ``acquire``.
 
-    C 实现的 ``RLock.__enter__`` 不走 ``acquire`` 属性，blockbuster 的锁规则也不覆盖 RLock。
+    C ``RLock.__enter__`` bypasses the ``acquire`` attribute; blockbuster lock rules do not cover RLock either.
     """
 
     __slots__ = ("_lock",)
@@ -331,7 +334,7 @@ class _WatchedRLock:
 
 
 def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
-    """项目文件锁、生成准入锁、产物清单锁、版本管理锁的阻塞等待规则。"""
+    """Blocking waits for project-file, generation-admission, artifact-manifest, and version-management locks."""
     import portalocker
     import portalocker.portalocker as portalocker_impl
 
@@ -344,13 +347,13 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
     def rlock_nonblocking(_lock: object, blocking: bool = True, timeout: float = -1) -> bool:
         return not blocking or timeout == 0
 
-    # 版本管理锁按 versions.json 路径缓存 RLock；从工厂处换成可拦截的包装，实例照旧共享同一把锁。
+    # Version locks cache RLock by versions.json path; wrap at the factory while instances still share the same lock.
     original_factory = version_manager._get_versions_file_lock
 
     watched: dict[int, _WatchedRLock] = {}
 
     def watched_factory(versions_file: Path) -> Any:
-        # 原工厂按路径缓存且从不释放，同一把锁的 id 稳定；包装同样按锁复用，保持「同一文件同一把锁」。
+        # The original factory caches paths forever, keeping lock ids stable; reuse wrappers per lock to preserve one lock per file.
         lock = original_factory(versions_file)
         return watched.setdefault(id(lock), _WatchedRLock(lock))
 
@@ -358,7 +361,7 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
     restore.append(lambda: setattr(version_manager, "_get_versions_file_lock", original_factory))
 
     rules = [
-        # 项目文件锁、ProjectManager.file_lock、生成准入的同步锁都经 portalocker 阻塞模式落到 flock。
+        # Project-file locks, ProjectManager.file_lock, and synchronous admission locks reach flock through blocking portalocker.
         (
             "文件锁（portalocker 阻塞模式）",
             BlockBusterFunction(portalocker, "lock", can_block_predicate=portalocker_nonblocking),
@@ -367,7 +370,7 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
             "文件锁（portalocker 阻塞模式）",
             BlockBusterFunction(portalocker_impl, "lock", can_block_predicate=portalocker_nonblocking),
         ),
-        # 产物清单锁以非阻塞尝试加 time.sleep 轮询，最长等 10 秒；进入它就是一次锁等待。
+        # Artifact-manifest locks poll nonblocking attempts with time.sleep for at most 10 seconds; entering is a lock wait.
         ("产物清单锁（轮询等待）", BlockBusterFunction(ProjectArtifactManifestAdapter, "_locked")),
         ("版本管理锁（RLock）", BlockBusterFunction(_WatchedRLock, "acquire", can_block_predicate=rlock_nonblocking)),
     ]
@@ -376,7 +379,7 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
     return [function for _, function in rules]
 
 
-# ---------------------------------------------------------------------- 清单
+# ---------------------------------------------------------------------- Manifest
 
 
 def load_exemptions(root: Path) -> dict[str, str]:
@@ -393,7 +396,7 @@ def load_exemptions(root: Path) -> dict[str, str]:
     return exemptions
 
 
-# ---------------------------------------------------------------------- pytest 钩子
+# ---------------------------------------------------------------------- pytest hooks
 
 _GUARD_KEY = pytest.StashKey[BlockingGuard]()
 _SESSION_KEY = pytest.StashKey["_SessionTotals"]()
@@ -417,12 +420,12 @@ def _is_xdist_controller(config: pytest.Config) -> bool:
 
 
 def _executes_tests(config: pytest.Config) -> bool:
-    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
+    # --collect-only/--setup-only/--setup-plan execute no cases and cannot record violations.
     return not any(getattr(config.option, name, None) for name in ("collectonly", "setuponly", "setupplan"))
 
 
 def _selects_whole_suite(config: pytest.Config) -> bool:
-    """命令行是否选中了整个 testpaths 且没有任何筛选。"""
+    """Whether command-line selection covers all testpaths without any filtering."""
     root = config.rootpath.resolve()
     targets = {root, *((root / p).resolve() for p in config.getini("testpaths"))}
     for arg in config.args:
@@ -432,7 +435,7 @@ def _selects_whole_suite(config: pytest.Config) -> bool:
         resolved = (path if path.is_absolute() else config.invocation_params.dir / path).resolve()
         if resolved not in targets:
             return False
-    # --ignore/--ignore-glob 在收集期跳过路径，既不改 config.args，也不经过 pytest_deselected。
+    # --ignore/--ignore-glob skip collection paths without changing config.args or passing through pytest_deselected.
     filters = ("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect", "ignore", "ignore_glob")
     return not any(getattr(config.option, name, None) for name in filters)
 
@@ -532,7 +535,7 @@ def pytest_testnodedown(node: Any, error: object) -> None:
 
 
 def _finish(config: pytest.Config, session: pytest.Session, totals: _SessionTotals) -> None:
-    # 显式选项声明「这批用例应触发每一条豁免」，筛选掉的用例不影响判定。
+    # An explicit option declares that these cases must trigger every exemption; deselected cases do not affect that decision.
     complete = (
         (totals.expect_all or (totals.full_run and totals.deselected == 0))
         and not session.shouldstop

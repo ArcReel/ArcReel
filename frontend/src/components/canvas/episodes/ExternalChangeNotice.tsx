@@ -21,10 +21,10 @@ function fileName(sourceFile: string): string {
 }
 
 /**
- * 「分集」视图顶部的提示：整本源文里在 ArcReel 之外被改动过的文件，各列出按快照对齐算出的受影响集。
+ * Notice atop the episodes view: whole-source files modified outside ArcReel, each with affected episodes computed by snapshot alignment.
  *
- * 「更新分集账本」带着提示里这份清单的 `revision` 提交，即确认这份清单；清单在此期间变了时换成新清单再确认一次。
- * 更新后提示随之消失，不另行提示。
+ * Update episode ledger submits this list's `revision`, confirming that list; if it changes meanwhile, display the new list for another confirmation.
+ * The notice disappears after updating, with no separate notification.
  */
 export function ExternalChangeNotice({ projectName, changes, onLocate }: ExternalChangeNoticeProps) {
   const { t } = useTranslation("dashboard");

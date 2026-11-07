@@ -1,12 +1,12 @@
 import type { ReferenceDurationPrecheck, ReferenceProjectionProblem } from "@/types";
 
 /**
- * 预检里不拦截入队、但用户有权在入队前知道的问题（当前只有参考图取前 N 张）。
+ * Preflight issues that do not block enqueueing but must be disclosed beforehand; currently only truncating references to the first N images.
  *
- * 判定收在这一处：闸门据此决定要不要开确认框，弹窗据此决定要不要画告知分区。两处问的是
- * 同一件事，各写一遍就会在改判时静默失配——闸门开框而弹窗渲染空，用户既确认不了也取消不了。
+ * Centralize the decision: the gate uses it to open confirmation and the dialog to render its advisory section. Both ask
+ * the same question; duplicated logic can silently diverge after changes, opening an empty dialog the user can neither confirm nor cancel.
  *
- * 没有 `message` 的条目跳过：可读文本由服务端按当前语言渲染，缺它就没有可展示的内容。
+ * Skip entries without `message`: the server renders readable text in the current language, and without it there is nothing to display.
  */
 export function advisoryProblems(
   precheck: ReferenceDurationPrecheck,

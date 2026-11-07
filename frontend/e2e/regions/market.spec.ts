@@ -2,8 +2,8 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 「市场」分区：铺满档，顶部 Tab（浏览 | 我的分享 | 设置）。浏览是条目网格与筛选行，
-// 设置里是可排序的市场源列表、GitHub 访问代理（底部保存栏）与官方服务。
+// Market: full-width Browse/My shares/Settings tabs, entry grids/filter rows in Browse,
+// sortable sources/GitHub proxies with bottom saves/official services in Settings.
 
 const MARKET_PATH = "/app/settings?section=market";
 const SETTINGS_PATH = `${MARKET_PATH}&tab=settings`;
@@ -36,7 +36,7 @@ function source(id: number, overrides: Record<string, unknown> = {}) {
   };
 }
 
-// 压力变体：8 个市场源，含刷新失败（错误信息很长）、索引无效与停用的源。
+// Stress: eight sources including long refresh failures, invalid indices and disabled sources.
 const SOURCES = [
   source(1),
   source(2),
@@ -92,7 +92,7 @@ const ENTRIES = [1, 2, 3, 4, 6].flatMap((sourceId) => Array.from({ length: 6 }, 
 
 const OFFICIAL_SEEN = { available: true, enabled: true, notice_seen: true, instance_id: "8f14e45f-ceea-467a-9575-1c3a4d5e6f70" };
 
-// 打开市场页时的自动刷新与官方服务聚合都访问外网，所有场景都替换。
+// Market-opening auto-refresh/official-service aggregation access external networks; replace them in all scenarios.
 const OFFLINE: ApiOverrides = {
   "POST /api/v1/market/refresh?stale_only=true": { status: 200, body: { sources: [] } },
   "GET /api/v1/market/entries/aggregates?type=endpoint": { status: 200, body: { items: [] } },
@@ -164,7 +164,7 @@ const DEFINITION = {
   status_map: { succeed: "succeeded", failed: "failed" },
 };
 
-// 安装弹窗：第三方源的条目，定义长、尚未安装。
+// Installation dialogs: uninstalled third-party source entries with long definitions.
 const INSTALL: ApiOverrides = {
   ...MANY,
   "GET /api/v1/market/sources/2/entries/kling-master-0": {
@@ -225,7 +225,7 @@ defineRegionScenarios("市场", [
       await expect(page.getByRole("article")).toHaveCount(ENTRIES.length);
     },
     act: async (page) => {
-      // 宽窗口下内容列靠左：第一张卡片的左缘与 Tab 栏的左缘对齐
+      // Content columns align left in wide windows: first-card left edges match tab-bar left edges.
       const tabs = await page.getByRole("tablist").boundingBox();
       const card = await page.getByRole("article").first().boundingBox();
       expect(card?.x).toBe(tabs?.x);
@@ -305,8 +305,8 @@ defineRegionScenarios("市场", [
       await handle.focus();
       await page.keyboard.press("Space");
       await expect(page.getByText(`已拿起「${LONG_SOURCE} 2」，位于第 2 项，共 8 项。`)).toBeAttached();
-      // dnd-kit 拿起后要等测量完成才响应方向键，之前的按键会被丢掉；按到播报移动为止。
-      // 目标是第 1 项，已在最前时再按上移不会继续移动，重按是安全的。
+      // dnd-kit ignores arrow keys until post-pickup measurement finishes; press until movement announcements.
+      // Targets are first entries; repeated Up presses cannot move them further and are safe.
       await expect(async () => {
         await page.keyboard.press("ArrowUp");
         await expect(page.getByText(`「${LONG_SOURCE} 2」移到第 1 项，共 8 项。`)).toBeAttached({ timeout: 200 });

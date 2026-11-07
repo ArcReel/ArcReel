@@ -1,16 +1,16 @@
-"""删除一集：移进项目回收站，按删除内容确认（ADR 0096、ADR 0107）。
+"""Delete episodes into project trash with content confirmation (ADR 0096, ADR 0107).
 
-删除前先预览这一集要删除的内容（:class:`EpisodeDeletionImpact`），服务端成文确认文本
-（:func:`render_episode_deletion_text`），Web 确认框只呈现这份文本。创作者确认后带上预览的 ``revision`` 重新调用；
-锁内复核出的清单与预览不一致时退回确认，不写入。
+Preview :class:`EpisodeDeletionImpact`, rendering server confirmation through
+:func:`render_episode_deletion_text`, displayed unchanged by Web. Creators confirm with preview ``revision``;
+locked inventory differences return to confirmation without writes.
 
-- 切出集删除后，它的原文范围变回未切分的原文：删的是按源文位置最后一个切出集时，接续规划的起点随之回退；
-  删的是中间一集时留下空段，一键规划不回填空段。
-- 集原文、正式脚本、脚本规划与草稿、条目媒体与版本历史、宫格联合图、配音字幕呈现、剪辑时间线与成片
-  一起成为一条删除记录（:func:`episode_content`），恢复见 :mod:`lib.episode.episode_trash`。
-  集 ID 不回收，历史最高号不回退；任务与调用记录作为历史保留。
+- Deleted split ranges become unsplit. Removing source-position-last splits moves continuation starts backward;
+  middle deletions leave gaps never backfilled by one-click planning.
+- Episode sources/formal scripts/plans/drafts/item media/version histories/grids/narration subtitles/renderings/timelines/final videos
+  share one record (:func:`episode_content`), restored through :mod:`lib.episode.episode_trash`.
+  IDs/maxima never recycle/decrease; tasks/calls remain historical.
 
-账本、删除记录、产物清单与版本历史在同一把项目锁内提交，任一步失败都撤回删除记录、账本回到删除前。
+Ledger/trash/artifacts/versions commit under one project lock; any failure retracts records/restores ledgers.
 """
 
 from __future__ import annotations
@@ -58,10 +58,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 删除记录的对象类型；对象描述 ``{"kind": "episode", "id": 集 ID, "title": 标题}``。
+#: Deletion kind; object descriptors ``{"kind": "episode", "id": 集 ID, "title": 标题}``.
 EPISODE_KIND = "episode"
 
-#: 条目媒体所在目录：文件名带条目 ID（``scene_E3S01.png``、``E3U1.mp4``）。
+#: Item-media directories, filenames with IDs such as ``scene_E3S01.png`` / ``E3U1.mp4``.
 _ITEM_MEDIA_DIRS = (
     "storyboards",
     "end_frames",
@@ -71,17 +71,17 @@ _ITEM_MEDIA_DIRS = (
     "audio",
     "thumbnails",
 )
-#: 按集分目录的产物与正式内容：``<dir>/episode_N/``。
+#: Episode-directory artifacts/formal content, ``<dir>/episode_N/``.
 _EPISODE_DIRS = ("subtitles", "presentations", "edit_timelines", "renders")
 
 
 @dataclass(frozen=True)
 class EpisodeDeletionImpact:
-    """删除一集会丢失的内容。``revision`` 是这份清单的指纹，确认时回传。"""
+    """Lost episode content; ``revision`` fingerprints inventories for confirmation."""
 
     episode: int
     origin: str
-    #: 自带原文的集原文体量（阅读单位）；其他来源为 0。
+    #: Standalone-source volume in reading units; zero for others.
     source_units: int
     has_script: bool
     has_script_plan: bool
@@ -92,10 +92,10 @@ class EpisodeDeletionImpact:
     grid_count: int
     edit_timeline_count: int
     final_cut_count: int
-    #: 切出集按源文位置前后相邻的切出集（集 ID）；不是落位的切出集时都为 None。
+    #: Source-adjacent split IDs; None when not placed split episodes.
     cut_before: int | None
     cut_after: int | None
-    #: 切出集落在整本源文里。
+    #: Split ranges placed in whole sources.
     placed: bool
 
     @property
@@ -118,7 +118,7 @@ class EpisodeDeletionImpact:
 
     @property
     def recoverable(self) -> bool:
-        """删除不丢失任何无法在项目内重建的内容：没有产物，原文也不是只存在于这一集里。"""
+        """Deletion loses nothing unrebuildable within projects: no artifacts or source material exclusive to this episode."""
         return self.origin != SourceOrigin.OWN.value and not self.has_products
 
     @property
@@ -132,7 +132,7 @@ class EpisodeDeletionImpact:
 
 @dataclass(frozen=True)
 class EpisodeDeletionConfirmationRequired:
-    """等待确认；返回本对象时没有发生任何写入。"""
+    """Confirmation pending, without writes."""
 
     impact: EpisodeDeletionImpact
 
@@ -175,7 +175,7 @@ def _count_files(directory: Path, *, skip_suffix: str | None = None) -> int:
 
 
 def _grid_records(project_dir: Path, episode: int) -> list[str]:
-    """``grids/`` 里属于这一集的宫格记录 ID。"""
+    """Episode-owned ``grids/`` record IDs."""
     found: list[str] = []
     for path in sorted((project_dir / "grids").glob("grid_*.json")):
         try:
@@ -188,7 +188,7 @@ def _grid_records(project_dir: Path, episode: int) -> list[str]:
 
 
 def episode_deletion_impact(project_dir: Path, project: Mapping[str, Any], episode: int) -> EpisodeDeletionImpact:
-    """删除这一集会丢失的内容。"""
+    """Content lost by episode deletion."""
     entry = _ledger_entry(project, episode)
     origin = episode_source_origin(entry)
     source_units = 0
@@ -237,26 +237,26 @@ def _language(project: Mapping[str, Any]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# 删除
+# Delete.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class EpisodeContent:
-    """一集在项目里的全部内容。"""
+    """All episode content in projects."""
 
-    #: 进删除记录的普通文件（项目内相对 POSIX 路径）。
+    #: Ordinary files in deletion records, project-relative POSIX.
     files: list[str]
-    #: 这一集资源的版本记录（按资源类型分桶）；快照文件在 ``files`` 里。
+    #: Episode version records by resource type; snapshots in ``files``.
     versions: dict[str, dict[str, Any]]
-    #: 锁与隐藏文件：基础设施，删集时直接删除。
+    #: Lock/hidden infrastructure files, directly deleted with episodes.
     leftovers: list[Path] = field(default_factory=list)
-    #: 按集分的目录：文件移走后清掉空目录。
+    #: Episode directories, removing empties after moving files.
     dirs: list[Path] = field(default_factory=list)
 
 
 def episode_content(project_dir: Path, project: Mapping[str, Any], episode: int) -> EpisodeContent:
-    """``project_dir`` 里属于这一集的内容；删集时取当前项目，恢复时取迁移后的临时项目。不跟随符号链接。"""
+    """Episode content in ``project_dir``; current projects for deletion, migrated temporary projects for restore. Never follow symlinks."""
     files: list[Path] = []
     leftovers: list[Path] = []
     source_dir = project_dir / "source"
@@ -298,7 +298,7 @@ def episode_content(project_dir: Path, project: Mapping[str, Any], episode: int)
 
 
 def episode_trash_record(project_dir: Path, episode: int) -> project_trash.TrashRecord | None:
-    """这一集的删除记录：集已删除、还能随集恢复时有；集 ID 不复用，至多一条。"""
+    """Recoverable episode deletion records; at most one because IDs never reuse."""
     return next(
         (
             record
@@ -312,7 +312,7 @@ def episode_trash_record(project_dir: Path, episode: int) -> project_trash.Trash
 def delete_episode(
     pm: ProjectManager, project_name: str, episode: int, *, revision: str | None = None
 ) -> EpisodeDeletionResult | EpisodeDeletionConfirmationRequired:
-    """删除一集，移进项目回收站。``revision`` 与当前丢失清单的指纹不符（含未传）时只返回清单，不写入。"""
+    """Move episodes into trash. Missing/mismatched ``revision`` returns inventories without writes."""
     project_dir = pm.get_project_path(project_name)
     project = pm.load_project(project_name)
     if project.get("content_mode") == "ad":
@@ -328,7 +328,7 @@ def delete_episode(
         locked_impact = episode_deletion_impact(project_dir, p, episode)
         if locked_impact.revision != revision:
             raise _StaleConfirmation(locked_impact)
-        # 结构快照要删除前的账本：此刻盘上的 project.json 还没改写
+        # Structure snapshots need predeletion ledgers; project.json still unchanged on disk.
         committed["before"] = project_file.read_bytes()
         committed["content"] = episode_content(project_dir, p, episode)
         committed["title"] = str(_ledger_entry(p, episode).get("title") or "")
@@ -341,7 +341,7 @@ def delete_episode(
         try:
             snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
         except ArtifactManifestError:
-            # 清单读不出时不可能有本集的有效登记，删除照常进行
+            # Unreadable manifests cannot contain valid episode registrations; continue deletion.
             snapshot = {}
         committed["expected"] = {key: entry for key, entry in snapshot.items() if key.episode_number == episode}
         committed["project"] = p
@@ -351,7 +351,7 @@ def delete_episode(
         from lib.artifacts.artifact_activation import register_artifact_entries_atomically
 
         content: EpisodeContent = committed["content"]
-        # 删除记录先建：结构快照里的产物清单与版本历史还带着这一集的登记，恢复时从中取回
+        # Create trash records first, retaining episode artifact/version registrations in structure snapshots for restore.
         record = project_trash.record_deletion(
             project_dir,
             {"kind": EPISODE_KIND, "id": episode, "title": committed["title"]},
@@ -374,11 +374,11 @@ def delete_episode(
             raise
         for path in content.leftovers:
             with contextlib.suppress(OSError):
-                path.unlink()  # hard-delete: infra -- 这一集的锁文件，内容都已移进项目回收站
+                path.unlink()  # hard-delete: infra -- episode locks, content already moved into project trash
         for directory in content.dirs:
             _remove_empty_dirs(directory)
 
-    # 摘版本记录之后的步骤失败时，版本历史随账本一起回到删除前。
+    # Failures after version extraction restore versions with predeletion ledgers.
     formal_paths = [
         VersionManager(project_dir).versions_file,
         *(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project)),
@@ -394,13 +394,13 @@ def delete_episode(
 
 def _remove_empty_dirs(directory: Path) -> None:
     for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
-        # 还有没移走的条目（如符号链接）时目录留着
+        # Keep directories containing unmoved entries such as symlinks.
         with contextlib.suppress(OSError):
-            os.rmdir(dirpath)  # hard-delete: derived -- 文件都已移进项目回收站，只剩空目录
+            os.rmdir(dirpath)  # hard-delete: derived -- files moved into trash, empty directories only
 
 
 def _versioned_resources(project_dir: Path, episode: int, grid_ids: Iterable[str]) -> list[tuple[str, str]]:
-    """版本历史里属于这一集的资源：条目 ID 带这一集的前缀，或是这一集的宫格。"""
+    """Episode versions with prefixed item IDs or episode grids."""
     try:
         data = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -418,10 +418,10 @@ def _versioned_resources(project_dir: Path, episode: int, grid_ids: Iterable[str
 
 
 # ---------------------------------------------------------------------------
-# 确认文本
+# Confirmation text.
 # ---------------------------------------------------------------------------
 
-#: 丢失清单的汇总项：（计数字段，文案 key）。计数为 0 的项不出现。
+#: Aggregate loss rows: count-field/wording-key pairs, omitting zero counts.
 _LOSS_COUNTS: tuple[tuple[str, str], ...] = (
     ("storyboard_count", "episode_delete_loss_storyboard"),
     ("video_count", "episode_delete_loss_video"),
@@ -436,7 +436,7 @@ _LOSS_COUNTS: tuple[tuple[str, str], ...] = (
 def render_episode_loss_items(
     impact: Mapping[str, Any], project: Mapping[str, Any], translate: Callable[..., str]
 ) -> list[str]:
-    """丢失清单的逐项文本：自带原文、正式脚本、脚本规划与各类产物的计数；计数为 0 的项不出现。"""
+    """Loss rows for standalone sources/formal scripts/plans/artifact counts, omitting zero counts."""
     items: list[str] = []
     if impact["origin"] == SourceOrigin.OWN.value:
         unit = "words" if reading_unit_noun(_language(project)) == "词" else "chars"
@@ -452,7 +452,7 @@ def render_episode_loss_items(
 def render_episode_deletion_text(
     impact: Mapping[str, Any] | EpisodeDeletionImpact, project: Mapping[str, Any], translate: Callable[..., str]
 ) -> str:
-    """把丢失清单渲染成确认文本：集以标题或播出位置指称。Web 确认框只呈现这份文本。"""
+    """Confirmation from loss inventories, naming episodes by title/position; Web displays unchanged."""
     data = impact.to_dict() if isinstance(impact, EpisodeDeletionImpact) else dict(impact)
 
     def name(episode: int) -> str:

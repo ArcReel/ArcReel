@@ -1,4 +1,4 @@
-"""FastAPI 启动：数据根布局迁移先于一切遍历项目的步骤，随后跑完项目 schema 迁移与过期备份回收。"""
+"""FastAPI startup migrates data-root layout before all project traversal, then completes schema migrations/expired-backup cleanup."""
 
 import json
 import os
@@ -20,7 +20,7 @@ async def _noop_async(*args, **kwargs):
 
 
 def _seed_stale_project(projects_root: Path) -> tuple[Path, Path]:
-    """种一个落后版本的项目，外加一份 8 天前的旧版备份。"""
+    """Seed an outdated project plus an eight-day-old legacy backup."""
     project_dir = projects_root / "p1"
     project_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text(
@@ -39,7 +39,7 @@ async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monke
     data_root = tmp_path / "data"
     project_dir, stale_backup = _seed_stale_project(DataRootLayout(data_root).projects_dir)
 
-    # 数据目录指向 tmp：迁移与备份回收都照真实跑，落点是本用例种下的项目。
+    # Temporary data root runs real migrations/backup cleanup against this test’s seeded projects.
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
     monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
     stub_lifespan_dependencies(monkeypatch)

@@ -25,7 +25,7 @@ describe("buildTrendBuckets", () => {
     const { buckets, weekly } = buildTrendBuckets(makeUsageDaily(95));
 
     expect(weekly).toBe(true);
-    // 95 = 13 个整周 + 4 天余数；余数落在最早那桶，最右一桶始终是完整一周。
+    // 95 = 13 full weeks + 4 remaining days; earliest buckets take remainders, leaving complete rightmost weeks.
     expect(buckets).toHaveLength(14);
     expect(buckets[0]).toMatchObject({ from: "2026-03-01", to: "2026-03-04", days: 4 });
     expect(buckets.at(-1)).toMatchObject({ to: "2026-06-03", days: 7 });
@@ -55,7 +55,7 @@ describe("bucketSuccessRate", () => {
       failed: index === 89 ? 3 : 0,
     }));
 
-    // 逐日成功率的平均是 0.5，对桶求和后是 1 / 4。
+    // Mean daily success rates are 0.5; aggregated bucket rates are 1/4.
     expect(bucketSuccessRate(buildTrendBuckets(daily).buckets.at(-1)!)).toBe(0.25);
   });
 
@@ -111,7 +111,7 @@ describe("axis helpers", () => {
   it("drops the year from bucket labels and orders month and day by language", () => {
     expect(shortDay("2026-03-05", "zh")).toBe("3/5");
     expect(shortDay("2026-11-20", "en")).toBe("11/20");
-    // vi 的日期习惯是日在前，固定的 M/D 会把 3 月 5 日读成 5 月 3 日。
+    // vi dates put days first; fixed M/D would read March 5 as May 3.
     expect(shortDay("2026-03-05", "vi")).toBe("5/3");
   });
 });

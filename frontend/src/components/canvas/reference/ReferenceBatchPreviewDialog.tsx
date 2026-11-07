@@ -19,7 +19,7 @@ import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import type { ReferenceBatchPreview } from "@/types";
 
-/** 尚无成片、却不进这一批的原因：画布本地写入在途，或提交前别处已生成出成片。 */
+/** No final video but excluded from this batch: local canvas writes in flight, or another submission finished video before this one. */
 export type ReferenceBatchSkipReason = "has_video" | "local_write";
 
 export interface ReferenceBatchSkip {
@@ -28,11 +28,11 @@ export interface ReferenceBatchSkip {
 }
 
 /**
- * 参考生视频「补齐视频」的提交前确认：列出要生成的单元、跳过项与原因，能算出时给出预估费用。
+ * Reference-to-video fill-videos confirmation: list target units, skips/reasons, and estimated costs when computable.
  *
- * 名单与结论来自预览端点，与提交走同一份准入：时长档位待确认时，档位分组就在这里摊开，
- * 主按钮按这些档位提交，不再另弹一层档位确认；受阻时陈述全部缺口、不给提交。
- * 提交中忽略关闭请求，提交的结局由画布接手。
+ * Membership/conclusions come from previews sharing submission admission. When duration tiers need confirmation, display tier groups here;
+ * primary action submits those tiers without another confirmation layer. Blocked previews state every gap without submission.
+ * Ignore closing while submitting; canvas handles submission outcomes.
  */
 export function ReferenceBatchPreviewDialog({
   projectName,
@@ -45,7 +45,7 @@ export function ReferenceBatchPreviewDialog({
   projectName: string;
   episode: number;
   unitIds: string[];
-  /** 画布在提交前摘掉的单元；服务端跳过的已有成片单元由预览补上。 */
+  /** Units removed by canvas before submission; preview adds server-skipped units already having final videos. */
   skipped: ReferenceBatchSkip[];
   onConfirm: (preview: ReferenceBatchPreview) => Promise<void>;
   onClose: () => void;
@@ -104,7 +104,7 @@ export function ReferenceBatchPreviewDialog({
         {targets.length === 0 ? (
           <p>{t("reference_batch_preview_nothing")}</p>
         ) : blocked ? (
-          // 受阻时逐个列出全部单元的缺口与被连带扣下的单元，名单已在其中。
+          // When blocked, list all units' gaps and collaterally held units; this already provides membership.
           <BatchAdmissionSummary admission={preview} />
         ) : (
           <>
@@ -118,7 +118,7 @@ export function ReferenceBatchPreviewDialog({
                 ))}
               </div>
             </div>
-            {/* 档位分组只含待确认的单元，名单要单列：无需确认的单元同样会提交。 */}
+            {/* Tier groups include only units needing confirmation; separately list all units because others submit too. */}
             {confirming && <BatchAdmissionSummary admission={preview} />}
           </>
         )}
@@ -161,7 +161,7 @@ export function ReferenceBatchPreviewDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {/* 名单与跳过清单可能很长，正文可以用键盘滚动 */}
+        {/* Membership/skipped lists may be long; enable keyboard scrolling in the body. */}
         <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
           <AlertDialogDescription render={<div />}>{body}</AlertDialogDescription>
         </AlertDialogBody>

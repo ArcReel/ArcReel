@@ -1,8 +1,7 @@
-"""宫格切分服务：把宫格当前联合图切割落格到各分镜。
+"""Grid-splitting service: split current composites into storyboard cells.
 
-切分是覆写分镜格的唯一步骤，与联合图的产生（生成任务 / 手动上传 / 版本还原）解耦：
-联合图内容变更只刷新联合图自身，落格必须经本服务显式执行。HTTP 路由与 Agent 工具共用。
-"""
+Splitting alone overwrites storyboard cells, independently of composite generation, manual uploads or version restoration.
+Composite changes refresh only composites; assigning cells requires explicit service execution. Shared by HTTP routes and Agent tools."""
 
 from __future__ import annotations
 
@@ -59,7 +58,7 @@ def _register_split_entries_atomically(
 
 
 class GridImageNotReadyError(Exception):
-    """宫格尚无联合图（未生成完成且未上传），无法切分。"""
+    """The grid has no composite yet, neither completed generation nor upload, and cannot be split."""
 
 
 @dataclass
@@ -75,14 +74,13 @@ async def apply_grid_split(
     *,
     register_entries: Callable[..., None] | None = None,
 ) -> GridSplitResult:
-    """按 ``grid`` 当前联合图切割并覆写各分镜格。
+    """Split the current ``grid`` composite and overwrite storyboard cells.
 
-    - 每格覆写前旧文件先补登版本、覆写后登记新版本（source="grid_split"）；
-    - frame_chain 中已不在剧本内的 scene id 跳过并告警；
-    - 完成后写 ``grid.split_at`` 并广播项目变更事件（含逐格指纹供前端 cache-bust）。
-    - 联合图与生成时的参考资产图是缓存已清理的远端内容版本时先取回，参考依据照常记进切出的分镜图；
-      切出的分镜图按新内容版本的全局保存位置写入。
-    """
+    - Register old files as versions before overwriting each cell, then register new versions with source="grid_split".
+    - Skip and warn for frame_chain scene IDs no longer in the script.
+    - Write ``grid.split_at`` and broadcast project changes with per-cell fingerprints for frontend cache busting.
+    - Retrieve composites and original-generation asset references when they are remote versions with cleared caches;
+      record reference basis in split storyboard images as usual. Save split images to the global location for new content versions."""
     grid_image_path = grid.grid_image_path
     if not grid_image_path:
         raise GridImageNotReadyError(f"grid {grid.id} has no grid image to split")
@@ -119,11 +117,10 @@ async def _apply_grid_split(
     script_file = grid.script_file
 
     def _registered_grid_source() -> tuple[ArtifactKey, ArtifactManifestEntry, ArtifactStatus]:
-        """联合图的登记条目与时效；准入口径是产物清单登记，盘上有图不算。
+        """Composite registration entry and currency; admission requires artifact-manifest registration, not merely an image on disk.
 
-        预检与最终事务内各取一次：两次都要拿到同一条稳定的条目，才能据它派生落格产物的
-        basis。取完复读一次 entry 是为了排掉取值与比对之间被改写的条目。
-        """
+        Read once in preflight and again inside the final transaction; both must obtain the same stable entry to derive split-artifact
+        basis. Reread entry after retrieval to exclude entries changed between retrieval and comparison."""
 
         key = ArtifactKey.episode_grid(grid.episode, grid.id)
         adapter = ProjectArtifactManifestAdapter(project_path)
@@ -143,8 +140,8 @@ async def _apply_grid_split(
             source_key, source_entry, source_status = _registered_grid_source()
             project_snapshot = frozen_project
 
-        # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
-        # 会把每格削掉大半（横版图按竖版切）。存量记录无该字段，回退到项目当前设置。
+        # Use the ratio frozen in the record: center-cropping historical composites with a changed project aspect_ratio
+        # would remove most of each cell, such as landscape cut as portrait. Legacy records without it use current project settings.
         video_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project_snapshot, "videos")
 
         def _snapshot_and_split() -> tuple[Path, list[Any]]:
@@ -157,13 +154,13 @@ async def _apply_grid_split(
             try:
                 with os.fdopen(fd, "wb") as handle:
                     handle.write(grid_image_file.read_bytes())
-                # Image.open 惰性读取并持有文件句柄。先复制联合图的完整字节，再从同一快照
-                # 切格与建 basis；上传/还原可在随后替换 canonical PNG，不会混入半新半旧证据。
+                # Image.open reads lazily and retains handles. Copy complete composite bytes first, then split and build basis from
+                # that snapshot; later upload/restoration may replace canonical PNG without mixing old/new evidence.
                 with Image.open(snapshot) as src:
                     src.load()
                     return snapshot, split_grid_image(src, grid.rows, grid.cols, video_aspect_ratio)
             except BaseException:
-                snapshot.unlink(missing_ok=True)  # hard-delete: temp -- 切分用的合成图快照
+                snapshot.unlink(missing_ok=True)  # hard-delete: temp -- composite snapshot used for splitting
                 raise
 
         composite_snapshot, cells = _snapshot_and_split()
@@ -175,10 +172,10 @@ async def _apply_grid_split(
             storyboards_dir = project_path / "storyboards"
             storyboards_dir.mkdir(parents=True, exist_ok=True)
 
-            # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
-            # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
-            # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
-            # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
+            # batch_update_scene_assets rolls back the entire batch loudly on any missing scene_id. To avoid
+            # orphan PNGs after cell.save() followed by KeyError rollback, load the current script first
+            # for valid IDs. Skip cell PNG saving for frame_chain shots removed after grid planning by Agent
+            # split/remove operations, collecting them into the missing list and warning instead.
             items, id_field, _kind = resolve_items(script)
             valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
 
@@ -212,7 +209,7 @@ async def _apply_grid_split(
                 staged_path = Path(staged_name)
                 staged_paths.append(staged_path)
                 os.close(fd)
-                staged_path.unlink()  # hard-delete: temp -- mkstemp 占位文件
+                staged_path.unlink()  # hard-delete: temp -- mkstemp placeholder
                 cell.save(staged_path, format="PNG")
                 version_metadata = {"source": "grid_split", "grid_id": grid.id}
                 version_metadata_by_resource[resource_id] = version_metadata
@@ -429,8 +426,8 @@ async def _apply_grid_split(
             return updated_ids, missing_ids
         finally:
             for staged_path in staged_paths:
-                staged_path.unlink(missing_ok=True)  # hard-delete: temp -- 切分的暂存格
-            composite_snapshot.unlink(missing_ok=True)  # hard-delete: temp -- 切分用的合成图快照
+                staged_path.unlink(missing_ok=True)  # hard-delete: temp -- staged split cell
+            composite_snapshot.unlink(missing_ok=True)  # hard-delete: temp -- composite snapshot used for splitting
 
     updated_ids, missing_ids = await run_noninterruptible_sync(_split_and_assign)
 

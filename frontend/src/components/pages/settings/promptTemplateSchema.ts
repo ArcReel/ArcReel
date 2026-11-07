@@ -1,10 +1,10 @@
 import type { JsonSchemaNode } from "@/types";
 
-/** 输出结构的一行：字段路径 / 类型或枚举 / 说明。 */
+/** One output-structure row: field path / type or enum / description. */
 export interface OutputSchemaRow {
-  /** 点分路径，数组元素写作 `field[]`。 */
+  /** Dot paths; array elements use `field[]`. */
   path: string;
-  /** `string`、`list[object]`、`enum` 一类的类型提示。 */
+  /** Type hints such as `string`, `list[object]`, `enum`. */
   type: string;
   enumValues: string[];
   nullable: boolean;
@@ -16,11 +16,11 @@ interface Resolved {
   type: string;
   enumValues: string[];
   nullable: boolean;
-  /** 解开 $ref 时经过的定义名，用于截断自引用。 */
+  /** Definition names traversed while resolving $ref, for truncating self-references. */
   refs: string[];
 }
 
-/** 把 pydantic 导出的 JSON schema 摊平成按字段路径排列的行。 */
+/** Flatten pydantic-exported JSON schemas into field-path rows. */
 export function flattenOutputSchema(schema: JsonSchemaNode): OutputSchemaRow[] {
   const defs = schema.$defs ?? {};
   const rows: OutputSchemaRow[] = [];
@@ -67,7 +67,7 @@ function resolve(prop: JsonSchemaNode, defs: Record<string, JsonSchemaNode>): Re
     const branches = nonNull.length > 0 ? nonNull : options;
     const nullable = nonNull.length < options.length || branches.some((option) => option.nullable);
     if (branches.length === 1) return { ...branches[0], nullable };
-    // 多个分支合并为一行且不向下展开：展开任一分支的字段都会把其余分支的形状藏起来。
+    // Merge multiple branches into one unexpanded row; expanding one branch hides other branches' shapes.
     const types = [...new Set(branches.map((option) => option.type))];
     return {
       node: prop,

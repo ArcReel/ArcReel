@@ -1,0 +1,40 @@
+{
+  "reviewer": "root, independent of internal_docs translator",
+  "method": "Read all nine exact current Chinese clauses and every English delta in bounded output; did not infer semantic completeness from line counts, lock hashes or link sets. Full-page source/target comparison was authored separately by internal_docs.",
+  "status": "accepted",
+  "source_path": "website/docs/guide/providers.md",
+  "target_path": "website/i18n/en/docusaurus-plugin-content-docs/current/guide/providers.md",
+  "source_baseline_byte_equal": true,
+  "source_sha256": "3faf3ef80b68d80f4b4ab04af695a26b6a232b4497765c3e6f710286e0895557",
+  "target_sha256": "c89558e289b31c8ff0f1a9df51c688064c52ebf8a8a9ac7438b91caf80432d15",
+  "reviewed_translation_artifact_sha256": "be897259f720135344dd3d809ad5967898ec41a16456471a7995f8a0f8960a96",
+  "accepted_clause_ids": [
+    "3.1-purpose-candidates",
+    "3.2-effective-capabilities-and-official-models",
+    "3.2-image-reference-overrides",
+    "3.2-added-builtin-endpoints",
+    "3.3-legacy-inflight-endpoint-preservation",
+    "10-joint-capability-resolution",
+    "10-seedream-generation-specific-endpoints",
+    "10-remaining-endpoint-family-instructions",
+    "12-asset-reference-eligibility-endpoint-not-catalog"
+  ],
+  "constraints_checked": [
+    "Purpose-specific candidate eligibility and disabled/retired exclusions",
+    "Joint catalog/endpoint capabilities and min limits; unrecorded is not unlimited; image zero means no references",
+    "Overrides replace whole capability values; endpoint reset/save ordering and builtin endpoint choices",
+    "Already-submitted historical tasks preserve endpoint identity; failure never authorizes generation resubmission",
+    "Mapped/unmapped/ComfyUI capability distinctions",
+    "Seedream generation/tier defaults, explicit resolution preservation and historical endpoint assignment",
+    "Seedance service-tier/token pricing and first-frame adaptation distinctions, Agnes audio and catalog limits, DashScope request families",
+    "Veo/Omni route/audio/input/auth boundaries, Sora catalog resolution, Kling API versions and supported inputs",
+    "Asset-reference eligibility follows endpoint identity; original credentials/account bindings and nonreference input paths preserved"
+  ],
+  "contributing": {
+    "path": "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md",
+    "candidate_sha256": "b51fb6105b583f27e58fc083df3b12d8fdd83429896d44ad94530f8ff9ea357c",
+    "accepted_change": "One English clause corrected from an imperative to the Chinese source recommendation to discuss direction first, including the reason about direction mismatch closing a PR. Chinese source unchanged."
+  },
+  "lock_boundary": "Only CONTRIBUTING synced-source and providers Chinese-source fingerprints differ from original stale lock. Forward existing pipeline remains. Lock status/check/build evidence is separate; no source edition/URL/locale inversion.",
+  "limits": "Source-fidelity review, not independent verification of current third-party APIs/prices. No external calls, paid generation or publication. Existing English text outside these deltas was compared by the named full-page author; this independent review does not claim fresh clause review of every unchanged English public page."
+}

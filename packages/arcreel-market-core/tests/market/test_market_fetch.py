@@ -1,4 +1,4 @@
-"""市场源索引抓取的边界：只经 https、限时、限体积与嵌套、限重定向，ETag 与绕缓存，代理前缀。"""
+"""Market-index fetch boundaries: https only, time/body/nesting/redirect limits, ETags, cache bypass, and proxy prefixes."""
 
 from __future__ import annotations
 
@@ -359,6 +359,6 @@ async def test_redirect_chain_at_limit_is_followed(raw_client: httpx.AsyncClient
 
 
 def _only_request(route: respx.Route) -> httpx.Request:
-    """断言该路由恰好收到一次请求并返回它。"""
+    """Assert this route received exactly one request and return it."""
     assert route.call_count == 1, f"期望 1 次请求，实际 {route.call_count} 次"
     return route.calls.last.request

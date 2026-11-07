@@ -10,15 +10,15 @@ import { CustomProviderForm } from "./CustomProviderForm";
 
 interface CustomProviderDetailProps {
   providerId: number;
-  /** 深链里的模型 ID：打开时展开并定位到这一行。 */
+  /** Model ID from a deep link: expand and locate this row when opening. */
   initialModelId?: string;
   onDeleted: () => void;
   onSaved: () => void;
 }
 
 /**
- * 自定义供应商的详情栏：取回供应商与它的供应商倍率后交给表单。换供应商时由上层按 `providerId` 重建整栏。
- * 倍率与供应商一起取齐再渲染表单：倍率后到时，用户已开始的编辑会把它当成外部更新，保存时把旧值写回。
+ * Custom-provider detail pane: fetch the provider and its provider multiplier before passing them to the form. The parent recreates the whole pane by `providerId` when switching providers.
+ * Render only once both arrive: if the multiplier arrives after editing begins, the editor treats it as an external update and saves the old value back.
  */
 export function CustomProviderDetail({ providerId, initialModelId, onDeleted, onSaved }: CustomProviderDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);

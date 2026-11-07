@@ -1,24 +1,24 @@
-# Herdr 跨 harness 委派
+# Cross-harness delegation with Herdr
 
-先使用 Skill 工具调用 `herdr`。同 harness teammate 使用 harness 原生团队能力；跨 harness teammate 使用 Herdr。
+First invoke `herdr` through the Skill tool. Use native harness team capabilities for same-harness teammates and Herdr for cross-harness teammates.
 
 ## Workspace
 
-1. 为批次创建一个 label 为 `afk:<batch-id>` 的 workspace，从 JSON 响应记住 workspace、tab 与 pane ID。根 pane 留作锚点不关闭，否则最后一个 tab 关闭时 workspace 被回收。本批的全部 Herdr teammates 都放在该 workspace，按 issue / stage 按需建 tab。
-2. pane cwd 指向实际 worktree；native agent args 沿用 harness 的 permission / sandbox，额外可写目录包含 `<repo-root>/.afk/<batch-id>/`；codex teammate 使用 linked worktree 时另包含主仓 `<repo-root>/.git`。
-3. 启动 prompt 只注入 `batch-id`、当前 agent name / pane ID 与 team-lead pane ID，不注入其他 session 或 teammates 的寻址。
-4. 启动 prompt 用 `agent prompt --wait --until working --until blocked` 投递，匹配到任一状态即算送达；不带 `--until` 时会一直等到 teammate 本轮结束。
-5. 刚启动的 agent 偶尔吞掉首个 prompt。返回 `agent_prompt_stalled` 时先补回车：prompt 可能停在输入框，而长粘贴折叠成 `[Pasted text #N +M lines]`，pane 文本看不出来。补回车后仍为 idle 再重发。
+1. Create a workspace labeled `afk:<batch-id>` for the batch and retain the workspace, tab, and pane IDs from the JSON response. Keep the root pane open as an anchor; otherwise closing the final tab reclaims the workspace. Place all Herdr teammates for this batch in this workspace, creating tabs per issue / stage as needed.
+2. Set pane cwd to the actual worktree. Native agent args retain the harness's permission / sandbox settings; additional writable directories include `<repo-root>/.afk/<batch-id>/`. For codex teammates using linked worktrees, also include the main repository's `<repo-root>/.git`.
+3. Inject only `batch-id`, the current agent name / pane ID, and the team-lead pane ID in the startup prompt. Do not inject addresses of other sessions or teammates.
+4. Deliver the startup prompt with `agent prompt --wait --until working --until blocked`; matching either state counts as delivery. Without `--until`, it waits until the teammate finishes the turn.
+5. Newly started agents occasionally swallow the first prompt. On `agent_prompt_stalled`, send Enter first: the prompt may be sitting in the input field while the long paste collapses to `[Pasted text #N +M lines]`, invisible in pane text. Resend only if it remains idle after Enter.
 
-workspace 是拓扑与生命周期边界，不是消息权限边界。收尾时只关闭本批创建的 workspace。
+The workspace is a topology and lifecycle boundary, not a messaging permission boundary. Close only the workspace created for this batch during cleanup.
 
-## 反向通知
+## Return notifications
 
-teammate 只向 prompt 注入的 team-lead pane ID 发消息。消息写明 `batch-id`、issue / stage、自己的 agent name / pane ID、`handoff` 或 `request` 类型与一句摘要。
+Teammates send messages only to the team-lead pane ID injected into their prompt. Include `batch-id`, issue / stage, your agent name / pane ID, the `handoff` or `request` type, and a one-sentence summary.
 
-- `handoff`：先写入 commit 或 handoff 等持久交付物，再通知路径或 SHA。
-- `request`：用于各角色契约中要求请示 team-lead 的事项与故障裁决。
+- `handoff`: write durable deliverables such as a commit or handoff first, then notify with the path or SHA.
+- `request`: use for matters and failure decisions that the role contract requires referring to the team-lead.
 
-消息只做唤醒与定位；完整上下文留在 issue、commit 和 handoff。Herdr 拓扑 ID 不写入账本。
+Messages only wake the recipient and locate context; keep full context in issues, commits, and handoffs. Do not put Herdr topology IDs in the ledger.
 
-team-lead 以 handoff 通知为交付完成信号，以 request 通知为需要裁决的唤醒信号。reviewer 与 looper 等闸门或 CI 期间会周期性 idle，看守 teammate 状态时只对 blocked、消失或长时间 idle 做出反应。
+The team-lead treats handoff notifications as completion signals and request notifications as wake-ups requiring a decision. Reviewers and loopers periodically become idle while waiting for gates or CI. When supervising teammates, react only to blocked, disappeared, or prolonged-idle states.

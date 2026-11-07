@@ -1,59 +1,59 @@
 ---
 name: generate-narration-audio
-description: 为旁白/解说剧本逐分镜生成旁白配音（TTS）。当 TTS 项目首轮自动剪辑需要补齐缺失配音、用户要求生成或重新生成某个分镜或某集旁白配音，或批量配音中断需要补齐时使用。
+description: Generate per-shot narration audio (TTS) for narration/commentary scripts. Use to fill missing audio during first automatic editing in TTS projects, for user-requested shot/episode narration generation or regeneration, or to complete an interrupted narration batch.
 ---
 
-# 生成旁白配音
+# Generate narration audio
 
-为旁白/解说创作类型剧本的每个分镜，以该分镜的 `novel_text` 原文合成一段旁白配音，
-写回该分镜的 `generated_assets.narration_audio`（输出 `audio/segment_{segment_id}.wav`）。
-只依赖剧本，不依赖分镜图/视频——剧本生成后即可推进。
+For each narration/commentary shot, synthesize its `novel_text` source into narration audio,
+writing `generated_assets.narration_audio` (output `audio/segment_{segment_id}.wav`).
+It depends only on scripts, not storyboard images/videos, and can proceed as soon as scripts exist.
 
-## 工具调用
+## Tool calls
 
-**重要：生成旁白配音必须调用下列 MCP 工具入队。此 skill 不提供任何 Python/Shell 脚本，不得用 BASH 调 `python .../scripts/*.py`。**
+**Important: narration must be enqueued through the MCP tools below. This skill provides no Python/Shell scripts; never call `python .../scripts/*.py` through Bash.**
 
-通过 MCP 工具入队：
+Enqueue through MCP:
 
-| 操作 | 工具 |
+| Operation | Tool |
 |------|------|
-| 全集补齐（默认，所有缺旁白配音的分镜） | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json"})` |
-| 指定批量范围 | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json", "segment_ids": ["E1S01", "E1S02"]})` |
-| 单分镜重生 | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json", "segment_ids": ["E1S05"]})` |
+| Fill episode gaps (default, all shots missing audio) | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json"})` |
+| Explicit batch scope | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json", "segment_ids": ["E1S01", "E1S02"]})` |
+| Regenerate one shot | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json", "segment_ids": ["E1S05"]})` |
 
-> **选择规则**：不传 `segment_ids` 则只为缺 `narration_audio` 的分镜入队——已失效但仍可用的旧配音会被复用，不自动重生；
-> 显式传入的分镜即使已有旁白配音也会重新合成（用于换音色/语速后重生）。
+> **Selection**: without `segment_ids`, enqueue only shots missing `narration_audio`; stale but usable old audio is reused, not automatically regenerated.
+> Explicitly selected shots are resynthesized even with existing audio, for example after voice/rate changes.
 >
-> **调用时机**：TTS 项目首轮自动剪辑时按缺失补齐，项目选择 TTS 即已授权，无需另行确认；
-> 用户也可随时要求生成。stale 配音仅按用户要求重合成；后期配音项目无需 TTS。
-> 视频生成不依赖旁白配音，两者互不等待。
-> 新旁白配音完成后请用户试听确认。
+> **Timing**: fill missing audio during first automatic editing in TTS projects; TTS selection already authorizes this without further confirmation.
+> Users may request generation anytime. Resynthesize stale audio only on request; post-production-voiceover projects do not require TTS.
+> Video generation does not depend on narration audio; neither waits for the other.
+> Ask the user to audition and confirm newly generated narration.
 >
-> **依赖**：generation worker 必须在线（audio 独立通道）；项目的旁白交付方式是「TTS 配音」。TTS 模型、音色与语速
-> 都取自项目设置里的 TTS 快照，与全局默认无关。
+> **Dependencies**: the generation worker must be online (independent audio lane); project narration delivery is TTS. Model, voice, and rate
+> come from the project settings’ TTS snapshot, independent of global defaults.
 >
-> **改音色/语速**：用户要求"这个项目旁白用 X 音色 / 语速 1.2"时，调
+> **Change voice/rate**: when users request “voice X / rate 1.2 for this project”, call
 > `mcp__arcreel__patch_project({"settings": {"narration_voice": "X", "narration_speed": 1.2}})`
-> 改项目的 TTS 快照（只影响当前项目；`narration_speed` 传 `null` 表示不向供应商传语速）。改完后，按旧模型、音色或语速
-> 生成的旁白配音读作 stale：仍可试听、参与剪辑，全集补齐不会重生它们；要换成新设置，点名这些分镜重新合成。
+> to change the project TTS snapshot (this project only; `narration_speed` set to `null` omits rate from provider calls). Audio generated using old model/voice/rate
+> becomes stale, but remains auditionable and usable in editing. Episode gap-filling does not regenerate it; name those shots explicitly to adopt new settings.
 
-## 工作流程
+## Workflow
 
-1. **状态检测** — 读取剧本，检查各分镜的 `generated_assets.narration_audio`，统计缺失分镜并告知用户
-2. **入队生成** — 调用 MCP 工具，任务经生成队列由 worker 处理，工具等待全部完成后返回逐分镜结果
-3. **汇报** — 汇总成功/失败明细展示给用户
+1. **Check state**: read the script, inspect each shot’s `generated_assets.narration_audio`, count missing shots, and inform the user
+2. **Enqueue generation**: call MCP; workers process the generation queue and the tool waits for all tasks before returning per-shot results
+3. **Report**: summarize successes/failures for the user
 
-## 断点续传
+## Resume
 
-中断（服务重启、任务失败、会话断开）后重新调用**不传 `segment_ids` 的全集补齐**即可：
-已有旁白配音的分镜自动跳过，只补缺失分镜，不重复扣费。
+After interruption (restart, task failure, session disconnection), call **episode gap-filling without `segment_ids`** again:
+existing audio is skipped; only missing shots generate, without duplicate charges.
 
-## 错误处理
+## Errors
 
-- 单分镜失败不影响批次：工具返回 `requested / succeeded / failed / blocked` 的逐 ID 结果
-- 按 `failed` / `blocked` 里每一项自带的问题码与下一步动作决定重试还是先改输入，不要读文本猜
-- 可重试的分镜用 `segment_ids` 精确重试
-- 工具返回 `narration_delivery_post_production` 时，告知用户这个项目的旁白由后期配音交付、视频不受影响；
-  用户主动想要 in-app 旁白时，请其在 Web 项目设置里把交付方式改为 TTS 配音后重试
-- 工具返回 `narration_tts_*` 项目配置问题时，同样说明后期配音这条路照常可用；**继续做视频不需要 TTS**。
-  只有用户主动想要 in-app 旁白时，才引导其到 Web 项目设置补齐 TTS 模型或音色后重试
+- One failed shot does not fail the batch: results are `requested / succeeded / failed / blocked` per ID
+- Use each `failed` / `blocked` item’s code and next action to decide retry versus input repair; do not infer from prose
+- Retry retryable shots precisely using `segment_ids`
+- For `narration_delivery_post_production`, explain that narration is delivered in post-production and video is unaffected;
+  if users want in-app narration, ask them to change delivery to TTS in Web project settings, then retry
+- For `narration_tts_*` configuration issues, likewise explain post-production voiceover remains available; **continuing video production does not require TTS**.
+  Guide users to complete TTS model/voice settings only if they actively want in-app narration

@@ -1,7 +1,8 @@
-"""共享 httpx AsyncClient 单例。
+"""Shared httpx AsyncClient singleton.
 
-由 server/app.py 的 lifespan 在启动时初始化、关闭时释放，避免每次外部请求
-都新建客户端、损失连接池复用。调用方使用 `get_http_client()` 获取实例。
+server/app.py lifespan initializes it at startup and releases it at shutdown.
+Avoid creating a client for every external request and losing connection-pool
+reuse. Callers obtain it through ``get_http_client()``.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ def get_http_client() -> httpx.AsyncClient:
     return _client
 
 
-async def startup_http_client(timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- httpx.AsyncClient 的 I/O 超时配置，非 async 取消 deadline
+async def startup_http_client(timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- httpx.AsyncClient I/O timeout, not an async cancellation deadline
     global _client
     if _client is None:
         _client = httpx.AsyncClient(timeout=timeout)

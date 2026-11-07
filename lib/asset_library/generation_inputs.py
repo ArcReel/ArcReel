@@ -1,16 +1,21 @@
-"""生成时为参考图选用供应商素材关联：按调用通道实际使用的推理凭证与它的绑定判断。
+"""Choose provider asset links for generation references using actual backend inference credentials/bindings.
 
-每张参考图按实际发出的字节对应到内容版本，再在本次调用的素材库范围里查选定的关联：
+Map each reference’s actual sent bytes to content versions, then find selected links within this call’s scope:
 
-- 调用通道对参考图槽位没有声明素材引用、推理凭证没有已确认的绑定、图片不是可上传的资产图或衍生图、
-  发出的字节不是当前内容版本，或该内容版本在这个范围里没有选定的关联：没有适用关联，照常发图片内容；
-- 选定的关联可用：以 ``asset://`` 素材引用代替这张图片的内容，位置与提示词里的图片编号不变；
-- 选定的关联或入库任务尚在处理、结果待确认或已失败：适用但不可用，明确失败，不改发图片内容。
+- No declared asset-reference support for slots, no confirmed credential binding, nonuploadable
+  asset/derivative image, bytes differing from current content, or no selected scoped link means
+  no applicable link; send image content normally;
+- Available selected links replace image content with ``asset://`` references without changing
+  positions or prompt image numbers;
+- Selected links/tasks still processing, uncertain, or failed are applicable but unavailable:
+  fail explicitly, never fall back to image content.
 
-提交前的读侧（接收任务、批量预览、报价）与执行侧按同一规则选择：读侧以当前配置装配的调用通道求范围，执行侧以
-实际调用通道求范围，暂存参考图之后再按实发字节核对一次。
+Pre-submission reads (admission, batch previews, quotes) and execution share rules. Readers derive
+scopes from currently configured backends, executors from actual backends; after staging images,
+verify once more against sent bytes.
 
-只读：不为早期版本记录补写身份，没有身份的记录不可能有关联。关联的查询与状态机见 :mod:`lib.asset_library.links`。
+Read-only: never backfill early version identities; identity-free records cannot have links.
+Queries/state machines: :mod:`lib.asset_library.links`.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from lib.project.resource_paths import resource_of_path
 
 @dataclass(frozen=True)
 class ReferenceImageSource:
-    """一张将要发出的参考图：来源文件的项目内相对路径、发出字节的摘要与资产（或衍生）名称。"""
+    """Reference image about to send: project-relative source path, sent-byte digest, and asset/derivative name."""
 
     locator: str
     sha256: str
@@ -46,7 +51,7 @@ class ReferenceImageSource:
 
 @dataclass(frozen=True)
 class ReferenceAssetChoice:
-    """以素材引用发出的一张参考图：它对应的内容版本与选定关联。"""
+    """Reference sent as an asset reference: corresponding content version and selected link."""
 
     asset_uri: str
     content_version_id: str
@@ -54,9 +59,10 @@ class ReferenceAssetChoice:
 
 
 class ProviderAssetLinkUnavailableError(RuntimeError):
-    """参考图在本次调用范围里有选定的关联或入库任务，但它此刻不能用于生成。
+    """A selected link/ingest task exists within this call’s scope but cannot currently serve generation.
 
-    ``code`` 与 ``params`` 按任务失败的结构化编码落库：处理中提示等待，失败给出供应商原因并提示解除关联。
+    Persist ``code`` / ``params`` as structured task-failure codes: processing asks users to wait;
+    failures give provider reasons and suggest unlinking.
     """
 
     def __init__(self, link: ProviderAssetLink, *, index: int, name: str) -> None:
@@ -75,10 +81,10 @@ class ProviderAssetLinkUnavailableError(RuntimeError):
 
 
 def reference_image_sources(project_path: Path, images: Sequence[tuple[Path, str]]) -> list[ReferenceImageSource]:
-    """按项目内图片文件当下的字节给出参考图来源；``images`` 是（文件路径, 资产或衍生名称），顺序即发出顺序。
+    """Derive sources from current project-image bytes; ``images`` contains (file path, asset/derivative name), in send order.
 
-    缓存已清理的远端内容版本按记录的摘要给出，与取回后发出的字节一致。文件不在项目目录内、或既不在本地
-    也不是远端内容版本时抛 ``FileNotFoundError`` / ``PathTraversalError``。
+    Cleaned remote-version caches use recorded digests matching refetched sent bytes. Paths outside
+    projects, or neither local nor remote-version files, raise ``FileNotFoundError`` / ``PathTraversalError``.
     """
     root = project_path.resolve()
     sources: list[ReferenceImageSource] = []
@@ -93,7 +99,7 @@ def reference_image_sources(project_path: Path, images: Sequence[tuple[Path, str
 
 
 async def call_scope(session: AsyncSession, backend: object) -> AssetLibraryScope | None:
-    """调用通道本次可用的素材库范围；通道不接受参考图素材引用或凭证没有已确认的绑定时为 None。"""
+    """Backend’s usable library scope, or None when reference slots reject asset references or credentials lack confirmed bindings."""
     if REFERENCE_IMAGE_ROLE not in provider_asset_roles(backend):
         return None
     credential = inference_credential(backend)
@@ -110,9 +116,9 @@ async def call_scope(session: AsyncSession, backend: object) -> AssetLibraryScop
 
 
 def _uploadable_resource_of(locator: str) -> tuple[str, str] | None:
-    """参考图路径对应的可上传资源。上传与导入按原格式保存资产图（后缀见 ``IMAGE_FILE_EXTENSIONS``），
-    而版本资源的规范路径一律是 ``.png``，因此按同名的规范路径认定资源；是否就是该资源的当前内容，
-    由调用方用摘要核对。"""
+    """Uploadable resource identified by reference paths. Upload/import retains original sheet formats
+    (``IMAGE_FILE_EXTENSIONS``), while canonical version-resource paths always use ``.png``; match
+    resources by same-name canonical paths. Callers verify current-content identity by digest."""
     resource = resource_of_path(locator)
     if resource is None:
         stem, dot, suffix = locator.rpartition(".")
@@ -124,7 +130,7 @@ def _uploadable_resource_of(locator: str) -> tuple[str, str] | None:
 
 
 def _content_version_ids(project_path: Path, sources: Sequence[ReferenceImageSource]) -> list[str | None]:
-    """每张参考图发出的字节对应的内容版本身份：须是资源当前选中的版本，摘要与发出的字节一致。"""
+    """Content identity for each reference’s sent bytes: selected current versions whose digests match those bytes."""
     manager = VersionManager(project_path)
     ids: list[str | None] = []
     for source in sources:
@@ -151,10 +157,10 @@ async def choose_reference_image_assets(
     project_path: Path,
     sources: Sequence[ReferenceImageSource],
 ) -> tuple[ReferenceAssetChoice | None, ...]:
-    """与 ``sources`` 等长同序的选择：可用关联给出素材引用，没有适用关联为 None。
+    """Choices matching ``sources`` count/order: available links provide asset references, no applicable links give None.
 
     Raises:
-        ProviderAssetLinkUnavailableError: 某张参考图的适用关联尚未可用或入库失败；按图片顺序报第一张。
+        ProviderAssetLinkUnavailableError: Applicable link unavailable/ingest failed; report the first in image order.
     """
     if not sources:
         return ()
@@ -169,7 +175,7 @@ async def choose_reference_image_assets(
 async def backend_call_scope(
     session_factory: async_sessionmaker[AsyncSession], backend: object
 ) -> AssetLibraryScope | None:
-    """:func:`call_scope` 自开会话的版本。范围为 None 时不必计算参考图摘要：每张图片都没有适用的关联。"""
+    """:func:`call_scope` variant opening its own session; None scopes need no reference digests because no image has applicable links."""
     async with session_factory() as session:
         return await call_scope(session, backend)
 
@@ -182,7 +188,7 @@ async def choose_in_scope(
     project_path: Path,
     sources: Sequence[ReferenceImageSource],
 ) -> tuple[ReferenceAssetChoice | None, ...]:
-    """在已求得的素材库范围里为参考图选择，规则与异常同 :func:`choose_reference_image_assets`。"""
+    """Choose references within resolved scopes, sharing :func:`choose_reference_image_assets` rules/errors."""
     if not sources:
         return ()
     async with session_factory() as session:

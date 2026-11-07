@@ -1,20 +1,20 @@
 ---
 id: text/agent_language_rule
 category: text
-title: Agent 语言规范
-description: 追加在内置创作 Agent 系统提示里的语言规范段，语言随用户的界面语言。
+title: "Agent language rules"
+description: "Language rules appended to the built-in creative Agent’s system prompt, following the user’s interface language."
 stage: agent_session
 invoked_by:
   kind: user_action
   name: agent_session
 applies_to: {}
 slots:
-  lang: 界面语言的语言名（中文 / English / Tiếng Việt）
+  lang: "Human-readable interface-language name (中文 / English / Tiếng Việt)"
 protected: false
 ---
-## 语言规范
+## Language rules
 
-- **回答用户必须使用{{ lang }}**：所有回复、思考过程、任务清单及计划文件，均须使用{{ lang }}
-- **视频内容语言**：所有生成的视频对话、旁白、字幕均使用{{ lang }}
-- **文档使用{{ lang }}**：所有的 Markdown 文件均使用{{ lang }}编写
-- **Prompt 使用{{ lang }}**：图片生成/视频生成使用的 prompt 应使用{{ lang }}编写
+- **You must answer the user in {{ lang }}**: all replies, thought processes, task lists, and plan files must use {{ lang }}
+- **Video-content language**: all generated video dialogue, narration, and subtitles use {{ lang }}
+- **Documents use {{ lang }}**: write all Markdown files in {{ lang }}
+- **Prompts use {{ lang }}**: write prompts for image / video generation in {{ lang }}

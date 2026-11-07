@@ -1,11 +1,11 @@
-"""归档与导入包含远端图片的项目：归档带真实内容，另一实例导入后按自己的全局设置保存，不依赖源实例的桶。
+"""Archive/import remote-image projects: include actual content, store per destination global settings, independent of source buckets.
 
-两个实例各有自己的项目目录、数据库与对象存储连接（同一个内存 TOS 替身里的两个桶）。真实编排：资产图经文件路由
-上传（正式提交入口按全局设置选择保存位置），工作文件经对象存储路由的清理入口清理，归档经项目路由导出与导入，
-预览与版本切换经公开文件路由与版本路由。只替换对象存储的网络边界：TOS SDK 在 ``create_sdk_client`` 换成内存桶。
+Each instance owns project directories, DBs and storage connections, using two buckets in shared in-memory TOS. Real orchestration uploads
+through file routes using global storage choices, cleans working files through storage routes, exports/imports through project routes,
+and previews/switches versions through file/version routes. Replace network boundaries only: ``create_sdk_client`` supplies in-memory TOS buckets.
 
-归档同时带上图片的可用供应商素材关联，导入实例按推理凭证实际绑定的素材库账号选用（真实的绑定与选用规则，
-调用通道只用一个报出推理凭证的替身）；源实例的关联记录直接写进它的数据库，不经供应商控制面。
+Archives include usable provider-material image associations; import selects through actually bound inference-credential library accounts,
+using real binding/selection rules and one credential-reporting invocation fake. Source associations persist directly in DBs without provider control-plane calls.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ class Instance:
 
 @contextmanager
 def _serving(monkeypatch, root: Path, sessions: async_sessionmaker[AsyncSession]) -> Generator[Instance]:
-    """启动一个实例：项目目录、数据库与路由都只属于它，退出时撤下全局替换。"""
+    """Start instances with isolated project directories/DBs/routes; remove global replacements on exit."""
     pm = ProjectManager(root / "projects")
     with monkeypatch.context() as patch:
         use_project_manager(patch, pm)
@@ -100,7 +100,7 @@ def _serving(monkeypatch, root: Path, sessions: async_sessionmaker[AsyncSession]
 
 
 def _memory_tos(monkeypatch) -> MemoryBucket:
-    """两个实例共用的内存 TOS：对象按 (桶, key) 存放，各实例只经自己的连接访问自己的桶。"""
+    """Shared in-memory TOS stores objects by bucket/key, each instance accessing only its own connected bucket."""
     memory = MemoryBucket()
     use_object_storage_sdk(monkeypatch, lambda config: memory)
     return memory
@@ -175,7 +175,7 @@ async def _create_account(sessions, access_key_id: str) -> AssetLibraryAccount:
 
 
 async def _link(sessions, account: AssetLibraryAccount, record: dict[str, Any], *, state: str, asset_id: str | None):
-    """源实例里图片版本 ``record`` 在账号范围内选定的关联或入库任务。"""
+    """Source-instance association/ingestion task selected for image-version ``record`` within account scope."""
     scope = account_scope(account)
     async with sessions() as session:
         session.add(
@@ -205,14 +205,14 @@ async def _link(sessions, account: AssetLibraryAccount, record: dict[str, Any], 
 
 @dataclass
 class _Backend:
-    """调用通道替身：只报出实际使用的推理凭证与可接受素材引用的槽位。"""
+    """Invocation fake reports actual inference credentials and slots accepting material references only."""
 
     inference_credential: InferenceCredentialRef
     provider_asset_roles: frozenset[str] = frozenset({REFERENCE_IMAGE_ROLE})
 
 
 async def _bind_inference_credential(sessions, access_key_id: str, credential_id: int | None = None) -> _Backend:
-    """目标实例的推理凭证确认绑定到 ``access_key_id`` 对应的素材库账号，返回使用这条凭证的调用通道。"""
+    """Bind target inference credentials to ``access_key_id`` library accounts, returning channels using them."""
     account = await _create_account(sessions, access_key_id)
     async with sessions() as session:
         if credential_id is None:
@@ -236,7 +236,7 @@ async def _reference_choice(instance: Instance, sessions, backend: _Backend):
 
 
 def _with_manifest(archive: bytes, edit) -> bytes:
-    """改写归档信封后重新打包，其余成员原样保留。"""
+    """Rewrite/repack archive envelopes, retaining other members unchanged."""
     source = zipfile.ZipFile(io.BytesIO(archive))
     output = io.BytesIO()
     with source, zipfile.ZipFile(output, "w") as package:
@@ -252,7 +252,7 @@ def _with_manifest(archive: bytes, edit) -> bytes:
 
 @contextmanager
 def _source_instance(monkeypatch, tmp_path, sessions) -> Generator[Instance]:
-    """源实例：项目 demo 里有角色 Alice，还没有资产图。"""
+    """Source demo contains Alice without asset images."""
     with _serving(monkeypatch, tmp_path / "source", sessions) as source:
         source.projects.create_project("demo")
         source.projects.create_project_metadata("demo", "demo", "Anime", "narration")
@@ -275,13 +275,13 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
         _upload(source.api, IMAGE_B)
         source_history = _history(source.projects)
         assert [record.get("storage", {}).get("bucket") for record in source_history] == [None, SOURCE_BUCKET]
-        # 两个版本在同一账号里都有可用关联；B 在另一个账号里还有一条尚未入库的任务
+        # Both versions have same-account associations; B also has an uningested task under another account.
         account = await _create_account(source_sessions, ASSET_AK)
         other_account = await _create_account(source_sessions, "TEST-ASSET-LIBRARY-AK-OTHER")
         await _link(source_sessions, account, source_history[0], state="active", asset_id="asset-a")
         await _link(source_sessions, account, source_history[1], state="active", asset_id="asset-b")
         await _link(source_sessions, other_account, source_history[1], state="pending", asset_id=None)
-        assert _cleanup(source.api) == 2  # 远端版本 B 的正式文件与版本快照
+        assert _cleanup(source.api) == 2  # Remote version B formal files/version snapshots
         source_dir = source.projects.get_project_path("demo")
         assert not (source_dir / "characters" / "Alice.png").exists()
 
@@ -291,7 +291,7 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             assert response.status_code == 200, response.text
             archives[scope] = response.content
 
-    # 归档里是真实内容，不带源实例的定位、桶或凭证
+    # Archives contain actual content, never source-instance locations/buckets/credentials.
     for scope, archive in archives.items():
         with zipfile.ZipFile(io.BytesIO(archive)) as package:
             members = {name: package.read(name) for name in package.namelist() if not name.endswith("/")}
@@ -305,7 +305,7 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
         )
         packed = json.loads(members["demo/versions/versions.json"])["characters"]["Alice"]["versions"]
         assert all("storage" not in record for record in packed)
-        # 只带范围内内容版本的可用关联，冻结的调用范围原样随带，不带账号记录 ID 与入库中的任务
+        # Include usable in-scope content associations/frozen call scopes unchanged; omit account row IDs/pending ingestion tasks.
         carried = json.loads(members["demo/arcreel-export.json"])["provider_asset_links"]
         assert [link["provider_asset_id"] for link in carried] == (
             ["asset-a", "asset-b"] if scope == "full" else ["asset-b"]
@@ -314,13 +314,13 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             (link["account_identity"], link["site"], link["region"], link["provider_project_name"]) for link in carried
         } == {(account_scope(account).account_identity, "volcengine", "cn-beijing", "default")}
         assert all("account_id" not in link for link in carried)
-    assert [op for op, _key in bucket.calls].count("get") == 2  # 两个工作文件各取回一次，第二次导出沿用
+    assert [op for op, _key in bucket.calls].count("get") == 2  # Fetch both once; reuse on reexport.
 
-    # 源实例的桶从此不可用：导入只凭归档里的内容
+    # Source-instance buckets become unavailable; import relies on archive content alone.
     bucket.objects = {location: data for location, data in bucket.objects.items() if location[0] != SOURCE_BUCKET}
     bucket.calls.clear()
 
-    # 包被改过：版本 A 的关联摘要与包内图片对不上，导入时丢弃这条关联，图片照常导入
+    # Modified archives mismatch version A association digests; discard associations but import images normally.
     def _tamper_first_link(manifest):
         manifest["provider_asset_links"][0]["content_digest"] = "0" * 64
 
@@ -363,7 +363,7 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             0,
         )
 
-        # 推理凭证绑定到同一云账号身份的账号时选用这条关联；改绑到另一个身份后不适用，照常发送图片内容
+        # Matching cloud-account-bound inference credentials select associations; different identities use normal image content.
         backend = await _bind_inference_credential(file_db_factory, ASSET_AK)
         choice = await _reference_choice(other, file_db_factory, backend)
         assert choice is not None
@@ -390,7 +390,7 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             assert sorted((ref.state, ref.project_name, ref.content_version_id) for ref in refs) == sorted(
                 ("active", "demo", record["content_version_id"]) for record in imported
             )
-            # 目标实例的远端图片同样可以清理缓存后预览、切换版本
+            # Target remote images still preview/switch versions after cache cleanup.
             assert _cleanup(other.api) == 3
 
         preview = other.api.get("/api/v1/files/demo/characters/Alice.png")
@@ -416,7 +416,7 @@ async def test_export_fails_without_partial_archive_when_remote_content_is_unrea
 
         bucket.fail.clear()
         [location] = list(bucket.objects)
-        bucket.objects[location] = IMAGE_A  # 对象被替换：内容与记录的摘要不符
+        bucket.objects[location] = IMAGE_A  # Replaced objects mismatch recorded digests.
         assert _export(source.api, "current").status_code == 502
         assert not (source.projects.get_project_path("demo") / "characters" / "Alice.png").exists()
 
@@ -452,10 +452,10 @@ async def test_failed_remote_import_installs_nothing_and_removes_new_objects(
             headers={"Accept-Language": "zh"},
         )
         assert failed.status_code == 502, failed.text
-        # 新导入没有「原来的版本」：说明这次导入没有写入任何项目
+        # New imports have no prior versions, proving no project writes occurred.
         assert failed.json()["detail"] == "图片没能保存到对象存储，这次导入没有写入任何项目。检查对象存储连接后重试"
         assert not other.projects.projects_dir.joinpath("demo").exists()
-        assert bucket.objects == {}  # 第一张已保存的图片没有被任何版本引用，补偿删除
+        assert bucket.objects == {}  # First saved images lack version references; compensating deletion removes them.
         async with file_db_factory() as session:
             assert list((await session.execute(select(FormalObjectRef))).scalars()) == []
             states = [row.state for row in (await session.execute(select(FormalObject))).scalars()]
@@ -467,7 +467,7 @@ async def test_failed_remote_import_installs_nothing_and_removes_new_objects(
 async def test_current_archive_of_a_generated_image_follows_the_target_storage(
     monkeypatch, tmp_path, source_sessions, file_db_factory, target
 ):
-    """仅当前版本的包裁掉了生成资产图的版本记录：导入到对象存储时补登内容版本并保存到目标桶；导入到本地时照旧不补登。"""
+    """Current-only archives prune generated-image versions; remote imports backfill content versions into destination buckets, local imports retain no-backfill behavior."""
     bucket = _memory_tos(monkeypatch)
     with _source_instance(monkeypatch, tmp_path, source_sessions) as source:
         _upload(source.api, IMAGE_A)

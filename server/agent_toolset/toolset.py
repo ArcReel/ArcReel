@@ -1,4 +1,4 @@
-"""已声明的 Agent 工具，以及由声明派生的工具名集合与迁移阻断集合。"""
+"""Declared Agent tools, with tool-name and migration-blocked sets derived from declarations."""
 
 from __future__ import annotations
 
@@ -45,12 +45,12 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *PROJECT_TRASH_TOOLS,
 )
 
-# 工具 id 是短名（SDK 注册时另加 ``mcp__arcreel__`` 前缀）。前端显示名在 ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``
-# 的 ``tool_name_<id>`` 键下，工序行的摘要格式登记在 ``frontend/src/components/copilot/chat/arcreel-tool-summaries.ts``；
-# ``tests/unit/test_frontend_mcp_tool_i18n.py`` 校验每个 id 在全部语言都有翻译，并且都登记了摘要格式。
+# Tool IDs are short names (SDK registration adds ``mcp__arcreel__``). Frontend display names are in ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``
+# under ``tool_name_<id>``; workflow-row summary formats are registered in ``frontend/src/components/copilot/chat/arcreel-tool-summaries.ts``.
+# ``tests/unit/test_frontend_mcp_tool_i18n.py`` checks translations in every language and summary-format registration for each ID.
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = tuple(declaration.name for declaration in AGENT_TOOLSET)
 
-# 项目迁移裁决为失败时在共享声明入口拒绝的工具，按各声明的迁移阻断策略派生。
+# Tools rejected by the shared declaration entry after project migration failure, derived from each declaration’s policy.
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     declaration.name
     for declaration in AGENT_TOOLSET
@@ -58,6 +58,6 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
 )
 
 if len(set(ARCREEL_MCP_TOOL_IDS)) != len(ARCREEL_MCP_TOOL_IDS):
-    raise RuntimeError("Agent 工具集中存在重名声明")
+    raise RuntimeError("Duplicate declarations in the Agent toolset")
 
 __all__ = ["AGENT_TOOLSET", "ARCREEL_MCP_TOOL_IDS", "MIGRATION_BLOCKED_TOOL_IDS"]

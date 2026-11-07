@@ -1,17 +1,17 @@
-"""``auth`` 节的模板原语与两种 ``kind`` 共用的语义检查。
+"""Template primitives and semantic checks for the ``auth`` section, shared by both ``kind`` values.
 
-声明式定义与 ComfyUI 定义的 ``auth`` 节是同一份 schema、同一套渲染语义：``headers`` 与 ``query``
-两张表，值是模板，凭证只以 ``api_key`` 占位符的形态出现。两种 kind 的差别只有一条——除 ``api_key``
-外还认哪些变量（声明式的 auth 节里 ``base_url`` 之类的基础变量同样可用，ComfyUI 的只认 ``api_key``）
-——故变量作用域由调用方以 ``variable_issues`` 给出，其余三条检查（占位符写坏、字面凭证、头名重复）
-与 kind 无关，落在这里由两侧共读。
+Declarative and ComfyUI definitions share the same ``auth`` schema and rendering semantics: ``headers`` and ``query``
+are two maps with template values; credentials appear only as ``api_key`` placeholders. The sole difference between kinds is which variables besides ``api_key``
+are recognized (declarative auth also accepts base variables such as ``base_url``, while ComfyUI accepts only ``api_key``).
+Callers therefore provide variable scopes through ``variable_issues``; the other three checks (malformed placeholders, literal credentials, duplicate header names)
+are kind-independent and shared here.
 
-本模块在包顶层而不在 ``endpoint_definition`` 内：comfyui 子包受「不依赖
-声明式运行时」的 import 契约约束，够不到那个包里的任何实现；同 ``definition_diagnostics`` 与
-``definition_schema_errors``，这是两种 kind 都向下依赖的叶子。
+This module lives at package root rather than inside ``endpoint_definition``: the comfyui subpackage's import contract prohibits depending on the
+declarative runtime, so it cannot access that package's implementations; like ``definition_diagnostics`` and
+``definition_schema_errors``, this is a leaf dependency of both kinds.
 
-渲染同住这里的理由一样：ComfyUI 客户端要把同一份 ``auth`` 节渲染成真实请求头与查询参数，而声明式
-的模板引擎在它够不到的那一侧。凭证的写法与它的校验因此不会各持一份对「什么是合法占位符」的理解。
+Rendering lives here for the same reason: the ComfyUI client must render this shared ``auth`` section into actual headers and query parameters, while the declarative
+template engine is inaccessible from that side. Credential syntax and its validation therefore share one definition of a valid placeholder.
 """
 
 from __future__ import annotations
@@ -23,31 +23,31 @@ from typing import Any
 
 from arcreel_market_core.definition_diagnostics import DefinitionErrorCode, DefinitionIssue, join_path
 
-#: ``auth`` 里唯一承载凭证的变量。
+#: The only credential-bearing variable in ``auth``.
 API_KEY_VARIABLE = "api_key"
 
-#: 合法占位符：``{{ 变量名 }}``，变量名允许点号分段（``inputs.first_frame``）。
+#: Valid placeholder: ``{{ variable_name }}``, allowing dot-separated names (``inputs.first_frame``).
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 
-#: 模板里每一处 ``{{``。不落在 :data:`PLACEHOLDER` 起点上的即写法不合法：格式只认裸变量，
-#: 过滤器、下标、表达式与未闭合的开括号都不是占位符，渲染时会原样发给供应商。
+#: Every ``{{`` in a template. Any not starting a :data:`PLACEHOLDER` is malformed: only bare variables are recognized;
+#: filters, indices, expressions, and unclosed opening braces are not placeholders and are sent unchanged when rendered.
 _PLACEHOLDER_OPEN = re.compile(r"\{\{")
 
-#: 凭证长相：20+ 位含数字的 token 串（API key / JWT / base64 的公共形态）。版本号、固定
-#: 字段这类短静态值不命中；误报的代价只是一条不拦保存的 warning。
+#: Credential-like shape: a token string of 20+ characters containing digits (common to API keys / JWT / base64). Short static values such as version numbers and fixed
+#: fields do not match; false positives produce only a warning that does not block saving.
 _CREDENTIAL_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{20,}")
 
-#: ``auth`` 节里的两张表。
+#: The two maps in the ``auth`` section.
 _AUTH_GROUPS = ("headers", "query")
 
 
 def placeholder_names(text: str) -> list[str]:
-    """模板里全部合法占位符的变量名，按出现次序。"""
+    """Variable names of all valid placeholders, in order of appearance."""
     return PLACEHOLDER.findall(text)
 
 
 def malformed_placeholders(text: str) -> list[str]:
-    """所有不构成合法占位符的 ``{{`` 片段，取到最近的 ``}}``（没有就到串尾）。"""
+    """All ``{{`` fragments that are not valid placeholders, through the nearest ``}}`` (or string end if absent)."""
     valid_starts = {match.start() for match in PLACEHOLDER.finditer(text)}
     fragments: list[str] = []
     for match in _PLACEHOLDER_OPEN.finditer(text):
@@ -59,20 +59,20 @@ def malformed_placeholders(text: str) -> list[str]:
 
 
 def looks_like_literal_credential(template: str) -> bool:
-    """auth 值剔除占位符后，剩余字面部分是否形似直接写入的凭证。
+    """Whether an auth value's literal remainder after removing placeholders resembles a directly embedded credential.
 
-    凭证以 api_key 占位符形态出现是导出剥凭证的前提；字面凭证会随导出与「复制为我的」
-    原样外流，只能靠形态识别提示。
+    Export credential stripping depends on credentials using the api_key placeholder; literal credentials leak unchanged through export and Copy as Mine
+    and can only be flagged by shape detection.
     """
     literal = PLACEHOLDER.sub(" ", template)
     return any(any(ch.isdigit() for ch in token) for token in _CREDENTIAL_TOKEN.findall(literal))
 
 
 def auth_templates(auth: Mapping[str, Any]) -> Iterator[tuple[str, str, str, str]]:
-    """``auth`` 节里每个模板值：``(所在表, 键名, 定位路径, 模板)``。
+    """Each template value in ``auth``: ``(map, key, location_path, template)``.
 
-    键名与定位路径一并给出：头名里允许出现点号，从路径末段反推键名会把 ``X-Trace.Id`` 截成
-    ``Id``。
+    Provide both key and location path: headers may contain dots, so deriving the key from the final path component would truncate ``X-Trace.Id`` to
+    ``Id``.
     """
     for group in _AUTH_GROUPS:
         values: Mapping[str, Any] = auth.get(group) or {}
@@ -81,17 +81,17 @@ def auth_templates(auth: Mapping[str, Any]) -> Iterator[tuple[str, str, str, str
 
 
 def declares_credentials(auth: Mapping[str, Any]) -> bool:
-    """这一节到底会不会发出凭据。
+    """Whether this section actually sends credentials.
 
-    按两张表里有没有条目算，不按 ``auth`` 这个对象本身算：``{"headers": {}}`` 一个头都不会发
-    出去，与整节缺席等效——:func:`check_auth_section` 与 :func:`render_auth` 都是这个口径，
-    「这份定义要不要 api_key」自然也得是。
+    Determine this by entries in the two maps, not the ``auth`` object itself: ``{"headers": {}}`` sends no headers
+    and is equivalent to an absent section. :func:`check_auth_section` and :func:`render_auth` use this same criterion,
+    as must the decision whether the definition needs api_key.
     """
     return any(True for _ in auth_templates(auth))
 
 
 def duplicate_header_issues(path: str, headers: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
-    """同一张头表里大小写不同的同名键：HTTP 头名不区分大小写，两条会一起发出去。"""
+    """Same header key with different casing in one map: HTTP names are case-insensitive, so both would be sent."""
     seen: dict[str, str] = {}
     for name in headers:
         first = seen.setdefault(name.lower(), name)
@@ -105,7 +105,7 @@ def duplicate_header_issues(path: str, headers: Mapping[str, Any]) -> Iterator[D
 
 @dataclass(frozen=True)
 class AuthIssues:
-    """一次 ``auth`` 节检查的产出，按严重度分两列——字面凭证只提示，不拦保存。"""
+    """One ``auth`` check result, split into two severity lists; literal credentials warn without blocking saving."""
 
     errors: tuple[DefinitionIssue, ...] = ()
     warnings: tuple[DefinitionIssue, ...] = ()
@@ -116,14 +116,14 @@ def check_auth_section(
     *,
     variable_issues: Callable[[str, str], Iterable[DefinitionIssue]],
 ) -> AuthIssues:
-    """跑 ``auth`` 节的全部语义规则。
+    """Run all semantic rules for the ``auth`` section.
 
-    ``variable_issues(path, name)`` 是调用方那种 kind 的变量作用域判定，只在 ``api_key`` 以外的
-    变量上调用：``api_key`` 在 auth 节里恒合法，且它是否出现过决定最后那条「非空 auth 必须引用
-    凭证」——把这一条留在各 kind 里，两侧就会各自漂移出一份「凭证算不算写到了」的理解。
+    ``variable_issues(path, name)`` checks variable scope for the caller's kind, invoked only for variables other than ``api_key``.
+    ``api_key`` is always valid in auth, and its presence determines the final rule requiring nonempty auth to reference
+    credentials; leaving this rule to each kind would let their interpretations of credential presence drift apart.
 
-    「非空」按两张表里有没有条目算，不按 ``auth`` 这个对象本身算：``{"headers": {}}`` 一个头都
-    不会发出去，与整节缺席等效。
+    Nonempty means entries in either map, not the ``auth`` object itself: ``{"headers": {}}``
+    sends no headers and is equivalent to an absent section.
     """
     errors: list[DefinitionIssue] = []
     warnings: list[DefinitionIssue] = []
@@ -147,13 +147,13 @@ def check_auth_section(
 
 
 def render_auth(auth: Mapping[str, Any], *, api_key: str) -> tuple[dict[str, str], dict[str, str]]:
-    """把 ``auth`` 节渲染成实际要发出的 ``(headers, query)``。
+    """Render the ``auth`` section into the actual ``(headers, query)`` to send.
 
-    ``api_key`` 为空时整节不渲染：ComfyUI 原生无鉴权，凭证只在套了反向代理的部署里才需要，而把
-    ``Authorization: Bearer `` 这样的空凭证发出去，代理会以 401 拒绝一个本该放行的请求。
+    Skip the whole section when ``api_key`` is empty: native ComfyUI has no authentication and credentials are needed only behind a reverse proxy;
+    sending an empty credential such as ``Authorization: Bearer `` would make the proxy return 401 for a request that should pass.
 
-    ``api_key`` 以外的变量按校验器的规则在保存期就被拒（ComfyUI 的 auth 节只认这一个），故这里
-    不做通用模板求值——真有漏网的占位符，原样留在值里比替换成空串更容易看出是哪一处写错了。
+    Variables other than ``api_key`` are rejected at save time by validation (ComfyUI auth accepts only this variable), so this function
+    does not evaluate general templates; if a placeholder slips through, retaining it makes the mistake clearer than replacing it with an empty string.
     """
     if not api_key:
         return {}, {}

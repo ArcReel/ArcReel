@@ -93,8 +93,8 @@ CASES = [
         id="minimax/hailuo-i2v",
     ),
     pytest.param(
-        # 未指定分辨率（Auto）：定义的 defaults.resolution 在渲染前生效，请求照旧带 768P。
-        # 计价矩阵的 default_resolution 按同一个值结算，字段被整个删掉会让那条假设悬空。
+        # With absent resolution (Auto), definition defaults.resolution applies before rendering; requests still carry 768P.
+        # Pricing-matrix default_resolution settles using that same value; removing the whole field would invalidate the assumption.
         "minimax-hailuo-v1",
         "MiniMax-Hailuo-2.3",
         {"start_image": True, "resolution": None},
@@ -117,7 +117,7 @@ CASES = [
         id="minimax/hailuo-fast-default-resolution",
     ),
     pytest.param(
-        # Fast 与 2.3 请求形状一致、能力不同（仅图生视频），故独立成键；这里钉住形状一致。
+        # Fast and 2.3 share request shape but differ in capabilities (image-to-video only), so have separate keys; pin equal shapes here.
         "minimax-hailuo-v1-fast",
         "MiniMax-Hailuo-2.3-Fast",
         {"start_image": True},
@@ -202,7 +202,7 @@ CASES = [
         id="minimax/h3-480p-resolution",
     ),
     pytest.param(
-        # 显式指定时缺省值不得插手：请求带的是调用方选的档位，经 enum_maps 映射为供应商侧字面。
+        # Explicit selection overrides defaults: send the caller-selected tier, mapped by enum_maps to the provider literal.
         "minimax-h3",
         "MiniMax-H3",
         {"resolution": "2k"},
@@ -244,8 +244,8 @@ CASES = [
         id="minimax/h3-r2v-audio",
     ),
     pytest.param(
-        # 与内置 `_base_resp_error` 同口径：只有顶层 base_resp 的非零 status_code 判失败，
-        # 轮询中的 task.status_msg 不得被当成业务失败。
+        # Match built-in `_base_resp_error`: only nonzero top-level base_resp status_code means failure;
+        # polling task.status_msg must not become a business failure.
         "minimax-h3",
         "MiniMax-H3",
         {},
@@ -492,7 +492,7 @@ async def test_builtin_declarative_runtime_matches_python_backend_fixtures(
 
 @pytest.mark.parametrize("base_url", ["https://x", "https://x/", "https://x/v1"])
 async def test_newapi_reaches_v1_path_whether_or_not_the_stored_base_url_carries_it(tmp_path: Path, base_url: str):
-    """newapi 供应商的 base_url 带不带 ``/v1`` 都归一到同一条调用路径。"""
+    """newapi provider base_url normalizes to the same call path with or without ``/v1``."""
     definition = ENDPOINT_REGISTRY["newapi-video"].definition
     assert definition is not None
     backend = DeclarativeVideoBackend(
@@ -515,7 +515,7 @@ async def test_newapi_reaches_v1_path_whether_or_not_the_stored_base_url_carries
 
 
 async def test_v2_host_only_base_url_gains_the_https_scheme(tmp_path: Path):
-    """存量 v2 供应商允许配纯域名（如 ``api.aimlapi.com``）；缺协议的 URL httpx 直接拒收。"""
+    """Existing v2 providers allow bare hosts (such as ``api.aimlapi.com``); httpx rejects URLs without a scheme."""
     definition = ENDPOINT_REGISTRY["v2-video-generations"].definition
     assert definition is not None
     backend = DeclarativeVideoBackend(
@@ -597,7 +597,7 @@ async def test_existing_newapi_and_v2_endpoint_keys_resume_in_flight_jobs(
 
 
 async def test_minimax_resume_retries_a_transient_poll_404_instead_of_expiring(tmp_path: Path):
-    """minimax 定义声明 ``expire_on_404: false``：续跑期瞬态 404 按瞬态错误重试，不一击判过期废掉已付费任务。"""
+    """The minimax definition declares ``expire_on_404: false``: retry transient resume 404s instead of immediately expiring a paid task."""
     definition = ENDPOINT_REGISTRY["minimax-hailuo-v1"].definition
     assert definition is not None
     backend = DeclarativeVideoBackend(
@@ -635,7 +635,7 @@ async def test_minimax_resume_retries_a_transient_poll_404_instead_of_expiring(t
 
 
 async def test_newapi_resume_poll_404_expires_immediately(tmp_path: Path):
-    """newapi 保持一击判过期：404 即任务已不存在，续跑立即落 ResumeExpiredError 而非重试到超时。"""
+    """newapi retains immediate expiry: 404 means the task no longer exists; resume raises ResumeExpiredError instead of retrying until timeout."""
     definition = ENDPOINT_REGISTRY["newapi-video"].definition
     assert definition is not None
     backend = DeclarativeVideoBackend(
@@ -666,10 +666,10 @@ def _request(tmp_path: Path) -> VideoGenerationRequest:
     ],
 )
 def test_minimax_models_route_to_their_own_endpoint(model: str, endpoint: str):
-    """一份定义一种请求形状加一组能力：2.3-Fast 与 2.3 形状相同但仅图生视频，故各占一键。
+    """Each definition has one request shape and capability set: 2.3-Fast and 2.3 share shape, but Fast is image-to-video-only, requiring separate keys.
 
-    发现路由与 官方数据声明的端点必须一致，否则会出现
-    「发现落 Fast 键、派发却回落 2.3 键」的裂缝。
+    Discovery routing must match officially declared endpoints; otherwise discovery could select Fast
+    while dispatch falls back to the 2.3 key.
     """
     assert infer_endpoint(model, "openai") == endpoint
 

@@ -1,12 +1,13 @@
-"""用户条目表：记录条目是否由用户新建
+"""User-entry table: record whether an entry was created by the user
 
 Revision ID: a7c3e91d4b58
 Revises: f4b8d2a6c913
 Create Date: 2026-10-18 10:00:00.000000
 
-用户在目录里找不到模型、手动填写模型信息时新建的条目，与用户改过官方条目的副本存在同一张表。日后官方数据
-收录同一身份的条目时，两者要区分开：新建的条目提示「改用官方数据」，改过的条目提示「恢复官方数据」。
-存量副本都是用户改过官方条目产生的，默认值 false 即正确。
+Entries created by users who cannot find a model and fill in its details share a table with edited official
+entry copies. When official data later contains that identity, distinguish them: offer newly created entries
+Switch to official data and edited copies Restore official data. Existing copies all came from edits to
+official entries, so default false is correct.
 """
 
 from __future__ import annotations

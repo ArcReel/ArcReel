@@ -1,8 +1,8 @@
-"""转场词表到两个输出端的对照：每一项对应一个剪映非 VIP 预设与一个随包 ffmpeg ``xfade`` 效果。
+"""Map transition vocabulary to both outputs: each entry maps to a non-VIP Jianying preset and a bundled ffmpeg ``xfade`` effect.
 
-重叠型转场在切点两侧借用相邻片段的源素材做交叉过渡；非重叠型（闪黑、闪白）不借素材，只在切点两侧
-分别淡出、淡入到 ``fade_color``。两端的视觉一致性由人工 QA 逐项核对，对不上的项从词表剔除。
-"""
+Overlapping transitions borrow source media from adjacent clips across the cut. Nonoverlapping ones
+(fade black/white) borrow none, fading out/in to ``fade_color`` on either side. Manual QA verifies visual
+consistency between outputs per entry; remove mismatches from the vocabulary."""
 
 from __future__ import annotations
 
@@ -14,11 +14,10 @@ from lib.edit_timeline.model import TransitionType
 
 @dataclass(frozen=True, slots=True)
 class TransitionPreset:
-    """一种转场在剪映草稿与成片里的具体做法。
+    """Concrete transition implementations in Jianying drafts and final videos.
 
-    ``jianying`` 是 pyJianYingDraft ``TransitionType`` 的成员名；``xfade`` 是 ffmpeg ``xfade`` 的
-    ``transition`` 取值；``fade_color`` 只在非重叠型上给出，成片用它做淡出、淡入。
-    """
+    ``jianying`` is a pyJianYingDraft ``TransitionType`` member name; ``xfade`` is ffmpeg ``xfade``'s
+    ``transition`` value; ``fade_color`` appears only for nonoverlapping transitions, used for final-video fade-out/in."""
 
     jianying: str
     xfade: str

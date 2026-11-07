@@ -9,7 +9,7 @@ const STATUS_KEY: Record<MarketSubmissionStatus, string> = {
   closed: "market_submission_status_closed",
 };
 
-/** 分享提交的状态徽标与 PR 链接；没能取回最新状态时在徽标旁注明展示的是上次状态。 */
+/** Sharing-submission status badge and PR link; when latest status cannot be fetched, mark that the badge shows the previous status. */
 export function MarketSubmissionBadge({ submission }: { submission: MarketSubmission }) {
   const { t } = useTranslation("dashboard");
   const label = t(STATUS_KEY[submission.status]);

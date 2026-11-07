@@ -1,24 +1,23 @@
-"""v9→v10：脚本规划 / 提示词编写的落盘名称随术语改名。
+"""v9→v10: persisted script-planning/prompt-authoring names follow terminology changes.
 
-改名覆盖三处落盘事实，语义一律不变：
+Rename three persisted facts without semantic changes:
 
-- ``drafts/episode_N/`` 下的脚本规划草稿与待修复草稿文件名（含旧版 ``.md`` 别名）由
-  ``step1_*`` / ``step2_*`` 前缀改为 ``script_plan_*`` / ``prompt_authoring_*``；
-- ``project.json`` 分集条目的 ``step1_review`` / ``stale_step1_revision`` /
-  ``stale_step1_rebuilt_revision`` 三个字段；
-- 剧集脚本 ``metadata`` 的 ``step1_revision`` 字段。
+- Plan/repair-draft filenames under ``drafts/episode_N/``, including legacy ``.md``, change
+  ``step1_*`` / ``step2_*`` into ``script_plan_*`` / ``prompt_authoring_*``.
+- Three ``project.json`` episode fields: ``step1_review`` / ``stale_step1_revision`` /
+  ``stale_step1_rebuilt_revision``.
+- Script ``metadata`` field ``step1_revision``.
 
-产物清单 ``.arcreel_artifacts.json`` 同批改写：脚本规划产物的 artifact key 里编码着
-``episode-step1`` 这个 kind，改名后旧 key 不再可解析，而条目的 ``artifact_path`` 指着刚被
-改名的草稿文件。两者不改写，清单在下一次读取时整体判为损坏。产物指纹 ``basis_digest``
-不动——它由 ``lib.artifacts.artifact_provenance`` 的冻结 basis token 保证跨改名稳定。
+Rewrite ``.arcreel_artifacts.json`` together: planning keys encode ``episode-step1``, unparseable after
+renaming, while ``artifact_path`` points to renamed drafts. Without both rewrites, subsequent reads
+mark the whole manifest corrupt. Preserve ``basis_digest``: frozen basis tokens in
+``lib.artifacts.artifact_provenance`` guarantee stability across renames.
 
-新旧草稿名并存时由链上的旧形态规整（:mod:`lib.project.project_migrations.legacy_shapes`）先以新名为准、
-旧名文件挪成保留副本，本步只拦漏网的并存。
+Coexisting names are normalized beforehand by :mod:`lib.project.project_migrations.legacy_shapes`,
+preferring new names and setting aside old files. This step guards only remaining coexistence.
 
-写入顺序沿用本目录约定：先只读预检并算出全部目标载荷，全部通过后才创建备份、再逐文件
-落盘。任一处损坏时项目目录一个字节都没被动过，runner 据此落「需要修复」裁决。
-"""
+Preflight read-only and compute every payload before creating backups/writing individual files.
+Corruption changes no project bytes; runners record repair-needed verdicts."""
 
 from __future__ import annotations
 
@@ -35,8 +34,8 @@ from lib.project.project_migrations.backups import ensure_versioned_backup
 
 _TARGET_VERSION = 10
 
-#: 草稿文件的旧名 → 新名。键是 v9 的落盘事实，值是 v10 的落盘事实；两侧都写死在本迁移里，
-#: 之后任一侧再改名都不该回头改写这一步的历史对应关系。runner 的备份回收按这两侧枚举。
+#: Old → new draft names, historical v9/v10 facts frozen on both sides; later renames must not
+#: rewrite this mapping. Runner backup cleanup enumerates both sides.
 DRAFT_FILE_RENAMES: dict[str, str] = {
     "step1_normalized_script.json": "script_plan_normalized_script.json",
     "step1_normalized_script.invalid.json": "script_plan_normalized_script.invalid.json",
@@ -50,24 +49,24 @@ DRAFT_FILE_RENAMES: dict[str, str] = {
     "step2_reference_script.invalid.json": "prompt_authoring_reference_script.invalid.json",
 }
 
-#: ``project.json`` 分集条目上的字段改名。
+#: ``project.json`` episode-field renames.
 _EPISODE_FIELD_RENAMES: dict[str, str] = {
     "step1_review": "script_plan_review",
     "stale_step1_revision": "stale_script_plan_revision",
     "stale_step1_rebuilt_revision": "stale_script_plan_rebuilt_revision",
 }
 
-#: 剧集脚本 ``metadata`` 上的字段改名。
+#: Script ``metadata`` field renames.
 _SCRIPT_METADATA_FIELD_RENAMES: dict[str, str] = {"step1_revision": "script_plan_revision"}
 
-#: 产物 key 里编码的 kind 值改名（见 ``lib.artifacts.artifact_manifest.ArtifactKind``）。
+#: Encoded artifact-key kind renames (``lib.artifacts.artifact_manifest.ArtifactKind``).
 _ARTIFACT_KIND_RENAMES: dict[str, str] = {"episode-step1": "episode-script-plan"}
 
 _MANIFEST_FILENAME = ".arcreel_artifacts.json"
 
 
 def _rename_fields(payload: dict[str, Any], renames: dict[str, str], location: str) -> dict[str, Any]:
-    """按对照表改字段名；新名已占用时拒绝，不做静默取舍。"""
+    """Rename fields by mapping; reject occupied new names without silent choices."""
 
     migrated = copy.deepcopy(payload)
     for old, new in renames.items():
@@ -80,7 +79,7 @@ def _rename_fields(payload: dict[str, Any], renames: dict[str, str], location: s
 
 
 def _rename_artifact_path(artifact_path: str) -> str:
-    """把清单里指向草稿文件的相对路径换成新文件名；其余路径原样返回。"""
+    """Replace manifest draft paths with new names; return other paths unchanged."""
 
     head, _, name = artifact_path.rpartition("/")
     new_name = DRAFT_FILE_RENAMES.get(name)
@@ -90,7 +89,7 @@ def _rename_artifact_path(artifact_path: str) -> str:
 
 
 def migrate_manifest(payload: dict[str, Any]) -> dict[str, Any]:
-    """纯转换一份产物清单：改写脚本规划产物的 key 与被改名的草稿路径。"""
+    """Pure manifest conversion of planning keys and renamed draft paths."""
 
     entries = payload.get("entries")
     if not isinstance(entries, dict):
@@ -145,7 +144,7 @@ def _readable_object(path: Path, label: str) -> dict[str, Any] | None:
 
 
 def _plan_draft_renames(project_dir: Path, episodes: list[tuple[Path | None, int]]) -> list[tuple[Path, Path]]:
-    """列出待改名的草稿文件；新名已被占用时拒绝，不覆盖任何既有内容。"""
+    """List draft renames, rejecting occupied destinations without overwriting content."""
 
     renames: list[tuple[Path, Path]] = []
     for _script_path, episode in episodes:
@@ -170,12 +169,12 @@ def _plan_draft_renames(project_dir: Path, episodes: list[tuple[Path | None, int
 
 
 def plan_script_plan_draft_renames(project_dir: Path) -> tuple[tuple[Path, Path], ...]:
-    """只读地列出待改名的草稿文件，供改名之前就要按新名寻址的迁移步做前置预检。
+    """Read-only draft-rename planning for migration preflights needing new names before renaming.
 
-    产物清单激活（v7→v8）用当前代码解析脚本规划草稿路径，解析到的是新名；它跑在本改名之前，
-    因而要么先把文件改成新名，要么让规划按旧名读取，否则激活会认定草稿不存在、不登记该产物。
-    探测与落盘分开，调用方得以把两步的只读预检合并到写盘之前。新名已就位的项目返回空元组。
-    """
+    v7→v8 activation uses current code resolving new draft names but precedes this migration. Rename
+    first or read old paths during planning, otherwise activation considers drafts absent and skips
+    registration. Separate probing/persistence lets callers combine both preflights before writing.
+    Return empty tuples if new names are already present."""
 
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
@@ -188,11 +187,10 @@ def plan_script_plan_draft_renames(project_dir: Path) -> tuple[tuple[Path, Path]
 
 
 def pending_draft_rename_map(renames: Sequence[tuple[Path, Path]], project_dir: Path) -> dict[str, str]:
-    """把待改名清单转成规划器要的「规范相对路径 → 当前落盘相对路径」映射。
+    """Convert pending renames into planner canonical-relative-path → current-relative-path mappings.
 
-    改名对是「当前落盘位置 → 规范位置」，映射的方向与之相反：规划按规范路径寻址，读的却是
-    改名尚未落盘时的旧名。方向只在这里定义一次。
-    """
+    Rename pairs point current → canonical; mappings reverse them because planning addresses canonical
+    paths while reading old, unrenamed files. Define direction only here."""
 
     return {
         target.relative_to(project_dir).as_posix(): source.relative_to(project_dir).as_posix()
@@ -201,7 +199,7 @@ def pending_draft_rename_map(renames: Sequence[tuple[Path, Path]], project_dir: 
 
 
 def apply_script_plan_draft_renames(renames: Sequence[tuple[Path, Path]], *, from_version: int) -> None:
-    """落盘执行 :func:`plan_script_plan_draft_renames` 的结果：先备份全部来源，再逐个改名。"""
+    """Apply :func:`plan_script_plan_draft_renames`: back up all sources, then rename individually."""
 
     for source, _target in renames:
         ensure_versioned_backup(source, from_version)
@@ -210,7 +208,7 @@ def apply_script_plan_draft_renames(renames: Sequence[tuple[Path, Path]], *, fro
 
 
 def migrate_v9_to_v10(project_dir: Path) -> None:
-    """启动扫描与归档导入共用的单一入口（经 ``migrate_project_dir`` 调用）。"""
+    """Single startup/archive entry point through ``migrate_project_dir``."""
 
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
@@ -222,7 +220,7 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
     if int(project.get("schema_version") or 0) >= _TARGET_VERSION:
         return
 
-    # 以下全程只读：任一处损坏时还没有备份或业务文件写入。
+    # Everything below is read-only: corruption precedes any backup/business write.
     episodes = _episode_entries(project_dir, project)
     draft_renames = _plan_draft_renames(project_dir, episodes)
 
@@ -268,7 +266,7 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
         except ValueError as exc:
             raise ProjectMigrationError(str(exc), file=_MANIFEST_FILENAME) from exc
 
-    # 预检全部通过后才动盘：所有被改写或改名的文件先备份完，再落盘。
+    # Touch disk only after all preflights pass; complete backups of every rewritten/renamed file before writing.
     for path, _payload in [*plans, (project_file, project)]:
         ensure_versioned_backup(path, 9)
     apply_script_plan_draft_renames(draft_renames, from_version=9)

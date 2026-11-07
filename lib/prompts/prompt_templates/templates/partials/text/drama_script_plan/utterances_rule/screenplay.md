@@ -1,1 +1,1 @@
-把作者写下的台词与画外音**逐字照搬**为有序发声序列，按它们在分镜中的先后排列：台词（dialogue）的 speaker 填原文说话人（命名角色来自 characters_in_scene，群演照填原文称呼）；画外音 / 旁白写为 voiceover。不改写、不润色、不删减、不补写。分镜无口播则留空。
+Copy the author’s dialogue and off-screen speech **verbatim** into an ordered sequence, following their order in the shot: for dialogue, speaker is the original speaker (named characters come from characters_in_scene; extras use their original designation); off-screen speech / narration is voiceover. Do not rewrite, polish, remove, or add content. Leave empty if the shot contains no spoken content.

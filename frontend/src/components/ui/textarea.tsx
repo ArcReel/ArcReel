@@ -1,15 +1,15 @@
 import * as React from "react"
 import { cn } from "cn"
 
-// 自动撑高：优先 CSS field-sizing: content，程序写入与宽度变化都由浏览器重排。
-// 不支持的浏览器回退到 JS 测量：值变化与 input 事件时重算，ResizeObserver 监听宽度变化。
+// Auto-height: prefer CSS field-sizing: content; browsers relayout on programmatic writes and width changes.
+// Unsupported browsers fall back to JS measurement: recalculate on value changes/input events; ResizeObserver tracks width changes.
 function supportsFieldSizing() {
   return typeof CSS !== "undefined" && CSS.supports("field-sizing", "content")
 }
 
 function fitToContent(el: HTMLTextAreaElement) {
   const style = getComputedStyle(el)
-  // scrollHeight 不含边框，border-box 下要补上，否则最后一行被裁掉。
+  // scrollHeight excludes borders; add them for border-box or final lines get clipped.
   const border =
     style.boxSizing === "border-box"
       ? (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0)
@@ -47,12 +47,12 @@ function useFieldSizingFallback(
   }, [fallback, ref, value])
 }
 
-// 相对生成代码的改动：默认上限为所在尺寸容器高度的 40%（没有尺寸容器时按视口），
-// 超出后在内部滚动；高度随内容变化，去掉手动拖拽；只支持桌面端，字号固定为 text-sm，去掉按视口切换的 md:text-sm。
-// 另加 variant="plain"：画布里直接编辑的正文字段（如故事设定），静止时没有边框与底色、行高放宽，悬停或聚焦时显出边框。
-// 长页面里的正文字段由调用处传 max-h-none，随内容撑高、由页面滚动，不在框内再嵌套滚动。
-// 另加 mono：换成等宽字体，用于 JSON、代码与请求体；它管字体、variant 管外观，两者独立，可同时使用。
-// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
+// Change from generated code: default cap is 40% of containing size-container height (viewport when no size container exists),
+// scrolling internally above it; height follows content, removing manual resizing; desktop only, fixed text-sm without viewport-dependent md:text-sm.
+// Add variant="plain": directly edited canvas bodies (e.g. story settings), without borders/fills at rest, with looser line-height and borders on hover/focus.
+// Callers pass max-h-none for long-page body fields, expanding with content and scrolling pages rather than nesting editor scrolling.
+// Add mono: monospace fonts for JSON/code/request bodies; mono controls fonts and variant controls appearance, independently and combinably.
+// Compared with upstream: reduce input fill opacity to retain text contrast; failures use a full red outline and stronger glow.
 function Textarea({
   className,
   ref,
@@ -75,7 +75,7 @@ function Textarea({
   return (
     <textarea
       ref={setRef}
-      // 补 relative：与其他滚动容器一致写成定位元素（textarea 没有子元素，不影响布局）
+      // Add relative: positioned like other scroll containers (textarea has no children, so layout is unaffected).
       data-slot="textarea"
       className={cn(
         "relative flex field-sizing-content min-h-16 max-h-[40cqh] w-full resize-none overflow-y-auto rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/20 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/40 dark:bg-input/12 dark:disabled:bg-input/32",

@@ -32,15 +32,15 @@ ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image",
 ReferenceGenerationType = Literal["i2v", "r2v"]
 
 _SCHEMA_VERSION = 5
-#: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
+#: Current ``execution_checkpoint_schema_version`` shared by provenance-backfill migrations and writers.
 CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
-#: 不再记录旁白交付事实、也还没有记录供应商素材引用的检查点。
+#: Checkpoint without narration-delivery facts, before provider asset references.
 _NO_NARRATION_SCHEMA_VERSION = 4
-#: 带完整产物时效事实、并且仍记录旁白交付事实的检查点。
+#: Checkpoint with complete artifact-freshness facts, still retaining narration delivery.
 _NARRATION_CURRENCY_SCHEMA_VERSION = 3
 _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
-#: 带完整产物时效事实的检查点版本；版本记录按它们判断来源是否完整。
+#: Checkpoint versions with complete artifact-freshness facts; version records use these to assess provenance completeness.
 CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset(
     {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION}
 )
@@ -250,10 +250,10 @@ class StagedProviderMedia:
 
 @dataclass(frozen=True, slots=True)
 class ProviderAssetReference:
-    """一张以供应商素材引用发出的参考图：``media_index`` 指向检查点 ``media`` 中的那一项。
+    """One reference image sent as a provider asset reference: ``media_index`` identifies its checkpoint ``media`` entry.
 
-    暂存副本照常保存并记录摘要，素材引用只改变这张图片的传输形式；``content_version_id`` 是发出的字节对应的
-    内容版本，``asset_uri`` 是实际放进请求的引用。
+    Staged copies and digests remain intact; asset references change only transport. ``content_version_id`` identifies
+    the sent bytes' content version; ``asset_uri`` is the actual request reference.
     """
 
     media_index: int
@@ -416,10 +416,10 @@ def stage_provider_media(
         return planned
     finally:
         if not published:
-            shutil.rmtree(temporary_dir, ignore_errors=True)  # hard-delete: temp -- 供应商媒体暂存目录
+            shutil.rmtree(temporary_dir, ignore_errors=True)  # hard-delete: temp -- Provider-media staging directory
         # Concurrent staging or another task-owned entry can keep the shared task directory non-empty.
         with contextlib.suppress(OSError):
-            task_dir.rmdir()  # hard-delete: temp -- 空的任务暂存目录
+            task_dir.rmdir()  # hard-delete: temp -- Empty task staging directory
 
 
 async def stage_provider_media_for_task(
@@ -485,21 +485,21 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
         if _is_link_or_junction(cursor):
             return
     if final_dir.is_symlink():
-        final_dir.unlink(missing_ok=True)  # hard-delete: temp -- 任务的供应商媒体暂存
+        final_dir.unlink(missing_ok=True)  # hard-delete: temp -- Task provider-media staging
     elif _is_junction(final_dir):
         # Windows directory junctions are directory reparse points: remove the entry with rmdir so neither
         # pathlib.unlink nor recursive deletion can follow or reject the linked directory.
         # Idempotent cleanup can race with another remover of the same junction entry.
         with contextlib.suppress(FileNotFoundError):
-            final_dir.rmdir()  # hard-delete: temp -- 任务的供应商媒体暂存
+            final_dir.rmdir()  # hard-delete: temp -- Task provider-media staging
     elif os.path.lexists(final_dir):
         if final_dir.is_dir():
-            shutil.rmtree(final_dir)  # hard-delete: temp -- 任务的供应商媒体暂存
+            shutil.rmtree(final_dir)  # hard-delete: temp -- Task provider-media staging
         else:
-            final_dir.unlink(missing_ok=True)  # hard-delete: temp -- 任务的供应商媒体暂存
+            final_dir.unlink(missing_ok=True)  # hard-delete: temp -- Task provider-media staging
     # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
     with contextlib.suppress(OSError):
-        final_dir.parent.rmdir()  # hard-delete: temp -- 空的任务暂存目录
+        final_dir.parent.rmdir()  # hard-delete: temp -- Empty task staging directory
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,7 +515,7 @@ class _VideoSubmissionCheckpoint:
     project_name: str
     script_file: str
     unit_id: str
-    #: 序列化键固定为 ``capability``：checkpoint 是落盘契约，且参与 ``request_digest``。
+    #: Serialized key stays ``capability``: checkpoints are persisted contracts participating in ``request_digest``.
     generation_type: ReferenceGenerationType
     provider_id: str
     provider_model_id: str
@@ -532,11 +532,11 @@ class _VideoSubmissionCheckpoint:
     visual_basis_digest: str
     legacy_artifact_visual_basis: ArtifactBasisDescriptor | None
     artifact_currency: VideoArtifactCurrencyFacts | None
-    #: schema v1–v3 的旁白交付事实，原样保留只为复核 ``request_digest``；v4 起不再记录。
+    #: schema v1–v3 narration-delivery facts, retained verbatim only to verify ``request_digest``; omitted since v4.
     legacy_narration: dict[str, Any] | None
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
-    #: schema v5 起记录：以供应商素材引用代替图片内容发出的参考图，按 ``media_index`` 升序。
+    #: Since schema v5: references sent as provider assets instead of image content, ordered by ``media_index``.
     provider_asset_references: tuple[ProviderAssetReference, ...]
     request_digest: str
 
@@ -859,9 +859,9 @@ class _VideoSubmissionCheckpoint:
         schema_version = raw.get("schema_version")
         if type(schema_version) is not int or schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError("unsupported video submission checkpoint version or kind")
-        # 任务与调用的关联只有 ``api_calls.task_id`` 一个真相源；检查点不再带调用坐标。
-        # 升级前落库的在途检查点仍带这个键，丢弃它即可继续接续——它不进 request_digest，
-        # 摘要校验不受影响。
+        # ``api_calls.task_id`` is the sole task/call association; checkpoints no longer carry call coordinates.
+        # Pre-upgrade in-flight checkpoints still have this key; dropping it permits resumption. It is outside
+        # request_digest, leaving digest validation unchanged.
         raw.pop("api_call_id", None)
         _require_exact_keys(
             raw,
@@ -953,7 +953,7 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
         "execution_task_id": checkpoint.task_id,
         "execution_script_file": checkpoint.script_file,
         "execution_request_digest": checkpoint.request_digest,
-        # 产物元数据键固定为 execution_capability（落盘契约）。
+        # Artifact metadata key remains execution_capability (persisted contract).
         "execution_capability": checkpoint.generation_type,
         "execution_provider_id": checkpoint.provider_id,
         "execution_provider_model_id": checkpoint.provider_model_id,

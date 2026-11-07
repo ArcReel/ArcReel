@@ -1,10 +1,11 @@
-"""按请求契约拆分 Agnes 与百炼视频端点，Vertex 音轨按凭证协议声明。
+"""Split Agnes/Bailian video endpoints by request contract; Vertex audio follows credential protocol.
 
 Revision ID: f6d2a8c4b931
 Revises: f6c2d8a4b901
 
-只改旧端点；绑定条目优先，用户副本的官方名和别名覆盖冻结的出厂条目。无绑定时按升级前的归一化名字匹配。
-不改能力覆盖、条目或检查点。续跑守卫接受旧端点的后继；降级后新任务的守卫无法被旧代码认得。
+Only old endpoints change. Bound entries win; user-copy official names/aliases override frozen shipped
+entries. Without bindings, match pre-upgrade normalized names. Preserve overrides, entries, checkpoints.
+Resume guards accept old-endpoint successors; after downgrade old code cannot recognize new-task guards.
 """
 
 from __future__ import annotations
@@ -166,7 +167,7 @@ def upgrade() -> None:
                 }[old]
             ):
                 continue
-            # 自定义 Gemini 只用 AI Studio，协议没有拆分。
+            # Custom Gemini uses only AI Studio; the protocol was not split.
             if provider is None and old == "gemini-video":
                 continue
             connection.execute(

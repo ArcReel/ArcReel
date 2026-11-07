@@ -22,7 +22,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """把已有 default_image_backend 的值复制到 _t2i / _i2i 两条新 key（若新 key 已存在则跳过该条）。"""
+    """Copy default_image_backend to new _t2i / _i2i keys, skipping each already-existing new key."""
     bind = op.get_bind()
     legacy_row = bind.execute(
         sa.text("SELECT value FROM system_setting WHERE key = 'default_image_backend'")
@@ -44,5 +44,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """回滚仅删除新 key；旧 key 始终保留。"""
+    """Rollback deletes only new keys; the old key always remains."""
     op.execute("DELETE FROM system_setting WHERE key IN ('default_image_backend_t2i', 'default_image_backend_i2i')")

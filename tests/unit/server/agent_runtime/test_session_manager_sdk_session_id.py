@@ -72,7 +72,7 @@ class TestSessionManagerSdkSessionId:
     async def test_stream_opened_once_the_session_is_listed_subscribes_to_the_managed_channel(
         self, session_manager, meta_store, monkeypatch
     ):
-        """新会话的元数据一落库就可被列出：此时打开的 entry 流挂在会话实际广播的通道上。"""
+        """New-session metadata is listable immediately after persistence; the opened entry stream subscribes to the session's actual broadcast channel."""
         sdk_session_id = "sdk-new-listed"
         managed = _make_managed()
         session_manager.sessions[managed.session_id] = managed

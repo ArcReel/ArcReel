@@ -1,7 +1,7 @@
-"""市场源索引的 schema 与读取口径（校验规则 ①）。
+"""Market-source index schema and reading semantics (validation rule ①).
 
-:func:`parse_index` 先按主版本判定能否读，再过 ``index_schema.json`` 整份判定，最后投影出当前
-版本认识的条目。纯逻辑：输入是已解析的 JSON 值。
+:func:`parse_index` first checks major-version readability, validates the entire index against ``index_schema.json``, then projects entries recognized by the current
+version. Pure logic: input is an already-parsed JSON value.
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, joi
 
 INDEX_SCHEMA_PATH = Path(__file__).parent / "index_schema.json"
 
-#: 本客户端实现的索引格式版本。主版本更高的索引整份拒读，同主版本的更高 minor 照常读。
+#: Index format version implemented by this client. Reject higher-major indexes entirely; accept higher minor versions within the same major.
 INDEX_SCHEMA_VERSION = "1.0.0"
 
-#: 本客户端识别的唯一条目类型；其余类型读索引时静默跳过。
+#: The only entry type recognized by this client; silently skip other types when reading indexes.
 ENDPOINT_ENTRY_TYPE = "endpoint"
 
-#: 字段名 → 该字段格式不合规（pattern / 禁换行）时的专用码，其余格式问题报 ``invalid_value``。
+#: Field name to dedicated code for its format violations (pattern / no newlines); other format issues use ``invalid_value``.
 _FORMAT_CODES = {
     "slug": MarketIssueCode.SLUG_INVALID,
     "path": MarketIssueCode.PATH_NOT_RELATIVE,
@@ -36,13 +36,13 @@ _FORMAT_CODES = {
     "min_app_version": MarketIssueCode.MIN_APP_VERSION_INVALID,
 }
 
-#: 同一实例在 if/then 引用下会被多条规则各报一遍，这些关键字的报错按「路径 + 码」去重即可。
+#: Multiple rules report the same instance through if/then references; deduplicate errors for these keywords by path + code.
 _FORMAT_KEYWORDS = frozenset({"pattern", "not"})
 
 
 @dataclass(frozen=True)
 class MarketIndexEntry:
-    """一个调用端点条目。``path`` / ``icon`` 是相对索引所在目录的路径。"""
+    """An invocation-endpoint entry. ``path`` / ``icon`` are relative to the index directory."""
 
     type: str
     slug: str
@@ -67,11 +67,11 @@ class MarketIndex:
 
 
 class MarketIndexError(Exception):
-    """索引不可用。"""
+    """Index unavailable."""
 
 
 class UnsupportedIndexSchemaError(MarketIndexError):
-    """索引主版本高于本客户端，整份拒读。"""
+    """Index major version exceeds this client's; reject the entire index."""
 
     def __init__(self, version: str) -> None:
         super().__init__(f"unsupported market index schema_version {version}")
@@ -80,7 +80,7 @@ class UnsupportedIndexSchemaError(MarketIndexError):
 
 
 class InvalidIndexError(MarketIndexError):
-    """索引未过 schema；任一条目不合规即整份无效。"""
+    """Index fails schema validation; any invalid entry invalidates the entire index."""
 
     def __init__(self, issues: Sequence[MarketIssue]) -> None:
         super().__init__(f"invalid market index ({len(issues)} issues)")
@@ -100,11 +100,11 @@ def _index_validator() -> Draft202012Validator:
 
 
 def parse_index(document: object) -> MarketIndex:
-    """按客户端兼容口径读一份索引。
+    """Read an index under client compatibility semantics.
 
     Raises:
-        UnsupportedIndexSchemaError: 主版本高于本客户端（先于 schema 判定：新主版本的形状本就判不了）。
-        InvalidIndexError: 未过索引 schema。
+        UnsupportedIndexSchemaError: Major version exceeds this client (checked before schema: a new major's shape cannot be validated).
+        InvalidIndexError: Index schema validation failed.
     """
     if isinstance(document, dict):
         declared = parse_semver(document.get("schema_version"))
@@ -124,7 +124,7 @@ def parse_index(document: object) -> MarketIndex:
 
 
 def index_schema_issues(document: object) -> list[MarketIssue]:
-    """索引过 schema 的全部诊断，按出现位置排序、去重。"""
+    """All index schema-validation diagnostics, sorted by location and deduplicated."""
     issues: list[MarketIssue] = []
     seen: set[tuple[str, str, str]] = set()
     errors = sorted(

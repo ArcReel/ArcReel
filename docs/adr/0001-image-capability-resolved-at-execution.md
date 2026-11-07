@@ -2,14 +2,14 @@
 status: accepted
 ---
 
-# 图片 capability（t2i/i2i）仅在执行时解析，worker 限流路由使用近似 capability
+# Resolve image capability (t2i/i2i) only at execution; worker routing uses an approximation
 
-一个分镜镜头走文生图（t2i）还是图生图（i2i），取决于它**有没有参考图**；而参考图集合（引用的角色/场景/道具立绘、以及为画面连贯而引用的**上一张分镜**）是「开画那一刻」项目状态的快照——尤其批量重生成时，第 N 镜依赖的第 N-1 镜在入队时往往尚未画出。因此 capability 是执行时才能确定的派生事实，入队和 worker 认领（claim）这两个执行前的环节**在结构上都无法知道它**。我们据此决定：capability 只在执行层解析，入队不冻结执行身份（已删除入队时的 backend snapshot）；入队仍按代表槽派生一个 advisory `provider_id` 落 task 行（`_derive_execution_model_for_enqueue`，派生失败留 NULL 走兜底分支），仅供 claim SQL 池过滤与限流路由；执行入口重新精确解析，结果与记录不一致时改写记录并原位回队，不调用供应商。
+Whether an item uses text-to-image or image-to-image depends on **reference presence**. References include character/scene/prop sheets and the **previous storyboard** for continuity, reflecting project state when drawing starts. During batch regeneration, N-1 often does not exist when N enqueues. Capability is execution-derived and **structurally unknowable** to enqueue/claim. Resolve it only at execution; enqueue no longer freezes backend identity snapshots. Enqueue still derives advisory `provider_id` from the representative slot (`_derive_execution_model_for_enqueue`, NULL on failure for fallback) for claim SQL/pool routing only. Execution resolves precisely, updates mismatches, and requeues in place without provider calls.
 
-图片编辑任务（`image_edit`，见 `docs/adr/0050`）是唯一例外：它以当前图为唯一参考图、**必然 i2i**，capability 入队即知，入队与认领按 i2i 槽精确解析 provider 供限流路由，且 i2i 槽不可用在入队前即拒绝。
+Image edits (`image_edit`, see `docs/adr/0050`) alone necessarily use i2i with current-image-only references. Their capability is known at enqueue, so enqueue/claim resolve i2i precisely for routing and reject unavailable slots before task creation.
 
 ## Consequences
 
-- 并发限流（rate-limit 池路由）需要一个 provider，但执行前拿不到真实 capability，故除 `image_edit`（按 i2i 槽精确解析）外统一按 `capability="t2i"` 取一个**代表性** provider——入队时派生落 task 行，claim SQL 据此过滤。
-- 仅当用户给同一项目的 t2i 与 i2i **配置了不同 provider**、任务实际走 i2i 时，认领会先落在 t2i 那个池上；执行入口解析出 i2i 的 provider 后改写记录并原位回队，任务多回队一次，再在实际执行的池里占槽。这是接受的代价：并发上限因此对实际执行的 provider 精确成立。
-- 这次多余的回队**无法消除**：只要「t2i/i2i 可配不同 provider」与「capability 执行时才定」同时成立，执行前的槽位归属就只能近似。**不要试图在入队/认领时记录 needs_i2i 来"修复"它**——那需要把执行层的参考图收集逻辑复制进调度层，且在批量场景下入队时的答案本就是错的。
+- Rate-limit routing needs providers before capability is available. Except `image_edit`'s exact i2i resolution, use representative `capability="t2i"`, stored at enqueue and read by claim SQL.
+- Only distinct t2i/i2i providers with actual i2i requests initially occupy the wrong pool. Execution updates/requeues once, then occupies the correct provider slot, an accepted cost for exact executing-provider limits.
+- This extra requeue is unavoidable while providers may differ and capability is execution-time. **Do not add needs_i2i at enqueue/claim**: that duplicates reference collection in scheduling, and batch answers there are already wrong.

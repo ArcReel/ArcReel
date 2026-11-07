@@ -1,4 +1,4 @@
-"""广告/短片「AI 生成脚本」的服务入口：整份重做先确认丢失清单，违约让任务失败，回执列出新增资产。"""
+"""Advertisement/short AI-script-generation service entries: confirm loss inventory before full redo, fail violations, report added assets."""
 
 from __future__ import annotations
 

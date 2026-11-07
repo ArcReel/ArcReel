@@ -290,12 +290,12 @@ class TestProjectArchiveRoutes:
 
 
 def _has_cjk(payload: object) -> bool:
-    """响应体里是否残留中日韩表意文字——en/vi 请求下的诊断文案不应命中。"""
+    """Whether response bodies retain CJK ideographs; diagnostic text for en/vi requests must not match."""
     return bool(re.search(r"[一-鿿]", json.dumps(payload, ensure_ascii=False)))
 
 
 class TestProjectArchiveDiagnosticsLocalization:
-    """归档导入/导出诊断按 Accept-Language 渲染（结构化消息在 router 边界成文）。"""
+    """Archive import/export diagnostics follow Accept-Language; routers render structured messages at boundaries."""
 
     def test_import_failure_payload_uses_request_locale(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
@@ -362,7 +362,7 @@ class TestProjectArchiveDiagnosticsLocalization:
 
 
 async def test_export_cancelled_while_packing_leaves_no_archive(tmp_path, monkeypatch):
-    """打包进行中被取消：等线程打包完再传播取消，调用方按登记回收 zip。"""
+    """Cancellation during packing waits for threads before propagating, allowing callers to reclaim registered ZIPs."""
     started = threading.Event()
     release = threading.Event()
     packed = threading.Event()
@@ -371,7 +371,7 @@ async def test_export_cancelled_while_packing_leaves_no_archive(tmp_path, monkey
     class _BlockingArchiveService:
         @asynccontextmanager
         async def export_materials_held(self, project_name: str, *, scope: str = "full") -> AsyncGenerator[None]:
-            yield  # 项目没有远端图片，不需要取回
+            yield  # Projects have no remote images to retrieve.
 
         def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
             started.set()

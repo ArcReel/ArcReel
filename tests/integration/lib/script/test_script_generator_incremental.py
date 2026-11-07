@@ -1,9 +1,6 @@
-"""正式脚本的条目级维护：内容确认整份转出待编写条目，提示词编写默认补缺、显式重写。
+"""Entry-level formal-script maintenance: confirmation materializes whole pending scripts; authoring fills gaps by default and rewrites explicitly.
 
-三种变体（drama / narration / reference_video）各自走一遍同一组判据：提示词编写默认只编写待编写
-条目、``entry_ids`` 划定范围、``rewrite`` 显式重写、其余条目逐字节不变、不读脚本规划；转换整份投影内容层并拒绝确认之外的
-规划或剧本。
-"""
+Drama/narration/reference_video share criteria: author pending entries only by default, scope via ``entry_ids``, explicit ``rewrite``, byte-identical other entries, no planning reads. Materialization projects whole content layers and rejects unconfirmed plans/scripts."""
 
 from __future__ import annotations
 
@@ -35,7 +32,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("video_request_facts"
 
 
 # ---------------------------------------------------------------------------
-# 项目与脚本规划装配
+# Project/script-plan assembly
 # ---------------------------------------------------------------------------
 
 
@@ -76,7 +73,7 @@ def _write_plan(project_dir: Path, filename: str, document: dict[str, Any]) -> P
 
 
 def _fake_generator(responses: list[str]) -> MagicMock:
-    """按调用次序吐出预置响应；多调一次即耗尽，用例据此断言「本轮没有调用模型」。"""
+    """Yield prepared responses in call order, exhausting extra calls to assert no model call this round."""
     generator = MagicMock()
     generator.model = "mock"
     generator.generate = AsyncMock(side_effect=[MagicMock(text=text) for text in responses])
@@ -88,7 +85,7 @@ def _script(project_dir: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 三种变体的装配器：造项目 + 脚本规划 + 视觉层响应
+# Three variant assemblers create project + planning + visual responses.
 # ---------------------------------------------------------------------------
 
 
@@ -199,7 +196,7 @@ def _reference_visual(*ids: str, mark: str = "镜头1") -> str:
 
 
 class _Variant:
-    """一种脚本规划变体在本组用例里的全部差异点。"""
+    """All differences for one script-planning variant in this case group."""
 
     def __init__(
         self,
@@ -223,10 +220,10 @@ class _Variant:
         self.plan_factory = plan_factory
         self.visual_factory = visual_factory
         self.entry_ids = entry_ids
-        #: 该变体脚本规划条目上带默认值、可以整个缺席的内容字段（drama 无草稿模型故为 None）。
+        #: Optional defaulted plan-content field that may be wholly absent; drama has no draft model, so None.
         self.omissible_field = omissible_field
-        #: 两个条目各自在 prompt 里的可辨认串。参考生视频的 prompt 不渲染 unit_id（视觉层按位对齐），
-        #: 只能认正文。
+        #: Recognizable prompt strings for each of two entries; reference-video authoring does not render unit_id,
+        #: so identify bodies only.
         self.prompt_needles = prompt_needles or entry_ids
 
     def build(self, tmp_path: Path, *, texts: tuple[str, ...] | None = None) -> tuple[Path, Path]:
@@ -298,10 +295,10 @@ def variant(request) -> _Variant:
     return request.param
 
 
-#: 各变体在**脚本规划中间文件**里的条目数组键（剧本侧的键见 ``_Variant.items_key``）。
+#: Entry-array keys in intermediate script-plan files; script-side keys are ``_Variant.items_key``.
 _PLAN_ENTRIES_KEY = {"narration": "segments", "drama": "scenes", "reference_video": "units"}
 
-#: 用户手工成果与已付费产物引用：未变条目必须原样保留这些字段（见 issue 验收判据）。
+#: User edits and paid-artifact references must remain unchanged on unaffected entries, per issue acceptance.
 _USER_FIELDS: dict[str, Any] = {
     "note": "用户备注",
     "generated_assets": {"storyboard_image": "storyboards/scene.png", "status": "storyboard_ready"},
@@ -313,14 +310,14 @@ def _entries(script: dict[str, Any], variant: _Variant) -> dict[str, dict[str, A
 
 
 def _stamp_user_fields(project_dir: Path, variant: _Variant, entry_id: str) -> None:
-    """把用户字段直接写进磁盘上的剧本——它们由用户编辑与产物生成写入，不经提示词编写产生。"""
+    """Write user fields directly into on-disk scripts; user edits/artifact generation create them, never prompt authoring."""
     path = project_dir / "scripts" / "episode_1.json"
     script = json.loads(path.read_text(encoding="utf-8"))
     for entry in script[variant.items_key]:
         if entry[variant.id_field] == entry_id:
             entry.update(_USER_FIELDS)
             if variant is not REFERENCE:
-                # 参考生视频单元没有尾帧字段。
+                # Reference-video units have no end-frame field.
                 entry["end_frame_image"] = "end_frames/scene.png"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -341,7 +338,7 @@ def _entry_json(project_dir: Path, variant: _Variant, entry_id: str) -> str:
 
 
 def _converter(project_dir: Path) -> ScriptGenerator:
-    """内容确认转换不调用文本模型：不注入 generator，走与 dry-run 相同的裸构造。"""
+    """Content-confirmation materialization calls no text model; construct without generator like dry-run."""
     return ScriptGenerator(
         project_dir,
         config_resolver=cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8))),
@@ -349,7 +346,7 @@ def _converter(project_dir: Path) -> ScriptGenerator:
 
 
 async def _materialize(project_dir: Path, plan_path: Path):
-    """以当前规划与当前正式剧本为认可对象，把脚本规划整份转为正式剧本。"""
+    """Materialize complete planning into formal scripts against current planning and accepted formal-script overwrite."""
     plan_revision = script_review.content_fingerprint(plan_path)
     assert plan_revision is not None
     return await _converter(project_dir).materialize_script_plan(
@@ -363,7 +360,7 @@ async def _materialize(project_dir: Path, plan_path: Path):
 async def _converted_and_authored(
     tmp_path: Path, variant: _Variant, *, mark: str = "首轮", texts: tuple[str, ...] | None = None
 ) -> tuple[Path, Path]:
-    """转换脚本规划并编写全部待编写条目：得到一份条目都有视觉层、无待编写标记的正式脚本。"""
+    """Materialize planning and author all pending entries, yielding visual layers everywhere without pending markers."""
     first, second = variant.entry_ids
     project_dir, plan_path = variant.build(tmp_path, texts=texts)
     await _materialize(project_dir, plan_path)
@@ -371,7 +368,7 @@ async def _converted_and_authored(
     return project_dir, plan_path
 
 
-#: 各变体的视觉层字段：提示词编写只写这些字段（参考生视频改写单元正文）。
+#: Variant visual fields: authoring writes only these (reference-video rewrites unit bodies).
 _VISUAL_FIELDS = {
     "narration": ("image_prompt", "video_prompt"),
     "drama": ("image_prompt", "video_prompt"),
@@ -385,7 +382,7 @@ def _without_visual_layer(entry: dict[str, Any], variant: _Variant) -> dict[str,
 
 
 def _authored_with(entry: dict[str, Any], variant: _Variant, mark: str) -> bool:
-    """条目的视觉层出自带 ``mark`` 的那次模型响应。"""
+    """Entry visual layers come from the response carrying ``mark``."""
     if variant is REFERENCE:
         return entry["text"].startswith(f"{mark}：")
     return entry["image_prompt"]["scene"] == f"{mark}-{entry[variant.id_field]}"
@@ -397,17 +394,17 @@ def _plan_text_field(variant: _Variant) -> str:
 
 @pytest.fixture(params=[NARRATION, DRAMA], ids=lambda variant: variant.name)
 def prompt_variant(request) -> _Variant:
-    """带 image_prompt / video_prompt 的两个变体；参考生视频的视觉层是 unit 正文，无提示词字段。"""
+    """Two variants carry image_prompt / video_prompt; reference-video visual layers are unit bodies without prompt fields."""
     return request.param
 
 
 # ---------------------------------------------------------------------------
-# 用例
+# Cases
 # ---------------------------------------------------------------------------
 
 
 class TestPromptAuthoring:
-    """提示词编写只读正式脚本：默认编写全部待编写条目，``entry_ids`` 划定范围、``rewrite`` 显式重写，其余条目逐字节不变。"""
+    """Author only formal-script entries: pending by default, ``entry_ids`` scoping, explicit ``rewrite``, byte-identical others."""
 
     async def test_manually_added_entry_is_the_only_one_authored(self, tmp_path: Path, variant: _Variant) -> None:
         first, second = variant.entry_ids
@@ -444,7 +441,7 @@ class TestPromptAuthoring:
     async def test_timeline_insert_and_remove_survive_default_authoring(
         self, tmp_path: Path, prompt_variant: _Variant
     ) -> None:
-        """时间线新增 / 移除分镜之后编写：新增的空分镜被填充，移除的分镜不会被生成回来。"""
+        """After timeline additions/removals, fill new blanks without resurrecting removed storyboards."""
         variant = prompt_variant
         first, second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
@@ -483,7 +480,7 @@ class TestPromptAuthoring:
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         before = (project_dir / "scripts" / "episode_1.json").read_bytes()
 
-        # 不备响应：本轮若调用模型，AsyncMock 会 StopIteration。
+        # Prepare no responses: any model call raises AsyncMock StopIteration.
         rewritten: list[str] = []
         await variant.generator(project_dir, []).generate(1, rewritten_entry_ids=rewritten)
 
@@ -494,7 +491,7 @@ class TestPromptAuthoring:
     async def test_entry_ids_rewrite_keeps_content_and_user_fields(
         self, tmp_path: Path, variant: _Variant, spelling: str
     ) -> None:
-        """点名已有视觉层的条目：只重写这些条目的视觉层，内容字段与用户字段原样保留。"""
+        """Explicitly rewrite existing visual layers only for selected entries; preserve content/user fields."""
         first, second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         _stamp_user_fields(project_dir, variant, first)
@@ -529,7 +526,7 @@ class TestPromptAuthoring:
     async def test_authoring_does_not_read_the_script_plan(
         self, tmp_path: Path, variant: _Variant, plan_state: str
     ) -> None:
-        """脚本规划缺失或与正式脚本不一致，编写照常进行：输入只有正式脚本里的条目。"""
+        """Missing or inconsistent script planning does not block authoring; input consists only of formal entries."""
         first, second = variant.entry_ids
         project_dir, plan_path = variant.build(tmp_path)
         await _materialize(project_dir, plan_path)
@@ -565,7 +562,7 @@ class TestPromptAuthoring:
 
 
 class TestFillAndRewrite:
-    """补缺以整份图片 / 视频提示词为单位保留已有内容；覆盖已有内容只经显式重写与覆盖令牌。"""
+    """Gap filling preserves existing complete image/video prompt units; overwrites require explicit rewrite and overwrite tokens."""
 
     @staticmethod
     async def _materialized(tmp_path: Path, variant: _Variant) -> Path:
@@ -605,7 +602,7 @@ class TestFillAndRewrite:
     async def test_selected_entry_with_a_complete_visual_layer_is_skipped_when_filling(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
-        """点名只划定范围：补缺时视觉层已齐的条目不写、不调用模型。"""
+        """Selection defines scope only: gap filling neither writes complete visual layers nor calls models for them."""
         first, _second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         before = (project_dir / "scripts" / "episode_1.json").read_bytes()
@@ -637,7 +634,7 @@ class TestFillAndRewrite:
         assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
 
     async def test_a_token_for_an_older_script_is_refused(self, tmp_path: Path, variant: _Variant) -> None:
-        """认可之后正式脚本又被编辑：旧令牌不再授权覆盖，按新清单重新拒绝。"""
+        """Formal edits after acceptance invalidate old overwrite tokens; reject again with updated lists."""
         first, _second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         stale = _revision(project_dir)
@@ -666,7 +663,7 @@ class TestFillAndRewrite:
         assert _authored_with(_entries(_script(project_dir), variant)[first], variant, "重写")
 
     async def test_reference_units_marked_pending_are_expanded_despite_their_text(self, tmp_path: Path) -> None:
-        """参考生视频单元正文由规划转来、非空，但带待编写标记：补缺照常展开，不要求覆盖令牌。"""
+        """Reference-video bodies transferred from planning may be nonempty but pending; expand gaps without overwrite tokens."""
         first, second = REFERENCE.entry_ids
         project_dir = await self._materialized(tmp_path, REFERENCE)
         assert _entries(_script(project_dir), REFERENCE)[first]["text"]
@@ -682,7 +679,7 @@ class TestFillAndRewrite:
 
 
 class TestTextShapedPrompts:
-    """文本形态提示词（``lib.script.script_models.PromptText``）在编写两条路径下的行为。"""
+    """Plain-text prompts (``lib.script.script_models.PromptText``) across both authoring paths."""
 
     @staticmethod
     def _write_text_prompts(project_dir: Path, variant: _Variant, entry_id: str) -> None:
@@ -711,7 +708,7 @@ class TestTextShapedPrompts:
         assert _entries(_script(project_dir), prompt_variant)[first]["image_prompt"] == "手写的分镜图提示词正文"
 
     async def test_rewritten_entry_drops_the_text_shape(self, tmp_path: Path, prompt_variant: _Variant) -> None:
-        """点名重写一个文本形态条目：视觉层由 LLM 重出，回到结构形态、不留旧正文。"""
+        """Explicitly rewriting one plain-text entry regenerates visuals through LLM into structured shape, retaining no old body."""
         first, _second = prompt_variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, prompt_variant)
         self._write_text_prompts(project_dir, prompt_variant, first)
@@ -725,11 +722,11 @@ class TestTextShapedPrompts:
 
 
 class TestDryRunPrompt:
-    """dry-run 的 prompt 与真实运行同一批编写条目：它要回答「这次会发出什么」。"""
+    """Dry-run prompts target the same entries as real execution, answering what would actually be sent."""
 
     @staticmethod
     async def _converted_with_pending(tmp_path: Path, variant: _Variant, *pending_ids: str) -> Path:
-        """转换后只让 ``pending_ids`` 保留待编写标记。"""
+        """After materialization, only ``pending_ids`` keep pending markers."""
         project_dir, plan_path = variant.build(tmp_path, texts=("原文甲甲甲。", "原文乙乙乙。"))
         await _materialize(project_dir, plan_path)
 
@@ -768,10 +765,10 @@ class TestDryRunPrompt:
 
 
 class TestScriptPlanMaterialization:
-    """内容确认转换：整份投影内容层、全部条目待编写，只认确认过的规划与调用方认可覆盖的剧本。"""
+    """Confirmation projects the entire content layer with all entries pending, using only confirmed plans and caller-accepted script overwrites."""
 
     async def test_narration_plan_ids_past_99_still_materialize(self, tmp_path: Path) -> None:
-        """编号只升不降，过百后正式规划里是 E1S100 这类服务端发出的编号，内容确认照常转出。"""
+        """IDs rise monotonically: server-issued E1S100 and later plan IDs materialize normally."""
         project_dir, plan_path = NARRATION.build(tmp_path)
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         for number, segment in enumerate(plan["segments"], start=100):
@@ -853,7 +850,7 @@ class TestScriptPlanMaterialization:
     async def test_generate_with_entry_ids_fills_only_that_entry(
         self, tmp_path: Path, prompt_variant: _Variant
     ) -> None:
-        """转换后点名让模型补一条提示词：其余待生成条目逐字节不变。"""
+        """After materialization, explicitly author one entry while other pending entries remain byte-identical."""
         variant = prompt_variant
         first, second = variant.entry_ids
         project_dir, plan_path = variant.build(tmp_path)
@@ -875,7 +872,7 @@ class TestScriptPlanMaterialization:
     async def test_default_generate_after_materialization_fills_every_pending_entry(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
-        """转换出的条目都待编写：默认编写全部待编写条目，写回后标记清除、内容层不变。"""
+        """All materialized entries are pending; default authoring fills all, clears markers and preserves content layers."""
         first, second = variant.entry_ids
         project_dir, plan_path = variant.build(tmp_path)
         await _materialize(project_dir, plan_path)
@@ -894,7 +891,7 @@ class TestScriptPlanMaterialization:
             assert _without_visual_layer(after[entry_id], variant) == _without_visual_layer(before[entry_id], variant)
 
     def _edit_plan(self, plan_path: Path, project_dir: Path, variant: _Variant) -> str:
-        """改第二条正文、删第一条、新增第三条并排在最前，返回第三条 id。"""
+        """Edit second body, delete first, add third at the front and return third ID."""
         entries_key = _PLAN_ENTRIES_KEY[variant.name]
         document = json.loads(plan_path.read_text(encoding="utf-8"))
         third = dict(document[entries_key][0])
@@ -909,7 +906,7 @@ class TestScriptPlanMaterialization:
     async def test_materialization_over_an_authored_script_replaces_it_wholesale(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
-        """已有编写过的正式剧本：整份按新规划替换，不沿用任何条目的提示词或用户字段。"""
+        """Replace an authored formal script wholly from new planning without reusing prompts/user fields."""
         first, second = variant.entry_ids
         project_dir, plan_path = await _converted_and_authored(tmp_path, variant)
         _stamp_user_fields(project_dir, variant, second)
@@ -917,7 +914,7 @@ class TestScriptPlanMaterialization:
 
         receipt = await _materialize(project_dir, plan_path)
 
-        # 正式身份一律从高水位后另发，旧剧本的两条都按移除处置。
+        # Always issue formal IDs above high-water marks; treat both old-script entries as removed.
         third = format_item_id(1, variant.items_key, 3)
         renewed = format_item_id(1, variant.items_key, 4)
         assert (receipt.entry_ids, receipt.removed) == ((third, renewed), (first, second))
@@ -935,7 +932,7 @@ class TestScriptPlanMaterialization:
     async def test_materialization_rejects_a_plan_edit_that_landed_after_loading(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: _Variant
     ) -> None:
-        """加载规划之后、落盘之前规划又被改写：持锁复核指纹失配即拒绝，剧本保持原样。"""
+        """If planning changes after loading but before persistence, locked fingerprint mismatch rejects and preserves scripts."""
         project_dir, plan_path = variant.build(tmp_path)
         await _materialize(project_dir, plan_path)
         before = (project_dir / "scripts" / "episode_1.json").read_bytes()
@@ -956,7 +953,7 @@ class TestScriptPlanMaterialization:
     async def test_materialization_refuses_a_plan_other_than_the_confirmed_one(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
-        """确认记录的是校验过的那份规划：加载到的规划指纹不同即拒绝，不写剧本、不改 project.json。"""
+        """Confirmations identify the validated plan; loaded fingerprint mismatch rejects without script/project.json writes."""
         project_dir, _plan_path = variant.build(tmp_path)
         project_before = (project_dir / "project.json").read_bytes()
 
@@ -974,7 +971,7 @@ class TestScriptPlanMaterialization:
     async def test_materialization_refuses_a_script_other_than_the_acknowledged_one(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
-        """覆盖认可对应调用方看到的那份正式剧本：剧本之后又被改过即按冲突拒绝，剧本与 project.json 原样。"""
+        """Overwrite acceptance names the caller-seen formal script; later edits conflict and preserve script/project.json."""
         project_dir, plan_path = variant.build(tmp_path)
         await _materialize(project_dir, plan_path)
         script_path = project_dir / "scripts" / "episode_1.json"
@@ -1002,7 +999,7 @@ class TestScriptPlanMaterialization:
     async def test_materialization_keeps_the_ledger_title_over_the_plan_title(
         self, tmp_path: Path, ledger_title: str
     ) -> None:
-        """drama 规划里模型起的标题不采用：剧本与账本的集标题保持账本原值，空标题仍为空。"""
+        """Do not adopt model-generated drama plan titles; script/ledger retain ledger values including empty titles."""
         project_dir, plan_path = DRAMA.build(tmp_path)
         project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
         project["episodes"][0]["title"] = ledger_title

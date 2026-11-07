@@ -40,7 +40,7 @@ async def generation_admission_lock(
 
     # The script locator is deliberately absent from the key. Rebinding an episode must not let
     # a new task select the same resource while compensation for the former binding is in flight.
-    # 建锁目录、打开锁文件放进工作线程。句柄一打开就登记：取消落在打开那一程时返回值会丢，靠它关闭。
+    # Create lock directories/open handles in worker threads. Register handles immediately because cancellation may discard open-call returns, requiring explicit closure.
     handles: list[BinaryIO] = []
 
     def _open_lock_file() -> BinaryIO:

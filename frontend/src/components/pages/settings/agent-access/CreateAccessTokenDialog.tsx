@@ -25,24 +25,24 @@ const DEFAULT_EXPIRES_DAYS = "30";
 interface CreateAccessTokenDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 创建成功后立即回调（完整令牌仍在对话框里展示），调用方据此更新列表。 */
+  /** Call back immediately after creation succeeds while the full token remains visible in the dialog, letting the caller update its list. */
   onCreated?: (token: ApiKeyInfo) => void;
 }
 
-/** 创建访问令牌：填名称与有效期，创建成功后在同一对话框里一次性展示完整令牌。「外部 Agent 接入」与「访问令牌」共用。 */
+/** Create an access token: enter name and expiry, then show the full token once in the same dialog. Shared by External Agent Access and Access tokens. */
 export function CreateAccessTokenDialog({ open, onOpenChange, onCreated }: CreateAccessTokenDialogProps) {
   const [creating, setCreating] = useState(false);
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免令牌已签发却没能展示
+        // Ignore Escape/backdrop clicks during requests, preventing issued tokens from going undisplayed
         if (!next && creating) return;
         onOpenChange(next);
       }}
     >
       <DialogContent showCloseButton={!creating}>
-        {/* 每次打开都从空表单开始：内容只在打开期间挂载 */}
+        {/* Start each opening with an empty form; mount contents only while open */}
         <CreateAccessTokenForm creating={creating} setCreating={setCreating} onCreated={onCreated} />
       </DialogContent>
     </Dialog>
@@ -107,7 +107,7 @@ function CreateAccessTokenForm({
           <div className="flex flex-col gap-4">
             <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 p-3">
               <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
-              {/* 琥珀浅底上 muted-foreground 达不到 4.5:1，提示文字用中间档 */}
+              {/* muted-foreground cannot reach 4.5:1 on the pale amber background; use the middle text tier */}
               <p className="text-sm text-subtle-foreground">{t("dashboard:access_token_created_warning")}</p>
             </div>
             <CopyableValue

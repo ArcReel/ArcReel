@@ -4,7 +4,7 @@ import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite"
 import type { RefreshProjectResult } from "@/stores/projects-store";
 import type { EditTimelineReadout } from "@/types/edit-timeline";
 
-/** 按脚本新建的剪辑时间线显示名：「完整版」，集内已有同名时依次加序号。 */
+/** Display name for a timeline created from the script: Full version, adding successive numbers if the episode already has that name. */
 function nextEditTimelineName(base: string, numbered: (n: number) => string, taken: string[]): string {
   const names = new Set(taken.map((name) => name.toLocaleLowerCase()));
   if (!names.has(base.toLocaleLowerCase())) return base;
@@ -15,9 +15,9 @@ function nextEditTimelineName(base: string, numbered: (n: number) => string, tak
 }
 
 /**
- * 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切），不经过 Agent；随后刷新项目，
- * 制作进度与剪辑视图据此重新读取。WorkflowPanel「剪辑」行与剪辑视图空状态都走这里。
- * 刷新失败时已提示，`refreshed` 供调用方决定是否还报告成功。
+ * Mechanically create an editing timeline from the current script, using whole clips and hard cuts without the Agent, then refresh the project.
+ * Production progress and editing views reread it after refresh. Both the WorkflowPanel Editing row and empty editing view use this action.
+ * Refresh failures already show feedback; `refreshed` lets callers decide whether to report success too.
  */
 export async function createScriptEditTimeline(
   projectName: string,

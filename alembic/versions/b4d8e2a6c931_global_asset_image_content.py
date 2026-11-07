@@ -1,11 +1,12 @@
-"""全局资产库图片的内容摘要、内容身份与远端定位
+"""Content digests, identity, and remote locators for global asset-library images
 
 Revision ID: b4d8e2a6c931
 Revises: f7c3a9d15e42
 Create Date: 2026-11-03 22:00:00.000000
 
-全局资产与衍生的图片可以保存在对象存储，并携带复制来的供应商素材关联。新增三列都可为空：
-存量行没有这些事实，按库存储里的本地文件解释，不回填。
+Global-asset and derivative images may live in object storage and carry copied provider asset links.
+All three new columns are nullable: existing rows lack these facts, use local library-storage files,
+and receive no backfill.
 """
 
 from __future__ import annotations

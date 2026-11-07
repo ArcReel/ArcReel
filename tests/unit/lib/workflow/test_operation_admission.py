@@ -1,4 +1,4 @@
-"""AI 操作结构准入谓词：每个操作只看自己的输入，结论带稳定理由码。"""
+"""AI structural admission: each operation checks only its inputs and returns stable reason codes."""
 
 from __future__ import annotations
 

@@ -1,11 +1,11 @@
-"""一台 ComfyUI 服务的 HTTP 面：上传素材、提交 workflow、查历史、取产物。
+"""ComfyUI HTTP interfaces: upload assets, submit workflows, query history, retrieve artifacts.
 
-凭据按端点定义的 ``auth`` 节渲染一次，全部路由共用同一份——ComfyUI 原生无鉴权，凭据只有套在
-反向代理后面时才需要，而代理认的是同一组头 / 查询参数，逐路由各渲染一次只会让其中一条漏掉。
+Render endpoint ``auth`` once for all routes: native ComfyUI lacks authentication, needed only behind reverse
+proxies sharing headers/query parameters. Per-route rendering would risk omission.
 
-本模块只管协议形状（发什么、收到的原文长什么样），不判业务终态：一次执行是成功、失败还是仍在
-排队，要读 ``output`` 绑定的那个节点才知道，那是 backend 的事。故这里只在「连协议都不成立」时
-抛失败码——上传没成功、提交被拒。
+Only protocol shapes here, requests/raw responses, never terminal business interpretation: success/failure/queue
+states require ``output``-bound nodes, belonging to backends. Raise codes only for broken protocols,
+failed uploads/rejected submissions.
 """
 
 from __future__ import annotations
@@ -37,27 +37,27 @@ from lib.infra.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
-#: 上传素材统一落在服务端 ``input`` 区的这个子目录下，不与用户自己传的图混在一起。
+#: Uploads use this server ``input`` subdirectory, separate from user-uploaded images.
 UPLOAD_SUBFOLDER = "arcreel"
 
-#: 提交时带上的客户端标识前缀，便于在 ComfyUI 的队列界面上认出是谁发的。
+#: Submission client prefixes identify callers in ComfyUI queues.
 CLIENT_ID_PREFIX = "arcreel-"
 
-#: ComfyUI 的 ``type`` 维度：``input`` 是可被读图节点引用的输入区。
+#: ComfyUI ``type``: ``input`` is image-loader-referenceable input space.
 _INPUT_TYPE = "input"
 
-#: 留痕回调：与声明式运行时同一形状（阶段 + 原文），由 backend 接到任务的诊断列上。
+#: Evidence callbacks share declarative stage/raw shapes, connected by backends to task diagnostics.
 RecordResponse = Callable[[ProviderResponseStage, object], Awaitable[None]]
 
 
 def normalize_comfyui_base_url(base_url: str) -> str:
-    """补协议 + 去尾斜杠。
+    """Add schemes/remove trailing slashes.
 
-    不剥版本段：ComfyUI 的路由全在根下（``/prompt`` / ``/history``），没有声明式定义那种
-    ``base_url`` 与定义各带一次版本前缀、拼出 ``/v1/v2`` 的形态。
+    Never strip versions: ComfyUI routes live at roots (``/prompt`` / ``/history``), unlike declarative
+    ``base_url``/definition doubled versions such as ``/v1/v2``.
 
-    无 scheme 的纯域名补 ``https://``——httpx 拒收缺协议的相对 URL，而自定义供应商的 ``base_url``
-    是不受约束的字符串。
+    Schemaless hosts receive ``https://`` because httpx rejects relative URLs and custom-provider ``base_url``
+    is unconstrained strings.
     """
     stripped = base_url.strip().rstrip("/")
     if stripped and "://" not in stripped:
@@ -66,15 +66,15 @@ def normalize_comfyui_base_url(base_url: str) -> str:
 
 
 def media_reference(subfolder: str, name: str) -> str:
-    """服务端上传响应的 ``subfolder`` / ``name`` 拼成读图节点认的那个引用值。"""
+    """Combine response ``subfolder`` / ``name`` into image-loader references."""
     return f"{subfolder}/{name}" if subfolder else name
 
 
 def upload_filename(task_id: str, key: str, path: Path, index: int | None = None) -> str:
-    """一次上传用的文件名：``<task_id>-<key>[-<序号>].<ext>``。
+    """Upload names: ``<task_id>-<key>[-<序号>].<ext>``.
 
-    带上任务 id 是为了让同一台 ComfyUI 上并行的几笔任务互不覆盖——``overwrite=true`` 按文件名
-    覆盖，两笔任务的首帧重名就会互相踩掉对方的输入。
+    Task ids prevent concurrent collisions on one ComfyUI: ``overwrite=true`` overwrites by filenames,
+    so identical first-frame names would replace each other's inputs.
     """
     suffix = path.suffix.lower() or ".png"
     serial = "" if index is None else f"-{index + 1}"
@@ -82,16 +82,16 @@ def upload_filename(task_id: str, key: str, path: Path, index: int | None = None
 
 
 def _mime_of(path: Path) -> str:
-    """按扩展名给真值。
+    """Actual MIME by extension.
 
-    ComfyUI 服务端按 multipart 的 content type 判这份上传收不收，``application/octet-stream``
-    会被部分部署直接拒掉。
+    ComfyUI validates multipart content types; some deployments reject
+    ``application/octet-stream`` outright.
     """
     return IMAGE_MIME_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or "image/png"
 
 
 class ComfyuiClient:
-    """按一份端点定义与一个供应商配置，接上一台 ComfyUI 服务。"""
+    """Connect to ComfyUI through endpoint definitions/provider configuration."""
 
     def __init__(self, *, base_url: str, api_key: str, definition: Mapping[str, Any]) -> None:
         self._base_url = normalize_comfyui_base_url(base_url)
@@ -105,30 +105,30 @@ class ComfyuiClient:
         return f"{self._base_url}{path}"
 
     def _authed_url(self, path: str) -> str:
-        """一条路由的地址，按 query 传的凭证拼在上面。
+        """Route addresses with query credentials.
 
-        ``request_with_scoped_credentials`` 约定首跳的 auth query 由调用方拼进 URL（它只在同源
-        续跳时补回），且它不收 ``params``——那会把这里拼上的查询串整串替换掉。带自有查询参数的
-        ``/view`` 因此不走这条，凭证与参数一起交给 ``stream_to_file`` 的首跳 ``params``。
+        ``request_with_scoped_credentials`` requires caller-composed first-hop auth queries, restoring only same-origin
+        redirects; never pass ``params``, which would replace composed queries. ``/view`` with its own
+        parameters instead passes credentials/parameters together to first-hop ``stream_to_file`` ``params``.
         """
         url = httpx.URL(self._url(path))
         return str(url.copy_merge_params(self._query) if self._query else url)
 
     @property
     def _credential_origin(self) -> tuple[str, str, int | None]:
-        """凭证只许发往这台 ComfyUI 自己的源。
+        """Credentials may target only this ComfyUI's own origin.
 
-        反向代理把 ``/view`` 之类的路由 302 到对象存储 / CDN 是常见部署，而 httpx 跨源只摘
-        ``Authorization``——auth 节允许任意头名，交给 ``follow_redirects`` 会把 ``X-API-Key``
-        原样送到第三方。
+        Proxies commonly redirect ``/view`` to object storage/CDNs; httpx strips cross-origin
+        ``Authorization`` only, while auth permits arbitrary headers. Automatic ``follow_redirects`` would leak
+        ``X-API-Key`` to third parties.
         """
         return url_origin(self._base_url)
 
     async def upload_image(self, http: httpx.AsyncClient, path: Path, *, filename: str) -> str:
-        """把一份素材传进服务端 ``input`` 区，返回读图节点认的引用值。
+        """Upload into server ``input``, returning loader-readable references.
 
-        引用值以**响应**里的 ``subfolder`` / ``name`` 拼成而不是以请求里的：服务端会为重名改名、
-        也可能把子目录规整掉，按请求值填进 workflow 会指向一个并不存在的文件。
+        Derive from **response** ``subfolder`` / ``name``, never requests: servers may rename collisions
+        or normalize directories, making request-derived workflow references point to nonexistent files.
         """
         try:
             payload = await asyncio.to_thread(path.read_bytes)
@@ -163,13 +163,13 @@ class ComfyuiClient:
         client_id: str,
         record: RecordResponse | None = None,
     ) -> str:
-        """提交一份实发 workflow，返回服务端分配的 ``prompt_id``。
+        """Submit actual workflows for server ``prompt_id``.
 
-        ``node_errors`` 随 200 回来与 400 同判失败：ComfyUI 对「图能提交、但某个节点的入参过不了
-        校验」回的就是这两种形状，放行它等于让任务进轮询后永远等不到产物。
+        ``node_errors`` on 200 fails like 400: ComfyUI accepts graphs but rejects particular node
+        parameters through either shape. Accepting them would poll forever without artifacts.
 
-        ``record`` 可缺省：图像通道没有留痕通道（``ImageGenerationRequest`` 不带诊断回调），传一个
-        什么都不做的回调只是把这件事写成看起来有。
+        Optional ``record``: images have no evidence channel (``ImageGenerationRequest`` lacks diagnostic callbacks),
+        and no-op callbacks would falsely imply one exists.
         """
 
         async def note(stage: ProviderResponseStage, body: object) -> None:
@@ -189,8 +189,8 @@ class ComfyuiClient:
                 body = _body_or_text(response)
                 await note("submit", body)
                 if response.status_code == 400:
-                    # 400 是 ComfyUI 拒收这份图的固定形状，与 200 带 node_errors 同因；交给
-                    # submit_post 按状态码分流会把它说成一次通用的上游拒绝。
+                    # ComfyUI 400 workflow rejection has the same cause as 200 node_errors;
+                    # submit_post status routing would instead label generic upstream rejection.
                     raise _node_errors_error(body, workflow)
             return response
 
@@ -206,13 +206,13 @@ class ComfyuiClient:
         return prompt_id
 
     async def fetch_history(self, http: httpx.AsyncClient, prompt_id: str) -> Mapping[str, Any] | None:
-        """取一次执行记录；还没有记录时返回 ``None``。
+        """Fetch execution history, ``None`` before records exist.
 
-        两种形状都接受：``{prompt_id: {...}}`` 包裹的与根即条目的。不同版本与代理各有一种，按
-        其中一种写死会让另一半部署永远轮询不到终态。
+        Accept ``{prompt_id: {...}}`` envelopes and direct root entries across versions/proxies;
+        hardcoding either would leave other deployments polling forever.
 
-        2xx 却读不出记录（非 JSON 的代理错误页、``{"error": ...}`` 之类）不在这里吸收：这一格
-        与声明式通道同口径，判为确定性失败而不是继续轮询。
+        Unreadable 2xx bodies, non-JSON proxy pages/``{"error": ...}``, are not absorbed:
+        like declarative channels, deterministic failure rather than continued polling.
         """
         response = await request_with_scoped_credentials(
             http,
@@ -234,16 +234,16 @@ class ComfyuiClient:
         return entry or None
 
     async def queue_snapshot(self, http: httpx.AsyncClient) -> tuple[list[str], list[str]] | None:
-        """``GET /queue`` 的两张单子，各取其中的 ``prompt_id``（running 在前、pending 在后）。
+        """``GET /queue`` running/pending lists, extracting ``prompt_id`` in that order.
 
-        条目是数组 ``[序号, prompt_id, prompt, 待执行节点, 额外数据]``，id 在下标 1；一并认
-        ``{"prompt_id": ...}`` 形态的条目，反向代理改写这张表时给的是后者。
+        Array entries ``[序号, prompt_id, prompt, 待执行节点, 额外数据]`` store ids at index 1; also accept
+        proxy-rewritten ``{"prompt_id": ...}`` objects.
 
-        读不出这张表时给 ``None`` 而不是两张空单子：调用方据「不在队列里」判任务丢失，把一份
-        看不懂的响应算成空队列会因为代理回了一页 HTML 就把仍在跑的执行判死。两张单子缺一或不是
-        数组同属读不出——``{"error": "restarting"}`` 这类 200 响应解得出 JSON，却同样没有队列
-        内容可读。``None`` 只管响应体读不懂这一种；HTTP 失败照常抛出，由调用方按自己那一格该不该
-        据此判死来处置。
+        Unreadable queues return ``None``, never empty lists: absence drives lost-task checks, so misread
+        HTML would falsely kill active executions. Missing/nonarray lists also mean unreadable,
+        including valid JSON 200 ``{"error": "restarting"}`` without queue content.
+        ``None`` covers unreadable bodies only; HTTP failures propagate for caller-specific
+        terminal-vs-unknown handling.
         """
         response = await request_with_scoped_credentials(
             http,
@@ -269,10 +269,10 @@ class ComfyuiClient:
         return _queue_ids(running), _queue_ids(pending)
 
     async def server_version(self, http: httpx.AsyncClient) -> str | None:
-        """``GET /system_stats`` 回的 ``system.comfyui_version``；读不到给 ``None``。
+        """``GET /system_stats`` ``system.comfyui_version``; ``None`` when unreadable.
 
-        与连通性检查读的是同一个字段。老版本与部分代理不回这一字段，故「读不到」不是错误，
-        由调用方按低版本路径处置。
+        Same field as connectivity tests. Old versions/proxies omit it; absence is not failure,
+        letting callers use legacy routes.
         """
         response = await request_with_scoped_credentials(
             http,
@@ -285,26 +285,26 @@ class ComfyuiClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # 地址带着按 query 传的凭证，裸 HTTPStatusError 的消息会把它原样写进日志。
+            # Addresses include query credentials; raw HTTPStatusError messages would leak them into logs.
             raise redacted_status_error(exc) from None
         body = response.json()
         system = body.get("system") if isinstance(body, Mapping) else None
         version = system.get("comfyui_version") if isinstance(system, Mapping) else None
-        # 非字符串一律当读不到：调用方据此走低版本路径，那条路在新版本上同样有效。
+        # Nonstrings mean unreadable; callers use legacy routes, valid on new versions too.
         return version.strip() or None if isinstance(version, str) else None
 
     async def cancel_job(self, http: httpx.AsyncClient, prompt_id: str) -> None:
-        """``POST /api/jobs/{id}/cancel``：新版本上一个动作同时覆盖排队中与执行中。"""
+        """``POST /api/jobs/{id}/cancel`` handles queued/running execution together on new versions."""
         await self._post_and_raise(http, f"/api/jobs/{prompt_id}/cancel", body=None)
 
     async def drop_from_queue(self, http: httpx.AsyncClient, prompt_id: str) -> None:
-        """``POST /queue {"delete": [id]}``：低版本上取消一个还在排队的执行。"""
+        """``POST /queue {"delete": [id]}`` cancels queued execution on legacy versions."""
         await self._post_and_raise(http, "/queue", body={"delete": [prompt_id]})
 
     async def interrupt(self, http: httpx.AsyncClient) -> None:
-        """``POST /interrupt``：低版本上打断**当前正在执行**的那一个，不认 id。
+        """``POST /interrupt`` stops **current execution**, ignoring ids, on legacy versions.
 
-        因此调用方必须先确认 running 里就是自己这一笔，否则打断的是别人的活。
+        Callers must confirm their own task is running, otherwise they stop someone else's work.
         """
         await self._post_and_raise(http, "/interrupt", body=None)
 
@@ -331,10 +331,10 @@ class ComfyuiClient:
         max_wait: float,
         max_bytes: int,
     ) -> None:
-        """按一条产物条目取文件落到 ``output_path``，响应体超过 ``max_bytes`` 即中止。
+        """Retrieve artifact entries into ``output_path``, aborting bodies above ``max_bytes``.
 
-        ``/view`` 与其余路由同源，故带上同一份凭据；VHS 的 ``fullpath`` 不用——那是服务端本机的
-        绝对路径，只有与 ComfyUI 同机部署时才碰巧可读。
+        Same-origin ``/view`` shares credentials; ignore VHS ``fullpath``, server-local absolute
+        paths readable only coincidentally with colocated deployments.
         """
 
         async def once() -> None:
@@ -344,8 +344,8 @@ class ComfyuiClient:
                 output_path,
                 max_bytes=max_bytes,
                 headers=self._headers,
-                # 凭证与产物参数同走首跳的 params：``stream_to_file`` 的 ``params`` 会整串替换
-                # 查询串，拼进 URL 的那一份会被它冲掉。同源续跳时由 ``auth_query`` 补回。
+                # Credentials/artifact parameters share first-hop params: ``stream_to_file`` ``params`` replaces entire
+                # queries, erasing URL-composed values. Same-origin redirects restore through ``auth_query``.
                 params={
                     **self._query,
                     "filename": str(artifact.get("filename") or ""),
@@ -357,7 +357,7 @@ class ComfyuiClient:
             )
 
         await with_artifact_retry(once, label="comfyui artifact download", max_wait=max_wait)
-        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
+        # Remux outside download budgets so successful artifacts cannot become download timeouts through remux duration.
         await faststart_video_artifact(output_path)
 
 
@@ -385,10 +385,10 @@ def _body_or_text(response: httpx.Response) -> object:
 
 
 def _node_errors_error(body: object, workflow: Mapping[str, Any]) -> ComfyuiError:
-    """把一次拒收编码成失败：params 只带节点数与首条摘要，完整结构留痕在诊断列上。
+    """Encode rejected submissions: params retain node counts/first summaries, with full diagnostics in evidence columns.
 
-    摘要取 ``<节点标题或 class_type>: <message>``：用户在 ComfyUI 里看到的是标题，报里只给
-    节点号要他自己去图上数。
+    Summaries use ``<节点标题或 class_type>: <message>``: users see titles in ComfyUI,
+    while node ids alone require manually counting graph nodes.
     """
     node_errors = body.get("node_errors") if isinstance(body, Mapping) else None
     if isinstance(node_errors, Mapping) and node_errors:
@@ -399,10 +399,10 @@ def _node_errors_error(body: object, workflow: Mapping[str, Any]) -> ComfyuiErro
 
 
 def _node_error_summary(node_id: str, detail: object, workflow: Mapping[str, Any]) -> str:
-    """节点标题优先于 class_type：用户在 ComfyUI 画布上看到的是自己起的标题。
+    """Prefer titles to class_type, matching user-named canvas nodes.
 
-    标题只在 workflow 的 ``_meta`` 里，``node_errors`` 自己不带；底稿改过标题而报错沿用 class_type
-    时，用户得对着图逐个数节点号才认得出是哪一个。
+    Titles live in workflow ``_meta``, absent from ``node_errors``. When edited titles differ from reported class_type,
+    users otherwise must count node ids to identify failures.
     """
     if not isinstance(detail, Mapping):
         return node_id
@@ -418,7 +418,7 @@ def _node_error_summary(node_id: str, detail: object, workflow: Mapping[str, Any
 
 
 def _rejection_summary(body: object) -> str:
-    """没有 ``node_errors`` 的拒收（整图级的错误、或代理自己回的 400）取它的 message。"""
+    """Message summaries without ``node_errors``, for whole-graph errors/proxy-generated 400."""
     error = body.get("error") if isinstance(body, Mapping) else None
     if isinstance(error, Mapping):
         return str(error.get("message") or error.get("type") or "").strip() or "prompt was refused"
@@ -426,9 +426,9 @@ def _rejection_summary(body: object) -> str:
 
 
 def client_id_for(job_label: str) -> str:
-    """一次提交带上的客户端标识：``arcreel-<任务标识>``。
+    """Submission client identifiers: ``arcreel-<任务标识>``.
 
-    ComfyUI 的队列界面按 ``client_id`` 分组显示，带上前缀才能让用户在自己手动跑的队列里认出
-    哪几笔是 ArcReel 发的。提交与端点测试的预览请求共用这一份——预览给出的必须是真发的那个形状。
+    ComfyUI queues group by ``client_id``; prefixes distinguish ArcReel from manual executions.
+    Shared by submission/preview, which must show actual shapes.
     """
     return f"{CLIENT_ID_PREFIX}{job_label}"

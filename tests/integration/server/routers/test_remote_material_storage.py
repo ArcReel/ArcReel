@@ -1,9 +1,9 @@
-"""远端主存储：资产图成品经正式提交保存到对象存储，清理本地工作文件后预览与缩略图从远端取回；版本切换、
-回收站与项目删除按引用保留正式对象。
+"""Remote primary storage commits finished images into object storage; cleaned local previews/thumbnails retrieve remotely; version switches,
+trash/project deletion retain formal objects by references.
 
-真实编排：资产图经文件路由上传，分镜图、角色衍生图与宫格图经各自的上传路由（正式提交入口按全局设置选择保存位置），预览与缩略图经公开文件路由读取，
-工作文件经对象存储路由的清理入口清理，删除与恢复经文件视图、资产、项目回收站与项目路由，全局资产库经资产库路由保存与应用。
-只替换对象存储的网络边界：TOS SDK 在 ``create_sdk_client`` 换成内存桶。
+Real orchestration uploads base images through files, storyboards/derivatives/grids through dedicated routes with globally selected storage, previews/thumbnails through public files,
+cleans working files through storage routes, deletes/restores through file views/assets/trash/projects, saves/applies global libraries through asset routes.
+Replace storage network boundaries only: ``create_sdk_client`` uses in-memory TOS buckets.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _server_error(status: int, code: str) -> TosServerError:
 
 
 class MemoryBucket:
-    """TOS SDK 客户端替身：对象存在内存里；``fail`` 里列出的操作抛服务端错误。"""
+    """In-memory TOS fake; ``fail`` operations raise server errors."""
 
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
@@ -270,7 +270,7 @@ def _cleanup(api: TestClient) -> dict[str, int]:
 
 
 async def test_remote_upload_survives_cache_cleanup_and_coexists_with_local_versions(api, sessions, project, bucket):
-    """本地版本 A → 启用远端后上传 B → 清理工作文件 → 预览、缩略图、历史快照与版本切换从远端取回，A 仍是本地版本。"""
+    """Local A → enable remote/upload B → clean → remote previews/thumbnails/history/switching; A remains local."""
     image_a = solid_png_bytes((200, 10, 10), size=(400, 400))
     image_b = solid_png_bytes((10, 200, 10), size=(400, 400))
     assert _upload(api, image_a).status_code == 200
@@ -313,8 +313,8 @@ async def test_remote_upload_survives_cache_cleanup_and_coexists_with_local_vers
 
     assert _cleanup(api)["removed"] == 1
     assert not formal.exists()
-    assert (project_dir / local_record["file"]).is_file()  # 本地版本的持久快照不受清理影响
-    assert bucket.stored_keys() == [key_b]  # 清理不删除正式对象
+    assert (project_dir / local_record["file"]).is_file()  # Local durable version snapshots survive cleanup.
+    assert bucket.stored_keys() == [key_b]  # Cleanup retains formal objects.
 
     preview = api.get("/api/v1/files/demo/characters/Alice.png")
     assert preview.status_code == 200
@@ -325,14 +325,14 @@ async def test_remote_upload_survives_cache_cleanup_and_coexists_with_local_vers
     history = api.get(f"/api/v1/files/demo/{remote_record['file']}")
     assert history.status_code == 200
     assert history.content == image_b
-    assert bucket.calls.count(("get", key_b)) == 2  # 正式文件与历史快照各取回一次，缩略图沿用取回的文件
+    assert bucket.calls.count(("get", key_b)) == 2  # Fetch each file/snapshot once; reuse for thumbnails.
 
-    # 切回本地版本 A 不需要对象存储；之后新上传按全局设置继续保存到远端
+    # Local A restore needs no object storage; later uploads follow global remote settings.
     restored = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
     assert restored.status_code == 200, restored.text
     assert formal.read_bytes() == image_a
 
-    # 清理后切回远端版本 B：还原前从对象存储取回快照
+    # Remote B restore after cleanup retrieves snapshots first.
     assert _cleanup(api)["removed"] == 1
     restored = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2")
     assert restored.status_code == 200, restored.text
@@ -391,7 +391,7 @@ async def test_concurrent_reads_download_once(api, sessions, project, bucket):
 async def test_media_response_holds_remote_cache_until_the_body_is_sent(
     api, sessions, bucket, project, monkeypatch, source, cleanup_hash_started
 ):
-    """响应头发出、FileResponse 尚未打开文件时清缓存，项目和全局库图片仍可读，响应后可清理。"""
+    """Cleanup after headers/before FileResponse opens files leaves project/library images readable; cleanup allowed after responses."""
     await _remote(sessions)
     content = solid_png_bytes((20, 40, 60))
     if source == "project":
@@ -473,14 +473,14 @@ async def test_fetch_failure_and_tampered_object_give_explicit_errors(api, sessi
     tampered = api.get("/api/v1/files/demo/characters/Alice.png")
     assert tampered.status_code == 502
     assert not formal.exists()
-    assert not list(formal.parent.glob(".*fetch"))  # 校验失败不留下临时文件
+    assert not list(formal.parent.glob(".*fetch"))  # Validation failures leave no temporary files.
 
 
 @pytest.mark.parametrize("target", ["local", "object_storage"])
 async def test_storage_contract_failed_commit_keeps_previous_version(
     api, sessions, project, bucket, monkeypatch, target
 ):
-    """本地与远端共用的契约：内容可按摘要取回；正式提交失败不发布新版本，旧版本内容不变。"""
+    """Shared local/remote contract: retrieve content by digests; failed commits publish no versions, preserving old contents."""
     if target == "object_storage":
         await _remote(sessions)
     image_a = solid_png_bytes((200, 100, 0), size=(64, 64))
@@ -515,15 +515,15 @@ async def test_upload_failure_publishes_nothing(api, sessions, project, bucket):
     assert _durable_state(project) == before
     first, second = await _objects(sessions)
     assert first.state == "stored"
-    assert second.state == "deleted"  # 没写进去的对象按新建对象补偿，删除时对象不在也算完成
+    assert second.state == "deleted"  # Uncommitted new objects compensate; already-absent deletion counts complete.
     assert [ref.state for ref in await _refs(sessions)] == ["active"]
 
 
 async def test_upload_confirmed_while_another_project_retakes_the_same_object_stays_stored(
     api, sessions, project, bucket, monkeypatch
 ):
-    """两个项目同时保存同一字节的新图片：后到的提交接手了上传与补偿，它上传失败时，先到那次已确认的对象仍记为已保存，
-    可以登记新的引用，项目照常持有它。"""
+    """Concurrent same-byte new images across projects: later commits take over uploads/compensation, but their failure retains earlier confirmed objects saved,
+    allowing new references and normal project ownership."""
     await _remote(sessions)
     image = solid_png_bytes((30, 140, 60), size=(64, 64))
     uploading, release = threading.Event(), threading.Event()
@@ -559,8 +559,8 @@ async def test_upload_confirmed_while_another_project_retakes_the_same_object_st
 async def test_same_object_failed_by_both_concurrent_uploads_is_reclaimed_by_the_last_settlement(
     api, sessions, project, bucket, monkeypatch
 ):
-    """两个项目同时保存同一字节的新图片且都上传失败：后到的提交先结算时先到那次的占用还在，最后结算的一次补偿删除，
-    对象不停在上传中、不占用连接。"""
+    """Concurrent same-byte uploads both fail: later settlement sees earlier occupancy; final settlement compensates deletion,
+    leaving neither uploading objects nor occupied connections."""
     await _remote(sessions)
     image = solid_png_bytes((70, 20, 210), size=(64, 64))
     uploading, release = threading.Event(), threading.Event()
@@ -595,8 +595,8 @@ async def test_same_object_failed_by_both_concurrent_uploads_is_reclaimed_by_the
 async def test_shared_object_confirmed_by_a_commit_that_then_fails_is_reclaimed_when_its_last_hold_goes(
     api, sessions, project, bucket, monkeypatch
 ):
-    """两个项目同时保存同一字节的新图片：后到的提交接手后上传失败先结算，先到那次确认了上传却没能发布版本。
-    最后一个占用撤下时对象没有任何引用，照常回收，不留下无人引用却占用连接的已保存对象。"""
+    """Concurrent same-byte uploads: later takeover fails/settles first, earlier upload confirms but version publication fails.
+    Final occupancy removal collects unreferenced objects, never saved connection-occupying orphans."""
     await _remote(sessions)
     image = solid_png_bytes((90, 200, 30), size=(64, 64))
     uploading, release = threading.Event(), threading.Event()
@@ -636,7 +636,7 @@ async def test_shared_object_confirmed_by_a_commit_that_then_fails_is_reclaimed_
 async def test_startup_settlement_skips_a_commit_still_running_in_this_process(
     api, sessions, project, bucket, monkeypatch
 ):
-    """启动补做在后台进行时，刚开始的远端上传还在传：补做不把它当作中断的提交，上传照常发布并持有对象。"""
+    """Background startup recovery never treats newly started in-progress uploads as interrupted; normal publication/references survive."""
     await _remote(sessions)
     image = solid_png_bytes((200, 120, 40), size=(64, 64))
     uploading, release = threading.Event(), threading.Event()
@@ -666,7 +666,7 @@ async def test_startup_settlement_skips_a_commit_still_running_in_this_process(
 async def test_commit_failure_deletes_only_new_unreferenced_objects_and_retries(
     api, sessions, project, bucket, monkeypatch
 ):
-    """正式提交失败：本次新建的对象删除失败时保留原因并重试；复用的共享对象不删。"""
+    """Failed commits retain/retry failed new-object deletion reasons, never delete reused shared objects."""
     await _remote(sessions)
     shared = solid_png_bytes((40, 80, 120), size=(64, 64))
     assert _upload(api, shared, project_name="other").status_code == 200
@@ -676,14 +676,14 @@ async def test_commit_failure_deletes_only_new_unreferenced_objects_and_retries(
         raise RuntimeError("injected manifest failure")
 
     use_upload_claim_registration(monkeypatch, _fail)
-    # 与另一个项目同字节：复用共享对象，失败补偿不删除它
+    # Other-project identical bytes share objects; failed compensation never deletes shared objects.
     assert _upload(api, shared).status_code == 500
     shared_key = next(
         row.object_key for row in await _objects(sessions) if row.content_digest == hashlib.sha256(shared).hexdigest()
     )
     assert shared_key in bucket.stored_keys()
 
-    # 新内容：上传成功后提交失败，删除也失败时保留定位与原因
+    # New uploads with failed commits/deletions retain locations/reasons.
     bucket.fail.add("delete")
     fresh = solid_png_bytes((210, 30, 90), size=(64, 64))
     assert _upload(api, fresh).status_code == 500
@@ -703,7 +703,7 @@ async def test_commit_failure_deletes_only_new_unreferenced_objects_and_retries(
 
 
 async def test_interrupted_commit_is_settled_on_startup(sessions, project, bucket):
-    """进程在上传后、写版本记录前退出：下次启动按版本历史结算，删除没有引用的新对象。"""
+    """Process exits after uploads/before version records; next startup reconciles history and deletes unreferenced new objects."""
     await _remote(sessions)
     key = "arcreel-materials/sha256/ab/abcdef.png"
     async with sessions() as session:
@@ -751,7 +751,7 @@ async def test_connection_cannot_be_relocated_while_formal_objects_exist(api, se
 
     _cleanup(api)
     preview = api.get("/api/v1/files/demo/characters/Alice.png")
-    assert preview.status_code == 200  # 换密钥后旧对象仍按原桶读取
+    assert preview.status_code == 200  # Changed keys still read old objects from original buckets.
 
 
 UNREACHABLE_ENDPOINT = "tos-cn-beijing.test-unreachable.invalid"
@@ -759,7 +759,7 @@ UNREACHABLE_ENDPOINT = "tos-cn-beijing.test-unreachable.invalid"
 
 @pytest.fixture
 def unreachable_endpoint(monkeypatch, bucket: MemoryBucket) -> MemoryBucket:
-    """写错的 Endpoint 解析不到主机：发往它的每个请求都在客户端失败；其他 Endpoint 落到内存桶。"""
+    """Mistyped Endpoints cannot resolve hosts; every request fails client-side; other Endpoints reach in-memory buckets."""
 
     class _Unreachable:
         def __getattr__(self, _name: str):
@@ -775,7 +775,7 @@ def unreachable_endpoint(monkeypatch, bucket: MemoryBucket) -> MemoryBucket:
 
 
 def _fail_once_with_unreachable_endpoint(api: TestClient, content: bytes) -> None:
-    """按写错的 Endpoint 配置连接并选择对象存储，上传失败只留下等待删除、没有任何引用的对象，再改回本地。"""
+    """Configure mistyped Endpoints/remote storage; failed uploads leave unreferenced pending-deletion objects, then switch local."""
     assert api.put(
         "/api/v1/object-storage/connection", json={**CONNECTION, "endpoint": UNREACHABLE_ENDPOINT}
     ).is_success
@@ -787,8 +787,8 @@ def _fail_once_with_unreachable_endpoint(api: TestClient, content: bytes) -> Non
 async def test_failed_saves_on_a_wrong_endpoint_do_not_lock_the_connection(
     api, sessions, project, unreachable_endpoint
 ):
-    """写错 Endpoint 时保存失败的图片只等待补偿删除：能改正 Endpoint，这些对象标为脱离当前连接、不向新连接重试删除，
-    数量在连接设置里提示；之后同一张图片保存到改正后的桶。"""
+    """Mistyped-Endpoint failed images await compensation only; Endpoint correction detaches objects from current connections, never retries new connections,
+    shows counts in settings, then saves identical images into corrected buckets."""
     image = solid_png_bytes((90, 30, 200), size=(64, 64))
     _fail_once_with_unreachable_endpoint(api, image)
     [orphan] = await _objects(sessions)
@@ -805,9 +805,9 @@ async def test_failed_saves_on_a_wrong_endpoint_do_not_lock_the_connection(
         orphan.object_key,
     )
     assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
-    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)  # 不按同名 key 去新连接的桶里删除
+    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)  # Never delete new-bucket namesakes.
     assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 1
-    # 脱离的对象不能再登记引用复活为已保存对象：它不在改正后的连接上
+    # Detached objects cannot regain saved references on corrected connections where they do not exist.
     locator = ObjectLocator(detached.connection_id, detached.bucket, detached.object_key)
     assert not await add_reference(locator, "asset-library:x", "cv-x", sessions)
 
@@ -818,7 +818,7 @@ async def test_failed_saves_on_a_wrong_endpoint_do_not_lock_the_connection(
     assert unreachable_endpoint.stored_keys() == [saved.object_key]
     assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 0
 
-    # 有引用的正式对象照旧挡住更换与删除，提示的数量只算这些对象
+    # Referenced objects still block replacement/deletion; counts include these only.
     assert api.put("/api/v1/object-storage/new-image-target", json={"target": "local"}).is_success
     moved = api.put(
         "/api/v1/object-storage/connection",
@@ -842,7 +842,7 @@ async def test_failed_saves_on_a_wrong_endpoint_do_not_block_deleting_the_connec
     settings = api.get("/api/v1/object-storage/connection").json()
     assert (settings["connection"], settings["unreleased_image_objects"]) == (None, 1)
 
-    # 重新配置的连接是另一条连接：脱离的对象不向它重试删除
+    # Reconfigured connections are distinct; detached deletions never retry against them.
     assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
     assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
     assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)
@@ -850,7 +850,7 @@ async def test_failed_saves_on_a_wrong_endpoint_do_not_block_deleting_the_connec
 
 @pytest.mark.parametrize("held_by", ["uploading", "referenced_orphan"])
 async def test_objects_that_may_still_be_read_keep_blocking_connection_changes(api, sessions, project, bucket, held_by):
-    """进行中的提交（上传未确认）与仍有引用的待删除对象可能被读取，照旧挡住更换 Endpoint 与删除连接。"""
+    """Unconfirmed in-flight uploads/referenced pending-deletion objects may be read, so still block Endpoint replacement/connection deletion."""
     assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
     async with sessions() as session:
         connection = await ObjectStorageConnectionRepository(session).get()
@@ -881,7 +881,7 @@ async def test_objects_that_may_still_be_read_keep_blocking_connection_changes(a
 
 
 async def test_old_locator_is_not_reinterpreted_against_another_bucket(api, sessions, project, bucket):
-    """连接被绕过保护换成另一个桶时，旧定位明确不可读，不会去新桶里按同名 key 取图。"""
+    """Bypassed protections switching buckets make old locations explicitly unreadable, never fetch same-key new-bucket images."""
     await _remote(sessions)
     assert _upload(api, solid_png_bytes((9, 9, 9), size=(64, 64))).status_code == 200
     _cleanup(api)
@@ -944,7 +944,7 @@ async def _object_of(sessions, record: dict[str, Any]) -> FormalObject:
 async def test_switching_local_and_remote_versions_keeps_content_versions_and_their_links(
     api, sessions, project, bucket
 ):
-    """本地 A 与远端 B 互相切换：不新增内容版本，各自的关联随所选版本出现；取回失败时保留原选择。"""
+    """Local A/remote B switches create no versions; associations follow selections, failed retrieval retains originals."""
     image_a = solid_png_bytes((220, 40, 40), size=(64, 64))
     image_b = solid_png_bytes((40, 40, 220), size=(64, 64))
     assert _upload(api, image_a).status_code == 200
@@ -964,7 +964,7 @@ async def test_switching_local_and_remote_versions_keeps_content_versions_and_th
     assert formal.read_bytes() == image_a
     assert await _panel_assets(sessions, project) == ["asset-a"]
 
-    # 远端 B 取不回：先取回校验再提交选择，失败时仍选着 A
+    # Unreadable remote B verifies retrieval before selection commits; failures retain A.
     failed = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2")
     assert failed.status_code == 502
     assert _history(project)["current_version"] == 1
@@ -974,11 +974,11 @@ async def test_switching_local_and_remote_versions_keeps_content_versions_and_th
     assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2").status_code == 200
     assert formal.read_bytes() == image_b
     assert await _panel_assets(sessions, project) == ["asset-b"]
-    assert _identities(project) == identities  # 切换不产生新的内容版本，也不改写持久定位
+    assert _identities(project) == identities  # Switching creates no versions and changes no durable locations.
 
 
 async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purged(api, sessions, project, bucket):
-    """删除远端历史版本：回收站持有引用，恢复回同一内容版本与对象；彻底删除后回收对象，删除失败可重试。"""
+    """Remote history deletion transfers references to trash, restoring identical versions/objects; purge collects, deletion failures retry."""
     await _remote(sessions)
     image_b = solid_png_bytes((10, 120, 10), size=(64, 64))
     assert _upload(api, image_b).status_code == 200
@@ -1000,7 +1000,7 @@ async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purge
     assert restored.status_code == 200, restored.text
     back = _history(project)["versions"][-1]
     assert (back["content_version_id"], back["storage"]) == (record_b["content_version_id"], record_b["storage"])
-    assert bucket.calls.count(("put", record_b["storage"]["key"])) == puts  # 加回的是原对象，不重新上传
+    assert bucket.calls.count(("put", record_b["storage"]["key"])) == puts  # Restore original objects without reupload.
 
     _cleanup(api)
     history = api.get(f"/api/v1/files/demo/{back['file']}")
@@ -1028,15 +1028,15 @@ def _file_view_entries(api: TestClient, path: str) -> dict[str, dict[str, Any]]:
 
 
 async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket):
-    """清理缓存后：文件视图按版本记录列出远端版本且不下载；删除历史版本先取回内容再移进回收站，对象按引用保留。"""
+    """Cleaned file views list remote history without downloads; deletion retrieves content before trash, retaining objects by references."""
     image_a = solid_png_bytes((30, 30, 200), size=(64, 64))
-    assert _upload(api, image_a).status_code == 200  # 本地版本 A
+    assert _upload(api, image_a).status_code == 200  # Local version A
     await _remote(sessions)
     image_b, image_c = solid_png_bytes((30, 200, 30), size=(64, 64)), solid_png_bytes((200, 30, 30), size=(64, 64))
     assert _upload(api, image_b).status_code == 200
     assert _upload(api, image_c).status_code == 200
     record_a, record_b, record_c = _history(project)["versions"]
-    assert _cleanup(api)["removed"] == 3  # B、C 的快照与 C 的正式文件
+    assert _cleanup(api)["removed"] == 3  # B/C snapshots and C formal files
     project_dir = project.get_project_path("demo")
     snapshot_dir = str(Path(record_b["file"]).parent)
     assert not (project_dir / record_b["file"]).exists()
@@ -1048,18 +1048,18 @@ async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(a
     remote_b = entries[record_b["file"]]
     assert (remote_b["role"], remote_b.get("remote_only"), remote_b["size"]) == ("history", True, len(image_b))
     assert entries[record_c["file"]]["is_current"] is True
-    assert "remote_only" not in entries[record_a["file"]]  # 本地版本照旧按盘上文件列出
+    assert "remote_only" not in entries[record_a["file"]]  # Local versions still list disk files.
     assert entries[record_a["file"]]["size"] == (project_dir / record_a["file"]).stat().st_size
     [sheet] = [entry for path, entry in _file_view_entries(api, "characters").items() if path.endswith("Alice.png")]
     assert (sheet["role"], sheet.get("remote_only"), sheet["size"]) == ("referenced", True, len(image_c))
     parent = _file_view_entries(api, str(Path(snapshot_dir).parent))[snapshot_dir]
     assert parent["size"] == entries[record_a["file"]]["size"] + len(image_b) + len(image_c)
-    assert bucket.calls[calls:] == []  # 列出不触发下载
+    assert bucket.calls[calls:] == []  # Listing never downloads.
     assert not (project_dir / record_b["file"]).exists()
 
     deleted = api.delete("/api/v1/projects/demo/file-view", params={"path": record_b["file"]})
     assert deleted.status_code == 200, deleted.text
-    assert bucket.calls[calls:] == [("get", record_b["storage"]["key"])]  # 经共用读取入口取回一次，不签发地址
+    assert bucket.calls[calls:] == [("get", record_b["storage"]["key"])]  # Shared read once, unsigned.
     assert record_b["file"] not in _file_view_entries(api, snapshot_dir)
     assert await reconcile_and_collect("demo", project_dir, sessions) == 0
     assert {(ref.content_version_id, ref.state) for ref in await _refs(sessions)} == {
@@ -1073,7 +1073,7 @@ async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(a
     back = _history(project)["versions"][-1]
     assert (back["content_version_id"], back["storage"]) == (record_b["content_version_id"], record_b["storage"])
 
-    # 本地版本 A 的删除不经对象存储
+    # Local A deletion bypasses object storage.
     calls = len(bucket.calls)
     assert api.delete("/api/v1/projects/demo/file-view", params={"path": record_a["file"]}).status_code == 200
     assert bucket.calls[calls:] == []
@@ -1082,7 +1082,7 @@ async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(a
 async def test_evicted_remote_version_previews_from_the_file_view_and_fetch_failure_keeps_it(
     api, sessions, project, bucket
 ):
-    """文件视图预览已清理缓存的远端版本时取回内容；删除时取回失败返回 502，版本留在原处。"""
+    """File previews retrieve cleaned remote versions; failed deletion retrieval returns 502, retaining versions."""
     await _remote(sessions)
     image_b = solid_png_bytes((30, 200, 30), size=(64, 64))
     assert _upload(api, image_b).status_code == 200
@@ -1135,7 +1135,7 @@ async def test_file_view_holds_existing_remote_cache_until_open(api, sessions, b
 async def test_agent_deletes_an_evicted_remote_history_version_like_the_file_view(
     api, sessions, project, bucket, tmp_path
 ):
-    """Agent 删除已清理缓存的远端历史版本：同样先取回再移进回收站，引用转为 trashed；取回失败转述为工具问题。"""
+    """Agent deletes cleaned remote history by retrieving then trashing with trashed references; failed retrieval becomes tool problems."""
     await _remote(sessions)
     image_b = solid_png_bytes((30, 200, 30), size=(64, 64))
     for rgb in ((30, 200, 30), (200, 30, 30), (30, 30, 200)):
@@ -1167,7 +1167,7 @@ async def test_agent_deletes_an_evicted_remote_history_version_like_the_file_vie
 
 
 async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessions, project, bucket):
-    """工作文件清理后删除资产：回收站记录保留对象引用，恢复后预览从对象存储取回。"""
+    """Deleting cleaned assets retains trash object references; restored previews retrieve remotely."""
     await _remote(sessions)
     image = solid_png_bytes((60, 160, 200), size=(64, 64))
     assert _upload(api, image).status_code == 200
@@ -1188,7 +1188,7 @@ async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessi
 async def test_deleted_project_keeps_objects_until_purged_and_shared_objects_survive(
     api, sessions, project, bucket, monkeypatch
 ):
-    """项目删除后对象仍保留、可整体恢复；彻底删除只回收没有其他引用的对象，供应商素材关联不受影响。"""
+    """Deleted projects retain restorable objects; purge collects unreferenced objects only, leaving provider associations unaffected."""
     await _remote(sessions)
     shared = solid_png_bytes((90, 30, 160), size=(64, 64))
     assert _upload(api, shared, project_name="other").status_code == 200
@@ -1198,7 +1198,7 @@ async def test_deleted_project_keeps_objects_until_purged_and_shared_objects_sur
     shared_row = await _object_of(sessions, record_shared)
     async with sessions() as session:
         session.add(_link("demo", record_own, "asset-own"))
-        # 覆盖导入先在项目名下提交新图片、再收尾旧项目：进行中提交的占用不随旧项目改挂
+        # Overwrite imports commit new images under project names before retiring old projects; active submission occupancy never reassigns with old projects.
         session.add(
             FormalObjectRef(object_id=shared_row.id, project_name="demo", attempt_id="importing", state="pending")
         )
@@ -1226,7 +1226,7 @@ async def test_deleted_project_keeps_objects_until_purged_and_shared_objects_sur
 
 
 class _PausedSettlement:
-    """让正式提交的第一次结算停在发布版本之后、结算之前；``crash`` 时这次结算不再发生（进程在此处退出）。"""
+    """Pause first commit settlement after version publication; ``crash`` prevents settlement, simulating process exit."""
 
     def __init__(self, monkeypatch, *, crash: bool = False) -> None:
         self.ready = threading.Event()
@@ -1256,8 +1256,8 @@ def _held(refs: list[FormalObjectRef]) -> set[tuple[str, str]]:
 async def test_asset_trashed_before_its_upload_settles_keeps_the_object(
     api, sessions, project, bucket, monkeypatch, settled_by
 ):
-    """正式上传发布版本后、结算前，工作文件被清理、资产被删进回收站：结算（或启动补做）连同回收站一起记引用，
-    对象不被补偿删除，恢复后预览从对象存储取回。"""
+    """After publication/before settlement, cleanup/trash deletion occurs; settlement/startup recovery includes trash references,
+    preventing compensating object deletion and preserving remote restored previews."""
     await _remote(sessions)
     paused = _PausedSettlement(monkeypatch, crash=settled_by == "startup")
     image = solid_png_bytes((60, 160, 200), size=(64, 64))
@@ -1272,7 +1272,7 @@ async def test_asset_trashed_before_its_upload_settles_keeps_the_object(
         paused.release.set()
     assert (await upload).status_code == 200
     if settled_by == "startup":
-        # 进程在结算前退出：下次启动的新进程没有进行中的提交
+        # Process exits before settlement; startup successors have no in-flight submissions.
         assert await recover_formal_commits(sessions, project_path_of=project.get_project_path, running=()) == 1
 
     key = formal_object_key(hashlib.sha256(image).hexdigest(), ".png")
@@ -1299,7 +1299,7 @@ def _export_archive(client: TestClient) -> bytes:
 async def test_overwrite_import_retires_the_old_projects_unsettled_version_with_the_tombstone(
     api, sessions, project, bucket, monkeypatch
 ):
-    """旧项目刚发布、尚未结算的远端版本随墓碑保留；覆盖导入的新图片引用记在项目名下，彻底删除墓碑不影响它。"""
+    """Unsettled old remote versions remain under tombstones; overwritten-import new references belong to project names and survive tombstone purge."""
     await _remote(sessions)
     kept = solid_png_bytes((20, 120, 60), size=(64, 64))
     assert _upload(api, kept).status_code == 200
@@ -1347,8 +1347,8 @@ async def test_overwrite_import_retires_the_old_projects_unsettled_version_with_
 async def test_remote_upload_published_while_the_project_is_being_deleted_is_refused(
     api, sessions, project, bucket, monkeypatch
 ):
-    """项目删除补齐引用之后、目录移走之前，同项目的远端上传在上传前失败：墓碑里不会出现没被引用持有的远端版本。"""
-    assert _upload(api, solid_png_bytes((200, 10, 10), size=(64, 64))).status_code == 200  # 本地版本
+    """After deletion reconciles references/before directory moves, same-project preupload failures leave no unheld remote versions in tombstones."""
+    assert _upload(api, solid_png_bytes((200, 10, 10), size=(64, 64))).status_code == 200  # Local versions
     await _remote(sessions)
     filled, allow_retire = asyncio.Event(), asyncio.Event()
     settling, allow_finish = asyncio.Event(), asyncio.Event()
@@ -1397,7 +1397,7 @@ async def test_remote_upload_published_while_the_project_is_being_deleted_is_ref
 async def test_choosing_remote_storage_and_deleting_the_connection_do_not_both_succeed(
     api, sessions, bucket, monkeypatch
 ):
-    """把新增图片改为保存到对象存储与删除连接同时发生：两者串行，不会留下目标为对象存储而没有连接的状态。"""
+    """Concurrent remote-storage selection/connection deletion serializes, never leaving remote targets without connections."""
     await _remote(sessions)
     await _target(sessions, "local")
     checked, proceed = asyncio.Event(), asyncio.Event()
@@ -1427,7 +1427,7 @@ async def test_choosing_remote_storage_and_deleting_the_connection_do_not_both_s
         monkeypatch.setattr(object_storage, "connection_change_lock", observed_lock)
         deleting = asyncio.create_task(client.delete("/api/v1/object-storage/connection"))
         await asyncio.wait_for(trying_lock.wait(), 10)
-        assert not acquired_lock.is_set()  # 删除已到真实共享锁，等待设置提交之后再核对
+        assert not acquired_lock.is_set()  # Real shared locks await settings before rechecks.
         proceed.set()
         selected = await asyncio.wait_for(selecting, 10)
         deleted = await asyncio.wait_for(deleting, 10)
@@ -1442,7 +1442,7 @@ async def test_choosing_remote_storage_and_deleting_the_connection_do_not_both_s
 async def test_connection_moved_before_the_first_object_is_registered_fails_the_commit(
     api, sessions, project, bucket, monkeypatch
 ):
-    """提交取得连接后、登记首个对象前，另一位管理员把桶换掉：这次提交在上传前失败、不发布版本，之后的提交写新桶。"""
+    """Admins replace buckets after connection capture/before first-object registration: fail preupload without versions; later commits use new buckets."""
     await _remote(sessions)
     entered, release = threading.Event(), threading.Event()
     original = ObjectContentStorage.persist
@@ -1478,7 +1478,7 @@ async def test_connection_moved_before_the_first_object_is_registered_fails_the_
     assert [row.bucket for row in await _objects(sessions)] == ["replacement-bucket"]
 
 
-# ---- 远端图片参与时效判定、生成与编辑 ---------------------------------------------------------------
+# ---- Remote-image currency/generation/editing ---------------------------------------------------------------
 
 ALICE_RGB = (200, 10, 10)
 
@@ -1504,7 +1504,7 @@ async def _remote_alice_with_evicted_cache(api: TestClient, sessions, project: P
 
 
 def _remote_saved(project_dir: Path, history: dict[str, Any], bucket: MemoryBucket, artifact_path: str) -> bytes:
-    """当前版本已保存到远端：版本记录带 storage，对象就在桶里，正式文件就是它的工作副本。"""
+    """Current remote versions have storage records/bucket objects, with formal files as working copies."""
     record = next(item for item in history["versions"] if item["version"] == history["current_version"])
     stored = record["storage"]
     content = bucket.objects[(stored["bucket"], stored["key"])]
@@ -1514,7 +1514,7 @@ def _remote_saved(project_dir: Path, history: dict[str, Any], bucket: MemoryBuck
 
 
 async def test_evicted_remote_sheet_keeps_currency_and_workflow_plan(api, sessions, project, bucket):
-    """清理工作文件不改变资产图的时效与目标态规划，规划的稳定性复核照常成立，且判定不触发取回。"""
+    """Working cleanup preserves image currency/target planning/stability rechecks; evaluation never retrieves content."""
     await _remote(sessions)
     assert _upload(api, solid_png_bytes(ALICE_RGB, size=(400, 400))).status_code == 200
     before_status, before_entries = await asyncio.to_thread(_alice_sheet_state, project)
@@ -1533,7 +1533,7 @@ async def test_evicted_remote_sheet_keeps_currency_and_workflow_plan(api, sessio
 async def test_generation_from_evicted_remote_sheet_fetches_it_and_saves_the_new_image_remotely(
     api, sessions, project, bucket, monkeypatch
 ):
-    """衍生图生成以缓存已清理的远端角色图为参考：发给供应商的是取回的原图，生成结果保存到远端。"""
+    """Derivative generation retrieves cleaned remote character originals for providers, saving results remotely."""
     await _remote_alice_with_evicted_cache(api, sessions, project)
 
     def _register(entry: dict[str, Any]) -> None:
@@ -1569,7 +1569,7 @@ async def test_generation_from_evicted_remote_sheet_fetches_it_and_saves_the_new
 async def test_image_edit_of_evicted_remote_sheet_edits_the_fetched_image_and_saves_remotely(
     api, sessions, project, bucket, monkeypatch
 ):
-    """编辑缓存已清理的远端角色图：编辑源取回后交给供应商，编辑结果作为新版本保存到远端，再次清理不改变时效。"""
+    """Editing cleaned remote characters retrieves sources, saves results as remote versions; recleanup preserves currency."""
     await _remote_alice_with_evicted_cache(api, sessions, project)
     project_dir = project.get_project_path("demo")
     generator = build_generator(
@@ -1596,12 +1596,12 @@ async def test_image_edit_of_evicted_remote_sheet_edits_the_fetched_image_and_sa
     assert _remote_saved(project_dir, _history(project), bucket, "characters/Alice.png") == edited
 
     edited_state = await asyncio.to_thread(_alice_sheet_state, project)
-    assert _cleanup(api)["removed"] == 2  # 新版本的快照与正式文件
+    assert _cleanup(api)["removed"] == 2  # New-version snapshots/formal files
     assert await asyncio.to_thread(_alice_sheet_state, project) == edited_state
 
 
 async def test_video_reference_staging_fetches_the_evicted_remote_sheet(api, sessions, project, bucket):
-    """视频任务把参考图暂存为任务私有副本前取回缓存已清理的远端图片；供应商延迟取图只读这份副本。"""
+    """Video tasks retrieve cleaned references before private staging; delayed providers read private copies only."""
     record = await _remote_alice_with_evicted_cache(api, sessions, project)
     project_dir = project.get_project_path("demo")
     reference = ProviderMediaInput(
@@ -1618,7 +1618,7 @@ async def test_video_reference_staging_fetches_the_evicted_remote_sheet(api, ses
     assert hashlib.sha256((project_dir / staged.staged_locator).read_bytes()).hexdigest() == record["content_digest"]
 
 
-# ── 手动上传分镜图、角色衍生图与宫格图 ───────────────────────────────
+# ── Manual storyboard/derivative/grid uploads ───────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -1699,8 +1699,8 @@ def _project_files(project_dir: Path) -> dict[str, bytes]:
 
 @pytest.mark.parametrize("prepare", [_storyboard_upload, _derivative_upload, _grid_upload], ids=lambda f: f.__name__)
 async def test_manual_image_upload_follows_the_storage_choice(api, sessions, project, bucket, prepare):
-    """手动上传的分镜图、衍生图与宫格图按存储选择保存：本地时照旧；远端时对象确认后才发布版本，
-    上传失败时项目文件逐字节不变；清理工作文件后从远端取回。"""
+    """Manual storyboards/derivatives/grids follow storage settings: local unchanged, remote publishes after object confirmation,
+    failures preserve project files byte-for-byte; cleaned files retrieve remotely."""
     entry = await asyncio.to_thread(prepare, project)
     project_dir = project.get_project_path("demo")
 
@@ -1739,7 +1739,7 @@ async def test_manual_image_upload_follows_the_storage_choice(api, sessions, pro
 
 
 async def test_split_of_an_evicted_remote_grid_fetches_it_and_its_references(api, sessions, project, bucket):
-    """联合图与生成时的参考资产图都是缓存已清理的远端图片：切分照常进行，切出的分镜图带上参考依据，时效判定为当前。"""
+    """Joint images/reference assets are cleaned remote images; splitting still records reference bases and current storyboard currency."""
     await _remote_alice_with_evicted_cache(api, sessions, project)
     scene_ids = [f"E1S0{index}" for index in range(1, 5)]
     segments = [
@@ -1796,8 +1796,8 @@ async def test_split_of_an_evicted_remote_grid_fetches_it_and_its_references(api
 
 
 async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_versions(api, sessions, project, bucket):
-    """经设置接口启用与切回：只配置连接不启用远端；没有连接不能启用；启用期间不能删除连接；
-    切回本地后新版本照旧本地，已有远端版本按原定位读取与恢复，实际清理入口清理后仍可用。"""
+    """Settings enable/revert storage: connections alone do not enable remote; absent connections forbid enabling; enabled state blocks deletion;
+    reverted local new versions stay local, old remote versions read/restore original locations and survive real cleanup."""
     zh = {"Accept-Language": "zh"}
 
     def _settings() -> dict[str, Any]:
@@ -1813,7 +1813,7 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
     assert refused.status_code == 409
     assert "先配置对象存储连接" in refused.json()["detail"]
 
-    # 只配置连接（上传中转）：新增图片仍保存在本地
+    # Connection-only transit configuration still saves new images locally.
     assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
     assert _settings()["new_image_target"] == "local"
     image_a, image_b, image_c = (solid_png_bytes(rgb, size=(64, 64)) for rgb in ((1, 2, 3), (4, 5, 6), (7, 8, 9)))
@@ -1823,7 +1823,7 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
     assert _choose("object_storage").json() == {"target": "object_storage"}
     assert _settings()["new_image_target"] == "object_storage"
     guarded = api.delete("/api/v1/object-storage/connection", headers=zh)
-    assert guarded.status_code == 409  # 还没有正式对象，挡住删除的是保存位置本身
+    assert guarded.status_code == 409  # No formal objects; storage-location choices themselves block deletion.
     assert "新增图片保存位置" in guarded.json()["detail"]
     assert _upload(api, image_b).status_code == 200
 
@@ -1835,7 +1835,7 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
     assert record_b["storage"]["key"] == formal_object_key(record_b["content_digest"], ".png")
     assert bucket.stored_keys() == [record_b["storage"]["key"]]
 
-    # 中转副本单独计数，工作文件清理不碰它，也不删除正式对象
+    # Transit copies count separately; working-file cleanup touches neither them nor formal objects.
     async with sessions() as session:
         connection = await ObjectStorageConnectionRepository(session).get()
         assert connection is not None
@@ -1846,11 +1846,11 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
         )
         await session.commit()
     assert _settings()["retained_relay_objects"] == 1
-    assert _cleanup(api)["removed"] == 1  # B 的快照工作文件
+    assert _cleanup(api)["removed"] == 1  # B snapshot working files
     assert _settings()["retained_relay_objects"] == 1
     assert bucket.stored_keys() == [record_b["storage"]["key"]]
 
-    # 切回本地之后恢复远端版本 B：沿用原定位，不新增内容版本，也不重新上传
+    # Remote B restoration after switching local retains locations, adding no versions/reuploads.
     puts = bucket.calls.count(("put", record_b["storage"]["key"]))
     restored = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2")
     assert restored.status_code == 200, restored.text
@@ -1858,12 +1858,12 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
     assert [record.get("storage") for record in _history(project)["versions"]] == [None, record_b["storage"], None]
     assert bucket.calls.count(("put", record_b["storage"]["key"])) == puts
 
-    # 已有正式对象时，删除连接按正式对象挡下；保存位置改回本地也不解除
+    # Existing formal objects block connection deletion even after switching local.
     assert api.delete("/api/v1/object-storage/connection").status_code == 409
 
 
 async def test_end_frame_picked_from_an_evicted_remote_image_fetches_it_and_stays_local(api, sessions, project, bucket):
-    """尾帧不建版本，始终本地保存；从缓存已清理的远端图片选取时先从对象存储取回原图。"""
+    """Ending frames are unversioned/local always; selecting cleaned remote images first retrieves originals."""
     await asyncio.to_thread(_storyboard_upload, project)
     await _remote(sessions)
     image = solid_png_bytes((30, 60, 90), size=(64, 64))
@@ -1881,4 +1881,4 @@ async def test_end_frame_picked_from_an_evicted_remote_image_fetches_it_and_stay
     assert resp.status_code == 200, resp.text
     assert bucket.calls.count(("get", key)) == 1
     assert (project_dir / resp.json()["end_frame_image"]).is_file()
-    assert bucket.stored_keys() == [key]  # 尾帧快照不写对象存储
+    assert bucket.stored_keys() == [key]  # Ending-frame snapshots never enter object storage.

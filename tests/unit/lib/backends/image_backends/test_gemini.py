@@ -1,4 +1,4 @@
-"""GeminiImageBackend 单元测试。"""
+"""GeminiImageBackend unit tests."""
 
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ class TestProperties:
 
     @pytest.mark.parametrize("model", ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"])
     def test_channel_declares_no_reference_limit_by_model_name(self, fake_rate_limiter, patch_genai, model):
-        # 各代 Gemini 图像模型的参考图上限是模型事实，记在条目上；通道本身不限张数。
+        # Gemini generation-specific reference limits are catalog facts; channels themselves do not cap counts.
         from lib.backends.image_backends.gemini import GeminiImageBackend
 
         backend = GeminiImageBackend(
@@ -142,13 +142,13 @@ class TestGenerate:
         assert result.image_path == output_file
         assert result.provider == "gemini"
         assert output_file.exists()
-        # 没发 image_size：只报输出张数，不报分辨率（按价目表默认档计）
+        # Without image_size, report output counts but no resolution, using price-table defaults.
         assert result.usage is not None
         assert result.usage.quantities == {"output_images": 1}
         assert result.usage.dimensions == {}
 
     async def test_save_settles_through_cancellation(self, backend_aistudio, tmp_path):
-        """供应商已返回图片：取消落在解码保存期间时，保存先结算，取消随之消失，后续转码与产物提交照常执行。"""
+        """Provider images already returned: cancellation during decode/save settles writes and is consumed, allowing transcoding/artifact commits."""
         gate = WriteGate()
         output_file = tmp_path / "out.png"
 
@@ -173,7 +173,7 @@ class TestGenerate:
         assert PILImage.open(output_file).size == (8, 8)
 
     async def test_generate_with_reference_images(self, backend_aistudio, tmp_path):
-        """参考图按顺序作为图片内容送入 SDK，prompt 置于末尾，中间不夹任何名称标签。"""
+        """Send reference contents to SDK in order, with prompts last and no interleaved name labels."""
         output_file = tmp_path / "out.png"
         ref_img_path = tmp_path / "characters" / "角色A.png"
         ref_img_path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,7 +203,7 @@ class TestGenerate:
         assert contents[1] == "draw character"
 
     async def test_generate_sends_every_reference_before_the_prompt(self, backend_aistudio, tmp_path):
-        """裁剪归编排层（按生效上限）：通道把收到的参考图全部送入 SDK，prompt 仍在末尾。"""
+        """Orchestration crops by effective caps; channels forward every received reference, keeping prompts last."""
         refs = []
         for index in range(16):
             ref_path = tmp_path / f"ref{index}.png"

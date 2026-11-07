@@ -63,7 +63,7 @@ _HANDLED_KEYS = {
 
 
 async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
-    """把数据根下的旧版系统配置文件一次性导入数据库；文件不存在时什么都不做。"""
+    """Import legacy data-root system configuration into DB once; no-op when absent."""
     layout = DataRootLayout(data_root)
     json_path = layout.system_config_json_path
     if not json_path.exists():
@@ -102,7 +102,7 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
 
     video_backend = overrides.get("video_backend", "aistudio")
     video_model = overrides.get("video_model", "veo-3.1-generate-001")
-    # AI Studio 使用 preview 后缀，Vertex 使用 001 后缀
+    # AI Studio uses preview suffixes, Vertex 001.
     if video_backend == "aistudio":
         _model_fix = {
             "veo-3.1-generate-001": "veo-3.1-generate-preview",
@@ -147,16 +147,16 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
     logger.info("Migration complete. Renamed to %s", bak_path)
 
 
-# 旧任务级文本 backend 键（按用途逐键配置），已由任务档位键取代（docs/adr/0051）
+# Legacy per-task backend keys replaced by task-tier keys (docs/adr/0051).
 _LEGACY_TEXT_TASK_KEYS = ("text_backend_script", "text_backend_overview", "text_backend_style")
 
 
 async def migrate_text_tier_settings(session: AsyncSession) -> None:
-    """全局 system_settings 的文本配置启动迁移。
+    """Startup migration for global system_settings text configuration.
 
-    第一步映射旧任务级键：script → complex；overview / style → simple，两者都有值时取
-    style 的值（style 任务需要 vision，反向会让风格分析换到可能不支持图像输入的模型）。
-    迁移后删除旧键即幂等标记；档位键已有值时不覆盖（用户后配的新值优先）。
+    First map old task keys: script → complex; overview/style → simple, preferring style when
+    both exist because style requires vision; reversing would select possibly nonvision models for analysis.
+    Delete old keys for idempotency; never overwrite existing tier keys, preserving newer user choices.
     """
     repo = SystemSettingRepository(session)
     script = await repo.get("text_backend_script")

@@ -17,7 +17,7 @@ const EXISTING: ApiKeyInfo = {
   last_used_at: null,
 };
 
-// 剪贴板是浏览器边界，jsdom 不实现；userEvent.setup() 会装自己的剪贴板，要在它之后再替换。
+// Clipboard is a browser boundary absent in jsdom; userEvent.setup() installs its own, so replace afterward.
 function stubClipboard() {
   const writeText = vi.fn(() => Promise.resolve());
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });

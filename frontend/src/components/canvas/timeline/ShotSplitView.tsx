@@ -25,17 +25,17 @@ interface ShotSplitViewProps {
   contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
-  /** 当前集号；给了才在分镜详情里提供单条「编写提示词」入口 */
+  /** Current episode ID; supplied enables per-shot prompt-authoring entries. */
   episode?: number;
-  /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
+  /** Current script filename locates shot entries for storyboard/video manual uploads. */
   scriptFile?: string;
-  /** 提交分镜字段的增量修改，失败时抛错，resolve 为项目是否已刷新；缺省时只读展示。 */
+  /** Submit shot-field patches, throwing on failure and resolving project refresh; omitted means read-only. */
   onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>) => Promise<boolean>;
-  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否移动成功 */
+  /** Reorder after afterId, null to front; resolves success. */
   onMoveShot?: (shotId: string, afterId: string | null) => Promise<boolean>;
-  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  /** Add shots with narration body; null afterId appends; resolves success. */
   onInsertShot?: InsertShotHandler;
-  /** 移除分镜，resolve 为是否成功 */
+  /** Remove shots; resolves success. */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void | Promise<void>;
@@ -46,28 +46,28 @@ interface ShotSplitViewProps {
   generatingVideo?: (segmentId: string) => boolean;
   generatingNarration?: (segmentId: string) => boolean;
   durationOptions?: number[];
-  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  /** Empty tiers mean endpoint-fixed duration/workflow-owned length, not unregistered model durations. */
   durationEndpointFixed?: boolean;
   lastFrame?: boolean | null;
   capabilitiesLoading?: boolean;
-  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
+  /** Classify saved out-of-range causes; omitted makes ShotDetail show generic warnings. */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
 /**
- * 选中项按分镜 ID 记，列表被重排或在前面插入分镜时选中态不跳走；
- * ID 为 null 或不在当前列表里（刚被移除）时退回记下的位置，并在渲染时认定该位置的 ID。
+ * Store selection by shot ID, following entries through reorders/preceding insertions;
+ * null/absent IDs (just removed) fall back to saved positions, adopting their IDs during render.
  */
 interface Selection {
   id: string | null;
   index: number;
-  /** 新增分镜后按位置选中：列表还是这一份时不认定 ID，等刷新出新分镜。 */
+  /** After additions select by position, not IDs while the list is unchanged; await refreshed new entries. */
   staleIds?: readonly string[];
 }
 
 /**
- * 分镜分屏：左侧分镜列表（220px，可收为 44px）+ 右侧分镜详情。
- * 切换分镜经离开拦截：当前分镜有未保存修改时先询问。J / K 切换分镜，⌘S / Ctrl+S 保存当前分镜。
+ * Split shot view: left 220px list, collapsible to 44px, right details.
+ * Leave guards ask before switching dirty shots. J / K switches, ⌘S / Ctrl+S saves the current shot.
  */
 export function ShotSplitView({
   segments,
@@ -111,7 +111,7 @@ export function ShotSplitView({
     setSelection({ id: segmentId, index: safeIndex });
   }
 
-  /** 切到第 index 个分镜；当前分镜有未保存修改时先由离开拦截询问。 */
+  /** Switch to shot index, first asking through leave guards for dirty current shots. */
   const select = useCallback((index: number) => {
     const id = ids[index];
     if (id === undefined) return;
@@ -125,7 +125,7 @@ export function ShotSplitView({
   const selectNext = useCallback(() => select(Math.min(ids.length - 1, safeIndex + 1)), [select, ids.length, safeIndex]);
   const saveSelected = useCallback(() => editRef.current?.save(), []);
 
-  // 分镜改序：请求在途时丢弃后续操作（快速连点会基于过期顺序计算锚点）。选中态按 ID 跟随原来的分镜。
+  // Drop subsequent reorders while requests run; rapid clicks would derive stale anchors. Selection follows original shot IDs.
   const handleMoveShot = onMoveShot
     ? async (shotId: string, afterId: string | null) => {
         if (movePending) return;
@@ -137,7 +137,7 @@ export function ShotSplitView({
         }
       }
     : undefined;
-  // 详情里的前移、后移一位换算成锚点。
+  // Detail move-before/after-one actions convert to anchors.
   const handleMoveStep = handleMoveShot
     ? (shotId: string, direction: "earlier" | "later") => {
         const afterId = stepAnchor(ids, ids.indexOf(shotId), direction);
@@ -145,8 +145,8 @@ export function ShotSplitView({
       }
     : undefined;
 
-  // 新增 / 移除分镜：请求在途锁定切镜与增删入口。新增成功后选中紧随其后的新分镜；
-  // 移除成功后位置不动，落到原来的下一条（末条时夹紧到新的末条）。
+  // Add/remove locks shot switching/mutations while in flight. Add success selects new following shots;
+  // remove retains position, selecting the previous next entry or clamping to the new last.
   const runStructureChange = async (change: () => Promise<boolean>, onSuccess: () => void) => {
     if (structurePending) return false;
     setStructurePending(true);
@@ -162,8 +162,8 @@ export function ShotSplitView({
     ? (afterId, novelText) =>
         runStructureChange(
           () => onInsertShot(afterId, novelText),
-          // 插在当前分镜之后的选中紧随其后的新分镜；追加到末尾的选中新的末条。
-          // 新分镜的 ID 要等列表刷新后才知道，先按位置选中；切走前同样经离开拦截。
+          // Insert-after selects new following entries; append selects the new last.
+          // IDs arrive only after refresh; select position first, still guarding before navigation.
           () => {
             const index = afterId === null ? ids.length : safeIndex + 1;
             confirmLeave(() => setSelection({ id: null, index, staleIds: ids }), { saveLabel: t("save_and_switch") });
@@ -186,19 +186,19 @@ export function ShotSplitView({
     navDisabled: movePending || structurePending,
   });
 
-  // 定位到分镜（通知、制作进度、应用内链接、Agent 改动）：分屏布局只需切换选中分镜，不做 DOM 滚动。
-  // 切走前同样经离开拦截；Agent 改动带来的自动定位在有未保存修改时已由事件流自己略过，不会打断编辑。
+  // Shot location from notices/progress/links/Agent changes only selects in split layouts, without DOM scrolling.
+  // Still guard leaving; event streams already skip dirty automatic Agent locations, preserving editing.
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
     if (scrollTarget?.type !== "segment") return;
     const idx = ids.indexOf(scrollTarget.id);
     if (idx !== -1) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 响应外部 store 的一次性定位请求切换选中分镜：没有修改时当场切换，有修改时等离开拦截放行后再切
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Respond to one-shot external-store location: switch immediately when clean, otherwise after leave-guard approval
       select(idx);
       clearScrollTarget(scrollTarget.request_id);
     } else if (Date.now() >= scrollTarget.expires_at) {
-      // 当前 segments 不含该分镜（如事件指向其他剧集），过期后清理避免下次 segments 变更误触发
+      // If segments omit target shots, e.g. other-episode events, clear expired requests to avoid later accidental triggers.
       clearScrollTarget(scrollTarget.request_id);
     }
   }, [scrollTarget, ids, select, clearScrollTarget]);

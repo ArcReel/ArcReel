@@ -21,12 +21,13 @@ from lib.db.base import Base, TimestampMixin
 
 
 class CustomProvider(TimestampMixin, Base):
-    """用户自定义的 AI 供应商。"""
+    """User-defined AI provider."""
 
     __tablename__ = "custom_provider"
-    # 与加列迁移保持同步：三条并发上限列在 DB 层强制 ≥1，repo 直写或手工 SQL 都无法写入
-    # 0 或负值；NULL=未设置回退默认。0 不是合法用户输入，仅作 CapacityTable 内部「不支持该
-    # lane」哨兵（由 lane 投影在内存里产生，绝不写回这些列）。
+    # Keep synchronized with the column-adding migration: all three concurrency-limit columns enforce ≥1
+    # at the DB level, rejecting zero/negative values even through direct repository writes or SQL.
+    # NULL means unset, falling back to defaults. Zero is not valid user input; it is only an internal
+    # unsupported-lane sentinel in CapacityTable, projected in memory and never persisted to these columns.
     __table_args__ = (
         CheckConstraint(
             "image_max_workers IS NULL OR image_max_workers >= 1",
@@ -40,7 +41,7 @@ class CustomProvider(TimestampMixin, Base):
             "audio_max_workers IS NULL OR audio_max_workers >= 1",
             name="ck_custom_provider_audio_max_workers_positive",
         ),
-        # 删除的供应商 ID 不回收：provider_id（custom-<id>）落在失败记录与用量里，复用会错归
+        # Never reuse deleted provider IDs: provider_id (custom-<id>) appears in failure and usage records; reuse would misattribute them
         {"sqlite_autoincrement": True},
     )
 
@@ -49,8 +50,9 @@ class CustomProvider(TimestampMixin, Base):
     discovery_format: Mapped[str] = mapped_column(String(32), nullable=False)  # "openai" | "google"
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     api_key: Mapped[str] = mapped_column(Text, nullable=False)  # sensitive, masked in API responses
-    # 按 lane 命名的并发上限定型列；NULL = 未设置 → 容量装载回退全局默认。自定义供应商不在
-    # 内置注册表，故无声明默认层，回退为两层（用户列值 → 全局默认）。
+    # Typed concurrency-limit columns named by lane; NULL means unset, so capacity loading uses global defaults.
+    # Custom providers are absent from the built-in registry and have no declaration-default layer:
+    # fallback has two levels (user column value → global default).
     image_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     video_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     audio_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -63,7 +65,7 @@ class CustomProvider(TimestampMixin, Base):
 
 
 class CustomProviderModel(TimestampMixin, Base):
-    """自定义供应商下的模型配置。"""
+    """Model configuration under a custom provider."""
 
     __tablename__ = "custom_provider_model"
     __table_args__ = (
@@ -83,15 +85,15 @@ class CustomProviderModel(TimestampMixin, Base):
     resolution: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )  # standard token ("1080p"/"2K") or native "WxH"
-    # 模型级能力覆盖，稀疏字典，键名对齐 VideoCapabilities 字段名。NULL 或字典缺该键 =
-    # 跟随系统判定；写死的能力维度列表不进 schema，向新维度开放无需迁移。合成语义由
-    # lib.custom_provider.capabilities 唯一承载。
+    # Model-level capability overrides, a sparse dictionary keyed by VideoCapabilities field names.
+    # NULL or an absent key follows system determination. No fixed capability-dimension list enters
+    # the schema, so new dimensions need no migration. lib.custom_provider.capabilities alone owns composition semantics.
     capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    # 路径覆盖：调用端点的请求名 → 整条替换的路径（docs/adr/0101）。NULL = 全部按端点默认路径；
-    # 更换调用端点时由写入侧清空，端点定义里已不存在的请求名在读取与执行时忽略。
+    # Path overrides: endpoint request name → complete replacement path (docs/adr/0101). NULL uses endpoint defaults.
+    # Writers clear these on endpoint changes; reads and execution ignore request names absent from the definition.
     path_overrides: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
-    # 供应商模型倍率（docs/adr/0100）：与供应商倍率相乘后作用在这个模型的整笔参考费用上；默认 1。
+    # Provider-model multiplier (docs/adr/0100): multiply by the provider multiplier and apply to the whole model reference cost; default 1.
     multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default=sa_text("1"))
-    # 条目绑定（docs/adr/0105）：用户为这个模型指定的模型条目，存「模型厂商/官方模型名」，媒体类型取调用端点。
-    # NULL = 按名字现查；绑定的条目已不在目录里时同样回到按名字现查。
+    # Entry binding (docs/adr/0105): user-selected model entry stored as model vendor/official model name;
+    # media type comes from the endpoint. NULL or a bound entry missing from the catalog falls back to live name lookup.
     entry_binding: Mapped[str | None] = mapped_column(String(255), nullable=True)

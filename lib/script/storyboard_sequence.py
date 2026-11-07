@@ -39,27 +39,32 @@ class EndFrameImageUnavailable(ValueError):
 
 
 def get_storyboard_items(script: dict) -> tuple[list[Any], str, str | None, str, str]:
-    """返回 旁白/解说、剧情演绎与广告/短片剧本的分镜列表 + 各引用字段名。
+    """Return storyboard lists and reference-field names for narration, drama, and ad/short-film scripts.
 
-    ``video_units`` 骨架没有 storyboard 一说（视频按 unit 直出，见
-    ``server/media_tools/videos.py`` 的参考生视频分支），这里硬返回空列表是
-    「该骨架下不存在 storyboard 任务」的明示，调用方据此跳过。判别只看剧本实际骨架、不看项目
-    生成模式：本函数是查看 / 编辑 / 生成共用的结构访问器，对存量失配剧本也要如实回答；生成分派按
-    项目生成模式在各生成入口做，失配由 ``lib.script.script_skeleton.ensure_route_skeleton`` 显式拒绝。
-    该分支的 ``char_field`` 取 ``SKELETONS`` 声明的缺位（``None``）——``video_units`` 无逐条
-    角色名单（角色以 ``references`` 条目形态存在），不返回假字段名让调用方 ``get()`` 静默取空。
+    The ``video_units`` skeleton has no storyboards (video is generated directly per unit; see
+    the reference-video branch in ``server/media_tools/videos.py``). Returning an empty list
+    explicitly means that this skeleton has no storyboard tasks, so callers skip them. Detection
+    uses the script's actual skeleton, not the project's generation mode: this structural accessor
+    serves viewing, editing, and generation, and must faithfully report existing mismatched scripts.
+    Generation entry points dispatch by project generation mode, while
+    ``lib.script.script_skeleton.ensure_route_skeleton`` explicitly rejects mismatches.
+    This branch takes the absent ``char_field`` (``None``) declared by ``SKELETONS``: ``video_units``
+    has no per-item character list (characters are ``references`` entries). It must not return a
+    fabricated field name that would silently make callers' ``get()`` return nothing.
 
-    分镜族骨架委托给 ``lib.script.script_editor.resolve_items``——与写盘咽喉
-    / 编辑核心 / 元数据重算共用同一判别（``narration→segments``、``drama→scenes``、
-    以及 narration 数据落 scenes 键的历史兼容）。``char_field`` 改查 ``SKELETONS`` 单一
-    真相源（``.get(kind, ...)`` 静默兜底删除），第五种骨架出现时未登记即随查表报错。
-    ``segments`` / ``scenes`` 键存在但值非 list（如 ``null``）时 ``resolve_items`` 抛
-    ``ScriptEditError``——读取侧的调用方（``cost_estimation`` / 路由 / enqueue 工具）应让
-    异常上冒，避免脏数据被静默吞成 ``TypeError: 'NoneType' is not iterable``。
+    Storyboard-family skeletons delegate to ``lib.script.script_editor.resolve_items``, sharing
+    detection with the disk-write boundary, editing core, and metadata recalculation
+    (``narration→segments``, ``drama→scenes``, and historical narration data stored under scenes).
+    ``char_field`` now uses ``SKELETONS`` as the single source of truth (the silent
+    ``.get(kind, ...)`` fallback is removed), so an unregistered fifth skeleton fails on lookup.
+    When ``segments`` / ``scenes`` exists but is not a list (such as ``null``), ``resolve_items``
+    raises ``ScriptEditError``. Read-side callers (``cost_estimation`` / routes / enqueue tools)
+    should propagate the exception so dirty data is not silently reduced to
+    ``TypeError: 'NoneType' is not iterable``.
     """
     items, id_field, kind = resolve_items(script)
-    # 角色引用字段名查 SKELETONS 单一真相源（video_units→None 强制显式决策）；id_field 由
-    # resolve_items 按同一 kind 一并给出，各分支共用。
+    # Resolve character-reference fields from the single SKELETONS source (video_units→None forces
+    # an explicit decision); resolve_items supplies id_field for the same kind across all branches.
     char_field = SKELETONS[kind].chars_field
     if kind == "video_units":
         return ([], id_field, char_field, "scenes", "props")
@@ -72,34 +77,38 @@ def find_storyboard_item(
     resource_id: str,
 ) -> tuple[Any, int] | None:
     for index, item in enumerate(items):
-        # 条目来自磁盘剧本 JSON，只有外层 list 被校验过：非映射条目跳过而不是抛 AttributeError。
+        # Only the outer list of on-disk script JSON is validated; skip non-mappings instead of raising AttributeError.
         if isinstance(item, dict) and str(item.get(id_field)) == str(resource_id):
             return item, index
     return None
 
 
 def resolve_storyboard_image_ref(project_path: Path, storyboard_rel: object) -> Path | None:
-    """校验 ``generated_assets.storyboard_image`` 字段值，返回解析后落在 ``storyboards/``
-    内的绝对路径；字段未设置（``None``/``""``）返回 ``None``，由调用方按各自默认路径回退。
+    """Validate ``generated_assets.storyboard_image`` and return its resolved absolute path
+    inside ``storyboards/``. An unset field (``None``/``""``) returns ``None`` so each caller
+    can fall back to its own default path.
 
-    该字段来自磁盘上的 project.json / 剧本 JSON，不可信任（归档导入、外部编辑、脏数据都能
-    落值）：绝对路径 / ``..`` 会把项目外任意文件当作分镜图使用，须先做类型检查、显式拒绝
-    绝对路径（含 Windows 无盘符根路径），再用 ``try_safe_join`` 解析并确认结果落在
-    ``storyboards/`` 目录内。旧宫格项目 ``storyboard_image`` 指向非 canonical 文件名
-    （``scene_{id}_first.png``）仍需正常解析，故只做目录归属校验，不与 canonical 路径逐一
-    比对（这点与 ``end_frame_image`` 不同）。
+    This field comes from on-disk project.json / script JSON and is untrusted (archive imports,
+    external edits, and dirty data can all supply values). Absolute paths / ``..`` could use any
+    file outside the project as a storyboard image. Check the type, explicitly reject absolute
+    paths (including Windows rooted paths without a drive), then resolve with ``try_safe_join``
+    and confirm containment in ``storyboards/``. Legacy grid projects may point ``storyboard_image``
+    to a noncanonical filename (``scene_{id}_first.png``), which must still resolve. Therefore only
+    directory containment is checked, rather than equality with the canonical path
+    (unlike ``end_frame_image``).
 
     Raises:
-        ValueError: 字段值非字符串、是绝对路径、越界、或解析结果不在 ``storyboards/`` 内。
+        ValueError: The value is not a string, is absolute, escapes the boundary, or resolves outside ``storyboards/``.
     """
     if storyboard_rel in (None, ""):
         return None
     if not isinstance(storyboard_rel, str):
         raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
-    # `os.path.join` 遇到绝对路径会丢弃 base，若该绝对路径恰好落在项目 storyboards/ 内仍会
-    # 通过越界检查，须在解析前显式挡掉。Windows 原生运行时无盘符的「根路径」（如 `\Users\...`）
-    # 对 `Path.is_absolute()` 不算绝对，但 os.path.join 遇到它同样会丢弃 base（仅保留 base 的
-    # 盘符），需按正斜杠归一化后再查是否以根分隔符开头。
+    # `os.path.join` discards base for an absolute path. If it happens to point inside project
+    # storyboards/, containment still passes, so reject it explicitly before resolution. On native
+    # Windows a drive-less rooted path (such as `\Users\...`) is not absolute to `Path.is_absolute()`,
+    # but os.path.join still discards base except its drive. Normalize to forward slashes and check
+    # for an initial root separator as well.
     if Path(storyboard_rel).is_absolute() or storyboard_rel.replace("\\", "/").startswith("/"):
         raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
     storyboards_root = safe_join(project_path, "storyboards", allow_base=True)
@@ -109,8 +118,9 @@ def resolve_storyboard_image_ref(project_path: Path, storyboard_rel: object) -> 
     try:
         storyboard_file.relative_to(storyboards_root)
     except ValueError:
-        # 与越界/脏数据分开措辞：这一支是「项目内但不在 storyboards/」，唯一能自然落进来的
-        # 是外部编辑过的剧本，运维需要从失败原因直接看出是目录归属而非路径越界。
+        # Distinguish this from boundary escapes/dirty data: the path is inside the project but
+        # outside storyboards/, naturally arising only from an externally edited script. Operations
+        # must be able to identify directory containment, rather than a boundary escape, from the error.
         raise ValueError(f"storyboard image path must stay under storyboards/: {storyboard_rel!r}") from None
     return storyboard_file
 

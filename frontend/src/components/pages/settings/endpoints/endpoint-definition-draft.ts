@@ -9,28 +9,28 @@ import type {
   EndpointStandardStatus,
 } from "@/types";
 
-// 定义草稿的读写辅助。表单与 JSON 视图共享同一份 EndpointDefinition 对象，
-// 这里只提供「读出 UI 需要的形状」与「写回时保留未知字段」的转换，不做校验——
-// 校验是服务端 POST /custom-endpoints/validate 的唯一职责。
+// Definition-draft read/write helpers. Forms/JSON views share EndpointDefinition objects,
+// converting UI-required shapes and preserving unknown fields on writes only, without validation:
+// server POST /custom-endpoints/validate owns validation exclusively.
 
-/** 声明式定义的媒体类型；定义不写 `media_type` 即视频。 */
+/** Declarative media types; absent `media_type` means video. */
 export type EndpointMediaType = "image" | "video";
 
 export function definitionMediaType(definition: EndpointDefinition): EndpointMediaType {
   return definition.media_type ?? "video";
 }
 
-/** 产物取值键：轮询或二次取件节里读出产物（地址或内联 base64）的那一项。 */
+/** Output extraction keys for result URLs/inline base64 in polling or secondary retrieval sections. */
 export type EndpointArtifactKey = "video_url" | "image_url" | "image_b64";
 
 /**
- * 一种媒体类型在表单上的差异，与后端校验器的 MEDIA_TYPE_RULES 对应：
- * 可选的素材来源、产物取值键（按运行时取用的先后排列）、可插入请求体的生成参数变量。
+ * Media-specific form differences match backend MEDIA_TYPE_RULES:
+ * available material sources, output extraction keys in runtime precedence, and generation variables insertable into bodies.
  */
 export interface MediaTypeFormProfile {
   inputSources: EndpointInputSource[];
   artifactKeys: EndpointArtifactKey[];
-  /** 变量名与说明文案的 i18n key。 */
+  /** Variable names and description-copy i18n keys. */
   generationVariables: { name: string; descKey: string }[];
 }
 
@@ -77,7 +77,7 @@ export const STANDARD_STATUSES: EndpointStandardStatus[] = [
 
 export const HTTP_METHODS = ["GET", "POST", "PUT"];
 
-/** 表单分节 id，同时是诊断卡定位与竖轨编号的依据。 */
+/** Form section IDs also locate diagnostics and number vertical rails. */
 export type EndpointFormSection =
   | "meta"
   | "auth"
@@ -88,7 +88,7 @@ export type EndpointFormSection =
   | "capabilities"
   | "test";
 
-/** 新建定义的预填：方法与恒等状态映射有通用答案，能力与取值路径各家差异大，留空。 */
+/** New-definition prefill: methods/identity status mappings have common defaults; variable capabilities/extraction paths stay empty. */
 export function newEndpointDefinition(author: string): EndpointDefinition {
   return {
     kind: "declarative",
@@ -117,17 +117,17 @@ export function newEndpointDefinition(author: string): EndpointDefinition {
 }
 
 // ---------------------------------------------------------------------------
-// 取值路径
+// Extraction paths
 // ---------------------------------------------------------------------------
 
-/** 读出取值声明中的路径数组；两种简写/全写形态归一，缺席为空数组。 */
+/** Read path arrays, normalizing short/full declarations; absence means empty arrays. */
 export function readPaths(spec: EndpointExtractSpec | undefined): EndpointPathItem[] {
   if (spec === undefined) return [];
   if (Array.isArray(spec)) return spec;
   return spec.paths ?? [];
 }
 
-/** 写回路径数组，保留原形态的 accept；空数组写成空简写而非删键，避免字段静默消失。 */
+/** Write paths retaining original accept; empty arrays become empty shorthand, never deleted keys, avoiding silent field loss. */
 export function writePaths(
   spec: EndpointExtractSpec | undefined,
   paths: EndpointPathItem[],
@@ -138,7 +138,7 @@ export function writePaths(
   return paths;
 }
 
-/** 路径项是否可在表单里直接编辑；json_decode 形态只在 JSON 视图编辑。 */
+/** Whether path items edit directly in forms; json_decode edits only through JSON views. */
 export function isPlainPath(item: EndpointPathItem): item is string {
   return typeof item === "string";
 }
@@ -148,7 +148,7 @@ export function pathItemText(item: EndpointPathItem): string {
 }
 
 // ---------------------------------------------------------------------------
-// 诊断定位
+// Diagnostic locations
 // ---------------------------------------------------------------------------
 
 const SECTION_BY_ROOT: Record<string, EndpointFormSection> = {
@@ -163,9 +163,9 @@ const SECTION_BY_ROOT: Record<string, EndpointFormSection> = {
 };
 
 /**
- * 把诊断的定位串（如 `poll.extract.video_url[0]`）映射到所属表单分节。
- * `enum_maps`、`defaults`、`schema_version` 这类字段表单里没有控件，返回 null
- * 表示只能在 JSON 视图处理——归给某个分节会把用户送到一个找不到该字段的地方。
+ * Map diagnostic paths, such as `poll.extract.video_url[0]`, to form sections.
+ * Fields without controls, such as `enum_maps`, `defaults`, `schema_version`, return null,
+ * requiring JSON views; assigning sections would send users somewhere the field does not exist.
  */
 export function sectionOfIssuePath(path: string): EndpointFormSection | null {
   const root = path.replace(/^\$\.?/, "").split(/[.[]/, 1)[0];
@@ -173,10 +173,10 @@ export function sectionOfIssuePath(path: string): EndpointFormSection | null {
 }
 
 // ---------------------------------------------------------------------------
-// 不可变写入
+// Immutable writes
 // ---------------------------------------------------------------------------
 
-/** 按键序重建对象，让重命名键不改变字段顺序——顺序变化会让 JSON 视图无谓地跳动。 */
+/** Rebuild objects in key order so renaming preserves field order, avoiding needless JSON-view jumps. */
 export function renameKey<T>(
   record: Record<string, T>,
   from: string,
@@ -198,17 +198,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * 这份定义是不是声明式的。ComfyUI 定义只有 `workflow` 与 `bindings`，详情表单与头部直接解引用的
- * `submit` / `poll` 在它上面根本不存在，两者只能在同一个判据上分道。
+ * Whether definitions are declarative. ComfyUI has only `workflow`/`bindings`, lacking directly dereferenced
+ * `submit` / `poll` in forms/headers; both must branch on the same predicate.
  */
 export function isDeclarativeDefinition(value: AnyEndpointDefinition): value is EndpointDefinition {
   return value.kind === "declarative";
 }
 
 /**
- * JSON 视图写回草稿前的结构闸：表单与头部不做防御性访问（草稿即定义），
- * 直接解引用 meta、submit.extract、poll.extract 这几个容器，缺任一即不可渲染。
- * 字段级缺失（如 meta.name）只影响单个控件的取值，交给服务端校验诊断。
+ * Structural gates before JSON-view draft writes: forms/headers do not defensively access definitions,
+ * directly dereferencing meta, submit.extract and poll.extract; any missing container prevents rendering.
+ * Missing individual fields such as meta.name affect single controls only; server validation diagnoses them.
  */
 export function isRenderableDefinition(value: unknown): value is EndpointDefinition {
   return (
@@ -222,16 +222,16 @@ export function isRenderableDefinition(value: unknown): value is EndpointDefinit
 }
 
 /**
- * ComfyUI 定义的结构闸，与 {@link isRenderableDefinition} 同一用途：只认展示时会解引用的
- * meta 与 workflow 两个容器，字段级问题交给服务端校验。
+ * ComfyUI structure gates serve {@link isRenderableDefinition}'s purpose, checking only display-dereferenced
+ * meta/workflow containers; servers validate individual fields.
  */
 export function isRenderableComfyuiDefinition(value: unknown): value is ComfyuiEndpointDefinition {
   return isRecord(value) && value.kind === "comfyui" && isRecord(value.meta) && isRecord(value.workflow);
 }
 
 /**
- * 由端点名称派生市场条目 slug，规则 `^[a-z0-9][a-z0-9-]{0,63}$`：去重音、转小写，其余字符折成连字符；
- * 名称里没有可用 ASCII 字符时为空串。
+ * Derive market slugs by `^[a-z0-9][a-z0-9-]{0,63}$`: remove accents, lowercase, replace other characters with hyphens;
+ * names without usable ASCII yield empty strings.
  */
 export function slugFromName(name: string): string {
   return name
@@ -244,7 +244,7 @@ export function slugFromName(name: string): string {
     .replace(/-+$/, "");
 }
 
-/** 导出文件名：有安装记录的端点直接用记录里的 slug，否则由 meta.name 派生，派生为空时退化为 `endpoint`。 */
+/** Export filenames use installed slugs, otherwise derive from meta.name, falling back to `endpoint` when empty. */
 export function definitionFileName(definition: AnyEndpointDefinition, installationSlug?: string | null): string {
   if (installationSlug) return `${installationSlug}.json`;
   return `${slugFromName(definition.meta?.name ?? "") || "endpoint"}.json`;

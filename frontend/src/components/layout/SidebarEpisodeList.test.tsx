@@ -10,7 +10,7 @@ function episode(id: number, title: string, overrides: Partial<EpisodeMeta> = {}
   return { episode: id, title, script_file: `scripts/episode_${id}.json`, ...overrides } as EpisodeMeta;
 }
 
-// 「第二章」「第三章」切自整本源文，按源文位置排列；「番外」自带原文，放在哪里都行。
+// 第二章/第三章 cut whole sources in source order; 番外 owns standalone sources, freely placeable.
 const FILES = [{ source_file: "source/novel.txt" }];
 const EPISODES = [
   episode(1, "番外"),
@@ -44,7 +44,7 @@ async function pickUp(name: string) {
 
 describe("SidebarEpisodeList", () => {
   beforeEach(() => {
-    // jsdom 不做布局：按条目在列表里的位置给出纵向排开的矩形，键盘拖动才有落点可算。
+    // jsdom lacks layout; assign vertically stacked rectangles by list positions for keyboard-drop targets.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const item = this.closest("li");
       const index = item ? Array.from(item.parentElement?.children ?? []).indexOf(item) : 0;
@@ -64,7 +64,7 @@ describe("SidebarEpisodeList", () => {
     await userEvent.keyboard("{ArrowDown}");
     await userEvent.keyboard(" ");
 
-    // 「番外」移到「第二章」之后
+    // Move 番外 after 第二章.
     await waitFor(() => expect(onMove).toHaveBeenCalledWith(1, 2));
     const titles = within(screen.getByRole("list")).getAllByRole("listitem").map((item) => item.textContent);
     expect(titles[0]).toContain("第二章");
@@ -102,7 +102,7 @@ describe("SidebarEpisodeList", () => {
     await user.click(await screen.findByRole("menuitem", { name: "后移" }));
     expect(onMove).toHaveBeenCalledTimes(1);
 
-    // 上一次移动还在保存：校验与提交仍按旧顺序，叠加的移动会算错落点
+    // Prior moves still saving; validation/submission use old order, so overlapping moves calculate wrong targets.
     await user.click(screen.getByRole("button", { name: "「番外」的操作" }));
     expect(await screen.findByRole("menuitem", { name: "后移" })).toHaveAttribute("aria-disabled", "true");
     await user.keyboard("{Escape}");

@@ -18,7 +18,7 @@ _BASELINE = {
 
 
 def _write_meta(root: Path, name: str, codes: dict[str, int | None], hashes: dict[str, str] | None = None) -> None:
-    """按真实 .meta 的形状落盘：每个 mutant 对应的函数都有哈希，未指定的用占位值。"""
+    """Write real .meta shapes: each mutant function has a hash, using placeholders when unspecified."""
     root.mkdir(parents=True, exist_ok=True)
     derived = {key.partition("__mutmut_")[0].rpartition(".")[2]: "h" for key in codes}
     payload = {"exit_code_by_key": codes, "hash_by_function_name": {**derived, **(hashes or {})}}
@@ -194,7 +194,7 @@ def test_load_meta_rejects_meta_file_mixing_modules(tmp_path: Path) -> None:
 
 
 def _write_round(root: Path, codes: dict[str, int | None], hashes: dict[str, str] | None = None) -> None:
-    """按真实 mutmut 的布局落盘：一个源模块一份 .meta。"""
+    """Write real mutmut layout: one .meta per source module."""
     for module in {key.partition("__mutmut_")[0].rpartition(".")[0] for key in codes}:
         module_codes = {key: code for key, code in codes.items() if key.startswith(f"{module}.")}
         module_hashes = {

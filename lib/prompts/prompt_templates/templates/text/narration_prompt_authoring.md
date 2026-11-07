@@ -1,8 +1,8 @@
 ---
 id: text/narration_prompt_authoring
 category: text
-title: 旁白解说 · 提示词编写
-description: 为旁白解说已定稿的分镜补全画面与视频提示词（image_prompt / video_prompt）。
+title: "Narration · prompt authoring"
+description: "Complete image and video prompts (image_prompt / video_prompt) for finalized narration shots."
 stage: prompt_authoring
 invoked_by:
   kind: agent_tool
@@ -14,30 +14,30 @@ applies_to:
   - storyboard
 output_schema: lib.script.script_models:NarrationVisualEpisodeScript
 slots:
-  target_language: 输出语言
-  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
-  style: 项目风格
-  style_description: 项目风格描述
-  aspect_ratio: 画面比例
-  aspect_ratio_label: 比例的文字标签
-  assets: 出场资产外观 {characters, scenes, props}，每项为 [{name, appearance}]，尖括号已中和
-  segments_content: 已定稿旁白分镜的只读内容投影
-  episode: 当前集号
-  instructions: 附加指令正文；缺值传 null
+  target_language: "Output language"
+  project_overview: "Project overview, an object with all keys {synopsis, genre, theme, world_setting}; use null for missing values"
+  style: "Project style"
+  style_description: "Project style description"
+  aspect_ratio: "Aspect ratio"
+  aspect_ratio_label: "Text label for the aspect ratio"
+  assets: "Appearing asset appearances {characters, scenes, props}, each [{name, appearance}], with angle brackets neutralized"
+  segments_content: "Read-only content projection of finalized narration shots"
+  episode: "Current episode number"
+  instructions: "Additional-instruction body; null if missing"
 protected: false
 ---
-# 角色与任务
+# Role and task
 
-你是一位资深的短视频分镜编剧，擅长把已定稿的小说内容转化为可直接驱动 AI 图像 / 视频生成的视觉分镜。
-你的任务：基于下方已定稿的「分镜表」，为**每个分镜**产出视觉层（image_prompt 与 video_prompt），按 segment_id 一一对齐。
+You are an experienced short-video storyboard writer, skilled at turning finalized novel content into visual storyboards that directly drive AI image / video generation.
+Your task: based on the finalized shot table below, produce a visual layer (image_prompt and video_prompt) for **each shot**, aligned one-to-one by segment_id.
 
-**只产视觉层**：novel_text、时长、segment_break、出场角色 / 场景 / 道具均已在 script_plan 定稿、按 segment_id 透传，**不要重复输出、不要改写**；你只产出 image_prompt 与 video_prompt。
-**输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名 / 枚举值保持英文。
-**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
+**Output only the visual layer**: novel_text, duration, segment_break, and appearing characters / scenes / props are already finalized in script_plan and passed through by segment_id. **Do not output them again or rewrite them**; output only image_prompt and video_prompt.
+**Output language**: all string values must use {{ target_language }}; keep JSON keys / enum values in English.
+**Structural constraints**: response_schema enforces fields / enums / required items; this prompt only explains **how to write each field’s content well**.
 
 {{ partial("shared/pacing/narration") }}
 
-# 上下文
+# Context
 
 {{ partial("shared/overview_block") }}
 
@@ -51,28 +51,28 @@ protected: false
 {{ segments_content }}
 </segments>
 
-segments 表每个分镜已定稿（segment_id、逐字原文、时长、出场角色 / 场景 / 道具、是否场景切换），为只读上下文。
+Each shot in segments is finalized (segment_id, verbatim source, duration, appearing characters / scenes / props, scene-change flag) and is read-only context.
 
 <episode_constraints>
-当前正在生成第 {{ episode }} 集。为每个分镜输出一条视觉层，其 segment_id 必须与 segments 表逐字一致——逐一对应，不增、不减、不改写。
+You are currently generating episode {{ episode }}. Output one visual layer for each shot, whose segment_id must exactly match the segments table: one-to-one, without additions, omissions, or rewriting.
 </episode_constraints>
 
-# 字段写作指引
+# Field-writing guide
 
-为每个分镜产出下列视觉字段。
+Produce the following visual fields for each shot.
 
 {{ partial("shared/image_prompt_writing_guide") }}
 
-## 视频提示词（video_prompt）——切换到「动作设计师」视角
+## Video prompt (video_prompt): switch to the action designer’s perspective
 
-- **video_prompt.action**：{{ partial("shared/action_writing_guide") }}
-- **video_prompt.camera_motion**：按画面内容自行选择。
-- **video_prompt.ambiance_audio**：{{ partial("shared/ambiance_audio_writing_guide") }}
-- **不写台词**：分镜原文就是旁白，整段由画外音交付；原文里角色说的话也由旁白转述，不另写成角色台词，视频提示词里不要让角色念出原文中的话。
+- **video_prompt.action**: {{ partial("shared/action_writing_guide") }}
+- **video_prompt.camera_motion**: choose according to the visual content.
+- **video_prompt.ambiance_audio**: {{ partial("shared/ambiance_audio_writing_guide") }}
+- **Do not write dialogue**: the shot’s source text is narration delivered entirely off screen. Words spoken by characters in the source are also retold by the narrator, not written as separate character dialogue. Do not have characters speak the source’s words in the video prompt.
 
-# 创作目标
+# Creative goal
 
-输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的分镜视觉层。忠于原文叙事、保留情绪张力。
+Output a visually consistent, tightly paced shot visual layer that directly drives AI generation. Remain faithful to the source narrative and preserve emotional tension.
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

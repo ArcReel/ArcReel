@@ -1,8 +1,6 @@
-"""
-供应商配置管理 API。
+"""Provider configuration management API.
 
-提供供应商列表查询、单个供应商配置读写和连通性检查端点。
-"""
+Endpoints for provider listing, individual configuration reads/writes, and connectivity checks."""
 
 from __future__ import annotations
 
@@ -68,7 +66,7 @@ router = APIRouter(prefix="/providers", tags=["Providers"])
 _CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url", "access_key", "secret_key"})
 
 # ---------------------------------------------------------------------------
-# 字段元数据映射（key → label/type/placeholder）
+# Field metadata mapping (key → label/type/placeholder).
 # ---------------------------------------------------------------------------
 
 _FIELD_META: dict[str, dict[str, str]] = {
@@ -89,7 +87,7 @@ _FIELD_META: dict[str, dict[str, str]] = {
 
 
 # ---------------------------------------------------------------------------
-# Pydantic 模型
+# Pydantic models.
 # ---------------------------------------------------------------------------
 
 
@@ -98,23 +96,23 @@ class ModelInfoResponse(BaseModel):
     media_type: str
     capabilities: list[str]
     default: bool
-    # 时长联动约束（分辨率↔时长、参考图↔时长）不在目录里透出：收窄结果由
-    # /providers/video-capabilities 与 /projects/{name}/video-capabilities 按上下文算好回给
-    # 前端，规则只在 lib.config.resolver 一处。
+    # Duration coupling (resolution↔duration, references↔duration) is absent from catalogs: contextual narrowing comes from
+    # /providers/video-capabilities and /projects/{name}/video-capabilities for the
+    # frontend, with rules centralized in lib.config.resolver.
     supported_durations: list[int] = []
     resolutions: list[str] = []
-    # 成片音轨形态（``VideoAudioMode``：可控 / 恒有声 / 恒无声），按执行路径各给一份——同一
-    # model 在图生与参考生两条子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带
-    # 音轨开关）。设置页按当前生效的桶取对应字段决定开关是否可交互，能力线渲染按「非恒无声即
-    # 有音轨」判定；前端不解读 capabilities token，也不自行合成三态。
-    # 真相源是 backend 的 VideoCapabilities（lib.config.resolver.builtin_video_audio_track）；
-    # 非视频 model 恒 always_off。
+    # Output audio-track shape (``VideoAudioMode``: controllable / always audible / always silent) per execution path: one
+    # model can differ between image-to-video and reference-to-video subpaths (Kling v3-omni's multi-image subject path lacks
+    # an audio switch). Settings select by effective bucket to enable switches; capability summaries treat every non-always-silent
+    # mode as having audio. Frontend does not interpret capability tokens or synthesize the three-state value.
+    # Backend VideoCapabilities is authoritative (lib.config.resolver.builtin_video_audio_track);
+    # nonvideo models always use always_off.
     audio_track: str = VideoAudioMode.ALWAYS_OFF.value
     reference_route_audio_track: str = VideoAudioMode.ALWAYS_OFF.value
-    # 无项目上下文（全局设置「模型选择」）下的声音一致性档位：generation_mode 未知，故按非参考
-    # 生视频路径派生，native 恒降格。派生走 lib.config.resolver.derive_voice_consistency 这唯一
-    # 一处公式，前端只读枚举。有项目上下文时改用 /projects/{name}/video-capabilities（同一函数、
-    # 带真实 generation_mode），本字段不参与。
+    # Voice-consistency tier without project context (global model selection): generation_mode is unknown, so derive via non-reference
+    # video paths, always downgrading native. lib.config.resolver.derive_voice_consistency is the sole
+    # formula; frontend reads only enums. With project context use /projects/{name}/video-capabilities (same function,
+    # actual generation_mode) instead; this field does not participate.
     voice_consistency: VoiceConsistency = "none"
 
 
@@ -125,7 +123,7 @@ class ProviderSummary(BaseModel):
     status: str
     media_types: list[str]
     capabilities: list[str]
-    # 凭证（界面称「密钥」）条数；没有凭证时为 0。
+    # Number of credentials (UI calls them keys); 0 when absent.
     credential_count: int
     models: dict[str, ModelInfoResponse]
 
@@ -146,12 +144,11 @@ class FieldInfo(BaseModel):
 
 
 class CredentialSecretField(BaseModel):
-    """凭证表单需渲染的 secret 输入字段（按 provider 的 required ∩ secret ∩ 凭证键派生）。
+    """Secret inputs required by credential forms (derived from provider required ∩ secret ∩ credential keys).
 
-    驱动设置页凭证表单渲染：单 secret provider 给 ``[api_key]``（见 ADR 0037），可灵给
-    ``[api_key, access_key, secret_key]``（二选一分组见 ``secret_field_groups``）。
-    key 名全程同名，前端据此读写各字段。
-    """
+    Drive settings forms: single-secret providers expose ``[api_key]`` (ADR 0037), while Kling exposes
+    ``[api_key, access_key, secret_key]`` (alternative groups in ``secret_field_groups``).
+    Key names remain identical throughout frontend reads/writes."""
 
     key: str
     label: str
@@ -164,14 +161,14 @@ class ProviderConfigResponse(BaseModel):
     status: str
     media_types: list[str]
     fields: list[FieldInfo]
-    # 该供应商凭证是否接受自定义 base_url（真相源：optional_keys 含 base_url）。
-    # base_url 随凭证走、不进 fields，前端据此决定是否在密钥表单渲染 URL 输入。
+    # Whether provider credentials accept custom base_url (source: optional_keys includes base_url).
+    # base_url belongs to credentials, not fields; frontend uses this to show URL inputs in key forms.
     supports_base_url: bool
-    # 凭证表单应渲染的 secret 字段（有序，真相源：registry required_keys ∩ secret_keys ∩ 凭证键）。
+    # Ordered credential secret fields (source: registry required_keys ∩ secret_keys ∩ credential keys).
     secret_fields: list[CredentialSecretField]
-    # 凭证「二选一」分组：前端据此校验「至少一组的字段全部填写」而非「全部字段都填写」
-    # （真相源：registry credential_groups；空声明时 router 回退为 [全部 secret_fields]，
-    # 与迁移前「全部必填」语义等价）。
+    # Alternative credential groups: frontend requires all fields in at least one group, not all fields overall.
+    # Source: registry credential_groups; empty declarations fall back here to [all secret_fields],
+    # preserving pre-migration all-required semantics.
     secret_field_groups: list[list[str]]
 
 
@@ -188,7 +185,7 @@ class CredentialResponse(BaseModel):
     api_key_masked: str | None = None
     credentials_filename: str | None = None
     base_url: str | None = None
-    # 逐字段独立脱敏（不把两段当一个 secret）；除可灵外恒为 None（见 ADR 0037）。
+    # Redact fields independently, not as one combined secret; always None except for Kling (ADR 0037).
     access_key_masked: str | None = None
     secret_key_masked: str | None = None
     is_active: bool
@@ -216,14 +213,14 @@ _StrippedOptStr = Annotated[str | None, AfterValidator(_stripped)]
 
 
 class ProviderMultiplierResponse(BaseModel):
-    """供应商倍率：``multiplier`` 是生效值，``default`` 是没有设置时的值。"""
+    """Provider multiplier: ``multiplier`` is effective; ``default`` applies when unset."""
 
     multiplier: float
     default: float
 
 
 class ProviderMultiplierUpdate(BaseModel):
-    """设置供应商倍率；``null`` 表示恢复默认值。"""
+    """Set provider multiplier; ``null`` restores the default."""
 
     multiplier: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None
 
@@ -245,12 +242,12 @@ class UpdateCredentialRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 辅助函数
+# Helpers.
 # ---------------------------------------------------------------------------
 
 
 def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
-    """验证供应商 ID 是否存在，不存在则抛 404。"""
+    """Validate provider ID existence, raising 404 if absent."""
     if provider_id not in PROVIDER_REGISTRY:
         raise HTTPException(status_code=404, detail=_t("unknown_provider", value=provider_id))
 
@@ -258,13 +255,12 @@ def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
 def _submitted_secret_values(
     provider_id: str, body: CreateCredentialRequest | UpdateCredentialRequest
 ) -> dict[str, str | None]:
-    """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。
+    """Extract secret fields used for credential-group switching, shared by create/update for consistent field sets.
 
-    按 provider 在 `PROVIDER_REGISTRY` 中声明的 `secret_keys` 动态过滤，而非硬编码排除列表，
-    与 `credential_groups` 同源、同步声明驱动。注：新增凭证字段时，除在注册表登记 `secret_keys`
-    外，仍需同步给 `CreateCredentialRequest`/`UpdateCredentialRequest` 加对应字段——未加字段的
-    key 会被 `hasattr` 过滤静默忽略。
-    """
+    Filter dynamically using provider `secret_keys` in `PROVIDER_REGISTRY`, not a hardcoded exclusion list,
+    sharing declarations with `credential_groups`. New credential fields still require matching fields in
+    `CreateCredentialRequest`/`UpdateCredentialRequest` as well as registry `secret_keys`: `hasattr` silently
+    filters keys absent from those request models."""
     meta = PROVIDER_REGISTRY[provider_id]
     return {k: getattr(body, k, None) for k in meta.secret_keys if hasattr(body, k)}
 
@@ -275,20 +271,19 @@ def _resolve_credential_group_switch(
     current: Mapping[str, str | None] | None,
     _t: Callable[..., str],
 ) -> set[str]:
-    """判定单次提交是否触发凭证切组，返回需清空的其它组字段集合。
+    """Determine whether one submission switches credential groups; return other-group fields to clear.
 
-    切组由 ``ProviderMeta.credential_groups`` 声明驱动：
-    - 单次提交的非空字段横跨多个互斥组时无法判断意图，报错拒绝（避免静默丢弃用户填入的值）；
-    - 完整覆盖某一组、且该组在库内原值中原本未完整存在时，视为「切入」该组，返回其它已声明组
-      的全部字段供调用方清空——消除旧组残留导致的静默沿用旧模式；
-    - 完整覆盖的组在库内原本就已完整存在（存量共存行上例行轮换该组），则不算切组、不清空另一组，
-      避免清掉用户未触碰的休眠凭证；
-    - 未完整覆盖任何组（含未声明 credential_groups 的绝大多数 provider）时返回空集合，维持部分
-      更新的保留语义。
+    ``ProviderMeta.credential_groups`` drives switching:
+    - Nonempty submitted fields spanning mutually exclusive groups make intent ambiguous; reject rather than silently discard entered values.
+    - Fully supplying a group not previously complete in stored values means switching into it: return all
+      fields in other declared groups for clearing, preventing stale-group remnants from silently retaining the old mode.
+    - Fully supplying a group already complete in stored values (routine rotation on a legacy coexisting
+      row) does not switch or clear another group, preserving dormant credentials the user did not touch.
+    - Without fully supplying a group (including most providers without credential_groups), return an
+      empty set, preserving partial-update semantics.
 
-    ``current`` 传入库内原值用于上述「切入」判定；创建端点无原值传 None（新行无可清空项，仅复用
-    本函数的横跨多组拒绝校验）。
-    """
+    ``current`` supplies original stored values for switch-in detection. Creation passes None: new rows
+    have nothing to clear and reuse only cross-group ambiguity rejection."""
     meta = PROVIDER_REGISTRY[provider_id]
     groups = meta.credential_groups
     if not groups:
@@ -314,7 +309,7 @@ async def _get_credential_or_404(
     cred_id: int,
     _t: Callable[..., str],
 ) -> ProviderCredential:
-    """获取凭证并校验归属，不存在则抛 404。"""
+    """Get a credential and verify ownership; raise 404 if absent."""
     cred = await repo.get_by_id(cred_id)
     if not cred or cred.provider != provider_id:
         raise HTTPException(status_code=404, detail=_t("credentials_not_found"))
@@ -350,7 +345,7 @@ def _build_field(
     required: bool,
     db_entry: dict[str, Any] | None,
 ) -> FieldInfo:
-    """根据 key、是否必填 and DB 取出的条目，构建 FieldInfo。"""
+    """Build FieldInfo from key, required status, and a DB-loaded entry."""
     meta = _FIELD_META.get(key, {"label": key, "type": "text"})
     is_set = db_entry is not None and db_entry.get("is_set", False)
 
@@ -380,17 +375,16 @@ def _build_field(
 
 
 # ---------------------------------------------------------------------------
-# 端点
+# Endpoints.
 # ---------------------------------------------------------------------------
 
 
 def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
-    """该视频 model 的参考音频运输形态；非视频 provider / 未声明一律 "none"。
+    """Reference-audio transport shape for this video model; "none" for nonvideo providers or undeclared support.
 
-    `VideoCapabilities` 是 backend 侧声明（唯一真相源），目录的模型信息不复制第二份——
-    与 `lib/config/resolver.py::_resolve_video_caps_for_model` 的做法一致。router 层（非
-    lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
-    """
+    `VideoCapabilities` is the sole backend declaration source; catalog model information does not copy
+    it, as in `lib/config/resolver.py::_resolve_video_caps_for_model`. Routers (outside lib) are not subject
+    to lib.config layering contracts and may read backend declarations directly."""
     try:
         caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
@@ -404,7 +398,7 @@ async def list_providers(
     locale: Locale,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ProvidersListResponse:
-    """返回所有供应商及其状态。"""
+    """Return every provider and its status."""
     statuses = await svc.get_all_providers_status()
     providers = []
     for s in statuses:
@@ -420,8 +414,8 @@ async def list_providers(
                 **minfo,
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
-                # generation_mode / character_voice_binding 均为 None：目录端点无项目上下文，按非
-                # 参考生视频路径派生，音轨位同样取 i2v 路径——有项目上下文时改用
+                # generation_mode / character_voice_binding are both None: catalogs lack project context, derive via non-reference
+                # video paths, and use i2v audio-track bits too. With project context use
                 # /projects/{name}/video-capabilities。
                 voice_consistency=derive_voice_consistency(
                     reference_audio_mode=reference_audio_mode,
@@ -433,8 +427,8 @@ async def list_providers(
         providers.append(
             ProviderSummary(
                 id=s.name,
-                # registry / DB 的 display_name 是数据源原名；有译名表的按请求语言成文，
-                # 没有的（纯品牌名、自定义供应商用户自填的名字）原样返回。
+                # Registry/DB display_name is the source original; render translated names in the request language when available,
+                # otherwise return unchanged (brands and user-entered custom-provider names).
                 display_name=translate_or(f"provider_name_{s.name}", s.display_name, locale),
                 description=_t(f"provider_desc_{s.name}"),
                 status=s.status,
@@ -454,14 +448,14 @@ async def get_model_video_capabilities(
     resolution: Annotated[str | None, Query()] = None,
     uses_reference_images: Annotated[bool, Query()] = False,
 ):
-    """无项目上下文的视频模型能力：创建向导里项目尚不存在，按候选模型直接解析。
+    """Video-model capabilities without project context: creation wizards resolve candidate models before a project exists.
 
-    与 `/projects/{name}/video-capabilities` 同一条桶能力闸和模型能力解析链路，
-    只是没有项目可读：`default_duration` / `generation_mode` 等项目偏好为 None。
-    `duration_constraints` 由候选模型所在桶（`uses_reference_images` 为真即 r2v，否则 i2v）的视频请求
-    事实给出，`resolution` 作为「覆盖分辨率」参与求值（缺省即「自动」：自定义供应商取模型默认档，其余不带分辨率）。
-    裸 provider 的补全与格式校验同项目端点。
-    """
+    Share the bucket-capability gate/model-capability resolution chain with `/projects/{name}/video-capabilities`,
+    but with no project to read: `default_duration` / `generation_mode` and other preferences are None.
+    `duration_constraints` comes from video request facts for the candidate's bucket (`uses_reference_images`
+    true → r2v, otherwise i2v). `resolution` evaluates as an override (omitted means automatic: custom
+    providers use model defaults, others omit resolution). Bare-provider completion and format validation
+    match the project endpoint."""
     provider_id, model_id = split_video_backend_query(video_backend)
     resolver = ConfigResolver(async_session_factory)
     generation_type = "r2v" if uses_reference_images else "i2v"
@@ -483,13 +477,13 @@ async def get_model_video_capabilities(
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except VideoRequestFactsError as exc:
-        # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
+        # Video-request-fact problem codes are errors-catalog keys (ValueError subclass, caught before ValueError).
         raise UnprocessableError(exc.code, **exc.params) from exc
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        # Model absent from provider lists: app-level handler returns model-reselection 400 (ValueError subclass, caught before ValueError).
         raise
     except ValueError as exc:
-        # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
+        # Log original exceptions only: str(exc) mixes English technical details, which would introduce untranslated text in en/vi UI if interpolated.
         logger.warning("视频模型 '%s' 能力解析失败: %s", video_backend, exc)
         raise HTTPException(
             status_code=422, detail=_t("video_model_capabilities_unresolved", value=video_backend)
@@ -503,19 +497,19 @@ async def get_provider_config(
     locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderConfigResponse:
-    """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
+    """Return one provider's configuration fields, merging registry metadata and DB values."""
     _validate_provider(provider_id, _t)
 
     meta = PROVIDER_REGISTRY[provider_id]
     svc = ConfigService(session)
     db_values = await svc.get_provider_config_masked(provider_id)
 
-    # 计算状态：基于凭证表是否有生效凭证
+    # Derive status from active credentials in the credential table.
     cred_repo = CredentialRepository(session)
     has_active = await cred_repo.has_active_credential(provider_id)
     status = "ready" if has_active else "unconfigured"
 
-    # 构建字段列表：先必填，再可选，跳过凭证字段
+    # Build fields: required first, then optional, excluding credentials.
     fields: list[FieldInfo] = []
     fields.extend(
         _build_field(key, required=True, db_entry=db_values.get(key))
@@ -528,20 +522,20 @@ async def get_provider_config(
         if key not in _CREDENTIAL_KEYS
     )
 
-    # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
-    # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
-    # 二选一分组见下方 secret_field_groups。
+    # Credential secret inputs: required ∩ secret ∩ credential keys, preserving required_keys order.
+    # Single-secret providers → [api_key] (ADR 0037); Kling → [api_key, access_key, secret_key];
+    # alternative groups appear in secret_field_groups below.
     secret_keys = set(meta.secret_keys)
     secret_fields = [
         CredentialSecretField(key=key, label=_FIELD_META.get(key, {"label": key})["label"])
         for key in meta.required_keys
         if key in _CREDENTIAL_KEYS and key in secret_keys
     ]
-    # 空声明（绝大多数单 secret / 双 secret-AND provider）回退为单一必填组 = 全部 secret_fields，
-    # 与迁移前「全部必填」语义等价；仅可灵声明了非空 credential_groups（api_key 单键 /
-    # access_key+secret_key 双键二选一）。secret_fields 为空时（当前仅 gemini-vertex，走文件
-    # 上传分支不经过分组校验）不合成 [[]]——与 registry.py 的空分组 fail-fast 语义保持一致，
-    # 避免未来新增"无 secret 字段但走普通凭证表单"的 provider 时该分组恒真、静默绕过校验。
+    # Empty declarations (most single-secret / dual-secret-AND providers) fall back to one required group = all secret_fields,
+    # preserving pre-migration all-required semantics. Only Kling declares nonempty credential_groups (api_key versus
+    # access_key+secret_key). With empty secret_fields (currently gemini-vertex only, whose file-upload path bypasses
+    # group validation), do not synthesize [[]], matching registry.py's empty-group fail-fast semantics
+    # and preventing future providers with ordinary forms but no secret fields from getting always-true groups that silently bypass validation.
     secret_field_groups = meta.credential_groups or ([[f.key for f in secret_fields]] if secret_fields else [])
 
     return ProviderConfigResponse(
@@ -565,7 +559,7 @@ async def patch_provider_config(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """更新供应商配置。值为 null 表示删除该键。供应商倍率只经 ``PUT /{provider_id}/multiplier`` 修改。"""
+    """Update provider configuration. null deletes a key. Change provider multipliers only through ``PUT /{provider_id}/multiplier``."""
     _validate_provider(provider_id, _t)
     if PROVIDER_MULTIPLIER_KEY in body:
         raise HTTPException(status_code=422, detail=_t("provider_multiplier_not_in_config"))
@@ -578,7 +572,7 @@ async def patch_provider_config(
             try:
                 await svc.set_provider_config(provider_id, key, value, flush=False)
             except ProviderConfigValueError as exc:
-                # 错误文案中的字段名换成 UI 同款 label（如 Image Max Workers），与表单展示一致
+                # Replace field names in error wording with the same UI labels (e.g. Image Max Workers) shown in forms.
                 params = dict(exc.params)
                 meta = _FIELD_META.get(exc.key)
                 if meta is not None:
@@ -587,19 +581,19 @@ async def patch_provider_config(
 
     await session.commit()
 
-    # 配置变更后刷新缓存和并发池
+    # Refresh caches and concurrency pools after configuration changes.
     await _invalidate_caches(request)
 
     return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
-# 供应商倍率
+# Provider multipliers.
 # ---------------------------------------------------------------------------
 
 
 async def _validate_priced_provider(provider_id: str, session: AsyncSession, _t: Callable[..., str]) -> None:
-    """倍率对内置供应商与已存在的自定义供应商开放，其余抛 404。"""
+    """Allow multipliers for built-in and existing custom providers; otherwise raise 404."""
     if is_custom_provider(provider_id):
         try:
             db_id = parse_provider_id(provider_id)
@@ -617,7 +611,7 @@ async def get_provider_multiplier_setting(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderMultiplierResponse:
-    """供应商倍率：乘在这个供应商全部调用的参考费用上。"""
+    """Provider multiplier, applied to reference costs of every call through this provider."""
     await _validate_priced_provider(provider_id, session, _t)
     return ProviderMultiplierResponse(
         multiplier=await get_provider_multiplier(session, provider_id),
@@ -632,7 +626,7 @@ async def put_provider_multiplier_setting(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderMultiplierResponse:
-    """设置供应商倍率，只影响之后结算的调用；已记下的费用不重算。"""
+    """Set provider multiplier for calls settled afterward only; do not recalculate recorded costs."""
     await _validate_priced_provider(provider_id, session, _t)
     await set_provider_multiplier(session, provider_id, body.multiplier)
     await session.commit()
@@ -643,7 +637,7 @@ async def put_provider_multiplier_setting(
 
 
 # ---------------------------------------------------------------------------
-# 凭证 CRUD 端点
+# Credential CRUD endpoints.
 # ---------------------------------------------------------------------------
 
 
@@ -668,7 +662,7 @@ async def create_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
-    # 创建是全新行，无可清空——仅复用横跨多组的歧义校验拒绝矛盾提交（新行不落盘）。
+    # New rows have nothing to clear; reuse cross-group ambiguity checks only, rejecting contradictory submissions without persistence.
     _resolve_credential_group_switch(provider_id, _submitted_secret_values(provider_id, body), None, _t)
     repo = CredentialRepository(session)
     cred = await repo.create(
@@ -695,7 +689,7 @@ async def update_credential(
 ) -> Response:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
-    # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
+    # Establish credential existence first (404 precedes group-ambiguity 422), then use stored originals for switch-in detection.
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     submitted = _submitted_secret_values(provider_id, body)
     clear_keys = _resolve_credential_group_switch(
@@ -715,8 +709,8 @@ async def update_credential(
         kwargs["access_key"] = body.access_key
     if "secret_key" in body.model_fields_set:
         kwargs["secret_key"] = body.secret_key
-    # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除同一次提交触及的组，
-    # 故不会覆盖用户在该次提交中填入的值。
+    # Switching in clears other declared groups to prevent silently retaining the old mode. Switch detection excludes groups touched in this submission,
+    # so it never overwrites values entered in this submission.
     for key in clear_keys:
         kwargs[key] = None
     if kwargs:
@@ -738,17 +732,17 @@ async def delete_credential(
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
-    cred_path = cred.credentials_file()  # 在 delete 前保存，避免 ORM 对象过期后无法访问
+    cred_path = cred.credentials_file()  # Save before delete, avoiding access to expired ORM objects.
     await repo.delete(cred_id)
     await session.commit()
     await _invalidate_caches(request)
-    # 删除关联的凭证文件（如 vertex_keys/ 下的 JSON），放在 commit 之后确保数据一致性
+    # Delete associated credential files (e.g. JSON under vertex_keys/) after commit for data consistency.
     if cred_path:
         cred_file = Path(cred_path)
-        if cred_file.is_file():  # noqa: ASYNC240 -- 凭证文件存在性检查，本地元数据
+        if cred_file.is_file():  # noqa: ASYNC240 -- Credential-file existence check, local metadata
             try:
-                # hard-delete: out-of-scope -- 供应商凭证，不属于项目
-                cred_file.unlink()  # noqa: ASYNC240 -- 删除单个凭证文件，本地元数据
+                # hard-delete: out-of-scope -- Provider credentials are outside projects.
+                cred_file.unlink()  # noqa: ASYNC240 -- Delete one credential file, local metadata
                 logger.info("已删除凭证文件: %s", cred_file)
             except OSError:
                 logger.warning("删除凭证文件失败: %s", cred_file, exc_info=True)
@@ -773,12 +767,12 @@ async def activate_credential(
 
 
 def _write_vertex_credential_file(dest: Path, contents: bytes) -> None:
-    """经临时文件原子落盘凭证，并在 POSIX 上收紧为仅属主可读写。"""
+    """Atomically persist credentials through a temporary file, restricting POSIX permissions to owner read/write."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.with_suffix(".tmp")
     tmp_path.write_bytes(contents)
-    # chmod 0o600 在 Windows 上只控制只读位，无法限制其他用户访问；
-    # Windows 上凭证保护交给文件系统 ACL（用户级 %LOCALAPPDATA%）。
+    # Windows chmod 0o600 controls only the read-only bit, not other-user access;
+    # rely on filesystem ACLs for Windows credentials (user-level %LOCALAPPDATA%).
     if os.name == "posix":
         try:
             os.chmod(tmp_path, 0o600)
@@ -800,7 +794,7 @@ async def upload_vertex_credential(
     session: AsyncSession = Depends(get_async_session),
     file: UploadFile = File(...),
 ) -> CredentialResponse:
-    """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
+    """Upload a Vertex AI service-account JSON credential file and create its credential record."""
     try:
         contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
     except Exception as exc:
@@ -827,19 +821,19 @@ async def upload_vertex_credential(
     await _invalidate_caches(request)
 
     await session.refresh(cred)
-    # 序列化要探测凭证文件位置（stat），放进线程
+    # Serialization probes credential-file locations (stat); offload to a thread.
     return await asyncio.to_thread(_cred_to_response, cred)
 
 
 # ---------------------------------------------------------------------------
-# 连通性检查：各供应商实现
+# Connectivity checks by provider.
 # ---------------------------------------------------------------------------
 
-_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15  # Seconds.
 
 
 def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 models.list() 验证 Gemini AI Studio API Key。"""
+    """Validate Gemini AI Studio API keys through models.list()."""
     from google import genai
 
     api_key = config["api_key"]
@@ -857,7 +851,7 @@ def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> Co
 
 
 def _check_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 Vertex AI 凭证验证连通性。"""
+    """Check connectivity using Vertex AI credentials."""
     from google import genai
     from google.oauth2 import service_account
 
@@ -901,25 +895,25 @@ def _check_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> Conn
 
 
 def _extract_gemini_models(pager) -> list[str]:
-    """从 Gemini models.list() 结果中提取视频/图像相关模型，去除路径前缀。"""
+    """Extract video/image-related models from Gemini models.list(), removing path prefixes."""
     keywords = ("veo", "imagen", "image")
     models: set[str] = set()
     for m in pager:
         name = m.name or ""
         if not any(k in name.lower() for k in keywords):
             continue
-        # 去掉 "models/" 或 "publishers/google/models/" 前缀
+        # Remove "models/" or "publishers/google/models/" prefixes.
         short = name.rsplit("/", 1)[-1]
         models.add(short)
     return sorted(models)
 
 
 def _check_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 tasks.list 验证 Ark API Key。"""
+    """Validate Ark API keys through tasks.list."""
     from lib.backends.ark_shared import create_ark_client
 
     client = create_ark_client(api_key=config["api_key"], base_url=config.get("base_url"))
-    # 轻量级调用验证连通性，不创建任何资源
+    # Lightweight connectivity check without creating resources.
     client.content_generation.tasks.list(page_size=1)
     return ConnectivityCheckResponse(
         success=True,
@@ -929,7 +923,7 @@ def _check_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCh
 
 
 def _check_grok(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 models.list_language_models() 验证 xAI API Key。"""
+    """Validate xAI API keys through models.list_language_models()."""
     import xai_sdk
 
     client = xai_sdk.Client(api_key=config["api_key"])
@@ -946,7 +940,7 @@ _OPENAI_MODEL_KEYWORDS = ("gpt", "sora", "dall", "o1", "o3", "o4")
 
 
 def _check_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 models.list() 验证 OpenAI API Key。"""
+    """Validate OpenAI API keys through models.list()."""
     from openai import OpenAI
 
     kwargs: dict = {"api_key": config["api_key"]}
@@ -964,7 +958,7 @@ def _check_openai(config: dict[str, str], _t: Callable[..., str]) -> Connectivit
 
 
 def _check_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """Vidu 连通性检查 — HTTP 细节封装在 lib.backends.vidu_shared.test_vidu_connection（fork-only）。"""
+    """Vidu connectivity check; HTTP details live in lib.backends.vidu_shared.test_vidu_connection (fork-only)."""
     from lib.backends.vidu_shared import test_vidu_connection
 
     test_vidu_connection(config)
@@ -976,11 +970,10 @@ def _check_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityC
 
 
 def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 models.list() 验证 DashScope API Key（compatible-mode，OpenAI 协议）。
+    """Validate DashScope API keys through models.list() (compatible-mode, OpenAI protocol).
 
-    与 custom_provider 模型发现走同一 OpenAI 兼容机制；base_url 经 dashscope_text_base_url
-    派生 {host}/compatible-mode/v1，容忍用户填 host 或带任一后缀。
-    """
+    Share custom_provider discovery's OpenAI-compatible mechanism. dashscope_text_base_url derives
+    {host}/compatible-mode/v1, accepting hosts or URLs with either suffix."""
     from openai import OpenAI
 
     from lib.backends.dashscope_shared import dashscope_text_base_url
@@ -999,11 +992,10 @@ def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> Connecti
 
 
 def _check_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过 models.list() 验证 MiniMax API Key（OpenAI 兼容协议）。
+    """Validate MiniMax API keys through models.list() (OpenAI-compatible protocol).
 
-    与 DashScope 同构：复用 OpenAI 客户端打 models.list()；base_url 经 minimax_text_base_url
-    归一化为 {host}/v1，容忍用户填 host 或带 /v1 后缀（缺省国内站，可改指向国际站）。
-    """
+    Like DashScope, reuse the OpenAI client for models.list(). minimax_text_base_url normalizes to
+    {host}/v1, accepting hosts or /v1-suffixed URLs (domestic site by default, configurable to international)."""
     from openai import OpenAI
 
     from lib.backends.minimax_shared import minimax_text_base_url
@@ -1022,13 +1014,13 @@ def _check_minimax(config: dict[str, str], _t: Callable[..., str]) -> Connectivi
 
 
 def _check_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """通过查询账户资源包余量验证可灵凭证（``GET /account/costs``，官方标注 free-to-call、无副作用）。
+    """Validate Kling credentials by querying account resource-package balances (``GET /account/costs``, officially marked free-to-call with no side effects).
 
-    双模式鉴权二选一，判定收口于 kling_auth_mode（与 backend_assembly._build_kling 共用，保证
-    实际生成任务与连通性检查的分派顺序恒一致）；缺失时 resolve_kling_api_key /
-    resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成明确的 connectivity_check_failed
-    文案。account/costs 挂在域名根路径（不带 /v1 版本前缀），需从 base_url 剥离该后缀。
-    """
+    Choose one of two auth modes through kling_auth_mode, shared with backend_assembly._build_kling
+    so real generation and connectivity checks always use the same dispatch order. Missing credentials
+    cause resolve_kling_api_key / resolve_kling_jwt_credentials ValueError, converted by the outer except
+    into explicit connectivity_check_failed wording. account/costs is at the domain root (no /v1 prefix),
+    so strip that suffix from base_url."""
     import time
 
     import httpx
@@ -1059,12 +1051,12 @@ def _check_kling(config: dict[str, str], _t: Callable[..., str]) -> Connectivity
         headers=headers,
         timeout=_CONNECTIVITY_CHECK_TIMEOUT,
     )
-    # JSON 错误体先于 raise_for_status 解析：鉴权失败等场景可灵仍带 JSON 错误体（业务 code +
-    # message，如"access key 不存在"），先于 raise_for_status 提取能保留这份具体原因；否则
-    # 4xx/5xx 直接 raise 会丢弃响应体，只剩泛泛的 HTTP 状态文案。content-type 声称 JSON 但
-    # 实际非法/空体（如异常网关截断响应）时解析会抛 JSONDecodeError——按声明的 content-type
-    # 判断是否尝试解析，不代表响应体一定合法，解析失败即放弃业务错误提取，跳过、直接走
-    # raise_for_status 兜底暴露 HTTP 状态，而非让解析异常本身掩盖更具体的 HTTP 错误。
+    # Parse JSON errors before raise_for_status: Kling returns JSON bodies on auth failures too (business code +
+    # message, e.g. missing access key). Extracting first preserves specific reasons; otherwise
+    # 4xx/5xx exceptions discard bodies, leaving generic HTTP status wording. Claimed JSON content-type with
+    # invalid/empty bodies (e.g. gateway truncation) raises JSONDecodeError. Declared type determines whether to try
+    # parsing, not guaranteed validity. On parse failure skip business-error extraction and use
+    # raise_for_status fallback, exposing HTTP status instead of masking it with a parsing exception.
     if "application/json" in resp.headers.get("content-type", ""):
         try:
             payload = resp.json()
@@ -1104,7 +1096,7 @@ async def check_provider_connectivity(
     credential_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> ConnectivityCheckResponse:
-    """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
+    """Call provider APIs to check connectivity; credential_id may select a specific credential."""
     _validate_provider(provider_id, _t)
 
     repo = CredentialRepository(session)
@@ -1124,8 +1116,8 @@ async def check_provider_connectivity(
     config = await svc.get_provider_config(provider_id)
     cred.overlay_config(config)
 
-    # 与简单族 backend 构造的 base_url 优先级对称：用户未显式配 base_url
-    # 时，注入 ProviderMeta.default_base_url，使连通性检查命中正确 endpoint。
+    # Mirror simple-family backend base_url priority: when users did not explicitly configure base_url,
+    # inject ProviderMeta.default_base_url so connectivity checks hit the correct endpoint.
     if not config.get("base_url"):
         meta = PROVIDER_REGISTRY.get(provider_id)
         if meta and meta.default_base_url:

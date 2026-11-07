@@ -15,14 +15,14 @@ import {
 interface DraftEditorOptions<T> {
   projectName: string;
   episode: number;
-  /** 服务端的草稿视图（待修复草稿）；为 null 时本 hook 不持有任何编辑。 */
+  /** Server draft view (draft needing repairs); null means this hook owns no edits. */
   view: ScriptReviewQuarantine | null;
   /**
-   * 把草稿正文收窄成面板可编辑的形状；收不成（结构已损坏）时返回 null，面板改呈只读说明。
-   * 须是稳定引用（模块级函数或 `useCallback`）。
+   * Narrow draft bodies to panel-editable shapes; null on corrupt structure makes panels show readonly explanations.
+   * Requires stable references (module functions or `useCallback`).
    */
   narrow: (content: Record<string, unknown> | null) => T | null;
-  /** 保存、丢弃或 AI 修复落定后通知调用方刷新自己的服务端态（采用后正式内容已变）。 */
+  /** Notify callers after save/discard/AI repair settles to refresh server state (adoption changes formal content). */
   onSettled: () => void;
 }
 
@@ -33,23 +33,23 @@ interface Synced<T> {
 }
 
 export interface DraftEditorHandle<T> {
-  /** 当前编辑中的草稿正文；草稿结构收不成可编辑形状时为 null。 */
+  /** Currently edited draft body; null if structures cannot narrow to editable shapes. */
   content: T | null;
   setContent: (update: (prev: T) => T) => void;
   dirty: boolean;
-  /** 服务端草稿已被他方改过、而本地有未保存编辑：保存会被拒绝，可放弃本地编辑载入最新。 */
+  /** Server drafts changed elsewhere while local edits remain unsaved: saving fails; discard edits to load latest. */
   outdated: boolean;
   saving: boolean;
   discarding: boolean;
-  /** 本份草稿的 AI 修复在提交、排队或执行中。 */
+  /** AI repair for this draft is submitting, queued or executing. */
   repairing: boolean;
-  /** 保存并校验；违约清零即采用。 */
+  /** Save/validate; adopt when all violations clear. */
   save: () => Promise<void>;
-  /** 提交 AI 修复（修复已保存的草稿）；返回 `true` 表示已提交或已落定，供调用方收起弹窗。 */
+  /** Submit AI repair of saved drafts; `true` means submitted or settled, allowing callers to close dialogs. */
   repair: (instructions: string) => Promise<boolean>;
-  /** 丢弃草稿；返回是否成功，供调用方决定是否收起确认框。 */
+  /** Discard drafts; return success so callers decide whether to close confirmations. */
   discard: () => Promise<boolean>;
-  /** 放弃本地编辑，载入服务端最新草稿。 */
+  /** Discard local edits and load latest server drafts. */
   reloadLatest: () => void;
 }
 
@@ -70,13 +70,13 @@ export function diagnosticCode(err: unknown): string | null {
 }
 
 /**
- * 待修复草稿的就地手修：本地编辑、保存并校验（违约清零即采用）、AI 修复、丢弃。
+ * In-place manual repair of drafts: local edits, save/validate (adopt with zero violations), AI repair and discard.
  *
- * 服务端草稿变了（Agent 写入、另一处保存）而本地没有未保存编辑时，直接采用新的草稿；有未保存编辑时
- * 保留编辑并标记 `outdated`，保存会以并发冲突被拒，届时载入最新草稿。
+ * Server drafts changing through Agent writes/other saves are adopted directly without unsaved local edits; otherwise retain edits,
+ * mark `outdated` and reject saves as concurrency conflicts, then load latest drafts.
  *
- * AI 修复以排队文本任务执行：占用本份草稿的任务槽期间 `repairing` 为真。本界面提交的、或看到在跑的
- * 那次修复到达终态时，提示结果并通知调用方刷新；采用后草稿视图会消失，因此按任务 ID 跟踪。
+ * AI repairs execute as queued text tasks; `repairing` remains true while owning this draft's task slot. When repairs submitted here or observed
+ * running become terminal, notify results and refresh callers. Adoption removes draft views, so track task IDs.
  */
 export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettled }: DraftEditorOptions<T>): DraftEditorHandle<T> {
   const { t } = useTranslation("dashboard");
@@ -90,7 +90,7 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
   const activeRepairs = useActiveResourceIds("text_draft_repair", projectName);
   const repairing = repairResourceId != null && activeRepairs.has(repairResourceId);
   const latestRepair = useLatestTasksByResource(projectName, "text_draft_repair").get(repairResourceId ?? "");
-  // 看到本份草稿有在跑的修复（别处提交、或页面重新打开）时同样跟踪它。
+  // Also track this draft's observed running repairs submitted elsewhere or found after reopening pages.
   if (latestRepair != null && isOccupyingStatus(latestRepair.status) && watchedRepairId !== latestRepair.task_id) {
     setWatchedRepairId(latestRepair.task_id);
   }
@@ -105,7 +105,7 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
     [narrow],
   );
 
-  // 服务端草稿变化时的派生状态（render 期同步）：无未保存编辑才采用。
+  // Derived state for server-draft changes (synchronous during render): adopt only without unsaved edits.
   if (view != null && (synced == null || (synced.revision !== incomingRevision && !isDirty(synced)))) {
     adoptView(view);
   }
@@ -187,7 +187,7 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
     [view, current, projectName, episode, adoptView, onSettled, pushToast, t],
   );
 
-  // 跟踪的修复到达终态：提示结果，并让调用方重拉（采用后正式内容已变，否则草稿已写回）。每次任务只回报一次。
+  // Tracked repairs become terminal: notify results and refetch callers (adoption changed formal content, otherwise drafts persisted). Report each task once.
   const reportedRepairId = useRef<string | null>(null);
   useEffect(() => {
     if (watchedRepair == null || isOccupyingStatus(watchedRepair.status)) return;
@@ -206,7 +206,7 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
     onSettled();
   }, [watchedRepair, onSettled, pushToast, t]);
 
-  /** 丢弃界面上呈现的那一版草稿；返回 `true` 表示确认框可关闭。草稿已在别处更新时不丢弃，载入最新版本供用户重新判断。 */
+  /** Discard the displayed draft revision; `true` allows confirmation closure. If changed elsewhere, retain it and load latest for users to reconsider. */
   const discard = useCallback(async (): Promise<boolean> => {
     if (view == null) return false;
     setDiscarding(true);

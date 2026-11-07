@@ -1,4 +1,4 @@
-"""进程级装入的先后：每次写入提交后重读整表再装入目录查询，并发的两次重读按开始读的先后生效。"""
+"""Process-wide load ordering: reread whole tables after each committed write, applying concurrent rereads in read-start order."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ from collections.abc import Awaitable, Callable
 
 
 class LatestReadWins:
-    """开始读得晚的一次已经装入时，开始读得早的一次读完后不再装入。
+    """After a later-started read loads, an earlier-started read cannot load after finishing.
 
-    两个写入先后提交、各自重读整表：先开始的那次读可能读不到后一次提交，却因为读得慢而后装入，把较新的内容
-    换回旧的，直到下一次写入或重启。开始读得晚的那次一定读到了更早开始的那次所在的提交，跳过旧结果不丢内容。
+    Two sequential commits each trigger full rereads: the earlier read may miss the later commit but finish more slowly, overwriting
+    newer content until another write/restart. The later-started read necessarily includes the commit associated with the earlier read, so skipping stale results loses no content.
     """
 
     def __init__(self) -> None:

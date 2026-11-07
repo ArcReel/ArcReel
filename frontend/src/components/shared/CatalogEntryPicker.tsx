@@ -21,17 +21,17 @@ export type MediaFilter = MediaType | "all";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 面板打开时的媒体类型筛选；不给就从「全部」开始。 */
+  /** Initial media-type filters; omission starts at All. */
   mediaType?: MediaType;
-  /** 选中一个条目。面板只把条目交回调用方并关闭，不保存任何东西。 */
+  /** Select entries: return them to callers and close panels without saving anything. */
   onSelect: (entry: CatalogEntryHit) => void;
-  /** 面板标题（读屏可见）；不给用「从模型目录选择」。 */
+  /** Screen-reader-visible panel titles; defaults to Choose from model catalog. */
   title?: string;
 }
 
 /**
- * 模型目录选择面板：按名称搜索、按媒体类型筛选，选中后把条目交给调用方。
- * 「关联其他模型」、获取模型对话框里的「对应模型」和 Agent 凭证的档位绑定共用它。
+ * Model-catalog selection panels: search names/filter media types, then return selected entries.
+ * Shared by Associate another model, Fetch models Corresponding model, and Agent-credential tier binding.
  */
 export function CatalogEntryPicker({ open, onOpenChange, mediaType, onSelect, title }: Props) {
   const { t } = useTranslation("dashboard");
@@ -82,7 +82,7 @@ function PickerBody({
           </Button>
         </div>
       ) : (
-        // 结果就绪前，上一次的结果仍显示但不可选，避免选中与当前搜索词或筛选不符的条目
+        // Previous results remain visible but unselectable until new results arrive, preventing selection against stale searches/filters.
         <CommandList label={t("dashboard:catalog_picker_list")} className="max-h-[50dvh]" aria-busy={!settled}>
           {search.entries !== null && (
             <>
@@ -107,7 +107,7 @@ function PickerBody({
   );
 }
 
-/** 目录条目在列表里的两行：显示名（已下线另标），厂商与媒体类型。 */
+/** Two catalog-entry lines: display names (mark retired separately), then vendors/media types. */
 export function CatalogEntryLabel({ entry }: { entry: CatalogEntryHit }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -125,7 +125,7 @@ export function CatalogEntryLabel({ entry }: { entry: CatalogEntryHit }) {
   );
 }
 
-/** 按媒体类型筛选：全部、文本、图片、视频、音频，总有一项选中。 */
+/** Media filters: All/text/image/video/audio, always with one selected. */
 export function CatalogMediaFilter({ value, onChange }: { value: MediaFilter; onChange: (next: MediaFilter) => void }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -136,7 +136,7 @@ export function CatalogMediaFilter({ value, onChange }: { value: MediaFilter; on
         size="sm"
         value={[value]}
         onValueChange={(next: string[]) => {
-          // 再点已选中的一项不取消选择，筛选总有一项生效
+          // Clicking selected options never deselects them; one filter always applies.
           if (next[0]) onChange(next[0] as MediaFilter);
         }}
       >

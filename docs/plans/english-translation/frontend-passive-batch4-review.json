@@ -1,0 +1,152 @@
+[
+  {
+    "path": "frontend/src/components/agent/ModelIdField.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/agent-memory/ProjectMemoryFiles.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/assets/ApplyToProjectDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/assets/AssetCard.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/assets/AssetPickerModal.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/edit-render/edit-render-model.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/ExternalChangeNotice.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/SourceFileKindControl.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/files/file-view-model.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/overview/AdProducts.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/overview/WelcomeCanvas.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceUnitAddDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/unit-tier-problem.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/PreviewableImageFrame.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/prompt-authoring-entries.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/prompt-authoring-handoff.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/text-task-failure.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/SegmentBreakToggle.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/SkillChip.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/ThinkingBlock.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/layout/ScriptGenerationNoticeListener.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/lobby/LobbyToolbar.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/AboutSection.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/BuiltinEndpointSelect.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/ConfigIssueNotice.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

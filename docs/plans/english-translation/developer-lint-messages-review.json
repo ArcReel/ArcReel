@@ -1,0 +1,350 @@
+{
+  "classification": "Developer-only Ruff TID251 diagnostic prose; Ruff reads msg for display, tests/scripts do not parse these messages.",
+  "changed_fields": [
+    {
+      "key": "os.O_NOFOLLOW.msg",
+      "before": "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」",
+      "after": "Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\"."
+    },
+    {
+      "key": "os.O_DIRECTORY.msg",
+      "before": "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」",
+      "after": "Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\"."
+    },
+    {
+      "key": "os.O_NONBLOCK.msg",
+      "before": "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」",
+      "after": "Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\"."
+    },
+    {
+      "key": "asyncio.create_subprocess_shell.msg",
+      "before": "命令经 shell 解析，Windows 上行为不同且有注入风险。改用 asyncio.create_subprocess_exec 并传 list 参数",
+      "after": "Commands are parsed by the shell, behave differently on Windows, and carry injection risks. Use asyncio.create_subprocess_exec with list arguments instead."
+    }
+  ],
+  "scope_exception": "Original parsed-TOML-equality proof applies to earlier passive-comment batch. This subsequent authorized batch changes exactly four Ruff diagnostic messages, six pytest marker descriptions, and nine display-only import-linter names; all remaining structure/values are identical.",
+  "reference": "docs/standards/backend.md heading matches current translated heading exactly; no explicit anchor ID was present in original values. Literal getattr(os, \"<名>\", 0) retained.",
+  "before_sha256": "114641f675481f9f96dc22f7714836dd3e8bccdc83e25abf3153e57202ee142e",
+  "after_sha256": "c7fd65509b58001847dff69ffad31426f1920e01b0b31cad5c13c59e9a69acd6",
+  "ruff_probe": {
+    "diagnostics": 4,
+    "before": [
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 22,
+          "row": 3
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 9,
+          "row": 3
+        },
+        "message": "`os.O_NOFOLLOW` is banned: Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」",
+        "name": "banned-api",
+        "noqa_row": 3,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      },
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 39,
+          "row": 3
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 25,
+          "row": 3
+        },
+        "message": "`os.O_DIRECTORY` is banned: Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」",
+        "name": "banned-api",
+        "noqa_row": 3,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      },
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 55,
+          "row": 3
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 42,
+          "row": 3
+        },
+        "message": "`os.O_NONBLOCK` is banned: Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」",
+        "name": "banned-api",
+        "noqa_row": 3,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      },
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 38,
+          "row": 4
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 7,
+          "row": 4
+        },
+        "message": "`asyncio.create_subprocess_shell` is banned: 命令经 shell 解析，Windows 上行为不同且有注入风险。改用 asyncio.create_subprocess_exec 并传 list 参数",
+        "name": "banned-api",
+        "noqa_row": 4,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      }
+    ],
+    "after": [
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 22,
+          "row": 3
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 9,
+          "row": 3
+        },
+        "message": "`os.O_NOFOLLOW` is banned: Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\".",
+        "name": "banned-api",
+        "noqa_row": 3,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      },
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 39,
+          "row": 3
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 25,
+          "row": 3
+        },
+        "message": "`os.O_DIRECTORY` is banned: Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\".",
+        "name": "banned-api",
+        "noqa_row": 3,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      },
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 55,
+          "row": 3
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 42,
+          "row": 3
+        },
+        "message": "`os.O_NONBLOCK` is banned: Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\".",
+        "name": "banned-api",
+        "noqa_row": 3,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      },
+      {
+        "cell": null,
+        "code": "TID251",
+        "end_location": {
+          "column": 38,
+          "row": 4
+        },
+        "filename": "/tmp/arcreel-lint-message-probe.py",
+        "fix": null,
+        "location": {
+          "column": 7,
+          "row": 4
+        },
+        "message": "`asyncio.create_subprocess_shell` is banned: Commands are parsed by the shell, behave differently on Windows, and carry injection risks. Use asyncio.create_subprocess_exec with list arguments instead.",
+        "name": "banned-api",
+        "noqa_row": 4,
+        "severity": "error",
+        "url": "https://docs.astral.sh/ruff/rules/banned-api"
+      }
+    ],
+    "all_nonmessage_fields_identical": true
+  },
+  "analogous_pending": [],
+  "additional_fields": [
+    {
+      "field": "tool.pytest.ini_options.markers[0]",
+      "before": "unit: 快速、隔离的测试；可只读访问仓库内已提交的文件，写文件只落在 tmp_path，不触达真实 DB、子进程、网络或外部服务",
+      "after": "unit: Fast, isolated tests; may read committed repository files; writes stay in tmp_path, without real databases, subprocesses, networks, or external services"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[1]",
+      "before": "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
+      "after": "integration: Real collaboration across modules; do not mock the tested module's public entry points (that would test the mock itself)"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[2]",
+      "before": "e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过",
+      "after": "e2e: End-to-end tests requiring real external resources (remote APIs, model calls, heavy ffmpeg, etc.); skipped by default in CI"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[3]",
+      "before": "sqlite_only: 仅适用于 SQLite 的测试（依赖 SQLite 特定 fixture / 行为，PG CI job 会跳过）",
+      "after": "sqlite_only: SQLite-specific tests (requiring SQLite-specific fixtures/behavior); skipped by the PostgreSQL CI job"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[4]",
+      "before": "uses_db: 触达真实数据库的测试（repo/DAO/ORM/迁移）；PG job 用 `-m uses_db` 选集合。由 conftest 根据 fixture 使用自动注入",
+      "after": "uses_db: Tests accessing real databases (repositories/DAOs/ORM/migrations); PostgreSQL jobs select them with `-m uses_db`. Automatically injected by conftest based on fixture use"
+    },
+    {
+      "field": "tool.pytest.ini_options.markers[5]",
+      "before": "local_port: 绑定 127.0.0.1 端口的测试；在禁止绑定本地端口的环境（如 Agent 沙箱）中由 conftest 跳过并给出原因",
+      "after": "local_port: Tests binding 127.0.0.1 ports; conftest skips these with a reason where local port binding is forbidden (e.g. Agent sandboxes)"
+    },
+    {
+      "field": "tool.importlinter.contracts[0].name",
+      "before": "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 分层契约",
+      "after": "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market layering contract"
+    },
+    {
+      "field": "tool.importlinter.contracts[1].name",
+      "before": "ComfyUI 端点实现不依赖声明式运行时",
+      "after": "ComfyUI endpoint implementations do not depend on the declarative runtime"
+    },
+    {
+      "field": "tool.importlinter.contracts[2].name",
+      "before": "arcreel_market_core 不依赖主仓",
+      "after": "arcreel_market_core does not depend on the main repository"
+    },
+    {
+      "field": "tool.importlinter.contracts[3].name",
+      "before": "arcreel_catalog_core 不依赖主仓",
+      "after": "arcreel_catalog_core does not depend on the main repository"
+    },
+    {
+      "field": "tool.importlinter.contracts[4].name",
+      "before": "路线中立层不依赖参考生视频子包",
+      "after": "Route-neutral layer does not depend on the reference-video subpackage"
+    },
+    {
+      "field": "tool.importlinter.contracts[5].name",
+      "before": "视频请求事实不依赖参考生视频子包",
+      "after": "Video-request facts do not depend on the reference-video subpackage"
+    },
+    {
+      "field": "tool.importlinter.contracts[6].name",
+      "before": "核心库不依赖服务端",
+      "after": "Core library does not depend on the server"
+    },
+    {
+      "field": "tool.importlinter.contracts[7].name",
+      "before": "核心库不依赖 HTTP 框架",
+      "after": "Core library does not depend on HTTP frameworks"
+    },
+    {
+      "field": "tool.importlinter.contracts[8].name",
+      "before": "Agent 工具集声明不依赖宿主 SDK",
+      "after": "Agent toolset declarations do not depend on the host SDK"
+    }
+  ],
+  "parsed_TOML_equal_except_exactly_19_human_values": true,
+  "importlinter_consumer": "Installed importlinter cli.py42 and application/use_cases.py330-344: --contract selects explicit id, never display name; name used in progress/reports. All IDs/types/layers/ignore_imports exact.",
+  "pytest_consumer": "pytest marker selection parses prefix before colon; six prefixes preserved exactly. tests/conftest.py uses marker names through get_closest_marker/add_marker, not translated descriptions.",
+  "lint_imports": "9 kept, 0 broken; 888 files, 8391 dependencies",
+  "pytest_selection_comparisons": [
+    {
+      "expression": "unit",
+      "selected_node_ids": [
+        "tests/unit/lib/i18n/test_display_names.py::test_every_provider_or_model_placeholder_renders_the_display_name[zh]",
+        "tests/unit/lib/i18n/test_display_names.py::test_every_provider_or_model_placeholder_renders_the_display_name[en]",
+        "tests/unit/lib/i18n/test_display_names.py::test_every_provider_or_model_placeholder_renders_the_display_name[vi]",
+        "tests/unit/lib/i18n/test_display_names.py::test_every_provider_or_model_placeholder_renders_the_display_name[ru]",
+        "tests/unit/lib/i18n/test_display_names.py::test_a_provider_missing_from_the_catalog_is_named_generically_and_its_model_keeps_the_id",
+        "tests/unit/lib/i18n/test_display_names.py::test_a_successor_entry_reference_renders_as_the_entry_display_name",
+        "tests/unit/lib/i18n/test_display_names.py::test_a_successor_without_a_single_display_name_keeps_the_entry_reference[acme/never-registered]",
+        "tests/unit/lib/i18n/test_display_names.py::test_a_successor_without_a_single_display_name_keeps_the_entry_reference[kuaishou/kling-v3-omni]",
+        "tests/unit/lib/i18n/test_i18n_assets_namespace.py::test_asset_not_found_key_present_both_locales",
+        "tests/unit/lib/i18n/test_i18n_assets_namespace.py::test_all_asset_keys_registered_in_both_locales",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_all_locales_have_same_keys",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_errors_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_system_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_emails_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_templates_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_templates_cover_all_style_template_ids",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_vi_errors_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_vi_system_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_vi_emails_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_vi_templates_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_supported_locales_all_present",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_format_placeholders_consistent",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_batch_admission_problem_codes_are_translated",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_market_core_message_keys_are_translated",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_events_module_keys_match",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_every_event_label_key_is_translated",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_frontend_event_label_keys_match_backend",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_frontend_dashboard_covers_prompt_template_axes_and_categories",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_non_latin_provider_display_names_are_translated",
+        "tests/unit/lib/i18n/test_i18n_consistency.py::test_model_display_names_have_no_translation_keys",
+        "tests/unit/lib/i18n/test_locale_wording.py::test_zh_messages_follow_punctuation_rule[\\u4e2d\\u6587\\u540e\\u7528\\u5168\\u89d2\\u5192\\u53f7]",
+        "tests/unit/lib/i18n/test_locale_wording.py::test_zh_messages_follow_punctuation_rule[\\u7701\\u7565\\u53f7\\u7528\\u300c\\u2026\\u300d]",
+        "tests/unit/lib/i18n/test_locale_wording.py::test_zh_messages_follow_punctuation_rule[\\u5f15\\u53f7\\u7528\\u300c\\u300d]",
+        "tests/unit/lib/i18n/test_locale_wording.py::test_zh_messages_follow_punctuation_rule[\\u6570\\u503c\\u8303\\u56f4\\u7528\\u300c\\uff5e\\u300d]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_payload_message_is_prose_in_the_requested_locale",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_removed_field_message_embeds_the_translated_reason",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_comfyui_removed_section_embeds_the_translated_reason",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonschema_detail_is_rendered_in_the_requested_locale[zh-\\u53d6\\u503c\\u4e0d\\u7b26\\u5408\\u683c\\u5f0f\\u7ea6\\u5b9a\\uff1a\\u4e0d\\u7b26\\u5408\\u8981\\u6c42\\u7684\\u683c\\u5f0f\\uff1a\\\\S]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonschema_detail_is_rendered_in_the_requested_locale[en-Value does not match the format: Required format not matched: \\\\S]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonschema_detail_is_rendered_in_the_requested_locale[vi-Gi\\xe1 tr\\u1ecb kh\\xf4ng \\u0111\\xfang \\u0111\\u1ecbnh d\\u1ea1ng: Kh\\xf4ng kh\\u1edbp \\u0111\\u1ecbnh d\\u1ea1ng b\\u1eaft bu\\u1ed9c: \\\\S]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonschema_fallback_detail_is_rendered_in_the_requested_locale[zh-\\u4e0d\\u7b26\\u5408\\u5b9a\\u4e49\\u683c\\u5f0f\\uff1a\\u53d6\\u503c\\u843d\\u5165\\u4e86\\u7981\\u6b62\\u8303\\u56f4]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonschema_fallback_detail_is_rendered_in_the_requested_locale[en-Does not match the definition format: The value matches a forbidden constraint]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonschema_fallback_detail_is_rendered_in_the_requested_locale[vi-Kh\\xf4ng kh\\u1edbp \\u0111\\u1ecbnh d\\u1ea1ng \\u0111\\u1ecbnh ngh\\u0129a: Gi\\xe1 tr\\u1ecb thu\\u1ed9c ph\\u1ea1m vi b\\u1ecb c\\u1ea5m]",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::TestDefinitionDiagnostics::test_jsonpath_evaluation_failure_reads_as_prose",
+        "tests/unit/lib/i18n/test_market_core_rendering.py::test_market_issue_renders_as_a_located_prose_line"
+      ],
+      "exit_code": 0,
+      "before_after_identical": true
+    },
+    {
+      "expression": "integration",
+      "selected_node_ids": [
+        "tests/integration/test_memory_db_guard.py::test_concurrent_write_fails_at_once_and_points_to_file_fixture",
+        "tests/integration/test_memory_db_guard.py::test_write_fails_while_finished_task_left_its_write_open",
+        "tests/integration/test_memory_db_guard.py::test_swallowed_concurrent_write_is_still_reported",
+        "tests/integration/test_memory_db_guard.py::test_dialect_aware_fixture_points_to_concurrent_session_factory",
+        "tests/integration/test_memory_db_guard.py::test_writes_finished_one_after_another_pass",
+        "tests/integration/test_memory_db_guard.py::test_nested_sessions_in_one_task_pass"
+      ],
+      "exit_code": 0,
+      "before_after_identical": true
+    },
+    {
+      "expression": "uses_db and not sqlite_only",
+      "selected_node_ids": [],
+      "exit_code": 5,
+      "before_after_identical": true
+    },
+    {
+      "expression": "local_port or e2e",
+      "selected_node_ids": [],
+      "exit_code": 5,
+      "before_after_identical": true
+    }
+  ]
+}

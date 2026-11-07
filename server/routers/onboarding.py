@@ -1,12 +1,12 @@
-"""Onboarding 引导状态 APIs.
+"""Onboarding status APIs.
 
-首次使用引导的「已看过」标记。刻意与 `/system/config` 分开：那条路由是配置面板的
-读写白名单，引导标记既不是用户可配置项，也不该被配置页的批量读写带上。
+The “seen” marker for first-use onboarding. Deliberately separate from `/system/config`: that route allowlists
+configuration-panel reads/writes, while onboarding markers are neither user-configurable settings nor part of
+the configuration page’s batch reads/writes.
 
-作用域：端点按「当前用户的引导状态」语义设计，身份走 `get_current_user` 解析；
-标记本身今天落在实例级 `SystemSetting`（开源单用户形态）。将来引入多用户时，
-替换下面的读写后端即可，端点契约不变。
-"""
+Scope: endpoints represent the current user’s onboarding state, with identity resolved by `get_current_user`.
+The marker is currently stored in instance-level `SystemSetting` for the open-source single-user setup.
+Future multi-user support can replace the read/write backend below without changing the endpoint contract."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ async def _read_seen(svc: ConfigService) -> bool:
 async def get_onboarding_status(
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> OnboardingStatusResponse:
-    """引导是否已看过。未设置视为未看过 —— 前端据此决定是否自动弹出。"""
+    """Whether onboarding has been seen. Unset means unseen; the frontend uses this to decide whether to open it automatically."""
     return OnboardingStatusResponse(seen=await _read_seen(svc))
 
 
@@ -46,7 +46,7 @@ async def mark_onboarding_seen(
     svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> OnboardingStatusResponse:
-    """标记引导已看过。幂等 —— 跳过/看完/关闭三条退出路径都打到这里。"""
+    """Mark onboarding as seen. Idempotent: skip, finish, and close exit paths all call this endpoint."""
     await svc.set_setting(ONBOARDING_SEEN_KEY, "true")
     await session.commit()
     return OnboardingStatusResponse(seen=True)

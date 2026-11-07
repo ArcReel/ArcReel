@@ -174,7 +174,7 @@ describe("EndpointImportDialog", () => {
     await userEvent.paste(workflow);
     await userEvent.click(screen.getByRole("button", { name: "识别" }));
 
-    // 粘进来的没有文件名——详情头部的「来源文件」因此不显示。
+    // Pasted content lacks filenames, hiding detail source-file headers.
     expect(onSource).toHaveBeenCalledWith(workflow, "");
   });
 
@@ -210,7 +210,7 @@ describe("EndpointImportDialog", () => {
   });
 
   it("keeps the file the user picked last, whichever one finishes reading first", async () => {
-    // file.text() 没有可取消的句柄：先选 A 再选 B，A 读完得晚也不该把 B 顶掉。
+    // file.text() has no cancellation handles; A then B selection must not let slower A overwrite B.
     const onSource = vi.fn();
     renderDialog(validation(), { onSource });
     const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -235,7 +235,7 @@ describe("EndpointImportDialog", () => {
   });
 
   it("keeps what the user typed while a file was still being read", async () => {
-    // 读文件期间改文本框，屏幕上这份才是用户手上那份：在途的读回来不该顶掉它，也不该拿它去识别。
+    // Text edits during file reads are current user payloads; late reads must not replace or submit them for recognition.
     const onSource = vi.fn();
     renderDialog(validation(), { onSource });
     const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -267,7 +267,7 @@ describe("EndpointImportDialog", () => {
       { definition: COMFYUI_DEFINITION, onBindNodes, onCreateCopy },
     );
 
-    // 同作者同名的判定留到编辑器里改完名字再说，所以这里不给覆盖/副本的选择。
+    // Same-author/name matching waits for editor name changes, so no overwrite/copy choices here.
     expect(screen.queryByRole("button", { name: "覆盖" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "去绑定节点" }));
 
@@ -276,7 +276,7 @@ describe("EndpointImportDialog", () => {
   });
 
   it("drops a recognition result once the pasted text no longer matches it", async () => {
-    // 识别完再改文本框，手上那份结果说的就不是屏幕上这份载荷了：继续下去存的是旧的那一份。
+    // Editing after recognition invalidates correspondence with onscreen payloads; continuing would persist old payloads.
     const onBindNodes = vi.fn();
     renderDialog(validation({ import_shape: "comfyui_api_workflow" }), {
       definition: COMFYUI_DEFINITION,
@@ -290,7 +290,7 @@ describe("EndpointImportDialog", () => {
 
     await userEvent.type(box, "-edited");
 
-    // 识别结果连同它认出的形状一起作废，动作按钮退回未识别时的样子并禁用。
+    // Invalidate recognized shapes/results together, restoring disabled unrecognized action buttons.
     expect(screen.queryByRole("button", { name: "去绑定节点" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导入" })).toBeDisabled();
   });

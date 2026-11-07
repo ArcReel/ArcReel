@@ -1,8 +1,8 @@
-"""自定义供应商改模型 ID / 删除模型 / 删除供应商时，项目级与全局的模型引用同步。
+"""Synchronize project/global references when custom models change IDs, models delete or providers delete.
 
-改 ID 是同一个模型换了标识：项目的全部 10 个引用键、``model_settings`` 与全局设置都改写成新 ID。
-删除按 docs/adr/0054 不清理视频桶键，但被删模型的 ``model_settings`` 一定清掉，
-否则之后同 ID 的新模型会接管这些引用。
+ID changes retain model identity: rewrite all ten project references, ``model_settings`` and global settings.
+Deletion retains video buckets per docs/adr/0054, but always clears deleted-model ``model_settings``,
+preventing new same-ID models inheriting those references.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from server.routers import custom_providers, provider_models
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.fakes import use_project_manager
 
-#: ADR 0054：删除时有意不清理的视频桶键。
+#: ADR 0054: video-bucket keys intentionally retained on deletion.
 VIDEO_BUCKET_KEYS = ("video_provider_i2v", "video_provider_r2v")
 CLEARED_ON_DELETE = tuple(k for k in PROJECT_MODEL_SETTING_KEYS if k not in VIDEO_BUCKET_KEYS)
 
@@ -114,16 +114,16 @@ def _assert_deleted_model_refs_cleared(model_refs_pm: ProjectManager, name: str,
     ref = f"{pid}/{model_id}"
     refs = _refs(model_refs_pm, name)
     assert all(key not in refs or refs[key] is None for key in CLEARED_ON_DELETE), refs
-    # ADR 0054：视频桶键不级联清理，由解析闸兜底
+    # ADR 0054: retain video buckets without cascading cleanup; resolution gates guard them.
     assert all(refs[key] == ref for key in VIDEO_BUCKET_KEYS), refs
-    # 被删模型的分辨率覆盖一定清掉，其他模型的覆盖保留
+    # Always clear deleted-model resolution overrides, retaining other models'.
     assert _model_settings_keys(model_refs_pm, name) == ["other/keep"]
 
 
 def _assert_not_hijacked_by_readded(
     model_refs_client: TestClient, model_refs_pm: ProjectManager, name: str, pid: str, model_id: str
 ) -> None:
-    # 视频桶键按 ADR 0054 保留并会被同 ID 模型对上（由解析闸兜底）；先抹掉它们，剩下的引用都不该被接管
+    # ADR 0054 video buckets can match same-ID models via resolution gates; remove them first so remaining references must not be inherited.
     model_refs_pm.update_project(name, lambda p: [p.pop(key, None) for key in VIDEO_BUCKET_KEYS])
     added = model_refs_client.post(
         f"/api/v1/providers/{pid}/models", json={"model_id": model_id, "endpoint": "openai-chat"}
@@ -149,7 +149,7 @@ async def test_rename_rewrites_project_model_settings_and_global_refs(model_refs
     }
     assert await _globals(db_factory) == dict.fromkeys(GLOBAL_MODEL_SETTING_KEYS, f"{pid}/new-a")
 
-    # 别的模型改名成旧 ID：不会接管已改写的引用
+    # Renaming other models to old IDs never inherits rewritten references.
     assert (
         model_refs_client.patch(f"/api/v1/providers/{pid}/models/keep", json={"model_id": "old-a"}).status_code == 200
     )

@@ -25,14 +25,14 @@ function paramsText(params: Record<string, unknown> | undefined): string {
 }
 
 /**
- * 本集最近一次文本任务（AI 规划脚本、编写提示词、AI 修复、广告/短片 AI 生成脚本）失败时的原因与出路，
- * 挂在集页顶部，内容确认页、时间线与集原文页都看得到。关掉后，直到下一次失败才再出现。
+ * Reason/recovery for the latest failed episode text task: AI planning, prompt authoring, repair or ad/short-film generation.
+ * Shown atop the episode page across confirmation, timeline and source views; after dismissal, return only on the next failure.
  *
- * 广告/短片的整份生成与提示词编写共用脚本文本任务：本集还没有正式脚本时，这类任务只可能是整份生成；
- * 有正式脚本时按任务自身的标记（整份重做、违约失败）区分。
+ * Full ad/short-film generation shares the script-text task with prompt authoring. Without a formal script it can only be full generation;
+ * otherwise distinguish through task markers such as full regeneration or contract failure.
  *
- * 摘要只显示后端按界面语言渲染的原因；问题码、参数与服务端原文收进可展开的「详情」。后端没能把原因
- * 本地化时（外部或未知错误）不带原文字段，原文本身就是摘要，也就没有详情。
+ * Summaries show only backend UI-language reasons; codes, params and raw server text belong in expandable Details. If localization fails
+ * for external/unknown errors, omit the raw-text field because the original already serves as summary, leaving no details.
  */
 export function TextTaskFailureNote({
   projectName,

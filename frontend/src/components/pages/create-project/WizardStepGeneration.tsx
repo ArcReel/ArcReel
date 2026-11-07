@@ -32,17 +32,17 @@ export interface WizardGenerationData {
     textDefault: string;
     textSimple: string;
     textComplex: string;
-    /** 各层全空时后端自动选中的模型；拉取失败即缺席。 */
+    /** Backend-selected models when all layers are empty; absent on fetch failure. */
     auto?: AutoBackendsResponse | null;
   };
 }
 
 export interface WizardDurationValue {
-  /** 广告项目的目标总时长（秒）；「自定义」输入无效时为 null。 */
+  /** Ad total target seconds, null for invalid Custom input. */
   targetDuration: number | null;
-  /** 单集目标时长（秒）；null = 不设目标。广告项目不使用。 */
+  /** Episode target seconds; null means no target. Unused by ads. */
   episodeTargetDuration: number | null;
-  /** 口播语速估算（阅读单位 / 秒）；null = 按项目语言的默认值估算。 */
+  /** Estimated speaking rate (reading units / second); null uses project-language defaults. */
   speechRate: number | null;
 }
 
@@ -91,7 +91,7 @@ export function WizardStepGeneration({
               onChange={(episodeTargetDuration) => onDurationChange({ ...duration, episodeTargetDuration })}
             />
           )}
-          {/* 项目还没有语言事实（由内容分析写入），单位按未知语言呈现 */}
+          {/* Projects lack language facts before content analysis, so show unknown-language units. */}
           <SpeechRateField
             value={duration.speechRate}
             onChange={(speechRate) => onDurationChange({ ...duration, speechRate })}
@@ -112,7 +112,7 @@ export function WizardStepGeneration({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        {/* 创建向导只暴露默认层（docs/adr/0054），按用途细分留给项目设置页 */}
+        {/* Wizards expose defaults only (docs/adr/0054), leaving purpose-specific tiers to project settings. */}
         {data && (
           <ModelConfigSection
             showSubFields={false}
@@ -129,7 +129,7 @@ export function WizardStepGeneration({
             }}
             globalDefaults={data.globalDefaults}
             usesReferenceImages={usesReferenceImages}
-            // 广告项目按目标总时长逐个分镜规划，不暴露默认时长
+            // Ads plan individual shots from total target durations, without default-duration controls.
             enable={isAd ? { duration: false } : undefined}
           />
         )}

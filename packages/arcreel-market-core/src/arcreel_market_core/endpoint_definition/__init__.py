@@ -1,8 +1,8 @@
-"""自定义调用端点的定义格式：契约 schema 与共享校验器。
+"""Custom invocation-endpoint definition format: contract schema and shared validator.
 
-``validator.validate_definition`` 是判定一份定义的唯一实现——保存、``validate`` 接口、端点测试
-与随版预设的 import 期都走这里，任何一处另写一份判定都会让「保存能过、跑起来报错」重新出现。
-它按定义的 ``kind`` 分派；声明式 kind 的结构契约是 ``schema.json``，ComfyUI kind 的实现在
+``validator.validate_definition`` is the sole definition-validation implementation: saving, the ``validate`` interface, endpoint tests,
+and bundled-preset import all use it. Separate validation anywhere would reintroduce definitions that save successfully but fail at runtime.
+It dispatches by definition ``kind``; the declarative structure contract is ``schema.json``, and ComfyUI implementations live in
 ``arcreel_market_core.comfyui``。
 """
 

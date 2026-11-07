@@ -1,15 +1,15 @@
-"""Agent 凭证新增倍率与档位的条目绑定
+"""Agent credentials gain multipliers and tier-entry bindings
 
 Revision ID: b25cfcfb8bad
 Revises: c7e2a9d4b6f1
 Create Date: 2026-10-15 20:00:00.000000
 
-Agent 会话按凭证计价（docs/adr/0102）：
+Agent sessions are priced per credential (docs/adr/0102):
 
-- ``multiplier``：Agent 凭证倍率，乘在这条凭证上每次 Agent 调用的参考费用上；存量为 1。为 0 时费用记 0，不查价
-  （docs/adr/0100）。
-- ``tier_bindings``：档位（``model`` / ``haiku`` / ``sonnet`` / ``opus`` / ``subagent``）到条目绑定（「模型厂商/官方模型名」）
-  的映射；存量为空，即全部档位按模型名对应条目。
+- ``multiplier``: multiplies reference cost for each Agent call on this credential; existing value 1.
+  At 0, record zero cost without price lookup (docs/adr/0100).
+- ``tier_bindings``: maps tiers (``model`` / ``haiku`` / ``sonnet`` / ``opus`` / ``subagent``) to entry
+  bindings (model vendor/official model name). Existing values are empty; all tiers match entries by name.
 """
 
 from __future__ import annotations

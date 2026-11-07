@@ -1,0 +1,98 @@
+{
+  "reviewed_values": [
+    {
+      "path": ".agents/skills/add-release-highlights/agents/openai.yaml",
+      "field": "interface.short_description",
+      "before": "起草版本亮点，确认后同步 Changelog 与 Release 并推送 main",
+      "after": "Draft release highlights; after confirmation, sync Changelog/Release and push main"
+    },
+    {
+      "path": ".agents/skills/afk-retrospective/agents/openai.yaml",
+      "field": "interface.display_name",
+      "before": "AFK 复盘",
+      "after": "AFK Retrospective"
+    },
+    {
+      "path": ".agents/skills/afk-retrospective/agents/openai.yaml",
+      "field": "interface.short_description",
+      "before": "筛选值得投入的项目与执行改进，生成可留存报告供用户裁决",
+      "after": "Select worthwhile project and execution improvements; produce a saved report for user decisions"
+    },
+    {
+      "path": ".agents/skills/afk-team-workflow/agents/openai.yaml",
+      "field": "interface.display_name",
+      "before": "AFK 团队流程",
+      "after": "AFK Team Workflow"
+    },
+    {
+      "path": ".agents/skills/afk-team-workflow/agents/openai.yaml",
+      "field": "interface.short_description",
+      "before": "通过 staged PR 无人值守执行 issue 批次",
+      "after": "Execute issue batches unattended through staged PRs"
+    },
+    {
+      "path": ".agents/skills/afk-team-workflow/agents/openai.yaml",
+      "field": "interface.default_prompt",
+      "before": "使用 $afk-team-workflow 无人值守执行一个 Spec 或 issue 批次。",
+      "after": "Use $afk-team-workflow to execute a Spec or issue batch unattended."
+    },
+    {
+      "path": ".agents/skills/lessons-sweep/agents/openai.yaml",
+      "field": "interface.display_name",
+      "before": "教训巡检",
+      "after": "Lessons Sweep"
+    },
+    {
+      "path": ".agents/skills/lessons-sweep/agents/openai.yaml",
+      "field": "interface.short_description",
+      "before": "更新教训库，按阈值晋升或退出规范，产出巡检 PR",
+      "after": "Update the lessons library, promote or retire standards by thresholds, and produce a sweep PR"
+    },
+    {
+      "path": ".agents/skills/lessons-sweep/agents/openai.yaml",
+      "field": "interface.default_prompt",
+      "before": "使用 $lessons-sweep 巡检上次标记以来的合并记录，更新 docs/LESSONS.md 并提交巡检 PR。",
+      "after": "Use $lessons-sweep to inspect merges since the last marker, update docs/LESSONS.md, and submit a sweep PR."
+    },
+    {
+      "path": ".agents/skills/model-routing/agents/openai.yaml",
+      "field": "interface.short_description",
+      "before": "按 Category 为委派任务选模型与 effort",
+      "after": "Choose models and effort by Category for delegated tasks"
+    },
+    {
+      "path": ".agents/skills/model-routing/agents/openai.yaml",
+      "field": "interface.default_prompt",
+      "before": "使用 $model-routing 为这次委派选择 Category、模型与 effort。",
+      "after": "Use $model-routing to choose the Category, model, and effort for this delegation."
+    }
+  ],
+  "structure_proof": [
+    {
+      "path": ".agents/skills/add-release-highlights/agents/openai.yaml",
+      "human_values": 1,
+      "all_other_yaml_equal": true
+    },
+    {
+      "path": ".agents/skills/afk-retrospective/agents/openai.yaml",
+      "human_values": 2,
+      "all_other_yaml_equal": true
+    },
+    {
+      "path": ".agents/skills/afk-team-workflow/agents/openai.yaml",
+      "human_values": 3,
+      "all_other_yaml_equal": true
+    },
+    {
+      "path": ".agents/skills/lessons-sweep/agents/openai.yaml",
+      "human_values": 3,
+      "all_other_yaml_equal": true
+    },
+    {
+      "path": ".agents/skills/model-routing/agents/openai.yaml",
+      "human_values": 2,
+      "all_other_yaml_equal": true
+    }
+  ],
+  "independent_review": "Coordinator reviewed all 11 values and requested explicit confirmation before both changelog synchronization and pushing; corrected wording verified."
+}

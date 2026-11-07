@@ -2,8 +2,8 @@
 status: accepted
 ---
 
-# 第三方 API 文档采用官方链接索引而非正文镜像
+# Index official third-party API documentation links instead of mirroring document bodies
 
-ArcReel 不再把供应商 API 与 Claude Agent SDK 的文档正文、完整参数/价格表或镜像下载脚本提交到仓库；媒体 provider 与 endpoint 各按规范 id 维护官方链接和稳定代码入口，SDK 开发则查询官方在线文档并使用官方 verifier。运行时能力与数值继续由 registry、backend 和 endpoint 声明持有，索引只负责来源发现与核验导航。
+ArcReel no longer commits provider API or Claude Agent SDK documentation bodies, complete parameter/price tables, or mirror-download scripts. Media providers and endpoints maintain official links and stable code entry points by canonical ID; SDK development queries official online documentation and uses official verifiers. Registry, backend, and endpoint declarations continue to own runtime capabilities and numeric values. Indexes serve only source discovery and verification navigation.
 
-这项选择减少上游更新造成的复制漂移和仓库维护负担，代价是失去离线正文、稳定行号与完整历史页面复现。历史版本的精确语义改用固定版本的上游源码或本仓库契约测试作证；测试所需的最小请求/响应 fixture 可以保留，但不得扩张成第三方文档副本。
+This reduces copy drift after upstream updates and repository maintenance, at the cost of offline bodies, stable line numbers, and full historical-page reproduction. Use pinned upstream source or repository contract tests for exact historical semantics. Minimal request/response fixtures needed for tests may remain, but must not grow into third-party documentation copies.

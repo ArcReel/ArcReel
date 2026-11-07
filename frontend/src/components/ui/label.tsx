@@ -3,7 +3,7 @@ import { cn } from "cn"
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {
   return (
-    // eslint-disable-next-line jsx-a11y/label-has-associated-control -- 通用原语：控件关联由调用处的 htmlFor 或嵌套提供
+    // eslint-disable-next-line jsx-a11y/label-has-associated-control -- Generic primitive: callers associate controls through htmlFor or nesting
     <label
       data-slot="label"
       className={cn(

@@ -1,6 +1,6 @@
-// 在官方 Playwright 镜像里启动 run-server：`pnpm e2e:server`，再在另一个终端运行 `pnpm e2e:remote`。
-// 浏览器在容器里渲染，结果与 CI 一致；镜像版本取自已安装的 @playwright/test，两者必须一致。
-// 本机端口默认 3000，`E2E_SERVER_PORT` 可覆盖，`pnpm e2e:remote` 读同一个变量连接。
+// Start run-server in official Playwright images with `pnpm e2e:server`, then another terminal runs `pnpm e2e:remote`.
+// Container browsers match CI rendering; image versions come from installed @playwright/test and must match.
+// Local ports default 3000, overridden by `E2E_SERVER_PORT`, also read by `pnpm e2e:remote`.
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -17,7 +17,7 @@ const args = [
   "--rm",
   "--init",
   "--ipc=host",
-  // 只监听本机回环：run-server 对外暴露的是浏览器控制接口。
+  // Listen on local loopback only: run-server exposes browser-control interfaces.
   "-p",
   `127.0.0.1:${hostPort}:3000`,
   "--workdir",

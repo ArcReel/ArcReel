@@ -1,15 +1,17 @@
-"""剪辑时间线的批量编辑操作：按片段 ID 定位，依次作用于一份内存中的剪辑内容。
+"""Batch editing-timeline operations: locate clips by ID and apply sequentially to in-memory editing content.
 
-应用是纯函数：输入一个修订的内容、片段编号分配器与一集的素材事实，输出新的内容；任一条操作
-非法即抛出带操作序号、片段 ID 与合法取值范围的 ``operation_invalid``，调用方整批不写。
+Application is pure: input one revision's content, clip-ID allocators, and episode media facts; output
+new content. Invalid operations raise ``operation_invalid`` with operation index, clip ID, and allowed
+ranges, so callers persist none of the batch.
 
-插入、删除、移动会改变相邻关系：前后相邻片段变了的切点一律恢复硬切（清掉前一片段上的
-``transition_to_next``），需要时在同一批里随后重新设置。旁白承载片段被删除时，旁白改挂到该
-视频单元剩下的第一个片段上；旁白落点把旁白改挂到同一视频单元的指定片段上。
+Insert/delete/move changes adjacency: cuts whose neighbors change reset to hard cuts by clearing the
+preceding clip's ``transition_to_next``; set again later in the same batch if needed. When narration's
+carrier is deleted, reattach to that video unit's first remaining clip; narration placement reattaches
+to a specified clip of the same unit.
 
-BGM 片段按绝对起点摆放，与主轨的增删移动互不影响。整批应用后检查本批改动过的 BGM 片段：起点落在时间线内、
-淡入淡出容得下，且同一时刻只有一首。超出时间线末尾的部分不在这里拒绝，渲染时截断（见 :mod:`lib.edit_timeline.bgm`）。
-"""
+BGM clips use absolute starts, unaffected by main-track insert/delete/move. After applying the batch,
+check affected BGM clips: starts inside timeline, fades fit, only one BGM at a time. Do not reject
+portions beyond timeline end here; truncate on rendering (:mod:`lib.edit_timeline.bgm`)."""
 
 from __future__ import annotations
 
@@ -42,18 +44,18 @@ from lib.edit_timeline.sources import EpisodeSources
 from lib.speech.speech_composition import SpeechMode
 
 MIN_TRIM_MICROSECONDS = 100_000
-"""截取后至少保留的画面时长。"""
+"""Minimum visual duration retained after trimming."""
 
 MAX_HOLD_MICROSECONDS = 10_000_000
 MIN_TRANSITION_MICROSECONDS = 100_000
 MAX_TRANSITION_MICROSECONDS = 2_000_000
 REASON_MAX_LENGTH = 200
 MIN_BGM_MICROSECONDS = 1_000_000
-"""BGM 片段截取后至少保留的时长。"""
+"""Minimum BGM-clip duration retained after trimming."""
 
 
 def default_source_volume(speech_mode: SpeechMode | None) -> float:
-    """新建剪辑片段未指定原声音量时，按视频单元的发声归属取默认值。"""
+    """Default source volume for new clips without explicit volume, based on video-unit speech attribution."""
     return VOICEOVER_SOURCE_VOLUME if speech_mode is SpeechMode.NARRATOR_VOICEOVER else DEFAULT_SOURCE_VOLUME
 
 
@@ -61,31 +63,38 @@ class _Operation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-_CLIP = Field(min_length=1, description="剪辑片段 ID，如 c3")
-_AFTER = Field(description="放到这个剪辑片段之后；null 表示放到最前面")
+_CLIP = Field(min_length=1, description="Edit clip ID, for example c3")
+_AFTER = Field(description="Place after this edit clip; null means at the beginning")
 
 
 class TrimSpec(_Operation):
-    source_in: FiniteFloat = Field(description="入点，秒，从该视频单元 current 视频的开头算起")
-    source_out: FiniteFloat = Field(description="出点，秒，须大于入点且不超过视频时长")
+    source_in: FiniteFloat = Field(
+        description="Source in-point in seconds, measured from the beginning of this unit's current video"
+    )
+    source_out: FiniteFloat = Field(
+        description="Source out-point in seconds; must exceed the in-point and not exceed video duration"
+    )
 
 
 class TransitionSpec(_Operation):
-    type: TransitionType = Field(description="转场类型")
-    duration: FiniteFloat = Field(description="转场时长，秒，0.1–2")
+    type: TransitionType = Field(description="Transition type")
+    duration: FiniteFloat = Field(description="Transition duration in seconds, 0.1–2")
 
 
 class InsertClip(_Operation):
     op: Literal["insert"]
-    unit_id: str = Field(min_length=1, description="视频单元 ID；同一视频单元可以插入多次")
+    unit_id: str = Field(min_length=1, description="Video-unit ID; the same unit may be inserted multiple times")
     after: str | None = _AFTER
     source_volume: FiniteFloat | None = Field(
-        default=None, description="原声音量 0–1；省略时画外音单位 0.3，台词与无人声单位 1.0"
+        default=None,
+        description="Original audio volume 0–1; default 0.3 for voiceover units, 1.0 for dialogue units and units without speech",
     )
-    trim: TrimSpec | None = Field(default=None, description="截取；省略时整段使用")
-    hold: FiniteFloat = Field(default=0.0, description="尾部定格延长，秒，0–10")
-    reason: str | None = Field(default=None, description="剪辑理由，渲染时忽略")
-    transition_to_next: TransitionSpec | None = Field(default=None, description="到下一片段的转场；省略为硬切")
+    trim: TrimSpec | None = Field(default=None, description="Trim; omit to use the whole clip")
+    hold: FiniteFloat = Field(default=0.0, description="End-frame hold extension in seconds, 0–10")
+    reason: str | None = Field(default=None, description="Editing rationale, ignored during rendering")
+    transition_to_next: TransitionSpec | None = Field(
+        default=None, description="Transition to the next clip; omit for a hard cut"
+    )
 
 
 class DeleteClip(_Operation):
@@ -102,67 +111,86 @@ class MoveClip(_Operation):
 class SetTrim(_Operation):
     op: Literal["set_trim"]
     clip: str = _CLIP
-    trim: TrimSpec | None = Field(description="新的入出点；null 表示取消截取、整段使用")
+    trim: TrimSpec | None = Field(description="New source in/out points; null cancels trimming and uses the whole clip")
 
 
 class SetVolume(_Operation):
     op: Literal["set_volume"]
     clip: str = _CLIP
-    volume: FiniteFloat = Field(description="原声音量，线性倍数 0–1，不支持放大")
+    volume: FiniteFloat = Field(
+        description="Original audio volume, linear multiplier 0–1; amplification is unsupported"
+    )
 
 
 class SetHold(_Operation):
     op: Literal["set_hold"]
     clip: str = _CLIP
-    hold: FiniteFloat = Field(description="尾部定格延长，秒，0–10；0 表示不延长")
+    hold: FiniteFloat = Field(description="End-frame hold extension in seconds, 0–10; 0 means no extension")
 
 
 class SetReason(_Operation):
     op: Literal["set_reason"]
     clip: str = _CLIP
-    reason: str | None = Field(description="剪辑理由；null 表示清除")
+    reason: str | None = Field(description="Editing rationale; null clears it")
 
 
 class SetTransition(_Operation):
     op: Literal["set_transition"]
     clip: str = _CLIP
-    transition: TransitionSpec | None = Field(description="到下一片段的转场；null 表示恢复硬切")
+    transition: TransitionSpec | None = Field(description="Transition to the next clip; null restores a hard cut")
 
 
 class PlaceNarration(_Operation):
     op: Literal["place_narration"]
     clip: str = Field(
-        min_length=1, description="承载旁白的剪辑片段 ID；须是画外音单位的片段，同一视频单元原先承载旁白的片段随之卸下"
+        min_length=1,
+        description="Edit clip ID carrying narration; must belong to a voiceover unit. Remove narration from the clip previously carrying it for the same video unit",
     )
 
 
-_BGM_CLIP = Field(min_length=1, description="BGM 片段 ID，如 b2")
+_BGM_CLIP = Field(min_length=1, description="BGM clip ID, for example b2")
 
 
 class InsertBgm(_Operation):
     op: Literal["insert_bgm"]
-    bgm_id: str = Field(min_length=1, description="BGM ID（如 bgm-3f9a0c21），取自 list_bgm")
-    start: FiniteFloat = Field(description="在剪辑时间线上的绝对起点，秒，须在时间线内")
-    source_in: FiniteFloat = Field(default=0.0, description="从 BGM 的第几秒开始用，秒；省略时从头开始")
+    bgm_id: str = Field(min_length=1, description="BGM ID (for example bgm-3f9a0c21), from list_bgm")
+    start: FiniteFloat = Field(
+        description="Absolute start on the edit timeline in seconds; must lie within the timeline"
+    )
+    source_in: FiniteFloat = Field(
+        default=0.0, description="BGM source start in seconds; omit to start from the beginning"
+    )
     source_out: FiniteFloat | None = Field(
-        default=None, description="用到 BGM 的第几秒，须大于 source_in 且不超过 BGM 时长；省略时用到结尾"
+        default=None,
+        description="BGM source end in seconds; must exceed source_in and not exceed BGM duration; omit to use through the end",
     )
     volume: FiniteFloat = Field(
-        default=DEFAULT_BGM_VOLUME, description="音量 0–1，乘在已统一到 −16 LUFS 的响度上；省略时 0.25"
+        default=DEFAULT_BGM_VOLUME,
+        description="Volume 0–1, multiplying loudness already normalized to −16 LUFS; default 0.25",
     )
-    fade_in: FiniteFloat = Field(default=DEFAULT_BGM_FADE_MICROSECONDS / 1_000_000, description="淡入，秒；省略时 1")
-    fade_out: FiniteFloat = Field(default=DEFAULT_BGM_FADE_MICROSECONDS / 1_000_000, description="淡出，秒；省略时 1")
+    fade_in: FiniteFloat = Field(
+        default=DEFAULT_BGM_FADE_MICROSECONDS / 1_000_000, description="Fade-in seconds; default 1"
+    )
+    fade_out: FiniteFloat = Field(
+        default=DEFAULT_BGM_FADE_MICROSECONDS / 1_000_000, description="Fade-out seconds; default 1"
+    )
 
 
 class SetBgm(_Operation):
     op: Literal["set_bgm"]
     clip: str = _BGM_CLIP
-    start: FiniteFloat | None = Field(default=None, description="新的绝对起点，秒；省略不改")
-    source_in: FiniteFloat | None = Field(default=None, description="新的入点，秒；省略不改")
-    source_out: FiniteFloat | None = Field(default=None, description="新的出点，秒；省略不改")
-    volume: FiniteFloat | None = Field(default=None, description="新的音量 0–1；省略不改")
-    fade_in: FiniteFloat | None = Field(default=None, description="新的淡入，秒；省略不改")
-    fade_out: FiniteFloat | None = Field(default=None, description="新的淡出，秒；省略不改")
+    start: FiniteFloat | None = Field(
+        default=None, description="New absolute start in seconds; omit to leave unchanged"
+    )
+    source_in: FiniteFloat | None = Field(
+        default=None, description="New source in-point in seconds; omit to leave unchanged"
+    )
+    source_out: FiniteFloat | None = Field(
+        default=None, description="New source out-point in seconds; omit to leave unchanged"
+    )
+    volume: FiniteFloat | None = Field(default=None, description="New volume 0–1; omit to leave unchanged")
+    fade_in: FiniteFloat | None = Field(default=None, description="New fade-in seconds; omit to leave unchanged")
+    fade_out: FiniteFloat | None = Field(default=None, description="New fade-out seconds; omit to leave unchanged")
 
 
 class DeleteBgm(_Operation):
@@ -191,11 +219,11 @@ TimelineOperationAdapter: TypeAdapter[TimelineOperation] = TypeAdapter(TimelineO
 
 @dataclass(frozen=True, slots=True)
 class AppliedBatch:
-    """一批操作应用后的剪辑内容。
+    """Editing content after applying one operation batch.
 
-    ``targets`` 是操作的作用对象，``referenced`` 另含用作位置锚点的片段；``last_operation`` 记录
-    每个被改动片段最后一次被哪条操作（从 0 起）改动，含插入、跟随相邻关系清掉转场与旁白改挂。
-    """
+    ``targets`` contains operation subjects; ``referenced`` additionally includes positional anchors.
+    ``last_operation`` records the last zero-based operation changing each affected clip, including
+    insertions, adjacency-triggered transition clearing, and narration reassignment."""
 
     content: EditTimelineContent
     next_clip_number: int
@@ -226,7 +254,7 @@ class _Batch:
         self.referenced: set[str] = set()
         self.last_operation: dict[str, int] = {}
 
-    # ---- 定位 ----
+    # ---- Location ----
 
     def _position(self, index: int, clip_id: str, *, field: str = "clip") -> int:
         self.referenced.add(clip_id)
@@ -256,7 +284,7 @@ class _Batch:
             self.clips[position] = self._touch(index, updated)
 
     def _current_video(self, index: int, clip_id: str | None, unit_id: str) -> tuple[int, int]:
-        """截取所依据的 current 视频：（版本号, 时长微秒）。"""
+        """Current video underlying trim: (version number, duration in microseconds)."""
         media = self.sources.media.get(unit_id)
         if self.sources.unit(unit_id) is None or media is None:
             raise _invalid(
@@ -276,7 +304,7 @@ class _Batch:
             )
         return media.video_version, media.video_duration_us
 
-    # ---- 字段校验 ----
+    # ---- Field validation ----
 
     def _trim(self, index: int, clip_id: str | None, unit_id: str, spec: TrimSpec | None) -> ClipTrim | None:
         if spec is None:
@@ -286,7 +314,7 @@ class _Batch:
         in_range = 0 <= spec.source_in < spec.source_out <= whole + 0.001
         in_us = seconds_to_microseconds(spec.source_in) if in_range else 0
         out_us = seconds_to_microseconds(spec.source_out) if in_range else 0
-        # 出点按毫秒规整后可能比实测时长多出至多 1 毫秒，规整回视频末尾。
+        # Millisecond rounding may put the out-point at most 1 ms beyond measured duration; clamp to video end.
         if whole_us < out_us <= whole_us + 1_000:
             out_us = whole_us
         allowed = (
@@ -365,7 +393,7 @@ class _Batch:
                 allowed="不是最后一个的片段",
             )
 
-    # ---- 相邻关系 ----
+    # ---- Adjacency ----
 
     def _next_ids(self) -> dict[str, str | None]:
         return {
@@ -379,7 +407,7 @@ class _Batch:
             if clip.transition_to_next is not None and before.get(clip.id, after[clip.id]) != after[clip.id]:
                 self._replace(index, position, transition_to_next=None)
 
-    # ---- 操作 ----
+    # ---- Operations ----
 
     def apply(self, index: int, operation: TimelineOperation) -> None:
         match operation:
@@ -592,7 +620,7 @@ class _Batch:
         if updated != current:
             self.bgm[position] = self._touch_bgm(index, updated)
 
-    # ---- 整批检查 ----
+    # ---- Whole-batch checks ----
 
     def _duration_us(self, clip: EditClip) -> int | None:
         unit = self.sources.unit(clip.unit_id)
@@ -602,7 +630,7 @@ class _Batch:
         return clip_source_duration_us(clip, media, unit.scripted_duration_us) + clip.hold_us
 
     def check_transition_windows(self) -> None:
-        """被本批改动过的片段须容得下两侧转场各占的一半；已删除单元与素材未知的片段不查。"""
+        """Clips changed by this batch must fit half of each adjacent transition; skip deleted units and clips with unknown media."""
         for position, clip in enumerate(self.clips):
             previous = self.clips[position - 1] if position > 0 else None
             owners = [item for item in (previous, clip) if item is not None]
@@ -629,7 +657,7 @@ class _Batch:
         return sum(duration for clip in self.clips if (duration := self._duration_us(clip)) is not None)
 
     def check_bgm(self) -> None:
-        """被本批改动过的 BGM 片段：起点在时间线内，且不与其他 BGM 片段重叠。"""
+        """BGM clips changed by this batch must start within the timeline without overlapping other BGM clips."""
         touched = [clip for clip in self.bgm if clip.id in self.last_operation]
         if not touched:
             return
@@ -678,10 +706,10 @@ def apply_operations(
     next_bgm_number: int,
     check_windows: bool = True,
 ) -> AppliedBatch:
-    """依次应用一批操作；任一条非法即抛出 ``operation_invalid``。
+    """Apply operations sequentially; any invalid operation raises ``operation_invalid``.
 
-    ``check_windows`` 为 False 时跳过整批的转场窗口与 BGM 摆放检查，只用于先判断并发冲突的预演。
-    """
+    ``check_windows`` False skips whole-batch transition-window/BGM-placement checks, only for previews
+    checking concurrent conflicts first."""
     batch = _Batch(content, next_clip_number, next_bgm_number, sources)
     for index, operation in enumerate(operations):
         batch.apply(index, operation)
@@ -700,7 +728,7 @@ def apply_operations(
 
 @dataclass(frozen=True, slots=True)
 class ContentDiff:
-    """两份剪辑内容之间改动过的片段：新增、删除、字段变化，以及相对顺序变化（按最长公共子序列判定）。"""
+    """Clips changed between two content snapshots: added, deleted, fields changed, or relative order changed (longest common subsequence)."""
 
     added: frozenset[str]
     removed: frozenset[str]
@@ -731,7 +759,7 @@ def _longest_common_subsequence(left: list[str], right: list[str]) -> set[str]:
 
 
 def diff_content(before: EditTimelineContent, after: EditTimelineContent) -> ContentDiff:
-    """剪辑片段与 BGM 片段一起比较；BGM 片段按绝对起点摆放，没有相对顺序，不计移动。"""
+    """Compare editing/BGM clips together; BGM uses absolute starts without relative order, so does not count moves."""
     old: dict[str, EditClip | BgmClip] = {clip.id: clip for clip in (*before.clips, *before.bgm)}
     new: dict[str, EditClip | BgmClip] = {clip.id: clip for clip in (*after.clips, *after.bgm)}
     common_before = [clip.id for clip in before.clips if clip.id in new]
@@ -746,11 +774,10 @@ def diff_content(before: EditTimelineContent, after: EditTimelineContent) -> Con
 
 
 def restore_changed_clip_ids(before: EditTimelineContent, after: EditTimelineContent) -> frozenset[str]:
-    """整段内容替换改动过的片段。
+    """Clips affected by whole-content replacement.
 
-    相对顺序变了时，哪个片段「被移动」没有唯一答案，因此两份内容共有的片段一律计入，宁可让基于旧修订的
-    编辑多报冲突，也不放过被改排的片段。
-    """
+    When relative order changes, there is no unique answer to which clip moved. Include all clips shared
+    by both contents, preferring extra conflicts for old-revision edits over overlooking reordered clips."""
     diff = diff_content(before, after)
     if not diff.moved:
         return diff.changed
@@ -758,7 +785,7 @@ def restore_changed_clip_ids(before: EditTimelineContent, after: EditTimelineCon
 
 
 def sorted_clip_ids(clip_ids: set[str] | frozenset[str]) -> tuple[str, ...]:
-    """剪辑片段在前、BGM 片段在后，各按编号排列。"""
+    """Editing clips first, BGM clips afterward, each ordered by sequence number."""
     return tuple(sorted(clip_ids, key=lambda clip_id: (clip_id.startswith("b"), clip_number(clip_id))))
 
 

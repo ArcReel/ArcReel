@@ -20,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _drop_dedup_index_if_exists() -> None:
-    """跨方言安全 drop：DB 可能因历史迁移漂移而没建过该索引，避免 OperationalError。"""
+    """Cross-dialect safe drop: historical migration drift may mean the index never existed; avoid OperationalError."""
     bind = op.get_bind()
     dialect = bind.dialect.name
     if dialect in ("sqlite", "postgresql"):
@@ -30,12 +30,13 @@ def _drop_dedup_index_if_exists() -> None:
 
 
 def _collapse_duplicate_active_tasks_for_downgrade() -> None:
-    """降级前折叠因移除 resource_type 产生的重复活动任务，避免窄索引重建时唯一键冲突。
+    """Collapse active duplicates created by removing resource_type before rebuilding the narrower unique index.
 
-    升级后不同资产类型同名（如角色和道具都叫「玉佩」）的活动 image_edit 任务可以并存；
-    降级恢复不含 resource_type 的窄索引前，这些合并后撞键的分组只保留最早入队的一条，
-    其余按既有 cancel 语义（见 ``TaskRepository.cancel_task``）软取消——直接改状态、不发终态事件，
-    降级路径不依赖事件通知；保留行、仅摘除其终态外的活动任务，不做硬删除。
+    After upgrade, same-name assets of different types (e.g. character and prop both named 玉佩) may
+    have active image_edit tasks. Before restoring the narrow resource_type-free index, retain only
+    the earliest queued task per newly colliding group; soft-cancel others using existing semantics
+    (``TaskRepository.cancel_task``): change status directly, without terminal events. Downgrade needs
+    no event notifications. Keep rows, remove only nonterminal duplicates from the active set; no hard deletion.
     """
     op.execute(
         sa.text(
@@ -65,11 +66,11 @@ def _collapse_duplicate_active_tasks_for_downgrade() -> None:
 
 
 def upgrade() -> None:
-    """新增 resource_type 列并纳入去重索引。
+    """Add resource_type and include it in the deduplication index.
 
-    只有 image_edit 任务写入该列（其余任务类型的 task_type 本身已按资源种类区分）；
-    不同资产类型同名（如角色和道具都叫「玉佩」）时，原索引不看资源类型，会把两个
-    不同资源的编辑误判为重复入队。
+    Only image_edit sets it (other task types already distinguish resource kinds through task_type).
+    For same-name different-type assets (e.g. character and prop both 玉佩), the old index ignores
+    resource type and incorrectly treats edits of distinct resources as duplicate enqueue attempts.
     """
     op.add_column("tasks", sa.Column("resource_type", sa.String(), nullable=True))
     _drop_dedup_index_if_exists()

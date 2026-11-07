@@ -2,33 +2,33 @@
 status: accepted
 ---
 
-# Agent 故障观测保留证据，不推断根因
+# Agent failure observations preserve evidence without inferring root causes
 
-> 本 ADR 中故障卡片「默认层」的呈现已由文末「默认层改为一句话结论（修订，2026-10-04）」修改，其余内容仍然有效。
+> Presentation of the failure card's "default layer" in this ADR is amended by "Change the default layer to a one-sentence conclusion (revision, 2026-10-04)" below. The rest remains valid.
 
-用户反馈中的 Agent 启动错误可能因空异常消息而丢失异常类型，SDK 合成的轮次错误也曾因结构化标记在事件日志写入点丢失而被渲染成 Agent 回答。决定让 Agent 启动失败与轮次失败共用“最小通用外壳 + 脱敏原始载荷”的故障观测契约：外壳只承载 ArcReel 确知的阶段、时间、项目和会话上下文，原始载荷保留实际获得的异常链、stderr、SDK 消息 / 结果及上游返回；不建立上游错误类型枚举，也不把上游解释升级为 ArcReel 的根因判断。
+Agent startup errors reported by users can lose their exception type when the message is empty; SDK-synthesized turn errors have also been rendered as Agent answers because structured markers were lost at the event-log write boundary. Startup and turn failures will share the failure-observation contract "minimal generic envelope + redacted raw payload": the envelope carries only stages, times, project, and session context known to ArcReel; the raw payload preserves actually obtained exception chains, stderr, SDK messages / results, and upstream responses. Do not create an upstream-error-type enum or elevate upstream explanations into ArcReel root-cause judgments.
 
-轮次失败在会话事件日志写入点定型为系统故障事件，不再写成 Agent 消息；启动失败通过结构化 API 错误即时返回，并连同轮次失败写入现有诊断日志。轮次失败沿用会话事件日志持久化，启动失败不跨刷新保留；不新增故障表、专用文件或历史查询接口，也不主动迁移或重写已经物化的历史错误事件。
+At the session-event-log write boundary, turn failures become system-failure events rather than Agent messages. Startup failures return immediately as structured API errors; both join existing diagnostic logs. Turn failures retain session-event-log persistence; startup failures do not persist across refreshes. Add no failure table, dedicated file, or historical-query endpoint, and do not proactively migrate or rewrite already materialized historical error events.
 
-原始载荷只覆盖实际收到或生成的故障对象，不主动复制提示词、正常流式输出或完整 transcript；载荷本身携带的上下文仍予以保留。仅遮蔽可直接冒用身份或产生扣费的秘密值，例如 API key、认证令牌、Cookie、密码和签名 URL 的敏感参数；其余路径、异常类型、原因链、堆栈与未知字段不截断、不翻译、不润色。
+Raw payloads cover only failure objects actually received or generated; do not proactively copy prompts, normal streamed output, or full transcripts, while retaining context carried by the payload itself. Redact only secret values directly usable for impersonation or billing, such as API keys, authentication tokens, Cookies, passwords, and sensitive signed-URL parameters. Do not truncate, translate, or polish other paths, exception types, cause chains, stacks, or unknown fields.
 
-界面共用两层故障卡片：默认层显示阶段、观测到的类型 / 状态和有来源标注的原始消息，并明确这些事实不等同于根因；展开层呈现并可复制完整脱敏载荷。只提供与根因无关的操作——复制详情、打开 Agent 设置，以及对启动失败重新尝试；诊断日志仍由现有系统设置入口下载，不在故障卡片重复提供。轮次失败不自动重放原消息，避免重复执行已经发生的工具操作。
+The interface shares two-layer failure cards: the default layer shows the stage, observed type / status, and source-attributed raw message, explicitly stating these facts do not establish root cause; the expanded layer displays the complete redacted payload and allows copying. Offer only root-cause-independent actions: copy details, open Agent settings, and retry startup failures. Diagnostic logs remain downloadable through existing system settings, without duplicating that entry in failure cards. Do not automatically replay original messages for turn failures, avoiding duplicate execution of tool actions already performed.
 
-## 明确不采用
+## Explicitly rejected
 
-- 根据错误文案归类根因或生成针对性修复建议。
-- 为未知的上游错误维护穷举映射或降级为无信息的“未知错误”。（修订后的结论 key 只覆盖结构化证据里出现的取值，其余回落到按阶段的通用 key，见文末修订。）
-- 为低价值的历史失败轮次引入 transcript 关联回填。
-- 自动重放失败轮次。
+- Classifying root causes from error text or generating targeted repair suggestions.
+- Maintaining exhaustive mappings for unknown upstream errors or reducing them to an uninformative "unknown error." (Revised conclusion keys cover only values present in structured evidence; other cases fall back to stage-based generic keys, as described below.)
+- Adding transcript-association backfills for low-value historical failed turns.
+- Automatically replaying failed turns.
 
-## 默认层改为一句话结论（修订，2026-10-04）
+## Change the default layer to a one-sentence conclusion (revision, 2026-10-04)
 
-由「Spec: 前端基于 shadcn/ui 的重构与布局优化」(#2991) 的 Agent 消息区一节与后端数据调整第 9 项引起。原决定中「默认层显示阶段、观测到的类型 / 状态和有来源标注的原始消息」一句改为：默认层显示阶段标题和一句话结论，以及 Agent 设置、复制诊断信息、启动失败的重试三项操作；观测到的类型、状态、有来源标注的原始消息与完整脱敏载荷一并移入「详情」，可展开、可复制，脱敏规则不变。
+Triggered by the Agent message-area section and item 9 of backend data adjustments in "Spec: Frontend refactoring and layout optimization based on shadcn/ui" (#2991). Replace the original sentence "the default layer shows the stage, observed type / status, and source-attributed raw message" with: the default layer shows a stage title, a one-sentence conclusion, and three actions: Agent settings, copy diagnostic information, and retry for startup failures. Move the observed type, status, source-attributed raw message, and complete redacted payload together into expandable, copyable "Details," keeping redaction rules unchanged.
 
-一句话结论由故障观测外壳新增的 `summary.key` 本地化。key 只从结构化证据派生，映射的是 SDK 与 runtime 已给出的字段，不是 ArcReel 的根因判断：
+Localize the one-sentence conclusion through the newly added `summary.key` in the failure-observation envelope. Derive keys only from structured evidence, mapping fields already supplied by the SDK and runtime rather than ArcReel root-cause judgments:
 
-- 轮次失败依次取 SDK 的 `AssistantMessageError` 取值（`unknown` 除外）、result 的 `subtype`（`error_max_turns`、`error_max_budget_usd`）、上游 HTTP 状态（归到同一组 `AssistantMessageError` 取值）。
-- 启动失败取异常类，沿显式 cause 链查找：`CLINotFoundError`、`CLIConnectionError`、`ProcessError`、`TimeoutError`。
-- 取不到上述证据时回落到 `turn_failed` 或 `startup_failed`，结论如实写「运行时出错 / 启动过程中出错，原始信息见详情」。
+- For turn failures, use in order the SDK's `AssistantMessageError` value (except `unknown`), result `subtype` (`error_max_turns`, `error_max_budget_usd`), and upstream HTTP status (mapped to the same set of `AssistantMessageError` values).
+- For startup failures, use exception classes along the explicit cause chain: `CLINotFoundError`, `CLIConnectionError`, `ProcessError`, `TimeoutError`.
+- Without that evidence, fall back to `turn_failed` or `startup_failed`, truthfully concluding "an error occurred at runtime / during startup; see details for the original information."
 
-结论句只描述观测，不给针对性的修复建议；不解析错误文案。早于本修订物化的历史故障事件没有 key，界面按通用 key 显示，不迁移。保留证据、不按文案推断根因、不自动重放的决定不变。
+Conclusion sentences describe observations only, without targeted repair suggestions or parsing error text. Historical failure events materialized before this revision have no key; show them with generic keys without migration. Decisions to preserve evidence, avoid inferring root causes from text, and avoid automatic replay remain unchanged.

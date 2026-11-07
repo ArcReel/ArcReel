@@ -1,4 +1,4 @@
-"""CustomProviderRepository 测试。"""
+"""CustomProviderRepository tests."""
 
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ class TestProviderCRUD:
         assert await repo.list_models(p.id) == []
 
     async def test_delete_provider_nonexistent(self, db_session: AsyncSession):
-        """删不存在的供应商是 no-op：不抛错，也不会凭空留下一行。"""
+        """Deleting missing providers is a no-op, without exceptions or phantom rows."""
         repo = CustomProviderRepository(db_session)
 
         assert await repo.delete_provider(999) is None
@@ -217,7 +217,7 @@ class TestConcurrencyColumns:
     async def test_create_non_positive_workers_rejected_by_check_constraint(
         self, db_session: AsyncSession, field: str, value: int
     ):
-        """DB 层 CHECK 约束拦截 0 与负值，repo 直写也无法绕过（create_provider 内部 flush 即触发）。"""
+        """DB CHECK rejects 0/negative values even through direct repository writes (create_provider flush triggers it)."""
         from sqlalchemy.exc import IntegrityError
 
         repo = CustomProviderRepository(db_session)
@@ -315,7 +315,7 @@ class TestModelManagement:
         assert remaining[0].model_id == "m2"
 
     async def test_delete_model_nonexistent(self, db_session: AsyncSession):
-        """删不存在的型号同样是 no-op：既不抛错，也不波及在册型号。"""
+        """Deleting missing models is also a no-op, without errors or affecting registered models."""
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -412,7 +412,7 @@ class TestModelManagement:
         assert [m.model_id for m in await repo.list_default_models(p.id, "image")] == ["m3"]
 
     async def test_list_default_models_returns_every_image_bucket_default(self, db_session: AsyncSession):
-        """image 的默认按任务类型桶分槽：t2i 与 i2i 各一个默认时两行都要取出，按桶挑行由上层做。"""
+        """Image defaults occupy task buckets: return both t2i/i2i defaults; callers choose buckets."""
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -488,7 +488,7 @@ class TestModelManagement:
 
 
 class TestResolvePricing:
-    """resolve_pricing：记账与预估共用的计价依据，全部降级路径归为默认值（倍率 1、无绑定）、绝不抛错。"""
+    """Shared accounting/estimate resolve_pricing falls back to defaults (multiplier 1, no binding), never throwing."""
 
     async def _provider_with_model(self, repo: CustomProviderRepository, db_session: AsyncSession, **model_over) -> str:
         model = {
@@ -525,14 +525,14 @@ class TestResolvePricing:
         assert await repo.resolve_pricing(provider, "ghost") == CustomModelPricing()
 
     async def test_malformed_id_degrades_to_defaults(self, db_session: AsyncSession):
-        """畸形 custom- id（parse_provider_id 抛 ValueError）降级为默认值，不抛错。"""
+        """Malformed custom- IDs (parse_provider_id ValueError) fall back without throwing."""
         repo = CustomProviderRepository(db_session)
         assert await repo.resolve_pricing("custom-abc/ghost", "m1") == CustomModelPricing()
 
     async def test_query_exception_degrades_to_defaults(
         self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ):
-        """底层查询异常（如 DB 瞬时不可用）降级为默认值，不冒泡。"""
+        """Underlying query failures, such as transient DB outages, fall back without propagation."""
         repo = CustomProviderRepository(db_session)
         provider = await self._provider_with_model(repo, db_session)
 
@@ -543,7 +543,7 @@ class TestResolvePricing:
         assert await repo.resolve_pricing(provider, "m1") == CustomModelPricing()
 
     async def test_disabled_model_still_priced(self, db_session: AsyncSession):
-        """刻意豁免 enabled 校验：停用模型仍取它自己的倍率与绑定（记账按实际调用的模型计费）。"""
+        """Intentionally bypass enabled checks: disabled models retain own multipliers/bindings for actual-call billing."""
         repo = CustomProviderRepository(db_session)
         provider = await self._provider_with_model(repo, db_session, is_enabled=False)
         assert await repo.resolve_pricing(provider, "m1") == CustomModelPricing(0.8, "openai/gpt-5.4", "openai-chat")
@@ -551,7 +551,7 @@ class TestResolvePricing:
 
 @pytest.mark.asyncio
 async def test_list_enabled_models_by_media_type_uses_endpoint(db_session):
-    """list_enabled_models_by_media_type 应按 endpoint 推算 media_type 过滤。"""
+    """list_enabled_models_by_media_type filters media_type inferred from endpoints."""
     repo = CustomProviderRepository(db_session)
     await repo.create_provider(
         display_name="P",
@@ -586,7 +586,7 @@ async def test_list_enabled_models_by_media_type_uses_endpoint(db_session):
 
 
 class TestCustomEndpointMediaType:
-    """自定义端点的媒体类型读它自己那一行，不按 ``ce-`` 前缀一律记作视频。"""
+    """Custom endpoints read media type from their own rows, never assuming video from ``ce-`` prefixes."""
 
     async def _attach(self, db_session: AsyncSession, definition: dict, media_type: str, model_id: str) -> None:
         endpoints = CustomEndpointRepository(db_session)

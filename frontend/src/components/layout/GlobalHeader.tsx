@@ -23,10 +23,10 @@ import { useProjectExport } from "./useProjectExport";
 import { WorkspaceNotifications } from "./WorkspaceNotificationsDrawer";
 
 /**
- * 工作区顶栏，三段：
- * - 左：回到项目大厅 + 项目切换器（演示项目另带「演示 · 只读」徽标）
- * - 中：ProjectStatusBar（集进度与项目层的下一步；数据升级失败时是迁移重试）
- * - 右：通知 / 使用记录 / 导出 / 资产库 / 全局设置 / Agent 面板开关
+ * Workspace headers in three sections:
+ * - Left: project lobby + switcher (demos add Demo · Readonly badges)
+ * - Center: ProjectStatusBar (episode progress/project next steps, or migration retries after upgrade failures)
+ * - Right: notifications / usage / export / library / global settings / Agent-panel toggle
  */
 export function GlobalHeader() {
   const { t } = useTranslation(["dashboard", "common", "assets", "onboarding"]);
@@ -38,7 +38,7 @@ export function GlobalHeader() {
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const demoMode = useDemoWorkbench();
 
-  // 导出提示里的剪辑视图链接：在集页时指向当前集，否则指向播出顺序上的第一集；文案用集名。
+  // Export editing-view links target current episodes on episode pages, otherwise first broadcast-order episodes; use titles in copy.
   const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
   const projectEpisodes = currentProjectData?.episodes ?? [];
   const editViewEpisodeId = routeEpisode !== undefined ? Number(routeEpisode) : projectEpisodes[0]?.episode;
@@ -55,20 +55,20 @@ export function GlobalHeader() {
   });
   const exporting = projectExport.exporting !== null;
 
-  // 演示项目在后端没有用量记录，入口整个不渲染。demoMode 在演示→真实切换时先于 store
-  // 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
+  // Demos lack backend usage. demoMode becomes false before stores during demo→real switches;
+  // separately check currentProjectName while it still holds old demos.
   const usageProjectName =
     demoMode || !currentProjectName || isDemoProject(currentProjectName) ? null : currentProjectName;
 
-  // 导出对话框打开期间切到别的项目或演示项目（如浏览器前进 / 后退复用同一路由实例）时随即关闭：
-  // 对话框在打开时记下了当时的项目，留着会在选定范围后导出上一个项目；触发按钮已按 demoMode
-  // 禁用，但已打开的对话框不受影响，仍可点击「导出」。
+  // Project/demo switches while export dialogs open close them immediately, including reused history-route instances:
+  // dialogs captured old projects and would export them after scope selection. Disabled triggers follow demoMode,
+  // but existing dialogs otherwise remain clickable.
   const closeExport = projectExport.close;
   useEffect(() => {
     closeExport();
   }, [currentProjectName, demoMode, closeExport]);
 
-  // 入口的数据随项目走：切到别的项目或演示项目时清空上一项目的用量，并收起悬浮层。
+  // Project-bound usage clears old data/closes overlays on project/demo switches.
   useEffect(() => {
     void useUsageHeaderStore.getState().setProject(usageProjectName);
     if (usageProjectName === null) setUsagePanelOpen(false);
@@ -167,7 +167,7 @@ function IconLink({ href, label, children }: { href: string; label: string; chil
           <Link
             href={href}
             aria-label={label}
-            // eslint-disable-next-line shadcn/require-static-classes -- 链接借用 buttonVariants 的 ghost/icon 外观；Button 渲染为链接会被 Base UI 加上 role="button"，故不能换成 render={<Button />}，TooltipTrigger 自身不带样式（见 eslint.config.js 的 UNSTYLED_PRIMITIVES）
+            // eslint-disable-next-line shadcn/require-static-classes -- Link uses buttonVariants ghost/icon styling; rendering Button as a link adds role="button" through Base UI, so render={<Button />} is unsuitable; TooltipTrigger is unstyled (eslint.config.js UNSTYLED_PRIMITIVES)
             className={buttonVariants({ variant: "ghost", size: "icon", className: "relative" })}
           />
         }

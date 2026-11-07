@@ -1,14 +1,14 @@
-"""RFC 9535 JSONPath 受限子集的语法闸门。
+"""Syntax gate for a restricted RFC 9535 JSONPath subset.
 
-定义里的每条取值路径都必须落在这个子集内：``$`` 起头、只用 child segment（``.name`` /
-``['name']`` / ``[n]`` 含负下标 / ``[*]`` / ``[a:b]``）、过滤器只做 ``@`` 单值查询与字面量
-比较并以 ``&&`` ``||`` 组合，``!`` 只作用于括号组或存在性判定。递归下降、联合选择器、切片
-step、函数扩展一律拒绝：它们在各实现之间行为分叉，写定义的人无从预期前端预览与后端执行是否
-一致。字面量与转义按 RFC 文法收严（禁前导零、引号只在同种串内转义），免得闸门放行的路径被
-运行时的严格实现拒绝。
+Every extraction path in a definition must fit this subset: start with ``$``, use only child segments (``.name`` /
+``['name']`` / ``[n]`` including negative indices / ``[*]`` / ``[a:b]``), and filters only comparing ``@`` singular queries with literals
+and combining them with ``&&`` ``||``; ``!`` applies only to parenthesized groups or existence checks. Reject recursive descent, union selectors, slice
+steps, and function extensions: implementations disagree on behavior, so definition authors cannot predict whether frontend previews and backend execution
+agree. Enforce RFC grammar for literals and escapes (no leading zeros; quote escapes only inside matching quote types), preventing gate-accepted paths from being rejected by
+strict runtime implementations.
 
-本模块只解析与拒绝，不求值——求值由运行时的 JSONPath 实现负责。解析结果里保留段序列，供
-校验器判断路径是否含通配（对象通配只取首个，键序在两端可能不同）。
+This module only parses and rejects; the runtime JSONPath implementation evaluates. Retain segment sequences in parsed results so
+validators can identify wildcards (object wildcards take only the first match, and key order may differ between sides).
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ from enum import StrEnum
 
 from arcreel_market_core.definition_diagnostics import DefinitionErrorCode
 
-#: 与引号种类无关的转义字符；``'`` 与 ``"`` 只能在同种引号的串里转义，逐串另加。
+#: Quote-independent escape characters; ``'`` and ``"`` may be escaped only within matching quote types, added per string.
 _ESCAPES = frozenset({"n", "t", "r", "b", "f", "/", "\\"})
 _COMPARISON_OPERATORS = ("==", "!=", "<=", ">=", "<", ">")
 _LITERAL_KEYWORDS = ("true", "false", "null")
 
-#: RFC 9535 的 ``S``：只有空格、制表、LF、CR。`str.isspace` 还认 ``\v`` / ``\f`` / ``\xa0``，
-#: 用它当闸门会放行符合实现的求值器要拒的路径。
+#: RFC 9535 ``S``: only space, tab, LF, CR. `str.isspace` also accepts ``\v`` / ``\f`` / ``\xa0``,
+#: so using it as the gate would allow paths a conforming evaluator rejects.
 _RFC_BLANK = frozenset({" ", "\t", "\n", "\r"})
 
 
@@ -38,7 +38,7 @@ class SegmentKind(StrEnum):
 
 @dataclass(frozen=True)
 class PathSegment:
-    """一个 child segment。闸门只关心它是哪一类选择器，选中的具体键或下标归求值方。"""
+    """One child segment. The gate needs only the selector kind; selected keys or indices belong to the evaluator."""
 
     kind: SegmentKind
 
@@ -54,7 +54,7 @@ class ParsedJsonPath:
 
 
 class JsonPathSubsetError(ValueError):
-    """路径落在子集之外。``code`` 直接进诊断，``position`` 是出问题的字符序号，从 1 起数。"""
+    """Path outside the subset. ``code`` goes directly into diagnostics; ``position`` is the offending character index, starting at 1."""
 
     def __init__(self, code: DefinitionErrorCode, position: int, source: str) -> None:
         super().__init__(f"{source!r}[{position}]: {code.value}")
@@ -64,23 +64,23 @@ class JsonPathSubsetError(ValueError):
 
 
 def parse_json_path(source: object) -> ParsedJsonPath:
-    """解析一条路径，越出子集即抛 :class:`JsonPathSubsetError`。"""
+    """Parse a path; raise :class:`JsonPathSubsetError` outside the subset."""
     if not isinstance(source, str):
         raise JsonPathSubsetError(DefinitionErrorCode.JSONPATH_NOT_A_STRING, 1, str(source))
-    # 首尾只按 RFC 的 S 判定：`str.strip` 还剥 U+00A0 / U+0085，而它们是合法的成员名字符，
-    # 以 `$.foo ` 结尾的路径会被误报成首尾带空白。
+    # Judge surrounding whitespace using RFC S only: `str.strip` also removes U+00A0 / U+0085, which are valid member-name characters,
+    # and would falsely classify a path ending in `$.foo ` as having surrounding whitespace.
     if source and (source[0] in _RFC_BLANK or source[-1] in _RFC_BLANK):
         raise JsonPathSubsetError(DefinitionErrorCode.JSONPATH_SURROUNDING_WHITESPACE, 1, source)
     return _Parser(source).parse()
 
 
 def _is_ascii_digit(char: str) -> bool:
-    """RFC 9535 的下标与数字字面量只认 ASCII 数字；`str.isdigit` 还认阿拉伯-印度数字等。"""
+    """RFC 9535 indices and numeric literals accept ASCII digits only; `str.isdigit` also accepts Arabic-Indic digits and others."""
     return "0" <= char <= "9"
 
 
 def _is_extended(char: str) -> bool:
-    """RFC 9535 名字里的 ``%x80-10FFFF``：代理码位不在其中，落单时不是合法码点。"""
+    """RFC 9535 name range ``%x80-10FFFF`` excludes surrogate code points; unpaired surrogates are invalid code points."""
     return ord(char) > 127 and not 0xD800 <= ord(char) <= 0xDFFF
 
 
@@ -93,13 +93,13 @@ def _is_name_char(char: str) -> bool:
 
 
 class _Parser:
-    """手写的下降解析器：每条禁用构造都对应一个显式诊断码，而不是笼统的语法错。"""
+    """Handwritten descent parser: each prohibited construct has an explicit diagnostic code instead of a generic syntax error."""
 
     def __init__(self, source: str) -> None:
         self._source = source
         self._pos = 0
 
-    # ---- 游标 ----
+    # ---- Cursor ----
 
     def _eof(self) -> bool:
         return self._pos >= len(self._source)
@@ -115,7 +115,7 @@ class _Parser:
     def _fail(self, code: DefinitionErrorCode) -> JsonPathSubsetError:
         return JsonPathSubsetError(code, self._pos + 1, self._source)
 
-    # ---- 顶层 ----
+    # ---- Top level ----
 
     def parse(self) -> ParsedJsonPath:
         if self._peek() != "$":
@@ -186,7 +186,7 @@ class _Parser:
                 raise self._fail(DefinitionErrorCode.JSONPATH_SLICE_STEP)
         return PathSegment(SegmentKind.SLICE)
 
-    # ---- 词法 ----
+    # ---- Lexing ----
 
     def _read_shorthand(self) -> None:
         if self._eof() or not _is_name_start(self._peek()):
@@ -195,13 +195,13 @@ class _Parser:
             self._pos += 1
 
     def _read_quoted(self) -> None:
-        """引号名选择器。转义集按引号种类分开：单引号串只能转义 ``'``，双引号串只能转义 ``"``。"""
+        """Quoted-name selector. Escape sets differ by quote type: single-quoted strings may escape only ``'``, double-quoted strings only ``"``."""
         quote = self._peek()
         allowed = _ESCAPES | {quote}
         self._pos += 1
         while not self._eof() and self._peek() != quote:
             if self._peek() != "\\":
-                # 落单的代理码位不是合法码点：JSON 解码后它以裸字符到达，转义检查看不到。
+                # Unpaired surrogates are invalid code points: JSON decoding delivers them as raw characters invisible to escape checks.
                 if self._peek() < " " or "\ud800" <= self._peek() <= "\udfff":
                     raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
                 self._pos += 1
@@ -218,7 +218,7 @@ class _Parser:
         self._pos += 1
 
     def _read_unicode_escape(self) -> None:
-        """``\\uXXXX``：高代理必须紧跟低代理的转义，落单的任一半都不是合法码点。"""
+        """``\\uXXXX``: high-surrogate escapes must be followed immediately by low-surrogate escapes; either unpaired half is invalid."""
         code = self._read_four_hex()
         if 0xDC00 <= code <= 0xDFFF:
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
@@ -237,7 +237,7 @@ class _Parser:
         return int(digits, 16)
 
     def _read_int(self) -> None:
-        """下标与切片端点：``-`` 可选，除单个 ``0`` 外不得有前导零，``-0`` 不是合法下标。"""
+        """Indices and slice endpoints: optional ``-``, no leading zeros except a single ``0``, and ``-0`` is not a valid index."""
         start = self._pos
         if self._peek() == "-":
             self._pos += 1
@@ -250,7 +250,7 @@ class _Parser:
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
 
     def _read_number(self) -> None:
-        """过滤器里的数字字面量：整数部分同样禁前导零，小数点与指数后必须跟数字。"""
+        """Numeric filter literals: integer parts likewise prohibit leading zeros; decimal points and exponents must be followed by digits."""
         if self._peek() == "-":
             self._pos += 1
         if self._eof() or not _is_ascii_digit(self._peek()):
@@ -274,7 +274,7 @@ class _Parser:
         while not self._eof() and _is_ascii_digit(self._peek()):
             self._pos += 1
 
-    # ---- 过滤器 ----
+    # ---- Filters ----
 
     def _parse_filter(self) -> PathSegment:
         self._parse_or()
@@ -298,7 +298,7 @@ class _Parser:
             self._skip_whitespace()
 
     def _parse_basic(self) -> None:
-        """取反只能作用于括号组或存在性判定，比较式要取反须自己加括号。"""
+        """Negation applies only to parenthesized groups or existence tests; add parentheses explicitly to negate comparisons."""
         self._skip_whitespace()
         negated = self._peek() == "!"
         if negated:
@@ -337,8 +337,8 @@ class _Parser:
     def _parse_singular_query(self) -> None:
         self._pos += 1
         while True:
-            # RFC 的 `singular-query-segments = *(S (name-segment / index-segment))`：段前允许空白。
-            # 不是段起始时把游标退回去，后面的空白归调用方处理（比较运算符前的那一段）。
+            # RFC `singular-query-segments = *(S (name-segment / index-segment))` permits whitespace before segments.
+            # If not at a segment start, restore the cursor; the caller handles subsequent whitespace before comparison operators.
             before_blank = self._pos
             self._skip_whitespace()
             if self._peek() not in {".", "["}:
@@ -362,7 +362,7 @@ class _Parser:
                 else:
                     raise self._fail(DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR)
                 self._skip_whitespace()
-                # 名字/下标之后的 `:` 是切片、`,` 是联合，两者都产出多值，与 `@.*` 同属非单值。
+                # After names/indices, `:` denotes slices and `,` unions; both yield multiple values and are nonsingular like `@.*`.
                 if self._peek() in {":", ","}:
                     raise self._fail(DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR)
                 if self._peek() != "]":

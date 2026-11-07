@@ -1,4 +1,4 @@
-"""声明式定义共享校验器：合法定义放行，违规定义产出定位到字段的结构化诊断。"""
+"""Shared declarative validator: accept valid definitions and return structured field-located diagnostics for violations."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def test_text_to_video_declaration_matching_required_inputs_is_accepted(required
 
 @pytest.mark.parametrize(("required", "declared_t2v"), [(True, True), (False, False)])
 def test_declared_text_to_video_must_match_required_inputs(required: bool, declared_t2v: bool):
-    """显式位与必需图输入两向一致：声明支持文生却要求图、声明不支持却不要求图都是错。"""
+    """Explicit flags and required image inputs agree bidirectionally: claiming text support while requiring images, or denying it without requiring images, are both wrong."""
     definition = custom_endpoint_definition()
     definition["inputs"]["first_frame"]["required"] = required
     definition["capabilities"]["text_to_video"] = declared_t2v
@@ -64,7 +64,7 @@ def _first(diagnostics: DefinitionDiagnostics, code: DefinitionErrorCode) -> tup
 
 
 def _full_featured() -> dict[str, Any]:
-    """把可选构造全部用上的一份定义：$each、$when、派生尺寸、二次取件、失败路径、JSON-in-string。"""
+    """A definition using every optional construct: $each, $when, derived dimensions, secondary retrieval, failure paths, and JSON-in-string."""
     definition = custom_endpoint_definition()
     definition["inputs"]["refs"] = {"source": "reference_images", "encoding": "base64"}
     definition["inputs"]["tail"] = {"source": "end_image", "encoding": "data_uri"}
@@ -110,7 +110,7 @@ class TestAcceptedDefinitions:
         assert not diagnostics.warnings
 
     def test_secondary_retrieval_may_be_the_only_source_of_the_video_url(self):
-        """产物地址由 result 节取时，轮询不必再编一条 video_url 路径。"""
+        """When result extracts the artifact address, polling needs no invented video_url path."""
         definition = _full_featured()
         del definition["poll"]["extract"]["video_url"]
         diagnostics = validate_definition(definition)
@@ -128,7 +128,7 @@ class TestStructuralIssues:
 
     @pytest.mark.parametrize("field", ["schema_version", "meta_version"])
     def test_version_with_trailing_newline_is_rejected(self, field: str):
-        """Python 的 `$` 会放过末尾换行，semver 另有一条禁换行的判定兜住。"""
+        """Python `$` permits trailing newlines; semver has a separate newline-rejection check."""
         definition = custom_endpoint_definition()
         if field == "schema_version":
             definition["schema_version"] = "1.0.0\n"
@@ -157,7 +157,7 @@ class TestStructuralIssues:
         assert _first(validate_definition(definition), DefinitionErrorCode.INVALID_ENUM_VALUE)[0] == "kind"
 
     def test_unknown_kind_is_rejected_by_the_container_layer_alone(self):
-        """名录外的 kind 只回一条 kind 的诊断：拿声明式的规则去判另一种 kind 只会报次生错误。"""
+        """Unknown kinds return one kind diagnostic; applying declarative rules to another kind produces secondary errors."""
         definition = custom_endpoint_definition()
         definition["kind"] = "unregistered"
         del definition["submit"]
@@ -197,33 +197,33 @@ class TestStructuralIssues:
     @pytest.mark.parametrize("section", ["submit", "poll"])
     @pytest.mark.parametrize("url", ["", " ", "\t", "\n"])
     def test_blank_request_url_is_rejected(self, section: str, url: str):
-        """全空白的 URL 没有请求目标，保存时就该拒，不留到运行时发请求才失败。"""
+        """Whitespace-only URLs have no request target; reject when saving, not later at runtime submission."""
         definition = custom_endpoint_definition()
         definition[section]["url"] = url
         assert validate_definition(definition).errors, f"{section}.url 为 {url!r} 应被结构层拦下"
 
     @pytest.mark.parametrize("header", ["X_API_KEY", "X.Foo", "X~Foo"])
     def test_tchar_header_names_are_accepted(self, header: str):
-        """键取 HTTP 字段名的 tchar 集：下划线等合法记号是真实供应商在用的写法，不该拦。"""
+        """Header keys use HTTP tchar: valid symbols such as underscores are used by real providers and must pass."""
         definition = custom_endpoint_definition()
         definition["submit"]["headers"] = {header: "arcreel"}
         assert not validate_definition(definition).errors
 
     @pytest.mark.parametrize("value", ["ok\r\nInjected: yes", "ok\nInjected: yes"])
     def test_header_value_with_line_break_is_rejected(self, value: str):
-        """字段值里的换行是另起一个头；HTTP 客户端本就会拒，保存时先拦下。"""
+        """Newlines in field values start another header; HTTP clients reject them, so block when saving."""
         definition = custom_endpoint_definition()
         definition["submit"]["headers"] = {"X-Client": value}
         assert validate_definition(definition).errors
 
     def test_header_name_with_trailing_newline_is_rejected(self):
-        """换行不是 tchar；Python 的 `$` 会放过末尾换行，故另有一条禁换行的判定。"""
+        """Newlines are not tchar; Python `$` permits trailing newlines, requiring a separate newline check."""
         definition = custom_endpoint_definition()
         definition["submit"]["headers"] = {"X-Client\n": "arcreel"}
         assert validate_definition(definition).errors
 
     def test_poll_must_extract_the_video_url_without_secondary_retrieval(self):
-        """没有 result 节时产物地址只能从轮询响应取，缺了就无处可取。"""
+        """Without result, artifact addresses must come from polling responses; omission leaves no extraction source."""
         definition = custom_endpoint_definition()
         del definition["poll"]["extract"]["video_url"]
         assert _first(validate_definition(definition), DefinitionErrorCode.MISSING_FIELD)[0] == "poll.extract"
@@ -269,7 +269,7 @@ class TestStructuralIssues:
         ],
     )
     def test_each_form_must_match_its_position(self, body_value: object, directive: str):
-        """数组位置铺元素、对象位置铺键值对：写反了没有可执行的展开语义。"""
+        """Expand elements in arrays and key/value pairs in objects; reversed forms have no executable expansion semantics."""
         definition = custom_endpoint_definition()
         definition["inputs"]["refs"] = {"source": "reference_images", "encoding": "base64"}
         definition["capabilities"]["max_reference_images"] = 4
@@ -278,7 +278,7 @@ class TestStructuralIssues:
         assert _first(diagnostics, DefinitionErrorCode.EACH_POSITION_MISMATCH)[0].endswith("$each"), directive
 
     def test_each_alias_may_not_shadow_index(self):
-        """`index` 在循环体内恒为序号：拿它当元素别名，两个值就再也分不开。"""
+        """`index` is always the loop ordinal; using it as an element alias makes the values inseparable."""
         definition = custom_endpoint_definition()
         definition["inputs"]["refs"] = {"source": "reference_images", "encoding": "base64"}
         definition["capabilities"]["max_reference_images"] = 4
@@ -295,7 +295,7 @@ class TestStructuralIssues:
         assert validate_definition(definition).errors, f"{hint} 应被结构层拦下"
 
     def test_negative_reference_audio_budget_is_rejected(self):
-        """负的音频总时长上限会让每个非空音频请求都超限，端点接受了却什么也生成不了。"""
+        """Negative audio total-duration limits make every nonempty audio request exceed the limit, accepting endpoints that can generate nothing."""
         definition = custom_endpoint_definition()
         definition["capabilities"]["max_reference_audio_total_seconds"] = -1
         diagnostics = validate_definition(definition)
@@ -303,7 +303,7 @@ class TestStructuralIssues:
 
     @pytest.mark.parametrize("field_path", [("meta", "homepage"), ("meta", "hints", "base_url")])
     def test_non_http_url_hint_is_rejected(self, field_path: tuple[str, ...]):
-        """`format: uri` 在 jsonschema 里只是注解（未装 uri 检查器时恒为真），闸门是同处的 pattern。"""
+        """`format: uri` is only a jsonschema annotation (always true without a URI checker); the colocated pattern is the gate."""
         definition = custom_endpoint_definition()
         container: Any = definition
         for key in field_path[:-1]:
@@ -340,14 +340,14 @@ class TestCredentialWriteSite:
         )
 
     def test_percent_encoded_url_query_still_collides(self):
-        """按服务端解析后的名字比对：`%74oken` 解码即 `token`，同一参数会被写两遍。"""
+        """Compare server-decoded names: `%74oken` decodes to `token`, causing duplicate parameter writes."""
         definition = custom_endpoint_definition()
         definition["auth"] = {"query": {"token": "{{ api_key }}"}}
         definition["submit"]["url"] = "{{ base_url }}/v1/video/create?%74oken=inline"
         assert _first(validate_definition(definition), DefinitionErrorCode.AUTH_QUERY_CONFLICT)[0] == "submit.url"
 
     def test_plus_encoded_url_query_still_collides(self):
-        """查询串里的 `+` 解析为空格：`api+key` 与 `api key` 是同一个参数。"""
+        """Query `+` decodes as a space: `api+key` and `api key` are the same parameter."""
         definition = custom_endpoint_definition()
         definition["auth"] = {"query": {"api key": "{{ api_key }}"}}
         definition["submit"]["url"] = "{{ base_url }}/v1/video/create?api+key=inline"
@@ -355,7 +355,7 @@ class TestCredentialWriteSite:
 
     @pytest.mark.parametrize("path", ["auth", "submit"])
     def test_case_colliding_header_names_are_rejected(self, path: str):
-        """HTTP 头名不区分大小写：同一张表里写两种大小写，两条会一起发出去。"""
+        """HTTP header names ignore case: two casings in one map send both entries."""
         definition = custom_endpoint_definition()
         if path == "auth":
             definition["auth"] = {"headers": {"Authorization": "Bearer {{ api_key }}", "authorization": "x"}}
@@ -421,7 +421,7 @@ class TestPlaceholderScope:
         ],
     )
     def test_malformed_placeholder_is_reported(self, template: str):
-        """格式只认裸变量：写成 Jinja 那样不会被当占位符，不报就会原样发给供应商。"""
+        """Only bare variables are recognized; Jinja-like forms are not placeholders and reach providers unchanged unless diagnosed."""
         definition = custom_endpoint_definition()
         definition["submit"]["body"]["prompt"] = template
         diagnostics = validate_definition(definition)
@@ -511,7 +511,7 @@ class TestDictionaries:
         )
 
     def test_a_default_of_the_wrong_type_is_rejected(self):
-        """缺省值渲染前原样进上下文：数值型 aspect_ratio 会让宽高派生拿不到档位。"""
+        """Defaults enter context unchanged before rendering; numeric aspect_ratio prevents dimension derivation finding a tier."""
         definition = custom_endpoint_definition()
         definition["defaults"] = {"aspect_ratio": 16}
         assert _first(validate_definition(definition), DefinitionErrorCode.DEFAULT_VALUE_TYPE_INVALID) == (
@@ -520,7 +520,7 @@ class TestDictionaries:
         )
 
     def test_a_bool_default_cannot_impersonate_an_int(self):
-        """bool 是 int 的子类，True 不得冒充合法的 duration。"""
+        """bool subclasses int; True must not masquerade as valid duration."""
         definition = custom_endpoint_definition()
         definition["defaults"] = {"duration": True}
         assert _first(validate_definition(definition), DefinitionErrorCode.DEFAULT_VALUE_TYPE_INVALID) == (
@@ -529,7 +529,7 @@ class TestDictionaries:
         )
 
     def test_a_default_outside_the_enum_map_is_rejected(self):
-        """缺省值写的是 ArcReel 侧的值，渲染时照常查表：查不到就等于每次不指定该参数都渲染失败。"""
+        """Defaults are ArcReel-side values looked up normally during rendering; a miss means every request omitting the parameter fails."""
         definition = custom_endpoint_definition()
         definition["enum_maps"] = {"resolution": {"768p": "768P"}}
         definition["defaults"] = {"resolution": "1080p"}
@@ -669,7 +669,7 @@ def _with_reference_images(limit: object) -> dict[str, Any]:
 
 @pytest.mark.parametrize("limit", [1, 1.0])
 def test_integral_float_reference_limit_counts_as_its_integer(limit: object):
-    """schema 的 integer 放行 1.0，一致性校验按同一口径把它当作 1。"""
+    """Schema integer accepts 1.0; consistency validation likewise treats it as 1."""
     assert validate_definition(_with_reference_images(limit)).errors == ()
 
 

@@ -1,1 +1,1 @@
-"""模型目录：模型、能力、价格、显示名与默认模型等模型级信息的读入口在 ``lib.catalog.query``。"""
+"""Model catalogs: read model-level names, capabilities, prices, defaults, etc. through ``lib.catalog.query``."""

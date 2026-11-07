@@ -1,18 +1,18 @@
-"""ComfyUI 端点的图像调用通道。
+"""ComfyUI image channels.
 
-与视频通道（:mod:`.comfyui_backend`）共用同一个客户端（:mod:`.comfyui_client`）、同一个请求体
-构造层（:mod:`.request_builder`）与同一份执行层（:mod:`.comfyui_execution`）。本模块只剩图像这一侧独有的三件事：参考图的上传、``bindings``
-推出的能力集与参考图上限、把取回的产物装成 ``ImageGenerationResult``。
+Share :mod:`.comfyui_client`, :mod:`.request_builder`, and :mod:`.comfyui_execution` with videos
+(:mod:`.comfyui_backend`). Only image-specific responsibilities remain: reference uploads, ``bindings``-derived
+capabilities/reference limits, and converting retrieved artifacts into ``ImageGenerationResult``.
 
-与视频通道的两处实质差别：
+Two substantive video differences:
 
-* **不续跑。** ``ImageBackend`` 协议没有 ``resume`` 这一格，``prompt_id`` 也就无处持久化
-  （``ImageGenerationRequest`` 不带 ``task_id``）。进程在轮询中途重启时，worker 的孤儿处置把
-  image 任务一律标 ``restart_lost_image``——提交本身已经发生过，重新提交等于让用户的显卡把同一
-  张图再跑一遍。取消与超时仍然叫停远端：那一格不需要持久化，``prompt_id`` 就在手里。
-* **多产物只进日志。** ``batch_size > 1`` 的 workflow 一次出多张，本通道取第一张；
-  ``ImageGenerationResult`` 没有 ``result.warnings`` 那样的提示位（视频通道有），故这句提示只落
-  日志。导入期的绑定推断另有一条 ``batch_size_above_one`` 的界面提示，用户在保存端点之前就看得到。
+* **No resume.** ``ImageBackend`` lacks ``resume``, leaving nowhere to persist ``prompt_id``
+  (``ImageGenerationRequest`` lacks ``task_id``). Midpoll restarts lead worker orphan handling to
+  ``restart_lost_image``; submission already happened, so resubmitting repeats images on user GPUs.
+  Cancellation/timeouts still stop remotes because current ``prompt_id`` needs no persistence.
+* **Multiple artifacts log only.** ``batch_size > 1`` produces several images, selecting first;
+  ``ImageGenerationResult`` lacks video-style ``result.warnings``, so warnings enter logs only.
+  Import inference separately exposes ``batch_size_above_one`` before endpoint saves.
 """
 
 from __future__ import annotations
@@ -42,24 +42,24 @@ from lib.custom_provider.comfyui.request_builder import MediaInputs, build_workf
 
 logger = logging.getLogger(__name__)
 
-#: 本端点产出的是图像：产物扩展名白名单与失败文案共读这一个值
-#: （见 ``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``）。
+#: Image outputs: artifact-extension allowlists/failure wording share this value
+#: (``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``).
 MEDIA_TYPE = "image"
 
-#: 一次图像执行等到终态的墙钟上限。
+#: Image execution wall-clock maximum.
 #:
-#: 不读全局的 ``video_poll_timeout_seconds``：那个设置项说的是视频，把它的含义悄悄扩到图像上，
-#: 用户调它的时候就不知道自己在调几件事。图像这一维没有可配项——内置图像供应商都是一次同步调用，
-#: 而 ComfyUI 的出图既要排队又跑在用户自己的显卡上，故按后者的最坏情形取一个够宽的定值。
+#: Never read global ``video_poll_timeout_seconds``: silently extending video settings to images obscures affected behaviors
+#: when users adjust them. Images have no configurable timeout; built-ins make one synchronous call,
+#: but ComfyUI queues/runs on user GPUs, requiring generous fixed worst-case limits.
 IMAGE_POLL_TIMEOUT_SECONDS = 1800
 
 
 class ComfyuiImageBackend:
-    """把一份 ComfyUI 端点定义跑成一张图。
+    """Execute ComfyUI definitions into images.
 
-    实现 ``lib.backends.image_backends.base.ImageBackend`` 协议。一次生成的四段与视频通道同构：上传参考图
-    换回服务端认的引用名 → 在底稿深拷贝上构造实发 workflow → ``POST /prompt`` 拿 ``prompt_id`` →
-    轮询 ``/history`` 到终态后按 ``output`` 绑定取产物下载入库。
+    Implement ``lib.backends.image_backends.base.ImageBackend``. Four stages match videos: upload references
+    for server names → construct on deep copies → ``POST /prompt`` for ``prompt_id`` →
+    poll ``/history`` terminal states, retrieve/persist ``output``-bound artifacts.
     """
 
     def __init__(
@@ -72,11 +72,11 @@ class ComfyuiImageBackend:
         definition: Mapping[str, Any],
         job_label: str | None = None,
     ) -> None:
-        """``job_label`` 进上传文件名与 ``client_id``，让用户在 ComfyUI 的队列界面上认出是谁发的。
+        """``job_label`` enters upload names/``client_id`` to identify callers in ComfyUI queues.
 
-        图像请求不带 ``task_id``（``ImageGenerationRequest`` 没有这一维），故这里没有 worker 路径
-        与非 worker 路径之分：调用方给了标签就用它，没给就回落到一串随机 hex——认不出是谁发的，
-        但不会与别的调用方撞名、覆盖掉对方的上传。
+        Images lack ``task_id`` (``ImageGenerationRequest`` has no such dimension), without worker/nonworker
+        distinctions. Use supplied labels, otherwise random hex: unidentified callers,
+        but no collisions/overwritten uploads.
         """
         self._provider = provider_id
         self._model = model
@@ -95,11 +95,11 @@ class ComfyuiImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        """这份 workflow 的绑定表说它能做什么。
+        """Workflow capabilities from bindings.
 
-        端点投影（``endpoints.comfyui_endpoint_spec``）与这里共用 :func:`binding_image_capabilities`
-        一份实现：投影那一份决定这个模型行进哪个桶，这一份是 ``media_generator`` 发请求之前的兜底
-        闸门，两者说的必须是同一件事——否则一个进得了 i2i 桶的端点会在闸门上被自己挡掉。
+        Projection ``endpoints.comfyui_endpoint_spec`` shares :func:`binding_image_capabilities`:
+        projections choose buckets; this declaration gates ``media_generator`` requests. Both must agree,
+        avoiding I2I-bucket endpoints rejecting themselves at execution.
         """
         return set(binding_image_capabilities(self._definition))
 
@@ -149,16 +149,16 @@ class ComfyuiImageBackend:
                 provider=self._provider,
                 model=self._model,
                 image_uri=self._execution.view_url(picked.artifact),
-                # 实发种子：``policy: "random"`` 是提交那一刻现随机的，请求里那个值说不出它。报出来
-                # 而不是留空——图像调用入口不把它并进版本元数据（``_merge_result_provenance`` 只挂在
-                # 视频那一条路上），而这一位是本层唯一说得清这一版用了哪个种子的地方。
+                # Actual seeds: ``policy: "random"`` resolves at submission, not from request values. Report them
+                # rather than omit: image calls do not merge version metadata (``_merge_result_provenance`` belongs
+                # only to videos), making this field the sole place identifying version seeds here.
                 seed=built.seed,
             )
 
     async def _upload_media(
         self, http: httpx.AsyncClient, request: ImageGenerationRequest, *, job_label: str
     ) -> MediaInputs:
-        """把已通过槽位容量校验的参考图全部上传。"""
+        """Upload every reference already validated for slot capacity."""
         references: list[str] = []
         for index, reference in enumerate(request.reference_images):
             path = Path(reference.path)
@@ -171,21 +171,21 @@ class ComfyuiImageBackend:
 
 
 def binding_reference_limit(definition: Mapping[str, Any]) -> int | None:
-    """这份 workflow 的参考图上限：参考图格子数就是它能收几张；没有格子时为 ``None``。
+    """Workflow reference maxima equal reference-slot counts; ``None`` without slots.
 
-    多出来的图在构造层没有落点，编排层先按这个数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。没有格子时
-    这份 workflow 不实现图生图（:func:`binding_image_capabilities`），上限的生效值为不支持，与数量无关。
+    Extra images have no construction targets, so orchestration trims/warns upfront rather than silently discard user choices.
+    Without slots, workflows lack I2I (:func:`binding_image_capabilities`); effective limits mean unsupported regardless of counts.
     """
     slots = len(targets_of((definition.get("bindings") or {}).get("reference_images")))
     return slots or None
 
 
 def binding_image_capabilities(definition: Mapping[str, Any]) -> frozenset[ImageCapability]:
-    """把一份图像端点定义的绑定表装进 backend 层的能力类型。
+    """Box image bindings into backend capability types.
 
-    有参考图格子即仅图生图，没有即仅文生图，两者互斥（``docs/adr/0082``）。判据本身在 ``comfyui``
-    子包里（它只认绑定表与 workflow）；装箱落在本模块，因为子包受「不依赖声明式运行时」的 forbidden
-    契约约束，够不到 ``ImageCapability``。落点与视频那一侧的 ``binding_video_capabilities`` 同形。
+    Reference slots mean I2I only, otherwise T2I only, mutually exclusive (``docs/adr/0082``). Predicates live in ``comfyui``,
+    knowing bindings/workflows only; boxing lives here because forbidden runtime dependencies prevent that
+    package reaching ``ImageCapability``. Mirrors video ``binding_video_capabilities`` placement.
     """
     if takes_reference_images(definition):
         return frozenset({ImageCapability.IMAGE_TO_IMAGE})

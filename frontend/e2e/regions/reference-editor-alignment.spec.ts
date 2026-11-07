@@ -4,17 +4,17 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 
-// 参考生视频的文稿编辑器是两层叠放：底层 <pre> 负责着色，上层文字透明的 <textarea> 负责光标与选区。
-// 两层的字体、字宽、折行与可用宽度只要有一处不同，光标与选区就落在可见文字旁边。
+// Reference-video editors overlay lower colored <pre> with transparent-text <textarea> handling carets/selections.
+// Font/character-width/wrapping/available-width differences misalign carets and visible text.
 
-// 无头 Chromium 默认带 --hide-scrollbars，滚动条不占宽度，「输入框出现滚动条后可用宽度变窄、
-// 折行与镜像层分叉」就测不出来。本文件恢复滚动条，用页面上真实的 10px 自绘滚动条；
-// launchOptions 只能在文件顶层设置，所以这组场景单独成文件，其他文件的截图不受影响。
-// 这个设置只在本地启动浏览器时生效（CI 与本机 `pnpm e2e`）。`pnpm e2e:remote` 连接的 run-server
-// 会过滤客户端传来的 ignoreDefaultArgs，滚动条仍被隐藏，场景跳过并注明原因。
+// Headless Chromium defaults --hide-scrollbars, consuming no width and hiding textarea-scrollbar width reductions/
+// wrapping divergence from mirrors. Restore real page 10px custom scrollbars here;
+// launchOptions must be top-level, so isolate these scenarios without affecting other screenshots.
+// Applies only to locally launched browsers (CI/local `pnpm e2e`). `pnpm e2e:remote` run-server
+// filters client ignoreDefaultArgs, retaining hidden scrollbars; skip scenarios with explanations.
 test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] } });
 
-// Playwright 经这个环境变量连接远端 run-server（`pnpm e2e:remote`），否则在本地启动浏览器。
+// Playwright uses this environment variable for remote run-server (`pnpm e2e:remote`), otherwise launches locally.
 const viaRunServer = Boolean(process.env.PW_TEST_CONNECT_WS_ENDPOINT);
 
 const UNITS_PATH = "/app/projects/demo/episodes/1?view=board";
@@ -26,7 +26,7 @@ interface RecordedProject {
 
 const project = recorded<RecordedProject>("project-demo.json");
 
-// 压力文本：每行都混着本体引用、衍生引用与数字，行数足以让输入框在最高的视口下也出现滚动条。
+// Stress text mixes base/derivative mentions/numbers on every line, enough lines for scrollbars even at tallest viewports.
 const MENTION_HEAVY_TEXT = Array.from(
   { length: 80 },
   (_, i) =>
@@ -37,7 +37,7 @@ const MENTION_HEAVY_TEXT = Array.from(
 const UNIT_ID = "E1U1";
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
+  // Project event SSE streams are unrecorded; reject with nonretryable statuses so pages retain substituted data.
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -80,7 +80,7 @@ const API: ApiOverrides = {
 
 const editor = (page: Page) => page.getByRole("combobox", { name: "视频单元提示词" });
 
-/** 用不带 scrollbar-gutter 的探针量滚动条宽度，与被测的两层无关；为 0 说明浏览器隐藏了滚动条。 */
+/** Measure scrollbar widths with probes lacking scrollbar-gutter, independent of tested layers; 0 means browsers hide scrollbars. */
 async function measureScrollbarWidth(page: Page): Promise<number> {
   return page.evaluate(() => {
     const probe = document.createElement("div");
@@ -92,7 +92,7 @@ async function measureScrollbarWidth(page: Page): Promise<number> {
   });
 }
 
-/** 确认浏览器显示占宽度的滚动条。只有经 run-server 连接时跳过，本地启动的浏览器隐藏滚动条一律失败。 */
+/** Require space-occupying browser scrollbars. Skip only run-server connections; locally launched hidden-scrollbar browsers always fail. */
 async function requireVisibleScrollbars(page: Page) {
   const scrollbarWidth = await measureScrollbarWidth(page);
   test.skip(
@@ -103,21 +103,21 @@ async function requireVisibleScrollbars(page: Page) {
 }
 
 interface LayerAlignment {
-  /** 输入框与着色镜像层的内容区宽度。 */
+  /** Content widths of inputs/highlight mirror layers. */
   textareaClientWidth: number;
   preClientWidth: number;
-  /** 输入框内容超出可视高度。 */
+  /** Input contents exceed visible heights. */
   overflowing: boolean;
-  /** 实际比对过的、落在输入框可视区内的字符数。 */
+  /** Number of actually compared characters inside visible input regions. */
   checked: number;
-  /** 前几个错位的字符：着色层里它所在的位置，在输入框里命中的是另一个光标偏移（null 为没命中输入框）。 */
+  /** First misaligned characters: mirror-layer positions hit different caret offsets in inputs (null means no input hit). */
   mismatches: { offset: number; char: string; caretOffset: number | null }[];
 }
 
 /**
- * 在真实布局里逐字比对两层：取着色镜像层每个字符左侧四分之一处，问浏览器输入框在这一点的光标偏移。
- * 两层字体、字宽、折行与可用宽度一致时，命中的偏移就是这个字符自己；任一层多出或少了宽度，
- * 偏移会沿行累积、在折行处整段错开。只比对输入框可视区内的字符：镜像层随输入框滚动，区外的被裁掉。
+ * Compare real-layout layers character by character: sample the left quarter of each mirror character and query browser input caret offsets there.
+ * Matching fonts, character widths, wrapping and available widths hit the characters themselves; extra/missing widths in either layer
+ * accumulate offsets along lines and shift entire runs at wraps. Compare visible input characters only: mirrors scroll with inputs, clipping outside regions.
  */
 async function measureLayerAlignment(page: Page): Promise<LayerAlignment> {
   return editor(page).evaluate((node) => {
@@ -133,7 +133,7 @@ async function measureLayerAlignment(page: Page): Promise<LayerAlignment> {
       const content = text.data;
       for (let i = 0; i < content.length; i += 1) {
         const char = content[i];
-        // 换行符没有可点的字形；末尾的零宽占位只给换行结尾的正文撑出一行，不对应输入框里的字符。
+        // Newlines lack clickable glyphs; final zero-width placeholders only create lines for newline-terminated bodies, without corresponding input characters.
         if (char === "\n" || char === "\u200b") continue;
         const range = document.createRange();
         range.setStart(text, i);
@@ -180,11 +180,11 @@ defineRegionScenarios("参考视频文稿编辑器", [
     },
     act: async (page) => {
       await requireVisibleScrollbars(page);
-      // 紧凑档的 Agent 面板盖住编辑框右侧，逐点命中前先收起
+      // Compact Agent panels cover editor right sides; collapse before point-by-point hit testing.
       await clearAgentOverlay(page);
       await expect(editor(page)).toHaveValue(MENTION_HEAVY_TEXT);
       await expectLayersAligned(page);
-      // 滚到底：镜像层跟随输入框滚动后，末尾几行仍逐字重合
+      // Scroll to bottoms: final lines must still match character by character as mirrors follow inputs.
       const scrollTop = await editor(page).evaluate((el) => {
         el.scrollTop = el.scrollHeight;
         return el.scrollTop;

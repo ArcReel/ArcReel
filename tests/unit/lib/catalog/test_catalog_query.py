@@ -1,4 +1,4 @@
-"""目录查询：按供应商取模型、列模型、取默认模型与价格的读契约。"""
+"""Catalog read contracts: provider models, lists, defaults, and prices."""
 
 import pytest
 
@@ -148,14 +148,14 @@ def test_min_app_version_unmet_keeps_model_out_of_listing_and_default(monkeypatc
     )
     install_catalog(monkeypatch, parse_catalog(raw))
 
-    # 低于最低应用版本：不进清单、不可解析、不能调用；被指定为默认时按没有默认处理
+    # Below minimum app version: unlisted, unresolvable, uncallable; a configured default acts as absent.
     assert catalog.get_model("acme", "next") is None
     assert "next" not in catalog.list_models("acme")
     assert "next" not in {view.model_id for view in catalog.provider_models("acme")}
     assert catalog.default_model("acme", "text") is None
     with pytest.raises(ModelNotInCatalogError):
         catalog.require_callable("acme", "next", "text")
-    # 只经 version_gated_models 供设置页列出，带所需版本
+    # Expose only through version_gated_models for settings, with required version.
     [gated] = catalog.version_gated_models("acme")
     assert (gated.model_id, gated.official, gated.model.default) == ("next", True, False)
     assert (gated.min_app_version, gated.min_app_version_satisfied) == ("999.0.0", False)
@@ -168,7 +168,7 @@ def test_user_added_model_takes_over_version_gated_official_key(monkeypatch, req
     catalog.install_user_added_models([catalog.UserAddedModel("acme", "next", "text")])
     request.addfinalizer(lambda: catalog.install_user_added_models(()))
 
-    # 官方版本用不了：保留用户添加的那个，设置页也只列它
+    # Unusable official version preserves the user-added one, the only version shown in settings.
     view = next(view for view in catalog.provider_models("acme") if view.model_id == "next")
     assert (view.official, view.min_app_version, view.min_app_version_satisfied) == (False, None, True)
     assert catalog.version_gated_models("acme") == []
@@ -195,7 +195,7 @@ def user_added_models(acme_catalog):
             catalog.UserAddedModel("acme", "chat-pro", "text", multiplier=0.5),
             catalog.UserAddedModel("acme", "vendor/chat", "text", multiplier=2.0),
             catalog.UserAddedModel("acme", "clip-x", "video", fallback_durations=(4, 8)),
-            # 官方清单里已有同一模型键：换成官方版本
+            # Official listing with the same model key replaces the user-added model.
             catalog.UserAddedModel("acme", "img-new", "image", multiplier=3.0),
         ]
     )

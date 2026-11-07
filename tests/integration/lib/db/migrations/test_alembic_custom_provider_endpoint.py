@@ -1,4 +1,4 @@
-"""Alembic 0426endpointrefactor 双向迁移测试。"""
+"""Bidirectional Alembic 0426endpointrefactor migration tests."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
 
 def _sync_engine(db_path: Path) -> sa.Engine:
-    """返回同步 engine，用于测试断言（避免 async 复杂度）。"""
+    """Return a synchronous engine for assertions, avoiding async complexity."""
     return sa.create_engine(f"sqlite:///{db_path}")
 
 
 def _seed_pre_endpoint_state(engine: sa.Engine, combos: list[tuple[str, str]]) -> None:
-    """注入历史数据：每个 (api_format, media_type) 组合写一个 provider+model。"""
+    """Inject historical data: one provider+model for every (api_format, media_type) combination."""
     with engine.begin() as conn:
         for i, (api_fmt, media) in enumerate(combos, start=1):
             conn.execute(
@@ -64,7 +64,7 @@ def test_upgrade_maps_all_nine_combos(alembic_cfg):
         "openai-video",
         "gemini-generate",
         "gemini-image",
-        "openai-video",  # (google, video) 兜底为 openai-video，比 newapi-video 在中转站生态更通用
+        "openai-video",  # (google, video) falls back to openai-video, more broadly supported than newapi-video by gateways.
         "openai-chat",
         "openai-images",
         "newapi-video",

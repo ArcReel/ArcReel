@@ -1,4 +1,4 @@
-"""安装记录摘要是持久化契约；市场轴状态与本地修改轴各自独立判定。"""
+"""Installation summaries are persistence contracts; market status and local modifications are independent axes."""
 
 import hashlib
 from typing import Any

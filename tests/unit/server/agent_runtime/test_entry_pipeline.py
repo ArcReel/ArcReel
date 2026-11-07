@@ -1,4 +1,4 @@
-"""Live 写入点管道：draft 累积、log_entry/log_delta 广播、精确替换。"""
+"""Live write-time pipeline: accumulate drafts, broadcast log_entry/log_delta and replace precisely."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, RE
 
 
 class _RecordingStore:
-    """记录 append 调用并模拟 seq 分配的假事件日志存储。"""
+    """Fake event-log store recording append calls and simulating seq allocation."""
 
     def __init__(self):
         self.entries: list[dict[str, Any]] = []
@@ -130,7 +130,7 @@ class TestDraftAccumulator:
         assert snapshot["content"][0]["input"] == {"command": "ls"}
 
     def test_snapshot_carries_accumulated_tool_json(self):
-        """快照携带原始 partial JSON，重连客户端以此为前缀续拼后续 delta。"""
+        """Snapshots retain raw partial JSON so reconnecting clients can append later deltas to that prefix."""
         draft = DraftAccumulator()
         draft.apply_stream_event(_message_start())
         draft.apply_stream_event(
@@ -147,7 +147,7 @@ class TestDraftAccumulator:
         assert snapshot["tool_json"] == {0: '{"file": "a'}
 
     def test_cross_parent_delta_filtered(self):
-        """并行 subagent 流交错：非当前 parent 的增量被丢弃，不污染单槽草稿。"""
+        """Interleaved parallel subagent streams discard deltas from other parents without contaminating the single draft slot."""
         draft = DraftAccumulator()
         draft.apply_stream_event(_stream_event({"type": "message_start", "message": {"id": "msg_b"}}, parent="tu-b"))
         draft.apply_stream_event(
@@ -156,7 +156,7 @@ class TestDraftAccumulator:
                 parent="tu-b",
             )
         )
-        # 另一条并行流（parent 不同）的增量不得拼入当前草稿
+        # Deltas from another parallel stream (different parent) must not enter this draft.
         stolen = draft.apply_stream_event(
             _stream_event(
                 {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "A文本"}},
@@ -213,7 +213,7 @@ class TestSessionEntryPipeline:
         assert len(store.entries) == 1
         assert store.entries[0]["type"] == "assistant"
         assert store.entries[0]["message_id"] == "msg_01"
-        # draft 被同 message_id 权威条目精确替换
+        # An authoritative entry with the same message_id precisely replaces the draft.
         assert pipeline.draft.snapshot() is None
 
         entry_events = [b for b in broadcasts if b["type"] == "log_entry"]
@@ -241,7 +241,7 @@ class TestSessionEntryPipeline:
         assert store.entries[0]["type"] == "system"
         assert store.entries[0]["subtype"] == "agent_turn_failure"
         assert pipeline.draft.snapshot() is None
-        # 轮次终结标记：entry 流以此产出终态，保证末条 log_entry 先送达
+        # Turn-completion marker: entry streams derive terminal state from it, ensuring the final log_entry arrives first.
         assert broadcasts[-1] == {"type": "log_turn_complete", "session_id": "s1"}
 
     async def test_tool_result_user_message_becomes_independent_entries(self):
@@ -275,7 +275,7 @@ class TestSessionEntryPipeline:
             session_id_provider=lambda: "s1",
             broadcast=broadcasts.append,
         )
-        # 重试耗尽后不抛出——不打断会话消费
+        # Exhausted retries do not raise or interrupt session consumption.
         await pipeline.handle_message({"type": "assistant", "content": [{"type": "text", "text": "x"}]})
         assert broadcasts == []
 
@@ -289,16 +289,16 @@ class TestSessionEntryPipeline:
         assert broadcasts[0]["type"] == "log_entry"
 
     async def test_adjacent_interrupt_echo_race_produces_single_entry(self):
-        """SDK 回显与终态路径的合成中断（竞态双写）在写入点尾检去重。"""
+        """SDK echoes and terminal-path synthetic interrupts (racing duplicate writes) deduplicate by checking the write-time tail."""
         pipeline, store, _broadcasts = _make_pipeline()
-        # SDK 回显先落库
+        # Persist SDK echo first.
         await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
-        # 终态路径补写合成中断：尾条已是 interrupt，跳过
+        # Terminal-path synthetic interrupt: skip because the tail is already an interrupt.
         appended = await pipeline.append_interrupt()
         assert appended == []
         assert len(store.entries) == 1
 
-        # 反向顺序：合成先写、SDK 回显后到，同样只留一条
+        # Reverse order, synthetic write then SDK echo, also retains one entry.
         pipeline2, store2, _b2 = _make_pipeline()
         appended2 = await pipeline2.append_interrupt()
         assert len(appended2) == 1
@@ -307,8 +307,7 @@ class TestSessionEntryPipeline:
         assert store2.entries[0]["subtype"] == "interrupt"
 
     async def test_interrupted_result_without_echo_appends_typed_entry_before_turn_complete(self):
-        """回显缺席的中断：result(session_status=interrupted) 兜底产出 typed 条目，
-        且先于 log_turn_complete 广播——entry 流终态不丢中断条目。"""
+        """When interrupt echo is absent, result(session_status=interrupted) creates a fallback typed entry before log_turn_complete broadcast, so terminal entry streams retain it."""
         pipeline, store, broadcasts = _make_pipeline()
         await pipeline.handle_message(
             {"type": "result", "subtype": "error_during_execution", "session_status": "interrupted"}
@@ -350,7 +349,7 @@ class TestSessionEntryPipeline:
         assert [e["type"] for e in store.entries] == ["assistant", "system"]
 
     async def test_question_answer_typed_across_messages(self):
-        """管道持有跨消息定型上下文：提问注册后，答复 tool_result 定型为答复条目。"""
+        """Pipeline retains cross-message normalization context: after question registration, answer tool_results normalize into answer entries."""
         pipeline, store, _broadcasts = _make_pipeline()
         await pipeline.handle_message(
             {
@@ -372,7 +371,7 @@ class TestSessionEntryPipeline:
         assert store.entries[1]["answers"] == {"继续吗?": "继续"}
 
     async def test_transient_store_failure_retried(self):
-        """瞬时落库失败（SQLite busy 等）有界重试，避免时间线永久空洞。"""
+        """Boundedly retry transient persistence failures (such as SQLite busy) to avoid permanent timeline holes."""
 
         class _FlakyStore(_RecordingStore):
             def __init__(self):
@@ -399,7 +398,7 @@ class TestSessionEntryPipeline:
 
 
 class TestReplayedUserEchoLink:
-    """回放副本落映射：外部行为不变（不产生条目、不广播），只多一行身份映射。"""
+    """Replay copies add identity mappings only: external behavior is unchanged (no entries or broadcasts)."""
 
     def _echo(self, **extra: Any) -> dict[str, Any]:
         msg: dict[str, Any] = {
@@ -421,7 +420,7 @@ class TestReplayedUserEchoLink:
         assert broadcasts == []
 
     async def test_echo_without_sdk_uuid_is_skipped(self):
-        """SDK 未在回放副本上带 uuid：无从定位 transcript，跳过映射而非写半条。"""
+        """If SDK replay lacks uuid, transcript location is unknowable; skip mapping rather than writing an incomplete row."""
         pipeline, store, _ = _make_pipeline()
 
         await pipeline.handle_message(

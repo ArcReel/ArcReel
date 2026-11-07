@@ -5,7 +5,7 @@ protected: true
 {% for name in character_names %}
 - {{ name }}
 {% else %}
-（暂无）
+(none yet)
 {% endfor %}
 </characters>
 
@@ -13,7 +13,7 @@ protected: true
 {% for name in scene_names %}
 - {{ name }}
 {% else %}
-（暂无）
+(none yet)
 {% endfor %}
 </scenes>
 
@@ -21,6 +21,6 @@ protected: true
 {% for name in prop_names %}
 - {{ name }}
 {% else %}
-（暂无）
+(none yet)
 {% endfor %}
 </props>

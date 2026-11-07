@@ -7,11 +7,11 @@ interface IconProps {
 type IconLoader = () => Promise<{ default: ComponentType<IconProps> }>;
 
 /**
- * iconKey → @lobehub/icons 子组件路径。
+ * iconKey → @lobehub/icons subcomponent paths.
  *
- * 与 lib/agent/agent_provider_catalog.py 的 PresetProvider.icon_key 一一对应。
- * 优先使用 Color 变体；当上游包没有提供 Color 时回退 Mono。
- * 新增供应商时如缺失映射，组件会 fallback 到 monogram。
+ * Map 1:1 to PresetProvider.icon_key in lib/agent/agent_provider_catalog.py.
+ * Prefer Color variants, falling back to Mono when upstream provides no Color.
+ * Missing mappings for new providers fall back to monograms.
  */
 const ICON_LOADERS: Record<string, IconLoader> = {
   Anthropic: () => import("@lobehub/icons/es/Anthropic/components/Mono"),
@@ -43,7 +43,7 @@ const ICON_LOADERS: Record<string, IconLoader> = {
   Zhipu: () => import("@lobehub/icons/es/Zhipu/components/Color"),
 };
 
-/** iconKey → 本地静态资源(用于 lobehub 未收录的品牌). */
+/** iconKey → local static assets for brands missing from lobehub. */
 const STATIC_ICON_SRC: Record<string, string> = {
   ArcReel: "/apple-touch-icon.png",
 };
@@ -79,7 +79,7 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
     };
   }, [iconKey]);
 
-  // 本地静态图标(品牌 logo 未上 lobehub 时使用)
+  // Local static icons for brand logos missing from lobehub
   const staticSrc = iconKey ? STATIC_ICON_SRC[iconKey] : undefined;
   if (staticSrc)
     return (

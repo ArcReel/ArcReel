@@ -24,7 +24,7 @@ _DERIVATIVE_SPECS = [spec for spec in ASSET_SPECS.values() if spec.supports_deri
 
 _FRONTEND_SRC = Path(__file__).resolve().parents[5] / "frontend" / "src"
 
-# 各骨架种类在数据形状上的取证写法：content_mode 与条目数组键共同决定 resolve_script_kind 的判别。
+# Data-shape evidence for each skeleton kind: content_mode and entry-array key jointly determine resolve_script_kind.
 _KIND_CONTENT_MODES = {
     "segments": "narration",
     "scenes": "drama",
@@ -78,7 +78,7 @@ def _triples(changes: list[dict]) -> list[tuple]:
 def test_asset_lifecycle_follows_the_asset_type_registry(spec):
     empty = ProjectState(project=_project(), scripts={})
     added = ProjectState(project=_project(**{spec.bucket_key: {"甲": {"description": "d"}}}), scripts={})
-    # 任意字段的变化都算更新，包括资产类型表未声明、由系统戳写的字段。
+    # Any field change counts as an update, including system-written fields absent from asset-type tables.
     edited = ProjectState(
         project=_project(**{spec.bucket_key: {"甲": {"description": "d", "system_stamped_at": "t1"}}}),
         scripts={},
@@ -101,7 +101,7 @@ def test_asset_lifecycle_follows_the_asset_type_registry(spec):
 
 @pytest.mark.parametrize("spec", list(ASSET_SPECS.values()), ids=list(ASSET_SPECS))
 def test_frontend_routes_and_names_every_asset_pane(spec):
-    """前端定位窗格联合含每个资产表名（路由表按该联合穷尽），分组文案含每个资产类型。"""
+    """Frontend pane union includes every asset table name (route table exhausts it); grouping wording includes every asset type."""
     types_source = (_FRONTEND_SRC / "types" / "workspace.ts").read_text(encoding="utf-8")
     pane_union = re.search(r"export type ProjectChangePane =([^;]+);", types_source)
     assert pane_union is not None
@@ -124,7 +124,7 @@ def test_derivatives_are_separate_events_addressed_by_owner_slash_name(spec):
     focus = {"pane": spec.bucket_key, "anchor_type": spec.asset_type, "anchor_id": "甲"}
     label_key = f"named_entity_{spec.asset_type}_derivative"
 
-    # 本体条目比对时排除衍生表：衍生的增删改不连带报本体更新。
+    # Exclude derivative tables when comparing bases; derivative additions/edits/deletions do not also update the base.
     [created] = _diff(bare, added)
     assert _triples([created]) == [(spec.asset_type, "created", "甲/战甲")]
     assert (created["label_key"], created["label_params"], created["focus"]) == (label_key, {"id": "甲/战甲"}, focus)
@@ -154,7 +154,7 @@ def test_script_item_lifecycle_follows_the_skeleton_registry(kind):
     [deleted] = _diff(base, state([]))
     assert (deleted["action"], deleted["focus"]) == ("deleted", None)
 
-    # 条目正文取整条：任意字段的编辑都算更新。
+    # Compare the whole entry body: any field edit counts as update.
     for field, value in (("note", "备注"), ("needs_replan", True), ("utterances", [{"kind": "voiceover"}])):
         [updated] = _diff(base, state([_item(kind, "X1", **{field: value})]))
         assert (updated["action"], updated["focus"]) == ("updated", focus), field
@@ -168,7 +168,7 @@ def test_script_item_lifecycle_follows_the_skeleton_registry(kind):
     video["generated_assets"]["video_clip"] = "videos/X1.mp4"
     assert _triples(_diff(state([storyboard]), state([video]))) == [(SKELETON_ENTITY_TYPES[kind], "video_ready", "X1")]
 
-    # generated_assets 的其余变化归显式事件，快照差分不报。
+    # Other generated_assets changes use explicit events and are omitted from snapshot diffs.
     status_only = copy.deepcopy(video)
     status_only["generated_assets"]["status"] = "completed"
     assert _diff(state([video]), state([status_only])) == []
@@ -184,7 +184,7 @@ def test_residual_item_array_of_another_skeleton_does_not_vote():
             project=_project(), scripts={"episode_1.json": _script("shots", [shot], video_units=[unit])}
         )
 
-    # 残留数组的产物回写既不报条目事件，也不当作剧本层字段报集更新；当前骨架照常报就绪。
+    # Artifact writeback in leftover arrays emits neither entry events nor episode-level script updates; current skeleton still reports readiness.
     changes = _diff(state(None, None), state("videos/E1S01.mp4", "videos/E1U01.mp4"))
 
     assert _triples(changes) == [("shot", "video_ready", "E1S01")]
@@ -225,7 +225,7 @@ def test_episode_entries_are_compared_whole():
     assert _triples([updated]) == [("episode", "updated", "1")]
 
     assert _triples(_diff(state([first, second]), state([first]))) == [("episode", "deleted", "2")]
-    # episodes 为 null 的项目照常成快照
+    # Projects with null episodes still produce snapshots.
     assert _triples(_diff(state(None), state([first]))) == [("episode", "created", "1")]
 
 
@@ -241,9 +241,9 @@ def test_script_level_changes_report_their_episode_once():
     assert _triples([script_only]) == [("episode", "updated", "1")]
     assert (script_only["script_file"], script_only["episode"]) == ("scripts/episode_1.json", 1)
 
-    # 同一次写入同时改了集条目与剧本层字段：同一集只报一条。
+    # One write changes episode entries and script-level fields: emit only one event for that episode.
     assert _triples(_diff(state("旧"), state("新", "改名"))) == [("episode", "updated", "1")]
-    # 剧本文件首次生成或被删除，集条目不变：报所属集更新，不逐条报条目增删。
+    # Initial script generation/deletion with unchanged episode entries emits an owning-episode update, not individual entry additions/deletions.
     assert _triples(_diff(state(None), state("新"))) == [("episode", "updated", "1")]
     assert _triples(_diff(state("旧"), state(None))) == [("episode", "updated", "1")]
 
@@ -264,7 +264,7 @@ def test_metadata_changes_are_not_project_events():
 
 
 def test_prompt_authoring_draft_lifecycle_is_reported_under_its_own_identity():
-    """只有草稿出现需要创作者处理；内容变化与消失（采用或丢弃）只驱动面板刷新。"""
+    """Only draft appearance requires creator handling; body changes and disappearance (adoption/discard) only refresh panels."""
     key = draft_state_key(1, QUARANTINE_KIND_PROMPT_AUTHORING)
     states = [{}, {key: "digest-a"}, {key: "digest-b"}, {}]
     snapshots = [build_snapshot(ProjectState(project=_project(), scripts={}, drafts=drafts)) for drafts in states]

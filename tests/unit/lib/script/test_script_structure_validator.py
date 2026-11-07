@@ -1,7 +1,7 @@
-"""剧本结构校验器（纯函数）测试。
+"""Script structural validator pure-function tests.
 
-只断言外部行为：喂入纯 dict，断言返回的 ValidationResult。逐条覆盖三种模式的合法/非法
-判定与模式判别，不 patch 私有方法。
+Assert external behavior only: supply plain dicts and inspect ValidationResult. Cover valid/invalid judgments
+and classification for all three modes without patching private methods.
 """
 
 from __future__ import annotations
@@ -87,52 +87,52 @@ class TestValidScripts:
 
 class TestModeDetection:
     def test_video_units_only_picks_reference_model(self):
-        """video_units 唯一存在(无 segments/scenes)时走 ReferenceVideoScript,不论
-        content_mode 标记是什么——按数据形状路由(动作 5 引入)。
+        """When only video_units exists without segments/scenes, use ReferenceVideoScript regardless of
+        content_mode, routing by data shape as introduced in action 5.
 
-        reference 剧本只有 video_units、无 segments;若误判为 NarrationEpisodeScript 会因缺
-        segments 而 invalid。结果 valid 证明判别走了 ReferenceVideoScript。
+        Reference scripts have video_units but no segments; misclassification as NarrationEpisodeScript would reject
+        missing segments. A valid result proves ReferenceVideoScript selection.
         """
         script = _reference(content_mode="narration")
         assert script.get("content_mode") == "narration"
         assert validate_script_structure(script).valid
 
     def test_partial_migration_segments_picks_narration_model(self):
-        """partial migration:generation_mode='reference_video' 但数据还在 segments,
-        应按数据形状走 NarrationEpisodeScript 而非让 generation_mode 单向赢——
-        若强制 ReferenceVideoScript 校验会因 video_units 缺失 invalid。
+        """Partial migration: generation_mode='reference_video' but data remains in segments.
+        Follow shape into NarrationEpisodeScript rather than letting generation_mode unconditionally win;
+        forcing ReferenceVideoScript would reject missing video_units.
         """
-        # 用 _narration() 的 segments,但带 generation_mode='reference_video' 标记(partial migration)
+        # Use _narration() segments with generation_mode='reference_video' as a partial migration.
         script = _narration()
         script["generation_mode"] = "reference_video"
         assert validate_script_structure(script).valid
 
     def test_stray_video_units_do_not_hijack_storyboard_script(self):
-        """历史脏数据：narration 脚本被误塞游离 video_units。video_units 与 segments 并存且无
-        显式 reference 模式时，判别不应抢到 ReferenceVideoScript（会因缺合法 units 拒写真实
-        segments），而应按 content_mode 走 Narration（多余 video_units 键被 extra=ignore 忽略）。
+        """Legacy corruption inserts stray video_units into narration scripts. With both arrays but no explicit
+        reference mode, do not select ReferenceVideoScript and reject real segments for absent valid units;
+        follow content_mode into Narration, with extra=ignore discarding surplus video_units.
         """
         script = _narration()
         script["video_units"] = [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}]
         assert validate_script_structure(script).valid
 
     def test_empty_scenes_drama_detected_by_content_mode(self):
-        """空场景 drama（scenes=[]，结构合法）应按 content_mode 判到 Drama，而非靠列表真值落回 Narration。
+        """Structurally valid empty drama scenes=[] follows content_mode into Drama, not list truthiness into Narration.
 
-        scenes 无 min_length 约束，空列表合法（对应「先建空 drama 再逐步填充场景」流程）。
-        若用 script.get("scenes") 真值判别，[] falsy 会误落 NarrationEpisodeScript 而被拒写。
+        scenes has no min_length; empty lists support creating empty drama before gradually adding scenes.
+        Testing script.get("scenes") truthiness would misclassify falsy [] as NarrationEpisodeScript and reject writing.
         """
         script = _drama(scenes=[])
         assert validate_script_structure(script).valid
 
     def test_drama_detected_by_scenes_key_when_content_mode_absent(self):
-        # 无 content_mode、有 scenes 键（即便空）：按键存在推断 Drama
+        # Without content_mode, present scenes (even empty) implies Drama by key presence.
         script = _drama(scenes=[])
         del script["content_mode"]
         assert validate_script_structure(script).valid
 
     def test_narration_is_default_fallback(self):
-        # 无 content_mode、无 scenes/video_units：回退 NarrationEpisodeScript
+        # Without content_mode or scenes/video_units, fall back to NarrationEpisodeScript.
         script = _narration()
         del script["content_mode"]
         assert validate_script_structure(script).valid
@@ -185,7 +185,7 @@ class TestInvalidNarration:
 
 class TestInvalidReferenceVideo:
     def test_duration_out_of_structural_range_rejected(self):
-        # unit 时长是唯一真相、与正文无关，只受结构合理性区间约束
+        # Unit duration is authoritative, independent of body text and limited only by structural plausibility bounds.
         result = validate_script_structure(_reference([_unit(duration=9999)]))
         assert not result.valid
         assert any("duration" in e.lower() for e in result.errors)
@@ -231,7 +231,7 @@ class TestAdScripts:
         assert validate_script_structure(_ad()).valid
 
     def test_ad_detected_by_content_mode(self):
-        """ad 剧本按 AdEpisodeScript 校验，不落 narration/drama 模型。"""
+        """Validate ad scripts with AdEpisodeScript, not narration/drama models."""
         bad = _ad()
         del bad["shots"][0]["voiceover_text"]
         result = validate_script_structure(bad)

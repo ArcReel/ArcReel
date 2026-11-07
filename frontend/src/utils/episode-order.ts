@@ -2,7 +2,7 @@ import type { EpisodeMeta } from "@/types";
 
 type OrderedEpisode = Pick<EpisodeMeta, "episode" | "source_origin" | "source_range">;
 
-/** 切出集在整本源文里的位置：文件在清单中的先后，再按文件内起点。不是切出集或原文不在整本源文里时为 null。 */
+/** Extracted episode's whole-source position: file-list order, then in-file start. null for non-extracted episodes or source absent from the whole source. */
 function sourcePosition(
   episode: OrderedEpisode,
   files: readonly { source_file: string }[],
@@ -15,8 +15,8 @@ function sourcePosition(
 }
 
 /**
- * 把 `episode` 移到 `after` 之后（null 为最前）：`noop` 不改变顺序，`locked` 会让切出集之间违背源文位置，
- * 其余为 `ok`。自带原文与无原文的集可以放到任意位置。服务端按落位后的原文范围复核。
+ * Move `episode` after `after` (null means first): `noop` leaves order unchanged; `locked` would violate source order between extracted episodes;
+ * otherwise `ok`. Episodes with their own source or no source can go anywhere. The server rechecks resulting source ranges.
  */
 export function episodeMoveCheck(
   episodes: readonly OrderedEpisode[],

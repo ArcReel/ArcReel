@@ -21,9 +21,9 @@ export interface FrameCell {
 }
 
 /**
- * 宫格档位能力。`max_cell_count` 是单张宫格的格数上限，前端据它镜像后端阶梯。
- * 注意 GridGeneration.grid_size 存的是历史记录写入时的档位字符串（含已停用的 grid_6），
- * 故保持宽松的 string 类型。
+ * Grid tier capabilities. `max_cell_count` is the maximum cell count per grid image, used by the frontend to mirror the backend tiers.
+ * GridGeneration.grid_size stores the tier string at the time the historical record was written (including the discontinued grid_6),
+ * so its type remains an unrestricted string.
  */
 export interface GridCapability {
   large_grid_allowed: boolean;
@@ -40,7 +40,7 @@ export interface GridGeneration {
   cols: number;
   cell_count: number;
   frame_chain: FrameCell[];
-  /** 联合图生命周期：completed 仅表示联合图就绪，是否已落格由 split_at 表达 */
+  /** Composite image lifecycle: completed only means the composite is ready; split_at indicates whether it has been split into cells */
   status: "pending" | "generating" | "completed" | "failed";
   prompt: string | null;
   provider: string;
@@ -49,8 +49,8 @@ export interface GridGeneration {
   created_at: string;
   error_message: string | null;
   reference_images?: ReferenceImage[] | null;
-  /** 最近一次按当前联合图切分落格的时间；联合图内容变更（重生成/上传/还原）后为 null */
+  /** Latest time the current composite image was split into cells; null after its content changes (regeneration/upload/restoration) */
   split_at: string | null;
-  /** 产出当前联合图时冻结的单格目标比例；存量记录为 null，按项目设置回退 */
+  /** Target aspect ratio per cell frozen when the current composite was produced; null for legacy records, which fall back to project settings */
   video_aspect_ratio?: string | null;
 }

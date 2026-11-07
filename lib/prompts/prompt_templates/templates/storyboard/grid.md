@@ -1,52 +1,52 @@
 ---
 id: storyboard/grid
 category: storyboard
-title: 宫格联合图
-description: 把一组分镜按首尾帧链画进一张宫格联合图的提示词，生成后按画格切回各分镜。
+title: "Composite storyboard grid"
+description: "Prompt for drawing a group of shots into one composite grid using a first/last-frame chain, then splitting the generated panels back into individual shots."
 stage: grid
 invoked_by:
   kind: generation_task
   name: grid
 applies_to: {}
 slots:
-  reference_images: 参考图类型声明，按随请求发出的参考图序位编号为「图N」；无参考图为空
-  rows: 宫格行数
-  cols: 宫格列数
-  cell_count: 画格总数
-  grid_aspect_ratio: 整张联合图的比例
-  panel_aspect_ratio: 单个画格的比例，由整图比例与行列数算出
-  last_chain_cell: 帧链最后一格的序号；只有开场一格时为 0，过渡帧行不渲染
-  opening: 格0 的开场分镜（scene_id、description）
-  transitions: 过渡格列表（index、row、col、from_id、to_id、action、description）
-  placeholders: 空占位格列表（index、row、col）
-  style: 项目画风
-  style_description: 项目风格描述
+  reference_images: "Reference-image type declarations, numbered “图N” by the order sent with the request; empty without reference images"
+  rows: "Number of grid rows"
+  cols: "Number of grid columns"
+  cell_count: "Total panel count"
+  grid_aspect_ratio: "Aspect ratio of the whole composite image"
+  panel_aspect_ratio: "Individual panel aspect ratio, calculated from the whole-image ratio and row/column counts"
+  last_chain_cell: "Index of the final frame-chain panel; 0 when there is only an opening panel, omitting transition-frame lines"
+  opening: "Opening shot in panel 0 (scene_id, description)"
+  transitions: "Transition panel list (index, row, col, from_id, to_id, action, description)"
+  placeholders: "Empty placeholder panel list (index, row, col)"
+  style: "Project visual style"
+  style_description: "Project style description"
 protected: false
 ---
 {% if reference_images %}
 Reference_Images: {{ reference_images }}
 
 {% endif %}
-你是一位专业的分镜画师。请严格按照 {{ rows }}×{{ cols }} 宫格布局生成一张包含恰好 {{ cell_count }} 个等大画格的联合图。
+You are a professional storyboard artist. Generate one composite image containing exactly {{ cell_count }} equally sized panels in a strict {{ rows }}×{{ cols }} grid.
 
-【布局要求】
-- 恰好 {{ rows }} 行 {{ cols }} 列，共 {{ cell_count }} 个画格，阅读顺序：从左到右，从上到下
-- 整体图片比例：{{ grid_aspect_ratio }}
-- 每个画格比例：{{ panel_aspect_ratio }}，所有画格大小完全相同
-- 画格之间无边框、无间隙、无留白，紧密排列
-- 不得合并画格、不得遗漏画格、不得错位排列
-- 所有画格保持一致的角色外观、光线和色彩风格
+[Layout requirements]
+- Exactly {{ rows }} rows and {{ cols }} columns, {{ cell_count }} panels in total, read left to right and top to bottom
+- Overall image aspect ratio: {{ grid_aspect_ratio }}
+- Each panel’s aspect ratio: {{ panel_aspect_ratio }}; all panels are exactly the same size
+- No borders, gaps, or whitespace between panels; pack them tightly
+- Do not merge, omit, or misalign panels
+- Keep character appearance, lighting, and color style consistent across all panels
 
-【帧链节奏】
-本宫格采用首尾帧链式结构：
-- 格0 是第一个场景的开场画面
+[Frame-chain pacing]
+This grid uses a first/last-frame chain:
+- Panel 0 is the first scene’s opening image
 {% if last_chain_cell %}
-- 格1~格{{ last_chain_cell }} 是相邻场景的过渡帧（前一场景的结束 = 后一场景的开始）
+- Panels 1~{{ last_chain_cell }} are transition frames between adjacent scenes (the previous scene’s ending = the next scene’s beginning)
 {% endif %}
-- 相邻格之间应体现画面的自然过渡和动作延续
+- Adjacent panels should show natural visual transitions and continuous action
 
-【各格内容】
-格0（row1 col1）— {{ opening.scene_id }}开场：
+[Panel content]
+Panel 0 (row1 col1) - {{ opening.scene_id }} opening:
   {{ opening.description }}
 {{ partial("storyboard/grid/lists/cells") }}
 

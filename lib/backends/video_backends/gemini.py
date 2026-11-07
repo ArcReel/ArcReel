@@ -1,4 +1,4 @@
-"""GeminiVideoBackend — 从 GeminiClient 提取的视频生成逻辑。"""
+"""GeminiVideoBackend: video-generation logic extracted from GeminiClient."""
 
 from __future__ import annotations
 
@@ -55,15 +55,15 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-#: 成片下载单次网络读写的 I/O 超时，与 ``download_video`` 的缺省一致：连接或读取停滞超过它即抛错，交给重试预算。
+#: Per-operation video-download I/O timeout, matching ``download_video`` defaults: stalled connection/reads raise for retry budgets.
 _DOWNLOAD_IO_TIMEOUT_SECONDS = 120.0
 _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
-#: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
+#: SDK-default AI Studio host without base_url configuration, compared with submission hosts for resume replay.
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
 
 class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
-    """Gemini (Veo) 视频生成后端。"""
+    """Gemini (Veo) video-generation backend."""
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
     default_backend_type: ClassVar[str] = "aistudio"
@@ -124,7 +124,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             self._client = _genai.Client(api_key=self._api_key, http_options=self._http_options)
 
     async def _close_injected_http_clients(self) -> None:
-        # SDK 的 close/aclose 跳过外部传入的 httpx 客户端
+        # SDK close/aclose skips externally supplied httpx clients.
         options = self._http_options
         if self._transport_layer is None or not isinstance(options, self._types.HttpOptions):
             return
@@ -149,12 +149,12 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+        """This request's measurements (:mod:`lib.backends.video_backends.metering`).
 
-        有声与否跟随实际请求：Vertex 按下发的 ``generate_audio``（含用户添加、放宽了音轨的型号）；AI Studio
-        发不出静音请求，``generate_audio=False`` 在提交前即被拒绝（见 ``generate``），能提交的都是有声请求。
-        提交前预估的请求由调用方按执行时会发出的开关构造（音轨不可控的型号按有声，见 ``VideoRequestCostFacts``）。
-        结算时以 ``result.generate_audio`` 为准（见 ``_collect_video``）。各型号按同一组请求字段计量，不按型号或条目区分。
+        Audio follows actual requests: Vertex uses sent ``generate_audio`` (including user-added/audio-relaxed models); AI Studio
+        cannot send silence, rejecting ``generate_audio=False`` before submission (``generate``), so accepted requests are audible.
+        Callers construct estimates with execution-effective switches (uncontrollable audio models use audible, ``VideoRequestCostFacts``).
+        Settlement uses ``result.generate_audio`` (``_collect_video``). Every model meters the same request fields, without model/entry distinctions.
         """
         del model, entry
         return video_usage(
@@ -167,7 +167,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """AI Studio 不带音轨开关；Vertex 调用端点可下发 generate_audio。"""
+        """AI Studio lacks audio switches; Vertex endpoints can send generate_audio."""
         return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
 
     @property
@@ -181,41 +181,41 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @property
     def _request_base_url(self) -> str | None:
-        """AI Studio 请求实际发往的域名（未配置即 SDK 缺省域名）；Vertex 域名不随用户配置变化，为 None。"""
+        """Actual AI Studio host (SDK default when unconfigured); Vertex hosts do not vary by user configuration, returning None."""
         if self._backend_type == "vertex":
             return None
         return self._base_url or _AISTUDIO_DEFAULT_BASE_URL
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        """Generate videos with separate creation/polling retry scopes, avoiding task recreation for transient failures."""
+        # No reference-audio body fields; user-relaxed capabilities still cannot send them. Reject before billing, never silently discard.
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
-        # AI Studio 请求体没有音轨开关，同理拒绝静音请求；续跑（resume_video）的任务已提交，不在此列。
+        # AI Studio lacks audio switches, likewise rejecting silent requests; already-submitted resume_video tasks are exempt.
         if not request.generate_audio and self._backend_type != "vertex":
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._video_model)
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:
-            # fail-fast：缺 operation.name 意味着 submit 成功但无法持久化 provider_job_id，
-            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是要避免的
-            # 重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
+            # Fail fast: missing operation.name means successful submission without persistable provider_job_id.
+            # After interruption, orphan handlers would [restart_lost] into resubmission, exactly the duplicate-billing
+            # case to prevent. Raise so worker finally marks failed instead of silently continuing polling.
             raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
-        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧 operation
+        # Persist actual request hosts too: resume replays them, otherwise changed base_url would query old operations on new hosts.
         await self._persist_provider_job_id(request, op_name, provider=PROVIDER_GEMINI, endpoint=self._request_base_url)
         done_operation = await self._poll_until_done(operation, request)
         return await self._collect_video(done_operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """接续已 submit 的 Gemini 任务：按任务 ID 轮询并取件（见 :meth:`_resume_on_current_client`）。
+        """Resume submitted Gemini tasks by polling task IDs and retrieving outputs (:meth:`_resume_on_current_client`).
 
-        过期判定只覆盖按 job_id 查询 operation 的阶段：远端 GC 了 LRO 时，初次
-        ``operations.get`` 与 mid-poll 的查询都会收到 NOT_FOUND，归类为 ResumeExpiredError
-        让 worker finally 走 ``[resume_expired]``。operation 完成之后的取件失败（产物 URL 404 等）
-        说明远端任务已成功、只是成片没取到，按取件失败原样上抛，不归过期。
+        Expiry covers only operation queries by job_id: remote LRO GC returns NOT_FOUND on initial
+        ``operations.get`` and mid-poll queries, classified as ResumeExpiredError so worker finally applies
+        ``[resume_expired]``. Retrieval failures after completion, such as artifact URL 404,
+        mean remote success without fetched outputs; propagate retrieval failures unchanged, never as expiry.
 
-        operation 只在提交它的域名上可查：AI Studio 续跑且提交域名与当下配置不同时，按同一份凭据
-        另建绑定提交域名的实例接续（轮询与取件都走它），用完关闭其连接池。
+        Operations are queryable only on submission hosts: AI Studio resume across host configuration changes creates an instance
+        bound to the submission host with the same credentials for polling/retrieval, closing its pool afterward.
         """
         submitted = normalize_base_url(request.submitted_base_url)
         if submitted and self._backend_type != "vertex" and submitted != self._request_base_url:
@@ -236,10 +236,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return await self._resume_on_current_client(job_id, request)
 
     async def _resume_on_current_client(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """在当前客户端上按 ``job_id`` 轮询并取件；提交域名的回放由 :meth:`resume_video` 处理。
+        """Poll/retrieve ``job_id`` on current clients; :meth:`resume_video` handles submission-host replay.
 
-        用 name 重建 GenerateVideosOperation：Operation 是 ABC，不可实例化；具体 LRO 子类通过
-        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的字段推断不全，用 model_validate 绕开）。
+        Reconstruct GenerateVideosOperation from name: Operation is abstract and cannot instantiate; concrete LRO subclasses
+        accept dicts through Pydantic v2 ``model_validate`` (bypassing pyright's incomplete multiple-inheritance field inference).
         """
         op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
         try:
@@ -253,17 +253,17 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
-        """创建 Gemini 视频生成任务（带重试保护）。"""
-        # 1. 限流
+        """Create Gemini video-generation tasks with retry protection."""
+        # 1. Rate limiting.
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._video_model)
 
-        # 2. duration 透传（由模型 supported_durations 校验，不在 backend 做桶映射）
+        # 2. Pass duration unchanged (model supported_durations validates it; no backend bucketing).
         duration_str = str(request.duration_seconds)
 
-        # 3. 构建配置
-        # 反向提示词不走参数通道——caller 在 request.prompt 末尾文本化注入
-        # （lib.prompts.prompt_utils.render_storyboard_video_prompt 渲染的 storyboard/video 模版），跨 backend 一致。
+        # 3. Build config.
+        # Negative prompts bypass parameter channels: callers inject text into request.prompt tails
+        # through lib.prompts.prompt_utils.render_storyboard_video_prompt storyboard/video templates, consistently across backends.
         config_params: dict = {
             "aspect_ratio": request.aspect_ratio,
             "duration_seconds": duration_str,
@@ -273,11 +273,11 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
 
-        # end_image → last_frame（帧插值）
+        # end_image → last_frame (frame interpolation).
         if request.end_image is not None:
             config_params["last_frame"] = await asyncio.to_thread(self._prepare_image_param, request.end_image)
 
-        # reference_images → reference_images（参考图列表，type=ASSET）
+        # reference_images → reference_images (reference lists, type=ASSET).
         if request.reference_images:
             prepared_refs = await asyncio.gather(
                 *[asyncio.to_thread(self._prepare_image_param, img) for img in request.reference_images]
@@ -292,13 +292,13 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         config = self._types.GenerateVideosConfig(**config_params)
 
-        # 4. 准备 source（prompt + 可选起始帧）
+        # 4. Prepare source (prompt + optional start frame).
         image_param = (
             await asyncio.to_thread(self._prepare_image_param, request.start_image) if request.start_image else None
         )
         source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
 
-        # 5. 调用 API
+        # 5. Call API.
         logger.info(
             "调用 %s 视频 SDK payload=%s",
             self.name,
@@ -318,16 +318,16 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return operation
 
     async def _poll_until_done(self, operation: Any, request: VideoGenerationRequest) -> Any:
-        """轮询任务状态直到完成并返回完成态 operation，瞬态错误仅重试当次轮询请求。"""
+        """Poll to completion, returning completed operations; retry transient failures for individual queries only."""
         op_name = getattr(operation, "name", "unknown")
         logger.info("开始轮询 operation=%s ...", op_name)
 
         if not operation.done:
             operation = await poll_with_retry(
-                # SDK 通过 operation.name 查询状态并返回新对象，闭包捕获初始 operation 即可
+                # SDK queries operation.name and returns new objects; closures need only capture initial operations.
                 poll_fn=lambda: self._client.aio.operations.get(operation),
                 is_done=lambda op: op.done,
-                is_failed=lambda op: None,  # Gemini 在轮询完成后检查失败
+                is_failed=lambda op: None,  # Gemini checks failures after polling completes.
                 max_wait=request.poll_timeout_seconds,
                 label="Gemini",
                 retry_if=_should_retry_gemini_poll,
@@ -340,7 +340,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return operation
 
     async def _collect_video(self, operation: Any, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """校验完成态 operation 的产出，取件落盘并组装结果。"""
+        """Validate completed-operation outputs, retrieve/persist and assemble results."""
         op_name = getattr(operation, "name", "unknown")
         if not operation.response or not operation.response.generated_videos:
             error_detail = getattr(operation, "error", None)
@@ -355,7 +355,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                 raise RuntimeError(f"视频生成失败: {error_detail}")
             raise RuntimeError("视频生成失败: API 返回空结果")
 
-        # 提取并下载视频
+        # Extract/download videos.
         generated_video = operation.response.generated_videos[0]
         video_ref = generated_video.video
         video_uri = video_ref.uri if video_ref else None
@@ -374,11 +374,11 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         )
 
     # ------------------------------------------------------------------
-    # 内部辅助方法（从 GeminiClient 提取）
+    # Internal helpers extracted from GeminiClient.
     # ------------------------------------------------------------------
 
     def _prepare_image_param(self, image: str | Path | Image.Image | None):
-        """准备图片参数用于 API 调用 — 提取自 GeminiClient。"""
+        """Prepare API image parameters, extracted from GeminiClient."""
         if image is None:
             return None
 
@@ -403,18 +403,18 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
 
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
-        """下载视频，重试走共用的产物下载预算。
+        """Download videos under shared artifact retry budgets.
 
-        SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``retryable_errors`` 判定。
+        SDK retrieval does not raise ``HTTPStatusError``, so use ``retryable_errors`` predicates.
         """
         if self._backend_type == "vertex" and video_ref and getattr(video_ref, "video_bytes", None):
-            # 已有字节只需落盘，不进入网络取件的超时与重试预算。
+            # Existing bytes only need persistence, outside network retrieval timeout/retry budgets.
             await run_noninterruptible_sync(
                 write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
             )
             return
-        # 线程里写 .part 再替换成片：取消须等这次写盘结束、结果确定后再传播，否则调用方清理后线程才落盘。
-        # 外层 asyncio.timeout 结束不了线程，线程按同一份预算的墙钟期限自行收尾。
+        # Threads write .part then replace outputs: cancellation waits for writes/outcomes before propagation, avoiding writes after caller cleanup.
+        # Outer asyncio.timeout cannot terminate threads; threads finish against the same budget deadline themselves.
         deadline = time.monotonic() + ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS
         await with_artifact_retry(
             lambda: run_sync_transaction(self._download_video, video_ref, output_path, deadline=deadline),
@@ -424,12 +424,12 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         )
 
     def _download_video(self, video_ref, output_path: Path, *, deadline: float) -> None:
-        """下载视频到本地文件 — 提取自 GeminiClient。
+        """Download videos locally, extracted from GeminiClient.
 
-        三条落盘路径都经 ``write_atomically``：先写同目录 ``.part``，成功后原子改名，
-        失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
-        两条网络路径都设 I/O 超时并逐块比对 ``deadline``（``time.monotonic()`` 时刻），
-        到期抛 ``TimeoutError``，线程不会比取件预算活得更久。
+        All three persistence routes use ``write_atomically``: write same-directory ``.part``, then atomic rename,
+        preventing failed fragments at output_path being mistaken for finished videos and preserving existing outputs.
+        Both network routes set I/O timeouts and compare each chunk to ``deadline`` (``time.monotonic()`` time),
+        raising ``TimeoutError`` at expiry so threads cannot outlive retrieval budgets.
         """
         if self._backend_type == "vertex":
             if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
@@ -441,7 +441,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
-            # AI Studio 模式：files.download 带 destination 时分块直写，不把整段视频读进内存。
+            # AI Studio files.download with destination writes chunks directly without loading entire videos into memory.
             def write(target: Path) -> None:
                 timeout_ms = int(_io_timeout(deadline) * 1000)
                 with open(target, "wb") as handle:
@@ -455,10 +455,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
 
 class _DeadlineWriter(io.RawIOBase):
-    """写入前比对墙钟期限的文件包装，期限已过即抛 ``TimeoutError``。
+    """File wrapper checking wall-clock deadlines before writes, raising ``TimeoutError`` after expiry.
 
-    I/O 超时只约束单次读取停滞，持续慢速出数据的下载由逐块比对期限结束。
-    继承 ``RawIOBase`` 以满足 SDK ``destination`` 的 ``IOBase`` 类型。
+    I/O timeouts bound individual stalled reads; per-chunk deadline checks terminate continuously slow downloads.
+    Inherit ``RawIOBase`` to satisfy SDK ``destination`` ``IOBase`` typing.
     """
 
     def __init__(self, handle: BinaryIO, deadline: float) -> None:
@@ -479,7 +479,7 @@ class _DeadlineWriter(io.RawIOBase):
 
 
 def _io_timeout(deadline: float) -> float:
-    """单次网络读写的超时：不超过 I/O 超时上限，也不越过期限；期限已过则直接抛 ``TimeoutError``。"""
+    """Per-network-operation timeout: bounded by I/O maximum and deadline; raise ``TimeoutError`` immediately after expiry."""
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise TimeoutError("Gemini 成片下载超出取件预算")
@@ -487,10 +487,10 @@ def _io_timeout(deadline: float) -> float:
 
 
 def _fetch_uri(uri: str, target: Path, deadline: float) -> None:
-    """带 I/O 超时与期限检查，流式下载 ``uri`` 到 ``target``。
+    """Stream ``uri`` into ``target`` with I/O timeouts/deadline checks.
 
-    HTTP 错误由 ``urlopen`` 抛 ``HTTPError``；正文短于 Content-Length 时抛
-    ``ContentTooShortError``，截断文件不会被当成成片。
+    ``urlopen`` raises ``HTTPError`` for HTTP failures; bodies shorter than Content-Length raise
+    ``ContentTooShortError``, preventing truncated files being accepted as finished videos.
     """
     with urllib.request.urlopen(uri, timeout=_io_timeout(deadline)) as response, open(target, "wb") as handle:
         sink = _DeadlineWriter(handle, deadline)
@@ -504,25 +504,25 @@ def _fetch_uri(uri: str, target: Path, deadline: float) -> None:
 
 
 def write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
-    """让 ``write`` 把内容写进同目录 ``<name>.part``，成功后 ``os.replace`` 改名为 output_path。
+    """Have ``write`` target same-directory ``<name>.part``, then ``os.replace`` it into output_path on success.
 
-    各写入方都以 "wb" 直开目标路径，中途失败会留下截断文件；写 ``.part``
-    可保证失败时 output_path 不被覆盖，``BaseException`` 时清掉残片。
+    Writers open destinations directly with "wb", leaving truncated files on failure; ``.part``
+    protects output_path from failed overwrites, cleaning fragments on ``BaseException``.
     """
     partial_path = output_path.with_name(f"{output_path.name}.part")
     try:
         write(partial_path)
         os.replace(partial_path, output_path)
     except BaseException:
-        partial_path.unlink(missing_ok=True)  # hard-delete: temp -- 原子写的 .part 文件
+        partial_path.unlink(missing_ok=True)  # hard-delete: temp -- atomic-write .part file
         raise
 
 
 def _should_retry_gemini_poll(exc: Exception) -> bool:
-    """Gemini 轮询重试谓词：SDK ``APIError`` 按 HTTP 状态码判定，其余异常按幂等轮询口径。
+    """Gemini polling predicates: SDK ``APIError`` uses HTTP status; other exceptions use idempotent polling rules.
 
-    ``str(APIError)`` 带整份响应体，operation 名里的数字串可能含 "500" / "429"，按子串兜底会把
-    404 当成瞬态错误重试到预算耗尽，续跑便认不出 operation 已被回收。
+    ``str(APIError)`` includes entire bodies; operation-name digits may contain "500" / "429". Substring fallback would
+    retry 404 until budget exhaustion, preventing resume from recognizing reclaimed operations.
     """
     from google.genai import errors as genai_errors
 
@@ -532,12 +532,12 @@ def _should_retry_gemini_poll(exc: Exception) -> bool:
 
 
 def _is_gemini_not_found(exc: BaseException) -> bool:
-    """识别 Gemini operations.get 「operation 不存在 / 已过期」响应。
+    """Recognize nonexistent/expired Gemini operations.get responses.
 
-    只认 SDK ``APIError`` 携带的 HTTP 状态码 404：异常文本里的 "not found" / "expired"
-    可能来自与 operation 存续无关的环节（传输层报错、上游失败原因），按子串判定会把它们
-    误归过期。INVALID_ARGUMENT（400）同样不归过期：Gemini 用它表达入参不合法（如非法
-    operation 格式），归过期会把客户端 bug 当成幽灵任务静默吞掉。
+    Accept SDK ``APIError`` HTTP 404 only: "not found" / "expired" in messages can arise outside
+    operation lifetime (transport failures/upstream reasons); substring checks would incorrectly classify them
+    as expiry. INVALID_ARGUMENT (400) is not expiry either: Gemini uses it for invalid parameters such as malformed
+    operation names; classifying it as expiry would silently swallow client bugs as ghost tasks.
     """
     from google.genai import errors as genai_errors
 
@@ -545,7 +545,7 @@ def _is_gemini_not_found(exc: BaseException) -> bool:
 
 
 class VertexVideoBackend(GeminiVideoBackend):
-    """以 Vertex 服务账号调用 Veo，可控制音轨。"""
+    """Veo through Vertex service accounts, with audio control."""
 
     audio_track = VideoAudioMode.CONTROLLABLE
     default_backend_type = "vertex"

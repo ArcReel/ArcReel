@@ -6,10 +6,10 @@ import { waitForEntrance } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目概览：单列限宽的设定页（页头、资产完成度与费用两行、故事设定），以及空项目的欢迎页。
+// Overview: single constrained setting columns with header/asset completion/cost/story settings, plus empty-project welcomes.
 const OVERVIEW_PATH = "/app/projects/demo";
 const PROJECT = "GET /api/v1/projects/demo";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+// Project events are unrecorded SSE; reject with nonretryable statuses, retaining recorded project data.
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -32,7 +32,7 @@ function withProject(project: Record<string, unknown>): ApiOverrides {
 
 const repeat = (text: string, times: number) => Array.from({ length: times }, () => text).join("");
 
-// 压力变体：长梗概与长世界观、很长的类型与主题、四十集、各类资产图都有过期，费用含多币种与历史支出。
+// Stress: long synopsis/world/genres/themes, forty episodes, stale assets of all kinds, multiple currencies/historical costs.
 const LONG_PROJECT: ApiOverrides = {
   ...EVENT_STREAM,
   ...withProject({
@@ -87,7 +87,7 @@ const LONG_PROJECT: ApiOverrides = {
   },
 };
 
-// 压力变体：费用拿不到完整数字。导入的项目没有本机生成记录，六个自定义供应商模型（长名称）没有价格。
+// Stress variant: incomplete cost figures; imported projects lack local generation records and six long-named custom-provider models lack prices.
 const UNPRICED_MODELS = Array.from({ length: 6 }, (_, i) => ({
   call_type: i % 2 === 0 ? "image" : "video",
   provider: `custom-${i + 1}`,
@@ -120,7 +120,7 @@ const SOURCE_ONLY_PROJECT: ApiOverrides = {
 
 const storySetting = (page: Page) => page.getByRole("region", { name: "故事设定" });
 
-/** 紧凑档的 Agent 面板默认展开并盖住画布右侧，先收起，内容列与画布右侧的操作才完整可见。 */
+/** Compact Agent panels initially expand over canvas right sides; collapse to reveal entire content columns/right-side actions. */
 async function collapseAgentPanel(page: Page) {
   const toggle = page.getByRole("button", { name: "Agent", exact: true });
   if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
@@ -134,7 +134,7 @@ async function box(locator: Locator) {
 
 async function overviewReady(page: Page) {
   await storySetting(page).waitFor();
-  // 字体与费用响应都会改变内容高度；等真实页面加载完成再测滚动可达性。
+  // Fonts/cost responses change content height; wait for actual pages to load before testing scroll reachability.
   await page.waitForLoadState("networkidle");
   await page.evaluate(() => document.fonts.ready);
 }
@@ -148,7 +148,7 @@ defineRegionScenarios("项目概览", [
     act: async (page) => {
       await expect(page.getByRole("heading", { level: 1, name: "演示项目" })).toBeVisible();
       await expect(storySetting(page).getByRole("textbox", { name: "梗概" })).toHaveValue("");
-      // 限宽档：内容列最宽 760px，紧贴画布左侧的内边距，宽窗口多出的空白留在右侧
+      // Width-limited mode: content columns cap at 760px, aligned with left canvas padding; extra wide-window whitespace stays right.
       await collapseAgentPanel(page);
       const canvas = await box(page.getByRole("main"));
       const column = await box(storySetting(page));
@@ -157,7 +157,7 @@ defineRegionScenarios("项目概览", [
       expect(column.width).toBeLessThanOrEqual(760);
       if ((page.viewportSize()?.width ?? 0) >= 2560) expect(column.width).toBe(760);
     },
-    // 内容列：页头、资产与费用两行、故事设定
+    // Content columns: headers, asset/cost rows and story settings.
     screenshot: { name: "overview-column", target: (page) => storySetting(page).locator("xpath=..") },
   },
   {
@@ -243,7 +243,7 @@ defineRegionScenarios("项目概览", [
     api: SOURCE_ONLY_PROJECT,
     ready: overviewReady,
     act: async (page) => {
-      // 生成请求挂起不返回，停在读取中的状态
+      // Hold generation requests without responses, retaining Reading states.
       await page.route("**/api/v1/projects/demo/generate-overview", () => {});
       await collapseAgentPanel(page);
       await storySetting(page).getByRole("button", { name: "从原文生成" }).click();

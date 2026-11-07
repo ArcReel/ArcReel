@@ -1,8 +1,8 @@
 ---
 id: style/live_breaking_bad
 category: style
-title: 绝命毒师
-description: "真人画风，南美滤镜 · 犯罪美学。"
+title: "Breaking Bad"
+description: "Live action, South American filter · crime aesthetics."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-参考绝命毒师电视剧画风，犯罪题材美学，南美风格滤镜，真实质感滤镜
+Inspired by the Breaking Bad television series, crime aesthetics, South American-style filter, realistic-texture filter

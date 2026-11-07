@@ -163,7 +163,7 @@ class TestFilesRouter:
         assert [episode.episode for episode in summary.episodes] == [4, 5]
 
     def test_drama_upload_records_the_chosen_source_kind_on_each_source(self, tmp_path, monkeypatch):
-        """剧情演绎上传时逐个记源文件类型，缺省为小说；其他创作类型不记。"""
+        """Drama uploads record each source type, default novel; other creation types record none."""
         client, pm = _client(monkeypatch, tmp_path)
         pm.update_project("demo", lambda project: project.update(content_mode="drama"))
 
@@ -523,7 +523,7 @@ class TestFilesRouter:
             assert clue.status_code == 200
             assert clue.json()["path"] == "props/玉佩.jpg"
 
-            # 分镜/视频上传走 shot_uploads 路由，通用上传不再支持 storyboard 类型
+            # Shot images/videos upload through shot_uploads; generic upload no longer supports storyboard.
             legacy_storyboard = client.post(
                 "/api/v1/projects/demo/upload/storyboard?name=E1S01",
                 files={"file": ("storyboard.jpg", _img_bytes("JPEG"), "image/jpeg")},
@@ -542,7 +542,7 @@ class TestFilesRouter:
             )
             assert bad_type.status_code == 400
 
-            # 无效图片格式仍应被拒绝（即使小于 2MB）
+            # Invalid image formats reject even below 2MB.
             bad_image = client.post(
                 "/api/v1/projects/demo/upload/character?name=Alice",
                 files={"file": ("bad.png", b"not-image", "image/png")},
@@ -777,7 +777,7 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
 
     def test_character_audio_ref_replace_removes_old_extension(self, tmp_path, monkeypatch):
-        """替换参考音频且新旧扩展名不同（wav -> mp3）时旧文件应被清理，不留孤儿。"""
+        """Reference-audio replacements changing wav→mp3 extensions remove old files, avoiding orphans."""
         client, pm = _client(monkeypatch, tmp_path)
 
         async def _fake_duration(content, suffix):
@@ -806,7 +806,7 @@ class TestFilesRouter:
             assert new_path.exists()
 
     def test_character_audio_ref_replace_moves_the_stale_file_to_the_project_trash(self, tmp_path, monkeypatch):
-        """换成不同扩展名时，被换掉的旧文件在同一次提交里进项目回收站。"""
+        """Different-extension replacements move old files to project trash in the same commit."""
         client, pm = _client(monkeypatch, tmp_path)
 
         async def _fake_duration(content, suffix):
@@ -886,7 +886,7 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
 
     def test_delete_character_reference_audio_ignores_out_of_project_path(self, tmp_path, monkeypatch):
-        """reference_audio 可经资产 PATCH 写成任意字符串；越界路径只清字段，不得删项目外文件。"""
+        """Asset PATCH may set arbitrary reference_audio; traversal values clear fields only, never delete external files."""
         client, pm = _client(monkeypatch, tmp_path)
         outsider = tmp_path / "outsider.wav"
         outsider.write_bytes(b"do-not-delete")
@@ -899,7 +899,7 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
     def test_character_audio_ref_replace_ignores_out_of_project_old_path(self, tmp_path, monkeypatch):
-        """替换时的旧文件清理同样受项目目录约束，越界的存量值不触发删除。"""
+        """Replacement old-file cleanup likewise respects project containment, never deleting legacy external paths."""
         client, pm = _client(monkeypatch, tmp_path)
         outsider = tmp_path / "outsider.wav"
         outsider.write_bytes(b"do-not-delete")
@@ -922,7 +922,7 @@ class TestFilesRouter:
             )
 
     def test_delete_character_reference_audio_ignores_path_outside_refs_audio(self, tmp_path, monkeypatch):
-        """reference_audio 越权指向项目内 refs_audio 之外的文件（如 project.json）时，只清字段，不得删该文件。"""
+        """Unauthorized reference_audio outside refs_audio, such as project.json, clears fields only, never deletes files."""
         client, pm = _client(monkeypatch, tmp_path)
         project_json = pm.get_project_path("demo") / "project.json"
         assert project_json.exists()
@@ -935,7 +935,7 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
     def test_character_audio_ref_replace_ignores_stale_path_outside_refs_audio(self, tmp_path, monkeypatch):
-        """替换时的旧文件清理同样限定在 refs_audio 目录内，落在项目目录内其它位置的存量值不触发删除。"""
+        """Replacement cleanup also restricts old files to refs_audio; other in-project legacy paths never trigger deletion."""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
         project_json = project_dir / "project.json"
@@ -958,11 +958,11 @@ class TestFilesRouter:
             )
 
     def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
-        """商品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
+        """Product originals anchor fidelity acceptance: saving preserves exact bytes without threshold compression/reencoding."""
         client, pm = _client(monkeypatch, tmp_path)
 
-        # 构造一张 >2MB 的 PNG（其他资产上传在该阈值会被压成 JPEG q85）：
-        # 噪声像素不可压缩，保证体积越过阈值
+        # Construct >2MB PNGs; other asset uploads compress at this threshold to JPEG q85:
+        # incompressible noise pixels ensure threshold crossing.
         import os as _os
 
         image = Image.frombytes("RGB", (1200, 1200), _os.urandom(1200 * 1200 * 3))
@@ -1007,8 +1007,8 @@ class TestFilesRouter:
                 assert (project_dir / p).exists()
 
     def test_product_ref_upload_resolves_nfd_registered_host(self, tmp_path, monkeypatch):
-        """宿主资产的存量 key 可能是 NFD：上传入口按坐标系解析存在性，
-        否则闸口把 name 归一到 NFC 后会先返回 404，写回侧的解析根本走不到。"""
+        """Host asset keys may be NFD; uploads resolve existence by coordinate systems,
+        or NFC-normalized guards return 404 before write-side resolution runs."""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1028,11 +1028,11 @@ class TestFilesRouter:
             )
             assert resp.status_code == 200, resp.text
             products = pm.load_project("demo")["products"]
-            assert name_nfc not in products  # 不因上传新造一条 NFC 商品
+            assert name_nfc not in products  # Uploads must not create new NFC product entries.
             assert products[name_nfd]["reference_images"] == [resp.json()["path"]]
 
     def test_product_ref_unknown_product_404(self, tmp_path, monkeypatch):
-        """原图列表是文件的唯一指针：商品不存在时拒收，避免落下孤儿文件。"""
+        """Original-image lists alone point to files; missing products reject to prevent orphans."""
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(
@@ -1089,7 +1089,7 @@ class TestFilesRouter:
         use_text_generator(monkeypatch, capture_create)
         monkeypatch.setattr(_FakeTextBackend, "requests", [])
 
-        # 预置 style_template_id + 展开后的 style prompt，验证上传后被强制清掉（互斥）
+        # Preload style_template_id/expanded style prompts, verifying forced mutual-exclusion clearing after upload.
         project = pm.load_project("demo")
         project["style_template_id"] = "live_premium_drama"
         project["style"] = "画风：真人电视剧风格，精品短剧画风，大师级构图"
@@ -1109,8 +1109,8 @@ class TestFilesRouter:
             after = pm.load_project("demo")
             assert after.get("style_image", "").startswith("style_reference")
             assert "style_template_id" not in after
-            # 互斥语义关键断言：模板展开到 style 的 prompt 也要被清空，
-            # 否则生成链路会把模板 prompt 与 style_description 一起喂给 LLM。
+            # Crucial exclusion assertion: clear expanded template prompts in style too,
+            # or generation feeds both template prompts and style_description into LLMs.
             assert after.get("style", "") == ""
 
             bad_style_ext = client.post(
@@ -1195,16 +1195,16 @@ class TestFilesRouter:
             assert character_missing_entity.json()["path"] == "characters/不存在角色.jpg"
 
     def test_upload_rejects_unsafe_name_for_every_type(self, tmp_path, monkeypatch):
-        """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
+        """name enters disk paths; separators/../control characters must return 400 across all upload types."""
         client, _ = _client(monkeypatch, tmp_path)
 
-        # 快照范围取 tmp_path 而非 projects 根：越界名的目标本就在 projects 之外，只扫项目内看不见。
-        # 连同内容一起快照：越界写入若命中既有文件（如 ../project.json），路径集合不变，只比路径发现不了
+        # Snapshot tmp_path, not projects roots: traversal targets live outside projects and would escape project-only scans.
+        # Snapshot contents too; overwriting ../project.json changes no path sets, escaping path-only comparisons.
         def _snapshot() -> dict[Path, bytes]:
             return {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
 
-        # 预置 "../existing" 会解析到的既有文件：没有真实的覆写目标时，内容快照验证不到覆写这一维。
-        # 逐 subdir 铺哨兵——嵌套类型（characters/refs 等）的 ".." 落在 characters/ 而非项目根
+        # Precreate ../existing targets; absent real overwrite destinations, content snapshots cannot verify overwrites.
+        # Sentinels in every subdir: nested characters/refs .. resolves into characters/, not project roots.
         project_dir = tmp_path / "projects" / "demo"
         for spec in files.UPLOAD_SPECS.values():
             parent = project_dir.joinpath(*spec.subdir).parent
@@ -1228,7 +1228,7 @@ class TestFilesRouter:
         payloads = {
             "character_audio_ref": ("v.wav", wav_bytes(3), "audio/wav"),
             "bgm": ("m.wav", wav_bytes(3), "audio/wav"),
-            # source 不使用 name，但校验在其早返分支之前，同样应拒
+            # source ignores name but validates before early return, so still reject.
             "source": ("novel.txt", b"chapter one", "text/plain"),
         }
         default_payload = ("x.jpg", _img_bytes("JPEG"), "image/jpeg")
@@ -1244,7 +1244,7 @@ class TestFilesRouter:
                     assert resp.status_code == 400, (upload_type, unsafe, resp.status_code)
                     assert resp.json()["detail"] == zh_assets.MESSAGES["asset_invalid_name"].format(name=unsafe)
 
-            # 越界名字不得留下任何落盘产物：项目内外都不得新增文件，既有文件的内容也不得被改写
+            # Traversal names must create no files inside/outside projects or alter existing contents.
             assert _snapshot() == before
 
     def test_upload_unsafe_name_message_is_localized(self, tmp_path, monkeypatch):
@@ -1267,7 +1267,7 @@ class TestFilesRouter:
                 assert resp.json()["detail"] == template.format(name="../evil")
 
     def test_upload_name_is_stripped_before_use(self, tmp_path, monkeypatch):
-        """校验谓词会 strip 名字，落盘路径与元数据都应使用规范化后的值。"""
+        """Validation strips names; disk paths/metadata must use canonical values."""
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(
@@ -1280,7 +1280,7 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
 
     def test_upload_empty_name_falls_back_to_filename(self, tmp_path, monkeypatch):
-        """空串 name 等同未提供：校验只对真值生效，落盘仍回退到原文件名 stem。"""
+        """Empty name equals omission; truthy-only validation still falls back to original filename stems."""
         client, _ = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(
@@ -1292,15 +1292,15 @@ class TestFilesRouter:
             assert resp.json()["path"] == "characters/x.jpg"
 
     def test_upload_spec_table_drives_extensions(self):
-        """ALLOWED_EXTENSIONS 由 UPLOAD_SPECS 派生，两者不得漂移。"""
+        """ALLOWED_EXTENSIONS derives from UPLOAD_SPECS; never permit drift."""
         assert set(files.ALLOWED_EXTENSIONS) == set(files.UPLOAD_SPECS)
         for upload_type, spec in files.UPLOAD_SPECS.items():
             assert files.ALLOWED_EXTENSIONS[upload_type] == list(spec.allowed_exts)
-        # source 一项被 frontend/src/utils/source-files.ts 镜像，取值变动需同步前端
+        # frontend/src/utils/source-files.ts mirrors source values; changes require frontend synchronization.
         assert files.ALLOWED_EXTENSIONS["source"] == [".txt", ".md", ".docx", ".epub", ".pdf"]
 
     def test_upload_spec_host_fields_must_be_paired(self):
-        """登记宿主约束却漏配 404 文案时，构造期即失败，而非拒收时取到空翻译 key。"""
+        """Host constraints without 404 copy fail construction, never fetch empty translation keys during rejection."""
         with pytest.raises(ValueError, match=r"host_bucket 与 host_not_found_key 必须成对登记"):
             files.UploadSpec(
                 allowed_exts=(".png",),
@@ -1309,7 +1309,7 @@ class TestFilesRouter:
                 content_check="validate_image",
                 host_bucket="products",
             )
-        # 反方向同样是配置错误：登记了文案却没有宿主约束，该文案永远取不到
+        # Reverse mismatches are configuration errors too: declared copy without host constraints is unreachable.
         with pytest.raises(ValueError, match=r"host_bucket 与 host_not_found_key 必须成对登记"):
             files.UploadSpec(
                 allowed_exts=(".png",),
@@ -1319,7 +1319,7 @@ class TestFilesRouter:
                 host_not_found_key="product_not_found",
             )
 
-        # 参考音频的元数据字段是文件唯一指针；清理旧文件的类型不能漏掉宿主存在性约束。
+        # Reference-audio metadata alone points to files; old-file-cleanup types must include host-existence constraints.
         with pytest.raises(ValueError, match=r"tracks_stale_audio 必须登记宿主约束"):
             files.UploadSpec(
                 allowed_exts=(".wav",),
@@ -1330,7 +1330,7 @@ class TestFilesRouter:
             )
 
     def test_upload_rejects_oversized_payload_for_any_type(self, tmp_path, monkeypatch):
-        """max_bytes 是通用请求体闸门：登记了上限的类型无论 content_check 为何都应拒收超限请求。"""
+        """max_bytes universally gates bodies; capped types reject excess regardless of content_check."""
         client, _ = _client(monkeypatch, tmp_path)
         limit = 1024 * 1024
         monkeypatch.setitem(
@@ -1345,7 +1345,7 @@ class TestFilesRouter:
                 files={"file": ("x.jpg", b"\x00" * (limit + 1), "image/jpeg")},
             )
             assert resp.status_code == 400
-            # 上限取整 MB，文案里的 max_mb 才是对用户有意义的数字
+            # Use whole-MB limits so message max_mb is meaningful to users.
             assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=1)
 
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
@@ -1365,7 +1365,7 @@ class TestFilesRouter:
             payload["content_mode"] = "drama"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-            # drama script_plan 落 .json：任意文本被拒（400）
+            # Drama script_plan uses .json; arbitrary text rejects with 400.
             reject_text = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content="drama draft",
@@ -1373,7 +1373,7 @@ class TestFilesRouter:
             )
             assert reject_text.status_code == 400
 
-            # 合法 JSON 但 scenes 为空 → 被拒（400）：与 _load_drama_script_plan_content 的非空 scenes 契约同口径
+            # Valid JSON with empty scenes rejects 400, matching _load_drama_script_plan_content nonempty-scenes contracts.
             reject_empty = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": []}',
@@ -1381,7 +1381,7 @@ class TestFilesRouter:
             )
             assert reject_empty.status_code == 400
 
-            # scenes 含非对象项（数字 / 字符串）→ 被拒（400）：与 _load_drama_script_plan_content 的逐项对象契约同口径
+            # Nondict scenes (numbers/strings) reject 400, matching per-item object contracts.
             reject_non_dict_scene = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}, 42]}',
@@ -1389,8 +1389,8 @@ class TestFilesRouter:
             )
             assert reject_non_dict_scene.status_code == 400
 
-            # scene 缺 scene_id → 被拒（400）：与 _load_drama_script_plan_content 的 scene_id 非空字符串契约同口径，
-            # 避免写入端放行、消费端必失败的"保存成功但生成必失败"断层
+            # Missing scene_id rejects 400, matching _load_drama_script_plan_content nonempty-string contracts,
+            # avoiding save success followed by inevitable consumer/generation failure.
             reject_missing_scene_id = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{}]}',
@@ -1398,7 +1398,7 @@ class TestFilesRouter:
             )
             assert reject_missing_scene_id.status_code == 400
 
-            # scene_id 为空串 → 被拒（400）
+            # Empty scene_id rejects 400.
             reject_empty_scene_id = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": ""}]}',
@@ -1406,7 +1406,7 @@ class TestFilesRouter:
             )
             assert reject_empty_scene_id.status_code == 400
 
-            # 含非空 scenes 的合法 JSON 被接受（200），落到结构化草稿路径
+            # Valid nonempty scenes JSON accepts 200, persisting structured draft paths.
             update_drama = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}]}',
@@ -1418,8 +1418,8 @@ class TestFilesRouter:
             missing_stage = client.delete("/api/v1/projects/demo/drafts/2/unknown_stage")
             assert missing_stage.status_code == 400
 
-            # 未登记 content_mode 回落到 drama 结构化文件名时同样触发校验（按目标文件名而非 content_mode）：
-            # 任意文本不再绕过校验被写成结构化 drama JSON，拖到生成阶段才失败
+            # Unregistered content_mode falling back to drama filenames still validates by target filename, not content_mode:
+            # arbitrary text cannot bypass checks into structured drama JSON and fail only during generation.
             payload["content_mode"] = "future_unregistered_mode"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             reject_dirty_mode = client.put(
@@ -1429,7 +1429,7 @@ class TestFilesRouter:
             )
             assert reject_dirty_mode.status_code == 400
 
-            # 除脚本规划外的阶段名一律无效
+            # All stage names except planning are invalid.
             prompt_authoring_resp = client.get("/api/v1/projects/demo/drafts/1/prompt_authoring")
             assert prompt_authoring_resp.status_code == 400
 
@@ -1449,7 +1449,7 @@ class TestFilesRouter:
         plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
         plan_path.parent.mkdir(parents=True)
         plan_path.write_text('{"episode": 1, "segments": []}', encoding="utf-8")
-        # 该集已产出正式剧本，确认记录记的是当前规划。
+        # Episodes have formal scripts; confirmations record current planning.
         (project_dir / "scripts").mkdir(exist_ok=True)
         (project_dir / "scripts" / "episode_1.json").write_text('{"episode": 1, "segments": []}', encoding="utf-8")
         fingerprint = script_review.content_fingerprint(plan_path)
@@ -1560,7 +1560,7 @@ class TestFilesRouter:
         assert adapter.get_entry(key) is None
 
     def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):
-        """带 ?v= 参数时应返回 immutable 缓存头"""
+        """?v= returns immutable cache headers"""
         client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
         (project_path / "storyboards").mkdir(exist_ok=True)
@@ -1573,7 +1573,7 @@ class TestFilesRouter:
             assert "max-age=31536000" in resp.headers.get("cache-control", "")
 
     def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
-        """versions/ 路径下的文件应返回 immutable 缓存头"""
+        """versions/ files return immutable cache headers"""
         client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
         (project_path / "versions" / "storyboards").mkdir(parents=True)
@@ -1586,7 +1586,7 @@ class TestFilesRouter:
             assert resp.headers["x-content-type-options"] == "nosniff"
 
     def test_revalidate_without_version(self, tmp_path, monkeypatch):
-        """无 ?v= 参数且非 versions 路径时要求每次再验证；ETag 命中回 304，文件变更后回新内容"""
+        """Unversioned nonversions paths revalidate every time; ETag hits return 304, changed files return fresh contents"""
         client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
         (project_path / "storyboards").mkdir(exist_ok=True)
@@ -1611,7 +1611,7 @@ class TestFilesRouter:
             assert changed.content == b"img-v2"
 
     def test_range_request_still_partial(self, tmp_path, monkeypatch):
-        """视频拖动依赖的 Range 请求仍返回 206"""
+        """Video seeking Range requests still return 206"""
         client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
         (project_path / "videos").mkdir(exist_ok=True)
@@ -1625,14 +1625,14 @@ class TestFilesRouter:
     def test_files_helper_functions(self, tmp_path):
         assert files._stage_files("narration") == {"script_plan": "script_plan_segments.json"}
         assert files._stage_files("drama") == {"script_plan": "script_plan_normalized_script.json"}
-        # reference_video 走独立的结构化 script_plan 文件
+        # reference_video uses independent structured script_plan files.
         assert files._stage_files("drama", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
         assert files._stage_files("narration", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
-        # 其他 generation_mode 回落到 content_mode
+        # Other generation_mode falls back to content_mode.
         assert files._stage_files("narration", "storyboard") == {"script_plan": "script_plan_segments.json"}
 
     def test_resolve_script_plan_path_narration_prefers_own_legacy_md(self, tmp_path):
-        """narration script_plan 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
+        """Missing narration planning .json prefers its own legacy .md over cross-mode reference_units.md leftovers."""
         drafts_dir = tmp_path / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True)
         (drafts_dir / "script_plan_reference_units.md").write_text("ref leftover", encoding="utf-8")
@@ -1641,16 +1641,16 @@ class TestFilesRouter:
         assert resolved.name == "script_plan_segments.md"
 
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频下读/写 script_plan_reference_units.json，避免被按 content_mode 错误路由；
-        旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
+        """Reference video reads/writes script_plan_reference_units.json, never misroutes by content_mode;
+        legacy .md remains readable only, writes validate through sole ScriptReviewService outlets into structured .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
-        # 设置项目为 参考生视频（content_mode 仍是 narration 测试正交性）
+        # Configure reference-video projects while content_mode remains narration, proving orthogonality.
         project_json = project_dir / "project.json"
         payload = json.loads(project_json.read_text(encoding="utf-8"))
         payload["generation_mode"] = "reference_video"
-        # 分集须在账本里（save_content 的写入前置）：登记为自带原文的集
+        # save_content requires registered episodes; register own-source episodes.
         payload["episodes"] = [
             {"episode": 1, "title": "", "script_file": "scripts/episode_1.json", "source_origin": "own"}
         ]
@@ -1660,7 +1660,7 @@ class TestFilesRouter:
 
         drafts_dir = project_dir / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True, exist_ok=True)
-        # 主文件缺失时旧 .md 作为读取候选（存量在制品兼读）
+        # Missing primary files permit legacy .md reads for existing in-progress content.
         (drafts_dir / "script_plan_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
         with client:
@@ -1668,7 +1668,7 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.text == "E1U1 stub"
 
-            # 裸文本 / 非法结构不再直写正式 script_plan（旁路已收敛到单一写盘出口）
+            # Plain text/invalid structures never write directly to formal planning; bypasses converge on one write outlet.
             bad = client.put(
                 "/api/v1/projects/demo/drafts/1/script_plan",
                 content="raw text",
@@ -1682,7 +1682,7 @@ class TestFilesRouter:
             )
             assert invalid.status_code == 422
 
-            # 合法结构化内容按 generation_mode 路由到 script_plan_reference_units.json
+            # Valid structured content routes by generation_mode to script_plan_reference_units.json.
             unit = {"unit_id": "E1U01", "text": "镜头描述", "duration_seconds": 8}
             update = client.put(
                 "/api/v1/projects/demo/drafts/1/script_plan",
@@ -1692,14 +1692,14 @@ class TestFilesRouter:
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_1/script_plan_reference_units.json"
 
-            # 结构化 .json 存在后优先于旧 .md；落盘的是校验后的结构化内容
+            # Structured .json precedes legacy .md; validated structured contents persist.
             resp = client.get("/api/v1/projects/demo/drafts/1/script_plan")
             assert resp.status_code == 200
             saved = json.loads(resp.text)
             assert saved["units"][0]["unit_id"] == "E1U01"
 
     def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
-        """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
+        """Narration projects with only reference_units files from mode switches/history still read them"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")  # narration by default
 
@@ -1713,7 +1713,7 @@ class TestFilesRouter:
             assert resp.text == "fallback content"
 
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
-        """草稿文件名按项目生成模式路由：参考生视频全项目落 script_plan_reference_units.json。"""
+        """Project modes route draft filenames; reference-video projects uniformly use script_plan_reference_units.json."""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
@@ -1740,23 +1740,23 @@ class TestFilesRouter:
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_2/script_plan_reference_units.json"
 
-        # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
+        # _load_project_modes uses load_project: missing projects → ("drama", None) fallback.
         content_mode, gen_mode = files._load_project_modes("no-such-project")
         assert content_mode == "drama"
         assert gen_mode is None
-        # demo 项目 content_mode=narration（fixture 默认），生成模式取项目字段
+        # demo content_mode=narration, fixture defaults; generation modes come from project fields.
         content_mode, gen_mode = files._load_project_modes("demo")
         assert content_mode == "narration"
         assert gen_mode == "reference_video"
 
     def test_draft_event_emission(self, tmp_path, monkeypatch):
-        """PUT drafts 端点应发射 draft:created/updated 事件"""
+        """PUT drafts emits draft:created/updated events"""
         from unittest.mock import patch
 
         client, _ = _client(monkeypatch, tmp_path)
 
         with client, patch("server.routers.files.emit_project_change_batch") as mock_emit:
-            # 首次创建 → action="created", important=True
+            # Initial creation → action="created", important=True
             resp = client.put(
                 "/api/v1/projects/demo/drafts/1/script_plan",
                 content="new draft",
@@ -1774,7 +1774,7 @@ class TestFilesRouter:
 
             mock_emit.reset_mock()
 
-            # 再次更新 → action="updated", important=False
+            # Subsequent updates → action="updated", important=False
             resp2 = client.put(
                 "/api/v1/projects/demo/drafts/1/script_plan",
                 content="updated draft",
@@ -1787,7 +1787,7 @@ class TestFilesRouter:
             assert change2["important"] is False
 
     def test_serve_global_asset_image(self, tmp_path, monkeypatch):
-        """全局资产图片能够被正确读取返回"""
+        """Global asset images read and return correctly"""
         client, pm = _client(monkeypatch, tmp_path)
         target = pm.get_global_assets_root() / "character" / "abc.png"
         target.write_bytes(b"img-bytes")
@@ -1799,7 +1799,7 @@ class TestFilesRouter:
 
     @pytest.mark.parametrize("query", ["?fp=2026-01-01T00:00:00", "?v=1"])
     def test_serve_global_asset_version_key_is_immutable(self, tmp_path, monkeypatch, query):
-        """前端以 ?fp=<updated_at> 作版本键（?v= 同义），带版本键即 immutable"""
+        """Frontend ?fp=<updated_at> versions equal ?v=; versioned values imply immutable"""
         client, pm = _client(monkeypatch, tmp_path)
         (pm.get_global_assets_root() / "character" / "abc.png").write_bytes(b"img-bytes")
 
@@ -1810,7 +1810,7 @@ class TestFilesRouter:
             assert resp.headers["x-content-type-options"] == "nosniff"
 
     def test_serve_global_asset_without_version_revalidates(self, tmp_path, monkeypatch):
-        """无版本键时要求再验证，ETag 命中回 304"""
+        """Unversioned requests revalidate; matching ETags return 304"""
         client, pm = _client(monkeypatch, tmp_path)
         (pm.get_global_assets_root() / "character" / "abc.png").write_bytes(b"img-bytes")
 
@@ -1823,7 +1823,7 @@ class TestFilesRouter:
             assert revalidated.status_code == 304
 
     def test_serve_global_asset_scene_and_prop(self, tmp_path, monkeypatch):
-        """scene/prop 子目录也能正确读取"""
+        """scene/prop subdirectories read correctly"""
         client, pm = _client(monkeypatch, tmp_path)
         root = pm.get_global_assets_root()
         (root / "scene" / "s.png").write_bytes(b"scene-bytes")
@@ -1839,7 +1839,7 @@ class TestFilesRouter:
             assert r_prop.content == b"prop-bytes"
 
     def test_global_asset_invalid_type_returns_400(self, tmp_path, monkeypatch):
-        """非法 asset_type 返回 400"""
+        """Invalid asset_type returns 400"""
         client, _ = _client(monkeypatch, tmp_path)
 
         with client:
@@ -1847,7 +1847,7 @@ class TestFilesRouter:
             assert resp.status_code == 400
 
     def test_global_asset_missing_file_returns_404(self, tmp_path, monkeypatch):
-        """文件不存在时返回 404"""
+        """Missing files return 404"""
         client, _ = _client(monkeypatch, tmp_path)
 
         with client:
@@ -1855,16 +1855,16 @@ class TestFilesRouter:
             assert resp.status_code == 404
 
     def test_global_asset_path_traversal_rejected(self, tmp_path, monkeypatch):
-        """filename 中包含 .. 应被阻止（400/403/404 均可接受）"""
+        """filename containing .. rejects; 400/403/404 all acceptable"""
         client, _ = _client(monkeypatch, tmp_path)
 
         with client:
-            # URL 编码的 ../evil.png
+            # URL-encoded ../evil.png
             resp = client.get("/api/v1/global-assets/character/..%2Fevil.png")
             assert resp.status_code in (400, 403, 404)
 
     def test_global_asset_symlink_escape_returns_403(self, tmp_path, monkeypatch):
-        """在 global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
+        """External-file symlinks under global_assets/character/ fail resolve-relative checks with 403."""
         import os
         import sys
 
@@ -1875,11 +1875,11 @@ class TestFilesRouter:
 
         client, pm = _client(monkeypatch, tmp_path)
 
-        # 在 tmp_path 下(但不在 global_assets 里)创建一个外部目标文件
+        # Create external targets inside tmp_path but outside global_assets.
         outside = tmp_path / "outside.png"
         outside.write_bytes(b"secret")
 
-        # 在 global_assets/character/ 下建立指向外部目标的 symlink
+        # Link global_assets/character/ symlinks to external targets.
         global_dir = pm.get_global_assets_root() / "character"
         global_dir.mkdir(parents=True, exist_ok=True)
         link = global_dir / "evil.png"
@@ -1891,7 +1891,7 @@ class TestFilesRouter:
 
 
 class TestPublicFileRouteServesMediaOnly:
-    """公开文件路由只放行媒体目录内的媒体扩展名文件，其余与文件不存在同形返回 404。"""
+    """Public routes allow media extensions inside media directories only; all others return identical missing-file 404s."""
 
     @pytest.mark.parametrize(
         "rel_path",
@@ -2035,7 +2035,7 @@ def _write_png(path: Path, size: tuple[int, int]) -> Path:
 
 
 class TestServeProjectFileThumbnails:
-    """公开文件路由的 ?w= 缩略图：WebP、档位吸附、小图回原图、非图片忽略，白名单与缓存头不变。"""
+    """Public ?w= thumbnails: WebP/tier snapping/small-original fallback/nonimage ignore, unchanged whitelists/cache headers."""
 
     def test_returns_webp_thumbnail_at_snapped_width(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -2087,7 +2087,7 @@ class TestServeProjectFileThumbnails:
             assert revalidated.status_code == 304
             assert revalidated.content == b""
 
-            # 原图的 ETag 校验不到缩略图上
+            # Original-image ETags never validate thumbnails.
             mismatched = client.get(
                 "/api/v1/files/demo/storyboards/a.png?w=320", headers={"If-None-Match": original.headers["etag"]}
             )
@@ -2111,7 +2111,7 @@ class TestServeProjectFileThumbnails:
             assert thumbnail.size == (320, 320)
 
     def test_source_replaced_while_thumbnailing_falls_back_to_the_current_original(self, tmp_path, monkeypatch):
-        # 生成缩略图期间源图被替换，缩略图放弃发布；回退的原图按替换后的文件计算长度与 ETag
+        # Source replacement during thumbnail generation cancels publication; fallback originals use new lengths/ETags.
         client, pm = _client(monkeypatch, tmp_path)
         source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
         os.utime(source, (1_700_000_000, 1_700_000_000))
@@ -2120,7 +2120,7 @@ class TestServeProjectFileThumbnails:
         replaced: list[bool] = []
 
         def _replaced_while_decoding(fp, *args, **kwargs):
-            # 缩略图开始解码源图前，源图被重新生成替换
+            # Sources regenerate before thumbnail decoding starts.
             if not replaced and Path(fp) == source:
                 replaced.append(True)
                 _write_png(source, (2400, 1800))
@@ -2210,7 +2210,7 @@ class TestServeProjectFileThumbnails:
         assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-# ==================== Source 多格式上传 ====================
+# ==================== Multiformat source uploads ====================
 
 import io
 
@@ -2273,7 +2273,7 @@ class TestSourceMultiFormatUpload:
             _upload_source(client, "demo", "novel.txt", "旧内容".encode())
             resp = _upload_source(client, "demo", "novel.txt", "新内容".encode(), on_conflict="replace")
             assert resp.status_code == 200, resp.text
-            # 通过 GET 拉文本验证已替换
+            # GET text verifies replacement.
             get_resp = client.get("/api/v1/projects/demo/source/novel.txt")
             assert get_resp.status_code == 200
             assert get_resp.text == "新内容"
@@ -2292,7 +2292,7 @@ class TestSourceMultiFormatUpload:
         with client:
             raw = ("第一章\n" * 30).encode("gbk")
             _upload_source(client, "demo", "to_delete.txt", raw)
-            # 上传后应当存在 raw 备份
+            # Upload leaves raw backups.
             project_dir = pm.get_project_path("demo")
             raw_path = project_dir / "source" / "raw" / "to_delete.txt"
             assert raw_path.exists()
@@ -2300,11 +2300,11 @@ class TestSourceMultiFormatUpload:
             resp = client.delete("/api/v1/projects/demo/source/to_delete.txt")
             assert resp.status_code == 200
             assert not raw_path.exists()
-            # 源文件与原始上传件是同一条删除记录
+            # Source files/original uploads share deletion records.
             (record,) = project_trash.list_records(project_dir)
             assert sorted(record.files) == ["source/raw/to_delete.txt", "source/to_delete.txt"]
 
-            # 恢复为未纳入整本源文的源文件，原始上传件随之回原处
+            # Restore outside whole source; original uploads return to original locations too.
             project_trash.restore(project_dir, record.id)
             assert (project_dir / "source/to_delete.txt").is_file()
             assert raw_path.is_file()
@@ -2334,7 +2334,7 @@ class TestSourceMultiFormatUpload:
         (record,) = project_trash.list_records(project_dir)
         assert sorted(record.files) == ["source/old.txt", "source/raw/old.txt"]
 
-        # 原名已被新文件占用：旧文件与原始上传件一起换名加回，主干仍对应
+        # Occupied original names suffix-rename source/original uploads together, retaining matching stems.
         result = project_trash.restore(project_dir, record.id)
         assert sorted(item.path for item in result.restored) == ["source/old (1).txt", "source/raw/old (1).txt"]
         assert (project_dir / "source/old.txt").read_text(encoding="utf-8") == "新内容"
@@ -2348,7 +2348,7 @@ class TestSourceMultiFormatUpload:
         fail_project_json_write(monkeypatch, project_dir / "project.json")
         with client, pytest.raises(OSError, match="injected project write failure"):
             _upload_source(client, "demo", "extra.txt", "新内容".encode(), on_conflict="replace")
-        # 撤销时旧文件与原始上传件回到原处，删除记录撤回
+        # Undo restores source/original uploads and removes deletion records.
         assert (project_dir / "source/extra.txt").read_text(encoding="utf-8") == "旧内容"
         assert (project_dir / "source/raw/extra.docx").read_bytes() == b"docx"
         assert project_trash.list_records(project_dir) == []
@@ -2360,7 +2360,7 @@ class TestSourceMultiFormatUpload:
                 "/api/v1/projects/demo/upload/source?on_conflict=bogus",
                 files={"file": ("x.txt", io.BytesIO(b"hi"), "text/plain")},
             )
-            # FastAPI 用 Literal 自动校验 query param，非法值返回 422
+            # FastAPI Literal validates query values automatically; invalid values return 422.
             assert resp.status_code == 422
 
     def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
@@ -2401,10 +2401,10 @@ class TestSourceMultiFormatUpload:
 
 
 def _client_with_pm_raising(monkeypatch, sentinel: str):
-    """构造一个最小 app，其 get_project_manager 调用即抛 RuntimeError。
+    """Minimal apps whose get_project_manager immediately raises RuntimeError.
 
-    RuntimeError 不属于 FileNotFoundError / ValueError / UnicodeDecodeError /
-    HTTPException，会落到各路由的 except Exception 兜底分支，被映射成通用 500。
+    RuntimeError is neither FileNotFoundError / ValueError / UnicodeDecodeError /
+    HTTPException, reaching generic except Exception and mapping to 500.
     """
 
     def _raise():
@@ -2421,7 +2421,7 @@ def _client_with_pm_raising(monkeypatch, sentinel: str):
 
 
 class TestFilesUnexpectedErrorsMapTo500:
-    """未预期异常应映射为通用 500，且不在响应体泄露内部异常细节。"""
+    """Unexpected exceptions map to generic 500 without response-body internal leaks."""
 
     def test_upload_file_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "upload-boom-a1b2"
@@ -2482,7 +2482,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert sentinel not in resp.text
 
     def test_upload_style_image_vision_unsupported_maps_to_localized_400(self, tmp_path, monkeypatch):
-        """简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。"""
+        """Simple-tier models without vision return localized 400 detail, never raw Chinese technical messages."""
         from lib.backends.text_backends.base import TextTaskType
         from lib.config.resolver import VisionCapabilityError
 
@@ -2504,11 +2504,11 @@ class TestFilesUnexpectedErrorsMapTo500:
         detail = resp.json()["detail"]
         assert "AI Studio/Gemini 3.1 Flash Lite" in detail
         assert "vision" in detail
-        # 英文 zh 环境默认无 Accept-Language，走中文翻译文案，而非 __str__ 的英文技术消息
+        # Default zh without Accept-Language uses Chinese translations, never __str__ English technical errors.
         assert "不支持图像输入" in detail
 
     def test_upload_style_image_backend_value_error_maps_to_500_not_leaked(self, tmp_path, monkeypatch):
-        """非 vision 校验的后端构造 ValueError（如凭证文件路径缺失 project_id）不得原样透出为 400。"""
+        """Nonvision backend-construction ValueError, such as credential files lacking project_id, never leaks unchanged as 400."""
         sentinel = "/secret/vertex_keys/service-account-9f8e.json"
 
         async def _raise_backend_error(*args, **kwargs):

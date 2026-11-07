@@ -1,4 +1,4 @@
-"""图片生成服务层核心接口定义。"""
+"""Core interfaces for image-generation services."""
 
 from __future__ import annotations
 
@@ -21,30 +21,31 @@ if TYPE_CHECKING:
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
-    """将本地图片转为 base64 data URI。"""
+    """Convert local images to base64 data URIs."""
     return _image_to_data_uri(image_path, IMAGE_MIME_TYPES)
 
 
-async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
-    """从 URL 异步流式下载图片到本地文件；目的地与体积受产物下载入口约束。"""
+async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:  # noqa: ASYNC109 -- forward httpx I/O timeouts, not async cancellation deadlines.
+    """Stream image downloads asynchronously to local files under artifact destination/size guards."""
     async with artifact_http_client() as client:
         await stream_to_file(client, url, output_path, max_bytes=IMAGE_ARTIFACT_MAX_BYTES, timeout=timeout)
 
 
 async def save_image_from_response_item(item, output_path: Path) -> None:
-    """从 OpenAI 兼容 SDK 的 ``response.data[i]`` 提取图片并写入本地路径。
+    """Extract images from compatible OpenAI SDK ``response.data[i]`` into local files.
 
-    优先 ``b64_json``；为空降级到 ``url`` 下载；两者皆空抛 ``ValueError``。
+    Prefer ``b64_json``, fall back to ``url`` downloads when empty, raise ``ValueError`` if both are empty.
 
-    供应商响应已到手，解码与写盘属 docs/standards/backend.md「供应商返回之后的落账段不可中断」：
-    取消落在写盘期间时线程照常写完，取消随之消失，调用方后续的转码与产物提交照常执行。
-    复用本助手即满足该规则。URL 路径的网络取件仍可中断，最终改名不可中断，见规范中的说明。
+    Providers already responded: decoding/writing belongs to backend.md noninterruptible postresponse
+    accounting. Cancellation during writes lets threads finish and disappears; later caller transcoding /
+    artifact commits continue. Reusing this helper satisfies that rule. URL network retrieval remains
+    interruptible; final renames are not, as the standards explain.
     """
     b64 = getattr(item, "b64_json", None)
     if b64:
 
         def _decode_and_save() -> None:
-            # 解码 + 写盘统一 offload 到线程，避免在事件循环内做 CPU 密集 base64 解码
+            # Offload decoding/writes together, avoiding CPU-intensive base64 work on event loops.
             image_bytes = base64.b64decode(b64)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(image_bytes)
@@ -59,15 +60,15 @@ async def save_image_from_response_item(item, output_path: Path) -> None:
 
 
 class ImageCapability(StrEnum):
-    """图片后端支持的能力枚举。"""
+    """Supported image-backend capability enum."""
 
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
 
 
-#: 文生图与图生图都实现了的调用通道的通道事实。内置调用通道在类属性 ``CHANNEL_CAPABILITIES`` 上声明
-#: 自己实现了哪些（不构造实例即可读，见 ``registry.channel_capabilities``）；模型接不接受由模型条目说明，
-#: 生效能力取两者都满足的部分（见 ``lib.backends.image_capabilities``）。
+#: Facts for channels implementing both T2I/I2I. Built-ins declare class ``CHANNEL_CAPABILITIES``,
+#: readable without instances through ``registry.channel_capabilities``. Entries state model acceptance;
+#: effective capabilities intersect both sides (``lib.backends.image_capabilities``).
 BOTH_IMAGE_CAPABILITIES: frozenset[ImageCapability] = frozenset(
     {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 )
@@ -75,14 +76,14 @@ BOTH_IMAGE_CAPABILITIES: frozenset[ImageCapability] = frozenset(
 
 @dataclass
 class ReferenceImage:
-    """参考图片。参考图在 prompt 里按数组序位以「图N」指认，传输链只携带路径。"""
+    """Reference image, identified as 图N by prompt array order; transport carries paths only."""
 
     path: str
 
 
 @dataclass
 class ImageGenerationRequest:
-    """通用图片生成请求。各 Backend 忽略不支持的字段。"""
+    """Common image-generation request; backends ignore unsupported fields."""
 
     prompt: str
     output_path: Path
@@ -91,19 +92,19 @@ class ImageGenerationRequest:
     image_size: str | None = None
     project_name: str | None = None
     seed: int | None = None
-    #: 供应商响应的诊断回调，与 ``VideoGenerationRequest`` 同形。只有需要逐阶段留痕的调用方
-    #: （端点测试）会给它；生产的出图路径不收集留痕，保持 ``None``。
+    #: Provider-response diagnostics like ``VideoGenerationRequest``. Only callers needing stage snapshots
+    #: such as endpoint tests supply callbacks. Production image calls keep ``None``.
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None = None
 
 
 @dataclass(frozen=True)
 class ImageRequestFacts:
-    """提交前可知的请求事实，供调用通道推出预估用量（见各内置调用通道的 ``estimate_usage``）。
+    """Presubmission request facts for channel usage estimation, see built-in ``estimate_usage`` methods.
 
-    ``reference_count`` 是参考图张数；整批预估只知道走图生图、不知道几张时为 ``None``。``entry`` 是模型对应的条目
-    （对应不上时为 ``None``），调用通道从它读估算要用的模型事实，例如输出 token 的估算基数；由预估入口
-    :func:`lib.backends.image_usage.estimate_builtin_image_usage` 与
-    :meth:`lib.custom_provider.metering.CustomPriceSource.image_usage` 按与执行时同一个来源填入。
+    ``reference_count`` is image count, ``None`` when batch estimates know I2I but not counts.
+    ``entry`` identifies model entries, ``None`` when unmatched, from which channels read estimation
+    facts such as output-token bases. :func:`lib.backends.image_usage.estimate_builtin_image_usage`
+    and :meth:`lib.custom_provider.metering.CustomPriceSource.image_usage` populate them from execution's source.
     """
 
     model: str
@@ -113,16 +114,18 @@ class ImageRequestFacts:
     entry: CatalogEntry | None = None
 
 
-#: 内置调用通道的预估函数：按请求事实推出会发送的请求字段与用量，与 ``generate`` 构造请求用同一套变换。
+#: Built-in estimators derive sent fields/usage from request facts, sharing ``generate`` request transformations.
 ImageUsageEstimator = Callable[[ImageRequestFacts], Usage]
 
 
 @dataclass
 class ImageGenerationResult:
-    """通用图片生成结果。
+    """Common image-generation result.
 
-    ``usage`` 是调用通道按用量契约上报的这次请求的计量项与选择维度（docs/adr/0100）：选择维度取自真正发给供应商
-    的请求字段，计量项只报实际发生的。内置调用通道都上报；自定义供应商的包装层在被包装的通道不报时按通用口径补上（见 :mod:`lib.custom_provider.metering`）。
+    ``usage`` reports metering items and selection dimensions under contracts (docs/adr/0100).
+    Dimensions come from actually sent fields; meter only actual usage. Built-ins all report it;
+    custom wrappers supplement generic values when wrapped channels omit it
+    (:mod:`lib.custom_provider.metering`).
     """
 
     image_path: Path
@@ -131,7 +134,7 @@ class ImageGenerationResult:
     image_uri: str | None = None
     seed: int | None = None
     usage_tokens: int | None = None
-    # OpenAI GPT Image 系列的 token 用量拆分（其它 backend 默认 None）
+    # OpenAI GPT Image token splits; other backends default None.
     image_input_tokens: int | None = None
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None
@@ -145,9 +148,10 @@ def per_image_usage(
     input_images: int | None,
     dimensions: dict[str, object] | None = None,
 ) -> Usage:
-    """按张计价的调用通道上报的用量：输出张数、参考图张数与选择维度。
+    """Per-image channel usage: output/reference counts and selection dimensions.
 
-    参考图张数为 0 也照报：预估时缺一项用量就无从估算。``None`` 表示不知道几张（只出现在预估中），不报。
+    Report zero reference counts too: missing metering prevents estimation. ``None`` means unknown
+    counts, only in estimates, and is omitted.
     """
     quantities: dict[str, float] = {}
     if output_images is not None:
@@ -158,7 +162,7 @@ def per_image_usage(
 
 
 class ImageBackend(Protocol):
-    """图片生成后端协议。"""
+    """Image-generation backend protocol."""
 
     @property
     def name(self) -> str: ...
@@ -166,16 +170,17 @@ class ImageBackend(Protocol):
     def model(self) -> str: ...
     @property
     def capabilities(self) -> set[ImageCapability]:
-        """这条调用通道实现了文生图还是图生图（通道事实，不含模型事实）。"""
+        """Channel-implemented text/image-to-image facts, excluding model facts."""
         ...
 
     async def reference_image_limit(self) -> int | None:
-        """这条调用通道单请求可携带的参考图上限（通道事实）；``None`` = 通道本身不限张数。
+        """Channel per-request reference limit; ``None`` means channel-unbounded counts.
 
-        内置调用通道在类属性 ``CHANNEL_REFERENCE_LIMIT`` 上静态声明，这里返回同一个值；模型本身的上限记在条目上，
-        不在调用通道里按型号名区分。生效值由两侧取较小值得出（``lib.backends.image_capabilities``），编排层据此在
-        渲染「图N」编号前裁剪参考图序列（见 ``lib.prompts.reference_image_numbering.clamp_reference_images``）。
-        异步：上限可能要向供应商的模型目录查询才知道（如 OpenRouter 按模型声明的 ``input_references``）。
+        Built-ins statically declare ``CHANNEL_REFERENCE_LIMIT`` and return it here. Model-specific limits
+        belong to entries, never name-based channel branches. Effective minima come from
+        ``lib.backends.image_capabilities``. Orchestration clips before rendering 图N indices
+        (``lib.prompts.reference_image_numbering.clamp_reference_images``). Asynchronous because channels
+        such as OpenRouter may query model catalogs for ``input_references``.
         """
         ...
 
@@ -183,9 +188,9 @@ class ImageBackend(Protocol):
 
 
 class ImageOutputMissingError(RuntimeError):
-    """供应商成功响应却没有带回图片（常见于内容安全过滤命中或上游异常）。
+    """Successful provider responses without images, often moderation filters or upstream anomalies.
 
-    与 :class:`ImageCapabilityError` 一样只带稳定 code 与 params，文案由读侧按语言渲染。
+    Like :class:`ImageCapabilityError`, carry stable codes/params only; readers render localized copy.
     """
 
     code = "image_output_missing"
@@ -196,7 +201,7 @@ class ImageOutputMissingError(RuntimeError):
 
 
 class ImageOutputFormatError(RuntimeError):
-    """供应商返回的图片格式无法作为位图产物使用（如矢量 SVG），携带稳定 code 与 params。"""
+    """Provider images cannot serve as bitmap artifacts, such as vector SVG; carry stable code/params."""
 
     code = "image_output_format_unsupported"
 
@@ -206,11 +211,10 @@ class ImageOutputFormatError(RuntimeError):
 
 
 class ImageCapabilityError(RuntimeError):
-    """图像后端能力不匹配（endpoint mismatch / generator gating 共用）。
+    """Image capability mismatch shared by endpoint matching/generator gates.
 
-    不携带本地化字符串，只带稳定 code + 上下文 params；
-    路由层直接 _t(code, **params) 渲染，Worker 则按 code + params 落 task.error_message，
-    文案留到读侧按 Accept-Language 渲染。
+    Carry stable code/context params, never localized strings. Routers render _t(code, **params);
+    Workers store code/params in task.error_message, leaving copy to readers using Accept-Language.
     """
 
     def __init__(self, code: str, **params) -> None:

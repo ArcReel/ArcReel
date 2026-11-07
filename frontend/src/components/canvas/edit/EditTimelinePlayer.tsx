@@ -18,9 +18,9 @@ interface EditTimelinePlayerProps {
   plan: PlaybackPlan;
   playback: TimelinePlayback;
   aspect: PreviewAspect;
-  /** 当前片段；定格与占位期间同样有值，没有可播放片段时为 undefined。 */
+  /** Current clip, also set during freezes/placeholders; undefined without playable clips. */
   current: EditClip | undefined;
-  /** 视频单元 ID → 它在本集里的当前位置。 */
+  /** Video-unit ID → current position in this episode. */
   positions: ReadonlyMap<string, number>;
   trimIgnored: boolean;
   subtitles: readonly PlacedSubtitle[];
@@ -29,8 +29,8 @@ interface EditTimelinePlayerProps {
 }
 
 /**
- * 播放画面与播放控制：两个 `<video>` 叠放，只显示当前那一个；字幕按剪映草稿的样式比例叠在画面上。
- * 画面按所在格子的宽高缩放：舞台是尺寸容器，画框取「容器宽」与「容器高 × 画幅比」中较小的一个。
+ * Picture/playback controls: stack two `<video>` elements, displaying only the current one; overlay subtitles at Jianying-draft style proportions.
+ * Scale to the containing cell: stage is a size container, frame takes the smaller of container width and container height × aspect ratio.
  */
 export function EditTimelinePlayer({
   plan,
@@ -68,12 +68,12 @@ export function EditTimelinePlayer({
           {playback.videoRefs.map((ref, slot) => {
             const visible = showVideo && playback.visibleSlot === slot;
             return (
-              // react-doctor-disable-next-line react-doctor/media-has-caption -- 字幕由剪辑时间线的字幕轨叠加显示，不走 <track>
-              <video // eslint-disable-line jsx-a11y/media-has-caption -- 字幕由字幕轨叠加显示
+              // react-doctor-disable-next-line react-doctor/media-has-caption -- Timeline subtitles overlay through the subtitle track, not <track>
+              <video // eslint-disable-line jsx-a11y/media-has-caption -- Subtitles overlay through the subtitle track
                 key={slot}
                 ref={ref}
                 playsInline
-                // 播放过之前只拉元数据与定位处的画面；开始播放后整段缓冲，切换片段才能无缝
+                // Before first playback load only metadata/seek-position frames; afterward buffer full clips for seamless switching.
                 preload={playback.started ? "auto" : "metadata"}
                 data-testid={`edit-player-video-${slot}`}
                 className="absolute inset-0 size-full object-contain opacity-(--stage-opacity)"

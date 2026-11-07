@@ -1,4 +1,4 @@
-"""内置供应商的供应商模型经调用端点装配：每个「供应商 + 媒体类型」声明可选端点与默认端点，模型挂哪个端点决定请求。"""
+"""Built-in provider models assemble through declared selectable/default endpoints per provider/media; endpoint selection determines requests."""
 
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ class TestAssemblyFollowsTheEndpoint:
         _install(catalog.UserAddedModel("minimax", "acme-video", "video", endpoint="minimax-hailuo-v1-fast"))
 
         assert _built_endpoint_and_text_to_video("minimax", "acme-video") == ("minimax-hailuo-v1-fast", False)
-        # Fast 只接受图生视频：通道能力随端点变，与模型名无关
+        # Fast accepts image-to-video only; channel capability follows endpoints, never model names.
         assert declared_builtin_video_capabilities("minimax", "acme-video").text_to_video is False
 
     def test_the_same_endpoint_declares_the_same_capabilities_whatever_the_model_name(self, user_added: None):
@@ -138,7 +138,7 @@ class TestAssemblyFollowsTheEndpoint:
         assert declared.default == "ark-seedance-2"
 
     def test_a_user_added_ark_model_is_built_through_the_seedance_endpoint_it_chose(self, user_added: None):
-        """不透明 ID 挂哪一代端点，就按哪一代的请求结构与计量；通道声明随端点变，与模型名无关。"""
+        """Opaque IDs use selected-generation endpoint request/metering shapes; capabilities depend on endpoints, not names."""
         from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 
         for endpoint, backend in SEEDANCE_BACKENDS.items():
@@ -150,7 +150,7 @@ class TestAssemblyFollowsTheEndpoint:
             ) == backend.video_capabilities_for_model("ep-20261104-opaque")
 
     def test_an_unrecorded_endpoint_uses_the_default_regardless_of_entry_binding(self, user_added: None):
-        """没有记下端点时用默认端点；条目绑定只决定模型事实。"""
+        """Absent endpoint records use defaults; entry bindings determine model facts only."""
         _install(
             catalog.UserAddedModel("ark", "ep-bound", "video", entry_binding="bytedance/doubao-seedance-2.5"),
             catalog.UserAddedModel("ark", "ep-unbound", "video"),
@@ -167,14 +167,14 @@ class TestPrefill:
             ("minimax", "video", "MiniMax-H3-Preview", "minimax-h3"),
             ("minimax", "video", "S2V-01", "minimax-s2v-01"),
             ("minimax", "video", "acme-video", "minimax-hailuo-v1"),
-            # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
+            # Names implying another provider’s endpoint fall back to this provider’s default.
             ("grok", "video", "grok-imagine-video-2", "grok-video-classic"),
             ("grok", "video", "grok-imagine-video", "grok-video-classic"),
             ("vidu", "video", "viduq2", "vidu-video-q2"),
             ("vidu", "video", "viduq3-pro", "vidu-video-q3-pro"),
             ("vidu", "video", "viduq4-preview", "vidu-video-q4"),
             ("kling", "video", "kling-v2-6", "kling-video-pro-audio"),
-            # 只在新版 API 上提供的型号
+            # Models exclusive to newer APIs
             ("kling", "video", "kling-4.0", "kling-video-model-path"),
             ("kling", "video", "kling-4.0-flash", "kling-video-model-path"),
             ("kling", "video", "kling-3.0-turbo", "kling-video-model-path"),
@@ -183,7 +183,7 @@ class TestPrefill:
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),
             ("ark", "video", "doubao-seedance-1-5-pro-251215", "ark-seedance-1"),
             ("ark", "video", "ep-20261104-opaque", "ark-seedance-2"),
-            # 百炼语音：qwen-audio-*-tts 走 SpeechSynthesizer，其余落回默认的 multimodal 端点
+            # Bailian qwen-audio-*-tts uses SpeechSynthesizer; others fall back to default multimodal.
             ("dashscope", "audio", "qwen-audio-3.1-tts-flash", "dashscope-speech-synthesizer"),
             ("dashscope", "audio", "qwen-audio-3.0-tts-plus", "dashscope-speech-synthesizer"),
             ("dashscope", "audio", "qwen3-tts-flash", "dashscope-tts"),

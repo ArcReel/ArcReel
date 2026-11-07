@@ -19,7 +19,7 @@ def test_migration_rewrites_non_utf8_txt_in_place(tmp_path: Path):
     assert summary.migrated == [target.name]
     assert summary.failed == []
     assert target.read_text(encoding="utf-8").startswith("第一章")
-    # 原文件备份到 source/raw/
+    # Back up original files under source/raw/.
     assert (project / "source" / "raw" / "novel.txt").exists()
 
 
@@ -31,23 +31,23 @@ def test_migration_skips_already_utf8(tmp_path: Path):
     summary = migrate_project_source_encoding(project)
     assert summary.migrated == []
     assert summary.skipped == [target.name]
-    # 原内容不变
+    # Original content unchanged.
     assert target.read_text(encoding="utf-8") == "已是 UTF-8"
-    # 不创建 raw 备份
+    # Create no raw backup.
     assert not (project / "source" / "raw").exists()
 
 
 def test_migration_records_failures_without_raising(tmp_path: Path):
     project = _make_project(tmp_path, "p3")
     bad = project / "source" / "garbage.txt"
-    # 使用固定种子的伪随机字节，确保 gb18030 兜底产生 >5% 的 \ufffd，触发 SourceDecodeError
+    # Fixed-seed pseudorandom bytes make gb18030 fallback yield >5% \ufffd, triggering SourceDecodeError.
     rng = random.Random(42)
     original_bytes = bytes(rng.randint(0, 255) for _ in range(4000))
     bad.write_bytes(original_bytes)
 
     summary = migrate_project_source_encoding(project)
     assert summary.failed == [bad.name]
-    # 文件未被改动
+    # File unchanged.
     assert bad.read_bytes() == original_bytes
 
 

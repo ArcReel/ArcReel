@@ -148,7 +148,7 @@ def test_video_artifact_currency_accepts_unlimited_reference_projection_but_reje
 
 @pytest.mark.parametrize("speakers", [[123], [["阿离"]], [{"name": "阿离"}]])
 def test_video_artifact_currency_rejects_non_string_speakers_as_value_error(speakers: list[object]) -> None:
-    """checkpoint JSON 损坏时调用方只接 ValueError，形状错误不得漏成其他异常。"""
+    """Corrupt checkpoint JSON exposes only ValueError; shape errors must not escape as other exceptions."""
 
     raw = _facts().to_dict()
     raw["voice_style_speakers"] = speakers
@@ -188,7 +188,7 @@ _REFERENCE_VISUAL_INPUTS: dict[str, object] = {
 
 
 def test_video_artifact_currency_accepts_reference_visual_style_description() -> None:
-    """自定义风格项目的参考视频依据带非空风格描述，冻结事实照常自证。"""
+    """Custom-style reference-video provenance has nonempty descriptions; frozen facts still verify themselves."""
     facts = _reference_facts({**_REFERENCE_VISUAL_INPUTS, "style_description": "柔光水彩"})
 
     assert VideoArtifactCurrencyFacts.from_dict(facts.to_dict()) == facts
@@ -196,7 +196,7 @@ def test_video_artifact_currency_accepts_reference_visual_style_description() ->
 
 @pytest.mark.parametrize("description", ["", 7])
 def test_video_artifact_currency_rejects_empty_or_non_string_style_description(description: object) -> None:
-    """描述为空时依据不记该键；空串或非字符串不是构造函数能写出的形态。"""
+    """Empty descriptions omit the key; empty-string/nonstring values cannot be constructed."""
     with pytest.raises(ValueError, match="reference visual basis has invalid canonical inputs"):
         _reference_facts({**_REFERENCE_VISUAL_INPUTS, "style_description": description})
 
@@ -204,7 +204,7 @@ def test_video_artifact_currency_rejects_empty_or_non_string_style_description(d
 def _gapped_facts(
     *, frames: list[dict[str, object]], absent: list[dict[str, object]] | None
 ) -> VideoArtifactCurrencyFacts:
-    """分镜图不可用、单位混合发声：视觉与发声依据都带缺席记录（``docs/adr/0098``）。"""
+    """Unavailable storyboard/mixed-speech units record missing visual and speech provenance (``docs/adr/0098``)."""
     visual_inputs: dict[str, object] = {
         "resource_id": "E1S01",
         "visual_prompt": None,

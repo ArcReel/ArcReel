@@ -1,4 +1,4 @@
-"""Onboarding 引导状态路由测试。"""
+"""Onboarding-state route tests."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _make_app(session_factory) -> FastAPI:
             await session.commit()
 
     app.dependency_overrides[get_async_session] = override_session
-    # 认证依赖挂在注册处，mini app 须与 server/app.py 的挂法一致，否则测不到真实的鉴权行为。
+    # Registration-level authentication must match server/app.py in mini apps to test real authorization.
     app.include_router(onboarding.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
@@ -40,7 +40,7 @@ async def onboarding_client(db_factory):
 @pytest_asyncio.fixture
 async def unauth_client(db_factory, monkeypatch):
     """No dependency override → real auth applies → expects 401/403."""
-    # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，本 fixture 就测不到拒绝。
+    # AUTH_ENABLED=false returns anonymous admin directly, preventing rejection coverage.
     monkeypatch.setenv("AUTH_ENABLED", "true")
     app = _make_app(db_factory)
     transport = ASGITransport(app=app)
@@ -77,7 +77,7 @@ async def test_mark_seen_is_idempotent(onboarding_client) -> None:
 
 @pytest.mark.asyncio
 async def test_mark_seen_persists_flag_under_expected_key(onboarding_client, db_factory) -> None:
-    """标记写在实例级 SystemSetting 的 `onboarding_seen` 上，不是内存态。"""
+    """Markers persist in instance SystemSetting `onboarding_seen`, never memory only."""
     await onboarding_client.post("/api/v1/onboarding/seen")
 
     async with db_factory() as session:
@@ -87,7 +87,7 @@ async def test_mark_seen_persists_flag_under_expected_key(onboarding_client, db_
 
 @pytest.mark.asyncio
 async def test_mark_seen_writes_only_the_flag(onboarding_client, db_factory) -> None:
-    """零副作用：标记引导只落一个 setting，不碰其他配置。"""
+    """No side effects: onboarding writes one setting without other configuration changes."""
     async with db_factory() as session:
         before = await ConfigService(session).get_all_settings()
 

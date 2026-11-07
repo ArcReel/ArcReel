@@ -1,4 +1,4 @@
-"""对象存储连接 repository。"""
+"""Object-storage connection repository."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ from lib.db.repositories.base import BaseRepository
 
 
 class ObjectStorageConnectionRepository(BaseRepository):
-    """实例至多一条当前对象存储连接；``get`` 取这一条，``save`` 新建或原位更新。
+    """At most one current object-storage connection per instance; ``get`` reads it and ``save`` creates or updates it in place.
 
-    并发首次保存时，后提交的一方在插入时触发唯一索引冲突（``IntegrityError``），由调用方回滚后按更新重做。
+    Concurrent first saves cause a unique-index conflict (``IntegrityError``) for the later insert;
+    the caller rolls back and retries as an update.
     """
 
     async def get(self) -> ObjectStorageConnection | None:
@@ -29,7 +30,7 @@ class ObjectStorageConnectionRepository(BaseRepository):
         access_key_id: str | None,
         secret_access_key: str | None,
     ) -> ObjectStorageConnection:
-        """写入连接配置。密钥字段传 None 表示保留已保存的值；新建时由调用方保证两个密钥都已给出。"""
+        """Write connection configuration. None secret fields retain saved values; callers must supply both secrets when creating a connection."""
         conn = await self.get()
         if conn is None:
             conn = ObjectStorageConnection(

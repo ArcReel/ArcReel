@@ -1,21 +1,21 @@
 import type { CapabilityOverrides, EndpointRequest, MatchedCatalogEntry, PathOverrides } from "./custom-provider";
 
 /**
- * 声音一致性三级标识，与 `lib/config/resolver.py::VoiceConsistency` 一一对应。
- * 档位值全部由服务端派生，前端只做渲染映射，不复制派生公式。
+ * Three-tier voice consistency indicator, matching `lib/config/resolver.py::VoiceConsistency` exactly.
+ * All tiers are derived by the server; the frontend maps them to presentation without copying derivation formulas.
  */
 export type VoiceConsistencyTier = "native" | "soft" | "none";
 
 /**
- * 成片音轨形态，与 `packages/arcreel-market-core/src/arcreel_market_core/video_backend_contract.py::VideoAudioMode` 一一对应：
- * `controllable` = 请求带音轨开关，用户的开/关意图能抵达供应商；`always_on` = 恒有声、无开关；
- * `always_off` = 该路径不产音轨、也无开关。三态由服务端从 backend 声明派生，前端不合成。
+ * Output audio track mode, matching `packages/arcreel-market-core/src/arcreel_market_core/video_backend_contract.py::VideoAudioMode` exactly:
+ * `controllable` = the request carries an audio switch that forwards the user's on/off choice to the provider; `always_on` = always has audio, without a switch;
+ * `always_off` = this route produces no audio track and has no switch. The server derives all three states from backend declarations; the frontend does not synthesize them.
  */
 export type VideoAudioControl = "controllable" | "always_on" | "always_off";
 
 /**
- * 视频执行路径（任务类型桶），与 `lib/config/resolver.py::VideoGenerationType` 一一对应：
- * `i2v` 覆盖文生与图生首帧，`r2v` 是参考生视频。逐路径的能力位按它取值。
+ * Video execution route (task type bucket), matching `lib/config/resolver.py::VideoGenerationType` exactly:
+ * `i2v` covers text-to-video and first-frame image-to-video; `r2v` is reference-to-video. Per-route capability flags use this value.
  */
 export type VideoRoute = "i2v" | "r2v";
 
@@ -24,18 +24,18 @@ export interface ModelInfoResponse {
   media_type: string;
   capabilities: string[];
   default: boolean;
-  // 型号声明的时长全集。分辨率 / 参考图联动约束不在目录里：收窄结果由 video-capabilities
-  // 端点按上下文算好回传（见 types/project.ts::DurationConstraints），前端不持有规则。
+  // Full duration set declared by the model. Coupled resolution / reference-image constraints are outside the catalog: narrowed results are calculated by video-capabilities
+  // endpoints for the context (see types/project.ts::DurationConstraints); the frontend does not own the rules.
   supported_durations: number[];
   resolutions: string[];
-  // 成片音轨形态（可控 / 恒有声 / 恒无声），按执行路径各给一份：同一 model 在图生与参考生两条
-  // 子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带音轨开关，成片必然无声）。
-  // 服务端从 backend 的 VideoCapabilities 派生，前端只取值、不合成三态；非视频 model 恒
-  // always_off。见 utils/provider-models.ts::lookupVideoAudioControl。
+  // Output audio mode (controllable / always on / always off), provided per execution route: the same model may use different request shapes for image and reference
+  // video subroutes (Kling v3-omni's multi-image subject subroute has no audio switch and always produces silent output).
+  // The server derives this from backend VideoCapabilities; the frontend only reads values and never synthesizes the states. Non-video models always use
+  // always_off. See utils/provider-models.ts::lookupVideoAudioControl.
   audio_track: VideoAudioControl;
   reference_route_audio_track: VideoAudioControl;
-  // 无项目上下文时的声音一致性档位，服务端派生（generation_mode 未知，native 恒降格）。
-  // 有项目上下文的页面改用 /projects/{name}/video-capabilities 的同名字段，不读这里。
+  // Server-derived voice consistency tier without project context (generation_mode is unknown, so native is always downgraded).
+  // Pages with project context use the same-named field from /projects/{name}/video-capabilities instead of this one.
   voice_consistency: VoiceConsistencyTier;
 }
 
@@ -46,7 +46,7 @@ export interface ProviderInfo {
   status: "ready" | "unconfigured" | "error";
   media_types: string[];
   capabilities: string[];
-  /** 凭证（界面称「密钥」）条数；没有凭证时为 0。 */
+  /** Number of credentials (called Keys in the UI); 0 when no credentials exist. */
   credential_count: number;
   models: Record<string, ModelInfoResponse>;
 }
@@ -62,8 +62,8 @@ export interface ProviderField {
   placeholder?: string;
 }
 
-// 凭证表单需渲染的 secret 输入字段（后端按 required ∩ secret ∩ 凭证键派生，单一真相源）。
-// 单 secret provider → [api_key]；可灵 → [access_key, secret_key]。
+// Secret inputs rendered by the credential form (derived by the backend from required ∩ secret ∩ credential keys, the single source of truth).
+// Single-secret provider → [api_key]; Kling → [access_key, secret_key].
 export interface CredentialSecretField {
   key: string;
   label: string;
@@ -76,12 +76,12 @@ export interface ProviderConfigDetail {
   status: "ready" | "unconfigured" | "error";
   media_types?: string[];
   fields: ProviderField[];
-  // 凭证是否支持自定义 base_url（后端按 optional_keys 派生，单一真相源）
+  // Whether credentials support a custom base_url (derived by the backend from optional_keys, the single source of truth)
   supports_base_url: boolean;
-  // 凭证表单应渲染的 secret 字段（有序）
+  // Secret fields to render in the credential form, in order
   secret_fields: CredentialSecretField[];
-  // 凭证「二选一」分组：满足任一组（组内字段全填）即视为凭证完整；单组场景（绝大多数
-  // provider）等价于「全部 secret_fields 必填」的旧语义。可灵为 [["api_key"], ["access_key", "secret_key"]]。
+  // Alternative credential groups: completing any group (all its fields filled) makes credentials complete; a single group (most
+  // providers) is equivalent to the previous requirement that all secret_fields be filled. Kling uses [["api_key"], ["access_key", "secret_key"]].
   secret_field_groups: string[][];
 }
 
@@ -98,7 +98,7 @@ export interface ProviderCredential {
   api_key_masked: string | null;
   credentials_filename: string | null;
   base_url: string | null;
-  // 逐字段独立脱敏的双 secret（可灵）；其余 provider 为 null/缺省
+  // Two independently masked secret fields (Kling); null/absent for other providers
   access_key_masked?: string | null;
   secret_key_masked?: string | null;
   is_active: boolean;
@@ -108,7 +108,7 @@ export interface ProviderCredential {
 export type CallType = "image" | "video" | "text" | "audio";
 
 
-/** 价格摘要里一个计费项的单价范围；`per` 是单价对应的计数量（每百万 token 为 1000000，每张、每秒为 1）。 */
+/** Unit-price range for one meter in a price summary; `per` is the quantity corresponding to the unit price (1000000 for per-million tokens; 1 for per-image or per-second). */
 export interface PriceSummaryItem {
   meter: string;
   min_price: number;
@@ -122,61 +122,61 @@ export interface PriceSummary {
 }
 
 /**
- * 供应商模型的状态标记：`discontinued` 已下线；`retiring` 即将下线（关停日期见 `lifecycle`）；
- * `unpriced` 调用费用会记为未定价；`modified` 用户改过对应的模型信息，不再随官方更新。
+ * Provider model status flags: `discontinued` is offline; `retiring` is due to go offline (see `lifecycle` for the shutdown date);
+ * `unpriced` records call costs as unpriced; `modified` means the user changed the corresponding model information, which no longer follows official updates.
  */
 export type ProviderModelFlag = "discontinued" | "retiring" | "unpriced" | "modified";
 
 /**
- * 供应商模型所对应条目在今天（UTC 日期）的生命周期。`successor` 是官方后继的「模型厂商/官方模型名」；
- * 对应不上条目的模型为 `available`，日期与后继为 null。
+ * Lifecycle of the entry matched to the provider model as of today (UTC date). `successor` is the official successor's "model maker/official model name";
+ * models without a matching entry are `available`, with null dates and successor.
  */
 export interface ProviderModelLifecycle {
   status: "available" | "retiring" | "discontinued";
-  /** ISO 日期（YYYY-MM-DD）。 */
+  /** ISO date (YYYY-MM-DD). */
   shutdown_date: string | null;
   successor: string | null;
 }
 
-/** 供应商详情模型列表的一行（GET /providers/{id}/models），内置与自定义供应商共用。 */
+/** One provider detail model-list row (GET /providers/{id}/models), shared by built-in and custom providers. */
 export interface ProviderModelItem {
-  /** 设置与项目里引用这个模型的模型键。 */
+  /** Model key used to reference this model in settings and projects. */
   model_id: string;
   api_model_name: string;
-  /** 没有显示名时界面显示模型 ID。 */
+  /** The UI shows the model ID when no display name exists. */
   display_name: string | null;
   media_type: "text" | "image" | "video" | "audio";
   enabled: boolean;
   is_default: boolean;
-  /** 内置供应商官方收录的模型，只能启用、停用。 */
+  /** An officially listed model of a built-in provider; may only be enabled or disabled. */
   official: boolean;
   flags: ProviderModelFlag[];
   price: PriceSummary | null;
-  /** 已下线的模型仍在列表里，但不进入任何候选、也不能调用。 */
+  /** Discontinued models remain in the list but are never candidates and cannot be called. */
   lifecycle: ProviderModelLifecycle;
-  /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
+  /** Endpoint key for a custom provider model; null for built-in providers. */
   endpoint: string | null;
-  /** 官方收录的模型标注的最低应用版本；没有标注、或不是官方收录的模型时为 null。 */
+  /** Minimum app version annotated on an officially listed model; null when absent or when the model is not officially listed. */
   min_app_version: string | null;
   /**
-   * 应用版本达到 `min_app_version`。不满足的模型排在列表末尾，不启用、不作默认，不进入任何候选、也不能调用；
-   * 不能启用，也没有模型设置可打开。
+   * The app version meets `min_app_version`. Models that do not meet it are placed at the end, disabled, excluded from defaults and candidates, and cannot be called;
+   * they cannot be enabled and have no model settings to open.
    */
   min_app_version_satisfied: boolean;
 }
 
-/** 供应商模型列表（GET /providers/{id}/models）；`discoverable` 为真时可以「获取模型」。 */
+/** Provider model list (GET /providers/{id}/models); when `discoverable` is true, models can be fetched. */
 export interface ProviderModelsResponse {
   models: ProviderModelItem[];
   discoverable: boolean;
 }
 
 /**
- * 「获取模型」获取到的一个模型（POST /providers/{id}/models/discover）。
- * - `recognized`：自定义供应商为名字对应上了条目；内置供应商为对上了清单里官方收录的模型，`model_key` 是它的模型键。
- * - `media_type`：对应上的取条目的，对应不上的按名字推断。
- * - `endpoint`、`endpoint_by_media_type`：自定义供应商的默认调用端点，以及改为对应其他媒体类型的条目时各媒体类型下的
- *   默认端点；内置供应商为 null。
+ * One model returned by Fetch Models (POST /providers/{id}/models/discover).
+ * - `recognized`: for custom providers, the name matched an entry; for built-in providers, it matched an officially listed model, whose key is `model_key`.
+ * - `media_type`: taken from a matching entry, otherwise inferred from the name.
+ * - `endpoint`, `endpoint_by_media_type`: the custom provider's default endpoint and per-media-type default endpoints when switching to entries of other media types;
+ *   null for built-in providers.
  */
 export interface FetchedProviderModel {
   model_id: string;
@@ -190,14 +190,14 @@ export interface FetchedProviderModel {
   is_default: boolean;
 }
 
-/** 获取模型的结果；`not_applicable` 为真时这个供应商没有模型列表接口，`reason` 是可直接展示的说明。 */
+/** Fetch Models result; when `not_applicable` is true, this provider has no model-list API and `reason` is ready-to-display explanatory text. */
 export interface FetchProviderModelsResponse {
   models: FetchedProviderModel[];
   not_applicable: boolean;
   reason: string | null;
 }
 
-/** 按 ID 添加模型（POST /providers/{id}/models）。`endpoint` 只用于自定义供应商，不给时按名字推断。 */
+/** Add a model by ID (POST /providers/{id}/models). `endpoint` applies only to custom providers and is inferred from the name when omitted. */
 export interface AddProviderModelRequest {
   model_id: string;
   media_type?: ProviderModelItem["media_type"];
@@ -207,18 +207,18 @@ export interface AddProviderModelRequest {
 
 export interface AddProviderModelResponse {
   model: ProviderModelItem;
-  /** 对上了官方收录的模型，添加即启用它。 */
+  /** Matched an officially listed model; adding enables it. */
   official: boolean;
 }
 
-/** 能力覆盖的维度键。 */
+/** Capability override dimension key. */
 export type CapabilityKey = keyof CapabilityOverrides;
 
 /**
- * 「这个供应商支持的参数」（GET /providers/{id}/models/{model}）：
- * `base` 是没有能力覆盖时运行时采用的值（模型条目与调用通道两侧求值的结果），`null` 表示两侧都没有声明（未收录）；
- * `overrides` 是生效的能力覆盖；`effective` 是叠加覆盖后的生效值；`editable` 是可以修改的维度，按界面顺序，
- * 官方收录的模型为空；`displayed` 是界面要显示的全部维度，按界面顺序，不在 `editable` 里的只读。
+ * Parameters supported by this provider (GET /providers/{id}/models/{model}):
+ * `base` is the runtime value without overrides (evaluated from the catalog entry and backend); `null` means neither declares it (unrecorded);
+ * `overrides` contains active capability overrides; `effective` contains effective values after overrides; `editable` lists editable dimensions in UI order,
+ * empty for officially listed models; `displayed` lists all displayed dimensions in UI order, with dimensions outside `editable` read-only.
  */
 export interface ProviderModelCapabilities {
   media_type: ProviderModelItem["media_type"];
@@ -229,12 +229,12 @@ export interface ProviderModelCapabilities {
   effective: Partial<Record<CapabilityKey, unknown>>;
 }
 
-/** 价目表里一个选择维度的取值：上下文档的下界与时长秒数是数字，是否有声等是布尔，分辨率、服务档是文字。 */
+/** A price table selection dimension value: numbers for context tier lower bounds and duration seconds, booleans for flags such as audio, and strings for resolution and service tier. */
 export type PriceDimensionValue = string | number | boolean;
 
 /**
- * 模型条目的价目表（目录数据的格式）：单币种，由若干计费项组成，每个计费项按选择维度分档，
- * 每档一行「条件 → 单价」。`defaults` 是请求缺少某个维度取值时使用的取值；`free_allowance` 是单请求免费额度。
+ * Catalog entry price table (catalog data format): single-currency, composed of meters, each divided into tiers by selection dimensions,
+ * with one condition → unit price row per tier. `defaults` supplies missing request dimension values; `free_allowance` is the free allowance per request.
  */
 export interface CatalogPriceTable {
   currency: string;
@@ -248,10 +248,10 @@ export interface CatalogPriceTable {
   }[];
 }
 
-/** 模型信息由谁维护：跟随官方、用户改过、官方没有由用户填写。 */
+/** Who maintains model information: follows official data, modified by the user, or user-created without official data. */
 export type CatalogEntrySource = "official" | "modified" | "user_created";
 
-/** 条目身份：「模型厂商/官方模型名」，两栖模型再以媒体类型区分。 */
+/** Entry identity: "model maker/official model name", further distinguished by media type for multimodal models. */
 export interface CatalogEntryKey {
   maker: string;
   name: string;
@@ -259,8 +259,8 @@ export interface CatalogEntryKey {
 }
 
 /**
- * 供应商模型对应到的条目（合成后），Sheet 下段「模型信息」。
- * `official` 是用户改过时官方数据里的值；`shared_with` 是同样使用这个条目的其他供应商。
+ * Resolved entry matched to a provider model, shown in the sheet's lower Model Information section.
+ * `official` contains official values when the user has made changes; `shared_with` lists other providers using this entry.
  */
 export interface ProviderModelEntryInfo extends CatalogEntryKey {
   display_name: string;
@@ -268,24 +268,24 @@ export interface ProviderModelEntryInfo extends CatalogEntryKey {
   discontinued: boolean;
   context_length: number | null;
   facts: Record<string, unknown>;
-  /** 价目表；没有价目表时调用费用记为未定价。 */
+  /** Price table; absent price tables cause call costs to be recorded as unpriced. */
   price: CatalogPriceTable | null;
   source: CatalogEntrySource;
   official: { display_name: string; facts: Record<string, unknown>; price: CatalogPriceTable | null } | null;
   shared_with: { provider_id: string; display_name: string }[];
 }
 
-/** 「模型信息」的修改：身份是 Sheet 读到的条目，`facts` 只给要改的模型事实。 */
+/** Model Information changes: identity is the entry read by the sheet, and `facts` includes only model facts to change. */
 export interface CatalogEntryUpdate extends CatalogEntryKey {
   display_name?: string;
   facts?: Record<string, unknown>;
-  /** 整份价目表，整份替换；`null` 清除价目表。没有这个键表示不改。 */
+  /** The complete price table, replaced entirely; `null` clears it. An absent key leaves it unchanged. */
   price?: CatalogPriceTable | null;
 }
 
 /**
- * 手动填写的新条目（目录里找不到的模型）：`facts` 缺省的字段取该媒体类型的默认值，`display_name` 不填用模型名称，
- * `price` 是目录数据格式的价目表、不填即调用费用记为未定价。
+ * A manually entered new entry (a model absent from the catalog): missing `facts` fields use media-type defaults, and omitted `display_name` uses the model name;
+ * `price` is a price table in catalog data format; omission records call costs as unpriced.
  */
 export interface NewCatalogEntry extends CatalogEntryKey {
   display_name?: string;
@@ -293,34 +293,34 @@ export interface NewCatalogEntry extends CatalogEntryKey {
   price?: CatalogPriceTable;
 }
 
-/** 供应商模型 Sheet 的内容。 */
+/** Contents of the provider model sheet. */
 export interface ProviderModelDetail {
   model: ProviderModelItem;
-  /** 供应商模型倍率；官方收录的模型为 null（界面不显示）。 */
+  /** Provider model multiplier; null for officially listed models (not displayed). */
   multiplier: number | null;
   provider_multiplier: number;
   entry: ProviderModelEntryInfo | null;
-  /** 用户指定的条目绑定（「模型厂商/官方模型名」）；按名字对应或官方收录的模型为 null。 */
+  /** User-specified entry binding ("model maker/official model name"); null for name-matched or officially listed models. */
   entry_binding: string | null;
   capabilities: ProviderModelCapabilities;
-  /** 调用端点：自定义供应商的模型，以及内置供应商下用户添加的模型有；官方收录的模型为 null，端点跟随官方。 */
+  /** Endpoint: present for custom provider models and user-added models of built-in providers; null for officially listed models, whose endpoints follow official data. */
   endpoint: string | null;
-  /** 以下只有自定义供应商的模型有。 */
+  /** The following fields apply only to custom provider models. */
   resolution: string | null;
   path_overrides: PathOverrides | null;
   requests: EndpointRequest[];
-  /** 内置供应商下用户添加的模型可选的调用端点（这个供应商在该媒体类型下的内置调用端点）；其余为空。 */
+  /** Endpoint options for user-added models of a built-in provider (that provider's built-in endpoints for this media type); empty otherwise. */
   endpoint_options: BuiltinEndpointOption[];
 }
 
-/** 内置供应商的一个调用端点选项。`display_name_key` 为空串时显示 `display_name`。 */
+/** One built-in provider endpoint option. An empty `display_name_key` displays `display_name` instead. */
 export interface BuiltinEndpointOption {
   key: string;
   display_name_key: string;
   display_name: string | null;
 }
 
-/** 保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。 */
+/** Save provider settings and model information from the provider model sheet; omitted fields remain unchanged. */
 export interface ProviderModelSettingsUpdate {
   enabled?: boolean;
   is_default?: boolean;
@@ -330,15 +330,15 @@ export interface ProviderModelSettingsUpdate {
   endpoint?: string;
   path_overrides?: PathOverrides | null;
   resolution?: string | null;
-  /** 修改对应的模型信息，存为用户副本，这个模型从此不再随官方更新。 */
+  /** Modify the corresponding model information and save it as a user copy; the model no longer follows official updates. */
   entry?: CatalogEntryUpdate;
-  /** 关联到目录里同媒体类型的另一个条目（「模型厂商/官方模型名」）；`null` 解除，改回按名字对应。 */
+  /** Bind another catalog entry of the same media type ("model maker/official model name"); `null` removes the binding and returns to name matching. */
   entry_binding?: string | null;
-  /** 手动填写：新建条目并绑定到它，随这次保存写入。与 `entry_binding` 同传时以它为准。 */
+  /** Manual entry: create an entry and bind it during this save. Takes precedence when sent together with `entry_binding`. */
   new_entry?: NewCatalogEntry;
 }
 
-/** 引用某个供应商模型的全局设置键与项目。 */
+/** Global settings keys and projects referencing a provider model. */
 export interface ProviderModelReferences {
   settings: string[];
   projects: { name: string; title: string | null }[];

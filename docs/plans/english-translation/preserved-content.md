@@ -1,0 +1,25 @@
+# Preserved content and literal boundaries
+
+These are consumer-based exceptions to maintenance-prose translation. They are not exemptions for untranslated explanatory paragraphs. Files can contain several categories at once; the final inventory ties their retained spans to consumers and review evidence.
+
+| Span or content | Consumer and reason to preserve |
+| --- | --- |
+| Locale keys, localized resource values and language-code enums | Frontend/server localization selects existing zh/en/vi/ru editions. Maintenance translation does not replace those dictionaries, change defaults or add English-only behavior. |
+| `中文` defaults and `词` / `字` reading-unit nouns | Source-language fallback, reading-unit classification, speaking-rate calculations and prompt unit declarations share these literal values. Comments translate; calculations and units retain baseline behavior. |
+| CJK/Unicode regex ranges and counting patterns | Executable matching/counting logic, not prose. Source-language and punctuation fixtures remain multilingual. |
+| Chinese episode diagnostic forms and historical style prefixes | Diagnostic consumers accept known episode-ID forms; migrations recognize exact historical text such as `^画风[：:]`. Keep producers, regexes and persisted historical fixtures compatible. |
+| `【待编写】`, `图N`, `@图片N`, `@音频N`, `@[名称]`, dialogue braces and template slot keys | Parsers, renderers, tool schemas and providers consume these markers. Translate descriptions around them and retain the syntax, exact registered names and source dialogue. |
+| Bodies of `style/live_premium_drama`, `style/anim_kyoto`, `style/anim_3d_cg` | Historical v13→v14 migration calls the current resolver for Photographic, Anime and 3D Animation. Keep baseline bodies as compatibility data; metadata translates. Fixed-value tests protect this indirect dependency. |
+| Exact legacy built-in image Avoid line | Existing plain-text prompts may contain it. The rendering compatibility path recognizes only that full line, renders its translated system equivalent once, and preserves custom/inline restrictions and stored content. |
+| APIs, handlers, IDs, enum values, limits, defaults, schema keys, paths, commands and functional frontmatter | Executable/public contracts. Translation of descriptions is reviewed separately from structure. Human placeholders inside command examples are reviewed individually rather than treated as literal path names. |
+| Diagnostic/error strings retained by passive batches | API/log/test/compatibility consumers may observe their exact text. AST proofs preserve them; these are distinct from model-directed instruction prose and require consumer tracing before any later translation. |
+| Existing executable CLI output strings | Operational output and exact-message tests remain observable contracts outside this maintenance-prose initiative. Explicitly reviewed Ruff/ESLint developer-rule explanations are separate from application/CLI diagnostic output. |
+| User descriptions, names, source text, dialogue, memory, historical messages, custom profiles and test inputs | Existing project/user content and fixed measurement scenarios. No project migration or content rewriting distributes the translation. |
+| User customizations, deletions and collisions in materialized profiles | Existing manifest synchronization owns updates and rollback. Preserve user bytes and tombstones; mixed-language customized profiles are expected. |
+| Chinese-first public source documentation and edition links | The existing public translation pipeline, locale routes and public editions remain. Update the English edition and its translation lock through the existing workflow. The Docker Hub README's Chinese-edition link remains. |
+| Licenses, third-party notices, raw external/source quotations and historical evidence | Preserve attribution, legal notices, source-language evidence, dates and original uncertainty. Repository-owned analysis may translate without turning historical findings into current recommendations. |
+| Chinese linguistic examples, cultural references and glossary product labels | Examples measure or explain Chinese language behavior; translated maintenance explanations do not replace their inputs. Preserve original product labels for Chinese UI copy and cultural genre examples where relevant. |
+
+English output wrappers, internal template descriptions and authorized model-facing schema prose may change rendered request bytes. [Request and formal-basis evidence](artifact-contract-review.json) and the [reference-renderer comparison](reference-renderer-fingerprint-review.json) keep that change separate from artifact validity and frozen-request reuse.
+
+Individually reviewed human placeholders and prose inside skill code spans are listed in [reviewed-skill-literals.md](reviewed-skill-literals.md). All 45 exact Markdown audit findings are individually reconciled in [the audit record](markdown-audit-reconciliation.json), with current candidate hashes; the raw auditor continues reporting them. These categories do not authorize blanket suppression.

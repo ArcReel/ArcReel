@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * 主题偏好：本机偏好，不经后端保存。深色由 <html> 上的 .dark 类决定。
- * index.html 的内联脚本在首屏渲染前按同一个存储键和同一套规则加上 .dark，避免先闪一下错误的主题；改这里时一起改。
+ * Theme preference is local to this machine, without backend persistence. The .dark class on <html> determines dark mode.
+ * The inline index.html script applies .dark using the same storage key/rules before first render to prevent incorrect-theme flashes; update both together.
  */
 export const THEME_PREFERENCES = ["light", "dark", "system"] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];
@@ -21,7 +21,7 @@ export function getThemePreference(): ThemePreference {
 }
 
 function systemPrefersDark(): boolean {
-  // 取不到系统偏好时按深色处理
+  // Use dark mode when system preference is unavailable
   return typeof window.matchMedia !== "function" || window.matchMedia(SYSTEM_DARK_QUERY).matches;
 }
 
@@ -49,7 +49,7 @@ export function useThemePreference(): ThemePreference {
   return useSyncExternalStore(subscribe, getThemePreference);
 }
 
-/** 启动时调用一次：应用当前偏好，在跟随系统时随系统明暗实时切换，并跟随其他标签页改的偏好。 */
+/** Call once at startup: apply the current preference, follow live system light/dark changes in system mode, and follow preference changes from other tabs. */
 export function initTheme() {
   applyTheme();
   window.addEventListener("storage", (event) => {

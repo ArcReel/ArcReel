@@ -25,7 +25,7 @@ const EMPTY_KPI = {
   unpriced_calls: 0,
 };
 
-/** 后端附上的条目指称：第 1 集（无标题）里排第 `position` 位的分镜。 */
+/** Backend entry references: storyboard at `position` in untitled episode1. */
 function itemRef(itemId: string, position: number): EpisodeItemRef {
   return {
     episode_title: "",
@@ -46,7 +46,7 @@ function stubUsageApi() {
   });
 }
 
-/** 打开悬浮层并把当前项目的数据灌进 store。 */
+/** Open popovers and load current-project data into stores. */
 function openPopover(state: {
   summary?: UsageSummary;
   recent?: UsageRecord[];
@@ -148,12 +148,12 @@ describe("UsagePopover", () => {
 
     openPopover({});
 
-    // 悬浮层与设置页 KPI 同走 formatRatio，vi 下都是逗号小数点。
+    // Popover/settings KPIs share formatRatio, both comma decimals in vi.
     expect(screen.getByText("90,3%")).toBeInTheDocument();
   });
 
   it("renders the counts with the language's thousands separator", async () => {
-    // 悬浮层 KPI 行与设置页同一条约束：调用次数、失败数跟界面语言，不跟浏览器语言。
+    // Popover KPI rows share settings constraints: call/failure counts follow UI rather than browser languages.
     for (const [language, calls, failed] of [
       ["zh", "12,340", "1,205"],
       ["en", "12,340", "1,205"],
@@ -164,7 +164,7 @@ describe("UsagePopover", () => {
       const summary = makeUsageSummary({
         kpi: { ...base.kpi, calls: 12_340, failed: 1_205 },
       });
-      // 顶栏入口挂载时会重取一轮 summary，让它落回同一份计数。
+      // Header mounting refetches summaries; return identical counts.
       vi.mocked(API.getUsageSummary).mockResolvedValue(summary);
 
       const { unmount } = openPopover({ summary });

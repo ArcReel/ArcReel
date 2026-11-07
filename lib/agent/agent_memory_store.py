@@ -1,16 +1,17 @@
-"""Agent 记忆目录的存储服务：列表 / 读 / upsert / 删 / 清空的单一实现。
+"""Single storage implementation for listing/reading/upserting/deleting/clearing Agent-memory directories.
 
-按目录参数化，项目记忆与用户记忆共用同一个类——两级记忆的文件名规则、大小上限、
-索引超限口径与 frontmatter 解析完全相同，各写一份会让两根 REST 路由的行为随时间分叉。
-索引的行数 / 字节数与超限判定取自 ``lib.agent.agent_memory_index``，与会话装配注入用户记忆
-索引时的截断口径同源。
+Parameterize by directory so project/user memory share one class: filename rules, size limits,
+index overflow rules, and frontmatter parsing are identical. Separate implementations would
+make both REST route groups diverge over time. Index line/byte counts and overflow judgments
+come from ``lib.agent.agent_memory_index``, sharing session-assembly user-index truncation rules.
 
-目录不存在一律视同空目录：记忆是 Agent 按需创建的，创作者在 Agent 写下第一条记忆
-之前打开记忆页不应看到错误。
+Absent directories are empty: Agents create memory on demand, so creators opening memory pages
+before their first Agent memory write must see no errors.
 
-无锁、无冲突检测：单文件写入走同目录临时文件 + rename 原子落盘，并发的两次 PUT
-后写胜出，读到的永远是某一次完整写入的内容而不是半截文件。项目记忆的删除与清空持项目锁
-移进项目回收站（``docs/adr/0107``），用户记忆直接删除。
+No locks/conflict detection: same-directory temporary files + rename atomically write each file.
+Concurrent PUTs use last-writer-wins; readers always receive one complete write, never partial
+files. Project-memory delete/clear holds project locks and moves files into the project recycle
+bin (``docs/adr/0107``); user memory is deleted directly.
 """
 
 from __future__ import annotations
@@ -34,35 +35,35 @@ from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project import project_trash
 from lib.project.project_activity import record_project_activity
 
-#: 单个记忆文件的正文上限。超限拒绝写入，让创作者拆分而不是让 Agent 每轮都读进一个大文件。
+#: Per-file memory body limit. Reject oversized writes so creators split files instead of Agents reading huge files every turn.
 MAX_FILE_BYTES = 256 * 1024
 
-#: frontmatter ``type`` 的合法取值。取值之外的一律当作没有标签，不报错。
+#: Legal frontmatter ``type`` values; others produce unlabeled files, never errors.
 MEMORY_TYPES = frozenset({"user", "feedback", "project", "reference"})
 
-#: 文件名上限：与 ``_FILENAME_PATTERN`` 一起构成可见性与可读写性的同一把尺子。
+#: Filename limit, sharing visibility/read/write criteria with ``_FILENAME_PATTERN``.
 FILENAME_MAX_LENGTH = 100
 
-# 允许空格与括号：回收站恢复到被占用的原名时换成 ``name (n).md``。
+# Allow spaces/parentheses: recycle-bin restoration uses ``name (n).md`` when original names are occupied.
 _FILENAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._() -]*\.md$"
 
 
 def is_valid_memory_filename(filename: str) -> bool:
-    """``filename`` 是否为合法的顶层记忆文件名。
+    """Whether ``filename`` is a valid top-level memory filename.
 
-    首字符限定字母数字，因此 ``.`` 开头的隐藏文件与原子写入的临时文件都不合法：
-    临时文件既不会出现在列表里，也不会被当成记忆读写。
+    Initial characters must be alphanumeric, excluding ``.``-prefixed hidden/atomic-write temporary
+    files. Temporary files neither appear in lists nor participate in memory reads/writes.
     """
     return len(filename) <= FILENAME_MAX_LENGTH and re.fullmatch(_FILENAME_PATTERN, filename) is not None
 
 
 def parse_memory_frontmatter(raw: bytes) -> dict[str, Any] | None:
-    """解析记忆文件的 YAML frontmatter，返回 ``{name, description, type}``。
+    """Parse memory YAML frontmatter into ``{name, description, type}``.
 
-    这是记忆域唯一的 YAML 解析点：解析发生在服务端，前端只消费已判定合法的结果。
-    缺 frontmatter、YAML 语法错、不是对象、``type`` 不在 :data:`MEMORY_TYPES` 内
-    一律返回 ``None``——记忆文件由 Agent 自由书写，元数据不全是常态而非错误，
-    该文件只是不带标签，不该让整个列表请求失败。
+    The sole YAML parsing point for memory: parse server-side; frontend consumes only validated
+    results. Missing frontmatter, syntax errors, nonobjects, or ``type`` outside :data:`MEMORY_TYPES`
+    all return ``None``. Agents freely write memory, so incomplete metadata is normal, not an
+    error; leave files unlabeled without failing entire list requests.
     """
     try:
         content = raw.decode("utf-8-sig")
@@ -94,7 +95,7 @@ def parse_memory_frontmatter(raw: bytes) -> dict[str, Any] | None:
 
 
 def _optional_text(value: object) -> str | None:
-    """frontmatter 里的可选文本字段：非字符串或空白一律当作没写。"""
+    """Optional frontmatter text fields: nonstrings/whitespace count as omitted."""
     if not isinstance(value, str) or not value.strip():
         return None
     return value.strip()
@@ -102,9 +103,10 @@ def _optional_text(value: object) -> str | None:
 
 @dataclass(frozen=True)
 class AgentMemoryStore:
-    """一个记忆目录的读写门面。``directory`` 由 ``lib.agent.agent_memory_paths`` 派生。
+    """Read/write facade for one memory directory, with ``directory`` derived by ``lib.agent.agent_memory_paths``.
 
-    ``project_dir`` 只在项目记忆上给出：写、删与清空成功后推进该项目的最近活动时间。
+    Only project memory supplies ``project_dir``; successful write/delete/clear advances that
+    project’s recent-activity timestamp.
     """
 
     directory: Path
@@ -112,17 +114,17 @@ class AgentMemoryStore:
 
     @classmethod
     def for_project(cls, project_dir: Path) -> AgentMemoryStore:
-        """项目记忆的读写门面。"""
+        """Project-memory read/write facade."""
         return cls(project_memory_dir(project_dir), project_dir=project_dir)
 
     def overview(self) -> dict[str, Any]:
-        """列表响应：目录路径、索引统计与全部可见记忆条目。
+        """List response: directory path, index statistics, and all visible memory entries.
 
-        ``path`` 是服务端绝对路径，供创作者在文件管理器里直接打开记忆目录；它是路径
-        而不是提示文案，因此不进 i18n。
+        ``path`` is an absolute server path for creators opening the directory in file managers;
+        paths are not user-facing copy and do not enter i18n.
 
-        枚举与逐项读取之间条目可能已被删除（另一个标签页的删除或清空），该条目跳过，
-        其余照常列出——单个文件的消失不该让整个记忆页报错。
+        Entries can disappear between enumeration and reading (another tab deletes/clears); skip
+        those and list the rest normally. One disappearing file must not fail the whole memory page.
         """
         index = {"exists": False, "line_count": 0, "byte_size": 0, "over_limit": False}
         files: list[dict[str, Any]] = []
@@ -144,10 +146,10 @@ class AgentMemoryStore:
         return {"path": str(self.directory), "index": index, "files": files}
 
     def read(self, filename: str) -> bytes:
-        """读取单个记忆文件的原始字节。
+        """Read raw bytes from one memory file.
 
-        原样回字节而不先解码：记忆文件由 Agent 自由书写，混入非 UTF-8 字节时正文照样
-        能回给创作者去修，而不是整条读路径退化成 500。
+        Return unchanged bytes without decoding first: Agent-written files may contain non-UTF-8
+        bytes; creators must still receive them for repair, rather than the read path returning 500.
         """
         path = self._resolve(filename)
         if not path.is_file():
@@ -158,11 +160,12 @@ class AgentMemoryStore:
             raise NotFoundError("memory_file_not_found", filename=filename) from exc
 
     def write(self, filename: str, content: bytes) -> None:
-        """幂等 upsert：目录不存在则创建，正文超过 :data:`MAX_FILE_BYTES` 时拒绝。
+        """Idempotent upsert creates absent directories and rejects bodies exceeding :data:`MAX_FILE_BYTES`.
 
-        目标名被目录占用时按非法文件名拒绝，与读、删、列表对同名目录的处置一致：
-        记忆目录对 Agent 可写，落一个 ``notes.md/`` 子目录后 ``os.replace`` 会抛
-        ``IsADirectoryError``，创作者在文件柜里既存不进也删不掉，只剩清空整个目录。
+        Reject directory-occupied names as invalid filenames, matching read/delete/list handling:
+        Agent-writable memory can contain ``notes.md/``, making ``os.replace`` raise
+        ``IsADirectoryError``. Otherwise creators could neither save nor delete it through the
+        file cabinet, leaving only full-directory clear.
         """
         path = self._resolve(filename, ensure_directory=True)
         if path.is_dir():
@@ -173,13 +176,13 @@ class AgentMemoryStore:
         self._record_activity()
 
     def delete(self, filename: str) -> None:
-        """删除单个记忆文件；索引 ``MEMORY.md`` 同样可删。"""
+        """Delete one memory file, including the deletable ``MEMORY.md`` index."""
         path = self._resolve(filename)
         if not path.is_file():
             raise NotFoundError("memory_file_not_found", filename=filename)
         try:
             if self.project_dir is None:
-                path.unlink()  # hard-delete: out-of-scope -- 用户记忆不属于任何项目
+                path.unlink()  # hard-delete: out-of-scope -- User memory belongs to no project
             else:
                 rel = self._project_rel(self.project_dir, filename)
                 with project_metadata_lock(self.project_dir):
@@ -189,10 +192,10 @@ class AgentMemoryStore:
         self._record_activity()
 
     def clear(self) -> None:
-        """清空整个记忆目录后重建空目录，不生成空索引。
+        """Clear the entire memory directory and recreate it empty, without creating an empty index.
 
-        索引由 Agent 在写第一条记忆时重建；预置一个空 ``MEMORY.md`` 只会让列表显示
-        一个 0 行的索引，与「什么都没有」不可区分。
+        Agents rebuild indexes with the first memory write; precreating empty ``MEMORY.md`` would
+        only display a zero-line index indistinguishable from no memory.
         """
         if self.project_dir is not None and self.directory.is_dir() and not self.directory.is_symlink():
             with project_metadata_lock(self.project_dir):
@@ -205,9 +208,9 @@ class AgentMemoryStore:
                     obj = {"kind": "memory", "path": self.directory.relative_to(self.project_dir).as_posix()}
                     project_trash.record_deletion(self.project_dir, obj, files)
         if self.project_dir is None:
-            # hard-delete: out-of-scope -- 用户记忆不属于任何项目
+            # hard-delete: out-of-scope -- User memory belongs to no project
             shutil.rmtree(self.directory, ignore_errors=True)
-        # 项目记忆可被 Agent 并发写入；回收后保留目录，避免硬删枚举之后新写入的内容。
+        # Agents may write project memory concurrently; retain directories after recycling to avoid hard-deleting new content written after enumeration.
         self.directory.mkdir(parents=True, exist_ok=True)
         self._record_activity()
 
@@ -219,11 +222,11 @@ class AgentMemoryStore:
             record_project_activity(self.project_dir)
 
     def _visible_paths(self) -> list[Path]:
-        """目录内按名称排序的可见记忆文件：顶层、合法文件名、未逃出目录的真实文件。
+        """Visible memory files sorted by name: top-level, valid filenames, real files remaining inside the directory.
 
-        逐项过 ``try_safe_join``（realpath 语义）而不是只判 ``is_file()``：指向目录外的
-        symlink 在 ``is_file()`` 下为真、却读不出来，列出它等于给创作者一个点开必然
-        404 的条目。子目录与非 ``.md`` 条目由文件名规则挡在外面。
+        Apply ``try_safe_join`` realpath semantics per entry, not merely ``is_file()``: external
+        symlinks satisfy ``is_file()`` but cannot be read, exposing entries guaranteed to return 404.
+        Filename rules exclude subdirectories and non-``.md`` entries.
         """
         try:
             names = sorted(entry.name for entry in self.directory.iterdir())
@@ -239,11 +242,11 @@ class AgentMemoryStore:
         return resolved
 
     def _resolve(self, filename: str, *, ensure_directory: bool = False) -> Path:
-        """把不可信的 ``filename`` 解析为目录内的绝对路径。
+        """Resolve untrusted ``filename`` to an absolute in-directory path.
 
-        文件名规则先判，``safe_join`` 再判：前者是产品规则（顶层 ``*.md``），后者是
-        越界兜底，两者都归到同一个 ``memory_invalid_filename``——对创作者而言
-        「这个文件名不能用」是同一件事。
+        Check filename rules first, then ``safe_join``: top-level ``*.md`` is a product rule, while
+        safe joining guards escapes. Both map to ``memory_invalid_filename`` because creators
+        experience the same unusable-filename condition.
         """
         if not is_valid_memory_filename(filename):
             raise BadRequestError("memory_invalid_filename", filename=filename)
@@ -256,10 +259,11 @@ class AgentMemoryStore:
 
 
 def _index_stats(path: Path) -> dict[str, Any]:
-    """索引的行数 / 字节数与超限判定，口径同会话装配的截断。
+    """Index line/byte counts and overflow, matching session-assembly truncation.
 
-    读不出来或不是 UTF-8 时统计为零：装配也读不进这样的索引，报出它在磁盘上的
-    规模会让文件柜显示一份 Agent 其实拿不到的索引。超限只是提示，写入与读取都不受影响。
+    Unreadable/non-UTF-8 indexes count as zero: assembly cannot read them either, so reporting
+    disk sizes would show creators an index unavailable to Agents. Overflow is advisory only,
+    affecting neither writes nor reads.
     """
     stats = memory_index_stats(_read_text_or_empty(path))
     return {
@@ -271,7 +275,7 @@ def _index_stats(path: Path) -> dict[str, Any]:
 
 
 def _stat_or_none(path: Path) -> os.stat_result | None:
-    """取条目的 stat；枚举之后已消失或读不到的返回 ``None``。"""
+    """Stat entries, returning ``None`` if gone or unreadable after enumeration."""
     try:
         return path.stat()
     except OSError:
@@ -279,7 +283,7 @@ def _stat_or_none(path: Path) -> os.stat_result | None:
 
 
 def _read_bytes_or_empty(path: Path) -> bytes:
-    """读不出来的文件按空内容处理：列表接口不因单个文件的 I/O 故障整体失败。"""
+    """Unreadable files count as empty; one file’s I/O failure must not fail entire list requests."""
     try:
         return path.read_bytes()
     except OSError:
@@ -287,7 +291,7 @@ def _read_bytes_or_empty(path: Path) -> bytes:
 
 
 def _read_text_or_empty(path: Path) -> str:
-    """按 UTF-8 读文本；读不出来或解码失败一律按空内容处理。"""
+    """Read UTF-8 text; unreadability/decoding failure both count as empty content."""
     try:
         return _read_bytes_or_empty(path).decode("utf-8")
     except UnicodeDecodeError:

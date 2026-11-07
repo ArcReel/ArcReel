@@ -1,4 +1,4 @@
-"""DashScopeImageBackend 单元测试（respx 捕获出站请求，同步端点）。"""
+"""DashScopeImageBackend synchronous endpoints, with respx outbound capture."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _generate_route(
     *,
     host: str = _DEFAULT_HOST,
 ) -> Generator[respx.Route]:
-    """拦截建图 POST 并挡住产物下载，产出该路由供断言真实请求。"""
+    """Intercept generation POST/downloads, yielding routes for real-request assertions."""
     with (
         capture_http() as router,
         patch("lib.backends.image_backends.dashscope.download_image_to_path", download),
@@ -83,12 +83,12 @@ class TestTextToImage:
         body = request_json(request)
         content = body["input"]["messages"][0]["content"]
         assert content == [{"text": "a fox"}]
-        # qwen 融合系列按默认 aspect_ratio=9:16 算精确比例，受 2048² 预算夹取
+        # Qwen fusion uses exact default 9:16 within a 2048² budget.
         assert body["parameters"]["size"] == "1440*2560"
         assert body["parameters"]["n"] == 1
         assert body["parameters"]["watermark"] is False
         assert body["parameters"]["prompt_extend"] is False
-        # 端点正确（host 派生 /api/v1 + 路径）
+        # Correct host-derived /api/v1 endpoint path.
         assert request.url.path == _IMAGE_PATH
         assert request.headers["Authorization"] == "Bearer sk"
         assert "X-DashScope-Async" not in request.headers
@@ -102,7 +102,7 @@ class TestTextToImage:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
-            # 默认 aspect_ratio=9:16，wan 方式二像素值按比例精确算（默认 2K 档短边 1440）
+            # Wan method-two pixel dimensions preserve default 9:16; default 2K short edge is 1440.
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
         assert _sent_size(route) == "1440*2560"
@@ -113,7 +113,7 @@ class TestTextToImage:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
-            # 档位词「2K」（短边 1440）按比例算精确像素，绝不原样下传（否则 wan 文生图会被强制方图）
+            # Convert 2K tiers, short edge 1440, into exact-ratio pixels; never pass tier strings that force Wan text-to-image squares.
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2K")
             )
@@ -126,14 +126,14 @@ class TestTextToImage:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
-            # 自定义像素值（16:9 的 1920*1080）只贡献 min 当短边，比例仍由项目 aspect_ratio=9:16 决定
+            # Custom 1920*1080 contributes min as short edge; project default 9:16 still determines ratio.
             await b.generate(
                 ImageGenerationRequest(
                     prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="1920*1080"
                 )
             )
 
-        # min(1920,1080)=1080 → 9:16 精确（t=8）→ 1152*2048，而非输入的 16:9
+        # min(1920,1080)=1080 → exact 9:16 with t=8 → 1152*2048, not input 16:9.
         size = _sent_size(route)
         w, h = (int(x) for x in size.split("*"))
         assert w * 16 == h * 9
@@ -146,7 +146,7 @@ class TestTextToImage:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
-            # 1K 档（短边 1024）按比例精确算
+            # 1K short edge 1024 follows exact ratios.
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="1K")
             )
@@ -161,7 +161,7 @@ class TestTextToImage:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9"))
 
-        # 16:9 精确，受 2048² 预算夹取 → 2560*1440
+        # Exact 16:9 within 2048² budget → 2560*1440.
         assert _sent_size(route) == "2560*1440"
 
     async def test_qwen_fusion_custom_pixel_strips_embedded_ratio(self, tmp_path: Path):
@@ -170,8 +170,8 @@ class TestTextToImage:
             from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-            # registry 的 qwen resolutions 是带比例的像素值（如 16:9 的 2688*1536）；项目 9:16 时
-            # 取 min=1536 当短边、比例仍走 9:16，修复「resolution 像素值压过项目比例」
+            # Registry Qwen resolutions carry ratios, e.g. 16:9 2688*1536; for project 9:16,
+            # use min=1536 short edges and retain 9:16, preventing resolution pixels from overriding project ratios.
             await b.generate(
                 ImageGenerationRequest(
                     prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2688*1536"
@@ -192,7 +192,7 @@ class TestEditSeriesSize:
         with _generate_route(_img_response(), download) as route:
             from lib.backends.image_backends.dashscope import DashScopeQwenEditImageBackend
 
-            # 编辑系列宽高均 ∈ [512, 2048]：9:16 受 max_long_edge=2048 收口 → 1152*2048（精确）
+            # Editing edges require [512, 2048]; cap 9:16 at max_long_edge=2048 → exact 1152*2048.
             b = DashScopeQwenEditImageBackend(api_key="sk", model="qwen-image-edit-plus")
             await b.generate(
                 ImageGenerationRequest(
@@ -225,7 +225,7 @@ class TestImageToImage:
 
     @pytest.mark.parametrize("model", ["qwen-image-2.0", "wan2.7-image-pro"])
     async def test_channel_sends_every_reference_whatever_the_model_name(self, tmp_path: Path, model: str):
-        # qwen 系与 wan 系的参考图上限记在条目上，由编排层按生效上限裁剪；通道不按型号名截断。
+        # Qwen/Wan reference caps live in entries; orchestration crops by effective caps, never channel name-based truncation.
         download = AsyncMock()
         refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(11)]
         with _generate_route(_img_response(), download) as route:
@@ -259,7 +259,7 @@ class TestCapabilityGating:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image-pro")
-            # 4K 在 pro 文生图允许，按比例精确算（4K 短边 2160、预算 4096²），不下传「4K」档位
+            # Pro text-to-image admits 4K, exact-ratio pixels with short edge 2160/budget 4096², never raw 4K tiers.
             await b.generate(
                 ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="4K")
             )
@@ -277,14 +277,14 @@ class TestCapabilityGating:
                     reference_images=[ReferenceImage(path=str(tmp_path / "nope.png"))],
                 )
             )
-        # 模型支持 i2i，只是参考图不可读 → 用准确码而非"模型不支持 i2i"
+        # Models support i2i but files are unreadable; use accurate codes, not unsupported-i2i errors.
         assert ei.value.code == "image_reference_images_unreadable"
         assert ei.value.params["model"] == "qwen-image-2.0"
 
     async def test_empty_ref_path_treated_as_missing(self, tmp_path: Path):
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
-        # 空串路径 Path("").exists() 会误判为 True；用 is_file 拦掉，避免读到目录崩溃
+        # Empty paths satisfy Path("").exists(); is_file rejects directories, preventing read crashes.
         b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
         with pytest.raises(ImageCapabilityError) as ei:
             await b.generate(
@@ -293,7 +293,7 @@ class TestCapabilityGating:
                 )
             )
         assert ei.value.code == "image_reference_images_unreadable"
-        # 空路径无文件名：用 locale 中性序号 #N 标识，不得漏中文占位到 en/vi 报错
+        # Empty paths lack names; locale-neutral #N must replace Chinese placeholders in en/vi errors.
         assert ei.value.params["names"] == "#1"
         assert "空路径" not in ei.value.params["names"]
 
@@ -302,9 +302,9 @@ class TestCapabilityGating:
         with _generate_route(_img_response(), download) as route:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
-            # 窄幅尺寸总像素在 2048×2048 预算内（4096*512=2.1M < 4.19M）→ 门控不误拒
-            # （门控用总像素而非单维阈值，否则会错杀这类比例尺寸）。size 取 min(4096,512)=512
-            # 当短边、比例由默认 aspect_ratio=9:16 决定（剥离自带的 8:1）。
+            # Narrow 4096*512=2.1M is within 2048×2048=4.19M; gates must not reject
+            # by individual dimensions rather than total pixels. min(4096,512)=512 provides short edges,
+            # with default project 9:16 replacing embedded 8:1.
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4096*512"))
         assert _sent_size(route) == "576*1024"
@@ -312,7 +312,7 @@ class TestCapabilityGating:
     async def test_all_refs_unreadable_oserror_raises(self, tmp_path: Path):
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
-        # 文件存在但 read 时抛 OSError（权限/IO）→ 全部跳过后报准确码，不炸成 500
+        # Existing files raising read OSError for permissions/I/O all skip then report precise codes, never 500.
         ref = _make_ref(tmp_path, "ref.png")
         b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
         with (
@@ -338,7 +338,7 @@ class TestCapabilityGating:
             from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-            # fail-loud：a.png 不可读即中止，不静默用 b.png 的子集生成；报错列出不可读文件名
+            # Fail loudly on unreadable a.png, never silently generate b.png subsets; name unreadable files.
             with pytest.raises(ImageCapabilityError) as ei:
                 await b.generate(
                     ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[r1, r2])
@@ -350,7 +350,7 @@ class TestCapabilityGating:
     async def test_unreadable_names_locale_neutral_separator(self, tmp_path: Path):
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
-        # names 进 en/vi 错误模板，多文件分隔符须 locale 中性（", "），不得用中文 "、"
+        # en/vi names use locale-neutral ", " separators, never Chinese 、.
         b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
         missing = [ReferenceImage(path=str(tmp_path / "a.png")), ReferenceImage(path=str(tmp_path / "b.png"))]
         with pytest.raises(ImageCapabilityError) as ei:
@@ -371,15 +371,15 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # raise_for_status 透出保留状态码：4xx fail-fast
+        # raise_for_status preserves statuses; 4xx fails fast.
         assert ei.value.response.status_code == 400
         assert route.call_count == 1
         download.assert_not_called()
 
     async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path):
-        # 4xx 但 raise_for_status 的消息带请求 URL、URL 恰好含 "503" 子串：瞬态判定只读
-        # response.status_code，不看异常字符串，按 400 fail-fast——计费的建图 POST 只发一次、
-        # 不连带下载。
+        # 4xx messages may contain URL 503 substrings; transient detection reads only
+        # response.status_code, not error strings, failing fast at 400 with one billed POST
+        # and no download.
         download = AsyncMock()
         host = "https://dashscope-503.example.com"
         with (
@@ -391,7 +391,7 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0", base_url=host)
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # 异常字符串确实带瞬态子串，而瞬态判定只认状态码，故仍单次 fail-fast
+        # Real transient-looking error substrings still fail fast once by status.
         assert "503" in str(ei.value)
         assert ei.value.response.status_code == 400
         assert route.call_count == 1
@@ -405,13 +405,13 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # 保留 status_code 让咽喉层识别 413 走降档；413 不在 retryable 模式中 → fail-fast 单次
+        # Preserve status_code so throat layers recognize 413/downshift; 413 is nonretryable and fails once.
         assert ei.value.response.status_code == 413
         assert route.call_count == 1
         download.assert_not_called()
 
     async def test_rejection_body_becomes_a_redacted_provider_reason(self, tmp_path: Path):
-        """图像后端 4xx 与视频侧同路：拒因摘要脱敏截断后挂在异常上。"""
+        """Image 4xx matches video handling: attach sanitized/truncated rejection summaries to exceptions."""
         download = AsyncMock()
         rejection = httpx.Response(
             400, json={"code": "DataInspectionFailed", "message": "input data may contain inappropriate content"}

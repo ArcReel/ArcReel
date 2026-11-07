@@ -1,4 +1,4 @@
-"""图片后缀只在 ``lib.infra.image_utils`` 定义一处：导入按内容确定的后缀，上传校验与生成侧都认得。"""
+"""Image suffixes have one definition in ``lib.infra.image_utils``: import-by-content, upload validation, and generation agree."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def test_every_suffix_belongs_to_the_format_pil_assigns_it():
 
 @pytest.mark.parametrize("fmt", list(IMAGE_FORMAT_SUFFIXES))
 def test_imported_image_suffix_passes_upload_validation(fmt: str):
-    """导入保存用的后缀与手动上传接受的后缀同出一处：导入能存下的图片，上传同样接受。"""
+    """Import-save and upload-accepted suffixes share one source, so uploaded images accept every importable format."""
     suffix = image_suffix(_encode(fmt))
 
     assert suffix == IMAGE_FORMAT_SUFFIXES[fmt][0]

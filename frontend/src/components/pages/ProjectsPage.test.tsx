@@ -170,7 +170,7 @@ describe("ProjectsPage", () => {
 
     renderPage();
     await projectList();
-    // 已有项目时网格里不放「新建项目」卡，入口只在顶栏
+    // Existing-project grids omit New project cards; creation remains in headers only.
     const [create] = screen.getAllByRole("button", { name: "新建项目" });
     expect(screen.getAllByRole("button", { name: "新建项目" })).toHaveLength(1);
     fireEvent.click(create);
@@ -285,7 +285,7 @@ describe("ProjectsPage", () => {
         summary("halfway", { episodes: { total: 4, completed: 2 } }),
         summary("broken", { episodes: { total: 2 }, needsRepair: true, repairReason: "broken" }),
         summary("done", { episodes: { total: 3, completed: 3 } }),
-        // 已切出的集全部完成，但源文还没规划完：项目顶栏提示继续分集规划，大厅也不算完成
+        // All extracted episodes complete but source planning unfinished: headers offer continued planning, lobby remains incomplete.
         summary("unplanned", { episodes: { total: 10, completed: 10 }, sourceRemaining: true }),
       ],
     });
@@ -293,7 +293,7 @@ describe("ProjectsPage", () => {
     renderPage();
     await projectList();
 
-    // 没有集的项目算进行中；「待修复」与进度正交，待修复的项目同时计入两种筛选。
+    // Projects without episodes remain ongoing; repair status is orthogonal to progress, participating in both filters.
     expect(screen.getByRole("button", { name: /^全部\s*5$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^进行中\s*4$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^待修复\s*1$/ })).toBeInTheDocument();
@@ -439,7 +439,7 @@ describe("ProjectsPage", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "已删除项目" })).not.toBeInTheDocument());
 
-    // 重开时先显示缓存的列表，新的列表请求还在途；恢复缓存里的项目会作废它，之后要补拉
+    // Reopening shows cached lists while fresh requests run; restoring cached projects invalidates them, requiring refetch.
     await user.click(screen.getByRole("button", { name: "已删除项目" }));
     const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
     await user.click(await within(dialog).findByRole("button", { name: "恢复「Old」" }));
@@ -469,7 +469,7 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toBe("原名已被占用，「Old」已恢复为 demo-2");
     });
-    // 对话框是模态的，背后的网格对无障碍树隐藏：按重新加载的请求判断网格已刷新
+    // Modal dialogs hide background grids from accessibility trees; use reload requests to establish grid refresh.
     await waitFor(() => expect(API.listProjects).toHaveBeenCalledTimes(2));
   });
 
@@ -535,7 +535,7 @@ describe("ProjectsPage", () => {
 
     await waitFor(() => expect(API.requestExportToken).toHaveBeenCalledWith("second", "full"));
     expect(download).toHaveBeenCalled();
-    // 导出顺利开始时不提示
+    // Successful export initiation stays silent.
     expect(useAppStore.getState().toast).toBeNull();
   });
 
@@ -703,7 +703,7 @@ describe("ProjectsPage", () => {
   });
 
   describe("when the user has left the lobby before the import finishes", () => {
-    /** 选好文件后让导入请求悬起，卸载页面（离开大厅），再返回收尾导入请求的 resolve / reject。 */
+    /** After choosing files, suspend imports, unmount pages (leave lobby), then return resolve/reject to finish imports. */
     async function leaveWhileImporting() {
       vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
       let resolve!: (value: Awaited<ReturnType<typeof API.importProject>>) => void;

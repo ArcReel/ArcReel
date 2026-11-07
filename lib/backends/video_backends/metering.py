@@ -1,16 +1,16 @@
-"""视频调用通道按用量契约上报的计量（docs/adr/0100）。
+"""Video-channel measurements reported under the usage contract (docs/adr/0100).
 
-每个内置视频调用通道提供静态方法 ``metered_usage(model, request, result=None)``：给出这次请求的计量项用量与
-选择维度。选择维度取自真正发给供应商的请求字段，与请求构造走同一个变换（docs/adr/0056），没发送的维度不写，
-由价目表的默认值补上。
+Each built-in video channel provides static ``metered_usage(model, request, result=None)``: usage measurements and
+selection dimensions. Dimensions come from actual provider request fields, using the same transformations as request construction
+(docs/adr/0056). Omit unsent dimensions, letting price-table defaults supply them.
 
-- ``result`` 为 ``None`` 时用于提交前预估：用量全部取自请求事实；需要换算的计量项（如方舟视频 token）由通道
-  的估算函数给出，算不出就不上报，预估因此记为未定价。
-- 给出 ``result`` 时用于结算：输出秒数与是否有声取供应商回报的结果，供应商回报的用量（如方舟视频 token）
-  覆盖估算值。
+- ``result`` = ``None`` means presubmission estimation: use request facts only. Converted measurements, such as Ark video tokens,
+  come from channel estimators; omit when uncomputable, leaving estimates unpriced.
+- With ``result``, settle using provider-reported output seconds/audio; provider-reported usage such as Ark video tokens
+  overrides estimates.
 
-计数类计量项如实上报（输出秒数、参考图张数、输入视频秒数、调用次数），价目表没有的那一项不计费；选择维度
-同理，价目表的计量项不按它分档时不参与查价。
+Report count measurements faithfully (output seconds, reference images, input-video seconds, API calls); absent price-table items are not billed.
+Likewise, dimensions do not affect price lookup when the relevant price-table measurement is not tiered by them.
 """
 
 from __future__ import annotations
@@ -34,14 +34,14 @@ def video_usage(
     video_tokens: float | None = None,
     dimensions: Mapping[str, object] | None = None,
 ) -> Usage:
-    """按通道给出的请求字段组装一次视频请求的用量。
+    """Assemble one video request's usage from channel-provided request fields.
 
-    ``seconds`` 是发出的时长（也作时长档）；``resolution`` 是发出的分辨率档位，没发送时为 ``None``；
-    ``audio`` 是按通道口径成片是否有声，通道不表达有声与否时为 ``None``；``reference_images`` 是发出的参考图
-    张数，默认取请求的参考图张数；``reference_to_video`` 默认按是否发出参考图判断；``video_tokens`` 是通道估算
-    或供应商回报的视频 token 数；``dimensions`` 是通道特有的其他维度。
-    结算时输出秒数与是否有声取 ``result``；回报的秒数非正或超出 ``MAX_BILLED_DURATION_SECONDS`` 时取发出的时长，
-    与 ``api_calls.duration_seconds`` 的落库口径一致。
+    ``seconds`` is sent duration (also the duration tier); ``resolution`` is sent resolution tier, ``None`` when unsent;
+    ``audio`` describes output audio under channel semantics, ``None`` if channels cannot express it; ``reference_images`` counts sent
+    reference images, defaulting to request reference count; ``reference_to_video`` defaults to whether references were sent; ``video_tokens``
+    is channel-estimated or provider-reported video tokens; ``dimensions`` carries other channel-specific dimensions.
+    Settlement takes output seconds/audio from ``result``; nonpositive or above-``MAX_BILLED_DURATION_SECONDS`` reported durations fall back to sent duration,
+    matching persisted ``api_calls.duration_seconds`` semantics.
     """
     reported = result.duration_seconds if result is not None else None
     output_seconds = reported if reported is not None and 0 < reported <= MAX_BILLED_DURATION_SECONDS else seconds
@@ -52,7 +52,7 @@ def video_usage(
     quantities: dict[str, float] = {
         "output_seconds": output_seconds,
         "input_images": reference_images,
-        # 内置调用通道都不发送输入视频。
+        # Built-in channels never send input videos.
         "input_video_seconds": 0,
         "requests": 1,
     }

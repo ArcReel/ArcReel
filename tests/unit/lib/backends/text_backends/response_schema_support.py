@@ -1,6 +1,6 @@
-"""作为 ``response_schema`` 发给文本模型的全部结构化输出模型，供 schema 内容用例参数化。
+"""All structured-output models sent as ``response_schema``, for parametrized schema-content tests.
 
-新增结构化输出调用点时把它的模型补进 :func:`response_schema_models`，让 schema 内容约束覆盖到它。
+Add models from new call sites to :func:`response_schema_models` so schema constraints cover them.
 """
 
 import inspect
@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 
 def response_schema_models() -> list[type[BaseModel]]:
-    """各调用点实际传入的 response_schema；动态模型按多值与单值时长枚举各取一份。"""
+    """Actual call-site response schemas, including dynamic multi-/single-value duration enums."""
     from lib.episode.episode_planner import DramaPlanDraft, NarrationPlanDraft
     from lib.project.project_manager import ProjectOverview
     from lib.script.script_models import (
@@ -29,19 +29,19 @@ def response_schema_models() -> list[type[BaseModel]]:
     )
 
     models: list[type[BaseModel]] = [
-        # 分集规划
+        # Episode planning
         NarrationPlanDraft,
         DramaPlanDraft,
-        # 分镜拆分（旁白）与提示词编写（参考生视频）
+        # Narration storyboard splitting / reference-to-video prompt authoring
         NarrationScriptPlanDraft,
         ReferencePromptAuthoringFlatScript,
-        # 提示词编写视觉层
+        # Visual prompt authoring
         NarrationVisualEpisodeScript,
         DramaVisualScript,
         AdVisualScript,
-        # 广告剧本（参考生视频）
+        # Reference-to-video ad scripts
         AdReferenceFlatScript,
-        # 项目概述
+        # Project overview
         ProjectOverview,
     ]
     for durations in ([4, 6, 8], [8]):
@@ -54,12 +54,12 @@ def response_schema_models() -> list[type[BaseModel]]:
 
 
 def response_schema_params() -> list:
-    """:func:`response_schema_models` 的 pytest 参数形态；动态模型同名，id 带序号区分。"""
+    """pytest parameters for :func:`response_schema_models`; distinguish same-named dynamic models with numbered IDs."""
     return [pytest.param(model, id=f"{i}-{model.__name__}") for i, model in enumerate(response_schema_models())]
 
 
 def _model_field_descriptions(model: type[BaseModel]) -> set[str]:
-    """模型及其嵌套模型上全部字段的 ``description``。"""
+    """All field ``description`` values across models/nested models."""
     seen: set[type[BaseModel]] = set()
     found: set[str] = set()
 
@@ -78,10 +78,11 @@ def _model_field_descriptions(model: type[BaseModel]) -> set[str]:
 
 
 def _class_docstring_texts(model: type[BaseModel]) -> set[str]:
-    """``model`` 的默认 schema 里由类 docstring 生成的说明，即发给模型的内容不应带的文本。
+    """Class-docstring descriptions in default ``model`` schemas, text that must not reach models.
 
-    取顶层与各 ``$defs`` 定义上的 ``description``。与字段说明同文的除外（如 ``Composition`` 的「构图信息」）：
-    默认 schema 在这种情况下只把它留在定义上，无法与字段说明区分，故从模型类上取字段说明排除掉。
+    Read root/nested ``$defs`` ``description`` values. Exclude text equal to field descriptions
+    (e.g. ``Composition`` 构图信息): default schemas retain only definition descriptions then,
+    making them indistinguishable, so collect field descriptions from model classes for exclusion.
     """
     raw = model.model_json_schema()
     nodes = [raw, *raw.get("$defs", {}).values()]
@@ -89,9 +90,10 @@ def _class_docstring_texts(model: type[BaseModel]) -> set[str]:
 
 
 def leaked_class_docstrings(model: type[BaseModel], wire_json: str) -> list[str]:
-    """``wire_json``（发往端点的 JSON 文本）里出现的 ``model`` 类 docstring，按首行匹配。
+    """``model`` class docstrings found in endpoint ``wire_json``, matched by first lines.
 
-    Instructor 的工具说明只取 docstring 的首段，按首行匹配才能同时覆盖整段说明与摘取的首段。
+    Instructor tool descriptions retain only opening paragraphs; first-line matching covers
+    both complete explanations and extracted opening paragraphs.
     """
     first_lines = (inspect.cleandoc(text).splitlines()[0] for text in _class_docstring_texts(model))
     return [line for line in first_lines if json.dumps(line, ensure_ascii=False)[1:-1] in wire_json]

@@ -1,19 +1,24 @@
-"""参考生视频 script_plan / prompt_authoring 扁平草稿结构的机械校验。
+"""Mechanical validation of flat reference-to-video script_plan / prompt_authoring drafts.
 
-LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同一份文本上；本模块是「parser
-后校验」这一层的落点：schema 已卡死枚举与外层结构，剩下的语法与内容约束在这里逐 unit
-判定，任一违约 fail-loud 抛 :class:`DraftViolation`，不把违规产物当成功结果写盘。
+LLM output and human editor input use the same format, so validation operates on the same text.
+This module provides the post-parser validation layer: schemas already constrain enums and outer
+structure; remaining syntax/content constraints are checked per unit here. Any violation fails loudly
+with :class:`DraftViolation`, never writing invalid output as a successful result.
 
-「不当成功结果写盘」不等于丢弃：调用侧用 :func:`collect_violations` 把逐 unit 的违约收齐成
-一份报告，产物落待修复草稿（``lib.script.draft_quarantine``）等 Agent 修复后重判，不重抽。
-每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
+Not writing as a successful result does not mean discarding it: callers use :func:`collect_violations`
+to gather per-unit violations into one report. Output enters the repairable draft area
+(``lib.script.draft_quarantine``) for Agent repair and revalidation, without resampling.
+Every violation has a ``code`` (category) and ``label`` (unit location), enabling item-level locations
+and category-based assertions.
 
-违约条目类型与报告渲染（:class:`DraftViolation` / :func:`collect_violations` /
-:func:`render_violation_report`）三条路线通用，定义在路线中立的 ``lib.script.draft_violation``；
-本模块原样再导出它们，参考生视频的既有导入路径不变。
+Violation types and report rendering (:class:`DraftViolation` / :func:`collect_violations` /
+:func:`render_violation_report`) are shared by all three routes and defined in route-neutral
+``lib.script.draft_violation``. This module reexports them unchanged, preserving existing
+reference-to-video import paths.
 
-与编辑器侧（人写）的容忍口径分流：``lib.script.reference_video.script_preview`` 对同样的文本只
-出 warning、照常落盘——那里有作者意图要保护；本模块面向机器产物，没有意图可保护，一律拒。
+Editor-side tolerance differs: ``lib.script.reference_video.script_preview`` only warns on the same
+human-written text and still saves it, protecting author intent. This module validates machine output,
+which has no author intent to protect, and rejects every violation.
 """
 
 from __future__ import annotations
@@ -47,36 +52,39 @@ from lib.script.script_models import ReferenceResource
 from lib.speech.speech_composition import SpeechProblem, admit_script_unit
 from lib.speech.speech_rate import estimate_spoken_seconds
 
-#: 台词口播时长相对 unit 时长的宽容系数：估算超出 unit 时长这个比例才判超载。
-#: 语速是统计估算（``lib.speech.speech_rate``），逐字计数与真实配音节奏必然有出入；不留宽容会
-#: 把「刚好写满」的正常产出判违约。与 drama 保存期上界 warning 的 20% 同量级——两处都是
-#: 「同一套语速估算 vs 已定时长」的比对，宽容度没有理由不同。
+#: Dialogue-duration tolerance relative to unit duration: overload requires exceeding this ratio.
+#: Rates are statistical estimates (``lib.speech.speech_rate``); character counts inevitably differ
+#: from actual delivery. Without tolerance, ordinary output that just fills its budget would violate.
+#: Match the drama save-time upper-bound warning's 20%: both compare the same rate estimates against
+#: fixed durations, so there is no reason to use different tolerances.
 SPEECH_OVERFLOW_TOLERANCE = 0.20
 
 
 def _normalize_for_anchor(text: str) -> str:
-    """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
+    """Normalize Unicode to NFC and collapse consecutive whitespace into single spaces.
 
-    与 narration 覆盖校验的 ``_normalize_for_coverage`` 同一口径：模型复制原文时换行与
-    缩进的还原不可靠，但删字改字必须被抓住。NFC 与 ``lib.episode.episode_ledger.normalize_source_text``
-    定义的源文坐标系一致——带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型回写 NFC，
-    纯编码形式差异不该被判成改写。
+    Remove only encoding/whitespace differences, not whitespace itself. Like narration coverage's
+    ``_normalize_for_coverage``, this tolerates unreliable line breaks/indentation when models copy
+    source text, while catching deleted or changed characters. NFC matches the source coordinate system
+    defined by ``lib.episode.episode_ledger.normalize_source_text``: languages with combining marks
+    (such as vi) may be stored as NFD and returned as NFC. Encoding differences alone are not rewrites.
     """
     return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
 
 
 def is_verbatim_source_anchor(source_text: str, novel_text: str) -> bool:
-    """``source_text`` 在空白归一后是否为源文的逐字子串（空锚不算命中）。"""
+    """Whether ``source_text`` is a verbatim source substring after whitespace normalization (empty anchors never match)."""
     anchor = _normalize_for_anchor(source_text)
     return bool(anchor) and anchor in _normalize_for_anchor(novel_text)
 
 
 def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -> None:
-    """校验 ``source_text`` 是源文的逐字子串（空白归一后）。
+    """Validate that ``source_text`` is a verbatim source substring after whitespace normalization.
 
-    script_plan 的 unit 边界要能追溯回原文，锚失配意味着模型在拆分时改写或杜撰了原文——这是内容
-    层的根本违约，比任何下游画面问题都更早需要被拦下。只判子串、不判顺序与完整覆盖：unit
-    是画面单元不是朗读单元，允许原文中的对话提示语、转述段落不进任何 unit 的锚。
+    script_plan unit boundaries must trace back to the source. Mismatched anchors mean the model
+    rewrote or invented source text while splitting, a fundamental content violation to stop before
+    any downstream visual issue. Check substrings only, not ordering or complete coverage: units are
+    visual rather than reading units, so dialogue tags or reported passages may belong to no anchor.
     """
     anchor = _normalize_for_anchor(source_text)
     if not anchor:
@@ -94,18 +102,20 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
         )
 
 
-#: 全角花括号。语法只认半角，但中文输入法下模型很容易写出全角形；行里出现全角花括号时
-#: 该段不成发声记号，会被当成画面描述放行——台词静默降级成描述、说话人反而被派生成参考图。
-#: 故在语法判定处显式识别并拒绝，不静默、也不代模型改写。
+#: Fullwidth braces. Syntax recognizes ASCII braces only, but Chinese input methods make fullwidth
+#: forms easy to produce. They create no speech marks, allowing dialogue through as visual description
+#: while deriving speakers as reference images. Explicitly recognize and reject them during syntax
+#: validation, without silent acceptance or rewriting on the model's behalf.
 _FULLWIDTH_BRACES = "｛｝"
 
 
 def _assert_line_syntax(label: str, text: str, character_references: Container[str]) -> None:
-    """逐行判引用语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词。
+    """Check reference syntax line by line: brace usage, malformed ``@[`` references, and unbraced dialogue.
 
-    三类共性是「解析器不报错、但派生结果与作者意图相反」：台词降级成画面描述、说话人反被
-    派生成参考图、坏 token 原样进供应商请求。机器产物没有作者意图可保护，一律在语法判定处
-    响亮拒绝，不静默、也不代模型改写。
+    All three can pass the parser while reversing intent: dialogue becomes visual description,
+    speakers become reference images, or broken tokens reach provider requests verbatim. Machine
+    output has no author intent to protect; reject loudly at syntax validation, without silence or
+    rewriting on the model's behalf.
     """
     for idx, line in enumerate(text.splitlines()):
         if any(ch in line for ch in _FULLWIDTH_BRACES):
@@ -128,8 +138,9 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
             )
         parts = split_speech_line(line)
         leads_with_speech = bool(parts) and isinstance(parts[0], SpeechMark) and bool(parts[0].speaker)
-        # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
-        # 是合法的画面描述写法，按同一形态一概判违约会把正常的 script_plan 产出拒掉。
+        # Only registered characters plus a colon imply malformed dialogue. Scene/prop subheadings
+        # (``@[酒馆]：木门被风吹开``) are valid visual descriptions; rejecting every such shape would
+        # reject normal script_plan output.
         if not leads_with_speech and (leading_mention_before_colon(line) or "") in character_references:
             raise DraftViolation(
                 f"{label} 的台词写法不合法：{line.strip()[:40]!r}；"
@@ -139,7 +150,7 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
                 label=label,
                 line=idx,
             )
-        # 只判记号之外的残余：一行里已识别的台词不因同行另有花括号被连坐。
+        # Check only text outside marks: other braces on a line do not invalidate recognized dialogue.
         rest = speech_line_description(parts)
         if "{" not in rest and "}" not in rest:
             continue
@@ -157,19 +168,20 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
 
 
 def _has_description_line(text: str) -> bool:
-    """该单元是否有画面描述：某一行剥掉全部发声记号后仍有非空文本。"""
+    """Whether a unit contains visual description: some line retains nonempty text after all speech marks are removed."""
     return any(strip_speech_marks(line).strip() for line in text.splitlines())
 
 
 def dialogue_speakers(text: str) -> list[str]:
-    """按出现顺序取出台词记号的说话人（去重）——登记校验据此判说话人是否为登记角色。
+    """Return deduplicated dialogue-mark speakers in appearance order for registered-character checks.
 
-    说话人取自 ``split_speech_line``，已在解析器入口归一到资产名比对坐标系
-    （``lib.script.reference_video.text_parser`` 的 ``_normalize_source``），与资产表归一后的 key
-    同形，本函数直接使用该结果，不再额外归一。
+    Speakers come from ``split_speech_line``, already normalized to asset-name comparison coordinates
+    at the parser entry (``_normalize_source`` in ``lib.script.reference_video.text_parser``).
+    They match normalized asset-table keys, so use them directly without additional normalization.
 
-    说话人位写 ``@[角色/衍生]`` 时给出的是本体名：声音属于身份，衍生共享本体的参考音频与
-    音色（见 ``docs/adr/0072``）。写下的那套外观见 ``speech_speaker_references``。
+    A speaker written as ``@[角色/衍生]`` yields the base name: voice belongs to identity, and derivatives
+    share the base's reference audio and voice characteristics (see ``docs/adr/0072``).
+    See ``speech_speaker_references`` for the appearance actually written.
     """
     seen: set[str] = set()
     speakers: list[str] = []
@@ -182,14 +194,17 @@ def dialogue_speakers(text: str) -> list[str]:
 
 
 def normative_lines(text: str) -> list[tuple[str, str, str]]:
-    """按出现顺序取出全部发声记号：``(kind, speaker, 台词)``，``kind`` 为 dialogue / voiceover。
+    """Return all speech marks in appearance order: ``(kind, speaker, 台词)``, with ``kind`` dialogue / voiceover.
 
-    prompt_authoring 的保结构 diff 以此为比对项：画面描述可自由展开，发声记号必须逐字不变。
+    prompt_authoring's structure-preserving diff compares these: visual descriptions may expand freely,
+    but speech marks must remain verbatim.
 
-    台词与说话人已在解析器入口归一到 NFC（``lib.script.reference_video.text_parser`` 的
-    ``_normalize_source``）：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼同字、逐字比对
-    却不等，保结构 diff 会把纯编码差异判成改写；口播时长估算同样要求 NFC（按词计的语种下
-    组合附加符会把一个词拆成多个阅读单位）。归一在解析器一处完成，两个消费方口径天然一致。
+    Dialogue and speakers are already normalized to NFC at the parser entry (``_normalize_source`` in
+    ``lib.script.reference_video.text_parser``). Source text may be stored as NFD and returned as NFC:
+    visually identical forms compare differently character by character, causing the structural diff
+    to report encoding differences as rewrites. Speech estimates also require NFC: combining marks
+    otherwise split words into multiple reading units in word-counted languages. Normalizing once in
+    the parser keeps both consumers consistent.
     """
     result: list[tuple[str, str, str]] = []
     for line in text.splitlines():
@@ -208,24 +223,25 @@ def validate_unit_text(
     max_refs: int | None,
     tolerated_speakers: Collection[str] = (),
 ) -> list[ReferenceResource]:
-    """校验一个 unit 的正文并机械派生参考图引用。
+    """Validate one unit's body and mechanically derive reference-image references.
 
-    覆盖四类阻断违约：正文为空或只有发声记号、引用语法误用（花括号、写坏的引用、缺花
-    括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位与它写下的衍生）、参考图数超模型
-    上限。正文是唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
+    Cover four blocking violations: empty bodies or speech-only bodies; reference-syntax misuse
+    (braces, malformed references, unbraced dialogue); unregistered ``@[名称]`` references, including
+    speech-mark speakers and their written derivatives; and reference counts over model limits.
+    Only the body is persisted. Derived results serve this validation/capability check and are not written back.
 
-    ``tolerated_speakers`` 里的说话人不要求已登记：正式正文里确认过的说话人可以是未登记的
-    群演，执行时该行不绑声音、按原文发送。
+    Speakers in ``tolerated_speakers`` need not be registered: confirmed speakers in formal bodies
+    may be unregistered extras. Execution binds no voice to those lines and sends them verbatim.
     """
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
 
-    # 已登记名字一律取自引用目录：目录的名字已在比对坐标系中，正文一侧由解析器入口归一，
-    # 两侧同形才判得准。
+    # Always get registered names from the reference catalog, already in comparison coordinates.
+    # The parser normalizes body names at entry; both sides must match for accurate checks.
     catalog = build_reference_catalog(project)
     _assert_line_syntax(label, text, catalog.reference_names("character"))
 
-    # 只有台词与画外音的正文没有可生成的画面：整段非空时上面的空正文检查放不住它。
+    # Dialogue/voiceover-only bodies have no generatable visuals; nonempty bodies pass the empty check.
     if not _has_description_line(text):
         raise DraftViolation(
             f"{label} 没有画面描述；只有台词与画外音的单元没有可生成的画面",
@@ -233,8 +249,8 @@ def validate_unit_text(
             label=label,
         )
 
-    # 与编辑器预览共用 ``derive_references_from_text``：严格度分流（此处对 missing 与上限一律拒），
-    # 派生口径不分流——否则同一份正文在两侧派生出不同的 `图N` 编号。
+    # Share ``derive_references_from_text`` with editor previews. Strictness differs (reject missing
+    # references and limit violations here), but derivation must match or one body gets different `图N` indices.
     refs, missing = derive_references_from_text(text, project)
     if missing:
         raise DraftViolation(
@@ -243,7 +259,8 @@ def validate_unit_text(
             label=label,
         )
 
-    # 说话人位问的不是「能不能引用」而是「是不是一条角色资产」：它决定该句台词绑哪段参考音频。
+    # The speaker slot asks whether this is a character asset, beyond reference eligibility:
+    # it determines which reference audio binds to the dialogue.
     tolerated = {asset_name_comparison_key(name) for name in tolerated_speakers}
     registered_speakers = catalog.asset_names("character")
     bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_speakers and s not in tolerated})
@@ -254,8 +271,9 @@ def validate_unit_text(
             label=label,
         )
 
-    # 本体已登记，说话人位仍不在引用名里，只可能是那个角色没有这个衍生。分成两条违约：一条
-    # 该去登记角色，一条该去登记衍生或改名，合成一句会指错修复方向。
+    # If the base is registered but the speaker is absent from reference names, its derivative is missing.
+    # Separate violations guide registration of the character versus registration/renaming of a derivative;
+    # combining them would direct repairs incorrectly.
     character_references = catalog.reference_names("character")
     bad_forms = sorted(
         {name for name in speech_speaker_references(text) if name not in character_references and name not in tolerated}
@@ -300,14 +318,14 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
 
 
 def dialogue_spoken_seconds(text: str, language: object, speech_rate_override: float | None = None) -> float:
-    """该 unit 全部台词的口播估算秒数；``speech_rate_override`` 为 None 时按语言默认语速。"""
-    # language 取自 project.json，可能是非字符串脏数据；非字符串回退 None（按默认语速估算），
-    # 与 prompt 构造侧同口径——否则 ``count_reading_units`` 的 ``language.strip()`` 会在一次
-    # 已付费的调用之后抛 AttributeError，草稿一并丢失。
+    """Estimated spoken seconds for all dialogue in this unit; None ``speech_rate_override`` uses the language's default rate."""
+    # project.json language may contain nonstring dirty data. Fall back to None (default rate),
+    # matching prompt construction; otherwise ``count_reading_units`` calls ``language.strip()``
+    # and raises AttributeError after a paid call, losing the draft too.
     language = language if isinstance(language, str) else None
-    # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
-    # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
-    # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。
+    # normative_lines dialogue is already NFC: en / vi ``count_reading_units`` branches count words
+    # using ``\b\w+\b``. NFD combining marks are not word characters, splitting one Vietnamese word
+    # into several units (nine words become sixteen), inflating estimates and falsely rejecting dialogue that fits.
     return sum(estimate_spoken_seconds(line[2], language, speech_rate_override) for line in normative_lines(text))
 
 
@@ -318,12 +336,13 @@ def validate_dialogue_load(
     language: object,
     speech_rate_override: float | None = None,
 ) -> None:
-    """校验该 unit 的台词量念得完：口播估算超出 unit 时长（含宽容系数）即违约。
+    """Validate that dialogue fits: estimates exceeding unit duration plus tolerance violate the contract.
 
-    时长就是计费，unit 时长在 script_plan 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
-    script_plan 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
-    ``speech_rate_override`` 是项目级语速覆盖，None 即回退语言默认——与 prompt 构造侧同源，
-    prompt 给的下界与此处判的上界始终是同一把尺。
+    Duration determines billing and is finalized in script_plan. Excess dialogue inevitably causes
+    dropped words or rushed timing in output. At script_plan it can still be fixed by splitting units
+    or cutting dialogue; discovering it after generation requires starting over.
+    ``speech_rate_override`` is the project override; None falls back to the language default, sharing
+    the prompt builder's source so its lower bound and this upper bound always use the same measure.
     """
     spoken = dialogue_spoken_seconds(text, language, speech_rate_override)
     budget = duration_seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
@@ -338,11 +357,12 @@ def validate_dialogue_load(
 
 
 def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authoring_text: str) -> None:
-    """prompt_authoring 保结构 diff：发声记号的序列必须与 script_plan 逐字一致。
+    """Structure-preserving prompt_authoring diff: speech-mark sequences must exactly match script_plan.
 
-    prompt_authoring 的职责是提示词编写，台词属于 script_plan 已由用户完成内容确认的内容契约。改词、增删、
-    重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 script_plan，而不是让 prompt_authoring
-    自行把台词改成好配的样子。
+    prompt_authoring writes prompts; dialogue is the content contract already confirmed by the user
+    in script_plan. Rewording, additions, deletions, or reordering fail loudly, never silently pass.
+    When dialogue does not fit visuals, report an error and return to script_plan rather than letting
+    prompt_authoring rewrite it to fit more convenient visuals.
     """
     before = normative_lines(script_plan_text)
     after = normative_lines(prompt_authoring_text)

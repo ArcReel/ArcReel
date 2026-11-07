@@ -3,7 +3,7 @@ import { API } from "@/api";
 import { errMsg } from "@/utils/async";
 import type { Asset, AssetListPage, AssetType } from "@/types/asset";
 
-/** 资产库每页条数。 */
+/** Asset-library page size. */
 export const ASSET_PAGE_SIZE = 60;
 
 interface AssetQuery {
@@ -12,13 +12,13 @@ interface AssetQuery {
 }
 
 interface PagesState {
-  /** 这份数据对应的类型与搜索词；与当前查询不一致时说明首页还在加载。 */
+  /** Type/search corresponding to these data; disagreement with current queries means first pages are still loading. */
   key: string | null;
-  /** 与 key 对应的查询。本地增改按它判断，迟到的回调不会按旧闭包里的查询改写新列表。 */
+  /** Query corresponding to key; local additions/updates use it so late callbacks cannot overwrite new lists using stale closure queries. */
   query: AssetQuery | null;
   items: Asset[];
   total: number;
-  /** 已消费的服务端位置，重复条目仍占一个 offset。 */
+  /** Consumed server positions; duplicate entries still occupy offsets. */
   nextOffset: number;
   counts: AssetListPage["counts"] | null;
   error: string | null;
@@ -38,7 +38,7 @@ const INITIAL: PagesState = {
   moreError: null,
 };
 
-/** 与后端搜索同口径（类型一致、名称包含搜索词，ASCII 不区分大小写），用于判断本地新建或更新的条目是否计入当前结果。 */
+/** Match backend search (same types, names containing search terms, ASCII case-insensitive) to determine whether local additions/updates enter current results. */
 function matchesQuery(asset: Asset, { type, q }: AssetQuery): boolean {
   return (!type || asset.type === type) && (!q || asset.name.toLowerCase().includes(q.toLowerCase()));
 }
@@ -48,41 +48,41 @@ function bump(counts: PagesState["counts"], type: AssetType, delta: number): Pag
 }
 
 export interface AssetPages {
-  /** 已加载的条目；首页加载中为空。 */
+  /** Loaded entries; empty while first pages load. */
   items: Asset[];
-  /** 当前类型与搜索词下的匹配总数。 */
+  /** Total matches for current types/search terms. */
   total: number;
-  /** 当前搜索词下各类型的匹配数，换搜索词时保留上一次的数字直到新结果到达。 */
+  /** Per-type matches for current searches; retain previous counts across search changes until new results arrive. */
   counts: AssetListPage["counts"] | null;
   loading: boolean;
-  /** 首页加载失败的原因。 */
+  /** First-page load failure causes. */
   error: string | null;
   loadingMore: boolean;
-  /** 加载下一页失败的原因。 */
+  /** Next-page load failure causes. */
   moreError: string | null;
   hasMore: boolean;
   loadMore: () => void;
-  /** 重新加载首页（首页失败后）或下一页（翻页失败后）。 */
+  /** Reload first pages after initial failures, or next pages after pagination failures. */
   retry: () => void;
-  /** 本地新建的条目：符合当前类型与搜索词时插到最前，并更新计数。 */
+  /** Locally created entries: prepend when matching current types/search terms and update counts. */
   add: (asset: Asset) => void;
-  /** 本地更新的条目：按更新时间排在最前，与后端排序一致。 */
+  /** Locally updated entries: newest-updated first, matching backend order. */
   update: (asset: Asset) => void;
   remove: (asset: Asset) => void;
 }
 
 /**
- * 按 offset 分页读取资产库，类型或搜索词变化时从第一页重新加载。
- * 本地增删改同步调整已加载条目与计数。翻页位置按响应的原始条数推进，去重不回退 offset。
+ * Read asset libraries with offset pagination; reload from first pages when types/search terms change.
+ * Local additions/deletions/updates adjust loaded entries/counts. Advance positions by raw response lengths; deduplication never rewinds offsets.
  */
 export function useAssetPages({ type, q }: { type?: AssetType; q: string }): AssetPages {
   const key = JSON.stringify([type ?? null, q]);
   const [state, setState] = useState<PagesState>(INITIAL);
   const [reloadToken, setReloadToken] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
-  /** 在途的首页请求；本地增删改后重新加载。 */
+  /** Pending first-page requests; reload after local additions/deletions/updates. */
   const firstRef = useRef<AbortController | null>(null);
-  /** 在途的下一页请求；本地增删后作废。 */
+  /** Pending next-page requests; invalidate after local additions/deletions. */
   const moreRef = useRef<AbortController | null>(null);
   const current = state.key === key;
 
@@ -147,9 +147,9 @@ export function useAssetPages({ type, q }: { type?: AssetType; q: string }): Ass
   }, [fetchPage, hasMore, state.nextOffset, state.loadingMore, state.moreError]);
 
   /**
-   * 本地增删改与在途请求的先后无从得知：服务端可能先执行查询，也可能先落盘修改。
-   * 首页在途时，响应可能缺这次修改，而修改又没有可以合并的列表，所以重新加载首页。
-   * 下一页在途时，按任一种顺序推进 offset 都可能跳过一条，所以作废这次请求，哨兵随后按校正后的位置重新加载。
+   * Local additions/deletions/updates and pending requests have unknown ordering: servers may query before or after persisting mutations.
+   * Pending first-page responses may omit mutations, and mutations have no lists to merge into, so reload first pages.
+   * For pending next pages, advancing offsets under either ordering may skip entries; invalidate requests so sentinels reload at corrected positions.
    */
   const settleLocalChange = useCallback((next: (prev: PagesState) => PagesState) => {
     if (firstRef.current) {
@@ -185,7 +185,7 @@ export function useAssetPages({ type, q }: { type?: AssetType; q: string }): Ass
     [settleLocalChange],
   );
 
-  /** 只处理已加载的条目：未加载的条目已计入 total，插入或减计数都会让计数与列表错位。 */
+  /** Handle loaded entries only: unloaded entries already count toward total, so insertion/count reduction would misalign counts and lists. */
   const update = useCallback(
     (asset: Asset) =>
       settleLocalChange((prev) => {

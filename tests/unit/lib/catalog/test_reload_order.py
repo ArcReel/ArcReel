@@ -1,4 +1,4 @@
-"""并发的两次重读装入：开始读得晚的结果不被开始读得早、却读得慢的结果覆盖。"""
+"""Concurrent reloads: a later-started result must not be overwritten by an earlier but slower read."""
 
 from __future__ import annotations
 
@@ -26,6 +26,6 @@ async def test_a_slow_earlier_read_does_not_overwrite_a_later_one() -> None:
     await first
 
     assert installed == ["new"]
-    # 之后再开始的重读照常装入
+    # Subsequent reloads still apply normally.
     await order.reload(slow_old_read, installed.append)
     assert installed == ["new", "old"]

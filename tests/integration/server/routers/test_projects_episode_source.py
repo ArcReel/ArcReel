@@ -1,4 +1,4 @@
-"""集页填写本集原文：PUT /projects/{name}/episodes/{episode}/source。"""
+"""Episode source entry PUT /projects/{name}/episodes/{episode}/source."""
 
 from pathlib import Path
 

@@ -1,4 +1,4 @@
-"""结构化校验消息的渲染语义：指定 translator、嵌套翻译键、literal 通道与无目录渲染。"""
+"""Structured validation-message rendering: supplied translators, nested translation keys, literal channels, and catalog-free rendering."""
 
 from arcreel_market_core.validation_messages import (
     LITERAL_KEY,

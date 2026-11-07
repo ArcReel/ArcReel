@@ -1,0 +1,146 @@
+[
+  {
+    "path": "frontend/src/__mocks__/ScriptReviewGate.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/actions/render.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/agent/CredentialList.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/assets/AssetCreateDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/assets/DeleteAssetDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/edit-render/create-script-timeline.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episode-page/EpisodeViewScope.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episode-page/StorySettingView.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/EpisodesHeader.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/files/FilePreview.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetSheetBatchDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/useAssetWrites.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/overview/AdBrief.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/overview/OverviewHeader.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/advisory-problems.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/PlanDurationSelect.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/RefThumbnail.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/StoryboardBatchDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/TooltipIconButton.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/ChatImage.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/chat/ToolCallWithResult.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/layout/AgentPanelToggle.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/SystemConfigPage.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/lobby/ImportConflictDialog.tsx",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "tool_count": 61,
+  "static_script_model_count": 38,
+  "dynamic_model_cases": 25,
+  "structural_capture_sha256": "30e5284f162e3dfce54133318d1fff567961d61d8d75308d19742c987890df68",
+  "structural_payloads_equal": true,
+  "remaining_han_tool_schema_description_paths": [],
+  "limits": "Description metadata only is excluded from structural comparison, including at nested schema nodes. Instance properties named description are retained. This is bounded local structure evidence, not behavioral equivalence.",
+  "additional_models": [
+    "ProjectOverview",
+    "SourceScope"
+  ]
+}

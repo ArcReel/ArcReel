@@ -7,7 +7,7 @@ import { ThinkingBlock } from "./ThinkingBlock";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
 
 // ---------------------------------------------------------------------------
-// 主时间线的单行条目：工序行（工具调用、Skill、子智能体、后台任务）与思考块
+// Main-timeline single rows: work items (tools/Skills/subagents/background tasks) and thinking blocks.
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
@@ -272,7 +272,7 @@ describe("子智能体的工序行", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /探索费用计算逻辑/ }));
 
-    // 子智能体里的失败是展开卡片看到的既有内容，不播报
+    // Subagent failures revealed by expansion are existing contents and stay silent.
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "这一轮没有完成" })).toHaveTextContent("Agent 运行时出错");
   });

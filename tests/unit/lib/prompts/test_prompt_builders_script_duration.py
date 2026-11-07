@@ -1,4 +1,4 @@
-"""script_plan prompt 的时长约束：档位文案、空集守卫与单集目标时长软约束的注入。"""
+"""script_plan duration constraints: tier copy, empty-set guards, and episode target-duration soft constraints."""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ from lib.prompts.prompt_builders_script import (
     format_duration_constraint,
 )
 
-#: 规则句的固定开头：未设目标时整段不注入，该开头不应出现在提示词中。
-_RULE_HEAD = "本集成片目标时长约 "
+#: Fixed rule-sentence opening: with no target, omit the whole block and its opening from prompts.
+_RULE_HEAD = "The target finished duration of this episode is approximately "
 
-#: 共享片段渲染的目标时长句（软目标后的两个方向合并为一句）。
+#: Shared-fragment target sentence combines both directions after the soft target into one sentence.
 _SHARED_TARGET_RULE = (
-    "本集成片目标时长约 {seconds} 秒：据此决定本集的单元数与拆分粒度，让各单元时长合计向该目标靠拢。"
-    "这是软目标、不是硬上限：不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节。"
+    "The target finished duration of this episode is approximately {seconds} seconds: use it to decide the number of units and splitting granularity so their durations sum toward this target. "
+    "This is a soft target, not a hard upper bound: do not pad or fragment content to fill it, and do not remove necessary plot to fit it."
 )
 
 
@@ -32,25 +32,25 @@ class TestFormatDurationConstraint:
         assert text != format_duration_constraint([4, 6, 8], default_duration=None)
 
     def test_default_duration_must_be_in_supported(self):
-        """default_duration 不在 supported 集合时应抛错，避免 prompt 自相矛盾。"""
+        """default_duration outside supported sets raises, preventing self-contradictory prompts."""
         with pytest.raises(ValueError, match="default_duration=6 不在"):
             format_duration_constraint([4, 8], default_duration=6)
 
     def test_continuous_range_uses_min_max_phrasing(self):
-        """长度 ≥5 且连续整数时压缩为只包含边界的区间。"""
+        """Consecutive integer sets of length ≥5 compress into boundary-only ranges."""
         text = format_duration_constraint([3, 4, 5, 6, 7, 8, 9, 10], default_duration=None)
         assert "3" in text
         assert "10" in text
         assert "[3, 4, 5, 6, 7, 8, 9, 10]" not in text
 
     def test_short_continuous_still_uses_list(self):
-        """长度 <5 即使连续，仍保留中间值。"""
+        """Sets shorter than 5 retain internal values even when consecutive."""
         text = format_duration_constraint([4, 5, 6], default_duration=None)
         assert "5" in text
 
 
 class TestBuildersRequireDurations:
-    """删除 fallback 后，传 None / 空 list 不应再被静默回填。"""
+    """After fallback removal, None/empty lists must not be silently refilled."""
 
     def test_format_constraint_rejects_empty(self):
         with pytest.raises(ValueError, match="supported_durations 不能为空"):
@@ -89,7 +89,7 @@ def _narration_prompt(**overrides) -> str:
 
 
 class TestEpisodeTargetDurationInjection:
-    """单集目标时长非 None 时注入共享软约束句；未设时提示词与不带该参数时逐字相同。"""
+    """Non-None episode targets inject shared soft constraints; omitted targets yield prompts identical to calls without the argument."""
 
     def test_drama_prompt_carries_the_shared_rule(self):
         prompt = _drama_prompt(episode_target_duration=120)
@@ -106,21 +106,21 @@ class TestEpisodeTargetDurationInjection:
         assert _RULE_HEAD not in _narration_prompt()
 
     def test_the_rule_coexists_with_the_default_duration_preference(self):
-        """两条约束尺度不同（整集体量 vs 单场秒数），须同时呈现而非互相取代。"""
+        """Both scales, episode volume versus scene seconds, coexist rather than replace one another."""
         prompt = _drama_prompt(default_duration=8, episode_target_duration=120)
         assert _SHARED_TARGET_RULE.format(seconds=120) in prompt
-        assert "默认 8 秒" in prompt
+        assert "default 8 seconds" in prompt
 
 
 @pytest.mark.parametrize("target", [None, 120])
 @pytest.mark.parametrize("instructions", [None, "", "保留末尾停顿。"])
 def test_narration_optional_target_and_instructions(target, instructions):
     prompt = _narration_prompt(episode_target_duration=target, instructions=instructions)
-    assert ("本集成片目标时长约 120 秒" in prompt) is bool(target)
-    assert ("# 附加指令" in prompt) is bool(instructions)
+    assert ("The target finished duration of this episode is approximately 120 seconds" in prompt) is bool(target)
+    assert ("# Additional instructions" in prompt) is bool(instructions)
     if target:
-        assert "不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节" in prompt
-        assert "内容不足以支撑目标" not in prompt
+        assert "do not pad or fragment content to fill it, and do not remove necessary plot to fit it" in prompt
+        assert "not enough content to support the target" not in prompt
     if instructions:
-        assert prompt.endswith("\n\n# 附加指令\n保留末尾停顿。")
+        assert prompt.endswith("\n\n# Additional instructions\n保留末尾停顿。")
     assert "None" not in prompt

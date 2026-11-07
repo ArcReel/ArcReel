@@ -1,8 +1,6 @@
-"""供应商素材库工具的声明：查询图片的素材库关联、浏览素材库、上传当前图片、选择已有素材、解除关联。
+"""Provider asset-library declarations: query image links, browse libraries, upload the current image, select existing assets, and release links.
 
-不声明供应商素材的远端改名与删除：它们由供应商控制台管理。素材库账号、对象存储与推理凭证绑定只在设置页配置，
-工具不接触原始密钥（``docs/adr/0114``）。
-"""
+Remote renaming and deletion are not declared: the provider console handles them. Library accounts, object storage, and inference-credential bindings are configured only in settings; tools never access raw secrets (``docs/adr/0114``)."""
 
 from __future__ import annotations
 
@@ -23,28 +21,21 @@ from server.media_tools.provider_assets import (
 )
 
 _LINK_FIELDS = (
-    "每条关联含 id、account_id、scope_key、version、state（pending 等待上传、submitting 提交中、processing 供应商处理中、"
-    "uncertain 提交结果待查回、active 可用、failed 失败）、usable、provider_asset_id、error_code、error_message"
-    " 与 polling（false 且状态未定时后台已停止自动查询）。"
+    "Each link contains id, account_id, scope_key, version, state (pending upload, submitting, processing at provider, "
+    "uncertain submission result awaiting recovery, active usable, failed), usable, provider_asset_id, error_code, error_message"
+    " and polling (false with unsettled state means background automatic querying has stopped)."
 )
 
 GET_PROVIDER_ASSET_LINKS = ToolDeclaration(
     name="get_provider_asset_links",
     description=(
-        "查询一张图片当前选中版本在供应商素材库（火山方舟 / BytePlus ModelArk）里的关联与入库状态，"
-        "与 Web 资产卡片「上传到供应商素材库」显示的是同一份记录。"
-        "返回 content_version（当前版本，没有图片时为 null）、object_storage_configured（上传所需的对象存储是否已配置）、"
-        "accounts（可用的素材库账号：id、scope_key、name、site、region、project_name）与 links。"
+        "Query the currently selected image version’s provider-asset-library links and ingestion state (Volcengine Ark / BytePlus ModelArk), the same records as Upload to provider asset library on Web asset cards. Returns content_version (current version, null without image), object_storage_configured (whether upload object storage is configured), accounts (available library accounts: id, scope_key, name, site, region, project_name), and links. A link belongs to an account only when scope_key matches. Replacing account Access Keys with another cloud account leaves old links unmatched, unusable for generation, and only releasable. Links belong to specific content versions: a new image version does not inherit old links; switching back uses still-valid links for the old version. Generation uses only active links; processing or failed links explicitly fail reference-video generation rather than silently sending an ordinary image. recheck=true asks the background worker to requery processing ingestion tasks immediately and still returns without waiting for the provider. Unsupported resource types return unsupported_resource_type."
         + _LINK_FIELDS
-        + "关联与账号的 scope_key 相等才属于该账号的范围；账号换成另一个云账号的 Access Key 后，"
-        "旧关联不再与任何账号相等，也不会用于生成，只能解除。"
-        + "关联属于具体内容版本：换图后新版本不继承旧版本的关联，切回旧版本时它仍有效的关联照常使用。"
-        "生成时只用状态为 active 的关联；处理中或失败的关联会让参考生视频明确失败，不会悄悄改发普通图片。"
-        "recheck=true 时请后台立即重新查询仍在处理中的入库任务，同样立即返回，不等待供应商。"
-        "资源类型不支持返回 unsupported_resource_type。"
     ),
     request_model=ProviderAssetLinksRequest,
-    migration=Exempt("只读版本记录与数据库里的关联；recheck 只改数据库里的下次查询时间，不写项目文件。"),
+    migration=Exempt(
+        "Reads version records and database links; recheck changes only the next database polling time and writes no project files."
+    ),
     domain_key="provider_asset_links",
     handler=get_provider_asset_links,
 )
@@ -52,14 +43,10 @@ GET_PROVIDER_ASSET_LINKS = ToolDeclaration(
 LIST_PROVIDER_LIBRARY_ASSETS = ToolDeclaration(
     name="list_provider_library_assets",
     description=(
-        "按素材库账号的站点、区域与项目范围，分页列出供应商素材库里已有的素材，新的在前。"
-        "每条含 id、name、asset_type（Image / Video / Audio）、status（active / processing / failed / unknown）、"
-        "error_code 与 created_at；另返回 total、page、page_size。只有 asset_type 为 Image 且 status 为 active 的素材"
-        "可以用 select_provider_library_asset 选择。结果不含供应商的签名下载地址。只读，不改变任何关联。"
-        "账号不存在返回 asset_library_account_not_found；供应商拒绝或请求失败时返回控制面错误码，原样转述给用户。"
+        "Page through existing provider-library assets in the account’s site, region, and project scope, newest first. Each entry has id, name, asset_type (Image / Video / Audio), status (active / processing / failed / unknown), error_code, and created_at; also returns total, page, page_size. Only Image assets with active status can be selected through select_provider_library_asset. Results exclude provider-signed download URLs. Read-only; changes no links. Missing accounts return asset_library_account_not_found; provider refusal or request failure returns control-plane error codes to relay unchanged to the user."
     ),
     request_model=ListProviderLibraryAssetsRequest,
-    migration=Exempt("只读供应商素材库，不读写项目数据。"),
+    migration=Exempt("Reads only the provider asset library, without project-data access."),
     domain_key="provider_library_assets",
     handler=list_provider_library_assets,
 )
@@ -67,16 +54,7 @@ LIST_PROVIDER_LIBRARY_ASSETS = ToolDeclaration(
 UPLOAD_TO_PROVIDER_ASSET_LIBRARY = ToolDeclaration(
     name="upload_to_provider_asset_library",
     description=(
-        "把一张图片当前选中的版本上传到供应商素材库，即 Web 资产卡片的「上传到供应商素材库」。"
-        "只在用户明确要求上传这张图片时调用，并传 user_requested=true。生成被供应商审核拒绝不构成上传要求："
-        "此时把拒绝原因转述给用户，说明可以上传到素材库，由用户决定；不要自行上传，也不要自动重新生成。"
-        "上传冻结调用时选中的版本，之后改选其他版本不影响这次入库。图片经用户自有的对象存储中转后提交入库，"
-        "入库与审核由后台完成：本工具立即返回入库任务（state=pending），不等待结果。之后用 get_provider_asset_links "
-        "查询状态，状态为 active 后再按用户意愿重新生成；不要反复轮询等待。"
-        "没有图片版本返回 provider_asset_upload_no_image；未配置对象存储返回 provider_asset_upload_needs_object_storage；"
-        "账号不存在返回 asset_library_account_not_found，这三种都请用户到设置或资产卡片处理。"
-        "当前版本在该账号已有关联或入库任务返回 provider_asset_link_exists，用户确认后先 release_provider_asset_link 再上传。"
-        "成功返回入库任务，字段同 get_provider_asset_links 的 links[]。"
+        "Upload the currently selected image version to the provider asset library, equivalent to Upload to provider asset library on a Web asset card. Call only when the user explicitly requests uploading this image, with user_requested=true. Provider moderation rejection of generation is not an upload request: relay the reason and explain upload is an option for the user to choose; do not upload independently or regenerate automatically. The upload freezes the version selected at call time; later version changes do not affect ingestion. The image passes through user-owned object storage before submission. Background upload and moderation proceed asynchronously: immediately returns an ingestion task (state=pending), without waiting. Later query get_provider_asset_links; after active, regenerate only according to the user’s wishes; do not repeatedly poll. Missing image version returns provider_asset_upload_no_image, missing object storage provider_asset_upload_needs_object_storage, missing account asset_library_account_not_found; direct the user to settings or the asset card for these. Existing link or ingestion task for this version/account returns provider_asset_link_exists; obtain confirmation, release_provider_asset_link, then upload. Success returns an ingestion task with the same fields as get_provider_asset_links links[]."
     ),
     request_model=UploadToProviderAssetLibraryRequest,
     migration=BLOCKED,
@@ -88,13 +66,7 @@ UPLOAD_TO_PROVIDER_ASSET_LIBRARY = ToolDeclaration(
 SELECT_PROVIDER_LIBRARY_ASSET = ToolDeclaration(
     name="select_provider_library_asset",
     description=(
-        "从供应商素材库选择一张已有图片用于资产图或角色衍生图，即 Web 的「从供应商素材库选择」。"
-        "只在用户明确选定这张素材时调用。"
-        "先取回素材的实际图片内容，按手动上传成品保存为这张图片的新版本并设为当前版本，再为这个新版本建立可用关联；"
-        "旧版本保留在版本历史里。取不回内容、素材不是可用图片或保存失败时不建立关联，当前版本不变。"
-        "素材不是图片返回 provider_asset_import_not_image；还不可用返回 provider_asset_import_not_active；"
-        "取不回内容返回 provider_asset_import_download_failed；资产或衍生不存在返回对应的 *_not_found。"
-        "成功返回 content_version（新版本的 id、version、digest）与 link。"
+        "Select an existing provider-library image as an asset sheet or character-derivative sheet, equivalent to Select from provider asset library in Web. Call only after the user explicitly selects that asset. Retrieve actual image content first, save it as a new manually uploaded finished-image version and select it as current, then create a usable link for the new version; preserve old versions in history. Retrieval failure, unusable/nonimage assets, or save failure create no link and leave current unchanged. Returns provider_asset_import_not_image for nonimages, provider_asset_import_not_active for unavailable assets, provider_asset_import_download_failed for download failures, or the corresponding *_not_found for missing assets/derivatives. Success returns content_version (new id, version, digest) and link."
     ),
     request_model=SelectProviderLibraryAssetRequest,
     migration=BLOCKED,
@@ -106,13 +78,12 @@ SELECT_PROVIDER_LIBRARY_ASSET = ToolDeclaration(
 RELEASE_PROVIDER_ASSET_LINK = ToolDeclaration(
     name="release_provider_asset_link",
     description=(
-        "解除一条供应商素材关联，即 Web 的「解除关联」。只解除这个图片版本与供应商素材的关系，"
-        "不删除 ArcReel 里的图片，也不删除供应商素材库里的素材；仍在处理中的入库任务解除后不再生效。"
-        "解除后该版本生成时改发普通图片，也可以重新上传。只在用户同意后调用。"
-        "关联不存在返回 provider_asset_link_not_found；已解除的关联原样返回，selected=false。"
+        "Release a provider-asset link, equivalent to Unlink in Web. Only removes the relationship between this image version and provider asset; deletes neither ArcReel images nor provider-library assets. Processing ingestion tasks cease to take effect after release. This version then sends ordinary images during generation and can be uploaded again. Call only with user agreement. Missing link returns provider_asset_link_not_found; already released links return unchanged with selected=false."
     ),
     request_model=ReleaseProviderAssetLinkRequest,
-    migration=Exempt("只改数据库里的关联记录，不写项目文件；迁移失败时仍须能解除失效关联。"),
+    migration=Exempt(
+        "Changes only database links, not project files. Must permit releasing invalid links after migration failure."
+    ),
     domain_key="provider_asset_link",
     handler=release_provider_asset_link,
 )

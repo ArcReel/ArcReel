@@ -1,1 +1,1 @@
-单张环境全景建立镜头。
+A single panoramic environment establishing shot.

@@ -1,4 +1,4 @@
-"""GrokVideoBackend — xAI Grok 视频生成后端。"""
+"""GrokVideoBackend: xAI Grok video-generation backend."""
 
 from __future__ import annotations
 
@@ -30,14 +30,14 @@ from lib.infra.logging_utils import format_kwargs_for_log
 logger = logging.getLogger(__name__)
 
 
-# 全系参考生视频（带参考图，或带尾帧）的分辨率上限：「Reference-to-video is capped at 720p」，且首帧与
-# last_frame 组合即参考生视频（https://docs.x.ai/developers/model-capabilities/video/generation）。
-# SDK 的分辨率枚举里高于该上限的只有 1080p。
+# Every reference-to-video model (reference images or last frames) caps resolution: “Reference-to-video is capped at 720p”; first-frame +
+# last_frame counts as reference-to-video (https://docs.x.ai/developers/model-capabilities/video/generation).
+# Only SDK resolution enum 1080p exceeds that cap.
 _REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
 
 
 class GrokVideoBackend(EntryBoundCapabilities):
-    """xAI Grok 视频生成后端。"""
+    """xAI Grok video-generation backend."""
 
     endpoint_key = "grok-video-classic"
     mixed_frames_and_references = False
@@ -63,18 +63,18 @@ class GrokVideoBackend(EntryBoundCapabilities):
 
     @staticmethod
     def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """xAI 视频调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
+        """xAI video-channel declarations (channel facts): pure computation without SDK clients or api_key.
 
-        通道对任何型号都按同一份请求构造发出首帧（``image_url``）、尾帧（``last_frame_url``）与参考图
-        （``reference_image_urls``），不限张数；参考音频只收预置 ``voice_id``，表达不了项目的参考音频文件，不声明。
-        各型号接受哪些输入（如 1.5 lite 不收参考图、只有 1.5 收尾帧）、能接受几张参考图记在模型条目上，与本声明两侧
-        求值（``lib.backends.video_capabilities``，docs/adr/0104）。
+        All models use the same construction to send first frames (``image_url``), last frames (``last_frame_url``), and reference images
+        (``reference_image_urls``), without count limits. Reference audio accepts only preset ``voice_id``, unable to express project audio files, so remains undeclared.
+        Entries record model-specific accepted inputs (1.5 lite rejects references, only 1.5 accepts last frames) and reference counts, jointly
+        evaluated with declarations (``lib.backends.video_capabilities``, docs/adr/0104).
 
-        随输入组合变化的限制仍在 ``generate`` 请求期校验（两种调用端点共用）：参考生视频路径分辨率上限 720p，
-        经典版拒收首帧与参考图并存。
+        Input-combination limits remain in ``generate`` request validation (shared by both endpoints): reference-to-video caps resolution at 720p;
+        classic rejects simultaneous first frames and references.
 
-        音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
-        视频），``generate`` 结算按同一下发值记录。
+        Audio toggles: requests send audio intent as SDK ``generate_audio`` (default audio, ``False`` produces silent
+        video); ``generate`` settles using that same sent value.
         """
         del model, entry
         return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=VideoAudioMode.CONTROLLABLE)
@@ -91,9 +91,9 @@ class GrokVideoBackend(EntryBoundCapabilities):
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）；结算的输出秒数取 xAI 回报的时长。
+        """This request's measurements (:mod:`lib.backends.video_backends.metering`); settlement uses xAI-reported output duration.
 
-        各型号按同一组请求字段计量，不按型号或条目区分。
+        All models meter the same request fields, without model/entry distinctions.
         """
         del model, entry
         return video_usage(
@@ -105,12 +105,12 @@ class GrokVideoBackend(EntryBoundCapabilities):
         )
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # Grok 同步型 API，无 job_id 可接续；orphan handler 据 NotImplementedError 标 [resume_unsupported]
+        # Grok APIs are synchronous, without resumable job_id; orphan handlers mark [resume_unsupported] from NotImplementedError.
         raise NotImplementedError("GrokVideoBackend 不支持 resume_video（同步型 API）")
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
-        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        """Generate videos without black-box generation retries; only downloads after URL receipt can retry independently."""
+        # No reference-audio body field; even user-relaxed capabilities cannot send it: reject before billing, never silently discard.
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         self._check_reference_route_resolution(request)
@@ -123,23 +123,23 @@ class GrokVideoBackend(EntryBoundCapabilities):
         response = await self._create_video(request)
 
         video_url = response.url
-        # SDK 响应字段未类型化，收窄为 int 才能作为实际计费时长落账本的 Integer 列；
-        # 先经 float 接受 "15.0" 这类浮点字符串。缺失/不可解析（含 inf/nan）/非正/
-        # 超出合理上限的值回落请求时长，保证结果恒为正且可落库。
+        # SDK fields lack types; narrow response duration to int for ledger Integer columns,
+        # accepting float strings such as "15.0" through float first. Missing/unparseable (including inf/nan)/nonpositive/
+        # unreasonably high durations fall back to request duration, keeping results positive and persistable.
         raw_duration = getattr(response, "duration", None)
         actual_duration = request.duration_seconds
         try:
             if raw_duration is not None:
                 parsed = float(raw_duration)
-                # 上下限基于取整前的原始数值判断：86400.9 已超 24h，不得因取整落回上限内被接受
+                # Check raw values before rounding: 86400.9 exceeds 24h and cannot become acceptable by rounding down.
                 if 0 < parsed <= MAX_BILLED_DURATION_SECONDS:
-                    # half-up 取整与 dashscope extract_billing_duration 同口径，避免截断少计费秒数；
-                    # (0, 0.5) 取整到 0 时同样回落，保持结果恒为正
+                    # Half-up rounding matches dashscope extract_billing_duration, avoiding truncated underbilling;
+                    # values in (0, 0.5) rounding to zero also fall back, keeping results positive.
                     rounded = int(parsed + 0.5)
                     if rounded > 0:
                         actual_duration = rounded
         except (TypeError, ValueError, OverflowError):
-            # 解析失败属预期内回落（SDK 字段未类型化），保留请求时长即可，无需上抛
+            # Parsing failure is expected fallback for untyped SDK fields; keep request duration without raising.
             logger.debug("Grok 回报的 duration 无法解析: %r，回落请求时长 %s 秒", raw_duration, actual_duration)
 
         await download_video(video_url, request.output_path, label="Grok")
@@ -155,7 +155,7 @@ class GrokVideoBackend(EntryBoundCapabilities):
         )
 
     def _check_reference_route_resolution(self, request: VideoGenerationRequest) -> None:
-        """参考生视频路径超出 720p 上限时在付费调用前拒绝，不交给供应商报错或静默降档。"""
+        """Reject reference-to-video resolutions above 720p before billed calls, avoiding provider errors or silent downgrades."""
         resolution = (request.resolution or "").strip().lower()
         if resolution != "1080p":
             return
@@ -168,29 +168,29 @@ class GrokVideoBackend(EntryBoundCapabilities):
             )
 
     def _check_classic_first_frame_with_references(self, request: VideoGenerationRequest) -> None:
-        """classic 模型拒收首帧与参考图并存（参考生视频页「Classic grok-imagine-video ... rejects combining
-        ``image`` with reference inputs」），在付费调用前拒绝，而不是两者一并下发后由供应商判失败。
+        """Classic models reject simultaneous first frames/references (reference-to-video docs: “Classic grok-imagine-video ... rejects combining
+        ``image`` with reference inputs”); reject before billing rather than sending both for provider failure.
 
-        是否允许混用由所选调用端点声明，与型号名及条目无关。"""
+        Selected endpoints declare whether mixing is allowed, independently of model names/entries."""
         if not self.mixed_frames_and_references and request.start_image and request.reference_images:
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
     async def _create_video(self, request: VideoGenerationRequest):
-        """通过不可判定收单边界的 SDK 调用生成视频。"""
+        """Generate videos through SDK calls with indeterminate submission-acceptance boundaries."""
         generate_kwargs = {
             "prompt": request.prompt,
             "model": self._model,
             "duration": request.duration_seconds,
             "aspect_ratio": request.aspect_ratio,
             "generate_audio": request.generate_audio,
-            # 轮询在 SDK 内部，仍按请求快照里的全局超时收口，否则该设置独独对 Grok 不生效。
+            # SDK polls internally; still enforce snapshot global timeout or this setting would uniquely fail to affect Grok.
             "timeout": timedelta(seconds=request.poll_timeout_seconds),
             "interval": timedelta(seconds=5),
         }
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        # 存在性检查与读图转 data URI 都是阻塞 I/O，整体卸载到线程
+        # Existence checks and image reads/data URI conversion are blocking I/O: offload together to threads.
         generate_kwargs.update(await asyncio.to_thread(self._encode_image_inputs, request))
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
@@ -198,20 +198,20 @@ class GrokVideoBackend(EntryBoundCapabilities):
         return await self._client.video.generate(**generate_kwargs)
 
     def _encode_image_inputs(self, request: VideoGenerationRequest) -> dict[str, Any]:
-        """首帧 / 尾帧 / 参考图 → SDK 的 data URI 参数（同步：读本地图片，调用方放线程里跑）。"""
+        """First / last / reference images → SDK data URI parameters (sync local reads; callers run in threads)."""
         kwargs: dict[str, Any] = {}
         if request.start_image:
             image_path = Path(request.start_image)
-            # 首帧缺失不静默跳过：跳过后照常出片计费，成片却没用上首帧。
+            # Missing first frames cannot be silently skipped: output would still bill without using them.
             if not image_path.is_file():
                 raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=image_path.name)
             kwargs["image_url"] = image_to_data_uri(image_path, IMAGE_MIME_TYPES)
 
         if request.end_image:
-            # 能否带尾帧由 gate_video_request 按生效能力的 last_frame 前置判定（模型条目只给 1.5 记了尾帧）。
+            # gate_video_request checks effective last_frame capabilities upfront (only 1.5 model entries declare last frames).
             end_path = Path(request.end_image)
             if not end_path.is_file():
-                # 尾帧缺失不静默跳过：跳过后照常出片计费，成片却落不到分镜要求的结尾画面。
+                # Missing last frames cannot be silently skipped: output would still bill without reaching storyboard-required endings.
                 raise VideoCapabilityError(
                     "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
                 )
@@ -228,14 +228,14 @@ class GrokVideoBackend(EntryBoundCapabilities):
 
 
 class GrokClassicVideoBackend(GrokVideoBackend):
-    """经典协议拒绝首帧与参考图混用。"""
+    """Classic protocol rejects mixed first-frame and reference images."""
 
     endpoint_key = "grok-video-classic"
     mixed_frames_and_references = False
 
 
 class GrokMixedVideoBackend(GrokVideoBackend):
-    """允许首帧与参考图混用的请求契约。"""
+    """Request contract permitting mixed first-frame and reference images."""
 
     endpoint_key = "grok-video-mixed"
     mixed_frames_and_references = True

@@ -1,8 +1,8 @@
-"""内置 ProviderSpec 表 + _build_simple 闭包的 sync 构造单测。
+"""Synchronous built-in ProviderSpec/_build_simple construction tests.
 
-装配层的产出是「往哪个 media registry、用什么后端名、什么构造参数建后端」：用记录型工厂
-替下四个 registry 的真实后端，逐 (provider, media) 断言整条构造记录，覆盖简单族 base_url
-优先级、gemini/kling 特例族的分叉与参数解耦。
+Assembly decides media registry/backend name/arguments. Replace four registries with recording
+factories and assert complete provider/media construction records: simple-family base_url
+precedence, Gemini/Kling branches, and parameter decoupling.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _loaded(*, credentials: dict, provider_id: str) -> LoadedConfig:
 
 
 def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[str, Any]:
-    """跑一次装配，返回唯一一条构造记录（media / backend 名 / 构造参数）。"""
+    """Assemble once and return the sole media/backend/arguments construction record."""
     with captured_backend_construction() as records:
         spec.build_backend(config, model)
     assert len(records) == 1
@@ -64,7 +64,7 @@ def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: s
 
 
 class TestBuildSimpleBaseUrlPriority:
-    """简单族 base_url 优先级：用户显式 > registry default > 不传。"""
+    """Simple base_url precedence: explicit user > registry default > omission."""
 
     def test_ark_image_falls_back_to_registry_default(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark")
@@ -90,8 +90,8 @@ class TestBuildSimpleBaseUrlPriority:
         }
 
     def test_ark_agent_plan_uses_own_plan_base_url(self):
-        # ark-agent-plan 媒体侧复用 Ark backend，但 registry default 是独立的 /api/plan/v3
-        # （非 ark 的 /api/v3）。
+        # ark-agent-plan media reuses Ark backends, but defaults independently to /api/plan/v3,
+        # not Ark /api/v3.
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
         built = _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0")
         assert built == {
@@ -106,7 +106,7 @@ class TestBuildSimpleBaseUrlPriority:
 
     @pytest.mark.parametrize("provider_id", ["ark", "ark-agent-plan"])
     def test_ark_video_reports_the_inference_credential_record(self, provider_id: str):
-        """方舟视频通道报出实际使用的凭证记录（供素材库核对绑定）；凭证不来自记录时不报出。"""
+        """Ark video reports actual credential records for library binding checks, omitting nonrecord credentials."""
         meta = PROVIDER_REGISTRY.get(provider_id)
         assert meta is not None
         config = dataclasses.replace(
@@ -135,14 +135,14 @@ class TestBuildSimpleBaseUrlPriority:
     def test_ark_video_builds_through_the_seedance_endpoint_of_the_model(
         self, provider_id: str, model_id: str, endpoint: str
     ):
-        """官方收录的方舟视频模型按数据声明的 Seedance 端点装配。"""
+        """Official Ark catalog models assemble using data-declared Seedance endpoints."""
         config = _loaded(credentials={"api_key": "TEST-ark-key"}, provider_id=provider_id)
         spec = builtin_model_spec(provider_id, "video", model_id)
         assert spec.endpoint == endpoint
         assert _built(spec, config, model_id)["backend"] == endpoint
 
     def test_grok_image_no_default_no_user_omits_base_url(self):
-        # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）
+        # Grok has no registry default/user URL, so omit unsupported base_url arguments.
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="grok")
         assert _built(get_provider_spec("grok", "image"), config, "grok-2-image")["kwargs"] == {
             "api_key": "sk-test",
@@ -150,14 +150,14 @@ class TestBuildSimpleBaseUrlPriority:
         }
 
     def test_missing_api_key_omitted_so_sdk_env_fallback_survives(self):
-        # 用户未配 api_key → 不传 api_key（而非传 None）：让 backend 各自决定环境变量兜底
-        # （OpenAI SDK 读 OPENAI_API_KEY）或 fail-loud；显式 None 会覆盖兜底。
+        # Missing user api_key is omitted, never None, leaving backend environment fallback
+        # such as OpenAI SDK OPENAI_API_KEY or fail-loud behavior; explicit None would override fallback.
         config = _loaded(credentials={}, provider_id="openai")
         assert _built(get_provider_spec("openai", "image"), config, "gpt-image-1")["kwargs"] == {"model": "gpt-image-1"}
 
 
 class TestMediaRegistryRouting:
-    """_build_simple 按 media_type 选对应 registry 的 create_backend（唯一分支逻辑）。"""
+    """_build_simple’s sole branching chooses registry create_backend by media_type."""
 
     def test_dashscope_video_uses_video_registry_and_default(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
@@ -172,7 +172,7 @@ class TestMediaRegistryRouting:
         }
 
     def test_dashscope_video_passes_wan3_base_url(self):
-        # wan3 专用 maas 域名单列一键，仅 video lane 消费；未填时不写入 kwargs
+        # Dedicated wan3 maas host has its own key consumed only by video; omit empty kwargs.
         config = _loaded(
             credentials={"api_key": "sk-test", "wan3_base_url": "https://maas.example.com/ws-1/api/v1"},
             provider_id="dashscope",
@@ -187,7 +187,7 @@ class TestMediaRegistryRouting:
 
     def test_dashscope_audio_uses_audio_registry(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
-        # 默认端点仍是 multimodal-generation；registry 名就是端点名
+        # Default endpoint remains multimodal-generation; registry names are endpoint names.
         assert _built(get_provider_spec("dashscope", "audio"), config, "qwen3-tts-flash") == {
             "media": "audio",
             "backend": "dashscope-tts",
@@ -213,10 +213,10 @@ class TestMediaRegistryRouting:
 
 
 class TestGeminiSpec:
-    """gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image/video 对等透传
-    base_url，注入共享 rate_limiter，image_model/video_model 命名差异。api_key 与 base_url 无条件透传
-    （含 None）：由 backend 内 resolve_gemini_api_key / normalize_base_url 处理 None（读环境变量 / 省略），
-    vertex 分支结构性忽略 base_url（vertexai=True + 服务账号凭证，无注入点）。"""
+    """Gemini branches backend_type by provider_id, separate aistudio/vertex rows; image/video both
+    forward base_url/shared rate_limiter with image_model/video_model names. Pass api_key/base_url
+    unconditionally, including None, for backend resolve_gemini_api_key/normalize_base_url environment/
+    omission handling. Vertex structurally ignores URLs through vertexai=True/service accounts, with no injection point."""
 
     def test_aistudio_image_sets_base_url_and_image_model(self):
         spec = get_provider_spec("gemini-aistudio", "image")
@@ -245,7 +245,7 @@ class TestGeminiSpec:
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
-        # vertex 无 api_key/base_url：仍无条件透传 None（backend 内回落凭证文件 / 省略 base_url）
+        # Vertex still forwards absent api_key/base_url as None, for credential-file fallback/URL omission.
         assert _built(get_provider_spec("gemini-vertex", "image"), config, None)["kwargs"] == {
             "backend_type": "vertex",
             "api_key": None,
@@ -264,7 +264,7 @@ class TestGeminiSpec:
             provider_meta=PROVIDER_REGISTRY.get("gemini-aistudio"),
             rate_limiter=limiter,
         )
-        # video 与 image 对等：aistudio 透传用户 base_url，命名参数是 video_model 不是 image_model
+        # Video matches image: AI Studio forwards user URLs using video_model, not image_model.
         assert _built(spec, config, "veo-3.1-lite-generate-preview") == {
             "media": "video",
             "backend": "gemini",
@@ -283,7 +283,7 @@ class TestGeminiSpec:
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
-        # vertex 无 api_key/base_url：仍无条件透传 None（与 vertex image 对称，backend 内结构性忽略）
+        # Vertex forwards None symmetrically, structurally ignored inside backends.
         assert _built(get_provider_spec("gemini-vertex", "video"), config, "veo-3.1-generate-preview")["kwargs"] == {
             "backend_type": "vertex",
             "api_key": None,
@@ -337,7 +337,7 @@ class TestGeminiSpec:
     def test_interactions_video_endpoint_builds_its_own_backend_with_the_same_credentials(
         self, provider_id, endpoint, backend_type, credentials, extra
     ):
-        # Veo 仍是默认端点；Interactions 端点按端点名建对应后端，凭证与 backend_type 与 Veo 一致
+        # Veo remains default; Interactions uses endpoint-named backends with the same credentials/backend_type.
         assert get_provider_spec(provider_id, "video").endpoint != endpoint
         config = LoadedConfig(
             credentials=credentials, provider_meta=PROVIDER_REGISTRY.get(provider_id), rate_limiter=None
@@ -356,17 +356,16 @@ class TestGeminiSpec:
         }
 
     def test_bare_gemini_not_registered(self):
-        # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
-        # fail-loud，不为死路径登记兜底行。
+        # Bare gemini lacks resolver-produced aistudio/vertex suffixes and is unreachable;
+        # fail loudly, never register fallback rows for dead paths.
         assert ("gemini", "image") not in PROVIDER_SPEC_REGISTRY
         assert ("gemini", "video") not in PROVIDER_SPEC_REGISTRY
 
 
 class TestKlingSpec:
-    """kling 特例族：双模式鉴权二选一（api_key 优先 → auth_mode=bearer；否则 access_key+secret_key
-    → auth_mode=jwt），image 侧 api_model_name 解耦（两栖别名键读 registry api_model_name）、
-    base_url 兜底（db > registry default，国内域名已迁移至 api-beijing）。
-    video backend 不接受 api_model_name —— 非对称，video 闭包不传。"""
+    """Kling chooses api_key bearer first, otherwise access_key/secret_key JWT; image api_model_name
+    decouples multimodal registry aliases, with base_url DB > registry defaults (domestic domains
+    moved to api-beijing). Video does not accept api_model_name, so its closure deliberately omits it."""
 
     @staticmethod
     def _kling_config(**credentials) -> LoadedConfig:
@@ -393,7 +392,7 @@ class TestKlingSpec:
         }
 
     def test_image_api_model_name_decoupled_for_amphibious_alias(self):
-        # 两栖别名键 kling-v3-omni-image 的 registry api_model_name 是 kling-v3-omni（发真实 API 名）。
+        # Registry kling-v3-omni-image aliases real API model kling-v3-omni.
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
         assert _built(get_provider_spec("kling", "image"), config, "kling-v3-omni-image")["kwargs"] == {
             "auth_mode": "jwt",
@@ -418,7 +417,7 @@ class TestKlingSpec:
         spec = get_provider_spec("kling", "video")
         assert spec.registry_backend == "kling-video-pro-silent"
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
-        # video backend 不接受 api_model_name：即使 model 是别名也不传该参数
+        # Video omits unsupported api_model_name even for aliases.
         assert _built(spec, config, "kling-v3") == {
             "media": "video",
             "backend": "kling-video-pro-silent",
@@ -432,7 +431,7 @@ class TestKlingSpec:
         }
 
     def test_video_api_key_dispatches_bearer_mode(self):
-        """单填 api_key（无 access_key/secret_key）→ auth_mode=bearer，不透传 access_key/secret_key。"""
+        """api_key alone chooses bearer without forwarding access_key/secret_key."""
         config = self._kling_config(api_key="sk-api-1")
         assert _built(get_provider_spec("kling", "video"), config, "kling-v3")["kwargs"] == {
             "auth_mode": "bearer",
@@ -442,7 +441,7 @@ class TestKlingSpec:
         }
 
     def test_image_api_key_dispatches_bearer_mode_with_api_model_name(self):
-        """image 侧 bearer 模式同样叠加 api_model_name 解耦（两栖别名键）。"""
+        """Image bearer also decouples api_model_name for multimodal aliases."""
         config = self._kling_config(api_key="sk-api-1")
         assert _built(get_provider_spec("kling", "image"), config, "kling-v3-omni-image")["kwargs"] == {
             "auth_mode": "bearer",
@@ -458,7 +457,7 @@ class TestKlingSpec:
         spec = get_provider_spec("kling", "video", "kling-video-model-path")
         backend = spec.build_backend(self._kling_config(api_key="sk-api-1"), "kling-4.0")
         assert isinstance(backend, KlingModelPathVideoBackend)
-        # 内置供应商的默认 base_url 带 /v1，新版 API 的路径直接接在域名后
+        # Built-in defaults include /v1; newer API paths join directly to domains.
         assert backend._base_url == "https://api-beijing.klingai.com"
 
     def test_model_path_endpoint_refuses_dual_secret(self):
@@ -467,7 +466,7 @@ class TestKlingSpec:
             spec.build_backend(self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
 
     def test_api_key_takes_priority_over_dual_secret_when_both_set(self):
-        """两者都填时 api_key 优先（不透传 access_key/secret_key）。"""
+        """When both auth forms exist, api_key wins and omits access_key/secret_key."""
         config = self._kling_config(api_key="sk-api-1", access_key="ak-1", secret_key="sk-1")
         assert _built(get_provider_spec("kling", "video"), config, "kling-v3")["kwargs"] == {
             "auth_mode": "bearer",
@@ -478,9 +477,8 @@ class TestKlingSpec:
 
 
 class TestTextSimpleSpec:
-    """简单文本族（ark / ark-agent-plan / grok / agnes）：model + api_key（无条件透传）+ base_url
-    （user > registry default，仅非空才传）。映射到文本 registry 的 create_backend，registry_backend
-    即 provider_id 自身。"""
+    """Simple text ark/ark-agent-plan/grok/agnes forwards model, unconditional api_key, and nonempty
+    base_url (user > registry). Use text create_backend with registry_backend equal to provider_id."""
 
     def test_ark_falls_back_to_registry_default(self):
         spec = get_provider_spec("ark", "text")
@@ -519,7 +517,7 @@ class TestTextSimpleSpec:
         }
 
     def test_agnes_falls_back_to_registry_default_base_url(self):
-        # agnes 走简单文本族（registry_backend = provider_id），无用户 base_url 时回落 registry default。
+        # Agnes uses simple text, registry_backend=provider_id, with absent-user registry URL fallback.
         spec = get_provider_spec("agnes", "text")
         assert spec.registry_backend == "agnes"
         config = _loaded(credentials={"api_key": "ag-key"}, provider_id="agnes")
@@ -530,7 +528,7 @@ class TestTextSimpleSpec:
         }
 
     def test_api_key_passed_unconditionally_even_when_missing(self):
-        # 文本简单族 api_key 无条件透传（含 None），与媒体简单族「缺省省略」非对称。
+        # Text api_key always forwards, including None, unlike omitted defaults for simple media.
         config = _loaded(credentials={}, provider_id="grok")
         assert _built(get_provider_spec("grok", "text"), config, "grok-4")["kwargs"] == {
             "model": "grok-4",
@@ -539,14 +537,14 @@ class TestTextSimpleSpec:
 
 
 class TestTextGeminiSpec:
-    """gemini 文本：aistudio（base_url 无条件透传用户值）/ vertex（backend=vertex + gcs_bucket）
-    按 provider_id 分两行，registry_backend 同为 "gemini"。文本 gemini 不接受 rate_limiter。"""
+    """Gemini text branches AI Studio (unconditional user base_url) / Vertex (backend=vertex + gcs_bucket)
+    by provider_id, sharing registry_backend gemini. Text Gemini rejects rate_limiter."""
 
     def test_aistudio_passes_user_base_url_unconditionally(self):
         spec = get_provider_spec("gemini-aistudio", "text")
         assert spec.registry_backend == "gemini"
         config = _loaded(credentials={"api_key": "g-key", "base_url": ""}, provider_id="gemini-aistudio")
-        # base_url 无条件透传（含空串），不回落 registry default
+        # Forward base_url unconditionally, including empty strings, without registry fallback.
         assert _built(spec, config, "gemini-3-flash-preview") == {
             "media": "text",
             "backend": "gemini",
@@ -569,9 +567,9 @@ class TestTextGeminiSpec:
 
 
 class TestTextOpenAICompatSpec:
-    """OpenAI-compat 文本：openai 映射到 "openai-responses"（Responses）并直传用户 base_url；
-    dashscope/minimax 映射到 "openai"（Chat Completions），经 helper 从 host 派生 base_url 并透传
-    provider_name 计费归因（保证 usage 记账命中自身 CNY 费率，非 OpenAI USD）。"""
+    """OpenAI-compatible text maps openai to openai-responses, forwarding user URLs; dashscope/minimax
+    map to openai Chat Completions, derive URLs from hosts, and forward provider_name so usage
+    bills their CNY rates rather than OpenAI USD."""
 
     def test_openai_uses_responses_and_passes_user_base_url(self):
         spec = get_provider_spec("openai", "text")
@@ -595,7 +593,7 @@ class TestTextOpenAICompatSpec:
         }
 
     def test_dashscope_user_host_derives_compatible_mode_path(self):
-        # 用户填自定义 host → helper 仍派生 /compatible-mode/v1 后缀
+        # Custom hosts still gain helper /compatible-mode/v1 suffixes.
         config = _loaded(
             credentials={"api_key": "ds", "base_url": "https://dashscope-intl.aliyuncs.com"},
             provider_id="dashscope",
@@ -618,7 +616,7 @@ class TestTextOpenAICompatSpec:
 class TestRegistryShape:
     def test_unknown_provider_media_fails_loud(self):
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
-            get_provider_spec("ark", "audio")  # ark 无 audio backend，未登记
+            get_provider_spec("ark", "audio")  # Ark has no audio backend registration.
 
     def test_audio_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
@@ -635,7 +633,7 @@ class TestRegistryShape:
             assert (provider, "video") in PROVIDER_SPEC_REGISTRY
 
     def test_text_family_complete(self):
-        # 文本九对：七 provider + gemini 两 id（aistudio/vertex）
+        # Nine text pairs: seven providers plus Gemini AI Studio/Vertex IDs.
         text_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "text"}
         assert text_keys == {
             ("ark", "text"),
@@ -650,16 +648,16 @@ class TestRegistryShape:
         }
 
     def test_bare_gemini_text_not_registered(self):
-        # 与媒体侧一致：裸 "gemini" 是死路径，resolver 只产出带后缀 id，fail-loud 不登记兜底行
+        # Bare gemini is unreachable like media; resolvers produce suffixes, so fail loudly without fallback rows.
         assert ("gemini", "text") not in PROVIDER_SPEC_REGISTRY
 
 
 class TestValidateProviderSpecs:
-    """import 期不变式：build 可调用、键与 spec 字段一致、media_type 合法。misconfig fail-fast。"""
+    """Import-time invariants: callable build, matching keys/spec fields, valid media_type; misconfigurations fail fast."""
 
     def test_passes_on_real_registry(self):
-        _validate_provider_specs()  # 真表不抛
-        assert PROVIDER_SPEC_REGISTRY  # 空表也不抛，校验须建立在真表非空之上
+        _validate_provider_specs()  # Real tables do not raise.
+        assert PROVIDER_SPEC_REGISTRY  # Empty tables also pass, so validation must establish real-table nonemptiness.
 
     def test_non_callable_build_rejected(self, monkeypatch: pytest.MonkeyPatch):
         bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], build_backend="not-callable")
@@ -668,14 +666,14 @@ class TestValidateProviderSpecs:
             _validate_provider_specs()
 
     def test_key_field_mismatch_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        # spec 内 provider_id/media_type 与字典键漂移 → fail-fast
+        # provider_id/media_type differing from dictionary keys fail fast.
         bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], provider_id="drifted")
         monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
         with pytest.raises(ValueError, match=r"key .* does not match spec"):
             _validate_provider_specs()
 
     def test_registry_backend_names_are_registered(self):
-        """registry 名都在对应后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。"""
+        """Every registry name exists in its backend registry; test during unit imports, never import-time validation."""
         from lib.backends.audio_backends import get_registered_backends as audio_names
         from lib.backends.image_backends import get_registered_backends as image_names
         from lib.backends.text_backends import get_registered_backends as text_names
@@ -696,7 +694,7 @@ class TestValidateProviderSpecs:
 
 
 class TestBuiltinEffectiveGenerateAudio:
-    """声明式内置模型的计价 ``generate_audio`` 与定义声明的成片音轨同源。"""
+    """Declarative built-in billing ``generate_audio`` shares declared output-audio facts."""
 
     def test_an_always_off_declarative_model_reports_no_audio(self):
         from lib.backends.backend_assembly.specs import builtin_effective_generate_audio_for_model

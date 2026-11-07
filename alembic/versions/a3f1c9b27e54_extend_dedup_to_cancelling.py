@@ -20,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _drop_dedup_index_if_exists() -> None:
-    """跨方言安全 drop：DB 可能因历史迁移漂移而没建过该索引，避免 OperationalError。"""
+    """Cross-dialect safe drop: historical migration drift may mean the index never existed; avoid OperationalError."""
     bind = op.get_bind()
     dialect = bind.dialect.name
     if dialect in ("sqlite", "postgresql"):
@@ -32,10 +32,9 @@ def _drop_dedup_index_if_exists() -> None:
 def upgrade() -> None:
     """Recreate idx_tasks_dedupe_active with 'cancelling' in the partial WHERE.
 
-    需要扩到 cancelling，避免 cancel running 后立刻重做创建并发任务——cancelling
-    任务还在 worker 端响应 CancelledError 期间，partial unique 必须能拦住同资源的
-    新入队（让 enqueue 走 dedup 返回 cancelling task_id），否则两个任务并发往同一
-    输出文件写。
+    Include cancelling to prevent immediate redo after cancelling running tasks from creating concurrency.
+    While a worker still handles CancelledError, partial uniqueness must deduplicate same-resource
+    enqueues to the cancelling task_id; otherwise two tasks write the same output file concurrently.
     """
     _drop_dedup_index_if_exists()
     op.create_index(

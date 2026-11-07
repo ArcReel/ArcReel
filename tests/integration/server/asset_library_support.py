@@ -1,4 +1,4 @@
-"""从全局资产库应用到项目的用例共享的库资产构造与资产图时效读取。"""
+"""Shared library-asset construction and asset-image freshness reads for applying global-library assets to projects."""
 
 from __future__ import annotations
 
@@ -12,18 +12,18 @@ from lib.project.project_manager import ProjectManager
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
 _OWNER = "王"
-#: 库角色「王」带的两个衍生：名、变化描述与图的纯色。
+#: Two derivatives of library character 王: names, change descriptions, and image solid colors.
 _DERIVATIVES = (("战斗装", "黑甲", (120, 0, 0)), ("便装", "布衣", (0, 120, 0)))
 
-#: 应用 :func:`store_character_with_derivatives` 存入的库角色后，按 :func:`character_sheet_statuses`
-#: 读出的全部 current 结论。
+#: All current conclusions read by :func:`character_sheet_statuses` after applying the library character stored by
+#: :func:`store_character_with_derivatives`.
 LIBRARY_SHEETS_ALL_CURRENT = dict.fromkeys(
     (_OWNER, *(name for name, _desc, _color in _DERIVATIVES)), ArtifactStatus.CURRENT
 )
 
 
 def store_character_with_derivatives(client: TestClient, pm: ProjectManager, *, owner_description: str) -> str:
-    """在源项目 source 里造一个带资产图和两个衍生资产图的角色「王」，经 ``/assets/from-project`` 存入资产库，返回库资产 id。"""
+    """Create character 王 with an asset image and two derivative images in source project source, store through ``/assets/from-project``, return library id."""
 
     pm.create_project("source")
     pm.create_project_metadata("source", "Source", "Anime", "narration")
@@ -48,7 +48,7 @@ def store_character_with_derivatives(client: TestClient, pm: ProjectManager, *, 
 
 
 def character_sheet_statuses(pm: ProjectManager, project_name: str, owner: str) -> dict[str, ArtifactStatus]:
-    """角色资产图（键为角色名）与它每个衍生资产图（键为衍生名）当前的时效。"""
+    """Current freshness of character images (keyed by character name) and each derivative image (keyed by derivative name)."""
 
     project_dir = pm.get_project_path(project_name)
     resolver = ArtifactCurrencyResolver(project_dir)

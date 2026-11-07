@@ -39,7 +39,7 @@ jobs:
           repository: ArcReel/skills
           path: distribution
           token: ${{ steps.app-token.outputs.token }}
-          # 凭据不写进 distribution/.git/config；推送在下方单条命令里自带远程 URL
+          # Do not write credentials into distribution/.git/config; the single push command below supplies its own remote URL.
           persist-credentials: false
 
       - name: Mirror skills
@@ -58,7 +58,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "chore: sync skills from ArcReel/ArcReel"
-            # 分支名取自 checkout 落地的本地分支（ArcReel/skills 的默认分支）
+            # Read the branch name from the local branch materialized by checkout (the default branch of ArcReel/skills).
             branch=$(git rev-parse --abbrev-ref HEAD)
             git push "https://x-access-token:${PUSH_TOKEN}@github.com/ArcReel/skills.git" "HEAD:refs/heads/${branch}"
           fi

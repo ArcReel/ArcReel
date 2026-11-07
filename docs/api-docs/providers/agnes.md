@@ -1,12 +1,12 @@
 # agnes
 
-Agnes OpenAI-compatible 文本、图片与视频媒体 provider。
+Agnes OpenAI-compatible media provider for text, images and video.
 
-- 总入口：[Agnes AI official model catalog](https://github.com/AgnesAI-Labs/AgnesAI-Models)
-- 接口与能力：[Model catalog](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md) 及其中的官方模型文档链接
-- 计费：[Pricing](https://wiki.agnes-ai.com/en/docs/pricing.md)（官方定价页；促销价格以平台公告和账户账单为准）
-- 限流与配额：[Current rate limits](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md#current-rate-limits)、[Current subscription quotas](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md#current-subscription-quotas)
-- 简介来源（`lib/i18n/<locale>/providers.py` 的 `provider_desc_agnes`，只写平台是什么，不列模型与能力）：[Agnes AI](https://agnes-ai.com)、[Agnes AI API overview](https://agnes-ai.com/en/docs/overview)
-- 代码：`lib/config/registry.py::PROVIDER_REGISTRY["agnes"]`、`lib/backends/text_backends/agnes.py::AgnesTextBackend`、`lib/backends/image_backends/agnes.py::AgnesImageBackend`、`lib/backends/video_backends/agnes.py::AgnesVideoBackend`、`lib/backends/agnes_shared.py::agnes_base_url`
+- Main entry: [Agnes AI official model catalog](https://github.com/AgnesAI-Labs/AgnesAI-Models)
+- Interfaces and capabilities: [Model catalog](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md) and its links to official model documentation
+- Pricing: [Pricing](https://wiki.agnes-ai.com/en/docs/pricing.md) (official pricing page; platform announcements and account invoices govern promotional prices)
+- Rate limits and quotas: [Current rate limits](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md#current-rate-limits), [Current subscription quotas](https://github.com/AgnesAI-Labs/AgnesAI-Models/blob/main/MODEL_CATALOG.md#current-subscription-quotas)
+- Description sources (`lib/i18n/<locale>/providers.py` for `provider_desc_agnes`; describe only the platform, not models or capabilities): [Agnes AI](https://agnes-ai.com), [Agnes AI API overview](https://agnes-ai.com/en/docs/overview)
+- Code: `lib/config/registry.py::PROVIDER_REGISTRY["agnes"]`, `lib/backends/text_backends/agnes.py::AgnesTextBackend`, `lib/backends/image_backends/agnes.py::AgnesImageBackend`, `lib/backends/video_backends/agnes.py::AgnesVideoBackend`, `lib/backends/agnes_shared.py::agnes_base_url`
 
-视频调用端点分为 `agnes-video-2`（`AgnesVideoBackend`）与 `agnes-video-2-5`（`Agnes25VideoBackend`）。提交体、轮询方式、音轨和参考图槽位由端点决定；2.5 的分辨率限制读取条目的 `resolutions`，缺失时只受端点支持的档位约束。
+Video endpoints are `agnes-video-2` (`AgnesVideoBackend`) and `agnes-video-2-5` (`Agnes25VideoBackend`). The endpoint determines submission bodies, polling, audio and reference-image slots. Version 2.5 reads resolution limits from the entry's `resolutions`; when absent, only the tiers supported by the endpoint constrain it.

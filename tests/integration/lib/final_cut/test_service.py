@@ -1,4 +1,4 @@
-"""成片服务：在真实临时项目上用随包 ffmpeg 渲染现场合成的低分辨率素材，登记为产物并按时效判定。"""
+"""Final-cut service: render freshly synthesized low-resolution material in real temporary projects with bundled ffmpeg, register artifacts, and evaluate currency."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ from tests.factories import install_current_video, make_test_clip, wav_bytes
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
 VARIANT = FinalCutVariant()
 PLAIN: dict[str, Any] = {"narration": VARIANT.narration, "subtitles": VARIANT.subtitles}
-"""现场合成的素材没有呈现模型，这里只渲染不带旁白、不烧入字幕的版本。"""
+"""Freshly synthesized materials have no presentation model; render only variants without narration or burned-in subtitles here."""
 
 
 def _unit(unit_id: str, text: str) -> dict[str, Any]:
@@ -96,7 +96,7 @@ def media(render_project: ProjectManager, tmp_path: Path) -> None:
 
 
 def _append_revision(render_project: ProjectManager, timeline_id: str, edit: dict[str, dict[str, Any]]) -> int:
-    """以最新修订为父修订追加一个修订，按片段 ID 覆盖字段。"""
+    """Append a revision parented to the latest revision, overriding fields by clip ID."""
     store = EditTimelineStore(render_project, "demo")
     document = store.find(timeline_id)
     latest = document.latest
@@ -164,7 +164,7 @@ async def test_trim_and_hold_shape_the_rendered_duration(render_project: Project
 
     result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    # 0.6（截取）+ 1.5 + 0.7 + 0.5（定格延长）
+    # 0.6 trimmed + 1.5 + 0.7 + 0.5 freeze-frame extension.
     assert result.acceptance.expected_duration == pytest.approx(3.3, abs=0.034)
     assert result.acceptance.video_duration == pytest.approx(3.3, abs=0.05)
     assert result.acceptance.audio_duration == pytest.approx(3.3, abs=0.05)
@@ -229,7 +229,7 @@ async def test_rendering_reads_the_snapshotted_video_version_when_the_formal_fil
 
     async def spawn_after_replacing(*args: Any, **kwargs: Any) -> Any:
         if not replaced.is_set():
-            # 模拟另一个写入方替换正式文件：在工作线程里替换，不占事件循环。
+            # Simulate another writer replacing formal files in a worker thread, without blocking the event loop.
             replaced.set()
             await asyncio.to_thread(os.replace, replacement, formal)
         return await asyncio.create_subprocess_exec(*args, **kwargs)
@@ -238,7 +238,7 @@ async def test_rendering_reads_the_snapshotted_video_version_when_the_formal_fil
 
     assert replaced.is_set()
     assert result.acceptance.video_duration == pytest.approx(readout.duration, abs=0.05)
-    # 依据描述渲染实际读取的快照；版本记录仍指向同一版本，成片读为 current。
+    # Basis describes the snapshot actually rendered; version records still identify that version and the final cut reads current.
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
 
 
@@ -263,7 +263,7 @@ async def test_provider_audio_recorded_as_not_generated_is_left_out_of_the_mix(
 
     await FinalCutService(render_project, spawn=spawn_recording_mix).render("demo", timeline_id, **PLAIN)
 
-    # 只有 E1U3 的原声进入混音；E1U1 的快照虽带音轨，版本记录为未生成原声。
+    # Only E1U3 original audio enters the mix; E1U1 snapshots have audio, but version records declare no generated original audio.
     sources = [Path(path).name for path in mixed_inputs if not path.startswith("anullsrc")]
     assert len(sources) == 1
     assert sources[0].startswith("E1U3")
@@ -332,7 +332,7 @@ async def test_transitions_render_without_changing_the_timeline_duration(render_
 
     result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    # 1.0 + 0.9（截取）+ 0.7：叠化借帧、闪黑淡出淡入都不改变总时长。
+    # 1.0 + 0.9 trimmed + 0.7: crossfade frame borrowing and black fade-out/in do not change total duration.
     assert edited.duration == pytest.approx(2.6)
     assert result.acceptance.expected_duration == pytest.approx(edited.duration, abs=0.034)
     assert result.acceptance.video_duration == pytest.approx(edited.duration, abs=0.05)
@@ -341,7 +341,7 @@ async def test_transitions_render_without_changing_the_timeline_duration(render_
 
 
 def _max_volume_db(path: Path, *, start: float, seconds: float) -> float:
-    """成片在 ``start`` 起 ``seconds`` 秒内音频的峰值电平（dB）。"""
+    """Peak audio level in dB during ``seconds`` starting at ``start`` in the final cut."""
     completed = subprocess.run(
         [
             ffmpeg_executable(),
@@ -367,7 +367,7 @@ async def test_bgm_is_mixed_in_and_cut_at_the_timeline_end_without_changing_the_
     )
     timeline_id = await _create_timeline(render_project)
     editor = EditTimelineService(render_project)
-    # E1U2 那段（1.0–2.5 秒）没有原声；BGM 从 1.0 秒起放 3 秒，越过 3.2 秒的时间线末尾。
+    # E1U2 (1.0–2.5 seconds) has no original audio; BGM starts at 1.0 for 3 seconds, beyond timeline end 3.2.
     await editor.edit(
         "demo",
         timeline_id,
@@ -394,7 +394,7 @@ async def test_bgm_is_mixed_in_and_cut_at_the_timeline_end_without_changing_the_
 
 
 def _quiet_bgm_with_loud_hits(seconds: float, sample_rate: int = 8000) -> bytes:
-    """−40 dBFS 上下的正弦音，每 0.5 秒一下几个采样长、接近满幅的脉冲：积分响度很低，登记的响度增益很高。"""
+    """Sine around −40 dBFS with near-full-scale pulses a few samples long every 0.5 seconds: low integrated loudness yields high registered gain."""
     samples = array("h")
     for index in range(int(seconds * sample_rate)):
         if index % (sample_rate // 2) < 3:
@@ -411,7 +411,7 @@ def _quiet_bgm_with_loud_hits(seconds: float, sample_rate: int = 8000) -> bytes:
 
 
 def _float_peak(path: Path) -> float:
-    """成片音轨解码为浮点采样后的峰值；超过 1.0 即越过 0 dBFS。"""
+    """Peak decoded floating-point final-cut audio samples; above 1.0 exceeds 0 dBFS."""
     decoded = subprocess.run(
         [ffmpeg_executable(), "-hide_banner", "-nostdin", "-i", str(path), "-vn", "-f", "f32le", "-"],
         capture_output=True,
@@ -439,7 +439,7 @@ async def test_a_high_gain_bgm_over_source_audio_is_limited_below_full_scale(ren
 
     result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    # BGM 的重击按登记增益放大后远超满幅，又与 E1U1 的原声相加；混音限幅后成片不削波。
+    # Registered gain amplifies BGM hits far beyond full scale, added to E1U1 audio; mix limiting prevents final-cut clipping.
     output = render_project.get_project_path("demo") / result.artifact_path
     assert 0.5 < _float_peak(output) <= 1.0
 

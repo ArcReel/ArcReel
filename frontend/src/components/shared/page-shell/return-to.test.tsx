@@ -6,7 +6,7 @@ import { memoryLocation } from "wouter/memory-location";
 
 import { useReturnTo, useTrackReturnTo } from "./return-to";
 
-/** 路由根部记录停留的页面，「返回」按钮与全局设置、资产库里的一致。 */
+/** Root routes record visited pages, matching Back actions in global settings/libraries. */
 function App() {
   useTrackReturnTo();
   const goBack = useReturnTo();

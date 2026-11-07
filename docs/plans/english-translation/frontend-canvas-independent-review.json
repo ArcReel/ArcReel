@@ -1,0 +1,3045 @@
+{
+  "reviewer": "runtime_translation, independent of canvas author",
+  "scope": "Incremental semantic review of every full original/candidate comment pair. No inference from structural checks alone.",
+  "source_snapshot": "/tmp/arcreel-canvas-passive-pre-edit",
+  "reviewed_pair_range": [
+    0,
+    2038
+  ],
+  "total_pairs": 2039,
+  "status": "Accepted: all2039full original/candidate comment pairs independently reviewed; three precision repairs independently rechecked in actual source. No model-behavior certification.",
+  "findings": [
+    {
+      "pair": 46,
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.tsx",
+      "line": 441,
+      "finding": "Single-episode ads/short films bypass episode management; episode planning wording may imply unrelated script planning is unavailable.",
+      "recommended": "single-episode and bypass episode management",
+      "state": "Coordinator repair independently rechecked PASS"
+    },
+    {
+      "pair": 217,
+      "path": "frontend/src/components/canvas/EpisodeSourceReview.tsx",
+      "line": 25,
+      "finding": "Source width860px\u4ee5\u4e0a is inclusive; above860px suggests strict inequality.",
+      "recommended": "at widths of at least 860px",
+      "state": "Coordinator repair independently rechecked PASS"
+    },
+    {
+      "pair": 1558,
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx",
+      "line": 434,
+      "finding": "Source says historical failures must not override ready after uploads; current sentence reverses grammatical subject ambiguously.",
+      "recommended": "Canvas permits final uploads: uploaded playable assets mean historical failures must no longer override ready",
+      "state": "Coordinator repair independently rechecked PASS"
+    }
+  ],
+  "files": [
+    {
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.tsx",
+      "candidate_sha256_at_review": "69d306d91a636d68fcb59c96558515264d579bde1808bae92d2273d3c7cbacb9",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        47,
+        48,
+        49,
+        50,
+        51,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/EpisodeSourceReview.test.tsx",
+      "candidate_sha256_at_review": "b934a870f36210ca011fe16e65b0954420dffcba82b3fe050c17120766db90b9",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/CreateEpisodeDialog.tsx",
+      "candidate_sha256_at_review": "6dc99362d70aa6a991258034a360ac6ed9e3d592a27f753a52938eb385932a95",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/manual-split-model.test.ts",
+      "candidate_sha256_at_review": "4f59ea26f586fc86b84b50106720502eee7a4a21343f81c1b8885c7877cc7249",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useManualSplit.test.tsx",
+      "candidate_sha256_at_review": "9cffd11864576da968f86e10e23edd5caf587d9bd06326f251002ce3696b77b0",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceManuscript.tsx",
+      "candidate_sha256_at_review": "301e7672c04bc865d6b9bfd8a8b0dd81b5f24b3358aa3a5e599c98b106705acf",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useManualSplit.tsx",
+      "candidate_sha256_at_review": "bcf76d4b767d1647c253aabf9baad7607ed3ef8f3ff75ed9091d80c6253abcec",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/replan-compare-model.test.ts",
+      "candidate_sha256_at_review": "827055b761202eb87940ac65fac3e16386b4a251e27a1cb4240c3f0f14f253ff",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceFileActions.tsx",
+      "candidate_sha256_at_review": "d294004df0dbe217536af4a6bfafe93c479b14851b82f6a8d67e745170739ae7",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodeOutline.tsx",
+      "candidate_sha256_at_review": "4500c27bb968a8277dcd79b92bc7dbdad2078f19ba96027e576de9950c6a90e1",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useSourceFileChange.tsx",
+      "candidate_sha256_at_review": "b69390e46e00939a68b59b473539f6f5b0602594d7b1ad52dec989c9a8afa829",
+      "reviewed_ordinals": [
+        0,
+        2,
+        3
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceFileActions.test.tsx",
+      "candidate_sha256_at_review": "0ffd9590095c0d5ebbb9218046df0bd5cd3cb663b2650fbf05e2f3d53201c0e3",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodesView.test.tsx",
+      "candidate_sha256_at_review": "eb1fd080f0c557859f7916f02aae39c54234460a6f02f4f1dafdc307b0b2721e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodePlanningPanel.tsx",
+      "candidate_sha256_at_review": "f5874c894b8a2a8275376539c12e065b73218afc8f8fa1da210b741842aaca11",
+      "reviewed_ordinals": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceUploadDialog.test.tsx",
+      "candidate_sha256_at_review": "c74006d2f0b491119fd28512a98f83685bba2437c3fe744ebc09c7159b77583f",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/replan-compare-model.ts",
+      "candidate_sha256_at_review": "9535398f36ab5ae6a8be1e589f19c4dbae5d3558947859d8a81d00f451e0bf00",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceUploadDialog.tsx",
+      "candidate_sha256_at_review": "25ffc28b8a41ea024aafae2873a524f91a67f21c2d8434439d40311d33fc41ce",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/episodes-view-model.ts",
+      "candidate_sha256_at_review": "f78c1ff78aac317f24e4b9f3553ed94a22275e53e01241a14b407c1dbd98446c",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/manual-split-model.ts",
+      "candidate_sha256_at_review": "a36c8f74675220de1b7b5f27ffd57ca9f820a675ceb194a8442e87132a1bc27b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodesView.tsx",
+      "candidate_sha256_at_review": "b683eef4f751b1374e3d6abfdfea97e64171873e64382598a142e5e029e8d7f2",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ReplanCandidatePanel.tsx",
+      "candidate_sha256_at_review": "6224e807f1b3863c44f20d61cae54e906e222fcbb3e248dc565f8def8e706e75",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ImpactConfirmDialog.tsx",
+      "candidate_sha256_at_review": "d589aee71900aa9f4a680fc9278d2a6d963c3a6f501b9923531d03a63140ed87",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/EpisodeSourceReview.tsx",
+      "candidate_sha256_at_review": "b95c2445041b1b614ae5d5cd7ab9e91a6e8af6d5272abd5c01afb2d5ef1d462a",
+      "reviewed_ordinals": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        24,
+        26
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/NewAssetsSection.tsx",
+      "candidate_sha256_at_review": "56e9cbf2709dc9a0223f9060d310d0a67f05d808a15524d94de7315cd5bf4d89",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/ScriptPlanStart.tsx",
+      "candidate_sha256_at_review": "8dd7e53ee46203e20e7a6797e5d0580222abcbe4bd3ce085605ee77e6e22c279",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/AdScriptDialog.tsx",
+      "candidate_sha256_at_review": "939067ba090b7aaf3d7e7ac28c1041fa3d05464e6aabd2185c1cf5f89e23ed7f",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PromptAuthoringDialog.test.tsx",
+      "candidate_sha256_at_review": "e4da273efdeb16ba94a094e0eb671b961ab5c040095d306a4f1fe9c319b8f94d",
+      "reviewed_ordinals": [
+        0,
+        1
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/RenderButton.tsx",
+      "candidate_sha256_at_review": "3a3c60e661163453c946486ff2889ed6d15b6dbe21b6b0fb9662d01cf6f34dfa",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/EditTimelineEmptyState.test.tsx",
+      "candidate_sha256_at_review": "f2fb2fdbc30990762acbdd93f2b15253720b5fb68714f09a4cf2a10c23dd345c",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/EditTimelineEmptyState.tsx",
+      "candidate_sha256_at_review": "26ff97d2bd5fa891a90b6f48564b9c3b3b7b9ba0bdfa33d1521e5d7b7521c77a",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/useRenderArtifact.ts",
+      "candidate_sha256_at_review": "06bc187b5dca6ae24505b23acffbe7080f9ab243a22ed2826e1588042013f24d",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/RenderDialog.tsx",
+      "candidate_sha256_at_review": "a09580ac69216b2562f186f70e8ff097ae4076b2d99ad93e723ac334395b9c71",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/RenderDialog.test.tsx",
+      "candidate_sha256_at_review": "07324c42276b9e075d9e3fda367d7bda20668f6fd30212c3a107d28a1ee4392e",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/preview-tracks.test.ts",
+      "candidate_sha256_at_review": "4d03be9adfa635786f2d53a416cca5e565e8e89c812fb149387dad619dbc11e9",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineMenu.test.tsx",
+      "candidate_sha256_at_review": "7138189b5191f2ca44686284c98ef7758355d04c4d5efdcd5dd4e62f7a87dd9c",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/preview-tracks.ts",
+      "candidate_sha256_at_review": "2796432cd31ab2d2c53fc87d757653f6e2b9d3cd845f1f430cb07e001a4d392b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/audio-sync.ts",
+      "candidate_sha256_at_review": "8e457a6d91f32bf44f12383b7a2cd0b1bb6716d7769898b26004229bca225459",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelinePlayer.tsx",
+      "candidate_sha256_at_review": "e6e82c82139da8cad2eb0e3658b900aaf47768ebb3d5751629ed691b9b9ba09b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/audio-sync.test.ts",
+      "candidate_sha256_at_review": "b14f0e5a5867c58fd497e2fa1768c9e8f9c3848c4f8de2243d9b5b26b0f9ee05",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineView.test.tsx",
+      "candidate_sha256_at_review": "5b12413f1c1ebf11ccdfeeb872a439e3ce2d8afab37ef25e3ff15c59d61c84c4",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineDetails.tsx",
+      "candidate_sha256_at_review": "2e84e40c829e9b8da2231b9afb3fbe542a18b5a51afe50ac6dd08bbb73e991e7",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineTracks.tsx",
+      "candidate_sha256_at_review": "eca30971d3921c75c2a37ea315af2cda155aed57dde17bc69aedcb0e3bff7b69",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineView.tsx",
+      "candidate_sha256_at_review": "d621581758997ffdb2c686bb38d9758cc2b1a4aa212d7cf477b6fedbdf2a0ba9",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/useTimelinePlayback.ts",
+      "candidate_sha256_at_review": "746e471f0f9c852e307bcb486e1bdbd2e53da018edb9b5d5697637c2b9bd70e4",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/playback-schedule.ts",
+      "candidate_sha256_at_review": "4d482fafde02a083139df0f15d2c07e6cab8696b3a247c653fd37726152d97e5",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/timeline-view.ts",
+      "candidate_sha256_at_review": "3110644f588279e067b74d816d3227156a5f2b85e364e5bb72a9a304e90d9431",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/playback-schedule.test.ts",
+      "candidate_sha256_at_review": "b2fb705bb88c5b2cabd7ed6f8fe0a65d993485be03815a5084a801b35963447b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineMenu.tsx",
+      "candidate_sha256_at_review": "6fcf827511e4bb517b6f9ebbf79729a6c29d61e4d209dcd7464e96f16ce77f73",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.test.tsx",
+      "candidate_sha256_at_review": "698fc8ca74b048e7df87aba9850f74754c60aef63275913ef1810a5788b271fe",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/gallery-model.ts",
+      "candidate_sha256_at_review": "16b856ec9ffb717de0677381cf1b7bb96ce59bf3da9ed7218b0772bbaef8e24a",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetDetailEditor.tsx",
+      "candidate_sha256_at_review": "0a4fc3217fb02fb5b2ceeac28f31746514a81fd7889fd932c1b6ff0c62f1f663",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativeRow.test.tsx",
+      "candidate_sha256_at_review": "15676962a0d14a070cca632aca06402af881e6167abdec60f7bfa28243906dc4",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetAliasesField.tsx",
+      "candidate_sha256_at_review": "a423ef8df034bc77985e1dcc5729a6b504f6b7c67c6ba8c3100dba4ae6ca098e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/VoiceSampleButton.tsx",
+      "candidate_sha256_at_review": "4b4e20b379922703f9bd0983fcab2b3db8b31eeb2248529d481efb18ca7021a0",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/asset-editor-model.ts",
+      "candidate_sha256_at_review": "62b477bd6682c327111646a47c4d5280e34bdb48febaaf86894e89d5aa116ffc",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useCharacterDerivativeSheets.test.tsx",
+      "candidate_sha256_at_review": "17c428af8283403d4618d84a4f84f8c20411124a0fdf17bac198bb57901c3b6f",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useStaleRegenerateConfirm.tsx",
+      "candidate_sha256_at_review": "6d33ef7aeef29dce25dfaf379a607a499e8edf81499e571466baa2ed67c9c510",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/VoiceSampleButton.test.tsx",
+      "candidate_sha256_at_review": "fc17f57d0b12a6fd558a808904300c8e19ffd50dd677bd3b0199a1207aac6a09",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetImageViewer.tsx",
+      "candidate_sha256_at_review": "d436a80658800259018d740c325c9bc76f02268910aa9d79b159590e1f342cef",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        14
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/EditableAssetName.tsx",
+      "candidate_sha256_at_review": "46311c5e60f59d90c403d53acb090b00f22511e096a77f5c12982c8db4098756",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetAliasesField.test.tsx",
+      "candidate_sha256_at_review": "c67394097a4a3229206cc4253d54138cf3af91ef8d98c697d00abe8b23c5c029",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativesField.test.tsx",
+      "candidate_sha256_at_review": "1c71a33197b81e918e5ef8a33a8a0bb958518ec61a0083cc69a43edafebc072b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/assetBusyGuard.ts",
+      "candidate_sha256_at_review": "337d43894d10674b57ebb0dc2580ac360cc26b94ecb26841b4a6265de8349522",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useAssetSheetStatus.ts",
+      "candidate_sha256_at_review": "71f56aec0cb6236653bd6ae5c8f5883c761f28b71adf371bb50c0082d19c74c1",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/EditableAssetName.test.tsx",
+      "candidate_sha256_at_review": "ebb95d58090c66b58b8333c1f1ddb4a89115db4adc36a7a542e3f0f86e804274",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetOriginalsField.tsx",
+      "candidate_sha256_at_review": "580cd1d4825221bfca3f269d652f994b7ad55fbfb17539fbe0f2447ba3098ee2",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/GalleryToolbar.tsx",
+      "candidate_sha256_at_review": "3697bc799fa98c306b22b4ca87fc6dcb05605a6bae6cede8469c41487ae216dc",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetCreateForm.tsx",
+      "candidate_sha256_at_review": "ce6a43b629e591f0b39618f7a73ab88e7c2eff06182285004513e72d51ae8090",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/ProjectAssetDeleteDialog.tsx",
+      "candidate_sha256_at_review": "f3deaadc204462443996c71d90162fc037d38e6c8d880b91a7eb561b076888a3",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetBrowseCard.tsx",
+      "candidate_sha256_at_review": "1b4f753bae638c7e2959f36bca86123ed23f394f6dd4f6e5b47fc1da0b578663",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        15,
+        16
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativesField.tsx",
+      "candidate_sha256_at_review": "e2ef2772ca91cec129bf461e75f01d5754269238f4b0aaa97af04ec372481d93",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterVoiceField.tsx",
+      "candidate_sha256_at_review": "cfb01bbf1a3138f81cc5c84ee013a6f97c221b49b7dc786fd02e328aef698fc5",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.tsx",
+      "candidate_sha256_at_review": "3fe5547c7f1955386f1bd142f945f9f229f4ebd37f1976ecb7a7dee7a1ae8428",
+      "reviewed_ordinals": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetGallery.test.tsx",
+      "candidate_sha256_at_review": "aa079e67ca215187c62094e1652a8ee28ab41557e686e789739c0d0d4afaccd0",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetGallery.tsx",
+      "candidate_sha256_at_review": "803293ef4d2424c4fe92f324029eaf06a4214cba836f51dbd53e352752e506d1",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/MergeAssetDialog.tsx",
+      "candidate_sha256_at_review": "a7a1839fdc072c04f5f776c58ec9e90f1475a5be843f7abd674aa0c794456a6e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativeRow.tsx",
+      "candidate_sha256_at_review": "c6f4e73ed2b035477601d84b82e28855f24bbe5955da99e24dfc3755d977de73",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.test.tsx",
+      "candidate_sha256_at_review": "3caf5e26d1f2d7d1d2d00f147aee644d66f398a712374def0536ecc644c492b5",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/files/FileView.tsx",
+      "candidate_sha256_at_review": "4023150694b7789e2366bb038224330371a8288345bb31a2c2efe34161a23800",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/files/TrashSection.tsx",
+      "candidate_sha256_at_review": "c0c44957bc0db818dc8381b2564f1f1afc8c1c2f69d9ebca7670110e5c3a5d45",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/files/FileView.test.tsx",
+      "candidate_sha256_at_review": "b5c868e4870ed045f59475cf67b08d60d4f9d8b87c54901407a7842da5e400f9",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeHead.test.tsx",
+      "candidate_sha256_at_review": "358099a5c03b30bf744be4044148588a5d1811ffb4c3ba4e4cf19c2a7eab3796",
+      "reviewed_ordinals": [
+        0,
+        1
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/episode-view.test.ts",
+      "candidate_sha256_at_review": "3a7b37bdec796d4b7cdbc0ba5692f11baa4e77a1fa7115c101dd8df6c1901d6e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EditableEpisodeTitle.test.tsx",
+      "candidate_sha256_at_review": "cfa0f0cb3264c56326367add66ed79a6bd1b2344e794f10d124fa00fe51679f2",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePageHeader.tsx",
+      "candidate_sha256_at_review": "c2e598bd5cfefd1594434f92562c70f7fecc377735bf58cad08a7a7735cbe935",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/episode-view.ts",
+      "candidate_sha256_at_review": "6feabba52a12bb0e758ad22757ace3b5e47770019d7c7143d533dd4b37f2700f",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePage.tsx",
+      "candidate_sha256_at_review": "d5b23ebc207333a9dddae4dde5ca54dac1aa4221d56c12fae21c3935306ae682",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePage.view-unit.test.tsx",
+      "candidate_sha256_at_review": "857492e1e6dd9e595fb21cceb256b929d0944a5d9d4171676bdca43213d92961",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePage.retention.test.tsx",
+      "candidate_sha256_at_review": "c859843df61897a83cbc324f93fcf8d7136c27340900be9b2845cf2f0155da52",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EditableEpisodeTitle.tsx",
+      "candidate_sha256_at_review": "888c71a420b5b7641d2392900b49e54c2fd899464cbbe5f242288ea053dbef9f",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeHead.tsx",
+      "candidate_sha256_at_review": "9c44ad23fe2e78c8b994a55cad6204910ec032648b15cb6208d2709ae1fdafbe",
+      "reviewed_ordinals": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/OverviewCanvas.tsx",
+      "candidate_sha256_at_review": "69661c7232ab176180a980bc726a2d7b191e56c79085d1a5d659589fb8cde6f9",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/StorySetting.tsx",
+      "candidate_sha256_at_review": "e096ccfa6906ee21da2beeb0c8c99b00bdecda51cc4beba2b6469d8f9e4e09a8",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/CostLine.tsx",
+      "candidate_sha256_at_review": "31a68be7b0cbe140bb0451d9ab9edc9d860369c4f30a70bf08a0bef035c6eec1",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/OverviewCanvas.test.tsx",
+      "candidate_sha256_at_review": "7e31100a82d9304ce3b1661629d3fc7ec3131709951d81342ff5ebc1fa73105e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/useHandoffTip.ts",
+      "candidate_sha256_at_review": "1840e0d25ad089721b9d5a59ffc975f9bba0d347669cbf6d4a5b92f453c88c25",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.duration.test.tsx",
+      "candidate_sha256_at_review": "c7768e98614fe96d7bea57c8ab0ddfc1d35141c6a3e7e730829d88892cd85e77",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ScriptReviewGate.tsx",
+      "candidate_sha256_at_review": "f694ba9708493410074e1e8942f32064b97529e5e83766602e19ff73ccc4bb05",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFramePicker.tsx",
+      "candidate_sha256_at_review": "f175e5dce32ab0586f035d3d4c1e6540d2726de9d7a93d4e8dc008b33796ee17",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/VersionTimeMachine.tsx",
+      "candidate_sha256_at_review": "7655c0241d37034cd30f799d1bcaf3013971bb24eebaf358307d27e310d27bd3",
+      "reviewed_ordinals": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        16,
+        17
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ReferencesSection.test.tsx",
+      "candidate_sha256_at_review": "dbb75662f527fec4f1c7425f1547fb49d0098f15b6a16c6d3e92195617452c2e",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFrameRow.tsx",
+      "candidate_sha256_at_review": "36f5490fee71943d4aa2c94401cb9c10b6e57113095a030a114319e44ef2efa7",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.pending-prompt.test.tsx",
+      "candidate_sha256_at_review": "6b71e79795d6e6ab9f6450be58bec3e096d02a016478f2a8cc79bed9a01ebbad",
+      "reviewed_ordinals": [
+        0,
+        1
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.tsx",
+      "candidate_sha256_at_review": "828d48acfcb7eb7b7da796932e11ab21ad3c4b46bac308f06192d823aa9629fc",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetailLayout.tsx",
+      "candidate_sha256_at_review": "01e987f63aaef0f0822bd28d4d0ef8944e92f249c0efabce0f5168d83a37fd8d",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/SegmentRefsEditModal.test.tsx",
+      "candidate_sha256_at_review": "0b21fced291db22703ea723119dd38962ca7e22657c22f2b1c268fe4b682a5ca",
+      "reviewed_ordinals": [
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TimelineCanvas.tsx",
+      "candidate_sha256_at_review": "9ba5b6404b929f74144f1c5b39c0f3cad9e015ccf41355f900b2410298c9027f",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotList.tsx",
+      "candidate_sha256_at_review": "c40446b972ab888d4a1fb7c6618381cc02bef227109d90742d849962563752e3",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ScriptReviewGate.test.tsx",
+      "candidate_sha256_at_review": "0f7a4b376993446174252615da2b6e00f45a6202bf98ca7505d2760a86ca4844",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/MediaCard.tsx",
+      "candidate_sha256_at_review": "d829d0ea5df9de05f16c5afcc7c25a11c03022d694162f6df5f107c23d7a36e8",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ImageEditButton.tsx",
+      "candidate_sha256_at_review": "fc972846c6ed7698f7bf196189f67196c54f1c1092e2d34054eaf55a1dfd09d3",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        17
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.drama.test.tsx",
+      "candidate_sha256_at_review": "6e43f13aba282b21bd355ed94512096a2e77ae8f9d7455b17b56b780b272bcec",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotSplitView.shortcuts.test.tsx",
+      "candidate_sha256_at_review": "f5771545ed90c1d00568d029c3b8a819b828a60c28b7ee3f0f2297bdc8b633a7",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFrameRow.test.tsx",
+      "candidate_sha256_at_review": "164dd7446c9b3c0bd257298c1aa32008922fe3d92f0a8bd9497b888f7fc9aba0",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/MediaCard.test.tsx",
+      "candidate_sha256_at_review": "718c172ee5889271877edfb0852003b0765a33058ca8f71ee1176e065015647d",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ImageEditButton.test.tsx",
+      "candidate_sha256_at_review": "b08463d4cac0d11820c7a409103cf4a85feb11fca89c028d8947fe0eb4d9578c",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFramePicker.test.tsx",
+      "candidate_sha256_at_review": "7cff7d29eb60402fec4c80ce139f0730b7d4fc6b873dc60d676410250a2173c6",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/UtteranceListEditor.tsx",
+      "candidate_sha256_at_review": "ea77a152aa89827abc0e19ca994b382a293736a95abd0c96990114bb645171e9",
+      "reviewed_ordinals": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/VersionTimeMachine.test.tsx",
+      "candidate_sha256_at_review": "29891a4a9e4f40922889bd8ea5adec3faa3855930dd63f557d126e5f320cfbf9",
+      "reviewed_ordinals": [
+        3,
+        4,
+        5,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/DialogueListEditor.tsx",
+      "candidate_sha256_at_review": "27079e91f9c38a3e08dbec557d0b6ee0d80565065175bdb4cd54fac6b4211cdf",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotSplitView.tsx",
+      "candidate_sha256_at_review": "9327850f853d90dd451f232fa5fb41dc3d90ae975e5e7943bd09254ea9b4114e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TimelineCanvas.retention.test.tsx",
+      "candidate_sha256_at_review": "19c9160da49f390136813f1f47d8b7d7780fdde716a2e3c6b99de93ff9731638",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TimelineCanvas.test.tsx",
+      "candidate_sha256_at_review": "32448dc3501516aecbf95f83284849b800c298998938e133a1b1fbc971363774",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/NarrationAudioCard.tsx",
+      "candidate_sha256_at_review": "fcf0f13636754dde7ed903edbf70af9d768fa5a37d50ca90530ead3856e038fe",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotStructureActions.tsx",
+      "candidate_sha256_at_review": "293010e1cdc57581b9aa22925c6abbf7d6a6549a3b1e76ca303fe51ea0681b5a",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/UtteranceListEditor.test.tsx",
+      "candidate_sha256_at_review": "d2336703212de6d7d7722ae3abb22bb4bd55dc2edd6fa35e2745732183b1428c",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/useShotShortcuts.ts",
+      "candidate_sha256_at_review": "29a3ed443a80689a8672fdb4c9c6327100884c665fc6a33cdc1956a6fbae82b6",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.upload.test.tsx",
+      "candidate_sha256_at_review": "dc25eab58d6c9a8479e8da34261f7f9c679b141a03814e10d60f9abd3c974ace",
+      "reviewed_ordinals": [
+        0,
+        1
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/SegmentRefsEditModal.tsx",
+      "candidate_sha256_at_review": "676769c47ef7585b1efdd78d016006563fb41566f5f9a23d3030b4674a1ea455",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.prompt-form.test.tsx",
+      "candidate_sha256_at_review": "15a497090cde29ad2ebe3e0875e7fe59af51a4a916863af0dd50d014b6cf2a06",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.ad.test.tsx",
+      "candidate_sha256_at_review": "0ffdad14ebf97c88c28994004ce684c42edbca8232efdb4c7430d85005b1f03b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.save-and-generate.test.tsx",
+      "candidate_sha256_at_review": "85c629a82048ddde1ba822ad0bf445266fb9d3c733e2a316d15f64fd1acd850e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.edit-render.test.tsx",
+      "candidate_sha256_at_review": "2a77f049a8df1906525515e327c819dfcc61be992bc7717032f058b79ae7fcc2",
+      "reviewed_ordinals": [
+        0,
+        1
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceScriptPlanPreviewPanel.tsx",
+      "candidate_sha256_at_review": "98bae3574748ae5a55f9cc65864b4d7c4d1d2a56f8fc326a2f79a58e1193bcf3",
+      "reviewed_ordinals": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ScriptPreviewPanel.tsx",
+      "candidate_sha256_at_review": "c239a7e232caed7885a0b2f82d8b4cf17eae53a9c86b3e483bd911192e495afa",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceDurationConfirmDialog.test.tsx",
+      "candidate_sha256_at_review": "9552aeab112a9f1b10e359f90ccbc979b87584882fb834d0dc89d748800507f7",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCard.test.tsx",
+      "candidate_sha256_at_review": "14b11c824c6fa76a4d92535b2ff3f18ca192ae889c74b78503b0e4bd0277505c",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ScriptPreviewPanel.test.tsx",
+      "candidate_sha256_at_review": "82a3f9643f1c7666fde7d187316d072a0567b2074ea557bac722f73f782cf309",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitPreviewPanel.tsx",
+      "candidate_sha256_at_review": "47004c8d19dbecabd98816ada6e0f3e7f3ec06939618fb8173af158022b7b0bd",
+      "reviewed_ordinals": [
+        2,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx",
+      "candidate_sha256_at_review": "9bae369fb7e56de6cb2209b705e331daea11040d84e3cc7ecd7180ba0a141f4a",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceDurationConfirmDialog.tsx",
+      "candidate_sha256_at_review": "5c1e14188752960c2b391af2e6bfe473ff7aabbc83dc498ac9fba80ef3f45a7e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/MentionPicker.tsx",
+      "candidate_sha256_at_review": "54c774483a69677f947620fd6f3a29d53b920575ced35d0146397e35aa5c19bd",
+      "reviewed_ordinals": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        13,
+        14,
+        15,
+        16,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        30,
+        31,
+        32,
+        33,
+        34
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/voice-legacy-notice.test.ts",
+      "candidate_sha256_at_review": "d9451a2be4517a3a7b84aeede48a8727f608d96a63a86497c74cc5567514a4d1",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/MentionPicker.test.tsx",
+      "candidate_sha256_at_review": "e62181b458b28e6552df68a00615c07490de451e4f17d83f6070a80991a1d3ef",
+      "reviewed_ordinals": [
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        21,
+        22,
+        23,
+        24
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitPreviewPanel.test.tsx",
+      "candidate_sha256_at_review": "b0c3735666cb0c19eb334d8d1345bbfb4bca87d4afa00e4ea6f52081abccf4b1",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceBatchPreviewDialog.tsx",
+      "candidate_sha256_at_review": "4e0022a551e3af8d333fccc2983c379ac0efcc987c66a393e6e358a5d2321f5b",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceBatchAdmissionDialog.tsx",
+      "candidate_sha256_at_review": "b96694bd24a3f340b5bfb5b3b24dd789350177a08c25987975b9a019496804e8",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/PromptAuthoringDraftPanel.tsx",
+      "candidate_sha256_at_review": "2e6353e4f722f0a446dd0908350dfc4230756f9115e73fbf60d4b997b59c35ef",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/voice-legacy-notice.ts",
+      "candidate_sha256_at_review": "29471f6f61e5eae706335cfa5d0112b530ccf0949cd264c7a36cf59b0dedac4f",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/unit-status.ts",
+      "candidate_sha256_at_review": "161e02023f03dcaa976d189facd0e60d7aedabf78032414fe4b5aa5857c0b537",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCard.tsx",
+      "candidate_sha256_at_review": "2fca31708f53fd948187893fd1c43f13dff2b61083c7cf8bc7e8eae76997f641",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceScriptPlanPreviewPanel.test.tsx",
+      "candidate_sha256_at_review": "90b47926b64910aabed39347f33e81536973e461d054232d014480d939ff0510",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitList.test.tsx",
+      "candidate_sha256_at_review": "c30e9b45e0f2f46264f029e81ab33428c2d11df4fd44cdc8a6473a522b6f6f28",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.test.tsx",
+      "candidate_sha256_at_review": "78dfc003ab204a8405e58a22f8d5448761309f5d7111aaaaafe17f4b5443da5e",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        119,
+        120,
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        134,
+        135,
+        136,
+        137,
+        138,
+        139,
+        140,
+        141,
+        142,
+        143,
+        144,
+        145,
+        146,
+        147,
+        148,
+        149,
+        150,
+        151,
+        152
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.retention.test.tsx",
+      "candidate_sha256_at_review": "0687777fc62893ba5fffc7afe3391a159996679a8ad07293977528c22c5c6416",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.test.tsx",
+      "candidate_sha256_at_review": "7337b6d895b2f5a2263d61b2c2082305c0f5878c9dc04852b4f1e04798ffb9ae",
+      "reviewed_ordinals": [
+        0
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewPanel.test.tsx",
+      "candidate_sha256_at_review": "3cc372727cbc2b6e01dd0b4d5e1d702d47588ca266f929c5297710918e488e23",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewView.tsx",
+      "candidate_sha256_at_review": "79fda698b3a4af300414826e4ee48887136162f5fc0dfe3385d9278ff8337f43",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewPanel.tsx",
+      "candidate_sha256_at_review": "1d9f1bd60239ace3457e0155519fe39589515eabfb5533631fd29d04c946a218",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.tsx",
+      "candidate_sha256_at_review": "06ba7317951cf7043f9de549b9c6eebb953bda95cce6e704827ffec8b892df48",
+      "reviewed_ordinals": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewView.test.tsx",
+      "candidate_sha256_at_review": "b208cb6958270aa090e31b63362769ceb2fa3fe371029533ae422716ae8c3461",
+      "reviewed_ordinals": [
+        0,
+        1
+      ]
+    }
+  ],
+  "acceptance_boundary": "Source snapshot/current all changed comments only; mechanical compiler/directive/CSS proofs and official e2e are separate. Unchanged original English comments are outside translated-pair certification."
+}

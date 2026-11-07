@@ -20,14 +20,14 @@ import { getScriptItems, type EditorContentMode } from "@/utils/script-shape";
 import { stripScriptsPrefix } from "@/utils/task-target";
 import { itemPositionLabel } from "@/utils/episode-display";
 
-/** 可选的项目内图片：path 是项目内相对路径，交给 /end-frame/select 做快照复制。 */
+/** Selectable project image: relative path goes to /end-frame/select for snapshot copying. */
 interface PickableImage {
   path: string;
   label: string;
 }
 
 interface ImageGroup {
-  /** 分组标题（已翻译） */
+  /** Already-translated group heading. */
   title: string;
   images: PickableImage[];
 }
@@ -38,22 +38,22 @@ interface EndFramePickerProps {
   contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
   onClose: () => void;
-  /** 选定项目内图片：交由父级调用设置 API（父级负责提交时刻的占用复核）。 */
+  /** Project-image selection delegates setting APIs to parents, which own submit-time occupancy rechecks. */
   onPickProjectImage: (sourcePath: string) => void;
-  /** 选定本地文件上传：同上。 */
+  /** Local upload selection, same delegation. */
   onPickUpload: (file: File) => void;
-  /** 设置请求在途：禁用确认，避免重复提交。 */
+  /** Setting request in flight disables confirmation, preventing duplicates. */
   submitting?: boolean;
-  /** 弹窗打开后占用态发生变化（如本分镜被入队）：与提交在途一并禁用写入通道。 */
+  /** New occupancy while open, e.g. queued shots, disables writes together with submission occupancy. */
   disabled?: boolean;
 }
 
 /**
- * 尾帧选图器：单选，两条通道同一落点。
+ * End-frame picker: single selection, two channels sharing one destination.
  *
- * 通道一是项目内图片按来源分组平铺（本集分镜图 / 本集宫格切图），
- * 选定后走 `/end-frame/select` 按相对路径快照复制；通道二是 header 的上传入口，
- * 走 `/end-frame/upload`。两者都不建立对源图的引用，源图后续变动不影响尾帧。
+ * Project-image channel groups current episode storyboards/grid splits by origin;
+ * selection snapshots relative paths through `/end-frame/select`. Header uploads use
+ * `/end-frame/upload`. Neither references source images; later source changes do not affect end frames.
  */
 export function EndFramePicker({
   projectName,
@@ -74,8 +74,8 @@ export function EndFramePicker({
   const script = useProjectsStore((s) => s.currentScripts[scriptFile]);
   const [gridImages, setGridImages] = useState<PickableImage[]>([]);
 
-  // 宫格切图不在 store 里，弹窗打开时拉一次。取消走 AbortSignal：
-  // 弹窗在响应到达前被关闭时，不再往已卸载组件写 state。
+  // Grid splits are outside stores; fetch once on opening, canceled via AbortSignal:
+  // closing before responses arrive prevents writes to unmounted state.
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -101,7 +101,7 @@ export function EndFramePicker({
       })
       .catch(() => {
         if (signal.aborted) return;
-        // 宫格取不到不阻断选图：其余分组仍可用，空分组自然不渲染。
+        // Failed grid fetches do not block other groups; empty groups naturally do not render.
         setGridImages([]);
       });
     return () => {
@@ -126,7 +126,7 @@ export function EndFramePicker({
     <Dialog
       open
       onOpenChange={(open) => {
-        // 设置请求在途时忽略关闭：结果回来前关掉，成功与失败都无处落脚。
+        // Ignore closing during setting requests, or outcomes would have nowhere to display.
         if (!open && !submitting) onClose();
       }}
     >

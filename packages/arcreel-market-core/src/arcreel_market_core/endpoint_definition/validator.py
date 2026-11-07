@@ -1,15 +1,15 @@
-"""端点定义的共享校验器：保存、validate 接口、端点测试与 import 期唯一的判定实现。
+"""Shared endpoint-definition validator: the sole validation implementation for saving, the validate interface, endpoint tests, and import time.
 
-入口 :func:`validate_definition` 先过容器层（是对象、有 ``kind``、``kind`` 有校验实现），再按
-``kind`` 分派——名录外的 kind 在容器层就被结构化拒绝，不会走进某一种 kind 的规则里报出一串与
-真正问题无关的次生错误。
+The :func:`validate_definition` entry point first checks the container (object, present ``kind``, validator for ``kind``),
+then dispatches by ``kind``. Unknown kinds are rejected structurally at the container layer instead of entering one
+kind's rules and producing secondary errors unrelated to the actual problem.
 
-声明式 kind 的两层闸门合起来才算通过：``schema.json`` 管结构（字段集、类型、枚举），本模块管
-语义——占位符只能引用声明过的变量、凭证只从 ``auth`` 节写入、能力声明与实际引用的素材两向一致、
-每条取值路径落在 JSONPath 受限子集内。两层的产出统一成 :class:`DefinitionIssue`，消费方拿到的
-永远是同一套码。
+Declarative kinds must pass both gates: ``schema.json`` governs structure (field sets, types, enums); this module
+handles semantics: placeholders reference only declared variables, credentials enter only through ``auth``, capability
+claims and actually referenced assets agree in both directions, and every extraction path fits the restricted JSONPath
+subset. Both layers produce :class:`DefinitionIssue`, so consumers always receive the same code vocabulary.
 
-纯逻辑：不碰数据库、不发请求、不读环境，输入是一份已解析的 JSON 值。
+Pure logic: no database access, requests, or environment reads; input is an already-parsed JSON value.
 """
 
 from __future__ import annotations
@@ -57,10 +57,10 @@ from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
-#: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
+#: Definition-format version itself; writes do not rewrite file ``schema_version``, and validators do not migrate definitions.
 CURRENT_SCHEMA_VERSION = "1.2.0"
 
-#: 视频定义请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
+#: Reserved variables always available to video request templates. ``width`` / ``height`` derive from ratio and resolution, not parameters.
 BASE_VARIABLES = frozenset(
     {
         "base_url",
@@ -76,14 +76,14 @@ BASE_VARIABLES = frozenset(
     }
 )
 
-#: 视频定义里只能做枚举映射的变量：供应商侧改名的都是这几个档位参数，prompt 之类改名没有意义。
+#: Variables allowed for enum mapping in video definitions: providers rename these tier parameters; renaming prompt and similar values is meaningless.
 ENUM_MAP_VARIABLES = frozenset({"duration", "aspect_ratio", "resolution", "generate_audio"})
 
-#: 视频定义里可声明缺省值的变量与各自的宿主类型：调用方可以不填的那几个档位参数。base_url /
-#: model / prompt 每次调用都带，width / height 由比例与分辨率派生，给它们声明缺省值只会掩盖
-#: 真正的缺参。类型即 ArcReel 侧参数类型——缺省值渲染前原样进上下文，错型的 aspect_ratio /
-#: resolution 会让宽高派生拿不到档位（引用 {{ width }} 的定义每次未指定参数都渲染失败），
-#: 错型的 duration / generate_audio 则把整值占位符保留原生类型的语义带歪。
+#: Variables permitting defaults in video definitions and their host types: tier parameters callers may omit. base_url /
+#: model / prompt are supplied on every call; width / height derive from ratio and resolution. Declaring defaults for them only hides
+#: actual missing parameters. Types are ArcReel-side parameter types: defaults enter context unchanged before rendering; wrong-type aspect_ratio /
+#: resolution prevent dimension derivation from finding tiers (definitions referencing {{ width }} fail whenever parameters are omitted),
+#: while wrong-type duration / generate_audio distort whole-value placeholders' native-type preservation.
 DEFAULT_VALUE_TYPES: dict[str, type] = {
     "duration": int,
     "aspect_ratio": str,
@@ -92,39 +92,39 @@ DEFAULT_VALUE_TYPES: dict[str, type] = {
     "seed": int,
 }
 
-#: 视频定义的能力字段，与 ``VideoCapabilities`` 同名同义。
+#: Video-definition capability fields, with the same names and meanings as ``VideoCapabilities``.
 VIDEO_CAPABILITY_FIELDS = frozenset(field.name for field in fields(VideoCapabilities))
 
 
 @dataclass(frozen=True)
 class MediaTypeRules:
-    """一种媒体类型的定义可用的字段集合。
+    """Fields available to definitions of one media type.
 
-    ``schema.json`` 收各媒体类型的并集，本表按定义声明的 ``media_type`` 收窄：写了另一种媒体
-    类型才有的字段，报 ``media_type_field_not_allowed`` 而不是笼统的未知字段或未声明变量，
-    写定义的人才知道错在媒体类型上。
+    ``schema.json`` accepts the union across media types; this table narrows by declared ``media_type``. Fields exclusive
+    to another media type produce ``media_type_field_not_allowed`` rather than generic unknown-field or undeclared-variable
+    errors, so authors can identify media type as the cause.
     """
 
-    #: 请求模板可引用的保留变量。
+    #: Reserved variables request templates may reference.
     variables: frozenset[str]
-    #: 可做枚举映射的变量。
+    #: Variables supporting enum mapping.
     enum_map_variables: frozenset[str]
-    #: 可声明缺省值的变量与各自的宿主类型。
+    #: Variables allowing defaults and their host types.
     default_value_types: Mapping[str, type]
-    #: ``inputs.*.source`` 可取的素材来源。
+    #: Asset sources allowed for ``inputs.*.source``.
     input_sources: frozenset[str]
-    #: ``capabilities`` 节可写的字段。
+    #: Fields allowed in ``capabilities``.
     capabilities: frozenset[str]
-    #: 产物提取键，按运行时取用的先后排列。产物所在节（无 ``result`` 节时为 ``poll``，否则为
-    #: ``result``）的 ``extract`` 至少写一项。
+    #: Artifact-extraction keys in runtime consumption order. The artifact section (``poll`` without ``result``, otherwise
+    #: ``result``) must contain at least one in ``extract``.
     artifact_keys: tuple[str, ...]
-    #: ``extract`` 可否写 ``usage``（计费时长）。
+    #: Whether ``extract`` may contain ``usage`` (billed duration).
     usage_extract: bool
-    #: 至少一项须声明为真的能力；为空表示不要求。
+    #: Capabilities with at least one required true declaration; empty means no requirement.
     required_capabilities: tuple[str, ...]
 
 
-#: ``media_type`` → 该媒体类型的字段集合。
+#: ``media_type`` to available fields for that media type.
 MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
     "video": MediaTypeRules(
         variables=BASE_VARIABLES,
@@ -148,29 +148,29 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
     ),
 }
 
-#: 任一媒体类型可用的保留变量：不在其中的名字才是真正未声明的变量。
+#: Reserved variables available to any media type; only names outside this set are truly undeclared.
 _ALL_VARIABLES = frozenset().union(*(rules.variables for rules in MEDIA_TYPE_RULES.values()))
 _ALL_ENUM_MAP_VARIABLES = frozenset().union(*(rules.enum_map_variables for rules in MEDIA_TYPE_RULES.values()))
 _ALL_DEFAULTABLE_VARIABLES = frozenset().union(*(rules.default_value_types for rules in MEDIA_TYPE_RULES.values()))
 _ALL_ARTIFACT_KEYS = frozenset().union(*(rules.artifact_keys for rules in MEDIA_TYPE_RULES.values()))
 
-#: 列表型素材来源：只能经 ``$each`` 展开，直接内插会把整个列表串化进请求。
+#: List-valued asset sources: expand only through ``$each``; direct interpolation serializes the whole list into the request.
 LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
 
-#: 图片型素材来源（``inputs.*.source`` 枚举中除参考音频外的全部）。声明为必需的图输入意味着该
-#: 请求形状必须带图，``capabilities.text_to_video`` 由这份集合推导；校验器与
-#: :mod:`lib.custom_provider.capabilities` 的合成共用同一份，两处不得各存一份——集合漂移会让
-#: 保存期放行的声明在合成期得出相反的 ``text_to_video``。
+#: Image-valued asset sources (all ``inputs.*.source`` enum members except reference audio). Required image inputs mean the
+#: request shape requires images; derive ``capabilities.text_to_video`` from this set. Validation and capability composition in
+#: :mod:`lib.custom_provider.capabilities` share it; do not keep independent copies, as set drift would let
+#: save-time-accepted declarations produce opposite ``text_to_video`` during composition.
 IMAGE_INPUT_SOURCES = frozenset({"start_image", "end_image", "reference_images"})
 
 
 def requires_image_input(inputs: Mapping[str, Any] | None) -> bool:
-    """该定义描述的请求形状是否必须带图——``capabilities.text_to_video`` 的推导来源。
+    """Whether this definition's request shape requires images, the source for deriving ``capabilities.text_to_video``.
 
-    校验器的一致性检查、能力合成与 spec 投影三处共读本函数：``text_to_video`` 是从请求形状推导
-    出来的位，定义里的显式声明只是一份冗余断言（不一致时保存期即报 ``capability_incoherent``）。
-    任一消费方改从 ``capabilities`` 节直接取值，就会对不声明该位的合法定义得出与请求形状相反的
-    结论。
+    Validator consistency checks, capability composition, and spec projection share this function: ``text_to_video``
+    derives from request shape; its explicit definition declaration is only a redundant assertion (disagreement produces
+    ``capability_incoherent`` at save time). Consumers reading directly from ``capabilities`` instead would reach a
+    conclusion opposite to request shape for valid definitions that omit this flag.
     """
     return any(
         isinstance(declaration, Mapping)
@@ -180,7 +180,7 @@ def requires_image_input(inputs: Mapping[str, Any] | None) -> bool:
     )
 
 
-#: 声明式能产出的状态档位。``expired`` 不由声明式产生，过期语义映射到 ``failed``。
+#: States declarative definitions may produce. They do not produce ``expired``; expiration maps to ``failed``.
 CANONICAL_STATUSES = frozenset(
     {
         ProviderJobStatus.QUEUED.value,
@@ -190,7 +190,7 @@ CANONICAL_STATUSES = frozenset(
     }
 )
 
-#: 能力位与素材来源的配对：两向一致性检查逐对跑，谎报与漏报都拦。
+#: Capability/source pairs: run bidirectional consistency per pair, blocking false claims and omissions.
 CAPABILITY_SOURCE_PAIRS: tuple[tuple[str, str], ...] = (
     ("first_frame", "start_image"),
     ("last_frame", "end_image"),
@@ -198,7 +198,7 @@ CAPABILITY_SOURCE_PAIRS: tuple[tuple[str, str], ...] = (
     ("reference_audio_mode", "reference_audio_files"),
 )
 
-#: 格式不接受、但写定义的人容易写出来的字段名 → 其去处：单独报「字段已移除」比笼统的「未知字段」好用。
+#: Unsupported but easily written field names mapped to their destinations: a dedicated removed-field diagnostic is more helpful than generic unknown-field errors.
 REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "query": "val_ce_removed_reason_request_query",
     "success_status_codes": "val_ce_removed_reason_status_codes",
@@ -214,7 +214,7 @@ REMOVED_FIELD_REASONS: Mapping[str, str] = {
 
 @cache
 def load_schema() -> dict[str, Any]:
-    """读入并缓存 ``schema.json``。对外公开，供文档站、Agent skill 与前端取同一份契约。"""
+    """Read and cache ``schema.json``. Public so documentation, agent skills, and frontend share one contract."""
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
@@ -226,10 +226,10 @@ def _schema_validator() -> Draft202012Validator:
 
 
 def validate_definition(document: object) -> DefinitionDiagnostics:
-    """校验一份定义 JSON：先过容器层，再按 ``kind`` 分派到该 kind 的校验实现。
+    """Validate definition JSON: check the container, then dispatch by ``kind`` to its validator.
 
-    容器层只认 ``kind``，其余字段一概不看：不同 kind 的定义不同构，用某一种 kind 的 schema 去
-    判另一种只会报出一串与真正问题无关的次生错误。
+    Container checks recognize only ``kind`` and ignore all other fields: definitions of different kinds have different
+    shapes, so applying one kind's schema to another produces secondary errors unrelated to the actual problem.
     """
     container = tuple(_container_issues(document))
     if container or not isinstance(document, dict):
@@ -238,10 +238,10 @@ def validate_definition(document: object) -> DefinitionDiagnostics:
 
 
 def _validate_declarative(document: Mapping[str, Any]) -> DefinitionDiagnostics:
-    """声明式定义的两层闸门。
+    """The two declarative-definition gates.
 
-    结构层有错时不再跑语义层：占位符与能力检查都以字段形状成立为前提，在残缺结构上继续跑只会
-    产出误导性的次生错误。
+    Do not run semantics after structural errors: placeholder and capability checks assume valid field shapes.
+    Continuing on incomplete structures would produce misleading secondary errors.
     """
     structural = tuple(_structural_issues(document))
     if structural:
@@ -251,14 +251,14 @@ def _validate_declarative(document: Mapping[str, Any]) -> DefinitionDiagnostics:
     return DefinitionDiagnostics(errors=tuple(checker.errors), warnings=tuple(checker.warnings))
 
 
-#: ``kind`` → 该 kind 的校验实现。键集即校验层认得的全部 kind，容器层的枚举由它派生，两者不会分叉。
+#: ``kind`` to its validator. Keys are all kinds recognized by validation; derive the container enum from them to avoid drift.
 _KIND_VALIDATORS: Mapping[str, Callable[[Mapping[str, Any]], DefinitionDiagnostics]] = {
     DECLARATIVE_KIND: _validate_declarative,
     COMFYUI_KIND: validate_comfyui_definition,
 }
 
-#: ``kind`` → 该 kind 的定义格式当前版本。两种 kind 各有一条版本线，拿一条去比另一条只会在完全
-#: 合规的定义上报出假的版本落差。
+#: ``kind`` to its current definition-format version. The two kinds have independent version lines; comparing across them would report false version gaps on entirely
+#: valid definitions.
 _CURRENT_SCHEMA_VERSION_BY_KIND: Mapping[str, str] = {
     DECLARATIVE_KIND: CURRENT_SCHEMA_VERSION,
     COMFYUI_KIND: COMFYUI_SCHEMA_VERSION,
@@ -266,16 +266,16 @@ _CURRENT_SCHEMA_VERSION_BY_KIND: Mapping[str, str] = {
 
 
 def current_schema_version(document: object) -> str:
-    """一份定义所属版本线的当前版本。
+    """Current version of the definition's version line.
 
-    ``kind`` 认不出时退回声明式那条线：版本档位只是给导入确认看的提示，真正的闸门是校验器——
-    它对名录外的 kind 已经直接拒绝，此处再编一个版本号出来没有意义。
+    Fall back to the declarative line when ``kind`` is unknown: version categories merely inform import confirmation;
+    the validator is the actual gate and already rejects unknown kinds. Inventing a version here has no value.
     """
     kind = document.get("kind") if isinstance(document, Mapping) else None
     return _CURRENT_SCHEMA_VERSION_BY_KIND.get(str(kind), CURRENT_SCHEMA_VERSION)
 
 
-# ---------------------------------------------------------------- 容器层
+# ---------------------------------------------------------------- Container layer
 
 
 @cache
@@ -294,7 +294,7 @@ def _container_issues(document: Any) -> Iterator[DefinitionIssue]:
         yield from translate_schema_error(error, removed_fields={})
 
 
-# ---------------------------------------------------------------- 结构层
+# ---------------------------------------------------------------- Structure layer
 
 
 def _structural_issues(document: Any) -> Iterator[DefinitionIssue]:
@@ -302,11 +302,11 @@ def _structural_issues(document: Any) -> Iterator[DefinitionIssue]:
         yield from translate_schema_error(most_specific(error), removed_fields=REMOVED_FIELD_REASONS)
 
 
-# ---------------------------------------------------------------- 语义层
+# ---------------------------------------------------------------- Semantic layer
 
 
 class _Scope:
-    """占位符的可见范围：所在节决定保留变量是否可用，locals 是 ``$each`` 引入的循环变量。"""
+    """Placeholder scope: section determines reserved-variable availability; locals are loop variables introduced by ``$each``."""
 
     __slots__ = ("locals", "section")
 
@@ -319,7 +319,7 @@ class _Scope:
 
 
 class _SemanticChecker:
-    """在结构成立的定义上跑语义规则，逐条把违规记成诊断。"""
+    """Run semantic rules on structurally valid definitions and record each violation as a diagnostic."""
 
     def __init__(self, document: Mapping[str, Any]) -> None:
         self._document = document
@@ -345,7 +345,7 @@ class _SemanticChecker:
         self._check_artifact_extract()
         self._check_capabilities()
 
-    # ---- 记录 ----
+    # ---- Recording ----
 
     def _error(self, path: str, code: DefinitionErrorCode, **params: Any) -> None:
         self.errors.append(DefinitionIssue(path, code, params))
@@ -363,21 +363,21 @@ class _SemanticChecker:
     # ---- auth ----
 
     def _check_auth_section(self) -> None:
-        """auth 节的检查与 ComfyUI 定义同一份实现，只有变量作用域是本 kind 自己的。"""
+        """Share auth checks with ComfyUI definitions; only variable scope belongs to this kind."""
         issues = check_auth_section(self._auth, variable_issues=self._auth_variable_issues)
         self.errors.extend(issues.errors)
         self.warnings.extend(issues.warnings)
 
     def _auth_variable_issues(self, path: str, name: str) -> list[DefinitionIssue]:
-        """auth 节里 ``api_key`` 以外的变量：走与其余节同一条作用域判定。
+        """Variables other than ``api_key`` in auth follow the same scope rules as other sections.
 
-        声明式定义的 auth 节允许引用 ``base_url`` 这类基础变量（凭证按供应商地址分发的形态），
-        故这里不是「除 api_key 一律拒绝」，而是把整条作用域规则套在 auth 这个 section 上。
+        Declarative auth accepts base variables such as ``base_url`` (credentials distributed by provider address),
+        so do not reject everything except api_key; apply the full scope rules to the auth section.
         """
         issue = self._variable_issue(name, path, _Scope(section="auth"))
         return [] if issue is None else [issue]
 
-    # ---- 请求节 ----
+    # ---- Request sections ----
 
     def _check_request(self, section: str) -> None:
         request: Mapping[str, Any] = self._document[section]
@@ -445,7 +445,7 @@ class _SemanticChecker:
         if parsed.has_wildcard:
             self._warn(path, DefinitionErrorCode.JSONPATH_WILDCARD_ORDER, path_expression=parsed.source)
 
-    # ---- 模板扫描 ----
+    # ---- Template scanning ----
 
     def _scan_node(self, node: object, path: str, scope: _Scope, *, in_array: bool = False) -> None:
         if isinstance(node, str):
@@ -470,10 +470,10 @@ class _SemanticChecker:
             self._scan_node(value, join_path(path, key), scope)
 
     def _scan_each(self, directive: Mapping[str, Any], path: str, scope: _Scope, *, in_array: bool) -> None:
-        # 数组位置铺元素、对象位置铺键值对：两种展开的产物形状不同，写反了没有可执行语义。
+        # Expand elements in arrays and key/value pairs in objects: their output shapes differ, so reversed forms have no executable meaning.
         if in_array != ("item" in directive):
             self._error(path, DefinitionErrorCode.EACH_POSITION_MISMATCH)
-        # 循环体内 `index` 恒为序号：拿它当元素别名，两个值就再也分不开。
+        # Inside loops, `index` is always the ordinal; using it as the element alias makes the two values inseparable.
         if directive.get("as") == "index":
             self._error(join_path(path, "as"), DefinitionErrorCode.EACH_ALIAS_RESERVED, name="index")
         name = str(directive.get("in", "")).removeprefix("inputs.")
@@ -502,10 +502,10 @@ class _SemanticChecker:
             self.errors.append(issue)
 
     def _variable_issue(self, name: str, path: str, scope: _Scope) -> DefinitionIssue | None:
-        """一处占位符引用是否越界，越界即给出那一条诊断。
+        """Check whether one placeholder reference is out of scope and return its diagnostic if so.
 
-        产出诊断而非就地记账：auth 节的检查由两种 kind 共用的实现驱动，它要拿到诊断本身才能
-        按严重度归列。
+        Return diagnostics rather than recording them in place: auth checks use the implementation shared by both kinds
+        and need the diagnostic itself to categorize by severity.
         """
         if name == "api_key":
             return None if scope.section == "auth" else DefinitionIssue(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
@@ -541,7 +541,7 @@ class _SemanticChecker:
         self._referenced_inputs.add(name)
         return None
 
-    # ---- 字典与能力 ----
+    # ---- Dictionaries and capabilities ----
 
     def _check_enum_maps(self) -> None:
         allowed = self._rules.enum_map_variables
@@ -576,7 +576,7 @@ class _SemanticChecker:
                 )
                 continue
             expected = value_types[name]
-            # bool 是 int 的子类：True 会冒充合法的 duration / seed，反向单判。
+            # bool subclasses int: True can masquerade as valid duration / seed; check it separately in reverse.
             if not isinstance(value, expected) or (isinstance(value, bool) and expected is not bool):
                 self._error(
                     join_path("defaults", name),
@@ -585,8 +585,8 @@ class _SemanticChecker:
                     expected=expected.__name__,
                 )
                 continue
-            # 缺省值写的是 ArcReel 侧的值，渲染时照常过 enum_maps：查不到表就等于每次未指定参数
-            # 的请求都在渲染期失败，这种定义不该存得下来。
+            # Defaults are ArcReel-side values and still pass through enum_maps during rendering; lookup failure means every request omitting parameters
+            # fails at rendering, so such definitions must not be savable.
             mapping = enum_maps.get(name)
             if mapping is not None and enum_map_key(value) not in mapping:
                 self._error(
@@ -620,9 +620,9 @@ class _SemanticChecker:
                 self.errors.append(self._media_type_mismatch(join_path(join_path("inputs", name), "source"), source))
 
     def _check_artifact_extract(self) -> None:
-        """产物所在节至少写一项本媒体类型的产物提取键。
+        """The artifact section must contain at least one artifact-extraction key for this media type.
 
-        视频定义的这条规则由 ``schema.json`` 在结构层兜住，这里对视频不会再命中。
+        ``schema.json`` enforces this structurally for video definitions, so videos do not trigger this check here.
         """
         section = "result" if "result" in self._document else "poll"
         extract: Mapping[str, Any] = self._document[section].get("extract") or {}
@@ -654,7 +654,7 @@ class _SemanticChecker:
         return {decl.get("source") for name, decl in self._inputs.items() if name in self._referenced_inputs}
 
     def _check_image_capabilities(self, capabilities: Mapping[str, Any]) -> None:
-        """图片能力显式声明，不从输入推导；声明与请求形状、参考图上限三者须互相一致。"""
+        """Declare image capabilities explicitly rather than derive them from inputs; declarations, request shape, and reference-image limits must agree."""
         image_to_image = capabilities.get("image_to_image") is True
         path = "capabilities.image_to_image"
         uses_reference_images = "reference_images" in self._used_sources()
@@ -673,7 +673,7 @@ class _SemanticChecker:
                 source="reference_images",
             )
 
-        # 参考图上限是 i2i 的一部分：编排层按它裁剪参考图，缺了它 i2i 请求带几张图就没有边界。
+        # The reference-image limit is part of i2i: orchestration trims references by it; without it, i2i image counts are unbounded.
         has_limit = _capability_is_on("max_reference_images", capabilities.get("max_reference_images"))
         if image_to_image and not has_limit:
             self._error(
@@ -690,7 +690,7 @@ class _SemanticChecker:
                 requirement="image_to_image = true",
             )
 
-        # 文生图请求不带参考图：必需的参考图输入会让每一次文生图在提交前就判缺素材失败。
+        # Text-to-image requests carry no references; required reference-image inputs would fail every such request for missing assets before submission.
         if capabilities.get("text_to_image") is True and requires_image_input(self._inputs):
             self._error(
                 "capabilities.text_to_image",
@@ -757,7 +757,7 @@ class _SemanticChecker:
 
 def _capability_is_on(capability: str, value: object) -> bool:
     if capability == "max_reference_images":
-        # 与 schema 的 integer 同口径：1.0 这类整数值浮点数按整数计，布尔值不算数。
+        # Match schema integer semantics: integer-valued floats such as 1.0 count as integers, but booleans do not.
         return isinstance(value, int | float) and not isinstance(value, bool) and value == int(value) and value > 0
     if capability == "reference_audio_mode":
         return value is not None and value != "none"
@@ -768,6 +768,6 @@ def _url_query_names(url: object) -> set[str]:
     if not isinstance(url, str) or "?" not in url:
         return set()
     query = url.split("?", 1)[1].split("#", 1)[0]
-    # 按服务端解析后的名字比对：`%74oken`、`api+key` 与 `token`、`api key` 分别是同一个参数，
-    # 原样比对会漏掉重名。解码口径取 parse_qsl，与查询串的通行解析一致。
+    # Compare server-parsed names: `%74oken` and `api+key` are the same parameters as `token` and `api key`, respectively;
+    # raw comparison misses duplicate names. Decode with parse_qsl, matching conventional query parsing.
     return {name for name, _ in parse_qsl(query, keep_blank_values=True)}

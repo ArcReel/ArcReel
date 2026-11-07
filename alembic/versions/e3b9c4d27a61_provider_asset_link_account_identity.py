@@ -1,15 +1,17 @@
-"""供应商素材关联冻结云账号身份
+"""Freeze cloud-account identity in provider asset links
 
 Revision ID: e3b9c4d27a61
 Revises: aefa137b10ad
 Create Date: 2026-11-03 21:00:00.000000
 
-素材库账号记录可以原地换成另一个云账号的 Access Key，按账号记录 ID 判断范围会把旧账号的素材 ID 用到新账号。
-关联与入库任务改为冻结提交时的云账号身份（站点与 Access Key ID 的摘要），选定唯一键随之以身份代替账号记录 ID。
+An asset-library account record can change to another cloud account’s Access Key in place; record-ID
+scoping would reuse old asset IDs for the new account. Links/registration tasks freeze submission-time
+cloud identity (digest of site and Access Key ID); selected unique keys replace account record ID with identity.
 
-存量关联按它所记账号的当前 Access Key 补写身份：只有账号仍在、站点、区域与项目都与关联一致时才补写；其余
-写入每行各不相同的 ``legacy-unresolved-<id>``，不与任何账号相等，关联保留原范围但不再适用。账号在本迁移
-之前就已被换过 Key 的关联无法追溯，按当前 Key 归属。
+Backfill existing links from current keys only when the account still exists and site, region, project
+match the link. Otherwise use distinct per-row ``legacy-unresolved-<id>`` identities matching no account;
+links preserve their old scope but become inapplicable. Prior key changes cannot be traced; attribute
+such links to current keys.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ _SCOPE = ["site", "region", "provider_project_name"]
 
 
 def _account_identity(site: str, access_key_id: str) -> str:
-    # 与 lib.asset_library.bindings.account_identity 保持一致；迁移冻结算法，不导入运行时代码。
+    # Match lib.asset_library.bindings.account_identity; freeze the algorithm without runtime imports.
     payload = json.dumps(
         {"domain": "arcreel/asset-library-account/v1", "site": site, "access_key_id": access_key_id.strip()},
         sort_keys=True,
@@ -86,7 +88,7 @@ def upgrade() -> None:
     with op.batch_alter_table(_TABLE, table_kwargs={"sqlite_autoincrement": True}) as batch_op:
         batch_op.alter_column("account_identity", existing_type=sa.String(length=64), nullable=False)
 
-    # 同一云账号若被登记成多条账号记录，旧键允许各有一条选定记录；按身份合并后只保留最新的一条。
+    # Duplicate records for one cloud account formerly each allowed a selected link; identity merging keeps only the newest.
     conn.execute(
         sa.text(
             f"UPDATE {_TABLE} SET selected = :false, unlinked_at = CURRENT_TIMESTAMP "
@@ -105,7 +107,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(_SELECTED_INDEX, table_name=_TABLE)
-    # 同一账号记录换 Key 前后可以各有一条选定记录；回到按账号记录 ID 的键时只保留最新的一条。
+    # Key changes on one account record can each have selected links; restoring record-ID keys keeps only the newest.
     conn = op.get_bind()
     conn.execute(
         sa.text(

@@ -1,7 +1,7 @@
-"""写盘统一入口「不更坏」结构校验守卫测试。
+"""No-worse structural validation guards at the unified persistence entry.
 
-只断言外部行为：构造 before/after 剧本，断言写盘是否 raise ScriptStructureValidationError，
-以及资产回写豁免、validate 默认值，不 patch 私有方法。
+Assert only external behavior: construct before/after scripts and check whether writes raise ScriptStructureValidationError,
+asset-writeback exemptions, and validate defaults. Do not patch private methods.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def _valid_script(segments: list[dict] | None = None) -> dict:
 
 
 def _invalid_script() -> dict:
-    # 缺 summary/novel，image_prompt/video_prompt 形状错 —— 结构非法
+    # Missing summary/novel and malformed image_prompt/video_prompt: structurally invalid.
     return {
         "episode": 1,
         "title": "标题",
@@ -60,27 +60,27 @@ def _pm(tmp_path: Path) -> ProjectManager:
 
 class TestNoWorseSemantics:
     def test_valid_to_invalid_is_rejected(self, tmp_path: Path):
-        """前合法 ∧ 后非法 → 拒绝（本次编辑引入新结构错误）。"""
+        """Valid before and invalid after means reject: this edit introduced new structural errors."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
         with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
-            # 把合法 segment 的 duration 改成越界值
+            # Change a valid segment duration to an out-of-range value.
             script["segments"][0]["duration_seconds"] = 999
 
     def test_invalid_to_invalid_is_allowed(self, tmp_path: Path):
-        """前非法 → 放行（不为历史遗留背锅），即使后仍非法。"""
+        """Invalid before means allow without penalizing historical errors, even when still invalid afterward."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _invalid_script(), "episode_1.json", validate=False)
 
-        # 在本就非法的旧剧本上做一次合法编辑（改 title），不应被拦
+        # A valid title edit on an already-invalid legacy script must not be blocked.
         with pm.locked_script("demo", "episode_1.json") as script:
             script["title"] = "新标题"
 
         assert pm.load_script("demo", "episode_1.json")["title"] == "新标题"
 
     def test_valid_to_valid_is_allowed(self, tmp_path: Path):
-        """前后都合法 → 放行。"""
+        """Valid before and after means allow."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
@@ -90,17 +90,17 @@ class TestNoWorseSemantics:
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["duration_seconds"] == 10
 
     def test_fresh_save_invalid_is_rejected(self, tmp_path: Path):
-        """全新保存（无改前）+ 非法 → 严格拒绝。"""
+        """New saves with no prior version reject invalid structure strictly."""
         pm = _pm(tmp_path)
         with pytest.raises(ScriptStructureValidationError):
             pm.save_script("demo", _invalid_script(), "episode_1.json")
 
-        # 拒绝后文件不应落盘
+        # Rejection must leave no file on disk.
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_1.json").exists()
 
     def test_fresh_save_valid_is_allowed(self, tmp_path: Path):
-        """全新保存（无改前）+ 合法 → 放行。"""
+        """New saves with no prior version allow valid structure."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
         assert pm.load_script("demo", "episode_1.json")["title"] == "标题"
@@ -108,16 +108,16 @@ class TestNoWorseSemantics:
 
 class TestValidateDefaultsOn:
     def test_locked_script_validates_by_default(self, tmp_path: Path):
-        """不显式传 validate 时默认开启校验（fail-safe）。"""
+        """Omitting validate enables validation by default (fail-safe)."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
-        # locked_script 不传 validate
+        # Do not pass validate to locked_script.
         with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
             script["segments"][0]["video_prompt"] = 123
 
     def test_validate_false_bypasses_guard(self, tmp_path: Path):
-        """显式 validate=False 时即便引入非法结构也放行。"""
+        """Explicit validate=False permits even newly introduced invalid structure."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
@@ -161,10 +161,10 @@ def _pm_drama(tmp_path: Path) -> ProjectManager:
 
 
 class TestUtterancesEditGuard:
-    """分镜详情编辑 drama 分镜级 utterances 走 locked_script → 「不更坏」guard 的写盘校验。"""
+    """Storyboard-detail drama utterance edits use locked_script and the no-worse persistence guard."""
 
     def test_valid_utterances_edit_persists(self, tmp_path: Path):
-        """合法 utterances 编辑（dialogue 带 speaker、voiceover 无 speaker）落库。"""
+        """Persist valid utterance edits (dialogue with speaker, voiceover without speaker)."""
         pm = _pm_drama(tmp_path)
         pm.save_script("demo", _valid_drama_script(), "episode_1.json")
 
@@ -179,7 +179,7 @@ class TestUtterancesEditGuard:
         assert saved[1]["kind"] == "voiceover"
 
     def test_illegal_utterance_kind_speaker_is_rejected(self, tmp_path: Path):
-        """dialogue 缺非空 speaker → guard 拒绝，旧内容保留（不写坏 project.json）。"""
+        """Dialogue without nonempty speaker is rejected; preserve old content without corrupting project.json."""
         pm = _pm_drama(tmp_path)
         pm.save_script("demo", _valid_drama_script(), "episode_1.json")
 
@@ -212,7 +212,7 @@ def _reference_script(units: list[dict] | None = None) -> dict:
 
 class TestAssetWritebackExemption:
     def test_update_scene_asset_succeeds_on_invalid_script(self, tmp_path: Path):
-        """资产回写（validate=False）在剧本本就非法时仍能成功写入。"""
+        """Asset writeback (validate=False) succeeds even on already-invalid scripts."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _invalid_script(), "episode_1.json", validate=False)
 
@@ -231,7 +231,7 @@ class TestAssetWritebackExemption:
         assert saved["segments"][0]["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
 
     def _seed_corrupted_null_segments(self, pm, tmp_path: Path) -> None:
-        """直接落盘构造 segments=null 的脏剧本，绕过 save_script 模拟历史遗留。"""
+        """Write a malformed segments=null script directly, bypassing save_script to simulate legacy data."""
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
@@ -241,8 +241,8 @@ class TestAssetWritebackExemption:
         )
 
     def _seed_corrupted_null_video_units(self, tmp_path: Path) -> None:
-        """构造 video_units=null 的 reference 模式脏剧本，且事先有合理的 metadata（模拟数据
-        损坏前的状态），用于验证脏数据下资产回写不改写既有 metadata。"""
+        """Construct malformed reference-mode video_units=null with reasonable prior metadata (the state before corruption),
+        verifying asset writeback does not rewrite existing metadata on corrupt data."""
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
@@ -255,34 +255,34 @@ class TestAssetWritebackExemption:
         )
 
     def test_update_scene_asset_fails_loud_on_corrupted_list_key(self, tmp_path: Path):
-        """`update_scene_asset` 在 `segments: null` 下必须 fail-loud（raise ScriptEditError）——
-        静默 no-op 会让 worker 以为回写成功但实际数据丢失。worker 层应该 catch 这个错误并
-        把任务标为失败，让运维看到「数据损坏」而不是「成功但空」。"""
+        """`update_scene_asset` on `segments: null` must fail loudly with ScriptEditError;
+        a silent no-op would make workers report successful writeback despite data loss. Workers should catch it and
+        mark failure so operators see corruption rather than empty success."""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_segments(pm, tmp_path)
         with pytest.raises(ScriptEditError, match="必须是列表"):
             pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "x.png")
 
     def test_batch_update_scene_assets_fails_loud_on_corrupted_list_key(self, tmp_path: Path):
-        """`batch_update_scene_assets` 在 `segments: null` 下必须 fail-loud——批量场景下静默
-        no-op 危害更大：worker 写完 N 个 clip 全被丢、SSE 仍然广播「all updated」、UI 永远 pending。"""
+        """`batch_update_scene_assets` on `segments: null` must fail loudly; silent batch no-ops are worse:
+        all N written clips disappear while SSE still broadcasts all updated and the UI stays pending forever."""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_segments(pm, tmp_path)
         with pytest.raises(ScriptEditError, match="必须是列表"):
             pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
 
     def test_writeback_preserves_old_metadata_on_corrupted_list_key(self, tmp_path: Path):
-        """资产回写热路径在 reference 模式 `video_units: null` 下不改写既有 metadata：存量剧本上
-        遗留的统计键原样保留、仅 updated_at 刷新。脏数据「不更坏」——写入侧不趁机重写它读不懂的内容。"""
+        """The reference-mode `video_units: null` asset-writeback hot path must not rewrite existing metadata: retain
+        legacy statistics and refresh only updated_at. No-worse handling must not opportunistically rewrite content it cannot read."""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_video_units(tmp_path)
 
-        # 非结构性变更走 validate=False（资产回写热路径）
+        # Nonstructural changes use validate=False (the asset-writeback hot path).
         with pm.locked_script("demo", "episode_1.json", validate=False) as script:
             script["generated_assets_demo"] = "anything"
 
         saved = pm.load_script("demo", "episode_1.json")
-        # 旧 metadata 完全保留（除 updated_at 必然刷新外）
+        # Preserve all old metadata except the necessarily refreshed updated_at.
         assert saved["metadata"]["total_scenes"] == 5
         assert saved["metadata"]["estimated_duration_seconds"] == 40
         assert saved.get("generated_assets_demo") == "anything"
@@ -290,8 +290,8 @@ class TestAssetWritebackExemption:
     def test_get_pending_scenes_warns_and_returns_empty_on_corrupted_list_key(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ):
-        """读取路径（get_pending_scenes）在脏数据下不阻塞 UI 渲染：返回 [] + 发出可观测的
-        warning 日志，让运维有信号去人工修复，不让降级变隐形。"""
+        """Reads (get_pending_scenes) do not block UI rendering on corrupt data: return [] plus observable
+        warning logs so operators can repair it manually, keeping degradation visible."""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_segments(pm, tmp_path)
         with caplog.at_level(logging.WARNING, logger="lib.project.project_manager"):
@@ -302,7 +302,7 @@ class TestAssetWritebackExemption:
     def test_get_scenes_needing_storyboard_warns_and_returns_empty_on_corrupted_list_key(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ):
-        """同上：get_scenes_needing_storyboard 在脏数据下也是 warn + []。"""
+        """Likewise, get_scenes_needing_storyboard returns [] plus warning on corrupt data."""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_segments(pm, tmp_path)
         with caplog.at_level(logging.WARNING, logger="lib.project.project_manager"):
@@ -311,10 +311,10 @@ class TestAssetWritebackExemption:
         assert any("segments" in rec.message and "数据损坏" in rec.message for rec in caplog.records)
 
     def test_get_pending_scenes_handles_item_without_generated_assets(self, tmp_path: Path):
-        """读取侧容错：列表内 item 缺 generated_assets 字段（结构脏数据但列表本身完好）时
-        不应抛 KeyError，按"未生成"算进 pending——与 get_scenes_needing_storyboard 的容错对齐。"""
+        """Read tolerance: items missing generated_assets within otherwise valid lists do not raise KeyError;
+        count them as ungenerated/pending, matching get_scenes_needing_storyboard tolerance."""
         pm = _pm(tmp_path)
-        # 直接落盘：segments 是合法 list，但内部 item 缺 generated_assets
+        # Write directly: segments is a valid list whose item lacks generated_assets.
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
@@ -323,15 +323,15 @@ class TestAssetWritebackExemption:
             '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
             encoding="utf-8",
         )
-        # 不应抛 KeyError；item 缺字段 → pending（含进结果）
+        # No KeyError; missing item field means pending, included in results.
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
         assert result[0]["segment_id"] == "E1S01"
 
     def test_reference_video_read_helpers_return_units(self, tmp_path: Path):
-        """reference 模式下 get_pending_scenes / get_scenes_needing_storyboard 必须按 video_units
-        返回待办——旧 `_script_items_shape` 在 reference 下落到 drama 兜底取 "scenes" 键,reference
-        脚本无该键,静默返回 [],UI 显示"无待办"。改用 resolve_items 统一三模式判别后修复。"""
+        """In reference mode, get_pending_scenes / get_scenes_needing_storyboard return video_units work.
+        Old `_script_items_shape` fell back to drama's "scenes", absent in reference scripts, silently returning []
+        and no-work UI. Shared resolve_items discrimination across all three modes fixes it."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _reference_script(), "episode_1.json")
 
@@ -342,9 +342,9 @@ class TestAssetWritebackExemption:
         assert [item["unit_id"] for item in needing] == ["E1U1", "E1U2"]
 
     def test_reference_video_update_scene_asset_writes_unit(self, tmp_path: Path):
-        """reference 模式下 update_scene_asset 必须按 unit_id 索引 video_units 回写资产——
-        旧 helper 在 reference 下取 "scenes" 键找不到任何 unit_id,KeyError("分镜不存在")
-        掩盖了根因（路径选错而非 id 不存在）。"""
+        """In reference mode, update_scene_asset indexes video_units by unit_id for asset writeback.
+        The old helper searched "scenes", found no unit_id, and raised KeyError("分镜不存在"),
+        masking the actual wrong-path cause as a nonexistent ID."""
         pm = _pm(tmp_path)
         pm.save_script("demo", _reference_script(), "episode_1.json")
 
@@ -359,9 +359,9 @@ class TestAssetWritebackExemption:
         ids=["null", "string", "list"],
     )
     def test_get_pending_scenes_handles_non_dict_generated_assets(self, tmp_path: Path, assets_json: str):
-        """读取侧容错：item.generated_assets 存在但是 null / 字符串 / 非 dict 时不抛 AttributeError，
-        视为"未生成"算进 pending。`item.get("generated_assets", {}).get(...)` 只挡 key 缺失,
-        None / 非 dict 仍会崩——必须用 isinstance check 与写入侧 update_scene_asset 的 mirror。"""
+        """Read tolerance: null / string / nondict item.generated_assets does not raise AttributeError;
+        treat it as ungenerated/pending. `item.get("generated_assets", {}).get(...)` only handles absent keys,
+        not None / nondicts; use isinstance checks mirroring write-side update_scene_asset."""
         pm = _pm(tmp_path)
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
@@ -373,12 +373,12 @@ class TestAssetWritebackExemption:
         )
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
-        # 同样 get_scenes_needing_storyboard 也容错
+        # get_scenes_needing_storyboard likewise tolerates these values.
         result2 = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
         assert len(result2) == 1
 
     def _seed_non_dict_element(self, tmp_path: Path) -> None:
-        """落盘构造合法 list 但混入非 dict 元素（"foo"）的脏剧本——模拟手改/损坏数据。"""
+        """Persist a valid list containing a nondict element ("foo") to simulate manually edited/corrupt data."""
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
@@ -389,8 +389,8 @@ class TestAssetWritebackExemption:
         )
 
     def test_read_helpers_skip_non_dict_items(self, tmp_path: Path):
-        """读取侧：数组混入非 dict 元素（"foo"）时跳过它、只返回合法 dict 项，不抛 AttributeError。
-        与 script_editor.new_item_ids 的 isinstance 过滤一致。"""
+        """Reads skip nondict array elements ("foo"), returning valid dict items without AttributeError,
+        matching isinstance filtering in script_editor.new_item_ids."""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         pending = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
@@ -399,7 +399,7 @@ class TestAssetWritebackExemption:
         assert [item["segment_id"] for item in needing] == ["E1S01"]
 
     def test_update_scene_asset_writes_with_non_dict_sibling(self, tmp_path: Path):
-        """写入侧 update_scene_asset：非 dict 兄弟元素被跳过，合法 id 正常回写，不抛 AttributeError。"""
+        """Write-side update_scene_asset skips nondict siblings and writes valid IDs normally without AttributeError."""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "storyboards/E1S01.png")
@@ -408,7 +408,7 @@ class TestAssetWritebackExemption:
         assert target["generated_assets"]["storyboard_image"] == "storyboards/E1S01.png"
 
     def test_batch_update_scene_assets_writes_with_non_dict_sibling(self, tmp_path: Path):
-        """批量写入：非 dict 兄弟元素被过滤，合法 id 成功回写，不抛 AttributeError。"""
+        """Batch writes filter nondict siblings and write valid IDs successfully without AttributeError."""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
@@ -417,7 +417,7 @@ class TestAssetWritebackExemption:
         assert target["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
 
     def test_batch_update_scene_assets_missing_id_fails_loud_with_non_dict_sibling(self, tmp_path: Path):
-        """命中不存在 id 仍 fail-loud（KeyError）——非 dict 元素被过滤后不会被误当作 id 命中。"""
+        """Nonexistent IDs still fail loudly with KeyError; filtering nondicts must not turn them into false ID matches."""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         with pytest.raises(KeyError):

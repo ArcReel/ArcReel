@@ -83,7 +83,7 @@ class TestGenerate:
         assert result.provider == "grok"
 
     async def test_usage_deducts_cache_hits_and_bills_reasoning_as_output(self, backend):
-        # xAI 的 completion_tokens 不含推理 token，推理 token 另报且按输出价计费
+        # xAI completion_tokens excludes reasoning tokens, reported separately and billed at output rates.
         usage = usage_pb2.SamplingUsage(
             prompt_tokens=1_000, cached_prompt_text_tokens=600, completion_tokens=50, reasoning_tokens=200
         )
@@ -113,14 +113,14 @@ class TestGenerate:
 
     @pytest.mark.parametrize("model", response_schema_params())
     async def test_pydantic_response_format_schema_has_no_class_docstrings(self, backend, model):
-        """xai_sdk 用 response_format.model_json_schema() 生成下发的 schema，其中不带类 docstring。"""
+        """xai_sdk builds sent schemas via response_format.model_json_schema(), excluding class docs."""
         from pydantic import ValidationError
 
         mock_chat = MagicMock()
         mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="{}"))
         backend._test_client.chat.create.return_value = mock_chat
 
-        # 回包只是空对象，过不了模型校验；本用例只看下发的 schema
+        # Empty-object responses fail validation; observe sent schemas only.
         with pytest.raises(ValidationError):
             await backend.generate(TextGenerationRequest(prompt="gen", response_schema=model))
 
@@ -130,7 +130,7 @@ class TestGenerate:
         assert leaked_class_docstrings(model, wire_json) == []
 
     async def test_max_output_tokens_passed_to_chat_create(self, backend):
-        """max_output_tokens 透传为 xai_sdk chat.create(max_tokens=)。"""
+        """max_output_tokens forwards into xai_sdk chat.create(max_tokens=)."""
         mock_chat = MagicMock()
         mock_response = SimpleNamespace(content="x")
         mock_chat.sample = AsyncMock(return_value=mock_response)
@@ -142,7 +142,7 @@ class TestGenerate:
         assert call_kwargs["max_tokens"] == 16000
 
     async def test_structured_truncation_raises(self, backend):
-        """结构化输出被截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
+        """Truncated structured output raises TextOutputTruncatedError (docs/adr/0044)."""
         from lib.backends.text_backends.base import TextOutputTruncatedError
 
         mock_chat = MagicMock()
@@ -157,7 +157,7 @@ class TestGenerate:
         assert exc_info.value.provider == "grok"
 
     async def test_truncated_invalid_json_raises_truncation_not_validation_error(self, backend):
-        """截断的结构化响应是残缺 JSON：先于校验判截断，抛 TextOutputTruncatedError 而不是 pydantic ValidationError。"""
+        """Truncated structured responses contain incomplete JSON; detect truncation before validation, raising TextOutputTruncatedError rather than ValidationError."""
         from lib.backends.text_backends.base import TextOutputTruncatedError
 
         mock_chat = MagicMock()
@@ -171,7 +171,7 @@ class TestGenerate:
             await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
     async def test_complete_invalid_json_still_fails_validation(self, backend):
-        """未截断但不满足 schema 的响应仍抛校验错误，交给调用方的校验重试。"""
+        """Untruncated schema violations still raise validation errors for caller validation retries."""
         from pydantic import ValidationError
 
         mock_chat = MagicMock()
@@ -183,7 +183,7 @@ class TestGenerate:
             await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
     async def test_free_text_truncation_only_warns(self, backend, caplog):
-        """自由文本（无 response_schema）被截断时告警并在结果上标记截断，不抛错。"""
+        """Truncated free text without response_schema warns/marks truncation without raising."""
         import logging
 
         mock_chat = MagicMock()
@@ -200,7 +200,7 @@ class TestGenerate:
 
     @pytest.mark.parametrize("finish_reason", ["REASON_MAX_LEN", "REASON_MAX_CONTEXT"])
     async def test_sdk_truncation_reasons_count_as_truncated(self, backend, finish_reason):
-        """xai_sdk 的 Response.finish_reason 返回 FinishReason 的枚举名，输出上限与上下文上限都算截断。"""
+        """xai_sdk Response.finish_reason uses FinishReason enum names; output/context limits both mean truncation."""
         mock_chat = MagicMock()
         mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="partial", finish_reason=finish_reason))
         backend._test_client.chat.create.return_value = mock_chat

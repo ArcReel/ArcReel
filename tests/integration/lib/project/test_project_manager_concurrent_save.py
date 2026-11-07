@@ -1,7 +1,7 @@
-"""剧本并发写入竞态防护测试。
+"""Concurrent script-write race protection.
 
-覆盖 `save_script` 在并发 PATCH 下的原子性，以及 lock 文件命名不会泄露到
-`list_scripts()` 或项目导出 ZIP。
+Cover `save_script` atomicity under concurrent PATCH and ensure lock filenames never leak into
+`list_scripts()` or exported project ZIPs.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from server.services.project.project_archive import ProjectArchiveService
 
 
 def _seed_project(pm: ProjectManager, name: str) -> None:
-    """创建一个最小可用的项目 + 初始 episode_1 剧本。"""
+    """Create a minimal usable project with initial episode_1 script."""
     pm.create_project(name)
     pm.save_project(
         name,
@@ -41,7 +41,7 @@ def _seed_project(pm: ProjectManager, name: str) -> None:
 
 
 def _make_script(episode: int, payload_size: int) -> dict:
-    """构造一个结构合法的旁白/解说剧本，segment 数量决定 JSON 体积。"""
+    """Construct a structurally valid narration/commentary script; segment count controls JSON size."""
     filler = "填充文本 " * (payload_size // 10 + 1)
     return {
         "episode": episode,
@@ -87,7 +87,7 @@ class TestSaveScriptConcurrency:
         original_record = project_trash.record_deletion
 
         def guarded_record(project_dir: Path, obj, files, **kwargs):
-            # 旧媒体移进项目回收站时，独立写方不能取得正式剧本锁并提交新产物。
+            # While old media moves to project trash, independent writers cannot acquire formal-script locks and commit new outputs.
             with (
                 pytest.raises(portalocker.AlreadyLocked),
                 portalocker.Lock(script_lock, flags=portalocker.LOCK_EX | portalocker.LOCK_NB),
@@ -254,16 +254,16 @@ class TestSaveScriptConcurrency:
         assert len(pm.load_script(name, "episode_1.json")["segments"]) == 5
 
     def test_concurrent_save_script_no_corruption(self, tmp_path: Path) -> None:
-        """并发写入同一 script 文件，最终应可被 json.load 成功解析。"""
+        """Concurrent writes to one script leave final content parseable by json.load."""
         pm = ProjectManager(tmp_path)
         name = "proj-concurrent"
         _seed_project(pm, name)
 
-        # 预置一次，确保文件存在
+        # Prewrite once to ensure existence.
         pm.save_script(name, _make_script(1, payload_size=40), "episode_1.json")
 
         def _writer(i: int) -> int:
-            script = _make_script(1, payload_size=40 + (i % 7))  # 各线程 JSON 长度不同
+            script = _make_script(1, payload_size=40 + (i % 7))  # Threads use different JSON lengths.
             script["segments"][0]["note"] = f"writer-{i}"
             pm.save_script(name, script, "episode_1.json")
             return i
@@ -271,16 +271,16 @@ class TestSaveScriptConcurrency:
         with ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(_writer, i) for i in range(32)]
             for fut in as_completed(futures):
-                fut.result()  # 任一写入抛异常即失败
+                fut.result()  # Any write exception fails.
 
-        # 最终文件必须是完整合法的 JSON 且结构完整
+        # Final content must be complete valid JSON with intact structure.
         loaded = pm.load_script(name, "episode_1.json")
         assert loaded["episode"] == 1
         assert isinstance(loaded["segments"], list)
         assert len(loaded["segments"]) >= 40
 
     def test_save_script_atomicity_during_read(self, tmp_path: Path) -> None:
-        """写入流程中并发 load_script 不应看到半写入/损坏状态。"""
+        """Concurrent load_script during writes never sees partial/corrupt content."""
         pm = ProjectManager(tmp_path)
         name = "proj-rw"
         _seed_project(pm, name)
@@ -318,7 +318,7 @@ class TestSaveScriptConcurrency:
 
 class TestLockFileNaming:
     def test_script_lock_is_hidden_and_not_listed(self, tmp_path: Path) -> None:
-        """script lock 文件应以 `.` 开头并不出现在 list_scripts 结果中。"""
+        """Script lock files start with `.` and stay outside list_scripts results."""
         pm = ProjectManager(tmp_path)
         name = "proj-lock"
         _seed_project(pm, name)
@@ -333,7 +333,7 @@ class TestLockFileNaming:
         assert pm.list_scripts(name) == ["episode_1.json"]
 
     def test_project_lock_is_hidden(self, tmp_path: Path) -> None:
-        """project.json 的 lock 文件也应为隐藏命名（与注释一致）。"""
+        """project.json locks also use hidden names, matching comments."""
         pm = ProjectManager(tmp_path)
         name = "proj-proj-lock"
         _seed_project(pm, name)
@@ -347,7 +347,7 @@ class TestLockFileNaming:
 
 class TestLockPathAliasing:
     def test_aliased_filenames_share_single_lock(self, tmp_path: Path) -> None:
-        """`./episode_1.json`、`episode_1.json`、`scripts/episode_1.json` 必须解析到同一把锁文件。"""
+        """`./episode_1.json`, `episode_1.json`, and `scripts/episode_1.json` resolve to the same lock file."""
         pm = ProjectManager(tmp_path)
         name = "proj-alias"
         _seed_project(pm, name)
@@ -355,17 +355,17 @@ class TestLockPathAliasing:
 
         scripts_dir = pm.get_project_path(name) / "scripts"
 
-        # 分别用三种别名进入 _script_lock 并检查拿到的 lock_path 相同
+        # Enter _script_lock through all three aliases and compare lock_path.
         lock_paths = set()
         for alias in ["episode_1.json", "./episode_1.json", "scripts/episode_1.json"]:
             with pm._script_lock(name, alias):
-                # 锁持有期间断言 scripts 下应存在唯一的隐藏锁文件
+                # While locked, scripts contains exactly one hidden lock file.
                 hidden = [p for p in scripts_dir.iterdir() if p.name.startswith(".") and p.name.endswith(".lock")]
                 assert len(hidden) == 1, f"期望唯一锁文件，实际 {[p.name for p in hidden]}"
                 lock_paths.add(hidden[0].resolve())
 
         assert len(lock_paths) == 1, f"别名应共享同一锁文件，实际产生 {lock_paths}"
-        # 项目根目录不应出现 script 相关锁的逸出（防止 `./ep.json` 造成 scripts/../.ep.json.lock）
+        # No script locks escape into project roots; guard `./ep.json` producing scripts/../.ep.json.lock.
         project_dir = pm.get_project_path(name)
         strays = [
             p.name for p in project_dir.iterdir() if p.is_file() and p.name.endswith(".lock") and "episode" in p.name
@@ -375,19 +375,19 @@ class TestLockPathAliasing:
 
 class TestArchiveExcludesLocks:
     def test_is_hidden_member_filters_lock_and_tmp(self) -> None:
-        """导出 ZIP 的隐藏成员判定应覆盖 lock 与原子写入的 tmp 残留。"""
+        """Export ZIP hidden-member checks cover locks and atomic-write temporary leftovers."""
         assert ProjectArchiveService._is_hidden_member((".project.json.lock",))
         assert ProjectArchiveService._is_hidden_member(("scripts", ".episode_1.json.lock"))
         assert ProjectArchiveService._is_hidden_member((".project.abc.tmp",))
         assert ProjectArchiveService._is_hidden_member(("scripts", ".project.xyz.tmp"))
-        # 正常文件不被过滤
+        # Ordinary files are not filtered.
         assert not ProjectArchiveService._is_hidden_member(("scripts", "episode_1.json"))
         assert not ProjectArchiveService._is_hidden_member(("project.json",))
 
 
 class TestSyncAfterConcurrentWrite:
     def test_project_json_reflects_last_script_after_concurrent_writes(self, tmp_path: Path) -> None:
-        """并发 save_script 后 project.json 的 episode 条目应与 script 一致。"""
+        """After concurrent save_script, project.json episode entries agree with scripts."""
         pm = ProjectManager(tmp_path)
         name = "proj-sync"
         _seed_project(pm, name)
@@ -405,22 +405,22 @@ class TestSyncAfterConcurrentWrite:
         assert len(episodes) == 1
         assert episodes[0]["episode"] == 1
         assert episodes[0]["script_file"] == "scripts/episode_1.json"
-        # title 应来自某一次写入，非空且符合模式
+        # title comes from one write, nonempty and matching the pattern.
         assert episodes[0]["title"].startswith("Title-")
 
-        # 剧本仍然是合法 JSON
+        # Scripts remain valid JSON.
         loaded = pm.load_script(name, "episode_1.json")
         assert loaded["title"] == episodes[0]["title"]
 
 
 class TestConcurrentReadModifyWrite:
-    """并发 read-modify-write 不应丢更新。"""
+    """Concurrent read-modify-write preserves updates."""
 
     def test_concurrent_update_scene_asset_preserves_all(self, tmp_path: Path) -> None:
-        """并发对不同 segment 调用 update_scene_asset，所有写入都必须持久化。
+        """Concurrent update_scene_asset on different segments persists every update.
 
-        整段 read-modify-write 必须收进 locked_script 的单锁内：读在锁外时多个线程会拿到
-        同一份快照并互相覆盖，只有最后一个写者的更新存活。
+        Enclose the entire read-modify-write within one locked_script lock; reads outside it give threads
+        identical snapshots that overwrite each other, retaining only the last writer.
         """
         pm = ProjectManager(tmp_path)
         name = "proj-rmw"
@@ -429,7 +429,7 @@ class TestConcurrentReadModifyWrite:
         n = 24
         pm.save_script(name, _make_script(1, payload_size=n), "episode_1.json")
 
-        # 用 barrier 让所有线程尽量同时进入，最大化竞争窗口
+        # Barrier threads toward simultaneous entry to maximize contention windows.
         barrier = threading.Barrier(n)
 
         def _writer(i: int) -> None:
@@ -454,7 +454,7 @@ class TestConcurrentReadModifyWrite:
             assert ga.get("video_clip") == f"videos/scene_{i}.mp4", f"E1S{i} 的更新丢失：{ga}"
 
     def test_update_scene_asset_missing_scene_does_not_write(self, tmp_path: Path) -> None:
-        """目标 scene 不存在时抛 KeyError 且不改动文件（locked_script 跳过写回）。"""
+        """Absent target scenes raise KeyError without file changes; locked_script skips writeback."""
         pm = ProjectManager(tmp_path)
         name = "proj-rmw-missing"
         _seed_project(pm, name)
@@ -477,15 +477,15 @@ class TestConcurrentReadModifyWrite:
 
 
 def test_loaded_json_not_extra_data_after_save_script(tmp_path: Path) -> None:
-    """save_script 后磁盘内容必须是单个 JSON 对象，不能有 Extra data。"""
+    """After save_script, disk content is one JSON object without Extra data."""
     pm = ProjectManager(tmp_path)
     name = "proj-regress"
     _seed_project(pm, name)
     pm.save_script(name, _make_script(1, payload_size=50), "episode_1.json")
 
     raw = (pm.get_project_path(name) / "scripts" / "episode_1.json").read_bytes().decode("utf-8")
-    # 直接用 json.loads 解析整个文件——若末尾多 `}` 会抛 Extra data
+    # Parse the whole file with json.loads; an extra trailing `}` raises Extra data.
     json.loads(raw)
     assert raw.strip().endswith("}")
-    # 末尾不应连续两个及以上 `}` 字符（排除合法嵌套尾巴，最内层 items 数组收尾为 "]\n}"）
+    # No two-or-more trailing `}` beyond legitimate nesting; the innermost items array closes with "]\n}".
     assert not raw.rstrip().endswith("}}")

@@ -102,7 +102,7 @@ def _make_mock_svc(
                     capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=1 if name in ready else 0,
-                    # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
+                    # Instances without built-in provider model-state rows: discontinued-entry models are disabled.
                     disabled_models=disabled_without_state(name),
                 )
             )
@@ -196,7 +196,7 @@ class TestGetSystemConfig:
         assert options["audio_backends"] == []
 
     def test_options_exclude_hidden_models(self, monkeypatch):
-        """已下线条目的模型「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
+        """Discontinued models leave dropdowns but retain entries for pricing; options is that dropdown."""
         from lib.catalog.query import factory_snapshot
         from tests.catalog_support import install_catalog, with_entry_changes
 
@@ -281,8 +281,8 @@ class TestGetSystemConfig:
         assert settings["narration_speed"] is None
 
     def test_video_generate_audio_defaults_to_true_on_empty_db(self):
-        """新装系统 DB 为空时，GET /system/config 应返回 video_generate_audio=True，
-        与 ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO=True 保持一致。"""
+        """With empty DBs on fresh installations, GET /system/config must return video_generate_audio=True,
+        matching ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO=True."""
         mock_svc = _make_mock_svc(settings={})
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
@@ -311,8 +311,8 @@ class TestPatchSystemConfig:
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        # PATCH 路由内部可能调用 session.execute()（兼容旧 setting key 写入路径）。
-        # 默认 stub：scalar_one_or_none() 返回 None；scalars() 返回空迭代器。
+        # PATCH internals may call session.execute() for legacy setting-key write compatibility.
+        # Default stub: scalar_one_or_none() returns None; scalars() returns an empty iterator.
         _exec_result = MagicMock()
         _exec_result.scalar_one_or_none.return_value = None
         _exec_result.scalars.return_value = iter([])
@@ -362,7 +362,7 @@ class TestPatchSystemConfig:
         assert settings["default_video_backend_r2v"] == "ark/doubao-seedance-2-0-260128"
 
     def test_patch_clears_video_bucket_backend(self):
-        """空串 = 清空桶键；解析层按空桶回退默认层处理（docs/adr/0054）。"""
+        """Empty strings clear bucket keys; resolution treats empty buckets as default-tier fallback (docs/adr/0054)."""
         mock_svc = _make_mock_svc(settings={"default_video_backend_r2v": "ark/doubao-seedance-2-0-260128"})
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
@@ -524,7 +524,7 @@ class TestPatchSystemConfig:
         assert res.status_code == 422
 
     def test_patch_rejects_non_finite_narration_speed(self):
-        # Pydantic lax 模式会把 "nan"/"inf" 字符串转成 float，必须在卫生校验层拒绝
+        # Pydantic lax mode converts "nan"/"inf" strings into floats; hygiene validation must reject them.
         mock_svc = _make_mock_svc()
         with TestClient(self._make_patch_app(mock_svc)) as client:
             for raw in ("nan", "inf", "-inf"):
@@ -596,7 +596,7 @@ class TestPatchSystemConfig:
         assert res.status_code == 400
 
     def test_patch_rejects_text_tier_backend_with_video_model(self):
-        """text_backend_simple 引用一个真实存在但是 video 类型的模型，应被 media_type 校验拒绝。"""
+        """text_backend_simple referencing an existing video model must fail media_type validation."""
         mock_svc = _make_mock_svc()
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
@@ -606,7 +606,7 @@ class TestPatchSystemConfig:
         assert res.status_code == 400
 
     def test_patch_ignores_legacy_text_task_keys(self):
-        """旧任务级键已从请求模型移除，提交后既不落库也不出现在响应里。"""
+        """Legacy task-level keys are removed from request models; submissions neither persist nor echo them."""
         mock_svc = _make_mock_svc()
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
@@ -623,7 +623,7 @@ class TestPatchSystemConfig:
 
 
 class TestNarrationDefaults:
-    """新建 TTS 项目的预填值取自全局设置。"""
+    """New TTS projects prefill from global settings."""
 
     def test_returns_global_tts_defaults(self, monkeypatch, db_factory):
         import asyncio
@@ -657,7 +657,7 @@ class TestTtsModelCapabilities:
         assert resp.status_code == 422
 
     def test_model_not_in_catalog_asks_to_reselect(self, monkeypatch):
-        """所选语音模型已不在供应商清单中：返回要求重新选择模型的 400，不说成「语音模型无效」。"""
+        """Speech models removed from provider lists return 400 requiring reselection, rather than claiming invalid speech models."""
         error = ModelNotInCatalogError(provider_id="minimax", model_id="speech-retired", media_type="audio")
         monkeypatch.setattr(system_config_router, "audio_backend_profile", AsyncMock(side_effect=error))
         app = _make_app_with_mock(_make_mock_svc())

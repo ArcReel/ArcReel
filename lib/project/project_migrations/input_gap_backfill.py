@@ -1,15 +1,15 @@
-"""v17→v18 的补录重跑：登记原先因生成缺口被跳过的存量产物（``docs/adr/0098``）。
+"""v17→v18 backfill rerun: register artifacts previously skipped for generation gaps (``docs/adr/0098``).
 
-v18 起生成缺口只拦生成，期望依据把缺的项记为缺席（``lib.artifacts.input_gap``）。更早各步的激活与
-来源补写按「有缺口即投影不出」的口径跑过，被跳过的产物在清单里没有登记。这一步：
+From v18, gaps block generation only; expected basis records missing inputs as absent
+(``lib.artifacts.input_gap``). Earlier activation/provenance used gap-means-unprojectable rules,
+leaving skipped artifacts unregistered. This step:
 
-1. 按缺口记为缺席的口径重跑旧媒体来源补写（``docs/adr/0075``），只补写仍没有类型化来源的选中
-   视频记录，手动上传不动；
-2. 改前（schema 17，缺口即不登记）与改后（schema 18）各规划一次目标态；
-3. 只把「改前没有登记目标、改后有、清单里也没有」的条目补进清单，已登记条目逐字节不变。
+1. Reruns legacy provenance (``docs/adr/0075``) under absent-input rules, updating only selected video
+   records still lacking typed provenance, leaving uploads unchanged.
+2. Plans targets before (schema 17, no registration with gaps) and after (schema 18).
+3. Adds only targets absent before, present after, and still absent from manifests. Existing registrations stay byte-identical.
 
-补录的产物判 current；之后补齐缺口让依据变化，按常规判 stale。
-"""
+Backfilled artifacts are current; later filling gaps changes basis and makes them stale normally."""
 
 from __future__ import annotations
 
@@ -39,10 +39,9 @@ _FROM_VERSION = GAP_TOLERANT_BASIS_SCHEMA_VERSION - 1
 
 
 def backfill_input_gap_artifacts(project_dir: Path, project: Mapping[str, Any]) -> ArtifactBackfillOutcome:
-    """补录因生成缺口被跳过的产物。调用方持有项目元数据锁，``project`` 是盘上的 v17 内容。
+    """Backfill gap-skipped artifacts. Callers hold project metadata locks; ``project`` is on-disk v17 content.
 
-    清单与版本记录改写前各自备份；提交后依赖若有漂移，按改写前的字节回滚两者。
-    """
+    Back up manifests/version records before changing each; postcommit dependency drift restores both from original bytes."""
 
     project_dir = Path(project_dir)
     project_bytes = (project_dir / "project.json").read_bytes()

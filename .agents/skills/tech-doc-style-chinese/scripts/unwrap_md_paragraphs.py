@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""展开中文 Markdown 段落中的硬换行。
+"""Unwrap hard line breaks in Chinese Markdown paragraphs.
 
-为了控制源码行宽而在段落中间手动断行，会带来两个问题：源文件读起来很碎；
-中西文边界上的断行在部分渲染器里会多出或吞掉空格。本脚本把段落和列表项还原为
-「一段一行」，正文靠编辑器软换行阅读。
+Manually breaking paragraphs to limit source width fragments source reading and can add or
+remove spaces at Chinese/Western text boundaries in some renderers. This script restores
+paragraphs and list items to one source line each, read through editor soft wrapping.
 
-拼接边界按中西文留白规则处理：中文与中文之间不加空格，中文与半角英文、数字之间
-加一个空格，全角标点两侧不加空格。
+Join boundaries follow Chinese/Western spacing rules: no space between Chinese characters,
+one space between Chinese and half-width English/digits, and no spaces beside full-width punctuation.
 
-脚本先扫描结构，再拼接段落。以下内容按整块保留，不只保护起始行：
+The script scans structure before joining paragraphs. Preserve the following as entire blocks,
+not just their opening lines:
 
 - Markdown front matter
-- 围栏代码块，包括写在列表标记之后的围栏（``- ```sh``）
-- 缩进代码块，包括列表项内的缩进代码
-- 含竖线的表格行
-- 标题、Setext 下划线、分隔线
-- HTML 块，包括多行 ``<pre>``、``<script>``、``<style>``、``<textarea>`` 和注释
-- 链接与脚注引用定义
-- 引用块，它可能是需要保持原样的引用
-- 以两个空格或反斜杠结尾的显式换行
+- Fenced code blocks, including fences after list markers (``- ```sh``)
+- Indented code blocks, including code within list items
+- Table rows containing pipes
+- Headings, Setext underlines, thematic breaks
+- HTML blocks, including multiline ``<pre>``, ``<script>``, ``<style>``, ``<textarea>``, and comments
+- Link and footnote reference definitions
+- Blockquotes, which may contain quotations needing verbatim preservation
+- Explicit breaks ending in two spaces or a backslash
 
-独立成行、且不在代码块和 HTML 块内的 ``<!-- unwrap-disable-file -->`` 会让整份文件跳过；
-代码示例里的同名标记不生效。
+A standalone ``<!-- unwrap-disable-file -->`` outside code/HTML blocks skips the entire file;
+the same marker within code examples has no effect.
 
-已知简化：不进入引用块内部；列表标记后超过 4 个空格时，仍把空白算作标记前缀；
-未闭合的围栏延伸到所属列表项结束或文件末尾。
+Known simplifications: do not descend into blockquotes; spaces beyond four after a list marker
+still count as marker prefix; unclosed fences extend to their list item’s end or the file end.
 """
 
 from __future__ import annotations
@@ -41,19 +42,19 @@ SKIP_DIR_NAMES = {".git", ".venv", "node_modules", "vendor"}
 CONTINUATION_SLACK = 3
 CODE_INDENT = 4
 
-# 结构扫描给每一行的结论。
-KIND_VERBATIM = "verbatim"  # 原样输出，并终止当前拼接
+# Structural scan classifications for each line.
+KIND_VERBATIM = "verbatim"  # Output verbatim and terminate the current join.
 KIND_BLANK = "blank"
-KIND_TEXT = "text"  # 可参与拼接的正文行
-KIND_LIST_ITEM = "list-item"  # 列表项首行
+KIND_TEXT = "text"  # Body line eligible for joining.
+KIND_LIST_ITEM = "list-item"  # First line of a list item.
 
-# 围栏：开栏允许写在列表标记之后；闭栏行只能有围栏字符和行尾空白。
+# Fences may open after list markers; closing lines allow only fence characters and trailing whitespace.
 FENCE_OPEN_RE = re.compile(
     r"^(\s*)((?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$"
 )
 FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})[ \t]*$")
 
-# HTML 块的起始条件与对应收尾串，按 CommonMark 的判断顺序使用。
+# HTML-block opening conditions and corresponding closing strings, applied in CommonMark decision order.
 HTML_RAW_TEXT_ENDS = {
     "pre": "</pre",
     "script": "</script",
@@ -87,36 +88,36 @@ REFERENCE_DEF_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s")
 TABLE_CELL_RE = re.compile(r"(?<!\\)\|")
 HARD_BREAK_RE = re.compile(r"(?:[ \t]{2,}|\\)$")
 
-# 中文、日文、韩文、全角字符等宽字符区段。
+# Wide-character ranges: Chinese, Japanese, Korean, full-width characters, etc.
 WIDE_RE = re.compile(
     "["
-    "ᄀ-ᅟ"  # 韩文字母
-    "⺀-〾"  # CJK 部首与标点
-    "ぁ-㏿"  # 假名、注音、兼容字符
-    "㐀-䶿"  # CJK 扩展 A
-    "一-鿿"  # CJK 基本区
-    "ꀀ-꓏"  # 彝文
-    "가-힣"  # 韩文音节
-    "豈-﫿"  # CJK 兼容表意文字
-    "︰-﹏"  # CJK 兼容形式
-    "＀-￦"  # 全角形式
+    "ᄀ-ᅟ"  # Hangul letters
+    "⺀-〾"  # CJK radicals and punctuation
+    "ぁ-㏿"  # Kana, Bopomofo, compatibility characters
+    "㐀-䶿"  # CJK Extension A
+    "一-鿿"  # CJK basic block
+    "ꀀ-꓏"  # Yi
+    "가-힣"  # Hangul syllables
+    "豈-﫿"  # CJK compatibility ideographs
+    "︰-﹏"  # CJK compatibility forms
+    "＀-￦"  # Full-width forms
     "]"
 )
-# 全角标点，两侧不再补空格。
+# Full-width punctuation; add no spaces beside it.
 WIDE_PUNCT_RE = re.compile(
     "["
-    "‘’“”"  # 弯引号
-    "—…"  # 破折号、省略号
-    "、。"  # 顿号、句号
-    "《-】"  # 书名号、方头括号、直角引号
-    "〔-〟"  # 六角括号等
+    "‘’“”"  # Curly quotation marks
+    "—…"  # Dash, ellipsis
+    "、。"  # Ideographic comma, full stop
+    "《-】"  # Book-title marks, square brackets, corner quotation marks
+    "〔-〟"  # Tortoise-shell brackets, etc.
     "！（），：；？～｟｠"
     "]"
 )
-# 拼接时需要跳过的行内标记，取到真正的可见字符再判断留白。
+# Inline markup to skip when joining; inspect actual visible characters for spacing.
 EMPHASIS_CHARS = set("*_~`")
 HEAD_SKIP_CHARS = EMPHASIS_CHARS | {"["}
-# 行尾的链接目标不参与留白判断，取链接文字的最后一个字符。
+# Exclude trailing link targets from spacing decisions; use the final link-text character.
 LINK_TAIL_RE = re.compile(r"\]\((?:[^()\s]*)(?:\s+\"[^\"]*\")?\)$")
 ASCII_TRAILING_NO_SPACE = set("([{<-/@#$&+=\\\"'")
 ASCII_LEADING_NO_SPACE = set(",.;:!?)]}>%\"'")
@@ -124,7 +125,7 @@ ASCII_LEADING_NO_SPACE = set(",.;:!?)]}>%\"'")
 
 @dataclass(frozen=True)
 class Join:
-    """一处段落硬换行，用于命令行输出。"""
+    """One paragraph hard break, for command-line output."""
 
     file: Path
     line: int
@@ -156,7 +157,7 @@ def effective_head(text: str) -> str:
 
 
 def joiner(left: str, right: str) -> str:
-    """判断两行拼接处是否需要一个空格。"""
+    """Determine whether joining two lines requires one space."""
     tail, head = effective_tail(left), effective_head(right)
     if not tail or not head:
         return ""
@@ -185,14 +186,14 @@ def indent_width(line: str) -> int:
 
 
 def visual_width(text: str) -> int:
-    """按列宽计算前缀长度，用于判断续行缩进。"""
+    """Compute prefix length by column width to judge continuation indentation."""
     return sum(CODE_INDENT if char == "\t" else 1 for char in text)
 
 
 def is_structural(line: str) -> bool:
-    """标题、表格、分隔线、引用块等结构行不参与拼接。
+    """Structural lines such as headings, tables, thematic breaks, and blockquotes do not join.
 
-    以 ``<`` 开头但不构成 HTML 块的行（例如自动链接）也按结构行单行保护。
+    Lines starting with ``<`` that do not form HTML blocks (e.g. autolinks) are also protected individually.
     """
     return bool(
         ATX_HEADING_RE.match(line)
@@ -206,9 +207,9 @@ def is_structural(line: str) -> bool:
 
 
 def html_block_end(content: str) -> str | None:
-    """判断一段内容是否开启 HTML 块，返回收尾串或 ``blank``。
+    """Determine whether content opens an HTML block; return its closing string or ``blank``.
 
-    不构成 HTML 块时返回 ``None``，该行仍由 :func:`is_structural` 单行保护。
+    Return ``None`` when it does not; :func:`is_structural` still protects that line individually.
     """
     text = content.lstrip()
     if not text.startswith("<"):
@@ -231,32 +232,32 @@ def html_block_end(content: str) -> str | None:
 
 
 def fence_info_is_valid(delimiter: str, info: str) -> bool:
-    """反引号围栏的 info string 不能再含反引号，否则那是行内代码。"""
+    """Backtick fence info strings cannot contain backticks; such text is inline code instead."""
     return not (delimiter[0] == "`" and "`" in info)
 
 
 def hard_break_suffix(line: str) -> str:
-    """返回行尾的显式换行标记：两个以上空白或反斜杠。"""
+    """Return an explicit line-end break marker: two or more whitespace characters or a backslash."""
     match = HARD_BREAK_RE.search(line)
     return match.group(0) if match else ""
 
 
 def interrupts_paragraph(line: str) -> bool:
-    """能中断段落的行：结构行、围栏开栏和列表项；缩进代码不算。"""
+    """Lines that interrupt paragraphs: structural lines, opening fences, and list items; not indented code."""
     return bool(
         is_structural(line) or FENCE_OPEN_RE.match(line) or LIST_ITEM_RE.match(line)
     )
 
 
 def pop_containers(containers: list[int], indent: int) -> None:
-    """缩进变浅时退出对应的列表容器。"""
+    """Leave corresponding list containers when indentation decreases."""
     while containers and indent < containers[-1]:
         containers.pop()
 
 
 @dataclass(frozen=True)
 class ScanLine:
-    """结构扫描对单行的结论。"""
+    """Structural scan result for one line."""
 
     line: int
     raw: str
@@ -269,7 +270,7 @@ class ScanLine:
 
 @dataclass(frozen=True)
 class Scan:
-    """整份文件的结构扫描结果。"""
+    """Structural scan results for an entire file."""
 
     lines: tuple[ScanLine, ...]
     ignore_file: bool
@@ -277,7 +278,7 @@ class Scan:
 
 @dataclass
 class _Fence:
-    """打开中的围栏代码块。"""
+    """An open fenced code block."""
 
     char: str
     length: int
@@ -287,14 +288,14 @@ class _Fence:
 
 @dataclass
 class _HtmlBlock:
-    """打开中的 HTML 块。"""
+    """An open HTML block."""
 
     end: str
     floor: int
 
 
 def scan_structure(text: str) -> Scan:
-    """逐行判断哪些行原样保留，哪些行可以参与拼接。"""
+    """Determine line by line what stays verbatim and what may join."""
     lines = text.splitlines()
     result: list[ScanLine] = []
     ignore_file = False
@@ -324,7 +325,7 @@ def scan_structure(text: str) -> Scan:
 
         if fence is not None:
             if stripped and indent < fence.floor:
-                # 缩进退回容器之外，未闭合的围栏随列表项结束；该行重新判断。
+                # Indentation left the container; an unclosed fence ends with its list item. Reevaluate this line.
                 fence = None
                 continue
             result.append(verbatim())
@@ -363,7 +364,7 @@ def scan_structure(text: str) -> Scan:
             continue
 
         if not (paragraph_open and not interrupts_paragraph(raw)):
-            # 段落的懒续行不退出列表容器，其余情况按缩进出栈。
+            # Lazy paragraph continuation stays in the list container; otherwise pop by indentation.
             pop_containers(containers, indent)
         floor = containers[-1] if containers else 0
 
@@ -374,7 +375,7 @@ def scan_structure(text: str) -> Scan:
                 continue
             code_floor = None
 
-        # 缩进代码块的判断必须早于列表项，否则 `    - first` 会被当成列表。
+        # Detect indented code before list items, or `    - first` would count as a list.
         if not paragraph_open and indent >= floor + CODE_INDENT:
             code_floor = floor + CODE_INDENT
             result.append(verbatim())
@@ -385,7 +386,7 @@ def scan_structure(text: str) -> Scan:
         if opener and fence_info_is_valid(opener.group(3), opener.group(4)):
             marker = opener.group(2)
             if marker:
-                # 开栏写在列表标记之后，整行原样保留，代码归属列表正文列。
+                # Opening fence follows a list marker; preserve the whole line and assign code to the list body column.
                 prefix = f"{opener.group(1)}{marker}"
                 content_indent = visual_width(prefix)
                 containers.append(content_indent)
@@ -405,7 +406,7 @@ def scan_structure(text: str) -> Scan:
             continue
 
         if stripped == FILE_IGNORE_MARKER and indent < CODE_INDENT:
-            # 只有代码块与 HTML 块之外、独立成行的标记才让整份文件跳过。
+            # Only standalone markers outside code/HTML blocks skip the entire file.
             ignore_file = True
             result.append(verbatim())
             paragraph_open = False
@@ -429,7 +430,7 @@ def scan_structure(text: str) -> Scan:
             containers.append(content_indent)
             item_html = html_block_end(content)
             if item_html is not None:
-                # HTML 块写在列表标记之后，同样按整块保留。
+                # HTML blocks after list markers are likewise preserved as complete blocks.
                 result.append(verbatim())
                 if item_html == "blank" or item_html not in raw.lower():
                     html = _HtmlBlock(item_html, content_indent)
@@ -485,18 +486,18 @@ def scan_structure(text: str) -> Scan:
 
 
 def has_file_ignore_marker(text: str) -> bool:
-    """判断文件里是否存在生效的整文件跳过标记。"""
+    """Determine whether the file contains an effective whole-file skip marker."""
     return scan_structure(text).ignore_file
 
 
 class _Block:
-    """正在拼接的段落或列表项。"""
+    """A paragraph or list item currently being joined."""
 
     def __init__(self, prefix: str, text: str, start_line: int) -> None:
         self.prefix = prefix
         self.text = text
         self.start_line = start_line
-        # 正文起始列，续行缩进和缩进代码块的判断都以它为基准。
+        # Body starting column, the reference for continuation indentation and indented-code detection.
         self.content_indent = visual_width(prefix)
         self.joined_lines: list[int] = []
 
@@ -553,7 +554,7 @@ def multiline_code_lines(scan: Scan) -> set[int]:
 
 
 def join_scanned(scan: Scan) -> tuple[list[str], list[tuple[int, int, str]]]:
-    """按扫描结论拼接段落，只处理正文行，不再判断结构。"""
+    """Join paragraphs according to scan results; handle body lines without reevaluating structure."""
     output: list[str] = []
     joins: list[tuple[int, int, str]] = []
     block: _Block | None = None
@@ -582,7 +583,7 @@ def join_scanned(scan: Scan) -> tuple[list[str], list[tuple[int, int, str]]]:
             block = _Block(item.prefix, item.content, item.line)
         elif block is not None:
             if item.indent > block.content_indent + CONTINUATION_SLACK:
-                # 比正文缩进深太多，保守起见原样保留。
+                # Indentation is much deeper than the body; conservatively preserve it verbatim.
                 flush()
                 output.append(item.raw)
                 continue
@@ -591,7 +592,7 @@ def join_scanned(scan: Scan) -> tuple[list[str], list[tuple[int, int, str]]]:
             block = _Block(item.prefix, item.content, item.line)
 
         if item.hard_break and block is not None:
-            # 行尾两个空格或反斜杠是显式换行，保留原样并结束当前拼接。
+            # Two trailing spaces or a backslash mark explicit breaks; preserve them and finish the current join.
             suffix = item.hard_break
             if block.text.endswith(suffix):
                 block.text = block.text[: -len(suffix)]
@@ -603,7 +604,7 @@ def join_scanned(scan: Scan) -> tuple[list[str], list[tuple[int, int, str]]]:
 
 
 def unwrap_text(text: str) -> tuple[str, list[tuple[int, int, str]]]:
-    """返回展开后的文本，以及每处硬换行的起始行号、合并行数和预览。"""
+    """Return unwrapped text and each hard break’s starting line, merged-line count, and preview."""
     scan = scan_structure(text)
     if scan.ignore_file:
         return text, []
@@ -637,7 +638,7 @@ def collect_targets(raw_targets: list[str]) -> list[Path]:
 
 
 def process_file(path: Path) -> tuple[str, list[Join]]:
-    """读取文件并展开硬换行；跳过标记由 :func:`scan_structure` 统一判断。"""
+    """Read a file and unwrap hard breaks; :func:`scan_structure` centrally handles skip markers."""
     original = path.read_text(encoding="utf-8")
     unwrapped, joins = unwrap_text(original)
     return unwrapped, [

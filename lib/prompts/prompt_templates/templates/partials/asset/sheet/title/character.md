@@ -1,1 +1,1 @@
-角色「{{ name }}」的资产图。
+Asset sheet for character “{{ name }}”.

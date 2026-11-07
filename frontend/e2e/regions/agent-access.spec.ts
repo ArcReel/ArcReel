@@ -2,13 +2,13 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 全局设置的「外部 Agent 接入」与「访问令牌」：步骤页、创建令牌对话框（含一次性展示的完整令牌）、
-// 多条长名称令牌的列表与吊销确认。
+// Global External Agent access/Access tokens: setup steps, creation dialogs including one-time complete tokens,
+// long-named token lists and revocation confirmations.
 
 const EXTERNAL_AGENT = "/app/settings?section=external-agent";
 const ACCESS_TOKENS = "/app/settings?section=access-tokens";
 
-// 压力变体：令牌多、名称长，永久、已过期、未过期与从未使用混在一起（固定时间是 2026-01-01）。
+// Stress: many long names, permanent/expired/unexpired/never-used tokens, fixed at 2026-01-01.
 const MANY_TOKENS: ApiOverrides = {
   "GET /api/v1/api-keys": {
     status: 200,
@@ -48,7 +48,7 @@ const CREATED_TOKEN: ApiOverrides = {
   },
 };
 
-// 吊销失败的原因很长：说明在只读的对话框正文里折行，超出可用高度后由正文滚动。
+// Long revocation-failure causes wrap in read-only dialog bodies, which scroll above available height.
 const REVOKE_FAILED: ApiOverrides = {
   ...MANY_TOKENS,
   "DELETE /api/v1/api-keys/2": {
@@ -91,7 +91,7 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
       await openCreateDialog(page);
       const dialog = page.getByRole("dialog", { name: "创建访问令牌" });
       await expect(dialog).toBeInViewport({ ratio: 1 });
-      // 打开时焦点落在名称输入框，回车即可提交
+      // Initial focus lands on name inputs; Enter submits.
       await expect(dialog.getByRole("textbox", { name: "名称" })).toBeFocused();
     },
     screenshot: { name: "access-token-create", target: (page) => page.getByRole("dialog") },
@@ -134,7 +134,7 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
       await settingsReady(page);
       await page.getByRole("table", { name: "访问令牌列表" }).waitFor();
     },
-    // 只截令牌表：分区顶部的配置问题横幅不属于本区域，不进本区域的基线
+    // Screenshot token tables only: top configuration-problem banners fall outside this region and its baseline.
     screenshot: { name: "access-tokens", target: (page) => page.getByRole("table", { name: "访问令牌列表" }) },
   },
   {

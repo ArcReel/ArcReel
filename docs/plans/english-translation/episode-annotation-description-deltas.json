@@ -1,0 +1,78 @@
+[
+  {
+    "path": [
+      "NarrationEpisodeDraft",
+      "direct",
+      "description"
+    ],
+    "before": "narration 条目：精确切分锚点 + 钩子。",
+    "after": "Narration entries: exact split anchors + hooks."
+  },
+  {
+    "path": [
+      "DramaEpisodeDraft",
+      "direct",
+      "description"
+    ],
+    "before": "drama 条目加厚为分集大纲：故事节点 + 下集预告语。",
+    "after": "Drama entries expand into episode outlines: story beats + next-episode teasers."
+  },
+  {
+    "path": [
+      "NarrationPlanDraft",
+      "direct",
+      "$defs",
+      "NarrationEpisodeDraft",
+      "description"
+    ],
+    "before": "narration 条目：精确切分锚点 + 钩子。",
+    "after": "Narration entries: exact split anchors + hooks."
+  },
+  {
+    "path": [
+      "NarrationPlanDraft",
+      "direct",
+      "description"
+    ],
+    "before": "空列表表示窗口内找不到剧情弧完整的切分点。",
+    "after": "Empty lists mean no complete-story-arc split points found within windows."
+  },
+  {
+    "path": [
+      "DramaPlanDraft",
+      "direct",
+      "$defs",
+      "DramaEpisodeDraft",
+      "description"
+    ],
+    "before": "drama 条目加厚为分集大纲：故事节点 + 下集预告语。",
+    "after": "Drama entries expand into episode outlines: story beats + next-episode teasers."
+  },
+  {
+    "path": [
+      "DramaPlanDraft",
+      "direct",
+      "description"
+    ],
+    "before": "空列表表示窗口内找不到剧情弧完整的切分点。",
+    "after": "Empty lists mean no complete-story-arc split points found within windows."
+  },
+  {
+    "path": [
+      "SourceRange",
+      "direct",
+      "description"
+    ],
+    "before": "集对应的原文素材范围，可以沿整本源文的文件顺序跨文件（ADR 0097）。\n\n起点是 ``source_file`` 里的 ``start``，终点是 ``end_file`` 里的 ``end``（不含）；``end_file`` 缺省时与\n``source_file`` 相同。偏移量落在 ``normalize_source_text`` 的归一化坐标系内（narration 为精确切分点，\ndrama 为软素材范围），是各自文件内的下标。路径是项目根相对 POSIX 路径（如 ``source/novel.txt``）。\n两个文件之间的先后由整本源文清单决定，这里不校验。",
+    "after": "Episode source-material ranges spanning files in whole-source order (ADR 0097).\n\nStart at ``start`` in ``source_file``, ending exclusively at ``end`` in ``end_file``; ``end_file`` defaults to\n``source_file``. Offsets are per-file indices in ``normalize_source_text`` coordinates, exact narration splits\nor soft drama material ranges. Paths are project-relative POSIX, such as ``source/novel.txt``.\nWhole-source manifests determine file order, not validated here."
+  },
+  {
+    "path": [
+      "EpisodeOutline",
+      "direct",
+      "description"
+    ],
+    "before": "drama 分集大纲：故事节点 + 下集预告语（由规划工具产出）。",
+    "after": "Drama episode outlines: story beats + next-episode teasers, produced by planning tools."
+  }
+]

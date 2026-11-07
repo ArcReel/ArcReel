@@ -1,8 +1,9 @@
-"""剪辑时间线的文件存储：``edit_timelines/episode_{N}/{timeline_id}.json``，每条一个文件。
+"""File storage for editing timelines: ``edit_timelines/episode_{N}/{timeline_id}.json``, one file per timeline.
 
-剪辑时间线是正式内容，随项目归档导出，不进产物清单。同一集的新建、改名、删除、从回收站恢复与写入修订在该集的
-目录锁下串行，保证显示名在集内不重名、修订号连续。删除与恢复见 :mod:`lib.edit_timeline.trash`。
-"""
+Editing timelines are formal content exported in project archives, outside artifact manifests. Creation,
+rename, deletion, trash restoration, and revision writes for one episode serialize under its directory
+lock, ensuring episode-unique display names and consecutive revisions. Deletion/restoration:
+:mod:`lib.edit_timeline.trash`."""
 
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ EDIT_TIMELINES_DIRNAME = "edit_timelines"
 
 
 def document_relpath(episode: int, timeline_id: str) -> str:
-    """一条剪辑时间线文档的项目内相对路径。"""
+    """Project-relative path for one editing-timeline document."""
     return f"{EDIT_TIMELINES_DIRNAME}/episode_{episode}/{timeline_id}.json"
 
 
@@ -66,10 +67,9 @@ class EditTimelineStore:
         return _parse_document(path)
 
     def list_documents(self, episode: int | None = None, *, strict: bool = False) -> list[EditTimelineDocument]:
-        """列出剪辑时间线（按集、再按创建时间）。
+        """List editing timelines by episode, then creation time.
 
-        无法解析的文件默认跳过并记日志；``strict`` 时抛出 ``timeline_invalid``。
-        """
+        Skip and log unparseable files by default; ``strict`` raises ``timeline_invalid``."""
         documents: list[EditTimelineDocument] = []
         for number, directory in self._episode_dirs():
             if episode is not None and number != episode:
@@ -90,7 +90,7 @@ class EditTimelineStore:
         return documents
 
     def has_documents(self, episode: int) -> bool:
-        """该集目录下有没有剪辑时间线文件；只看文件名，不解析内容，供只要计数口径的广度视图使用。"""
+        """Whether the episode directory contains timeline files; inspect filenames only, without parsing, for broad views needing counts only."""
         directory = self._episode_dir(episode)
         if not directory.is_dir():
             return False
@@ -111,20 +111,20 @@ class EditTimelineStore:
 
     @contextmanager
     def locked_episode(self, episode: int) -> Generator[None]:
-        """串行化同一集剪辑时间线的写入。"""
+        """Serialize editing-timeline writes within one episode."""
         with self._projects.file_lock(self._episode_dir(episode)):
             yield
 
     def write(self, document: EditTimelineDocument) -> None:
-        """整份原子写入；调用方须持有该集的锁。"""
+        """Atomically write the entire document; callers must hold its episode lock."""
         path = self._episode_dir(document.episode) / f"{document.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, document.model_dump(mode="json"))
         self.changed(document.episode)
 
     def changed(self, episode: int) -> None:
-        """该集的剪辑时间线有增删改：记项目活动并发刷新信号。"""
-        # 剪辑时间线是 JSON，修改时间不计入项目活动；删除后连文件都不在了，所以在这里记账。
+        """Record project activity and emit refresh signals for timeline additions, deletions, or edits in this episode."""
+        # Timeline JSON mtimes do not count as project activity; deleted files vanish entirely, so record activity here.
         record_project_activity(self._project_dir)
         emit_project_change_batch(
             self._project_name,
@@ -143,10 +143,9 @@ class EditTimelineStore:
 
 
 def read_timeline_document(project_dir: Path, episode: int, timeline_id: str) -> EditTimelineDocument | None:
-    """按集与 ID 直接读一条剪辑时间线；文件不存在、无法解析或与所在集不一致时返回 None。
+    """Read a timeline directly by episode and ID; return None if absent, unparseable, or mismatched with its containing episode.
 
-    供只持有项目目录的读方（产物时效判定）使用，不取集锁。
-    """
+    For readers holding only a project directory (artifact currency checks); does not acquire episode locks."""
     if not is_timeline_id(timeline_id):
         return None
     path = project_dir / EDIT_TIMELINES_DIRNAME / f"episode_{episode}" / f"{timeline_id}.json"

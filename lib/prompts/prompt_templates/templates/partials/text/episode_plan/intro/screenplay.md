@@ -1,1 +1,1 @@
-你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集，提取而非重切。
+You are a short-video episode planner. Below is an excerpt from the author’s finished screenplay. Respect the author’s episode divisions: extract them rather than splitting again.

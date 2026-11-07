@@ -1,6 +1,6 @@
-// 文件视图的读模型（后端 lib/project/file_view.py 与 lib/project/reference_index.py）。
+// Read models for the file view (backend lib/project/file_view.py and lib/project/reference_index.py).
 
-/** 文件在项目中的角色，由引用关系判定；基础设施文件不返回。 */
+/** Role of a file in the project, determined by references; infrastructure files are not returned. */
 export type FileViewRole =
   | "structure"
   | "referenced"
@@ -10,7 +10,7 @@ export type FileViewRole =
   | "agent_config"
   | "memory";
 
-/** 文件所属的界面对象，供「跳到所属界面」使用。 */
+/** UI object owning the file, used by "jump to owner". */
 export interface FileViewOwner {
   kind: "asset" | "segment" | "reference_unit" | "grid" | "episode" | "timeline" | "source" | "memory" | "project";
   id?: string;
@@ -20,19 +20,19 @@ export interface FileViewOwner {
 
 export interface FileViewEntry {
   name: string;
-  /** 项目内相对 POSIX 路径。 */
+  /** Project-relative POSIX path. */
   path: string;
   type: "file" | "directory";
-  /** 字节数；目录是其中可见文件的总和。 */
+  /** Size in bytes; for a directory, the sum of its visible files. */
   size: number;
-  /** 带时区偏移的 UTC ISO 8601。 */
+  /** UTC ISO 8601 with a timezone offset. */
   modified_at: string;
-  /** 只有文件带角色。 */
+  /** Only files carry a role. */
   role?: FileViewRole;
   owner?: FileViewOwner | null;
-  /** 历史版本里的当前版本快照才带，且恒为 true；服务端拒绝删除它。 */
+  /** Present only on the current-version snapshot in history and always true; the server refuses its deletion. */
   is_current?: true;
-  /** 远端内容版本的工作文件、本地缓存已清理时才带，且恒为 true：预览、下载与删除前服务端先从对象存储取回。 */
+  /** Present and always true only for a remote content version work file whose local cache has been cleared: the server retrieves it from object storage before preview, download, or deletion. */
   remote_only?: true;
 }
 
@@ -41,21 +41,21 @@ export interface FileViewListing {
   entries: FileViewEntry[];
 }
 
-// 项目回收站（后端 lib/project/project_trash.py）。
+// Project trash (backend lib/project/project_trash.py).
 
-/** 一条删除记录。`object.kind` 是被删对象的类型，文件视图删除的未引用文件为 `file`。 */
+/** One deletion record. `object.kind` is the deleted object type; an unreferenced file deleted through the file view uses `file`. */
 export interface TrashRecord {
   id: string;
   object: { kind: string; path?: string; [key: string]: unknown };
-  /** 被删文件删除前的项目内相对路径。 */
+  /** Project-relative paths of deleted files before deletion. */
   files: string[];
   schema_version: number;
-  /** 带时区偏移的 UTC ISO 8601。 */
+  /** UTC ISO 8601 with a timezone offset. */
   deleted_at: string;
   origin: "user" | "agent";
   size: number;
   has_snapshot: boolean;
-  /** 无法按原结构恢复、已降级恢复过的记录：只剩结构文件，只能下载。 */
+  /** A record that could not be restored in its original structure and has already undergone degraded restoration: only structure files remain, available for download only. */
   download_only: boolean;
 }
 
@@ -65,18 +65,18 @@ export interface TrashListing {
   retention_days: number;
 }
 
-// 已删除项目（后端 lib/project/deleted_projects.py）。
+// Deleted projects (backend lib/project/deleted_projects.py).
 
-/** 一个已删除项目。`id` 是它的墓碑名，恢复与彻底删除都按它定位；`name` 是删除前的项目名。 */
+/** One deleted project. `id` is its tombstone name, used for restoration and permanent deletion; `name` is the project name before deletion. */
 export interface DeletedProject {
   id: string;
   name: string;
   title: string;
-  /** 带时区偏移的 UTC ISO 8601。 */
+  /** UTC ISO 8601 with a timezone offset. */
   deleted_at: string;
-  /** 到期自动清除的时间，同为 UTC ISO 8601。 */
+  /** Automatic expiration cleanup time, also UTC ISO 8601. */
   expires_at: string;
-  /** 项目目录占用的字节数。 */
+  /** Bytes occupied by the project directory. */
   size: number;
 }
 
@@ -85,19 +85,19 @@ export interface DeletedProjectListing {
   retention_days: number;
 }
 
-/** 恢复后一个文件的落点：`as_history` 为真时它成了所在资源的一条历史版本。 */
+/** A restored file's destination: when `as_history` is true, it becomes a historical version of its resource. */
 export interface RestoredFile {
   original: string;
   path: string;
   as_history: boolean;
 }
 
-/** 一次恢复的结果。`object` 是加回后的对象描述，换了名时与记录里的不同。 */
+/** Result of one restoration. `object` describes the restored object and differs from the record when renamed. */
 export interface RestoreResult {
   object: TrashRecord["object"];
   restored: RestoredFile[];
-  /** 为真时对象无法按原结构恢复，只加回了其中的文件。 */
+  /** When true, the object could not be restored in its original structure, and only its files were restored. */
   degraded: boolean;
-  /** 留在记录里、只能下载的结构文件。 */
+  /** Structure files left in the record, available for download only. */
   download_only: string[];
 }

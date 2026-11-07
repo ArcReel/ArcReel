@@ -1,1 +1,1 @@
-商品外观必须忠实于参考图中的真实商品：{{ partial("shared/product_fidelity") }}。参考图中的手部、模特及其他出镜人物一律不保留，画面只呈现商品本体；包装上印刷的人像图案属于商品外观，须原样保留。
+The product must faithfully match the actual product in the reference image: {{ partial("shared/product_fidelity") }}. Do not retain hands, models, or any other people appearing in the reference image; show only the product itself. Portraits printed on the packaging are part of the product appearance and must remain unchanged.

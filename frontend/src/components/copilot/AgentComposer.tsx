@@ -29,33 +29,33 @@ import { QueuedMessageTray } from "./QueuedMessageTray";
 import { SlashCommandMenu, useSlashCommands } from "./SlashCommandMenu";
 
 export interface AgentComposerHandle {
-  /** 把输入框里的内容再发一次（启动失败后的「重试」）。 */
+  /** Resend input contents (Retry after startup failures). */
   send: () => void;
 }
 
 interface AgentComposerProps {
   ref?: Ref<AgentComposerHandle>;
-  /** 等待回答或发送请求在途时锁定输入。 */
+  /** Lock inputs while awaiting answers or pending send requests. */
   disabled: boolean;
-  /** 运行中且输入为空：发送按钮换成「停止」；有内容时仍是发送。 */
+  /** Running with empty inputs: replace Send with Stop; nonempty inputs still Send. */
   running: boolean;
-  /** 发送请求在途：发送按钮转圈。 */
+  /** Pending send requests: Send buttons spin. */
   sending: boolean;
   placeholder: string;
-  /** 提问占用输入框位置时隐藏输入框；仍保持挂载，已输入的文字与附件不丢。排队消息托盘照常显示。 */
+  /** Hide inputs while questions occupy their positions; keep mounted to retain text/attachments. Queued-message trays remain visible. */
   hidden?: boolean;
-  /** 发送消息；受理后清掉已发出的文字与附件，未受理时保留供重试。 */
+  /** Send messages; clear submitted text/attachments after acceptance, retaining unaccepted messages for retries. */
   onSend: (text: string, images?: AttachedImage[]) => Promise<boolean>;
   onInterrupt: () => void;
-  /** 编辑或删除一条排队消息；编辑撤回成功时内容经 store 的 composerAppends 退回输入框。 */
+  /** Edit/delete queued messages; successful edit recalls return contents through store composerAppends. */
   onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
-  /** 重新发送一条「未发送」消息。 */
+  /** Resend Unsent messages. */
   onResendQueued: (id: string) => Promise<void>;
-  /** 立即发送一条排队消息。 */
+  /** Immediately send queued messages. */
   onSendQueuedNow: (id: string) => Promise<void>;
 }
 
-/** 光标左侧以「/」开头、尚未输入空格的一段文字：返回「/」的位置与其后的筛选词。 */
+/** Text immediately left of carets starting with / without spaces yet: return slash positions and following filters. */
 function findSlashToken(value: string, cursor: number): { pos: number; filter: string } | null {
   const before = value.slice(0, cursor);
   const pos = before.lastIndexOf("/");
@@ -66,7 +66,7 @@ function findSlashToken(value: string, cursor: number): { pos: number; filter: s
   return { pos, filter };
 }
 
-/** 发送受理后去掉已发出的文字。发送途中编辑退回的内容追加在它后面，保留下来。 */
+/** Remove sent text after acceptance; recalled edits appended during sends remain afterward. */
 function withoutSubmittedText(current: string, submitted: string): string {
   const sent = submitted.trimEnd();
   if (!current.startsWith(sent)) return current;
@@ -75,9 +75,9 @@ function withoutSubmittedText(current: string, submitted: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// AgentComposer — Agent 面板底部的输入框。
-// 排队消息托盘在输入框正上方；图片附件在输入框顶行，可逐个移除；输入「/」时
-// 技能菜单浮在输入框上方。回复进行中也可以发送，发送与停止共用一个按钮。
+// AgentComposer: input at Agent-panel bottoms.
+// Queued-message trays sit directly above inputs; individually removable image attachments sit atop inputs; typing /
+// opens skill menus above inputs. Sending remains available during replies; Send/Stop share buttons.
 // ---------------------------------------------------------------------------
 
 export function AgentComposer({
@@ -126,7 +126,7 @@ export function AgentComposer({
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const attachDisabled = disabled || isReading || images.length >= MAX_ATTACHED_IMAGES;
   const hasContent = text.trim().length > 0 || images.length > 0;
-  // 退回的排队消息可能让图片超过上限：全部保留，移除多出的才能发送
+  // Recalled queued messages may exceed image limits: retain all, requiring removal of excess before sending.
   const tooManyImages = images.length > MAX_ATTACHED_IMAGES;
   const canSend = !disabled && !isReading && hasContent && !tooManyImages;
   const previewImage = previewIndex === null ? undefined : images[previewIndex];
@@ -140,7 +140,7 @@ export function AgentComposer({
     voidCall(
       onSend(submittedText.trim(), submittedImages.length > 0 ? submittedImages : undefined).then((accepted) => {
         if (!accepted) return;
-        // 只清掉这次发出的文字与图片：发送途中编辑退回的内容不在这次发送里，留给用户再发
+        // Clear only text/images in this send; edits recalled during sends remain for users to send again.
         setText((current) => withoutSubmittedText(current, submittedText));
         removeImages(submittedImages.map((image) => image.id));
       }),
@@ -149,22 +149,22 @@ export function AgentComposer({
 
   useImperativeHandle(ref, () => ({ send }), [send]);
 
-  // 外部投递的一次性预填（如分集空态的入口经 store.input 投递）：覆盖输入框后清空 store 字段，避免重复预填
+  // External one-shot prefills (e.g. episode-empty-state entries through store.input) replace inputs, then clear store fields to avoid repetition.
   useEffect(() => {
     return useAssistantStore.subscribe((state, prev) => {
       if (!state.input || state.input === prev.input) return;
       setText(state.input);
       setSlash(null);
-      // 延后到微任务清空，避免在 zustand 订阅通知期间嵌套 dispatch
+      // Defer clearing to microtasks, avoiding nested dispatch during zustand subscription notifications.
       void Promise.resolve().then(() => {
         useAssistantStore.getState().setInput("");
       });
-      // 面板可能同帧刚被打开（inert 尚未移除），等一帧再聚焦
+      // Panels may have opened this frame with inert still applied; wait one frame before focusing.
       requestAnimationFrame(() => textareaRef.current?.focus());
     });
   }, []);
 
-  // 编辑排队消息退回的内容：文字接在已有文字之后另起一行，图片接在已有附件之后，都不覆盖
+  // Recalled queue edits append text on new lines after existing text/images after current attachments, overwriting neither.
   useEffect(() => {
     const appendAll = (appends: ContentBlock[][]) => {
       for (const content of appends) {
@@ -176,7 +176,7 @@ export function AgentComposer({
     appendAll(useAssistantStore.getState().takeComposerAppends());
     return useAssistantStore.subscribe((state, prev) => {
       if (state.composerAppends.length === 0 || state.composerAppends === prev.composerAppends) return;
-      // 延后到微任务取走，避免在 zustand 订阅通知期间嵌套 dispatch
+      // Defer consumption to microtasks, avoiding nested dispatch during zustand subscription notifications.
       void Promise.resolve().then(() => {
         appendAll(useAssistantStore.getState().takeComposerAppends());
         requestAnimationFrame(() => textareaRef.current?.focus());
@@ -199,7 +199,7 @@ export function AgentComposer({
   );
 
   const moveSlashActive = (step: number) => {
-    // 还没移动过时菜单高亮的是第一项
+    // Menus highlight first entries before movement.
     const from = Math.max(0, slashSkills.findIndex((skill) => skill.name === slashActive));
     setSlashActive(slashSkills[(from + step + slashSkills.length) % slashSkills.length].name);
   };
@@ -219,7 +219,7 @@ export function AgentComposer({
         return;
       }
       if (event.key === "Escape") {
-        // 只关菜单；阻止默认行为，外壳不会因这次 Esc 收起面板
+        // Close menus only; prevent defaults so this Esc cannot collapse shell panels.
         event.preventDefault();
         setSlash(null);
         return;
@@ -275,14 +275,14 @@ export function AgentComposer({
         questionPending={Boolean(hidden)}
         editDisabled={sending}
       />
-      {/* 问卷替换的只是输入框：托盘在外，提问期间仍可编辑、删除排队消息 */}
+      {/* Questionnaires replace inputs only; external trays still permit queue editing/deletion during questions. */}
       <div hidden={hidden}>
         {(attachError || tooManyImages) && (
           <p role="alert" className="mb-2 text-xs text-destructive">
             {tooManyImages ? t("composer_too_many_images_hint", { count: MAX_ATTACHED_IMAGES }) : attachError}
           </p>
         )}
-        {/* 拖入图片时整个输入框高亮；高亮画在外层，不改输入框原语的样式 */}
+        {/* Dragged images highlight entire inputs; highlight outer wrappers without changing input primitives. */}
         <div
           className={cn("rounded-lg transition-shadow duration-fast", isDragOver && "ring-2 ring-primary")}
           onDragOver={handleDragOver}
@@ -318,7 +318,7 @@ export function AgentComposer({
                 </AttachmentGroup>
               </InputGroupAddon>
             )}
-            {/* 随内容撑高，上限是 Agent 面板高度的 40%，超出后在框内滚动 */}
+            {/* Expand with content, capped at 40% of Agent-panel height, scrolling internally above caps. */}
             <InputGroupTextarea
               ref={textareaRef}
               role="combobox"
@@ -403,7 +403,7 @@ export function AgentComposer({
           <DialogHeader>
             <DialogTitle>{t("chat_image_attachment", { index: (previewIndex ?? 0) + 1 })}</DialogTitle>
           </DialogHeader>
-          {/* 原图超高时只有这里滚动，内部没有可聚焦元素，键盘靠它自身聚焦后滚动 */}
+          {/* Only this area scrolls for very tall originals; it has no focusable children, so keyboard scrolling requires focusing the area itself */}
           <DialogBody tabIndex={0} role="region" aria-label={t("chat_image_attachment", { index: (previewIndex ?? 0) + 1 })}>
             {previewImage && <img src={previewImage.dataUrl} alt="" className="mx-auto block h-auto max-w-full rounded-md" />}
           </DialogBody>

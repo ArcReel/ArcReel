@@ -1,9 +1,8 @@
-"""本地渲染车道的任务：请求构造、执行器分派与失败编码。
+"""Local render-lane tasks: request construction, executor dispatch and failure encoding.
 
-成片与剪映草稿的渲染任务以 ``render_`` 开头的任务类型入队到 ``render`` 车道。一个任务对应一个产物身份，
-``resource_id`` 取该身份的编码，同一身份同一时刻只有一个活动任务；载荷就是请求本身，
-不同请求撞上活动任务时报冲突而不去重。
-"""
+Final-cut and Jianying-draft render tasks use task types beginning with ``render_`` and queue in the ``render`` lane.
+Each task corresponds to an artifact identity, encoded in ``resource_id``; only one task for an identity may be active at a time.
+The payload is the request itself. A different request colliding with an active task raises a conflict rather than deduplicating."""
 
 from __future__ import annotations
 
@@ -40,7 +39,7 @@ _ACTIONS: dict[str, GenerationAction] = {
 
 
 def render_problem(exc: FinalCutError | JianyingDraftError | EditTimelineError) -> GenerationProblem:
-    """渲染的领域错误保留稳定问题码：执行失败可重试，其余都要先改剪辑时间线或请求。"""
+    """Render domain errors retain stable problem codes: execution failures are retryable; all others require changing the edit timeline or request first."""
     return GenerationProblem(
         code=exc.code,
         detail=str(exc),
@@ -51,7 +50,7 @@ def render_problem(exc: FinalCutError | JianyingDraftError | EditTimelineError) 
 
 @dataclass(frozen=True, slots=True)
 class RenderTaskRequest:
-    """一个待入队的渲染任务：任务类型、产物身份与载荷。"""
+    """A render task ready to enqueue: task type, artifact identity and payload."""
 
     task_type: str
     resource_id: str
@@ -77,7 +76,7 @@ def jianying_draft_resource_id(timeline_id: str, narration: DraftNarration) -> s
 
 
 def timeline_render_resource_ids(timeline_id: str) -> dict[str, list[str]]:
-    """一条剪辑时间线可能占用的全部渲染任务身份，按任务类型分组。"""
+    """All render-task identities an edit timeline may occupy, grouped by task type."""
     return {
         RENDER_FINAL_CUT_TASK_TYPE: [final_cut_resource_id(timeline_id, variant) for variant in FINAL_CUT_VARIANTS],
         RENDER_JIANYING_DRAFT_TASK_TYPE: [
@@ -124,7 +123,7 @@ type RenderTaskExecutor = Callable[[dict[str, Any], ProjectManager], Awaitable[d
 
 
 async def execute_final_cut_task(task: dict[str, Any], projects: ProjectManager) -> dict[str, Any]:
-    # 旁白与字幕取自呈现模型读侧，执行时才导入。
+    # Narration and subtitles come from the presentation-model read side; import only at execution time.
     from server.services.presentation.timeline_units import TimelineUnitMaterials
 
     payload: Mapping[str, Any] = task.get("payload") or {}
@@ -140,7 +139,7 @@ async def execute_final_cut_task(task: dict[str, Any], projects: ProjectManager)
 
 
 async def execute_jianying_draft_task(task: dict[str, Any], projects: ProjectManager) -> dict[str, Any]:
-    # 剪映草稿服务依赖 pyJianYingDraft 与呈现模型读侧，执行时才导入。
+    # Jianying draft services depend on pyJianYingDraft and the presentation-model read side; import at execution time.
     from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 
     payload: Mapping[str, Any] = task.get("payload") or {}
@@ -158,11 +157,11 @@ RENDER_TASK_EXECUTORS: dict[str, RenderTaskExecutor] = {
     RENDER_FINAL_CUT_TASK_TYPE: execute_final_cut_task,
     RENDER_JIANYING_DRAFT_TASK_TYPE: execute_jianying_draft_task,
 }
-"""``render`` 车道的任务类型 → 执行器。"""
+"""``render`` lane task type → executor."""
 
 
 async def execute_render_task(task: dict[str, Any], *, projects: ProjectManager | None = None) -> dict[str, Any]:
-    """执行一个渲染任务；领域错误按稳定问题码落库，读侧与 Agent 工具据此给出下一步。"""
+    """Execute a render task; persist domain errors using stable problem codes so read-side views and Agent tools can provide next steps."""
     task_type = str(task.get("task_type"))
     executor = RENDER_TASK_EXECUTORS.get(task_type)
     if executor is None:

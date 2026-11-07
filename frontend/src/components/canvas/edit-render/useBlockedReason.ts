@@ -6,8 +6,8 @@ import { formatNameList } from "@/utils/list-format";
 import { blockingIssues, issueUnitIds } from "./edit-render-model";
 
 /**
- * 出片被阻断的原因：阻断 issue 的条数与涉及的视频单元（按本集里的当前位置称呼）；没有阻断时 reason 为 null。
- * ``narration`` 的含义同 {@link blockingIssues}。
+ * Final-render blockers: issue count and affected video units, named by their current episode positions; reason is null without blockers.
+ * ``narration`` has the same meaning as in {@link blockingIssues}.
  */
 export function useBlockedReason(
   issues: readonly EditTimelineIssueRef[],

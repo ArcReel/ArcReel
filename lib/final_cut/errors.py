@@ -1,4 +1,4 @@
-"""成片渲染的领域错误：问题码稳定，HTTP、Agent 工具与队列任务各自映射。"""
+"""Final-cut rendering domain errors: stable problem codes independently mapped by HTTP, Agent tools, and queued tasks."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ type FinalCutErrorCode = Literal[
 
 
 class FinalCutError(Exception):
-    """成片无法渲染或未通过验收；``code`` 供适配器映射，``params`` 携带定位信息。"""
+    """Final cut cannot render or fails acceptance; adapters map ``code`` and ``params`` carries location details."""
 
     def __init__(self, code: FinalCutErrorCode, message: str, **params: Any) -> None:
         super().__init__(message)

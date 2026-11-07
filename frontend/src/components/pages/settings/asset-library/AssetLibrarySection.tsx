@@ -14,8 +14,8 @@ import { ObjectStorageBlock } from "./ObjectStorageBlock";
 type LoadState = { status: "loading" } | { status: "error"; error: unknown } | { status: "ready"; data: AssetLibraryAccountList };
 
 /**
- * 全局设置「素材库与存储」：用户自有对象存储、供应商素材库账号，以及推理凭证与账号的绑定。
- * 各块的增删改都立即生效，不经保存栏。
+ * Global Asset libraries and storage settings: user-owned object storage, provider-library accounts and inference-credential/account bindings.
+ * Additions, edits and deletions in every block take effect immediately without the save bar.
  */
 export function AssetLibrarySection() {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -38,7 +38,7 @@ export function AssetLibrarySection() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉取素材库账号后回写，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Fetch library accounts on mount and update state as controlled initialization loading
     void fetchAccounts();
     return () => loadController.current?.abort();
   }, [fetchAccounts]);

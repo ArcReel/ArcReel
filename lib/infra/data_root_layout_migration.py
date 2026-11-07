@@ -1,9 +1,11 @@
-"""数据根布局迁移入口：把旧布局的数据根就地迁到 :class:`DataRootLayout` 描述的当前布局。
+"""Data-root layout migration entry point: migrate an old data root in place to the current :class:`DataRootLayout` layout.
 
-启动时在挂文件日志 handler 之后、任何遍历项目的步骤（源文件编码迁移、项目 schema
-迁移、会话导入、profile 同步）之前执行。步骤按顺序执行，每一步都须能安全重跑；全部完成
-后在 ``runtime/`` 写完成标记，此后启动只检查标记。某一步失败时记 ERROR、不写标记，
-异常原样上抛，调用方不得在半迁移的布局上继续遍历项目。
+Run at startup after attaching file log handlers and before any step traversing projects
+(source encoding migration, project schema migration, session import or profile sync).
+Execute steps in order; each must be safe to rerun. Write a completion marker in ``runtime/``
+only after all steps finish; subsequent startups just check it. On failure, log ERROR,
+do not write the marker and propagate the original exception. Callers must not continue
+traversing projects in a partially migrated layout.
 """
 
 from __future__ import annotations
@@ -34,48 +36,49 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DataRootMigrationContext:
-    """布局迁移各步骤的共同输入。"""
+    """Shared inputs for all layout migration steps."""
 
     layout: DataRootLayout
     session_factory: async_sessionmaker[AsyncSession]
-    #: Claude SDK 配置目录（``CLAUDE_CONFIG_DIR`` 或 ``~/.claude``），SDK 本地会话数据在其下。
+    #: Claude SDK configuration directory (``CLAUDE_CONFIG_DIR`` or ``~/.claude``), containing SDK local session data.
     sdk_config_dir: Path
 
 
 MigrationStep = Callable[[DataRootMigrationContext], Awaitable[None]]
 
-#: 旧布局中名为 ``projects`` 的项目在项目目录建出前暂用的名字；不是合法项目名，不会被当作旧项目搬动。
+#: Temporary name for a legacy project named ``projects`` before creating the project container; invalid as a project name, so it is not moved as a legacy project.
 _PROJECTS_NAMESAKE_STAGING = ".projects-namesake-migrating"
 
 
 def _move_entry(source: Path, target: Path) -> None:
-    """同文件系统内把 ``source`` 挪到 ``target``；目标已存在时抛 ``FileExistsError``，两边都不动。
+    """Move ``source`` to ``target`` within one filesystem; if the target exists, raise ``FileExistsError`` and leave both untouched.
 
-    相对目标的符号链接挪到下一层后会指向别处，改为在新位置建指向原目标的绝对链接、再删原链接；
-    新链接已在而原链接未删（上次停在这两步之间）时只删原链接。
+    Moving a relative symlink one level deeper would change its target. Instead create
+    an absolute link to the original target at the new location, then delete the old link.
+    If the new link exists and the old link remains (a previous run stopped between these steps), delete only the old link.
     """
     rebased_link = None
     if source.is_symlink() and not Path(os.readlink(source)).is_absolute():
         rebased_link = os.path.normpath(source.parent / os.readlink(source))
     if target.is_symlink() and rebased_link is not None and os.readlink(target) == rebased_link:
-        source.unlink()  # hard-delete: infra -- 数据根布局迁移：重指向后的旧符号链接
+        source.unlink()  # hard-delete: infra -- data-root migration: old symlink after retargeting
         return
     if target.exists() or target.is_symlink():
         raise FileExistsError(f"数据根布局迁移：{target} 已存在，无法把 {source} 挪过去，请人工处理后重启")
     if rebased_link is not None:
         target.symlink_to(rebased_link, target_is_directory=True)
-        source.unlink()  # hard-delete: infra -- 数据根布局迁移：重指向后的旧符号链接
+        source.unlink()  # hard-delete: infra -- data-root migration: old symlink after retargeting
         return
     source.rename(target)
 
 
 def _is_project_named_dir(entry: Path) -> bool:
-    """名字符合项目名规则的目录（不论有没有 ``project.json``）。"""
+    """Directory whose name satisfies project-name rules, whether or not it has ``project.json``."""
     return bool(PROJECT_NAME_PATTERN.fullmatch(entry.name)) and entry.is_dir()
 
 
 def _is_project_swap_dir(entry: Path) -> bool:
-    """项目 schema 迁移目录交换留下的 rollback / staging 目录，须与项目同处一个父目录才能被清理或人工改回。"""
+    """Rollback / staging directories left by project schema migration swaps; must share the project parent directory for cleanup or manual restoration."""
     name = entry.name
     return (
         (rollback_project_name(name) is not None or staging_project_name(name) is not None)
@@ -85,11 +88,12 @@ def _is_project_swap_dir(entry: Path) -> bool:
 
 
 def _projects_to_move(layout: DataRootLayout) -> list[Path]:
-    """数据根下待搬进项目目录的旧条目。
+    """Legacy entries under the data root to move into the project container.
 
-    名字合法的目录都搬：带 ``project.json`` 的是项目；没有的也原样搬走以保全数据，只有与布局
-    登记的顶层条目同名的留在原位。项目目录交换的中间目录随项目一起搬。项目目录本身与其余带下划线、
-    点等不合法名字的条目不在此列。
+    Move all validly named directories: those with ``project.json`` are projects; move
+    others unchanged to preserve data. Only names matching registered top-level layout
+    entries stay in place. Move project-swap intermediate directories with projects.
+    Exclude the project container itself and other invalid names containing underscores, dots, etc.
     """
     system_names = {entry.name for entry in layout.top_level_entries}
     return [
@@ -104,10 +108,11 @@ def _projects_to_move(layout: DataRootLayout) -> list[Path]:
 
 
 async def _move_projects_into_projects_dir(context: DataRootMigrationContext) -> None:
-    """旧布局平放在数据根下的项目搬进 ``projects/``。
+    """Move legacy projects stored directly under the data root into ``projects/``.
 
-    旧项目恰好名为 ``projects`` 时先改成临时名、建出项目目录，再挪进去成为
-    ``projects/projects/``，项目名不变；临时名仍在即表示上次停在这两步之间，本次接着完成。
+    If a legacy project is named ``projects``, first give it the temporary name, create
+    the container, then move it to ``projects/projects/`` without changing its project name.
+    A remaining temporary name indicates a previous run stopped between these steps; finish it now.
     """
     layout = context.layout
     projects_dir = layout.projects_dir
@@ -127,7 +132,7 @@ async def _move_projects_into_projects_dir(context: DataRootMigrationContext) ->
 
 
 def _rename_sdk_session_dir(sdk_projects_dir: Path, legacy_key: str, current_key: str) -> None:
-    """SDK 本地会话目录按新键改名；尽力而为，失败只告警。"""
+    """Rename SDK local session directories to their new keys; best effort, warning only on failure."""
     legacy_dir = sdk_projects_dir / legacy_key
     target = sdk_projects_dir / current_key
     try:
@@ -142,7 +147,7 @@ def _rename_sdk_session_dir(sdk_projects_dir: Path, legacy_key: str, current_key
 
 
 def _moved_project_names(projects_dir: Path) -> set[str]:
-    """``projects/`` 下的项目名：名字合法的目录，加上目录交换中间目录所属的项目（人工改回后成为该项目）。"""
+    """Project names under ``projects/``: valid directory names plus projects owning swap-intermediate directories (which become those projects after manual restoration)."""
     names: set[str] = set()
     for entry in projects_dir.iterdir():
         if _is_project_named_dir(entry):
@@ -154,11 +159,12 @@ def _moved_project_names(projects_dir: Path) -> set[str]:
 
 
 async def _rewrite_session_store_keys(context: DataRootMigrationContext) -> None:
-    """项目挪进 ``projects/`` 后，Agent 会话存储里按旧项目目录派生的键改写为按新目录派生的键。
+    """After moving projects into ``projects/``, rewrite Agent session storage keys from old to new project-directory-derived keys.
 
-    会话存储键由项目目录的绝对路径派生（ADR 0029）。只改写仍在旧键下的记录；新键下已有同一
-    会话时保留两边并告警。SDK 自己的本地会话目录（``ARCREEL_SDK_SESSION_STORE=off`` 时唯一的
-    会话来源）同样按新键改名，失败只告警。
+    Session storage keys derive from absolute project paths (ADR 0029). Rewrite only
+    records still under old keys; if the same session already exists under the new key,
+    preserve both and warn. Rename the SDK's own local session directories as well
+    (the only session source with ``ARCREEL_SDK_SESSION_STORE=off``), warning only on failure.
     """
     layout = context.layout
     project_names = sorted(await asyncio.to_thread(_moved_project_names, layout.projects_dir))
@@ -204,16 +210,17 @@ async def _rewrite_session_store_keys(context: DataRootMigrationContext) -> None
         logger.info("数据根布局迁移：%d 个 Agent 会话改用新项目目录的存储键", len(rewritten))
 
 
-#: POSIX 绝对路径、Windows 盘符路径与 UNC 路径的开头。
+#: Prefixes of POSIX absolute paths, Windows drive paths and UNC paths.
 _ABSOLUTE_PATH_PREFIX = re.compile(r"^(?:[\\/]|[A-Za-z]:[\\/])")
 
 
 def _project_relative_output_path(stored: str, *, project_name: str, project_dirs: tuple[Path, ...]) -> str | None:
-    """把调用记录里的绝对产物路径还原为项目内相对路径；无法确认落在项目内时返回 None。
+    """Recover a project-relative artifact path from an absolute call-record path; return None when containment cannot be established.
 
-    先按 ``project_dirs`` 前缀截取；记录写下后数据根挪过位置时前缀对不上，改在路径里找
-    项目名路径段，取其后的部分。多处命中时无法确认旧项目根，保持原值。截取结果含
-    ``..`` 段时可能越出项目目录，同样保持原值。
+    First strip a ``project_dirs`` prefix. If the data root moved after the record was
+    written and prefixes no longer match, find a project-name path segment and take
+    its suffix. Multiple matches make the old root ambiguous, so retain the old value.
+    Also retain it if the suffix includes ``..`` segments that could escape the project.
     """
     relative = _relative_to_any(stored, project_dirs)
     if relative is None:
@@ -235,7 +242,7 @@ def _relative_to_any(stored: str, project_dirs: tuple[Path, ...]) -> str | None:
 
 
 async def _relativize_call_output_paths(context: DataRootMigrationContext) -> None:
-    """调用记录的产物路径改存项目内相对路径；只处理仍是绝对路径的行，重跑时没有可改的行。"""
+    """Store call-record artifact paths relative to the project; process only still-absolute paths, leaving nothing to change on rerun."""
     layout = context.layout
     async with context.session_factory() as session:
         rows = (
@@ -268,12 +275,12 @@ async def _relativize_call_output_paths(context: DataRootMigrationContext) -> No
         logger.info("数据根布局迁移：%d 条调用记录的产物路径改为项目内相对路径", rewritten)
 
 
-#: 旧布局的全局资产库目录名；资产记录里的路径以它为前缀。
+#: Legacy global asset-library directory name; asset-record paths use this prefix.
 _LEGACY_GLOBAL_ASSETS_DIRNAME = "_global_assets"
 
 
 def _merge_dir_into(source: Path, target: Path) -> None:
-    """把 ``source`` 下的条目逐个 rename 进 ``target``；目标已有同名文件时保留两边并记告警。"""
+    """Rename entries from ``source`` into ``target`` one by one; preserve both and warn on destination name collisions."""
     target.mkdir(parents=True, exist_ok=True)
     for entry in source.iterdir():
         destination = target / entry.name
@@ -284,16 +291,18 @@ def _merge_dir_into(source: Path, target: Path) -> None:
         else:
             logger.warning("数据根布局迁移：%s 已存在，保留旧位置的 %s", destination, entry)
     if not any(source.iterdir()):
-        source.rmdir()  # hard-delete: infra -- 数据根布局迁移：合并后的空目录
+        source.rmdir()  # hard-delete: infra -- data-root migration: empty directory after merging
 
 
 async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
-    """全局资产库从旧目录名改到当前位置，资产记录里以旧目录为前缀的路径随之改写。
+    """Move the global asset library from its old directory name to the current location and rewrite asset-record paths carrying the old prefix.
 
-    目标不存在时整体改名，旧目录是符号链接时改名的是链接本身；目标已存在（例如迁移前已被
-    建出空子目录）时逐条并入，旧目录是符号链接则不动。改库只处理仍带旧前缀、且旧位置已
-    没有该文件的行：留在旧目录里的文件（同名冲突、未挪动的符号链接）继续按旧路径登记。
-    已改写的行不再带旧前缀，重跑时不会被选中。
+    If the destination is absent, rename the directory as a whole; for a symlink, rename
+    the link itself. If the destination exists (for example, an empty subdirectory created
+    before migration), merge entries individually, but leave a symlink source untouched.
+    Update only rows still using the old prefix whose files no longer exist at the old
+    location. Files left there (name collisions or unmoved symlinks) retain their old paths.
+    Rewritten rows lose the old prefix and are not selected on rerun.
     """
     layout = context.layout
     legacy_dir = layout.root / _LEGACY_GLOBAL_ASSETS_DIRNAME
@@ -333,30 +342,30 @@ async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
         logger.info("数据根布局迁移：%d 处全局资产路径改到 %s", rewritten, current_prefix)
 
 
-#: 旧布局的数据根内部目录（相对数据根），其下 ``users/`` 是用户数据。
+#: Legacy internal directory relative to the data root; its ``users/`` subdirectory contains user data.
 _LEGACY_INTERNAL_DIR = ".arcreel"
-#: 旧布局平放在数据根下的运行时状态（相对数据根）。
+#: Legacy runtime state stored directly under the data root (paths relative to that root).
 _LEGACY_SESSION_IMPORT_MARKER = ".session_store_migration_done"
 _LEGACY_PROJECT_MIGRATION_ERROR_LOG = "_migration_errors.log"
 _LEGACY_GENERATION_ADMISSION_LOCKS_DIR = ".generation-admission-locks"
 
 
 async def _move_user_data_to_users_dir(context: DataRootMigrationContext) -> None:
-    """``.arcreel/users/`` 挪到 ``users/``；旧目录不存在时什么都不做。"""
+    """Move ``.arcreel/users/`` to ``users/``; do nothing if the old directory is absent."""
     layout = context.layout
     legacy_users = layout.root / _LEGACY_INTERNAL_DIR / "users"
     if not legacy_users.is_dir():
         return
     _merge_dir_into(legacy_users, layout.users_dir)
     with contextlib.suppress(OSError):
-        legacy_users.parent.rmdir()  # hard-delete: infra -- 数据根布局迁移：迁走后的空 .arcreel/
+        legacy_users.parent.rmdir()  # hard-delete: infra -- data-root migration: empty .arcreel/ after moving its contents
     logger.info("数据根布局迁移：用户数据移入 %s", layout.users_dir)
 
 
 async def _move_runtime_state_to_runtime_dir(context: DataRootMigrationContext) -> None:
-    """平放在数据根下的运行时状态收进 ``runtime/``；旧位置已完成的标记由新位置继承。
+    """Collect runtime state stored directly under the data root into ``runtime/``; inherit completion markers from the old location.
 
-    生成准入锁只在持有期间有意义，旧锁目录直接删除。
+    Generation admission locks matter only while held, so delete the legacy lock directory directly.
     """
     layout = context.layout
     root = layout.root
@@ -368,22 +377,22 @@ async def _move_runtime_state_to_runtime_dir(context: DataRootMigrationContext) 
     layout.runtime_dir.mkdir(exist_ok=True)
     if legacy_marker.exists():
         if layout.session_import_marker_path.exists():
-            legacy_marker.unlink()  # hard-delete: infra -- 数据根布局迁移：重复的会话导入标记
+            legacy_marker.unlink()  # hard-delete: infra -- data-root migration: duplicate session-import marker
         else:
             legacy_marker.rename(layout.session_import_marker_path)
     if legacy_error_log.exists():
         if layout.project_migration_error_log_path.exists():
             with layout.project_migration_error_log_path.open("a", encoding="utf-8") as merged:
                 merged.write(legacy_error_log.read_text(encoding="utf-8", errors="replace"))
-            legacy_error_log.unlink()  # hard-delete: infra -- 数据根布局迁移：已合并的旧迁移错误日志
+            legacy_error_log.unlink()  # hard-delete: infra -- data-root migration: merged legacy migration-error log
         else:
             legacy_error_log.rename(layout.project_migration_error_log_path)
-    shutil.rmtree(legacy_locks, ignore_errors=True)  # hard-delete: infra -- 数据根布局迁移：旧的生成准入锁目录
+    shutil.rmtree(legacy_locks, ignore_errors=True)  # hard-delete: infra -- migrated legacy admission locks
     logger.info("数据根布局迁移：运行时状态收进 %s", layout.runtime_dir)
 
 
 def _copy_into_place(source: Path, dest: Path) -> None:
-    """复制到临时名再换入 ``dest``：旧位置可能是另一个卷，中途崩溃也不会留下半个目标文件。"""
+    """Copy to a temporary name, then replace ``dest``: the old location may be on another volume, and a crash must not leave a partial destination."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     staging = dest.with_name(f"{dest.name}.migrating")
     shutil.copy2(source, staging)
@@ -398,9 +407,9 @@ def _is_same_file(a: Path, b: Path) -> bool:
 
 
 def _discard_legacy_file(source: Path) -> None:
-    """删除已复制进数据根的旧文件；旧卷可能是只读挂载，删不掉时留在原处，不阻断迁移。"""
+    """Delete old files already copied into the data root; if a read-only legacy volume prevents deletion, leave them in place without blocking migration."""
     try:
-        source.unlink(missing_ok=True)  # hard-delete: infra -- 数据根布局迁移：已复制到新位置的旧凭证文件
+        source.unlink(missing_ok=True)  # hard-delete: infra -- legacy credential copied to data root
     except OSError:
         logger.warning("Vertex 凭证旧文件删除失败，保留在原位置：%s", source, exc_info=True)
 
@@ -408,12 +417,15 @@ def _discard_legacy_file(source: Path) -> None:
 def _place_recorded_vertex_credentials(
     layout: DataRootLayout, legacy_dir: Path, rows: list[tuple[int, str]]
 ) -> list[tuple[int, str]]:
-    """把凭证记录指向的文件放到按 id 推导的位置，返回文件已就位的 ``(id, 记录路径)``。
+    """Place files referenced by credential records at ID-derived locations; return ``(id, 记录路径)`` for files in place.
 
-    来源取记录路径处的文件；那里没有时取旧凭证目录下的同名文件（记录的是容器内路径等当前进程
-    看不到的位置）。推导位置已有文件时不再复制。来源在旧凭证目录内的，全部记录处理完才删除，
-    几条记录共用一个文件时每条都能拿到副本；旧凭证目录之外的来源是用户自己放的文件，只复制不删。
-    两处都找不到文件的记录不返回，保持原值：写完成标记前的重跑会再找一次，之后读取凭证时回退到记录路径。
+    Use the recorded path first, then the same filename in the old credential directory
+    if absent (for recorded container paths or other locations invisible to this process).
+    Do not copy if the derived destination already exists. Delete sources inside the old
+    credential directory only after processing all records, so records sharing one file
+    each receive a copy. Sources outside that directory are user-managed: copy, never delete.
+    Omit records missing files in both locations and retain their values. Reruns before
+    the completion marker search again; later credential reads fall back to the recorded path.
     """
     legacy_resolved = legacy_dir.resolve()
     placed: list[tuple[int, str]] = []
@@ -443,7 +455,7 @@ def _place_recorded_vertex_credentials(
 
 
 def _move_legacy_vertex_keys(legacy_dir: Path, keys_dir: Path) -> int:
-    """把旧凭证目录里剩下的凭证文件按原名搬进数据根；同名文件已在时保留旧文件。"""
+    """Move remaining files from the old credential directory into the data root under their original names; preserve the old file on name collisions."""
     if legacy_dir == keys_dir or not legacy_dir.is_dir():
         return 0
     moved = 0
@@ -461,9 +473,9 @@ def _move_legacy_vertex_keys(legacy_dir: Path, keys_dir: Path) -> int:
 
 
 async def _move_vertex_credentials_into_data_root(context: DataRootMigrationContext) -> None:
-    """Vertex 凭证文件从数据根的上一级（Docker 部署里是单独的卷）搬进数据根，并清空凭证记录的路径列。
+    """Move Vertex credential files from the data-root parent (a separate volume in Docker deployments) into the data root and clear credential-record path columns.
 
-    只处理路径列还有值的记录与旧目录里还在的文件，重跑时没有可做的事。
+    Process only records with populated path columns and files remaining in the old directory; reruns have nothing to do.
     """
     layout = context.layout
     legacy_dir = layout.root.parent / "vertex_keys"
@@ -494,10 +506,10 @@ async def _move_vertex_credentials_into_data_root(context: DataRootMigrationCont
         logger.info("数据根布局迁移：%d 条 Vertex 凭证记录、%d 个旧目录凭证文件移入数据根", len(placed), moved)
 
 
-#: 按执行顺序排列的迁移步骤。
+#: Migration steps in execution order.
 _STEPS: tuple[MigrationStep, ...] = (
-    # 项目搬迁排在系统条目各步之前：users、runtime 等是合法项目名，同名旧项目先搬走，
-    # 同一次迁移里的后续步骤才能就位。
+    # Move projects before system entries: users, runtime, etc. are valid project names, so move
+    # legacy projects with those names first to make room for subsequent steps in this migration.
     _move_projects_into_projects_dir,
     _rewrite_session_store_keys,
     _relativize_call_output_paths,
@@ -514,7 +526,7 @@ async def migrate_data_root_layout(
     session_factory: async_sessionmaker[AsyncSession],
     sdk_config_dir: Path,
 ) -> None:
-    """把 ``data_root`` 迁到当前布局；完成标记已在时什么都不做。"""
+    """Migrate ``data_root`` to the current layout; do nothing if the completion marker exists."""
     layout = DataRootLayout(data_root)
     marker = layout.layout_migration_marker_path
     if await asyncio.to_thread(marker.is_file):

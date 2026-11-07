@@ -1,17 +1,17 @@
-"""供应商模型的生效模型事实：能力覆盖 > 对应条目 > 运行时回落（docs/adr/0104、0105）。
+"""Effective provider-model facts: overrides > matching entries > runtime fallback (docs/adr/0104, 0105).
 
-模型事实（文本的图片输入、结构化输出、最大输出 token；图片的文生图、图生图与参考图上限；视频的可选时长、
-分辨率与时长联动约束）记在模型条目上。用户负责的供应商模型可以用能力覆盖整维替换其中任一维度，覆盖优先级最高；
-未覆盖的维度取对应条目的值。对应不上条目时：可选时长取按名字推断的时长预设（一个族都匹配不上时为
-``[4, 8]``），其余模型事实不加约束（``None``），超出范围由上游拒绝。回落结果只在这里现算，不写入任何字段。
+Entries hold text vision/structured output/output-token maxima; image text/image-to-image/reference limits; video durations,
+resolutions, and linked duration constraints. User-owned provider models may replace any whole dimension at highest priority;
+unoverridden dimensions follow entries. Unmatched durations use name-inferred presets, falling back to
+``[4, 8]`` without families; other facts remain unconstrained ``None``, leaving excess rejection upstream. Recompute fallbacks here, never persist.
 
-通道事实（视频的输入模式、参考上限、提示词长度上限、音轨形态）的覆盖由
-:mod:`lib.custom_provider.capabilities` 与调用通道声明合成，不在本模块。两类维度共用
-``CustomProviderModel.capability_overrides`` 这一个稀疏字典，图片与视频的参考图上限共用键名，按媒体类型校验。
+Channel-fact overrides (video input modes/reference limits/prompt limits/audio forms) compose with declarations through
+:mod:`lib.custom_provider.capabilities`, outside this module. Both dimension kinds share sparse
+``CustomProviderModel.capability_overrides``; image/video reference limits share keys, validated by media.
 
-ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），不经过本模块：调用方按端点形态分流。唯一的例外是
-ComfyUI 视频模型行的可选时长，它是用户在 workflow 原生时长之外增删的偏好，存为 ``durations`` 覆盖，经
-:func:`comfyui_duration_override` 读取。
+ComfyUI capabilities derive only from node bindings (docs/adr/0082), bypassing this module via endpoint dispatch. The sole exception:
+ComfyUI video-row durations are user preferences adding/removing workflow-native durations, stored as ``durations`` overrides through
+:func:`comfyui_duration_override`.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from lib.custom_provider.duration_presets import infer_supported_durations
 
 logger = logging.getLogger(__name__)
 
-#: 每种媒体类型可以覆盖的模型事实维度。音频没有模型事实维度。
+#: Overridable model-fact dimensions by media; audio has none.
 MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
     "image": frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
@@ -34,7 +34,7 @@ MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "audio": frozenset(),
 }
 
-#: 全部模型事实维度的键，供写入侧白名单合并。
+#: All model-fact keys for write allowlist merging.
 ALL_MODEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset().union(*MODEL_FACT_OVERRIDE_KEYS.values())
 
 _BOOL_KEYS = frozenset({"image_input", "structured_output", "text_to_image", "image_to_image"})
@@ -65,10 +65,10 @@ def _is_constraints(value: object) -> bool:
 
 
 def model_fact_value_matches(key: str, value: object) -> bool:
-    """覆盖值能否整维替换该模型事实维度；写入侧校验与读取侧过滤共用这一判定。
+    """Whether override values replace whole model-fact dimensions; shared write validation/read filtering.
 
-    布尔维度只认 ``bool``；参考图上限是非负整数；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
-    ``by_resolution``（分辨率 → 非空时长列表）与 ``with_reference_images``（时长列表）两个键。
+    Booleans require ``bool``; reference maxima are nonnegative integers; max output tokens positive integers; durations/resolutions nonempty lists;
+    duration constraints accept only ``by_resolution`` (resolution → nonempty durations) and ``with_reference_images`` (duration lists).
     """
     if key in _BOOL_KEYS:
         return isinstance(value, bool)
@@ -95,12 +95,12 @@ _TYPE_NAMES: Mapping[str, str] = {
 
 
 def model_fact_type_name(key: str) -> str:
-    """模型事实维度期望的值形状，供 422 文案使用。"""
+    """Expected model-fact value shapes for 422 wording."""
     return "bool" if key in _BOOL_KEYS else _TYPE_NAMES.get(key, "unknown")
 
 
 def model_fact_overrides(overrides: object | None, media_type: str, *, model_id: str = "") -> dict[str, object]:
-    """取覆盖字典里该媒体类型的模型事实维度，丢弃不合法的值（落 warning，不让一条脏配置拖垮执行）。"""
+    """Get media-specific model-fact overrides, discarding invalid values with warnings so dirty configs cannot break execution."""
     if not isinstance(overrides, Mapping):
         return {}
     keys = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset())
@@ -117,7 +117,7 @@ def model_fact_overrides(overrides: object | None, media_type: str, *, model_id:
 
 @dataclass(frozen=True)
 class TextModelFacts:
-    """``None`` 表示这一维不加约束（对应不上条目且没有覆盖）。"""
+    """``None`` means unconstrained dimensions without matching entries/overrides."""
 
     image_input: bool | None = None
     structured_output: bool | None = None
@@ -126,10 +126,10 @@ class TextModelFacts:
 
 @dataclass(frozen=True)
 class ImageModelFacts:
-    """``None`` 表示这一维不加约束（对应不上条目且没有覆盖）。
+    """``None`` means unconstrained dimensions without matching entries/overrides.
 
-    ``max_reference_images`` 是条目记录的参考图上限（``None`` 为未收录，``0`` 为显式不接受）；它与调用通道的
-    上限两侧取较小值，见 :func:`lib.backends.image_capabilities.image_reference_limit`。
+    Entry ``max_reference_images`` is ``None`` when unlisted, ``0`` for explicit rejection; jointly take the smaller
+    channel limit (:func:`lib.backends.image_capabilities.image_reference_limit`).
     """
 
     text_to_image: bool | None = None
@@ -139,7 +139,7 @@ class ImageModelFacts:
 
 @dataclass(frozen=True)
 class VideoModelFacts:
-    """可选时长恒有值（对应不上条目时取按名字推断的预设）；分辨率为 ``None`` 表示不加约束。"""
+    """Durations always exist, inferred by name without entry matches; ``None`` resolutions mean unconstrained."""
 
     durations: tuple[int, ...] = ()
     resolutions: tuple[str, ...] | None = None
@@ -147,12 +147,12 @@ class VideoModelFacts:
 
 
 def model_entry(model_id: str, media_type: str, entry_binding: str | None = None) -> CatalogEntry | None:
-    """供应商模型对应的条目：先看条目绑定，再按名字现查（docs/adr/0105）。媒体类型取调用端点。"""
+    """Matching entries, bindings first then current names (docs/adr/0105); media from endpoints."""
     return catalog.find_entry(model_id, media_type=media_type, binding=catalog.binding_key(entry_binding, media_type))
 
 
 def text_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> TextModelFacts:
-    """文本供应商模型的生效模型事实：能力覆盖 > 对应条目；都没有时不加约束。"""
+    """Effective text facts: overrides > entries, otherwise unconstrained."""
     applied = model_fact_overrides(overrides, "text", model_id=model_id)
     entry = model_entry(model_id, "text", entry_binding)
     facts = entry.facts if entry is not None and isinstance(entry.facts, TextFacts) else None
@@ -167,7 +167,7 @@ def text_model_facts(model_id: str, overrides: object | None, *, entry_binding: 
 
 
 def image_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> ImageModelFacts:
-    """图片供应商模型的生效模型事实（未与调用通道取交集，交集见 :mod:`lib.backends.image_capabilities`）。"""
+    """Effective image facts before channel intersection (:mod:`lib.backends.image_capabilities`)."""
     applied = model_fact_overrides(overrides, "image", model_id=model_id)
     entry = model_entry(model_id, "image", entry_binding)
     facts = entry.facts if entry is not None and isinstance(entry.facts, ImageFacts) else None
@@ -179,9 +179,9 @@ def image_model_facts(model_id: str, overrides: object | None, *, entry_binding:
 
 
 def video_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> VideoModelFacts:
-    """视频供应商模型的生效模型事实。
+    """Effective video facts.
 
-    可选时长：能力覆盖 > 对应条目 > 按名字推断的时长预设（对应不上条目时）。
+    Durations: overrides > entries > name-inferred presets without entry matches.
     """
     applied = model_fact_overrides(overrides, "video", model_id=model_id)
     entry = model_entry(model_id, "video", entry_binding)
@@ -209,13 +209,13 @@ def video_model_facts(model_id: str, overrides: object | None, *, entry_binding:
     return VideoModelFacts(durations=durations, resolutions=resolutions, duration_constraints=constraints)
 
 
-#: ComfyUI 视频端点上唯一接受的覆盖维度：可选时长。ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），
-#: 但时长档位是用户在 workflow 原生时长之外自己增删的偏好，不是能力声明（docs/adr/0104）。
+#: Sole ComfyUI-video override: durations. Capabilities derive only from bindings (docs/adr/0082),
+#: while durations add/remove native workflow choices as user preferences, not capability declarations (docs/adr/0104).
 COMFYUI_VIDEO_OVERRIDE_KEYS: frozenset[str] = frozenset({"durations"})
 
 
 def comfyui_duration_override(overrides: object | None, *, model_id: str = "") -> list[int] | None:
-    """ComfyUI 视频模型行上用户设置的可选时长；没有设置或值不合法时为 ``None``（取端点从节点绑定推导的档位）。"""
+    """User ComfyUI-video duration choices; ``None`` for absent/invalid values, using endpoint node-derived tiers."""
     if not isinstance(overrides, Mapping):
         return None
     value = overrides.get("durations")
@@ -233,7 +233,7 @@ def _bool_fact(applied: Mapping[str, object], key: str, entry_value: bool | None
 
 
 def _constraints_from_override(raw: Mapping[str, object]) -> DurationConstraints:
-    """覆盖里的时长联动约束转成条目同一形状；分辨率键与条目一样按小写比较。"""
+    """Convert override duration constraints into entry shapes; compare resolution keys lowercase like entries."""
     by_resolution_raw = raw.get("by_resolution")
     by_resolution: dict[str, tuple[int, ...]] = {}
     if isinstance(by_resolution_raw, Mapping):
@@ -246,16 +246,16 @@ def _constraints_from_override(raw: Mapping[str, object]) -> DurationConstraints
 
 
 def matched_entry_summary(model_id: str, media_type: str, entry_binding: str | None = None) -> dict[str, object] | None:
-    """供应商模型对应到的条目摘要，供设置页显示「对应到的模型」或「未定价」；对应不上条目时为 ``None``。
+    """Matching entry summaries for settings matched-model/unpriced display; ``None`` if unmatched.
 
-    ``priced`` 表示条目有当前代码认得的价目表：为假时这个模型的调用同样记为未定价。
+    ``priced`` means price tables understood by current code; false still records model calls unpriced.
     """
     entry = model_entry(model_id, media_type, entry_binding)
     return entry_summary(entry) if entry is not None else None
 
 
 def entry_summary(entry: CatalogEntry) -> dict[str, object]:
-    """条目摘要：厂商、官方模型名、媒体类型、显示名与是否有价格（见 :func:`matched_entry_summary`）。"""
+    """Entry summaries: maker, official name, media, display name, and priced status (:func:`matched_entry_summary`)."""
     return {
         "maker": entry.maker,
         "name": entry.name,

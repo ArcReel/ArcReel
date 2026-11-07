@@ -26,7 +26,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
-      // 遮罩不透明、不模糊，与新手引导遮罩同一规范；层级取 z-index token
+      // Opaque, unblurred backdrops follow onboarding-backdrop standards; use z-index tokens.
       className={cn(
         "fixed inset-0 z-overlay bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
         className
@@ -50,8 +50,8 @@ function SheetContent({
   return (
     <SheetPortal>
       <SheetOverlay />
-      {/* Header / Body / Footer 纵向排布，只有 SheetBody 滚动。左右两侧默认宽 28rem，
-          调用处用 data-[side=right]:w-* 覆盖宽度；不设按视口断点的 max-w，免得覆盖值被截断。 */}
+      {/* Vertical Header / Body / Footer layout; only SheetBody scrolls. Left/right default widths are 28rem,
+          overridden through data-[side=right]:w-* by callers; omit viewport-breakpoint max-w so overrides are not capped. */}
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
@@ -87,14 +87,14 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-header"
-      // 不随 Body 滚动；右侧给关闭按钮留位
+      // Do not scroll with Body; reserve right-side space for close buttons.
       className={cn("flex shrink-0 flex-col gap-0.5 border-b px-5 py-4 pr-12", className)}
       {...props}
     />
   )
 }
 
-// 本地新增：Sheet 里唯一的滚动区
+// Local addition: the sole Sheet scrolling region.
 function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -112,7 +112,7 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-footer"
-      // 固定在底部、不随 Body 滚动，保存栏等主操作放这里
+      // Fixed at bottom, outside Body scrolling; place save bars and other primary actions here.
       className={cn("mt-auto flex shrink-0 items-center justify-end gap-2 border-t bg-muted/50 px-5 py-3", className)}
       {...props}
     />

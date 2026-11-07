@@ -3,18 +3,18 @@ import { useTranslation } from "react-i18next";
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import type { ModelLifecycleNotice as Notice, ModelReferenceLayer } from "@/types/system";
 
-/** "provider/model" → 下线提示，取自候选接口的 `lifecycle`。 */
+/** "provider/model" → retirement notices from candidate-endpoint `lifecycle`. */
 export type ModelLifecycleNotices = Record<string, Notice>;
 
 export interface ModelLifecycleNoticeProps {
-  /** 这一处引用的当前值（provider/model）；留空（跟随默认、自动选择）不提示。 */
+  /** Current reference values (provider/model); empty values (follow defaults/automatic selection) show no notices. */
   value: string;
   notices?: ModelLifecycleNotices;
-  /** 这一处引用所在的位置，决定可切换的目标：任务类型桶按桶取，其余取默认层。 */
+  /** Reference locations determine switch candidates: task-type buckets use their buckets, others use default layers. */
   layer?: ModelReferenceLayer;
-  /** "provider/model" → 当前语言下的模型名；缺键退回 model id。 */
+  /** "provider/model" → model names in current locales; missing keys fall back to model IDs. */
   modelNames?: Record<string, string>;
-  /** 一键切换：只改这一处引用。 */
+  /** One-click switching changes only this reference. */
   onSwitch: (target: string) => void;
 }
 
@@ -30,9 +30,9 @@ function messageKey(notice: Notice, hasSuccessor: boolean): string {
 }
 
 /**
- * 引用处的下线提示：选中的模型即将下线或已下线时，在下拉下方写明下线日期与官方后继；后继在同一供应商下、
- * 且是这一处的候选时附一键切换。选中的模型已不在清单里、也查不到生命周期时，提示不可用。只提示、不替用户切换
- * （docs/adr/0103），也没有弹窗。
+ * Retirement notices at references: retiring/retired selected models show retirement dates and official successors below selects; offer one-click switching
+ * when successors share providers and are candidates here. Missing selected models without lifecycle data show Unavailable. Notify only, never switch for users
+ * (docs/adr/0103), without dialogs.
  */
 export function ModelLifecycleNotice({ value, notices, layer = "default", modelNames, onSwitch }: ModelLifecycleNoticeProps) {
   const { t } = useTranslation("templates");

@@ -1,4 +1,4 @@
-"""instructor_support 模块测试。"""
+"""instructor_support module tests."""
 
 import json
 from collections.abc import Generator
@@ -41,14 +41,14 @@ class SampleModel(BaseModel):
 
 
 def _structured(json_text: str, input_tokens: int, output_tokens: int) -> TextGenerationResult:
-    """一档 Instructor 调用成功时的结果：JSON 文本与这次调用的计量。"""
+    """Successful Instructor-tier result: JSON text and this call’s usage."""
     return TextGenerationResult(
         text=json_text, provider="", model="", input_tokens=input_tokens, output_tokens=output_tokens
     )
 
 
 def _completion(content: str, *, tool_calls=None, function_call=None) -> SimpleNamespace:
-    """构造一个 completion，供诊断日志断言取原始输出、供判据看有无 tool call。"""
+    """Build completions for raw-output log assertions and tool-call presence decisions."""
     return SimpleNamespace(
         choices=[
             SimpleNamespace(
@@ -66,11 +66,11 @@ def _retry_exhausted(
     completion_tokens: int = 0,
     earlier_attempts: list[Exception] | None = None,
 ) -> InstructorRetryException:
-    """构造 Instructor 档内重试耗尽异常，终止原因 inner 挂在 __cause__ 上（与真实形态一致）。
+    """Build exhausted Instructor-tier exceptions, attaching terminal inner causes through __cause__, matching real shapes.
 
-    prompt_tokens / completion_tokens 模拟档内那些拿到 HTTP 200、已被计费的尝试。
-    earlier_attempts 模拟终止前已累积的解析 / 校验失败——Instructor 不清空 failed_attempts，
-    所以它非空并不代表这一档是折在模型输出上。
+    prompt_tokens/completion_tokens simulate paid HTTP 200 attempts within tiers. earlier_attempts
+    simulates accumulated parse/validation failures; Instructor retains failed_attempts, so nonempty
+    lists do not prove model-output failures caused tier termination.
     """
     from instructor.core.exceptions import FailedAttempt
 
@@ -99,7 +99,7 @@ def _validation_error() -> ValidationError:
 
 
 def _no_tool_call_error() -> ResponseParsingError:
-    """上游没回 tool call：wire 层不兼容。"""
+    """Missing upstream tool calls mean wire incompatibility."""
     return ResponseParsingError(
         "No tool calls or function call found in response",
         mode="TOOLS",
@@ -108,7 +108,7 @@ def _no_tool_call_error() -> ResponseParsingError:
 
 
 def _md_json_parse_error() -> ResponseParsingError:
-    """MD_JSON 档解析失败：该档响应本来就没有 tool call，响应结构与 TOOLS 档缺 tool call 无法区分。"""
+    """MD_JSON parse failures naturally lack tool calls, indistinguishable in response shape from missing TOOLS calls."""
     return ResponseParsingError(
         "Failed to extract JSON from response",
         mode="MD_JSON",
@@ -117,7 +117,7 @@ def _md_json_parse_error() -> ResponseParsingError:
 
 
 def _function_call_args_missing_error() -> ResponseParsingError:
-    """上游走 legacy function_call 回了调用但 arguments 缺失：tool_calls 仍为 None，属校验类。"""
+    """Legacy function_call exists but lacks arguments: tool_calls remains None, yet this is validation failure."""
     function_call = SimpleNamespace(name="SampleModel", arguments=None)
     return ResponseParsingError(
         "Tool call arguments missing in response",
@@ -127,7 +127,7 @@ def _function_call_args_missing_error() -> ResponseParsingError:
 
 
 def _tool_call_args_invalid_error() -> ResponseParsingError:
-    """上游回了 tool call 但 arguments 不可用：属校验类，不是 wire 层不兼容。"""
+    """Existing tool calls with unusable arguments are validation failures, not wire incompatibility."""
     tool_call = SimpleNamespace(function=SimpleNamespace(arguments=None))
     return ResponseParsingError(
         "Tool call arguments missing in response",
@@ -145,7 +145,7 @@ def _bad_request(message: str) -> BadRequestError:
 
 
 def _tools_rejected_error() -> InstructorRetryException:
-    """上游拒收 tools 参数：Instructor 把这次 API 调用异常包起来后才到达降级链。"""
+    """Upstream tools rejection reaches fallback only after Instructor wraps API-call errors."""
     return instructor_api_call_exhausted(_bad_request("tools is not supported by this endpoint"))
 
 
@@ -153,10 +153,10 @@ def _tools_rejected_error() -> InstructorRetryException:
 def _recorded_instructor(
     result: tuple[Any, Any], *, is_async: bool = False
 ) -> Generator[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
-    """instructor 入口的记录器：记下 from_openai 与 create_with_completion 的参数。
+    """Instructor entry recorder captures from_openai/create_with_completion arguments.
 
-    mode 选择、导线参数名这些契约都是「最终发往端点的调用长什么样」，断言落在记录的参数上，
-    而不是替身的调用对象。
+    Modes/wire parameter names describe actual endpoint calls, so assert recorded arguments,
+    never substitute callable objects.
     """
     patched_with: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
@@ -184,7 +184,7 @@ def _recorded_instructor(
 
 class TestGenerateStructuredViaInstructor:
     def test_returns_json_and_tokens(self):
-        """正确返回 JSON 文本和 token 统计。"""
+        """Return correct JSON text/token counts."""
         mock_client = MagicMock()
         sample = SampleModel(name="Alice", age=30)
         mock_completion = SimpleNamespace(
@@ -211,7 +211,7 @@ class TestGenerateStructuredViaInstructor:
         assert result.output_tokens == 20
 
     def test_passes_mode_and_retries(self):
-        """mode 交给 from_openai，其余参数原样上线。"""
+        """Pass mode to from_openai, all other arguments unchanged onto the wire."""
         mock_client = MagicMock()
         sample = SampleModel(name="Bob", age=25)
         mock_completion = SimpleNamespace(
@@ -229,7 +229,7 @@ class TestGenerateStructuredViaInstructor:
             )
 
         assert patched_with == [{"client": mock_client, "mode": Mode.MD_JSON}]
-        # response_model 换成不带类 docstring 的子类（见 TestModelFacingSchemaOnWire），字段与校验不变
+        # response_model becomes a docstring-free subclass (TestModelFacingSchemaOnWire), preserving fields/validation.
         assert issubclass(calls[0].pop("response_model"), SampleModel)
         assert calls == [
             {
@@ -240,7 +240,7 @@ class TestGenerateStructuredViaInstructor:
         ]
 
     def test_handles_none_usage(self):
-        """completion.usage 为 None 时返回 None token 统计。"""
+        """completion.usage None returns None token counts."""
         mock_client = MagicMock()
         sample = SampleModel(name="Charlie", age=35)
         mock_completion = SimpleNamespace(usage=None)
@@ -265,7 +265,7 @@ class TestGenerateStructuredViaInstructor:
         assert result.output_tokens is None
 
     def test_max_tokens_uses_default_param_name(self):
-        """默认 token_param 下 max_tokens 值以 max_tokens 为参数名上线。"""
+        """Default token_param sends max_tokens under the max_tokens wire name."""
         sample = SampleModel(name="Dave", age=40)
         mock_completion = SimpleNamespace(usage=None)
 
@@ -287,7 +287,7 @@ class TestGenerateStructuredViaInstructor:
             assert "max_completion_tokens" not in call_kwargs
 
     def test_explicit_token_param_max_completion_tokens(self):
-        """显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        """Explicit token_param sends values under max_completion_tokens."""
         sample = SampleModel(name="Eve", age=45)
         mock_completion = SimpleNamespace(usage=None)
 
@@ -310,7 +310,7 @@ class TestGenerateStructuredViaInstructor:
             assert "max_tokens" not in call_kwargs
 
     def test_incomplete_output_maps_to_truncated_error(self):
-        """Instructor 的 IncompleteOutputException（max_tokens 截断）归一为 TextOutputTruncatedError。"""
+        """Normalize Instructor IncompleteOutputException/max_tokens truncation to TextOutputTruncatedError."""
         with patch("lib.backends.text_backends.instructor_support.instructor") as mock_instructor:
             mock_patched = MagicMock()
             mock_instructor.from_openai.return_value = mock_patched
@@ -332,7 +332,7 @@ class TestGenerateStructuredViaInstructor:
 
 class TestGenerateStructuredViaInstructorAsync:
     async def test_explicit_token_param_max_completion_tokens(self):
-        """异步版显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        """Async explicit token_param sends max_completion_tokens."""
         sample = SampleModel(name="Frank", age=50)
         mock_completion = SimpleNamespace(usage=None)
 
@@ -357,7 +357,7 @@ class TestGenerateStructuredViaInstructorAsync:
         assert result.output_tokens is None
 
     async def test_incomplete_output_maps_to_truncated_error(self):
-        """异步版 IncompleteOutputException 同样归一为 TextOutputTruncatedError。"""
+        """Async IncompleteOutputException also normalizes to TextOutputTruncatedError."""
         with patch("lib.backends.text_backends.instructor_support.instructor") as mock_instructor:
             mock_patched = MagicMock()
             mock_instructor.from_openai.return_value = mock_patched
@@ -377,10 +377,10 @@ class TestGenerateStructuredViaInstructorAsync:
 
 
 class TestInstructorFallbackSync:
-    """instructor_fallback_sync 高层函数测试。"""
+    """High-level instructor_fallback_sync tests."""
 
     def test_pydantic_schema_uses_instructor(self):
-        """Pydantic schema 走 instructor 路径，返回正确的 TextGenerationResult。"""
+        """Pydantic schemas use Instructor and return correct TextGenerationResult."""
         sample = SampleModel(name="Alice", age=30)
 
         with patch(
@@ -402,7 +402,7 @@ class TestInstructorFallbackSync:
         assert result.output_tokens == 20
 
     def test_dict_schema_uses_json_object(self):
-        """dict schema 走 json_object 路径。"""
+        """Dict schemas use json_object."""
         mock_client = MagicMock()
         mock_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
@@ -432,7 +432,7 @@ class TestInstructorFallbackSync:
         ]
 
     def test_pydantic_branch_forwards_token_param(self):
-        """Pydantic 分支的 token_param 一路传到导线：值以 max_completion_tokens 为参数名上线。"""
+        """Pydantic token_param reaches the wire as max_completion_tokens."""
         sample = SampleModel(name="Alice", age=30)
         completion = SimpleNamespace(usage=None)
 
@@ -460,7 +460,7 @@ class TestInstructorFallbackSync:
         assert patched_with == [{"client": client, "mode": Mode.TOOLS}]
 
     def test_dict_branch_default_token_param(self):
-        """dict 分支默认以 max_tokens 为参数名上线。"""
+        """Dict branches default to max_tokens."""
         mock_client = MagicMock()
         mock_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
@@ -482,7 +482,7 @@ class TestInstructorFallbackSync:
         assert "max_completion_tokens" not in call_kwargs
 
     def test_dict_branch_explicit_token_param(self):
-        """dict 分支显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        """Explicit dict token_param sends max_completion_tokens."""
         mock_client = MagicMock()
         mock_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
@@ -505,7 +505,7 @@ class TestInstructorFallbackSync:
         assert "max_tokens" not in call_kwargs
 
     def test_dict_schema_strips_leading_think_block(self):
-        """json_object 路径与原生路径同口径：content 开头的思考块不进结果。"""
+        """json_object matches native handling, excluding leading thinking blocks from results."""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='<think>想一想。</think>\n{"key": "value"}'))],
@@ -523,7 +523,7 @@ class TestInstructorFallbackSync:
         assert result.text == '{"key": "value"}'
 
     def test_dict_schema_truncation_raises(self):
-        """dict schema（response_schema 非空，无 Pydantic 模型）截断同样升级为硬错误。"""
+        """Dict-schema truncation, nonempty response_schema without Pydantic, also becomes hard failure."""
         mock_client = MagicMock()
         mock_response = SimpleNamespace(
             choices=[
@@ -548,12 +548,12 @@ class TestInstructorFallbackSync:
 
 
 class TestInstructorExceptionShape:
-    """钉住降级链判据所依赖的 Instructor 异常形态。
+    """Pin Instructor exception shapes consumed by fallback decisions.
 
-    判据要区分「API 调用被拒」与「模型输出不合规」，靠的是 Instructor 把终止原因挂在
-    ``__cause__`` 上、并按类型区分解析 / 校验类与其余异常。这些都是 Instructor 的实现细节，
-    升级依赖时可能变——本组用例对真实 Instructor 校验它们，形态一变即红，避免降级链在无人
-    察觉的情况下退化成「任何失败都判终局」或「瞬态错误也降档」。
+    Distinguish API rejection from invalid model output using terminal ``__cause__`` and
+    parse/validation exception classes. These private implementation details can change with
+    upgrades. Test real Instructor so shape changes fail rather than silently making every
+    failure terminal or downgrading transient errors.
     """
 
     def test_api_call_failure_arrives_wrapped(self):
@@ -576,20 +576,20 @@ class TestInstructorExceptionShape:
         assert exc_info.value.__cause__ is rejection
 
     def test_parse_failure_types_match_instructors_retryable_set(self):
-        """判据靠「终止原因是否属解析 / 校验类」区分模型问题与 API 问题，集合须与 Instructor 一致。
+        """Terminal parse/validation classification separates model failures from API failures; match Instructor’s set.
 
-        `_RETRYABLE_PARSE_ERRORS` 是私有符号、不属公开契约，而 pyproject 允许 instructor>=1.16.0，
-        升级后它可能改名或搬家。此处导入失败即是该情况：到 instructor 的重试循环里重新找出这批
-        「会被记进 failed_attempts 并触发 reask」的异常类型，同步更新 `_PARSE_FAILURE_TYPES`。
+        `_RETRYABLE_PARSE_ERRORS` is private, and allowed instructor>=1.16.0 upgrades may rename
+        or move it. Import failures signal this: rediscover exceptions recorded in failed_attempts
+        and triggering reask in Instructor’s retry loop, then update `_PARSE_FAILURE_TYPES`.
         """
         from instructor.v2.core.retry import _RETRYABLE_PARSE_ERRORS
 
         assert set(_PARSE_FAILURE_TYPES) == set(_RETRYABLE_PARSE_ERRORS)
 
     def test_failed_attempts_survive_a_later_api_failure(self):
-        """解析失败一次后再撞上 API 层错误：failed_attempts 保留旧记录，终止原因只在 __cause__。
+        """After one parse failure then API failure, failed_attempts retains old records; terminal cause lives only in __cause__.
 
-        判据若拿 failed_attempts 是否为空当「折在模型输出上」的代理，这条路径会被误判。
+        Treating nonempty failed_attempts as evidence of model-output termination misclassifies this path.
         """
         from openai import OpenAI
         from openai.types.chat import ChatCompletionMessage
@@ -616,7 +616,7 @@ class TestInstructorExceptionShape:
         assert exc_info.value.__cause__ is outage
 
     def test_parse_failure_is_recorded_in_failed_attempts(self):
-        """对照组：模型输出不合规时失败记进 failed_attempts，而非挂在 __cause__ 上。"""
+        """Control: invalid model outputs populate failed_attempts rather than __cause__."""
         from openai import OpenAI
 
         message = SimpleNamespace(content="不是 JSON", tool_calls=None, refusal=None)
@@ -639,10 +639,10 @@ class TestInstructorExceptionShape:
         assert exc_info.value.failed_attempts != []
 
     def test_absent_tool_call_is_retried_then_terminates_in_parse_error(self):
-        """TOOLS 档下上游不回 tool call：Instructor 当作可重试的解析失败，reask 带纠正提示重发。
+        """TOOLS without returned calls is retryable parsing failure; reask appends corrective guidance.
 
-        钉住判据依赖的形态：档内重试耗尽才终止、终止原因直接是 tool_calls=None 的解析异常，
-        且每次重发都追加了纠正消息（而非原样重发同一份请求）。
+        Pin consumed shapes: terminate only after in-tier exhaustion, with tool_calls=None parse
+        errors as direct terminal causes; every retry appends correction instead of resending unchanged requests.
         """
         from openai import OpenAI
         from openai.types.chat import ChatCompletionMessage
@@ -669,12 +669,12 @@ class TestInstructorExceptionShape:
         assert cause.raw_response.choices[0].message.tool_calls is None
         calls = client.chat.completions.create.call_args_list
         assert len(calls) == 3
-        # Instructor 原地追加消息列表，各次调用记录的是同一个对象，只能看最终形态
+        # Instructor mutates message lists in place; recorded calls share objects, so inspect final shapes only.
         assert [m["role"] for m in calls[-1].kwargs["messages"][:3]] == ["user", "assistant", "user"]
 
 
 class TestStructuredModeChainSync:
-    """TOOLS → MD_JSON 降级链（同步版）。"""
+    """Synchronous TOOLS → MD_JSON fallback chain."""
 
     @staticmethod
     def _call():
@@ -691,7 +691,7 @@ class TestStructuredModeChainSync:
         return [call.kwargs["mode"] for call in mock_gen.call_args_list]
 
     def test_chain_starts_with_tools_mode(self):
-        """首档是 TOOLS：成功即返回，不触碰约束更弱的 MD_JSON。"""
+        """TOOLS runs first; success never touches weaker MD_JSON."""
         sample = SampleModel(name="Alice", age=30)
         with patch(
             "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -704,7 +704,7 @@ class TestStructuredModeChainSync:
         assert result.text == sample.model_dump_json()
 
     def test_tools_param_rejected_falls_back_to_md_json(self):
-        """上游拒收 tools 参数（wire 层）→ 降档到 MD_JSON 并产出合规结果。"""
+        """Upstream wire-level tools rejection downgrades to compliant MD_JSON output."""
         sample = SampleModel(name="Bob", age=25)
         with patch(
             "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -716,7 +716,7 @@ class TestStructuredModeChainSync:
         assert result.text == sample.model_dump_json()
 
     def test_no_tool_call_in_response_falls_back_to_md_json(self):
-        """上游收下 tools 却不回 tool call（wire 层）→ 降档到 MD_JSON。"""
+        """Upstream accepts tools but returns no calls: wire incompatibility downgrades to MD_JSON."""
         sample = SampleModel(name="Carol", age=28)
         with patch(
             "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -728,7 +728,7 @@ class TestStructuredModeChainSync:
         assert result.text == sample.model_dump_json()
 
     def test_client_type_error_after_tools_parse_failure_propagates(self):
-        """TOOLS 档缺 tool call 一次后撞上客户端 TypeError：终止原因是客户端错误，原样冒泡而非降档。"""
+        """Missing TOOLS calls followed by client TypeError terminate with client errors, propagated unchanged without downgrading."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -746,7 +746,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_client_type_error_after_md_json_parse_failure_propagates(self):
-        """MD_JSON 档解析失败一次后撞上客户端 TypeError：该档 reask 不会崩，TypeError 原样冒泡而非判终局。"""
+        """MD_JSON parse failure followed by client TypeError keeps reask functional and propagates TypeError, not terminal-output classification."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -765,7 +765,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
 
     def test_function_call_with_missing_args_is_terminal(self):
-        """legacy function_call 回了调用但 arguments 缺失：上游确实回了调用，判终局不降档。"""
+        """Legacy function_call lacking arguments still proves upstream returned calls; terminal validation never downgrades."""
         sample = SampleModel(name="Eve", age=29)
         with (
             patch(
@@ -784,7 +784,7 @@ class TestStructuredModeChainSync:
         assert "ResponseParsingError" in str(exc_info.value)
 
     def test_tools_validation_exhaustion_is_terminal(self):
-        """TOOLS 档校验类耗尽不降档：上游确实回了 tool call，换更弱的档只会更差。"""
+        """Exhausted TOOLS validation never downgrades; actual tool calls exist, and weaker tiers only worsen constraints."""
         exhausted = _retry_exhausted(_validation_error(), content='{"name": "Alice"}')
         with (
             patch(
@@ -801,7 +801,7 @@ class TestStructuredModeChainSync:
         assert exc_info.value.model == "test-model"
 
     def test_md_json_exhaustion_raises_structured_output_exhausted(self):
-        """末档耗尽同样收敛为终局异常，不把 InstructorRetryException 原文透出去。"""
+        """Final-tier exhaustion becomes terminal domain errors, never raw InstructorRetryException text."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -815,7 +815,7 @@ class TestStructuredModeChainSync:
         assert "最后一次 ValidationError" in exc_info.value.reason
 
     def test_transient_error_propagates_unchanged(self):
-        """瞬态错误既不降档也不收敛为终局异常，原样冒泡交调用方的重试装饰器判定。"""
+        """Transient errors neither downgrade nor become terminal output errors; propagate for caller retry decorators."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -828,7 +828,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_truncation_does_not_fall_back(self):
-        """截断是硬错误：重发同一份必然再截断的请求没有意义，不降档。"""
+        """Truncation is hard failure; repeating requests guaranteed to truncate is pointless, never downgrade."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -841,7 +841,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_downgrade_logs_raw_model_output(self, caplog):
-        """降档触发点以 warning 记录截断后的模型原始输出。"""
+        """Downgrade warnings log length-truncated raw model output."""
         sample = SampleModel(name="Dave", age=33)
         raw = "抱歉，我无法按要求输出 JSON。"
         with (
@@ -859,7 +859,7 @@ class TestStructuredModeChainSync:
         assert any(raw in record.getMessage() for record in caplog.records)
 
     def test_transient_error_keeps_its_type_after_unwrapping(self):
-        """瞬态错误剥掉 Instructor 包装后冒泡，保住类型供调用方的重试装饰器判定。"""
+        """Unwrap Instructor wrappers before propagating transient errors, preserving types for caller retry decisions."""
         from lib.infra.retry import BASE_RETRYABLE_ERRORS, should_retry
 
         with (
@@ -871,11 +871,11 @@ class TestStructuredModeChainSync:
         ):
             self._call()
 
-        # 消息文本不含任何瞬态状态码模式，只有异常类型能证明它可重试。
+        # Messages contain no transient status patterns; exception types alone prove retriability.
         assert should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
 
     def test_invalid_tool_call_arguments_are_terminal(self):
-        """上游回了 tool call 但 arguments 不可用：属校验类，不降到约束更弱的 MD_JSON。"""
+        """Returned tool calls with invalid arguments are validation failures, never weaker MD_JSON fallback."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -888,7 +888,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_api_failure_after_earlier_parse_failure_propagates(self):
-        """先解析失败一次、再撞上瞬态错误：终止原因是后者，原样冒泡而非当成模型输出不合规。"""
+        """One parse failure followed by transient errors terminates on the latter, propagated rather than misclassified as invalid output."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -906,8 +906,8 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_non_tools_bad_request_propagates(self):
-        """与 tools 无关的 400（如上下文超限）原样冒泡：无 STRUCTURED_OUTPUT 能力位的模型
-        不经原生档直接进本链，把这类 400 当 tools 不兼容会替换掉真实的失败原因。"""
+        """Unrelated HTTP 400, e.g. context overflow, propagates unchanged. Models without STRUCTURED_OUTPUT
+        enter this chain directly; treating such errors as tools incompatibility would replace real causes."""
         rejection = _bad_request("This model's maximum context length is 8192 tokens")
         with (
             patch(
@@ -921,7 +921,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_tools_rejection_matched_case_insensitively(self):
-        """代理的拒收文案大小写不统一，判据须归一后再匹配，否则降档路径形同虚设。"""
+        """Proxy rejection wording varies in case; normalize before matching or fallback becomes unreachable."""
         sample = SampleModel(name="Grace", age=31)
         rejection = _bad_request("Tools Are Not Supported By This Endpoint")
         with patch(
@@ -934,7 +934,7 @@ class TestStructuredModeChainSync:
         assert result.text == sample.model_dump_json()
 
     def test_downgrade_carries_billed_tokens_of_failed_mode(self):
-        """TOOLS 档拿到过 HTTP 200（已计费）后才降档，这部分 token 并入最终结果。"""
+        """Paid TOOLS HTTP 200 attempts before downgrade merge token usage into final results."""
         sample = SampleModel(name="Heidi", age=29)
         with patch(
             "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -949,7 +949,7 @@ class TestStructuredModeChainSync:
         assert result.output_tokens == 35
 
     def test_downgrade_without_usage_keeps_tokens_untracked(self):
-        """两侧皆未追踪用量时保持 None，不因并账塌成字面 0 token。"""
+        """Untracked usage on both sides stays None, never collapses to literal zero tokens."""
         sample = SampleModel(name="Ivan", age=26)
         with patch(
             "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -964,7 +964,7 @@ class TestStructuredModeChainSync:
         assert result.output_tokens is None
 
     def test_last_mode_wire_rejection_is_terminal(self):
-        """末档仍被上游拒收：无更弱的档可退，收敛为终局异常而非无限降档。"""
+        """Final-tier upstream rejection has no weaker fallback; terminate rather than downgrade forever."""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
@@ -978,7 +978,7 @@ class TestStructuredModeChainSync:
 
 
 class TestStructuredModeChainAsync:
-    """TOOLS → MD_JSON 降级链（异步版），与同步版同口径。"""
+    """Async TOOLS → MD_JSON chain, matching synchronous rules."""
 
     @staticmethod
     async def _call():
@@ -1046,10 +1046,10 @@ class TestStructuredModeChainAsync:
 
 
 class TestStructuredModeChainThroughInstructor:
-    """降级链经真实 Instructor 驱动，只在 SDK 边界打桩：上游整条通道只回正文、从不回 tool call。
+    """Real Instructor drives fallback; stub SDK boundaries only, with upstream returning body text but never tool calls.
 
-    正文开头的思考块里带一段草稿 JSON：MD_JSON 档取正文里第一段能解析的 JSON，只有先剥掉
-    思考块，解析出的才是 ``</think>`` 之后的最终答案。
+    Opening thinking blocks contain draft JSON; MD_JSON extracts the first parseable body JSON,
+    so strip thinking first to obtain final answers after ``</think>``.
     """
 
     @staticmethod
@@ -1071,7 +1071,7 @@ class TestStructuredModeChainThroughInstructor:
         )
 
     def test_sync_content_only_response_lands_on_md_json(self):
-        """TOOLS 档 reask 重试耗尽后降档，MD_JSON 档从同样的正文解析出结果；各次请求的计费合并。"""
+        """Exhausted TOOLS reask downgrades; MD_JSON parses identical body text, merging billing from every request."""
         from openai import OpenAI
 
         client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
@@ -1098,7 +1098,7 @@ class TestStructuredModeChainThroughInstructor:
         assert result.output_tokens == 22
 
     async def test_async_content_only_response_lands_on_md_json(self):
-        """异步入口同口径：这是 OpenAI 兼容后端走结构化降级链的生产路径。"""
+        """Async entry matches production OpenAI-compatible structured-fallback behavior."""
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
@@ -1126,10 +1126,9 @@ class TestStructuredModeChainThroughInstructor:
 
 
 class TestModelFacingSchemaOnWire:
-    """经真实 Instructor 与 OpenAI SDK 发出的请求体里不带类 docstring：TOOLS 档的工具说明与参数、MD_JSON 档注入的
-    schema 都一样。
+    """Real Instructor/OpenAI SDK request bodies omit class docs in TOOLS descriptions/arguments and MD_JSON injected schemas alike.
 
-    respx 在 transport 层截获首个请求后回 400 让调用结束，只看序列化后的请求体。
+    respx intercepts first serialized requests and returns 400 to terminate; inspect wire bodies only.
     """
 
     _ENDPOINT = "https://proxy.invalid/v1/chat/completions"
@@ -1141,7 +1140,7 @@ class TestModelFacingSchemaOnWire:
         if mode is Mode.TOOLS:
             return json.dumps(body["tools"], ensure_ascii=False)
         system_content = body["messages"][0]["content"]
-        assert '"properties"' in system_content  # schema 确已注入，下面的断言才有意义
+        assert '"properties"' in system_content  # Schema injection must exist for later assertions to be meaningful.
         return system_content
 
     @pytest.mark.parametrize("mode", [Mode.TOOLS, Mode.MD_JSON])
@@ -1184,10 +1183,10 @@ class TestModelFacingSchemaOnWire:
 
 
 class TestInstructorFallbackAsync:
-    """instructor_fallback_async 高层函数测试。"""
+    """High-level instructor_fallback_async tests."""
 
     async def test_pydantic_schema_uses_instructor_async(self):
-        """Pydantic schema 走异步 instructor 路径。"""
+        """Pydantic schemas use async Instructor."""
         sample = SampleModel(name="Bob", age=25)
 
         with patch(
@@ -1209,7 +1208,7 @@ class TestInstructorFallbackAsync:
         assert result.output_tokens == 18
 
     async def test_dict_schema_uses_json_object_async(self):
-        """dict schema 走异步 json_object 路径。"""
+        """Dict schemas use async json_object."""
         mock_client = AsyncMock()
         mock_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"k": "v"}'))],
@@ -1238,7 +1237,7 @@ class TestInstructorFallbackAsync:
         ]
 
     async def test_pydantic_branch_forwards_token_param_async(self):
-        """异步 Pydantic 分支的 token_param 一路传到导线：值以 max_completion_tokens 为参数名上线。"""
+        """Async Pydantic token_param reaches the wire as max_completion_tokens."""
         sample = SampleModel(name="Bob", age=25)
         completion = SimpleNamespace(usage=None)
 
@@ -1268,7 +1267,7 @@ class TestInstructorFallbackAsync:
         assert result.output_tokens is None
 
     async def test_dict_branch_default_token_param_async(self):
-        """异步 dict 分支默认以 max_tokens 为参数名上线。"""
+        """Async dict branches default to max_tokens."""
         mock_client = AsyncMock()
         mock_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"k": "v"}'))],
@@ -1290,7 +1289,7 @@ class TestInstructorFallbackAsync:
         assert "max_completion_tokens" not in call_kwargs
 
     async def test_dict_branch_explicit_token_param_async(self):
-        """异步 dict 分支显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        """Explicit async dict token_param sends max_completion_tokens."""
         mock_client = AsyncMock()
         mock_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"k": "v"}'))],
@@ -1313,7 +1312,7 @@ class TestInstructorFallbackAsync:
         assert "max_tokens" not in call_kwargs
 
     async def test_dict_schema_strips_leading_think_block_async(self):
-        """异步 json_object 路径同样剥掉 content 开头的思考块。"""
+        """Async json_object also strips leading thinking blocks."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='<think>想一想。</think>\n{"k": "v"}'))],
@@ -1331,7 +1330,7 @@ class TestInstructorFallbackAsync:
         assert result.text == '{"k": "v"}'
 
     async def test_dict_schema_truncation_raises_async(self):
-        """异步 dict schema 截断同样升级为硬错误。"""
+        """Async dict-schema truncation also becomes hard failure."""
         mock_client = AsyncMock()
         mock_response = SimpleNamespace(
             choices=[

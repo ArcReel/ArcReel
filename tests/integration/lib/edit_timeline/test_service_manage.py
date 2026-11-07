@@ -1,4 +1,4 @@
-"""剪辑时间线管理命令：复制、改名、修订历史、回滚与删除，在真实临时项目目录上经公开服务命令验证。"""
+"""Timeline management public commands verify copy, rename, history, rollback, deletion on real projects."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ async def test_copy_of_a_given_revision_matches_the_source_content(service: Edit
     assert (only.author, only.parent) == (AGENT, None)
     assert "初剪" in only.summary
     assert "修订 2" in only.summary
-    # 源时间线不受影响。
+    # Source timeline stays unchanged.
     assert (await service.read("demo", source_id)).revision == 3
 
 
@@ -194,7 +194,7 @@ async def test_restore_appends_a_revision_with_the_target_content(service: EditT
     last = history.revisions[-1]
     assert (last.restored_from, last.parent, last.author) == (1, 3, CREATOR)
     assert set(last.changed_clip_ids or ()) == {"c1", "c2", "c3"}
-    # 旧修订仍可读：回滚前的内容没有丢。
+    # Old revisions remain readable; pre-rollback contents are preserved.
     assert [clip.id for clip in (await service.read("demo", timeline_id, revision=3)).clips] == ["c2", "c1"]
 
 
@@ -231,7 +231,7 @@ async def test_edit_based_on_a_revision_before_a_rollback_conflicts_on_the_resto
 ) -> None:
     timeline_id = await _create(service)
     await _edit(service, timeline_id, 1, {"op": "set_volume", "clip": "c1", "volume": 0.2})
-    await service.restore("demo", timeline_id, revision=1, author=AGENT)  # r3：c1 音量被还原
+    await service.restore("demo", timeline_id, revision=1, author=AGENT)  # r3 restores c1 volume.
 
     with pytest.raises(EditTimelineError) as conflict:
         await _edit(service, timeline_id, 2, {"op": "set_hold", "clip": "c1", "hold": 0.5})
@@ -256,7 +256,7 @@ async def test_a_reordering_rollback_marks_every_shared_clip_as_changed(service:
 
 
 def _register_render_artifacts(pm: ProjectManager, timeline_id: str) -> list[str]:
-    """给一条剪辑时间线登记成片与剪映草稿（文件加登记），返回正式路径。"""
+    """Register final-cut/draft files and records on a timeline; return formal paths."""
     project_dir = pm.get_project_path("demo")
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir))
     final_cut = final_cut_artifact_path(1, timeline_id, FinalCutVariant())
@@ -338,7 +338,7 @@ async def test_every_timeline_write_moves_project_activity_forward(
     pm: ProjectManager,
     write: Callable[[EditTimelineService, str], Awaitable[object]],
 ) -> None:
-    # 剪辑时间线是 JSON，修改时间不计入活动；删除后文件也不在了，只能靠写入出口记账。
+    # Timeline JSON mtime does not count as activity; after deletion only write-boundary accounting can retain activity.
     timeline_id = await _create(service)
     await _edit(service, timeline_id, 1, {"op": "set_volume", "clip": "c2", "volume": 0.6})
     project_path = pm.get_project_path("demo")

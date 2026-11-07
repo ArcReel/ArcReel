@@ -1,11 +1,11 @@
-"""LoadedConfig — 内置 backend 构造缝的 async 装载段产物、sync 构造段唯一输入。
+"""LoadedConfig: async loading output and sole sync construction input for built-in backends.
 
-承载三样东西：① 凭证 overlay（db_config 解析出的 api_key / access_key / secret_key /
-base_url 等，键名即列名，承 ADR 0037「registry key 名 = 列名 = 构造参数名 = config key」）；
-② provider registry meta（default_base_url / api_model_name 来源）；③ 共享 rate_limiter。
+Carries three things: ① credential overlays (api_key / access_key / secret_key /
+base_url etc. resolved from db_config; keys equal column names, following ADR 0037: registry key name = column name = constructor argument name = config key);
+② provider registry meta (source of default_base_url / api_model_name); ③ shared rate_limiter.
 
-构造闭包只读这个信封拼 backend，不查 DB、不 await —— 这条中线是「构造可脱离 DB 直接单测」的
-结构保证（手搓一个 LoadedConfig + model_id 即可断言造出的构造参数）。
+Construction closures only read this envelope to assemble backends, without DB queries or await. This boundary structurally
+ensures construction can be unit-tested without DB access (manually supply LoadedConfig + model_id and assert constructed arguments).
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class LoadedConfig:
-    """内置侧 build 闭包的唯一输入信封。"""
+    """Sole input envelope for built-in build closures."""
 
     credentials: dict[str, str | None]
     provider_meta: ProviderMeta | None
-    # 简单族 _build_simple 不消费 rate_limiter（与迁移前 _fill_simple_provider_kwargs 一致：限流由
-    # 简单后端各自的 httpx 客户端内建）；信封预留此槽供后续迁入的特例族 build 闭包（如 gemini 媒体）读取。
+    # Simple-family _build_simple ignores rate_limiter, matching former _fill_simple_provider_kwargs: rate limiting is
+    # built into each simple backend's httpx client. Reserve this slot for future migrated special-family build closures, such as gemini media.
     rate_limiter: Any | None
-    # 叠加进 credentials 的生效凭证记录 ID；凭证来自供应商配置而非凭证记录时为 None。调用通道据此报出实际使用的
-    # 推理凭证，素材库按它的绑定选用供应商素材（见 lib.backends.provider_assets）。
+    # Effective credential record ID overlaid into credentials; None for credentials from provider configuration rather than records. Channels report
+    # the actual inference credential through it, letting the asset library select provider materials by its bindings (lib.backends.provider_assets).
     credential_id: int | None = None

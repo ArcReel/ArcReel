@@ -1,8 +1,8 @@
-"""目录数据读入后的类型。
+"""Types for parsed catalog data.
 
-一份目录数据含数据集版本、模型条目与内置供应商清单。模型条目描述模型本身的事实，身份是
-「模型厂商/官方模型名」，两栖模型的两个条目再以媒体类型区分；内置供应商清单列出每个内置供应商
-官方收录的供应商模型，以及按媒体类型指定的默认模型。
+Catalog data contains a dataset version, catalog entries, and built-in provider listings. Entries describe facts about models themselves, identified by
+"model maker/official model name", with dual-media entries further distinguished by media type; built-in provider listings contain each built-in provider's
+officially listed provider models and defaults by media type.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class ImageFacts:
 
 @dataclass(frozen=True)
 class DurationConstraints:
-    """在可选时长之上按条件收窄：指定分辨率时、使用参考图时各自允许的时长。"""
+    """Conditional narrowing of supported durations: allowed durations for a specified resolution or when reference images are used."""
 
     by_resolution: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     with_reference_images: tuple[int, ...] = ()
@@ -62,7 +62,7 @@ ModelFacts = TextFacts | ImageFacts | VideoFacts | AudioFacts
 
 @dataclass(frozen=True)
 class PriceRow:
-    """一行「条件 → 单价」。``when`` 中缺省的选择维度表示任意取值。"""
+    """One condition → unit price row. Selection dimensions absent from ``when`` allow any value."""
 
     when: Mapping[str, object]
     price: float
@@ -70,10 +70,10 @@ class PriceRow:
 
 @dataclass(frozen=True)
 class Meter:
-    """价目表中的一个计量项：按 ``dims`` 列出的选择维度分档给出单价。
+    """One price-table meter, with tiered unit prices over selection dimensions listed in ``dims``.
 
-    ``defaults`` 是请求缺少某个维度取值时使用的取值；``free_allowance`` 是单请求免费额度，
-    按计量项的计数单位计；``cjk_double`` 只用于字符数，表示汉字计 2 个字符。
+    ``defaults`` supplies missing request dimension values; ``free_allowance`` is the free allowance per request,
+    in the meter's counting units; ``cjk_double`` applies only to character counts and counts each Han character as two.
     """
 
     meter: str
@@ -86,14 +86,14 @@ class Meter:
 
 @dataclass(frozen=True)
 class PriceTable:
-    """模型条目上的官方价格：单币种，由若干计量项组成。"""
+    """Official catalog entry pricing: single-currency, composed of meters."""
 
     currency: str
     meters: tuple[Meter, ...]
 
     @property
     def unrecognized_keys(self) -> tuple[str, ...]:
-        """当前代码不认识的币种、计量项与选择维度，按出现顺序去重。"""
+        """Currencies, meters, and selection dimensions unknown to the current code, deduplicated in order of appearance."""
         keys: list[str] = []
         if self.currency not in CURRENCIES:
             keys.append(self.currency)
@@ -105,7 +105,7 @@ class PriceTable:
 
     @property
     def is_priceable(self) -> bool:
-        """为 False 时，这份价目表依赖当前代码不认识的内容，按它计价的调用记为未定价。"""
+        """When False, the price table depends on content unknown to the current code, and calls priced with it are recorded as unpriced."""
         return not self.unrecognized_keys
 
 
@@ -117,18 +117,18 @@ class EntryKey:
 
     @property
     def ref(self) -> str:
-        """「模型厂商/官方模型名」，内置供应商清单按它引用条目。"""
+        """The "model maker/official model name" key used by built-in provider listings to reference entries."""
         return f"{self.maker}/{self.name}"
 
 
 @dataclass(frozen=True)
 class CatalogEntry:
-    """一个模型条目。
+    """One catalog entry.
 
-    生命周期记在条目上，表示模型厂商层面的退役，各供应商共用：``release_date`` 是上线日期，
-    ``shutdown_date`` 是关停日期，都精确到日，按 UTC 日期判断，关停当天即视为已下线；``successor``
-    是厂商官方指定的后继模型，以「模型厂商/官方模型名」引用媒体类型相同的条目。``discontinued``
-    表示已下线，目录构建在关停日期不晚于构建当天时置真，不认识关停日期的旧版实例据此认出已下线的模型。
+    Lifecycle belongs to the entry and represents retirement at the model-maker level, shared by providers: ``release_date`` is the launch date,
+    ``shutdown_date`` is the shutdown date, both at day precision and evaluated in UTC; the model is considered discontinued on shutdown day. ``successor``
+    is the maker's official successor, referencing a same-media-type entry by "model maker/official model name". ``discontinued``
+    means offline; catalog builds set it when shutdown is no later than build day, letting older instances without shutdown-date support recognize discontinued models.
     """
 
     maker: str
@@ -151,12 +151,12 @@ class CatalogEntry:
 
 @dataclass(frozen=True)
 class BuiltinProviderModel:
-    """内置供应商官方收录的一个供应商模型。
+    """One officially listed provider model of a built-in provider.
 
-    ``entry`` 是「模型厂商/官方模型名」；只有引用两栖模型时才需要 ``media_type`` 指明是哪一个条目。
-    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不启用它，只在设置页列出所需版本。``endpoint`` 是它挂接的
-    内置调用端点，取该供应商在条目媒体类型下的可选端点之一（见 ``endpoints.BUILTIN_PROVIDER_ENDPOINTS``）；
-    缺失表示没有声明。同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
+    ``entry`` is "model maker/official model name"; ``media_type`` is needed only to disambiguate dual-media model entries.
+    ``multiplier`` is the provider model multiplier; app versions below ``min_app_version`` leave it disabled and show the required version in settings. ``endpoint`` is its attached
+    built-in endpoint, chosen from that provider's options for the entry media type (see ``endpoints.BUILTIN_PROVIDER_ENDPOINTS``);
+    absence means undeclared. Within a provider, models are distinguished by API model name and the referenced entry's media type.
     """
 
     api_model_name: str
@@ -169,7 +169,7 @@ class BuiltinProviderModel:
 
 @dataclass(frozen=True)
 class BuiltinProviderListing:
-    """一个内置供应商的清单。``defaults`` 按媒体类型给出默认模型的 API 模型名。"""
+    """One built-in provider listing. ``defaults`` gives the default API model name for each media type."""
 
     models: tuple[BuiltinProviderModel, ...]
     defaults: Mapping[str, str] = field(default_factory=dict)
@@ -182,13 +182,13 @@ class CatalogData:
     builtin_providers: Mapping[str, BuiltinProviderListing]
 
     def entry_of(self, model: BuiltinProviderModel) -> CatalogEntry | None:
-        """供应商模型引用的条目；引用不到或无法唯一确定（两栖模型未指明媒体类型）时返回 None。"""
+        """Entry referenced by a provider model; None when missing or ambiguous (dual-media models without a media type)."""
         matches = matching_entries(self.entries, model.entry, model.media_type)
         return matches[0] if len(matches) == 1 else None
 
 
 def matching_entries(entries: tuple[CatalogEntry, ...], ref: str, media_type: str | None) -> list[CatalogEntry]:
-    """按「模型厂商/官方模型名」与可选的媒体类型找条目，身份相同的只取第一个。"""
+    """Find entries by "model maker/official model name" and optional media type, keeping only the first for each identity."""
     maker, _, name = ref.partition("/")
     found: dict[EntryKey, CatalogEntry] = {}
     for entry in entries:

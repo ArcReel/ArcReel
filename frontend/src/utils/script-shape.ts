@@ -1,7 +1,7 @@
 /**
- * 剧本形状分派（与后端 SCRIPT_SHAPES 同口径）：content_mode → 条目 ID / 角色引用字段。
+ * Script-shape dispatch, matching backend SCRIPT_SHAPES: content_mode → entry-ID / character-reference fields.
  *
- * 时间线编辑器各组件（列表 / 分屏 / 详情 / 引用区）共用，避免三元映射在多处漂移。
+ * Timeline lists/split views/details/reference sections share this, avoiding drift among duplicate ternaries.
  */
 
 import type {
@@ -22,7 +22,7 @@ export type CharactersField =
   | "characters_in_scene"
   | "characters_in_shot";
 
-/** 取条目 ID（segment_id / scene_id / shot_id）。 */
+/** Extract entry IDs (segment_id / scene_id / shot_id). */
 export function getScriptItemId(item: ScriptItem, mode: EditorContentMode): string {
   if (mode === "narration") return (item as NarrationSegment).segment_id;
   if (mode === "ad") return (item as AdShot).shot_id;
@@ -30,9 +30,9 @@ export function getScriptItemId(item: ScriptItem, mode: EditorContentMode): stri
 }
 
 /**
- * 取剧集剧本在该模式下的条目数组（segments / shots / scenes）。
+ * Episode entry arrays for modes: segments / shots / scenes.
  *
- * 未注册的模式返回空数组：以其他模式的形状渲染会让保存分派到错误端点。
+ * Unregistered modes return empty arrays; rendering alternate shapes would dispatch saves to wrong endpoints.
  */
 export function getScriptItems(
   script: EpisodeScript | null | undefined,
@@ -45,7 +45,7 @@ export function getScriptItems(
   return [];
 }
 
-/** 取该模式下条目的角色引用字段名。 */
+/** Character-reference field names for mode entries. */
 export function charactersFieldFor(mode: EditorContentMode): CharactersField {
   if (mode === "drama") return "characters_in_scene";
   if (mode === "ad") return "characters_in_shot";
@@ -53,10 +53,10 @@ export function charactersFieldFor(mode: EditorContentMode): CharactersField {
 }
 
 /**
- * 集总时长 = 逐条目 `duration_seconds` 求和。
+ * Episode total duration = sum of entry `duration_seconds`.
  *
- * 它是派生值，剧本不落盘一份（服务端由项目摘要按同一口径读时计算）。各画布共用这一份
- * 实现，避免同一个数在时间线与宫格两处各写一遍、健壮度还不一致。
+ * Derived values never persist in scripts (servers compute on read from summaries with identical rules). All canvases share
+ * this implementation, avoiding duplicate timeline/grid calculations with divergent robustness.
  */
 export function sumItemDuration(
   items: readonly { duration_seconds?: number | null }[],

@@ -6,21 +6,21 @@ interface TruncatedTextProps {
   text: string;
   className?: string;
   /**
-   * 放在按钮等可聚焦元素里时传 false：截断时不再单独进入 Tab 顺序（嵌套的可聚焦元素违反 WCAG 4.1.2），
-   * 悬停仍显示全文，读屏从外层元素的可访问名称读到全文。
+   * Pass false inside focusable elements such as buttons: truncated text no longer enters Tab order independently (nested focusables violate WCAG 4.1.2);
+   * hover still reveals full text, and screen readers read it from outer accessible names.
    */
   focusable?: boolean;
 }
 
 /**
- * 单行截断的文字：被截断时可经键盘聚焦，悬停或聚焦都显示全文；没有截断时不进入 Tab 顺序、不弹提示。
- * 用于名称、路径、模型 ID 这类不能折行的短文本；放进 flex 或表格单元格时，父级需允许它收缩（min-w-0 / max-w-0）。
+ * Single-line truncated text: truncated items accept keyboard focus and show full text on hover/focus; untruncated items skip Tab order and hints.
+ * For unwrappable short names/paths/model IDs; flex/table-cell parents must permit shrinking (min-w-0/max-w-0).
  */
 export function TruncatedText({ text, className, focusable = true }: TruncatedTextProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [truncated, setTruncated] = useState(false);
 
-  // 容器宽度变化（面板拖宽、窗口缩放）都会改变是否截断，只能在浏览器里比较内容宽度与可见宽度。
+  // Container-width changes (panel resizing/window resizing) alter clipping; only browsers can compare content/visible widths.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -38,7 +38,7 @@ export function TruncatedText({ text, className, focusable = true }: TruncatedTe
         render={
           <span
             ref={ref}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 截断时须能用键盘聚焦以显示全文；它没有可执行的动作，不渲染为 button
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Clipped text needs keyboard focus to reveal full contents; it has no executable actions and is not a button
             tabIndex={truncated && focusable ? 0 : undefined}
             className={cn("block min-w-0 truncate", className)}
           />

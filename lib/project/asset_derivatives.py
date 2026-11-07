@@ -1,13 +1,12 @@
-"""角色衍生资产图的身份、落盘形状与生成准入（见 ``docs/adr/0072``）。
+"""Character-derivative sheet identity, persistence shape, and generation admission (``docs/adr/0072``).
 
-衍生挂在本体资产条目内的 ``DERIVATIVES_FIELD`` 表下，共享本体的名字与身份，自身只持有
-一段相对本体的外观变化描述与一张资产图。那张资产图是对**本体资产图**的一次图片编辑
-（``docs/adr/0050`` 语义）：变化描述即编辑指令，固定守卫要求保持三视图版式与其余外观不变；
-本体没有资产图时不能生成。
+Derivatives live in base entries' ``DERIVATIVES_FIELD``, sharing base names/identity and holding only
+relative appearance-change descriptions and sheets. Sheets edit **base sheets** under ``docs/adr/0050``:
+changes are instructions, with fixed guards preserving three-view layout/other appearance. No base
+sheet means no generation.
 
-本模块是「衍生资产图叫什么、落在哪、由什么输入生成」的唯一事实源，供衍生路由、执行层、
-产物规划（时新性判定）与版本管理共用同一套坐标，避免各处自行拼 ``本体名/衍生名``。
-"""
+Sole source for naming, location, and inputs, shared by routes/execution/artifact planning (currency)/
+history, avoiding independently constructed ``本体名/衍生名`` coordinates."""
 
 from __future__ import annotations
 
@@ -35,37 +34,37 @@ from lib.project.resource_paths import (
     version_snapshot_dir,
 )
 
-#: 引用与产物 id 里分隔本体与衍生的字符。``/`` 已是资产名禁用字符，拼接无歧义。
+#: Separator for base/derivative references and IDs; ``/`` is already forbidden in asset names, making joins unambiguous.
 DERIVATIVE_ID_SEPARATOR = "/"
 
-#: 衍生资产图在队列与图片编辑 API 里的类型名：既是队列 task_type，也是 ``image_edit``
-#: 请求体里的 ``resource_type``。两处必然同名（``TaskSpec`` 按同一张表判 id 段数），
-#: 故只此一份；落盘与版本管理用的资源类型是另一个概念，见
+#: Queue/edit API type, shared by task_type and ``image_edit``
+#: request ``resource_type``. Names must agree because ``TaskSpec`` uses one table for ID segment counts;
+#: define only once. Persistence/history resource types are separate; see
 #: ``resource_paths.CHARACTER_DERIVATIVE_RESOURCE_TYPE``。
 DERIVATIVE_TASK_TYPE = "character_derivative"
 
-#: 衍生资产图沿用哪一类资产的 spec。机制按 ``AssetSpec.supports_derivatives`` 通用建模，
-#: 当前只有 character 开启，落盘与产物键因此固定在这一类上。
+#: Asset spec supplying derivative sheets. ``AssetSpec.supports_derivatives`` models this generically,
+#: currently enabled only for character, fixing persisted/artifact keys to that type.
 DERIVATIVE_ASSET_TYPE = "character"
 
-#: 本体资产图作为编辑输入时，在产物依据里的角色与形态。规划侧与执行侧共用同一对取值，
-#: 两侧不一致会让每一张衍生图恒判过期。
+#: Base-sheet edit-input role/kind in artifact basis, shared by planning/execution;
+#: disagreement would make all derivative images permanently stale.
 DERIVATIVE_SOURCE_ROLE = "derivative_source"
 DERIVATIVE_SOURCE_KIND = "sheet"
 
 
 def derivative_artifact_id(owner_name: str, derivative_name: str) -> str:
-    """把本体名与衍生名拼成衍生资产图的产物 / 版本 / 路径 id。"""
+    """Join base/derivative names into artifact/history/path IDs."""
     return f"{owner_name}{DERIVATIVE_ID_SEPARATOR}{derivative_name}"
 
 
 def is_derivative_artifact_id(artifact_id: str) -> bool:
-    """该 id 是否寻址一个衍生（而非本体）。"""
+    """Whether an ID addresses derivatives rather than bases."""
     return DERIVATIVE_ID_SEPARATOR in artifact_id
 
 
 def split_derivative_artifact_id(artifact_id: str) -> tuple[str, str]:
-    """把衍生资产图 id 拆回 (本体名, 衍生名)；两段都非空才算合法。"""
+    """Split IDs into (base, derivative), valid only with both nonempty."""
     owner, separator, derivative = artifact_id.partition(DERIVATIVE_ID_SEPARATOR)
     if not separator or not owner or not derivative or DERIVATIVE_ID_SEPARATOR in derivative:
         raise ValueError(f"不是合法的衍生资产图 id: {artifact_id!r}")
@@ -73,7 +72,7 @@ def split_derivative_artifact_id(artifact_id: str) -> tuple[str, str]:
 
 
 def derivative_sheet_relative_path(owner_name: str, derivative_name: str) -> str:
-    """衍生资产图在项目内的相对路径：``characters/derivatives/{本体}/{衍生}.png``。"""
+    """Project-relative derivative sheet: ``characters/derivatives/{本体}/{衍生}.png``."""
     return resource_relative_path(
         CHARACTER_DERIVATIVE_RESOURCE_TYPE,
         derivative_artifact_id(owner_name, derivative_name),
@@ -81,17 +80,17 @@ def derivative_sheet_relative_path(owner_name: str, derivative_name: str) -> str
 
 
 def derivative_sheet_dir(owner_name: str) -> str:
-    """本体名下全部衍生资产图所在的项目内相对目录。"""
+    """Project-relative directory for all derivative sheets under a base."""
     return f"{PurePosixPath(derivative_sheet_relative_path(owner_name, '_')).parent}"
 
 
 def derivative_version_dir(owner_name: str) -> str:
-    """本体名下全部衍生资产图版本快照所在的项目内相对目录。"""
+    """Project-relative snapshot directory for all derivatives under a base."""
     return f"{version_snapshot_dir(CHARACTER_DERIVATIVE_RESOURCE_TYPE)}/{owner_name}"
 
 
 def derivative_artifact_key(owner_name: str, derivative_name: str) -> ArtifactKey:
-    """衍生资产图的产物清单键：``asset_sheet("character", "本体/衍生")``。"""
+    """Derivative manifest key: ``asset_sheet("character", "本体/衍生")``."""
     return ArtifactKey.asset_sheet(
         DERIVATIVE_ASSET_TYPE,
         derivative_artifact_id(owner_name, derivative_name),
@@ -99,7 +98,7 @@ def derivative_artifact_key(owner_name: str, derivative_name: str) -> ArtifactKe
 
 
 def derivative_table(entry: Mapping[str, Any] | None) -> dict[str, Any]:
-    """读出本体条目里的衍生表；缺失或畸形按空表处理（结构错误另由校验层报告）。"""
+    """Read base derivative tables; absent/malformed means empty, with structural errors reported separately by validation."""
     if not isinstance(entry, Mapping):
         return {}
     table = entry.get(DERIVATIVES_FIELD)
@@ -107,10 +106,9 @@ def derivative_table(entry: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def ensure_derivative_table(entry: dict[str, Any]) -> dict[str, Any]:
-    """取本体条目里可写的衍生表；缺失或畸形时就地补空表，让写入落在可预期的形状上。
+    """Get writable base derivative tables, filling absent/malformed tables in place for predictable write shapes.
 
-    与只读的 :func:`derivative_table` 分工：那个返回副本供读取，这个返回条目内的原表供写入。
-    """
+    Unlike read-only :func:`derivative_table` copies, return the original table for mutation."""
 
     table = entry.get(DERIVATIVES_FIELD)
     if not isinstance(table, dict):
@@ -120,14 +118,13 @@ def ensure_derivative_table(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def find_derivative_name(table: object, name: str, *, exclude: str | None = None) -> str | None:
-    """在一个本体的衍生表里查找与 *name* 重名的衍生，返回落盘真名；未命中返回 ``None``。
+    """Find duplicate *name* within one base, returning actual persisted names or ``None``.
 
-    与 :func:`lib.project.asset_types.find_project_asset_name` 同口径：按
-    :func:`asset_name_namespace_key` 判重，只差大小写也算重名（衍生图落在
-    ``characters/derivatives/{本体}/{衍生}.png``）；判等键相同的条目优先于只差大小写的条目，
-    旧版登记出的只差大小写的衍生仍各自可被就地更新。命中的是不是 *name* 本身，用判等键区分。
-    *exclude* 排除与它判等键相同的条目，供改名检查目标名时忽略自身。畸形表按空表处理。
-    """
+    Share :func:`lib.project.asset_types.find_project_asset_name` semantics via
+    :func:`asset_name_namespace_key`: case-only variants collide (files use
+    ``characters/derivatives/{本体}/{衍生}.png``). Equality-key matches outrank case-only matches, letting
+    legacy case-only pairs each update in place. Equality keys distinguish *name* itself. *exclude* removes
+    same-equality-key entries for self-ignoring rename checks. Malformed tables count as empty."""
     if not isinstance(table, Mapping):
         return None
     excluded = asset_name_comparison_key(exclude) if exclude is not None else None
@@ -146,14 +143,13 @@ def find_derivative_name(table: object, name: str, *, exclude: str | None = None
 
 
 def normalize_agent_derivatives(raw: object, *, spec: AssetSpec, field_path: str) -> dict[str, dict[str, Any]]:
-    """把 Agent 写入路径收到的衍生表归一成落盘形状，非法输入 fail-loud。
+    """Normalize Agent-write derivative tables to persisted shape, failing loudly on invalid input.
 
-    Agent 只写得动变化描述：资产图由生成流水线回写，故每条一律以空 sheet 字段构造，
-    合并进已有衍生时由 :func:`merge_agent_derivatives` 保留原路径。名字沿用资产名校验，
-    规范化（strip + NFC）后等价的两个键会静默互相覆盖，因此整表拒绝而非取其一。
+    Agents write change descriptions only; generation writes sheets. Construct empty sheet fields,
+    retaining existing paths via :func:`merge_agent_derivatives`. Apply asset-name validation; strip/NFC
+    equivalent keys would silently overwrite, so reject whole tables rather than choosing one.
 
-    *field_path* 是错误消息里指向该表的字段路径前缀，由调用方按自己的入参形状拼出。
-    """
+    *field_path* locates the table in errors, constructed from caller-specific input shapes."""
 
     if not isinstance(raw, Mapping):
         raise ValueError(f"{field_path}.{DERIVATIVES_FIELD} 必须是对象（衍生名 → {{description}}）")
@@ -183,12 +179,10 @@ def normalize_agent_derivatives(raw: object, *, spec: AssetSpec, field_path: str
 
 
 def merge_agent_derivatives(entry: dict[str, Any], normalized: Mapping[str, dict[str, Any]]) -> None:
-    """把归一化后的衍生表并入本体条目：同名改描述、新名整条加入，未提及的原样留下。
+    """Merge normalized derivatives by name: change existing descriptions, add new entries whole, preserve unmentioned entries.
 
-    整表替换会连带抹掉未提及衍生的资产图，故按名合并；已有条目的存量 key 可能是 NFD，
-    按 :func:`find_derivative_name` 就地更新而非按 NFC 名新建第二条。新名与已有衍生只差
-    大小写时按重名拒绝（``ValueError``）。
-    """
+    Whole replacement would erase unmentioned sheets. Existing NFD keys update in place through
+    :func:`find_derivative_name` rather than adding NFC duplicates. Reject case-only new-name collisions with ``ValueError``."""
 
     table = ensure_derivative_table(entry)
     for name, derivative in normalized.items():
@@ -204,7 +198,7 @@ def merge_agent_derivatives(entry: dict[str, Any], normalized: Mapping[str, dict
 
 @dataclass(frozen=True, slots=True)
 class DerivativeSheetTarget:
-    """一个衍生资产图的写入坐标，两段名都是落盘真名（NFC/NFD 已解析）。"""
+    """Derivative-sheet write coordinates, both actual persisted names with NFC/NFD resolved."""
 
     owner_key: str
     derivative_key: str
@@ -220,7 +214,7 @@ class DerivativeSheetTarget:
 
 @dataclass(frozen=True, slots=True)
 class DerivativeSheetSource:
-    """一次衍生资产图生成的全部输入，按落盘真名解析。"""
+    """All inputs for one derivative generation, resolved by actual persisted names."""
 
     target: DerivativeSheetTarget
     description: str
@@ -240,10 +234,9 @@ def resolve_derivative_target(
     owner_name: str,
     derivative_name: str,
 ) -> DerivativeSheetTarget:
-    """把一对可能是任一编码形式的名字解析成落盘真名坐标。
+    """Resolve two names in either encoding to actual persisted coordinates.
 
-    本体不存在抛 ``KeyError``（与本体资产的寻址口径一致），衍生不存在抛 404。
-    """
+    Missing bases raise ``KeyError``, like base-asset addressing; missing derivatives raise 404."""
     spec = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
     bucket = project.get(spec.bucket_key)
     owner_key = resolve_asset_key(bucket, owner_name)
@@ -262,12 +255,11 @@ def resolve_derivative_sheet_source(
     owner_name: str,
     derivative_name: str,
 ) -> DerivativeSheetSource:
-    """解析衍生资产图生成的输入，并在此拒绝一切不可生成的形态。
+    """Resolve generation inputs, rejecting every nongeneratable shape here.
 
-    本体不存在抛 ``KeyError``（与本体资产的寻址口径一致），衍生不存在抛 404；本体没有
-    资产图、或衍生还没写变化描述时抛 400——两者都是用户可自行修复的前置条件，说明
-    分开给，指向的动作不同。
-    """
+    Missing bases raise ``KeyError`` as base addressing does; missing derivatives raise 404. Missing base
+    sheets or unwritten change descriptions raise 400 as user-repairable prerequisites, with separate
+    guidance pointing to different actions."""
     spec = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
     target = resolve_derivative_target(project, owner_name, derivative_name)
     bucket = project[spec.bucket_key]
@@ -298,15 +290,14 @@ def build_derivative_sheet_basis(
     source: VisualReference | None,
     absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
-    """衍生资产图的规范依据：变化描述 + 本体资产图内容，不含项目画风。
+    """Canonical derivative basis: change description + base-sheet content, excluding project style.
 
-    画风由本体资产图自身承载——衍生只是对它的一次编辑，编辑指令里不再注入项目 style
-    （与图片编辑同口径）。规划侧与执行侧都经此构造，因此本体资产图一旦重生成、或变化
-    描述被改写，衍生的登记依据即与规范状态不符，判为过期。
+    Base sheets carry style themselves; derivatives merely edit them, without injecting project style in
+    instructions, like image edits. Planning/execution share this constructor, so regenerated base sheets
+    or edited changes mismatch canonical basis and make derivatives stale.
 
-    ``absent`` 记生成输入的缺口（``docs/adr/0098``）：本体资产图不可用时没有 ``source``，
-    变化描述可以为空，两者都只在记有缺口时接受。
-    """
+    ``absent`` records generation gaps (``docs/adr/0098``): unavailable bases have no ``source`` and change
+    descriptions may be empty; accept both only with recorded gaps."""
     if source is None and not absent:
         raise ValueError("a derivative sheet basis without its owner sheet must record the gap")
     return build_asset_sheet_visual_basis(

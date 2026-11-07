@@ -2,33 +2,33 @@
 status: accepted
 ---
 
-# 路径覆盖记在供应商模型上，按端点的每条请求整条替换路径
+# Provider-model path overrides replace complete paths per endpoint request
 
-有些中转站沿用官方协议，只在路径上加前缀、改版本段或换路径名，同一家的不同协议还常挂在不同前缀下。以往这类差异只能靠在 base_url 中写不同的 `/vN` 来调整，Python 端点的其余路径由 SDK 固定。现在改为在自定义供应商的供应商模型上记录路径覆盖：调用端点发出的每条请求都可以单独整条替换路径，例如声明式定义的提交、轮询、取结果。路径覆盖放在供应商模型这一层，是因为实际挂接的模型不多，按模型配置最灵活。
+Relays may keep protocols but add prefixes, versions, or renamed paths, often differently per protocol. Previously only base_url `/vN` changed while SDK paths stayed fixed. Store overrides on custom-provider models, separately replacing each submission/poll/result path. Few attached models make this layer most flexible.
 
-## 规则
+## Rules
 
-- 路径覆盖只对自定义供应商开放，适用于 Python 端点和声明式端点，不适用于 ComfyUI 端点。
-- 每个调用端点为自己发出的请求命名并给出默认路径；路径覆盖按请求名记录。路径中可用的占位符仅限该请求本身已有的值，例如 API 模型名、任务 id。
-- 路径覆盖相对于供应商填写的 base_url 原样值。设置了覆盖的请求不再经过该端点的 base_url 归一化（例如自动补 `/v1`）；没有覆盖时行为不变。
-- 路径覆盖只换路径。如果中转站连请求或响应 schema 一起改写，用声明式定义描述。
-- 覆盖路径带 query 时整体替换原请求的 query，不与原 query 合并；原请求中需要保留的参数（例如 Gemini 下载地址的 `alt=media`）要写进覆盖路径。
-- 续跑按提交时的 base_url 回放轮询与取件，路径覆盖也按它认出请求。落库的是归一化后的 base_url，覆盖所相对的原样路径按当下配置「原样值 → 归一化值」的差量还原。仅在该差量不变时支持修改路径前缀，例如原样 `/old` 改为 `/new`，两者均由端点补上 `/v1`。
-- 原样路径没有单独持久化，归一化差量变化时无法无歧义还原提交时的覆盖地址。例如原样 `/old/v1` 改为 `/new`，提交值与原样 `/old` 的归一化结果相同，续跑可能丢失原样版本段。百炼归一化会保留普通路径前缀，并剥去已知后缀后接上 `/api/v1`；普通前缀修改同样受上述差量条件约束，并非全部原样路径都会丢失。
-- Python 端点统一在 HTTP transport 层按请求名改写路径，不改用合成 base_url 的方式。
-- 路径覆盖属于自定义调用端点协议的一部分，随它冻结在 execution checkpoint 中；续跑时覆盖已被修改，按 `docs/adr/0007` 的协议漂移处理。
-- 模型发现和连通性检查不使用路径覆盖，仍按供应商的 base_url 与发现格式发出请求。
-- 新挂接端点的供应商模型没有路径覆盖，也不从同级模型带出；改挂端点时原有覆盖丢弃。端点定义更新后路径覆盖仍然优先，定义中已经不存在的请求名对应的覆盖会被忽略。
+- Only custom providers, for Python/declarative endpoints, not ComfyUI.
+- Endpoints name requests and default paths; overrides key by request name. Slots are only values already available to that request, such as API model name/job ID.
+- Overrides are relative to raw configured base_url, bypassing endpoint normalization such as appended `/v1`; unoverridden requests stay unchanged.
+- Replace paths only. Use declarative definitions for request/response schema changes.
+- Override queries replace, not merge, originals. Include required parameters such as Gemini `alt=media` explicitly.
+- Resume replays submission-time base_url for polling/retrieval and matching. Stored URLs are normalized; reconstruct raw bases from current raw→normalized deltas. Prefix edits work only with unchanged deltas, such as `/old`→`/new` both gaining `/v1`.
+- Raw bases are not persisted; changed normalization deltas make reconstruction ambiguous. `/old/v1`→`/new` can lose the original version because submission equals normalized `/old`. DashScope preserves ordinary prefixes, strips known suffixes, and appends `/api/v1`; ordinary edits still require stable deltas, not every raw path is lost.
+- Python endpoints rewrite named requests at HTTP transport, never synthetic base URLs.
+- Overrides are endpoint-protocol facts frozen in execution checkpoints. Changed overrides on resume count as drift under `docs/adr/0007`.
+- Discovery/connectivity retain provider base_url/discovery format without overrides.
+- New attachments have no inherited sibling overrides; reattachments discard old ones. Overrides beat later definition edits; ignore names no longer defined.
 
 ## Considered Options
 
-- **按「供应商 × 调用端点」记一份**：同一供应商下挂接同一端点的模型不必重复配置，调研也是这样建议的。但同一端点下的模型如果需要不同路径，只能拆成两个供应商。
-- **「复制为我的」端点定义**：Python 端点没有定义可以复制。自定义调用端点是全局的，每接一个中转站就会多出一份几乎相同的定义。
-- **只加前缀，或给端点单独配一个 base_url**：无法修改路径名，异步协议的各条请求也不能分别调整。
-- **新建或改挂端点时从同级模型带出覆盖**：同级模型的覆盖不一致时，没有可以依据的值；新建和改挂两个入口的规则也难以统一。
-- **能合成 base_url 时就合成，合成不了再改写 transport**：两套机制并存，每条请求都要先判断走哪一条。
+- **Provider × endpoint records**: avoids repetition but differing model paths force extra providers.
+- **Copy endpoint definitions**: Python has none; global copies proliferate for every relay.
+- **Prefix-only or separate base URLs**: cannot rename/separately change asynchronous requests.
+- **Copy sibling values on create/reattach**: disagreements provide no authoritative choice and inconsistent entry rules.
+- **Synthesize when possible, transport otherwise**: two mechanisms require per-request decisions.
 
 ## Consequences
 
-- 同一中转站下的多个模型需要各自填写相同的覆盖。
-- 声明式定义中不以 `{{ base_url }}` 开头的请求 URL（例如从响应中取得的下载地址）没有可以替换的路径，不接受路径覆盖。
+- Models under one relay repeat identical overrides individually.
+- Declarative URLs not starting `{{ base_url }}`, such as response download URLs, have no replaceable paths and reject overrides.

@@ -1,12 +1,13 @@
-"""资产与衍生进出项目回收站：删除成为一条带结构快照的删除记录，恢复按落地规则加回。
+"""Asset/derivative project trash: deletion creates structural-snapshot records; restoration adds according to landing rules.
 
-一条资产记录收资产按名命名的文件（资产图、原图、参考音频）、它与名下衍生的版本快照和衍生图；资产条目、
-版本记录与清单登记留在快照里。删除资产、资产合并清掉被并方、删除衍生都经这里。
+Asset records include named sheets/originals/audio, base/derivative version snapshots, and derivative
+images. Entries/history/registrations remain in snapshots. Asset deletion, merge removal, and derivative
+deletion all use this module.
 
-恢复时原名空闲（没有按资产名归一规则重名的资产、没有残留的同名版本历史、文件落点空闲）就沿用，
-剧本里原有的引用自然接上；被占用则加「 (n)」后缀，后缀在迁移后的临时项目里走完整的改名级联
-（文件、版本历史、衍生、清单键一并改名），再整体加回。合并清掉的资产恢复后可以再走资产合并。
-"""
+Reuse free originals (no normalized-name asset collision, residual same-name history, or occupied file
+locations), naturally reconnecting script references. Otherwise append “ (n)” and run full rename
+cascades in migrated temporary projects (files/history/derivatives/manifest keys) before adding whole.
+Restored merge-removed assets can be merged again."""
 
 from __future__ import annotations
 
@@ -73,9 +74,9 @@ ASSET_KIND = "asset"
 ASSET_DERIVATIVE_KIND = "asset_derivative"
 
 _VERSIONS_FILE = "versions/versions.json"
-#: 删除资产在同一临界区里改写的结构文件：资产条目、版本记录与清单登记。
+#: Structures changed in the same deletion critical section: asset entries, history, and registrations.
 _STATE_FILES = ("project.json", _VERSIONS_FILE, MANIFEST_FILENAME)
-#: 换名时最多试的后缀数。
+#: Maximum suffix attempts during renaming.
 _MAX_SUFFIX = 1000
 _NAME_TAKEN = (
     AssetRenameConflictError,
@@ -85,16 +86,16 @@ _NAME_TAKEN = (
 )
 
 
-# ---------------------------------------------------------------- 删除
+# ---------------------------------------------------------------- Deletion
 
 
 def state_paths(project_dir: Path) -> tuple[Path, ...]:
-    """删除资产会改写的结构文件；调用方把它们放进同一个正式写入事务，删除记录建不成时一起回到删除前。"""
+    """Structures changed by asset deletion; callers include them in one formal transaction, restoring all if records cannot be created."""
     return tuple(project_dir / rel for rel in _STATE_FILES)
 
 
 def state_before(project_dir: Path) -> dict[str, bytes]:
-    """在改写之前（持项目锁）读下 :func:`state_paths` 的内容，供删除记录的结构快照用。"""
+    """Read :func:`state_paths` before changes under project locks, for deletion-record snapshots."""
     return {
         rel: path.read_bytes()
         for rel in _STATE_FILES
@@ -110,11 +111,11 @@ def trash_asset(
     before: Mapping[str, bytes],
     **details: Any,
 ) -> project_trash.TrashRecord:
-    """把已从 project.json 去掉的资产 ``name`` 的文件、版本历史与名下衍生移进一条删除记录。
+    """Move removed project.json asset ``name`` files/history/derivatives into one deletion record.
 
-    调用方持项目锁，``before`` 是改写 project.json 之前读下的 :func:`state_before`，并在包住
-    :func:`state_paths` 的正式写入事务里调用：记录建不成时清单与版本记录随之回滚。``details`` 记进对象描述。
-    """
+    Callers hold project locks, supply ``before`` from :func:`state_before` before project.json edits,
+    and run inside formal transactions covering :func:`state_paths`, rolling back manifests/history on
+    record failure. ``details`` enters object descriptions."""
     derivatives = list(derivative_table(entry)) if spec.supports_derivatives else []
     return _record(
         project_dir,
@@ -132,7 +133,7 @@ def trash_asset(
 def trash_asset_derivative(
     project_dir: Path, owner: str, name: str, before: Mapping[str, bytes]
 ) -> project_trash.TrashRecord:
-    """把已从本体衍生表去掉的衍生 ``owner/name`` 的图与版本历史移进一条删除记录；前提同 :func:`trash_asset`。"""
+    """Trash removed ``owner/name`` derivative images/history; prerequisites match :func:`trash_asset`."""
     return _record(
         project_dir,
         {"kind": ASSET_DERIVATIVE_KIND, "asset_type": "character", "owner": owner, "name": name},
@@ -152,7 +153,7 @@ def _record(
     files: Sequence[str],
     before: Mapping[str, bytes],
 ) -> project_trash.TrashRecord:
-    """解除这些资源的清单登记与版本记录，把文件与版本快照记成一条删除记录，最后收掉空掉的衍生目录。"""
+    """Deregister resources/history, record files/snapshots as one deletion, then remove emptied derivative directories."""
     for resource_type, resource_id in resources:
         forget_current_resource_artifact(project_dir, resource_type=resource_type, resource_id=resource_id)
     histories = _histories(project_dir, resources)
@@ -160,14 +161,16 @@ def _record(
     VersionManager(project_dir).detach_resources(_ids(histories))
     record = project_trash.record_deletion(project_dir, obj, [*files, *snapshots], snapshot=True, before=before)
     for directory in (derivative_sheet_dir(owner), derivative_version_dir(owner)):
-        # 非空、不存在或无权限都不是错误：目录只是收纳，留着不影响任何登记。
+        # Nonempty/absent/inaccessible directories are harmless containers; retaining them affects no registrations.
         with contextlib.suppress(OSError):
-            (project_dir / directory).rmdir()  # hard-delete: infra -- 衍生图移进回收站后的空目录
+            (
+                project_dir / directory
+            ).rmdir()  # hard-delete: infra -- Empty directories after derivative images enter trash.
     return record
 
 
 def deleted_asset_record(project_dir: Path, asset_type: str, name: str) -> str | None:
-    """回收站里同类型、按资产名归一规则同名的资产删除记录（最新的一条）的 ID；没有时为 ``None``。"""
+    """Latest same-type normalized-name asset deletion-record ID, or ``None``."""
     key = asset_name_namespace_key(name)
     return next(
         (
@@ -182,16 +185,16 @@ def deleted_asset_record(project_dir: Path, asset_type: str, name: str) -> str |
     )
 
 
-# ---------------------------------------------------------------- 恢复
+# ---------------------------------------------------------------- Restoration
 
 
 def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """按资产名从迁移后的临时项目取出资产；落地时名字被占用就在临时项目里改名后再加回。"""
+    """Extract assets by name from migrated temporary projects; rename there if landing names are occupied before adding."""
     spec = ASSET_SPECS[str(obj.get("asset_type"))]
     original = resolve_asset_key(_read_project(staged).get(spec.bucket_key), str(obj.get("name")))
     if original is None:
         raise ConflictError("trash_restore_failed", id=str(obj.get("name")))
-    #: 合并时迁到保留方名下的衍生属于保留方，不随被并方加回。
+    #: Derivatives moved to retained assets during merging belong there, never restored with removed assets.
     moved = {str(item) for item in obj.get("derivatives_moved") or ()}
     projects = ProjectManager.for_project_dir(project_dir)
     staged_projects = ProjectManager.for_project_dir(staged)
@@ -236,7 +239,7 @@ def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Resto
         landed = _land_name(original, landing, free=free, rename=rename, files=files)
         entry = copy.deepcopy(_read_project(staged)[spec.bucket_key][landed])
         if landed != original and ALIASES_FIELD in entry:
-            # 改名级联把原名记成别名；原名此刻属于项目里的另一个资产，加回的资产不认领它。
+            # Rename cascades add original-name aliases, but that name now belongs to another current asset; restored assets must not claim it.
             entry[ALIASES_FIELD] = copy.deepcopy(aliases) if isinstance(aliases, list) else []
         if spec.supports_derivatives:
             table = ensure_derivative_table(entry)
@@ -258,11 +261,10 @@ def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Resto
 
 
 def take_asset_derivative(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """按本体名与衍生名从临时项目取出衍生；名字被占用时在临时项目里改名后加回。
+    """Extract derivatives by base/name from temporary projects, renaming there if occupied.
 
-    本体也在项目回收站里时抛 :class:`RestoreBlocked`：先恢复本体、再恢复衍生，记录不降级。
-    本体已彻底删除时无法按原结构恢复，按取不出对象降级。
-    """
+    If bases are also trashed, raise :class:`RestoreBlocked`: restore bases first, without record degradation.
+    Permanently deleted bases prevent structural restoration; degrade as unavailable objects."""
     spec = ASSET_SPECS["character"]
     owner = resolve_asset_key(_read_project(staged).get(spec.bucket_key), str(obj.get("owner")))
     original = (
@@ -281,11 +283,11 @@ def take_asset_derivative(project_dir: Path, staged: Path, obj: Mapping[str, Any
         if key is None or not isinstance(bucket, dict) or not isinstance(bucket[key], dict):
             if deleted_asset_record(project_dir, spec.asset_type, owner) is not None:
                 raise RestoreBlocked("trash_restore_needs_character", name=owner)
-            # 本体已彻底删除：加回的衍生没有归属。
+            # Base permanently deleted; restored derivatives have no owner.
             raise ConflictError("trash_restore_failed", id=str(obj.get("name")))
         return key, bucket[key]
 
-    # 此处按取不出对象降级（本体已彻底删除）或拒绝（本体在回收站里）；落地时在锁内再核对一次。
+    # Degrade permanently deleted bases or reject trashed bases; recheck under landing locks.
     current_owner()
 
     def free(name: str) -> bool:
@@ -336,7 +338,7 @@ def _land_name(
     rename: Callable[[str, str], None],
     files: Callable[[str], list[str]],
 ) -> str:
-    """原名空闲就沿用，否则依次试「 (n)」后缀；换名在临时项目里走改名级联，返回落地的名字。"""
+    """Reuse free original names, otherwise try “ (n)” suffixes; cascade temporary-project renames and return landing names."""
     current = original
     for n in range(_MAX_SUFFIX):
         candidate = original if n == 0 else f"{original} ({n})"
@@ -346,7 +348,7 @@ def _land_name(
             try:
                 rename(current, candidate)
             except _NAME_TAKEN:
-                continue  # 临时项目里删除时就有这个名字（或它的残留历史）
+                continue  # This name or residual history already existed in deletion-time temporary projects.
             current = candidate
         if all(landing.free(rel) for rel in files(current)):
             return current
@@ -363,7 +365,7 @@ def _lift(
     projects: ProjectManager,
     add: Callable[[dict], None],
 ) -> None:
-    """把文件、版本记录、清单登记与结构条目从临时项目加回当前项目；任一步失败时结构文件回到之前。"""
+    """Add files/history/registrations/entries from temporary to current projects; restore prior structures on any failure."""
     histories = _histories(staged, resources)
     staged_manifest = ProjectArtifactManifestAdapter(staged)
     with formal_write_transaction(*state_paths(project_dir)):
@@ -373,7 +375,7 @@ def _lift(
         projects.update_project_locked(project_dir.name, add)
         entries = {key: entry for key in claims if (entry := staged_manifest.get_entry(key)) is not None}
         if entries:
-            # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
+            # Backfill predeletion/migrated registrations with unchanged basis digests; later-changed inputs read stale normally.
             register_artifact_entries_atomically(
                 project_dir,
                 {key: ArtifactManifestEntry(entry.artifact_path, entry.basis_digest) for key, entry in entries.items()},
@@ -381,7 +383,7 @@ def _lift(
 
 
 def _history_keys(project_dir: Path, resource_type: str) -> set[str]:
-    """当前项目里该资源类型已有版本记录的资源 ID（按资产名归一规则），包括早先删除资产时留下的历史。"""
+    """Existing history resource IDs for this type, normalized by asset-name rules, including remnants of earlier asset deletions."""
     bucket = _read_json(project_dir / _VERSIONS_FILE).get(resource_type)
     return (
         {asset_name_namespace_key(key) for key in bucket if isinstance(key, str)} if isinstance(bucket, dict) else set()
@@ -397,7 +399,7 @@ def _derivative_sheets(root: Path, owner: str, derivatives: Sequence[str]) -> li
 
 
 def _histories(root: Path, resources: Sequence[tuple[str, str]]) -> dict[str, dict[str, Any]]:
-    """这些资源的版本记录；资源 ID 按 NFC 解析到落盘的真实 key（存量记录可能是 NFD）。"""
+    """History for these resources; NFC-resolve IDs to actual persisted keys, which may be legacy NFD."""
     data = _read_json(root / _VERSIONS_FILE)
     resolved = [
         (resource_type, key)

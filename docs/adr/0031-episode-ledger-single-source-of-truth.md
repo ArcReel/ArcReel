@@ -2,31 +2,31 @@
 status: accepted
 ---
 
-# 分集以 project.json 账本为单一真相源，物理集文件降级为同锁派生物
+# Episode splitting uses the project.json ledger as sole truth; physical episode files become derivatives under the same lock
 
-旧拆分流程以物理文件本身为真相（`episode_N.txt` 存在即已拆、`_remaining.txt` 滚动覆盖作进度指针），没有任何"第 N 集对应原文哪一段"的显式记录——下游选错文件无从对账，后续集靠 Glob 推断集数易错，`_remaining.txt` 损坏即不可恢复。决定把分集真相源并入 project.json `episodes[]`：条目记录集原文来源，切自整本源文的集带原文素材范围（source_range，narration 为精确切分点、drama 为软素材范围）、钩子（hook）与 drama 分集大纲；条目带消费状态字段（ledger_status，planned/consumed/stale 三态，咨询性——能否重造派生文件或续接规划不看该字段，而看 source_range 结构是否完整、引用的源文件是否存在、范围是否在界内、指纹是否与已记录一致；指纹不一致时先按 `docs/adr/0097` 重映射，再按映射后的账本判断）；条目的先后即播出顺序（见 `docs/adr/0096`）。顶层 source_fingerprints 按整本源文的文件记录 `normalize_source_text` 输出文本的 SHA-256 指纹，用于发现源文件在服务之外被改动；接续规划的起点由账本推导，不另存游标（见 `docs/adr/0032`）。切出集的物理 `episode_N.txt` 降级为派生物，由规划与手工切分在同一把项目锁内随账本一并重写并清理账本之外的残留文件，不一致窗口为零；`_remaining.txt` 废除。存量项目沿 ADR 0022 启动迁移只盖版本章，不按内容反推原文范围：旧拆分流程切出的集仍是切自整本源文的集，只是没有原文范围，照常消费；分集规划遇到它们拒绝执行，要重新规划须从第 1 集起。
+The old splitting flow treated physical files as truth (`episode_N.txt` existing meant already split; `_remaining.txt` was overwritten as a progress pointer), without explicit records of "which source passage corresponds to episode N." Downstream file-selection mistakes could not be reconciled, Glob-based episode-count inference was error-prone, and corrupted `_remaining.txt` was unrecoverable. Move episode-splitting truth into project.json `episodes[]`: entries record episode-source provenance; episodes split from whole-source text carry source-material ranges (source_range: precise split points for narration, soft material ranges for drama), hooks, and drama episode outlines. Entries carry an advisory consumption-state field (ledger_status: planned/consumed/stale). Rebuilding derivative files or continuing planning depends not on that field but on complete source_range structure, existence of referenced source files, in-bounds ranges, and matching recorded fingerprints; mismatches first trigger remapping under `docs/adr/0097`, then decisions use the remapped ledger. Entry sequence is broadcast order (see `docs/adr/0096`). Top-level source_fingerprints records SHA-256 fingerprints of `normalize_source_text` output per whole-source file to detect changes outside the service. Derive continuation starting points from the ledger without another cursor (see `docs/adr/0032`). Physical `episode_N.txt` files for split episodes become derivatives: planning and manual splitting rewrite them together with the ledger under the same project lock, cleaning files absent from the ledger and leaving zero inconsistency window. Abolish `_remaining.txt`. Existing projects receive only a version stamp through ADR 0022 startup migration, without inferring source ranges from content. Episodes created by old splitting remain episodes split from whole-source text, merely without source ranges, and are consumed normally; episode planning refuses to proceed when encountering them, requiring replanning from episode 1.
 
-## 集原文的三种来源
+## Three sources of episode text
 
-一集的集原文有三种来源：由分集规划从整本源文切出的一段范围（记 `source_range`）；该集自带的一份原文（创作者逐集上传或直接填写，集文件即该集的源文）；或者没有原文（手写脚本）。三种是并列的正常形态：
+Episode source text has three origins: a range cut from the whole source by episode planning (recorded as `source_range`); independent source text belonging to that episode (uploaded or entered per episode by creators, with the episode file itself the source); or no source text (handwritten scripts). These are parallel normal forms:
 
-- 集文件是派生物还是源文，由账本条目记录的来源决定，不按 `source/` 目录里有没有整本原文整体推断——同一项目可以既有整本源文，又有自带原文或没有原文的集。
-- 自带原文或没有原文的集不占用整本源文，也不挡分集规划：分集规划只消费整本源文。
-- 切出集的原文范围沿整本源文的文件顺序连续，可以跨文件，互不重叠，按源文位置排列：先按文件在整本源文中的顺序，再按文件内偏移（见 `docs/adr/0097`）。删除中间的切出集、插入新文件或删改原文后，切出集之间可以有未切分的原文。
-- 重置分集规划只把切出集退回未规划状态，重新规划只替换切出集；另外两种集留在账本里，范围内夹有它们也照常执行。重置不改变它们之间的相对顺序；重新规划采纳时它们的落位见 `docs/adr/0032`。
-- 自带原文的集可以编辑其原文；切出集的集文件仍是派生物，修改走账本重派生，手工编辑或重命名 `episode_N.txt` 不被支持。
-- 逐集原文以显式登记进入账本：创作者上传时选择「整本源文」或「逐集原文」，后者可以分多次追加，按上传顺序排到播出顺序末尾，文件名不决定集的位置。
+- Whether an episode file is derivative or source follows the ledger entry's provenance, not a whole-project inference from presence of whole-source files under `source/`: one project can mix whole-source text with episodes having independent source or none.
+- Episodes with independent source or no source occupy no whole-source ranges and do not block episode planning, which consumes only the whole source.
+- Split-episode ranges are continuous along whole-source file order, can span files, never overlap, and are ordered by source position: file order within the whole source, then within-file offsets (see `docs/adr/0097`). Removing intermediate split episodes, inserting files, or deleting/editing source text can leave unsplit source between split episodes.
+- Resetting episode planning returns only split episodes to unplanned state; replanning replaces only split episodes. The other two kinds stay in the ledger, even within the affected range. Resetting preserves their relative order; see `docs/adr/0032` for their placement when accepting replanning.
+- Episodes with independent source can edit it. Split-episode files remain derivatives, changed by re-derivation from the ledger; manually editing or renaming `episode_N.txt` is unsupported.
+- Per-episode sources enter the ledger through explicit registration: creators select "whole source" or "per-episode source" at upload. The latter can be appended across multiple uploads and join the end of broadcast order in upload order; filenames do not determine episode placement.
 
 ## Considered Options
 
-- 维持物理文件真相源、仅包装更可靠的单一工具：对账依据依旧缺失，"不同集生成了相同内容"类事故无从检测。
-- 独立账本文件或 DB 表：集的概念裂成两处需要对账；DB 与"项目级数据一贯在文件系统"的分层相悖，导出/迁移/备份路径全部复杂化。
-- 不派生物理文件、下游按范围直读源文：三个预处理 subagent 与 Web 端展示全要改造，爆炸半径过大。
-- 消费时按需派生：永不陈旧，但"agent 记得先调派生工具"把可靠性又押回流程遵循。
-- 按内容反推存量集的原文范围：派生文件与源文的差异只可能来自人工编辑，近似锚定会让账本失真。
+- Retaining physical files as truth and wrapping them in one more reliable tool: reconciliation evidence remains absent, leaving incidents such as "different episodes generated the same content" undetectable.
+- A separate ledger file or database table: splits the episode concept across two places requiring reconciliation. A database contradicts the established filesystem storage of project-level data and complicates every export/migration/backup path.
+- No derived physical files, with downstream reading source ranges directly: requires reworking all three preprocessing subagents and Web presentation, with too wide an impact.
+- Deriving on demand at consumption: never stale, but "the agent remembers to call the derivation tool first" again stakes reliability on workflow adherence.
+- Inferring existing episodes' source ranges from content: differences between derived files and source can only result from manual edits; approximate anchoring would misrepresent the ledger.
 
 ## Consequences
 
-- 新 session 接续 = 读账本，废除 Glob 推断集数与 `_remaining.txt` 进度指针。
-- 失效是标记（stale）而非删除：原文范围被改动、范围内的原文被删改、或在重新规划中被替换下来的集，旧产物保留，重做沿现有覆盖/版本机制替换，贵重媒体产物不因规划调整丢失。
-- source_range 绑定的是规划当下的原文内容，原文被改动后坐标会失真。经服务的改动当场按文本对齐重映射；source_fingerprints 负责发现服务之外的改动，发现后以快照为旧文本走同一套映射（见 `docs/adr/0097`）。
+- Continuing in a new session means reading the ledger; abolish Glob-based episode-count inference and `_remaining.txt` progress pointers.
+- Invalidation marks stale instead of deleting: when source ranges change, text inside them is deleted/edited, or episodes are replaced during replanning, retain old artifacts and redo through existing overwrite/version mechanisms. Planning adjustments never discard costly media artifacts.
+- source_range binds source content at planning time; source changes invalidate coordinates. Changes through the service remap immediately through text alignment. source_fingerprints detects out-of-service changes, then uses snapshots as old text for the same mapping (see `docs/adr/0097`).

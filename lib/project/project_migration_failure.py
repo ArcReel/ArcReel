@@ -140,8 +140,8 @@ def pending_migration_record(schema_version: int) -> MigrationFailureRecord:
         f"project schema v{schema_version} has not been upgraded to "
         f"v{CURRENT_PROJECT_SCHEMA_VERSION}; produced artifacts cannot be read until it is"
     )
-    # 该项目没有失败过的尝试，``failed_at`` 就留空：这个字段会原样透给用户与 Agent，
-    # 填一个当下时刻等于伪造一次从未发生的失败。
+    # Without failed attempts, leave ``failed_at`` empty: users/Agents receive this field verbatim,
+    # so inserting now would fabricate a failure that never happened.
     return MigrationFailureRecord(
         schema_version=schema_version,
         failed_at="",
@@ -215,7 +215,7 @@ def clear_migration_failure(project_dir: Path) -> None:
 
     path = migration_failure_path(project_dir)
     try:
-        path.unlink(missing_ok=True)  # hard-delete: infra -- 迁移失败判定记录
+        path.unlink(missing_ok=True)  # hard-delete: infra -- Migration-failure verdict records.
     except OSError as exc:
         logger.error("无法清除迁移失败记录，该项目仍被阻断：%s（%s）", path, exc)
         raise
@@ -267,7 +267,7 @@ def _write_atomically(path: Path, record: MigrationFailureRecord) -> None:
         # failed write is louder than the migration failure it was recording:
         # generation stays open on data the migration already refused.
         logger.error("无法写入迁移失败记录，该项目不会被阻断：%s（%s）", path, exc)
-        Path(tmp_name).unlink(missing_ok=True)  # hard-delete: temp -- 原子写的临时文件
+        Path(tmp_name).unlink(missing_ok=True)  # hard-delete: temp -- Atomic-write temporary files.
         raise
 
 

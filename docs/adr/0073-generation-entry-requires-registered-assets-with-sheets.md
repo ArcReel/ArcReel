@@ -2,30 +2,30 @@
 status: accepted
 ---
 
-# 生成入口要求引用已登记且有资产图：未登记引用阻断，角色原图不再顶替资产图
+# Generation entry requires registered references with asset images: block unregistered references and stop substituting character originals
 
-> 本 ADR 中「执行期在提交供应商前失败，时效判定不投影期望依据，预览显示不可用」里时效判定的部分已由 `docs/adr/0098` 取代：缺口仍让执行期与预览拒绝，时效判定照常投影依据，缺的项记为缺席。
+> The freshness-assessment part of "fail at execution before provider submission, do not project expected basis during freshness assessment, and show preview as unavailable" in this ADR is superseded by `docs/adr/0098`: gaps still cause execution and preview rejection, while freshness assessment projects the basis normally and records missing items as absent.
 
-视频生成是 ArcReel 最贵的生成行为。此前两条规则让它在参考图不完整时照常发生：正文里未登记的 `@[名称]` 只警告、被静默丢弃；已登记但没有资产图的角色退到它的原图。决定：两条都收紧到**生成入口**（单条生成与整批准入）——引用未登记的资产名（包括删除资产后残留的引用）即阻断；角色、场景、道具没有资产图即阻断，原图只作为生成资产图的输入，不进入分镜或视频请求；衍生没有资产图同样阻断。商品维持 ADR 0034：原图是验收锚点，直接进入下游参考。
+Video generation is ArcReel's most expensive generation action. Two earlier rules let it proceed with incomplete reference images: unregistered `@[名称]` in the body produced only warnings and were silently discarded; registered characters without asset images fell back to originals. Tighten both at **generation entry** (individual generation and batch admission): block references to unregistered asset names (including references left after asset deletion); block characters, scenes, and props without asset images. Originals are inputs only for generating asset images and do not enter storyboard or video requests; derivatives without asset images are likewise blocked. Products retain ADR 0034: originals are acceptance anchors and directly enter downstream references.
 
-**编辑与保存不变**：编辑器与保存路径仍只警告，作者写作时不必先建资产。ADR 0064「别逼作者写作前先补资产表」的理由只约束写作，不约束花钱；阻断挪到生成入口后两者不再冲突。本决策取代 ADR 0064 中「未登记的 `@[名称]` 只警告、不阻断」与「没有资产图就用它的全部原图」两段，其余内容不变。
+**Editing and saving stay unchanged**: editor and save paths still only warn, so authors need not create assets before writing. ADR 0064's rationale "do not force authors to complete asset tables before writing" constrains writing, not spending; moving blocking to generation entry resolves the conflict. This decision replaces ADR 0064's passages "unregistered `@[名称]` only warns without blocking" and "use all originals when no asset image exists"; the rest stays unchanged.
 
-**想直接用自己的图当角色图**：走角色资产图上传入口，把图作为资产图登记，而不是靠原图回退。
+**To use your own image directly as a character image**: upload it through the character asset-image entry, registering it as an asset image instead of relying on original-image fallback.
 
-## 执行期沿用同一口径（修订）
+## Use the same basis at execution time (revision)
 
-入口准入只看登记与资产图字段、不做 IO，这一点不变；但从入队到执行之间，资产仍可能被删、被改名或丢了文件。此前执行器遇到这类缺口时静默丢图、照常付费，目标态规划器却放弃投影，把刚生成的产物判 stale——同一份数据两处结论相反。修订为：分镜图、资产图、衍生资产图与宫格的执行、时效判定与最终提示词预览共用同一份「生成输入」，按缺口种类定性：
+Entry admission still checks only registration and asset-image fields without IO. Between enqueueing and execution, however, assets can be deleted, renamed, or lose files. Previously, executors silently discarded missing images and still incurred charges, while the target-state planner abandoned projection and marked newly generated artifacts stale: contradictory conclusions from the same data. Revise this so execution, freshness assessment, and final-prompt preview for storyboard images, asset images, derived asset images, and grids share the same "generation inputs," classified by gap type:
 
-- **拒绝**：引用未登记（`reference_asset_unregistered`）；角色、场景、道具已登记但没有资产图，或资产图不可用——文件不在、清单未登记（`reference_asset_missing`）；商品声明了资产图但资产图不可用，同码拒绝，不退回只用原图（没有资产图的商品仍按 ADR 0034 只用原图）；声明了原图但文件读不到（`asset_original_missing`）。执行期在提交供应商前失败，时效判定不投影期望依据，预览显示不可用。
-- **略去**：上一分镜图不可用。它是系统按分镜顺序推导的连贯性输入，不是作者声明的引用。
+- **Reject**: unregistered references (`reference_asset_unregistered`); registered characters, scenes, and props lacking asset images, or with unavailable asset images due to absent files or missing inventory registration (`reference_asset_missing`); a product declaring an unavailable asset image is rejected with the same code, without falling back to originals only (products with no asset image still use originals only under ADR 0034); declared originals whose files cannot be read (`asset_original_missing`). Fail at execution before provider submission, do not project expected basis during freshness assessment, and show preview as unavailable.
+- **Omit**: an unavailable previous storyboard image. It is an optional continuity input derived by the system from storyboard order, rather than an author-declared reference.
 
-判据：**作者声明的输入读不到即拒绝，系统推导的可选输入读不到即略去。** 原图缺失此前按「归档迁移等历史原因，不阻塞」处理；原图是作者对外观的明确意图，商品原图更是 ADR 0034 的验收锚点，不带它生成等于让用户为不符合意图的结果付费，而修复只需重新上传或清掉字段，故一并收紧。原图缺失另立一码而不并入 `reference_asset_missing`，理由与本 ADR 把未登记和无资产图分开相同：修法不同。
+Criterion: **reject unreadable author-declared inputs; omit unreadable optional system-derived inputs.** Missing originals were previously handled as "historical causes such as archive migrations do not block." Originals represent authors' explicit appearance intentions, and product originals are also ADR 0034's acceptance anchors. Generating without them charges users for results contrary to intent, while repair requires only re-uploading or clearing the field, so tighten this too. Give missing originals a separate code instead of merging into `reference_asset_missing` for the same reason this ADR separates unregistered assets from absent asset images: the repairs differ.
 
-资产图不可用与原图缺失只在执行期判定，入口准入不为此加 IO：两者只在数据受损时出现，付费前失败已经守住「不完整不花钱」。
+Determine unavailable asset images and missing originals only at execution, without adding IO to entry admission: both arise only with damaged data, and failure before charging already ensures "incomplete inputs do not incur spending."
 
 ## Consequences
 
-- 存量项目里「有原图、无资产图」的角色，参考生视频从可生成变为阻断，制作状态在资产步报「未出图」；分镜路线本来只收资产图，不受影响。
-- `resolve_reference_assets` 的「有资产图用资产图，否则用全部原图」规则只保留给商品；`derive_references_from_text` 的 `missing` 集合在生成入口成为阻断依据，编辑器预览仍以警告呈现。
-- 删除资产不再需要自动改写残留引用：残留引用在下一次生成时阻断并提示修复，与从未登记的名字同一出路。
-- 执行期修订后，原图丢失的存量角色与商品不能再生成资产图，要重新上传原图或清掉原图字段；引用衍生的分镜图不再刚生成就判 stale。
+- In existing projects, characters "with originals but without asset images" change from generatable to blocked on reference-to-video, with production status reporting "image not generated" at the asset step. Storyboard routes already accept only asset images and are unaffected.
+- `resolve_reference_assets` retains "use the asset image if present, otherwise all originals" only for products; `derive_references_from_text`'s `missing` set becomes blocking evidence at generation entry, while editor previews still display warnings.
+- Asset deletion no longer requires automatic rewriting of leftover references: they block the next generation and request repair, following the same path as names never registered.
+- After the execution-time revision, existing characters and products missing originals cannot generate asset images until originals are re-uploaded or their fields cleared; storyboard images referencing derivatives no longer become stale immediately after generation.

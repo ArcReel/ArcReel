@@ -1,19 +1,19 @@
 # Product-Enforced Creative Limits
 
-ArcReel 不在产品层面对剧本的**创作维度**施加硬性限制——例如强制限制单个分镜/宫格里允许出现的人物数量。
+ArcReel does not impose product-level hard limits on scripts’ **creative dimensions**, such as character count per storyboard/grid.
 
 ## Why this is out of scope
 
-请求示例（#947）：用户实践 800+ 张图后发现，单个分镜引用 >3 个参考图（人物1 + 人物2 + 场景）时，宫格图/分镜图的抽卡率明显上升，因此希望产品在剧本规范化阶段**强制**把单分镜人物数限制在 ≤2。
+Example request (#947): after 800+ generated images, a user observed more retries when a shot references >3 images (character1 + character2 + scene), requesting **enforced** ≤2 characters per shot during normalization.
 
-我们不在产品层面对剧本创作维度做强制约束，理由：
+We reject product-enforced creative limits because:
 
-- **创作选择权属于用户**：一个分镜里放几个人物、如何编排镜头，是叙事与创作决策。产品硬性截断会牺牲合理的多人物场景（群戏、对峙、聚会），把出图稳定性的工程问题转嫁成对创作的限制。
-- **稳定性问题应在生成侧解决，而非限制输入**：抽卡率高是图像/宫格生成的工程问题（参考图过多时一致性下降）。正确的应对是改进生成与重试策略、或给用户兜底手段（如宫格图历史版本/上传，见 #975），而不是在上游禁止用户表达创作意图。
-- **个性化诉求走语义控制，不走全局强制**：用户确实可能想要「单分镜人物少一点」，但这是*个性化偏好*，应让用户通过自然语言把该偏好告知 Agent、由其软遵循（可被内容需要覆盖），而不是对所有项目一刀切。`default_duration`（用户偏好持久化 + 各预处理 subagent 软遵循、可被内容需要覆盖）已是这种模式的先例。
+- **Users own creative choices**: character counts and shot arrangement are narrative decisions. Hard truncation sacrifices legitimate ensembles, confrontations, and gatherings, turning generation stability engineering into creative restrictions.
+- **Fix stability at generation, not by limiting inputs**: poor success rates with many references are image/grid engineering problems. Improve generation/retry strategies or fallback mechanisms (e.g. grid history/uploads, #975), rather than prohibiting expression upstream.
+- **Personal preferences use semantics, not global enforcement**: fewer characters per shot is a *personal preference*. Users tell the Agent in natural language for soft adherence, overridable by content needs, not every-project enforcement. `default_duration` already follows that pattern: persisted preferences, soft preprocessing-subagent adherence, content overrides permitted.
 
-因此「产品强制限制单分镜人物数」判定为 out of scope。可行的替代是**Agent 分集生成的个性化语义偏好**（自然语言注入 + 软遵循），在 #976 跟踪。
+Product-enforced per-shot character limits are therefore out of scope. **Personalized semantic preferences during Agent episode generation** (natural-language injection + soft adherence) are a viable alternative tracked in #976.
 
 ## Prior requests
 
-- #947 — 「建议把单分镜人物控制在 ≤2 降低宫格/分镜图抽卡率」
+- #947 — 「建议把单分镜人物控制在 ≤2 降低宫格/分镜图抽卡率」 (suggest ≤2 characters per shot to reduce grid/storyboard retries)

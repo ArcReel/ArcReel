@@ -77,7 +77,7 @@ class _FakeVideoBackend:
 
     def __init__(self, result_duration_seconds: int | None = None, video_capabilities=None):
         self.calls = []
-        # None = 回显请求时长（多数后端行为）；指定值 = 模拟 provider 回报的实际计费时长
+        # None echoes requested duration (most backends); explicit values simulate actual provider-billed durations.
         self._result_duration_seconds = result_duration_seconds
         self.video_capabilities = video_capabilities
 
@@ -123,12 +123,9 @@ class _FakeLedgerCall:
 
 
 class _FakeLedger:
-    """记账账本假实现：捕获记账括号入参（started）与终态结果（outcomes）——新主缝。
+    """Fake ledger captures bracket inputs (started) and terminal outcomes, the primary new seam.
 
-    括号语义与真 Ledger 一致：CancelledError 穿透、Exception 记 failed 后重抛、
-    正常退出未声明成功抛 RuntimeError。usage 字段的提取归属真 Ledger 的 union 分发，
-    此处只捕获调用点递交的 backend 结果对象。
-    """
+    Match real Ledger brackets: propagate CancelledError; record failed then reraise Exception; normal exit without declared success raises RuntimeError. Real Ledger owns usage extraction through union dispatch; capture only backend result objects supplied by call sites."""
 
     def __init__(self):
         self.started = []
@@ -193,7 +190,7 @@ async def _refuse_prepare(*_args, **_kwargs):
 
 
 class TestTargetDeletedDuringGeneration:
-    """生成完成时目标已删除：结果按原路径进项目回收站，原路径与版本历史不变，费用照常记为成功。"""
+    """If targets are deleted at generation completion, trash results at original relative paths; original paths/history stay unchanged and costs settle successfully."""
 
     @staticmethod
     def _assert_trashed(gen: MediaGenerator, caught, rel: str, content: bytes) -> None:
@@ -208,7 +205,7 @@ class TestTargetDeletedDuringGeneration:
         assert record.object["note"] == TARGET_DELETED_NOTE
         assert record.files == (rel,)
         assert (project_trash.trash_dir(gen.project_path) / record.id / "files" / rel).read_bytes() == content
-        # 原目录里既没有正式文件，也没有残留的暂存文件；版本历史没有新增。
+        # Original directory contains neither formal output nor staging leftovers; no new history version.
         assert list((gen.project_path / rel).parent.iterdir()) == []
         assert not (gen.project_path / "versions").exists()
         assert [outcome["status"] for outcome in gen.ledger.outcomes] == ["success"]
@@ -279,7 +276,7 @@ class TestTargetDeletedDuringGeneration:
 
 
 class TestSegmentIdFor:
-    """segment_id_for 是 image/video/audio 三条记账路径共用的单点判定函数。"""
+    """segment_id_for centralizes image/video/audio accounting decisions."""
 
     @pytest.mark.parametrize(
         "resource_type",
@@ -299,7 +296,7 @@ class TestSegmentIdFor:
         assert segment_id_for("video", resource_type, "E1S01") == "E1S01"
 
     def test_video_whitelist_miss(self):
-        # grids 只在图片记账白名单内，视频记账应落 None。
+        # grids belongs only to image accounting allowlists; video segment accounting returns None.
         assert segment_id_for("video", "grids", "E1G1") is None
 
     @pytest.mark.parametrize(
@@ -310,7 +307,7 @@ class TestSegmentIdFor:
         assert segment_id_for("audio", resource_type, "E1S01") == "E1S01"
 
     def test_unknown_call_type_raises(self):
-        # 未接入记账白名单的通道显式报错，避免 segment_id 静默丢失。
+        # Explicitly fail unregistered accounting backends rather than silently losing segment_id.
         with pytest.raises(ValueError, match="unknown ledger channel"):
             segment_id_for("text", "storyboards", "E1S01")
 
@@ -380,7 +377,7 @@ class TestMediaGenerator:
         )
 
     async def test_comfyui_video_records_the_actual_seed_and_workflow_fingerprint(self, tmp_path):
-        """两者都只有生成过一次才知道：元数据在提交前定稿，装不下它们，故落盘前再并一次。"""
+        """Both values become known only after generation. Metadata finalizes before submission and cannot contain them, so merge once more before persistence."""
         from lib.custom_provider.backends import CustomVideoBackend
         from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
         from lib.custom_provider.comfyui.request_builder import workflow_sha256
@@ -394,8 +391,8 @@ class TestMediaGenerator:
             api_key="",
             definition=comfyui_endpoint_definition(),
         )
-        # 不注入合成能力：请求闸门读的正是 delegate 自己那份由绑定推导出来的声明，注入一份合成
-        # 值会把这条用例要守的那一段跳过去。
+        # Inject no synthetic capabilities: request gates read delegate declarations derived from actual bindings;
+        # synthetic values would bypass the very path this case protects.
         gen._video_backend = CustomVideoBackend(provider_id="custom-1", delegate=delegate, model="wan-t2v")
         history = {
             "status": {"completed": True},
@@ -422,7 +419,7 @@ class TestMediaGenerator:
         assert gen.versions.add_calls[-1]["seed"] == sent["3"]["inputs"]["seed"]
 
     async def test_comfyui_execution_warnings_reach_the_caller(self, tmp_path):
-        """backend 执行期的提示要一路走到任务 result.warnings，日志只有运维看得到。"""
+        """Backend execution notices must reach task result.warnings; operations-only logs are insufficient."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
         from lib.custom_provider.backends import CustomVideoBackend
         from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
@@ -468,11 +465,9 @@ class TestMediaGenerator:
         assert collected == [{"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}}]
 
     async def test_comfyui_image_to_image_stores_the_artifact_as_an_image_version(self, tmp_path):
-        """图像通道端到端一条：参考图上传 → 提交 → 轮询 → 产物入库为一版分镜图。
+        """Image-backend end-to-end: reference upload → submission → polling → registered storyboard-image version.
 
-        走 ``generate_image_async`` 而不是直接调 backend：i2i 的能力闸门、参考图压缩与版本入库都在
-        那条路上，backend 单测看不到它们。
-        """
+        Use ``generate_image_async``, never backend directly: i2i gates, reference compression and version persistence live there and are invisible to backend unit tests."""
         from lib.custom_provider.backends import CustomImageBackend
         from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 
@@ -631,7 +626,7 @@ class TestMediaGenerator:
         assert version == 1
         assert gen.ledger.started[0]["call_type"] == "image"
         assert gen.ledger.outcomes[0]["status"] == "success"
-        # usage_tokens 提取归属真 Ledger union 分发；此处确认调用点递交了 backend 结果对象
+        # Real Ledger union dispatch extracts usage_tokens; confirm call sites supplied backend result objects.
         assert gen.ledger.outcomes[0]["result"].usage_tokens == 8
 
         async def _raise(request):
@@ -668,7 +663,7 @@ class TestMediaGenerator:
         assert version == 1
         assert video_ref is None
         assert video_uri == "video-uri"
-        # 无法解析的时长按 8 秒计
+        # Unparseable durations bill as eight seconds.
         assert gen.ledger.started[0]["duration_seconds"] == 8
 
         video_path2, version2, _, _ = await gen.generate_video_async(
@@ -900,7 +895,7 @@ class TestMediaGenerator:
         assert version == 1
         history = gen.versions.get_versions("reference_videos", "E1U1")
         assert history["versions"][0]["execution_request_digest"] == "d" * 64
-        assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
+        assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"  # noqa: ASYNC240 -- Test-local small-file I/O/assertions, outside production event loops
         assert events == ["prepared", "committed"]
 
     @pytest.mark.asyncio
@@ -1121,7 +1116,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_video_async_segment_id_by_resource_type(self, tmp_path):
-        """视频记账 segment_id 白名单覆盖 storyboards/videos/reference_videos，其余落 None。"""
+        """Video accounting segment_id allowlists storyboards/videos/reference_videos; other resources return None."""
         gen = _build_generator(tmp_path)
 
         await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S01")
@@ -1130,14 +1125,14 @@ class TestMediaGenerator:
         await gen.generate_video_async(prompt="p", resource_type="reference_videos", resource_id="E1U1")
         assert gen.ledger.started[-1]["segment_id"] == "E1U1"
 
-        # 负向边界：白名单外的 resource_type 仍落 None——守住"白名单"语义，
-        # 避免日后被改成无条件透传而无人察觉。grids 只在图片记账白名单内。
+        # Negative boundary: unallowlisted resource_type still returns None, retaining allowlist semantics
+        # against unnoticed unconditional forwarding. grids belongs only to image accounting allowlists.
         await gen.generate_video_async(prompt="p", resource_type="grids", resource_id="E1G1")
         assert gen.ledger.started[-1]["segment_id"] is None
 
     @pytest.mark.asyncio
     async def test_video_billed_duration_passed_to_finish_call(self, tmp_path):
-        """backend 返回与请求不同的实际计费时长时，视频路径透传给 finish_call。"""
+        """If backend returns actual billed duration differing from request, forward it to finish_call."""
         gen = _build_generator(tmp_path)
         gen._video_backend = _FakeVideoBackend(result_duration_seconds=15)
 
@@ -1148,12 +1143,12 @@ class TestMediaGenerator:
             duration_seconds="6",
         )
         assert gen.ledger.started[-1]["duration_seconds"] == 6
-        # billed_duration_seconds 由真 Ledger union 分发从结果对象提取；此处确认递交了 duration=15 的结果
+        # Real Ledger union dispatch extracts billed_duration_seconds; confirm submission of duration=15 result.
         assert gen.ledger.outcomes[-1]["result"].duration_seconds == 15
 
     @pytest.mark.asyncio
     async def test_video_billed_duration_lands_in_ledger(self, tmp_path):
-        """端到端：真 Ledger 落库，backend 返回与请求不同的实际计费时长，ApiCall 账本记录 backend 值。"""
+        """End-to-end real Ledger persists backend-reported billed duration, even when different from requested duration."""
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -1177,7 +1172,7 @@ class TestMediaGenerator:
                 duration_seconds="6",
             )
 
-            # 读侧直查落库行
+            # Read persisted rows directly.
             async with factory() as session:
                 item = (await session.execute(select(ApiCall))).scalars().one()
             assert item.status == "success"
@@ -1187,7 +1182,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_from_config_resolver(self, tmp_path):
-        """验证 generate_video_async 通过 ConfigResolver 获取 audio 设置。"""
+        """generate_video_async obtains audio configuration from ConfigResolver."""
         gen = _build_generator(tmp_path)
         gen._config = FakeConfigResolver(requested_generate_audio=False)
 
@@ -1196,12 +1191,12 @@ class TestMediaGenerator:
             resource_type="videos",
             resource_id="E1S03",
         )
-        # VideoBackend 路径尊重 ConfigResolver 返回的值
+        # VideoBackend honors ConfigResolver values.
         assert gen.ledger.started[-1]["generate_audio"] is False
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_respects_config_true(self, tmp_path):
-        """验证 video_backend 尊重 ConfigResolver 返回的 True。"""
+        """video_backend honors ConfigResolver True."""
         gen = _build_generator(tmp_path)
         gen._config = FakeConfigResolver(requested_generate_audio=True)
 
@@ -1214,8 +1209,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_defaults_true_when_config_none(self, tmp_path):
-        """当 self._config is None 时，fallback 默认 True，
-        与 ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO 对齐。"""
+        """Without self._config, fallback defaults True, matching ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO."""
         gen = _build_generator(tmp_path)
         gen._config = None
 
@@ -1228,7 +1222,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_backend_lacks_last_frame(self, tmp_path):
-        """后端 last_frame=False 时硬失败：不下发供应商调用、不开记账，也不降级为参考图。"""
+        """last_frame=False hard-fails without provider calls, accounting or degrading to reference images."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         gen = _build_generator(tmp_path)
@@ -1251,8 +1245,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_end_image_forwarded_when_backend_reports_tier_aware_last_frame(self, tmp_path):
-        """后端实现 video_capabilities_for_tier 时按实际 service_tier 收窄决定是否转发
-        end_image：pro 档放行——无请求上下文的 video_capabilities 恒 False 也不应误判丢帧。"""
+        """If video_capabilities_for_tier exists, narrow actual service_tier to decide end_image: pro permits it even when context-free video_capabilities says False."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
@@ -1281,7 +1274,7 @@ class TestMediaGenerator:
 
     @pytest.fixture
     def user_added_video_model(self):
-        """在内置供应商下装入一个用户添加的视频模型（模型键与 _FakeVideoBackend.model 一致），按参数给能力覆盖。"""
+        """Load user-added video models under built-ins (key equals _FakeVideoBackend.model), applying parameterized capability overrides."""
         from lib.catalog import query as catalog
 
         def install(provider_id: str, overrides: dict[str, object], *, entry_binding: str | None = None) -> None:
@@ -1301,7 +1294,7 @@ class TestMediaGenerator:
         catalog.install_user_added_models(())
 
     async def test_user_override_relaxes_execution_gate(self, tmp_path, user_added_video_model):
-        """内置供应商下用户放宽尾帧：执行闸门按叠加后的能力放行，请求真实发出。"""
+        """User-relaxed built-in end-frame capabilities pass execution gates and actually submit."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         user_added_video_model("ark", {"last_frame": True})
@@ -1316,7 +1309,7 @@ class TestMediaGenerator:
         assert gen._video_backend.calls[0].end_image == end_image
 
     async def test_user_override_narrows_execution_gate(self, tmp_path, user_added_video_model):
-        """内置供应商下用户关掉尾帧：执行期也挡住，不调用后端、不开记账。"""
+        """User-disabled built-in end-frame capabilities also block at execution, without backend calls or accounting."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         user_added_video_model("ark", {"last_frame": False})
@@ -1334,7 +1327,7 @@ class TestMediaGenerator:
         assert gen.ledger.started == []
 
     async def test_request_carries_overlaid_capabilities(self, tmp_path, user_added_video_model):
-        """后端拿到的请求带着执行闸门那份已叠加覆盖的能力，按它判定可发输入。"""
+        """Backend requests carry the same overlaid capabilities used by execution gates for input decisions."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         user_added_video_model("dashscope", {"last_frame": True, "max_reference_images": 6})
@@ -1349,7 +1342,7 @@ class TestMediaGenerator:
         assert caps.max_reference_images == 6
 
     async def test_user_override_narrows_first_frame(self, tmp_path, user_added_video_model):
-        """内置供应商下用户关掉首帧：执行期挡住带首帧的请求，不调用后端、不开记账。"""
+        """User-disabled built-in first-frame capabilities block first-frame requests before backend/accounting."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         user_added_video_model("kling", {"first_frame": False})
@@ -1369,8 +1362,7 @@ class TestMediaGenerator:
         assert gen.ledger.started == []
 
     async def test_user_override_keeps_tier_aware_base(self, tmp_path, user_added_video_model):
-        """覆盖叠在按档位解析的能力与条目两侧求值的结果上：未覆盖的尾帧仍随档位放行（条目接受尾帧），
-        覆盖的参考图上限同时生效。"""
+        """Apply overrides atop tier-resolved capabilities and entry-side evaluation: untouched end-frame support follows tier permission when entries accept it, while overridden reference limits also apply."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
@@ -1404,7 +1396,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_tier_aware_backend_reports_std_tier(self, tmp_path):
-        """同一后端，std 档时仍按能力收窄硬失败——覆盖 pro/std 两条分支。"""
+        """The same backend at std tier still hard-fails narrowed capabilities, covering pro/std branches."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
@@ -1437,8 +1429,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_empty_string_end_image_normalized_to_no_end_frame(self, tmp_path):
-        """遗留/直接调用者以 end_image="" 表示无尾帧：即便后端不支持 last_frame 也应正常放行，
-        不误判为携带尾帧而硬失败（与 kling _build_payload 的真值判断兼容语义对齐）。"""
+        """Legacy/direct callers use end_image="" for no end frame; admit even without last_frame support, matching Kling _build_payload truthiness compatibility."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -1455,7 +1446,7 @@ class TestMediaGenerator:
         assert call.end_image is None
 
 
-# ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
+# ── Shared-boundary reference compression wiring ────────────────────────────────────────────────────
 
 from PIL import Image
 
@@ -1482,7 +1473,7 @@ def _solid_png(tmp_path: Path, name: str, w: int, h: int) -> Path:
 
 
 class _ConfigurableImageBackend:
-    """可配置 413 失败次数的 image backend，记录每次收到的参考图路径。"""
+    """Image backend with configurable 413 failure count, recording every reference path."""
 
     name = "fake-image"
     model = "img-model"
@@ -1520,7 +1511,7 @@ class TestIs413:
         assert _is_413(RuntimeError("oops: PAYLOAD TOO LARGE")) is True
 
     def test_byte_count_not_misread(self):
-        # 修正④：不用裸 "413" 子串，避免字节数 / 请求 ID 误命中
+        # Fix ④: never match bare "413", avoiding byte-count/request-ID false positives.
         assert _is_413(RuntimeError("only 41300 bytes uploaded")) is False
         assert _is_413(RuntimeError("error code 413xyz")) is False
 
@@ -1531,14 +1522,14 @@ class TestIs413:
         assert _is_413(err) is False
 
     def test_sdk_status_code_attr(self):
-        # OpenAI/xai 风格 SDK 异常：直接带 .status_code
+        # OpenAI/xai-style SDK exceptions expose .status_code.
         class _SdkErr(Exception):
             status_code = 413
 
         assert _is_413(_SdkErr("too big")) is True
 
     def test_sdk_code_attr(self):
-        # google-genai 风格 APIError：带 .code
+        # google-genai APIError exposes .code.
         class _ApiErr(Exception):
             code = 413
 
@@ -1551,14 +1542,14 @@ class TestIs413:
         assert _is_413(_ApiErr("bad request")) is False
 
     def test_string_status_code_413(self):
-        # 个别 SDK / mock 把状态码给成字符串 "413"，需防御性 int 转换
+        # Some SDKs/mocks expose string "413"; defensively convert to int.
         class _StrErr(Exception):
             status_code = "413"
 
         assert _is_413(_StrErr("too big")) is True
 
     def test_non_numeric_status_code_falls_back_to_phrase(self):
-        # 非数字状态码不应抛 ValueError，落回短语匹配
+        # Nonnumeric statuses must not raise ValueError; fall back to phrase matching.
         class _WeirdErr(Exception):
             status_code = "not-a-number"
 
@@ -1567,7 +1558,7 @@ class TestIs413:
 
 
 class TestProjectRelativePath:
-    """调用记录里的文件路径归一为项目内相对路径；项目根或素材路径任一为相对路径时同样能归一。"""
+    """Normalize accounting paths to project-relative form even if project root or media paths were supplied relatively."""
 
     def test_absolute_material_under_relative_project_root_is_relativised(self, tmp_path, monkeypatch):
         from lib.generation.media_generator import _project_relative_path
@@ -1590,7 +1581,7 @@ class TestProjectRelativePath:
 
 class TestReferenceCompressionSeam:
     async def test_cancel_during_compression_still_removes_the_compressed_copies(self, tmp_path, monkeypatch):
-        """取消落在线程里压缩的那一程：压缩完成后照样清理临时副本，且不调用供应商。"""
+        """Cancellation during threaded compression still cleans completed temporary copies without provider calls."""
         from lib.references import reference_compression
 
         gen = _build_generator(tmp_path)
@@ -1630,7 +1621,7 @@ class TestReferenceCompressionSeam:
         assert backend.calls == []
 
     async def test_cancel_during_compressed_copy_cleanup_keeps_the_paid_result(self, tmp_path, monkeypatch):
-        """供应商已返回后，取消落在线程里清理压缩副本的那一程：清理结算后照常提交并返回付费结果。"""
+        """After provider returns, cancellation during threaded compressed-copy cleanup still settles cleanup, commits and returns paid results."""
         from lib.references import reference_compression
 
         gen = _build_generator(tmp_path)
@@ -1684,11 +1675,11 @@ class TestReferenceCompressionSeam:
 
         received = backend.received_refs[-1]
         assert len(received) == 1
-        # backend 收到的是压缩临时副本，而非源路径
+        # Backend receives compressed temporary copies, not source paths.
         assert received[0] != src
-        # 源文件字节未被改动（只动上传副本）
+        # Original bytes unchanged; only upload copies change.
         assert src.read_bytes() == src_bytes_before
-        # 临时副本退出后清理
+        # Clean temporary copies on exit.
         assert not received[0].exists()
 
     async def test_413_retry_then_success_single_finish_call(self, tmp_path):
@@ -1704,9 +1695,9 @@ class TestReferenceCompressionSeam:
             reference_images=[str(src)],
         )
 
-        # 一次 413 后降档重试成功：backend 被调两次
+        # One 413 then successful downgrade calls backend twice.
         assert len(backend.calls) == 2
-        # 只记一条 success（413 内循环重试不额外记账）
+        # Record one success only; inner 413 retries create no extra accounting calls.
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "success"
 
@@ -1724,14 +1715,14 @@ class TestReferenceCompressionSeam:
                 reference_images=[str(src)],
             )
 
-        # 走完梯子（基线 + LADDER_STEPS-1 档 + 地板）= LADDER_STEPS + 1 次调用后耗尽
+        # Exhaust baseline + LADDER_STEPS-1 tiers + floor after LADDER_STEPS+1 calls.
         assert len(backend.calls) == LADDER_STEPS + 1
-        # 耗尽冒泡到外层 except 记一条 failed
+        # Exhaustion propagates to outer except, recording one failure.
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "failed"
 
     async def test_t2i_no_refs_413_not_converted_to_floor(self, tmp_path):
-        # 无参考图（T2I）的 413 与参考图无关，不应被误转成 floor、也不降档
+        # T2I without references: 413 is unrelated to images; neither convert to floor errors nor downgrade.
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend(fail_413_times=99)
         gen._image_backend = backend
@@ -1742,7 +1733,7 @@ class TestReferenceCompressionSeam:
                 resource_type="storyboards",
                 resource_id="E1S01",
             )
-        # 单次调用，无降档重试
+        # One call without downgrade retries.
         assert len(backend.calls) == 1
 
     async def test_video_frame_not_resized_array_laddered(self, tmp_path):
@@ -1753,8 +1744,8 @@ class TestReferenceCompressionSeam:
         class _CapturingVideoBackend:
             name = "fake-video"
             model = "video-model"
-            # 带参考图的请求会先过 gate_video_request，替身须声明足够的参考图容量，
-            # 否则请求在触达 generate 之前就被能力校验拒掉。
+            # Reference-image requests first pass gate_video_request; substitutes must declare sufficient capacity
+            # or capability guards reject before generate.
             video_capabilities = VideoCapabilities(max_reference_images=9)
 
             def __init__(self):
@@ -1777,8 +1768,8 @@ class TestReferenceCompressionSeam:
         backend = _CapturingVideoBackend()
         gen._video_backend = backend
 
-        start = _solid_png(tmp_path, "start.png", 3000, 2000)  # FRAME：永不缩尺寸（重格式仅重编码）
-        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)  # ARRAY：走梯子缩到 ≤2048
+        start = _solid_png(tmp_path, "start.png", 3000, 2000)  # FRAME never resizes; reformatting only reencodes.
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)  # ARRAY follows the ladder to ≤2048.
 
         await gen.generate_video_async(
             prompt="p",
@@ -1788,11 +1779,11 @@ class TestReferenceCompressionSeam:
             reference_images=[ref],
         )
 
-        assert backend.start_dims == (3000, 2000)  # FRAME 尺寸保持
-        assert max(backend.ref_dims[0]) == 2048  # ARRAY 缩到长边 2048
+        assert backend.start_dims == (3000, 2000)  # FRAME dimensions unchanged.
+        assert max(backend.ref_dims[0]) == 2048  # ARRAY long edge becomes 2048.
 
     async def test_provider_asset_slot_is_sent_as_reference_without_upload_or_compression(self, tmp_path):
-        """以素材引用发出的参考图不读内容、不压缩，在请求、序位与记账输入里都与原图片位置一一对应。"""
+        """Asset-reference images skip reading/compression, preserving original image positions across requests, ordering and accounting inputs."""
         from unittest.mock import MagicMock
 
         from lib.backends.video_backends.ark import Seedance2VideoBackend
@@ -1804,7 +1795,7 @@ class TestReferenceCompressionSeam:
         client.content_generation.tasks.get.side_effect = RuntimeError("stop after submit")
         with captured_ark_clients("lib.backends.video_backends.ark", client):
             gen._video_backend = Seedance2VideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
-        # 一张大到必须压缩的角色图以素材引用发出，场景图照常压缩后内嵌。
+        # Send a character image large enough to require compression as an asset reference; scene images still compress inline.
         character = _noise_png(gen.project_path, "character.png", 3000, 3000)
         scene = _noise_png(gen.project_path, "scene.png", 3000, 3000)
 
@@ -1827,7 +1818,7 @@ class TestReferenceCompressionSeam:
         ]
 
     async def test_provider_asset_reference_requires_a_backend_that_declares_it(self, tmp_path):
-        """不声明素材引用的 backend 会忽略这个字段、悄悄改发图片内容，故在提交前拒绝。"""
+        """Backends lacking asset-reference support might ignore fields and silently send image bytes; reject before submission."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -1846,11 +1837,9 @@ class TestReferenceCompressionSeam:
         assert backend.calls == []
 
     async def test_reference_audio_reaches_backend_unreordered(self, tmp_path):
-        """参考音频原样透传到请求：gate 放行后若不下传，音频会在校验之后被静默丢弃。
+        """Forward reference audio unchanged after gate admission, or it would disappear silently after validation.
 
-        音频不进压缩器（specs 只收图片），故也不能跟着压缩结果重排——顺序即 prompt 里
-        「音频N」的指认顺序，重排会把 A 角色的音色安到 B 角色头上。
-        """
+        Audio never enters image-only compression specs, so never reorder it with compression output. Order defines prompt “音频N”; reordering assigns character A's voice to B."""
         gen = _build_generator(tmp_path)
 
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
@@ -1892,7 +1881,7 @@ class TestReferenceCompressionSeam:
         assert backend.received_audio == [first, second]
 
     async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
-        """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
+        """Declared total-duration limits block before backend.generate paid requests."""
         from arcreel_market_core.video_backend_contract import (
             ReferenceAudioMode,
             VideoCapabilities,
@@ -1942,7 +1931,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes == []
 
     async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
-        """caps 声明了总时长上限，但探测失败（随包 ffmpeg 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
+        """If declared duration limits cannot be probed (such as missing bundled ffmpeg), None follows existing degraded allowance rather than blocking."""
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -1983,7 +1972,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes, "探测失败时应放行请求，不阻断到 backend"
 
     async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
-        """未声明总时长约束的后端不该为每个请求多付一轮探测子进程——探测按能力声明惰性触发。"""
+        """Without declared total-duration limits, avoid extra probe subprocesses per request; probe lazily by capabilities."""
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -2026,7 +2015,7 @@ class TestReferenceCompressionSeam:
         assert probe_calls == []
 
     async def test_prompt_over_limit_raises_before_backend_call(self, tmp_path):
-        """超长 prompt 在调 backend.generate（即付费请求）之前被拦截，不留记账行。"""
+        """Oversized prompts block before paid backend.generate calls without accounting rows."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         gen = _build_generator(tmp_path)
@@ -2054,7 +2043,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes == []
 
     async def test_prompt_gating_applies_without_optional_paths(self, tmp_path):
-        """prompt 长度对每个请求都适用：纯文生/首帧路径（无尾帧、参考图、参考音频）同样查能力。"""
+        """Prompt limits apply to every request, including text-only/first-frame paths without end frames, reference images or audio."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -2076,12 +2065,9 @@ class TestReferenceCompressionSeam:
 
 
 class TestFirstFrameRatioAdaptiveOnly:
-    """VideoCapabilities.first_frame_ratio_adaptive_only 的共享施加逻辑。
+    """Shared VideoCapabilities.first_frame_ratio_adaptive_only enforcement.
 
-    覆盖点见 lib.backends.video_frame_slots.resolve_first_frame_aspect_ratio 的调用点
-    （lib.generation.media_generator.MediaGenerator.generate_video_async）。用能力白名单测试缝
-    （伪造 backend 声明该约束）覆盖施加逻辑，不依赖真实 backend 是否已声明该字段。
-    """
+    Cover lib.backends.video_frame_slots.resolve_first_frame_aspect_ratio at MediaGenerator.generate_video_async. A backend capability seam declares this constraint synthetically to test enforcement independently of actual providers declaring it."""
 
     async def test_first_frame_task_forced_to_adaptive(self, tmp_path):
         from arcreel_market_core.video_backend_contract import VideoCapabilities
@@ -2103,7 +2089,7 @@ class TestFirstFrameRatioAdaptiveOnly:
         assert backend.calls[-1].aspect_ratio == "adaptive"
 
     async def test_no_first_frame_task_keeps_user_ratio(self, tmp_path):
-        """未带首帧（纯文生 / 仅参考图）不受该约束影响，原样透传用户比例。"""
+        """Without first frames (text-only/reference-only), this constraint leaves user aspect ratios unchanged."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -2120,11 +2106,13 @@ class TestFirstFrameRatioAdaptiveOnly:
         assert backend.calls[-1].aspect_ratio == "16:9"
 
     async def test_default_capability_leaves_existing_model_payload_unchanged(self, tmp_path):
-        """默认 False（现有模型未声明该约束）：首帧任务的请求 payload 保持原样。"""
+        """Default False for undeclared existing models preserves first-frame request payloads."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
-        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities())  # 默认档，未声明该约束
+        backend = _FakeVideoBackend(
+            video_capabilities=VideoCapabilities()
+        )  # Default tier without this constraint declared.
         gen._video_backend = backend
 
         start = _solid_png(tmp_path, "start.png", 100, 100)
@@ -2140,7 +2128,7 @@ class TestFirstFrameRatioAdaptiveOnly:
         assert backend.calls[-1].aspect_ratio == "16:9"
 
     async def test_ledger_records_user_intent_not_adaptive_override(self, tmp_path):
-        """记账沿用用户原始比例意图，与下发给 backend 的实际值分离。"""
+        """Accounting retains original user aspect-ratio intent separately from actual backend values."""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -2161,7 +2149,7 @@ class TestFirstFrameRatioAdaptiveOnly:
 
 
 class _BuiltinConfig:
-    """内置装配的凭证来源替身：只回答 ``assemble_backend`` 装载段要的供应商配置。"""
+    """Built-in assembly credential substitute answering only provider config needed by ``assemble_backend`` loading."""
 
     async def provider_config_with_credential(self, provider_id: str) -> tuple[dict[str, str], None]:
         return {"api_key": f"TEST-{provider_id}-key"}, None
@@ -2171,7 +2159,7 @@ _OPAQUE = "opaque-relay-model"
 
 
 async def _builtin_video_backend(provider_id: str, model_id: str, entry_binding: str | None):
-    """内置供应商下的视频模型，经生产装配构造；``entry_binding`` 给出时作为用户添加的模型并绑定条目。"""
+    """Construct built-in video models through production assembly; supplied ``entry_binding`` represents user-added models bound to entries."""
     from lib.backends.backend_assembly.assembler import assemble_backend
     from lib.catalog import query as catalog
 
@@ -2188,7 +2176,7 @@ async def _builtin_video_backend(provider_id: str, model_id: str, entry_binding:
 
 
 def _custom_video_backend(endpoint: str, model_id: str, entry_binding: str | None):
-    """自定义供应商的视频模型，经生产工厂构造。"""
+    """Construct custom-provider video models through production factories."""
     from types import SimpleNamespace
 
     from lib.custom_provider.factory import create_custom_backend
@@ -2212,10 +2200,7 @@ def _reset_user_added_models():
 
 @pytest.mark.usefixtures("_reset_user_added_models")
 class TestEntryBoundVideoRequests:
-    """绑定条目的不透明模型 ID 经 MediaGenerator 发出的实际请求，与同一条目的官方模型一致，请求里仍是原模型 ID。
-
-    能力由生产装配的调用通道给出（MediaGenerator 按它填请求能力并做闸门），不替换请求事实；在提交处拦截出站请求。
-    """
+    """Opaque IDs bound to entries produce the same actual MediaGenerator request as official models while retaining original API IDs. Production-assembled backend capabilities fill request gates; never replace request facts, intercept only outbound submission."""
 
     @staticmethod
     def _generator(tmp_path: Path, backend, provider_id: str) -> MediaGenerator:
@@ -2228,7 +2213,7 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "kuaishou/kling-v2-6"), ("kling-v2-6", None)])
     async def test_kling_720p_audio_follows_the_bound_entry(self, tmp_path, model, binding):
-        """可灵 v2-6 有声只支持 1080P：绑定 v2-6 的不透明 ID 在 720p 档同样不发送有声音轨。"""
+        """Kling v2-6 audio requires 1080P; opaque v2-6 bindings also omit audio tracks at 720p."""
         gen = self._generator(tmp_path, _custom_video_backend("kling-video-pro-audio", model, binding), "custom-9")
 
         with capture_http() as router:
@@ -2247,7 +2232,7 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "agnes/agnes-video-2.5"), ("agnes-video-2.5", None)])
     async def test_agnes_bound_to_2_5_uses_the_2_5_contract(self, tmp_path, model, binding):
-        """绑定 Agnes 2.5 条目的不透明 ID 走 2.5 契约：5 张参考图以 reference 模式发出，不按 v2.0 的 4 张上限拒绝。"""
+        """Opaque Agnes 2.5 bindings use 2.5 contracts: five images in reference mode, never rejected by v2.0 four-image limits."""
         backend = await _builtin_video_backend("agnes", model, binding)
         gen = self._generator(tmp_path, backend, "agnes")
         refs = []
@@ -2278,7 +2263,7 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "xai/grok-imagine-video"), ("grok-imagine-video", None)])
     async def test_grok_bound_to_classic_rejects_first_frame_with_references(self, tmp_path, model, binding):
-        """绑定 classic 条目的不透明 ID 与 classic 一样，在付费调用前拒绝首帧与参考图并存。"""
+        """Opaque classic bindings likewise reject coexisting first frames/references before paid calls."""
         from arcreel_market_core.video_backend_contract import VideoCapabilityError
 
         backend = await _builtin_video_backend("grok", model, binding)
@@ -2302,7 +2287,7 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "openai/sora-2-pro"), ("sora-2-pro", None)])
     async def test_openai_bound_to_sora_2_pro_reaches_1080p(self, tmp_path, model, binding):
-        """绑定 sora-2-pro 条目的不透明 ID 与 sora-2-pro 一样可以发 1080p 档尺寸。"""
+        """Opaque sora-2-pro bindings support 1080p sizes like official sora-2-pro."""
         gen = self._generator(tmp_path, _custom_video_backend("openai-video", model, binding), "custom-9")
 
         with capture_http() as router:
@@ -2319,7 +2304,7 @@ class TestEntryBoundVideoRequests:
         assert b"1080x1920" in request.content
 
     def test_gemini_vertex_endpoint_keeps_the_audio_switch_with_or_without_a_bound_entry(self):
-        """Vertex 端点声明音轨可控，绑定条目、官方型号与未收录的模型按同一规则求值。"""
+        """Vertex endpoint declares switchable audio; bound entries, official names and unlisted models share evaluation rules."""
         from lib.catalog import query as catalog
         from lib.config.resolver import builtin_video_audio_track
 
@@ -2337,7 +2322,7 @@ class TestEntryBoundVideoRequests:
 
     @pytest.mark.parametrize("model", [_OPAQUE, "veo-3.1-generate-001"])
     def test_gemini_aistudio_endpoint_keeps_audio_on_even_with_a_vertex_entry(self, model):
-        """AI Studio 端点声明恒有声，绑定 Vertex 条目或使用其 API 型号名都不会改变音轨形态。"""
+        """AI Studio endpoint declares always-audible tracks, unchanged by Vertex entry binding or API model names."""
         from lib.catalog import query as catalog
         from lib.config.resolver import builtin_video_audio_track
 

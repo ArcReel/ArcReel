@@ -1,21 +1,21 @@
-"""一集原文的首句与尾句，供创作者核对集的起止（分集规划摘要与「分集」视图共用）。"""
+"""Episode source opening/closing sentences for creator boundary verification, shared by planning summaries/Episodes views."""
 
 from __future__ import annotations
 
 import re
 
-#: 首句 / 尾句的最大字符数（含省略号）：超长时首句留开头、尾句留结尾。
+#: Edge-sentence character maximum including ellipses; retain first beginnings/last endings.
 EDGE_SENTENCE_MAX_CHARS = 60
 
-# 一句 = 一行内到句末标点（连同其后的收尾引号 / 括号）为止；英文句点在收尾符号后是空白或行尾时算句末，
-# 但全大写缩写（场景标题的 INT. / EXT.）后的句点不算，场景标题整行成句
+# Sentences end at in-line terminal punctuation plus closing quotes/brackets; English periods terminate when closers precede whitespace/end-of-line,
+# except uppercase abbreviations INT./EXT., whose scene-heading lines form whole sentences.
 _SENTENCE_RE = re.compile(
     r"[^\n]+?(?:[。！？!?…]+[」』”’\"'）)]*|(?<![A-Z]{2})\.[」』”’\"'）)]*(?=\s|$)|$)", re.MULTILINE
 )
 
 
 def edge_sentences(segment: str) -> tuple[str, str]:
-    """原文的首句与尾句，超长时首句截留开头、尾句截留结尾并以省略号标出截断处；没有句子时两者都是空串。"""
+    """Opening/closing sentences; when long, retain the opening beginning and closing ending, marking truncation with ellipses. Both empty without sentences."""
     sentences = [m.group().strip() for m in _SENTENCE_RE.finditer(segment)]
     sentences = [sentence for sentence in sentences if sentence]
     if not sentences:

@@ -2,30 +2,30 @@
 status: accepted
 ---
 
-# 角色衍生是子身份：`@[角色/衍生]` 引用，衍生资产图由本体资产图编辑生成或由作者上传替换
+# Character derivatives are sub-identities: reference `@[角色/衍生]`; generate derivative asset images by editing the base image or upload replacements
 
-一个角色只有一张资产图，表达不了同一人的换装、变身、易容。决定：衍生（derivative）是挂在角色之下的子身份，共享角色的名字、声音、说话人绑定与全局命名空间位置；角色条目保留现有字段作为本体，衍生存放在角色条目内的 `derivatives` 表，以衍生名为键，衍生名只在所属角色内唯一。脚本中以 `@[角色/衍生]` 引用，分镜路线的 `characters_in_*` 数组用同一字符串；`/` 已是资产名禁用字符，所以写法无歧义。`speaker` 字段只接受本体名，正文说话人位写衍生时归本体、只绑声音。机制按 AssetSpec 通用建模，本决策只对 character 开启。
+One character asset image cannot express the same person's changes of clothing, transformations, or disguises. A derivative is a sub-identity under a character, sharing its name, voice, speaker binding, and global-namespace position. Existing fields in the character entry remain the base form; a `derivatives` map inside that entry stores derivatives keyed by derivative name, unique only within the owning character. Scripts reference `@[角色/衍生]`, with the same string in storyboard-route `characters_in_*` arrays. Since `/` is already forbidden in asset names, this syntax is unambiguous. `speaker` accepts only base names; derivative names in body speaker positions resolve to the base and bind only voice. Model the mechanism generically through AssetSpec; this decision enables it only for character.
 
-**衍生没有原图；资产图可以生成，也可以上传替换。** 衍生只持有一段相对本体的外观变化描述与一张资产图。生成的资产图是对本体资产图的一次图片编辑（ADR 0050 语义），变化描述即编辑指令；本体资产图重生成后，生成的衍生资产图判 stale、不自动重生；本体没有资产图时不能生成衍生资产图。作者也可以上传一张图替换衍生资产图，入口与本体资产图的上传一致，上传的图成为该衍生的当前版本并进入版本历史。上传的衍生资产图是成品，按图本身登记（见 `docs/adr/0062`）：本体资产图重生成、改本体或衍生描述、改画风都不让它判 stale；改选生成版本后回到按本体资产图编辑的依据，还原到上传的版本则重新按图本身登记。上传不依赖本体资产图。上传只替换资产图，不作为再编辑生成的底图，所以衍生仍然没有原图。分镜与视频提示词里的角色外观 = 本体描述 + 当前形态的变化描述，资产图是上传的也一样。
+**Derivatives have no originals; asset images may be generated or uploaded as replacements.** A derivative holds only a description of appearance changes relative to the base and one asset image. Generation edits the base asset image (ADR 0050 semantics), using the change description as editing instructions. Regenerating the base asset image makes generated derivative images stale without automatically regenerating them; derivatives cannot be generated without a base asset image. Authors may also upload a replacement derivative asset image through the same upload entry as base asset images; the upload becomes the current version and enters version history. Uploaded derivative images are finished artifacts, registered by the image itself (see `docs/adr/0062`): regenerating the base image, changing base or derivative descriptions, or changing style does not make them stale. Selecting a generated version restores the basis of editing the base asset image; restoring an uploaded version again registers by the image itself. Uploading does not require a base asset image. Uploads replace only the asset image and are not base images for further edited generation, so derivatives still have no originals. Character appearance in storyboard and video prompts = base description + current form's change description, including when the asset image was uploaded.
 
-**同一条目里的形态取舍**：不设限。每个被引用的本体或衍生各注入一张资产图（同一镜头里本体与衍生同现、多个衍生同现均如此），提示词说明它们是同一角色的不同形态；作者写了哪些引用就注入哪些，变身前后同框之类的镜头因此可以表达。
+**Selecting forms within one entry**: no limit. Inject one asset image for every referenced base or derivative (including the base alongside a derivative in one shot, or multiple derivatives together), explaining in prompts that they are different forms of the same character. Inject exactly the references authored, enabling shots such as before-and-after transformation forms together.
 
-**磁盘布局**：`characters/derivatives/{角色}/{衍生}.png`，版本历史在 `versions/characters/derivatives/{角色}/`。角色名可以叫 `refs`，所以衍生不能直接放在 `characters/{角色}/` 下。改角色名挪目录，改衍生名改文件 stem，均纳入 ADR 0057 的级联改名事务。产物清单键为 `(character, "角色/衍生")`。
+**Disk layout**: `characters/derivatives/{角色}/{衍生}.png`, with version history in `versions/characters/derivatives/{角色}/`. Characters may be named `refs`, so derivatives cannot live directly under `characters/{角色}/`. Renaming characters moves directories; renaming derivatives changes file stems. Both join ADR 0057's cascading rename transaction. Artifact-inventory keys are `(character, "角色/衍生")`.
 
-**全局资产库**以子表 `asset_derivatives` 承载衍生，随角色整套进出，冲突策略 `rename` 只改角色名。随库带入项目的衍生资产图是成品，按图本身登记（见 `docs/adr/0062`）：本体资产图重生成、改本体或衍生描述都不让它判 stale；在项目里重新生成后，回到按本体资产图编辑的依据。
+The **global asset library** carries derivatives in child table `asset_derivatives`, moving them in/out together with the character; conflict strategy `rename` changes only the character name. Derivative images imported from the library are finished artifacts, registered by the image itself (see `docs/adr/0062`): regenerating the base image or changing base/derivative descriptions does not make them stale. Regeneration inside the project returns to the basis of editing the base asset image.
 
-## 明确不采用
+## Explicitly rejected
 
-- **衍生登记为独立角色 + 「同一人」关联标记**：零 schema 改动，但说话人、参考音频、身份描述要在多个条目间重复维护，Agent 会把它们当作两个人；与「角色 = 特定身份」的定义冲突。
-- **一切皆形态，本体也迁成一个名为「默认」的衍生**：模型更对称，代价是 schema 迁移、文件搬迁、产物清单 rekey 与全部存量剧本改写；本体是「常驻外观」这一非对称在创作实践里本来就成立。
-- **衍生 description 写完整外观，替换本体描述**：与本体的五官体型描述重复一遍，且失去「基于本体编辑」这一生成语义。
-- **给衍生上传底图，再按变化描述编辑生成**：等于给衍生一张原图，生成依据要在本体资产图与衍生原图之间二选一，界面多一个原图槽位。用户的诉求是生成结果不像时能直接换成满意的图，上传替换资产图已经满足。
-- **衍生自带 voice_style 或参考音频**：声音属于身份；嗓音都变了的形态是另一个角色。
-- **分隔符用 `#`、`·`、`-`**：都是合法资产名字符，解析有歧义。
+- **Registering derivatives as separate characters with a "same person" association**: no schema changes, but speakers, reference audio, and identity descriptions require repeated maintenance across entries, and Agents would treat them as two people, contradicting "character = a specific identity."
+- **Making everything a form, migrating the base into a derivative named "default"**: more symmetric, but requires schema migration, file relocation, artifact-inventory rekeying, and rewriting all existing scripts; the asymmetry of the base as "persistent appearance" already exists in creative practice.
+- **Giving derivative description a complete appearance that replaces the base description**: repeats base facial/body descriptions and loses "edit based on the base" generation semantics.
+- **Uploading a derivative base image and editing it using the change description**: effectively gives derivatives originals, forcing a choice of generation basis between the base asset image and derivative original and adding another original-image slot to the interface. Users want to directly replace unsatisfactory generated results with satisfactory images; asset-image replacement uploads already meet that need.
+- **Derivative-specific voice_style or reference audio**: voice belongs to identity; a form with a different voice is another character.
+- **Using `#`, `·`, or `-` as separators**: all are valid asset-name characters and produce ambiguous parsing.
 
 ## Consequences
 
-- 项目 schema 升版，`derivatives` 缺省为空表，存量项目无需改写。
-- 校验中的角色名集合从扁平 name 集合扩展为「本体名 ∪ 本体名/衍生名」；`_unregistered_refs` 仍是唯一的等价判定入口。
-- 资产拆解（analyze-assets）承担衍生识别，判据写在该 agent 定义里；script_plan / prompt_authoring 按剧情状态写 `@[角色/衍生]`。
-- 分镜引用弹窗、头像堆、资产卡都要能呈现衍生；资产卡上的衍生入口是一个按钮，点击弹出浮层承载衍生的查看与编辑。
+- Increase the project schema version; `derivatives` defaults to an empty map, without rewriting existing projects.
+- Expand the character-name set in validation from flat names to "base names ∪ base names/derivative names"; `_unregistered_refs` remains the sole equivalence-check entry point.
+- Asset analysis (analyze-assets) identifies derivatives, with criteria in that agent definition; script_plan / prompt_authoring write `@[角色/衍生]` according to story state.
+- Storyboard-reference popovers, avatar stacks, and asset cards must display derivatives. An asset-card derivative button opens a floating layer for viewing/editing derivatives.

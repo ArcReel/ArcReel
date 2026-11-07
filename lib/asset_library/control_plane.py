@@ -1,19 +1,21 @@
-"""火山方舟 / BytePlus ModelArk 素材库控制面 OpenAPI 客户端。
+"""Volcengine Ark / BytePlus ModelArk asset-library control-plane OpenAPI client.
 
-控制面只接受 Access Key 签名（HMAC-SHA256，火山引擎 OpenAPI 签名 V4），两站算法相同，只有主机与
-区域不同。请求一律 ``POST https://{host}/?Action=...&Version=2024-01-01``，JSON 请求体。官方文档：
+Control planes accept only Access Key signatures (HMAC-SHA256, Volcengine OpenAPI V4). Both sites
+share algorithms, differing only in hosts/regions. Requests always use
+``POST https://{host}/?Action=...&Version=2024-01-01`` with JSON bodies. Official docs:
 
-- 签名：https://docs.volcengine.com/docs/6369/67269 、https://docs.byteplus.com/en/docs/byteplus-platform/reference-how-to-calculate-a-signature
-- ListAssets：https://docs.volcengine.com/docs/ark/list-assets-api 、https://docs.byteplus.com/en/docs/modelark/list-assets-api
-- CreateAsset / GetAsset：https://docs.volcengine.com/docs/ark/create-asset-api 、https://docs.volcengine.com/docs/ark/get-asset-api ；
-  BytePlus 对应 https://docs.byteplus.com/en/docs/modelark/create-asset-api 、https://docs.byteplus.com/en/docs/modelark/get-asset-api
-- CreateAssetGroup / ListAssetGroups：https://docs.volcengine.com/docs/ark/create-asset-group-api 、
+- Signatures: https://docs.volcengine.com/docs/6369/67269 , https://docs.byteplus.com/en/docs/byteplus-platform/reference-how-to-calculate-a-signature
+- ListAssets: https://docs.volcengine.com/docs/ark/list-assets-api , https://docs.byteplus.com/en/docs/modelark/list-assets-api
+- CreateAsset / GetAsset: https://docs.volcengine.com/docs/ark/create-asset-api , https://docs.volcengine.com/docs/ark/get-asset-api ;
+  BytePlus: https://docs.byteplus.com/en/docs/modelark/create-asset-api , https://docs.byteplus.com/en/docs/modelark/get-asset-api
+- CreateAssetGroup / ListAssetGroups: https://docs.volcengine.com/docs/ark/create-asset-group-api ,
   https://docs.volcengine.com/docs/ark/list-asset-groups-api
 
-两站的 Action、Version 与字段名相同（BytePlus 一侧以官方仓库 ``byteplus-sa/ark-mcp`` 的调用为对照）。
-CreateAsset 只接受供应商可下载的 URL，异步处理且不承诺入库时长；返回的素材 ID 处于 ``Processing``，``GetAsset`` 返回 ``Active`` 后才可用。
+Both sites share Action/Version/field names (BytePlus checked against official ``byteplus-sa/ark-mcp``).
+CreateAsset accepts only provider-downloadable URLs, processes asynchronously, and promises no
+ingest duration. Returned assets are ``Processing``, usable only after ``GetAsset`` returns ``Active``.
 
-本模块只做协议：签名、发送与响应解析。Access Key 只进签名，不进日志与异常文本。
+Protocol only: sign, send, parse responses. Access Keys enter signatures, never logs/exception text.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ if TYPE_CHECKING:
     from lib.db.models.asset_library import AssetLibraryAccount
 
 _TIMEOUT = httpx.Timeout(20.0, connect=10.0)
-# 素材库只有 AIGC 类素材组能经 CreateAsset 写入；真人认证（LivenessFace）素材组在供应商控制台管理。
+# Only AIGC library groups accept CreateAsset writes; LivenessFace real-person-verification groups are managed in provider consoles.
 _GROUP_TYPE = "AIGC"
 
 AssetStatus = Literal["active", "processing", "failed", "unknown"]
@@ -67,7 +69,7 @@ class ControlPlaneCredentials:
 
 
 def credentials_of(account: AssetLibraryAccount) -> ControlPlaneCredentials:
-    """素材库账号的控制面凭证与资源范围。"""
+    """Library-account control-plane credentials and resource scope."""
     return ControlPlaneCredentials(
         site=account.site,
         region=account.region,
@@ -78,10 +80,10 @@ def credentials_of(account: AssetLibraryAccount) -> ControlPlaneCredentials:
 
 
 class AssetLibraryRequestError(Exception):
-    """控制面请求失败。``code`` / ``message`` 是供应商原文，``kind`` 是给界面选文案用的分类。
+    """Control-plane failure: ``code`` / ``message`` preserve provider text; ``kind`` selects UI copy.
 
-    ``outcome_unknown`` 表示请求可能已被供应商执行：连接建立后超时、断开或供应商 5xx。对写操作，
-    这类失败不能当作「没有创建」重试。
+    ``outcome_unknown`` means providers may have executed requests: timeout/disconnect after
+    connection, or provider 5xx. Writes must not retry such failures as though nothing was created.
     """
 
     def __init__(
@@ -146,9 +148,9 @@ def sign_request(
     service: str,
     now: datetime,
 ) -> dict[str, str]:
-    """按签名 V4 计算请求头，返回需要附加的 ``X-Date`` 与 ``Authorization``。
+    """Compute V4 signature headers and return added ``X-Date`` / ``Authorization``.
 
-    ``headers`` 是参与签名的其余请求头（不含 Host 与 X-Date），名字按小写比较。
+    ``headers`` contains remaining signed headers excluding Host/X-Date, compared case-insensitively.
     """
     x_date = now.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
     signed = {k.lower(): v.strip() for k, v in headers.items()}
@@ -193,7 +195,7 @@ _REQUEST_FAILURE_KEYS: dict[str, str] = {
 
 
 def request_failure_error(exc: AssetLibraryRequestError) -> BadGatewayError:
-    """把控制面请求失败转成面向界面的错误：按分类选文案，供应商原文脱敏后放进诊断。"""
+    """Map control-plane failures to UI errors by category, placing sanitized provider text into diagnostics."""
     return BadGatewayError(_REQUEST_FAILURE_KEYS[exc.kind]).with_diagnostic(
         {
             "code": exc.code,
@@ -221,7 +223,7 @@ async def call_action(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
-    """调用一个控制面 Action，返回 ``Result``；HTTP 失败或响应带 ``ResponseMetadata.Error`` 时抛错。"""
+    """Call one control-plane Action and return ``Result``; raise on HTTP failures or ``ResponseMetadata.Error``."""
     host = control_plane_host(credentials.site, credentials.region)
     if host is None:
         raise AssetLibraryRequestError("provider", code="UnsupportedRegion")
@@ -249,7 +251,7 @@ async def call_action(
     try:
         response = await http.post(url, params=query, content=body, headers={**content_headers, **auth_headers})
     except httpx.HTTPError as exc:
-        # 连接没有建立时请求一定没有到达供应商；其余网络失败（读超时、连接中断）结果未知。
+        # Unestablished connections guarantee requests never reached providers; other network failures (read timeouts/disconnects) have unknown outcomes.
         unknown = not isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
         raise AssetLibraryRequestError("network", message=type(exc).__name__, outcome_unknown=unknown) from exc
     finally:
@@ -308,10 +310,10 @@ async def list_assets(
     page_size: int,
     client: httpx.AsyncClient | None = None,
 ) -> ProviderAssetPage:
-    """按页列出账号项目范围内 AIGC 素材组的素材，按创建时间倒序。
+    """Page AIGC-group assets within the account project, newest first by creation time.
 
-    官方接口不按素材类型过滤，返回的条目可能包含视频与音频，由调用方按 ``asset_type`` 区分。
-    条目里的签名下载地址不取出，避免临时签名经 API 下发或进入日志。
+    Official APIs do not filter types; results may include video/audio, distinguished by caller
+    ``asset_type``. Do not extract signed download URLs, preventing API/log exposure of temporary signatures.
     """
     result = await call_action(
         credentials,
@@ -339,7 +341,7 @@ async def list_assets(
 
 @dataclass(frozen=True)
 class ProviderAssetDetail:
-    """GetAsset 的结果。供应商返回的签名访问地址不取出。"""
+    """GetAsset result, excluding provider-signed access URLs."""
 
     id: str
     name: str
@@ -353,7 +355,7 @@ class ProviderAssetDetail:
 async def get_asset(
     credentials: ControlPlaneCredentials, asset_id: str, *, client: httpx.AsyncClient | None = None
 ) -> ProviderAssetDetail:
-    """查询一个素材的处理状态。处理失败的素材 HTTP 仍为 200，失败原因在 ``Error`` 里。"""
+    """Query asset processing status; failed processing still returns HTTP 200 with reasons in ``Error``."""
     result = await call_action(
         credentials, "GetAsset", {"Id": asset_id, "ProjectName": credentials.project_name}, client=client
     )
@@ -362,9 +364,10 @@ async def get_asset(
 
 @dataclass(frozen=True)
 class ProviderAssetDownload:
-    """GetAsset 的结果连同供应商返回的签名访问地址（官方文档写明有效期 12 小时）。
+    """GetAsset result including provider-signed access URLs (officially valid for 12 hours).
 
-    ``url`` 只用于立即取回素材内容，不回传前端、不写日志与异常文本，也不持久保存。
+    ``url`` is only for immediate content retrieval, never returned to frontend, logged, included
+    in exception text, or persisted.
     """
 
     detail: ProviderAssetDetail
@@ -377,7 +380,7 @@ class ProviderAssetDownload:
 async def get_asset_download(
     credentials: ControlPlaneCredentials, asset_id: str, *, client: httpx.AsyncClient | None = None
 ) -> ProviderAssetDownload:
-    """查询一个素材，并取出供应商返回的签名访问地址，供导入时取回实际内容。"""
+    """Query assets and extract signed provider URLs for actual-content retrieval during import."""
     result = await call_action(
         credentials, "GetAsset", {"Id": asset_id, "ProjectName": credentials.project_name}, client=client
     )
@@ -411,7 +414,7 @@ async def create_asset(
     asset_type: Literal["Image", "Video", "Audio"] = "Image",
     client: httpx.AsyncClient | None = None,
 ) -> str:
-    """提交一个素材入库，返回素材 ID。返回时素材还在处理中，可用与否以 :func:`get_asset` 为准。"""
+    """Submit ingest and return asset IDs, still processing; :func:`get_asset` determines availability."""
     result = await call_action(
         credentials,
         "CreateAsset",
@@ -437,7 +440,7 @@ async def find_assets_by_name(
     name: str,
     client: httpx.AsyncClient | None = None,
 ) -> list[ProviderAssetItem]:
-    """在素材组里按名称找素材。供应商按名称模糊匹配，这里只保留名称完全相同的条目。"""
+    """Find group assets by name; providers use fuzzy matching, so retain exact names only."""
     result = await call_action(
         credentials,
         "ListAssets",
@@ -461,9 +464,10 @@ async def ensure_asset_group(
     description: str = "",
     client: httpx.AsyncClient | None = None,
 ) -> str:
-    """账号项目范围里名为 ``name`` 的 AIGC 素材组 ID；没有时创建。
+    """AIGC-group ID named ``name`` within the account project; create if absent.
 
-    首次创建素材组前需要在供应商控制台签署授权，未签署时供应商返回的错误原样抛出。
+    Initial group creation requires console authorization; propagate provider errors unchanged
+    if authorization has not been signed.
     """
     result = await call_action(
         credentials,

@@ -1,4 +1,4 @@
-"""供应商凭证管理 API 测试。"""
+"""Provider-credential management API tests."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ class TestKlingTwoSecretCredential:
             )
         assert resp.status_code == 201
         kwargs = mock_repo.create.await_args.kwargs
-        # 粘贴密钥常带首尾空白/换行，边界处统一 strip，避免静默鉴权失败
+        # Pasted keys often have surrounding whitespace/newlines; strip at boundaries to avoid silent authentication failures.
         assert kwargs["name"] == "可灵账号"
         assert kwargs["access_key"] == "AK-new"
         assert kwargs["secret_key"] == "SK-new"
@@ -156,7 +156,7 @@ class TestKlingTwoSecretCredential:
             resp = client.get("/api/v1/providers/kling/credentials")
         assert resp.status_code == 200
         cred = resp.json()["credentials"][0]
-        # 两段各自独立脱敏，互不混用，且不泄漏明文
+        # Mask each part independently, without cross-use or plaintext leakage.
         assert cred["access_key_masked"] is not None
         assert cred["secret_key_masked"] is not None
         assert cred["access_key_masked"] != cred["secret_key_masked"]
@@ -191,16 +191,16 @@ class TestKlingTwoSecretCredential:
             )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
-        # 提供的密钥 strip 首尾空白；未提供的字段不进 kwargs（保留既有值）
+        # Strip supplied keys; omit unspecified fields from kwargs to preserve existing values.
         assert kwargs["secret_key"] == "SK-rotated"
         assert "access_key" not in kwargs
 
 
 class TestCredentialGroupSwitch:
-    """凭证切组自动清空：完整覆盖某组即视为切组，自动清空其它组字段。"""
+    """Credential-group switching: fully supplying a group switches to it and clears other groups."""
 
     def test_update_switch_to_dual_secret_clears_api_key(self):
-        """先存 api_key，再完整提交 access_key+secret_key → api_key 被清空。"""
+        """After api_key, supplying complete access_key+secret_key clears api_key."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="kling", api_key="AK-old"))
@@ -217,7 +217,7 @@ class TestCredentialGroupSwitch:
         assert kwargs["api_key"] is None
 
     def test_update_switch_to_api_key_clears_dual_secret(self):
-        """反向切换：完整提交 api_key → access_key/secret_key 被清空。"""
+        """Reverse switch: complete api_key clears access_key/secret_key."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
@@ -234,7 +234,7 @@ class TestCredentialGroupSwitch:
         assert kwargs["secret_key"] is None
 
     def test_update_both_groups_submitted_rejected(self):
-        """一次提交同时完整覆盖两组：拒绝，凭证行不变。"""
+        """Fully supplying both groups rejects the submission and preserves the row."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
@@ -248,7 +248,7 @@ class TestCredentialGroupSwitch:
         mock_repo.update.assert_not_awaited()
 
     def test_update_partial_submission_does_not_clear(self):
-        """未完整覆盖任何组（仅轮换 secret_key）：不触发清空，其余字段保持原值。"""
+        """No fully supplied group (secret_key rotation only) does not clear other values."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
@@ -265,7 +265,7 @@ class TestCredentialGroupSwitch:
         assert "access_key" not in kwargs
 
     def test_update_name_only_does_not_clear(self):
-        """存量两组并存的凭证行：仅改名/改 base_url 不触发清空，两组字段都不动。"""
+        """Legacy dual-group credentials retain both groups when renaming or changing base_url."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
@@ -280,7 +280,7 @@ class TestCredentialGroupSwitch:
         assert kwargs == {"name": "改名"}
 
     def test_create_both_groups_submitted_rejected(self):
-        """创建端点同样拒绝一次提交同时完整覆盖两组，且不落盘。"""
+        """Creation also rejects two complete groups, without persistence."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
@@ -293,7 +293,7 @@ class TestCredentialGroupSwitch:
         mock_repo.create.assert_not_awaited()
 
     def test_provider_without_credential_groups_unaffected(self):
-        """未声明 credential_groups 的 provider（回归）：更新 api_key 不触发任何清空逻辑。"""
+        """Regression: providers without credential_groups clear nothing on api_key updates."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="gemini-aistudio"))
@@ -308,10 +308,10 @@ class TestCredentialGroupSwitch:
         assert kwargs == {"api_key": "AIza-new"}
 
     def test_update_rotate_active_group_on_coexistence_row_preserves_other(self):
-        """存量共存行（两组凭证并存）上例行轮换 api_key：不视为切组，另一组休眠凭证不被清空。"""
+        """Routine api_key rotation on legacy coexistence rows is not group switching; dormant credentials remain."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
-        # 本功能上线前可创建的共存行：api_key 与 access_key/secret_key 同时留存
+        # Pre-feature coexistence row: api_key and access_key/secret_key all remain stored.
         mock_repo.get_by_id = AsyncMock(
             return_value=_fake_kling_cred(api_key="AK-old", access_key="AK-legacy", secret_key="SK-legacy")
         )
@@ -328,7 +328,7 @@ class TestCredentialGroupSwitch:
         assert "secret_key" not in kwargs
 
     def test_update_mixed_group_fields_rejected(self):
-        """一次提交横跨两组（api_key + secret_key）：拒绝，不静默丢弃已填字段，凭证行不变。"""
+        """Cross-group api_key+secret_key submissions reject without silently dropping supplied fields or changing rows."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
@@ -342,7 +342,7 @@ class TestCredentialGroupSwitch:
         mock_repo.update.assert_not_awaited()
 
     def test_create_mixed_group_fields_rejected(self):
-        """创建端点同样拒绝横跨多组的提交（api_key + access_key），且不落盘。"""
+        """Creation also rejects cross-group api_key+access_key without persistence."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
@@ -355,7 +355,7 @@ class TestCredentialGroupSwitch:
         mock_repo.create.assert_not_awaited()
 
     def test_update_nonexistent_credential_returns_404_before_ambiguity(self):
-        """凭证不存在时优先返回 404，而非切组歧义的 422。"""
+        """Missing credentials return 404 before ambiguous-switch 422."""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=None)

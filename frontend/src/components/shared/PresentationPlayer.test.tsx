@@ -64,7 +64,7 @@ const tts: PresentationReadModel = {
   },
 };
 
-// 本集第 1 个分镜是 E1S07：E1S01 是分镜 2、E1S02 是分镜 3，可访问名称写位置而不是 ID。
+// First storyboard is E1S07; E1S01 is position 2 and E1S02 position 3. Accessible names use positions, never IDs.
 const narrationScripts = {
   "episode_1.json": {
     episode: 1,
@@ -426,8 +426,8 @@ describe("PresentationPlayer", () => {
       return { ...view, onStartApplied };
     }
 
-    // findBy* 在 video 挂载后即返回，此时 startAt 的 passive effect 可能尚未挂上 loadedmetadata 监听；
-    // 先冲刷 effect，再触发事件，避免事件先于监听而丢失。
+    // findBy* returns once videos mount; startAt passive effects may not yet attach loadedmetadata listeners;
+    // flush effects before events to avoid losing events before listener attachment.
     async function findVideoReady() {
       const video = await screen.findByLabelText("分镜 2 成片预览");
       await act(async () => {});
@@ -475,7 +475,7 @@ describe("PresentationPlayer", () => {
       fireEvent.loadedMetadata(video);
       expect(play).toHaveBeenCalledTimes(1);
 
-      // 视频已有元数据：下一个请求立即生效
+      // Videos already have metadata; next requests apply immediately.
       Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
       view.rerender(
         <PresentationPlayer

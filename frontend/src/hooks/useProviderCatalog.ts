@@ -5,8 +5,8 @@ import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
 /**
- * 一次静默重取的结局。调用方要区分「重取失败」与「被后续请求作废」：前者目录停在旧内容、
- * 需要告诉用户，后者是接管方会写下更新目录的正常并发路径，不该报错。
+ * Silent-refetch outcome. Callers distinguish failed refetches (catalogs remain old and users need notice)
+ * from requests invalidated by successors (normal concurrency, with successors writing newer catalogs; never report errors).
  */
 export type CatalogRefreshResult =
   | { status: "ok"; customProviders: CustomProviderInfo[] }
@@ -18,26 +18,26 @@ export interface ProviderCatalog {
   customProviders: CustomProviderInfo[];
   loading: boolean;
   error: string | null;
-  /** 全量重取并回到 loading / 错误面板口径——错误面板的重试入口。 */
+  /** Fully refetch with loading/error panels, for error-panel retry entries. */
   reload: () => void;
   /**
-   * 静默重取整份目录；成功时带出最新的自定义供应商列表，供调用方按它改选中项。
-   * 失败与「被后续请求作废」分别 resolve 成 failed / aborted。
+   * Silently refetch entire catalogs, returning newest custom-provider lists on success for callers to adjust selections.
+   * Failures and invalidation by later requests resolve as failed / aborted respectively.
    */
   refresh: () => Promise<CatalogRefreshResult>;
 }
 
 /**
- * 供应商目录的读取与刷新。预置与自定义两张表恒一同取，四个写入点（首次拉取、语言重取、保存后
- * 重取、失败重试）因此只有一处实现，也只有一个取消域。
+ * Read/refresh provider catalogs. Always fetch built-in/custom tables together, sharing one implementation and cancellation domain for four writes:
+ * initial fetch, language refetch, post-save refetch and failure retry.
  *
- * 取消域只有一个 controller，任何一次读取接管时先作废在途的那次：保存后的重取与语言切换触发的
- * 重取会互相覆盖，慢的那次回来时写下的是过期目录。作废方不回写共享状态，收尾由接管方负责。
+ * One controller defines cancellation; every takeover invalidates prior in-flight reads. Post-save and language-switch refetches
+ * can overwrite each other; slower responses write stale catalogs. Invalidated requests never write shared state; successors handle cleanup.
  *
- * ``language`` 变化即重取：供应商与模型名由后端按 Accept-Language 成文，不重取则目录停留在
- * 切换前的语言。这一类重取是静默的——不置 loading，列表与详情面板保持挂载，详情表单里未保存的
- * 输入不被卸载丢弃；失败也保留上一份目录，译名停留在旧语言远好过丢输入。但首次拉取尚未成功过
- * 时没有可留的目录，那一轮仍走常规的 loading / 错误面板，否则会留下一个空列表且没有重试入口。
+ * Refetch on ``language`` changes: backends render provider/model names by Accept-Language, so otherwise catalogs retain previous
+ * languages. These refetches are silent: no loading state, lists/detail panels stay mounted, and unsaved detail-form
+ * inputs survive. Failures retain prior catalogs too; old translations are preferable to lost inputs. Before any initial success,
+ * however, no catalogs exist to retain, so use regular loading/error panels rather than empty lists without retry entries.
  */
 export function useProviderCatalog(language: string): ProviderCatalog {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -74,7 +74,7 @@ export function useProviderCatalog(language: string): ProviderCatalog {
       if (!silent) setError(errMsg(err));
       return { status: "failed" };
     } finally {
-      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 复位已在 finally 中；被作废的一轮把复位交给接管方，否则会灭掉接管方的加载态
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- reset is already in finally; invalidated requests delegate reset to successors to avoid clearing successor loading state
       if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
@@ -84,7 +84,7 @@ export function useProviderCatalog(language: string): ProviderCatalog {
 
   const loadedKeyRef = useRef<number | null>(null);
   useEffect(() => {
-    // 同一 reloadKey 下的重跑只可能由语言变化触发，此时静默刷新。
+    // Reruns under identical reloadKey can only follow language changes; refresh silently.
     const silent = hasLoadedRef.current && loadedKeyRef.current === reloadKey;
     loadedKeyRef.current = reloadKey;
     voidCall(load(silent));

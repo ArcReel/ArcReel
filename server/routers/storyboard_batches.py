@@ -1,13 +1,13 @@
-"""一集分镜图与分镜视频的批量生成入口（时间线与宫格工具栏）。
+"""Batch generation of episode storyboard images and videos from timeline/grid toolbars.
 
-- 分镜图：与 Agent 的 ``generate_storyboards`` 同一份规划（:mod:`server.services.admission.storyboard_batch`），
-  只补本集没有可用分镜图的分镜；缺提示词、引用不可用的分镜列为跳过项，其余照常提交。
-- 分镜视频：只补本集没有可用视频的分镜；缺提示词、缺分镜图、已在生成中的分镜列为跳过项，其余分镜整批准入，
-  任一目标不满足时整批拒绝，一个任务也不建，并逐项说明原因。
+- Images use the same plan as Agent ``generate_storyboards`` (:mod:`server.services.admission.storyboard_batch`),
+  filling only missing usable images. Skip missing prompts or unavailable references; submit the rest normally.
+- Videos fill only storyboards without usable videos. Skip missing prompts/images and active generation; admit
+  the remaining batch atomically. If any target fails admission, reject the whole batch with no tasks and per-item reasons.
 
-两者都分预览与提交：预览只规划不建任务，供确认框列名单、跳过项与已定价部分的预估费用及未定价项数；提交重新规划后建一个
-持久批次，立即返回。过期的产物不进批量。
-"""
+Both separate preview from submission: preview only plans, creating no tasks, for confirmation lists, skipped items,
+estimated costs of priced items and the count of unpriced items. Submission replans, creates a durable batch, and returns
+immediately. Stale artifacts are excluded from batch generation."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _skipped(skips: tuple[BatchSkip, ...]) -> list[dict[str, str]]:
 
 @contextmanager
 def _planning_errors(project_name: str, episode: int) -> Generator[None]:
-    """把规划阶段读项目、读剧本与把守生成模式的失败映射成 HTTP 错误。"""
+    """Map planning failures in project/script reads and generation-mode guards to HTTP errors."""
 
     try:
         yield
@@ -92,7 +92,7 @@ async def _video_plan(project_name: str, episode: int, user_id: str) -> Storyboa
 
 @router.post("/storyboards/batch/preview")
 async def preview_storyboard_batch(project_name: str, episode: int, user: CurrentUser) -> dict[str, Any]:
-    """规划一批分镜图但不建任务：要生成的分镜、跳过项与已定价部分的预估费用及未定价项数。"""
+    """Plan storyboard images without tasks: generation targets, skipped items, estimated costs of priced items and the count of unpriced items."""
 
     loaded, plan = await _image_plan(project_name, episode, user.id)
     new_ids = plan.new_task_ids
@@ -112,7 +112,7 @@ async def preview_storyboard_batch(project_name: str, episode: int, user: Curren
 
 @router.post("/storyboards/batch")
 async def submit_storyboard_batch(project_name: str, episode: int, user: CurrentUser, _t: Translator) -> dict[str, Any]:
-    """提交一批分镜图，立即返回；相邻分镜在批内按参考链排队。"""
+    """Submit storyboard images and return immediately; adjacent shots queue within the batch according to the reference chain."""
 
     _loaded, plan = await _image_plan(project_name, episode, user.id)
     batch, enqueued, failures = await submit_storyboard_image_batch(
@@ -130,7 +130,7 @@ async def submit_storyboard_batch(project_name: str, episode: int, user: Current
 async def preview_storyboard_video_batch(
     project_name: str, episode: int, user: CurrentUser, _t: Translator, names: DisplayNamesCatalog
 ) -> dict[str, Any]:
-    """规划一批分镜视频但不建任务：要生成的分镜、跳过项、整批准入结论与已定价部分的预估费用及未定价项数。"""
+    """Plan storyboard videos without tasks: generation targets, skipped items, whole-batch admission, estimated costs of priced items and the count of unpriced items."""
 
     plan = await _video_plan(project_name, episode, user.id)
     estimated = await estimate_storyboard_video_batch_cost(plan, async_session_factory)
@@ -146,7 +146,7 @@ async def preview_storyboard_video_batch(
 async def submit_storyboard_video_batch_route(
     project_name: str, episode: int, user: CurrentUser, _t: Translator, names: DisplayNamesCatalog
 ) -> dict[str, Any]:
-    """重新规划后提交一批分镜视频。整批准入未通过时以 200 返回结论、一个任务也不建。"""
+    """Replan and submit storyboard videos. Failed whole-batch admission returns the decision with HTTP 200 and creates no tasks."""
 
     plan = await _video_plan(project_name, episode, user.id)
     payload: dict[str, Any] = {

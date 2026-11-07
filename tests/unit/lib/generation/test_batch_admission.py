@@ -1,4 +1,4 @@
-"""整批准入判定的纯折叠：一批目标的整体结论与逐 unit 转述。"""
+"""Pure batch-admission folding: overall decisions and per-unit retelling."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def test_consent_only_problems_are_not_blockers():
 
 
 def test_a_real_blocker_outranks_pending_consent():
-    """确认与受阻同时存在时按受阻处理：先修缺口，再谈档位。"""
+    """Blocked outranks confirmation when both occur: repair gaps before discussing tiers."""
 
     admission = _admission(
         _confirmation_ticket("E1U1", request=8),
@@ -123,7 +123,7 @@ def test_confirmation_tiers_group_by_request_duration_with_totals():
 
 
 def test_a_tier_totals_the_quoted_members_and_counts_the_unquoted_ones():
-    """档位合计只含已报价的单元，没有报价的单元数另列：用户看得出合计只是下限，按申请秒数跨档的确认不变。"""
+    """Tier totals include quoted units only, counting unquoted separately so users see a lower bound; requested-second tier-crossing confirmation remains unchanged."""
 
     admission = _admission(
         _confirmation_ticket("E1U1", request=8, amount=0.8),
@@ -159,7 +159,7 @@ def test_a_fully_quoted_tier_has_no_unpriced_members():
 
 
 def test_quoted_total_sums_every_unit_by_currency_and_counts_the_unquoted():
-    """确认框的预估费用覆盖整批：已通过与待确认的单元都按各自报价计入，币种分开，没有报价的另数。"""
+    """Confirmation estimates cover all admitted/pending-confirmation quotes, separating currencies and counting unquoted units."""
 
     admission = _admission(
         UnitAdmissionTicket(unit_id="E1U1", request_cost={"amount": 0.5, "currency": "USD"}),
@@ -182,7 +182,7 @@ def test_quoted_total_drops_zero_amounts():
 
 
 def test_a_tier_quoted_in_two_currencies_reports_no_total():
-    """币种不一的报价加不出一个数：合计与币种一起留空，不给出无从解读的金额。"""
+    """Different currencies cannot sum meaningfully: leave amount/currency empty rather than show uninterpretable totals."""
 
     admission = _admission(
         _confirmation_ticket("E1U1", request=8, amount=1.0, currency="USD"),
@@ -219,7 +219,7 @@ def test_refusal_reports_every_requested_unit_including_the_clean_ones():
     withheld = problems["E1U1"]
     assert withheld.code == GenerationProblemCode.BATCH_ADMISSION_WITHHELD
     assert withheld.action is GenerationAction.RETRY
-    # 被连带扣下的 unit 直接知道该去修谁，不必反查整份清单。
+    # Cascade-blocked units directly identify repair targets without searching the whole list.
     assert withheld.params["blocked_unit_ids"] == ["E1U2"]
 
 

@@ -6,8 +6,8 @@
 
 name: React Doctor
 
-# 非必需检查，直接用 on.paths 裁剪；改为必需检查时须换成 test.yml 的 domain-filter 模式，
-# 否则未改前端的 PR 会一直等待该检查
+# This check is optional, so filter directly with on.paths; if made required, switch to the test.yml domain-filter pattern,
+# or PRs without frontend changes would wait for it indefinitely.
 on:
   # Scans the PR's changed files and posts a sticky summary comment listing only the new issues introduced relative to the merge base of the target branch.
   pull_request:
@@ -53,7 +53,7 @@ jobs:
         # Full reference: https://www.react.doctor/ci
         with:
           directory: frontend
-          # CI 不安装依赖，不写 version 会运行 npm 上的 latest；升级 frontend/package.json 的 react-doctor 时同步修改
+          # CI installs no dependencies; omitting version runs npm latest. Update this when upgrading react-doctor in frontend/package.json.
           version: "0.9.18"
         #   blocking: error          # Gate level: "none" (advisory, the default) | "warning" | "error"
         #   scope: full              # On PRs, scan the whole project instead of just changed files

@@ -144,7 +144,7 @@ describe("SourceFileActions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "「中卷.txt」的操作" }));
 
-    // 菜单项禁用后仍可聚焦（读屏能读到它），禁用态经 aria-disabled 暴露
+    // Disabled menu items remain focusable for screen readers, exposing disabled state through aria-disabled.
     expect(screen.getByRole("menuitem", { name: "上移" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("menuitem", { name: "下移" })).toHaveAttribute("aria-disabled", "true");
   });

@@ -1,4 +1,4 @@
-"""安装记录迁移往返、唯一约束及端点删除级联。"""
+"""Installation-record migration round-trip, uniqueness, and endpoint-deletion cascades."""
 
 from collections.abc import Callable
 from datetime import UTC, datetime

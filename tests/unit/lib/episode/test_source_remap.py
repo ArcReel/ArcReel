@@ -1,4 +1,4 @@
-"""整本源文改动时切出集原文范围的重映射：编辑、删除、插入、调序（ADR 0097）。"""
+"""Remap episode source ranges after whole-source edits, deletion, insertion, and reordering (ADR 0097)."""
 
 from __future__ import annotations
 

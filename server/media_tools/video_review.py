@@ -44,21 +44,22 @@ class InspectVideoUnitsRequest(BaseModel):
 
     unit_ids: list[str] = Field(
         min_length=1,
-        description="要看的视频单元 ID 列表：分镜图生视频为分镜 ID（如 E1S01），参考生视频为 unit_id（如 E1U1）",
+        description="Video-unit IDs to inspect: storyboard IDs (for example E1S01) for storyboard-to-video, unit_id (for example E1U1) for reference-to-video",
     )
     version: StrictInt | None = Field(
         default=None,
         ge=1,
-        description="视频版本号，对列表中每个视频单元都取这个版本；省略时取各单元的 current 版本",
+        description="Video version number, applied to every listed unit; omit to use each unit's current version",
     )
     frames: StrictInt = Field(
         default=DEFAULT_FRAMES_PER_UNIT,
         ge=1,
         le=MAX_FRAMES_PER_UNIT,
         description=(
-            f"每个视频单元的帧数预算，默认 {DEFAULT_FRAMES_PER_UNIT}；"
-            "镜头数超过预算时，每个镜头至少一帧优先，实际帧数提到镜头数（至多 "
-            f"{MAX_FRAMES_PER_UNIT}）"
+            f"Frame budget per video unit, default {DEFAULT_FRAMES_PER_UNIT}; "
+            "When shot count exceeds the budget, prioritize at least one frame per shot; "
+            "raise the actual frame count to the shot count (at most "
+            f"{MAX_FRAMES_PER_UNIT})"
         ),
     )
 
@@ -72,7 +73,7 @@ class InspectedUnit:
     signals: VideoSignals | None = None
     signals_cached: bool = False
     detail: str | None = None
-    #: 该单元现有的全部视频版本号，用来发现还没看过的候选版本。
+    #: All existing video version numbers for finding candidates not yet inspected.
     available_versions: tuple[int, ...] = ()
 
     @property
@@ -85,7 +86,7 @@ class InspectVideoUnitsResult:
     frame_budget_per_unit: int
     units: tuple[InspectedUnit, ...]
     model_review: None = field(default=None)
-    """预留给服务端原生视频 MLLM 审阅，恒为 None。"""
+    """Reserved for server-native video MLLM review; always None."""
 
     @property
     def total_frames(self) -> int:

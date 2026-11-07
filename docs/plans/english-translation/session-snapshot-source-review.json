@@ -1,0 +1,10 @@
+{
+  "sdk_version": "0.2.173",
+  "source": "/Users/pablo.carminatti.br/Projects/ArcReelBR/.venv/lib/python3.12/site-packages/claude_agent_sdk/types.py",
+  "carrier": "SystemPromptPreset.snapshot=True in options_assembler.build options, covering first-request system prompt including append",
+  "documented_boundary": "Across later requests and resume until compaction or a new session; requires CLI>=2.1.257",
+  "reviewer": "root",
+  "review_result": "Both assembler and get_or_connect doc comments independently checked against installed SDK type documentation; no option/default or code change",
+  "file_based_instructions": "Separate carrier; do not infer CLAUDE/skill reload timing from append snapshot alone",
+  "real_runtime_evaluation": "Pending selected model/environment/budget"
+}

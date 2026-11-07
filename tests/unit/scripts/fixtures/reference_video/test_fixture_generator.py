@@ -21,4 +21,4 @@ def test_generate_color_refs_distinct_colors(tmp_path: Path):
     for p in paths:
         with Image.open(p) as img:
             pixels.append(img.getpixel((0, 0)))
-    assert len(set(pixels)) == 4  # 每张颜色不同
+    assert len(set(pixels)) == 4  # Every image has a different color.

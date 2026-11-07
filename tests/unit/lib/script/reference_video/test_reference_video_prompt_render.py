@@ -1,4 +1,4 @@
-"""三段论渲染管线：A/B/C 三档注入差异、编号顺序契约与降级 warning。"""
+"""Three-part rendering: A/B/C injection differences, numbering-order contracts, and degradation warnings."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def _project(**overrides):
     return project
 
 
-#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+#: Vietnamese combining-character names: visually identical, byte-distinct encodings test asset-name comparison coordinates.
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
@@ -52,8 +52,8 @@ def _refs(*pairs):
     return [ReferenceResource(type=t, name=n) for t, n in pairs]
 
 
-#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。渲染入口的 ``settings`` 必填，
-#: 这些用例照样要给一档，取字段默认即可。
+#: Voice settings for nonvoice cases: ``soft`` has audio without reference clips. Rendering requires ``settings``,
+#: so these cases still supply a tier using field defaults.
 _SOFT = VoiceRenderSettings()
 
 
@@ -74,19 +74,20 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, model_id="doubao-seedance-2-0"),
     )
-    # 音频顺序即请求字段顺序，也即 @音频N 编号
+    # Audio order follows request fields and @音频N numbering.
     assert rendered.audio_speakers == ["张三", "李四"]
     assert (
-        "<张三>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。"
+        "<张三>: Dialogue voice reference @音频1; use only timbre, speech rate, and emotion; the body text is authoritative for dialogue; Voice characteristics: 低沉沙哑的男声."
         in rendered.prompt
     )
     assert (
-        "<李四>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in rendered.prompt
+        "<李四>: Dialogue voice reference @音频2; use only timbre, speech rate, and emotion; the body text is authoritative for dialogue; Voice characteristics: 清亮少女音."
+        in rendered.prompt
     )
 
 
 def test_silent_episode_sends_dialogue_without_any_audio_binding():
-    """本集无声：不组装参考音频、prompt 里不出现 @音频N，台词照常下发作口型参考。"""
+    """Silent episode: assemble no reference audio or @音频N in prompts; still send dialogue for lip-sync reference."""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -101,15 +102,15 @@ def test_silent_episode_sends_dialogue_without_any_audio_binding():
     assert rendered.audio_speakers == []
     assert rendered.audio_speaker_reference_index == []
     assert "@音频" not in rendered.prompt
-    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
-    assert "<李四>说 {你终于来了。}" in rendered.prompt
+    assert "<张三> says {今晚的酒，我请。}" in rendered.prompt
+    assert "<李四> says {你终于来了。}" in rendered.prompt
 
 
 def test_silent_episode_injects_no_voice_style_same_as_silent_model():
-    """本集关闭音频与模型不产音（C 类）同口径：两条无声路径都不注入「声音特征：…」。
+    """Episode audio disabled and nonaudio-producing models (class C) agree: neither silent path injects 声音特征：….
 
-    ``voice_style`` 描述的是听得到的音色，无声成片里注入只会让模型把配额花在用不上的约束上；
-    台词不受影响（另有用例逐字比对第二段）。
+    ``voice_style`` describes audible timbre; injecting it into silent video wastes model capacity on unused constraints.
+    Dialogue is unaffected, with separate cases comparing the second part exactly.
     """
     refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
     silent_episode = render_unit_prompt(
@@ -120,9 +121,9 @@ def test_silent_episode_injects_no_voice_style_same_as_silent_model():
     )
     silent_model = render_unit_prompt(_TEXT, _project(), refs, VoiceRenderSettings(voice_consistency="none"))
 
-    assert "声音特征" not in silent_episode.prompt
-    assert "声音特征" not in silent_model.prompt
-    # 第一段只剩主体绑定行，两条无声路径逐字同形
+    assert "Voice characteristics" not in silent_episode.prompt
+    assert "Voice characteristics" not in silent_model.prompt
+    # Part one contains only subject bindings; both silent paths are byte-identical.
     assert silent_episode.prompt.split("\n\n")[0] == silent_model.prompt.split("\n\n")[0]
 
 
@@ -134,10 +135,10 @@ def test_silent_episode_injects_no_voice_style_same_as_silent_model():
     ],
 )
 def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencing: dict):
-    """第二段与有声路径逐字同形——只有第一段的音色参考行消失。
+    """Part two exactly matches the audible path; only part-one voice-reference lines disappear.
 
-    整段正文比对而非只比第一句：音频编号从第二个说话人起才可能出现分叉，只比开头会漏掉
-    后续绑定位上的差异。两条无声路径各比一次。
+    Compare the whole body, not its first sentence: audio numbering can diverge only from the second speaker onward, so checking
+    the opening alone misses later binding differences. Compare each silent path separately.
     """
     settings = VoiceRenderSettings(
         voice_consistency="native",
@@ -152,7 +153,7 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
     def _body(prompt: str) -> str:
         return prompt.split("\n\n")[1]
 
-    # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
+    # The audible side must bind two clips for meaningful comparison; otherwise both lack audio and assertions are trivial.
     assert audible.audio_speakers == ["张三", "李四"]
     assert "你终于来了。" in _body(audible.prompt)
     assert _body(silent.prompt) == _body(audible.prompt)
@@ -174,10 +175,10 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
     ],
 )
 def test_silent_preview_and_execution_reach_the_same_conclusion(silencing: dict, expected: dict):
-    """同一份正文在预览与执行两条路径上给出同一组无声结论。
+    """The same body yields identical silent conclusions in preview and execution.
 
-    两侧的 ``VoiceRenderSettings`` 由不同的构造点拼出（预览侧 ``from_caps``、执行侧逐字段），
-    结论分叉时用户会在预览里看到声音已绑定、生成完才发现是无声成片。
+    Their ``VoiceRenderSettings`` come from different construction points (preview ``from_caps``, execution per-field);
+    divergence would show bound audio in preview but yield a silent final video.
     """
     settings = replace(
         VoiceRenderSettings(
@@ -193,14 +194,14 @@ def test_silent_preview_and_execution_reach_the_same_conclusion(silencing: dict,
 
     assert preview.warnings == [expected]
     assert rendered.warnings == [expected]
-    # 承诺与实付一致：预览说这一集听不到声音，执行侧就不该绑上任何音频段
+    # Match promises to paid execution: if preview says no audible episode, execution must bind no clips.
     assert rendered.audio_speakers == []
     assert "@音频" not in rendered.prompt
     assert [u.text for u in preview.utterances] == ["今晚的酒，我请。", "你终于来了。"]
 
 
 def test_silent_preview_and_execution_stay_silent_without_any_utterance():
-    """真「无声场景」（正文没有任何发声记号）：两条路径都不发无声知会。"""
+    """Truly silent scenes with no speech markers produce no silence notice on either path."""
     settings = VoiceRenderSettings(voice_consistency="none", model_id="doubao-seedance-2-0")
     text = "镜头1：夜色下的 @[酒馆]，@[张三] 推门而入，手按 @[长剑]。"
     preview = build_script_preview(text, _project(), settings)
@@ -223,7 +224,7 @@ def test_first_segment_binds_images_in_reference_order():
 
 
 def test_speaker_position_never_produces_a_reference_image():
-    """李四只在台词记号的 speaker 位出现：无参考图绑定，但音色声明与台词渲染照常。"""
+    """李四 appears only as a dialogue speaker: no reference-image binding, but voice declarations and dialogue render normally."""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -231,8 +232,8 @@ def test_speaker_position_never_produces_a_reference_image():
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert "<李四>@图片" not in rendered.prompt
-    assert "<李四>的台词音色参考 @音频2" in rendered.prompt
-    assert "<李四>说 {你终于来了。}" in rendered.prompt
+    assert "<李四>: Dialogue voice reference @音频2" in rendered.prompt
+    assert "<李四> says {你终于来了。}" in rendered.prompt
 
 
 def test_soft_tier_declares_voice_style_without_audio_designation():
@@ -244,8 +245,8 @@ def test_soft_tier_declares_voice_style_without_audio_designation():
     )
     assert rendered.audio_speakers == []
     assert "@音频" not in rendered.prompt
-    assert "<张三>的声音特征：低沉沙哑的男声。" in rendered.prompt
-    assert "<李四>的声音特征：清亮少女音。" in rendered.prompt
+    assert "<张三>: Voice characteristics: 低沉沙哑的男声." in rendered.prompt
+    assert "<李四>: Voice characteristics: 清亮少女音." in rendered.prompt
 
 
 def test_silent_tier_keeps_dialogue_lines_but_injects_no_voice_declaration():
@@ -255,10 +256,10 @@ def test_silent_tier_keeps_dialogue_lines_but_injects_no_voice_declaration():
         _refs(("character", "张三")),
         VoiceRenderSettings(voice_consistency="none", model_id="minimax-01"),
     )
-    assert "声音特征" not in rendered.prompt
+    assert "Voice characteristics" not in rendered.prompt
     assert "@音频" not in rendered.prompt
-    # 台词照常渲染：供口型与表演
-    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    # Render dialogue normally for lip-sync and performance.
+    assert "<张三> says {今晚的酒，我请。}" in rendered.prompt
     assert {"key": WARN_SILENT_MODEL, "params": {"provider": "", "model": "minimax-01"}} in rendered.warnings
 
 
@@ -270,8 +271,8 @@ def test_reference_audio_overflow_truncates_and_warns():
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=1),
     )
     assert rendered.audio_speakers == ["张三"]
-    assert "<李四>的声音特征：清亮少女音。" in rendered.prompt
-    assert "<李四>的台词音色参考" not in rendered.prompt
+    assert "<李四>: Voice characteristics: 清亮少女音." in rendered.prompt
+    assert "<李四>: Dialogue voice reference" not in rendered.prompt
     assert {"key": WARN_REFERENCE_AUDIO_OVERFLOW, "params": {"limit": 1, "name": "李四"}} in rendered.warnings
 
 
@@ -281,12 +282,12 @@ def test_speaker_without_reference_audio_warns_and_keeps_voice_style():
         text, _project(), [], VoiceRenderSettings(voice_consistency="native", max_reference_audio=3)
     )
     assert rendered.audio_speakers == []
-    assert "<旁白人>的声音特征：温和中年男声。" in rendered.prompt
+    assert "<旁白人>: Voice characteristics: 温和中年男声." in rendered.prompt
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "旁白人"}} in rendered.warnings
 
 
 def test_unattributed_narration_mark_is_dropped_from_the_prompt():
-    """无归属旁白由 TTS / 后期配音承担，整段不下发视频模型；同段的画面描述照常渲染。"""
+    """Unattributed narration belongs to TTS / postproduction voiceover and is entirely omitted from video models; render surrounding visual description normally."""
     rendered = render_unit_prompt("镜头1：空镜。\n{多年以后他仍记得这句话。}", _project(), [], _SOFT)
     assert "画外音说" not in rendered.prompt
     assert "多年以后他仍记得这句话" not in rendered.prompt
@@ -294,7 +295,7 @@ def test_unattributed_narration_mark_is_dropped_from_the_prompt():
 
 
 def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form():
-    """内联记号与整行写法渲染出同一段官方句式，只是行文位置随作者所写。"""
+    """Inline and whole-line markers render the same official phrasing, with placement following the author's text."""
     legacy = render_unit_prompt(
         "镜头1：@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}",
         _project(),
@@ -308,25 +309,25 @@ def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form
         _SOFT,
     )
 
-    assert "<张三>说 {今晚的酒，我请。}" in legacy.prompt
-    assert "<张三> 推门而入。<张三>说 {今晚的酒，我请。}" in inline.prompt
+    assert "<张三> says {今晚的酒，我请。}" in legacy.prompt
+    assert "<张三> 推门而入。<张三> says {今晚的酒，我请。}" in inline.prompt
     assert inline.warnings == legacy.warnings
     assert inline.audio_speakers == legacy.audio_speakers
 
 
 def test_inline_speech_keeps_the_description_around_it_in_place():
-    """记号就地重组，两侧描述留在原处——一行的行文顺序原样传给供应商。"""
+    """Reconstruct markers in place, keeping descriptions on either side; pass the original line order to providers."""
     rendered = render_unit_prompt(
         "镜头1：@[张三] 推门，@[张三]{我来了。}，他按住 @[长剑]。",
         _project(),
         _refs(("character", "张三"), ("prop", "长剑")),
         _SOFT,
     )
-    assert "<张三> 推门，<张三>说 {我来了。}，他按住 <长剑>。" in rendered.prompt
+    assert "<张三> 推门，<张三> says {我来了。}，他按住 <长剑>。" in rendered.prompt
 
 
 def test_inline_unattributed_narration_is_dropped_without_losing_the_line():
-    """行内旁白记号整段丢弃，同一行的描述与主体记号留在原处，整行不被丢掉。"""
+    """Remove entire inline narration markers, retaining descriptions/subject markers in that line rather than discarding the whole line."""
     rendered = render_unit_prompt(
         "镜头1：@[张三] 推门，{夜风灌进来}，他按住 @[长剑]。",
         _project(),
@@ -339,7 +340,7 @@ def test_inline_unattributed_narration_is_dropped_without_losing_the_line():
 
 
 def test_whitespace_around_a_dropped_narration_collapses_to_one_space():
-    """记号两侧只有空白时并成一个空格——空白不该因为记号消失而在正文里堆起来。"""
+    """Whitespace alone on both sides collapses into one space; removing markers must not accumulate body whitespace."""
     rendered = render_unit_prompt(
         "镜头1：@[张三] 推门   {夜风灌进来}   他按住剑。",
         _project(),
@@ -350,7 +351,7 @@ def test_whitespace_around_a_dropped_narration_collapses_to_one_space():
 
 
 def test_line_leading_narration_does_not_leave_a_dangling_separator():
-    """记号写在行首时，它右侧的分隔标点没有左侧可接——整行不以「，」开头。"""
+    """A line-leading marker leaves its right separator without a left attachment; the line must not start with ，."""
     rendered = render_unit_prompt(
         "{夜风灌进来}，@[张三] 推门。",
         _project(),
@@ -362,7 +363,7 @@ def test_line_leading_narration_does_not_leave_a_dangling_separator():
 
 
 def test_line_trailing_narration_drops_the_dangling_joiner_but_keeps_a_terminator():
-    """记号写在行尾时，左侧悬空的连接标点丢掉；收句的终止标点是作者写完的一句，保留。"""
+    """For line-ending markers, remove dangling left connector punctuation; preserve author-written sentence-ending punctuation."""
     joined = render_unit_prompt("@[张三] 推门，{夜风灌进来}", _project(), _refs(("character", "张三")), _SOFT)
     assert "<张三> 推门" in joined.prompt
     assert "推门，" not in joined.prompt
@@ -374,17 +375,17 @@ def test_line_trailing_narration_drops_the_dangling_joiner_but_keeps_a_terminato
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
     rendered = render_unit_prompt("镜头1：黑场。\n@[路人]：{你好。}", _project(), [], _SOFT)
     assert "@[路人]：{你好。}" in rendered.prompt
-    assert "说 {你好。}" not in rendered.prompt
+    assert " says {你好。}" not in rendered.prompt
     assert {"key": WARN_UNREGISTERED_SPEAKER, "params": {"name": "路人"}} in rendered.warnings
 
 
 def test_clipped_reference_still_renders_as_subject():
-    """被能力上限裁掉参考图的已登记名字仍是画面主体：渲染 <X>，不把编辑器语法发给模型。"""
+    """Registered names whose references are trimmed by capability limits remain visual subjects: render <X>, never editor syntax."""
     rendered = render_unit_prompt(_TEXT, _project(), _refs(("scene", "酒馆")), _SOFT)
     assert "@[张三]" not in rendered.prompt
     assert "@[长剑]" not in rendered.prompt
     assert "<张三> 推门而入，手按 <长剑>。" in rendered.prompt
-    # 主体记号与图号解耦：只有随请求发出的那张图才有绑定行
+    # Subject markers and image numbers are independent; only images actually sent receive binding lines.
     assert rendered.prompt.startswith("<酒馆>@图片1。")
     assert "<张三>@图片" not in rendered.prompt
 
@@ -412,7 +413,7 @@ def test_legend_and_absolute_seconds_are_gone():
 
 
 def _video_avoid_line() -> str:
-    """分镜视频提示词的 Avoid 行即视频负向提示词。"""
+    """The storyboard video prompt's Avoid line is its negative video prompt."""
     return builtin_templates.render("storyboard/video", body="正文").splitlines()[-1]
 
 
@@ -451,7 +452,9 @@ def test_twin_exclusion_only_when_two_or_more_characters():
     )
     assert clipped.prompt.startswith("<张三>@图片1。")
     assert "<李四>@图片" not in clipped.prompt
-    assert _avoid_line(clipped.prompt) == f"{_video_avoid_line()}、外形着装完全一致的分身或双胞胎"
+    assert (
+        _avoid_line(clipped.prompt) == f"{_video_avoid_line()}, doubles or twins with identical appearance and clothing"
+    )
 
 
 def test_product_fidelity_tail_follows_the_third_segment():
@@ -463,15 +466,15 @@ def test_product_fidelity_tail_follows_the_third_segment():
     )
     tail = rendered.prompt.split("\n\n")[-1]
     assert tail.startswith(
-        "商品高保真还原（最高优先级，优先于前述文字/Logo 禁止项）：画面中的商品「商品甲」「商品乙」必须"
+        "High-fidelity product reproduction (highest priority, overriding the text / logo prohibitions above): products 「商品甲」「商品乙」 in the frame must"
     )
     assert rendered.prompt.index(_video_avoid_line()) < rendered.prompt.index(tail)
 
 
 def test_script_without_dialogue_still_renders_three_segments():
-    """无台词记号的正文照样出三段：绑定 + 正文 + 约束包齐备，语义不回退。
+    """Bodies without dialogue markers still have all three parts: bindings, body, and constraints, without semantic fallback.
 
-    正文里的 `镜头N：` 只是普通文字，逐字进提示词，不被识别为结构。
+    Body `镜头N：` is ordinary text, passed verbatim into prompts without structural recognition.
     """
     rendered = render_unit_prompt(
         "镜头1：@[张三] 走进 @[酒馆]。\n镜头2：他坐下。",
@@ -486,8 +489,8 @@ def test_script_without_dialogue_still_renders_three_segments():
 
 
 def test_audio_ready_overrides_field_presence(tmp_path):
-    """字段指向已删文件时不绑定：编号与实际发出的音频段数严格等长，且降级 warning 指向
-    「音频不可用」而非「未设置」——张三字段有值，只是不在 audio_ready 内。"""
+    """Do not bind fields pointing to deleted files: numbering exactly matches sent clip count, and degradation warnings say
+    audio unavailable rather than unconfigured; 张三 has a field value but is absent from audio_ready."""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -495,15 +498,15 @@ def test_audio_ready_overrides_field_presence(tmp_path):
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={"李四"}),
     )
     assert rendered.audio_speakers == ["李四"]
-    assert "<李四>的台词音色参考 @音频1" in rendered.prompt
+    assert "<李四>: Dialogue voice reference @音频1" in rendered.prompt
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in rendered.warnings
 
 
 def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
-    """参考音频顺序（台词 speaker 首现）与参考图顺序（mention 首现）独立派生：references 里
-    场景先于张三出现，但张三先开口——``audio_speaker_reference_index`` 须按名字取图 1（0-based）
-    的下标，不能按位置假设第 1 段音频配第 1 张图。"""
+    """Audio order (first dialogue speaker) and image order (first mention) derive independently: references place the scene
+    before 张三, who speaks first. ``audio_speaker_reference_index`` must find image index 1 (0-based) by name,
+    not assume first audio corresponds to first image."""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -511,34 +514,34 @@ def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert rendered.audio_speakers == ["张三", "李四"]
-    # references[0]=酒馆, references[1]=张三 → 张三的 0-based 下标是 1；李四未随请求发图
+    # references[0]=酒馆, references[1]=张三 → 张三 has 0-based index 1; no 李四 image was sent.
     assert rendered.audio_speaker_reference_index == [1, None]
 
 
 def test_requires_reference_image_downgrades_offscreen_speaker_with_warning():
-    """backend 要求音频逐段挂图（如 wan2.7-r2v）时，纯画外 speaker（无参考图）不绑定音频，
-    编号与 warning 都在渲染期同步产生，避免 @音频N 承诺一段实际不会发出的绑定。"""
+    """When backends require per-image audio attachment (such as wan2.7-r2v), offscreen speakers without references bind no audio.
+    Generate numbering/warnings together during rendering so @音频N never promises an unsent binding."""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三")),
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
     )
-    # 李四没有参考图（纯画外），即使有可用音频也不绑定
+    # 李四 has no reference image (entirely offscreen), so even usable audio stays unbound.
     assert rendered.audio_speakers == ["张三"]
     assert rendered.audio_speaker_reference_index == [1]
-    assert "<李四>的台词音色参考" not in rendered.prompt
+    assert "<李四>: Dialogue voice reference" not in rendered.prompt
     assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "李四"}} in rendered.warnings
 
 
 @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
 @pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
 def test_combining_char_name_renders_identically_in_every_encoding_pairing(registered: str, written: str):
-    """组合字符角色名的四种 NFC/NFD 配对渲染出完全相同的 prompt 与音频绑定。
+    """All four NFC/NFD combining-name pairings render identical prompts and audio bindings.
 
-    这是链路末端：说话人、mention 主体记号、参考图编号、音色声明四处判定任一漏归一，都不会
-    报错，而是让 ``@[名称]`` 这个引用语法记号原样漏进供应商请求、台词不重组成官方句式、或音频
-    不绑——用户拿到的是一条脸和声音都不对的成片。
+    At this chain endpoint, missing normalization in speaker, subject mention, image numbering, or voice declaration silently leaks
+    ``@[名称]`` syntax to provider requests, prevents official dialogue reconstruction, or fails audio binding,
+    leaving users with wrong faces and voices instead of errors.
     """
     project = {
         "style": "写实电影感",
@@ -560,12 +563,12 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert rendered.warnings == []
     assert f"<{_NAME_NFC}>@图片1" in rendered.prompt
     assert (
-        f"<{_NAME_NFC}>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。"
+        f"<{_NAME_NFC}>: Dialogue voice reference @音频1; use only timbre, speech rate, and emotion; the body text is authoritative for dialogue; Voice characteristics: 清亮少女音."
         in rendered.prompt
     )
     assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
-    assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
-    # 引用语法记号一个都不该漏进供应商请求
+    assert f"<{_NAME_NFC}> says {{Tôi đến rồi.}}" in rendered.prompt
+    # No editor reference syntax may leak into provider requests.
     assert "@[" not in rendered.prompt
 
 
@@ -581,7 +584,7 @@ def test_padded_mention_and_speaker_render_with_canonical_asset_name():
     assert rendered.audio_speaker_reference_index == [0]
     assert "<张三>@图片1" in rendered.prompt
     assert "<张三> 推门而入" in rendered.prompt
-    assert "<张三>说 {我来了}" in rendered.prompt
+    assert "<张三> says {我来了}" in rendered.prompt
     assert "@[" not in rendered.prompt
 
 
@@ -593,8 +596,8 @@ def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_au
     project = {
         "characters": {
             "张三": {"reference_audio": "characters/refs_audio/张三.wav"},
-            "李四": {"reference_audio": "characters/refs_audio/李四.mp3"},  # 文件不存在
-            "越界": {"reference_audio": "project.json"},  # refs_audio 之外
+            "李四": {"reference_audio": "characters/refs_audio/李四.mp3"},  # File nonexistent.
+            "越界": {"reference_audio": "project.json"},  # Outside refs_audio.
             "未设": {},
         }
     }
@@ -604,9 +607,9 @@ def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_au
 
 
 def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
-    """字段指到 ``refs_audio`` 之外时文件本身可能好端端存在，只是路径不合法——同样被
-    ``resolve_reference_audio_paths`` 排除。这条 warning 因此只说「不可用」，不能断言是
-    文件缺失，否则又把用户导向错误的排查方向。"""
+    """Files outside ``refs_audio`` may exist perfectly well but have invalid paths;
+    ``resolve_reference_audio_paths`` also excludes them. Therefore warn only unavailable, without claiming
+    file absence and sending users toward the wrong diagnosis."""
     refs_audio = tmp_path / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)
     (tmp_path / "project.json").write_text("{}", encoding="utf-8")
@@ -633,7 +636,7 @@ def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
 
 def test_resolve_reference_audio_paths_ignores_non_dict_characters_bucket(tmp_path):
     (tmp_path / "project.json").write_text("{}", encoding="utf-8")
-    project = {"characters": [{}]}  # 校验器不拒绝非 dict 桶（data_validator 只在 dict 时才校验）
+    project = {"characters": [{}]}  # Validators do not reject nondict buckets; data_validator validates only dicts.
 
     resolved = resolve_reference_audio_paths(project, tmp_path)
 
@@ -650,7 +653,7 @@ def _project_with_derivatives(**overrides):
 
 
 def test_derivative_subject_marks_declare_one_character_in_several_forms():
-    """本体与衍生同现：各自绑定自己的参考图，并声明它们是同一个人的不同外观。"""
+    """Base and derivative coexist: bind each reference image and declare different appearances of the same person."""
     rendered = render_unit_prompt(
         "@[张三] 与 @[张三/劲装] 对峙。",
         _project_with_derivatives(),
@@ -659,7 +662,10 @@ def test_derivative_subject_marks_declare_one_character_in_several_forms():
     )
 
     assert rendered.prompt.startswith("<张三>@图片1、<张三/劲装>@图片2。")
-    assert "<张三>与<张三/劲装>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
+    assert (
+        "<张三> and <张三/劲装> are different appearances of the same character; depict each according to its corresponding reference image."
+        in rendered.prompt
+    )
 
 
 def test_several_derivatives_of_one_character_share_a_single_form_declaration():
@@ -670,11 +676,14 @@ def test_several_derivatives_of_one_character_share_a_single_form_declaration():
         _SOFT,
     )
 
-    assert "<张三/劲装>与<张三/兽化>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
+    assert (
+        "<张三/劲装> and <张三/兽化> are different appearances of the same character; depict each according to its corresponding reference image."
+        in rendered.prompt
+    )
 
 
 def test_one_character_in_two_forms_does_not_trigger_the_twin_exclusion():
-    """分身排除项数的是不同角色：本体 + 衍生是两张图、一个人，排除项会与形态说明句对立。"""
+    """Duplicate-person exclusions count distinct characters: base plus derivative are two images of one person, so exclusion would contradict the appearance explanation."""
     rendered = render_unit_prompt(
         "@[张三] 与 @[张三/劲装] 对峙。",
         _project_with_derivatives(),
@@ -693,7 +702,10 @@ def test_two_characters_still_trigger_the_twin_exclusion_when_one_is_a_derivativ
         _SOFT,
     )
 
-    assert _avoid_line(rendered.prompt) == f"{_video_avoid_line()}、外形着装完全一致的分身或双胞胎"
+    assert (
+        _avoid_line(rendered.prompt)
+        == f"{_video_avoid_line()}, doubles or twins with identical appearance and clothing"
+    )
 
 
 def test_a_lone_form_needs_no_declaration():
@@ -704,11 +716,11 @@ def test_a_lone_form_needs_no_declaration():
         _SOFT,
     )
 
-    assert "同一角色的不同形态" not in rendered.prompt
+    assert "different appearances of the same character" not in rendered.prompt
 
 
 def test_speaker_position_renders_the_form_written_down():
-    """说话人位与描述位同一种主体记号：写下衍生就渲染衍生，声音仍绑本体。"""
+    """Speakers and descriptions use the same subject markers; derivative notation renders the derivative while binding the base voice."""
     rendered = render_unit_prompt(
         "@[张三/劲装]：{今晚的酒，我请。}",
         _project_with_derivatives(),
@@ -716,9 +728,9 @@ def test_speaker_position_renders_the_form_written_down():
         VoiceRenderSettings(voice_consistency="soft"),
     )
 
-    assert "<张三/劲装>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<张三/劲装> says {今晚的酒，我请。}" in rendered.prompt
     assert "<张三>说" not in rendered.prompt
-    assert "<张三>的声音特征：低沉沙哑的男声。" in rendered.prompt
+    assert "<张三>: Voice characteristics: 低沉沙哑的男声." in rendered.prompt
 
 
 def test_unregistered_speaker_derivative_falls_back_to_the_ontology_mark():
@@ -729,4 +741,4 @@ def test_unregistered_speaker_derivative_falls_back_to_the_ontology_mark():
         _SOFT,
     )
 
-    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<张三> says {今晚的酒，我请。}" in rendered.prompt

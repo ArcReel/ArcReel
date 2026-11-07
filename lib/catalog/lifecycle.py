@@ -1,8 +1,8 @@
-"""模型条目的生命周期：按当天日期（UTC）推出可用、即将下线、已下线（docs/adr/0103）。
+"""Model-entry lifecycle: available, retiring, or discontinued by current UTC dates (docs/adr/0103).
 
-生命周期记在条目上，表示模型厂商层面的退役，内置供应商与自定义供应商共用：凡是能对应到条目的供应商模型，都按
-:func:`entry_lifecycle` 判定。状态每次现算，不进只随目录数据变化而重建的缓存：同一进程跨过关停日期后，即使没有
-同步，候选与调用也立即随之变化。
+Entry lifecycle represents vendor-level retirement shared by built-in/custom providers: every corresponding provider model uses
+:func:`entry_lifecycle`. Compute each time, outside caches rebuilt only on catalog changes; crossing shutdown dates within one process
+immediately affects candidates/calls even without synchronization.
 """
 
 from __future__ import annotations
@@ -13,15 +13,15 @@ from typing import Literal
 
 from arcreel_catalog_core import CatalogEntry
 
-#: ``available`` 可用；``retiring`` 即将下线（关停日期在未来）；``discontinued`` 已下线。
+#: ``available``; ``retiring`` for future shutdown; ``discontinued``.
 LifecycleStatus = Literal["available", "retiring", "discontinued"]
 
 
 @dataclass(frozen=True)
 class Lifecycle:
-    """条目的生命周期状态，连同关停日期与官方后继（「模型厂商/官方模型名」，媒体类型与原条目相同）。
+    """Entry lifecycle with shutdown dates/official successors (vendor/official model name, same media type).
 
-    关停日期与后继在任何状态下都原样带出：只登记了后继、没有关停日期的条目仍是可用的。
+    Always expose dates/successors unchanged; successors alone without shutdown dates still mean available.
     """
 
     status: LifecycleStatus
@@ -33,20 +33,20 @@ class Lifecycle:
         return self.status == "discontinued"
 
 
-#: 对应不上条目的模型没有生命周期信息，按可用处理。
+#: Models without corresponding entries lack lifecycle information, treated as available.
 AVAILABLE = Lifecycle("available")
 
 
 def utc_today() -> date:
-    """判定生命周期用的「今天」：当前的 UTC 日期。测试替换本函数注入时钟。"""
+    """Lifecycle today: current UTC date; tests replace this function to inject clocks."""
     return datetime.now(UTC).date()
 
 
 def entry_lifecycle(entry: CatalogEntry | None, today: date | None = None) -> Lifecycle:
-    """条目在 ``today``（缺省为 :func:`utc_today`）的生命周期。
+    """Entry lifecycle on ``today``, default :func:`utc_today`.
 
-    关停日期不晚于当天或 ``discontinued`` 为真即为已下线（关停当天即下线）；关停日期在未来为即将下线；其余为可用。
-    ``entry`` 为 ``None``（对应不上条目）时为可用。
+    Shutdown on/before today or true ``discontinued`` means discontinued, including shutdown day; future dates mean retiring, otherwise available.
+    ``entry`` = ``None`` without corresponding entries means available.
     """
     if entry is None:
         return AVAILABLE

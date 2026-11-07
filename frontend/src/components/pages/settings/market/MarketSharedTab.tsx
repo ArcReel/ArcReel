@@ -9,15 +9,15 @@ import { MARKET_CONTRIBUTING_URL } from "./market-links";
 import { MarketSubmissionBadge } from "./MarketSubmissionBadge";
 
 /**
- * 「我的分享」Tab：各端点最近一次分享到官方市场的提交（端点名链接到调用端点、slug、状态与 PR）。
- * 分享经官方服务完成，官方服务关闭时说明原因并链接到「设置」。末尾是手动投稿的指引。
+ * My shares tab: the latest official-market submission for each endpoint, showing its name linked to the endpoint, slug, status and PR.
+ * Share through the official service; when disabled, explain why and link to Settings. End with manual submission guidance.
  */
 export function MarketSharedTab({
   officialEnabled,
   submissions,
 }: {
   officialEnabled: boolean;
-  /** null 表示官方服务关闭或还在加载。 */
+  /** null means the official service is disabled or still loading. */
   submissions: MarketSubmission[] | null;
 }) {
   const { t } = useTranslation("dashboard");

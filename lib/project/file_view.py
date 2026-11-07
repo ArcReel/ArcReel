@@ -1,12 +1,11 @@
-"""文件视图的只读访问：按目录列出项目文件并标角色，按路径打开单个文件。
+"""Read-only file views: list project directories with roles and open individual files.
 
-路径来自请求，一律按项目内相对 POSIX 路径解析，不跟随符号链接：符号链接条目不列出，
-路径上任一段是符号链接时与文件不存在同样处理。基础设施文件（见 :func:`is_infrastructure_path`）
-既不列出也不能打开。
+Request paths are project-relative POSIX paths without following symlinks. Omit links from listings;
+any linked component behaves as absent. Infrastructure (:func:`is_infrastructure_path`) is neither listed nor openable.
 
-远端内容版本的工作文件只是缓存（见 ``docs/adr/0116``、``docs/adr/0117``）：缓存已清理时，列出照样按版本记录给出它
-（标 ``remote_only``，大小取对象登记的字节数），不触发下载；要读字节或删除时经 :func:`local_file` 先从对象存储取回。
-"""
+Remote-version working files are caches (``docs/adr/0116``, ``docs/adr/0117``). Cleaned caches remain
+listed from history as ``remote_only``, using registered object sizes without downloading. Reading
+bytes/deleting first retrieves through :func:`local_file`."""
 
 from __future__ import annotations
 
@@ -59,7 +58,7 @@ class FileViewEntry:
     size: int
     modified_at: str
     reference: FileReference | None = None
-    #: 远端内容版本的工作文件，本地缓存已清理：内容在对象存储里，读取时取回。
+    #: Remote working file with cleaned cache; retrieve object-storage content on read.
     remote_only: bool = False
 
     def to_dict(self) -> dict[str, object]:
@@ -82,18 +81,18 @@ class FileViewEntry:
 
 @dataclass(frozen=True, slots=True)
 class RemoteFile:
-    """缓存已清理的远端内容版本工作文件：版本记录里有它，本地盘上没有。"""
+    """Remote-version working file with cleaned local cache: present in history, absent on local disk."""
 
     path: str
     stored: ObjectLocator
-    #: 版本记录的创建时间（UTC ISO 8601）。
+    #: History creation time (UTC ISO 8601).
     modified_at: str
-    #: 对象登记的字节数；未查询或没有登记时为 0。
+    #: Registered object size, 0 if unqueried/unregistered.
     size: int = 0
 
 
 def _parts(rel: str) -> tuple[str, ...]:
-    """校验请求里的相对路径；空串表示项目根。非法路径按不存在处理。"""
+    """Validate requested relative paths; empty means project root. Invalid paths count as absent."""
     if not rel:
         return ()
     if "\\" in rel or "\x00" in rel or rel.startswith("/"):
@@ -105,7 +104,7 @@ def _parts(rel: str) -> tuple[str, ...]:
 
 
 def _resolve(project_dir: Path, parts: tuple[str, ...]) -> Path:
-    """逐段拒绝符号链接后，再经路径安全工具确认落在项目内。"""
+    """Reject symlinks component by component, then confirm project containment through path-safety helpers."""
     lexical = project_dir
     for part in parts:
         lexical /= part
@@ -122,7 +121,7 @@ def _iso(timestamp: float) -> str:
 
 
 def _visible_size(directory: Path, rel: str) -> int:
-    """目录下可见文件的总字节数；不进符号链接，不计基础设施文件。扫描途中被移走的条目不计。"""
+    """Visible descendant bytes, excluding symlinks/infrastructure; skip entries moved during scans."""
     try:
         with os.scandir(directory) as scan:
             entries = list(scan)
@@ -157,11 +156,10 @@ def _read_object(path: Path) -> Any:
 
 
 def absent_remote_files(project_dir: Path, rel: str = "") -> list[RemoteFile]:
-    """``rel`` 目录之下（任意深度）缓存已清理的远端内容版本工作文件，大小未查询（为 0）。
+    """Remote working files with cleaned caches at any depth under ``rel``, with unqueried sizes of 0.
 
-    只读版本历史与 ``project.json``，不取锁、不访问对象存储：两个文件都经原子替换写入，读到的是完整的一版，
-    列出期间被并发取回的文件由 :func:`list_directory` 按盘上条目去重。
-    """
+    Read only history/``project.json``, without locks/object storage. Atomic replacement guarantees complete
+    versions; :func:`list_directory` deduplicates files concurrently retrieved during listing against disk entries."""
     parts = _parts(rel)
     prefix = "".join(f"{part}/" for part in parts)
 
@@ -170,7 +168,7 @@ def absent_remote_files(project_dir: Path, rel: str = "") -> list[RemoteFile]:
             return False
         try:
             _parts(path)
-        except FileNotFoundError:  # 版本记录里的脏路径、基础设施路径
+        except FileNotFoundError:  # Dirty history paths/infrastructure.
             return False
         return not os.path.lexists(project_dir / path)
 
@@ -202,11 +200,10 @@ def list_directory(
     index: ReferenceIndex | None = None,
     remote: Iterable[RemoteFile] = (),
 ) -> list[FileViewEntry]:
-    """列出目录的直接子项：目录在前，各自按名称排序。文件带角色，目录带可见内容的总大小。
+    """List direct children, directories first and each group name-sorted. Files have roles; directories have visible-content totals.
 
-    ``remote`` 是缓存已清理的远端内容版本工作文件（:func:`absent_remote_files` 加上大小）：直接位于本目录的
-    列为 ``remote_only`` 文件，更深的计入所在子目录的大小。盘上已有同名条目时以盘上为准。
-    """
+    ``remote`` contains cleaned remote working files (:func:`absent_remote_files` plus sizes). Immediate
+    children appear ``remote_only``; deeper files contribute to child-directory sizes. Existing disk entries win same-name conflicts."""
     parts = _parts(rel)
     directory = _resolve(project_dir, parts)
     if not directory.is_dir():
@@ -233,7 +230,7 @@ def list_directory(
                 continue
             try:
                 info = entry.stat(follow_symlinks=False)
-            except FileNotFoundError:  # 生成任务或回收站操作在扫描途中移走了它
+            except FileNotFoundError:  # Generation/trash moved it during scanning.
                 continue
             if entry.is_dir(follow_symlinks=False):
                 size = _visible_size(Path(entry.path), child) + remote_below.get(entry.name, 0)
@@ -256,7 +253,7 @@ def list_directory(
 async def list_file_view(
     project_dir: Path, rel: str = "", *, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> list[FileViewEntry]:
-    """:func:`list_directory` 加上缓存已清理的远端内容版本工作文件；大小查对象登记，不访问对象存储。"""
+    """:func:`list_directory` plus cleaned remote working files; query registered object sizes without object-storage access."""
     remote = await asyncio.to_thread(absent_remote_files, project_dir, rel)
     if remote:
         sizes = await formal_object_sizes({item.stored for item in remote}, session_factory=session_factory)
@@ -265,19 +262,19 @@ async def list_file_view(
 
 
 def _fetch_needed(project_dir: Path, rel: str, *, deleting: bool) -> bool:
-    """``rel`` 是合法远端工作文件，已有缓存也需保护；``deleting`` 时还须是可删除的历史版本。"""
+    """``rel`` is a valid remote working file, protected even with local cache; ``deleting`` additionally requires deletable history."""
     try:
         parts = _parts(rel)
         if not parts:
             return False
-        _resolve(project_dir, parts[:-1])  # 父目录同样不跟随符号链接
+        _resolve(project_dir, parts[:-1])  # Do not follow parent-directory links either.
     except FileNotFoundError:
         return False
     if (project_dir / rel).is_symlink() or rel not in remote_work_file_digests(project_dir):
         return False
     if not deleting:
         return True
-    # 删除会被拒绝的文件（当前版本快照、被引用的正式文件）不为此下载
+    # Do not download files whose deletion is refused (current snapshots/referenced formal files).
     reference = ReferenceIndex.build(project_dir).reference_of(rel)
     return reference.role is FileRole.HISTORY and not reference.current
 
@@ -290,21 +287,21 @@ async def local_file(
     deleting: bool = False,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> AsyncGenerator[None]:
-    """要读字节（``deleting`` 为假）或移进回收站（``deleting`` 为真）的单个文件，期间登记使用、清理不会删除它。
+    """One file for byte reads (``deleting`` false) or trash moves (``deleting`` true), with usage registration preventing cleanup deletion.
 
-    它是缓存已清理的远端内容版本工作文件时，先经共用读取入口从对象存储取回并校验摘要；删除时只为可删除的历史
-    版本取回，删除记录因此带着内容本身，恢复不依赖网络。其余路径原样放行，由调用方照原有逻辑处理。
+    Retrieve/verify cleaned remote caches through shared readers. For deletion, fetch only deletable
+    history, putting actual content into records so restoration needs no network. Pass other paths
+    through unchanged for caller handling.
 
     Raises:
-        MaterialConnectionUnavailableError, MaterialFetchFailedError: 取回失败。
-    """
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: retrieval failed."""
     fetch = await asyncio.to_thread(_fetch_needed, project_dir, rel, deleting=deleting)
     async with local_work_files(project_dir, [rel] if fetch else [], session_factory=session_factory):
         yield
 
 
 def open_project_file(project_dir: Path, rel: str) -> tuple[BinaryIO, os.stat_result]:
-    """以不跟随符号链接的方式打开项目内的普通文件，返回句柄与它的 stat。调用方负责关闭句柄。"""
+    """Open regular project files without following symlinks, returning handle/stat; callers close handles."""
     parts = _parts(rel)
     if not parts:
         raise FileNotFoundError(rel)
@@ -323,7 +320,7 @@ def open_project_file(project_dir: Path, rel: str) -> tuple[BinaryIO, os.stat_re
 
 
 def _open_nofollow_posix(project_dir: Path, parts: tuple[str, ...]) -> int:
-    """逐级用 ``O_NOFOLLOW`` 打开目录与文件，校验与打开之间不留被换成符号链接的窗口。"""
+    """Open directories/files component-wise with ``O_NOFOLLOW``, eliminating symlink substitution between checking/opening."""
     flags = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW
     try:
         directory_fd = os.open(project_dir, flags)
@@ -342,7 +339,7 @@ def _open_nofollow_posix(project_dir: Path, parts: tuple[str, ...]) -> int:
 
 
 def _open_checked(project_dir: Path, parts: tuple[str, ...]) -> int:
-    """没有 ``dir_fd`` / ``O_NOFOLLOW`` 的平台：先逐段预检，打开后再比对文件身份。"""
+    """Platforms without ``dir_fd`` / ``O_NOFOLLOW``: preflight each component, then compare opened-file identity."""
     path = _resolve(project_dir, parts)
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
     opened, current = os.fstat(fd), os.lstat(path)
@@ -353,10 +350,10 @@ def _open_checked(project_dir: Path, parts: tuple[str, ...]) -> int:
 
 
 def move_file_to_trash(project_dir: Path, rel: str) -> project_trash.TrashRecord:
-    """把一个未引用文件或历史版本移进项目回收站，成为一条只含它的删除记录。
+    """Move one unreferenced file/history version into its own deletion record.
 
-    在项目锁内重建引用索引再判定：历史版本经版本管理删除（当前版本拒绝），其余角色一律拒绝；未纳入整本源文的源文件交给分集视图处理。
-    """
+    Rebuild references under project locks before judging: history deletion uses version management
+    (reject current versions), reject all other roles. Episode views handle source files outside whole source."""
     parts = _parts(rel)
     with project_metadata_lock(project_dir):
         path = _resolve(project_dir, parts) if parts else project_dir
@@ -373,7 +370,7 @@ def move_file_to_trash(project_dir: Path, rel: str) -> project_trash.TrashRecord
 
 
 def iter_file_chunks(handle: BinaryIO, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
-    """逐块读出并在结束时关闭句柄；供流式响应在工作线程里迭代。"""
+    """Read chunks and close handles on completion; streaming responses iterate in worker threads."""
     with handle:
         while chunk := handle.read(chunk_size):
             yield chunk

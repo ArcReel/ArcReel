@@ -48,7 +48,7 @@ describe("RequestAddresses", () => {
     expect(screen.getByText("查询进度")).toBeInTheDocument();
     expect(pathButton("/v1/videos/veo-3")).toBeInTheDocument();
     expect(pathButton("/v1/videos/{{ task_id }}")).toBeInTheDocument();
-    // 端点剥掉了版本段，灰显部分是归一化后的接口地址
+    // Endpoints strip version segments; grey prefixes show normalized API addresses.
     expect(screen.getAllByText("https://relay.test/api")).toHaveLength(2);
   });
 
@@ -63,7 +63,7 @@ describe("RequestAddresses", () => {
     await user.type(input, "api/tasks/{{{{ task_id }}{Enter}");
 
     expect(overrides()).toEqual({ poll: "/api/tasks/{{ task_id }}" });
-    // 有修改的请求相对原样接口地址，不再剥版本段
+    // Overridden requests use raw API addresses without stripping versions.
     expect(screen.getByText("https://relay.test/api/v1")).toBeInTheDocument();
     expect(screen.getByText("默认：/v1/videos/{{ task_id }}")).toBeInTheDocument();
   });
@@ -152,7 +152,7 @@ describe("RequestAddresses", () => {
     ["dashscope_api_v1", "https://relay.test/compatible-mode/v1", "https://relay.test/api/v1"],
     ["strip_messages", "https://relay.test/anthropic/v1/messages/", "https://relay.test/anthropic"],
     ["strip_messages", "https://relay.test/anthropic/v1", "https://relay.test/anthropic/v1"],
-    // 与服务端 strip_base_url_version 的用例表同口径：全角数字不算版本段
+    // Match server strip_base_url_version tests: fullwidth digits are not version segments.
     ["strip_version", "https://relay.test/v2beta", "https://relay.test"],
     ["strip_version", "https://relay.test/v1.5", "https://relay.test"],
     ["strip_version", "https://relay.test/v\uff11", "https://relay.test/v\uff11"],

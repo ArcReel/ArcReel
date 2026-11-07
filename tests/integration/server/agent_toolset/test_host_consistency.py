@@ -1,9 +1,9 @@
-"""按 Agent 工具集声明表驱动的双宿主一致性。
+"""Dual-host consistency driven by Agent tool declarations.
 
-每条声明在 ArcReel Agent（内嵌 SDK server）与外部 Agent（远程 MCP）两侧投影出的名字、schema、
-描述、迁移阻断与结果信封必须一致；允许的差异只有远程 schema 的 ``project`` 与长任务附注。
-无 scope 声明（列出、创建项目）两侧都不带 ``project``。
-领域行为在 handler 的 ``ToolOutcome`` 层测，这里的 fake handler 只用于观察 adapter 是否原样透传。
+Each declaration projects identical names, schemas, descriptions, migration blocking, and result envelopes into ArcReel
+Agent SDK servers and external remote MCP Agents. Only remote ``project`` schema fields and long-task notes may differ.
+Unscoped list/create declarations expose no ``project`` on either host.
+Test domain behavior at handler ``ToolOutcome``; fake handlers here only observe unchanged adapter passthrough.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ from tests.factories import install_current_video, make_test_clip
 
 _ABSENT_REVISION = "sha256-v1:" + "0" * 64
 
-# 每条声明一份合法入参；新增声明须在此登记，否则参数化用例以 KeyError 失败。
+# Valid arguments per declaration; new declarations require entries here or parameterized cases fail with KeyError.
 SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "list_projects": {},
     "create_project": {"name": "fresh", "title": "Fresh"},
@@ -249,14 +249,14 @@ def _answering[DeclarationT: AgentToolDeclaration](
 
 
 def _remote_arguments(declaration: AgentToolDeclaration, arguments: dict[str, Any]) -> dict[str, Any]:
-    """外部 Agent 的等价入参：作用于项目的工具显式带上 ``project``。"""
+    """Equivalent external-Agent arguments include explicit ``project`` for project-scoped tools."""
     if isinstance(declaration, UnscopedToolDeclaration):
         return dict(arguments)
     return {"project": "demo", **arguments}
 
 
 async def _call_server(server: Server, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-    """经 in-process server 的请求入口调用，拿到的就是模型能看到的 content 与 isError。"""
+    """Call in-process server request entries to obtain model-visible content and isError."""
     request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
     result = (await server.request_handlers[types.CallToolRequest](request)).root
     assert isinstance(result, types.CallToolResult)
@@ -360,9 +360,9 @@ async def test_both_hosts_expose_an_unscoped_declaration_without_project(
 async def test_every_tool_both_hosts_expose_is_defined_by_a_declaration(
     seeded_projects: ProjectManager, services: Services
 ) -> None:
-    """两宿主注册的工具集合与声明集合相同：没有声明之外的第二份工具定义。
+    """Both hosts register exactly the declared tool set, with no second definitions outside declarations.
 
-    ``SAMPLE_ARGUMENTS`` 逐个列出了全部工具，它的键集合同时充当工具清单。
+    ``SAMPLE_ARGUMENTS`` enumerates every tool and doubles as the tool inventory.
     """
     embedded = set(await _embedded_listing(seeded_projects))
     remote = {tool.name for tool in await build_remote_mcp_server(services=services).list_tools()}
@@ -400,7 +400,7 @@ async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_bot
     declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services
 ) -> None:
     arguments = {**SAMPLE_ARGUMENTS[declaration.name], "unexpected": 1}
-    # 经会话真实注册的 in-process server 调用：MCP 层不做 schema 预校验，坏参数由请求模型拒绝。
+    # Call the genuinely session-registered in-process server: MCP does no schema prevalidation; request models reject bad arguments.
     session_server = build_arcreel_mcp_server(project_name="demo", data_root=seeded_projects.data_root)["instance"]
 
     embedded = await _call_server(session_server, declaration.name, arguments)
@@ -479,7 +479,7 @@ async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_pr
 async def test_declared_blocked_entries_refuse_a_migration_failed_project_before_the_handler(
     declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
 ) -> None:
-    """声明为 ``BLOCKED`` 的入口按声明阻断，不依赖 handler 内层的迁移兜底。"""
+    """``BLOCKED`` declarations block at entry regardless of handler-internal migration fallbacks."""
     record_migration_failure(
         seeded_projects.get_project_path("demo"),
         RuntimeError("清单预检失败"),
@@ -544,7 +544,7 @@ async def test_patch_episode_script_reports_a_missing_script_as_script_not_found
 
 
 def _twin_services(seeded_projects: ProjectManager, tmp_path: Path) -> Services:
-    """同一初始状态的另一份项目根，让写入类工具在两宿主各跑一次、互不影响。"""
+    """Another project root with identical initial state lets writing tools run once per host without interference."""
     root = tmp_path / "twin"
     shutil.copytree(seeded_projects.data_root, root, symlinks=True)
     twin = ProjectManager(root)
@@ -553,17 +553,17 @@ def _twin_services(seeded_projects: ProjectManager, tmp_path: Path) -> Services:
     )
 
 
-# 真实 handler 的结果随调用时刻变化，两次调用无法逐字比较；透传一致性由其余用例的 fake handler 覆盖。
+# Real handler outputs vary with call times and cannot compare verbatim; other fake-handler cases cover passthrough consistency.
 _TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name, CREATE_TIMELINE.name})
 
-# 样例入参下合法地返回 problem 的声明：测试项目缺少它们要找的对象或能力配置。其余声明在样例入参下必须成功。
+# Declarations legitimately returning problems under sample arguments lack required objects/configuration; all others must succeed.
 _PROBLEM_ON_SAMPLE = frozenset(
     {
         GET_VIDEO_CAPABILITIES.name,
         GET_PROMPT_PREVIEW.name,
         GET_GENERATION_BATCH.name,
         CANCEL_GENERATION_BATCH.name,
-        # 测试项目已有正式脚本：确认需要覆盖认可，取回编辑副本被拒；没有在场草稿可改、可晋升。
+        # Existing formal scripts require overwrite acceptance and reject editing-copy retrieval; no present drafts can patch/promote.
         CONFIRM_SCRIPT_REVIEW.name,
         OPEN_DRAFT.name,
         PATCH_DRAFT.name,
@@ -578,14 +578,14 @@ _PROBLEM_ON_SAMPLE = frozenset(
         LIST_REVISIONS.name,
         RESTORE_REVISION.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
-        # 测试项目只登记了一个角色，没有可并入的保留方。
+        # The project registers only one character, with no retained merge target.
         MERGE_ASSET.name,
-        # 测试项目没有登记整本源文的文件。
+        # No registered whole-source files.
         EDIT_SOURCE_TEXT.name,
-        # 测试项目里没有样例路径的文件，回收站里也没有删除记录。
+        # Sample paths have no files, and trash has no deletion records.
         DELETE_PROJECT_FILE.name,
         RESTORE_TRASH_RECORD.name,
-        # 测试库里没有素材库账号与关联：上传、浏览、选择与解除都找不到对象。
+        # No material-library accounts/links exist, so upload/browse/select/unlink find no objects.
         LIST_PROVIDER_LIBRARY_ASSETS.name,
         UPLOAD_TO_PROVIDER_ASSET_LIBRARY.name,
         SELECT_PROVIDER_LIBRARY_ASSET.name,
@@ -715,7 +715,7 @@ async def test_remote_project_locating_failures_are_invalid_project(
 async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_reads_at_the_terminal_state(
     seeded_projects: ProjectManager, services: Services, db_factory
 ) -> None:
-    """长任务是唯一允许的结果差异：内嵌拿终态结果，远程拿批次句柄；两边的终态生成结果同形。"""
+    """Long tasks are the sole allowed result difference: embedded hosts return terminals, remote hosts batch handles; terminal generation results have matching shapes."""
     project = seeded_projects.load_project("demo")
     project["characters"] = {"李四": {"description": ""}}
     seeded_projects.save_project("demo", project)
@@ -748,12 +748,12 @@ async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_
         services,
     )
 
-    # 内嵌：摘要在前、终态结果 JSON 在后；批次全部被阻断即结果级失败。
+    # Embedded summary precedes terminal JSON; fully blocked batches are result-level failures.
     terminal = _embedded_json(embedded)
     assert embedded.isError is True
     assert len(_texts(embedded)) == 2
     assert set(terminal) == {"generation_result", "batch_id"}
-    # 远程：立即拿到批次句柄，按句柄轮询到终态后读取附带的生成结果。
+    # Remote returns batch handles immediately; poll to terminal and read attached generation results.
     assert remote.isError is False
     assert set(remote.structuredContent) == {"generation_batch"}
     assert polled.value is not None
@@ -768,7 +768,7 @@ async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_
 async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
     seeded_projects: ProjectManager, services: Services
 ) -> None:
-    """宫格预览不是生成结果：两宿主都立即拿到同一份规划文本，放在工具名下，没有批次可轮询。"""
+    """Grid previews are not generation results: both hosts immediately return identical plan text under the tool name, without pollable batches."""
     project = seeded_projects.load_project("demo")
     project.update(
         {
@@ -798,7 +798,7 @@ async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
 async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
     seeded_projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
-    """长任务的 dry_run 不提交批次：两宿主都立即拿到同一份 ``text_generation``，没有批次句柄。"""
+    """Long-task dry_run submits no batches; both hosts immediately return identical ``text_generation`` without batch handles."""
     pending_scene = {
         "scene_id": "E1S01",
         "duration_seconds": 4,

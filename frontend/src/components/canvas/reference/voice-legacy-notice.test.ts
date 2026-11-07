@@ -17,7 +17,7 @@ function ga(overrides: Partial<UnitGeneratedAssets>): UnitGeneratedAssets {
   };
 }
 
-// 音色只作用于该角色说出的台词，因此夹具让角色开口说话：出镜与否不决定语音过期。
+// Voice affects only dialogue spoken by this character, so fixtures include speech; appearing onscreen does not determine voice staleness.
 function unit(id: string, characterName: string, generatedAssets: UnitGeneratedAssets): ReferenceVideoUnit {
   return {
     unit_id: id,
@@ -30,7 +30,7 @@ function unit(id: string, characterName: string, generatedAssets: UnitGeneratedA
 
 const character = (overrides: Partial<Character>): Character => ({ description: "", ...overrides });
 
-// 横幅只在参考音频绑定档下出现；除专测门控的一组用例外，本文件一律按该档求值。
+// Banner exists only for reference-audio binding; all cases use that mode except the dedicated gating group.
 const notice = (units: readonly ReferenceVideoUnit[], characters: Record<string, Character>) =>
   computeVoiceLegacyNotice(units, characters, "reference_audio");
 
@@ -108,7 +108,7 @@ describe("computeVoiceLegacyNotice", () => {
     expect(notice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
-  // 说话人位不进参考图，但它正是音色的作用点：只发声不出镜的角色换音色照样让视频过期。
+  // Speakers do not enter image references but are voice targets: changing an offscreen speaker's voice still outdates video.
   it("counts a character that only occupies a speaker slot", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
     u.text = "@[王]{我来了}";
@@ -132,8 +132,8 @@ describe("computeVoiceLegacyNotice", () => {
   });
 
   it("compares timestamps as parsed instants across differing ISO precision/format", () => {
-    // 还原历史版本的 video_generated_at 是秒级 "Z" 格式；正常声音更新是微秒级 "+00:00"。
-    // 同一秒内，字符串比较会把 "...10Z" 误判为晚于 "...10.500000+00:00"，导致漏判 stale。
+    // Restored video_generated_at uses second-resolution "Z"; normal voice updates use microsecond "+00:00".
+    // In one second, string comparison misorders "...10Z" after "...10.500000+00:00", missing stale status.
     const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-02T00:00:10Z" }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:10.500000+00:00" }) };
     expect(notice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });

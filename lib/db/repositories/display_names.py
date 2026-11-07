@@ -1,7 +1,8 @@
-"""供应商与模型的显示名：内置的取注册表名称，自定义的取用户填写的名称。
+"""Provider/model display names: registry names for built-ins and user-entered names for custom entries.
 
-用量报表与失败文案共用这里的查名逻辑。名称在读取时现查，不在写入失败或记账时快照：供应商
-改名后旧记录跟着显示新名字，语言也跟随读取它的请求。
+Usage reports and failure copy share these lookups. Resolve names at read time, without
+snapshotting on failure writes or accounting: renaming a provider updates old records'
+display names, and language follows the request reading them.
 """
 
 from __future__ import annotations
@@ -16,23 +17,26 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import DEFAULT_LOCALE, _, translate_or
 from lib.i18n.display_names import DisplayNames, agent_provider_id, is_agent_provider
 
-# 注册表之外的裸 provider 值的显示兜底，这些行不迁移，仅在显示时补一个友好显示名：
-# - "gemini"：身份反转前，文本 gemini 调用以 backend.name 落账为裸 "gemini"（图像/视频侧已是
-#   "gemini-aistudio"）；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
-# - "anthropic"：Agent 记录在按凭证记账之前一律记 "anthropic"；没有生效凭证、环境变量取自系统设置时仍记它。
+# Display fallback for bare provider values outside the registry. Do not migrate rows; supply friendly names only for display:
+# - "gemini": before identity inversion, text Gemini calls recorded bare backend.name "gemini" (image/video
+#   already used "gemini-aistudio"). The registry has only new-format keys (gemini-aistudio / gemini-vertex),
+#   so bare values have no metadata.
+# - "anthropic": all Agent records used this before credential-based accounting; still used without an
+#   active credential when environment variables come from system settings.
 _LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini", PROVIDER_ANTHROPIC: "Anthropic"}
 
 
 def _builtin_provider_name(provider_id: str) -> str | None:
-    """内置供应商（含存量裸值）在注册表里的默认语言名称；不是内置供应商时返回 ``None``。"""
-    from lib.config.registry import PROVIDER_REGISTRY  # 注册表经 dashscope_shared 回引 usage_repo，顶层导入成环
+    """Default-language registry name for built-in providers, including legacy bare values; return ``None`` for others."""
+    # Lazy import: registry → dashscope_shared → usage_repo would cycle at module scope
+    from lib.config.registry import PROVIDER_REGISTRY
 
     meta = PROVIDER_REGISTRY.get(provider_id)
     return meta.display_name if meta else _LEGACY_PROVIDER_DISPLAY_NAMES.get(provider_id)
 
 
 async def _agent_provider_names(session: AsyncSession) -> dict[str, str]:
-    """``agent-<凭证 id>`` → 凭证当前的显示名。"""
+    """``agent-<凭证 id>`` → current credential display name."""
     return {
         agent_provider_id(cred.id): cred.display_name
         for cred in await AgentCredentialRepository(session).list_for_user()
@@ -42,10 +46,11 @@ async def _agent_provider_names(session: AsyncSession) -> dict[str, str]:
 async def provider_display_names(
     session: AsyncSession, provider_ids: set[str], *, locale: str = DEFAULT_LOCALE
 ) -> dict[str, str]:
-    """供应商 id → 显示名；查不到的（含畸形 id，如 ``"custom-abc"``）回退 id 本身。
+    """Provider ID → display name; unknown IDs (including malformed ones such as ``"custom-abc"``) fall back to the ID itself.
 
-    内置供应商取默认语言的注册表名称。``agent-<凭证 id>`` 取 Agent 凭证当前的显示名，凭证已删除时
-    按 ``locale`` 给出「已删除的 Agent 供应商」。
+    Built-in providers use default-language registry names. ``agent-<凭证 id>`` uses the
+    Agent credential's current display name; deleted credentials use the deleted-Agent-provider
+    label in ``locale``.
     """
     agent_ids = {provider_id for provider_id in provider_ids if is_agent_provider(provider_id)}
     agents: dict[str, str] = {}
@@ -72,14 +77,16 @@ def build_display_names(
     custom_models: Mapping[tuple[str, str], str],
     agent_providers: Mapping[str, str] | None = None,
 ) -> DisplayNames:
-    """在注册表与模型目录的内置名称之上合入自定义供应商与模型的名称，按 ``locale`` 成文。
+    """Merge custom provider/model names over built-in registry/catalog names and render in ``locale``.
 
-    内置供应商的名称有译名表的按语言翻译，没有的用注册表的原名；模型名与条目名取模型目录条目的显示名，不分语言。
-    已隐藏的模型同样收录，旧失败记录仍可能引用它们。条目名按条目引用收录，两栖条目各媒体类型的显示名不同时不收。``agent_providers`` 是 ``agent-<凭证 id>`` 到
-    Agent 凭证显示名的映射。
+    Translate built-in provider names where a translation table exists; otherwise use
+    original registry names. Model and entry names use catalog-entry display names,
+    independent of language. Include hidden models because old failures may reference
+    them. Key entry names by entry reference; omit cross-media entries whose display names
+    differ by media type. ``agent_providers`` maps ``agent-<凭证 id>`` to Agent credential display names.
     """
-    from lib.catalog import query as catalog  # 同 _builtin_provider_name
-    from lib.config.registry import PROVIDER_REGISTRY  # 同 _builtin_provider_name
+    from lib.catalog import query as catalog  # Same import-cycle reason as _builtin_provider_name
+    from lib.config.registry import PROVIDER_REGISTRY  # Same import-cycle reason as _builtin_provider_name
 
     providers: dict[str, str] = dict(_LEGACY_PROVIDER_DISPLAY_NAMES)
     models: dict[tuple[str, str], str] = {}
@@ -100,7 +107,7 @@ def build_display_names(
 
 
 async def load_display_names(session: AsyncSession, locale: str) -> DisplayNames:
-    """按 ``locale`` 成文的全量显示名目录；自定义供应商与模型用用户填写的名称，停用的模型同样收录。"""
+    """Complete display-name directory rendered in ``locale``; custom providers/models use user-entered names, including disabled models."""
     custom_providers: dict[str, str] = {}
     custom_models: dict[tuple[str, str], str] = {}
     for provider, provider_models in await CustomProviderRepository(session).list_providers_with_models():

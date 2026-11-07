@@ -4,13 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 // ---------------------------------------------------------------------------
-// ThinkingBlock – 思考过程只占一行：流式期间显示「正在思考」，完成后显示「思考过程」，
-// 点开看全文。只有签名、没有文字的思考块不渲染。
+// ThinkingBlock: thinking occupies one row, showing Thinking while streaming and Thought process after completion;
+// expand to read the full text. Do not render thinking blocks with signatures but no text.
 // ---------------------------------------------------------------------------
 
 interface ThinkingBlockProps {
   thinking?: string;
-  /** 该块正在流式生成（属于草稿的末尾块）。 */
+  /** This block is streaming, as the draft's last block. */
   streaming?: boolean;
 }
 

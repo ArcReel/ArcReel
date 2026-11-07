@@ -1,0 +1,3195 @@
+{
+  "reviewer": "passive_translation; independent from runtime_translation author",
+  "scope": "426 translated map rows from runtime parser repairs2to6, excluding later reviewer-authored603repairpairs. One reused module doc is classified preserved by this map and is not an additional translation.",
+  "reconciliation": {
+    "map_rows": 427,
+    "exact_extracted_pairs": 420,
+    "unmatched_resolved_by_parser_ordinal": 3,
+    "old_expression_surrounding_prose_translations": 3,
+    "preserved_module_doc": 1
+  },
+  "method": "All420exact pairs plus6resolved extras read bilingually; syntax literals and examples retained. Map extraction replacing old(...) with sentinel hid3translated prose cases, recovered separately from parser ordinals.",
+  "findings": [
+    {
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "before": "// invalidates pending chains first; late signals block stores and SSE connections.",
+      "after": "// invalidates pending chains first; signals reject late responses before store writes or SSE connections.",
+      "original_chinese": "// 先作废在途链，迟到响应经 signal 短路，不写 store、不建 SSE 连接。",
+      "current_verified": true
+    },
+    {
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "before": "// Reconcile invalidated rewrites after deletion, never during: premature refetch adds branches that",
+      "after": "// Reconcile invalidated rewrites; defer refetch while the source session is being deleted: it adds branches that",
+      "original_chinese": "// 改写被作废后的列表对账。源会话正在删除时不能当场补拉——补拉会把新分支带进列表，",
+      "current_verified": true
+    },
+    {
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "before": "// removes optimistic/live rows briefly, allowing edits to race later splitting.",
+      "after": "// leaves scriptFile without optimistic marks or active rows, briefly allowing edits to race later splitting.",
+      "original_chinese": "// 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。",
+      "current_verified": true
+    },
+    {
+      "path": "frontend/src/actions/generation.ts",
+      "before": " * Whole regeneration requiring overwrite consent returns 409; callers inspect `diagnostic.script_overwrite`, confirm and retry tokens.",
+      "after": " * Whole regeneration requiring overwrite consent returns 409; errors propagate unchanged; callers inspect `diagnostic.script_overwrite`, confirm and retry tokens.",
+      "original_chinese": "/**\n * 提交广告/短片「AI 生成脚本」，占用与提示词编写同一个槽（服务端同一任务类型、`episode-{N}`）。\n * 整份重做需要确认覆盖时服务端 409，错误原样抛出，由调用方读 `diagnostic.script_overwrite` 弹确认框后带令牌重试。\n */",
+      "current_verified": true
+    }
+  ],
+  "pending": [],
+  "result": "422translation pairs accepted as authored; four narrow precision refinements applied after coordinator authorization. The four reviewer-authored refinements require coordinator independent recheck. No whole-current-file certification.",
+  "exact_pairs": [
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 170,
+      "source": "// 初始附图超预算时，先同步进入转码态，再在挂载后把工作放进同一个串行队列。",
+      "translation": "// Over-budget initial attachments enter transcoding synchronously, then join the same serial queue after mount."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 179,
+      "source": "// 卸载后排队中的图片再解码也没人收：清空队列，别让关掉的面板继续占着解码与内存。",
+      "translation": "// Nobody receives queued decodes after unmount; clear queues so closed panels stop consuming decoding/memory."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 190,
+      "source": "// GIF 不进 canvas：重编码只会留下首帧，动画内容被静默丢弃；原样上传又会让它",
+      "translation": "// GIF never enters canvas: reencoding silently retains first frames only; unchanged uploads would"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 191,
+      "source": "// 成为唯一绕开单张预算的格式。明确拒绝，让用户自己转成 PNG / JPEG。",
+      "translation": "// uniquely bypass per-image budgets. Reject explicitly, asking users to convert PNG/JPEG themselves."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 212,
+      "source": "// 逐张串行：同时解码多张大图会在移动端撑爆内存。",
+      "translation": "// Decode serially; simultaneous large images exhaust mobile memory."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 216,
+      "source": "// 退回输入框的图片已经过发送时的转码，原样追加；超过上限也全部保留，由用户自己挑掉多出的",
+      "translation": "// Returned input images already transcoded for sends; append unchanged, retaining all over-limit images for user selection."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "line": 226,
+      "source": "// 发送受理后移除已发出的图片；发送途中追加的图片不在其中，保留",
+      "translation": "// Accepted sends remove sent images only, preserving attachments added midflight."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.test.tsx",
+      "line": 99,
+      "source": "// 扩展名与 MIME 都能改名伪装，文件头不能：伪装的 GIF 解码后只剩首帧，动画被静默丢弃。",
+      "translation": "// Extensions/MIME are spoofable by renaming, signatures are not; disguised GIF decoding silently loses animation after first frames."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.test.tsx",
+      "line": 132,
+      "source": "// 面板已经关掉：排队中的第二张不该再占着解码与内存",
+      "translation": "// Closed panels must not decode/retain second queued images."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.test.tsx",
+      "line": 137,
+      "source": "// 老浏览器上 createImageBitmap 未定义，调用是同步抛错；逃出转码函数就再也没人",
+      "translation": "// Old browsers lack createImageBitmap, throwing synchronously; escaping transcoding leaves nobody to"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useImageAttachments.test.tsx",
+      "line": 138,
+      "source": "// 复位在途计数，附件控件会永久停在「读取中」。",
+      "translation": "// reset in-flight counts, permanently showing Reading attachments."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/hooks/useProviderCatalog.test.tsx",
+      "line": 63,
+      "source": "// 首拉与保存后的重取共用一个取消域：慢的那次回来时写下的是过期目录，必须被丢弃。",
+      "translation": "// Initial/post-save refetches share cancellation domains; late slower catalogs are stale and discarded."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/app-store.ts",
+      "line": 200,
+      "source": "// 单元没有可播放的视频时播放器不会出现，到期后作废，免得日后打开该单元时突然开播。",
+      "translation": "// Units without playable videos never mount players; expire intents to prevent unexpected future playback."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/app-store.ts",
+      "line": 273,
+      "source": "// localStorage 不可用（隐私模式 / quota exceeded）静默失败，内存值仍生效",
+      "translation": "// Unavailable localStorage (privacy/quota) fails silently, retaining effective memory values."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "line": 30,
+      "source": "/**\n   * 同 key 下逐单元的服务端定桶结论（桶、档位、引用分裂），随单元列表一起到达，写入口的\n   * 响应按单元合并——正文改了引用，桶与档位当场随响应更新，画布不自判。\n   */",
+      "translation": "/**\n   * Same-key per-unit server results (buckets/tiers/reference splits) arrive with lists, merging write responses\n   * by unit. Edited references immediately update buckets/tiers; canvases never infer independently.\n   */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "line": 47,
+      "source": "// 每个 cache key 上最新一次 loadUnits 的序号：`loadUnits` 有多个入口（画布 effect 随",
+      "translation": "// Latest loadUnits sequence per cache key: `loadUnits` has canvas project/episode/task-invalidation effects,"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "line": 48,
+      "source": "// 项目/剧集/任务完成失效重跑、单元写入后重拉、手动重试），同一 key 上可能有多个请求并发",
+      "translation": "// postwrite refetches and manual retries, potentially concurrent on the same keys."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "line": 49,
+      "source": "// 在途。没有这道校验时，先发后到的旧响应会盖掉新响应里已经生成的成片，界面停在「无成片」",
+      "translation": "// Without guards, earlier requests arriving later overwrite fresh finished videos with old no-video data"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "line": 50,
+      "source": "// 直到下一次失效。响应落定时序号已被更新的请求接管即丢弃，只让最新一次写回。",
+      "translation": "// until next invalidation. Discard responses superseded by newer sequence values, accepting latest only."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "line": 54,
+      "source": "/**\n * 作废该 cache key 上所有在途加载。\n *\n * 写入口（增删改排序）落定后调用：迟到的 GET 读的是写入之前的列表，直接写回会把用户刚做的\n * 编辑、增删或排序在界面上暂时撤销，直到下一次失效才复原。\n *\n * 一并结算 `loading`：被作废的那次加载会在响应落定时直接丢弃，不再自己复位，而作废它的是\n * 写入口、不是另一次加载，没有接管方来收尾——不在这里落定，画布会一直停在加载态。\n */",
+      "translation": "/**\n * Invalidate every in-flight load for this cache key.\n *\n * Call after add/edit/delete/reorder writes settle: late GET read prewrite lists, temporarily undoing fresh\n * changes visually until subsequent invalidation.\n *\n * Settle `loading` too: invalidated loads discard responses without resetting. Writes,\n * not successor loads, invalidated them, so nobody else owns cleanup; without settlement here canvases stay loading.\n */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/stores.test.ts",
+      "line": 362,
+      "source": "// 只深拷贝新追加的这一条；若 projector 被重建，前 5 条也会被重新克隆。",
+      "translation": "// Deep-copy only newly appended entries; rebuilt projectors would also reclone prior five."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 17,
+      "source": "/** 最近一次成功取回的计划。刷新失败不清空它。 */",
+      "translation": "/** Latest successful plans, retained on refresh failures. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 19,
+      "source": "/** `plan` 所属的目标；与当前目标不符时界面不得据此陈述状态。 */",
+      "translation": "/** Targets owning `plan`; UI must never describe mismatched current targets from these results. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 22,
+      "source": "/** 最近一次刷新的错误文案；`plan` 仍保留上一次的结果。 */",
+      "translation": "/** Latest refresh errors, with `plan` retaining previous results. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 24,
+      "source": "/** 用户已确认的申请档位，按 unit 给；确认后重求解会带上。 */",
+      "translation": "/** User-confirmed requested tiers per unit, included in subsequent solves. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 28,
+      "source": "/**\n   * 取回目标的计划。\n   *\n   * - **在途合并**：同一目标同时只有一个请求在途，期间到达的请求合并为「结束后再跑一轮」。\n   * - **失败留旧**：请求失败时保留上一次的 `plan`，只写 `error`。已经付费产出的结果\n   *   不因为一次刷新失败而从界面上消失。\n   * - **目标取消域**：切项目或切集时轮换取消域，旧目标的迟到响应写不回 store。\n   */",
+      "translation": "/**\n   * Fetch target plans.\n   *\n   * - **In-flight merging**: one request per target; overlapping calls merge into one follow-up round.\n   * - **Retain on failure**: preserve previous `plan`, writing `error` only. Paid outputs\n   *   must not disappear from UI after failed refreshes.\n   * - **Target cancellation domains**: project/episode switches rotate domains, preventing old late writes.\n   */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 37,
+      "source": "/** 目标易主时清空计划：上一个目标的事实不能拿来陈述这一个目标。 */",
+      "translation": "/** Clear plans when targets change; previous-target facts cannot describe new targets. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 42,
+      "source": "// 非响应式协调状态：不进 store state，避免订阅方为内部记账重渲染。",
+      "translation": "// Nonreactive coordination outside store state, avoiding subscriber rerenders for internal bookkeeping."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 47,
+      "source": "// 当前请求目标：与 `planKey` 不同，它在请求发出时就登记，不等成功才更新。",
+      "translation": "// Current request targets register at dispatch, unlike success-only `planKey`."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 48,
+      "source": "// 首次加载（`planKey` 仍是 null）期间切换目标必须能被识别为目标易主——",
+      "translation": "// Detect target switches during first loads with null `planKey`:"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 49,
+      "source": "// 只看 `planKey` 会因为它此时同样是 null 而放过这次切换，任由旧目标的",
+      "translation": "// comparing `planKey` alone sees null twice and misses switches, allowing old"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 50,
+      "source": "// 迟到响应写回 store。",
+      "translation": "// late responses to write stores."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 68,
+      "source": "// 绑定本轮迭代实际使用的取消域：`resetTarget` 轮换取消域时已经显式复位过",
+      "translation": "// Bind each iteration's actual cancellation domain: `resetTarget` already reset"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 69,
+      "source": "// `running` 一次，若此实例结束时不核对自己仍持有当前取消域就无条件清标志，",
+      "translation": "// `running` when rotating. Unconditional cleanup without ownership checks"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 70,
+      "source": "// 会把接管者（新目标下正在跑的实例）的在途标志顶掉，引发同目标并发请求、",
+      "translation": "// clears successors' in-flight markers, causing same-target concurrency/"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 71,
+      "source": "// 写回顺序倒挂。合并循环每轮重新绑定，让接手了排队目标的实例在自然完结时",
+      "translation": "// inverted writes. Rebind every merge iteration so instances taking queued targets"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 72,
+      "source": "// 仍能正确清掉它实际持有的（可能是轮换后的）取消域。",
+      "translation": "// correctly clear domains they actually own, including newly rotated ones."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 99,
+      "source": "// 留旧：只写 error，不动 plan / planKey。",
+      "translation": "// Retain: write error only, preserving plan / planKey."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 105,
+      "source": "// 被 `resetTarget` 作废的旧实例到这里也不得消费排队请求：`queued` 是",
+      "translation": "// Old instances invalidated by `resetTarget` must not consume queues: global `queued`"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 106,
+      "source": "// 全局标志，若不核对取消域，姗姗来迟的旧实例会把新取消域下真正接管",
+      "translation": "// without domain checks lets late predecessors steal requests owned by actual"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 107,
+      "source": "// 该目标的实例应该服务的排队请求抢走，重新绑定到当前 `scope` 后对同一",
+      "translation": "// successor instances. Rebinding current `scope` then issues second same-target"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 108,
+      "source": "// 目标发出第二个真实请求——与接管实例自己在途的请求并发，写回顺序",
+      "translation": "// real requests alongside ongoing successor work, losing guaranteed write"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 109,
+      "source": "// 不再有保证。让接管实例自己去消费队列。",
+      "translation": "// ordering. Successors consume their own queues."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 121,
+      "source": "// 只有仍持有最后一轮取消域的实例才清 running；被 `resetTarget` 作废的旧实例",
+      "translation": "// Only instances still owning final-iteration domains clear running; `resetTarget`-invalidated predecessors"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 122,
+      "source": "// 在这里读到的 `scope` 已经是新取消域，跳过——它不是新实例的接管者。",
+      "translation": "// see new `scope` and skip, never taking ownership from newer instances."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 155,
+      "source": "// 目标易主：按「本次请求登记的目标」判断，不用 `planKey`——`planKey`",
+      "translation": "// Detect ownership changes from dispatch-registered targets, never `planKey`, whose"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 156,
+      "source": "// 只在请求成功后才更新，首次加载期间它恒为 null，若拿它做判据，首次",
+      "translation": "// updates follow success only. During first loads, null values on both reads"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 157,
+      "source": "// 加载途中切换目标会因为「两次都读到 null」而放过 resetTarget，旧目标",
+      "translation": "// would bypass resetTarget for midload switches, letting old"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/stores/workflow-store.ts",
+      "line": 158,
+      "source": "// 的响应回来后仍会写进 store。",
+      "translation": "// responses persist."
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 444,
+      "source": "/**\n * 资产图批量生成：目标集合由服务端按范围决定，占用标记在响应后按成员逐项补打；\n * 衍生成员占 `本体/衍生` 复合槽（character_derivative），与本体互不遮蔽。\n * 已有同资源任务（deduped）时弹统一去重提示，否则报入队张数；未建出任务的成员不打标。\n */",
+      "translation": "/**\n * Batch asset-image generation: servers select scope targets; mark individual members from responses;\n * derivatives occupy compound `本体/衍生` character_derivative slots, independent of bases.\n * Deduped tasks share standard notices, otherwise report enqueued counts; never mark members lacking tasks.\n */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 470,
+      "source": "/** 文本任务批次里已建出任务的成员的任务 ID。 */",
+      "translation": "/** Task IDs for successfully created text-batch members. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 475,
+      "source": "/** 提示词编写任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */",
+      "translation": "/** Prompt-authoring occupancy: one text task per episode, matching server `episode-{N}` resource_id. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 505,
+      "source": "/**\n * 提示词编写以空操作收尾（范围内没有待编写的条目，未调用文本模型）时弹提示，说明勾选覆盖可以重写。\n * 编写入口提交后即关闭，只能在入队层跟踪任务结果；任务都到达终态，或任务列表不再跟踪本项目\n * （切到别的项目、离开工作室）后停止跟踪，回来时不补弹过期的提示。\n */",
+      "translation": "/**\n * Prompt-authoring no-ops (no pending entries, no model call) explain that overwrite permits rewriting.\n * Entries close immediately on submission, so track task outcomes in enqueue layers. Stop after terminal tasks or lists no longer track\n * projects through switches/studio departures; returning never replays stale notices.\n */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 531,
+      "source": "/** 脚本规划任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */",
+      "translation": "/** Script-planning occupancy: one text task per episode, matching server `episode-{N}` resource_id. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 536,
+      "source": "/**\n * 提交 AI 规划脚本。新的规划整份替换本集现有的规划与草稿，替换前的确认由调用方负责；\n * 准入不成立或本集已有进行中的规划时，服务端的错误原样抛出。\n */",
+      "translation": "/**\n * Submit AI script planning, replacing whole existing episode plans/drafts after caller-owned confirmation;\n * invalid admission/ongoing planning errors propagate unchanged.\n */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 576,
+      "source": "/** 分集规划的两个占用槽，与服务端一致：首窗占前一个，之后逐窗在两槽间交替。 */",
+      "translation": "/** Two episode-planning occupancy slots, matching servers: initial windows use first, later windows alternate. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 579,
+      "source": "/**\n * 提交 AI 规划分集：从规划起点逐窗规划到整本源文结尾。已有进行中的分集规划或准入不成立时，\n * 服务端的错误原样抛出。附加指令只随本次提交，不写进项目。\n */",
+      "translation": "/**\n * Submit AI episode planning windowwise from current starts through whole-source ends. Ongoing planning/invalid admission\n * errors propagate unchanged. Additional instructions belong to this submission, never project persistence.\n */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 599,
+      "source": "/**\n * 发起重新规划：从这一集开始逐窗生成「新的分集方案」，与分集规划占同一对槽。已有方案或分集规划在进行时，\n * 服务端的错误原样抛出。附加指令随方案保存。\n */",
+      "translation": "/**\n * Start replanning from this episode, windowwise producing new candidates, sharing planning slots. Existing candidates/ongoing planning\n * errors propagate unchanged. Additional instructions persist with candidates.\n */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 619,
+      "source": "/** 接着生成中途停止的新的分集方案，与分集规划占同一对槽。服务端的拒绝原样抛出。 */",
+      "translation": "/** Continue interrupted candidate generation, sharing planning slots; server refusals propagate unchanged. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 632,
+      "source": "/** 草稿 AI 修复任务的占用槽：一份草稿一个，resource_id 与服务端 `episode-{N}-{doc_type}` 一致。 */",
+      "translation": "/** AI draft-repair occupancy, one per draft, matching server `episode-{N}-{doc_type}` resource_id. */"
+    },
+    {
+      "batch": 2,
+      "path": "frontend/src/actions/generation.ts",
+      "line": 637,
+      "source": "/**\n * 提交待修复草稿的 AI 修复。修复读取的是 `baseRevision` 那一版已保存的草稿；草稿已变、本份草稿\n * 已有进行中的修复等服务端错误原样抛出。\n */",
+      "translation": "/**\n * Submit AI draft repairs against saved `baseRevision`; changed drafts, existing repairs\n * and other server errors propagate unchanged.\n */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 99,
+      "source": "// 保存时提交的基线指纹：绑定在**当前草稿所基于的那份服务端内容**上，只在草稿采用服务端内容时推进。",
+      "translation": "// Save baseline fingerprints bind **server content underlying current drafts**, advancing only when drafts adopt server content."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 100,
+      "source": "// 不能改用 state.fingerprint——有未保存编辑时的外部刷新会更新 state 却保留旧草稿，届时提交",
+      "translation": "// Never use state.fingerprint: external refreshes update state but retain unsaved drafts; submitting"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 101,
+      "source": "// state.fingerprint 等于拿别人新写的内容当基线，OCC 会放行并静默覆盖对方的修改。",
+      "translation": "// refreshed baselines makes OCC silently permit overwriting others' changes."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 113,
+      "source": "// 把 dirty 镜像进 ref，供下方拉取 effect 读取最新值，而无需把 dirty 列入 deps（否则每次编辑都会重新拉取）。",
+      "translation": "// Mirror dirty into refs for latest fetch-effect reads without dirty deps, which would refetch on every edit."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 119,
+      "source": "// 在途拉取的 controller 与在途标记，供 adopt 作废与补拉判定。",
+      "translation": "// Fetch controllers/in-flight flags support adopt invalidation/follow-up decisions."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 123,
+      "source": "// 采用服务端内容为新草稿（深克隆，避免与服务端态共享引用）。用户主动动作（保存 / 确认）后调用，",
+      "translation": "// Adopt server content as deep-cloned drafts without shared references after deliberate save/confirm actions,"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 124,
+      "source": "// 总是覆盖本地草稿；setDraft 传值而非更新器，保持纯净、不在更新器内读写 ref。",
+      "translation": "// always replacing local drafts. setDraft takes values, never updaters reading/writing refs, preserving purity."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 126,
+      "source": "// 采纳前发出的拉取一律作废：它读到的服务端态未必包含本次写入，回来时 dirtyRef 已因采纳而为",
+      "translation": "// Invalidate all preadoption fetches: they may omit this write. After adoption sets dirtyRef false,"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 127,
+      "source": "// false，会按旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧指纹撞 OCC。",
+      "translation": "// late old contents would rewrite drafts/baseFingerprint, reverting drafts and causing next-save OCC conflicts."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 128,
+      "source": "// 但作废掉的若是外部事件（Agent 改 script_plan 的 revision）触发的那次拉取，该 revision 已被消费、",
+      "translation": "// External-event fetches may have consumed Agent script_plan revisions with no later trigger,"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 129,
+      "source": "// 不会再有请求补上，外部更新就此丢失；故确有在途拉取被作废时补发一轮，把它重新拉回来。",
+      "translation": "// losing updates if discarded. When actual in-flight fetches invalidate, refetch once to recover them."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 158,
+      "source": "// 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；",
+      "translation": "// After any response, empty or populated, revision refetches stay silent without loading flashes;"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 160,
+      "source": "// 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。",
+      "translation": "// failures retain real visible content silently, entering error states only without contents (initial/empty states)."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 162,
+      "source": "// eslint-disable-next-line react-hooks/set-state-in-effect -- 首屏拉取前须同步点亮加载态，已有响应时静默刷新",
+      "translation": "// eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetches synchronously activate loading; existing-response refreshes stay silent"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 166,
+      "source": "// 响应已 resolve 之后才 abort 的窗口：写 state 前复核，避免离场的这轮回写。",
+      "translation": "// Abort after response resolution: recheck before writes, preventing departed requests persisting."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 170,
+      "source": "// 外部刷新（挂载 / Agent 改 script_plan 触发的 revision）：用户无未保存编辑、或内容已确认只读时采用",
+      "translation": "// External mount/Agent revision refreshes adopt server content without unsaved edits or when confirmed readonly;"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 171,
+      "source": "// 服务端内容，否则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。",
+      "translation": "// otherwise update server state only, retaining drafts. dirtyRef reads inside effects are safe, outside render."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 179,
+      "source": "// 屏上无真实内容（首屏失败，或空态后 revision 刷新失败）→ 错误态（区别于空态）+ 重试；",
+      "translation": "// Without real content, initial/empty-state refresh failures show errors, distinct from empty states, with retries;"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 180,
+      "source": "// 已有内容的静默刷新失败则保留现有内容，不破坏用户视图。",
+      "translation": "// populated silent failures retain views unchanged."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 184,
+      "source": "// 收尾让位给接管方：已作废就不碰在途标记与 loading，否则会打断新一轮加载态。",
+      "translation": "// Yield cleanup to successors: invalidated requests never touch in-flight/loading flags, avoiding interrupted new loads."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 193,
+      "source": "// eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环",
+      "translation": "// eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft choose loading/error branches only; deps would refetch after every refresh, looping"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "line": 203,
+      "source": "// 编辑期间该集已被确认：重新拉取，面板随之转为只读。",
+      "translation": "// Episodes confirmed during edits refetch, making panels readonly."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 95,
+      "source": "// 端点试跑记录的项目名是空串，它与「不筛项目」是两回事，故按是否有该键区分。",
+      "translation": "// Endpoint-trial project names are empty strings, distinct from no project filters; check key presence."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 107,
+      "source": "/**\n * 把筛选写回一份 URL query；等于默认值的维度删键，让干净的视图有干净的链接。\n * 就地改写传入的 params，其他 section 的参数原样保留。\n */",
+      "translation": "/**\n * Write filters into URL queries, deleting default-equivalent keys for clean links.\n * Mutate supplied params in place, preserving other-section parameters.\n */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 133,
+      "source": "/** 详情弹窗的记录 id 与筛选同住一份 query，但不带 `u_` 前缀。 */",
+      "translation": "/** Detail-record ids share filter queries without `u_` prefixes. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 141,
+      "source": "/**\n * 预设范围的起点：按本地日零点算好再发时刻，凌晨的调用才不会被算进前一天。\n * `all` 不给起点，由服务端取最早记录日。\n */",
+      "translation": "/**\n * Preset starts use local midnight then send instants, preventing early-morning calls falling into prior days.\n * `all` omits starts, letting servers choose earliest records.\n */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 153,
+      "source": "/** 浏览器时区；服务端按它切天。 */",
+      "translation": "/** Browser timezones defining server day boundaries. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 158,
+      "source": "/** 「生成调用」是服务端的默认视图，不带参数：请求串保持与既有的一致。 */",
+      "translation": "/** Generation calls are server-default views, omitting parameters to retain existing request strings. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 169,
+      "source": "/** summary 与记录共用的维度；比较它是否变化，决定要不要重取 summary。 */",
+      "translation": "/** Shared summary/record dimensions, compared for summary refetch decisions. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 172,
+      "source": "// 视图决定筛选候选值列哪些项目、供应商与模型。",
+      "translation": "// Views select project/provider/model filter candidates."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 175,
+      "source": "// null（不筛项目）与空串（端点试跑）是两回事，键里要能分开。",
+      "translation": "// null no-project filters differ from empty endpoint trials; keys distinguish both."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 180,
+      "source": "// 分镜不进这个键：汇总接口不收 segment_id，只筛分镜时 summary 不必重取。",
+      "translation": "// Exclude storyboards from this key: summaries reject segment_id, so storyboard-only filters need no refetch."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 192,
+      "source": "/** 「Agent 会话」视图的当前页；与 `records` 共用加载、失败、总数与分页状态。 */",
+      "translation": "/** Current Agent-session pages share `records` loading/errors/totals/pagination. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 196,
+      "source": "/** 筛选后的总数（记录数或会话数，随视图），与当前页无关。 */",
+      "translation": "/** Filtered total counts, records or sessions by view, independent of pages. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 198,
+      "source": "/** 已翻过的页游标，`[0]` 恒为 null（第一页）。 */",
+      "translation": "/** Visited page cursors; `[0]` is always null for initial pages. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 203,
+      "source": "/** 无任务代表的 pending 调用；有任务的那部分由任务 store 提供。 */",
+      "translation": "/** Pending calls without task representatives; task stores cover task-bound calls. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 211,
+      "source": "/**\n   * 应用一组筛选：回第一页重取记录与 pending，仅共用维度变化时重取 summary；\n   * 区块每次打开都带 `refetchSummary`，让 KPI 与图表反映离开期间结束的调用。\n   */",
+      "translation": "/**\n   * Apply filters: first-page records/pending refetch, summary only when shared dimensions change;\n   * opening sections always supplies `refetchSummary`, reflecting calls completed while away in KPIs/charts.\n   */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 219,
+      "source": "/** 手动刷新：按当前筛选重取全部三项。 */",
+      "translation": "/** Manual refresh of all three datasets using current filters. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 221,
+      "source": "/** 只重取 summary：供应商显示名由服务端按请求语言渲染，切换语言后要重取。 */",
+      "translation": "/** Summary-only refetch after language changes, since servers localize provider names per request. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 223,
+      "source": "/** 只重取 pending 调用，供进行中区非空时的兜底轮询使用。 */",
+      "translation": "/** Pending-only refetch for fallback polling while running sections are nonempty. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 256,
+      "source": "/** 同一目标的重叠刷新合并补跑一次；目标变化则作废旧请求，只保留最新目标。 */",
+      "translation": "/** Same-target overlaps merge one follow-up; target changes invalidate old requests and retain latest only. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 278,
+      "source": "// run 意外抛出时也要回到空闲并结算排队方，否则之后的同类请求都只会排队、永不执行。",
+      "translation": "// Unexpected run errors must settle queued callers/return idle, or later same-kind requests queue forever."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 310,
+      "source": "/**\n * 列表页请求。两个视图写同一组总数与分页状态，所以共用一个协调器：\n * 换视图即作废另一视图在途的请求，它晚到的结果不会再覆盖当前视图的分页。\n */",
+      "translation": "/**\n * List-page requests: both views share total/pagination fields, using one coordinator;\n * switching invalidates other-view requests, preventing late writes to current pagination.\n */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 348,
+      "source": "// 被接管方作废时不碰共享状态：loading 归属新一轮，复位会打断它。",
+      "translation": "// Invalidated predecessors never reset shared loading, owned by new rounds."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 350,
+      "source": "// 失败后不保留旧 summary：它属于上一组筛选，留着会被当成当前筛选的结果。",
+      "translation": "// Failed summaries clear old results belonging to previous filters, never misrepresenting current results."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 394,
+      "source": "/** 当前视图的列表页：「生成调用」取记录，「Agent 会话」取会话。 */",
+      "translation": "/** Current-view lists: generation records or Agent sessions. */"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 421,
+      "source": "// 进行中区不受时间范围影响：正在跑的调用无论何时排队都该看得见。",
+      "translation": "// Running sections ignore time filters; ongoing calls remain visible regardless of enqueue times."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 444,
+      "source": "// 新查询先重置游标，避免第一页返回前的刷新沿用旧查询的分页位置。",
+      "translation": "// New queries reset cursors before responses, preventing refreshes using prior pagination."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 453,
+      "source": "// 筛选变化一律回第一页：停在旧游标上会翻到一个已经不存在的位置。",
+      "translation": "// Filter changes always return first pages; old cursors may no longer exist."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "line": 455,
+      "source": "// Agent 记录是事后补录的终态行，没有进行中的调用。",
+      "translation": "// Agent records backfill terminal rows only, without ongoing calls."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 72,
+      "source": "// `@{名称}` 不是引用语法；花括号照引用语法规则读成画外音记号，与后端 split_speech_line 同判。",
+      "translation": "// `@{名称}` is not mention syntax; braces parse as voiceover markers, matching backend split_speech_line."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 93,
+      "source": "// 正文里没有段落前缀语法：`镜头1：` 与 `Shot 1 (3s):` 都只是普通描述文字。",
+      "translation": "// No paragraph-prefix syntax: `镜头1：` and `Shot 1 (3s):` are ordinary description text."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 102,
+      "source": "// 未登记的 `toString` 走原型链会取到 Object.prototype.toString，被当成已解析的类型",
+      "translation": "// Unregistered `toString` follows prototypes to Object.prototype.toString, misclassified as resolved types."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 130,
+      "source": "// MentionLookup 的契约：caller 构建时先归一 key（见类型上方注释）。这里模拟 prompt 里的",
+      "translation": "// MentionLookup requires normalized caller-built keys (type comments above). Here prompt mentions"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 131,
+      "source": "// mention 文本本身是 NFD（输入法产出）——lookup 侧已是 NFC，两侧不同源，靠解析器输出",
+      "translation": "// use input-method NFD while lookup is NFC; independent origins require canonical parser outputs"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 132,
+      "source": "// 规范形落到同一坐标系才命中。",
+      "translation": "// sharing coordinates for successful matching."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 161,
+      "source": "// 后端按行解析时先 strip 再判，缩进 / 行尾空白的整行台词照样是台词；",
+      "translation": "// Backend line parsing strips before classification, retaining indented/trailing-whitespace dialogue;"
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 162,
+      "source": "// 预览若因两侧空白把它降级成描述行，就与同屏的服务端派生台词列表对不上。",
+      "translation": "// previews downgrading it to descriptions would contradict same-screen server-derived dialogue lists."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 172,
+      "source": "// 记号与描述混写才归 `text` 行——这条与上一条共同钉住「空白不算描述」的边界。",
+      "translation": "// Only mixed description/markers yield `text`; together these tests lock whitespace as nondescription."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 179,
+      "source": "// 与后端 text_parser 同口径：BOM 在解析入口去掉，说话人名与 lookup key 同坐标系",
+      "translation": "// Match backend text_parser: remove BOM at parse entry, aligning speakers/lookup coordinates."
+    },
+    {
+      "batch": 3,
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "line": 189,
+      "source": "// 把这些分隔符后的台词记号与上一行粘住，说话人就被算进参考图，两条派生路径分叉。",
+      "translation": "// join subsequent dialogue markers to previous lines, counting speakers as image references and diverging derivation paths."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 101,
+      "source": "/** 定位窗格 → 工作区路由，按窗格联合类型穷尽；返回 null 表示该事件缺少路由所需信息、不可导航。 */",
+      "translation": "/** Exhaustive pane-union → workspace routes; null means missing routing information, not navigable. */"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 111,
+      "source": "/** 草稿视图订阅的实体 ID 后缀：`draft:episode_N_<kind>`。 */",
+      "translation": "/** Draft-view entity-ID suffixes: `draft:episode_N_<kind>`. */"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 155,
+      "source": "/**\n * 用户正在编辑时，Agent 改动带来的自动定位与跳转一律不执行：焦点在输入控件里、旧式卡片标了编辑中，\n * 或有编辑单元带着未保存修改（分镜详情、视频单元正文等不靠焦点判断，切走会触发离开拦截）。\n */",
+      "translation": "/**\n * Never automatically focus/navigate Agent edits while users edit: focused inputs, legacy editing cards,\n * or unsaved edit units such as storyboard/unit bodies, whose departure guards cannot rely on focus alone.\n */"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 176,
+      "source": "// 把 t 通过 ref 暴露给 callback，避免 i18n 切语言时 refreshProject",
+      "translation": "// Expose latest t via refs to avoid language changes rebuilding refreshProject,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 177,
+      "source": "// 重建 → 事件流 effect 跟着重连 → 通知/focus 提示丢失。",
+      "translation": "// reconnecting stream effects and losing notifications/focus notices."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 232,
+      "source": "// 在途合并逻辑（单飞 + 排队再跑一轮 + 失败留旧）已下沉到 projects-store.refreshProject；",
+      "translation": "// Merge coordination (single flight/queued follow-up/retain on failure) lives in projects-store.refreshProject;"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 233,
+      "source": "// 此处只保留 SSE 专属包装：失败时告警、刷新落定后消费排队的聚焦目标。",
+      "translation": "// retain SSE-only wrappers: failure notices and settled-refresh queued focus consumption."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 235,
+      "source": "// refreshProject 现在按轮次各自 resolve（见 projects-store），因此本次调用落定时，",
+      "translation": "// refreshProject resolves per round (projects-store); by settlement,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 236,
+      "source": "// 可能已有更晚一批 onChanges 把 queuedFocusRef 改写为它自己的目标——那个新目标",
+      "translation": "// newer onChanges may have replaced queuedFocusRef with their own targets, whose data"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 237,
+      "source": "// 对应的数据要等它自己那一轮 getProject 完成才会写入 store。无条件消费 ref 会拿着",
+      "translation": "// waits for their own getProject rounds. Unconditional consumption navigates/scrolls"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 238,
+      "source": "// 尚未落库的目标提前导航/滚动，且消费后 ref 被清空，那一批之后也不会再重试；这个",
+      "translation": "// before target persistence, then clears refs so later batches never retry. This risk"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 239,
+      "source": "// 风险不局限于「本次调用自己设置了新目标」的场景——不设置新目标的调用（onSnapshot、",
+      "translation": "// also affects calls setting no targets: onSnapshot, webui sources and draftHandled"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 240,
+      "source": "// webui 来源、draftHandled 分支）同样可能在等待落定期间被别的调用改写 ref。",
+      "translation": "// branches can all have refs replaced during waits."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 242,
+      "source": "// 因此改为在发起请求前对 ref 拍快照，落定后只在 ref 仍等于快照时才消费——说明这段",
+      "translation": "// Snapshot refs before requests, consuming only if still identical after settlement:"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 243,
+      "source": "// 等待期间没有别的调用改写过它，可以放心视为「跟自己这一轮对应」；ref 已变则跳过，",
+      "translation": "// no intervening writes means safe ownership by this round. Changed refs yield"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 244,
+      "source": "// 交由改写它的那次调用在自己对应轮次落定后消费。",
+      "translation": "// consumption to their own writing calls after corresponding rounds settle."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 276,
+      "source": "// 断线重建由流式客户端承担；重建后服务端重发 snapshot，fingerprint 变了才刷新项目。",
+      "translation": "// Streaming clients own reconnections; resent snapshots refresh projects only on changed fingerprints."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 284,
+      "source": "// 草稿视图各自取数、只随 draft 事件重拉；断线期间错过的草稿变化在这里一并作废。",
+      "translation": "// Draft views fetch independently on draft events; invalidate missed disconnected-period changes here too."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 293,
+      "source": "// 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与",
+      "translation": "// Snapshots arrive on every connection; all after initial imply disconnects. Missed settlements/"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 294,
+      "source": "// 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取。",
+      "translation": "// task terminals require full header-usage refetch, since usage otherwise refreshes by events."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 297,
+      "source": "// 回收站不在快照指纹里，断线期间的增删同样只能在这里补拉。",
+      "translation": "// Trash is absent from snapshot fingerprints; disconnected changes also require refetch here."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 300,
+      "source": "// 会话恢复通知只推一次，订阅建立之前（含首次建连前的失败重试）发出的已经错过；",
+      "translation": "// Recovery notices emit once, potentially before subscriptions/initial connection retries;"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 301,
+      "source": "// 首次快照也要核对：会话 hook 的加载读到的状态可能早于这次恢复。",
+      "translation": "// reconcile initial snapshots too, since session-hook loads may predate recovery."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 309,
+      "source": "// 任务终态是刷新信号而非实体变更，先与实体变更分开：下方的实体失效、分组通知与",
+      "translation": "// Task terminals are refresh signals, not entity changes; separate before invalidation/grouping/"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 310,
+      "source": "// 聚焦跳转都只针对实体变更。混入任务变更会有两处实际损害——每个终态任务都会在",
+      "translation": "// focus handling. Mixing causes two concrete failures: terminal tasks leave"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 311,
+      "source": "// `entityRevisions` 里留下一个从未被消费的 `task:<uuid>` 键（该表不随切项目清空，",
+      "translation": "// unused `task:<uuid>` in `entityRevisions`, never cleared on project switches,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 312,
+      "source": "// 且每次失效整表复制，长会话下无界增长）；而任务批次没有可导航目标，走到聚焦逻辑",
+      "translation": "// with full copies per invalidation and unbounded long-session growth. Targetless task batches"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 313,
+      "source": "// 会把前一批实体变更排队等待 refreshProject 的 `queuedFocusRef` 清成 null，用户",
+      "translation": "// also clear prior queued entity `queuedFocusRef` waiting on refreshProject,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 314,
+      "source": "// 因此丢失本该发生的自动导航与高亮。",
+      "translation": "// losing expected navigation/highlights."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 316,
+      "source": "// 记账结算与任务终态同为刷新信号：混进实体变更会在 entityRevisions 里留下永不",
+      "translation": "// Settlements are refresh signals too; mixing leaves unused entityRevisions"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 317,
+      "source": "// 被消费的 `usage_record:<id>` 键，并把前一批实体变更排队的聚焦目标清空。",
+      "translation": "// `usage_record:<id>` keys and clears prior entity focus targets."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 325,
+      "source": "// 提取并更新 asset fingerprints（零延迟，立即写入 store）",
+      "translation": "// Extract/update asset fingerprints immediately into stores."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 339,
+      "source": "// 正式脚本规划不在项目快照里，重新规划完成不会产生实体变更；按任务终态作废各集的",
+      "translation": "// Formal script plans are outside snapshots; replanning completion has no entity changes. Terminal tasks invalidate"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 340,
+      "source": "// 脚本规划视图，内容确认页据此重拉。任务事件不带集号，逐集作废，只有挂载的视图会发请求。",
+      "translation": "// every episode plan view, refetching mounted confirmation views only because events lack episode IDs."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 347,
+      "source": "// 草稿 AI 修复由 worker 写回草稿或采用为正式内容，同样没有实体变更；按终态作废各集的草稿视图。",
+      "translation": "// Worker AI repairs write/adopt drafts without entity changes; terminal events likewise invalidate episode draft views."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 375,
+      "source": "// Draft 事件 — 自动导航到剧集脚本规划 Tab",
+      "translation": "// Draft events automatically navigate episode script-planning tabs."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 409,
+      "source": "// 任务终态：立即重拉任务列表与统计，不等兜底轮询的间隔。",
+      "translation": "// Task terminals immediately refetch tasks/statistics without polling delays."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 414,
+      "source": "// Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片；资产增删改会改变",
+      "translation": "// Unit changes from Agents/other browsers, finished generation and asset changes alter"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 415,
+      "source": "// 单元此刻可用的参考图，服务端逐单元的桶与档位随之变化。三类事件都要作废",
+      "translation": "// available references and server-derived per-unit buckets/tiers; all three invalidate"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 416,
+      "source": "// reference-video-store 的独立列表缓存，同一批只自增一次。",
+      "translation": "// independent reference-video-store caches once per batch."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 428,
+      "source": "// 只在含实体变更时重拉项目：任务终态与记账结算是刷新信号，不改项目快照里的内容；",
+      "translation": "// Refetch projects only for entity changes; task terminals/settlements do not alter snapshots."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 429,
+      "source": "// 重建窗口内落盘、却未被任何在途批次描述的变更，后端会补扫后单独广播。",
+      "translation": "// Backend rescans/broadcasts reconnect-window changes absent from in-flight batches separately."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 430,
+      "source": "// 通知里的集标题与播出位置取刷新后的账本：Agent 新建、改名或调序的集在事件到达时",
+      "translation": "// Notification titles/positions use refreshed ledgers: Agent-created/renamed/reordered episodes"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 431,
+      "source": "// 还不在本地账本里，按旧账本成文会显示成未命名集或旧标题，推出后无法再改。",
+      "translation": "// are absent/stale locally on arrival; old-ledger notices irreversibly show unnamed/old titles."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 432,
+      "source": "// 刷新没有成功时不成文：旧剧本里还没有新建的条目，会被写成「已删除」；同步失败已另行告警。",
+      "translation": "// Failed refreshes emit no notices: new entries absent from old scripts appear Deleted; sync failures already notify."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 460,
+      "source": "// voice_sample 的计费发生在合成成功之后、时长/大小校验（或用户取消）之前：",
+      "translation": "// voice_sample billing occurs after synthesis success, before duration/size checks or cancellation:"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 461,
+      "source": "// 校验不通过落 failed、执行期间被取消落 cancelled，两种情形都不会触发上面的",
+      "translation": "// invalid outputs fail and midexecution cancellations settle cancelled, neither emitting"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 462,
+      "source": "// voice_sample_ready（只在 emit_generation_success_batch 里跟着执行器成功返回",
+      "translation": "// voice_sample_ready, sent only through emit_generation_success_batch when executors return"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 463,
+      "source": "// 一起发），但供应商费用已经产生——非成功终态同样要刷新成本，否则用户会看到",
+      "translation": "// successfully. Costs already occurred, so nonsuccess terminals must also refresh costs,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 464,
+      "source": "// 一个已经真实花费但成本面板未更新的任务。",
+      "translation": "// avoiding real charges with stale cost panels."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 470,
+      "source": "// 切分本身不计费，但它把各分镜的 generated_assets.grid_id 写回，宫格已发生的",
+      "translation": "// Splitting itself costs nothing but assigns generated_assets.grid_id, moving incurred grid"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 471,
+      "source": "// 成本随之从「未归属」桶转入本集均摊（ADR 0053）。归属变了就要重拉，否则成本面板",
+      "translation": "// costs from unattributed to episode allocation (ADR 0053). Refetch changed ownership or panels"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 472,
+      "source": "// 一直显示切分前的分配；grid_split_done 不进 COMPLETION_ACTIONS（那是完成通知",
+      "translation": "// retain presplit allocation. grid_split_done is outside COMPLETION_ACTIONS, which classifies"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 473,
+      "source": "// 类别，切分不是一次生成），故在这里单列。",
+      "translation": "// generation-completion notices, so handle separately."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 475,
+      "source": "// 一次供应商调用结算落库（成功/失败/取消）就是一笔费用变动；无任务的文本调用与",
+      "translation": "// Persisted provider-call settlement (success/failure/cancel) means cost changes; taskless text"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 476,
+      "source": "// 助手会话只有这一个信号，没有对应的任务终态或完成通知可依赖。",
+      "translation": "// and assistant sessions rely solely on this signal, lacking task terminals/completion notices."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 478,
+      "source": "// 顶栏用量只认这两个信号：记账结算改金额与已结束列表，任务终态改进行中列表。",
+      "translation": "// Header usage uses two signals: settlements update money/completed lists, terminals update ongoing lists."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "line": 500,
+      "source": "// 项目目录已被删除：后端正常关流，关闭句柄停止自动重建——不对已删项目周期性发起请求。",
+      "translation": "// Deleted project directories close server streams normally; close handles to stop periodically requesting absent projects."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 845,
+      "source": "// onSnapshot 触发的 refreshProject() 不设置新的聚焦目标，落定后按旧逻辑会",
+      "translation": "// onSnapshot refreshProject() sets no new focus target; old settlement unconditionally"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 846,
+      "source": "// 无条件 flushQueuedFocus()。若它在途期间，一批带真实目标的 onChanges 已经",
+      "translation": "// flushed queued focus. While in flight, real-target onChanges can queue,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 847,
+      "source": "// 到达并排队（改写了 queuedFocusRef，但数据要等它自己那一轮 getProject 完成",
+      "translation": "// replacing queuedFocusRef while data waits for its own getProject round. Unconditional snapshot"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 848,
+      "source": "// 才落库），onSnapshot 落定时若仍无条件消费 ref，会拿着尚未落库的目标提前",
+      "translation": "// consumption navigates before target persistence and clears refs,"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 849,
+      "source": "// 导航，且清空 ref 后 onChanges 那一批之后不再触发导航。",
+      "translation": "// preventing later onChanges navigation."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 861,
+      "source": "// 建立初始 fingerprint 基线（首次 onSnapshot 不触发刷新）。",
+      "translation": "// Establish initial fingerprint baselines; first onSnapshot never refreshes."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 869,
+      "source": "// fingerprint 变化触发一次不带聚焦目标的刷新，getProject 卡在在途（d1 未 resolve）。",
+      "translation": "// Changed fingerprints start targetless refreshes, with getProject/d1 pending."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 877,
+      "source": "// 在途期间，一批带真实聚焦目标的 onChanges 到达并排队。",
+      "translation": "// Real-target onChanges arrives/queues while in flight."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 899,
+      "source": "// 在途合并：这批只是排队，不会立即多发一次请求。",
+      "translation": "// Merge queues only, without immediate extra requests."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 902,
+      "source": "// onSnapshot 那一轮落定：不应提前导航到 onChanges 排队的目标（/characters）。",
+      "translation": "// Snapshot round settles without early navigation to queued /characters."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 910,
+      "source": "// onChanges 排队的那一轮落定：导航到它真正的目标，且只补发了这一次请求。",
+      "translation": "// onChanges round settles, navigating true targets with exactly one follow-up."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 923,
+      "source": "// 复现:两批 onChanges 重叠到达,第一批的 refreshProject 仍在途(getProject 未落定)时",
+      "translation": "// Reproduction: overlapping onChanges; first refreshProject/getProject still pending when"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 924,
+      "source": "// 第二批已到达并把 queuedFocusRef 改写为自己的目标。第一批落定后不应消费已被取代的",
+      "translation": "// second replaces queuedFocusRef. First settlement must not consume superseded"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 925,
+      "source": "// ref 值提前导航;要等第二批自己那一轮落定才导航到第二批的目标。",
+      "translation": "// refs for early navigation; wait for second rounds before their target navigation."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 937,
+      "source": "// 第一批:聚焦角色 hero → /characters。发起后 getProject 卡在在途(d1 未 resolve)。",
+      "translation": "// First: hero → /characters, getProject/d1 pending."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 983,
+      "source": "// 在途合并:第二批只是排队，不会立即多发一次请求。",
+      "translation": "// In-flight merging queues second calls without immediate requests."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 986,
+      "source": "// 第一轮落定：不应提前导航到已被取代的第一批目标（/characters）。",
+      "translation": "// Initial settlement must not navigate early to superseded /characters."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 994,
+      "source": "// 排队轮（第二批）落定：导航到第二批真正的目标（/scenes），且只发了这一次补充请求。",
+      "translation": "// Queued second settlement navigates /scenes, with one follow-up request only."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 1034,
+      "source": "// fingerprints 应立即（同步）写入 store，无需等待 getProject",
+      "translation": "// Fingerprints write synchronously before getProject."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 1044,
+      "source": "// 后端在项目删除后正常关流；断线重建由流式客户端承担，hook 关闭句柄即停止对已删项目的重连。",
+      "translation": "// Deleted projects normally close server streams; clients own reconnects, and hook handle closure stops them."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 1291,
+      "source": "// 每个终态任务的 entity_id 都是新的 task_id，若混进实体失效会在 entityRevisions",
+      "translation": "// Every terminal entity_id is new task_id; entity invalidation would leave"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 1292,
+      "source": "// 里留下永不消费、也不随切项目清空的键，长会话下无界增长。",
+      "translation": "// unconsumed keys never cleared across projects, growing unbounded in long sessions."
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 1306,
+      "source": "// 实体批次的 refreshProject 尚在途时，任务终态批次到达。任务变更没有可导航目标，",
+      "translation": "// Task-terminal batches arrive while entity refreshProject remains pending. Targetless task"
+    },
+    {
+      "batch": 4,
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "line": 1307,
+      "source": "// 若让它走通用聚焦逻辑会把排队的目标改写成 null，用户丢失本该发生的自动导航。",
+      "translation": "// changes entering generic focus handling overwrite queued targets null, losing intended navigation."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 60,
+      "source": "/** 已兑现标记：等待这些 task_id 的真实行落库。 */",
+      "translation": "/** Settled markers awaiting these task_id rows. */"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 103,
+      "source": "// 占用谓词与后端 ACTIVE_TASK_STATUSES 对齐：后端 dedupe 索引会把重复提交去重到既有任务上",
+      "translation": "// Occupancy matches backend ACTIVE_TASK_STATUSES; dedupe indices reuse existing tasks for duplicates."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 136,
+      "source": "// 角色 A 有一条运行中的编辑任务：应落入 character 占用集，与生成任务同槽互斥",
+      "translation": "// Character A running edits occupy character slots, excluding generation in the same slot."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 155,
+      "source": "// 分镜编辑不串到 character 槽",
+      "translation": "// Storyboard edits never enter character slots."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 170,
+      "source": "// 生成任务 running（较旧 updated_at）+ 编辑任务 failed（较新 updated_at）：",
+      "translation": "// Older running generation plus newer failed edits have different task_type;"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 171,
+      "source": "// 二者 task_type 不同，各自取最新行后按「任一活跃」判定，生成任务仍应算占用中",
+      "translation": "// select latest per type, then any-active; generation remains busy."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 193,
+      "source": "// 反向对称场景：编辑任务 running（较旧）+ 生成任务 succeeded（较新），编辑仍占用中",
+      "translation": "// Symmetrically older running edits plus newer successful generation keep edits busy."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 217,
+      "source": "// 请求已发出、后端 task_id 未知的往返窗口：仅凭在途标记也应判定占用",
+      "translation": "// Request round trips with unknown backend task_id count occupied through in-flight markers alone."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 223,
+      "source": "// 本次提交的任务行一旦出现（哪怕已是终态），占用判定就交回真实数据",
+      "translation": "// Submitted rows appearing, even terminal, return occupancy to real data."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 238,
+      "source": "// 同一资源被反复编辑：上一次编辑遗留的终态行不是本次标记等待的行，",
+      "translation": "// Repeated same-resource edits must not yield to previous edit terminal rows,"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 239,
+      "source": "// 否则二次编辑期间会误判空闲",
+      "translation": "// falsely marking second edits idle."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 255,
+      "source": "// 晚到的旧轮询快照里不会有本次提交的任务行；在途标记更不该被它清掉，",
+      "translation": "// Late old polls lack current submitted rows and must never clear in-flight markers,"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 256,
+      "source": "// 否则请求往返窗口内资源会被误判为空闲、可重复入队",
+      "translation": "// or round-trip windows falsely allow duplicate enqueue."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 278,
+      "source": "// character \"A\" 与 scene \"A\" 偶然同名(resource_id 相同)：scene 的真实行不该",
+      "translation": "// Same-name character \"A\"/scene \"A\" share resource_id accidentally; real scene rows must not"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 279,
+      "source": "// 让 character 的乐观标记失效",
+      "translation": "// invalidate character optimistic markers."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 319,
+      "source": "// 后端没建任何任务行（如宫格按 scene_ids 过滤后无匹配分组）：标记若留下就永远",
+      "translation": "// No created tasks, such as scene_ids grid filters matching no groups, means retained markers"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 320,
+      "source": "// 等不到真实行，资源被误判为永久占用",
+      "translation": "// never find rows, falsely locking resources forever."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 350,
+      "source": "// 去重命中既有任务：后端返回的是那条既有行的 task_id，它已在 store 里且已终态。",
+      "translation": "// Deduped existing-task IDs may already be terminal in stores."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 351,
+      "source": "// 标记必须当场让位——按时间戳基线比较时这条行永远「不比基线新」，标记会永久残留、",
+      "translation": "// Yield immediately; timestamp-baseline comparisons never see newer rows, leaving permanent"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 352,
+      "source": "// 把资源锁死到页面刷新为止。",
+      "translation": "// markers and locked resources until refresh."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 409,
+      "source": "// store 只保留最近 200 条任务：真实行落地后若被更晚的大量新任务挤出该窗口，",
+      "translation": "// Stores retain latest200tasks; later tasks can evict already observed rows."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 410,
+      "source": "// 仅靠打标时的顺带清理不会再触发——轮询写回本身也要清理，否则这条已完结的旧",
+      "translation": "// Mark-time cleanup alone no longer triggers, so poll writes also clean completed"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 411,
+      "source": "// 标记会永久残留，把资源误判为占用中直到页面刷新。",
+      "translation": "// old markers, preventing false occupancy until page refresh."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 443,
+      "source": "// 晚到轮询不覆盖较新的乐观标记：请求往返期间任何写回都不足以判定资源已空闲",
+      "translation": "// Late polls never overwrite newer optimistic marks; round-trip writes cannot prove idle."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 505,
+      "source": "// router 入队路径可能传入带 scripts/ 前缀的 script_file，Agent 工具路径经",
+      "translation": "// Router enqueue may include scripts/ prefixes, while Agent validate_script_filename"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 506,
+      "source": "// validate_script_filename 强制裸文件名；两种任务行格式都要能被两种调用方式",
+      "translation": "// requires bare names. Both row formats must match scriptFile arguments"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 507,
+      "source": "// 传入的 scriptFile（带或不带前缀）匹配到，不依赖调用方预先裁剪。",
+      "translation": "// with/without prefixes, without caller trimming."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 550,
+      "source": "// 宫格请求发出到轮询写回新 grid 任务行之间的空窗：仅凭乐观标记也应判定本集占用中",
+      "translation": "// Grid enqueue round trips before new rows appear still occupy episodes through optimistic markers."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 574,
+      "source": "// 一次宫格入队会建多条任务行；只落地一条就交回真实数据的话，「首条已终态、",
+      "translation": "// Grid submissions create many rows; yielding after one terminal row while others"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 575,
+      "source": "// 其余尚未进入快照」的窗口里 scriptFile 会被误判为空闲。",
+      "translation": "// await snapshots falsely makes scriptFile idle."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 588,
+      "source": "// 仅一条落地且已终态，标记继续守住剩余那条",
+      "translation": "// One terminal row observed; markers retain remaining tasks."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 602,
+      "source": "// 全部落地且均已终态，标记让位",
+      "translation": "// All terminal rows observed; yield markers."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 656,
+      "source": "// 带前缀打的标记，用裸文件名查询也要命中",
+      "translation": "// Prefixed markers match bare-name queries."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 671,
+      "source": "// 宫格按 scene_ids 过滤后无匹配分组时后端不建任务行，标记不能留下",
+      "translation": "// scene_ids grid filters producing no tasks leave no markers."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 726,
+      "source": "// 轮询每次只取最新 200 行，单次入队产生的任务行数没有上限：若要求所有 task_id",
+      "translation": "// Polls fetch latest200rows, while one enqueue may create unlimited tasks. Requiring all task_id"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 727,
+      "source": "// 在同一快照里同时出现，超出窗口的批次会永久残留、锁死分镜编辑直到刷新页面。",
+      "translation": "// in simultaneous snapshots permanently locks over-window batches/storyboard editing until refresh."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 741,
+      "source": "// 第一轮只看得到 grid-1：扣除它，标记继续守住 grid-2",
+      "translation": "// First poll sees grid-1 only; subtract it, retain grid-2 occupancy."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 755,
+      "source": "// 第二轮 grid-1 已被挤出窗口、只剩 grid-2：扣完，标记让位",
+      "translation": "// Second poll evicts grid-1, sees grid-2; subtract/yield."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 761,
+      "source": "// 宫格按分组逐条入队：首条已快速失败、其余尚未进入快照的窗口里，若按「任一落地」",
+      "translation": "// Sequential grid enqueue may fail first tasks before others enter snapshots. Yield-on-any"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 762,
+      "source": "// 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。",
+      "translation": "// removes optimistic/live rows briefly, allowing edits to race later splitting."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 776,
+      "source": "// 已落地的 grid-1 被扣除，标记仍在等 grid-2——占用按 selector 断言，不比对 key 字面量",
+      "translation": "// Subtract persisted grid-1, retain waiting grid-2; assert selectors, never literal marker keys."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 811,
+      "source": "// 旧失败行排在新重试行之前：store 不保证顺序，须按 updated_at 归并",
+      "translation": "// Old failures precede retries; stores guarantee no ordering, so merge by updated_at."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 860,
+      "source": "// 旧 running + 新 failed：最新行胜出 → 不活跃（朴素 some 会误判活跃）",
+      "translation": "// Older running/newer failed: latest wins, inactive; naive some falsely reports active."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 869,
+      "source": "// 旧 failed + 新 running：重试不被旧失败行遮挡",
+      "translation": "// Older failed/newer running: old failures never obscure retries."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 893,
+      "source": "// 该函数存在的全部理由：调用方在提交那一刻拿到的必须是最新占用态，",
+      "translation": "// Sole function purpose: submission-time callers read latest occupancy,"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 894,
+      "source": "// 而非渲染期（或上一次调用时）捕获的快照。",
+      "translation": "// never captured render/prior-call snapshots."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 901,
+      "source": "// 入队动作层在请求发出前打的标记也要被看到，否则同 tick 内的连点会漏过",
+      "translation": "// See action-layer prerequest markers too, preventing same-tick repeated clicks escaping guards."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 922,
+      "source": "// 与 isResourceBusy 同理：提交那一刻必须拿最新占用态，而非渲染期捕获的快照。",
+      "translation": "// Like isResourceBusy, submission requires latest occupancy, never render snapshots."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 933,
+      "source": "// episode 元数据带 scripts/ 前缀、任务行不一定带，两边都要归一后再比。",
+      "translation": "// Episode metadata prefixes scripts/, task rows may not; normalize both."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1008,
+      "source": "// 成片重拉此前只挂在项目事件 SSE 的终态分支上：SSE 断线或丢掉这条事件时，任务状态还能",
+      "translation": "// Finished-output refetch previously relied only on SSE terminals; disconnect/missed events let polling"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1009,
+      "source": "// 靠轮询兜底恢复，成片却一直不出现。轮询走同一次失效补上这个缺口。",
+      "translation": "// recover task states without videos. Share invalidation in polling to close gaps."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1022,
+      "source": "// 同一条任务在后续轮次里已是终态，不再重复失效。",
+      "translation": "// Already-terminal tasks in later polls never reinvalidate."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1028,
+      "source": "// SSE 是完成事件主通道；它静默失速时，任务轮询也必须让新写入剧本的旁白路径出现在",
+      "translation": "// SSE primarily signals completion; silent stalls still require polling to expose new narration paths in"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1029,
+      "source": "// reference-video-store，否则播放器会一直持有生成前的旧 unit 快照。",
+      "translation": "// reference-video-store, or players retain pregeneration unit snapshots."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1044,
+      "source": "// 空闲档间隔较长，provider 命中缓存时任务可能在一个间隔内走完：它是首次以 succeeded",
+      "translation": "// Long idle intervals allow cached-provider tasks to finish entirely between polls, first appearing succeeded;"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1045,
+      "source": "// 出现的，若要求上一轮见过就会漏掉，画布仍看不到成片。",
+      "translation": "// requiring previous observation would miss outputs permanently."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1087,
+      "source": "// 两个入口（轮询 + SSE 任务终态）同时刷新时不各自发请求：首轮 1 次 + 合并轮 1 次。",
+      "translation": "// Poll/SSE concurrent refreshes share one initial plus one merged request."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1114,
+      "source": "// 首轮落定后合并轮才发第二次请求——两个排队调用方合并成这一轮，不是各发一次。",
+      "translation": "// Only after initial settlement do queued callers merge one follow-up, never individual requests."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1144,
+      "source": "// 切项目：旧项目的在途响应此刻才回来，不能盖住接管方的数据。",
+      "translation": "// Project switches prevent late old responses overwriting successors."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1205,
+      "source": "// 在项目 A 打标后、真实任务行落地前切到项目 B：A 的标记再也等不到同项目任务行来修剪，",
+      "translation": "// Switching A→B after optimistic marks but before rows strands A markers without same-project cleanup;"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1206,
+      "source": "// 若计入判据，B 即便完全空闲也会一直 3 秒轮询。",
+      "translation": "// counting them keeps empty B polling every3seconds forever."
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1218,
+      "source": "// 任务列表与统计是两个并发请求、不是同一快照：别处恰在本轮刷新期间入队时，统计可能",
+      "translation": "// Lists/statistics are concurrent requests, not one snapshot: external enqueue during refresh can"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1219,
+      "source": "// 读到零活跃而列表已含那条 queued 行。只看统计会把这一轮判成空闲，该任务的中间态要",
+      "translation": "// yield zero-active stats but queued list rows. Stats-only predicates falsely mark idle, delaying"
+    },
+    {
+      "batch": 5,
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "line": 1220,
+      "source": "// 等满一个空闲间隔才出现在界面上。",
+      "translation": "// intermediate-task visibility an entire idle interval."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 36,
+      "source": "// localStorage helpers — 记住每个项目最后使用的会话",
+      "translation": "// localStorage helpers remember last-used sessions per project."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 57,
+      "source": "// 静默失败",
+      "translation": "// Fail silently."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 65,
+      "source": "/**\n * 管理 Agent 会话生命周期，时间线唯一读源为会话事件日志：\n * - 冷读 GET entries（历史回放）\n * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）：\n *   打开会话时建立一条，切换会话或关闭面板时关闭；轮次结束只更新状态、不关流，\n *   发送与自主轮次的内容都从这条流收到\n * - 发送消息：回复进行中同样可发；已有会话的消息先进排队消息托盘，被 Agent 接纳时\n *   才作为权威条目从流上到达；新会话的首条消息由响应直接回传权威条目。\n *   client_key 幂等，重试不产生重复；时间线不渲染本地合成消息\n */",
+      "translation": "/**\n * Manage Agent-session lifecycles, with event logs as sole timeline truth:\n * - Cold GET entries for historical replay\n * - Live SSE entries, event IDs equal seq, reconnecting with client Last-Event-ID:\n *   open once per session, close on switches/panel closure; terminal turns update state without closing,\n *   receiving both sent and autonomous turns on the same stream\n * - Send even during replies; existing-session messages enter trays until Agent acceptance,\n *   then authoritative streamed entries; new-session initial sends return authoritative entries directly.\n *   Idempotent client_key prevents retry duplicates; timelines never render synthetic local messages\n */"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 84,
+      "source": "// 失败重试复用同一幂等键（同内容签名），成功后清除",
+      "translation": "// Failed same-content retries reuse idempotency keys, cleared after success."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 86,
+      "source": "// 本页点了「编辑」、内容还没退回输入框的排队消息 id。撤回答复失败后仍保留：Agent 随后若没处理它，",
+      "translation": "// IDs edited on this page awaiting returned contents. Keep after failed withdrawal responses; later stream removal"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 87,
+      "source": "// 流上的移出事件会带回内容。退回一次即删除，响应与流上的移出谁先到都只退回一次；其他页面不在此列。",
+      "translation": "// returns contents if Agents never processed them. Remove after one return; response/stream races return once only, excluding other pages."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 105,
+      "source": "// 会话加载链取消域：init 的会话自动选择与 loadSession（冷读/建流）共用一个",
+      "translation": "// Session-loading cancellation domains share controllers across init auto-selection and loadSession"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 106,
+      "source": "// controller。任何接管会话选择权的入口（切会话/新建/删除/发送建会话/项目切换）",
+      "translation": "// cold reads/streams. Every selection takeover (switch/new/delete/send-create/project switch)"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 107,
+      "source": "// 先作废在途链，迟到响应经 signal 短路，不写 store、不建 SSE 连接。",
+      "translation": "// invalidates pending chains first; late signals block stores and SSE connections."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 109,
+      "source": "// 项目级取消域的当前 controller：跨 useCallback 边界（connectStream 的终态刷新）",
+      "translation": "// Current project cancellation controllers share signals across useCallback boundaries, including connectStream"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 110,
+      "source": "// 复用同一 signal，随项目切换/卸载 abort。",
+      "translation": "// terminal refetches, aborted on project switches/unmounts."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 112,
+      "source": "// 当前 controller 属于哪个项目。回调可能来自上一个项目的迟到收尾，那时",
+      "translation": "// Projects owning controllers: late old-project callbacks may observe new controllers in"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 113,
+      "source": "// projectAbortRef 里装的已经是新项目的 controller，只看 signal 认不出跨项目。",
+      "translation": "// projectAbortRef; signals alone cannot identify cross-project work."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 128,
+      "source": "// 会话列表的本地权威写入代数。新建/改写分叉/删除都在本地即时改写列表，这类写入",
+      "translation": "// Local authoritative session-list write epochs: create/rewrite-branch/delete update immediately,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 129,
+      "source": "// 表达的是「服务端已经这么做了」，比任何更早开始的读都新；代数在写入时递增，读到",
+      "translation": "// representing confirmed server writes newer than earlier reads. Increment epochs on writes,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 130,
+      "source": "// 的旧列表据此作废，不会把已消失的会话写回来、把新分支挤掉。",
+      "translation": "// discarding stale lists so deleted sessions never reappear or replace new branches."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 132,
+      "source": "// 最近一次成功加载完成的会话；加载失败后为 null，用于放行对同一会话的重试",
+      "translation": "// Last successfully loaded sessions; null after failure permits same-session retries."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 134,
+      "source": "// 在途的「删除当前会话」计数，按项目 + 会话分桶。改写的列表补拉只在它的源会话",
+      "translation": "// In-flight current-session deletion counts by project/session. Skip rewrite-list compensation only when"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 135,
+      "source": "// 正被删除时跳过：补拉会把分支拉进列表，那次删除收尾就顺手切到它，正是进入时",
+      "translation": "// its source session is being deleted: refetch would add branches and deletion cleanup switch into them,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 136,
+      "source": "// 那次作废要避免的结果。分桶到会话、且计数而非布尔，别处的删除才不会连坐——",
+      "translation": "// defeating invalidation. Per-session counters rather than shared booleans prevent unrelated deletes"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 137,
+      "source": "// 共享一个格子时，并行的另一次删除收尾会替这一次把保护摘掉，别的项目/会话上",
+      "translation": "// clearing each other's protection or long-running other-project/session deletes suppressing legitimate"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 138,
+      "source": "// 迟迟不返回的删除则会一直压着本该发生的补拉，新分支不刷新页面就找不回来。",
+      "translation": "// branch discovery until page refresh."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 140,
+      "source": "// 因上面的保护而没做成的改写补拉，按同一个 key 记账，删除收尾后补上：服务端此刻",
+      "translation": "// Record skipped rewrite refetch by the same key; compensate after deletions settle. Server branches exist,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 141,
+      "source": "// 已开出新分支，两条删除路径都只处理原会话，不补拉的话新分支要等刷新页面才出现。",
+      "translation": "// both deletion paths address originals only, so without compensation branches stay invisible until refresh."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 145,
+      "source": "// 上一个项目的迟到回调既不写列表也不占代数：占了代数，新项目会把自己刚拉到的",
+      "translation": "// Late old-project callbacks neither write lists nor consume epochs, which would invalidate new-project"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 146,
+      "source": "// 初始列表误判成过期而丢弃，侧边栏就一直停在旧项目的会话上",
+      "translation": "// initial lists and strand sidebars on old sessions."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 149,
+      "source": "// 面板是长生命周期单例，切项目后列表在新项目的响应到达前仍停在上一个项目：合并",
+      "translation": "// Long-lived panels retain old lists until new responses. Filter foreign sessions when merging,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 150,
+      "source": "// 时滤掉外来会话，否则新建/改写会把它们一起固化进来，而本项目在途的权威列表又",
+      "translation": "// or create/rewrite writes permanently import them, invalidate in-flight authoritative reads,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 151,
+      "source": "// 因为这次写入被判过期丢弃，侧边栏就一直挂着一串在本项目里打不开的会话",
+      "translation": "// and strand sidebars on sessions unopenable in current projects."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 155,
+      "source": "// 补拉会话列表。纳入项目级取消域，挂起期间切换项目时迟到响应不得覆盖已切到的",
+      "translation": "// Refetch session lists under project cancellation domains; switches while waiting must not"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 156,
+      "source": "// 新项目会话列表；空列表不写入，避免一次失败的读把列表清空。",
+      "translation": "// overwrite new-project lists. Empty lists never write, avoiding failed reads clearing lists."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 159,
+      "source": "// 本次补拉属于 projectName，取消域也必须是它的。改写的迟到收尾会带着旧",
+      "translation": "// Refetch projectName must own cancellation domains. Late rewrite cleanup carries old"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 160,
+      "source": "// projectName 走到这里，此刻 ref 里已是新项目的 controller——借用它去读旧项目",
+      "translation": "// projectName while refs hold new controllers; borrowing them to read old lists"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 161,
+      "source": "// 的列表，再把结果写进新项目的侧边栏，用户会看到一串打不开的会话。",
+      "translation": "// would write unopenable sessions into new-project sidebars."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 170,
+      "source": "// 本次读开始之后发生过本地权威写入：这份列表已经过期",
+      "translation": "// Local authoritative writes since read start invalidate this list."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 175,
+      "source": "/* 静默失败 */",
+      "translation": "/* Fail silently. */"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 178,
+      "source": "// 改写被作废后的列表对账。源会话正在删除时不能当场补拉——补拉会把新分支带进列表，",
+      "translation": "// Reconcile invalidated rewrites after deletion, never during: premature refetch adds branches that"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 179,
+      "source": "// 那次删除收尾就顺手切到它，正是作废要避免的结果；改为记账，等删除收尾后再补。",
+      "translation": "// deletion cleanup would select, defeating invalidation. Record and compensate after cleanup."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 190,
+      "source": "// 关闭流（同时停止流式客户端的自动重建）",
+      "translation": "// Close streams, also stopping client reconnections."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 199,
+      "source": "// 连接 SSE entry 流（常驻：只由切换会话、关闭面板等离开会话的入口关闭）",
+      "translation": "// Connect persistent SSE entries, closed only when switching/leaving sessions, including panel closure."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 202,
+      "source": "// 已连接到同一 session 且句柄未关闭时跳过：断线重建由流式客户端自行完成。",
+      "translation": "// Skip already-connected same-session live handles; streaming clients own reconnections."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 220,
+      "source": "// 流先补发存量条目、再发 draft 快照，快照到达即历史回放完毕",
+      "translation": "// Streams replay existing entries before draft snapshots; snapshot arrival completes history."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 239,
+      "source": "// 中断时保留 draft：被中断的流式内容不入日志，刷新后自然消失",
+      "translation": "// Interruptions retain drafts; unlogged interrupted content naturally disappears after refresh."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 244,
+      "source": "// 轮次结束后刷新会话列表，获取 SDK summary 标题；开场下发的终态不算",
+      "translation": "// Refetch SDK summary titles on turn completion, excluding opening terminal snapshots."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 275,
+      "source": "// 冷订阅游标：已有条目之后；断线重建由流式客户端携带 Last-Event-ID 续传",
+      "translation": "// Cold cursors follow existing entries; reconnect clients resume through Last-Event-ID."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 295,
+      "source": "// 项目事件流的恢复通知与重连核对：当前会话的新一轮已经从常驻的 entry 流收到，",
+      "translation": "// Project recovery/reconnect reconciliation: current turns already arrive through persistent entries;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 296,
+      "source": "// 只在这条流不在时补建（加载中的会话由 loadSession 收尾时建流）。",
+      "translation": "// connect only absent streams, with loading sessions connecting in loadSession cleanup."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 300,
+      "source": "// 整批取走：留在全局 store 里，切项目重建回调时会被当成新信号再处理一次",
+      "translation": "// Consume whole batches; signals left globally would replay as new after project callback rebuilds."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 315,
+      "source": "// 加载指定会话时间线：非 running 先冷读日志，再从其后接上 entry 流；running",
+      "translation": "// Load timelines: nonrunning sessions cold-read then attach streams, running sessions"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 316,
+      "source": "// 直接交给 entry 流回放。signal 被 abort 时网络 await 断点由 fetch 自动 reject；",
+      "translation": "// replay streams directly. Aborted fetch awaits reject automatically;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 317,
+      "source": "// 写 store 与建流前复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。",
+      "translation": "// recheck before stores/streams, guarding abort-after-resolution races."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 331,
+      "source": "// 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；",
+      "translation": "// Clear stale questions surviving mounts in global zustand stores;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 332,
+      "source": "// 未决问题由 entry 流的 question 事件重新投递。",
+      "translation": "// streams redeliver pending questions through question events."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 343,
+      "source": "// 冷读失败也接上常驻流，由 entry / draft / status 快照补齐会话。",
+      "translation": "// Failed cold reads still connect streams; entry/draft/status snapshots reconstruct sessions."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 353,
+      "source": "// 加载会话",
+      "translation": "// Load sessions."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 356,
+      "source": "// 离开项目：上一个 projectName 的 cleanup 已 abort 在途加载链，但没有",
+      "translation": "// Leaving projects aborts old loading chains in cleanup without successor cleanup;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 357,
+      "source": "// 后续加载链接管收尾——显式清掉可能遗留的 loading，避免卡死为 true",
+      "translation": "// explicitly clear residual loading to avoid permanent true."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 361,
+      "source": "// 项目级取消域：只随项目切换/卸载 abort。会话列表与技能列表是项目级数据，",
+      "translation": "// Project cancellation aborts only on project switches/unmounts. Session/skill lists are project data;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 362,
+      "source": "// 挂起期间的会话操作（新建/切换/删除）不应作废它们——否则慢响应下技能列表",
+      "translation": "// session create/switch/delete while pending must not invalidate them, or slow skill"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 363,
+      "source": "// 会被误判过期丢弃、新项目的会话列表被陈旧会话点击作废且无重试。",
+      "translation": "// lists disappear and stale session clicks cancel new-project lists without retry."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 367,
+      "source": "// 加载完成标记按项目作废：留着上一个项目的会话 id，回到那个项目后若自动重载",
+      "translation": "// Invalidate successful-load markers per project; retaining old session IDs means failed automatic"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 368,
+      "source": "// 失败，点它会被短路当成「已加载」，重试就永远进不来",
+      "translation": "// reloads on return appear already loaded, permanently blocking manual retries."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 372,
+      "source": "// 会话自动选择占据加载链：后续任何用户会话操作接管选择权时作废",
+      "translation": "// Auto-selection owns loading chains until subsequent user session actions take over."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 375,
+      "source": "// 切项目先重置时间线（与新建/切换/删除三条会话路径同口径），使有会话/",
+      "translation": "// Reset timelines on project switches, matching create/switch/delete, so session/no-session"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 376,
+      "source": "// 无会话两个分支都从干净状态出发：running 会话的 SSE 冷订阅游标由重置后",
+      "translation": "// paths start clean. Running cold-stream cursors derive empty reset entries,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 377,
+      "source": "// 的空 entries 推导（等效从头订阅），不被上一个项目的残留条目污染，也不会",
+      "translation": "// effectively subscribing from beginning, without previous-project residue or"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 378,
+      "source": "// 把旧项目条目混排进新会话时间线。",
+      "translation": "// interleaved old timeline entries."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 380,
+      "source": "// 上一个项目会话的错误提示不跟到新项目里（与 switchSession 同口径）",
+      "translation": "// Previous-project errors never follow into new projects, matching switchSession."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 384,
+      "source": "// 获取会话列表（项目级数据：即便自动选择已被用户操作作废，列表照常落地）",
+      "translation": "// Fetch project session lists even after user actions invalidate auto-selection."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 388,
+      "source": "// 这份读期间发生过本地权威写入（建会话/改写分叉/删会话）就已过期，整份",
+      "translation": "// Local create/rewrite/delete writes invalidate whole in-flight lists, not just list writes:"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 389,
+      "source": "// 作废——不只是别写列表：删掉的若不是当前会话，加载链不会被作废，照着这份",
+      "translation": "// deleting noncurrent sessions may leave loading chains active, and stale auto-selection"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 390,
+      "source": "// 名单自动选择会选中一条已经不存在的会话并去加载它的时间线",
+      "translation": "// would load already-deleted timelines."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 395,
+      "source": "// 优先使用上次选择的会话（如果仍存在于列表中）",
+      "translation": "// Prefer remembered sessions still present in lists."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 409,
+      "source": "// 与 switchSession 同口径地记账：不记的话，点一下本来就选中的这条会话不会",
+      "translation": "// Record like switchSession, or clicking selected sessions needlessly rebuilds"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 410,
+      "source": "// 被短路，时间线白重建一次，连带丢掉还没提交的编辑草稿",
+      "translation": "// timelines and loses unsubmitted edit drafts."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 413,
+      "source": "// 静默失败（含被 abort 中止的请求）",
+      "translation": "// Fail silently, including aborted requests."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 415,
+      "source": "// 被作废时 loading 归接管方管理（switchSession 自开自收、",
+      "translation": "// Invalidated loading belongs to successors (switchSession opens/closes its own;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 416,
+      "source": "// createNewSession / deleteSession / sendMessage 显式复位），",
+      "translation": "// createNewSession / deleteSession / sendMessage explicitly reset),"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 417,
+      "source": "// 此处复位会踩到接管方正在进行的加载",
+      "translation": "// so local cleanup must not interrupt successor loads."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 422,
+      "source": "// 加载技能列表",
+      "translation": "// Load skill lists."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 454,
+      "source": "// 发送消息。返回是否受理成功——失败时调用方保留输入内容。",
+      "translation": "// Send messages, returning acceptance; failures preserve caller inputs."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 468,
+      "source": "// 提取 base64 数据",
+      "translation": "// Extract base64."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 474,
+      "source": "// 请求侧幂等键：同一内容失败重试复用同键，服务端按键去重不产生重复。",
+      "translation": "// Same-content failed requests reuse idempotency keys; server keys prevent duplicates."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 475,
+      "source": "// 签名纳入 projectName：面板为长生命周期单例，切换项目不卸载，失败缓存",
+      "translation": "// Signatures include projectName: singleton panels survive switches, retaining failed"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 476,
+      "source": "// （clientKey + 签名）跨项目存活；含项目维度后旧项目缓存的 clientKey 自然",
+      "translation": "// clientKey/signature caches. Project dimensions invalidate old keys naturally,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 477,
+      "source": "// 失效，不再被其他项目的同内容重发复用。",
+      "translation": "// preventing same-content reuse in other projects."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 495,
+      "source": "// 发送已受理：用户以发送行为接管会话选择权与时间线，作废在途加载链",
+      "translation": "// Accepted sends take over session/timeline ownership, invalidating pending loading"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 496,
+      "source": "// （init 自动选择不再覆盖 currentSessionId，挂起的冷读不再覆写时间线），",
+      "translation": "// so init cannot overwrite currentSessionId or cold reads replace timelines;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 497,
+      "source": "// 并复位其遗留的 loading",
+      "translation": "// reset residual loading too."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 503,
+      "source": "// 新会话：更新 store",
+      "translation": "// New sessions update stores."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 522,
+      "source": "// 托盘只消费常驻流：HTTP 响应可能抢在另一客户端更早发送的消息之前到达。",
+      "translation": "// Trays consume streams only; HTTP may arrive before another client's earlier sends."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 523,
+      "source": "// 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重",
+      "translation": "// Server-logged authoritative response entries deduplicate through seq thresholds."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 527,
+      "source": "// seq 跳档：其他客户端在本地未订阅期间产生了轮次，先冷读补齐缺口，",
+      "translation": "// Seq gaps mean other clients ran turns while unsubscribed; cold-read missing entries first,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 528,
+      "source": "// 否则订阅游标越过缺口后中间条目永远不会被拉取",
+      "translation": "// or cursors past gaps permanently skip intermediate history."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 534,
+      "source": "// 静默失败：缺口留待刷新兜底",
+      "translation": "// Fail silently; refresh later recovers gaps."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 539,
+      "source": "// 常驻流可能已收到这条消息的条目乃至其后的 CLI idle，或者它没被接纳就离开了排队",
+      "translation": "// Streams may already contain accepted entries/later CLI idle, or messages left queues without"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 540,
+      "source": "// （CLI 取消、CLI 退出）；迟到的受理响应不能覆盖服务端状态。",
+      "translation": "// acceptance through CLI cancellation/exit; late acceptance never overwrites server state."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 554,
+      "source": "// 已打开的会话复用常驻流；新会话在这里建立它的第一条流",
+      "translation": "// Open sessions reuse streams; new sessions establish initial streams here."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 559,
+      "source": "// 失败：无本地合成消息可回滚，仅记录幂等键供重试复用；",
+      "translation": "// Failure has no synthetic messages to roll back; retain retry keys only;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 560,
+      "source": "// 在途加载链未被作废，挂起的冷读继续正常落地",
+      "translation": "// pending loading chains remain valid and cold reads continue normally."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 594,
+      "source": "// 编辑或删除一条排队消息：服务端先向 Agent 撤回。编辑撤回成功时内容追加到输入框；",
+      "translation": "// Edit/delete queued messages first withdraw from Agents. Successful edit withdrawals append inputs;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 595,
+      "source": "// Agent 已接收时提示，消息照常进入对话",
+      "translation": "// already accepted messages notify and enter conversations normally."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 603,
+      "source": "// 输入框是共享草稿，导航后仍接收本页已撤回的内容；会话反馈另按作用域隔离。",
+      "translation": "// Inputs are shared drafts, accepting this page's withdrawn contents after navigation; session feedback remains scoped."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 622,
+      "source": "// 重新发送一条「未发送」消息：服务端必要时先重建会话连接，消息回到排队中",
+      "translation": "// Resend unsent messages, letting servers reconnect sessions as needed and requeue."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 628,
+      "source": "// 托盘只消费常驻流，响应里的 queued 可能已被之后的 CLI 退出更新为 unsent。",
+      "translation": "// Trays consume streams only; response queued may already be superseded by CLI-exit unsent states."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 638,
+      "source": "// 立即发送一条排队消息：Agent 打断当前轮先处理它，消息留在托盘里直到被接纳；Agent 已接收时提示",
+      "translation": "// Send queued messages immediately by interrupting turns; retain trays until acceptance, notifying already-accepted cases."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 655,
+      "source": "// 中断会话",
+      "translation": "// Interrupt sessions."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 670,
+      "source": "// 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）",
+      "translation": "// Lazily create sessions by clearing state, deferring actual creation until initial sends."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 683,
+      "source": "// 草稿会话无加载过程，复位被作废加载链遗留的 loading",
+      "translation": "// Draft sessions load nothing; reset invalidated-chain loading."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 688,
+      "source": "// 切换到指定会话",
+      "translation": "// Switch sessions."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 690,
+      "source": "// 面板为长生命周期单例：切项目为 null 后 sessions 列表不清空，仍可能渲染出",
+      "translation": "// Long-lived panels retain old sessions after projects become null; residual entries"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 691,
+      "source": "// 旧项目的会话项，点击不得以 null projectName 发起请求",
+      "translation": "// must never dispatch null-project requests on clicks."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 693,
+      "source": "// 上一次加载失败过的会话不短路：否则界面停在空时间线、无 SSE，再点同一条也进不来",
+      "translation": "// Failed prior loads never short-circuit retries, avoiding empty timelines/no SSE forever."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 703,
+      "source": "// 上一次加载失败的提示到此为止：重试成功后不该继续压在已经载入的对话上面",
+      "translation": "// Clear prior failure notices before retries, never covering successfully loaded conversations."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 707,
+      "source": "// 记住选择",
+      "translation": "// Remember selections."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 715,
+      "source": "// 被后续切换 abort 不是失败，接管方会自己收尾；真失败要说出来，",
+      "translation": "// Subsequent-switch aborts are not failures; successors clean up. Real failures notify,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 716,
+      "source": "// 否则用户面对的是一片空白的时间线，也不知道可以重试",
+      "translation": "// explaining empty timelines and retry availability."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 719,
+      "source": "// 被作废时 loading 归接管方管理，此处复位会踩到其正在进行的加载",
+      "translation": "// Invalidated loading belongs to successors; never reset their ongoing loads here."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 724,
+      "source": "// 改写历史用户消息。返回是否受理成功——失败时调用方保留编辑态与草稿内容。",
+      "translation": "// Rewrite historical user messages; return acceptance, preserving edit states/drafts on failure."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 726,
+      "source": "// 受理成功前不动任何视图状态：改写会被服务端拒绝（锚点失效 400、未决问答或",
+      "translation": "// Keep all views unchanged before acceptance: invalid anchors400, pending questions/"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 727,
+      "source": "// 原会话已被取代 409），被拒时用户仍留在原会话，时间线原样。受理之后才整体",
+      "translation": "// superseded originals409 may reject, retaining original sessions/timelines. Only accepted"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 728,
+      "source": "// 切换到承接改写的新会话——时间线重建、SSE 重连，不做增量缝合。",
+      "translation": "// rewrites wholly switch branches, rebuilding timelines/streams without incremental stitching."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 733,
+      "source": "// 与发送同口径：图片附件本身就是内容，正文被改空的带图消息仍可提交",
+      "translation": "// Like sends, images are content; empty-text image messages remain submittable."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 735,
+      "source": "// sending 同时是发送与改写的在途锁：两者都会开启新一轮，不能并发",
+      "translation": "// sending locks both sends/rewrites, each starting turns, never concurrent."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 738,
+      "source": "// 与发送共用一轮版本号：任何接管会话选择权的入口都会 invalidatePendingSend，",
+      "translation": "// Share send versions; every selection takeover invalidates pending sends and"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 739,
+      "source": "// 在途改写随之作废，迟到的响应不再把用户从他已切去的会话拽回分支",
+      "translation": "// rewrites, preventing late branches pulling users back from chosen sessions."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 746,
+      "source": "// 幂等键：响应丢失后的重试由服务端在新分支里认领同一条消息（仍在排队或已入日志），",
+      "translation": "// Retry keys recover same messages in new branches, queued/logged, without reforking."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 747,
+      "source": "// 不会再分叉一次。签名含锚点与改写后内容（含附件），改了内容即换新键。",
+      "translation": "// Signatures include anchors/rewritten content/attachments; changed contents get new keys."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 770,
+      "source": "// 本轮已被作废：不把用户从他已切去的会话拽回分支，sending 也由作废方复位。",
+      "translation": "// Invalidated rounds never pull users back; invalidators reset sending."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 771,
+      "source": "// 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——",
+      "translation": "// Servers nevertheless created branches/replaced originals, leaving local lists stale;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 772,
+      "source": "// 补拉一次列表，否则新分支要等到刷新页面才出现。",
+      "translation": "// refetch once so branches appear without page refresh."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 780,
+      "source": "// 原会话已被取代，服务端列表不再返回它；本地列表同步剔除，由新分支接位。",
+      "translation": "// Server lists omit superseded originals; remove locally, replacing with branches."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 781,
+      "source": "// 标题沿用原会话（分支是同一段对话的续写），轮次结束时的列表刷新会用",
+      "translation": "// Retain original titles because branches continue conversations; terminal-list refreshes"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 782,
+      "source": "// SDK summary 校正。",
+      "translation": "// correct through SDK summaries."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 799,
+      "source": "// 整体切到新分支：重置时间线（编辑态随之清空）、冷读/建流、记住选择，",
+      "translation": "// Switch wholly: reset timelines/edit states, cold-read/connect, remember selections,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 800,
+      "source": "// 刷新与断线重连后都停在新分支",
+      "translation": "// preserving branches through refresh/reconnection."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 804,
+      "source": "// 幂等键无论本轮是否被作废都要留住：网络中断说不清服务端受理没有，重试时",
+      "translation": "// Retain keys even after invalidation: network failures cannot prove acceptance, and new"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 805,
+      "source": "// 换新键才会真的分叉两次。作废时同样对账一次列表，受理了的话新分支就不必",
+      "translation": "// retry keys actually fork twice. Invalidated requests also reconcile lists, exposing accepted"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 806,
+      "source": "// 等到刷新页面",
+      "translation": "// branches without page refresh."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 812,
+      "source": "// 启动失败与发送路径同口径，落故障卡片而非一行错误条。标注来源为改写：",
+      "translation": "// Startup failures mirror sends, using failure cards rather than error strips. Mark rewrite origin:"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 813,
+      "source": "// 保留原始输入的是仍开着的编辑器，重放要由它的「重新发送」发起",
+      "translation": "// still-open editors retain original inputs and own Resend replay."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 826,
+      "source": "// 删除会话。返回删除接口是否成功：失败时会话仍在，调用方据此提示并允许重试。",
+      "translation": "// Delete sessions, returning API success; failures retain sessions and caller retry notices."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 829,
+      "source": "// 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写",
+      "translation": "// Deleting current sessions immediately takes selection ownership, before DELETE returns;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 830,
+      "source": "// 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换",
+      "translation": "// accepted in-flight sends/rewrites could otherwise switch branches unnoticed by deletion cleanup."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 842,
+      "source": "// 如果删除的是当前会话，切换到下一个",
+      "translation": "// Deleted current sessions switch next."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 855,
+      "source": "// 清空到无会话后无加载过程，复位被作废加载链遗留的 loading",
+      "translation": "// No-session state loads nothing; reset invalidated-chain loading."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 862,
+      "source": "// 删除没成功，会话还在。进入时那次作废已经把在途发送/改写的收尾摘掉了——",
+      "translation": "// Failed deletes retain sessions, but initial invalidation detached pending send/rewrite cleanup;"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 863,
+      "source": "// 若它其实被服务端受理了，这一轮此刻在本地不可见，输入框里的内容还会被再发",
+      "translation": "// actually accepted rounds become locally invisible while inputs can resend duplicates."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 864,
+      "source": "// 一次。作废与补偿成对出现：重新加载一次当前会话，把它接回来。",
+      "translation": "// Pair invalidation with compensation: reload current sessions to recover them."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 865,
+      "source": "// 补偿的对象只能是被删的那一条：期间用户切走或换了项目的话，当前会话另有其人，",
+      "translation": "// Compensate deleted targets only; user/project switches may install other current sessions,"
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 866,
+      "source": "// 拿闭包里的旧 projectName 去加载它只会把接管方的时间线冲掉",
+      "translation": "// whose timelines old projectName closures must never overwrite."
+    },
+    {
+      "batch": 6,
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "line": 876,
+      "source": "// 最后一次并行删除收尾后才补：早于此仍在删除窗口内",
+      "translation": "// Compensate only after last concurrent deletion settles; earlier remains inside deletion windows."
+    }
+  ],
+  "extra_pairs": [
+    {
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "source": "// `price@5`: `e` 是 \\w 前缀 → `@5` 不算 mention",
+      "translation": "// `price@5`: `e` is \\w prefix → `@5` is not a mention"
+    },
+    {
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "source": "// `email a@b`: `a` 是 \\w 前缀 → `@b` 不算 mention",
+      "translation": "// `email a@b`: `a` is \\w prefix → `@b` is not a mention"
+    },
+    {
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "source": "// 后端用 Python str.splitlines() 切行，它认 U+2028/U+2029/\\x85 等；前端只按 \\n 切会",
+      "translation": "// Backend Python str.splitlines() recognizes U+2028/U+2029/\\x85; frontend splitting only \\n would"
+    },
+    {
+      "path": "frontend/src/actions/generation.ts",
+      "source": "/**\n * 提交提示词编写（「AI 编写 / AI 重写」）。显式重写需要确认覆盖时服务端 409，错误原样抛出，\n * 由调用方读 `diagnostic.prompt_overwrite` 弹确认框后带令牌重试。\n */",
+      "translation": "/**\n * Submit AI prompt authoring/rewriting. Explicit overwrite confirmation returns server 409, propagated unchanged;\n * callers read `diagnostic.prompt_overwrite`, confirm and retry tokens.\n */"
+    },
+    {
+      "path": "frontend/src/actions/generation.ts",
+      "source": "/**\n * 提交广告/短片「AI 生成脚本」，占用与提示词编写同一个槽（服务端同一任务类型、`episode-{N}`）。\n * 整份重做需要确认覆盖时服务端 409，错误原样抛出，由调用方读 `diagnostic.script_overwrite` 弹确认框后带令牌重试。\n */",
+      "translation": "/**\n * Submit ad/short-film script generation, sharing prompt-authoring task types/`episode-{N}` slots.\n * Whole regeneration requiring overwrite consent returns 409; callers inspect `diagnostic.script_overwrite`, confirm and retry tokens.\n */"
+    },
+    {
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "source": "// 第二批在第一批仍在途时到达:聚焦场景 酒馆 → /scenes，覆盖 queuedFocusRef。",
+      "translation": "// Second arrives during first: 酒馆 scene → /scenes, replacing queuedFocusRef."
+    }
+  ],
+  "input_hashes": [
+    {
+      "path": "/tmp/frontend-parser-2-6-review-pairs.json",
+      "sha256": "5d09c65ed07d0b74957599e0705d3784c80e1b9e7e0bf53f190322bb9871c6db"
+    },
+    {
+      "path": "/tmp/runtime-parser-review-extra-six.json",
+      "sha256": "15c699400e907d4fcb8b02ef569cdc295c7bc1396eb1860a0fbc66cbd879836b"
+    },
+    {
+      "path": "/tmp/frontend-parser-batch2.cjs",
+      "sha256": "9568149f8faee8aed80bcca2e6da938e75870f25b280c0df822e2f2af0179f71"
+    },
+    {
+      "path": "/tmp/frontend-parser-batch3.cjs",
+      "sha256": "9e37ea850bc509774bbb4cd8cf90b2027a068320650ce5f6dd9ee7fd8d6186cd"
+    },
+    {
+      "path": "/tmp/frontend-parser-batch4.cjs",
+      "sha256": "a1e624f1861e6a3328c30331ff474f334da550f6738d6b83850c00a9cd3258ac"
+    },
+    {
+      "path": "/tmp/frontend-parser-batch5.cjs",
+      "sha256": "50a6a053df3ccc90eadfa2cb42cee33cf340820e0125bfe21a925a3b91b4dc41"
+    },
+    {
+      "path": "/tmp/frontend-parser-batch6.cjs",
+      "sha256": "b7ea7a815bb312e3f148e84d50dca8c55f8fb7fe379a64e5a1143dc87bb63a42"
+    }
+  ],
+  "precision_fix_proof": {
+    "snapshot": "/tmp/runtime-parser-review-fixes-before",
+    "executable_TypeScript_removeComments_printer": "exact equality for all three changed files",
+    "comment_line_counts": "equal",
+    "eslint": "passed for all three files",
+    "related_tests": "2files165tests passed,6.81s; useAssistantSession.test.tsx and tasks-store.test.ts",
+    "comment_line_counts_and_directives": "equal for all three changed files",
+    "related_tests_log_sha256": "235d9d21f5d685ea2994bf51dbde56bfb77c087a65b1a34a688c94f1d8fd76ed"
+  },
+  "current_file_hashes": [
+    {
+      "path": "frontend/src/actions/generation.ts",
+      "sha256": "bf248527c53ab141240f0d89a08c264ac51371fb5ae371ab80bb57f1b8ee113a"
+    },
+    {
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "sha256": "d1590d36222550fd0fc6eb1eebec0557ffe649e52b12429acc114ca30580ef75"
+    },
+    {
+      "path": "frontend/src/hooks/useImageAttachments.test.tsx",
+      "sha256": "0f822610cbfbb7a5c9f2711d3b5b7be5970db6e30f985de1f6b1c92bb4fbe67b"
+    },
+    {
+      "path": "frontend/src/hooks/useImageAttachments.ts",
+      "sha256": "9d6e83c28259c09a0fe8dcd5e3acb85fe4f83d14349f3417cc69dfc48f603bc2"
+    },
+    {
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "sha256": "c52d62b7d581b77149c0e8a1e5eae5e35fdd11855b7749b8341df97619173fc9"
+    },
+    {
+      "path": "frontend/src/hooks/useProjectEventsSSE.ts",
+      "sha256": "15d35c388a8986dd17652bcf9a6da70063ba5dc8ef9f4e99ca6a59f33f0d6021"
+    },
+    {
+      "path": "frontend/src/hooks/useProviderCatalog.test.tsx",
+      "sha256": "2585965a1f4562d2f6a917b194a2adc8d65da75be79ad04b102f70b93c39ed53"
+    },
+    {
+      "path": "frontend/src/hooks/useScriptReviewDraft.ts",
+      "sha256": "51b7f62bf70bf909ee0d61141ff2690ea63768951bd0ef4a59760fa39f68ff07"
+    },
+    {
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "sha256": "9c181697d720095a8ce7e90e12664a2cde051f376a6f1252eee48b74e19fbab5"
+    },
+    {
+      "path": "frontend/src/stores/app-store.ts",
+      "sha256": "9922b7dc6039a89e6c63fa3962bb69ebd31882002556c93d8a85fa4607031f99"
+    },
+    {
+      "path": "frontend/src/stores/reference-video-store.ts",
+      "sha256": "6e2d1a1c4622a9908776486ce5d26793304828c29be724a6824ad77011297fff"
+    },
+    {
+      "path": "frontend/src/stores/stores.test.ts",
+      "sha256": "511cdb04a909679cbd992417937b8f3a55ec9071de7c18dd42ac37affd4ac4ac"
+    },
+    {
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "sha256": "3b3ae5d836dd3a2ed19bf21b475b263a7d2d28230ae985f2954ba73855fa33fe"
+    },
+    {
+      "path": "frontend/src/stores/usage-records-store.ts",
+      "sha256": "84e60a2ce3b91219e3af370817f6249df1d2d943e8ef30071f122634803b3c37"
+    },
+    {
+      "path": "frontend/src/stores/workflow-store.ts",
+      "sha256": "20568179031698dc328a8ce7286306f3798fc1a559e30eead441060a71c61352"
+    }
+  ],
+  "original_snapshot_hashes": [
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/actions/generation.ts",
+      "sha256": "17914e5b79f9eb7c94bbb349afcca285e73407befc962574c00a115171a2a259"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useAssistantSession.ts",
+      "sha256": "4b2fb22c2da0eada0c7f3b1be48c60a687e8d7601fa167b53c1f37844d81dd52"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useImageAttachments.test.tsx",
+      "sha256": "16ccabf898a79d3ebd566a9101e56c1012394c4707b3f49b95a9ce974fb26936"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useImageAttachments.ts",
+      "sha256": "8e9c4be495f129c2f8df9caec690280b83e3b209520766420649d47b57eda061"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "sha256": "f0ad5b949642b707ddcbcf34f6e1429f368982418acf6128f39c9fd5d52af7d6"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useProjectEventsSSE.ts",
+      "sha256": "4f4cfa401197bbd38e70907be3fdf822e57e8e33c592a5d769130bce606a2787"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useProviderCatalog.test.tsx",
+      "sha256": "4a78bdae921d94958df62e17895130c11e5086ad2445fb827530f7287ea37e66"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useScriptReviewDraft.ts",
+      "sha256": "00f4b04b59aac6eaf1be0d8eb6aece7918fd2763f83e78fe9a9dcac1dd541e38"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "sha256": "9b4596a61d58d08ca79b669a488f6692a71ff2f84eff8d15cc7f4282b8345bc3"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/stores/app-store.ts",
+      "sha256": "baba7ae2d9b95aa6f05037074311191a1cb26841d69085e8580603b4e3acba05"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/stores/reference-video-store.ts",
+      "sha256": "54f642366a968d1e79def0e05ceed9fed574f8f6f0d69d0e1d3fa744d8683a39"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/stores/stores.test.ts",
+      "sha256": "d3b79c61117b3b732975d3bfb80abf0d687e419a1047004c3eba2ebb34aab1a9"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/stores/tasks-store.test.ts",
+      "sha256": "88640e2e3cbed42befa6636a27a4172399ef2ba232e16987c8c2c30649511022"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/stores/usage-records-store.ts",
+      "sha256": "fef72b03525bfe5485dbbc176465117c84564b8362573148cc05a80dd79107fc"
+    },
+    {
+      "path": "/tmp/frontend-hooks-stores-actions-before-passive/frontend/src/stores/workflow-store.ts",
+      "sha256": "a43172650a5907307e0c5bb539df194ee40857bf1deedfdfb6fa05fee1c53998"
+    }
+  ],
+  "precision_fix_snapshot_hashes": [
+    {
+      "path": "/tmp/runtime-parser-review-fixes-before/frontend/src/stores/tasks-store.test.ts",
+      "sha256": "b129bc1650326bd31b6c096b45a720684364f6844685945abca0a9809bd5d319"
+    },
+    {
+      "path": "/tmp/runtime-parser-review-fixes-before/frontend/src/hooks/useAssistantSession.ts",
+      "sha256": "5f60380a6291a914451c4b8d61d91ec416a6aa1a5f46b50372055537d8a6be2b"
+    },
+    {
+      "path": "/tmp/runtime-parser-review-fixes-before/frontend/src/actions/generation.ts",
+      "sha256": "3c6e1678d1d8cde28d574c7899bc367e6e57f6b55e1ecca741019ac49dd0aedf"
+    }
+  ]
+}

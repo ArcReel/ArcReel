@@ -1,8 +1,8 @@
-"""出站 HTTP 断言的统一去向：respx 在 transport 层拦截真实 httpx 客户端。
+"""Shared outbound-HTTP assertion helper: respx intercepts real httpx clients at the transport layer.
 
-与 `patch("httpx.AsyncClient")` 的区别是断言对象：替身记录的是调用参数，respx 捕获的是
-真实序列化后的请求，因此 URL 拼接、header 合并、body 编码这些出错在线上的环节都在断言
-范围内；`AsyncOpenAI` 等自带 httpx 客户端的 SDK 流量同样被捕获。
+Unlike `patch("httpx.AsyncClient")`, which records call arguments, respx captures genuinely serialized
+requests, covering URL assembly, header merging, and body encoding failures that occur in production.
+SDK traffic with its own httpx client, including `AsyncOpenAI`, is captured too.
 """
 
 from __future__ import annotations
@@ -18,28 +18,28 @@ import respx
 
 @contextmanager
 def capture_http(*, assert_all_called: bool = False) -> Generator[respx.MockRouter]:
-    """拦截全部出站 httpx 流量；未声明路由的请求直接抛错，不会静默放行到真实网络。
+    """Intercept all outbound httpx traffic; undeclared routes raise immediately, never silently reaching real networks.
 
-    `assert_all_called` 缺省关闭：多数用例只关心其中一条路由是否收到预期请求，声明了
-    错误分支路由却不触发是常态，退出时强制全部命中会把这类用例判红。
+    `assert_all_called` defaults off: most cases care about one expected request; declared error branches
+    often remain unused. Requiring every route on exit would incorrectly fail these cases.
     """
     with respx.mock(assert_all_called=assert_all_called) as router:
         yield router
 
 
 def request_json(request: httpx.Request) -> Any:
-    """请求体按 JSON 解码。"""
+    """Decode the request body as JSON."""
     return json.loads(request.content)
 
 
 def only_request(route: respx.Route) -> httpx.Request:
-    """断言该路由恰好收到一次请求并返回它。"""
+    """Assert that the route received exactly one request and return it."""
     assert route.call_count == 1, f"期望 1 次请求，实际 {route.call_count} 次"
     return route.calls.last.request
 
 
 class PathPrefixRewrite:
-    """注入调用通道的 transport 层替身：把请求路径开头的 ``old`` 换成 ``new`` 再交给下层，并记下所见的 URL 与关闭次数。"""
+    """Inject an invocation-channel transport substitute: replace leading request-path ``old`` with ``new``, delegate, and record URLs/close counts."""
 
     def __init__(self, old: str, new: str) -> None:
         self.old = old

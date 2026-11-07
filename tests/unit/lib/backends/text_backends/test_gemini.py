@@ -33,7 +33,7 @@ class TestProperties:
     def test_name(self, mock_genai):
         b = GeminiTextBackend(api_key="k")
         assert b.name == "gemini"
-        # AI Studio 模式：构造时把 api_key 原样交给 genai.Client，未给 base_url 则不带 http_options
+        # AI Studio construction passes api_key unchanged to genai.Client; absent base_url omits http_options.
         mock_genai.Client.assert_called_once_with(api_key="k", http_options=None)
 
     def test_default_model(self, mock_genai):
@@ -82,7 +82,7 @@ class TestGenerate:
         assert result.output_tokens == 5
 
     async def test_cache_hits_and_thinking_tokens_are_reported(self, backend):
-        """prompt_token_count 含缓存命中，命中量另报；思考 token 按输出计入。"""
+        """prompt_token_count includes cache hits, reported separately; reasoning tokens count as output."""
         mock_resp = SimpleNamespace(
             text="ok",
             usage_metadata=GenerateContentResponseUsageMetadata(
@@ -116,7 +116,7 @@ class TestGenerate:
         assert "response_json_schema" not in config
 
     async def test_structured_truncation_raises(self, backend):
-        """结构化输出被 MAX_TOKENS 截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
+        """MAX_TOKENS structured truncation raises TextOutputTruncatedError (docs/adr/0044)."""
         from lib.backends.text_backends.base import TextOutputTruncatedError
 
         mock_resp = SimpleNamespace(
@@ -133,7 +133,7 @@ class TestGenerate:
         assert exc_info.value.provider == "gemini"
 
     async def test_free_text_truncation_only_warns(self, backend, caplog):
-        """自由文本（无 response_schema）被截断时告警并在结果上标记截断，不抛错。"""
+        """Truncated free text without response_schema warns/marks results without raising."""
         import logging
 
         mock_resp = SimpleNamespace(
@@ -151,11 +151,11 @@ class TestGenerate:
         assert any("被截断" in r.message for r in caplog.records)
 
     async def test_structured_output_pydantic_class_resolved_to_response_schema(self, backend):
-        """传入 Pydantic 类时解析为 dict 走 response_schema（wire 字段 responseSchema）。
+        """Resolve Pydantic classes to dicts through response_schema, wire responseSchema.
 
-        responseSchema 上线已久、代理网关普遍能透传给真实上游执行约束解码；较新的
-        responseJsonSchema 多数代理网关的请求解析结构体不认识、会静默丢弃，导致上游
-        按无 schema 的纯 JSON 模式自由生成。故统一走 responseSchema，与 dict 入参同口径。
+        Mature responseSchema is widely forwarded by proxies for upstream constrained decoding.
+        Newer responseJsonSchema is often unknown to proxy request structs and silently dropped,
+        leaving unconstrained JSON generation. Use responseSchema uniformly, matching dict inputs.
         """
         from pydantic import BaseModel
 
@@ -180,11 +180,11 @@ class TestGenerate:
         assert js["required"] == ["name"]
 
     def test_episode_script_integer_enum_stringified(self, backend):
-        """回归：duration_seconds 整数 enum 在 responseSchema 通道转为字符串枚举。
+        """Regression: integer duration_seconds enums convert to string enums through responseSchema.
 
-        types.Schema 的 enum 仅支持字符串，整数枚举原样发出会在真实 SDK 转换时抛
-        "Input should be a valid string"。转为字符串枚举后精确集合的约束解码依然成立，
-        解析侧 _duration_literal 的机械强转恢复 int。
+        types.Schema accepts string enums only; unchanged integers make real SDK conversion raise
+        "Input should be a valid string". String enums preserve exact constrained sets, while
+        parser _duration_literal mechanically converts back to int.
         """
         from lib.script.script_models import build_episode_script_model
 
@@ -196,8 +196,7 @@ class TestGenerate:
         assert seg_props["duration_seconds"]["type"] == "string"
 
     def test_single_value_duration_const_normalized_to_enum(self, backend):
-        """单值 supported_durations 渲染为 const（types.Schema 无此字段），
-        归一为单元素字符串 enum 以保留生成层硬约束。"""
+        """Single supported_durations becomes const, unsupported by types.Schema; normalize to singleton string enums, retaining hard generation constraints."""
         from lib.script.script_models import build_episode_script_model
 
         config = backend._build_config(build_episode_script_model("narration", [8]), None)
@@ -207,19 +206,20 @@ class TestGenerate:
         assert ds["type"] == "string"
 
     def test_const_to_enum_distinguishes_keyword_field_name_and_data(self, backend):
-        """区分 const 出现的三种位置：schema 关键字（归一）、字段名（值仍是子 schema）、实例数据（不动）。
+        """Distinguish const as schema keyword (normalize), field name (its value remains a schema), and instance data (unchanged).
 
-        本仓库 const 只来自单值时长 Literal（标量）。位置感知确保：properties 等映射的 key 是字段名，
-        其值仍是子 schema（里面真正的 const 照常归一）；const/default 等关键字的值是数据，不递归。
+        Repository const comes only from scalar singleton-duration Literals. Position awareness
+        keeps properties-map keys as names while recursively normalizing real const in subschemas;
+        const/default keyword values are data, never recursed into.
         """
         schema = {
             "type": "object",
             "properties": {
-                "duration_seconds": {"const": 8, "type": "integer"},  # const 作关键字 → 归一
-                "const": {"type": "string"},  # 字段名为 const → 不动（值无 const）
-                "default": {"const": 6, "type": "integer"},  # 字段名为 default → 其值是子 schema，const 照常归一
-                "with_default": {"type": "object", "default": {"const": 42}},  # default 作关键字（数据）→ 不动
-                "obj_const": {"const": {"const": 5}},  # 非标量 const → 不动
+                "duration_seconds": {"const": 8, "type": "integer"},  # const keyword → normalize.
+                "const": {"type": "string"},  # const field name → unchanged, with no const in its value.
+                "default": {"const": 6, "type": "integer"},  # default field → subschema; normalize const.
+                "with_default": {"type": "object", "default": {"const": 42}},  # default keyword data → unchanged.
+                "obj_const": {"const": {"const": 5}},  # Nonscalar const → unchanged.
             },
         }
         props = backend._build_config(schema, None)["response_schema"]["properties"]
@@ -230,11 +230,11 @@ class TestGenerate:
         assert props["obj_const"] == {"const": {"const": 5}}
 
     def test_all_script_schemas_accepted_by_google_genai_schema(self, backend):
-        """集成回归：全部剧本 schema 工厂经 _build_config 产出后必须被真实 types.Schema 接受。
+        """Integration regression: all script-schema factories through _build_config must satisfy real types.Schema.
 
-        mock 掉 generate_content 会让 SDK 的 schema 转换不执行，掩盖整数 enum / const 与
-        types.Schema 的不兼容（"Input should be a valid string" 在请求发出前即抛，整集生成
-        直接失败）。这里直接过真实 SDK 类型校验，堵住该盲区。
+        Mocking generate_content skips SDK conversion and hides integer-enum/const incompatibility:
+        "Input should be a valid string" occurs before requests, failing whole episodes. Exercise
+        real SDK type validation to close this gap.
         """
         from google.genai import types as gtypes
 
@@ -256,15 +256,15 @@ class TestGenerate:
             build_drama_normalized_script_model([4, 6, 8]),
             build_drama_normalized_script_model([8]),
             build_reference_units_script_plan_model([4, 6, 8]),
-            # 单值档位渲染为 const，与多值 enum 走不同归一路径
+            # Singleton const uses a different normalization path from multivalue enums.
             build_reference_units_script_plan_model([8]),
-            # prompt_authoring 的实际 response_schema（静态，无枚举收窄）同样过这条通道
+            # Actual static prompt_authoring response schemas, without enum narrowing, use this channel too.
             ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:
             config = backend._build_config(schema, None)
-            # 不抛 = 转换后的 dict（字符串枚举、无 const）被 google-genai types.Schema 接受
+            # No raise proves converted string-enum/no-const dicts satisfy google-genai types.Schema.
             validated = gtypes.Schema.model_validate(config["response_schema"])
             assert validated.type == gtypes.Type.OBJECT
 
@@ -292,7 +292,7 @@ class TestGenerate:
         assert result.output_tokens is None
 
     async def test_max_output_tokens_in_config(self, backend):
-        """max_output_tokens 注入到 Gemini config 字典。"""
+        """Inject max_output_tokens into Gemini config dicts."""
         mock_resp = SimpleNamespace(text="x", usage_metadata=None)
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
@@ -303,7 +303,7 @@ class TestGenerate:
         assert config["max_output_tokens"] == 32000
 
     async def test_no_max_output_tokens_means_no_config_key(self, backend):
-        """未指定 max_output_tokens 时 config 中不应出现该键。"""
+        """Omitted max_output_tokens leaves no config key."""
         mock_resp = SimpleNamespace(text="x", usage_metadata=None)
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
@@ -333,7 +333,7 @@ _VALID_JSON = '{"genre": "都市", "theme": "逆袭"}'
 
 
 class TestStructuredFallback:
-    """代理网关 HTTP 200 但不强制 response_schema（返回散文/违例 JSON）时的降级路径。"""
+    """Fallback when proxy HTTP 200 ignores response_schema and returns prose/invalid JSON."""
 
     @pytest.fixture
     def backend(self, mock_genai):
@@ -344,7 +344,7 @@ class TestStructuredFallback:
         return b
 
     async def test_prose_triggers_prompt_fallback_and_succeeds(self, backend):
-        """散文响应触发降级：schema 注入 prompt、不带 wire 结构化参数重发，token 并账。"""
+        """Prose triggers schema-in-prompt fallback without structured wire parameters, merging token usage."""
         gc = AsyncMock(side_effect=[_resp(_PROSE, 20, 10), _resp(_VALID_JSON, 30, 15)])
         backend._test_client.aio.models.generate_content = gc
 
@@ -361,7 +361,7 @@ class TestStructuredFallback:
         assert "分析剧本" in fb_prompt
         assert "JSON Schema" in fb_prompt
         assert '"genre"' in fb_prompt
-        # 校验通过后返回规范化 JSON，下游 model_validate_json 必定成功
+        # Return normalized validated JSON, guaranteeing downstream model_validate_json success.
         assert _OverviewModel.model_validate_json(result.text) == _OverviewModel(genre="都市", theme="逆袭")
         assert result.provider == "gemini"
         assert result.model == backend.model
@@ -369,7 +369,7 @@ class TestStructuredFallback:
         assert result.output_tokens == 25
 
     async def test_fallback_strips_code_fences(self, backend):
-        """降级输出带 markdown 栅栏时剥离后校验。"""
+        """Strip Markdown fences before fallback validation."""
         fenced = f"```json\n{_VALID_JSON}\n```"
         gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(fenced)])
         backend._test_client.aio.models.generate_content = gc
@@ -377,16 +377,16 @@ class TestStructuredFallback:
         result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
         assert _OverviewModel.model_validate_json(result.text).genre == "都市"
-        # 原生与降级两次调用都没有用量时，token 保持 None，不塌成 0
+        # Both native/fallback lack usage: retain None, never 0.
         assert result.input_tokens is None
         assert result.output_tokens is None
 
     async def test_fallback_retries_with_error_feedback(self, backend):
-        """降级首次输出违反 schema 时带错误反馈重试一次。"""
+        """Initial fallback schema violations retry once with validation feedback."""
         gc = AsyncMock(
             side_effect=[
                 _resp(_PROSE, 10, 5),
-                _resp('{"genre": "都市"}', 10, 5),  # 缺必填 theme
+                _resp('{"genre": "都市"}', 10, 5),  # Missing required theme.
                 _resp(_VALID_JSON, 10, 5),
             ]
         )
@@ -402,7 +402,7 @@ class TestStructuredFallback:
         assert result.output_tokens == 15
 
     async def test_fallback_exhausted_raises_structured_output_exhausted(self, backend):
-        """降级重试穷尽后收敛为 StructuredOutputExhaustedError，消息面向用户可读（不透传 pydantic 原始串）。"""
+        """Exhausted fallback retries become user-readable StructuredOutputExhaustedError, never raw Pydantic messages."""
         gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_PROSE), _resp(_PROSE)])
         backend._test_client.aio.models.generate_content = gc
 
@@ -412,11 +412,11 @@ class TestStructuredFallback:
         assert gc.call_count == 3
         assert exc_info.value.provider == "gemini"
         assert exc_info.value.model == "gemini-3-flash-preview"
-        # reason 写明降级尝试次数与最后一次校验失败的原因
+        # reason names attempt counts and final validation failure.
         assert exc_info.value.reason == "prompt 注入降级 2 次尝试后输出仍不合规（1 处字段不符（<root>））"
 
     async def test_fallback_logs_raw_model_output(self, backend, caplog):
-        """降级触发点以 warning 记录模型原始输出，供事后诊断模型实际吐了什么。"""
+        """Fallback-trigger warnings log raw model output for retrospective diagnosis."""
         gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_VALID_JSON)])
         backend._test_client.aio.models.generate_content = gc
 
@@ -426,7 +426,7 @@ class TestStructuredFallback:
         assert any(_PROSE in record.getMessage() for record in caplog.records)
 
     async def test_valid_schema_json_no_fallback(self, backend):
-        """满足 schema 的合法 JSON 不触发降级（单次调用）。"""
+        """Valid schema-compliant JSON skips fallback and uses one call."""
         gc = AsyncMock(return_value=_resp(_VALID_JSON, 20, 10))
         backend._test_client.aio.models.generate_content = gc
 
@@ -436,7 +436,7 @@ class TestStructuredFallback:
         assert result.text == _VALID_JSON
 
     async def test_dict_schema_prose_fallback_returns_stripped_json(self, backend):
-        """dict schema 无 Pydantic 模型可校验，降级后按「合法 JSON」标准放行。"""
+        """Dict schemas have no Pydantic validator; fallback admits syntactically valid JSON only."""
         schema = {"type": "object", "properties": {"k": {"type": "string"}}}
         gc = AsyncMock(side_effect=[_resp(_PROSE), _resp('```json\n{"k": "v"}\n```')])
         backend._test_client.aio.models.generate_content = gc
@@ -446,7 +446,7 @@ class TestStructuredFallback:
         assert result.text == '{"k": "v"}'
 
     async def test_fallback_transient_error_does_not_replay_native_call(self, backend):
-        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
+        """Transient fallback errors retry within fallback only, never replay successful paid native calls."""
         transient = ConnectionError("503 service unavailable")
         gc = AsyncMock(side_effect=[_resp(_PROSE), transient, transient, transient])
         backend._test_client.aio.models.generate_content = gc
@@ -454,12 +454,12 @@ class TestStructuredFallback:
         with bounded_poll_clock(), pytest.raises(ConnectionError):
             await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
-        # 1 次原生成功 + 降级层自身 3 次重试穷尽；原生调用未被重放
+        # One native success plus three exhausted fallback retries, without native replay.
         assert gc.call_count == 4
 
 
 def _keys_anywhere(node: object, names: set[str]) -> list[str]:
-    """递归收集 dict 中任何层级出现的指定 key（含属性名位置，用于断言「完全不含」）。"""
+    """Collect specified keys recursively, including property-name positions, to assert total absence."""
     found: list[str] = []
     if isinstance(node, dict):
         for k, v in node.items():
@@ -473,7 +473,7 @@ def _keys_anywhere(node: object, names: set[str]) -> list[str]:
 
 
 class TestAdditionalPropertiesStripped:
-    """Gemini Developer API 的 responseSchema 不认识 additionalProperties，下发即 400 INVALID_ARGUMENT。"""
+    """Gemini Developer API responseSchema rejects additionalProperties with HTTP 400 INVALID_ARGUMENT."""
 
     @pytest.fixture
     def backend(self, mock_genai):
@@ -481,7 +481,7 @@ class TestAdditionalPropertiesStripped:
         return GeminiTextBackend(api_key="k")
 
     def test_response_schema_models_carry_additional_properties_before_conversion(self):
-        """前提自检：原始 schema 确实带 additionalProperties，否则下面的参数化断言形同虚设。"""
+        """Verify raw schemas contain additionalProperties, or later parametrized assertions would be vacuous."""
         assert any(_keys_anywhere(m.model_json_schema(), {"additionalProperties"}) for m in response_schema_models())
 
     @pytest.mark.parametrize("model", response_schema_params())
@@ -507,7 +507,7 @@ class TestAdditionalPropertiesStripped:
         assert out["properties"]["either"]["anyOf"][0] == {"type": "object"}
 
     def test_keeps_property_named_additional_properties_and_instance_data(self, backend):
-        """只剥 schema 关键字：同名字段、enum/default/const 实例数据里的同名内容保持原样。"""
+        """Strip schema keywords only; preserve same-named fields and enum/default/const instance data."""
         schema = {
             "type": "object",
             "additionalProperties": False,
@@ -537,10 +537,11 @@ class TestAdditionalPropertiesStripped:
         assert out["required"] == ["additionalProperties"]
 
     async def test_request_body_response_schema_has_no_additional_properties(self):
-        """请求体层面：真实 google-genai 序列化后的 generationConfig.responseSchema 不含该字段。
+        """Real google-genai serialized generationConfig.responseSchema omits the field.
 
-        google-genai 装有 aiohttp 时默认走 aiohttp，respx 拦不到；注入 ``httpx_async_client`` 后 SDK
-        改走该 httpx 客户端（含降级链的后续请求），由 respx 在 transport 层截获，未声明的请求直接抛错。
+        Installed aiohttp makes google-genai default to it, bypassing respx. Inject
+        ``httpx_async_client`` to route all SDK/fallback requests through transport-level respx,
+        rejecting every undeclared request.
         """
         from google import genai as real_genai
 
@@ -555,7 +556,7 @@ class TestAdditionalPropertiesStripped:
                 backend._client = real_genai.Client(api_key="k", http_options={"httpx_async_client": http_client})
                 for model in response_schema_models():
                     route.calls.reset()
-                    # 回包只是空对象，过不了各模型的校验，会走降级链；本用例只看首个原生结构化请求
+                    # Empty objects fail validation and enter fallback; observe first native structured requests only.
                     with pytest.raises(StructuredOutputExhaustedError):
                         await backend.generate(TextGenerationRequest(prompt="x", response_schema=model))
                     assert route.called, model.__name__

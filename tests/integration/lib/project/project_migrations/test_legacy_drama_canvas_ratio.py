@@ -1,4 +1,4 @@
-"""剧情演绎项目缺 ``aspect_ratio``：分镜图依据按项目比例规则取 16:9，经整条迁移链升级后的制作状态。"""
+"""Drama without ``aspect_ratio`` uses project-default 16:9 storyboard bases; production status after the full migration chain."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def test_storyboard_of_a_legacy_drama_project_without_ratio_is_current_after_upg
 
 
 def test_storyboard_registered_with_a_portrait_basis_reads_stale(tmp_path: Path) -> None:
-    """缺比例的剧情项目按 16:9 判定分镜图依据；清单里按 9:16 登记的分镜图读为过期，并计入制作状态。"""
+    """Drama without ratios evaluates storyboard bases at 16:9; images registered at 9:16 read stale and count in production status."""
 
     root = tmp_path / "projects"
     project_dir = write_legacy_drama_storyboard_project(root)

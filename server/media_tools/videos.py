@@ -94,11 +94,11 @@ from server.tool_runtime import (
 
 logger = logging.getLogger(__name__)
 
-#: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
-#: 前三个是点名目标的旧 id 参数，``shots`` 与参考清单是视频单元已删除的字段，
-#: ``narration_delivery`` 是已删除的按请求交付方式。视频单元现在只持有 ``text`` 与
-#: ``duration_seconds``，参考图在执行期从正文的 ``@[名称]`` 首次提及顺序派生；
-#: 旁白交付方式是项目配置，不影响视频请求。
+#: Retired parameter names → current replacements. Keys were real parameters or names matching old video-unit structure:
+#: the first three are old target-ID parameters; ``shots`` and reference lists are removed unit fields;
+#: ``narration_delivery`` is the removed per-request delivery setting. Units now hold only ``text`` and
+#: ``duration_seconds``; references derive at execution from first-occurrence body ``@[名称]`` mentions;
+#: narration delivery is project configuration and does not affect video requests.
 _RETIRED_PARAMS: dict[str, str] = {
     "resume": "查询 durable batch，并用 selected scope、force=false 只重发未成功的 ID",
     "shot_ids": "改用 target.ids，并选择 scene（单个）或 selected（批量）scope",
@@ -112,11 +112,10 @@ _RETIRED_PARAMS: dict[str, str] = {
 
 
 def _reject_retired_params(args: Mapping[str, Any]) -> None:
-    """入参里出现已退役的参数名时 fail loud，并指明当下该怎么写。
+    """Fail loudly on retired parameter names and explain the current replacement.
 
     Raises:
-        ValueError: 命中 :data:`_RETIRED_PARAMS`。
-    """
+        ValueError: A parameter matches :data:`_RETIRED_PARAMS`."""
     for name, guidance in _RETIRED_PARAMS.items():
         if name in args:
             raise ValueError(f"参数 {name!r} 已不存在：{guidance}")
@@ -128,32 +127,38 @@ _PositiveInt = Annotated[StrictInt, Field(ge=1)]
 class EpisodeTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: Literal["episode"] = Field(description="整集：只补缺视频的单元，已有可用成片一律复用")
-    episode_id: _PositiveInt = Field(description="集 ID，须与 script 所属那一集的集 ID 一致")
+    scope: Literal["episode"] = Field(
+        description="Whole episode: fill only units missing video; always reuse existing usable videos"
+    )
+    episode_id: _PositiveInt = Field(description="Episode ID, which must match the episode owning script")
 
 
 class AllTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: Literal["all"] = Field(description="剧本内全部单元：只补缺视频的单元，已有可用成片一律复用")
+    scope: Literal["all"] = Field(
+        description="All units in the script: fill only units missing video; always reuse existing usable videos"
+    )
 
 
 class SceneTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: Literal["scene"] = Field(description="单个单元")
+    scope: Literal["scene"] = Field(description="Single unit")
     ids: list[str] = Field(
         min_length=1,
         max_length=1,
-        description="恰好一个目标 ID：分镜图生视频为 segment_id / scene_id，参考生视频为 unit_id",
+        description="Exactly one target ID: segment_id / scene_id for storyboard-to-video, unit_id for reference-to-video",
     )
 
 
 class SelectedTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: Literal["selected"] = Field(description="点名的一批单元")
-    ids: RequestedIds = Field(description="目标 ID 列表：分镜图生视频为 segment_id / scene_id，参考生视频为 unit_id")
+    scope: Literal["selected"] = Field(description="An explicitly named batch of units")
+    ids: RequestedIds = Field(
+        description="Target IDs: segment_id / scene_id for storyboard-to-video, unit_id for reference-to-video"
+    )
 
 
 VideoTarget = Annotated[
@@ -165,33 +170,28 @@ VideoTarget = Annotated[
 class GenerateVideosRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: ScriptFilename = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
-    target: VideoTarget = Field(description="目标选择器；scope 取 episode / all / scene / selected")
+    script: ScriptFilename = Field(description="Script filename only (no directory), for example episode_1.json")
+    target: VideoTarget = Field(description="Target selector; scope is episode / all / scene / selected")
     force: StrictBool = Field(
         default=False,
-        description="是否强制重生已有可用成片；默认复用 current / stale 成片，只允许用于 scene / selected",
+        description="Whether to force regeneration of existing usable videos; default reuses current / stale videos. Allowed only for scene / selected",
     )
     confirmed_request_duration_seconds: _PositiveInt | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "用户明确接受的本次视频请求秒数档位；仅参考生视频在返回跨档确认后填写。"
-            "它不冻结正文、引用或供应商，当前投影改到其它档位时必须重新确认。"
+            "Video-request duration tier in seconds explicitly accepted by the user; fill only for reference-to-video after a cross-tier confirmation response. It does not freeze text, references or provider; reconfirm if the current projection changes to another tier."
         ),
     )
     confirmed_request_durations: dict[str, _PositiveInt] | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            '按 unit_id 记的档位确认（{"E1U1": 8}）；一次请求里多个 unit 档位不同时用它，'
-            "让原目标集合仍作为一批重发——拆成几次调用会让先入队的那一档先花掉钱。"
-            "与 confirmed_request_duration_seconds 同时给出时，本字段按 unit 覆盖。"
-            "预检结果里的同名字段可以原样传入；其中没有点名的 unit 不受影响。"
+            'Per-unit_id tier confirmations ({"E1U1": 8}); use when units in one request have different tiers so the original target set is resubmitted as one batch. Splitting into calls would spend on the first queued tier before the others. When also supplying confirmed_request_duration_seconds, this field overrides it per unit. Pass the same-named preflight field unchanged; units absent from this map are unaffected.'
         ),
     )
     preview: StrictBool = Field(
         default=False,
         description=(
-            "true 时只预检、不入队：按正式提交同一份准入，返回 video_quote 报价单"
-            "（逐 unit 的去向、编排时长、申请档位、是否变档、预计费用与缺口）。"
+            "When true, preflight only without enqueueing: use the same admission as formal submission and return video_quote (per-unit outcome, orchestration duration, requested tier, tier changes, estimated cost and gaps)."
         ),
     )
 
@@ -211,12 +211,12 @@ class GenerateVideosRequest(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class _VideoCall:
-    """一次视频工具调用：目标项目、调用方与协作者。"""
+    """One video-tool call: target project, caller and collaborators."""
 
     scope: ProjectScope
     caller: CallerContext
     services: Services
-    #: 只预检、不入队：走到整批准入为止，把结论折成报价单返回。
+    #: Preflight only, without queueing: run through whole-batch admission and return the decision as a quote.
     preview: bool = False
 
     @property
@@ -232,7 +232,7 @@ class _VideoCall:
         return self.services.projects.get_project_path(self.scope.project_name)
 
     def stop_on_failure_caller(self) -> CallerContext:
-        """等待器在批次内任一任务失败即停止等待其余任务的调用方。"""
+        """A caller whose waiter stops awaiting remaining batch tasks when any task fails."""
         return self.caller.waiting_with(stop_on_failure=True)
 
 
@@ -260,17 +260,16 @@ def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> Genera
 
 
 def _missing_only_reusable_ids(states: dict[str, GenerationTargetState]) -> list[str]:
-    """Missing-only 下原样保留的分镜：Manifest 认定 current / stale（含已登记的上传视频）。"""
+    """Storyboards preserved unchanged by missing-only selection: Manifest current / stale, including registered uploaded videos."""
 
     return [unit_id for unit_id, state in states.items() if artifact_is_reusable(state)]
 
 
 def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
-    """整个请求只卡在一个单元的发声准入上时，把准入载荷原样带回响应顶层。
+    """Return the admission payload unchanged at the response top level when only one unit’s speech admission blocks the request.
 
-    单元级的定位信息（哪一句台词、哪条路径）比逐 ID 契约细一层，点名单个单元的调用方
-    需要它才能一步定位到要改的地方；批量请求没有「这一个」单元可指，就不带。
-    """
+    Unit-level locations (which dialogue line or path) are more precise than the per-ID contract, allowing single-unit callers
+    to locate the required change directly. Batch requests have no single unit to identify, so omit this payload."""
 
     admissions = [
         item.problem.params["speech_admission"]
@@ -283,7 +282,7 @@ def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
 
 
 def _reference_request_options(request: GenerateVideosRequest) -> ReferenceRequestOptions:
-    """把工具入参折成一次参考生视频请求的投影选项。"""
+    """Project tool arguments into options for one reference-video request."""
 
     return ReferenceRequestOptions(confirmed_request_duration_seconds=request.confirmed_request_duration_seconds)
 
@@ -298,7 +297,7 @@ def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str]
 
 @dataclass(frozen=True)
 class ReferenceGenerationComplete:
-    """参考单元生成结果与入队前 current-state 投影。"""
+    """Reference-unit generation results and pre-enqueue current-state projections."""
 
     projections: list[dict[str, object]]
     batch: GenerationBatchReadModel | None = None
@@ -306,14 +305,14 @@ class ReferenceGenerationComplete:
 
 @dataclass(frozen=True)
 class BatchAdmissionRefused:
-    """整批准入未通过：本次调用不产生任何任务。"""
+    """Whole-batch admission refused: this call creates no tasks."""
 
     admission: BatchAdmission
 
 
 @dataclass(frozen=True)
 class ReferenceGenerationPreview:
-    """预检：参考单元的整批准入结论，未入队。"""
+    """Preflight: whole-batch admission for reference units, without enqueueing."""
 
     admission: BatchAdmission
 
@@ -326,7 +325,7 @@ def _preview_outcome(
     storyboard_durations: Mapping[str, object] | None = None,
     storyboard_costs: Mapping[str, Mapping[str, object] | None] | None = None,
 ) -> ToolOutcome[Any]:
-    """把预检的准入结论与复用记名折成报价单响应。"""
+    """Combine preflight admission and reuse accounting into a quote response."""
 
     sheet = quote_sheet(
         admission,
@@ -340,8 +339,8 @@ def _preview_outcome(
 def _confirmation_lines(admission: BatchAdmission) -> list[str]:
     lines = ["以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for tier in admission.confirmation_tiers():
-        # 档位解析不出来时该组没有可确认的秒数，照实说明；插值出 "None s 档位" 会让调用方
-        # 以为存在一个叫 None 的档位。
+        # Unresolved tiers have no confirmable seconds; say so rather than interpolating a "None s tier" that suggests
+        # a tier named None exists.
         tier_label = (
             f"{tier.request_duration_seconds}s 档位" if tier.request_duration_seconds is not None else "档位待定"
         )
@@ -357,7 +356,7 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
             continue
         planned = ticket.problems[0].params.get("script_duration")
         requested = ticket.request_duration_seconds
-        # 与剧本计划时长的差值直接给出：档位数字本身不说明成片会变长还是变短。
+        # Show the difference from script-planned duration directly; tier numbers alone do not indicate longer or shorter output.
         delta = ""
         if isinstance(planned, int) and isinstance(requested, int) and requested != planned:
             direction = "更长" if requested > planned else "更短"
@@ -390,11 +389,10 @@ def _batch_admission_response(
     builder: GenerationResultBuilder,
     states: dict[str, GenerationTargetState] | None = None,
 ) -> ToolOutcome[Any]:
-    """转述整批拒绝：零任务入队，每个目标都带自己的机器可读结论。
+    """Relay whole-batch refusal: enqueue no tasks and provide a machine-readable outcome for every target.
 
-    待确认档位是入队前的正常拦截点，不是异常——``is_error`` 不跟着 blocked 走，
-    这批 unit 仍等待用户决定，不代表请求失败。
-    """
+    Awaiting tier confirmation is normal pre-enqueue gating, not an exception: ``is_error`` does not follow blocked.
+    These units await the user’s decision rather than indicating request failure."""
 
     admission = refusal.admission
     admission.record_refusal(builder, states=states)
@@ -449,15 +447,14 @@ async def _admit_storyboard_specs(
 
 
 def _resolve_reference_route(call: _VideoCall, script: dict[str, Any]) -> str | None:
-    """定生成模式并把守骨架闸门。
+    """Resolve generation mode and enforce skeleton gating.
 
-    项目走参考生视频时返回 ``"reference"``，分镜图生视频返回 ``None``。
-    生成模式以 project.json 的 ``generation_mode`` 为唯一真相源；所有创作类型共用
-    同一份 ``video_units`` 骨架。
+    Return ``"reference"`` for reference-video projects, ``None`` for storyboard-to-video.
+    The sole mode authority is project.json ``generation_mode``; all content modes share
+    the same ``video_units`` skeleton.
 
     Raises:
-        SkeletonRouteMismatchError: 剧本骨架与项目生成模式失配，生成被拒。
-    """
+        SkeletonRouteMismatchError: Script skeleton mismatches project mode, rejecting generation."""
     project = call.projects.load_project(call.project_name)
     content_mode = resolve_content_mode(script, project)
     ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
@@ -477,14 +474,14 @@ def _build_reference_specs(
     skip_set = set(skip_ids or [])
     specs: list[TaskSpec] = []
     refused: list[UnitAdmissionTicket] = []
-    # 进到这里的 unit 已经过筛查 / 点名选取，unit_id 必为非空标量：不再为记名留兜底名字。
+    # Units here were screened/selected; unit_id is a nonempty scalar, so outcome recording needs no fallback name.
     for unit in units:
         unit_id = str(unit["unit_id"])
         if unit_id in skip_set:
             continue
-        # 任一 unit 不合法（没有 shots、空提示词、或 from_request 对空 resource_id 抛的
-        # 裸 ValueError）都记为受阻，不让一个坏 unit 中断整批。TaskSpecValidationError
-        # 是 ValueError 子类，捕 ValueError 同时覆盖两者。
+        # Invalid units (no shots, empty prompts, or plain ValueError from from_request for empty resource_id)
+        # are blocked individually rather than interrupting the batch. TaskSpecValidationError
+        # subclasses ValueError, so catching ValueError covers both.
         try:
             spec = reference_unit_task_spec(unit, script_filename)
         except SpeechAdmissionError as exc:
@@ -530,25 +527,23 @@ async def _generate_reference_units(
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket] | None = None,
 ) -> ReferenceGenerationComplete | ReferenceGenerationPreview | BatchAdmissionRefused:
-    """unit 批量生成的共享骨架：时长确认 + 已产出扫描 + durable 批次提交。
+    """Shared unit-batch generation: duration confirmation, existing-output scanning and durable batch submission.
 
-    所有创作类型的 ``video_units`` 共用同一构造路径。``build_specs`` 是本批唯一的
-    可入队性口径：它先于准入运行，构造不出 TaskSpec 的 unit 直接带着自己的问题码
-    进入准入结论，不再被解析或报价。
+    All content modes construct ``video_units`` through the same path. ``build_specs`` is the sole eligibility authority
+    for this batch, running before admission. Units without constructible TaskSpec enter admission with their own
+    problem codes and are neither parsed further nor quoted.
 
-    ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
-    现行产物复用。调用方必须用持久化资产归属判定，不能只凭同名文件存在猜测；共享
-    骨架还会先应用重规划闸门，迁移保留的旧产物不能让 ``needs_replan`` 单元绕过修复。
+    ``reuse_existing`` decides whether an existing ``{unit_id}.mp4`` can be reused as the unit’s current artifact.
+    Callers must use persisted artifact ownership, never infer ownership from a matching filename alone. Shared
+    generation first applies replan gating; migration-preserved old artifacts cannot let ``needs_replan`` units bypass repair.
 
-    准入是一次性的：全部目标由 :func:`admit_reference_video_batch` 一起评估，任一目标
-    有问题就返回 :class:`BatchAdmissionRefused`，本次调用不产生任何任务（与 Web 批量入口
-    共用同一份判定）。跨档 unit 的申请档位没有与 ``confirmed_request_duration_seconds``
-    精确相等时同样属于未通过，用户同意后调用方带对应档位重新调用完成入队。
-
-    """
+    Admission evaluates all targets together once through :func:`admit_reference_video_batch`. Any target problem returns
+    :class:`BatchAdmissionRefused` and creates no tasks, sharing Web batch admission. Cross-tier requested durations
+    not exactly equal to ``confirmed_request_duration_seconds`` also fail admission; after user agreement, callers
+    resubmit with the corresponding tier to enqueue."""
 
     def scan_existing() -> tuple[Path, list[UnitAdmissionTicket], list[TaskSpec], list[UnitAdmissionTicket]]:
-        """读项目目录与产物时效，记下已有可用成片的复用，并构造本批 TaskSpec。"""
+        """Read the project directory and currency, record reuse of existing usable clips, and build this batch’s TaskSpec objects."""
 
         project_dir = call.project_path
         output_dir = project_dir / "reference_videos"
@@ -569,10 +564,10 @@ async def _generate_reference_units(
                 try:
                     reusable = reuse_existing(unit)
                 except ArtifactManifestError:
-                    # 复用判定（点名强制路线传入的 ``reuse_existing`` 恒为 False，不会走到
-                    # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
-                    # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
-                    # 整批生成打成 tool_error，而是逐 unit 记为受阻，交回去修复侧车。
+                    # Reuse checks (named forced routes always pass False for ``reuse_existing`` and never call
+                    # ``artifact_is_usable``; only whole-episode reuse checks inspect the Manifest) fail loudly on
+                    # BLOCKED: an unreadable comparison for an existing clip must not turn the
+                    # entire batch into tool_error; block per unit and hand back sidecar repair instead.
                     refused.append(
                         refused_ticket(
                             unit_id,
@@ -593,8 +588,8 @@ async def _generate_reference_units(
                     artifact_status=state.status,
                 )
 
-        # 可入队性先判：能否构造 TaskSpec 是本批目标集合的边界，不可入队的 unit 带着自己的
-        # 问题码进入准入，既不被解析、也不被静默丢弃。
+        # Check eligibility first: TaskSpec construction defines this batch’s target boundary; ineligible units enter admission
+        # with their own problem codes, without further parsing or silent omission.
         specs, spec_refused = build_specs(units, [*already_done, *manifest_blocked])
         return project_dir, refused, specs, spec_refused
 
@@ -655,7 +650,7 @@ async def _generate_reference_units(
 
 
 def _reference_episode(project: dict[str, Any], script: dict[str, Any], script_filename: str) -> int:
-    """参考生视频的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
+    """Reference-video episode identity: prefer bound identity, falling back to script/filename inference when unavailable."""
 
     return resolve_artifact_episode(
         project=project,
@@ -680,11 +675,10 @@ async def _run_reference_batch(
     log: list[str],
     operation: str,
 ) -> ToolOutcome[Any]:
-    """参考生视频的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
+    """Shared reference-video completion: target state → batch generation → admission refusal or result response.
 
-    ``reuse_existing`` 收 currency 解析器与 unit，让整集路线的复用判定与点名路线的
-    「一律不复用」共用同一条缝。
-    """
+    ``reuse_existing`` receives the currency resolver and unit, sharing one interface between whole-episode reuse
+    and named-target routes that never reuse."""
 
     def load_states() -> tuple[ArtifactCurrencyResolver, dict[str, GenerationTargetState]]:
         resolver = active_artifact_currency_resolver(call.project_path, project)
@@ -745,8 +739,8 @@ async def _run_reference_episode(
     episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
-        # 生成模式闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
-        # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
+        # Mode gating checks key presence, not value type, so validate containers here: imported/externally edited malformed values
+        # such as dicts/strings would otherwise reach unit iteration and raise an unlocatable TypeError.
         logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
         raise ValueError(f"{describe_episode_for_agent(project, episode)} 的 video_units 必须是数组：{script_filename}")
     if not units:
@@ -777,12 +771,11 @@ async def _run_reference_episode(
 def _select_reference_units(
     script: dict[str, Any], unit_ids: list[str]
 ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-    """按 unit_id 从 ``video_units`` 点名取 unit。
+    """Select named units from ``video_units`` by unit_id.
 
-    返回 ``(selected, unmatched_ids, duplicated_ids)``——不存在的 ID 由调用方作为 blocked
-    逐项报告，不在此静默丢弃，也不因此中断其余 unit；点到的 ID 在剧本里有多份时无从判定
-    要做哪一条，它不进目标集合、交调用方拒收整批，而不是默默拿第一份去入队计费。
-    """
+    Return ``(selected, unmatched_ids, duplicated_ids)``. Callers report missing IDs individually as blocked, without
+    silently dropping them here or interrupting other units. Duplicate script entries for a selected ID cannot be
+    disambiguated, so exclude the ID and let callers reject the entire batch instead of silently charging to queue the first entry."""
     indexed = script.get("video_units")
     by_id: dict[str, dict[str, Any]] = {}
     duplicated: set[str] = set()
@@ -819,7 +812,7 @@ async def _run_reference_units(
     operation: str,
     force: bool = True,
 ) -> ToolOutcome[Any]:
-    """生成点名的参考生视频 unit；统一入口默认复用已有可用成片。"""
+    """Generate named reference-video units; the unified entry point defaults to reusing existing usable clips."""
 
     def load_inputs() -> tuple[dict[str, Any], dict[str, Any]]:
         return (
@@ -881,7 +874,7 @@ async def _run_reference_units(
 
 @dataclass(frozen=True)
 class _VideoRequestContext:
-    """视频工具的请求前导：入参投影、剧本与生成模式判定。"""
+    """Video-tool request preparation: argument projection, script and generation-mode resolution."""
 
     script_filename: str
     request_options: ReferenceRequestOptions
@@ -892,7 +885,7 @@ class _VideoRequestContext:
 
 
 def _video_request_context(call: _VideoCall, request: GenerateVideosRequest) -> _VideoRequestContext:
-    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成模式。"""
+    """Project arguments into this request’s options, load the script and resolve its generation route."""
 
     script = call.projects.load_script(call.project_name, request.script)
     return _VideoRequestContext(
@@ -907,7 +900,7 @@ def _video_request_context(call: _VideoCall, request: GenerateVideosRequest) -> 
 
 @dataclass(frozen=True)
 class _StoryboardScreening:
-    """分镜图生视频的目标条目、ID 字段、骨架种类与筛查记名。"""
+    """Storyboard-to-video target entries, ID field, skeleton kind and screening outcomes."""
 
     items: list[dict[str, Any]]
     id_field: str
@@ -920,11 +913,10 @@ def _screen_script_targets(
     *,
     requested_ids: Collection[str] | None,
 ) -> _StoryboardScreening:
-    """取分镜条目并筛掉成不了目标的脏条目。
+    """Read storyboard entries and screen malformed entries that cannot become targets.
 
-    骨架种类取剧本实际形态（与生成模式闸门同一份判别），族内历史形态才不会被按创作类型
-    反推的种类误判成解析失败。
-    """
+    Derive skeleton kind from actual script shape, sharing generation-mode gating, so historical shapes within a family
+    are not mistaken for parsing failures based on a kind inferred from content mode."""
 
     items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
     skeleton_kind = resolve_script_kind(script)
@@ -939,7 +931,7 @@ def _screen_script_targets(
 
 @dataclass(frozen=True)
 class _StoryboardContext:
-    """分镜图生视频的项目侧上下文：项目、集号与创作类型。"""
+    """Project-side storyboard-to-video context: project, episode identity and content mode."""
 
     project: dict[str, Any]
     episode: int
@@ -962,11 +954,10 @@ def _storyboard_context(call: _VideoCall, request: _VideoRequestContext) -> _Sto
 
 @dataclass(frozen=True)
 class _StoryboardBatch:
-    """分镜图生视频一次请求的批次上下文：目标口径、准入身份与结果构造器。
+    """Batch context for one storyboard-to-video request: target rules, admission identity and result builder.
 
-    四种 scope 的目标集合与提交方式各不相同，但构造 TaskSpec、整批准入与逐目标记录
-    结论这三步共用同一份口径——集中在这里，改一处判定不会只改到其中一个入口。
-    """
+    The four scopes select and submit differently, but share TaskSpec construction, whole-batch admission and per-target
+    outcome recording. Centralize those rules here so changing a decision does not affect only one entry point."""
 
     call: _VideoCall
     request: _VideoRequestContext
@@ -980,7 +971,7 @@ class _StoryboardBatch:
     log: list[str]
 
     def result(self) -> ToolOutcome[Any]:
-        """把已记录的逐目标结论折成响应；预检时折成报价单。"""
+        """Build a response from recorded per-target outcomes, or a quote for preflight."""
 
         if self.call.preview:
             return _preview_outcome(None, self.builder, self.log)
@@ -992,10 +983,10 @@ class _StoryboardBatch:
         items: list[dict[str, Any]],
         skip_ids: list[str] | None,
     ) -> tuple[list[TaskSpec], list[UnitAdmissionTicket]]:
-        """按本次请求的目标条目构造分镜图生视频的 TaskSpec。"""
+        """Build storyboard-to-video TaskSpec objects from this request’s target entries."""
 
         voice_characters = await resolve_voice_context(self.sb.project, self.sb.content_mode)
-        # 按文件内容判定分镜参考图与首尾帧的时效，是同步文件读写与哈希
+        # Content-based currency checks for storyboard references and first/end frames use synchronous I/O and hashing.
         return await asyncio.to_thread(
             build_storyboard_video_specs,
             items=items,
@@ -1028,9 +1019,9 @@ class _StoryboardBatch:
         specs: list[TaskSpec],
         extra_tickets: list[UnitAdmissionTicket],
     ) -> ToolOutcome[Any]:
-        """整批准入后提交；准入未通过则零任务入队地转述拒绝，预检则只报价。"""
+        """Submit after whole-batch admission; relay refusal without queueing tasks if admission fails, or quote only for preflight."""
 
-        # 准入与预检报价读同一份视频请求事实，两次求值之间配置一变，报价就不再是准入认的那一个。
+        # Admission and preflight quotes use the same video-request facts; configuration changes between evaluations would make quotes diverge from admission.
         facts = (
             await storyboard_video_request_facts(self.sb.project, self.call.services.capabilities) if specs else None
         )
@@ -1084,7 +1075,7 @@ class _StoryboardBatch:
 
 
 def _check_target_episode(call: _VideoCall, request: _VideoRequestContext, episode: int) -> None:
-    """整集选择器点名的集 ID 必须就是剧本所属的那一集：点错集不能按剧本那一集花钱。"""
+    """The whole-episode selector must identify the script’s owning episode; selecting the wrong episode must not spend money on the script’s episode."""
 
     project = call.projects.load_project(call.project_name)
     actual_episode = resolve_artifact_episode(
@@ -1122,7 +1113,7 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
         return resolver, video_target_states(items, id_field, episode=episode, resolver=resolver)
 
     currency, states = await asyncio.to_thread(load_states)
-    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale 与上传的视频）原样保留。
+    # Whole-episode generation only fills gaps, never forces regeneration: preserve usable old clips, including stale and uploaded videos.
     already_done = _missing_only_reusable_ids(states)
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
     batch = _StoryboardBatch(
@@ -1141,11 +1132,11 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
         state = _state_for(states, str(done_id))
         builder.skip(state)
 
-    # currency 之外的第三态：Manifest 读不出该分镜的产物状态（BLOCKED），既不能
-    # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
-    # 花钱重生可能覆盖一份实际仍然可用的分镜。all scope 走
-    # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
-    # 同一场判定手写的另一条腿，必须同步处理。
+    # A third state beyond currency: unreadable Manifest artifact state (BLOCKED) cannot be treated
+    # as reusable (already_done), nor safely missing for enqueueing. Unreadable does not mean absent;
+    # paid regeneration could overwrite a still-usable clip. The all scope uses
+    # select_generation_targets to record this in selection.unavailable; this is
+    # the other manually implemented path of the same decision and must handle it consistently.
     already_done_set = set(already_done)
     blocked_states = [
         state
@@ -1201,8 +1192,8 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
         return resolver, states, selection
 
     currency, states, selection = await asyncio.to_thread(select_targets)
-    # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
-    # 同一个 unit 记两次会让结果构造器 fail loud。
+    # Admission reports unreadable artifact states via admission tickets; do not duplicate them in result records:
+    # recording one unit twice makes the result builder fail loudly.
     unavailable_tickets = artifact_state_tickets(selection.unavailable)
     builder = GenerationResultBuilder.from_selection(_OPERATION, replace(selection, unavailable=()))
     batch = _StoryboardBatch(
@@ -1238,14 +1229,14 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
             batch_id=submitted.batch.batch_id,
         )
 
-    # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
-    # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
-    # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
+    # Use the same ID fallback as ``_video_target_states``: if an entry lacks ``id_field``
+    # but has ``scene_id``/``segment_id``, selection already recorded the fallback target;
+    # recognizing only ``id_field`` here would remove it, leaving it requested but never queued.
     target_id_set = set(selection.target_ids)
     pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
     specs, refused = await batch.build_specs(items=pending, skip_ids=None)
-    # 产物状态不可读的分镜被选目标环节排除在 targets 之外，但它属于这次请求：
-    # 不带进准入，同批健康的分镜会照常入队并计费，剩下这一个被无声略过。
+    # Target selection excludes unreadable-artifact storyboards from targets, but they still belong to this request:
+    # omitting them from admission would queue and charge healthy storyboards while silently skipping this one.
     refused.extend(unavailable_tickets)
     refused.extend(screen_refused)
     if not specs and not refused:
@@ -1288,8 +1279,8 @@ async def _generate_selected(
 
     items_by_id: dict[str, dict[str, Any]] = {}
     for item in items:
-        # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
-        # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
+        # Index using the same addressable forms; raw list/dict aliases in malformed scripts would
+        # raise TypeError as keys and collapse per-target outcomes into a generic error.
         for alias in storyboard_item_aliases(item, id_field):
             items_by_id[alias] = item
 
@@ -1297,13 +1288,13 @@ async def _generate_selected(
     selected: list[dict[str, Any]] = []
     refused: list[UnitAdmissionTicket] = []
     seen_canonical: set[str] = set()
-    # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
-    # 调用方若把两个值都列入 ``scene_ids`` 会让同一分镜重复入队——必须按
-    # 规范 ``id_field`` 再去一次重。
+    # ``items_by_id`` indexes the same item by both ``id_field`` and ``scene_id``;
+    # callers listing both in ``scene_ids`` would queue the storyboard twice, so deduplicate again by
+    # canonical ``id_field``.
     screened_ids = {ticket.unit_id for ticket in screen_refused}
     for sid in scene_ids:
         if sid in screened_ids:
-            # 筛查已经按这个名字记过一条结论，重复记名会撞上结果契约的唯一性。
+            # Screening already recorded an outcome for this name; repeating it violates result-contract uniqueness.
             continue
         if sid not in items_by_id:
             refused.append(
@@ -1377,7 +1368,7 @@ async def generate_videos(
             return await _generate_episode(call, context, log)
         if isinstance(target, AllTarget):
             return await _generate_all(call, context, log)
-        # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志。
+        # Deduplicate to avoid queueing the same ID twice; preserve first-occurrence order for readable logs.
         scene_ids = normalize_requested_ids(target.ids, field="target.ids") or []
         return await _generate_selected(call, context, log, scene_ids=scene_ids, force=args.force)
     except SpeechAdmissionError as exc:

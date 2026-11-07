@@ -1,4 +1,4 @@
-"""剪辑时间线的片段摆放：截取依据版本、定格、旁白落点与字幕窗口、末尾截断，以及剪映草稿按需分轨。"""
+"""Timeline placement: version-based trims, freezes, narration/subtitle windows, end truncation, and draft track splitting."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_trim_applies_only_to_its_basis_version_and_hold_follows_the_clip() -> N
     first, second = placement.clips
     assert (first.start_us, first.source_in_us, first.source_duration_us) == (0, 500_000, 2 * S)
     assert (first.hold_start_us, first.hold_us, first.source_out_us) == (2 * S, 700_000, 2_500_000)
-    # current 已换成版本 2，依据版本 1 的截取作废，整段使用
+    # current is now version 2; version-1 trims become invalid, using the entire source.
     assert (second.start_us, second.source_in_us, second.source_duration_us) == (2_700_000, 0, 3 * S)
     assert placement.duration_us == 5_700_000
 
@@ -99,7 +99,7 @@ def test_narration_starts_at_its_carrying_clip_keeps_its_overlap_and_is_cut_at_t
     placement = place_timeline(content, units)
 
     assert placement.duration_us == 5 * S
-    # 旁白越界如实保留：c1 的 3 秒旁白压到 c2 的旁白上，c2 的旁白截到时间线末尾。
+    # Preserve narration overflow: c1’s 3-second narration overlaps c2; c2 narration trims at timeline end.
     assert placement.narrations == (
         PlacedNarration("c1", "versions/audio/U1_v1.wav", 0, 3 * S),
         PlacedNarration("c2", "versions/audio/U2_v1.wav", 2 * S, 3 * S),
@@ -151,7 +151,7 @@ def test_transitions_stay_on_the_previous_clip_and_only_reach_the_next_exported_
 
     placement = place_timeline(content, {"U1": _unit("U1"), "U3": _unit("U3")})
 
-    # c2 的视频单元已删除，c1 的转场衔接到 c3；c3 之后没有参与导出的片段，它的转场没有效果。
+    # c2’s video unit is deleted, so c1 transitions to c3; no exported clip follows c3, making its transition ineffective.
     assert [(clip.clip_id, clip.transition_to_next) for clip in placement.clips] == [("c1", dissolve), ("c3", None)]
     assert placement.duration_us == 8 * S
 
@@ -167,6 +167,6 @@ def test_overlapping_items_are_stacked_onto_the_fewest_tracks_without_overlap_in
 
     tracks = stack_tracks(subtitles)
 
-    # 首尾相接不算重叠：丁在甲结束时接上第一条轨；戊开始时只有第三条轨已空出。
+    # Touching endpoints do not overlap: 丁 joins track one when 甲 ends; only track three is free when 戊 starts.
     assert [[item.text for item in track] for track in tracks] == [["甲", "丁"], ["乙"], ["丙", "戊"]]
     assert stack_tracks(()) == ()

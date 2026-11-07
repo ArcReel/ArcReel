@@ -1,4 +1,4 @@
-"""端点固定请求与计量，API 型号名不参与请求形态选择。"""
+"""Endpoints fix request shape and metering; API model names do not select the request shape."""
 
 import json
 

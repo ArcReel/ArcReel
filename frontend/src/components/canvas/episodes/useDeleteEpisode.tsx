@@ -15,15 +15,15 @@ interface PendingDeletion {
   episode: number;
   name: string;
   impact: EpisodeDeletionImpact & { text: string };
-  /** 确认时服务端的清单已变，这是更新后的清单。 */
+  /** The server's list changed during confirmation; this is the updated list. */
   changed: boolean;
 }
 
 /**
- * 删除一集：先向服务端取丢失清单，确认框只呈现服务端成文的清单。没有产物、原文也能重建时用普通确认，
- * 否则按危险操作确认。确认时清单已变，换成新清单再确认一次，不删除。删除后这一集从列表里消失，不另行提示。
- * `guard` 包住确认删除这一步（如离开拦截）：放在确认之后，取消删除时未保存修改原样保留。
- * 被包住的动作返回是否删除成功，请求失败或需要再次确认时离开拦截保留修改。
+ * Delete an episode: fetch the loss list first and display only server-written content. Use ordinary confirmation if there are no artifacts and source can be reconstructed,
+ * otherwise dangerous-action confirmation. If the list changes at confirmation, show the new list and confirm again without deleting. Deletion removes the episode from the list without another notice.
+ * `guard` wraps confirmed deletion, for example a navigation guard; place it after confirmation so cancellation retains unsaved edits.
+ * The wrapped action reports deletion success; request failures or renewed confirmation keep edits protected by the navigation guard.
  */
 export function useDeleteEpisode(
   projectName: string,

@@ -1,9 +1,8 @@
-"""script_plan→prompt_authoring web 内容确认路由。
+"""Web content-confirmation routes from script_plan to prompt_authoring.
 
-暴露脚本规划的审阅 / 编辑 / 确认：script_plan 产出后在 web 可见可改，用户显式确认时整份转为
-正式脚本（条目带待编写标记），之后由 Agent 的 generate_episode_script 按正式脚本补写视觉层。
-drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
-"""
+Expose plan review/edit/confirmation: generated plans are visible/editable in Web. Explicit user confirmation converts
+the whole plan to a formal script with pending markers; Agent generate_episode_script then supplies visual layers
+from that script. Drama (utterances + source_text) and narration (structured novel_text) share this mechanism."""
 
 import logging
 
@@ -29,14 +28,13 @@ router = APIRouter()
 async def _attach_duration_tiers(
     service: ScriptReviewService, project_name: str, episode: int, state: dict, _t: Translator, names: DisplayNames
 ) -> dict:
-    """把逐 unit 时长档位与本地化降级提示挂到 state 上；三个端点（GET/PUT/POST）
-    都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
-    读到的收窄结果，面板无法区分生效档位与 i2v 失败。
+    """Attach per-unit tiers and localized degradation hints to state for all GET/PUT/POST endpoints. Otherwise save/confirm
+    ``adopt()`` replaces GET’s narrowed results with a response missing ``duration_tiers``, making effective tiers
+    indistinguishable from i2v failures.
 
-    是否调用交给 ``get_reference_duration_tiers`` 自己按 script_plan_kind 判断，不靠
-    ``state["supported_durations"] is not None`` 短路——那是另一个方法的返回值，型号解析
-    不到时同样为 None，靠它短路会让这类项目连未收窄的档位都拿不到。
-    """
+    Let ``get_reference_duration_tiers`` decide by script_plan_kind, without short-circuiting on
+    ``state["supported_durations"] is not None``. That separate method also returns None for unresolved models;
+    using it as a gate would deprive such projects even of unnarrowed tiers."""
     content = state.get("content")
     units = content.get("units") if isinstance(content, dict) else None
     state["duration_tiers"] = await service.get_reference_duration_tiers(
@@ -48,21 +46,20 @@ async def _attach_duration_tiers(
 
 
 def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
-    """给覆盖清单附上服务端渲染的丢失清单文本；Web 确认框只呈现这份文本，与 Agent 回执同源。"""
+    """Attach server-rendered loss text to overwrite lists; Web confirmation displays only this text, sharing Agent responses’ source."""
     state["script_overwrite"] = overwrite_with_text(state.get("script_overwrite"), _t)
     return state
 
 
 def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) -> dict | None:
-    """把草稿视图里的固定文案违约与降级提示换成按 ``_t`` 渲染的本地化文本。
+    """Localize fixed-message violations and degradation hints in draft views using ``_t``.
 
-    ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
-    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，既可属于整集，也可带 ``item_id``
-    定位到具体条目；问题码即文案 key，与内容确认的 422
-    同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
-    渲染好插值的模板——违约的本地化范围限定在这两类。降级提示一律以 ``code`` 为文案 key 成文。
-    参数里的供应商与模型 ID 按 ``names`` 换成显示名。
-    """
+    ``quarantine_unreadable`` arises only from corrupt envelopes or missing/corrupt revalidation meta, both fixed strings
+    without interpolation. Entries with ``params`` are video-request-fact failures, either episode-wide or located by
+    ``item_id``; problem codes are translation keys, matching content-confirmation 422 presentation. Neither uses
+    preinterpolated output-time templates of other ``lib.script.reference_video.draft_validation`` violation kinds;
+    limit violation localization to these two categories. Degradation hints always use ``code`` as their translation key.
+    Replace provider/model IDs in parameters with display names from ``names``."""
     if view is None:
         return None
     for violation in view["violations"]:
@@ -77,16 +74,14 @@ def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator, names: DisplayNamesCatalog):
-    """读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
+    """Read structured episode script_plan and confirmation state for Web rendering/editing.
 
-    ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
-    那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
-    先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式
-    script_plan 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
-    违约报告」这一侧——面板会误判成仍有待处置草稿、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
-    让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
-    用户点下确认时实际晋升的是他从未看过的那份新内容。
-    """
+    Merge ``quarantine`` separately, non-None only for reference_video with existing drafts. Revalidate on read using
+    the original output validator, independently of ``get_state`` disk operations.
+    Read ``quarantine`` before ``state``: if Agent promotion clears drafts and updates formal planning between reads,
+    this order can pair new content with old violations. The panel conservatively blocks confirmation until the next
+    poll corrects it. Reversing order could pair old content with quarantine None, falsely allow confirmation, and
+    promote new content the user never reviewed."""
     try:
         service = ScriptReviewService(get_project_manager())
         quarantine = await service.get_quarantine_info(project_name, episode)
@@ -110,21 +105,19 @@ async def update_script_review_content(
     content: dict = Body(...),
     base_fingerprint: str | None = None,
 ):
-    """保存手动 / Agent 编辑后的结构化中间态，并使该集重新等待确认。
+    """Save manually/Agent-edited structured intermediate content and return the episode to pending confirmation.
 
-    ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
-    编辑期间 script_plan 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
+    Query ``base_fingerprint`` is the editor’s GET content fingerprint. If supplied, compare under lock; competing
+    script_plan writes during editing return 409 without persistence. Omission skips comparison for direct calls without baselines.
 
-    ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时
-    Agent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
-    「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按待处置草稿文件存在性返回 409。
+    Merge ``quarantine`` like GET: saving changes the formal planning document, independently of the repairable draft file.
+    Agent generation may create a new draft during saving. Omitting this field makes ``adopt()`` infer no draft, falsely
+    show clean state and allow confirmation, while confirm() still rejects draft existence with 409.
 
-    保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力
-    解析）：晋升工具若恰好在这条 await 期间把草稿清掉，越晚读 quarantine 越可能读到
-    「已清除」而不是晋升前那份，响应就会落在「保存的内容 + quarantine: null」这一侧，
-    使用户没看过的、晋升后的内容被当作可放行确认——同 GET 端点的顺序取舍，先取的一侧读到
-    的是相对更旧但更保守的快照，读时序错位只会让确认被多余地拦一轮，不会误放行。
-    """
+    Fetch ``quarantine`` immediately after saving, before ``_attach_duration_tiers`` awaits capability resolution. Promotion
+    during that await may clear the draft; later reads increasingly risk pairing saved content with quarantine null, allowing
+    confirmation of unseen promoted content. Like GET, read the relatively older conservative snapshot first: read skew may
+    block confirmation for one extra poll, but cannot incorrectly authorize it."""
     try:
         service = ScriptReviewService(get_project_manager())
         with project_change_source("webui"):
@@ -144,7 +137,8 @@ class ConfirmScriptReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     overwrite_revision: str | None = Field(
-        default=None, description="认可覆盖的正式脚本版本，取自 script_overwrite.revision；该集尚无正式脚本时不必给"
+        default=None,
+        description="Formal-script revision accepted for overwrite, from script_overwrite.revision; unnecessary when the episode has no formal script",
     )
 
 
@@ -159,18 +153,17 @@ async def confirm_script_review(
     names: DisplayNamesCatalog,
     req: ConfirmScriptReviewRequest | None = None,
 ):
-    """用户显式确认 script_plan 内容：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。
+    """Explicit user confirmation converts the whole script_plan to a formal script with all shots pending authoring, enabling prompt_authoring visuals.
 
-    该集已有正式脚本时须带 ``overwrite_revision``（覆盖清单的 ``revision``），缺失或与当前正式脚本不符
-    时 409，诊断里的 ``script_overwrite`` 列出当前将被移除的分镜与产物摘要，不写正式脚本与确认记录。
+    Existing formal scripts require ``overwrite_revision``, the overwrite list’s ``revision``. Missing/mismatched revisions
+    return 409 with current removed-shot/artifact summaries in diagnostic ``script_overwrite``, writing neither scripts nor confirmation.
 
-    ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
-    按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在
-    三个端点里时有时无。
-    """
+    Merge ``quarantine`` like GET/PUT for identical response shapes. Although ``confirm()`` rejects pending draft existence
+    internally, responses must still accurately expose draft state at confirmation completion rather than inconsistently
+    omitting the field across endpoints."""
     try:
         service = ScriptReviewService(get_project_manager())
-        # 确认会写正式脚本并登记新资产；不标来源时变更按 filesystem 广播，前端当作外部改动跳到资产窗格。
+        # Confirmation writes formal scripts/registers assets; without origin, filesystem broadcasts make frontend treat it as external and navigate to assets.
         with project_change_source("webui"):
             state = await service.confirm(
                 project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None

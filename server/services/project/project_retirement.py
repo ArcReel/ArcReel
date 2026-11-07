@@ -1,10 +1,10 @@
-"""项目删除与覆盖导入共用的收尾，以及已删除项目恢复时的记录改回。
+"""Shared retirement for project deletion/overwrite import, and record reassignment on restoring deleted projects.
 
-删除项目与覆盖导入都让项目名下的现有项目成为已删除项目：排队中的任务取消，任务、批次、调用记录与助手
-会话改挂墓碑名，执行中的任务作废对项目的认领、放弃落盘。之后用这个名字的项目，无论是覆盖导入装进
-来的，还是删除后新建或导入的，都不沿用这些记录。已删除项目恢复时，记录从墓碑名改回恢复后的项目名；
-原名已被占用而换名恢复时，助手会话的 Agent 上下文记录随项目目录改到新目录派生的存储键下。
-"""
+Both deletion and overwrite import retire the existing project: cancel queued tasks, reassign tasks/batches/call records/assistant
+sessions to a tombstone name, and invalidate running-task claims so they abandon persistence. Later projects using the name,
+whether overwritten imports or projects created/imported after deletion, never inherit those records. Restoration reassigns
+records from the tombstone to the restored name. If the original name is occupied, restored assistant-session Agent context
+records move with the project directory to storage keys derived from the new directory."""
 
 from __future__ import annotations
 
@@ -29,13 +29,13 @@ from lib.project.task_project_claim import restore_task_project_claims, revoke_t
 
 @asynccontextmanager
 async def retiring_project(session_factory: async_sessionmaker[AsyncSession], project_dir: Path) -> AsyncGenerator[str]:
-    """收尾目录 ``project_dir`` 里的现有项目，``async with`` 块拿到墓碑名，在块里把项目目录移成同名的已删除项目。
+    """Retire the existing project in ``project_dir``. The ``async with`` block receives its tombstone name and moves the directory to a deleted project with that name.
 
-    进入时在一个事务里先补齐项目此刻实际持有的正式对象引用（已发布、尚未结算的提交只有占用），再取消排队中的
-    任务、把记录改挂墓碑名，并作废执行中任务的认领；块正常结束才提交，提交开始后不被取消打断。块或提交抛错时
-    事务回滚、认领恢复，现有项目的记录保持原样，目录由块的调用方还原。从补齐到提交或回滚，这个目录上的新远端
-    图片保存在上传前失败，墓碑里不会有没被引用持有的远端版本。
-    """
+    On entry, one transaction first backfills references to formal objects actually owned by the project (published unsettled commits
+    have reservations only), then cancels queued tasks, reassigns records and invalidates running claims. Commit only after normal
+    block exit; once started, commit cannot be cancelled. Block/commit errors roll back the transaction and restore claims, retaining
+    existing records; the caller restores the directory. From backfill until commit/rollback, new remote-image saves for the directory
+    fail before upload, preventing tombstones from holding remote versions without owning references."""
     project_name = project_dir.name
     async with session_factory() as session, retiring_project_references(session, project_name, project_dir):
         tombstone, running_task_ids = await retire_project_records(session, project_name)
@@ -56,12 +56,11 @@ async def restore_retired_project(
     *,
     sdk_config_dir: Path,
 ) -> None:
-    """已删除项目恢复到 ``project_dir`` 后，把墓碑名 ``tombstone`` 下的记录改回恢复后的项目名并提交；提交开始后不被取消打断。
+    """After restoring a deleted project to ``project_dir``, reassign ``tombstone`` records to the restored name and commit; once started, commit cannot be cancelled.
 
-    恢复后的名字与删除前不同时，Agent 会话存储键（由项目目录的绝对路径派生）也须跟着换：同一事务里把这个项目
-    的会话在数据库中的 transcript 镜像改到新目录的键下，提交后再移动 ``sdk_config_dir`` 下的 SDK 本地记录。原键
-    此时归占用原名的项目，只按会话搬。
-    """
+    If restored under another name, also change Agent-session storage keys derived from absolute project paths. In the same
+    transaction, move this project’s database transcript mirrors to the new directory’s key; after commit, move SDK local records
+    under ``sdk_config_dir``. The old key now belongs to the project occupying the original name, so move by session only."""
     async with session_factory() as session:
         rekey = await _session_rekey(session, tombstone, project_dir)
         if rekey is not None:
@@ -84,14 +83,13 @@ async def _session_rekey(session: AsyncSession, tombstone: str, project_dir: Pat
 
 
 type RetireProject = Callable[[Path], AbstractContextManager[str]]
-"""在工作线程里收尾目录里的现有项目，``with`` 块里替换项目目录，语义同 :func:`retiring_project`。"""
+"""Finalize an existing project in a worker thread, replacing its directory inside the ``with`` block; same semantics as :func:`retiring_project`."""
 
 
 def retire_project_on(bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession]) -> RetireProject:
-    """给同步的导入流程用的收尾：进出 ``with`` 块时投回 ``bridge`` 的事件循环执行，块本身留在调用线程。
+    """Retirement for synchronous import: enter/exit ``with`` on the ``bridge`` event loop while the block runs in the caller’s thread.
 
-    只能在工作线程里使用。
-    """
+    Use only from worker threads."""
 
     @contextmanager
     def _retire(project_dir: Path) -> Generator[str]:

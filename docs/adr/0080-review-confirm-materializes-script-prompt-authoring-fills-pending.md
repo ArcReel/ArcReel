@@ -2,30 +2,30 @@
 status: accepted
 ---
 
-# 内容确认即把脚本规划转为正式脚本，提示词编写只填待编写分镜
+# Content confirmation materializes script plans into formal scripts; prompt authoring fills only pending storyboards
 
-`docs/adr/0041` 把脚本规划定为内容的持久基底：正式脚本是它的投影加视觉层，提示词编写按条目指纹增量合并，条目集合与顺序跟随脚本规划。代价是同一集的内容持久化了两份，而结构编辑已经在下游发生——Agent `patch_episode_script` 的 insert / remove、参考生视频画布的新增与删除单元、时间线要加的增删分镜都直接改正式脚本，下一次提示词编写按规划集合合并时把这些改动静默撤销；编写完成后在内容确认页改一下规划，整集回到待确认，正在时间线上工作的用户被拦；指纹、存量回填、`splice_entries` 合并这一整套机制只为让两份对得上。我们决定**提示词编写完成后正式脚本是该集唯一的内容真相，脚本规划是一次性输入，内容确认那一刻退出**。
+`docs/adr/0041` made script plans the persistent content foundation: formal scripts project them with a visual layer, prompt authoring merges incrementally by entry fingerprints, and entry sets/order follow plans. This persists episode content twice while structural edits already occur downstream: Agent `patch_episode_script` insert / remove, reference-video canvas unit addition/deletion, and timeline storyboard addition/deletion directly edit formal scripts; the next plan-set-based authoring merge silently undoes them. Editing plans on the confirmation page after authoring returns the whole episode to unconfirmed, blocking timeline users. Fingerprints, legacy backfills, and `splice_entries` merging exist solely to reconcile two copies. **After prompt authoring, formal scripts are the episode's sole content truth; script plans are one-time inputs that exit at content confirmation.**
 
-- **内容确认即物化。** 确认动作把脚本规划机械转为一份整集正式脚本，沿用现有的机械转换，但只做整份、只在确认时发生；集合同步与「点名采用新内容」两种转换模式退役。该集已有正式脚本时确认就是覆盖：旧分镜全部视为移除，产物按分镜移除的口径处置，用户手改的提示词一并丢弃；确认框以 danger 呈现并列出将被移除的分镜与产物去向，Agent 侧的确认走同一服务、同样不接受无确认的覆盖。整集重做因此就是「重跑脚本规划、再确认」，不需要别的机制。drama 的场景描述（视觉改编自由文本）随内容一起转入正式脚本的 `scene_description`，作为提示词编写「视觉改编」行的输入——编写不再读脚本规划，它只能从这里拿到；该字段对 LLM 输出 schema 隐藏，时间线不展示、PATCH 不可改，不对创作者暴露；存量正式脚本由迁移从脚本规划回填。
-- **提示词编写只给待编写分镜补视觉层。** 输入是正式脚本自身的内容字段，不再读脚本规划。默认填全部待编写条目；`entry_ids` 保留为「显式重写这几条」，用户明确要求时才覆盖手改；`scope=all` 取消。ad 同样：手动新增的分镜置待编写，由同一填充动作按 brief、商品信息与前后分镜补提示词，ad 的一键生成不变。
-- **待编写是条目级显式标记**，segments / scenes / shots / video_units 四种条目形态统一，物化与手动新增置位，编写完成清除；drama / narration 不再靠「提示词为空」隐式判断，参考生视频以它判定哪些单元的正文尚待改写。
-- **确认之后的脚本规划只读。** web 保存与 Agent `patch_draft` 对已确认的脚本规划一律拒绝，提示到时间线上修改，要整集重做就重跑脚本规划。
-- **编写完成后的内容修改在正式脚本上做。** 时间线开放 `utterances` / `novel_text` / 参考单元 `text` 的编辑；对应原文只读展示，参考单元把脚本规划的 `source_text` 透传进正式单元；Agent 经 `patch_episode_script` 可改对应原文，项目有源文时服务端校验它是源文的逐字子串，与参考生视频拆分工具的规则一致。
-- **退役**：条目指纹 `script_plan_entry_revision` 与整集指纹 `script_plan_revision`、条目时效比对与合并装配、存量回填、`GET script-review` 的 `script_entry_currency`、时间线「内容已更新，提示词可能不符」横幅与「采用新内容」、转换预演、工作流状态里正式脚本的 stale / removed 条目。由一步项目 schema 迁移删除存量指纹字段，对「已确认但尚无正式脚本」的集执行物化，对已有正式脚本的集把视觉层为空的分镜盖上待编写标记。
+- **Content confirmation materializes scripts.** Mechanically convert plans into one whole-episode formal script, reusing existing conversion but only for the whole script and only on confirmation. Retire set synchronization and "explicitly adopt new content" conversion modes. If a formal script already exists, confirmation overwrites it: treat all old storyboards as removed, dispose of their artifacts under storyboard-removal rules, and discard manually edited prompts too. Use a danger confirmation listing removed storyboards and artifact destinations. Agent confirmation uses the same service and likewise rejects unconfirmed overwrites. Whole-episode redo is therefore "rerun script planning, then confirm," without another mechanism. Drama scene descriptions (visual-adaptation free text) enter formal `scene_description` with the content as input to prompt authoring's "visual adaptation" line; authoring no longer reads plans and can obtain it only here. Hide this field from LLM output schemas, timeline display, and PATCH editing, without exposing it to creators; migration backfills existing formal scripts from plans.
+- **Prompt authoring fills visual layers only for pending storyboards.** Inputs are formal-script content fields, without reading plans. Fill all pending entries by default; retain `entry_ids` as "explicitly rewrite these entries," overwriting manual edits only upon explicit user requests; remove `scope=all`. The same applies to ad: manually added storyboards become pending and receive prompts through the same filling action using briefs, product information, and surrounding storyboards; ad one-click generation stays unchanged.
+- **Pending authoring is an explicit entry-level marker**, unified across segments / scenes / shots / video_units. Materialization and manual additions set it; completed authoring clears it. Drama / narration no longer infer it from "empty prompt"; reference-to-video uses it to identify unit bodies awaiting rewriting.
+- **Plans become read-only after confirmation.** Web saves and Agent `patch_draft` reject confirmed plans, directing edits to the timeline or whole-episode redo through rerunning planning.
+- **Post-authoring content edits occur in formal scripts.** The timeline permits editing `utterances` / `novel_text` / reference-unit `text`, showing corresponding source text read-only; reference units pass plan `source_text` through to formal units. Agents may edit corresponding source through `patch_episode_script`; when project sources exist, the server verifies a verbatim source substring, matching reference-to-video splitting-tool rules.
+- **Retire** entry fingerprint `script_plan_entry_revision`, episode fingerprint `script_plan_revision`, entry freshness comparison/merge assembly, legacy backfill, `GET script-review`'s `script_entry_currency`, timeline "content updated, prompts may mismatch" banners and "adopt new content," conversion previews, and formal-script stale / removed entries in workflow state. One project-schema migration removes existing fingerprint fields, materializes confirmed episodes lacking formal scripts, and marks empty-visual-layer storyboards pending where scripts already exist.
 
 ## Considered Options
 
-- **维持脚本规划为权威，把下游结构编辑收编到规划上**：每个增删入口都要在同一事务里改两份，Agent 与参考生视频路径也要收编，还要定「手动增删算不算对新规划的隐式确认」；耦合不减反增。
-- **保留指纹与部分重跑作为优化**：编写完成后脚本规划不再被改，部分重跑没有触发场景；唯一例外是整集重做，而整集重做正好不需要它。
-- **保留旧正式脚本做备份、重做生成新的一份**：又回到两份真相。danger 确认框足以防误触。
-- **对应原文在时间线开放编辑**：自由文本改原文锚极易失效；只读展示加 Agent 逐字子串校验的写入，已覆盖重新锚定的需要。
+- **Keeping plans authoritative and absorbing downstream structural edits into plans**: every addition/deletion entry must transactionally edit both copies, including Agent and reference-video paths, plus deciding whether manual changes implicitly confirm new plans. Coupling increases instead of decreasing.
+- **Retaining fingerprints and partial reruns as optimization**: plans no longer change after authoring, leaving no partial-rerun trigger except whole-episode redo, which does not need them.
+- **Keeping old formal scripts as backups and generating new copies on redo**: returns to two truths; danger confirmation suffices against accidental actions.
+- **Allowing corresponding-source edits on the timeline**: free-text source-anchor edits easily break validity. Read-only display plus Agent writes validated as verbatim substrings covers re-anchoring needs.
 
 ## Consequences
 
-- `docs/adr/0041` 的内容视觉分层、透传、内容确认继续有效；其「规划为持久基底、按条目增量、指纹」一段由本 ADR 取代。`docs/adr/0064` 不受影响。
-- `docs/adr/0041` 定「自由文本列今后只承载视觉改编内容（丢失可容忍）」，drama 投影据此把场景描述当作只属于脚本规划、转入正式脚本时剔除；这一口径由本 ADR 取代：场景描述随转出进入正式脚本，作为提示词编写的隐藏输入。
-- Agent 文档的内容修改口径从「改规划再重跑编写」改为「在正式脚本上 `patch_episode_script`」，「改规划再重跑」只用于整集重做；`generate-script` skill 关于 `entry_ids` 与 `scope` 的指导随工具契约改写。
-- 内容确认页在确认后只读，指引到时间线。
-- 正式脚本作为产物不再以脚本规划为依据判时效；脚本规划重跑但未确认，只表现为内容确认状态，不把正式脚本判 stale。
-- 词汇表的「条目时效」「转换预演」两个词条随退役删除。
-- 覆盖式确认移除旧分镜的产物去向沿用分镜移除的口径：项目回收站落地前，产物随分镜移除、不再显示；落地后进回收站。
+- `docs/adr/0041`'s content/visual separation, passthrough, and content confirmation remain valid; this ADR supersedes its "plan as persistent foundation, per-entry increments, fingerprints" passage. `docs/adr/0064` is unaffected.
+- `docs/adr/0041` specified "free-text columns henceforth carry only visual-adaptation content whose loss is tolerable," so drama projection treated scene descriptions as plan-only and stripped them from formal scripts. This ADR supersedes that: scene descriptions enter formal scripts on conversion as hidden prompt-authoring input.
+- Agent-document content-editing guidance changes from "edit plans then rerun authoring" to "use `patch_episode_script` on formal scripts"; "edit plans and rerun" applies only to whole-episode redo. Update `generate-script` skill guidance for `entry_ids` and `scope` with tool contracts.
+- Content-confirmation pages become read-only after confirmation and direct users to the timeline.
+- As artifacts, formal scripts no longer assess freshness against plans. Rerun but unconfirmed plans affect only content-confirmation status, without making formal scripts stale.
+- Remove retired "entry freshness" and "conversion preview" glossary entries.
+- Artifact destinations on overwrite-confirmation removal follow storyboard-removal rules: before the project recycle bin exists, artifacts disappear with storyboards; afterward, they enter the recycle bin.

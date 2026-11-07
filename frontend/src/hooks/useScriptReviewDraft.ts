@@ -4,14 +4,14 @@ import { API, ApiRequestError } from "@/api";
 import type { ScriptOverwrite, ScriptReviewState } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 
-/** 面板可编辑的草稿：`ScriptReviewState.content` 的某个变体。 */
+/** Panel-editable drafts: one `ScriptReviewState.content` variant. */
 type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
 
 function scriptReviewErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "";
 }
 
-/** 确认被拒是因为该集已有正式脚本、未认可覆盖时，取出服务端列出的覆盖后果。 */
+/** Extract server-listed overwrite consequences when confirmation refuses existing formal scripts without overwrite consent. */
 function overwriteFromError(err: unknown): ScriptOverwrite | null {
   if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
   const diagnostic = err.diagnostic;
@@ -20,19 +20,19 @@ function overwriteFromError(err: unknown): ScriptOverwrite | null {
   return overwrite != null && typeof overwrite === "object" ? (overwrite as ScriptOverwrite) : null;
 }
 
-/** 保存被拒是因为脚本规划已确认、只读。 */
+/** Saving refused because script plans are confirmed and readonly. */
 function isScriptPlanConfirmedError(err: unknown): boolean {
   if (!(err instanceof ApiRequestError) || err.status !== 409) return false;
   const diagnostic = err.diagnostic;
   return diagnostic != null && typeof diagnostic === "object" && (diagnostic as { code?: unknown }).code === "script_plan_confirmed";
 }
 
-/** 已确认、无待修复草稿的脚本规划只读，本地未保存的编辑无处可存，外部刷新时直接采用服务端内容。 */
+/** Confirmed script plans without repair drafts are readonly; local unsaved edits have nowhere to persist, so external refreshes adopt server content directly. */
 function isReadOnly(state: ScriptReviewState): boolean {
   return state.status === "confirmed" && state.quarantine == null;
 }
 
-/** 内容是否有未保存编辑：以序列化比对，draft 由 server content 克隆而来，键序稳定。 */
+/** Unsaved content edits: compare serialized forms; drafts clone server content with stable key order. */
 function isDirty(draft: unknown, serverContent: unknown): boolean {
   if (draft == null) return false;
   return JSON.stringify(draft) !== JSON.stringify(serverContent);
@@ -46,43 +46,43 @@ interface ScriptReviewDraftOptions<TDraft extends ScriptReviewContent> {
   projectName: string;
   episode: number;
   /**
-   * 从服务端审核态取出本面板可编辑的那份内容；形状不属于本面板的变体时返回 null。
-   * 须是稳定引用（模块级函数或 `useCallback`）——它参与拉取 effect 的依赖。
+   * Extract panel-editable content from server review states; null for variants outside this panel.
+   * Requires stable references (module functions or `useCallback`), used in fetch-effect dependencies.
    */
   selectContent: (state: ScriptReviewState) => TDraft | null;
-  /** 确认成功后的面板专属处理（含成功提示）；失败提示由本 hook 统一给出。 */
+  /** Panel-specific successful-confirmation handling (including success notices); this hook centralizes failure notices. */
   onConfirmed: () => void;
 }
 
 interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
-  /** 最近一次拉取到的服务端审核态；尚未拿到任何响应时为 null。 */
+  /** Latest fetched server review state; null before any response. */
   state: ScriptReviewState | null;
   draft: TDraft | null;
   setDraft: React.Dispatch<React.SetStateAction<TDraft | null>>;
-  /** 草稿与其所基于的服务端内容不一致，即有未保存编辑。 */
+  /** Drafts differ from their server-content baseline, indicating unsaved edits. */
   dirty: boolean;
   loading: boolean;
   loadError: { message: string } | null;
   saving: boolean;
   confirming: boolean;
-  /** 保存 / 确认请求在途：调用方据此锁住编辑控件，避免回显覆盖请求发出后的新编辑。 */
+  /** Save/confirm requests in flight: callers lock edit controls so echoed responses cannot overwrite edits made after requests. */
   busy: boolean;
   retry: () => void;
-  /** 静默重新拉取服务端审核态（草稿被采用或丢弃后，正式内容与草稿信息都已变化）。 */
+  /** Silently refetch server review states (adopted/discarded drafts change both formal content and draft information). */
   refresh: () => void;
   save: () => Promise<void>;
   /**
-   * 确认并整份转为正式脚本。该集已有正式脚本时须传认可覆盖的 `overwriteRevision`；缺失或已过期而被
-   * 服务端拒绝时，把服务端列出的当前覆盖后果写回 `state.script_overwrite`，面板据此改呈 danger 确认。
-   * 失败已就地处置（toast）、不重抛；返回是否成功，供调用方决定是否收起确认框。
+   * Confirm and convert entirely into formal scripts. Existing formal scripts require consented `overwriteRevision`; missing/stale revisions refused by
+   * servers write current server-listed consequences into `state.script_overwrite`, switching panels to danger confirmation.
+   * Failures are handled locally (toast), never reraised; return success so callers decide whether to close confirmations.
    */
   confirm: (options?: { overwriteRevision?: string }) => Promise<boolean>;
 }
 
 /**
- * script_plan → prompt_authoring 内容确认面板的草稿状态机：拉取 / 外部刷新 / 脏标记 / 采纳 / 保存 / 确认。
- * `ScriptReviewGate`（drama、narration）与 `ReferenceScriptPlanPreviewPanel`（reference_video）
- * 共用，面板只保留各自的呈现与专属交互。
+ * Draft state machine for script_plan → prompt_authoring confirmation panels: fetch / external refresh / dirty state / adopt / save / confirm.
+ * Shared by `ScriptReviewGate` (drama, narration) and `ReferenceScriptPlanPreviewPanel` (reference_video);
+ * panels retain their own presentation and specific interactions only.
  */
 export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   projectName,
@@ -96,9 +96,9 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
 
   const [state, setState] = useState<ScriptReviewState | null>(null);
   const [draft, setDraft] = useState<TDraft | null>(null);
-  // 保存时提交的基线指纹：绑定在**当前草稿所基于的那份服务端内容**上，只在草稿采用服务端内容时推进。
-  // 不能改用 state.fingerprint——有未保存编辑时的外部刷新会更新 state 却保留旧草稿，届时提交
-  // state.fingerprint 等于拿别人新写的内容当基线，OCC 会放行并静默覆盖对方的修改。
+  // Save baseline fingerprints bind **server content underlying current drafts**, advancing only when drafts adopt server content.
+  // Never use state.fingerprint: external refreshes update state but retain unsaved drafts; submitting
+  // refreshed baselines makes OCC silently permit overwriting others' changes.
   const [baseFingerprint, setBaseFingerprint] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ message: string } | null>(null);
@@ -110,23 +110,23 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   const dirty = useMemo(() => isDirty(draft, serverContent), [draft, serverContent]);
   const busy = saving || confirming;
 
-  // 把 dirty 镜像进 ref，供下方拉取 effect 读取最新值，而无需把 dirty 列入 deps（否则每次编辑都会重新拉取）。
+  // Mirror dirty into refs for latest fetch-effect reads without dirty deps, which would refetch on every edit.
   const dirtyRef = useRef(false);
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
 
-  // 在途拉取的 controller 与在途标记，供 adopt 作废与补拉判定。
+  // Fetch controllers/in-flight flags support adopt invalidation/follow-up decisions.
   const loadControllerRef = useRef<AbortController | null>(null);
   const loadInFlightRef = useRef(false);
 
-  // 采用服务端内容为新草稿（深克隆，避免与服务端态共享引用）。用户主动动作（保存 / 确认）后调用，
-  // 总是覆盖本地草稿；setDraft 传值而非更新器，保持纯净、不在更新器内读写 ref。
+  // Adopt server content as deep-cloned drafts without shared references after deliberate save/confirm actions,
+  // always replacing local drafts. setDraft takes values, never updaters reading/writing refs, preserving purity.
   //
-  // 采纳前发出的拉取一律作废：它读到的服务端态未必包含本次写入，回来时 dirtyRef 已因采纳而为
-  // false，会按旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧指纹撞 OCC。
-  // 但作废掉的若是外部事件（Agent 改 script_plan 的 revision）触发的那次拉取，该 revision 已被消费、
-  // 不会再有请求补上，外部更新就此丢失；故确有在途拉取被作废时补发一轮，把它重新拉回来。
+  // Invalidate all preadoption fetches: they may omit this write. After adoption sets dirtyRef false,
+  // late old contents would rewrite drafts/baseFingerprint, reverting drafts and causing next-save OCC conflicts.
+  // External-event fetches may have consumed Agent script_plan revisions with no later trigger,
+  // losing updates if discarded. When actual in-flight fetches invalidate, refetch once to recover them.
   const adopt = useCallback(
     (next: ScriptReviewState) => {
       const abandonedLoad = loadInFlightRef.current;
@@ -155,20 +155,20 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     const { signal } = controller;
     loadControllerRef.current = controller;
     loadInFlightRef.current = true;
-    // 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；
+    // After any response, empty or populated, revision refetches stay silent without loading flashes;
     const hadResponse = state != null;
-    // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
+    // failures retain real visible content silently, entering error states only without contents (initial/empty states).
     const hasContent = draft != null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 首屏拉取前须同步点亮加载态，已有响应时静默刷新
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetches synchronously activate loading; existing-response refreshes stay silent
     if (!hadResponse) setLoading(true);
     API.getScriptReview(projectName, episode, { signal })
       .then((next) => {
-        // 响应已 resolve 之后才 abort 的窗口：写 state 前复核，避免离场的这轮回写。
+        // Abort after response resolution: recheck before writes, preventing departed requests persisting.
         if (signal.aborted) return;
         setLoadError(null);
         setState(next);
-        // 外部刷新（挂载 / Agent 改 script_plan 触发的 revision）：用户无未保存编辑、或内容已确认只读时采用
-        // 服务端内容，否则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
+        // External mount/Agent revision refreshes adopt server content without unsaved edits or when confirmed readonly;
+        // otherwise update server state only, retaining drafts. dirtyRef reads inside effects are safe, outside render.
         if (!dirtyRef.current || isReadOnly(next)) {
           setDraft(clone(selectContent(next)));
           setBaseFingerprint(next.fingerprint);
@@ -176,12 +176,12 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       })
       .catch((err: unknown) => {
         if (signal.aborted) return;
-        // 屏上无真实内容（首屏失败，或空态后 revision 刷新失败）→ 错误态（区别于空态）+ 重试；
-        // 已有内容的静默刷新失败则保留现有内容，不破坏用户视图。
+        // Without real content, initial/empty-state refresh failures show errors, distinct from empty states, with retries;
+        // populated silent failures retain views unchanged.
         if (!hasContent) setLoadError({ message: scriptReviewErrorMessage(err) });
       })
       .finally(() => {
-        // 收尾让位给接管方：已作废就不碰在途标记与 loading，否则会打断新一轮加载态。
+        // Yield cleanup to successors: invalidated requests never touch in-flight/loading flags, avoiding interrupted new loads.
         if (!signal.aborted) {
           loadInFlightRef.current = false;
           setLoading(false);
@@ -190,7 +190,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     return () => {
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft choose loading/error branches only; deps would refetch after every refresh, looping
   }, [projectName, episode, draftRevision, reloadNonce, selectContent]);
 
   const save = useCallback(async () => {
@@ -200,7 +200,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
-      // 编辑期间该集已被确认：重新拉取，面板随之转为只读。
+      // Episodes confirmed during edits refetch, making panels readonly.
       if (isScriptPlanConfirmedError(err)) setReloadNonce((n) => n + 1);
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {

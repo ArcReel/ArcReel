@@ -1,0 +1,27 @@
+{
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "scope": "Full bilingual comparison of the two listed files. Truncated output was reread in bounded segments. Other backend files have automated passive-code proof and author checks but are not independently semantically accepted by this report.",
+  "resolved_findings": [
+    "Preserve strict <60s in JWT module documentation and refresh-margin comment instead of within 60s.",
+    "Preserve raw-response fallback diagnostics in three Kling task/result extraction docstrings.",
+    "Preserve explicit exactly-one-of-files/data/json constraint in scoped credential request documentation."
+  ],
+  "files": [
+    {
+      "path": "lib/backends/backend_runtime.py",
+      "candidate_sha256": "da76d9055c9a190ea443be70bb7714accadf49334a9439250bccd12734e76ea0",
+      "source_sha256": "ffad78e7d8fa43a535599b74623d44c14d1c2cd9a59789b66f92b08b5f3f81d2",
+      "changed_passive_spans_reviewed": 96,
+      "reviewer": "root",
+      "result": "PASS after requested precision corrections"
+    },
+    {
+      "path": "lib/backends/kling_shared.py",
+      "candidate_sha256": "1b84f617279d2cb7bee835b6ef7687d1ffb3d55ae03a90aab98d2cd2969f0b98",
+      "source_sha256": "71dd826a2043b0e7e4c2cc80c1010d901908ab2a935c6a2eaaab11d396bb6e69",
+      "changed_passive_spans_reviewed": 40,
+      "reviewer": "root",
+      "result": "PASS after requested precision corrections"
+    }
+  ]
+}

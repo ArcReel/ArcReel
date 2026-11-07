@@ -78,7 +78,7 @@ class TestProjectsRouter:
             assert data["default_duration"] == 8
 
     def test_create_project_persists_episode_target_duration(self, tmp_path, monkeypatch):
-        """单集目标时长在创建向导写入；越界值 422 且不留下半成品项目。"""
+        """Wizard creation writes episode targets; invalid ranges return 422 without partial projects."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -108,7 +108,7 @@ class TestProjectsRouter:
             assert "etd-bad" not in fake_pm.project_data
 
     def test_create_project_with_image_default_layer(self, tmp_path, monkeypatch):
-        """项目默认图片模型（default_image_backend）可在创建时写入，不必配桶。"""
+        """Creation may set default_image_backend without bucket configuration."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -129,7 +129,7 @@ class TestProjectsRouter:
             assert "image_provider_i2i" not in data
 
     def test_video_bucket_fields_create_patch_and_clear(self, tmp_path, monkeypatch):
-        """项目级视频桶键（video_provider_i2v/r2v）可创建时写入、PATCH 设置；空值 = 清除、回退默认层。"""
+        """Project video_provider_i2v/r2v buckets support creation/PATCH; empty clears and falls back to defaults."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -164,7 +164,7 @@ class TestProjectsRouter:
             assert "video_provider_r2v" not in fake_pm.project_data["ready"]
 
     def test_create_project_ignores_legacy_image_backend(self, tmp_path, monkeypatch):
-        """退役的 image_backend 字段已从写模型移除，传入时被静默忽略。"""
+        """Retired image_backend is removed from write models and silently ignored on submission."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -179,7 +179,7 @@ class TestProjectsRouter:
                 },
             )
             assert resp.status_code == 200
-            # 关键保证：退役字段不得落进 project.json，否则解析链会忽略它、静默错配供应商
+            # Retired fields must never persist to project.json, where ignored resolution would silently select wrong providers.
             assert "image_backend" not in fake_pm.project_data["legacy-1"]
 
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
@@ -203,7 +203,7 @@ class TestProjectsRouter:
             assert "image_backend" not in data
 
     def test_create_project_persists_speech_rate(self, tmp_path, monkeypatch):
-        """创建时可选填口播语速估算：区间内落盘，未填不落盘（回退语言默认）。"""
+        """Creation optionally sets estimated speaking rates: valid ranges persist, omission stays unpersisted with language fallback."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -246,7 +246,7 @@ class TestProjectsRouter:
 
     @pytest.mark.parametrize("value", [True, False])
     def test_create_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
-        """JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。"""
+        """Pydantic must not coerce JSON booleans into 1.0/0.0 rate overrides; both return 422 without directories."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -264,7 +264,7 @@ class TestProjectsRouter:
             assert "sr-bool" not in fake_pm.project_data
 
     def test_create_project_with_invalid_backend_returns_400(self, tmp_path, monkeypatch):
-        """非法 backend 字符串应被校验器拒绝。"""
+        """Invalid backend strings fail validators."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
 
@@ -275,7 +275,7 @@ class TestProjectsRouter:
                     "generation_mode": "storyboard",
                     "title": "Bad Backend",
                     "name": "bad-bk",
-                    "video_backend": "garbage",  # 无 "/"，且不在 PROVIDER_REGISTRY
+                    "video_backend": "garbage",  # No / and absent from PROVIDER_REGISTRY
                 },
             )
             assert resp.status_code == 400
@@ -283,21 +283,21 @@ class TestProjectsRouter:
     def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
-            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某种生成模式
+            # generation_mode required without defaults; missing values never silently fix generation modes.
             missing = client.post(
                 "/api/v1/projects",
                 json={"name": "no-mode", "title": "X", "content_mode": "narration"},
             )
             assert missing.status_code == 422
 
-            # 旧三值 grid 不再是合法创建值
+            # Legacy third grid value no longer creates valid projects.
             legacy_grid = client.post(
                 "/api/v1/projects",
                 json={"name": "old-grid", "title": "X", "content_mode": "narration", "generation_mode": "grid"},
             )
             assert legacy_grid.status_code == 422
 
-            # 两种生成模式均可创建
+            # Both generation modes create projects.
             for mode in ("storyboard", "reference_video"):
                 created = client.post(
                     "/api/v1/projects",
@@ -309,7 +309,7 @@ class TestProjectsRouter:
     def test_create_persists_grid_storyboard(self, tmp_path, monkeypatch):
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
-            # 缺省 false 也落盘为显式值
+            # Default false also persists explicitly.
             default_off = client.post(
                 "/api/v1/projects",
                 json={"name": "grid-off", "title": "X", "generation_mode": "storyboard"},
@@ -326,7 +326,7 @@ class TestProjectsRouter:
 
 
 class TestProjectCreationNarrationDelivery:
-    """旁白交付方式是必填的项目配置：缺省后期配音，TTS 配音以全局默认预填快照。"""
+    """Narration delivery is required project configuration: default postproduction dubbing; TTS snapshots prefill global defaults."""
 
     def _create(self, client, **fields):
         return client.post(

@@ -29,15 +29,15 @@ import { formatSpoken, formatVolume } from "./episodes-view-model";
 interface Props {
   projectName: string;
   view: EpisodesView;
-  /** 本项目有分集规划在排队或执行。 */
+  /** Episode planning is queued or running for this project. */
   active: boolean;
-  /** 已提交规划或交给 Agent：调用方据此收起弹层。 */
+  /** Planning submitted or handed to Agent; callers close the popover accordingly. */
   onStarted?: () => void;
 }
 
 /**
- * 「分集」视图页头「AI 规划分集」弹层的内容：附加指令、「交给 Agent」与直接调用，进行中显示进度与停止，
- * 上一次规划失败时给出原因与出路，整本规划完后给出体量统计。
+ * AI episode-planning header popover in Episodes view: extra instructions, Agent handoff/direct invocation, running progress/stop,
+ * last-failure reasons/recovery paths, and volume statistics after whole-source completion.
  */
 export function EpisodePlanningPanel({ projectName, view, active, onStarted }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -57,12 +57,12 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
       (EPISODE_PLANNING_SLOTS as readonly string[]).includes(task.resource_id),
   );
 
-  // 停止的时机：执行中的那一窗在请求模型前才把下一窗排进队列，停止若落在这之前就取消不到它；
-  // 停止请求未了结时，再看到排队的窗口就再停一次。
+  // Stop timing: running windows queue the next only before model requests; earlier stops cannot cancel it;
+  // while a stop request remains unresolved, stop again if another queued window appears.
   useEffect(() => {
     if (active && stopRequested && queuedWindow) void API.stopEpisodePlanning(projectName).catch(() => undefined);
   }, [active, stopRequested, queuedWindow, projectName]);
-  // 规划结束即了结停止请求，下一次规划从头开始
+  // Planning completion resolves the stop request; the next planning run starts fresh.
   if (!active && (stopRequested || finishingWindow)) {
     setStopRequested(false);
     setFinishingWindow(false);
@@ -70,7 +70,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
 
   const remaining = remainingUnits(view);
   const started = view.cut_units > 0;
-  // 删除中间的切出集留下的空段不在接续规划的范围里，要用空段上的按钮单独规划
+  // Gaps from deleting middle cut episodes are outside continuation scope; plan them individually through gap buttons.
   const hasGaps = view.files.some((file) => file.segments.some((segment) => segment.gap && segment.units > 0));
   const percent = view.units === 0 ? 0 : Math.round((view.cut_units / view.units) * 100);
 

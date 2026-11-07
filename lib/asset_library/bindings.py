@@ -1,9 +1,11 @@
-"""素材库资源范围与推理凭证的显式绑定。
+"""Explicit binding between library resource scopes and inference credentials.
 
-绑定只回答「这条推理凭证当前被用户确认可以使用哪个素材库范围」，不替代供应商自己的权限校验。
-确认时记下推理凭证内容、endpoint 与素材库范围的摘要；读取时按当前值重新计算，任何一项变化都让
-绑定退回待确认，不因凭证记录 ID 未变而继承旧账号资格。是否支持素材引用不按 base_url 的域名推断，
-内置火山方舟凭证与任意自定义供应商都可以由用户显式绑定。
+Bindings only record which scope users currently confirm usable by a credential; never replace
+provider authorization. Confirmation digests credential contents, endpoint, and library scope.
+Recompute from current values on reads; any change returns bindings to pending confirmation,
+never inheriting old-account eligibility just because record IDs match. Never infer asset-
+reference support from base_url domains; users may bind built-in Volcengine Ark credentials
+or arbitrary custom providers explicitly.
 """
 
 from __future__ import annotations
@@ -24,22 +26,24 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
 CredentialType = Literal["builtin", "custom"]
 
-# 可绑定素材库的内置供应商：调用走火山方舟协议的那几家。
+# Built-in bindable providers use the Volcengine Ark protocol.
 BINDABLE_BUILTIN_PROVIDERS: tuple[str, ...] = ("ark", "ark-agent-plan")
 
 BindingStatus = Literal["confirmed", "needs_confirmation"]
 
 
-#: 账号身份摘要的版本前缀；摘要算法变化时换前缀，旧关联不会与新摘要相等。
+#: Identity-digest version prefix; change when algorithms change so old links never equal new digests.
 _ACCOUNT_IDENTITY_DOMAIN = "arcreel/asset-library-account/v1"
 
 
 def account_identity(site: str, access_key_id: str) -> str:
-    """素材库账号所属云账号资源域的不可逆身份：站点与 Access Key ID 的摘要，不含 Secret Access Key。
+    """Irreversible cloud-account resource-domain identity: site/Access Key ID digest, excluding Secret Access Key.
 
-    账号记录 ID 与它上面的站点、区域、项目都可以原地修改，不能区分「同一记录换成了另一个云账号的 Key」。
-    供应商素材 ID 只在创建它的云账号内有效，关联与入库任务因此冻结这个身份；Access Key ID 变化即视为
-    另一个资源域，旧关联保留原范围，不适用于新身份。只改 Secret Access Key 不改变身份。
+    Record IDs and site/region/project values can change in place and cannot distinguish switching
+    the same record to another cloud account’s keys. Provider asset IDs belong only to their
+    creating cloud account, so links/ingest tasks freeze this identity. Changed Access Key IDs
+    mean another resource domain; old links retain original scopes and do not apply to new
+    identities. Changing only Secret Access Keys leaves identity unchanged.
     """
     payload = json.dumps(
         {"domain": _ACCOUNT_IDENTITY_DOMAIN, "site": site, "access_key_id": access_key_id.strip()},
@@ -51,10 +55,11 @@ def account_identity(site: str, access_key_id: str) -> str:
 
 @dataclass(frozen=True)
 class AssetLibraryScope:
-    """一次调用实际可用的素材库范围：云账号身份、站点、区域与项目，连同提供它的账号记录。
+    """Actual usable library scope: cloud-account identity, site, region, project, and supplying account record.
 
-    关联是否适用只按 ``account_identity``、``site``、``region``、``project_name`` 判断；``account_id``
-    只说明经哪条账号记录访问控制面，记录被改成另一个云账号后身份随之变化。
+    Link applicability depends only on ``account_identity``, ``site``, ``region``, ``project_name``.
+    ``account_id`` identifies control-plane access records only; changing records to another
+    cloud account changes their identity.
     """
 
     account_id: int
@@ -65,7 +70,7 @@ class AssetLibraryScope:
 
 
 def account_scope(account: AssetLibraryAccount) -> AssetLibraryScope:
-    """账号记录按当前内容覆盖的素材库范围。"""
+    """Library scope covered by an account record’s current contents."""
     return AssetLibraryScope(
         account_id=account.id,
         account_identity=account_identity(account.site, account.access_key_id),
@@ -76,18 +81,18 @@ def account_scope(account: AssetLibraryAccount) -> AssetLibraryScope:
 
 
 def scope_key(scope: AssetLibraryScope) -> str:
-    """范围的不透明比较键，供界面判断关联与账号是否同一范围；不含、也推不出 Access Key ID。"""
+    """Opaque comparison key for UI scope equality; neither contains nor reveals Access Key IDs."""
     payload = json.dumps([scope.account_identity, scope.site, scope.region, scope.project_name], ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
 @dataclass(frozen=True)
 class InferenceCredential:
-    """可绑定的一条推理凭证，带计算摘要所需的实际内容；``api_key`` 只在进程内使用，不出 API。"""
+    """Bindable inference credential with actual digest inputs; ``api_key`` stays process-local, never exposed through APIs."""
 
     credential_type: CredentialType
     credential_id: int
-    provider: str  # 内置供应商 id，或自定义供应商的 ``custom-<id>``
+    provider: str  # Built-in provider ID or custom-provider ``custom-<id>``.
     name: str
     api_key: str
     endpoint: str
@@ -101,13 +106,13 @@ class BindingView:
 
 
 def effective_endpoint(base_url: str | None, default: str | None = None) -> str:
-    """调用实际发往的 endpoint：去掉空白与尾斜杠，空值回落到默认地址。"""
+    """Actual inference endpoint, trimmed with trailing slashes removed; empty values fall back to defaults."""
     value = (base_url or "").strip() or (default or "").strip()
     return value.rstrip("/")
 
 
 def binding_fingerprint(credential: InferenceCredential, account: AssetLibraryAccount) -> str:
-    """推理凭证内容、endpoint 与素材库范围的摘要；任一项变化都会得到不同的值。"""
+    """Digest of credential contents/endpoint/library scope; changes to any input change the result."""
     payload = json.dumps(
         {
             "credential_type": credential.credential_type,
@@ -126,7 +131,7 @@ def binding_fingerprint(credential: InferenceCredential, account: AssetLibraryAc
 
 
 async def list_bindable_credentials(session: AsyncSession) -> list[InferenceCredential]:
-    """全部可绑定的推理凭证：内置火山方舟系供应商的各条凭证，以及每个自定义供应商。"""
+    """All bindable inference credentials: every built-in Volcengine-Ark-family credential and each custom provider."""
     credentials: list[InferenceCredential] = []
     cred_repo = CredentialRepository(session)
     for provider in BINDABLE_BUILTIN_PROVIDERS:
@@ -176,7 +181,7 @@ def binding_status(
 
 
 async def list_binding_views(session: AsyncSession) -> list[BindingView]:
-    """现存推理凭证上的绑定及其状态；指向已删除凭证或账号的绑定不列出。"""
+    """Bindings/status for existing inference credentials; omit bindings targeting deleted credentials/accounts."""
     repo = AssetLibraryRepository(session)
     accounts = {account.id: account for account in await repo.list_accounts()}
     credentials: dict[tuple[str, int], InferenceCredential] = {
@@ -199,7 +204,7 @@ async def list_binding_views(session: AsyncSession) -> list[BindingView]:
 async def confirm_binding(
     session: AsyncSession, account: AssetLibraryAccount, credential: InferenceCredential
 ) -> AssetLibraryBinding:
-    """按凭证与账号的当前内容确认绑定；凭证原先绑定其他账号时改绑。"""
+    """Confirm against current credential/account contents, rebinding if the credential previously used another account."""
     return await AssetLibraryRepository(session).upsert_binding(
         account_id=account.id,
         credential_type=credential.credential_type,
@@ -218,10 +223,11 @@ async def resolve_bound_scope(
     base_url: str | None,
     default_base_url: str | None = None,
 ) -> AssetLibraryScope | None:
-    """一次调用实际使用的推理凭证所确认的素材库范围。
+    """Confirmed library scope for inference credentials actually used in this call.
 
-    ``api_key`` 与 ``base_url`` 是本次调用真正使用的值，而不是按记录 ID 重新读出的值：凭证在
-    读取与调用之间被修改时，摘要对不上即按无绑定处理。没有绑定、绑定待确认或账号已删除都返回 None。
+    ``api_key`` / ``base_url`` are actual invocation values, not values reread by record ID.
+    Credentials changed between reading/calling produce digest mismatches and count as unbound.
+    Missing/unconfirmed bindings or deleted accounts return None.
     """
     repo = AssetLibraryRepository(session)
     binding = await repo.get_binding_for_credential(credential_type, credential_id)

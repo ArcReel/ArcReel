@@ -1,11 +1,13 @@
-"""视频版本的机器检查信号：黑屏段、卡帧段、镜头切换点。
+"""Machine-check signals for video versions: black spans, frozen spans, and shot cuts.
 
-三项信号都由随包 ffmpeg 在本地一次解码算出（``blackdetect`` / ``freezedetect`` / ``scene`` 打分），
-时间以首帧为 0，与联系表标注、剪辑时间线的入出点同一时间轴。信号只作提示：黑屏与卡帧是疑似问题，
-镜头切换点是结构信息，不是缺陷。
+Bundled ffmpeg computes all three locally in one decode (``blackdetect`` / ``freezedetect`` /
+``scene`` scores), with first-frame time zero shared by contact-sheet labels and editing in/out
+points. Signals are advisory: black/frozen spans are suspected issues; cuts are structural
+information, not defects.
 
-结果按视频版本缓存为 JSON 侧车文件：版本快照写入后不再变化，缓存以视频文件的大小与修改时间作指纹，
-算法参数变化时 :data:`SIGNALS_SCHEMA` 加一使旧缓存失效。
+Cache results per video version in JSON sidecars: version snapshots never change after writing,
+and video size/mtime fingerprint the cache. Increment :data:`SIGNALS_SCHEMA` when algorithm
+parameters change to invalidate old caches.
 """
 
 from __future__ import annotations
@@ -48,14 +50,14 @@ _SHOT_START_RE = re.compile(r"\bn:\s*\d+\s+pts:\s*-?\d+\s+pts_time:(-?[\d.]+)")
 
 
 class SignalDetectionError(RuntimeError):
-    """信号检测失败或超时。"""
+    """Signal detection failed or timed out."""
 
 
 @dataclass(frozen=True, slots=True)
 class TimeSpan:
     start: float
     end: float
-    """区间 [start, end)，单位秒。"""
+    """Half-open interval [start, end), in seconds."""
 
     def contains(self, time_seconds: float) -> bool:
         return self.start - _TIME_EPSILON <= time_seconds < self.end - _TIME_EPSILON
@@ -64,11 +66,11 @@ class TimeSpan:
 @dataclass(frozen=True, slots=True)
 class VideoSignals:
     duration_seconds: float
-    """视频总时长：末帧起点加一帧时长。"""
+    """Total video duration: final-frame start plus one frame duration."""
     black: tuple[TimeSpan, ...]
     freeze: tuple[TimeSpan, ...]
     cuts: tuple[float, ...]
-    """镜头切换点：新镜头首帧的起点。"""
+    """Shot cuts: starting times of the new shots’ first frames."""
 
     @property
     def shots(self) -> tuple[TimeSpan, ...]:
@@ -77,7 +79,7 @@ class VideoSignals:
         return tuple(TimeSpan(start, end) for start, end in zip(starts, ends, strict=True))
 
     def tags_at(self, time_seconds: float) -> tuple[str, ...]:
-        """起点为 ``time_seconds`` 的帧落在哪些信号上；固定按切点、黑屏、卡帧排序。"""
+        """Signals covering the frame starting at ``time_seconds``, always ordered CUT, BLACK, FREEZE."""
         tags: list[str] = []
         if any(abs(time_seconds - cut) <= _TIME_EPSILON for cut in self.cuts):
             tags.append(TAG_CUT)
@@ -97,7 +99,7 @@ class VideoSignals:
 
     @classmethod
     def from_json(cls, data: Any) -> VideoSignals | None:
-        """结构不符合预期时返回 None，调用方按未命中缓存处理。"""
+        """Return None for unexpected structure; callers treat it as a cache miss."""
         try:
             return cls(
                 duration_seconds=float(data["duration_seconds"]),
@@ -115,7 +117,7 @@ def _video_duration(frame_times: Sequence[float]) -> float:
 
 
 def _without(spans: Sequence[TimeSpan], covered: Sequence[TimeSpan]) -> list[TimeSpan]:
-    """从 ``spans`` 里挖掉 ``covered``，剩下不足 :data:`FREEZE_MIN_SECONDS` 的碎段丢弃。"""
+    """Subtract ``covered`` from ``spans`` and discard remaining fragments shorter than :data:`FREEZE_MIN_SECONDS`."""
     remaining = list(spans)
     for hole in covered:
         pieces: list[TimeSpan] = []
@@ -150,9 +152,9 @@ def _parse_signals(log: str, duration: float) -> VideoSignals:
         elif "showinfo" in line and (match := _SHOT_START_RE.search(line)) is not None:
             cuts.append(float(match.group(1)))
     if freeze_start is not None:
-        # 视频结束时仍在卡帧：ffmpeg 不再补发 freeze_end，卡帧延续到视频末尾。
+        # A freeze still active at video end gets no further ffmpeg freeze_end; extend it to video end.
         freeze.append(TimeSpan(freeze_start, duration))
-    # 黑屏必然静止：黑屏段不重复计入卡帧段。
+    # Black spans are necessarily static; do not count them again as frozen spans.
     freeze = _without(freeze, black)
     return VideoSignals(
         duration_seconds=_rounded(duration),
@@ -163,14 +165,14 @@ def _parse_signals(log: str, duration: float) -> VideoSignals:
 
 
 async def detect_signals(video_path: Path, frame_times: Sequence[float]) -> VideoSignals:
-    """对整段视频解码一次，算出黑屏段、卡帧段与镜头切换点。
+    """Decode the entire video once to compute black spans, frozen spans, and shot cuts.
 
     Args:
-        frame_times: 该视频每帧的起始时刻（``probe_video_frame_times`` 的结果），用来定视频总时长。
+        frame_times: Start times for every frame (``probe_video_frame_times`` output), used to determine total video duration.
 
     Raises:
-        FfmpegUnavailableError: 随包 ffmpeg 不可用。
-        SignalDetectionError: 解码失败或超时。
+        FfmpegUnavailableError: Bundled ffmpeg is unavailable.
+        SignalDetectionError: Decoding failed or timed out.
     """
     filters = ",".join(
         (
@@ -213,9 +215,9 @@ def _fingerprint(video_path: Path) -> list[int]:
 
 
 async def signals_for(video_path: Path, frame_times: Sequence[float], *, cache_file: Path) -> tuple[VideoSignals, bool]:
-    """取视频版本的信号：命中 ``cache_file`` 则直接返回，否则检测并写入缓存。返回 (信号, 是否命中缓存)。
+    """Read video-version signals from ``cache_file`` on a hit; otherwise detect and cache. Return (signals, cache hit).
 
-    缓存写入失败只影响下次重算，不影响本次结果。
+    Cache-write failures affect only later recomputation, never this result.
     """
     fingerprint, cached = await asyncio.to_thread(lambda: (_fingerprint(video_path), load_json_or_none(cache_file)))
     if isinstance(cached, dict) and cached.get("schema") == SIGNALS_SCHEMA and cached.get("video") == fingerprint:
@@ -228,7 +230,7 @@ async def signals_for(video_path: Path, frame_times: Sequence[float], *, cache_f
 
 
 def _write_signals_cache(cache_file: Path, fingerprint: list[int], signals: VideoSignals) -> None:
-    """写入信号缓存；失败只记日志，下次重算即可。"""
+    """Write signal caches; failures only log, allowing recomputation next time."""
     try:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(cache_file, {"schema": SIGNALS_SCHEMA, "video": fingerprint, "signals": signals.to_json()})
@@ -237,13 +239,13 @@ def _write_signals_cache(cache_file: Path, fingerprint: list[int], signals: Vide
 
 
 def frame_index_at(frame_times: Sequence[float], time_seconds: float) -> int:
-    """起点不早于 ``time_seconds``（容差内）的第一帧的索引；越过末帧时取末帧。"""
+    """Index of the first frame starting no earlier than ``time_seconds`` within tolerance; clamp beyond the end to the final frame."""
     index = bisect.bisect_left(frame_times, time_seconds - _TIME_EPSILON)
     return min(index, len(frame_times) - 1)
 
 
 def last_frame_index_before(frame_times: Sequence[float], time_seconds: float) -> int:
-    """起点早于 ``time_seconds``（容差内）的最后一帧的索引；没有则为 -1。"""
+    """Index of the last frame starting before ``time_seconds`` within tolerance, or -1 if none."""
     return bisect.bisect_left(frame_times, time_seconds - _TIME_EPSILON) - 1
 
 

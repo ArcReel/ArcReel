@@ -2,34 +2,34 @@
 status: accepted
 ---
 
-# 自定义调用端点采用声明式定义，统一「JSON in/out + 提交/轮询」流派
+# Custom invocation endpoints use declarative definitions for the JSON-in/out, submit/poll paradigm
 
-接入一种新的视频或图片协议此前只有改源码一条路：`lib/custom_provider/endpoints.py` 硬编码全部内置调用端点，新协议要新建 backend 类、注册 endpoint 键、加推断规则与 i18n。而长尾聚合站与中转站的协议同属一个流派——JSON 请求进、JSON 响应出、提交后轮询——只是字段命名与取值路径各异，逐家写 Python 不可持续。图片一侧同样有这类供应商：路径与字段沿用 OpenAI 风格，语义却是提交后轮询的异步任务，同步的 OpenAI 兼容图片端点接不了。
+New video/image protocols previously required source edits: `lib/custom_provider/endpoints.py` hardcoded all built-in endpoints, and new protocols needed backend classes, endpoint keys, inference rules, and i18n. Long-tail aggregators/intermediaries share one paradigm (JSON requests/responses, submission then polling), differing mainly in field names/extraction paths; provider-specific Python is unsustainable. Images have similar providers: OpenAI-style paths/fields but asynchronous submit/poll semantics, unsupported by synchronous OpenAI-compatible image endpoints.
 
-我们决定**自定义调用端点采用声明式定义**：一份 JSON 容器（`kind: declarative`、文件级 `schema_version`），请求用 JSON 结构模板 + `{{ }}` 占位符（整串单占位符保留原生类型）与少量固定构造（`$each` 铺字段、对象级 `$when` 守卫、可选 `result` 二次取件节），响应提取用 RFC 9535 JSONPath 受限子集的优先级数组，状态与枚举映射为纯字典；媒体类型由定义声明（`media_type: image | video`，缺省为视频）；不引入 Jinja2 等通用模板引擎。定位不是表达一切协议，而是**「JSON in/out + 提交/轮询」流派的统一形态**：向下覆盖长尾聚合站与中转站（10 家抽样 8 家可表达全链路），向上把可整体表达的 HTTP 式内置 backend 收编为随版声明式定义（首批 newapi / v2_video_generations / minimax，上线同 PR 删除对应 Python 路径）。不可表达的协议——签名类鉴权（JWT / SigV4）、按素材路由、跨列表配对、SDK 式接入——留在 Python 内置 endpoint，不为其扩格式。
+**Use declarative definitions for custom invocation endpoints**: JSON containers (`kind: declarative`, file-level `schema_version`), JSON-structured request templates with `{{ }}` placeholders (whole-string single placeholders preserve native types), a few fixed constructs (`$each` field expansion, object-level `$when` guards, optional secondary `result` retrieval), priority arrays of a restricted RFC 9535 JSONPath subset for response extraction, and pure-dictionary status/enum mappings. Definitions declare media (`media_type: image | video`, default video); introduce no general template engine such as Jinja2. The goal is not every protocol but **one shape for the JSON-in/out, submit/poll paradigm**: cover long-tail aggregators/intermediaries (8 of 10 sampled providers fully expressible), and absorb wholly expressible HTTP-style built-ins into shipped definitions (initial newapi / v2_video_generations / minimax, removing their Python paths in the same PR). Inexpressible protocols (signed authentication such as JWT / SigV4, material-based routing, cross-list pairing, SDK integrations) remain Python built-in endpoints without format expansion.
 
-**明确不采用**：① **通用覆盖率标尺下弃用声明式**——以「表达全部协议」衡量，声明式只有五六成覆盖率；但把范围圈定在流派内后，覆盖率由 22 份定义复刻 8 家 HTTP 式内置 backend 的验收证实，调试劣势由端点测试三模式（预览请求 / 验证响应 / 测试连接）与保存共用的校验器承接。② **运行时 Python plugin 作为自定义协议的接入形态**——插件的加载、执行与信任模型是独立议题（#872），容器以 `kind` 字段为其预留槽位；声明式收编的是本可整体表达的那部分，不与 plugin 互斥。③ **为不可表达构造扩充格式**（签名鉴权、按素材分支、multipart 等）——可选构造「不写就不见」的原则下，每项扩充都以外部长尾的真实需要为准入，而非追求格式完备。
+**Explicitly rejected**: ① **Abandoning declarative endpoints under universal coverage criteria**: measured against all protocols, coverage is only roughly 50–60%; within the paradigm, acceptance reproduced 8 HTTP-style built-ins through 22 definitions. Endpoint tests' three modes (request preview / response validation / connection testing) and validators shared with saving address debugging disadvantages. ② **Runtime Python plugins for custom protocols**: loading, execution, and trust are separate concerns (#872), with container `kind` reserving a slot; declarative definitions absorb wholly expressible protocols without excluding plugins. ③ **Expanding formats for inexpressible constructs** (signed authentication, material-based branches, multipart, etc.): under "unused optional constructs remain invisible," every extension requires real external long-tail demand, rather than format completeness.
 
-## 图片定义
+## Image definitions
 
-媒体类型与 `kind` 正交：`kind` 区分定义形态（协议约定还是 workflow），图片与视频共用同一套声明式格式与运行时，ComfyUI 端点同样在定义里声明媒体类型（见 `docs/adr/0081`）。图片定义与视频定义的差别只在以下几处：
+Media type is orthogonal to `kind`: `kind` distinguishes definition shapes (protocol conventions versus workflows). Images/videos share declarative format/runtime; ComfyUI definitions also declare media types (see `docs/adr/0081`). Image/video definitions differ only as follows:
 
-- **能力显式声明**：图片定义写 t2i / i2i 能力与参考图上限，一份定义可同时声明两者；声明 i2i 必须有参考图输入。门控沿用 `docs/adr/0015`，不做降级。不照 ComfyUI 从输入推导能力（见 `docs/adr/0082`）：视频定义的能力本就显式声明，同一 `kind` 内保持一致；「参考图输入是否必填」决定 t2i / i2i 这类推导规则，对写定义的人过于隐蔽。
-- **模板变量与输入来源按媒体类型分集合**：图片定义只能用提示词、模型、比例、分辨率、宽高、种子与参考图输入，写了时长、音频或首尾帧在保存时报错，而不是渲染为空。图片编辑的编辑指令走提示词，不另设变量。
-- **产物可取 URL 或 base64**：产物提取可写 URL 路径、base64 路径或两者，两者都写时先取 URL。base64 仍是 JSON 响应里的一个字段，没有越出「JSON in/out」。视频定义只取 URL，等有真实案例再议。
-- **一次只取一张图**，参考费用按模型行的按张单价计，与 ComfyUI 图片同口径（见 `docs/adr/0081`）。
-- **不续跑**：系统只有视频有续跑协议，服务重启时在途的图片任务与 ComfyUI 图片一样记为重启丢失。图片任务通常几十秒内结束，为它新建续跑协议得不偿失。
+- **Explicit capabilities**: image definitions declare t2i / i2i and reference limits, possibly both in one definition; i2i requires reference inputs. Reuse `docs/adr/0015` gating without downgrade. Do not derive capabilities from inputs as ComfyUI does (`docs/adr/0082`): video declarations are already explicit, keeping one `kind` consistent, while inference such as required reference inputs determining t2i/i2i is too hidden for definition authors.
+- **Media-specific template-variable/input sets**: images may use only prompts, models, ratios, resolutions, dimensions, seeds, and references. Duration, audio, or first/last-frame inputs fail on save instead of rendering empty. Editing instructions use prompts without separate variables.
+- **URL or base64 artifacts**: extraction can specify URL paths, base64 paths, or both, preferring URLs when both exist. Base64 remains a JSON response field within JSON-in/out. Videos extract only URLs until a real case warrants revisiting.
+- **Retrieve one image per call**, with reference costs using model-row per-image prices, matching ComfyUI images (see `docs/adr/0081`).
+- **No resumption**: only videos have resume protocols. On restart, in-flight image tasks are restart-lost like ComfyUI images. They usually finish within tens of seconds, not justifying a new resume protocol.
 
-两种媒体类型的素材都只以 data URI / base64 内联，不做公网 URL 托管；端点测试三种模式对两者都可用。
+Both media types inline materials only as data URIs / base64, without public URL hosting; all three endpoint-test modes support both.
 
-## 存储上的两项偏离
+## Two storage deviations
 
-- **定义本体整份存 JSON**：新表 `custom_endpoint` 以 `definition` 一列 JSON 为唯一真相源。这不与 ADR 0042「字段集稳定优先定型列」相抵——定义随 `schema_version` 演进、字段集不稳定，正是 0042 留给 JSON 的「真正动态」场景；定型列只提 DB 层不解析 JSON 就要用的只读镜像（`kind` / `schema_version` / `media_type` / `display_name` / 时间戳），写入时由定义派生，不构成第二真相源。
-- **被模型行引用则拒删**：删除被 `custom_provider_model` 引用的自定义调用端点返回 409 与引用清单。这是仓库首个「拒删」先例，与既有「删 + 清悬空引用」路径并存而非取代：模型行承载用户手工配置（定价、能力覆盖），级联删除丢用户劳动，留悬空引用则把错误推迟到生成时才爆。引用完整性由服务层计数保证，不加 FK 约束——409 要回引用清单，约束只能抛一个 `IntegrityError`，而删除路径本就要先查引用。
+- **Store complete definitions as JSON**: new `custom_endpoint` table uses JSON `definition` as sole truth. This does not conflict with ADR 0042's typed-column preference for stable fields: definitions evolve with `schema_version`, with unstable fields, precisely its genuinely dynamic JSON case. Typed columns are read-only mirrors needed without database-side JSON parsing (`kind` / `schema_version` / `media_type` / `display_name` / timestamps), derived on write rather than second truth.
+- **Reject deletion while model rows reference endpoints**: deleting endpoints referenced by `custom_provider_model` returns 409 plus reference lists. This first rejection precedent coexists with existing deletion/dangling-reference-cleanup paths, without replacing them. Model rows hold manually configured pricing/overrides; cascades discard user work, while dangling references defer failure to generation. Service-layer reference counts ensure integrity without FK constraints: 409 needs reference lists, while constraints only raise `IntegrityError`, and deletion already must query references.
 
 ## Consequences
 
-- 内置调用端点的实现形态从此有两种：Python backend 或随版声明式定义（`lib/custom_provider/builtin_endpoints/*.json`，import 期入注册表、沿用内置键、不落 DB）；同键换实现，在途任务由声明式运行时按键接手，无版本锁。
-- 新增 HTTP 式提交/轮询协议的默认路径变为「写定义」（UI 或导入，零代码），确认不可表达再落 Python；catalog 以 `kind: python | declarative` 区分实现形态。
-- 后续 PR 若要为不可表达构造扩充格式、或以声明式吞并 SDK 式 backend，须先修订本 ADR 的流派边界。
-- `docs/research/arcreel-video-api-protocol-research.md` 第 7 章的接入方案选型以本 ADR 为准（该文档存修订注）。
+- Built-in invocation endpoints now have two implementations: Python backends or shipped declarative definitions (`lib/custom_provider/builtin_endpoints/*.json`, registered at import, retaining built-in keys without database storage). Switching implementations under the same key lets declarative runtimes take over in-flight tasks by key without version locks.
+- New HTTP-style submit/poll protocols default to "write a definition" (UI/import, zero code), using Python only after confirming inexpressibility. Catalogs distinguish implementations through `kind: python | declarative`.
+- Subsequent PRs expanding formats for inexpressible constructs or absorbing SDK-style backends must first revise this paradigm boundary.
+- This ADR governs integration choices in chapter 7 of `docs/research/arcreel-video-api-protocol-research.md` (which carries a revision note).

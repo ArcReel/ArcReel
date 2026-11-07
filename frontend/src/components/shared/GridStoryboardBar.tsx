@@ -10,10 +10,10 @@ export interface GridStoryboardBarProps {
 }
 
 /**
- * 多宫格分镜装配条。
+ * Grid-storyboard assembly bar.
  *
- * 结构上独立于生成模式卡：宫格只改变分镜图的生产方式，不改变喂给视频模型的输入契约，
- * 因此是分镜图生视频内的选项而非第三种生成模式。向导与设置页共用同一文案与同一开关语义。
+ * Structurally separate from generation-mode cards: grids change only storyboard-image production, leaving the video-model input contract unchanged.
+ * They are therefore an option within storyboard-image-to-video, rather than a third mode. Wizard and settings share copy and toggle semantics.
  */
 export function GridStoryboardBar({ checked, onToggle }: GridStoryboardBarProps) {
   const { t } = useTranslation("dashboard");

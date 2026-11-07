@@ -1,10 +1,13 @@
-"""图像 / 视频 / 资产 prompt 的统一真相源。
+"""Single source of truth for image / video / asset prompts.
 
-WebUI（server/services/tasks/generation_tasks.py）和 Skill（agent_runtime_profile/.claude/skills/generate-assets）
-都从这里取最终 prompt 文本，确保入口一致、不漂移。
+Both WebUI (server/services/tasks/generation_tasks.py) and the Skill
+(agent_runtime_profile/.claude/skills/generate-assets) obtain final prompt text here,
+keeping entry points consistent without drift.
 
-资产图与分镜图的系统包装由内置模版渲染；本模块提供分镜图的渲染出口，把投影与「图N」编号作为槽位值装配。
-反向提示词写在正文末尾的 Avoid 键，不使用 backend 的 negative_prompt 参数通道。
+Built-in templates render system wrappers for asset and storyboard images. This module
+provides the storyboard rendering entry point, assembling projections and 图N numbering
+as slot values. Negative constraints use the trailing Avoid key in the body, never the
+backend negative_prompt parameter channel.
 """
 
 from __future__ import annotations
@@ -25,6 +28,9 @@ from lib.prompts.reference_image_numbering import (
     render_reference_mentions,
 )
 
+# Persisted plain-text prompts can contain this former built-in declaration.
+_LEGACY_IMAGE_AVOID_LINE = "Avoid: 水印、多余文字、Logo"
+
 
 def _asset_prompt(asset_type: str, name: str, description: str, style: str = "", style_description: str = "") -> str:
     return builtin_templates.render(
@@ -38,32 +44,32 @@ def _asset_prompt(asset_type: str, name: str, description: str, style: str = "",
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色资产图（三视图 16:9）。"""
+    """Character asset image (three views, 16:9)."""
     return _asset_prompt("character", name, description, style, style_description)
 
 
 def build_character_derivative_prompt(description: str) -> str:
-    """只改描述到的外观，其余版式与外观保留本体资产图。"""
+    """Change only the described appearance; preserve the base asset image layout and all other appearance."""
     return _asset_prompt("character_derivative", "", description)
 
 
 def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """无人场景资产图。"""
+    """Unoccupied scene asset image."""
     return _asset_prompt("scene", name, description, style, style_description)
 
 
 def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """道具资产图。"""
+    """Prop asset image."""
     return _asset_prompt("prop", name, description, style, style_description)
 
 
 def build_product_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """忠实于实拍参考的商品资产图，风格变体为空。"""
+    """Product asset image faithful to photographic references, with an empty style variant."""
     return _asset_prompt("product", name, description, style, style_description)
 
 
 # ---------------------------------------------------------------------------
-# 分镜图提示词渲染出口
+# Storyboard image prompt rendering entry point
 # ---------------------------------------------------------------------------
 
 
@@ -74,13 +80,16 @@ def render_storyboard_image_prompt(
     style_description: str = "",
     references: Sequence[ReferenceImageSlot] = (),
 ) -> str:
-    """分镜图最终提示词文本的唯一出口。
+    """Sole entry point for final storyboard image prompt text.
 
-    执行路径、Skill 入队校验与预览接口共用本函数：结构形态经项目风格投影为 YAML、文本形态原样
-    作提示词主体，两者同样注入项目风格、参考图类型声明与 ``Avoid`` 反向约束。``references``
-    是实际随请求发出的参考图列表（编排层最终装配序），其位置即「图N」编号：类型声明行
-    ``Reference_Images`` 插在风格块与 ``Scene`` 之间，正文的 ``@[名称]`` 换成对应编号、对不上
-    的渲染为裸名；没有参考图就没有声明行。商品参考图的保真要求并入声明行。
+    Shared by execution, Skill enqueue validation and preview endpoints: project structured
+    prompts through the project style into YAML, and use text prompts unchanged as the body.
+    Both inject project style, reference-image type declarations and ``Avoid`` constraints.
+    ``references`` is the image list actually sent with the request, in final orchestration
+    order; positions supply 图N numbers. Insert the ``Reference_Images`` declaration between
+    the style block and ``Scene``. Replace body ``@[名称]`` mentions with their numbers, or bare
+    names when unmatched. Omit the declaration when no references exist. Include product
+    reference fidelity requirements in the declaration.
     """
 
     projected, projected_style = project_storyboard_image_prompt(image_prompt, style)
@@ -96,11 +105,24 @@ def render_storyboard_image_prompt(
             reference_images=declaration,
             style_description=normalized_description,
         ).rstrip()
+    text_body = render_reference_mentions(projected, references)
+    if _LEGACY_IMAGE_AVOID_LINE in text_body.split("\n"):
+        current_declaration = builtin_templates.render(
+            "storyboard/image",
+            style="",
+            style_description="",
+            reference_images="",
+            structured_body="",
+            text_body="",
+        )
+        text_body = "\n".join(
+            current_declaration if line == _LEGACY_IMAGE_AVOID_LINE else line for line in text_body.split("\n")
+        )
     return builtin_templates.render(
         "storyboard/image",
         style=normalized_style,
         style_description=normalized_description,
         reference_images=yaml_section({REFERENCE_IMAGES_KEY: declaration}) if declaration else "",
         structured_body="",
-        text_body=render_reference_mentions(projected, references),
+        text_body=text_body,
     )

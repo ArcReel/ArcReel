@@ -1,4 +1,4 @@
-"""Alembic 迁移：新建正式素材对象与引用表，降级时删除。"""
+"""Alembic: create formal material-object/reference tables and remove on downgrade."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""GrokVideoBackend 单元测试。"""
+"""GrokVideoBackend unit tests."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from tests.http_capture import capture_http
 
 @contextmanager
 def _video_download(url: str, content: bytes) -> Generator[respx.Route]:
-    """成片下载的出站流：base 层用真实 httpx 流式取字节，走 respx 在 transport 层拦截。"""
+    """Outbound final-video download stream: the base layer streams real httpx bytes; respx intercepts at transport level."""
     with capture_http() as router:
         yield router.get(url).mock(return_value=httpx.Response(200, content=content))
 
@@ -48,7 +48,7 @@ class TestGrokVideoBackend:
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
-        # 通道实现了参考图且不设上限；各型号的上限来自条目
+        # The channel supports reference images without a limit; each model entry supplies its limit.
         assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.backends.video_backends.grok.create_grok_client")
@@ -107,7 +107,7 @@ class TestGrokVideoBackend:
 
     @pytest.mark.parametrize("generate_audio", [True, False])
     async def test_audio_intent_reaches_sdk_and_settlement(self, video_output_path: Path, generate_audio: bool):
-        """音轨开关原样下发为 SDK 的 generate_audio，结算按实际下发值记录，关闭即落无声。"""
+        """Pass the audio switch unchanged as SDK generate_audio; settlement records the sent value, with disabled audio recorded as silent."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         mock_response = MagicMock()
@@ -135,7 +135,7 @@ class TestGrokVideoBackend:
         assert result.generate_audio is generate_audio
 
     async def test_default_request_keeps_audio(self, video_output_path: Path):
-        """请求不声明音轨意图时保持有声：下发 True，结算记录有声。"""
+        """Keep audio enabled when the request declares no audio intent: send True and record audio at settlement."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         mock_response = MagicMock()
@@ -225,22 +225,22 @@ class TestGrokVideoBackend:
     @pytest.mark.parametrize(
         ("raw_duration", "expected"),
         [
-            (15, 15),  # 整数直接收窄
-            ("15.0", 15),  # 浮点字符串先经 float 解析
-            (7.8, 8),  # 浮点 half-up 取整，与 dashscope 计费口径一致
-            (4.4, 4),  # half-up：不足半秒舍去
-            (0, 5),  # 零值回落请求时长
-            (-10, 5),  # 负值回落请求时长
-            (0.3, 5),  # 取整到 0 同样回落，保持结果恒为正
-            ("unknown", 5),  # 不可解析回落请求时长
-            (float("inf"), 5),  # 溢出回落请求时长
-            (1e100, 5),  # 超出合理上限回落请求时长，防 DB Integer 列溢出
-            (86400.9, 5),  # 上限基于取整前原始值：小数已超 24h 不得因取整落回上限内
-            (None, 5),  # 缺失回落请求时长
+            (15, 15),  # Narrow integers directly.
+            ("15.0", 15),  # Parse floating-point strings through float first.
+            (7.8, 8),  # Round floats half-up, matching dashscope billing.
+            (4.4, 4),  # Half-up: discard less than half a second.
+            (0, 5),  # Zero falls back to requested duration.
+            (-10, 5),  # Negative values fall back to requested duration.
+            (0.3, 5),  # Values rounded to 0 also fall back, keeping the result positive.
+            ("unknown", 5),  # Unparseable values fall back to requested duration.
+            (float("inf"), 5),  # Overflow falls back to requested duration.
+            (1e100, 5),  # Above the safe maximum, use requested duration to avoid DB Integer overflow.
+            (86400.9, 5),  # Check raw values: fractions beyond 24h cannot round back within the limit.
+            (None, 5),  # Missing values fall back to requested duration.
         ],
     )
     async def test_duration_narrowed_to_int_with_fallback(self, video_output_path: Path, raw_duration, expected):
-        """SDK 回报的 duration 未类型化：可解析数值收窄为 int 作为实际计费时长，否则回落请求时长。"""
+        """SDK duration is untyped: narrow parseable numbers to int for actual billed duration; otherwise use requested duration."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         mock_response = MagicMock()
@@ -276,7 +276,7 @@ def _png(path: Path) -> Path:
 
 @contextmanager
 def _grok_sdk(duration: int = 5) -> Generator[AsyncMock]:
-    """替换 SDK client，产出 ``video.generate`` mock 以便断言下发参数。"""
+    """Replace the SDK client and yield a ``video.generate`` mock for assertions on sent arguments."""
     mock_response = MagicMock()
     mock_response.url = "https://vidgen.x.ai/test/video.mp4"
     mock_response.duration = duration
@@ -290,10 +290,10 @@ def _grok_sdk(duration: int = 5) -> Generator[AsyncMock]:
 
 
 class TestGrokVideo15Models:
-    """grok-imagine-video-1.5 / 1.5-lite 的能力声明与请求下发。"""
+    """Capability declarations and request submission for grok-imagine-video-1.5 / 1.5-lite."""
 
     async def test_reference_audio_rejected_before_submit(self, tmp_path: Path):
-        """请求体没有参考音频字段，拒绝而不是丢弃后照常提交。"""
+        """The request body has no reference-audio field; reject it rather than discard it and submit normally."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         audio = tmp_path / "voice.mp3"
@@ -318,13 +318,13 @@ class TestGrokVideo15Models:
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is True
-        # 官方参考生视频页给 1.5 的上限是 14（经典版 7），来自条目
+        # The official reference-to-video page gives 1.5 a limit of 14 (classic 7), supplied by the entry.
         assert caps.max_reference_images == 14
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
     def test_1_5_lite_declares_neither_reference_images_nor_last_frame(self):
-        """官方只写了 lite 的文生与图生视频；真实调用带参考图返回 INVALID_ARGUMENT。"""
+        """Official docs describe only text-to-video and image-to-video for lite; real reference-image calls return INVALID_ARGUMENT."""
         caps = self._effective("grok-imagine-video-1.5-lite")
         assert caps.text_to_video is True
         assert caps.first_frame is True
@@ -339,7 +339,7 @@ class TestGrokVideo15Models:
 
     @pytest.mark.parametrize("model", ["grok-imagine-video-1.5", "grok-imagine-video-1.5-lite"])
     async def test_1080p_reaches_sdk(self, video_output_path: Path, tmp_path: Path, model: str):
-        """文生与图生按请求分辨率原样下发 1080p，模型名与音轨开关一并透传。"""
+        """Pass requested 1080p unchanged for text-to-video and image-to-video, together with model name and audio switch."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         with _grok_sdk() as generate:
@@ -390,7 +390,7 @@ class TestGrokVideo15Models:
     async def test_missing_start_or_reference_image_fails_before_provider_call(
         self, video_output_path: Path, tmp_path: Path, field: str, code: str
     ):
-        """首帧 / 参考图读不到不静默跳过：否则照常计费，成片却没用上用户给的图。"""
+        """Do not silently skip unreadable first/reference images: that would charge normally for a video that ignores the supplied images."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         missing = tmp_path / "missing.png"
@@ -411,7 +411,7 @@ class TestGrokVideo15Models:
         generate.assert_not_awaited()
 
     async def test_missing_end_image_fails_before_provider_call(self, video_output_path: Path, tmp_path: Path):
-        """尾帧读不到不静默跳过：否则照常计费，成片却落不到分镜要求的结尾画面。"""
+        """Do not silently skip an unreadable last frame: that would charge normally without reaching the storyboard ending image."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         with _grok_sdk() as generate:
@@ -440,7 +440,7 @@ class TestGrokVideo15Models:
     async def test_reference_route_rejects_1080p_before_provider_call(
         self, video_output_path: Path, tmp_path: Path, model: str, route: str
     ):
-        """参考生视频（参考图，或首帧加尾帧）官方上限 720p：1080p 在付费调用前拒绝，也不收回付费窗口。"""
+        """Reference-to-video (reference images or first plus last frame) officially tops out at 720p: reject 1080p before the paid call without consuming the paid window."""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         by_reference = route == "reference_images"
@@ -469,7 +469,7 @@ class TestGrokVideo15Models:
     async def test_classic_rejects_first_frame_with_reference_images_before_provider_call(
         self, video_output_path: Path, tmp_path: Path
     ):
-        """classic 官方拒收首帧与参考图并存：付费调用前拒绝，不两者一并下发。"""
+        """Classic officially rejects a first frame combined with reference images: reject before the paid call instead of sending both."""
         from lib.backends.video_backends.grok import GrokClassicVideoBackend
 
         resubmit_unsafe = MagicMock()
@@ -493,7 +493,7 @@ class TestGrokVideo15Models:
         resubmit_unsafe.assert_not_called()
 
     async def test_1_5_sends_first_frame_with_reference_images(self, video_output_path: Path, tmp_path: Path):
-        """1.5 上首帧加参考图即钉住首帧的参考生视频，两者一并下发。"""
+        """On 1.5, first frame plus reference images means reference-to-video with a fixed first frame; send both."""
         from lib.backends.video_backends.grok import GrokMixedVideoBackend
 
         with _grok_sdk() as generate:

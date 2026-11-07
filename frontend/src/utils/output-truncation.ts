@@ -4,7 +4,7 @@ import type { TaskItem } from "@/types";
 
 const CUSTOM_PROVIDER_PREFIX = "custom-";
 
-/** 文本任务因输出被截断而失败时的模型；`custom` 为自定义供应商的模型，可以去设置里登记最大输出长度。 */
+/** Model for a text task failing from truncated output; `custom` marks custom-provider models whose maximum output length can be registered in settings. */
 export interface OutputTruncation {
   providerId: string;
   model: string;
@@ -19,12 +19,12 @@ function truncationFromProblem(code: unknown, params: Record<string, unknown>): 
   return { providerId, model, custom: params.custom_model === true };
 }
 
-/** 失败任务的输出截断信息：问题码为 `text_output_truncated` 且带出模型时返回，否则返回 null。 */
+/** Failed-task truncation information: return when the problem code is `text_output_truncated` and includes a model; otherwise null. */
 export function outputTruncationOf(task: Pick<TaskItem, "error_code" | "error_params">): OutputTruncation | null {
   return truncationFromProblem(task.error_code, task.error_params ?? {});
 }
 
-/** 同步请求（如生成项目概述）因输出被截断而失败时的截断信息：`diagnostic` 是同一个问题票形状，否则返回 null。 */
+/** Truncation information for synchronous requests such as project-overview generation: `diagnostic` has the same problem-ticket shape; otherwise null. */
 export function outputTruncationOfError(err: unknown): OutputTruncation | null {
   if (!(err instanceof ApiRequestError)) return null;
   const problem = err.diagnostic;
@@ -34,7 +34,7 @@ export function outputTruncationOfError(err: unknown): OutputTruncation | null {
   return truncationFromProblem(code, params as Record<string, unknown>);
 }
 
-/** 自定义供应商模型在设置页的位置：打开这个供应商的编辑表单并定位到这个模型。内置供应商返回 null。 */
+/** Custom-provider model location in settings: open that provider's editor and locate the model. Return null for built-in providers. */
 export function customModelSettingsPath(providerId: string, model: string): string | null {
   if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) return null;
   const id = providerId.slice(CUSTOM_PROVIDER_PREFIX.length);

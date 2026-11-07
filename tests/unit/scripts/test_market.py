@@ -1,4 +1,4 @@
-"""市场仓语言边界保留可操作的诊断、迁移指引与汇总。"""
+"""Market-workflow language boundaries preserve actionable diagnostics, migration guidance, and summaries."""
 
 import json
 from pathlib import Path

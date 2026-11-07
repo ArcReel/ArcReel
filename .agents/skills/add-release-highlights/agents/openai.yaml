@@ -1,6 +1,6 @@
 interface:
   display_name: "Add Release Highlights"
-  short_description: "起草版本亮点，确认后同步 Changelog 与 Release 并推送 main"
+  short_description: "Draft release highlights; after confirmation, sync Changelog/Release and push main"
   default_prompt: "Use $add-release-highlights to draft release highlights, wait for my approval, then sync and push them."
 
 policy:

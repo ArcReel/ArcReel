@@ -1,4 +1,4 @@
-"""reference_video prompt builder 单元测试。"""
+"""reference_video prompt-builder unit tests."""
 
 import pytest
 
@@ -8,7 +8,9 @@ from lib.prompts.prompt_builders_reference import (
     render_reference_units_for_prompt_authoring,
 )
 
-_SCENE_REFERENCE_RULE = "同一地点的连续单元**逐条重复引用**同一个场景资产，不能只在第一个单元写一次。"
+_SCENE_REFERENCE_RULE = (
+    "Consecutive units at the same location must **repeat the same scene reference in every unit**, not only the first."
+)
 
 
 def _prompt_authoring_prompt(**overrides) -> str:
@@ -64,44 +66,44 @@ def test_build_reference_video_prompt_contains_required_sections():
 
     assert "北宋江湖" in prompt
     assert "水墨渲染风格" in prompt
-    # 三类资产名称都必须出现（MentionPicker 候选源）
+    # Include all three asset categories’ names as MentionPicker candidates.
     assert "主角" in prompt
     assert "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
-    # script_plan 正文逐字透传，不加任何分段前缀
+    # Pass script_plan body verbatim without segment prefixes.
     assert "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]" in prompt
-    assert "（时长 8s）" in prompt
-    # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
-    assert "不超过 9 个（模型上限）" in prompt
+    assert " (duration 8s)" in prompt
+    # Assert whole constraint sentences: default aspect_ratio 9:16 could satisfy 9 alone even if max_refs was never injected.
+    assert "at most 9 distinct asset names (the model limit)" in prompt
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():
-    assert "外貌" in _prompt_authoring_prompt()
+    assert "appearance" in _prompt_authoring_prompt()
 
 
 def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
-    """镜头描述指导按景别 / 构图 / 运镜 / 画面内容四要素组织（对抗生成过短的镜头描述）。"""
+    """Shot guidance covers shot size, composition, camera movement, and visual content, countering overly short descriptions."""
     prompt = _prompt_authoring_prompt()
-    for element in ("景别", "构图", "运镜", "画面内容"):
+    for element in ("Shot size", "Composition", "Camera movement", "Visual content"):
         assert element in prompt
 
 
 def test_build_reference_video_prompt_states_structure_preserving_contract():
-    """prompt_authoring 的职责是提示词编写：unit 数与台词两项保结构要求必须写进 prompt。"""
+    """prompt_authoring writes prompts; preserving unit count/dialogue structure must be explicit."""
     prompt = _prompt_authoring_prompt()
-    assert "等长、同序" in prompt
-    assert "逐字保留" in prompt
+    assert "the same length and order" in prompt
+    assert "verbatim" in prompt
 
 
 def test_build_reference_video_prompt_omits_duration_from_output_contract():
-    """时长是 script_plan 定稿、机械沿用的字段，prompt_authoring 不写——prompt 不得要求模型产出它。"""
+    """Durations are finalized in script_plan and mechanically retained; prompt_authoring never writes them or asks models to output them."""
     prompt = _prompt_authoring_prompt(script_plan_units=[{"unit_id": "E1U01", "text": "x", "duration_seconds": 8}])
     assert "duration_seconds" not in prompt
 
 
 def test_build_reference_video_prompt_max_refs_none_skips_rule():
-    assert "模型上限" not in _prompt_authoring_prompt(max_refs=None)
+    assert "the model limit" not in _prompt_authoring_prompt(max_refs=None)
 
 
 def test_build_reference_units_split_prompt_contains_constraints_and_candidates():
@@ -120,37 +122,37 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     assert "李明推门走进酒馆" in prompt
     assert "李明" in prompt
     assert "酒馆" in prompt
-    assert "第 2 集" in prompt
-    # 能力约束：档位集合、总时长上限、references 上限、默认偏好
+    assert "episode 2" in prompt
+    # Capability constraints: tier sets, total duration cap, reference limit, default preference.
     assert "4, 6, 8" in prompt
-    assert "12 秒" in prompt
-    assert "不超过 3 个" in prompt
-    assert "默认取 4 秒" in prompt
-    # 关键写作纪律
+    assert "12 seconds" in prompt
+    assert "at most 3 distinct asset names" in prompt
+    assert "default to 4 seconds" in prompt
+    # Key writing discipline
     assert "@[名称]" in prompt
-    assert "外貌" in prompt
-    # script_plan 的内容契约三件：原文锚、台词落位、语速下界
+    assert "appearance" in prompt
+    # Three script_plan content contracts: source anchors, dialogue placement, speaking-rate lower bounds.
     assert "source_text" in prompt
-    assert "口播语速约" in prompt
+    assert "first estimate the seconds needed to speak all dialogue and off-screen speech" in prompt
 
 
 def test_build_reference_units_split_prompt_speech_rate_override():
-    """项目级语速覆盖生效时注入覆盖值而非语言默认；量词仍随 source_language。"""
-    assert "口播语速约 7.5 字/秒" in _split_prompt(source_language="zh", speech_rate_override=7.5)
-    assert "口播语速约 7.5 词/秒" in _split_prompt(source_language="en", speech_rate_override=7.5)
+    """Project-rate overrides inject overridden rather than language-default values; units still follow source_language."""
+    assert "approximately 7.5 字/second" in _split_prompt(source_language="zh", speech_rate_override=7.5)
+    assert "approximately 7.5 词/second" in _split_prompt(source_language="en", speech_rate_override=7.5)
 
 
 def test_build_reference_units_split_prompt_injects_episode_outline():
-    """分集大纲注入（借 drama script_plan）：给出本集内容边界与下集接续点。"""
+    """Episode-outline injection, shared with drama script_plan, supplies current boundaries and next-episode continuation."""
     prompt = _split_prompt(
         episode_outline={"title": "初入江湖", "story_beats": ["少年离家", "酒馆遇袭"], "hook": "剑断人亡"},
         next_episode_outline={"story_beats": ["追查线索"]},
     )
     assert (
-        "<episode_outline>\n标题：初入江湖\n故事节点：\n- 少年离家\n- 酒馆遇袭\n集尾钩子：剑断人亡\n</episode_outline>"
+        "<episode_outline>\nTitle: 初入江湖\nStory beats:\n- 少年离家\n- 酒馆遇袭\nEpisode-end hook: 剑断人亡\n</episode_outline>"
         in prompt
     )
-    assert "<next_episode_outline>\n故事节点：\n- 追查线索\n</next_episode_outline>\n\n# 拆分规则" in prompt
+    assert "<next_episode_outline>\nStory beats:\n- 追查线索\n</next_episode_outline>\n\n# Splitting rules" in prompt
 
 
 def test_build_reference_units_split_prompt_skips_outline_without_content():
@@ -166,18 +168,18 @@ def test_build_reference_units_split_prompt_without_outline_leaves_no_empty_bloc
 
 
 def test_scene_reference_rule_reaches_both_prompt_levels():
-    """场景引用规则的措辞集中在共享语法规范里，两级 prompt 各再补一条本阶段的落地口径。"""
+    """Scene-reference wording lives in shared syntax rules; both prompt levels add stage-specific implementation rules."""
     split = _split_prompt()
     assert _SCENE_REFERENCE_RULE in split
-    assert "每个 unit 的正文都要 `@` 引用它发生地的场景资产" in split
+    assert "Each unit’s body must `@` reference the scene asset for its location" in split
 
     prompt_authoring = _prompt_authoring_prompt()
     assert _SCENE_REFERENCE_RULE in prompt_authoring
-    assert "场景引用逐 unit 保留" in prompt_authoring
+    assert "Preserve scene references per unit" in prompt_authoring
 
 
 def test_both_prompt_levels_render_without_agent_profile(monkeypatch, tmp_path):
-    """语法规范随核心库内置：运行 profile 目录缺失时两级 prompt 照常渲染。"""
+    """Core library bundles syntax rules; both prompt levels still render without runtime profile directories."""
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing"))
 
     assert _SCENE_REFERENCE_RULE in _split_prompt()
@@ -187,14 +189,14 @@ def test_both_prompt_levels_render_without_agent_profile(monkeypatch, tmp_path):
 @pytest.mark.parametrize("instructions", [None, "", "单 unit 不超过两人。"])
 def test_both_prompt_levels_end_with_optional_instructions(instructions):
     for prompt in (_split_prompt(instructions=instructions), _prompt_authoring_prompt(instructions=instructions)):
-        assert ("# 附加指令" in prompt) is bool(instructions)
+        assert ("# Additional instructions" in prompt) is bool(instructions)
         if instructions:
-            assert prompt.endswith("。\n\n# 附加指令\n单 unit 不超过两人。")
+            assert prompt.endswith(".\n\n# Additional instructions\n单 unit 不超过两人。")
         assert "None" not in prompt
 
 
 def test_build_reference_units_split_prompt_max_refs_none_skips_rule():
-    assert "references 上限" not in _split_prompt(max_reference_images=None)
+    assert "Reference limit" not in _split_prompt(max_reference_images=None)
 
 
 def test_build_reference_units_split_prompt_rejects_bad_inputs():
@@ -209,23 +211,23 @@ def test_build_reference_units_split_prompt_rejects_bad_inputs():
 
 
 def test_build_reference_units_split_prompt_writes_reference_duration_linkage():
-    """两套档位不同时，prompt 写明各自的档位与两条出路（换档位 / 去引用）。"""
+    """Different tier sets explain their own options and both remedies: change tiers or remove references."""
     prompt = _split_prompt(
         supported_durations=[4, 6, 8],
         reference_supported_durations=[8],
         text_supported_durations=[4, 6, 8],
         default_duration=None,
     )
-    assert "带 `@` 引用取（8）" in prompt
-    assert "不带取（4, 6, 8）" in prompt
-    assert "不用 `@` 引用" in prompt
+    assert "use (8) with `@` references" in prompt
+    assert "(4, 6, 8) without them" in prompt
+    assert "without `@`" in prompt
 
 
 def test_build_reference_units_split_prompt_states_both_tiers_without_containment():
-    """带图档位反而更宽时，被收窄的是无引用 unit——prompt 必须照样写全，不能只讲带图那套。
+    """When image-bearing tiers are broader, unreferenced units are narrower; prompts must describe both.
 
-    两桶档位之间不假定包含关系：r2v 与 i2v 各读自己那一桶的视频请求事实。只讲带图会让无引用 unit
-    照并集取到自己申请不到的档位。
+    Assume no subset relation: r2v/i2v each read their own request-fact bucket. Describing images
+    only would let unreferenced units choose unavailable tiers from the union.
     """
     prompt = _split_prompt(
         supported_durations=[4, 6, 8],
@@ -233,17 +235,17 @@ def test_build_reference_units_split_prompt_states_both_tiers_without_containmen
         text_supported_durations=[6],
         default_duration=None,
     )
-    assert "带 `@` 引用取（4, 6, 8）" in prompt
-    assert "不带取（6）" in prompt
+    assert "use (4, 6, 8) with `@` references" in prompt
+    assert "(6) without them" in prompt
 
 
 def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_reference_rule():
-    """联动约束按画面描述判定，台词记号 `@[角色]{台词}` 的说话人不计入。
+    """Coupled constraints inspect visual descriptions; dialogue speakers in `@[角色]{台词}` do not count.
 
-    ``extract_mentions`` 派生 references 时剔除发声记号里的说话人（画外说话不生成参考图，
-    见 shot_parser 同函数 docstring）；prompt 若只说「正文里有没有 `@`」，模型会把只在台词
-    记号里出现说话人的 unit 误判为「带引用」、选进更窄的档位——落盘派生时 references 却是空，
-    与模型的选择依据不一致。
+    ``extract_mentions`` excludes speaking-marker speakers from references (offscreen speakers
+    create no images; see shot_parser docstring). Merely asking whether body text contains `@`
+    would misclassify speaker-only units as referenced and select narrower tiers, while persisted
+    derived references remain empty, contradicting the model’s decision basis.
     """
     prompt = _split_prompt(
         supported_durations=[4, 6, 8],
@@ -251,25 +253,28 @@ def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_refer
         text_supported_durations=[4, 6, 8],
         default_duration=None,
     )
-    assert "台词记号 `@[角色]{台词}` 的说话人不计入" in prompt
+    assert "speaker positions in dialogue tokens `@[角色]{台词}` do not count" in prompt
 
 
 def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
-    """默认值只对一种引用状态合法时点明适用范围，免得模型把它套到另一种状态的 unit 上。"""
+    """Defaults legal for one reference state explicitly name their scope, preventing use in the other state."""
     prompt = _split_prompt(
         supported_durations=[4, 6, 8],
         reference_supported_durations=[8],
         text_supported_durations=[4, 6, 8],
         default_duration=4,
     )
-    assert "unit 默认取 4 秒（该默认值只落在不带 `@` 引用的 unit 的档位内" in prompt
-    # 两套档位都含该默认值时不加这段限定，避免无效措辞。
+    assert (
+        "default to 4 seconds per unit (this default exists only in the tiers for units without `@` references"
+        in prompt
+    )
+    # Omit restrictions when both sets contain the default, avoiding ineffective wording.
     plain = _split_prompt(supported_durations=[4, 6, 8], default_duration=4)
-    assert "该默认值只落在" not in plain
+    assert "this default exists only" not in plain
 
 
 def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
-    """多数型号未声明「参考图↔时长」约束：两套档位相同时不写这条，避免无效约束占注意力。"""
+    """Most models declare no reference-image/duration coupling; identical tier sets omit this constraint to save attention."""
     for reference_durations, text_durations in (
         ([4, 6, 8], [4, 6, 8]),
         (None, None),
@@ -281,11 +286,11 @@ def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
             reference_supported_durations=reference_durations,
             text_supported_durations=text_durations,
         )
-        assert "本型号下该档位还随「有无参考图」分两套" not in prompt
+        assert "This model also has two sets of tiers depending on whether reference images are present" not in prompt
 
 
 def test_render_reference_units_for_prompt_authoring_mechanical():
-    """渲染是机械变换：序号 + unit 时长 + 正文逐字出现；unit_id 不进渲染。"""
+    """Rendering is mechanical: number + unit duration + verbatim body; omit unit_id."""
     text = render_reference_units_for_prompt_authoring(
         [
             {
@@ -296,36 +301,36 @@ def test_render_reference_units_for_prompt_authoring_mechanical():
             {"unit_id": "E1U02", "text": "@[甲] 回头", "duration_seconds": 8},
         ]
     )
-    assert "#### unit 1（时长 10s）" in text
+    assert "#### unit 1 (duration 10s)" in text
     assert "@[甲] 起身\n@[甲]：{走了。}\n@[甲] 出门" in text
-    assert "#### unit 2（时长 8s）" in text
-    # unit_id 由序号机械派生，不下发给 prompt_authoring
+    assert "#### unit 2 (duration 8s)" in text
+    # Derive unit_id mechanically from sequence, never send to prompt_authoring.
     assert "E1U01" not in text
 
 
 class TestEpisodeTargetDurationInjection:
-    """单集目标时长把打包效率从「贴近单次上限」改为「在目标内打包」。"""
+    """Episode target duration changes packing efficiency from approaching per-call maximum to packing within targets."""
 
     def test_split_prompt_carries_the_shared_rule(self):
         prompt = _split_prompt(episode_target_duration=120)
         assert (
-            "按本集目标时长打包——本集成片目标时长约 120 秒：据此决定本集的单元数与拆分粒度，让各单元时长合计向该目标靠拢。"
-            "这是软目标、不是硬上限：不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节；"
-            "单个 unit 在目标之内可长可短，不必贴近单次上限 8 秒，也不要默认选最短 / 保守值。"
+            "pack toward this episode’s target duration: The target finished duration of this episode is approximately 120 seconds: use it to decide the number of units and splitting granularity so their durations sum toward this target. "
+            "This is a soft target, not a hard upper bound: do not pad or fragment content to fill it, and do not remove necessary plot to fit it. "
+            "Individual units may be shorter or longer within that target, need not approach the per-call limit of 8 seconds, and do not default to the shortest / conservative value."
         ) in prompt
 
     def test_split_prompt_omits_the_rule_without_a_target(self):
-        assert "本集成片目标时长" not in _split_prompt()
+        assert "The target finished duration of this episode" not in _split_prompt()
 
     def test_packing_no_longer_pushes_units_toward_the_per_call_ceiling(self):
-        assert "使 unit 时长贴近 8 秒" in _split_prompt()
-        assert "使 unit 时长贴近 8 秒" not in _split_prompt(episode_target_duration=120)
+        assert "bring unit durations close to 8 seconds" in _split_prompt()
+        assert "bring unit durations close to 8 seconds" not in _split_prompt(episode_target_duration=120)
 
     def test_the_rule_coexists_with_the_default_duration_preference(self):
-        """两条约束尺度不同（整集体量 vs 单 unit 秒数），须同时呈现而非互相取代。"""
+        """Both scales, episode volume versus unit seconds, must coexist rather than replace one another."""
         prompt = _split_prompt(default_duration=8, episode_target_duration=120)
-        assert "本集成片目标时长约 120 秒" in prompt
-        assert "unit 默认取 8 秒" in prompt
+        assert "The target finished duration of this episode is approximately 120 seconds" in prompt
+        assert "default to 8 seconds per unit" in prompt
 
 
 _CHARACTERS_WITH_DERIVATIVE = {
@@ -336,7 +341,7 @@ _CHARACTERS_WITH_DERIVATIVE = {
 def test_prompt_authoring_asset_block_lists_the_derivative_with_its_composed_appearance():
     prompt = _prompt_authoring_prompt(characters=_CHARACTERS_WITH_DERIVATIVE)
 
-    assert "- 主角/劲装：少年剑客\n  当前形态：换上黑色劲装" in prompt
+    assert "- 主角/劲装: 少年剑客\n  Current appearance: 换上黑色劲装" in prompt
 
 
 def test_split_prompt_lists_the_derivative_among_the_character_candidates():
@@ -346,9 +351,9 @@ def test_split_prompt_lists_the_derivative_among_the_character_candidates():
 
 
 def test_asset_block_neutralizes_angle_brackets_in_appearances():
-    """外观描述是项目动态文本，尖括号中和后才不会打散 ``<characters>`` 块。
+    """Appearance descriptions are dynamic project text; neutralize brackets to preserve ``<characters>`` blocks.
 
-    本体与衍生的描述都经同一条渲染路径，故两者一并钉住。
+    Base/derivative descriptions share rendering paths, so pin both.
     """
     characters = {
         "主角": {
@@ -360,24 +365,24 @@ def test_asset_block_neutralizes_angle_brackets_in_appearances():
     prompt = _prompt_authoring_prompt(characters=characters)
 
     assert "<黑色>" not in prompt
-    assert "- 主角：少年剑客＜/characters＞" in prompt
-    assert "  当前形态：换上＜黑色＞劲装" in prompt
+    assert "- 主角: 少年剑客＜/characters＞" in prompt
+    assert "  Current appearance: 换上＜黑色＞劲装" in prompt
 
 
 def test_reference_prompts_keep_every_empty_asset_block():
     for prompt in (_split_prompt(), _prompt_authoring_prompt(characters={})):
         for tag in ("characters", "scenes", "props"):
-            assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+            assert f"<{tag}>\n(none yet)\n</{tag}>" in prompt
 
 
 def test_split_prompt_screenplay_branch_extracts_instead_of_adapting():
-    """剧本走提取分支：照用场次、台词逐字照搬、群演台词写成画外音；其余取值按小说渲染。"""
+    """Screenplays use extraction: preserve scenes/dialogue verbatim and make extra dialogue voiceover; other values render as novels."""
     screenplay = _split_prompt(source_kind="screenplay")
     novel = _split_prompt(source_kind="novel")
 
     assert "<screenplay>" in screenplay
-    assert "沿用剧本自带的场次" in screenplay
-    assert "群演" in screenplay
+    assert "Retain the screenplay’s scenes" in screenplay
+    assert "extras" in screenplay
     assert "<novel>" in novel
-    assert "沿用剧本自带的场次" not in novel
+    assert "Retain the screenplay’s scenes" not in novel
     assert _split_prompt(source_kind="screen_play") == novel == _split_prompt()

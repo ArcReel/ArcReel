@@ -2,18 +2,18 @@
 status: accepted
 ---
 
-# 执行期判据与真实执行路径同源
+# Runtime predicates share a source with the actual execution path
 
-判断供应商执行行为的代码（计费口径、成片是否有声、校验放行）曾读 ArcReel 侧配置的中间字段做推断——如按配置的分辨率或质量档推断供应商会不会产音——而供应商只按请求体里的字段行事。配置与请求构造之间隔着归一、回退、截断、口径叠加等变换，推断在每个变换点都可能失真，产生「请求有声但成片无声、仍按有声价出账」一类表里不一的缺陷。决定：**执行期判据一律取自会真正发给供应商的字段，与请求构造同源**——判断某段行为是否发生，读它的真实输入；需要同一变换时调用同一函数，不在判据处另算一遍。
+Code determining provider execution behavior (billing basis, whether the finished video has audio, and validation admission) previously inferred it from intermediate ArcReel configuration fields, such as inferring whether a provider would produce audio from the configured resolution or quality tier. Providers, however, act only on fields in the request body. Normalization, fallback, truncation, and the layering of different bases intervene between configuration and request construction; inference can become inaccurate at each transformation, causing inconsistencies such as "audio requested, finished video silent, still billed at the audio-inclusive price." Decision: **all runtime predicates derive from fields actually sent to the provider and share their source with request construction**. To determine whether behavior occurs, read its actual input; when the same transformation is needed, call the same function instead of calculating it again at the predicate.
 
-## 明确不采用
+## Explicitly rejected
 
-- **按 ArcReel 侧中间字段推断供应商行为**：中间字段到请求字段的变换（能力回退、计费口径叠加、静默截断）对判据不可见，边界场景必然分叉。
-- **在判据处复制请求构造逻辑**：两份逻辑没有共同真相源，改一处漏一处；判据应复用构造路径的产出或其同一变换函数。
-- **用计费口径字段兼任请求口径判据**（反之亦然）：两种口径各自叠加了不同规则（如恒按含音出账的供应商特例），互相兼任会在特例供应商上恒真或恒假；两口径并列透出、各自取用。
+- **Inferring provider behavior from intermediate ArcReel fields**: transformations between intermediate and request fields (capability fallback, layering of billing rules, silent truncation) are invisible to the predicate, so edge cases inevitably diverge.
+- **Copying request-construction logic into the predicate**: two implementations lack a shared source of truth, so changing one can leave the other behind; predicates should reuse construction-path outputs or the same transformation function.
+- **Using billing-basis fields as request-basis predicates** (or vice versa): each basis layers different rules (such as provider exceptions that always bill for audio), so using one for the other makes predicates always true or always false for exceptional providers. Expose both bases side by side and consume each separately.
 
 ## Consequences
 
-- 能力、计费、校验类判定的取值路径须可追溯到请求体字段，或与请求构造共用同一变换函数；review 时对「读配置推断执行行为」的写法按本原则质疑。
-- 声明层同构：视频能力真相源按字段归 backend 声明（`VideoCapabilities`）、与请求构造同源（见 `docs/adr/0054`），是本原则在静态声明侧的对应。图片等其余能力字段的声明层真相源另见 `.claude/rules/provider-capabilities.md`「供应商能力与契约」。
-- 视频侧的时长约束与报价按请求实际下发的分辨率求值，见 `docs/adr/0086`。
+- Value paths for capability, billing, and validation decisions must be traceable to request-body fields or share the same transformation function with request construction. During review, challenge code that "reads configuration to infer execution behavior" under this principle.
+- The declaration layer follows the same structure: the source of truth for video capabilities belongs to backend declarations by field (`VideoCapabilities`) and shares its source with request construction (see `docs/adr/0054`), corresponding to this principle on the static-declaration side. For declaration-layer sources of truth for image and other capability fields, see "Provider capabilities and contracts" in `.claude/rules/provider-capabilities.md`.
+- Video duration constraints and pricing are evaluated using the resolution actually sent in the request; see `docs/adr/0086`.

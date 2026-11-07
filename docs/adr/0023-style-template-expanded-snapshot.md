@@ -2,11 +2,11 @@
 status: accepted
 ---
 
-# 项目 style 存模版 prompt 的展开快照，与风格参考图互斥
+# Project style stores expanded prompt snapshots, exclusive with style-reference images
 
-只存 `style_template_id`、生成时查表展开虽能让模版升级自动传导，但会让已出片项目在 registry 改动后风格突变、破坏既有成片一致性。决定选定风格模版时把整段画风 prompt 展开写入 project.json 的 `style` 字段（同时保留 `style_template_id` 作来源标记——PATCH 传入新模版 id 时重新展开写入，读时迁移仅为缺 id 的 legacy 短标签做一次性解析，不按已存 id 重展开），registry 后续改动不主动回写老项目；并把项目风格定为「模版 / 自定义风格参考图 / 无」三选一互斥终态，由数据写入路径保证二者不同时生效，让 prompt 合成端只消费已展开的单一来源。
+Saving only `style_template_id` and expanding at generation would propagate template upgrades automatically but suddenly change completed projects after registry edits, breaking final-cut continuity. When selecting a template, expand the whole visual-style prompt into project.json's `style`, retaining `style_template_id` as an origin marker. PATCH with a new template id re-expands; read-time migration only resolves legacy short labels lacking ids once, never re-expanding stored ids. Later registry changes do not actively rewrite old projects. Project style has three mutually exclusive final states: template / custom style-reference image / none. Write paths prevent simultaneous activation so prompt assembly consumes one already-expanded source.
 
 ## Consequences
 
-- 模版优化不主动传导已建项目；`style` 语义从短标签变长文本（对喂 LLM 透明，但破坏性）。
-- 互斥约束贯穿创建 / PATCH / 迁移多处写路径：写入模版时清除 `style_image`，写入风格参考图时清除 `style_template_id`，显式清空模版（id 置 null）时连同已展开的 `style` 一并清空、不留孤儿文本；历史数据竞态时以 style_image 优先并主动清除 template_id。
+- Template improvements do not propagate to existing projects. `style` changes from a short label to long text, transparent to LLM input but breaking in meaning.
+- Creation / PATCH / migration all enforce exclusivity: writing templates clears `style_image`; writing reference images clears `style_template_id`; explicitly clearing a template (null id) also clears expanded `style`, leaving no orphan text. For historical-data races, style_image wins and template_id is actively cleared.

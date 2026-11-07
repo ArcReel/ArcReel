@@ -82,10 +82,11 @@ async def test_append_then_list_then_load_via_sdk_helpers(session_factory, tmp_p
 
 @pytest.mark.asyncio
 async def test_partial_transcript_visible_after_simulated_crash(session_factory, tmp_path: Path):
-    """eager flush durability：partial transcript 在进程"重启"后仍可读。
+    """Eager-flush durability: partial transcripts remain readable after a process "restart".
 
-    模拟"服务进程崩溃"= 丢弃所有 in-memory 状态，仅保留 DB；新建 store
-    实例（模拟新进程）继续读，验证之前 append 的 entries 完全可达。
+    Simulate a server-process crash by discarding all in-memory state and retaining only the DB.
+    Build a new store instance (simulating a new process) and read again, verifying every previously
+    appended entry remains reachable.
     """
     store = DbSessionStore(session_factory, user_id="crash-recover")
     project_cwd = tmp_path / "projects" / "crash_demo"
@@ -93,7 +94,7 @@ async def test_partial_transcript_visible_after_simulated_crash(session_factory,
     sid = "11111111-2222-3333-4444-555555555555"
     key = {"project_key": make_project_key(project_cwd), "session_id": sid}
 
-    # 模拟"turn 进行中" eager flush 写入两条 entry（user + 部分 assistant）
+    # Simulate eager flushing during a turn, writing two entries (user + partial assistant).
     await store.append(
         key,
         [
@@ -118,7 +119,7 @@ async def test_partial_transcript_visible_after_simulated_crash(session_factory,
         ],
     )
 
-    # 模拟新进程：drop in-memory state, rebuild store
+    # Simulate a new process: drop in-memory state, rebuild store.
     store_after_restart = DbSessionStore(session_factory, user_id="crash-recover")
 
     raw = await store_after_restart.load(key)
@@ -136,10 +137,10 @@ async def test_partial_transcript_visible_after_simulated_crash(session_factory,
 
 @pytest.mark.asyncio
 async def test_eager_multi_append_round_trip(session_factory, tmp_path: Path):
-    """多次 eager-style append 后，DB 应能还原完整 user/assistant 序列。
+    """After repeated eager-style appends, the DB reconstructs the full user/assistant sequence.
 
-    本测试只覆盖 DbSessionStore 的多次 append/load 回环，不覆盖
-    session_manager 层的会话恢复路径。
+    This test covers repeated DbSessionStore append/load round trips only, not the
+    session_manager session-restoration path.
     """
     store = DbSessionStore(session_factory, user_id="long-turn")
     project_cwd = tmp_path / "projects" / "long_demo"
@@ -147,7 +148,7 @@ async def test_eager_multi_append_round_trip(session_factory, tmp_path: Path):
     sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     key = {"project_key": make_project_key(project_cwd), "session_id": sid}
 
-    # 模拟 SDK eager 模式分多次 append（每个完整 frame 一次）
+    # Simulate SDK eager mode appending multiple times, once per complete frame.
     frames = []
     for i in range(20):
         if i == 0:

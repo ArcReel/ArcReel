@@ -1,0 +1,8 @@
+[
+  {
+    "path": "frontend/src/api.ts",
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

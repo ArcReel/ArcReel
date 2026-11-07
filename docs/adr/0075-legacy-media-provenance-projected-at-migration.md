@@ -2,31 +2,31 @@
 status: accepted
 ---
 
-# 旧媒体版本记录的类型化来源由迁移按当时项目状态投影补写，之后与生成时冻结的记录同等对待
+# Migration backfills typed provenance for legacy media versions from project state at migration time, then treats them like generation-frozen records
 
-> 本 ADR 中「无正式 script_plan 的剧本按无计划依据登记，重跑规划后剧本因依据变化判 stale」的部分已由 `docs/adr/0080` 取代：剧本依据不以脚本规划为输入，有无计划都按同一种依据登记；旧媒体版本记录的来源投影仍然有效。
+> This ADR's "register scripts without formal script_plan using no-plan basis; replanning makes scripts stale because the basis changes" is superseded by `docs/adr/0080`: script basis does not use script plans as input and registers the same basis with or without plans. Legacy-media provenance projection remains valid.
 >
-> 本 ADR 中「投影失败的（分镜图缺失、条目不可入语音合成、时长无法落档等）进迁移报告、由用户按报告决定重生」的部分已由 `docs/adr/0098` 取代：这些缺口不再阻止投影，视频照常补录。旧旁白音频不补写、进迁移报告的规则仍然有效。
+> This ADR's "report projection failures (missing storyboard images, entries ineligible for speech synthesis, unresolvable duration tiers, etc.) in migration reports for users to decide regeneration" is superseded by `docs/adr/0098`: these gaps no longer prevent projection, and videos are backfilled normally. The rule against backfilling old narration audio, instead reporting it, remains valid.
 
-产物清单（`docs/adr/0062`）与演示读模型都只认版本记录上的类型化来源：剧本绑定、集号、请求时长、请求摘要与视频描述（`lib/artifacts/artifact_version_provenance.py`）。这些字段随 0.27 引入，由生成任务在提交那一刻写入版本记录、此后不再改动。更早生成的视频记录只有 `version / file / prompt / created_at / duration_seconds` 五个字段，清单补录与演示读取一律解析失败——补录把「解析不出」当作「产物不存在」静默跳过，用户升级后看到的是视频计数 0/N、制作状态退回准备、预览报「所选视频演示不可用」。这违反 ADR 0062「补录即 current、用户不该被误导去重生已付费产物」。
+The artifact inventory (`docs/adr/0062`) and presentation read model recognize only typed provenance on version records: script binding, episode number, requested duration, request summary, and video description (`lib/artifacts/artifact_version_provenance.py`). Introduced in 0.27, these fields are written at generation-task submission and never changed afterward. Earlier video records have only `version / file / prompt / created_at / duration_seconds`, causing every inventory-backfill and presentation-read parse to fail. Backfill silently skips unparseable records as nonexistent artifacts; after upgrading, users see 0/N videos, production status reset to preparation, and preview "selected video presentation unavailable." This violates ADR 0062's "backfilled artifacts are immediately current; users must not be misled into regenerating paid artifacts."
 
-决定：新增一步 schema 迁移（v12→v13，`lib/project/project_migrations/v12_to_v13_legacy_media_provenance.py`），对每个剧本条目仍指向、且选中版本记录无类型化来源的视频，**按迁移那一刻的项目状态投影出全部类型化来源字段写回记录**（`lib/project/legacy_media_provenance.py`），再整份重投影清单。投影用的是时效比对同一个依据构造器（`lib/artifacts/media_artifact_currency.py` 的 `project_video_basis_components`），登记值与期望值同源，因此这些视频补录即 current。冻结形状取「无参考音频、无音色说话人、无参考图上限、时长档只有请求时长一档」；供应商音轨开关按项目当前设置投影。每条被补写的记录加 `provenance_backfilled_at`，读路径不区分它与生成时冻结的记录，只在排查时用来区分「投影的」与「冻结的」。
+Add a schema-migration step (v12→v13, `lib/project/project_migrations/v12_to_v13_legacy_media_provenance.py`). For each video still referenced by a script entry whose selected version lacks typed provenance, **project all typed provenance fields from project state at migration time and write them back** (`lib/project/legacy_media_provenance.py`), then reproject the entire inventory. Projection uses the same basis builder as freshness comparison (`project_video_basis_components` in `lib/artifacts/media_artifact_currency.py`), sharing registered/expected sources and making backfilled videos immediately current. Freeze a shape of "no reference audio, no voice speakers, no reference-image limit, and only the requested-duration tier"; project provider-audio switches from current project settings. Add `provenance_backfilled_at` to each rewritten record. Read paths do not distinguish these from generation-frozen records; the field distinguishes "projected" from "frozen" only during diagnosis.
 
-同一步里，**没有正式 script_plan 的剧本按无计划依据登记**（`structured-content/episode-script-without-plan`，只含集号）：它永远 current，直到用户重跑规划产生正式计划，剧本条目因依据变化判 stale、切回常规路线。制作状态对这类集跳过计划门与计划确认门，直接按剧本与下游产物判状态。
+In the same step, **register scripts without formal script_plan using no-plan basis** (`structured-content/episode-script-without-plan`, containing only episode number). They remain current until users replan and produce formal plans, when basis changes make script entries stale and return them to the ordinary route. Production status skips plan and plan-confirmation gates for these episodes, evaluating scripts and downstream artifacts directly.
 
-旁白音频不补写：它的依据含合成时的 TTS 设置（供应商、模型、音色、语速，见 ADR 0062），旧记录没有，任何投影都是编造。这类记录进迁移报告，产物报 missing，与现状一致。
+Do not backfill narration audio: its basis includes synthesis-time TTS settings (provider, model, voice, speech rate; see ADR 0062), absent in old records, so every projection would be invented. Include such records in migration reports and report their artifacts missing, matching current behavior.
 
-## 明确不采用
+## Explicitly rejected
 
-- **放宽规划器与演示读模型，接受无类型化来源的旧记录、用降级依据比对**：每个消费方都要多一条分支，就是 ADR 0062 否掉的「legacy / 来历不明」第三态；且读路径永远背着这条分支。一次改写数据，读路径不变。
-- **不加 `provenance_backfilled_at`**：投影出的记录与冻结记录在形式上无法区分，日后排查「这条为什么判 current」没有线索。一个字段的成本。
-- **投影不出来就让整个项目迁移失败**：一条坏记录把整项目置于阻断态。ADR 0062 已规定依据投影不出的目标不登记、读时报 missing；这里沿用，但跳过项计入迁移报告，不再静默。
-- **把旧记录的 `duration_seconds` 当请求时长的唯一来源**：它可能是字符串、可能与条目当前时长不一致。请求时长按条目时长 → 项目默认时长 → 记录时长的顺序取第一个正整数。
+- **Relaxing planners and presentation read models to accept old records without typed provenance and compare degraded bases**: adds a branch to every consumer, the third "legacy / unknown provenance" state rejected by ADR 0062, forever burdening read paths. Rewrite data once and preserve read paths.
+- **Omitting `provenance_backfilled_at`**: projected and frozen records become formally indistinguishable, leaving no clue when diagnosing "why is this current?" The cost is one field.
+- **Failing the entire project migration when projection fails**: one bad record blocks a whole project. ADR 0062 already leaves targets with unprojectable bases unregistered and reports missing on read; follow it, but report skips instead of remaining silent.
+- **Using old `duration_seconds` as the sole requested-duration source**: it may be a string or disagree with the entry's current duration. Take the first positive integer in entry duration → project default duration → recorded duration order.
 
 ## Consequences
 
-- 迁移改写 `versions/versions.json`，不可逆；改写前按 `versions.json.bak.v12-<ts>` 备份，与其它迁移备份同一回收规则。
-- 补录只覆盖迁移那一刻剧本仍指向、且当前文件与选中快照内容一致的视频；投影失败的（分镜图缺失、条目不可入语音合成、时长无法落档等）进迁移报告，由用户按报告决定重生。
-- 无计划剧本的时效不追踪项目元数据变化：用户改资产定义不会让这类剧本判 stale。这是有意的简化，代价是这类集的剧本「永远对得上」直到计划出现。
-- 早于计划门写出的剧本在保存时也按无计划依据登记（规划器是登记与比对的同一入口）。正常流程里剧本总在计划之后生成，此分支只在旧数据与直接保存剧本的调用上出现。
-- 迁移链第二次跑清单激活：v12→v13 对所有存量项目做一次完整只读预检，预检拒绝的项目按 ADR 0062 进阻断态并点名文件；运行期已能读清单的项目预检通过，被拒绝的都是运行期同样读不出的数据。
+- Migration irreversibly rewrites `versions/versions.json`, first backing up as `versions.json.bak.v12-<ts>` under the same retention rules as other migration backups.
+- Backfill covers only videos still referenced by scripts at migration time whose current files match selected snapshots. Projection failures (missing storyboard images, speech-ineligible entries, unresolvable duration tiers, etc.) enter migration reports for users to decide regeneration.
+- Freshness of no-plan scripts does not track project metadata changes: editing asset definitions does not make them stale. This intentional simplification means these episode scripts "always match" until plans appear.
+- Scripts written before the plan gate also register no-plan basis on save (the planner is the shared registration/comparison entry point). Normal workflows generate scripts after plans; this branch appears only for old data and direct script-save calls.
+- The migration chain activates the inventory a second time: v12→v13 performs one complete read-only preflight for every existing project, blocking rejected projects and naming files under ADR 0062. Projects whose inventories runtime can already read pass; rejected data is also unreadable at runtime.

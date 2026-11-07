@@ -60,7 +60,7 @@ from tests.legacy_project_shapes import write_legacy_named_reference_bases_proje
 
 
 class _RetireRecorder:
-    """记下覆盖导入收尾的项目目录名，可在目录替换之后模拟提交失败。数据库那一半由导入路由的测试覆盖。"""
+    """Record overwrite-import finalization directory names, optionally failing commit after replacement; import-route tests cover databases."""
 
     def __init__(self, *, fail_after_replace: bool = False) -> None:
         self.retired: list[str] = []
@@ -75,10 +75,10 @@ class _RetireRecorder:
 
 
 def _activate_artifact_manifest(project_dir: Path) -> None:
-    """跑 Artifact Manifest 引入那一步的迁移，再把项目补到当前 schema。
+    """Run Artifact Manifest introduction migration, then advance projects to current schemas.
 
-    manifest 由 v7→v8 生成，而按 manifest 判定产物新旧的入口要求项目已在当前 schema 上，
-    故两步必须成对——只跑前者会让项目停在中途版本、解析器直接拒绝服务。
+    v7→v8 creates manifests, while manifest currency readers require current project schemas;
+    pair both steps or intermediate-schema projects make resolvers refuse service.
     """
     migrate_v7_to_v8(project_dir)
     migrate_project_dir(project_dir)
@@ -192,9 +192,9 @@ def _create_project(
 def _add_agent_runtime_symlinks(project_dir: Path) -> None:
     """Simulate legacy production layout: create agent_runtime_profile and symlinks.
 
-    ``create_project`` 会把 ``.claude`` / ``CLAUDE.md`` 物化为真目录/真文件 + 写
-    manifest，与本 helper 要测的"旧 symlink 部署遗留"场景冲突。这里先清理 dest 再
-    symlink 模拟老版本 docker volume 持久化下来的旧项目目录形态。
+    ``create_project`` materializes ``.claude`` / ``CLAUDE.md`` as actual directories/files and writes
+    manifests, conflicting with legacy symlink scenarios. Remove dest first, then symlink to simulate
+    old project-directory shapes persisted through legacy Docker volumes.
     """
     import shutil
 
@@ -205,7 +205,7 @@ def _add_agent_runtime_symlinks(project_dir: Path) -> None:
     profile_md = project_root / "agent_runtime_profile" / "CLAUDE.md"
     profile_md.write_text("# Agent Runtime", encoding="utf-8")
 
-    # 清理新版 sync 物化的 .claude/CLAUDE.md/manifest，模拟老部署的 symlink 形态
+    # Remove modern sync-materialized .claude/CLAUDE.md/manifest to simulate legacy symlink deployments.
     if (project_dir / ".claude").exists() or (project_dir / ".claude").is_symlink():
         if (project_dir / ".claude").is_symlink() or (project_dir / ".claude").is_file():
             (project_dir / ".claude").unlink()
@@ -213,8 +213,8 @@ def _add_agent_runtime_symlinks(project_dir: Path) -> None:
             shutil.rmtree(project_dir / ".claude")
     if (project_dir / "CLAUDE.md").exists() or (project_dir / "CLAUDE.md").is_symlink():
         (project_dir / "CLAUDE.md").unlink()
-    # legacy symlink 部署不会有 manifest，留着会让导入/导出逻辑读到 manifest 把
-    # "旧 symlink + 新 manifest" 当成正常态而非 legacy。
+    # Legacy symlinks lack manifests; retaining one makes import/export treat
+    # old symlinks + new manifests as normal rather than legacy.
     manifest_path = project_dir / ".arcreel_profile_manifest.json"
     if manifest_path.exists() or manifest_path.is_symlink():
         manifest_path.unlink()
@@ -235,7 +235,7 @@ def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
 
 
 def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archive_path: Path) -> None:
-    """把 demo 项目改写成需要自动修复的旧格式，并打包成归档（原目录随之移除）。"""
+    """Rewrite demo into old auto-repair formats, archive it and remove original directories."""
 
     project = pm.load_project("demo")
     project["characters"] = {}
@@ -330,7 +330,7 @@ class TestProjectArchiveService:
 
     @pytest.mark.parametrize("scope", ["full", "current"])
     def test_export_includes_end_frame_snapshots(self, tmp_path, scope):
-        """end_frames 登记为允许的根目录条目后，两种 scope 的导出都自动带上尾帧快照。"""
+        """Registered end_frames root entries automatically include ending-frame snapshots in both export scopes."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         _write_bytes(project_dir / "end_frames" / "scene_E1S01.png", b"png")
@@ -344,7 +344,7 @@ class TestProjectArchiveService:
 
     @pytest.mark.parametrize("scope", ["full", "current"])
     async def test_edit_timelines_round_trip_through_archive(self, tmp_path, scope):
-        """剪辑时间线是正式内容：随归档导出，导入后原样可读。"""
+        """Edit timelines are formal content, archived and readable unchanged after import."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         timelines = EditTimelineService(pm)
@@ -362,7 +362,7 @@ class TestProjectArchiveService:
 
     @pytest.mark.parametrize("scope", ["full", "current"])
     async def test_uploaded_bgm_round_trips_through_archive_with_a_current_claim(self, tmp_path, scope):
-        """BGM 是按字节登记的项目级产物：文件、登记与产物清单条目都随归档往返，导入后仍是 current。"""
+        """BGM is byte-registered project artifacts; files/registrations/manifest entries roundtrip and remain current."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         track = await BgmLibraryService(pm).upload("demo", filename="主题曲.wav", content=wav_bytes(1.0, tone_hz=330))
@@ -380,7 +380,7 @@ class TestProjectArchiveService:
         assert resolver.compare(bgm_key(track.id), artifact_path=track.file).status is ArtifactStatus.CURRENT
 
     async def test_rendered_artifacts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
-        """成片与剪映草稿可随时重新渲染：文件与清单条目都不进归档，导出不报未知条目，导入后这些身份读 missing。"""
+        """Rendered outputs/Jianying drafts regenerate anytime: exclude files/claims from archives, avoid unknown-entry export errors, read missing after import."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         created = await EditTimelineService(pm).create_from_script(
@@ -465,7 +465,7 @@ class TestProjectArchiveService:
 
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
-        # 清理新版物化产物后创建 broken symlink（模拟老版部署遗留 + profile 目录已删的状态）
+        # Remove modern artifacts, then create broken symlinks simulating old deployments with deleted profile directories.
         if (project_dir / ".claude").is_dir() and not (project_dir / ".claude").is_symlink():
             _shutil.rmtree(project_dir / ".claude")
         if (project_dir / "CLAUDE.md").exists():
@@ -513,7 +513,7 @@ class TestProjectArchiveService:
         assert imported_manifest == startup_manifest
 
     def test_a_healthy_project_round_trips_without_asking_for_confirmation(self, tmp_path):
-        """当前代码导出的健康项目再导入不弹确认、不留报告：视频没有版本记录、宫格与草稿都正常是常态，不算「未能带入」。"""
+        """Healthy current-code exports reimport without confirmation/reports; unversioned videos and normal grids/drafts are expected, not omitted content."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         assert pm.load_project("demo")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
@@ -528,7 +528,7 @@ class TestProjectArchiveService:
         assert load_migration_report(pm.get_project_path(result.project_name)) is None
 
     def test_official_round_trip_accepts_project_without_style(self, tmp_path):
-        """未选风格的项目照常导出并导入，导出诊断与导入校验都不把空风格当缺陷。"""
+        """Projects without chosen styles export/import normally; diagnostics/validation never treat empty styles as defects."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="")
         service = ProjectArchiveService(pm)
@@ -574,7 +574,7 @@ class TestProjectArchiveService:
 
     @staticmethod
     def _rewrite_archive(source_path: Path, target_path: Path, *, rewrite) -> None:
-        """按成员名逐个改写归档内容，其余成员原样复制。"""
+        """Rewrite archive members individually by name, copying others unchanged."""
         with (
             zipfile.ZipFile(source_path) as source,
             zipfile.ZipFile(target_path, "w", compression=zipfile.ZIP_DEFLATED) as target,
@@ -583,7 +583,7 @@ class TestProjectArchiveService:
                 target.writestr(member, rewrite(member.filename, source.read(member)))
 
     def test_import_reprojects_a_claim_whose_archived_digest_folded_line_endings(self, tmp_path):
-        """信封 content_digest 若来自文本模式读取（CRLF 折叠为 LF），折叠不可逆，绑不住冻结 claim，改按当前投影补录。"""
+        """Text-mode envelope content_digest with irreversible CRLF→LF normalization cannot bind frozen claims; backfill current projections."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -607,7 +607,7 @@ class TestProjectArchiveService:
         crlf_bytes: dict[str, bytes] = {}
 
         def _write_script_with_crlf(name: str, content: bytes) -> bytes:
-            # 文本模式导出的形状：成员按平台换行落盘，信封摘要却按折叠后的 LF 字节计算。
+            # Text-mode exports use platform newlines, but envelope digests hash normalized LF bytes.
             if name != "demo/scripts/episode_1.json":
                 return content
             crlf_bytes[name] = content.replace(b"\n", b"\r\n")
@@ -635,7 +635,7 @@ class TestProjectArchiveService:
         )
 
     def test_import_reprojects_a_claim_whose_archived_digest_covers_only_the_bytes_before_0x1a(self, tmp_path):
-        """信封 content_digest 若止于首个 0x1A，只证明前缀：其后字节被换掉的 PNG 不得沿用冻结 claim，改按当前投影补录。"""
+        """Envelope content_digest ending at first 0x1A proves prefixes only; PNGs with replaced trailing bytes cannot retain frozen claims, backfilling current projections."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         _write_bytes(project_dir / "characters" / "Hero.png", b"\x89PNG\r\n\x1a\nIHDR\r\n")
@@ -733,7 +733,7 @@ class TestProjectArchiveService:
         key = ArtifactKey.episode_script(1)
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
         assert before is not None
-        # 正式脚本不以脚本规划为依据：删掉脚本规划只撤它自己的登记，剧本登记与时效都不变。
+        # Formal scripts do not depend on planning; deleting planning removes its registration only, retaining script registrations/currency.
         assert script_review.delete_script_plan_file(project_dir, 1, script_plan_path)
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_script_plan(1)) is None
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before
@@ -1122,10 +1122,10 @@ class TestProjectArchiveService:
         )
 
     def test_unmigrated_export_omits_the_envelope_so_import_backfills(self, tmp_path):
-        """未进入清单体系的项目导出成不带信封的归档，导入侧照常迁移并自证补录。
+        """Projects outside manifest systems export without envelopes; imports migrate and self-prove backfills normally.
 
-        它的清单必然为空，而空信封在导入端与「这个项目一件产物都没有」不可区分：
-        照保真路径落一份空清单，全部已生成产物会一次判 missing。
+        Their manifests are necessarily empty, indistinguishable from artifact-free projects in empty envelopes;
+        faithful empty-manifest restoration would classify every generated artifact missing.
         """
 
         pm = ProjectManager(tmp_path / "projects")
@@ -1314,7 +1314,7 @@ class TestProjectArchiveService:
         assert pm.list_projects() == []
 
     def test_import_reports_migration_failure_outside_activation_with_its_reason(self, tmp_path):
-        """链上任一步出错都带原因拒绝导入，不再是没有原因的服务端错误。"""
+        """Any migration-step failure rejects imports with reasons, never unexplained server errors."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -1367,14 +1367,14 @@ class TestProjectArchiveService:
         assert not any(warning.key == "val_unrecognized_entry" for warning in result.warnings)
 
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
-        """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
+        """Old archives imported after startup (schema_version=1 + legacy image_backend) run full migration chains at import."""
         import json as _json
 
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
 
-        # 改回 v1 形态 + legacy image_backend，模拟旧版本导出的归档
+        # Restore v1 shapes + legacy image_backend to simulate old exports.
         pj = project_dir / "project.json"
         data = _json.loads(pj.read_text(encoding="utf-8"))
         data["schema_version"] = 1
@@ -1394,7 +1394,7 @@ class TestProjectArchiveService:
         installed = _json.loads((pm.get_project_path(result.project_name) / "project.json").read_text(encoding="utf-8"))
         assert installed["schema_version"] == CURRENT_SCHEMA_VERSION
         assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
-        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
+        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # Split image_backend into two slots.
         assert "image_backend" not in installed
 
     def test_import_v5_archive_migrates_conflicting_asset_namespace(self, tmp_path):
@@ -1530,7 +1530,7 @@ class TestProjectArchiveService:
         assert "versions/clues" not in dropped[0].getMessage()
 
     def test_import_rejects_missing_script_reference_for_malformed_entry(self, tmp_path):
-        """集号无法解析的畸形条目不是合法账本条目：剧本缺失仍阻断导入。"""
+        """Malformed unparseable episode entries are invalid ledger records; missing scripts still block import."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1549,7 +1549,7 @@ class TestProjectArchiveService:
         assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
 
     def test_import_allows_missing_script_for_ledgered_entry(self, tmp_path):
-        """账本条目（带 ledger_status）的剧本可以尚未生成：导入放行并落 warning。"""
+        """Ledger entries with ledger_status may lack generated scripts; imports pass with warnings."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1566,8 +1566,8 @@ class TestProjectArchiveService:
         assert any("episodes[0].script_file" in w for w in (m.render(default_translate) for m in result.warnings))
 
     def test_import_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
-        """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
-        形状合法（集号可解析）即视为正常账本条目，导入放行并落 warning。"""
+        """v2→v3 no longer backfills ledger_status, so upgraded entries may never have it;
+        structurally valid parseable episode numbers count as normal ledger entries, importing with warnings."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1581,7 +1581,7 @@ class TestProjectArchiveService:
         assert any("episodes[0].script_file" in w for w in (m.render(default_translate) for m in result.warnings))
 
     def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
-        """0/负数集号能被 parse_episode_num 解析，但不是合法集号：剧本缺失仍阻断导入。"""
+        """parse_episode_num can parse zero/negative numbers, but they are invalid; missing scripts still block imports."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1600,7 +1600,7 @@ class TestProjectArchiveService:
         assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
 
     def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
-        """自愈登记的孤儿集条目（无位置记录、剧本未生成）不破坏导出→再导入往返。"""
+        """Self-healed orphan episodes without positions/generated scripts preserve export→reimport roundtrips."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1623,11 +1623,11 @@ class TestProjectArchiveService:
         )
         imported = result.project
         assert imported["episodes"][1]["ledger_status"] == "planned"
-        # 孤儿条目不写入位置记录：导出/导入往返不应凭空补出 source_range
+        # Orphans omit position records; export/import roundtrips must not invent source_range.
         assert "source_range" not in imported["episodes"][1]
 
     def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
-        """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""
+        """Unknown source encodings never abort entire imports for partial corruption; failed files surface in warnings."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1788,14 +1788,14 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
         assert retire.retired == ["demo"]
         assert not list(pm.projects_dir.glob(".import-*"))
-        # 被覆盖的旧项目成为已删除项目
+        # Overwritten old projects become deleted projects.
         [replaced] = deleted_projects.list_entries(pm.layout)
         assert replaced.name == "demo"
         replaced_dir = pm.layout.deleted_projects_dir / replaced.id
         assert json.loads((replaced_dir / "project.json").read_text(encoding="utf-8"))["style"] == "Stale"
 
     def test_import_overwrite_drops_the_project_memory_of_the_replaced_project(self, tmp_path):
-        """覆盖导入等同于删除现有项目再导入：旧项目的记忆随旧项目进入已删除项目，不带进新项目。"""
+        """Overwrite-import equals deleting existing projects then importing; old memory moves into deleted projects, never new projects."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
         service = ProjectArchiveService(pm, retire_project=_RetireRecorder())
@@ -1814,7 +1814,7 @@ class TestProjectArchiveService:
         assert not list(pm.projects_dir.glob(".import-*"))
 
     def test_export_omits_project_memory_and_trash(self, tmp_path):
-        """项目私有区（项目记忆与项目回收站）都不随归档导出。"""
+        """Private project areas, memory/trash, never export in archives."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         _write_text(project_dir / ".arcreel" / "memory" / "MEMORY.md", "index")
@@ -1829,7 +1829,7 @@ class TestProjectArchiveService:
         assert (project_dir / ".arcreel" / "memory" / "MEMORY.md").read_text(encoding="utf-8") == "index"
 
     def test_rename_import_drops_project_memory_carried_by_the_archive(self, tmp_path):
-        """导入侧的点目录过滤：归档里夹带的 .arcreel/memory/ 不落进新项目。"""
+        """Import dot-directory filters exclude archive .arcreel/memory/ from new projects."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -1854,13 +1854,13 @@ class TestProjectArchiveService:
         assert not (pm.get_project_path(result.project_name) / ".arcreel").exists()
 
     def test_import_materializes_claude_with_manifest(self, tmp_path, monkeypatch):
-        """导入项目应物化 .claude 为真目录 + 写 manifest（非 symlink）。
+        """Imports materialize actual .claude directories and write manifests, never symlinks.
 
-        Profile 同步由 manifest 驱动且不使用 symlink；导入归档无 manifest 时走首次同步。
+        Manifest-driven Profile sync uses no symlinks; archives without manifests trigger first synchronization.
         """
         from lib.agent.profile_manifest import MANIFEST_FILENAME
 
-        # 准备 profile：必须至少有一个可物化文件，否则 ProfileEmptyError
+        # Prepare profiles with at least one materializable file, avoiding ProfileEmptyError.
         profile_dir = tmp_path / "agent_runtime_profile"
         (profile_dir / ".claude" / "skills" / "demo").mkdir(parents=True)
         (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo")
@@ -1882,9 +1882,9 @@ class TestProjectArchiveService:
         claude_dir = imported_dir / ".claude"
         assert claude_dir.is_dir()
         assert not claude_dir.is_symlink()
-        # 导入触发 sync_agent_profile → 首次迁移分支 full reset → 写 manifest
+        # Import triggers sync_agent_profile → first migration full reset → manifest writes.
         assert (imported_dir / MANIFEST_FILENAME).is_file()
-        # profile 内容真实落盘
+        # Profile contents actually persist.
         assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
 
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
@@ -1917,7 +1917,7 @@ class TestProjectArchiveService:
         assert retire.retired == []
 
     def test_import_overwrite_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
-        """sync_agent_profile 失败时现有项目原样保留，它的记录也不收尾。"""
+        """sync_agent_profile failures retain existing projects unchanged, without finalizing their records."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
         retire = _RetireRecorder()
@@ -1928,7 +1928,7 @@ class TestProjectArchiveService:
         project["style"] = "Stale"
         pm.save_project("demo", project)
 
-        # 让 sync_agent_profile 在 _install_project_dir 内（shutil.move 之后）抛错
+        # Make sync_agent_profile raise inside _install_project_dir after shutil.move.
         def boom(self_pm, target_dir, **kwargs):
             raise RuntimeError("profile sync failed")
 
@@ -1947,7 +1947,7 @@ class TestProjectArchiveService:
         assert not list(pm.projects_dir.glob(".import-*"))
 
     def test_import_overwrite_restores_the_old_directory_when_retirement_fails_after_replacing(self, tmp_path):
-        """目录已替换、记录提交失败时，旧目录连同项目记忆原样还原。"""
+        """Commit failures after directory replacement restore original directories and memory unchanged."""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
         service = ProjectArchiveService(pm, retire_project=_RetireRecorder(fail_after_replace=True))
@@ -1971,8 +1971,8 @@ class TestProjectArchiveService:
         assert not list(pm.projects_dir.glob(".import-*"))
 
     def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
-        """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
-        否则同名重试撞 FileExistsError。
+        """create_project sync_agent_profile failures must rmtree partial project_dir,
+        preventing FileExistsError on same-name retries.
         """
         pm = ProjectManager(tmp_path / "projects")
 
@@ -1984,10 +1984,10 @@ class TestProjectArchiveService:
         with pytest.raises(RuntimeError, match="profile sync failed"):
             pm.create_project("ghost")
 
-        # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
+        # Partial directories cleaned; same-name creation succeeds after undoing fixture sync failures.
         monkeypatch.undo()
         assert not (pm.projects_dir / "ghost").exists()
-        pm.create_project("ghost")  # 不撞 FileExistsError
+        pm.create_project("ghost")  # No FileExistsError collision.
         assert (pm.projects_dir / "ghost").is_dir()
 
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
@@ -2057,7 +2057,7 @@ class TestProjectArchiveService:
                         "video_prompt": "vid",
                         "generated_assets": {
                             "storyboard_image": "storyboards/scene_E1S01.png",
-                            # 当前文件缺失但版本历史尚在 → 归档修复应从 versions/audio 回溯到 canonical
+                            # Missing current files with retained histories: archive repair traces versions/audio back to canonical paths.
                             "narration_audio": "versions/audio/E1S01_v9.wav",
                             "status": "completed",
                         },
@@ -2070,7 +2070,7 @@ class TestProjectArchiveService:
 
         with zipfile.ZipFile(archive_path) as archive:
             exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
-            # 不仅改写 JSON 路径，还应把回溯出的当前文件物化进归档
+            # Rewrite JSON paths and materialize recovered current files into archives.
             assert "demo/audio/segment_E1S01.wav" in archive.namelist()
 
         assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
@@ -2111,7 +2111,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        # 报告非空：导入前请用户确认，项目还没有出现在项目列表里。
+        # Nonempty reports require preimport consent; projects remain absent from lists.
         assert exc_info.value.status_code == 409
         assert exc_info.value.extra["confirmation_required"] is True
         adjusted = exc_info.value.extra["migration_report"]["adjusted"]
@@ -2130,7 +2130,7 @@ class TestProjectArchiveService:
         assert report.acknowledged_at is not None
 
     def test_a_current_schema_archive_with_an_unreadable_record_asks_for_confirmation(self, tmp_path):
-        """导入激活没能登记的条目也进报告，不分归档的 schema 版本：确认前项目不出现，确认后照常导入。"""
+        """Unregisterable import-activation entries enter reports regardless of archive schema; projects appear only after confirmation, then import normally."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -2161,7 +2161,7 @@ class TestProjectArchiveService:
         assert "grids/grid_0123456789ab.json" in [item.artifact_path for item in report.skipped]
 
     def test_media_of_a_unit_that_needs_replanning_does_not_ask_for_confirmation(self, tmp_path):
-        """需要重新规划的条目在界面上另有标记：它没登记的媒体不进报告，报告为空时直接导入。"""
+        """Replanning entries have separate UI markers; omit their unregistered media from reports, importing directly if reports empty."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         script_path = project_dir / "scripts" / "episode_1.json"
@@ -2178,9 +2178,9 @@ class TestProjectArchiveService:
         assert load_migration_report(pm.get_project_path(result.project_name)) is None
 
     def test_import_resolves_nfd_script_refs_against_nfc_registered_assets(self, tmp_path):
-        """剧本与 project.json 可以各自是 NFC/NFD：修复期的成员判定按坐标系解析，
-        否则已登记的角色会被补出一份重复占位定义（后写入胜出会盖掉真实元数据），
-        已登记的场景/道具会被误报 blocking 缺失。"""
+        """Scripts/project.json may independently use NFC/NFD; repair membership checks resolve each coordinate system,
+        preventing duplicate character placeholders whose later writes overwrite actual metadata,
+        or falsely blocking registered scenes/props as missing."""
         import unicodedata
 
         character_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -2229,7 +2229,7 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
 
         imported = pm.load_project(result.project_name)
-        assert character_nfd not in imported["characters"]  # 不补重复占位角色
+        assert character_nfd not in imported["characters"]  # Never add duplicate placeholder characters.
         assert scene_nfd not in imported["scenes"]
         assert prop_nfd not in imported["props"]
         assert scene_nfc in imported["scenes"]
@@ -2272,7 +2272,7 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip", confirm_report=True)
 
         assert "Missing" in result.project["props"]
-        # 占位进了导入前确认过的报告，导入成功后的诊断不再重复列出。
+        # Placeholders already appeared in preimport-confirmed reports; successful-import diagnostics do not repeat them.
         report = load_migration_report(pm.get_project_path(result.project_name))
         assert report is not None
         assert ("placeholder_asset_added", {"asset_type": "prop", "name": "Missing"}) in [
@@ -2365,8 +2365,8 @@ class TestProjectArchiveService:
             assert "demo/characters/refs_audio/Hero.wav" in names
 
     def test_export_repairs_reference_audio_canonical_path(self, tmp_path):
-        """reference_audio 不像 reference_image 强制统一扩展名，规范化路径按字段自身的
-        扩展名推导——指针错位（如手工恢复留下的旧路径）但文件已在规范位置时应改写字段。"""
+        """reference_audio, unlike reference_image, has no forced extension; canonical paths derive from field
+        extensions, rewriting stale pointers, such as manually restored paths, when canonical files exist."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -2387,10 +2387,10 @@ class TestProjectArchiveService:
 
 class TestExportScope:
     def _create_project_with_versions(self, pm: ProjectManager) -> Path:
-        """创建带有 versions 历史的项目"""
+        """Create projects with versions histories"""
         project_dir = _create_project(pm)
 
-        # 添加版本历史文件
+        # Add historical version files.
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v1.png", b"png-v1")
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v2.png", b"png-v2")
         _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
@@ -2398,7 +2398,7 @@ class TestExportScope:
         _write_bytes(project_dir / "versions" / "scenes" / "Temple_v1.png", b"scene-v1")
         _write_bytes(project_dir / "versions" / "props" / "Key_v1.png", b"prop-v1")
 
-        # 创建 versions/versions.json
+        # Create versions/versions.json.
         versions_data = {
             "storyboards": {
                 "E1S01": {
@@ -2448,17 +2448,17 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
-            # 历史版本文件不应包含
+            # Exclude historical version files.
             assert "demo/versions/storyboards/E1S01_v1.png" not in names
             assert "demo/versions/storyboards/E1S01_v2.png" not in names
             assert "demo/versions/videos/E1S01_v1.mp4" not in names
             assert "demo/versions/characters/Hero_v1.png" not in names
             assert "demo/versions/scenes/Temple_v1.png" not in names
             assert "demo/versions/props/Key_v1.png" not in names
-            # 主资源应保留
+            # Retain primary resources.
             assert "demo/storyboards/scene_E1S01.png" in names
             assert "demo/videos/scene_E1S01.mp4" in names
-            # versions.json 应保留（裁剪后）
+            # Retain pruned versions.json.
             assert "demo/versions/versions.json" in names
 
     def test_export_scope_current_trims_versions_json(self, tmp_path):
@@ -2470,10 +2470,10 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             versions_content = json.loads(archive.read("demo/versions/versions.json"))
-            # 非 typed 当前文件直接从 canonical 路径导出，其历史快照未入包，
-            # 对应版本记录也不能留下悬空引用。
+            # Untyped current files export directly from canonical paths without historical snapshots;
+            # corresponding version records must not retain dangling references.
             assert "storyboards" not in versions_content
-            # videos.E1S01 应只保留 version 2
+            # videos.E1S01 retains version 2 only.
             vid_versions = versions_content["videos"]["E1S01"]["versions"]
             assert len(vid_versions) == 1
             assert vid_versions[0]["version"] == 2
@@ -2502,7 +2502,7 @@ class TestExportScope:
 
 
 class TestArchiveDiagnosticsLocalization:
-    """结构化诊断在传入 translator 时按目标语言成文（成功导入路径含 auto_fixed 家族）。"""
+    """Supplied translators render structured diagnostics in target languages, including auto_fixed on successful imports."""
 
     @staticmethod
     def _en(key: str, **kwargs: object) -> str:
@@ -2529,7 +2529,7 @@ class TestArchiveDiagnosticsLocalization:
         assert not re.search(r"[一-鿿]", rendered)
 
     def test_export_diagnostics_snapshot_in_archive_stays_default_language(self, tmp_path):
-        """随包分发的诊断快照与导出方的请求语言无关——导入方语言未必相同。"""
+        """Bundled diagnostic snapshots never depend on exporters' request languages; importers may use other languages."""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         _write_text(project_dir / "notes.txt", "scratch")
@@ -2544,10 +2544,10 @@ class TestArchiveDiagnosticsLocalization:
 
 
 def test_an_archive_exported_at_schema_18_keeps_storyboards_and_grids_current_after_import(tmp_path, monkeypatch):
-    """信封里的 claim 与原地升级一样经迁移链平移：v18→v19 改了分镜图与宫格的依据口径，导入后它们仍是 current。"""
+    """Envelope claims transfer through migration like in-place upgrades; v18→v19 changes storyboard/grid bases, retaining current after import."""
     source = ProjectManager(tmp_path / "source")
     write_legacy_named_reference_bases_project(source.projects_dir, name="demo")
-    # 模拟 schema 18 发行版的导出器：它把 18 当作当前版本，把清单放进信封。
+    # Simulate schema-18 exporters treating 18 as current and placing manifests inside envelopes.
     monkeypatch.setattr(project_archive_module, "project_schema_is_current", lambda _project: True)
     archive_path, _ = ProjectArchiveService(source).export_project("demo")
     monkeypatch.undo()
@@ -2572,9 +2572,9 @@ def test_an_archive_exported_at_schema_18_keeps_storyboards_and_grids_current_af
 
 
 def test_claims_the_migration_chain_rekeys_keep_their_archived_content_digests(tmp_path):
-    """迁移给 claim 换键并搬图（依据摘要与字节不变）时，新键沿用信封里旧键的内容摘要；同字节的两条各自沿用。
+    """Migrated claim rekeying/image moves with unchanged bases/bytes retain envelope old-key content digests independently for identical-byte entries.
 
-    迁移补录的条目对不上旧 claim，不带摘要。
+    Migration-backfilled entries lacking old claims have no digests.
     """
     project_dir = tmp_path / "staging"
     _write_json(project_dir / "project.json", {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION - 1})

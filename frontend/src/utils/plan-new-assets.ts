@@ -9,21 +9,21 @@ export interface PlanAssetDicts {
 }
 
 export interface PlanReferenceCandidates extends PlanAssetDicts {
-  /** 本集新增、确认时登记的名字（与已登记资产同名、会自动归并的项不在其列）。 */
+  /** New episode names registered on confirmation, excluding same-name registered assets automatically merged. */
   newNames: NamesByType;
-  /** 本集新增里选了「不登记」的名字。 */
+  /** New names selected as Do not register. */
   skippedNames: NamesByType;
 }
 
-/** 新增项类型对应的项目资产字典。 */
+/** Project dictionaries for new-asset kinds. */
 export const NEW_ASSET_BUCKET = { character: "characters", scene: "scenes", prop: "props" } as const;
 
-/** 新增项的处理方式，按界面顺序。 */
+/** New-item dispositions in UI order. */
 export const NEW_ASSET_DECISIONS: readonly NewAssetDecision[] = ["register", "merge", "derivative", "skip"];
 
 /**
- * 草稿里的 `new_assets` 可能被 Agent 改坏：缺键时视为没有新增项，形状或取值不对时返回 false，由调用方
- * 退回只读呈现。
+ * Agents may corrupt draft `new_assets`: missing keys mean no new assets; invalid shapes/values return false, letting callers
+ * fall back to readonly presentation.
  */
 export function hasValidNewAssets(content: Record<string, unknown> | null): boolean {
   const items = content?.new_assets;
@@ -55,8 +55,8 @@ function emptyNames(): NamesByType {
 }
 
 /**
- * 内容确认时引用的可选范围：已登记资产加本集新增项中不是「不登记」的项。新增项以称呼叠加到同类
- * 资产字典上，描述取它的登记描述；「不登记」的项不作候选，单独列出。
+ * Content-confirmation references include registered assets plus new episode items not marked Do not register. Overlay new names onto same-kind
+ * dictionaries with registration descriptions; unregistered selections are separate, never candidates.
  */
 export function planReferenceCandidates(
   registered: PlanAssetDicts,
@@ -84,7 +84,7 @@ export function planReferenceCandidates(
   return result;
 }
 
-/** 台词说话人的候选：已登记角色加本集新增角色（不含「不登记」的项）。说话人仍可以写其他名字。 */
+/** Speaker candidates: registered characters plus new registerable characters; other names remain permitted. */
 export function speakerCandidates(
   characters: Record<string, Character>,
   items: readonly PlanNewAsset[] = [],

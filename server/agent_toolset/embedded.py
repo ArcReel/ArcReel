@@ -1,11 +1,8 @@
-"""ArcReel Agent（内嵌 Claude Agent SDK）adapter。
+"""ArcReel Agent adapter for the embedded Claude Agent SDK.
 
-项目由会话决定，schema 不含 ``project``；无 scope 声明不接会话项目。结构化结果以 JSON 文本块写进 content、
-排在摘要之后，不依赖 ``structuredContent`` 是否会被转给模型；图片块（如有）排在最后。
+The session determines the project, so schema has no ``project``; unscoped declarations do not receive a session project. Structured results are JSON text blocks in content after the summary, independent of whether ``structuredContent`` reaches the model; image blocks, if any, come last.
 
-内嵌 server 关闭 MCP 层的 inputSchema 预校验：已声明工具的参数一律由请求模型校验，
-坏参数与远程宿主一样得到 ``invalid_request`` problem，而不是 MCP 的纯文本校验错误。
-"""
+The embedded server disables MCP inputSchema prevalidation: request models validate all declared-tool arguments, so invalid arguments receive ``invalid_request`` problems just like the remote host, instead of MCP plain-text validation errors."""
 
 from __future__ import annotations
 
@@ -50,7 +47,7 @@ def embedded_server(
     caller: CallerContext,
     services: Services,
 ) -> McpSdkServerConfig:
-    """以会话项目暴露已声明工具的 in-process MCP server。"""
+    """Expose declared tools in an in-process MCP server using the session project."""
     declared = {declaration.name: declaration for declaration in declarations}
     listed = [
         types.Tool(

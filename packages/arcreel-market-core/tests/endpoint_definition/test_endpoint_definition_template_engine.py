@@ -1,4 +1,4 @@
-"""声明式端点请求模板渲染。"""
+"""Declarative endpoint request-template rendering."""
 
 from __future__ import annotations
 

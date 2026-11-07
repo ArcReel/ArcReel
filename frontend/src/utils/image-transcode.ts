@@ -1,31 +1,31 @@
 import { resizedSize } from "./image-resize";
 
 /**
- * 解码前的文件闸门，与服务端单张源图上限一致：超过直接拒绝，不进解码。
- * 它约束的是源文件字节数，不是解码后的像素数——高压缩比的高分辨率图仍可能在闸门之内。
+ * Predecode file gates match server single-source limits; reject excess without decoding.
+ * Constrain source bytes, not decoded pixels; high-compression high-resolution images may still pass.
  */
 export const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024;
-/** 重编码后的单张预算，与服务端 `MAX_RESIZED_IMAGE_SOURCE_BYTES` 对齐。 */
+/** Reencoded single-image budgets match server `MAX_RESIZED_IMAGE_SOURCE_BYTES`. */
 export const MAX_ENCODED_IMAGE_BYTES = (3 * 1024 * 1024) / 2;
 
 /**
- * 输出恒为 JPEG：Safari 的 `canvas.toBlob` / `toDataURL` 不支持 WebP，且会静默
- * 回落成 PNG，PNG 对照片类附图反而更大。
+ * Always output JPEG: Safari `canvas.toBlob` / `toDataURL` lack WebP support and silently
+ * fall back to PNG, larger for photographic attachments.
  */
 export const TRANSCODED_IMAGE_MIME_TYPE = "image/jpeg";
 
-/** 质量阶梯：首档 0.85，超出单张预算时保持像素尺寸逐级降质重编码。 */
+/** Quality ladders start 0.85, reencoding at lower quality without pixel-size changes when budgets exceed. */
 const JPEG_QUALITY_LADDER = [0.85, 0.75, 0.65, 0.55, 0.45];
 
 export type TranscodeResult =
   | { dataUrl: string }
   /**
-   * `decode`：解码异常或 canvas 不可用；`oversized`：降到质量下限仍超出单张预算；
-   * `gif`：文件头是 GIF。
+   * `decode`: decode errors/unavailable canvas; `oversized`: over budget even at quality floors;
+   * `gif`: GIF file signatures.
    */
   | { failure: "decode" | "oversized" | "gif" };
 
-/** GIF 的两版文件头。MIME 类型来自文件名后缀，改名即可伪装，按内容判别才拦得住。 */
+/** Both GIF signatures. Filename-derived MIME can be spoofed by renaming; only content checks reliably block. */
 const GIF_SIGNATURES = ["GIF87a", "GIF89a"];
 
 async function looksLikeGif(file: File): Promise<boolean> {
@@ -41,15 +41,15 @@ export function dataUrlByteLength(dataUrl: string): number {
 }
 
 /**
- * 把图片文件解码、按模型的缩放规则重绘、再编码成 JPEG data URL。
+ * Decode image files, redraw by model resizing rules and encode JPEG data URLs.
  *
- * 已落在模型限制内的图片不改像素尺寸，只做一次 JPEG 重编码。任何一步失败都返回
- * `failure`，调用方据此拒绝该图——不回落为原图上传。
+ * Already-valid dimensions remain unchanged, requiring JPEG reencoding only. Any failure returns
+ * `failure`, requiring caller rejection, never original-image upload fallback.
  */
 export async function transcodeImageToJpeg(file: File): Promise<TranscodeResult> {
-  // 解码与文件头判别并行：MIME 来自文件名后缀，改名即可伪装，GIF 只有文件头认得出；
-  // 读不出文件头就交给解码分流，不额外多担一层失败。整段裹在 try 里，因为浏览器没有
-  // createImageBitmap 时这一行是同步抛错，逃出去会让调用方的转码队列永远卡住。
+  // Decode/signature checks run concurrently: filename MIME is spoofable, only signatures detect GIF;
+  // unreadable signatures defer to decoding without extra failure classes. Wrap everything in try because missing browser
+  // createImageBitmap throws synchronously here, otherwise permanently stalling caller transcode queues.
   let isGif: boolean;
   let bitmap: ImageBitmap;
   try {
@@ -71,13 +71,13 @@ export async function transcodeImageToJpeg(file: File): Promise<TranscodeResult>
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return { failure: "decode" };
-    // JPEG 没有 alpha 通道：先铺白底，否则 PNG 的透明像素会被编码成黑色。
+    // JPEG lacks alpha; white backgrounds prevent transparent PNG pixels becoming black.
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
     context.drawImage(bitmap, 0, 0, width, height);
     for (const quality of JPEG_QUALITY_LADDER) {
       const dataUrl = canvas.toDataURL(TRANSCODED_IMAGE_MIME_TYPE, quality);
-      // canvas 不可用时 toDataURL 返回 "data:," 之类的占位串，此时不能当成图片用。
+      // Unavailable canvas returns toDataURL placeholders like "data:,", never valid images.
       if (!dataUrl.startsWith(`data:${TRANSCODED_IMAGE_MIME_TYPE};base64,`)) return { failure: "decode" };
       if (dataUrlByteLength(dataUrl) <= MAX_ENCODED_IMAGE_BYTES) return { dataUrl };
     }

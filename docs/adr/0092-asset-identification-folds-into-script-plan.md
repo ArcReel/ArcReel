@@ -2,24 +2,24 @@
 status: accepted
 ---
 
-# 资产识别并入逐集脚本规划：全书资产提取与资产清单闸门退役
+# Identify assets during episode script planning; retire whole-book extraction and inventory gates
 
-全书资产提取让长篇源文整本进入一个上下文，源文改动一个字节就让整份清单过期、挡住下游全部操作，且与逐集自带原文、无源文的自由创作都不相适配。决定把资产识别放进**逐集的 AI 规划脚本**：以已登记资产的名字、别名与描述为上下文，本集未登记的资产与外观变化（衍生）随规划一并产出，每个新增项的处理（新建、归到已有、衍生、不登记）由读过本集原文的 AI 决定并附依据，创作者在内容确认时可改，确认即随正式脚本登记。全书提取与资产清单闸门随之退役。
+Whole-book extraction puts long source texts in one context, stales the entire inventory after a one-byte edit, blocks all downstream actions, and does not fit own-source/source-free creation. Identify assets during **per-episode AI script planning**. Existing names, aliases, and descriptions provide context; new assets and appearance derivatives come with the plan. The source-reading AI chooses create/existing/derivative/unregistered treatment with reasons; creators may revise at confirmation, which registers them with formal scripts. Retire whole-book extraction and inventory gates.
 
-AI 认出同一资产靠称呼，而资产描述写的是外貌，所以资产带**别名**，只供 AI 参考、不参与程序匹配；程序只做一处归并：登记时与已登记同类资产名字完全一致的新增项归到已有资产。
+AI recognizes identities by names, while descriptions express appearance, so add aliases for AI context only, not program matching. The sole programmatic merge is exact-name matching against registered same-type assets during registration.
 
-广告/短片没有脚本规划，资产识别同样并入它的整份生成，处理决定写入即生效、不经内容确认：内容确认是为在提示词编写前把关，而整份生成一步写完视觉层，这道关无可拦之物；不识别则只凭商品与创作灵感开局的项目，分镜没有人物与场景可引用。
+Ads/short films have no script planning; identify assets during whole-script generation instead, immediately effective without confirmation. That gate protects content before visual authoring, but whole-ad generation completes visuals at once, leaving nothing to gate. Otherwise projects starting with only products/briefs have no characters/scenes to reference.
 
 ## Considered Options
 
-- **并入分集规划**：只覆盖整本源文，自带原文的集仍需第二条识别路径。
-- **逐集识别之外保留全书提取作可选操作**：两条路径的重复与冲突要长期各自处理。
-- **由创作者在内容确认时逐项选择处理**：把判断交给多半没读过原文的人。
-- **别名参与程序匹配**：泛称（如「大哥」）在不同集可能指不同的人，程序会误配。
-- **广告/短片维持资产须预先登记，或新增资产也经内容确认**：前者让典型开局无资产可引用，后者只多一步操作。
+- **Identify during episode planning**: covers only whole source; own-source episodes still need another path.
+- **Keep optional whole-book extraction alongside per-episode identification**: permanently duplicates conflict handling.
+- **Creators choose each treatment at confirmation**: delegates judgment to people who may not have read the source.
+- **Programmatic alias matching**: generic names such as 大哥 can identify different people across episodes and cause incorrect matches.
+- **Ads retain preregistration or review for new assets**: preregistration blocks typical starts; review adds only an unnecessary action.
 
 ## Consequences
 
-- AI 认错、创作者也没发现时，同一资产会被登记成两个，出路是在项目资产中把两者合并。
-- 规划与生成从不修改已登记资产的描述：首次出场写下的描述不全只能由创作者补，外观变化走衍生。
-- 手写的脚本不经 AI 生成，其资产照旧手工登记。
+- Missed AI/creator mistakes can register one identity twice; merge them in project assets.
+- Planning/generation never changes existing asset descriptions. Creators complete incomplete first descriptions; appearance changes use derivatives.
+- Handwritten scripts bypass AI and retain manual asset registration.

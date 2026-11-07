@@ -1,9 +1,10 @@
-"""持久化 schema 的运行期形状判定。
+"""Runtime shape predicates for persisted schemas.
 
-数据类的字段标注描述的是**期望** schema；实例既由本仓库的类型化代码构造，也由
-``from_dict`` 之类的入口从磁盘 JSON 重建，故构造期仍须校验真实形状。这些判定函数
-以 ``object`` 收参，把「标注表达期望、判定负责实际」的分工落到类型上，构造期校验
-因此不会退化成对自身标注的同义反复。
+Dataclass annotations describe the expected schema, but instances also come
+from disk JSON through ``from_dict`` and similar entry points. Construction must
+therefore validate actual shapes. Predicates accept ``object`` so the types express
+this division: annotations state expectations; predicates check reality.
+Construction checks must not become tautologies about their own annotations.
 """
 
 from collections.abc import Mapping
@@ -20,14 +21,14 @@ __all__ = [
 
 
 def is_int(value: object, *, minimum: int | None = None) -> bool:
-    """严格整数判定：``bool`` 是 ``int`` 的子类，此处按非整数处理。"""
+    """Strict integer check: ``bool`` subclasses ``int`` but is not an integer here."""
     if not isinstance(value, int) or isinstance(value, bool):
         return False
     return minimum is None or value >= minimum
 
 
 def is_finite_number(value: object) -> bool:
-    """有限实数判定，同样排除 ``bool``。"""
+    """Finite real-number check, also excluding ``bool``."""
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return False
     return isfinite(value)
@@ -46,5 +47,5 @@ def is_mapping(value: object) -> bool:
 
 
 def is_shape(value: object, expected: type | tuple[type, ...]) -> bool:
-    """任意类型的形状判定，供无专用谓词的持久化字段使用。"""
+    """General shape check for persisted fields without a dedicated predicate."""
     return isinstance(value, expected)

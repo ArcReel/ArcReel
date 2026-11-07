@@ -1,7 +1,7 @@
-"""Alembic 迁移 e167b56a3e79（tasks.resource_type + 去重索引）的升级/降级回归测试。
+"""Upgrade/downgrade regressions for Alembic e167b56a3e79 (tasks.resource_type and deduplication index).
 
-降级时若存在跨 resource_type 撞键的活动任务（升级后允许并存，降级要恢复的窄索引不允许），
-需先软取消其中较晚入队的一条，否则重建唯一索引会因约束冲突失败。
+Active cross-resource_type key collisions are legal after upgrade but incompatible with the narrow downgraded index.
+Soft-cancel the later queued task first or recreating the unique index fails with a constraint violation.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _insert_task(
 def test_downgrade_collapses_conflicting_active_tasks(
     alembic_cfg: tuple[Config, Path], migration_revisions: Callable[[str], tuple[str, str]]
 ):
-    """升级后允许并存的跨 resource_type 同名活动任务，降级前应被软取消到唯一一条。"""
+    """Cross-resource_type same-named active tasks allowed after upgrade must reduce to one through soft cancellation before downgrade."""
     revision_id, parent_revision_id = migration_revisions(_MIGRATION)
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, revision_id)
@@ -58,8 +58,8 @@ def test_downgrade_collapses_conflicting_active_tasks(
     engine = sa.create_engine(f"sqlite:///{db_path}")
     try:
         with engine.begin() as conn:
-            # 角色「玉佩」与道具「玉佩」在同一项目下并存的活动 image_edit 任务：
-            # project_name / task_type / resource_id / script_file 全部相同，仅 resource_type 不同。
+            # Coexisting character 玉佩 and prop 玉佩 active image_edit tasks in one project:
+            # project_name / task_type / resource_id / script_file match; only resource_type differs.
             _insert_task(
                 conn,
                 task_id="task-a",
@@ -75,7 +75,7 @@ def test_downgrade_collapses_conflicting_active_tasks(
                 queued_at="2026-07-16 10:00:01",
             )
 
-        # 降级前该数据在新（含 resource_type）索引下合法共存
+        # Before downgrade, the new resource_type-inclusive index permits these rows.
         with engine.begin() as conn:
             statuses = {row[0]: row[1] for row in conn.execute(sa.text("SELECT task_id, status FROM tasks")).fetchall()}
         assert statuses == {"task-a": "queued", "task-b": "queued"}
@@ -90,28 +90,28 @@ def test_downgrade_collapses_conflicting_active_tasks(
                 ).fetchall()
             }
 
-        # 较早入队的一条保留原状态，较晚的一条被软取消（非硬删除）
+        # Retain the earlier task state; soft-cancel the later one without hard deletion.
         assert rows["task-a"][1] == "queued"
         assert rows["task-a"][2] is None
         assert rows["task-b"][1] == "cancelled"
         assert rows["task-b"][2] == "system"
         assert rows["task-b"][3] is not None
 
-        # 窄索引已恢复且无 resource_type 列
+        # Restore the narrow index and remove resource_type.
         with engine.begin() as conn:
             columns = {row[1] for row in conn.execute(sa.text("PRAGMA table_info(tasks)")).fetchall()}
         assert "resource_type" not in columns
     finally:
         engine.dispose()
 
-    # 重新升级不应因残留数据报错
+    # Reupgrade must not fail on remaining data.
     command.upgrade(cfg, revision_id)
 
 
 def test_downgrade_without_conflict_is_noop_for_active_tasks(
     alembic_cfg: tuple[Config, Path], migration_revisions: Callable[[str], tuple[str, str]]
 ):
-    """无跨 resource_type 撞键时，降级不应改动任何活动任务的状态。"""
+    """Without cross-resource_type collisions, downgrade preserves every active task state."""
     revision_id, parent_revision_id = migration_revisions(_MIGRATION)
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, revision_id)

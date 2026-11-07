@@ -1,0 +1,47 @@
+[
+  {
+    "path": "frontend/src/components/canvas/StudioCanvasRouter.tsx",
+    "before_sha256": "ae6e7f5dd03b6fdec5479d7d2dd7d6b3e5a689543b5e20fda99057bd12a5a9b4",
+    "after_sha256": "69d306d91a636d68fcb59c96558515264d579bde1808bae92d2273d3c7cbacb9",
+    "before": "ads/short films are single-episode without episode planning.",
+    "after": "ads/short films are single-episode and bypass episode management.",
+    "reason": "Independent reviewer identified episode-management route restriction, not an additional planning-capability prohibition. Coordinator verified branch redirects demo/ad away from EpisodesView.",
+    "scope": "One comment line only; final compiler/asset and frontend checks remain required."
+  },
+  {
+    "path": "frontend/src/components/canvas/EpisodeSourceReview.tsx",
+    "before_sha256": "9ffeaca27c437e9d4de8d71b6ec190e34bb6eab4a36bfdba32935fe888454d87",
+    "after_sha256": "b95c2445041b1b614ae5d5cd7ab9e91a6e8af6d5272abd5c01afb2d5ef1d462a",
+    "before": "at widths above 860px",
+    "after": "at widths of at least 860px",
+    "reason": "Independent review preserves original inclusive 860px threshold.",
+    "scope": "One comment line; final compiler/asset and frontend checks required."
+  },
+  {
+    "path": "frontend/src/types/provider.ts",
+    "before_sha256": "3cc224cd935ca08f6fe094808758ef29289c4819de8c898632a4d2e83a1bbf16",
+    "after_sha256": "8f4897d42314990af08517eb42ae975a6ceefe5cb7ffafc92ee8243820f7dee2",
+    "before": "`i2v` covers text generation and first-frame image generation; `r2v` is reference video.",
+    "after": "`i2v` covers text-to-video and first-frame image-to-video; `r2v` is reference-to-video.",
+    "reason": "Independent bilingual review preserves media-route meanings / scope of duration exclusion reasons.",
+    "scope": "Comment only; final compiler, emitted asset and frontend checks required."
+  },
+  {
+    "path": "frontend/src/types/project.ts",
+    "before_sha256": "786a6fb95e0764851f9302c98f178a2292e43b1bbb6ef49750cd37c6afec3c88",
+    "after_sha256": "8010c3b819629a657c79bec78b58540777d1696c42780d6e519cdc58f30d889c",
+    "before": "Reason a duration was excluded by combined constraints; durations absent from the model's full set are excluded here and identified by absence from supported_durations.",
+    "after": "Reason a duration was excluded by combined constraints. Durations absent from the model's full set are not represented by these reasons; identify them by absence from supported_durations.",
+    "reason": "Independent review clarifies that full-set nonmembers are not DurationExclusionReason values; supported_durations membership detects them.",
+    "scope": "One comment line only; final compiler/asset/frontend checks required."
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx",
+    "before_sha256": "7e78907deb21ba20e7c45b47a0ccfaf386db3a9ab3cdb5bdee00f21ac25a9ded",
+    "after_sha256": "9bae369fb7e56de6cb2209b705e331daea11040d84e3cc7ecd7180ba0a141f4a",
+    "before": "Canvas permits final uploads: playable uploaded assets override historical failed rows rather than ready status",
+    "after": "Canvas permits final uploads: uploaded playable assets mean historical failures must no longer override ready",
+    "reason": "Independent review preserves uploaded playable assets remaining ready despite historical failed task rows.",
+    "scope": "One comment line only; final compiler/asset/frontend checks required."
+  }
+]

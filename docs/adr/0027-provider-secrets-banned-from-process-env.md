@@ -2,14 +2,14 @@
 status: accepted
 ---
 
-> Windows 回退的 Bash 白名单现在只放行 `python .claude/skills/` 入口，不再放行 ffmpeg 与 ffprobe。token 边界匹配作为通用规则保留，正文中的 `ffmpegX` 是当时的示例；三道拒绝规则与密钥三层强制的决定仍有效。
+> Windows Bash fallback now permits only `python .claude/skills/` entry points, no longer ffmpeg or ffprobe. Token-boundary matching remains a general rule; `ffmpegX` below is the historical example. The three rejection rules and three secret-enforcement layers remain valid.
 
-# Provider 密钥禁入进程环境：启动断言 + agent env 覆盖 + Bash env -u 清洗
+# Keep provider secrets out of process env: startup assertions, Agent env overrides, and Bash env -u stripping
 
-provider 密钥若进 `os.environ`，会被 agent 子进程整体继承，泄漏面大，且进程级单值与多凭证/按会话切换冲突。决定密钥只存 DB，三层强制：①启动断言——`os.environ` 含任何 provider 真密钥（`PROVIDER_SECRET_KEYS`）即 fail-fast 拒绝启动，以环境变量配置 key 的部署将无法启动，这是刻意设计；②agent 子进程 env——Anthropic 凭证按会话从 DB 注入（见 `docs/adr/0017`），其余 provider 变量一律空串覆盖；③Bash 命令被 PreToolUse hook 包装成 `env -u … sh -c`，按固定清单 + `*_API_KEY`/`*_AUTH_TOKEN` 等模式扫描动态 unset，拦截任何仍从宿主环境继承的敏感变量。
+Provider secrets in `os.environ` are inherited wholesale by Agent subprocesses, broadening leakage; process-wide single values also conflict with multiple credentials and per-session switching. Store keys only in DB with three enforcement layers: (1) startup assertions fail fast if `os.environ` contains any real provider secret (`PROVIDER_SECRET_KEYS`), deliberately refusing env-key deployments; (2) inject Anthropic credentials per session from DB (see `docs/adr/0017`), overriding every other provider variable with an empty string; (3) PreToolUse wraps Bash commands in `env -u … sh -c`, dynamically unsetting sensitive inherited variables using the fixed list plus patterns such as `*_API_KEY`/`*_AUTH_TOKEN`.
 
 ## Consequences
 
-- 新增供应商时须把它的 env 变量名登记进 `lib/config/env_keys.py`（启动断言/env 覆盖/Bash 清洗共用此清单；模式扫描只能覆盖命名规整的变量）。
-- ③ 是 POSIX 机制（依赖 `env`/`sh`），仅在沙箱可用（macOS/Linux）时执行包装；hook 只改写命令、不下权限决策，放行由权限链后续步骤（allowed_tools）完成。Windows 原生回退下 hook 跳过包装，原始命令交由 `can_use_tool` 的 Bash 白名单裁决，拒绝规则三道：token 边界匹配（挡 `ffmpegX` 这类前缀碰撞）、shell metachar 拦截（分号、`&`、管道符、尖括号、反引号、`$`、换行——挡链式/管道/重定向/命令替换）、`..` 路径穿越拦截（含 `".."` 引号与 `.\.` 反斜杠转义的混淆形式，挡逃出 skills 目录跑任意脚本）；其中 `python` 入口进一步限定为 `.claude/skills/<skill>/scripts/<script>.py`。运维排障时拒绝文案会标明命中哪条规则。①② 两层不受平台影响。
-- 与 `docs/adr/0017` 互补：0017 讲 Anthropic 凭证「如何注入」，本条讲所有 provider 密钥「如何不泄漏」。
+- New providers register their environment-variable names in `lib/config/env_keys.py`, shared by startup assertions, env overrides, and Bash stripping. Pattern scans cover only conventionally named variables.
+- Layer 3 is POSIX, requiring `env`/`sh`, and wraps commands only with sandboxing available on macOS/Linux. The hook rewrites commands without making permission decisions; later allowed_tools checks authorize them. Native Windows skips wrapping and sends raw commands to `can_use_tool`'s Bash allowlist with three rejection rules: token boundaries (blocking collisions such as `ffmpegX`), shell metacharacters (semicolon, `&`, pipes, angle brackets, backticks, `$`, newline, blocking chaining/pipes/redirection/substitution), and `..` traversal (including quoted `".."` and escaped `.\.` obfuscation, preventing arbitrary scripts outside skills). The `python` entry is further limited to `.claude/skills/<skill>/scripts/<script>.py`. Diagnostic rejection messages identify the matched rule. Layers 1 and 2 are platform-independent.
+- Complements `docs/adr/0017`: that ADR explains how Anthropic credentials are injected; this one explains how all provider secrets are kept from leaking.

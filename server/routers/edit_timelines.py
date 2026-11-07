@@ -1,8 +1,7 @@
-"""剪辑时间线的 HTTP 入口：列表、读取、预览素材层、新建、复制、改名、修订历史、回滚、删除、一集的剪辑概况，
-以及成片与剪映草稿的提交、现状与下载。
+"""Editing-timeline HTTP entry points: list, read, preview material layers, create, copy, rename, revision history, restore,
+delete and episode editing summaries, plus final-cut/Jianying-draft submission, state and download.
 
-行为全部在 lib 层剪辑时间线命令、成片服务与剪映草稿服务里；渲染作为 ``render`` 车道任务入队。
-"""
+Behavior lives entirely in lib timeline commands, final-cut services and Jianying-draft services; enqueue rendering in the ``render`` lane."""
 
 from __future__ import annotations
 
@@ -58,7 +57,7 @@ if TYPE_CHECKING:
 
 router = APIRouter(dependencies=[Depends(require_project_migration_ok)])
 
-# 浏览器原生下载带不了 Authorization header，端点内校验短时效下载 token（见 docs/adr/0071）。
+# Native browser downloads cannot send Authorization headers; validate short-lived download tokens in endpoints (docs/adr/0071).
 self_auth_router = APIRouter()
 
 
@@ -105,7 +104,7 @@ def get_jianying_draft_service() -> TimelineJianyingDraftService:
     return TimelineJianyingDraftService(get_project_manager())
 
 
-# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期按需惰性导入。
+# Concrete types appear only under TYPE_CHECKING; pyJianYingDraft is heavy and imported lazily at runtime.
 JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
 
 _ERROR_STATUS: dict[str, int] = {
@@ -142,7 +141,7 @@ _FINAL_CUT_STATUS: dict[str, int] = {
 
 
 def final_cut_api_error(exc: FinalCutError) -> ApiError:
-    """成片错误的摘要只列出阻断的视频单元；结构化的问题清单与片段 ID 挂在诊断上。"""
+    """Final-cut error summaries list only blocking video units; attach structured issues and clip IDs to diagnostics."""
     params = exc.params
     issues = params.get("issues") or []
     units = "、".join(dict.fromkeys(str(issue.get("unit_id")) for issue in issues if issue.get("unit_id")))
@@ -164,7 +163,9 @@ class CopyEditTimelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
-    revision: int | None = Field(default=None, ge=1, description="被复制的修订号；省略时复制最新修订")
+    revision: int | None = Field(
+        default=None, ge=1, description="Revision number to copy; omit to copy the latest revision"
+    )
 
 
 class RenameEditTimelineRequest(BaseModel):
@@ -176,14 +177,14 @@ class RenameEditTimelineRequest(BaseModel):
 class RestoreEditTimelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    revision: int = Field(ge=1, description="要回滚到的修订号")
+    revision: int = Field(ge=1, description="Revision number to restore")
 
 
 class RenderFinalCutBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
-    # 省略时按项目补齐：TTS 配音项目带旁白、其余不带旁白；字幕默认烧入。
+    # Omitted values use project defaults: TTS includes narration, others omit it; subtitles default to burned in.
     narration: DraftNarration | None = None
     subtitles: SubtitleMode | None = None
 
@@ -224,10 +225,9 @@ async def create_edit_timeline(
     user: CurrentUser,
     _t: Translator,
 ) -> EditTimelineReadout:
-    """按脚本机械新建；准入与制作状态 ``operations.create_edit_timeline`` 同一份谓词：本集至少有一个可用视频。
+    """Mechanically create from the script; admission shares the production-state predicate in ``operations.create_edit_timeline``: at least one usable video in the episode.
 
-    读不出准入（项目或集不存在等）时不在这里拒绝，由命令报对应的领域错误。
-    """
+    If admission cannot be read, such as a missing project/episode, do not reject here; let the command report the appropriate domain error."""
     try:
         status = await asyncio.to_thread(workflow.get_status, project_name, episode)
     except (FileNotFoundError, WorkflowRequestError):
@@ -256,7 +256,7 @@ async def read_episode_edit_overview(
     episode: Annotated[int, PathParam(ge=1)],
     read_overview: EpisodeEditOverviewDep,
 ) -> EpisodeEditOverview:
-    """一集的剪辑概况：剪辑时间线条数、最近修改那条的问题数，以及成片已落后的几条。"""
+    """Episode editing summary: timeline count, issue count for the most recently modified timeline, and timelines whose final cuts are stale."""
     try:
         return await read_overview(project_name, episode)
     except EditTimelineError as exc:
@@ -284,7 +284,7 @@ async def copy_edit_timeline(
     service: EditTimelineServiceDep,
     user: CurrentUser,
 ) -> EditTimelineReadout:
-    """把指定修订（缺省为最新修订）复制成同一集的新剪辑时间线，返回新时间线的第一个修订。"""
+    """Copy the specified revision, defaulting to latest, into a new timeline in the same episode and return its first revision."""
     try:
         with project_change_source("webui"):
             return await service.copy(
@@ -305,7 +305,7 @@ async def rename_edit_timeline(
     body: RenameEditTimelineRequest,
     service: EditTimelineServiceDep,
 ) -> TimelineSummary:
-    """改显示名：不产生修订，成片与剪映草稿不因此过期。"""
+    """Rename the display name without creating a revision or making final cuts/Jianying drafts stale."""
     try:
         with project_change_source("webui"):
             return await service.rename(project_name, timeline_id, name=body.name)
@@ -333,7 +333,7 @@ async def restore_edit_timeline_revision(
     service: EditTimelineServiceDep,
     user: CurrentUser,
 ) -> EditTimelineWriteResult:
-    """回滚：以旧修订的内容追加一个新修订，历史不改写。"""
+    """Restore by appending a new revision with old content, without rewriting history."""
     try:
         with project_change_source("webui"):
             return await service.restore(
@@ -354,7 +354,7 @@ async def delete_edit_timeline(
     queue: GenerationQueueDep,
     user: CurrentUser,
 ) -> Response:
-    """删除剪辑时间线及其成片与剪映草稿；仍有渲染任务在排队或执行时拒绝，等任务结束后再删。"""
+    """Delete the timeline and its final cuts/Jianying drafts; reject while render tasks are queued or running, allowing deletion after completion."""
     for task_type, resource_ids in timeline_render_resource_ids(timeline_id).items():
         active = await queue.get_active_tasks_for_resources(
             project_name=project_name, task_type=task_type, resource_ids=resource_ids, user_id=user.id
@@ -390,7 +390,7 @@ async def render_final_cut(
     user: CurrentUser,
     body: RenderFinalCutBody | None = None,
 ) -> FinalCutSubmission:
-    """先按所选版本检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。"""
+    """Check blocking issues for the selected variant before enqueueing; omitted ``revision`` renders the latest revision at submission time."""
     request_body = body or RenderFinalCutBody()
     try:
         check = await service.check(
@@ -423,10 +423,10 @@ async def read_final_cut(
     project_name: str,
     timeline_id: str,
     service: FinalCutServiceDep,
-    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
-    subtitles: SubtitleMode | None = Query(None, description="字幕方式；省略时为烧入字幕"),
+    narration: DraftNarration | None = Query(None, description="Narration variant; omit to use the project default"),
+    subtitles: SubtitleMode | None = Query(None, description="Subtitle mode; omit to burn subtitles in"),
 ) -> FinalCutStatusResponse:
-    """成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出。"""
+    """Final-cut state; stale cuts remain downloadable, with ``download_url`` supplied only if the file exists."""
     try:
         status = await service.status(project_name, timeline_id, narration=narration, subtitles=subtitles)
     except EditTimelineError as exc:
@@ -443,7 +443,7 @@ class ExportJianyingDraftBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
-    # 省略时按项目取默认旁白版本：TTS 配音项目带旁白，其余不带旁白。
+    # Omit to use the project narration default: included for TTS projects, excluded otherwise.
     narration: DraftNarration | None = None
 
 
@@ -463,7 +463,7 @@ _JIANYING_DRAFT_STATUS: dict[str, int] = {
 
 
 def jianying_draft_api_error(exc: JianyingDraftError) -> ApiError:
-    """剪映草稿错误的摘要只列出阻断的视频单元；结构化的问题清单挂在诊断上。"""
+    """Jianying-draft error summaries list only blocking video units; attach structured issues to diagnostics."""
     params = dict(exc.params)
     issues = params.pop("issues", None)
     if issues is not None:
@@ -485,7 +485,7 @@ async def export_jianying_draft(
     user: CurrentUser,
     body: ExportJianyingDraftBody | None = None,
 ) -> JianyingDraftSubmission:
-    """先检查阻断问题再入队；``revision`` 省略时导出提交时的最新修订。"""
+    """Check blocking issues before enqueueing; omitted ``revision`` exports the latest revision at submission time."""
     request_body = body or ExportJianyingDraftBody()
     try:
         check = await service.check(
@@ -517,9 +517,9 @@ async def read_jianying_draft(
     project_name: str,
     timeline_id: str,
     service: JianyingDraftServiceDep,
-    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
+    narration: DraftNarration | None = Query(None, description="Narration variant; omit to use the project default"),
 ) -> JianyingDraftStatus:
-    """剪映草稿现状：current、stale（已落后于剪辑时间线，仍可下载）或 missing（还没导出过）。"""
+    """Jianying-draft state: current, stale (behind the timeline but still downloadable), or missing (never exported)."""
     try:
         return await service.status(project_name, timeline_id, narration=narration)
     except EditTimelineError as exc:
@@ -542,12 +542,12 @@ async def download_jianying_draft(
     timeline_id: str,
     _t: Translator,
     service: JianyingDraftServiceDep,
-    draft_path: str = Query(..., description="用户本机的剪映草稿目录"),
-    download_token: str = Query(..., description="下载 token"),
-    jianying_version: Literal["5", "6"] = Query("6", description="剪映版本：6 表示 6 及以上，5 表示 5.x"),
-    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
+    draft_path: str = Query(..., description="Jianying draft directory on the user’s local machine"),
+    download_token: str = Query(..., description="Download token"),
+    jianying_version: Literal["5", "6"] = Query("6", description="Jianying version: 6 means 6 or later; 5 means 5.x"),
+    narration: DraftNarration | None = Query(None, description="Narration variant; omit to use the project default"),
 ) -> FileResponse:
-    """下载已登记的剪映草稿：本机草稿目录与剪映版本在此代入，过期的草稿照常可下载。"""
+    """Download a registered Jianying draft, substituting the local draft directory and Jianying version here; stale drafts remain downloadable."""
     try:
         verify_download_token(download_token, project_name)
     except jwt.ExpiredSignatureError as exc:
@@ -570,7 +570,7 @@ async def download_jianying_draft(
         raise edit_timeline_api_error(exc) from exc
     except JianyingDraftError as exc:
         raise jianying_draft_api_error(exc) from exc
-    # hard-delete: temp -- 剪映草稿下载包的临时目录
+    # hard-delete: temp -- temporary Jianying draft download-package directory
     return FileResponse(
         path=str(package),
         media_type="application/zip",

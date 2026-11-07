@@ -1,4 +1,4 @@
-"""``build_generation_batch_read_model``：持久化批次到共享结果契约的终态换算。"""
+"""``build_generation_batch_read_model`` converts persisted terminal batches to shared result contracts."""
 
 from __future__ import annotations
 
@@ -197,7 +197,7 @@ def test_deleted_target_reports_the_trash_instead_of_the_requested_artifact() ->
 
 
 def test_terminal_result_carries_the_worker_warnings_of_succeeded_items() -> None:
-    """MCP 调用方从持久化批次读到的终态结果与内嵌等待路径一样带 worker warnings。"""
+    """Persisted MCP batch results include worker warnings like embedded wait results."""
 
     clamp = {"key": "ref_too_many_images", "params": {"count": 8, "model": "viduq2", "max_count": 7}}
     read = build_generation_batch_read_model(
@@ -218,7 +218,7 @@ def test_terminal_result_carries_the_worker_warnings_of_succeeded_items() -> Non
 
 
 def test_terminal_result_keeps_the_worker_warnings_of_a_post_processing_failure() -> None:
-    """任务成功、后处理失败的条目同样带 worker warnings：裁剪提示不随失败一起消失。"""
+    """Successful tasks with failed postprocessing retain worker warnings, including crop hints."""
 
     clamp = {"key": "ref_too_many_images", "params": {"count": 8, "model": "viduq2", "max_count": 7}}
     read = build_generation_batch_read_model(
@@ -250,7 +250,7 @@ def test_terminal_result_keeps_the_worker_warnings_of_a_post_processing_failure(
 
 
 def test_a_member_held_back_by_a_failed_in_batch_dependency_reports_that_dependency() -> None:
-    """同批前置成员失败时，后继成员从未执行：报「依赖未成功」并点名前置成员，而不是泛化的级联失败。"""
+    """Same-batch predecessor failures mean successors never ran: report unsuccessful dependency and identify it, not generic cascades."""
 
     batch = _batch("character/张三", "character/张三/黑衣")
     batch["requested"] = GenerationBatchRequestSnapshot(

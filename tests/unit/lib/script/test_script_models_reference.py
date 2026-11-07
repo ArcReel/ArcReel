@@ -39,7 +39,7 @@ def test_reference_video_unit_minimal():
 
 
 def test_reference_video_unit_rejects_legacy_shot_fields():
-    """正文是唯一持久化真相：``shots`` / ``references`` 写入即被 strict 模型拒绝。"""
+    """Bodies are the sole persisted source of truth; strict models reject written ``shots`` / ``references``."""
     with pytest.raises(ValidationError):
         _make_unit(shots=[{"text": "镜头一"}])
     with pytest.raises(ValidationError):
@@ -47,7 +47,7 @@ def test_reference_video_unit_rejects_legacy_shot_fields():
 
 
 def test_reference_video_unit_empty_text_only_allowed_as_replan_shell():
-    """空正文只允许配 needs_replan=True 且 0 秒（迁移遗留的问题壳）。"""
+    """Empty bodies require needs_replan=True and 0 seconds, representing migration-leftover problem shells."""
     shell = _make_unit(text="", duration_seconds=0, needs_replan=True)
     assert shell.needs_replan is True
     assert shell.duration_seconds == 0
@@ -72,7 +72,7 @@ def test_reference_video_script_valid():
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
-    # 剧本只承载“创作类型”维度；生成模式是项目级属性，剧本不携带
+    # Scripts carry only creative content type; generation mode is a project-level property, absent from scripts.
     assert script.content_mode == "narration"
     assert not hasattr(script, "generation_mode")
     assert len(script.video_units) == 1
@@ -89,7 +89,7 @@ def test_reference_video_script_accepts_drama_content_mode():
 
 
 def test_reference_video_script_rejects_legacy_reference_video_content_mode():
-    """content_mode 不再允许 reference_video（它属于项目级 generation_mode 维度）。"""
+    """content_mode no longer accepts reference_video, which belongs to project-level generation_mode."""
     with pytest.raises(ValidationError):
         ReferenceVideoScript(
             title="x",
@@ -100,7 +100,7 @@ def test_reference_video_script_rejects_legacy_reference_video_content_mode():
 
 
 def test_reference_video_unit_duration_is_independent_of_text_length():
-    """unit 时长是唯一真相：不与正文长度挂钩，取值只受结构区间约束。"""
+    """Unit duration is the sole source of truth, independent of body length and constrained only by structural bounds."""
     assert _make_unit(duration_seconds=12).duration_seconds == 12
     assert _make_unit(text="一行", duration_seconds=120).duration_seconds == 120
 

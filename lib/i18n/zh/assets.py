@@ -25,7 +25,7 @@ MESSAGES = {
     "asset_type_scene": "场景",
     "asset_type_prop": "道具",
     "asset_type_product": "商品",
-    # DashScope 音色目录展示文案，出处见 lib/backends/audio_backends/dashscope.py 顶部注释。
+    # DashScope voice-catalog display copy; sources: lib/backends/audio_backends/dashscope.py header comments.
     "voice_label_dashscope_cherry": "芊悦 · 阳光正向的自然年轻女声",
     "voice_label_dashscope_serena": "苏瑶 · 温柔的年轻女声",
     "voice_label_dashscope_ethan": "晨煦 · 标准普通话，阳光温暖的年轻男声",
@@ -45,8 +45,8 @@ MESSAGES = {
     "voice_label_dashscope_bella": "萌宝 · 可爱小女孩",
     "voice_label_dashscope_eldric_sage": "沧明子 · 智慧长者（男）",
     "voice_label_dashscope_vincent": "田叔 · 沙哑老练（男）",
-    # 百炼 SpeechSynthesizer（qwen-audio-*-tts）音色目录展示文案，出处见
-    # lib/backends/audio_backends/dashscope_speech_synthesizer.py 顶部注释。
+    # Bailian SpeechSynthesizer (qwen-audio-*-tts) voice-catalog copy; sources:
+    # lib/backends/audio_backends/dashscope_speech_synthesizer.py header comments.
     "voice_label_dashscope_longanhuan_v3_1": "龙安欢 · 女声",
     "voice_label_dashscope_longanlingxin_v3_1": "龙安灵心 · 女声",
     "voice_label_dashscope_longanfengyue_v3_1": "龙安风悦 · 女声",
@@ -78,7 +78,7 @@ MESSAGES = {
     "voice_label_dashscope_loongmary": "loongmary · 温暖英音（女）",
     "voice_label_dashscope_loongeva_v3_6": "loongeva · 高智美音（女）",
     "voice_label_dashscope_loongjohn": "loongjohn · 沉稳亲切美音（男）",
-    # MiniMax 音色目录展示文案，出处见 lib/backends/audio_backends/minimax.py 顶部注释。
+    # MiniMax voice-catalog copy; sources: lib/backends/audio_backends/minimax.py header comments.
     "voice_label_minimax_male_qn_qingse": "青涩青年音色",
     "voice_label_minimax_male_qn_jingying": "精英青年音色",
     "voice_label_minimax_male_qn_badao": "霸道青年音色",

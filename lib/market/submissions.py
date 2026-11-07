@@ -1,10 +1,13 @@
-"""分享提交：打包端点文件、本地预检，以及把官方服务返回的诊断还原成可翻译的消息。
+"""Sharing submissions: endpoint file packaging, local preflight, and restoration of official-service diagnostics into translatable messages.
 
-本地预检与官方服务预检、市场仓 CI 同口径：把文件放进临时市场源目录 ``endpoints/<slug>/`` 生成索引，
-生成器已包含市场源校验的全部规则（``docs/adr/0078``）。诊断只报错误；定义校验器的诊断拆出 ``val_ce_*`` 键，
-与端点页诊断卡同一套文案。分享额外把疑似字面凭证警告作为阻断诊断，防止凭证随定义公开；
-请求内容随定义原样公开（ComfyUI 的整份 workflow，声明式 submit / poll / result 三节中除响应取值 extract 外的全部内容），
-其中任意层级键名或 URL 查询参数名形似凭证、剔除占位符后仍有字面值的同样阻断；请求头的值另按字面凭证形态判定。
+Local preflight shares official-service/market-CI rules: place files under temporary market-source
+``endpoints/<slug>/`` and generate an index; generation contains all validation rules
+(``docs/adr/0078``). Report errors only. Extract definition-validator ``val_ce_*`` diagnostic keys,
+sharing endpoint diagnostic-card copy. Additionally block suspected literal-credential warnings
+to prevent publishing secrets with definitions. Publish request content unchanged (entire ComfyUI
+workflow; declarative submit/poll/result sections except response extract). Block credential-like
+keys or URL query parameter names at any depth if literal values remain after removing placeholders;
+separately judge header values by literal-credential shape.
 """
 
 from __future__ import annotations
@@ -27,28 +30,28 @@ from arcreel_market_core.market.icon import ICON_FORMATS
 from arcreel_market_core.market.issues import message_key
 from arcreel_market_core.validation_messages import MessageJoin, MessagePart, MessageRef, Translator, ValidationMessage
 
-#: 首批只接受调用端点。
+#: Initial scope accepts call endpoints only.
 SUBMISSION_TYPE = ENDPOINT_ENTRY_TYPE
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-#: 键名按分隔符与大小写切分、去掉复数 s 后含这些片段即视为凭证；只看键名，模型文件名等长串字面值不受影响，
-#: ``tokenizer`` 这类键名也不命中。``Proxy-Authorization``、``Set-Cookie`` 按片段命中。
+#: Split keys at delimiters/case boundaries and remove plural s; these fragments mark credentials. Only keys count, leaving long literal values such as model filenames unaffected;
+#: keys such as ``tokenizer`` do not match. ``Proxy-Authorization`` / ``Set-Cookie`` match fragments.
 CREDENTIAL_NAME_PARTS = frozenset(
     {"apikey", "token", "secret", "password", "passwd", "credential", "authorization", "cookie"}
 )
-#: 请求头映射的键名：其下的值另按字面凭证形态判定，覆盖自定义头名。
+#: Header-mapping keys: additionally judge values by literal-credential shapes, covering custom header names.
 _HEADERS = "headers"
 LITERAL_CREDENTIAL_KEY = "market_submission_literal_credential"
-#: 各类定义随分享原样公开的请求内容所在的节；``auth`` 节由定义校验器的字面凭证检查负责。
+#: Definition sections whose request content publishes unchanged; definition validators check literal credentials in ``auth``.
 _REQUEST_SECTIONS = {"comfyui": ("workflow",), "declarative": ("submit", "poll", "result")}
-#: 声明式请求节里的响应取值：键是取值名、值是 JSONPath，不进请求，不扫描。
+#: Response extracts inside declarative request sections: extraction-name keys with JSONPath values, outside requests and unscanned.
 _RESPONSE_EXTRACT = "extract"
-#: 请求里允许的图标文件名，与市场仓目录约定一致。
+#: Allowed request icon filenames, matching market-repository directory conventions.
 ICON_FILENAMES = frozenset(f"{ICON_STEM}.{extension}" for extension in ICON_FORMATS)
 
 
 @dataclass(frozen=True)
 class SubmissionDiagnostic:
-    """一条提交诊断。``file`` 相对条目目录（slug 本身不合规时为空串），``path`` 是文件内的位置。"""
+    """One submission diagnostic: ``file`` relative to entry directory (empty for invalid slugs), ``path`` locates within the file."""
 
     file: str
     path: str
@@ -64,7 +67,7 @@ class SubmissionDiagnostic:
 
 
 def submission_files(definition: Mapping[str, Any], icon: tuple[str, bytes] | None) -> dict[str, bytes]:
-    """条目目录内的文件：定义本体原样序列化，外加可选图标。"""
+    """Entry-directory files: unchanged serialized definition plus optional icon."""
     files = {DEFINITION_FILENAME: (json.dumps(definition, ensure_ascii=False, indent=2) + "\n").encode()}
     if icon is not None:
         files[icon[0]] = icon[1]
@@ -110,7 +113,7 @@ def check_submission(slug: str, files: Mapping[str, bytes]) -> list[SubmissionDi
 
 
 def _request_credentials(definition: Mapping[str, Any]) -> Iterator[str]:
-    """请求内容里键名或 URL 查询参数名形似凭证、剔除占位符后仍有字面值的位置。"""
+    """Request locations with credential-like keys/query parameter names and remaining literal values after placeholder removal."""
     for section in _REQUEST_SECTIONS.get(str(definition.get("kind")), ()):
         content = definition.get(section)
         if isinstance(content, Mapping):
@@ -119,8 +122,8 @@ def _request_credentials(definition: Mapping[str, Any]) -> Iterator[str]:
 
 
 def _literal_credentials(path: str, value: Any, *, named_credential: bool, in_headers: bool) -> Iterator[str]:
-    """递归遍历字典与列表：凭证键名下的字符串（含其中嵌套的各层）、字符串里的 URL 查询参数名形似凭证，有字面值即命中；
-    请求头映射下的字符串形似字面凭证也命中。"""
+    """Recursively scan dicts/lists: string values beneath credential-like keys (including nested levels) and credential-like URL query names
+    match when literal values remain; strings under header mappings also match literal-credential shapes."""
     if isinstance(value, str):
         if (
             (named_credential and _has_literal(value))
@@ -165,7 +168,7 @@ def _names_credential(name: str) -> bool:
 
 
 def remote_diagnostics(params: Mapping[str, Any]) -> list[SubmissionDiagnostic]:
-    """官方服务 ``submission_invalid`` 的 ``params.diagnostics``；形状不对的条目跳过。"""
+    """Official-service ``submission_invalid`` ``params.diagnostics``; skip malformed entries."""
     raw = params.get("diagnostics")
     if not isinstance(raw, list):
         return []
@@ -188,7 +191,7 @@ def _message(value: Any) -> ValidationMessage | None:
 
 
 def _param(value: Any) -> Any:
-    """参数里嵌套的 ``{code, params}`` 是消息，先翻译再代入外层；列表还原成片段序列。"""
+    """Nested ``{code, params}`` parameters are messages: translate before outer interpolation; restore lists as fragment sequences."""
     if isinstance(value, list):
         return MessageJoin(tuple(_part(item) for item in value))
     nested = _message(value)

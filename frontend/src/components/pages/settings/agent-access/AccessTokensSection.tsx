@@ -31,7 +31,7 @@ function isExpired(expiresAt: string | null, now: Date): boolean {
   return expiresAt !== null && new Date(expiresAt) < now;
 }
 
-/** 全局设置「访问令牌」：列出 ArcReel 签发的访问令牌，创建与吊销。吊销不可逆，用 AlertDialog 确认。 */
+/** Global Access tokens settings: list ArcReel-issued tokens, create and revoke them. Revocation is irreversible and requires AlertDialog confirmation. */
 export function AccessTokensSection() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [tokens, setTokens] = useState<ApiKeyInfo[]>([]);
@@ -57,7 +57,7 @@ export function AccessTokensSection() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉取令牌列表后回写，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Fetch the token list on mount and update state as controlled initialization loading
     void fetchTokens();
     return () => loadController.current?.abort();
   }, [fetchTokens]);
@@ -108,7 +108,7 @@ export function AccessTokensSection() {
         onOpenChange={setCreateOpen}
         onCreated={(token) => {
           if (loadController.current && load.status === "loading") {
-            // 创建发生在首次列表加载期间，重新读取以保留既有令牌和刚创建的令牌。
+            // If creation overlaps initial list loading, refetch to retain both existing and newly created tokens.
             void fetchTokens();
           } else {
             setTokens((prev) => [token, ...prev]);
@@ -223,7 +223,7 @@ function RevokeTokenDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间 token 已清空，保留最后一次的名称避免标题闪成空白
+  // Keep the last name during closing animation after token clearing, avoiding an empty-title flash
   const [shown, setShown] = useState<ApiKeyInfo | null>(token);
   if (token && token !== shown) {
     setShown(token);
@@ -249,7 +249,7 @@ function RevokeTokenDialog({
     <AlertDialog
       open={token !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during submission so the dialog cannot disappear before the request completes
         if (!next && !submitting) onClose();
       }}
     >

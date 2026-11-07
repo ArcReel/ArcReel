@@ -1,8 +1,7 @@
-"""测试 ConfigResolver.resolve_resolution。
+"""ConfigResolver.resolve_resolution tests.
 
-resolve_resolution 走公开接口（不断言私有函数），按
-project.model_settings → legacy video_model_settings → 自定义供应商默认 → None 解析；
-自定义供应商默认路径用真实内存 DB + 真实 CustomProviderModel 断言。
+Use public behavior, not private assertions: project.model_settings → legacy video_model_settings
+→ custom-provider default → None. Custom defaults use real in-memory DB and CustomProviderModel.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ async def resolver(db_session: AsyncSession) -> ConfigResolver:
 
 
 async def _add_custom_video_model(db_session: AsyncSession, model_id: str, resolution: str | None) -> str:
-    """建一个带指定 resolution 的自定义视频 model，返回其 registry provider_id 字符串。"""
+    """Create a custom video model with resolution, returning its registry provider_id string."""
     provider = CustomProvider(
         display_name="VideoProv",
         discovery_format="openai",
@@ -49,7 +48,7 @@ async def _add_custom_video_model(db_session: AsyncSession, model_id: str, resol
     return make_provider_id(provider.id)
 
 
-# --- 纯项目字典优先级（非自定义供应商，DB 默认恒 None） ---
+# --- Pure project-dictionary precedence; noncustom providers always have no DB default ---
 
 
 @pytest.mark.asyncio
@@ -86,7 +85,7 @@ async def test_composite_key_format_uses_slash(resolver: ConfigResolver):
 
 @pytest.mark.asyncio
 async def test_tolerates_null_entries(resolver: ConfigResolver):
-    # project.json 可能被手编为 null 值；既不应崩也不应当作已配置。
+    # Hand-edited project.json may contain null; neither crash nor treat it as configured.
     project = {
         "model_settings": {"gemini-aistudio/b": None},
         "video_model_settings": {"m": None},
@@ -97,35 +96,35 @@ async def test_tolerates_null_entries(resolver: ConfigResolver):
 
 @pytest.mark.asyncio
 async def test_tolerates_top_level_field_as_string(resolver: ConfigResolver):
-    # 手编脏数据：model_settings / video_model_settings 顶层本身被写成字符串。
+    # Invalid hand edits: model_settings / video_model_settings top level is a string.
     project = {"model_settings": "oops", "video_model_settings": "also-broken"}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_tolerates_top_level_field_as_list(resolver: ConfigResolver):
-    # 手编脏数据：model_settings / video_model_settings 顶层本身被写成列表。
+    # Invalid hand edits: model_settings / video_model_settings top level is a list.
     project = {"model_settings": ["gemini-aistudio/m"], "video_model_settings": ["m"]}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_tolerates_composite_key_entry_as_string(resolver: ConfigResolver):
-    # 手编脏数据：model_settings 里具体某个复合 key 的 entry 被写成字符串而非 dict。
+    # Invalid hand edits: one composite-key model_settings entry is a string instead of dict.
     project = {"model_settings": {"gemini-aistudio/m": "1080p"}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_tolerates_legacy_model_entry_as_list(resolver: ConfigResolver):
-    # 手编脏数据：legacy video_model_settings 里具体某个 model 的 entry 被写成列表。
+    # Invalid hand edits: one legacy video_model_settings model entry is a list.
     project = {"video_model_settings": {"m": ["1080p"]}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigResolver):
-    # model_settings 顶层脏数据不应连坐拖垮 legacy 兜底路径的正常解析。
+    # Invalid top-level model_settings must not break valid legacy fallback resolution.
     project = {
         "model_settings": "oops",
         "video_model_settings": {"m": {"resolution": "1080p"}},
@@ -133,7 +132,7 @@ async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigReso
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") == "1080p"
 
 
-# --- 自定义供应商默认（真实 DB） ---
+# --- Custom-provider defaults, real DB ---
 
 
 @pytest.mark.asyncio
@@ -176,55 +175,55 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
 
 
 # ---------------------------------------------------------------------------
-# 时长联动约束
+# Duration coupling constraints.
 # ---------------------------------------------------------------------------
 
-_VEO = ("gemini-aistudio", "veo-3.1-generate-preview")  # 声明 {1080p:[8], 4k:[8]} + 参考图 [8]
-_HAILUO = ("minimax", "MiniMax-Hailuo-2.3")  # 声明 {1080p:[6]}，无参考图声明
+_VEO = ("gemini-aistudio", "veo-3.1-generate-preview")  # Declare {1080p:[8], 4k:[8]} plus reference [8].
+_HAILUO = ("minimax", "MiniMax-Hailuo-2.3")  # Declare {1080p:[6]}, without reference declaration.
 
 
 def test_constrain_durations_by_resolution():
-    """已登记且有声明时按声明收窄，大小写不敏感。"""
+    """Registered declarations narrow options case-insensitively."""
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="4K") == [8]
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="1080p") == [8]
 
 
 def test_constrain_durations_by_reference_images():
-    """参考图约束独立于分辨率触发；未走参考图路径时不施加。"""
+    """Reference constraints trigger independently of resolution, only on reference paths."""
     assert constrain_durations(*_VEO, [4, 6, 8], uses_reference_images=True) == [8]
     assert constrain_durations(*_VEO, [4, 6, 8], uses_reference_images=False) == [4, 6, 8]
-    # 无参考图声明的型号：该维度不收窄
+    # Model without reference declaration: no narrowing on that dimension.
     assert constrain_durations(*_HAILUO, [6, 10], uses_reference_images=True) == [6, 10]
 
 
 def test_constrain_durations_drops_vidu_r2v_ghost_tiers():
-    """Vidu 参考生视频端点时长下限为 3 秒：走参考图路径时 1s / 2s 幽灵档位被剔除。
+    """Vidu reference-to-video minimum is 3 seconds; remove phantom 1s / 2s options on reference paths.
 
-    不剔除的后果是用户在 r2v 项目选中 1s，提交后被 backend 静默取到 3 秒并按 3 秒计费。
+    Otherwise users select 1s, backend silently chooses 3 seconds after submission, and bills 3 seconds.
     """
     full = list(range(1, 17))
     assert constrain_durations("vidu", "viduq3-turbo", full, uses_reference_images=True) == list(range(3, 17))
-    # 非参考图路径（文/图生视频）不受影响，1s / 2s 在那里合法
+    # Nonreference text/image paths remain unaffected; 1s / 2s are valid there.
     assert constrain_durations("vidu", "viduq3-turbo", full, uses_reference_images=False) == full
 
 
 def test_constrain_durations_both_dimensions_intersect():
-    """两条约束同时生效时取交集。"""
+    """Intersect both simultaneously applicable constraints."""
     assert constrain_durations(*_HAILUO, [6, 10], resolution="1080p", uses_reference_images=True) == [6]
 
 
 def test_constrain_durations_falls_back():
-    """无声明 / 未登记型号 / 交集为空 / 缺参数时返回原候选，不把候选清空。"""
-    # 该分辨率无声明
+    """Absent declarations/unregistered models/empty intersections/missing arguments retain original candidates, never clearing them."""
+    # No declaration for this resolution.
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="720p") == [4, 6, 8]
-    # 型号未登记（中转站 / 自定义供应商包装）
+    # Unregistered model, e.g. relay/custom-provider wrapper.
     assert constrain_durations("gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], resolution="4k") == [4, 6, 8]
-    # 交集为空时保持空集，由事实消费方处理。
+    # Preserve empty intersections for fact consumers to handle.
     assert constrain_durations(*_VEO, [4, 6], resolution="4k") == []
     assert constrain_durations(*_VEO, [4, 6], uses_reference_images=True) == []
-    # resolution 缺失且不走参考图：两维都不触发
+    # Missing resolution without reference path triggers neither dimension.
     assert constrain_durations(*_VEO, [4, 6, 8]) == [4, 6, 8]
-    # 身份缺失（能力不可解析）
+    # Missing identity, capabilities unresolvable.
     assert constrain_durations(None, None, [4, 6, 8], resolution="4k") == [4, 6, 8]
-    # 空候选原样返回
+    # Empty candidates return unchanged.
     assert constrain_durations(*_VEO, [], resolution="4k") == []

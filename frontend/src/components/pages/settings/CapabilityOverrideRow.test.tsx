@@ -77,7 +77,7 @@ describe("CapabilityOverrideRow", () => {
 
   it("endpoint 不下传尾帧时禁用强制开，并给出可见的禁用原因", () => {
     setup({ endImageCapable: false });
-    // 后端对这类 endpoint 的 last_frame=true 覆盖返回 422，控件先一步挡住而不是让用户撞上
+    // Backend last_frame=true overrides for these endpoints return 422; controls block first instead of exposing server failures.
     expect(seg(/强制开/)).toBeDisabled();
     expect(seg(/强制关/)).toBeEnabled();
     expect(screen.getByText(/该接口不下传尾帧/)).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe("CapabilityOverrideRow 键盘操作", () => {
     const { onChange } = setup({ endImageCapable: false });
     await user.tab();
     await user.keyboard("{ArrowRight}");
-    // follow 的下一个可达段是 off——on 不可选，直接跳过
+    // Next reachable segment after follow is off; unavailable on is skipped.
     expect(onChange).toHaveBeenCalledWith(false);
   });
 
@@ -123,7 +123,7 @@ describe("CapabilityOverrideRow 键盘操作", () => {
     const { onChange } = setup();
     await user.tab();
     await user.keyboard("{ArrowLeft}");
-    expect(onChange).toHaveBeenLastCalledWith(false); // follow 向左回绕到 off
+    expect(onChange).toHaveBeenLastCalledWith(false); // Left from follow wraps to off.
     await user.keyboard("{End}");
     expect(onChange).toHaveBeenLastCalledWith(false);
     await user.keyboard("{Home}");

@@ -1,10 +1,10 @@
-"""认证覆盖测试。
+"""Authentication coverage tests.
 
-从 ``app.openapi()`` 枚举全部 API 操作，逐个发未认证请求实证 401——认证要求声明在
-``server/app.py`` 的 router 注册区块，漏挂一行整个 router 就会裸奔，这里是发现它的地方。
+Enumerate every API operation through ``app.openapi()`` and prove unauthenticated requests return 401.
+``server/app.py`` router registration declares authentication; one omitted line exposes an entire router.
 
-豁免清单里的端点会跳过上述遍历，所以每一条都另有正面断言证明它并非不设防：
-公开端点断言匿名可达，自带认证端点断言匿名请求仍被拒。
+Exempt endpoints skip traversal, so separate positive assertions prove their defenses: public endpoints
+allow anonymous access; endpoints with their own authentication still reject anonymous requests.
 """
 
 import os
@@ -16,9 +16,9 @@ from fastapi.testclient import TestClient
 
 import server.auth as auth_module
 
-# 穿过生产 app 的完整路由与认证栈，不是隔离单元，按 pytest markers 纪律属 integration。
+# Traverse the production app's full routing/authentication stack; pytest marker rules classify this as integration.
 
-# 匿名可达：登录入口是拿 token 的前提；静态媒体经 <img src> / <video src> 加载。
+# Anonymous access: login obtains tokens; static media load through <img src> / <video src>.
 PUBLIC_OPERATIONS = frozenset(
     {
         "GET /health",
@@ -29,7 +29,7 @@ PUBLIC_OPERATIONS = frozenset(
     }
 )
 
-# 自带认证：浏览器原生下载导航带不了 Authorization header，端点内校验短时效下载 token。
+# Own authentication: native browser download navigation cannot carry Authorization headers; endpoints validate short-lived download tokens.
 SELF_AUTH_OPERATIONS = frozenset(
     {
         "GET /api/v1/projects/{name}/export",
@@ -39,27 +39,27 @@ SELF_AUTH_OPERATIONS = frozenset(
 
 EXEMPT_OPERATIONS = PUBLIC_OPERATIONS | SELF_AUTH_OPERATIONS
 
-# SSE 端点走普通受保护 router，由前端以 fetch 带 Authorization header 消费；
-# 会话凭证不接受 query param 形态，见 docs/adr/0071。
+# SSE uses ordinary protected routers, consumed by frontend fetch with Authorization headers;
+# session credentials never accept query-param form; see docs/adr/0071.
 SSE_PATHS = (
     "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
     "/api/v1/projects/demo/assistant/sessions/s1/stream",
     "/api/v1/projects/demo/events/stream",
 )
 
-# 验证「放行」的探针端点：受保护，且处理函数只读进程内常量。换端点时要保持这个性质——
-# 依赖数据库等 lifespan 建立的状态，会让这两个用例在干净环境里以 500 失败，掩盖认证结论。
+# Protected authentication-pass probe: its handler reads only process constants. Preserve that property when changing endpoints;
+# databases or other lifespan state cause clean-environment 500 failures that obscure authentication conclusions.
 _PROBE_ENDPOINT = "/api/v1/custom-providers/endpoints"
 
-# OpenAPI Path Item 的全部操作字段。写全而非只列常用的几个，是为了让「新增路由自动纳入」
-# 这条承诺不留缺口——漏一个方法，该方法的端点就会被静默跳过而不是报错。
+# Every OpenAPI Path Item operation field, ensuring new routes are automatically covered:
+# an omitted method silently skips its endpoints instead of raising.
 _HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 _PARAM_RE = re.compile(r"\{([^}]+)\}")
-# 路径参数占位值：认证在参数校验之前执行，取值只需能拼出合法 URL。
+# Path-parameter placeholders need only produce valid URLs: authentication precedes parameter validation.
 _PARAM_PLACEHOLDERS = {"path": "x/y.png"}
 
 
-# module 级：整个文件共用一套认证环境；私有缓存在进出时清空，不污染其它测试模块。
+# Module-scoped shared authentication environment; clear private caches on entry/exit to avoid polluting other modules.
 @pytest.fixture(scope="module", autouse=True)
 def auth_env():
     auth_module._cached_token_secret = None
@@ -82,9 +82,9 @@ def auth_env():
 def auth_coverage_client():
     from server.app import app
 
-    # 不进 lifespan（不用 with）：认证依赖只读环境变量与 JWT，路由和 openapi 在 import 时即就绪。
-    # 跑 lifespan 会把 DB 迁移、worker 启动、沙箱探测一并拖进来，与本文件要验证的东西无关，
-    # 还会让测试结果取决于 host 能否创建非特权 user namespace。
+    # Skip lifespan (no with): authentication reads only environment/JWT; routes/openapi are ready at import.
+    # Lifespan would add unrelated DB migration, worker startup, and sandbox detection,
+    # also making results depend on host support for unprivileged user namespaces.
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -93,10 +93,10 @@ def _fill(path: str) -> str:
 
 
 def _all_operations() -> list[str]:
-    """全部 API 操作，形如 ``"GET /api/v1/providers"``。
+    """All API operations, e.g. ``"GET /api/v1/providers"``.
 
-    走公开的 ``app.openapi()`` 而非路由对象——``include_router`` 挂的是惰性包装，
-    展开它要碰 FastAPI 内部表示。代价是 ``include_in_schema=False`` 的端点不在覆盖内。
+    Use public ``app.openapi()`` rather than route objects: ``include_router`` installs lazy wrappers whose
+    expansion touches FastAPI internals. The tradeoff is no coverage for ``include_in_schema=False`` endpoints.
     """
     from server.app import app
 
@@ -105,7 +105,7 @@ def _all_operations() -> list[str]:
 
 
 def test_every_protected_endpoint_rejects_anonymous(auth_coverage_client):
-    """豁免清单之外的操作，无 token 请求一律 401。"""
+    """Every nonexempt operation returns 401 without a token."""
     operations = _all_operations()
     assert len(operations) > 100, "枚举结果异常，覆盖断言会变成空跑"
 
@@ -122,13 +122,13 @@ def test_every_protected_endpoint_rejects_anonymous(auth_coverage_client):
 
 
 def test_exempt_operations_are_registered():
-    """豁免清单不含已改名或删除的端点——过期条目会让人误以为某处仍有意开放。"""
+    """Exemptions contain no renamed/deleted endpoints; stale entries misleadingly suggest intentional public access."""
     stale = EXEMPT_OPERATIONS - set(_all_operations())
     assert not stale, f"豁免清单引用了不存在的操作：{sorted(stale)}"
 
 
 def test_public_endpoints_stay_reachable(auth_coverage_client):
-    """公开端点不被 router 级依赖误伤。"""
+    """Router dependencies do not accidentally block public endpoints."""
     assert auth_coverage_client.get("/health").status_code == 200
     assert auth_coverage_client.get("/api/v1/auth/status").status_code == 200
     assert (
@@ -138,7 +138,7 @@ def test_public_endpoints_stay_reachable(auth_coverage_client):
         ).status_code
         == 200
     )
-    # 静态媒体：项目不存在时是 404，不该是 401。
+    # Static media: nonexistent projects return 404, not 401.
     assert auth_coverage_client.get("/api/v1/files/demo/x.png").status_code != 401
     assert auth_coverage_client.get("/api/v1/global-assets/characters/x.png").status_code != 401
 
@@ -152,7 +152,7 @@ def _login_token(client: TestClient) -> str:
 
 @pytest.mark.parametrize("path", SSE_PATHS)
 def test_sse_endpoints_reject_query_token(auth_coverage_client, path):
-    """长效会话 JWT 不得经 ?token= 订阅事件流：即便 JWT 有效也须 401。"""
+    """Long-lived session JWTs cannot subscribe through ?token=: even valid JWTs return 401."""
     token = _login_token(auth_coverage_client)
     response = auth_coverage_client.get(path, params={"token": token})
     assert response.status_code == 401
@@ -160,10 +160,10 @@ def test_sse_endpoints_reject_query_token(auth_coverage_client, path):
 
 @pytest.mark.parametrize("path", SSE_PATHS)
 def test_sse_endpoints_accept_bearer_token(auth_coverage_client, path):
-    """带 Bearer JWT 时 router 级依赖放行。
+    """Router dependencies allow Bearer JWTs.
 
-    放行后的状态由端点自身决定（会话不存在、接口已下线，或项目事件服务未随 lifespan
-    建立），这里只断言认证层没有拒绝。
+    Subsequent status belongs to the endpoint (missing session, retired interface, or project events not
+    initialized without lifespan); assert only that authentication did not reject the request.
     """
     token = _login_token(auth_coverage_client)
     response = auth_coverage_client.get(path, headers={"Authorization": f"Bearer {token}"})
@@ -172,7 +172,7 @@ def test_sse_endpoints_accept_bearer_token(auth_coverage_client, path):
 
 @pytest.mark.parametrize("path", SSE_PATHS)
 def test_sse_endpoints_accept_api_key(auth_coverage_client, path):
-    """带 ``arc-`` API Key 时 router 级依赖放行。"""
+    """Router dependencies allow ``arc-`` API Keys."""
     key = "arc-auth-coverage-key"
     key_hash = auth_module.hash_api_key(key)
     auth_module._set_api_key_cache(key_hash, {"sub": "apikey:coverage", "via": "apikey"})
@@ -185,13 +185,13 @@ def test_sse_endpoints_accept_api_key(auth_coverage_client, path):
 
 @pytest.mark.parametrize("path", SSE_PATHS)
 def test_sse_endpoints_allow_anonymous_when_auth_disabled(auth_coverage_client, path):
-    """AUTH_ENABLED=false 时 SSE 与其它受保护端点一致，匿名请求也放行。"""
+    """With AUTH_ENABLED=false, SSE allows anonymous requests like other protected endpoints."""
     with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
         assert auth_coverage_client.get(path).status_code != 401
 
 
 def test_trial_artifact_rejects_query_token(auth_coverage_client):
-    """试跑产物不应让可复用的会话凭据出现在 URL 里。"""
+    """Trial artifacts must not expose reusable session credentials in URLs."""
     token = auth_coverage_client.post(
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},
@@ -224,12 +224,12 @@ def test_trial_artifact_accepts_bearer_token(auth_coverage_client):
     ],
 )
 def test_export_endpoints_reject_forged_token(auth_coverage_client, path):
-    """导出走短时效下载 token，伪造的必须被 verify_download_token 拒绝。"""
+    """Exports use short-lived download tokens; verify_download_token must reject forged tokens."""
     assert auth_coverage_client.get(path).status_code in (401, 403)
 
 
 def test_authenticated_request_passes(auth_coverage_client):
-    """带合法 token 时 router 级依赖放行。"""
+    """Router dependencies allow valid tokens."""
     token = auth_coverage_client.post(
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},
@@ -238,20 +238,20 @@ def test_authenticated_request_passes(auth_coverage_client):
 
 
 def test_auth_disabled_bypasses_enforcement(auth_coverage_client):
-    """AUTH_ENABLED=false 时不拦截，保持本地无认证部署可用。"""
+    """AUTH_ENABLED=false preserves local unauthenticated deployments by allowing access."""
     with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
         assert auth_coverage_client.get(_PROBE_ENDPOINT).status_code == 200
 
 
 def test_download_token_rejected_as_bearer(auth_coverage_client):
-    """带 purpose 声明的下载 token 不作为会话凭据：受保护端点以 Bearer 携带时 401。"""
+    """Download tokens with purpose claims are not session credentials: protected endpoints return 401 for them as Bearer tokens."""
     token = auth_module.create_download_token("testuser", "demo")
     response = auth_coverage_client.get(_PROBE_ENDPOINT, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
 
 
 def test_export_endpoint_accepts_download_token(auth_coverage_client):
-    """下载端点自带校验仍接受同一 token：认证层放行，后续状态由端点自身决定。"""
+    """Download endpoints' own validation accepts the same token; authentication allows it and endpoints decide subsequent status."""
     token = auth_module.create_download_token("testuser", "demo")
     response = auth_coverage_client.get("/api/v1/projects/demo/export", params={"download_token": token})
     assert response.status_code not in (401, 403)

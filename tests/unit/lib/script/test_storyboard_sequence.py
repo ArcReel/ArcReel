@@ -49,7 +49,7 @@ class TestStoryboardSequence:
             {"segment_id": "E1S03", "segment_break": False},
         ]
 
-        # E1S02 的登记指针指向尚未落盘的文件：E1S03 只看紧邻的前一项，不回溯到 E1S01。
+        # E1S02 points to an unwritten file; E1S03 checks only its immediate predecessor, without searching back to E1S01.
         assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S03") is None
 
     def test_previous_storyboard_requires_an_explicit_binding(self, tmp_path: Path):
@@ -62,7 +62,7 @@ class TestStoryboardSequence:
             {"segment_id": "E1S02", "generated_assets": {}},
         ]
 
-        # 磁盘上有同名残留文件，但没有登记指针就不认。
+        # Same-named disk leftovers without registered pointers are not recognized.
         assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") is None
 
         items[0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
@@ -131,7 +131,7 @@ class TestAdStoryboardItems:
         assert items[0]["shot_id"] == "E1S01"
 
 
-# 骨架种类 → 触发该骨架的最小剧本（取证解析逐种覆盖，含 video_units 短路）。
+# Skeleton kind → minimal triggering script; cover every evidence-resolution shape, including video_units short-circuiting.
 _SCRIPT_BY_KIND = {
     "segments": {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
     "scenes": {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
@@ -141,28 +141,28 @@ _SCRIPT_BY_KIND = {
 
 
 class TestStoryboardSkeletonExhaustiveness:
-    """穷尽性断言：get_storyboard_items 的 id_field / char_field 覆盖 SKELETONS 全部键。
+    """Exhaustiveness: get_storyboard_items id_field / char_field covers every SKELETONS key.
 
-    id_field / char_field 直接查 SKELETONS，第五种骨架加入时 _SCRIPT_BY_KIND 未登记即报红；
-    原按模式硬编码的 narration/drama 映射断言收敛到此。
+    Both fields query SKELETONS directly; adding a fifth skeleton without _SCRIPT_BY_KIND registration fails immediately.
+    Consolidate old hardcoded narration/drama mode-mapping assertions here.
     """
 
     @pytest.mark.parametrize("kind", list(_SCRIPT_BY_KIND))
     def test_get_storyboard_items_fields_match_registry(self, kind):
         from lib.script.script_skeleton import SKELETONS
 
-        # 遍历 SKELETONS 全键：新增第五种骨架而 _SCRIPT_BY_KIND 未登记即 KeyError 报红。
+        # Traverse every SKELETONS key; a fifth skeleton absent from _SCRIPT_BY_KIND raises KeyError.
         assert set(_SCRIPT_BY_KIND) == set(SKELETONS)
 
         _items, id_field, char_field, scenes_field, props_field = get_storyboard_items(_SCRIPT_BY_KIND[kind])
         assert id_field == SKELETONS[kind].id_field
         assert char_field == SKELETONS[kind].chars_field
-        # scenes / props 资产键为项目级常量，不随骨架变。
+        # scenes / props asset keys are project constants, independent of skeleton.
         assert (scenes_field, props_field) == ("scenes", "props")
 
 
 class TestMismatchedScriptStaysEditable:
-    """存量失配剧本（分镜图生视频项目下的 video_units 骨架）：生成被拒，编辑/查看仍可用。"""
+    """Mismatched legacy scripts (video_units under storyboard-image-to-video projects) reject generation but retain viewing/editing."""
 
     def test_storyboard_items_are_empty_without_raising(self):
         from lib.script.storyboard_sequence import get_storyboard_items
@@ -183,7 +183,7 @@ class TestMismatchedScriptStaysEditable:
 
 
 class TestCorruptScriptEntries:
-    """磁盘剧本 JSON 的条目数组只保证外层是 list，元素形状由访问处判定。"""
+    """On-disk script JSON guarantees only outer item arrays are lists; access points determine element shapes."""
 
     def test_find_storyboard_item_skips_non_mapping_entries(self):
         from lib.script.storyboard_sequence import find_storyboard_item

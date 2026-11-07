@@ -1,95 +1,95 @@
-# mutmut 变异测试 runbook
+# mutmut mutation-testing runbook
 
-跑一批变异测试、复核结果、改造测试后验收的操作步骤。配置在 `pyproject.toml` 的 `[tool.mutmut]`，配置项的取舍理由写在那里的注释里。
+Steps for running mutation batches, reviewing results, and accepting reworked tests. Configure in `pyproject.toml` under `[tool.mutmut]`; configuration comments explain choices.
 
-变异得分的定位见 `docs/standards/testing.md`「每条用例保护一个可观察的契约」的末段。变异测试不进 CI，按批次手动运行，把本批模块填进 `[tool.mutmut] only_mutate`。
+For mutation-score purpose, see the final paragraph of "Each case protects an observable contract" in `docs/standards/testing.md`. Mutation testing stays outside CI: run manually by batch, listing modules in `[tool.mutmut] only_mutate`.
 
-**存活只是把测试送上审查台，不是删除依据。** 存活 mutant 落在已有测试覆盖的代码上时，按 `docs/standards/testing.md`「每条用例保护一个可观察的契约」的处置建议逐条判定。以下情形不处置：
+**Survival brings tests under review; it does not justify deletion.** Evaluate survivors in already covered code individually under "Each case protects an observable contract" in `docs/standards/testing.md`. Do not act on:
 
-- 不改既有用例的输入、只加强断言杀不死，必须换输入才能杀死的 mutant（这属于覆盖补偿）。
-- 等价变异体（源码改了但行为不变）。
-- 落在无测试覆盖代码上的 mutant。
+- Mutants requiring changed inputs rather than stronger assertions on existing inputs (coverage compensation).
+- Equivalent mutants (source changes without behavior changes).
+- Mutants in untested code.
 
-## 1. 环境
+## 1. Environment
 
-mutmut 在独立依赖组 `mutation` 里，不随默认 `uv sync` 安装：
+mutmut belongs to separate `mutation` dependencies, not default `uv sync`:
 
 ```bash
 uv sync --group mutation
 ```
 
-变异后的模块顶部会 import mutmut 的 trampoline，所以它必须装在 `.venv` 里，`uv run --with mutmut` 覆盖不了后面的复核步骤。跑完一批想清掉时再 `uv sync`。
+Mutated modules import mutmut trampolines, requiring installation in `.venv`; `uv run --with mutmut` does not cover later review. Run `uv sync` to remove it after batches if desired.
 
-## 2. 跑一批
+## 2. Run a batch
 
-### 2.1 选模块
+### 2.1 Choose modules
 
-每批 8 个左右没跑过的模块，从第 8 节「已走查模块」表之外挑；每批开一张 issue 登记模块清单、判定结果与研究分支，合入后把模块补进该表。
+Choose around 8 untested modules outside section 8's reviewed table. Open one issue per batch recording modules, verdicts, and research branches; add modules to the table after merge.
 
-- **准入**：`server/routers` 整目录不选；其他目录按文件看，被装饰器跳过的行占比不低于 50% 的文件不选。mutmut 3.7.0 对带装饰器的函数整棵子树不生成 mutant（仅单个 `@staticmethod` / `@classmethod` 豁免，带装饰器的类整体跳过，不可配置），路由函数与 `@tool` 闭包这类形态跑了也几乎不产出 mutant。跑一次普查列出不合准入的文件：
+- **Admission**: exclude all `server/routers`; elsewhere exclude files where decorators skip ≥50% of lines. mutmut 3.7.0 generates no mutants for whole decorated-function subtrees (only single `@staticmethod` / `@classmethod` exempt; decorated classes entirely skipped, not configurable). Routes/`@tool` closures yield almost none. Census inadmissible files:
 
   ```bash
   uv run python scripts/decorator_census.py --per-file --min-skip 50
   ```
 
-  不带参数则按目录汇总跳过行占比，用来看哪些目录整体值得挑。
+  Without arguments, report directory-level skipped-line proportions to identify worthwhile directories.
 
-- **优先级**：按「没跑过、测试多、代码量大」挑，`server/services`、`lib/backends/video_backends`、`lib/custom_provider`、`lib/script/reference_video` 优先。不找预测候选率或可处置率的规则：替身密度、弱断言用例占比都试过，对结果没有预测力。测试快慢也不是准入条件，超时与并行子进程的问题已在 `tests/conftest.py` 与 `tests/mutmut_plugin.py` 里消除，DB 档集成用例同样跑得干净。
-- **终点**：不设。每批跑完算可处置率（判为 ③ 值得保护的存活 mutant 数 / 存活 mutant 数），连续两批明显下降就停。
+- **Priority**: untested, test-rich, larger modules; prefer `server/services`, `lib/backends/video_backends`, `lib/custom_provider`, `lib/script/reference_video`. Do not invent candidate/actionability predictors: mock density/weak-assertion proportions failed to predict results. Test speed is not admission; `tests/conftest.py` / `tests/mutmut_plugin.py` fixed timeout/parallel-child problems, including clean database-integration runs.
+- **Stopping point**: none predetermined. Calculate actionability (survivors classified ③ worth protecting / all survivors) after each batch; stop after two consecutive significant drops.
 
-### 2.2 跑一轮
+### 2.2 Run once
 
-1. `git fetch` 后从 `origin/main` 切分支，并核对树里已含上一批合入的 PR。基线若从过期的本地 `main` 切出，上一批改造针对的 mutant 会在本批「复活」，白花一轮复核。
-2. 在 `[tool.mutmut]` 的 `only_mutate` 填本批模块。留空会变异 `source_paths` 全域，一轮数小时。
-3. 跑：
+1. `git fetch`, branch from `origin/main`, and verify prior batches' merged PRs are present. Stale local `main` resurrects previously addressed mutants, wasting review rounds.
+2. Set batch modules in `[tool.mutmut]` `only_mutate`; empty means all `source_paths`, taking hours.
+3. Run:
 
    ```bash
    uv run mutmut run
    ```
 
-   并行度默认取 CPU 数，不用降。各会话的临时目录由 `tests/mutmut_plugin.py`（经 `[tool.mutmut] pytest_add_cli_args` 加载）设为私有，临时库回收由 `tests/conftest.py` 按创建者进程守卫，并行子进程之间不共享清理动作。
-4. 跑完把 `mutants/**/*.meta` 复制到一个不会被下一次 `mutmut run` 覆盖的地方，这是第 5 节验收要用的基线。首批放在 `research/mutmut-batch-1` 分支的 `baseline/` 下。
+   Keep CPU-count parallelism. `tests/mutmut_plugin.py`, loaded through `[tool.mutmut] pytest_add_cli_args`, gives sessions private temp directories; creator-process guards in `tests/conftest.py` prevent cross-child database cleanup.
+4. Copy `mutants/**/*.meta` somewhere future `mutmut run` calls cannot overwrite for section 5 baselines. Batch 1 uses `research/mutmut-batch-1` branch `baseline/`.
 
-`only_mutate` 跑完记得还原成注释，`mutants/` 已在 `.gitignore`。
+Restore `only_mutate` to comments afterward; `mutants/` is ignored by `.gitignore`.
 
-**凡读源码文本而不是 import 模块的用例，都要在 `pytest_add_cli_args` 里按 nodeid `--deselect`，不要整文件 `--ignore`。** `mutants/` 里的源文件同时含所有 mutant 变体（每个字符串字面量都多出 `XXfooXX` / `FOO` 两份），任何扫 `lib/` `server/` 源码字面量再比对登记表的用例都会在 stats 阶段报「未登记」，整轮起不来。`--ignore` 的粒度是文件：同文件里的行为测试会一并消失，它们独家覆盖的 mutant 就记成存活（`test_task_failure_capability.py` 三个扫描用例之外的 100 余个用例就是这种情况）。已排除的是该文件的 `test_capability_codes_registered_no_drift` / `test_no_unscannable_capability_construction_sites` / `test_capability_construction_sites_supply_every_template_param`；新加排除时在 `[tool.mutmut]` 注释里写明它独家能杀什么、为何排除不漏杀（判据：排除只多出假存活，不藏假杀死）。
+**Tests reading source text instead of importing must use nodeid `--deselect` in `pytest_add_cli_args`, never whole-file `--ignore`.** Source files in `mutants/` contain every variant (strings gain `XXfooXX` / `FOO` forms), so scans of `lib/` `server/` literals against registries fail stats with unregistered values. Whole-file `--ignore` also removes behavioral tests, falsely leaving uniquely covered mutants alive (over 100 tests besides three scanners in `test_task_failure_capability.py`). Excluded scanners are `test_capability_codes_registered_no_drift` / `test_no_unscannable_capability_construction_sites` / `test_capability_construction_sites_supply_every_template_param`. New exclusion comments in `[tool.mutmut]` must explain unique kills and why exclusion misses none: exclusions may add false survivors, never conceal false kills.
 
-## 3. 读结果
+## 3. Read results
 
-**先核对每个模块的 mutant 数量级。** 每千行源码约 1000 个 mutant，明显偏少（比如不到十分之一）的模块不是测得好，而是它的函数没被任何用例关联：mutmut 会把这种模块静默归零，终端不报。把它从本批剔掉，不判定；`only_mutate` 里的模块名写错时同样是 0 个 mutant，先核对拼写。
+**First check each module's mutant order of magnitude.** Expect approximately 1000 per thousand source lines. Far fewer (such as below one tenth) signals unassociated functions, not good testing: mutmut silently zeros modules without terminal reports. Exclude them from batches without classification; misspelled `only_mutate` names also yield zero, so check spelling.
 
-**从 `.meta` 文件算，不读终端汇总。** 每个源模块在 `mutants/` 里有一份 `<模块>.py.meta`，其中 `exit_code_by_key` 是「mutant 名 → pytest exit code」。mutmut 的终端汇总只枚举它认识的几个 exit code，段错误（−11）之类一个计数器都不落，#2257 就漏过两个。
+**Calculate from `.meta`, not terminal summaries.** Each module has `mutants/` `<模块>.py.meta`, whose `exit_code_by_key` maps mutant names to pytest exit codes. Terminal summaries count only recognized exits; segmentation faults (−11) disappear entirely, as two did in #2257.
 
-| exit code | mutmut 的解释 | 本仓库的处理 |
+| exit code | mutmut interpretation | Repository treatment |
 | --- | --- | --- |
 | 1 | killed | killed |
-| 0 | 存活（🙁） | 存活，进入判定 |
-| 36 / −24 / 24 / 152 / 255 | 超时（⏰） | 按第 4 节新进程复核 |
-| 3 | mutmut 把 pytest 内部错误当 killed | 复核 |
-| 其他（含 −11 段错误、None 未检查） | 可疑或未记 | 复核 |
+| 0 | survived (🙁) | survived; classify |
+| 36 / −24 / 24 / 152 / 255 | timeout (⏰) | Review in fresh processes under section 4 |
+| 3 | pytest internal errors counted killed | Review |
+| Other (including −11 segmentation faults, None unchecked) | suspicious/unrecorded | Review |
 
-判据只有一条：**exit code 既不是 1 也不是 0 的一律复核**，复核确认存活的才进入判定。0 是 pytest 全部通过，本身就是确认存活，不用复核。
+One criterion: **review every exit other than 1 or 0**; classify only confirmed survivors. Zero already means all pytest cases passed and confirms survival without review.
 
-## 4. 超时的新进程复核
+## 4. Fresh-process timeout review
 
-超时是罕见兜底，不是常态。曾经的成因是 fork：mutmut 按 mutant fork 子进程跑测试，父进程模块级 engine（`lib.db.engine`）池里残留的 aiosqlite 连接被子进程继承，而驱动它的工作线程没有一起过来，子进程首个走该 engine 的用例就永远等不到查询结果、耗满预算记成超时。`tests/conftest.py` 用 `os.register_at_fork` 在子进程里丢弃池中连接（`dispose(close=False)`），首批 8 模块 8 路全量复跑超时为 0。仍出现的超时不算 killed，要在新进程里只跑关联用例再确认一次，每个 3 到 11 秒。
+Timeouts are rare fallbacks, not normal. A prior cause was fork: mutmut forks per mutant, inheriting module-level `lib.db.engine` aiosqlite connections without their worker threads. First queries then wait forever and exhaust budgets. `tests/conftest.py` uses `os.register_at_fork` to discard child pool connections (`dispose(close=False)`); full 8-module/8-way reruns had zero timeouts. Remaining timeouts are not kills: rerun associated cases in fresh processes, taking 3–11 seconds each.
 
 ```bash
-# 在项目根跑：tests-for-mutant 读 mutants/mutmut-stats.json，在 mutants/ 里跑会报 Failed to load stats
+# Run at project root: tests-for-mutant reads mutants/mutmut-stats.json; inside mutants/ it reports Failed to load stats
 uv run mutmut tests-for-mutant lib.speech.speech_rate.x_estimate_spoken_seconds__mutmut_8 > nodeids.txt
 
-# 在 mutants/ 里跑，用 .venv 的解释器，不要用 uv run（见第 6 节）
+# Run inside mutants/ with the .venv interpreter, not uv run (see section 6)
 cd mutants && MUTANT_UNDER_TEST=lib.speech.speech_rate.x_estimate_spoken_seconds__mutmut_8 \
   ../.venv/bin/python -m pytest -x -q @../nodeids.txt
 ```
 
-pytest 原生支持 `@文件` 读参数，一行一个、原样保留空格和引号，本套件 180 多个含空格或引号的参数化 nodeid 都能过。不要用 `$(cat …)` 或裸 `xargs`：前者在 zsh 下整串成一个参数、pytest 静默跑 0 个用例，后者会把带空格的 nodeid 拆开。
+Pytest natively accepts `@文件` argument files, one argument per line with spaces/quotes unchanged, supporting over 180 such parametrized nodeids. Never use `$(cat …)` or bare `xargs`: zsh makes the former one argument, silently running zero tests, while the latter splits spaced nodeids.
 
-判读：**1 failed 即 killed；全部通过即存活。** 复核确认 killed 的（含段错误之类两头不落的），在第 2 节保存的基线副本里把该 mutant 的 exit code 改成 1，这样第 5 节会把它们归入「基线 killed」那层护栏；确认存活的保持原样。首批 616 个 mutant 里要复核的只有 2 个段错误，复核后确认 killed。
+Interpretation: **one failure means killed; all passing means survived.** For confirmed kills, including uncounted crashes, set baseline-copy exits from section 2 to 1, placing them inside section 5's baseline-killed guardrail. Leave confirmed survivors unchanged. Of batch 1's 616 mutants, only two segmentation faults needed review, both confirmed killed.
 
-## 5. 改造后的三层验收
+## 5. Three-layer acceptance after rework
 
-改完断言后，对同一批模块**全量复跑**一次 `mutmut run`，然后比对。`mutmut run` 不重跑已有结果的 mutant，而 mutant 清单本身又存在 `.meta` 里，只删 `.meta` 会得到 0 个 mutant。同一批模块复跑：把 `mutants/mutmut-stats.json` 挪出来、删掉整个 `mutants/`、再把它放回新建的 `mutants/`，stats 不用重收（省 5 分钟）。换了 `only_mutate` 的模块集则整个 `mutants/` 连 stats 一起删：stats 只记录被变异模块的函数命中，新加的模块会整批记成 🫥 无关联用例。
+After assertion changes, **rerun whole batches** with `mutmut run`, then compare. `mutmut run` skips existing results; mutant lists also live in `.meta`, so deleting only `.meta` yields zero mutants. For same-module reruns, move `mutants/mutmut-stats.json` out, delete all `mutants/`, recreate `mutants/`, then restore stats, saving five-minute collection. Changed `only_mutate` module sets require deleting all `mutants/`, including stats: stats contain function hits only for mutated modules; new modules otherwise appear 🫥 unassociated.
 
 ```bash
 uv run python scripts/mutmut_compare.py \
@@ -99,82 +99,82 @@ uv run python scripts/mutmut_compare.py \
   --equivalent equivalent.txt
 ```
 
-`reworked.txt` 一行一个本次改造针对的 mutant 名；`equivalent.txt` 可选，一行一个判定为等价变异体的 mutant 名。脚本输出三层表与待复核清单，exit code 0 通过、1 未通过或有待复核项、2 输入不一致（基线与本轮 mutant 名集合不同、名单里的 mutant 不在基线等）。有待复核项时不判通过：按第 4 节复核后，确认 killed 的把本轮 `.meta` 里该 mutant 的 exit code 改成 1，确认存活的改成 0，再比对一次拿最终结论。
+`reworked.txt` lists targeted mutant names one per line; optional `equivalent.txt` lists equivalent ones. Output has three layers/review lists: exit 0 pass, 1 failure/pending review, 2 inconsistent inputs (different mutant sets, unknown listed mutants, etc.). Pending reviews prevent passing. Review under section 4, set current `.meta` confirmed kills to 1/survivors to 0, and compare again.
 
-| 层 | 通过条件 | 未通过怎么办 |
+| Layer | Passing condition | On failure |
 | --- | --- | --- |
-| 本次改造针对的 mutant | 全部 exit code 1 | 变超时 → 按第 4 节复核，1 failed 即 killed；仍存活 → 四路分诊（见下） |
-| 基线 killed 的 mutant | 没有一个变成 exit code 0 | 变超时 → 新进程复核，1 failed 即护栏成立，只有全部通过才是回退；回退 = 改坏了别的用例 |
-| 基线存活且本次未改造的 mutant | 被杀死只登记；等价变异体的 exit code 仍是 0 | 判为等价变异体的被杀死 → 先按第 4 节新进程复核，但去掉 `-x`，同一命令连跑 3 次。失败点按 traceback 里失败断言所在的文件与行号计，不按用例 nodeid 计：一个用例只会停在第一个失败的断言，nodeid 相同分不出是新加还是既有断言。3 次失败点相同且全是本次新加的断言 → 是判定错了，不是这轮不可信，改判并写进判定表（补的断言若声称超出判定表那一句则收窄断言、维持等价）；3 次失败点相同但含既有断言 → 同样改判：基线存活只说明基线那轮 stats 没把这条用例关联到该 mutant，不是等价；3 次全部通过，或失败点在轮次之间不同 → 整轮作废：等价变异体不可能被杀，说明这轮子进程的结果不可信（如异常退出被记成 killed）；等价变异体变超时或段错误 → 按第 4 节复核，1 failed 即被杀死。改判或改 `.meta` 之后都要再比对一次拿最终结论。其余未改造 mutant 的异常 exit code 不影响结论 |
+| Reworked targets | All exit 1 | Timeout → section 4; one failure means killed. Still alive → four-way triage below |
+| Baseline killed | None becomes exit 0 | Timeout → fresh-process review; one failure preserves guardrails, all passing alone means regression, caused by breaking other tests |
+| Baseline survivors not reworked | Record incidental kills only; equivalent exits remain 0 | If equivalents are killed, fresh-process review under section 4 without `-x`, three identical-command runs. Count failure locations by assertion file/line in tracebacks, not nodeids: cases stop at first failures, and identical nodeids cannot distinguish new/existing assertions. Same points across all three, all newly added → wrong classification, revise verdict tables (if assertions exceed the table's stated contract, narrow assertions and retain equivalence). Same points including existing assertions → also revise: baseline survival means missing stats association, not equivalence. All three pass or points differ across runs → invalidate the whole run: equivalents cannot be killed, so subprocess results are unreliable, such as abnormal exits marked killed. Equivalent timeouts/crashes → section 4, one failure means killed. Recompare after verdict/`.meta` changes. Other unworked abnormal exits do not affect conclusions |
 
-同时有一道独立硬门：`git diff --name-only origin/main` 不得含 `lib/` 与 `server/`。生产代码一变，`mutants/` 重生成、mutant 名错位，比对本身不成立。
+An independent hard gate: `git diff --name-only origin/main` must contain no `lib/` or `server/`. Production changes regenerate `mutants/` and reindex mutant names, invalidating comparison.
 
-**四路分诊**（改造后目标 mutant 仍存活时，一次性判定，补的断言不撤）：断言没写到位、断言没被执行 → 继续修；实际要换输入才能杀死 → 停手，依据是「不做覆盖补偿」；实际是等价变异体 → 停手。
+**Four-way triage** when reworked targets survive, decided once without reverting added assertions: incomplete/unexecuted assertions → keep fixing; different inputs actually required → stop under no-coverage-compensation; equivalent → stop.
 
-只跑部分模块查不到第二层，复跑取整批模块。
+Partial modules cannot test layer two; rerun whole batches.
 
-### 5.1 一批模块拆成多张改造票
+### 5.1 Split one module batch into multiple rework tickets
 
-一批模块的存活 mutant 常拆成几张改造票跨会话合入，它们共用第 2 节保存的同一份基线，各票分别验收：
+Survivors commonly span tickets/sessions, sharing section 2 baselines but accepted independently:
 
-- **先走曳光弹**：每批改造先挑 2 条，单独走完「改断言 → 全套闸门 → 全量复跑 → 三层验收 → PR 合入」，通过后再批量改其余。曳光弹的两条与后面的批量票共用同一基线，批量票验收时它们落在第三层「基线存活且本次未改造」，被杀只登记。
-- `--reworked` 只填本票的清单；`--equivalent` 填整批的等价变异体清单（每票都要查它零被杀）。
-- 先合入的票已杀死的目标，在后面的票里落在第三层「基线存活且本次未改造」，被杀只登记，不算异常。
-- 每票切分支前 `git fetch` 并核对基线的模块在 `origin/main` 上自基线提交以来零变动：`git diff --stat <基线提交> origin/main -- <模块列表>` 为空。改造 PR 自身不会动这些模块（硬门），但 `main` 上别的提交会。
-- 模块被别的提交改了时，脚本会以「同名函数源码哈希不同」拒绝比对，此时旧基线与判定表对该模块都作废：mutant 名按函数内的序号编号，源码一变序号整体错位，判定行对不上任何 mutant。处置是**对该模块重跑一轮基线并重新判定它的存活 mutant**（其余未变动的模块继续用旧基线；`only_mutate` 换了模块集要连 stats 一起删），不要 rebase 研究分支——研究分支存的是结果快照，rebase 改不了快照里的 mutant 名。改动只落在个别函数时也一样：mutmut 不保证其他函数的编号不变，不做局部续用。
+- **Tracer first**: choose two reworks and finish assertion edits → complete gates → full rerun → three-layer acceptance → PR merge before scaling. Tracers share baselines with later tickets, appearing there as unreworked baseline survivors whose kills are recorded only.
+- `--reworked` lists this ticket only; `--equivalent` lists the whole batch, checking zero kills on every ticket.
+- Earlier tickets' killed targets become later tickets' unreworked baseline survivors; record kills without anomalies.
+- Before each branch, `git fetch` and verify modules unchanged on `origin/main` since baseline: empty `git diff --stat <基线提交> origin/main -- <模块列表>`. Rework PRs cannot change them, but other commits on `main` can.
+- Other module changes make comparison reject differing source hashes for same-named functions, invalidating that module's baseline/verdicts. Function-local mutant numbering shifts with source. **Rerun its baseline/reclassify survivors**, retaining unchanged modules' old baselines (changed `only_mutate` module sets require deleting stats). Never rebase research branches: they store result snapshots, whose mutant names rebasing cannot fix. Even one-function changes invalidate entire modules; mutmut guarantees no numbering stability elsewhere.
 
-## 6. 已知陷阱
+## 6. Known pitfalls
 
-- **新增的测试文件不触及任何被变异函数时，增量 stats 会中止。** mutmut 检测到新用例只对它们跑一次 stats，若这批用例没碰到任何 mutant，报 `Stopping early, because we could not find any test case for any mutant` 退出。删 `mutants/mutmut-stats.json` 走全量 stats。
-- **不要在 `mutants/` 里跑 `uv run`。** uv 会按那份 `pyproject.toml` 副本另建一个环境，mutmut 不在里面，变异模块顶部的 trampoline import 直接 `ModuleNotFoundError`。用 `../.venv/bin/python`。
-- **`tests-for-mutant` 只在项目根可用。** 它读 `mutants/mutmut-stats.json`，在 `mutants/` 里跑找不到。
-- **`timeout_multiplier` 不要调小。** 调小不省时间，只会让已证实的真存活被记成 killed，把无效测试藏起来。
-- **−11（段错误）成批出现即整轮作废，不要逐个复核。** 已知的一种成因在 macOS：环境里没有 `*_proxy` 变量时，`urllib.request.getproxies()` 经 `_scproxy` 调 SystemConfiguration 读系统代理，该框架在 fork 出的多线程子进程里直接段错误，凡构造 `openai.OpenAI` / `httpx.Client` 的用例都中招（第二批 2186 个里 577 个），而同一个 mutant 在新进程里复核却正常。`tests/mutmut_plugin.py` 已把这两个入口换成常量实现；再成批出现就用 `PYTHONFAULTHANDLER=1 uv run mutmut run <mutant>` 单跑一个看崩溃栈，别当成负载或偶发。判据：−11 只该零星出现（首批 616 个里 2 个）。
-- **测试选集走全量。** 只跑 `tests/unit` 快 5.5 倍，但约 45% 的存活是假的，每个都要复核一次全量套件，总账更贵。
+- **New test files touching no mutated functions stop incremental stats.** mutmut runs stats on new cases alone and exits `Stopping early, because we could not find any test case for any mutant` if none touch mutants. Delete `mutants/mutmut-stats.json` for full stats.
+- **Never `uv run` inside `mutants/`.** Its copied `pyproject.toml` creates another environment without mutmut, causing trampoline `ModuleNotFoundError`. Use `../.venv/bin/python`.
+- **`tests-for-mutant` works only at project root**, reading `mutants/mutmut-stats.json`, absent from inside `mutants/`.
+- **Do not reduce `timeout_multiplier`.** It saves no time, misclassifying confirmed survivors as killed and hiding ineffective tests.
+- **Mass −11 segmentation faults invalidate runs; do not review individually.** On macOS without `*_proxy`, `urllib.request.getproxies()` calls SystemConfiguration through `_scproxy`; forked multithreaded children segfault, affecting `openai.OpenAI` / `httpx.Client` construction (577/2186 in batch 2), while fresh-process reviews pass normally. `tests/mutmut_plugin.py` replaces both entry points with constants. Recurrence requires one `PYTHONFAULTHANDLER=1 uv run mutmut run <mutant>` crash-stack investigation, not load/flakiness assumptions. −11 should be sporadic (2/616 in batch 1).
+- **Use full test selections.** `tests/unit` alone is 5.5× faster but yields roughly 45% false survivors, each needing full-suite review and higher overall cost.
 
-## 7. 成本参考
+## 7. Cost reference
 
-首批 8 模块、共 616 个 mutant 的实测：
+Measured batch 1: 8 modules, 616 mutants.
 
-| 项 | 数值 |
+| Item | Value |
 | --- | ---: |
-| mutant 密度 | 约 1100 个 / 千行源码 |
-| 一轮墙钟（8 路并行） | 8 模块 616 个 mutant 约 10 分钟（不含全量 stats 约 5 分钟）；超时归零前是 17:47，墙钟随超时数走 |
-| 超时新进程复核 | 3 到 11 秒 / 个 |
-| 逐条判定 | 约 3 秒 / 个 |
+| Mutant density | Approximately 1100 / thousand source lines |
+| Wall time, 8-way | Approximately 10 minutes for 8 modules/616 mutants, excluding approximately five-minute full stats; 17:47 before eliminating timeouts, which drive wall time |
+| Fresh-process timeout review | 3–11 seconds each |
+| Individual classification | Approximately 3 seconds each |
 
-## 8. 已走查模块
+## 8. Reviewed modules
 
-选下一批时从表外挑；已跑过的模块不重跑，第二遍没有增量（无覆盖与等价变异体会原样再报一遍）。判定表与基线快照都在各批的研究分支上，不进 `main`。
+Choose outside this table; reruns add no value, repeating uncovered/equivalent results. Verdict tables/baselines live on batch research branches, outside `main`.
 
-| 模块 | 批次 | 票号 | 研究分支 |
+| Module | Batch | Ticket | Research branch |
 | --- | --- | --- | --- |
-| `lib/backends/generation_type_buckets.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/infra/content_digest.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/episode/episode_paths.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/script/grid/splitter.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/speech/speech_rate.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/infra/text_metrics.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/custom_provider/discovery.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
-| `lib/backends/text_backends/openai.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
-| `lib/backends/text_backends/instructor_support.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/backends/text_backends/ark.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/backends/text_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/backends/text_backends/grok.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/backends/video_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/backends/image_backends/dashscope.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/backends/image_backends/minimax.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/custom_provider/backends.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `server/agent_runtime/sdk_tools/asset_inventory.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/enqueue_assets.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/entry.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/episode_planning.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/generation_batches.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/patch_episode_meta.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/patch_project.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/rename_asset.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/retry_project_migration.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/workflow_plan.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
-| `server/agent_runtime/sdk_tools/workflow_status.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `lib/backends/generation_type_buckets.py` | Batch 1 group A | #2257 | `research/mutmut-batch-1` (`baseline/A/`) |
+| `lib/infra/content_digest.py` | Batch 1 group A | #2257 | `research/mutmut-batch-1` (`baseline/A/`) |
+| `lib/episode/episode_paths.py` | Batch 1 group A | #2257 | `research/mutmut-batch-1` (`baseline/A/`) |
+| `lib/script/grid/splitter.py` | Batch 1 group A | #2257 | `research/mutmut-batch-1` (`baseline/A/`) |
+| `lib/speech/speech_rate.py` | Batch 1 group A | #2257 | `research/mutmut-batch-1` (`baseline/A/`) |
+| `lib/infra/text_metrics.py` | Batch 1 group A | #2257 | `research/mutmut-batch-1` (`baseline/A/`) |
+| `lib/custom_provider/discovery.py` | Batch 1 group B | #2257 | `research/mutmut-batch-1` (`baseline/B/`) |
+| `lib/backends/text_backends/openai.py` | Batch 1 group B | #2257 | `research/mutmut-batch-1` (`baseline/B/`) |
+| `lib/backends/text_backends/instructor_support.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/ark.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/gemini.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/grok.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/video_backends/gemini.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/image_backends/dashscope.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/image_backends/minimax.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/custom_provider/backends.py` | Batch 2 pool 1 | #2297 | `research/mutmut-batch-2` |
+| `server/agent_runtime/sdk_tools/asset_inventory.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/enqueue_assets.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/entry.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/episode_planning.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/generation_batches.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/patch_episode_meta.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/patch_project.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/rename_asset.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/retry_project_migration.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/workflow_plan.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
+| `server/agent_runtime/sdk_tools/workflow_status.py` | Batch 2 pool 2 | #2298 | `research/mutmut-batch-2` (`pool2/`) |
 
-第二批池 2 的 11 个模块里 9 个产出 0 个 mutant（`@tool` 闭包整体被跳过）；这类文件按第 2.1 节的准入规则本就不该选，列在表里是为了不再重跑。
+Of batch 2 pool 2's 11 modules, nine yielded zero mutants because whole `@tool` closures were skipped. Section 2.1 admission excludes them; list them to prevent reruns.

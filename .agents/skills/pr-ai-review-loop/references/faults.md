@@ -1,21 +1,21 @@
-# 故障与覆盖降级
+# Faults and reduced coverage
 
-必要的审查或分析结果无法取得时，附上受影响的 reviewer / HEAD、错误和建议处置，暂停交委派方决定。故障造成的未审，与代码已审后 bot 仍有异议是两回事；后者按 SKILL.md「完成条件」处理，不属于故障。
+When required review or analysis results are unavailable, pause and refer the decision to the delegator with the affected reviewer / HEAD, error, and recommended disposition. Missing review due to a fault differs from a bot continuing to disagree after reviewing code; handle the latter under “Completion criteria” in SKILL.md, not as a fault.
 
-## 需要交接的故障
+## Faults requiring handoff
 
-- 必要的 reviewer 或 CodeQL 结果超过 30 分钟仍未到达；合法沿用的审查不算缺失。
-- bot 报错、`POLL_ERROR` / `QUERY_ERROR` / `WAIT_ERROR`，或认证、权限失败；保留原始错误，不把空数据当作无问题。
-- CodeQL 分析失败或 alerts API 不可用；分析失败时告警数据可能仍属于旧 HEAD，不能据此终核。未接入的确认方式见 [reviewers.md](reviewers.md)。
+- A required reviewer or CodeQL result has not arrived after 30 minutes; legitimately reused reviews are not missing.
+- Bot errors, `POLL_ERROR` / `QUERY_ERROR` / `WAIT_ERROR`, or authentication or permission failures. Preserve original errors; do not treat empty data as no problems.
+- CodeQL analysis fails or the alerts API is unavailable. After analysis failure, alert data may still belong to an older HEAD and cannot support final checks. See [reviewers.md](reviewers.md) for confirming an unconfigured integration.
 
-`WAIT_TIMEOUT` 后重新 poll，仍缺结果才按超时交接。
+After `WAIT_TIMEOUT`, poll again; hand off as a timeout only if results are still missing.
 
-## 配额与未接入
+## Quotas and missing integrations
 
-先核实是否仍受阻：配额提示之后已有成功审查的，按已恢复处理。Codex 出现配额提示且其后无成功审查时，本 PR 停用该家，不等待恢复，并在退出汇报中记录覆盖缺口。
+First verify whether the block persists: a successful review after a quota notice means service has recovered. If Codex reports a quota limit with no subsequent successful review, disable it for this PR without waiting for recovery, and record the coverage gap in the exit report.
 
-CodeRabbit 限流由循环自行处理，不询问用户：等待限流恢复后手动 `@coderabbitai review` 重试一次；仍限流则本 PR 停用该家并记入退出汇报。等待超过 30 分钟仍无恢复信号时，按超时交接。
+Handle CodeRabbit rate limits within the loop without asking the user: wait for recovery, then retry once with `@coderabbitai review`. If still limited, disable it for this PR and record that in the exit report. If no recovery signal arrives after 30 minutes, hand off as a timeout.
 
-reviewer 回复或官方通知明确证实 App 未接入、要求创建或连接账号、服务已停止时，可将该家本 PR 标为不参审并停止触发。无响应和一般报错不构成这种证据。
+A reviewer reply or official notice explicitly confirming the App is not connected, requiring account creation or connection, or stating the service has stopped permits marking it nonparticipating for this PR and stopping triggers. Silence and generic errors are not such evidence.
 
-覆盖降级应明确报告原因和未审范围，不写成「该家通过」。CodeQL 门槛的跳过始终需要委派方确认。
+Explicitly report why coverage was reduced and what remained unreviewed; do not describe that reviewer as passing. Skipping the CodeQL threshold always requires delegator confirmation.

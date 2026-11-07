@@ -5,11 +5,11 @@ import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 
 /**
- * 项目里每张资产图（含衍生）按产物清单判定的状态。
+ * Manifest-based state for every project sheet, including derivatives.
  *
- * 状态是清单与规范状态的比对（读文件、算指纹），不随项目数据下发，故单独取：项目快照
- * 修订号变化（资产图写入、描述修改）或资产图任务的占用集变化（有任务开始或结束）时重取。
- * 同一项目内取不到时保留上一次的值；切换项目后只返回新项目的状态。
+ * States compare manifest/canonical state through reads/fingerprints, separate from project payloads. Refetch on project-snapshot
+ * revision changes (sheet writes/description edits) or sheet-task occupancy changes (starts/finishes).
+ * Retain last values on failed same-project fetches; after project changes return only new-project states.
  */
 export function useAssetSheetStatus(projectName: string, enabled = true): AssetSheetStatusRow[] {
   const [loaded, setLoaded] = useState<{ projectName: string; rows: AssetSheetStatusRow[] } | null>(null);
@@ -29,7 +29,7 @@ export function useAssetSheetStatus(projectName: string, enabled = true): AssetS
         if (!controller.signal.aborted) setLoaded({ projectName, rows: res.assets ?? [] });
       })
       .catch(() => {
-        /* 读取失败（含被作废）保留上一次的状态 */
+        /* Failed/invalidated reads retain previous status. */
       });
     return () => controller.abort();
   }, [enabled, projectName, snapshotRevision, activeCount]);
@@ -39,7 +39,7 @@ export function useAssetSheetStatus(projectName: string, enabled = true): AssetS
 
 const NO_ROWS: AssetSheetStatusRow[] = [];
 
-/** 某一类资产本体的状态行，按资产名索引。 */
+/** State rows for base assets of one type, indexed by asset name. */
 export function useSheetStatusByName(
   rows: AssetSheetStatusRow[],
   assetType: AssetSheetType,
@@ -56,10 +56,10 @@ export function useSheetStatusByName(
 }
 
 /**
- * 一类资产里一次批量生成会提交几张、另有几张缺描述。
+ * Number submitted in one asset-type batch, plus number missing descriptions.
  *
- * 与服务端规划同一口径：待生成且有描述的本体；衍生还要求本体资产图可用，或本体本身也在
- * 这一批里；正在生成的不计（预览把它们列为跳过项）。精确名单以预览为准，这里只给按钮上的计数。
+ * Match server planning: pending bases with descriptions; derivatives additionally need usable base sheets or their bases
+ * in this batch. Exclude generating assets, which previews list as skipped. Preview determines exact membership; buttons use counts only.
  */
 export function pendingSheetCounts(
   rows: AssetSheetStatusRow[],

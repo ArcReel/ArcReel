@@ -5,7 +5,7 @@ import type { SourceFileImpact } from "@/types/episodes-view";
 
 import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 
-/** 整本源文文件改动命令的响应：上传接口在 `status` 之外还带别的字段，这里只看确认协议需要的部分。 */
+/** Whole-source file-change response: uploads carry fields besides `status`; retain only confirmation-protocol fields here. */
 export interface SourceFileChangeReply {
   status?: "applied" | "confirmation_required";
   impact?: SourceFileImpact & { text?: string };
@@ -17,24 +17,24 @@ interface PendingConfirmation {
   confirmLabel: string;
   text: string;
   danger: boolean;
-  /** 确认时服务端的清单已变，这是更新后的清单。 */
+  /** The server's list changed during confirmation; this is the updated list. */
   changed: boolean;
 }
 
-/** 清单里有会标 stale、退下或移除的集时按危险操作确认。 */
+/** Confirm as dangerous when listed episodes would become stale, retired, or removed. */
 function isDanger(impact: SourceFileImpact | undefined): boolean {
   if (!impact) return false;
   return impact.changed_with_products.length + impact.retired.length + impact.removed.length > 0;
 }
 
 /**
- * 整本源文文件的插入、替换、编辑、删除与调序共用的确认流程。
+ * Shared confirmation for whole-source file insertion, replacement, editing, deletion, and reordering.
  *
- * `run(title, confirmLabel, call)` 先以 `call(null)` 提交：没有受影响的集时服务端直接执行。需要确认时，确认框只呈现
- * 服务端成文的受影响集清单；确认后带上清单的 `revision` 再提交，清单在此期间变了时换成新清单再确认一次。
- * 返回执行后的响应，创作者取消时返回 null。请求出错时关闭确认框并把错误抛给调用方。
+ * `run(title, confirmLabel, call)` first submits `call(null)`; without affected episodes the server executes immediately. If confirmation is needed, show only
+ * the server-written affected-episode list. Resubmit with its `revision` after confirmation; if it changed meanwhile, show the new list for confirmation again.
+ * Return the executed response, or null if the creator cancels. Request errors close confirmation and propagate to callers.
  *
- * 每次提交期间 `busy` 为 true，等待创作者确认期间为 false。上一次 `run` 尚未结束时再调用直接返回 null，不发请求。
+ * `busy` is true during each submission, false while awaiting creator confirmation. Calling before the previous `run` ends returns null without requests.
  */
 export function useSourceFileChange() {
   const { t } = useTranslation("dashboard");

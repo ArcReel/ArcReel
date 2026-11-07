@@ -1,5 +1,5 @@
-旁白/解说节奏建议：
-- 首段画面（朗读前 ~4 秒）服务于钩子：用强冲击 / 悬念 / 危机匹配钩子台词，
-  避免平铺式开场。
-- 末段画面服务于卡点留悬（特写人物 / 关键物件 / 极端表情），
-  shot_type 倾向 Close-up / Extreme Close-up。
+Pacing suggestions for narration / commentary:
+- The opening visual segment (the first ~4 seconds of reading) serves the hook: match the hook’s spoken words with impact, suspense, or danger,
+  avoiding an even expository opening.
+- The final visual segment serves a suspenseful stopping point (a close-up of a character, key object, or extreme expression),
+  favoring Close-up / Extreme Close-up for shot_type.

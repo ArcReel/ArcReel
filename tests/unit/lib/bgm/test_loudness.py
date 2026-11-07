@@ -1,4 +1,4 @@
-"""BGM 响度：ebur128 汇总的解析与折算到目标响度的静态增益。"""
+"""BGM loudness: parse ebur128 summaries and derive static gain for target loudness."""
 
 from __future__ import annotations
 

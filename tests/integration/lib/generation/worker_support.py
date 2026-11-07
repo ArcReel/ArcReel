@@ -1,4 +1,4 @@
-"""生成 worker 及其重启自愈、续跑协作者的集成测试共用的替身与种数据工具。"""
+"""Shared substitutes/seeding tools for generation workers, restart recovery and resume collaborators."""
 
 import asyncio
 from datetime import UTC, datetime
@@ -11,11 +11,9 @@ from lib.generation.generation_worker import CapacityTable
 
 
 class _ExecutorStubs:
-    """经构造器注入 worker 的执行器替身。
+    """Constructor-injected worker executor substitutes.
 
-    worker 拿到的是 ``execute`` / ``execute_resume`` 两个转发入口；用例用
-    ``monkeypatch.setattr(stub_executors, "generation" | "resume", fake)`` 指定用例所需行为，缺省即判失败。
-    """
+    Worker gets forwarding ``execute`` / ``execute_resume`` entries; cases set behavior through ``monkeypatch.setattr(stub_executors, "generation" | "resume", fake)``. Defaults fail the test."""
 
     async def generation(self, task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
         raise AssertionError(f"unexpected generation execution: {task.get('task_id')}")
@@ -34,14 +32,14 @@ stub_executors = _ExecutorStubs()
 
 
 def use_worker_project(monkeypatch, project: dict | None) -> None:
-    """worker 与配置解析经 ``get_project_manager().load_project`` 读到的项目都是 *project*（``None`` 视为空项目）。"""
+    """Worker/configuration reads through ``get_project_manager().load_project`` all return *project*; ``None`` means an empty project."""
     pm = type("PM", (), {"load_project": lambda self, name: project or {}})()
     for target in ("lib.generation.generation_worker.get_project_manager", "lib.config.resolver.get_project_manager"):
         monkeypatch.setattr(target, lambda: pm)
 
 
 def capacity_table(limits: dict[str, dict[str, int]] | None = None, *, image: int = 5, video: int = 3) -> CapacityTable:
-    """构造一张容量表：显式 per-provider 上限 + 懒默认（默认 image=5 / video=3）。"""
+    """Build capacity tables with explicit per-provider limits and lazy defaults, image five/video three by default."""
     return CapacityTable(_limits=limits or {}, _defaults={"image": image, "video": video})
 
 
@@ -198,7 +196,7 @@ class FakeWorkerQueue:
 
     @property
     def session_factory(self):
-        """替身不自带库：worker 经队列取到的落库接线就是当前的全局 factory（``worker_db`` 换成内存库）。"""
+        """Substitutes own no DB: worker queue persistence uses the current global factory, redirected to memory by ``worker_db``."""
         import lib.db
 
         return lib.db.safe_session_factory
@@ -238,7 +236,7 @@ class FakeWorkerQueue:
 
 
 async def seed_running_task(factory, task_id: str, **overrides: Any) -> None:
-    """种一行 running 状态的 task，供回队路径的真实 guarded UPDATE 命中。"""
+    """Seed a running task for real guarded UPDATE requeue paths."""
     from lib.db.models.task import Task
 
     now = datetime.now(UTC)
@@ -267,14 +265,14 @@ async def task_status(factory, task_id: str) -> str | None:
 
 
 def db_queue(factory):
-    """真实的 GenerationQueue，落库到测试库。"""
+    """Real GenerationQueue persisted to test DB."""
     from lib.generation.generation_queue import GenerationQueue
 
     return GenerationQueue(session_factory=factory)
 
 
 def stage_task_dir(project_path: Path, task_id: str) -> Path:
-    """建出一个任务的 provider media staging 目录，返回该任务的 staging 根。"""
+    """Create one task's provider-media staging directory and return its staging root."""
     staged = project_path / ".arcreel" / "tasks" / task_id / "provider_media"
     staged.mkdir(parents=True)
     (staged / "000-start_image.png").write_bytes(b"x")

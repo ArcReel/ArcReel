@@ -29,9 +29,9 @@ jobs:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Release PR 里 pyproject.toml 的 version 被 release-please 改动后，
-      # uv.lock 仍指向旧版本。checkout release PR 分支，跑一次 uv lock，把
-      # 同步 commit 推回该分支，保持 lock 与 source version 一致。
+      # After release-please changes version in pyproject.toml in a Release PR,
+      # uv.lock still references the old version. Check out the release PR branch, run uv lock once, and
+      # push the synchronization commit back to that branch, keeping lock and source versions aligned.
       - name: Checkout release PR branch
         if: ${{ steps.release.outputs.pr }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,23 +39,23 @@ jobs:
           ref: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-          # 凭据不写进工作树的 .git/config；推送在下方单条命令里自带远程 URL
+          # Do not write credentials into worktree .git/config; the single push command below supplies its own remote URL.
           persist-credentials: false
 
       - name: Set up uv
         if: ${{ steps.release.outputs.pr }}
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          # 本 job 持有可写 token 并向 release PR 分支推送提交，恢复的缓存条目会带着
-          # 该写权限执行，故不启用缓存
+          # This job holds a writable token and pushes commits to the release PR branch; restored cache entries would execute
+          # with that write permission, so caching is disabled.
           enable-cache: false
 
       - name: Sync uv.lock
         if: ${{ steps.release.outputs.pr }}
         env:
           PUSH_TOKEN: ${{ steps.app-token.outputs.token }}
-          # release PR 无变化时 action 不输出 pr，取值为空串。step 级 env 先于 if 求值，
-          # 直接 fromJson 会解析空串失败并让整个 job 红；短路后 fromJson 只在有值时调用
+          # Without release PR changes, the action emits no pr (an empty string). Step env evaluates before if;
+          # direct fromJson would parse that empty string and fail the job. Short-circuit so fromJson runs only with a value.
           PR_BRANCH: ${{ steps.release.outputs.pr && fromJson(steps.release.outputs.pr).headBranchName }}
         run: |
           uv lock
@@ -67,9 +67,9 @@ jobs:
             git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${PR_BRANCH}"
           fi
 
-      # 发版 PR 带上目录数据仓库的最新数据作为出厂快照。这一步只当数据读：不执行抓取来的
-      # 任何内容，校验器用的是本 release 分支上已有的代码。抓取失败或数据未通过校验时只给
-      # 出提示、不改快照，也不让发版 PR 流程失败；内容与现有快照一致时不提交。
+      # Include the latest catalog-repository data as the release PR’s factory snapshot. Treat this purely as data:
+      # execute nothing fetched; use validators already on this release branch. Fetch failures or validation errors
+      # only report a warning, leaving the snapshot unchanged and the release PR workflow successful; identical content does not commit.
       - name: Refresh catalog snapshot
         if: ${{ steps.release.outputs.pr }}
         env:
@@ -79,8 +79,8 @@ jobs:
         run: |
           snapshot=lib/catalog/snapshot
           fetched="$(mktemp -d)"
-          # 仅 https（含重定向）、限体积与耗时；体积上限与实例官方同步（lib/catalog/official_sync.py）一致
-          fetch() { # $1 文件名 $2 体积上限（字节）
+          # HTTPS only (including redirects), bounded size and duration; size limits match instance official sync (lib/catalog/official_sync.py).
+          fetch() { # $1 filename $2 size limit (bytes)
             curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
               --max-filesize "$2" --max-time 30 --retry 2 -o "$fetched/$1" "$CATALOG_BASE_URL/$1"
           }

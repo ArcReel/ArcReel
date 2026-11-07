@@ -104,16 +104,16 @@ describe("staysInEpisodeView", () => {
     const ad: EpisodeViewFacts = { ...SCRIPTED, isAd: true, hasDraft: false };
     expect(staysInEpisodeView("/episodes/1?view=setting&unit=2", "/episodes/1?view=setting", ad)).toBe(true);
     expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=setting", ad)).toBe(false);
-    // 非广告项目没有故事设定 tab，view=setting 按缺省视图显示
+    // Non-ad projects have no story-setting tab; view=setting displays the default view.
     expect(resolveEpisodeView("setting", SCRIPTED)).toBe("board");
   });
 
   it("resolves a missing or unavailable view to the default view of the episode", () => {
-    // 参考生视频在中间稿阶段缺省停在脚本规划：去掉 view 就是离开视频单元
+    // Reference-to-video defaults to script planning at intermediate-draft stage; removing view leaves the video unit.
     const referenceDraft: EpisodeViewFacts = { ...SCRIPTED, route: "reference_video", hasScript: false };
     expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=board", referenceDraft)).toBe(false);
     expect(staysInEpisodeView("/episodes/1?view=plan", "/episodes/1", referenceDraft)).toBe(true);
-    // 没开宫格时 view=grid 不可选，按缺省视图（分镜）显示
+    // Without grids enabled, view=grid is unavailable and displays the default storyboard view.
     expect(staysInEpisodeView("/episodes/1?view=grid", "/episodes/1", SCRIPTED)).toBe(true);
   });
 });

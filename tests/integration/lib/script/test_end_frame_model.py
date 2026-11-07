@@ -1,9 +1,6 @@
-"""``end_frame_image`` 的数据模型、PATCH 白名单与 data_validator 校验测试。
+"""``end_frame_image`` data models, PATCH allowlists and data_validator tests.
 
-三骨架（narration / drama / ad 分镜）同构持有该字段：默认空、参与
-Python 端序列化与校验、对 LLM 隐藏。写入通道只有尾帧专用端点——通用剧本 PATCH
-刻意不放行该字段，否则原样写值会绕过快照复制、重开悬空引用与越界路径的口子。
-"""
+All three narration/drama/ad storyboard skeletons share empty defaults, Python serialization/validation and LLM-hidden fields. Only dedicated end-frame endpoints write them; generic PATCH intentionally excludes them or raw writes would bypass snapshot copying and reintroduce dangling/traversal references."""
 
 from io import BytesIO
 
@@ -92,7 +89,7 @@ class TestEndFrameImageField:
 
     @_BUILDERS
     def test_absent_key_loads_as_none(self, build) -> None:
-        """存量剧本没有该键：extra=forbid 下仍须放行并落回默认空。"""
+        """Legacy scripts lacking the key remain valid under extra=forbid and use empty defaults."""
         model = type(build())
         payload = build().model_dump()
         payload.pop("end_frame_image")
@@ -128,12 +125,12 @@ def _projects_client(pm: ProjectManager, monkeypatch) -> TestClient:
 
 
 class TestGenericPatchIgnoresEndFrame:
-    """通用剧本 PATCH 白名单不含 end_frame_image：设置尾帧只能走专用端点。"""
+    """Generic script PATCH excludes end_frame_image; only dedicated endpoints set end frames."""
 
     @pytest.mark.parametrize(
         ("content_mode", "path", "items_key", "id_key", "flat_body"),
         [
-            # narration 走显式 Pydantic 请求体（字段级白名单），drama/ad 走 updates 字典白名单
+            # Narration uses explicit Pydantic bodies with field allowlists; drama/ad use updates-dict allowlists.
             ("narration", "segments", "segments", "segment_id", True),
             ("drama", "script-scenes", "scenes", "scene_id", False),
             ("ad", "script-shots", "shots", "shot_id", False),
@@ -145,7 +142,7 @@ class TestGenericPatchIgnoresEndFrame:
         pm = _seed_project(tmp_path, content_mode)
         client = _projects_client(pm, monkeypatch)
 
-        # 白名单内的 note 一并提交：它生效即证明 PATCH 确实执行了，end_frame_image 是被单独忽略
+        # Include allowlisted note: successful change proves PATCH ran and independently ignored end_frame_image.
         updates = {"end_frame_image": "../../../etc/passwd", "note": "备注"}
         body = (
             {"script_file": "episode_1.json", **updates}
@@ -207,8 +204,7 @@ class TestDataValidatorEndFramePath:
         assert not [e for e in result.errors if "end_frame_image" in e]
 
     def test_path_outside_end_frames_dir_is_error(self, project):
-        """指向 end_frames/ 之外目录内确实存在的文件也须拒绝——字段只认服务层写出的快照路径，
-        否则等于绕过快照复制直接引用源图，重新引入源图耦合。"""
+        """Reject existing files outside end_frames/: only service-written snapshots qualify, preventing direct source-image coupling by bypassing copies."""
         pm, validator = project
         _write_png(pm.get_project_path("demo") / "storyboards/scene_E1S02.png")
         result = self._validate_with(pm, validator, "storyboards/scene_E1S02.png")
@@ -216,7 +212,7 @@ class TestDataValidatorEndFramePath:
         assert not result.valid
 
     def test_dot_dot_escaping_end_frames_prefix_is_error(self, project):
-        """`end_frames/../storyboards/x.png` 表面以 end_frames 前缀开头，实际逃出该目录，同样拒绝。"""
+        """Reject `end_frames/../storyboards/x.png` despite its apparent prefix; it escapes the directory."""
         pm, validator = project
         _write_png(pm.get_project_path("demo") / "storyboards/scene_E1S02.png")
         result = self._validate_with(pm, validator, "end_frames/../storyboards/scene_E1S02.png")
@@ -224,7 +220,7 @@ class TestDataValidatorEndFramePath:
         assert not result.valid
 
     def test_directory_reference_is_error(self, project):
-        """指向 end_frames/ 下确实存在的目录须拒绝——校验只认普通文件，不认目录。"""
+        """Reject existing directories under end_frames/; accept ordinary files only."""
         pm, validator = project
         (pm.get_project_path("demo") / "end_frames" / "scene_E1S01.png").mkdir(parents=True)
         result = self._validate_with(pm, validator, END_FRAME_REL)

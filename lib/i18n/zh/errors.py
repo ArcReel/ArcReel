@@ -75,7 +75,7 @@ MESSAGES = {
     "task_not_found": "任务 '{id}' 不存在",
     "task_running_not_cancellable": "任务 '{id}' 已开始执行，不可取消；它会照常跑完并保留结果",
     "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
-    # 任务失败原因（GenerationWorker 写入错误码 + 参数，tasks API 读取时按语言渲染）
+    # Task failure reasons: GenerationWorker writes codes/parameters; tasks API renders them by language.
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
     "task_fail_provider_rejected": "供应商拒绝了这次生成请求（HTTP {status}）",
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
@@ -340,7 +340,7 @@ MESSAGES = {
     "custom_endpoint_not_found": "调用端点不存在",
     "custom_endpoint_definition_invalid": "调用端点定义未通过校验，请按诊断逐条修正后重试",
     "custom_endpoint_referenced_by_models": "该调用端点已被 {count} 个模型使用，解除引用后才能删除",
-    # ---- 市场 ----
+    # ---- Market ----
     "market_source_not_found": "市场源不存在",
     "market_source_official_undeletable": "官方市场源不可删除，可以禁用",
     "market_source_duplicate": "该市场源已添加",
@@ -363,7 +363,7 @@ MESSAGES = {
     "market_entry_icon_not_found": "该市场条目没有图标",
     "market_entry_fetch_failed": "无法从市场源取回条目文件（{reason}）",
     "market_entry_asset_invalid": "市场源提供的条目文件不可用（{reason}）",
-    # ---- 端点测试 ----
+    # ---- Endpoint tests ----
     "endpoint_test_payload_required": "缺少 payload 字段：带素材时请把请求 JSON 放在 payload 表单字段里",
     "endpoint_test_payload_invalid": "请求内容无法解析，请检查 JSON 格式与字段类型",
     "endpoint_test_asset_too_large": "素材 {name} 超过 {limit_mb} MB 上限",
@@ -464,7 +464,7 @@ MESSAGES = {
     "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
     "api_key_name_exists": "名称 '{name}' 已存在",
     "api_key_not_found": "API Key {key_id} 不存在",
-    # Agent 对话
+    # Agent conversation
     "session_project_mismatch": "会话 '{session_id}' 属于项目 '{session_project}'，与请求项目 '{request_project}' 不符",
     # Cost Estimation
     "cost_estimation_failed": "费用估算失败，请稍后重试",
@@ -487,7 +487,7 @@ MESSAGES = {
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
-    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
+    # Compatibility key: read historical task results only; new code uses ref_single_ref_only.
     "ref_sora_single_ref": "该模型只接受一张参考图，已取第一张",
     "ref_single_ref_only": "{model} 只接受一张参考图，已取第一张",
     "ref_episode_not_found": "集（id={episode}）不存在",
@@ -496,7 +496,7 @@ MESSAGES = {
     "ref_unit_needs_replan": "该视频单元存在发声归属或迁移问题，请先重新规划后再生成",
     "ref_script_missing": "该集绑定的脚本文件不存在",
     "ref_script_rebound": "该集脚本绑定已变更，请重试",
-    # 分镜文稿解析预览的降级可见性提示
+    # Storyboard-text parsing preview fallback-visibility hints
     "ref_warn_unregistered_mention": "@[{name}] 未在商品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "第 {line} 行：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
     "ref_warn_braces_not_speech": (
@@ -511,7 +511,7 @@ MESSAGES = {
     "ref_warn_unit_without_scene": "本单元未引用场景，画面地点将由模型自由决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不会生成有声视频，台词仅用于提示词参考",
     "ref_warn_silent_episode": "本集已关闭参考音频：不会上传参考音频，声音一致性不生效，台词仅用于提示词参考；成片是否有声音由所选模型决定",
-    # 分镜画面描述里的 @[名称] 没有绑定到参考图
+    # @[名称] in storyboard visual descriptions is not bound to a reference image.
     "storyboard_warn_mention_unbound": "分镜 {unit_id} 的画面描述引用了 @[{name}]，但它未登记为资产或不在该分镜的引用字段里：不会编号为图N，将按名字原样发送",
     # Episode meta
     "episode_not_found": "集（id={episode}）不存在或尚无脚本文件",
@@ -519,7 +519,7 @@ MESSAGES = {
     "episode_source_empty": "集原文不能为空",
     "episode_source_derived": "这一集切自整本源文，集原文由分集规划得出，不能在这里改写",
     "episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",
-    # 手工切分
+    # Manual splitting
     "manual_split_episode_not_found": "这一集已不在分集列表中，刷新后再试",
     "manual_split_episode_not_placed": "这一集的原文不在整本源文里，不能在原文上调整它的边界",
     "manual_split_source_file_not_found": "整本源文里没有这个文件，或文件读不到",
@@ -568,7 +568,7 @@ MESSAGES = {
     "episode_replan_adopt_moved_item": "{name} → 第 {new} 集",
     "episode_replan_delete_heading": "勾选「一并删除」后，以下集连同产物一起移入项目回收站，保留 30 天：",
     "episode_replan_delete_item": "{name}：{items}",
-    # 整本源文文件的改动
+    # Whole-book source-file changes
     "source_file_change_source_file_not_found": "整本源文里没有这个文件，刷新后再试",
     "source_file_change_source_file_unreadable": "这个文件读不到或不是 UTF-8 文本，只能删除",
     "source_file_change_source_changed": "这个文件在 ArcReel 之外被改动过，更新分集账本之前不能替换、编辑或调序，可以删除",
@@ -648,7 +648,7 @@ MESSAGES = {
     "video_prompt_too_long": "{provider}/{model} 的提示词最多 {limit} 个字符，当前 {count} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
     "video_request_conflicts_with_active_task": "单元「{resource_id}」已有确认申请时长不同的视频任务在处理中；请等待任务完成后重试（仍在排队的任务可先取消）",
     "audio_restore_conflicts_with_active_task": "单元「{resource_id}」的旁白配音正在生成；请等待任务完成后再切换音频版本（仍在排队的任务可先取消）",
-    # Agent 凭证
+    # Agent credentials
     "agent_preset_unknown": "未知预设供应商：{preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",
     "agent_api_key_required": "请填写 api_key 或选择要导入的自定义供应商",
@@ -688,7 +688,7 @@ MESSAGES = {
     "project_config_invalid": "项目配置无效，请检查参数后重试",
     "invalid_discovery_format": "不支持的模型发现格式：{discovery_format}",
     "request_invalid": "请求无效，请检查后重试",
-    # Agent 记忆
+    # Agent memory
     "memory_invalid_filename": "记忆文件名 '{filename}' 非法：只允许目录顶层的 .md 文件",
     "memory_file_not_found": "记忆文件 '{filename}' 不存在",
     "memory_file_too_large": "记忆文件 '{filename}' 超出大小限制（最大 {limit_kib} KiB）",
@@ -699,7 +699,7 @@ MESSAGES = {
     "market_entry_already_installed": "此条目已安装，请选择已安装的端点进行更新",
     "market_endpoint_already_installed": "该端点已有其他安装记录，无法覆盖",
     "market_overwrite_target_not_duplicate": "只能覆盖与该条目同作者、同名的端点",
-    # 官方服务
+    # Official service
     "official_service_disabled": "官方服务已关闭",
     "official_service_unavailable": "暂时无法连接官方服务，请稍后重试",
     "market_entry_rating_not_installed": "安装此条目后才能评分",
@@ -762,7 +762,7 @@ MESSAGES = {
     "jianying_draft_presentation_unavailable": "视频单元 {unit_id} 的素材无法用于剪映草稿，请检查视频与旁白配音后重新导出",
     "jianying_draft_hold_frame_unavailable": "无法提取剪辑片段 {clip_id} 的出点帧，剪映草稿未导出，请重试",
     "jianying_draft_acceptance_failed": "生成的剪映草稿未通过验收，请重试",
-    # 集管理
+    # Episode management
     "episode_manage_episode_not_found": "这一集已不在分集列表中，刷新后再试",
     "episode_manage_ledger_invalid": "分集账本的格式异常，无法调整分集",
     "episode_manage_cut_order_locked": "切自整本源文的集之间按源文顺序排列，不能调换它们的先后",

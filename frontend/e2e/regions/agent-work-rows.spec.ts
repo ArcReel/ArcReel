@@ -4,9 +4,9 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
 import { recorded } from "../support/recorded.ts";
 
-// Agent 面板的工序行：ArcReel 工具的显示名与摘要、失败与运行中的收起状态、长结果的截断与
-// 「显示全部」、子智能体的子时间线与结论。会话是手写的压力数据：长命令、长结果、长错误、
-// 多条目的子时间线。
+// Agent work rows: ArcReel tool display names/summaries, collapsed failure/running states, long-result truncation/
+// Show all, subagent timelines/conclusions. Handwritten stress sessions include long commands/results/errors,
+// and many sub-timeline entries.
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SESSION_ID = "session-work-rows";
 const SESSIONS_PATH = "/api/v1/projects/demo/assistant/sessions";
@@ -75,7 +75,7 @@ function buildEntries(): Entry[] {
   toolUse("skill", "Skill", { skill: "review-footage", args: "第 1 集全部视频单元" });
   toolResult("skill", "Launching skill: review-footage");
 
-  // 子智能体：内部消息带 parent_tool_use_id，归进锚点 tool_use 的子时间线
+  // Subagent internal messages carry parent_tool_use_id and join anchor tool_use sub-timelines.
   toolUse("agent", "Agent", { subagent_type: "review-footage", description: "审阅第 1 集的视频单元", prompt: "逐个看联系表" });
   push({
     type: "user",
@@ -97,7 +97,7 @@ function buildEntries(): Entry[] {
     "审阅结论：\n\n- E1S03 与 E1S02 人物站位相反，建议重新生成 E1S03。\n- E1S05 的光线偏暖，与雨夜基调不一致。",
   );
 
-  // 没有锚点的后台任务
+  // Background tasks without anchors.
   push({ type: "system", subtype: "task_started", task_id: "task-1", description: "批量生成分镜图" });
   push({
     type: "system",
@@ -120,7 +120,7 @@ function buildEntries(): Entry[] {
     message_id: "m-reply",
     content: [{ type: "text", text: "分镜图已入队，审片发现 E1S03 需要重新生成，剪辑时间线也已经换上新版本。" }],
   });
-  // 还没有结果的工具：会话没有终结，显示为运行中
+  // Tools without results in unfinished sessions display Running.
   toolUse("pending", "mcp__arcreel__generate_videos", {
     script: "episode_1.json",
     target: { scope: "selected", ids: ["E1S03"] },
@@ -143,7 +143,7 @@ interface RecordedProject {
 }
 const project = recorded<RecordedProject>("project-demo.json");
 
-// 工序行按条目在本集的当前位置指称分镜；剧本放进会话里提到的六个分镜。
+// Work rows refer to storyboard entries by current episode positions; scripts include all six storyboards mentioned in sessions.
 const segments = Array.from({ length: 6 }, (_, i) => ({
   segment_id: `E1S0${i + 1}`,
   episode: 1,
@@ -156,7 +156,7 @@ const segments = Array.from({ length: 6 }, (_, i) => ({
 }));
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的项目数据上。
+  // Project event SSE streams are unrecorded; reject with nonretryable statuses so pages retain substituted project data.
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -184,7 +184,7 @@ async function withPanelWidth(page: Page, width: number) {
   await expect.poll(async () => (await agentPanel(page).boundingBox())?.width).toBeCloseTo(width, 0);
 }
 
-/** 展开区里没有任何元素自己滚动：长文本截断后整段由消息区滚动。 */
+/** No expanded-region elements scroll independently: truncate long text and scroll entire blocks through message regions. */
 async function expectNoInnerScroll(page: Page, rowName: RegExp) {
   const trigger = row(page, rowName);
   const panelId = await trigger.getAttribute("aria-controls");
@@ -208,7 +208,7 @@ defineRegionScenarios("Agent 工序行", [
       await expect(row(page, /读取文件.*失败/)).toHaveAttribute("aria-expanded", "false");
       await expect(row(page, /生成视频.*第一集 · 3.*运行中/)).toBeVisible();
       await expect(row(page, /修改剪辑时间线.*压低开场原声/)).toBeVisible();
-      // 原始英文工具名不出现在界面上
+      // Raw English tool names must not appear in the UI.
       await expect(transcript(page).getByText(/mcp__arcreel__/)).toHaveCount(0);
     },
     screenshot: { name: "agent-work-rows-collapsed", target: agentPanel },

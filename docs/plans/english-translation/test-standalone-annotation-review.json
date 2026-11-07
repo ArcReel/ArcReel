@@ -1,0 +1,26 @@
+{
+  "specific_annotations": [
+    {
+      "path": "tests/fakes.py",
+      "original": "替身发出的帧，或在发出时按替身状态生成帧的函数（用来引用 ArcReel 送入的消息 uuid）。",
+      "candidate": "Frames emitted by the substitute, or functions building frames from its state at emission time (to reference message uuids submitted by ArcReel).",
+      "before_sha256": "f0ecbb347413ea910e367932b201736eb23408573af2ac453dd56ec07421ea49",
+      "after_sha256": "a242ae83629cd947fedf7717e05f3dbd586e0e7ec967dc14184cbcb2b1535e4f",
+      "AST_identical_except_this_exact_module_annotation": true,
+      "consumer_trace": "Discarded module-level string expression after a type alias or plain dict constant. No schema/tool/fixture doc introspection; annotation does not modify assigned type/constant values.",
+      "independent_review": "Coordinator accepted; ScriptedFrame preserves source message-kind scope."
+    },
+    {
+      "path": "tests/integration/lib/final_cut/test_service.py",
+      "original": "现场合成的素材没有呈现模型，这里只渲染不带旁白、不烧入字幕的版本。",
+      "candidate": "Freshly synthesized materials have no presentation model; render only variants without narration or burned-in subtitles here.",
+      "before_sha256": "87f071c6dfdddd0d217a940eba16d68b641e53e6e8980ef59c5fbe2c0e71720c",
+      "after_sha256": "bd03a207554e76a69742a1da7d001a0862b077db2f6d569d708c525f189eb53f",
+      "AST_identical_except_this_exact_module_annotation": true,
+      "consumer_trace": "Discarded module-level string expression after a type alias or plain dict constant. No schema/tool/fixture doc introspection; annotation does not modify assigned type/constant values.",
+      "independent_review": "Coordinator accepted; ScriptedFrame preserves source message-kind scope."
+    }
+  ],
+  "annotation_count": 2,
+  "general_Expr_str_exemption": false
+}

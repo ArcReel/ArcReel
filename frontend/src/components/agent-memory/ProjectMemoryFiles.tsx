@@ -9,8 +9,8 @@ import { MemoryDetail, MemoryLoadState, useMemoryWorkspace } from "./MemoryWorks
 import { MEMORY_FILE_PARAM } from "./memory-files";
 
 /**
- * 项目设置「项目记忆」分页的文件区：限宽页里放不下二级栏，左侧是不自带滚动的文件列表，右侧是同一个编辑器，
- * 由页面主体滚动，编辑器吸顶。编辑器是独立的编辑单元，不使用外壳底行的保存栏。
+ * File area in the project-settings memory tab: a width-limited page cannot fit a secondary sidebar. The left file list has no independent scroll; the right uses the same editor.
+ * The page body scrolls and the editor sticks to its top. The editor is its own editing unit and does not use the shell footer save bar.
  */
 export function ProjectMemoryFiles({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
@@ -28,7 +28,7 @@ export function ProjectMemoryFiles({ projectName }: { projectName: string }) {
       <nav aria-label={t("agent_memory_files")} className="w-52 shrink-0">
         <SecondaryRailList group={workspace.group} activeId={workspace.activeId} replace />
       </nav>
-      {/* 文件多时列表随页面变长，编辑器吸在主体顶部，滚到列表末尾选文件时编辑器仍在视野里 */}
+      {/* Long file lists extend the page; the editor sticks to the body top and stays visible when selecting files near the list end */}
       <div className="sticky top-6 min-w-0 flex-1">
         <MemoryDetail workspace={workspace} layout="flow" />
       </div>

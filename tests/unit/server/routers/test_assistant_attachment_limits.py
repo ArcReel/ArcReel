@@ -48,14 +48,14 @@ def test_rewrite_request_rejects_images_above_total_base64_character_limit():
 
 
 def test_send_request_accepts_one_oversized_image_under_the_total_budget():
-    """单张 5 MB 是绕过前端缩放时的兜底：它自身合规，也仍在合计预算内。"""
+    """Single 5 MB images are fallbacks when bypassing frontend resizing: individually compliant and within aggregate budgets."""
     request = assistant.SendRequest(images=[_image("A" * assistant.MAX_IMAGE_BASE64_CHARS)])
 
     assert len(request.images[0].data) < assistant.MAX_IMAGES_TOTAL_BASE64_CHARS
 
 
 def test_send_request_rejects_two_unresized_images_on_the_total_budget():
-    """两张未经前端缩放的 5 MB 图各自合规，合计仍被新预算拦下。"""
+    """Two unresized 5 MB images each comply individually, but new aggregate budgets still reject them."""
     with pytest.raises(ValidationError) as exc_info:
         assistant.SendRequest(images=[_image("A" * assistant.MAX_IMAGE_BASE64_CHARS) for _ in range(2)])
 

@@ -1,8 +1,8 @@
-"""提示词编写的对象选择：本次为哪些条目写哪些视觉层字段，显式重写会替换哪些已有内容。
+"""Select prompt-authoring entries/visual fields and identify existing content replaced by explicit rewriting.
 
-补缺以整份视觉层字段为单位：分镜类条目的 ``image_prompt`` / ``video_prompt`` 各自判断，已有的保留，
-只补缺失的那一份，不看结构化提示词内部的空字段；参考生视频单元的正文即视觉层，按待编写标记展开，
-正文非空也照常改写，标记清除后只有显式重写才改写。点名条目只划定范围，不等于授权覆盖。
+Gap filling operates on whole visual fields: ``image_prompt`` / ``video_prompt`` independently retain existing
+values and fill missing ones, ignoring empty subfields inside structured prompts. Reference-unit bodies are visuals;
+pending markers expand them even with nonempty bodies, and after clearing markers only explicit rewrite changes them. Naming entries limits selection, never authorizes overwrites.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 from lib.infra.content_digest import prefixed
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 
-#: 各条目形态的视觉层字段。参考生视频单元的正文即其视觉层。
+#: Visual fields by entry shape. Reference-unit bodies are their visual layer.
 VISUAL_LAYER_FIELDS: dict[str, tuple[str, ...]] = {
     "segments": ("image_prompt", "video_prompt"),
     "scenes": ("image_prompt", "video_prompt"),
@@ -24,18 +24,18 @@ VISUAL_LAYER_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def visual_field_filled(value: Any) -> bool:
-    """视觉层字段已有内容：非空白字符串，或非空的结构化提示词。"""
+    """Visual field has content: a nonblank string or nonempty structured prompt."""
     return bool(value.strip() if isinstance(value, str) else value)
 
 
 def visual_layer_complete(kind: str, item: Mapping[str, Any]) -> bool:
-    """条目的视觉层字段都已写入内容。"""
+    """Every visual field in this entry has content."""
     return all(visual_field_filled(item.get(field)) for field in VISUAL_LAYER_FIELDS[kind])
 
 
 @dataclass(frozen=True, slots=True)
 class AuthoringEntry:
-    """一个编写条目：本次写回的视觉层字段，及其中会替换已有内容的字段。"""
+    """One authoring entry: visual fields written this time and fields replacing existing content."""
 
     entry_id: str
     fields: tuple[str, ...]
@@ -44,7 +44,7 @@ class AuthoringEntry:
 
 @dataclass(frozen=True, slots=True)
 class PromptAuthoringSelection:
-    """一次提示词编写的对象（按剧本顺序），与范围内因视觉层已齐而不写的条目。"""
+    """Authoring entries in script order, plus selected entries skipped because their visuals are complete."""
 
     entries: tuple[AuthoringEntry, ...]
     skipped: tuple[str, ...]
@@ -68,11 +68,11 @@ def select_prompt_authoring(
     entry_ids: Iterable[str] = (),
     rewrite: bool = False,
 ) -> PromptAuthoringSelection:
-    """按范围与模式选出编写对象。
+    """Select entries by range and mode.
 
-    ``entry_ids`` 为空时范围是全部带待编写标记的条目，否则是这些条目（调用方先确认它们都在剧本里）。
-    补缺只写缺失的视觉层字段；``rewrite`` 写范围内条目的全部视觉层字段，其中补缺本不会写、
-    却已有内容的字段记为 ``overwritten``，即显式重写需要确认的丢失项。
+    Empty ``entry_ids`` selects all pending-marked entries; otherwise select these IDs (caller verifies existence).
+    Gap filling writes only missing visuals; ``rewrite`` writes every selected visual field. Fields already
+    filled that gap-filling would leave alone become ``overwritten``, the loss items requiring explicit confirmation.
     """
     requested = set(entry_ids)
     entries: list[AuthoringEntry] = []
@@ -99,10 +99,10 @@ def select_prompt_authoring(
 
 @dataclass(frozen=True, slots=True)
 class PromptOverwrite:
-    """显式重写将替换的已有视觉层内容。
+    """Existing visuals replaced by explicit rewriting.
 
-    ``fingerprint`` 是读取时正式脚本的内容指纹，对外作 ``revision``：调用方认可覆盖时回传它，
-    正式脚本此后又有变化即视为未认可，按新清单重新拒绝。
+    ``fingerprint`` is the read-time formal-script digest, exposed as ``revision`` and returned on overwrite consent.
+    Any subsequent formal change invalidates consent, causing refusal with an updated loss list.
     """
 
     fingerprint: str | None
@@ -116,7 +116,7 @@ class PromptOverwrite:
 
 
 class PromptOverwriteRequired(ValueError):
-    """显式重写会替换已有视觉层内容，而调用方没有给出与当前正式脚本相符的覆盖令牌。"""
+    """Explicit rewrite replaces existing visuals without an overwrite token matching the current formal script."""
 
     def __init__(self, overwrite: PromptOverwrite) -> None:
         ids = "、".join(entry.entry_id for entry in overwrite.entries)
@@ -124,7 +124,7 @@ class PromptOverwriteRequired(ValueError):
         self.overwrite = overwrite
 
 
-#: 丢失清单里视觉层字段的文案 key。
+#: Copy keys for visual fields in loss inventories.
 _FIELD_KEYS: dict[str, str] = {
     "image_prompt": "prompt_overwrite_field_image_prompt",
     "video_prompt": "prompt_overwrite_field_video_prompt",
@@ -133,7 +133,7 @@ _FIELD_KEYS: dict[str, str] = {
 
 
 def render_prompt_overwrite_text(overwrite: Mapping[str, Any], translate: Callable[..., str]) -> str:
-    """把 ``PromptOverwrite.to_dict()`` 渲染成丢失清单文本，Web 确认框与 Agent 回执同用这一份。"""
+    """Render ``PromptOverwrite.to_dict()`` into loss-list text shared by Web confirmation and Agent receipts."""
     entries: list[Mapping[str, Any]] = list(overwrite.get("entries") or ())
     separator = translate("script_overwrite_separator")
     rendered = [
@@ -153,7 +153,7 @@ def render_prompt_overwrite_text(overwrite: Mapping[str, Any], translate: Callab
 
 
 def prompt_overwrite_with_text(overwrite: Mapping[str, Any], translate: Callable[..., str]) -> dict[str, Any]:
-    """覆盖清单附上渲染好的丢失清单文本（``text``）。"""
+    """Attach rendered loss-list ``text`` to the overwrite inventory."""
     return {**overwrite, "text": render_prompt_overwrite_text(overwrite, translate)}
 
 

@@ -24,15 +24,15 @@ import type { Asset, AssetType } from "@/types/asset";
 import { ASSET_TYPE_ICON } from "./asset-type-icons";
 import { AssetThumb } from "./AssetThumb";
 
-/** 入库预览展示的项目资产内容，取项目里已保存的数据：入库时后端照这份数据复制。 */
+/** Project-asset contents shown in library-add previews, using saved project data; backends copy these data when adding. */
 export interface LibraryImportPreview {
   description: string;
-  /** 角色的声音风格。 */
+  /** Character voice style. */
   voiceStyle?: string;
-  /** 角色是否有参考音频。 */
+  /** Whether characters have reference audio. */
   hasReferenceAudio?: boolean;
   sheetPath?: string | null;
-  /** 角色的衍生数量。 */
+  /** Character derivative count. */
   derivativeCount?: number;
 }
 
@@ -41,13 +41,13 @@ interface Props {
   resourceId: string;
   projectName: string;
   preview: LibraryImportPreview;
-  /** 资源被生成或编辑任务占用：禁用入库，避免把编辑前的旧图复制进全局资产库。 */
+  /** Resources occupied by generation/editing tasks: disable adding to avoid copying pre-edit old images into global libraries. */
   busy?: boolean;
 }
 
 /**
- * 把项目里的资产复制到全局资产库。对话框只读预览将要复制的内容，只有名称可以修改。
- * 受控打开：入口是画廊卡片「更多」菜单里的「加入资产库」。
+ * Copy project assets to global asset libraries. Dialogs preview copied contents read-only; only names are editable.
+ * Controlled opening: gallery-card More menus offer Add to asset library.
  */
 export function AddToLibraryDialog({
   open,
@@ -61,14 +61,14 @@ export function AddToLibraryDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免入库结果还没回来对话框先消失
+        // Ignore Esc/backdrop clicks while requests are pending, avoiding disappearing dialogs before add results return.
         if (!next && submitting) return;
         onOpenChange(next);
       }}
     >
       <DialogContent showCloseButton={!submitting}>
         <AddToLibraryForm
-          // 名称输入框以资源名为初值：换了资源就整表重建，不沿用上一个资源的输入
+          // Name inputs initialize from resource names: resource changes rebuild forms rather than retaining previous inputs.
           key={`${props.resourceType}:${props.resourceId}`}
           {...props}
           busy={busy}
@@ -98,7 +98,7 @@ function AddToLibraryForm({
 }) {
   const { t } = useTranslation("assets");
   const nameId = useId();
-  // react-doctor-disable-next-line react-doctor/no-derived-useState -- 资源名只作可编辑名称的初值，之后由用户修改；资源变化时调用处按 key 重建表单
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- Resource names only initialize editable names; users edit afterward, and callers rebuild keyed forms when resources change
   const [name, setName] = useState(resourceId);
   const [conflict, setConflict] = useState<{ name: string; asset: Asset | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +110,7 @@ function AddToLibraryForm({
   const typeLabel = t(`type.${resourceType}`);
   const isCharacter = resourceType === "character";
 
-  // 资产库里同类型下名称唯一：名称变化后重新查一次是否重名。
+  // Asset-library names are unique within types; recheck duplicates when names change.
   useEffect(() => {
     if (!checkedName) return;
     const controller = new AbortController();
@@ -120,7 +120,7 @@ function AddToLibraryForm({
         setConflict({ name: checkedName, asset: page.items.find((item) => item.name === checkedName) ?? null });
       },
       () => {
-        // 查不到重名时照常提交，真有重名由后端拒绝并显示错误。
+        // Submit normally when duplicate checks fail; backends reject actual duplicates and show errors.
       },
     );
     return () => controller.abort();
@@ -130,8 +130,8 @@ function AddToLibraryForm({
 
   const submit = async (overwrite: boolean) => {
     if (!trimmedName || submitting) return;
-    // 弹窗打开后资源可能经 SSE、其他标签页或 Agent 进入生成或编辑占用态：提交时复核最新占用态，
-    // 避免把占用期间的旧图复制进全局资产库。
+    // Resources may enter generation/editing occupation via SSE, other tabs or Agent after dialogs open; recheck latest occupation at submission
+    // to avoid copying old images into global libraries during occupation.
     if (busy || isAssetBusy(resourceType, projectName, resourceId)) {
       setError(t("add_to_library_busy_hint"));
       return;

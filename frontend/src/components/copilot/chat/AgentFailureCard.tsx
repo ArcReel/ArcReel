@@ -10,13 +10,13 @@ import type { FailureObservation } from "@/types";
 import { copyText } from "@/utils/clipboard";
 
 // ---------------------------------------------------------------------------
-// AgentFailureCard — Agent 失败：标题、一句话结论与操作，原始信息折叠在「详情」里。
+// AgentFailureCard: Agent failures with titles, one-sentence conclusions/actions, and raw information collapsed in Details.
 //
-// 结论由后端下发的稳定 key 本地化（key 只取自结构化证据，见
-// server/agent_runtime/failure_observation.py），只描述观测、不推断根因；唯一的例外是
-// subprocess_unsupported，异常类本身就确定了根因，结论顺带给出处理办法。不认识的
-// key 和早于该字段的历史事件按阶段的通用 key 显示。操作只给与根因无关的三项：
-// Agent 设置、复制诊断信息、启动失败的重试。轮次失败不提供重试，避免重放已执行的工具操作。
+// Localize backend stable conclusion keys (derived only from structured evidence; see
+// server/agent_runtime/failure_observation.py), describing observations without inferring causes. The sole exception is
+// subprocess_unsupported, whose exception class establishes causes and permits remedies in conclusions. Unknown
+// keys/historical events predating this field use stage-generic keys. Offer only three cause-independent actions:
+// Agent settings, Copy diagnostics, startup-failure Retry. Turn failures never offer retries that could replay executed tools.
 // ---------------------------------------------------------------------------
 
 const CONCLUSION_KEYS: Record<FailureObservation["phase"], ReadonlySet<string>> = {
@@ -42,7 +42,7 @@ const GENERIC_KEY: Record<FailureObservation["phase"], string> = {
   startup: "startup_failed",
 };
 
-/** 一句话结论用的 key：认识的原样使用，其余回落到该阶段的通用 key。 */
+/** One-sentence conclusion keys: retain known values, otherwise use stage-generic fallbacks. */
 function failureConclusionKey(failure: FailureObservation): string {
   const key = failure.summary.key;
   return key && CONCLUSION_KEYS[failure.phase].has(key) ? key : GENERIC_KEY[failure.phase];
@@ -52,9 +52,9 @@ const COPIED_RESET_MS = 2000;
 
 interface AgentFailureCardProps {
   failure: FailureObservation;
-  /** 失败是查看期间新到达的：以 alert 播报。载入历史会话时已有的失败不播报。 */
+  /** Failures newly arriving during viewing announce through alerts; failures already in loaded historical sessions remain silent. */
   announce?: boolean;
-  /** 只由当前页面内、仍保留原始输入的启动失败提供；历史轮次绝不自动重放。 */
+  /** Only current-page startup failures retaining original inputs provide this; never automatically replay historical turns. */
   onRetry?: () => void;
 }
 

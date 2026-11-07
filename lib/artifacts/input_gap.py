@@ -1,9 +1,9 @@
-"""生成输入的缺口，以及它在产物依据里的缺席记录。
+"""Generation-input gaps and their absent records in artifact bases.
 
-缺口只拦生成这个动作，不阻止依据投影（``docs/adr/0098``）：期望依据照常由已有的输入值构造，
-缺的项记在依据的 ``absent`` 里。没有缺口时不写这个键，依据与输入完整时的形态逐字节相同，
-已登记条目的摘要不受影响。补齐缺口让依据变化，已登记的产物按常规判过期。
-"""
+Gaps block generation actions, not basis projection (``docs/adr/0098``). Construct expected bases from
+available inputs, recording missing items in ``absent``. Omit the key without gaps: bases are byte-for-byte
+identical to complete-input shapes, leaving registered digests unchanged. Filling gaps changes bases,
+outdating registered artifacts normally."""
 
 from __future__ import annotations
 
@@ -12,36 +12,36 @@ from dataclasses import dataclass
 
 from lib.project.project_schema import parse_project_schema_version
 
-#: 依据里记录缺席输入的键。
+#: Basis key recording absent inputs.
 ABSENT_INPUTS_FIELD = "absent"
 
-#: 从这一 schema 起生成缺口不阻止依据投影。
+#: Generation gaps stop blocking basis projection from this schema onward.
 GAP_TOLERANT_BASIS_SCHEMA_VERSION = 18
 
 
 def project_basis_records_gaps(project: Mapping[str, object]) -> bool:
-    """项目的期望依据是否把生成缺口记为缺席。
+    """Whether expected project bases record generation gaps as absent.
 
-    schema 低于 18 的项目只在迁移链中出现：v17→v18 之前各步的整份激活与来源补写沿用「有缺口即
-    投影不出、不登记」的口径，原先因缺口没登记的产物由 v17→v18 改前改后各规划一次后补录。
-    """
+    Projects below schema 18 occur only within migration chains. Full activation/provenance backfills
+    before v17→v18 retain the rule that gaps prevent projection/registration. v17→v18 plans before/after
+    targets and backfills artifacts previously unregistered due to gaps."""
 
     return parse_project_schema_version(project) >= GAP_TOLERANT_BASIS_SCHEMA_VERSION
 
 
 @dataclass(frozen=True, slots=True)
 class InputGap:
-    """生成输入不成立的一处缺口。
+    """One gap invalidating a generation input.
 
-    ``name`` 是缺口指向的对象：引用缺口是剧本里写的引用名，语义缺口是目标自身的资源 id。
-    """
+    ``name`` identifies its subject: the written script reference name for reference gaps, or the target's
+    own resource ID for semantic gaps."""
 
     code: str
     asset_type: str | None = None
     name: str | None = None
 
     def evidence(self) -> dict[str, object]:
-        """缺席记录：缺口码与它指向的对象。"""
+        """Absent record: gap code and its subject."""
 
         evidence: dict[str, object] = {"code": self.code}
         if self.asset_type is not None:
@@ -52,7 +52,7 @@ class InputGap:
 
 
 def add_absent_inputs(inputs: MutableMapping[str, object], gaps: Sequence[InputGap]) -> None:
-    """有缺口才把缺席记录写进依据输入，按缺口顺序、逐项去重。"""
+    """Record absent inputs in basis only when gaps exist, deduplicating items in gap order."""
 
     if gaps:
         inputs[ABSENT_INPUTS_FIELD] = [gap.evidence() for gap in dict.fromkeys(gaps)]

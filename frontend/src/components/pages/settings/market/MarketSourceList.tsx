@@ -43,7 +43,7 @@ import { SourceStatusDot } from "./market-source-status";
 
 type SourcePatch = { display_name?: string; is_enabled?: boolean };
 
-/** 只改写一行里给定的字段；同一行的并发修改各自只动自己提交的字段，响应先后不会互相覆盖。 */
+/** Update specified row fields only; concurrent edits each own submitted fields, never overwritten by response ordering. */
 function patchSource(current: MarketSourceInfo[], id: number, fields: Partial<MarketSourceInfo>): MarketSourceInfo[] {
   return current.map((source) => (source.id === id ? { ...source, ...fields } : source));
 }
@@ -52,7 +52,7 @@ function pickPatchFields(source: MarketSourceInfo, patch: SourcePatch): SourcePa
   return Object.fromEntries((Object.keys(patch) as (keyof SourcePatch)[]).map((key) => [key, source[key]]));
 }
 
-/** 按 `ordered` 的顺序与 position 重排当前行，行内其他字段保留本地值；不在其中的行排在最后。 */
+/** Reorder rows by `ordered` order/position, retaining other local fields; absent rows append last. */
 function applyOrder(current: MarketSourceInfo[], ordered: MarketSourceInfo[]): MarketSourceInfo[] {
   const slots = new Map(ordered.map((source, index) => [source.id, { index, position: source.position }]));
   const slotIndex = (source: MarketSourceInfo) => slots.get(source.id)?.index ?? ordered.length;
@@ -65,7 +65,7 @@ function applyOrder(current: MarketSourceInfo[], ordered: MarketSourceInfo[]): M
 }
 
 interface SequencedMutation<T, V> {
-  /** 发起时本地的值，作为这一串修改开始前最近一次确认的值。 */
+  /** Local values at initiation, the last confirmed state before this edit sequence. */
   before: V;
   send: () => Promise<T>;
   confirmedValue: (result: T) => V;
@@ -80,8 +80,8 @@ interface MutationLane {
 }
 
 /**
- * 同一 key 的修改按发起顺序串行发送，服务端按用户操作顺序落库；响应与失败回滚只在该 key 没有
- * 更新的修改时写回本地，回滚恢复到最近一次确认的值。失败一律抛出，由调用方提示。
+ * Serialize same-key edits in initiation order so servers persist user-action order. Responses/failure rollbacks write locally only without
+ * newer same-key edits; rollback restores latest confirmed values. All failures propagate for caller notices.
  */
 function useSequencedMutations() {
   const lanes = useRef(new Map<string, MutationLane>());
@@ -119,8 +119,8 @@ interface MarketSourceListProps {
 }
 
 /**
- * 市场「设置」里的市场源：排序（拖动把手、键盘或菜单的上移下移）、启停、改名、单源刷新、删除与添加，都即时生效。
- * 失败时回滚本地状态并弹出提示；成功只以列表变化为反馈。删除不可撤销，先用 AlertDialog 确认。
+ * Market Settings sources: reorder by drag handles, keyboard or up/down menus, enable/disable, rename, refresh, delete/add, all immediate.
+ * Failures roll back local state and notify; success uses list changes only. Irreversible deletion requires AlertDialog confirmation first.
  */
 export function MarketSourceList({
   sources,
@@ -353,7 +353,7 @@ function RenameSourceDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const formId = useId();
   const inputId = useId();
-  // 对话框关闭动画期间 source 已是 null，保留上一次的内容避免闪成空白。每次打开（含再次打开同一个源）都从源的当前名称开始。
+  // During close animations source is null; retain previous contents against blank flashes. Every opening, including identical sources, starts from current names.
   const [prevSource, setPrevSource] = useState<MarketSourceInfo | null>(null);
   const [shown, setShown] = useState<MarketSourceInfo | null>(null);
   const [name, setName] = useState("");
@@ -413,7 +413,7 @@ function DeleteSourceDialog({
   onDeleted: (id: number) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 关闭动画期间保留上一次的源；每次打开都清掉上一次的错误。
+  // Retain prior sources during closing; clear previous errors on every opening.
   const [prevSource, setPrevSource] = useState<MarketSourceInfo | null>(null);
   const [shown, setShown] = useState<MarketSourceInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -445,7 +445,7 @@ function DeleteSourceDialog({
     <AlertDialog
       open={source !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during submission so the dialog cannot disappear before the request completes
         if (!next && !submitting) onClose();
       }}
     >

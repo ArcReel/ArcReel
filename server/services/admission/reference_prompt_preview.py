@@ -1,4 +1,4 @@
-"""参考生视频草稿的最终提示词，使用当前请求投影的实发参考图与能力。"""
+"""Final reference-to-video draft prompts using actual sent references/capabilities from the current request projection."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -21,9 +21,9 @@ def render_reference_prompt_preview(
     translate: Callable[..., str],
     names: DisplayNames,
 ) -> dict[str, Any]:
-    """只读渲染；时长待确认不妨碍查看文本，其他投影阻断项显式显示为不可用。
+    """Read-only rendering: pending duration confirmation does not block viewing text; other projection blockers explicitly render unavailable.
 
-    与分镜预览同一口径：``text`` 与 ``unavailable`` 恰有一个非 ``None``，``warnings`` 只随文本出现。
+    Match storyboard previews: exactly one of ``text`` and ``unavailable`` is non-``None``; ``warnings`` accompanies text only.
     """
     result: dict[str, Any] = {
         "text": None,

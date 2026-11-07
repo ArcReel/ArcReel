@@ -1,0 +1,367 @@
+[
+  {
+    "path": "docs/api-docs/AGENTS.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/README.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/anthropic-messages.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/ark-seedance-1.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/ark-seedance-2-5.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/ark-seedance-2.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/ark-seedream-3.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/ark-seedream-4.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-always-on-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-qwen-image-edit.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-qwen-image.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-reference-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-reference-voice-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-speech-synthesizer.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-tts.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-wan-image.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/dashscope-wan3-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/gemini-generate.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/gemini-image.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/gemini-interactions-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/gemini-tts.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/gemini-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-image-single.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-image.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-video-audio.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-video-model-path.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-video-pro-audio.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-video-pro-silent.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/kling-video-silent.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/minimax-h3.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/minimax-hailuo-v1-fast.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/minimax-hailuo-v1.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/minimax-image.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/minimax-s2v-01.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/minimax-tts.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/newapi-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-chat-image.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-chat.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-images-edits.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-images-generations.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-images.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-responses.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-tts.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openai-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openrouter-images.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/openrouter-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/v2-video-generations.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-2.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-generic.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q1-classic.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q1.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q2-fast.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q2-pro.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q2.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q3-fast.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q3-pro.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q3-reference.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q3-turbo.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/vidu-video-q4.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/endpoints/xai-video.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/README.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/agnes.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/ark-agent-plan.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/ark.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/dashscope.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/gemini-aistudio.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/gemini-vertex.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/grok.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/kling.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/minimax.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/openai.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  },
+  {
+    "path": "docs/api-docs/providers/vidu.md",
+    "archive_matches_git_object": true,
+    "link_destinations_equal": true
+  }
+]

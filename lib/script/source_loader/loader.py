@@ -1,4 +1,4 @@
-"""SourceLoader：编排各 extractor，处理冲突、raw 备份与原子写入。"""
+"""SourceLoader: orchestrate extractors, conflicts, raw backups, and atomic writes."""
 
 from __future__ import annotations
 
@@ -38,12 +38,12 @@ class SourceLoader:
 
     @classmethod
     def detect_conflict(cls, original_filename: str, dst_dir: Path) -> tuple[bool, str]:
-        """返回 (has_conflict, suggested_stem).
+        """Return (has_conflict, suggested_stem).
 
-        冲突条件：
-        - dst_dir/<stem>.txt 存在
-        - dst_dir/raw/<original_filename> 存在
-        suggested_stem 从 stem_1, stem_2, ... 递增到不冲突为止。
+        Conflicts occur when:
+        - dst_dir/<stem>.txt exists
+        - dst_dir/raw/<original_filename> exists
+        Increment suggested_stem through stem_1, stem_2, ... until available.
         """
         stem = Path(original_filename).stem
         normalized = safe_join(dst_dir, f"{stem}.txt")
@@ -60,7 +60,7 @@ class SourceLoader:
             if not candidate_norm.exists() and not candidate_raw.exists():
                 return True, candidate_stem
             idx += 1
-        # 理论上不可达（用户需在 dst 造 10k 同 stem 文件）。明确抛错而非静默死循环。
+        # Theoretically unreachable (requires 10k same-stem destination files). Raise explicitly rather than looping silently.
         raise ConflictError(
             existing=f"{stem}.txt",
             suggested_name=f"{stem}_{_MAX_CONFLICT_ITER}",
@@ -74,9 +74,10 @@ class SourceLoader:
         original_filename: str | None = None,
         max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> ExtractedText:
-        """只把上传文件规范化为 UTF-8 文本，不落盘；格式与大小校验与 :meth:`load` 相同。
+        """Normalize uploads to UTF-8 text without writing; format/size validation matches :meth:`load`.
 
-        供逐集原文登记使用：文本写到集文件，不按原文件名落到 ``source/``，也不保留原始格式备份。
+        Used to register episode source: write text to episode files, not original filenames under ``source/``,
+        without original-format backups.
         """
         original_filename = original_filename or src.name
         ext = Path(original_filename).suffix.lower()
@@ -97,29 +98,29 @@ class SourceLoader:
         on_conflict: OnConflict = "fail",
         max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> NormalizeResult:
-        """规范化上传文件为 UTF-8 .txt，并在转换非字节等价时备份原始内容。
+        """Normalize uploads to UTF-8 .txt, backing up originals when conversion is not byte-equivalent.
 
         Args:
-            src: 临时文件路径（上传层已落盘）。
-            dst_dir: 目标项目的 source/ 目录。
-            original_filename: 用户上传时的原始文件名（含扩展名）。默认取 src.name。
-            on_conflict: 冲突策略 — "fail"/"replace"/"rename"。
-            max_bytes: 原始文件字节上限（默认 50 MB）。
+            src: temporary path already persisted by upload layer.
+            dst_dir: target project source/ directory.
+            original_filename: original uploaded filename with extension; defaults to src.name.
+            on_conflict: conflict policy: "fail"/"replace"/"rename".
+            max_bytes: original byte limit (default 50 MB).
 
         Returns:
-            NormalizeResult：normalized_path 必定存在；raw_path 仅当字节非等价时非 None。
+            NormalizeResult: normalized_path always exists; raw_path is non-None only for byte-inequivalent conversion.
 
         Raises:
-            UnsupportedFormatError: 扩展名不在 SUPPORTED_EXTS（路由层映射到 HTTP 400）。
-            FileSizeExceededError: 原始文件超过 max_bytes（HTTP 413）。
-            ConflictError: on_conflict="fail" 且 dst_dir 已存在同名（HTTP 409）。
-            SourceDecodeError: 文本解码失败（HTTP 422）。
-            CorruptFileError: DOCX/EPUB/PDF 损坏或为扫描件（HTTP 422）。
+            UnsupportedFormatError: extension outside SUPPORTED_EXTS (routes map to HTTP 400).
+            FileSizeExceededError: original exceeds max_bytes (HTTP 413).
+            ConflictError: on_conflict="fail" and destination name exists (HTTP 409).
+            SourceDecodeError: decoding failed (HTTP 422).
+            CorruptFileError: corrupted DOCX/EPUB/PDF or scanned PDF (HTTP 422).
 
-        原子性：normalized .txt 写入后，raw 备份若失败（磁盘满 / IO 异常）会在此函数
-        内部回滚 normalized_path 并让原异常向上冒泡；调用方无需额外清理。
+        Atomicity: if raw backup fails after normalized .txt writing (disk full / IO errors), this function
+        rolls back normalized_path and propagates the original exception; callers need no extra cleanup.
 
-        并发：非线程/进程安全。多进程 uvicorn worker 下调用方需保证 dst_dir 互斥。
+        Concurrency: not thread/process-safe. Multiworker uvicorn callers must ensure dst_dir mutual exclusion.
         """
         original_filename = original_filename or src.name
         ext = Path(original_filename).suffix.lower()
@@ -131,7 +132,7 @@ class SourceLoader:
         if size > max_bytes:
             raise FileSizeExceededError(filename=original_filename, size_bytes=size, limit_bytes=max_bytes)
 
-        # 冲突协商
+        # Conflict negotiation
         has_conflict, suggested_stem = cls.detect_conflict(original_filename, dst_dir)
         target_stem = Path(original_filename).stem
         effective_filename = original_filename
@@ -141,8 +142,8 @@ class SourceLoader:
             if on_conflict == "rename":
                 target_stem = suggested_stem
                 effective_filename = f"{suggested_stem}{ext}"
-            # on_conflict == "replace" → 沿用原 stem，覆盖。旧文件与同主干的原始上传件由调用方先移入项目回收站
-            # （lib.episode.source_trash），否则「下载原始格式」会指向被覆盖前的内容。
+            # on_conflict == "replace" → retain the stem and overwrite. Callers first trash old files and same-stem originals
+            # (lib.episode.source_trash), otherwise original-format downloads point to pre-overwrite content.
 
         extracted = _EXTRACTORS[ext]().extract(src)
         normalized_path = safe_join(dst_dir, f"{target_stem}.txt")
@@ -159,8 +160,8 @@ class SourceLoader:
                 effective_filename=effective_filename,
             )
         except Exception:
-            # raw 备份失败：回滚已写入的 normalized，避免孤儿文件误导后续 detect_conflict
-            # hard-delete: rollback -- 原始上传件备份失败时移除目标路径的规范化文本；replace 时被覆盖的旧内容不会恢复
+            # Raw-backup failure: roll back written normalized output, preventing orphan files from misleading detect_conflict
+            # hard-delete: rollback -- remove destination normalized text on original-backup failure; replace does not restore overwritten content
             normalized_path.unlink(missing_ok=True)
             raise
 
@@ -181,9 +182,9 @@ class SourceLoader:
         dst_dir: Path,
         effective_filename: str,
     ) -> Path | None:
-        # 仅当 normalized .txt 与原始字节等价时跳过备份（纯 UTF-8 无 BOM）。
-        # 任何编码转换（BOM 剥离、GBK→UTF-8、docx/epub/pdf 解析）都视为 lossy，
-        # 需保留 raw 以支持前端"下载原始格式"按钮与 QA 回放。
+        # Skip backups only for byte-equivalent normalized .txt (plain UTF-8 without BOM).
+        # Any conversion (BOM stripping, GBK→UTF-8, docx/epub/pdf extraction) counts as lossy,
+        # retaining raw originals for frontend original-format downloads and QA replay.
         if ext in {".txt", ".md"} and extracted.used_encoding == "utf-8":
             return None
         raw_dir = safe_join(dst_dir, "raw")

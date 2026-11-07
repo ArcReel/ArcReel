@@ -1,7 +1,7 @@
-"""端到端测试：剧本/项目 JSON 编辑工具（patch_episode_script / patch_project 等）。
+"""End-to-end script/project JSON editing tools (patch_episode_script / patch_project and peers).
 
-用真实 ProjectManager 经声明的共享入口跑 handler → 编辑核心 → 写盘统一入口的完整路径，断言 handler 的
-``ToolOutcome`` 与落盘结果（结构「不更坏」校验、upsert 校验真实生效），不 mock 私有方法。
+Real ProjectManager follows shared declaration entries through handlers, editing core, and unified persistence. Assert handler
+``ToolOutcome`` and disk results, including real no-worse structure/upsert validation, without mocking private methods.
 """
 
 from __future__ import annotations
@@ -167,14 +167,14 @@ def ad_ctx(tmp_path: Path) -> ToolHarness:
 
 
 def _derived_references(tool_ctx: ToolHarness, index: int) -> list[tuple[str, str]]:
-    """该 unit 正文当前派生出的参考图引用——引用不落盘，读时按正文派生。"""
+    """Current body-derived unit reference images; references do not persist and derive on read."""
     project = tool_ctx.pm.load_project("demo")
     unit = _load(tool_ctx)["video_units"][index]
     return [(ref.type, ref.name) for ref in unit_reference_declarations(project, unit)]
 
 
 def _said(outcome: ToolOutcome[ToolMessage]) -> str:
-    """结果的人类可读文本：成功时的 message，失败时的 problem detail。"""
+    """Human-readable outcome: success message or failure problem detail."""
     if outcome.problem is not None:
         return outcome.problem.detail
     assert outcome.value is not None
@@ -186,7 +186,7 @@ def _load(ctx: ToolHarness) -> dict[str, Any]:
 
 
 def _make_project_invalid_outside_assets(ctx: ToolHarness) -> None:
-    """让项目改前已有与资产无关的校验错误（style 类型非法）。"""
+    """Give the pre-edit project an asset-unrelated validation error, an invalid style type."""
     ctx.pm.update_project("demo", lambda p: p.update({"style": 123}))
     assert not DataValidator(projects_dir=ctx.pm.projects_dir).validate_project("demo").valid
 
@@ -202,7 +202,7 @@ async def _patch(
 
 
 def _updates(edits: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """按条目 id 给出的字段修改，逐条展开成 update 操作。"""
+    """Expand per-item-ID field changes into individual update operations."""
     return [{"op": "update", "id": item_id, "fields": fields} for item_id, fields in edits.items()]
 
 
@@ -229,7 +229,7 @@ def _problem_code(outcome: ToolOutcome[ScriptPatchResult]) -> str:
 class TestPatchEpisodeScript:
     @pytest.mark.parametrize("spelling", ["prefixed", "bare"])
     async def test_four_operation_union_commits_as_one_batch(self, ctx: ToolHarness, spelling: str) -> None:
-        """内嵌信封：摘要在前，其后的 JSON 就是结构化结果，重新生成提示与 mention 警告同时出现在两处。"""
+        """Embedded envelopes contain summaries then structured JSON; regeneration notices/mention warnings appear in both."""
         revision = script_revision(_load(ctx))
         session_server = build_arcreel_mcp_server(project_name="demo", data_root=ctx.data_root)["instance"]
         request = types.CallToolRequest(
@@ -259,13 +259,13 @@ class TestPatchEpisodeScript:
         assert patched["regeneration_required_ids"] == ["E1S01"]
         assert patched["warnings"][0]["params"] == {"unit_id": "E1S01", "name": "无名路人"}
         assert "无名路人" in summary
-        assert "重新生成" in summary
+        assert "immediate regeneration of their corresponding images/videos" in summary
         saved = _load(ctx)["segments"]
         assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02", "E1S04"]
         assert saved[0]["image_prompt"]["scene"] == "@[无名路人]回头"
 
     async def test_batch_multi_segment_multi_field(self, ctx: ToolHarness) -> None:
-        """一次调用改多分镜 × 多字段，全部落盘。"""
+        """Persist multiple storyboard × field changes in one call."""
         _committed(
             await _patch(
                 ctx,
@@ -283,7 +283,7 @@ class TestPatchEpisodeScript:
         assert saved[1]["video_prompt"]["action"] == "抬头"
 
     async def test_unbound_scene_mentions_are_reported_as_warnings(self, ctx: ToolHarness) -> None:
-        """画面描述里的 @[名称] 对不上该分镜引用字段或未登记时，提交成功但带 warnings。"""
+        """Visual @[名称] not matching shot references or registration still commits, with warnings."""
         from lib.script.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
 
         result = _committed(await _patch(ctx, _updates({"E1S02": {"image_prompt.scene": "@[角色A]与@[无名路人]对视"}})))
@@ -294,28 +294,28 @@ class TestPatchEpisodeScript:
         assert _load(ctx)["segments"][1]["image_prompt"]["scene"] == "@[角色A]与@[无名路人]对视"
 
     async def test_unknown_id_rolls_back_whole_batch(self, ctx: ToolHarness) -> None:
-        """一批里含未命中 id → 整批零落盘（同批的合法编辑也回滚），错误定位到该 id。"""
+        """Unmatched IDs make the whole batch write nothing, rolling back valid siblings and locating errors at that ID."""
         result = _rejected(
             await _patch(ctx, _updates({"E1S01": {"image_prompt.scene": "本应回滚"}, "E9": {"duration_seconds": 5}}))
         )
 
         assert (result.problems[0].operation_index, result.problems[0].unit_id) == (1, "E9")
-        # 同批的合法编辑未落盘（all-or-nothing）
+        # Valid sibling edits do not persist: all-or-nothing.
         assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
 
     async def test_invalid_value_rolls_back_whole_batch(self, ctx: ToolHarness) -> None:
-        """某条把合法剧本改非法（duration 越界）→ 写盘统一入口挡下，整批不落盘。"""
+        """An out-of-range duration turning valid scripts invalid is blocked at unified persistence; write none of the batch."""
         _rejected(
             await _patch(
                 ctx, _updates({"E1S01": {"duration_seconds": 999}, "E1S02": {"image_prompt.scene": "本应回滚"}})
             )
         )
         saved = _load(ctx)["segments"]
-        assert saved[0]["duration_seconds"] == 4  # 未落盘
-        assert saved[1]["image_prompt"]["scene"] == "场景描述"  # 同批回滚
+        assert saved[0]["duration_seconds"] == 4  # Nothing persisted.
+        assert saved[1]["image_prompt"]["scene"] == "场景描述"  # Whole batch rolls back.
 
     async def test_error_localizes_scene_id_and_field(self, ctx: ToolHarness) -> None:
-        """字段路径不存在 → 错误精确指出触发的 scene_id + field。"""
+        """Missing paths identify triggering scene_id + field precisely."""
         result = _rejected(await _patch(ctx, _updates({"E1S01": {"image_prompt.nope.deep": "x"}})))
 
         problem = result.problems[0]
@@ -323,22 +323,22 @@ class TestPatchEpisodeScript:
         assert problem.locations[0].path == ("operations", 0, "fields", "image_prompt", "nope", "deep")
 
     async def test_empty_operations_rejected(self, ctx: ToolHarness) -> None:
-        """空 operations 被拒（禁止零信号成功）。"""
+        """Reject empty operations under no-zero-signal-success rules."""
         assert _problem_code(await _patch(ctx, [])) == "invalid_request"
 
     async def test_empty_field_map_rejected(self, ctx: ToolHarness) -> None:
-        """某分镜的字段映射为空 → 拒（禁止零信号成功）。"""
+        """Reject empty storyboard field maps under no-zero-signal-success rules."""
         assert _problem_code(await _patch(ctx, _updates({"E1S01": {}}))) == "invalid_request"
         assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
 
     async def test_reject_generated_assets(self, ctx: ToolHarness) -> None:
-        """禁改 generated_assets（逐字继承单编辑约束），整批不落盘。"""
+        """Forbid generated_assets edits exactly as single edits do; persist none of the batch."""
         before = _load(ctx)
         _rejected(await _patch(ctx, _updates({"E1S01": {"generated_assets.status": "completed"}})))
         assert _load(ctx) == before
 
     async def test_reject_id_field(self, ctx: ToolHarness) -> None:
-        """禁改分镜 id 字段（逐字继承单编辑约束）。"""
+        """Forbid storyboard ID edits exactly as single edits do."""
         _rejected(await _patch(ctx, _updates({"E1S01": {"segment_id": "E1S99"}})))
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S01", "E1S02"]
 
@@ -391,13 +391,13 @@ class TestPatchEpisodeScript:
         )
 
     async def test_hallucinated_leaf_blocked_by_funnel(self, ctx: ToolHarness) -> None:
-        """中间路径存在、叶子被凭空创建的 hallucinated 字段（video_prompt.hallucinated_key）
-        经写盘统一入口 extra='forbid' 结构校验拒写，不静默落盘。"""
+        """Existing intermediate paths do not permit invented leaves such as video_prompt.hallucinated_key;
+        unified persistence extra='forbid' rejects instead of silently saving."""
         _rejected(await _patch(ctx, _updates({"E1S01": {"video_prompt.hallucinated_key": "stray"}})))
         assert "hallucinated_key" not in _load(ctx)["segments"][0]["video_prompt"]
 
     async def test_middle_path_typo_fail_loud(self, ctx: ToolHarness) -> None:
-        """中间路径拼错（image_prompt.scen 应为 .scene）→ fail-loud，错误定位到 id/field。"""
+        """Misspelled image_prompt.scen instead of .scene fails loudly with ID/field location."""
         result = _rejected(await _patch(ctx, _updates({"E1S01": {"image_prompt.scen.x": "y"}})))
 
         problem = result.problems[0]
@@ -405,22 +405,22 @@ class TestPatchEpisodeScript:
         assert problem.locations[0].path == ("operations", 0, "fields", "image_prompt", "scen", "x")
 
     async def test_prompt_change_requires_regeneration(self, ctx: ToolHarness) -> None:
-        """改了 image_prompt / video_prompt 的条目列入须重新生成的名单。"""
+        """Changed image_prompt / video_prompt items enter the regeneration list."""
         result = _committed(await _patch(ctx, _updates({"E1S01": {"image_prompt.scene": "新场景"}})))
         assert result.regeneration_required_ids == ("E1S01",)
 
     async def test_non_prompt_change_requires_no_regeneration(self, ctx: ToolHarness) -> None:
-        """只改非 prompt 字段（duration_seconds）时名单为空。"""
+        """Nonprompt-only edits such as duration_seconds leave that list empty."""
         result = _committed(await _patch(ctx, _updates({"E1S01": {"duration_seconds": 5}})))
         assert result.regeneration_required_ids == ()
 
     async def test_drama_mode_by_scene_id(self, drama_ctx: ToolHarness) -> None:
-        """剧情演绎：按 scene_id 定位，批量改字段落盘。"""
+        """Drama locates scene_id and persists batch edits."""
         _committed(await _patch(drama_ctx, _updates({"E1S02": {"image_prompt.scene": "剧集新场景"}})))
         assert _load(drama_ctx)["scenes"][1]["image_prompt"]["scene"] == "剧集新场景"
 
     async def test_reference_mode_by_unit_id(self, ref_ctx: ToolHarness) -> None:
-        """reference 模式：按 unit_id 定位，批量改字段落盘。"""
+        """Reference mode locates unit_id and persists batch edits."""
         _committed(await _patch(ref_ctx, _updates({"E1U1": {"note": "单元备注"}})))
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
 
@@ -475,7 +475,7 @@ class TestPatchEpisodeScript:
         assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
 
     async def test_ad_mode_by_shot_id(self, ad_ctx: ToolHarness) -> None:
-        """广告/短片：按 shot_id 定位，批量改字段落盘。"""
+        """Ad/short-film locates shot_id and persists batch edits."""
         _committed(await _patch(ad_ctx, _updates({"E1S02": {"voiceover_text": "新口播"}})))
         assert _load(ad_ctx)["shots"][1]["voiceover_text"] == "新口播"
 
@@ -500,7 +500,7 @@ class TestPatchEpisodeScript:
         item_id: str,
         fields: dict[str, Any],
     ) -> None:
-        """编写完成后的内容修改在正式脚本上做：旁白正文、台词、单元正文与对应原文都可改。"""
+        """Postauthoring content edits target formal scripts: narration, dialogue, unit bodies, and corresponding source text remain editable."""
         tool_ctx: ToolHarness = request.getfixturevalue(fixture)
 
         out = await _patch(tool_ctx, [{"op": "update", "id": item_id, "fields": fields}])
@@ -646,7 +646,7 @@ class TestPatchEpisodeScriptStructuralOperations:
     @pytest.mark.parametrize(
         ("removed_id", "structural"),
         [
-            # 删掉末条再新增：编号只分配、不复用，不会取回被删的号。
+            # Delete the last item then add; allocation never reuses removed IDs.
             ("E1S02", {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}),
             ("E1S01_1", {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}),
         ],
@@ -679,14 +679,14 @@ class TestPatchEpisodeScriptStructuralOperations:
         assert adapter.get_entry(old_video) is None
 
     async def test_split_keeps_first_id_and_clears_new_identity_assets(self, ctx: ToolHarness) -> None:
-        # parts 自带的资产不可信：同 id 锚点以原资产为准，新身份一律清空。
+        # Untrusted parts assets: same-ID anchors retain actual assets; new identities clear all assets.
         part_a = _segment("a")
         part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
         out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [part_a, _segment("b")]}])
         _committed(out)
         saved = _load(ctx)["segments"]
         ids = [s["segment_id"] for s in saved]
-        # 后续部分取本集用过的最大号之后的新主序号，不再加 _k 后缀
+        # Later parts take new main IDs above episode high-water marks, without _k suffixes.
         assert ids == ["E1S01", "E1S03", "E1S02"]
         assert not saved[0].get("generated_assets")
         assert not saved[1].get("generated_assets")
@@ -736,7 +736,7 @@ class TestPatchEpisodeScriptStructuralOperations:
 
 
 class TestPatchEpisodeMeta:
-    """patch_episode_meta：编辑剧本顶层 title，白名单兜底，写盘自动镜像到 project.json。"""
+    """patch_episode_meta edits allowlisted top-level title, automatically mirroring persistence into project.json."""
 
     async def test_set_title(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
@@ -746,7 +746,7 @@ class TestPatchEpisodeMeta:
         )
         assert out.problem is None
         assert _load(ctx)["title"] == "新标题"
-        # project.json 镜像同步（locked_script 退出经 sync_episode_from_script）
+        # project.json mirror synchronization on locked_script exit through sync_episode_from_script.
         episodes = ctx.pm.load_project("demo")["episodes"]
         entry = next(e for e in episodes if e["episode"] == 1)
         assert entry["title"] == "新标题"
@@ -768,7 +768,7 @@ class TestPatchEpisodeMeta:
                 {"script": "episode_1.json", "field": "title", "value": blank},
             )
             assert out.problem is not None
-        assert _load(ctx)["title"] == "标题"  # 原值未改
+        assert _load(ctx)["title"] == "标题"  # Original unchanged.
 
     async def test_non_whitelist_field_rejected(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
@@ -777,7 +777,7 @@ class TestPatchEpisodeMeta:
             {"script": "episode_1.json", "field": "episode", "value": 9},
         )
         assert out.problem is not None
-        assert _load(ctx)["episode"] == 1  # 未被改写
+        assert _load(ctx)["episode"] == 1  # Not rewritten.
 
     async def test_non_string_value_rejected(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
@@ -831,7 +831,7 @@ class TestPatchProject:
         ],
     )
     async def test_new_asset_without_description_is_written(self, ctx: ToolHarness, table: str, entry: dict) -> None:
-        """描述只在生成资产图时必需：新资产描述为空或未给出都照常落盘，描述记为空串。"""
+        """Descriptions are required only for asset-image generation; new assets persist empty-string descriptions when empty/absent."""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"table": table, "entries": {"无描述资产": entry}})
 
         assert out.problem is None
@@ -843,23 +843,23 @@ class TestPatchProject:
         assert out.problem is not None
 
     async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolHarness) -> None:
-        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，upsert 引入的
-        新错误（如新 entry 的 description 不是字符串）仍应被拒——单纯 `before_valid AND after.valid`
-        判定会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
+        """No-worse error-set differences reject new upsert errors, such as nonstring descriptions,
+        even on already-corrupt projects. Simple `before_valid AND after.valid`
+        lets new errors piggyback; error-set differences close that bypass."""
         _make_project_invalid_outside_assets(ctx)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
-            # description 类型非法的 entry，写入引入的「新错误」
+            # Invalid description types are newly introduced errors.
             {"table": "scenes", "entries": {"空场景": {"description": 1}}},
         )
         assert out.problem is not None
-        # 不落盘：空场景没写入
+        # No persistence: the empty scene was not written.
         assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
 
     async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolHarness) -> None:
-        """「不更坏」：项目本就含与资产无关的历史非法（style 类型非法）时，patch_project 仍应成功——
-        否则带历史脏数据的项目会整条编辑路径不可用。"""
+        """No-worse patch_project succeeds despite unrelated historical invalid style types;
+        otherwise legacy-corrupt projects lose the whole editing path."""
         _make_project_invalid_outside_assets(ctx)
         out = await run_declared_tool(
             PATCH_PROJECT,
@@ -870,7 +870,7 @@ class TestPatchProject:
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_entry_name_whitespace_normalized(self, ctx: ToolHarness) -> None:
-        """Agent 传带前后空格的 name → strip 规范化后存储（避免按 name 查找因空格差异 mismatch）。"""
+        """Strip surrounding name spaces before storing to avoid whitespace differences breaking name lookup."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -878,11 +878,11 @@ class TestPatchProject:
         )
         assert out.problem is None
         chars = ctx.pm.load_project("demo")["characters"]
-        assert "李白" in chars  # 规范化后存储
+        assert "李白" in chars  # Store normalized names.
         assert "  李白  " not in chars
 
     async def test_blank_entry_name_rejected(self, ctx: ToolHarness) -> None:
-        """全空白或空 name fail-loud：避免把 \"\" / \"   \" 写成合法 entry key。"""
+        """Empty/whitespace names fail loudly instead of writing \"\" / \"   \" as valid entry keys."""
         for blank_name in ("", "   ", "\t\n"):
             out = await run_declared_tool(
                 PATCH_PROJECT,
@@ -892,8 +892,8 @@ class TestPatchProject:
             assert out.problem is not None
 
     async def test_non_string_extra_field_rejected(self, ctx: ToolHarness) -> None:
-        """voice_style 等 extra_string_fields 须为字符串：Agent 传 int / dict / list 会被守卫点拦下，
-        否则下游把 reference_image 当路径拼接时会运行时崩。"""
+        """voice_style and other extra_string_fields require strings; guards reject int/dict/list input
+        instead of later reference_image path construction crashing."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -903,16 +903,16 @@ class TestPatchProject:
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_upsert_strips_sheet_and_unknown_fields(self, ctx: ToolHarness) -> None:
-        """least-privilege：Agent 仅能改 description + spec.extra_string_fields。
-        sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 Agent
-        覆写本不该碰的字段。"""
-        # 先 upsert 一个干净 entry，再尝试用 patch 改 sheet（应被忽略）+ 加 unknown key
+        """Least privilege: Agents edit description + spec.extra_string_fields only.
+        Silently discard system-generated sheet paths and undeclared keys, preventing
+        overwrites outside Agent authority."""
+        # Upsert clean entries, then attempt ignored sheet changes plus unknown keys.
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
         )
-        # 模拟系统通过 _update_asset_sheet 写入 sheet 路径
+        # Simulate system _update_asset_sheet writing paths.
         ctx.pm.update_project(
             "demo", lambda p: p["characters"]["李白"].update({"character_sheet": "characters/li_bai.png"})
         )
@@ -926,8 +926,8 @@ class TestPatchProject:
                     "李白": {
                         "description": "改后描述",
                         "voice_style": "沉稳",
-                        "character_sheet": "fake/agent_overwrite.png",  # 应被丢弃
-                        "random_extra_field": "noise",  # 应被丢弃
+                        "character_sheet": "fake/agent_overwrite.png",  # Discard.
+                        "random_extra_field": "noise",  # Discard.
                     }
                 },
             },
@@ -936,12 +936,12 @@ class TestPatchProject:
         char = ctx.pm.load_project("demo")["characters"]["李白"]
         assert char["description"] == "改后描述"
         assert char["voice_style"] == "沉稳"
-        assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 Agent 覆写
-        assert "random_extra_field" not in char  # spec 外字段不入库
+        assert char["character_sheet"] == "characters/li_bai.png"  # Agents do not overwrite system fields.
+        assert "random_extra_field" not in char  # Fields outside spec never persist.
 
     async def test_upsert_strips_reference_audio(self, ctx: ToolHarness) -> None:
-        """reference_audio 与 reference_image 同性质（用户上传路径），不进
-        agent_editable_extra_fields，Agent 尝试写入应被静默丢弃。"""
+        """reference_audio, like reference_image, is an uploaded path outside
+        agent_editable_extra_fields; silently discard Agent writes."""
         ctx.pm.update_project(
             "demo",
             lambda p: p["characters"].update(
@@ -963,18 +963,18 @@ class TestPatchProject:
                 "entries": {
                     "李白": {
                         "description": "改后描述",
-                        "reference_audio": "fake/agent_overwrite.wav",  # 应被丢弃
+                        "reference_audio": "fake/agent_overwrite.wav",  # Discard.
                     }
                 },
             },
         )
         assert out.problem is None
         char = ctx.pm.load_project("demo")["characters"]["李白"]
-        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 Agent 覆写
+        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # Not overwritten by Agents.
 
     async def test_non_string_description_rejected(self, ctx: ToolHarness) -> None:
-        """description 必须是字符串：Agent 误传数字（如 LLM 把"1"输出成 int）
-        不能作为合法资产落盘——守卫点须 fail-loud。"""
+        """description requires strings; numeric Agent input, such as LLM "1" emitted as int,
+        fails loudly instead of persisting as valid assets."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -984,8 +984,8 @@ class TestPatchProject:
         assert "阿青" not in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_upsert_fails_loud_when_bucket_not_dict(self, ctx: ToolHarness) -> None:
-        """bucket_key 已存在却非 dict（历史脏数据，如 list）→ fail-loud，
-        而非在 bucket.get 处抛含糊的 AttributeError。"""
+        """Existing nondict bucket_key, such as legacy lists, fails loudly
+        instead of vague AttributeError at bucket.get."""
         ctx.pm.update_project("demo", lambda p: p.update({"characters": []}))
         out = await run_declared_tool(
             PATCH_PROJECT,
@@ -995,8 +995,8 @@ class TestPatchProject:
         assert out.problem is not None
 
     async def test_normalized_name_collision_fails_loud(self, ctx: ToolHarness) -> None:
-        """两个 raw key strip 后等价（如 "李白" 与 "  李白  "）→ fail-loud，避免后者
-        silent overwrite 前者的 attrs；Agent 应明确感知 collision 并去重。"""
+        """Raw keys equal after strip, such as "李白" / "  李白  ", fail loudly instead of later keys
+        silently overwriting earlier attributes; Agents must see collisions and deduplicate."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1009,25 +1009,25 @@ class TestPatchProject:
             },
         )
         assert out.problem is not None
-        # 任何一个版本都不应入库（mutation 在校验阶段就 raise，不落盘）
+        # Neither version persists; validation raises before writes.
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_upsert_strips_reference_image_field(self, ctx: ToolHarness) -> None:
-        """reference_image 是用户上传或系统生成的文件路径（与 sheet_field 同性质），
-        agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 Agent
-        覆写用户已上传的角色参考图。更新走专用 API update_character_reference_image。
-        validator 维度的 extra_string_fields 仍保留 reference_image 用于类型校验。"""
-        # 先 upsert 一个干净 entry
+        """reference_image is an uploaded/system-generated path like sheet_field, excluded from
+        agent_editable_extra_fields. patch_project silently discards it so Agents cannot overwrite
+        uploaded character references; use update_character_reference_image.
+        Validator extra_string_fields still retains reference_image for type checks."""
+        # Upsert clean entries first.
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
         )
-        # 模拟用户通过 WebUI 上传参考图
+        # Simulate WebUI reference upload.
         ctx.pm.update_character_reference_image("demo", "李白", "characters/refs/li_bai.jpg")
         assert ctx.pm.load_project("demo")["characters"]["李白"]["reference_image"] == "characters/refs/li_bai.jpg"
 
-        # Agent 尝试改描述时顺带覆写 reference_image——应被丢弃
+        # Agent description edits also attempt reference_image overwrite; discard it.
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1037,7 +1037,7 @@ class TestPatchProject:
                     "李白": {
                         "description": "改后描述",
                         "voice_style": "沉稳",
-                        "reference_image": "",  # 应被白名单过滤掉
+                        "reference_image": "",  # Filter through the allowlist.
                     }
                 },
             },
@@ -1046,12 +1046,12 @@ class TestPatchProject:
         char = ctx.pm.load_project("demo")["characters"]["李白"]
         assert char["description"] == "改后描述"
         assert char["voice_style"] == "沉稳"
-        # 用户上传的 reference_image 不被 Agent 覆写
+        # Agents never overwrite uploaded reference_image.
         assert char["reference_image"] == "characters/refs/li_bai.jpg"
 
     async def test_product_upsert_selling_points_editable(self, ctx: ToolHarness) -> None:
-        """products 表对 Agent 开放；selling_points 在可编辑白名单内（Agent 起草、用户可改），
-        新 entry 的列表字段按 spec 初始化。"""
+        """Agents can edit products and allowlisted selling_points, drafted by Agents and editable by users;
+        initialize new-entry lists according to spec."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1069,8 +1069,8 @@ class TestPatchProject:
         assert product["brand"] == ""
 
     async def test_product_upsert_strips_reference_images(self, ctx: ToolHarness) -> None:
-        """reference_images 是用户上传的原图路径列表（保真验收锚点），不在 Agent 白名单——
-        upsert 应静默丢弃且不覆写既有值，更新走专用上传 API。"""
+        """reference_images is a list of user-uploaded originals and fidelity acceptance anchors, outside Agent allowlists;
+        upsert silently discards it without overwriting existing values; use dedicated upload APIs."""
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1099,7 +1099,7 @@ class TestPatchProject:
         assert product["reference_images"] == ["products/refs/保温杯_1.jpg"]
 
     async def test_product_upsert_invalid_selling_points_blocked(self, ctx: ToolHarness) -> None:
-        """selling_points 须为字符串列表：非法类型被结构校验拦截，不落盘。"""
+        """selling_points requires string lists; invalid types fail structure checks without persistence."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1109,7 +1109,7 @@ class TestPatchProject:
         assert "保温杯" not in ctx.pm.load_project("demo").get("products", {})
 
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolHarness) -> None:
-        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略。"""
+        """Return text distinguishes new counts from merged-field-edit counts, letting Agents verify intended strategies."""
         out1 = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1131,8 +1131,8 @@ class TestPatchProject:
         assert "新增" not in text2
 
     async def test_response_lists_dropped_non_allowed_fields(self, ctx: ToolHarness) -> None:
-        """工具返回文本应显式列出被白名单丢弃的字段(reference_image / sheet_field 等),
-        让 LLM 知道为何这些字段没生效,不再重复尝试。"""
+        """Return text explicitly lists discarded fields such as reference_image / sheet_field,
+        explaining ineffectual edits so LLMs stop retrying."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1141,8 +1141,8 @@ class TestPatchProject:
                 "entries": {
                     "李白": {
                         "description": "白衣剑客",
-                        "reference_image": "x.jpg",  # 系统管理,应被忽略
-                        "character_sheet": "y.jpg",  # 资产流水线回写,应被忽略
+                        "reference_image": "x.jpg",  # System-managed; ignore.
+                        "character_sheet": "y.jpg",  # Pipeline writeback; ignore.
                     }
                 },
             },
@@ -1153,16 +1153,16 @@ class TestPatchProject:
         assert "Agent 可编辑范围" in text or "已忽略" in text
 
     async def test_existing_entry_with_only_dropped_fields_reports_noop(self, ctx: ToolHarness) -> None:
-        """已存在的 entry,Agent 提交的全部字段都被白名单/legacy strip 丢空时,
-        cleaned[name]={} → bucket.update({}) 是 no-op。工具应明确报『无可写字段已跳过』,
-        不应误报『合并改字段 1 个』让 Agent 以为有变更。"""
-        # 先建一个干净 entry
+        """Existing entries with all submitted fields removed by allowlists/legacy stripping produce
+        cleaned[name]={} and bucket.update({}), a no-op. Explicitly report skipped without writable fields,
+        not one merged edit implying actual changes."""
+        # Create clean entries first.
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
         )
-        # 再提交一个只有被丢字段的 patch(reference_image 系统管理 / type 历史字段)
+        # Submit only discarded fields: system reference_image / historical type.
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1173,14 +1173,14 @@ class TestPatchProject:
         )
         assert out.problem is None
         text = _said(out)
-        # 不报 merged,应报 noop / 无可写字段
+        # Report noop / no writable fields, not merged.
         assert "合并改字段" not in text
         assert "无可写字段已跳过" in text or "无变更" in text
-        # 描述未被改写,仍为原值
+        # Description unchanged.
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
 
     async def test_response_lists_dropped_legacy_fields(self, ctx: ToolHarness) -> None:
-        """工具返回文本显式列出被剔除的历史字段(type / importance)，供 Agent 避免发送。"""
+        """Return text lists stripped historical type / importance fields so Agents avoid sending them."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1189,8 +1189,8 @@ class TestPatchProject:
                 "entries": {
                     "李白": {
                         "description": "白衣剑客",
-                        "type": "主角",  # 历史字段,应被剔除
-                        "importance": "high",  # 历史字段,应被剔除
+                        "type": "主角",  # Historical field; strip.
+                        "importance": "high",  # Historical field; strip.
                     }
                 },
             },
@@ -1221,7 +1221,7 @@ class TestPatchProject:
         }
 
     async def test_derivative_upsert_merges_by_name_and_keeps_the_generated_sheet(self, ctx: ToolHarness) -> None:
-        """按衍生名合并：同名只改描述、保留流水线写入的资产图，未提及的衍生原样留下。"""
+        """Merge derivatives by name: edit same-named descriptions, retain pipeline images, and preserve unmentioned derivatives."""
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1317,7 +1317,7 @@ class TestPatchProject:
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_derivatives_dropped_for_a_type_without_the_capability(self, ctx: ToolHarness) -> None:
-        """scene 没开启衍生能力：该字段落在白名单外，与其它 spec 外字段同样被丢弃并报出。"""
+        """Scenes lack derivatives; discard/report that field like other outside-spec fields."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1333,7 +1333,7 @@ class TestPatchProject:
 
 
 class TestPatchProjectSettings:
-    """patch_project 顶层 settings 分支:首期支持 episode_target_units 写入/清除/校验."""
+    """patch_project settings: initial episode_target_units write/clear/validation support."""
 
     async def test_set_episode_target_units(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"episode_target_units": 1000}})
@@ -1361,7 +1361,7 @@ class TestPatchProjectSettings:
 
     @pytest.mark.parametrize(("field", "value"), [("generation_mode", "reference_video"), ("grid_storyboard", True)])
     async def test_route_fields_not_patchable_via_settings(self, ctx: ToolHarness, field: str, value: Any) -> None:
-        """generation_mode 创建后不可变、grid_storyboard 只能在设置页操作：两者均不入 settings 白名单。"""
+        """generation_mode is immutable after creation and grid_storyboard changes only in settings UI; neither enters settings allowlists."""
         before = ctx.pm.load_project("demo").get(field)
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {field: value}})
         assert out.problem is not None
@@ -1369,7 +1369,7 @@ class TestPatchProjectSettings:
 
     @pytest.mark.parametrize("lang", ["zh", "en", "vi"])
     async def test_set_source_language_allowed_values(self, ctx: ToolHarness, lang: str) -> None:
-        """source_language 作为 user-confirmed 恢复通道(overview 失败/跳过时),enum 校验."""
+        """source_language enum validation supports user-confirmed recovery when overview fails/is skipped."""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"source_language": lang}})
         assert out.problem is None
         assert ctx.pm.load_project("demo")["source_language"] == lang
@@ -1411,14 +1411,14 @@ class TestPatchProjectSettings:
         assert "episode_target_units" not in ctx.pm.load_project("demo")
 
     async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolHarness) -> None:
-        """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；数字字符串按落盘用 int 容忍。"""
+        """MCP objects lack per-field types, so models often quote numbers; tolerate numeric strings as persisted ints."""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"episode_target_units": "10"}})
         assert out.problem is None
         assert ctx.pm.load_project("demo")["episode_target_units"] == 10
 
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
     async def test_planning_window_and_batch_size_are_not_settings(self, ctx: ToolHarness, key: str) -> None:
-        """分集规划的窗口字数与每批集数不是创作者参数，项目设置不接受。"""
+        """Planning-window characters and batch episode counts are not creator settings and are rejected."""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: 12}})
         assert out.problem is not None
         assert key not in ctx.pm.load_project("demo")
@@ -1440,7 +1440,7 @@ class TestPatchProjectSettings:
         assert out.problem is not None
 
     async def test_legacy_upsert_path_still_works(self, ctx: ToolHarness) -> None:
-        """老 schema 回归:只传 table/entries 仍走 upsert 分支(向后兼容 8 处既有调用)."""
+        """Legacy schema: table/entries alone selects upsert, preserving 8 existing call sites."""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1451,7 +1451,7 @@ class TestPatchProjectSettings:
 
 
 class TestPatchProjectNarrationSettings:
-    """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目的 TTS 快照）。"""
+    """narration_voice / narration_speed write/clear/validation through settings, forming project TTS snapshots."""
 
     async def test_set_narration_voice(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Ethan"}})
@@ -1485,7 +1485,7 @@ class TestPatchProjectNarrationSettings:
         assert ctx.pm.load_project("demo")["narration_speed"] == speed
 
     async def test_narration_speed_accepts_numeric_string(self, ctx: ToolHarness) -> None:
-        """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；有限数值字符串按落盘用 float 容忍。"""
+        """MCP objects lack per-field types, so models often quote numbers; tolerate finite numeric strings as persisted floats."""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": "1.5"}})
         assert out.problem is None
         assert ctx.pm.load_project("demo")["narration_speed"] == 1.5
@@ -1501,7 +1501,7 @@ class TestPatchProjectNarrationSettings:
     async def test_invalid_narration_speed_rejected(self, ctx: ToolHarness, bad: Any) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": bad}})
         assert out.problem is not None
-        # 超出 float 范围的巨大整数同样收到清晰的校验文案，而非底层溢出信息
+        # Oversized integers beyond float range get clear validation copy, not low-level overflow.
         assert "narration_speed 必须是正的有限数值" in _said(out)
         assert "narration_speed" not in ctx.pm.load_project("demo")
 
@@ -1528,7 +1528,7 @@ class TestPatchProjectNarrationSettings:
         assert "narration_speed" not in project
 
     async def test_tts_snapshot_reads_values_written_by_tool(self, ctx: ToolHarness) -> None:
-        """工具写入与 TTS 快照读的是同一份顶层字段。"""
+        """Tool writes and TTS snapshots read the same top-level fields."""
         from lib.speech.narration_config import project_tts_settings
 
         ctx.pm.update_project("demo", lambda project: project.update(audio_backend="dashscope/qwen3-tts-flash"))
@@ -1544,7 +1544,7 @@ class TestPatchProjectNarrationSettings:
 
 
 class TestPatchProjectOverview:
-    """patch_project overview 分支：四字段白名单 merge 编辑，概述不存在时创建，三选一互斥。"""
+    """patch_project overview merge-edits four allowlisted fields, creates absent overviews, and enforces three-way exclusivity."""
 
     async def test_set_overview_fields(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
@@ -1566,7 +1566,7 @@ class TestPatchProjectOverview:
         assert out.problem is None
         ov = ctx.pm.load_project("demo")["overview"]
         assert ov["genre"] == "悬疑"
-        assert ov["synopsis"] == "原始梗概"  # 未传字段保留
+        assert ov["synopsis"] == "原始梗概"  # Preserve omitted fields.
 
     async def test_creates_overview_when_absent(self, ctx: ToolHarness) -> None:
         assert "overview" not in ctx.pm.load_project("demo")
@@ -1612,7 +1612,7 @@ class TestPatchProjectOverview:
 
 
 class TestPatchProjectEpisodeTargetDurationSetting:
-    """单集目标时长经 settings 白名单写入/清除；区间校验与 ad 互斥与 REST 路径同一把尺。"""
+    """Target episode duration writes/clears through settings; bounds/ad exclusion match REST paths."""
 
     @pytest.fixture
     def ad_ctx(self, tmp_path: Path) -> ToolHarness:
@@ -1650,7 +1650,7 @@ class TestPatchProjectEpisodeTargetDurationSetting:
 
 
 class TestPatchProjectBriefSetting:
-    """brief 是 ad 项目的创作诉求短文本，经 settings 白名单写入/清除；非 ad 项目拒绝。"""
+    """brief is ad creative-request short text, writable/clearable through settings; reject non-ad projects."""
 
     @pytest.fixture
     def ad_ctx(self, tmp_path: Path) -> ToolHarness:
@@ -1678,13 +1678,13 @@ class TestPatchProjectBriefSetting:
     async def test_non_string_brief_rejected(self, ad_ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ad_ctx, {"settings": {"brief": 42}})
         assert out.problem is not None
-        # 创建时写入的 brief=""（可空）不被非法写入污染
+        # Invalid writes preserve creation-time valid empty brief="".
         assert ad_ctx.pm.load_project("ad-demo")["brief"] == ""
 
 
 class TestRenameAssetTool:
-    """rename_asset 是独立工具（patch_project 章程限定 project.json 字段写入），
-    经 ProjectManager.rename_asset 走真实级联；错误文本做恢复导向。"""
+    """rename_asset is separate from patch_project's project.json-field-writing charter;
+    use real ProjectManager.rename_asset cascading with recovery-oriented errors."""
 
     @pytest.fixture
     def rename_ctx(self, ctx: ToolHarness) -> ToolHarness:
@@ -1735,7 +1735,7 @@ class TestRenameAssetTool:
 
 
 class TestMergeAssetTool:
-    """merge_asset 经 ProjectManager.merge_asset 走真实级联：dry_run 按集列出影响、不落盘，执行后引用改指保留方。"""
+    """merge_asset uses real ProjectManager.merge_asset cascading; dry_run reports episode impacts without writing, execution retargets references to retained assets."""
 
     @pytest.fixture
     def merge_ctx(self, ctx: ToolHarness) -> ToolHarness:

@@ -6,58 +6,58 @@ web
 
 ## Users
 
-主用户是自托管的个人创作者：自行部署，独立完成从小说、成品剧本或商品素材到成片的全过程。界面决策以这一类使用者为默认对象。
+The primary user is a self-hosted individual creator: they deploy the service and independently take novels, finished scripts, or product materials through to final video. Interface decisions default to this user.
 
-两项已知的扩展方向，设计时保留余地：
+Leave room for two known expansion directions:
 
-- **规模**：当前不提供多人协作与角色权限；结构上按「可能不止一人使用」设计。
-- **分发**：品牌名可动态配置，界面兼容桌面客户端形式封装，沿用同一套设计语言。
+- **Scale**: collaboration and role-based permissions are not currently offered; structure the product for the possibility of more than one user.
+- **Distribution**: brand names are dynamically configurable; the interface supports desktop-client packaging with the same design language.
 
 ## Product Purpose
 
-把内容分析、资产管理、分镜、媒体生成、费用追踪与导出组织成一条可审核、可中断恢复的视频生产流水线。成功状态是：一名创作者独立走完从源文件到成片或剪映草稿的全链路，且在每个阶段都能确认当前进展、修改产出、查看实际花费。
+Organize content analysis, asset management, storyboarding, media generation, cost tracking, and export into a reviewable video-production pipeline that can resume after interruption. Success means one creator independently completes the full path from source files to a final cut or Jianying draft, with visible progress, editable outputs, and actual spending at every stage.
 
 ## Positioning
 
-三条差异化机制，按重要性排列：
+Three differentiating mechanisms, in priority order:
 
-1. **Agent 贯穿全流程**：脚本规划、资产、分镜、生成到成片的每一步都可由 Agent 编排，用较低的上手成本换取较高的自动化程度。
-2. **供应商可自由接入**：文本、图像、视频、TTS 能力由用户自选供应商与模型，内置 provider 与自定义 provider 并存。
-3. **开源自托管与剪映交付**：数据保存在用户自己的机器上，产出可导出剪映草稿继续人工精修。
+1. **Agent orchestration throughout**: every step from script planning, assets, storyboards, and generation to final output can be orchestrated by the Agent, combining low onboarding effort with substantial automation.
+2. **Open provider integration**: users choose providers/models for text, images, video, and TTS; built-in and custom providers coexist.
+3. **Open-source self-hosting and Jianying delivery**: data stays on users’ machines, with Jianying-draft export for further manual refinement.
 
 ## Operating Context
 
-- 使用前置：创建项目没有配置门槛；开始制作前需在设置中配置 Agent 与实际用到的文本、图像、视频、TTS 生成能力。
-- 生产链路：源文件或商品素材 → 内容分析与项目规划 → 角色、场景、道具、商品资产 → 分集与结构化脚本 → 分镜图或视频单元 → 视频片段与旁白音轨 → 成片合成或剪映草稿导出。每一步既可由 Agent 编排，也可由创作者审核、调整、单独重做。
-- 部署形态为单管理员账号的自托管服务。
-- 剪映导出面向中国大陆版剪映；CapCut 兼容性尚未验证，界面按「仅支持剪映」表述。
+- Prerequisites: project creation requires no configuration. Before production, configure the Agent and the text/image/video/TTS capabilities actually used in Settings.
+- Production path: source files or product materials → content analysis/project planning → character, scene, prop, product assets → episodes/structured scripts → storyboard images or video units → video clips/narration tracks → final composition or Jianying-draft export. At every step the Agent may orchestrate and creators may review, adjust, or redo individual outputs.
+- Deployment is a self-hosted service with one administrator account.
+- Export targets mainland-China Jianying; CapCut compatibility is unverified. UI wording states Jianying-only support.
 
 ## Capabilities and Constraints
 
-- 创作类型：旁白/解说、剧情演绎、广告/短片。生成模式：分镜图生视频、参考生视频，项目创建后不可更改。
-- 生成任务可取消。服务中断后的恢复是有条件的：仅供应商支持续查进度、且已记录供应商任务号的视频任务会自动接续；图像、配音与其余视频任务一律标记失败并等待人工重试，因为重新提交会向供应商二次计费。界面需要持续表达在制状态、阻断项，以及这类需人工重试的失败项。
-- 批量生成视频前有一次性准入评估，结论为放行、待确认或受阻三种；批量出图与批量配音没有这道评估。
-- 术语、状态机与产物语义的完整定义在 `GLOSSARY.md` 与 `docs/adr/`，涉及这些概念时以其为准。
+- Content types: narration/commentary, drama, advertising/short films. Generation modes: storyboard-to-video and reference-to-video. Generation modes are fixed after project creation.
+- Generation tasks can be cancelled. Recovery after service interruption is conditional: only video tasks with provider progress-query support and recorded provider task IDs resume automatically. Images, dubbing, and other video tasks fail and await manual retry because resubmission bills again. The interface must continually show work in progress, blockers, and these failures requiring manual retry.
+- Batch video generation has one admission assessment with three outcomes: allowed, confirmation required, or blocked. Batch images and dubbing do not have this assessment.
+- `GLOSSARY.md` and `docs/adr/` fully define terminology, state machines, and artifact semantics; follow them when these concepts are involved.
 
 ## Brand Commitments
 
-- 名称 ArcReel，口号「Agent 驱动的 AI 视频创作工作台」（`BRAND.tagline` 默认值）。
-- **品牌名可动态配置**：品牌名与口号取自 `frontend/src/branding.ts` 的 `BRAND` 与 i18n 资源中的 `[[brand]]` 占位符，构建期可覆盖。
-- **术语表即界面用词**：界面用词以 `GLOSSARY.md` 为准，中文文案规范见 `docs/standards/copy.md`。
+- Name: ArcReel. Default tagline: “Agent 驱动的 AI 视频创作工作台” (“Agent-driven AI video creation workbench”, `BRAND.tagline` default).
+- **Dynamically configurable brand name**: name/tagline come from `BRAND` in `frontend/src/branding.ts` and i18n `[[brand]]` placeholders, overridable at build time.
+- **Glossary governs interface terminology**: follow `GLOSSARY.md`; Chinese-copy standards are in `docs/standards/copy.md`.
 
 ## Evidence on Hand
 
-- 产品文档站 `website/`（docs.arc-reel.com）：入门教程、创作流程、供应商配置、剪映导出、FAQ、部署运维、架构说明。
-- 界面截图 `docs/assets/screenshots/`；风格模版缩略图 `frontend/public/style-thumbnails`；品牌图标与 manifest 位于 `frontend/public/`。
+- Product documentation `website/` (docs.arc-reel.com): getting started, creative workflows, provider configuration, Jianying export, FAQ, deployment/operations, architecture.
+- Screenshots in `docs/assets/screenshots/`; style thumbnails in `frontend/public/style-thumbnails`; brand icons and manifest in `frontend/public/`.
 
 ## Product Principles
 
-1. **审核优先于自动**：自动化产出默认可见、可修改、可单独重做。
-2. **代价先于执行**：消耗额度的操作在提交前呈现影响范围与预计费用，批量操作尤其如此。
-3. **服务端判定即状态**：进度、阻断与产物状态一律来自服务端权威判定，界面不另行按文件存在性推断。
-4. **单人可完成**：所有关键路径由一个人独立走通。
+1. **Review before automation**: automated outputs are visible, editable, and individually redoable by default.
+2. **Cost before execution**: before submitting credit-consuming operations, present scope and estimated cost, especially for batches.
+3. **Server decisions define state**: progress, blockers, and artifacts use authoritative server judgments; the interface does not infer state from file existence.
+4. **One person can complete it**: every critical path is independently usable by one person.
 
 ## Accessibility & Inclusion
 
-- 多语言全量同步是硬约束，面向用户的文案在所支持语言中都需具备翻译 key；布局按所支持语言普遍更长的文本预留余量。
-- 尚未确立具体的合规等级目标（如某一级 WCAG）。
+- Complete multilingual synchronization is mandatory: user-facing copy needs translation keys in every supported language; layouts reserve room for generally longer translated text.
+- No specific compliance-level target, such as a WCAG level, is established yet.

@@ -1,4 +1,4 @@
-"""校验结果与默认语言渲染：Agent 与 CLI 边界缺省中文，Web 边界按传入的 translator。"""
+"""Validation/default-language rendering: Agent/CLI boundaries default Chinese; Web uses supplied translators."""
 
 from arcreel_market_core.validation_messages import MessageJoin, MessageRef, ValidationMessage
 from lib.i18n import _

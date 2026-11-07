@@ -4,8 +4,8 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { waitForEntrance } from "../support/region-helpers.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目设置：侧栏分页（项目 / Agent 两组）、外壳底行的保存栏、风格对话框、模型分页的覆盖来源、
-// 配音分页与 Agent 配置的重置确认。项目记忆的文件区见 agent-memory.spec.ts，这里只探测空目录时的入口分页。
+// Project settings: Project/Agent sidebar groups, shell-bottom save bars, style dialogs, model override origins,
+// dubbing/profile reset confirmations. Memory files live in agent-memory.spec.ts; probe empty-directory entry tabs only here.
 
 const RECORDED = loadRecordedResponses();
 const PROJECT_KEY = "GET /api/v1/projects/demo";
@@ -14,13 +14,13 @@ function settings(tab?: string) {
   return tab ? `/app/projects/demo/settings?tab=${tab}` : "/app/projects/demo/settings";
 }
 
-/** 在录制的演示项目上改几个字段。 */
+/** Change several fields on recorded demo projects. */
 function projectWith(fields: Record<string, unknown>): ApiOverrides {
   const recorded = RECORDED.get(PROJECT_KEY)!.body as { project: Record<string, unknown> };
   return { [PROJECT_KEY]: { status: 200, body: { ...recorded, project: { ...recorded.project, ...fields } } } };
 }
 
-// 压力变体：三家供应商各十个模型，名称都很长；项目覆盖了视频与图片的细分项，细分区自动展开。
+// Stress variant: three providers with ten long-named models each; overridden video/image subdivisions automatically expand.
 const LONG_PROVIDERS: [string, string][] = [
   ["gemini-aistudio", "AI Studio"],
   ["ark", "火山方舟 · 华北二区专属算力集群（企业版）"],
@@ -67,7 +67,7 @@ function manyModelsOverrides(): ApiOverrides {
         lifecycle: {},
       },
     },
-    // 压力数据里的模型不在录制环境的供应商目录中，能力查询照实返回无法解析
+    // Stress models are absent from recorded provider catalogs; capability queries faithfully return unresolved.
     [`GET /api/v1/projects/demo/video-capabilities?resolution=&uses_reference_images=false&video_backend=${encodeURIComponent(video[0])}`]:
       RECORDED.get("GET /api/v1/projects/demo/video-capabilities")!,
     ...projectWith({
@@ -79,7 +79,7 @@ function manyModelsOverrides(): ApiOverrides {
   };
 }
 
-// Agent 配置：很多定制文件，路径很长。
+// Agent configuration: many custom files with long paths.
 const CUSTOMIZED_PROFILE: ApiOverrides = {
   "GET /api/v1/projects/demo/agent-profile": {
     status: 200,

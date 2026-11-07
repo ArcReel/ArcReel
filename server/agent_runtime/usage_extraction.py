@@ -1,16 +1,17 @@
-"""Agent 会话的用量计量：按请求取用量，按轮差分 ``model_usage`` 补齐流中看不到的调用（docs/adr/0102）。
+"""Agent-session metering: per-request usage plus per-turn ``model_usage`` differences for calls invisible in streams (docs/adr/0102).
 
-- 流内请求：用量取自 ``AssistantMessage.usage``，按 ``message_id`` 去重（部分消息流下同一请求会出现多帧，
-  同一项取各帧的最大值），子智能体的请求（带 ``parent_tool_use_id``）一并计入。usage 一律按 Anthropic 口径解读：
-  ``input_tokens`` 不含缓存；缓存写取 ``cache_creation`` 的 5 分钟与 1 小时拆分，只有合计时全部按 5 分钟档计。
-- 流外调用：每轮结束时，用本轮 ``model_usage`` 相对差分基线的增量，按模型减去流内各请求的合计；差额为正的
-  各项合成一次请求。
-- 差分基线按会话维护：新会话从零开始；恢复会话时以恢复后第一条结果为起点，这一轮不计差额；会话重置时清零；
-  某个模型的累计值回落时，把本轮值当作这个模型的单轮值。
+- Stream requests use ``AssistantMessage.usage``, deduplicated by ``message_id`` with per-field maxima across frames
+  for the same request. Include subagent requests with ``parent_tool_use_id``. Interpret all usage using Anthropic
+  semantics: ``input_tokens`` excludes cache; ``cache_creation`` splits 5-minute/1-hour writes, or all 5-minute
+  when only a combined total exists.
+- Off-stream calls: at turn end, subtract per-model stream totals from this turn’s ``model_usage`` increase over
+  baseline, combining positive per-field differences into one request.
+- Maintain session baselines: new sessions start at zero; resumed sessions establish baseline from the first result
+  and count no difference for that turn; reset sessions clear it. Decreased per-model cumulative values make
+  current values that model’s single-turn usage.
 
-``model_usage`` 的键与 ``AssistantMessage.model`` 按同一模型条目（docs/adr/0105）或归一化后的名字视为同一模型，
-记录取流内请求的模型名，只有差额时取 ``model_usage`` 的键。
-"""
+Treat ``model_usage`` keys and ``AssistantMessage.model`` as the same model by catalog entry (docs/adr/0105) or normalized
+name. Record stream request names, or ``model_usage`` keys when only differences exist."""
 
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class RequestTokens:
-    """一次 API 请求的 token 用量，各项互不重叠：总输入 = 未缓存输入 + 缓存读 + 两档缓存写。"""
+    """Per-request token usage with disjoint fields: total input = uncached input + cache reads + both cache-write tiers."""
 
     uncached_input: int = 0
     cache_read: int = 0
@@ -48,15 +49,15 @@ class RequestTokens:
         return RequestTokens(**{f.name: getattr(self, f.name) + getattr(other, f.name) for f in fields(self)})
 
     def merge_max(self, other: RequestTokens) -> RequestTokens:
-        """同一请求的两帧：各项取较大值（占位值会被之后的帧更新）。"""
+        """Merge two frames for one request by per-field maxima, replacing placeholders with later values."""
         return RequestTokens(**{f.name: max(getattr(self, f.name), getattr(other, f.name)) for f in fields(self)})
 
     def surplus_over(self, other: RequestTokens) -> RequestTokens:
-        """各项超出 ``other`` 的部分，不足的项记 0。"""
+        """Per-field excess over ``other``, clamping negative differences to 0."""
         return RequestTokens(**{f.name: max(getattr(self, f.name) - getattr(other, f.name), 0) for f in fields(self)})
 
     def covers(self, other: RequestTokens) -> bool:
-        """各项都不小于 ``other``：累计值没有回落。"""
+        """Whether every field is at least ``other``, indicating no cumulative decrease."""
         return all(getattr(self, f.name) >= getattr(other, f.name) for f in fields(self))
 
 
@@ -65,7 +66,7 @@ _ZERO = RequestTokens()
 
 @dataclass(frozen=True)
 class ModelTurnUsage:
-    """一轮里一个模型的用量：``requests`` 是各次请求，流外调用的差额合成其中一次。"""
+    """One model’s usage in a turn: ``requests`` contains individual calls plus one combined off-stream difference request."""
 
     model: str
     requests: tuple[RequestTokens, ...]
@@ -79,7 +80,7 @@ class ModelTurnUsage:
 
 
 def _count(source: Mapping[str, Any], key: str) -> int:
-    """usage 里的一项 token 数；缺失或不是数时为 0，为负时按 0 计并打日志。"""
+    """One usage token count: 0 for absent/nonnumeric values; clamp negatives to 0 and log."""
     value = source.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         return 0
@@ -90,13 +91,13 @@ def _count(source: Mapping[str, Any], key: str) -> int:
 
 
 def request_tokens(usage: Mapping[str, Any]) -> RequestTokens:
-    """按 Anthropic 口径解读一条 ``AssistantMessage.usage``。"""
+    """Interpret ``AssistantMessage.usage`` using Anthropic semantics."""
     cache_write = _count(usage, "cache_creation_input_tokens")
     split = usage.get("cache_creation")
     write_5m, write_1h = cache_write, 0
     if isinstance(split, Mapping):
         write_1h = _count(split, "ephemeral_1h_input_tokens")
-        # 拆分不足合计的部分（网关只给出合计）按 5 分钟档计。
+        # Count totals exceeding available splits, such as gateway totals only, at the 5-minute tier.
         write_5m = max(_count(split, "ephemeral_5m_input_tokens"), cache_write - write_1h)
     return RequestTokens(
         uncached_input=_count(usage, "input_tokens"),
@@ -108,7 +109,7 @@ def request_tokens(usage: Mapping[str, Any]) -> RequestTokens:
 
 
 def _model_usage_tokens(entry: Mapping[str, Any]) -> RequestTokens:
-    """``model_usage`` 的一项累计值；它没有缓存写的两档拆分，合计按 5 分钟档计。"""
+    """One cumulative ``model_usage`` value; cache writes lack tier splits, so count totals at the 5-minute tier."""
     return RequestTokens(
         uncached_input=_count(entry, "inputTokens"),
         cache_read=_count(entry, "cacheReadInputTokens"),
@@ -124,18 +125,18 @@ def _parse_model_usage(raw: object) -> dict[str, RequestTokens] | None:
 
 
 class TurnUsageMeter:
-    """一个会话连接的用量计量。``resumed`` 为真表示恢复会话的冷启动：CLI 的累计值带着此前的花费。"""
+    """Metering for one session connection. ``resumed`` indicates resumed cold start, whose CLI cumulative values include prior spend."""
 
     def __init__(self, *, resumed: bool) -> None:
         self._baseline: dict[str, RequestTokens] | None = None if resumed else {}
-        # 本轮流内请求：message_id → (模型名, 用量)，按首次出现的顺序。
+        # Stream requests this turn: message_id → (model name, usage), in first-occurrence order.
         self._pending: dict[str, tuple[str, RequestTokens]] = {}
-        # 已经记账的请求：之后再出现的帧不重复计入，用量的增长由差额补齐。
+        # Already billed requests: later frames do not count again; differences account for usage increases.
         self._settled: set[str] = set()
         self._model_keys: dict[str, object] = {}
 
     def observe(self, msg: Mapping[str, Any]) -> None:
-        """读入一条消息：assistant 消息记下它所属请求的用量，会话重置时差分基线清零。"""
+        """Read a message: record assistant request usage; session resets clear difference baselines."""
         msg_type = msg.get("type")
         if msg_type == "conversation_reset":
             self._baseline = {}
@@ -154,10 +155,9 @@ class TurnUsageMeter:
         self._pending[message_id] = (model, tokens if previous is None else previous[1].merge_max(tokens))
 
     def close_turn(self, model_usage: object) -> list[ModelTurnUsage]:
-        """一轮结束：返回本轮每个有用量的模型各次请求的用量，并把差分基线推进到本轮的累计值。
+        """End a turn by returning request usage for every model with usage and advancing baseline to current cumulative values.
 
-        ``model_usage`` 取本轮 result 的同名字段；没有这个字段时不计差额，基线保持不变。
-        """
+        Use the result’s ``model_usage`` field; absent fields produce no difference and leave baselines unchanged."""
         groups: dict[object, tuple[str, list[RequestTokens]]] = {}
         for model, tokens in self._pending.values():
             groups.setdefault(self._model_key(model), (model, []))[1].append(tokens)
@@ -183,7 +183,7 @@ class TurnUsageMeter:
         streamed = _ZERO
         for request in requests:
             streamed += request
-        # model_usage 的缓存写是两档合计（按 5 分钟档记），与流内两档之和比较。
+        # model_usage combines both write tiers, billed as 5-minute writes; compare against the sum of stream tiers.
         streamed = replace(streamed, cache_write_5m=streamed.cache_write_5m + streamed.cache_write_1h, cache_write_1h=0)
         gap = delta.surplus_over(streamed)
         if gap.is_empty:
@@ -198,7 +198,7 @@ class TurnUsageMeter:
         return total
 
     def _model_key(self, model: str) -> object:
-        """同一模型的标识：对应得到条目时取条目，否则取归一化后的名字。"""
+        """Model identity: use a matched catalog entry, otherwise the normalized name."""
         key = self._model_keys.get(model)
         if key is None:
             entry = catalog.find_entry(model, media_type="text")

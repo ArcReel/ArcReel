@@ -1,286 +1,286 @@
-# 受控中文技术写作
+# Controlled Chinese technical writing
 
-本模块借鉴 ASD-STE100 的受控语言思路，用于降低中文技术说明中的歧义和执行风险。它不是 ASD-STE100 的中文版本，也不表示输出符合或通过 ASD-STE100 认证。
+This module draws on ASD-STE100's controlled-language approach to reduce ambiguity and execution risks in Chinese technical instructions. It is not a Chinese version of ASD-STE100 and does not imply that output complies with or is certified under ASD-STE100.
 
-ASD-STE100 是面向英文技术文档的标准。英语受控词典、词性、时态和句长规则不能直接移植到中文。本模块只采用可迁移的方法，并根据中文句法和技术写作语境重新表述。
+ASD-STE100 is a standard for English technical documentation. English controlled-vocabulary, part-of-speech, tense, and sentence-length rules cannot be directly transferred to Chinese. This module adopts only transferable methods, restated for Chinese syntax and technical-writing contexts.
 
-官方资料：
+Official resources:
 
-- [ASD-STE100 官方说明](https://www.asd-ste100.org/about_STE.html)
-- [ASD-STE100 Issue 9 获取页面](https://www.asd-ste100.org/STE_downloads.html)
-- [ASD-STE100 工具与合规说明](https://www.asd-ste100.org/STEsoftware.html)
+- [Official ASD-STE100 introduction](https://www.asd-ste100.org/about_STE.html)
+- [ASD-STE100 Issue 9 download page](https://www.asd-ste100.org/STE_downloads.html)
+- [ASD-STE100 tools and compliance information](https://www.asd-ste100.org/STEsoftware.html)
 
-## 适用强度
+## Application intensity
 
-### 完整应用
+### Apply fully
 
-- 操作手册
-- 安装和部署步骤
-- 故障排查
-- 运维 Runbook
-- 安全警告
-- 多步骤 API 调用流程
+- Operating manuals
+- Installation and deployment steps
+- Troubleshooting
+- Operations runbooks
+- Safety warnings
+- Multistep API call workflows
 
-### 选择性应用
+### Apply selectively
 
-- API 概念说明
-- 常见问题
-- 更新日志
-- 产品能力说明
+- API conceptual descriptions
+- FAQs
+- Changelogs
+- Product capability descriptions
 
-选择性应用术语一致、指代明确和事实保真规则，不强制把所有句子改成操作步骤。
+Selectively apply terminology consistency, explicit references, and factual fidelity; do not force every sentence into an operating step.
 
-### 不机械应用
+### Do not apply mechanically
 
-- 品牌和落地页文案
-- 叙事性文章
-- 法律原文和正式引用
-- 需要保留作者风格的内容
-- 极短的按钮和导航标签
+- Brand and landing-page copy
+- Narrative articles
+- Original legal text and formal quotations
+- Content requiring preservation of author style
+- Very short button and navigation labels
 
-## 核心原则
+## Core principles
 
-### 1. 保留事实
+### 1. Preserve facts
 
-- 不新增来源没有提供的数字、日期、时限、能力、条件或结论。
-- 不删除警告、限制、例外、单位、默认值和失败处理。
-- 不改变可能、建议、计划、通常等词表达的确定程度。
+- Do not add numbers, dates, time limits, capabilities, conditions, or conclusions absent from the source.
+- Do not remove warnings, constraints, exceptions, units, defaults, or failure handling.
+- Do not change the degree of certainty expressed by words such as possible, suggested, planned, or usually.
 
-### 2. 一个概念使用一个首选术语
+### 2. Use one preferred term per concept
 
-- 为关键对象、状态和动作确定首选术语。
-- 不为了避免重复而轮换同义词。
-- 首次出现的缩写给出全称；后文保持同一写法。
-- 项目专属名词和动词来自目标项目术语表或可靠上下文。
-- 同一个词存在多个含义时，用更具体的词消除歧义，不做机械替换。
+- Choose preferred terms for key objects, states, and actions.
+- Do not rotate synonyms to avoid repetition.
+- Expand abbreviations on first use and keep the same form afterward.
+- Source project-specific nouns and verbs from the target project glossary or reliable context.
+- When a word has several meanings, use a more specific term to disambiguate rather than replace mechanically.
 
-### 3. 一个步骤包含一个主要动作
+### 3. Give each step one main action
 
-- 以明确动作开始步骤。
-- 写清动作对象，不只写「处理」「操作」「执行」。
-- 多个动作必须按顺序执行时，拆成编号步骤。
-- 两个动作必须同时完成或构成一个不可分操作时，可以保留在同一步。
-- 不为追求短句拆散必要的条件、否定和因果关系。
+- Start steps with explicit actions.
+- Specify the action's object rather than only “处理”, “操作”, or “执行”.
+- Split actions requiring sequential execution into numbered steps.
+- Keep two actions in one step when they must occur simultaneously or form an indivisible operation.
+- Do not split necessary conditions, negation, or causality merely to shorten sentences.
 
-### 4. 条件和风险先于动作
+### 4. Put conditions and risks before actions
 
-- 读者执行动作前必须知道的条件放在动作之前。
-- 警告放在可能造成风险的步骤之前。
-- 条件较多时，单独列出前置条件。
-- 不把关键限制放在步骤末尾的括号中。
+- Place conditions readers must know before execution ahead of the action.
+- Place warnings before steps that could cause risk.
+- List prerequisites separately when conditions are numerous.
+- Do not bury key constraints in parentheses at the end of a step.
 
-### 5. 明确执行者、对象和结果
+### 5. Make actors, objects, and results explicit
 
-- 可能出现责任或指代歧义时，写出执行者。
-- 明确区分系统自动行为和人工操作。
-- 必要时说明预期结果，便于判断步骤是否成功。
-- 不使用无法定位对象的「该」「其」「此」「上述」「相关」。
+- Name the actor when responsibility or references could be ambiguous.
+- Clearly distinguish automatic system behavior from manual actions.
+- State expected results when needed to judge whether a step succeeded.
+- Avoid “该”, “其”, “此”, “上述”, or “相关” when their objects cannot be identified.
 
-### 6. 保持逻辑顺序
+### 6. Preserve logical order
 
-- 描述操作时按实际执行顺序排列。
-- 故障排查先给低风险、可逆和证据价值高的检查。
-- 将原因、现象、操作和结果分开，不混在一个长句中。
-- 否定范围必须明确，避免读者无法判断禁止的是哪个动作。
+- Describe operations in actual execution order.
+- Start troubleshooting with low-risk, reversible checks with high evidentiary value.
+- Separate causes, symptoms, operations, and results rather than mix them in one long sentence.
+- Make negation scope explicit so readers know which action is forbidden.
 
-## 操作步骤模板
+## Operating-step template
 
-在适用时按以下结构组织：
+Where applicable, organize as follows:
 
-1. 前置条件
-2. 风险或限制
-3. 编号操作步骤
-4. 每一步的预期结果
-5. 失败时的停止条件和恢复方式
+1. Prerequisites
+2. Risks or constraints
+3. Numbered operating steps
+4. Expected result of each step
+5. Stop conditions and recovery methods on failure
 
-不要补造原文没有的预期结果或恢复步骤。资料缺失时标记「待确认」。
+Do not invent expected results or recovery steps absent from the original. Mark missing information “pending confirmation”.
 
-## 故障排查模板
+## Troubleshooting template
 
-1. 说明可观察到的现象。
-2. 说明需要收集的日志、状态或错误码。
-3. 按证据和风险安排检查顺序。
-4. 对每项检查写明判断条件。
-5. 只有证据支持时才给出原因。
-6. 写明恢复操作、验证方式和停止条件。
+1. Describe observable symptoms.
+2. State the logs, statuses, or error codes to collect.
+3. Order checks by evidence and risk.
+4. State decision criteria for each check.
+5. Give causes only when evidence supports them.
+6. Specify recovery actions, verification methods, and stop conditions.
 
-不要把「可能原因」改写成「确定原因」。
+Do not rewrite a “possible cause” as a “definite cause”.
 
-## 回归样例
+## Regression examples
 
-以下样例用于检查事实保真、条件顺序、动作边界和过度简化风险。改写后不得增加样例原文没有的信息。
+Use these examples to check factual fidelity, condition order, action boundaries, and oversimplification risks. Rewrites must not add information absent from the original example.
 
-### 操作手册
+### Operating manuals
 
-#### 样例 1
+#### Example 1
 
-改写前：
+Before:
 
 `在安装代理程序之前需要确认服务器能够访问更新地址，然后运行安装命令。`
 
-改写后：
+After:
 
 1. `确认服务器能够访问更新地址。`
 2. `运行安装命令。`
 
-检查点：条件位于动作之前，没有增加网络地址或命令。
+Check: conditions precede actions; no network address or command was added.
 
-#### 样例 2
+#### Example 2
 
-改写前：
+Before:
 
 `选择保存以后系统会写入配置并重新加载服务。`
 
-改写后：
+After:
 
 `选择「保存」。系统随后写入配置并重新加载服务。`
 
-检查点：区分人工动作和系统行为，不把系统行为误写成人工步骤。
+Check: manual actions and system behavior are distinct; system behavior is not misrepresented as manual steps.
 
-#### 样例 3
+#### Example 3
 
-改写前：
+Before:
 
 `如果设备温度超过允许范围，不要继续启动设备。`
 
-改写后：
+After:
 
 `如果设备温度超过允许范围，不要启动设备。`
 
-检查点：保留条件和禁止关系，不补充未知温度值。
+Check: retain the condition and prohibition without adding unknown temperature values.
 
-### API 文档
+### API documentation
 
-#### 样例 4
+#### Example 4
 
-改写前：
+Before:
 
 `调用接口前应配置访问令牌，否则请求会返回认证错误。`
 
-改写后：
+After:
 
 `调用接口前，配置访问令牌。未配置访问令牌时，请求返回认证错误。`
 
-检查点：前置条件和失败结果分开，未补充状态码。
+Check: separate prerequisites and failure results without adding status codes.
 
-#### 样例 5
+#### Example 5
 
-改写前：
+Before:
 
 `请求成功后接口会返回任务 ID，后续可以使用这个 ID 查询处理状态。`
 
-改写后：
+After:
 
 `请求成功后，接口返回任务 ID。使用该任务 ID 查询处理状态。`
 
-检查点：保持对象名称一致，避免无法定位的「这个 ID」。
+Check: keep object names consistent and avoid the unidentifiable “这个 ID”.
 
-#### 样例 6
+#### Example 6
 
-改写前：
+Before:
 
 `请求失败时最多重试 3 次，每次间隔 5 秒。`
 
-改写后：
+After:
 
 `请求失败时，最多重试 3 次。每次重试间隔 5 秒。`
 
-检查点：原有次数和间隔保持不变。
+Check: original retry counts and intervals remain unchanged.
 
-### 故障排查
+### Troubleshooting
 
-#### 样例 7
+#### Example 7
 
-改写前：
+Before:
 
 `页面无法打开时可能是网络问题，可以先检查浏览器是否能够访问其他站点。`
 
-改写后：
+After:
 
 `页面无法打开时，先检查浏览器能否访问其他站点。网络异常是可能原因之一。`
 
-检查点：没有把可能原因写成确定原因。
+Check: a possible cause was not turned into a definite cause.
 
-#### 样例 8
+#### Example 8
 
-改写前：
+Before:
 
 `查看服务日志并找到最早出现的错误，然后记录错误时间和请求 ID。`
 
-改写后：
+After:
 
 1. `查看服务日志，找到最早出现的错误。`
 2. `记录错误时间和请求 ID。`
 
-检查点：按执行顺序拆分动作，没有增加日志位置。
+Check: split actions in execution order without adding log locations.
 
-#### 样例 9
+#### Example 9
 
-改写前：
+Before:
 
 `排查期间不要删除日志文件，因为后续分析还需要这些文件。`
 
-改写后：
+After:
 
 `排查期间，不要删除日志文件。后续分析仍然需要这些文件。`
 
-检查点：保留禁止动作和原因。
+Check: retain the prohibited action and its reason.
 
-### 产品介绍
+### Product introductions
 
-#### 样例 10
+#### Example 10
 
-改写前：
-
-`平台提供任务创建、状态查询和结果下载能力。`
-
-改写后：
+Before:
 
 `平台提供任务创建、状态查询和结果下载能力。`
 
-检查点：原文已经清晰，不为追求变化而改写。
+After:
 
-#### 样例 11
+`平台提供任务创建、状态查询和结果下载能力。`
 
-改写前：
+Check: the original is already clear; do not rewrite merely for variety.
+
+#### Example 11
+
+Before:
 
 `通过一站式能力赋能团队快速完成数据处理。`
 
-改写后：
+After:
 
 `平台集中提供数据处理功能，帮助团队快速完成数据处理。`
 
-检查点：删除空泛的「一站式能力」和「赋能」，但保留原文已有的「快速」主张；不要擅自补充速度指标。
+Check: remove vague “一站式能力” and “赋能”, retaining the original “快速” claim; do not add speed metrics yourself.
 
-#### 样例 12
+#### Example 12
 
-改写前：
+Before:
 
 `系统通常会在任务完成后发送通知。`
 
-改写后：
+After:
 
 `系统通常在任务完成后发送通知。`
 
-检查点：保留「通常」表达的不确定程度。
+Check: retain the uncertainty expressed by “通常”.
 
-## 自动检查边界
+## Automated-check boundaries
 
-可以稳定自动检查：
+Can be checked reliably by automation:
 
-- 确定错字
-- 明确的术语大小写
-- 机器可读内容是否被错误处理
-- 项目词表中的确定映射
+- Definite typos
+- Unambiguous terminology capitalization
+- Incorrect handling of machine-readable content
+- Definite mappings in the project vocabulary
 
-只应提示人工判断：
+Should only prompt human judgment:
 
-- 一个句子是否包含过多动作
-- 条件是否应当提前
-- 主语是否需要显式写出
-- 代词是否有歧义
-- 被动表达是否影响理解
-- 文本是否过度简化
-- 改写是否改变事实或确定程度
+- Whether a sentence contains too many actions
+- Whether conditions should move earlier
+- Whether the subject needs explicit naming
+- Whether pronouns are ambiguous
+- Whether passive phrasing impairs understanding
+- Whether text is oversimplified
+- Whether rewriting changes facts or certainty
 
-不要把句长、被动句、代词或语境词设置为无条件失败规则。自动检查工具只能提供提示，不能证明文本符合 ASD-STE100，也不能代替作者判断。
+Do not make sentence length, passive voice, pronouns, or context-dependent terms unconditional failure rules. Automated tools provide hints only; they cannot prove ASD-STE100 compliance or replace author judgment.

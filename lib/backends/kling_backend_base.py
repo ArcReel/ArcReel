@@ -1,12 +1,13 @@
-"""KlingBackendBase — 可灵 Kling 图像/视频后端共享脚手架基类。
+"""KlingBackendBase: shared scaffolding for Kling image/video backends.
 
-收口两个媒体后端类层逐字重复的装配：鉴权头、``__init__`` 凭证分派 + base_url 归一化 + 通用字段
-赋值、submit/poll 的 HTTP retry 骨架。per-medium 差异（端点路径、payload 构建、capability 投影、
-image 的 ``api_model_name`` 解耦、video 的子路径/resume/download）以可重写方法 / 构造参数留给子类。
+Centralize duplicated assembly: authentication headers, ``__init__`` credential dispatch/base_url
+normalization/common fields, submit/poll HTTP retry scaffolding. Subclasses retain per-medium paths,
+payloads, capability projections, image ``api_model_name`` decoupling, and video subpaths/resume/download
+through overridable methods/constructor parameters.
 
-JWT 加密原语在 ``lib.backends.kling_shared`` 共享（``KlingJWTManager`` / ``kling_bearer_headers`` /
-``resolve_kling_*`` / ``KLING_BASE_URL``），本基类只把它们装配成后端脚手架；submit/poll helpers
-复用 ``lib.backends.backend_runtime``（``submit_post`` / ``poll_with_retry`` 及重试谓词）。
+JWT primitives live in ``lib.backends.kling_shared``: ``KlingJWTManager`` / ``kling_bearer_headers`` /
+``resolve_kling_*`` / ``KLING_BASE_URL``. This base assembles them only; submit/poll helpers reuse
+``lib.backends.backend_runtime`` ``submit_post`` / ``poll_with_retry`` and retry predicates.
 """
 
 from __future__ import annotations
@@ -50,18 +51,18 @@ logger = logging.getLogger(__name__)
 
 
 class KlingBackendBase:
-    """可灵 Kling 后端共享基类（JWT / Bearer 双模式鉴权，异步提交-轮询骨架）。
+    """Shared Kling backend base: JWT / Bearer authentication with asynchronous submit/poll scaffolding.
 
-    双模式：
-    - ``auth_mode="jwt"``（内置 provider）：接 access_key + secret_key，走 ``KlingJWTManager``，
-      每次 HTTP 调用前检查过期、距过期 <60s 按需重签——异步渲染可能超单 token 寿命。
-    - ``auth_mode="bearer"``（自定义 endpoint）：接静态 api_key + base_url，旁路 JWT 管理器。
+    Two modes:
+    - ``auth_mode="jwt"`` built-ins take access_key + secret_key through ``KlingJWTManager``, checking
+      every HTTP call and resigning under 60 seconds before expiry; async renders can outlive tokens.
+    - ``auth_mode="bearer"`` custom endpoints take static api_key + base_url, bypassing JWT management.
 
-    子类经 ``super().__init__`` 传入已回落各自 ``DEFAULT_MODEL`` 的 ``model``，再做 per-medium 尾部
-    装配（image 的 ``api_model_name`` 与静态 capability 集、video 的能力位查表）。
+    Subclasses pass ``model`` already defaulted to their ``DEFAULT_MODEL`` through ``super().__init__``,
+    then finish per-medium assembly: image ``api_model_name`` / static capabilities, video capability lookup.
     """
 
-    # 进度日志的媒体名词（"图像" / "视频"），由子类声明；仅用于 operator 日志，不影响行为。
+    # Subclass-defined image/video media nouns used only for operator progress logs, without behavioral effects.
     _media_label: ClassVar[str] = ""
 
     def __init__(
@@ -103,14 +104,14 @@ class KlingBackendBase:
     # ── auth ────────────────────────────────────────────────────────────
 
     def _headers(self) -> dict[str, str]:
-        """鉴权头：jwt 模式每次调用触发过期检查 + 按需重签；bearer 模式用静态 key。"""
+        """Authentication headers: jwt checks expiry/resigns each call as needed; bearer uses static keys."""
         if self._jwt is not None:
             return self._jwt.auth_headers()
         assert self._static_api_key is not None
         return kling_bearer_headers(self._static_api_key)
 
-    # ── 响应解读（子类按所走的 API 设计标准重写） ──────────────────────────
-    # 默认是旧版 API（``model_name`` 作参数）的信封：``data.task_id``、``data.task_status``、终态 ``succeed``。
+    # Response interpretation, overridden by subclasses for their API design standards.
+    # Defaults to legacy ``model_name`` envelopes: ``data.task_id``, ``data.task_status``, terminal ``succeed``.
 
     def _task_id_from(self, submit_payload: dict) -> str:
         return extract_kling_task_id(submit_payload)
@@ -124,7 +125,7 @@ class KlingBackendBase:
     def _failure_reason(self, payload: dict) -> str | None:
         return kling_task_failure_reason(payload)
 
-    # ── HTTP submit / poll 骨架 ─────────────────────────────────────────
+    # HTTP submit / poll scaffolding.
 
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,
@@ -138,9 +139,9 @@ class KlingBackendBase:
         payload: dict,
         request: VideoGenerationRequest | None = None,
     ) -> str:
-        # 非幂等「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
-        # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流。
-        # ``request`` 只有视频通道传（图片通道不做供应商响应留痕）。
+        # Nonidempotent billed task-creation POST: submit_post terminally fails ambiguous transport as AmbiguousSubmitError,
+        # preventing duplicate tasks/charges. >=400 raises HTTPStatusError for should_retry_submit status routing.
+        # Video channels alone supply ``request``; image channels retain no provider-response snapshots.
         resp = await submit_post(
             lambda: client.post(
                 f"{self._base_url}/{endpoint_path}",
@@ -153,7 +154,7 @@ class KlingBackendBase:
         return self._task_id_from(resp.json())
 
     async def _poll_query(self, client: httpx.AsyncClient, endpoint_path: str, *, base_url: str | None = None) -> dict:
-        """查询任务状态；``base_url`` 缺省用当下配置的域名，续跑回放提交域名时由调用方传入。"""
+        """Query task states; default ``base_url`` uses current configured domains, overridden by callers replaying submission domains."""
         resp = await client.get(
             f"{(base_url or self._base_url).rstrip('/')}/{endpoint_path}",
             headers=self._headers(),
@@ -168,7 +169,7 @@ class KlingBackendBase:
         max_wait: float,
         poll_interval: float = VIDEO_POLL_INTERVAL_SECONDS,
     ) -> dict:
-        """轮询至终态（succeed/failed）：复用 base.poll_with_retry，注入 Kling 终态/失败/重试谓词。"""
+        """Poll to succeed/failed via base.poll_with_retry, injecting Kling terminal/failure/retry predicates."""
         return await poll_with_retry(
             poll_fn=poll_fn,
             is_done=self._is_terminal,

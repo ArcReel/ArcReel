@@ -1,8 +1,7 @@
-"""正式输入认领。
+"""Formal input claims.
 
-生成任务把选中的产物冻结成 claim：解析时留下复检证据，提交前再验证内容未变，
-使「用哪份输入产出了这份产物」可被证明。
-"""
+Generation tasks freeze selected artifacts as claims, retaining recheck evidence at resolution and
+verifying unchanged contents before commit, proving which inputs produced an artifact."""
 
 from __future__ import annotations
 

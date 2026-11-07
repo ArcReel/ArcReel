@@ -1,9 +1,10 @@
 """Contract coverage for the video-workflow Agent Profile.
 
-档案是 prompt，但这里只断言**能对照代码真相源的覆盖**：受控动作与问题码枚举、产物状态枚举、
-准入结论、旁白交付常量、已注册的 `mcp__arcreel__*` 工具名，以及按创作类型物化出的文件映射。
-措辞不在断言范围内——服务端扩一个枚举而档案没跟上会红，改一句措辞不会。越界行为由服务端契约
-与 ``AgentAccessPolicy`` 在工具边界上拒绝，不靠在测试里抄一遍 prompt 原文。
+Profiles are prompts, but assert only coverage grounded in code: controlled-action/problem-code
+enums, artifact-state enums, admission outcomes, narration-delivery constants, registered
+`mcp__arcreel__*` tools, and content-mode materialization mappings. Wording is outside assertions:
+new server enum values missing in profiles fail; rephrasing does not. Server contracts and
+``AgentAccessPolicy`` reject out-of-bounds behavior at tool boundaries, never copied prompt assertions.
 """
 
 from __future__ import annotations
@@ -36,12 +37,12 @@ DISTRIBUTED_VIDEO_WORKFLOW = REPO / "skills" / "video-workflow" / "SKILL.md"
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
-# ``next_action.type`` 的闭集就是 ``WorkflowActionType``：编排动作、计划注入的动作与
-# ``GenerationAction``（整批准入判定被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
-# 时这份契约测试会直接红。
+# ``next_action.type`` closes over ``WorkflowActionType``: orchestration/planned actions and
+# ``GenerationAction`` (returned unchanged on rejected batch admission) all belong. Derive enums rather than copy them,
+# making additions fail this contract test directly.
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
-#: 视频生成不再读旁白交付后删掉的问题码；档案里留着它们会让 Agent 按不存在的结论行事。
+#: Problem codes removed after video generation stopped reading narration delivery; stale profile codes mislead Agents into nonexistent outcomes.
 RETIRED_NARRATED_VIDEO_CODES = (
     "tts_duration_endpoint_fixed",
     "video_shorter_than_tts",
@@ -65,7 +66,7 @@ def _reference(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ------------------------------------------------- 计划是步骤适用性的唯一真相源
+# ------------------------------------------------- Plans solely determine step applicability
 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
@@ -79,7 +80,7 @@ def test_variants_route_through_the_registered_plan_tool(filename: str) -> None:
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_variants_do_not_name_the_preprocessor_subagents_themselves(filename: str) -> None:
-    """脚本规划子智能体由计划的 ``next_action.args.preprocessor`` 指名，档案侧不得再推一遍。"""
+    """Plan ``next_action.args.preprocessor`` names script-planning subagents; profiles never infer them again."""
 
     content = _skill(filename)
 
@@ -113,7 +114,7 @@ def test_plan_reference_documents_every_target_field() -> None:
         assert f"`{field}`" in content
 
 
-# ------------------------------------------------------------------- 旁白交付
+# ------------------------------------------------------------------- Narration delivery
 
 
 def test_profile_no_longer_routes_a_per_request_delivery_choice() -> None:
@@ -132,11 +133,28 @@ def test_edit_step_names_the_registered_timeline_tool() -> None:
 
 
 def _forbids_force(line: str) -> bool:
-    """这一行点名 force 的分句都带否定词，且至少有一处。"""
-    force_clauses = [clause for clause in re.split(r"[，,；;。！？!?]", line) if "force" in clause]
+    """Every force-bearing clause must prohibit force, with at least one such clause."""
+    force_clauses = [
+        clause for clause in re.split(r"[，,；;。！？!?.]", line) if re.search(r"\bforce\b", clause, re.IGNORECASE)
+    ]
     return bool(force_clauses) and all(
-        any(negation in clause for negation in ("不", "勿", "禁止", "别")) for clause in force_clauses
+        re.search(r"\b(?:do not|must not|never|don't)\b", clause, re.IGNORECASE) for clause in force_clauses
     )
+
+
+@pytest.mark.parametrize(
+    ("line", "forbidden"),
+    [
+        ("Do not automatically force regeneration while a task is in flight; wait for its batch.", True),
+        ("Never force while in flight; do not force completed targets either.", True),
+        ("Automatically force while in flight; do not wait.", False),
+        ("Force while in flight; never force other targets.", False),
+        ("Do not wait; force while in flight.", False),
+        ("Wait for the in-flight task.", False),
+    ],
+)
+def test_force_prohibition_requires_negation_in_every_force_clause(line: str, forbidden: bool) -> None:
+    assert _forbids_force(line) is forbidden
 
 
 def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_targets() -> None:
@@ -144,10 +162,10 @@ def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_tar
 
     assert "get_generation_batch" in content
     assert "poll_after_seconds" in content
-    # 「在途不自动 force」是费用防线：在途任务刚完成时再 force，会对同一目标再付一次费。
-    # 只锁关键词：「在途」那一行里每个点名 force 的分句都须带否定词，
-    # 避免「自动 force；不必等待」或「在途时自动 force；其他情况不要 force」被当成禁止重做。
-    assert any("在途" in line and _forbids_force(line) for line in content.splitlines()), (
+    # Forbidding automatic force for in-flight work prevents duplicate charges after the task finishes.
+    # Each force-bearing clause on that line must prohibit it, rejecting mixed instructions such as
+    # “force while in flight; never force otherwise” or “automatically force; do not wait”.
+    assert any("in flight" in line and _forbids_force(line) for line in content.splitlines()), (
         "generate-video skill 未写明已有在途任务时不自动 force 重做"
     )
 
@@ -171,7 +189,7 @@ def test_profile_names_no_retired_narrated_video_code() -> None:
         assert code not in content, f"档案仍提到已删除的问题码 {code}"
 
 
-# ------------------------------------------------------------------- 整批准入判定
+# ------------------------------------------------------------------- Batch admission
 
 
 def test_plan_reference_covers_every_admission_decision() -> None:
@@ -191,7 +209,7 @@ def test_video_skill_names_the_duration_confirmation_code() -> None:
     assert DURATION_CONFIRMATION_CODE in VIDEO_SKILL.read_text(encoding="utf-8")
 
 
-# ----------------------------------------------------------------- 产物状态轴
+# ------------------------------------------------------------------- Artifact-state axis
 
 
 def test_generation_results_reference_covers_every_item_state() -> None:
@@ -209,7 +227,7 @@ def test_variants_name_the_per_id_outcome_states(filename: str) -> None:
         assert state.value in content
 
 
-# ---------------------------------------------------- 各变体落点的工具名覆盖
+# ---------------------------------------------------- Tool coverage by variant destination
 
 
 @pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
@@ -259,7 +277,7 @@ def test_profile_has_no_retired_video_tools_or_batch_resume_guidance() -> None:
     assert ".checkpoint_" not in content
 
 
-# ------------------------------------ Profile 物化：每个模式都拿到工作流 skill
+# ------------------------------------ Profile materialization gives every mode workflow skills
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CONTENT_MODES))
@@ -274,7 +292,7 @@ def test_every_content_mode_materializes_the_video_workflow_skill(mode: str) -> 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_asset_sheet_step_generates_by_episode_id(filename: str) -> None:
-    """「本集引用的资产」由服务端按集算：工作流只按 episode_id 调一次，不在提示词里拼名单。"""
+    """Servers derive episode-referenced assets; workflows call once by episode_id, never build names in prompts."""
 
     content = _skill(filename)
     calls = re.findall(r"mcp__arcreel__generate_assets\((\{[^}]*\})\)", content)

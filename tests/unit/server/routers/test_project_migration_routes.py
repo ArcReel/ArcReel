@@ -1,4 +1,4 @@
-"""项目数据升级的 Web 入口：确认升级报告后制作状态不再给出它。"""
+"""Project-data upgrade Web entry: production status omits reports after upgrade-report confirmation."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def test_acknowledging_the_report_hides_it(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_a_report_other_than_the_one_shown_stays_unacknowledged(tmp_path: Path, monkeypatch) -> None:
-    """页面还停在旧报告上时，之后又一次升级写下的新报告不会被一并确认掉。"""
+    """A page still displaying an old report must not acknowledge newer reports written by subsequent upgrades."""
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo")
     project_dir = pm.get_project_path("demo")

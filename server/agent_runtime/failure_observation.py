@@ -1,4 +1,4 @@
-"""Agent 故障观测：从明确的 runtime/SDK 证据构造最小通用外壳。"""
+"""Agent failure observations: build a minimal shared envelope from explicit runtime/SDK evidence."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _safe_text(value: object) -> str:
 
 
 def _format_exception(exc: BaseException) -> str:
-    """交给标准库格式化完整 cause/context 链，不重复建模 traceback。"""
+    """Let the standard library format the complete cause/context chain without modeling tracebacks again."""
     try:
         captured = traceback.TracebackException.from_exception(exc, capture_locals=False)
         return "".join(captured.format(chain=True))
@@ -42,9 +42,9 @@ def _format_exception(exc: BaseException) -> str:
         return f"{type(exc).__module__}.{type(exc).__name__}: {_safe_text(exc)}"
 
 
-# 结论 key 只从结构化证据派生，前端据此本地化一句话结论；不解析错误文案，不建
-# ArcReel 自己的上游错误分类。轮次 key 沿用 SDK 的 AssistantMessageError 枚举与
-# result subtype 原值，取不到可用证据时回落到按阶段的通用 key。
+# Derive conclusion keys only from structured evidence for frontend-localized one-line conclusions; do not parse error prose or build
+# an ArcReel-specific upstream error taxonomy. Turn keys retain the SDK AssistantMessageError enum and
+# original result subtype values; fall back to phase-specific generic keys when usable evidence is absent.
 _SDK_ASSISTANT_ERROR_KEYS = frozenset(
     {"authentication_failed", "billing_error", "rate_limit", "invalid_request", "server_error"}
 )
@@ -52,7 +52,7 @@ _RESULT_SUBTYPE_KEYS = frozenset({"error_max_turns", "error_max_budget_usd"})
 TURN_FAILED_KEY = "turn_failed"
 STARTUP_FAILED_KEY = "startup_failed"
 
-# 启动异常类 → key；子类排在父类之前（CLINotFoundError 是 CLIConnectionError 的子类）。
+# Startup exception class → key; list subclasses first (CLINotFoundError subclasses CLIConnectionError).
 _STARTUP_EXCEPTION_KEYS: tuple[tuple[type[BaseException], str], ...] = (
     (CLINotFoundError, "cli_not_found"),
     (CLIConnectionError, "cli_connection_failed"),
@@ -62,7 +62,7 @@ _STARTUP_EXCEPTION_KEYS: tuple[tuple[type[BaseException], str], ...] = (
 
 
 def _status_key(status: object) -> str | None:
-    """只有 HTTP 状态时，把它归到 SDK AssistantMessageError 的同一组取值。"""
+    """When only an HTTP status is available, map it to the same values as SDK AssistantMessageError."""
     if isinstance(status, bool) or not isinstance(status, int):
         return None
     if status == 401:
@@ -86,8 +86,8 @@ def _turn_failure_key(assistant_error: object, result_subtype: object, status: o
     return _status_key(status) or TURN_FAILED_KEY
 
 
-# SDK 拉起 CLI 时把任何异常包成 CLIConnectionError；cause 是 NotImplementedError 说明
-# 当前事件循环不能创建子进程（Windows 上 uvicorn --reload 会换成 SelectorEventLoop）。
+# The SDK wraps all CLI startup exceptions in CLIConnectionError; a NotImplementedError cause means
+# the current event loop cannot create subprocesses (uvicorn --reload uses SelectorEventLoop on Windows).
 SUBPROCESS_UNSUPPORTED_KEY = "subprocess_unsupported"
 
 
@@ -101,7 +101,7 @@ def _cause_chain(exc: BaseException) -> list[BaseException]:
 
 
 def _startup_failure_key(exc: BaseException) -> str:
-    """沿显式 cause 链找第一个可识别的异常类。"""
+    """Find the first recognized exception class along the explicit cause chain."""
     chain = _cause_chain(exc)
     for index, current in enumerate(chain):
         connection_failed = isinstance(current, CLIConnectionError) and not isinstance(current, CLINotFoundError)
@@ -120,7 +120,7 @@ def build_startup_failure_observation(
     session_id: str | None,
     sdk_stderr: str,
 ) -> dict[str, Any]:
-    """构造启动失败观测；SDK stderr 与标准异常链是唯一原始证据。"""
+    """Build a startup-failure observation; SDK stderr and the standard exception chain are the only raw evidence."""
     exception_message = _safe_text(exc) or None
     source = "local_exception"
     message = exception_message
@@ -185,7 +185,7 @@ def build_turn_failure_observation(
     project_name: str | None,
     session_id: str | None,
 ) -> dict[str, Any]:
-    """从 SDK 已序列化的 assistant/result 消息构造轮次观测。"""
+    """Build a turn observation from assistant/result messages already serialized by the SDK."""
     source = "sdk_assistant" if assistant_message is not None else "sdk_result"
     observed_type: Any = assistant_message.get("error") if assistant_message is not None else None
     if observed_type is None and result_message is not None:

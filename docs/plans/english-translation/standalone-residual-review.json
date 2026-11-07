@@ -1,0 +1,293 @@
+{
+  "scope": "38 standalone enum/member/attribute/type-alias annotations in 14 production modules; leading class/function docs not part of this batch. All project lib/server sources lack enabled use_attribute_docstrings, and affected modules have no __doc__/getdoc consumers. These expressions are explanatory source annotations, not assigned field metadata or tool definitions.",
+  "files": [
+    {
+      "path": "lib/backends/text_backends/instructor_support.py",
+      "candidate_sha256": "549a0a861be7861c5f867c9af9be6da8705351a06def236c0a17dfdb08a6eba9",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 212,
+          "before": "wire 层不兼容，换下一档还有机会。",
+          "after": "Wire-layer incompatibility; the next tier may still work."
+        },
+        {
+          "line_before": 215,
+          "before": "模型输出反复不合规，换约束更弱的档只会更差。",
+          "after": "Repeatedly invalid model output; weaker constraints would only worsen it."
+        },
+        {
+          "line_before": 218,
+          "before": "与结构化输出能力无关，交调用方判定。",
+          "after": "Unrelated to structured-output capability; let the caller decide."
+        }
+      ]
+    },
+    {
+      "path": "lib/config/anthropic_probe.py",
+      "candidate_sha256": "043198903226b1bd525a9cdff8bbfb5c9f17a3e64eb5166cc3636d86d7f5752f",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 207,
+          "before": "本次实际请求的完整地址；预览与请求同一个字符串。",
+          "after": "Complete URL actually requested this time; preview and request use the same string."
+        }
+      ]
+    },
+    {
+      "path": "lib/final_cut/basis.py",
+      "candidate_sha256": "d3ae13754d5dd14c8ed7d011ae85448b90598abf559bfdfe0e2bf943c4071e44",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 44,
+          "before": "成片的字幕方式：烧入字幕，或不烧入、得到干净的画面。",
+          "after": "Final-cut subtitle mode: burn subtitles in, or omit them for clean footage."
+        }
+      ]
+    },
+    {
+      "path": "lib/generation/generation_result.py",
+      "candidate_sha256": "84df6aaa55af5d505ed786e4849e36e79d9bb9903bb2344519dcea457f886ec3",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 129,
+          "before": "产物已在供应商侧生成、只是没取回来：接续原任务取件，不重新提交、不再计费。",
+          "after": "The provider already generated the artifact but it was not retrieved: resume retrieval from the original task, without resubmission or another charge."
+        }
+      ]
+    },
+    {
+      "path": "lib/jianying_draft/basis.py",
+      "candidate_sha256": "2617e08fde145865b319dd2df809ff6bbc32b69c1478fa21046b2ca995eb73f1",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 35,
+          "before": "剪映草稿的旁白版本：带旁白版本多一条旁白轨，只对 TTS 配音项目开放。",
+          "after": "Jianying draft narration variant: the narrated variant adds a narration track and is available only for TTS-dubbed projects."
+        }
+      ]
+    },
+    {
+      "path": "lib/script/reference_video/duration_slots.py",
+      "candidate_sha256": "9346fae7be9f1a6ee64824273bd4f73c6625a9aa77a99c4a7ad5541fae82c8a6",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 23,
+          "before": "请求时长基准本身就是档位成员，申请值与基准一致。",
+          "after": "The requested-duration basis is itself a tier member; requested value equals the basis."
+        },
+        {
+          "line_before": 25,
+          "before": "向上取档：成片长于请求时长基准。",
+          "after": "Round up to a tier: output is longer than the requested-duration basis."
+        },
+        {
+          "line_before": 27,
+          "before": "请求时长基准超过最大档位，按最大档位申请：成片短于请求基准。",
+          "after": "The requested-duration basis exceeds the maximum tier; request the maximum, yielding output shorter than the basis."
+        },
+        {
+          "line_before": 29,
+          "before": "时长这一维不由 ArcReel 取档：申请值就是规划值，端点自己决定成片多长。",
+          "after": "ArcReel does not select a duration tier: request the planned value; the endpoint determines output length."
+        }
+      ]
+    },
+    {
+      "path": "server/agent_runtime/session_manager.py",
+      "candidate_sha256": "753c26c463798c060960911809a0f69b928ca17969127bf61d66307ee4ae8255",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 123,
+          "before": "撤回排队消息的结果：``withdrawn`` 已撤回并移出排队，``accepted`` 已被 Agent 接收、照常进入对话。",
+          "after": "Queued-message withdrawal result: ``withdrawn`` removed it from CLI and queue; ``accepted`` means the Agent received it and it enters conversation normally."
+        },
+        {
+          "line_before": 126,
+          "before": "立即发送的结果：``sent`` 已以 now 优先级重新送入，``accepted`` 已被 Agent 接收、不再重发。",
+          "after": "Immediate-send result: ``sent`` resubmitted it with now priority; ``accepted`` means the Agent already received it and it is not resent."
+        },
+        {
+          "line_before": 219,
+          "before": "CLI 报告时有立即发送的消息尚未被接纳：这次丢弃来自被它打断的那一轮。",
+          "after": "At CLI report time, an immediately sent message remains unaccepted: this discard belongs to the turn it interrupted."
+        }
+      ]
+    },
+    {
+      "path": "server/media_tools/context.py",
+      "candidate_sha256": "5c1338765c3f16ae96074f45c8acd7e0b8a44d55637fd855caf8b98d9ba96d34",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 53,
+          "before": "生成类工具的成功值：远程即返的批次句柄，或 :func:`generation_result_outcome` 给出的终态结果。",
+          "after": "Generation-tool success value: an immediately returned remote batch handle, or terminal result from :func:`generation_result_outcome`."
+        },
+        {
+          "line_before": 101,
+          "before": "剧本纯文件名；带路径分隔符或为空时请求校验失败。",
+          "after": "Bare script filename; empty values or path separators fail request validation."
+        },
+        {
+          "line_before": 104,
+          "before": "显式点名的目标 ID；空数组无效——省略参数才表示只补缺失项。",
+          "after": "Explicit target IDs; an empty array is invalid. Omit the argument to fill only missing items."
+        }
+      ]
+    },
+    {
+      "path": "server/media_tools/video_review.py",
+      "candidate_sha256": "809d1114f9109ce56dc1e9b61b37f6e8fd56fda3c9bcff0a70c44fe2159cba7e",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 89,
+          "before": "预留给服务端原生视频 MLLM 审阅，恒为 None。",
+          "after": "Reserved for server-native video MLLM review; always None."
+        }
+      ]
+    },
+    {
+      "path": "server/routers/prompt_templates.py",
+      "candidate_sha256": "1b7c0272edce266d5086cc16c1cfeb49d53165462066445a3859d4ca8d5d5c1e",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 38,
+          "before": "按首次引用顺序；变体族展开为 ``applies_to`` 声明的全部轴值。",
+          "after": "First-reference order; variant families expand into every axis value declared by ``applies_to``."
+        }
+      ]
+    },
+    {
+      "path": "server/services/grid/grid_submission.py",
+      "candidate_sha256": "a90ddfea32a3fc6a8f72b981c90746cb99af18f342190b95013a0679313cccd4",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 62,
+          "before": "给定宫格 ID，返回队列里仍有活动任务（queued / running）的那些。",
+          "after": "Given grid IDs, return those still owning active (queued / running) queue tasks."
+        },
+        {
+          "line_before": 169,
+          "before": "新建记录并入队。",
+          "after": "Create a record and enqueue it."
+        },
+        {
+          "line_before": 171,
+          "before": "同一组分镜的宫格正在生成：沿用该记录，入队按资源去重落到在途任务上，不重复计费。",
+          "after": "The same storyboard group already has a generating grid: reuse its record; resource deduplication joins the in-flight task without another charge."
+        },
+        {
+          "line_before": 173,
+          "before": "缺失即生成时，同一组分镜的联合图已就绪而未切分：等用户审阅后切分落格，不重生成。",
+          "after": "In missing-only generation, the same group has a ready but unsplit combined grid image: await user review and split into storyboard slots without regenerating."
+        },
+        {
+          "line_before": 175,
+          "before": "本次无需生成：点名未覆盖这张宫格，或它的分镜图都还可用。",
+          "after": "No generation needed: explicit targets exclude this grid, or all its storyboard images remain usable."
+        },
+        {
+          "line_before": 177,
+          "before": "这张宫格有自己的受阻分镜。",
+          "after": "This grid has blocked storyboards of its own."
+        },
+        {
+          "line_before": 191,
+          "before": "同一组分镜的最新宫格记录；``IN_FLIGHT`` / ``UNSPLIT`` 时即被沿用或等待切分的那条。",
+          "after": "The latest grid record for the same storyboard group; ``IN_FLIGHT`` / ``UNSPLIT`` means the record being reused or awaiting splitting."
+        },
+        {
+          "line_before": 218,
+          "before": "缺失即生成下，所在分组要重画、但自身分镜图仍可用而不在本次目标里的分镜。",
+          "after": "In missing-only mode, storyboards with usable images that are not targets, although their group needs redrawing."
+        },
+        {
+          "line_before": 220,
+          "before": "带自身原因受阻的分镜；非空即整批不建任务。",
+          "after": "Storyboards blocked for their own reasons; any entries prevent creating tasks for the whole batch."
+        },
+        {
+          "line_before": 222,
+          "before": "本身健康、因同批受阻而未创建任务的分镜。",
+          "after": "Healthy storyboards for which no tasks were created because the same batch contains blockers."
+        },
+        {
+          "line_before": 224,
+          "before": "经过引用与提示词准入判定的全部分镜（待新生成的各张宫格覆盖的分镜）。",
+          "after": "All storyboards assessed for reference and prompt admission (those covered by each grid to be newly generated)."
+        },
+        {
+          "line_before": 226,
+          "before": "剧本里各分镜已登记的分镜图路径；报告失败时据此带上旧图。",
+          "after": "Registered storyboard-image paths in the script; use them to retain old images when reporting failure."
+        },
+        {
+          "line_before": 228,
+          "before": "停在 pending / generating 却已没有活动任务的宫格记录；提交时按已结束的记录清理。",
+          "after": "Grid records stuck in pending / generating without active tasks; clean them up as finished records at submission."
+        },
+        {
+          "line_before": 230,
+          "before": "规划所在的临界区；落地时它必须仍未结束，否则 ``abandoned_grid_ids`` 已不可信。",
+          "after": "The critical section owning planning; it must still be active when applying the plan, or ``abandoned_grid_ids`` is no longer reliable."
+        }
+      ]
+    },
+    {
+      "path": "server/services/project/project_archive.py",
+      "candidate_sha256": "d6075e7a7fcbfed34456d8ce4bc02e5c0d3ae2cc15e56e181122b3da8f7d71f5",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 167,
+          "before": "不保留版本历史。",
+          "after": "Do not retain version history."
+        },
+        {
+          "line_before": 170,
+          "before": "每个资源保留选中的记录与快照：导入激活凭它独立核验 typed media 的依据，手动上传的视频也凭它认领。",
+          "after": "Retain the selected record and snapshot for each resource: import activation independently verifies typed-media bases with them, including claims for manually uploaded videos."
+        },
+        {
+          "line_before": 173,
+          "before": "只保留选中记录是手动上传的资源：规划器凭这条记录与快照按上传本身判定时效。",
+          "after": "Retain only resources whose selected record is a manual upload: the planner uses that record and snapshot to assess currency from the upload itself."
+        }
+      ]
+    },
+    {
+      "path": "server/services/project/project_retirement.py",
+      "candidate_sha256": "64348f55071cee47f9ac7a33a2e0b5505b5da79411ce8a65c6b94cb45bd63742",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 86,
+          "before": "在工作线程里收尾目录里的现有项目，``with`` 块里替换项目目录，语义同 :func:`retiring_project`。",
+          "after": "Finalize an existing project in a worker thread, replacing its directory inside the ``with`` block; same semantics as :func:`retiring_project`."
+        }
+      ]
+    },
+    {
+      "path": "server/services/tasks/render_tasks.py",
+      "candidate_sha256": "2ba9139616acc356d9ae52e8c0d02165106a638bd58fa119971dcc12011c5ecf",
+      "ast_equal_except_explicit_annotations": true,
+      "annotations": [
+        {
+          "line_before": 160,
+          "before": "``render`` 车道的任务类型 → 执行器。",
+          "after": "``render`` lane task type → executor."
+        }
+      ]
+    }
+  ]
+}

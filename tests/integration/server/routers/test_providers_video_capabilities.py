@@ -1,4 +1,4 @@
-"""providers 路由的无项目 video-capabilities 查询。"""
+"""Projectless providers video-capabilities queries."""
 
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
@@ -28,7 +28,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.factories import make_display_names
 from tests.fakes import use_project_manager
 
-#: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
+#: Registry 1080p-only-8-second models expose real resolver narrowing.
 VEO = "gemini-vertex/veo-3.1-generate-001"
 
 
@@ -41,7 +41,7 @@ def _app() -> FastAPI:
 
 
 def _client(monkeypatch, resolver_instance) -> TestClient:
-    """错误映射用：让 resolver 抛出指定异常，断言路由把它翻成哪个状态码与文案。"""
+    """Error mappings: inject resolver exceptions, assert HTTP status/copy."""
     resolver_instance.resolve_video_backend = AsyncMock()
     monkeypatch.setattr(providers, "ConfigResolver", lambda _factory: resolver_instance)
     return TestClient(_app())
@@ -49,7 +49,7 @@ def _client(monkeypatch, resolver_instance) -> TestClient:
 
 @pytest.fixture
 def real_resolver_client(db_engine, monkeypatch) -> TestClient:
-    """真实 ConfigResolver + 内存 DB：成功路径不替换仓库内协作者。"""
+    """Real ConfigResolver/in-memory DBs; success replaces no internal collaborators."""
     monkeypatch.setattr(providers, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
     return TestClient(_app())
 
@@ -79,7 +79,7 @@ class TestGetModelVideoCapabilities:
         assert detail == zh_errors.MESSAGES["video_model_capabilities_unresolved"].format(value="grok/unknown")
 
     def test_model_not_in_catalog_returns_reselect_400(self, monkeypatch):
-        """模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400，不被通用 422 吞掉。"""
+        """Unlisted models reach app model-reselection 400, never generic 422."""
         resolver_instance = MagicMock()
         resolver_instance.video_capabilities_for_model = AsyncMock(
             side_effect=ModelNotInCatalogError(provider_id="grok", model_id="grok-retired", media_type="video")
@@ -114,10 +114,10 @@ class TestGetModelVideoCapabilities:
 
 
 class TestRealResolverResponse:
-    """成功路径走真实 ConfigResolver + registry，覆盖响应体经 JSON 序列化后的实际形状。"""
+    """Real ConfigResolver/registry success covers actual serialized JSON responses."""
 
     def test_returns_narrowed_durations_with_exclusion_reasons(self, real_resolver_client):
-        """声明全集原样回传，收窄结果与成因由 duration_constraints 表达。"""
+        """Return full declarations unchanged; duration_constraints supplies narrowed results/causes."""
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
@@ -128,7 +128,7 @@ class TestRealResolverResponse:
         assert body["provider_id"] == "gemini-vertex"
         assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
-        # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
+        # Python excluded integer keys become JSON strings; frontend looks up String(duration).
         assert body["duration_constraints"] == {
             "resolution": "1080p",
             "uses_reference_images": False,
@@ -159,9 +159,9 @@ class TestRealResolverResponse:
         )
 
     def test_reference_path_narrows_by_the_r2v_bucket(self, real_resolver_client):
-        """参考图路径按 r2v 桶求值。
+        """Reference paths evaluate r2v.
 
-        取 720p：该档位本身不收窄时长，剔除成因只来自参考图约束。
+        Use 720p, which itself imposes no duration narrowing; exclusions arise from reference constraints only.
         """
         with real_resolver_client as client:
             resp = client.get(
@@ -176,7 +176,7 @@ class TestRealResolverResponse:
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     def test_reference_path_without_resolution_applies_no_resolution_constraint(self, real_resolver_client):
-        """参考图路径未选档位时请求不携带分辨率：只剩参考图约束。"""
+        """Reference paths without selected tiers omit resolution, leaving reference constraints only."""
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
@@ -189,7 +189,7 @@ class TestRealResolverResponse:
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     def test_no_project_preferences_are_null(self, real_resolver_client):
-        """无项目上下文：项目偏好字段为 None，不借用任何项目的已保存档位。"""
+        """Without project context, preferences are None, never borrow saved project tiers."""
         with real_resolver_client as client:
             resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": VEO})
         assert resp.status_code == 200
@@ -217,7 +217,7 @@ class TestRealResolverResponse:
 async def test_duration_constraints_equal_facts_of_the_saved_candidate(
     db_engine, monkeypatch, uses_reference_images, resolution
 ):
-    """创建向导预览的收窄结果，等于把候选模型与分辨率存进项目后该桶视频请求事实的结果。"""
+    """Wizard narrowing equals bucket facts after persisting candidate models/resolutions into projects."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
     monkeypatch.setattr(providers, "async_session_factory", factory)
     params = {"video_backend": VEO, "uses_reference_images": str(uses_reference_images).lower()}
@@ -247,7 +247,7 @@ async def test_duration_constraints_equal_facts_of_the_saved_candidate(
 
 
 def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_request_facts):
-    """候选所在桶的视频请求事实解析不出时，按问题码返回本地化 422。"""
+    """Unresolved candidate-bucket facts return localized problem-code 422."""
     set_video_request_facts(
         VideoRequestFactsFailure(
             "reference_supported_durations_incompatible",

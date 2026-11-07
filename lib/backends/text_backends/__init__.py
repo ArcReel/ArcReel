@@ -1,4 +1,4 @@
-"""文本生成服务层公共 API。"""
+"""Public API for text-generation services."""
 
 from lib.backends.text_backends.base import (
     TEXT_TASK_TIERS,
@@ -52,7 +52,7 @@ register_backend(PROVIDER_OPENAI, OpenAITextBackend)
 
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 
-# 内置 openai 的文本经 Responses 调用；按调用通道而非 provider 命名，provider 名仍由构造参数决定。
+# Built-in openai text uses Responses; name channels, not providers, whose identities still come from construction parameters.
 register_backend("openai-responses", OpenAIResponsesTextBackend)
 
 from lib.backends.providers import PROVIDER_AGNES

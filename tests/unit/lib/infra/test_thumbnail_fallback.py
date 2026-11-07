@@ -1,4 +1,4 @@
-"""抽帧的降级、回退与 deadline：随包 ffmpeg 不可用时跳过，子进程由 spawn 替身驱动。"""
+"""Frame-extraction fallback/deadlines: skip unavailable bundled ffmpeg, with substituted spawn subprocesses."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _INPUT_INFO = b"Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'file:fake.mp4':\n"
 
 
 def _framecrc(video_packets: int) -> bytes:
-    """一个 25fps 视频流的 framecrc 输出，含 ``video_packets`` 个包。"""
+    """framecrc output for a 25fps video stream with ``video_packets`` packets."""
     lines = [b"#tb 0: 1/12800", b"#media_type 0: video", b"#codec_id 0: h264"]
     lines += [f"0, {i * 512}, {i * 512}, 512, 100, 0x00000000".encode() for i in range(video_packets)]
     return b"\n".join(lines) + b"\n"
@@ -26,7 +26,7 @@ def _framecrc(video_packets: int) -> bytes:
 
 @pytest.fixture
 def bundled_ffmpeg(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    """保留真实查找器，只替换包目录定位与自检子进程边界。"""
+    """Keep real locators; replace only package-directory lookup and self-check subprocess boundaries."""
     binaries_dir = tmp_path_factory.mktemp("bundled-ffmpeg")
     executable = binaries_dir / "ffmpeg-v7"
     executable.touch()
@@ -60,7 +60,7 @@ def _is_decode_count(args: tuple[str, ...]) -> bool:
 
 
 class _OutputProc:
-    """一次性返回 stdout / stderr 的子进程替身。"""
+    """Subprocess substitute returning stdout/stderr once."""
 
     def __init__(self, stdout: bytes, stderr: bytes = b"", returncode: int = 0) -> None:
         self._stdout = stdout
@@ -72,7 +72,7 @@ class _OutputProc:
 
 
 class _FfmpegProc:
-    """抽帧子进程替身：按需向输出路径写入内容。"""
+    """Extraction subprocess substitute, writing output paths when requested."""
 
     returncode = 0
 
@@ -81,7 +81,7 @@ class _FfmpegProc:
         self._payload = payload
 
     async def wait(self) -> None:
-        # 真实输出由子进程写，替身放进工作线程，不占事件循环。
+        # Real subprocess writes are simulated in worker threads, never blocking event loops.
         if self._payload is not None:
             await asyncio.to_thread(self._target.write_bytes, self._payload)
 
@@ -100,7 +100,7 @@ async def test_returns_none_when_bundled_ffmpeg_unavailable(tmp_path: Path, ffmp
 
 
 async def test_returns_none_when_video_missing(tmp_path: Path, ffmpeg_unavailable: MagicMock):
-    """video 文件不存在时直接返回 None，不取随包 ffmpeg。"""
+    """Missing video files return None without resolving bundled ffmpeg."""
     result = await thumbnail_module.extract_video_thumbnail(tmp_path / "no-such-video.mp4", tmp_path / "out.jpg")
 
     assert result is None
@@ -145,7 +145,7 @@ async def test_last_frame_returns_none_when_video_missing(tmp_path: Path, ffmpeg
 
 
 async def test_last_frame_selects_the_last_packet_index(tmp_path: Path, bundled_ffmpeg: str):
-    """快路径按解复用得到的视频包数定位最后一帧，不解码计帧。"""
+    """Fast paths locate final frames by demuxed video-packet counts, never decoding for counts."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.png"
@@ -166,7 +166,7 @@ async def test_last_frame_selects_the_last_packet_index(tmp_path: Path, bundled_
 
 
 async def test_last_frame_falls_back_to_decoded_frame_count(tmp_path: Path, bundled_ffmpeg: str):
-    """解复用读不到视频包时回退到全量解码计帧。"""
+    """Absent demuxed packets fall back to full-decode frame counts."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.png"
@@ -190,7 +190,7 @@ async def test_last_frame_falls_back_to_decoded_frame_count(tmp_path: Path, bund
 
 
 async def test_last_frame_retries_decoded_count_when_fast_extract_writes_nothing(tmp_path: Path, bundled_ffmpeg: str):
-    """包数有值但 select 无输出时，用解码计帧结果重试并替换旧文件。"""
+    """Known packet counts but empty select outputs retry using decoded counts, replacing old files."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.png"
@@ -225,7 +225,7 @@ async def _write_partial(target: str) -> None:
 
 
 async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_path: Path, bundled_ffmpeg: str):
-    """ffmpeg 不退出时到 deadline 被终止，半成品被删除、已有缩略图保持不变，返回 None。"""
+    """Nonexiting ffmpeg hits deadlines and terminates; delete partial output, preserve existing thumbnails, return None."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.jpg"
@@ -244,13 +244,13 @@ async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_pa
 
     assert result is None
     assert out.read_bytes() == b"previous"
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([video.name, out.name])  # noqa: ASYNC240 -- 断言阶段读取 tmp_path
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([video.name, out.name])  # noqa: ASYNC240 -- Assertion-stage tmp_path read
     assert [p.signals for p in procs] == [["terminate", "kill"]]
     assert "-nostdin" in call_log[0]
 
 
 async def test_last_frame_deadline_kills_ffmpeg_and_removes_temp_output(tmp_path: Path, bundled_ffmpeg: str):
-    """按帧号抽帧的 ffmpeg 不退出时被终止，临时输出被删除，不产出尾帧。"""
+    """Nonexiting index-based extraction terminates, removes temporary output, and produces no final frame."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.png"
@@ -271,13 +271,13 @@ async def test_last_frame_deadline_kills_ffmpeg_and_removes_temp_output(tmp_path
 
     assert result is None
     assert not out.exists()
-    assert sorted(p.name for p in tmp_path.iterdir()) == [video.name]  # noqa: ASYNC240 -- 断言阶段读取 tmp_path
+    assert sorted(p.name for p in tmp_path.iterdir()) == [video.name]  # noqa: ASYNC240 -- Assertion-stage tmp_path read
     assert ffmpeg_procs
     assert all(p.returncode is not None for p in ffmpeg_procs)
 
 
 async def test_last_frame_deadline_on_frame_count_returns_none(tmp_path: Path, bundled_ffmpeg: str):
-    """计帧子进程不退出时被终止，不再继续抽帧。"""
+    """Nonexiting frame-count subprocesses terminate without proceeding to extraction."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.png"
@@ -300,7 +300,7 @@ async def test_last_frame_deadline_on_frame_count_returns_none(tmp_path: Path, b
 
 
 async def test_concurrent_extractions_write_distinct_temp_files(tmp_path: Path, bundled_ffmpeg: str):
-    """同一目标的并发抽帧各写各的临时文件（同目录、保留后缀），互不覆盖或删除。"""
+    """Concurrent same-target extractions use independent same-directory/same-suffix temporary files, never overwriting/deleting each other."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.jpg"
@@ -322,7 +322,7 @@ async def test_concurrent_extractions_write_distinct_temp_files(tmp_path: Path, 
 
 
 async def test_temp_output_removed_when_replacing_target_fails(tmp_path: Path, bundled_ffmpeg: str):
-    """临时文件写成功但替换目标失败时返回 None，且不留下临时文件。"""
+    """Successful temporary writes with failed target replacements return None without leftover temporary files."""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.jpg"
@@ -335,4 +335,4 @@ async def test_temp_output_removed_when_replacing_target_fails(tmp_path: Path, b
     result = await thumbnail_module.extract_video_thumbnail(video, out, spawn=_spawn)
 
     assert result is None
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([video.name, out.name])  # noqa: ASYNC240 -- 断言阶段读取 tmp_path
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([video.name, out.name])  # noqa: ASYNC240 -- Assertion-stage tmp_path read

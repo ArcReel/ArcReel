@@ -45,7 +45,7 @@ function NoteEditor({ label = "备注", source, save, inline = false, generate, 
 const note = () => screen.getByRole("textbox", { name: "备注" });
 const leaveDialog = () => screen.findByRole("alertdialog", { name: "有未保存的修改" });
 
-/** 备注页与另一个页面之间的应用内跳转。 */
+/** In-app navigation between Notes and another page. */
 function renderNotePage(editor: ReactNode) {
   const location = memoryLocation({ path: "/notes", record: true });
   render(
@@ -393,7 +393,7 @@ describe("离开拦截", () => {
       window.history.replaceState(null, "", "/");
     });
 
-    /** 用浏览器地址渲染，模拟依次访问 visited 中的页面后进入备注页。 */
+    /** Render browser URLs, simulating visits to visited pages before opening Notes. */
     function renderInBrowser(visited = ["/elsewhere"], save: SaveNote = vi.fn<SaveNote>()) {
       window.history.replaceState(null, "", visited[0]);
       for (const path of visited.slice(1)) window.history.pushState(null, "", path);
@@ -410,7 +410,7 @@ describe("离开拦截", () => {
       );
     }
 
-    // jsdom 异步派发 popstate；拦截时它被守卫截停，只能等对话框出现
+    // jsdom dispatches popstate asynchronously; guards intercept it, requiring waits for dialogs.
     const goBack = () => act(() => window.history.back());
 
     it("有未保存修改时后退先拦截，继续编辑则回到原地址", async () => {
@@ -441,7 +441,7 @@ describe("离开拦截", () => {
     it("保存在途时把字段改回原值再后退：不放行，等保存落定后再询问", async () => {
       const user = userEvent.setup();
       const saving = createDeferred<string | void>();
-      // 先于 guard 登记捕获监听器：被拦截的 popstate 会 stopImmediatePropagation。
+      // Register capture listeners before guards; intercepted popstate calls stopImmediatePropagation.
       const popped = createDeferred<void>();
       window.addEventListener("popstate", () => popped.resolve(), { capture: true, once: true });
       renderInBrowser(["/elsewhere"], () => saving.promise);
@@ -449,7 +449,7 @@ describe("离开拦截", () => {
       await user.click(screen.getByRole("button", { name: "保存" }));
       await user.clear(note());
       await user.type(note(), "原始备注");
-      // 捕获实际派发的历史事件，避免负断言在导航发生前提前通过。
+      // Capture actual dispatched history events so negative assertions cannot pass before navigation.
       await act(async () => {
         window.history.back();
         await popped.promise;

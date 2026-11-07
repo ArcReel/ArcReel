@@ -1,113 +1,113 @@
 ---
 name: edit-video
-description: 在剪辑时间线上剪辑一集，并按要求出成片或导出剪映草稿。本集视频已齐、要剪一版时使用；用户按片段编号提出修改（如「c3 太拖」），或要求配 BGM、出成片、导出剪映草稿、复制或重命名剪辑时间线、回到旧修订时，也使用本 skill。
+description: Edit an episode on an editing timeline, then render a final cut or export a Jianying draft as requested. Use when all episode videos are ready and an edit is needed; also use when the user requests changes by clip number (such as “c3 drags”), BGM, final output, a Jianying draft, timeline duplication or renaming, or restoration of an older revision.
 ---
 
-# 剪辑视频
+# Edit video
 
-一集的成片形态只记录在剪辑时间线上：预览按它拼接，成片与剪映草稿都从它生成。剪辑与出片全部经 `mcp__arcreel__*` 工具完成。各工具的参数、取值范围与写入语义，以工具描述为准。
+An episode's final composition is recorded only on the editing timeline: previews assemble it, and final cuts and Jianying drafts are generated from it. Perform all editing and output through `mcp__arcreel__*` tools. Tool descriptions govern each tool's parameters, allowed values, and write semantics.
 
-## 一轮剪辑
+## One editing round
 
-用户每提出一次剪辑要求，就走一轮。每一轮都以一次交付结束。
+Run one round for each editing request from the user. Every round ends with a delivery.
 
-1. **确定剪辑时间线**：用 `mcp__arcreel__list_timelines` 列出本集的剪辑时间线。
-   - 本集还没有剪辑时间线：用 `mcp__arcreel__create_timeline` 按脚本机械新建一条，显示名用「完整版」。
-   - 用户点名了某一条，就用那一条；没有点名时，用 `list_timelines` 中最近修改时间最新的那一条。用户的说法对得上多条、分不清指的是哪条时，先问用户。
+1. **Choose the editing timeline**: Use `mcp__arcreel__list_timelines` to list this episode's editing timelines.
+   - If the episode has none, use `mcp__arcreel__create_timeline` to mechanically create one from the script, with the display name “Full version”.
+   - Use the timeline the user names; otherwise use the most recently modified timeline in `list_timelines`. If the user's wording matches several and the intended one is unclear, ask first.
 
-   完成标准：拿到唯一一个剪辑时间线 ID。
-2. **读取**：用 `mcp__arcreel__read_timeline` 读取选中的剪辑时间线，把用户的要求对应到片段编号（如 c3）。找不到用户说的片段时，先问清楚再改。仅要求出片时，读完直接进入「出片」。首轮剪辑（刚新建的时间线，或用户让你剪一版）读完后，`issues` 里有 `narration_missing` 时先按 `generate-narration-audio` 补齐缺失的旁白配音并重读时间线（旁白越界与相撞要有配音实测时长才算得出），再按「首轮全量审阅」一节看完全部素材，然后进入第 3 步。
+   Completion criterion: obtain exactly one editing timeline ID.
+2. **Read**: Use `mcp__arcreel__read_timeline` to read the selected timeline and map the user's requests to clip numbers (such as c3). If a referenced clip cannot be found, clarify before editing. For output-only requests, go directly to “Output” after reading. For a first editing round (a newly created timeline or a request to make an edit), if `issues` contains `narration_missing`, first follow `generate-narration-audio` to fill missing narration audio and reread the timeline (narration overruns and collisions require measured voiceover durations). Then review all material as described under “Full first-round review” before step 3.
 
-   完成标准：每条要求都能定位到片段，或已明确需要用户补充的信息；首轮剪辑另有每个视频单元的审片报告，TTS 配音项目已补齐旁白配音，或已记下补不齐的单元。
-3. **剪辑决策（L1）**：根据用户的要求，以及各片段的时长、状态、剪辑理由和 `issues`，决定本轮操作：
-   - **结构**：围绕叙事顺序决定片段的取舍、重排与重复使用。大规模重构（重排大半片段、整体换一种节奏）先复制：用 `mcp__arcreel__create_timeline`（`from: "timeline"`，`timeline` 取当前选中的 ID）复制一条，显示名写成创作者认得出的剪法，如「快节奏版」；之后在副本上剪，原版留作退路，并告诉用户新时间线的名字。
-   - **看画面**：首轮以审片报告为依据。对话中用户追问某几段的画面时（某段是否崩坏、哪里起势或拖尾、候选版本孰优），用 `mcp__arcreel__inspect_video_units` 看相关视频单元的联系表，自己看图判断。联系表同时标出机器检查信号：BLACK 黑屏段、FREEZE 卡帧段是疑似缺陷，看图确认后再决定要不要截掉；CUT 镜头切换点是结构信息，不是缺陷。信号只是提示，取舍以画面为准。
-   - **节奏**：按用户提供的区间，或看画面后定下的时刻，决定截取或尾部定格。联系表上标注的时刻与入出点同一时间轴；入出点贴着 CUT 的切点帧或切点前一帧定，不要落在切换中间；截去片头或片尾的黑屏、卡帧时，区间的 end 是候选入点，start 是候选出点。
-   - **衔接**：相邻片段之间可以设置转场。脚本里的 `segment_break`（场景切换点）可以当作放转场的提示。
-   - **声音**：按用户要求调整原声音量。用户要配 BGM、换 BGM 或调 BGM 时，按「配 BGM」一节处理。
-   - **旁白**：`issues` 里有 `narration_overrun` 或 `narration_source_collision` 时，按「旁白放不下时」一节处理。
-   - **版本**：用户指定另一视频版本，或审片报告、看画面后另一候选版本明显更好时，用 `mcp__arcreel__select_video_version` 直接切换（不必征得同意），再重读时间线、重新决定截取。
-   - **待创作者决定**：素材不可用、需要重新生成的视频单元，以及要改写的画外音，记下来，在第 5 步放进勾选清单。
-   - **理由**：为保留或新增的改动片段写一句面向创作者的剪辑理由；删除片段的理由写入本轮总结。
+   Completion criterion: every request maps to a clip, or the information needed from the user is identified; a first round also has a footage review report for each video unit, and TTS projects have narration audio filled in or the units that cannot be filled recorded.
+3. **Editing decisions (L1)**: Use the user's requests, each clip's duration, status, editing rationale, and `issues` to decide this round's operations:
+   - **Structure**: Decide which clips to keep, reorder, or reuse according to narrative order. Duplicate before major restructuring (reordering most clips or changing the overall rhythm): use `mcp__arcreel__create_timeline` (`from: "timeline"`, with `timeline` set to the currently selected ID), giving it a creator-recognizable name such as “Fast-paced version”. Edit the copy, keep the original as a fallback, and tell the user the new timeline's name.
+   - **Inspect visuals**: Base the first round on footage review reports. When the user asks about particular visuals (whether a clip breaks down, where action starts or drags, or which candidate is better), use `mcp__arcreel__inspect_video_units` to inspect the relevant units' contact sheets and judge the images yourself. Contact sheets also label machine signals: BLACK black intervals and FREEZE frozen intervals are suspected defects; confirm visually before deciding whether to trim them. CUT shot changes are structural information, not defects. Signals are only hints; base choices on the visuals.
+   - **Pacing**: Decide trims or tail freezes using user-specified intervals or visually determined times. Contact-sheet times and in/out points share the same time axis; place in/out points at the CUT frame or the frame immediately before it, not mid-transition. When trimming black or frozen beginnings or endings, the interval's end is a candidate in-point and its start a candidate out-point.
+   - **Connections**: Transitions can be set between adjacent clips. The script's `segment_break` (scene change) can suggest transition placement.
+   - **Sound**: Adjust original audio volume as requested. For adding, replacing, or adjusting BGM, follow “Add BGM”.
+   - **Narration**: If `issues` contains `narration_overrun` or `narration_source_collision`, follow “When narration does not fit”.
+   - **Versions**: When the user specifies another video version, or reports or visual inspection show a clearly better candidate, switch directly with `mcp__arcreel__select_video_version` (no permission needed), reread the timeline, and decide trims again.
+   - **Creator decisions pending**: Record unusable material, video units needing regeneration, and voiceover needing rewriting for the checklist in step 5.
+   - **Rationale**: Write one creator-facing editing rationale for each retained or newly modified clip; put reasons for deletions in this round's summary.
 
-   完成标准：用户这一轮的每条要求都落到了具体片段和操作上；做不到的要求记下原因，留到第 5 步说明。
-4. **提交**：把本轮时间线调整集中为一次 `mcp__arcreel__edit_timeline`，依据最近一次读取结果提交，改动摘要用一句话写给创作者看。没有可执行的调整时，直接进入第 5 步。操作被拒时，按返回的定位信息修正后整批重交；遇到 `revision_conflict` 时，先重读，再按最新内容重新决定本轮调整。
+   Completion criterion: every request maps to specific clips and operations; record why any request cannot be fulfilled for explanation in step 5.
+4. **Submit**: Combine this round's timeline adjustments into one `mcp__arcreel__edit_timeline`, based on the latest read, with a one-sentence creator-facing change summary. If there are no executable adjustments, proceed to step 5. If operations are rejected, correct them using the returned locations and resubmit the whole batch; for `revision_conflict`, reread and reconsider the round's adjustments against the latest content.
 
-   完成标准：调整已提交成功，或已明确本轮没有可提交的调整。
-5. **交付**：按「一轮结束的交付」一节，一次交付改动总结、「跳到这里看」链接，以及有待决定事项时的勾选清单。
+   Completion criterion: adjustments were submitted successfully, or it is clear that this round has none to submit.
+5. **Deliver**: Following “Delivery at the end of a round”, deliver the change summary, “Jump here to inspect” links, and a checklist when decisions are pending, together.
 
-## 首轮全量审阅
+## Full first-round review
 
-首轮把剪辑时间线用到的每个视频单元都看一遍（current 版本，有候选版本的一并比较），交给只读的审片子智能体 `review-footage` 并行完成。联系表只进子智能体的上下文，你只读它们的文字报告。
+In the first round, review every video unit used by the timeline (current versions, comparing candidates where available), delegating parallel work to read-only `review-footage` subagents. Contact sheets enter only the subagents' contexts; you read their text reports only.
 
-1. **分组**：从 `read_timeline` 的片段收集用到的视频单元 ID，去重后按场景或相邻单元分组，每组约 6～10 个视频单元。一个单元连同它的候选版本只进一组，由同一个子智能体比较。
-2. **派发**：在同一条消息里为每组发起一次 `review-footage` 子智能体调用，让各组并行。派发消息写明剧本文件、本组视频单元 ID 和报告要求。报告至少回答：能否使用、可用区间及依据、问题及时间点、候选版本排序、是否建议重新生成（以及是否需要修改提示词）、一句可以直接写进剪辑理由的话。
-3. **汇总**：按报告逐单元决定第 3 步的操作：挑版本、按可用区间截取、写剪辑理由；建议重新生成的单元记为待创作者决定。
+1. **Group**: Collect used video unit IDs from `read_timeline` clips, deduplicate, and group by scene or neighboring units, around 6 to 10 units per group. A unit and its candidates belong to only one group, compared by the same subagent.
+2. **Dispatch**: In one message, invoke one `review-footage` subagent per group so they run in parallel. Specify the script file, the group's unit IDs, and report requirements. Reports must at least cover usability, usable intervals and evidence, problems and timestamps, candidate ranking, whether regeneration is recommended (and whether prompts need changes), and one sentence usable directly as editing rationale.
+3. **Consolidate**: Decide step 3 operations per unit from the reports: select versions, trim to usable intervals, and write rationales; record units recommended for regeneration as creator decisions pending.
 
-完成标准：时间线用到的每个视频单元都有一份审片报告。缺报告的单元补派一次。
+Completion criterion: every unit used by the timeline has a footage review report. Dispatch once more for units missing reports.
 
-## 一轮结束的交付
+## Delivery at the end of a round
 
-一轮剪辑以一次交付结束，三样东西放在同一条消息里：
+End each editing round with one delivery, containing all three items in the same message:
 
-1. **改动总结**：按片段编号列出本轮改了什么、为什么改，包括挑了哪个视频版本。再列出结果 `issues` 中仍然存在的 blocking 级与 warning 级问题，并说明做不到的要求及原因。
-2. **「跳到这里看」链接**：每条问题都附一条应用内链接，写成 Markdown 链接，路径以 `/app/` 开头、不带域名，项目名按路径段做 URL 编码：
-   - 问题落在剪辑时间线的片段上：`/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`。`t` 是剪辑时间线上的全局时间：片段的 `start` 加上「问题时间点 − 该片段的入点」。
-   - 问题落在没进时间线的视频单元上：`/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`。`t` 是该视频单元视频自身的时间。
-3. **勾选清单**：有待创作者决定的事项时，交付消息发出后用 AskUserQuestion 多选（`multiSelect: true`）一次问完，每类一个问题：
-   - **重新生成**：先用 `mcp__arcreel__generate_videos` 预检（`preview: true`，`target` 取 `selected` 并列出全部候选单元，`force: true`）。每个选项写明视频单元、问题与时间点、是否修改提示词、预计费用与时长档位（档位有变化时写明编排时长与申请档位）；另给一个「全部重新生成」选项，写明合计费用。预检里 `blocked` 的单元不进选项，在改动总结里说明缺口。
-   - **改写画外音**：每个选项写明原文 → 改后文字、预计缩短的秒数。
+1. **Change summary**: List what changed and why by clip number, including selected video versions. Then list remaining blocking and warning problems in result `issues`, and explain unfulfilled requests and reasons.
+2. **“Jump here to inspect” links**: Attach an in-app Markdown link to every problem. Paths start with `/app/`, omit the domain, and URL-encode the project name as a path segment:
+   - For a problem on a timeline clip: `/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`. `t` is global timeline time: the clip's `start` plus “problem timestamp minus this clip's in-point”.
+   - For a problem on a unit outside the timeline: `/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`. `t` is time within that unit's own video.
+3. **Checklist**: When creator decisions are pending, after sending the delivery message, ask them all at once using AskUserQuestion multi-select (`multiSelect: true`), one question per category:
+   - **Regenerate**: First preview with `mcp__arcreel__generate_videos` (`preview: true`, `target` set to `selected` with all candidate units listed, `force: true`). Each option states the video unit, problem and timestamp, whether prompts change, estimated cost, and duration tier (if the tier changes, state the planned duration and requested tier); also include “Regenerate all” with total cost. Units marked `blocked` in the preview must not become options; explain the gaps in the change summary.
+   - **Rewrite voiceover**: Each option states original text → revised text and estimated seconds saved.
 
-   一个问题的选项放不下全部候选时，按场景合并为一个选项，写明包含哪些视频单元与合计费用。没有待决定事项时不发勾选清单。
+   If a question cannot fit all candidates, combine them by scene into an option identifying included units and total cost. Do not send a checklist when no decisions are pending.
 
-完成标准：交付消息里每条问题都有链接；每个待决定事项都在勾选清单里，并带上上述全部信息。
+Completion criterion: every delivery problem has a link; every pending decision appears in the checklist with all information above.
 
-## 执行勾选项
+## Execute selected items
 
-付费或改脚本的动作，一轮只确认一次：创作者在勾选清单里选中的，直接执行，不再追问。
+Confirm paid actions or script changes only once per round: execute the creator's checklist selections directly without asking again.
 
-- **重新生成**：要修改提示词的单元先用 `mcp__arcreel__patch_episode_script` 改好提示词。然后用一次 `generate_videos` 提交全部选中项：`target` 取 `selected` 列出选中的单元，`force: true`，`confirmed_request_durations` 原样带上预检结果里的同名字段，档位就不会再被要求确认。被要求重新确认时，说明档位或费用有了变化，把新的报价告诉创作者，由 TA 决定是否继续。
+- **Regenerate**: First modify prompts with `mcp__arcreel__patch_episode_script` for units requiring changes. Then submit all selected items in one `generate_videos`: set `target` to `selected`, list selected units, use `force: true`, and pass `confirmed_request_durations` unchanged from the preview's field of the same name so duration tiers do not require confirmation again. If reconfirmation is requested, explain that tiers or costs changed, give the creator the updated quote, and let them decide whether to continue.
 
-  完成后验收：记下各单元重新生成前的 current 版本号，派 `review-footage` 比较新旧两个版本。挑好的作为 current（旧版本更好时用 `select_video_version` 改回），按报告重设入出点，用 `edit_timeline` 写进剪辑时间线，再按「一轮结束的交付」告诉创作者结果。新版本仍有问题时只在交付里报告，不自动进行第二次重新生成。
-- **改写画外音**：用 `mcp__arcreel__patch_episode_script` 改写选中的画外音，再用 `mcp__arcreel__generate_narration_audio` 以 `segment_ids` 点名这些视频单元，重新生成旁白配音。
+  Acceptance after completion: record each unit's current version number before regeneration, and dispatch `review-footage` to compare old and new versions. Make the better version current (use `select_video_version` to switch back if the old one is better), reset in/out points from the report, write them into the timeline with `edit_timeline`, then report results following “Delivery at the end of a round”. If the new version still has problems, report them in delivery without automatically regenerating a second time.
+- **Rewrite voiceover**: Rewrite selected voiceover with `mcp__arcreel__patch_episode_script`, then regenerate narration audio with `mcp__arcreel__generate_narration_audio`, naming these video units in `segment_ids`.
 
-## 旁白放不下时
+## When narration does not fit
 
-旁白从承载片段的起点开始，按配音实测时长播放，比画面长时会延伸到后续片段上，压到下一段旁白上或超出末尾（`narration_overrun`），也可能盖住台词或原声未压低的片段（`narration_source_collision`）。处理办法按授权边界分三级：
+Narration starts at its host clip's beginning and plays for its measured audio duration. If longer than the visuals, it extends into following clips, overlaps the next narration or exceeds the end (`narration_overrun`), and may cover dialogue or clips whose original audio has not been lowered (`narration_source_collision`). Handle this in three levels according to authorization boundaries:
 
-- **只动剪辑时间线：直接做。** 放宽截取、切换视频版本、插入同一视频单元的额外片段、尾部定格延长、用 `place_narration` 改挂旁白、压低被盖住片段的原声音量，都在本轮里随其他调整一起提交，并把理由写进片段的剪辑理由。
-- **改写画外音：先经创作者确认。** 放进勾选清单，按「执行勾选项」处理。
-- **重新生成更长的视频：先改编排时长，再征得同意。** 这一步会产生费用：先说明要把哪个视频单元的编排时长改成多少，以及预计费用，创作者同意后再改编排时长并重新生成。
+- **Timeline-only changes: act directly.** Loosen trims, switch video versions, insert additional clips of the same unit, extend tail freezes, reattach narration with `place_narration`, or lower covered clips' original audio. Submit these alongside other adjustments in this round and explain them in clip editing rationales.
+- **Rewrite voiceover: obtain creator confirmation first.** Add it to the checklist and follow “Execute selected items”.
+- **Regenerate a longer video: change planned duration first, then obtain consent.** This costs money: first explain which unit's planned duration should change to what value and the estimated cost; only after the creator agrees, change the duration and regenerate.
 
-这两个 issue 都是警告，不阻断出片。剪辑调整之后仍放不下时，在总结里写明剩下的越界与相撞，由创作者决定是带着警告出片，还是批准改写或重新生成。
+Both issues are warnings and do not block output. If narration still does not fit after timeline adjustments, state remaining overruns and collisions in the summary, letting the creator choose output with warnings or approve rewriting or regeneration.
 
-## 配 BGM
+## Add BGM
 
-BGM 由创作者在 Web 端剪辑视图的 BGM 轨上传，属于整个项目，响度在上传时已统一。BGM 操作随本轮其他调整在同一次 `edit_timeline` 里提交。
+The creator uploads BGM on the Web editing view's BGM track. BGM belongs to the entire project, and its loudness is normalized on upload. Submit BGM operations with this round's other adjustments in the same `edit_timeline`.
 
-1. **挑 BGM**：用 `mcp__arcreel__list_bgm` 列出项目里的 BGM。用户点名了哪首就用哪首；没点名时，按名称挑最贴合本集情绪的一首，并在总结里说明挑了哪首。项目里没有 BGM，或没有合适的 BGM 时，请创作者在剪辑视图的 BGM 轨上传，上传后再摆放。
-2. **摆放**：用 `insert_bgm` 按时间线上的绝对起点摆放。音量和淡入淡出取默认值，用户有要求时再调。
-3. **拼多段**：BGM 比要覆盖的区间短时，接着摆下一段：下一段的 `start` 等于上一段的结束时间（上一段的 `start` + `source_out` − `source_in`），首尾相接、不重叠。下一段可以截取 BGM 的另一段落，避免同一乐句反复出现。拼接处两侧的淡出淡入改短到 0.5 秒左右，听起来更连贯。
-4. **结尾**：超出时间线末尾的部分会自动截断，并在截断处淡出，不需要算准最后一段的出点。
+1. **Choose BGM**: Use `mcp__arcreel__list_bgm` to list project BGM. Use the track the user names; otherwise choose by name the one best fitting the episode's mood, and explain the selection in the summary. If there is no BGM or none suitable, ask the creator to upload on the editing view's BGM track, then place it after upload.
+2. **Place**: Use `insert_bgm` with an absolute timeline start. Keep default volume and fades unless the user requests changes.
+3. **Join multiple segments**: If BGM is shorter than the required coverage, place another segment after it: its `start` equals the preceding segment's end (the preceding `start` + `source_out` − `source_in`), touching without overlap. Use another passage of the BGM if appropriate to avoid repeating the same phrase. Shorten fades on both sides of joins to around 0.5 seconds for continuity.
+4. **Ending**: Material beyond the timeline end is automatically truncated and faded there; no need to calculate the last out-point exactly.
 
-完成标准：BGM 片段覆盖用户要求的区间，彼此不重叠；`issues` 里没有 `bgm_missing`。出现 `bgm_missing` 时，换一首项目里现有的 BGM，或请创作者重新上传。
+Completion criterion: BGM clips cover the requested interval without overlap; `issues` has no `bgm_missing`. If `bgm_missing` occurs, choose existing project BGM or ask the creator to upload again.
 
-## 回到旧修订与整理时间线
+## Restore older revisions and organize timelines
 
-每次提交都会追加一个修订，历史不改写。
+Every submission appends a revision; history is not rewritten.
 
-- **回到旧修订**：用户要撤销改动或回到某个旧样子时，用 `mcp__arcreel__list_revisions` 找到目标修订。用户说的是「撤销上一次」或点名了修订时，直接用 `mcp__arcreel__restore_revision` 回滚；目标不明确时，先把修订摘要列给用户选。回滚整段替换当前内容，回滚后读取一次时间线，按「一轮结束的交付」中改动总结的格式告诉用户现在是什么样。
-- **改名**：用 `mcp__arcreel__rename_timeline`，只改显示名，不产生修订。
-- **删除**：Agent 没有删除剪辑时间线的工具（`delete_project_file` 只删未引用文件与历史版本，时间线会被拒绝）。用户要删某条时，告诉 TA 在 Web 端剪辑视图里点该时间线标签旁的菜单，选「删除」。
+- **Restore an older revision**: When the user wants to undo changes or return to an older state, find the target with `mcp__arcreel__list_revisions`. For “undo the last change” or an explicitly named revision, roll back directly using `mcp__arcreel__restore_revision`; if unclear, list revision summaries for the user to choose. Rollback replaces the entire current content. Read the timeline afterward and describe its current state using the change-summary format in “Delivery at the end of a round”.
+- **Rename**: Use `mcp__arcreel__rename_timeline`; it changes only the display name and creates no revision.
+- **Delete**: The Agent has no timeline deletion tool (`delete_project_file` deletes only unreferenced files and historical versions; timelines are rejected). If the user wants one deleted, tell them to open the menu beside its timeline tab in the Web editing view and choose “Delete”.
 
-## 出片
+## Output
 
-出片有两种交付物：成片（`mcp__arcreel__render_final_cut`）和剪映草稿（`mcp__arcreel__export_jianying_draft`）。用户要哪种就出哪种；只说「出片」时出成片。剪映草稿只在用户要求时导出。
+There are two deliverables: final cuts (`mcp__arcreel__render_final_cut`) and Jianying drafts (`mcp__arcreel__export_jianying_draft`). Produce whichever the user requests; if they only say “output”, produce a final cut. Export a Jianying draft only when requested.
 
-1. **告知问题**：以最近一次读取或提交结果里的 `issues` 为准。
-   - 有 blocking 级问题：列给用户，说明出片被哪些片段挡住，以及怎么解决；这些问题解决前不提交。`applies_to` 为 `with_narration` 的问题只挡带旁白版本。需要付费的处理（如生成缺失的视频）由用户决定。
-   - 有 warning 级问题：列给用户，说明出片会带着这些问题进行，然后提交。用户要求先修再出时，回到「一轮剪辑」。
-2. **提交**：用对应工具提交选中的时间线，等到终态结果。旁白版本（两种交付物都有）和是否烧入字幕（只有成片）按用户要求选择，用户没提就省略、取默认：TTS 配音项目带旁白，成片烧入字幕。被拒时，把返回的问题码和涉及的片段告诉用户，并按工具支持的内容给出改法。由用户确认后，再走一轮剪辑。
-3. **交付**：
-   - 成片：给出下载链接与验收结果。实测音视频时长与剪辑时间线时长明显不一致时，明确指出来。
-   - 剪映草稿：结果不带下载链接。告诉用户草稿已生成，请在 Web 端下载，下载时填写本机的剪映草稿目录。
+1. **Disclose issues**: Use `issues` from the latest read or submission result.
+   - For blocking problems: list them, explain which clips prevent output and how to fix them; do not submit until resolved. Problems with `applies_to` set to `with_narration` block only narrated versions. The user decides on paid remedies (such as generating missing videos).
+   - For warning problems: list them, explain output will include these problems, then submit. If the user asks to fix them first, return to “One editing round”.
+2. **Submit**: Submit the selected timeline using the corresponding tool and wait for a terminal result. Select narration (both deliverables) and burned-in subtitles (final cuts only) as requested; omit unspecified options to use defaults: TTS projects include narration, and final cuts burn in subtitles. If rejected, tell the user returned problem codes and affected clips, and suggest fixes supported by the tools. After user confirmation, run another editing round.
+3. **Deliver**:
+   - Final cut: provide the download link and acceptance results. Explicitly flag a significant difference between measured audio/video duration and timeline duration.
+   - Jianying draft: the result has no download link. Tell the user the draft was generated and should be downloaded from the Web interface, entering their local Jianying draft directory when downloading.

@@ -1,0 +1,38 @@
+[
+  {
+    "mode": "drama",
+    "customized_and_deleted": false,
+    "initial_files": 25,
+    "actual_tree_upgrade_and_rollback_passed": true
+  },
+  {
+    "mode": "drama",
+    "customized_and_deleted": true,
+    "initial_files": 25,
+    "actual_tree_upgrade_and_rollback_passed": true
+  },
+  {
+    "mode": "narration",
+    "customized_and_deleted": false,
+    "initial_files": 25,
+    "actual_tree_upgrade_and_rollback_passed": true
+  },
+  {
+    "mode": "narration",
+    "customized_and_deleted": true,
+    "initial_files": 25,
+    "actual_tree_upgrade_and_rollback_passed": true
+  },
+  {
+    "mode": "ad",
+    "customized_and_deleted": false,
+    "initial_files": 25,
+    "actual_tree_upgrade_and_rollback_passed": true
+  },
+  {
+    "mode": "ad",
+    "customized_and_deleted": true,
+    "initial_files": 25,
+    "actual_tree_upgrade_and_rollback_passed": true
+  }
+]

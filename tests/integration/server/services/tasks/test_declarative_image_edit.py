@@ -1,8 +1,6 @@
-"""图片编辑选用声明了图生图的声明式图片端点：编辑指令随 prompt 下发，当前图作为参考图，产出新版本。
+"""Image editing selects a declarative image endpoint supporting i2i: send edit instructions as prompt and current image as reference, producing a new version.
 
-真 ``ProjectManager`` + 真 ``MediaGenerator`` + 由端点投影装出的声明式图片 backend，出站请求由
-respx 在 transport 层应答。
-"""
+Real ``ProjectManager`` + ``MediaGenerator`` + endpoint-projected declarative image backend; respx answers at transport."""
 
 from __future__ import annotations
 

@@ -1,8 +1,6 @@
-"""
-版本管理 API 路由
+"""Version-management API routes.
 
-处理版本查询和还原请求。
-"""
+Handle version queries and restoration."""
 
 import asyncio
 import logging
@@ -41,9 +39,9 @@ from server.services.tasks.derivative_sheet_tasks import point_derivative_at_she
 
 router = APIRouter()
 
-# 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.project.resource_paths，本路由
-# 仅放行有还原后元数据同步分支的这几类。grids 的还原只换回联合图文件并复位宫格记录的
-# 切分态，不触发切分、不碰任何分镜图——落格由宫格切分端点显式执行。
+# Restorable resource types are API policy; lib.project.resource_paths defines paths. Allow only types
+# with post-restoration metadata synchronization. Grid restoration replaces composites and resets split
+# state only, without splitting/touching storyboards; explicit grid splitting assigns cells.
 _RESTORABLE_RESOURCE_TYPES = frozenset(
     {
         "storyboards",
@@ -61,7 +59,7 @@ _RESTORABLE_RESOURCE_TYPES = frozenset(
 
 
 def get_version_manager(project_name: str) -> VersionManager:
-    """获取项目的版本管理器"""
+    """Get the project version manager."""
     project_path = get_project_manager().get_project_path(project_name)
     return VersionManager(project_path)
 
@@ -71,7 +69,7 @@ def _resolve_resource_path(
     resource_id: str,
     project_path: Path,
 ) -> tuple[Path, str]:
-    """返回 (current_file_absolute, relative_file_path)；资源类型不可还原或 ID 越界时抛出领域异常。"""
+    """Return (current_file_absolute, relative_file_path); raise domain exceptions for unrestorable types or out-of-bounds IDs."""
     if resource_type not in _RESTORABLE_RESOURCE_TYPES:
         raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
     return resolve_media_file(resource_type, resource_id, project_path)
@@ -84,14 +82,13 @@ def _sync_grid_record(
     on_commit: Callable[[], None] | None = None,
     on_miss: Callable[[], None] | None = None,
 ) -> None:
-    """还原联合图后复位宫格记录：内容已换回历史版本，旧的落格结果不再对应当前图。
+    """Reset grid records after restoring composites: historical content replaces current, so old split results no longer match.
 
-    只动宫格记录自身（split_at / 失败态），不同步剧本或分镜——落格由切分端点显式执行；
-    frame_chain 原样保留。记录缺失/损坏时跳过：联合图文件已还原成功，记录属 best-effort。
+    Change only grid split_at/failure state, without synchronizing scripts/storyboards; splitting requires explicit endpoint execution.
+    Retain frame_chain unchanged. Skip missing/corrupt records as best effort because composite restoration already succeeded.
 
-    还原本身不设在途闸门（与分镜图还原同口径），复位口径见
-    ``GridGeneration.mark_composite_replaced``：生成在途时保留在途态，否则记录会谎报空闲。
-    """
+    Restoration has no in-flight gate, like storyboard restoration. ``GridGeneration.mark_composite_replaced`` retains
+    in-flight state during generation rather than falsely marking the record idle."""
     from lib.script.grid.grid_manager import GridManager
 
     manager = GridManager(project_path)
@@ -104,14 +101,14 @@ def _sync_grid_record(
     )
 
 
-# resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）
+# resource_type (plural URL segment) → asset_type (singular ASSET_SPECS key).
 _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
     "characters": "character",
     "scenes": "scene",
     "props": "prop",
     "products": "product",
 }
-# 资产图、衍生资产图与分镜图：还原到手动上传记录时按上传字节重新登记。
+# Asset/derivative/storyboard images restored to manual-upload records register basis from uploaded bytes.
 _UPLOAD_CLAIMED_RESOURCE_TYPES = frozenset(
     {*_RESOURCE_TO_ASSET_TYPE, CHARACTER_DERIVATIVE_RESOURCE_TYPE, "storyboards"}
 )
@@ -142,8 +139,8 @@ def _commit_non_typed_restore_claim(
         return
 
     if resource_type in _UPLOAD_CLAIMED_RESOURCE_TYPES and (record or {}).get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
-        # 还原到作为成品带入的资产图、衍生资产图（作者上传或从资产库应用）或作者上传的分镜图：
-        # 选中的已是这条手动上传记录，规划器按上传字节投影依据，投影不出即遗忘。
+        # For restored finished asset/derivative images, uploaded/library-applied, or uploaded storyboards,
+        # the upload record is selected; project basis from its bytes, forgetting basis if projection fails.
         register_current_resource_artifact(
             project_path,
             resource_type=resource_type,
@@ -268,7 +265,7 @@ def _restore_non_typed_version(
     return restored[0]
 
 
-# ==================== 版本查询 ====================
+# ==================== Version queries ====================
 
 
 @router.get("/projects/{project_name}/versions/{resource_type}/{resource_id}")
@@ -277,14 +274,12 @@ async def get_versions(
     resource_type: str,
     resource_id: str,
 ):
-    """
-    获取资源的所有版本列表
+    """List all versions of a resource.
 
     Args:
-        project_name: 项目名称
-        resource_type: 资源类型 (storyboards, videos, characters, scenes, props)
-        resource_id: 资源 ID
-    """
+        project_name: Project name.
+        resource_type: Resource type (storyboards, videos, characters, scenes, props).
+        resource_id: Resource ID."""
     return await read_resource_versions(project_name, resource_type, resource_id)
 
 
@@ -294,10 +289,9 @@ async def get_derivative_versions(
     owner_name: str,
     derivative_name: str,
 ):
-    """获取一个角色衍生资产图的版本列表。
+    """List versions of a character-derivative image.
 
-    衍生的资源 id 是 ``本体名/衍生名``，塞不进通用版本路由的单段路径参数，故单列两段路径。
-    """
+    Derivative IDs ``本体名/衍生名`` do not fit generic single-segment parameters, so use a separate two-segment path."""
     return await read_resource_versions(
         project_name,
         CHARACTER_DERIVATIVE_RESOURCE_TYPE,
@@ -312,7 +306,7 @@ async def restore_derivative_version(
     derivative_name: str,
     version: int,
 ):
-    """把一个角色衍生资产图切回指定历史版本。"""
+    """Restore a character-derivative image to a specified historical version."""
     return await restore_resource_version(
         project_name,
         CHARACTER_DERIVATIVE_RESOURCE_TYPE,
@@ -322,7 +316,7 @@ async def restore_derivative_version(
 
 
 async def read_resource_versions(project_name: str, resource_type: str, resource_id: str) -> dict[str, Any]:
-    """版本列表的读取实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
+    """Version-list reading shared by routes with hierarchical IDs, such as derivatives, that cannot use single-segment parameters."""
     try:
 
         def _sync():
@@ -337,12 +331,12 @@ async def read_resource_versions(project_name: str, resource_type: str, resource
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:
-        # 非法项目名 / 损坏的 versions.json 等坏请求，str(e) 可能含路径只进日志
+        # Invalid project names, corrupt versions.json and other bad requests may put paths in str(e); log only.
         logger.warning("版本查询请求非法: %s", e)
         raise BadRequestError("request_invalid") from e
 
 
-# ==================== 版本还原 ====================
+# ==================== Version restoration ====================
 
 
 @router.post("/projects/{project_name}/versions/{resource_type}/{resource_id}/restore/{version}")
@@ -352,24 +346,22 @@ async def restore_version(
     resource_id: str,
     version: int,
 ):
-    """
-    切换到指定版本
+    """Switch to a specified version.
 
-    会将指定版本复制到当前路径，并把当前版本指针切换到该版本。
+    Copy the selected version to the current path and select it as current.
 
     Args:
-        project_name: 项目名称
-        resource_type: 资源类型
-        resource_id: 资源 ID
-        version: 要还原的版本号
-    """
+        project_name: Project name.
+        resource_type: Resource type.
+        resource_id: Resource ID.
+        version: Version number to restore."""
     return await restore_resource_version(project_name, resource_type, resource_id, version)
 
 
 async def _locate_version_work_file(
     project_name: str, resource_type: str, resource_id: str, version: int
 ) -> tuple[Path, str | None]:
-    """定位待还原快照，调用方在取回与整个还原期间登记使用。"""
+    """Locate the snapshot to restore; callers register use throughout retrieval and restoration."""
 
     def _locate() -> tuple[Path, str | None]:
         project_path = get_project_manager().get_project_path(project_name)
@@ -387,7 +379,7 @@ async def restore_resource_version(
     resource_id: str,
     version: int,
 ) -> dict[str, Any]:
-    """版本还原的实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
+    """Restoration shared by routes with hierarchical IDs, such as derivatives, that cannot use single-segment parameters."""
     try:
         if is_typed_media_restore_resource(resource_type):
             with project_change_source("webui"):
@@ -403,8 +395,8 @@ async def restore_resource_version(
         project_path, file = await _locate_version_work_file(project_name, resource_type, resource_id, version)
 
         def _sync():
-            # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
-            # 与重生成/切分/上传共用准入判定；漏掉这里，被封禁项目就能从还原绕过。
+            # Restoration also writes composites, restoring historical content and resetting grid records,
+            # so share regeneration/split/upload admission; omission would let blocked projects bypass via restoration.
             if resource_type == "grids":
                 ensure_grid_writable(get_project_manager().load_project(project_name))
 
@@ -423,7 +415,7 @@ async def restore_resource_version(
                 project_path=project_path,
             )
 
-            # 计算还原后文件的 fingerprint
+            # Compute the restored file fingerprint.
             asset_fingerprints: dict[str, int] = {}
             if current_file.exists():
                 asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
@@ -439,6 +431,6 @@ async def restore_resource_version(
             return await run_sync_transaction(_sync)
 
     except ValueError as e:
-        # 非法项目名 / 越界 resource_id 等坏请求，str(e) 可能含路径只进日志
+        # Invalid project names/out-of-bounds resource_id may put paths in str(e); log only.
         logger.warning("版本还原请求非法: %s", e)
         raise BadRequestError("request_invalid") from e

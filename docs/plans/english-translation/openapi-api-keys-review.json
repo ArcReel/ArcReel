@@ -1,0 +1,32 @@
+[
+  {
+    "path": [
+      "paths",
+      "/api/v1/api-keys",
+      "get",
+      "description"
+    ],
+    "before": "查询所有 API Key 的元数据（不含完整 key）。",
+    "after": "List metadata for all API keys, excluding full keys."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/api-keys",
+      "post",
+      "description"
+    ],
+    "before": "创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。",
+    "after": "Create a new API key. Return the full key only once in this response; it cannot be viewed again afterward."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/api-keys/{key_id}",
+      "delete",
+      "description"
+    ],
+    "before": "删除（吊销）指定 API Key，并立即清除内存缓存。",
+    "after": "Delete (revoke) the specified API key and immediately clear its memory cache."
+  }
+]

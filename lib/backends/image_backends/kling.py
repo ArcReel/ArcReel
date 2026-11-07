@@ -1,27 +1,26 @@
-"""KlingImageBackend — 可灵 Kling 图像生成后端（JWT 直连 / Bearer 中转双模式，异步轮询）。
+"""KlingImageBackend: asynchronous native Kling images, direct JWT / relay Bearer modes.
 
-走可灵原生图像端点：submit ``POST /v1/images/generations`` 取 ``data.task_id`` →
-轮询 ``GET /v1/images/generations/{task_id}`` 至 ``task_status=succeed`` 取
-``task_result.images[0].url``（24h 有效）→ 失效前立即下载本地。
+Submit ``POST /v1/images/generations`` for ``data.task_id``; poll
+``GET /v1/images/generations/{task_id}`` until ``task_status=succeed``; retrieve
+``task_result.images[0].url`` valid 24h and download before expiry.
 
-鉴权 / base_url 装配 / submit-poll 骨架由 ``KlingBackendBase`` 共享（与 ``KlingVideoBackend`` 同源），
-本类只填图像侧差异：端点路径、payload 构建、参考图编码、静态 capability 与 ``api_model_name`` 解耦。
+``KlingBackendBase`` shares authentication/base_url/submit-poll scaffolding with ``KlingVideoBackend``.
+This class provides image paths, payloads, reference encoding, static capabilities, and ``api_model_name`` decoupling.
 
-双模式（对齐 ``KlingVideoBackend`` 的 ``auth_mode`` 先例）：
-- ``auth_mode="jwt"``（内置 provider）：接 access_key + secret_key，走 ``KlingJWTManager``，
-  每次 HTTP 调用前检查过期、距过期 <60s 按需重签——异步渲染可能超单 token 寿命。
-- ``auth_mode="bearer"``（自定义 endpoint）：接静态 api_key + base_url，旁路 JWT 管理器。
+Two modes, matching ``KlingVideoBackend`` ``auth_mode`` precedent:
+- ``auth_mode="jwt"`` built-ins take access_key + secret_key through ``KlingJWTManager``. Check every
+  HTTP call and resign under 60s before expiry; async renders can outlive individual tokens.
+- ``auth_mode="bearer"`` custom endpoints use static api_key + base_url, bypassing JWT management.
 
-注册图像模型：
-- ``kling-image-o1``（默认）：文生图 / 图生图 / 1-10 图参考（跨图角色一致性），按 ``image`` 数组下传。
-- ``kling-v3-omni-image``：文生图 / 图生图 / 组图生成（registry 别名键，API 模型名 ``kling-v3-omni``）。
+Registered image models:
+- ``kling-image-o1``, default: text/image-to-image, 1–10 references with cross-image consistency, sent as ``image`` arrays.
+- ``kling-v3-omni-image``: text/image-to-image and sets; registry alias with API name ``kling-v3-omni``.
 
-发给 API 的模型名取 ``api_model_name``（registry 解耦键名与 API 名，供两栖模型共用 API 名），缺省回退
-到 registry 键名——不硬发键名，否则别名键会把 ``kling-v3-omni-image`` 误当 API 模型名。
+Send ``api_model_name``, decoupling registry/API names for dual-modality models. Default to registry keys,
+never blindly send keys or ``kling-v3-omni-image`` aliases would become invalid API names.
 
-resolution（1K/2K/4K）由 registry 声明驱动 UI 下拉与计费，不下传请求体：可灵图像官方关键参数
-（model_name/prompt/image/aspect_ratio/n 等）未含 resolution 字段，与 KlingVideoBackend 一致只发
-已核实参数，避免猜测外部 API 结构。
+Registry resolution 1K/2K/4K drives UI/pricing, not payloads: official image fields model_name/prompt/image /
+aspect_ratio/n omit resolution. Like KlingVideoBackend, send verified fields only, never guess external APIs.
 """
 
 from __future__ import annotations
@@ -62,11 +61,11 @@ _POLL_MAX_WAIT_SECONDS = 600.0
 
 
 class KlingImageBackend(KlingBackendBase):
-    """可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。"""
+    """Asynchronous Kling image backend, JWT / Bearer authentication."""
 
-    # 文生图与图生图（多图主体）同一端点。
+    # Text-to-image and multi-image subject I2I share endpoints.
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：各图像模型多图主体的上限是模型事实，记在条目上。
+    # Channels impose no reference counts; model-specific subject maxima live in entries.
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     _media_label = "图像"
@@ -94,7 +93,7 @@ class KlingImageBackend(KlingBackendBase):
             http_timeout=http_timeout,
             transport_layer=transport_layer,
         )
-        # 发给可灵 API 的模型名：调用方按 registry 解耦后传入；缺省回退 registry 键名（普通模型键名即 API 名）。
+        # API model names supplied after registry decoupling, defaulting to keys when ordinary keys equal API names.
         self._api_model_name = api_model_name or self._model
 
     @property
@@ -107,7 +106,7 @@ class KlingImageBackend(KlingBackendBase):
     # ── request building ────────────────────────────────────────────────
 
     def _build_payload(self, request: ImageGenerationRequest) -> dict:
-        """构建图像请求体。无参考图 → 文生图；有参考图 → 图生图（image 数组）。"""
+        """Build image bodies: no references means T2I; references mean image-array I2I."""
         payload: dict = {
             "model_name": self._api_model_name,
             "prompt": request.prompt,
@@ -120,16 +119,16 @@ class KlingImageBackend(KlingBackendBase):
         return payload
 
     def _encode_references(self, reference_images: list[ReferenceImage]) -> list[str]:
-        """参考图 → 纯 base64 列表（无 data URI 前缀）；缺失/不可读 fail-loud。"""
+        """References → bare base64 lists without data-URI prefixes; missing/unreadable inputs fail loudly."""
         if not reference_images:
             return []
         encoded: list[str] = []
         unreadable: list[str] = []
-        # names 进多语言错误模板：空路径无文件名时用序号 #N 标识第几张，避免占位漏进非中文报错。
+        # names enter multilingual errors; empty paths use reference ordinal #N, never localized placeholders.
         for idx, ref in enumerate(reference_images, start=1):
             path = Path(ref.path) if ref.path else None
             if path is None or not path.is_file():
-                # path.name 可能为空（如 "." / "/" 解析出空文件名）：回退序号 #N，避免空 token 漏进报错。
+                # Empty path.name, such as . or /, falls back to #N to avoid blank error tokens.
                 unreadable.append(path.name if (path and path.name) else f"#{idx}")
                 continue
             try:
@@ -138,7 +137,7 @@ class KlingImageBackend(KlingBackendBase):
                 logger.warning("Kling 参考图读取失败: %s (%s)", path, exc)
                 unreadable.append(path.name)
         if unreadable:
-            # fail-loud：声明的参考图缺失即中止，不静默用子集生成出错误结果还照常计费。
+            # Fail loudly for missing declared images instead of billing incorrect subset-generated results.
             raise ImageCapabilityError(
                 "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
             )
@@ -146,9 +145,9 @@ class KlingImageBackend(KlingBackendBase):
 
     @staticmethod
     def _safe_log_view(payload: dict) -> dict:
-        """预脱敏标量视图，直接喂 logger（避开 format_kwargs_for_log sink）。
+        """Preredacted scalar views sent directly to logger, avoiding format_kwargs_for_log sinks.
 
-        base64 参考图 / prompt 一律不展开：仅记是否存在 + 数量 + prompt 长度。
+        Never expand base64 references/prompts; report only presence, counts, and prompt lengths.
         """
         prompt = payload.get("prompt")
         images = payload.get("image")
@@ -165,7 +164,7 @@ class KlingImageBackend(KlingBackendBase):
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        """请求体不带分辨率（见模块说明），不报分辨率，按价目表的默认档计。"""
+        """Payloads omit resolution, so omit its usage dimension and bill the price table's default tier."""
         return per_image_usage(output_images=1, input_images=facts.reference_count)
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -180,7 +179,7 @@ class KlingImageBackend(KlingBackendBase):
                 poll_interval=_POLL_INTERVAL_SECONDS,
                 max_wait=_POLL_MAX_WAIT_SECONDS,
             )
-            # 24h 有效的 image_url 必须在失效前落地：取首张转存本地（组图按张产出，单输出取 [0]）。
+            # Persist 24-hour image_url before expiry; take first output [0], with sets billed per produced image.
             download_url = extract_kling_image_urls(final)[0]
 
         await download_image_to_path(download_url, request.output_path)
@@ -193,7 +192,7 @@ class KlingImageBackend(KlingBackendBase):
             model=self._model,
             image_uri=download_url,
             seed=request.seed,
-            # 请求体不带分辨率，不报分辨率。
+            # Payloads omit resolution; omit its metering dimension too.
             usage=per_image_usage(
                 output_images=1, input_images=len(images) if isinstance(images, list) else int(bool(images))
             ),
@@ -201,7 +200,7 @@ class KlingImageBackend(KlingBackendBase):
 
 
 class KlingSingleImageBackend(KlingImageBackend):
-    """可灵单参考图通道：``image`` 是纯 base64 字符串。"""
+    """Single-reference Kling channel: ``image`` is a bare base64 string."""
 
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = 1
 

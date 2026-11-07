@@ -1,4 +1,4 @@
-"""单元换了选中媒体后，基于旧媒体版本物化的字幕与呈现登记在导出与导入时暂不适用，不让导出失败。"""
+"""After selected-media changes, old-version-materialized subtitle/presentation registrations become temporarily inapplicable on export/import, never failing exports."""
 
 from __future__ import annotations
 
@@ -34,10 +34,10 @@ _SUBTITLE_PATH, _PRESENTATION_PATH = presentation_artifact_paths(1, "E1S01", "us
 
 
 async def _project_with_materialized_presentations(tmp_path: Path) -> tuple[ProjectManager, Path, str]:
-    """两个分镜都有 AI 视频，导出过带旁白的剪映草稿，字幕与呈现已物化并登记。"""
+    """Both shots have AI videos; exported narrated Jianying drafts already materialized/registered subtitles and presentation."""
 
     pm, project_path = setup_project(tmp_path)
-    # 补齐剧本必填字段，导出的包才能通过导入校验
+    # Fill required script fields so exported archives pass import validation.
     with pm.locked_script("demo", "episode_1.json", validate=False) as script:
         script["title"] = "One"
         for segment in script["segments"]:
@@ -101,13 +101,13 @@ async def test_manual_upload_keeps_export_available_and_full_archive_keeps_the_o
 
     await _upload_e1s01_video(pm, project_path, monkeypatch)
 
-    # 剪映草稿下载：下载令牌走下面的导出校验，草稿打包本身照常可用
+    # Jianying draft downloads: download tokens use export checks below; draft packaging remains available normally.
     package, _name = await TimelineJianyingDraftService(pm).package_download(
         "demo", timeline_id, narration="with_narration", draft_root="/Users/me/JianyingPro Drafts", jianying_version="6"
     )
     shutil.rmtree(package.parent)
 
-    # 上传只改视频：同单元的字幕与呈现登记原样保留
+    # Upload changes video only; retain same-unit subtitle/presentation registrations.
     claims_after = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
     assert {key: claims_after[key] for key in (_SUBTITLE, _PRESENTATION)} == {
         key: claims_before[key] for key in (_SUBTITLE, _PRESENTATION)
@@ -116,13 +116,13 @@ async def test_manual_upload_keeps_export_available_and_full_archive_keeps_the_o
     for scope in ("current", "full"):
         service.get_export_diagnostics("demo", scope=scope)
 
-    # 仅当前版本的包不带旧 AI 视频的快照，旧登记在包里无从核验，不随包；完整包连同快照一起带上
+    # Current-only archives lack old AI-video snapshots and cannot verify old registrations, so omit them; full archives retain both.
     current_archive, _ = service.export_project("demo", scope="current")
     assert not {_SUBTITLE.encode(), _PRESENTATION.encode()} & _archived_claims(current_archive)
     full_archive, _ = service.export_project("demo", scope="full")
     assert {_SUBTITLE.encode(), _PRESENTATION.encode()} <= _archived_claims(full_archive)
 
-    # 完整包导入后切回 AI 版本，旧登记照常有效
+    # After full import, switching to AI versions keeps old registrations valid.
     shutil.rmtree(project_path)
     service.import_project_archive(full_archive, uploaded_filename="demo.zip")
     imported = pm.get_project_path("demo")
@@ -165,12 +165,12 @@ async def test_regenerating_or_switching_the_ai_video_keeps_export_available(tmp
     pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
     service = ProjectArchiveService(pm)
 
-    # AI 重新生成出版本 2，字幕与呈现尚未按新视频重新物化
+    # AI regenerated version 2; subtitles/presentation have not materialized against new video.
     _install_video(project_path, narration_segment("E1S01", "旁白一句"), 1.0)
     for scope in ("current", "full"):
         service.get_export_diagnostics("demo", scope=scope)
 
-    # 切回版本 1，再切到版本 2：两次切换后导出都可用
+    # Switch to version 1 then 2; export works after both switches.
     await _restore_e1s01_video(pm, project_path, 1)
     service.get_export_diagnostics("demo", scope="current")
     await _restore_e1s01_video(pm, project_path, 2)
@@ -228,12 +228,12 @@ async def test_regenerating_narration_keeps_export_and_draft_download_available(
     shutil.rmtree(package.parent)
     service.get_export_diagnostics("demo", scope="current")
 
-    # 当前包不带旧音频快照与登记，仍可导入。
+    # Current archives omit old audio snapshots/registrations and remain importable.
     shutil.rmtree(project_path)
     service.import_project_archive(current_archive, uploaded_filename="demo.zip")
     assert not {_SUBTITLE, _PRESENTATION} & set(ProjectArtifactManifestAdapter(project_path).snapshot_entries())
 
-    # 完整包保全旧音频登记与快照，切回旧版本后再次 current。
+    # Full archives preserve old audio registrations/snapshots, current again after switching back.
     shutil.rmtree(project_path)
     service.import_project_archive(full_archive, uploaded_filename="demo.zip")
     imported = pm.get_project_path("demo")

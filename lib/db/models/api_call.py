@@ -21,30 +21,30 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     resolution: Mapped[str | None] = mapped_column(String)
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     aspect_ratio: Mapped[str | None] = mapped_column(String)
-    # 只对视频调用有意义；调用方未声明即 NULL，不给非视频行填默认值。
+    # Meaningful only for video calls; NULL when unspecified, without defaults for nonvideo rows.
     generate_audio: Mapped[bool | None] = mapped_column(Boolean)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
-    # 失败原因的机器稳定形式（错误码 + 参数），供前端按当前语言渲染；error_message 保留原文。
+    # Machine-stable failure form (error code + parameters) for frontend locale rendering; error_message retains original text.
     error_code: Mapped[str | None] = mapped_column(String)
     error_params: Mapped[object | None] = mapped_column(JSON, nullable=True)
-    # 产物路径：项目内相对路径，与 inputs 里的路径同口径。
+    # Artifact path: project-relative, matching paths in inputs.
     output_path: Mapped[str | None] = mapped_column(Text)
     segment_id: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
-    # 该调用服务的生成任务；无任务的调用（文本四处、助手会话、端点试跑）留空，由 purpose 说明来源。
+    # Generation task served by this call; leave empty for taskless calls (four text sites, assistant sessions, endpoint trials), with origin in purpose.
     task_id: Mapped[str | None] = mapped_column(String, nullable=True)
     purpose: Mapped[str | None] = mapped_column(String, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    # 这次调用发出去的输入：参考图 [{path, label, role}]、首帧 / 尾帧、音色、未单列成列的请求参数；
-    # 路径为项目内相对路径（见 lib/generation/media_generator.py 的输入归一）。
+    # Inputs sent by this call: reference images [{path, label, role}], first / last frames, voice, and
+    # request parameters without dedicated columns. Paths are project-relative (normalization in lib/generation/media_generator.py).
     inputs: Mapped[object | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
-    # NULL 表示未定价，与 0（定价为零）区分；汇总只计非 NULL 且大于 0 的行。服务端默认 0.0 保留给
-    # 刚发起的 pending 行；ORM 插入时 Python 侧的 None 会被默认值顶替，要写 NULL 用 sqlalchemy.null()，
-    # UPDATE 不受此限。
+    # NULL means unpriced, distinct from zero-priced 0; aggregates count only non-NULL rows greater than 0.
+    # The server default 0.0 is for newly started pending rows. ORM inserts replace Python None with the
+    # default; use sqlalchemy.null() to write NULL. UPDATE does not have this limitation.
     cost_amount: Mapped[float | None] = mapped_column(Float, nullable=True, server_default="0.0")
     currency: Mapped[str] = mapped_column(String, server_default="USD")
     provider: Mapped[str] = mapped_column(String, server_default="gemini")
@@ -56,9 +56,9 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     text_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_provider_response: Mapped[object | None] = mapped_column(JSON, nullable=True)
-    # 未定价（cost_amount 为 NULL）的原因；已定价的行留空。
+    # Reason for unpriced cost_amount NULL; empty for priced rows.
     unpriced_reason: Mapped[str | None] = mapped_column(String, nullable=True)
-    # input_tokens 仍记总输入（含缓存）；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
+    # input_tokens remains total input including cache; uncached input = input_tokens - cache reads - both cache-write tiers.
     cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cache_write_5m_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cache_write_1h_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -1,6 +1,6 @@
-"""Gemini Interactions API 视频调用通道：请求形状、轮询终态、取件、计量与续跑。
+"""Gemini Interactions API video channel: request shape, terminal polling states, retrieval, metering, and resume.
 
-SDK 保持真实，出站 HTTP 由 respx 拦截，断言落在序列化后的请求与落盘的成片上。
+The SDK remains real; respx intercepts outbound HTTP. Assertions cover serialized requests and the final video written to disk.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def _completed(interaction_id: str = "int-1", *, video: bytes = MP4_BYTES, token
 
 
 def _request_fields(tmp_path: Path, inputs: dict[str, Any]) -> dict[str, Any]:
-    """把参数里的文件名换成 tmp_path 下的文件，文件内容是去掉扩展名的文件名；其余参数原样保留。"""
+    """Replace filenames in arguments with files under tmp_path containing their filename without the extension; preserve other arguments."""
 
     def file_of(name: str) -> Path:
         path = tmp_path / name
@@ -320,7 +320,7 @@ class TestDeclarations:
 
         assert caps.audio_track is VideoAudioMode.ALWAYS_ON
         assert (caps.text_to_video, caps.first_frame, caps.last_frame) == (True, True, True)
-        # 参考图张数是模型事实，通道不限
+        # Reference-image count is a model fact; the channel imposes no limit.
         assert caps.max_reference_images is None
 
     def test_frames_and_audio_track_follow_both_the_entry_and_the_channel(self):

@@ -268,18 +268,16 @@ type BatchWaiter = Callable[..., Awaitable[tuple[list[BatchTaskResult], list[Bat
 
 @dataclass(frozen=True, slots=True)
 class CallerContext:
-    """调用方身份与宿主。
+    """Caller identity and host.
 
-    ``source`` 决定长任务阻塞还是即返：``embedded`` 由 ``batch_waiter`` 入队并等到批次终态，
-    ``mcp`` 与 Web 的 ``webui`` 提交后立即返回批次句柄、不需要等待器。
-    """
+    ``source`` determines blocking versus immediate return for long tasks: ``embedded`` enqueues through ``batch_waiter`` and waits for batch termination; ``mcp`` and Web ``webui`` immediately return batch handles after submission and need no waiter."""
 
     user_id: str
     source: Literal["embedded", "mcp", "webui"]
     batch_waiter: BatchWaiter | None = None
 
     def waiting_with(self, **options: Any) -> CallerContext:
-        """给等待器绑定额外选项（如 ``on_enqueued`` / ``stop_on_failure``）；没有等待器时原样返回。"""
+        """Bind extra waiter options (such as ``on_enqueued`` / ``stop_on_failure``); return unchanged when there is no waiter."""
         if self.batch_waiter is None:
             return self
         return replace(self, batch_waiter=functools.partial(self.batch_waiter, **options))
@@ -291,12 +289,12 @@ class Services:
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
     queue: GenerationQueue = field(default_factory=get_generation_queue)
-    #: 读写数据库记录（如供应商素材关联）的会话工厂。
+    #: Session factory for database records such as provider-material associations.
     sessions: async_sessionmaker[AsyncSession] = field(default_factory=lambda: async_session_factory)
 
     @classmethod
     def defaults(cls, projects: ProjectManager) -> Services:
-        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器、全局生成队列与会话工厂。"""
+        """Production default collaborators: this project manager's workflow planner, database-reading config resolver, global generation queue and session factory."""
         return cls(
             projects=projects,
             workflow_planner=WorkflowPlanner(projects),
@@ -330,7 +328,9 @@ class ToolOutcome[ResultT]:
 class GenerationBatchToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    batch_id: str = Field(min_length=1, description="生成批次 id，取自生成工具返回的 generation_batch.batch_id")
+    batch_id: str = Field(
+        min_length=1, description="Generation batch ID from generation_batch.batch_id returned by a generation tool"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,11 +353,9 @@ async def submit_media_generation(
     admission: dict[str, dict[str, Any]] | None = None,
     dependencies: Mapping[str, str] | None = None,
 ) -> MediaGenerationSubmission:
-    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方经 ``caller.batch_waiter`` 等到批次终态。
+    """Submit a media-generation batch: remote callers immediately receive a handle; embedded callers await batch termination through ``caller.batch_waiter``.
 
-    ``dependencies`` 记下批内先后：某单元要等同批另一单元的任务成功后才执行（其 ``TaskSpec``
-    经 ``dependency_resource_id`` 指向那个单元），前置失败时它不提交给供应商。
-    """
+    ``dependencies`` records within-batch order: a unit waits for another unit's task to succeed (its ``TaskSpec`` points there via ``dependency_resource_id``); if the prerequisite fails, do not submit it to the provider."""
     requested, blocked = build_generation_batch_admission(
         preflight=preflight,
         pending_ids=pending_ids,
@@ -468,9 +466,10 @@ class PatchUpdateOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["update"]
-    id: str = Field(min_length=1, description="要修改的条目 id（segment_id / scene_id / shot_id / unit_id）")
+    id: str = Field(min_length=1, description="ID of the entry to update (segment_id / scene_id / shot_id / unit_id)")
     fields: dict[str, Any] = Field(
-        min_length=1, description="字段路径到新值的映射；嵌套字段用点号路径，如 image_prompt.scene"
+        min_length=1,
+        description="Map field paths to new values; use dotted paths for nested fields, such as image_prompt.scene",
     )
 
 
@@ -481,10 +480,10 @@ class PatchInsertOperation(BaseModel):
     after_id: str | None = Field(
         default=None,
         min_length=1,
-        description="新条目插在这个 id 之后；省略或为 null 时插到最前（空脚本的第一条即如此）",
+        description="Insert the new entry after this ID; omit or use null to insert first, including the first entry in an empty script",
     )
     item: dict[str, Any] = Field(
-        description="新条目的完整内容；id 由系统分配，取本集用过的最大序号之后的号，已删除条目的编号不会再发出"
+        description="Complete new entry content; the system assigns an ID above the highest sequence number ever used in this episode and never reuses deleted IDs"
     )
 
 
@@ -492,18 +491,18 @@ class PatchRemoveOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["remove"]
-    id: str = Field(min_length=1, description="要删除的条目 id")
+    id: str = Field(min_length=1, description="ID of the entry to remove")
 
 
 class PatchMoveOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["move"]
-    id: str = Field(min_length=1, description="要移动的条目 id；条目内容与已生成的媒体随条目一起移动")
+    id: str = Field(min_length=1, description="ID of the entry to move; its content and generated media move with it")
     after_id: str | None = Field(
         default=None,
         min_length=1,
-        description="移到这个 id 之后；省略或为 null 时移到最前",
+        description="Move after this ID; omit or use null to move first",
     )
 
 
@@ -511,8 +510,13 @@ class PatchSplitOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["split"]
-    id: str = Field(min_length=1, description="要拆分的条目 id；第一段沿用该 id，其余段按新增条目的规则分配新 id")
-    parts: list[dict[str, Any]] = Field(min_length=2, description="拆分后的各段完整内容，按顺序排列，至少两段")
+    id: str = Field(
+        min_length=1,
+        description="ID of the entry to split; the first part keeps this ID and other parts receive IDs under the new-entry rules",
+    )
+    parts: list[dict[str, Any]] = Field(
+        min_length=2, description="Complete contents of the split parts in order; at least two parts"
+    )
 
 
 PatchEpisodeScriptOperation = Annotated[
@@ -525,14 +529,16 @@ class PatchEpisodeScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     script: str = Field(
-        min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json；单集单文件，多集编辑每集一次调用"
+        min_length=1,
+        description="Script filename without directories, such as episode_1.json; one file per episode, with one call per episode for multi-episode edits",
     )
     base_revision: str = Field(
         pattern=r"^(?:sha256-v1:)?[0-9a-f]{64}$",
-        description="get_episode_script 返回的当前 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价",
+        description="Current revision returned by get_episode_script; sha256-v1: prefixed and bare hexadecimal forms are equivalent",
     )
     operations: list[PatchEpisodeScriptOperation] = Field(
-        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split"
+        min_length=1,
+        description="Ordered edit operations, committed atomically as one batch: update / insert / move / remove / split",
     )
 
     @field_validator("base_revision")
@@ -563,7 +569,7 @@ class ScriptSpeechProblem(BaseModel):
 
 
 class ScriptSpeechAdmission(BaseModel):
-    """剧本编辑因发声组合被拒时，被点名单元的发声准入；与 ``SpeechAdmission.to_dict()`` 同形。"""
+    """Speech admission for the identified unit when speech composition rejects a script edit; same shape as ``SpeechAdmission.to_dict()``."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -574,12 +580,11 @@ class ScriptSpeechAdmission(BaseModel):
 
 
 class ScriptPatchResult(ScriptBatchEditResult):
-    """``patch_episode_script`` 的结果：剧本批量编辑结果，加上给 Agent 的后续动作提示。
+    """``patch_episode_script`` result: batch script-edit results plus Agent follow-up guidance.
 
-    - ``regeneration_required_ids``：提交成功且改了 image_prompt / video_prompt 的条目，须紧接着重新生成对应图 / 视频；
-    - ``speech_admission``：首个问题属于发声组合时，被点名单元的全部发声问题。
-    未绑定 mention 的提示沿用 ``warnings``。
-    """
+    - ``regeneration_required_ids``: successfully submitted entries whose image_prompt / video_prompt changed; immediately regenerate the corresponding images / videos.
+    - ``speech_admission``: all speech problems for the identified unit when the first problem concerns speech composition.
+    Unbound mention hints continue using ``warnings``."""
 
     regeneration_required_ids: tuple[str, ...] = ()
     speech_admission: ScriptSpeechAdmission | None = None
@@ -629,7 +634,7 @@ def _prompt_overwrite_problem(exc: PromptOverwriteRequiredError) -> ToolProblem:
 
 
 def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
-    """文本模型输出被截断：各文本任务同一个问题码，出路是登记最大输出长度（自定义模型）或换一个文本模型。"""
+    """Truncated text-model output: all text tasks share one problem code; register maximum output length (custom models) or choose another text model."""
     return ToolProblem(
         "text_output_truncated",
         str(exc),
@@ -639,7 +644,7 @@ def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
 
 
 def model_not_in_catalog_problem(exc: ModelNotInCatalogError) -> ToolProblem:
-    """引用的内置模型已不在供应商清单中：沿用任务失败的稳定码与参数，出路是重新选择模型（去配置供应商）。"""
+    """Referenced built-in model is absent from the provider catalog: retain stable task-failure code and parameters; reselect a model through provider configuration."""
     return ToolProblem(
         exc.code,
         str(exc),
@@ -649,7 +654,7 @@ def model_not_in_catalog_problem(exc: ModelNotInCatalogError) -> ToolProblem:
 
 
 def video_facts_problem(failure: VideoRequestFactsFailure, detail: str) -> ToolProblem:
-    """视频请求事实解析不出：问题码与参数原样透出，修复指引与批量准入同一映射（多为配置供应商）。"""
+    """Unresolved video-request facts: forward problem codes and parameters unchanged; use batch admission's recovery-guidance mapping (usually provider configuration)."""
     return ToolProblem(
         failure.code,
         detail,
@@ -659,7 +664,7 @@ def video_facts_problem(failure: VideoRequestFactsFailure, detail: str) -> ToolP
 
 
 def _not_admitted_problem(exc: OperationNotAdmittedError) -> ToolProblem:
-    """准入不成立的拒绝：``params.reason`` 与制作状态 ``operations`` 里同一操作的理由码一致。"""
+    """Rejected admission: ``params.reason`` matches the reason code for the same operation in production-status ``operations``."""
     return ToolProblem(
         "operation_not_admitted",
         str(exc),
@@ -712,7 +717,7 @@ async def _run_text_generation(
 
 
 def _unexpected_text_failure_problem(detail: str, cause: BaseException) -> ToolProblem:
-    """生成中的意外异常：供应商真正拒绝了内容或输入时归为拒绝（修改输入），其余按任务失败重试，与图片任务一致。"""
+    """Unexpected generation exception: actual provider content/input rejection maps to rejection (edit input); otherwise retry as task failure, matching image tasks."""
     if is_provider_refusal(cause):
         return ToolProblem("generation_refused", detail)
     return ToolProblem(GenerationProblemCode.TASK_FAILED.value, detail, action=GenerationAction.RETRY)
@@ -723,8 +728,8 @@ _TEXT_DRAMA_SCRIPT_PLAN = "text_drama_script_plan"
 _TEXT_NARRATION_SCRIPT_PLAN = "text_narration_script_plan"
 _TEXT_REFERENCE_SCRIPT_PLAN = "text_reference_script_plan"
 _TEXT_EPISODE_PLAN = "text_episode_plan"
-#: 嵌入式宿主在本进程内提交、并在本进程内等待的文本任务：worker 沿用提交方的数据根与服务。
-#: 只在内存里，不进任务载荷；没有登记的任务（MCP 提交、重启后的存量任务）按当前配置解析。
+#: Text tasks submitted and awaited in-process by the embedded host: workers reuse the submitter's data root and services.
+#: Memory only, excluded from task payloads. Unregistered tasks (MCP submissions or tasks surviving a restart) resolve current configuration.
 _TEXT_TASK_SERVICES: dict[str, tuple[ProjectScope, Services]] = {}
 
 
@@ -749,8 +754,8 @@ async def _submit_text_task(
     services: Services,
     conflict_resource_ids: Sequence[str] = (),
 ) -> ToolOutcome[Any]:
-    """提交一个文本任务。``conflict_resource_ids`` 是与 ``unit_id`` 互斥的其他占用槽：其中有在途任务时一律冲突；
-    ``unit_id`` 上的在途任务只在请求事实不同时冲突，相同时并入它。"""
+    """Submit one text task. ``conflict_resource_ids`` are other slots mutually exclusive with ``unit_id``: any in-flight task there conflicts.
+    An in-flight task on ``unit_id`` conflicts only if request facts differ; merge into it when facts match."""
     active = await services.queue.get_active_tasks_for_resources(
         project_name=scope.project_name,
         task_type=task_type,
@@ -870,12 +875,12 @@ _TextInstructions = Annotated[
     Field(
         max_length=MAX_INSTRUCTIONS_LEN,
         description=(
-            "用户对本次生成的附加指令原文（可选）；原样注入 prompt 末尾的「附加指令」分节，"
-            f"遵循强度由正文表达，缺省/空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
+            "Optional verbatim additional instructions for this generation, injected unchanged into the Additional instructions section at the end of the prompt; "
+            f"the body expresses how strictly to follow them. Omitted/blank means absent; maximum {MAX_INSTRUCTIONS_LEN} characters"
         ),
     ),
 ]
-_DRY_RUN_DESCRIPTION = "仅返回 prompt，不调用模型"
+_DRY_RUN_DESCRIPTION = "Return the prompt only; do not call the model"
 
 
 class GenerateEpisodeScriptRequest(BaseModel):
@@ -885,24 +890,22 @@ class GenerateEpisodeScriptRequest(BaseModel):
     instructions: _TextInstructions | SkipJsonSchema[None] = None
     entry_ids: list[Annotated[str, Field(min_length=1)]] | SkipJsonSchema[None] = Field(
         default=None,
-        description="本次编写的范围（分镜 / 单元 id）；省略时为全部待编写条目。点名只划定范围，不授权覆盖已有内容",
+        description="Authoring scope (storyboard / unit IDs); omit for all pending entries. Naming entries only limits scope and does not authorize overwriting existing content",
     )
     rewrite: bool = Field(
         default=False,
-        description="显式重写范围内条目的全部视觉层；省略时补缺，已有的图片 / 视频提示词保留、只补缺失的那一份",
+        description="Explicitly rewrite every visual layer within scope; when omitted, fill gaps only, preserving existing image/video prompts and supplying only the missing one",
     )
     regenerate: bool = Field(
         default=False,
         description=(
-            "仅广告/短片：整份重新生成脚本，替换已有的正式脚本，结果直接成为正式脚本；"
-            "不与 entry_ids / rewrite 同用。已有正式脚本时先返回 script_overwrite 丢失清单"
+            "Advertisement/short film only: regenerate the entire script, replacing the existing formal script; the result directly becomes formal. Cannot combine with entry_ids / rewrite. If a formal script exists, first return the script_overwrite loss list"
         ),
     )
     overwrite_revision: str | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "用户听完丢失清单并同意覆盖后，才传入的令牌：提示词重写取 prompt_overwrite.revision，"
-            "整份重做取 script_overwrite.revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；不覆盖已有内容时不必给"
+            "Supply this token only after presenting the loss list to the user and obtaining overwrite consent: prompt_overwrite.revision for prompt rewriting, script_overwrite.revision for full regeneration. sha256-v1: prefixed and bare hexadecimal forms are equivalent. Not required when existing content is not overwritten"
         ),
     )
     dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
@@ -937,7 +940,8 @@ class GenerateScriptPlanRequest(BaseModel):
 
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     source: str | SkipJsonSchema[None] = Field(
-        default=None, description="可选的项目内源文件相对路径；缺省读取本集派生源文 source/episode_N.txt"
+        default=None,
+        description="Optional project-relative source path; defaults to this episode's derived source/episode_N.txt",
     )
     instructions: _TextInstructions | SkipJsonSchema[None] = None
     dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
@@ -1042,7 +1046,7 @@ class ConfirmScriptReviewRequest(BaseModel):
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     overwrite_revision: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 script_overwrite.revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；尚无正式脚本时不必给",
+        description="Token from script_overwrite.revision, supplied only after presenting the loss list to the user and obtaining overwrite consent; sha256-v1: prefixed and bare hexadecimal forms are equivalent. Not required if no formal script exists",
     )
 
 
@@ -1065,7 +1069,7 @@ async def confirm_script_review(
 
 
 class NoArguments(BaseModel):
-    """不带参数的工具请求。"""
+    """Tool request without arguments."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1074,14 +1078,14 @@ class SourceTextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     path: str = Field(
-        description="源文的项目相对路径，须位于 source/ 下，如 source/episode_1.txt；取自 list_source_files"
+        description="Project-relative source path under source/, such as source/episode_1.txt; obtain it from list_source_files"
     )
 
 
 class EpisodeScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    script: str = Field(description="Script filename without directories, such as episode_1.json")
 
 
 class ScriptPlanContentRequest(BaseModel):
@@ -1094,7 +1098,7 @@ class ProjectFileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     path: str = Field(
-        description="业务文件的项目相对路径，如 project.json、scripts/episode_1.json；取自 list_project_files"
+        description="Project-relative business file path, such as project.json or scripts/episode_1.json; obtain it from list_project_files"
     )
 
 
@@ -1214,14 +1218,14 @@ def _read_business_file(project_dir: Path, relative: str) -> tuple[bytes, Path]:
                 raise ValueError("path 在安全校验后发生变化")
             raw = handle.read(BUSINESS_FILE_MAX_BYTES + 1)
     else:
-        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW  # noqa: TID251 -- 仅在支持 dir_fd 的 POSIX 分支执行，常量必然存在
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW  # noqa: TID251 -- Executed only in the POSIX branch supporting dir_fd, where the constants necessarily exist
         directory_fd = os.open(project_dir, directory_flags)
         try:
             for part in parts[:-1]:
                 child_fd = os.open(part, directory_flags, dir_fd=directory_fd)
                 os.close(directory_fd)
                 directory_fd = child_fd
-            file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory_fd)  # noqa: TID251 -- 仅在支持 dir_fd 的 POSIX 分支执行，常量必然存在
+            file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory_fd)  # noqa: TID251 -- Executed only in the POSIX branch supporting dir_fd, where the constants necessarily exist
             try:
                 if not stat.S_ISREG(os.fstat(file_fd).st_mode):
                     raise ValueError("path 必须指向普通文件")
@@ -1320,7 +1324,7 @@ async def get_episode_script(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[EpisodeScriptContent]:
-    """读一集剧本并签发 revision；迁移失败的项目不签发 revision，返回完整的迁移 problem。"""
+    """Read one episode script and issue a revision; migration-failed projects receive the complete migration problem without a revision."""
     filename = request.value.script
     if not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
@@ -1343,8 +1347,10 @@ async def get_episode_script(
 class PromptPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json")
-    item_id: str = Field(min_length=1, description="分镜条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
+    script: str = Field(min_length=1, description="Script filename without directories, such as episode_1.json")
+    item_id: str = Field(
+        min_length=1, description="Storyboard entry ID (segment_id / scene_id / shot_id / unit_id), such as E1S01"
+    )
 
 
 async def get_prompt_preview(
@@ -1353,12 +1359,9 @@ async def get_prompt_preview(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ItemPromptPreview]:
-    """渲染一个条目当前会送进图像 / 视频模型的最终提示词文本。
+    """Render the final prompt text currently sent to the image / video model for one entry.
 
-    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
-    发请求、不产生费用、不写产物清单。``unavailable`` 是稳定的机器可读原因码，两个 host
-    原样透传，UI 侧的成品文案由 REST 路由按请求语言渲染。
-    """
+    Share execution's rendering outlet so the result is verbatim the prompt actually sent for this generation. Read only: no provider requests, costs or manifest writes. ``unavailable`` is a stable machine-readable reason code forwarded unchanged by both hosts; the REST route renders finished UI wording in the request language."""
     filename = request.value.script
     if "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
@@ -1499,7 +1502,7 @@ def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
 async def _run_draft(
     call: Awaitable[dict[str, Any]], *, notice_as_problem: bool = False
 ) -> ToolOutcome[dict[str, Any]]:
-    """``notice_as_problem`` 为真时，带文案 key 的草稿错误以该 key 为问题码、按修改输入呈现（任务失败原因用）。"""
+    """When ``notice_as_problem`` is true, draft errors with wording keys use that key as problem code and indicate editing input (for task-failure reasons)."""
     try:
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
@@ -1583,9 +1586,11 @@ class RepairDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
-    doc_type: DraftDocType = Field(description="待修复草稿对应的文档，取值同 open_draft")
+    doc_type: DraftDocType = Field(
+        description="Document corresponding to the draft awaiting repair; same values as open_draft"
+    )
     base_revision: str = Field(
-        description="读取草稿时拿到的 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；修复写回前按它校验草稿未被改动"
+        description="Revision obtained when reading the draft; sha256-v1: prefixed and bare hexadecimal forms are equivalent. Check it before writing repairs to verify the draft has not changed"
     )
     instructions: _TextInstructions | SkipJsonSchema[None] = None
 
@@ -1596,8 +1601,10 @@ class DraftRepairResult(BaseModel):
     message: str
     episode_id: int
     doc_type: str
-    adopted: bool = Field(description="违约已清零、草稿已采用为正式内容")
-    violation_count: int = Field(description="未采用时草稿里剩余的违约数；采用时为 0")
+    adopted: bool = Field(
+        description="All violations have been cleared and the draft has been adopted as formal content"
+    )
+    violation_count: int = Field(description="Remaining draft violations when not adopted; 0 when adopted")
 
 
 async def repair_draft(
@@ -1606,7 +1613,7 @@ async def repair_draft(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
-    """AI 修复待修复草稿：预检通过后以排队文本任务提交，修完照常重判，违约清零即采用。"""
+    """AI repair for a repair draft: after preflight, submit as a queued text task; reassess normally afterward and adopt when violations clear."""
     value = request.value
     try:
         await _draft_repair(scope, services).check(value.episode_id, value.doc_type, value.base_revision)
@@ -1625,8 +1632,8 @@ async def repair_draft(
     )
 
 
-#: 草稿命令错误码 → 任务失败的文案 key，与草稿 REST 的错误映射一致。写回草稿之前的失败已归为
-#: ``draft_repair_failed``；未列出的错误来自正文写回草稿之后的重判与晋升，归为保存未完成。
+#: Draft-command error code → task-failure wording key, matching draft REST errors. Failures before writing the draft already map to
+#: ``draft_repair_failed``; unlisted errors arise during reassessment/promotion after the body write, so map to incomplete saving.
 _DRAFT_REPAIR_FAILURE_KEYS: dict[str, str] = {
     "draft_not_found": "draft_not_found",
     "invalid_request": "draft_doc_type_not_applicable",
@@ -1653,10 +1660,10 @@ async def _execute_draft_repair(
         notice_as_problem=True,
     )
     if outcome.problem is not None and outcome.problem.action is not None:
-        # 带修复指引的问题（输出截断、视频模型配置、正式剧本单元没过晋升预判）原样透出：问题码即文案 key，失败原因按真实原因呈现。
+        # Forward problems with recovery guidance unchanged (truncated output, video configuration, formal units failing promotion preflight): the problem code is the wording key; show the actual failure reason.
         return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
-        # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
+        # Localize task-failure reasons by problem code: use the draft command's error wording key; Agent-facing detail is diagnostic only.
         key = _DRAFT_REPAIR_FAILURE_KEYS.get(outcome.problem.code, "draft_save_failed")
         params = {"episode": request.episode_id} if key == "draft_not_found" else None
         return ToolOutcome(problem=ToolProblem(key, outcome.problem.detail, params=params))
@@ -1684,38 +1691,53 @@ async def _execute_draft_repair(
 class CreateProjectToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(description="项目唯一标识，只能包含字母、数字和连字符；后续工具以它寻址项目")
-    title: str = Field(default="", description="用户可见的项目标题")
+    name: str = Field(
+        description="Unique project identifier containing only letters, digits and hyphens; subsequent tools address the project by this identifier"
+    )
+    title: str = Field(default="", description="User-visible project title")
     content_mode: ContentMode = Field(
-        default="narration", description="内容模式：narration 说书解说、drama 剧集、ad 广告/短片"
+        default="narration",
+        description="Content mode: narration for narrated storytelling/commentary, drama for episodic drama, ad for advertisements/short films",
     )
     generation_mode: Literal["storyboard", "reference_video"] = Field(
-        default="storyboard", description="生成模式：storyboard 先出分镜图再生视频、reference_video 参考图直接生视频"
+        default="storyboard",
+        description="Generation mode: storyboard generates storyboard images before video; reference_video generates video directly from reference images",
     )
-    grid_storyboard: bool = Field(default=False, description="是否使用宫格分镜；广告/短片项目不支持")
-    aspect_ratio: str = Field(default="9:16", description="画面比例，如 9:16、16:9")
+    grid_storyboard: bool = Field(
+        default=False, description="Whether to use grid storyboards; unsupported for advertisement/short film projects"
+    )
+    aspect_ratio: str = Field(default="9:16", description="Aspect ratio, such as 9:16 or 16:9")
     default_duration: int | None = Field(
-        default=None, gt=0, description="默认单镜时长（秒）；缺省不写入，由视频模型能力决定；广告/短片项目不可用"
+        default=None,
+        gt=0,
+        description="Default shot duration in seconds; omitted values are not stored and are determined by video-model capabilities. Unavailable for advertisement/short film projects",
     )
-    target_duration: int | None = Field(default=None, gt=0, description="成片目标时长（秒）；仅广告/短片项目可用")
-    brief: str | None = Field(default=None, description="创作简报（卖点、受众等）；仅广告/短片项目可用")
+    target_duration: int | None = Field(
+        default=None,
+        gt=0,
+        description="Target finished-video duration in seconds; advertisement/short film projects only",
+    )
+    brief: str | None = Field(
+        default=None,
+        description="Creative brief (selling points, audience, etc.); advertisement/short film projects only",
+    )
     narration_delivery: NarrationDelivery = Field(
         default=POST_PRODUCTION,
         description=(
-            "旁白交付方式：post_production 后期配音（画外音文字随字幕交付，创作者自行配音）、"
-            "use_tts 由 ArcReel 生成 TTS 旁白配音；创建后用户可在项目设置里修改"
+            "Narration delivery: post_production supplies voiceover text with subtitles for the creator to record later; use_tts has ArcReel generate TTS narration. Users can change this in project settings after creation"
         ),
     )
     audio_backend: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="TTS 模型，形如 provider/model；仅 use_tts 使用，省略时取全局默认音频模型",
+        description="TTS model in provider/model form; used only for use_tts, defaulting to the global audio model when omitted",
     )
     narration_voice: str | SkipJsonSchema[None] = Field(
-        default=None, description="旁白音色 id；仅 use_tts 使用，省略时取全局默认音色"
+        default=None,
+        description="Narration voice ID; used only for use_tts, defaulting to the global voice when omitted",
     )
     narration_speed: float | None = Field(
         default=None,
-        description="配音语速倍率（正数）；仅 use_tts 使用，省略时取全局默认，null 表示不向供应商传语速",
+        description="Positive speech-rate multiplier; used only for use_tts. Omission uses the global default; null omits speech rate from the provider request",
     )
 
     @model_validator(mode="after")
@@ -1733,31 +1755,28 @@ class CreateProjectToolRequest(BaseModel):
 class UploadSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    filename: str = Field(description="带 .txt 或 .md 扩展名的纯文件名（不含目录、不以点开头）")
-    content: str = Field(description="源文件的文本内容")
+    filename: str = Field(description="Filename with .txt or .md extension, without directories or a leading dot")
+    content: str = Field(description="Text content of the source file")
     on_conflict: OnConflict = Field(
         default="fail",
-        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入；role=episode 时不适用",
+        description="Conflict handling for an existing filename under source/: fail rejects, replace overwrites, rename automatically renames before writing; not applicable when role=episode",
     )
     role: Literal["whole_source", "episode"] = Field(
         default="whole_source",
         description=(
-            "whole_source：登记为整本源文的文件，接在文件清单末尾，供分集规划切分；"
-            "episode：登记为一集自带原文的集，接在播出顺序末尾，分配新集 ID，逐集直接做脚本规划"
+            "whole_source registers a whole-source file appended to the file list for episode planning to split; episode registers an episode with its own source at the end of playback order, assigns a new episode ID and proceeds directly to per-episode script planning"
         ),
     )
     source_kind: SourceKind | None = Field(
         default=None,
         description=(
-            "源文件类型，只对剧情演绎项目生效，其他创作类型忽略：novel 小说（缺省），由 AI 改编；"
-            "screenplay 用户写好的成品剧本，分集、台词与画外音照用作者原文。替换已登记的同名整本源文文件时保留它原有的类型"
+            "Source type, effective only for drama projects and ignored for other content modes: novel (default) is adapted by AI; screenplay is the user's finished screenplay, retaining the author's episode divisions, dialogue and voiceover verbatim. Replacing a registered whole-source file with the same name preserves its original type"
         ),
     )
     revision: str | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "on_conflict=replace 覆盖已登记的整本源文文件、波及切出集时，上一次调用返回的受影响集清单的 revision；"
-            "用户确认清单后原样带回才写入"
+            "For on_conflict=replace on a registered whole-source file affecting split episodes: revision of the affected-episode list returned by the preceding call. Write only after the user confirms that list and this revision is returned unchanged"
         ),
     )
 
@@ -1854,8 +1873,10 @@ async def create_project(
 class SourceReplacement(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    old_text: str = Field(min_length=1, description="要替换的原文片段，须在当前原文里恰好出现一次，逐字匹配")
-    new_text: str = Field(description="替换成的文字；空串表示删掉这个片段")
+    old_text: str = Field(
+        min_length=1, description="Source passage to replace; must match verbatim exactly once in the current source"
+    )
+    new_text: str = Field(description="Replacement text; an empty string deletes the passage")
 
 
 class EditSourceTextRequest(BaseModel):
@@ -1863,22 +1884,24 @@ class EditSourceTextRequest(BaseModel):
 
     filename: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="要修改的整本源文文件名（source/ 下已登记的纯文件名，如 novel.txt）；与 episode_id 二选一",
+        description="Whole-source filename to edit (a registered filename under source/, such as novel.txt); mutually exclusive with episode_id",
     )
     episode_id: int | SkipJsonSchema[None] = Field(
         default=None,
         gt=0,
-        description="要修改原文的集 ID，只接受自带原文或无原文的集；切出集的原文要改整本源文的文件。与 filename 二选一",
+        description="Episode ID whose source to edit; only episodes with their own source or no source are accepted. For split episodes, edit the whole-source file instead. Mutually exclusive with filename",
     )
     replacements: list[SourceReplacement] | SkipJsonSchema[None] = Field(
         default=None,
         min_length=1,
-        description="按片段修改：依次在当前原文里替换；与 text 二选一",
+        description="Passage edits applied sequentially to the current source; mutually exclusive with text",
     )
-    text: str | SkipJsonSchema[None] = Field(default=None, description="整段改写后的完整原文；与 replacements 二选一")
+    text: str | SkipJsonSchema[None] = Field(
+        default=None, description="Complete rewritten source text; mutually exclusive with replacements"
+    )
     revision: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="修改整本源文的文件、波及切出集时，上一次调用返回的受影响集清单的 revision；用户确认清单后原样带回才写入",
+        description="When editing a whole-source file affects split episodes: revision of the affected-episode list returned by the preceding call. Write only after user confirmation and return this revision unchanged",
     )
 
     @model_validator(mode="after")
@@ -1892,9 +1915,9 @@ class EditSourceTextRequest(BaseModel):
 
 class SourceChangeResult(BaseModel):
     message: str
-    #: 为 True 时没有写入，等待用户确认受影响集清单后带 ``revision`` 重新调用。
+    #: True means nothing was written; await user confirmation of affected episodes, then call again with ``revision``.
     confirmation_required: bool
-    #: 受影响集清单（集 ID，按类分组）；改自带原文的集时为 None。
+    #: Affected episode IDs grouped by category; None when editing an episode with its own source.
     impact: dict[str, list[int]] | None = None
     revision: str | None = None
 
@@ -1913,8 +1936,7 @@ async def _run_source_file_change(
     revision: str | None,
     command: Callable[[bool], SourceFileChangeOutcome],
 ) -> SourceFileChangeOutcome | ToolProblem:
-    """跑一个整本源文文件改动命令（``command(dry_run)``）。带着确认过的 ``revision`` 执行前，要移除或退下的集
-    还有排队或执行中的任务时不写入。"""
+    """Run a whole-source file-change command (``command(dry_run)``). Before execution with confirmed ``revision``, do not write while episodes to remove or retire still have queued or running tasks."""
     if revision is not None:
         preview = await run_sync_transaction(command, True)
         if preview.revision == revision:
@@ -1976,7 +1998,7 @@ async def upload_source(
             yield source_path
         finally:
             if source_path is not None:
-                source_path.unlink(missing_ok=True)  # hard-delete: temp -- Agent 上传源文件的临时文件
+                source_path.unlink(missing_ok=True)  # hard-delete: temp -- Temporary source file uploaded by the Agent
 
     def _upload_episode() -> dict[str, Any]:
         _validate()
@@ -2004,15 +2026,15 @@ async def upload_source(
 
             def _write(source_dir: Path, undo: contextlib.ExitStack) -> str:
                 if value.on_conflict == "replace":
-                    # 被替换的旧文件连同原始上传件进项目回收站，事务失败时撤回原处。
+                    # Move replaced files and original uploads into project trash; restore their original locations if the transaction fails.
                     trash_source_file(source_dir.parent, f"source/{Path(value.filename).stem}.txt", undo)
                 result = SourceLoader.load(
                     source_path, source_dir, original_filename=value.filename, on_conflict=value.on_conflict
                 )
-                # hard-delete: rollback -- 源文件写入失败时撤销本次写入
+                # hard-delete: rollback -- Undo this write after source-file write failure
                 undo.callback(result.normalized_path.unlink, missing_ok=True)
                 if result.raw_path is not None:
-                    # hard-delete: rollback -- 源文件写入失败时撤销本次写入
+                    # hard-delete: rollback -- Undo this write after source-file write failure
                     undo.callback(result.raw_path.unlink, missing_ok=True)
                 loaded["result"] = result
                 return f"source/{result.normalized_path.name}"
@@ -2509,8 +2531,8 @@ class PlanEpisodesRequest(BaseModel):
     instructions: str | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "用户分集附加指令原文（可选，如「按章节对齐切分」）；原样注入规划 prompt 的「附加指令」分节，"
-            f"遵循强度由正文表达，需要强约束时在正文写明。每批调用都要重复带上，缺省 / 空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
+            "Optional verbatim additional episode-planning instructions (for example, split along chapter boundaries), injected unchanged into the planning prompt's Additional instructions section; "
+            f"the body expresses how strictly to follow them; state hard constraints explicitly. Repeat them in every batch call. Omitted/blank means absent; maximum {MAX_INSTRUCTIONS_LEN} characters"
         ),
     )
 
@@ -2538,13 +2560,13 @@ class ResetEpisodePlanningRequest(BaseModel):
     episode_id: PositiveEpisode | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "从哪个切出集起重置（集 ID）；省略或给播出顺序中第一个切出集为全量重置，其他切出集为部分重置（保留播出顺序中它之前的集）"
+            "Split episode ID from which to reset; omit or use the first split episode in playback order for a full reset. Other split episodes trigger a partial reset preserving earlier episodes in playback order"
         ),
     )
     confirm_consumed: bool = Field(
         default=False,
         strict=True,
-        description="已向用户说明波及的已消费集并获确认后置 true；首次调用不传，由工具先返回受影响清单",
+        description="Set true only after explaining the affected consumed episodes to the user and obtaining confirmation. Omit on the first call so the tool first returns the affected list",
     )
 
 
@@ -2554,7 +2576,7 @@ class ResetEpisodePlanningResult(ToolMessage):
     deleted_files: list[str] = Field(default_factory=list)
     archived_files: list[str] | list[tuple[str, str]] = Field(default_factory=list)
     consumed_episodes: list[int] = Field(default_factory=list)
-    #: 转为无原文的集并标 stale 的集（确认清单里是将要转换的集）。
+    #: Episodes converted to sourceless and marked stale (confirmation lists episodes that will be converted).
     retired_episodes: list[int] = Field(default_factory=list)
 
 
@@ -2563,26 +2585,24 @@ class PatchProjectRequest(BaseModel):
 
     table: str | None = Field(
         default=None,
-        description=f"（资产 upsert 分支，与 entries 同时给出）资产表，取值 {list(ASSET_TABLES)} 之一",
+        description=f"(Asset upsert branch, supplied with entries) Asset table; one of {list(ASSET_TABLES)}",
         json_schema_extra={"enum": [*ASSET_TABLES, None]},
     )
     entries: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "（资产 upsert 分支）{ 名称: { description, voice_style 等字段 } } 映射，至少一条；名称不存在则新增、"
-            "存在则合并改字段。角色条目可带 derivatives: { 衍生名: { description } }，登记本体之外的另一套外观，"
-            "按衍生名合并（同名改描述、新名加入、未提及的保留），description 写相对本体的变化"
+            "(Asset upsert branch) A nonempty { name: { description, voice_style, ... } } map; insert missing names or merge changed fields into existing names. Character entries may include derivatives: { derivative_name: { description } } for alternative appearances. Merge by derivative name: update same-name descriptions, add new names and preserve unmentioned derivatives. Describe changes relative to the base character"
         ),
     )
     settings: dict[str, Any] | None = Field(
         default=None,
-        description=f"（settings 写入分支）顶层字段映射，键须在白名单 {list(PROJECT_SETTINGS)} 内，值为 null 时清除该字段",
+        description=f"(Settings write branch) Top-level field map; keys must be in {list(PROJECT_SETTINGS)}; null clears the field",
     )
     overview: dict[str, Any] | None = Field(
         default=None,
         description=(
-            f"（项目概述分支）概述字段映射，键须在白名单 {list(PROJECT_OVERVIEW_FIELDS)} 内；只更新传入字段，"
-            "概述不存在时创建"
+            f"(Project overview branch) Overview field map; keys must be in {list(PROJECT_OVERVIEW_FIELDS)}. Update only supplied fields; "
+            "create the overview if absent"
         ),
     )
 
@@ -2616,9 +2636,13 @@ class PatchProjectResult(ToolMessage):
 class PatchEpisodeMetaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
-    field: Literal["title"] = Field(description=f"要编辑的剧本顶层字段，白名单 {list(EPISODE_META_FIELDS)}")
-    value: str = Field(description="新值；title 须为非空字符串，首尾空白会被裁剪")
+    script: str = Field(description="Script filename without directories, such as episode_1.json")
+    field: Literal["title"] = Field(
+        description=f"Top-level script field to edit; allowed fields: {list(EPISODE_META_FIELDS)}"
+    )
+    value: str = Field(
+        description="New value; title must be a nonempty string and leading/trailing whitespace is trimmed"
+    )
 
     @field_validator("script")
     @classmethod
@@ -2645,10 +2669,12 @@ class RenameAssetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     table: str = Field(
-        description=f"资产表，取值 {list(ASSET_TABLES)} 之一", json_schema_extra={"enum": list(ASSET_TABLES)}
+        description=f"Asset table; one of {list(ASSET_TABLES)}", json_schema_extra={"enum": list(ASSET_TABLES)}
     )
-    old_name: str = Field(description="现有资产名")
-    new_name: str = Field(description="新资产名；与同表既有资产冲突（按 NFC 归一判定）时整体拒绝")
+    old_name: str = Field(description="Existing asset name")
+    new_name: str = Field(
+        description="New asset name; reject the entire operation if it conflicts with another name in the same table after NFC normalization"
+    )
 
     @field_validator("table")
     @classmethod
@@ -2671,17 +2697,18 @@ class MergeAssetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     table: str = Field(
-        description=f"资产表，取值 {list(MERGEABLE_ASSET_TABLES)} 之一",
+        description=f"Asset table; one of {list(MERGEABLE_ASSET_TABLES)}",
         json_schema_extra={"enum": list(MERGEABLE_ASSET_TABLES)},
     )
-    source: str = Field(description="被并方：合并后从资产表删除")
-    target: str = Field(description="保留方：同表的另一个资产，原样保留")
+    source: str = Field(description="Merge source: removed from the asset table after merging")
+    target: str = Field(description="Merge target: another asset in the same table, kept unchanged")
     as_derivative: bool = Field(
         default=False,
-        description="仅 characters：true 时把 source 并为 target 的衍生，衍生名取 source 的名字，"
-        "描述取 source 的描述，衍生资产图待生成",
+        description="characters only: true merges source as a derivative of target, using the source name and description; the derivative sheet awaits generation",
     )
-    dry_run: bool = Field(default=False, description="true 时只返回按集列出的影响，不做任何更改")
+    dry_run: bool = Field(
+        default=False, description="When true, return only per-episode impacts without making changes"
+    )
 
     @field_validator("table")
     @classmethod
@@ -2726,8 +2753,7 @@ class CompleteScriptPlanRebuildRequest(BaseModel):
     episode_id: int = Field(strict=True, ge=1, description=EPISODE_ID_DESCRIPTION)
     expected_stale_script_plan_revision: str | None = Field(
         description=(
-            "重建基线，原样取自制作计划 next_action.args.expected_stale_script_plan_revision（可能为 null，"
-            "null 也须显式传；带 sha256-v1: 前缀与裸 hex 两种写法等价）；与项目记录不一致时拒绝"
+            "Rebuild baseline copied unchanged from the production plan's next_action.args.expected_stale_script_plan_revision (may be null, which must also be supplied explicitly; sha256-v1: prefixed and bare hexadecimal forms are equivalent); reject if it differs from the project record"
         )
     )
 
@@ -2780,8 +2806,8 @@ def _render_ledger_stats(stats: LedgerStats, project: Mapping[str, Any]) -> list
     if stats.median_units is not None:
         lines.append(f"全账本体量中位数：约 {stats.median_units}")
     if (volume := stats.target_volume) is not None:
-        # 折算来源须与显式设置区分：主 Agent 核对体量偏差时，折算值叠了一层语速估算，
-        # 不能当成用户给定的硬指标。
+        # Distinguish converted values from explicit settings: when the main Agent checks volume discrepancies, derived values add speech-rate estimation
+        # and must not be treated as user-specified hard requirements.
         derived = f"（按单集目标时长 {volume.seconds} 秒折算）" if volume.source == "duration" else ""
         lines.append(f"每集目标体量设置：约 {volume.units}{derived}")
     lines.append("若用户给过总集数、按章节对齐等结构性偏好，请对照以上分布核实，有偏差须向用户明确说明。")
@@ -2789,7 +2815,7 @@ def _render_ledger_stats(stats: LedgerStats, project: Mapping[str, Any]) -> list
 
 
 def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = False) -> str:
-    # 规划未切分的空段时，``source_exhausted`` 只表示这段原文规划完了，整本源文后面可能还有未规划的原文
+    # When planning an unsplit gap, ``source_exhausted`` means only that this range is planned; later parts of the whole source may remain unplanned.
     done = "这段未切分的原文已全部规划完毕" if gap else "源文已全部规划完毕"
     if not result.episodes and result.source_exhausted:
         lines = [f"{done}，没有可规划的新内容。"]
@@ -2820,16 +2846,14 @@ def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = 
     return "\n".join(lines)
 
 
-#: 请求过停止的执行中窗口（任务 ID）。停止请求可能落在下一窗排入之前：本窗刚被领取，或本窗含结尾、
-#: 要等模型返回本批才知道还要不要排下一窗。这些窗口不再排下一窗。worker 与停止请求同在服务进程内。
+#: Running windows (task IDs) for which stop was requested. A stop may arrive before the next window is enqueued: this window was just claimed, or contains the ending
+#: and must await the model's batch response to decide whether another window is needed. These windows enqueue no successor. Worker and stop request share the service process.
 _STOPPED_PLANNING_WINDOWS: set[str] = set()
 
 
 @dataclass(frozen=True, slots=True)
 class _PlanningChain:
-    """Web 逐窗串联中正在执行的那一窗：本批之后还有原文待规划时，把下一窗排进另一个占用槽，
-    依赖本窗成功后才执行。窗口不含结尾时在请求模型之前排入，停止规划即可取消它；停止时还没排入的，
-    本窗不再排。"""
+    """Currently executing window in Web's planning chain: if source remains after this batch, enqueue the next window in another slot dependent on this one's success. If this window lacks the ending, enqueue before requesting the model, allowing stop to cancel it; a stopped window never enqueues a successor that was not already queued."""
 
     task: Mapping[str, Any]
     services: Services
@@ -2842,7 +2866,7 @@ class _PlanningChain:
             if self.task.get("resource_id") == EPISODE_PLANNING_SLOT
             else EPISODE_PLANNING_SLOT
         )
-        # 下一窗由正在执行的 worker 排入，worker 必然在线
+        # The executing worker enqueues the next window, so the worker must be online.
         await self.services.queue.enqueue_task(
             project_name=str(self.task["project_name"]),
             task_type=_TEXT_EPISODE_PLAN,
@@ -2890,7 +2914,7 @@ async def _execute_plan_episodes(
             )
         )
     except Exception as exc:
-        # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
+        # Unexpected exceptions such as provider-call failures share planning's failure code. UI shows generic failure in the user's language; detail retains the reason for the Agent.
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
     finally:
         if chain is not None:
@@ -2920,7 +2944,7 @@ async def _execute_plan_episodes(
 
 
 def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> None:
-    """AI 分集规划的准入：有整本源文；与制作状态读同一份源文并调用同一谓词。"""
+    """AI episode-planning admission: whole source exists; read the same source and call the same predicate as production status."""
     project = projects.load_project(project_name)
     source = compute_source_revision(projects.get_project_path(project_name), project, SourceScope(kind="all"))
     require_admitted(
@@ -2951,7 +2975,7 @@ async def plan_episodes(
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
 ) -> ToolOutcome[Any]:
-    """规划一批：从规划起点读一个窗口，提交其中剧情弧完整的集。"""
+    """Plan one batch: read a window from the planning start and submit episodes containing complete story arcs."""
     if problem := await _plan_episodes_gate(scope, services):
         return ToolOutcome(problem=problem)
     if planner_cls is not EpisodePlanner:
@@ -2976,14 +3000,11 @@ async def start_episode_planning(
     *,
     gap: tuple[str, int] | None = None,
 ) -> ToolOutcome[Any]:
-    """「AI 规划分集」：从规划起点逐窗规划到整本源文结尾，每一窗是一个排队的文本任务。
+    """AI episode planning: process windows from the planning start to the whole source's ending, each a queued text task.
 
-    已完成的窗口各自提交，停止（:func:`stop_episode_planning`）或某一窗失败后，已切出的集保留；再次调用
-    从账本推导的规划起点继续。附加指令随每一窗的任务载荷传递，不写进项目。
+    Completed windows commit independently. After stopping (:func:`stop_episode_planning`) or window failure, retain extracted episodes; another call resumes at the ledger-derived planning start. Additional instructions travel in every window's task payload, never into the project.
 
-    ``gap`` 是一段未切分原文的终点 ``(源文件, 偏移)``：「规划这段未切分的原文」只逐窗规划到这段原文的结尾，
-    新集按源文位置插入，不替换任何集。
-    """
+    ``gap`` is an unsplit range's endpoint ``(源文件, 偏移)``: planning that range processes windows only to its ending. Insert new episodes by source position without replacing any episodes."""
     if problem := await _plan_episodes_gate(scope, services):
         return ToolOutcome(problem=problem)
     payload: dict[str, Any] = {**request.value.model_dump(mode="json"), "continue_to_end": True}
@@ -3002,7 +3023,7 @@ async def start_episode_planning(
 
 
 class ReplanWindowResult(ToolMessage):
-    #: 本批追加的候选集数、候选的集数，以及候选是否已覆盖到整本源文结尾。
+    #: Episodes appended in this batch, total candidate episodes, and whether the candidate now covers the whole source's ending.
     planned: int
     total: int
     complete: bool
@@ -3024,7 +3045,7 @@ async def _active_planning_windows(
 
 
 async def episode_planning_active(scope: ProjectScope, caller: CallerContext, services: Services) -> bool:
-    """本项目有分集规划（含重新规划的候选生成）在排队或执行。"""
+    """This project has queued or running episode planning, including candidate generation for replanning."""
     return bool(await _active_planning_windows(scope, caller, services))
 
 
@@ -3037,11 +3058,9 @@ async def start_episode_replan(
     episode: int,
     dry_run: bool = False,
 ) -> ToolOutcome[Any]:
-    """「从这一集开始重新规划」：登记一份候选，逐窗生成到整本源文结尾，每一窗是一个排队的文本任务。
+    """Replan starting from this episode: register a candidate and generate windows to the whole source's ending, each a queued text task.
 
-    候选写进项目，分集账本不动；附加指令随每一窗的任务载荷传递。``dry_run`` 时只返回重新规划的范围
-    （:class:`lib.episode.episode_replan.ReplanScope`），不登记候选。已有候选或分集规划在进行时拒绝。
-    """
+    Persist the candidate without changing the episode ledger; additional instructions travel in window payloads. ``dry_run`` returns only the replan scope (:class:`lib.episode.episode_replan.ReplanScope`), without registering a candidate. Reject if a candidate already exists or episode planning is in progress."""
     if problem := await _plan_episodes_gate(scope, services):
         return ToolOutcome(problem=problem)
     project_path = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
@@ -3070,7 +3089,7 @@ async def start_episode_replan(
         return ToolOutcome(problem=_replan_refused(exc))
     outcome = await _submit_replan_window(candidate_id, request.value.instructions, scope, caller, services)
     if outcome.problem is not None:
-        # 首窗没能排进队列：候选还是空的，撤掉它，不留下挡住规划的空候选
+        # First window failed to enqueue: the candidate is still empty; remove it rather than leaving an empty candidate that blocks planning.
         with contextlib.suppress(ReplanError):
             await _run_sync_transaction(discard_replan_candidate, project_path, candidate_id)
     return outcome
@@ -3079,10 +3098,9 @@ async def start_episode_replan(
 async def continue_episode_replan(
     candidate_id: str, scope: ProjectScope, caller: CallerContext, services: Services
 ) -> ToolOutcome[Any]:
-    """接着生成中途停止的候选：从候选的结尾逐窗生成到整本源文结尾，沿用发起时的附加指令。
+    """Resume a stopped candidate from its ending through windows to the whole source's ending, reusing its original additional instructions.
 
-    候选已不在、已覆盖到结尾或已过时时拒绝；分集规划在进行时拒绝。候选本身挡住分集规划的准入，这里不走它。
-    """
+    Reject absent, ending-covered or outdated candidates, and ongoing episode planning. The candidate itself blocks ordinary episode-planning admission, so do not use that admission here."""
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     if active := await _active_planning_windows(scope, caller, services):
@@ -3131,10 +3149,9 @@ async def _execute_replan_window(
     planner_cls: type[EpisodePlanner],
     chain: _PlanningChain,
 ) -> ToolOutcome[Any]:
-    """重新规划的一窗：从候选的结尾取窗口，产出的集追加到候选；还有原文待规划时排下一窗。
+    """One replanning window: take a window from the candidate's ending, append resulting episodes and enqueue another window if unplanned source remains.
 
-    找不到切分点或出错时在候选上记下中断原因，已生成的部分保留。
-    """
+    On missing cut points or errors, record interruption reasons on the candidate and retain the generated portion."""
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     outcome = await _draft_replan_window(
@@ -3181,7 +3198,7 @@ async def _draft_replan_window(
             )
         )
     except Exception as exc:
-        # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
+        # Unexpected exceptions such as provider-call failures share planning's failure code. UI shows generic failure in the user's language; detail retains the reason for the Agent.
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
     finally:
         _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
@@ -3197,7 +3214,7 @@ async def _draft_replan_window(
 
 
 def _planning_gap(raw: object) -> tuple[str, int] | None:
-    """任务载荷里的空段终点；缺省或形状不对时按整本规划处理。"""
+    """Gap endpoint in a task payload; absent or malformed values mean whole-source planning."""
     if not isinstance(raw, Mapping):
         return None
     source_file, end = raw.get("source_file"), raw.get("end")
@@ -3208,16 +3225,16 @@ def _planning_gap(raw: object) -> tuple[str, int] | None:
 
 @dataclass(frozen=True, slots=True)
 class StopEpisodePlanningResult:
-    #: 被取消的排队中窗口。
+    #: Cancelled queued windows.
     cancelled: list[str]
-    #: 仍在执行的窗口：执行中的窗口不可取消，会照常完成并提交。
+    #: Windows still running: running windows cannot be cancelled and finish and commit normally.
     running: list[str]
 
 
 async def stop_episode_planning(
     scope: ProjectScope, caller: CallerContext, services: Services
 ) -> StopEpisodePlanningResult:
-    """停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，它切出的集保留，但不再排下一窗。"""
+    """Stop episode planning: cancel queued windows; the running window finishes normally and retains its extracted episodes but enqueues no successor."""
     active = await services.queue.get_active_tasks_for_resources(
         project_name=scope.project_name,
         task_type=_TEXT_EPISODE_PLAN,
@@ -3242,7 +3259,7 @@ async def stop_episode_planning(
 
 
 def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
-    """任务结果里的文本回执：``warnings``、``new_assets`` 与 ``no_pending_authoring`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
+    """Text receipt in task results: write ``warnings``, ``new_assets`` and ``no_pending_authoring`` only when nonempty; readers render by ``result.warnings``."""
     payload: dict[str, Any] = {"message": value.message}
     if value.warnings:
         payload["warnings"] = list(value.warnings)
@@ -3261,8 +3278,7 @@ async def execute_queued_text_task(
 ) -> dict[str, Any]:
     """Execute one durable text task through the same host-independent handlers.
 
-    ``services`` 缺省时按当前配置解析（全局生成队列）；嵌入式宿主登记过的任务沿用提交方的协作者。
-    """
+    Absent ``services`` resolve current configuration (global generation queue); tasks registered by the embedded host reuse the submitter's collaborators."""
     payload = task.get("payload") or {}
     registered = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
     if registered is not None:

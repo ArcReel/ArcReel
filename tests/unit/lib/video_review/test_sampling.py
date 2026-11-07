@@ -1,4 +1,4 @@
-"""抽帧计划：每个镜头至少一帧、信号两侧加密、无信号时即均匀取样。"""
+"""Frame sampling: at least one per shot, denser around signals, uniform when signals are absent."""
 
 from __future__ import annotations
 

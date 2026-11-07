@@ -1,7 +1,7 @@
-"""索引生成器：按目录约定 ``endpoints/<slug>/definition.json`` + 可选 ``icon.<png|webp|svg>`` 投影索引。
+"""Index generator: project an index from directory conventions ``endpoints/<slug>/definition.json`` + optional ``icon.<png|webp|svg>``.
 
-条目元数据的唯一手写来源是定义 ``meta``；目录名即 slug。生成器只负责投影与发现，合规与否由
-:func:`arcreel_market_core.market.check_source` 判定——产物必须能过它。
+Definition ``meta`` is the sole handwritten source of entry metadata; the directory name is slug. The generator only projects and discovers; compliance is decided by
+:func:`arcreel_market_core.market.check_source`, which the output must pass.
 """
 
 from __future__ import annotations
@@ -22,15 +22,15 @@ ENDPOINTS_DIR = "endpoints"
 DEFINITION_FILENAME = "definition.json"
 ICON_STEM = "icon"
 
-#: 沿用既有索引时保留的顶层可选字段。
+#: Optional top-level fields retained when reusing an existing index.
 _HEADER_FIELDS = ("name", "description", "homepage")
 
-#: 条目定义缺 ``meta`` 对象时，``definition_invalid`` 诊断里的细节消息。
+#: Detail message in ``definition_invalid`` diagnostics when an entry definition lacks a ``meta`` object.
 META_NOT_OBJECT_KEY = "val_market_detail_meta_not_object"
 
 
 class GenerateError(Exception):
-    """目录里有生成器无法投影的条目。"""
+    """The directory contains entries the generator cannot project."""
 
     def __init__(self, issues: list[MarketIssue]) -> None:
         super().__init__(f"cannot generate market index ({len(issues)} issues)")
@@ -45,10 +45,10 @@ def build_index(
     homepage: str | None = None,
     default_name: str | None = None,
 ) -> dict[str, Any]:
-    """生成 ``root`` 的索引。
+    """Generate the index for ``root``.
 
-    顶层字段优先取参数，其次沿用既有索引；``name`` 两者都取不到时（无索引、索引不可读或其 ``name``
-    不是字符串）用 ``default_name``，再退到目录名。
+    Top-level fields prefer arguments, then reuse the existing index; when neither supplies ``name`` (no index, unreadable index, or ``name``
+    not a string), use ``default_name``, then fall back to the directory name.
     """
     header = _existing_header(root)
     for field, value in (("name", name), ("description", description), ("homepage", homepage)):
@@ -83,9 +83,9 @@ def render_index(index: dict[str, Any]) -> str:
 
 def write_index(root: Path, index: dict[str, Any]) -> Path:
     path = root / INDEX_FILENAME
-    # 索引是生成物：被换成符号链接时替换链接本身，否则写入会落到链接目标，索引文件在 git 里不变。
+    # The index is generated: replace a substituted symlink itself, or writes would hit its target while the Git index file stays unchanged.
     if path.is_symlink():
-        path.unlink()  # hard-delete: derived -- 生成的市场索引被换成符号链接时替换链接本身
+        path.unlink()  # hard-delete: derived -- Replace the symlink itself when substituted for the generated market index
     path.write_text(render_index(index), encoding="utf-8")
     return path
 
@@ -149,5 +149,5 @@ def _entry_of(directory: Path, issues: list[MarketIssue]) -> dict[str, Any] | No
 
 
 def _symlink_issue(relative: str) -> MarketIssue:
-    """生成器从目录发现的条目与 ``check`` 同口径：市场源里被引用的路径不能是符号链接（见 :func:`_find_symlink`）。"""
+    """Discovered directory entries follow ``check`` semantics: referenced market-source paths cannot be symlinks (see :func:`_find_symlink`)."""
     return MarketIssue(relative, ROOT_PATH, MarketIssueCode.SYMLINK_NOT_ALLOWED, {"value": relative})

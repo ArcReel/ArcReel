@@ -85,7 +85,7 @@ class TestProjectsRouter:
         nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
-            # 写入新引用列表
+            # Write new reference lists.
             patched = client.patch(
                 "/api/v1/projects/ready/segments/E1S01",
                 json={
@@ -101,7 +101,7 @@ class TestProjectsRouter:
             assert seg["scenes"] == ["Castle"]
             assert seg["props"] == []
 
-            # 不传字段时不应改动现有值
+            # Omitted fields retain existing values.
             untouched = client.patch(
                 "/api/v1/projects/ready/segments/E1S01",
                 json={"script_file": "narration.json", "duration_seconds": 7},
@@ -226,7 +226,7 @@ class TestProjectsRouter:
         assert response.json()["segment"]["needs_replan"] is True
 
     def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
-        # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
+        # Residual drama segments must not trigger narration edits; return 400.
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "drama.json")] = {
             "content_mode": "drama",
@@ -244,8 +244,8 @@ class TestProjectsRouter:
             assert resp.status_code == 400
 
     def test_update_segment_write_value_error_returns_422(self, tmp_path, monkeypatch):
-        # 写盘统一入口对客户端错误（结构非法 / 集号错配 / 非法文件名）抛 ValueError，
-        # router 须统一转 422 而非落到 500 兜底。
+        # Unified script writers raise ValueError for invalid structures/episode mismatches/filenames;
+        # routers consistently map 422 rather than fallback 500.
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "narration.json")] = {
             "content_mode": "narration",
@@ -268,7 +268,7 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 422
             body = resp.json()
-            # 摘要走产品语言，异常原文只进独立诊断字段
+            # Summaries use product languages; raw exceptions stay in separate diagnostics.
             assert body["detail"] == "脚本结构校验失败，请检查后重试"
             assert "不一致" in body["diagnostic"]
 
@@ -312,7 +312,7 @@ class TestProjectsRouter:
             assert gen_overview_bad.status_code == 400
             assert "源目录为空" in gen_overview_bad.json()["detail"]
 
-            # 供应商未配置属另一类原因，与「源目录为空」区分（各自映射独立 i18n key）
+            # Unconfigured providers differ from empty source directories, each with separate i18n keys.
             gen_overview_no_provider = client.post("/api/v1/projects/no-provider/generate-overview")
             assert gen_overview_no_provider.status_code == 400
             assert "配置文本供应商" in gen_overview_no_provider.json()["detail"]
@@ -325,7 +325,7 @@ class TestProjectsRouter:
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     def test_update_scene_atomically_rejects_mixed_utterances(self, tmp_path, monkeypatch):
-        # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
+        # Manual edits cannot combine character dialogue/narration voiceover into one video request.
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
             "content_mode": "drama",
@@ -464,7 +464,7 @@ class TestProjectsRouter:
             assert shot["section"] == "demo"
             assert shot["duration_seconds"] == 6
             assert shot["products_in_shot"] == ["速干杯"]
-            # 持久化落到脚本存储
+            # Persist into script storage.
             saved = fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"][0]
             assert saved["voiceover_text"] == "新口播"
 
@@ -559,7 +559,7 @@ class TestProjectsRouter:
             assert missing.status_code == 404
 
     def test_corrupted_shots_shape_fails_loud_not_silently_wiped(self, tmp_path, monkeypatch):
-        """shots 非列表 / 含非对象元素 / 身份键缺失或重复时 PATCH 返回 422，而非误导性的 404。"""
+        """Invalid shots lists/nondict entries/missing or duplicate IDs return PATCH 422, never misleading 404."""
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": "oops"}
         client = build_projects_client(monkeypatch, fake_pm)
@@ -588,7 +588,7 @@ class TestProjectsRouter:
             )
             assert dirty_id.status_code == 422
 
-            # 重复 shot_id：身份键不唯一，PATCH 会静默更新首个命中项，必须拦下
+            # Duplicate shot_id lacks unique identity; PATCH would silently edit first matches, so reject.
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {
                 "content_mode": "ad",
                 "shots": [{"shot_id": "a"}, {"shot_id": "a"}],
@@ -649,12 +649,12 @@ class TestProjectsRouter:
     def test_script_edit_routes_refuse_on_a_migration_blocked_project(
         self, tmp_path, monkeypatch, method: str, project_name: str, endpoint: str, body: dict | None
     ):
-        """写剧本的路由一律在入口层被拒：七条手动编辑路由与同文件其它写入路由同守卫。
+        """All script-writing routes reject at entry, sharing guards across seven manual editors and other same-file writers.
 
-        阻断由入口声明，不指望内层兜底：其中六条经 ScriptBatchEditor 另有一道内部裁决，
-        改分集标题那条走 locked_episode_script，全程不读裁决，入口守卫是它唯一的一道。
+        Entry declarations block without relying on internals: six routes also use ScriptBatchEditor adjudication;
+        episode-title edits use locked_episode_script without reading adjudication, making entry guards their only protection.
 
-        409 的 detail 要同时带项目名与迁移失败原因——阻断回执得让人知道该修哪个项目的什么。
+        409 detail includes project names/migration failure reasons, identifying which project's problem needs repair.
         """
 
         from lib.project.project_migration_failure import record_migration_failure
@@ -673,7 +673,7 @@ class TestProjectsRouter:
         detail = response.json()["detail"]
         assert project_name in detail
         assert "坏数据" in detail
-        # 阻断必须发生在惰性迁移读写之前：project.json 与 scripts/*.json 都不能被动过
+        # Block before lazy migration IO, touching neither project.json nor scripts/*.json.
         assert fake_pm.project_data == before_project_data
         assert fake_pm.scripts == before_scripts
 
@@ -788,7 +788,7 @@ _ITEM_SHAPES = {
 
 
 class TestScriptItemInsertAndRemove:
-    """时间线手动新增 / 移除分镜：专用路由按当前 revision 走真实批量编辑。"""
+    """Manual timeline shot insertion/removal uses dedicated routes/real batch edits with current revisions."""
 
     @staticmethod
     def _client(tmp_path, monkeypatch, content_mode: str, *, editor_factory=None):
@@ -938,7 +938,7 @@ class TestScriptItemInsertAndRemove:
     def test_concurrent_write_returns_revision_conflict_instead_of_overwriting(
         self, tmp_path, monkeypatch, method: str, endpoint: str, body
     ):
-        """路由读到剧本之后、编辑提交之前，另一个写入方插入了同 id 分镜并改了相邻分镜。"""
+        """After route script reads/before edit commits, other writers insert identical-ID shots and change neighboring shots."""
         pm, client = self._client(tmp_path, monkeypatch, "ad")
         load_script = pm.load_script
         writes: list[str] = []

@@ -1,2 +1,2 @@
-# 出厂快照按字节校验 SHA-256（manifest.json 记录 catalog.json 的哈希），检出时不得改写换行符。
+# Shipped snapshots verify SHA-256 bytes (manifest.json hashes catalog.json); checkout must not rewrite line endings.
 lib/catalog/snapshot/*.json -text

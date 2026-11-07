@@ -13,10 +13,10 @@ export async function box(locator: Locator) {
   return rect;
 }
 
-/** 只等有限入场动画，不等任务指示器的循环动画，也不等 scroll-fade 这类随滚动推进、永不结束的动画。 */
+/** Await finite entrance animations only, excluding task-indicator loops and never-ending scroll-driven scroll-fade animations. */
 export async function waitForEntrance(target: Locator) {
   await target.evaluate(async (el) => {
-    // 先交出一帧，使新挂载弹层的样式与动画进入 DocumentTimeline。
+    // Yield one frame, allowing newly mounted overlay styles/animations to enter DocumentTimeline.
     for (;;) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const animations = el.getAnimations({ subtree: true }).filter((animation) =>
@@ -30,7 +30,7 @@ export async function waitForEntrance(target: Locator) {
   });
 }
 
-/** 紧凑档 Agent 面板覆盖画布右侧，操作该区域前收起它。 */
+/** Compact Agent panels cover canvas right sides; close before interacting there. */
 export async function clearAgentOverlay(page: Page) {
   if (viewport(page).width >= 1280) return;
   const toggle = page.getByRole("button", { name: "Agent", exact: true });

@@ -1,4 +1,4 @@
-"""广告/短片的参考生视频共用自包含 video_units 的模型与解析契约。"""
+"""Ad/short-film reference-to-video shares self-contained video_units model and parsing contracts."""
 
 import pydantic
 import pytest

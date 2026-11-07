@@ -2,27 +2,27 @@
 status: accepted
 ---
 
-# 内容版本身份记在版本记录上，经素材存储入口保存与读取
+# Content-version identity lives on version records, saved/read through material storage
 
-`docs/adr/0108` 规定供应商素材关联归属于具体内容版本，存储迁移不改变内容身份，但没有规定内容版本在代码与持久数据中如何表达。项目已有的版本历史（`versions/versions.json`）为每个资源记录一组版本，每条版本记录指向一张版本快照；资源的正式文件（如 `characters/Alice.png`）是选中版本的一份工作副本。决定：版本历史中的一个资源就是一个素材，每条版本记录就是一个内容版本，内容版本的三项事实彼此独立。
+`docs/adr/0108` assigns provider links to versions and preserves identity across storage migration, without defining its code/persisted representation. Existing history (`versions/versions.json`) groups versions per resource, each pointing to a snapshot; formal files such as `characters/Alice.png` are selected-version working copies. One historical resource is one material, each record one content version, with three independent facts.
 
-- **身份**：版本记录的 `content_version_id`，写入时随机生成，在项目内唯一。改选、恢复版本、资源改名都不改变它，从项目回收站加回的历史版本沿用原身份。身份不由内容哈希推出：同字节的两条版本记录，包括另一个项目里的副本，各自是独立的内容版本。跨项目引用内容版本时同时带上项目。
-- **摘要**：版本记录的 `content_digest`，取自保存后的版本快照（裸 sha256），所有资源类型都记录。读取内容版本时按它校验，不一致时拒绝使用。
-- **持久定位**：版本记录的 `file`，即本地素材存储中的版本快照路径。持久数据中没有其他存储字段的版本记录，都按本地定位解释。正式文件是工作副本，不是持久定位。
+- **Identity**: randomly generated project-unique `content_version_id` on write. Selection, restoration, and rename preserve it; trash-restored history keeps identity. Hashes do not determine it: byte-identical records, including copies in other projects, are distinct versions. Cross-project references include project identity.
+- **Digest**: `content_digest` from the saved snapshot (bare sha256), recorded for every resource type. Validate reads against it and reject mismatches.
+- **Durable locator**: `file`, the local-storage snapshot path. Records without other storage fields mean local locators. Formal files are working copies, not durable locators.
 
-版本快照的保存与恢复版本前的读取经 `lib/material/storage.py` 的本地素材存储进行，版本管理器的所有写入路径都经过这一个入口。路径是否落在受管快照桶内仍由版本管理器校验。
+Snapshot saving and pre-restore reads use local material storage in `lib/material/storage.py`; every version-manager write passes this entrance. VersionManager still validates managed snapshot-bucket paths.
 
 ## Considered Options
 
-- **用内容哈希充当内容版本身份**：同字节的不同项目副本、同一资源里重复上传的同一张图会被合并成一个身份，删除或解除一方的关联会牵连另一方。
-- **用「资源类型 + 资源 ID + 版本号」充当身份**：资产改名会改变资源 ID，按旧 ID 记下的关联与入库任务都要跟着改写。
-- **把身份与关联挂在资产条目上**：换图后新图会继承旧图的关联，正是 `docs/adr/0108` 要避免的情况。
-- **新增项目迁移步，一次补齐所有旧版本记录的身份与摘要**：升级时要读遍全部历史图片，也会与同期其他迁移步争用同一个 schema 版本号。旧记录只有被引用时才需要身份，按需补写即可。
-- **现在就建立带远端实现的通用存储接口**：远端主存储在后续任务中交付，接口形状应由本地与远端两个实际实现共同验证，不提前抽象。
+- **Hash identity**: identical copies/reuploads collapse identities, making one side's deletion/unlinking affect another.
+- **Resource type + ID + version number identity**: renames change resource IDs and require link/job rewrites.
+- **Asset-entry identity/links**: replacement images inherit old links, precisely what `docs/adr/0108` avoids.
+- **One schema migration for all historical identities/digests**: reads every old image and competes with other same-schema steps. Only referenced versions need identities; fill on demand.
+- **A generic interface with remote implementations now**: remote primary storage is later work; validate interfaces against two real implementations, not premature abstractions.
 
 ## Consequences
 
-- 早于本决定的版本记录没有 `content_version_id`，图片版本也没有 `content_digest`。这些记录照常读取、选择与恢复，没有摘要的不做校验。需要引用其中一条时，调用 `VersionManager.ensure_content_version` 补写：身份新生成，摘要取自此刻的快照，之后不再改变。本决定不新增项目 schema 迁移步。
-- 图片版本恢复前开始校验内容，快照被外部改动时恢复失败并指明版本，与视频、音频的既有行为一致。
-- 本次只迁移版本快照的保存与恢复读取。预览、缩略图、参考图装配、产物清单与归档仍直接读取本地文件，远端主存储的任务按需把它们迁到素材存储入口；届时在版本记录上增加远端定位，不改变已有记录的解释。
-- 归档导入沿用版本记录，导入项目中的内容版本身份与来源项目相同。身份只在项目内唯一，不能脱离项目单独作为全局键使用。
+- Older records lack `content_version_id`, and images also lack `content_digest`. Continue reading/selecting/restoring, without digest validation when absent. `VersionManager.ensure_content_version` fills identity and current-snapshot digest on first reference, then leaves them fixed. No schema migration is added.
+- Image restoration now validates content and identifies modified snapshots on failure, matching video/audio.
+- This moves only snapshot saving/restore reads. Previews, thumbnails, references, manifests, and archives still read local files; remote work migrates consumers as needed and adds remote locators without reinterpreting existing records.
+- Imports retain records and identities from source projects. IDs are project-unique only, never standalone global keys.

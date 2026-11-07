@@ -1,4 +1,4 @@
-"""PDF 抽取：pdf_oxide 主线，扫描件检测后明确报错。"""
+"""PDF extraction: pdf_oxide primary path, explicitly rejecting detected scans."""
 
 from pathlib import Path
 
@@ -38,14 +38,14 @@ class PdfOxideExtractor:
                     total_chars_via_chars_api += len(chars)
                     chars_api_ok_pages += 1
                 except Exception:
-                    # chars API 失败不视作致命，回退到文本长度判断
+                    # A chars API failure is nonfatal; fall back to text length
                     pass
 
         full = "\n\n".join(pages_text).strip()
         page_count = max(page_count, 1)
 
-        # 仅在 chars API 至少有一页成功且总字符数为 0 时，才视作"无文字层"的强信号；
-        # 否则回退到字符密度阈值。避免把 chars API 全页异常误判为扫描件。
+        # Treat zero total chars as strong no-text-layer evidence only if chars API succeeded for at least one page;
+        # otherwise use character-density thresholds, avoiding scan misclassification when every chars call failed.
         chars_indicates_scanned = chars_api_ok_pages > 0 and total_chars_via_chars_api == 0
         if chars_indicates_scanned or len(full) / page_count < _SCANNED_CHARS_PER_PAGE:
             raise CorruptFileError(

@@ -1,8 +1,8 @@
 ---
 id: style/anim_zzz
 category: style
-title: 次世代三渲二
-description: "动画画风，绝区零 · 法线调整。"
+title: "Zenless Zone Zero"
+description: "Animation, Zenless Zone Zero · adjusted normals."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-次世代高精三渲二 (Next-Gen Cel-Shading 3D) Zenless Zone Zero style，极致干净的赛璐璐线条，结合3D的平滑运镜。面部阴影经过极其严格的法线调整，保证任何角度都唯美
+High-detail next-generation cel-shaded 3D (Next-Gen Cel-Shading 3D), Zenless Zone Zero style, extremely clean cel-shaded lines combined with smooth 3D camera movement. Facial shadows use extremely precise normal adjustments to remain beautiful from every angle

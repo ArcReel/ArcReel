@@ -29,22 +29,22 @@ import { gridImageAspect, type GridImageAspect } from "./grid-preview-model";
 
 export interface GridPreviewPanelProps {
   projectName: string;
-  /** 这一组对上的宫格，一组超过单张格数上限时有多张。 */
+  /** Grids matching this group; multiple when the group exceeds one image's cell limit. */
   gridIds: string[];
-  /** 组卡上「生成这一组」等同一组的写请求在途：面板动作随之禁用。 */
+  /** Group-card writes such as generation are in flight; disable panel actions too. */
   busy?: boolean;
-  /** 有生成入口时，空态提示用户从组卡标题行开始生成。 */
+  /** With generation entry points, empty states direct users to group-card headers. */
   canGenerate?: boolean;
-  /** 重新生成提交成功后通知父级刷新宫格列表。 */
+  /** Notify parent to refresh grids after successful regeneration submission. */
   onRegenerated?: () => void;
 }
 
 type GridDisplayStatus = GridGeneration["status"] | "interrupted";
 
 /**
- * 联合图加载前的占位比例与宽度：宽度取「栏宽」与「70cqh 高度下按该比例的宽度」中较小者，
- * 比例推算正确时与加载后按图片自身尺寸受 max-w-full、max-h-[70cqh] 约束的结果一致，加载前后不跳动。
- * width/height 属性只提供比例。
+ * Preload composite placeholder ratio/width: minimum of column width and aspect-ratio width at 70cqh height;
+ * correct ratios match loaded natural-size constraints `max-w-full` / `max-h-[70cqh]`, preventing layout shifts.
+ * width/height attributes supply aspect ratio only.
  */
 const GRID_IMAGE_BOX: Record<GridImageAspect, { width: number; height: number; className: string }> = {
   "16:9": { width: 1920, height: 1080, className: "w-[min(100%,calc(70cqh*16/9))]" },
@@ -126,8 +126,8 @@ function ReferenceImages({
 }
 
 /**
- * 一组宫格的内容：选择联合图、状态与提示、动作（版本、上传、切分落格、重新生成）、参考图，以及联合图本身。
- * 联合图在媒体栏里占满剩余宽度：组卡宽度不足 860px 时信息栏 1fr、媒体栏 300px，否则信息栏 280–360px、媒体栏占满剩余。
+ * One grid group: composite selection, status/hints, actions (versions/upload/split/regenerate), references, and image.
+ * Composite fills remaining media width: below 860px card width, info 1fr/media 300px; otherwise info 280–360px/media remaining.
  */
 export function GridPreviewPanel({
   projectName,
@@ -145,7 +145,7 @@ export function GridPreviewPanel({
   const [splitting, setSplitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  // 已加载完成的联合图地址：加载前按记录推算的比例占位，加载后改回按原图尺寸排版
+  // Loaded composite URL: use recorded-ratio placeholders before load, natural image sizing afterward.
   const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
   const project = useProjectsStore((s) => s.currentProjectData);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -154,7 +154,7 @@ export function GridPreviewPanel({
   const safeIdx = Math.min(selectedIdx, Math.max(0, gridIds.length - 1));
   const selectedGridId = gridIds[safeIdx] ?? null;
 
-  // 直接订阅全局 grid 变更信号作为唯一 refetch 触发源。
+  // Global grid-change signals are the sole refetch trigger.
   const gridsRevision = useAppStore((s) => s.gridsRevision);
   const tasksConnected = useTasksStore((s) => s.connected);
 
@@ -162,10 +162,10 @@ export function GridPreviewPanel({
     if (!selectedGridId) return;
     const controller = new AbortController();
     if (!grid || grid.id !== selectedGridId) {
-      // 切换宫格时清空旧数据并展示加载状态，再触发异步 fetch。清空同时会卸载下方的
-      // 版本时光机——它按 resourceId 拉版本列表且无取消，若改成加载期间留着旧数据渲染，
-      // 上一张在途的版本列表会落进新宫格的面板，选中即按新宫格 ID + 旧版本号发起还原。
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换宫格是动作驱动重置，须先清空旧数据再发起拉取
+      // Grid switches clear old data/show loading before asynchronous fetch; clearing also unmounts the
+      // version time machine, whose resourceId version fetches lack cancellation. Retaining old data while loading would let
+      // prior in-flight version lists enter new panels, restoring with new grid IDs plus old version numbers.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Grid switches are action-driven resets; clear old data before fetching
       setLoading(true);
       setGrid(null);
     }
@@ -184,11 +184,11 @@ export function GridPreviewPanel({
       });
 
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 仅用于切换宫格判断；t 稳定
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid only detects switching; t is stable
   }, [selectedGridId, projectName, gridsRevision]);
 
-  // 占用判定接入 live tasks store：与同页兄弟控件同源，
-  // 不再依赖本地 grid.status 快照（刷新才更新，提交后到下次 fetch 之间会误判为空闲）。
+  // Live tasks store occupancy matches same-page sibling controls,
+  // replacing grid.status snapshots that update only on fetch and falsely appear idle between submission/refetch.
   const activeGridIds = useActiveResourceIds("grid", projectName);
   const isInProgress = selectedGridId != null && activeGridIds.has(selectedGridId);
   const isInterrupted =
@@ -198,18 +198,18 @@ export function GridPreviewPanel({
     (grid.status === "pending" || grid.status === "generating") &&
     !isInProgress;
   const displayStatus: GridDisplayStatus = isInterrupted ? "interrupted" : grid?.status ?? "pending";
-  // 面板动作（重生成/切分/上传/版本恢复）互斥：都写同一份联合图或分镜格，
-  // 任一在途时兄弟控件同步禁用。
+  // Panel regeneration/split/upload/version-restoration actions are mutually exclusive, writing the same composite/cells;
+  // while any is in flight, disable siblings together.
   const actionBusy = busy || regenerating || splitting || uploading || restoring || isInProgress;
 
-  // 提交时刻的占用新鲜读：渲染快照（isInProgress）之外复核 tasks store 最新状态
+  // Fresh submit-time occupancy recheck reads latest tasks store beyond render-time isInProgress snapshots.
   const freshBusy = () =>
     selectedGridId != null && isResourceBusy("grid", projectName, selectedGridId);
 
   const rejectBusy = () => {
     if (!freshBusy()) return false;
-    // 用 toast 而非 setError：error 是面板的整体错误态，会把联合图与动作一并替换掉，
-    // 占用拒绝是瞬态提示，不该毁掉当前视图。
+    // Toast instead of setError: whole-panel error state would replace composite/actions;
+    // transient occupancy rejection must not destroy current views.
     useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
     return true;
   };
@@ -220,8 +220,8 @@ export function GridPreviewPanel({
     API.splitGrid(projectName, selectedGridId)
       .then((res) => {
         useProjectsStore.getState().updateAssetFingerprints(res.asset_fingerprints);
-        // 只回写发起切分的那个宫格：切换宫格不受动作禁用限制，请求在途时用户可能已切到
-        // 别的宫格，无条件回写会把该请求的 split_at 记到另一个宫格上。
+        // Write back only the grid initiating splitting: actions do not prevent switching, so users may move
+        // while requests run; unconditional writeback would stamp split_at on another grid.
         setGrid((prev) => (prev && prev.id === selectedGridId ? { ...prev, split_at: res.split_at } : prev));
         useAppStore
           .getState()
@@ -233,7 +233,7 @@ export function GridPreviewPanel({
         }
       })
       .catch((err: unknown) => {
-        // 瞬态失败走 toast，不用 setError 毁掉整个面板视图
+        // Transient failures toast rather than replacing whole panels through setError.
         useAppStore.getState().pushToast(t("grid_split_failed", { message: errMsg(err) }), "error");
       })
       .finally(() => setSplitting(false));
@@ -245,7 +245,7 @@ export function GridPreviewPanel({
     API.uploadGridImage(projectName, selectedGridId, file)
       .then((res) => {
         useProjectsStore.getState().updateAssetFingerprints(res.asset_fingerprints);
-        // 联合图内容与宫格记录（status / split_at）已变，走全局失效信号重拉详情
+        // Composite/grid records (status / split_at) changed; global invalidation refetches details.
         useAppStore.getState().invalidateGrids();
         useAppStore.getState().pushToast(t("grid_upload_success"), "success");
       })
@@ -261,23 +261,23 @@ export function GridPreviewPanel({
     setRegenerating(true);
     enqueueGridRegenerate(projectName, targetId, grid?.script_file ?? null)
       .then(() => {
-        // 与切分同理：请求在途时可能已切到别的联合图，只回写发起请求的那张
+        // As with splitting, requests may finish after switching; update only their originating composite.
         setGrid((prev) => (prev && prev.id === targetId ? { ...prev, status: "pending" } : prev));
         onRegenerated?.();
       })
       .catch((err: unknown) => {
-        // 瞬态失败走 toast：切走后再用 setError 会把另一张联合图的面板整个替换掉
+        // Transient failures toast: setError after switching would replace another composite's whole panel.
         useAppStore.getState().pushToast(errMsg(err, t("grid_regenerate_failed")), "error");
       })
       .finally(() => setRegenerating(false));
   };
 
-  // 用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效。带版本的地址按 immutable 长缓存，
-  // 版本只能取文件自身的指纹；指纹尚未送达时不带版本，走服务端的协商缓存。
+  // Persisted mtime fingerprints cache-bust across page refreshes. Versioned URLs use immutable caching;
+  // versions must come from file fingerprints alone. Until they arrive, omit versions for server-negotiated caching.
   const gridFp = useProjectsStore((s) =>
     grid?.grid_image_path ? (s.assetFingerprints[grid.grid_image_path] ?? null) : null,
   );
-  // 面板里联合图最宽约 1280px，取 1280 宽的缩略图，不拉原图
+  // Panel composite width is at most about 1280px; fetch 1280 thumbnails, not originals.
   const imageUrl = grid?.grid_image_path
     ? API.getFileUrl(projectName, grid.grid_image_path, gridFp, { width: 1280 })
     : null;
@@ -402,7 +402,7 @@ export function GridPreviewPanel({
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              // 复位 value：同一文件二次选择也要触发 change
+              // Reset value so reselecting the same file triggers change.
               e.target.value = "";
               if (file) handleUploadFile(file);
             }}
@@ -416,7 +416,7 @@ export function GridPreviewPanel({
             checkBusy={freshBusy}
             onRestoringChange={setRestoring}
             onRestore={() => {
-              // 还原换回历史联合图并复位切分态，重拉记录同步 split_at
+              // Restoration selects historical composites/resets split state; refetch records to sync split_at.
               useAppStore.getState().invalidateGrids();
             }}
           />

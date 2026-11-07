@@ -119,7 +119,7 @@ class TestUpdateProjectAtomicity:
         assert result["metadata"]["updated_at"] != "2025-01-01"
 
     def test_update_project_returns_the_persisted_dict(self, tmp_path: Path):
-        """update_project 在单次调用内返回写回后的 dict，无需二次 load_project。"""
+        """update_project returns the persisted dict within one call, without another load_project."""
         project_name = "returned-proj"
         project_dir = tmp_path / "projects" / project_name
         project_dir.mkdir(parents=True)

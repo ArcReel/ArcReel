@@ -3,51 +3,51 @@ import { API } from "@/api";
 import type { WorkflowPlan } from "@/types/workflow";
 
 /**
- * 一次计划刷新的结算结果。`cancelled` 不是失败：目标项目/剧集在途中易主，
- * 迟到响应被丢弃，调用方静默处理即可。
+ * One plan-refresh settlement result. `cancelled` is not failure: target projects/episodes changed ownership midflight,
+ * late responses were discarded and callers can handle silently.
  */
 export type RefreshPlanResult = "success" | "failed" | "cancelled";
 
-/** 计划的作用目标。同一目标的请求合并，目标易主则作废在途请求；读计划的界面拿它核对 `planKey`。 */
+/** Plan targets. Merge same-target requests; ownership changes invalidate in-flight requests. Plan readers use this to check `planKey`. */
 export function workflowPlanKey(projectName: string, episode: number | null): string {
   return `${projectName}::${episode ?? ""}`;
 }
 
 interface WorkflowState {
-  /** 最近一次成功取回的计划。刷新失败不清空它。 */
+  /** Latest successful plans, retained on refresh failures. */
   plan: WorkflowPlan | null;
-  /** `plan` 所属的目标；与当前目标不符时界面不得据此陈述状态。 */
+  /** Targets owning `plan`; UI must never describe mismatched current targets from these results. */
   planKey: string | null;
   loading: boolean;
-  /** 最近一次刷新的错误文案；`plan` 仍保留上一次的结果。 */
+  /** Latest refresh errors, with `plan` retaining previous results. */
   error: string | null;
-  /** 用户已确认的申请档位，按 unit 给；确认后重求解会带上。 */
+  /** User-confirmed requested tiers per unit, included in subsequent solves. */
   confirmedDurations: Record<string, number>;
 
   confirmDurations: (durations: Record<string, number>) => void;
   /**
-   * 取回目标的计划。
+   * Fetch target plans.
    *
-   * - **在途合并**：同一目标同时只有一个请求在途，期间到达的请求合并为「结束后再跑一轮」。
-   * - **失败留旧**：请求失败时保留上一次的 `plan`，只写 `error`。已经付费产出的结果
-   *   不因为一次刷新失败而从界面上消失。
-   * - **目标取消域**：切项目或切集时轮换取消域，旧目标的迟到响应写不回 store。
+   * - **In-flight merging**: one request per target; overlapping calls merge into one follow-up round.
+   * - **Retain on failure**: preserve previous `plan`, writing `error` only. Paid outputs
+   *   must not disappear from UI after failed refreshes.
+   * - **Target cancellation domains**: project/episode switches rotate domains, preventing old late writes.
    */
   refreshPlan: (projectName: string, episode: number | null) => Promise<RefreshPlanResult>;
-  /** 目标易主时清空计划：上一个目标的事实不能拿来陈述这一个目标。 */
+  /** Clear plans when targets change; previous-target facts cannot describe new targets. */
   resetTarget: () => void;
 }
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => {
-  // 非响应式协调状态：不进 store state，避免订阅方为内部记账重渲染。
+  // Nonreactive coordination outside store state, avoiding subscriber rerenders for internal bookkeeping.
   let running = false;
   let queued = false;
   let queuedTarget: { projectName: string; episode: number | null } | null = null;
   let queuedResolvers: Array<(result: RefreshPlanResult) => void> = [];
-  // 当前请求目标：与 `planKey` 不同，它在请求发出时就登记，不等成功才更新。
-  // 首次加载（`planKey` 仍是 null）期间切换目标必须能被识别为目标易主——
-  // 只看 `planKey` 会因为它此时同样是 null 而放过这次切换，任由旧目标的
-  // 迟到响应写回 store。
+  // Current request targets register at dispatch, unlike success-only `planKey`.
+  // Detect target switches during first loads with null `planKey`:
+  // comparing `planKey` alone sees null twice and misses switches, allowing old
+  // late responses to write stores.
   let currentTarget: { projectName: string; episode: number | null } | null = null;
 
   let scope = new AbortController();
@@ -65,11 +65,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
     let curEpisode = episode;
     let curResolvers = resolvers;
     let again = true;
-    // 绑定本轮迭代实际使用的取消域：`resetTarget` 轮换取消域时已经显式复位过
-    // `running` 一次，若此实例结束时不核对自己仍持有当前取消域就无条件清标志，
-    // 会把接管者（新目标下正在跑的实例）的在途标志顶掉，引发同目标并发请求、
-    // 写回顺序倒挂。合并循环每轮重新绑定，让接手了排队目标的实例在自然完结时
-    // 仍能正确清掉它实际持有的（可能是轮换后的）取消域。
+    // Bind each iteration's actual cancellation domain: `resetTarget` already reset
+    // `running` when rotating. Unconditional cleanup without ownership checks
+    // clears successors' in-flight markers, causing same-target concurrency/
+    // inverted writes. Rebind every merge iteration so instances taking queued targets
+    // correctly clear domains they actually own, including newly rotated ones.
     let ownScope = scope;
     while (again) {
       again = false;
@@ -96,17 +96,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         if (signal.aborted) {
           result = "cancelled";
         } else {
-          // 留旧：只写 error，不动 plan / planKey。
+          // Retain: write error only, preserving plan / planKey.
           set({ error: err instanceof Error ? err.message : String(err), loading: false });
           result = "failed";
         }
       }
       for (const resolve of curResolvers) resolve(result);
-      // 被 `resetTarget` 作废的旧实例到这里也不得消费排队请求：`queued` 是
-      // 全局标志，若不核对取消域，姗姗来迟的旧实例会把新取消域下真正接管
-      // 该目标的实例应该服务的排队请求抢走，重新绑定到当前 `scope` 后对同一
-      // 目标发出第二个真实请求——与接管实例自己在途的请求并发，写回顺序
-      // 不再有保证。让接管实例自己去消费队列。
+      // Old instances invalidated by `resetTarget` must not consume queues: global `queued`
+      // without domain checks lets late predecessors steal requests owned by actual
+      // successor instances. Rebinding current `scope` then issues second same-target
+      // real requests alongside ongoing successor work, losing guaranteed write
+      // ordering. Successors consume their own queues.
       if (scope !== ownScope) return;
       if (queued && queuedTarget) {
         again = true;
@@ -118,8 +118,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         queuedResolvers = [];
       }
     }
-    // 只有仍持有最后一轮取消域的实例才清 running；被 `resetTarget` 作废的旧实例
-    // 在这里读到的 `scope` 已经是新取消域，跳过——它不是新实例的接管者。
+    // Only instances still owning final-iteration domains clear running; `resetTarget`-invalidated predecessors
+    // see new `scope` and skip, never taking ownership from newer instances.
     if (scope === ownScope) running = false;
   };
 
@@ -152,10 +152,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
     },
 
     refreshPlan: (projectName, episode) => {
-      // 目标易主：按「本次请求登记的目标」判断，不用 `planKey`——`planKey`
-      // 只在请求成功后才更新，首次加载期间它恒为 null，若拿它做判据，首次
-      // 加载途中切换目标会因为「两次都读到 null」而放过 resetTarget，旧目标
-      // 的响应回来后仍会写进 store。
+      // Detect ownership changes from dispatch-registered targets, never `planKey`, whose
+      // updates follow success only. During first loads, null values on both reads
+      // would bypass resetTarget for midload switches, letting old
+      // responses persist.
       if (
         currentTarget !== null
         && (currentTarget.projectName !== projectName || currentTarget.episode !== episode)

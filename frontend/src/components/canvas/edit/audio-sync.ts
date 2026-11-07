@@ -1,22 +1,22 @@
 /**
- * 旁白与 BGM 跟随全局时钟的判定，以及缓冲卡住时暂停全局时钟的判定。全部是纯函数；
- * useTimelinePlayback 每一帧读出媒体元素的状态，按这里的结论操作 `<audio>` 与 `<video>`。
+ * Narration/BGM alignment to global clocks and global-clock pauses for stalled buffering. Pure functions;
+ * useTimelinePlayback samples media each frame and applies these decisions to `<audio>` / `<video>`.
  */
 
 import type { AudioPlacement } from "./preview-tracks";
 
-/** 偏差在这个范围内视为同步，不做任何纠正。 */
+/** Drift within this tolerance counts as synchronized and needs no correction. */
 export const DRIFT_DEADBAND = 0.03;
-/** 偏差超过这个值直接跳到应在的位置；介于两者之间时微调播放速度追上，避免频繁跳动出现爆音。 */
+/** Drift above this seeks directly; intermediate drift adjusts speed to avoid repeated seeks/clicks. */
 export const DRIFT_RESEEK = 0.25;
-/** 微调播放速度的上限：最多快或慢这么多。 */
+/** Maximum playback-speed adjustment, faster or slower by at most this amount. */
 export const MAX_RATE_NUDGE = 0.1;
 const NUDGE_GAIN = 1;
-/** 起点前这么久就把音频对到入点，开始播放时不必再跳。 */
+/** Align audio to in-points this far before start, avoiding another seek when playback begins. */
 export const AUDIO_LOOKAHEAD = 2;
-/** 起点前这么久（秒）才开始缓冲；更远的音频先不加载，长时间线打开时不会一次拉取全部音频。 */
+/** Buffer only this many seconds before start; leave farther audio unloaded rather than fetching entire long timelines at opening. */
 export const AUDIO_PRELOAD_AHEAD = 10;
-/** 媒体持续等待数据超过这么久（毫秒）才算缓冲卡住，吸收跳转后短暂的数据不足。 */
+/** Require continuous data waiting this many milliseconds before marking stalled, absorbing brief post-seek shortages. */
 export const STALL_GRACE_MS = 150;
 
 const HAVE_FUTURE_DATA = 3;
@@ -25,7 +25,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** 全局时间 `t` 上这段音频的音量：区间外为 0，淡入淡出按线性包络。 */
+/** Audio volume at global `t`: zero outside the interval, linear fade envelopes inside. */
 export function placementGain(placement: AudioPlacement, t: number): number {
   if (t < placement.start || t >= placement.end) return 0;
   let envelope = 1;
@@ -34,7 +34,7 @@ export function placementGain(placement: AudioPlacement, t: number): number {
   return clamp(placement.volume * envelope, 0, 1);
 }
 
-/** 全局时间 `t` 上这段音频的预载方式：从起点前 {@link AUDIO_PRELOAD_AHEAD} 秒到结束之间缓冲，其余时间不加载。 */
+/** Preload at global `t`: buffer from {@link AUDIO_PRELOAD_AHEAD} seconds before start through end; otherwise leave unloaded. */
 export function audioPreload(placement: AudioPlacement, t: number): "auto" | "none" {
   return t >= placement.start - AUDIO_PRELOAD_AHEAD && t < placement.end ? "auto" : "none";
 }
@@ -43,23 +43,23 @@ export interface AudioElementState {
   currentTime: number;
   paused: boolean;
   seeking: boolean;
-  /** 已放到源音频结尾。 */
+  /** Source audio reached its end. */
   ended: boolean;
 }
 
 export interface AudioDirective {
   play: boolean;
-  /** 需要跳到的源音频时间；不需要时为 null。 */
+  /** Source-audio seek target, null when unnecessary. */
   seekTo: number | null;
   playbackRate: number;
   volume: number;
 }
 
 /**
- * 一段音频此刻该怎么做。`running` 表示全局时钟在走（播放中且没有卡住缓冲）。
- * 区间内：静止时偏差超出容差就先跳到位再播；播放中偏差大则跳，偏差小则按偏差微调速度，音频超前时放慢、落后时加快。
- * 区间外：不出声；即将开始时提前对到入点。跳转进行中不再下达新的跳转。
- * 源音频比区间先放完时停在结尾：对已结束的元素调用 play 会从头重放。
+ * Current audio action. `running` means global clock advances: playing without stalled buffering.
+ * Inside interval: stationary drift beyond tolerance seeks before playback; playing large drift seeks, small drift adjusts speed, slower if ahead/faster if behind.
+ * Outside: silence, aligning to the in-point shortly before start. Do not issue new seeks while seeking.
+ * If source audio ends before the interval, stop at its end; play on ended elements would restart from the beginning.
  */
 export function syncAudio(
   placement: AudioPlacement,
@@ -97,24 +97,24 @@ export function syncAudio(
 export interface MediaReadiness {
   readyState: number;
   seeking: boolean;
-  /** 加载失败的媒体不再等待，按没有这段媒体继续。 */
+  /** Stop waiting for failed media; continue as though absent. */
   errored: boolean;
-  /** 已放到结尾的媒体没有后续数据可等。 */
+  /** Ended media has no further data to await. */
   ended: boolean;
 }
 
-/** 媒体是否在等待数据：正在跳转，或手头的数据不够往下放。 */
+/** Whether media awaits data: seeking or insufficient data to continue. */
 export function mediaWaiting(media: MediaReadiness): boolean {
   return !media.errored && !media.ended && (media.seeking || media.readyState < HAVE_FUTURE_DATA);
 }
 
 export interface StallState {
-  /** 开始等待的时刻（毫秒）；没在等待时为 null。 */
+  /** Wait-start time in milliseconds, null when not waiting. */
   since: number | null;
   stalled: boolean;
 }
 
-/** 持续等待超过宽限期即判为卡住；任何一刻不再等待就解除。 */
+/** Continuous waiting beyond grace counts as stalled; any nonwaiting moment clears it. */
 export function trackStall(since: number | null, waiting: boolean, now: number): StallState {
   if (!waiting) return { since: null, stalled: false };
   const start = since ?? now;

@@ -1,0 +1,287 @@
+{
+  "audit_command": "uv run python scripts/audit_translation.py --base 7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "raw_auditor_status": "Reports reviewed differences; no assertions suppressed",
+  "reviewer": "Coordinator independent of template/skill translators",
+  "findings": [
+    {
+      "finding": ".agents/skills/afk-retrospective/SKILL.md: missing inline code (1): '.afk/reports/<batch-id>/<唯一文件名>.html'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "2a3eedfb93744331dc6360bc93f5dc32cffa762797c5e4a81b2516f268db175b"
+    },
+    {
+      "finding": ".agents/skills/afk-team-workflow/references/fixer.md: missing inline code (1): 'git -C <stage worktree 绝对路径>'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "68498e612a60311deb4d4a94effd215660c21d0ecb670a008480fcd2314e43d3"
+    },
+    {
+      "finding": ".agents/skills/afk-team-workflow/references/implementer.md: missing inline code (1): 'git -C <worktree 绝对路径>'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "46723d91fc9d1271a1ff4b7f36933ba109bcd3e534a355c0f78a9972f39812b5"
+    },
+    {
+      "finding": ".agents/skills/afk-team-workflow/references/review-looper.md: missing inline code (1): '评估点/硬停'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "c2a36f6f98129cb590b322a48e794581d9b92c8e2f232b32b00bd9992539025f"
+    },
+    {
+      "finding": ".agents/skills/afk-team-workflow/references/review-looper.md: missing inline code (1): 'git -C <stage worktree 绝对路径>'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "c2a36f6f98129cb590b322a48e794581d9b92c8e2f232b32b00bd9992539025f"
+    },
+    {
+      "finding": ".agents/skills/afk-team-workflow/references/spawn-prompts.md: missing inline code (1): '开工先委派独立探索 agent 勘察。'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "da93e600971653aa533037a2ec329a1551668fb4fefcc87edcf58699b584f8ef"
+    },
+    {
+      "finding": ".agents/skills/afk-team-workflow/references/stage-reviewer.md: missing inline code (1): 'git -C <stage worktree 绝对路径>'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "79d9ec4548d1083cb81738cdb0d2edf74ae62557658e27c37175128033cfa208"
+    },
+    {
+      "finding": ".agents/skills/lessons-sweep/SKILL.md: missing inline code (1): 'gh pr view <PR 号> --json isDraft,autoMergeRequest,mergeStateStatus,statusCheckRollup'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "497fb976883aa42983bb58a573add42cd8515ea5942ad36b137c7390b02cf8ce"
+    },
+    {
+      "finding": ".agents/skills/lessons-sweep/SKILL.md: missing inline code (1): '<!-- reviewed-through: <SHA> <日期> -->'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "497fb976883aa42983bb58a573add42cd8515ea5942ad36b137c7390b02cf8ce"
+    },
+    {
+      "finding": ".agents/skills/lessons-sweep/SKILL.md: missing inline code (1): 'git log <SHA>..<窗口终点> --first-parent'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "497fb976883aa42983bb58a573add42cd8515ea5942ad36b137c7390b02cf8ce"
+    },
+    {
+      "finding": ".agents/skills/lessons-sweep/SKILL.md: missing inline code (1): 'chore(lessons): <YYYY-MM-DD> 教训巡检'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Exact placeholder/instruction span reviewed in reviewed-skill-literals.md; commands, flags, paths structure and workflow obligations preserved.",
+      "candidate_sha256": "497fb976883aa42983bb58a573add42cd8515ea5942ad36b137c7390b02cf8ce"
+    },
+    {
+      "finding": "AGENTS.md: link destinations changed; review updated anchors or translations individually",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Intentional added maintenance-policy ADR link or translated heading anchor, independently reviewed; existing destinations retained and local anchor checks separate.",
+      "candidate_sha256": "1e3cf9b69c2e7eb7769ad2889454b5c4201ce252b416ff41e774cc8af7db1d0b"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '轻声'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '低语'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '大喊'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '喃喃自语'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '温柔地'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '紧张地'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '坚定地'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '低沉的男声'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md: missing inline code (1): '清脆的女声'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human voice-direction example translated (quietly/whisper/shout/clear female voice), preserving volume/timbre intent; not a parser token or provider enum.",
+      "candidate_sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+    },
+    {
+      "finding": "docs/adr/0087-agent-toolset-single-declaration.md: link destinations changed; review updated anchors or translations individually",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Intentional added maintenance-policy ADR link or translated heading anchor, independently reviewed; existing destinations retained and local anchor checks separate.",
+      "candidate_sha256": "f029f4e275dc8b632d378de5bab28a53d04cb78817e1fa6d2d862f9d6f54a326"
+    },
+    {
+      "finding": "docs/standards/copy.md: link destinations changed; review updated anchors or translations individually",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Intentional added maintenance-policy ADR link or translated heading anchor, independently reviewed; existing destinations retained and local anchor checks separate.",
+      "candidate_sha256": "1d21d633febd451a9db6b8b761ce3bb62fb679bbe4398e5f3d35d6f8363cfe54"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/image_prompt_writing_guide.md: missing inline code (1): '@[登记名]'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "c1b94070cf5a0ff04c496ee0e2d764879046f67f88dc99a74a20651b5e4ef8f9"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/image_prompt_writing_guide.md: missing inline code (1): '@[角色/衍生]'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "c1b94070cf5a0ff04c496ee0e2d764879046f67f88dc99a74a20651b5e4ef8f9"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '本体/衍生'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[本体/衍生]'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[本体]'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[角色名]{台词内容}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[李明]{…}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[李明] {…}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[李明]：{…}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[本体/衍生]{台词}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '{台词内容}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/shared/writing_syntax.md: missing inline code (1): '@[李明] 推开门。@[李明]{我来了。}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "f05189b2104e57c80976444789a8d24a3355bfb4ce8f044d9beab94d98ee2d63"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/text/reference_video_script_plan/dialogue_rule/novel.md: missing inline code (1): '{台词}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "fd75cd55936f29768368cbc9940ddd247f0a59976ebfc426811cf60097353a94"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/partials/text/reference_video_script_plan/dialogue_rule/screenplay.md: missing inline code (1): '{台词}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "7cad3c78be9e22301d354c47485966d59b0d8dd850a413d9ae8913c7b342e9c4"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/text/ad_storyboard_script.md: missing inline code (1): 'E{{ episode }}S{两位序号}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "2cc2dcc86d60aa94457c987d0da791d611d7c7efe7ff701ab86d8f158a5187f4"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/text/drama_script_plan.md: missing inline code (1): 'E{{ episode }}S{两位序号}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "cfa2ab817f0c87da7e37aa807b6fed8bf3e1f811ecc8033a471c854ec36e3ac9"
+    },
+    {
+      "finding": "lib/prompts/prompt_templates/templates/text/narration_script_plan.md: missing inline code (1): 'E{{ episode }}S{两位序号}'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human role/name/dialogue or two-digit sequence placeholder translated inside unchanged marker/ID grammar. Bilingual model-facing template review preserved prohibitions, project-language rule, original dialogue-fidelity constraints and cultural example identities.",
+      "candidate_sha256": "d4f02ff9d904c92bf7aaaf8abe2249b9b39d860b093e7ceb53eb428b424a460e"
+    },
+    {
+      "finding": "packages/arcreel-catalog-core/README.md: missing inline code (1): 'endpoint_version_floor(供应商, 媒体类型, 端点)'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human function-argument or diagnostic-format placeholder translated; function identifier, argument positions, punctuation and machine key/params grammar unchanged.",
+      "candidate_sha256": "91375896ea8ce3de7be90a2fd5072e098e5a93734e639d90ed178191ff4891ac"
+    },
+    {
+      "finding": "packages/arcreel-catalog-core/README.md: missing inline code (1): 'app_version_key(版本)'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human function-argument or diagnostic-format placeholder translated; function identifier, argument positions, punctuation and machine key/params grammar unchanged.",
+      "candidate_sha256": "91375896ea8ce3de7be90a2fd5072e098e5a93734e639d90ed178191ff4891ac"
+    },
+    {
+      "finding": "packages/arcreel-catalog-core/README.md: missing inline code (1): '位置: [code] 说明'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human function-argument or diagnostic-format placeholder translated; function identifier, argument positions, punctuation and machine key/params grammar unchanged.",
+      "candidate_sha256": "91375896ea8ce3de7be90a2fd5072e098e5a93734e639d90ed178191ff4891ac"
+    },
+    {
+      "finding": "packages/arcreel-market-core/README.md: missing inline code (1): '文件:定位: [code] key(params)'",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Human function-argument or diagnostic-format placeholder translated; function identifier, argument positions, punctuation and machine key/params grammar unchanged.",
+      "candidate_sha256": "7aac7a3a5427ef2da7a2469ad298c9399a972b1335fa7716b78a1c0156166bb9"
+    },
+    {
+      "finding": "website/i18n/en/docusaurus-plugin-content-docs/current/guide/providers.md: link destinations changed; review updated anchors or translations individually",
+      "disposition": "accepted-reviewed-translation",
+      "reason": "Completed missing current Chinese-source clauses in English target, including ComfyUI and model-settings links. Full current target link-destination multiset equals Chinese source, anchors/URLs unchanged; independently accepted in final-public-english-independent-review.json. No source-flow inversion.",
+      "candidate_sha256": "c89558e289b31c8ff0f1a9df51c688064c52ebf8a8a9ac7438b91caf80432d15"
+    }
+  ],
+  "unreviewed_findings": 0,
+  "scope": "Only these exact findings and candidate hashes are accepted; new findings need review. Semantic and fenced-example reviews are separate.",
+  "final_recheck": {
+    "checked_markdown_files": 446,
+    "exact_findings": 45,
+    "all_reviewed_candidate_hashes_current": true,
+    "raw_exit_code": 1,
+    "reason": "45 exact individually reviewed findings; one new provider-English link-set completion explicitly reviewed. No assertions suppressed.",
+    "log_sha256": "3663d8653b113e5ebd2b965e5870ab871f657c976d0d266514124f65a61c19cf"
+  }
+}

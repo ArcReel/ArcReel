@@ -1,6 +1,4 @@
-"""execute_tts_task 执行链单测：文本来源三分支 / 写回 narration_audio /
-_get_or_create_audio_backend 缓存与自定义供应商路径 /
-compute_affected_fingerprints tts 分支 / 任务注册表。"""
+"""execute_tts_task unit coverage: three text-source branches, narration_audio writeback, _get_or_create_audio_backend cache and custom-provider path, compute_affected_fingerprints TTS branch and task registry."""
 
 from __future__ import annotations
 
@@ -52,7 +50,7 @@ def _audio_ctx(
     configured_model="qwen3-tts-flash",
     backend_model="qwen3-tts-flash",
 ):
-    """把 audio lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。"""
+    """Assemble a fake GenerationContext from audio-lane resolution, replacing only resolve_generation_context."""
     ctx = GenerationContext(
         generator=generator,
         audio_lane=AudioLaneResult(
@@ -146,7 +144,7 @@ class _FakeAudioGenerator:
         self.audio_calls.append(kwargs)
         output = self.project_path / "audio" / f"segment_{kwargs['resource_id']}.wav"
         staged = output.with_name(f".{output.stem}.staged{output.suffix}")
-        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        # Production backends write artifacts in worker threads; substitutes likewise avoid blocking the event loop.
         await write_backend_output(staged, b"RIFF-current-audio")
         if before_commit := kwargs.get("before_commit"):
             await before_commit(staged)
@@ -272,7 +270,7 @@ def tts_env(monkeypatch, tmp_path):
         json.dumps(pm.script, ensure_ascii=False),
         encoding="utf-8",
     )
-    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → script_plan）都已登记进产物清单。
+    # Production projects use current schema; scripts and their evidence chain (episode source → script_plan) are manifest-registered.
     (pm.project_path / "source").mkdir()
     (pm.project_path / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (pm.project_path / "drafts" / "episode_1").mkdir(parents=True)
@@ -293,7 +291,7 @@ def tts_env(monkeypatch, tmp_path):
 
 
 def _forget_script_claim(project_path: Path) -> None:
-    """撤掉剧本的清单认领——清单没有认领即没有可读的产物。"""
+    """Remove the script's manifest claim: without a claim, no artifact is readable."""
 
     adapter = ProjectArtifactManifestAdapter(project_path)
     assert ArtifactManifest(adapter).forget_entry_transactionally(ArtifactKey.episode_script(1))
@@ -315,7 +313,7 @@ class TestExecuteTtsTask:
         assert gen.audio_calls == []
 
     async def test_script_claim_withdrawn_before_provider_call_blocks_tts(self, tts_env, monkeypatch):
-        """认领在执行途中被撤掉：提交前那道复核挡住，不触达供应商。"""
+        """If the claim is revoked during execution, pre-submission recheck blocks before contacting the provider."""
 
         pm, gen = tts_env
         original_generate = gen.generate_audio_async
@@ -403,7 +401,7 @@ class TestExecuteTtsTask:
 
     @pytest.mark.parametrize(("claimed", "drifted"), [("openai", True), ("dashscope", False)])
     async def test_provider_changed_since_claim_is_raised_before_synthesis(self, tts_env, claimed, drifted):
-        """执行入口解析出的供应商与认领槽不一致时，在合成之前抛出，交给 worker 改记录并回队。"""
+        """If resolved audio provider differs from the claimed slot, raise before synthesis so the worker updates the record and requeues."""
         _pm, gen = tts_env
         task = {
             "task_id": "task-tts",
@@ -440,7 +438,7 @@ class TestExecuteTtsTask:
         assert call["resource_id"] == "E1S01"
         assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
         assert gen.version_records[-1]["tts_basis_digest"] is None
-        # 无 script_file → 只保存付费历史，不写回 narration_audio 或抢占 current
+        # No script_file: retain paid history only, without narration_audio writeback or taking current.
         assert pm.updated_assets == []
 
     async def test_text_from_script_segment_and_writeback(self, tts_env):
@@ -610,7 +608,7 @@ class TestExecuteTtsTask:
         synthesize = gen.generate_audio_async
 
         async def _voice_changed_during_synthesis(**kwargs):
-            # 合成期间用户在项目设置里改了音色
+            # User changes voice in project settings during synthesis.
             pm.project["narration_voice"] = "Ada"
             return await synthesize(**kwargs)
 
@@ -815,11 +813,11 @@ class TestExecuteTtsTask:
 
 
 class TestGetOrCreateAudioBackend:
-    """audio backend 构造统一委托 assemble_backend；缓存留在调用方编排层。"""
+    """Delegate audio-backend construction uniformly to assemble_backend; cache stays in caller orchestration."""
 
     @pytest.fixture(autouse=True)
     def _clear_backend_cache(self):
-        """backend 缓存是模块级进程内状态，公开失效入口即用例间的隔离手段。"""
+        """Backend cache is module-level process state; the public invalidation entry isolates test cases."""
         generation_context.invalidate_backend_cache()
         yield
         generation_context.invalidate_backend_cache()

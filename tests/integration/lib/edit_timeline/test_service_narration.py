@@ -1,4 +1,4 @@
-"""剪辑时间线的旁白落点与旁白检查：在真实临时项目目录上经公开服务命令验证。"""
+"""Timeline narration placement/checks through public service commands on real temporary projects."""
 
 from __future__ import annotations
 
@@ -24,9 +24,10 @@ def _use_delivery(pm: ProjectManager, delivery: str) -> None:
 
 @pytest.fixture
 def four_units(pm: ProjectManager, install_video: InstallMedia, install_narration: InstallMedia) -> None:
-    """在 E1U1（台词）、E1U2（画外音）、E1U3（无人声）之后追加画外音单元 E1U4，视频各 1 秒。
+    """Append voiceover E1U4 after dialogue E1U1 / voiceover E1U2 / silent E1U3; videos each last 1 second.
 
-    E1U2 的旁白 2.5 秒，从 1 秒起延伸到 c3、c4 上；E1U4 的旁白 1.5 秒，超出 4 秒的时间线末尾。
+    E1U2 narration lasts 2.5 seconds from time 1 across c3/c4; E1U4’s 1.5-second narration exceeds
+    the 4-second timeline.
     """
     script = pm.load_script("demo", "episode_1.json")
     script["video_units"].append({"unit_id": "E1U4", "text": "{雨停了}", "duration_seconds": 4})
@@ -129,7 +130,7 @@ async def test_place_narration_moves_the_carrier_within_the_unit(pm: ProjectMana
     assert (readout.clips[4].narration.start, readout.clips[4].narration.end) == (4.0, 6.5)
     history = await service.list_revisions("demo", timeline_id)
     assert history.revisions[-1].changed_clip_ids == ("c2", "c5")
-    # c2 不再承载旁白，它的重叠与相撞随之消失；c4 的旁白（3–4.5 秒）压到 c5 的旁白上，c5 的旁白超出 5 秒的末尾。
+    # c2 no longer hosts narration, removing its overlaps/collisions; c4 narration (3–4.5) overlaps c5, which exceeds end 5.
     assert [(issue[0], issue[3]) for issue in _narration_issues(readout.issues)] == [
         ("narration_overrun", ("c4", "c5")),
         ("narration_overrun", ("c5",)),

@@ -1,25 +1,24 @@
-"""v13→v14 迁移：把存量项目的遗留风格值一次性归一，并把补记风格描述的产物依据改写到新口径。
+r"""v13→v14: normalize legacy styles once and rebase artifact basis to include style descriptions.
 
-两种遗留风格值：风格值开头的「画风：」前缀（旧版风格模版的写法，叠加英文 ``Style:`` 标签会
-渲染成「Style: 画风：…」的中英混叠），以及 ``Photographic`` / ``Anime`` / ``3D Animation``
-三个短标签（更早的风格枚举，此前在 ``ProjectManager`` 每次读项目时解析成模版 id 并展开快照）。
-归一落盘后运行时只读已归一的值，前缀剥离与短标签解析都不再存在。
+Two legacy forms: initial “画风：” prefixes from old templates, which combine with English ``Style:``
+into mixed “Style: 画风：…”; and ``Photographic`` / ``Anime`` / ``3D Animation`` short labels, earlier
+enums previously resolved/expanded into template snapshots on every ``ProjectManager`` read.
+Persist normalization; runtime only reads normalized values, without prefix stripping/label resolution.
 
-风格描述：自定义风格项目（上传过风格参考图）的 ``style`` 为空，``style_description`` 是唯一的
-风格信号。宫格联合图、切格分镜与参考视频的提示词都消费它，v14 起这三类依据在描述非空时记下描述；
-schema 更低的项目按 ``project_basis_style_description`` 沿用不记描述的口径，本步之前的激活因此
-不会把它们登记到新口径或当作过期丢掉。
+Custom styles with uploaded references have empty ``style`` and only ``style_description`` as their
+style signal. Grid composites/split images/reference video consume it; v14 basis records nonempty
+descriptions. Earlier schemas retain description-free ``project_basis_style_description`` semantics,
+preventing preceding activation from registering new bases or discarding artifacts as stale.
 
-两件事都会改变产物依据的目标摘要。本步按 v13 项目与 v14 项目各规划一次目标态，把「改写前正是
-current、且目标登记变了」的清单条目改写为改写后的登记：产物不因这次升级翻过期，而改写前就已过期
-的条目原样保留，不伪造时新性。播放器与版本恢复读的是版本记录冻结的依据，被改写登记的三类产物，
-其选中版本记录一并补记描述。
+Both changes alter target digests. Plan v13/v14 states, rewriting only previously current entries with
+changed targets. Upgrade preserves currency and never turns already-stale entries current. Playback/
+restoration reads frozen version basis; selected records for these three changed kinds also gain descriptions.
 
-提交顺序是版本记录、清单、``project.json``：清单改写落盘而 schema 尚未提升时崩溃，本步会整步
-重跑，届时改写前规划仍从未动过的 ``project.json`` 算出，已改写的条目不再匹配「改写前摘要」而被
-跳过；版本记录已改写而清单未改写时进程被杀，重跑认出记录已是新口径而不再改写它，清单照常改写，
-既不重复改写也不丢失修复结果。反序则会在重跑时把已修复的条目认成陌生摘要，永久留下过期标记。
-"""
+Commit history, manifests, then ``project.json``. Crashes after manifest writes but before schema
+advance rerun from untouched ``project.json``; rewritten entries no longer match old digests and skip.
+Crashes after history but before manifest writes recognize new history unchanged and rewrite manifests
+normally, avoiding duplicates/lost repairs. Reverse order would mistake repaired entries for unfamiliar
+digests on retry, permanently retaining stale markers."""
 
 from __future__ import annotations
 
@@ -57,26 +56,24 @@ TARGET_SCHEMA_VERSION = 14
 _GRID_MEMBER_KIND = "artifact-visual/grid-member"
 _REFERENCE_VIDEO_VISUAL_KIND = "artifact-visual/video-reference"
 
-#: 更早的风格枚举值 → 当前风格模版 id。只有本迁移读它：解析一次、展开快照后该值不再出现。
+#: Legacy enums → current template IDs, consumed only here once to expand snapshots; values then disappear.
 LEGACY_STYLE_MAP: dict[str, str] = {
     "Photographic": "live_premium_drama",
     "Anime": "anim_kyoto",
     "3D Animation": "anim_3d_cg",
 }
 
-#: 风格值开头的「画风：」前缀（全角/半角冒号）。``anim_arcane`` 的「油画三渲二画风：」不以
-#: 「画风」起头，因而不在此匹配之列——它的「画风」是复合词的一部分，不是可删前缀。
+#: Initial “画风：” prefixes with full/half-width colons. ``anim_arcane`` “油画三渲二画风：” does not start
+#: with “画风”, so it never matches: the word is part of a compound, not a removable prefix.
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
 
 
 def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
-    """纯函数：把 v13 形态的 project dict 转为 v14 形态。幂等。
+    r"""Pure, idempotent v13→v14 project-dict conversion.
 
-    ``style`` 不是字符串时原样保留，其结构错误由 DataValidator 另行报告。短标签解析只在项目
-    还没有 ``style_template_id`` 时发生：已有该字段说明用户此后选过风格，那时的选择是准的。
-    参考图优先的口径沿用解析期的既有行为——有 ``style_image`` 时清空风格值、模版 id 置 null。
-    不改 ``schema_version``（由文件级 migrate 提交时写入）。
-    """
+    Preserve nonstring ``style`` for DataValidator reporting. Resolve labels only without
+    ``style_template_id``: existing values indicate later authoritative user choices. Keep reference-first
+    behavior: ``style_image`` clears style and nulls template IDs. Leave ``schema_version`` to file-level commit."""
     data = copy.deepcopy(project)
     raw = data.get("style")
     if not isinstance(raw, str):
@@ -103,12 +100,11 @@ class _Planned:
 
 
 def _plan(project_dir: Path, project: Mapping[str, Any], *, allow_stale: bool) -> _Planned:
-    """按给定项目内容规划一次完整目标态，不必先落盘。
+    r"""Plan complete target states from supplied content without prior persistence.
 
-    ``allow_stale`` 在描述非空时放行过期的正式目标：参考视频版本记录冻结的依据不含风格描述，v14
-    口径的规划会把它们当作「生成后内容已变」跳过，改写便无从谈起。时新与否由登记是否等于改写前
-    目标来裁决，放行过期目标不会让本就过期的条目混进来。
-    """
+    ``allow_stale`` permits stale formal targets with nonempty descriptions: frozen reference-video basis
+    lacks descriptions, so v14 planning otherwise skips them as changed-since-generation, preventing rebase.
+    Registration equality with before-targets alone decides currency; permitting stale targets cannot admit already-stale entries."""
     project_bytes = json.dumps(project, ensure_ascii=False).encode("utf-8")
     planner = TargetStatePlanner(project_dir, project_bytes=project_bytes, allow_stale_formal_targets=allow_stale)
     plan = planner.plan()
@@ -116,10 +112,9 @@ def _plan(project_dir: Path, project: Mapping[str, Any], *, allow_stale: bool) -
 
 
 def _description_bound(key: ArtifactKey, bases: Mapping[ArtifactKey, ArtifactBasis]) -> bool:
-    """补记风格描述的三类依据：宫格联合图、切格分镜与视频（分镜视频的依据不含风格，前后不变）。
+    r"""Three description-bound basis kinds: grid composites, split images, video (storyboard-video basis lacks style and stays unchanged).
 
-    切格分镜与单张分镜图共用 ``episode_storyboard`` 键，只有依据种类能区分二者。
-    """
+    Split/single storyboard images share ``episode_storyboard`` keys; only basis kinds distinguish them."""
     if key.kind in {ArtifactKind.EPISODE_GRID, ArtifactKind.EPISODE_VIDEO}:
         return True
     basis = bases.get(key)
@@ -131,10 +126,9 @@ def _rebase_entries(
     before: Mapping[ArtifactKey, ArtifactManifestEntry],
     after: Mapping[ArtifactKey, ArtifactManifestEntry],
 ) -> dict[ArtifactKey, ArtifactManifestEntry]:
-    """挑出改写前 current、改写后目标登记变了的条目，给出它们改写后的登记。
+    r"""Select previously current entries with changed targets, returning new registrations.
 
-    产物路径也必须一致：路径不同就不是同一件产物。
-    """
+    Artifact paths must also match; different paths mean different artifacts."""
     rebased: dict[ArtifactKey, ArtifactManifestEntry] = {}
     for key, current in stored.items():
         target_after = after.get(key)
@@ -166,7 +160,7 @@ def _selected_version_record(
 def _migrated_video_facts(
     facts: VideoArtifactCurrencyFacts, migrated: Mapping[str, Any], description: str
 ) -> VideoArtifactCurrencyFacts | None:
-    """把冻结的参考视频事实的风格入参换成迁移后的风格值与描述，重组视频依据。不是参考视频的返回 None。"""
+    r"""Replace frozen reference-video style inputs with migrated style/description and rebuild basis; None for nonreference video."""
     inputs = facts.visual_basis.to_evidence_dict()["inputs"]
     if facts.visual_basis.kind != _REFERENCE_VIDEO_VISUAL_KIND or not isinstance(inputs, Mapping):
         return None
@@ -183,7 +177,7 @@ def _migrated_video_facts(
 @dataclass(frozen=True, slots=True)
 class _VersionRewrite:
     changed: bool
-    #: 选中版本记录与清单登记对不上、无法一并改写的条目：不改写登记，留给读时判过期。
+    #: Selected history mismatches preventing joint rebase: leave registrations for read-time stale judgments.
     withdrawn: tuple[ArtifactKey, ...]
 
 
@@ -195,13 +189,13 @@ def _rewrite_selected_versions(
     migrated: Mapping[str, Any],
     description: str,
 ) -> _VersionRewrite:
-    """把待改写登记的三类产物的选中版本记录就地改到新口径。
+    r"""Rebase selected history records for the three changed artifact kinds in place.
 
-    播放器与版本恢复按版本记录冻结的依据判断时新：只改清单，时新的视频在播放器上仍标「比当前内容
-    旧」，恢复当前版本也会登记回旧口径。冻结依据等于改写前登记的记录改写过去；已是新口径的记录
-    （改写落盘后进程被杀、重跑）原样保留；两者都不是，或换上迁移后的风格入参仍与改写后目标不一致，这条登记撤回
-    改写，免得清单判时新而播放器判过期。没有选中版本记录的产物只改清单。
-    """
+    Playback/restoration judge frozen basis. Manifest-only updates would leave current video labeled older
+    and restoration register old basis. Rewrite records equal to old registrations; retain already-new
+    records from interrupted retries. If neither matches, or migrated inputs still mismatch new targets,
+    withdraw that registration rebase to prevent current-manifest/stale-player disagreement. Artifacts
+    without selected records update manifests only."""
     changed = False
     withdrawn: list[ArtifactKey] = []
     for key, target in rebased.items():
@@ -263,7 +257,7 @@ def _withdrawn_skip(key: ArtifactKey, entry: ArtifactManifestEntry) -> Migration
 
 
 def _with_versions_bytes(plan: ArtifactTargetStatePlan, versions_path: Path, raw: bytes) -> ArtifactTargetStatePlan:
-    """版本记录是规划依赖：本步改写它之后，稳定性闸门要以改写后的字节为准。"""
+    r"""History is a planning dependency; rewritten bytes become the stability-gate reference after this step changes it."""
     resolved = versions_path.resolve()
     return replace(
         plan,
@@ -281,7 +275,7 @@ def _read_bytes_or_none(path: Path) -> bytes | None:
 
 
 def migrate_v13_to_v14(project_dir: Path) -> ArtifactBackfillOutcome | None:
-    """v13→v14 文件级迁移。"""
+    r"""File-level v13→v14 migration."""
     project_dir = Path(project_dir)
     pj = project_dir / "project.json"
     if not pj.exists():
@@ -296,7 +290,7 @@ def migrate_v13_to_v14(project_dir: Path) -> ArtifactBackfillOutcome | None:
     migrated["schema_version"] = TARGET_SCHEMA_VERSION
     description = normalize_style_value(data.get("style_description"))
     if migrated.get("style") == data.get("style") and not description:
-        # 风格值已归一、描述为空的项目依据逐字不变：升级不该为它们付出完整目标态规划的代价。
+        # Already-normal styles with empty descriptions have byte-identical bases; upgrades must not incur complete planning costs for them.
         atomic_write_json(pj, migrated)
         return None
 
@@ -353,11 +347,10 @@ def _commit_rebase(
     versions: dict[str, Any] | None,
     versions_bytes: bytes | None,
 ) -> None:
-    """先版本记录后清单地提交改写，任一步失败回滚到迁移前。
+    r"""Commit history before manifests, rolling back to premigration state on failure.
 
-    清单回滚不完整时版本记录保持已改写：两者一起停在新口径，重跑时清单登记已等于改写后目标，
-    不会留下清单判时新、播放器判过期的分裂状态。
-    """
+    Incomplete manifest rollback retains rewritten history too, keeping both on new semantics. Retries
+    recognize new manifest targets, avoiding current-manifest/stale-player disagreement."""
     ensure_versioned_backup(project_dir / MANIFEST_FILENAME, TARGET_SCHEMA_VERSION - 1)
     versions_path = project_dir / "versions" / "versions.json"
     if versions is not None:

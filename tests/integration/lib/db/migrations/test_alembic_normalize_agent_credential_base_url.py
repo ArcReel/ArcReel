@@ -1,4 +1,4 @@
-"""Alembic 数据迁移：存量 Agent 凭证的 base_url 归一到「存储值即调用值」形态。"""
+"""Alembic data migration: normalize existing Agent credential base_url so stored values equal call values."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _insert_credential(conn: sa.Connection, cred_id: int, base_url: str) -> None
 def test_upgrade_normalizes_legacy_base_urls(
     alembic_cfg: tuple[Config, Path], migration_revisions: Callable[[str], tuple[str, str]]
 ) -> None:
-    """升到父版本 → 写入旧格式 base_url → 升到本版本：带端点后缀 / 尾斜杠的行被归一，规范值原样。"""
+    """Upgrade parent, insert old base_url forms, then migrate: normalize endpoint suffixes/trailing slashes and preserve canonical values."""
     revision, parent = migration_revisions("*_normalize_agent_credential_base_url.py")
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, parent)
@@ -53,6 +53,6 @@ def test_upgrade_normalizes_legacy_base_urls(
         2: "https://api.minimaxi.com/anthropic",
         3: "https://x",
         4: "https://api.deepseek.com/anthropic",
-        # 带 query 的值只做同样三步、不在迁移里拒绝：它由测试连接的入口校验拦下，用户须自行改地址。
+        # Query-bearing values undergo the same three steps without migration rejection; connection-test entry validation blocks them, requiring user address edits.
         5: "https://relay.example.com/a?api_key=sk-x",
     }

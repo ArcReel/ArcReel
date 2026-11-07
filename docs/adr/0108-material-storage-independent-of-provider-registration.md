@@ -2,14 +2,14 @@
 status: accepted
 ---
 
-# 素材存储与供应商素材关联独立建模
+# Model material storage independently from provider asset links
 
-#2249 的供应商素材库接入与对象存储接入分别改变素材的供应商侧身份和内容保存位置，因此将素材身份、素材存储与供应商素材关联独立建模，关联归属于具体内容版本。创作流程引用素材身份，存储负责保存内容，供应商关联表达该版本在特定资源范围内的身份与使用条件。不采用 `local / s3 / volcano` 互斥类型：同一素材可以存于对象存储并关联多个供应商素材，混成一个类型轴会使存储迁移、供应商切换与内容替换相互牵制。
+Provider-library and object-storage integration in #2249 change provider-side identity and content location independently. Model material identity, storage, and links separately, with links belonging to specific content versions. Creation references identity, storage saves content, and links express that version's provider identity/usage conditions within a resource scope. Reject mutually exclusive `local / s3 / volcano` types: one material may be object-stored and linked to multiple providers. Combining them entangles storage migration, provider switching, and content replacement.
 
-## 后果
+## Consequences
 
-仅改变存储位置不改变内容身份或产物时效。不同内容版本的关联彼此独立：改选图片 B 不让 B 继承 A 的关联，也不让 A 的关联失效；解除 ArcReel 内的关联与删除供应商素材分离，避免影响其他使用者。
+Changing location alone changes neither content identity nor artifact currency. Version links are independent: selecting image B neither inherits A's links nor invalidates them. Separate unlinking in ArcReel from provider deletion to avoid affecting other consumers.
 
-统一素材需要可取得的实际内容，以支持预览、编辑、归档及其他供应商使用；仅有供应商 ID 的资源不能直接充当 ArcReel 素材。这增加了内容获取与保存的责任，但避免供应商素材成为无法参与正常创作流程的例外。
+Unified material requires retrievable actual content for preview, editing, archives, and other providers. Provider-ID-only resources cannot directly serve as ArcReel material. This adds retrieval/storage responsibility but prevents provider assets becoming unusable exceptions in normal creation.
 
-交付范围、凭证绑定、入库状态、存储选择、失败补偿和验收要求由 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559) 及其子任务维护。源码证据与增量评估见[上传链路研究](../research/create-asset-local-upload-research.md)和[对象存储范围研究](../research/material-object-storage-scope.md)。
+Delivery scope, credential binding, upload states, storage choices, compensation, and acceptance live in [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559) and subtasks. Source evidence and incremental assessment are in [upload research](../research/create-asset-local-upload-research.md) and [object-storage scope research](../research/material-object-storage-scope.md).

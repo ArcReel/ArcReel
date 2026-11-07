@@ -96,7 +96,7 @@ def _read_app_version() -> str:
 
 
 def get_app_version_reader() -> Callable[[], str]:
-    """版本读取器的路由依赖；读失败的处置归路由，故注入可调用对象而非版本值。"""
+    """Route dependency for version reading; inject a callable rather than a version value because routes own read-failure handling."""
     return _read_app_version
 
 
@@ -163,13 +163,13 @@ async def _get_latest_release(
 
 @dataclass(frozen=True)
 class _ModelCandidate:
-    """一个可选模型及其任务类型桶归属，供不过滤的默认层与按桶过滤的细分层共用。"""
+    """An available model and its task-type bucket membership, shared by unfiltered defaults and bucket-filtered layers."""
 
     option: str  # "provider_id/model_id"
     media_type: str
-    fit: BucketFit  # 各任务类型桶的判定，连同不进桶的原因
-    display_name: str  # 按请求语言成文的模型名
-    entry: str | None = None  # 所对应条目的引用（「模型厂商/官方模型名」）；对应不上条目时为 None
+    fit: BucketFit  # Task-type bucket decisions, including exclusion reasons.
+    display_name: str  # Model name rendered in the request language.
+    entry: str | None = None  # Matching entry reference (model vendor/official model name); None without a match.
 
     @property
     def provider(self) -> str:
@@ -182,7 +182,7 @@ class _ModelCandidate:
 
 @dataclass(frozen=True)
 class _RetiringModel:
-    """一个即将下线或已下线的供应商模型，不论启用与否、在不在候选里：引用处的下线提示据此给出。"""
+    """A retiring or retired provider model, whether enabled or a candidate; supplies retirement notices at references."""
 
     option: str  # "provider_id/model_id"
     media_type: str
@@ -192,15 +192,15 @@ class _RetiringModel:
 async def _enumerate_candidates(
     svc: ConfigService, session: AsyncSession, locale: str = DEFAULT_LOCALE
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
-    """列出所有可选模型（内置 ready 供应商与自定义供应商下已启用的供应商模型），并附任务类型桶归属。
+    """List available models (enabled provider models under ready built-in providers and custom providers), with task-type bucket membership.
 
-    候选只来自已启用、未下线的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的这两项
-    取自供应商状态的 ``disabled_models``（见 :func:`lib.catalog.builtin_models.disabled_builtin_models`）；自定义供应商
-    看模型行的启用状态与所对应条目的生命周期（:func:`lib.custom_provider.default_models.model_lifecycle`）。
+    Candidates include only enabled, nonretired provider models, at both default and bucket layers
+    (capability filtering applies only to buckets). Built-in status derives from ``disabled_models``
+    (see :func:`lib.catalog.builtin_models.disabled_builtin_models`); custom providers use model-row enabled
+    state and matched-entry lifecycle (:func:`lib.custom_provider.default_models.model_lifecycle`).
 
-    供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
-    语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。
-    """
+    Provider/model names use ``translate_or``, as the ``/providers`` catalog does: render translated names
+    in the request language when available; otherwise return original registry/DB names (brands and user-entered custom names)."""
     statuses = await svc.get_all_providers_status()
     ready_providers = {s.name: s for s in statuses if s.status == "ready"}
 
@@ -268,11 +268,11 @@ async def _enumerate_candidates(
 
 
 async def _enumerate_retiring_models(session: AsyncSession) -> list[_RetiringModel]:
-    """列出即将下线或已下线的供应商模型：全部内置供应商与自定义供应商，启用与否都算。
+    """List retiring/retired models across all built-in and custom providers, regardless of enabled state.
 
-    设置与项目里的引用可能指向停用的、已下线的或所在供应商尚未配置的模型，它们不在候选里，提示仍要给出。
-    官方数据删除、只剩本地保留条目的模型不在清单里，这里列不出，由 :func:`_unlisted_references` 按被引用的值补上。
-    """
+    Settings/project references may target disabled, retired, or unconfigured-provider models absent from
+    candidates; notices must still appear. Models removed from official data with only retained local
+    entries are unlisted here; :func:`_unlisted_references` supplements them from referenced values."""
     retiring = [
         _RetiringModel(f"{provider_id}/{view.model_id}", view.model.media_type, view.lifecycle)
         for provider_id in PROVIDER_REGISTRY
@@ -292,7 +292,7 @@ async def _enumerate_retiring_models(session: AsyncSession) -> list[_RetiringMod
             try:
                 media_type = (await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)).media_type
             except ValueError:
-                continue  # 调用端点已被删除：供应商模型列表同样不列这一行
+                continue  # Call endpoint deleted: provider model lists omit this row too.
             state = model_lifecycle(model, media_type)
             if state.status != "available":
                 retiring.append(_RetiringModel(f"{make_provider_id(provider.id)}/{model.model_id}", media_type, state))
@@ -300,10 +300,9 @@ async def _enumerate_retiring_models(session: AsyncSession) -> list[_RetiringMod
 
 
 async def _referenced_models(svc: ConfigService) -> dict[str, str]:
-    """全局设置与各项目的模型设置字段引用的 ``provider/model`` → 所引模型的媒体类型（取自字段）。
+    """``provider/model`` referenced by global/project model-setting fields → model media type (from the field).
 
-    逐个读项目的 ``project.json``，耗时与项目数成正比。
-    """
+    Read each project's ``project.json``; time scales with project count."""
     settings = await svc.get_all_settings()
     pairs: list[tuple[str, object]] = [(key, settings.get(key)) for key in GLOBAL_MODEL_SETTING_KEYS]
     for project in await asyncio.to_thread(project_model_references):
@@ -312,11 +311,11 @@ async def _referenced_models(svc: ConfigService) -> dict[str, str]:
 
 
 def _unlisted_references(references: Mapping[str, str]) -> tuple[list[_RetiringModel], dict[str, str]]:
-    """被引用、却不在内置供应商清单里的模型：按名字对应到本地已下线条目的，按条目给下线提示；其余提示不可用。
+    """Referenced models absent from built-in provider lists: show entry-based retirement notices for names matching locally retired entries; otherwise unavailable.
 
-    返回（按条目提示的模型, 不可用的 ``provider/model`` → 媒体类型）。不在清单里的模型无法调用，对应到的条目
-    即将下线或仍可用时同样算不可用。自定义供应商的引用不在这里判定：它们按模型行判定（:func:`_enumerate_retiring_models`）。
-    """
+    Return (entry-noticed models, unavailable ``provider/model`` → media type). Unlisted models cannot be
+    called; even matching retiring or active entries count as unavailable. Custom-provider references are
+    evaluated by model row instead (:func:`_enumerate_retiring_models`)."""
     discontinued: list[_RetiringModel] = []
     unavailable: dict[str, str] = {}
     for option, media_type in references.items():
@@ -331,34 +330,36 @@ def _unlisted_references(references: Mapping[str, str]) -> tuple[list[_RetiringM
     return discontinued, unavailable
 
 
-#: 引用处提示的状态：即将下线、已下线，以及引用的模型不在清单里、本地也没有已下线条目的「不可用」。
+#: Reference-notice states: retiring, retired, or unavailable when unlisted without a locally retired matching entry.
 NoticeStatus = Literal["retiring", "discontinued", "unavailable"]
 
 
 class LifecycleNotice(BaseModel):
-    """引用处的下线提示：状态、关停日期、官方后继，以及每个引用位置可一键切换的目标。"""
+    """Retirement notice at a reference: status, shutdown date, official successor, and one-click replacement targets for each reference location."""
 
     status: NoticeStatus
     shutdown_date: date | None
-    #: 官方后继的条目引用（「模型厂商/官方模型名」）与条目名；没有登记后继时为 None。
+    #: Official successor entry reference (model vendor/official model name) and entry name; None without a registered successor.
     successor: str | None
     successor_name: str | None
-    #: 引用位置（``default`` 为默认层，其余为该媒体类型的任务类型桶）→ 一键切换的目标 ``provider/model``；
-    #: 同一供应商下没有对应到后继、且是该位置候选的供应商模型时为 None，只展示后继名称。
+    #: Reference location (``default`` for defaults, otherwise this media type's task bucket) → one-click target ``provider/model``;
+    #: None when the same provider has no successor-matching model eligible there; display only the successor name.
     switch_targets: dict[str, str | None]
 
 
 def _reference_layers(media_type: str) -> tuple[str, ...]:
-    """一种媒体类型的引用位置：默认层加该媒体类型的任务类型桶。"""
+    """Reference locations for one media type: default layer plus its task-type buckets."""
     return ("default", *BUCKETS_BY_MEDIA_TYPE.get(media_type, ()))
 
 
 def _lifecycle_notices(
     retiring: list[_RetiringModel], candidates: list[_ModelCandidate], unavailable: Mapping[str, str] | None = None
 ) -> dict[str, LifecycleNotice]:
-    """``provider/model`` → 下线提示。切换目标只从候选里挑，与该位置的下拉同一份资格（启用、未下线、媒体类型、
-    端点、最低应用版本由候选枚举把关，任务类型桶看候选的桶归属）。``unavailable``（``provider/model`` → 媒体类型）
-    的模型没有生命周期信息，提示不可用，不给后继与切换目标。"""
+    """``provider/model`` → retirement notice. Select replacement targets only from candidates, sharing
+    eligibility with that location's dropdown (candidate enumeration checks enabled/nonretired status,
+    media type, endpoint, minimum app version; bucket membership controls task-type buckets).
+    ``unavailable`` (``provider/model`` → media type) models have no lifecycle information: show unavailable
+    without successors or replacement targets."""
     notices: dict[str, LifecycleNotice] = {
         option: LifecycleNotice(
             status="unavailable",
@@ -384,7 +385,7 @@ def _lifecycle_notices(
         successor_key = catalog.binding_key(state.successor, model.media_type)
         successor_entry = catalog.get_entry(successor_key) if successor_key is not None else None
         notices[model.option] = LifecycleNotice(
-            status="discontinued" if state.discontinued else "retiring",  # 只收即将下线与已下线的模型
+            status="discontinued" if state.discontinued else "retiring",  # Include retiring/retired models only.
             shutdown_date=state.shutdown_date,
             successor=state.successor,
             successor_name=successor_entry.display_name if successor_entry is not None else None,
@@ -397,11 +398,10 @@ def _lifecycle_notices(
 
 
 def _model_names(candidates: list[_ModelCandidate]) -> dict[str, str]:
-    """``"provider_id/model_id"`` → 已成文的模型名，两个端点共用的那张表。
+    """``"provider_id/model_id"`` → rendered model name, the table shared by both endpoints.
 
-    不按媒体类型收窄：同屏的文本档位与旁白配音下拉取自 ``/system/config`` 的候选，共用这一份
-    译名表，缺键会让它们退回 model id。
-    """
+    Do not narrow by media type: text-tier and narration dropdowns on the same screen use
+    ``/system/config`` candidates and share this translation table; missing keys fall back to model IDs."""
     return {c.option: c.display_name for c in candidates}
 
 
@@ -436,38 +436,38 @@ async def _build_options(svc: ConfigService, session: AsyncSession, locale: str 
 
 
 class FilteredCandidate(BaseModel):
-    """默认层里有、某个任务类型桶因能力不满足而没有列出的模型。"""
+    """A default-layer model excluded from a task-type bucket because capabilities do not satisfy it."""
 
     option: str  # "provider_id/model_id"
-    # 不满足的能力维度，键与能力接口同名；为空表示判定不出（调用端点已下线、调用通道没有声明能力）。
+    # Unmet capability dimensions, using capability API keys; empty means indeterminate (retired endpoint or channel declaring no capabilities).
     unmet: list[BucketDimension]
 
 
 class MediaCandidates(BaseModel):
-    """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集，以及各桶滤掉的模型与原因。"""
+    """Candidates for one media_type: full default layer, filtered subsets per task-type bucket, and excluded models/reasons for each bucket."""
 
     default: list[str]
     buckets: dict[GenerationTypeBucket, list[str]]
-    # 只收默认层里的模型：停用、已下线或低于最低应用版本的模型不在默认层，也就不在这里。
+    # Include only default-layer models: disabled, retired, or below-minimum-app-version models are absent there and here.
     filtered: dict[GenerationTypeBucket, list[FilteredCandidate]]
 
 
 class ModelCandidatesResponse(BaseModel):
     image: MediaCandidates
     video: MediaCandidates
-    # 供应商 id → 按请求语言成文的名字；与 options 同口径（同一条 translate_or 路径）。
+    # Provider ID → request-language name, using the same translate_or path as options.
     provider_names: dict[str, str]
-    # "provider_id/model_id" → 按请求语言成文的模型名；键覆盖全部媒体类型的候选（含 options
-    # 才用到的 text / audio），前端下拉据此显示译名。
+    # "provider_id/model_id" → request-language model name; keys cover candidates across all media types (including text/audio
+    # used only by options), letting frontend dropdowns display translated names.
     model_names: dict[str, str]
-    # "provider_id/model_id" → 下线提示，收即将下线与已下线的供应商模型（含不在候选里的），以及设置与项目里引用的
-    # 清单之外的模型（已下线或不可用），覆盖全部媒体类型；引用了它的下拉就地展示。
+    # "provider_id/model_id" → retirement notices for retiring/retired provider models (including noncandidates), plus unlisted
+    # references in settings/projects (retired or unavailable), across every media type; show in referencing dropdowns.
     lifecycle: dict[str, LifecycleNotice]
 
 
 class SystemConfigPatchRequest(BaseModel):
     default_video_backend: str | None = None
-    # 视频任务类型桶（docs/adr/0054）：i2v = 图生视频 / 宫格，r2v = 参考生视频；空值 = 回退默认层
+    # Video task buckets (docs/adr/0054): i2v = image-to-video / grids, r2v = reference-to-video; empty = default-layer fallback.
     default_video_backend_i2v: str | None = None
     default_video_backend_r2v: str | None = None
     default_image_backend: str | None = None
@@ -477,7 +477,7 @@ class SystemConfigPatchRequest(BaseModel):
     default_audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
-    # 市场源 GitHub raw 代理前缀：空串 = 直连
+    # Market-source GitHub raw proxy prefix: empty string = direct connection.
     market_github_proxy_prefix: str | None = None
     video_generate_audio: bool | None = None
     video_poll_timeout_seconds: int | None = None
@@ -490,18 +490,18 @@ class SystemConfigPatchRequest(BaseModel):
     claude_code_subagent_model: str | None = None
     agent_session_cleanup_delay_seconds: int | None = None
     agent_max_concurrent_sessions: int | None = None
-    # 文本任务档位（docs/adr/0051）：调用点在代码里固定归档，这里只配置每档的 backend；
-    # 各档未设置回退 default_text_backend。
+    # Text task tiers (docs/adr/0051): call sites have fixed code-level tiers; configure only each tier's backend here;
+    # unset tiers fall back to default_text_backend.
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
 
 
 # Setting keys that map directly to string DB settings
 #
-# DEPRECATED: anthropic_api_key / anthropic_base_url 已迁移至 agent_anthropic_credentials 表
-# (spec 2026-05-11-agent-url-config-optimization)。这里保留 anthropic_base_url 读写仅作旧客户端
-# 兼容；新 UI 走 /api/v1/agent/credentials/* 接口。计划在 0.14.0 删除 anthropic_api_key /
-# anthropic_base_url 字段，anthropic_*_model 系列保留（仍由 Section 2 Model Routing 管理）。
+# DEPRECATED: anthropic_api_key / anthropic_base_url migrated to agent_anthropic_credentials
+# (spec 2026-05-11-agent-url-config-optimization). Keep anthropic_base_url reads/writes only for old-client
+# compatibility; new UI uses /api/v1/agent/credentials/*. Planned removal in 0.14.0: anthropic_api_key /
+# anthropic_base_url fields; retain anthropic_*_model (still managed by Section 2 Model Routing).
 _STRING_SETTINGS = (
     "anthropic_base_url",
     "anthropic_model",
@@ -532,8 +532,8 @@ async def get_system_config(
         else ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
     )
     anthropic_key = all_s.get("anthropic_api_key", "")
-    # 兼容新凭证目录：旧 system_settings 没填但 agent_anthropic_credentials 有 active 时
-    # 也算 is_set，避免 dashboard "未配置" 红点误报
+    # New credential-store compatibility: when old system_settings is empty but agent_anthropic_credentials has an active entry,
+    # count as is_set too, avoiding false unconfigured dashboard indicators.
     if not anthropic_key:
         from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
@@ -541,7 +541,7 @@ async def get_system_config(
         if active_cred is not None:
             anthropic_key = active_cred.api_key
 
-    # 语速 setting 为字符串存储，损坏值（手工改库等）按未设置处理
+    # Speech-rate settings store strings; treat corrupt values (e.g. manual DB edits) as unset.
     narration_speed = ConfigService.parse_narration_speed(all_s.get("narration_speed", ""))
 
     settings: dict[str, Any] = {
@@ -587,15 +587,16 @@ async def get_model_candidates(
     locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> ModelCandidatesResponse:
-    """任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。
+    """Candidate source for task-type bucket dropdowns: all defaults plus capability-filtered model lists per bucket.
 
-    默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
-    组合执行得了」，故按桶过滤。被某个桶滤掉的默认层模型连同不满足的能力维度列在 ``filtered``，原因与进桶判定
-    同一个求值结果（:class:`BucketFit`）。
+    Defaults are unfiltered because that layer promises no capabilities; resolution gates report unsupported
+    capabilities. Only buckets promise executable configured combinations, hence bucket filtering. Default
+    models excluded from a bucket appear in ``filtered`` with unmet capability dimensions, using the same
+    :class:`BucketFit` evaluation as bucket admission.
 
-    另带引用处的下线提示（``lifecycle``），一键切换的目标从同一份候选里挑。设置与项目里引用了清单之外的模型时，
-    按被引用的值对应本地保留的条目补上提示（:func:`_unlisted_references`）。
-    """
+    Also include retirement notices at references (``lifecycle``), choosing one-click targets from the same
+    candidates. For settings/project references to unlisted models, supplement notices by matching values
+    to retained local entries (:func:`_unlisted_references`)."""
     candidates, provider_names = await _enumerate_candidates(svc, session, locale)
     discontinued, unavailable = _unlisted_references(await _referenced_models(svc))
 
@@ -627,7 +628,7 @@ async def get_model_candidates(
 
 
 class AutoBackendsResponse(BaseModel):
-    """各用途在项目与全局各层都留空时自动选中的模型（``provider/model``）；没有可用供应商时为 None。"""
+    """Models automatically selected when project/global layers are all empty for each purpose (``provider/model``); None without an available provider."""
 
     t2i: str | None
     i2i: str | None
@@ -638,7 +639,7 @@ class AutoBackendsResponse(BaseModel):
 
 @router.get("/system/config/auto-backends", response_model=AutoBackendsResponse)
 async def get_auto_backends() -> AutoBackendsResponse:
-    """「自动选择」的实际模型：与执行期解析同口径，设置界面据此显示当前模型并按它查询能力。"""
+    """Actual automatically selected models, matching execution resolution; settings display them and query capabilities accordingly."""
     resolved = await ConfigResolver(async_session_factory).auto_resolved_backends()
     return AutoBackendsResponse(
         **{purpose: f"{pair[0]}/{pair[1]}" if pair else None for purpose, pair in resolved.items()}
@@ -646,7 +647,7 @@ async def get_auto_backends() -> AutoBackendsResponse:
 
 
 class NarrationDefaultsResponse(BaseModel):
-    """新建 TTS 项目的预填值；未配置任何音频供应商时 ``audio_backend`` 为 None。"""
+    """Prefills for new TTS projects; ``audio_backend`` is None without any configured audio provider."""
 
     audio_backend: str | None
     narration_voice: str
@@ -657,7 +658,7 @@ class NarrationDefaultsResponse(BaseModel):
 async def get_narration_defaults(
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> NarrationDefaultsResponse:
-    """全局默认音频模型、旁白音色与配音语速：创建向导与项目设置切到 TTS 配音时用它预填项目快照。"""
+    """Global default audio model, narration voice, and speech rate: creation wizards and project settings switching to TTS use these to prefill project snapshots."""
     try:
         backend, voice, speed = await default_narration_tts(ConfigResolver(async_session_factory))
         audio_backend: str | None = f"{backend.provider_id}/{backend.model_id}"
@@ -673,24 +674,24 @@ class TtsVoiceOption(BaseModel):
 
 class TtsModelCapabilitiesResponse(BaseModel):
     supports_speed: bool
-    # 该模型所用调用端点的音色表（同一供应商的不同端点音色不同）；设置页据此列出可选音色，音色仍可自由填写。
+    # Voice catalog for this model's endpoint (endpoints under one provider may differ); settings list choices from it, while free-form voices remain allowed.
     voices: list[TtsVoiceOption]
 
 
 @router.get("/system/tts-model-capabilities", response_model=TtsModelCapabilitiesResponse)
 async def get_tts_model_capabilities(backend: str, _t: Translator) -> TtsModelCapabilitiesResponse:
-    """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商，以及它可选的音色。
+    """Whether the selected TTS model (``provider/model``) forwards speech rate to the provider, and its available voices.
 
-    语速不支持时设置页置灰语速输入。音色的 label 对部分供应商是 lib/i18n 翻译 key，按请求 locale 渲染；
-    label 本就是展示名的供应商 _t() 找不到 key 时原样返回。
-    """
+    Settings disable speech-rate input when unsupported. Some providers use lib/i18n translation keys as
+    voice labels, rendered by request locale; for providers using display names directly, _t() returns them
+    unchanged when no key matches."""
     pair = parse_tts_backend(backend)
     if pair is None:
         raise UnprocessableError("narration_tts_model_required")
     try:
         profile = await audio_backend_profile(*pair)
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        # Referenced model absent from provider list: app-level handler returns model-reselection 400 (ValueError subclass, caught before ValueError).
         raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
@@ -744,7 +745,7 @@ def _is_valid_proxy_prefix(prefix: str) -> bool:
         return False
     try:
         parts = urlsplit(prefix)
-        parts.port  # noqa: B018 -- 访问即校验端口，非法端口抛 ValueError
+        parts.port  # noqa: B018 -- Access validates the port; invalid ports raise ValueError
     except ValueError:
         return False
     return (
@@ -788,19 +789,19 @@ async def patch_system_config(
                 validate_backend_value(value, backend_key)
             await svc.set_setting(backend_key, value)
 
-    # 旁白音色：可配置字符串 id（照供应商文档填），空串 = 清除回落服务默认
+    # Narration voice: string ID per provider documentation; empty clears it to the service default.
     if "narration_voice" in patch:
         await svc.set_setting("narration_voice", str(patch["narration_voice"] or "").strip())
 
-    # 市场源 GitHub raw 代理前缀：只拼在 raw.githubusercontent.com 地址前，须是带主机名、不含空白与控制字符、不含用户名与密码的
-    # https 地址（该值经 GET 原样回显，不当作凭证存放），且不带查询串与 fragment（raw 地址按路径拼在前缀之后）；空串 = 清除
+    # Market-source GitHub raw proxy prefix: prepended only to raw.githubusercontent.com URLs; require an https URL with hostname, no whitespace/control characters or credentials
+    # (GET echoes this value verbatim, so it is not credential storage), and no query/fragment (append raw URL as a path); empty clears it.
     if "market_github_proxy_prefix" in patch:
         prefix = str(patch["market_github_proxy_prefix"] or "").strip()
         if prefix and not _is_valid_proxy_prefix(prefix):
             raise UnprocessableError("market_github_proxy_prefix_invalid")
         await svc.set_setting(PROXY_PREFIX_SETTING, prefix)
 
-    # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），具体取值范围由各供应商自行约束；null = 清除
+    # Narration rate: positive finite-number hygiene only (reject 0/negative/inf/nan); providers constrain actual ranges; null clears it.
     if "narration_speed" in patch:
         speed = patch["narration_speed"]
         if speed is None:

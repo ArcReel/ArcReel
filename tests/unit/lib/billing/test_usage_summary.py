@@ -1,7 +1,7 @@
-"""`lib.billing.usage_summary` 的聚合边界：Wilson 下界、桶窗口的半开右端、需要关注的排序与上限。
+"""`lib.billing.usage_summary` boundaries: Wilson lower bound, right-open buckets, attention ordering/limits.
 
-契约判据在路由缝（`tests/unit/server/routers/test_usage_router_summary.py`），这里只补
-那些用 HTTP 造数据代价过高、或需要精确数值锚点的边界。
+Contract tests use the router seam (`tests/unit/server/routers/test_usage_router_summary.py`);
+these cover expensive-to-build HTTP scenarios and precise numeric anchors.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -64,13 +64,13 @@ class TestWilsonLowerBound:
         [(0, 0, 0.0), (0, 10, 0.0), (5, 5, 0.5655), (8, 10, 0.4902), (1, 2, 0.0945), (50, 100, 0.4038)],
     )
     def test_known_anchors(self, failures, total, expected):
-        """小样本上的下界远低于裸失败率，样本变大后向裸失败率收敛。"""
+        """Small-sample lower bounds sit far below raw failure rates, converging as samples grow."""
         assert wilson_lower_bound(failures, total) == pytest.approx(expected, abs=5e-4)
 
 
 class TestWindow:
     def test_until_at_local_midnight_excludes_that_day(self):
-        """右端是半开的：正好落在本地日零点时不为当天开桶。"""
+        """Right-open windows exclude a bucket for a day beginning exactly at the endpoint."""
         body = summarize([row(started_at=BASE)], until=datetime(2026, 3, 2, tzinfo=UTC))
         assert body["range"] == {"since": "2026-03-01", "until": "2026-03-01"}
 
@@ -79,7 +79,7 @@ class TestWindow:
         assert body["range"] == {"since": "2026-03-01", "until": "2026-03-02"}
 
     def test_since_is_cut_in_the_requested_timezone(self):
-        """since 与行都按 tz 折成本地日：UTC 06:00 在纽约还是前一天。"""
+        """since and rows both use tz-local days; UTC 06:00 is still the previous day in New York."""
         body = summarize(
             [row(started_at=BASE)],
             tz=ZoneInfo("America/New_York"),
@@ -89,7 +89,7 @@ class TestWindow:
         assert [bucket["date"] for bucket in body["daily"]] == ["2026-02-28", "2026-03-01"]
 
     def test_naive_started_at_is_read_as_utc(self):
-        """SQLite 取回的时刻不带 tzinfo，按 UTC 解释而不是本地时钟。"""
+        """SQLite timestamps without tzinfo are interpreted as UTC, not local clock time."""
         body = summarize([row(started_at=datetime(2026, 3, 1, 23, 30))], tz=ZoneInfo("Asia/Shanghai"))
         assert body["range"] == {"since": "2026-03-02", "until": "2026-03-02"}
 
@@ -99,18 +99,18 @@ class TestWindow:
         assert len(body["daily"]) == MAX_DAILY_BUCKETS
 
     def test_window_beyond_the_bucket_cap_is_rejected(self):
-        """桶数由调用方的两个时刻直接决定，超过上限拒绝而不是同步铺出海量零桶。"""
+        """Explicit endpoints determine bucket count; reject oversized windows instead of synchronously creating huge zero buckets."""
         since = BASE - timedelta(days=MAX_DAILY_BUCKETS)
         with pytest.raises(UsageWindowTooWideError):
             summarize([row(started_at=BASE)], since=since)
 
     def test_explicit_window_beyond_the_cap_is_rejected_even_without_rows(self):
-        """两端显式给定的超宽窗口不随数据有无而变：没有行也一样拒绝。"""
+        """Explicitly oversized two-ended windows reject regardless of data, including empty datasets."""
         with pytest.raises(UsageWindowTooWideError):
             summarize([], since=datetime(1900, 1, 1, tzinfo=UTC), until=datetime(2100, 1, 1, tzinfo=UTC))
 
     def test_half_open_window_without_rows_is_empty(self):
-        """只给一端时窗口由数据补齐；没有行就没有窗口，range 为 null。"""
+        """Single-ended windows derive the other endpoint from data; no rows means no window and null range."""
         body = summarize([], since=datetime(1900, 1, 1, tzinfo=UTC))
         assert body["range"] is None
         assert body["daily"] == []
@@ -118,7 +118,7 @@ class TestWindow:
 
 class TestAttentionOrdering:
     def test_capped_at_twenty_by_failure_count(self):
-        """需要关注按失败次数降序截断，留下的是最严重的那些。"""
+        """Attention items truncate by descending failure count, retaining the most severe."""
         rows = [
             row(
                 index=segment * 100 + occurrence,
@@ -136,7 +136,7 @@ class TestAttentionOrdering:
         assert min(counts) >= 3
 
     def test_cost_is_summed_across_statuses_and_rounded(self):
-        """终态行只要计了费就进参考费用，取消行的零费用不改变结果。"""
+        """Any priced terminal row contributes reference cost; zero-cost cancellations leave totals unchanged."""
         rows = [
             row(index=1, status=CallStatus.SUCCESS, cost_amount=0.1234567),
             row(index=2, status=CallStatus.FAILED, cost_amount=0.0000004),
@@ -145,7 +145,7 @@ class TestAttentionOrdering:
         assert summarize(rows)["kpi"]["cost"] == {"USD": 0.123457}
 
     def test_unpriced_rows_stay_out_of_every_cost_total(self):
-        """费用为 NULL（未定价）的行不报错，也不进合计、构成与日桶金额；混合 NULL、0 与正数。"""
+        """NULL unpriced costs neither error nor enter totals/composition/daily amounts; mix NULL, 0, and positives."""
         rows = [
             row(index=1, cost_amount=None, provider="ark", model="a"),
             row(index=2, cost_amount=0.0, provider="ark", model="a"),
@@ -164,7 +164,7 @@ class TestAttentionOrdering:
         assert by_provider["gemini"]["cost"] == {}
 
     def test_unpriced_calls_are_counted_apart_from_zero_cost_calls(self):
-        """未定价的调用另计次数：0 元的调用已定价，不在其中；构成表与列表外的余量同口径。"""
+        """Count unpriced calls separately: zero-cost calls are priced and excluded; composition and outside-list remainder agree."""
         rows = [
             row(index=1, cost_amount=None, provider="ark", model="a"),
             row(index=2, cost_amount=None, provider="ark", model="a", status=CallStatus.FAILED),
@@ -186,7 +186,7 @@ class TestAttentionOrdering:
         other = summarize(rows)["breakdown"]["project"]["other"]
 
         assert other["groups"] == 4
-        # 并入余量的是排在最后的四个项目（index 50..53）：其中两个未定价。
+        # Remainder contains the last four projects (indexes 50..53), two unpriced.
         assert other["unpriced_calls"] == 2
 
     def test_only_unpriced_rows_have_no_primary_currency(self):

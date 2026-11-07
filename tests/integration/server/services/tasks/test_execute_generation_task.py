@@ -54,19 +54,13 @@ class TestGenerationTasks:
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
-        # 参考图只按数组序位传输、不带任何标签；身份由 prompt 内的 Reference_Images 声明行按「图N」指认。
-        # provider 收到的是任务私有快照。
+        # References travel only by array position without labels; prompt Reference_Images declarations identify them as “图N”.
+        # Provider receives task-private snapshots.
         assert [sorted(ref) for ref in storyboard_refs] == [["image"]] * 4
         assert all(not ref["image"].is_relative_to(project_path) for ref in storyboard_refs)
         assert fake_generator.image_reference_bytes[0] == [b"png"] * 4
         assert fake_generator.image_calls[0]["prompt"] == (
-            "Style: Anime\n"
-            "Visual style: cinematic\n"
-            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；"
-            "图4为上一分镜图，只参考构图与色调。\n"
-            "Scene: 在雨夜街道\n"
-            "Composition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\n"
-            "Avoid: 水印、多余文字、Logo"
+            "Style: Anime\nVisual style: cinematic\nReference_Images: '图1: character reference images; 图2: scene reference images; 图3: prop reference images; 图4: previous storyboard image, use only composition and color.'\nScene: 在雨夜街道\nComposition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\nAvoid: watermarks, extra text, logos"
         )
 
         await generation_tasks.execute_storyboard_task(
@@ -81,7 +75,7 @@ class TestGenerationTasks:
         ]
         assert fake_generator.image_reference_bytes[1] == [b"png"] * 3
         assert (
-            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图。\n"
+            "Reference_Images: '图1: character reference images; 图2: scene reference images; 图3: prop reference images.'\n"
             in (fake_generator.image_calls[1]["prompt"])
         )
 
@@ -149,7 +143,7 @@ class TestGenerationTasks:
     async def test_image_provider_changed_since_claim_is_raised_before_the_provider_call(
         self, tmp_path, monkeypatch, task_type, resource_id, payload, claimed, drifted
     ):
-        """执行入口解析出的图片供应商与认领槽不一致时，在出图之前抛出，交给 worker 改记录并回队。"""
+        """If resolved image provider differs from the claimed slot, raise before image generation so worker updates records and requeues."""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         register_asset_sheet_claims(fake_pm)
@@ -217,8 +211,7 @@ class TestGenerationTasks:
 
     @pytest.mark.parametrize("failure", [RuntimeError("event emission failed"), asyncio.CancelledError()])
     async def test_generation_event_failure_keeps_committed_media(self, tmp_path, monkeypatch, failure):
-        """成功事件发出失败不回撤已写入的产物：普通异常在通知边界内记录后任务照常返回，
-        BaseException 穿透通知边界照常上抛；两种情况下产物、版本与清单登记都保持有效。"""
+        """Failed success-event emission never rolls back written artifacts: log ordinary exceptions at notification boundaries and return normally; BaseException still propagates. Artifacts, versions and registrations remain valid in both cases."""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator(project_path)
@@ -284,9 +277,7 @@ class TestGenerationTasks:
             assert excinfo.value.params["name"] == name
 
     async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
-        """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
-        不因视频供应商缺配置失败，未声明 lane 不解析见 tests/server/test_generation_context.py），
-        视频任务只声明 video；带参考图时 image lane 请求 i2i 能力。"""
+        """Tasks declare only used lanes: images never declare video/audio (missing video configuration cannot fail image-only projects; undeclared resolution is covered in tests/server/test_generation_context.py); videos declare only video. Image references request i2i capabilities."""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         register_asset_sheet_claims(fake_pm)
@@ -299,7 +290,7 @@ class TestGenerationTasks:
         use_generation_context(monkeypatch, resolve_ctx)
         use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
-        # E1S02 引用角色/场景/道具 sheet → 带参考图 → i2i；character 带 reference_image → i2i
+        # E1S02 character/scene/prop sheets provide references, so i2i; character reference_image likewise selects i2i.
         await generation_tasks.execute_storyboard_task(
             "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "画面"}
         )

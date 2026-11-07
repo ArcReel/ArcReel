@@ -1,4 +1,4 @@
-"""select_video_version 的 handler 行为：经声明入口调用，断言 ``ToolOutcome`` 与落盘的 current。"""
+"""select_video_version through declarations: assert ``ToolOutcome`` and persisted current versions."""
 
 from __future__ import annotations
 

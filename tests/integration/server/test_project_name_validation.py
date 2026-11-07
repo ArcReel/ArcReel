@@ -1,6 +1,6 @@
-"""按项目名寻址的路由统一校验项目名：非法名一律 400，合法但不存在的项目维持 404。
+"""Project-addressed routes validate names consistently: invalid names return 400, valid missing projects retain 404.
 
-路由从应用路由表枚举，新增的项目路由自动纳入断言。
+Enumerate app routes so newly added project routes automatically enter assertions.
 """
 
 import re

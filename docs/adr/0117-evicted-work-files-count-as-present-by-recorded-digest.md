@@ -2,32 +2,32 @@
 status: accepted
 ---
 
-# 缓存已清理的工作文件按版本记录的摘要视为在场，读字节前经共用入口取回
+# Evicted work files remain present by recorded digest; fetch through shared entries before reading bytes
 
-[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 让远端内容版本的工作文件成为可清理的缓存，并把参考图装配、产物清单与时效判定、图片编辑等直接读文件的消费方留给后续任务迁移。这些消费方分两类：一类只问「在不在」和「内容是什么」，另一类要读字节交给供应商或图像处理。决定如下。
+[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) makes remote work files evictable caches, leaving references/manifests/currency/editing direct readers for later migration. Some consumers ask presence/identity, others need bytes for providers or image processing. Decide as follows.
 
-**在场与内容身份**：路径是远端内容版本的工作文件（版本快照位置，或选中时的正式文件位置），而本地文件不在时，按在场处理，内容摘要取版本记录的 `content_digest`。
+**Presence/content identity**: absent local work files for remote versions (snapshot or selected formal positions) count as present with version-record `content_digest`.
 
-- 判定集中在两处：产物清单的项目目录 adapter（`inspect_artifact` 一族），以及图片摘要入口 `visual_file_digest`（经 `lib/material/work_files.py::material_file_digest`）。规划器、时效判定、生成输入装配、免费复用与供应商素材选择都经过这两处，不各自判断。
-- 本地文件在场时照常按字节计算摘要并比对，外部改写过的文件照旧判为过期或不可用。
-- 远端工作文件的清单由版本历史与 `project.json` 推出，不取版本锁读取，按两个文件的 stat 标识缓存。结论用于提交时，仍由各自既有的稳定性复核把关：版本记录变了，复核取到的摘要随之改变。
-- 需要字节快照或逐块旁路读取的调用不走这条规则。它们只用于剧本与归档导入，不涉及远端图片。
+- Centralize decisions in manifest project-directory adapters (`inspect_artifact` family) and `visual_file_digest` through `lib/material/work_files.py::material_file_digest`. Planning, currency, input assembly, reuse, and provider links share them.
+- Existing files still hash/compare actual bytes; external edits remain stale/unusable.
+- Derive remote work-file maps from history and `project.json` without version locks, cached by both stat identities. Submission retains existing stability rechecks; changed records change their observed digests.
+- Byte snapshots/chunked bypass reads do not use this rule: only scripts/archive imports need them, not remote images.
 
-**读字节**：要把图片交给供应商、复制为任务私有快照或做图像处理的消费方，在读取前经 `local_work_files` 取回并在使用期间登记，清理不会删掉正在用的文件。
+**Read bytes**: consumers sending, snapshotting, or processing images use `local_work_files` before reading and register use, preventing cleanup during use.
 
-- 生成输入冻结（分镜、资产图、衍生图）、宫格参考图冻结、图片编辑源、视频参考图暂存、未经暂存的直接视频调用、宫格切分与图片查看，都在读取前取回。
-- 冻结与暂存产出任务私有副本，供应商延迟取图只读副本，不会读到之后被替换的图片。
+- Fetch before input freezes (storyboards/sheets/derivatives), grid references, editing sources, staged/unstaged video references, splitting, and image viewing.
+- Frozen/staged outputs are task-private copies; delayed providers see copies, never later replacements.
 
-**生成结果的保存位置**：正式图片生成（分镜、资产图、衍生图、图片编辑经 `run_formal_image_task`）、宫格生成与宫格切分在 `formal_commit` 中提交，新图片内容版本按全局设置保存。
+**Output location**: formal image tasks (storyboards/sheets/derivatives/edits through `run_formal_image_task`), grids, and splits use `formal_commit`, applying global storage settings to new versions.
 
 ## Considered Options
 
-- **判定前把工作文件全部取回**：结论不变，但打开工作台、刷新状态就会把整个项目的远端图片下载回来，清理缓存失去意义。
-- **在场判定只看版本记录、不再读本地文件**：省一次哈希，但本地正式文件被外部改写时发现不了，削弱现有内容校验。
-- **各消费方各自识别远端版本**：读点分散在规划器、时效判定、参考图装配与视频请求投影里，逐处判断容易漏掉一处，同一张图在不同读点得出不同结论。
+- **Fetch everything before judgment**: unchanged answers but workspace/status refresh downloads all remote images, defeating eviction.
+- **Records-only presence without reading local files**: avoids hashes but misses external formal-file edits and weakens validation.
+- **Per-consumer remote recognition**: scattered planning/currency/reference/projection sites drift or omit checks, disagreeing for one image.
 
 ## Consequences
 
-- 远端版本的正式文件缺失时，状态与规划照常显示为当前或过期，生成或编辑在读取前取回。对象缺失或连接已不可用时，失败发生在实际取图那一步，返回 `material_remote_fetch_failed` 或 `material_object_connection_unavailable`。
-- 缓存已清理的远端版本没有本地 stat，这类观测不带文件事实。只有视频与音频记录文件事实，它们不写远端，不受影响。
-- 手动上传分镜图、衍生图与宫格图、供应商素材导入等其余写入入口随后也进入了 `formal_commit`；不建版本记录的图片（尾帧、角色原图与商品原图、风格参考图）始终保存在本地，见 ADR 0116。
+- Missing formal work files still show current/stale in status/planning and fetch before generation/editing. Missing objects/connections fail on actual read with `material_remote_fetch_failed`/`material_object_connection_unavailable`.
+- Evicted versions lack local stat/file facts. Only video/audio record them; both stay local and unaffected.
+- Other upload/import entrances subsequently adopted `formal_commit` too. Unversioned end frames, character/product originals, and style references remain local (ADR 0116).

@@ -3,9 +3,9 @@ name: "ArcReel CodeQL Config"
 paths-ignore:
   - alembic/versions
 
-# AlertSuppression 不在默认套件：不加载则行内 `# codeql[rule-id]` 抑制注释不会写入
-# SARIF suppressions[]，误报只能走 GitHub API dismiss（alert 编号还会随行号漂移）。
-# 语言键 javascript 覆盖 JS/TS；默认查询套件不受 packs 影响、照常运行。
+# AlertSuppression is outside the default suite: without it, inline `# codeql[rule-id]` suppressions are not written to
+# SARIF suppressions[]; false positives require GitHub API dismissal (alert numbers also drift with line numbers).
+# The javascript language key covers JS/TS; packs do not affect the default query suite, which still runs.
 packs:
   python:
     - codeql/python-queries:AlertSuppression.ql

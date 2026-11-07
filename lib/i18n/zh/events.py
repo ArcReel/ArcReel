@@ -1,7 +1,8 @@
-"""项目变更事件的条目标签文案。
+"""Item-label copy for project-change events.
 
-事件载荷携带稳定的 ``label_key`` 与 ``label_params``，渲染边界（前端界面 / 后端日志兜底）
-按各自语言查表成文，key 与 ``frontend/src/i18n/*/events.ts`` 的 ``label.*`` 一一对应。
+Event payloads carry stable ``label_key`` and ``label_params``. Rendering boundaries (frontend UI /
+backend fallback logs) resolve them in their own language. Keys correspond 1:1 with
+``frontend/src/i18n/*/events.ts`` ``label.*`` keys.
 """
 
 MESSAGES = {

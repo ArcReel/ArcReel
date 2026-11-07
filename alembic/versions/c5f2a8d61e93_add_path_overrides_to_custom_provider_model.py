@@ -20,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """加模型级路径覆盖列（请求名 → 路径，NULL = 全部按调用端点的默认路径）。"""
+    """Add model-level path overrides (request name → path; NULL uses all endpoint-default paths)."""
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
         batch_op.add_column(sa.Column("path_overrides", sa.JSON(), nullable=True))
 

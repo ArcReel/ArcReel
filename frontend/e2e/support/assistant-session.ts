@@ -1,10 +1,10 @@
-// 空闲 Agent 会话的接口替换：冷读的时间线，加上打开会话后建立的常驻 entry 流。
+// Idle Agent session fixtures: cold-read timelines plus persistent entry streams opened after sessions.
 import type { ApiOverrides } from "./test.ts";
 
 /**
- * 冷读返回 `entries`，常驻流从最后一条之后续读。流按服务端的开场帧回放 draft、空的排队消息快照与
- * idle 状态后结束；
- * retry 拉长重连间隔，测试期间不会重连。
+ * Cold reads return `entries`; persistent streams continue after last entries. Replay server opening frames with drafts, empty queued-message snapshots and
+ * idle states, then end;
+ * retry extends reconnect intervals, avoiding reconnects during tests.
  */
 export function idleSessionApi(sessionsPath: string, sessionId: string, entries: { seq: number }[]): ApiOverrides {
   const after = entries.length > 0 ? entries[entries.length - 1].seq : -1;

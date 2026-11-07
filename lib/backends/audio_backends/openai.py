@@ -1,9 +1,9 @@
-"""OpenAIAudioBackend — OpenAI 兼容语音合成后端（同步 ``/v1/audio/speech``）。
+"""OpenAIAudioBackend: synchronous OpenAI-compatible synthesis (``/v1/audio/speech``).
 
-请求体携带 ``model`` / ``input`` / ``voice``（必填）与可选 ``response_format`` / ``speed``，
-响应直接返回音频字节（无需二段下载）。schema 依据 OpenAI 官方 API 参考核实。
-主要服务自定义供应商通路：任意 OpenAI 兼容 TTS（Fish Audio、自托管 shim、中转站）
-经 ``openai-tts`` endpoint 包装为 ``CustomAudioBackend`` 后接入。
+Requests contain required ``model`` / ``input`` / ``voice`` and optional ``response_format`` / ``speed``.
+Responses directly return audio bytes without separate downloads. Verify schema against official OpenAI
+API references. Primarily serves custom providers: compatible TTS such as Fish Audio, self-hosted shims,
+or relays enters through ``openai-tts`` endpoints wrapped as ``CustomAudioBackend``.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# /v1/audio/speech 支持的输出格式（官方 schema），用于按落盘扩展名选 response_format。
+# Official /v1/audio/speech formats, selecting response_format by output extension.
 _SUPPORTED_RESPONSE_FORMATS = frozenset({"mp3", "opus", "aac", "flac", "wav", "pcm"})
 _FALLBACK_RESPONSE_FORMAT = "wav"
 
-# 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处见
-# docs/api-docs/endpoints/openai-tts.md 所列 OpenAI 官方文档。
-# 官方文档未给出性别/描述信息，故 label 仅取 id 本身——不编造。
-# 经自定义供应商 openai-tts endpoint 接入的第三方兼容服务音色集合可能与本目录不同，
-# 边界说明见上述文档。
+# Official voices for gpt-4o-mini-tts, including tts-1/tts-1-hd legacy subsets; sources in
+# docs/api-docs/endpoints/openai-tts.md official OpenAI documentation.
+# Official docs omit gender/descriptions; label uses ids only, never invented facts.
+# Third-party compatible services behind custom openai-tts endpoints may have different voice sets;
+# see boundary explanations in the indexed documentation.
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id)
     for voice_id in (
@@ -54,20 +54,20 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     )
 )
 
-# legacy 模型（tts-1 / tts-1-hd）不支持的音色子集，出处同上文档：这四个音色仅
-# gpt-4o-mini-tts 支持。legacy 模型下若仍暴露它们，用户选中即会在合成阶段确定性失败。
+# Legacy tts-1 / tts-1-hd exclude four voices supported only by gpt-4o-mini-tts; same sources as above.
+# Exposing them for legacy models makes user selections fail deterministically at synthesis.
 _LEGACY_MODELS = frozenset({"tts-1", "tts-1-hd"})
 _LEGACY_UNSUPPORTED_VOICE_IDS = frozenset({"ballad", "verse", "marin", "cedar"})
 
 
 def _response_format_for(output_path: Path) -> str:
-    """按落盘扩展名选输出格式，保证文件内容与扩展名一致（资源路径约定 .wav）。"""
+    """Select formats by output extensions, keeping bytes/extensions consistent with .wav resource paths."""
     suffix = output_path.suffix.lstrip(".").lower()
     return suffix if suffix in _SUPPORTED_RESPONSE_FORMATS else _FALLBACK_RESPONSE_FORMAT
 
 
 class OpenAIAudioBackend:
-    """OpenAI 兼容语音合成后端（同步 ``/v1/audio/speech``）。"""
+    """Synchronous OpenAI-compatible synthesis backend (``/v1/audio/speech``)."""
 
     def __init__(
         self,
@@ -78,12 +78,12 @@ class OpenAIAudioBackend:
         model: str,
         provider_name: str = PROVIDER_OPENAI,
     ) -> None:
-        # 禁用 SDK 内置重试，由本层 synthesize() 统一管理重试策略
+        # Disable SDK retries; synthesize() centrally owns retry policy.
         self._client = create_openai_client(
             api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
         )
         self._model = model
-        # 复用 OpenAI 兼容协议的 provider（自定义供应商包装层覆盖 name）须用真实 provider 记账
+        # Compatible providers, whose wrappers override name, must account under actual providers.
         self._provider_name = provider_name
 
     @property
@@ -99,16 +99,16 @@ class OpenAIAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        # legacy 收窄只对官方 OpenAI 生效：自定义 openai-tts 供应商（provider_name 被覆盖）即使
-        # 模型名恰好也叫 tts-1/tts-1-hd，也无法确定其是否真的继承官方同名模型的音色限制——
-        # 维持全量目录是既有、已声明的兼容策略（见文件顶部注释与 _build_openai_tts 调用点）。
+        # Apply legacy narrowing only to official OpenAI. Custom openai-tts providers with overwritten provider_name
+        # may call models tts-1/tts-1-hd without inheriting official voice restrictions. Retain the full catalog,
+        # the existing declared compatibility policy (top comments and _build_openai_tts call site).
         if self._provider_name == PROVIDER_OPENAI and self._model in _LEGACY_MODELS:
             return [v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS]
         return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        # language_type 是 DashScope 特有字段，/v1/audio/speech 无对应参数（语种随输入文本），不发送。
-        # 计费调用与写盘分离：重试只包 API 调用，写盘瞬态失败绝不回头重跑会再次计费的合成请求。
+        # Omit DashScope language_type: /v1/audio/speech has no such parameter and follows input language.
+        # Separate billing calls/writes: API-only retries never repeat billed synthesis for transient write failures.
         audio_bytes = await self._request_speech(request)
         await run_noninterruptible_sync(request.output_path.write_bytes, audio_bytes)
 
@@ -123,7 +123,7 @@ class OpenAIAudioBackend:
 
     @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def _request_speech(self, request: AudioSynthesisRequest) -> bytes:
-        """提交合成请求（计费段），返回音频字节。"""
+        """Submit billed synthesis requests, returning audio bytes."""
         kwargs: dict = {
             "model": self._model,
             "input": request.text,
@@ -144,7 +144,7 @@ class OpenAIAudioBackend:
         async with self._client.audio.speech.with_streaming_response.create(**kwargs) as response:
             content = await read_body_capped(response.http_response, max_bytes=AUDIO_ARTIFACT_MAX_BYTES)
         if not content:
-            # 宽松 shim 可能 200 + 空体；不落 0 字节文件、不计成功。该次合成已在供应商侧
-            # 发生，重试等于再次计费，故直接抛错交由任务层失败（重生成廉价）。
+            # Lenient shims may return 200 with empty bodies: never write zero-byte files or count success. Synthesis already
+            # occurred upstream; retry would bill again, so raise for task failure handling (regeneration is inexpensive).
             raise RuntimeError("OpenAI 兼容语音合成返回空响应体")
         return content

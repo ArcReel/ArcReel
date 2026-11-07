@@ -109,7 +109,7 @@ describe("ProviderAssetBrowserDialog", () => {
     expect(screen.getByText("失败")).toBeInTheDocument();
     expect(screen.getByText("InputImageSensitiveContentDetected")).toBeInTheDocument();
     expect(screen.getByText("第 1/2 页，共 25 个")).toBeInTheDocument();
-    // 只有可用的图片素材可以选择
+    // Only available image materials are selectable.
     expect(screen.getByRole("button", { name: "选择 主角正面 1" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "选择 asset-1-b" })).not.toBeInTheDocument();
     expect(API.listProviderAssets).toHaveBeenLastCalledWith(7, { page: 1, pageSize: 20 }, expect.anything());

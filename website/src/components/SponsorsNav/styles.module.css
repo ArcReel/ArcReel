@@ -42,7 +42,7 @@
   opacity: 1;
 }
 
-/* padding-top 是头像与卡片之间的透明过渡区，鼠标移向卡片途中不会失去悬停。 */
+/* padding-top provides a transparent bridge between avatar and card, retaining hover while the pointer moves to the card. */
 .popover {
   position: absolute;
   top: 100%;

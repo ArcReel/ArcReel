@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""比对两轮 mutmut 结果，按 docs/testing/mutmut-runbook.md「三层验收」的判据出报告。
+"""Compare two mutmut runs using the three-level acceptance rules in docs/testing/mutmut-runbook.md.
 
-输入是两个目录下的 `*.meta` 文件（mutmut 写在 `mutants/` 里，每个源模块一份），
-只读其中的 `exit_code_by_key`（mutant 名 → exit code），不读 mutmut 的终端汇总——
-汇总只枚举它认识的几个 exit code，段错误之类两头不落。
+Read `*.meta` files in two directories (mutmut writes one per source module in `mutants/`), using
+only `exit_code_by_key` (mutant name → exit code), not terminal summaries that omit unknown codes
+such as segmentation faults.
 
-三层：
-1. 本次改造针对的 mutant（`--reworked` 名单）：须全部 killed；
-2. 基线里 killed 的 mutant：不得变成存活；变成超时须新进程复核；
-3. 基线里存活且本次未改造的 mutant：被杀死只登记不报警；
-   其中判为等价变异体的（`--equivalent` 名单）被杀死即整轮作废。
+Three levels:
+1. Reworked mutants (`--reworked`): all must be killed.
+2. Baseline-killed mutants must not survive; timeouts require fresh-process verification.
+3. Baseline survivors not reworked: newly killed mutants are recorded without alarm; killing any
+   declared equivalent (`--equivalent`) invalidates the entire run.
 
-`exit code == 1` 视为 killed，`0` 视为存活，其余列为待复核，与 runbook 的判据一致；有待复核项时不判通过。
-基线与本轮的 mutant 名集合不一致、或同名函数的源码哈希不同时直接失败：源码一变 `mutants/` 重生成，比对本身不成立；
-改造名单为空同样视为无效输入。
+`exit code == 1` means killed, `0` survived; other codes require review, preventing acceptance until
+resolved. Different mutant-name sets or same-function source hashes fail immediately: changed source
+regenerates `mutants/`, invalidating comparison. Empty reworked lists are also invalid input.
 
-零第三方依赖。用法见 `--help`，流程见 `docs/testing/mutmut-runbook.md`。
+No third-party dependencies. See `--help` and `docs/testing/mutmut-runbook.md`.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ EXIT_INVALID = 2
 
 @dataclass
 class ComparisonReport:
-    """三层验收的结果。`invalid` 非空时其余字段不可信。"""
+    """Three-level acceptance results; nonempty `invalid` makes remaining fields untrustworthy."""
 
     invalid: list[str] = field(default_factory=list)
     reworked_killed: list[str] = field(default_factory=list)
@@ -53,9 +53,10 @@ class ComparisonReport:
 
     @property
     def pending_recheck(self) -> bool:
-        """有 mutant 变成超时之类的非 0/1 exit code，结论要等新进程复核。
+        """Non-0/1 outcomes such as timeouts require fresh-process review before a conclusion.
 
-        第三层只对等价变异体复核：其余未改造 mutant 被杀只登记，异常 exit code 不影响结论。
+        Level three reviews only equivalent mutants; other untouched kills are merely recorded and
+        abnormal exit codes do not affect the conclusion.
         """
         return bool(self.reworked_recheck or self.baseline_killed_recheck or self.equivalent_recheck)
 
@@ -68,18 +69,18 @@ class ComparisonReport:
 
 @dataclass(frozen=True)
 class MetaSnapshot:
-    """一轮 mutmut 的结果：mutant 名 → exit code，以及被变异函数的源码哈希。"""
+    """One mutmut run: mutant name → exit code and mutated-function source hashes."""
 
     exit_codes: Mapping[str, int | None]
     function_hashes: Mapping[str, str]
 
 
 def load_meta(root: Path) -> MetaSnapshot:
-    """合并目录下全部 `*.meta` 的 `exit_code_by_key` 与 `hash_by_function_name`。
+    """Merge `exit_code_by_key` and `hash_by_function_name` across all directory `*.meta` files.
 
-    哈希以「模块.函数」为键：mutant 名是 `lib.a.x_f__mutmut_3`，同一 .meta 里的 `hash_by_function_name`
-    键是 `x_f`，模块前缀取自该文件的 mutant 名。缺少 `hash_by_function_name`、或有 mutant 对应的函数
-    没有哈希，一律拒绝：源码哈希核对是比对有效性的前提，缺项会让它静默失效。
+    Hash keys are module.function: mutant `lib.a.x_f__mutmut_3` has .meta `hash_by_function_name` key `x_f`; recover the
+    module prefix from mutant names. Reject missing `hash_by_function_name` or any mutant function
+    without a hash: source-hash checks are prerequisite, and omissions silently disable validation.
     """
     exit_codes: dict[str, int | None] = {}
     function_hashes: dict[str, str] = {}
@@ -114,7 +115,7 @@ def load_meta(root: Path) -> MetaSnapshot:
 
 
 def read_names(path: Path) -> list[str]:
-    """一行一个 mutant 名，忽略空行与 `#` 开头的行。"""
+    """One mutant name per line, ignoring empty lines and `#` comments."""
     names: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
@@ -213,7 +214,7 @@ def compare(
 
 
 def _code(value: int | None) -> int:
-    # None 是 mutmut 的「未检查」；用一个不与任何真实 exit code 冲突的值占位，让报告可排序可打印。
+    # None means mutmut unchecked; use a sentinel distinct from real exit codes so reports sort and print.
     return -1 if value is None else value
 
 

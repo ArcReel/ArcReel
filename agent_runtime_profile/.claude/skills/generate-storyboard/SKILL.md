@@ -1,78 +1,78 @@
 ---
 name: generate-storyboard
-description: 为分镜生成分镜图。当用户说"生成分镜"、"预览分镜画面"、想重新生成某些分镜图、或剧本中有分镜缺少分镜图时使用。自动保持角色和画面连续性。
+description: Generate storyboard images for shots. Use when the user asks to generate or preview storyboards, regenerate particular storyboard images, or when script shots lack images. Automatically maintains character and visual continuity.
 ---
 
-# 生成分镜图
+# Generate storyboard images
 
-通过生成队列创建分镜图，画面比例根据 content_mode 自动设置。
+Create storyboard images through the generation queue; aspect ratio is set automatically from content_mode.
 
-> 生成模式规格详见 `.claude/references/generation-modes.md`。
+> See `.claude/references/generation-modes.md` for generation-mode specifications.
 
-## 工具调用
+## Tool calls
 
-**重要：生成分镜图必须调用下列 MCP 工具入队。此 skill 不提供任何 Python/Shell 脚本，不得用 BASH 调 `python .../scripts/*.py`。**
+**Important: enqueue storyboard generation through the MCP tools below. This skill provides no Python/Shell scripts; do not use BASH to call `python .../scripts/*.py`.**
 
-通过 MCP 工具入队：
+Enqueue through MCP tools:
 
-| 操作 | 工具 |
+| Operation | Tool |
 |------|------|
-| 提交所有缺失分镜图 | `mcp__arcreel__generate_storyboards({"script": "episode_1.json"})` |
-| 重新生成指定 ID | `mcp__arcreel__generate_storyboards({"script": "episode_1.json", "segment_ids": ["E1S05"]})` |
-| 重新生成多个 ID | `mcp__arcreel__generate_storyboards({"script": "episode_1.json", "segment_ids": ["E1S01", "E1S02"]})` |
+| Submit all missing storyboard images | `mcp__arcreel__generate_storyboards({"script": "episode_1.json"})` |
+| Regenerate a specified ID | `mcp__arcreel__generate_storyboards({"script": "episode_1.json", "segment_ids": ["E1S05"]})` |
+| Regenerate multiple IDs | `mcp__arcreel__generate_storyboards({"script": "episode_1.json", "segment_ids": ["E1S01", "E1S02"]})` |
 
-> **选择规则**：`segment_ids` 兼容 narration 的 segment_id 与 drama 的 scene_id；未传则提交所有缺失项。
+> **Selection rules**: `segment_ids` supports narration segment_id and drama scene_id; omitting it submits all missing items.
 >
-> **依赖**：generation worker 必须在线（图像/视频两条独立通道），worker 负责实际生成与速率控制。
+> **Dependency**: the generation worker must be online (independent image/video channels); it handles actual generation and rate control.
 
-## 工作流程
+## Workflow
 
-1. **加载项目和剧本** — 确认所有角色都有 `character_sheet` 图像
-2. **生成分镜图** — MCP 工具自动检测 content_mode，按相邻关系串联依赖任务
-3. **审核检查点** — 按「审核检查点：审图」派审图子智能体看图，把报告与重新生成建议交给用户确认；用户可批准、要求重新生成，或要求编辑
-4. **更新剧本** — 更新 `storyboard_image` 路径和场景状态
+1. **Load project and script**: confirm every character has a `character_sheet` image
+2. **Generate storyboard images**: MCP tools detect content_mode automatically and chain task dependencies by adjacency
+3. **Review checkpoint**: dispatch image-review subagents following “Review checkpoint: image review”, then present reports and regeneration recommendations for user confirmation; the user may approve, request regeneration, or request editing
+4. **Update script**: update `storyboard_image` paths and scene status
 
-## 审核检查点：审图
+## Review checkpoint: image review
 
-分镜图生成完成后，先由只读的审图子智能体 `review-images` 看图，再把结论交给用户确认。审图不会触发生成或编辑，不产生生成费用；子智能体看图的模型调用照常计入 Agent 会话用量。宫格项目在切分落格、写入分镜图之后再审。
+After generation, first have read-only `review-images` subagents inspect the images, then present conclusions for user confirmation. Review triggers no generation or editing and incurs no generation charges; subagent image-viewing model calls count toward Agent session usage normally. For grid projects, review after splitting, assigning cells, and writing storyboard images.
 
-1. **派发**：由主 Agent 派发（子智能体不能再派子智能体：本 skill 在生成子智能体里执行时，生成结果交回主 Agent 后由主 Agent 派发）。只派本轮生成成功的分镜，按相邻分镜分组，每组至多 20 张；有多组时在同一条消息里为每组各发起一次 `review-images` 调用，让各组并行。派发消息写明图片类型 `storyboard`、剧本文件（如 `scripts/episode_1.json`）、本组分镜 ID 和用户的关注点。
-2. **交给用户**：把各组报告汇总给用户：哪些可用，哪些建议重新生成或编辑、原因是什么，哪些存疑。称呼分镜用它在本集的位置（如「分镜 5」），不说分镜 ID。有建议重新生成、编辑或存疑的分镜时，用 AskUserQuestion 多选（`multiSelect: true`）请用户勾选要处理的分镜，每个选项写明位置、原因与建议的处理方式。用户确认前不重新生成，也不编辑。
-3. **执行**：按用户勾选的分镜与下一节「编辑 vs 重新生成」处理，调工具时用分镜 ID。处理完成后，可以对新版本再派一次 `review-images` 验收。
+1. **Dispatch**: the main Agent dispatches (subagents cannot dispatch further subagents: when this skill runs in a generation subagent, return results to the main Agent for dispatch). Include only storyboards successfully generated this round, grouped by adjacency, at most 20 images per group; invoke one `review-images` call per group in the same message for parallel execution. Specify image type `storyboard`, script file (such as `scripts/episode_1.json`), this group's storyboard IDs, and user concerns.
+2. **Present to the user**: consolidate reports, identifying usable images, recommended regeneration or edits and their reasons, and uncertain cases. Refer to a storyboard by its position in the episode (such as “storyboard 5”), not its ID. For regeneration, editing, or uncertain cases, use AskUserQuestion multi-select (`multiSelect: true`) to let the user select storyboards to address, with each option stating position, reason, and recommended treatment. Do not regenerate or edit before user confirmation.
+3. **Execute**: handle selected storyboards according to “Editing versus regeneration” below, using storyboard IDs in tool calls. Afterward, optionally dispatch `review-images` again to accept the new versions.
 
-用户追问某几张分镜图时，用 `mcp__arcreel__inspect_images` 直接看图回答，不必派发子智能体。
+When the user asks about particular storyboard images, inspect them directly with `mcp__arcreel__inspect_images` and answer; no subagent dispatch is needed.
 
-## 审核检查点：编辑 vs 重新生成
+## Review checkpoint: editing versus regeneration
 
-- **只想改局部**（如某个分镜的手部畸形、背景杂物、光线偏差），且构图/角色一致性满意 →
-  用 `mcp__arcreel__edit_images({"resource_type": "storyboard", "script_file": "episode_1.json", "edits": [{"id": "E1S05", "instruction": "去掉背景里多余的路人"}]})`
-  保底图微调，不影响 `image_prompt`，一次可批量下发多个分镜
-- **想推翻构图或角色/参考图关系**，或 `image_prompt` 本身要改 → 用
-  `patch_episode_script` 改 `image_prompt` 后，紧接着调 `generate_storyboards` 重新生成
-- 编辑不会更新 `image_prompt`——编辑后再触发 `generate_storyboards` 仍按原 `image_prompt`
-  重画，编辑效果只能从版本历史找回
+- **Local changes only** (such as malformed hands, background clutter, or lighting deviations), with satisfactory composition/character consistency →
+  Use `mcp__arcreel__edit_images({"resource_type": "storyboard", "script_file": "episode_1.json", "edits": [{"id": "E1S05", "instruction": "去掉背景里多余的路人"}]})`
+  Refine the existing image without changing `image_prompt`; multiple storyboards can be submitted in a batch
+- **Replace composition or character/reference-image relationships**, or change `image_prompt` itself → use
+  `patch_episode_script` to change `image_prompt`, immediately followed by `generate_storyboards` to regenerate
+- Editing does not update `image_prompt`; a later `generate_storyboards` redraws using the original `image_prompt`,
+  and the edited result can only be recovered from version history
 
-## 角色一致性机制
+## Character consistency mechanism
 
-MCP 工具自动处理以下参考图传入，无需手动指定：
-- **character_sheet**：场景中出场角色的资产图，保持外貌一致
-- **scene_sheet / prop_sheet**：场景中出现的场景 / 道具资产图
-- **商品参考（广告/短片项目）**：分镜 `products_in_shot` 非空时自动注入商品参考并排在所有参考之前（有 product sheet 时 sheet + 原图，无 sheet 时原图直注）；声明行把这些序位标为商品参考图并要求画面中的商品与之完全一致——image_prompt 无需复述商品外观
-- **上一张分镜图**：相邻片段默认引用，排在参考图列表最后，只参考构图与色调
-- 当片段标记 `segment_break=true` 时，跳过上一张分镜图参考
+MCP tools supply these reference images automatically; manual specification is unnecessary:
+- **character_sheet**: asset images of characters appearing in the scene, maintaining appearance consistency
+- **scene_sheet / prop_sheet**: asset images of scenes/props appearing in the shot
+- **Product references (ad/short-film projects)**: nonempty storyboard `products_in_shot` automatically injects product references before all others (sheet + originals when a product sheet exists; direct originals otherwise). The declaration labels their positions as product references and requires an exact product match; image_prompt need not repeat product appearance
+- **Previous storyboard image**: adjacent segments reference it by default, last in the reference list, for composition and color only
+- Skip the previous storyboard reference when the segment is marked `segment_break=true`
 
-参考图对模型只是一个按顺序排列的图数组，prompt 用「图N」指认它们（N = 参考图在数组中的位置，商品在前，
-然后是角色 / 场景 / 道具资产图，上一张分镜图最后）：
-- 生成端在 `Style` 与 `Scene` 之间插一行 `Reference_Images` 类型声明，例如
-  `图1、图2为角色参考图；图3为场景参考图；图4为上一分镜图，只参考构图与色调。`；商品分镜为
+The model receives references as an ordered image array; the prompt identifies them as “图N” (N is array position, with products first,
+then character/scene/prop asset images, and the previous storyboard last):
+- The generator inserts a `Reference_Images` type declaration between `Style` and `Scene`, for example
+  `图1、图2为角色参考图；图3为场景参考图；图4为上一分镜图，只参考构图与色调。`; for a product storyboard:
   `图1为商品参考图，画面中的商品须与之完全一致；……`
-- `image_prompt.scene` 里用 `@[登记名]` 指认资产（衍生形态写 `@[角色/衍生]`），生成端按上述编号把它换成对应的「图N」；
-  该名字须同时写进条目的引用字段（`characters_in_*` / `scenes` / `props` / `products_in_shot`），参考图只由引用字段决定，`@[]` 不会额外带图
-- 未登记或不在引用字段里的 `@[名称]` 按名字原样发送；`generate_episode_script` / `patch_episode_script` 的回执 `warnings` 会列出这类引用，按提示补登记或补引用字段后重新生成
+- In `image_prompt.scene`, identify assets with `@[登记名]` (derivatives use `@[角色/衍生]`); the generator replaces mentions with the corresponding “图N” above;
+  also put the name in the entry's reference fields (`characters_in_*` / `scenes` / `props` / `products_in_shot`); only these fields determine references, and `@[]` adds no extra images
+- Unregistered `@[名称]` mentions or names absent from reference fields are sent unchanged; `warnings` from `generate_episode_script` / `patch_episode_script` list such references. Register them or add reference fields as instructed, then regenerate
 
-## Prompt 模板
+## Prompt template
 
-生成端按项目 style、参考图列表与条目 `image_prompt` 渲染最终 prompt（`get_prompt_preview` 可查看逐字文本）：
+The generator renders the final prompt using project style, reference list, and entry `image_prompt` (inspect exact text with `get_prompt_preview`):
 
 ```
 Style: [项目 style]
@@ -85,19 +85,19 @@ Composition:
 Avoid: 水印、多余文字、Logo
 ```
 
-> 画面比例通过 API 参数设置，不写入 prompt。
+> Aspect ratio is set through API parameters, not written into the prompt.
 
-## 生成前检查
+## Pre-generation checks
 
-- [ ] 所有角色都有已批准的 character_sheet 图像
-- [ ] 场景视觉描述完整
-- [ ] 角色动作已指定
+- [ ] Every character has an approved character_sheet image
+- [ ] Scene visual descriptions are complete
+- [ ] Character actions are specified
 
-## 错误处理
+## Error handling
 
-结果结构与逐 ID 问题码见 `.claude/references/generation-results.md`。
+See `.claude/references/generation-results.md` for result structure and per-ID problem codes.
 
-- 单场景失败不影响批次，工具返回 `requested / succeeded / failed / blocked` 的逐 ID 结果
-- 按每一项自带的 `problem.code` 与 `problem.action` 决定重试还是先改输入，不要读文本猜
-- 不传 `segment_ids` 即只补缺；已失效但可用的旧分镜图会被复用，不自动重生
-- 可重试的场景用 `mcp__arcreel__generate_storyboards({"script": "...", "segment_ids": [...]})` 点名重做
+- A single scene failure does not affect the batch; tools return per-ID `requested / succeeded / failed / blocked` results
+- Decide whether to retry or first fix input using each item's `problem.code` and `problem.action`; do not guess from prose
+- Omitting `segment_ids` fills only missing images; stale but usable old storyboard images are reused without automatic regeneration
+- Explicitly regenerate retryable scenes with `mcp__arcreel__generate_storyboards({"script": "...", "segment_ids": [...]})`

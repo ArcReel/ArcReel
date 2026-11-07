@@ -1,6 +1,7 @@
-"""生成时为参考图选用供应商素材关联：按调用通道实际使用的推理凭证与绑定判断，结果与参考图等长同序。
+"""Select provider asset links by actual backend inference credentials/bindings, matching reference length/order.
 
-真实数据库（关联、绑定、凭证）与真实版本记录；调用通道只用一个报出推理凭证与素材引用声明的替身。
+Use real DB links/bindings/credentials and real version records; the backend substitute reports only
+inference credentials and asset-reference declarations.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ API_KEY = "TEST-ark-inference-key-0001"
 
 @dataclass
 class _Backend:
-    """调用通道替身：只报出实际使用的推理凭证与可接受素材引用的槽位。"""
+    """Backend substitute reports only actual inference credentials and acceptable asset-reference slots."""
 
     inference_credential: InferenceCredentialRef | None
     provider_asset_roles: frozenset[str] = frozenset({REFERENCE_IMAGE_ROLE})
@@ -58,7 +59,7 @@ class _World:
         )
 
     def commit_image(self, resource_type: str, resource_id: str, data: bytes, *, suffix: str = ".png") -> str:
-        """提交一张图片为资源的新当前版本，返回它的内容版本身份。"""
+        """Commit an image as the resource’s new current version and return its content-version identity."""
         subdir = {"characters": "characters", "scenes": "scenes"}[resource_type]
         working = self.project_path / subdir / f"{resource_id}{suffix}"
         working.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +131,7 @@ async def world(db_engine, tmp_path: Path) -> _World:
 
 @pytest.mark.parametrize("origin", ["upload", "import"])
 async def test_usable_link_replaces_only_its_image_and_keeps_order(world: _World, origin: str):
-    """有可用关联的图片换成素材引用，其余图片照常发送，顺序与提示词里的图片编号一致；上传与导入建立的关联同样适用。"""
+    """Replace eligible images with asset references, sending others unchanged in prompt-number order; upload/import links both apply."""
     scene = world.commit_image("scenes", "Hall", b"hall-v1")
     alice = world.commit_image("characters", "Alice", b"alice-v1")
     assert scene
@@ -148,7 +149,7 @@ async def test_usable_link_replaces_only_its_image_and_keeps_order(world: _World
 
 @pytest.mark.parametrize("suffix", [s for s in IMAGE_FILE_EXTENSIONS if s != ".png"])
 async def test_non_png_asset_sheet_resolves_its_content_version(world: _World, suffix: str):
-    """上传或导入保留原格式的资产图（JPEG、WebP）同样按内容版本找到关联，不退回发送普通图片。"""
+    """Imported/uploaded JPEG/WebP sheets retaining original formats still resolve links by content version, without ordinary-image fallback."""
     alice = world.commit_image("characters", "Alice", b"alice-jpeg", suffix=suffix)
     await world.link(alice, state="active", provider_asset_id="asset-alice-1")
 
@@ -160,7 +161,7 @@ async def test_non_png_asset_sheet_resolves_its_content_version(world: _World, s
 
 
 async def test_new_image_does_not_inherit_the_previous_version_link(world: _World):
-    """换成新图后没有适用关联，照常发送图片；切回旧图（当前版本即旧内容版本）时旧关联继续有效。"""
+    """New images without links send normally; switching back to old content versions restores old-link applicability."""
     first = world.commit_image("characters", "Alice", b"alice-v1")
     await world.link(first, state="active", provider_asset_id="asset-alice-1")
     world.commit_image("characters", "Alice", b"alice-v2")
@@ -191,7 +192,7 @@ async def test_new_image_does_not_inherit_the_previous_version_link(world: _Worl
 async def test_applicable_link_that_is_not_usable_fails_instead_of_sending_the_image(
     world: _World, state: str, extra: dict, code: str
 ):
-    """选定的入库任务处理中、结果待确认或失败时明确失败，按提示词里的图片编号点名，不改发普通图片。"""
+    """Selected processing/uncertain/failed registration tasks fail explicitly by prompt image number, without ordinary-image fallback."""
     world.commit_image("scenes", "Hall", b"hall-v1")
     alice = world.commit_image("characters", "Alice", b"alice-v1")
     await world.link(alice, state=state, **extra)
@@ -209,7 +210,7 @@ async def test_applicable_link_that_is_not_usable_fails_instead_of_sending_the_i
 
 
 async def test_link_is_not_applicable_after_credential_change_or_on_models_without_asset_support(world: _World):
-    """推理凭证内容变了（绑定待确认）或模型不接受素材引用：关联不适用，照常发送图片，处理中的关联也不阻断。"""
+    """Changed inference credentials (unconfirmed bindings) or unsupported asset references make links inapplicable; send images and ignore processing links."""
     alice = world.commit_image("characters", "Alice", b"alice-v1")
     await world.link(alice, state="processing", provider_asset_id="asset-alice-1")
     sources = [world.source("characters/Alice.png", "Alice")]

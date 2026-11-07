@@ -1,27 +1,28 @@
-"""落盘字节的容器识别：只读文件头，不读扩展名。
+"""Detect persisted-byte containers from headers only, never extensions.
 
-产物文件名是落盘那一层起的（成片的规范 ``.mp4`` 资源路径、测试连接的 ``artifact.mp4`` /
-``artifact.png``），而真实容器由供应商那一侧的导出设置决定，两者对不上时按扩展名声明 MIME 会让
-浏览器按一个错误的类型去解。故「这段字节是什么容器」由本模块一处回答：魔数只有这一份，落盘后的
-容器核对与产物读接口的 MIME 都引用它，不会两处各存一张表、新增容器时只改一边。
+Persistence names files using canonical final-video ``.mp4`` paths or connection-test ``artifact.mp4`` /
+``artifact.png`` names; providers' export settings determine actual containers. Mismatches make
+extension-declared MIME mislead browsers. Centralize container detection here: one magic-byte authority
+serves postpersistence container checks and artifact-read MIME, avoiding duplicate tables updated on
+only one side when adding containers.
 
-与 :mod:`lib.backends.data_uri` 的分工：那边答的是「出站请求体里这张素材该声明什么 MIME」，
-故带 GIF / HEIC 与按扩展名回落的兼容口径；本模块只认成片与分镜图这几种容器，认不出就说认不出。
+Unlike :mod:`lib.backends.data_uri`, which declares outbound material MIME and supports GIF / HEIC plus
+extension fallbacks, this module recognizes only final-video/storyboard-image containers. Unknown stays unknown.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-#: 判定容器要读的文件头字节数：够读到 ``RIFF....WEBP`` 的第二段魔数，也够读到 ``ftyp`` 的 major brand。
+#: Header bytes needed to reach ``RIFF....WEBP`` second magic bytes and ``ftyp`` major brands.
 CONTAINER_HEAD_BYTES = 12
 
-#: ISO BMFF 里属于静态图、不是成片的 major brand。
+#: ISO BMFF major brands belonging to still images, not final videos.
 #:
-#: 认的是这一边而不是「视频 brand 白名单」：视频侧的 brand 是开放集（``isom`` / ``iso2`` /
-#: ``mp41`` / ``mp42`` / ``avc1`` / ``qt`` / ``M4V`` / ``dash`` …，各家导出器还在加），白名单
-#: 会把合法成片判成认不出——那比漏认一张 HEIC 更糟。brand 与 MIME 的对应沿用
-#: ``data_uri._image_mime_from_bytes`` 已有的那一份。
+#: Identify these rather than whitelist video brands, an open set (``isom`` / ``iso2`` /
+#: ``mp41`` / ``mp42`` / ``avc1`` / ``qt`` / ``M4V`` / ``dash`` …, still growing across exporters). Whitelists
+#: would misclassify valid final videos as unknown, worse than missing a HEIC. Brand/MIME mapping reuses
+#: the existing ``data_uri._image_mime_from_bytes`` rules.
 _ISO_BMFF_IMAGE_BRANDS: Mapping[bytes, str] = {
     b"heic": "image/heic",
     b"heix": "image/heic",
@@ -35,12 +36,12 @@ _ISO_BMFF_IMAGE_BRANDS: Mapping[bytes, str] = {
 
 
 def sniff_container(head: bytes) -> str | None:
-    """这段文件头对应的容器 MIME；认不出给 ``None``。
+    """Container MIME for these header bytes, or ``None`` if unknown.
 
-    ``ftyp``（落在偏移 4–8 字节）只说「这是 ISO BMFF 家族」，HEIC / AVIF 这类静态图同用这一层，
-    故要按 major brand 把它们摘出来——否则一张 HEIC 装进 ``.mp4`` 的名字会被当成成片放行。其余
-    brand 一律给 ``video/mp4``：``.mov`` 与 ``.m4v`` 的 brand 各家写法不一，而它们在播放侧与
-    ``.mp4`` 同路，细分到白名单只会把合法成片判成认不出。
+    ``ftyp`` at bytes 4–8 identifies ISO BMFF only, also used by HEIC / AVIF stills. Exclude them by major
+    brand or HEIC named ``.mp4`` would pass as final video. All other brands yield ``video/mp4``:
+    ``.mov`` / ``.m4v`` brands vary by exporter but play like ``.mp4``. Narrow whitelists would reject
+    valid final videos as unknown.
     """
     if head.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"

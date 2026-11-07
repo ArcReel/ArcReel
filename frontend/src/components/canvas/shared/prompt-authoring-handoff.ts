@@ -1,15 +1,15 @@
 import type { TFunction } from "i18next";
 
 interface PromptAuthoringHandoff {
-  /** 集名连同集 ID 的指称（`episodeAgentRef`）。 */
+  /** Episode name together with its ID (`episodeAgentRef`). */
   episodeRef: string;
-  /** 已成文的范围：「全部待编写的 N 条」或逐条 ID。 */
+  /** Written scope: all N pending-authoring entries or individual IDs. */
   scopeLabel: string;
   rewrite: boolean;
   instructions: string;
 }
 
-/** 提示词编写「交给 Agent」时预填进输入框的文本；弹窗与制作进度面板共用。 */
+/** Prefilled input text for handing prompt authoring to the Agent, shared by the dialog and production-progress panel. */
 export function promptAuthoringHandoffText(t: TFunction, handoff: PromptAuthoringHandoff): string {
   const lines = [
     t("dashboard:prompt_authoring_agent_prefill", { episodeRef: handoff.episodeRef, scope: handoff.scopeLabel }),

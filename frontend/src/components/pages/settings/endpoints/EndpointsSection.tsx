@@ -32,22 +32,22 @@ import type { EndpointBackTarget } from "./EndpointHeader";
 import { EndpointImportDialog } from "./EndpointImportDialog";
 import { groupUsagesByEndpoint } from "./endpoint-usages";
 
-/** 有 kind 即是一份此刻就能显示的端点定义；其余形状的身份由服务端的分流结果给出。 */
+/** kind identifies immediately displayable endpoint definitions; servers classify other shapes. */
 function hasKind(value: unknown): value is AnyEndpointDefinition {
   return typeof value === "object" && value !== null && "kind" in value;
 }
 
-/** 刚导入、还没保存的 ComfyUI 端点在 URL 里的占位键。 */
+/** URL placeholder keys for imported unsaved ComfyUI endpoints. */
 const COMFYUI_DRAFT_KEY = "comfyui-new";
-/** 新建端点在 URL 里的占位键。 */
+/** URL placeholder keys for new endpoints. */
 const NEW_KEY = "new";
 
 /**
- * 详情组件的实例身份。定义、绑定与推断结果都是详情里的 state，只在挂载那一刻取自 props，
- * 换一份定义就得换一个实例，否则屏幕上还是旧的那份、保存下去的也是旧的。
+ * Detail instance identities. Definitions/bindings/inference results live in local state, reading props only at mount;
+ * changed definitions require new instances, or screens/saves retain old contents.
  *
- * 端点键之外还有三处会在键不变的情况下换定义：市场更新原地替换（安装时间随之变化），重新导入
- * 产生一份新的未保存定义（自带一次性 token），放弃 ComfyUI 端点的修改（递增 `resetEpoch`）。
+ * Beyond endpoint keys, three same-key definition changes occur: in-place market updates (changing install timestamps), reimports
+ * producing unsaved definitions with disposable tokens, and discarded ComfyUI edits (incrementing `resetEpoch`).
  */
 function detailInstanceKey(selectedKey: string | null, selection: EndpointSelection, resetEpoch: number): string {
   const key = `${selectedKey ?? ""}:${resetEpoch}`;
@@ -65,9 +65,9 @@ interface MarketUpdateTarget {
 }
 
 /**
- * 调用端点分区（全出血档）：左侧二级栏按「我的端点 | 内置」分组，右侧端点详情。
- * 选中项写进 URL 的 endpoint 参数，切换经路由，刷新与外部跳转都能落回同一个端点；
- * 从自定义供应商跳来时带 from 参数，详情顶部显示「返回『供应商名』」，切换端点时保留。
+ * Full-width Endpoints section: secondary sidebar groups My endpoints | Built-in, endpoint details at right.
+ * Selection persists in URL endpoint parameters via routing, preserving refresh/external-navigation targets;
+ * custom-provider entries carry from, showing Return to provider above details and retaining it across endpoint switches.
  */
 export function EndpointsSection() {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -88,20 +88,20 @@ export function EndpointsSection() {
   const [importFileName, setImportFileName] = useState("");
   const [importDefinition, setImportDefinition] = useState<AnyEndpointDefinition | null>(null);
   const [importValidation, setImportValidation] = useState<EndpointValidateResponse | null>(null);
-  // 导入弹窗在途的请求：推断节点绑定（取消即作废）或落盘（已发出就收不回，期间不能取消）。
+  // Import-dialog requests: binding inference invalidates on cancellation; persistence cannot be withdrawn after dispatch, so cancellation disables.
   const [importBusy, setImportBusy] = useState<"infer" | "save" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importPending, setImportPending] = useState(false);
-  // 粘进来的原始载荷：换媒体类型时要拿它重跑一次校验，包装结果随之更新。只在处理函数里读，不参与渲染。
+  // Raw pasted payloads rerun validation on media changes, updating wrappers; handlers only, outside rendering.
   const importPayload = useRef<unknown>(null);
   const [importMediaType, setImportMediaType] = useState<ComfyuiMediaType>("video");
-  // 重新导入的落点：新 workflow 接到这份定义上，身份与已确认的节点绑定沿用它。只在处理函数里读，不参与渲染。
+  // Reimport destinations attach new workflows to these definitions, retaining identities/confirmed bindings; handler-only, outside rendering.
   const reimportBase = useRef<{
     record: CustomEndpointInfo | null;
     definition: ComfyuiEndpointDefinition;
   } | null>(null);
   const [comfyuiDraft, setComfyuiDraft] = useState<ComfyuiImportDraft | null>(null);
-  // 未保存定义的一次性身份发号器；只进详情的 React key，不参与渲染。
+  // Unsaved-definition disposable identity allocator: detail React keys only, outside rendering.
   const draftSeq = useRef(0);
 
   const [marketUpdateTarget, setMarketUpdateTarget] = useState<MarketUpdateTarget | null>(null);
@@ -113,7 +113,7 @@ export function EndpointsSection() {
   const fromParam = params.get("from");
   const fromProviderId = fromParam !== null && /^\d+$/.test(fromParam) ? Number(fromParam) : undefined;
 
-  // 官方服务开启时才有值：各端点最近一次分享提交，进入页面时刷新一次；关闭或取不回时不展示分享入口与状态。
+  // Only enabled official services supply latest endpoint shares, refreshed on entry; disabled/unreadable states hide sharing/status.
   const [submissions, setSubmissions] = useState<Map<number, MarketSubmission> | null>(null);
 
   useEffect(() => {
@@ -128,13 +128,13 @@ export function EndpointsSection() {
         }
       })(),
       () => {
-        // 官方服务不可用时端点页照常工作，只是不提供分享入口。
+        // Endpoint pages work normally without official services, simply omitting sharing.
       },
     );
     return () => controller.abort();
   }, []);
 
-  /** 端点地址：保留「从哪个供应商来」，切到别的端点后仍能返回。 */
+  /** Endpoint addresses retain originating providers, allowing returns after endpoint switches. */
   const hrefOf = useCallback(
     (key: string | null) => endpointSettingsPath(key ?? undefined, { fromCustomProvider: fromProviderId }),
     [fromProviderId],
@@ -158,7 +158,7 @@ export function EndpointsSection() {
 
   useEffect(() => {
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey 变化时点亮加载态并重新拉取，是动作驱动重置
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey changes set loading and refetch as action-driven resets
     setLoading(true);
     setLoadError(null);
     voidCall(
@@ -175,12 +175,12 @@ export function EndpointsSection() {
     };
   }, [reload, reloadKey]);
 
-  /** 使用各端点的模型行：只有自定义供应商的模型行能指定端点。 */
+  /** Model rows using endpoints; custom-provider rows alone may select endpoints. */
   const usagesByEndpoint = useMemo(() => groupUsagesByEndpoint(providers), [providers]);
 
-  // 本节管的是自定义端点，内置端点只作参照。自定义端点的媒体类型由定义自己声明（一份
-  // ComfyUI workflow 可以产图），因此自定义端点不按 video 过滤——否则导进来的图像端点在设置页
-  // 里既看不到也删不掉。内置端点默认只列视频；来自模型行的深链也展示其选中的非视频端点。
+  // Manage custom endpoints, with built-ins as references. Definitions declare custom media types (ComfyUI
+  // workflows can produce images), so never filter customs to video, which would hide imported images
+  // and prevent deletion. Built-ins default to video only; model-row deep links also show selected nonvideo endpoints.
   const sectionCatalog = useMemo(
     () => catalog.filter((endpoint) => endpoint.media_type === "video" || endpoint.source === "custom" || endpoint.key === selectedKey),
     [catalog, selectedKey],
@@ -201,7 +201,7 @@ export function EndpointsSection() {
         href: hrefOf(descriptor.key),
       };
     };
-    // 刚导入还没保存的 ComfyUI 端点只在选中时列出：离开即放弃（离开前由拦截询问）。
+    // Imported unsaved ComfyUI endpoints list only while selected; leaving discards after guard confirmation.
     const draftItem: SecondaryRailItem[] =
       comfyuiDraft && comfyuiDraft.record === null && selectedKey === COMFYUI_DRAFT_KEY
         ? [
@@ -236,7 +236,7 @@ export function EndpointsSection() {
   }, [sectionCatalog, usagesByEndpoint, comfyuiDraft, selectedKey, hrefOf, t]);
 
   const selection = useMemo((): EndpointSelection | null => {
-    // 刚导入还没保存的那份压过同一个键上的已保存定义——不然重新导入一回来就看不见了。
+    // Imported unsaved definitions override same-key saved ones, or reimports disappear immediately.
     if (comfyuiDraft && (comfyuiDraft.record?.key ?? COMFYUI_DRAFT_KEY) === selectedKey) {
       return { mode: "comfyui-draft", draft: comfyuiDraft };
     }
@@ -245,7 +245,7 @@ export function EndpointsSection() {
     }
     const record = customEndpoints.find((e) => e.key === selectedKey);
     if (record) {
-      // 详情表单只吃声明式定义；ComfyUI 端点走它自己那一路，否则表单会解引用它没有的 submit / poll。
+      // Detail forms accept declarative definitions only; ComfyUI follows its own path, avoiding missing submit/poll dereferences.
       return isDeclarativeDefinition(record.definition)
         ? { mode: "custom", record, definition: record.definition }
         : { mode: "comfyui", record, definition: record.definition };
@@ -257,7 +257,7 @@ export function EndpointsSection() {
       : { mode: "builtin", descriptor };
   }, [selectedKey, customEndpoints, sectionCatalog, comfyuiDraft]);
 
-  // 地址里没有选中项、或指向已不存在的新导入草稿时，选中第一个端点（我的端点优先）；与供应商分区的兜底一致，用 replace。
+  // Absent selections or nonexistent imported drafts choose first endpoints, preferring owned; replace history like provider fallbacks.
   const firstKey = railGroups.find((group) => group.items.length > 0)?.items[0]?.id ?? null;
   const needsFallback = selectedKey === null || (selectedKey === COMFYUI_DRAFT_KEY && selection === null);
   useEffect(() => {
@@ -271,16 +271,16 @@ export function EndpointsSection() {
     return provider ? { providerId: provider.id, providerName: provider.display_name } : null;
   }, [fromProviderId, providers]);
 
-  // --- 导入 ---
+  // --- Import ---
 
-  // 连续选文件时后一次接管：作废在途的读取与校验，避免第二个文件的定义配上
-  // 第一个文件的校验结果。
+  // Later file choices take over, invalidating reads/validation so second definitions never pair with
+  // first-file validation results.
   const importRunRef = useRef(0);
 
-  /** 校验一份载荷并接手结果；换媒体类型时拿同一份载荷再跑一次。 */
+  /** Validate/adopt payload results; media changes rerun identical payloads. */
   const validatePayload = useCallback(
     async (payload: unknown, mediaType: ComfyuiMediaType, run: number) => {
-      // 不带 kind 的载荷此刻还没有定义身份：服务端按 workflow 收下时，包装结果随校验结果回来。
+      // Payloads without kind lack definition identities; server workflow acceptance returns wrappers alongside validation.
       const picked = hasKind(payload) ? payload : null;
       setImportDefinition(picked);
       setImportPending(true);
@@ -293,14 +293,14 @@ export function EndpointsSection() {
         setImportDefinition(result.wrapped_definition ?? picked);
         setImportValidation(result);
       } finally {
-        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中；被后一次接管时由接管方负责复位，不动它的状态
+        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- already in finally; successors own resets after takeover, so never alter their state
         if (importRunRef.current === run) setImportPending(false);
       }
     },
     [],
   );
 
-  /** 清掉上一次交出去的载荷与它的结果；弹窗开着时用户可以接着再交一份。 */
+  /** Clear prior submitted payloads/results; open dialogs permit subsequent submissions. */
   const resetImportSource = useCallback(() => {
     importRunRef.current += 1;
     setImportFileName("");
@@ -310,7 +310,7 @@ export function EndpointsSection() {
     setImportPending(false);
   }, []);
 
-  /** 接下弹窗交出来的一份载荷：上传的文件与粘贴的文本走同一条分流。 */
+  /** Accept dialog payloads: uploaded files/pasted text share routing. */
   const takeImportSource = useCallback(
     async (text: string, fileName: string) => {
       const run = ++importRunRef.current;
@@ -322,7 +322,7 @@ export function EndpointsSection() {
       try {
         parsed = JSON.parse(text);
       } catch {
-        // `JSON.parse` 抛的是英文语法错误，对着它用户也不知道要改什么；弹窗留在原处让他改完再交一次。
+        // `JSON.parse` throws English syntax errors without useful user repair guidance; retain dialogs for correction/resubmission.
         setImportPending(false);
         pushToast(t("ce_import_read_failed"), "error");
         return;
@@ -338,7 +338,7 @@ export function EndpointsSection() {
     [importMediaType, validatePayload, pushToast, t],
   );
 
-  /** 换媒体类型：原始 workflow 按哪一种包装由它决定，包装结果与诊断都要重来一遍。 */
+  /** Media changes determine raw-workflow wrappers, rerunning wrappers and diagnostics together. */
   const handleImportMediaTypeChange = useCallback(
     (mediaType: ComfyuiMediaType) => {
       setImportMediaType(mediaType);
@@ -365,13 +365,13 @@ export function EndpointsSection() {
   );
 
   /**
-   * ComfyUI 的两种形状都不在弹窗里直接落盘，而是先进绑定编辑器：包装出来的定义节点绑定是空的，
-   * 带 `kind` 的定义也要让用户把沿用 / 已重匹配 / 需确认再过一遍（`docs/adr/0082`）。
+   * Both ComfyUI shapes enter binding editors before persistence: automatically wrapped definitions have empty bindings;
+   * `kind` definitions also require user review of reused/rematched/unconfirmed bindings (`docs/adr/0082`).
    */
   const handleImportBindings = useCallback(async () => {
     if (!importDefinition || !isComfyuiDefinition(importDefinition) || !importValidation) return;
-    // 推断期间用户可以取消弹窗，也可以再交一份载荷；两者都递增这个号，回来发现号变了就整份丢弃
-    // ——迟到的那一份会把一个已经被放弃的 workflow 装进详情并跳过去。
+    // During inference, cancellation/new payloads increment this sequence; changed numbers discard entire returned results,
+    // preventing abandoned workflows being installed into details and navigated to.
     const run = importRunRef.current;
     setImportBusy("infer");
     try {
@@ -403,7 +403,7 @@ export function EndpointsSection() {
     }
   }, [importDefinition, importValidation, importFileName, select, pushToast, t]);
 
-  /** 关掉导入弹窗：在途的识别与推断一并作废，回来的那一份不再装进详情。 */
+  /** Closing import dialogs invalidates recognition/inference together; late results never populate details. */
   const closeImport = useCallback(() => {
     importRunRef.current += 1;
     setImportBusy(null);
@@ -418,11 +418,11 @@ export function EndpointsSection() {
     setImportOpen(true);
   }, [resetImportSource]);
 
-  /** 为当前这个 ComfyUI 端点换一份 workflow：身份与已确认的节点绑定沿用手上这一份。 */
+  /** Replace current ComfyUI workflows, retaining held identities/confirmed bindings. */
   const startComfyuiReimport = useCallback(
     (current: ComfyuiEndpointDefinition) => {
-      // 草稿的身份只在它就是当前选中的那一个时才算数：手上留着端点 A 的未保存草稿、人却走到
-      // 端点 B 上点了重新导入时，沿用 A 的 record 会把 B 的 workflow 存到 A 身上。
+      // Draft identities apply only to currently selected drafts; holding A's unsaved draft while reimporting
+      // on B must not reuse A's record, which would save B's workflow onto A.
       const draftRecord = comfyuiDraft?.record?.key === selectedKey ? comfyuiDraft.record : null;
       const record = draftRecord ?? customEndpoints.find((endpoint) => endpoint.key === selectedKey) ?? null;
       reimportBase.current = { record, definition: current };
@@ -460,7 +460,7 @@ export function EndpointsSection() {
     [importDefinition, finishImport, pushToast, t],
   );
 
-  // --- 从市场更新 ---
+  // --- Update from market ---
 
   useEffect(() => {
     marketUpdateRef.current?.abort();
@@ -497,7 +497,7 @@ export function EndpointsSection() {
       } finally {
         if (marketUpdateRef.current === controller) {
           marketUpdateRef.current = null;
-          // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中；被后一次接管时由接管方负责复位，不动它的状态
+          // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- already in finally; successors own resets after takeover, so never alter their state
           setMarketUpdatePending(false);
         }
       }
@@ -506,7 +506,7 @@ export function EndpointsSection() {
   );
 
 
-  // --- 接线到供应商 ---
+  // --- Wire to providers ---
 
   const handleCreateProvider = useCallback(
     (definition: EndpointDefinition, endpointKey: string) => {
@@ -523,7 +523,7 @@ export function EndpointsSection() {
   );
 
   const handleDiscardComfyui = useCallback(() => {
-    // 导入的未保存定义整份丢掉：新导入的由兜底选中落回第一个端点，重新导入的落回已保存的那份。
+    // Discard entire imported unsaved definitions; new imports fall back to first endpoints, reimports return to saved versions.
     setComfyuiDraft(null);
     setResetEpoch((n) => n + 1);
   }, []);
@@ -550,7 +550,7 @@ export function EndpointsSection() {
   }
 
   return (
-    // 全出血档：二级栏与详情栏各自滚动
+    // Full-bleed layout: secondary and detail columns scroll independently
     <div className="flex min-h-0 min-w-0 flex-1">
       <SecondaryRail label={t("ce_rail_label")} groups={railGroups} activeId={selectedKey} replace />
 
@@ -562,7 +562,7 @@ export function EndpointsSection() {
           usages={(selectedKey && usagesByEndpoint.get(selectedKey)) || []}
           back={back}
           onSaved={(record) => {
-            // 未保存的导入定义已经落盘，让位给列表里那一条，否则同一个键上两份定义谁也说不清。
+            // Persisted imported definitions yield to list records, avoiding two competing same-key definitions.
             setComfyuiDraft(null);
             voidCall(reload().then(() => select(record.key)));
           }}

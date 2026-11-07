@@ -47,8 +47,8 @@ from server.media_tools.context import (
 from server.services.tasks.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
-# 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
-# "缺失的编辑"，因此本工具不提供 missing-only 选择。
+# Editing is always explicit selection: every edit carries an instruction, with no Manifest-derived
+# "missing edit", so this tool has no missing-only selection.
 _OPERATION = "edit_images"
 
 # Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
@@ -70,11 +70,10 @@ if get_args(EditableResourceType) != EDITABLE_RESOURCE_TYPES:
 async def _i2i_unavailable_problem(
     project: dict[str, Any], *, config_resolver: ConfigResolver
 ) -> GenerationProblem | None:
-    """项目 i2i 槽解析不出可用供应商时返回阻塞问题，可用时返回 None——与 HTTP 端点入队前 fail-fast
-    同一判断点（见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），
-    批量编辑只需要一次项目级判断，不像端点那样需要拿到 provider_id 传给入队。
-    引用的模型已不在供应商清单中时，问题带「重新选择模型」指引，而非「换支持 i2i 的供应商」。
-    """
+    """Return a blocking problem when the project i2i slot has no usable provider, otherwise None. This is the same fail-fast
+    check used before HTTP enqueueing (``server/routers/generate.py::_require_i2i_image_provider_configured``).
+    Batch editing needs only one project-level check, unlike the endpoint’s need for provider_id to enqueue.
+    If the referenced model is absent from the provider catalog, direct model reselection rather than switching to an i2i-capable provider."""
     try:
         await config_resolver.resolve_image_backend(project, None, generation_type="i2i")
     except ModelNotInCatalogError as exc:
@@ -82,8 +81,8 @@ async def _i2i_unavailable_problem(
             code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)
         )
     except ValueError:
-        # 复用 lib.generation.task_failure 已登记的 i2i 缺能力码（同一失败在
-        # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
+        # Reuse the registered missing-i2i-capability code in lib.generation.task_failure (the same failure uses it in
+        # HTTP execution paths); do not invent an unregistered code.
         return GenerationProblem(
             code="image_capability_missing_i2i",
             detail="当前项目图片供应商不支持图生图（i2i），无法执行编辑；请提示用户前往设置更换支持 i2i 的供应商",
@@ -161,8 +160,8 @@ def _build_specs(
             )
             continue
         except ArtifactManifestError as exc:
-            # Manifest 判定本条编辑的产物状态时 fail-loud：这是单条编辑自己的问题，
-            # 不该把整批已经算出的其它 ID 结果一起吞进 handler 级文本错误。
+            # Fail loudly when the Manifest cannot determine this edit’s artifact state: it is specific to this edit
+            # and must not swallow other computed ID results into a handler-level prose error.
             builder.block(
                 resource_id,
                 problem=GenerationProblem(
@@ -204,21 +203,22 @@ class ImageEdit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(
-        description="编辑目标 ID：资产名称；storyboard 为分镜的 segment_id / scene_id；"
-        "character_derivative 为「本体名/衍生名」"
+        description="Edit target ID: asset name; segment_id / scene_id for storyboard; base name/derivative name for character_derivative"
     )
-    instruction: str = Field(description="编辑指令：用自然语言描述要修改的部分")
+    instruction: str = Field(description="Edit instruction: describe the parts to change in natural language")
 
 
 class EditImagesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    resource_type: EditableResourceType = Field(description="编辑目标类型；一次调用只编辑同一类型")
+    resource_type: EditableResourceType = Field(description="Edit target type; edit only one type per call")
     edits: list[ImageEdit] = Field(
-        min_length=1, description="批量编辑列表，每项一个 id 与一条 instruction；同一 id 只保留第一条"
+        min_length=1,
+        description="Batch edit list, one id and instruction per item; keep only the first occurrence of each id",
     )
     script_file: ScriptFilename | SkipJsonSchema[None] = Field(
-        default=None, description="剧本纯文件名（不含目录），如 episode_1.json；resource_type=storyboard 时必填"
+        default=None,
+        description="Script filename only (no directory), for example episode_1.json; required when resource_type=storyboard",
     )
 
     @model_validator(mode="after")
@@ -257,7 +257,7 @@ async def edit_images(
             resolver = active_artifact_currency_resolver(project_path, project)
             return script, project, project_path, artifact_episode, resolver
 
-        # 读剧本与项目、建产物时效判定器都是同步文件读写
+        # Script/project reads and artifact-currency resolver construction use synchronous file I/O.
         script, project, project_path, artifact_episode, resolver = await run_sync_transaction(load_inputs)
 
         warnings: list[str] = []
@@ -266,9 +266,9 @@ async def edit_images(
 
         i2i_problem = await _i2i_unavailable_problem(project, config_resolver=services.capabilities)
         if i2i_problem is not None:
-            # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
-            # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
-            # 而不是只回一段无法编程消费的文本。
+            # Reject before enqueueing: shared batch prerequisites failed, rather than one ID’s artifact,
+            # but callers still read per-ID results, so record blocked for every requested ID
+            # instead of returning only prose that cannot be consumed programmatically.
             seen: set[str] = set()
             for edit in edits:
                 resource_id = edit.id.strip()
@@ -309,9 +309,9 @@ async def edit_images(
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
         if specs:
-            # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
-            # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。states 只
-            # 用来在失败时把未被触碰的编辑源图路径带回结果，不参与时效判断。
+            # Edited artifacts are not written to the Manifest (edit intent cannot be derived; see module introduction),
+            # so omit the resolver and leave currency honestly empty rather than pretending it is known. states only
+            # returns untouched source-image paths on failure, without participating in currency judgments.
             record_batch_outcomes(
                 builder,
                 successes=submitted.successes,

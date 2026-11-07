@@ -1,13 +1,13 @@
-"""「分集」视图的只读投影：整本源文按集分段，外加每集的体量、首尾句与 ``source/`` 里没有登记的文件。
+"""Readonly Episodes projections: whole-source segments, episode volumes/edge sentences, unregistered ``source/`` files.
 
-- 整本源文按清单顺序逐个文件给出规范化全文，切成「集」与「未切分的原文」两类段。段的偏移与
-  ``source_range`` 同一坐标系（规范化文本的字符下标）。只含空白的未切分段不单独成段。
-- 未切分段排在按源文位置最后一个切出集之前的，是夹在切出集之间的空段（``gap``）；其余是尚未分集的原文。
-- 原文范围落不到清单文件里（没有范围、文件不在清单里、越界或与前一集重叠）的切出集不进左栏，
-  体量按它的集文件计。
-- 体量按项目的 ``source_language`` 数阅读单位，朗读时长按项目生效语速折算。
+- Normalize full texts in manifest file order into episode/unsplit segments, using
+  ``source_range`` character coordinates. Whitespace-only unsplit spans form no separate segments.
+- Unsplit segments before last source-position split episodes are intervening gaps (``gap``); remaining spans are not yet episodized.
+- Split episodes with unplaceable ranges (absent ranges/unlisted files/out-of-bounds/overlap) stay outside left columns,
+  measuring volumes from episode files instead.
+- Count reading units through project ``source_language``, converting speech durations via effective project rates.
 
-本模块只读，不取锁；读到的是调用瞬间的快照。
+Readonly, without locks, observing call-time snapshots.
 """
 
 from __future__ import annotations
@@ -47,72 +47,72 @@ ReadingUnit = Literal["chars", "words"]
 
 @dataclass(frozen=True)
 class LayoutSegment:
-    """整本源文一个文件里的一段：一集的原文，或未切分的原文。"""
+    """One whole-source file segment: episode or unsplit source."""
 
     kind: SegmentKind
     start: int
     end: int
     text: str
-    #: ``kind == "episode"`` 时是集 ID。
+    #: Episode ids when ``kind == "episode"``.
     episode: int | None = None
-    #: 未切分段排在按源文位置最后一个切出集之前（夹在切出集之间，或在第一个切出集之前）。
+    #: Unsplit before last source-position split episodes, between splits or before the first.
     gap: bool = False
     units: int = 0
-    #: 集段接着上一个文件里的同一集（这一集跨文件，起点在前面的文件里）。
+    #: Episode segments continuing from previous files, with earlier-file starts.
     continued: bool = False
-    #: 集段在下一个文件里接着（这一集跨文件，终点在后面的文件里）。
+    #: Episode segments continuing into following files, with later-file ends.
     continues: bool = False
 
 
 @dataclass(frozen=True)
 class LayoutFile:
-    """整本源文清单中的一个文件。"""
+    """One whole-source manifest file."""
 
     source_file: str
     name: str
-    #: 上传时的原始文件名；上传内容与规范化文本逐字节相同、没有留原件备份时为 None。
+    #: Original upload names; None when uploads equal normalized bytes without raw backups.
     original_filename: str | None
-    #: 文件读不到（不存在、符号链接、非 UTF-8）时为 True，此时没有分段。
+    #: True for unreadable/missing/symlink/non-UTF-8 files, without segments.
     missing: bool
-    #: 规范化全文的字符数，是文件内偏移的上界；读不到时为 0。
+    #: Normalized character totals bound per-file offsets; 0 if unreadable.
     length: int
     units: int
     cut_units: int
     segments: list[LayoutSegment] = field(default_factory=list)
-    #: 源文件类型；只有剧情演绎项目有。
+    #: Source types, drama projects only.
     source_kind: SourceKind | None = None
-    #: 文件在服务之外被改动过、还没有更新分集账本（已记录的源文指纹或快照与当前文本不符）。
+    #: Sources externally changed without ledger updates, recorded fingerprints/snapshots differing from current text.
     changed_outside: bool = False
 
 
 @dataclass(frozen=True)
 class LayoutEpisode:
-    """一集的原文体量与首尾句。"""
+    """Episode source volume/edge sentences."""
 
     episode: int
     origin: SourceOrigin
-    #: 原文段出现在左栏整本源文里。
+    #: Source segments appear in left-column whole sources.
     placed: bool
-    #: 原文范围起点所在的整本源文文件（仅 ``placed``）。
+    #: Whole-source start files, ``placed`` only.
     source_file: str | None
-    #: 读不到原文（无原文的集，或集文件缺失）时为 None。
+    #: None for unreadable sources, sourceless episodes or missing episode files.
     units: int | None
     spoken_seconds: float | None
     first_sentence: str
     last_sentence: str
-    #: 源文件类型：自带原文的集取条目记录，切出集取范围起点所在文件；无原文的集与非剧情演绎项目为 None。
+    #: Source types: standalone entry values, split starting-file types; None for sourceless/nondrama episodes.
     source_kind: SourceKind | None = None
-    #: 原文范围终点所在的整本源文文件（仅 ``placed``）；不跨文件时与 ``source_file`` 相同。
+    #: Whole-source end files, ``placed`` only; noncrossing equals ``source_file``.
     end_file: str | None = None
 
 
 @dataclass(frozen=True)
 class UnregisteredFile:
-    """直接位于 ``source/`` 下、既不在整本源文清单里、也不是账本里任何一集的集文件的文本文件。"""
+    """Direct ``source/`` text files absent from whole-source manifests and all ledger episode filenames."""
 
     name: str
     size: int
-    #: 文件名能直接登记为整本源文（非下划线前缀，也不是 ``episode_N.txt``）。
+    #: Filenames directly registerable in whole sources, not underscore-prefixed/``episode_N.txt``.
     can_join_whole_source: bool
 
 
@@ -137,7 +137,7 @@ def _entries(project: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _raw_backup_names(project_dir: Path) -> dict[str, str]:
-    """``source/raw/`` 里的原件备份，按文件名主干索引；同主干多份时取字典序最后一份。"""
+    """``source/raw/`` originals by stems; lexicographically last for multiple matches."""
     raw_dir = project_dir / "source" / "raw"
     if raw_dir.is_symlink() or not raw_dir.is_dir():
         return {}
@@ -152,7 +152,7 @@ def _file_segments(
     gap_until: int,
     language: str | None,
 ) -> list[LayoutSegment]:
-    """一个文件切成的段。``gap_until`` 是最后一个切出集在本文件里的结尾：在它之前的未切分段是空段。"""
+    """File segments. ``gap_until`` ends the last split episode within files; preceding unsplit spans are gaps."""
     segments: list[LayoutSegment] = []
 
     def unsplit(start: int, end: int) -> None:
@@ -231,7 +231,7 @@ def _unregistered_files(project_dir: Path, project: Mapping[str, Any]) -> list[U
 
 
 def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> EpisodeLayout:
-    """由 ``project.json`` 的内存形态与磁盘上的源文拼出「分集」视图的数据。"""
+    """Build Episodes data from in-memory ``project.json`` and on-disk sources."""
     language = _language(project)
     rate_override = project_speech_rate_override(project)
     docs = discover_sources(project_dir, project)

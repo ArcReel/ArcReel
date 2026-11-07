@@ -1,4 +1,4 @@
-"""从全局资产库应用到项目的资产图即成品：清单按图本身认领，时效不随描述与画风变化。"""
+"""Library-applied project images are finished outputs: manifests claim images themselves, independent of descriptions/styles."""
 
 import asyncio
 import json
@@ -42,7 +42,7 @@ _KEY = ArtifactKey.asset_sheet("character", "Alice")
 
 @pytest.fixture
 def library(assets_env) -> tuple[TestClient, ProjectManager]:
-    """资产库路由客户端，与已建好的目标项目 demo。"""
+    """Asset-library clients and existing target demo projects."""
 
     pm = assets_env["pm"]
     pm.create_project("demo")
@@ -418,7 +418,7 @@ async def test_restoring_the_applied_derivative_version_claims_it_by_the_image_a
 
 
 def test_an_uploaded_derivative_sheet_round_trips_through_the_library_as_finished_content(library, monkeypatch):
-    """项目里上传的衍生资产图存入资产库时带上上传的字节，再应用到项目仍按图本身登记。"""
+    """Uploaded project derivative images enter libraries with uploaded bytes, still registered by images themselves on application."""
     client, pm = library
     pm.create_project("source")
     pm.create_project_metadata("source", "Source", "Anime", "narration")

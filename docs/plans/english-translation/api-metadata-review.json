@@ -1,0 +1,422 @@
+[
+  {
+    "path": "server/app.py",
+    "line": 586,
+    "before": "AI 视频生成工作空间的 Web 管理界面",
+    "after": "Web management interface for the AI video-generation workspace",
+    "consumer": "FastAPI"
+  },
+  {
+    "path": "server/routers/catalog.py",
+    "line": 49,
+    "before": "按名称搜索；留空列出全部",
+    "after": "Search by name; leave empty to list all entries",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/catalog.py",
+    "line": 50,
+    "before": "只列这个媒体类型的条目",
+    "after": "List entries of this media type only",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/catalog.py",
+    "line": 66,
+    "before": "准备填写的模型名称",
+    "after": "Model name to enter",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/catalog.py",
+    "line": 67,
+    "before": "准备填写的媒体类型",
+    "after": "Media type to enter",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/script_plan.py",
+    "line": 39,
+    "before": "附加指令原文；空白视同清除",
+    "after": "Original additional instructions; whitespace clears them",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/script_review.py",
+    "line": 147,
+    "before": "认可覆盖的正式脚本版本，取自 script_overwrite.revision；该集尚无正式脚本时不必给",
+    "after": "Formal-script revision accepted for overwrite, from script_overwrite.revision; unnecessary when the episode has no formal script",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/market.py",
+    "line": 381,
+    "before": "只刷新距上次成功刷新超过 1 小时的启用源（打开市场页时的自动刷新）",
+    "after": "Refresh only enabled sources whose last successful refresh was over 1 hour ago (automatic refresh on opening the market page)",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/market.py",
+    "line": 393,
+    "before": "条目类型；首期只有 endpoint",
+    "after": "Entry type; only endpoint is available initially",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/market.py",
+    "line": 413,
+    "before": "条目类型；首期只有 endpoint",
+    "after": "Entry type; only endpoint is available initially",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/prompt_authoring.py",
+    "line": 40,
+    "before": "附加指令原文；空白视同清除",
+    "after": "Original additional instructions; whitespace clears them",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/prompt_authoring.py",
+    "line": 45,
+    "before": "编写范围（分镜 / 单元 id）；省略时为全部待编写条目，给出时至少一条",
+    "after": "Authoring scope (storyboard / unit IDs); omit for all pending entries; an explicit selection requires at least one entry",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/prompt_authoring.py",
+    "line": 47,
+    "before": "显式重写范围内条目的全部视觉层；省略时补缺",
+    "after": "Explicitly rewrite all visual layers of entries in scope; omit to fill gaps",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/prompt_authoring.py",
+    "line": 49,
+    "before": "认可覆盖的正式脚本版本，取自 prompt_overwrite.revision",
+    "after": "Formal-script revision accepted for overwrite, from prompt_overwrite.revision",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/ad_script.py",
+    "line": 38,
+    "before": "附加指令原文；只随本次生成，不保存",
+    "after": "Original additional instructions; apply only to this generation, without saving",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/ad_script.py",
+    "line": 40,
+    "before": "整份重做，替换已有的正式脚本",
+    "after": "Redo the whole script, replacing the existing formal script",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/ad_script.py",
+    "line": 42,
+    "before": "认可覆盖的正式脚本版本，取自 script_overwrite.revision",
+    "after": "Formal-script revision accepted for overwrite, from script_overwrite.revision",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 167,
+    "before": "被复制的修订号；省略时复制最新修订",
+    "after": "Revision number to copy; omit to copy the latest revision",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 179,
+    "before": "要回滚到的修订号",
+    "after": "Revision number to restore",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 426,
+    "before": "旁白版本；省略时按项目取默认版本",
+    "after": "Narration variant; omit to use the project default",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 427,
+    "before": "字幕方式；省略时为烧入字幕",
+    "after": "Subtitle mode; omit to burn subtitles in",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 520,
+    "before": "旁白版本；省略时按项目取默认版本",
+    "after": "Narration variant; omit to use the project default",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 545,
+    "before": "用户本机的剪映草稿目录",
+    "after": "Jianying draft directory on the user’s local machine",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 546,
+    "before": "下载 token",
+    "after": "Download token",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 547,
+    "before": "剪映版本：6 表示 6 及以上，5 表示 5.x",
+    "after": "Jianying version: 6 means 6 or later; 5 means 5.x",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/edit_timelines.py",
+    "line": 548,
+    "before": "旁白版本；省略时按项目取默认版本",
+    "after": "Narration variant; omit to use the project default",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/episode_drafts.py",
+    "line": 74,
+    "before": "修改后的完整草稿正文",
+    "after": "Complete revised draft content",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/episode_drafts.py",
+    "line": 75,
+    "before": "读取草稿时拿到的 revision",
+    "after": "Revision obtained when reading the draft",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/episode_drafts.py",
+    "line": 81,
+    "before": "读取草稿时拿到的 revision",
+    "after": "Revision obtained when reading the draft",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/episode_drafts.py",
+    "line": 83,
+    "before": "随修复传入的附加指令，不保存；空白视同未传",
+    "after": "Additional repair instructions, not saved; whitespace counts as omitted",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/projects.py",
+    "line": 1343,
+    "before": "剧本文件名",
+    "after": "Script filename",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/projects.py",
+    "line": 1498,
+    "before": "剧本文件名",
+    "after": "Script filename",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/episode_planning.py",
+    "line": 70,
+    "before": "附加指令原文；空白视同未传",
+    "after": "Original additional instructions; whitespace counts as omitted",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/episode_planning.py",
+    "line": 73,
+    "before": "只规划以这一点为终点的那段未切分原文；缺省时从规划起点规划到整本源文结尾",
+    "after": "Plan only the unsplit source range ending at this point; omit to plan from the planning start through the whole source’s end",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/episode_planning.py",
+    "line": 150,
+    "before": "附加指令原文；空白视同未传",
+    "after": "Original additional instructions; whitespace counts as omitted",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/episode_planning.py",
+    "line": 152,
+    "before": "只返回重新规划的范围，不发起",
+    "after": "Return only the replanning range without starting replanning",
+    "consumer": "Field"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 159,
+    "before": "项目名称；端点试跑记录用空串",
+    "after": "Project name; use an empty string for endpoint trial records",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 160,
+    "before": "供应商 id，逗号分隔多选",
+    "after": "Provider IDs, comma-separated for multiple selections",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 161,
+    "before": "模型，逗号分隔多选",
+    "after": "Models, comma-separated for multiple selections",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 162,
+    "before": "媒体类型 (image/video/text/audio)，逗号分隔多选",
+    "after": "Media types (image/video/text/audio), comma-separated for multiple selections",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 164,
+    "before": "分镜 id，逗号分隔多选",
+    "after": "Storyboard IDs, comma-separated for multiple selections",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 165,
+    "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+    "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 166,
+    "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+    "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 167,
+    "before": "每页记录数",
+    "after": "Records per page",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 168,
+    "before": "上一页返回的不透明游标",
+    "after": "Opaque cursor returned by the previous page",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 316,
+    "before": "项目名称",
+    "after": "Project name",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 317,
+    "before": "供应商 id，逗号分隔多选",
+    "after": "Provider IDs, comma-separated for multiple selections",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 318,
+    "before": "模型，逗号分隔多选",
+    "after": "Models, comma-separated for multiple selections",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 319,
+    "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+    "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 320,
+    "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+    "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 321,
+    "before": "每页会话数",
+    "after": "Sessions per page",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 322,
+    "before": "上一页返回的不透明游标",
+    "after": "Opaque cursor returned by the previous page",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 492,
+    "before": "IANA 时区名，按此切天",
+    "after": "IANA timezone name used for day boundaries",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 493,
+    "before": "项目名称（空串筛选端点试跑）",
+    "after": "Project name (an empty string filters endpoint trials)",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 494,
+    "before": "按供应商筛选",
+    "after": "Filter by provider",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 495,
+    "before": "按模型筛选",
+    "after": "Filter by model",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 496,
+    "before": "媒体类型 (image/video/text/audio)",
+    "after": "Media type (image/video/text/audio)",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 497,
+    "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+    "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 498,
+    "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+    "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC",
+    "consumer": "Query"
+  },
+  {
+    "path": "server/routers/usage.py",
+    "line": 499,
+    "before": "决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图",
+    "after": "Select which view supplies project, provider and model filter candidates; totals do not distinguish views",
+    "consumer": "Query"
+  }
+]

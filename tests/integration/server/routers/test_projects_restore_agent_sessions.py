@@ -1,4 +1,4 @@
-"""已删除项目换名恢复后，项目会话的 Agent 上下文跟着改到新目录派生的存储键下，续聊与界面历史照常可读。"""
+"""Renamed deleted-project restoration moves Agent context to new-directory-derived session keys, preserving resumed chats/history."""
 
 import json
 from collections.abc import AsyncGenerator
@@ -69,7 +69,7 @@ def _create(manager: ProjectManager, title: str) -> Path:
 
 @asynccontextmanager
 async def _client(monkeypatch, manager: ProjectManager, session_factory) -> AsyncGenerator[AsyncClient]:
-    """与用例同一个事件循环发请求：PostgreSQL 连接池不能跨事件循环使用。"""
+    """Request within test event loops; PostgreSQL pools cannot cross loops."""
     app = build_projects_client(monkeypatch, manager, session_factory=session_factory).app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as http:
         yield http
@@ -96,12 +96,12 @@ async def test_renamed_restore_moves_session_transcripts_to_the_new_key(tmp_path
             await SessionRepository(session).create("demo", sid, title="旧会话")
     adapter = SdkTranscriptAdapter(store)
     event_log = EventLogService(EventLogStore(session_factory=session_factory), adapter)
-    # SID 已有事件日志（界面打开过）；OLD_ONLY_SID 只有 transcript（事件日志上线前的旧会话）
+    # SID has event logs from UI visits; OLD_ONLY_SID has transcripts only, predating event logs.
     assert len(await event_log.list_entries(SID, old_dir)) == 2
 
     async with _client(monkeypatch, manager, session_factory) as client:
         assert (await client.delete("/api/v1/projects/demo")).status_code == 200
-        # 同名新项目占用同一个存储键，它的会话不随恢复搬走
+        # Same-name new projects occupy identical storage keys; restoration never moves their sessions.
         _create(manager, "New")
         await store.append({"project_key": old_key, "session_id": NEW_DEMO_SID}, _transcript(NEW_DEMO_SID, old_dir))
         async with session_factory() as session:
@@ -121,15 +121,15 @@ async def test_renamed_restore_moves_session_transcripts_to_the_new_key(tmp_path
     assert {summary["session_id"] for summary in await store.list_session_summaries(new_key)} == {SID, OLD_ONLY_SID}
     assert {summary["session_id"] for summary in await store.list_session_summaries(old_key)} == {NEW_DEMO_SID}
     assert {row["session_id"] for row in await store.list_sessions(new_key)} == {SID, OLD_ONLY_SID}
-    # 新建的同名 demo 的会话原样留在旧键下
+    # Recreated demo sessions remain unchanged under old keys.
     assert len(await store.load({"project_key": old_key, "session_id": NEW_DEMO_SID}) or []) == 2
     assert await store.load({"project_key": new_key, "session_id": NEW_DEMO_SID}) is None
 
-    # 界面历史：已有事件日志的仍完整；只有 transcript 的旧会话按新路径懒生成，同样读得到
+    # UI history retains event logs; transcript-only legacy sessions lazily regenerate at new paths and remain readable.
     assert len(await event_log.list_entries(SID, new_dir)) == 2
     assert len(await event_log.list_entries(OLD_ONLY_SID, new_dir)) == 2
 
-    # 续聊：SDK 按新路径派生的键从 store 物化 resume
+    # Continued chats: SDK materializes resume from store under new-path-derived keys.
     materialized = await materialize_resume_session(
         ClaudeAgentOptions(cwd=str(new_dir), resume=SID, session_store=store)
     )
@@ -138,7 +138,7 @@ async def test_renamed_restore_moves_session_transcripts_to_the_new_key(tmp_path
 
 
 async def test_renamed_restore_moves_local_sdk_transcripts(tmp_path, monkeypatch, session_factory):
-    """``ARCREEL_SDK_SESSION_STORE=off`` 时 SDK 只读本地 jsonl，它们同样移到新键目录下。"""
+    """With ``ARCREEL_SDK_SESSION_STORE=off``, SDK reads local jsonl only; move those under new keys too."""
     sdk_projects_dir = tmp_path / "cfg" / "projects"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
     monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE", "off")
@@ -220,7 +220,7 @@ async def test_moved_data_root_then_renamed_restore_keeps_both_projects_sessions
     async with session_factory() as session:
         await SessionRepository(session).create("demo", NEW_DEMO_SID)
 
-    # 启动迁移链使用真实实现：布局迁移 → 会话键对齐 → 本地 transcript 导入。
+    # Real startup migration: layout → session-key alignment → local transcript imports.
     await migrate_data_root_layout(new_root, session_factory=session_factory, sdk_config_dir=sdk_config_dir)
     await align_session_keys(
         session_factory,

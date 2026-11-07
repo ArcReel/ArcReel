@@ -1,11 +1,12 @@
-"""对象存储连接、素材库账号与推理凭证绑定表
+"""Object-storage connections, asset-library accounts, and inference-credential bindings
 
 Revision ID: c8e2a4f61b93
 Revises: b5d1e8f3a627
 Create Date: 2026-11-03 10:00:00.000000
 
-用户自有对象存储的连接配置、供应商素材库的控制面账号（站点、区域、项目与控制面凭证），以及账号范围与
-推理凭证之间的显式绑定。三张都是新表，存量实例为空，没有云配置的本地项目照常工作。
+User-owned storage connection configuration, provider-library control-plane accounts (site, region,
+project, control-plane credentials), and explicit account-scope/inference-credential bindings. All three
+tables are new and empty on existing instances; local projects without cloud setup keep working.
 """
 
 from __future__ import annotations

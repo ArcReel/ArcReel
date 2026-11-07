@@ -39,35 +39,35 @@ interface TimelineCanvasProps extends EpisodeCanvasContext {
   episodeScript: EpisodeScript | null;
   scriptFile?: string;
   projectData: ProjectData | null;
-  /** 保存分镜字段：失败时抛错；resolve 为本地剧本是否已刷新到保存后的内容。 */
+  /** Save fields, throwing on failure; resolve whether local scripts refreshed to saved contents. */
   onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>, scriptFile?: string) => Promise<boolean>;
-  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否移动成功 */
+  /** Reorder after afterId, null to front; resolves success. */
   onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
-  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  /** Add shots including narration bodies; null afterId appends; resolves success. */
   onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
-  /** 移除分镜，resolve 为是否成功 */
+  /** Remove shots; resolves success. */
   onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
-  /** 内容确认页的剧本规划档位；时长由端点固定时与 `durationOptions` 不同。 */
+  /** Confirmation-page script-plan tiers differ from `durationOptions` with endpoint-fixed duration. */
   planDurationOptions?: number[];
-  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  /** Empty tiers mean endpoint-fixed/workflow-owned duration, not missing model durations. */
   durationEndpointFixed?: boolean;
   videoModelUnresolved?: boolean;
   lastFrame?: boolean | null;
   capabilitiesLoading?: boolean;
-  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
+  /** Classify saved out-of-range causes; omitted makes ShotDetail show generic warnings. */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
   onRestoreStoryboard?: () => Promise<unknown> | void;
   onRestoreVideo?: () => Promise<unknown> | void;
 }
 
 /**
- * 演示态作废的入参。分镜卡自身的写入口（生成 / 上传 / 编辑 / 版本恢复）由 `MediaCard`
- * 直读同一判定关闭，这里只列本画布额外承载的写能力，两处不重复兜同一个入口。
+ * Demo-invalidated inputs. `MediaCard` directly disables its own generation/upload/edit/version writes under the shared criterion;
+ * list only extra canvas-owned writes here, without duplicating entry guards.
  */
 const DEMO_READ_ONLY_PROPS = {
   onUpdatePrompt: undefined,
@@ -79,7 +79,7 @@ const DEMO_READ_ONLY_PROPS = {
 } as const satisfies Partial<TimelineCanvasProps>;
 
 export function TimelineCanvas(props: TimelineCanvasProps) {
-  // 演示态只读判定直读单一来源，不经父级逐个回调透传——漏接一个回调就是漏一个写入口
+  // Read demo mode directly from the sole source, not individual callback propagation where omissions expose writes.
   const demoReadOnly = useDemoWorkbench();
   const {
     projectName,
@@ -111,8 +111,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
-  // 分镜编辑子视图按剧本形状显式分派：narration（segments）/ drama（scenes）/ ad（shots）。
-  // 未知/脏 content_mode 沿用历史兜底落 drama 视图。
+  // Dispatch shot editors explicitly by shape: narration segments / drama scenes / ad shots.
+  // Unknown/corrupt content_mode retains historical drama fallback.
   const editorContentMode: "narration" | "drama" | "ad" =
     contentMode === "narration" ? "narration" : contentMode === "ad" ? "ad" : "drama";
 
@@ -124,8 +124,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   const aspectRatio = previewAspect(projectData);
 
-  // 仅三种已注册模式显式取数；未知/脏 content_mode 返回空列表（不渲染可编辑视图）——
-  // 否则会以 drama 形状渲染、保存却按真实 content_mode 分派到错误端点。
+  // Extract data only for three registered modes; unknown/corrupt modes return empty without editable views,
+  // avoiding drama-shaped rendering but actual-mode save dispatch to wrong endpoints.
   const segments = useMemo<Segment[]>(
     () =>
       !episodeScript || !projectData
@@ -140,7 +140,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     [contentMode, episodeScript, projectData],
   );
 
-  // 任务派生 loading：活跃 + 最新行胜出下沉到 store selector（各 task_type 一组活跃 resource）
+  // Task-derived loading delegates active/latest-row rules to store selectors, one active-resource set per task_type.
   const storyboardBusyIds = useActiveResourceIds("storyboard", projectName);
   const videoBusyIds = useActiveResourceIds("video", projectName);
   const ttsBusyIds = useActiveResourceIds("tts", projectName);
@@ -156,8 +156,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     (segId: string) => ttsBusyIds.has(segId),
     [ttsBusyIds],
   );
-  // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队；
-  // 按本集 segment 范围判定，不影响其他分集的批量入口
+  // Batch narration disables while episode TTS remains unfinished, preventing duplicate enqueue;
+  // scope to episode segments so other episode batch entries remain unaffected.
   const currentSegmentIds = useMemo(
     () => new Set(segments.map((s) => getScriptItemId(s, editorContentMode))),
     [segments, editorContentMode],
@@ -167,7 +167,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     [ttsBusyIds, currentSegmentIds],
   );
 
-  // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
+  // Ads/short films have no script planning; without formal scripts start blank directly.
   if (projectData && !episodeScript && !hasDraft && editorContentMode === "ad" && !demoReadOnly) {
     return <NoScriptBlankState projectName={projectName} episode={episode} className="h-full text-sm" />;
   }
@@ -192,8 +192,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const handleRemoveShot = onRemoveShot
     ? (itemId: string) => onRemoveShot(itemId, scriptFile)
     : undefined;
-  // 生成回调保持可选透传：未提供时编辑器隐藏对应生成入口，
-  // 而非渲染一个点了没反应的按钮。
+  // Preserve optional generation callbacks; omitted callbacks hide corresponding editor entries
+  // instead of rendering buttons that do nothing.
   const handleGenSb = onGenerateStoryboard
     ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
     : undefined;
@@ -248,7 +248,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         <AdScriptProgress projectName={projectName} episode={episode} noScript={false} className="mx-4 mt-3" />
       )}
 
-      {/* 主体 */}
+      {/* Body */}
       <div className="flex min-h-0 flex-1 flex-col" data-onboarding={ONBOARDING_ANCHORS.workbenchTimeline}>
         <RetainedEditUnit identity={episodeScript && segments.length > 0 ? "shots" : "empty"} message={t("shot_externally_removed")} value={view === "plan" && hasDraft && editorContentMode !== "ad" ? (
           <div className="relative h-full overflow-y-auto p-4">
@@ -293,8 +293,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ) : episodeScript && contentMode === editorContentMode ? (
           <EmptyScriptState contentMode={editorContentMode} onInsert={handleInsertShot} />
         ) : (
-          // 兜底：分镜视图下无可编辑分镜（未知 content_mode），
-          // 或剧本回退后仍停留在分镜视图——给出指引而非空白
+          // Fallback: storyboard views without editable shots (unknown content_mode),
+          // or retained after script rollback, show guidance rather than blank space.
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {hasScript ? t("timeline_no_editable_segments") : t("timeline_script_not_ready")}
           </div>

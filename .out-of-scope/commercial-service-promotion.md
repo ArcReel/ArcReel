@@ -1,18 +1,18 @@
-# 以推广商业服务为目的的接入
+# Integrations intended to promote commercial services
 
-ArcReel 不接受以推广某项商业服务为主要目的的 PR：为某家第三方服务新增内置调用端点或供应商接入，或在文档中加入该服务的推荐与链接。这类合作经 support@arc-reel.com 洽谈，不走代码贡献流程。
+ArcReel rejects PRs primarily promoting commercial services: adding a third-party built-in endpoint/provider integration, or service recommendations/links in documentation. Discuss such partnerships through support@arc-reel.com, outside code contributions.
 
 ## Why this is out of scope
 
-随版内置调用端点只用于收编 ArcReel 已有的内置实现（`docs/adr/0067-custom-endpoint-declarative-definition.md`）。可由声明式定义表达的长尾聚合站与中转站属于「写定义」的范围：用户在「调用端点」中自行编写或导入声明式定义即可接入，不需要改动代码。把单家服务写进注册表，发版与维护成本由 ArcReel 承担，也会为其他同类服务留下先例。
+Shipped built-in endpoints only incorporate existing ArcReel implementations (`docs/adr/0067-custom-endpoint-declarative-definition.md`). Expressible long-tail aggregators/relays belong to declarative definitions: users author/import them under invocation endpoints, without code changes. Registering one service makes ArcReel bear release/maintenance costs and sets precedent for equivalent services.
 
-官方市场源同样不收这类投稿（`ArcReel/arcreel-market` 的 `CONTRIBUTING.md` 内容准则）。
+The official market source likewise excludes these submissions (`ArcReel/arcreel-market` `CONTRIBUTING.md` content rules).
 
-判断看贡献的主要目的，而非是否涉及商业服务：修复已有内置供应商的缺陷、或把 ArcReel 已有的 Python 内置 backend 收编为声明式定义，不属于本条。
+Judge the contribution’s primary purpose, not whether commercial services are involved: fixing existing built-in-provider defects or converting existing Python backends to declarative definitions is outside this prohibition.
 
 ## Prior requests
 
 - PR #2500 — feat: add MuAPI video endpoint
-- PR #3311、#1445 等 — octo-patch 账号的 MiniMax 系列 PR（在 ArcReel 共 12 个，仅 #1298 修复已有供应商缺陷被合并）；该账号在 GitHub 上批量提交 MiniMax 接入 PR
+- PR #3311、#1445 等 — octo-patch’s MiniMax PRs (12 in ArcReel; only #1298, fixing an existing provider, merged); the account submits MiniMax integrations in bulk across GitHub
 - PR #3348 — feat(provider): add DreamAPI BYOK image and video endpoints
-- PR #3419 — feat(backends): 内置 Higgsfield 供应商，接入 Soul 2 / Qwen Image 3 图片与可灵 3.0 / 可灵 O3 / Seedance 2.5 视频（另附 ArcReel/arcreel-catalog#2 的目录数据）
+- PR #3419 — feat(backends): 内置 Higgsfield 供应商，接入 Soul 2 / Qwen Image 3 图片与可灵 3.0 / 可灵 O3 / Seedance 2.5 视频 (built-in Higgsfield: Soul 2 / Qwen Image 3 images and Kling 3.0 / Kling O3 / Seedance 2.5 video; accompanying catalog data at ArcReel/arcreel-catalog#2)

@@ -1,11 +1,12 @@
-"""图片端点按尺寸请求与计量约定拆分。
+"""Split image endpoints by dimension-request and metering contracts.
 
 Revision ID: f6a2d8c4b901
 Revises: e5b1c9a3d7f2
 
-旧图片后端只读 API 模型名，不读条目绑定或别名；冻结该规则给既有模型回填，
-用户选过的其他端点保持不变。图片调用同步完成，没有可续跑的供应商任务或检查点。
-降级把新端点还原为旧名，不改条目、任务或用户能力覆盖。
+Old image backends used only API model names, not bindings or aliases. Freeze that rule to backfill
+existing models; preserve user-selected other endpoints. Image calls finish synchronously, with no
+resumable provider task or checkpoint. Downgrade restores old endpoint names without changing entries,
+tasks, or user capability overrides.
 """
 
 from collections.abc import Sequence

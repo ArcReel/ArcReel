@@ -3,11 +3,11 @@ import { resizedSize } from "./image-resize";
 
 describe("resizedSize", () => {
   it.each([
-    // 官方文档的 A4 扫描件样例：两边都在 1568 px 内，但视觉 token 超预算。
+    // Official A4-scan example: both edges within 1568 px, but vision tokens exceed budgets.
     { label: "A4 scan", input: [1075, 1520], expected: [924, 1307] },
-    // 长边限制看似给到 1568×882，实际由 token 预算决定。
+    // Edge limits appear to allow 1568×882, actually narrowed by token budgets.
     { label: "1080p screenshot", input: [1920, 1080], expected: [1456, 819] },
-    // 细长的手机截屏：这里才轮到边长限制收口。
+    // Narrow phone screenshots finally use edge limits.
     { label: "phone screenshot", input: [1179, 2556], expected: [723, 1568] },
   ])("matches the documented sample for a $label", ({ input, expected }) => {
     expect(resizedSize(input[0], input[1])).toEqual(expected);

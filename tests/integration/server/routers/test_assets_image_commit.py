@@ -1,4 +1,4 @@
-"""全局资产库提交之后的响应失败不能撤销已保存的图片，提交前失败仍清理新内容。"""
+"""Postcommit global-library response failures never undo saved images; precommit failures still clean new contents."""
 
 from __future__ import annotations
 

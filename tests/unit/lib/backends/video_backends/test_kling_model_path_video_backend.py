@@ -1,7 +1,7 @@
-"""KlingModelPathVideoBackend 测试（respx 在 transport 层拦截，不打真实 HTTP）。
+"""KlingModelPathVideoBackend tests (respx intercepts transport; no real HTTP).
 
-覆盖可灵新版 API 的请求形态（模型名在路径里、settings 与 contents[]）、提交→轮询→取件、计量、
-job_id 持久化与续跑、旧版 job_id 拒绝、内置与自定义供应商的装配。
+Cover the new Kling API request shape (model name in the path, settings, and contents[]), submission, polling, retrieval, metering,
+job_id persistence and resume, rejection of legacy job_id values, and built-in/custom provider assembly.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ _BASE = "https://api-beijing.klingai.com"
 _DOWNLOAD_URL = "https://cdn.test/final.mp4"
 _ENDPOINT = "kling-video-model-path"
 
-# 最小响应样本，字段取自官方「Kling 4.0 - 文生视频」页的创建任务与按任务 ID 查询任务（docs/api-docs/endpoints/kling-video-model-path.md）。
+# Minimal response samples: fields come from task creation and task-ID lookup on the official Kling 4.0 text-to-video page (docs/api-docs/endpoints/kling-video-model-path.md).
 
 
 def _submitted(task_id: str = "893605946402811985") -> httpx.Response:
@@ -100,7 +100,7 @@ class TestConstructionAndCapabilities:
         assert _backend(base_url=configured)._base_url == expected
 
     def test_access_key_secret_key_is_rejected(self):
-        # 官方：Access Key / Secret Key 只适用于旧版 API
+        # Official: Access Key / Secret Key apply only to the legacy API.
         with pytest.raises(ValueError, match="只支持 API Key"):
             KlingModelPathVideoBackend(auth_mode="jwt", access_key="ak", secret_key="sk")
 
@@ -145,7 +145,7 @@ class TestPayload:
         assert payload["contents"][0]["text"] == "a girl on the train"
         assert payload["contents"][1]["url"]
         assert payload["contents"][1]["url"] != payload["contents"][2]["url"]
-        # 图生视频的画面比例跟随首帧，请求体没有 aspect_ratio
+        # Image-to-video follows the first-frame aspect ratio; the body has no aspect_ratio.
         assert payload["settings"] == {"resolution": "1080p", "duration": 12}
 
     def test_last_frame_narrowed_by_entry_is_refused(self, tmp_path):
@@ -228,7 +228,7 @@ class TestGenerate:
             body = request_json(only_request(submit))
             assert [c["type"] for c in body["contents"]] == ["prompt", "first_frame"]
 
-        # kling-3.0-turbo 不回报 usage，结算取下发的时长
+        # kling-3.0-turbo reports no usage; settlement uses submitted duration.
         assert result.duration_seconds == 12
 
     async def test_failed_task_raises_with_upstream_message(self, tmp_path):
@@ -371,5 +371,5 @@ class TestCustomProvider:
             await backend.generate(_request(tmp_path))
 
             assert json.loads(only_request(submit).content)["prompt"] == "a girl on the train"
-            # 覆盖路径不带 query 时保留原请求的 task_ids
+            # Cover preserving original task_ids when the override path has no query.
             assert dict(only_request(poll).url.params) == {"task_ids": "t-1"}

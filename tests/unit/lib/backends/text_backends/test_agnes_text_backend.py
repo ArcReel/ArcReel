@@ -1,8 +1,8 @@
-"""AgnesTextBackend 单元测试（OpenAI 兼容 chat/completions，mock SDK 客户端）。
+"""AgnesTextBackend unit tests: OpenAI-compatible chat/completions with mocked SDK clients.
 
-AgnesTextBackend 复用 OpenAITextBackend 的原生 + Instructor 降级流水线，仅替换鉴权
-（agnes_shared Bearer 单 key + base_url 归一化）与默认模型 / provider 计费归因。这里覆盖
-鉴权 / 归一化 / 能力声明 / usage 解析 / 原生结构化输出 / 选择性 Instructor 降级。
+Reuse OpenAITextBackend native/Instructor fallback pipelines, replacing authentication
+(agnes_shared single Bearer key/base_url normalization), default models, and billing provider
+attribution only. Cover auth/normalization/capabilities/usage/native schemas/selective fallbacks.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from tests.fakes import captured_openai_clients, patched_instructor_from_openai
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
-    """构造 mock ChatCompletion 响应。"""
+    """Build mocked ChatCompletion responses."""
     usage = MagicMock()
     usage.prompt_tokens = input_tokens
     usage.completion_tokens = output_tokens
@@ -72,7 +72,7 @@ class TestConstruction:
             backend = AgnesTextBackend(api_key="sk")
             assert TextCapability.TEXT_GENERATION in backend.capabilities
             assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
-            # vision 未实测，不声明
+            # Vision is unverified, so undeclared.
             assert TextCapability.VISION not in backend.capabilities
 
     def test_missing_api_key_raises(self):
@@ -83,7 +83,7 @@ class TestConstruction:
                 AgnesTextBackend(api_key=None)
 
     def test_base_url_normalized_to_v1(self):
-        # 用户填 host（无 /v1 后缀）→ 归一化为 {host}/v1 后传给 SDK。
+        # Host-only user URLs normalize to {host}/v1 before SDK construction.
         with captured_openai_clients() as created:
             from lib.backends.text_backends.agnes import AgnesTextBackend
 
@@ -126,7 +126,7 @@ class TestGenerate:
             await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=4096))
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        # apihub 网关非官方 OpenAI → 保守沿用 max_tokens
+        # apihub is not official OpenAI; conservatively retain max_tokens.
         assert call_kwargs["max_tokens"] == 4096
         assert "max_completion_tokens" not in call_kwargs
 
@@ -147,7 +147,7 @@ class TestGenerate:
         assert result.text == schema_response
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"]["type"] == "json_schema"
-        # 原生成功，不触发降级（instructor 客户端未构造）
+        # Native success skips fallback and never constructs Instructor clients.
         from_openai.assert_not_called()
 
     async def test_fenced_json_native_structured_output_is_unwrapped_without_fallback(self):
@@ -169,7 +169,7 @@ class TestGenerate:
         from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback(self):
-        # 原生返回 200 但内容非 JSON（代理静默忽略 response_format）→ 选择性降级到 Instructor。
+        # Native HTTP 200 with non-JSON content (proxies silently ignoring response_format) selectively falls back to Instructor.
         markdown_text = "## 提取结果\n\n- 姓名: 张三"
         instructor_result = _PersonSchema(name="Bob", age=25)
         instructor_completion = MagicMock()
@@ -180,7 +180,7 @@ class TestGenerate:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(markdown_text, 100, 60))
 
-        # 钩子注册（on）是同步调用，不能落到 AsyncMock 上
+        # Hook registration on is synchronous, never AsyncMock.
         mock_patched = AsyncMock(on=MagicMock())
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
@@ -197,7 +197,7 @@ class TestGenerate:
 
         assert result.text == instructor_result.model_dump_json()
         assert result.provider == PROVIDER_AGNES
-        # 原生 200 调用（100/60）已计费，与 Instructor 调用（50/20）的 token 合并计入
+        # Native paid HTTP 200 tokens (100/60) merge with Instructor (50/20).
         assert result.input_tokens == 150
         assert result.output_tokens == 80
         mock_client.chat.completions.create.assert_awaited_once()

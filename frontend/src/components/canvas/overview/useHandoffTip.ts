@@ -3,12 +3,12 @@ import { create } from "zustand";
 import { useAssistantStore } from "@/stores/assistant-store";
 
 /**
- * 故事设定提炼完成后的一次性就地提示。
+ * One-shot inline notice after story-setting extraction completes.
  *
- * 待显示的项目与各项目上一次看到的故事设定是否为空都记在内存里：概览因切换视图卸载再回来时提示还在，
- * 离开期间后台生成填好的故事设定也算由空变为有内容；刷新页面后不再出现。
- * 点「知道了」或在这个项目里向 Agent 发出消息（提示出现之前发出的也算）后按项目记入 localStorage，
- * 之后这个项目不再提示。
+ * Pending projects/prior empty-state observations remain in memory: view-unmount/return retains notices,
+ * background completion while absent counts as empty→populated too; page refresh does not reshow.
+ * Acknowledging or sending Agent messages in this project (even before notices appear) records dismissal in localStorage per project,
+ * suppressing future notices for that project.
  */
 
 const DISMISSED_KEY_PREFIX = "arcreel_handoff_tip_dismissed:";
@@ -22,13 +22,13 @@ function readDismissed(projectName: string): boolean {
 }
 
 interface HandoffTipState {
-  /** 本次会话内等待显示提示的项目。 */
+  /** Projects awaiting notices in this session. */
   pending: ReadonlySet<string>;
-  /** 本次会话内各项目上一次看到的故事设定是否为空。 */
+  /** Last-observed story-setting emptiness per project in this session. */
   seenEmpty: Readonly<Record<string, boolean>>;
-  /** 记下看到的故事设定是否为空：由空变为有内容且项目此前没有关闭过提示时显示。 */
+  /** Record observed emptiness; show on empty→populated if never dismissed for this project. */
   observe: (projectName: string, empty: boolean) => void;
-  /** 关闭提示并按项目记住；提示尚未出现时同样记住，之后不再出现。 */
+  /** Dismiss/remember per project, even before notices appear, suppressing later appearance. */
   dismiss: (projectName: string) => void;
 }
 
@@ -46,7 +46,7 @@ export const useHandoffTipStore = create<HandoffTipState>((set, get) => ({
     try {
       localStorage.setItem(DISMISSED_KEY_PREFIX + projectName, "1");
     } catch {
-      // localStorage 不可用时只在本次会话内关闭
+      // Without localStorage, dismiss only for this session.
     }
     if (!get().pending.has(projectName)) return;
     set((state) => {
@@ -57,8 +57,8 @@ export const useHandoffTipStore = create<HandoffTipState>((set, get) => ({
   },
 }));
 
-// 在项目的任何视图里向 Agent 发出消息，都关闭并记住该项目的提示，提示出现之前发出的也算：
-// 订阅挂在 store 上而不随概览卸载。发送与改写都会把 sending 置真；只认当前项目的会话
+// Agent messages in any project view dismiss/remember its notice, including messages before notice appearance:
+// store subscriptions survive overview unmounts. Sends/rewrites both set sending true; recognize current-project sessions only.
 useAssistantStore.subscribe((state, prev) => {
   if (!state.sending || prev.sending || !state.currentProject) return;
   if (!readDismissed(state.currentProject)) useHandoffTipStore.getState().dismiss(state.currentProject);

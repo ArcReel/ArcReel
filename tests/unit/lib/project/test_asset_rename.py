@@ -1,8 +1,8 @@
-"""资产级联重命名端到端测试：真实 ProjectManager 走 扫描 → 校验 → 落盘 全路径。
+"""End-to-end cascading asset renames: real ProjectManager follows scan, validation, and persistence.
 
-覆盖四类资产、各 content_mode 骨架的引用改写（引用数组 / speaker / mention）、script_plan 草稿、
-关联文件与版本历史迁移、NFC/NFD 冲突拒绝与 dry-run 预览一致性，以及复用同一套扫描的删除前引用预览。speaker 与 mention 不在
-DataValidator 引用扫描范围内，须直接断言改写结果，不能只看校验无新增 error。
+Cover four asset types, reference rewriting in each content_mode skeleton (reference arrays / speaker / mention), script_plan drafts,
+associated files/version-history migration, NFC/NFD conflict rejection, dry-run consistency, and predeletion reference previews using the same scan. speaker and mention lie outside
+DataValidator reference scanning, so assert rewritten results directly instead of only checking no new validation errors.
 """
 
 from __future__ import annotations
@@ -169,7 +169,7 @@ def _load_script(pm_with_assets: ProjectManager) -> dict[str, Any]:
 
 
 def _write_confirmed_plan(manager: ProjectManager, plan: dict[str, Any]) -> Path:
-    """写下第 1 集的正式脚本规划并确认它。"""
+    """Write and confirm episode 1's formal script plan."""
     manager.save_script("demo", _narration_script(), "episode_1.json")
     path = script_plan_path(_project_dir(manager), manager.load_project("demo"), 1)
     assert path is not None
@@ -186,7 +186,7 @@ def _write_confirmed_plan(manager: ProjectManager, plan: dict[str, Any]) -> Path
 
 
 def _plan_review(manager: ProjectManager) -> tuple[str, bool]:
-    """第 1 集的内容确认状态，以及正式脚本规划是否因已确认而只读。"""
+    """Episode 1 content-confirmation state and whether confirmation makes its formal script plan read-only."""
     project = manager.load_project("demo")
     project_dir = _project_dir(manager)
     return review_status(project_dir, project, 1), formal_script_plan_confirmed(project_dir, project, 1)
@@ -232,7 +232,7 @@ class TestRewritePayloadReferences:
         assert shot["video_prompt"]["dialogue"][0]["speaker"] == "新角色"
 
     def test_new_asset_targets_follow_the_type_they_point_at(self) -> None:
-        """并入项的 target 指向同类资产、衍生项的指向本体角色；衍生改名不碰只写本体名的 target。"""
+        """Merged-item targets reference the same asset type; derivative targets reference base characters. Renaming derivatives leaves base-name-only targets untouched."""
         payload = {
             "new_assets": [
                 {"type": "character", "name": "小A", "decision": "merge", "target": "角色A"},
@@ -247,8 +247,8 @@ class TestRewritePayloadReferences:
         assert [item["target"] for item in payload["new_assets"]] == ["主角甲", "主角甲", "角色A", "角色A"]
 
     def test_narration_video_prompt_dialogue_speaker(self) -> None:
-        # speaker 不在 DataValidator 引用扫描范围内，须直接断言改写（narration 的
-        # dialogue 挂在 segments[].video_prompt 下，不经 shots 分支）。
+        # DataValidator does not scan speaker references; assert rewriting directly (narration dialogue lives under
+        # segments[].video_prompt, outside the shots branch).
         payload = _narration_script()
         payload["segments"][0]["video_prompt"]["dialogue"] = [
             {"speaker": "角色A", "line": "台词"},
@@ -280,7 +280,7 @@ class TestRewritePayloadReferences:
         assert count == 1
 
     def test_storyboard_scene_mentions(self) -> None:
-        """分镜画面描述里的 ``@[名称]`` 指认引用字段里的资产，改名后须仍指向同一资产。"""
+        """Storyboard visual ``@[名称]`` mentions identify assets in reference fields; renamed mentions must still identify the same assets."""
         payload = _drama_script()
         payload["scenes"][0]["image_prompt"]["scene"] = "@[角色A] 站在 @[场景A] 门口"
         text_form = _narration_script()
@@ -300,7 +300,7 @@ class TestRewritePayloadReferences:
         assert payload["segments"][0]["characters_in_segment"] == ["咖啡师"]
 
     def test_legacy_embedded_equivalent_keys_collapsed(self) -> None:
-        """内嵌镜像里 NFC / NFD 并存时一并收编，留一条会顶着旧名带失效 sheet 路径残留。"""
+        """Consolidate coexisting NFC / NFD entries in embedded mirrors; leaving one retains the old name and an invalid sheet path."""
         nfd = unicodedata.normalize("NFD", "café")
         payload = _narration_script(
             characters={
@@ -313,7 +313,7 @@ class TestRewritePayloadReferences:
         assert payload["characters"]["咖啡师"]["character_sheet"] == "characters/咖啡师.png"
 
     def test_legacy_embedded_encoding_only_rename_collapses(self) -> None:
-        """纯改编码形式的改名：胜出 key 已等于新名，另一条等价 key 仍须一并收编。"""
+        """Encoding-only rename: even if the winning key already equals the new name, consolidate the other equivalent key too."""
         nfd = unicodedata.normalize("NFD", "café")
         payload = _narration_script(
             characters={
@@ -354,7 +354,7 @@ class TestRenameAssetCascade:
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 2
-        assert report.references == 2  # 分段引用数组 + 单元正文 mention
+        assert report.references == 2  # Segment reference arrays plus unit-body mentions.
         assert report.files == 2
 
         project = pm_with_assets.load_project("demo")
@@ -371,7 +371,7 @@ class TestRenameAssetCascade:
         assert unit["text"] == "@[主角甲] 走进 @[场景A]"
 
     def test_script_without_a_canonical_name_is_left_alone(self, pm_with_assets: ProjectManager) -> None:
-        """文件名不是规范名的 JSON 不属于任何一集，不随资产改名改写。"""
+        """JSON files with noncanonical filenames belong to no episode; asset renaming must not rewrite them."""
         pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
         scripts_dir = _project_dir(pm_with_assets) / "scripts"
         orphan = scripts_dir / "custom.json"
@@ -417,7 +417,7 @@ class TestRenameAssetCascade:
     def test_confirmed_episode_stays_confirmed_and_its_merge_target_follows(
         self, pm_with_assets: ProjectManager
     ) -> None:
-        """改名只换名字：已确认的集不退回待确认，规划里并入该资产的新增项随之改指新名。"""
+        """Rename changes only names: confirmed episodes stay confirmed, and newly planned items merged into the asset retarget to its new name."""
         path = _write_confirmed_plan(
             pm_with_assets,
             {
@@ -435,10 +435,10 @@ class TestRenameAssetCascade:
         plan = json.loads(path.read_text(encoding="utf-8"))
         assert plan["segments"][0]["characters_in_segment"] == ["主角甲"]
         assert plan["new_assets"][0]["target"] == "主角甲"
-        assert report.references == 3  # 正式脚本一处 + 规划引用数组一处 + 并入目标一处
+        assert report.references == 3  # One formal-script reference + one plan-array reference + one merge target.
 
     def test_sibling_with_numeric_suffix_untouched(self, pm_with_assets: ProjectManager) -> None:
-        """``旧名_2`` 是合法资产名：兄弟资产的资产图不得被序号形态的 stem 匹配卷走。"""
+        """``旧名_2`` is a valid asset name; numbered-stem matching must not capture a sibling asset's image."""
         pm_with_assets.upsert_assets("demo", "characters", {"角色A_2": {"description": "副手"}})
         project_dir = _project_dir(pm_with_assets)
         sibling = project_dir / "characters" / "角色A_2.png"
@@ -504,7 +504,7 @@ class TestRenameAssetCascade:
 
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
-        assert report.files == 2  # sheet + 1 个版本快照
+        assert report.files == 2  # sheet + 1 version snapshot.
         info = vm.get_versions("characters", "主角甲")
         assert info["current_version"] == 1
         version_file = project_dir / info["versions"][0]["file"]
@@ -685,7 +685,7 @@ class TestRenameAssetCascade:
         assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A"]
 
     def test_orphan_destination_file_rejected_atomically(self, pm_with_assets: ProjectManager) -> None:
-        """新名下的孤儿文件没有对应资产，资产桶冲突检查看不见它，须在迁移前独立拦下。"""
+        """Orphan files under the new name have no asset and evade bucket conflicts; independently block them before migration."""
         pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
         project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
@@ -693,7 +693,7 @@ class TestRenameAssetCascade:
         orphan = project_dir / "characters" / "主角甲.png"
         orphan.write_bytes(b"orphan")
 
-        # 预览同样拒绝：占用在扫描阶段就已知，不该等到用户确认后才失败。
+        # Previews reject too: scanning already knows the collision; do not wait until user confirmation to fail.
         with pytest.raises(AssetRenameFileCollisionError):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
 
@@ -707,9 +707,9 @@ class TestRenameAssetCascade:
         assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A"]
 
     def test_case_only_rename_not_treated_as_collision(self, pm_with_assets: ProjectManager) -> None:
-        """大小写不敏感的文件系统上目标解析回源文件自身，那不是占用。
+        """On case-insensitive filesystems, a destination resolving to the source itself is not occupied.
 
-        文件系统区分大小写时（多数 Linux）走不到该豁免分支，改名照样通过，断言仍成立。
+        Case-sensitive filesystems (most Linux) never reach this exemption, but rename still succeeds and the assertion holds.
         """
         pm_with_assets.upsert_assets("demo", "characters", {"Alice": {"description": "主角"}})
         sheet = _project_dir(pm_with_assets) / "characters" / "Alice.png"
@@ -722,7 +722,7 @@ class TestRenameAssetCascade:
         assert (_project_dir(pm_with_assets) / "characters" / "alice.png").read_bytes() == b"sheet"
 
     def test_duplicate_destination_rejected(self, pm_with_assets: ProjectManager) -> None:
-        """两个视觉同名的存量文件（NFC / NFD）会撞到同一目标，后一次迁移吃掉前一次的成果。"""
+        """Two visually identical legacy files (NFC / NFD) collide at one destination; the later migration overwrites the earlier result."""
         chars = _project_dir(pm_with_assets) / "characters"
         nfd = unicodedata.normalize("NFD", "café")
         nfc = unicodedata.normalize("NFC", "café")
@@ -739,12 +739,12 @@ class TestRenameAssetCascade:
         assert (chars / f"{nfc}.png").read_bytes() == b"nfc"
 
     def test_quarantine_drafts_rewritten(self, pm_with_assets: ProjectManager) -> None:
-        """草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
+        """Draft promotion returns content to formal scripts; missing renames would reintroduce old names.
 
-        三条路线的草稿位逐一覆盖：漏改哪一条，那条路线的草稿就带着旧名走进晋升重判，被判
-        「引用未登记」卡住，直到人工改草稿才解得开。草稿装的是扁平草稿结构：mention 使用
-        ``content.units[].text`` 中的引用语法，结构字段（参考生视频的 ``shots`` / ``references``、
-        drama 的 ``needs_replan``）尚未派生，按信封原形构造（见 lib/script/draft_quarantine.py）。
+        Cover draft slots for all three routes: any missed route carries the old name into promotion reevaluation, causing
+        an unregistered-reference rejection until manual draft editing. Drafts hold flat draft structures: mentions use
+        reference syntax in ``content.units[].text``; structural fields (reference-to-video ``shots`` / ``references`` and
+        drama ``needs_replan``) are not yet derived. Construct original envelopes (see lib/script/draft_quarantine.py).
         """
         draft_dir = _project_dir(pm_with_assets) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
@@ -825,14 +825,14 @@ class TestRenameAssetCascade:
         assert report.episodes == 1
 
     def test_history_under_new_name_rejected_atomically(self, pm_with_assets: ProjectManager) -> None:
-        """删除资产只删资产桶 key、版本历史留存，改名过去会不可恢复地覆盖它——整体拒绝。"""
+        """Asset deletion removes only bucket keys, retaining version history; renaming onto that history would irreversibly overwrite it, so reject the whole operation."""
         project_dir = _project_dir(pm_with_assets)
         pm_with_assets.upsert_assets("demo", "characters", {"角色B": {"description": "配角"}})
         sheet_b = project_dir / "characters" / "角色B.png"
         sheet_b.write_bytes(b"b1")
         vm = VersionManager(project_dir)
         vm.add_version("characters", "角色B", "配角初版", source_file=sheet_b)
-        # 与 delete_entry 路由同形：只删资产桶 key，版本记录与快照留在原地。
+        # Match delete_entry: remove only the asset bucket key, leaving version records and snapshots.
         pm_with_assets.update_project("demo", lambda project: project["characters"].pop("角色B"))
         sheet_b.unlink()
 
@@ -849,7 +849,7 @@ class TestRenameAssetCascade:
         assert "角色A" in pm_with_assets.load_project("demo")["characters"]
 
     def test_history_under_equivalent_key_is_same_asset(self, pm_with_assets: ProjectManager) -> None:
-        """新名解析回记录自身（仅换编码形式）时是同一份历史，不算占用。"""
+        """A new name resolving to the record itself (encoding-only change) has the same history, not a collision."""
         project_dir = _project_dir(pm_with_assets)
         pm_with_assets.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
         nfd = unicodedata.normalize("NFD", "café")
@@ -865,7 +865,7 @@ class TestRenameAssetCascade:
         assert vm.get_versions("characters", "café")["current_version"] == 1
 
     def test_equivalent_bucket_keys_collapsed(self, pm_with_assets: ProjectManager) -> None:
-        """NFC / NFD 并存的存量资产桶 key 一并收编，否则等价 key 顶着旧名带失效路径残留。"""
+        """Consolidate coexisting legacy NFC / NFD bucket keys, avoiding equivalent old-name keys with invalid paths."""
         project = pm_with_assets.load_project("demo")
         nfd = unicodedata.normalize("NFD", "café")
         project["characters"] = {
@@ -881,7 +881,7 @@ class TestRenameAssetCascade:
         assert characters["主角甲"]["description"] == "存量 NFC"
 
     def test_equivalent_version_history_keys_collapsed(self, pm_with_assets: ProjectManager) -> None:
-        """版本桶按原始 resource_id 建 key，NFC / NFD 两条记录一并收编到新名下。"""
+        """Version buckets key by raw resource_id; consolidate both NFC / NFD records under the new name."""
         project_dir = _project_dir(pm_with_assets)
         nfd = unicodedata.normalize("NFD", "café")
         pm_with_assets.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
@@ -897,7 +897,7 @@ class TestRenameAssetCascade:
         assert list(bucket) == ["咖啡师"]
 
     def test_leading_dot_name_files_migrated(self, pm_with_assets: ProjectManager) -> None:
-        """前导点是合法资产名：其落盘文件须随改名迁移，否则 entry 路径字段指向不存在的文件。"""
+        """Leading dots are valid asset names; migrate their files on rename or entry paths reference nonexistent files."""
         project_dir = _project_dir(pm_with_assets)
         pm_with_assets.upsert_assets("demo", "characters", {".甲": {"description": "点号开头"}})
         sheet = project_dir / "characters" / ".甲.png"
@@ -947,7 +947,7 @@ class TestRenameAssetCascade:
         )
 
     def test_preexisting_error_naming_the_asset_does_not_block_rename(self, pm_with_assets: ProjectManager) -> None:
-        """历史遗留错误里点名了该资产时，改名不算「更坏」：错误随名字换了措辞，不是新增。"""
+        """Historical errors naming the asset do not make rename worse; error wording changes with its name, without adding errors."""
         project = pm_with_assets.load_project("demo")
         project["characters"]["角色A"]["description"] = ""
         atomic_write_json(_project_dir(pm_with_assets) / "project.json", project)
@@ -958,7 +958,7 @@ class TestRenameAssetCascade:
         assert "主角甲" in pm_with_assets.load_project("demo")["characters"]
 
     def test_dry_run_leaves_no_version_directory(self, pm_with_assets: ProjectManager) -> None:
-        """零写入承诺覆盖目录：预演不得在项目下建出空的 ``versions/`` 目录树。"""
+        """Zero-write promises include directories: dry runs must not create even an empty ``versions/`` tree under the project."""
         pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
         versions_dir = _project_dir(pm_with_assets) / "versions"
         assert not versions_dir.exists()
@@ -975,7 +975,7 @@ class TestRenameAssetCascade:
 
 
 class TestRenameAgnosticErrors:
-    """错误指纹折叠的边界：折回新名只认确定形态，不做任意子串替换。"""
+    """Error-fingerprint folding only maps definite shapes back to new names, without arbitrary substring replacement."""
 
     @staticmethod
     def _fingerprints(*messages: ValidationMessage) -> set[Any]:
@@ -993,14 +993,14 @@ class TestRenameAgnosticErrors:
         assert self._fingerprints(renamed) == self._fingerprints(original)
 
     def test_keeps_unrelated_value_merely_containing_the_new_name(self) -> None:
-        """新名只是无关文本的子串时不得折叠，否则改写后真正新增的错误会被静默吞掉。"""
+        """Do not fold new names occurring only as unrelated-text substrings; doing so could silently swallow genuinely new post-rewrite errors."""
         renamed = ValidationMessage("val_invalid_path", {"field": "assets/甲板/图.png"})
         original = ValidationMessage("val_invalid_path", {"field": "assets/角色A板/图.png"})
         assert self._fingerprints(renamed) != self._fingerprints(original)
 
 
 def test_path_field_outside_migrated_dirs_is_left_alone() -> None:
-    """迁移范围外的路径不改写：那里的文件不会被搬，改了字段就把一条有效引用指成空。"""
+    """Do not rewrite paths outside migration scope; those files do not move, so rewriting would turn valid references into missing files."""
     spec = ASSET_SPECS["product"]
     entry = {
         "product_sheet": "thumbnails/商品A.png",
@@ -1009,7 +1009,7 @@ def test_path_field_outside_migrated_dirs_is_left_alone() -> None:
 
     assert rewrite_entry_paths(entry, spec, "商品A", "新品甲") == 1
     assert entry["product_sheet"] == "thumbnails/商品A.png"
-    # 序号形态只在 refs 子目录随文件一并迁移，目录本级的同形态文件不搬，字段也不能改
+    # Move numbered forms only inside refs subdirectories; same-shaped files at the directory root stay, as must their fields.
     assert entry["reference_images"] == [
         "thumbnails/商品A_1.png",
         "products/商品A_1.png",
@@ -1027,11 +1027,11 @@ class TestRenamedFileStem:
         assert renamed_file_stem("商品A_x", "商品A", "爆款", allow_sequence=True) is None
 
     def test_sequence_mode_rejects_stem_equal_to_name(self) -> None:
-        """序号目录里的文件都是 ``名_<n>``，stem 恰好等于资产名的文件属于别人。"""
+        """Numbered-directory files use ``名_<n>``; files whose stem exactly equals the asset name belong elsewhere."""
         assert renamed_file_stem("商品A", "商品A", "爆款", allow_sequence=True) is None
 
     def test_name_ending_in_digits_does_not_claim_sibling_sequence_file(self) -> None:
-        """Cup_1 与 Cup 并存：Cup 的第 1 张原图 Cup_1 不是商品 Cup_1 的文件。"""
+        """With Cup_1 and Cup coexisting, Cup's first original Cup_1 does not belong to product Cup_1."""
         assert renamed_file_stem("Cup_1", "Cup_1", "X", allow_sequence=True) is None
         assert renamed_file_stem("Cup_1_1", "Cup_1", "X", allow_sequence=True) == "X_1"
         assert renamed_file_stem("Cup_1", "Cup", "X", allow_sequence=True) == "X_1"
@@ -1043,7 +1043,7 @@ class TestRenamedFileStem:
 
 
 def test_entry_paths_and_files_for_name_ending_in_digits(tmp_path: Path) -> None:
-    """资产名以 ``_数字`` 结尾时，路径字段改写与文件扫描都不认兄弟资产的序号文件。"""
+    """When names end with ``_数字``, neither path-field rewriting nor file scans capture sibling assets' numbered files."""
     from lib.project.asset_rename import asset_files_named, plan_asset_file_renames
 
     spec = ASSET_SPECS["product"]
@@ -1065,7 +1065,7 @@ def test_entry_paths_and_files_for_name_ending_in_digits(tmp_path: Path) -> None
 
 
 class TestDerivativeReferenceCascade:
-    """``角色/衍生`` 的级联改名（docs/adr/0072）：本体改名连带，衍生改名只动自己那一套。"""
+    """Cascading ``角色/衍生`` renames (docs/adr/0072): base renaming includes derivatives; derivative renaming touches only its own files."""
 
     @staticmethod
     def _register(manager: ProjectManager, *derivatives: str) -> None:
@@ -1119,7 +1119,7 @@ class TestDerivativeReferenceCascade:
     def test_derivative_rename_skips_an_unbound_script_without_an_episode_number(
         self, pm_with_assets: ProjectManager
     ) -> None:
-        """衍生改名与本体改名同一口径：锁内认不出归属的无集号剧本跳过，不中断整次改名。"""
+        """Derivative/base renames share semantics: skip unowned scripts without episode numbers inside the lock instead of aborting the rename."""
         self._register(pm_with_assets, "劲装")
         pm_with_assets.save_script("demo", self._script_with_derivative_references(), "episode_1.json")
         scripts_dir = _project_dir(pm_with_assets) / "scripts"
@@ -1182,7 +1182,7 @@ class TestDerivativeReferenceCascade:
         assert list(pm_with_assets.load_project("demo")["characters"]["角色A"]["derivatives"]) == ["劲装"]
 
     def test_derivative_rename_leaves_the_speaker_field_alone(self, pm_with_assets: ProjectManager) -> None:
-        """``speaker`` 只承载本体名，衍生改名不该动它。"""
+        """``speaker`` contains only base names; derivative renaming must leave it untouched."""
         self._register(pm_with_assets, "劲装")
         pm_with_assets.save_script("demo", _drama_script(), "episode_1.json")
 
@@ -1204,11 +1204,11 @@ class TestDerivativeReferenceCascade:
 
 
 class TestAssetDeletionPreview:
-    """删除资产的 dry_run：只读扫描，引用数与重命名同一套扫描，按集列出。"""
+    """Asset-deletion dry_run uses read-only scanning, sharing rename reference counts and listing them by episode."""
 
     @staticmethod
     def _snapshot(project_dir: Path) -> dict[str, bytes]:
-        """项目目录下全部文件的字节，包括已有锁文件。"""
+        """Bytes of every file under the project directory, including existing lock files."""
         return {
             str(path.relative_to(project_dir)): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()
         }

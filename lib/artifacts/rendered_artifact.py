@@ -1,16 +1,16 @@
-"""本地渲染产物的落盘与登记：依据快照 → 渲染到项目内临时文件 → 验收 → 原子替换正式文件并登记。
+"""Persist/register local renders: basis snapshot → render to project-local temporary file → acceptance → atomic formal-file replacement and registration.
 
-成片与剪映草稿这类由本地渲染得到的产物共用这一流程（``docs/adr/0095``）：
+Locally rendered artifacts such as final videos and Jianying drafts share this flow (``docs/adr/0095``):
 
-1. 调用方在任务开始时取好生成依据快照，传入 ``basis``；
-2. 渲染写到正式文件同目录下的隐藏临时文件，中间文件放在同样隐藏的工作目录里；
-3. 验收回调检查临时文件，未通过时抛异常，正式文件与登记都不动；
-4. 验收通过后先撤下旧登记，再原子替换正式文件，先写版本记录，最后按快照依据登记。
+1. Callers snapshot generation bases at task start and pass ``basis``.
+2. Render into hidden temporary files beside formal files; intermediates use similarly hidden work directories.
+3. Acceptance callbacks inspect temporary files and raise on failure, leaving formal files/registrations untouched.
+4. On acceptance, remove old registration, atomically replace the formal file, write version records first,
+   and finally register against the snapshot basis.
 
-替换后登记失败时正式文件已是新内容，但没有登记，读时判为 missing，不会被误判为时新。
-每个产物身份只保留最新文件；版本号记在正式文件旁的渲染记录里，每次登记加一。
-渲染产物放在项目的 ``renders/`` 下，不进项目归档。
-"""
+If registration fails after replacement, formal contents are new but unregistered, reading as missing
+rather than falsely current. Each identity retains only its latest file; versions in adjacent render
+records increment per registration. Rendered artifacts live under project ``renders/``, excluded from archives."""
 
 from __future__ import annotations
 
@@ -37,19 +37,19 @@ from lib.infra.json_io import atomic_write_json
 from lib.project.project_activity import record_project_activity
 
 RENDERS_DIRNAME = "renders"
-"""本地渲染产物的项目根目录：可随时重新渲染，项目归档不包含它。"""
+"""Project root directory for local renders: rerenderable anytime, excluded from project archives."""
 
 _RECORD_SUFFIX = ".render.json"
 
 
 def timeline_renders_dir(episode: int, timeline_id: str) -> str:
-    """一条剪辑时间线全部渲染产物所在的项目内相对目录；时间线 ID 不复用，目录随时间线删除。"""
+    """Project-relative directory for all renders of one editing timeline; timeline IDs are never reused and deletion removes the directory."""
     return f"{RENDERS_DIRNAME}/episode_{episode}/{timeline_id}"
 
 
 @dataclass(frozen=True, slots=True)
 class RenderRecord:
-    """正式文件旁的渲染记录：版本号、登记时间与登记所用依据。"""
+    """Render record beside a formal file: version, registration time, and registered basis."""
 
     version: int
     rendered_at: str
@@ -65,10 +65,10 @@ class RenderedArtifact[AcceptanceT]:
 
 
 type RenderStep = Callable[[Path, Path], Awaitable[None]]
-"""``render(output, workspace)``：把产物写到 ``output``，中间文件只放在 ``workspace`` 里。"""
+"""``render(output, workspace)``: write artifacts to ``output``, placing intermediates only in ``workspace``."""
 
 type AcceptStep[AcceptanceT] = Callable[[Path], Awaitable[AcceptanceT]]
-"""``accept(output)``：验收临时文件并返回验收结果，未通过时抛异常。"""
+"""``accept(output)``: inspect the temporary file and return acceptance results, raising on failure."""
 
 
 def _record_path(formal: Path) -> Path:
@@ -76,7 +76,7 @@ def _record_path(formal: Path) -> Path:
 
 
 def read_render_record(project_dir: Path, artifact_path: str) -> RenderRecord | None:
-    """读正式文件旁的渲染记录；没有或无法解析时返回 None。"""
+    """Read the adjacent render record; return None if absent or unparseable."""
     try:
         payload = json.loads(_record_path(project_dir / artifact_path).read_text(encoding="utf-8"))
         return RenderRecord(
@@ -101,7 +101,7 @@ def _replace_and_register(
         try:
             os.replace(rendered, formal)
         except BaseException:
-            # 正式文件没被替换，旧文件仍与旧登记相符。
+            # Formal file was not replaced; the old file still matches its registration.
             if claimed is not None and adapter.get_entry(key) is None:
                 adapter.put_entry(key, claimed)
             raise
@@ -120,19 +120,21 @@ def _replace_and_register(
 
 
 def cleanup_interrupted_render_staging(project_dir: Path) -> None:
-    """重启后清理渲染临时文件；调用方须确认项目没有本进程仍在执行的渲染。"""
+    """Clean render staging after restart; callers must ensure no render remains running for the project in this process."""
     root = project_dir / RENDERS_DIRNAME
     for path in root.rglob(".*"):
         if re.fullmatch(r"(?:\..+\.[0-9a-f]{32}\.(?:work|partial\.[^.]+)|\.project\.[^.]+\.tmp)", path.name):
             if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)  # hard-delete: temp -- 重启后清理中断渲染留下的 .work 目录
+                shutil.rmtree(path)  # hard-delete: temp -- interrupted-render .work directory cleaned after restart
             else:
-                path.unlink(missing_ok=True)  # hard-delete: temp -- 重启后清理中断渲染留下的临时文件
+                path.unlink(
+                    missing_ok=True
+                )  # hard-delete: temp -- interrupted-render temporary file cleaned after restart
 
 
 def _discard(output: Path, workspace: Path) -> None:
-    output.unlink(missing_ok=True)  # hard-delete: temp -- 未被采纳的渲染输出
-    shutil.rmtree(workspace, ignore_errors=True)  # hard-delete: temp -- 渲染工作目录
+    output.unlink(missing_ok=True)  # hard-delete: temp -- unadopted render output
+    shutil.rmtree(workspace, ignore_errors=True)  # hard-delete: temp -- render work directory
 
 
 async def commit_rendered_artifact[AcceptanceT](
@@ -144,7 +146,7 @@ async def commit_rendered_artifact[AcceptanceT](
     render: RenderStep,
     accept: AcceptStep[AcceptanceT],
 ) -> RenderedArtifact[AcceptanceT]:
-    """按快照依据渲染、验收并登记一件本地渲染产物；任一步失败时临时文件与工作目录都被清理。"""
+    """Render, accept, and register one local render against a snapshot basis; clean temporary files/work directories on failure at any step."""
     formal = project_dir / artifact_path
     await asyncio.to_thread(formal.parent.mkdir, parents=True, exist_ok=True)
     token = uuid4().hex

@@ -273,7 +273,7 @@ class BatchAdmission:
 
 
 def batch_admission_withheld_problem(holding_unit_ids: Sequence[str]) -> GenerationProblem:
-    """本身通过准入、但因同批其它单元受阻而未创建任务的单元的结论。"""
+    """Verdicts for individually admitted units whose tasks were withheld because other batch units were blocked."""
 
     return GenerationProblem(
         code=GenerationProblemCode.BATCH_ADMISSION_WITHHELD,

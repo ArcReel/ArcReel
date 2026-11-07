@@ -1,8 +1,8 @@
-"""Agent 视频入队路径上的音频开关预检。
+"""Audio-switch prechecks on Agent video enqueue paths.
 
-WebUI 提交入口拒绝的配置（成片恒有声的模型 + 关闭音频），从 Agent 入队同样要被拒——放行会让
-编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。分镜图生视频复用
-``server.services.tasks.video_caps``，参考生视频由公共 request projection 承载相同判据。
+Agent enqueue must reject Web-rejected always-audible-model + audio-disabled configuration. Otherwise orchestration would
+strip voice constraints as silent, yielding audible video without controlled voices. Storyboard-video shares
+``server.services.tasks.video_caps``; reference-video public projection carries identical criteria.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def _admission_codes(out: ToolOutcome[Any]) -> dict[str, list[str]]:
 
 
 async def _seed_settings(factory: async_sessionmaker[AsyncSession], **settings: str) -> None:
-    """把系统设置写进共享 DB fixture 的库里。"""
+    """Write system settings to the shared DB fixture."""
     async with factory() as session:
         svc = ConfigService(session)
         for key, value in settings.items():
@@ -60,7 +60,7 @@ async def _seed_settings(factory: async_sessionmaker[AsyncSession], **settings: 
 
 
 def _unit_spec(unit: dict[str, Any]) -> TaskSpec:
-    """可入队 unit 的替身 spec：只用于让逐桶去重判定「这条要入队」。"""
+    """Enqueueable unit-spec substitute used only to signal bucketed deduplication that this item will enqueue."""
     return TaskSpec.from_request(
         task_type="video",
         media_type="video",
@@ -86,12 +86,12 @@ class TestAssertAudioSwitchSupported:
 
         await assert_audio_switch_supported({}, "i2v")
 
-        # 闸门放行后关音设置原样生效，没有被改写成有声
+        # Accepted audio-off remains unchanged, never rewritten as audible.
         assert await ConfigResolver(db_factory).video_generate_audio_for_project({}) is False
 
 
 class TestStoryboardRouteGate:
-    """分镜图生视频：闸门与创作类型无关，但只在确有任务要入队时才拦。"""
+    """Storyboard-video gates ignore content type but run only with actual tasks to enqueue."""
 
     async def test_gate_is_content_mode_agnostic(self, tmp_path, monkeypatch):
         seen: list[str] = []
@@ -116,7 +116,7 @@ class TestStoryboardRouteGate:
 
 
 class TestReferenceRouteGate:
-    """参考生视频：按本批真正要入队的 unit 调用公共 request projection。"""
+    """Reference video invokes public projection for units this batch will actually enqueue."""
 
     @staticmethod
     def _stub_current_state(monkeypatch) -> None:
@@ -139,8 +139,8 @@ class TestReferenceRouteGate:
                 return {"allowed": True, "unit_id": "test", "problems": []}
 
         async def _record(*, unit, **_kwargs):
-            # 替身只需产出可预期的分桶信号：本用例的 project 为空，未登记名经生产侧的
-            # unit_reference_declarations 会被全部滤掉，故此处按正文提及直接判。
+            # Substitutes need predictable bucket signals; empty project fixtures would make production
+            # unit_reference_declarations drop all unregistered names, so use direct body mentions here.
             seen.append("r2v" if extract_mentions(str(unit.get("text") or "")) else "i2v")
             return _Projection()
 
@@ -166,7 +166,7 @@ class TestReferenceRouteGate:
         assert seen == ["r2v", "r2v", "i2v"]
 
     async def test_units_that_cannot_be_enqueued_do_not_trigger_projection(self, tmp_path, monkeypatch):
-        """不可入队的 unit 不该触发解析：它本就不会被生成，判定停在更早的拒绝上。"""
+        """Unenqueueable units trigger no resolution; their earlier rejection already determines outcome."""
         called = False
 
         async def _record(**_kwargs):
@@ -195,11 +195,11 @@ class TestReferenceRouteGate:
 
 
 class _EpisodePM:
-    """整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。
+    """Minimal whole-episode pm substitute: one segment/episode, with optional storyboards chosen by callers.
 
-    项目按生产形态构造：当前 schema、剧本在 episodes 账本里绑定，已落盘的分镜图在构造时
-    经清单激活登记——清单是读取已生成产物的唯一口径。构造之后用例会往内存剧本里塞畸形
-    条目或改写提示词验证工具侧的逐条拒收，那些改动不回写磁盘，清单保持这份干净基线。
+    Match production current schemas and ledger bindings; activate manifests to register existing images during
+    construction. Manifests alone determine generated presence. Later malformed in-memory items/prompts test
+    per-item rejection without writing to disk, preserving this clean manifest baseline.
     """
 
     def __init__(self, project_dir: Path, *, with_storyboard: bool) -> None:
@@ -225,7 +225,7 @@ class _EpisodePM:
         return self._project_dir
 
     def _mirror(self) -> None:
-        """把基线项目落盘并激活产物清单，等价于生产的迁移补录。"""
+        """Persist baseline projects and activate manifests, matching production migration backfill."""
 
         from lib.artifacts.artifact_activation import activate_artifact_target_state
 
@@ -248,10 +248,10 @@ class _EpisodePM:
 
 
 class TestStoryboardGateSkipsEmptyBatches:
-    """没有任务要入队时不触发闸门：存量的关闭音频配置不该把一次空转变成报错。"""
+    """No tasks means no audio gates; legacy audio-off settings must not turn no-op calls into errors."""
 
     async def test_all_items_filtered_out_still_fails_without_consulting_the_gate(self, tmp_path, monkeypatch):
-        """全部条目缺分镜图时报的应是逐 ID 的输入不可用，而不是音频开关冲突。"""
+        """All missing storyboards report per-ID unavailable inputs, not audio-switch conflicts."""
         project_dir = tmp_path / "demo"
         (project_dir / "storyboards").mkdir(parents=True)
         (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
@@ -276,11 +276,11 @@ class TestStoryboardGateSkipsEmptyBatches:
 
 
 class TestStoryboardGateEntersAdmission:
-    """音频开关冲突与其它缺口一起在建任务之前报全，不留到确认之后才报。"""
+    """Report audio conflicts and other gaps together before task creation, not after confirmation."""
 
     @pytest.fixture(autouse=True)
     def _no_active_tasks(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """准入要查活跃任务：单元测试不碰真实数据库，一律按「没有活跃任务」作答。"""
+        """Admission checks active tasks; unit tests avoid real DBs by always returning none."""
 
         async def _none(**_kwargs):
             return []
@@ -310,7 +310,7 @@ class TestStoryboardGateEntersAdmission:
         assert _admission_codes(out) == {"E1S01": ["video_audio_switch_not_supported"]}
 
     async def test_audio_switch_conflict_renders_with_display_names(self, tmp_path, set_admission_video_request_facts):
-        """冲突问题带实际的供应商与模型：界面按目录渲染成名称，不露占位符与内部 ID。"""
+        """Conflict problems include actual provider/model identities for catalog-rendered names, without placeholders/internal-ID display."""
         set_admission_video_request_facts(
             make_video_request_facts(provider_id="custom-7", model_id="shared-model", requested_generate_audio=False)
         )
@@ -324,7 +324,7 @@ class TestStoryboardGateEntersAdmission:
             for problem in unit["problems"]
             if problem["code"] == "video_audio_switch_not_supported"
         ]
-        # 另一个供应商下同一上游模型 ID 名称不同：只有带上供应商才能查到这一个模型名
+        # Another provider names the same upstream model differently; provider identity is required for correct name lookup.
         models = {("custom-7", "shared-model"): "甲网关模型", ("custom-8", "shared-model"): "乙网关模型"}
         for locale in SUPPORTED_LOCALES:
             names = make_display_names(locale, providers={"custom-7": "我的网关"}, models=models)
@@ -341,7 +341,7 @@ class TestStoryboardGateEntersAdmission:
             assert "甲网关模型" in rendered
 
     async def test_a_blank_prompt_is_refused_per_unit(self, tmp_path, monkeypatch):
-        """空白提示词构造不出 TaskSpec：该条目带自己的问题码进结论，不把整批打成通用报错。"""
+        """Blank prompts cannot construct TaskSpec; report their specific codes rather than generic whole-batch errors."""
 
         async def _allow(_project, _generation_type, **_kwargs):
             return None
@@ -360,7 +360,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_the_audio_conflict_joins_the_other_problems_of_the_same_unit(
         self, tmp_path, set_admission_video_request_facts
     ):
-        """音频冲突与同一单元的其它缺口写进同一张票：用户一次看全，不必改一条撞一条。"""
+        """Audio conflicts and other same-unit gaps share one issue, letting users see all at once instead of fixing sequential surprises."""
         enqueue = AsyncMock(return_value=([], []))
         set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
         ctx = self._ctx(tmp_path)

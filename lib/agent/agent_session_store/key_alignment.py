@@ -1,17 +1,20 @@
-"""启动时把助手会话的 Agent 上下文记录对齐到当前数据根派生的存储键。
+"""At startup, align assistant-session Agent context with storage keys derived from the current data root.
 
-存储键由项目目录的绝对路径派生（:func:`make_project_key`），CLI 续聊只按当前目录的键查找。数据根换了绝对路径
-（桌面端换机器、白标改名、改 ``ARCREEL_DATA_DIR``）后，已有会话仍挂在旧路径派生的键下，续聊会找不到会话。
-这里按每个助手会话的项目名与当前项目目录重算键，把挂在别处的会话用 :class:`SessionRekey` 改过来。
+Keys derive from absolute project-directory paths (:func:`make_project_key`); CLI resumption
+searches only the current directory’s key. After data-root moves (desktop machine changes,
+white-label renaming, or ``ARCREEL_DATA_DIR`` changes), sessions remain under old-path keys and
+cannot resume. Recompute keys from each assistant session’s project name/current directory and
+use :class:`SessionRekey` to relocate sessions stored elsewhere.
 
-挂墓碑名的会话（项目已删除）对齐到原名目录的键：已删除项目恢复时按「当前数据根下的原目录」找它们。
+Tombstoned sessions (deleted projects) align to original-name directory keys, since restoration
+searches original directories under the current data root.
 
-键已一致时只读不写，开销是几次查询：
+Already-aligned keys perform only a few read queries, without writes:
 
-- 数据库镜像开启时，判断全在数据库里完成（会话元数据联摘要表一次查询），只对键不一致的会话按查到的旧键
-  改写记录、移动 SDK 本地 jsonl，不遍历 SDK 本地目录。
-- ``ARCREEL_SDK_SESSION_STORE=off`` 时数据库里没有镜像，逐个检查会话在当前键目录下有没有本地 jsonl，
-  只有找不到的会话才遍历 SDK 本地目录去找。
+- With DB mirroring enabled, decide entirely in DB (one session-metadata/summary join); rewrite
+  records and move SDK-local jsonl only for mismatches, using queried old keys without scanning SDK directories.
+- With ``ARCREEL_SDK_SESSION_STORE=off``, no DB mirror exists. Check local jsonl under each
+  current key first, scanning SDK-local directories only for missing sessions.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class KeyAlignment:
-    """一次对齐的结果：数据库记录改到当前键下的会话，与本地 jsonl 移到当前键目录下的会话。"""
+    """Alignment results: sessions whose DB records moved to current keys and whose local jsonl moved to current-key directories."""
 
     rewritten: frozenset[str] = frozenset()
     moved: frozenset[str] = frozenset()
@@ -51,7 +54,7 @@ async def align_session_keys(
     sdk_config_dir: Path,
     store_enabled: bool,
 ) -> KeyAlignment:
-    """把助手会话的 Agent 上下文记录改到 ``projects_dir`` 下项目目录派生的键，返回改动的会话。重复执行是空操作。"""
+    """Align assistant-session context with project keys derived under ``projects_dir``; return changed sessions. Reruns are no-ops."""
     async with session_factory() as session:
         sessions = (await session.execute(select(AgentSession.sdk_session_id, AgentSession.project_name))).all()
     if not sessions:
@@ -76,7 +79,7 @@ async def align_session_keys(
 
 
 def _home_keys(projects_dir: Path, project_names: Iterable[str]) -> dict[str, str]:
-    """会话项目名 → 它的 Agent 上下文应在的存储键；墓碑名取原名，名字不合法的不处理。"""
+    """Session project name → expected Agent-context key; tombstones use original names, invalid names are skipped."""
     keys: dict[str, str] = {}
     for name in project_names:
         parsed = parse_deleted_project_name(name)
@@ -104,7 +107,7 @@ async def _align_store_records(
         sessions_by_move: dict[tuple[str, str], list[str]] = defaultdict(list)
         for session_id, keys in keys_by_session.items():
             target = target_by_session.get(session_id)
-            # 当前键下已有记录即可续聊；别处的副本 SessionRekey 也不会合并，留着不动
+            # Current-key records suffice for resumption; SessionRekey will not merge other copies, so leave them untouched.
             if target is None or target in keys:
                 continue
             if len(keys) > 1:
@@ -136,7 +139,7 @@ async def _align_store_records(
 
 
 def _align_local_only(target_by_session: dict[str, str], sdk_config_dir: Path) -> set[str]:
-    """数据库没有镜像时，当前键目录下找不到本地记录的会话才去别的键目录找来移过去。"""
+    """Without DB mirroring, search other key directories and move sessions only if absent from their current-key directory."""
     sdk_projects_dir = sdk_config_dir / "projects"
     if not sdk_projects_dir.is_dir():
         return set()

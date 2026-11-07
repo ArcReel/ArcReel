@@ -1,16 +1,20 @@
-"""语速估算单一真相源。
+"""Single source of truth for speech-rate estimates.
 
-把「一段口播文本朗读需多少秒」收敛到一处，供时长建议、分集体量折算与说话量对场景
-时长的上界校验共用，避免各处各自维护一套语速常量而漂移。字幕定时不读语速。
+Centralize how long spoken text takes to read for duration suggestions, episode
+size conversions and checks that speech fits within scene duration. This avoids
+drifting per-caller rate constants. Subtitle timing does not use speech rate.
 
-语速以「阅读单位 / 秒」表示，阅读单位的语言裁剪口径复用 ``lib.infra.text_metrics``
-（zh 计汉字 / CJK 标点，en / vi / ru 计词）——因此单位换算天然随语言切换，不必为
-中英文各写一套字符规则。语速值可调、按 ``source_language`` 覆盖、缺省回退默认；
-新增语言只在 ``SPEECH_RATE_UPS_BY_LANGUAGE`` 登记，调用点不写死任何数值。
+Rates are reading units per second. Reuse the language-specific units from
+``lib.infra.text_metrics`` (Chinese characters / CJK punctuation for zh; words
+for en / vi / ru), so units follow the language without separate character rules.
+Rates are adjustable, overridden by ``source_language``, and otherwise fall back
+to defaults. Register new languages only in ``SPEECH_RATE_UPS_BY_LANGUAGE``;
+callers must not hardcode rates.
 
-取值优先级：项目级覆盖（``project.json`` 顶层 ``speech_rate_units_per_second``，经
-``project_speech_rate_override`` 解析）> 语言默认 > 全局默认。覆盖只在这里叠加，
-消费方仍只经本模块两个函数取值，不各自读 project.json 字段。
+Precedence: project override (top-level ``speech_rate_units_per_second`` in
+``project.json``, parsed by ``project_speech_rate_override``) > language default >
+global default. Apply overrides only here; consumers use this module's two
+functions instead of independently reading the project.json field.
 """
 
 from __future__ import annotations
@@ -20,13 +24,13 @@ from typing import Any
 
 from lib.infra.text_metrics import count_reading_units
 
-#: 默认语速（阅读单位 / 秒）。中文可懂配音常见约 4–6 字 / 秒，取 5 为中位。
-#: 未登记 / 缺失语言回退此值（与 ``count_reading_units`` 未知语言按 zh 计字的口径对齐）。
+#: Default reading units per second: intelligible Chinese speech commonly uses 4-6 characters/s; use 5.
+#: Missing/unregistered languages use this value, matching the counter's zh fallback.
 DEFAULT_SPEECH_RATE_UPS: float = 5.0
 
-#: 按语言代码覆盖语速（阅读单位 / 秒），键用项目 ``source_language``（zh / en / vi / ru）。
-#: en / vi / ru 的阅读单位是「词」，正常口语约 2–3 词 / 秒，取 2.5；与 zh 的「字 / 秒」不可
-#: 直接通约，故必须分语言登记而非全局一个数值。值为可调估算，按实际配音节奏微调。
+#: Rate overrides keyed by project ``source_language`` (zh / en / vi / ru).
+#: en / vi / ru use words, commonly 2-3 per second; use 2.5. These are not directly
+#: comparable with zh characters/s, so register rates by language. Adjust estimates to actual speech.
 SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
     "zh": 5.0,
     "en": 2.5,
@@ -35,31 +39,33 @@ SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
 }
 
 
-#: 项目级语速覆盖在 ``project.json`` 的顶层字段名（阅读单位 / 秒）。
-#: 与 TTS 供应商配音倍率 ``narration_speed`` 是两码事：后者是倍率、前者是绝对速度。
+#: Top-level project.json override field, measured in reading units per second.
+#: Unlike the TTS provider's ``narration_speed`` multiplier, this is an absolute rate.
 SPEECH_RATE_FIELD: str = "speech_rate_units_per_second"
 
-#: 项目级语速覆盖的硬区间（闭区间，阅读单位 / 秒）。宽松区间只拦明显误输入（如把 TTS
-#: 倍率或毫秒数填进来），区间内不做任何倾向性提示。
+#: Inclusive override bounds in reading units/s. The wide range rejects obvious mistakes
+#: such as TTS multipliers or milliseconds; no advisory preference is imposed within it.
 #:
-#: 下界不止于拦掉 ≤0，它同时给下游时间表示留出余量：取 1e6 阅读单位（远超任何真实口播
-#: 文本）的假想单段文本，按 0.001 阅读单位 / 秒估算得 1e9 秒，换算成剪映草稿的微秒是 1e15，
-#: 离 int64 上限仍有三个数量级。若下界改为只要求「估算结果是有限数」，可接受语速会低到
-#: 1e-302 量级，此时任何下游乘数（微秒换算即是其一）都能把有限值重新推成 inf 或撑破整数
-#: 类型——要守的是余量而非有限性。0.001 意味着每个阅读单位读满 1000 秒，真实口播远在其上。
+#: The lower bound also leaves headroom for downstream times: a hypothetical 1e6-unit passage
+#: (far longer than real speech) at 0.001 units/s takes 1e9 seconds, or 1e15 Jianying microseconds,
+#: still three orders below int64's limit. Merely requiring a finite estimate would admit rates
+#: around 1e-302; downstream multipliers such as microsecond conversion could then produce inf
+#: or integer overflow. Protect headroom, not just finiteness. 0.001 is 1000 seconds per unit, far slower than real speech.
 MIN_SPEECH_RATE_UPS: float = 0.001
 MAX_SPEECH_RATE_UPS: float = 20.0
 
 
 def is_valid_speech_rate(value: float) -> bool:
-    """该数值是否落在项目级语速覆盖的硬区间内（``0.001 <= value <= 20``）。
+    """Whether the value is in the project override range (``0.001 <= value <= 20``).
 
-    前端输入校验、请求模型校验与持久化后的读时守卫共用这一把尺，避免三处各写一套边界。
-    入参允许是 project.json 直接解析出的值，故两类输入病理在这里收掉，调用方不必各自处理：
-    JSON 整数字面量没有位宽上限，``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``；
-    JSON 布尔解析出的 ``bool`` 是 ``int`` 子类，``float(True)`` 得 ``1.0`` 会落进合法区间。
-    两者一律判为「不可用」。区间本身同时排除 ``inf`` 与 ``nan``（两者与边界的比较均为假），
-    区间内的值则保证下游时长换算不溢出，依据见 ``MIN_SPEECH_RATE_UPS``。
+    Frontend validation, request models and persisted-data read guards share these
+    bounds. Inputs may be values parsed directly from project.json, so handle two
+    pathological cases here: JSON integers have no bit-width limit and ``float()``
+    raises ``OverflowError`` beyond double precision's range; JSON booleans are
+    ``int`` subclasses and ``float(True)`` would yield a valid ``1.0``. Treat both as
+    unusable. The bounds also exclude ``inf`` and ``nan`` (their range comparisons
+    are false) and leave room for downstream duration conversions; see
+    ``MIN_SPEECH_RATE_UPS``.
     """
     if isinstance(value, bool):
         return False
@@ -71,28 +77,30 @@ def is_valid_speech_rate(value: float) -> bool:
 
 
 def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:
-    """从 project.json 解析项目级语速覆盖，未填 / 脏值 / 越界一律返回 ``None``。
+    """Parse a project.json speech-rate override; return ``None`` for absent, invalid or out-of-range values.
 
-    返回 ``None`` 即「无覆盖」，调用方把它原样交给下面两个函数即回退语言默认——未填该
-    字段的项目一律按语言默认估算。写入侧（创建 / PATCH 请求模型）已
-    按同一把尺拒绝越界值，这里的守卫是对手改 project.json 与历史脏数据的读时兜底：估算
-    语速不值得让一次已付费的生成崩在脏字段上。
+    ``None`` means no override: callers pass it unchanged to the two functions below
+    to use the language default. Projects without this field use that default.
+    Create/PATCH request models reject out-of-range writes using the same bounds.
+    This read guard covers manually edited project.json and invalid historical data:
+    a bad estimate field should not crash a generation that has already been paid for.
     """
     if not isinstance(project, Mapping):
         return None
     raw = project.get(SPEECH_RATE_FIELD)
-    # bool 是 int 的子类，True 会被当成 1.0；显式排除，避免脏数据把语速压到 1 单位 / 秒。
+    # bool subclasses int: exclude it so invalid True does not lower the rate to 1 unit/s.
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
-    # 先过区间再转 float：区间内的值必然可安全转换，超大整数在 is_valid_speech_rate 内按越界收掉。
+    # Validate before float conversion; valid values are safe and huge integers fail the range check.
     return float(raw) if is_valid_speech_rate(raw) else None
 
 
 def speech_rate_units_per_second(language: str | None = None, override: float | None = None) -> float:
-    """返回生效语速（阅读单位 / 秒）：``override`` 优先，否则按语言取默认。
+    """Return reading units per second: use a valid ``override``, otherwise the language default.
 
-    ``override`` 是项目级覆盖（由 ``project_speech_rate_override`` 解析），越界 / 非有限数
-    按无覆盖处理。语言代码大小写不敏感；``None`` / 空 / 未登记语言回退 ``DEFAULT_SPEECH_RATE_UPS``。
+    The project override is parsed by ``project_speech_rate_override``. Out-of-range
+    or non-finite values mean no override. Language codes are case-insensitive;
+    ``None``, empty and unregistered languages use ``DEFAULT_SPEECH_RATE_UPS``.
     """
     if override is not None and is_valid_speech_rate(override):
         return float(override)
@@ -102,11 +110,12 @@ def speech_rate_units_per_second(language: str | None = None, override: float | 
 
 
 def estimate_spoken_seconds(text: str | None, language: str | None = None, override: float | None = None) -> float:
-    """估算 ``text`` 以 ``language`` 朗读所需秒数。
+    """Estimate the seconds needed to read ``text`` in ``language``.
 
-    口径：阅读单位数 ÷ 语速（阅读单位计法见 ``lib.infra.text_metrics.count_reading_units``；
-    语速取值优先级见 ``speech_rate_units_per_second``）。None / 空串 / 纯空白 / 纯标点
-    （无阅读单位）一律计 0 秒——它是说话量求和的单项，调用点共用同一换算、不各自重复。
+    Divide reading units by speech rate (see ``lib.infra.text_metrics.count_reading_units``
+    and ``speech_rate_units_per_second`` for units and precedence). None, empty,
+    whitespace-only and punctuation-only text with no reading units take 0 seconds.
+    This is a term in speech-duration sums; all callers share the same conversion.
     """
     if not text:
         return 0.0

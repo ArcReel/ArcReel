@@ -1,0 +1,362 @@
+[
+  {
+    "path": "frontend/src/components/canvas/edit/EditTimelineView.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 16350,
+        "end": 16460,
+        "line": 371,
+        "text": "// BGM registers by bytes (bgm/{随机 id}) and never rewrites files; unique URLs explicitly omit version numbers."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/EpisodesView.test.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 14875,
+        "end": 14948,
+        "line": 348,
+        "text": "// 转折 is the last cut episode, without following episodes to merge/clear."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/EpisodesView.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 5526,
+        "end": 5869,
+        "line": 124,
+        "text": "/**\n * Project Episodes view: header tools, left episode directory, right whole-source text segmented by episode.\n * New candidates replace the directory with a comparison panel beside source text.\n *\n * Query `upload=whole_source|episode` opens uploads, `episode=<集 ID>` scrolls source to that episode,\n * `create` opens episode creation.\n */"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/manual-split-model.test.ts",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 1777,
+        "end": 1859,
+        "line": 67,
+        "text": "// UTF-16 index before “尾” is 5 (😀 occupies two code units), code-point offset 4."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.test.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 30264,
+        "end": 30371,
+        "line": 646,
+        "text": "// Agent later deleted 林汐 and created an unrelated character with the old name 林夕; it is not the viewed 林汐."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetGallery.test.tsx",
+    "han_comment_lines": 2,
+    "comments": [
+      {
+        "start": 15542,
+        "end": 15589,
+        "line": 394,
+        "text": "// The retained 书房 card is uploading its sheet."
+      },
+      {
+        "start": 18334,
+        "end": 18380,
+        "line": 454,
+        "text": "// 书房 has no sheet, so → skips directly to 卧室."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetSheetBatchDialog.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 1025,
+        "end": 1089,
+        "line": 29,
+        "text": "// `<类型>/<本体>`: remove the type segment to obtain the base name."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/assetBusyGuard.ts",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 229,
+        "end": 434,
+        "line": 5,
+        "text": "/**\n * Character writes may move derivative files; base and derivative tasks jointly occupy the asset.\n * Conversely derivatives (`本体名/衍生名`) occupy it with their base, matching derivative-row rechecks.\n */"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/MentionPicker.test.tsx",
+    "han_comment_lines": 6,
+    "comments": [
+      {
+        "start": 5150,
+        "end": 5229,
+        "line": 167,
+        "text": "// After two ArrowDowns from the first (主角), we should be on 酒馆 (third overall)"
+      },
+      {
+        "start": 6026,
+        "end": 6093,
+        "line": 199,
+        "text": "// Move highlight down twice (主角 → 张三 → 酒馆) then narrow the filter."
+      },
+      {
+        "start": 6397,
+        "end": 6447,
+        "line": 211,
+        "text": "// list (主角), not whatever was highlighted before."
+      },
+      {
+        "start": 10375,
+        "end": 10421,
+        "line": 337,
+        "text": "// First tab is \"全部/All\", selected by default."
+      },
+      {
+        "start": 11046,
+        "end": 11099,
+        "line": 357,
+        "text": "// Scene 酒馆 is visible; character 张三 is filtered out."
+      },
+      {
+        "start": 12137,
+        "end": 12191,
+        "line": 391,
+        "text": "// 张三 fixture imagePath is \"/files/characters/zs.png\"."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/MentionPicker.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 1778,
+        "end": 1865,
+        "line": 40,
+        "text": "// CJK range uses `一-鿿` Unicode escapes, literally matching utils/reference-mentions.ts"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceScriptPlanPreviewPanel.test.tsx",
+    "han_comment_lines": 5,
+    "comments": [
+      {
+        "start": 2655,
+        "end": 2720,
+        "line": 62,
+        "text": "/** Default: @[阿离]/@[长街] have reference images, r2v tiers 4/8. */"
+      },
+      {
+        "start": 5540,
+        "end": 5635,
+        "line": 159,
+        "text": "// Body `@[名称]` highlights; references resolve at execution only, without separate image lists."
+      },
+      {
+        "start": 40712,
+        "end": 40789,
+        "line": 889,
+        "text": "// Servers find @[阿离]/@[长街] images, r2v narrowed to 8s, removing 4/6 choices."
+      },
+      {
+        "start": 45962,
+        "end": 46047,
+        "line": 1005,
+        "text": "// Unsaved @[阿离] edits do not infer registration; retain prior server tier decisions."
+      },
+      {
+        "start": 49363,
+        "end": 49482,
+        "line": 1071,
+        "text": "// Visible text between buttons needs separators, not \"视频单元 1 · 1视频单元 2 · 1\". Each button's independent accessible name"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceScriptPlanPreviewPanel.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 9702,
+        "end": 10158,
+        "line": 225,
+        "text": "/**\n * Units referencing no registered scenes leave places to models; indoor/outdoor neighboring units may invent\n * inconsistent locations. Mirror backend `lib/script/reference_video/script_preview.py::unit_lacks_scene_reference`.\n *\n * Like tier narrowing, evaluate current bodies immediately, not server snapshots: in-place edits adding `@[场景]` must\n * remove notices immediately, rather than leaving notices mismatched until saving/server response.\n */"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.test.tsx",
+    "han_comment_lines": 2,
+    "comments": [
+      {
+        "start": 37726,
+        "end": 37811,
+        "line": 739,
+        "text": "// Unregistered `@[名称]` is informational, never affecting save/generate availability."
+      },
+      {
+        "start": 64275,
+        "end": 64358,
+        "line": 1261,
+        "text": "// busy and \"Generating…/生成中\"; backend dedup indexes guard in-flight double clicks."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceVideoCard.test.tsx",
+    "han_comment_lines": 4,
+    "comments": [
+      {
+        "start": 4903,
+        "end": 5002,
+        "line": 134,
+        "text": "// Cards report bodies only; execution resolves references from `@[名称]`, not inline during editing."
+      },
+      {
+        "start": 5050,
+        "end": 5148,
+        "line": 138,
+        "text": "// Regression: Chinese punctuation (\"。\"/\"，\", etc.) breaks @ scans; never misread \"眼@。|\" cursors as"
+      },
+      {
+        "start": 7839,
+        "end": 7931,
+        "line": 205,
+        "text": "// Derivatives are independent names displayed as base / derivative, inserted as `@[本体/衍生]`."
+      },
+      {
+        "start": 10467,
+        "end": 10527,
+        "line": 271,
+        "text": "// First Backspace selects entire @主角 without changing text."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ReferenceVideoCard.tsx",
+    "han_comment_lines": 3,
+    "comments": [
+      {
+        "start": 8349,
+        "end": 8466,
+        "line": 200,
+        "text": "// Character candidates include derivatives: `本体名/衍生名` is an independent reference using that appearance's own sheet."
+      },
+      {
+        "start": 8970,
+        "end": 9065,
+        "line": 211,
+        "text": "// `/` separates derivative names (`本体/衍生`); disallowing it closes candidates on typing `@阿岚/`,"
+      },
+      {
+        "start": 9070,
+        "end": 9172,
+        "line": 212,
+        "text": "// limiting derivative selection to wrapped names/full searches. Insert wrapped `@[本体/衍生]` regardless."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/reference/ScriptPreviewPanel.test.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 1713,
+        "end": 1814,
+        "line": 53,
+        "text": "// Unregistered `@[名称]` is informational: saving/generation remain allowed, without blocking signals."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/NewAssetsSection.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 1247,
+        "end": 1330,
+        "line": 23,
+        "text": "/** All unnormalized names referenced in entries: arrays, speakers, body `@[名]`. */"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/AvatarStack.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 626,
+        "end": 775,
+        "line": 26,
+        "text": "// Names may use `本体/衍生` (base/derivative): resolve that appearance's own entry so the avatar and popover use its asset image and change description."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/DialogueListEditor.test.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 3258,
+        "end": 3291,
+        "line": 88,
+        "text": "// Delete the middle row (乙/第二行)."
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/ReferencesSection.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 1573,
+        "end": 1717,
+        "line": 39,
+        "text": "/** Character references may use `本体/衍生`: these names are not top-level character entries, so determine registration according to their form. */"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/SegmentRefsEditModal.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 4148,
+        "end": 4366,
+        "line": 121,
+        "text": "/**\n * Character rows list appearances, not asset entries: `characters_in_*` holds reference names; derivatives\n * (`本体名/衍生名`) are selectable like bases (`docs/adr/0072`), each with own sheet/variation description.\n */"
+      }
+    ]
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/VersionTimeMachine.tsx",
+    "han_comment_lines": 1,
+    "comments": [
+      {
+        "start": 4360,
+        "end": 4442,
+        "line": 97,
+        "text": "// Derivative resource IDs use `本体/衍生`, both segments preserved as path hierarchy."
+      }
+    ]
+  }
+]

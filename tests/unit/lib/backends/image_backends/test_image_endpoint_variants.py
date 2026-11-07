@@ -1,4 +1,4 @@
-"""图片请求与计量由所选端点决定，型号名不参与。"""
+"""Selected endpoints, never model names, determine image requests/metering."""
 
 from pathlib import Path
 

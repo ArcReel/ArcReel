@@ -2,21 +2,21 @@
 status: accepted
 ---
 
-# 市场采用多市场源 GitHub 仓库，浏览与安装不依赖中心服务、零账号
+# The market uses multiple GitHub-repository sources; browsing and installation need no central service or account
 
-自定义调用端点的分享此前止于文件导出与导入，由 ArcReel 方运营中心服务来承载浏览与一键安装的做法被列为范围外，因为它要长期运营服务与账号体系。我们决定**市场由多个市场源承载，每个市场源就是一个 GitHub 仓库或等价的 `https://` 直链**：官方市场源随版预置、可禁用不可删除，同时是 GitHub 模板仓，fork 即第三方市场源；投稿是向官方仓提 PR，靠人工 merge 与 CI 校验把关；第三方市场源由用户自行添加、信任自担。「零服务端」指浏览与安装不依赖任何由 ArcReel 方运营的中心服务：本地 `server/` 照常承担市场 API 与安装事务，抓取由后端代用户发起。安装量、评分与分享提交由官方服务作为独立于索引的覆盖层承担（`docs/adr/0093`、`docs/adr/0094`），它不是市场源，关闭或不可达时浏览与安装照常。市场是用户功能，内嵌 Agent 不浏览、不安装市场条目。
+Sharing custom invocation endpoints previously stopped at file export/import. An ArcReel-operated central service for browsing and one-click installation was out of scope because it would require long-term service and account-system operation. **Multiple market sources carry the market, each a GitHub repository or equivalent direct `https://` link**: the official source ships preconfigured and can be disabled but not deleted; it is also a GitHub template repository, so a fork becomes a third-party source. Contributions are PRs to the official repository, checked through human merging and CI validation; users add third-party sources themselves and assume the trust decision. "Zero server" means browsing and installation depend on no ArcReel-operated central service: local `server/` still handles market APIs and installation transactions, with the backend fetching on users' behalf. The official service carries installation counts, ratings, and sharing submissions as a separate overlay independent of the index (`docs/adr/0093`, `docs/adr/0094`). It is not a market source, and browsing/installation continue when it is disabled or unreachable. The market is a user feature; the embedded Agent neither browses nor installs market entries.
 
-**明确不采用**：浏览与安装经由中心服务，或绕过市场源 PR 的站内发布（要长期运营账号体系，且会出现索引之外的第二真相，与开源自部署的定位相悖）；同一实例内用户间分享与链接 / 短码分享（都需要一个可寻址的中心）；评论（需要账号与内容审核）；主动下架提醒与远程禁用（只能做被动状态）。
+**Explicitly rejected**: browsing/installation through a central service, or in-app publishing bypassing source PRs (requiring long-term account-system operation and creating a second truth outside the index, contrary to open-source self-hosting); sharing between users of one instance and link / short-code sharing (both require an addressable center); comments (requiring accounts and content moderation); proactive removal notifications and remote disabling (only passive status is supported).
 
-## 三项会被追问的偏离
+## Three deviations likely to invite questions
 
-- **抓取全链路只经 raw 文件地址，不调用 GitHub API。** API 匿名限流多源多用户下必然触顶，放 token 又回到账号问题；更关键的是大陆可达性方案是一个可空的全局代理前缀，对 `raw.githubusercontent.com` 地址做前缀拼接，前缀能覆盖 GitHub 形态的全部流量正因为只有 raw 一种地址。代价是拿不到 stars、Release 等 API 才有的元数据，索引须自带客户端要展示的一切。后端代用户抓取任意 `https://` 地址，实现须按服务端请求伪造的暴露面对待：地址、解析结果、重定向与响应大小都要设边界，规则由 Spec 承载。
-- **索引是定义 `meta` 的 CI 投影，由 bot 提交进仓，不是手写的第二真相。** 投稿者只加自己的条目目录、不碰索引，因此无合并冲突；客户端浏览只读索引，安装时才抓那一份定义，索引与定义不一致即拒装、不以任一方为准。不用生成器的第三方源可手写索引，只要求符合 schema。索引 schema 与定义 schema 的兼容口径不同：索引须让旧客户端忽略未知可选字段，只有主版本更高才整份拒读。
-- **校验与生成器只在本仓实现一份，市场仓的 CI 经可复用 workflow 跟随本仓 `main`。** 备选是把脚本复制进模板仓（fork 拿到的是快照，规则一变全部失联）或钉版本（每个 fork 自己升级）。选跟随，是用「本仓改规则可能让市场仓 CI 突然变红」换「规则只有一份实现、fork 零维护」。已发布客户端带的是自己那一版校验器，官方仓因此可能先于发版收录条目，由条目声明的最低应用版本承接。
+- **The complete fetch chain uses raw-file URLs only, never the GitHub API.** Anonymous API limits would inevitably be reached with multiple sources/users, while tokens return to the account problem. More crucially, mainland-China reachability uses a nullable global proxy prefix prepended to `raw.githubusercontent.com` URLs; it can cover all GitHub-shaped traffic precisely because raw URLs are the only form. The cost is losing API-only metadata such as stars and Releases, so the index must carry everything the client displays. The backend fetches arbitrary `https://` addresses for users; treat implementation as a server-side-request-forgery exposure surface, bounding addresses, resolved destinations, redirects, and response sizes under rules carried by the Spec.
+- **The index is a CI projection of definition `meta`, committed by a bot, rather than a handwritten second truth.** Contributors add only their entry directories without touching the index, avoiding merge conflicts. Clients read only the index when browsing and fetch the individual definition only for installation. Reject installation when index and definition disagree, without treating either side as authoritative. Third-party sources without the generator may write indexes manually, provided they conform to schema. Index-schema compatibility differs from definition-schema compatibility: old clients must ignore unknown optional index fields and reject the whole index only for a higher major version.
+- **Validators and generators have one implementation in this repository; market-repository CI follows this repository's `main` through a reusable workflow.** Alternatives are copying scripts into the template repository (forks receive snapshots and all lose alignment when rules change) or pinning versions (each fork must upgrade itself). Following trades "rule changes here may suddenly break market-repository CI" for "one rule implementation and zero fork maintenance." Released clients carry their own validator version, so the official repository may accept entries ahead of an application release, handled through each entry's declared minimum application version.
 
 ## Consequences
 
-- 新增市场源与安装记录两个实体，索引缓存落数据库；安装记录见 `docs/adr/0079`。
-- 官方仓默认分支即发布分支；下架就是删目录，不留痕。
-- 官方服务只作覆盖层：抓取只经 raw 地址、索引是唯一真相、校验器只实现一份三条不因它改变；官方服务做分享提交预检时引用同一份校验器。
-- 为市场引入覆盖层以外的中心能力（推送、远程禁用、让浏览或安装依赖中心服务），或改走 GitHub API，都须先修订本 ADR；本地 `server/` 的市场 API 照常演进，不触发修订。
+- Introduce market-source and installation-record entities, with index caches stored in the database; see `docs/adr/0079` for installation records.
+- The official repository's default branch is the release branch; removal means deleting the directory without retaining a trace.
+- The official service is only an overlay: raw-only fetching, the index as sole source of truth, and a single validator implementation remain unchanged. Sharing-submission preflight in the official service references the same validator.
+- Adding central market capabilities beyond the overlay (push, remote disabling, or requiring a central service for browsing/installation), or switching to the GitHub API, requires revising this ADR first. The local `server/` market APIs evolve normally without triggering revision.

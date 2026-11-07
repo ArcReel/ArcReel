@@ -1,0 +1,661 @@
+{
+  "scope_files": 255,
+  "changed_files": 56,
+  "translated_comments": 604,
+  "files": [
+    {
+      "file": "frontend/src/components/pages/AssetLibraryPage.test.tsx",
+      "before_sha256": "70c36f566f5d09d3370f16978ca8efd5946713759c24e81d349c08b0638badfc",
+      "after_sha256": "388733b1cbb39ec473d725b27f0e05d29bccdc30a8e72873e008537e2db1a103",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/CreateProjectModal.test.tsx",
+      "before_sha256": "4dba636ca638b6009ce7bb56b6949d9886f6f4d6e121012247f303e8d0ca00fe",
+      "after_sha256": "28039df5f590d3e517091ff7fda0058644f725871e3493103834c5a002960c2b",
+      "comments_changed": 3,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/CreateProjectModal.tsx",
+      "before_sha256": "c8bc212871f5fca681fbb6b05ba786f6270ec0130f2fec47c1b6d4e4768b9c9b",
+      "after_sha256": "936e8de407abd8767f4e0c63c6ce23538423e7b87cff80c1c2f6f99f47ff0506",
+      "comments_changed": 1,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/CredentialList.test.tsx",
+      "before_sha256": "5f47a589636b91c16ae83139bfa6e95bdbd2e8be57491fcbc262bf3082f290c3",
+      "after_sha256": "28f290cb0519f96eeb18c02a360fad01d25194b3f46c1b0fa63e0c35a11dc8bb",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/CredentialList.tsx",
+      "before_sha256": "5f869c4168d37096b8d7ea29612e467228d62e5057ab3f3123718587b4b07270",
+      "after_sha256": "5a034df9dcdb11c452c2db3ea167c083e3f34e5d6aacb1abf6e0bd7ce958ecb9",
+      "comments_changed": 9,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+      "before_sha256": "4078915ee6c07ab18b3d228a24016bebdc725515412f55a7f626728fd46d9e3d",
+      "after_sha256": "5c49c09e1c13faede3f4475d6022d92cfed9afaeddcf268babda845a5ebd1d06",
+      "comments_changed": 9,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+      "before_sha256": "8065387436ffc1cccf4262d2acc2d01977de267ce14fd23b2f802258c2955303",
+      "after_sha256": "05303ba45c636b4d862d06a0f58e9e3251ed519e2c01d8e176c9d3c002e61593",
+      "comments_changed": 7,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/ProjectsPage.tsx",
+      "before_sha256": "b82d5a7b8a37c616755769a58c4847c457e6c477bbd0720776c18d73d47c18b4",
+      "after_sha256": "afd295d15e8b83f626c557e13c544bf87931a75e75067f2b1c7594e4ebbb2942",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/ProviderSection.tsx",
+      "before_sha256": "d973e514d9582b3c15e408c20880e77f705cf56a57e8cc4d3aed7c7a6dd0ff39",
+      "after_sha256": "cce8fb6508ce3a8cb767accc441cad708f5ea0a9a39efa444e88df33c9bc581f",
+      "comments_changed": 11,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/create-project/WizardStepBasics.tsx",
+      "before_sha256": "038426f8e01de9ea7fc74d35b78fb7ebb9f7f6025a657e26174fd544d116e048",
+      "after_sha256": "ec888f7a9b5b0b7a2e95379ba31bdc9253f9d20c3fc2d41994b48f1adc0ea8e3",
+      "comments_changed": 3,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+      "before_sha256": "ddcec27b78b267507fe744a970f7e53acf4e3a2636f351e762cde240169281d9",
+      "after_sha256": "b6dd7b5dffd4d5e0ceec85c95346017d2ff24d8c24f5fa15858c72bc4caa57d7",
+      "comments_changed": 5,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/lobby/useProjectImport.tsx",
+      "before_sha256": "9bb3377b7dbf8d3e114cf1a5a1faae3b75fffd5a21c8c3186112e9ad32d18556",
+      "after_sha256": "b2892918a92af5e24c6fff331fcbca59c4427267ecf4d291e2109a9eaaca579b",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/project-settings/StyleTab.tsx",
+      "before_sha256": "a3e46752c3a65ecab3e75ff1003ccb6d8e16fcad0e2bda81ec8b9b755545a992",
+      "after_sha256": "f9e049f424fd04d8f3181530c2434e479f90ed706b5d20cd0d851c59f752023c",
+      "comments_changed": 1,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/AddModelDialog.tsx",
+      "before_sha256": "4ef7c986a4f09e2f84520649215e74faed828c880414a02bc9d0a8eecad09871",
+      "after_sha256": "726e644b01ec0b4886caf5f4d859bbb55e06d77124442939314e2bd8a3de23b6",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/CapabilityOverrideRow.tsx",
+      "before_sha256": "088504e59213fcf02495e53a9a3c4018f54f7cd2c184ea9a77ff8421b66af967",
+      "after_sha256": "4213f3e7c982540a376d1560e32a546cc8eb7d191530bea22119a1c319138207",
+      "comments_changed": 1,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/CustomProviderForm.billing.test.tsx",
+      "before_sha256": "5d305da5bd6fb2e6c46bb54c38d6fcb38302015727b509c6b60e0bba5e43084c",
+      "after_sha256": "2ef7920a3e4dc83597b5c1043baa4da745a813ee8ec61bb30befe3bcb107a31f",
+      "comments_changed": 3,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+      "before_sha256": "cf0d8a16aff36579da268ada9db5759c854fb0afb2fad0111bc76b524aeae829",
+      "after_sha256": "7d6d3136c03ae59cb6ea12b689eb58b8b79578f7d69c821726a6521da12a0e89",
+      "comments_changed": 55,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+      "before_sha256": "1c469d99942e3de5e04e0f947882d26c97c412d40d37fdf5d6b01452528be975",
+      "after_sha256": "c35b6e138b21ca5e3494d4ecdae9b65a41f9371148db7f2c702e0a21e3f66c0d",
+      "comments_changed": 15,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/FetchModelsDialog.tsx",
+      "before_sha256": "977eca23fbbac8cbc51cfefbc3cece7058e39c184d64fb4c18e2b00dcf31ed0b",
+      "after_sha256": "ca94b2293236ab5badeabf4c6641ce543cd11240b436f746d4bc03e9e5d3ed72",
+      "comments_changed": 4,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/ManualEntryDialog.tsx",
+      "before_sha256": "1734f3337aee67359177e056f6a40bcff01a23a1d8de7b3997aa562e7346da16",
+      "after_sha256": "7d9acc91c914484149fdae6b63fdcca7d88165ab3339a927ede69a6ab375184a",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+      "before_sha256": "0109efe8f840dd02a0c3dc3e43d6baac4a801a7e0f21f7c6cf295c42189f8cef",
+      "after_sha256": "a39a245e2585132302cc9b776fa2093c393ac306fdc755ec5de6fa734c62b555",
+      "comments_changed": 5,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+      "before_sha256": "3668dc05fd97563f42fa1a53bead73dbd2a82cda198940d85526b4313c12d179",
+      "after_sha256": "0e53693afb2e9c7322b162201d3f897928adb8e3d11365e3044a37d42e676c29",
+      "comments_changed": 6,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+      "before_sha256": "d95be2ad931990d5259a4022509b93585f042a2bcf412bfdbc0be601ebfeba14",
+      "after_sha256": "f3110759b37895cc83280acd2ede54aab7adc8ef3d74dcbc0037807cf9d4542c",
+      "comments_changed": 16,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+      "before_sha256": "763c7d59ebf2668e51a91600b576683d850bd0784a7653e573f090b8c9e528bd",
+      "after_sha256": "f6f703d3c00b618e23eaf11e52fb838f680816c579d74bb08f555c8beec3c7ef",
+      "comments_changed": 11,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+      "before_sha256": "92e52de3a4fb6ba5095387f2292036fb91d44ba961d4579d06d80cb9b7a72f79",
+      "after_sha256": "be6c97218d1e797e81b2fa65347cf26ed7c67be73578f0c6048b10cab9f9334c",
+      "comments_changed": 12,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/RequestAddresses.test.tsx",
+      "before_sha256": "a0cfda66c8887c516410f0e4e13ccea96cbf09ddaeb1b56f4daece139f4a70e1",
+      "after_sha256": "e0e40bab8ca0c122e2e22c6248e0199e6f2089e4af68bce7637c2da75a89cf1d",
+      "comments_changed": 3,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+      "before_sha256": "c762ff35be5901765b527268f181427e4b17550510acbe314831c18dd226608c",
+      "after_sha256": "3f8a51f6493278520da3fed7573e9938322cf32f980285d63c113019e18fdfe9",
+      "comments_changed": 8,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/agent-access/ExternalAgentSection.test.tsx",
+      "before_sha256": "cb3ed4cccafd0cf6ae9c098fc5fcd7de61f93df22f3a6fd191b8b57775eb1bcb",
+      "after_sha256": "b026caf4408ffbab5b0122b1351959ed3f96912fab6d87f5a23e59d4a862ae79",
+      "comments_changed": 3,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/asset-library/AssetLibraryAccountsBlock.tsx",
+      "before_sha256": "01636a322041823fac5d48f0e4671585e68307fb16506d56074f6f6b69ea48ca",
+      "after_sha256": "a35bd4587d5e59c69dcf5580c099e9344b5e41c6e9ae3eadb955511c2adad9bc",
+      "comments_changed": 1,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+      "before_sha256": "03e3bc721e804ea40c91a19283ac0547eaabf5428555966b516ac8f2afe2d137",
+      "after_sha256": "85be9ed27dd4fec07301d5a089d8d8659cf30a80f1a64dc1b0758d408f3e36da",
+      "comments_changed": 20,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+      "before_sha256": "c19d0d294bfc17c7e984bbae7f7d30e78f1dbf7e335ad93bc12484de1c9f3323",
+      "after_sha256": "ed261130f7372d47dab83a36d5990f8fc9aa87283a8d87442594f7eed6c4b65b",
+      "comments_changed": 15,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+      "before_sha256": "21fd62f44bdcf79a52bdddb57bc32d1900d9ce80b6554543ff3a580135834fdb",
+      "after_sha256": "3105d0901056f1046118ebd50f26e30b468dc8f2304fcd2ad56f9c8ef0af8d1c",
+      "comments_changed": 15,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+      "before_sha256": "6d471b1b642759304b668c9b2ba2d08977c94aff2a4dd66a2146ba46b9223567",
+      "after_sha256": "c02a0c650b99410e38ec902ff32e29ab7c3a4bab6f20b35e91d24a1ab398b81d",
+      "comments_changed": 15,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+      "before_sha256": "96e7be2c26908c196fe2eac0107def603a4ae3c94f0ba020c00cd6292a83ddc0",
+      "after_sha256": "a1003dc31088b00fcdc8fd259da7110d0330e51efa0a5ec91de7364beb439c13",
+      "comments_changed": 5,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+      "before_sha256": "6e63b7e91ae88eafdee39bf5d1f3a3cd9db75fe75020dea2fba140d2ff51a860",
+      "after_sha256": "62a39cb4270c320d4195d9ac3556e4b6ce60bb05f1925fca52b732d737cf08cd",
+      "comments_changed": 8,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+      "before_sha256": "dcd56df09a053b63cb309fab820ab8f853f80c69bcf8d903a8387669f4cada3b",
+      "after_sha256": "7b0fc3a59d4afc69c0365528cba69ce5fe8c33e7c19a33117929efb9dffcada8",
+      "comments_changed": 10,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+      "before_sha256": "49dee3a395b728554f25ecdda99288a6bb1f08fbb95b89139946b300b85fb684",
+      "after_sha256": "9f88416d15aba3c7fd7cac1674547fbd2d343d2c170e7d9eab7b84b8698a1f80",
+      "comments_changed": 8,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointImportDialog.tsx",
+      "before_sha256": "3b030cc6011dc012e29c68329139985f3128a224e14a3e9b06a8149e2df91088",
+      "after_sha256": "69bf08e68066be29640995de6170fc898fc5afebbd694d6eabf25e92e83a48f0",
+      "comments_changed": 3,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+      "before_sha256": "7f9f1facaef5ec3d4e15768c97d91256dd671cae91cbb4c2cf4572c26b4b1bee",
+      "after_sha256": "6c7355845e347093f0f3304dda39fe0f7d736d683906b6abe8455d00417c31bd",
+      "comments_changed": 5,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+      "before_sha256": "90ed9f3d3cedf0970ff1bf5291fb29a5d68fee1f93364ad7d2e49abb6c6ea048",
+      "after_sha256": "16887ca6012f64aed8b1c4d5deae70802febfd3744c95546a1ee70be71afe282",
+      "comments_changed": 14,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.share.test.tsx",
+      "before_sha256": "99bbf8353f1a1160404b92a9f70476a38918c154af9f89a35b134251ab7bbbd8",
+      "after_sha256": "24b0454c292e4c24e192e05941234509511d48614b6dad228b1ecbbb0835c4aa",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+      "before_sha256": "c08a4322de6802b9a61f1fd64d39d8e636285ce2b4724f4a50497456340b4d57",
+      "after_sha256": "6d7a6309e6ec251996109949e4d2c548750bd9157f23c2f0270592f38f2b6ef2",
+      "comments_changed": 39,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+      "before_sha256": "a863c6cd2ad8341ed39ed0371bdeffd33926692eb417ab4e0d1a56c79fe6f5ed",
+      "after_sha256": "241afa88755cb61f3868d264a7a2e5b14b3e24654297a295a7a69b81ad157e42",
+      "comments_changed": 5,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+      "before_sha256": "b0549691d1082ef1e8f30e3ca8890a4074c2668860b7a6d926696ed9c7eec529",
+      "after_sha256": "f47a7b6059c998ff55ec0bfa681332bbeccec221b9783dc77b924add8521a677",
+      "comments_changed": 20,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+      "before_sha256": "99c97a835f96febb880630be6b9c4b600adcec49d6bbfe2369926cc24b2e8a1d",
+      "after_sha256": "2f76572580623cb04d31cf62925274692d8ea2582346e3d857124f95887f382d",
+      "comments_changed": 15,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+      "before_sha256": "2afd7468669509789e1594e98a7a3abf6dbd84a8880e9eb8c82506d65cecc9d9",
+      "after_sha256": "ac13ef62367b0681aca77e631d867876d5fc2f7882cae8489530a6cf79c096b0",
+      "comments_changed": 9,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+      "before_sha256": "bd439b2c23269cad0f90e2158eb2196562b1cf0c5d5e23d93b81e796ccf24163",
+      "after_sha256": "138a253a6a4710edb547e6575bd4461ada228a2fbae35a0c2e0ddf0f18420fae",
+      "comments_changed": 5,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+      "before_sha256": "a34ed2481c4299b98a13640a0f067dd6793e71ae9f470a445cdfe7763f1c9123",
+      "after_sha256": "e80960342b6469998867ca1ca86a73ba2caaa48f8404610d3075abd884f933d0",
+      "comments_changed": 6,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/market/MarketSection.test.tsx",
+      "before_sha256": "e3a8277d2fbf7fc296e9509a40b90921647cc8b61f036db36969180bd63ce28c",
+      "after_sha256": "2290eec292953be3003d4a6200525f61f04ce13726393b4eaf6e58f2ac97ffd8",
+      "comments_changed": 4,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/market/MarketSourceList.tsx",
+      "before_sha256": "4b49e33cbc9ff998ad3aa2de3e31d80f45c79c3480acd44fd5f4df2980b5e034",
+      "after_sha256": "0b3040f5e50a409b37ca16c97acbb815affb6332a7abd53e69bce6aca78b3642",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+      "before_sha256": "6ef22eb29f22841cb327e665bba6b2cc26f76a6d3ae24d6cee715b9f8a95d60e",
+      "after_sha256": "58fbdbd969c2452f109c08e2e9a657a36e42d4031fcc644d1cb9f67fa6841684",
+      "comments_changed": 8,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+      "before_sha256": "456e5cb098d1502624c84c70d9729c1f6b9db556df9634fea0cbe64edaaf2efe",
+      "after_sha256": "09cab30dfc76da2dc37abdab304ac259a34ac06719ec9a825892520fe6a7e609",
+      "comments_changed": 6,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/promptTemplateSchema.ts",
+      "before_sha256": "b30474ad39ba7920ce5e033c2b2ce337db83af628f66d0404d47aab00902d6c4",
+      "after_sha256": "3f1ec8e4e22bf7b5364493ddf70aa028c366abd26860b227985c9381e807e020",
+      "comments_changed": 1,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/components/pages/settings/useRowIds.ts",
+      "before_sha256": "d7846e92e20d83389df19df506a5b13d34f605ebd3983727be2bf159aa6f056c",
+      "after_sha256": "de21489ea8d100371cb007bddf969f369f05f5b48238e291fa6809b5bb6288ca",
+      "comments_changed": 2,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+      "before_sha256": "551996b23eb5afaa65a31f5131cc58004cdd66dcabd0ddacf90ce98a2c95d391",
+      "after_sha256": "ad4527cc689b39f76b786e502769c4e87eb5a6cb6bf51d409ced05384b536b6e",
+      "comments_changed": 157,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    },
+    {
+      "file": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "before_sha256": "043fbb13fdc508c6f06eeee35bef266256a9dadcfa9c176986a670b56adc0d40",
+      "after_sha256": "c52d62b7d581b77149c0e8a1e5eae5e35fdd11855b7749b8341df97619173fc9",
+      "comments_changed": 1,
+      "code_without_comments_equal": true,
+      "comment_line_counts_and_positions_equal": true,
+      "functional_directives_equal": true
+    }
+  ],
+  "inline_code_differences": [],
+  "remaining": [
+    {
+      "path": "frontend/src/actions/generation.ts",
+      "comments": [
+        {
+          "start": 8062,
+          "end": 8288,
+          "line": 215,
+          "text": "/**\n * Submit character derivative asset images. Independent occupancy slots use compound `本体/衍生` IDs, never\n * obscuring base generation tasks. Backends recompute instructions from current registrations; omit prompt here.\n */"
+        },
+        {
+          "start": 16706,
+          "end": 17014,
+          "line": 444,
+          "text": "/**\n * Batch asset-image generation: servers select scope targets; mark individual members from responses;\n * derivatives occupy compound `本体/衍生` character_derivative slots, independent of bases.\n * Deduped tasks share standard notices, otherwise report enqueued counts; never mark members lacking tasks.\n */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+      "comments": [
+        {
+          "start": 1271,
+          "end": 1331,
+          "line": 43,
+          "text": "/** Target four-part notation: `#节点 class_type .输入 “标题”`. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+      "comments": [
+        {
+          "start": 4535,
+          "end": 4913,
+          "line": 118,
+          "text": "/**\n * Whether inputs are links. ComfyUI links use `[上游节点 id, 输出序号]`; `{\"__value__\": [...]}`\n * wraps ecosystem array literals, explicitly author-declared and bindable.\n *\n * Inspect wrappers before shapes, matching server `workflow.is_link`; unwrapping first would misclassify\n * `{\"__value__\": [\"4\", 0]}` as links, hiding genuinely assignable inputs from manual selectors.\n */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "comments": [
+        {
+          "start": 31380,
+          "end": 31457,
+          "line": 961,
+          "text": "// Second arrives during first: 酒馆 scene → /scenes, replacing queuedFocusRef."
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/hooks/useScrollTarget.ts",
+      "comments": [
+        {
+          "start": 2173,
+          "end": 2642,
+          "line": 49,
+          "text": "/**\n * Hook that watches for scroll target events and scrolls to the matching element.\n * Each element that should be scrollable must have an id matching the pattern:\n * - Segments: id=\"segment-E1S01\"\n * - Characters: id=\"character-林克\"\n * - Clues: id=\"clue-玉佩\"\n *\n * When a scroll target is triggered via `useAppStore.triggerScrollTo()`,\n * this hook retries until the target element is mounted, then scrolls it into\n * view and applies a workspace flash animation.\n */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/hooks/useUnitPromptHighlight.test.ts",
+      "comments": [
+        {
+          "start": 2262,
+          "end": 2366,
+          "line": 72,
+          "text": "// `@{名称}` is not mention syntax; braces parse as voiceover markers, matching backend split_speech_line."
+        },
+        {
+          "start": 3126,
+          "end": 3213,
+          "line": 93,
+          "text": "// No paragraph-prefix syntax: `镜头1：` and `Shot 1 (3s):` are ordinary description text."
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/hooks/useUnitPromptHighlight.ts",
+      "comments": [
+        {
+          "start": 313,
+          "end": 1157,
+          "line": 14,
+          "text": "/**\n * @mention / speech tokenizer for the reference-video unit body editor.\n *\n * Regex mirrors lib/script/reference_video/text_parser.py via reference-mentions.MENTION_RE.\n *\n * Output tokens are non-overlapping and concatenate back to the original text.\n *\n * Match raw text: tokens must reconstruct exact source over textarea overlays, so never normalize source. Only\n * `name` from `mentionNameFromMatch` is canonical. One residual case remains: BOM inside bare mentions\n * (`@张<U+FEFF>三`) is excluded by `MENTION_RE` bare-name character classes, so highlighting stops before BOM,\n * treating names as unregistered. Reference derivation uses `extractMentions` on normalized lines and is unaffected; only editor coloring\n * differs. Wrapped `@[名<U+FEFF>称]` avoids this: BOM stays inside brackets, whole names normalize after extraction.\n */"
+        },
+        {
+          "start": 1529,
+          "end": 1896,
+          "line": 35,
+          "text": "/**\n * `speech` represents parser-recognized utterance markers (`@[角色]{台词}` / `{台词}`). `text` always contains their entire\n * raw source (including `@[名称]` and braces), so token sequences still reconstruct source exactly; empty `speaker`\n * means voiceover. No separate dialogue-body field: rendering needs entire raw spans, with no consumer for extracted bodies.\n */"
+        },
+        {
+          "start": 6713,
+          "end": 6822,
+          "line": 147,
+          "text": "// Whitespace around markers is not description: `  @[张三]：{我来了}  ` is identical dialogue to unindented forms."
+        }
+      ]
+    }
+  ],
+  "status": "locally verified; independent semantic review of new translations pending coordinator",
+  "snapshot": "/tmp/frontend-parser-passive-owned-before",
+  "ownership": "frontend/src/hooks/**, frontend/src/stores/**, frontend/src/actions/**, frontend/src/components/pages/**",
+  "translation_count": 603,
+  "proper_name_restoration_count": 1,
+  "classification": "Ten previously English comments retain exact reference grammar, compound IDs and names; restored 酒馆 adds one residual example. Han presence is not completion failure.",
+  "tests": {
+    "command": "pnpm --dir frontend exec vitest run src/hooks src/stores src/actions src/components/pages",
+    "result": "82 files, 1227 tests passed in 26.88s",
+    "log": "/tmp/frontend-parser-owned-tests.log",
+    "log_sha256": "3de14df22ee97231af2c1ed245f44aa20af65f8c9f5f94834a9292d29932fe09"
+  },
+  "eslint": {
+    "command": "pnpm --dir frontend exec eslint src/hooks src/stores src/actions src/components/pages",
+    "result": "passed",
+    "log": "/tmp/frontend-parser-owned-eslint.log",
+    "log_sha256": "1a585257c58d9c0b02938c759c56c62971c922be22bdf610a77bfbaa9528539f"
+  },
+  "build": {
+    "command": "pnpm --dir frontend exec vite build --outDir /tmp/frontend-parser-owned-production",
+    "result": "passed",
+    "log": "/tmp/frontend-parser-owned-production.log",
+    "log_sha256": "076a31fa5c0889105d6a4b38357eb80b5cd53942875b20d7a3005b63fe03c7da"
+  },
+  "css": {
+    "baseline_css": [
+      {
+        "path": "assets/index-D4iHU1rK.css",
+        "bytes": 221969,
+        "sha256": "9ccaff6f33408e088c34e47e624c6be8683e5f55884357757c88b29a074db2c7"
+      }
+    ],
+    "candidate_css": [
+      {
+        "path": "assets/index-D4iHU1rK.css",
+        "bytes": 221969,
+        "sha256": "9ccaff6f33408e088c34e47e624c6be8683e5f55884357757c88b29a074db2c7"
+      }
+    ],
+    "stylesheet_content_multisets_identical": true,
+    "scope": "CSS bytes only, built with the same frozen dependencies and configuration. Does not certify runtime/model behavior."
+  },
+  "limits": [
+    "Mechanical code/directive/literal preservation and passing finite tests do not prove every behavior universally.",
+    "Immediate snapshot includes runtime worker repairs2-6; this proof covers subsequent 604 changed comments only, not their independent semantic acceptance."
+  ]
+}

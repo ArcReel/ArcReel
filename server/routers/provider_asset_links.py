@@ -1,9 +1,8 @@
-"""供应商素材关联 API：查看图片当前版本的关联与入库状态、上传到素材库、从素材库选择已有图片、解除关联与刷新状态。
+"""Provider asset-link API: inspect current-image links and ingestion state, upload, select existing library images, unlink and refresh.
 
-上传只创建入库任务并立即返回，中转上传、提交与状态查询由后台循环推进（``lib.asset_library.ingest``），
-页面按返回的状态轮询，不等待供应商审核。编排与结果形状在 ``server.services.project.provider_asset_links``，
-与 Agent 工具共用；本路由只做参数与响应映射。
-"""
+Uploads only create ingestion jobs and return immediately. The background loop (``lib.asset_library.ingest``) handles relay
+uploads, submission and state queries; pages poll returned state rather than waiting for provider review. Orchestration and
+result shapes live in ``server.services.project.provider_asset_links``, shared with Agent tools; routes map only parameters/responses."""
 
 from __future__ import annotations
 
@@ -54,7 +53,7 @@ async def get_links(
     resource_id: str = Query(min_length=1, max_length=512),
     session: AsyncSession = Depends(get_async_session),
 ) -> LinkPanelResponse:
-    """图片当前选中版本在各个素材库范围里的关联与入库状态。改选另一版本后，返回的是那个版本的关联。"""
+    """Links and ingestion state of the image’s selected version within each library scope; selecting another version returns that version’s links."""
     link_ops.check_resource_type(resource_type)
     return await link_ops.load_link_panel(
         session,
@@ -69,7 +68,7 @@ async def get_links(
 async def upload_to_asset_library(
     project_name: str, body: UploadRequest, session: AsyncSession = Depends(get_async_session)
 ) -> LinkResponse:
-    """把图片当前选中的版本上传到账号对应的素材库。立即返回入库任务，之后按状态轮询。"""
+    """Upload the image’s currently selected version to the account’s library. Return the ingestion job immediately, then poll its state."""
     link_ops.check_resource_type(body.resource_type)
     return await link_ops.start_upload(
         session,
@@ -85,10 +84,9 @@ async def upload_to_asset_library(
 async def import_from_asset_library(
     project_name: str, body: ImportRequest, session: AsyncSession = Depends(get_async_session)
 ) -> ImportResponse:
-    """从素材库选择一张可用的图片：取回原图保存为资产图的新版本，并为这个版本建立关联。
+    """Select an available library image: retrieve the original, save a new asset-image version, and link that version.
 
-    取不回内容或保存失败时不建立关联，原选中版本不变。
-    """
+    If retrieval or saving fails, create no link and retain the previously selected version."""
     imported = await import_provider_asset(
         session,
         project_name=project_name,
@@ -110,12 +108,12 @@ async def import_from_asset_library(
 async def unlink_provider_asset(
     project_name: str, link_id: int, session: AsyncSession = Depends(get_async_session)
 ) -> Response:
-    """解除关联：只解除当前关系，不删除 ArcReel 图片或供应商素材。"""
+    """Unlink only the current relationship, without deleting the ArcReel image or provider asset."""
     await link_ops.release(session, project_name=project_name, link_id=link_id)
     return Response(status_code=204)
 
 
 @router.post("/{link_id}/refresh", response_model=LinkResponse)
 async def refresh(project_name: str, link_id: int, session: AsyncSession = Depends(get_async_session)) -> LinkResponse:
-    """请后台立即重新查询状态；已可用或已失败的关联原样返回。"""
+    """Ask the background worker to recheck state immediately; return available or failed links unchanged."""
     return await link_ops.recheck(session, project_name=project_name, link_id=link_id)

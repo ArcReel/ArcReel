@@ -42,7 +42,7 @@ import { EpisodeCard } from "./EpisodeCard";
 import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
-  /** 收为 56px 图标栏：只显示导航图标与集序号，名称在悬停或聚焦时显示。 */
+  /** Collapse to 56px icon rails, showing navigation/episode positions, with names on hover/focus. */
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
 }
@@ -56,8 +56,8 @@ interface NavItem {
 }
 
 /**
- * 工作区侧栏：上方是工作区导航（项目概览、分集、角色、场景、道具，广告项目另有商品、没有分集），
- * 下方是分集列表（搜索、排序与每集的操作）。宽度由外壳的调宽手柄决定；折叠时收为图标栏。
+ * Workspace sidebars: overview/episodes/character/scene/prop navigation above, ads adding products without episodes;
+ * episode search/order/actions below. Shell resize handles set widths, collapsed as icon rails.
  */
 export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
@@ -65,13 +65,13 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
   const debouncedFetchCost = useCostStore((s) => s.debouncedFetch);
   const [location, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
+  /** New-episode dialogs: undefined closed, null append, numbers insert after episodes. */
   const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
 
   const episodes = currentProjectData?.episodes ?? [];
-  // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
+  // Ads/short films are single episodes; hide episode titles/count/search/add, navigating sole videos directly.
   const isAd = currentProjectData?.content_mode === "ad";
-  // 演示项目没有服务端侧数据，「分集」入口与添加菜单隐藏（导航其余项与分集列表照常渲染）
+  // Demos lack backend data, hiding episode-management/add entries while preserving other navigation/lists.
   const demoMode = useDemoWorkbench();
   const route = normalizeRoute(currentProjectData?.generation_mode);
 
@@ -87,13 +87,13 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
 
   const moveEpisode = useMoveEpisode(currentProjectName);
   const deletion = useDeleteEpisode(currentProjectName ?? "", (episode) => {
-    // 删的是正在看的那一集时回到「分集」视图
+    // Deleting current episodes returns to Episodes views.
     if (episode === activeEp) setLocation(episodesViewPath());
   });
 
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
-    // 演示项目后端不存在，广告/短片恒单集、不经分集：隐藏入口而非渲染必然报错或无意义的页面
+    // Missing demo backends and single-episode ads bypass episode management; hide failing/meaningless entries instead of rendering them.
     ...(demoMode || isAd
       ? []
       : [
@@ -126,7 +126,7 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
       icon: Package,
       count: Object.keys(currentProjectData?.props ?? {}).length,
     },
-    // 商品资产仅广告/短片项目使用（v1 单商品设定），其余模式隐藏入口
+    // Product assets are ad/short-film only, v1 single-product design; hide elsewhere.
     ...(isAd
       ? [
           {
@@ -138,21 +138,21 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
           },
         ]
       : []),
-    // 演示项目没有服务端文件可列
+    // Demos lack server files to list.
     ...(demoMode
       ? []
       : [{ key: "files", path: `/${WORKSPACE_ROUTE_FILES}`, label: t("dashboard:workspace_nav_files"), icon: FolderTree }]),
   ];
 
   const isNavActive = (item: NavItem): boolean => {
-    // 集页 /episodes/:id 由下方分集列表高亮，「分集」只在分集视图本身高亮
+    // Episode /episodes/:id highlights come from lists below; Episodes highlights only management views.
     if (item.path === "/" || item.key === "episodes") return location === item.path;
     return location === item.path || location.startsWith(item.path + "/");
   };
 
-  // 播出位置按完整账本的排列算，过滤不改变它；搜索按标题与播出位置匹配，集 ID 不参与。
+  // Broadcast positions follow full ledgers, unchanged by filters; searches use titles/positions, never IDs.
   const positioned = episodes.map((ep, index) => ({ ep, position: index + 1 }));
-  // ad 隐藏搜索框，残留的 search state 不参与过滤，避免唯一视频入口被吞
+  // Ads hide search; ignore residual search state so sole-video entries remain visible.
   const filteredEps = isAd
     ? positioned
     : positioned.filter(
@@ -185,7 +185,7 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
       {collapsed ? (
         <div className="relative flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           {addEpisodeMenu}
-          {/* 图标栏不显示搜索框，按看不见的搜索词过滤会让集无故消失 */}
+          {/* Icon rails hide search fields; invisible filters must never make episodes disappear. */}
           {positioned.map(({ ep, position }) => (
             <RailLink
               key={ep.episode}
@@ -312,7 +312,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-/** 图标栏里的一项：只显示图标或集序号，名称经悬停或聚焦的提示显示，读屏读完整名称。 */
+/** Icon-rail items show icons/episode positions, names through hover/focus hints and complete screen-reader labels. */
 function RailLink({
   href,
   label,

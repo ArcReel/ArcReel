@@ -1,4 +1,4 @@
-"""数据根布局迁移入口：旧布局的全局资产库迁移后照常可读，重跑不改变结果。"""
+"""Data-root layout migration entry point: old-layout global assets remain readable after migration; rerunning leaves results unchanged."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ async def test_rerunning_migration_leaves_global_assets_unchanged(
     await _migrate(projects, session_factory, tmp_path)
     paths_after_first = await _stored_paths(session_factory, asset_ids)
     stamps_after_first = await _updated_at(session_factory, asset_ids)
-    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
+    # If a later step fails before the completion marker is written, next startup reruns every step from the beginning.
     DataRootLayout(projects.data_root).layout_migration_marker_path.unlink()
     await _migrate(projects, session_factory, tmp_path)
 

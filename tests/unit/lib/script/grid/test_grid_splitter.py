@@ -9,7 +9,7 @@ class TestCenterCropToRatio:
     def test_no_crop_needed(self):
         img = Image.new("RGB", (160, 90))
         result = center_crop_to_ratio(img, "16:9")
-        # 比例已匹配时原图直接返回，不重新裁出一张同尺寸副本
+        # Matching ratios return the original image, without cropping another same-sized copy.
         assert result is img
 
     def test_crop_2_1_to_16_9(self):

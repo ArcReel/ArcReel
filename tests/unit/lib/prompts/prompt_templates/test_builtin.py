@@ -1,4 +1,4 @@
-"""内置目录扫描通过加载接口执行语法、槽位、变体族完整性、判重开启范围与共享片段门槛约束。"""
+"""Built-in catalog scanning loads syntax/slot/variant-family completeness/dedup-scope/shared-fragment-threshold checks."""
 
 from collections import defaultdict
 from collections.abc import Iterable
@@ -21,9 +21,9 @@ def test_builtin_directory_has_valid_slots_variants_and_template_syntax():
     for entry in metadata:
         body, partials = templates.read_source(entry.id)
         assert body.strip()
-        # 行距写在引用处，片段只写措辞本身。
+        # Reference sites own line spacing; fragments contain wording only.
         assert not [partial.name for partial in partials if partial.source.startswith("\n")]
-    # 判重只给存在纯文本回贴形态的模版开启，其余模版多处引用同一数据片段时不能被吞掉。
+    # Enable dedup only for templates with plain-text pasted forms; other repeated data-fragment references must not disappear.
     assert {entry.id for entry in metadata if entry.idempotent} == {"storyboard/image", "storyboard/video"}
     asset = next(entry for entry in metadata if entry.id == "asset/sheet")
     assert set(asset.applies_to["asset_type"]) == {"character", "character_derivative", "scene", "prop", "product"}
@@ -47,7 +47,7 @@ def test_builtin_directory_has_valid_slots_variants_and_template_syntax():
 
 
 def test_builtin_applies_to_values_are_real_project_values():
-    """设置页原样展示轴值，项目里不存在的取值会误导用户以为有这种模式。"""
+    """Settings displays axis values unchanged; nonexistent project modes would mislead users."""
     known = {
         "content_mode": set(VALID_CONTENT_MODES),
         "generation_mode": set(VALID_GENERATION_MODES),
@@ -79,7 +79,7 @@ def test_builtin_templates_declare_stage_and_trigger_and_lock_structural_partial
         "shared/additional_instructions",
         "shared/writing_syntax",
     }
-    # 引用方含经由资产图变体间接引用的模版，按注册顺序排列。
+    # Referencers include indirect asset-variant references, in registration order.
     assert catalog["shared/media_style"].referenced_by == [
         "asset/sheet",
         "reference_video/unit",
@@ -113,7 +113,7 @@ def _single_parent_shared_partials(partials_directory: Path, template_sources: I
 
 
 def test_builtin_shared_partials_are_not_referenced_by_a_single_partial():
-    """只被一个片段引用的措辞内联回该片段；变体族成员按轴值拆分，不计入。"""
+    """Inline wording referenced by one fragment only; axis-split variant-family members are excluded."""
     templates = PromptTemplates(BUILTIN_DIRECTORY)
     template_sources = ((entry.id, templates.read_source(entry.id)[0]) for entry in templates.list_templates())
     assert _single_parent_shared_partials(BUILTIN_DIRECTORY / "partials", template_sources) == []

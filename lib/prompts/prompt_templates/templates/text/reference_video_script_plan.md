@@ -1,8 +1,8 @@
 ---
 id: text/reference_video_script_plan
 category: text
-title: 参考生视频 · 单元拆分
-description: 把源文拆分为参考生视频单元表，每个单元含时长、原文锚与引用语法正文。
+title: "Reference video · unit splitting"
+description: "Split the source into a reference-video unit table, each unit with duration, source anchor, and reference-syntax body."
 stage: script_plan
 invoked_by:
   kind: agent_tool
@@ -13,40 +13,40 @@ applies_to:
   source_kind: [novel, screenplay]
 output_schema: lib.script.script_models:ReferenceScriptPlanFlatDraft
 slots:
-  source_kind: 源文类型；只有剧情演绎会取 screenplay
-  target_language: 输出语言
-  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
-  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
-  character_names: 角色候选引用名列表（含 本体/衍生）
-  scene_names: 场景候选引用名列表
-  prop_names: 道具候选引用名列表
-  novel_text: 逐字源文
-  episode_outline: 本集大纲，键齐全的对象 {title, story_beats, hook, next_episode_teaser}；无有效内容时传 null
-  next_episode_outline: 下集大纲，形状同上；无有效内容时传 null
-  episode: 当前集号
-  durations: 排序去重后的合法秒数档位，已格式化为文本
-  duration_tiers: 「参考图↔时长」两套档位，对象 {with_references, without_references, default_with_references_only, default_without_references_only}，档位已格式化为文本，后两项表示默认秒数只落在其中一套档位内；两套相同或型号未声明时传 null
-  default_duration: 默认秒数偏好；未设置时传 null
-  speech_rate: 口播语速（阅读单位 / 秒），已格式化为文本
-  speech_unit: 阅读单位量词（字 / 词）
-  max_duration: 单次生成的时长上限（秒）
-  max_reference_images: 单个视频单元的参考图上限；不限时传 null
-  episode_target_duration: 单集目标秒数；未设置时传 null
-  instructions: 附加指令正文；缺值传 null
+  source_kind: "Source kind; only drama uses screenplay"
+  target_language: "Output language"
+  project_overview: "Project overview, an object with all keys {synopsis, genre, theme, world_setting}; use null for missing values"
+  assets: "Registered assets, an object {characters, scenes, props}, each a [{name, aliases, appearance}] list (angle brackets neutralized; derivatives written as “base/derivative”)"
+  character_names: "Candidate referenceable character names (including base/derivative)"
+  scene_names: "Candidate referenceable scene names"
+  prop_names: "Candidate referenceable prop names"
+  novel_text: "Verbatim source text"
+  episode_outline: "This episode’s outline, an object with all keys {title, story_beats, hook, next_episode_teaser}; null without valid content"
+  next_episode_outline: "Next episode’s outline, same shape as above; null without valid content"
+  episode: "Current episode number"
+  durations: "Sorted, deduplicated valid duration tiers in seconds, formatted as text"
+  duration_tiers: "Two reference-image/duration tier sets, an object {with_references, without_references, default_with_references_only, default_without_references_only}; tiers formatted as text, with the last two fields indicating that default seconds belong to only one set; null when sets are identical or the model declares none"
+  default_duration: "Preferred default seconds; null if not set"
+  speech_rate: "Speaking rate (reading units / second), formatted as text"
+  speech_unit: "Reading-unit noun (characters / words)"
+  max_duration: "Maximum duration per generation call (seconds)"
+  max_reference_images: "Reference-image limit per video unit; null if unlimited"
+  episode_target_duration: "Target episode seconds; null if not set"
+  instructions: "Additional-instruction body; null if missing"
 protected: false
 ---
-# 角色与任务
+# Role and task
 
 {{ variant("text/reference_video_script_plan/task", source_kind) }}
-每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
-本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
-视觉编排（景别 / 构图 / 运镜扩写）由后续 prompt_authoring 以你的拆分为基底生成，本阶段不写。
+Each video_unit corresponds to **one video-generation call**; its body is a continuous visual description fully covered by that generation.
+This stage determines the **structure and content contract**: unit boundaries, duration (the billing unit), dialogue placement, and core asset identification. The user reviews and confirms this contract unit by unit.
+The subsequent prompt_authoring stage generates visual staging (shot size / composition / expanded camera movement) based on your divisions; do not write it at this stage.
 
-**输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名保持英文。
-例外（逐字保留、不翻译）：`@[名称]` 中的资产名须逐字等于下方候选表中的登记名或 `new_assets` 里的称呼；`source_text` 须逐字复制源文。
-**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
+**Output language**: all string values must use {{ target_language }}; keep JSON keys in English.
+Exceptions (preserve verbatim, do not translate): asset names in `@[名称]` must exactly match registered names in the candidate list below or designations in `new_assets`; copy `source_text` verbatim from the source.
+**Structural constraints**: response_schema enforces fields / enums / required items; this prompt only explains **how to write each field’s content well**.
 
-# 上下文
+# Context
 
 {{ partial("shared/overview_block") }}
 
@@ -61,7 +61,7 @@ protected: false
 {% if episode_outline %}
 <episode_outline>
 {% if episode_outline.title %}
-标题：{{ episode_outline.title }}
+Title: {{ episode_outline.title }}
 {% endif %}
 {{ partial("shared/lists/episode_outline_lines", outline=episode_outline) }}
 </episode_outline>
@@ -70,50 +70,50 @@ protected: false
 {% if next_episode_outline %}
 <next_episode_outline>
 {% if next_episode_outline.title %}
-标题：{{ next_episode_outline.title }}
+Title: {{ next_episode_outline.title }}
 {% endif %}
 {{ partial("shared/lists/episode_outline_lines", outline=next_episode_outline) }}
 </next_episode_outline>
 
 {% endif %}
-# 拆分规则
+# Splitting rules
 
-当前正在生成第 {{ episode }} 集。请覆盖全部源文情节，按叙事顺序逐 unit 产出。
+You are currently generating episode {{ episode }}. Cover all source plot content, producing units in narrative order.
 
-- **unit 边界**：{{ variant("text/reference_video_script_plan/unit_rule", source_kind) }}
-- **source_text**：该 unit 所依据的源文片段，**逐字复制**（可截断首尾，但中间不得删字、改写、翻译或概括）。
-  它是追溯锚，用于把生成结果对回原文；不逐字复制会被机械校验拒绝。
-- **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
-  1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{{ durations }}）中的值。
-     叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。
+- **Unit boundaries**: {{ variant("text/reference_video_script_plan/unit_rule", source_kind) }}
+- **source_text**: the source passage underlying this unit, **copied verbatim** (you may truncate its beginning or ending, but must not remove words from the middle, rewrite, translate, or summarize).
+  This is the traceability anchor linking generated content back to the source; nonverbatim copying is mechanically rejected.
+- **Duration decision order** (top to bottom: higher priorities are hard boundaries; optimize lower priorities within them):
+  1. Hard constraint: `duration_seconds` is the unit’s duration (one duration per generation call), and must be one of the supported tiers ({{ durations }}).
+     If the required narrative duration does not fit, split the unit into multiple units in narrative order; **never violate the duration contract**.
 {% if duration_tiers %}
-     本型号下该档位还随「有无参考图」分两套，按该 unit **画面描述里有没有 `@` 资产引用**取用（台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明）：带 `@` 引用取（{{ duration_tiers.with_references }}），不带取（{{ duration_tiers.without_references }}）。服务端按该 unit 此刻**可用的参考图**定档：引用的资产还没有生成参考图时，该 unit 按不带引用的那套档位执行。两者取其一：要么改取该 unit 引用状态对应档位内的值，要么调整引用——把次要资产融入描述文字、不用 `@` 引用，从而适用不带引用的那套档位。
+     This model also has two sets of tiers depending on whether reference images are present. Choose according to whether the unit’s **visual description contains `@` asset references** (speaker positions in dialogue tokens `@[角色]{台词}` do not count: they generate no reference image and only drive voice declarations): use ({{ duration_tiers.with_references }}) with `@` references and ({{ duration_tiers.without_references }}) without them. The server determines the tier using the reference images **currently available** for that unit: when referenced assets have no generated reference images yet, the unit uses the tiers without references. Choose one approach: either select a value from the tier set matching the unit’s reference state, or adjust the references by incorporating secondary assets into descriptive text without `@`, thereby using the no-reference tiers.
 {% endif %}
-  2. 台词下界：先估算该 unit 全部台词与画外音念完约需的秒数（口播语速约 {{ speech_rate }} {{ speech_unit }}/秒），
-     取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
-     台词量超过最长档（{{ max_duration }} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。
-  3. 默认偏好：{% if default_duration %}unit 默认取 {{ default_duration }} 秒{% if duration_tiers and duration_tiers.default_with_references_only %}（该默认值只落在带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}{% if duration_tiers and duration_tiers.default_without_references_only %}（该默认值只落在不带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）{% else %}按叙事需要从档位中取值，不强制默认值{% endif %}。
-  4. 打包效率：在 1-3 之内组织正文内容，{% if episode_target_duration %}按本集目标时长打包——{{ partial("shared/episode_target_duration_rule") }}；单个 unit 在目标之内可长可短，不必贴近单次上限 {{ max_duration }} 秒，也{% else %}使 unit 时长贴近 {{ max_duration }} 秒；{% endif %}不要默认选最短 / 保守值。
+  2. Dialogue lower bound: first estimate the seconds needed to speak all dialogue and off-screen speech in the unit (approximately {{ speech_rate }} {{ speech_unit }}/second),
+     then select a tier **not below** that duration. This is a one-way lower bound: never squeeze dialogue into a tier too short to finish speaking. Units without dialogue have no such lower bound.
+     If dialogue exceeds the longest tier ({{ max_duration }} seconds), split the unit; do not force all the dialogue into one unit.
+  3. Default preference: {% if default_duration %}default to {{ default_duration }} seconds per unit{% if duration_tiers and duration_tiers.default_with_references_only %} (this default exists only in the tiers for units with `@` references; units in the other state follow the hard constraint above){% endif %}{% if duration_tiers and duration_tiers.default_without_references_only %} (this default exists only in the tiers for units without `@` references; units in the other state follow the hard constraint above){% endif %}; longer narrative needs may use longer tiers (content needs may override preferences, but not hard constraints){% else %}choose a tier according to narrative needs, without enforcing a default{% endif %}.
+  4. Packing efficiency: organize body content within rules 1-3; {% if episode_target_duration %}pack toward this episode’s target duration: {{ partial("shared/episode_target_duration_rule") }}. Individual units may be shorter or longer within that target, need not approach the per-call limit of {{ max_duration }} seconds, and{% else %}bring unit durations close to {{ max_duration }} seconds;{% endif %} do not default to the shortest / conservative value.
 {% if max_reference_images %}
-- **references 上限**：一个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 {{ max_reference_images }} 个（台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图）；超出时把次要角色融入背景描述（不用 `@` 引用），不要压缩主体资产。
+- **Reference limit**: a unit’s **visual description** may `@` reference at most {{ max_reference_images }} distinct asset names (speaker positions in dialogue tokens `@[角色]{台词}` do not count: they generate no reference image). If exceeded, incorporate secondary characters into background descriptions without `@` references; do not compress the main assets.
 {% endif %}
 
-# 正文书写语法
+# Body-writing syntax
 
 {{ partial("shared/writing_syntax") }}
 
-# 本阶段的正文写作指引
+# Body-writing guide for this stage
 
-- 画面描述聚焦当下瞬间的**可见动作**：谁做了什么、物件互动、环境动态；动词描述物理可观察动作
-  （伸手 / 转身 / 推门 / 投向），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
-- 资产名逐字取自下列候选；候选里没有的写原文称呼，并列进 `new_assets`（见下文），台词记号的说话人同样如此：
+- Visual descriptions focus on **visible action** in the present moment: who does what, object interactions, and environmental dynamics. Verbs describe physically observable actions
+  (reach / turn / push a door / cast toward), avoiding mental verbs such as “sink into / remember / realize / decide”.
+- Copy asset names exactly from the candidates below; use original source designations for assets absent from the candidates and list them in `new_assets` (see below). The same applies to speakers in dialogue tokens:
   - character: {{ partial("shared/asset_name_candidates", names=character_names) }}
   - scene: {{ partial("shared/asset_name_candidates", names=scene_names) }}
   - prop: {{ partial("shared/asset_name_candidates", names=prop_names) }}
 {{ variant("text/reference_video_script_plan/dialogue_rule", source_kind) }}
-- 每个 unit 的正文都要 `@` 引用它发生地的场景资产；地点切换到新 unit 时换成新地点的场景，
-  地点不变的连续 unit 逐条重复引用同一个场景（候选表里没有匹配的场景时才用文字写地点）。
-- 本阶段不写景别 / 构图 / 运镜（prompt_authoring 补），把叙事内容与动作过程写清楚即可。
+- Each unit’s body must `@` reference the scene asset for its location. When a new unit changes location, change to the scene for the new location;
+  consecutive units at the same location repeat that scene reference in every unit (only describe a location in text when no candidate scene matches it).
+- Do not write shot size / composition / camera movement at this stage (prompt_authoring supplies them); clearly describe the narrative content and action process.
 
 {{ partial("shared/new_assets_rule") }}
 {% if instructions %}

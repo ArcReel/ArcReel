@@ -1,8 +1,8 @@
-"""历史项目源文件编码迁移。
+"""Legacy project source-encoding migration.
 
-启动时由 server/app.py lifespan 调用：扫描 projects/<name>/source/*.{txt,md}，
-非 UTF-8 文件用 SourceLoader 重编码并备份原文件到 source/raw/。
-单文件失败被记录，不影响其它文件 / 项目 / server 启动。
+Called at startup by server/app.py lifespan: scan projects/<name>/source/*.{txt,md},
+re-encode non-UTF-8 files with SourceLoader and back up originals under source/raw/.
+Log individual failures without affecting other files/projects or server startup.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def migrate_project_source_encoding(project_dir: Path) -> MigrationSummary:
             summary.skipped.append(file_path.name)
             continue
         except UnicodeDecodeError:
-            # 预期分支：文件不是纯 UTF-8，落到下面用 decode_txt 走多编码兜底
+            # Expected branch: not plain UTF-8; use decode_txt multi-encoding fallback below
             pass
 
         try:
@@ -80,9 +80,10 @@ def migrate_project_source_encoding(project_dir: Path) -> MigrationSummary:
 def migrate_project_source_encoding_once(
     project_dir: Path, *, migrate: Callable[[Path], MigrationSummary] = migrate_project_source_encoding
 ) -> dict:
-    """对一个项目执行一次编码迁移，以 ``.arcreel/source_encoding_migrated`` 标记只做一次。
+    """Migrate one project once, marked by ``.arcreel/source_encoding_migrated``.
 
-    启动时逐项目调用，恢复已删除项目时也调用。失败被捕获并写日志与 ``.arcreel/migration_errors.log``，不抛出。
+    Called per project at startup and when restoring deleted projects. Catch failures, recording logs and
+    ``.arcreel/migration_errors.log`` without raising.
     """
     marker_dir = project_dir / ".arcreel"
     marker = marker_dir / "source_encoding_migrated"

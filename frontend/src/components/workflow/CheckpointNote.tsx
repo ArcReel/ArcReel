@@ -2,11 +2,11 @@ import { useTranslation } from "react-i18next";
 import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 
 /**
- * 哪些单元的请求供应商已经收单。
+ * Units whose requests have already been accepted by the provider.
  *
- * 它自己占一行，不折进任务状态词里：已收单意味着重试可能重复计费，而任务状态词回答的是
- * 另一个问题（这次尝试跑到哪了）。同一步上多个任务已收单时只说一次、列出单元；
- * 没有已收单的任务时不出现——没有这条事实就不摆一句空话。
+ * Use a separate row instead of folding this into task-status wording: acceptance means retries may bill again, while status answers
+ * how far this attempt has progressed. If several tasks at the same step were accepted, state it once and list units.
+ * Hide the row when no task was accepted; without this fact, do not show empty wording.
  */
 export function CheckpointNote({ unitIds }: { unitIds: string[] }) {
   const { t } = useTranslation("workflow");

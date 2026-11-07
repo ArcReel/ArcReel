@@ -1,4 +1,4 @@
-"""用户修改的模型条目副本。"""
+"""User-modified model-entry copies."""
 
 from __future__ import annotations
 
@@ -9,12 +9,14 @@ from lib.db.base import Base, TimestampMixin
 
 
 class CatalogUserEntry(TimestampMixin, Base):
-    """用户修改的一个模型条目：整个条目的副本，每个条目一行（docs/adr/0099）。
+    """A user-modified model entry: a complete copy, one row per entry (docs/adr/0099).
 
-    有行即这个条目停止跟随官方，只用这份副本；恢复官方数据即删除这一行。官方数据里没有同一身份的条目时，
-    这一行是用户新建的条目。``entry`` 是目录数据格式的条目 JSON（``arcreel_catalog_core.dump_entry``），
-    含价目表；读入时过实例侧校验。``user_created`` 标明条目是用户在目录里找不到模型时新建的：日后官方数据收录同一
-    身份的条目时，它提示「改用官方数据」，而不是用户改过官方条目时的「恢复官方数据」。
+    A row stops following official data and uses only this copy; restoring official data
+    deletes it. Without an official entry of the same identity, the row is user-created.
+    ``entry`` is catalog-format entry JSON (``arcreel_catalog_core.dump_entry``), including
+    pricing; reads run instance-side validation. ``user_created`` marks entries created
+    because a model was missing from the catalog. If official data later adds that identity,
+    prompt to switch to official data rather than restore official data, as for user-edited official entries.
     """
 
     __tablename__ = "catalog_user_entry"

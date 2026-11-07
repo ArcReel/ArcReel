@@ -1,17 +1,17 @@
-# README 演示素材规范
+# README demonstration-asset standards
 
-这份文档不面向普通用户，而是给维护者提供 README 首页所需的截图、动图和成品案例规范。
+This document is for maintainers, defining screenshots, animations, and finished examples for the README homepage, rather than ordinary users.
 
-当前 README 已使用：
+The README currently uses:
 
-- `docs/assets/screenshots/hero.webp`（Hero 截图）
-- `docs/assets/screenshots/{video-units,props,scenes,ad-mode}.webp`（界面一览）
+- `docs/assets/screenshots/hero.webp` (hero screenshot)
+- `docs/assets/screenshots/{video-units,props,scenes,ad-mode}.webp` (interface overview)
 - `docs/assets/feishu-qr.png`
 - `docs/assets/sponsors/`
 
-产品型开源项目的首页转化主要依赖真实成果展示。ArcReel 尤其需要同时展示“工作台”和“最终成片”，不能只展示设置页或功能清单。
+Product-oriented open-source homepages convert primarily through real results. ArcReel particularly needs both the workspace and finished videos, not only settings/forms or feature lists.
 
-## 1. 推荐的素材目录
+## 1. Recommended asset directories
 
 ```text
 docs/assets/
@@ -36,116 +36,116 @@ docs/assets/
 └── feishu-qr.png
 ```
 
-GitHub README 不适合直接托管超大视频。最终视频可以：
+GitHub READMEs are unsuitable for directly hosting huge videos. Finished videos may:
 
-- 放在 GitHub Release；
-- 使用 GitHub Issue/PR 上传生成的媒体链接；
-- 放在项目官方网站或稳定对象存储；
-- 在 README 中使用封面图链接到视频。
+- Be hosted in GitHub Releases;
+- Use media links generated through GitHub Issue/PR uploads;
+- Live on official websites or stable object storage;
+- Be linked through cover images in READMEs.
 
-## 2. Hero 截图
+## 2. Hero screenshot
 
-### 目标
+### Goal
 
-用户在不阅读文字的情况下理解：
+Without reading text, users should understand:
 
-- 这是一个完整工作台；
-- 右侧有 Agent；
-- 中间是视频生产流程；
-- 可以看到角色、分镜或任务状态。
+- This is a complete workspace;
+- An Agent sits on the right;
+- Video production occupies the center;
+- Characters, storyboards, or task states are visible.
 
-### 建议规格
+### Suggested specifications
 
-- 比例：16:9
-- 推荐尺寸：1600 × 900
-- 最低宽度：1200
-- 格式：PNG 或高质量 WebP
-- 文件大小：尽量小于 1.5 MB
+- Ratio: 16:9
+- Recommended dimensions: 1600 × 900
+- Minimum width: 1200
+- Format: PNG or high-quality WebP
+- File size: preferably below 1.5 MB
 
-### 截图内容
+### Screenshot content
 
-优先展示一个已经有实际数据的项目：
+Prefer projects with actual data:
 
-- 左侧项目或资产导航；
-- 中间角色、分镜或时间线；
-- 右侧 Agent；
-- 一处可见的任务或费用信息。
+- Project/asset navigation on the left;
+- Characters, storyboards, or timelines in the center;
+- Agent on the right;
+- Visible task or cost information somewhere.
 
-不要展示：
+Do not show:
 
-- 空白项目；
-- 大面积设置表单；
-- 真实 API Key；
-- 客户名称；
-- 未脱敏的小说全文；
-- 浏览器无关区域。
+- Empty projects;
+- Large settings forms;
+- Real API keys;
+- Customer names;
+- Unredacted complete novels;
+- Irrelevant browser areas.
 
-## 3. 工作流动图
+## 3. Workflow animation
 
-### 目标
+### Goal
 
-用 15～30 秒展示：
+Show within 15–30 seconds:
 
-1. 打开已有项目；
-2. 让 Agent 继续下一阶段；
-3. 查看生成任务；
-4. 打开分镜或视频结果；
-5. 展示版本历史或剪映导出。
+1. Open an existing project;
+2. Ask the Agent to continue to the next stage;
+3. View generation tasks;
+4. Open storyboard/video results;
+5. Show version history or Jianying export.
 
-### 建议规格
+### Suggested specifications
 
-- 优先使用 WebP 动图；
-- 宽度：1200～1600；
-- 帧率：12～20 FPS；
-- 控制在 8 MB 以内；
-- 不录制长时间等待；
-- 用剪辑跳过供应商排队。
+- Prefer animated WebP;
+- Width: 1200–1600;
+- Frame rate: 12–20 FPS;
+- Keep below 8 MB;
+- Do not record long waits;
+- Edit out provider queues.
 
-动图应突出“可审核流程”，而不是只展示按钮点击。
+Emphasize reviewable workflows, not button clicks alone.
 
-## 4. 三个成品案例
+## 4. Three finished examples
 
-README 最少准备三个代表不同场景的案例。
+Prepare at least three README examples representing different scenarios.
 
-### 4.1 小说转 AI 漫剧
+### 4.1 Novel to AI comic drama
 
-记录：
+Record:
 
-- 输入字数；
-- 创作类型；
-- 分镜数量；
-- 使用的角色资产数量；
-- 生成总时长；
-- 视频时长；
-- 使用供应商；
-- 实际费用范围；
-- 最终视频链接。
+- Input character count;
+- Content mode;
+- Storyboard count;
+- Character-asset count;
+- Total generation time;
+- Video duration;
+- Providers used;
+- Actual cost range;
+- Final-video link.
 
-### 4.2 旁白/解说短视频
+### 4.2 Narration/commentary short video
 
-记录：
+Record:
 
-- 旁白字数；
-- 分镜数量；
-- TTS 音色；
-- 是否导出剪映草稿；
-- 最终比例；
-- 实际费用范围；
-- 最终视频链接。
+- Narration character count;
+- Storyboard count;
+- TTS voice;
+- Whether Jianying drafts were exported;
+- Final aspect ratio;
+- Actual cost range;
+- Final-video link.
 
-### 4.3 商品广告短片
+### 4.3 Product advertisement
 
-记录：
+Record:
 
-- 商品参考图数量；
-- 分镜数量；
-- 视频时长；
-- 是否使用参考生视频；
-- 商品真实性审核说明；
-- 实际费用范围；
-- 最终视频链接。
+- Product reference-image count;
+- Storyboard count;
+- Video duration;
+- Whether reference-to-video was used;
+- Product-authenticity review explanation;
+- Actual cost range;
+- Final-video link.
 
-## 5. 案例文案模板
+## 5. Example copy template
 
 ```markdown
 ### 案例名称
@@ -162,32 +162,32 @@ README 最少准备三个代表不同场景的案例。
 - **可编辑输出**：最终视频 + 剪映草稿
 ```
 
-费用必须：
+Costs must:
 
-- 标明币种；
-- 标明只是该案例；
-- 标明供应商价格可能变化；
-- 不把不同币种无说明相加；
-- 不承诺所有用户都能得到相同成本。
+- Identify currency;
+- State they apply only to this example;
+- State provider prices may change;
+- Never add currencies without explanation;
+- Never promise identical costs for all users.
 
-## 6. 隐私和安全检查
+## 6. Privacy and security checks
 
-发布截图和视频前检查：
+Before publishing screenshots/videos, check:
 
-- [ ] 没有 API Key；
-- [ ] 没有 Token；
-- [ ] 没有真实管理员密码；
-- [ ] 没有内部 Base URL；
-- [ ] 没有客户名称；
-- [ ] 没有未经授权的小说内容；
-- [ ] 没有个人文件路径；
-- [ ] 没有浏览器账号头像和通知；
-- [ ] 商品和品牌素材拥有展示授权；
-- [ ] 示例音乐、字体和图片可合法展示。
+- [ ] No API keys;
+- [ ] No tokens;
+- [ ] No real administrator passwords;
+- [ ] No internal Base URLs;
+- [ ] No customer names;
+- [ ] No unauthorized novel content;
+- [ ] No personal file paths;
+- [ ] No browser-account avatars/notifications;
+- [ ] Product/brand material is authorized for display;
+- [ ] Example music/fonts/images can legally be displayed.
 
-## 7. README 接入方式
+## 7. README integration
 
-完成演示素材后，建议在 Hero 图下增加：
+After preparing assets, consider adding below the hero image:
 
 ```markdown
 <p align="center">
@@ -197,7 +197,7 @@ README 最少准备三个代表不同场景的案例。
 </p>
 ```
 
-并在“适合的创作场景”后增加：
+And after "适合的创作场景":
 
 ```markdown
 ## 效果案例
@@ -207,4 +207,4 @@ README 最少准备三个代表不同场景的案例。
 | 封面与视频链接 | 封面与视频链接 | 封面与视频链接 |
 ```
 
-没有真实、可公开的案例时，不要使用占位视频、虚构成本或模型宣传素材冒充 ArcReel 输出。
+Without real publicly shareable examples, never present placeholder videos, invented costs, or model-promotional materials as ArcReel output.

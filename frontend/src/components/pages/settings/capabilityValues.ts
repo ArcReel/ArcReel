@@ -24,12 +24,12 @@ export function asConstraints(value: unknown): Constraints {
   return value && typeof value === "object" ? (value) : {};
 }
 
-/** 时长联动约束的分辨率键与可选分辨率按小写比较（与服务端一致）。 */
+/** Compare duration-constraint resolution keys and available resolutions in lowercase, matching the server. */
 export function sameResolution(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-/** 去掉时长联动约束里已不在可选分辨率中的分辨率。 */
+/** Remove duration-constraint resolutions no longer present in available resolutions. */
 export function withoutDroppedResolutions(constraints: unknown, resolutions: string[]): Constraints {
   const value = asConstraints(constraints);
   const byResolution = Object.fromEntries(
@@ -44,7 +44,7 @@ export function scalarText(value: unknown): string {
     : JSON.stringify(value);
 }
 
-/** 维度取值的文字：原值与修改后的值共用。`null` 表示两侧都没有声明，显示「未收录」。 */
+/** Dimension-value copy shared by original and edited values. `null` means neither side declares it; display not cataloged. */
 export function capabilityValueText(t: TFunction, key: CapabilityKey, value: unknown): string {
   if (value === null || value === undefined) return t("pm_cap_value_unrecorded");
   if (BOOL_KEYS.has(key)) return t(value ? "pm_cap_value_supported" : "pm_cap_value_unsupported");

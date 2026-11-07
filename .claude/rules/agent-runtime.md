@@ -12,12 +12,12 @@ paths:
   - "uv.lock"
 ---
 
-# Agent Runtime 与 Agent 配置
+# Agent Runtime and Agent configuration
 
-SDK 调用、options、session、streaming、hooks、permissions 或消息类型发生变化时，先查 [Claude Agent SDK 官方在线文档](https://code.claude.com/docs/en/agent-sdk/overview)，再调用项目已启用的 `agent-sdk-dev@claude-plugins-official` 对应 Python verifier 核验当前 SDK 用法。普通的 Agent 运行时业务逻辑改动不触发 verifier。
+When SDK calls, options, sessions, streaming, hooks, permissions, or message types change, first consult the [official Claude Agent SDK online documentation](https://code.claude.com/docs/en/agent-sdk/overview), then use the corresponding Python verifier from the project's enabled `agent-sdk-dev@claude-plugins-official` plugin to verify current SDK usage. Ordinary Agent runtime business-logic changes do not trigger the verifier.
 
-该 plugin 属于 ArcReel 仓库的开发态 Claude Code 配置；内嵌创作 Agent 不继承它。历史版本行为以固定版本的上游源码或当前契约测试为依据，不引用可变网页的行号。
+That plugin belongs to the ArcReel repository's development Claude Code configuration; the embedded creation Agent does not inherit it. Base claims about historical versions on pinned upstream source or current contract tests, not line numbers from mutable web pages.
 
-读取 SDK transcript 经 `server/agent_runtime/sdk_transcript_adapter.py` 的 `SdkTranscriptAdapter`：它按 `ARCREEL_SDK_SESSION_STORE` 在 DB 镜像与 SDK jsonl 之间切换（`docs/adr/0029`），直接读 store 的代码在 `off` 部署下读不到记录。
+Read SDK transcripts through `SdkTranscriptAdapter` in `server/agent_runtime/sdk_transcript_adapter.py`: it switches between the DB mirror and SDK jsonl according to `ARCREEL_SDK_SESSION_STORE` (`docs/adr/0029`). Code that reads the store directly finds no records in `off` deployments.
 
-新增 Agent 工具或会话操作、改内嵌 Agent 的行为、放行 Agent 的文件或网络访问前，先读 `website/docs/dev/architecture.md` 的「5.3 确定性工具」「5.4 会话串行」「5.5 内嵌 Agent 配置源」「15. 沙箱和安全边界」。
+Before adding Agent tools or session operations, changing embedded Agent behavior, or allowing Agent file or network access, read “5.3 确定性工具,” “5.4 会话串行,” “5.5 内嵌 Agent 配置源,” and “15. 沙箱和安全边界” in `website/docs/dev/architecture.md`.

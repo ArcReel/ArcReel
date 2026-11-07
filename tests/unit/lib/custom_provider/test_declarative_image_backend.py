@@ -27,7 +27,7 @@ def _backend(definition: dict[str, Any] | None = None) -> DeclarativeImageBacken
 
 
 def _image_to_image_definition(*, encoding: str = "data_uri", max_reference_images: int | float = 2) -> dict[str, Any]:
-    """同时声明文生图与图生图、参考图可选的定义：参考图逐张铺进 ``image_urls``。"""
+    """A definition supporting text-to-image and image-to-image with optional references spreads each reference into ``image_urls``."""
     definition = image_endpoint_definition(
         capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": max_reference_images},
         inputs={"refs": {"source": "reference_images", "encoding": encoding}},
@@ -130,7 +130,7 @@ class TestDeclarativeImageBackend:
         ]
 
     async def test_single_slot_template_rejects_overridden_extra_references_before_submit(self, tmp_path: Path):
-        """对象式 ``$each`` 把参考图写进固定键：覆盖放行多张时提交前拒绝，不让后一张悄悄盖掉前一张。"""
+        """Object-form ``$each`` writes references to a fixed key; if overrides allow multiple images, reject before submission instead of silently overwriting earlier images."""
         definition = _image_to_image_definition(max_reference_images=1)
         del definition["submit"]["body"]["image_urls"]
         definition["submit"]["body"]["$each"] = {"in": "inputs.refs", "as": "ref", "key": "image", "value": "{{ ref }}"}

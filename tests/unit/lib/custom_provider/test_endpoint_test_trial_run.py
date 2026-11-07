@@ -1,7 +1,7 @@
-"""测试连接：真发一次生成、记账、写盘、TTL 与取消。
+"""Connection tests: execute one real generation path, account, write files, enforce TTL, and cancel.
 
-出站一律走 respx，记账走真实 ``Ledger`` + 内存库——本票的判据是「跑的是生产那条路」，用替身
-顶掉 backend 或账本就把这条判据换成了「替身被调用过」。
+respx intercepts all outbound traffic; real ``Ledger`` plus an in-memory DB handles accounting. This issue requires using the production path;
+replacing backend or ledger would reduce that criterion to a substitute having been called.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def _mock_successful_run(router) -> None:
 
 
 async def _await_terminal(trial_runs: TrialRunManager, run_id: str):
-    """等后台 run 停下并取回终态。"""
+    """Wait for the background run to stop and retrieve terminal state."""
     run = await trial_runs.wait(run_id)
     assert run is not None
     assert run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED)
@@ -82,14 +82,14 @@ async def _await_terminal(trial_runs: TrialRunManager, run_id: str):
 
 
 def _mock_pending_run(router) -> asyncio.Event:
-    """一直停在 processing 的 run；返回的事件在提交请求发出时置位。
+    """A run that stays processing; the returned event is set when submission is sent.
 
-    pending 记账行在发这一枪之前就落了库（``run.api_call_id`` 同点赋值），所以等这次握手
-    等到的正是「取消要翻的那一行已经存在」，不必去猜事件循环要让步多少次。
+    The pending accounting row exists before this request (``run.api_call_id`` is assigned then too), so this handshake
+    establishes that the row cancellation must update exists, without guessing how many event-loop yields are needed.
 
-    首次轮询回 processing，之后的轮询停在请求上直到 run 被取消。``bounded_poll_clock`` 把轮询
-    间隔换成不让出的空等、并替换全局 ``time.monotonic``：一直回 processing 的话，这条 run 会在
-    用例的其他让出点上反复轮询，连同事件循环的读表一起耗掉超时预算，提前以超时失败。
+    The first poll returns processing; later polls block on the request until run cancellation. ``bounded_poll_clock`` replaces polling
+    intervals with nonyielding waits and global ``time.monotonic``. Repeated processing responses would keep polling at other test yield points,
+    consuming timeout budget together with event-loop table reads and failing prematurely with timeout.
     """
     submitted = asyncio.Event()
     parked = asyncio.Event()
@@ -111,9 +111,9 @@ def _mock_pending_run(router) -> asyncio.Event:
 
 
 def _hold_result_write(monkeypatch) -> tuple[asyncio.Event, threading.Event]:
-    """把终态写盘停在线程里：返回「写盘已开始」与「放行写盘」两个信号。
+    """Pause terminal-result disk writing inside its thread; return write-started and release-write signals.
 
-    写盘窗口在真实运行里只有毫秒级，停住它才能确定地把取消落进这个窗口。
+    Real disk-writing windows last only milliseconds; pausing makes cancellation reliably land within that window.
     """
     loop = asyncio.get_running_loop()
     writing = asyncio.Event()
@@ -132,10 +132,10 @@ def _hold_result_write(monkeypatch) -> tuple[asyncio.Event, threading.Event]:
 
 
 class _TierAwareBackend(DeclarativeVideoBackend):
-    """1080p 档收窄能力的声明式端点：尾帧不可用、带首帧只收 adaptive，其余档位照定义声明。
+    """A declarative endpoint with narrowed 1080p capabilities: no last frame, adaptive-only first-frame ratio, otherwise defined tier capabilities.
 
-    出站仍走声明式端点的真实路径，只多一个 ``video_capabilities_for_tier``——这正是生产侧
-    ``resolve_video_capabilities`` 探测的那个可选成员。
+    Outbound traffic still follows the real declarative-endpoint path; only ``video_capabilities_for_tier`` is added, precisely the optional
+    member production ``resolve_video_capabilities`` probes.
     """
 
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
@@ -255,7 +255,7 @@ class TestImageDefinitionTrialRun:
     async def test_reference_images_beyond_the_effective_limit_are_rejected_before_billing(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, tmp_path: Path
     ):
-        """测试连接与生产出图读同一个参考图上限：qwen-image-2.0 的条目记 3 张，带 4 张在提交前拒绝、不记账。"""
+        """Connection tests share production image reference limits: qwen-image-2.0 declares 3 images; reject 4 before submission/accounting."""
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
         parameters = EndpointTestParameters(model="qwen-image-2.0", prompt="黄昏的灯塔")
@@ -305,10 +305,10 @@ class TestTrialRun:
         assert rows[0].id == run.api_call_id
         assert rows[0].status == "success"
         assert rows[0].call_type == "video"
-        # 端点试跑没有任务可回指，来源由 purpose 说明。
+        # Endpoint trials have no task backlink; purpose identifies the source.
         assert rows[0].task_id is None
         assert rows[0].purpose == "endpoint_trial"
-        # 内联凭证没有供应商身份，落账用 base_url 的 host，账单上才认得出这笔钱花在哪。
+        # Inline credentials have no provider identity; account under the base_url host so bills identify where money went.
         assert rows[0].provider == "relay.test"
 
     async def test_result_carries_the_rendered_request_responses_and_extractions(self, trial_runs: TrialRunManager):
@@ -400,11 +400,11 @@ class TestTrialRun:
     async def test_a_declared_capability_violation_is_rejected_before_billing(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, tmp_path: Path
     ):
-        """生产路径在记账前跑能力闸；测试连接同一道闸——违约请求一个字节不外发、一分钱不记账。"""
+        """Production gates capabilities before accounting; connection tests share that gate, sending/accounting nothing for invalid requests."""
         face = tmp_path / "face.png"
         face.write_bytes(b"png")
         with capture_http() as router, bounded_poll_clock():
-            # 夹具定义只声明 first_frame，参考图路径不可用（max_reference_images=0）。
+            # The fixture declares only first_frame; references are unavailable (max_reference_images=0).
             started = await trial_runs.start(_target(), PARAMETERS, assets={"reference_images": [face]})
             run = await _await_terminal(trial_runs, started.id)
 
@@ -417,7 +417,7 @@ class TestTrialRun:
     async def test_a_reference_driven_endpoint_passes_the_gate_without_a_first_frame(
         self, tmp_path: Path, trial_runs: TrialRunManager
     ):
-        """参考图驱动的端点（如 S2V）没有首帧但带参考图：闸看整份槽位计划，不能判成纯文生。"""
+        """Reference-driven endpoints such as S2V lack first frames but carry references; gates must inspect the whole slot plan instead of classifying as pure text-to-video."""
         definition = custom_endpoint_definition(
             inputs={"refs": {"source": "reference_images", "encoding": "data_uri"}},
             capabilities={"text_to_video": False, "max_reference_images": 3},
@@ -444,7 +444,7 @@ class TestTrialRun:
     async def test_a_first_frame_request_sends_the_adaptive_ratio_when_the_endpoint_requires_it(
         self, tmp_path: Path, trial_runs: TrialRunManager, db_factory: async_sessionmaker
     ):
-        """声明 first_frame_ratio_adaptive_only 的端点只接受 adaptive；账本仍记用户填的比例意图。"""
+        """Endpoints declaring first_frame_ratio_adaptive_only accept only adaptive, while the ledger still records user-entered ratio intent."""
         definition = custom_endpoint_definition(
             capabilities={"first_frame": True, "first_frame_ratio_adaptive_only": True}
         )
@@ -483,7 +483,7 @@ class TestTrialRun:
         expected: str,
         error_code: str | None,
     ):
-        """档位感知的端点按请求分辨率收窄能力：生产在收窄后的能力上拒绝的请求，测试连接同样拒绝。"""
+        """Tier-aware endpoints narrow by requested resolution; connection tests reject the same requests production rejects under narrowed capabilities."""
         parameters = replace(PARAMETERS, resolution=resolution)
         frame = tmp_path / "frame.png"
         frame.write_bytes(b"png")
@@ -507,7 +507,7 @@ class TestTrialRun:
     async def test_the_adaptive_ratio_follows_the_capabilities_narrowed_to_the_requested_resolution(
         self, tmp_path: Path, trial_runs: TrialRunManager
     ):
-        """比例覆盖与能力闸读同一份收窄结果：只在该分辨率声明 adaptive 的端点也要下发 adaptive。"""
+        """Ratio overrides and capability gates share the narrowed result; endpoints declaring adaptive only at that resolution must still send adaptive."""
         parameters = replace(PARAMETERS, resolution="1080p")
         frame = tmp_path / "frame.png"
         frame.write_bytes(b"png")
@@ -537,7 +537,7 @@ class TestTrialRun:
     async def test_a_backend_that_cannot_be_built_is_not_billed(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker
     ):
-        """装配失败时一个字节都没发出去，账本上就不该多一条调用。"""
+        """Assembly failure sends no bytes and must not add a ledger call."""
 
         async def _explode():
             raise ValueError("自定义供应商 custom-9 不存在")
@@ -553,7 +553,7 @@ class TestTrialRun:
 
 
 class _RecordingBackend(DeclarativeVideoBackend):
-    """记下后端实际收到的请求，出站仍走声明式端点的真实路径。"""
+    """Record the request actually received by the backend, retaining the real declarative outbound path."""
 
     requests: ClassVar[list[VideoGenerationRequest]] = []
 
@@ -563,7 +563,7 @@ class _RecordingBackend(DeclarativeVideoBackend):
 
 
 class TestBuiltinUserAddedOverrides:
-    """内置供应商下用户添加的模型：测试连接与生产执行闸门同样叠加用户的能力覆盖（docs/adr/0104）。"""
+    """User-added models under built-in providers overlay user capability overrides in both connection tests and production gates (docs/adr/0104)."""
 
     @pytest.fixture
     def builtin_target(self):
@@ -664,7 +664,7 @@ class TestConcurrencyAndCancel:
             await submitted.wait()
 
             assert await trial_runs.cancel(started.id) is True
-            # 取消后名额立刻让出：用户改完参数就能再发一次。
+            # Release the slot immediately after cancellation so users can adjust parameters and retry.
             _mock_successful_run(router)
             retried = await trial_runs.start(_target(), PARAMETERS)
             await _await_terminal(trial_runs, retried.id)
@@ -672,14 +672,14 @@ class TestConcurrencyAndCancel:
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall).order_by(ApiCall.id))).scalars().all()
         assert [row.status for row in rows] == ["cancelled", "success"]
-        # 取消的 run 不留结果文件，读接口据此 404。
+        # Canceled runs retain no result files; read APIs return 404 accordingly.
         assert trial_runs.get(started.id) is None
 
     async def test_cancelling_an_unknown_run_reports_nothing_to_cancel(self, trial_runs: TrialRunManager):
         assert await trial_runs.cancel("no-such-run") is False
 
     async def test_a_failed_settlement_still_frees_the_slot(self, trial_runs: TrialRunManager, monkeypatch):
-        """结算抛错时任务已停、task 已移除：名额不还就永远 busy，重试取消也只会 404。"""
+        """If settlement raises after the run stops and task removal, unreleased slots stay busy forever, while repeated cancellation only returns 404."""
 
         async def _boom(*, call_id: int) -> None:
             raise RuntimeError("db down")
@@ -699,7 +699,7 @@ class TestConcurrencyAndCancel:
             await _await_terminal(trial_runs, retried.id)
 
     async def test_a_failed_directory_frees_the_slot(self, trial_runs: TrialRunManager, monkeypatch):
-        """建结果目录失败时名额没让出去，后续测试会被永远拒成 busy，而取消又还没有 task 可停。"""
+        """Result-directory creation failure must release the slot; otherwise later trials stay busy forever, with no task available to cancel."""
 
         def _boom(*_args, **_kwargs) -> None:
             raise OSError("disk full")
@@ -717,9 +717,9 @@ class TestConcurrencyAndCancel:
     async def test_shutdown_keeps_draining_after_a_failed_settlement(
         self, tmp_path: Path, file_db_factory: async_sessionmaker, monkeypatch
     ):
-        """一条 run 结算失败不能中断关停：后面的 run 一条都不会停，关库等后续步骤也一起跳过。"""
-        # 两条 run 并发记账：内存库只有一条共享连接，一边的提交或回滚会带走另一边未提交的写入，
-        # 这里用各自独立连接的文件库。
+        """One run settlement failure must not interrupt shutdown, leaving later runs unstopped and skipping DB closure and subsequent steps."""
+        # Two runs account concurrently: one shared in-memory connection lets one commit/rollback affect the other's uncommitted writes.
+        # Use a file DB with separate connections here.
         trial_runs = TrialRunManager(
             root=tmp_path / "trial_runs",
             ledger=Ledger(session_factory=file_db_factory),
@@ -753,7 +753,7 @@ class TestConcurrencyAndCancel:
     async def test_shutdown_settles_every_active_run_as_cancelled(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker
     ):
-        """进程关停不能把 pending 记账行留给一个不会回来的进程。"""
+        """Process shutdown must not leave pending accounting rows owned by a process that will never return."""
         with capture_http() as router, bounded_poll_clock():
             submitted = _mock_pending_run(router)
             started = await trial_runs.start(_target(), PARAMETERS)
@@ -769,7 +769,7 @@ class TestConcurrencyAndCancel:
     async def test_a_cancel_after_the_provider_succeeded_keeps_the_result(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, monkeypatch
     ):
-        """供应商已经成功返回、正在写盘时才到的取消：钱已花、账已记成功，结果不能被删。"""
+        """Cancellation arriving during disk writing after provider success must not delete results: payment occurred and accounting already succeeded."""
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
             writing, release = _hold_result_write(monkeypatch)
@@ -789,7 +789,7 @@ class TestConcurrencyAndCancel:
     async def test_shutdown_keeps_a_run_that_is_already_settling(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, monkeypatch
     ):
-        """关停排空遇到正在写盘的 run：等它写完，不按取消删目录。"""
+        """Shutdown draining a writing run waits for completion instead of deleting its directory as canceled."""
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
             writing, release = _hold_result_write(monkeypatch)
@@ -858,10 +858,10 @@ class TestConcurrencyAndCancel:
 
 
 class TestRunIdShape:
-    """run_id 是调用方传入的路径段：非生成格式的值不许触达盘上路径。"""
+    """run_id is a caller-supplied path segment; nongenerated formats must never reach disk paths."""
 
     def test_a_traversal_shaped_run_id_reads_nothing(self, trial_runs: TrialRunManager):
-        # root 上一级放一份 result.json：``root/../result.json`` 恰好指到它，越界读会命中。
+        # Put result.json above root: ``root/../result.json`` resolves to it, exposing out-of-bounds reads.
         (trial_runs.root.parent / "result.json").write_text("{}", encoding="utf-8")
 
         assert trial_runs.get("..") is None
@@ -890,7 +890,7 @@ class TestRetention:
         assert not stale.exists()
 
     def test_a_result_file_with_ill_typed_fields_reads_as_missing(self, trial_runs: TrialRunManager):
-        """坏掉的结果文件走受控失败路径：读接口据此 404，而不是让响应校验在出口炸成 500。"""
+        """Malformed result files use controlled failure, yielding read-side 404 instead of response validation exploding into 500."""
         run_id = "0" * 32
         (trial_runs.root / run_id).mkdir(parents=True)
         (trial_runs.root / run_id / "result.json").write_text(
@@ -900,7 +900,7 @@ class TestRetention:
         assert trial_runs.get(run_id) is None
 
     async def test_a_result_past_the_ttl_is_no_longer_readable(self, trial_runs: TrialRunManager):
-        """读接口自己判过期：一台长时间没有新 run 的服务器上，清理不会被触发。"""
+        """The read API checks expiry itself; servers without new runs for a long time do not trigger cleanup."""
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
             started = await trial_runs.start(_target(), PARAMETERS)

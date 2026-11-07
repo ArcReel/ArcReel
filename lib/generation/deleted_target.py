@@ -1,10 +1,10 @@
-"""生成完成时目标已删除：结果不写回原路径、不写版本记录，直接成为项目回收站中的一条删除记录。
+"""Targets deleted before generation completion: skip original-path/version writes, creating project-trash deletion records instead.
 
-生成任务执行期间，创作者或 Agent 可能删掉了它的目标资源（资产、分镜条目、视频单元、宫格等）。
-:class:`~lib.generation.media_generator.MediaGenerator` 在费用结算之后、正式提交之前调用
-:func:`trash_result_if_target_deleted` 复核一次；目标已不在项目中时，暂存产物按原路径记进项目回收站，
-抛出 :class:`GenerationTargetDeletedError` 跳过提交。任务入口接住它，以 :attr:`~GenerationTargetDeletedError.result`
-作为任务结果正常结束，费用记录不受影响，被删的内容也不会复活。
+Creators/Agents may delete assets/storyboards/video units/grids during execution.
+:class:`~lib.generation.media_generator.MediaGenerator` rechecks through
+:func:`trash_result_if_target_deleted` after settlement/before formal commit. Missing targets move staged artifacts into trash
+under original paths, raising :class:`GenerationTargetDeletedError` to skip commits. Task entries catch it and complete normally with
+:attr:`~GenerationTargetDeletedError.result`, preserving costs without resurrecting deleted content.
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ __all__ = [
     "trash_result_if_target_deleted",
 ]
 
-#: 删除记录的对象类型：一份生成结果。
+#: Deletion-record object kind: generated results.
 GENERATION_RESULT_KIND = "generation_result"
-#: 删除记录的标注「生成完成时目标已删除」，前端据此改写发起方文案。
+#: Target-deleted-at-completion labels let frontend adjust initiator wording.
 TARGET_DELETED_NOTE = "target_deleted_during_generation"
 
 
 class GenerationTargetDeletedError(Exception):
-    """生成结果已进入项目回收站。这不是失败：任务以 :attr:`result` 正常结束。"""
+    """Results entered project trash, not failure: tasks complete normally with :attr:`result`."""
 
     def __init__(self, record: project_trash.TrashRecord, *, resource_type: str, resource_id: str) -> None:
         super().__init__(f"generation target deleted: {resource_type}/{resource_id}")
@@ -53,13 +53,13 @@ def trash_result_if_target_deleted(
     staged_file: Path,
     target: tuple[str, str] | None = None,
 ) -> None:
-    """``target``（缺省为产物自身的资源）已不在项目中时，把 ``staged_file`` 记进回收站并抛出。
+    """When ``target``, defaulting to artifact resources, no longer exists, record ``staged_file`` in trash and raise.
 
-    记录里的文件路径是产物本该落下的原路径，恢复时按回收站的规则加回。
+    Record original intended artifact paths, restored through trash rules.
     """
     target_type, target_id = target or (resource_type, resource_id)
-    # shortcut: 复核与随后的正式提交分属两次加锁（项目锁不可重入，提交路径先取剧本锁再取项目锁），
-    # 两者之间的删除仍按各提交路径原有的目标缺失处理；需要严格原子时把复核并进各提交路径的锁内。
+    # shortcut: Recheck/commit acquire separate locks because project locks are nonreentrant and commits take script then project locks.
+    # Deletion between them follows existing missing-target commit handling; strict atomicity requires moving rechecks inside commit locks.
     with project_metadata_lock(project_dir):
         if ReferenceIndex.build(project_dir).contains_resource(target_type, target_id):
             return

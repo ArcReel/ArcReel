@@ -1,4 +1,4 @@
-"""视频后端注册与工厂。"""
+"""Video backend registration and factories."""
 
 from __future__ import annotations
 
@@ -21,29 +21,29 @@ _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 
 
 def register_backend(name: str, factory: Callable[..., VideoBackend]) -> None:
-    """注册一个视频后端工厂函数。"""
+    """Register a video backend factory."""
     _BACKEND_FACTORIES[name] = factory
 
 
 def create_backend(name: str, **kwargs: Any) -> VideoBackend:
-    """根据名称创建视频后端实例。"""
+    """Construct video backends by name."""
     if name not in _BACKEND_FACTORIES:
         raise ValueError(f"Unknown video backend: {name}")
     return _BACKEND_FACTORIES[name](**kwargs)
 
 
 def get_registered_backends() -> list[str]:
-    """返回所有已注册的后端名称。"""
+    """Return all registered backend names."""
     return list(_BACKEND_FACTORIES.keys())
 
 
 def video_capabilities_for_model(name: str, model_id: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-    """读某后端对某 model 声明的视频能力 —— 纯查表，不构造实例（无需 api_key）。
+    """Read backend model-declared capabilities through pure lookup, without instances/api_key.
 
-    ``name`` 是 registry 名（内置侧由 ``ProviderSpec.registry_backend`` 给出，与 provider_id
-    不必相同：gemini-aistudio / gemini-vertex 同映射到 ``gemini``）。展示层解析内置模型的
-    布尔能力位走这里，使 backend 保持唯一真相源，不在注册表复制第二份能力声明。``entry`` 是模型对应的
-    条目，backend 按它的名字认定通道能力；不给时按 ``model_id`` 现查（docs/adr/0105）。
+    ``name`` is registry identity, built-in ``ProviderSpec.registry_backend``, not necessarily provider_id:
+    gemini-aistudio / gemini-vertex both map to ``gemini``. Presentation resolves built-in booleans here,
+    keeping backends authoritative instead of duplicating declarations. ``entry`` identifies the model;
+    backends recognize channels through its name. Without it, look up ``model_id`` live (docs/adr/0105).
     """
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:
@@ -58,10 +58,11 @@ def video_capabilities_for_model(name: str, model_id: str, entry: CatalogEntry |
 
 
 def effective_generate_audio_for_model(name: str, model_id: str, entry: CatalogEntry | None = None) -> bool:
-    """读 backend 对默认执行档声明的有效 ``generate_audio`` 计价参数。
+    """Read effective ``generate_audio`` pricing parameters for backend default execution tiers.
 
-    未声明专属规则的 backend 沿用请求值；需要按 model / 默认档收窄的 backend 通过同名
-    静态方法提供纯查询，避免估算侧复制执行实现。``entry`` 是模型对应的条目，与能力声明同一个。
+    Backends without special rules retain request values. Model/default-tier narrowing uses same-name
+    static queries rather than duplicating execution logic in estimates. ``entry`` identifies the same
+    model entry as capability declarations.
     """
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:
@@ -78,11 +79,11 @@ def effective_generate_audio_for_model(name: str, model_id: str, entry: CatalogE
 def backend_metered_usage(
     backend: VideoBackend, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
 ) -> Usage | None:
-    """调用通道实例按用量契约上报的这次请求的计量；通道没有声明 ``metered_usage`` 时为 ``None``。
+    """Per-request instance usage under metering contracts, or ``None`` when channels omit ``metered_usage``.
 
-    内置调用通道都声明了它（见 :mod:`lib.backends.video_backends.metering`），自定义供应商的包装层转交被包装
-    的通道或按通用口径上报（见 :mod:`lib.custom_provider.metering`）。计量按实例装配时的条目认定模型
-    （:func:`~lib.backends.video_backends.name_family.catalog_entry_of`），与它的能力和请求构造同一个来源。
+    Built-ins all declare it (:mod:`lib.backends.video_backends.metering`); custom wrappers delegate or
+    report generic usage (:mod:`lib.custom_provider.metering`). Identify models through assembly entries
+    (:func:`~lib.backends.video_backends.name_family.catalog_entry_of`), sharing capability/request sources.
     """
     metered_usage = getattr(backend, "metered_usage", None)
     if metered_usage is None:
@@ -101,9 +102,9 @@ def metered_usage_for_model(
     *,
     entry: CatalogEntry | None = None,
 ) -> Usage:
-    """按 registry 名读某后端对一个请求上报的计量 —— 纯计算，不构造实例；``result`` 为 ``None`` 时是提交前预估。
+    """Read per-request backend metering by registry name through pure calculation, without instances; ``result`` ``None`` means presubmission estimates.
 
-    ``entry`` 是模型对应的条目，调用通道按它认定模型（docs/adr/0105），与执行时实例装配的条目同一个。
+    ``entry`` identifies models for channels (docs/adr/0105), matching execution instance assembly entries.
     """
     factory = _BACKEND_FACTORIES.get(name)
     if factory is None:

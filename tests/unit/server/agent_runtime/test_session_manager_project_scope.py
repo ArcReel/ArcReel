@@ -22,7 +22,7 @@ class _FakeHookMatcher:
 
 
 async def _fake_provider_env():
-    """Stub for OptionsAssembler 凭证注入 — 跳过 DB 访问。"""
+    """OptionsAssembler credential-injection stub: skip database access."""
     return {}
 
 
@@ -169,26 +169,26 @@ class TestSessionManagerProjectScope:
         prompt = manager._options_assembler._build_project_context("demo")
 
         # Session-invariant facts are present
-        assert "项目标识：demo" in prompt
-        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve().as_posix()}" in prompt
-        assert "项目元数据（标题、风格、概述等）存于 project.json，需要时读取。" in prompt
-        assert "Bash 命令必须写在单行" in prompt
+        assert "Project identifier: demo" in prompt
+        assert f"Project directory (the current working directory, cwd): {project_dir.resolve().as_posix()}" in prompt
+        assert "Project metadata (title, style, overview, etc.) lives in project.json; read it when needed." in prompt
+        assert "Write Bash commands on a single line" in prompt
 
         # The cwd line embeds an arbitrary temp path; exclude it so ASCII tokens
         # that may appear in the test's tmp_path can't cause false substring matches.
-        body = "\n".join(line for line in prompt.splitlines() if "项目目录" not in line)
+        body = "\n".join(line for line in prompt.splitlines() if "Project directory" not in line)
 
         # Mutable metadata (every label and value) must be absent — read on demand instead
         for token in (
-            "项目标题",
+            "Project title:",
             "重生之皇后威武",
-            "创作类型",
+            "Content mode:",
             "narration",
-            "视觉风格",
+            "Visual style:",
             "Photographic",
-            "风格描述",
+            "Style description:",
             "Soft diffused lighting",
-            "项目概述",
+            "Project overview:",
             "姜月茴重生后逆袭的故事",
             "古装宫斗",
             "复仇与救赎",
@@ -197,8 +197,8 @@ class TestSessionManagerProjectScope:
             assert token not in body
 
         # Redundant path rules now live only in CLAUDE.{mode}.md — guard against re-adding them here
-        assert "必须使用绝对路径" not in body
-        assert "必须使用相对路径" not in body
+        assert "must use absolute paths" not in body
+        assert "must use relative paths" not in body
 
     @pytest.mark.asyncio
     async def test_build_project_context_emits_block_without_project_json(self, tmp_path, meta_store):
@@ -214,9 +214,9 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._options_assembler._build_project_context("empty")
 
-        assert "项目标识：empty" in prompt
-        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve().as_posix()}" in prompt
-        assert "项目元数据（标题、风格、概述等）存于 project.json，需要时读取。" in prompt
+        assert "Project identifier: empty" in prompt
+        assert f"Project directory (the current working directory, cwd): {project_dir.resolve().as_posix()}" in prompt
+        assert "Project metadata (title, style, overview, etc.) lives in project.json; read it when needed." in prompt
 
 
 class TestAllowedToolsAndConstants:
@@ -234,8 +234,8 @@ class TestAllowedToolsAndConstants:
         assert "AskUserQuestion" in tools
         assert "MultiEdit" not in tools
         assert "LS" not in tools
-        # Task 4.2: Bash 现在在 allowed_tools，由 SDK Sandbox autoAllowBashIfSandboxed
-        # 配合 SandboxSettings.enabled=True 自动放行命令。
+        # Task 4.2: Bash is now in allowed_tools; SDK Sandbox autoAllowBashIfSandboxed
+        # with SandboxSettings.enabled=True automatically allows commands.
         assert "Bash" in tools
         assert "BashOutput" in tools
         assert "KillBash" in tools

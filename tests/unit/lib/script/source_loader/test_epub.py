@@ -20,7 +20,7 @@ def test_epub_injects_chapter_markers_and_counts(epub_factory):
     assert "# 第一章 起点" in result.text
     assert "# 第二章 转折" in result.text
     assert "# 第三章 终局" in result.text
-    # 章节顺序与 spine 一致
+    # Chapter order follows spine.
     pos1 = result.text.find("第一章正文")
     pos2 = result.text.find("第二章正文")
     pos3 = result.text.find("第三章正文")
@@ -37,13 +37,13 @@ def test_epub_falls_back_to_index_when_no_toc(epub_factory):
     )
     result = EpubExtractor().extract(src)
     assert result.chapter_count == 2
-    # 没有 toc → 标题降级为 "第 N 章"
+    # Without TOC, titles fall back to "第 N 章".
     assert "# 第 1 章" in result.text
     assert "# 第 2 章" in result.text
 
 
 def test_epub_excludes_nav_with_nonstandard_id(epub_factory):
-    """导航文档按 manifest 的 properties="nav" 识别，与 id 无关（Calibre/Sigil 常用 navdoc、toc 等 id）。"""
+    """Recognize navigation by manifest properties="nav", independent of IDs such as navdoc/toc commonly used by Calibre/Sigil."""
     src = epub_factory([("Ch1", "真实正文。")], nav_id="navdoc")
     result = EpubExtractor().extract(src)
     assert result.chapter_count == 1
@@ -60,7 +60,7 @@ def test_epub3_without_ncx_takes_titles_from_nav(epub_factory):
 
 
 def test_epub_toc_first_entry_per_file_wins_over_fragment_entries(epub_factory):
-    """同一章节文件的多个目录条目（带 #锚点的小节）不覆盖章节标题。"""
+    """Multiple TOC entries for one chapter file (#anchor subsections) must not overwrite its chapter title."""
     src = epub_factory(
         [("第一章", "正文一。"), ("第二章", "正文二。")],
         toc_entries=[
@@ -84,7 +84,7 @@ def test_epub_with_package_document_at_archive_root(epub_factory):
 
 
 def test_epub_package_path_is_resolved_as_url(epub_factory, tmp_path):
-    """EPUB 3.3：full-path 是相对容器根目录的 URL，百分号编码需要解码后再查找 zip 条目。"""
+    """EPUB 3.3 full-path is a container-root-relative URL; percent-decode before zip lookup."""
     src = epub_factory([("第一章", "编码路径正文。")], opf_dir="Book Name")
     src = _rewrite_members(
         src,
@@ -97,7 +97,7 @@ def test_epub_package_path_is_resolved_as_url(epub_factory, tmp_path):
 
 
 def test_epub_selects_package_rootfile_by_media_type(epub_factory, tmp_path):
-    """container.xml 可列多个 rootfile（如替代格式的 PDF），按 OPF 媒体类型选取包文档。"""
+    """container.xml may list multiple rootfiles, such as alternative PDF renditions; select package documents by OPF media type."""
     src = epub_factory([("第一章", "正文。")])
     src = _rewrite_members(
         src,
@@ -138,7 +138,7 @@ def test_epub_does_not_expand_external_entities(epub_factory, tmp_path):
     )
     result = EpubExtractor().extract(src)
     assert "TOP-SECRET" not in result.text
-    # 外部实体不被加载，NCX 视为损坏，标题退化为序号，正文照常抽取
+    # Never load external entities; treat NCX as corrupt, fall back to numbered titles, and extract body normally.
     assert "# 第 1 章" in result.text
     assert "正文。" in result.text
 
@@ -175,7 +175,7 @@ def test_epub_corrupted_compressed_data_raises_corrupt(epub_factory, tmp_path):
 
 
 def test_epub_corrupted_toc_entry_degrades_to_index_titles(epub_factory, tmp_path):
-    """目录文件在 zip 层损坏（压缩数据坏、CRC 不符）时只退化标题，正文照常抽取。"""
+    """Zip-level TOC corruption (bad compressed data/CRC) degrades only titles; body extraction proceeds normally."""
     src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
     broken = _corrupt_member(src, tmp_path / "bad_ncx.epub", "OEBPS/toc.ncx")
     result = EpubExtractor().extract(broken)
@@ -200,16 +200,16 @@ def test_epub_broken_toc_degrades_to_index_titles(epub_factory, tmp_path):
 
 
 def test_epub_chapter_text_excludes_document_head(epub_factory):
-    """章节 <head><title> 不是正文，不得与 <h1> 重复出现。"""
+    """Chapter <head><title> is not body content and must not duplicate <h1>."""
     src = epub_factory([("起点", "正文一。")])
     result = EpubExtractor().extract(src)
-    # 一次来自注入的 "# 起点" 标记，一次来自正文 <h1>
+    # One occurrence comes from injected "# 起点", the other from body <h1>.
     assert result.text.count("起点") == 2
 
 
 @pytest.mark.parametrize("encoding", ["gbk", "shift_jis"])
 def test_epub_reads_xml_declared_in_multibyte_encoding(epub_factory, tmp_path, encoding):
-    """整本按 GBK、Shift_JIS 等多字节编码写出并如实声明时，OPF、NCX 与章节都按声明解码。"""
+    """When the whole book truthfully declares multibyte GBK/Shift_JIS encoding, decode OPF, NCX, and chapters by their declarations."""
     src = epub_factory([("第一章 起点", "正文一。")], toc="ncx")
     src = _rewrite_members(
         src,
@@ -251,7 +251,7 @@ def test_epub_toc_with_unknown_xml_encoding_degrades_to_index_titles(epub_factor
     ids=["landmarks", "untyped-page-list"],
 )
 def test_epub_non_toc_nav_does_not_supply_titles(epub_factory, tmp_path, nav_open, link_text):
-    """只有标了 toc 的 nav 提供章节标题；landmarks、未标类型的页码列表等不提供，NCX 标题生效。"""
+    """Only toc-marked nav supplies chapter titles; landmarks/untyped page lists do not, leaving NCX titles effective."""
     src = epub_factory([("第一章 起点", "正文一。")])
     src = _rewrite_members(
         src,
@@ -268,7 +268,7 @@ def test_epub_non_toc_nav_does_not_supply_titles(epub_factory, tmp_path, nav_ope
 
 
 def test_epub_with_corrupt_lzma_member_raises_corrupt(tmp_path):
-    """LZMA 压缩参数损坏的条目在解压时抛 lzma.LZMAError，同样按损坏文件处理。"""
+    """Corrupt LZMA parameters raise lzma.LZMAError during decompression and also count as file corruption."""
     src = tmp_path / "bad_lzma.epub"
     with zipfile.ZipFile(src, "w") as zf:
         zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
@@ -276,7 +276,7 @@ def test_epub_with_corrupt_lzma_member_raises_corrupt(tmp_path):
     data = bytearray(src.read_bytes())
     with zipfile.ZipFile(src) as zf:
         info = zf.getinfo("META-INF/container.xml")
-    # LZMA 条目数据以 4 字节版本与长度头开头，其后是压缩属性，把属性改坏
+    # LZMA entry data starts with a 4-byte version/length header, then compression properties; corrupt the properties.
     payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
     for offset in range(payload_start + 4, payload_start + 9):
         data[offset] = 0xFF
@@ -286,11 +286,11 @@ def test_epub_with_corrupt_lzma_member_raises_corrupt(tmp_path):
 
 
 def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
-    """中央目录文件名标记为 UTF-8 却含非法字节时，按损坏文件处理。"""
+    """Central-directory filenames marked UTF-8 but containing invalid bytes count as file corruption."""
     src = tmp_path / "bad_name.epub"
     with zipfile.ZipFile(src, "w") as zf:
         zf.writestr("mimetype", "application/epub+zip")
-        # 非 ASCII 文件名会被自动标记为 UTF-8，再把它的字节改成非法 UTF-8
+        # Non-ASCII filenames automatically get UTF-8 flags; then replace bytes with invalid UTF-8.
         zf.writestr("META-INF/章.xhtml", "<html/>")
     name = "章".encode()
     src.write_bytes(src.read_bytes().replace(name, b"\xff" * len(name)))
@@ -300,7 +300,7 @@ def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
 
 @pytest.mark.parametrize("text", ["Déjà vu，", "第一章的正文内容，包含常见的中文字符。"])
 def test_epub_chapter_without_declaration_defaults_to_utf8(epub_factory, tmp_path, text):
-    """章节没有 XML 声明与 charset 时按 XML 默认的 UTF-8 解码，不交给编码探测。"""
+    """Without XML declaration/charset, decode chapters using XML-default UTF-8, not encoding detection."""
     src = epub_factory([("第一章", text)])
     src = _rewrite_members(
         src,
@@ -332,7 +332,7 @@ def test_epub_chapter_in_declared_legacy_encoding(epub_factory, tmp_path):
 
 
 def test_epub_chapter_with_meta_charset_only(epub_factory, tmp_path):
-    """没有 XML 声明、只在 <meta charset> 里声明 GBK 的章节按 meta 解码。"""
+    """Without XML declarations, chapters declaring GBK only in <meta charset> decode by meta."""
     src = epub_factory([("第一章", "元信息声明的正文。")])
     src = _rewrite_members(
         src,
@@ -378,7 +378,7 @@ def _rewrite_members(
     replace: dict[str, str] | None = None,
     encodings: dict[str, str] | None = None,
 ) -> Path:
-    """复制 EPUB，按需重命名条目、对文本条目做字符串替换，并按 encodings 重新编码指定条目。"""
+    """Copy EPUB, optionally renaming entries/replacing text, and reencode specified entries according to encodings."""
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w") as zout:
         for info in zin.infolist():
             data = zin.read(info.filename)
@@ -392,11 +392,11 @@ def _rewrite_members(
 
 
 def _corrupt_member(src: Path, out: Path, name: str) -> Path:
-    """复制 EPUB 并改坏指定条目的压缩数据。"""
+    """Copy EPUB and corrupt specified entries' compressed data."""
     data = bytearray(src.read_bytes())
     with zipfile.ZipFile(src) as zf:
         info = zf.getinfo(name)
-    # 本地文件头固定 30 字节，其后是文件名与扩展字段，再往后才是压缩数据
+    # Fixed local header: 30 bytes, then filename and extra fields, then compressed data.
     payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
     for offset in range(payload_start + 4, min(payload_start + 24, payload_start + info.compress_size)):
         data[offset] ^= 0xFF

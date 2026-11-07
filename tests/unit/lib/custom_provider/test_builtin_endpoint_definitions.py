@@ -1,8 +1,8 @@
-"""随版声明式定义的装载闸门：随包分发的每份定义都过共享校验器，非法定义 import 期即失败。
+"""Load gate for shipped declarative definitions: every packaged definition passes the shared validator; invalid definitions fail at import.
 
-遍历用例是随版定义的常驻回归：定义文件是代码的一部分，改坏了要在 CI 里当场暴露，而不是等某个
-用户挑中该端点发起生成。前端的示例模板同样随版分发，故一并跨层纳入遍历（沿 i18n 一致性测试
-读前端源码的先例）。
+Traversal cases permanently guard shipped definitions, which are code: CI must expose malformed changes immediately, rather than wait for a user
+to select the endpoint and generate. Frontend example templates are also shipped, so include them in cross-layer traversal, following i18n consistency tests
+that read frontend source.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ EXAMPLE_TEMPLATES_DIR = REPO_ROOT / "frontend" / "src" / "data" / "example-templ
 
 
 def _shipped_definition_files() -> list[Path]:
-    """随包分发的全部定义：内置端点 + 前端示例模板。"""
+    """All packaged definitions: built-in endpoints plus frontend example templates."""
     return sorted(BUILTIN_DEFINITIONS_DIR.glob("*.json")) + sorted(EXAMPLE_TEMPLATES_DIR.glob("*.json"))
 
 
@@ -54,7 +54,7 @@ def _write(directory: Path, key: str, document: object) -> Path:
     return path
 
 
-# ---------------------------------------------------------------- 遍历闸门
+# Traversal gate.
 
 
 @pytest.mark.parametrize("path", _shipped_definition_files(), ids=lambda p: p.name)
@@ -64,7 +64,7 @@ def test_shipped_definition_passes_the_shared_validator(path: Path):
 
 
 def test_example_templates_ship_one_video_and_one_image_skeleton():
-    """示例模板每种媒体类型一份「通用提交+轮询」，新建表单的模板选择器逐份列出。"""
+    """Example templates provide one generic submit-and-poll definition per media type, each listed in the new-form template selector."""
     assert [p.name for p in sorted(EXAMPLE_TEMPLATES_DIR.glob("*.json"))] == [
         "generic-image-submit-poll.json",
         "generic-submit-poll.json",
@@ -115,7 +115,7 @@ def test_missing_directory_fails_loading(tmp_path: Path):
 
 
 def test_key_colliding_with_a_python_endpoint_fails_merging(tmp_path: Path):
-    """同键换实现是 Python→声明式收编那一刻的迁移动作，不能靠往目录里丢一份文件悄悄发生。"""
+    """Replacing an implementation under the same key is a migration when absorbing Python into declarations; it must not happen silently by adding a directory file."""
     _write(tmp_path, "newapi-video", _example_template())
     registry: dict[str, EndpointSpec] = {"newapi-video": ENDPOINT_REGISTRY["newapi-video"]}
     with pytest.raises(BuiltinDefinitionError, match="重复"):
@@ -127,7 +127,7 @@ def test_shipped_definitions_are_authored_by_arcreel():
         assert definition["meta"]["author"] == BUILTIN_DEFINITION_AUTHOR
 
 
-# ---------------------------------------------------------------- 派生的端点元数据
+# Derived endpoint metadata.
 
 
 def test_declarative_spec_derives_catalog_fields():
@@ -162,7 +162,7 @@ def test_migrated_builtin_endpoints_are_declarative(key: str):
 
 
 def test_spec_kind_is_read_from_the_definition():
-    """``kind`` 读定义本体，不由「有没有定义」推断——第二种 kind 的端点同样持有一份定义。"""
+    """Read ``kind`` from the definition itself, not from whether a definition exists; endpoints of the second kind also hold a definition."""
     template = _example_template()
     template["kind"] = "comfyui"
     template["media_type"] = "video"
@@ -196,8 +196,8 @@ def test_declarative_capabilities_follow_the_definition():
     [(True, False), (False, True)],
 )
 def test_text_to_video_is_derived_from_required_image_inputs(required: bool, expected_text_to_video: bool):
-    """该位不取 schema 缺省：定义可以合法地只声明必需图输入而不声明 ``text_to_video``，
-    照缺省取值会让 spec 宣称支持纯文生，准入闸据此放行一个渲染不出来的请求形状。"""
+    """Do not use the schema default for this flag: definitions can legally declare only required image inputs without ``text_to_video``.
+    Using defaults would claim pure text-to-video support and admit a request shape that cannot render."""
     document = _example_template()
     document["inputs"]["start_image"]["required"] = required
     document["capabilities"].pop("text_to_video", None)
@@ -209,7 +209,7 @@ def test_text_to_video_is_derived_from_required_image_inputs(required: bool, exp
 
 
 def test_undeclared_capabilities_take_the_schema_defaults_not_the_dataclass_ones():
-    """格式契约是「能力全显式声明」：省略 capabilities 即无素材输入，不是 dataclass 的首帧默认开。"""
+    """The format contract requires explicit capabilities: omitted capabilities means no material inputs, not the dataclass first-frame-enabled default."""
     document = _example_template()
     del document["capabilities"]
     del document["inputs"]

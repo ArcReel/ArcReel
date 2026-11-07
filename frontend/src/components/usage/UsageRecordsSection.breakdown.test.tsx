@@ -10,7 +10,7 @@ import type { EpisodeItemRef, UsageStatsBlock, UsageSummary } from "@/types";
 import { makeUsageRecord, makeUsageSummary } from "./usage-fixtures";
 import { renderUsageRecordsSection } from "./usage-test-utils";
 
-/** 后端附上的 E1S10 指称：它在第 1 集（无标题）里当前排第 3 位。 */
+/** Backend E1S10 references: currently position 3 in untitled episode 1. */
 const E1S10_REF: EpisodeItemRef = {
   episode_title: "",
   episode_position: 1,
@@ -57,13 +57,13 @@ const BREAKDOWN: UsageSummary["breakdown"] = {
   },
 };
 
-/** 构成表与筛选行都会出现供应商名，按区块取值才不会撞上 chip 的清除按钮。 */
+/** Providers appear in breakdowns/filter rows; scope queries to avoid chip Clear buttons. */
 function breakdownRow(name: RegExp): HTMLElement {
   const section = screen.getByRole("heading", { name: "构成" }).closest("section");
   return within(section as HTMLElement).getByRole("button", { name });
 }
 
-/** 断言写进 URL 的筛选时按键读，避免依赖 query 串里的键序。 */
+/** Read URL filters by key rather than depending on query-key order. */
 function lastQuery(history: readonly string[]): URLSearchParams {
   return new URLSearchParams(history.at(-1)?.split("?")[1] ?? "");
 }
@@ -111,7 +111,7 @@ describe("UsageRecordsSection breakdown", () => {
     renderUsageRecordsSection();
     await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalled());
 
-    // 同一页上的两个成功率走同一个按语言的格式器：vi 的小数点是逗号。
+    // Both same-page success rates share localized formatters; vi decimals are commas.
     expect(await screen.findByText("66,7%")).toBeInTheDocument();
     expect(screen.getByText("90,3%")).toBeInTheDocument();
     expect(screen.queryByText("66.7%")).not.toBeInTheDocument();
@@ -169,7 +169,7 @@ describe("UsageRecordsSection breakdown", () => {
     await userEvent.click(screen.getByRole("button", { name: "项目" }));
     await userEvent.click(breakdownRow(/未命名/));
 
-    // 端点试跑记录的项目名是空串，它与「不筛项目」不同，键要在但值为空。
+    // Endpoint-trial project names are empty strings, distinct from no project filtering; keys remain with empty values.
     await waitFor(() => {
       const query = lastQuery(location.history);
       expect(query.has("u_project")).toBe(true);
@@ -262,7 +262,7 @@ describe("UsageRecordsSection attention", () => {
       expect(query.get("u_project")).toBe("星海列车");
       expect(query.get("u_media")).toBe("video");
       expect(query.get("u_segment")).toBe("E1S10");
-      // 状态不在这条规则要写的三维里，原来选的什么就还是什么。
+      // Status is outside the three dimensions written by these rules; preserve previous selections.
       expect(query.get("u_status")).toBe("success");
     });
   });
@@ -282,7 +282,7 @@ describe("UsageRecordsSection attention", () => {
       }),
     );
 
-    // chip 按记录带回的指称称呼分镜：集名与当前位置，不露条目 ID。
+    // Chips use record references for storyboards: episode titles/current positions without entry IDs.
     await userEvent.click(await screen.findByRole("button", { name: "清除筛选：分镜 第 1 集 · 3" }));
 
     await waitFor(() => expect(lastQuery(location.history).has("u_segment")).toBe(false));
@@ -311,7 +311,7 @@ describe("UsageRecordsSection attention", () => {
     });
     renderUsageRecordsSection("section=usage&u_segment=E1G01");
 
-    // 宫格不是分镜：芯片只给指称标签，不加类型前缀。
+    // Grids are not storyboards; chips show reference labels without type prefixes.
     expect(await screen.findByRole("button", { name: "清除筛选：第 1 集 · G01" })).toBeInTheDocument();
   });
 });

@@ -61,15 +61,18 @@ if get_args(AssetType) != ALL_TYPES:
     raise RuntimeError("AssetType 须与 ASSET_SPECS 的资产类型逐项一致")
 
 _EPISODE_ID_DESCRIPTION = (
-    "集 ID；给出时只覆盖这一集正式脚本引用的资产（含商品与衍生，衍生连带其本体），与 Web 集层的批量生成同一范围。"
-    "不能与 type / names 同时使用"
+    "Episode ID; when supplied, cover only assets referenced by this episode's formal script "
+    "(including products and derivatives with their base assets), matching Web episode-level batch generation. "
+    "Cannot be combined with type / names"
 )
 
 
 class ListPendingAssetsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    type: AssetType | SkipJsonSchema[None] = Field(default=None, description="资产类型；省略则汇总全部类型的待生成资产")
+    type: AssetType | SkipJsonSchema[None] = Field(
+        default=None, description="Asset type; omit to summarize pending assets of all types"
+    )
     episode_id: int | SkipJsonSchema[None] = Field(default=None, ge=1, description=_EPISODE_ID_DESCRIPTION)
 
     @model_validator(mode="after")
@@ -132,18 +135,17 @@ class GenerateAssetsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: AssetType | SkipJsonSchema[None] = Field(
-        default=None, description="资产类型；省略则按 character→scene→prop→product 顺序覆盖全部类型"
+        default=None, description="Asset type; omit to cover all types in character→scene→prop→product order"
     )
     names: RequestedIds | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "要生成的资产名称列表，衍生写作 本体/衍生；必须配合 type 使用，与 all、episode_id 互斥。"
-            "省略则只选缺资产图的资产"
+            "Asset names to generate, using base/derivative for derivatives; requires type and is mutually exclusive with all and episode_id. Omit to select only assets missing asset images"
         ),
     )
     all: bool = Field(
         default=False,
-        description="显式要求扫描所选类型的全部缺图资产；与 names 互斥。省略 names 时本就只选缺图资产",
+        description="Explicitly scan all assets missing images for the selected types; mutually exclusive with names. Omitting names already selects only missing-image assets",
     )
     episode_id: int | SkipJsonSchema[None] = Field(default=None, ge=1, description=_EPISODE_ID_DESCRIPTION)
 

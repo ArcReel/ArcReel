@@ -1,7 +1,7 @@
-"""自定义供应商可挂接的 Python 调用通道把注入的 transport 层交给自己的 HTTP 客户端。
+"""Injectable Python provider channels pass transport layers into their own HTTP clients.
 
-路径覆盖（docs/adr/0101）在 transport 层改写请求：注入层改写过的路径就是实际发出的路径，
-SDK（OpenAI、Anthropic、google-genai、方舟）与直连 httpx 的调用通道都一样。
+Path overrides (docs/adr/0101) rewrite actual outbound paths at transport layers, consistently
+for OpenAI/Anthropic/google-genai/Ark SDKs and direct httpx channels.
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ async def test_requests_leave_on_the_path_rewritten_by_the_injected_layer(call: 
         rewritten = router.route(host="relay.example", path__startswith="/rewritten/").mock(
             return_value=httpx.Response(400, json={"error": {"message": "stop here"}})
         )
-        # 回包一律拒绝，各调用通道怎样报错不在本用例范围内，只看请求怎样发出
+        # Reject all responses; inspect outbound requests only, not channel-specific error handling.
         with contextlib.suppress(Exception):
             await call(layer, tmp_path)
 

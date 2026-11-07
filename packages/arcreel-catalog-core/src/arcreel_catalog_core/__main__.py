@@ -1,4 +1,4 @@
-"""``python -m arcreel_catalog_core``：目录数据命令行入口。"""
+"""``python -m arcreel_catalog_core``: catalog data CLI entry point."""
 
 from .cli import main
 

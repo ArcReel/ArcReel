@@ -1,0 +1,1639 @@
+{
+  "source_snapshot": "/tmp/arcreel-canvas-passive-pre-edit",
+  "files": [
+    {
+      "path": "frontend/src/components/canvas/EpisodeSourceReview.test.tsx",
+      "before_sha256": "fe7f585308595570d913a3ffa7cdf38900550b739abfff1d248a870420affb5d",
+      "after_sha256": "b934a870f36210ca011fe16e65b0954420dffcba82b3fe050c17120766db90b9",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/EpisodeSourceReview.tsx",
+      "before_sha256": "0eed55685eeee70db8564160b6d794e7a7f40f39c1540250dc9b0b0f24edd312",
+      "after_sha256": "9ffeaca27c437e9d4de8d71b6ec190e34bb6eab4a36bfdba32935fe888454d87",
+      "changed_comments": 21,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.edit-render.test.tsx",
+      "before_sha256": "723484b0e34938edae5558ffb15d994270cf5f28a63297cb133464adde44dd34",
+      "after_sha256": "2a77f049a8df1906525515e327c819dfcc61be992bc7717032f058b79ae7fcc2",
+      "changed_comments": 2,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.test.tsx",
+      "before_sha256": "af982ad66faa8feb7c16a43a4c46e6dc61f934054bc0651637afb7454291b2b1",
+      "after_sha256": "698fc8ca74b048e7df87aba9850f74754c60aef63275913ef1810a5788b271fe",
+      "changed_comments": 55,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/StudioCanvasRouter.tsx",
+      "before_sha256": "dec0c7bf0d92cd9ada09a30fccac30720db8a1fe7e4443745b57e3816187fd66",
+      "after_sha256": "ae6e7f5dd03b6fdec5479d7d2dd7d6b3e5a689543b5e20fda99057bd12a5a9b4",
+      "changed_comments": 65,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineDetails.tsx",
+      "before_sha256": "bf147661e0e24637e0b73c151f4209e0a28c23b3a5be3ce2e4a5f5f3006815fe",
+      "after_sha256": "2e84e40c829e9b8da2231b9afb3fbe542a18b5a51afe50ac6dd08bbb73e991e7",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineMenu.test.tsx",
+      "before_sha256": "e6be9678d578f6081ab0c3d2af02a89038c19426296bc0ce635a89b4e5d92175",
+      "after_sha256": "7138189b5191f2ca44686284c98ef7758355d04c4d5efdcd5dd4e62f7a87dd9c",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineMenu.tsx",
+      "before_sha256": "0629a5ee60f2dfad8609fad3c59382cd42fd9119590dd33daecdfde4b907e905",
+      "after_sha256": "6fcf827511e4bb517b6f9ebbf79729a6c29d61e4d209dcd7464e96f16ce77f73",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelinePlayer.tsx",
+      "before_sha256": "a6074d90c7c27f6e42f7a683e63303f64eda9f4ecc559c828380b028d8bd6f36",
+      "after_sha256": "e6e82c82139da8cad2eb0e3658b900aaf47768ebb3d5751629ed691b9b9ba09b",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineTracks.tsx",
+      "before_sha256": "2aad182e74d71712d6148b1626f12b6a65ad0914281a4173d587c0e0ee59a50f",
+      "after_sha256": "eca30971d3921c75c2a37ea315af2cda155aed57dde17bc69aedcb0e3bff7b69",
+      "changed_comments": 15,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineView.test.tsx",
+      "before_sha256": "90cb2bf2085380c0c8ee77cb75d84a2fb82f29723f1fecfde9de72cf68961a68",
+      "after_sha256": "5b12413f1c1ebf11ccdfeeb872a439e3ce2d8afab37ef25e3ff15c59d61c84c4",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/EditTimelineView.tsx",
+      "before_sha256": "4aa748fdfee2c66c5520c1cb7ebde64281d54d2eedacc93784c03c8d5cf6844a",
+      "after_sha256": "d621581758997ffdb2c686bb38d9758cc2b1a4aa212d7cf477b6fedbdf2a0ba9",
+      "changed_comments": 42,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/audio-sync.test.ts",
+      "before_sha256": "9a7e094fd151713eb96e3705cae7b9ed7cc6b57c2a3adf6892462ff746a17b19",
+      "after_sha256": "b14f0e5a5867c58fd497e2fa1768c9e8f9c3848c4f8de2243d9b5b26b0f9ee05",
+      "changed_comments": 4,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/audio-sync.ts",
+      "before_sha256": "70d4c664c990c7a311bdf9332b4fd6e477b12a3963f5f2adae845866bfa3ba9d",
+      "after_sha256": "8e457a6d91f32bf44f12383b7a2cd0b1bb6716d7769898b26004229bca225459",
+      "changed_comments": 17,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/playback-schedule.test.ts",
+      "before_sha256": "aedd6c17eb60c68c2f82fbf94ee3ba4b6b1fbf31f569b03e29a1ccdae04e643f",
+      "after_sha256": "b2fb705bb88c5b2cabd7ed6f8fe0a65d993485be03815a5084a801b35963447b",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/playback-schedule.ts",
+      "before_sha256": "355d6c3b5749623382bed34ab2a89cfd145941aac54a0c159f2d259d191209af",
+      "after_sha256": "4d482fafde02a083139df0f15d2c07e6cab8696b3a247c653fd37726152d97e5",
+      "changed_comments": 18,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/preview-tracks.test.ts",
+      "before_sha256": "d68005b62673d713a2870845bd00188e22e9aeb1e1364d1ee841d2af717afb5f",
+      "after_sha256": "4d03be9adfa635786f2d53a416cca5e565e8e89c812fb149387dad619dbc11e9",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/preview-tracks.ts",
+      "before_sha256": "35d4e2283749be7246b47b219c10ce7fa3c77056815f4f3017c85e54402ccb4b",
+      "after_sha256": "2796432cd31ab2d2c53fc87d757653f6e2b9d3cd845f1f430cb07e001a4d392b",
+      "changed_comments": 15,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/timeline-view.ts",
+      "before_sha256": "a5ffb1cc4f63dfbdb1d48fe5f7f0aea80d7da95a55f3c9dff4467b15e7c24aca",
+      "after_sha256": "3110644f588279e067b74d816d3227156a5f2b85e364e5bb72a9a304e90d9431",
+      "changed_comments": 10,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit/useTimelinePlayback.ts",
+      "before_sha256": "02aa83ed8f7250a6d7666d2fd3d237a1d868874751e2f99e61424937d866dc9b",
+      "after_sha256": "746e471f0f9c852e307bcb486e1bdbd2e53da018edb9b5d5697637c2b9bd70e4",
+      "changed_comments": 30,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/EditTimelineEmptyState.test.tsx",
+      "before_sha256": "ea1015a45fcca4b5283171d23de6a57225c2b5fb202d6a9091085065b6a4fc04",
+      "after_sha256": "f2fb2fdbc30990762acbdd93f2b15253720b5fb68714f09a4cf2a10c23dd345c",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/EditTimelineEmptyState.tsx",
+      "before_sha256": "dbc5ef425e9da0129aefb2e019dcf730dc16577dc633e213bbf1e06123d972d9",
+      "after_sha256": "26ff97d2bd5fa891a90b6f48564b9c3b3b7b9ba0bdfa33d1521e5d7b7521c77a",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/RenderButton.tsx",
+      "before_sha256": "18422a4b8640eed6fb0db5c30740cf344895563f2505c511c7b3315348977bcb",
+      "after_sha256": "3a3c60e661163453c946486ff2889ed6d15b6dbe21b6b0fb9662d01cf6f34dfa",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/RenderDialog.test.tsx",
+      "before_sha256": "77d22a3b4ac642adbc34b0f5c20adb020a8c7ad683380664ea7f2d8495fa661c",
+      "after_sha256": "07324c42276b9e075d9e3fda367d7bda20668f6fd30212c3a107d28a1ee4392e",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/RenderDialog.tsx",
+      "before_sha256": "fe8028e03559afd7e9f2ea13d3a2f1000b1b3f816baaf3b81d0b651e2c1dadf4",
+      "after_sha256": "a09580ac69216b2562f186f70e8ff097ae4076b2d99ad93e723ac334395b9c71",
+      "changed_comments": 13,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/edit-render/useRenderArtifact.ts",
+      "before_sha256": "ed64e8cd451dd502e56680f5cc1f32f8823fb41a28edd765a48d078de9dd1adf",
+      "after_sha256": "06bc187b5dca6ae24505b23acffbe7080f9ab243a22ed2826e1588042013f24d",
+      "changed_comments": 13,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EditableEpisodeTitle.test.tsx",
+      "before_sha256": "9a541e08bcd26a55c45b505a10390fe3d2b676f668bde578b4ac26c65e86156f",
+      "after_sha256": "cfa0f0cb3264c56326367add66ed79a6bd1b2344e794f10d124fa00fe51679f2",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EditableEpisodeTitle.tsx",
+      "before_sha256": "39d3b443584afed5c3989b0d271d5d2c9419eb571ad6dc9fd5af90671e3a44dc",
+      "after_sha256": "888c71a420b5b7641d2392900b49e54c2fd899464cbbe5f242288ea053dbef9f",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeHead.test.tsx",
+      "before_sha256": "124ad97aeb7d37118238064317441b609f20c1689bd9d73cad2f34ce7bbf502e",
+      "after_sha256": "358099a5c03b30bf744be4044148588a5d1811ffb4c3ba4e4cf19c2a7eab3796",
+      "changed_comments": 2,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodeHead.tsx",
+      "before_sha256": "7cc6ccada5faf54094965086e829331b3499ad8b4839ea6e66ba39b7b492da6a",
+      "after_sha256": "9c44ad23fe2e78c8b994a55cad6204910ec032648b15cb6208d2709ae1fdafbe",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePage.retention.test.tsx",
+      "before_sha256": "ec3da7376c02524e5818c4184e5140070f31f92fb6db56b885c2bc16290bc4b1",
+      "after_sha256": "c859843df61897a83cbc324f93fcf8d7136c27340900be9b2845cf2f0155da52",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePage.tsx",
+      "before_sha256": "486a4484792223b835b98f42483f61973c66c7f803d773cb0f0257b17741bc50",
+      "after_sha256": "d5b23ebc207333a9dddae4dde5ca54dac1aa4221d56c12fae21c3935306ae682",
+      "changed_comments": 16,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePage.view-unit.test.tsx",
+      "before_sha256": "f04c0e0c5c9413ba9d685964f5321dc21f577b8b1f8d31b434323eadb7ec6b9f",
+      "after_sha256": "857492e1e6dd9e595fb21cceb256b929d0944a5d9d4171676bdca43213d92961",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/EpisodePageHeader.tsx",
+      "before_sha256": "073e34a1f175626249194d221e3d9502bc2989a4b67fbcb7406887c2eff1d338",
+      "after_sha256": "c2e598bd5cfefd1594434f92562c70f7fecc377735bf58cad08a7a7735cbe935",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/episode-view.test.ts",
+      "before_sha256": "09e1dbfc5fa34ca0a74002823b25234bfdb986b926e31f75de1d507f35a92499",
+      "after_sha256": "3a7b37bdec796d4b7cdbc0ba5692f11baa4e77a1fa7115c101dd8df6c1901d6e",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episode-page/episode-view.ts",
+      "before_sha256": "3d576d8335c6131b2d4ea1ce44fad26e29ea488c71a225ea385fd30ae054dad1",
+      "after_sha256": "6feabba52a12bb0e758ad22757ace3b5e47770019d7c7143d533dd4b37f2700f",
+      "changed_comments": 16,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/CreateEpisodeDialog.tsx",
+      "before_sha256": "d9f9eea2bad612567f5c05739941cbf26f5ef676abda9a2083939dd1df37870a",
+      "after_sha256": "6dc99362d70aa6a991258034a360ac6ed9e3d592a27f753a52938eb385932a95",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodeOutline.tsx",
+      "before_sha256": "1fcf58de3ed64e29d45919bef33990fa337320709b9014b3fc754d9df3a41337",
+      "after_sha256": "4500c27bb968a8277dcd79b92bc7dbdad2078f19ba96027e576de9950c6a90e1",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodePlanningPanel.tsx",
+      "before_sha256": "39877be561950881d0c9372146fbaa1df30953ab59a5e1fe01db7a24a4939cda",
+      "after_sha256": "f5874c894b8a2a8275376539c12e065b73218afc8f8fa1da210b741842aaca11",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodesView.test.tsx",
+      "before_sha256": "bb4f4805994069d719ac0ff2a10e3fac5e98fe3063438fc7bc64c93bbf3135bd",
+      "after_sha256": "eb1fd080f0c557859f7916f02aae39c54234460a6f02f4f1dafdc307b0b2721e",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/EpisodesView.tsx",
+      "before_sha256": "97c8fa732448c4ff4c49b69a27f837964d3c663fae65cbe82d60593a49e11e51",
+      "after_sha256": "b683eef4f751b1374e3d6abfdfea97e64171873e64382598a142e5e029e8d7f2",
+      "changed_comments": 12,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ImpactConfirmDialog.tsx",
+      "before_sha256": "b7d343c01be3986834be763de939573e6723bb3ace05cfc319525f6a8fd1bba4",
+      "after_sha256": "d589aee71900aa9f4a680fc9278d2a6d963c3a6f501b9923531d03a63140ed87",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/ReplanCandidatePanel.tsx",
+      "before_sha256": "2284d92000433d7527dee0bbc4943a54774dd421a7694093d31877106839b575",
+      "after_sha256": "6224e807f1b3863c44f20d61cae54e906e222fcbb3e248dc565f8def8e706e75",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceFileActions.test.tsx",
+      "before_sha256": "f566a3d75a7826e5f23333bab07c3b68b2b60e57695b1cf1b88a6d5cf5f301c5",
+      "after_sha256": "0ffd9590095c0d5ebbb9218046df0bd5cd3cb663b2650fbf05e2f3d53201c0e3",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceFileActions.tsx",
+      "before_sha256": "cd96cfc4c5545983c75b554a49d11a41126aa7cdb064ec0db2d952b858f075d6",
+      "after_sha256": "d294004df0dbe217536af4a6bfafe93c479b14851b82f6a8d67e745170739ae7",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceManuscript.tsx",
+      "before_sha256": "e83a8fbde17d5f46a51322d394df13c5b6fbd1729fa34594d3087ff553bcd1c3",
+      "after_sha256": "301e7672c04bc865d6b9bfd8a8b0dd81b5f24b3358aa3a5e599c98b106705acf",
+      "changed_comments": 18,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceUploadDialog.test.tsx",
+      "before_sha256": "ba79f5956e2401e9a938feac66221145c05cfa47c58f9e8fa6e1bf3a5fbbd5a6",
+      "after_sha256": "c74006d2f0b491119fd28512a98f83685bba2437c3fe744ebc09c7159b77583f",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/SourceUploadDialog.tsx",
+      "before_sha256": "35cf67a98515af648c287b3c59b8d79622a57eb35a64bcb041ce16f4e2250d47",
+      "after_sha256": "25ffc28b8a41ea024aafae2873a524f91a67f21c2d8434439d40311d33fc41ce",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/episodes-view-model.ts",
+      "before_sha256": "ebe2419da20570d0d6777fb7a0d8af80c38fc0f6aac24c9c3debc5376bb23ee5",
+      "after_sha256": "f78c1ff78aac317f24e4b9f3553ed94a22275e53e01241a14b407c1dbd98446c",
+      "changed_comments": 10,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/manual-split-model.test.ts",
+      "before_sha256": "9dcd2e0b22c4f41c0a795cbeee4124656bb9d756d6372f821906d3d79f6093d9",
+      "after_sha256": "4f59ea26f586fc86b84b50106720502eee7a4a21343f81c1b8885c7877cc7249",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/manual-split-model.ts",
+      "before_sha256": "a7624f1741781c4135a3ad6133fbf949055418dd8e73aa5357b713cdabbaafc6",
+      "after_sha256": "a36c8f74675220de1b7b5f27ffd57ca9f820a675ceb194a8442e87132a1bc27b",
+      "changed_comments": 22,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/replan-compare-model.test.ts",
+      "before_sha256": "74e611fe3c88f27d5085f94d5fff54dbc301094d5870318b73d7917b6884a7f3",
+      "after_sha256": "827055b761202eb87940ac65fac3e16386b4a251e27a1cb4240c3f0f14f253ff",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/replan-compare-model.ts",
+      "before_sha256": "970c16458dc5ad06104bf001884e9e8c587c4d0163ce686807f900fbb1afa7b8",
+      "after_sha256": "9535398f36ab5ae6a8be1e589f19c4dbae5d3558947859d8a81d00f451e0bf00",
+      "changed_comments": 12,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useManualSplit.test.tsx",
+      "before_sha256": "c3176908d3c1146387348c520d393f049e3ead7f543b3cc77155fd513781419e",
+      "after_sha256": "9cffd11864576da968f86e10e23edd5caf587d9bd06326f251002ce3696b77b0",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useManualSplit.tsx",
+      "before_sha256": "567fb1872620fb3a4af1bd48b03e64e87e584ff578ca66db817233697b704ee3",
+      "after_sha256": "bcf76d4b767d1647c253aabf9baad7607ed3ef8f3ff75ed9091d80c6253abcec",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/episodes/useSourceFileChange.tsx",
+      "before_sha256": "8a04722a1190f714144493afc692caa2f1e0d702dfcd37993f0421ab008f9dd6",
+      "after_sha256": "b69390e46e00939a68b59b473539f6f5b0602594d7b1ad52dec989c9a8afa829",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/files/FileView.test.tsx",
+      "before_sha256": "007e992047073f7229b1323734885d04fc6c693419ab9cf5a44671eebf5af189",
+      "after_sha256": "b5c868e4870ed045f59475cf67b08d60d4f9d8b87c54901407a7842da5e400f9",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/files/FileView.tsx",
+      "before_sha256": "fc0e305c3cef811ad5ec1e452e7ad29f6692c5e8ad593d288fda4765daf524ca",
+      "after_sha256": "4023150694b7789e2366bb038224330371a8288345bb31a2c2efe34161a23800",
+      "changed_comments": 14,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/files/TrashSection.tsx",
+      "before_sha256": "9ce9f46ab273f3cbf9f8b76444762dbe93282b921a0ac9a2d696ba86334e45f3",
+      "after_sha256": "c0c44957bc0db818dc8381b2564f1f1afc8c1c2f69d9ebca7670110e5c3a5d45",
+      "changed_comments": 16,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.retention.test.tsx",
+      "before_sha256": "b053b10a1f39ffb9a1e7a844fbf25c62860ab10ef0b5c9ac493d6eb9e2986bdd",
+      "after_sha256": "0687777fc62893ba5fffc7afe3391a159996679a8ad07293977528c22c5c6416",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.test.tsx",
+      "before_sha256": "becfc1ec6e0dfb3105d5d14c56b29cfc6ff7e335e7ec574d3df2213276542952",
+      "after_sha256": "7337b6d895b2f5a2263d61b2c2082305c0f5878c9dc04852b4f1e04798ffb9ae",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.tsx",
+      "before_sha256": "805a9dd8f6e7b2a52d45690a1b5c38a8f469a13df18503ec0fd5f737dff502dc",
+      "after_sha256": "06ba7317951cf7043f9de549b9c6eebb953bda95cce6e704827ffec8b892df48",
+      "changed_comments": 15,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewPanel.test.tsx",
+      "before_sha256": "aecb3edfebdac42a72aa62ff4089a9e6d4ba4f633a24c6a0ff5cbcdf63c6d5e9",
+      "after_sha256": "3cc372727cbc2b6e01dd0b4d5e1d702d47588ca266f929c5297710918e488e23",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewPanel.tsx",
+      "before_sha256": "56a46d995df8bc2e5bebaa97562ade9002ab78031bfd466d772d902b4f1cc3f8",
+      "after_sha256": "1d9f1bd60239ace3457e0155519fe39589515eabfb5533631fd29d04c946a218",
+      "changed_comments": 31,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewView.test.tsx",
+      "before_sha256": "4b04e24148156299468d2e8d365d8124f25efba44d869a112929f81bc7565829",
+      "after_sha256": "b208cb6958270aa090e31b63362769ceb2fa3fe371029533ae422716ae8c3461",
+      "changed_comments": 2,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/grid/GridPreviewView.tsx",
+      "before_sha256": "03e8959de74dcaa6ccabcc7f628eaf4e95c25a762b77f2359f825c057bb3d2c3",
+      "after_sha256": "79fda698b3a4af300414826e4ee48887136162f5fc0dfe3385d9278ff8337f43",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetAliasesField.test.tsx",
+      "before_sha256": "c52a3c44b37716a4afeaaed958463f0b3811c3eb64559f6930dde1c701e228cb",
+      "after_sha256": "c67394097a4a3229206cc4253d54138cf3af91ef8d98c697d00abe8b23c5c029",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetAliasesField.tsx",
+      "before_sha256": "8e2439c403b7e308f48dc51bce18dcad0eba02a049c8b0db71938a37ccfff4e1",
+      "after_sha256": "a423ef8df034bc77985e1dcc5729a6b504f6b7c67c6ba8c3100dba4ae6ca098e",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetBrowseCard.tsx",
+      "before_sha256": "8a4cd6aa8fba9c46547cf2bd615823a5f2f5fbf360601eebfae0686e2ef11bf1",
+      "after_sha256": "1b4f753bae638c7e2959f36bca86123ed23f394f6dd4f6e5b47fc1da0b578663",
+      "changed_comments": 16,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetCreateForm.tsx",
+      "before_sha256": "f4c88a5e91348b23495be8549311157c9062c70a598c91b380bd60e842855ba6",
+      "after_sha256": "ce6a43b629e591f0b39618f7a73ab88e7c2eff06182285004513e72d51ae8090",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetDetailEditor.tsx",
+      "before_sha256": "3d22cedfd0bc1267e720282489298ded6be8c119f4d258eef9e8cc44f805d3ad",
+      "after_sha256": "0a4fc3217fb02fb5b2ceeac28f31746514a81fd7889fd932c1b6ff0c62f1f663",
+      "changed_comments": 10,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.test.tsx",
+      "before_sha256": "7a6ea53f732491c4025487cffb12aca8406bf29a71c07a6e6029f72799f9d41e",
+      "after_sha256": "3caf5e26d1f2d7d1d2d00f147aee644d66f398a712374def0536ecc644c492b5",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.tsx",
+      "before_sha256": "22b70be28667ee8bd1a4607218ff2eb3af8f19386f2a039f3e331b392bf61410",
+      "after_sha256": "3fe5547c7f1955386f1bd142f945f9f229f4ebd37f1976ecb7a7dee7a1ae8428",
+      "changed_comments": 12,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetGallery.test.tsx",
+      "before_sha256": "a5954433dc5660a9be35c27b6b23104cedc3d98719d530dad365cdddac89087e",
+      "after_sha256": "aa079e67ca215187c62094e1652a8ee28ab41557e686e789739c0d0d4afaccd0",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetGallery.tsx",
+      "before_sha256": "e1504567e61c4a6f87b563bc13dd75935027b616fc6c7685ddbdb6a5efdcc8a8",
+      "after_sha256": "803293ef4d2424c4fe92f324029eaf06a4214cba836f51dbd53e352752e506d1",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetImageViewer.tsx",
+      "before_sha256": "f0a27e589a9b056606182b799b36b51f2f0d630b37fa10545290fa03700cb426",
+      "after_sha256": "d436a80658800259018d740c325c9bc76f02268910aa9d79b159590e1f342cef",
+      "changed_comments": 14,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/AssetOriginalsField.tsx",
+      "before_sha256": "1cc295323304f2a9515ef66b710983ad6b9b79816e1315545b65478b4c8ab6d4",
+      "after_sha256": "580cd1d4825221bfca3f269d652f994b7ad55fbfb17539fbe0f2447ba3098ee2",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativeRow.test.tsx",
+      "before_sha256": "28b018d0fca2bd02962a42b577e20b8b2638c1d68a88206e78b6256bca47f6c0",
+      "after_sha256": "15676962a0d14a070cca632aca06402af881e6167abdec60f7bfa28243906dc4",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativeRow.tsx",
+      "before_sha256": "78f70c74d5663bba4a6d1d81f25e5ef2b50b855d67c084cae4ccd1e44687af58",
+      "after_sha256": "c6f4e73ed2b035477601d84b82e28855f24bbe5955da99e24dfc3755d977de73",
+      "changed_comments": 23,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativesField.test.tsx",
+      "before_sha256": "48019098e7098b4754028f0b0c5c31995530f4b693144e44af580b45faaaa0c8",
+      "after_sha256": "1c71a33197b81e918e5ef8a33a8a0bb958518ec61a0083cc69a43edafebc072b",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterDerivativesField.tsx",
+      "before_sha256": "0b6ad52c7075d01c95b948b9aa56af2cfa22caebe3c2510fb57a7ccd69330a48",
+      "after_sha256": "e2ef2772ca91cec129bf461e75f01d5754269238f4b0aaa97af04ec372481d93",
+      "changed_comments": 11,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/CharacterVoiceField.tsx",
+      "before_sha256": "2374de16aee063b758abe5fd2958e5685269241cdf83f5cf624903cc84721acb",
+      "after_sha256": "cfb01bbf1a3138f81cc5c84ee013a6f97c221b49b7dc786fd02e328aef698fc5",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/EditableAssetName.test.tsx",
+      "before_sha256": "79518a1490998ac87ea6dc6ccd0ecf1101e855e84bdb8b7fc96bb0aa627003b5",
+      "after_sha256": "ebb95d58090c66b58b8333c1f1ddb4a89115db4adc36a7a542e3f0f86e804274",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/EditableAssetName.tsx",
+      "before_sha256": "f974c3320533d252803e7f3cfc4abb261b5897e17ae4ed6e570b2282a871b79e",
+      "after_sha256": "46311c5e60f59d90c403d53acb090b00f22511e096a77f5c12982c8db4098756",
+      "changed_comments": 12,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/GalleryToolbar.tsx",
+      "before_sha256": "0facdeaab236a9ee2843b3f6a4de331ec48addbd83c6bc88f4bb6ec971f0a4d4",
+      "after_sha256": "3697bc799fa98c306b22b4ca87fc6dcb05605a6bae6cede8469c41487ae216dc",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/MergeAssetDialog.tsx",
+      "before_sha256": "3e79ffd17a93c4a8e15906778288ed59af88f6ab35e69feb19eb91a193a08075",
+      "after_sha256": "a7a1839fdc072c04f5f776c58ec9e90f1475a5be843f7abd674aa0c794456a6e",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/ProjectAssetDeleteDialog.tsx",
+      "before_sha256": "3f5e3286509e0af6275526514c6cd87b666a2311f943c373551bfa04a5b9145d",
+      "after_sha256": "f3deaadc204462443996c71d90162fc037d38e6c8d880b91a7eb561b076888a3",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/VoiceSampleButton.test.tsx",
+      "before_sha256": "80d42e3d2ef4fa5498db7a87bf591f67875ddc578eb17394d059ca3899dc2155",
+      "after_sha256": "fc17f57d0b12a6fd558a808904300c8e19ffd50dd677bd3b0199a1207aac6a09",
+      "changed_comments": 23,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/VoiceSampleButton.tsx",
+      "before_sha256": "c492d525ce684a5925a6a0231866626dcc9218faf7210510fe6a34d321500bc1",
+      "after_sha256": "4b4e20b379922703f9bd0983fcab2b3db8b31eeb2248529d481efb18ca7021a0",
+      "changed_comments": 31,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/asset-editor-model.ts",
+      "before_sha256": "56107643473dc8e3725201f74410ea9993dfb9ee5657b57157d49ce86493cb2c",
+      "after_sha256": "62b477bd6682c327111646a47c4d5280e34bdb48febaaf86894e89d5aa116ffc",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/assetBusyGuard.ts",
+      "before_sha256": "4d9533683e55e3f2432055ff0e18efc0bf29e82d7571797d52fed7623459464b",
+      "after_sha256": "337d43894d10674b57ebb0dc2580ac360cc26b94ecb26841b4a6265de8349522",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/gallery-model.ts",
+      "before_sha256": "4dd685c0f63ae4994d94f66d582a72de0ad3517b3050579365a4c636fc1fa588",
+      "after_sha256": "16b856ec9ffb717de0677381cf1b7bb96ce59bf3da9ed7218b0772bbaef8e24a",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useAssetSheetStatus.ts",
+      "before_sha256": "672093ab845deb93cf253d39e8e0b89f55c52a35f53c47b0e157d817cd467e90",
+      "after_sha256": "71f56aec0cb6236653bd6ae5c8f5883c761f28b71adf371bb50c0082d19c74c1",
+      "changed_comments": 4,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useCharacterDerivativeSheets.test.tsx",
+      "before_sha256": "103911628e11ca1a55a7e6500f0e389b3118dd129e84e1e7efcdd737190afba1",
+      "after_sha256": "17c428af8283403d4618d84a4f84f8c20411124a0fdf17bac198bb57901c3b6f",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/lorebook/useStaleRegenerateConfirm.tsx",
+      "before_sha256": "0d1d61314b66553fd23bf265a5b2dddaf05f7d6c511a7d9fdbf9c37834432f0d",
+      "after_sha256": "6d33ef7aeef29dce25dfaf379a607a499e8edf81499e571466baa2ed67c9c510",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/CostLine.tsx",
+      "before_sha256": "93099f444b65484d3872635d1061f86852ccd387b74b329002ca0951689e9c29",
+      "after_sha256": "31a68be7b0cbe140bb0451d9ab9edc9d860369c4f30a70bf08a0bef035c6eec1",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/OverviewCanvas.test.tsx",
+      "before_sha256": "5e28059ce0d8654f8438adbab2eb21bc8db9a538bf23e30ca5c3c4a6ce415382",
+      "after_sha256": "7e31100a82d9304ce3b1661629d3fc7ec3131709951d81342ff5ebc1fa73105e",
+      "changed_comments": 16,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/OverviewCanvas.tsx",
+      "before_sha256": "537aac2074ecef3dcb9524caac4bc656f70906d2ca8a4e9d1ec3e70b67200923",
+      "after_sha256": "69661c7232ab176180a980bc726a2d7b191e56c79085d1a5d659589fb8cde6f9",
+      "changed_comments": 13,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/StorySetting.tsx",
+      "before_sha256": "905f50016231cbcde8140995ce0db02de86507ded32915b23376253828c0a533",
+      "after_sha256": "e096ccfa6906ee21da2beeb0c8c99b00bdecda51cc4beba2b6469d8f9e4e09a8",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/overview/useHandoffTip.ts",
+      "before_sha256": "d0f49b6c8a5803d364601dc6edb450b4f0b5d396cdca77bac5e809bf622bd543",
+      "after_sha256": "1840e0d25ad089721b9d5a59ffc975f9bba0d347669cbf6d4a5b92f453c88c25",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/MentionPicker.test.tsx",
+      "before_sha256": "d3625bea1abb5335130cc040e1adf6c8b353d945be7ccee33d95ac3683029677",
+      "after_sha256": "e62181b458b28e6552df68a00615c07490de451e4f17d83f6070a80991a1d3ef",
+      "changed_comments": 11,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/MentionPicker.tsx",
+      "before_sha256": "f287215ae3bb26bb673aa337da05e1493866c14f789d5402e8815c9e946fab53",
+      "after_sha256": "54c774483a69677f947620fd6f3a29d53b920575ced35d0146397e35aa5c19bd",
+      "changed_comments": 20,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/PromptAuthoringDraftPanel.tsx",
+      "before_sha256": "b06cda704665bb40692353bc562f295c5aceb0bdb32397b5639fecd54409e85c",
+      "after_sha256": "2e6353e4f722f0a446dd0908350dfc4230756f9115e73fbf60d4b997b59c35ef",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceBatchAdmissionDialog.tsx",
+      "before_sha256": "9bf8a83106e7effd118e17f0afb5b19beacc755248b07680b8278e8657e73443",
+      "after_sha256": "b96694bd24a3f340b5bfb5b3b24dd789350177a08c25987975b9a019496804e8",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceBatchPreviewDialog.tsx",
+      "before_sha256": "9254d56f66bad88da20c7ea4a4878b93dfe295391a1905c99a7b5101cb4eccc5",
+      "after_sha256": "4e0022a551e3af8d333fccc2983c379ac0efcc987c66a393e6e358a5d2321f5b",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceDurationConfirmDialog.test.tsx",
+      "before_sha256": "04749c3810ac5bffed4a29e56f124efc723716e5a947819e4914cd6af1620308",
+      "after_sha256": "9552aeab112a9f1b10e359f90ccbc979b87584882fb834d0dc89d748800507f7",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceDurationConfirmDialog.tsx",
+      "before_sha256": "1472e61edf6dbd5629c4f743e9eacf1d6080fd69be8cf40244a9ca19d7c314fd",
+      "after_sha256": "5c1e14188752960c2b391af2e6bfe473ff7aabbc83dc498ac9fba80ef3f45a7e",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceScriptPlanPreviewPanel.test.tsx",
+      "before_sha256": "236cdb4f7a3f5b011285f7e93a3cb9a943916048f705c52efffebe9c279f06af",
+      "after_sha256": "90b47926b64910aabed39347f33e81536973e461d054232d014480d939ff0510",
+      "changed_comments": 39,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceScriptPlanPreviewPanel.tsx",
+      "before_sha256": "79f338e6ce8baf4f024f171d2b23e7d135952b093ef6b1869878958c76980ef4",
+      "after_sha256": "98bae3574748ae5a55f9cc65864b4d7c4d1d2a56f8fc326a2f79a58e1193bcf3",
+      "changed_comments": 53,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.test.tsx",
+      "before_sha256": "f060efc7a7b644ab1c97a201b88b07b17ea66b1d39764b15eae9b64c783db978",
+      "after_sha256": "78dfc003ab204a8405e58a22f8d5448761309f5d7111aaaaafe17f4b5443da5e",
+      "changed_comments": 153,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx",
+      "before_sha256": "8a7aaa5e95db12295d69fe7d81565854913e2f7fbe9f94aea3e18b11cd4eb298",
+      "after_sha256": "7e78907deb21ba20e7c45b47a0ccfaf386db3a9ab3cdb5bdee00f21ac25a9ded",
+      "changed_comments": 116,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCard.test.tsx",
+      "before_sha256": "68d49d62b886821fe839f48c9725e027cb31b0780a3402934e65c5ffcee4355c",
+      "after_sha256": "14b11c824c6fa76a4d92535b2ff3f18ca192ae889c74b78503b0e4bd0277505c",
+      "changed_comments": 19,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ReferenceVideoCard.tsx",
+      "before_sha256": "158debb2a5959145ad43f8ed2a1d4582e19947aeee047e096eb89a95a417291a",
+      "after_sha256": "2fca31708f53fd948187893fd1c43f13dff2b61083c7cf8bc7e8eae76997f641",
+      "changed_comments": 39,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ScriptPreviewPanel.test.tsx",
+      "before_sha256": "df7963c617f49f9fc5fd17c94bc4a773d5b7bf473fc15abfbcad4d9b8e32d310",
+      "after_sha256": "82a3f9643f1c7666fde7d187316d072a0567b2074ea557bac722f73f782cf309",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/ScriptPreviewPanel.tsx",
+      "before_sha256": "861a3183d2ecd48ec24f0ed83a0f8915fe9021f4fad9d1c27c368170ef76333e",
+      "after_sha256": "c239a7e232caed7885a0b2f82d8b4cf17eae53a9c86b3e483bd911192e495afa",
+      "changed_comments": 13,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitList.test.tsx",
+      "before_sha256": "e302f9d08cd58aaf2ee747664f69ee84564614e5103d79175e20e99a7df0b943",
+      "after_sha256": "c30e9b45e0f2f46264f029e81ab33428c2d11df4fd44cdc8a6473a522b6f6f28",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitPreviewPanel.test.tsx",
+      "before_sha256": "fe323a1e4f7088465dfa565e6977ef2d0a24e1d90ee7fa8072e12ae1584174e8",
+      "after_sha256": "b0c3735666cb0c19eb334d8d1345bbfb4bca87d4afa00e4ea6f52081abccf4b1",
+      "changed_comments": 13,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/UnitPreviewPanel.tsx",
+      "before_sha256": "8e3f202fca6dc74caac2de1c1ca2a216096fa0609787c198da00e6f5cf824eca",
+      "after_sha256": "47004c8d19dbecabd98816ada6e0f3e7f3ec06939618fb8173af158022b7b0bd",
+      "changed_comments": 19,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/unit-status.ts",
+      "before_sha256": "9641f481e90c2de92cc7fab6231135c621ff7a94b4290c189de6c100bc6ee7e3",
+      "after_sha256": "161e02023f03dcaa976d189facd0e60d7aedabf78032414fe4b5aa5857c0b537",
+      "changed_comments": 11,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/voice-legacy-notice.test.ts",
+      "before_sha256": "b272475a527a7598c243e34fdc5b50f219fd4241386671ffcebe3e0496fc08f0",
+      "after_sha256": "d9451a2be4517a3a7b84aeede48a8727f608d96a63a86497c74cc5567514a4d1",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/reference/voice-legacy-notice.ts",
+      "before_sha256": "bf0cb7807853609a7a9d84d762130e47fee011d0bb75d74eee7e070cf9547224",
+      "after_sha256": "29471f6f61e5eae706335cfa5d0112b530ccf0949cd264c7a36cf59b0dedac4f",
+      "changed_comments": 13,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/AdScriptDialog.tsx",
+      "before_sha256": "061c820e45ad26c2ea1f742387bed5f6ed08f74a258884c91d67cb33884dbe57",
+      "after_sha256": "939067ba090b7aaf3d7e7ac28c1041fa3d05464e6aabd2185c1cf5f89e23ed7f",
+      "changed_comments": 9,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/NewAssetsSection.tsx",
+      "before_sha256": "465217ff9d1af0c192fbdf07621f398cc3ab5ac440d1aa0cc30fa2dcfcdd76c7",
+      "after_sha256": "56e9cbf2709dc9a0223f9060d310d0a67f05d808a15524d94de7315cd5bf4d89",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/PromptAuthoringDialog.test.tsx",
+      "before_sha256": "a13f964310743ed423c64ba869b9ac6c74b6b6217f91d19c8635ba31d8663094",
+      "after_sha256": "e4da273efdeb16ba94a094e0eb671b961ab5c040095d306a4f1fe9c319b8f94d",
+      "changed_comments": 2,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/shared/ScriptPlanStart.tsx",
+      "before_sha256": "7cd8ac55915f5416975fb4055eb3f9b5a1dd9b7788671d8bfa247b4ad5b43031",
+      "after_sha256": "8dd7e53ee46203e20e7a6797e5d0580222abcbe4bd3ce085605ee77e6e22c279",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/DialogueListEditor.tsx",
+      "before_sha256": "c4d78eedff98ee6a279efa068a0977cdcabb316cb4d4fda7c65eca0f535fa865",
+      "after_sha256": "27079e91f9c38a3e08dbec557d0b6ee0d80565065175bdb4cd54fac6b4211cdf",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFramePicker.test.tsx",
+      "before_sha256": "a1fcf676d6dfe4bc2ebabaa5d7d1a030e274116eb3d4a1d2251eeb3f769d8e22",
+      "after_sha256": "7cff7d29eb60402fec4c80ce139f0730b7d4fc6b873dc60d676410250a2173c6",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFramePicker.tsx",
+      "before_sha256": "0570dd1f1def264cd22aeace06d4eca59b18771c5f85649163871e4dac96ba9a",
+      "after_sha256": "f175e5dce32ab0586f035d3d4c1e6540d2726de9d7a93d4e8dc008b33796ee17",
+      "changed_comments": 11,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFrameRow.test.tsx",
+      "before_sha256": "0525115d9e84a66e1e9ad1050eeabee8a83013ea05f6be4f7815a1b785b8168d",
+      "after_sha256": "164dd7446c9b3c0bd257298c1aa32008922fe3d92f0a8bd9497b888f7fc9aba0",
+      "changed_comments": 17,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/EndFrameRow.tsx",
+      "before_sha256": "303ad5f5b475af1b804a2e86b2ae2fe053d74314a44e76888d8dce7588ba0b31",
+      "after_sha256": "36f5490fee71943d4aa2c94401cb9c10b6e57113095a030a114319e44ef2efa7",
+      "changed_comments": 28,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ImageEditButton.test.tsx",
+      "before_sha256": "fd19580efc74a4ffd2f6da810a115bce96a86872c1fcba11ecadcab8bb1623cc",
+      "after_sha256": "b08463d4cac0d11820c7a409103cf4a85feb11fca89c028d8947fe0eb4d9578c",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ImageEditButton.tsx",
+      "before_sha256": "5fa8bb175ed15a0a69b8cc08f8fb591bf04809d7cf61c62889e8ccb87109cd3a",
+      "after_sha256": "fc972846c6ed7698f7bf196189f67196c54f1c1092e2d34054eaf55a1dfd09d3",
+      "changed_comments": 16,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/MediaCard.test.tsx",
+      "before_sha256": "da411c6994549b7767b3a902a13b9da78c6b51e6bd9a3b27cb3dc983d7c3e545",
+      "after_sha256": "718c172ee5889271877edfb0852003b0765a33058ca8f71ee1176e065015647d",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/MediaCard.tsx",
+      "before_sha256": "f1e4372ecbd4764e93bdc7a3b5cc164ce3eb867c0aaa08df5849a3fcfea43935",
+      "after_sha256": "d829d0ea5df9de05f16c5afcc7c25a11c03022d694162f6df5f107c23d7a36e8",
+      "changed_comments": 19,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/NarrationAudioCard.tsx",
+      "before_sha256": "2e3acf94bba2b97b9b91c9f28965dd19fbab9e480392ec0e5fe16b3189d74d62",
+      "after_sha256": "fcf0f13636754dde7ed903edbf70af9d768fa5a37d50ca90530ead3856e038fe",
+      "changed_comments": 11,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ReferencesSection.test.tsx",
+      "before_sha256": "e12a585f161298da4dd0b5bf497a0c8701132603dfb69b548b65baa77683572d",
+      "after_sha256": "dbb75662f527fec4f1c7425f1547fb49d0098f15b6a16c6d3e92195617452c2e",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ScriptReviewGate.test.tsx",
+      "before_sha256": "458ee7be20f749a196c72f5802a3a2de505cf5bef5bc8a92f2d382a27ca224aa",
+      "after_sha256": "0f7a4b376993446174252615da2b6e00f45a6202bf98ca7505d2760a86ca4844",
+      "changed_comments": 22,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ScriptReviewGate.tsx",
+      "before_sha256": "f77caf89656f6671df1c85d7dedc84398b645748b30e037d27a13d16f1dd314a",
+      "after_sha256": "f694ba9708493410074e1e8942f32064b97529e5e83766602e19ff73ccc4bb05",
+      "changed_comments": 39,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/SegmentRefsEditModal.test.tsx",
+      "before_sha256": "1314c9d6294d8174af3c3d59d59f1f730a392c0aa4f02fb05a57dd25f498008c",
+      "after_sha256": "0b21fced291db22703ea723119dd38962ca7e22657c22f2b1c268fe4b682a5ca",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/SegmentRefsEditModal.tsx",
+      "before_sha256": "1d170e4b87c947ed62ca466a6db5218b18c5a45538311c116d404910b812b212",
+      "after_sha256": "676769c47ef7585b1efdd78d016006563fb41566f5f9a23d3030b4674a1ea455",
+      "changed_comments": 12,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.ad.test.tsx",
+      "before_sha256": "7ecca6dd3595be2c2302c66788ae9c4c14f724a226fdf14f59a526374eaa4b12",
+      "after_sha256": "0ffdad14ebf97c88c28994004ce684c42edbca8232efdb4c7430d85005b1f03b",
+      "changed_comments": 5,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.drama.test.tsx",
+      "before_sha256": "447aba8319410bee108d39bfd9efb0512aae5e41d10e2724e776571d152f3819",
+      "after_sha256": "6e43f13aba282b21bd355ed94512096a2e77ae8f9d7455b17b56b780b272bcec",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.duration.test.tsx",
+      "before_sha256": "c68d74c4af344bd4c6cf0aed009178df7740c43c8b1bf7e48c652e0a919e89cc",
+      "after_sha256": "c7768e98614fe96d7bea57c8ab0ddfc1d35141c6a3e7e730829d88892cd85e77",
+      "changed_comments": 19,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.pending-prompt.test.tsx",
+      "before_sha256": "562d82b2b70862d4ff697b40e02a339953755d8c7befe67c1added74b937c7e1",
+      "after_sha256": "6b71e79795d6e6ab9f6450be58bec3e096d02a016478f2a8cc79bed9a01ebbad",
+      "changed_comments": 2,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.prompt-form.test.tsx",
+      "before_sha256": "4f056590e202d46ec89aa7ec655968ec23970ea2d75051702a47cc22fa6a8082",
+      "after_sha256": "15a497090cde29ad2ebe3e0875e7fe59af51a4a916863af0dd50d014b6cf2a06",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.save-and-generate.test.tsx",
+      "before_sha256": "8b519482d552385795a0816e52dedc4585b3bd1f531e75899ac3cb0fb209d9d4",
+      "after_sha256": "85c629a82048ddde1ba822ad0bf445266fb9d3c733e2a316d15f64fd1acd850e",
+      "changed_comments": 4,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.tsx",
+      "before_sha256": "d459a08c38e4a8199af6f21222586b6e316dd1007f493ca42fb21f5d2ea77548",
+      "after_sha256": "828d48acfcb7eb7b7da796932e11ab21ad3c4b46bac308f06192d823aa9629fc",
+      "changed_comments": 64,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetail.upload.test.tsx",
+      "before_sha256": "09854e5d15a70d1ece032ff3454afdc39d62e3439f7b3932991d72a11e8d3382",
+      "after_sha256": "dc25eab58d6c9a8479e8da34261f7f9c679b141a03814e10d60f9abd3c974ace",
+      "changed_comments": 2,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotDetailLayout.tsx",
+      "before_sha256": "3f4ec3bf7e43f2994295d5fa87c13c8c6058db1adc5a6ef681defed2d94ebb16",
+      "after_sha256": "01e987f63aaef0f0822bd28d4d0ef8944e92f249c0efabce0f5168d83a37fd8d",
+      "changed_comments": 6,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotList.tsx",
+      "before_sha256": "352d373b324554a81047dabec83e0a3b66baf4a47a699e92b3f408579d2fc5e3",
+      "after_sha256": "c40446b972ab888d4a1fb7c6618381cc02bef227109d90742d849962563752e3",
+      "changed_comments": 14,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotSplitView.shortcuts.test.tsx",
+      "before_sha256": "0185d840f36917859a7d81a70bf1e5377f1ad9b84997e92ce884bbf76b1993fc",
+      "after_sha256": "f5771545ed90c1d00568d029c3b8a819b828a60c28b7ee3f0f2297bdc8b633a7",
+      "changed_comments": 3,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotSplitView.tsx",
+      "before_sha256": "3f5e25194b6384dc07e71ab1df95e2384aa59b6288a9a34f917ba64009c2a4ec",
+      "after_sha256": "9327850f853d90dd451f232fa5fb41dc3d90ae975e5e7943bd09254ea9b4114e",
+      "changed_comments": 22,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/ShotStructureActions.tsx",
+      "before_sha256": "81a6df282885e9a4451f3e2ea85b238ac15c5b53372c58c5ad80a87d9dde7d51",
+      "after_sha256": "293010e1cdc57581b9aa22925c6abbf7d6a6549a3b1e76ca303fe51ea0681b5a",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TimelineCanvas.retention.test.tsx",
+      "before_sha256": "c1d965de7f6900ce2d2895a3663572e8ffa893f67b9748b0108956e470945be6",
+      "after_sha256": "19c9160da49f390136813f1f47d8b7d7780fdde716a2e3c6b99de93ff9731638",
+      "changed_comments": 1,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TimelineCanvas.test.tsx",
+      "before_sha256": "2e6d7af0ba2beecc336a3ccc96c22c94e712fb93ec7dfba4d6d8e67e072879ca",
+      "after_sha256": "32448dc3501516aecbf95f83284849b800c298998938e133a1b1fbc971363774",
+      "changed_comments": 4,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/TimelineCanvas.tsx",
+      "before_sha256": "ac0ba41bbf0d9cfa2bd114d2e1abe6de54a4af2cf8968b23d0f743cb17f4ff17",
+      "after_sha256": "9ba5b6404b929f74144f1c5b39c0f3cad9e015ccf41355f900b2410298c9027f",
+      "changed_comments": 22,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/UtteranceListEditor.test.tsx",
+      "before_sha256": "cac12c9826a5e22dc524fd4d41f4a914bb1d48e1d7d4e36b8ca8da359732bc4d",
+      "after_sha256": "d2336703212de6d7d7722ae3abb22bb4bd55dc2edd6fa35e2745732183b1428c",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/UtteranceListEditor.tsx",
+      "before_sha256": "70773a3b284ae527b40acf5b00b6125cd0b707fecbbcec0eec80bf0ddf116630",
+      "after_sha256": "ea77a152aa89827abc0e19ca994b382a293736a95abd0c96990114bb645171e9",
+      "changed_comments": 10,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/VersionTimeMachine.test.tsx",
+      "before_sha256": "fc4ac994556361aff153bcf8c675fba990740762a2b73ee7b3b20c6d2b01ca8a",
+      "after_sha256": "29891a4a9e4f40922889bd8ea5adec3faa3855930dd63f557d126e5f320cfbf9",
+      "changed_comments": 8,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/VersionTimeMachine.tsx",
+      "before_sha256": "3741bdd5e2f12b3629776ca419d0f1c74a5892bb3d779ecd35e14bf1a5e1dd8b",
+      "after_sha256": "7655c0241d37034cd30f799d1bcaf3013971bb24eebaf358307d27e310d27bd3",
+      "changed_comments": 15,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    },
+    {
+      "path": "frontend/src/components/canvas/timeline/useShotShortcuts.ts",
+      "before_sha256": "3e5a101ddf271d974e24b557c1d77d653c74c5c4e1e7f8c2ebf9bf16f1c41637",
+      "after_sha256": "29a3ed443a80689a8672fdb4c9c6327100884c665fc6a33cdc1956a6fbae82b6",
+      "changed_comments": 7,
+      "compiler_without_comments_equal": true,
+      "comment_count_equal": true,
+      "per_comment_line_counts_equal": true,
+      "functional_directive_prefixes_and_attachments_equal": true
+    }
+  ],
+  "files_changed": 161,
+  "comments_changed": 2039,
+  "literal_mismatches": 1,
+  "inline_code_wrapping_exceptions": [
+    {
+      "file": "frontend/src/components/canvas/grid/GridPreviewPanel.tsx",
+      "line": 44,
+      "old": "/**\n * \u8054\u5408\u56fe\u52a0\u8f7d\u524d\u7684\u5360\u4f4d\u6bd4\u4f8b\u4e0e\u5bbd\u5ea6\uff1a\u5bbd\u5ea6\u53d6\u300c\u680f\u5bbd\u300d\u4e0e\u300c70cqh \u9ad8\u5ea6\u4e0b\u6309\u8be5\u6bd4\u4f8b\u7684\u5bbd\u5ea6\u300d\u4e2d\u8f83\u5c0f\u8005\uff0c\n * \u6bd4\u4f8b\u63a8\u7b97\u6b63\u786e\u65f6\u4e0e\u52a0\u8f7d\u540e\u6309\u56fe\u7247\u81ea\u8eab\u5c3a\u5bf8\u53d7 max-w-full\u3001max-h-[70cqh] \u7ea6\u675f\u7684\u7ed3\u679c\u4e00\u81f4\uff0c\u52a0\u8f7d\u524d\u540e\u4e0d\u8df3\u52a8\u3002\n * width/height \u5c5e\u6027\u53ea\u63d0\u4f9b\u6bd4\u4f8b\u3002\n */",
+      "new": "/**\n * Preload composite placeholder ratio/width: minimum of column width and aspect-ratio width at 70cqh height;\n * correct ratios match loaded natural-size constraints `max-w-full` / `max-h-[70cqh]`, preventing layout shifts.\n * width/height attributes supply aspect ratio only.\n */",
+      "spans_before": [],
+      "spans_after": [
+        "max-h-[70cqh]",
+        "max-w-full"
+      ]
+    }
+  ],
+  "machine_literal_spellings_preserved": true,
+  "inline_code_wrapper_delta_explanation": "Only additional backticks around the same existing max-w-full and max-h-[70cqh] spellings, to retain unambiguous Tailwind comment token boundaries. No original inline-code span removed or changed.",
+  "css_drift_correction": {
+    "cause": "English ordinal in three comments introduced Tailwind .ordinal",
+    "correction": "Replace ordinal with position number in those comments only; no CSS/style/executable changes",
+    "final_comparison": "frontend-canvas-production-css.json"
+  },
+  "proof_limit": "Compiler/comment counts/directive attachments are mechanical evidence. Semantic fidelity requires separate coordinator review. This proof does not certify AI behavior."
+}

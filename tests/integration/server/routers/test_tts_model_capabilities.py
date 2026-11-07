@@ -1,4 +1,4 @@
-"""音色接口经真实配置与端点装配，按模型和请求语言列音色，不发供应商请求。"""
+"""Voice APIs use real configuration/endpoint assembly, listing model/request-language voices without provider calls."""
 
 import httpx
 import pytest

@@ -1,12 +1,12 @@
-"""PM 按 content_mode 选数据结构的守卫回归测试。
+"""Regression guards for PM content_mode-based structure dispatch.
 
-锁定一个边缘行为：content_mode=narration 但数据落在 `scenes` 键下（无 `segments` 键）
-的畸形脚本，PM 必须沿键存在性守卫回退去读 `scenes`，而非因 content_mode 字面映射到
-`segments` 就读到空列表。
+Pin an edge case: malformed content_mode=narration scripts storing data under `scenes` without `segments`.
+PM must retain key-presence fallback to `scenes`, rather than return an empty list by mapping content_mode literally
+to `segments`.
 
-收敛字段名分派（→ lib.script.script_skeleton 取证解析）时若天真改为
-`items = script.get(<content_mode 对应 items_key>, [])`、丢掉 `"segments" in script`
-守卫，这些断言会变红——这正是它们要守的回归。只断言外部行为，不 patch 私有方法。
+When consolidating field dispatch through lib.script.script_skeleton evidence-based resolution, naively replacing it with
+`items = script.get(<content_mode 对应 items_key>, [])` and removing the `"segments" in script`
+guard makes these assertions fail, precisely the regression they protect. Assert external behavior only; do not patch private methods.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def _pm(tmp_path: Path) -> ProjectManager:
 
 
 def _narration_script_with_data_under_scenes() -> dict:
-    """content_mode=narration，但内容存在 `scenes` 键下、无 `segments` 键的畸形脚本。"""
+    """Malformed content_mode=narration script with data under `scenes` and no `segments`."""
     return {
         "episode": 1,
         "title": "标题",
@@ -47,7 +47,7 @@ class TestNarrationDataUnderScenesFallback:
         pm = _pm(tmp_path)
         pm.save_script("demo", _narration_script_with_data_under_scenes(), "episode_1.json", validate=False)
 
-        # 不应抛 KeyError；应命中 scenes 下的 E1S01 并回写
+        # No KeyError: find E1S01 under scenes and write back.
         pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "storyboards/scene_E1S01.png")
 
         saved = pm.load_script("demo", "episode_1.json")

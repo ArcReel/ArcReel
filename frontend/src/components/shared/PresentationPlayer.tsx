@@ -24,16 +24,16 @@ interface PresentationPlayerProps {
   posterPath?: string | null;
   initialVariant?: PresentationVariant;
   /**
-   * 载入后从该时间（秒，单元视频自身的时间轴）开始播放；超出可播放范围时夹到范围内。
-   * 同一个 `requestId` 只生效一次，换一个 `requestId` 就再定位一次。浏览器拦截自动播放时停在该位置等用户点播放。
+   * After loading, start playback at these seconds on unit-video timelines; clamp outside playable ranges.
+   * Apply each `requestId` once; changing `requestId` seeks again. Blocked autoplay waits there for user playback.
    */
   startAt?: { seconds: number; requestId: string };
-  /** `startAt` 生效后回调，参数为该请求的 `requestId`。 */
+  /** Callback after `startAt` applies, receiving its `requestId`. */
   onStartApplied?: (requestId: string) => void;
   className?: string;
 }
 
-/** 起始位置离可播放范围末尾至少留出这么多，免得一播放就撞上边界停住。 */
+/** Minimum distance from playable-range ends when seeking, avoiding immediately hitting boundaries and stopping. */
 const START_END_MARGIN_SECONDS = 0.05;
 
 interface PresentationLoadState {
@@ -238,7 +238,7 @@ export function PresentationPlayer({
     const apply = () => {
       appliedStartRef.current = startAt.requestId;
       video.currentTime = target;
-      // 播放器可能在可滚动栏里的折叠位置之下，先滚到可见处。
+      // Players may sit below folds in scrollable columns; first scroll them into view.
       video.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
       void video.play().catch(() => undefined);
       onStartApplied?.(startAt.requestId);
@@ -249,7 +249,7 @@ export function PresentationPlayer({
     }
     video.addEventListener("loadedmetadata", apply, { once: true });
     return () => video.removeEventListener("loadedmetadata", apply);
-    // 视频元素在 presentation 就绪后才挂载，所以载入结果变化时要重跑。
+    // Video elements mount only after presentation readiness; rerun when loaded results change.
   }, [startAt, presentation, onStartApplied]);
 
   const stopAtPresentationBoundary = useCallback(
@@ -340,12 +340,12 @@ export function PresentationPlayer({
         .getState()
         .pushToast(t("presentation_download_failed", { message: errMsg(cause) }), "error");
     } finally {
-      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- 下载在途时按钮禁用且入口先判 downloading，不会有更新的下载同时持有这个标志
+      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- Download buttons disable during requests and entry points check downloading; no newer download can own this flag concurrently
       setDownloading(false);
     }
   };
 
-  // 播放器各状态都固定深色：叠在画面上的状态色和控件按深色取值
+  // All player states stay dark; overlay state colors/controls use dark values.
   if (loading && !presentation) {
     return (
       <div className={`dark grid h-full w-full place-items-center bg-black/35 ${className}`}>

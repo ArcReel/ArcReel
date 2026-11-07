@@ -1,12 +1,11 @@
-"""分镜尾帧设置/清除路由。
+"""Routes for setting and clearing storyboard end frames.
 
-设置有两条通道、同一落点：``/end-frame/upload`` 收 multipart 上传，``/end-frame/select``
-按项目内相对路径选已有图片；两者都归一为 PNG 快照写到 ``end_frames/scene_{id}.png``。
-``DELETE /end-frame`` 清除（删快照 + 字段置空）。
+Two input paths share one destination: ``/end-frame/upload`` accepts multipart uploads; ``/end-frame/select`` selects
+an existing image by project-relative path. Both normalize a PNG snapshot to ``end_frames/scene_{id}.png``.
+``DELETE /end-frame`` removes the snapshot and clears the field.
 
-字段 ``end_frame_image`` 只由这里写入：通用剧本 PATCH 白名单刻意不含它，避免原样写值
-绕过快照复制、重新引入悬空引用与越界路径。
-"""
+Only these routes write ``end_frame_image``. The generic script PATCH allowlist deliberately excludes it so raw values
+cannot bypass snapshot copying and reintroduce dangling references or out-of-bounds paths."""
 
 from __future__ import annotations
 
@@ -45,20 +44,20 @@ class SelectEndFrameRequest(BaseModel):
 
 @contextmanager
 def _translated_errors(script_file: str, _t: Translator) -> Generator[None]:
-    """三个端点共用的领域错误 → HTTP 映射。"""
+    """Domain-error-to-HTTP mapping shared by all three endpoints."""
     try:
         yield
     except (EndFrameError, UploadValidationError) as e:
         raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params)) from e
     except FileNotFoundError as exc:
-        # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
+        # Never return str(exc): load_script errors contain absolute server paths.
         raise NotFoundError("script_not_found", name=script_file) from exc
     except ScriptEditError as e:
         raise HTTPException(status_code=400, detail=script_edit_detail(e, _t)) from e
     except (HTTPException, ApiError):
         raise
     except Exception as e:
-        # 不回传 str(e)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
+        # Never return str(e): unexpected errors may contain server paths or other internals; log the traceback only.
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from e
 
@@ -71,10 +70,10 @@ async def upload_end_frame(
     _t: Translator,
     file: UploadFile = File(...),
 ):
-    """上传任意图片作为该分镜的尾帧。"""
+    """Upload any image as this storyboard’s end frame."""
     with _translated_errors(script_file, _t):
         max_bytes = validate_upload(file.filename, file.size, kind="image")
-        # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
+        # Bound bytes read into memory to prevent OOM when Content-Length is absent/bypassed.
         content = await file.read(max_bytes + 1)
         if len(content) > max_bytes:
             raise UploadTooLargeError(max_bytes)
@@ -95,7 +94,7 @@ async def select_end_frame(
     req: SelectEndFrameRequest,
     _t: Translator,
 ):
-    """指定项目内已有图片的相对路径作为该分镜的尾帧（快照复制，不建立引用）。"""
+    """Select an existing project image by relative path as this storyboard’s end frame, copying a snapshot rather than creating a reference."""
     with _translated_errors(req.script_file, _t):
         relative = await set_end_frame_from_project_image(
             project_name=project_name,
@@ -113,7 +112,7 @@ async def delete_end_frame(
     script_file: str,
     _t: Translator,
 ):
-    """清除该分镜的尾帧：删快照文件并把字段置空。"""
+    """Clear this storyboard’s end frame: delete the snapshot and clear the field."""
     with _translated_errors(script_file, _t):
         await clear_end_frame(project_name=project_name, script_file=script_file, shot_id=shot_id)
         return {"success": True}

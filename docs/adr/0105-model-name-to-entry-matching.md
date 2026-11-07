@@ -2,34 +2,34 @@
 status: accepted
 ---
 
-# 模型名每次按名字归一化现查条目，不存对应关系，日期快照靠模型别名；对应不上的供应商模型照常可用，模型事实在运行时回落
+# Resolve model names against catalog entries on each use without stored mappings; dated snapshots use aliases, unmatched provider models remain usable with runtime fact fallbacks
 
-自定义供应商的模型发现只返回模型 ID，Agent 凭证上也只有模型名，两者都要对应到模型条目才能取到价格与模型事实。中转站的命名五花八门：加命名空间前缀、用点号写版本、改大小写，甚至另起名字，所以对应不上的情况很常见。我们决定只在客户端做不改变模型身份的名字归一化，带日期的快照是否属于同一个模型交给目录数据里的模型别名表达；对应关系不存储，每次使用时按当前的模型目录现查，只有用户的条目绑定会存下来；对应不上的模型照常可用，只是没有条目，模型事实在运行时按名字回落，不把猜测写进任何数据。
+Custom-provider model discovery returns only model IDs; Agent credentials likewise hold only model names. Both need catalog-entry matches for prices and model facts. Intermediaries use diverse names: namespace prefixes, dotted versions, case changes, or entirely different names, making failed matches common. Normalize names only client-side without changing model identity; catalog-data aliases express whether dated snapshots belong to the same model. Do not store inferred mappings: query the current model catalog each time, persisting only users' explicit entry bindings. Unmatched models remain usable without entries; model facts fall back by name at runtime, without writing guesses into any data.
 
-## 规则
+## Rules
 
-- 模型名与条目的官方模型名、模型别名比较，比较前做三步归一化：忽略大小写；去掉最后一个 `/` 及之前的命名空间；点号视同连字符。精确命中优先于归一化命中；同等命中时，官方模型名优先于模型别名，因为用户副本可能还带着官方数据已经拆出去的旧别名。不去掉日期后缀，也不去掉 `:free`、`-thinking`、`-preview` 这类后缀。
-- 自定义供应商的「获取模型」、自定义供应商按 ID 手动添加、Agent 凭证的档位匹配，共用这一条规则。内置供应商按其清单中的 API 模型名精确匹配（见 `docs/adr/0099`）。
-- 对应关系不存储，每次使用时按当前的模型目录现查；有条目绑定时用绑定。官方同步带来新条目或模型别名后，现查结果随之变化，不需要迁移或重算，已冻结的费用不受影响。
-- 一个模型名命中多个条目时（两栖模型），取与供应商模型调用端点媒体类型一致的那一条；获取模型时还没有调用端点，按名字推断的媒体类型取。
-- 模型别名只随出厂快照与官方同步下发，用户不编辑。用户确定的对应关系存为条目绑定，记在自定义供应商的供应商模型或 Agent 凭证上，不修改条目，因此不会关闭条目的官方同步。
-- 自定义供应商的模型发现为每个模型给出默认调用端点。对应上条目的模型，媒体类型取条目，在这个媒体类型内按名字族选端点，选不到时取该媒体类型在当前模型发现协议下的默认端点；对应不上的模型，按名字同时推断媒体类型与端点。获取时可以逐个修改。
-- 对应不上的模型可以添加，成为对应不上条目的供应商模型，媒体类型取其调用端点，费用记为未定价。它的模型事实在运行时回落：可选时长取按名字推断的时长预设，其余维度不加约束，超出范围时由上游拒绝（见 `docs/adr/0018`）。回落结果不写入能力覆盖或其他字段；用户自己设置的能力覆盖照常优先。
-- 调用通道的请求结构、输入能力与计量方式由供应商模型挂接的调用端点决定，不按名字族认定。模型事实从对应条目读取，提交前预估、报价与结算计量使用同一份条目事实；请求里仍发 API 模型名。名字只用于查条目、添加模型时预填端点，以及对应不上条目时的可选时长回落（见 `docs/adr/0104`）。唯一的例外是百炼与 Vidu 视频通道的提示词长度上限：条目还没有这一维，仍按条目的官方模型名与模型别名认定，对应不上条目时取 API 模型名。
+- Compare model names against official model names and aliases after three normalization steps: ignore case; remove the last `/` and preceding namespace; treat dots as hyphens. Exact matches precede normalized matches. At equal match strength, official names precede aliases, because user copies may retain old aliases already separated from official data. Do not remove date suffixes or suffixes such as `:free`, `-thinking`, or `-preview`.
+- Custom-provider "fetch models," manually adding custom-provider models by ID, and Agent-credential tier matching share this rule. Built-in providers match their listed API model names exactly (see `docs/adr/0099`).
+- Do not store mappings; query the current catalog on each use, using explicit entry bindings when present. Official synchronization introducing entries/aliases changes lookup results without migration or recomputation; frozen costs remain unaffected.
+- When one name matches multiple entries (dual-modality models), select the entry matching the media type of the provider model's invocation endpoint. During model fetching, no endpoint exists yet, so use the media type inferred from the name.
+- Model aliases arrive only through factory snapshots and official synchronization; users do not edit them. Store user-determined mappings as entry bindings on custom-provider models or Agent credentials, without modifying entries or disabling their official synchronization.
+- Custom-provider discovery supplies a default invocation endpoint per model. Matched models take media type from their entries, then select endpoints by name family within that type; if none matches, use that media type's default endpoint under the current discovery protocol. Unmatched models infer both media type and endpoint by name. Users can modify each during fetching.
+- Unmatched models can be added as provider models without matching entries, taking media type from invocation endpoints and recording costs as unpriced. At runtime, facts fall back: selectable durations use name-inferred duration presets; other dimensions impose no constraints, leaving upstream rejection for out-of-range requests (see `docs/adr/0018`). Do not write fallback results into capability overrides or other fields; user-set capability overrides still take priority.
+- Invocation endpoints attached to provider models determine channel request structures, input capabilities, and metering, rather than name families. Read model facts from matched entries; presubmission estimates, quotes, and settlement metering use the same entry facts, while requests still send API model names. Names serve only entry lookup, endpoint prefilling when adding models, and selectable-duration fallback without matching entries (see `docs/adr/0104`). The sole exception is prompt-length limits for Bailian and Vidu video channels: entries lack that dimension, so determine it from entry official names/aliases, or API model names when unmatched.
 
 ## Considered Options
 
-- **在客户端去掉日期后缀**：能多命中一些中转站上的快照名。但同名不同日期的快照可能价格不同，例如 `gpt-4o-2024-05-13` 与 `gpt-4o`，去掉后缀会把费用静默算成另一个价格。哪些快照与主名是同一个模型，属于数据事实，由目录数据仓库生成模型别名表达。
-- **只做精确匹配**：规则最简单，但中转站普遍带命名空间前缀或用点号写版本，命中率太低，大部分模型都要用户手动绑定。
-- **命中多个条目时让用户逐个选择**：目前只有一个两栖模型会命中多个条目，为它设计候选选择不划算，需要时绑定即可。
-- **默认端点参考同一供应商同一媒体类型最常用的端点**：中转站可能同时以 `ark-seedance-2` 转发 Seedance、以 `kling-video` 转发可灵，按媒体类型统计会把后者带到错误的端点上。改为参考同一模型厂商的已有模型，又会成为用户看不出缘由的隐式规则，不如逐个修改直观。
-- **添加时把按名字推断的时长写进能力覆盖**：用户会看到一组自己没设过的覆盖值；日后对应上条目时，也分不清哪些值是推断的、哪些是用户改过的。
-- **为对应不上的模型自动新建用户条目**：条目的身份需要模型厂商，对应不上时并不知道；每添加一个这样的模型，目录里就多一个用户条目。
-- **添加时存下对应的条目引用，之后只给还没对应上的补关联**：对应关系稳定，但模型别名日后变成独立条目时，已存的引用会一直指向主名的价格与能力；要纠正，就得区分自动与手动关联，并在每次同步后重算。LiteLLM、OpenCode 与 Cherry Studio 都按名字现查，只存用户的显式指定。
-- **允许用户给条目补模型别名**：在官方条目上补别名会关闭它的官方同步；用户的对应关系已经有地方记录。
+- **Removing date suffixes client-side**: matches more intermediary snapshot names, but same-name snapshots with different dates may have different prices, such as `gpt-4o-2024-05-13` and `gpt-4o`; removal silently charges another price. Which snapshots are the same model as a primary name is a data fact, expressed by aliases generated in the catalog-data repository.
+- **Exact matching only**: simplest rules, but common intermediary namespace prefixes/dotted versions make match rates too low, requiring manual bindings for most models.
+- **Letting users choose every multi-entry match**: only one dual-modality model currently matches multiple entries; candidate-selection design is not worthwhile for it, and explicit bindings suffice when needed.
+- **Choosing default endpoints by the most-used endpoint for that provider/media type**: intermediaries may forward Seedance through `ark-seedance-2` and Kling through `kling-video`; media-type counts would send the latter to the wrong endpoint. Using existing models from the same model vendor instead creates another implicit rule whose reason users cannot see, less intuitive than per-model edits.
+- **Writing name-inferred durations into capability overrides when adding**: users would see overrides they never set and later could not distinguish inferred values from their own edits after entries match.
+- **Automatically creating user entries for unmatched models**: entry identity requires a model vendor, unknown when unmatched; every added such model would add another user entry to the catalog.
+- **Storing matched entry references on addition, then associating only still-unmatched models**: mappings stay stable, but when aliases later become separate entries, stored references keep pointing to the primary name's prices/capabilities. Correction requires distinguishing automatic/manual associations and recomputing after every synchronization. LiteLLM, OpenCode, and Cherry Studio all query by name on use, storing only explicit user choices.
+- **Allowing users to add entry aliases**: adding aliases to official entries disables their official synchronization; user mappings already have a storage location.
 
 ## Consequences
 
-- 命中率取决于目录数据仓库生成的模型别名，包括价格相同的日期快照名与中转站的常见命名（见 `docs/adr/0103`）。
-- 中转站给已知模型改了名时，用户绑定一次条目，价格与模型事实就按这个模型取得，通道能力仍由所挂调用端点决定。
-- 官方同步之后，同一个供应商模型对应的条目可能变化，价格与模型事实随之变化，不另作提示。
+- Match rates depend on aliases generated by the catalog-data repository, including same-priced dated snapshots and common intermediary names (see `docs/adr/0103`).
+- When intermediaries rename known models, users bind an entry once to obtain that model's prices/facts; attached invocation endpoints still determine channel capabilities.
+- Official synchronization can change the entry matched to the same provider model, changing prices and facts without a separate notification.

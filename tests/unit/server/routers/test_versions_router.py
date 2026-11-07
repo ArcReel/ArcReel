@@ -37,7 +37,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import add_typed_video_version
 from tests.fakes import use_project_manager
 
-# 产物清单是读取已生成产物的唯一口径，还原路径要落到真实的 v8 项目目录才有意义。
+# Artifact manifests alone determine generated artifacts; restoration paths need real v8 project directories.
 _MINIMAL_PROJECT = {
     "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
     "title": "Demo",
@@ -69,7 +69,7 @@ _MINIMAL_SCRIPT = {
 
 
 def _write_minimal_project(project_path: Path) -> None:
-    """落一个当前 schema 版本的最小项目：产物清单的取证要读到 project.json 与剧集绑定。"""
+    """Persist minimal current-schema projects: manifests inspect project.json and episode bindings."""
     project_path.mkdir(parents=True, exist_ok=True)
     project_path.joinpath("project.json").write_text(json.dumps(_MINIMAL_PROJECT, ensure_ascii=False), encoding="utf-8")
     scripts_dir = project_path / "scripts"
@@ -192,9 +192,9 @@ def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transa
 
 
 class _GridPM:
-    """记录剧本侧写回调用的 ProjectManager 替身，供 grids 还原用例断言「不碰剧本」。
+    """ProjectManager fake records script writes, asserting grid restoration never touches scripts.
 
-    ``load_project`` 供还原的宫格写闸门取项目形态，默认返回一个允许宫格写入的项目。
+    ``load_project`` supplies project shapes for grid write gates, defaulting to projects allowing grids.
     """
 
     def __init__(self, project_path, project=None):
@@ -846,8 +846,8 @@ class TestVersionsRouter:
             assert unsupported.status_code == 400
 
     def test_grid_restore_resets_split_state_without_touching_scripts(self, tmp_path, monkeypatch):
-        """grids 还原放行：只换回联合图并复位宫格记录的切分态；不同步任何剧本、
-        frame_chain 原样保留，分镜图不被触碰。"""
+        """Allow grids restoration: replace joint images/reset splitting states only; never synchronize scripts,
+        retain frame_chain unchanged and never touch storyboard images."""
         from lib.script.grid.grid_manager import GridManager
         from lib.script.grid.models import GridGeneration
 
@@ -884,7 +884,7 @@ class TestVersionsRouter:
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["file_path"] == f"grids/{grid.id}.png"
-            # 还原后联合图文件的 mtime 指纹供前端 cache-bust
+            # Restored joint-image mtime fingerprints let frontend bust caches.
             assert f"grids/{grid.id}.png" in body["asset_fingerprints"]
 
         saved = GridManager(tmp_path).get(grid.id)
@@ -893,10 +893,10 @@ class TestVersionsRouter:
         assert saved.error_message is None
         assert saved.split_at is None
         assert [c.to_dict() for c in saved.frame_chain] == frame_chain_before
-        # 冻结比例保持不变：还原换回的是历史联合图，其产出比例未随版本记录，
-        # 改写成项目当前比例会把老图按新比例裁切。与手动上传（改写为当前比例）相反。
+        # Frozen ratios remain: restoration returns historical joint images whose production ratios were not version-recorded;
+        # current project ratios would crop old images incorrectly, unlike manual uploads updating to current ratios.
         assert saved.video_aspect_ratio == "16:9"
-        # 不做分镜侧元数据同步
+        # No storyboard metadata synchronization.
         assert fake_pm.update_calls == []
 
     @pytest.mark.parametrize("record_bytes", [None, b"{broken"])
@@ -983,9 +983,9 @@ class TestVersionsRouter:
         ],
     )
     def test_grid_restore_rejected_when_grid_writes_disabled(self, tmp_path, monkeypatch, project, expected_detail):
-        """还原与重生成/切分/上传共用宫格写闸门：广告项目与关闭宫格开关的项目一律拒绝。
+        """Restoration shares regeneration/splitting/upload grid write gates: reject ads and projects with disabled grids.
 
-        还原同样会换掉联合图并复位宫格记录，闸门漏在这里就成了改写残留 grid 的绕行路径。
+        Restoration also replaces joint images/resets records; missing gates here permit bypasses for rewriting retained grids.
         """
         from lib.script.grid.grid_manager import GridManager
         from lib.script.grid.models import GridGeneration
@@ -1018,25 +1018,25 @@ class TestVersionsRouter:
             resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
 
         assert resp.status_code == 400
-        # 断言到具体文案：两道闸门各自触发，不被对方的 400 顶替
+        # Assert exact copy: each gate must trigger independently, never substitute the other's 400.
         assert expected_detail in resp.json()["detail"]
-        # 拒绝即止：联合图未被替换，宫格记录的切分态原样保留
+        # Stop on rejection: joint images remain unreplaced, grid splitting states unchanged.
         assert (tmp_path / "grids" / f"{grid.id}.png").read_bytes() == b"original-bytes"
         saved = GridManager(tmp_path).get(grid.id)
         assert saved is not None
         assert saved.split_at == "2026-01-01T00:00:00+00:00"
 
     def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch, tmp_path):
-        """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""
+        """Gates apply to grids only; project grid configuration never blocks other resource restoration."""
         client, _fake_pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
         assert resp.status_code == 200
 
     def test_grid_restore_keeps_in_flight_status(self, tmp_path, monkeypatch):
-        """生成在途时还原不把记录复位成 completed：记录一旦谎报空闲，
-        切分/上传的在途闸门就会放行，用户可对着即将被 worker 覆写的联合图落格。
-        切分态仍无条件作废——联合图内容确已换成历史版本。"""
+        """Restoration during generation must not reset records to completed: falsely idle records let
+        splitting/upload in-flight gates pass, allowing cells from joint images about to be overwritten by workers.
+        Splitting states still invalidate unconditionally, because joint-image contents did change to historical versions."""
         from lib.script.grid.grid_manager import GridManager
         from lib.script.grid.models import GridGeneration
 
@@ -1076,7 +1076,7 @@ class TestVersionsRouter:
         assert saved.split_at is None
 
     def test_reference_video_restore_returns_thumbnail_fingerprint(self, tmp_path, monkeypatch):
-        """reference_videos 还原放行：清缩略图并以 fingerprint=0 通知前端失效。"""
+        """Allow reference_videos restoration: remove thumbnails and notify frontend invalidation with fingerprint=0."""
         from lib.project.project_manager import ProjectManager
 
         real_pm = ProjectManager(tmp_path)
@@ -1124,7 +1124,7 @@ class TestVersionsRouter:
             assert body["file_path"] == "reference_videos/E1U1.mp4"
             assert body["asset_fingerprints"]["reference_videos/thumbnails/E1U1.jpg"] == 0
 
-        # 缩略图文件被删除；unit 元数据清掉过期 video_uri / video_thumbnail
+        # Delete thumbnails; clear stale unit video_uri / video_thumbnail metadata.
         assert not thumb.exists()
         script = real_pm.load_script("demo", "episode_1.json")
         ga = script["video_units"][0]["generated_assets"]
@@ -1134,7 +1134,7 @@ class TestVersionsRouter:
         assert ga["status"] == "completed"
 
     def test_ad_reference_video_restore_preserves_inert_legacy_source_signature(self, tmp_path, monkeypatch):
-        """还原只更新成片元数据；遗留来源签名既不读取版本档案，也不清理或覆盖。"""
+        """Restoration updates output metadata only; legacy source signatures neither read version archives nor clear/overwrite."""
         from lib.project.project_manager import ProjectManager
 
         real_pm = ProjectManager(tmp_path)
@@ -1181,7 +1181,7 @@ class TestVersionsRouter:
         assert ga["source_signature"] == "signature-of-current-product"
 
     def test_video_restore_clears_stale_uri_and_thumbnail_metadata(self, tmp_path, monkeypatch):
-        """videos 还原同步剧本元数据：还原的是历史本地文件，过期 provider URI 与已删缩略图须清空。"""
+        """Videos restoration synchronizes script metadata: historical local files require clearing stale provider URIs/deleted thumbnails."""
         from lib.project.project_manager import ProjectManager
 
         real_pm = ProjectManager(tmp_path)
@@ -1237,9 +1237,9 @@ class TestVersionsRouter:
         assert ga["status"] == "completed"
 
     def test_resolve_resource_path_rejects_traversal(self):
-        """resource_id 拼出的绝对路径若逃出项目目录，必须 400（路径遍历防护）。
+        """Absolute paths constructed from resource_id escaping projects must return 400, protecting against traversal.
 
-        正常路由的 path 参数不会含 `/`，故直接对 helper 断言这道收口防护。
+        Normal route path parameters never contain `/`, so directly assert this helper boundary protection.
         """
         project_path = Path(tempfile.gettempdir()) / "demo"
 
@@ -1260,8 +1260,8 @@ class TestVersionsRouter:
             project_path,
         )
         assert relative == "characters/Alice.png"
-        # helper 经 safe_join 返回 realpath 规范化后的绝对路径（symlink 已展开），
-        # 故拿同一入参 base 的 realpath 拼接断言。
+        # Helpers return safe_join realpath-normalized absolute paths with symlinks resolved,
+        # so construct expected paths from realpath of the same base input.
         expected = Path(os.path.realpath(project_path)) / "characters" / "Alice.png"
         assert current_file == expected
 
@@ -1320,8 +1320,8 @@ class TestVersionsRouter:
         assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
     def test_storyboard_restore_refuses_while_a_sibling_script_is_dirty(self, tmp_path, monkeypatch):
-        """跨集同步会跳过脏 sibling，但产物清单认领要按全部剧集绑定取证：
-        脏 sibling 让认领无法解析，整个还原按 400 拒绝而不是静默放行。"""
+        """Cross-episode synchronization skips dirty siblings, but artifact claims inspect all episode bindings:
+        unresolvable dirty siblings reject entire restorations with 400, never silently admit."""
         from lib.project.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path)
@@ -1351,7 +1351,7 @@ class TestVersionsRouter:
         )
 
     def test_storyboard_restore_unexpected_error_surfaces_as_5xx(self, tmp_path, monkeypatch):
-        """跨集同步遇未预期异常时不再被 except Exception 吞掉，让 router 层 5xx 暴露问题。"""
+        """Unexpected cross-episode synchronization exceptions no longer disappear into except Exception; router 5xx exposes failures."""
         project_path = tmp_path / "demo"
         scripts_dir = project_path / "scripts"
         scripts_dir.mkdir(parents=True)
@@ -1460,13 +1460,13 @@ class TestVersionsRouter:
         assert script_path.read_bytes() == before
 
     def test_storyboard_restore_transient_oserror_does_not_5xx(self, tmp_path, monkeypatch):
-        """跨集同步 sibling 集遇到 transient IO 错误(OSError)不应让主集 restore 5xx——
-        restore 主集已成功,housekeeping 性质的 sibling 同步应降级跳过 + warning。
+        """Transient sibling synchronization IO (OSError) must not make main-episode restoration return 5xx:
+        main restoration already succeeded; housekeeping sibling synchronization degrades to skipping with warnings.
         """
         from lib.project.project_manager import ProjectManager
 
         class _TransientIOFailPM(ProjectManager):
-            """只在 sibling 集读取边界注入 transient IO failure。"""
+            """Inject transient IO failures at sibling-episode read boundaries only."""
 
             def __init__(self, projects_root):
                 super().__init__(projects_root)
@@ -1510,7 +1510,7 @@ class TestVersionsRouter:
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
-            # transient IO 降级 + warning,主集 restore 仍 200
+            # Transient IO degrades with warnings; main-episode restore still returns 200.
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
         assert set(pm.calls) == {"episode_1.json", "episode_2.json"}
@@ -1518,7 +1518,7 @@ class TestVersionsRouter:
         assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
-        """版本还原应返回受影响文件的 fingerprint"""
+        """Version restoration returns fingerprints of affected files"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.get_project_path = lambda name: tmp_path
 
@@ -1556,7 +1556,7 @@ class TestVersionsRouter:
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert resp.status_code == 500
-            # 内部异常细节不得泄露给客户端，仅落服务端日志
+            # Internal exception details stay in server logs, never leak to clients.
             assert "boom" not in resp.text
 
     def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
@@ -1575,6 +1575,6 @@ class TestVersionsRouter:
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
             assert resp.status_code == 500
-            # 内部异常细节不得泄露给客户端，仅落服务端日志
+            # Internal exception details stay in server logs, never leak to clients.
             assert "RESTORE_LEAK_SECRET" not in resp.text
             assert "boom" not in resp.json()["detail"]

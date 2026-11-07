@@ -1,4 +1,4 @@
-"""转场词表：每一项都能在 pyJianYingDraft 的非 VIP 转场枚举与随包 ffmpeg 的 ``xfade`` 效果里找到。"""
+"""Every transition maps to non-VIP pyJianYingDraft enums and bundled-ffmpeg ``xfade`` effects."""
 
 from __future__ import annotations
 

@@ -1,14 +1,14 @@
 /**
- * 工作流计划的前端投影。字段与后端 `lib/workflow/workflow_plan.py` / `lib/workflow/workflow_state.py` /
- * `lib/generation/generation_result.py` 一一对应，REST 与 MCP 共用同一序列化，顶层无 envelope。
+ * Frontend projection of the workflow plan. Fields correspond exactly to backend `lib/workflow/workflow_plan.py` / `lib/workflow/workflow_state.py` /
+ * `lib/generation/generation_result.py`; REST and MCP share serialization without a top-level envelope.
  *
- * 三条轴在类型层就分开，界面不得把它们折成一个状态：
- * - 步骤进度 `WorkflowStepState` —— 编排走到哪一步
- * - 产物时效 `ArtifactStatus` —— 磁盘上那份东西还能不能代表当前内容
- * - 任务与供应商收单 —— 这一次尝试跑到哪了，以及供应商侧是否已经收单
+ * The three axes are separated at the type level; the UI must not collapse them into one state:
+ * - Step progress `WorkflowStepState`: how far orchestration has progressed
+ * - Artifact currency `ArtifactStatus`: whether the on-disk artifact still represents current content
+ * - Task and provider submission: how far this attempt has progressed and whether the provider has accepted the request
  */
 
-/** 编排步骤自身的进度，与产物、任务两轴无关。 */
+/** Progress of the orchestration step itself, independent of the artifact and task axes. */
 export type WorkflowStepState =
   | "completed"
   | "ready"
@@ -17,16 +17,16 @@ export type WorkflowStepState =
   | "pending"
   | "skipped";
 
-/** 产物时效。stale 是「可继续使用的告警」，不是缺失，也不授权自动重生。 */
+/** Artifact currency. stale is a warning that the artifact remains usable, not a missing artifact or authorization to regenerate automatically. */
 export type ArtifactStatus = "current" | "stale" | "missing" | "blocked";
 
-/** 旁白交付方式：项目配置（docs/adr/0089）。 */
+/** Narration delivery: project configuration (docs/adr/0089). */
 export type NarrationDelivery = "post_production" | "use_tts";
 
 /**
- * 后端给出的下一步动作标识的闭集，与 `lib/workflow/workflow_state.py` 的 `WorkflowActionType`
- * 一一对应，后端契约测试守住两侧同步。列成运行时数组而不只是类型，是为了让译文覆盖
- * 检查能逐个遍历：新增动作没配文案时测试直接红，而不是静默落到兜底陈述。
+ * Closed set of next-action identifiers returned by the backend, corresponding exactly to `WorkflowActionType` in `lib/workflow/workflow_state.py`;
+ * backend contract tests keep both sides synchronized. A runtime array rather than just a type lets translation coverage
+ * checks iterate every action: adding an action without copy fails the test instead of silently using fallback wording.
  */
 export const WORKFLOW_ACTION_TYPES = [
   "none",
@@ -73,8 +73,8 @@ export interface WorkflowNextAction {
 }
 
 /**
- * 数据损坏一类的阻断。`path` 指出具体字段位置，`reason` 是技术细节——
- * 前者进摘要，后者进折叠区。
+ * A blocker such as data corruption. `path` locates the specific field, while `reason` provides technical details:
+ * the former goes in the summary and the latter in the collapsible details.
  */
 export interface WorkflowBlocker {
   code: string;
@@ -83,23 +83,23 @@ export interface WorkflowBlocker {
 }
 
 /**
- * 计划里的一条提示。`code` 是稳定的机器 key，界面按它本地化，`params` 是文案参数；
- * 原始理由文本不下发。每条提示只出现在所属步骤（项目级的在顶层），不在两处重复。
+ * One notice in the plan. `code` is a stable machine key localized by the UI; `params` provides copy parameters;
+ * raw reason text is not sent. Each notice appears only in its own step (project-level notices are at the top level), without duplication.
  */
 export interface WorkflowProblem {
   code: string;
   action: string;
-  /** 出问题的单元；项目级提示为空。 */
+  /** Affected unit; empty for project-level notices. */
   unit_id?: string | null;
   params: Record<string, unknown>;
 }
 
-/** 供应商侧是否已经收单。已收单意味着重试可能重复计费，必须与任务状态分开陈述。 */
+/** Whether the provider has accepted the request. Acceptance means retrying may incur duplicate charges and must be stated separately from task status. */
 export interface WorkflowProviderCheckpoint {
   submitted: boolean;
 }
 
-/** 一次排队中或运行中的任务。它是进度而不是问题；恢复中的任务停在这条轴上，绝不计入 current 产物。 */
+/** One queued or running task. It represents progress rather than a problem; recovering tasks stay on this axis and never count as current artifacts. */
 export interface WorkflowTaskObservation {
   unit_id: string;
   task_id: string;
@@ -110,16 +110,16 @@ export interface WorkflowTaskObservation {
 }
 
 /**
- * 计划里产物条目的状态词。比 {@link ArtifactStatus} 宽：产物时效之外还要表达
- * 「本模式不涉及」与「只覆盖了部分范围」（如资产盘点只盘了一部分源文）。
- * 取值随后端演进，界面按已知值分派、其余走兜底陈述，不做穷举断言。
+ * State vocabulary for artifact entries in a plan. Broader than {@link ArtifactStatus}: in addition to currency, it expresses
+ * "not applicable to this mode" and "partial coverage" (for example, an asset inventory covering only part of the source).
+ * Values evolve with the backend; the UI handles known values and uses fallback wording for others, without exhaustive assertions.
  */
 export type WorkflowArtifactState = ArtifactStatus | "not_applicable" | "partial" | (string & {});
 
 /**
- * 一个步骤下的产物集合。集合可枚举时给三份 id 列表；容器本身读不了时
- * 只给 `state: "blocked"`，此时不猜任何 id 落进 current / stale / missing。
- * 单份产物（剧本、script_plan 等）只给 `state`。
+ * Artifact collection for one step. When enumerable, three ID lists are returned; when the container itself is unreadable,
+ * only `state: "blocked"` is returned, without guessing which IDs are current / stale / missing.
+ * Single artifacts (script, script_plan, etc.) return only `state`.
  */
 export interface WorkflowArtifactCollection {
   state?: WorkflowArtifactState;
@@ -149,27 +149,27 @@ export interface WorkflowPlanStep {
 }
 
 /**
- * 整批准入判定的结论。`admitted` 之外的两种结局都**一个任务也没建**，
- * 界面必须把这一点说清楚，而不是只报一句失败。
+ * Admission result for the whole batch. Both outcomes other than `admitted` mean **no tasks were created**;
+ * the UI must state this explicitly rather than merely reporting a failure.
  */
 export type BatchAdmissionDecision = "admitted" | "confirmation_required" | "blocked";
 
 /**
- * 准入结论里的单条缺口。与生成契约的问题同源，差别只在于
- * 批量端点会把文案按用户语言渲染进 `message`——计划端点不渲染，界面据此回退到译文表。
+ * One gap in an admission result, sharing the source of generation contract problems; the only difference is that
+ * batch endpoints render wording in the user's language into `message`; plan endpoints do not, so the UI falls back to its translation table.
  */
 export interface AdmissionProblem {
   code: string;
   detail?: string | null;
   action?: string | null;
   params?: Record<string, unknown>;
-  /** 已按用户语言本地化，可直接展示；缺省时按 `code` 查译文表。 */
+  /** Already localized in the user's language and ready to display; when absent, look up `code` in the translation table. */
   message?: string | null;
 }
 
-/** 供应商侧对这一次视频请求的精确报价。 */
+/** Exact provider-side cost quote for this video request. */
 export interface VideoRequestCostQuote {
-  /** null 表示价目表算不出这次请求，原因见 unpriced_reason。 */
+  /** null means the price table cannot price this request; see unpriced_reason. */
   amount: number | null;
   currency: string | null;
   provider_id: string;
@@ -180,7 +180,7 @@ export interface VideoRequestCostQuote {
 
 export interface BatchAdmissionUnit {
   unit_id: string;
-  /** 该单元自身的判定；受阻批次里它仍可能为 true（被同批其它单元连带扣下）。 */
+  /** This unit's own admission result; may still be true in a blocked batch (withheld because of other units in the batch). */
   admitted: boolean;
   withheld?: boolean;
   request_duration_seconds?: number | null;
@@ -195,7 +195,7 @@ export interface BatchAdmissionTier {
   unit_ids: string[];
   cost_amount?: number | null;
   cost_currency?: string | null;
-  /** 这一档里价目表算不出价、未计入 `cost_amount` 的单元数。 */
+  /** Number of units in this tier that cannot be priced by the price table and are excluded from `cost_amount`. */
   unpriced_count?: number;
 }
 
@@ -220,20 +220,20 @@ export interface WorkflowTarget {
   source: string;
 }
 
-/** 一个 AI 操作此刻的结构准入；`reason` 是稳定的理由码，与操作入口的拒绝理由同源。 */
+/** Current structural admission for an AI operation; `reason` is a stable reason code sharing the source of refusal reasons at the operation entry point. */
 export interface WorkflowOperation {
   state: "admitted" | "refused" | "not_applicable";
   reason?: string | null;
 }
 
-/** 目标集上在场的一份草稿；`needs_repair` 区分待修复草稿与 Agent 的可编辑草稿。 */
+/** One draft present on the target episode; `needs_repair` distinguishes drafts awaiting repair from Agent-editable drafts. */
 export interface WorkflowDraft {
   kind: string;
   path: string;
   needs_repair: boolean;
 }
 
-/** 内容现状。集级字段只在有目标集时有值；项目整体不可用时整份为空。 */
+/** Current content state. Episode-level fields have values only when an episode is targeted; the entire object is empty when the project is unavailable as a whole. */
 export interface WorkflowContent {
   episode_count: number;
   whole_source: "present" | "absent" | "not_applicable";
@@ -250,28 +250,28 @@ export interface WorkflowContent {
   needs_replan_ids: string[];
   referenced_assets_without_sheet: string[];
   unregistered_references: string[];
-  /** 本集引用、资产图过期的资产；只陈述，不进建议的下一步。 */
+  /** Assets referenced by this episode whose sheets are stale; reported only, without becoming the suggested next action. */
   referenced_asset_sheets_stale: string[];
-  /** 本集引用、缺描述因而不能生成资产图的资产；只陈述，不进建议的下一步。 */
+  /** Assets referenced by this episode whose sheets cannot be generated because descriptions are missing; reported only, without becoming the suggested next action. */
   referenced_assets_without_description: string[];
-  /** 目标集已完成：视频齐全且至少有一条剪辑时间线。 */
+  /** The target episode is complete: all videos are present and at least one edit timeline exists. */
   episode_complete?: boolean;
-  /** 只在不指定集的查询里为 true：每集都完成，且整本源文没有剩余。 */
+  /** True only in queries without a specified episode: all episodes are complete and no whole-source content remains. */
   project_complete?: boolean;
 }
 
-/** 上一次迁移没能带入的一件产物：文件原地保留，没有登记。 */
+/** One artifact not carried over by the last migration: its file remains in place but is not registered. */
 export interface WorkflowMigrationSkippedArtifact {
   kind: string;
   episode: number | null;
   resource_id: string;
   artifact_path: string;
   reason: string;
-  /** 进「未能带入」的原因：文件本身读不出，或旧版旁白音频没有合成设置记录。 */
+  /** Reason for not being carried over: the file is unreadable, or legacy narration audio has no recorded synthesis settings. */
   category?: "unreadable" | "legacy_audio_basis" | null;
 }
 
-/** 迁移或导入对用户数据做的一处调整；`code` 决定展示文案，`params` 是文案里的值。 */
+/** One adjustment made to user data by migration or import; `code` determines display wording and `params` supplies its values. */
 export type WorkflowMigrationAdjustmentCode =
   | "draft_name_conflict_resolved"
   | "duplicate_episode_entry_removed"
@@ -289,14 +289,14 @@ export interface WorkflowMigrationAdjustment {
   code: WorkflowMigrationAdjustmentCode;
   episode: number | null;
   file: string | null;
-  /** 被替下的那一份留存的位置（项目内相对路径）；不会被自动清理。 */
+  /** Retained location of the replaced copy (project-relative path); never automatically cleaned up. */
   backup: string | null;
   params: Record<string, string>;
 }
 
 /**
- * 上一次迁移调整了什么（`adjusted`）、没能带入什么（`skipped`）。只作说明，不参与状态与阻断；
- * 制作状态只在报告非空、用户尚未确认过时给出。迁移失败的项目走 `blockers` 里的 `project_migration_failed`。
+ * What the last migration adjusted (`adjusted`) or could not carry over (`skipped`). Informational only, without affecting state or blocking;
+ * production status includes it only when the report is nonempty and not yet acknowledged by the user. Failed project migrations use `project_migration_failed` in `blockers`.
  */
 export interface WorkflowMigrationReport {
   schema_version: 2;
@@ -311,9 +311,9 @@ export interface WorkflowMigrationReport {
 }
 
 /**
- * 制作状态：内容现状（`content` / `artifacts`）、各 AI 操作的准入（`operations`）与建议的下一步
- * （`next_action`，分岔处的并列选项在 `next_alternatives`）。`blockers` 只表示项目整体不可用，
- * 内容本身的数据问题在 `issues`。
+ * Production status: current content (`content` / `artifacts`), admission for each AI operation (`operations`), and the suggested next action
+ * (`next_action`, with parallel branch choices in `next_alternatives`). `blockers` only indicates that the project as a whole is unavailable;
+ * data problems in the content itself belong in `issues`.
  */
 export interface WorkflowStatus {
   schema_version: 2;
@@ -332,10 +332,10 @@ export interface WorkflowStatus {
   migration_report?: WorkflowMigrationReport | null;
 }
 
-/** 账本中一集建议的下一步（`GET /projects/{name}/workflow-status/episodes`），按账本顺序排列。 */
+/** Suggested next action for each ledger episode (`GET /projects/{name}/workflow-status/episodes`), in ledger order. */
 export interface EpisodeNextStep {
   episode: number;
-  /** 该集的集规划已失效（原文已重新规划），下一步为 `none`。 */
+  /** This episode's plan is stale (the source was replanned); the next action is `none`. */
   plan_stale: boolean;
   next_action: WorkflowNextAction;
 }
@@ -345,13 +345,13 @@ export interface WorkflowPlan {
   status: WorkflowStatus;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];
-  /** 不属于任何步骤的项目级提示（如数据升级失败）。 */
+  /** Project-level notices not belonging to any step (such as a data upgrade failure). */
   problems: WorkflowProblem[];
   next_action: WorkflowNextAction;
   next_alternatives: WorkflowNextAction[];
 }
 
-/** `POST /projects/{name}/workflow-plan` 的请求体。 */
+/** Request body for `POST /projects/{name}/workflow-plan`. */
 export interface WorkflowPlanRequest {
   episode_id?: number | null;
   confirmed_request_durations?: Record<string, number>;

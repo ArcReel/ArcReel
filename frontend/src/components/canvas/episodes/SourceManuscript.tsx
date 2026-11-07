@@ -17,7 +17,7 @@ import { episodeHue, formatSpoken, formatVolume } from "./episodes-view-model";
 import { adjacentBoundaries, pointInRun, textRuns, type ManuscriptPoint, type TextRun } from "./manual-split-model";
 import { lanesContinue, type ReplanCompare } from "./replan-compare-model";
 
-/** 原文阅读列：衬线正文，行距加大；行长由视图的 40em 限宽控制在约 40 个汉字。 */
+/** Source-reading column: serif body with increased line spacing; view width 40em keeps lines near 40 Han characters. */
 const MANUSCRIPT_TEXT_CLS = "flex cursor-text flex-col gap-3 font-editorial text-base leading-loose";
 
 interface SourceManuscriptProps {
@@ -26,32 +26,32 @@ interface SourceManuscriptProps {
   episodes: EpisodeMeta[];
   registerEpisodeHeader: (episode: number, el: HTMLElement | null) => void;
   registerFileBar: (sourceFile: string, el: HTMLElement | null) => void;
-  /** 手工切分的插入光标与它下方的操作条；`episode` 是光标取色的集，null 取品牌色。没有落点时为 null。 */
+  /** Manual-split cursor/action bar; `episode` chooses cursor episode color, null brand color; null without a target. */
   caret: { point: ManuscriptPoint; episode: number | null; toolbar: ReactNode } | null;
-  /** 正在移动的分界（左侧一集的集 ID）。 */
+  /** Moving boundary, identified by the left episode ID. */
   moving: number | null;
   onPlace: (point: ManuscriptPoint) => void;
   onToggleMoving: (left: number) => void;
-  /** 有新的分集方案时新旧两种分法的对照；没有方案或方案已过时为 null。 */
+  /** Existing/candidate comparison when new plans exist, null without candidates or when outdated. */
   compare: ReplanCompare | null;
 }
 
-/** `key` 在同一行原文的标记间唯一：标记前后移动时，分集点工具栏这类有状态的标记不被重新挂载。 */
+/** `key` is unique among markers within one source line, retaining stateful markers such as boundary tools when moved. */
 type InlineMark = { key: string; offset: number; node: ReactNode };
 type CaretMark = InlineMark | null;
 
-/** 一段原文所在文件的对照与该文件里新旧分界不同的位置；没有对照时为 null。 */
+/** File comparison and differing old/new boundaries for a source segment, null without comparison. */
 type SegmentCompare = { compare: ReplanCompare; diffs: ReadonlySet<number> } | null;
 
 /**
- * 正文容器跳过屏幕外段落的渲染（`offscreen-skip`）。插入光标所在的段落照常绘制：
- * `content-visibility: auto` 的绘制裁剪会把伸出正文的操作条裁掉。
+ * Body containers skip offscreen paragraph rendering (`offscreen-skip`), except cursor-bearing paragraphs:
+ * `content-visibility: auto` paint clipping would cut off action bars extending outside body text.
  */
 function manuscriptTextClass(hostsCaret: boolean) {
   return cn(!hostsCaret && "offscreen-skip");
 }
 
-/** 光标画在哪一行：文件内第一个结尾不早于落点的行；落在行与行之间的空白里时画在下一行开头。 */
+/** Cursor line: first file line ending at/after target; between-line whitespace uses the next line's start. */
 function caretRunStart(file: EpisodesViewFile, offset: number): number | null {
   let last: number | null = null;
   for (const segment of file.segments) {
@@ -63,7 +63,7 @@ function caretRunStart(file: EpisodesViewFile, offset: number): number | null {
   return last;
 }
 
-/** 点击处的落点：文本节点的父元素带 `data-file` 与 `data-run`（这段文字在文件内的码位起点）。 */
+/** Click target: text-node parents carry `data-file` / `data-run` (this text's file code-point start). */
 function pointFromMouse(event: MouseEvent): ManuscriptPoint | null {
   const doc = document as Document & {
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -88,13 +88,13 @@ function pointFromMouse(event: MouseEvent): ManuscriptPoint | null {
 }
 
 /**
- * 「分集」视图左栏：整本源文全文，按集分段。
+ * Episodes-view left column: whole-source full text segmented by episode.
  *
- * 每个文件开头是文件条；每集顶部是集标题条，段落左侧有集色竖条；夹在切出集之间的未切分原文显示为虚线卡片，
- * 最后一个切出集之后是「以下内容尚未分集」分隔线。
+ * Each file starts with a file bar, episodes with title bars and colored paragraph-edge bars; dashed cards hold unsplit text between cut episodes,
+ * with a remaining-content-unplanned separator after the last cut episode.
  *
- * 有新的分集方案时，正文右侧再加一条新方案的色条：左侧色条是现有分集，右侧是新方案，分界不同处画琥珀色虚线；
- * 方案还没生成到的原文是虚线色条，原文全在那里的现有集标「等待规划」。
+ * Candidates add right-side color bars: existing episodes left, new plan right, amber dashes at differing boundaries;
+ * ungenerated source uses dashed bars and existing episodes wholly there show awaiting planning.
  */
 export function SourceManuscript({
   projectName,
@@ -111,7 +111,7 @@ export function SourceManuscript({
   const { t } = useTranslation(["dashboard", "common"]);
   const info = new Map(view.episodes.map((episode) => [episode.episode, episode]));
   const meta = new Map(episodes.map((episode) => [episode.episode, episode]));
-  // 第一个尚未分集的段之前挂分隔线，之后的尾段只淡化显示
+  // Add a separator before the first unplanned section; later trailing sections are only faded.
   const firstTail = view.files
     .flatMap((file) => file.segments.map((segment) => ({ file, segment })))
     .find(({ segment }) => segment.kind === "unsplit" && !segment.gap);
@@ -136,8 +136,8 @@ export function SourceManuscript({
   };
 
   return (
-    // react-doctor-disable-next-line react-doctor/no-static-element-interactions -- 原文区的点击用来放置分集点，键盘操作（←/→ 微调、Enter 确认、Esc 取消）由视图在 window 上统一接管
-    <div // eslint-disable-line jsx-a11y/no-static-element-interactions -- 理由同上一行
+    // react-doctor-disable-next-line react-doctor/no-static-element-interactions -- Source clicks place boundaries; window-level view handling owns keyboard arrows, Enter confirmation, and Esc cancellation
+    <div // eslint-disable-line jsx-a11y/no-static-element-interactions -- Same rationale as the preceding line
       data-manuscript
       className="pb-24"
       onMouseUp={onMouseUp}
@@ -237,7 +237,7 @@ function CaretMarker({ episode, children }: { episode: number | null; children: 
   );
 }
 
-/** 一行原文：文字带上 `data-file` / `data-run` 供点击换算偏移，在各标记的位置把文字断开插入标记。 */
+/** Source line: `data-file` / `data-run` support click-offset conversion; split text to insert markers at their positions. */
 function RunText({ fileIndex, run, marks }: { fileIndex: number; run: TextRun; marks: InlineMark[] }) {
   if (marks.length === 0) {
     return (
@@ -321,7 +321,7 @@ function BoundaryButton({
   return (
     <div data-no-caret className="-mt-3 mb-3 flex items-center gap-2">
       <span aria-hidden className={cn("h-px flex-1", active ? "bg-primary" : "bg-input")} />
-      {/* 两集名称都很长时按钮随原文列收窄，文字截断，全文在悬停提示与可访问名称里 */}
+      {/* Long episode names narrow with source columns and truncate; hover/accessibility names retain full text. */}
       <Button
         variant={active ? "secondary" : "outline"}
         size="xs"
@@ -423,7 +423,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
   caret: CaretMark;
   hostRun: number | null;
   compare: SegmentCompare;
-  /** 新的分集方案还没生成到这一集。 */
+  /** New candidate has not generated this episode yet. */
   waiting: boolean;
   register: (episode: number, el: HTMLElement | null) => void;
 }) {
@@ -433,7 +433,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
   const name =
     position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position });
   const blockCls = cn("mb-6 transition-opacity duration-fast", dimmed && "opacity-45");
-  // 跨文件的一集只在起点所在文件里显示完整集头（也只有它登记为滚动目标）；后续文件里的部分只标明接续
+  // Cross-file episodes show full headings only in start files, the sole scroll targets; later-file portions show continuation only.
   if (segment.continued) {
     return (
       <article
@@ -539,7 +539,7 @@ function UnsplitBlock({
   caret: CaretMark;
   hostRun: number | null;
   compare: SegmentCompare;
-  /** 不能规划这段原文的原因（有等待处理的新的分集方案）；可以时为 null。 */
+  /** Source-planning unavailable reason (pending new candidate), null when available. */
   planBlocked: string | null;
 }) {
   const { t } = useTranslation("dashboard");

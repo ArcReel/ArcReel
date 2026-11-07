@@ -1,4 +1,4 @@
-"""v14→v15：正式脚本成为唯一内容真相后，存量项目在用户口径上可继续制作，剧本登记不因依据改版翻过期。"""
+"""v14→v15: formal scripts become sole content truth; users continue production, and changed basis versions do not stale script registrations."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def _script_status(project_dir: Path, key: ArtifactKey) -> str:
 
 
 def _legacy_script_digest(project: dict[str, Any], plan_document: object) -> str:
-    """v2 剧本依据（以脚本规划内容为输入）的摘要：历史事实，按当时的形状写死。"""
+    """v2 script-basis digests using script-plan content inputs: historical facts pinned to their original shape."""
 
     return ArtifactBasis.build(
         "structured-content/episode-script",
@@ -140,7 +140,7 @@ def _project_activity(project_dir: Path) -> datetime | None:
 def test_materializing_confirmed_episodes_leaves_the_project_activity_unchanged(
     tmp_path: Path, variant: ScriptPlanVariantName
 ) -> None:
-    # 转出的正式脚本记下的是创作者确认脚本规划的时间，不是迁移运行的时间。
+    # Converted formal scripts retain creator-confirmed plan timestamps, not migration execution time.
     project_dir = write_legacy_script_plan_project(tmp_path / "projects", variant=variant, schema_version=7)
     stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC).timestamp()
     for path in project_dir.rglob("*"):
@@ -156,7 +156,7 @@ def test_materializing_confirmed_episodes_leaves_the_project_activity_unchanged(
 
 
 def test_rerunning_the_script_plan_of_a_grandfathered_episode_only_asks_for_confirmation(tmp_path: Path) -> None:
-    """grandfather 集记下确认基线后，重跑脚本规划回到待确认，但正式脚本照常在用、不挡下游。"""
+    """Grandfathered episodes with confirmation baselines return to pending confirmation on replanning, while formal scripts remain usable without blocking downstream."""
 
     root = tmp_path / "projects"
     project_dir = write_legacy_script_plan_project(root, variant="narration", schema_version=7)
@@ -233,7 +233,7 @@ def test_unmaterializable_confirmed_episode_stays_out_of_the_migration_report(
         )
     migrate_project_dir(project_dir)
 
-    # 转不出正式脚本不是读不出的文件：该集回到待确认，不进「未能带入」（ADR 0098）。
+    # Failure to convert formal scripts is not an unreadable file; return episodes to pending confirmation, outside not-carried-over reports (ADR 0098).
     report = load_migration_report(project_dir)
     assert report is None or [item for item in report.skipped if item.episode == 2] == []
     assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
@@ -241,7 +241,7 @@ def test_unmaterializable_confirmed_episode_stays_out_of_the_migration_report(
 
 
 def _bind_episode_1_to_custom(project_dir: Path) -> None:
-    """第 1 集绑到 ``scripts/custom.json``：v15 不认的非规范绑定。"""
+    """Episode 1 binds ``scripts/custom.json``, a noncanonical binding v15 does not recognize."""
 
     bind_episode_script_to_filename(project_dir, 1, "custom.json")
 
@@ -294,7 +294,7 @@ def test_non_canonical_binding_is_rejected_and_the_project_is_left_verbatim(tmp_
 
 
 def test_non_canonical_binding_is_moved_to_the_canonical_script_through_the_chain(tmp_path: Path) -> None:
-    """旧版 SSE 索引同步写出的非规范绑定：链上规整挪到规范路径并改绑，引用它的记录随之改写。"""
+    """Normalize old SSE-index-sync noncanonical bindings by moving scripts to canonical paths, rebinding, and rewriting referring records."""
 
     project_dir = _project_at_v14(tmp_path / "projects")
     _bind_episode_1_to_custom(project_dir)
@@ -346,14 +346,14 @@ def test_canonical_bindings_are_left_verbatim(tmp_path: Path) -> None:
     migrate_project_dir(project_dir)
 
     assert [entry["script_file"] for entry in _read_json(project_dir / "project.json")["episodes"]] == before
-    # 第 2 集是确认后转出的正式脚本，其余剧本原地改写，不改名。
+    # Episode 2 converts after confirmation; rewrite other scripts in place without renaming.
     assert sorted(path.name for path in (project_dir / "scripts").glob("*.json")) == sorted(
         [*scripts_before, "episode_2.json"]
     )
 
 
 def test_every_reader_resolves_the_same_script_after_the_migration(tmp_path: Path) -> None:
-    """内容确认、提示词编写与 prompt_authoring 已产出判定读的是同一份剧本。"""
+    """Content confirmation, prompt writing, and prompt_authoring-output detection all read the same script."""
 
     project_dir = _project_at_v14(tmp_path / "projects")
     migrate_project_dir(project_dir)
@@ -362,7 +362,7 @@ def test_every_reader_resolves_the_same_script_after_the_migration(tmp_path: Pat
     assert project["episodes"][0]["script_file"] == f"scripts/{confirmed}"
     assert prompt_authoring_generated(project_dir, project, 1) is True
 
-    # 从内容确认解析出的那份剧本里拿掉一个条目，提示词编写随之认不出它。
+    # Remove one item from the content-confirmation-resolved script; prompt writing then fails to recognize it.
     asyncio.run(ScriptGenerator(project_dir).build_prompt(1, entry_ids=["E1S02"]))
     script_path = project_dir / "scripts" / confirmed
     script = _read_json(script_path)

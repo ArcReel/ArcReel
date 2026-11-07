@@ -1,4 +1,4 @@
-"""图片生效能力：模型条目与调用通道都满足的部分。"""
+"""Effective image capabilities intersect catalog model facts/channel support."""
 
 from __future__ import annotations
 
@@ -59,11 +59,11 @@ def test_custom_model_matches_entry_by_name(channel, model_id, expected):
 @pytest.mark.parametrize(
     ("model_id", "overrides", "expected"),
     [
-        # 条目说只接受图生图，能力覆盖把文生图整维替换为开启
+        # Entries allow i2i only; overrides replace t2i dimensions with enabled.
         ("qwen-image-edit-plus", {"text_to_image": True}, {T2I, I2I}),
-        # 覆盖关掉一维，另一维仍取条目
+        # Disable one dimension by override, retaining the other from entries.
         ("qwen-image-edit-plus", {"image_to_image": False}, set()),
-        # 对应不上条目：只覆盖的那一维受约束，另一维不加约束
+        # Unmatched entries constrain only overridden dimensions; leave others unconstrained.
         ("relay-image-x", {"image_to_image": False}, {T2I}),
     ],
 )
@@ -73,7 +73,7 @@ def test_custom_override_replaces_entry_fact_per_dimension(model_id, overrides, 
 
 
 def test_comfyui_endpoint_ignores_entry_and_overrides():
-    """ComfyUI 端点的能力只从节点绑定推导：名字对上条目也不取交集，存量覆盖不生效。"""
+    """ComfyUI derives capabilities from node bindings only; ignore matched entries and legacy overrides."""
     model = custom_image_model_capabilities(
         "qwen-image-edit-plus", overrides={"image_to_image": False}, endpoint_kind="comfyui"
     )
@@ -82,7 +82,7 @@ def test_comfyui_endpoint_ignores_entry_and_overrides():
 
 
 # ---------------------------------------------------------------------------
-# 参考图上限：条目与通道两侧求值，候选与编排层裁剪读同一个结果
+# Joint entry/channel reference limits are shared by candidates/orchestration cropping.
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +102,7 @@ def _grok(model: str = "grok-imagine-image") -> GrokImageBackend:
 
 
 async def test_entry_below_the_channel_limit_wins_and_clamps(monkeypatch: pytest.MonkeyPatch):
-    """Grok 通道一次收 5 张，条目记 3 张：生效 3 张，编排层裁到 3 张。"""
+    """Grok channel allows 5/entry 3; effective cap 3 matches orchestration cropping."""
     install_catalog(
         monkeypatch, with_entry_facts(query.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=3)
     )
@@ -121,7 +121,7 @@ async def test_unrecorded_entry_leaves_only_the_channel_limit(monkeypatch: pytes
 
 
 async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(monkeypatch: pytest.MonkeyPatch):
-    """Agnes 通道不限张数、条目也没收录：未收录，不裁剪，超出由上游拒绝。"""
+    """Agnes/entries both omit counts; keep unrecorded, never crop, let upstream reject excess."""
     install_catalog(
         monkeypatch,
         with_entry_facts(query.factory_snapshot(), "agnes", "agnes-image-2.5-flash", max_reference_images=None),
@@ -132,7 +132,7 @@ async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(mon
 
 
 async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monkeypatch: pytest.MonkeyPatch):
-    """条目显式记 0 张：不接受参考图，不进 i2i 桶；编排层不裁成 0 张，原样交给执行时的校验拒绝。"""
+    """Explicit 0 rejects references/i2i buckets; never crop to 0, pass unchanged for execution rejection."""
     data = with_entry_facts(query.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
     install_catalog(monkeypatch, data)
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
@@ -145,7 +145,7 @@ async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monk
 
 
 def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
-    """已有的图生图能力覆盖关掉这条路径：对应条目记 14 张也不接受参考图，候选只剩文生图。"""
+    """Existing i2i overrides disable paths even with entry cap 14; candidates contain t2i only."""
     assert custom_model_buckets(endpoint="gemini-image", model_id="gemini-3-pro-image") == {"t2i", "i2i"}
     assert custom_model_buckets(
         endpoint="gemini-image", model_id="gemini-3-pro-image", capability_overrides={"image_to_image": False}
@@ -163,12 +163,12 @@ def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
 
 
 # ---------------------------------------------------------------------------
-# 设置页的生效能力与候选读同一个求值结果
+# Settings and candidates share effective evaluations.
 # ---------------------------------------------------------------------------
 
 
 def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(monkeypatch: pytest.MonkeyPatch):
-    """条目显式记 0 张：设置页的图生图为不支持、参考图上限 0，与候选（只进 t2i）一致。"""
+    """Explicit 0 shows unsupported i2i/cap 0 in settings, matching t2i-only candidates."""
     from lib.custom_provider.capability_view import builtin_capability_view, custom_capability_view
     from lib.custom_provider.endpoints import get_endpoint_spec
 
@@ -183,7 +183,7 @@ def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(mo
     assert view.effective == zero_references
     assert builtin_model_buckets("grok", "grok-imagine-image", official) == {"t2i"}
 
-    # 自定义供应商按模型名对应同一个条目；图生图仍可修改，原值是求值后的不支持
+    # Custom providers match entries by name; i2i remains editable, initially evaluated unsupported.
     custom = custom_capability_view(
         model_id="gemini-3-pro-image",
         endpoint="gemini-image",
@@ -197,7 +197,7 @@ def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(mo
 
 
 def test_settings_show_both_image_dimensions_of_a_comfyui_endpoint_from_its_bindings():
-    """ComfyUI 图片端点：文生图、图生图与参考图上限都按节点绑定展示，只读，与候选一致。"""
+    """ComfyUI t2i/i2i/reference caps show read-only node bindings, matching candidates."""
     from lib.custom_provider.capability_view import custom_capability_view
     from lib.custom_provider.endpoints import comfyui_endpoint_spec
     from tests.factories import comfyui_endpoint_definition
@@ -209,7 +209,7 @@ def test_settings_show_both_image_dimensions_of_a_comfyui_endpoint_from_its_bind
     def view(definition: dict):
         spec = comfyui_endpoint_spec("ce-7", definition)
         return custom_capability_view(
-            model_id="doubao-seedream-4-5-251128",  # 对得上条目也不读条目
+            model_id="doubao-seedream-4-5-251128",  # Ignore matching catalog entries.
             endpoint="ce-7",
             spec=spec,
             raw_overrides=None,

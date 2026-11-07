@@ -37,15 +37,15 @@ import { MEDIA_LABEL_KEY } from "./providerModelDisplay";
 import { EDITABLE_FACTS, providerNames, type EntryDraft } from "./providerModelEntry";
 
 /**
- * 随保存一起写入的条目改动，只改草稿、不立即生效：「关联其他模型」存为条目绑定，「解除关联」改回按名字对应，
- * 「手动填写」新建条目并绑定到它。有改动时，下段显示改动的说明而不是原条目的字段。
+ * Entry changes persisted with saves, editing drafts only without immediate effect: Associate another model stores bindings; unlink restores name matching;
+ * manual entry creates/binds entries. Pending changes show explanations below instead of original entry fields.
  */
 export type PendingEntryChange =
   | { kind: "link"; entry: CatalogEntryHit }
   | { kind: "unlink" }
   | { kind: "create"; entry: NewCatalogEntry };
 
-/** 「模型信息」里填写不正确的字段，在 Sheet 的校验集合里与上段的键区分开。 */
+/** Invalid Model information fields use validation keys distinct from the preceding section in Sheets. */
 export const ENTRY_INVALID_PREFIX = "entry:";
 const PRICE_INVALID_KEY = `${ENTRY_INVALID_PREFIX}price`;
 
@@ -61,21 +61,21 @@ interface Props {
   detail: ProviderModelDetail;
   value: EntryDraft | null;
   onChange: (next: EntryDraft) => void;
-  /** 用户负责的模型可以关联其他模型或手动填写；官方收录的模型由官方维护。 */
+  /** User-maintained models may link other models or enter details manually; officially cataloged models stay officially maintained. */
   userOwned: boolean;
-  /** 模型的媒体类型（调用端点决定）：关联只能选同类型的条目，手动填写固定为这个类型。 */
+  /** Endpoint-determined model media types restrict links to matching entries and fix manual-entry types. */
   mediaType: ProviderModelItem["media_type"];
   pending: PendingEntryChange | null;
   onPendingChange: (next: PendingEntryChange | null) => void;
-  /** 需传稳定引用：字段重新挂载时据此清掉上一代的「填写不正确」。 */
+  /** Supply stable references to clear previous generations' invalid states during field remounts. */
   onValidityChange: (key: string, valid: boolean) => void;
-  /** 恢复官方数据之后重新读取 Sheet 内容。 */
+  /** Reread Sheet contents after restoring official data. */
   onRestored: () => Promise<void>;
 }
 
 /**
- * Sheet 下段「模型信息」：对应到的模型条目，所有使用它的供应商共用。显示名与模型事实可以修改，与上段共用保存栏；
- * 厂商、官方模型名、媒体类型、别名只读。改过的条目在字段下方显示官方值并可逐项采用，「恢复官方数据」立即生效。
+ * Lower Sheet Model information: matching entries shared by every provider using them. Names/facts edit through shared save bars;
+ * vendor/official name/media/aliases stay readonly. Modified entries show adoptable official values beneath fields; Restore official data applies immediately.
  */
 export function ProviderModelEntryInfo({
   detail,
@@ -98,7 +98,7 @@ export function ProviderModelEntryInfo({
   const setFact = (key: CapabilityKey, next: unknown) => {
     if (!value) return;
     const facts: Record<string, unknown> = { ...value.facts, [key]: next };
-    // 去掉的分辨率不再出现在时长联动约束里
+    // Removed resolutions disappear from duration-linked constraints.
     if (key === "resolutions" && Array.isArray(next) && facts.duration_constraints) {
       facts.duration_constraints = withoutDroppedResolutions(facts.duration_constraints, next as string[]);
     }
@@ -106,7 +106,7 @@ export function ProviderModelEntryInfo({
   };
 
   return (
-    // 与上段分开：铺满 Sheet 宽度的浅底色，抵消 SheetBody 的左右与底部内边距
+    // Separate from upper sections: pale backgrounds span Sheet width, offsetting SheetBody horizontal/bottom padding.
     <section
       aria-labelledby={headingId}
       className="-mx-5 -mb-4 flex flex-col gap-4 border-t border-border bg-muted/30 px-5 pt-5 pb-6"
@@ -290,7 +290,7 @@ export function ProviderModelEntryInfo({
   );
 }
 
-/** 「价格」一段：价格编辑器；价目表有填写不完整或条件重复的档时，保存栏拦下保存。 */
+/** Price sections use editors; incomplete or duplicate-condition tiers make save bars block saving. */
 function EntryPrice({
   entry,
   value,
@@ -339,8 +339,8 @@ export interface FactFieldProps {
 }
 
 /**
- * 一项模型事实。编辑器里的文本只在挂载时取初值：取值被外部改掉（放弃修改、采用官方值、恢复官方数据）时换一代
- * 重新挂载，上一代的文本输入卸载时收回它留下的「填写不正确」。
+ * One model fact. Editor text initializes only at mount; external changes (discard/adopt/restore official values) change generations
+ * and remount; prior inputs withdraw their invalid states on unmount.
  */
 export function FactField({ dimension, value, resolutions, onChange, validityKey, onValidityChange, official }: FactFieldProps) {
   const { t } = useTranslation("dashboard");
@@ -367,7 +367,7 @@ export function FactField({ dimension, value, resolutions, onChange, validityKey
   );
 }
 
-/** 改过的条目在字段下方显示官方值，可以「采用」。 */
+/** Modified entries show adoptable official values beneath fields. */
 function OfficialValue({ text, label, onAdopt }: { text: string; label: string; onAdopt: () => void }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -388,14 +388,14 @@ function OfficialValue({ text, label, onAdopt }: { text: string; label: string; 
   );
 }
 
-/** 维护说明一行：官方维护 / 我改过（可恢复官方数据）/ 我新建的（官方收录后可改用官方数据）。 */
+/** Maintenance rows: official / modified (restorable) / user-created (can adopt data after official cataloging). */
 function SourceNote({ entry, onRestored }: { entry: ProviderModelEntryInfo; onRestored: () => Promise<void> }) {
   const { t } = useTranslation("dashboard");
   if (entry.source === "official") {
     return <p className="text-xs text-muted-foreground">{t("pm_entry_source_official")}</p>;
   }
   if (entry.source === "user_created") {
-    // 官方数据日后收录了同一个模型：不自动合并，由用户决定是否改用
+    // Later official cataloging never automatically merges identical models; users choose whether to adopt.
     if (entry.official === null) {
       return <p className="text-xs text-muted-foreground">{t("pm_entry_source_user_created")}</p>;
     }
@@ -437,7 +437,7 @@ interface DiscardCopyProps {
   failed: (message: string) => string;
 }
 
-/** 丢弃用户副本、回到官方数据：「恢复官方数据」与「改用官方数据」是同一个接口，先确认，确认后立即生效。 */
+/** Discard user copies/restore official data: Restore and Switch to official share APIs, confirming first and applying immediately. */
 function DiscardCopy({ entry, onRestored, text, action, title, description, sharedText, failed }: DiscardCopyProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -455,7 +455,7 @@ function DiscardCopy({ entry, onRestored, text, action, title, description, shar
       setRestoring(false);
       return;
     }
-    // 已经生效：刷新失败只提示刷新，不再让用户以为没有恢复而重试
+    // Already applied: refresh failures notify refresh only, preventing users believing restoration failed and retrying.
     setOpen(false);
     setRestoring(false);
     try {
@@ -515,8 +515,8 @@ function DiscardCopy({ entry, onRestored, text, action, title, description, shar
 }
 
 /**
- * 用户指定了条目绑定时的说明：这个模型不再按名字对应，可以解除。关联的条目还在时显示它的显示名；条目已不在目录里时
- * 没有显示名可取，退回「厂商/官方模型名」。
+ * Explicit entry bindings stop name matching and allow unlinking. Existing linked entries show display names; missing catalog entries
+ * lack names and fall back to vendor/official-model names.
  */
 function BoundNote({
   binding,
@@ -541,7 +541,7 @@ function BoundNote({
   );
 }
 
-/** 还没保存的条目改动的说明：保存后会发生什么，以及放弃。 */
+/** Unsaved entry-change explanations: what saving will do, and discard actions. */
 function PendingChange({
   pending,
   onEdit,

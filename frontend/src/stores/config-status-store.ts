@@ -1,7 +1,7 @@
 /**
- * 全局设置的配置问题。每条问题带所属分区，由 `useSectionConfigIssues(section)` 按分区取用：
- * 侧栏只在该分区的条目上显示警告标记，分区内用 `settings/ConfigIssueNotice` 提示，不做全局横幅。
- * 「内嵌 Agent 未配置」只在「ArcReel Agent」分区提示，不计入 `isComplete`，大厅与顶栏的红点不因它亮起。
+ * Global-setting configuration issues, each with sections consumed by `useSectionConfigIssues(section)`:
+ * sidebars mark corresponding sections only; section-local `settings/ConfigIssueNotice` explains them, never global banners.
+ * Unconfigured embedded Agents appear in ArcReel Agent sections only, excluded from `isComplete`, never activating lobby/header red dots.
  */
 import { useMemo } from "react";
 import { create } from "zustand";
@@ -15,10 +15,10 @@ import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 export interface ConfigIssue {
   key: string;
-  /** 问题所属的全局设置分区。 */
+  /** Global-settings section owning issues. */
   section: SettingsSection;
   label: string;
-  /** 补充说明的 i18n 键：后果与处理方式。 */
+  /** Explanatory i18n key: consequences and remedies. */
   description?: string;
 }
 
@@ -38,8 +38,8 @@ async function getConfigStatus(): Promise<{
   // Check any provider supports each required media type.
   const readyProviders = providers.filter((p) => p.status === "ready");
 
-  // 自定义 provider 的 endpoint→mediaType 映射要从 catalog 派生：仅在有自定义 provider 时
-  // 才需要 fetch（否则空映射也不会被读到，避免给已运行的旧用户加一次无谓 HTTP）。
+  // Derive custom-provider endpoint→mediaType mappings from catalogs; fetch only when custom providers exist
+  // (otherwise empty mappings are never read), avoiding pointless HTTP for existing users.
   if (customProviders.length > 0) {
     await useEndpointCatalogStore.getState().fetch();
   }
@@ -78,8 +78,8 @@ async function getConfigStatus(): Promise<{
     });
   }
 
-  // audio 是可选能力（仅旁白/解说用），缺失不进 issues 红点；
-  // 可用性经 availableMediaTypes 暴露给生成入口做"请先配置 audio 供应商"前置提示。
+  // Audio is optional (narration only); absence never adds issues/red dots.
+  // Expose availability through availableMediaTypes for generation-entry configure-audio-first notices.
   const availableMediaTypes = ["image", "video", "text", "audio"].filter(hasMediaType);
 
   return {
@@ -96,30 +96,30 @@ async function getConfigStatus(): Promise<{
 interface ConfigStatusState {
   issues: ConfigIssue[];
   isEmbeddedAgentConfigured: boolean;
-  /** 当前已就绪供应商（含自定义）覆盖到的媒体类型集合。 */
+  /** Media types covered by currently ready providers, including custom providers. */
   availableMediaTypes: string[];
   isComplete: boolean;
   loading: boolean;
   initialized: boolean;
-  /** 进行中刷新期间又收到 refresh() 时置位,本轮完成后补跑一次,避免丢掉最后一次请求的数据。 */
+  /** Set when refresh() arrives during refreshes; run once more afterward to retain latest requested data. */
   pendingRefresh: boolean;
-  /** 是否有就绪供应商支持该媒体类型（如 hasMediaType("audio")）。 */
+  /** Whether ready providers support media types (for example hasMediaType("audio")). */
   hasMediaType: (type: string) => boolean;
   fetch: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
 export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
-  // 单条在途刷新链:并发 refresh()/fetch() 都复用它,
-  // 返回的 Promise 只在数据(含补跑)真正落地后才 resolve——await 完即代表状态最新。
+  // One in-flight refresh chain, shared by concurrent refresh()/fetch() calls;
+  // returned Promises resolve only after actual data persistence including follow-ups, so awaited state is current.
   let inflight: Promise<void> | null = null;
 
   const run = async (): Promise<void> => {
-    // 循环直到没有新的 pending:补跑在同一条链上完成,而非提前 resolve。
+    // Loop until no new pending work; complete follow-ups in the same chain without resolving early.
     for (;;) {
       set({ loading: true, pendingRefresh: false });
       try {
-        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 补跑必须等上一轮落地后再读 pendingRefresh，并发会让旧响应覆盖新数据
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- follow-ups must await previous persistence before reading pendingRefresh; concurrency lets old responses overwrite new data
         const { issues, availableMediaTypes, isEmbeddedAgentConfigured } = await getConfigStatus();
         set({
           issues,
@@ -129,11 +129,11 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
           initialized: true,
         });
       } catch {
-        // 失败回退未初始化并清空能力集：避免任何消费方（含未来不检查 initialized 的调用方）
-        // 把上一次成功的过期数据当作可信，同时让下次 fetch() 仍可重试。
+        // Failed refreshes become uninitialized and clear capabilities, preventing any consumer (even future callers not checking initialized)
+        // from trusting stale successful data, while leaving subsequent fetch() retryable.
         set({ initialized: false, availableMediaTypes: [], isEmbeddedAgentConfigured: false });
       }
-      // loading 仅在整条链终止时才置 false:补跑间隙保持 true,避免 true→false→true 闪烁。
+      // Set loading false only after entire chains terminate; retain true between follow-ups, avoiding true→false→true flicker.
       if (!get().pendingRefresh) {
         set({ loading: false });
         break;
@@ -154,14 +154,14 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
 
     fetch: async () => {
       if (get().initialized) return;
-      // 已有刷新在途:等它,而不是另起一轮;无在途则发起一次。
+      // Await existing in-flight refreshes instead of starting new rounds; otherwise refresh once.
       await (inflight ?? get().refresh());
     },
 
     refresh: () => {
-      // 已有刷新在途:标记补跑并复用同一条完成链,所有并发调用方都 await 到最终落地。
-      // 否则"保存供应商后的 refresh()"会被进行中的初始加载/前一次刷新静默吞掉,
-      // 红点/警示停留在保存前的旧值。
+      // Existing refreshes mark follow-up work and share completion chains; concurrent callers all await final persistence.
+      // Otherwise post-save refresh() silently disappears into ongoing initial/previous refreshes,
+      // leaving red dots/warnings at presave values.
       if (inflight) {
         set({ pendingRefresh: true });
         return inflight;
@@ -182,9 +182,9 @@ const EMBEDDED_AGENT_ISSUE: ConfigIssue = {
 };
 
 /**
- * 全局设置里某个分区要就地提示的配置问题；不传分区时返回全部分区的问题。
- * 在 `issues` 之外加上「内嵌 Agent 未配置」：内嵌 Agent 是可选项，它不计入 `isComplete`，
- * 大厅与顶栏的红点不因它亮起，只在「ArcReel Agent」分区与其侧栏项提示。
+ * Section-local global-settings issues; absent sections return issues for every section.
+ * Add unconfigured embedded Agents beyond `issues`: optional Agents are excluded from `isComplete`,
+ * never activating lobby/header red dots, appearing only in ArcReel Agent sections/sidebar entries.
  */
 export function useSectionConfigIssues(section?: SettingsSection): ConfigIssue[] {
   const issues = useConfigStatusStore((s) => s.issues);

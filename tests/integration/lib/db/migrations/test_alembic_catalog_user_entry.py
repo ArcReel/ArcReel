@@ -1,4 +1,4 @@
-"""Alembic 迁移：新建用户条目表，降级时删除。"""
+"""Alembic: create user-entry tables and remove them on downgrade."""
 
 from __future__ import annotations
 

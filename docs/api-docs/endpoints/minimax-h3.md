@@ -1,6 +1,6 @@
 # minimax-h3
 
-- 协议：[Video generation V2](https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md)
-- 计费：[Pay-as-you-go pricing](https://platform.minimaxi.com/docs/guides/pricing-paygo.md)
-- 代码：`lib/custom_provider/builtin_endpoints/minimax-h3.json`、`lib/custom_provider/declarative_backend.py::DeclarativeVideoBackend`
-- 请求形状：多模态 `content[]` 按 role 承载首帧、尾帧、参考图与参考音频；与 v1 同 host 不同路径前缀（`/v2`），查询响应直接带限时下载地址
+- Protocol: [Video generation V2](https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md)
+- Pricing: [Pay-as-you-go pricing](https://platform.minimaxi.com/docs/guides/pricing-paygo.md)
+- Code: `lib/custom_provider/builtin_endpoints/minimax-h3.json`, `lib/custom_provider/declarative_backend.py::DeclarativeVideoBackend`
+- Request shape: multimodal `content[]` carries first frames, last frames, reference images and reference audio by role; it shares the v1 host but uses a different path prefix (`/v2`); query responses directly include an expiring download URL

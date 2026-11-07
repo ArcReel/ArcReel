@@ -1,4 +1,4 @@
-"""统一的 JSON 读写工具，提供严格加载与原子写入。"""
+"""Shared strict JSON loading and atomic writing."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 
 
 def load_json(path: Path) -> Any:
-    """严格加载 JSON。异常直接抛出，调用方按业务需要做 try/except。"""
+    """Load JSON strictly; propagate exceptions for callers to handle according to business rules."""
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
 
@@ -23,13 +23,14 @@ def domain_error_on_value_error(
     *,
     extra_passthrough: tuple[type[BaseException], ...] = (),
 ) -> Generator[None]:
-    """把业务解析调用抛出的 ``ValueError`` 转换为调用方指定的领域错误。
+    """Convert business-parser ``ValueError`` to the caller-specified domain error.
 
-    ``json.JSONDecodeError`` 是 ``ValueError`` 子类，须先于通用 ``ValueError`` 分支放行——
-    它代表 JSON 文件本身损坏（语法错误），与业务级非法值（如路径穿越、非法项目名）语义不同，
-    不能被误判为后者、进而返回一个误导性的 4xx。放行后由调用方外层自行收口。
-    `extra_passthrough` 追加调用方需要按同一理由豁免的其它 ``ValueError`` 子类（如读取非
-    UTF-8 剧本文件时的 ``UnicodeDecodeError``，或调用方另有专属分支处理的领域异常）。
+    ``json.JSONDecodeError`` subclasses ``ValueError``; pass it through before generic ``ValueError`` because it indicates
+    corrupt JSON syntax, not a business-invalid value such as path traversal or an
+    invalid project name. Misclassification would return a misleading 4xx. The
+    outer caller handles passed-through exceptions. `extra_passthrough` adds other
+    ``ValueError`` subclasses for the same reason, such as ``UnicodeDecodeError``
+    from non-UTF-8 scripts or domain errors with their own caller branches.
     """
     try:
         yield
@@ -40,7 +41,7 @@ def domain_error_on_value_error(
 
 
 def load_json_or_none(path: Path) -> Any | None:
-    """容错加载 JSON：读取或解析失败返回 None。"""
+    """Load JSON tolerantly, returning None on read or parse failure."""
     try:
         return load_json(path)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -48,10 +49,11 @@ def load_json_or_none(path: Path) -> Any | None:
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
-    """同目录 tempfile + os.replace 原子写入 JSON。
+    """Write JSON atomically using a same-directory tempfile and os.replace.
 
-    替换前 fsync 临时文件：否则断电时目标可能被换成尚未落盘的空文件或半截文件，
-    项目文件、剧本与版本记录读不出会拒绝整个项目（``docs/adr/0098``）。
+    fsync the temporary file before replacement. Otherwise power loss could publish
+    an empty or partial file not yet on disk; unreadable project, script or version
+    records reject the entire project (``docs/adr/0098``).
     """
     tmp_path: Path | None = None
     try:
@@ -72,14 +74,15 @@ def atomic_write_json(path: Path, data: Any) -> None:
     finally:
         if tmp_path is not None:
             with suppress(OSError):
-                tmp_path.unlink()  # hard-delete: temp -- 原子写的临时文件
+                tmp_path.unlink()  # hard-delete: temp -- temporary file for atomic writing
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
-    """同目录 tempfile + ``os.replace`` 原子恢复文件字节。
+    """Restore file bytes atomically with a same-directory tempfile and ``os.replace``.
 
-    多文件补偿事务在后续写入失败时需要逐字恢复已经替换的旧文件；重新序列化 JSON 会改变
-    空白与键序，无法证明恢复的是提交前的 durable state，因此回滚走字节快照。
+    Compensating multi-file transactions must restore replaced files byte for byte
+    if later writes fail. Reserializing JSON changes whitespace/key order and cannot
+    prove restoration of the pre-commit durable state, so rollback uses byte snapshots.
     """
     tmp_path: Path | None = None
     try:
@@ -99,4 +102,4 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     finally:
         if tmp_path is not None:
             with suppress(OSError):
-                tmp_path.unlink()  # hard-delete: temp -- 原子写的临时文件
+                tmp_path.unlink()  # hard-delete: temp -- temporary file for atomic writing

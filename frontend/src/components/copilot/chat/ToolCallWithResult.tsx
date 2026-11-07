@@ -5,11 +5,11 @@ import { stringifyResult } from "./utils";
 import { toolStatus } from "./work-label";
 
 // ---------------------------------------------------------------------------
-// ToolCallWithResult – 一次工具调用连同它的结果，显示为一行工序：本地化名称加一句摘要，
-// 展开后分「参数」「结果」两段。
+// ToolCallWithResult: one tool call with its result as a workflow row, showing a localized name and short summary;
+// expand into Arguments and Results sections.
 //
-// Skill 与 Agent/Task tool_use 不经过本组件（分别由 SkillChip 与 SubagentCard 渲染，
-// 见 ContentBlockRenderer 分发）。
+// Skill and Agent/Task tool_use bypass this component, using SkillChip and SubagentCard respectively;
+// see ContentBlockRenderer dispatch.
 // ---------------------------------------------------------------------------
 
 export function ToolCallWithResult({ block }: { block: ContentBlock }) {

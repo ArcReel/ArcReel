@@ -1,6 +1,6 @@
-"""可灵 Kling 共享层单测：JWT token 管理器（注入时钟）+ 异步任务响应解析。
+"""Kling shared tests: injected-clock JWT management and async task-response parsing.
 
-不打真实 HTTP、不调真实墙钟——token 续签语义用可控时间源验证。
+No real HTTP/wall clocks; verify token renewal through controlled time sources.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from lib.backends.kling_shared import (
 
 
 class _Clock:
-    """可推进的注入时钟。"""
+    """Advanceable injected clock."""
 
     def __init__(self, start: float = 1_000_000.0) -> None:
         self.now = start
@@ -55,7 +55,7 @@ class TestKlingJWTManager:
         assert claims["iss"] == "ak-123"
         assert claims["exp"] == int(clock.now) + 1800
         assert claims["nbf"] == int(clock.now) - 5
-        # header 声明 HS256 / JWT
+        # Headers declare HS256/JWT.
         header = jwt.get_unverified_header(token)
         assert header["alg"] == "HS256"
         assert header["typ"] == "JWT"
@@ -64,14 +64,14 @@ class TestKlingJWTManager:
         clock = _Clock()
         mgr = KlingJWTManager("ak", "s" * 40, clock=clock)
         first = mgr.token()
-        clock.advance(100)  # 距过期仍有约 1700s（>60s），复用缓存
-        assert mgr.token() == first  # 复用缓存
+        clock.advance(100)  # About 1700s remain, above 60s; reuse cache.
+        assert mgr.token() == first  # Reuse cache.
 
     def test_resigns_when_within_refresh_margin(self):
         clock = _Clock()
         mgr = KlingJWTManager("ak", "s" * 40, clock=clock)
         first = mgr.token()
-        # 推进到距过期 30s（<60s 刷新窗口）→ 重签返回新 token
+        # Advance to 30s remaining, below 60s refresh window; resign with new tokens.
         clock.advance(1800 - 30)
         second = mgr.token()
         assert second != first
@@ -94,12 +94,12 @@ class TestKlingJWTManager:
 class TestBearerMode:
     def test_bearer_headers_use_static_key_no_jwt(self):
         headers = kling_bearer_headers("static-api-key")
-        # bearer 模式旁路 JWT：Authorization 直接是静态 key，不是签名 token
+        # Bearer bypasses JWT: Authorization is static keys, not signed tokens.
         assert headers["Authorization"] == "Bearer static-api-key"
 
 
 class TestAuthModeDispatch:
-    """kling_auth_mode：内置 provider 构造与连接测试共用的凭证形态判定（api_key 优先）。"""
+    """kling_auth_mode shares built-in construction/probe credential-shape decisions, prioritizing api_key."""
 
     def test_api_key_present_dispatches_bearer(self):
         assert kling_auth_mode({"api_key": "sk-1", "access_key": None, "secret_key": None}) == "bearer"
@@ -117,7 +117,7 @@ class TestAuthModeDispatch:
         assert kling_auth_mode({}) == "jwt"
 
     def test_whitespace_only_api_key_falls_back_to_jwt(self):
-        # 纯空格 api_key 不应误判为已填写 bearer，静默吞掉同时存在的有效 AK/SK。
+        # Whitespace api_key must not imply bearer and silently discard valid simultaneous AK/SK.
         assert kling_auth_mode({"api_key": "   ", "access_key": "ak-1", "secret_key": "sk-1"}) == "jwt"
 
 
@@ -153,15 +153,15 @@ class TestResponseParsing:
         assert kling_response_error({"code": 0, "message": "ok"}) is None
 
     def test_code_normalized_before_compare(self):
-        # bearer / 中转 endpoint 可能把 code 序列化成字符串或浮点，归一化为 int 再比较。
+        # Bearer/relay codes may be strings/floats; normalize integers before comparison.
         assert kling_response_error({"code": "0", "message": "ok"}) is None
         assert kling_response_error({"code": 0.0, "message": "ok"}) is None
         assert kling_response_error({"code": "5", "message": "boom"}) == "Kling API code=5: boom"
-        # 无法解析的 code 视为错误，暴露原值。
+        # Unparseable codes report errors with original values.
         assert kling_response_error({"code": "oops", "message": "bad"}) == "Kling API code=oops: bad"
 
     def test_inner_data_code_error(self):
-        # account/costs 等接口顶层 code=0 通过后，data 内嵌的业务级 code/msg 仍需暴露。
+        # After top-level account/costs code 0, nested business code/msg still surfaces.
         payload = {"code": 0, "message": "", "data": {"code": 1234, "msg": "resource pack not found"}}
         assert kling_response_error(payload) == "Kling API code=1234: resource pack not found"
 
@@ -170,17 +170,17 @@ class TestResponseParsing:
         assert kling_response_error(payload) is None
 
     def test_inner_data_without_code_key_not_error(self):
-        # 提交/轮询类接口的 data（task_id / task_status 等）不含 code 键，该检查为 no-op。
+        # Task submission/poll data lacks code, so this check is a no-op.
         assert kling_response_error({"code": 0, "data": {"task_id": "t-1", "task_status": "submitted"}}) is None
 
     def test_non_dict_payload_normalized_not_error(self):
-        # 中转 endpoint / 异常网关可能返回非对象 JSON（数组、字符串等），按空 dict 处理，
-        # 不因 .get() 触发 AttributeError。
+        # Nonobject relay/gateway JSON, arrays/strings, normalizes to empty dicts,
+        # never .get() AttributeError.
         assert kling_response_error([]) is None
         assert kling_response_error("oops") is None
 
     def test_non_dict_nested_data_normalized_not_error(self):
-        # data 字段本身也可能是非对象 JSON（如字符串错误信息），同样归一化为空 dict。
+        # Nonobject data, e.g. error strings, likewise normalizes empty.
         assert kling_response_error({"code": 0, "message": "", "data": "unexpected"}) is None
 
     def test_terminal_states(self):
@@ -203,7 +203,7 @@ class TestResponseParsing:
         assert kling_task_failure_reason({"code": 1200, "message": "bad task"}) == "Kling API code=1200: bad task"
 
     def test_null_message_not_stringified(self):
-        # message / task_status_msg 显式为 null 时归一化为空串，不把字面量 'None' 拼进错误描述。
+        # Null message/task_status_msg becomes empty strings, never literal None in errors.
         assert kling_response_error({"code": 5, "message": None}) == "Kling API code=5:"
         reason = kling_task_failure_reason({"code": 0, "data": {"task_id": "t-2", "task_status": "failed"}})
         assert reason is not None
@@ -244,7 +244,7 @@ class TestResponseParsing:
             extract_kling_image_urls({"code": 0, "data": {"task_status": "succeed", "task_result": {"images": []}}})
 
     def test_failure_reason_message_modality_neutral(self):
-        # image / video 共用 failure_reason：消息不应写死「视频」，便于图像任务复用。
+        # Shared image/video failure_reason must not hardcode 视频, allowing image reuse.
         reason = kling_task_failure_reason(
             {"code": 0, "data": {"task_id": "t-9", "task_status": "failed", "task_status_msg": "boom"}}
         )
@@ -259,7 +259,7 @@ def _tasks(**task) -> dict:
 
 
 class TestModelPathResponses:
-    """新版 API（模型名在路径里）的提交与 ``GET /tasks`` 响应解析。"""
+    """New model-in-path API submission/``GET /tasks`` response parsing."""
 
     def test_task_id_from_data_id(self):
         assert kling_model_path_task_id({"code": 0, "data": {"id": "893605946402811985", "status": "submitted"}}) == (

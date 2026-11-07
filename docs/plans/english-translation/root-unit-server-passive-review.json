@@ -1,0 +1,377 @@
+{
+  "snapshot": "/tmp/arcreel-root-unit-server-before",
+  "translated_spans": 687,
+  "files": [
+    {
+      "path": "tests/unit/server/agent_runtime/test_agent_access_policy.py",
+      "candidate_sha256": "8eccaa73bb5ac61c056be9029c39b5f3a10e8deb144459c36b2b99d4e8f85645",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 91,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_agent_startup_error.py",
+      "candidate_sha256": "523f021c456e4e8f620ed2af56673c3e56121354f75fc031ccf8207e8f03ef69",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 14,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_assistant_service.py",
+      "candidate_sha256": "ed8bf25446a0b05b001ebcdc14d8c43da692be7ceb8201eb2d38c86c66e56920",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 48,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_entry_pipeline.py",
+      "candidate_sha256": "5369fe246cd8779a941c5d42bb89a150b77a3ffc77a6e0c4636e6b065b25226c",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 17,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_entry_stream.py",
+      "candidate_sha256": "6375ea693030632e2c906d087b9e5fd86b0d6fd3e6d9ac5d4ca1452a19302fd9",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 16,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_event_log.py",
+      "candidate_sha256": "4ef87b2214d7e90541a0ab394bde10772dcca36a50438070a3fe56c45276e616",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 62,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_failure_observation.py",
+      "candidate_sha256": "2856e31a943c9ba689e143a182b7e41a26ffe0492eae45660939d80020290aea",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 6,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_keyed_locks.py",
+      "candidate_sha256": "6a1cffcf6ac63d8c49a9141cd60368ead41fa5e8bf652f15eff3f58cdd976121",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 4,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_options_assembler.py",
+      "candidate_sha256": "0872f322139d222a8ee38c163eddd7c75294dd31d45cbaa180c07bb23f1b9164",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 34,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_sdk_0_1_76_features.py",
+      "candidate_sha256": "4fec625c9525cbd46415b55d457be59002b0a5c3e3df296915412d63bc6075d2",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 5,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_sdk_frames.py",
+      "candidate_sha256": "33a5aa0fa7a7721d482497f34f7e67c38e93f6a849c4d77443f2961ed3756ea2",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 3,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_sdk_transcript_adapter.py",
+      "candidate_sha256": "fff48f245935de46fefaa54b849bb633f961ed1cf3957473d1fd4af6b1b4d1ab",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 8,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_actor.py",
+      "candidate_sha256": "0bf7ee7b33c177cf5f7b7f5f447ffd3b7df95fc713fce08dda1058a4f20dfd0e",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 27,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_lifecycle.py",
+      "candidate_sha256": "6cb7db8100e5f769b869270cfe6dc63b2bc2bea0bfc0728f8f8eb625b0b25881",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 22,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager.py",
+      "candidate_sha256": "3ed425d2ea46949c205713afa0795b1977cb72aba1b5a11b1270e09d097b5050",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 39,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_init_session_id.py",
+      "candidate_sha256": "a9f434c0ef1eaec268391fa2f8c1f8e89cd3c91b8fd0110e29b04f75f6db246e",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_project_scope.py",
+      "candidate_sha256": "c113eda4b7598c745531a72af64e95fc897eeffc3dd1712d17304f7c3a060a3c",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 3,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_sandbox.py",
+      "candidate_sha256": "027e9f0a3e938c74c2bb1ad315eabfe09aeab3a68d2e39baa31f230864ed4d61",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 39,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_sdk_session_id.py",
+      "candidate_sha256": "ddd1eba7f59649929c4b5c1deab27a6c226b5a3fec81756a6001c1ec416aa106",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_store_injection.py",
+      "candidate_sha256": "fb2d49f2cc7bfed8f09877e403fcd70c2e81c5abc9d68ccf707927ba524bc835",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_user_input.py",
+      "candidate_sha256": "1d440f12d0452e2f580411822521a7ae944b5c58d490fa884b2b0ac6baddf2ad",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 16,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_meta_store.py",
+      "candidate_sha256": "687501afd0e5230230efe815af4fcaf60bb2a9c32d9b687e8be496ab1169ccdb",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/agent_toolset/test_remote.py",
+      "candidate_sha256": "203b29b75e7327bf4a2fa68b3081711ed719c4bedbb86147bc864e7d2284bc68",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/app_lifespan_support.py",
+      "candidate_sha256": "3d338ad5f289ec1d6ff9c01240b0f4e4dcbf50fa7e88d8be35d69c10e3d89fcc",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/media_tools/test_context.py",
+      "candidate_sha256": "241272007ff22d3a628667047e9f78ec675de55eae57189b3af5628ad49b4244",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 2,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/admission/test_storyboard_item_screening.py",
+      "candidate_sha256": "dff8a86141de0f1182869d8555b113caa0d84108cbc99a1632ebbed1757d1d3f",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/admission/test_video_batch_admission.py",
+      "candidate_sha256": "a3880386d1debde5f5ee618cb414bb16939d9471b88e608628ab7d4f3bb9cedc",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 10,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/admission/test_video_quote.py",
+      "candidate_sha256": "047426e2a2e56770061e8fd32c7827a61eadba742e2e657d3a5730f02164fd31",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_split_service.py",
+      "candidate_sha256": "31e67f8e94ca0249c3cdd968cc8551991f5a62b7785005d1961ea1f84f1bd700",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 9,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/grid/test_grid_submission.py",
+      "candidate_sha256": "62f987628a36d3fd2f7306151128513a057e9651f17f17135330fb3c15ebe0d4",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 15,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/project/test_narration_settings.py",
+      "candidate_sha256": "fe3d4c9377ce49cb24d701bf395a242f39a74c1c4dca861815d5854e50f91035",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 6,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_activity.py",
+      "candidate_sha256": "55e8c224c8d52137f5105456b6086afd0429539cb5411382e73afa82ce4c8e8b",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 3,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_archive_ad_reference.py",
+      "candidate_sha256": "693b460496e2d405113c7d44e87ca2d1ade97e8daeed4c62814bef2dbdbefd1c",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_cover.py",
+      "candidate_sha256": "a528df7a90ccc178c459faab078b17121d5553e18978e49e200d5dd2175cba47",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 24,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_events_drafts.py",
+      "candidate_sha256": "bef3b52186567c50e7d9069af0860166b82344bf2794f1e9f1b4a2a55259b91b",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 1,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/project/test_project_state_projection.py",
+      "candidate_sha256": "e4678d999a2e69919e1c1180fc7d8225fea47046f44d748750c3de914b30fce7",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 11,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/system/test_diagnostics_service.py",
+      "candidate_sha256": "d77e9f4a8366fa6e9ecef17cf6c590117890523da4f6db17a043d74f412aa65e",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 3,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_execute_tts_task.py",
+      "candidate_sha256": "921131dde081b885e48f5817d60d2285299cd6cce028b0b841f38af201c7556f",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 11,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_execute_voice_sample_task.py",
+      "candidate_sha256": "67340f8bbd74ed08f41e36e52be7bbca48ce7b9d6dd659c31cc8348e3721d47a",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 13,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_generation_tasks_dispatch.py",
+      "candidate_sha256": "82a4dd8a772df278f9221f55e8b9a23f73ab05f952be445aa711a5d41019735b",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 6,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_image_edit_executor.py",
+      "candidate_sha256": "1d0133c07a70a2d70a97c9fb04e5a4f0d6d284243805fadcd33360c49e9ba6f8",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 34,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_reference_video_e2e.py",
+      "candidate_sha256": "cbefd3c27528cb867b8452db6e4e28e614a5c8929de33f877c21e5f33bcca936",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 16,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_reference_video_e2e_backend.py",
+      "candidate_sha256": "5b5c1c57d500360bf7a6239db1a0f3e2e6a7c637f36e4b2148c0d4663621c91c",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 8,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_resume_executor.py",
+      "candidate_sha256": "8bff7f18f0d4051c19e1c9cb84d0889945e6e2b17f45989d79637d4165b5e462",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 40,
+      "remaining_original_spans": 0
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_video_caps.py",
+      "candidate_sha256": "34d6fa34d4c514c52eb3aa2f87fc7e4d29395381ef0c70a8e500b80ff6188df3",
+      "executable_ast_equal_to_immediate_candidate_snapshot": true,
+      "functional_directive_prefixes_equal": true,
+      "translated_spans": 8,
+      "remaining_original_spans": 0
+    }
+  ],
+  "qualification": "Complete for all 687 original spans outside routers; router617 batch has its own evidence. Only comments/docstrings translated, preserving all executable AST, input literals and existing English fixture docs.",
+  "tests": [
+    {
+      "scope": "agent_runtime + media_tools/test_context + agent_toolset/test_remote",
+      "passed": 725
+    },
+    {
+      "scope": "services",
+      "passed": 276
+    }
+  ]
+}

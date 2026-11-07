@@ -1,6 +1,6 @@
-"""提示词模版只读 API：系统设置页按类别列出内置模版，展示单个模版的源文与元数据，以及单个片段的正文与引用方。
+"""Read-only prompt-template API: system settings list builtin templates by category, display individual template source/metadata, and partial bodies/references.
 
-路由前缀: /api/v1/prompt-templates
+Route prefix: /api/v1/prompt-templates
 """
 
 from __future__ import annotations
@@ -35,19 +35,19 @@ class PromptTemplateDetailResponse(BaseModel):
     template: TemplateMeta
     source: str
     partials: list[PartialEntry]
-    """按首次引用顺序；变体族展开为 ``applies_to`` 声明的全部轴值。"""
+    """First-reference order; variant families expand into every axis value declared by ``applies_to``."""
     output_schema: dict[str, Any] | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 @router.get("")
 async def list_prompt_templates(templates: Templates) -> PromptTemplateListResponse:
-    """Agent 语言规范随 Agent 会话拼进系统提示，展示在 Agent 分栏，不进本列表；详情接口仍可读取。"""
+    """Agent language rules join session system prompts and appear in the Agent tab, not this list; detail endpoints still expose them."""
     return PromptTemplateListResponse(
         templates=[item for item in templates.list_templates() if item.invoked_by != _AGENT_SESSION_TRIGGER]
     )
 
 
-# 须注册在模版详情之前：模版详情的 ``{template_id:path}`` 会吞下任意子路径。
+# Register before template detail: its ``{template_id:path}`` captures arbitrary subpaths.
 @router.get("/partials/{name:path}")
 async def get_prompt_partial(name: str, templates: Templates) -> PartialEntry:
     try:
@@ -71,7 +71,7 @@ async def get_prompt_template(template_id: str, templates: Templates) -> PromptT
 
 
 def _output_json_schema(spec: str | None) -> dict[str, Any] | None:
-    """把 frontmatter 的 ``module:Class`` 解析为该 pydantic 模型的 JSON schema。"""
+    """Resolve frontmatter ``module:Class`` to that Pydantic model's JSON schema."""
     if spec is None:
         return None
     module_name, _, class_name = spec.partition(":")

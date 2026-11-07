@@ -22,12 +22,12 @@ def isolated_auth_env():
 
 
 class TestIsAuthEnabled:
-    """``is_auth_enabled()`` 解析 AUTH_ENABLED env 值。"""
+    """``is_auth_enabled()`` parses AUTH_ENABLED environment values."""
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            (None, True),  # 未设置 → 默认开启（向后兼容）
+            (None, True),  # Unset defaults enabled for backward compatibility.
             ("true", True),
             ("True", True),
             ("TRUE", True),
@@ -40,8 +40,8 @@ class TestIsAuthEnabled:
             ("0", False),
             ("no", False),
             ("off", False),
-            ("", True),  # 空串视为未配置 → 回退默认（开启），fail-closed
-            ("  ", True),  # 仅空白同上
+            ("", True),  # Empty strings count as unconfigured; default enabled, failing closed.
+            ("  ", True),  # Whitespace-only values behave likewise.
             ("  false  ", False),
         ],
     )
@@ -115,7 +115,7 @@ class TestVerifyDownloadTokenKillSwitch:
 
 
 class TestGetCurrentUserKillSwitch:
-    """这些 dep 函数是 async；用 asyncio.run 直接调用。"""
+    """Dependencies are async; invoke directly with asyncio.run."""
 
     @pytest.mark.asyncio
     async def test_disabled_returns_anonymous_admin_without_token(self):
@@ -144,7 +144,7 @@ class TestGetCurrentUserKillSwitch:
 class TestLoginRouteKillSwitch:
     @pytest.mark.asyncio
     async def test_disabled_login_succeeds_with_any_password(self):
-        """端到端：AUTH_ENABLED=false 时 /auth/token 接受任意凭据。"""
+        """End-to-end AUTH_ENABLED=false makes /auth/token accept arbitrary credentials."""
         from fastapi.testclient import TestClient
 
         from server.app import app

@@ -2,9 +2,9 @@ import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 弹层、提示与菜单原语：借集页顶栏「导出项目归档」的诊断对话框与下载提示，以及侧栏「添加一集」菜单验证。
+// Overlay/notice/menu primitives: header project-archive diagnostic/download dialogs and sidebar Add episode menus.
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+// Project events are unrecorded SSE; reject with nonretryable statuses, retaining recorded project data.
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -27,12 +27,12 @@ function exportWith(diagnosticsBody: Record<string, unknown>): ApiOverrides {
       status: 200,
       body: { download_token: "e2e-token", expires_in: 300, diagnostics: diagnosticsBody },
     },
-    // 下载链接是一次页面跳转；204 让浏览器留在当前页。
+    // Download links navigate pages; 204 keeps browsers on current pages.
     "GET /api/v1/projects/demo/export?download_token=e2e-token&scope=current": { status: 204, body: null },
   };
 }
 
-// 阻断、自动修复与警告三组，条目多且文字长，正文必须滚动。
+// Blocking/auto-repair/warning groups have many long-text entries, requiring body scrolling.
 const MANY_DIAGNOSTICS = exportWith({
   blocking: diagnostics("missing_asset", 12),
   auto_fixed: diagnostics("legacy_field", 4),
@@ -46,7 +46,7 @@ async function episodeReady(page: Page) {
 
 async function exportProject(page: Page) {
   await page.getByRole("button", { name: "导出项目归档" }).click();
-  // 默认选中「仅当前版本」
+  // Default selection is Current version only.
   await page.getByRole("dialog", { name: "选择导出范围" }).getByRole("button", { name: "导出", exact: true }).click();
 }
 
@@ -62,7 +62,7 @@ defineRegionScenarios("弹层与提示", [
     ready: episodeReady,
     act: async (page) => {
       await exportProject(page);
-      // 先关掉同时发出的下载提示：它 5 秒后自动消失，留着会让截图不稳定。
+      // First close concurrent download notifications: they auto-dismiss after 5 seconds and destabilize screenshots.
       const region = page.getByRole("region", { name: "提示" });
       await region.hover();
       await region.getByRole("button", { name: "关闭提示" }).click();
@@ -74,7 +74,7 @@ defineRegionScenarios("弹层与提示", [
       await expect(title).toBeInViewport({ ratio: 1 });
       await expect(close).toBeInViewport({ ratio: 1 });
 
-      // 滚到最后一条后，标题与关闭按钮仍完整可见：滚动的只是正文。
+      // After scrolling to final entries, titles/close buttons stay fully visible; only bodies scroll.
       const last = dialog.getByText(/^第 12 条/).last();
       await last.scrollIntoViewIfNeeded();
       await expect(last).toBeInViewport();
@@ -89,7 +89,7 @@ defineRegionScenarios("弹层与提示", [
     api: FEW_DIAGNOSTICS,
     ready: episodeReady,
     act: async (page) => {
-      // 逐帧记录提示的位置：从出现起采样 600ms，覆盖整个进场过程。
+      // Sample notification positions frame by frame for 600ms after appearance, covering full entry transitions.
       await page.evaluate(() => {
         const sampling = { tops: [] as number[], done: false };
         (window as unknown as { __toastSampling: typeof sampling }).__toastSampling = sampling;
@@ -108,11 +108,11 @@ defineRegionScenarios("弹层与提示", [
       await exportProject(page);
 
       const region = page.getByRole("region", { name: "提示" });
-      // Base UI 的提示根节点是非模态 dialog，名称取自提示标题。
+      // Base UI notification roots are nonmodal dialogs named by notification titles.
       const toast = region.getByRole("dialog", { name: "项目 ZIP 已开始下载，导出包包含 2 条诊断" });
       await expect(toast).toBeVisible();
       await expect(diagnosticsDialog(page)).toBeVisible();
-      // 暂停自动消失，采样完成后再断言，不假定渲染帧率。
+      // Pause auto-dismiss and assert after sampling, without assuming rendering frame rates.
       await toast.hover();
 
       await expect

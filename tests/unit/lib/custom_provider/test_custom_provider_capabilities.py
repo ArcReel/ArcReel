@@ -1,4 +1,4 @@
-"""自定义供应商视频能力合成函数（系统判定 ⊕ 用户覆盖）。"""
+"""Custom-provider video capability composition (system judgment ⊕ user overrides)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from tests.factories import comfyui_endpoint_definition
 
 class TestOverrideFieldSchema:
     def test_schema_covers_every_video_capabilities_field(self):
-        """覆盖 schema 通用支持 VideoCapabilities 全部字段，键名严格对齐 dataclass。"""
+        """Override schemas generically support every VideoCapabilities field, with keys matching the dataclass exactly."""
         assert set(CAPABILITY_OVERRIDE_FIELDS) == {
             "text_to_video",
             "first_frame",
@@ -52,11 +52,11 @@ class TestOverrideFieldSchema:
         assert CAPABILITY_OVERRIDE_FIELDS["reference_route_audio_track"] == (VideoAudioMode | None)
 
     def test_open_dimensions_cover_both_kinds(self):
-        """能力覆盖开放模型事实与通道事实两类维度，通道事实含音轨形态（``docs/adr/0104``）。"""
+        """Overrides expose model facts and channel facts, including channel audio shape (``docs/adr/0104``)."""
         from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
 
         assert {
-            # 模型事实
+            # Model facts.
             "image_input",
             "structured_output",
             "max_output_tokens",
@@ -65,7 +65,7 @@ class TestOverrideFieldSchema:
             "durations",
             "resolutions",
             "duration_constraints",
-            # 通道事实
+            # Channel facts.
             "text_to_video",
             "first_frame",
             "last_frame",
@@ -80,7 +80,7 @@ class TestOverrideFieldSchema:
 
 
 class TestCapabilitiesFromDefinition:
-    """声明式定义的协议能力：显式声明照收，``text_to_video`` 由必需图输入机械推导。"""
+    """Declarative protocol capabilities: accept explicit declarations, deriving ``text_to_video`` mechanically from required image inputs."""
 
     @staticmethod
     def _definition(*, source: str = "start_image", required: bool | None = None, **capabilities: object) -> dict:
@@ -103,12 +103,12 @@ class TestCapabilitiesFromDefinition:
         assert caps.text_to_video is True
 
     def test_undeclared_required_defaults_to_optional(self):
-        """``required`` 缺省即可选：缺席的键不该被当成「必需」而误关文生能力。"""
+        """Absent ``required`` means optional; do not mistake missing keys for required inputs and disable text generation."""
         caps = video_capabilities_from_definition(self._definition(first_frame=True))
         assert caps.text_to_video is True
 
     def test_required_audio_input_does_not_close_text_to_video(self):
-        """只有图输入参与推导：必需的参考音频不改变纯文生请求的可行性。"""
+        """Only image inputs affect derivation; required reference audio does not change feasibility of pure text-to-video requests."""
         caps = video_capabilities_from_definition(
             self._definition(
                 source="reference_audio_files",
@@ -120,7 +120,7 @@ class TestCapabilitiesFromDefinition:
         assert caps.text_to_video is True
 
     def test_definition_without_first_frame_declaration_does_not_inherit_dataclass_default(self):
-        """``VideoCapabilities`` 的 first_frame 默认真值不适用于声明式：未声明即不支持。"""
+        """The ``VideoCapabilities`` first_frame=True default does not apply to declarations; undeclared means unsupported."""
         caps = video_capabilities_from_definition({"inputs": {}, "capabilities": {}})
         assert caps.first_frame is False
         assert caps.text_to_video is True
@@ -146,22 +146,22 @@ class TestCapabilitiesFromDefinition:
         ids=["unknown-key", "negative-count", "fractional-count", "boolean-count", "wrong-type"],
     )
     def test_invalid_capability_declaration_raises(self, capabilities: dict[str, object]):
-        """定义里的能力节不走覆盖那套「丢弃脏键继续跑」：定义是唯一真相源，脏声明必须炸。"""
+        """Definition capabilities do not use override-style discard-invalid-keys-and-continue: definitions are the sole source, so invalid declarations must fail."""
         with pytest.raises(ValueError, match="invalid capability"):
             video_capabilities_from_definition({"inputs": {}, "capabilities": capabilities})
 
 
 class TestOptionalDimensionSchema:
-    """可选维度（``T | None``）的注解不是 ``type``，消费 schema 的各处都不能假设它是。"""
+    """Optional-dimension annotations (``T | None``) are not ``type`` objects; no schema consumer may assume otherwise."""
 
     def test_type_name_renders_optional_annotation_without_crashing(self):
-        """展示名对 types.UnionType 也要给得出——校验失败分支不该比被校验的值更脆。"""
+        """Produce display names for types.UnionType too; validation-failure paths must not be more fragile than the validated value."""
         assert capability_type_name(CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"]) == "int"
         assert capability_type_name(CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"]) == "float | None"
 
     @pytest.mark.parametrize("value", [15.0, 15, 0, None])
     def test_optional_float_accepts_none_and_non_negative_numbers(self, value):
-        """None 表示「该后端不声明这项约束」；JSON 的 15 与 15.0 是同一个数，都收。"""
+        """None means the backend declares no such constraint; JSON 15 and 15.0 are the same number, and both are accepted."""
         assert capability_value_matches(value, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"])
 
     @pytest.mark.parametrize("value", [-1.0, True, "15", [15]])
@@ -172,7 +172,7 @@ class TestOptionalDimensionSchema:
         assert not capability_value_matches(None, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"])
 
     def test_invalid_optional_float_override_is_dropped_with_warning(self, caplog):
-        """存量脏行 / 非 API 写入路径的坏值走降级日志，不抛 AttributeError。"""
+        """Dirty existing rows / invalid non-API writes degrade with logging instead of raising AttributeError."""
         with caplog.at_level(logging.WARNING):
             applied = filter_valid_overrides(
                 endpoint="vidu-video-q3-turbo",
@@ -183,7 +183,7 @@ class TestOptionalDimensionSchema:
         assert "float | None" in caplog.text
 
     def test_integer_override_is_coerced_to_float_on_merge(self):
-        """校验放行整数字面量后，合并须还原成 float，字段不留 int。"""
+        """After validating integer literals, merging restores float so the field retains no int."""
         caps = synthesize_video_capabilities(
             endpoint="vidu-video-q3-turbo",
             model_id="viduq3",
@@ -195,7 +195,7 @@ class TestOptionalDimensionSchema:
 
 class TestSystemCapabilities:
     def test_endpoint_declaring_int_cap_rebuilds_capabilities(self):
-        """endpoint 维度声明硬上限时原样落到 max_reference_images，其余维度取默认。"""
+        """Explicit endpoint hard limits pass unchanged to max_reference_images; other dimensions take defaults."""
         caps = system_video_capabilities(endpoint="openai-video", model_id="sora-2")
         assert caps == VideoCapabilities(first_frame=True, last_frame=False, max_reference_images=1)
 
@@ -204,7 +204,7 @@ class TestSystemCapabilities:
         assert caps.max_reference_images == 0
 
     def test_endpoint_with_caps_fn_delegates_to_backend_declaration(self):
-        """endpoint 未声明硬上限时走 backend 的 per-model 纯函数，四字段全量取其声明。"""
+        """Without endpoint hard limits, call the backend per-model pure function and take all four declared fields."""
         from lib.backends.video_backends.vidu import ViduQ3TurboVideoBackend
 
         caps = system_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3")
@@ -222,18 +222,18 @@ class TestSystemCapabilities:
 class TestSynthesize:
     @pytest.mark.parametrize("overrides", [None, {}])
     def test_absent_overrides_follow_system(self, overrides: dict | None):
-        """列 NULL 与空字典都等价于「全部跟随系统判定」。"""
+        """Column NULL and empty dict both mean follow system judgment for every dimension."""
         assert synthesize_video_capabilities(
             endpoint="openai-video", model_id="sora-2", overrides=overrides
         ) == system_video_capabilities(endpoint="openai-video", model_id="sora-2")
 
     def test_missing_key_follows_system(self):
-        """字典存在但缺某键 → 该维度跟随系统判定，其余键照常覆盖。"""
+        """An existing dict missing a key follows system judgment for that dimension; other keys override normally."""
         caps = synthesize_video_capabilities(
             endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
-        # 对应不上条目：尾帧按保守回落不开，参考图上限只受通道约束（Ark 通道不设上限，为未收录）
+        # Unmatched entry: conservative last-frame fallback is off; references follow only channel limits (Ark is unlimited; model unlisted).
         assert caps.last_frame is False
         assert caps.max_reference_images is None
 
@@ -251,14 +251,14 @@ class TestSynthesize:
             endpoint="openai-video", model_id="sora-2", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
-        # 未覆盖的数值维度不受布尔覆盖牵连
+        # Boolean overrides do not affect untouched numeric dimensions.
         assert caps.max_reference_images == 1
 
     def test_force_off_on_last_frame(self):
-        """last_frame 是首批开放的覆盖维度，单独验一遍「系统判定 True → 强制关」。
+        """last_frame is among the first exposed overrides; separately verify system True forced off.
 
-        用 viduq3-turbo 而非 viduq3：后者的条目记录不接受尾帧（只做参考生视频），两侧求值本身就是 False，
-        验不出"强制关"的效果。
+        Use viduq3-turbo, not viduq3: the latter entry rejects last frames (reference-to-video only), making two-sided evaluation already False
+        and unable to demonstrate forced disabling.
         """
         assert two_sided_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3-turbo").last_frame is True
         caps = synthesize_video_capabilities(
@@ -274,7 +274,7 @@ class TestSynthesize:
         assert caps.max_reference_images == 3
 
     def test_system_capabilities_not_mutated_across_calls(self):
-        """合成返回新实例，不得就地改写系统判定（caps_fn 可能返回共享对象）。"""
+        """Composition returns a new instance without mutating system judgment (caps_fn may return shared objects)."""
         first = synthesize_video_capabilities(
             endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"last_frame": True}
         )
@@ -284,10 +284,10 @@ class TestSynthesize:
 
 
 class TestTolerance:
-    """存量数据容错：合成函数是执行层的最后一道，坏数据降级为「跟随系统判定」而非抛错。
+    """Existing-data tolerance: composition is the execution layer's final boundary; invalid data degrades to system judgment instead of raising.
 
-    合法性把关属于写入侧；存量行、手工 SQL、以及字段集收窄都可能让这里读到不认识的键，
-    抛错会让整条生成链路因一条脏配置而不可用。
+    Validation belongs on writes; existing rows, manual SQL, and narrowed field sets can expose unknown keys here.
+    Raising would disable the whole generation chain because of one dirty configuration.
     """
 
     def test_unknown_key_ignored_with_warning(self, caplog: pytest.LogCaptureFixture):
@@ -302,7 +302,7 @@ class TestTolerance:
         assert "audio_track" in caplog.text
 
     def test_last_frame_override_ignored_when_endpoint_lacks_end_image_support(self, caplog: pytest.LogCaptureFixture):
-        """openai-video 的 delegate 不下传 end_image：覆盖只会让合成层宣称支持、执行层仍静默丢帧，须降级跟随系统判定。"""
+        """The openai-video delegate does not send end_image; overrides would claim support while execution silently drops frames, so degrade to system judgment."""
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
                 endpoint="openai-video", model_id="sora-2", overrides={"last_frame": True}
@@ -312,7 +312,7 @@ class TestTolerance:
 
     @pytest.mark.parametrize("bad", ["true", 1, None, [], {"x": 1}])
     def test_non_bool_value_on_bool_field_ignored(self, bad: object, caplog: pytest.LogCaptureFixture):
-        """布尔维度只接受真 bool；1/"true" 等宽松真值不做语义映射，一律降级跟随。"""
+        """Boolean dimensions accept only real bools; do not semantically map loose truthy values such as 1/"true"; always degrade to follow system judgment."""
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
                 endpoint="openai-video", model_id="sora-2", overrides={"last_frame": bad}
@@ -322,7 +322,7 @@ class TestTolerance:
 
     @pytest.mark.parametrize("bad", [True, -1, "2", 1.5, None])
     def test_bad_value_on_int_field_ignored(self, bad: object, caplog: pytest.LogCaptureFixture):
-        """数值维度只接受非负 int；bool 是 int 子类，须被显式排除。"""
+        """Numeric dimensions accept only nonnegative ints; explicitly exclude bool, an int subclass."""
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
                 endpoint="openai-video", model_id="sora-2", overrides={"max_reference_images": bad}
@@ -338,8 +338,8 @@ class TestTolerance:
         assert caplog.records
 
     def test_last_frame_override_on_retired_endpoint_does_not_raise(self, caplog: pytest.LogCaptureFixture):
-        """endpoint 已从注册表下线（升级移除）时，get_endpoint_spec 抛 ValueError；filter_valid_overrides
-        是 API 响应过滤边界的最后一道，不得让存量脏配置把这里也炸穿——须降级丢弃并告警，而非抛错。"""
+        """When an upgrade removes an endpoint from the registry, get_endpoint_spec raises ValueError. filter_valid_overrides
+        is the final API-response filtering boundary: invalid existing configuration must not break it too; discard with a warning instead of raising."""
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             applied = filter_valid_overrides(
                 endpoint="no-such-retired-endpoint", model_id="whatever", overrides={"last_frame": True}
@@ -349,10 +349,10 @@ class TestTolerance:
 
 
 class TestComfyuiOverridesAreIgnored:
-    """ComfyUI 端点的能力只从节点绑定推导，存量覆盖在读取侧一律丢弃。
+    """ComfyUI capabilities derive only from node bindings; discard all existing overrides on read.
 
-    忽略落在 :func:`filter_valid_overrides`——API 回显与运行时能力合成共读这一个接缝，
-    只在路由里拦写入的话，库里已有的一条覆盖仍会在执行时被读到。
+    Ignore them in :func:`filter_valid_overrides`, the seam shared by API echo and runtime capability composition.
+    Blocking only route writes would still let persisted overrides affect execution.
     """
 
     @staticmethod
@@ -371,7 +371,7 @@ class TestComfyuiOverridesAreIgnored:
         assert "ce-7" in caplog.text
 
     def test_the_runtime_synthesis_path_drops_it_too(self):
-        """执行层读到的能力不得因一条覆盖而与设置页的回显分叉。"""
+        """An override must not make execution-visible capabilities diverge from settings-page echo."""
         caps, applied = synthesize_video_capabilities_with_overrides(
             endpoint="ce-7",
             model_id="wan-t2v",
@@ -384,7 +384,7 @@ class TestComfyuiOverridesAreIgnored:
 
 
 class TestReferenceAudioOverrideGuards:
-    """音频维度的三守卫：EndpointSpec 运输声明、合并后不变式、枚举值两侧同判定。"""
+    """Three audio guards: EndpointSpec transport declarations, post-merge invariants, and consistent enum judgments on both sides."""
 
     def test_enum_value_matches_accepts_declared_literal(self):
         assert capability_value_matches("direct", ReferenceAudioMode)
@@ -392,7 +392,7 @@ class TestReferenceAudioOverrideGuards:
 
     @pytest.mark.parametrize("value", ["DIRECT", "Direct", "native", "", True, 1, None])
     def test_enum_value_matches_rejects_everything_else(self, value):
-        """词表外的值一律判否——不做大小写归一，也不猜近义词。"""
+        """Reject every value outside the vocabulary; neither normalize case nor guess synonyms."""
         assert not capability_value_matches(value, ReferenceAudioMode)
 
     def test_direct_override_applies_on_audio_capable_endpoint(self):
@@ -405,7 +405,7 @@ class TestReferenceAudioOverrideGuards:
         assert caps.max_reference_audio_count == 2
 
     def test_direct_override_ignored_when_endpoint_cannot_send_audio(self, caplog: pytest.LogCaptureFixture):
-        """endpoint 的 delegate 不下传参考音频时，覆盖只会让声明失真，须降级跟随系统判定。"""
+        """If endpoint delegates cannot send reference audio, overrides falsify declarations; degrade to system judgment."""
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
                 endpoint="openai-video", model_id="sora-2", overrides={"reference_audio_mode": "direct"}
@@ -415,7 +415,7 @@ class TestReferenceAudioOverrideGuards:
         assert "reference_audio_mode=direct" in caplog.text
 
     def test_none_override_needs_no_endpoint_support(self):
-        """关掉音色能力不需要运输能力背书：守卫只拦「宣称支持」的方向。"""
+        """Disabling voice capability needs no transport support; guards block only claims of support."""
         caps = synthesize_video_capabilities(
             endpoint="openai-video", model_id="sora-2", overrides={"reference_audio_mode": "none"}
         )
@@ -429,14 +429,14 @@ class TestReferenceAudioOverrideGuards:
                 overrides={"reference_audio_mode": "DIRECT"},
             )
 
-        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT  # 系统判定本身即 direct
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT  # System judgment is already direct.
         assert "reference_audio_mode" in caplog.text
 
     def test_direct_without_positive_count_falls_back_to_none(self, caplog: pytest.LogCaptureFixture):
-        """稀疏覆盖只写模式：合并后是 direct ⊕ 上限 0，两维各自合法而合起来无意义。
+        """Sparse overrides set only mode: merging yields direct ⊕ limit 0, each dimension valid but their combination meaningless.
 
-        不修正就会让 gate 先过模式判定再撞上限 0，把「不支持参考音频」报成「最多支持 0 段」，
-        用户按提示减角色数量减到零段也过不了。
+        Without correction, the gate passes mode then hits limit 0, reporting at most 0 clips instead of no reference-audio support;
+        users cannot pass even after reducing characters to zero clips.
         """
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
@@ -450,7 +450,7 @@ class TestReferenceAudioOverrideGuards:
         assert "max_reference_audio_count" in caplog.text
 
     def test_zero_count_override_disables_audio_on_capable_model(self):
-        """反向凑法同样收敛：系统判定 direct，用户把上限压成 0，模式随之降到 none。"""
+        """The inverse combination also converges: system judgment direct plus user limit 0 downgrades mode to none."""
         caps = synthesize_video_capabilities(
             endpoint="ark-seedance-2",
             model_id="doubao-seedance-2-0-260128",
@@ -459,11 +459,11 @@ class TestReferenceAudioOverrideGuards:
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
 
     def test_none_mode_with_positive_count_is_not_a_violation(self):
-        """反向组合不算违约：模式为 none 时上限不参与判定，判违约反会把用户关掉的能力顶回开启。"""
+        """The inverse combination is not a violation: with mode none, limits are irrelevant; treating it as a violation would reenable a capability the user disabled."""
         caps = synthesize_video_capabilities(
             endpoint="ark-seedance-2",
             model_id="doubao-seedance-2-0-260128",
             overrides={"reference_audio_mode": "none"},
         )
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
-        assert caps.max_reference_audio_count == 3  # 系统判定原样保留，不被连坐清零
+        assert caps.max_reference_audio_count == 3  # Preserve system judgment unchanged; do not zero it as collateral.

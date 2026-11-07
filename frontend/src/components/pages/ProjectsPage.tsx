@@ -23,8 +23,8 @@ import { useProjectExport } from "@/components/layout/useProjectExport";
 import { useProjectImport } from "./lobby/useProjectImport";
 
 /**
- * 项目列表的加载。首次加载显示加载状态；改名、删除、导入之后静默重新加载，列表不闪回加载状态。
- * 新一轮加载作废上一轮在途的请求。
+ * Project-list loading. Initial loads show loading; renames/deletions/imports reload silently without list-loading flashes.
+ * New loads invalidate previous in-flight requests.
  */
 function useLobbyProjects() {
   const { t } = useTranslation("dashboard");
@@ -59,7 +59,7 @@ function useLobbyProjects() {
   }, [load]);
 
   const reload = useCallback(() => void load(true), [load]);
-  /** 同 ``reload``，返回刷新的结算值，供只在刷新成功后才提示的调用方使用。 */
+  /** Like ``reload``, returning refresh settlement for callers notifying only after success. */
   const reloadSettled = useCallback(() => load(true), [load]);
   return { projects, loading: projectsLoading, reload, reloadSettled };
 }
@@ -197,7 +197,7 @@ export function ProjectsPage() {
         />
       }
     >
-      {/* 问候区的状态句取决于项目列表，加载完成后才播放打字机，避免先打出空状态的句子再重来。 */}
+      {/* Greeting status depends on project lists; start typing after loading, avoiding empty-state text followed by restarts. */}
       {!loading && (
         <LobbyGreeting
           projectCount={projects.length}
@@ -206,8 +206,8 @@ export function ProjectsPage() {
           episodesInProduction={episodeTotals.inProduction}
         />
       )}
-      {/* 引导运行期间才挂，退出即卸载。放在加载与空状态的分支之外：首次使用时项目列表通常是空的，
-          而演示卡正是那一刻最需要讲的东西。 */}
+      {/* Mount only during onboarding, unmount on exit. Outside loading/empty branches: first-use project lists are usually empty,
+          exactly when demo cards most need explanation. */}
       {tourActive && <OnboardingDemoCard />}
       {content}
 

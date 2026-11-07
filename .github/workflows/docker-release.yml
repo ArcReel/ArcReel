@@ -1,17 +1,17 @@
 name: Docker Release
 
-# v* tag 触发的正式发布：双架构漏洞闸门 → 多架构构建 → semver + latest 标签，
-# 同一次构建推送 ghcr 与 Docker Hub，附带 SBOM 与 provenance attestation。
-# GitHub Release 由 release-please 创建，此处不再重复生成。
-# 镜像发布成功后触发目录数据仓库（ArcReel/arcreel-catalog）构建一次。
+# Formal v* tag releases: dual-architecture vulnerability gate → multi-architecture build → semver + latest tags;
+# the same build pushes to ghcr and Docker Hub, with SBOM and provenance attestations.
+# release-please creates the GitHub Release; do not generate it again here.
+# After image publication succeeds, trigger one build in the catalog data repository (ArcReel/arcreel-catalog).
 
 on:
   push:
     tags: ["v*"]
 
-# 不同 v* tag 并发运行时，后完成的旧版本会覆盖 latest/{{major}} 等可变标签，故串行执行。
-# queue: max 保留全部排队 tag：默认的 queue: single 每组只留一个 pending 运行，连续推多个
-# tag 会丢掉中间版本的发布。
+# Concurrent v* tags let an older version finishing later overwrite mutable latest/{{major}} tags; serialize runs.
+# queue: max retains every queued tag; default queue: single keeps only one pending run per group, so pushing several
+# tags in succession would discard releases of intermediate versions.
 concurrency:
   group: docker-release
   cancel-in-progress: false
@@ -32,14 +32,14 @@ jobs:
         with:
           persist-credentials: false
 
-      # Docker Hub 命名空间与 GitHub 组织同名，两个 registry 共用这一份小写仓库名；
-      # fork 因此自动指向自己的命名空间，不会继承上游的推送目标
+      # Docker Hub namespace matches the GitHub organization; both registries share this lowercase repository name.
+      # Forks therefore target their own namespace automatically rather than inheriting upstream push targets.
       - name: Compute lowercase image name
         run: echo "IMAGE_NAME_LC=${REPO,,}" >> "$GITHUB_ENV"
         env:
           REPO: ${{ github.repository }}
 
-      # 按 ISO 周生成 APT_REFRESH，使 Dockerfile 的系统包层每周失效一次并重新 apt-get upgrade
+      # Generate APT_REFRESH by ISO week so the Dockerfile system-package layer expires weekly and reruns apt-get upgrade.
       - name: Compute apt refresh key
         id: apt
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
@@ -61,9 +61,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 闸门逐架构构建并扫描：架构间基础镜像层与二进制包可能不同，
-      # 只扫 amd64 会放过仅存在于 arm64 变体的可修复漏洞。构建层进
-      # gha 缓存，最终推送步骤直接复用
+      # The gate builds and scans each architecture: base-image layers and binaries can differ between architectures;
+      # scanning only amd64 misses fixable vulnerabilities unique to arm64. Build layers enter the
+      # gha cache and are reused directly by the final push step.
       - name: Build amd64 image for release gate scan
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -143,8 +143,8 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
             docker.io/${{ env.IMAGE_NAME_LC }}
-          # latest 交由 metadata-action 默认 flavor（latest=auto）：仅稳定
-          # semver tag 生成，预发布 tag（如 v1.2.3-rc.1）只推版本标签
+          # Let metadata-action default flavor (latest=auto) handle latest: only stable
+          # semver tags produce it; prerelease tags (e.g. v1.2.3-rc.1) push version tags only.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -168,9 +168,9 @@ jobs:
             type=gha,scope=release-amd64
             type=gha,scope=release-arm64
 
-      # 双推是同一次构建的产物，digest 理论上必然相同；这一步是「同步确实发生了」
-      # 的唯一凭证，逐一核对 metadata-action 产出的每个标签——只验版本标签会放过
-      # latest / {{major}} 在某个 registry 未落地的情况，而 latest 正是默认拉取入口
+      # Both pushes come from the same build, so digests should necessarily match. This step is the sole evidence
+      # that synchronization actually occurred; verify every metadata-action tag. Checking only version tags misses
+      # latest / {{major}} absent from one registry, and latest is the default pull entry point.
       - name: Assert every pushed tag resolves to the build digest
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
@@ -194,8 +194,8 @@ jobs:
             exit 1
           fi
 
-      # 镜像全部落地后触发目录数据仓库构建：它按 ArcReel 最新发布版本，放出此前因最低应用版本暂缓的供应商模型。
-      # 放在镜像发布之后，是为了不出现「数据已放出、镜像还没就绪」的空档。fork 的发版不触发上游仓库
+      # Once all images are published, trigger the catalog repository build: it releases provider models held back by minimum app versions, based on the latest ArcReel release.
+      # Run after image publication to avoid a gap with data available but images unready. Fork releases do not trigger upstream.
       - name: Create App token for catalog build
         id: catalog-token
         if: github.repository == 'ArcReel/ArcReel'

@@ -4,34 +4,34 @@
     {
       "id": 1,
       "prompt": "我有一部武侠小说想做成短视频，大概3万字，帮我开始",
-      "expected_output": "应触发 video-workflow：项目已由 Web 端创建、session 已绑定项目根，调 get_workflow_plan 取权威计划；从 project.json 确认创作类型与生成模式，引导用户在 Web 端上传整本源文或经 upload_source 登记，不直接读取小说原文",
+      "expected_output": "Trigger video-workflow: Web already created the project and session cwd is its root. Query get_workflow_plan for authority, verify content/generation modes from project.json, guide whole-source Web upload or upload_source registration, and never directly read novel source.",
       "target_skills": [
         "video-workflow"
       ],
       "assertions": [
         {
           "name": "queries_workflow_plan",
-          "text": "调用 mcp__arcreel__get_workflow_plan 取权威计划，按 next_action（collect_project_input）推进",
+          "text": "Call mcp__arcreel__get_workflow_plan for the authoritative plan; follow next_action (collect_project_input).",
           "type": "behavior"
         },
         {
           "name": "reads_modes_from_project",
-          "text": "从 project.json 确认已定的 content_mode 与 generation_mode，不向用户询问或尝试修改",
+          "text": "Verify existing content_mode/generation_mode in project.json, without asking for or attempting changes.",
           "type": "constraint"
         },
         {
           "name": "asks_for_source_upload",
-          "text": "请用户在 Web 端上传整本源文，或经 mcp__arcreel__upload_source 登记",
+          "text": "Ask for whole-source Web upload or mcp__arcreel__upload_source registration.",
           "type": "behavior"
         },
         {
           "name": "does_not_create_project",
-          "text": "不创建项目目录、不写 project.json 初始字段",
+          "text": "Do not create project directories or initial project.json fields.",
           "type": "constraint"
         },
         {
           "name": "does_not_read_novel",
-          "text": "不直接读取小说原文到 context",
+          "text": "Do not load novel source directly into context.",
           "type": "constraint"
         }
       ]
@@ -39,24 +39,24 @@
     {
       "id": 2,
       "prompt": "继续上次的项目，我记得角色已经分析完了，帮我继续",
-      "expected_output": "应触发 video-workflow，调 get_workflow_plan 取权威计划，按 next_action 从对应动作继续",
+      "expected_output": "Trigger video-workflow, query get_workflow_plan, and continue its next_action.",
       "target_skills": [
         "video-workflow"
       ],
       "assertions": [
         {
           "name": "queries_workflow_plan",
-          "text": "调用 mcp__arcreel__get_workflow_plan 取权威计划",
+          "text": "Call mcp__arcreel__get_workflow_plan for the authoritative plan.",
           "type": "behavior"
         },
         {
           "name": "does_not_infer_stage",
-          "text": "不读 project.json、不用 Glob 探测文件系统自行推断阶段",
+          "text": "Do not read project.json or probe with Glob to infer the stage independently.",
           "type": "constraint"
         },
         {
           "name": "executes_next_action",
-          "text": "按计划交回的 next_action 执行对应受控动作",
+          "text": "Execute the controlled action returned as next_action.",
           "type": "behavior"
         }
       ]
@@ -64,29 +64,29 @@
     {
       "id": 3,
       "prompt": "帮我把第2集的分镜图重新生成，E2S03 和 E2S07 的画面不太满意",
-      "expected_output": "应使用 generate-storyboard：在项目 episodes[] 中找到第 2 集的剧本文件，调 generate_storyboards 以 segment_ids 只点名这两个分镜重新生成，生成后派 review-images 审图并把结论交用户确认",
+      "expected_output": "Use generate-storyboard: resolve episode 2’s script through episodes[], call generate_storyboards with only the two segment_ids, then dispatch review-images and obtain user confirmation of findings.",
       "target_skills": [
         "generate-storyboard"
       ],
       "assertions": [
         {
           "name": "uses_segment_ids",
-          "text": "调用 mcp__arcreel__generate_storyboards，以 segment_ids 只点名 E2S03、E2S07，不重新生成全部",
+          "text": "Call generate_storyboards with segment_ids only E2S03/E2S07, not all shots.",
           "type": "behavior"
         },
         {
           "name": "resolves_episode_script",
-          "text": "script 取该集在 episodes[] 中的剧本文件（episode_{集 ID}.json），按播出位置找集，不把「第2集」直接当集 ID",
+          "text": "Resolve script filename episode_{episode ID}.json through episodes[] playback position; do not treat episode 2 as ID 2.",
           "type": "behavior"
         },
         {
           "name": "reviews_regenerated_images",
-          "text": "生成完成后派 review-images 子智能体审图，把报告与建议交用户确认，确认前不再次重新生成或编辑",
+          "text": "Dispatch review-images after generation and give findings/recommendations to users; no further edits/regeneration before confirmation.",
           "type": "behavior"
         },
         {
           "name": "no_bash_scripts",
-          "text": "不经 Bash 调 python 脚本或命令行参数生成分镜图",
+          "text": "Do not generate storyboards through Bash Python scripts/CLI arguments.",
           "type": "constraint"
         }
       ]
@@ -94,29 +94,29 @@
     {
       "id": 4,
       "prompt": "这集视频生成到一半断了，帮我接着来",
-      "expected_output": "应调 get_generation_batch 查询 durable batch，按 problem.action 决定下一步：只把 action 为 retry 的 ID 用 selected scope 和 force=false 重发；wait_for_task 的 ID 等待其结果，fix_input 等需先处理的 ID 不直接重发；已入队的任务照常执行不重发",
+      "expected_output": "Query the durable batch with get_generation_batch and follow problem.action: resend only retry IDs with selected and force=false; wait for wait_for_task IDs, repair fix_input IDs first, and never resubmit queued tasks.",
       "target_skills": [
         "generate-video"
       ],
       "assertions": [
         {
           "name": "resends_remaining_ids",
-          "text": "调用 mcp__arcreel__get_generation_batch 查询批次后，只重发 problem.action 为 retry 的 ID；wait_for_task、fix_input 等其他 action 的 ID 不直接重发",
+          "text": "Query get_generation_batch first and resend only problem.action retry IDs; never directly resend wait_for_task/fix_input or other actions.",
           "type": "behavior"
         },
         {
           "name": "uses_selected_scope",
-          "text": "重发时使用 target.scope=selected",
+          "text": "Use target.scope=selected when resending.",
           "type": "behavior"
         },
         {
           "name": "does_not_force_resume",
-          "text": "重发时显式使用 force=false，不对在途任务自动 force 重做",
+          "text": "Explicit force=false for resumption; no automatic forced redo of in-flight tasks.",
           "type": "constraint"
         },
         {
           "name": "does_not_regenerate_all",
-          "text": "不重新生成已完成或已入队的视频单元，不建议用户重跑整批",
+          "text": "Do not regenerate completed/queued units or recommend full-batch reruns.",
           "type": "constraint"
         }
       ]
@@ -124,34 +124,34 @@
     {
       "id": 5,
       "prompt": "第 1 集视频都生成好了，帮我剪一版，剪完出个成片",
-      "expected_output": "应使用 edit-video：确定本集剪辑时间线（没有就按脚本新建），读取后派 review-footage 首轮全量审阅，用一批 edit_timeline 操作剪辑，交付改动总结与跳转链接，再按用户要求调 render_final_cut 出成片",
+      "expected_output": "Use edit-video: select/create this episode’s timeline, read it, dispatch full first review-footage, commit one edit_timeline batch, deliver summary/jump links, then render_final_cut as requested.",
       "target_skills": [
         "edit-video"
       ],
       "assertions": [
         {
           "name": "reads_before_edit",
-          "text": "修改前先调 mcp__arcreel__read_timeline 取得 revision，并把它作为 mcp__arcreel__edit_timeline 的 base_revision",
+          "text": "Read timeline revision before editing and use it as edit_timeline base_revision.",
           "type": "behavior"
         },
         {
           "name": "reviews_footage_first_round",
-          "text": "首轮剪辑派只读子智能体 review-footage 审阅时间线用到的每个视频单元，按报告挑版本、定截取",
+          "text": "First edits dispatch read-only review-footage for every used unit, choosing versions/trims from reports.",
           "type": "behavior"
         },
         {
           "name": "summarizes_changes",
-          "text": "一轮剪辑结束时按片段编号总结改动及理由",
+          "text": "Summarize changes/reasons by clip ID at round end.",
           "type": "behavior"
         },
         {
           "name": "renders_on_request",
-          "text": "用户已要求出成片，调 mcp__arcreel__render_final_cut，并在提交前说明 warning 级 issue",
+          "text": "The user requested a final cut: call render_final_cut after explaining warning-level issues.",
           "type": "behavior"
         },
         {
           "name": "no_ffmpeg_scripts",
-          "text": "不经 Bash 调 ffmpeg 或脚本拼接视频",
+          "text": "Do not concatenate videos through Bash ffmpeg/scripts.",
           "type": "constraint"
         }
       ]

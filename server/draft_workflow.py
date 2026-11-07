@@ -99,7 +99,7 @@ class DraftContext:
         return self.pm.get_project_path(self.project_name)
 
     async def aproject_path(self) -> Path:
-        """``project_path`` 的异步入口：定位项目目录会 stat，卸到线程。"""
+        """Async ``project_path`` entry point: locating the directory calls stat, so offload to a thread."""
         return await asyncio.to_thread(self.pm.get_project_path, self.project_name)
 
 
@@ -107,13 +107,11 @@ DraftDocType = Literal[
     "drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"
 ]
 PositiveEpisode = Annotated[int, Field(strict=True, ge=1)]
-#: 工具参数 ``episode_id`` 的统一说明。集 ID 只是内部标识，对用户说标题与播出位置。
-EPISODE_ID_DESCRIPTION = (
-    "集 ID：一集的内部标识，取自项目详情 episodes[].episode 或制作计划的 episode_id，不是播出顺序中的第几集"
-)
+#: Shared ``episode_id`` tool-argument description. Episode IDs are internal; address users by title and playback position.
+EPISODE_ID_DESCRIPTION = "Episode ID: an internal episode identifier from project details episodes[].episode or the production plan episode_id, not its position in playback order"
 
 
-_DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价"
+_DRAFT_REVISION_DESCRIPTION = "Revision returned by open_draft / the preceding patch_draft; sha256-v1: prefixed and bare hexadecimal forms are equivalent"
 
 
 class _DraftRequest(BaseModel):
@@ -122,8 +120,7 @@ class _DraftRequest(BaseModel):
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     doc_type: DraftDocType = Field(
         description=(
-            "草稿对应的文档：drama_script_plan / narration_script_plan / reference_script_plan 为各创作类型的"
-            " script_plan，reference_prompt_authoring 为参考生视频正式脚本的提示词编写稿"
+            "Draft document: drama_script_plan / narration_script_plan / reference_script_plan are the content modes' script_plan documents; reference_prompt_authoring is the prompt-authoring draft for a formal reference-to-video script"
         )
     )
 
@@ -132,27 +129,27 @@ class DraftLocator(_DraftRequest):
     source: str | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "可选小说源文件路径；仅在首次从正式 script_plan 创建草稿时用作重判来源，"
-            "缺省为本集派生源文 source/episode_N.txt"
+            "Optional novel source path, used for reassessment only when first creating a draft from formal script_plan; defaults to this episode's derived source/episode_N.txt"
         ),
     )
 
 
 class PatchDraftRequest(_DraftRequest):
-    """``accept_formal_revision`` 与 ``source`` 以「是否出现」区分省略与显式 null：省略即不接受 / 不改。"""
+    """``accept_formal_revision`` and ``source`` distinguish omission from explicit null by presence: omission means no acceptance / no change."""
 
-    content: dict[str, Any] = Field(description="替换后的完整草稿正文；允许中间态不通过业务校验")
+    content: dict[str, Any] = Field(
+        description="Complete replacement draft body; intermediate states may fail business validation"
+    )
     base_revision: str = Field(description=_DRAFT_REVISION_DESCRIPTION)
     accept_formal_revision: str | None = Field(
         default=None,
         description=(
-            "合并正式文档并发修改后，显式接受 open_draft 返回的 formal_revision（带 sha256-v1: 前缀与裸 hex "
-            "两种写法等价）；正式文档已不存在时该值为 null，同样显式传 null。省略表示不接受"
+            "After merging concurrent formal-document changes, explicitly accept formal_revision returned by open_draft (sha256-v1: prefixed and bare hexadecimal forms are equivalent). If the formal document no longer exists, explicitly supply null. Omission means no acceptance"
         ),
     )
     source: str | None = Field(
         default=None,
-        description="可选源文范围；仅在修正 script_plan 草稿的重判范围时提供，null 清除范围，省略则保持不变",
+        description="Optional source range, supplied only to correct the reassessment range of a script_plan draft; null clears the range, omission leaves it unchanged",
     )
 
 
@@ -165,14 +162,11 @@ class DiscardDraftRequest(_DraftRequest):
 
 
 class DraftWorkflowError(Exception):
-    """``draft_refreshed`` 为真表示晋升被违约挡下、且违约报告已按现值写回草稿。
+    """``draft_refreshed`` means violations blocked promotion and the draft now contains a violation report for current values.
 
-    ``failure`` 非空表示重判被视频请求事实挡下（模型能力不满足、档位缺失等配置问题，不是草稿本身的
-    违约）：``code`` 即其问题码，Web 与 Agent 都按问题码、参数与修复指引呈现真实原因。
+    ``failure`` indicates video-request facts blocked reassessment (configuration problems such as insufficient model capabilities or missing tiers, not violations in the draft itself). ``code`` is that problem's code; Web and Agent present the real reason using the code, parameters and recovery guidance.
 
-    ``notice_key`` 非空表示违约带有面向用户的文案 key 与参数 ``notice_params``（如晋升前正式剧本单元
-    没过预判）：``code`` 不变，Web 按该 key 本地化说明原因，``detail`` 仍面向 Agent。
-    """
+    ``notice_key`` indicates a violation with a user-facing wording key and ``notice_params`` (for example, a formal script unit failing preflight before promotion). ``code`` stays unchanged, Web localizes the reason by that key, and ``detail`` remains Agent-facing."""
 
     def __init__(
         self,
@@ -198,19 +192,13 @@ class DraftWorkflowError(Exception):
 
 
 class ReferenceDraftRevalidation(NamedTuple):
-    """script_plan 草稿读时重判的结果。
+    """Read-time reassessment result for a script_plan draft.
 
-    ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``flat_units``
-    必为空，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``flat_units`` 是收编后的扁平
-    产出，``violations`` 为空即可晋升。两者的处置不同（原样 vs 收编），故不靠 ``flat_units``
-    是否为空来反推。
+    ``schema_failed`` explicitly distinguishes two phases: True means the draft fails even its production-time schema (``flat_units`` must be empty; callers can only present ``draft.content`` unchanged). When False, ``flat_units`` is the coerced flat output and promotion is allowed if ``violations`` is empty. These need different handling (unchanged versus coerced), so do not infer the phase from whether ``flat_units`` is empty.
 
-    ``soft_violations`` 是软违约（声音降级、未引用场景）的结构化条目，与 ``violations``
-    分属两个字段而非合流：软违约不阻断晋升、不进待修复草稿的违约条目，合成一个列表迟早会有一处
-    按「非空即挡下」判定，把降级提示变成硬违约。schema 没过时为空——正文尚未收编，无从逐 unit 判。
+    ``soft_violations`` contains structured soft violations (audio downgrades, unreferenced scenes), separate from ``violations``: soft violations neither block promotion nor enter repair-draft violation entries. Combining them would eventually make some nonempty-list guard turn downgrade hints into hard violations. Empty on schema failure: without coercing the body, there is no per-unit assessment.
 
-    ``new_assets`` 是收编并去重后的本集新增项，随 ``flat_units`` 一起回写草稿或落盘。
-    """
+    ``new_assets`` contains this episode's coerced and deduplicated additions, written back to the draft or persisted with ``flat_units``."""
 
     violations: list[DraftViolation]
     flat_units: list[dict[str, Any]]
@@ -221,7 +209,7 @@ class ReferenceDraftRevalidation(NamedTuple):
     new_assets: list[dict[str, Any]]
 
     def flat_content(self) -> dict[str, Any]:
-        """收编后的扁平草稿内容。"""
+        """Coerced flat draft content."""
         return with_new_assets({"units": self.flat_units}, self.new_assets)
 
 
@@ -233,29 +221,23 @@ async def revalidate_reference_script_plan_draft(
     *,
     config_resolver: ConfigResolver | None = None,
 ) -> ReferenceDraftRevalidation:
-    """按产出时那套校验器全量重判 script_plan 草稿，只读、不写盘、不清草稿。
+    """Fully reassess a script_plan draft with its production-time validators; read only, without disk writes or draft cleanup.
 
-    重判走的是拆分工具用的同一个函数（``collect_reference_flat_violations``），不是它的简化
-    副本：晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次
-    生成时被拒」这类分叉会重新出现。能力与源文都重新解析——草稿在场期间用户可能改过模型配置或
-    源文，重判要对着现值判。
+    Use the same function as splitting (``collect_reference_flat_violations``), never a simplified copy: promotion, content-confirmation read-time reassessment and production must share code, or divergence such as admitting here but rejecting on the next generation will return. Resolve capabilities and source anew against current values: users may change model configuration or source while a draft exists.
 
-    不依赖 ``DraftContext``（``project_path`` / ``project`` 由调用方传入而非从 ctx 派生）：
-    内容确认的读时重算（``server/services/project/script_review.py``）没有 Agent 工具的 ctx，
-    只有 ``ProjectManager``；两处共用本函数而不各自加载 project，调用方各自加载一次即可。
+    Independent of ``DraftContext`` (callers pass ``project_path`` / ``project`` rather than deriving them from ctx): content-confirmation read-time reassessment (``server/services/project/script_review.py``) has only ``ProjectManager``, not the Agent tool ctx. Share this function without each site loading project again; each caller loads it once.
 
-    ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
-    """
-    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按缺省源文重解析
-    # ——产出时若指定过别的源文件，换一份范围重判等于放行一份从别处抄来的原文锚。
+    Raise ``ValueError`` for missing ``meta.source`` (damaged draft that cannot be reassessed)."""
+    # meta.source records the source range at production time. A missing key means damaged meta: never silently reparse using the default source.
+    # If another source file was specified originally, reassessing a different range would admit source anchors copied from elsewhere.
     if "source" not in draft.meta:
         raise ValueError(
             f"草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
             "请恢复该字段（指定源文时为其相对路径，按本集派生源文产出时为 null）后重试"
         )
-    # 源文可能达数百 KB，同步读盘直接放在这个 async 函数体里会占用
-    # 事件循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）
-    # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
+    # Source text may span hundreds of KB; synchronous disk reads directly inside this async function would occupy
+    # the event loop. Promotion tools use a separate session thread and are insensitive, but content-confirmation read-time reassessment
+    # runs this same code in a request coroutine. Offload to a thread to avoid slowing other concurrent requests.
     novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
         load_script_plan_source_with_basis,
         project_path,
@@ -266,13 +248,13 @@ async def revalidate_reference_script_plan_draft(
     )
     split_caps = await fetch_reference_split_caps(project, config_resolver=config_resolver)
 
-    # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住时长
-    # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
-    # 0 秒）都能一路晋升进正式文件——正是本机制要防的「正式文件被污染」。schema 违约在这条路上
-    # 没有 backend 可重试（内容是 Agent 写的），故同样回报告让它继续改。
+    # Edited drafts must first satisfy their production-time schema: response_schema and _parse_script_plan_json enforce duration
+    # enums and nonempty fields on splitting. Omitting this layer on promotion would let a non-tier duration_seconds or its deletion
+    # (coerced to zero seconds) reach formal files, precisely the formal-content contamination this mechanism prevents. Schema violations here
+    # have no backend to retry because the Agent wrote the content, so return a report for further editing as well.
     #
-    # 外层形状（units 缺失 / 不是数组 / 空数组）与逐 unit 的字段违约走同一条报告路径：两者都是
-    # Agent 编辑草稿时会犯的错，只有后者刷新报告的话，前者就把它甩出了「改完再晋升」的循环。
+    # Outer-shape failures (missing / non-array / empty units) and per-unit field violations share one reporting path: both can occur
+    # while the Agent edits a draft. Refreshing reports only for the latter would eject the former from the edit-and-promote loop.
     raw_units = draft.content.get("units")
     schema = build_reference_units_script_plan_model(split_caps.durations)
     violations: list[DraftViolation] = []
@@ -313,8 +295,8 @@ async def revalidate_reference_script_plan_draft(
         source_language=source_language,
         new_assets=new_assets,
     )
-    # 软违约与硬违约在同一次重判里一并产出：有硬违约时也要算，晋升被挡下时的报告同样带着它们，
-    # 否则 Agent 修草稿的每一轮都看不见降级提示，直到最后一轮晋升成功才第一次读到。
+    # Compute soft and hard violations in the same reassessment, including when hard violations block promotion, and include both in its report.
+    # Otherwise every repair round hides downgrade hints until the final successful promotion exposes them for the first time.
     soft_violations = reference_soft_violations(
         [str(flat["text"]) for flat in flat_units],
         planning_project(project, new_assets),
@@ -333,7 +315,7 @@ async def revalidate_reference_script_plan_draft(
 
 
 def _project_relative(path: Path, project_path: Path) -> str:
-    """回执里的路径只写项目内相对路径，不外泄服务端文件系统布局；不在项目目录下时只给文件名。"""
+    """Receipt paths are project-relative to avoid exposing server filesystem layout; use only the filename outside the project directory."""
     try:
         return path.relative_to(project_path).as_posix()
     except ValueError:
@@ -421,11 +403,9 @@ def _rewrite_invalid_draft(
 
 
 def _soft_violation_section(revalidation: ReferenceDraftRevalidation) -> str:
-    """重判结果里的软违约段，供晋升被违约挡下时拼在报告尾部。
+    """Soft-violation section from reassessment, appended to reports when violations block promotion.
 
-    与晋升 / 拆分回执共用 ``render_soft_violation_section``，只换处置说明：此处草稿仍在场、
-    这些提示不是要修的违约，说明不换的话 Agent 会把降级提示当成没修干净的违约反复重写。
-    """
+    Share ``render_soft_violation_section`` with promotion / splitting receipts, changing only the handling explanation: the draft still exists and these hints are not violations to repair. Keeping the other explanation would make the Agent repeatedly rewrite downgrade hints as though violations remained unfixed."""
     return render_soft_violation_section(
         render_soft_violation_lines(revalidation.soft_violations), note=SOFT_VIOLATION_NOTE_QUARANTINED
     )
@@ -438,12 +418,9 @@ async def _promote_reference_script_plan(
     *,
     before_commit: Callable[[], None] | None = None,
 ) -> str:
-    """按产出时那套校验器全量重判 script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
+    """Fully reassess a script_plan draft with its production-time validators; on success promote to formal script_plan and clear the draft.
 
-    返回晋升回执文本：与拆分回执同一出口（``reference_result_text``），落盘统计后接软违约段。
-    晋升成功前无人向 Agent 交代降级提示——修草稿这条主回路走完时它才第一次拿到，故成功路径不能
-    只返回一个「已晋升」的布尔。
-    """
+    Return promotion receipt text through the same outlet as splitting (``reference_result_text``), appending soft violations after persisted statistics. Successful promotion is the first time the Agent receives downgrade hints on the main draft-repair loop, so success cannot return only a promoted boolean."""
     project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
@@ -460,8 +437,8 @@ async def _promote_reference_script_plan(
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
     violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
     if revalidation.schema_failed:
-        # schema 违约：写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
-        # 改形，它照着报告回去看反而对不上自己写的东西。
+        # Schema violations: write back the Agent's unchanged original content without coercion; coercing malformed fields would reshape its draft
+        # so the report no longer matches what the Agent wrote.
         report = await run_sync_transaction(
             _rewrite_invalid_draft,
             project_path,
@@ -484,8 +461,8 @@ async def _promote_reference_script_plan(
         )
         raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation), draft_refreshed=True)
 
-    # 编号只由服务端发、只分配不复用：沿用盘上正式规划按位置已发的编号（原样晋升因此逐字不变），
-    # 多出的单元另发新号；回执里的降级提示按落盘的编号定位。
+    # Only the server issues IDs, allocating without reuse: retain IDs issued by position in the on-disk formal plan (unchanged promotion stays verbatim).
+    # Allocate new IDs to extra units; locate downgrade hints in the receipt by the IDs actually persisted.
     formal_ids = await asyncio.to_thread(
         plan_item_ids, script_review.official_reference_script_plan_path(project_path, episode)
     )
@@ -501,10 +478,10 @@ async def _promote_reference_script_plan(
         max_refs=split_caps.max_refs,
         unit_ids=unit_ids,
     )
-    # 写盘经单一出口（lib.script.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
-    # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
-    # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
-    # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。
+    # Persist only through lib.script.script_review.write_script_plan_locked: locking, baseline comparison and prompt_authoring draft cleanup
+    # live there alone. Use the base_fingerprint recorded in meta at checkout / draft production: if another writer (Web save or splitting)
+    # changed the formal file after draft production, abort promotion and return a conflict report for the Agent to merge,
+    # never silently overwriting others' changes. Drafts lacking base_fingerprint promote without a baseline.
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     try:
         await run_sync_transaction(
@@ -545,22 +522,19 @@ def _render_script_plan_conflict_report(
     to_draft_shape: Callable[[dict[str, Any]], dict[str, Any] | None],
     field_hint: str,
 ) -> str:
-    """渲染晋升遇乐观并发冲突时回给 Agent 的结构化报告：最新内容 + 合并指引。
+    """Render a structured Agent report for optimistic-concurrency conflicts during promotion: latest content plus merge guidance.
 
-    报告要让编辑方能就地合并：附上盘上现值转成草稿那一层的形状（与草稿 ``content`` 同形，可逐条
-    对照），并指明通过 ``patch_draft`` 显式接受已合并的正式版本，之后重新晋升才会放行。
+    Enable merging in place: include current disk content converted to draft-layer shape (matching draft ``content`` for entry-by-entry comparison), and instruct explicit acceptance of the merged formal revision through ``patch_draft`` before retrying promotion.
 
-    ``to_draft_shape`` 与 ``field_hint`` 由各变体传入：草稿层的形状与可改字段按变体不同，
-    附一份对不上形状的「最新内容」比不附更误导。
-    """
+    Variants supply ``to_draft_shape`` and ``field_hint``: draft shapes and editable fields differ. Including latest content in the wrong shape is more misleading than omitting it."""
     latest_content = to_draft_shape(conflict.current_content) if conflict.current_content is not None else None
     if latest_content is not None:
         latest = json.dumps(latest_content, ensure_ascii=False, indent=2)
         latest_block = f"当前正式 script_plan 的最新内容（与草稿 content 同形）：\n{latest}"
     else:
         latest_block = "当前正式文件不存在或不是合法的 script_plan JSON，无法附上最新内容；请自行读取该文件确认。"
-    # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 Agent
-    # 接受错误的基线，之后每次重晋升都比对不上、拿到同一份报告，冲突再也解不掉。
+    # Render fingerprints as JSON literals: if the formal file was deleted, the current value is null. Writing "None" would make the Agent
+    # accept an incorrect baseline; every promotion would mismatch and return the same report, making the conflict impossible to resolve.
     actual_literal = json.dumps(script_review.published_revision(conflict.actual))
     doc_type = QUARANTINE_KIND_TO_DOC_TYPE[draft.kind]
     return (
@@ -601,18 +575,11 @@ def _render_prompt_authoring_conflict_report(
 
 
 def _flatten_reference_script_plan_units(units: list[Any]) -> list[dict[str, Any]]:
-    """正式 script_plan 的结构化 unit 表 → 扁平草稿单元（``build_reference_units_from_flat`` 的逆向）。
+    """Structured units in formal script_plan → flat draft units (inverse of ``build_reference_units_from_flat``).
 
-    ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 Agent 改的那一层，带上
-    派生字段等于给漂移开口子。
+    Exclude ``unit_id`` from drafts: mechanically derived from array positions, it would invite drift in the Agent-editable layer.
 
-    盘上 unit 不合形状时不 fail-loud：字段缺失或类型不符时**原样带过**（缺失填 None / 空串），
-    交由晋升侧的 schema 重判逐条报告给 Agent。原样带过而非归一化成合法值：``8.0`` 被改写成
-    ``0`` 后，Agent 从草稿里看到的是一个它没写过的时长，报告说「时长不在档位内」也对不上盘
-    上的原值——保留原值，让它自己看见错在哪。非 dict 的 unit 同样不丢弃：填空占位保留在数组
-    对应位置，让晋升侧 schema 判它「结构非法」逐条报出——直接跳过会让数组变短，若剩余 unit
-    恰好都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。
-    """
+    Do not fail loudly on malformed on-disk units: carry missing or mistyped fields through **unchanged** (fill missing values with None / empty strings), letting promotion-side schema reassessment report each to the Agent. Preserve originals rather than normalize them to valid values: rewriting ``8.0`` to ``0`` shows a duration the Agent never wrote, so an out-of-tier report no longer matches disk. Retain the original so it can see the error. Likewise retain non-dict units as empty placeholders at their array positions for per-unit invalid-structure reports. Skipping them shortens the array; if all remaining units validate, promotion would silently overwrite the formal file and lose that unit."""
     flat: list[dict[str, Any]] = []
     for unit in units:
         if not isinstance(unit, dict):
@@ -630,12 +597,12 @@ def _flatten_reference_script_plan_units(units: list[Any]) -> list[dict[str, Any
 
 
 def _new_assets_of(content: dict[str, Any]) -> dict[str, Any]:
-    """正式 script_plan 里的本集新增项，原样带进草稿；没有该键时不添。"""
+    """Carry episode additions from formal script_plan unchanged into drafts; do not add the key if absent."""
     return {NEW_ASSETS_FIELD: content[NEW_ASSETS_FIELD]} if NEW_ASSETS_FIELD in content else {}
 
 
 def _reference_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式参考 script_plan 内容 → 扁平草稿结构；不是合法 script_plan 时返回 None。"""
+    """Formal reference script_plan content → flat draft shape; return None for invalid script_plan."""
     units = content.get("units")
     if not isinstance(units, list) or not units:
         return None
@@ -643,14 +610,9 @@ def _reference_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any
 
 
 def _drama_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 drama script_plan 内容 → 可编辑草稿装的分镜结构；不是合法 script_plan 时返回 None。
+    """Formal drama script_plan content → editable draft-layer storyboards; return None for invalid script_plan.
 
-    只剥 ``needs_replan``：它是按台词准入机械派生的标记，让 Agent 编辑派生物等于给漂移开
-    口子——晋升时照样按 ``content`` 现值重新派生。其余字段原样带过，包括 ``scene_id``：它是
-    prompt_authoring 视觉层的对齐锚，草稿里写坏了要由晋升侧的 schema 逐条报出来，不能在这一层替它填。
-    非 dict 的分镜项同样原样带过而非丢弃：跳过会让数组变短，若剩余分镜恰好都能过校验，晋升
-    会悄悄覆盖正式文件、丢掉这一分镜而无人知晓。
-    """
+    Strip only ``needs_replan``: mechanically derived by speech admission, it would invite drift if editable; promotion derives it again from current ``content``. Carry other fields unchanged, including ``scene_id``: the prompt_authoring visual-layer alignment anchor. Promotion-side schema must report malformed values individually, without filling them here. Likewise retain non-dict storyboard entries unchanged: skipping them shortens the array; if all remaining storyboards validate, promotion would silently overwrite the formal file and lose that storyboard."""
     scenes = content.get("scenes")
     if not isinstance(scenes, list) or not scenes:
         return None
@@ -662,17 +624,11 @@ def _drama_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | 
 
 
 class SingleScriptPlanDraftRevalidation(NamedTuple):
-    """只有一个草稿位的两条路线（drama / narration）的 script_plan 草稿读时重判结果。
+    """Read-time script_plan draft reassessment for the two routes with a single draft slot (drama / narration).
 
-    ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``content`` 必为
-    空 dict，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``content`` 是经 schema 收编后的
-    草稿层形状（drama 的 ``{title, scenes}``、narration 的 ``{segments}``），``violations`` 为空即
-    可晋升。两者的处置不同（原样 vs 收编），故不靠 ``content`` 是否为空来反推。
+    ``schema_failed`` explicitly distinguishes two phases: True means failure of even the production-time schema (``content`` must be an empty dict; callers can only present ``draft.content`` unchanged). When False, ``content`` is the schema-coerced draft shape (drama ``{title, scenes}``, narration ``{segments}``) and promotion is allowed if ``violations`` is empty. Handling differs (unchanged versus coerced), so never infer phase from whether ``content`` is empty.
 
-    两条路线共用一个类型而非各立一个：字段与语义逐字相同，分成两个只会让 ``revalidate_script_plan_draft``
-    的归一分支按类型各写一遍同样的事。参考生视频另有 ``ReferenceDraftRevalidation``——它的产出是
-    扁平 units 且要带回档位，形状本就不同。
-    """
+    Both routes share one type because fields and semantics are identical; separate types would duplicate the same normalization branch in ``revalidate_script_plan_draft``. Reference-to-video uses ``ReferenceDraftRevalidation`` because flat units and returned tiers have a different shape."""
 
     violations: list[DraftViolation]
     content: dict[str, Any]
@@ -688,19 +644,15 @@ async def revalidate_drama_script_plan_draft(
     *,
     config_resolver: ConfigResolver | None = None,
 ) -> SingleScriptPlanDraftRevalidation:
-    """按产出时那套校验器全量重判 drama script_plan 草稿，只读、不写盘、不清草稿。
+    """Fully reassess a drama script_plan draft with production-time validators; read only, without disk writes or draft cleanup.
 
-    校验器就是产出时那一个（按当前能力档位构造的 ``DramaNormalizedScript``），不是它的副本：
-    档位随项目配置变化，草稿里那个曾经合法的秒数今天可能已不在档位内，用旧枚举放行等于把一份
-    供应商不接的时长固化进正式文件。``needs_replan`` 同样按现值重新派生，与生成侧同一口径。
+    Use the production validator (``DramaNormalizedScript`` built from current capability tiers), not a copy: tiers change with project configuration, so formerly valid seconds may no longer fit. Admitting old enums would persist durations the provider rejects. Derive ``needs_replan`` again from current values, matching generation.
 
-    与另两条路线的重判器同样不依赖 ``DraftContext``：晋升工具与内容确认的读时重算共用
-    本函数，后者只有 ``ProjectManager``，没有 Agent 工具的 ctx。
+    Like the other two routes, independent of ``DraftContext``: promotion and content-confirmation read-time reassessment share this function; the latter has only ``ProjectManager``, not Agent tool ctx.
 
-    源文不可读（``meta.source`` 指向缺失 / 改名的路径）时抛 ``ValueError``。
-    """
-    # 源文可能达数百 KB，同步读盘卸到线程：内容确认的读时重算在请求协程里跑，直接读会
-    # 占用事件循环、拖慢并发的其它请求。与另两条路线同口径。
+    Raise ``ValueError`` for unreadable source (``meta.source`` points to a missing / renamed path)."""
+    # Source text may span hundreds of KB; offload synchronous disk reads to a thread. Read-time content-confirmation reassessment runs
+    # in request coroutines; direct reads would occupy the event loop and slow concurrent requests. Match the other two routes.
     _novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
         load_script_plan_source_with_basis,
         project_path,
@@ -741,10 +693,9 @@ async def _promote_drama_script_plan(
     episode: int,
     draft: QuarantinedDraft,
 ) -> str:
-    """按产出时那套校验器全量重判 drama script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
+    """Fully reassess drama script_plan with production-time validators; on success promote to formal script_plan and clear the draft.
 
-    返回晋升回执文本：与产出回执同一出口（``drama_script_plan_result_text``）。
-    """
+    Return promotion receipt text through the same outlet as production (``drama_script_plan_result_text``)."""
     project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
@@ -761,8 +712,8 @@ async def _promote_drama_script_plan(
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 
     if revalidation.violations:
-        # schema 违约时写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
-        # 改形，它照着报告回去看反而对不上自己写的东西。过了 schema 的那份则回写收编后的内容。
+        # On schema violations, write back the Agent's unchanged original content without coercion: reshaping malformed fields would make its draft
+        # disagree with what it wrote when following the report. For schema-valid content, write back the coerced result instead.
         report = await run_sync_transaction(
             _rewrite_invalid_draft,
             project_path,
@@ -776,8 +727,8 @@ async def _promote_drama_script_plan(
 
     content = revalidation.content
     script_plan_basis = revalidation.basis
-    # 基线指纹取自取回时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
-    # （Web 端保存、重跑 normalize）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖。
+    # Use the base_fingerprint recorded in meta at checkout: if another writer (Web save or normalization rerun) changed the formal file
+    # after draft production, abort promotion and return a conflict report for the Agent to merge, never silently overwriting changes.
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
     await reissue_plan_item_ids(
@@ -818,16 +769,13 @@ async def _open_drama_script_plan_for_edit(
     episode: int,
     source: str | None,
 ) -> None:
-    """把本集正式 drama script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
+    """Check out this episode's formal drama script_plan as a draft (formal file unchanged); return Agent editing guidance.
 
-    与参考生视频同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path
-    锁的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、
-    再各自写入，后写者悄悄覆盖前者的内容与 meta。
-    """
+    Match reference-to-video: draft-existence check, formal-file read and draft write all share one per-path locked critical section. Separating them outside the lock lets two concurrent requests both see no draft and then write one, silently allowing the later writer to overwrite the earlier content and meta."""
     project_path = await ctx.aproject_path()
-    # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升取产物依据，若此刻是个
-    # 缺失 / 改名 / 写错的路径，晋升会反复报错，而草稿已在场又挡住重新取回改正 source——Agent
-    # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
+    # Validate source before writing a draft: once persisted, meta.source supplies the basis for promotion artifacts. If its path is
+    # missing, renamed or mistyped, promotion repeatedly fails while the existing draft prevents reopening to correct source, trapping the Agent
+    # in a state it cannot edit out of. On validation failure, write nothing: invalid arguments leave no persistent side effects.
     if source is not None:
         try:
             await asyncio.to_thread(_validate_open_source, project_path, episode, source)
@@ -856,28 +804,23 @@ async def revalidate_narration_script_plan_draft(
     *,
     config_resolver: ConfigResolver | None = None,
 ) -> SingleScriptPlanDraftRevalidation:
-    """按产出时那套校验器全量重判 narration script_plan 草稿，只读、不写盘、不清草稿。
+    """Fully reassess narration script_plan with production-time validators; read only, without disk writes or draft cleanup.
 
-    重判走的是拆分工具用的同一个函数（``collect_narration_violations``），不是它的简化副本：
-    晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次生成时被拒」
-    这类分叉会重新出现。能力档位与源文都重新解析——隔离期间用户可能改过模型配置或源文，重判要
-    对着现值判。
+    Use the same function as splitting (``collect_narration_violations``), never a simplified copy: promotion, content-confirmation read-time reassessment and production must share code, or admitting here but rejecting on the next generation would recur. Resolve capability tiers and source anew against current values: users may change configuration or source during quarantine.
 
-    与 ``revalidate_reference_script_plan_draft`` 同样不依赖 ``DraftContext``：内容确认的读时重算
-    没有 Agent 工具的 ctx，只有 ``ProjectManager``，两处共用本函数而不各自加载 project。
+    Like ``revalidate_reference_script_plan_draft``, independent of ``DraftContext``: content-confirmation read-time reassessment has only ``ProjectManager``, not Agent tool ctx. Both sites share this function without each loading project again.
 
-    ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
-    """
-    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按缺省源文重解析
-    # ——产出时若指定过别的源文件，换一份范围重判的覆盖判定与产出时不是同一道题。
+    Raise ``ValueError`` for missing ``meta.source`` (damaged draft that cannot be reassessed)."""
+    # meta.source records the source range at production time. A missing key means damaged meta: never silently reparse the default source.
+    # If another source file was originally specified, assessing coverage against a different range asks a different question than production did.
     if "source" not in draft.meta:
         raise ValueError(
             f"草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
             "请恢复该字段（指定源文时为其相对路径，按本集派生源文产出时为 null）后重试"
         )
-    # 源文可能达数百 KB，同步读盘直接放在这个 async 函数体里会占用事件
-    # 循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）在请求
-    # 协程里跑，卸到线程避免拖慢并发的其它请求。
+    # Source text may span hundreds of KB; synchronous disk reads directly inside this async function would occupy the event
+    # loop. Promotion tools use a separate session thread and are insensitive, but content-confirmation read-time reassessment runs in request
+    # coroutines through the same code. Offload to a thread to avoid slowing other concurrent requests.
     novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
         load_script_plan_source_with_basis,
         project_path,
@@ -888,10 +831,10 @@ async def revalidate_narration_script_plan_draft(
     )
     _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
 
-    # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住字段与
-    # 类型，晋升侧漏掉这一层的话，把 duration_seconds 改成字符串、或整个删掉 novel_text 都能一路
-    # 晋升进正式文件——正是本机制要防的「正式文件被污染」。外层形状（segments 缺失 / 不是数组 /
-    # 空数组）与逐分镜的字段违约走同一条报告路径：两者都是 Agent 编辑草稿时会犯的错。
+    # Edited drafts first satisfy their production-time schema: response_schema and _parse_script_plan_json enforce fields and types
+    # on splitting. Without this layer on promotion, a string duration_seconds or wholly deleted novel_text could enter formal files,
+    # precisely the formal-content contamination this mechanism prevents. Outer-shape failures (missing / non-array /
+    # empty segments) share the per-storyboard field-violation report path: both occur when the Agent edits drafts.
     raw_segments = draft.content.get("segments")
     if not isinstance(raw_segments, list) or not raw_segments:
         logger.debug("草稿 content.segments 形状非法: %s", type(raw_segments).__name__)
@@ -915,10 +858,10 @@ async def revalidate_narration_script_plan_draft(
         project=project,
         new_assets=content.get(NEW_ASSETS_FIELD),
         novel_text=novel_text,
-        # 重判用的源文范围来自草稿自己的 meta.source：取回时未指定 source
-        # 的草稿记的是 null（本集派生源文），若本集正式 script_plan 当初是按别的源文件产出的，这里会把
-        # 一份原样取回、一字未改的草稿判成覆盖不全。把范围与改法一并写进消息，Agent 才走得出去
-        # ——草稿在场时不能重新取回，须由 patch_draft 更新源文范围。
+        # The reassessment source range comes from the draft's own meta.source: drafts opened without an explicit source
+        # record null (this episode's derived source). If its formal script_plan originally used another source file, an unchanged,
+        # freshly opened draft can fail coverage. Include both the range and its correction in the message so the Agent can recover:
+        # while a draft exists it cannot be reopened, so patch_draft must update the source range.
         source_scope=(
             f"{coverage_source_scope(cast(str | None, draft.meta['source']), episode=episode)}"
             "，取自草稿的源文范围；若该范围与产出本集正式 script_plan 时不同，"
@@ -929,12 +872,9 @@ async def revalidate_narration_script_plan_draft(
 
 
 def _narration_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 narration script_plan 内容 → 草稿装的分镜结构；不是合法 script_plan 时返回 None。
+    """Formal narration script_plan content → draft-layer storyboards; return None for invalid script_plan.
 
-    该变体没有机器派生字段可剥（``segment_id`` 是模型自己写的对齐锚、不由序号派生），草稿层与
-    落盘层同形，只保留 ``segments`` 与本集新增项。分镜项原样带过、包括非 dict 的项：跳过会让
-    数组变短，若剩余分镜恰好都能过校验，晋升会悄悄覆盖正式文件、丢掉这一段而无人知晓。
-    """
+    No mechanically derived fields need stripping (``segment_id`` is a model-authored alignment anchor, not position-derived). Draft and persisted layers share shape; retain only ``segments`` and episode additions. Carry storyboard entries unchanged, including non-dicts: skipping them shortens the array; if remaining entries validate, promotion would silently overwrite the formal file and lose that segment."""
     segments = content.get("segments")
     if not isinstance(segments, list) or not segments:
         return None
@@ -946,10 +886,9 @@ async def _promote_narration_script_plan(
     episode: int,
     draft: QuarantinedDraft,
 ) -> str:
-    """按产出时那套校验器全量重判 narration script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
+    """Fully reassess narration script_plan with production-time validators; on success promote to formal script_plan and clear the draft.
 
-    返回晋升回执文本：与拆分回执同一出口（``narration_script_plan_result_text``）。
-    """
+    Return promotion receipt text through the same outlet as splitting (``narration_script_plan_result_text``)."""
     project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
@@ -965,8 +904,8 @@ async def _promote_narration_script_plan(
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 
-    # schema 违约时写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿改形，
-    # 它照着报告回去看反而对不上自己写的东西。过了 schema 的那份则回写收编后的内容。
+    # On schema violations, write back the Agent's unchanged original content without coercion: reshaping malformed fields would make its draft
+    # disagree with what it wrote when following the report. For schema-valid content, write back the coerced result instead.
     if revalidation.violations:
         content = draft.content if revalidation.schema_failed else revalidation.content
         report = await run_sync_transaction(
@@ -980,9 +919,9 @@ async def _promote_narration_script_plan(
         )
         raise DraftWorkflowError("draft_invalid", report, draft_refreshed=True)
 
-    # 基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
-    # （Web 端保存、重跑拆分）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖对方的修改。
-    # 缺少 base_fingerprint 的草稿按无基线晋升。
+    # Use the base_fingerprint recorded in meta at checkout / draft production: if another writer (Web save or splitting rerun) changes the formal file
+    # afterward, abort promotion and return a conflict report for the Agent to merge, never silently overwriting others' changes.
+    # Drafts lacking base_fingerprint promote without a baseline.
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     script_plan_path = narration_script_plan_path(project_path, episode)
     await reissue_plan_item_ids(
@@ -1025,16 +964,13 @@ async def _open_narration_script_plan_for_edit(
     episode: int,
     source: str | None,
 ) -> None:
-    """把本集正式 narration script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
+    """Check out this episode's formal narration script_plan as a draft (formal file unchanged); return Agent editing guidance.
 
-    与另两条路线同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path 锁
-    的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、再
-    各自写入，后写者悄悄覆盖前者的内容与 meta。
-    """
+    Match the other routes: draft-existence check, formal-file read and draft write all share one per-path locked critical section. Separating them outside the lock lets two concurrent requests both see no draft and then write one, silently allowing the later writer to overwrite the earlier content and meta."""
     project_path = await ctx.aproject_path()
-    # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判原文覆盖，若此刻是个
-    # 缺失 / 改名 / 写错的路径，晋升会反复报错，而草稿已在场又挡住重新取回改正 source——agent
-    # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
+    # Validate source before writing a draft: once persisted, meta.source supplies promotion's source-coverage reassessment. If its path is
+    # missing, renamed or mistyped, promotion repeatedly fails while the existing draft prevents reopening to correct source, trapping the Agent
+    # in a state it cannot edit out of. On validation failure, write nothing: invalid arguments leave no persistent side effects.
     if source is not None:
         try:
             await asyncio.to_thread(_validate_open_source, project_path, episode, source)
@@ -1056,15 +992,11 @@ async def _open_narration_script_plan_for_edit(
 
 
 class ScriptPlanDraftRevalidation(NamedTuple):
-    """按 kind 分派后的 script_plan 草稿重判结果，归一到呈现层口径。
+    """script_plan draft reassessment dispatched by kind, normalized for presentation.
 
-    ``content`` 是要展示给用户的那一份草稿正文：过了 schema 时是收编后的现值形状（时长等已按
-    当前档位重判），没过时为 None——调用方据此改用 ``draft.content`` 原样呈现 Agent 手改的文本。
-    形状随变体不同（参考生视频 units、drama title+scenes、narration segments），呈现层按自己那条
-    路线的卡片渲染。
+    ``content`` is the draft body to present: schema-valid content has its coerced current shape (duration and similar values reassessed against current tiers); otherwise None tells callers to present the Agent-edited ``draft.content`` unchanged. Shape varies by route (reference-to-video units, drama title+scenes, narration segments); presentation renders its own route's cards.
 
-    ``soft_violations`` 是逐条目定位的降级提示，只有参考生视频产出；schema 没过时为空。
-    """
+    ``soft_violations`` contains entry-specific downgrade hints, produced only by reference-to-video; empty on schema failure."""
 
     violations: list[DraftViolation]
     content: dict[str, Any] | None
@@ -1072,7 +1004,7 @@ class ScriptPlanDraftRevalidation(NamedTuple):
 
 
 class _SingleScriptPlanRevalidator(Protocol):
-    """表内重判器的调用形状：草稿定位参数同形，能力解析器按关键字注入。"""
+    """Revalidator call shape for the dispatch table: shared draft-location arguments, with capability resolvers injected by keyword."""
 
     def __call__(
         self,
@@ -1099,16 +1031,13 @@ async def revalidate_script_plan_draft(
     *,
     config_resolver: ConfigResolver | None = None,
 ) -> ScriptPlanDraftRevalidation:
-    """把一份 script_plan 草稿交给它那条路线的重判器，返回路线中立的重判结果。
+    """Dispatch a script_plan draft to its route's revalidator and return a route-neutral result.
 
-    内容确认的读时重算按 kind 走这一个入口：三条路线的重判器签名同形、结果同构，内容确认
-    因此不必认得任一条路线的内部形状，也不会在新增变体时漏掉一处分派。晋升侧仍各自直接调用
-    自己那个重判器——它们要用到 basis 与 schema_failed 这些落盘所需、呈现层不关心的位。
+    Content-confirmation read-time reassessment dispatches by kind through this entry point: matching signatures and structurally corresponding results keep it independent of route internals and prevent missing a dispatch site when adding variants. Promoters still call their own revalidators directly because they need persistence fields such as basis and schema_failed that presentation does not use.
 
-    参考生视频的软违约随结果一并返回，供展示条目的地方逐条目呈现降级提示。
+    Return reference-to-video soft violations with the result for entry-specific downgrade hints at presentation sites.
 
-    ``draft.kind`` 不是 script_plan 的三个来源之一（如误传 prompt_authoring 草稿）时抛 ``ValueError``。
-    """
+    Raise ``ValueError`` when ``draft.kind`` is not one of the three script_plan sources (for example, a mistakenly passed prompt_authoring draft)."""
     if draft.kind == QUARANTINE_KIND_SCRIPT_PLAN:
         reference = await revalidate_reference_script_plan_draft(
             project_path,
@@ -1131,22 +1060,22 @@ async def _open_reference_script_plan_for_edit(
     episode: int,
     source: str | None,
 ) -> None:
-    """把本集正式参考生视频 script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。"""
+    """Check out this episode's formal reference-to-video script_plan as a draft (formal file unchanged); return Agent editing guidance."""
     project_path = await ctx.aproject_path()
-    # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
-    # 是个缺失/改名/写错的路径，晋升会在 load_novel_source 上反复报错，而草稿已在场
-    # 又挡住重新取回改正 source——Agent 会卡在一个自己改不动的死角。校验失败时不落盘，
-    # 无效参数不留持久副作用。
+    # Validate source before writing a draft: once persisted, meta.source supplies promotion reassessment. If the path
+    # is missing, renamed or mistyped, promotion repeatedly fails in load_novel_source while the existing draft
+    # prevents reopening to correct source, trapping the Agent in a state it cannot edit out of. On validation failure, write nothing:
+    # invalid arguments leave no persistent side effects.
     if source is not None:
         try:
             await asyncio.to_thread(_validate_open_source, project_path, episode, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
-    # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
-    # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
-    # 后写者悄悄覆盖前者的 content 与 meta.source。写临界区与 Web 端保存、迁移同一把锁，
-    # 读也持锁避免取回一份写到一半的 script_plan。
+    # Checking draft existence, reading the formal file and writing the draft must share one locked critical section. If done separately
+    # outside the lock, two concurrent checkout requests for one episode could both see no draft and then both write one,
+    # silently letting the later writer overwrite the earlier content and meta.source. The write critical section uses the same lock as Web saves
+    # and migrations; reads also hold it to avoid checking out a half-written script_plan.
     script_plan_path = script_review.official_reference_script_plan_path(project_path, episode)
     await run_sync_transaction(
         _open_script_plan_draft,
@@ -1205,14 +1134,13 @@ class DraftWorkflow:
         return kind
 
     async def resolve_kind(self, episode: int, doc_type: str) -> str:
-        """把 ``doc_type`` 解析为草稿来源，并确认它适用于当前项目的工作流。"""
+        """Resolve ``doc_type`` to a draft source and verify it applies to the current project workflow."""
         return await self._kind(episode, doc_type)
 
     def _reject_confirmed_script_plan_edit(self, episode: int, kind: str, draft: QuarantinedDraft | None) -> None:
-        """已确认的脚本规划只读：拒绝为它取回编辑副本，以及修改、晋升已有的编辑副本。
+        """Confirmed script planning is read only: reject checking out an editing copy, modifying one or promoting one.
 
-        ``draft`` 为 None 表示正要取回新的编辑副本；重跑脚本规划留下的草稿不带编辑标记，不受限制。
-        """
+        ``draft`` is None when opening a new editing copy; drafts from planning reruns lack editing markers and are unrestricted."""
         if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
             return
         if draft is not None and draft.meta.get(FORMAL_EDIT_META_KEY) is not True:
@@ -1258,7 +1186,7 @@ class DraftWorkflow:
         return draft, draft_revision(draft) if draft is not None else None
 
     def _quarantine_lock_target(self, episode: int, kind: str) -> tuple[Path, Path, ProjectManager]:
-        """项目目录、草稿路径与持锁用的 ProjectManager：定位目录与构造都会触盘，供一次卸到线程。"""
+        """Project directory, draft path and locking ProjectManager: locating and constructing touch disk; offload together in one thread call."""
         project_path = self.ctx.project_path
         return project_path, quarantine_path(project_path, episode, kind), ProjectManager(self.ctx.data_root)
 
@@ -1380,8 +1308,8 @@ class DraftWorkflow:
         announce_draft_change(self.ctx.project_path, path)
         record_project_activity(self.ctx.project_path)
         receipt = self._read(episode, resolved)
-        # 草稿里的违约是上一轮产出 / 晋升针对旧正文的判定，修改后不再对应现值：回执不带它，
-        # 免得调用方把旧报告当成这次修改的结果。现值的违约以晋升时的全量重判为准。
+        # Draft violations are the previous production / promotion assessment of the old body and become outdated after editing. Omit them from the receipt
+        # so callers do not mistake an old report for this edit's result. Fully reassess current violations on promotion.
         receipt.pop("violations", None)
         return receipt
 
@@ -1426,9 +1354,9 @@ class DraftWorkflow:
         resolved = await self._kind(episode, doc_type)
         project_path, path, locks = await asyncio.to_thread(self._quarantine_lock_target, episode, resolved)
         result_path: Path | None = None
-        # 晋升回执：script_plan 三个变体各由自己的晋升器产出，统计段与产出侧回执同一出口
-        # （参考生视频那条另接软违约段），本函数不重拼。提示词编写没有对位的产出侧回执——它落的
-        # 是正式剧本、产出侧不发回执——只有路径一项可报，就在下面那条分支里直接成文。
+        # Promotion receipts: each of the three script_plan variants uses its own promoter and shares its statistics section with production receipts
+        # (reference-to-video also appends soft violations). Do not reconstruct them here. Prompt authoring has no corresponding production receipt:
+        # it writes the formal script and production emits no receipt. Only its path can be reported, directly in the branch below.
         message: str
         if before_lock is not None:
             before_lock()
@@ -1459,7 +1387,7 @@ class DraftWorkflow:
                         before_commit=before_commit,
                     )
                 else:
-                    # 提示词编写只读正式剧本：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。
+                    # Prompt authoring reads only formal scripts: unconfirmed rerun planning does not block promotion, matching the authoring entry point.
                     generator = await ScriptGenerator.create(
                         project_path,
                         config_resolver=self.ctx.config_resolver,
@@ -1476,15 +1404,15 @@ class DraftWorkflow:
                     )
                     message = f"✅ 提示词编写晋升（正式剧本）已保存: {_project_relative(result_path, project_path)}"
             except (DraftWorkflowError, ModelNotInCatalogError):
-                # ModelNotInCatalogError 原样上抛：调用方据此给出「重新选择模型」指引
+                # Propagate ModelNotInCatalogError unchanged: callers use it to guide model reselection.
                 raise
             except ScriptWriteConflict as exc:
                 raise DraftWorkflowError(
                     "formal_revision_conflict", _render_prompt_authoring_conflict_report(episode, draft, exc)
                 ) from exc
             except DraftViolation as exc:
-                # 提示词编写晋升被违约挡下时，报告已写回草稿（code="quarantined"）；其余违约来自正式剧本，
-                # 带文案 key 的（正式剧本单元没过预判）按界面单元称呼说明原因。
+                # If violations block prompt-authoring promotion, the report is already written back to the draft (code="quarantined"). Other violations come from formal scripts;
+                # those with wording keys (formal units failing promotion preflight) explain reasons using the UI's unit terminology.
                 refreshed = exc.code == "quarantined"
                 notice = exc.params is not None and not refreshed
                 raise DraftWorkflowError(
@@ -1513,12 +1441,9 @@ class DraftWorkflow:
         content: dict[str, Any],
         base_revision: str,
     ) -> dict[str, Any]:
-        """创作者手修待修复草稿：写入正文后按晋升口径全量重判，违约清零即采用为正式内容。
+        """Creator manually repairs a repair draft: after writing the body, fully reassess by promotion rules and adopt as formal content if violations clear.
 
-        采用时返回 ``adopted=True``；仍有违约时报告已按现值写回草稿，返回 ``adopted=False`` 与刷新后
-        的草稿。可编辑草稿归 Agent 处置，拒绝。重判之外的失败（并发冲突、视频能力解析不出）照常
-        抛出，此时正文已写入草稿，不会丢失。
-        """
+        On adoption return ``adopted=True``; if violations remain, refresh the report against current values and return ``adopted=False`` with the refreshed draft. Reject editable drafts, which the Agent owns. Failures outside reassessment (concurrency conflicts, unresolved video capabilities) still raise; the body is already written to the draft and is not lost."""
         resolved = await self._kind(episode, doc_type)
         current = await asyncio.to_thread(lambda: read_quarantine(self.ctx.project_path, episode, resolved))
         if current is not None and draft_owner(current) == DRAFT_OWNER_AGENT:

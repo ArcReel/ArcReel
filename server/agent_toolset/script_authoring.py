@@ -1,8 +1,6 @@
-"""文本生成、内容确认与草稿工具的声明。
+"""Text generation, content confirmation, and draft declarations.
 
-两个文本生成工具是长任务：ArcReel Agent 等到文本任务终态，拿到 ``text_generation``；外部 Agent 立即拿到
-``generation_batch`` 句柄并轮询。``dry_run`` 两宿主都直接返回 prompt。
-"""
+The two text-generation tools are long tasks: ArcReel Agent waits for terminal text tasks and receives ``text_generation``; external Agents immediately receive a ``generation_batch`` handle and poll. ``dry_run`` returns the prompt directly on both hosts."""
 
 from __future__ import annotations
 
@@ -35,7 +33,7 @@ _DRAFT = "draft"
 
 
 def _text_generation_structured(value: Any) -> dict[str, Any]:
-    """批次句柄放在 ``generation_batch`` 下，生成结果与 dry_run 的 prompt 放在 ``text_generation`` 下。"""
+    """Place batch handles under ``generation_batch`` and generation results / dry_run prompts under ``text_generation``."""
     if isinstance(value, GenerationBatchReadModel):
         return {_GENERATION_BATCH: json_value(value)}
     return {_TEXT_GENERATION: json_value(value)}
@@ -44,17 +42,8 @@ def _text_generation_structured(value: Any) -> dict[str, Any]:
 GENERATE_EPISODE_SCRIPT = ToolDeclaration(
     name="generate_episode_script",
     description=(
-        "提示词编写：为正式脚本中待编写的分镜 / 视频单元补出视觉层，输入是正式脚本自身的内容，不读脚本规划。"
-        "默认补缺：范围是全部待编写条目或 entry_ids 点名的条目，图片提示词与视频提示词各自整份判断，已有的保留、"
-        "只补缺失的那一份；参考生视频按待编写标记展开单元正文。rewrite=true 显式重写范围内条目的全部视觉层；"
-        "会覆盖已有内容时返回 prompt_overwrite_required，回执正文即服务端生成的丢失清单，"
-        "params.prompt_overwrite.revision 是认可令牌；先向用户转述清单，得到同意后才以该 revision 作为 overwrite_revision 重新调用。"
-        "内容字段、备注、尾帧与已生成产物原样保留。"
-        "广告/短片尚无正式脚本时整份生成，结果直接成为正式脚本；引用里的新角色 / 场景 / 道具按 new_assets 的"
-        "处理决定随之登记为待生成资产，回执列出这些新资产。regenerate=true 整份重做已有的正式脚本："
-        "先返回 script_overwrite_required 与丢失清单，params.script_overwrite.revision 是认可令牌，确认流程同上。"
-        "整份生成的产出违约时任务失败（ad_script_rejected），正式脚本、资产与草稿都不变，可带针对性的附加指令重试。"
-        "dry_run=true 时直接返回 prompt，不提交生成任务。" + TEXT_OUTPUT_TRUNCATED_NOTE
+        "Prompt authoring: complete the visual layer of pending shots / video units in the formal script, using that script’s own content rather than script_plan. Default behavior fills gaps: scope is all pending entries or entries named by entry_ids; image and video prompts are each assessed as a whole, retaining existing ones and filling only the missing one. For reference video, expand unit bodies by pending markers. rewrite=true explicitly rewrites the entire visual layer of scoped entries. If existing content would be overwritten, returns prompt_overwrite_required; the response body is the server-generated loss list, and params.prompt_overwrite.revision is the acceptance token. Relay the list first, obtain user agreement, then retry with that revision as overwrite_revision. Content fields, notes, end frames, and generated artifacts remain unchanged. If an ad / short-film project has no formal script, generate it in full and make the result formal; register new referenced characters / scenes / props according to new_assets decisions as assets awaiting generation, listing them in the response. regenerate=true redoes the whole existing formal script: first returns script_overwrite_required and a loss list, with params.script_overwrite.revision as acceptance token; follow the same confirmation flow. Contract violations in full generation fail the task (ad_script_rejected), leaving formal script, assets, and drafts unchanged; retry with targeted additional instructions if needed. dry_run=true returns the prompt directly without submitting a generation task."
+        + TEXT_OUTPUT_TRUNCATED_NOTE
     ),
     request_model=GenerateEpisodeScriptRequest,
     migration=BLOCKED,
@@ -67,9 +56,8 @@ GENERATE_EPISODE_SCRIPT = ToolDeclaration(
 GENERATE_SCRIPT_PLAN = ToolDeclaration(
     name="generate_script_plan",
     description=(
-        "按项目创作类型生成结构化 script_plan：剧情分镜、旁白分镜或参考生视频单元，"
-        "同时在 new_assets 里带出本集未登记的资产与各自的处理决定。"
-        "广告/短片项目无 script_plan。dry_run=true 时直接返回 prompt，不提交生成任务。" + TEXT_OUTPUT_TRUNCATED_NOTE
+        "Generate structured script_plan according to project content mode: drama shots, narration shots, or reference-video units, also listing this episode’s unregistered assets and handling decisions in new_assets. Ad / short-film projects have no script_plan. dry_run=true returns the prompt directly without submitting a generation task."
+        + TEXT_OUTPUT_TRUNCATED_NOTE
     ),
     request_model=GenerateScriptPlanRequest,
     migration=BLOCKED,
@@ -82,11 +70,7 @@ GENERATE_SCRIPT_PLAN = ToolDeclaration(
 CONFIRM_SCRIPT_REVIEW = ToolDeclaration(
     name="confirm_script_review",
     description=(
-        "确认本集 script_plan：整份转为正式脚本（全部分镜待编写），按 new_assets 的处理决定登记本集新增资产，"
-        "放行 prompt_authoring 视觉生成。"
-        "仅在用户已明确认可进入视觉生成时调用。该集已有正式脚本时确认会整份覆盖它，未认可时返回"
-        " script_overwrite_required，回执正文即服务端生成的丢失清单（与 Web 确认框同一份文本），"
-        "params.script_overwrite.revision 是认可令牌；先向用户转述清单，得到同意后才以该 revision 作为 overwrite_revision 重新确认。"
+        "Confirm this episode’s script_plan: convert the whole document to a formal script (all shots pending prompt authoring), register this episode’s new assets according to new_assets decisions, and admit prompt_authoring visual generation. Call only after the user explicitly agrees to proceed to visual generation. If a formal script already exists, confirmation overwrites it completely. Without acceptance, returns script_overwrite_required; the response body is the server-generated loss list (the same text as the Web confirmation dialog), and params.script_overwrite.revision is the acceptance token. Relay the list, obtain agreement, then confirm again with that revision as overwrite_revision."
     ),
     request_model=ConfirmScriptReviewRequest,
     migration=BLOCKED,
@@ -97,9 +81,7 @@ CONFIRM_SCRIPT_REVIEW = ToolDeclaration(
 OPEN_DRAFT = ToolDeclaration(
     name=OPEN_DRAFT_TOOL_NAME,
     description=(
-        "读取指定草稿；草稿不存在时从对应正式文档创建编辑副本。返回完整正文、上一轮产出或晋升判定的违约、"
-        "canonical revision，以及正式文档的 formal_revision（与 get_script_plan_content、"
-        "制作计划给出的 revision 同一写法）。"
+        "Read the specified draft; if absent, create an editing copy from the corresponding formal document. Returns the full body, violations from the previous output or promotion assessment, canonical revision, and the formal document’s formal_revision (the same representation as get_script_plan_content and the production plan)."
     ),
     request_model=DraftLocator,
     migration=BLOCKED,
@@ -110,9 +92,7 @@ OPEN_DRAFT = ToolDeclaration(
 PATCH_DRAFT = ToolDeclaration(
     name="patch_draft",
     description=(
-        "按 canonical revision 原子替换草稿正文；revision 冲突时拒绝且不写入。"
-        "给出 accept_formal_revision 即接受正式文档的并发修改，给出 source 即更新重判范围，二者显式传 null 同样生效。"
-        "回执带新正文与 revision，不含违约：本工具不重判，修改后的违约以 promote_draft 的全量重判为准。"
+        "Atomically replace a draft body by canonical revision; reject revision conflicts without writing. Supplying accept_formal_revision accepts concurrent changes to the formal document; supplying source updates the reassessment scope. Explicit null values for either also take effect. The response contains the new body and revision but no violations: this tool does not reassess; promote_draft’s full reassessment determines violations after editing."
     ),
     request_model=PatchDraftRequest,
     migration=BLOCKED,
@@ -122,7 +102,7 @@ PATCH_DRAFT = ToolDeclaration(
 
 PROMOTE_DRAFT = ToolDeclaration(
     name=PROMOTE_TOOL_NAME,
-    description="重新全量校验指定草稿；通过则晋升为正式文件并清除草稿，不通过则刷新违约报告。可反复调用。",
+    description="Fully revalidate the specified draft; if valid, promote it to a formal file and clear the draft; otherwise refresh the violation report. May be called repeatedly.",
     request_model=PromoteDraftRequest,
     migration=BLOCKED,
     domain_key=_DRAFT,
@@ -131,7 +111,7 @@ PROMOTE_DRAFT = ToolDeclaration(
 
 DISCARD_DRAFT = ToolDeclaration(
     name="discard_draft",
-    description="按 canonical revision 丢弃指定草稿，草稿移入项目回收站；正式文档保持不变。",
+    description="Discard the specified draft by canonical revision, moving it to project trash; the formal document remains unchanged.",
     request_model=DiscardDraftRequest,
     migration=BLOCKED,
     domain_key=_DRAFT,

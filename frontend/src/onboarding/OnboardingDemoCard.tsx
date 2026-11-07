@@ -1,12 +1,12 @@
 /**
- * 引导期间大厅里的「示例项目」区块（第 6 步的锚点在演示卡上）。
+ * Lobby Example projects during onboarding, with step-6 anchors on demo cards.
  *
- * 用的是大厅真实的 `ProjectCard`，只切到只读形态：「项目推进后长这样」这句话只有在演示卡与
- * 真实卡片是同一份实现时才不会随时间说谎。区块放在项目网格或空状态之上，标题旁注明只在引导
- * 期间显示，讲清它不是用户自己的项目。
+ * Use real lobby `ProjectCard` readonly: demonstrating advanced-project appearances stays truthful over time
+ * only through shared implementations. Place sections above grids/empty states, noting beside titles that they appear only during
+ * onboarding, clarifying these are not users' projects.
  *
- * 只在引导运行期间挂载：调用方按 store 的 `active` 决定渲染与否，退出时只卸载这个区块，
- * 下方的网格与空状态不受影响。
+ * Mount only while onboarding runs: callers use store `active`; exit unmounts this section alone,
+ * preserving underlying grids/empty states.
  */
 
 import { useId, useMemo } from "react";

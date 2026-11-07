@@ -1,8 +1,8 @@
 ---
 id: style/live_shaw
 category: style
-title: 邵氏武侠
-description: "真人画风，港式武侠 · 电影感。"
+title: "Shaw Brothers"
+description: "Live action, Hong Kong wuxia · cinematic."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-参考港式武侠电视剧风格，邵氏电影风格，电影感
+Inspired by Hong Kong wuxia television dramas, Shaw Brothers film style, cinematic look

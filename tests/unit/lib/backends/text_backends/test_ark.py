@@ -15,7 +15,7 @@ from tests.fakes import bounded_poll_clock, captured_ark_clients, patched_instru
 
 @contextmanager
 def _recorded_openai_clients() -> Generator[list[dict[str, Any]]]:
-    """OpenAI 兼容客户端构造的记录器：收下建客户端的参数，回一个空替身。"""
+    """OpenAI-compatible client-construction recorder, capturing arguments and returning an empty substitute."""
     created: list[dict[str, Any]] = []
 
     def _create(**kwargs: Any) -> Any:
@@ -28,7 +28,7 @@ def _recorded_openai_clients() -> Generator[list[dict[str, Any]]]:
 
 @contextmanager
 def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Generator[list[dict[str, Any]]]:
-    """instructor 降级入口的记录器：收下降级调用参数，回固定结果（JSON 文本、输入与输出 token）。"""
+    """Instructor fallback recorder, capturing arguments and returning fixed JSON/input/output-token results."""
     calls: list[dict[str, Any]] = []
     json_text, input_tokens, output_tokens = result
 
@@ -44,7 +44,7 @@ def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Generator[lis
 
 @contextmanager
 def _recorded_instructor_wire(result: tuple[Any, Any]) -> Generator[list[dict[str, Any]]]:
-    """instructor patched client 的记录器：收下最终发往端点的参数。"""
+    """Instructor-patched-client recorder, capturing final endpoint arguments."""
     calls: list[dict[str, Any]] = []
 
     class _Completions:
@@ -117,7 +117,7 @@ class TestGenerate:
 
 class TestVision:
     async def test_vision_uses_chat_completions(self, mock_ark, sync_to_thread):
-        """vision 路径走 chat.completions.create，与 plain 共用响应解析。"""
+        """Vision uses chat.completions.create, sharing plain-response parsing."""
         from lib.backends.text_backends.base import ImageInput
 
         _, mock_client = mock_ark
@@ -136,11 +136,11 @@ class TestVision:
         assert result.text == "style description"
         assert result.input_tokens == 100
         assert result.output_tokens == 50
-        # 确认走的是 chat.completions 而不是 responses API
+        # Verify chat.completions, not Responses API.
         mock_client.chat.completions.create.assert_called_once()
 
     async def test_vision_message_format(self, mock_ark, sync_to_thread):
-        """vision 请求构建 image_url 格式的多模态消息。"""
+        """Vision builds image_url multimodal messages."""
         from lib.backends.text_backends.base import ImageInput
 
         _, mock_client = mock_ark
@@ -170,11 +170,11 @@ class TestVision:
 
 
 class TestCapabilityAwareStructured:
-    """测试基于模型能力的结构化输出路径选择。"""
+    """Capability-based structured-output routing."""
 
     @pytest.fixture
     def backend_no_structured(self, mock_ark):
-        """创建一个模型不支持原生 structured_output 的 backend。"""
+        """Create backends whose models lack native structured_output."""
         _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k", model="doubao-seed-2-0-mini-260428")
         b._test_client = mock_client
@@ -182,20 +182,20 @@ class TestCapabilityAwareStructured:
 
     @pytest.fixture
     def backend_with_structured(self, mock_ark):
-        """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
+        """Create simulated backends whose models support native structured_output."""
         _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
         b._test_client = mock_client
-        # 手动添加原生结构化输出能力
+        # Manually add native structured-output capability.
         b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
     async def test_model_without_structured_output_lacks_native_capability(self, backend_no_structured):
-        """目录未声明 structured_output 的豆包模型不支持原生结构化输出。"""
+        """Doubao models without catalog structured_output lack native support."""
         assert TextCapability.STRUCTURED_OUTPUT not in backend_no_structured.capabilities
 
     async def test_fallback_uses_instructor(self, backend_no_structured, sync_to_thread):
-        """模型不支持原生时走 Instructor 降级路径。"""
+        """Models without native support use Instructor fallback."""
         from pydantic import BaseModel
 
         class TestModel(BaseModel):
@@ -219,7 +219,7 @@ class TestCapabilityAwareStructured:
             assert result.output_tokens == 20
 
     async def test_native_path_when_supported(self, backend_with_structured, sync_to_thread):
-        """模型支持原生时走 response_format 路径。"""
+        """Models with native support use response_format."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
@@ -240,12 +240,12 @@ class TestCapabilityAwareStructured:
         )
 
     async def test_unknown_model_falls_back_to_instructor(self, mock_ark):
-        """未注册模型保守降级为 Instructor。"""
+        """Unregistered models conservatively fall back to Instructor."""
         b = ArkTextBackend(api_key="k", model="unknown-model-xyz")
         assert TextCapability.STRUCTURED_OUTPUT not in b.capabilities
 
     async def test_dict_schema_fallback_uses_json_object(self, backend_no_structured, sync_to_thread):
-        """dict schema 走 json_object 降级路径。"""
+        """Dict schemas fall back through json_object."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=30, completion_tokens=15),
@@ -263,7 +263,7 @@ class TestCapabilityAwareStructured:
     async def test_truncation_warning_logged_on_finish_reason_length(
         self, backend_no_structured, sync_to_thread, caplog
     ):
-        """当 Ark 返回 finish_reason=length 时应记录 WARNING，并在结果上标记截断。"""
+        """Ark finish_reason=length logs WARNING and marks truncated results."""
         import logging
 
         mock_resp = SimpleNamespace(
@@ -286,7 +286,7 @@ class TestCapabilityAwareStructured:
     async def test_native_structured_truncation_raises_and_skips_instructor_fallback(
         self, backend_with_structured, sync_to_thread
     ):
-        """原生 structured 通道截断直接抛 TextOutputTruncatedError，不降级到 Instructor 重试。"""
+        """Native structured truncation raises TextOutputTruncatedError directly, never retries through Instructor."""
         from lib.backends.text_backends.base import TextOutputTruncatedError
 
         mock_resp = SimpleNamespace(
@@ -312,7 +312,7 @@ class TestCapabilityAwareStructured:
         assert exc_info.value.output_tokens == 8192
 
     async def test_max_output_tokens_plain(self, backend_no_structured, sync_to_thread):
-        """plain 路径透传 max_tokens。"""
+        """Plain paths forward max_tokens."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="x"))],
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
@@ -324,7 +324,7 @@ class TestCapabilityAwareStructured:
         assert "max_completion_tokens" not in call_kwargs
 
     async def test_max_output_tokens_structured_native(self, backend_with_structured, sync_to_thread):
-        """原生 structured 路径透传 max_tokens。"""
+        """Native structured paths forward max_tokens."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"a":1}'))],
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
@@ -338,7 +338,7 @@ class TestCapabilityAwareStructured:
         assert "max_completion_tokens" not in call_kwargs
 
     async def test_max_output_tokens_instructor_fallback(self, backend_no_structured, sync_to_thread):
-        """Instructor 降级路径透传 max_tokens。"""
+        """Instructor fallback forwards max_tokens."""
         from pydantic import BaseModel
 
         class M(BaseModel):
@@ -352,7 +352,7 @@ class TestCapabilityAwareStructured:
         assert [(c["max_tokens"], c["token_param"]) for c in calls] == [(24000, "max_tokens")]
 
     async def test_instructor_fallback_wire_param_is_max_tokens(self, backend_no_structured, sync_to_thread):
-        """导线级守护：Ark 降级链路最终发给端点的参数名必须是 max_tokens。"""
+        """Wire guard: Ark fallback’s final endpoint token parameter must be max_tokens."""
         from pydantic import BaseModel
 
         class M(BaseModel):
@@ -371,7 +371,7 @@ class TestCapabilityAwareStructured:
         assert "max_completion_tokens" not in calls[0]
 
     async def test_native_failure_falls_back(self, backend_with_structured, sync_to_thread):
-        """原生 json_schema 运行时失败后降级到 json_object。"""
+        """Runtime native json_schema failure falls back to json_object."""
         backend_with_structured._test_client.chat.completions.create = MagicMock(
             side_effect=Exception("schema not supported")
         )
@@ -386,14 +386,14 @@ class TestCapabilityAwareStructured:
         )
 
         assert result.text == '{"a": 1}'
-        # 原生路径应该被尝试过
+        # Native path was attempted.
         backend_with_structured._test_client.chat.completions.create.assert_called_once()
-        # 降级路径应该被使用
+        # Fallback path was used.
         backend_with_structured._openai_client.chat.completions.create.assert_called_once()
 
 
 class TestSuccessPathReverify:
-    """原生 200 后复验 schema：违例则降级带校验路径，并合并原生计费 token。"""
+    """Revalidate native HTTP 200 schemas; violations fall back with validation, merging billed native tokens."""
 
     @pytest.fixture
     def backend(self, mock_ark):
@@ -404,7 +404,7 @@ class TestSuccessPathReverify:
         return b
 
     async def test_violating_json_pydantic_triggers_fallback_with_token_merge(self, backend, sync_to_thread):
-        """原生 200 + 违反 Pydantic schema 的 JSON → 降级 + token 合并。"""
+        """Native HTTP 200 schema-invalid JSON triggers fallback/token merging."""
         import json
 
         from pydantic import BaseModel
@@ -429,13 +429,13 @@ class TestSuccessPathReverify:
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
-        # 原生 200 调用（100/60）已被代理计费，与 Instructor 调用（80/30）合并
+        # Proxy-billed native 100/60 tokens merge with Instructor 80/30.
         assert result.input_tokens == 180
         assert result.output_tokens == 90
         backend._test_client.chat.completions.create.assert_called_once()
 
     async def test_non_json_triggers_fallback(self, backend, sync_to_thread):
-        """原生 200 + 非 JSON（代理静默忽略 response_format）→ 降级。"""
+        """Native HTTP 200 non-JSON, from proxies ignoring response_format, triggers fallback."""
         from pydantic import BaseModel
 
         class Person(BaseModel):
@@ -457,19 +457,19 @@ class TestSuccessPathReverify:
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
-        # Instructor usage 为 None，结果 token 即原生 200 调用计费量（10/5）
+        # Instructor usage None leaves native billed tokens 10/5.
         assert result.input_tokens == 10
         assert result.output_tokens == 5
 
     async def test_both_usages_none_preserves_none_not_zero(self, backend, sync_to_thread):
-        """原生与 Instructor 计量皆 None → 合并后保持 None（未追踪），不塌成字面 0。"""
+        """Native/Instructor usage both None stays untracked None, never literal 0."""
         from pydantic import BaseModel
 
         class Person(BaseModel):
             name: str
             age: int
 
-        # 原生 200 返回非 JSON 触发降级，且原生 usage 缺失
+        # Native non-JSON HTTP 200 triggers fallback with missing usage.
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="## markdown not json"))],
             usage=None,
@@ -489,7 +489,7 @@ class TestSuccessPathReverify:
         assert result.output_tokens is None
 
     async def test_valid_json_satisfying_schema_no_fallback(self, backend, sync_to_thread):
-        """原生 200 + 满足 schema 的 JSON → 直接采用，不降级。"""
+        """Native schema-valid HTTP 200 JSON is accepted without fallback."""
         from pydantic import BaseModel
 
         class Person(BaseModel):
@@ -514,7 +514,7 @@ class TestSuccessPathReverify:
         mock_from_openai.assert_not_called()
 
     async def test_dict_schema_non_json_falls_back_to_json_object_with_token_merge(self, backend, sync_to_thread):
-        """dict schema 原生 200 返回非 JSON → json_object 降级，并合并原生 token。"""
+        """Native dict-schema non-JSON HTTP 200 falls back to json_object and merges native tokens."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="not json"))],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
@@ -530,14 +530,14 @@ class TestSuccessPathReverify:
         result = await backend.generate(TextGenerationRequest(prompt="x", response_schema={"type": "object"}))
 
         assert result.text == '{"key": "value"}'
-        # 原生 10/5 与 json_object 降级 30/15 合并
+        # Merge native 10/5 with json_object fallback 30/15.
         assert result.input_tokens == 40
         assert result.output_tokens == 20
         call_kwargs = backend._openai_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
     async def test_dict_schema_valid_json_no_fallback(self, backend, sync_to_thread):
-        """dict schema 原生 200 + 合法 JSON（即便违反声明类型）→ 不降级。"""
+        """Native dict-schema valid JSON skips fallback even if declared types differ."""
         import json
 
         violating = json.dumps({"key": "value", "age": "thirty"})
@@ -559,10 +559,10 @@ class TestSuccessPathReverify:
         backend._openai_client.chat.completions.create.assert_not_called()
 
     async def test_coercible_value_does_not_trigger_fallback(self, backend, sync_to_thread):
-        """原生 200 + 可强转值（int 字段给 "30"）→ 不降级。
+        """Native HTTP 200 coercible values, e.g. integer fields containing "30", skip fallback.
 
-        ark 原生 response_format 未声明 strict，复验同样 strict=False，容忍可强转值，
-        避免对供应商已接受的合法响应触发多余的计费降级调用。
+        Ark native response_format omits strict, so strict=False revalidation accepts coercion,
+        avoiding extra paid fallback calls for provider-accepted valid responses.
         """
         import json
 
@@ -588,7 +588,7 @@ class TestSuccessPathReverify:
         mock_from_openai.assert_not_called()
 
     async def test_empty_choices_on_200_falls_back(self, backend, sync_to_thread):
-        """原生 200 但 choices 为空（中转/内容审核）→ 解析异常被 catch → 降级，不逃逸。"""
+        """Native HTTP 200 empty choices from relays/moderation catches parsing failures and falls back without escape."""
         from pydantic import BaseModel
 
         class Person(BaseModel):
@@ -606,13 +606,13 @@ class TestSuccessPathReverify:
         with patched_instructor_from_openai(mock_patched):
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
-        # 解析异常落入 except → 降级路径，返回带校验结果（不并入原生 token：原生未成功解析）
+        # Parsing exceptions enter fallback validation; do not merge native tokens because parsing failed.
         assert result.text == instructor_result.model_dump_json()
         assert result.input_tokens == 80
         assert result.output_tokens == 30
 
     async def test_fallback_transient_error_does_not_replay_native_call(self, backend, sync_to_thread):
-        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
+        """Transient fallback failures retry only within fallback, never replay successful paid native calls."""
         from pydantic import BaseModel
 
         class Person(BaseModel):
@@ -635,7 +635,7 @@ class TestSuccessPathReverify:
         ):
             await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
-        # 原生 200 调用只发生一次；降级层自身重试 3 次穷尽
+        # Native HTTP 200 occurs once; fallback exhausts its own three retries.
         backend._test_client.chat.completions.create.assert_called_once()
         assert mock_instructor.call_count == 3
 

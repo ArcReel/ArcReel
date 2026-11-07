@@ -4,7 +4,7 @@ import { recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 顶栏中间的状态条：集进度弹层（逐集清单）、项目层的下一步弹层，以及数据升级失败时的重试形态。
+// Center header status bars: per-episode progress lists, project next-step overlays and failed-upgrade retries.
 const OVERVIEW_PATH = "/app/projects/demo";
 
 interface RecordedProject {
@@ -19,7 +19,7 @@ const workflowStatus = recorded<RecordedWorkflowStatus>("project-demo-workflow-s
 const [firstEpisode] = recordedProject.project.episodes;
 
 const EVENT_STREAM: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
+  // Unrecorded SSE project events fail nonretryably, retaining replaced data.
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
@@ -40,7 +40,7 @@ const EPISODE_COUNT = 30;
 const EPISODE_TITLE = (i: number) => `第 ${i} 集：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过`;
 const STATUSES = ["completed", "in_production", "scripted", "draft"];
 
-// 30 集长标题：逐集清单在弹层里滚动，最后一集可达。
+// 30 long-titled episodes: per-episode lists scroll within popovers, reaching final episodes.
 const MANY_EPISODES: ApiOverrides = {
   ...EVENT_STREAM,
   ...projectWith(
@@ -70,7 +70,7 @@ const MANY_EPISODES: ApiOverrides = {
   },
 };
 
-// 尚未建集：下一步是 AI 分集规划，弹层里有附加要求输入框与「或者」的备选。
+// No episodes created: next steps are AI episode planning, with extra-requirement inputs/Or alternatives in popovers.
 const PLAN_EPISODES: ApiOverrides = {
   ...EVENT_STREAM,
   ...projectWith({ episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 } }, []),
@@ -83,7 +83,7 @@ const PLAN_EPISODES: ApiOverrides = {
 const LONG_REASON =
   "迁移步骤 0014_split_episode_scripts 读取 projects/demo/scripts/episode_4_with_an_unusually_long_file_name_for_testing.json 时失败：JSON 第 812 行第 17 列缺少逗号，文件可能在上次保存时被截断。";
 
-// 数据升级失败：整条换成重试形态，重试再失败时弹层自动展开原因。
+// Data-upgrade failures replace entire bars with Retry; repeat failures automatically expand popover causes.
 const MIGRATION_FAILED: ApiOverrides = {
   ...EVENT_STREAM,
   ...projectWith({ needs_repair: true, repair_reason: LONG_REASON }, recordedProject.project.episodes),

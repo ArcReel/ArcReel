@@ -1,20 +1,20 @@
-"""ComfyUI 端点的视频调用通道。
+"""ComfyUI video channels.
 
-不在 ``lib.backends.video_backends``：本 backend 的输入是一份 ComfyUI 端点定义（workflow + 节点绑定），
-读它要用本包的构造层，而分层契约（``pyproject.toml`` ``[tool.importlinter]``）不允许 backend 层反向依赖
-``lib.custom_provider``；方向与声明式运行时一致——上层消费下层，下层不知道端点定义的存在。
+Outside ``lib.backends.video_backends`` because inputs are ComfyUI definitions (workflow + bindings), requiring this package's
+builders; ``pyproject.toml`` ``[tool.importlinter]`` forbids backend reverse dependencies on
+``lib.custom_provider``. Like declarative runtimes, upper layers consume lower ones, which know no definitions.
 
-一次生成的四段：上传素材换回服务端认的引用名 → 在底稿深拷贝上构造实发 workflow → ``POST /prompt``
-拿 ``prompt_id`` → 轮询 ``/history`` 到终态后按 ``output`` 绑定取产物下载入库。素材上传排在构造
-之前，因为引用名要填进 workflow；``provider_job_id`` 的持久化排在轮询之前，因为进程在轮询中途重启
-时，没落库的那笔任务就再也找不回来了。
+Four generation stages: upload assets for server references → construct actual workflows on deep copies → ``POST /prompt``
+for ``prompt_id`` → poll ``/history`` terminal states, extract ``output`` artifacts, download/persist. Upload before construction
+because references enter workflows; persist ``provider_job_id`` before polling because process restarts
+would otherwise permanently lose submitted tasks.
 
-第四段本身与媒体类型无关，落在 :mod:`.comfyui_execution`，与图像通道共用；本模块只管视频这一侧
-独有的部分——由绑定表推出的能力声明、首尾帧与参考图的上传、续跑，以及把取回的产物装成
-``VideoGenerationResult``。
+Stage four is media-independent, shared with images in :mod:`.comfyui_execution`; video-specific responsibilities:
+binding-derived capabilities, first/last/reference uploads, resume, and converting retrieved artifacts into
+``VideoGenerationResult``.
 
-续跑接的是第四段：``provider_job_id`` 就是 ``prompt_id``，前三段已经在上一个进程里发生过。取消与
-超时则反过来——本地这一侧不要这次执行了，就顺手把远端也停掉，否则它会一直占着用户的显卡。
+Resume enters stage four using ``provider_job_id`` = ``prompt_id``; prior processes already completed stages one-three. Cancellation/
+timeout instead stops remote execution too, avoiding continued occupation of user GPUs after local abandonment.
 """
 
 from __future__ import annotations
@@ -44,13 +44,13 @@ from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInpu
 
 logger = logging.getLogger(__name__)
 
-#: 本端点产出的是视频：产物扩展名白名单与失败文案共读这一个值
-#: （见 ``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``）。
+#: Video outputs: artifact-extension allowlists/failure wording share this value
+#: (``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``).
 MEDIA_TYPE = "video"
 
 
 class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
-    """把一份 ComfyUI 端点定义跑成一个分镜视频。"""
+    """Execute ComfyUI definitions into storyboard videos."""
 
     def __init__(
         self,
@@ -62,11 +62,11 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         definition: Mapping[str, Any],
         job_label: str | None = None,
     ) -> None:
-        """``job_label`` 是非 worker 路径的任务标识，进上传文件名与 ``client_id``。
+        """``job_label`` identifies nonworker jobs in upload names/``client_id``.
 
-        worker 路径不传：那里有 ``request.task_id``，它才是这一笔在 ArcReel 这一侧的身份。两者
-        都没有时回落到一串随机 hex——在 ComfyUI 的队列界面上认不出是谁发的，但至少不会与别的
-        调用方撞名。
+        Workers omit it, using ``request.task_id`` as ArcReel identities. Without either,
+        random hex cannot identify callers in ComfyUI queues but avoids
+        collisions with others.
         """
         self._provider = provider_id
         self._model = model
@@ -87,12 +87,12 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        """这份 workflow 的绑定表说它能做什么。
+        """Capabilities declared by this workflow's bindings.
 
-        这不是一份只在绕过工厂时才读的兜底声明：包装层的档位查询
-        （``CustomVideoBackend.video_capabilities_for_tier``）刻意不短路回工厂注入的合成结果，而是
-        以被包装 backend 的这份声明为基底再叠加用户覆盖。生成前的能力闸门走的正是那条路——这里
-        少宣称一位，闸门就会在请求到达 :meth:`generate` 之前把它挡掉。
+        Not merely factory-bypass fallback: wrapper tier queries
+        (``CustomVideoBackend.video_capabilities_for_tier``) deliberately bypass injected composed results,
+        instead layering user overrides onto these wrapped declarations. Pregeneration gates follow that path;
+        missing capability bits here reject requests before :meth:`generate`.
         """
         return binding_video_capabilities(self._definition)
 
@@ -108,8 +108,8 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
                 self._definition,
                 prompt=request.prompt,
                 aspect_ratio=request.aspect_ratio,
-                # 时长原样转交：``frames`` 未绑定或读不到帧率时，构造层自己跳过帧数换算——在这里
-                # 补一个缺省只会把「这份 workflow 的时长不由 ArcReel 驱动」写成一个具体秒数。
+                # Pass durations unchanged: unbound ``frames``/unreadable fps makes construction skip frame conversion.
+                # Added defaults here would fabricate durations for workflows not driven by ArcReel.
                 duration_seconds=request.duration_seconds,
                 resolution=request.resolution,
                 media=media,
@@ -134,18 +134,18 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
             return self._result(request, prompt_id, picked, built=built)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """接续一次已经提交过的执行：直接进轮询，既不重传素材也不重新提交 workflow。
+        """Resume submitted execution by polling, without reuploading or resubmitting workflows.
 
-        ``prompt_id`` 就是 ``provider_job_id``，而 ComfyUI 的执行完全在服务端，重新提交会在用户
-        的显卡上把同一张图再跑一遍。``output`` 绑定读的是**当前**这份端点定义——用户在续跑之前改
-        过绑定时，按新绑定去取产物是唯一说得通的口径，取不到即 ``comfyui_output_missing``。
+        ``prompt_id`` is ``provider_job_id``; server-owned execution means resubmission would repeat the same image
+        on user GPUs. ``output`` bindings use **current** definitions: changed bindings must govern retrieval,
+        otherwise missing outputs raise ``comfyui_output_missing``.
 
-        实发种子与 workflow 指纹不随续跑回来：两者只在提交那一次的构造里存在，而这条路不构造。
+        Actual seeds/workflow fingerprints are unavailable on resume: both exist only during submission construction, bypassed here.
 
-        域名取提交那一次的（``submitted_base_url``，由 resume_executor 从任务行回放），与声明式
-        运行时同一口径：供应商的 base_url 可以在提交之后被改，而这一笔活在原来那台 ComfyUI 上。
-        照当前域名去问，问的是另一台机器，它答「没有这个 prompt_id」——一次仍在出片的执行会被
-        判成丢失，用户的显卡还在为它转。域名是连接维度，不是协议维度。
+        Hosts replay submission ``submitted_base_url`` via resume_executor task rows, matching declarative
+        runtimes: providers may change base_url while tasks remain on original ComfyUI machines.
+        Current hosts would query other machines, whose missing prompt_id would classify still-running tasks lost
+        while original GPUs continue. Hosts are connection dimensions, not protocols.
         """
         submitted = request.submitted_base_url
         if submitted and submitted != self._base_url:
@@ -157,14 +157,14 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
                 output_path=request.output_path,
                 poll_timeout_seconds=request.poll_timeout_seconds,
                 record=lambda stage, body: notify_provider_response(request, stage, body),
-                # 续跑期的「执行找不着了」归 resume_expired：worker 据此标失败并结算那条 pending
-                # 的调用行，而不是把它当成一次可以就地重试的生成失败。
+                # Missing executions on resume mean resume_expired, letting workers mark failed/settle pending
+                # calls rather than treating them as locally retryable generation failures.
                 lost_error=lambda prompt_id: ResumeExpiredError(job_id=prompt_id, provider=self._provider),
             )
             return self._result(request, job_id, picked, built=None)
 
     def _bound_to(self, base_url: str) -> ComfyuiVideoBackend:
-        """同一份定义、换一个域名的另一个实例：轮询、取件与叫停这一路都得落在同一台机器上。"""
+        """Same-definition instances bound to different hosts: polling/retrieval/stopping must all target one machine."""
         return ComfyuiVideoBackend(
             provider_id=self._provider,
             model=self._model,
@@ -182,7 +182,7 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         *,
         built: BuiltWorkflow | None,
     ) -> VideoGenerationResult:
-        """把取回的产物装成结果；``built`` 为 ``None`` 即这一笔是续跑（没有构造过）。"""
+        """Convert retrieved artifacts into results; ``built`` = ``None`` means resume without construction."""
         warnings: tuple[Mapping[str, Any], ...] = ()
         if picked.count > 1:
             warnings = (
@@ -195,20 +195,20 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
             duration_seconds=request.duration_seconds,
             video_uri=self._execution.view_url(picked.artifact),
             task_id=prompt_id,
-            # 实发种子与 workflow 指纹只在提交那一次的构造里存在：两者一起才说得清「这一版是照
-            # 哪份图、用哪个种子出的」，而续跑这条路一样都没构造，故一起缺席而不是各给一个假值。
+            # Actual seeds/workflow fingerprints exist only at submission construction; together they identify source graphs/seeds
+            # for versions. Resume constructs neither, so omit both instead of fabricating individual values.
             seed=built.seed if built is not None else None,
             generate_audio=request.generate_audio,
             provenance={"workflow_sha256": built.workflow_sha256} if built is not None else None,
             warnings=warnings,
         )
 
-    # ------------------------------------------------------------------ 上传
+    # Uploads.
 
     async def _upload_media(
         self, http: httpx.AsyncClient, request: VideoGenerationRequest, *, job_label: str
     ) -> MediaInputs:
-        """上传绑定的首尾帧，以及已通过槽位容量校验的全部参考图。"""
+        """Upload bound first/last frames and every reference already validated for slot capacity."""
         bindings: Mapping[str, Any] = self._definition.get("bindings") or {}
         start = await self._upload_one(http, request.start_image, bindings, "start_image", job_label=job_label)
         end = await self._upload_one(http, request.end_image, bindings, "end_image", job_label=job_label)
@@ -240,14 +240,14 @@ def _targets(raw: object) -> list[Mapping[str, Any]]:
 
 
 def binding_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabilities:
-    """把一份视频端点定义的绑定表装进 backend 层的能力类型。
+    """Box video bindings into backend capability types.
 
-    推导本身在 ``comfyui`` 子包里（它只认绑定表与 workflow）；装箱落在本模块，因为子包受
-    「不依赖声明式运行时」的 forbidden 契约约束，够不到 ``VideoCapabilities``。端点投影
-    （``endpoints.comfyui_endpoint_spec``）与 backend 自己的声明共用这一份，两处不各写一份——
-    它们各自喂给能力闸门的不同一段，说的却必须是同一件事。
+    Derivation lives in ``comfyui``, knowing bindings/workflows only. Boxing lives here because forbidden dependencies
+    on declarative runtimes prevent that package reaching ``VideoCapabilities``. Projections
+    (``endpoints.comfyui_endpoint_spec``) and backend declarations share one implementation;
+    they feed different gate stages but must convey identical capabilities.
 
-    参考音频三项与 ``max_prompt_chars`` 保持默认：绑定表里没有对应的语义键。
+    Three audio-reference dimensions and ``max_prompt_chars`` retain defaults: bindings lack corresponding keys.
     """
     bound = derive_video_capabilities(definition)
     return VideoCapabilities(

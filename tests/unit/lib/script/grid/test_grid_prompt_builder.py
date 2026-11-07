@@ -55,7 +55,7 @@ class TestExtractImageDesc:
         assert result == ""
 
     def test_pending_image_prompt_refused(self):
-        """机械转换后 image_prompt 为 None：不能渲染成字面量 "None"，投影拒绝。"""
+        """Mechanically converted image_prompt=None must not render as literal "None"; projection rejects it."""
         with pytest.raises(ValueError, match="pending"):
             project_grid_image_prompt(None)
         with pytest.raises(ValueError, match="pending"):
@@ -144,7 +144,7 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=3, cols=2, style="anime", style_description=""
         )
-        assert "空占位" in prompt
+        assert "empty placeholder" in prompt
 
     def test_references_lead_with_a_numbered_declaration_and_replace_mentions(self):
         from pathlib import Path
@@ -162,7 +162,9 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="x", style_description="", references=references
         )
-        assert prompt.startswith("Reference_Images: 图1为角色参考图；图2为场景参考图。\n\n你是一位专业的分镜画师。")
+        assert prompt.startswith(
+            "Reference_Images: 图1: character reference images; 图2: scene reference images.\n\nYou are a professional storyboard artist."
+        )
         assert "图1在s1" in prompt
         assert "图1与路人对视" in prompt
         assert "@[" not in prompt
@@ -181,7 +183,7 @@ class TestBuildGridPrompt:
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
         assert "Reference_Images" not in prompt
-        assert prompt.startswith("你是一位专业的分镜画师。")
+        assert prompt.startswith("You are a professional storyboard artist.")
         assert "角色Z在s1" in prompt
         assert "@[" not in prompt
 
@@ -218,22 +220,22 @@ class TestBuildGridPrompt:
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
         assert prompt.splitlines()[-1] == (
-            "Avoid: 水印、多余文字、Logo、边框、画格间隙或留白、合并 / 缺失 / 错位的画格、连续全景（非分格）"
+            "Avoid: watermarks, extra text, logos, borders, gaps or whitespace between panels, merged / missing / misaligned panels, a continuous panorama (instead of separate panels)"
         )
         for dropped in (
-            "禁止出现以下任何元素",
-            "模糊",
-            "低画质",
-            "噪点",
-            "拼贴感",
-            "纯色背景条",
-            "画格大小不一致",
-            "画格比例不一致",
+            "Any of the following elements are prohibited",
+            "blur",
+            "low quality",
+            "noise",
+            "collage feel",
+            "solid-color background strips",
+            "inconsistent panel sizes",
+            "inconsistent panel aspect ratios",
         ):
             assert dropped not in prompt
 
     def test_avoid_line_still_closes_the_prompt_when_a_cell_repeats_it(self):
-        """宫格没有纯文本回贴形态，模版不开启判重：画格正文里的同形行不吞掉收尾的 Avoid 行。"""
+        """Grids lack plain-text copy-back, so templates disable deduplication; matching cell-body lines must not swallow the final Avoid line."""
         avoid = "Avoid: 水印、多余文字、Logo、边框、画格间隙或留白、合并 / 缺失 / 错位的画格、连续全景（非分格）"
         scenes = [{"scene_id": "S1", "image_prompt": f"主体描述\n{avoid}", "video_prompt": "a1"}]
 
@@ -241,20 +243,24 @@ class TestBuildGridPrompt:
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
 
-        assert prompt.endswith(f"\n\n{avoid}")
+        assert avoid in prompt
+        assert prompt.endswith(
+            "\n\nAvoid: watermarks, extra text, logos, borders, gaps or whitespace between panels, "
+            "merged / missing / misaligned panels, a continuous panorama (instead of separate panels)"
+        )
 
     def test_single_scene_chunk_lists_cells_without_blank_lines(self):
         scenes = [self._scene("S1", "s1", "a1")]
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
-        cells = prompt.split("【各格内容】\n", 1)[1].split("\n\n", 1)[0].splitlines()
+        cells = prompt.split("[Panel content]\n", 1)[1].split("\n\n", 1)[0].splitlines()
         assert cells == [
-            "格0（row1 col1）— S1开场：",
+            "Panel 0 (row1 col1) - S1 opening:",
             "  s1；ambiance: calm，lighting: natural，shot_type: medium",
-            "格1（row1 col2）— 空占位：纯灰色背景，无任何内容",
-            "格2（row2 col1）— 空占位：纯灰色背景，无任何内容",
-            "格3（row2 col2）— 空占位：纯灰色背景，无任何内容",
+            "Panel 1 (row1 col2) - empty placeholder: plain gray background, no content",
+            "Panel 2 (row2 col1) - empty placeholder: plain gray background, no content",
+            "Panel 3 (row2 col2) - empty placeholder: plain gray background, no content",
         ]
 
     def test_single_scene_chunk_omits_transition_frame_rule(self):
@@ -262,15 +268,15 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
-        assert "过渡帧" not in prompt
-        assert "- 格0 是第一个场景的开场画面\n- 相邻格之间" in prompt
+        assert "transition frames" not in prompt
+        assert "- Panel 0 is the first scene’s opening image\n- Adjacent panels" in prompt
 
     def test_multi_scene_chunk_lists_transition_frame_range(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 4)]
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
-        assert "- 格1~格2 是相邻场景的过渡帧" in prompt
+        assert "- Panels 1~2 are transition frames between adjacent scenes" in prompt
 
     def test_no_placeholders_when_exact_fit(self):
         # 4 scenes, 2x2 grid -> no placeholders needed (4 content cells: open, trans, trans, close)
@@ -278,7 +284,7 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
-        assert "空占位" not in prompt
+        assert "empty placeholder" not in prompt
 
     def test_grid_aspect_ratio_in_layout(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
@@ -320,16 +326,16 @@ class TestBuildGridPrompt:
             grid_aspect_ratio="16:9",
         )
         total = side * side
-        assert f"{side}×{side} 宫格布局" in prompt
-        assert f"恰好 {side} 行 {side} 列，共 {total} 个画格" in prompt
-        # 方形切分下单格比例等于整图比例
-        assert "每个画格比例：16:9" in prompt
+        assert f"strict {side}×{side} grid" in prompt
+        assert f"Exactly {side} rows and {side} columns, {total} panels in total" in prompt
+        # Square splitting makes cell and full-image ratios equal.
+        assert "Each panel’s aspect ratio: 16:9" in prompt
         for idx in range(total):
-            assert f"格{idx}（row{idx // side + 1} col{idx % side + 1}）" in prompt
-        assert prompt.count("空占位") == total - n_scenes
+            assert f"Panel {idx} (row{idx // side + 1} col{idx % side + 1})" in prompt
+        assert prompt.count("empty placeholder") == total - n_scenes
 
     def test_more_scenes_than_cells_fails_loud(self):
-        # 超员场景在成图中没有对应画格，调用方应先按 max_cell_count 切块
+        # Excess scenes have no image cells; callers must chunk by max_cell_count first.
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 13)]
         with pytest.raises(ValueError, match="切块"):
             build_grid_prompt(
@@ -341,7 +347,7 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
-        assert "不得合并画格" in prompt
-        assert "不得遗漏画格" in prompt
-        assert "不得错位排列" in prompt
-        assert "紧密排列" in prompt
+        assert "Do not merge" in prompt
+        assert "Do not merge, omit," in prompt
+        assert "or misalign panels" in prompt
+        assert "pack them tightly" in prompt

@@ -11,66 +11,63 @@ SessionStatus = Literal["idle", "running", "completed", "error", "interrupted", 
 
 @dataclass(frozen=True, slots=True)
 class SubscriptionReady:
-    """会话消息流的首个事件：订阅已原子建立的屏障标记。
+    """The first session-stream event: a barrier marking atomic subscription establishment.
 
-    消费方消费到该事件后，可确信其后的直播广播无缝隙——entry 流以此为界
-    先补库读存量条目，再消费直播消息，重复由 seq 门槛过滤（身份比对）。
-    """
+    After receiving it, consumers can rely on gap-free live broadcasts. The entry stream uses this boundary to
+    backfill stored entries before consuming live messages, filtering duplicates using a seq threshold (identity comparison)."""
 
 
 @dataclass(frozen=True, slots=True)
 class LiveMessage:
-    """会话消息流的直播事件：订阅屏障之后逐条广播的消息。"""
+    """A live session-stream event: a message broadcast after the subscription barrier."""
 
     message: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class Heartbeat:
-    """会话消息流的心跳事件：idle_timeout 内无消息时产出。
+    """A session-stream heartbeat, emitted when no message arrives within idle_timeout.
 
-    消费方在其上执行存活自检（SSE 查断线、同步收集方查 deadline/会话状态），
-    保证空闲期也有确定性的醒来时机（见 ADR-0005）。
-    """
+    Consumers use it for liveness checks (SSE disconnection checks, synchronous collectors checking deadlines/session state),
+    ensuring deterministic wakeups during idle periods too (ADR-0005)."""
 
 
 QueuedMessageState = Literal["queued", "unsent"]
-"""排队消息的状态。``queued``：已交给 CLI，在 CLI 的队列里等待被并入一轮。``unsent``：CLI 退出时
-仍在排队，没有被处理；只有用户点发送才重新交给 CLI，从不自动重发。"""
+"""Queued-message state. ``queued``: delivered to the CLI and waiting in its queue for inclusion in a turn.
+``unsent``: still queued and unprocessed when the CLI exited; resend to the CLI only when the user clicks Send, never automatically."""
 
 WithdrawalIntent = Literal["edit", "delete"]
-"""用户撤回排队消息的意图：``edit`` 把内容退回输入框，``delete`` 直接丢弃。"""
+"""User intent when withdrawing a queued message: ``edit`` returns content to the input box; ``delete`` discards it."""
 
 
 @dataclass(slots=True)
 class QueuedMessage:
-    """排队消息：已交给 CLI、尚未被 Agent 接纳进对话的用户消息（服务端内存态，随会话清理）。
+    """A queued user message delivered to the CLI but not yet accepted into the Agent conversation; server-memory state cleared with the session.
 
-    ``id`` 即被接纳后用户条目的 uuid，在消息的整个生命周期内不变；``cli_uuid`` 是送入 CLI 时
-    携带的消息 uuid，CLI 的 ``command_lifecycle`` 帧与用户消息回放都以它指认这条消息。
-    """
+    ``id`` is the accepted user entry’s uuid and remains unchanged throughout the message lifecycle. ``cli_uuid`` is the uuid
+    sent with the message to the CLI; CLI ``command_lifecycle`` frames and user-message replay identify the message by it."""
 
     entry: dict[str, Any]
-    """被接纳时写入会话事件日志的用户条目。"""
+    """The user entry written to the session event log when accepted."""
     cli_uuid: str
     content: str | list[dict[str, Any]] = ""
-    """送入 CLI 的消息内容。「未发送」消息重发、立即发送或被 CLI 丢弃后重排时，原样再送一次。"""
+    """Message content delivered to the CLI. Resend unchanged when resending an unsent message, sending immediately, or requeueing after CLI discard."""
     client_key: str | None = None
     state: QueuedMessageState = "queued"
     withdrawal: WithdrawalIntent | Literal["send_now"] | None = None
-    """用户要求撤回时的意图，``send_now`` 是立即发送：撤回后以 ``now`` 优先级重新送入。CLI 答复撤回失败后
-    仍保留：CLI 随后若报 cancelled，按这个意图收尾。"""
+    """User withdrawal intent; ``send_now`` means immediate sending: resubmit with ``now`` priority after withdrawal.
+    Retain it after the CLI reports withdrawal failure; if the CLI later reports cancelled, finalize according to this intent."""
     withdrawing: bool = False
-    """撤回请求正在等待 CLI 答复。"""
+    """The withdrawal request is awaiting a CLI response."""
     withdrawn: bool = False
-    """已按用户撤回离开排队。"""
+    """Removed from the queue at the user’s withdrawal request."""
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
         self.id = str(self.entry["uuid"])
 
     def to_payload(self) -> dict[str, Any]:
-        """对外形状：发送响应与 entry 流的排队消息事件共用。"""
+        """External shape shared by send responses and queued-message events in the entry stream."""
         return {
             "id": self.id,
             "content": self.entry.get("content", []),
@@ -80,25 +77,25 @@ class QueuedMessage:
 
 
 SessionStreamEvent = SubscriptionReady | LiveMessage | Heartbeat
-"""``SessionManager.stream_messages`` 产出的语义化事件。
+"""Semantic events emitted by ``SessionManager.stream_messages``.
 
-序列协议：SubscriptionReady（恰好一次、必为首个）→ LiveMessage / Heartbeat 交错；
-订阅队列溢出以流结束表达，流结束即重连信号，无专门事件。
+Sequence protocol: SubscriptionReady (exactly once, always first) → interleaved LiveMessage / Heartbeat;
+subscription queue overflow ends the stream. Stream termination signals reconnection, without a dedicated event.
 """
 
 
 class SessionMeta(BaseModel):
     """Session metadata stored in database."""
 
-    id: str  # 对外暴露，填充 sdk_session_id 值
+    id: str  # Exposed externally, populated with sdk_session_id.
     project_name: str
     title: str = ""
     status: SessionStatus = "idle"
     superseded_by: str | None = None
-    """非空表示本会话已被分支会话取代，值为新会话的 sdk_session_id。"""
+    """Nonempty means a branched session superseded this one; the value is the new session’s sdk_session_id."""
     fork_parent_session_id: str | None = None
-    """非空表示本会话由分叉产生，值为被分叉会话的 sdk_session_id。"""
+    """Nonempty means this session was forked; the value is the original session’s sdk_session_id."""
     fork_anchor_uuid: str | None = None
-    """分叉锚点在 transcript 域的 entry uuid，与 fork_parent_session_id 同时写入。"""
+    """The fork anchor’s entry uuid in the transcript domain, written together with fork_parent_session_id."""
     created_at: datetime
     updated_at: datetime

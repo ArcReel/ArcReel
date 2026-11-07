@@ -1,0 +1,97 @@
+{
+  "source_scope": "frontend/src/components/canvas/** comments/JSDoc only, including test comments",
+  "source_files_changed": 161,
+  "comments_changed": 2039,
+  "full_canvas_test_command": "pnpm --dir frontend exec vitest run src/components/canvas",
+  "full_canvas_test_result": {
+    "files_passed": 93,
+    "files_failed": 2,
+    "tests_passed": 1093,
+    "tests_failed": 2
+  },
+  "failures": [
+    {
+      "file": "frontend/src/components/canvas/grid/GridImageToVideoCanvas.retention.test.tsx",
+      "evidence": "Test timed out in 5000ms"
+    },
+    {
+      "file": "frontend/src/components/canvas/overview/OverviewCanvas.test.tsx",
+      "test": "drops the refresh warning once the project data loads again",
+      "evidence": "Found multiple role=alert elements: intended refresh warning plus unexpected cost-estimate failure TypeError: Failed to parse URL from /api/v1/projects/demo/cost-estimate"
+    }
+  ],
+  "paired_comparison": {
+    "candidate_command": "pnpm --dir frontend exec vitest run src/components/canvas/overview/OverviewCanvas.test.tsx src/components/canvas/grid/GridImageToVideoCanvas.retention.test.tsx",
+    "candidate_result": "37 passed across 2 files",
+    "baseline_command": "pnpm --dir /tmp/arcreel-english-7b4f781/source/frontend exec vitest run src/components/canvas/overview/OverviewCanvas.test.tsx src/components/canvas/grid/GridImageToVideoCanvas.retention.test.tsx",
+    "baseline_result": "37 passed across 2 files",
+    "same_test_arguments_and_order": true,
+    "baseline_runner_root": "/private/tmp/arcreel-english-7b4f781/source/frontend",
+    "limitation": "Paired passes do not establish why the full candidate run failed. Initial trigger remains undetermined; no preexisting/flaky attribution is made. Coordinator full integration check remains required."
+  },
+  "eslint": {
+    "command": "pnpm --dir frontend exec eslint src/components/canvas",
+    "result": "Passed, pnpm configuration warning only"
+  },
+  "targeted_checks": [
+    {
+      "scope": "initial selected files",
+      "passed": 53
+    },
+    {
+      "scope": "edit/model batch2-3",
+      "passed": 138
+    },
+    {
+      "scope": "edit/edit-render",
+      "passed": 120
+    },
+    {
+      "scope": "episode-page/episodes",
+      "passed": 156
+    },
+    {
+      "scope": "files/grid/edit-render",
+      "passed": 79
+    },
+    {
+      "scope": "lorebook/overview/shared",
+      "passed": 187
+    },
+    {
+      "scope": "router",
+      "passed": 61
+    },
+    {
+      "scope": "timeline",
+      "passed": 276
+    },
+    {
+      "scope": "reference",
+      "passed": 245
+    }
+  ],
+  "logs": [
+    {
+      "path": "/tmp/arcreel-canvas-final-tests.log",
+      "sha256": "7a787e82e02212a01ecfed4d1cbb6bdda2939cfd621fce6f3cade9638bef3c1c"
+    },
+    {
+      "path": "/tmp/arcreel-canvas-final-eslint.log",
+      "sha256": "1a585257c58d9c0b02938c759c56c62971c922be22bdf610a77bfbaa9528539f"
+    },
+    {
+      "path": "/tmp/arcreel-canvas-two-failures-candidate-paired.log",
+      "sha256": "b55c6dde5298ae5c6122559266bc0bae641b909d180cf64cab4322726ffb82e0"
+    },
+    {
+      "path": "/tmp/arcreel-canvas-two-failures-baseline-paired.log",
+      "sha256": "bfaeafd57bb067ad916d310fd9b1c64983d63d17e8d33374dfafc53c567079c6"
+    }
+  ],
+  "limitations": [
+    "Targeted counts overlap and must not be summed as unique tests.",
+    "All executable TypeScript, fixture inputs, assertions, test titles, localization values and directive identities remain unchanged.",
+    "Coordinator independent semantic review and final complete pnpm check remain separate requirements."
+  ]
+}

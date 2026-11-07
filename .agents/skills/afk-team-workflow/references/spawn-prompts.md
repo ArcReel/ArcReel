@@ -1,52 +1,52 @@
-# 委派 prompt 模板
+# Delegation prompt templates
 
-所有路径都传绝对路径。Herdr 委派另按 [herdr-teammate.md](herdr-teammate.md) 附加寻址上下文。
+Pass all paths as absolute paths. For Herdr delegation, also attach addressing context under [herdr-teammate.md](herdr-teammate.md).
 
 ## Implementer
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的 implementer。读 <skill 目录绝对路径>/references/implementer.md 并按契约工作。
-输入：repo-root=<path>；stage-branch=<branch>；issue-branch=issue/<N>；handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md。
-补充：<必要背景信息；无则省略>
+You are the implementer for issue #<N> in an afk-team-workflow batch. Read <absolute-skill-directory>/references/implementer.md and follow its contract.
+Inputs: repo-root=<path>; stage-branch=<branch>; issue-branch=issue/<N>; handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md.
+Additional context: <necessary background; omit if none>
 ```
 
-改动面大时可附加：`开工先委派独立探索 agent 勘察。`
+For broad changes, optionally add: `First delegate reconnaissance to an independent exploration agent.`
 
 ## Stage reviewer
 
 ```text
-你负责 afk-team-workflow 批次 stage <K> 的集成审查，未参与本 stage 任何 issue 的实现。读 <skill 目录绝对路径>/references/stage-reviewer.md 并按契约工作。
-输入：stage-branch=<branch>；worktree=<path>；spec=#<Spec；零散批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
-补充：<必要背景信息；无则省略>
+You own integration review for stage <K> of an afk-team-workflow batch and have not participated in implementing any issue in this stage. Read <absolute-skill-directory>/references/stage-reviewer.md and follow its contract.
+Inputs: stage-branch=<branch>; worktree=<path>; spec=#<Spec; omit for standalone batches>; issues=<N,...>; handoffs=<repo-root>/.afk/<batch-id>/; stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md.
+Additional context: <necessary background; omit if none>
 ```
 
 ## QA verifier
 
 ```text
-你负责 afk-team-workflow 批次 <stage <K> 或部署冒烟> 的验收，未参与本 stage 任何实现。读 <skill 目录绝对路径>/references/qa-verifier.md 并按契约工作。
-输入：mode=<全量|复验|冒烟>；target-commit=<sha>；worktree=<path；冒烟省略>；spec=#<Spec；零散批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md（冒烟省略）；evidence=<repo-root>/.afk/<batch-id>/qa/<stage-<K>|smoke>/。
-复验另给其一：items=<待验项编号>（fixer 修复后）或 range=<from>..<to>（审查循环后）。冒烟另给：budget=<金额>；deferred=<各 stage results.md 路径>。
-补充：<必要背景信息；无则省略>
+You own acceptance for <stage <K> or deployment smoke testing> of an afk-team-workflow batch and have not participated in any implementation in this stage. Read <absolute-skill-directory>/references/qa-verifier.md and follow its contract.
+Inputs: mode=<full|recheck|smoke>; target-commit=<sha>; worktree=<path; omit for smoke>; spec=#<Spec; omit for standalone batches>; issues=<N,...>; handoffs=<repo-root>/.afk/<batch-id>/; stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md (omit for smoke); evidence=<repo-root>/.afk/<batch-id>/qa/<stage-<K>|smoke>/.
+For recheck, also supply one of: items=<item identifiers to verify> (after fixer repairs) or range=<from>..<to> (after the review loop). For smoke, also supply: budget=<amount>; deferred=<paths to each stage's results.md>.
+Additional context: <necessary background; omit if none>
 ```
 
-复验沿用本 stage 的 qa-verifier；部署冒烟委派新的 qa-verifier。
+Reuse this stage's qa-verifier for rechecks; delegate deployment smoke testing to a new qa-verifier.
 
 ## Fixer
 
 ```text
-你负责修复 afk-team-workflow 批次 stage <K> 的 QA 失败项。读 <skill 目录绝对路径>/references/fixer.md 并按契约工作。
-输入：stage-branch=<branch>；worktree=<path>；qa-results=<results.md 绝对路径>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
-补充：<必要背景信息；无则省略>
+You own QA failure fixes for stage <K> of an afk-team-workflow batch. Read <absolute-skill-directory>/references/fixer.md and follow its contract.
+Inputs: stage-branch=<branch>; worktree=<path>; qa-results=<absolute-results.md-path>; issues=<N,...>; handoffs=<repo-root>/.afk/<batch-id>/; stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md.
+Additional context: <necessary background; omit if none>
 ```
 
 ## Review looper
 
 ```text
-你负责 afk-team-workflow 批次 stage <K> 的 AI review loop。读 <skill 目录绝对路径>/references/review-looper.md 并按契约工作。
-输入：PR=#<M>；stage-branch=<branch>；worktree=<path>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md；rounds=<评估点/硬停；省略即 skill 默认，接力延长时给出>。
-补充：<必要背景信息；无则省略>
+You own the AI review loop for stage <K> of an afk-team-workflow batch. Read <absolute-skill-directory>/references/review-looper.md and follow its contract.
+Inputs: PR=#<M>; stage-branch=<branch>; worktree=<path>; issues=<N,...>; handoffs=<repo-root>/.afk/<batch-id>/; stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md; rounds=<evaluation-point/hard-stop; omit for the skill default, supply when extending a takeover>.
+Additional context: <necessary background; omit if none>
 ```
 
-任一 issue 在远程 stage branch 留下 commit 前失效，即丢弃现场与该未集成 handoff 文件，并从 stage branch 最新提交重新委派；不传递半成品接管 prompt。
+If an issue's executor becomes unavailable before its commit reaches the remote stage branch, discard its local state and unintegrated handoff file, then delegate again from the latest stage branch commit. Do not pass partial-work takeover prompts.
 
-换人接力前确认前任进程已终止。
+Confirm the predecessor process has terminated before replacing it.

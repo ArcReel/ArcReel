@@ -10,18 +10,18 @@ from lib.references.reference_catalog import (
     split_derivative_reference,
 )
 
-#: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对坐标系的用例。
+#: Vietnamese combining-mark names: visually identical encodings with different bytes test asset-name comparison coordinates.
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 def _project(**buckets: dict[str, object]) -> dict[str, object]:
-    """按资产类型名给出 project.json 载荷（``characters`` 等桶键从 ASSET_SPECS 取）。"""
+    """Build project.json payloads by asset type, obtaining buckets such as ``characters`` from ASSET_SPECS."""
     return {ASSET_SPECS[asset_type].bucket_key: bucket for asset_type, bucket in buckets.items()}
 
 
 def test_attribution_order_covers_every_asset_type():
-    """优先级表必须穷尽资产类型：漏一类会让该类的引用永远解析不出归属。"""
+    """Priority tables must exhaust asset types or omitted references can never resolve ownership."""
     assert set(REFERENCE_ATTRIBUTION_ORDER) == set(ASSET_SPECS)
 
 
@@ -49,7 +49,7 @@ def test_resolve_attributes_name_to_its_only_bucket(asset_type: str):
     ids=["四类同名", "去商品", "去角色", "只道具", "商品胜道具", "角色胜道具"],
 )
 def test_resolve_decides_duplicate_names_by_attribution_order(registered_types: tuple[str, ...], expected: str):
-    """商品→角色→场景→道具：共享名称空间闸门之前的存量重名按此稳定决议。"""
+    """Product→character→scene→prop stably resolves legacy collisions predating shared-name admission."""
     catalog = build_reference_catalog(_project(**{t: {"Shared": {"tag": t}} for t in registered_types}))
 
     entry = catalog.resolve("Shared")
@@ -78,10 +78,10 @@ def test_registered_name_with_surrounding_whitespace_uses_the_same_lookup_identi
 @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
 @pytest.mark.parametrize("queried", [_NAME_NFC, _NAME_NFD], ids=["查询NFC", "查询NFD"])
 def test_resolve_matches_across_encoding_forms(registered: str, queried: str):
-    """四种 NFC/NFD 配对都判为已登记，且目录给出的名字一律是归一形式。
+    """All four NFC/NFD combinations register; catalog names are always normalized.
 
-    资产表以哪种形式落盘不可控（登记闸口落 NFC，存量不迁移），少归一一侧的后果是用户对着
-    两个肉眼一致的名字无从排查。
+    Stored asset normalization is uncontrolled (new registration uses NFC, legacy data is unmigrated);
+    normalizing only one side leaves users unable to diagnose visually identical names.
     """
     catalog = build_reference_catalog(_project(character={registered: {}}))
 
@@ -100,7 +100,7 @@ def test_reference_names_are_normalized(registered: str):
 
 
 def test_duplicate_encoding_forms_in_one_bucket_collapse_to_one_name():
-    """同一张表里的 NFC / NFD 同名 key 本就指同一个资产，归一后合并，后写入的胜出。"""
+    """Same-table NFC/NFD keys identify one asset, merged after normalization with the later write winning."""
     catalog = build_reference_catalog(_project(character={_NAME_NFD: {"tag": "nfd"}, _NAME_NFC: {"tag": "nfc"}}))
 
     assert catalog.reference_names("character") == frozenset({_NAME_NFC})
@@ -110,7 +110,7 @@ def test_duplicate_encoding_forms_in_one_bucket_collapse_to_one_name():
 
 
 def test_lookup_does_not_cross_asset_types():
-    """按类型查不跨类型决议：调用方已知类型时，重名不该把结论偷换成优先级更高的那一类。"""
+    """Typed lookup does not resolve across types; known-type callers must not receive a higher-priority namesake type."""
     catalog = build_reference_catalog(_project(product={"Shared": {}}, prop={"Shared": {}}))
 
     prop_entry = catalog.lookup("prop", "Shared")
@@ -121,7 +121,7 @@ def test_lookup_does_not_cross_asset_types():
 
 
 def test_reference_names_keep_duplicates_visible_in_every_type():
-    """重名在各自类型里都算已登记：引用字段问的是「该类型登记了没有」。"""
+    """Namesakes count as registered within each type; reference fields ask registration for that specific type."""
     catalog = build_reference_catalog(_project(product={"Shared": {}}, character={"Shared": {}}))
 
     assert catalog.reference_names("product") == frozenset({"Shared"})
@@ -129,7 +129,7 @@ def test_reference_names_keep_duplicates_visible_in_every_type():
 
 
 def test_unknown_asset_type_is_rejected_loudly():
-    """类型名写错时空集会静默把「未登记」判成结论，故按 KeyError 响亮失败。"""
+    """Wrong type names raise KeyError loudly, rather than silently turning an empty set into unregistered results."""
     catalog = build_reference_catalog(_project(character={"甲": {}}))
 
     with pytest.raises(KeyError):
@@ -146,7 +146,7 @@ def test_unknown_asset_type_is_rejected_loudly():
     ids=["None", "列表", "字符串", "整数", "桶是列表", "桶是None"],
 )
 def test_malformed_payload_yields_empty_catalog(project: object):
-    """畸形载荷按空表处理：结构错误由 DataValidator 报告，目录构造不重复报错也不抛异常。"""
+    """Malformed payloads become empty tables; DataValidator owns structure errors, without duplicate catalog errors/exceptions."""
     catalog = build_reference_catalog(project)
 
     assert catalog.resolve("甲") is None
@@ -154,14 +154,14 @@ def test_malformed_payload_yields_empty_catalog(project: object):
 
 
 def test_non_string_bucket_keys_are_read_as_text():
-    """外部编辑写出的非字符串 key 不让目录构造崩：读成文本，其结构错误另行报告。"""
+    """External nonstring keys become text without crashing catalog construction; structural errors are reported separately."""
     catalog = build_reference_catalog({ASSET_SPECS["prop"].bucket_key: {7: {}}})
 
     assert catalog.reference_names("prop") == frozenset({"7"})
 
 
 def test_entry_carries_the_asset_payload_for_downstream_path_resolution():
-    """参考图投影要从条目读 sheet / 原图字段，目录必须原样带上落盘值（含畸形值）。"""
+    """Reference projection reads sheet/original fields, so catalog entries preserve stored values, including malformed ones."""
     catalog = build_reference_catalog(
         _project(character={"张三": {"character_sheet": "characters/张三.png"}, "李四": 3})
     )
@@ -176,7 +176,7 @@ def test_entry_carries_the_asset_payload_for_downstream_path_resolution():
 
 
 class TestDerivativeReferences:
-    """``本体名/衍生名``：引用命名空间在角色一类上多出的那一层（``docs/adr/0072``）。"""
+    """``本体名/衍生名`` adds a character-specific reference-namespace level (``docs/adr/0072``)."""
 
     def test_registered_derivative_resolves_to_the_character_namespace(self):
         catalog = build_reference_catalog(
@@ -189,7 +189,7 @@ class TestDerivativeReferences:
         assert (entry.asset_type, entry.name, entry.asset_name) == ("character", "张三/劲装", "张三")
 
     def test_derivative_entry_carries_its_own_sheet_not_the_base_one(self):
-        """准入与投影按引用取资产图：衍生条目的图与本体的图不能混为一张。"""
+        """Admission/projection resolve sheets by reference; derivative and base images remain distinct."""
         catalog = build_reference_catalog(
             _project(
                 character={
@@ -217,7 +217,7 @@ class TestDerivativeReferences:
         assert catalog.lookup("character", "张三/夜行衣") is None
 
     def test_reference_names_include_derivatives_while_asset_names_do_not(self):
-        """说话人位要绑参考音频，须落在本体这条资产上；引用位可以指到衍生这套外观。"""
+        """Speaker slots bind reference audio on base assets; reference slots may select derivative appearances."""
         catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: {"劲装": {}, "兽化": {}}}}))
 
         assert catalog.reference_names("character") == frozenset({"张三", "张三/劲装", "张三/兽化"})
@@ -225,7 +225,7 @@ class TestDerivativeReferences:
 
     @pytest.mark.parametrize("asset_type", sorted(t for t, s in ASSET_SPECS.items() if not s.supports_derivatives))
     def test_types_without_the_capability_do_not_expand_derivatives(self, asset_type: str):
-        """未开启该能力的类型即使被写进 derivatives 字段也不产生 ``名/子名`` 引用。"""
+        """Types without derivative capability do not create ``名/子名`` references even if derivatives are stored."""
         catalog = build_reference_catalog(_project(**{asset_type: {"甲": {DERIVATIVES_FIELD: {"乙": {}}}}}))
 
         assert catalog.reference_names(asset_type) == frozenset({"甲"})
@@ -234,7 +234,7 @@ class TestDerivativeReferences:
         "table", [None, [], "劲装", {"劲装": "not-a-dict"}], ids=["缺失", "列表", "字符串", "值非对象"]
     )
     def test_malformed_derivative_table_does_not_break_the_catalog(self, table: object):
-        """畸形载荷的结构错误由 DataValidator 报告；目录构造不抛也不多报。"""
+        """DataValidator reports malformed structures; catalog construction neither throws nor duplicates reports."""
         catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: table}}))
 
         assert catalog.resolve("张三") is not None
@@ -251,7 +251,7 @@ class TestDerivativeReferences:
 
 
 class TestRenamedReference:
-    """一次改名怎么映射一个引用名——正文 mention 与引用数组共用的判定。"""
+    """Map one reference name through a rename, shared by body mentions and reference arrays."""
 
     @pytest.mark.parametrize(
         ("name", "old", "new", "expected"),

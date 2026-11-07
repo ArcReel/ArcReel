@@ -1,4 +1,4 @@
-"""远程 MCP adapter 的错误消息口径。"""
+"""Remote MCP adapter error-message conventions."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def test_project_relative_outcome_rewrites_detail_and_action_only_for_problems(t
 
 
 def test_project_relative_outcome_rewrites_nested_params(tmp_path: Path) -> None:
-    """迁移失败记录读不出时，OSError 文本带着记录的绝对路径进入 params.details[].violation。"""
+    """If migration-failure records cannot be read, OSError text carries the record's absolute path into params.details[].violation."""
     project_dir = tmp_path / "projects" / "demo"
     record = f"{project_dir}/.migration_failure.json"
     failed = ToolOutcome(

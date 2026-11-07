@@ -17,17 +17,17 @@ const TIER_LABEL_KEY: Record<AgentCredentialTier, string> = {
 
 interface Props {
   tiers: AgentCredentialTierStatus[];
-  /** 档位操作（选择模型、解除绑定）请求在途时禁用。 */
+  /** Disable while tier actions (model selection/unbinding) are pending. */
   busy?: boolean;
-  /** 为档位选定模型条目。 */
+  /** Select model entries for tiers. */
   onBind: (tier: AgentCredentialTier, entry: CatalogEntryHit) => void;
-  /** 解除档位的绑定，回到按模型名自动对应。 */
+  /** Unbind tiers, returning to automatic matching by model name. */
   onUnbind: (tier: AgentCredentialTier) => void;
 }
 
 /**
- * Agent 供应商各档位实际调用的模型与定价状态。每行依次是档位、模型名、对应的模型条目或「未定价」、档位操作；
- * 行是外层网格的子网格。未定价的档位可以「选择模型」，手动选择过的档位（含所选模型已下线的）可以「解除绑定」。
+ * Actual models/pricing states for Agent-provider tiers. Each row has tier, model name, matching model entry or Unpriced, then tier actions;
+ * rows are subgrids of outer grids. Unpriced tiers offer Select model; manually selected tiers (including removed models) offer Unbind.
  */
 export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }: Props) {
   const { t } = useTranslation("dashboard");
@@ -37,7 +37,7 @@ export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }:
       <h4 className="text-xs font-medium text-muted-foreground">{t("cred_tier_pricing_title")}</h4>
       <ul className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)_auto] gap-x-4 gap-y-1 text-xs">
         {tiers.map((status) => {
-          // 绑定还存着（所选模型已下线的也算）就得有解除的入口，否则用户清不掉
+          // Existing bindings, including removed-model bindings, require unbind entries so users can clear them.
           const canUnbind = status.manually_bound || status.binding_stale;
           const canPick = status.model_name !== null && !status.priced;
           return (
@@ -69,7 +69,7 @@ export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }:
           );
         })}
       </ul>
-      {/* 选择面板的标题行渲染在组件所在位置，只在打开时挂载，关闭时不在列表里留不可见的标题 */}
+      {/* Selection-panel headings render at component locations only while open, leaving no invisible headings in closed lists. */}
       {pickingTier !== null && (
         <CatalogEntryPicker
           open
@@ -87,7 +87,7 @@ export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }:
 
 function TierPricingState({ status }: { status: AgentCredentialTierStatus }) {
   const { t } = useTranslation("dashboard");
-  // 档位留空时由 Claude Code 决定调用的模型，记账时按实际调用的模型名对应条目，这里没有可显示的状态。
+  // Claude Code chooses models for empty tiers; accounting matches actual model names to entries, leaving no status to show here.
   if (status.model_name === null) return <span />;
   return (
     <span className="flex min-w-0 items-center gap-1.5">

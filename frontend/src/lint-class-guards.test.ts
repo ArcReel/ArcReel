@@ -3,15 +3,15 @@ import { ESLint } from "eslint";
 import tseslint from "typescript-eslint";
 import { beforeAll, describe, expect, it } from "vitest";
 
-// 加载真实的 eslint.config.js，只关掉类型信息：夹具文件不在 TS 工程里，类名守卫也不需要类型。
+// Load actual eslint.config.js, disabling type information only: fixtures are outside TS projects and class guards need no types.
 const eslint = new ESLint({
   overrideConfig: [{ files: ["**/*.{ts,tsx}"], ...tseslint.configs.disableTypeChecked }],
 });
 
 const GUARD_MESSAGE = {
-  motion: "禁用 motion-safe: / motion-reduce: 前缀",
-  scroll: "滚动容器（overflow-auto",
-  scrollbar: "禁止在组件里写滚动条样式",
+  motion: "Do not use motion-safe: / motion-reduce: prefixes",
+  scroll: "Scroll containers (overflow-auto",
+  scrollbar: "Do not write scrollbar styles in components",
 };
 
 async function guardReports(code: string, filePath: string) {
@@ -21,45 +21,45 @@ async function guardReports(code: string, filePath: string) {
     .map((m) => m.message);
 }
 
-// 字符串字面量与模板片段两种写法各测一遍；不用 JSX，.ts 夹具同样能解析。
+// Test string literals/template fragments separately without JSX so .ts fixtures also parse.
 const literalFixture = (className: string) => `export const cls = ${JSON.stringify(className)};\n`;
 const templateFixture = (className: string) =>
   `export const cls = (extra: string) => \`${className} \${extra}\`;\n`;
 
-// 覆盖每个带 no-restricted-syntax 的配置块：flat config 对同名规则整体替换选项，漏列一块就会静默失守。
+// Cover every no-restricted-syntax config block; flat config replaces whole same-name rule options, so omitted blocks silently lose guards.
 const SOURCE_FILES = [
-  "src/lint-fixture/Fixture.tsx", // 任意源码
-  "src/components/ui/fixture.tsx", // 原语目录
-  "src/components/shared/page-shell/PageShell.tsx", // 视口断点白名单
-  "src/actions/fixture.tsx", // 入队动作层
-  "src/hooks/useModelCapabilities.ts", // 模型能力真相源
-  "src/components/layout/ToastOverlay.tsx", // 提示队列的唯一转交点
+  "src/lint-fixture/Fixture.tsx", // Arbitrary source.
+  "src/components/ui/fixture.tsx", // Primitive directories.
+  "src/components/shared/page-shell/PageShell.tsx", // Viewport-breakpoint allowlists.
+  "src/actions/fixture.tsx", // Enqueue action layers.
+  "src/hooks/useModelCapabilities.ts", // Model-capability source of truth.
+  "src/components/layout/ToastOverlay.tsx", // Sole toast-queue handoff point.
 ];
 
 const LAYOUT_GUARDS = {
-  viewportHeight: { code: literalFixture("min-h-0 h-screen"), message: "禁止视口高度" },
-  fixedOverlay: { code: literalFixture("fixed inset-0 bg-scrim"), message: "禁止手写 fixed inset-0 浮层" },
+  viewportHeight: { code: literalFixture("min-h-0 h-screen"), message: "Do not use viewport heights" },
+  fixedOverlay: { code: literalFixture("fixed inset-0 bg-scrim"), message: "Do not handwrite fixed inset-0 overlays" },
   scrollHeight: {
     code: "export const height = (el: HTMLElement) => el.scrollHeight;\n",
-    message: "禁止读写 scrollHeight",
+    message: "Do not read or write scrollHeight",
   },
-  breakpoint: { code: literalFixture("flex md:grid"), message: "业务组件禁用视口断点前缀" },
-  rawZIndex: { code: literalFixture("relative z-10"), message: "调用处不写数值层级" },
-  arbitraryZIndex: { code: literalFixture("hover:z-[60]"), message: "调用处不写数值层级" },
-  backdropBlur: { code: literalFixture("bg-popover/80 backdrop-blur-sm"), message: "不使用背景模糊" },
-  rawDuration: { code: literalFixture("transition-colors duration-150"), message: "时长与缓动只用 token" },
-  rawEase: { code: literalFixture("transition-opacity ease-in-out"), message: "时长与缓动只用 token" },
+  breakpoint: { code: literalFixture("flex md:grid"), message: "Business components must not use viewport breakpoint prefixes" },
+  rawZIndex: { code: literalFixture("relative z-10"), message: "Do not write numeric stacking levels at call sites" },
+  arbitraryZIndex: { code: literalFixture("hover:z-[60]"), message: "Do not write numeric stacking levels at call sites" },
+  backdropBlur: { code: literalFixture("bg-popover/80 backdrop-blur-sm"), message: "Do not use backdrop blur" },
+  rawDuration: { code: literalFixture("transition-colors duration-150"), message: "Use tokens only for duration and easing" },
+  rawEase: { code: literalFixture("transition-opacity ease-in-out"), message: "Use tokens only for duration and easing" },
   toastPrimitive: {
     code: `import { toast } from "@/components/ui/toast";\nexport const t = toast;\n`,
-    message: "全局提示统一用 useAppStore 的 pushToast",
+    message: "Use useAppStore pushToast for global notices",
   },
   toastPrimitiveRelative: {
     code: `import { toast } from "../ui/toast";\nexport const t = toast;\n`,
-    message: "全局提示统一用 useAppStore 的 pushToast",
+    message: "Use useAppStore pushToast for global notices",
   },
   toastPrimitiveReexport: {
     code: `export { toast } from "@/components/ui/toast";\n`,
-    message: "全局提示统一用 useAppStore 的 pushToast",
+    message: "Use useAppStore pushToast for global notices",
   },
 };
 type LayoutGuard = keyof typeof LAYOUT_GUARDS;
@@ -67,8 +67,8 @@ const ALL_LAYOUT_GUARDS = Object.keys(LAYOUT_GUARDS) as LayoutGuard[];
 
 const except = (...skipped: LayoutGuard[]) => ALL_LAYOUT_GUARDS.filter((g) => !skipped.includes(g));
 
-// 布局守卫对全部源码生效：原语放过 fixed inset-0、scrollHeight、视口断点、数值层级与原始动效 token（背景模糊不放过），
-// 白名单放过视口断点，ToastOverlay 放过 toast 原语导入。
+// Layout guards cover all source; primitives allow fixed inset-0,scrollHeight,viewport breakpoints,numeric layers/raw-motion tokens, never background blur;
+// allowlists permit viewport breakpoints; ToastOverlay permits toast-primitive imports.
 const LAYOUT_ENFORCED: Record<string, LayoutGuard[]> = {
   "src/lint-fixture/Fixture.tsx": ALL_LAYOUT_GUARDS,
   "src/components/ui/fixture.tsx": [
@@ -115,14 +115,14 @@ const ALLOWED = [
 ];
 
 describe("类名守卫", () => {
-  // 首次计算配置要加载全部插件，单独预热，不计入各条用例的超时。
+  // Initial config computation loads all plugins; warm separately, outside individual test timeouts.
   beforeAll(async () => {
     await eslint.calculateConfigForFile("src/lint-fixture/Fixture.tsx");
   }, 60_000);
 
   describe.each(SOURCE_FILES)("%s", (filePath) => {
     it.each(VIOLATIONS)("报出 %s 违规：%s", async (guard, className) => {
-      // 用 toContainEqual：任意值变体（[&::-webkit-scrollbar]:）还会被视口断点守卫报出。
+      // Use toContainEqual because arbitrary variants ([&::-webkit-scrollbar]:) also trigger viewport-breakpoint guards.
       expect(await guardReports(literalFixture(className), filePath)).toContainEqual(
         expect.stringContaining(GUARD_MESSAGE[guard]),
       );
@@ -131,11 +131,11 @@ describe("类名守卫", () => {
       );
     });
 
-    // 各块按替换语义列全约束：加入类名守卫时不得挤掉同块原有的约束。
+    // Each block lists all replacement-semantic constraints; class guards must never displace existing same-block rules.
     it("类名守卫与丢弃刷新结算值的约束并存", async () => {
       const code = `declare const store: { refreshProject(): Promise<void> };\nstore.refreshProject();\n`;
       expect(await guardReports(code, filePath)).toEqual([
-        expect.stringContaining("不要丢弃 refreshProject 的结算值"),
+        expect.stringContaining("Do not discard refreshProject settlement results"),
       ]);
     });
 
@@ -162,7 +162,7 @@ describe("类名守卫", () => {
   it("原生 textarea 只在原语目录放行", async () => {
     const code = "export const Editor = () => <textarea aria-label=\"x\" />;\n";
     expect(await guardReports(code, "src/lint-fixture/Fixture.tsx")).toEqual([
-      expect.stringContaining("多行输入用 components/ui/textarea 的 Textarea"),
+      expect.stringContaining("Use components/ui/textarea Textarea"),
     ]);
     expect(await guardReports(code, "src/components/ui/fixture.tsx")).toEqual([]);
   });

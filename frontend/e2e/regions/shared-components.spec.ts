@@ -4,8 +4,8 @@ import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 各区域共用的组件：待修复草稿的状态条与两个确认弹层、内容确认页的「本集新增资产」、「编写提示词」与
-// 广告「AI 生成脚本」对话框、分镜图的查看大图，以及集页顶部的文本任务失败提示。
+// Shared regional components: repair-draft status/two confirmations, content-confirmation newly added assets, prompt authoring/
+// ad AI-generation dialogs, storyboard-image zoom and episode-header text-task failures.
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const PLAN_PATH = `${EPISODE_PATH}?view=plan`;
 const PROJECT = "GET /api/v1/projects/demo";
@@ -20,7 +20,7 @@ interface RecordedProject {
 const recordedProject = recorded<RecordedProject>("project-demo.json");
 const recordedScript = recordedProject.scripts["episode_1.json"];
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
+// Project event SSE streams are unrecorded; reject with nonretryable statuses so pages retain substituted data.
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -29,13 +29,13 @@ const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 const LONG_TEXT =
   "夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响。沈砚停在拐角，听见护城河那边传来一声闷响，像是什么沉甸甸的东西落了水。";
 
-// 分镜图用内联 SVG：getFileUrl 原样使用 data: 地址，不发请求，截图稳定。
+// Storyboard images use inline SVG: getFileUrl preserves data: URLs without requests for stable screenshots.
 function portraitSvg(hue: number) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 90 160"><rect width="90" height="160" fill="hsl(${hue} 30% 22%)"/><circle cx="45" cy="62" r="20" fill="hsl(${hue} 35% 55%)"/><rect x="18" y="96" width="54" height="48" rx="6" fill="hsl(${hue} 30% 40%)"/></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-// 四十条分镜的正式脚本，第一条已有分镜图：「编写提示词」的自选列表与查看大图都用它。
+// Formal scripts contain forty storyboards; the first has an image used by Write prompts selection lists/large-image viewers.
 const SHOT_COUNT = 40;
 const segments = Array.from({ length: SHOT_COUNT }, (_, i) => ({
   segment_id: shotId(i + 1),
@@ -100,7 +100,7 @@ function task(overrides: Record<string, unknown>) {
   };
 }
 
-// 上一次 AI 规划脚本因输出被截断失败，用的是自定义供应商的模型：提示给出去登记最大输出长度的链接。
+// Last AI script planning failed from truncated output on custom-provider models; notices link to registering maximum output lengths.
 const TRUNCATED_FAILURE: ApiOverrides = {
   ...SCRIPTED,
   [TASKS]: {
@@ -140,7 +140,7 @@ const planSegments = Array.from({ length: 12 }, (_, i) => ({
   props: [],
 }));
 
-// 待修复草稿压力：十二条分镜里多处违约（含整集层面的两条）与降级提示。
+// Repair-draft stress: multiple violations across twelve storyboards (including two episode-level violations), plus degradation hints.
 const INVALID_DRAFT: ApiOverrides = {
   ...SCRIPTED,
   [SCRIPT_REVIEW]: {
@@ -173,7 +173,7 @@ const INVALID_DRAFT: ApiOverrides = {
   },
 };
 
-// 内容确认页的「本集新增资产」压力：十二项，长依据、长描述与多处出场。
+// Confirmation New assets in this episode stress: twelve entries with long evidence/descriptions and multiple appearances.
 const NEW_ASSET_NAMES = ["沈砚", "守备", "说书人", "档房老吏", "渡口茶棚", "护城河", "旧档房", "铜牌", "私印", "马灯", "箭楼", "茶楼"];
 const NEW_ASSET_TYPES = ["character", "character", "character", "character", "scene", "scene", "scene", "prop", "prop", "prop", "scene", "scene"];
 const NEW_ASSETS: ApiOverrides = {
@@ -202,7 +202,7 @@ const NEW_ASSETS: ApiOverrides = {
   },
 };
 
-// 广告项目，第一集已有正式脚本：页头的「重新生成脚本」打开整份重做的对话框。
+// Ad projects with formal scripts in first episodes: header Regenerate script opens whole-script redo dialogs.
 const AD_PROJECT: ApiOverrides = {
   ...BASE,
   [PROJECT]: {

@@ -1,7 +1,7 @@
-"""自定义供应商的方舟 Seedream 图片端点：经端点注册表构造调用通道，respx 捕获真实发出的请求。
+"""Custom-provider Ark Seedream image endpoint: construct the channel through the endpoint registry; respx captures actual outbound requests.
 
-方舟没有 ``/images/edits``，文生图与带参考图生成都走 ``/images/generations``，参考图放在 JSON 的
-``image`` 字段。参考图上限、尺寸推导与计量都与内置方舟后端同一份。
+Ark has no ``/images/edits``: text-to-image and reference-image generation both use ``/images/generations``, with references in the JSON
+``image`` field. Reference-image limits, size derivation, and metering share the built-in Ark backend implementation.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ async def test_text_to_image_posts_generations_with_the_ark_size(tmp_path: Path)
     assert body["model"] == _MODEL
     assert body["prompt"] == "猫"
     assert body["size"] == "1600x2848"
-    # 方舟 SDK 把未传的字段序列化为 null
+    # The Ark SDK serializes absent fields as null.
     assert body.get("image") is None
     assert result.usage is not None
     assert result.usage.quantities["output_images"] == 1
@@ -110,7 +110,7 @@ async def test_reference_images_go_to_generations_as_an_image_list(tmp_path: Pat
 
 
 async def test_the_endpoint_sends_every_reference_and_takes_the_limit_from_the_matched_entry(tmp_path: Path):
-    """Seedream 各代的上限是模型事实：通道不按型号名截断，生效上限取对应条目（4.5 记为 14 张）。"""
+    """Seedream generation limits are model facts: the channel does not truncate by model name; effective limits come from matching entries (14 for 4.5)."""
     backend = create_custom_backend(
         provider=_PROVIDER, model_id="doubao-seedream-4-5-251128", endpoint="ark-seedream-4"
     )
@@ -140,9 +140,9 @@ async def test_generate_path_override_is_relative_to_the_raw_base_url(tmp_path: 
 @pytest.mark.parametrize(
     ("base_url", "generations_url"),
     [
-        # 只填 host：补全方舟协议挂载路径 /api/v3
+        # Host only: append the Ark protocol mount path /api/v3.
         ("https://ark.cn-beijing.volces.com", "https://ark.cn-beijing.volces.com/api/v3/images/generations"),
-        # 已写到 /api/v3：不重复拼接
+        # Already ends in /api/v3: do not append it again.
         ("https://relay.example.com/api/v3/", "https://relay.example.com/api/v3/images/generations"),
     ],
 )
@@ -174,7 +174,7 @@ def test_estimate_matches_the_builtin_ark_backend(reference_count):
 
 
 async def test_seedream_saved_on_openai_images_explains_the_404_from_images_edits(tmp_path: Path):
-    """OpenAI 图片端点上的 Seedream 配置：带参考图遇到 404 时提示更换端点。"""
+    """Seedream on an OpenAI image endpoint: a 404 with references suggests switching endpoints."""
     backend = ENDPOINT_REGISTRY["openai-images"].build_backend(_PROVIDER, _MODEL)
     with capture_http() as router:
         router.post("https://relay.example/proxy/v1/images/edits").mock(

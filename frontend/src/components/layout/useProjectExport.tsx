@@ -9,25 +9,25 @@ import type { ExportDiagnostics } from "@/types";
 import { ExportScopeDialog, type ExportScope } from "./ExportScopeDialog";
 
 interface ProjectExportOptions {
-  /** 对话框提示里「打开『集名』的剪辑视图」链接指向的集；不传时只显示成片在剪辑视图导出的说明。 */
+  /** Episode targeted by dialog links to Open episode editing; omitting it shows only the explanation that finished videos export from editing views. */
   editViewEpisode?: { episode: number; name: string } | null;
   onOpenEditView?: (episode: number) => void;
 }
 
 interface ProjectExport {
-  /** 打开导出范围对话框，选定范围后导出 `projectName`。 */
+  /** Open export-scope dialogs, then export `projectName` after selection. */
   open: (projectName: string) => void;
-  /** 关闭尚未选定范围的对话框，如切到别的项目或演示项目时。 */
+  /** Close dialogs awaiting scope selection, e.g. when switching projects or entering demos. */
   close: () => void;
-  /** 正在为哪个项目请求导出；下载开始后复位。 */
+  /** Project currently requesting export; reset once downloads start. */
   exporting: string | null;
-  /** 导出范围对话框与诊断对话框，渲染在调用方组件树里。 */
+  /** Export-scope and diagnostic dialogs, rendered in caller component trees. */
   element: ReactNode;
 }
 
 /**
- * 导出项目 ZIP：工作区顶栏与大厅卡片菜单共用。选定范围后由浏览器下载；顺利开始时不提示，
- * 导出包带诊断时提示条数并列出诊断，失败时提示原因并记入工作区通知。
+ * Project ZIP exports shared by workspace headers/lobby card menus. Scope selection starts browser downloads, silently on successful start;
+ * exports carrying diagnostics show counts/list diagnostics; failures show causes and enter workspace notifications.
  */
 export function useProjectExport({ editViewEpisode, onOpenEditView }: ProjectExportOptions = {}): ProjectExport {
   const { t } = useTranslation("dashboard");

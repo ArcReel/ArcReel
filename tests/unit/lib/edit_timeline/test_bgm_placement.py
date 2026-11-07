@@ -1,4 +1,4 @@
-"""BGM 轨的摆放：截到时间线末尾、截断处淡出与淡入淡出收进片段时长。"""
+"""Place BGM: trim at timeline end, fade at truncation, and fit fades inside segment duration."""
 
 from __future__ import annotations
 

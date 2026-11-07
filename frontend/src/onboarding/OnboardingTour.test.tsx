@@ -186,8 +186,8 @@ describe("OnboardingTour", () => {
 
   it("keeps its place when the interface language changes mid-tour", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
-    // 第 2 步指向大厅的「新建项目」按钮。这里只渲染引导挂载点、没有大厅，补一个锚点
-    // 元素，测的才是保位而不是锚点缺席时的降级。
+    // Step 2 targets lobby New project. Rendering onboarding alone lacks lobbies, so add anchors
+    // to test positioning preservation rather than missing-anchor degradation.
     const anchor = document.createElement("button");
     anchor.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyCreateProject);
     document.body.appendChild(anchor);
@@ -209,8 +209,8 @@ describe("OnboardingTour", () => {
   it("navigates to the lobby before running the tour when replayed from another main-UI route", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
 
-    // 欢迎步骤本身 anchor 为 null、居中显示，跳没跳转它都会出现——单看气泡标题测
-    // 不出跳转是否真的发生了，需要 `record: true` 记录的导航历史直接断言落点。
+    // Welcome has null anchors/centered popovers regardless of navigation; titles alone cannot prove
+    // route changes. Assert destinations through navigation histories with `record: true`.
     const { hook, history } = memoryLocation({ path: "/app/settings", record: true });
     render(
       <Router hook={hook}>
@@ -227,8 +227,8 @@ describe("OnboardingTour", () => {
   });
 
   /**
-   * 手动补上锚点元素。没有真实页面可渲染，这里测的是跳页串联而不是锚点降级——锚点在真实
-   * 界面上的存在性由 `anchors.test.tsx` 单独兜。
+   * Supply anchor elements manually; no real pages here, testing navigation sequencing rather than missing-anchor fallback.
+   * `anchors.test.tsx` separately verifies actual UI anchor presence.
    */
   function mountAnchors(...names: OnboardingAnchor[]): HTMLElement[] {
     return names.map((name) => {
@@ -239,7 +239,7 @@ describe("OnboardingTour", () => {
     });
   }
 
-  /** 大厅三步的锚点。 */
+  /** Three lobby-step anchors. */
   function mountLobbyAnchors(): HTMLElement[] {
     return mountAnchors(
       ONBOARDING_ANCHORS.lobbyCreateProject,
@@ -248,7 +248,7 @@ describe("OnboardingTour", () => {
     );
   }
 
-  /** 设置页两步的锚点。 */
+  /** Two settings-step anchors. */
   function mountSettingsAnchors(): HTMLElement[] {
     return mountAnchors(ONBOARDING_ANCHORS.settingsProviders, ONBOARDING_ANCHORS.settingsAgent);
   }
@@ -272,12 +272,12 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    click(".driver-popover-next-btn"); // → 新建项目入口
-    click(".driver-popover-next-btn"); // → 设置入口（仍在大厅）
-    click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
+    click(".driver-popover-next-btn"); // → New-project entry.
+    click(".driver-popover-next-btn"); // → Settings entry, still lobby.
+    click(".driver-popover-next-btn"); // → Providers, crossing to settings.
 
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
-    // 带上 section 查询参数——设置页内容区靠它落到供应商一节。
+    // Include section queries, required for provider content.
     expect(history.at(-1)).toBe("/app/settings?section=providers");
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
@@ -300,11 +300,11 @@ describe("OnboardingTour", () => {
 
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
-    click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
+    click(".driver-popover-next-btn"); // → Providers, crossing to settings.
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
     expect(history.at(-1)).toBe("/app/settings?section=providers");
 
-    click(".driver-popover-prev-btn"); // ← 设置入口（跨页回大厅）
+    click(".driver-popover-prev-btn"); // ← Settings entry, returning lobby.
 
     await waitFor(() => expect(popoverTitle()).toBe("设置"));
     expect(history.at(-1)).toBe("/app/projects");
@@ -324,12 +324,12 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → 演示卡（interactive 步，锚点在大厅）
+    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → Demo cards, interactive lobby anchors.
     await waitFor(() => expect(popoverTitle()).toBe("演示项目"));
 
-    // 演示卡步是 interactive，允许用户点卡片本身离开大厅进工作台；但如果落点是引导
-    // 覆盖的另一个路由（如顶栏「设置」），不该被这条豁免一并放过——否则 driver 停在
-    // 演示卡步却找不到锚点，会降级成与设置页内容不符的居中气泡。
+    // Interactive demo steps permit card navigation into workbenches, but other onboarding-covered
+    // destinations such as header Settings must not share exemptions, or drivers retain demo-card
+    // steps without anchors, degrading to centered popovers contradicting settings content.
     act(() => navigate("/app/settings"));
 
     await waitFor(() => expect(history.at(-1)).toBe("/app/projects"));
@@ -350,11 +350,11 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → 演示卡（interactive 步）
+    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → Interactive demo cards.
     await waitFor(() => expect(popoverTitle()).toBe("演示项目"));
 
-    // 落点之外的去处一律拽回，不因为它在引导覆盖范围之外就放过：资产库是主界面路由但
-    // 不在 `tourRoutes` 里，这一步的豁免只认它自己声明的 `interactiveTarget`。
+    // Return from every non-target destination, even outside tour coverage: libraries are main routes
+    // outside `tourRoutes`; exempt only declared `interactiveTarget`.
     act(() => navigate(ROUTE_APP_ASSETS));
 
     await waitFor(() => expect(history.at(-1)).toBe("/app/projects"));
@@ -376,12 +376,12 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → 配置 Agent
+    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → Configure Agent.
     await waitFor(() => expect(popoverTitle()).toBe("配置 ArcReel Agent"));
     expect(history.at(-1)).toBe("/app/settings?section=arcreel-agent");
 
-    // 两步同在 /app/settings，退回时 pathname 不变——内容区必须靠 section 参数切回
-    // 供应商，否则讲供应商时右边还摆着 Agent（正向同理）。
+    // Both steps use /app/settings with unchanged pathname; section queries must switch content
+    // back to Providers instead of retaining Agent during provider explanations, likewise forward.
     click(".driver-popover-prev-btn");
 
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
@@ -406,10 +406,10 @@ describe("OnboardingTour", () => {
 
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
-    click(".driver-popover-next-btn"); // 没有渲染设置页，锚点不存在——等待超时后应当降级为居中气泡而不是卡住
+    click(".driver-popover-next-btn"); // Settings unrendered, anchors absent; timeout must center popovers rather than stall.
 
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"), { timeout: 3000 });
-    // 讲解照常进行，丢的只是高亮——driver 顶上自己的占位元素，气泡回到屏幕中央。
+    // Explanations continue without highlights; drivers use placeholders/centered popovers.
     expect(document.getElementById("driver-dummy-element")?.classList.contains("driver-active-element")).toBe(
       true,
     );
@@ -447,7 +447,7 @@ describe("OnboardingTour", () => {
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
   });
 
-  /** 演示工作台五步的锚点。 */
+  /** Five demo-workbench anchors. */
   function mountWorkbenchAnchors(): HTMLElement[] {
     return mountAnchors(
       ONBOARDING_ANCHORS.workbenchOverview,
@@ -458,7 +458,7 @@ describe("OnboardingTour", () => {
     );
   }
 
-  /** 全程 12 步的锚点，供跑完整串联的用例一次挂齐。 */
+  /** All twelve-step anchors for complete-sequence tests. */
   function mountAllAnchors(): HTMLElement[] {
     return [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
   }
@@ -478,7 +478,7 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    // 每一步：标题 + 该步走完后当前所在路由。跨页步骤的落点由 route 驱动。
+    // Each step: titles/current routes after completion. route drives cross-page destinations.
     const expected: [string, string][] = [
       ["新建项目", "/app/projects"],
       ["设置", "/app/projects"],
@@ -499,10 +499,10 @@ describe("OnboardingTour", () => {
       expect(history.at(-1)).toBe(route);
     }
 
-    // 收尾之前一次都没写过标记——中途没有哪一步误判成结束。
+    // No markers written before closing; no intermediate step falsely counts as finished.
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
 
-    click(".driver-popover-next-btn"); // 收尾气泡上是「完成」
+    click(".driver-popover-next-btn"); // Closing bubbles say Finish.
     await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
     expect(popoverTitle()).toBeNull();
     expect(useOnboardingStore.getState().seen).toBe(true);
@@ -522,11 +522,11 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → 演示卡（interactive）
+    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → Demo cards (interactive).
     await waitFor(() => expect(popoverTitle()).toBe("演示项目"));
 
-    // 顺着这一步给的入口点进演示工作台：不拽回大厅，引导顺势推进到工作台首步（Agent）——
-    // 点卡片和点「下一步」殊途同归。
+    // Follow step entries into demo workbenches: never force lobbies, naturally advancing to first workbench steps (Agent);
+    // card clicks and Next share destinations.
     act(() => navigate(DEMO_WORKBENCH));
 
     await waitFor(() => expect(popoverTitle()).toBe("Agent"));
@@ -548,13 +548,13 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn"); // → Agent（工作台第一步）
+    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn"); // → Agent (first workbench step).
     await waitFor(() => expect(popoverTitle()).toBe("Agent"));
     expect(history.at(-1)).toBe(DEMO_WORKBENCH);
 
     click(".arc-tour-skip-btn");
 
-    // 只读闸门对 /onboarding/seen 有窄豁免，工作台里跳过照样写得进去。
+    // Narrow read-only /onboarding/seen exemptions permit Skip markers within workbenches.
     await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
     expect(popoverTitle()).toBeNull();
     expect(useOnboardingStore.getState().seen).toBe(true);
@@ -566,7 +566,7 @@ describe("OnboardingTour", () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
     const anchors = mountAllAnchors();
 
-    // 重看入口在设置页，起步得先跨回大厅——重看和首弹共用同一条 12 步大纲。
+    // Replay starts in settings and first crosses back to lobbies, sharing identical twelve-step outlines with first openings.
     const { hook, history } = memoryLocation({ path: "/app/settings", record: true });
     render(
       <Router hook={hook}>
@@ -585,7 +585,7 @@ describe("OnboardingTour", () => {
 
     click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBeNull());
-    // 重看不改写标记——本来就已经是已看过。
+    // Replay never rewrites already-seen markers.
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
 
     anchors.forEach((el) => el.remove());
@@ -593,8 +593,8 @@ describe("OnboardingTour", () => {
 
   it("issues no requests of its own beyond the seen flag across the whole twelve-step run", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
-    // 引导自身不该发任何别的请求：没有生成调用、没有入队、没有项目写入。挂载点之外
-    // 的页面组件不在本用例里，这里守的是引导这条链路自己。
+    // Onboarding must issue no other requests: no generation/enqueue/project writes. Page components outside mounting
+    // points are absent here; guard onboarding paths themselves.
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const anchors = mountAllAnchors();
@@ -612,7 +612,7 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn");
     await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
 
-    // 两个查询/写标记的端点都被 spy 挡在 fetch 之前，所以这里应当一次都没到网络。
+    // Both marker query/write endpoints are spied before fetch, so no requests should reach networks.
     expect(fetchMock).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();

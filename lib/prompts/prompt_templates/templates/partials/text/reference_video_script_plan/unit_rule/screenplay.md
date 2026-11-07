@@ -1,2 +1,2 @@
-每个 unit 对应一个连贯的视频生成片段——同一时间、同一地点、主体动作连续。
-  沿用剧本自带的场次：场次变更（地点 / 时间 / 场景切换）处必须开新 unit，不要把两个场次并进一个 unit；场次内按动作与时长再拆。
+Each unit corresponds to a coherent generated video segment: one time, one location, continuous subject action.
+  Retain the screenplay’s scenes: a new unit is required at each scene change (location / time / scene transition). Do not combine two scenes into one unit; subdivide within a scene by action and duration.

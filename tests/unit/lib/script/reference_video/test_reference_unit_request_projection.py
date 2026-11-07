@@ -51,7 +51,7 @@ def _bucket_facts(generation_type: str) -> VideoRequestFacts:
 
 
 class _FakeRequestFacts:
-    """按桶返回构造好的视频请求事实，并记录投影请求过的桶。"""
+    """Return constructed video-request facts per bucket and record buckets requested by projection."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -154,7 +154,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         options=ReferenceRequestOptions(),
     )
 
-    # 引用顺序即正文首次提及顺序，商品不再排最前。
+    # Reference order follows first body mentions; products no longer come first.
     assert [(ref.type, ref.name) for ref in first.declared_references] == [
         ("product", "手袋"),
         ("scene", "大厅"),
@@ -198,7 +198,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
 
 @pytest.mark.parametrize("endpoint_fixed", [False, True])
 async def test_projection_is_identical_for_tts_and_post_production_projects(endpoint_fixed: bool) -> None:
-    """旁白交付方式是项目配置，不进入视频请求：两种项目得到同一时长基准、申请档位与计费事实。"""
+    """Narration delivery is project configuration, outside video requests; both projects get identical duration bases, requested tiers, and billing facts."""
 
     facts = _bucket_facts("i2v")
     if endpoint_fixed:
@@ -319,7 +319,7 @@ async def test_projection_blocks_empty_duration_metadata_without_cost_facts() ->
 
 
 async def _endpoint_fixed_projector() -> ReferenceUnitRequestProjector:
-    """时长这一维由端点固定的投影器：档位集是合法空集，成片多长由 workflow 决定。"""
+    """An endpoint-fixed-duration projector: tier sets are legally empty, with workflow determining final duration."""
 
     facts = replace(_bucket_facts("i2v"), supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
     return ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
@@ -327,7 +327,7 @@ async def _endpoint_fixed_projector() -> ReferenceUnitRequestProjector:
 
 @pytest.mark.asyncio
 async def test_projection_passes_the_planned_duration_through_endpoint_fixed_durations() -> None:
-    """时长由端点固定时空集是合法状态：不收窄、不要求确认，规划秒数原样透传。"""
+    """Empty tiers are valid for endpoint-fixed duration: no narrowing or confirmation; pass planned seconds unchanged."""
 
     projector = await _endpoint_fixed_projector()
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 10}
@@ -392,7 +392,7 @@ def test_asset_adapter_prefers_sheets_and_preserves_missing_candidates(tmp_path:
 
     assets = resolve_reference_assets(project, tmp_path, unit)
 
-    # 候选顺序即正文首次提及顺序；有资产图的资产只出资产图，原图不再额外注入。
+    # Candidate order follows first body mentions; assets with asset images contribute only those, without extra originals.
     assert [(item.reference.type, item.kind, item.path.name) for item in assets] == [
         ("scene", "sheet", "missing.png"),
         ("product", "sheet", "bag-sheet.png"),
@@ -403,7 +403,7 @@ def test_asset_adapter_prefers_sheets_and_preserves_missing_candidates(tmp_path:
 
 
 def test_asset_adapter_falls_back_to_all_original_images_without_a_sheet(tmp_path: Path) -> None:
-    """没有资产图时退到该资产登记的全部原图，按声明顺序。"""
+    """Without asset images, fall back to all registered originals in declared order."""
     for rel in ("products/bag-1.png", "products/bag-2.png"):
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -419,7 +419,7 @@ def test_asset_adapter_falls_back_to_all_original_images_without_a_sheet(tmp_pat
 
 
 def test_unit_reference_declarations_follow_first_mention_order(tmp_path: Path) -> None:
-    """重复提及去重、保留首现顺序——顺序即执行期参考图编号。"""
+    """Deduplicate repeated mentions while retaining first-occurrence order, which determines runtime reference-image numbering."""
     del tmp_path
     project = {"products": {"手袋": {}}, "scenes": {"大厅": {}}, "characters": {"阿离": {}}}
     unit = {"text": "@[大厅] 内，@[阿离] 拿起 @[手袋]。\n@[阿离] 再看一眼 @[大厅]。"}
@@ -432,7 +432,7 @@ def test_unit_reference_declarations_follow_first_mention_order(tmp_path: Path) 
 
 
 def test_unit_reference_declarations_skip_unregistered_and_speaker_positions() -> None:
-    """未登记的名字不产生引用；只出现在台词记号说话人位的角色也不进参考图。"""
+    """Unregistered names yield no references; characters appearing only as dialogue-marker speakers also contribute no reference images."""
     project = {"characters": {"阿离": {}}}
     unit = {"text": "@[未登记] 出现。\n@[阿离]{我来了}"}
 
@@ -459,7 +459,7 @@ def test_unit_reference_declarations_skip_unregistered_and_speaker_positions() -
 async def test_projection_folds_request_facts_failure_into_a_blocking_problem(
     failure: VideoRequestFactsFailure, expected_params: dict[str, object]
 ) -> None:
-    """视频请求事实的失败原码进入结构化 problem，参数键名不变并补上所落的桶。"""
+    """Original video-request failure codes enter structured problems, preserving parameter keys and adding the selected bucket."""
 
     projector = ReferenceUnitRequestProjector(_fixed_request_facts(failure), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
@@ -475,7 +475,7 @@ async def test_projection_folds_request_facts_failure_into_a_blocking_problem(
 
 @pytest.mark.asyncio
 async def test_projection_prices_the_request_resolution_without_a_fallback_tier() -> None:
-    """未设分辨率的事实原样进入计价事实：请求不携带分辨率，报价也不换成兜底档位。"""
+    """Facts without resolution enter pricing unchanged; requests omit resolution and quotes do not substitute fallback tiers."""
 
     facts = replace(_bucket_facts("i2v"), resolution=None)
     projector = ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
@@ -488,7 +488,7 @@ async def test_projection_prices_the_request_resolution_without_a_fallback_tier(
 
 
 def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict:
-    """已激活产物清单的项目：张三的图由补录认领；李四的图在盘上、路径已登记，但清单从未认领。"""
+    """A project with active artifact manifests: 张三's image is claimed by backfill; 李四's image exists with a registered path but was never claimed."""
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters" / "张三.png").write_bytes(b"image")
     project = activate_reference_project(
@@ -501,7 +501,7 @@ def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict:
 
 
 async def test_production_entry_treats_an_unclaimed_sheet_as_unavailable_like_the_read_side(tmp_path: Path) -> None:
-    """生产投影入口按产物清单认领判可用：图在盘上但清单未认领的引用落 i2v，与读侧逐单元结论同桶。"""
+    """Production projection uses manifest claims for availability; existing but unclaimed images select i2v, matching read-side per-unit buckets."""
     project = _activated_project_with_unclaimed_sheet(tmp_path)
     claimed = {"unit_id": "E1U1", "text": "@[张三] 推门。", "duration_seconds": 8}
     unclaimed = {"unit_id": "E1U2", "text": "@[李四] 回头。", "duration_seconds": 8}

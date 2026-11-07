@@ -8,15 +8,15 @@ import { LoadingState } from "@/components/shared/LoadingState";
 type LazyBoundaryVariant = "screen" | "pane" | "none";
 
 /**
- * 懒加载区域（`lazyNamed` 组件）的外层边界：chunk 未到达时显示加载占位，最终加载失败时
- * 显示失败提示与「重新加载」，不让错误卸载整个应用根节点。
+ * Boundaries around lazy regions (`lazyNamed` components): placeholders before chunks arrive, failure/reload
+ * notices after final failures, never unmounting application roots.
  *
- * - `screen`：占满视口，用于整页路由。
- * - `pane`：占满父容器，用于工作区画布等局部区域，页头与视图切换保持可用。
- * - `none`：加载与失败都不渲染内容，用于不产出 DOM 的组件（如引导）。
+ * - `screen`: viewport-filling whole-page routes.
+ * - `pane`: parent-filling workspace regions, preserving headers/view switching.
+ * - `none`: no loading/failure DOM for components such as onboarding.
  *
- * React.lazy 会缓存失败结果，原地重试拿不到新 chunk，因此失败后只提供整页刷新；
- * 路由变化时清除失败状态，用户离开失败页面后其他页面照常显示。
+ * React.lazy caches failures, so in-place retry cannot obtain new chunks; offer whole-page reload only.
+ * Route changes clear failures, preserving other pages after users leave failed routes.
  */
 export function LazyBoundary({ variant, children }: { variant: LazyBoundaryVariant; children: ReactNode }) {
   const [location] = useLocation();

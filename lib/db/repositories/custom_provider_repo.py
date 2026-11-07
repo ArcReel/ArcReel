@@ -17,11 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def _media_type_endpoint_filter(media_type: str):
-    """按媒体类型筛 endpoint：内置键查表得到，自定义端点读它自己那一行的镜像列。
+    """Filter endpoints by media type: look up built-in keys; read a custom endpoint's own mirrored column.
 
-    自定义端点的键系统分配、不在内置注册表里，媒体类型写在 ``custom_endpoint.media_type``
-    这个镜像列上（``docs/adr/0067``），一份 workflow 产图还是产视频由定义自己说了算、从键上
-    推不出来。故按 ``ce-<id>`` 与镜像列匹配，而不是按键前缀一律记作视频。
+    Custom endpoint keys are system-assigned and absent from the built-in registry. Their media type is
+    stored in the ``custom_endpoint.media_type`` mirror (``docs/adr/0067``). The definition determines
+    whether a workflow produces images or video; its key cannot tell us. Match ``ce-<id>`` against
+    that mirrored column instead of treating all keys with the prefix as video.
     """
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
 
@@ -33,16 +34,17 @@ def _media_type_endpoint_filter(media_type: str):
 
 
 class CustomModelPricing(NamedTuple):
-    """自定义供应商模型的计价依据：供应商模型倍率、条目绑定与调用端点（docs/adr/0100、0105）。
+    """Pricing basis for a custom-provider model: model multiplier, bound entry and endpoint (docs/adr/0100, 0105).
 
-    价格不在模型行上：模型对应上条目时按条目的价目表计价，对应不上时记为未定价。查无模型行（模型已删除、
-    畸形 provider id、查询异常）时取默认值：倍率 1、没有绑定、没有端点，仍按模型名对应条目。
+    Prices are not stored on model rows: a matched entry supplies its price list; otherwise the model is unpriced.
+    If no model row is found (deleted model, malformed provider ID or query failure), use defaults:
+    multiplier 1, no binding and no endpoint, while still matching an entry by model name.
     """
 
     multiplier: float = 1.0
     entry_binding: str | None = None
     endpoint: str | None = None
-    # 模型的能力覆盖原始值：提交前预估据此补上执行时注入的那份能力，放宽的维度按实际发出的请求计量。
+    # Raw model capability override: pre-submit estimates use it to add the capabilities injected at execution, metering expanded dimensions from the actual request.
     capability_overrides: object | None = None
 
 
@@ -50,7 +52,7 @@ _DEFAULT_PRICING = CustomModelPricing()
 
 
 class CustomProviderRepository(BaseRepository):
-    """自定义供应商 + 模型 CRUD。"""
+    """Custom-provider and model CRUD."""
 
     # ── Provider CRUD ──────────────────────────────────────────────
 
@@ -66,7 +68,7 @@ class CustomProviderRepository(BaseRepository):
         video_max_workers: int | None = None,
         audio_max_workers: int | None = None,
     ) -> CustomProvider:
-        """创建供应商，可选同时创建模型列表。"""
+        """Create a provider, optionally creating its model list at the same time."""
         provider = CustomProvider(
             display_name=display_name,
             discovery_format=discovery_format,
@@ -77,7 +79,7 @@ class CustomProviderRepository(BaseRepository):
             audio_max_workers=audio_max_workers,
         )
         self.session.add(provider)
-        await self.session.flush()  # 获取 provider.id
+        await self.session.flush()  # Obtain provider.id
 
         if models:
             for m in models:
@@ -98,7 +100,7 @@ class CustomProviderRepository(BaseRepository):
         return list(result.scalars())
 
     async def update_provider(self, provider_id: int, **kwargs) -> CustomProvider | None:
-        """更新供应商字段。返回更新后的对象，若不存在返回 None。"""
+        """Update provider fields. Return the updated object, or None if it does not exist."""
         provider = await self.get_provider(provider_id)
         if provider is None:
             return None
@@ -107,11 +109,12 @@ class CustomProviderRepository(BaseRepository):
         return provider
 
     async def delete_provider(self, provider_id: int) -> None:
-        """删除供应商及其所有模型，以及记在它名下的供应商设置（如供应商倍率）。
+        """Delete a provider, all its models and settings recorded under it, such as the provider multiplier.
 
-        显式删除模型而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上生效，
-        应用引擎虽统一开启（engine.py），脚本或外部工具直连时不保证；显式删除不依赖连接配置。
-        供应商设置按 ``custom-<id>`` 记在 ``provider_config``，id 可能被新建的供应商复用，须一并删除。
+        Delete models explicitly instead of relying on FK CASCADE: cascades require foreign_keys pragma
+        on the connection. The application engine enables it centrally (engine.py), but direct script or external
+        tool connections may not; explicit deletion is independent of connection configuration.
+        Settings are stored under ``custom-<id>`` in ``provider_config``. New providers may reuse IDs, so delete them too.
         """
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
         await self.session.execute(
@@ -132,7 +135,7 @@ class CustomProviderRepository(BaseRepository):
         return list(result.scalars())
 
     async def replace_models(self, provider_id: int, models: list[dict]) -> list[CustomProviderModel]:
-        """删除旧模型，插入新列表。返回新创建的模型。"""
+        """Delete old models and insert the new list. Return the newly created models."""
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
         new_models = []
         for m in models:
@@ -143,12 +146,12 @@ class CustomProviderRepository(BaseRepository):
         return new_models
 
     async def delete_model(self, model_id: int) -> None:
-        """删除单个模型。"""
+        """Delete one model."""
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.id == model_id))
         await self.session.flush()
 
     async def list_all_enabled_models(self) -> list[CustomProviderModel]:
-        """跨所有供应商获取全部已启用模型。"""
+        """Get all enabled models across providers."""
         stmt = (
             select(CustomProviderModel)
             .where(CustomProviderModel.is_enabled)
@@ -158,7 +161,7 @@ class CustomProviderRepository(BaseRepository):
         return list(result.scalars())
 
     async def list_providers_with_models(self) -> list[tuple[CustomProvider, list[CustomProviderModel]]]:
-        """获取所有供应商及其模型，仅 2 次查询。"""
+        """Get all providers and their models in only two queries."""
         providers = await self.list_providers()
         if not providers:
             return []
@@ -177,10 +180,10 @@ class CustomProviderRepository(BaseRepository):
         return [(p, models_by_provider.get(p.id, [])) for p in providers]
 
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:
-        """跨所有供应商获取指定媒体类型的已启用模型。
+        """Get enabled models of the specified media type across all providers.
 
-        媒体类型按 :func:`_media_type_endpoint_filter` 判：内置键查表，``ce-`` 行读自己那一行的
-        镜像列——一份 ComfyUI workflow 产图还是产视频从键上推不出来。
+        Determine media type with :func:`_media_type_endpoint_filter`: look up built-in keys; ``ce-`` rows
+        read their own mirrored column. A ComfyUI workflow's key cannot tell us whether it produces images or video.
         """
         stmt = (
             select(CustomProviderModel)
@@ -194,7 +197,7 @@ class CustomProviderRepository(BaseRepository):
         return list(result.scalars())
 
     async def get_model_by_ids(self, provider_id: int, model_id: str) -> CustomProviderModel | None:
-        """根据供应商 ID 和模型 ID 获取模型。"""
+        """Get a model by provider ID and model ID."""
         stmt = select(CustomProviderModel).where(
             CustomProviderModel.provider_id == provider_id,
             CustomProviderModel.model_id == model_id,
@@ -203,19 +206,20 @@ class CustomProviderRepository(BaseRepository):
         return result.scalar_one_or_none()
 
     async def resolve_pricing(self, provider: str, model: str) -> CustomModelPricing:
-        """读自定义供应商模型的计价依据，供记账与预估两侧共用，杜绝同源复刻的口径漂移。
+        """Read the custom-provider model's pricing basis, shared by accounting and estimates to prevent drift from duplicated logic.
 
-        非自定义供应商 / 畸形 provider id / 查询异常 / 查无模型均降级为默认值，绝不抛错。
+        Non-custom providers, malformed provider IDs, query failures and missing models all fall back to defaults; never raise.
 
-        刻意不做 enabled / media_type 校验（区别于 ``lib/custom_provider/loader.load_custom_backend``
-        的模型解析回退）：记账须按实际调用的那个模型计价，与该模型当前是否启用无关；enabled / media_type
-        回退属模型解析层（loader）职责、在取数上游发生。
+        Deliberately do not validate enabled / media_type, unlike the model-resolution fallback in
+        ``lib/custom_provider/loader.load_custom_backend``: accounting must price the model actually called,
+        regardless of whether it is currently enabled. Enabled / media_type fallback belongs to model
+        resolution (the loader), upstream of this data lookup.
         """
         if not is_custom_provider(provider):
             return _DEFAULT_PRICING
         try:
-            # SAVEPOINT 隔离：查询异常只回滚到此处，不污染调用方（如 usage_repo._settle）
-            # 随后在同一 session 上执行的结算 UPDATE/commit。
+            # SAVEPOINT isolation: query failures roll back only this scope, preserving the caller's
+            # subsequent settlement UPDATE/commit in the same session (for example usage_repo._settle).
             async with self.session.begin_nested():
                 row = await self.get_model_by_ids(parse_provider_id(provider), model or "")
         except Exception:
@@ -226,13 +230,14 @@ class CustomProviderRepository(BaseRepository):
         return CustomModelPricing(row.multiplier, row.entry_binding, row.endpoint, row.capability_overrides)
 
     async def list_default_models(self, provider_id: int, media_type: str) -> list[CustomProviderModel]:
-        """指定供应商 + 媒体类型的全部默认已启用模型，按 id 升序。
+        """All default enabled models for the specified provider and media type, in ascending ID order.
 
-        媒体类型的判法同 :meth:`list_enabled_models_by_media_type`。
+        Determine media type as in :meth:`list_enabled_models_by_media_type`.
 
-        返回列表而非单行：image 的默认按任务类型桶分槽，保存期的唯一性检查按 image 能力集判互斥
-        （t2i 与 i2i 各设一个默认是放行的），同一媒体类型下因此可以有多行同时是默认。按桶挑出
-        唯一那一行由 ``lib.custom_provider.default_models`` 负责，取数层不做选择。
+        Return a list, not one row: image defaults occupy task-type buckets. Save-time uniqueness checks
+        determine mutual exclusion from image capability sets, allowing separate defaults for t2i and i2i.
+        Multiple rows of one media type may therefore be defaults simultaneously. Choosing the single row
+        for a bucket belongs to ``lib.custom_provider.default_models``; the data layer does not choose.
         """
         stmt = (
             select(CustomProviderModel)

@@ -1,4 +1,4 @@
-"""DOCX 抽取：docx2txt 主路径 + mammoth 兜底。"""
+"""DOCX extraction: docx2txt primary path with mammoth fallback."""
 
 import logging
 import re
@@ -12,7 +12,7 @@ from .errors import CorruptFileError
 
 logger = logging.getLogger(__name__)
 
-# mammoth 输出的 Markdown 语法标记：仅去除会污染字符计数的标记，保留段落结构
+# Markdown syntax from mammoth: remove only character-count-contaminating markers, preserving paragraphs
 _MD_MARK_PATTERN = re.compile(r"(\*\*|__|\#{1,6}\s+|`+)")
 
 

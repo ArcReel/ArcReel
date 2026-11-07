@@ -1,4 +1,4 @@
-"""成片工具的声明：把剪辑时间线渲染成成片。"""
+"""Final-cut declaration: render an edit timeline into a final cut."""
 
 from __future__ import annotations
 
@@ -13,21 +13,7 @@ from server.media_tools.final_cuts import (
 RENDER_FINAL_CUT = ToolDeclaration(
     name="render_final_cut",
     description=(
-        "把一条剪辑时间线渲染成成片：在本机用随包 ffmpeg 渲染，不付费，登记为产物并给出下载链接。"
-        "只在创作者要求出片时调用。旁白版本（narration）与是否烧入字幕（burn_subtitles）决定成片的版本，"
-        "各版本并存；带旁白版本把旁白配音混进整集音频，旁白越界照实渲染：重叠处同时响起，超出末尾的部分随成片截止。"
-        "BGM 轨按片段混进整集音频，音量是上传时统一的响度乘以片段 volume，带淡入淡出。"
-        "提交前按所选修订与版本检查，下列情况直接拒绝、不入队：有适用于该版本的 blocking 级 issue（如 video_missing，"
-        "带旁白版本还有 narration_missing）返回 final_cut_blocked，params.issues 列出这些 issue；"
-        "非 TTS 配音项目请求 with_narration 返回 "
-        "final_cut_narration_unavailable；随包 ffmpeg 不可用返回 final_cut_ffmpeg_unavailable。"
-        "渲染任务读到的视频或旁白配音版本文件已损坏时，任务失败为 final_cut_video_version_corrupted 或 "
-        "final_cut_narration_version_corrupted，params 带 unit_id 与 version。"
-        "省略 revision 时渲染提交时的最新修订：渲染期间剪辑时间线又被改动，或显式渲染旧修订，成片一出来就是 stale，"
-        "仍可下载。每条剪辑时间线的每个版本只保留最新一份成片，再次渲染会覆盖它并把 version 加一。"
-        "终态结果的 final_cut 带 revision、narration、subtitles、version、artifact_path、acceptance（expected_duration 为剪辑时间线时长，"
-        "video_duration、audio_duration 为实测音视频流时长，单位秒）与 warnings（warning 级 issues），"
-        "download_url 是下载链接。"
+        "Render an edit timeline into a final cut locally using bundled ffmpeg, without charges; register it as an artifact and provide a download link. Call only when the creator requests a final cut. narration and burn_subtitles determine the final-cut variant; variants coexist. The narrated variant mixes narration into episode audio; overruns render as recorded: overlaps sound simultaneously, and narration beyond the end is cut off with the film. BGM clips mix into episode audio with upload-normalized loudness multiplied by clip volume, including fades. Before submission, check the selected revision and variant; reject without queueing if applicable blocking issues exist (such as video_missing or, for narrated variants, narration_missing), returning final_cut_blocked with params.issues; with_narration on non-TTS projects returns final_cut_narration_unavailable; unavailable bundled ffmpeg returns final_cut_ffmpeg_unavailable. Corrupt video or narration version files encountered during rendering fail the task with final_cut_video_version_corrupted or final_cut_narration_version_corrupted, with unit_id and version in params. Omit revision to render the latest revision at submission; if the timeline changes during rendering or an old revision was explicitly selected, the final cut is immediately stale but downloadable. Only the latest final cut per timeline and variant is retained; rerendering overwrites it and increments version. Terminal final_cut includes revision, narration, subtitles, version, artifact_path, acceptance (expected_duration is timeline duration; video_duration and audio_duration are measured stream durations, in seconds), and warnings (warning-level issues); download_url is the download link."
     ),
     request_model=RenderFinalCutRequest,
     migration=BLOCKED,

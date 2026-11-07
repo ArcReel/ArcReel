@@ -24,15 +24,15 @@ function credentialKey(c: AssetLibraryBindableCredential): string {
 }
 
 /**
- * 「推理凭证绑定」块：为每条推理凭证选择它可以使用的素材库账号。选择即确认，立即生效；
- * 推理凭证或账号在确认后有变化时显示「需要重新确认」，确认前不使用该账号的素材。
+ * Inference-credential bindings block: select the library account each credential may use. Selection confirms immediately.
+ * Credential/account changes afterward show Needs reconfirmation; do not use that account's assets until confirmed again.
  */
 export function AssetLibraryBindingsBlock({
   accounts,
   reloadToken,
 }: {
   accounts: AssetLibraryAccount[];
-  /** 账号增删改后递增，触发重新读取绑定。 */
+  /** Increment after account creation, edits or deletion to trigger a binding reload. */
   reloadToken: number;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -57,7 +57,7 @@ export function AssetLibraryBindingsBlock({
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载与账号变化后拉取绑定列表回写，属于受控加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Fetch bindings on mount/account changes and update state as controlled loading
     void fetchBindings();
     return () => loadController.current?.abort();
   }, [fetchBindings, reloadToken]);

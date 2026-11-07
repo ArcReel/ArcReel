@@ -24,9 +24,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ token, isAuthenticated: true, isLoading: false });
       return;
     }
-    // 无 token 时先问后端是否启用了鉴权。`AUTH_ENABLED=false` 时后端全链路
-    // bypass，前端也应该跳过登录页直接进主界面。超时 / 网络异常 / 响应 shape
-    // 异常时 fail-closed 退回到登录页，避免误把损坏响应当成"无需鉴权"放行。
+    // Without a token, first ask the backend whether authentication is enabled. With `AUTH_ENABLED=false`, the whole backend chain
+    // bypasses authentication, so the frontend should skip login and enter the main view too. On timeout, network failure or malformed response shape,
+    // fail closed to login instead of mistaking a broken response for permission to proceed without authentication.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     fetch("/api/v1/auth/status", { signal: controller.signal })

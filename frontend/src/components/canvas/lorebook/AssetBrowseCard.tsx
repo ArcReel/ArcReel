@@ -51,32 +51,32 @@ type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete" | "p
 export interface AssetBrowseCardProps {
   projectName: string;
   asset: GalleryAsset;
-  /** 产物清单对这张资产图的判定；未取到时按条目上是否登记了资产图展示。 */
+  /** Manifest decision for this sheet; until fetched infer from entry sheet-path registration. */
   sheetStatus: AssetSheetStatusRow | undefined;
   marker: GalleryMarker;
-  /** 资产图任务占用中（生成或局部修改）。 */
+  /** Sheet tasks occupy this asset: generation or localized editing. */
   generating: boolean;
-  /** 本体或衍生文件被任务占用。 */
+  /** Tasks occupy base/derivative files. */
   busy?: boolean;
-  /** 只读展示（引导演示项目）：菜单只保留查看大图，没有删除。 */
+  /** Read-only onboarding demos retain only large-image viewing, without deletion. */
   readOnly: boolean;
-  /** 入库预览的内容；商品不入资产库，不传。 */
+  /** Library-preview content, omitted for products excluded from libraries. */
   libraryPreview?: LibraryImportPreview;
-  /** 点卡片：打开该资产的详情。需传稳定引用。 */
+  /** Card click opens asset details; require stable references. */
   onOpen: (name: string) => void;
-  /** 「查看大图」。需传稳定引用。 */
+  /** Large-image viewing; require stable references. */
   onView: (name: string) => void;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<unknown> | void;
   onReload?: () => Promise<unknown> | void;
-  /** 卡片上的上传、版本恢复或删除开始与结束时回报，画廊据此禁用同一资产的其他写入入口。需传稳定引用。 */
+  /** Report card upload/version-restore/delete starts/finishes so gallery disables sibling asset writes; require stable references. */
   onWritingChange?: (name: string, writing: boolean) => void;
-  /** 画廊里所有卡片在途的本地写入，供合并对话框判断保留方是否被占用。 */
+  /** All gallery cards' local writes, letting merge dialogs detect retained-asset occupancy. */
   writingNames?: ReadonlySet<string>;
 }
 
 /**
- * 画廊浏览卡：四类资产共用。卡片只负责看和选中，编辑在详情里进行；次要操作都收在「更多」里。
+ * Shared browsing card for four asset types: viewing/selection only; editing occurs in details, secondary actions in more menus.
  */
 export const AssetBrowseCard = memo(function AssetBrowseCard({
   projectName,
@@ -115,7 +115,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
       : null;
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
-  // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
+  // Disable sibling actions together while generation/local editing/upload/version restore occupies sheets, or assets delete.
   const busy = externalBusy || generating || uploading || importing || restoring || deleting;
   const writing = uploading || importing || restoring || deleting;
   useEffect(() => {
@@ -123,7 +123,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     onWritingChange(name, true);
     return () => onWritingChange(name, false);
   }, [writing, name, onWritingChange]);
-  // 合并只开放带别名、与资产库互通的类型；商品不传入库预览。
+  // Merging is only for alias-capable library-interoperable types; products omit library previews.
   const mergeable = libraryPreview !== undefined && type !== "product";
   const describable = asset.description.trim().length > 0;
   const staleConfirm = useStaleRegenerateConfirm({
@@ -149,12 +149,12 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
-      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- 上传在途时 busy 禁用入口并在开头拦截，同一卡片不会有更新的上传共享这个标志；错误走提示，不存本地 state
+      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- Busy disables/guards upload entry, so no newer same-card upload shares this flag; errors use notices, not local state
       setUploading(false);
     }
   };
 
-  // 打开会写资产图的对话框前复核占用态：渲染快照之外，资源可能刚被 Agent 或其他标签页占用。
+  // Recheck before opening sheet-writing dialogs; Agents/other tabs may occupy resources after render snapshots.
   const openGuarded = (key: DialogKey) => {
     if (rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint")) return;
     setDialog(key);
@@ -183,7 +183,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-3 pt-2.5">
         <div className="flex min-w-0 items-center gap-1">
           <h3 id={titleId} className="min-w-0 flex-1 text-sm font-medium">
-            {/* 名称按钮的伪元素铺满整张卡片，点卡片任意处都打开详情；「更多」在 DOM 中靠后、自身定位，盖在它上面。 */}
+            {/* The name button's pseudo-element covers the whole card to open details anywhere; More comes later in the DOM and uses its own positioning to sit above it. */}
             <button
               type="button"
               onClick={() => onOpen(name)}
@@ -316,7 +316,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             resourceType={VERSION_RESOURCE[type]}
             resourceId={name}
             onRestore={onRestoreVersion}
-            // 恢复在途由面板自己管；其余占用（含衍生任务与画廊汇总的外部占用）一并禁用
+            // Panels manage restoration in flight; disable for all other occupancy, including derivative tasks/gallery-aggregated external writes.
             busy={externalBusy || generating || uploading || deleting}
             onRestoringChange={setRestoring}
             checkBusy={() => isAssetBusy(type, projectName, name)}
@@ -360,7 +360,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   );
 });
 
-/** 卡片底部的计数：衍生、别名与商品原图，只列非零项。 */
+/** Nonzero footer counts only: derivatives, aliases, and product originals. */
 function CardCounts({ asset }: { asset: GalleryAsset }) {
   const { t } = useTranslation("assets");
   const items = [

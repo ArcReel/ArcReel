@@ -8,22 +8,22 @@ import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target
 import type { TaskStatus } from "@/types";
 
 /**
- * 全局后台任务失败通知：监听任务队列，任务转入 failed 时推送一条持久（可点击回跳）
- * 通知；任务成功但生成完成时目标已删除（结果进了项目回收站）时同样推送一条提示。这是后台任务失败的唯一通知来源——用户可能已离开出错的页面，因此用
- * pushNotification 而非瞬时 toast（入队同步失败仍由调用点用 toast 反馈，那类任务
- * 从未进入队列，不会被这里捕获）。覆盖 storyboard/video/character/scene/prop/grid/
- * reference_video/image_edit。
+ * Global background-task failure notices: watch queues and push persistent, clickable-return notifications on failed transitions;
+ * also notify successful tasks whose targets were deleted at completion (outputs entered project trash). Sole background-failure notification source: users may have left failing pages, so use
+ * pushNotification rather than transient toasts (callers still toast synchronous enqueue failures, whose tasks
+ * never entered queues and cannot be captured here). Covers storyboard/video/character/scene/prop/grid/
+ * reference_video/image_edit.
  *
- * 任务终态经项目事件 SSE 推来，另有兜底轮询（useTaskRefresh）。两类情况推送：
- * 1. 观察到非 failed → failed 的状态转换；
- * 2. 基线建立后才首次出现、且首次就已是 failed 的新任务——任务在两次 poll 之间
- *    快速失败、从未被观测到非 failed 状态，否则会被漏报。
- * 用首个成功 poll（connected）建立基线：基线内已存在的 failed 视为历史失败、不推送，
- * 避免初次加载/项目切换时对历史失败刷屏。
+ * Terminal states arrive through project-event SSE, with fallback polling (useTaskRefresh). Notify two cases:
+ * 1. Observed nonfailed → failed transitions;
+ * 2. New tasks first appearing after baseline creation already failed: tasks can fail rapidly between polls,
+ *    never observed nonfailed, otherwise missing notices.
+ * Establish baselines on first successful polls (connected): already-failed baseline tasks are historical, never notified,
+ * avoiding historical-failure floods on initial loads/project switches.
  */
 export function useTaskFailureNotifications(projectName?: string | null): void {
   const { t } = useTranslation("dashboard");
-  // 经 ref 暴露最新 t，避免切语言导致整个转换检测 effect 重建、prevStatus 丢失。
+  // Expose latest t through refs, avoiding language changes rebuilding transition effects and losing prevStatus.
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -38,27 +38,27 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   }, [projectData]);
 
   const prevStatusRef = useRef<Map<string, TaskStatus>>(new Map());
-  // 是否已用首个成功 poll 建立基线。基线内的 failed 一律视为历史失败、不推送。
+  // Whether first-successful-poll baselines exist. Baseline failed tasks are historical, never notified.
   const seededRef = useRef(false);
-  // 上次 effect 跑时观察到的 projectName。projectName 切换的过渡 commit 里 tasks 仍是
-  // 旧项目数据，此 ref 仍是旧 projectName；只有等到 tasks/connected 因新一轮 poll
-  // 变化、effect 再次跑时，ref 才与 props 同步。用它检测"这一轮是否是过渡 commit"。
+  // projectName observed during previous effects. During project-switch transition commits, tasks still hold
+  // old-project data and refs retain old projectName; synchronize refs with props only after tasks/connected change
+  // with new polls and effects rerun. Detect transition commits with this.
   const lastSeenProjectNameRef = useRef<string | null | undefined>(projectName);
 
-  // 项目切换时重置基线，避免把新项目的历史 failed 误判为新失败。
+  // Reset baselines on project switches, preventing new-project historical failures from appearing new.
   useEffect(() => {
     prevStatusRef.current = new Map();
     seededRef.current = false;
   }, [projectName]);
 
   useEffect(() => {
-    // 过渡 commit：projectName 已变但 tasks/lastSeenProjectName 尚未跟上。此时
-    // tasks 仍是旧项目数据，不该用它建立新项目的基线，否则下一轮新 tasks 进来时
-    // prev 为空、seeded=true 会把历史 failed 全部当 fresh failure 重弹。
+    // Transition commits: projectName changed, tasks/lastSeenProjectName have not caught up. Here
+    // tasks still belong to old projects; never establish new baselines from them, or next-poll new tasks find
+    // empty prev and seeded=true, renotifying all historical failures as fresh.
     const isTransitionCommit = lastSeenProjectNameRef.current !== projectName;
-    // 在 connected 检查之前同步 lastSeenProjectName——否则 connected=false 期间
-    // 切换项目时 effect early return 会让 ref 卡在旧 projectName，下一次 connected
-    // 恢复时第一个成功 poll 又被误判为 transition、不 seed，进而漏报本应捕获的
+    // Synchronize lastSeenProjectName before connected checks, or early-return effects during disconnected
+    // project switches leave refs on old projectName. The first successful poll after connected recovers
+    // would then be misclassified as transition, never seed, and miss otherwise detectable failures.
     // fast failure。
     lastSeenProjectNameRef.current = projectName;
     if (!connected) return;
@@ -66,15 +66,15 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
     for (const tk of tasks) {
-      // 只跟踪当前项目的任务：其余项目的任务既不通知也不进 prevStatus。
+      // Track current-project tasks only; others neither notify nor enter prevStatus.
       if (tk.project_name !== projectName) continue;
       const before = prev.get(tk.task_id);
-      // 状态转换，或基线建立后首次出现即处于该状态的新任务。
+      // Status transitions, or new tasks first appearing after baselines already in that state.
       const isNew = before === undefined ? seeded : before !== tk.status;
-      // 资产图批次的成员由 useAssetSheetBatchNotifications 整批汇总成一条通知。
+      // Asset-image batch members are summarized together by useAssetSheetBatchNotifications.
       const notify = isNew && !isAssetSheetBatchTask(tk.task_id);
       if (notify && tk.status === "succeeded" && tk.result?.target_deleted === true) {
-        // 生成完成时目标已删除：任务成功但没有写回，结果进了项目回收站。
+        // Targets deleted at completion: tasks succeed without writing back, outputs entering project trash.
         useAppStore.getState().pushNotification(tRef.current("task_target_deleted"), "warning");
       }
       if (notify && tk.status === "failed") {
@@ -93,9 +93,9 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       next.set(tk.task_id, tk.status);
     }
     prevStatusRef.current = next;
-    // 非过渡 commit 才建立基线——即使本轮 tasks 为空（项目就是没有任务），也代表
-    // 已经收到当前项目的真实响应；后续若有 task 在两 poll 间快速失败被首次观测即
-    // failed，仍能按新任务触发通知。
+    // Establish baselines only outside transition commits. Even empty tasks (projects with none) represent
+    // real current-project responses; later tasks failing rapidly between polls and first observed as
+    // failed still trigger new-task notices.
     if (!isTransitionCommit) {
       seededRef.current = true;
     }

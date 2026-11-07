@@ -21,17 +21,18 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _rebuild_custom_provider(*, autoincrement: bool) -> None:
-    """SQLite 只能在建表时声明 AUTOINCREMENT，故整表重建。
+    """SQLite declares AUTOINCREMENT only at table creation, so rebuild the table.
 
-    SQLite 的 rowid 主键默认取 max(id)+1，删掉 ID 最大的供应商后新供应商会拿到同一个
-    ``custom-<id>``，旧失败记录与用量随之错归。AUTOINCREMENT 让 sqlite_sequence 记住
-    用过的最大值；重建时带 id 复制旧行，序列从现存最大 ID 起步，升级时再按历史引用抬高
-    （见 :func:`_reserve_referenced_ids`）。
+    SQLite rowid primary keys default to max(id)+1. Deleting the highest-ID provider lets a new provider
+    reuse its ``custom-<id>``, misattributing old failures and usage. AUTOINCREMENT keeps the highest
+    used value in sqlite_sequence. Rebuilding copies existing IDs, starts from the current maximum,
+    then raises the sequence for historical references (see :func:`_reserve_referenced_ids`).
 
-    重建依赖迁移连接未开启 ``foreign_keys`` pragma（env.py 不设）：否则 DROP 旧表会级联
-    删光 custom_provider_model。引用方外键按表名指向本表，重建后无需改动。
+    Rebuilding requires ``foreign_keys`` pragma disabled on the migration connection (env.py does not set it);
+    otherwise dropping the old table cascades deletion of custom_provider_model. Foreign keys refer by
+    table name, so need no changes after rebuilding.
 
-    其他方言的整数主键本就由序列或 IDENTITY 生成、不回收已删 ID，这里为空操作。
+    Other dialects already use sequences or IDENTITY without recycling deleted integer IDs; no-op there.
     """
     if op.get_bind().dialect.name != "sqlite":
         return
@@ -43,17 +44,18 @@ def _rebuild_custom_provider(*, autoincrement: bool) -> None:
         pass
 
 
-#: 失败记录与用量所在的表。
+#: Tables containing failures and usage.
 _REFERENCING_TABLES = ("tasks", "api_calls")
 _CUSTOM_PROVIDER_ID = re.compile(r"\bcustom-(\d{1,9})\b")
 
 
 def _reserve_referenced_ids() -> None:
-    """序列至少抬到失败记录与用量引用过的最大自定义供应商 ID。
+    """Raise the sequence at least to the largest custom-provider ID referenced by failures and usage.
 
-    升级前删掉的最大 ID 已不在表里，重建后的序列记不住它；这些记录仍引用它时，新供应商拿到
-    同一个 ID 会让它们错归。引用不只在供应商列，也嵌在失败信封、失败参数与载荷里，故扫描两张表
-    的全部文本列。库外的引用（项目文件）不在扫描范围内。
+    The largest ID deleted before upgrade is absent, so the rebuilt sequence forgets it. Existing references
+    would then be misattributed if a new provider reused it. References occur in provider columns and
+    failure envelopes, parameters, and payloads, so scan every text column of both tables. References
+    outside the database (project files) are outside this scan.
     """
     bind = op.get_bind()
     referenced = 0

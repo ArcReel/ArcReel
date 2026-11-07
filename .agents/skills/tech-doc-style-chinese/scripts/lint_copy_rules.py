@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""轻量中文技术文案检查器。
+"""Lightweight Chinese technical-copy checker.
 
-检查结果分为三类：
-- error：高度确定的错误，默认导致非零退出。
-- warning：依赖语境的可疑表达，需人工判断。
-- style：团队风格或术语偏好，需结合项目规范判断。
+Findings fall into three categories:
+- error: high-confidence errors, causing nonzero exit by default.
+- warning: suspicious context-dependent wording requiring human judgment.
+- style: team style or terminology preferences requiring project-standard judgment.
 
-脚本忽略 Markdown front matter、代码块、行内代码、URL、链接目标和
-常见 API 路径。行尾加入 ``<!-- copy-lint-disable-line -->`` 可以忽略该行。
+The script ignores Markdown front matter, code blocks, inline code, URLs, link targets,
+and common API paths. Add ``<!-- copy-lint-disable-line -->`` at line end to ignore that line.
 """
 
 from __future__ import annotations

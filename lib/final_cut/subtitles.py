@@ -1,10 +1,11 @@
-"""成片烧入的字幕：按剪映的字幕样式基线换算版式，生成交给 libass 的 ASS 文档。
+"""Burned final-cut subtitles: convert Jianying style baselines to layouts and generate ASS for libass.
 
-字幕用随包的思源黑体 CN Bold：白字、粗体、黑色描边与阴影，字号与纵向位置按样式基线换算到成片画布。
-中文按「可用宽度 ÷ 字号」显式插入换行，英文与越南语交给 libass 在空格处换行；多条字幕同时出现时，
-交给 libass 的碰撞处理把后一条推开，所以事件不指定绝对位置。
+Use bundled 思源黑体 CN Bold: white bold text with black outline/shadow, converting font size
+and vertical position from baseline to final-cut canvas. Chinese explicitly wraps at available
+width ÷ font size; libass wraps English/Vietnamese at spaces. Simultaneous subtitles rely on
+libass collision handling to push later entries away, so events specify no absolute positions.
 
-换行与版式是纯函数；:func:`ass_document` 只负责把它们写成 ASS 文本。
+Wrapping/layout are pure functions; :func:`ass_document` only writes their ASS text.
 """
 
 from __future__ import annotations
@@ -21,23 +22,24 @@ from lib.subtitle_style.font import SUBTITLE_FONT_FAMILY, cell_height_per_em
 
 _BASE_SHORT_SIDE = 1080
 _OUTLINE_PER_EM = 0.06
-"""描边宽度占字身的比例，对应剪映描边宽度 30。"""
+"""Outline width as an em ratio, matching Jianying outline width 30."""
 _SHADOW_PER_EM = 0.05
 _SHADOW_ALPHA = 0x4D
-"""阴影的 ASS 透明度（0 为不透明）：剪映阴影不透明度 0.7。"""
+"""ASS shadow transparency (0 opaque), matching Jianying shadow opacity 0.7."""
 
 _NO_LINE_START = frozenset("，。、；：？！…‥）」』”’》〉】〕｝］〗,.;:?!)]}%·・ー〜～")
-"""不能出现在行首的标点：遇到时挂在上一行行尾。"""
+"""Punctuation prohibited at line starts; hang it on the previous line end."""
 _NO_LINE_END = frozenset("（「『“‘《〈【〔｛［〖([{")
-"""不能出现在行尾的标点：遇到时连同后面的字一起换到下一行。"""
+"""Punctuation prohibited at line ends; move it with the following character onto the next line."""
 
 
 @dataclass(frozen=True, slots=True)
 class SubtitleLayout:
-    """成片画布上的字幕版式（像素）。
+    """Subtitle layout on final-cut canvas, in pixels.
 
-    ``em`` 是字身；``line_capacity`` 是一行可用宽度能放下的全角字数，即「可用宽度 ÷ 字号」；
-    ``margin_x`` 是左右边距，``margin_bottom`` 是底边到单行字幕行盒底部的距离。
+    ``em`` is em size; ``line_capacity`` counts full-width characters fitting the available line
+    width (available width ÷ font size). ``margin_x`` gives horizontal margins; ``margin_bottom``
+    measures from canvas bottom to the bottom of a single subtitle line box.
     """
 
     width: int
@@ -49,7 +51,7 @@ class SubtitleLayout:
 
 
 def subtitle_layout(profile: OutputProfile) -> SubtitleLayout:
-    """按样式基线把剪映字号、行宽与纵向位置换算到成片画布。"""
+    """Convert Jianying font size, line width, and vertical position to final-cut canvas according to style baselines."""
     baseline = subtitle_style_baseline(profile.width, profile.height)
     em = round(baseline.size * JIANYING_FONT_PX_PER_SIZE * min(profile.width, profile.height) / _BASE_SHORT_SIDE)
     usable = profile.width * baseline.max_line_width
@@ -66,12 +68,12 @@ def subtitle_layout(profile: OutputProfile) -> SubtitleLayout:
 
 
 def _advance(character: str) -> float:
-    """字符占的字宽：全角与宽字符一个字身，其余按半个字身估算。"""
+    """Character width: one em for full-width/wide characters; estimate others at half an em."""
     return 1.0 if unicodedata.east_asian_width(character) in {"W", "F"} else 0.5
 
 
 def _tokens(text: str) -> list[str]:
-    """断行的最小单位：一个全角字符、一段空白，或一串连续的半角字符（外文单词与数字不从中间断开）。"""
+    """Smallest wrapping units: one full-width character, whitespace span, or consecutive half-width string; never split foreign words/digits internally."""
     tokens: list[str] = []
     for character in text:
         previous = tokens[-1] if tokens else ""
@@ -94,7 +96,7 @@ def _width(text: str) -> float:
 
 
 def _split_oversized(token: str, capacity: float) -> list[str]:
-    """比一整行还宽的半角串只能硬断。"""
+    """Half-width strings wider than a whole line require hard breaks."""
     pieces: list[str] = []
     current = ""
     for character in token:
@@ -106,12 +108,12 @@ def _split_oversized(token: str, capacity: float) -> list[str]:
 
 
 def wrap_chinese(text: str, line_capacity: float) -> tuple[str, ...]:
-    """中文字幕按每行能放下的全角字数逐行填满。
+    """Fill Chinese subtitle lines according to full-width character capacity.
 
-    - 外文单词与数字不从中间断开，比一整行还宽时才硬断；
-    - 行首不放句读与闭合标点，它们挂在上一行行尾，允许略超行宽；
-    - 行尾不留开引号与开括号，它们随后面的字换到下一行；
-    - 换行处的空白丢弃。
+    - Keep foreign words/digits intact unless wider than an entire line, when hard breaks apply;
+    - Hang sentence/closing punctuation at the previous line end rather than starting a line, allowing slight overflow;
+    - Move opening quotes/brackets with their following character to the next line rather than leaving them at line ends;
+    - Discard whitespace at wraps.
     """
     capacity = max(math.floor(line_capacity), 1)
     tokens: list[str] = []
@@ -139,9 +141,9 @@ def wrap_chinese(text: str, line_capacity: float) -> tuple[str, ...]:
 
 
 def subtitle_lines(text: str, layout: SubtitleLayout) -> tuple[str, ...]:
-    """一条字幕显示成哪几行：含汉字的按中文规则显式换行，其余整段交给 libass 在空格处换行。
+    """Subtitle display lines: explicitly wrap Han-containing text by Chinese rules; leave other text to libass space wrapping.
 
-    原文里的换行折成空格：ASS 的一条事件只能占一行，换行只能由这里显式给出。
+    Flatten source line breaks into spaces: ASS events occupy one line; only this function explicitly supplies wrapping.
     """
     text = " ".join(line.strip() for line in text.splitlines() if line.strip())
     if count_reading_units(text, "zh") > 0:
@@ -151,7 +153,7 @@ def subtitle_lines(text: str, layout: SubtitleLayout) -> tuple[str, ...]:
 
 @dataclass(frozen=True, slots=True)
 class BurnedSubtitle:
-    """时间线上的一条字幕：起止为成片时间（微秒）。"""
+    """One timeline subtitle, with start/end in final-cut microseconds."""
 
     start_us: int
     end_us: int
@@ -167,12 +169,12 @@ def _timestamp(microseconds: int) -> str:
 
 
 def _escape(line: str) -> str:
-    """ASS 文本里的花括号是覆盖标记、反斜杠是转义符，原样显示时换成全角形。"""
+    """ASS braces mark overrides and backslashes escape; replace them with full-width forms for literal display."""
     return line.replace("\\", "＼").replace("{", "｛").replace("}", "｝")
 
 
 def ass_document(subtitles: Sequence[BurnedSubtitle], profile: OutputProfile) -> str:
-    """整集字幕的 ASS 文档；画布即成片画布，时间即成片时间。"""
+    """Episode ASS subtitle document; canvas/time are final-cut canvas/time."""
     layout = subtitle_layout(profile)
     font_size = round(layout.em * cell_height_per_em())
     outline = round(layout.em * _OUTLINE_PER_EM, 1)

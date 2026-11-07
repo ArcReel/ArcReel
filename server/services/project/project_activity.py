@@ -1,21 +1,19 @@
-"""
-项目的最近活动时间（读时计算）。
+"""Recent project activity, computed on read.
 
-项目大厅按它把最近在做的项目排在前面。根据项目账本与可识别内容计算最近修改的时刻，取以下来源中最晚的一个：
+The project lobby uses it to place recently active projects first. Compute the latest modification from the ledger and recognized content, taking the latest of:
 
-1. 账本里的业务时间戳：`project.json` 与各集剧本的 `metadata.updated_at`。业务写入会刷新它们，
-   项目结构迁移改写这些 JSON 时保留原值，所以不用这些 JSON 文件的修改时间。
-2. 项目活动账本（`lib.project.project_activity`）：草稿、脚本规划、剪辑时间线等其余 JSON 的业务写入，
-   以及删除记忆、删除剪辑时间线这类删除，由写入出口记下时刻。缺失时只看另外两类来源。
-3. 其余内容文件的修改时间：原文、生成的图片与视频、项目记忆等。
+1. Business timestamps in the ledger: `project.json` and each episode script’s `metadata.updated_at`. Business writes refresh them;
+   project-structure migrations preserve them when rewriting JSON, so do not use these JSON files’ modification times.
+2. The project activity ledger (`lib.project.project_activity`): write entry points record business writes to other JSON such as drafts,
+   script plans and edit timelines, and deletions such as memory or timeline deletion. If absent, use only the other two sources.
+3. Modification times of other content files: source text, generated images/videos, project memory, and so on.
 
-不计入的文件不代表创作者的活动，却会在启动或后台流程中被统一改写，计入会让所有项目同时「刚刚更新」：
+Excluded files do not represent creator activity but are rewritten together at startup or in background flows; including them would make every project appear just updated:
 
-- 名字以 `.` 开头的文件与目录：锁、产物清单、迁移报告、Agent 配置副本等。项目记忆单独计入，活动账本取第 2 类。
-- 所有 `.json` 文件：项目与剧本取第 1 类业务时间，其余 JSON 的业务写入取第 2 类；它们的修改时间无法区分业务写入与迁移改写，不计入。
-- 迁移备份（文件名含 `.bak`）与锁文件（`.lock` 结尾）。
-- 项目根目录的 `CLAUDE.md`：内嵌 Agent 的配置由启动时的配置同步改写。
-"""
+- Files/directories beginning with `.`: locks, artifact manifests, migration reports, Agent configuration copies, etc. Count project memory separately and use category 2 for the activity ledger.
+- All `.json` files: use category 1 business times for project/scripts and category 2 for other JSON writes. Their modification times cannot distinguish business writes from migrations, so exclude them.
+- Migration backups (names containing `.bak`) and lock files (ending in `.lock`).
+- Project-root `CLAUDE.md`: startup configuration synchronization rewrites embedded Agent configuration."""
 
 from __future__ import annotations
 
@@ -39,7 +37,7 @@ def project_last_activity_at(
     project: Mapping[str, Any],
     scripts: Iterable[Mapping[str, Any]],
 ) -> datetime | None:
-    """项目内容最近一次修改的时刻（UTC）；没有任何可用的时间时为 None。"""
+    """Latest project-content modification time in UTC; None when no usable timestamp exists."""
     candidates = [stamp for stamp in (_metadata_updated_at(doc) for doc in (project, *scripts)) if stamp is not None]
     recorded = recorded_project_activity(project_dir)
     if recorded is not None:
@@ -59,7 +57,7 @@ def _metadata_updated_at(doc: Mapping[str, Any]) -> datetime | None:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
-    # 无时区的旧数据按本机时间解释。
+    # Interpret timezone-naive legacy data in local machine time.
     return parsed.astimezone(UTC)
 
 

@@ -1,8 +1,8 @@
-"""源文件进出项目回收站：删除或替换上传时，源文件连同它的原始上传件成为一条带结构快照的删除记录。
+"""Source files entering/leaving project trash: deletion/replacement uploads create deletion records containing sources/raw originals plus structure snapshots.
 
-原始上传件是 ``source/raw/`` 下与源文件同主干的文件，按主干与源文件对应。恢复时源文件一律作为未纳入整本源文的
-源文件加回，由创作者在分集视图里决定是否接回；原路径空闲（盘上没有、不在整本源文清单里、不是集文件名）就沿用，
-否则源文件与原始上传件一起换成「<主干> (n)」，保持主干对应。
+Raw originals under ``source/raw/`` match source filename stems. Restoration always adds sources outside whole-source manifests,
+letting creators reconnect through Episodes. Reuse paths only if absent on disk/manifests and not episode filenames;
+otherwise rename both source/original to <stem> (n), preserving associations.
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ _RAW_DIR = "source/raw"
 
 
 def trash_source_file(project_dir: Path, rel: str, undo: ExitStack) -> project_trash.TrashRecord | None:
-    """把源文件 ``rel``（``source/<文件名>``）与它的原始上传件移进一条删除记录；两者都不在盘上时返回 None。
+    """Move source ``rel`` (``source/<文件名>``) plus raw originals into deletion records; None if neither exists.
 
-    调用方持有项目锁，``undo`` 是同一事务的撤销栈：事务失败时记录撤回、文件回到原处。
+    Callers hold project locks; ``undo`` is shared transaction rollback, retracting records/restoring files on failure.
     """
     files = [rel] if _plain_file(project_dir / rel) else []
     raw = _raw_files(project_dir, PurePosixPath(rel).stem)
@@ -43,7 +43,7 @@ def trash_source_file(project_dir: Path, rel: str, undo: ExitStack) -> project_t
 
 
 def take_source_file(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """从迁移后的临时项目取出源文件与它的原始上传件，作为未纳入整本源文的源文件加回。"""
+    """Take sources/raw originals from migrated temporary projects, adding outside whole-source manifests."""
     rel = str(obj.get("path"))
     raw = [str(item) for item in obj.get("raw") or [] if _plain_file(staged / str(item))]
     text = [rel] if _plain_file(staged / rel) else []

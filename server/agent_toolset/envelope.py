@@ -1,11 +1,6 @@
-"""把一个 ``ToolOutcome`` 编码成两宿主共用的结果信封。
+"""Encode a ``ToolOutcome`` into the result envelope shared by both hosts.
 
-结构化结果只有一份：成功为 ``{domain_key: 值}``（声明带 ``projection`` 时由它给出），失败为
-``{"problem": {code, detail, action?, params?}}``。
-文本块为「摘要（如有）+ 这份结构化结果的 JSON」；内嵌宿主把文本块写进 content，远程宿主另把
-结构化结果写进 ``structuredContent``。声明带 ``images`` 时，图片作为 MCP 图片内容块排在文本块之后，
-两宿主相同。
-"""
+There is one structured result: success is ``{domain_key: value}`` (provided by ``projection`` when declared), failure is ``{problem: ...}``. The text block contains the optional summary followed by this structured result’s JSON. The embedded host writes text blocks into content; the remote host also writes the structured result into ``structuredContent``. When ``images`` is declared, MCP image content blocks follow the text block identically for both hosts."""
 
 from __future__ import annotations
 
@@ -19,14 +14,14 @@ from server.tool_runtime import ToolOutcome, ToolProblem
 
 _PROBLEM_SUMMARIES: dict[str, str] = {
     MIGRATION_FAILURE_CODE: (
-        "❌ 项目数据升级未完成，生成、正式写入与剧本 revision 签发均已关闭。"
-        "请按 problem 明细修复后调用 retry_project_migration。"
+        "❌ Project-data upgrade is incomplete; generation, formal writes, and script revision issuance are disabled. "
+        "Repair according to the problem details, then call retry_project_migration."
     ),
 }
 
 
 def json_value(value: Any) -> Any:
-    """把 typed 领域值投影成 JSON 安全值。"""
+    """Project typed domain values into JSON-safe values."""
     model_dump = getattr(value, "model_dump", None)
     if callable(model_dump):
         return model_dump(mode="json")

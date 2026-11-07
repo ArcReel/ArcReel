@@ -35,9 +35,9 @@ _listeners_lock = RLock()
 def build_change_label(label_key: str, **params: Any) -> dict[str, Any]:
     """Build the label triplet carried by one project change.
 
-    ``label_key`` + ``label_params`` 是稳定契约，界面按用户语言查表成文；``label`` 是同一
-    条目的默认语言渲染结果，只服务日志与不识别 key 的旧消费方，不作为界面文案来源。
-    """
+    ``label_key`` + ``label_params`` form a stable contract rendered by UI in the user's language.
+    ``label`` is the same entry rendered in the default language, only for logs/legacy consumers that
+    do not recognize keys, never the UI wording source."""
     return {
         "label": _(f"event_label_{label_key}", locale=DEFAULT_LOCALE, **params),
         "label_key": label_key,

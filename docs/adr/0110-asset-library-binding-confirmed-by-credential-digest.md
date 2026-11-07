@@ -2,12 +2,12 @@
 status: accepted
 ---
 
-# 素材库绑定按凭证内容确认，控制面主机由站点决定
+# Confirm library bindings against credential content; sites determine control-plane hosts
 
-供应商素材库的控制面只接受 Access Key 签名，与推理 API Key 是两套凭证；素材属于哪个账号、项目，只有用户知道。因此素材库账号与推理凭证分开保存，由用户显式把推理凭证绑定到账号的资源范围（站点、区域、项目）。确认绑定时记下推理凭证内容、endpoint 与账号范围的摘要，读取时按当前值重新计算：任何一项变化，绑定都回到待确认，之后的调用按无绑定处理。不采用「按凭证记录 ID 绑定即永久有效」：凭证记录可以原地换成另一个账号的 Key 或指向另一个 endpoint，按 ID 继承会让旧账号的素材 ID 发往新账号。
+Provider-library control planes accept Access Key signatures, separate from inference API Keys; only users know account/project ownership. Store library accounts separately and require users to explicitly bind inference credentials to site/region/project resource scope. Confirmation records a digest of credential content, endpoint, and account scope, recomputed on reads. Any change returns pending confirmation and later calls act unbound. Reject permanent record-ID binding: credentials may change accounts or endpoints in place, causing old-account asset IDs to be sent to another account.
 
-控制面请求只发往代码里为站点与区域登记的官方主机（火山引擎 `ark.cn-beijing.volcengineapi.com`，BytePlus `ark.ap-southeast-1.byteplusapi.com`），不从推理凭证的 base_url 推断。base_url 可以由用户改成任意中转地址，按它推断主机等于把控制面密钥交给该地址。自定义供应商同样可以绑定，是否支持素材引用不按域名猜测。
+Control-plane requests go only to registered official site/region hosts (`ark.cn-beijing.volcengineapi.com` for Volcengine, `ark.ap-southeast-1.byteplusapi.com` for BytePlus), never inferred from inference base_url. Users can redirect base_url to arbitrary relays; inferring hosts hands them control-plane secrets. Custom providers can bind too; do not guess asset-reference support by domain.
 
-## 后果
+## Consequences
 
-用户轮换推理 Key 或改 endpoint 后需要回到设置页重新确认绑定，多一步操作，但不会静默沿用旧账号资格。绑定只表达用户的确认，供应商仍按自己的权限校验每次调用。官方文档新增素材库区域时，在站点登记表中补充主机即可。范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+Key rotation or endpoint changes require reconfirmation in settings, one extra action rather than silent reuse of old-account eligibility. Binding expresses user confirmation only; providers authorize every call themselves. Add hosts to site registrations when official documentation adds regions. Scope/acceptance: [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559).

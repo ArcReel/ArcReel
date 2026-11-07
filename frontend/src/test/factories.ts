@@ -35,7 +35,7 @@ export function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   };
 }
 
-/** 一个最小可用的计划步骤；各用例只覆盖自己关心的轴。 */
+/** Minimal usable plan steps; cases override only relevant dimensions. */
 export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPlanStep {
   return {
     id: "video",
@@ -52,7 +52,7 @@ export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPla
   };
 }
 
-/** 一集的内容现状；缺省是有集原文、正式脚本 2 条、提示词都已编写、没有草稿与提醒。 */
+/** Episode content states; defaults include episode sources, 2 formal script entries with completed prompts, no drafts/reminders. */
 export function makeContent(overrides: Partial<WorkflowContent> = {}): WorkflowContent {
   return {
     episode_count: 1,
@@ -115,7 +115,7 @@ export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   };
 }
 
-/** 一条旁白分镜；默认两侧提示词都是文本形态，各用例按需覆盖为结构化或待编写（null）。 */
+/** Narration storyboards default to text prompts on both sides; cases override structured prompts or pending null as needed. */
 export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegment {
   return {
     segment_id: "E1S01",
@@ -132,7 +132,7 @@ export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}):
   };
 }
 
-/** 服务端逐单元定桶结论的共享构造器；缺省是无引用、落 i2v 的单元，各场景按需覆盖。 */
+/** Shared server per-unit bucket-result builder; defaults to reference-free i2v units, overridden by scenarios. */
 export function makeReferenceUnitCapability(
   unitId: string,
   overrides: Partial<ReferenceUnitCapability> = {},
@@ -154,7 +154,7 @@ export function makeReferenceUnitCapability(
   };
 }
 
-/** 覆盖清单条目的共享构造器；缺省是名下没有任何产物的条目。 */
+/** Shared overwrite-manifest entry builder; defaults to entries owning no artifacts. */
 export function makeScriptOverwriteEntry(
   id: string,
   overrides: Partial<ScriptOverwriteEntry> = {},
@@ -170,7 +170,7 @@ export function makeScriptOverwriteEntry(
   };
 }
 
-/** 覆盖清单的共享构造器；`text` 是服务端渲染好的丢失清单，确认框原样呈现。 */
+/** Shared overwrite-manifest builder; `text` is server-rendered loss manifests, displayed unchanged in confirmations. */
 export function makeScriptOverwrite(overrides: Partial<ScriptOverwrite> = {}): ScriptOverwrite {
   return {
     revision: "sha256-v1:formal",

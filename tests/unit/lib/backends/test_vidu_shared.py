@@ -1,4 +1,4 @@
-"""lib.backends.vidu_shared 单元测试 — 重点校验凭证解析与连接测试的环境变量回退语义。"""
+"""lib.backends.vidu_shared credential resolution/probe environment-fallback semantics."""
 
 from __future__ import annotations
 
@@ -15,12 +15,12 @@ from tests.http_capture import capture_http, only_request
 
 class TestResolveViduApiKey:
     def test_explicit_key_wins(self, monkeypatch: pytest.MonkeyPatch):
-        # spec §5.4：即使 env 里有 VIDU_API_KEY，也不会被 fallback；显式参数永远优先且唯一来源。
+        # Spec §5.4: even VIDU_API_KEY never supplies fallback; explicit arguments are sole prioritized sources.
         monkeypatch.setenv("VIDU_API_KEY", "from-env")
         assert vidu_shared.resolve_vidu_api_key("explicit") == "explicit"
 
     def test_env_no_longer_falls_back(self, monkeypatch: pytest.MonkeyPatch):
-        """spec §5.4：删除 env fallback——即使 VIDU_API_KEY 在环境中，缺失参数仍 raise。"""
+        """Spec §5.4 removes environment fallback; missing arguments raise even with VIDU_API_KEY set."""
         monkeypatch.setenv("VIDU_API_KEY", "from-env")
         with pytest.raises(ValueError, match="Vidu API Key"):
             vidu_shared.resolve_vidu_api_key(None)
@@ -32,12 +32,12 @@ class TestResolveViduApiKey:
 
 
 class TestViduConnectionTestKeyResolution:
-    """连接测试 config 缺失 api_key 时必须在 resolve 阶段直接 raise（不应发起 HTTP 请求）。"""
+    """Missing connection-test api_key raises during resolution, never initiating HTTP."""
 
     def test_missing_config_key_raises_before_http(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("VIDU_API_KEY", "from-env")
 
-        # 未声明任何路由：真发出请求会被 respx 判红，凭证解析失败必须先于出站发生
+        # No declared routes means real HTTP fails through respx; resolution must fail before outbound requests.
         with capture_http() as router:
             with pytest.raises(ValueError, match="Vidu API Key"):
                 vidu_shared.test_vidu_connection({})
@@ -47,16 +47,16 @@ class TestViduConnectionTestKeyResolution:
 
 @contextmanager
 def _probe_route(*, status_code: int, body: str = "") -> Generator[respx.Route]:
-    """连接测试探针的出站流：走 respx 在 transport 层拦截。
+    """Transport-level respx captures connection probes.
 
-    白名单判定的输入是真实响应的状态码，URL 拼接与 Authorization 头都在断言范围内。
+    Allowlisting uses real response statuses; URL joining/Authorization headers are asserted.
     """
     with capture_http() as router:
         yield router.get(url__regex=r".*/tasks/0/creations").mock(return_value=httpx.Response(status_code, text=body))
 
 
 class TestViduConnectionTestUrl:
-    """验证连接测试用数字 task id（Vidu 服务端把 id 当 int 解析，非数字会 400 CODEC）。"""
+    """Connection probes use numeric task IDs because Vidu parses integers, rejecting others with 400 CODEC."""
 
     def test_url_uses_numeric_bogus_id(self):
         with _probe_route(status_code=404) as route:
@@ -67,7 +67,7 @@ class TestViduConnectionTestUrl:
         assert request.headers["authorization"] == "Token vda_test"
 
     def test_404_is_success(self):
-        """404 = task 不存在但认证通过，白名单放行：不抛错，且探针请求确实发出去了。"""
+        """404 means missing task but accepted auth, so allow without errors and verify actual probe requests."""
         with _probe_route(status_code=404) as route:
             assert vidu_shared.test_vidu_connection({"api_key": "vda_test"}) is None
 
@@ -84,8 +84,8 @@ class TestViduConnectionTestUrl:
 
 class TestFetchViduTaskErrorRedaction:
     async def test_poll_4xx_message_drops_query_credentials(self):
-        # 轮询 4xx 的异常消息会经 str(exc) 落进 task.error_message 与日志；按 query 传的
-        # 凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。
+        # Polling 4xx str(exc) enters task.error_message/logs; query credentials appear in
+        # raise_for_status URLs, so sanitize before raising.
         with capture_http() as router:
             router.get(url__regex=r"^https://api\.vidu\.cn/ent/v2/tasks/t-1/creations").mock(
                 return_value=httpx.Response(401, json={"detail": "invalid token"})

@@ -1,8 +1,8 @@
 ---
 id: style/live_kurosawa
 category: style
-title: 黑泽明
-description: "真人画风，黑白高对比 · 人性史诗。"
+title: "Kurosawa"
+description: "Live action, high-contrast black and white · human epic."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-黑泽明风格，高对比黑白质感，强烈自然元素（风雨尘），动态构图，戏剧化光影，人性史诗感
+Akira Kurosawa style, high-contrast black-and-white texture, strong natural elements (wind, rain, dust), dynamic composition, dramatic lighting, a sense of epic human drama

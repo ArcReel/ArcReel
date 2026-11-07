@@ -1,1 +1,1 @@
-- 每一集另给出 story_beats（本集故事节点列表，按顺序）与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）；剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。
+- Also provide story_beats (the ordered list of this episode’s story beats) and next_episode_teaser (a teaser for the next episode; null is allowed for the last episode if what follows is unknown). If the screenplay explicitly provides beats / a next-episode teaser, copy their original wording; otherwise derive them yourself.

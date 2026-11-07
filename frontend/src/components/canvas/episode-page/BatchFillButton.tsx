@@ -8,7 +8,7 @@ import { useWorkflowStore, workflowPlanKey } from "@/stores/workflow-store";
 
 export type BatchFillKind = "storyboards" | "videos" | "narration";
 
-/** 计划里各类产物的集合名。 */
+/** Artifact collection names in the plan. */
 const ARTIFACT_OF: Record<BatchFillKind, string> = {
   storyboards: "storyboards",
   videos: "videos",
@@ -16,8 +16,8 @@ const ARTIFACT_OF: Record<BatchFillKind, string> = {
 };
 
 /**
- * 这一集某类产物还要补齐几份：计划里缺失的条目扣掉正在生成的。
- * 计划还没取到或属于别的集、这类产物读不了或本项目不涉及时数不出来，返回 null。
+ * How many episode artifacts of a type remain: missing planned entries minus those generating.
+ * Return null when the plan is absent/belongs to another episode, this artifact state is unreadable, or the type does not apply.
  */
 export function useBatchGap(
   projectName: string,
@@ -37,8 +37,8 @@ export function useBatchGap(
 }
 
 /**
- * 页头的批量补齐按钮：写明补哪类产物、补几份；没有可补的置灰并说明已齐。
- * 数量数不出来时照常可用、不写数量，点开的确认框会列出这一批。
+ * Header batch-fill button identifies the artifact type/count; disable with a complete explanation when nothing remains.
+ * If the count is unavailable, remain enabled without it; the confirmation dialog lists batch targets.
  */
 export function BatchFillButton({
   kind,
@@ -49,7 +49,7 @@ export function BatchFillButton({
 }: {
   kind: BatchFillKind;
   count: number | null;
-  /** 参考生视频项目：提示里逐条重新生成的位置是视频单元。 */
+  /** Reference-to-video projects: individually regenerated positions in hints are video units. */
   units?: boolean;
   disabled?: boolean;
   onClick: () => void;

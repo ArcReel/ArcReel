@@ -1,4 +1,4 @@
-"""项目 ``project.json`` 里的模型引用：每个项目的模型设置字段各引用了哪个 ``provider/model``。"""
+"""Model references in project ``project.json``: the ``provider/model`` referenced by each model-setting field."""
 
 from __future__ import annotations
 
@@ -13,16 +13,17 @@ from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
 class ProjectModelReferences:
     name: str
     title: str | None
-    #: 模型设置字段 → 所引的 ``provider/model``；只收非空字符串值。
+    #: Model-setting field to referenced ``provider/model``; nonempty strings only.
     references: Mapping[str, str]
 
 
 def project_model_references() -> list[ProjectModelReferences]:
-    """逐个读项目的 ``project.json``，取出模型设置字段的引用；读不了的项目跳过。
+    """Read each project's ``project.json`` for model-setting references; skip unreadable projects.
 
-    只读 JSON，不取锁、不迁移（``ProjectManager.load_project``），耗时与项目数成正比。同步文件 I/O，异步调用方放到线程里。
+    Read JSON only, without locks or migration (``ProjectManager.load_project``); time scales with project count. Synchronous file I/O: async callers offload to threads.
     """
-    pm = resolver.get_project_manager()  # 经模块属性取：用例按 lib.config.resolver 替换项目管理器
+    # Read through module attributes: tests replace project managers through lib.config.resolver
+    pm = resolver.get_project_manager()
     found: list[ProjectModelReferences] = []
     for name in pm.list_projects():
         try:

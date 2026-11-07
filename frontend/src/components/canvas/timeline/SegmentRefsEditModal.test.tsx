@@ -106,7 +106,7 @@ describe("SegmentRefsEditModal", () => {
     );
     const ghostRow = screen.getByRole("button", { name: /Ghost/ });
     expect(ghostRow).toBeInTheDocument();
-    // 失效说明写在行内，读屏随按钮名称一起读出
+    // Inline invalidity explanations are read with button names by screen readers.
     expect(ghostRow).toHaveAccessibleName(expect.stringContaining("失效"));
     // Removing the stale ref enables save
     fireEvent.click(ghostRow);

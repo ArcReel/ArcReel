@@ -1,9 +1,6 @@
-"""媒体生成工具的声明。
+"""Media-generation tool declarations.
 
-生成类工具是长任务：ArcReel Agent 等到批次终态，拿到 ``generation_result`` 与 ``batch_id``；外部 Agent
-立即拿到 ``generation_batch`` 句柄并轮询。两种值由同一组结果钩子投影，终态的 ``generation_result`` 与
-批次终态查询附带的生成结果同形。
-"""
+Generation tools are long tasks: ArcReel Agent waits until the batch is terminal and receives ``generation_result`` and ``batch_id``; external Agents immediately receive a ``generation_batch`` handle and poll. The same result hooks project both forms; terminal ``generation_result`` matches the generation result attached to terminal batch queries."""
 
 from __future__ import annotations
 
@@ -64,10 +61,9 @@ def generation_tool(
     projection: Callable[[Any], dict[str, Any]] = generation_structured,
     is_error: Callable[[Any], bool] = generation_is_error,
 ) -> ToolDeclaration[Any, Any]:
-    """生成类长任务的声明：入口阻断迁移失败的项目，结果缺省按生成结果钩子投影。
+    """Declare a generation long task: block migration-failed projects at entry and project results through generation hooks by default.
 
-    成功值在生成结果之外还有别的形态（如宫格的规划预览）时，传入覆盖这一形态的三个钩子。
-    """
+    If successful values have other forms (such as a grid planning preview), supply three hooks covering that form."""
     return ToolDeclaration(
         name=name,
         description=description,
@@ -85,8 +81,7 @@ def generation_tool(
 LIST_PENDING_ASSETS = ToolDeclaration(
     name="list_pending_assets",
     description=(
-        "列出项目中尚无资产图的角色、场景、道具与商品（名称与描述摘要）；type 省略则汇总全部类型。只读，无副作用。"
-        "项目数据升级失败时返回 project_migration_failed problem；按其明细修复后调用 retry_project_migration。"
+        "List characters, scenes, props, and products without asset sheets (names and description summaries); omit type to aggregate all types. Read-only, no side effects. If project-data upgrade failed, returns project_migration_failed; repair according to its details and call retry_project_migration."
     ),
     request_model=ListPendingAssetsRequest,
     migration=READ_CHECK,
@@ -97,11 +92,7 @@ LIST_PENDING_ASSETS = ToolDeclaration(
 GENERATE_ASSETS = generation_tool(
     name="generate_assets",
     description=(
-        "批量生成角色 / 场景 / 道具 / 商品的资产图（付费生成，图片写入项目）。"
-        "多个类型的资产纳入同一批次；只补缺图时，已失效但可用的旧图会被复用，不会自动重生。"
-        "缺少 description 的资产逐个记为 blocked。"
-        "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐 ID 给出结局，"
-        "ID 形如 character/张三，每个失败项带稳定 code 与下一步动作。"
+        "Batch-generate character / scene / prop / product asset sheets (paid generation; writes images into the project). Assets of multiple types share one batch. When only filling missing images, stale but usable images are reused rather than automatically regenerated. Assets without description are individually blocked. Terminal generation_result gives requested / succeeded / failed / blocked outcomes by ID, such as character/张三; each failed item has a stable code and next action."
     ),
     request_model=GenerateAssetsRequest,
     handler=generate_assets,
@@ -110,12 +101,7 @@ GENERATE_ASSETS = generation_tool(
 GENERATE_STORYBOARDS = generation_tool(
     name="generate_storyboards",
     description=(
-        "为说书（narration）或剧情演绎剧本生成分镜图（付费生成，图片写入项目 storyboards/）。"
-        "只补缺图时，已失效但可用的旧图不会被自动重生。"
-        "引用了未登记名称或所引用主体尚无资产图的分镜、缺少 image_prompt 的分镜逐个记为 blocked；"
-        "生成失败的分镜另记录到 storyboards/generation_failures.json。"
-        "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐 ID 给出结局，"
-        "每个失败项带稳定 code 与下一步动作。"
+        "Generate storyboard images for narration or drama scripts (paid generation; images written to project storyboards/). When only filling missing images, stale but usable images are not automatically regenerated. Individually blocks shots referencing unregistered names or subjects without asset sheets, and shots without image_prompt. Generation failures are also recorded in storyboards/generation_failures.json. Terminal generation_result gives requested / succeeded / failed / blocked outcomes by ID; each failed item has a stable code and next action."
     ),
     request_model=GenerateStoryboardsRequest,
     handler=generate_storyboards,
@@ -124,15 +110,7 @@ GENERATE_STORYBOARDS = generation_tool(
 EDIT_IMAGES = generation_tool(
     name="edit_images",
     description=(
-        "对已生成的资产图 / 分镜图做指令式局部编辑：保持原图大体不变，仅按指令修改不满意的部分"
-        "（如换发色、去掉背景杂物、调整光线氛围），支持同类型批量下发（付费生成，编辑结果写入项目）。"
-        "与「重新生成」的区别：编辑 = 保底图微调、不改变原 image_prompt，之后重新生成会按原 prompt 重画、"
-        "作废本次编辑效果；重新生成 = 按原 prompt 整图重画，会推翻已满意的部分。"
-        "用户只想改局部时用编辑；用户想推翻构图 / 内容重来、或原 image_prompt 本身要改时用重新生成。"
-        "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时每个 ID "
-        "记为 blocked（image_capability_missing_i2i），不创建任何生成任务。"
-        "编辑始终是显式选择（每条编辑自带指令），终态结果的 generation_result 按 "
-        "requested / succeeded / failed / blocked 逐 ID 给出结局。"
+        "Make instruction-based local edits to existing asset sheets / storyboard images: keep the overall original image and change only unsatisfactory parts as instructed (such as hair color, background clutter, or lighting). Supports same-type batches (paid generation; writes edited images into the project). Editing differs from regeneration: editing makes small changes using the base image and leaves the original image_prompt unchanged; later regeneration redraws from the original prompt and discards the edit. Regeneration redraws the whole image from the original prompt, replacing satisfactory parts too. Use editing for local changes; use regeneration when the user wants new composition / content or the original image_prompt itself must change. Editing always requires image-to-image (i2i); if the current project image provider lacks i2i, each ID is blocked with image_capability_missing_i2i and no generation tasks are created. Editing is always an explicit selection, with an instruction per edit. Terminal generation_result gives requested / succeeded / failed / blocked outcomes by ID."
     ),
     request_model=EditImagesRequest,
     handler=edit_images,
@@ -141,12 +119,7 @@ EDIT_IMAGES = generation_tool(
 GENERATE_NARRATION_AUDIO = generation_tool(
     name="generate_narration_audio",
     description=(
-        "为任意生成模式中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS；付费生成，音频写入项目 audio/）。"
-        "只补缺配音时，已失效但可用的旧配音不会被自动重生。"
-        "显式点名的单元若发声不属于叙述旁白、未通过发声准入或没有可合成的旁白文本，逐个记为 blocked。"
-        "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐 ID 给出结局，"
-        "每个失败项带稳定 code 与下一步动作。"
-        "合成文本在 worker 开始时从最新剧本的规范 narrator utterances 读取，不依赖分镜图或视频。"
+        "Explicitly generate narration voiceover for units whose speech belongs to narrator, in any generation mode (TTS; paid generation; audio written to project audio/). When only filling missing voiceover, stale but usable voiceover is not automatically regenerated. Individually blocks named units whose speech is not narration, which fail speech admission, or which have no synthesizable narration text. Terminal generation_result gives requested / succeeded / failed / blocked outcomes by ID; each failed item has a stable code and next action. At worker start, synthesis text is read from canonical narrator utterances in the latest script, independent of storyboard images or videos."
     ),
     request_model=GenerateNarrationAudioRequest,
     handler=generate_narration_audio,
@@ -155,24 +128,7 @@ GENERATE_NARRATION_AUDIO = generation_tool(
 GENERATE_VIDEOS = generation_tool(
     name="generate_videos",
     description=(
-        "为分镜图生视频或参考生视频项目生成视频片段（付费生成，视频写入项目）。"
-        "已有可用成片（Manifest 认定 current / stale，或被选中的手动上传版本）默认复用。"
-        "申请档位取剧本编排时长，与项目的旁白交付方式无关。"
-        "整批准入：任一目标未通过准入（缺素材、发声冲突、提示词待补、产物状态不可读等），"
-        "或有目标需要用户确认跨档时长费用时，本次零任务入队、不产生批次，"
-        "结果带 batch_admission 逐单元明细与 request_projections 请求投影；"
-        "用户确认档位后把原目标集合一次性重发，不要按档位拆成多次调用。"
-        "preview=true 只预检：走同一份准入但不入队、不产生批次，返回 video_quote 报价单"
-        "（逐 unit 的 outcome 为 generate / reuse / blocked，附编排时长、申请档位、tier_changed、"
-        "estimated_cost 与 problems，另有 estimated_total 与 confirmed_request_durations），"
-        "报价与正式提交一致；需要用户先确认费用时先预检。"
-        "价目表算不出价的单元，estimated_cost.amount 为 null 并带 unpriced_reason，单元的 unpriced 为 true；"
-        "estimated_total 只合计已定价的单元，未定价的单元数在 unpriced_count，一个单元都没有定价时为 null。"
-        "未定价不是 0 元：如实告知用户这些单元的费用未知，不要把合计当作整批的价。"
-        "用户确认后正式提交时原样带上报价单的 confirmed_request_durations，"
-        "就不会再返回档位确认；两次调用之间档位变了，仍会要求重新确认。"
-        "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐 ID 给出结局，"
-        "每个失败项带稳定 code 与下一步动作。"
+        "Generate video clips for storyboard-video or reference-video projects (paid generation; videos written into the project). Existing usable videos (Manifest current / stale, or selected manually uploaded versions) are reused by default. Requested duration tiers derive from script planned duration, regardless of narration delivery. Admission is all-or-nothing: if any target fails admission (missing material, speech conflicts, pending prompts, unreadable artifact state, etc.), or needs user confirmation of cross-tier duration costs, zero tasks are enqueued and no batch is created. Results include per-unit batch_admission details and request_projections. After the user confirms tiers, resend the original full target set once; do not split calls by tier. preview=true only prechecks: same admission without queueing or batch creation, returning video_quote (per-unit generate / reuse / blocked outcome, planned duration, requested tier, tier_changed, estimated_cost, problems, plus estimated_total and confirmed_request_durations). Quotes match formal submission; preview first when costs need confirmation. For units whose price cannot be calculated, estimated_cost.amount is null with unpriced_reason, and unpriced is true; estimated_total sums only priced units, unpriced_count counts unpriced units, and the total is null if none are priced. Unpriced does not mean free: tell the user those costs are unknown and do not present the sum as the full-batch price. On formal submission after confirmation, pass quoted confirmed_request_durations unchanged to avoid another tier confirmation; if tiers changed between calls, confirmation is requested again. Terminal generation_result gives requested / succeeded / failed / blocked outcomes by ID; each failed item has a stable code and next action."
     ),
     request_model=GenerateVideosRequest,
     handler=generate_videos,

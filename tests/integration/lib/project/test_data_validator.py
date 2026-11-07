@@ -49,7 +49,7 @@ class TestDataValidator:
 
     @pytest.mark.parametrize("style", [None, ""], ids=["absent", "empty"])
     def test_validate_project_accepts_project_without_style(self, tmp_path, style):
-        """未选风格（自定义风格图或尚未选择）的项目是合法状态，风格不是必填字段。"""
+        """Unselected styles, such as custom style images or no choice yet, are valid; style is optional."""
         payload = _project_payload()
         if style is None:
             del payload["style"]
@@ -65,7 +65,7 @@ class TestDataValidator:
 
     @pytest.mark.parametrize("style", [None, 123, False, [], {}], ids=["null", "int", "bool", "list", "dict"])
     def test_validate_project_rejects_non_string_style(self, tmp_path, style):
-        """风格值出现即须为字符串，显式 null 与其他类型都按类型错误报告，不当作未选风格放行。"""
+        """Present style values must be strings; explicit null/other types are type errors, not valid unselected styles."""
         payload = _project_payload()
         payload["style"] = style
         project_dir = tmp_path / "projects" / "demo"
@@ -78,7 +78,7 @@ class TestDataValidator:
 
     @pytest.mark.parametrize("style", [None, "", " \n"], ids=["absent", "empty", "whitespace"])
     def test_validate_project_rejects_selected_template_without_snapshot(self, tmp_path, style):
-        """选定了风格模版的项目必须带展开快照，否则设置页显示已选模版而生成端拿不到风格。"""
+        """Selected style templates require expanded snapshots, or settings would show selection while generation lacks style."""
         payload = _project_payload()
         payload["style_template_id"] = "live_cinematic"
         if style is None:
@@ -95,7 +95,7 @@ class TestDataValidator:
 
     @pytest.mark.parametrize("template_id", [0, ["live_cinematic"]], ids=["falsy", "truthy"])
     def test_validate_project_rejects_non_string_template_id(self, tmp_path, template_id):
-        """模版 id 非字符串按类型错误报告，不参与「已选模版须有快照」的判定。"""
+        """Nonstring template IDs are type errors, excluded from selected-template-needs-snapshot checks."""
         payload = _project_payload()
         payload["style_template_id"] = template_id
         payload["style"] = ""
@@ -109,7 +109,7 @@ class TestDataValidator:
         assert not any("缺少必填字段：style" in error for error in result.errors)
 
     def test_validate_project_treats_empty_template_id_as_none(self, tmp_path):
-        """创建接口按真值判定是否展开模版，空串 id 与 null 同义，不要求快照。"""
+        """Creation expands templates by truthiness; empty IDs equal null and require no snapshot."""
         payload = _project_payload()
         payload["style_template_id"] = ""
         payload["style"] = ""
@@ -132,7 +132,7 @@ class TestDataValidator:
 
     def test_validate_project_reports_missing_and_invalid_fields(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
-        # title 字段完全缺失才报错;空字符串在新策略下属于合法状态(前端 i18n 兜底)
+        # Only absent title errors; empty strings are valid under the new frontend i18n fallback policy.
         _write_json(
             project_dir / "project.json",
             {
@@ -151,17 +151,17 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
-        # title 完全缺失 → "缺少必填字段",区别于"字段类型错误"
+        # Absent title means missing required field, distinct from field-type errors.
         assert any("缺少必填字段：title" in error for error in result.errors)
         assert any("content_mode" in error for error in result.errors)
         assert any("角色 'A' 数据格式错误" in error for error in result.errors)
-        # 描述为空的场景 / 道具不报错
+        # Empty scene/prop descriptions do not error.
         assert not any("场景 'X'" in error for error in result.errors)
         assert not any("道具 'Y'" in error for error in result.errors)
 
     def test_validate_project_rejects_non_string_title(self, tmp_path):
-        # title 字段存在但类型不是 string(如 int / null / list)应给出区分于"缺失"的明确文案,
-        # 避免调用方误以为字段没写。
+        # Existing nonstring title, such as int/null/list, needs explicit type-error copy distinct from absence,
+        # preventing callers from assuming they omitted the field.
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload()
         payload["title"] = 123
@@ -174,8 +174,8 @@ class TestDataValidator:
         assert not any("缺少必填字段：title" in error for error in result.errors)
 
     def test_validate_project_allows_empty_title(self, tmp_path):
-        # title 为空字符串属于合法状态:前端会以「未命名项目」i18n 兜底,
-        # lib 层不再要求 title 非空,避免 ProjectManager 写路径被迫存 slug 作 fallback。
+        # Empty titles are valid; frontend uses the unnamed-project i18n fallback.
+        # lib no longer requires nonempty titles, avoiding forced slug fallbacks in ProjectManager writes.
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload()
         payload["title"] = ""
@@ -187,8 +187,8 @@ class TestDataValidator:
         assert not any("title" in error for error in result.errors)
 
     def test_validate_project_rejects_non_string_voice_updated_at(self, tmp_path):
-        # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，不开放通用 PATCH），
-        # 但仍须校验类型：外部编辑/导入把它写成非字符串会在前端时间戳比较处静默产生 NaN。
+        # voice_updated_at is outside extra_string_fields, a system-only timestamp not exposed through generic PATCH,
+        # but still needs type checks: external edits/imports could silently cause NaN in frontend timestamp comparisons.
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload()
         payload["characters"]["姜月茴"]["voice_updated_at"] = 12345
@@ -200,9 +200,9 @@ class TestDataValidator:
         assert any("voice_updated_at 必须是字符串" in error for error in result.errors)
 
     def test_validate_project_rejects_unparseable_voice_updated_at(self, tmp_path):
-        # 类型是字符串但不是合法 ISO8601 时不会被上面的类型校验拦下，但前端
-        # `new Date(iso).getTime()` 解析会得到 NaN，参与比较恒为 false——横幅因此静默
-        # 失效而非报错，比类型错误更隐蔽，须单独校验值本身能否被解析。
+        # Strings that are invalid ISO8601 evade type checks, but frontend
+        # `new Date(iso).getTime()` yields NaN, making comparisons always false and silently disabling banners.
+        # This is subtler than type errors; separately validate value parseability.
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload()
         payload["characters"]["姜月茴"]["voice_updated_at"] = "not-a-date"
@@ -225,7 +225,7 @@ class TestDataValidator:
         assert any("voice_notice_dismissed_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
 
     def test_validate_project_accepts_z_and_offset_voice_timestamps(self, tmp_path):
-        # 仓库内两种实际写出的格式都须放行：秒级 Z 后缀（版本还原）与微秒级 +00:00 偏移
+        # Accept both repository-written formats: seconds with Z from restoration, and microseconds with +00:00 offset.
         # （datetime.now(UTC).isoformat()）。
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload()
@@ -301,7 +301,7 @@ class TestDataValidator:
 
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
-        # 引用的音频文件不存在 → 中央校验报错（不再被白名单静默放过）
+        # Missing referenced audio files cause central validation errors, without silent allowlist acceptance.
         assert not result.valid
         assert any("narration_audio" in error for error in result.errors)
 
@@ -332,7 +332,7 @@ class TestDataValidator:
 
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
-        # 文件存在 → 整条校验链应通过，且不产生 narration_audio 相关错误
+        # Existing files pass the whole chain without narration_audio errors.
         assert result.valid
         assert not any("narration_audio" in error for error in result.errors)
 
@@ -360,7 +360,7 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
-        # scenes/props 都是 optional，缺少时应有警告
+        # scenes/props are optional; warn when missing.
         assert any("缺少 scenes" in warning for warning in result.warnings)
         assert any("缺少 props" in warning for warning in result.warnings)
 
@@ -393,15 +393,15 @@ class TestDataValidator:
         assert not result.valid
         assert any("episode (整数)" in error for error in result.errors)
         assert any("segment_id 格式错误" in error for error in result.errors)
-        # 5 是正整数 → 合法，不应再报 duration_seconds 错误
+        # 5 is a valid positive integer, with no duration_seconds error.
         assert not any("duration_seconds 值无效" in error for error in result.errors)
         assert any("不存在于 project.json 的角色" in error for error in result.errors)
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
     def test_validate_episode_accepts_nfc_nfd_mismatch_on_narration_segment_refs(self, tmp_path):
-        """segment 的角色/场景/道具引用一律按 NFC 归一比对：登记闸口落 NFC 后，
-        保留原 NFD 拼写的存量剧本仍须放行，否则合法剧本会被判为引用了未登记资产。"""
+        """Normalize all segment character/scene/prop references to NFC for comparison; after registration writes NFC,
+        legacy scripts retaining NFD spellings remain valid instead of appearing to reference unregistered assets."""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -440,7 +440,7 @@ class TestDataValidator:
         assert result.valid, result.errors
 
     def test_validate_episode_accepts_nfc_nfd_mismatch_on_drama_scene_refs(self, tmp_path):
-        """drama 场景的三类引用与 narration segment 同口径归一。"""
+        """Drama's three reference types normalize identically to narration segments."""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -478,7 +478,7 @@ class TestDataValidator:
 
     @pytest.mark.parametrize("bad_duration", [0, -1, "5", 4.5, True])
     def test_validate_episode_rejects_non_positive_integer_duration(self, tmp_path, bad_duration):
-        """非正整数的 duration_seconds 仍应报错（0 / 负数 / 字符串 / 浮点 / bool）。"""
+        """Reject duration_seconds that is not a positive integer: 0 / negative / string / float / bool."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
         _write_json(
@@ -531,7 +531,7 @@ class TestDataValidator:
         assert result.valid
 
     def _drama_episode_with_scene(self, tmp_path, scene_extra: dict, project_extra: dict | None = None):
-        # 构造一个最小 drama 剧集，scene 合并 scene_extra（用于针对性校验 utterances）
+        # Minimal drama episode; merge scene_extra into scenes for targeted utterance checks.
         project_dir = tmp_path / "projects" / "demo"
         project = _project_payload("drama")
         project.update(project_extra or {})
@@ -553,7 +553,7 @@ class TestDataValidator:
         return validate_episode("demo", "episode_2.json", projects_dir=str(tmp_path / "projects"))
 
     def test_validate_episode_drama_accepts_valid_utterances(self, tmp_path):
-        # 合法 utterances（dialogue 带 speaker、voiceover 无 speaker）→ 通过
+        # Valid utterances: dialogue with speaker, voiceover without speaker → pass.
         result = self._drama_episode_with_scene(
             tmp_path,
             {
@@ -566,13 +566,13 @@ class TestDataValidator:
         assert result.valid
 
     def test_validate_episode_drama_rejects_non_list_utterances(self, tmp_path):
-        # utterances 出现但不是数组 → 结构错误
+        # Nonarray utterances → structural error.
         result = self._drama_episode_with_scene(tmp_path, {"utterances": "这不是数组"})
         assert not result.valid
         assert any("utterances" in error for error in result.errors)
 
     def test_validate_episode_drama_rejects_dialogue_without_speaker(self, tmp_path):
-        # kind ⇄ speaker：dialogue 缺非空 speaker → 校验失败
+        # kind ⇄ speaker: dialogue without nonempty speaker → validation failure.
         result = self._drama_episode_with_scene(
             tmp_path, {"utterances": [{"kind": "dialogue", "speaker": "", "text": "无主台词"}]}
         )
@@ -580,7 +580,7 @@ class TestDataValidator:
         assert any("speaker" in error for error in result.errors)
 
     def test_validate_episode_drama_rejects_voiceover_with_speaker(self, tmp_path):
-        # kind ⇄ speaker：voiceover 带 speaker → 校验失败
+        # kind ⇄ speaker: voiceover with speaker → validation failure.
         result = self._drama_episode_with_scene(
             tmp_path, {"utterances": [{"kind": "voiceover", "speaker": "旁白人", "text": "解说"}]}
         )
@@ -588,8 +588,8 @@ class TestDataValidator:
         assert any("speaker" in error for error in result.errors)
 
     def test_validate_episode_drama_rejects_non_string_speaker(self, tmp_path):
-        # speaker 非字符串非 null（如数字）→ 校验失败：镜像 Pydantic 的 speaker: str | None 类型约束，
-        # 不在结构校验里静默放行、到 Pydantic 才崩
+        # Speaker values other than strings/null, such as numbers, fail like Pydantic speaker: str | None,
+        # instead of passing structure checks and later failing Pydantic.
         result = self._drama_episode_with_scene(
             tmp_path, {"utterances": [{"kind": "voiceover", "speaker": 123, "text": "解说"}]}
         )
@@ -597,21 +597,21 @@ class TestDataValidator:
         assert any("speaker" in error for error in result.errors)
 
     def test_validate_episode_drama_accepts_voiceover_blank_speaker(self, tmp_path):
-        # voiceover 的空串 / 纯空白 speaker 等价「无 speaker」（与 Pydantic _normalize_speaker 同口径）→ 放行，
-        # 不比权威 Pydantic 模型更严
+        # Empty/whitespace voiceover speakers mean no speaker, matching Pydantic _normalize_speaker → allow;
+        # do not be stricter than authoritative Pydantic models.
         result = self._drama_episode_with_scene(
             tmp_path, {"utterances": [{"kind": "voiceover", "speaker": "  ", "text": "解说"}]}
         )
         assert result.valid
 
     def test_validate_episode_drama_legacy_voiceover_tolerated(self, tmp_path):
-        # 存量 drama（无 utterances、残留旧 voiceover）走读时迁移，校验层放行、不阻塞导出
+        # Legacy drama without utterances but with old voiceover uses read migration; validation allows export.
         result = self._drama_episode_with_scene(tmp_path, {"voiceover": ["旧画外音"]})
         assert result.valid
 
     def test_validate_episode_drama_warns_when_speech_overflows_scene(self, tmp_path):
-        # 单向上界：估算说话时长（台词）超场景 duration × 容差 → 仅 warn，不阻塞保存
-        long_line = "台词" * 60  # 120 个汉字阅读单位，远超 8 秒场景的容差上界
+        # One-sided upper bound: estimated dialogue exceeds scene duration × tolerance → warn only, without blocking save.
+        long_line = "台词" * 60  # 120 Han reading units greatly exceed the 8-second scene tolerance.
         assert estimate_spoken_seconds(long_line, None) > 8 * (1 + DRAMA_SPEECH_OVERFLOW_TOLERANCE)
         result = self._drama_episode_with_scene(
             tmp_path,
@@ -624,7 +624,7 @@ class TestDataValidator:
         assert any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_speech_overflow_uses_project_speech_rate(self, tmp_path):
-        # 项目级语速覆盖生效：同一段台词在快速覆盖下不再触发说话量上界 warning
+        # Project speech-rate overrides apply: faster settings suppress the same dialogue's speech-volume warning.
         line = "台词" * 60
         scene = {
             "duration_seconds": 8,
@@ -636,8 +636,8 @@ class TestDataValidator:
         assert not any("说话时长" in w for w in fast.warnings)
 
     def test_validate_project_rejects_out_of_range_speech_rate(self, tmp_path):
-        # 项目级语速覆盖出现即须落在硬区间内；越界 / 非数字都是 error
-        # 10**400 是 project.json 里合法但超出双精度范围的整数字面量，须报越界而非中断校验
+        # Present speech-rate overrides must lie within hard bounds; out-of-range/nonnumeric means error.
+        # 10**400 is legal project.json integer syntax beyond double precision; report out-of-range without interrupting validation.
         for index, bad in enumerate((0, -1, 20.5, "5", 10**400)):
             case_root = tmp_path / f"case-{index}"
             project_dir = case_root / "projects" / "demo"
@@ -657,7 +657,7 @@ class TestDataValidator:
         assert result.valid, result.errors
 
     def test_validate_project_rejects_out_of_range_episode_target_duration(self, tmp_path):
-        # 出现即须是落在硬区间内的整数秒；越界 / 浮点 / 非数字都是 error
+        # Present values require integer seconds within hard bounds; out-of-range/float/nonnumeric means error.
         for index, bad in enumerate((5, 900, 120.0, "120")):
             case_root = tmp_path / f"etd-{index}"
             project_dir = case_root / "projects" / "demo"
@@ -677,7 +677,7 @@ class TestDataValidator:
         assert result.valid, result.errors
 
     def test_validate_episode_drama_speech_overflow_counts_voiceover(self, tmp_path):
-        # 说话量含画外音：台词 + 画外音一并计入估算（与字幕派生同口径）
+        # Speech volume includes dialogue plus voiceover, matching subtitle derivation.
         long_vo = "旁白" * 60
         result = self._drama_episode_with_scene(
             tmp_path,
@@ -690,7 +690,7 @@ class TestDataValidator:
         assert any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_no_warning_when_speech_fits(self, tmp_path):
-        # 界内：说话量在场景 duration × 容差以内 → 不产说话量 warning
+        # Within scene duration × tolerance, emit no speech-volume warning.
         result = self._drama_episode_with_scene(
             tmp_path,
             {
@@ -705,7 +705,7 @@ class TestDataValidator:
         assert not any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_no_warning_when_speech_far_under_duration(self, tmp_path):
-        # 单向上界：说话量远少于分镜时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
+        # One-sided bound: much less speech than storyboard duration does not warn; visuals drive duration and silence is valid.
         result = self._drama_episode_with_scene(
             tmp_path,
             {
@@ -717,36 +717,36 @@ class TestDataValidator:
         assert not any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_no_speech_warning_without_utterances(self, tmp_path):
-        # 无 utterances（存量 / 未填）→ 不产说话量 warning，也不崩
+        # No utterances in legacy/unfilled data means no speech-volume warnings or crashes.
         result = self._drama_episode_with_scene(tmp_path, {"duration_seconds": 8})
         assert result.valid, result.errors
         assert not any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_accepts_source_text(self, tmp_path):
-        # source_text（逐字原文锚）为字符串 → 通过
+        # String source_text verbatim anchors → pass.
         result = self._drama_episode_with_scene(tmp_path, {"source_text": "推门而入，信纸还在桌上。"})
         assert result.valid
 
     def test_validate_episode_drama_accepts_missing_source_text(self, tmp_path):
-        # source_text 缺失（存量 / best-effort 留空）→ 放行，默认空串
+        # Missing source_text from legacy/best-effort output → allow, default empty string.
         result = self._drama_episode_with_scene(tmp_path, {})
         assert result.valid
 
     @pytest.mark.parametrize("field", ["source_text", "scene_description"])
     def test_validate_episode_drama_rejects_non_string_text_field(self, tmp_path, field):
-        # 非字符串（如数字）→ 校验失败：镜像 Pydantic 的 str 类型约束
+        # Nonstring values, such as numbers, fail, mirroring Pydantic str constraints.
         result = self._drama_episode_with_scene(tmp_path, {field: 123})
         assert not result.valid
         assert any(field in error for error in result.errors)
 
     def test_validate_episode_drama_accepts_scene_description(self, tmp_path):
-        # 转换透传的视觉改编描述为字符串 → 通过（正式分镜 extra=forbid 也接受）
+        # String visual-adaptation descriptions passed through conversion are valid, including formal-storyboard extra=forbid.
         result = self._drama_episode_with_scene(tmp_path, {"scene_description": "雨夜天台，阿离背身而立"})
         assert result.valid
 
     def test_validate_episode_drama_rejects_null_source_text(self, tmp_path):
-        # source_text 显式 null → 校验失败：区分「键缺失」（放行、默认空串）与「显式 null」（拒绝），
-        # 与共享模型 source_text: str（extra=forbid 下拒 null）同口径，避免校验器先放行、模型层再失败
+        # Explicit source_text=null fails, distinct from missing keys that default empty;
+        # match shared source_text: str models rejecting null under extra=forbid, avoiding validator/model disagreement.
         result = self._drama_episode_with_scene(tmp_path, {"source_text": None})
         assert not result.valid
         assert any("source_text" in error for error in result.errors)
@@ -756,10 +756,10 @@ class TestDataValidator:
         assert not result.valid
         assert any("无法加载 project.json" in error for error in result.errors)
 
-    # ── 新增测试 ──────────────────────────────────────────────
+    # New tests.
 
     def test_project_json_validates_scenes_and_props(self, tmp_path):
-        """新 schema：scenes + props 两个字典都通过校验"""
+        """New schema: scenes + props dictionaries both pass validation."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(
             project_dir / "project.json",
@@ -784,7 +784,7 @@ class TestDataValidator:
         assert result.errors == []
 
     def test_project_json_rejects_legacy_clues(self, tmp_path):
-        """顶层 clues 字段应报废弃错误"""
+        """Top-level clues reports a deprecation error."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(
             project_dir / "project.json",
@@ -802,7 +802,7 @@ class TestDataValidator:
         assert any("已废弃字段 clues" in error for error in result.errors)
 
     def test_validate_episode_drama_invalid_scene_prop_refs(self, tmp_path):
-        """剧情演绎：引用未定义的 scenes/props 应报错"""
+        """Drama references to undefined scenes/props error."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("drama"))
         _write_json(
@@ -831,9 +831,9 @@ class TestDataValidator:
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
     def test_validate_episode_malformed_segment_ref_reports_error_not_typeerror(self, tmp_path):
-        """segments[*].scenes 混入 dict 等不可哈希元素时（``_validate_segment_refs`` 的比对分支），
-        须走校验失败分支而非因集合运算崩溃——episode JSON 来自外部文件，脏数据必须报错而不是
-        让 validate_episode 直接抛异常。"""
+        """Unhashable dict-like elements in segments[*].scenes, on ``_validate_segment_refs`` comparison paths,
+        must fail validation instead of crashing set operations. External episode JSON corruption requires reported errors,
+        not exceptions escaping validate_episode."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
         _write_json(
@@ -862,9 +862,9 @@ class TestDataValidator:
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
 
     def test_legacy_scene_type_field_does_not_block_export(self, tmp_path):
-        """存量项目里残留 scene_type='对话'/'动作'/'过渡' 等任意值不该阻断导出。
+        """Legacy scene_type values such as 对话/动作/过渡 must not block exports.
 
-        scene_type 字段已废弃,validator 不再校验。
+        scene_type is retired and no longer validated.
         """
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("drama"))
@@ -893,7 +893,7 @@ class TestDataValidator:
 
 
 class TestDerivativeReferences:
-    """``characters_in_*`` 接受 ``角色/衍生``：有效引用集合与正文引用同一份（docs/adr/0072）。"""
+    """``characters_in_*`` accepts ``角色/衍生`` using the same valid-reference set as body mentions (docs/adr/0072)."""
 
     @staticmethod
     def _episode(character_reference: str) -> dict:
@@ -935,7 +935,7 @@ class TestDerivativeReferences:
 
 
 class TestEpisodeLedgerFields:
-    """分集账本字段：全部可缺失（该集无位置记录），存在时按 lib.episode.episode_ledger 模型校验形状。"""
+    """Episode-ledger fields are all optional without position records; present fields follow lib.episode.episode_ledger model shapes."""
 
     def _validate(self, tmp_path, episode_entry=None, whole_source_files="__absent__"):
         payload = _project_payload()
@@ -954,7 +954,7 @@ class TestEpisodeLedgerFields:
         assert result.valid, result.errors
 
     def test_bool_episode_num_rejected(self, tmp_path):
-        """True/False 是 int 子类但不是合法集号：会与第 1/0 集同键碰撞，须显式拒绝。"""
+        """True/False subclass int but are invalid episode IDs, colliding with 1/0 keys; reject explicitly."""
         result = self._validate(tmp_path, self._entry(episode=True))
         assert any("episode" in e for e in result.errors)
 
@@ -972,7 +972,7 @@ class TestEpisodeLedgerFields:
         assert result.valid, result.errors
 
     def test_empty_title_allowed_on_episode_entry(self, tmp_path):
-        # 孤儿条目登记新建的条目 title 为空串；写入方（剧本同步）在剧本缺 title 时也写 ""
+        # Orphan registration creates empty titles; script-sync writers also write "" when scripts lack title.
         entry = self._entry()
         entry["title"] = ""
         result = self._validate(tmp_path, entry)
@@ -985,7 +985,7 @@ class TestEpisodeLedgerFields:
         assert any("title" in e for e in result.errors)
 
     def test_unknown_ledger_status_tolerated(self, tmp_path):
-        """当前状态集之外的取值按「无状态」容忍：存量项目可能留有已废弃的状态值。"""
+        """Tolerate values outside current statuses as absent status; legacy projects may retain retired states."""
         result = self._validate(tmp_path, self._entry(ledger_status="done"))
         assert result.valid, result.errors
 
@@ -1001,7 +1001,7 @@ class TestEpisodeLedgerFields:
         assert any("source_range" in e for e in result.errors)
 
     def test_escaping_source_file_rejected(self, tmp_path):
-        # source_file 是消费方按路径读源文的依据，越界值（..）必须在校验层拒绝
+        # Consumers read sources by source_file paths; reject out-of-bounds .. values in validation.
         result = self._validate(
             tmp_path,
             self._entry(source_range={"source_file": "../outside.txt", "start": 0, "end": 1}),
@@ -1046,7 +1046,7 @@ class TestEpisodeLedgerFields:
         assert any("source_origin" in e for e in result.errors)
 
     def test_legacy_status_with_source_range_tolerated(self, tmp_path):
-        """遗留状态值 + 合法 source_range 不再互斥校验：位置真相只看 source_range 本身。"""
+        """Legacy statuses no longer conflict with valid source_range; positions depend only on source_range itself."""
         result = self._validate(
             tmp_path,
             self._entry(
@@ -1069,7 +1069,7 @@ class TestEpisodeLedgerFields:
         assert result.valid, result.errors
 
     def test_tree_validation_allows_missing_script_for_ledgered_entry(self, tmp_path):
-        """账本条目的 script_file 是前瞻性契约：剧本尚未生成不算 tree 校验错误。"""
+        """Ledger script_file is a forward-looking contract; ungenerated scripts do not count as tree-validation errors."""
         payload = _project_payload()
         payload["episodes"] = [
             {
@@ -1087,8 +1087,8 @@ class TestEpisodeLedgerFields:
         assert not any("script_file" in e for e in result.errors), result.errors
 
     def test_tree_validation_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
-        """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
-        形状合法（集号可解析）即视为正常账本条目，剧本未生成同样不阻断。"""
+        """v2→v3 no longer backfills ledger_status, so upgraded entries may never have it;
+        valid shapes with parseable episode IDs are normal ledger entries, even before script generation."""
         payload = _project_payload()
         payload["episodes"] = [{"episode": 1, "title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1098,7 +1098,7 @@ class TestEpisodeLedgerFields:
         assert not any("script_file" in e for e in result.errors), result.errors
 
     def test_tree_validation_missing_script_still_blocks_malformed_entry(self, tmp_path):
-        """集号无法解析的畸形条目不是合法账本条目：script_file 仍须实际存在。"""
+        """Unparseable episode IDs are not valid ledger entries; their script_file must actually exist."""
         payload = _project_payload()
         payload["episodes"] = [{"title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1109,7 +1109,7 @@ class TestEpisodeLedgerFields:
 
     @pytest.mark.parametrize("bad_episode_num", [0, -1])
     def test_tree_validation_missing_script_still_blocks_non_positive_episode_num(self, tmp_path, bad_episode_num):
-        """0/负数集号能被 parse_episode_num 解析，但不是合法集号：script_file 仍须实际存在。"""
+        """parse_episode_num can parse 0/negative IDs, but they are invalid; script_file must still exist."""
         payload = _project_payload()
         payload["episodes"] = [{"episode": bad_episode_num, "title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1119,7 +1119,7 @@ class TestEpisodeLedgerFields:
         assert any("episodes[0].script_file" in e for e in result.errors)
 
     def test_tree_validation_traversal_still_rejected_for_ledgered_entry(self, tmp_path):
-        """missing_ok 只豁免「文件不存在」，路径越界对账本条目照常拒绝。"""
+        """missing_ok exempts missing files only; out-of-bounds ledger paths still reject."""
         payload = _project_payload()
         payload["episodes"] = [
             {
@@ -1136,7 +1136,7 @@ class TestEpisodeLedgerFields:
         assert any("越界" in e for e in result.errors)
 
     def test_tree_validation_reference_audio_missing_field_is_valid(self, tmp_path):
-        """reference_audio 是可选字段：角色没有该字段/为空串时不应报错。"""
+        """reference_audio is optional; absent/empty character fields must not error."""
         payload = _project_payload()
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
@@ -1196,7 +1196,7 @@ def _ad_project_payload(**overrides) -> dict:
 
 
 class TestAdProjectValidation:
-    """广告/短片项目的 project.json 校验：target_duration/brief 字段与恒单集约束。"""
+    """Ad/short-film project.json validation: target_duration/brief and always-single-episode constraints."""
 
     def _validate(self, tmp_path, payload: dict):
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1207,7 +1207,7 @@ class TestAdProjectValidation:
         assert result.valid, result.errors
 
     def test_ad_accepts_arbitrary_positive_target_duration(self, tmp_path):
-        # UI 只给四档，但数据层接受任意正整数秒
+        # UI offers four tiers; data accepts any positive integer seconds.
         result = self._validate(tmp_path, _ad_project_payload(target_duration=47))
         assert result.valid, result.errors
 
@@ -1287,7 +1287,7 @@ class TestAdProjectValidation:
 
 
 class TestGenerationModeValidation:
-    """生成模式（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
+    """Required binary generation_mode and grid_storyboard type validation."""
 
     def _validate(self, tmp_path, payload: dict):
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1317,7 +1317,7 @@ class TestGenerationModeValidation:
 
     @pytest.mark.parametrize("mode", [{"value": "storyboard"}, ["storyboard"], 5])
     def test_non_scalar_route_reported_as_error(self, tmp_path, mode):
-        """非标量脏值报校验错误而非抛异常——归档导入据此返回 400 而不是 500。"""
+        """Invalid nonscalars yield validation errors, not exceptions; archive imports return 400 instead of 500."""
         payload = _project_payload()
         payload["generation_mode"] = mode
         result = self._validate(tmp_path, payload)
@@ -1339,7 +1339,7 @@ class TestGenerationModeValidation:
 
 
 class TestAdEpisodeValidation:
-    """广告/短片剧本（平铺 shots[]）的结构与引用完整性校验。"""
+    """Ad/short-film flat shots[] structure and reference-integrity validation."""
 
     def _ad_shot(self, **overrides) -> dict:
         shot = {
@@ -1402,9 +1402,9 @@ class TestAdEpisodeValidation:
         assert any("products_in_shot" in e for e in result.errors)
 
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """products_in_shot 与分镜图生成输入（经引用目录解析）同口径归一：
-        NFC/NFD 不一致的合法商品名必须放行，否则校验层比实际生成时的装配更严格，
-        挡下装配其实能解析的商品。"""
+        """products_in_shot normalizes like storyboard-generation inputs resolved through reference catalogs;
+        valid NFC/NFD-different names must pass, or validation would be stricter than actual assembly
+        and block products generation can resolve."""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1416,9 +1416,9 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
 
     def test_shot_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的参考图装配
-        （lib.artifacts.generation_input，经引用目录解析）归一后索引，校验层
-        若在此原样比对会拒掉装配其实能解析的合法名字。"""
+        """Storyboard references also compare normalized NFC; reference assembly through
+        lib.artifacts.generation_input/catalogs indexes normalized values, so raw validation
+        would reject legitimate resolvable names."""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1437,13 +1437,13 @@ class TestAdEpisodeValidation:
         assert any("duration_seconds" in w for w in result.warnings)
 
     def test_storyboard_path_accepts_duration_above_reference_cap(self, tmp_path):
-        """storyboard 路径的成员校验在生成 schema 层（supported_durations 枚举）；
-        校验器只把关正整数，16 秒不按 reference 区间拒。"""
+        """Storyboard membership is enforced in generation schemas through supported_durations enums;
+        this validator checks positive integers only, without rejecting 16 seconds by reference-mode bounds."""
         result = self._validate(tmp_path, [self._ad_shot(duration_seconds=16)])
         assert result.valid, result.errors
 
     def test_total_duration_drift_warns_but_passes(self, tmp_path):
-        """剧本总时长与 target_duration 偏差超阈值仅 warn，不阻塞。"""
+        """Total duration differing from target_duration beyond tolerance warns only, without blocking."""
         project = _ad_project_payload(target_duration=60)
         result = self._validate(tmp_path, [self._ad_shot(duration_seconds=3)], project=project)
         assert result.valid, result.errors
@@ -1462,7 +1462,7 @@ class TestAdEpisodeValidation:
 
 
 class TestAdEpisodeValidationEdgeCases:
-    """ad storyboard 剧本的脏数据容错。"""
+    """Corrupt-data tolerance for ad storyboard scripts."""
 
     def test_non_string_shot_id_reported_not_crash(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
@@ -1516,7 +1516,7 @@ class TestAdEpisodeValidationEdgeCases:
 
 
 class TestAdReferenceVideoUnitsValidation:
-    """ad 参考生视频与其他创作类型共用自包含 video_units 校验。"""
+    """Ad reference-to-video shares self-contained video_units validation with other content types."""
 
     @staticmethod
     def _unit(**overrides) -> dict:
@@ -1567,7 +1567,7 @@ class TestAdReferenceVideoUnitsValidation:
         assert any("needs_replan" in error for error in result.errors)
 
     def test_unregistered_mention_is_not_a_structural_error(self, tmp_path):
-        """参考图是执行期派生物：正文里未登记的 `@[名称]` 只在渲染侧发 warning，不判结构错误。"""
+        """References derive at execution; unregistered body `@[名称]` only warns during rendering, without structural error."""
         result = self._validate(tmp_path, [self._unit(text="@[不存在的资产] 出现在画面里")])
         assert result.valid, result.errors
 
@@ -1585,7 +1585,7 @@ class TestAdReferenceVideoUnitsValidation:
 
 
 class TestSourceKindValidation:
-    """源文件类型随源文件记录：缺失按小说放行，只拦非法值；并锁泛指 speaker 回归。"""
+    """Source types persist per source file; absent defaults to novel, invalid values reject; also guard generic-speaker regressions."""
 
     def _validate(self, tmp_path, project):
         project_dir = tmp_path / "projects" / "demo"
@@ -1624,10 +1624,10 @@ class TestSourceKindValidation:
         assert any("source_kind" in e for e in result.errors)
 
     def test_generic_speaker_in_drama_dialogue_passes_validation(self, tmp_path):
-        """泛指 speaker（未注册角色）只进 dialogue、不进 characters_in_scene → 校验通过。
+        """Generic unregistered speakers in dialogue, outside characters_in_scene, pass validation.
 
-        校验器只约束 characters_in_scene 成员须为已注册角色，不约束 dialogue.speaker；
-        screenplay 提取出的群演台词（speaker=老人甲）须能过校验、不被强行注册。
+        Only characters_in_scene membership requires registration, not dialogue.speaker;
+        screenplay extras such as speaker=老人甲 must pass without forced registration.
         """
         project_dir = tmp_path / "projects" / "demo"
         payload = self._payload("screenplay")
@@ -1650,7 +1650,7 @@ class TestSourceKindValidation:
                             "action": "转身",
                             "camera_motion": "Static",
                             "ambiance_audio": "风声",
-                            # 泛指群演 speaker 不在 characters 中，仍合法
+                            # Generic extras outside characters remain valid speakers.
                             "dialogue": [{"speaker": "老人甲", "line": "天黑了，快回家。"}],
                         },
                         "voiceover": ["多年以后，她仍记得那个夜晚。"],
@@ -1663,7 +1663,7 @@ class TestSourceKindValidation:
 
 
 def _episode_for_kind(kind: str, items: object) -> tuple[dict, dict]:
-    """按骨架种类构造 (project, episode)：episode 的骨架数组键置为传入的 items（可为非法值）。"""
+    """Construct (project, episode) by skeleton kind, setting the episode item-array key to supplied, possibly invalid, items."""
     array_key, content_mode, gen_mode = {
         "segments": ("segments", "narration", None),
         "scenes": ("scenes", "drama", None),
@@ -1679,7 +1679,7 @@ def _episode_for_kind(kind: str, items: object) -> tuple[dict, dict]:
 
 
 class TestSkeletonEntryTypeGuards:
-    """四种骨架的校验循环遇非 dict 条目 / 骨架字段非 list：记错误、valid=False、不抛异常。"""
+    """All four skeleton loops report errors/valid=False for nondict items or nonlist skeleton fields, without raising."""
 
     def _validate(self, tmp_path, project: dict, episode: dict):
         project_dir = tmp_path / "projects" / "demo"
@@ -1697,7 +1697,7 @@ class TestSkeletonEntryTypeGuards:
         ],
     )
     def test_non_dict_entry_reported_not_crash(self, tmp_path, kind, array_key):
-        # 骨架数组含非 dict 条目（字符串）：记「条目类型错误」并继续，valid=False，不抛异常
+        # Nondict string items report item-type errors and continue with valid=False, without raising.
         project, episode = _episode_for_kind(kind, ["不是对象", {}])
         result = self._validate(tmp_path, project, episode)
         assert not result.valid
@@ -1713,7 +1713,7 @@ class TestSkeletonEntryTypeGuards:
         ],
     )
     def test_non_list_skeleton_field_reported_not_crash(self, tmp_path, kind, array_key):
-        # 骨架数组字段本身非 list（dict）：记「必须是数组」，valid=False，不抛异常
+        # A dict instead of the array field reports must-be-array, valid=False, without raising.
         project, episode = _episode_for_kind(kind, {"E1S01": {}})
         result = self._validate(tmp_path, project, episode)
         assert not result.valid
@@ -1721,7 +1721,7 @@ class TestSkeletonEntryTypeGuards:
 
 
 class TestRouteSkeletonMismatchValidation:
-    """存量失配剧本（曾含集级生成模式覆盖的混排集）：报结构结论 + 重拆指引，不逐字段报缺失。"""
+    """Mismatched legacy scripts with historical per-episode generation overrides report structural conclusions/resplitting guidance, not per-field absence."""
 
     def test_unit_script_under_storyboard_route_is_rejected(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
@@ -1735,7 +1735,7 @@ class TestRouteSkeletonMismatchValidation:
 
         assert not result.valid
         assert any("骨架" in error and "重新拆分" in error for error in result.errors), result.errors
-        # 只报生成模式失配结论，不叠加“缺少 segments”之类的下游噪声。
+        # Report only generation-mode mismatch, without downstream missing-segments noise.
         assert len(result.errors) == 1, result.errors
 
     def test_storyboard_script_under_reference_route_is_rejected(self, tmp_path):
@@ -1754,7 +1754,7 @@ class TestRouteSkeletonMismatchValidation:
         assert any("generate_script_plan" in error for error in result.errors), result.errors
 
     def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
-        """参考生视频剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
+        """Leftover storyboard arrays in reference-to-video are not mismatches; present video_units validates as units without blocking import."""
         payload = _project_payload()
         payload["generation_mode"] = "reference_video"
         project_dir = tmp_path / "projects" / "demo"
@@ -1775,7 +1775,7 @@ class TestRouteSkeletonMismatchValidation:
         assert not any("骨架" in error for error in result.errors), result.errors
 
     def test_residual_route_stamp_is_ignored(self, tmp_path):
-        """存量剧本残留的 generation_mode 戳是未知字段：不参与判别，也不让校验失败。"""
+        """Legacy generation_mode stamps are unknown fields, neither affecting classification nor failing validation."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload())
         _write_json(
@@ -1791,13 +1791,13 @@ class TestRouteSkeletonMismatchValidation:
 
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
-        # 仍按 segments 骨架校验（空数组另有其错），不因残留戳被判成失配。
+        # Still validate segments (empty arrays have separate errors), without treating leftover stamps as mismatches.
         assert not any("骨架" in error for error in result.errors), result.errors
 
 
 class TestInvalidContentModeEpisodeValidation:
-    """content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
-    但剧集级校验的契约是把脏数据报告成结构化错误，不让异常向外传播。"""
+    """Present invalid legacy/corrupt content_mode makes resolve_declared_kind fail loudly with ValueError,
+    but episode validation must report corruption as structured errors without propagating exceptions."""
 
     def test_validate_episode_reports_structured_error_not_crash(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
@@ -1828,8 +1828,8 @@ class TestInvalidContentModeEpisodeValidation:
         assert any("content_mode" in error for error in result.errors), result.errors
 
     def test_episode_level_invalid_content_mode_also_reported(self, tmp_path):
-        # 项目级 content_mode 合法，但剧集自身声明的 content_mode 非法（覆盖项目级值）：
-        # 同样结构化报错，不抛异常。
+        # Valid project content_mode but invalid overriding episode content_mode
+        # likewise yields structured errors, not exceptions.
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
         _write_json(
@@ -1843,8 +1843,8 @@ class TestInvalidContentModeEpisodeValidation:
         assert any("content_mode" in error for error in result.errors), result.errors
 
     def test_missing_episode_content_mode_still_falls_back_to_project_value(self, tmp_path):
-        # 回归防线：剧集级 content_mode 完全缺失时仍应回落项目级值 / "narration"，不触发本次改动
-        # 新增的错误分支。
+        # Regression: entirely absent episode content_mode still falls back to project / "narration", without the new
+        # error branch introduced here.
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
         _write_json(
@@ -1872,14 +1872,14 @@ class TestInvalidContentModeEpisodeValidation:
         assert result.valid, result.errors
 
 
-# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+# Skeleton kind → triggering (content_mode, generation_mode), inverse to resolve_declared_kind.
 _KIND_TO_MODES = {
     "segments": ("narration", None),
     "scenes": ("drama", None),
     "shots": ("ad", None),
     "video_units": ("narration", "reference_video"),
 }
-# 骨架种类 → 该骨架应触达的 validator 方法名。
+# Skeleton kind → expected validator method.
 _KIND_TO_VALIDATOR = {
     "segments": "_validate_segments",
     "scenes": "_validate_scenes",
@@ -1889,16 +1889,16 @@ _KIND_TO_VALIDATOR = {
 
 
 class TestDataValidatorSkeletonExhaustiveness:
-    """穷尽性断言：_validate_episode_payload 的骨架→validator 分派覆盖 SKELETONS 全部键。
+    """Exhaustiveness: _validate_episode_payload skeleton-to-validator dispatch covers every SKELETONS key.
 
-    第五种骨架加入 SKELETONS（+ 规范解析映射）时，分派 else 分支 fail-loud，此测试逐个报红。
+    Adding a fifth skeleton plus canonical mapping makes dispatch else fail loudly, and this test fails per case.
     """
 
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_episode_dispatch_covers_every_skeleton_kind(self, kind, tmp_path, monkeypatch):
         from lib.script.script_skeleton import SKELETONS
 
-        # 遍历 SKELETONS 全键：新增第五种骨架而下方映射未登记即 KeyError 报红。
+        # Traverse all SKELETONS keys; fifth skeletons absent from the map below raise KeyError.
         assert set(_KIND_TO_MODES) == set(SKELETONS)
         assert set(_KIND_TO_VALIDATOR) == set(SKELETONS)
 
@@ -1909,7 +1909,7 @@ class TestDataValidatorSkeletonExhaustiveness:
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 
         project = {"content_mode": content_mode, "products": {}}
-        # 剧本不携带生成模式标记；骨架数组照 kind 摆出来，否则会先被生成模式闸门按失配拒掉。
+        # Scripts carry no generation-mode stamps; arrange arrays by kind or generation-mode gates reject mismatches first.
         episode = {"episode": 1, "title": "第一集", "content_mode": content_mode, kind: []}
         if gen_mode:
             project["generation_mode"] = gen_mode
@@ -1920,9 +1920,9 @@ class TestDataValidatorSkeletonExhaustiveness:
         assert _KIND_TO_VALIDATOR[kind] in called
 
     def test_narration_data_in_scenes_key_is_validated_as_scenes(self, tmp_path, monkeypatch):
-        """族内历史形态（narration 数据落 scenes 键）被闸门放行后，按剧本实际骨架校验。
+        """After gates admit legacy narration data under scenes, validate its actual skeleton.
 
-        按声明的 segments 分派会去读不存在的数组，scenes 里的数据一条都不受校验。
+        Dispatching by declared segments reads a nonexistent array, leaving all scenes unvalidated.
         """
         called: list[str] = []
         for name in _KIND_TO_VALIDATOR.values():
@@ -1938,7 +1938,7 @@ class TestDataValidatorSkeletonExhaustiveness:
 
 
 class TestCharacterDerivativesStructure:
-    """衍生表的结构校验：两个字段都被下游当文本消费，非字符串须在落盘前拒绝。"""
+    """Derivative-table structure: downstream consumes both fields as text; reject nonstrings before persistence."""
 
     @staticmethod
     def _keys(derivatives: object) -> list[str]:
@@ -1958,7 +1958,7 @@ class TestCharacterDerivativesStructure:
         assert self._keys("dirty") == ["val_asset_field_must_be_object"]
 
     def test_non_object_table_reaches_the_asset_definition_subset(self):
-        """衍生表的结构错误须带 ``val_asset_`` 前缀，否则资产子集校验会把脏形状判为合法。"""
+        """Derivative structural errors require ``val_asset_`` prefixes, or asset-subset validation would accept malformed shapes."""
         project = _project_payload()
         project["characters"]["姜月茴"]["derivatives"] = "dirty"
         result = DataValidator("/tmp").validate_asset_definitions(project)
@@ -1985,7 +1985,7 @@ class TestCharacterDerivativesStructure:
 
 
 class TestAssetDescription:
-    """资产描述只是生成资产图的输入：存在时须为字符串，空串与缺省都合法。"""
+    """Asset descriptions are generation inputs only; present values require strings, while empty/absent is valid."""
 
     _BUCKETS = ("characters", "scenes", "props", "products")
 
@@ -2021,7 +2021,7 @@ class TestAssetDescription:
 
 class TestPendingPromptValidation:
     def test_pending_prompts_are_not_reported_as_missing(self, tmp_path):
-        """机械转换落盘的条目 image_prompt / video_prompt 为 None：属于待生成态，校验不报错。"""
+        """Mechanically persisted image_prompt / video_prompt=None means pending generation, without validation errors."""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload())
         _write_json(

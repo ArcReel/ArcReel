@@ -9,15 +9,15 @@ import type { TaskItem } from "@/types";
 
 const TERMINAL: ReadonlySet<string> = new Set(["succeeded", "failed", "cancelled"]);
 
-/** 衍生因同批本体没有成功而从未提交给供应商。 */
+/** Derivatives never submitted because their same-batch base assets did not succeed. */
 function heldBackByOwner(task: TaskItem): boolean {
   return task.error_code === "cascade_blocked_dependency" || task.cancelled_by === "cascade";
 }
 
 /**
- * 资产图批量生成的整批通知：一批的成员任务全部落到终态后推一条汇总，可点击回跳到
- * 第一张失败的资产（全部成功时回跳到第一张）。成员任务的逐条失败通知由
- * useTaskFailureNotifications 让出，卡片上也不留失败痕迹。
+ * Whole asset-image batch notifications: once every member task is terminal, push one summary linking to
+ * the first failed asset (first asset if all succeeded). useTaskFailureNotifications yields individual
+ * member-task failure notices; cards retain no failure traces either.
  */
 export function useAssetSheetBatchNotifications(projectName?: string | null): void {
   const { t } = useTranslation("assets");
@@ -41,7 +41,7 @@ export function useAssetSheetBatchNotifications(projectName?: string | null): vo
     );
     if (missing.size === 0) return;
     let cancelled = false;
-    // 任务列表有分页上限；批次成员不在列表里时按 ID 补读，每轮任务刷新重取未落定状态。
+    // Task lists have pagination caps; fetch missing batch members by ID, rereading unresolved states on each task refresh.
     void Promise.all([...missing].map((id) => API.getTask(id).catch(() => null))).then((rows) => {
       if (!cancelled) {
         setMissingTasks(Object.fromEntries(rows.filter((row) => row !== null).map((row) => [row.task_id, row])));
@@ -65,7 +65,7 @@ export function useAssetSheetBatchNotifications(projectName?: string | null): vo
       const ownerMissing = failed.filter(({ task, member }) =>
         task ? heldBackByOwner(task) : member.problem_code === "generation_dependency_failed",
       ).length;
-      // 生成完成时目标已删除：任务成功但结果进了项目回收站，不算作已生成。
+      // Targets deleted at generation completion: tasks succeed but outputs enter project trash, so do not count as generated.
       const targetDeleted = rows.filter(
         ({ status, task }) => status === "succeeded" && task?.result?.target_deleted === true,
       ).length;

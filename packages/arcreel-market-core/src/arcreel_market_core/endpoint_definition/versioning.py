@@ -1,10 +1,10 @@
-"""``schema_version`` 的比对与档位判定，以及 ``meta.min_app_version`` 的门槛判定。
+"""``schema_version`` comparison and category classification, plus the ``meta.min_app_version`` threshold check.
 
-档位只是给用户的提示信号，**不是闸门**：任何档位的定义都须过当前 schema 才能保存，过不了即
-普通校验错误，与版本无关。判定同时服务两处——导入前确认（文件版本 vs 当前版本）与重复血统的
-新旧关系（既有定义的 ``meta.version`` vs 文件的）。
+Categories are user-facing signals, **not gates**: every definition must pass the current schema to save, regardless of category. Failure is
+an ordinary validation error unrelated to version. Classification serves both import confirmation (file versus current version) and age ordering for shared lineage
+(existing definition ``meta.version`` versus imported file).
 
-版本约定：加可选字段 / 放宽约束走 minor，删字段 / 改语义走 major。
+Version convention: optional-field additions / relaxed constraints increment minor; removed fields / changed semantics increment major.
 """
 
 from __future__ import annotations
@@ -18,19 +18,19 @@ _SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 
 class SchemaVersionLevel(StrEnum):
-    """文件 ``schema_version`` 相对当前版本的档位。"""
+    """File ``schema_version`` category relative to the current version."""
 
-    #: 同版：直接导入。
+    #: Same version: import directly.
     DIRECT = "direct"
-    #: 同主版本但更旧：警告放行（当前 schema 只会比它更宽）。
+    #: Older within the same major: allow with a warning (the current schema is only more permissive).
     WARNING = "warning"
-    #: 文件更新，或主版本更低：需用户确认。前者可能含本版不认识的字段，后者语义已变。
-    #: 版本缺失或不是 semver 时也归此档——判不出新旧就不该悄悄放过去。
+    #: Newer file or lower major: require user confirmation. The former may contain unknown fields; the latter has changed semantics.
+    #: Missing or non-semver versions also enter this category; do not silently allow indeterminate age ordering.
     CONFIRM = "confirm"
 
 
 class VersionRelation(StrEnum):
-    """既有定义的 ``meta.version`` 相对导入文件的新旧关系。"""
+    """Existing definition ``meta.version`` age relative to the imported file."""
 
     NEWER = "newer"
     SAME = "same"
@@ -38,7 +38,7 @@ class VersionRelation(StrEnum):
 
 
 def parse_semver(value: object) -> tuple[int, int, int] | None:
-    """把 ``"1.2.3"`` 解析成可比较的三元组；不是 semver 串、或分量位数超出整数转换上限时返回 None。"""
+    """Parse ``"1.2.3"`` into a comparable triple; return None for non-semver strings or components beyond the integer-conversion digit limit."""
     if not isinstance(value, str):
         return None
     match = _SEMVER.fullmatch(value)
@@ -52,7 +52,7 @@ def parse_semver(value: object) -> tuple[int, int, int] | None:
 
 
 def schema_version_level(file_version: object, current_version: str) -> SchemaVersionLevel:
-    """判定文件版本相对当前版本的档位。"""
+    """Classify the file version relative to the current version."""
     file_parsed = parse_semver(file_version)
     current_parsed = parse_semver(current_version)
     if file_parsed is None or current_parsed is None:
@@ -65,7 +65,7 @@ def schema_version_level(file_version: object, current_version: str) -> SchemaVe
 
 
 def version_relation(existing_version: object, file_version: object) -> VersionRelation:
-    """既有定义相对导入文件的新旧。任一侧不可解析时按 ``same`` 处理，只提示重复不谈新旧。"""
+    """Existing definition age relative to the imported file. If either side is unparseable, use ``same`` and report duplication without age ordering."""
     existing_parsed = parse_semver(existing_version)
     file_parsed = parse_semver(file_version)
     if existing_parsed is None or file_parsed is None or existing_parsed == file_parsed:
@@ -74,10 +74,10 @@ def version_relation(existing_version: object, file_version: object) -> VersionR
 
 
 def meets_min_app_version(required: object, app_version: str) -> bool:
-    """应用版本是否达到定义声明的 ``meta.min_app_version``。
+    """Whether the application version meets the definition's declared ``meta.min_app_version``.
 
-    门槛只认严格 semver；应用版本按 PEP 440 解析，预发布版低于同号正式版。任一侧判不出高低即
-    视为不满足。
+    The threshold accepts strict semver only; parse application versions with PEP 440, with prereleases below same-number releases. If either side cannot be ordered,
+    treat the threshold as unmet.
     """
     if parse_semver(required) is None:
         return False

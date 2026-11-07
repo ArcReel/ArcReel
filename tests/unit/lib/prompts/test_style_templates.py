@@ -1,4 +1,4 @@
-"""lib.prompts.style_templates 的测试。"""
+"""Tests for lib.prompts.style_templates."""
 
 import pytest
 
@@ -34,16 +34,16 @@ def test_style_templates_are_slotless_and_grouped_under_style_category():
 
 
 def test_no_preset_starts_with_huafeng_prefix():
-    # 预设值不以「画风：」开头（避免叠加英文 Style: 标签渲染成 "Style: 画风："）。
-    # anim_arcane 是唯一例外：其「画风」是复合词「油画三渲二画风」的一部分，非可删前缀。
+    # Presets never start with 画风：, avoiding stacked English Style: labels rendered as "Style: 画风：".
+    # anim_arcane alone is exempt: 画风 belongs to compound 油画三渲二画风, not a removable prefix.
     for tpl_id in list_template_ids():
         prompt = resolve_template_prompt(tpl_id)
         assert prompt.strip()
         assert prompt == prompt.strip()
         if tpl_id == "anim_arcane":
-            assert prompt.startswith("油画三渲二画风：")
+            assert prompt.startswith("Oil-painted cel-shaded 3D look")
             continue
-        # 全角/半角冒号都要排除，与 v13→v14 迁移的剥离口径（画风： / 画风:）一致
+        # Exclude full-/half-width colons alike, matching v13→v14 removal (画风： / 画风:).
         assert not prompt.startswith(("画风：", "画风:")), tpl_id
 
 
@@ -65,6 +65,6 @@ def test_list_templates_by_category():
     assert len(grouped["anim"]) == 18
     assert grouped["live"][0] == {
         "id": "live_cinematic_ancient",
-        "prompt": "精品古装真人短剧风格，专业打光，高质量电视剧质感",
+        "prompt": "Premium live-action period short-drama style, professional lighting, high-quality television-drama texture",
     }
     assert [item["id"] for item in grouped["live"] + grouped["anim"]] == list_template_ids()

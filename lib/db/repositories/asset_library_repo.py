@@ -1,4 +1,4 @@
-"""供应商素材库账号与推理凭证绑定 repository。"""
+"""Repository for provider asset-library accounts and inference-credential bindings."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from lib.db.repositories.base import BaseRepository
 
 
 class AssetLibraryRepository(BaseRepository):
-    # ── 账号 ──────────────────────────────────────────────────────
+    # ── Accounts ──────────────────────────────────────────────────────
 
     async def list_accounts(self) -> list[AssetLibraryAccount]:
         result = await self.session.execute(select(AssetLibraryAccount).order_by(AssetLibraryAccount.id))
@@ -49,7 +49,7 @@ class AssetLibraryRepository(BaseRepository):
         await self.session.delete(account)
         await self.session.flush()
 
-    # ── 绑定 ──────────────────────────────────────────────────────
+    # ── Bindings ──────────────────────────────────────────────────────
 
     async def list_bindings(self, *, account_id: int | None = None) -> list[AssetLibraryBinding]:
         stmt = select(AssetLibraryBinding).order_by(AssetLibraryBinding.id)
@@ -75,7 +75,7 @@ class AssetLibraryRepository(BaseRepository):
         fingerprint: str,
         confirmed_at: datetime,
     ) -> AssetLibraryBinding:
-        """把推理凭证绑定到账号并记下本次确认的摘要；凭证已绑定其他账号时改绑到这个账号。"""
+        """Bind an inference credential to the account and record this confirmation digest; rebind here if already bound to another account."""
         binding = await self.get_binding_for_credential(credential_type, credential_id)
         if binding is None:
             binding = AssetLibraryBinding(

@@ -1,11 +1,11 @@
-"""每种定义 ``kind`` 在端点测试里的实现：预览怎么渲、测试连接怎么装配、要哪几样凭证。
+"""Endpoint-test implementations by ``kind``: preview rendering, connection-test assembly, and credential requirements.
 
-与 :mod:`.modes` 的分工：那里是「支不支持」的纯名录（不引运行时，三个 HTTP 入口共用同一份支持
-矩阵），这里是「支持的那些怎么做」。两张表按 kind 对齐，
-``test_the_support_matrix_and_the_implementations_cover_the_same_kinds`` 守住它们不分叉。
+:mod:`.modes` holds pure runtime-free support catalogs shared by three HTTP entries; this module implements supported
+operations. Tables align by kind, guarded by
+``test_the_support_matrix_and_the_implementations_cover_the_same_kinds``.
 
-router 因此不认识任何一种 kind：它按定义里的 ``kind`` 取出这一份实现，剩下的流程两种 kind 完全
-一致——凭证归一、素材落盘、记账、写盘与取消都不该因为端点是哪一种而各写一遍。
+Routers know no specific kinds: retrieve implementations by definition ``kind``, then share all remaining steps
+across both kinds. Credential normalization, asset staging, accounting, writes, and cancellation must never duplicate per endpoint kind.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from .trial_run import TrialRunTarget, declarative_target
 
 
 class PreviewFn(Protocol):
-    """渲染一次预览请求。"""
+    """Render one request preview."""
 
     def __call__(
         self,
@@ -40,7 +40,7 @@ class PreviewFn(Protocol):
 
 
 class TrialTargetFn(Protocol):
-    """按一份内联定义与凭证装配测试连接的目标。"""
+    """Assemble connection-test targets from inline definitions/credentials."""
 
     def __call__(
         self,
@@ -54,14 +54,14 @@ class TrialTargetFn(Protocol):
 
 @dataclass(frozen=True)
 class KindTestSupport:
-    """一种 kind 的端点测试实现。"""
+    """Endpoint-test implementation for one kind."""
 
     preview: PreviewFn
-    #: 这份定义要 ``base_url`` / ``api_key`` 吗。两者皆否的定义不必带凭证即可调用。
+    #: Whether definitions require ``base_url`` / ``api_key``; neither means calls need no credentials.
     credential_needs: Callable[[Mapping[str, Any]], tuple[bool, bool]]
     trial_target: TrialTargetFn
-    #: 测试连接的结果体里放不放一段渲染后的提交请求（它同时充当提交前的渲染闸）。
-    #: ComfyUI 不放：实发 workflow 的种子与素材引用名要到提交那一刻才定下来。
+    #: Whether connection results include rendered submission requests, also serving presubmission render gates.
+    #: ComfyUI omits them: actual workflow seeds/asset reference names resolve only at submission.
     trial_run_request_preview: bool
 
 
@@ -85,15 +85,15 @@ _SUPPORT_BY_KIND: Mapping[str, KindTestSupport] = {
 }
 
 
-#: 有端点测试实现的全部 kind。与 :data:`.modes.TESTABLE_KINDS` 一致。
+#: All implemented kinds, matching :data:`.modes.TESTABLE_KINDS`.
 SUPPORTED_KINDS = frozenset(_SUPPORT_BY_KIND)
 
 
 def support_for_kind(kind: str) -> KindTestSupport:
-    """这种 ``kind`` 的端点测试实现。
+    """Endpoint-test implementations for ``kind``.
 
     Raises:
-        KeyError: 名录外的 kind。调用方先过 :func:`~.modes.supports_test_mode` 的结构化拒绝，
-            走到这里的 kind 必然有实现。
+        KeyError: Unlisted kinds. Callers first apply :func:`~.modes.supports_test_mode` structured rejections;
+            kinds reaching here necessarily have implementations.
     """
     return _SUPPORT_BY_KIND[kind]

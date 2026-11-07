@@ -3,11 +3,11 @@ import { FIXED_NOW } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 
-// 使用记录：设置页内的铺满档分区（筛选、KPI、趋势、构成、需要关注、记录表、详情弹窗），
-// 以及工作台顶栏的使用记录弹层。录制环境没有任何调用，空态用录制数据；表格、图表与弹层
-// 的压力变体用手写数据：项目标题、模型名与集名都很长，记录满一页，失败行带各类短语。
+// Usage: full-width settings with filters/KPIs/trends/breakdowns/attention/records/details,
+// plus workbench-header overlays. Recordings lack calls, supplying empty states; handwritten stress tables/charts/overlays
+// include long project/model/episode names, full record pages and varied failure phrases.
 
-// 刻度测宽不能缓存回退字体：压力图表先收到数据，再释放项目字体，以握手稳定复现加载顺序。
+// Tick measurement must not cache fallback fonts: stress charts receive data before project-font release, handshake-fixing load order.
 test.beforeEach(async ({ page }, testInfo) => {
   if (!testInfo.title.includes("趋势、构成")) return;
   await page.route("**/*inter-latin-wght-normal*.woff2", async (route) => {
@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 
 const USAGE = "/app/settings?section=usage";
 
-// 设置页按「最近 30 天」取数；时刻由 FIXED_NOW 推出，键随之固定。
+// Settings fetch latest 30 days; FIXED_NOW determines fixed time keys.
 const SUMMARY_KEY = "GET /api/v1/usage/summary?since=2025-12-02T16:00:00.000Z&tz=Asia/Shanghai";
 const RECORDS_KEY = "GET /api/v1/usage/records?limit=20&since=2025-12-02T16:00:00.000Z&status=success,failed,cancelled";
 const DETAIL_KEY = "GET /api/v1/usage/records/7";
@@ -62,7 +62,7 @@ function record(index: number) {
             episode_title: "第一集：码头上的最后一班渡轮与消失的灯塔看守人",
             episode_position: 1,
             item_id: `S${String(index + 1).padStart(2, "0")}`,
-            // 每七条有一条的分镜已从剧本删除，其余按本集当前位置显示，正文截到前十六个字
+            // Every seventh record references deleted storyboards; others use current episode positions, with bodies truncated to the first sixteen characters.
             item_position: index % 7 === 3 ? null : index + 1,
             item_excerpt: index % 7 === 3 ? "" : "渡轮靠岸时，看守人提着马灯走下栈…",
             item_thumbnail: null,
@@ -176,10 +176,10 @@ const STRESS: ApiOverrides = {
   [DETAIL_KEY]: { status: 200, body: DETAIL },
 };
 
-// 工作台顶栏的使用记录弹层：本项目 KPI、进行中与最近结束的调用。
+// Workbench-header usage popovers: current-project KPIs, running calls and recently finished calls.
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const POPOVER_STRESS: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+  // Project event SSE streams are unrecorded; reject with nonretryable statuses so pages retain recorded project data.
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/usage/summary?project_name=demo": {
     status: 200,
@@ -199,7 +199,7 @@ const POPOVER_STRESS: ApiOverrides = {
   },
 };
 
-// 「Agent 会话」视图：每个会话一行，可展开按时间列出的明细；会话名称、模型名与提示词都很长。
+// Agent sessions view: one row per session, expandable chronological details, long session/model names and prompts.
 const AGENT_USAGE = `${USAGE}&u_view=agent`;
 const AGENT_SUMMARY_KEY = `${SUMMARY_KEY}&view=agent`;
 const SESSIONS_KEY = "GET /api/v1/usage/sessions?limit=20&since=2025-12-02T16:00:00.000Z";
@@ -288,7 +288,7 @@ defineRegionScenarios("使用记录", [
     api: STRESS,
     ready: recordsReady,
     act: async (page) => {
-      // 表头不换行：每个表头单元格只有一行高。
+      // Headers never wrap; every header cell is one line high.
       for (const header of await page.getByRole("columnheader").all()) {
         const box = await header.boundingBox();
         expect(box?.height ?? 0).toBeLessThan(40);
@@ -297,7 +297,7 @@ defineRegionScenarios("使用记录", [
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(page.getByRole("button", { name: "下一页" })).toBeInViewport();
     },
-    // 记录区比视口高，截区域会留下滚出视口的空白；截滚到底后的主区域，即用户看到的最后几行与分页。
+    // Records exceed viewport height; region screenshots leave blank offscreen areas. Screenshot main regions after scrolling to bottom, showing final rows/pagination.
     screenshot: { name: "usage-records", target: (page) => page.getByRole("main") },
   },
   {
@@ -311,7 +311,7 @@ defineRegionScenarios("使用记录", [
     name: "从深链打开长提示词的详情弹窗，只有弹窗主体滚动",
     path: `${USAGE}&record=7`,
     api: STRESS,
-    // 弹窗打开后页面其余部分对辅助技术不可见，只等弹窗内容。
+    // Dialog opening hides other page contents from assistive technology; wait only for dialog contents.
     ready: async (page) => {
       await page.getByRole("dialog").getByText("第 30 段", { exact: false }).waitFor();
     },
@@ -345,13 +345,13 @@ defineRegionScenarios("使用记录", [
     act: async (page) => {
       await page.getByRole("button", { name: /^展开「.*第 1 次分镜讨论/ }).click();
       await page.getByRole("table", { name: /第 1 次分镜讨论/ }).getByText("第 6 轮", { exact: false }).first().waitFor();
-      // 指针移出表格：停在截断的会话名上会弹出完整名称的悬停提示。
+      // Move pointers outside tables; hovering truncated session names opens full-name tooltips.
       await page.mouse.move(0, 0);
       const main = page.getByRole("main");
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(page.getByRole("button", { name: "下一页" })).toBeInViewport();
     },
-    // 截展开的明细表：栏宽最紧的是这一张。
+    // Screenshot expanded details tables, the tightest column widths.
     screenshot: { name: "usage-agent-session-detail", target: (page) => page.getByRole("table", { name: /第 1 次分镜讨论/ }) },
   },
   {

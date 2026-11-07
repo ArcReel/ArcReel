@@ -1,0 +1,18 @@
+[
+  {
+    "path": "frontend/src/index.css",
+    "translated_comments": 38,
+    "css_without_comments_byte_equal": true,
+    "comment_line_counts_preserved": true,
+    "functional_directives_and_license_comments_untouched": true,
+    "candidate_sha256": "67ca981948b0b9b8deceb94a9d5a55b087572a48392f448c84393faa9fae3184"
+  },
+  {
+    "path": "frontend/src/css/onboarding.css",
+    "translated_comments": 17,
+    "css_without_comments_byte_equal": true,
+    "comment_line_counts_preserved": true,
+    "functional_directives_and_license_comments_untouched": true,
+    "candidate_sha256": "36c89e3877e2d3f92129b12560cdd1d5b94cabf4a329b221f29b2795314dd5fd"
+  }
+]

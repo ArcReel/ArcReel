@@ -1,8 +1,8 @@
-"""把任务执行异常编码为落库的 ``error_message``。
+"""Encode execution exceptions into persisted ``error_message``.
 
-常规执行（``GenerationWorker._process_task``）与续跑（``VideoResumeRunner.run``）两条任务执行路径
-捕获同一批异常，共用这份编码，避免同一处理漂移成两份。编码原语与读侧渲染见
-``lib.generation.task_failure``。
+Normal ``GenerationWorker._process_task`` and resume ``VideoResumeRunner.run`` catch identical
+exceptions through shared encoding, avoiding duplicated drift. Primitives/read rendering:
+``lib.generation.task_failure``.
 """
 
 from __future__ import annotations
@@ -33,26 +33,26 @@ logger = logging.getLogger(__name__)
 
 
 def encode_task_failure_message(exc: Exception) -> str:
-    """ScriptEditError、上游确定性 4xx 拒绝与结构化执行拒绝走 code/params 结构化，其余异常沿用 str(exc)。
+    """ScriptEditError, deterministic upstream 4xx, and structured execution refusals use code/params; others retain str(exc).
 
-    落库只存机器码，本地化文案由读侧按 ``Accept-Language`` 渲染——worker 后台无 request
-    上下文，在这里渲染会把任务的失败原因锁死成单一语言。
+    Persist machine codes only; readers localize by ``Accept-Language``. Workers lack request
+    contexts, so rendering here would freeze failures into single languages.
     """
     if isinstance(exc, ScriptEditError):
-        # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
+        # Fallback script_edit_error retains script-edit failure classification when specific encoding fails.
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")
     if isinstance(exc, ApiError):
         return _try_encode_failure(exc.key, exc.params) or str(exc)
     if isinstance(exc, ProviderRejectedError):
-        # 上游确定性 4xx：状态码与脱敏摘要各占一个参数。摘要是上游原文，不进译文模板——
-        # 读侧按 error_params 里的独立字段原样展示，只有外层措辞随 Accept-Language 变。
-        # 摘要缺席时只落状态码：拒绝本身仍要结构化，读侧才有本地化文案与 FIX_INPUT。
+        # Deterministic upstream 4xx: status/redacted summaries are separate parameters. Raw summaries stay outside translations,
+        # read unchanged from error_params while outer wording follows Accept-Language.
+        # Missing summaries still encode statuses, enabling localized rejection/FIX_INPUT.
         params: dict[str, Any] = {"status": exc.response.status_code}
         if exc.provider_reason:
             params["provider_reason"] = exc.provider_reason
         return _try_encode_failure("provider_rejected", params) or str(exc)
     if (rejection := grpc_rejection(exc)) is not None:
-        # gRPC 通道（xAI）的确定性拒绝与 HTTP 4xx 同一编码：不落 AioRpcError 的调试表示。
+        # Deterministic xAI gRPC refusal shares HTTP 4xx encoding, never AioRpcError debug repr.
         status, reason = rejection
         grpc_params: dict[str, Any] = {"status": status}
         if reason:
@@ -77,18 +77,18 @@ def encode_task_failure_message(exc: Exception) -> str:
         | ProviderAssetLinkUnavailableError
         | ProviderInputImageRejectedError,
     ):
-        # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
-        # 非结构化文本在读侧原样透传，不会丢失原因。
+        # Structured refusals lack generic fallback codes; retain str(exc), the code itself,
+        # preserving reasons through unchanged read-side raw text.
         return _try_encode_failure(exc.code, exc.params) or str(exc)
     return str(exc)
 
 
 def is_provider_refusal(exc: BaseException) -> bool:
-    """供应商是否真正拒绝了这次请求的内容或输入：原样重发只会被同样拒绝，该改输入。
+    """Whether providers rejected content/inputs, requiring changes rather than identical resends.
 
-    与 :func:`encode_task_failure_message` 落 ``provider_rejected`` 的判据同口径（httpx 通道的确定性 4xx、
-    gRPC 的确定性拒绝），另认上游错误体里的内容策略码（与记账层 ``content_policy`` 同一判据）。
-    沿 ``__cause__`` 链逐层判：调用方常把 SDK 异常包一层再抛。其余异常都不算拒绝。
+    Match :func:`encode_task_failure_message` ``provider_rejected`` rules: deterministic HTTP 4xx /
+    gRPC refusals, plus upstream policy codes shared with accounting ``content_policy``.
+    Traverse ``__cause__`` because callers wrap SDK exceptions. Other errors are not refusals.
     """
     seen: set[int] = set()
     current: BaseException | None = exc
@@ -101,18 +101,18 @@ def is_provider_refusal(exc: BaseException) -> bool:
 
 
 def _try_encode_failure(code: str, params: dict[str, Any]) -> str | None:
-    """结构化编码失败原因，编不出来返回 None 交调用方降级。
+    """Encode structured failures; None if impossible for caller fallback.
 
-    编码异常绝不能打断 mark_task_failed，否则任务会卡死在 running。
+    Encoding failures must never interrupt mark_task_failed, stranding running tasks.
     """
     try:
         return encode_failure(code, **params)
     except KeyError:
-        # code 未登记进 FAILURE_CODE_KEYS——两份清单靠约定同步而非运行时校验。
+        # Codes absent from FAILURE_CODE_KEYS: two lists synchronize by convention, not runtime validation.
         logger.warning("失败 code 未登记进 FAILURE_CODE_KEYS，降级为通用失败原因: code=%s", code)
     except (TypeError, ValueError, RecursionError):
-        # params 无法 JSON 序列化（TypeError：default=str 也转不了的键类型；
-        # ValueError：json.dumps 默认 check_circular 检出循环引用；
-        # RecursionError：嵌套过深的容器，default=str 不接管容器本身）。
+        # Non-JSON params: TypeError for key types even default=str cannot convert;
+        # ValueError for json.dumps default check_circular cycles;
+        # RecursionError for deep containers, not handled by default=str.
         logger.warning("失败 params 无法序列化，降级为通用失败原因: code=%s", code)
     return None

@@ -14,8 +14,8 @@ const CUSTOM_PREFIX = "custom-";
 // ---------------------------------------------------------------------------
 // Provider fetchers
 //
-// 供应商配置可变（用户在设置页改模型 supported_durations / 启用状态等），前端不持久缓存它：
-// 每次消费都直拉后端，避免长生命周期副本与后端单一真相源漂移（ADR 0035，ADR 0018/0013 的前端推论）。
+// Provider configuration changes (supported_durations/enablement/etc.), so frontend never persistently caches it:
+// fetch backends per consumption, avoiding long-lived copies drifting from backend truth (ADR 0035, frontend implications of ADR 0018/0013).
 // ---------------------------------------------------------------------------
 
 /** Fetch the built-in provider list (including models) fresh on every call. */
@@ -34,18 +34,18 @@ export async function getCustomProviderModels(options: { signal?: AbortSignal } 
 // Lookup
 // ---------------------------------------------------------------------------
 
-/** 目录里的供应商名与模型名（"provider/model" 为键），均已按 Accept-Language 成文。 */
+/** Catalog provider/model names keyed by "provider/model", already rendered through Accept-Language. */
 export interface CatalogDisplayNames {
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
 }
 
 /**
- * 从目录（`/providers` 与 `/custom-providers`）抽出显示名表，作为候选响应之外的兜底层。
+ * Extract display-name maps from catalogs (`/providers` / `/custom-providers`) as fallback beneath candidates.
  *
- * 两个端点都不按可用性收窄，候选与整页配置则只列 ready 的内置供应商与已启用的自定义模型；
- * 而生效值可以指向一个已失去凭证的内置供应商，或一个被停用的自定义模型（停用不清引用）。
- * 那时下拉触发按钮仍要显示名字，而不是 `custom-3 · my-model` 这样的裸 id。
+ * Neither endpoint narrows availability, unlike candidate/config lists limited to ready built-ins/enabled custom models;
+ * effective values may still reference built-ins with lost credentials or disabled custom models (disabling preserves references).
+ * Dropdown triggers must still show names, never bare IDs such as `custom-3 · my-model`.
  */
 export function catalogDisplayNames(
   providers: ProviderInfo[],
@@ -89,8 +89,8 @@ export function lookupSupportedDurations(
     const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
     const cp = customProviders.find((p) => p.id === dbId);
     const model = cp?.models?.find((m) => m.model_id === modelId);
-    // 自定义模型的时长由对应的模型条目给出，前端只看得到用户写下的时长覆盖；
-    // 其余情形交给服务端的能力查询（useModelCapabilities）
+    // Custom-model durations come from corresponding catalog entries; frontends see only user-entered overrides;
+    // leave other cases to server capability queries (useModelCapabilities).
     const durations = model?.capability_overrides?.durations;
     return durations?.length ? durations : undefined;
   }
@@ -104,11 +104,11 @@ export function lookupSupportedDurations(
 }
 
 /**
- * 目录里该模型的时长全集，升序；目录查不到为 null。
+ * Complete ascending model-duration sets from catalogs; null when unresolved.
  *
- * 这是型号声明、不经任何联动约束收窄的集合，供「展示模型规格」与「切换模型时判断已选时长
- * 是否仍属于新模型」这类同步场景使用。按当前分辨率 / 参考图路径收窄后的可选集只由服务端
- * video-capabilities 端点回答（`useModelCapabilities`），前端不复算收窄规则。
+ * Declared sets without contextual narrowing, for synchronous model-spec displays and checking selected durations
+ * against newly switched models. Current resolution/reference-path narrowed options come only from server
+ * video-capabilities endpoints (`useModelCapabilities`); frontends never duplicate narrowing rules.
  */
 export function catalogDurations(
   providers: ProviderInfo[],
@@ -120,17 +120,17 @@ export function catalogDurations(
   return raw?.length ? [...raw].sort((a, b) => a - b) : null;
 }
 
-/** 目录（非自定义供应商）里的视频音轨能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
+/** Catalog video audio capabilities (noncustom providers): track presence plus server-derived voice-consistency tiers. */
 export interface CatalogVideoAudio {
   hasAudioTrack: boolean;
-  /** 无项目上下文下的档位，服务端派生。有项目上下文时改用能力查询结果，不读此值。 */
+  /** Server-derived tiers without project contexts; with projects, query capabilities instead of reading this value. */
   voiceConsistency: VoiceConsistencyTier;
 }
 
 /**
- * 给定 "provider/model"，查目录里的音频相关声明——下拉能力线（音轨）与全局设置页的档位
- * 徽章共用同一份查表。自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model`
- * 同口径固定假定有声（soft）——无信号时判定为有声但保证降级，比误判为无声更不易误导。
+ * Look up audio declarations by "provider/model", shared by dropdown audio capabilities/global tier
+ * badges. Custom catalogs lack per-model declarations; match server `_resolve_video_caps_for_model`
+ * by assuming audio (soft). Without signals, audio with degraded guarantees is less misleading than falsely assuming silence.
  */
 export function lookupCatalogVideoAudio(
   providers: ProviderInfo[],
@@ -150,18 +150,18 @@ export function lookupCatalogVideoAudio(
 }
 
 /**
- * 查该 `provider/model` 在某条执行路径上的音频开关可控性；查不到模型返回 null（调用方按可控
- * 处理，不收紧）。
+ * Audio-toggle controllability for `provider/model` on execution paths; unresolved models yield null (callers assume controllable,
+ * without tightening).
  *
- * 三态由服务端从 backend 的 VideoCapabilities 派生，前端只按路径取对应字段，不解读
- * capabilities token、也不自行合成三态。恒有声与恒无声的成片音轨不随开关变化，设置界面据此
- * 禁用开关——否则用户的关闭意图到不了供应商，却会让编排层按无声裁掉全部音色约束。
+ * Servers derive tristates from backend VideoCapabilities; frontends select path fields without interpreting
+ * capability tokens or synthesizing states. Always-audio/always-silent outputs ignore toggles, so settings disable
+ * them; otherwise Off intentions cannot reach providers yet orchestrators would strip all timbre constraints as silent.
  *
- * `route` 必传：同一 model 的两条子路径可以给出不同答案（可灵 v3-omni 图生可控、参考生无
- * 开关），按无路径上下文的值渲染会让参考生视频的用户开了音频却拿到无声成片。
+ * `route` is required: the same model may differ by subpath (Kling v3-omni controls image-to-video but lacks reference-to-video
+ * toggles); context-free values could let users enable audio while receiving silent reference outputs.
  *
- * 自定义供应商目录无逐模型音轨声明，与服务端 `_resolve_video_caps_for_model` 同口径按「无
- * 信号不收紧」处理，保持开关可控。
+ * Custom-provider catalogs lack per-model audio declarations; match server `_resolve_video_caps_for_model`
+ * by never tightening without signals, leaving toggles controllable.
  */
 export function lookupVideoAudioControl(
   providers: ProviderInfo[],
@@ -186,9 +186,9 @@ export function lookupVideoAudioControl(
 export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
-/** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
- *  自定义供应商路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
- *  从 endpoint-catalog-store 读出注入（保持本文件无 store 副作用）。 */
+/** Return (provider, model) resolution candidates/custom-provider status, determining picker modes.
+ *  Custom paths infer media_type from endpoints to select standard resolution sets; callers inject this map
+ *  from endpoint-catalog-store, keeping this file free of store side effects. */
 export function lookupResolutions(
   providers: ProviderInfo[],
   backend: string,
@@ -220,10 +220,10 @@ export function lookupResolutions(
   return { options: model?.resolutions ?? [], isCustom: false };
 }
 
-/** `provider/model` 挂接的那个端点对尺寸与时长的约束；内置供应商与查不到的模型为 undefined。
+/** Size/duration constraints from endpoints associated with `provider/model`; undefined for built-ins/unresolved models.
  *
- *  内置供应商没有「维度被端点固定」这一形态：尺寸与时长都是请求参数，端点目录里也没有它们的
- *  约束项。故只对自定义供应商的模型行查表。
+ *  Built-ins have no endpoint-fixed dimensions: sizes/durations are request parameters, with no corresponding
+ *  endpoint-catalog constraints. Look up custom-provider model rows only.
  */
 export function lookupEndpointConstraints(
   backend: string,
@@ -241,12 +241,12 @@ export function lookupEndpointConstraints(
   return model ? endpointConstraints[model.endpoint] : undefined;
 }
 
-/** 分辨率选择器的空值占位：说清「不选会得到什么」。
+/** Resolution empty placeholders explain outcomes of no selection.
  *
- *  三种说法。端点报得出原生尺寸（ComfyUI 端点的宽高绑定读得到字面值）就报它；尺寸由该端点
- *  固定、却连字面值都读不出来（宽高两侧都没绑定是最常见的一种）时说「由 workflow 决定」——
- *  此时选择器本就禁用，通用的「默认（不传）」会让人以为这里还有一个「不传」的选项可挑；其余
- *  端点不选即不下发该参数，那句「默认（不传）」说的正是实情。
+ *  Three forms: report native dimensions when available (literal ComfyUI width/height bindings); when endpoints fix dimensions
+ *  without readable literals (most commonly both unbound width/height), say Determined by workflow.
+ *  Selectors are already disabled, and generic Default (omit) would imply selectable omission choices; other
+ *  endpoints omit parameters on no selection, accurately described by Default (omit).
  */
 export function resolutionPlaceholder(
   constraints: EndpointConstraints | undefined,

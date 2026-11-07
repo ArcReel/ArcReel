@@ -1,10 +1,8 @@
-"""外部 Agent（远程 MCP）adapter。
+"""External Agent adapter for remote MCP.
 
-schema 头部追加必填 ``project``，每次调用显式定位项目；任何定位失败统一返回 ``invalid_project``。
-无 scope 声明（列出、创建项目）不追加 ``project``，也不定位项目。
-长任务声明在描述末尾追加统一的批次句柄与轮询说明。结果写进 ``structuredContent``，content（文本块与图片块）
-与内嵌宿主相同。
-"""
+Adds required ``project`` at the schema root to explicitly locate the project on each call; all location failures return ``invalid_project``. Unscoped declarations (list/create projects) add no ``project`` and perform no project lookup.
+
+Long-task declarations append shared batch-handle and polling instructions. Results go to ``structuredContent``; content (text and image blocks) matches the embedded host."""
 
 from __future__ import annotations
 
@@ -35,12 +33,12 @@ from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutco
 
 PROJECT_PROPERTY: dict[str, Any] = {
     "type": "string",
-    "description": "目标项目的项目名（list_projects 返回的 name）；每次调用都须显式指定",
+    "description": "Target project name (name returned by list_projects); explicitly required on every call",
 }
 
 LONG_TASK_NOTE = (
-    "\n\n外部调用不等待生成完成：提交后立即返回批次句柄 generation_batch，"
-    "按其中的 poll_after_seconds 间隔调用 get_generation_batch 轮询，直到 done=true 再读取终态结果。"
+    "\n\nExternal calls do not wait for generation: submission immediately returns a generation_batch handle; "
+    "poll get_generation_batch at its poll_after_seconds interval until done=true, then read the terminal result."
 )
 
 
@@ -53,13 +51,13 @@ def authenticated_caller() -> CallerContext:
 
 
 def resolve_project_scope(project: object, projects: ProjectManager) -> ProjectScope:
-    """规范化并定位 ``project``；非法、越界、不存在或缺 project.json 时抛 ``ValueError`` / ``FileNotFoundError``。"""
+    """Normalize and locate ``project``; raise ``ValueError`` / ``FileNotFoundError`` for invalid, out-of-bounds, absent, or project.json-less projects."""
     if not isinstance(project, str):
-        raise ValueError("project 必须是项目名字符串")
+        raise ValueError("project must be a project-name string")
     project_name = projects.normalize_project_name(project)
     projects.get_project_path(project_name)
     if not projects.project_exists(project_name):
-        raise FileNotFoundError(f"项目 '{project_name}' 缺少 project.json")
+        raise FileNotFoundError(f"Project '{project_name}' has no project.json")
     return ProjectScope(project_name=project_name, data_root=projects.data_root)
 
 
@@ -74,7 +72,7 @@ def _relativize_payload(value: Any, spellings: tuple[str, ...]) -> Any:
 
 
 def _project_relative_outcome(outcome: ToolOutcome[Any], spellings: tuple[str, ...]) -> ToolOutcome[Any]:
-    """远程错误消息不外泄服务端文件系统布局：problem 的 detail / action / params 只用项目内相对路径。"""
+    """Remote errors do not expose server filesystem layout: problem detail / action / params use only project-relative paths."""
     problem = outcome.problem
     if problem is None:
         return outcome
@@ -120,7 +118,7 @@ def remote_result(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) 
 
 
 class _DeclaredRemoteTool(FastMCPTool):
-    """绕过 FastMCP 的签名推导：参数由声明的请求模型校验，``project`` 由本 adapter 定位。"""
+    """Bypass FastMCP signature inference: the declared request model validates arguments and this adapter locates ``project``."""
 
     invoke: Callable[[dict[str, Any]], Awaitable[CallToolResult]] = Field(exclude=True)
 

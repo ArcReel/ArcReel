@@ -1,31 +1,29 @@
-"""
-项目封面选择器（读时计算）。
+"""Project-cover selection, computed on read.
 
-在项目大厅列出项目时，按偏好顺序挑一个可用作封面的相对资源路径：
+When listing projects in the lobby, choose a relative resource path in this preference order:
 
-    1. 已生成视频的首帧 `video_thumbnail`
-       —— 写在剧本条目的 `generated_assets.video_thumbnail`：分镜图生视频按创作类型落在
-          `segments`（narration）/ `scenes`（drama）/ `shots`（ad），参考生视频落在
-          `video_units`；条目数组键取自骨架注册表 `SKELETONS`。均由
-          `lib/infra/thumbnail.extract_video_thumbnail` 在生成完成后抽出并落盘。
-       最能代表"项目当前产出进度"的资产，优先级最高。
+    1. First frame of generated video, `video_thumbnail`.
+       Stored in script-entry `generated_assets.video_thumbnail`: storyboard video uses
+       `segments` (narration) / `scenes` (drama) / `shots` (ad), reference video uses `video_units`.
+       Array keys come from skeleton registry `SKELETONS`.
+       `lib/infra/thumbnail.extract_video_thumbnail` extracts/persists these after generation.
+       Highest priority because it best represents current project output progress.
 
-    2. 已生成的分镜图 `storyboard_image`
-       —— 分镜图生视频还没完成视频、但已出分镜图时的次优选择；
-          参考生视频该字段永远为 None，自然跳过。
+    2. Generated `storyboard_image`.
+       Second choice when storyboard generation finished but video has not.
+       Reference video always has None here, so it is naturally skipped.
 
-    3. 场景参考图 `scene_sheet`
-       —— 参考生视频核心兜底：即使一次视频都没生成，也能用一张场景资产图
-          展现项目美术风格。scene > character 是因为环境/空间感更像"封面"。
+    3. Scene reference image, `scene_sheet`.
+       Key reference-video fallback: show the project’s art style even before any video exists.
+       scene > character because environments/spatial context resemble covers more closely.
 
-    4. 角色参考图 `character_sheet`
-       —— 最后兜底，仅剧情向项目才可能缺 scene 保留 character。
+    4. Character reference image, `character_sheet`.
+       Last fallback; only story-oriented projects may lack scenes while retaining characters.
 
-    5. None —— 前端渲染占位 FolderOpen 图标。
+    5. None, letting the frontend show a placeholder FolderOpen icon.
 
-与项目摘要投影同走"读时计算、不存冗余"的约定：不往 project.json
-里写 `cover_thumbnail` 字段，每次 list_projects 按当前磁盘真相重新解析。
-"""
+Like project-summary projection, compute on read without redundant storage: never write `cover_thumbnail`
+to project.json; list_projects resolves current disk state on every call."""
 
 from __future__ import annotations
 
@@ -49,17 +47,16 @@ def resolve_project_cover(
     *,
     preloaded_scripts: dict[str, dict] | None = None,
 ) -> str | None:
-    """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL（文件在场时带 ``?v=``）；全无则 None。
+    """Choose the first available cover path by preference and return an `/api/v1/files/...` URL with ``?v=`` when present, otherwise None.
 
-    ``preloaded_scripts`` 允许调用方（如 list_projects）一次性加载剧本后同时喂给
-    项目摘要投影，避免两路重复 JSON I/O。key 为 ``episode['script_file']``
-    原值，value 为剧本 JSON dict；缺失集 (key 不在 map) 回退到 ``manager.load_script``。
-    """
+    ``preloaded_scripts`` lets callers such as list_projects load scripts once and also feed project-summary projection,
+    avoiding duplicate JSON I/O. Keys are original ``episode['script_file']`` values and values are script JSON dicts;
+    missing episodes (keys absent from the map) fall back to ``manager.load_script``."""
 
     def _url(rel: str) -> str:
-        # 统一走 files 静态路由，不直接拼盘路径；相对路径原样透传给 FileResponse。
-        # 文件在场时附 ?v=<mtime_ns> 作版本键（与资产指纹同口径），封面被重新生成后 URL 随之变化，
-        # 大厅可长期缓存；文件缺失或路径非法时不附版本键，由 files 路由按原样回 404。
+        # Use the files static route rather than building disk paths directly; pass relative paths unchanged to FileResponse.
+        # Existing files add ?v=<mtime_ns>, matching artifact fingerprints, so regenerated covers change URLs
+        # for long-lived lobby caching. Missing/invalid paths omit version keys and let files return its normal 404.
         url = f"/api/v1/files/{project_name}/{rel.lstrip('/')}"
         try:
             project_dir = manager.get_project_path(project_name)
@@ -74,9 +71,9 @@ def resolve_project_cover(
             return url
         return f"{url}?v={mtime_ns}"
 
-    # 第一趟：遍历所有 episode 的 script，先整体扫 video_thumbnail，再整体扫
-    # storyboard_image。两趟分开而不是在同一 item 上并列判断，是为了保证
-    # "任何一集有视频首帧" 都胜过 "仅有分镜图"，而不是被 episode 顺序锁死。
+    # Scan every episode script for video_thumbnail first, then scan all scripts for
+    # storyboard_image. Separate passes rather than per-item alternatives ensure
+    # any episode’s video first frame outranks storyboard-only images regardless of episode order.
     scripts: list[dict] = []
     for ep in project.get("episodes") or []:
         script_file = ep.get("script_file")
@@ -88,17 +85,17 @@ def resolve_project_cover(
         try:
             scripts.append(manager.load_script(project_name, script_file))
         except (OSError, ValueError) as e:
-            # 剧本文件缺失 / 损坏 / 路径越界不阻塞项目列表；仅记 debug，继续尝试其他集。
-            # OSError 覆盖 FileNotFoundError 等 I/O 失败；ValueError 覆盖 JSONDecodeError
-            # 与 ProjectManager._safe_subpath 的非法路径校验。与 list_projects 的外层
-            # preload except 口径保持一致。
+            # Missing/corrupt/out-of-bounds scripts must not block project lists; log debug and try other episodes.
+            # OSError covers FileNotFoundError and other I/O failures; ValueError covers JSONDecodeError
+            # and ProjectManager._safe_subpath path validation, matching list_projects outer
+            # preload exception handling.
             logger.debug("加载剧本失败 project=%s script=%s err=%s", project_name, script_file, e)
             continue
 
     def _iter_items(script: dict) -> list[dict]:
-        # 按 SKELETONS 登记的全部骨架（segments / scenes / shots / video_units）合并条目，不经
-        # 取证解析只挑一种：多种键共存或其中一方为空壳时，任一结构都不能遮蔽另一结构的真实资产。
-        # 非 list 数组与非 dict 条目按缺失跳过；资产路径只认非空字符串，空壳 item 与脏值一并忽略。
+        # Merge items from all SKELETONS shapes (segments / scenes / shots / video_units), rather than
+        # selecting one parsed shape: coexisting keys or empty shells must not hide another shape’s real assets.
+        # Skip nonlist arrays/nondict items as absent; asset paths require nonempty strings, ignoring empty shells and malformed values.
         items: list[dict] = []
         for kind in SKELETONS:
             raw = script.get(kind)
@@ -118,7 +115,7 @@ def resolve_project_cover(
             if isinstance(sb, str) and sb:
                 return _url(sb)
 
-    # 项目级资产：scene > character（见模块 docstring 的抉择）
+    # Project-level assets: scene > character, as explained in the module docstring.
     for data in (project.get("scenes") or {}).values():
         sheet = (data or {}).get("scene_sheet")
         if sheet:

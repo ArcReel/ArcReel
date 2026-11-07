@@ -34,7 +34,7 @@ function toBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-/** 本地或官方服务预检的诊断清单；422 响应的 `diagnostic.diagnostics`。 */
+/** Local/official-service preflight diagnostic inventories, `diagnostic.diagnostics` from 422 responses. */
 function diagnosticsOf(error: unknown): MarketSubmissionDiagnostic[] | null {
   if (!(error instanceof ApiRequestError) || error.status !== 422) return null;
   const raw =
@@ -61,7 +61,7 @@ function DiagnosticList({ diagnostics }: { diagnostics: MarketSubmissionDiagnost
       <ul className="divide-y divide-border">
         {diagnostics.map((diagnostic, index) => (
           <li
-            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 服务端一次返回的只读诊断列表，不重排不增删；同文件同路径同代码的诊断可重复，下标只用于去重
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- readonly server-returned diagnostics never reorder/add/remove; duplicate same-file/path/code diagnostics use indices solely for uniqueness
             key={`${diagnostic.file}-${diagnostic.path}-${diagnostic.code}-${index}`}
             className="flex items-start gap-2.5 px-4 py-2.5"
           >
@@ -80,8 +80,8 @@ function DiagnosticList({ diagnostics }: { diagnostics: MarketSubmissionDiagnost
 }
 
 /**
- * 分享到官方市场：先展示本地校验结果，通过后才可提交。提交的是端点已保存的定义与可选图标；
- * 同一 slug 的提交在 PR 合并前再次提交会进入同一个 PR。
+ * Share to official markets: show local validation first, allowing submission only after passing. Submit saved endpoint definitions/optional icons;
+ * repeated same-slug submissions join existing PRs before merge.
  */
 export function ShareToMarketDialog({
   endpointId,
@@ -104,11 +104,11 @@ export function ShareToMarketDialog({
   const [slug, setSlug] = useState(initialSlug);
   const [githubUsername, setGithubUsername] = useState("");
   const [icon, setIcon] = useState<{ name: string; value: MarketSubmissionIcon } | null>(null);
-  // 每次选择或移除图标都递增；读取完成时序号已变说明被更新的选择取代，结果丢弃。
+  // Every icon choice/removal increments sequence; changed sequences on read completion mean superseded choices, discarding results.
   const iconRead = useRef(0);
   const [readingIcon, setReadingIcon] = useState(false);
   const [iconError, setIconError] = useState<string | null>(null);
-  // null：校验中或尚未取回。
+  // null: validation in progress or not retrieved yet.
   const [diagnostics, setDiagnostics] = useState<MarketSubmissionDiagnostic[] | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -117,7 +117,7 @@ export function ShareToMarketDialog({
   const iconValue = icon?.value ?? null;
   useEffect(() => {
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 预检请求换参时立即清除旧结果，避免等待期间提交未校验的内容
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear old results immediately when preflight arguments change, preventing unchecked submissions while waiting
     setDiagnostics(null);
     setCheckError(null);
     const timer = setTimeout(() => {
@@ -189,7 +189,7 @@ export function ShareToMarketDialog({
     <Dialog
       open
       onOpenChange={(next: boolean) => {
-        // 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失
+        // In-flight submissions ignore Esc/backdrop clicks, preventing dialogs disappearing before results.
         if (!next && !submitting) onClose();
       }}
     >

@@ -1,6 +1,6 @@
 import type { MediaType } from "./custom-provider";
 
-/** 模型目录搜索命中的一个条目。`maker`、`name` 与 `media_type` 合起来标识条目，界面只展示显示名。 */
+/** One model catalog search result. `maker`, `name`, and `media_type` jointly identify the entry; the interface shows only the display name. */
 export interface CatalogEntryHit {
   maker: string;
   name: string;
@@ -13,7 +13,7 @@ export interface CatalogSearchResponse {
   entries: CatalogEntryHit[];
 }
 
-/** 手动填写新条目时随名字给出的提示：目录里已有的同名模型（有就应直接选择），视频模型按名字预设预填的可选时长。 */
+/** Hints accompanying a manually entered new entry name: an existing model of the same name in the catalog (select it directly when present), and optional video durations prefilled from name-based presets. */
 export interface NewEntryHints {
   existing: CatalogEntryHit | null;
   durations: number[] | null;

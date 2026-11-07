@@ -64,7 +64,7 @@ def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     script_plan.parent.mkdir(parents=True, exist_ok=True)
     script_plan.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")
     pm.save_script("demo", _script(), "episode_1.json")
-    # 剧本在场而产物清单尚无登记：之后的编辑才是首次登记，注入的清单写失败才会真正被触发。
+    # Script exists without manifest registration; editing performs first registration, actually triggering injected manifest-write failure.
     (project_dir / ".arcreel_artifacts.json").unlink()
     source = project_dir / "source" / "episode_1.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -271,7 +271,7 @@ def test_ad_batch_edit_registers_shared_canonical_script_basis(tmp_path: Path) -
 def test_unmigrated_project_batch_edit_refuses_instead_of_activating(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:
-    """产物清单是唯一读取口径：schema 未到 8 的项目既不隐性激活清单，也不放行写入。"""
+    """Manifests alone authorize reads: below-schema8 projects neither implicitly activate nor permit writes."""
     pm, service, project_dir = editor
     pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
     (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
@@ -292,11 +292,11 @@ def test_unmigrated_project_batch_edit_refuses_instead_of_activating(
 def test_unmigrated_project_refuses_a_script_that_prepares_no_manifest_commit(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:
-    """集号不成立的剧本不预备清单提交，未迁移项目的阻断因此不能只靠提交处抛错。"""
+    """Scripts with invalid episode identity never prepare manifest commits, so unmigrated-project blocking cannot rely solely on commit exceptions."""
     pm, service, project_dir = editor
     script = _script()
     script["episode"] = 0
-    # 文件名不含集号的剧本写盘入口会拒绝，直接落盘模拟外部写入的文件。
+    # Write APIs reject filenames without episode numbers; direct writes simulate externally created files.
     (project_dir / "scripts" / "custom.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
     pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
     (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
@@ -504,7 +504,7 @@ def test_malformed_item_container_returns_schema_failure_without_writes(
 def test_episode_rebound_to_another_script_conflicts_without_writing(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:
-    """账本此刻绑的已不是调用方读到的那份剧本：按改绑冲突拒绝，两份剧本都不写。"""
+    """If ledger bindings no longer match the caller-read script, reject rebinding conflicts without writing either script."""
 
     pm, service, project_dir = editor
     current = pm.load_script("demo", "episode_1.json")
@@ -530,7 +530,7 @@ def test_episode_rebound_to_another_script_conflicts_without_writing(
     result = service.execute("demo", command)
 
     assert result.success is False
-    # 冲突在解析绑定时就抛出，结果指的是调用方点名的那份剧本。
+    # Rebinding conflict occurs at binding resolution; result identifies the caller-named script.
     assert result.script == "episode_1.json"
     assert result.problems[0].code == "revision_conflict"
     assert result.problems[0].reason == "script_binding_changed"
@@ -1069,7 +1069,7 @@ def _reference_project(tmp_path: Path, *, sources: dict[str, str]) -> tuple[Proj
         (source_dir / filename).write_text(text, encoding="utf-8")
 
     def _register(project: dict) -> None:
-        # episode_1.txt 登记为第 1 集自带的原文，其余文件登记为整本源文
+        # Register episode_1.txt as episode 1's own source; other files as whole source.
         project["whole_source_files"] = [
             {"source_file": f"source/{filename}"} for filename in sources if filename != "episode_1.txt"
         ]
@@ -1258,7 +1258,7 @@ def test_blank_item_inserted_after_anchor_is_committed_as_pending_authoring(
     pm, service = _storyboard_project(tmp_path, content_mode, ["E1S01", "E1S03_1", "E1S02"])
     item = blank_item_after(pm.load_script("demo", "episode_1.json"), "E1S01")
     if content_mode == "narration":
-        # 旁白正文即配音内容，为空的分镜过不了发声准入；新增旁白分镜由调用方先带上正文。
+        # Narration bodies are speech content; empty storyboards fail speech admission, so callers supply bodies for new narration entries.
         rejected = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
         assert rejected.problems[0].reason == "speech_input_unparseable"
         item["novel_text"] = "风停了。"
@@ -1351,7 +1351,7 @@ def test_item_added_after_removing_the_last_one_starts_without_old_media_or_hist
     result = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
 
     assert result.success is True, result.problems
-    # 占位编号 E1S02 已被删掉的分镜用过，提交时另发 E1S03
+    # Placeholder E1S02 was used by a deleted storyboard; commit issues E1S03.
     assert (item["scene_id"], result.affected_ids) == ("E1S02", ("E1S03",))
     added = pm.load_script("demo", "episode_1.json")["scenes"][1]
     assert (added["scene_id"], added["generated_assets"]) == ("E1S03", {})

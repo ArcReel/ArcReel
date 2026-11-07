@@ -1,9 +1,9 @@
 /**
- * 剪辑时间线的读取形态，与 lib/edit_timeline/readout.py 与 service.py 的 TimelineSummary 同形。
- * 时间一律以秒为单位，最多三位小数；绝对起点与时长由服务端算好。
+ * Edit timeline read shape, matching TimelineSummary in lib/edit_timeline/readout.py and service.py.
+ * All times are seconds with up to three decimal places; absolute starts and durations are calculated by the server.
  */
 
-/** 成片、剪映草稿与预览按带不带旁白分两个版本。 */
+/** Final cuts, Jianying drafts, and previews have variants with and without narration. */
 export type TimelineNarration = "with_narration" | "without_narration";
 
 export type EditTimelineAuthorKind = "creator" | "arcreel_agent" | "external_agent";
@@ -13,13 +13,13 @@ export interface EditTimelineAuthor {
   user_id: string | null;
 }
 
-/** 剪辑时间线的指称：ID 与集内不重名的显示名。 */
+/** Edit timeline reference: ID and a display name unique within the episode. */
 export interface EditTimelineRef {
   id: string;
   name: string;
 }
 
-/** 剪辑时间线列表中的一条（`GET /projects/{name}/edit-timelines`）；`updated_*` 描述最新修订。 */
+/** One edit timeline list entry (`GET /projects/{name}/edit-timelines`); `updated_*` describes the latest revision. */
 export interface EditTimelineSummary extends EditTimelineRef {
   episode: number;
   revision: number;
@@ -30,7 +30,7 @@ export interface EditTimelineSummary extends EditTimelineRef {
   update_summary: string;
 }
 
-/** `unit_deleted` 渲染跳过、时长计 0；`video_missing` 时长暂按编排时长占位。 */
+/** `unit_deleted` is skipped during rendering and counts as zero duration; `video_missing` temporarily uses the arranged duration as a placeholder. */
 export type EditClipStatus = "ready" | "video_missing" | "unit_deleted";
 
 export interface EditClipTrim {
@@ -54,10 +54,10 @@ export interface EditClip {
   unit_id: string;
   status: EditClipStatus;
   start: number;
-  /** 截取后的画面时长加定格延长。 */
+  /** Trimmed picture duration plus the freeze-frame extension. */
   duration: number;
   video_version: number | null;
-  /** current 视频全长；没有可用视频时为 null。 */
+  /** Full duration of the current video; null when no usable video exists. */
   source_duration: number | null;
   trim: EditClipTrim | null;
   source_volume: number;
@@ -68,11 +68,11 @@ export interface EditClip {
   transition_to_next: EditClipTransition | null;
 }
 
-/** BGM 片段。`end` 是截到时间线末尾后的实际结束时间；`fade_in` / `fade_out` 是摆放后实际生效的淡入淡出。 */
+/** BGM clip. `end` is the actual end after clipping to the timeline end; `fade_in` / `fade_out` are the effective fades after placement. */
 export interface EditBgmClip {
   id: string;
   bgm_id: string;
-  /** 所引用 BGM 的名称；BGM 已不在项目里时为 null。 */
+  /** Name of the referenced BGM; null when the BGM is no longer in the project. */
   name: string | null;
   start: number;
   end: number;
@@ -114,24 +114,24 @@ export interface EditTimelineReadout {
   issues: EditTimelineIssue[];
 }
 
-/** 一集的剪辑概况（`GET /projects/{name}/episodes/{episode}/edit-overview`）。 */
+/** Editing overview for one episode (`GET /projects/{name}/episodes/{episode}/edit-overview`). */
 export interface EpisodeEditOverview {
   episode: number;
   timeline_count: number;
-  /** 最近修改的那条及其问题数；还没有剪辑时间线时为 null。 */
+  /** The most recently modified timeline and its issue count; null when no edit timeline exists. */
   latest: (EditTimelineRef & { updated_at: string; issue_count: number }) | null;
-  /** 成片已落后于剪辑时间线的那几条；从未出片的不在其中。 */
+  /** Timelines whose final cuts lag behind the edit timeline; excludes timelines that have never been rendered. */
   stale_final_cuts: EditTimelineRef[];
 }
 
-/** 预览用的一条字幕：时间相对单元，跟随旁白时从旁白起点算起，否则按视频源素材时间。 */
+/** One preview subtitle cue: time is relative to the unit, measured from narration start when following narration, otherwise from source video time. */
 export interface EditPreviewCue {
   start: number;
   duration: number;
   text: string;
 }
 
-/** 旁白配音 current 文件的项目内路径与版本号。 */
+/** Project-relative path and version of the current narration audio file. */
 export interface EditPreviewNarrationAudio {
   path: string;
   version: number;
@@ -139,32 +139,32 @@ export interface EditPreviewNarrationAudio {
 
 export interface EditPreviewUnitMedia {
   unit_id: string;
-  /** 该单元 current 视频生成时的供应商原声开关；为 false 时文件里即使带音轨，预览也静音，与成片同口径。 */
+  /** Provider audio switch used to generate this unit's current video; when false, preview is muted even if the file has an audio track, matching final-cut behavior. */
   provider_audio: boolean;
-  /** 只在该单元按带旁白版本呈现时给出。 */
+  /** Present only when this unit is presented in the variant with narration. */
   narration_audio: EditPreviewNarrationAudio | null;
   subtitles_follow_narration: boolean;
   subtitles: EditPreviewCue[];
 }
 
-/** BGM 文件的项目内路径与响度静态增益（线性倍数）；预览音量是片段音量乘以这个增益。 */
+/** Project-relative BGM file path and static loudness gain (linear multiplier); preview volume equals clip volume multiplied by this gain. */
 export interface EditPreviewBgm {
   bgm_id: string;
   path: string;
   gain: number;
 }
 
-/** 剪辑视图预览的素材层，与 server/services/presentation/timeline_preview.py 同形。 */
+/** Media layer for the edit view preview, matching server/services/presentation/timeline_preview.py. */
 export interface EditTimelinePreviewMedia {
   timeline_id: string;
   revision: number;
   narration: TimelineNarration;
   units: EditPreviewUnitMedia[];
-  /** 只含 BGM 轨引用且文件在项目里的 BGM。 */
+  /** Includes only BGM referenced by the BGM track whose files exist in the project. */
   bgm: EditPreviewBgm[];
 }
 
-/** 项目里的一首 BGM（`GET /projects/{name}/bgm` 与上传结果）；`gain` 是把响度统一到 −16 LUFS 的线性增益。 */
+/** One project BGM (`GET /projects/{name}/bgm` and upload results); `gain` is the linear gain normalizing loudness to −16 LUFS. */
 export interface ProjectBgm {
   id: string;
   name: string;

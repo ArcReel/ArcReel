@@ -1,14 +1,15 @@
-"""v6→v7：把广告/短片的参考生视频迁移为自包含 ``video_units``。
+"""v6→v7: migrate ad/short-film reference-to-video into self-contained ``video_units``.
 
-产出的是当前的单元形状（一段 ``text`` + 编排时长，见 ADR 0064）：旧 shot 的画面文本按顺序
-拼进同一段正文，参考图与发声归属改由正文的记号读时派生，不另存数组。后续 v8→v9 对这批
-单元因此是空操作。转场保留到 v15→v16 统一丢弃，当前模型自检时不含转场。
+Produce current units (one ``text`` + planned duration, ADR 0064): concatenate old shot visuals in
+order into bodies; derive references/speech ownership from body markers at read time, without
+separate arrays. Later v8→v9 is therefore a no-op for these units. Retain transitions until v15→v16
+removes them; omit transitions in current-model self-checks.
 
-旧数据里的编号冲突按确定规则处理，不拒绝整个项目（ADR 0098）：重复的 ``shot_id`` 只有第一个
-镜头可被旧索引引用，其余镜头各自收进新的问题单元；重复的 ``unit_id`` 从第二个起换新编号、
-标为待重新规划，原编号的付费产物留给第一个。换号记进迁移报告的「已调整」。自检只覆盖单元
-本身：不符合当前单元模型的单元原样留下、标为待重新规划，交给运行期的重新规划处理。
-"""
+Resolve legacy ID collisions deterministically without rejecting projects (ADR 0098). Only first
+``shot_id`` occurrences are addressable by old indexes; others become new problem units. Reissue
+duplicate ``unit_id`` from the second occurrence and mark for replanning, leaving paid artifacts with
+the first. Record reidentification as adjusted in reports. Validate units only: preserve units violating
+current models unchanged, marked for runtime replanning."""
 
 from __future__ import annotations
 
@@ -42,7 +43,7 @@ def _positive_seconds(value: object) -> int:
 
 
 def _strings(value: object) -> Iterable[str]:
-    """按旧对象字段顺序产出非空文本，不推断或改写其语义。"""
+    """Yield nonempty text in legacy field order without inferring or rewriting meaning."""
     if isinstance(value, str):
         if value.strip():
             yield value
@@ -87,7 +88,7 @@ def _shot_text(shot: dict[str, Any]) -> str:
             if isinstance(speaker, str) and speaker.strip():
                 lines.append(f"@[{asset_name_comparison_key(speaker)}]：{{{line}}}")
             else:
-                # 旧数据没有可用说话人时只保留原文，不伪造角色归属。
+                # Without usable legacy speakers, preserve source text without fabricating character ownership.
                 lines.append(f"{{{line}}}")
 
     voiceover = shot.get("voiceover_text")
@@ -97,7 +98,7 @@ def _shot_text(shot: dict[str, Any]) -> str:
 
 
 def _unit_transition(shots: list[dict[str, Any]]) -> str:
-    """沿用旧导出语义：unit 间转场取最后一个有效成员镜头。"""
+    """Preserve legacy export semantics: inter-unit transitions come from the last valid member shot."""
     if not shots:
         return "cut"
     value = shots[-1].get("transition_to_next")
@@ -105,7 +106,7 @@ def _unit_transition(shots: list[dict[str, Any]]) -> str:
 
 
 def _migration_note(*, unresolved_shot_ids: list[str], overlapping_shot_ids: list[str]) -> str | None:
-    """把不能写入自包含正文的旧成员证据留在可见备注中。"""
+    """Retain legacy member evidence unrepresentable in self-contained bodies as visible notes."""
     history: dict[str, list[str]] = {}
     if unresolved_shot_ids:
         history["unresolved_legacy_shot_ids"] = unresolved_shot_ids
@@ -124,13 +125,13 @@ def _unit_from_shots(
     requires_replan: bool,
     note: str | None = None,
 ) -> dict[str, Any]:
-    # 旧 unit 的边界与付费产物身份不可拆：成员镜头的画面文本按顺序拼进同一段正文。
+    # Legacy unit boundaries and paid-artifact identities are inseparable; join shot visuals in order into one body.
     text = "\n".join(_shot_text(shot) for shot in shots)
     duration = sum(_positive_seconds(shot.get("duration_seconds")) for shot in shots)
     min_duration, max_duration = REFERENCE_UNIT_DURATION_RANGE
     invalid_duration = bool(text.strip()) and not min_duration <= duration <= max_duration
     if invalid_duration:
-        # marker 会阻止生成；夹到结构区间只为让问题 unit 保持可读、可编辑且不丢正文。
+        # Markers block generation; structural clamps only retain readable/editable problem units without losing bodies.
         duration = min(max(duration, min_duration), max_duration)
 
     unit: dict[str, Any] = {
@@ -139,7 +140,7 @@ def _unit_from_shots(
         "duration_seconds": duration,
         "transition_to_next": _unit_transition(shots),
         "note": note,
-        # 付费产物、URI 与旧来源签名均是历史事实，迁移必须逐键原样保留。
+        # Paid artifacts, URIs, and legacy signatures are historical facts; preserve every key unchanged.
         "generated_assets": copy.deepcopy(generated_assets) if isinstance(generated_assets, dict) else {},
     }
     preparation = SpeechComposition.prepare(adapt_video_unit(unit))
@@ -162,10 +163,9 @@ def _unit_from_shots(
 
 
 def _mark_invalid_units(units: list[Any]) -> None:
-    """按当前单元模型逐个自检；不合格的单元原样保留并标为待重新规划，不拒绝整份剧本。
+    """Self-check each unit with current models; preserve invalid units unchanged and mark replanning, without rejecting scripts.
 
-    整份剧本不拿去校验：一处与单元无关的存量脏字段（缺 title 之类）不该让整个项目迁移失败。
-    """
+    Do not validate whole scripts: unrelated legacy dirt (e.g. absent title) must not fail project migration."""
     for unit in units:
         if not isinstance(unit, dict):
             continue
@@ -176,17 +176,16 @@ def _mark_invalid_units(units: list[Any]) -> None:
             unit["needs_replan"] = True
             text = unit.get("text")
             if isinstance(text, str) and not text.strip():
-                # 没有正文的单元按待重新规划的空壳处理：空壳的编排时长为 0。
+                # Bodyless units become replanning shells with duration 0.
                 unit["duration_seconds"] = 0
 
 
 def migrate_ad_reference_script(
     payload: dict[str, Any], *, episode: int
 ) -> tuple[dict[str, Any], tuple[tuple[str, str], ...]]:
-    """纯转换旧广告剧本，返回改写后的剧本与换过的编号（原编号, 新编号）。
+    """Pure legacy-ad conversion, returning scripts and changed (old ID, new ID) pairs.
 
-    已转换脚本原样返回，供中断后安全重跑。
-    """
+    Return already-converted scripts unchanged for safe interrupted retries."""
     if "video_units" in payload and "shots" not in payload and "reference_units" not in payload:
         existing_units = payload.get("video_units")
         if not isinstance(existing_units, list):
@@ -206,7 +205,7 @@ def migrate_ad_reference_script(
         shot = copy.deepcopy(raw_shot)
         shots.append(shot)
         shot_id = shot.get("shot_id")
-        # 重复的 shot_id 只认第一个镜头；其余镜头不被旧索引引用，下面各自收进新的问题单元。
+        # First duplicate shot_id wins; old indexes cannot reference others, which become separate problem units below.
         if isinstance(shot_id, str) and shot_id and shot_id not in shot_by_id:
             shot_by_id[shot_id] = shot
     renumbered: list[tuple[str, str]] = []
@@ -266,7 +265,7 @@ def migrate_ad_reference_script(
         for position, (raw_unit, unit_id, shot_ids) in enumerate(prepared_units):
             duplicate = position in duplicate_unit_indexes
             if duplicate:
-                # 原编号的付费产物留给第一个同号单元；这一个换新编号、不带产物，待重新规划。
+                # First same-ID unit keeps paid artifacts; reissue this unit without artifacts and mark replanning.
                 new_id = fresh_unit_id()
                 renumbered.append((unit_id, new_id))
                 unit_id = new_id
@@ -297,8 +296,8 @@ def migrate_ad_reference_script(
                 )
             )
 
-        # 非空旧索引也可能已落后于权威 shots。保留索引内可证明的 unit 身份与付费产物，
-        # 再把未覆盖镜头逐条收进新问题单元；用户确认编排前禁止误生成，也不因删除 shots 丢内容。
+        # Nonempty old indexes may lag authoritative shots. Preserve provable indexed identities/paid artifacts,
+        # then wrap uncovered shots individually as problem units, preventing generation before arrangement confirmation and avoiding lost shots content.
         for shot in shots:
             if id(shot) in covered_shots:
                 continue
@@ -354,11 +353,10 @@ def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path
 
 
 def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | None = None) -> None:
-    """先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本。
+    """Preflight all scripts, atomically replace files individually, then commit ``project.json`` version.
 
-    换过编号的记录在对应剧本写盘后立即追加进 ``record``：之后一步失败时，已转换的剧本重跑时发现
-    不了换号，要靠未完成的报告带到重试。
-    """
+    Append changed IDs to ``record`` immediately after each script persists. If later steps fail, retries
+    cannot rediscover changed IDs in converted scripts; incomplete reports must carry them forward."""
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
@@ -372,7 +370,7 @@ def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | N
     target_route = project.get("content_mode") == "ad" and project.get("generation_mode") == "reference_video"
     plans: list[tuple[Path, dict[str, Any], list[MigrationAdjustment]]] = []
     if target_route:
-        # 此循环只读：任一文件损坏时还没有备份或业务文件写入。
+        # Entire loop is read-only; corrupt files precede any backup/business write.
         for path, episode in _script_paths(project_dir, project):
             payload = load_json(path)
             if not isinstance(payload, dict):
@@ -389,7 +387,7 @@ def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | N
             ]
             plans.append((path, migrated, adjustments))
 
-        # 预检全部成功后才创建备份；所有脚本先备份完，再开始替换。
+        # Back up only after all preflights succeed, completing all backups before replacements.
         for path, _payload, _adjustments in plans:
             ensure_versioned_backup(path, 6)
         for path, payload, adjustments in plans:

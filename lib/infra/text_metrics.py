@@ -1,28 +1,33 @@
-"""按源文语言计『阅读单位』的轻量度量工具。
+"""Lightweight reading-unit metrics based on the source language.
 
-`count_reading_units` 是语义级、按源文语言裁剪的「阅读单位」计数器,贴合用户
-「N 字一集」的心智(区别于字符级、语言无关的偏移定位度量)。
+`count_reading_units` counts semantic, language-specific reading units, matching
+the user's notion of N characters per episode. This differs from language-neutral
+character offsets used for locating text.
 
-输入约定:
-- 调用方应传入 NFC normalize 过的文本。NFD/组合重音形式的越南语等会让 `\\w` word
-  boundary 把组合标记拆出 token,导致 ``Hôm``(``H + o + ̂ + m``) 这类词被计为多 token。
-  调用方在文件读入边界 ``unicodedata.normalize("NFC", text)`` 即可。lib 本身不主动
-  normalize 以保持纯字符串处理 + offset 与输入文本同坐标系。
+Input contract:
+- Callers supply NFC-normalized text. With NFD/combining accents in languages such
+  as Vietnamese, `\\w` word boundaries split combining marks out of tokens, so
+  ``Hôm`` (``H + o + ̂ + m``) can count as multiple tokens. Normalize with
+  ``unicodedata.normalize("NFC", text)`` at the file-reading boundary. This module
+  does not normalize: string operations and offsets retain the input coordinates.
 
-设计约束:
-- 本模块不依赖任何 lib/ 内部模块,以便 agent skill 脚本通过 sys.path 注入后干净引入。
-- 接口稳定:加新语言时只新增分支,不破调用方。
+Design constraints:
+- No internal lib/ dependencies, so agent skill scripts can import this module
+  after adding its path to sys.path.
+- Keep the interface stable: add branches for new languages without breaking callers.
 """
 
 from __future__ import annotations
 
 import re
 
-# zh: CJK Unified Ideographs(基本区 + 扩展 A) + CJK 兼容汉字 + CJK 符号与标点 +
-# 全角符号区 + SIP 平面 CJK Ext B-H(罕用 / 古籍 / 人名地名生僻字,U+20000-U+323AF)
+# zh: CJK Unified Ideographs (basic block + Extension A), compatibility ideographs,
+# CJK symbols/punctuation, fullwidth forms, and SIP CJK Extensions B-H
+# (rare/historical characters and uncommon personal/place names, U+20000-U+323AF).
 _ZH_UNIT_PATTERN = re.compile("[㐀-鿿豈-﫿　-〿＀-￯𠀀-𲎯]")
 
-# en / vi / ru 等按词计的语言走 unicode word-boundary（\w 在 re.UNICODE 下含拉丁与西里尔字母）
+# Word-counted languages such as en / vi / ru use Unicode word boundaries
+# (\w includes Latin and Cyrillic letters under re.UNICODE).
 _LATIN_WORD_PATTERN = re.compile(r"\b\w+\b", re.UNICODE)
 
 
@@ -34,12 +39,14 @@ def _pattern_for(language: str | None) -> re.Pattern[str]:
 
 
 def count_reading_units(text: str, language: str | None) -> int:
-    """按源文语言数『阅读单位』。
+    """Count reading units in the source language.
 
-    zh: 汉字 + CJK 标点 / 全角符号
-    en / vi / ru: unicode word-boundary 词数（数字计作词;缩写如 "don't" 会按 word-boundary
-        规则拆分为 ``don`` + ``t``。如需把缩写计为单一 token，需换用不同的正则。）
-    未知 / None / 空 language: 按 zh 路径处理(向后兼容老项目缺 source_language 的场景)
+    zh: Chinese characters plus CJK punctuation / fullwidth symbols.
+    en / vi / ru: Unicode word-boundary words. Numbers count as words; contractions
+        such as "don't" split into ``don`` + ``t``. Counting a contraction as one
+        token would require a different regular expression.
+    Unknown / None / empty language: use zh for compatibility with older projects
+        that have no source_language.
     """
     if not text:
         return 0
@@ -47,23 +54,25 @@ def count_reading_units(text: str, language: str | None) -> int:
 
 
 def reading_unit_noun(language: str | None) -> str:
-    """该语言『阅读单位』的中文量词：词（按词计的 en / vi / ru 等）/ 字（zh 及未知语言按字计）。
+    """Return the Chinese unit noun: 词 for word-counted languages, otherwise 字.
 
-    量词名直接由 ``_pattern_for`` 的分类派生，与 ``count_reading_units`` 天然同源——
-    新增按词计的语言只在 ``_pattern_for`` 加分支，本函数自动跟随，避免各调用点各写一套
-    「词 / 字」映射而与实际计数口径漂移（prompt 里「N 词 / 秒」「N 字一集」等描述据此取名）。
+    Derive the noun from ``_pattern_for``, the same classification used by
+    ``count_reading_units``. Adding a word-counted language to ``_pattern_for`` automatically
+    updates this function, avoiding per-caller word/character mappings that drift
+    from the counter. Prompts use this noun for units per second or per episode.
     """
     return "词" if _pattern_for(language) is _LATIN_WORD_PATTERN else "字"
 
 
 def find_reading_unit_offset(text: str, target_units: int, language: str | None) -> int:
-    """返回第 ``target_units`` 个阅读单位末尾的字符偏移（含尾）。
+    """Return the character offset just after reading unit ``target_units``.
 
-    与 ``count_reading_units`` 共用度量口径。按原文顺序累计扫描，避免全局比例换算
-    在 ASCII/数字分布不均（en/vi/ru 或 zh 混排）时把目标单位映射到错误位置。
+    Use the same units as ``count_reading_units`` and scan in source order. A
+    global proportion would map units to incorrect positions when ASCII/digits
+    are unevenly distributed, including en/vi/ru or mixed Chinese text.
 
-    - ``target_units <= 0`` 或 ``text`` 为空 → 返回 0
-    - text 中阅读单位数 < target_units → 返回 ``len(text)``
+    - Return 0 for ``target_units <= 0`` or empty ``text``.
+    - Return ``len(text)`` if there are fewer units than requested.
     """
     if target_units <= 0 or not text:
         return 0

@@ -1,4 +1,4 @@
-"""内置供应商获取模型：按供应商取模型列表接口的地址与形态，只取模型 ID，按清单中的 API 模型名精确匹配。"""
+"""Built-in discovery uses provider-specific list URLs/formats, IDs only, exactly matching listed API model names."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def test_openai_form_lists_ids_from_provider_base_url(provider_id: str, base_url
 
 
 def test_openai_without_configured_base_url_ignores_the_environment_base_url(monkeypatch: pytest.MonkeyPatch):
-    """没配 base_url 时请求官方地址，不随 SDK 改读 OPENAI_BASE_URL，密钥不会发到环境变量指定的主机。"""
+    """Without base_url use official URLs, not SDK OPENAI_BASE_URL; never send keys to environment-selected hosts."""
     monkeypatch.setenv("OPENAI_BASE_URL", "https://env-relay.example.com/v1")
     with capture_http() as http:
         route = http.get("https://api.openai.com/v1/models").respond(json=_openai_list("a-model"))
@@ -57,7 +57,7 @@ def test_google_form_strips_path_prefix():
 
     request = only_request(route)
     assert request.headers["x-goog-api-key"] == "g-key"
-    # 单次请求的超时与 OpenAI 形态一致（30 秒），不按 SDK 默认值挂着
+    # One-request timeout matches OpenAI-style 30 seconds, not long SDK defaults.
     assert request.extensions["timeout"]["read"] == 30
     assert ids == ["gemini-3-flash-preview", "veo-3.1-generate-preview"]
 
@@ -84,7 +84,7 @@ def test_classify_lists_amphibious_listing_once_per_model_key_and_infers_unknown
 
 
 def test_classify_carries_the_entry_an_unlisted_model_name_maps_to():
-    # 清单外、名字能对应条目（大小写、别名）的模型带上条目，添加后按它计价；对应不上的没有条目
+    # Unlisted models matching entries by case/aliases inherit pricing entries; unmatched models have none.
     rows = {
         r.model_id: r for r in builtin_discovery.classify_model_ids("dashscope", ["Qwen3-Max", "gpt-5.5", "acme-x"])
     }

@@ -1,10 +1,10 @@
 import type { ReferenceBatchAdmission } from "@/types";
 
 /**
- * 一次批量入队的五种结局。服务端的 `decision` 只分到三种：入队中断不撤销已建的任务，
- * 那一路的 decision 仍是 `admitted`，与「整批都建上了」只差有没有单元没排上。中断落在
- * 第一个目标上时一个任务也没建成，`interrupted` 与 `none_queued` 的差别就在这里：前者
- * 还有任务在跑，后者没有，两者对用户的意味不同，不能用同一句话陈述。
+ * Five batch-enqueue outcomes. Server `decision` has only three: interrupted enqueueing retains created tasks,
+ * so its decision stays `admitted`, distinguished from a fully queued batch by whether any units failed to enqueue. If interruption hits
+ * the first target, no task is created: `interrupted` still has running tasks while `none_queued` has none.
+ * Their implications differ and must not share wording.
  */
 export type ReferenceBatchOutcome =
   | "queued"
@@ -14,8 +14,8 @@ export type ReferenceBatchOutcome =
   | "none_queued";
 
 /**
- * 判定收在这一处：画布据此决定要不要留下这份结论，弹窗据此决定开合与形态。两处问的是
- * 同一件事的正反面，各写一遍就会在改判时静默失配。
+ * Centralize the decision: the canvas uses it to retain the outcome, and the dialog to choose visibility/shape. These are
+ * two sides of one question; duplicate rules silently diverge when changed.
  */
 export function referenceBatchOutcome(admission: ReferenceBatchAdmission): ReferenceBatchOutcome {
   if (admission.decision === "blocked") return "blocked";

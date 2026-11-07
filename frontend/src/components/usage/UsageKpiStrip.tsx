@@ -7,7 +7,7 @@ import { formatCalendarDay, formatCount, formatRatio } from "./usage-record-form
 
 const DASH = "—";
 
-/** 范围副行的日期粒度：跨度以月计，年份省不掉——筛选可以选到去年。 */
+/** Date granularity for the range subline: the span is in months, but keep the year because filters can select last year. */
 const RANGE_DAY_OPTIONS: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "short",
@@ -24,7 +24,7 @@ function Cell({ label, value, sub }: { label: string; value: string; sub: ReactN
   );
 }
 
-/** KPI 只读 summary，不随状态筛选变化：口径要在整段界面里保持一致。 */
+/** KPIs read summary only, independent of status filters, maintaining one consistent definition throughout the UI. */
 export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
   const { t, i18n } = useTranslation("dashboard");
   const language = i18n.language;
@@ -34,7 +34,7 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
   const costEntries = Object.entries(kpi?.cost ?? {}).filter(([, amount]) => amount > 0);
   const primaryAmount = primary ? (kpi?.cost[primary] ?? 0) : 0;
   const others = costEntries.filter(([currency]) => currency !== primary);
-  // 未定价的调用不计入金额，在副行单列次数，免得把「没算出来」读成「0 元」。
+  // Exclude unpriced calls from amounts and show their count separately in the subline, avoiding confusion between unknown cost and zero.
   const costSub =
     [
       ...others.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`),
@@ -63,7 +63,7 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
         sub={kpi && kpi.cancelled > 0 ? t("usage_kpi_cancelled_count", { count: kpi.cancelled }) : DASH}
       />
       <Cell
-        // 多币种不折算：主币种进大字，其余在副行原样列出。
+        // Do not convert currencies: show the primary currency large and list other currencies unchanged in the subline.
         label={primary ? `${t("usage_kpi_cost")} · ${primary}` : t("usage_kpi_cost")}
         value={primary ? formatCurrencyAmount(primary, primaryAmount) : DASH}
         sub={costSub}

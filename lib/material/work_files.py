@@ -1,16 +1,19 @@
-"""远端内容版本的本地工作文件：按需取回、内容校验、并发协调、使用保护与未使用缓存清理（见 ``docs/adr/0116``）。
+"""Local remote-version work files: fetch on demand, verify, coordinate concurrency, protect use, and clean unused caches (``docs/adr/0116``).
 
-远端内容版本在本地有两类工作文件，位置与本地版本一致，既有读取方因此不用区分存储位置：
+Remote versions have two local work-file types, matching local-version locations so existing
+readers need not distinguish storage:
 
-- 版本快照位置（记录的 ``file``）；
-- 资源被选中时的正式文件（如 ``characters/Alice.png``）。
+- Version snapshot location (recorded ``file``);
+- Selected resource’s formal file, e.g. ``characters/Alice.png``.
 
-两者都只是缓存：持久内容在对象存储里，清理后读取方经 :func:`ensure_work_file` 或
-:func:`ensure_content_version_file` 取回。取回时按版本记录的摘要校验，同一文件的并发取回只下载一次；写入在版本锁内
-复核记录仍未改变、文件仍不在，才安装到位，不会盖住并发提交写下的新正式文件。
+Both are caches only; durable content lives remotely. After cleanup, readers use
+:func:`ensure_work_file` / :func:`ensure_content_version_file` to fetch it. Verify against recorded
+digests; concurrent same-file requests download once. Before installing under version locks,
+recheck unchanged records and continued file absence, never overwriting concurrent new formal files.
 
-使用中的工作文件经 :func:`hold_work_file` 登记，清理（:func:`cleanup_work_cache`）跳过它们，也跳过最近使用过的文件。
-清理只删除远端已确认保存、且本地内容与记录摘要一致的工作文件，从不删除对象存储里的正式对象。
+Register active files through :func:`hold_work_file`; :func:`cleanup_work_cache` skips them and
+recently used files. Delete only confirmed-remote, digest-matching work files, never formal
+objects in object storage.
 """
 
 from __future__ import annotations
@@ -54,25 +57,25 @@ from lib.project.resource_paths import resource_relative_path
 
 logger = logging.getLogger(__name__)
 
-#: 周期清理时工作文件至少闲置多久才删除。
+#: Minimum work-file idle time before periodic deletion.
 DEFAULT_MIN_IDLE = timedelta(hours=24)
 
 
 class MaterialFetchFailedError(BadGatewayError):
-    """没能从对象存储取回远端内容版本，或取回的内容与记录的摘要不符。"""
+    """Remote content could not be fetched or mismatches the recorded digest."""
 
     def __init__(self, reason: str) -> None:
         super().__init__("material_remote_fetch_failed", reason=reason)
 
 
 class MaterialConnectionUnavailableError(ConflictError):
-    """内容版本记下的对象存储连接已不存在或已指向另一个桶；不按新连接重新解释旧定位。"""
+    """Recorded connection is absent or points to another bucket; never reinterpret old locators through new connections."""
 
     def __init__(self) -> None:
         super().__init__("material_object_connection_unavailable")
 
 
-# ---- 使用保护 ---------------------------------------------------------------------------------
+# ---- Use protection ---------------------------------------------------------------------
 
 _LEASE_GUARD = threading.Lock()
 _LEASES: Counter[str] = Counter()
@@ -80,14 +83,14 @@ _LAST_USED: dict[str, float] = {}
 
 
 def _lease_key(path: Path) -> str:
-    """使用登记按真实路径记：登记方经 ``get_project_path`` 拿到的是真实路径，清理方枚举的是项目目录下的原路径，
-    数据目录经过符号链接时两种写法不同，按真实路径比对才对得上。"""
+    """Key use registrations by real paths: ``get_project_path`` returns resolved paths, while cleanup enumerates original project-directory paths.
+    Symlinked data directories make them differ; realpath comparison aligns them."""
     return os.path.realpath(path)
 
 
 @contextmanager
 def hold_work_file(path: Path) -> Generator[Path]:
-    """登记 ``path`` 正在使用，期间清理不会删除它。可嵌套，线程安全。"""
+    """Register ``path`` as in use so cleanup cannot delete it; nesting is supported, thread-safe."""
     key = _lease_key(path)
     with _LEASE_GUARD:
         _LEASES[key] += 1
@@ -102,7 +105,7 @@ def hold_work_file(path: Path) -> Generator[Path]:
 
 
 def _in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: float) -> bool:
-    """调用方持有使用登记锁。"""
+    """Caller holds the use-registration lock."""
     key = _lease_key(path)
     if _LEASES.get(key):
         return True
@@ -110,7 +113,7 @@ def _in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: floa
     return max(stat_result.st_mtime, last_used) > idle_before
 
 
-# ---- 工作文件与版本记录的对应 -------------------------------------------------------------------
+# ---- Work-file/version-record correspondence ------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -121,7 +124,7 @@ class _WorkFile:
     content_version_id: str
     digest: str
     stored: ObjectLocator
-    #: 正式文件（选中版本的工作副本）；否则是版本快照位置。
+    #: Formal file, the selected-version work copy; otherwise version snapshot location.
     formal: bool
 
 
@@ -137,7 +140,7 @@ _ASSET_SHEET_FIELDS = {spec.bucket_key: spec.sheet_field for spec in ASSET_SPECS
 
 
 def _formal_path(project: dict[str, Any], resource_type: str, resource_id: str) -> str | None:
-    """资源正式文件的项目内路径：资产以 project.json 的资产图字段为准（可能是 .jpg），其余取规范路径。"""
+    """Project-relative formal resource path: assets use project.json sheet fields (possibly .jpg), others canonical paths."""
     sheet_field = _ASSET_SHEET_FIELDS.get(resource_type)
     if sheet_field is not None:
         bucket = project.get(resource_type)
@@ -151,7 +154,7 @@ def _formal_path(project: dict[str, Any], resource_type: str, resource_id: str) 
 
 
 def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
-    """版本历史中所有远端内容版本的工作文件。``data`` 须在版本锁内读取。"""
+    """Work files for every remote historical version; read ``data`` under version locks."""
     result: list[_WorkFile] = []
     current_versions: dict[tuple[str, str], object] = {}
     if isinstance(data, dict):
@@ -190,11 +193,11 @@ def _file_version(path: Path) -> tuple[object, ...] | None:
 
 
 def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
-    """项目中远端内容版本的全部工作文件（项目内相对路径 → 记录的内容摘要），不论本地是否在场。
+    """All project remote-version work files, mapping project-relative paths to digests, regardless of local presence.
 
-    不取版本锁：版本历史与 project.json 都经原子替换写入，各自读到的是完整的一版；两者任一被替换
-    （stat 标识变化）就重新解析。读取方以此把缓存缺失与正式素材缺失分开，结论在提交前仍由各自的
-    稳定性复核把关。
+    No version locks: history/project.json use atomic replacements, so each read gets a complete
+    version; reparse when either stat identity changes. Readers distinguish missing caches from
+    missing formal materials, while their own precommit stability checks still guard conclusions.
     """
     project_path = Path(project_path)
     versions_file = project_path / "versions" / "versions.json"
@@ -224,9 +227,9 @@ def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
 
 
 def absent_work_file_digest(project_path: Path, relative_path: str) -> str | None:
-    """``relative_path`` 是远端内容版本的工作文件、而本地缓存不在时，返回记录的内容摘要。
+    """Return recorded digests when ``relative_path`` is a remote-version work file with absent local cache.
 
-    文件在本地（应照常读取并校验内容）或它不是远端内容版本的工作文件时返回 ``None``。
+    Return ``None`` if local (read/verify normally) or not a remote-version work file.
     """
     digest = remote_work_file_digests(project_path).get(PurePosixPath(relative_path).as_posix())
     if digest is None or (Path(project_path) / relative_path).exists():
@@ -250,19 +253,19 @@ def _absent_digest_at(path: Path) -> str | None:
 
 
 def material_file_present(path: Path) -> bool:
-    """图片文件是否在场：本地有普通文件，或它是缓存已清理的远端内容版本工作文件（正式素材仍在对象存储）。
+    """Image presence: a regular local file, or a cleaned remote-version cache whose formal content remains remotely stored.
 
-    只回答在场；要读字节的调用方先经 :func:`local_work_files` 取回。
+    Presence only; callers needing bytes first fetch through :func:`local_work_files`.
     """
     return path.is_file() or _absent_digest_at(path) is not None
 
 
 def material_file_digest(path: Path) -> str:
-    """图片文件的内容摘要：文件在本地时按字节计算（照常校验）；它是缓存已清理的远端内容版本工作文件时
-    取版本记录里的摘要，不因缓存缺失而视为正式素材缺失。
+    """Image digest: hash local bytes with normal verification, or use recorded digests for cleaned remote-version work files,
+    never treating missing caches as missing formal materials.
 
     Raises:
-        FileNotFoundError: 文件不在本地，且不是远端内容版本的工作文件。
+        FileNotFoundError: Neither local nor a remote-version work file.
     """
     try:
         return sha256_file(path)
@@ -281,29 +284,29 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
         return _work_files(data, project)
 
 
-#: 远端内容版本的一个工作文件（版本快照位置或选中时的正式文件），供需要成批确保工作文件在场的读取方使用。
+#: One remote-version work file (snapshot or selected formal file) for readers ensuring files in batches.
 RemoteWorkFile = _WorkFile
 
 
 def remote_work_files(versions: object, project: dict[str, Any]) -> list[RemoteWorkFile]:
-    """``versions``（versions.json 内容）与 ``project``（project.json 内容）里所有远端内容版本的工作文件。
+    """All remote-version work files in ``versions`` (versions.json) and ``project`` (project.json).
 
-    纯函数：不读盘、不取锁。读取正在使用的项目时用 :func:`locked_remote_work_files`。
+    Pure function, no disk reads/locks. Use :func:`locked_remote_work_files` for active project reads.
     """
     return _work_files(versions, project)
 
 
 def locked_remote_work_files(project_path: Path) -> list[RemoteWorkFile]:
-    """在版本锁内读取项目所有远端内容版本的工作文件。同步磁盘操作，异步调用方在工作线程里调用。"""
+    """Read all remote-version work files under version locks; async callers run synchronous disk operations in worker threads."""
     return _locked_work_files(Path(project_path))
 
 
 def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> bool:
-    """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
+    """``data`` is version-lock-read history; work files still belong to the same content version (formal files remain at selected-version locations)."""
     return work_file in _work_files(data, _load_project_json(project_path))
 
 
-# ---- 取回 -------------------------------------------------------------------------------------
+# ---- Fetch ------------------------------------------------------------------------------
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
@@ -336,32 +339,32 @@ async def _download(stored: ObjectLocator, session_factory: async_sessionmaker[A
 async def fetch_object_content(
     stored: ObjectLocator, *, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> bytes:
-    """按记下的连接与桶取回正式对象的内容，不校验摘要；供项目之外的持有方（全局资产库）安装自己的工作文件。
+    """Fetch formal-object content by recorded connection/bucket without digest verification, for nonproject holders (global libraries) installing work files.
 
     Raises:
-        MaterialConnectionUnavailableError: 记录的连接已不存在或已换桶。
-        MaterialFetchFailedError: 下载失败。
+        MaterialConnectionUnavailableError: Recorded connection absent or changed buckets.
+        MaterialFetchFailedError: Download failed.
     """
     return await _download(stored, session_factory or _default_session_factory())
 
 
 def in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: float) -> bool:
-    """工作文件此刻有使用登记，或在 ``idle_before`` 之后写入或用过；清理须跳过它。"""
+    """Work file is currently registered in use, or written/used after ``idle_before``; cleanup must skip it."""
     with _LEASE_GUARD:
         return _in_use_or_recent(path, stat_result, idle_before)
 
 
 def evict_idle_work_file(path: Path, stat_result: os.stat_result, idle_before: float) -> tuple[int, int, int]:
-    """调用方确认远端已存储且摘要一致后，原子复核使用登记并删除本地缓存。"""
+    """After caller confirms remote storage/digest matching, atomically recheck use registrations and delete local caches."""
     with _LEASE_GUARD:
         if _in_use_or_recent(path, stat_result, idle_before):
             return 0, 0, 1
-        path.unlink()  # hard-delete: derived -- 远端已确认保存的图片工作文件，可从对象存储取回
+        path.unlink()  # hard-delete: derived -- Confirmed-remote image work files, refetchable from object storage
     return 1, stat_result.st_size, 0
 
 
 def _install(project_path: Path, work_file: _WorkFile, data: bytes) -> None:
-    """校验内容后在版本锁内安装工作文件；记录已变或文件已在时放弃，不覆盖。"""
+    """After content verification, install under version locks; abandon changed records/present files without overwriting."""
     from lib.artifacts.version_manager import VersionManager
 
     if hashlib.sha256(data).hexdigest() != work_file.digest:
@@ -380,7 +383,7 @@ def _install(project_path: Path, work_file: _WorkFile, data: bytes) -> None:
                 os.replace(tmp, target)
     finally:
         with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)  # hard-delete: temp -- 取回工作文件的临时文件
+            tmp.unlink(missing_ok=True)  # hard-delete: temp -- Temporary work-file download
 
 
 async def _fetch(project_path: Path, work_file: _WorkFile, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -395,13 +398,14 @@ async def _fetch(project_path: Path, work_file: _WorkFile, session_factory: asyn
 async def ensure_work_file(
     project_path: Path, relative_path: str, *, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> bool:
-    """``relative_path`` 是远端内容版本的工作文件且不在本地时，从对象存储取回。
+    """Fetch ``relative_path`` from object storage if it is a remote-version work file missing locally.
 
-    返回是否做了取回（文件已在、或不是远端内容版本的工作文件时返回 ``False``，调用方照原有逻辑处理）。
+    Return whether fetched (``False`` if already present or not remote-version work files; callers
+    continue existing behavior).
 
     Raises:
-        MaterialConnectionUnavailableError: 记录的连接已不存在或已换桶。
-        MaterialFetchFailedError: 下载失败或内容与摘要不符。
+        MaterialConnectionUnavailableError: Recorded connection absent or changed buckets.
+        MaterialFetchFailedError: Download failed or digest mismatched.
     """
     project_path = Path(project_path)
     if await asyncio.to_thread((project_path / relative_path).is_file):
@@ -420,11 +424,11 @@ async def ensure_content_version_file(
     *,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> Path:
-    """返回内容版本校验过的本地文件（版本快照位置）；远端内容版本的工作文件不在时先取回。
+    """Return verified local content-version snapshot files, fetching missing remote-version work files first.
 
     Raises:
-        MaterialConnectionUnavailableError, MaterialFetchFailedError: 远端取回失败。
-        FileNotFoundError, VersionSnapshotCorruptedError: 同 :meth:`LocalMaterialStorage.open`。
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: Remote fetch failed.
+        FileNotFoundError, VersionSnapshotCorruptedError: As :meth:`LocalMaterialStorage.open`.
     """
     project_path = Path(project_path)
     if content_version.stored is not None:
@@ -442,13 +446,14 @@ async def held_work_files(
     *,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> AsyncGenerator[None]:
-    """成批确保工作文件在场，并在这段上下文里登记使用，清理不会删除它们。
+    """Ensure work files in batches, registering use for this context so cleanup cannot delete them.
 
-    先登记再取回，取回与读取之间不会被清理插队。``relative_paths`` 里不是远端内容版本工作文件的路径照常登记、
-    不取回。任何一个取回失败都抛出，不进入上下文。
+    Register before fetch, preventing cleanup between fetch/read. Register ``relative_paths``
+    outside remote-version work files normally without fetching. Any fetch failure raises without
+    entering the context.
 
     Raises:
-        MaterialConnectionUnavailableError, MaterialFetchFailedError: 同 :func:`ensure_work_file`。
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: As :func:`ensure_work_file`.
     """
     project_path = Path(project_path)
     paths = sorted(set(relative_paths))
@@ -466,7 +471,7 @@ async def held_work_files(
         try:
             await asyncio.gather(*fetches)
         except BaseException:
-            # 第一个失败原样抛出（调用方按它的状态码返回），其余取回随之取消；已安装的工作文件只是缓存。
+            # Propagate the first failure unchanged (callers return its status), cancel others; already installed work files are only caches.
             for fetch in fetches:
                 fetch.cancel()
             await asyncio.gather(*fetches, return_exceptions=True)
@@ -475,7 +480,7 @@ async def held_work_files(
 
 
 def _project_relative_paths(project_path: Path, paths: Iterable[Path | str]) -> tuple[Path, list[str]]:
-    """项目目录的真实路径，以及目录下的路径按真实路径换成的项目内相对路径（去重保序，目录外的不在其列）。"""
+    """Resolved project directory and contained paths converted to project-relative realpaths, deduplicated in order; exclude external paths."""
     root = os.path.realpath(project_path)
     relative: list[str] = []
     for path in paths:
@@ -495,13 +500,14 @@ async def local_work_files(
     *,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> AsyncGenerator[None]:
-    """要实际读取字节的一批项目文件：期间登记使用，缓存已清理的远端内容版本工作文件先取回并校验摘要。
+    """Project files whose bytes will be read: register use and fetch/digest-verify cleaned remote-version caches first.
 
-    ``paths`` 是项目内相对路径或项目目录下的绝对路径；不是远端内容版本工作文件的路径原样放行，
-    由调用方照原有逻辑读取。先登记使用再取回，取回后到读取前不会被清理。
+    ``paths`` accepts project-relative paths or absolute paths under project directories. Nonremote
+    work-file paths pass unchanged for existing caller reads. Register use before fetch so cleanup
+    cannot intervene before reading.
 
     Raises:
-        MaterialConnectionUnavailableError, MaterialFetchFailedError: 远端取回失败。
+        MaterialConnectionUnavailableError, MaterialFetchFailedError: Remote fetch failed.
     """
     project_path = Path(project_path)
     _real_root, relative = await asyncio.to_thread(_project_relative_paths, project_path, paths)
@@ -509,7 +515,7 @@ async def local_work_files(
         yield
 
 
-# ---- 清理 -------------------------------------------------------------------------------------
+# ---- Cleanup ----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -520,7 +526,7 @@ class CacheCleanupResult:
 
 
 def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tuple[int, int, int]:
-    """删除一个可清理的工作文件，返回 (删除数, 释放字节, 因使用中保留数)。"""
+    """Delete one cleanable work file; return (deleted count, freed bytes, retained-in-use count)."""
     from lib.artifacts.version_manager import VersionManager
 
     target = project_path / work_file.path
@@ -542,10 +548,10 @@ async def cleanup_work_cache(
     min_idle: timedelta = DEFAULT_MIN_IDLE,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> CacheCleanupResult:
-    """删除各项目中闲置超过 ``min_idle`` 的远端内容版本工作文件。
+    """Delete remote-version work files idle beyond ``min_idle`` across projects.
 
-    只删除远端已确认保存（``stored``）、本地内容与摘要一致、此刻没有使用登记的文件；本地内容版本、
-    正式对象与中转副本都不受影响。
+    Delete only confirmed-remote (``stored``), locally digest-matching files without current use
+    registrations; local content versions, formal objects, and relay copies remain unaffected.
     """
     session_factory = session_factory or _default_session_factory()
     idle_before = time.time() - min_idle.total_seconds()

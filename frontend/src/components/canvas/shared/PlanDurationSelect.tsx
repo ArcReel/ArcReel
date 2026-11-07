@@ -3,16 +3,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 interface PlanDurationSelectProps {
   seconds: number;
-  /** 可选档位（升序）；为 null 或空时只显示秒数。 */
+  /** Available tiers in ascending order; null or empty shows seconds only. */
   options: number[] | null;
   onChange: (seconds: number) => void;
   label: string;
   disabled?: boolean;
-  /** 时长由端点固定：附上说明；有档位（剧本规划借用的档位）时仍可选。 */
+  /** Endpoint-fixed duration: attach an explanation; remain selectable if tiers exist, as reused by script planning. */
   endpointFixed?: boolean;
 }
 
-/** 脚本规划条目的时长下拉，内容确认页三种规划共用。 */
+/** Planning-entry duration dropdown shared by all three plan types on content confirmation pages. */
 export function PlanDurationSelect({
   seconds,
   options,
@@ -31,7 +31,7 @@ export function PlanDurationSelect({
       </span>
     );
   }
-  // 存量秒数可能已不在当前档位内：补一个当前值选项，否则下拉显示不出盘上的秒数。
+  // Existing seconds may no longer be a current tier: add the current value as an option so the dropdown can show the persisted duration.
   const values = options.includes(seconds) ? options : [...options, seconds].sort((a, b) => a - b);
   const items = values.map((value) => ({ value, label: t("reference_script_plan_duration_option", { seconds: value }) }));
   const select = (

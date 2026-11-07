@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-/** 资产图的生成按钮：生成中禁用，前置图标换成转圈。 */
+/** Asset-image generate button: disabled during generation, with the leading icon replaced by a spinner. */
 export function GenerateButton({
   onClick,
   loading = false,
@@ -19,7 +19,7 @@ export function GenerateButton({
   className?: string;
   disabled?: boolean;
   size?: ComponentProps<typeof Button>["size"];
-  /** 同一区域已有主操作时（如详情里每条衍生的生成）用次要变体。 */
+  /** Use the secondary variant when this area already has a primary action, such as generation for each derivative in details. */
   variant?: ComponentProps<typeof Button>["variant"];
 }) {
   const { t } = useTranslation("assets");

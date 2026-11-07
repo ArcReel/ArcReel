@@ -1,8 +1,8 @@
 import type { DraftDocType, ScriptReviewViolation } from "@/types";
 
 /**
- * 待修复草稿交给 Agent 时的预填：列出违约，或在违约已清零时请它直接采用。
- * `episodeRef` 是集名连同集 ID 的指称（`episodeAgentRef`）。
+ * Prefilled text when handing a repairable draft to the Agent: list violations, or ask for direct adoption when none remain.
+ * `episodeRef` identifies the episode by name and ID (`episodeAgentRef`).
  */
 export function draftFixRequestText(
   t: (key: string, options?: Record<string, unknown>) => string,
@@ -22,7 +22,7 @@ export function draftFixRequestText(
   ].join("\n");
 }
 
-/** 丢弃后回到哪份内容：按草稿对应的文档与正式内容是否存在给出说明。 */
+/** Explain which content discarding returns to, according to the draft's document and whether formal content exists. */
 export function draftFallbackText(
   t: (key: string, options?: Record<string, unknown>) => string,
   docType: DraftDocType,

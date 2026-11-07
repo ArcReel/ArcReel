@@ -1,11 +1,11 @@
-"""执行中任务对项目的认领。
+"""Project claims held by executing tasks.
 
-任务按项目名定位项目目录。执行中的任务不可取消，删除项目时照常跑完；执行期间项目若被删除或被
-覆盖导入替换，同一个名字之后可能指向另一个项目。删除或覆盖项目时作废该项目执行中任务的认领，
-任务写产物与写回前经 :func:`ensure_task_project_claim` 复核，认领已作废就放弃落盘。
+Tasks locate directories by project name. Executing tasks cannot cancel and finish after project
+deletion; deletion/overwrite during execution may make that name identify another project later.
+Revoke executing claims on deletion/overwrite, then recheck via :func:`ensure_task_project_claim`
+before artifact writes/writeback; revoked tasks discard persistence.
 
-认领与作废都只在本进程内生效：删除项目的路由、导入项目的路由与生成 worker 运行在同一进程。
-"""
+Claims/revocation apply only in-process: deletion/import routes and generation workers share one process."""
 
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ from dataclasses import dataclass
 
 
 class ProjectDeletedDuringTaskError(RuntimeError):
-    """任务认领的项目已在任务执行期间删除。"""
+    """The task-claimed project was deleted during execution."""
 
     def __init__(self, project_name: str) -> None:
         super().__init__(f"项目 '{project_name}' 已在任务执行期间删除")
         self.project_name = project_name
 
 
-# 已作废认领的任务。删除项目时任务可能已被认领、但还没进入执行上下文，作废记录因此按任务
-# 保存，由任务退出执行上下文时移除。
+# Tasks with revoked claims: deletion may happen after task claiming but before execution context entry, so retain per-task
+# revocations until execution-context exit.
 _revoked_task_ids: set[str] = set()
 _revoked_lock = threading.Lock()
 
@@ -46,10 +46,9 @@ _current_claim: ContextVar[TaskProjectClaim | None] = ContextVar("task_project_c
 
 @contextmanager
 def claim_task_project(task_id: str, project_name: str | None) -> Generator[TaskProjectClaim]:
-    """在执行任务的上下文里认领项目。
+    """Claim a project in task-execution context.
 
-    认领经 ``contextvars`` 传播，上下文内派生的协程与 ``asyncio.to_thread`` 线程都看得到。
-    """
+    ``contextvars`` propagates claims to derived coroutines and ``asyncio.to_thread`` workers."""
     claim = TaskProjectClaim(task_id, project_name)
     token = _current_claim.set(claim)
     try:
@@ -61,25 +60,23 @@ def claim_task_project(task_id: str, project_name: str | None) -> Generator[Task
 
 
 def revoke_task_project_claims(task_ids: Iterable[str]) -> None:
-    """作废这些任务对项目的认领。"""
+    """Revoke these tasks' project claims."""
     with _revoked_lock:
         _revoked_task_ids.update(task_ids)
 
 
 def restore_task_project_claims(task_ids: Iterable[str]) -> None:
-    """恢复这些任务对项目的认领：作废它们的那次删除或覆盖没有完成，项目原样保留。
+    """Restore claims when their revoking deletion/overwrite failed and left the original project intact.
 
-    在恢复之前已复核到作废的任务已经放弃落盘，不随之恢复。
-    """
+    Tasks already observing revocation and discarding persistence are not revived."""
     with _revoked_lock:
         _revoked_task_ids.difference_update(task_ids)
 
 
 def ensure_task_project_claim(project_name: str) -> None:
-    """当前任务认领的正是 ``project_name`` 且认领已作废时，抛 :class:`ProjectDeletedDuringTaskError`。
+    """Raise :class:`ProjectDeletedDuringTaskError` if this task claims ``project_name`` and its claim is revoked.
 
-    不在任务执行上下文里，或操作的是别的项目时不做任何事。
-    """
+    Do nothing outside task-execution context or for operations on other projects."""
     claim = _current_claim.get()
     if claim is not None and claim.project_name == project_name and claim.revoked:
         raise ProjectDeletedDuringTaskError(project_name)

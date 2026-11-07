@@ -2,23 +2,23 @@
 status: accepted
 ---
 
-# 批量视频生成的准入是整批的，执行结果才是逐条的
+# Batch-video admission applies to the whole batch; execution results apply to individual targets
 
-「生成全部 / 批量生成」在创建任何任务之前，先把本次请求的目标集合作为一个整体评估一次：解析出稳定的目标集合，逐目标复用同一次 `SpeechComposition` 与同一份请求投影，任一目标存在重规划、混合发声、资产缺失、无法解析、超出供应商上限、在途任务冲突或未确认的跨档费用，**整批创建零个任务**。只有全部目标通过，才在同一次准入操作里创建完整任务集合；顺序入队中途失败按逐 ID 结果报告，已创建的任务照常执行。判定落在两层共享缝：`lib/generation/batch_admission.py` 是传输无关的纯折叠（结论、确认分档、逐 unit 转述），`server/services/admission/video_batch_admission.py` 把当前状态（任务库、报价、请求投影）接上去；Web 批量端点与 Agent 的四个视频工具都走这一条，不各自实现一份。
+Before creating any tasks, "generate all / batch generation" evaluates this request's target set once as a whole: resolve a stable target set, reusing the same `SpeechComposition` and request projection per target. If any target needs replanning, has mixed speech, missing assets, resolution failure, exceeds provider limits, conflicts with in-flight tasks, or has unconfirmed cross-tier costs, **create zero tasks for the entire batch**. Only after every target passes, create the full task set within the same admission operation. If sequential enqueueing fails midway, report per-ID results and let created tasks execute normally. Decisions sit at a shared two-layer seam: `lib/generation/batch_admission.py` is a transport-independent pure fold (decision, confirmation tiers, per-unit reporting); `server/services/admission/video_batch_admission.py` connects current state (task repository, quotes, request projections). Web batch endpoints and the Agent's four video tools all use this path instead of separate implementations.
 
-**准入的原子性与执行结果的部分成败是两件事，不能互相顶替。** 入队前的问题是「这次请求该不该发生」——它由用户当前的剧本、资产与配置决定，逐条放行只会让用户为一批半成品付费，并把「另外几条为什么没排上」留给他自己拼。入队后的问题是「已经发生的执行怎么样了」——供应商侧的失败天然逐条独立，成败按 `requested / succeeded / failed / blocked` 契约逐 ID 报告（`lib/generation/generation_result.py`）。**入队本身在这条界线的后侧**：一旦准入放行，每创建一个任务就是一个完整、已计费的单元，顺序入队中途失败不撤销它们——撤销会让用户已经付费的任务从工作台与对话里消失，且撤不掉的还得另找人清理。没轮到的目标带「入队中断」问题码逐 ID 报 failed，它们从未创建任务、也从未计费，下次「缺失即生成」正好只补这些。受阻的整批同样用这套契约转述：每个目标都有自己的结论，本身没问题的目标带 `generation_batch_admission_withheld` 并指名是谁拦下的，调用方不必从「清单里没有它」反推。
+**Atomic admission and partial execution success are separate concerns that cannot substitute for each other.** Before enqueueing, the question is "should this request happen," determined by the user's current script, assets, and configuration. Per-target admission would only charge users for a half-finished batch and leave them piecing together why other items were not queued. After enqueueing, the question is "how did execution that already happened turn out": provider-side failures are naturally independent per target, with per-ID outcomes under the `requested / succeeded / failed / blocked` contract (`lib/generation/generation_result.py`). **Enqueueing itself lies after this boundary**: once admission passes, each created task is a complete, billed unit. Midway sequential-enqueue failure does not revoke created tasks: revocation would make already paid tasks disappear from the workspace and conversation, while tasks that cannot be revoked would still need someone else to clean up. Targets not reached are reported failed per ID with an "enqueue interrupted" issue code; no tasks were created or billed for them, so the next "generate missing" fills exactly those gaps. Blocked batches use the same reporting contract: every target has its own conclusion; otherwise-valid targets carry `generation_batch_admission_withheld` and identify the blocker, without callers inferring their status from absence in a list.
 
-## 明确不采用
+## Explicitly rejected
 
-- **逐条准入、逐条入队（前端串行循环）**：第一个坏目标之前的任务已经创建并计费，用户拿到的是一批半成品加一句失败提示；且判定分散在浏览器循环里，Agent 侧另有一份，两侧口径必然分叉。
-- **首个异常即中断，只报第一个缺口**：批量场景下缺口常常同时存在多个，只报第一个会把一次操作变成 N 轮试错，每轮都要重新解析整份剧本。整批结论要求逐目标都带自己的稳定问题码、原因、当前/所需档位与下一步。
-- **把整批拒绝塌成通用 4xx**：一次「评估成功、结论是不放行」不是请求错误。批量端点三种结局（放行 / 待确认 / 受阻）一律 200 返回同一信封，调用方按 `decision` 分支；HTTP 错误码留给真正的请求错误。入队中断同样是 200：任务已经建了一部分，把它塌成 5xx 会让调用方以为整批没发生。
-- **确认时冻结执行内容快照**：确认绑定的是本次请求已解析的目标集合与选项（含按 unit 的申请档位），不冻结正文、引用或供应商。worker 起跑时仍按最新意图重投影——冻结快照会让用户在确认后所做的修改被静默丢弃，且与执行期判据同源的原则相悖（见 `docs/adr/0056`）。
-- **自动重生陈旧但可用的旧产物**：目标集合由用户选择或「缺失即生成」语义决定；把「旧」当作「该重做」会在用户没要求时重复计费。
+- **Per-target admission and enqueueing (a sequential frontend loop)**: tasks before the first bad target are already created and billed, giving users a half-finished batch plus an error message. Decisions also scatter into browser loops with a separate Agent implementation, inevitably diverging.
+- **Stopping at the first exception and reporting only the first gap**: batches often have several gaps simultaneously. Reporting only the first turns one action into N trial-and-error rounds, each requiring the entire script to be resolved again. Whole-batch conclusions require every target's own stable issue code, reason, current/required tier, and next step.
+- **Collapsing whole-batch rejection into a generic 4xx**: a successful evaluation concluding "do not admit" is not a request error. All three batch-endpoint outcomes (admitted / confirmation required / blocked) return the same envelope with 200, and callers branch on `decision`; HTTP errors remain for actual request errors. Enqueue interruption also returns 200: some tasks already exist, so collapsing it into 5xx would imply the entire batch never happened.
+- **Freezing an execution-content snapshot on confirmation**: confirmation binds this request's resolved target set and options (including requested tiers per unit), without freezing body text, references, or providers. Workers reproject the latest intent when starting; frozen snapshots would silently discard edits made after confirmation and contradict shared-source runtime predicates (see `docs/adr/0056`).
+- **Automatically regenerating stale but usable old artifacts**: user selection or "generate missing" semantics determine the target set. Treating "old" as "needs redoing" repeats charges without user requests.
 
 ## Consequences
 
-- 准入不读旁白交付方式，也不因 TTS 未配置、缺失、过期或在途受阻：视频按编排时长申请，旁白配音属于剪辑阶段（`docs/adr/0089`）。
-- 跨档费用的确认按申请档位聚合展示（每档的档位、unit 数、合计费用），报价不全的档位不显示合计——部分求和会低报用户正在同意支付的金额。
-- 并发提交由两道护栏收口：准入前一次性探明全部目标的在途任务，重复提交命中队列的唯一索引去重并如实报告 `deduped`。
-- 可入队性（能否构造 `TaskSpec`，见 `docs/adr/0001`）是目标集合的边界，先于准入判定：构造不出请求的 unit 带着自己的问题码进入结论，不被解析、不被报价，也不被静默丢弃。
+- Admission does not read narration-delivery mode and is not blocked by unconfigured, missing, outdated, or in-flight TTS: videos request orchestrated duration, while narration dubbing belongs to editing (`docs/adr/0089`).
+- Cross-tier cost confirmation is aggregated by requested tier (tier, unit count, total cost for each). Do not show totals for tiers with incomplete quotes: partial sums understate the amount users consent to pay.
+- Two safeguards constrain concurrent submissions: inspect in-flight tasks for all targets once before admission; duplicate submissions hit the queue's unique index for deduplication and truthfully report `deduped`.
+- Enqueueability (whether a `TaskSpec` can be constructed; see `docs/adr/0001`) defines the target-set boundary before admission decisions. Units whose requests cannot be constructed enter the conclusion with their own issue codes; they are not resolved, quoted, or silently discarded.

@@ -4,8 +4,8 @@ import { formatNameList } from "@/utils/list-format";
 import { bucketLabel } from "./unit-tier-problem";
 
 /**
- * 声明引用与可用参考图分裂的结构化提示：逐条点名缺图 / 未登记的引用与桶的改变。服务端已按
- * 可用图定桶，执行侧会以同样的问题阻断；画布与内容确认面板共用这一份，不静默换桶。
+ * Structured alert for divergence between declared references and available images: identify missing/unregistered references and bucket changes individually.
+ * The server already selected by available images; execution blocks on the same issues. Shared by canvas/content confirmation, without silently switching buckets.
  */
 export function ReferenceSplitAlert({
   capability,

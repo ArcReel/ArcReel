@@ -1,8 +1,8 @@
 """split task provider_endpoint (protocol id) from submitted_base_url (request domain)
 
-`tasks.provider_endpoint` 只承载自定义供应商的协议标识，请求域名一律落
-`tasks.submitted_base_url`。存量行按真实语义回填：`provider_endpoint` 中 http(s) 形态的值是
-域名，搬去 `submitted_base_url`。
+`tasks.provider_endpoint` holds only custom-provider protocol identifiers; request domains always belong
+in `tasks.submitted_base_url`. Backfill existing values by meaning: http(s) values in `provider_endpoint`
+are domains and move to `submitted_base_url`.
 
 Revision ID: b3f9c07ae214
 Revises: f6a41746c0de
@@ -21,28 +21,28 @@ down_revision: str | Sequence[str] | None = "f6a41746c0de"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# 域名判据：该列只可能出现协议标识或请求域名，只有 http(s) 前缀的是后者。协议标识取自一份
-# 闭合的 endpoint 注册表（全是 slug，无 scheme）；域名一侧也不会缺 scheme——落库发生在创建
-# 供应商任务的 HTTP 调用成功之后，而无 scheme 的 base_url 在发请求时就被 httpx 拒绝，根本走
-# 不到持久化。故 http(s) 前缀是完备判据。
-# lower(...) LIKE 在 SQLite 与 PostgreSQL 上语义一致，无需方言分支。
+# This column holds only protocol IDs or request domains; only the latter have http(s) prefixes. IDs come from
+# a closed endpoint registry (scheme-free slugs). Domains cannot lack schemes: persistence follows successful
+# provider-task HTTP creation, and httpx rejects scheme-free base_url values before sending requests, so they never
+# reach persistence. The http(s) prefix is therefore a complete discriminator.
+# lower(...) LIKE has identical SQLite/PostgreSQL semantics; no dialect branch needed.
 _HAS_DOMAIN = (
     "provider_endpoint IS NOT NULL "
     "AND (lower(provider_endpoint) LIKE 'http://%' OR lower(provider_endpoint) LIKE 'https://%')"
 )
 
-# 先搬后清，且只填空列：域名两处都有值的行以专列为准，不覆盖。
+# Move before clearing, filling only empty columns: an existing dedicated-domain value wins without overwrite.
 _MOVE_DOMAIN = (
     f"UPDATE tasks SET submitted_base_url = provider_endpoint WHERE submitted_base_url IS NULL AND {_HAS_DOMAIN}"
 )
 _CLEAR_DOMAIN = f"UPDATE tasks SET provider_endpoint = NULL WHERE {_HAS_DOMAIN}"
 
-# 校验判据刻意不与回填判据同源：拿同一个谓词自查必然得 0，问不出任何东西。改问「还有没有行
-# 带 scheme 分隔符」，既复核 http(s) 已清空，也能撞见 lower()/LIKE 行为不符预期或存量里躺着
-# 其他 scheme 的情形——协议标识里不会出现 `://`，命中即回填没做干净。
+# Validate with a deliberately independent predicate: reusing backfill criteria always finds zero and proves nothing.
+# Instead check for remaining scheme separators, verifying http(s) cleanup and detecting unexpected lower()/LIKE behavior
+# or other historical schemes. Protocol IDs never contain `://`; any match means incomplete backfill.
 _COUNT_SCHEME_LIKE = "SELECT COUNT(*) FROM tasks WHERE provider_endpoint LIKE '%://%'"
 
-# 回填后内置供应商的行只剩域名一列有值，据此反向还原；自定义供应商的行两列俱在，不动。
+# Built-in provider rows now have only the domain column; restore them on downgrade. Custom rows retain both, unchanged.
 _RESTORE_DOMAIN = (
     "UPDATE tasks SET provider_endpoint = submitted_base_url, submitted_base_url = NULL "
     "WHERE provider_endpoint IS NULL AND submitted_base_url IS NOT NULL"

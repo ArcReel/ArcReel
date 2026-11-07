@@ -10,11 +10,11 @@ export const TERMINAL_SESSION_STATUSES = new Set(["completed", "error", "interru
 // ---------------------------------------------------------------------------
 // composeAllTurns – merge live draft into committed turn list for rendering.
 //
-// 当用户中断时，被中断的 assistant 流式内容仍存在 draftTurn 中（未完成的
-// 消息不会形成权威日志条目）。此时 turns 末尾是 interrupt_notice 系统
-// turn——若把 draft 直接附加在末尾，渲染会变成"中断 → Agent 回复"，与时间
-// 顺序相反。把 draft 插到 interrupt_notice 之前，让 UI 显示成
-// "Agent 回复 → 中断"。刷新后 draft 自然消失（服务端内存态，不入日志）。
+// User interruptions leave interrupted assistant streaming contents in draftTurn (unfinished
+// messages produce no authoritative log entries). turns then ends with interrupt_notice system
+// turns; appending drafts would render Interrupt → Agent reply, reversing chronological
+// order. Insert drafts before interrupt_notice to show
+// Agent reply → Interrupt. Refresh naturally removes drafts (server memory only, never logged).
 // ---------------------------------------------------------------------------
 
 export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {
@@ -29,7 +29,7 @@ export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {
 }
 
 // ---------------------------------------------------------------------------
-// turnPlainText – 一个 turn 的可复制 / 可改写正文（只取 text 块）。
+// turnPlainText: copyable/rewritable turn bodies, text blocks only.
 // ---------------------------------------------------------------------------
 
 export function turnPlainText(turn: Turn): string {
@@ -40,10 +40,10 @@ export function turnPlainText(turn: Turn): string {
 }
 
 // ---------------------------------------------------------------------------
-// turnImageAttachments – 一个 turn 携带的图片附件，按发送侧的传输形态还原。
+// turnImageAttachments: turn image attachments reconstructed in sender transport shapes.
 //
-// 图片块以 base64 原样存在日志条目里，改写时直接从锚点消息取回随新消息一同提交，
-// 与普通带图发送走同一条请求形态。块顺序即提交顺序（服务端图在前、文本在后）。
+// Image blocks persist unchanged as base64 log entries; rewrites retrieve anchor-message images and submit alongside new messages
+// using ordinary image-send request shapes. Block order is submission order (server images first, text last).
 // ---------------------------------------------------------------------------
 
 export function turnImageAttachments(turn: Turn): ImagePayload[] {
@@ -55,10 +55,10 @@ export function turnImageAttachments(turn: Turn): ImagePayload[] {
 }
 
 // ---------------------------------------------------------------------------
-// canEditUserTurn – 这条消息此刻是否给出改写入口。
+// canEditUserTurn: whether rewrite entries are currently available.
 //
-// 客户端预判，服务端仍是判据的真相源（锚点非法 400、未决问答 409）。
-// 不可编辑时入口不渲染，不做置灰。
+// Client prechecks; servers remain authoritative (invalid anchors 400, unresolved questionnaires 409).
+// Uneditable entries are omitted rather than disabled.
 // ---------------------------------------------------------------------------
 
 export function canEditUserTurn(
@@ -71,23 +71,23 @@ export function canEditUserTurn(
   },
 ): boolean {
   if (turn.type !== "user") return false;
-  // 改写锚点就是条目 uuid：没有 uuid 的 turn（合成卡片、draft）无从锚定
+  // Rewrite anchors are entry UUIDs; UUID-less turns (synthetic cards/drafts) cannot be anchored.
   if (!turn.uuid) return false;
-  // 问答答复是 Agent 问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
-  // subtype，按内容块类型识别。
+  // Questionnaire answers are Agent-questionnaire receipts, not user-authored messages. Projected Turns lack
+  // subtype, so identify through content-block types.
   if ((turn.content ?? []).some((block) => block.type === "question_answer")) return false;
   if (!turnPlainText(turn).trim() && turnImageAttachments(turn).length === 0) return false;
   if (context.sessionStatus === "running") return false;
   if (context.hasPendingQuestion) return false;
-  // 已有发送或改写在途：此刻放行别处的编辑入口，点下去会顶掉正在提交的编辑器，
-  // 连同它里面还没被受理的草稿一起消失
+  // Pending sends/rewrites: allowing other Edit entries now would replace submitting editors
+  // and lose their unaccepted drafts.
   if (context.isSending) return false;
-  // 排队消息还没进入对话：此刻分叉，它们会落在被取代的原会话里
+  // Queued messages have not entered conversations; forking now would strand them in replaced original sessions.
   if (context.hasQueuedMessages) return false;
   return true;
 }
 
-/** 工具结果的展示文本：字符串原样，其余按 JSON 缩进展开。 */
+/** Tool-result display text: strings unchanged, other values pretty-printed JSON. */
 export function stringifyResult(value: unknown): string {
   if (value === undefined || value === null) return "";
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);

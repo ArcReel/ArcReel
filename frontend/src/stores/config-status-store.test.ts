@@ -133,7 +133,7 @@ describe("config-status-store", () => {
 
     await useConfigStatusStore.getState().refresh();
 
-    // 刷新失败后回到未初始化且清空能力集：任何消费方都不再读到过期数据
+    // Failed refreshes become uninitialized with empty capability sets, preventing stale consumer reads.
     expect(useConfigStatusStore.getState().initialized).toBe(false);
     expect(useConfigStatusStore.getState().availableMediaTypes).toEqual([]);
     expect(useConfigStatusStore.getState().isEmbeddedAgentConfigured).toBe(false);
@@ -186,7 +186,7 @@ describe("config-status-store", () => {
         },
       ],
     });
-    // catalog 已初始化时 getConfigStatus 内的 fetch() 直接短路，endpoint→mediaType 映射取自 state
+    // Initialized catalogs make getConfigStatus fetch() short-circuit; endpoint→mediaType mappings come from state.
     useEndpointCatalogStore.setState({
       initialized: true,
       endpointToMediaType: { "openai-tts": "audio" },
@@ -240,7 +240,7 @@ describe("config-status-store", () => {
     await useConfigStatusStore.getState().fetch();
 
     expect(useConfigStatusStore.getState().hasMediaType("audio")).toBe(false);
-    // audio 是可选能力,缺失不进 issues 红点
+    // Audio is optional; absence never adds issues/red dots.
     expect(useConfigStatusStore.getState().issues).toHaveLength(0);
   });
 
@@ -253,8 +253,8 @@ describe("config-status-store", () => {
     vi.spyOn(API, "getProviders").mockImplementation(async () => {
       providersCall += 1;
       if (providersCall === 1) {
-        await gate; // 让首次刷新停在 in-flight,模拟"保存后刷新"撞上进行中的加载
-        return makeProviders(); // 旧数据:未就绪 → 有 issues
+        await gate; // Hold initial refresh in flight, simulating post-save refresh during loading.
+        return makeProviders(); // Old data: unready, with issues.
       }
       return makeProviders([
         {
@@ -266,20 +266,20 @@ describe("config-status-store", () => {
           credential_count: 1,
           models: {},
         },
-      ]); // 新数据:全就绪 → 无 issues
+      ]); // New data: all ready, no issues.
     });
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
 
     const store = useConfigStatusStore.getState();
     const first = store.refresh();
-    const second = store.refresh(); // 命中 loading 守卫 → 应被合并而非丢弃
+    const second = store.refresh(); // loading guards must merge, never discard.
     expect(useConfigStatusStore.getState().pendingRefresh).toBe(true);
 
     release();
-    await first; // 首次刷新 + 合并补跑的尾部刷新都在此完成
+    await first; // Initial and merged follow-up refreshes both complete here.
     await second;
 
-    // 补跑确实执行(getProviders 被调两次),且最终落地的是最新数据
+    // Follow-up really ran (getProviders twice) and latest data persisted.
     expect(API.getProviders).toHaveBeenCalledTimes(2);
     expect(useConfigStatusStore.getState().issues).toHaveLength(0);
     expect(useConfigStatusStore.getState().isComplete).toBe(true);

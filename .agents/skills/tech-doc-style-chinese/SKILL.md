@@ -1,168 +1,168 @@
 ---
 name: tech-doc-style-chinese
-description: 在撰写、改写、校对或审阅中文技术文档、产品文案、界面文案、Markdown 文档、API 说明、操作手册、故障排查或运维文档时使用。采用克制、准确、可扫读的中文技术写作风格；保留原文事实、限制和机器可读内容；按任务读取术语排版、API 状态文案、项目覆盖或受控中文技术写作参考。
+description: Use when writing, rewriting, proofreading, or reviewing Chinese technical documentation, product copy, UI copy, Markdown documents, API descriptions, operating manuals, troubleshooting, or operations documentation. Apply restrained, accurate, scannable Chinese technical writing; preserve original facts, constraints, and machine-readable content; read terminology and typography, API status copy, project overrides, or controlled Chinese technical-writing references as needed.
 ---
 
-# 中文技术文档与产品文案规范
+# Chinese technical documentation and product-copy guidelines
 
 <!-- 作者：Fenng（GitHub：@Fenng） -->
 
-## 适用范围
+## Scope
 
-将本 Skill 用于中文技术内容的撰写、改写、校对和审阅，包括：
+Use this Skill to write, rewrite, proofread, and review Chinese technical content, including:
 
-- 文档首页、产品介绍、解决方案页和更新日志
-- API 文档、参数说明、错误码和常见问题
-- 操作手册、故障排查、运维 Runbook 和安全说明
-- 界面文案、按钮、导航、状态和提示信息
+- Documentation homepages, product introductions, solution pages, and changelogs
+- API documentation, parameter descriptions, error codes, and FAQs
+- Operating manuals, troubleshooting, operations runbooks, and security guidance
+- UI copy, buttons, navigation, statuses, and notices
 
-不要改写代码字面量、JSON 键名、URL、API 路径、数据库字段名、命令、配置项或其他机器可读标识符。
+Do not rewrite code literals, JSON keys, URLs, API paths, database field names, commands, configuration options, or other machine-readable identifiers.
 
-## 规则优先级
+## Rule priority
 
-发生冲突时，按以下顺序处理：
+Resolve conflicts in this order:
 
-1. 保留事实、逻辑、限制、安全信息和法律含义。
-2. 服从用户明确要求和目标项目约定。
-3. 保持技术术语和机器可读内容准确。
-4. 改善结构、语义、语气和可扫读性。
-5. 最后处理标点、留白、大小写等排版细节。
+1. Preserve facts, logic, constraints, safety information, and legal meaning.
+2. Follow explicit user requirements and target-project conventions.
+3. Keep technical terminology and machine-readable content accurate.
+4. Improve structure, meaning, tone, and scannability.
+5. Handle punctuation, spacing, capitalization, and other typography last.
 
-不得为了句子更短、语气更确定或格式更统一而牺牲更高优先级的信息。
+Never sacrifice higher-priority information for shorter sentences, greater certainty, or more uniform formatting.
 
-## 事实保真
+## Factual fidelity
 
-- 不新增原文或可靠上下文没有提供的日期、数字、时限、SLA、能力、条件、因果关系或结论。
-- 不删除前置条件、适用范围、例外、风险、安全警告、兼容性说明或失败处理。
-- 不把可能、计划、建议、通常等不确定表达改成确定事实。
-- 信息不足时保留原意，或明确标记「待确认」；不要自行补全。
-- 改写引用、法规、合同、错误原文或用户提供的固定文案时，优先保持原文并将建议单独列出。
+- Do not add dates, numbers, time limits, SLAs, capabilities, conditions, causal relationships, or conclusions absent from the original or reliable context.
+- Do not remove prerequisites, scope, exceptions, risks, safety warnings, compatibility notes, or failure handling.
+- Do not turn uncertainty such as possibility, plans, suggestions, or usual behavior into definite facts.
+- When information is insufficient, retain the original meaning or explicitly mark it “pending confirmation”; do not fill gaps yourself.
+- When editing quotations, regulations, contracts, original error text, or fixed copy supplied by the user, prefer retaining the original and listing recommendations separately.
 
-示例：
+Examples:
 
 - `截止 4 月 12 日` -> `截至 4 月 12 日`
 - `尽快处理` -> `在约定时限内处理〔具体时限待确认〕`
-- 不要凭空补成 `截至 2026 年 4 月 12 日` 或 `30 分钟内处理`
+- Do not invent `截至 2026 年 4 月 12 日` or `30 分钟内处理`.
 
-## 先判断任务模式
+## Determine the task mode first
 
-### 撰写
+### Writing
 
-- 先确定受众、内容类型、事实来源、发布载体和篇幅。
-- 缺少会改变结论的事实时，先标记缺口，再继续组织可确认内容。
+- Establish audience, content type, factual sources, publication medium, and length first.
+- When missing facts would change the conclusion, mark the gaps before organizing confirmed content.
 
-### 改写
+### Rewriting
 
-- 保留事实、逻辑关系、信息层级、限制和必要例外。
-- 默认交付完整改写稿；重大语义选择或待确认内容另行说明。
+- Preserve facts, logical relationships, information hierarchy, constraints, and necessary exceptions.
+- Deliver a complete rewrite by default; explain major semantic choices and information pending confirmation separately.
 
-### 校对
+### Proofreading
 
-- 只处理约定范围内的错字、标点、留白、大小写和术语一致性。
-- 未经要求，不改变结构、语气或事实表达。
+- Handle only typos, punctuation, spacing, capitalization, and terminology consistency within the agreed scope.
+- Do not change structure, tone, or factual expression unless requested.
 
-### 审阅
+### Reviewing
 
-- 先列问题，再给建议；按影响程度排序并引用具体原文。
-- 未经授权，不直接修改文件。
+- List problems before suggestions, ordered by impact and citing specific original text.
+- Do not modify files directly without authorization.
 
-## 核心写作规则
+## Core writing rules
 
-### 语义与语气
+### Meaning and tone
 
-- 准确先于修辞，清晰先于热闹。
-- 使用克制、直接、可执行的中文。
-- 优先说明「是什么、适用于什么、需要做什么、接着看哪里」。
-- 避免问候式开场、宣传口号、空泛形容和连续堆叠黑话。
-- 默认不直接称呼读者；必要时使用明确角色，如「开发者」「实施人员」。
-- 第二人称、感叹号和品牌语气属于风格选择；项目约定或特定界面语境可以覆盖默认规则。
+- Accuracy before rhetoric; clarity before excitement.
+- Use restrained, direct, actionable Chinese.
+- Prioritize what something is, where it applies, what to do, and where to read next.
+- Avoid greeting-style openings, promotional slogans, empty adjectives, and stacked jargon.
+- By default, do not address the reader directly; use explicit roles such as “developer” or “implementation staff” when needed.
+- Second-person address, exclamation marks, and brand voice are stylistic choices; project conventions or specific UI contexts may override defaults.
 
-### 结构与句子
+### Structure and sentences
 
-- 一个段落承载一个主要信息点。
-- 一个句子保持一个清晰的主干；不要连续堆叠多个条件、动作和例外。
-- 列表项保持相同层级、句式和信息密度。
-- 标题反映用途，不只使用抽象名词。
-- 删除重复信息，不删除事实、条件和例外。
-- 指代可能不清时，用具体名称替代「该」「其」「此」「上述」。
+- Give each paragraph one main information point.
+- Give each sentence one clear grammatical core; do not stack multiple conditions, actions, and exceptions.
+- Keep list items consistent in level, sentence form, and information density.
+- Make headings reflect purpose rather than only abstract nouns.
+- Remove repetition without removing facts, conditions, or exceptions.
+- When references may be unclear, replace “该”, “其”, “此”, or “上述” with specific names.
 
-### 术语与排版
+### Terminology and typography
 
-- 同一概念使用同一首选术语，不因追求变化而替换同义词。
-- 中文正文使用直角引号 `「」`，嵌套引用使用 `『』`；项目、地区或固定引用规范可以覆盖。
-- 在可见正文中，中文与英文、阿拉伯数字和版本号之间加一个半角空格，例如 `使用 API 获取数据`、`等待 3 秒`、`版本 2.0 已发布`。
-- 中文与行内代码之间加一个半角空格；链接按显示文字判断留白。中文全角标点前后不额外加空格，不修改代码、链接目标、官方名称和用户指定字面量。
-- 中文段落在源文件中保持一段一行，不为了控制行宽做硬换行；代码块、表格、标题和列表结构保持原样。
-- 术语、产品名和缩写优先采用项目规范或官方写法，不机械替换。
-- 不直接批量运行排版替换工具；先保护 Markdown、代码和机器可读内容。
+- Use one preferred term per concept; do not rotate synonyms merely for variety.
+- Use corner brackets `「」` for quotations in Chinese body text, with `『』` for nested quotations; project, regional, or fixed-quotation conventions may override this.
+- In visible body text, insert one half-width space between Chinese and English, Arabic numerals, or version numbers, for example `使用 API 获取数据`, `等待 3 秒`, and `版本 2.0 已发布`.
+- Insert one half-width space between Chinese and inline code; determine link spacing from displayed text. Do not add spaces around full-width Chinese punctuation or modify code, link targets, official names, or user-specified literals.
+- Keep each Chinese paragraph on one source line rather than hard-wrapping for line width; preserve code blocks, tables, headings, and list structures.
+- Prefer project or official spellings for terms, product names, and abbreviations; do not replace mechanically.
+- Do not run bulk typography replacements directly; protect Markdown, code, and machine-readable content first.
 
-详细规则见 [术语与排版](references/terminology-and-typography.md)。
+See [Terminology and typography](references/terminology-and-typography.md) for detailed rules.
 
-## 按内容类型处理
+## Handle by content type
 
-### 入口页和介绍页
+### Entry and introduction pages
 
-首段优先回答：
+The first paragraph should prioritize:
 
-- 内容覆盖什么
-- 适合谁使用
-- 从哪里开始读
+- What the content covers
+- Who it is for
+- Where to start reading
 
-避免标题、正文和行动按钮重复同一信息。
+Avoid repeating the same information in headings, body text, and action buttons.
 
-### API 文档
+### API documentation
 
-- 请求方法、路径、字段和值使用代码环境保护。
-- 参数说明一列一义，并写清类型、单位、默认值、限制和是否必填。
-- 状态和错误文案根据实际语义翻译，不机械对应单个英文词。
-- 写明前置条件、成功结果、失败结果和恢复方式。
+- Protect request methods, paths, fields, and values with code formatting.
+- Give each parameter-description column one meaning, and state type, unit, default, limits, and whether required.
+- Translate statuses and errors according to actual meaning, not mechanically from individual English words.
+- State prerequisites, successful results, failure results, and recovery methods.
 
-详细规则见 [API 状态与错误文案](references/api-status-copy.md)。
+See [API status and error copy](references/api-status-copy.md) for detailed rules.
 
-### 界面文案
+### UI copy
 
-- 按钮说明动作和目标，不重复页面标题。
-- 错误提示说明发生了什么、影响是什么，以及如何恢复。
-- 危险操作写清对象、后果和是否可撤销。
-- 空状态区分「没有数据」「尚未创建」「无权限」和「加载失败」。
+- Buttons state an action and target rather than repeat the page title.
+- Error messages explain what happened, its impact, and how to recover.
+- Dangerous actions state the object, consequences, and reversibility.
+- Distinguish empty states for no data, not yet created, no permission, and loading failure.
 
-### 操作与故障排查
+### Operations and troubleshooting
 
-对操作手册、故障排查、运维 Runbook、安全说明和多步骤 API 流程，读取并应用 [受控中文技术写作](references/controlled-technical-chinese.md)。不要把这些规则机械应用于品牌文案、叙事文本或固定引用。
+For operating manuals, troubleshooting, operations runbooks, security guidance, and multistep API workflows, read and apply [Controlled Chinese technical writing](references/controlled-technical-chinese.md). Do not mechanically apply these rules to brand copy, narrative text, or fixed quotations.
 
-## 项目覆盖规则
+## Project overrides
 
-先检查目标项目自己的 `AGENTS.md`、术语表、品牌规范、既有文档和用户指示。不要把本 Skill 仓库中的示例约定当成目标项目约定。
+First check the target project's own `AGENTS.md`, glossary, brand guidelines, existing documentation, and user instructions. Do not treat sample conventions in this Skill repository as target-project conventions.
 
-需要建立项目覆盖文件时，参考 [项目覆盖模板](references/project-overrides-example.md)，并将实际文件放在目标项目中。
+When creating project overrides, consult the [Project override template](references/project-overrides-example.md) and place the actual file in the target project.
 
-## 编辑流程
+## Editing workflow
 
-以下流程按任务模式选择执行；校对只执行约定范围内的检查和修改。
+Select steps according to task mode; proofreading performs only agreed checks and modifications.
 
-1. 确认任务模式、内容类型、受众和项目约定。
-2. 标记事实、数字、限制、引用和机器可读内容，建立不可改动边界。
-3. 修复语义错误、歧义、遗漏和不一致。
-4. 调整信息顺序、段落、标题和列表。
-5. 处理语气、术语、标点、留白和大小写。
-6. 对照原文复核事实、条件、否定范围、因果关系和确定程度。
-7. 运行适用的轻量检查器，并人工判断警告和风格提示。
+1. Confirm task mode, content type, audience, and project conventions.
+2. Mark facts, numbers, constraints, quotations, and machine-readable content to establish immutable boundaries.
+3. Fix semantic errors, ambiguities, omissions, and inconsistencies.
+4. Adjust information order, paragraphs, headings, and lists.
+5. Handle tone, terminology, punctuation, spacing, and capitalization.
+6. Compare with the original to recheck facts, conditions, negation scope, causality, and degree of certainty.
+7. Run applicable lightweight checkers and manually judge warnings and style hints.
 
-## 最终检查
+## Final checks
 
-- 是否新增了来源不明的日期、数字、时限、能力或结论
-- 是否遗漏了条件、例外、风险、单位、默认值或恢复方式
-- 主语、对象、否定范围、因果关系和确定程度是否保持准确
-- 同一概念是否使用同一术语
-- 标题、正文、卡片和按钮是否重复
-- 代码、路径、字段、命令和引用是否保持原样
-- 内容是否便于目标读者扫读和执行
-- 段落是否残留硬换行，拼接边界的中西文留白是否正确
-- 项目覆盖规则是否来自目标项目，而不是示例文件
+- Were unsupported dates, numbers, time limits, capabilities, or conclusions added?
+- Were conditions, exceptions, risks, units, defaults, or recovery methods omitted?
+- Are subjects, objects, negation scope, causality, and certainty still accurate?
+- Does each concept use one consistent term?
+- Do headings, body text, cards, and buttons repeat information?
+- Are code, paths, fields, commands, and quotations unchanged?
+- Can the target reader scan and execute the content easily?
+- Do hard wraps remain in paragraphs, and is Chinese/Western spacing correct at joins?
+- Do project overrides come from the target project rather than the sample file?
 
-## 参考资料路由
+## Reference routing
 
-- 术语、黑话、错词、大小写、标点、中西文留白和段落换行：读取 [术语与排版](references/terminology-and-typography.md)
-- API 状态、错误码和常见英文状态词：读取 [API 状态与错误文案](references/api-status-copy.md)
-- 操作步骤、故障排查、安全说明和运维文档：读取 [受控中文技术写作](references/controlled-technical-chinese.md)
-- 建立目标项目自己的约定：读取 [项目覆盖模板](references/project-overrides-example.md)
+- Terminology, jargon, wrong words, capitalization, punctuation, Chinese/Western spacing, and paragraph wrapping: read [Terminology and typography](references/terminology-and-typography.md).
+- API statuses, error codes, and common English status terms: read [API status and error copy](references/api-status-copy.md).
+- Operating steps, troubleshooting, security guidance, and operations documentation: read [Controlled Chinese technical writing](references/controlled-technical-chinese.md).
+- Establishing target-project conventions: read the [Project override template](references/project-overrides-example.md).

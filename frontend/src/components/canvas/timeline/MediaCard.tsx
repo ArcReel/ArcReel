@@ -30,33 +30,33 @@ interface MediaCardProps {
   checkBusy?: () => boolean;
   projectName: string;
   segmentId: string;
-  /** 资产相对路径，如 storyboards/E1S2_v1.png */
+  /** Relative asset path, e.g. storyboards/E1S2_v1.png. */
   assetPath: string | null;
-  /** 视频海报缩略图（仅 kind=video 用） */
+  /** Video-poster thumbnail, kind=video only. */
   posterPath?: string | null;
-  /** 渲染比例 */
+  /** Render aspect ratio. */
   aspectRatio: "9:16" | "16:9";
-  /** 生成按钮是否禁用（视频生成需要先有分镜图） */
+  /** Whether generation is disabled; videos require storyboard images first. */
   generateDisabled?: boolean;
-  /** 自定义禁用 tooltip，未提供时使用默认（"分镜图未生成"）的视频禁用提示 */
+  /** Custom disabled tooltip, otherwise default storyboard-not-generated video hint. */
   generateDisabledHint?: string;
-  /** 进行中状态 */
+  /** In-progress state. */
   generating?: boolean;
-  /** 估算费用（按币种 breakdown，例如 {USD: 0.12} 或 {CNY: 5.25}） */
+  /** Estimated cost by currency, e.g. {USD: 0.12} or {CNY: 5.25}. */
   estimatedCost?: CostBreakdown;
-  /** 触发生成 */
+  /** Trigger generation. */
   onGenerate?: () => void;
-  /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
+  /** Default generate/regenerate label follows artifact presence; unsaved edits pass save-and-generate. */
   generateLabel?: string;
-  /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
+  /** Restore callback; omitted hides versions for read-only displays without rollback. */
   onRestore?: () => Promise<unknown> | void;
-  /** 自主上传回调（替换该分镜的分镜图/视频）；未提供时不显示上传入口 */
+  /** Manual upload replaces shot storyboard/video; omitted hides uploads. */
   onUpload?: (file: File) => Promise<void> | void;
-  /** 本卡片的上传请求进行中 */
+  /** This card's upload request is in progress. */
   uploading?: boolean;
-  /** 其他上传进行中等需要互斥的场景：禁用上传入口但不显示 spinner */
+  /** External mutually exclusive uploads/etc. disable upload without spinners. */
   uploadDisabled?: boolean;
-  /** 分镜编辑所需的剧集文件；提供时（且 kind=storyboard、已有图）显示编辑入口 */
+  /** Episode script for storyboard editing; supplied with kind=storyboard/existing images enables edit entry. */
   editScriptFile?: string | null;
 }
 
@@ -97,15 +97,15 @@ export function MediaCard({
     setRestoring(next);
     onRestoringChange?.(next);
   };
-  // 演示态只读：卡片上的四个写入口（上传 / 编辑 / 版本恢复 / 生成）从同一处判定关闭，
-  // 不再各自靠「对应回调是否传入」推断——那让版本入口与其余入口分属两套机制。
+  // Demo read-only disables all four writes (upload/edit/version restore/generate) from one criterion,
+  // rather than separate callback-presence inference that gave versions a different mechanism.
   const demoReadOnly = useDemoWorkbench();
 
   const assetFp = useProjectsStore((s) =>
     assetPath ? s.getAssetFingerprint(assetPath) : null,
   );
   const playbackStart = usePlaybackStart("videos", segmentId);
-  // 原图只给全屏预览；卡片里按媒体栏宽度从 640 / 1280 两档缩略图中取，媒体栏最宽约 720px。
+  // Originals are fullscreen-only; cards select 640/1280 thumbnails by media width, at most about 720px.
   const assetUrl = assetPath ? API.getFileUrl(projectName, assetPath, assetFp) : null;
   const storyboardSrcSet =
     assetPath && kind === "storyboard"
@@ -126,8 +126,8 @@ export function MediaCard({
         : t("media_generate_video"));
   const resourceType: "storyboards" | "videos" =
     kind === "storyboard" ? "storyboards" : "videos";
-  // uploadDisabled 是本卡片之外的互斥占用（如同一分镜另一张卡在上传中）；
-  // 编辑/版本恢复/生成同样写这个资源，须一并禁用，否则会与占用中的写操作并发冲突。
+  // uploadDisabled covers outside-card mutual occupancy, e.g. another same-shot card uploading;
+  // edit/restore/generate write this resource too and must disable together to avoid concurrent conflicts.
   const resourceBusy = generating || uploading || uploadDisabled || restoring || externalRestoring;
 
   return (

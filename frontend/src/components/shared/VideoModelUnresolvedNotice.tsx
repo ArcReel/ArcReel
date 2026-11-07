@@ -5,8 +5,8 @@ import { projectSettingsPath } from "@/app-routes";
 import { buttonVariants } from "@/components/ui/button";
 
 /**
- * 内容确认页的「视频模型未解析」提示：确认转出要按视频模型能力给分镜定时长档位，
- * 服务端明确答复模型未配置或无法解析时，确认必然被拒，先在确认按钮附近说明并指引到项目设置。
+ * The content-confirmation page's unresolved-video-model notice: confirmation converts storyboard durations to tiers supported by the video model.
+ * When the server explicitly reports an unconfigured or unresolvable model, confirmation will be rejected; explain this near the confirmation button and link to project settings first.
  */
 export function VideoModelUnresolvedNotice({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");

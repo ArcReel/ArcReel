@@ -1,0 +1,3626 @@
+[
+  {
+    "file": "frontend/src/components/pages/AssetLibraryPage.test.tsx",
+    "line": 185,
+    "before": "// 页面上已有 60 张卡片：按角色在整页查询每次都要遍历全部节点，高负载下单条查询就要一两秒，",
+    "after": "// Sixty cards already render: whole-page role queries traverse every node and take one or two seconds under load,"
+  },
+  {
+    "file": "frontend/src/components/pages/AssetLibraryPage.test.tsx",
+    "line": 186,
+    "before": "// 对话框内的查询限定在对话框里，整页只按文本查。",
+    "after": "// so scope dialog queries to dialogs; use text queries only across whole pages."
+  },
+  {
+    "file": "frontend/src/components/pages/CreateProjectModal.test.tsx",
+    "line": 480,
+    "before": "// 不再显示的预览地址都已收回，同一时刻只有正在显示的那一个",
+    "after": "// All hidden preview URLs are revoked; only the displayed one exists at any moment."
+  },
+  {
+    "file": "frontend/src/components/pages/CreateProjectModal.test.tsx",
+    "line": 536,
+    "before": "// 供应商名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。",
+    "after": "// Backends render provider names by Accept-Language; fakes return matching current-language translations."
+  },
+  {
+    "file": "frontend/src/components/pages/CreateProjectModal.test.tsx",
+    "line": 610,
+    "before": "// 重取未完成时既有 step2 数据不被清空，向导仍显示旧目录而不是 loading",
+    "after": "// Pending refetches retain existing step2 data; wizards show old catalogs rather than loading."
+  },
+  {
+    "file": "frontend/src/components/pages/CreateProjectModal.tsx",
+    "line": 304,
+    "before": "// 创建请求在途时忽略关闭请求（Esc、关闭按钮、点击遮罩）",
+    "after": "// In-flight creation ignores closing by Esc, close buttons or backdrop clicks."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.test.tsx",
+    "line": 190,
+    "before": "// 只含空白的输入经 trim 后为空，不应作为新值提交覆盖既有密钥",
+    "after": "// Whitespace trims empty and must not submit as new values overwriting existing secrets."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.test.tsx",
+    "line": 255,
+    "before": "// 只填一半的双键组（access_key 无 secret_key），且未填 api_key —— 两组都不完整",
+    "after": "// Half-filled dual-key groups (access_key without secret_key), without api_key: neither group is complete."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 357,
+    "before": "// 添加与编辑对话框",
+    "after": "// Add/edit dialogs"
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 361,
+    "before": "/** 编辑的密钥；添加时为 null。 */",
+    "after": "/** Edited credentials; null when adding. */"
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 386,
+    "before": "// 编辑时 secrets 留空表示保留现有值，逐字段独立。",
+    "after": "// Blank secrets during edits retain existing values independently per field."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 398,
+    "before": "// 只有单一必填组时组内字段才是无条件必填；多组二选一时不标必填，由组合提示说明。",
+    "after": "// Only single required groups have unconditionally required fields; alternative groups use combination hints, not required markers."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 432,
+    "before": "// 只含空白的输入不算新值，不覆盖已保存的密钥",
+    "after": "// Whitespace-only inputs are not new values and never overwrite saved secrets."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 459,
+    "before": "// 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失",
+    "after": "// In-flight submissions ignore Esc/backdrop clicks, preventing dialogs disappearing before results."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 575,
+    "before": "// 删除确认",
+    "after": "// Delete confirmation"
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 592,
+    "before": "// 关闭动画期间 cred 已清空，沿用最后一次的内容，标题不闪成空白",
+    "after": "// During close animations cred is cleared; retain prior contents so titles never flash blank."
+  },
+  {
+    "file": "frontend/src/components/pages/CredentialList.tsx",
+    "line": 617,
+    "before": "// 删除请求在途时不响应 Esc",
+    "after": "// In-flight deletion ignores Esc."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 275,
+    "before": "/** 基础分页里校验未通过的字段；行内已有提示，保存时只需指出分页。 */",
+    "after": "/** Invalid Basics fields already have inline hints; saving need only identify their tab. */"
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 292,
+    "before": "// 候选是全局配置，与项目无关；reload 的标识随界面语言变化，语言切换时只刷新候选与译名",
+    "after": "// Candidates are global/project-independent; reload identities follow UI languages, refreshing candidates/translations only."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 307,
+    "before": "// 一次保存依次提交项目 PATCH 与新参考图上传。上传失败时 PATCH 已经落盘：如实说明，",
+    "after": "// Saves submit project PATCH then new-reference uploads. Upload failures occur after PATCH persistence; report truthfully,"
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 308,
+    "before": "// 已保存内容推进到 PATCH 的结果，只有新参考图仍是未保存修改，再次保存会重新上传。",
+    "after": "// advance saved state to PATCH results and leave only new references unsaved; another save retries uploads."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 319,
+    "before": "// grid_storyboard、video_backend 落盘后 /video-capabilities 按已存值解析，查询 key 不变，需显式失效",
+    "after": "// Persisted grid_storyboard/video_backend affect /video-capabilities without changing query keys; explicitly invalidate."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 334,
+    "before": "// 参考图文件名固定，地址要换版本才不会沿用旧图的缓存。上传响应不带文件 mtime，",
+    "after": "// Fixed reference filenames require URL version changes to avoid old-image caches. Uploads return no file mtime;"
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 335,
+    "before": "// 以上传完成的时刻作版本：只在本页这次会话里用，重新进入时换成项目详情里的资产指纹。",
+    "after": "// use completion instants during this page session only; reentry uses detail-response asset fingerprints."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 342,
+    "before": "// 四个表单分页之间切换不卸载编辑单元，不拦截；切到项目记忆、Agent 配置或离开本页时拦截",
+    "after": "// Switching four form tabs keeps edit units mounted without guards; memory/profile tabs or page departure invoke guards."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+    "line": 358,
+    "before": "// 待上传参考图的预览地址由页面持有：不再使用（换图、放弃、保存）或离开页面时收回",
+    "after": "// Pages own pending-reference preview URLs, revoking on replacement/discard/save or departure."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 173,
+    "before": "// 已有项目时网格里不放「新建项目」卡，入口只在顶栏",
+    "after": "// Existing-project grids omit New project cards; creation remains in headers only."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 288,
+    "before": "// 已切出的集全部完成，但源文还没规划完：项目顶栏提示继续分集规划，大厅也不算完成",
+    "after": "// All extracted episodes complete but source planning unfinished: headers offer continued planning, lobby remains incomplete."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 296,
+    "before": "// 没有集的项目算进行中；「待修复」与进度正交，待修复的项目同时计入两种筛选。",
+    "after": "// Projects without episodes remain ongoing; repair status is orthogonal to progress, participating in both filters."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 442,
+    "before": "// 重开时先显示缓存的列表，新的列表请求还在途；恢复缓存里的项目会作废它，之后要补拉",
+    "after": "// Reopening shows cached lists while fresh requests run; restoring cached projects invalidates them, requiring refetch."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 472,
+    "before": "// 对话框是模态的，背后的网格对无障碍树隐藏：按重新加载的请求判断网格已刷新",
+    "after": "// Modal dialogs hide background grids from accessibility trees; use reload requests to establish grid refresh."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 538,
+    "before": "// 导出顺利开始时不提示",
+    "after": "// Successful export initiation stays silent."
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.test.tsx",
+    "line": 706,
+    "before": "/** 选好文件后让导入请求悬起，卸载页面（离开大厅），再返回收尾导入请求的 resolve / reject。 */",
+    "after": "/** After choosing files, suspend imports, unmount pages (leave lobby), then return resolve/reject to finish imports. */"
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.tsx",
+    "line": 200,
+    "before": "/* 问候区的状态句取决于项目列表，加载完成后才播放打字机，避免先打出空状态的句子再重来。 */",
+    "after": "/* Greeting status depends on project lists; start typing after loading, avoiding empty-state text followed by restarts. */"
+  },
+  {
+    "file": "frontend/src/components/pages/ProjectsPage.tsx",
+    "line": 209,
+    "before": "/* 引导运行期间才挂，退出即卸载。放在加载与空状态的分支之外：首次使用时项目列表通常是空的，\n          而演示卡正是那一刻最需要讲的东西。 */",
+    "after": "/* Mount only during onboarding, unmount on exit. Outside loading/empty branches: first-use project lists are usually empty,\n          exactly when demo cards most need explanation. */"
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 31,
+    "before": "/** 自定义供应商不按名称猜品牌图标：中转站与协议无关，统一用名称首字。 */",
+    "after": "/** Never guess custom-provider brand icons from names; relay sites are protocol-independent, so use name initials uniformly. */"
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 60,
+    "before": "// 保存本身已成功，只是目录重取失败：与「保存失败」区分开，否则用户看到表单无错、列表无新项，",
+    "after": "// Saves succeeded but catalog refetch failed: distinguish from save failures, or valid forms without new list entries leave users"
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 61,
+    "before": "// 分不清是哪一步没成。被后续请求作废（aborted）是正常并发路径，接管方会写下更新的目录。",
+    "after": "// unsure which step failed. Later-request abortion is normal concurrency; successors write updated catalogs."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 77,
+    "before": "// 从「调用端点」小节的「新建供应商并使用此端点」接线过来的预填。",
+    "after": "// Prefill wired from New provider using this endpoint in Endpoints sections."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 86,
+    "before": "// 首个 preset 兜底选中：拉取完成后 URL 仍未指定选中项时补一次。",
+    "after": "// Select first preset as fallback after fetching if URLs still lack selections."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 157,
+    "before": "// 换供应商时整栏重建：未保存的高级配置、在途保存与加载状态都属于上一个供应商",
+    "after": "// Provider switches rebuild whole sections: unsaved advanced settings/in-flight saves/loading belong to previous providers."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 158,
+    "before": "// 深链换了要打开的模型时同样重建",
+    "after": "// Changed deep-linked models also rebuild."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 167,
+    "before": "// 深链换了要打开的模型时同样重建",
+    "after": "// Changed deep-linked models also rebuild."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 181,
+    "before": "// 预填参数变了（从另一个端点接线过来）就是另一张新建表单",
+    "after": "// Changed prefill from other endpoints means new creation forms."
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 186,
+    "before": "// 选中用新建响应带回的 id，不等目录重取的结局：重取被后续请求接管时，",
+    "after": "// Select IDs from creation responses without awaiting catalog refetches; when successors take over refetches,"
+  },
+  {
+    "file": "frontend/src/components/pages/ProviderSection.tsx",
+    "line": 187,
+    "before": "// 用户会留在填满的新建表单上，再保存一次就多出一个重复供应商。",
+    "after": "// otherwise users stay on filled creation forms and saving again creates duplicate providers."
+  },
+  {
+    "file": "frontend/src/components/pages/create-project/WizardStepBasics.tsx",
+    "line": 88,
+    "before": "// 广告项目不支持多宫格分镜：切到广告时清掉已打开的开关",
+    "after": "// Ads do not support multigrid storyboards; switching to ads clears enabled switches."
+  },
+  {
+    "file": "frontend/src/components/pages/create-project/WizardStepBasics.tsx",
+    "line": 94,
+    "before": "/* 选中项浅底上用中间档文字，保证对比度 */",
+    "after": "/* Use medium-tier text against pale selected backgrounds for contrast. */"
+  },
+  {
+    "file": "frontend/src/components/pages/create-project/WizardStepBasics.tsx",
+    "line": 128,
+    "before": "// 宫格是分镜图生视频内的装配选项：切到参考生视频即清空",
+    "after": "// Grids are storyboard image-to-video assembly options; switching to reference video clears them."
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+    "line": 86,
+    "before": "// 有悬停能力的设备上平时隐藏，悬停、聚焦或菜单打开时出现；触屏设备上常驻。",
+    "after": "// Hover-capable devices hide controls until hover/focus/open menus; touch devices always show them."
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+    "line": 120,
+    "before": "/**\n * 封面走项目文件路由时请求 640 宽的缩略图：卡片从 280px 起按列铺满，海报通常不到 400px 宽。\n * 后端给的地址可能已带 `?v=` 版本键；演示卡的 data: 等其他来源原样返回。\n */",
+    "after": "/**\n * Request 640-wide thumbnails for project-file covers: cards fill columns starting at 280px; posters usually stay below 400px wide.\n * Backend URLs may already contain `?v=`; return other sources such as demo data: unchanged.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+    "line": 129,
+    "before": "/** 海报 2:1。没有缩略图时用衬线字把标题写在海报上，不留一块无意义的色块。 */",
+    "after": "/** Posters use 2:1. Without thumbnails, render serif titles rather than meaningless color blocks. */"
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+    "line": 150,
+    "before": "/** 每集一格：已完成、制作中、已有脚本、尚未开始。数量已写在下方的次要文字里，这里只作示意。 */",
+    "after": "/** One cell per episode: completed, producing, scripted, unstarted. Counts appear in secondary text below; these are illustrative only. */"
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+    "line": 154,
+    "before": "// `scripted` 数的是有脚本的集，已包含完成与制作中的集。",
+    "after": "// `scripted` counts scripted episodes, including completed and producing episodes."
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/useProjectImport.tsx",
+    "line": 91,
+    "before": "// 用户已不在大厅：不把人拉回新项目，也没有对话框可展示诊断，结果改以带「打开项目」按钮的提示告知。",
+    "after": "// Users left lobbies: never pull them into projects or show absent dialogs; notify with Open project buttons instead."
+  },
+  {
+    "file": "frontend/src/components/pages/lobby/useProjectImport.tsx",
+    "line": 131,
+    "before": "// 接口总会带回一份诊断，没有任何条目时对话框不显示内容，改用提示说明失败原因。",
+    "after": "// APIs always return diagnostics; empty diagnostics render no dialog content, so notify failure reasons instead."
+  },
+  {
+    "file": "frontend/src/components/pages/project-settings/StyleTab.tsx",
+    "line": 87,
+    "before": "/** 「风格」：只显示当前风格；「更换」在对话框里选，「使用此风格」写回未保存修改，随其他修改一起保存。 */",
+    "after": "/** Style shows current styles only; Change opens dialogs, Use this style updates drafts, saved with other edits. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/AddModelDialog.tsx",
+    "line": 171,
+    "before": "// 结果就绪前，上一次的结果仍显示但不可选",
+    "after": "// Previous results remain visible but unselectable until replacements are ready."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/AddModelDialog.tsx",
+    "line": 189,
+    "before": "/* 列表只放选项（listbox 的子元素要求），目录读取失败的说明与重试放在列表之外 */",
+    "after": "/* Lists contain options only as listbox requires; place catalog errors/retries outside lists. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CapabilityOverrideRow.tsx",
+    "line": 147,
+    "before": "/* title 对键盘与触屏不可达，禁用原因必须有一行可见说明 */",
+    "after": "/* title is inaccessible to keyboards/touch; disabled reasons require visible explanatory rows. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.billing.test.tsx",
+    "line": 172,
+    "before": "// 对应不上条目的模型默认不勾选",
+    "after": "// Unmatched-entry models default unchecked."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.billing.test.tsx",
+    "line": 293,
+    "before": "// 未保存的只剩倍率：输入保留，保存按钮仍可用",
+    "after": "// Only multipliers remain unsaved; retain inputs and enabled save buttons."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.billing.test.tsx",
+    "line": 332,
+    "before": "// 供应商已经建好：照常交给宿主切过去，倍率失败另行提示，不能让用户再点一次保存建出第二个",
+    "after": "// Providers already created: let hosts navigate normally, reporting multiplier failure separately, preventing duplicate creation saves."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 83,
+    "before": "/** 已保存的供应商；不传时是新建表单。 */",
+    "after": "/** Saved providers; omission means creation forms. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 85,
+    "before": "/** 已保存的供应商倍率，与 `existing` 一起取回；新建表单与未传时按默认值 1。 */",
+    "after": "/** Saved provider multipliers, fetched with `existing`; creation/omission defaults to 1. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 87,
+    "before": "/** 从「调用端点」接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */",
+    "after": "/** Prefilled API addresses wired from Endpoints (definition meta.hints.base_url). */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 89,
+    "before": "/** 接线时预选的调用端点：新建表单据此起一行模型。 */",
+    "after": "/** Preselected wired endpoints create initial model rows in new forms. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 91,
+    "before": "/** 深链里的模型 ID：打开时直接打开它的 Sheet。 */",
+    "after": "/** Deep-linked model IDs open their Sheets immediately. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 93,
+    "before": "/** 保存成功后调用，带回保存后的供应商（新建时是刚创建的供应商，调用方据此选中它）。 */",
+    "after": "/** Called after save success with saved providers; newly created providers let callers select them. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 95,
+    "before": "/** 删除成功后调用。 */",
+    "after": "/** Called after successful deletion. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 99,
+    "before": "/**\n * 自定义供应商详情：打开即是表单，没有只读态。页头显示协议与接口地址，「删除供应商」在更多操作菜单；\n * 名称、接口地址、密钥、并发上限与供应商倍率是一个编辑单元，由详情栏底部的保存栏统一提交。\n * 已保存的供应商的模型是模型列表：启用开关立即生效，其余设置在模型 Sheet 里逐个保存，不随这个编辑单元提交，\n * 因此整份保存不会覆盖在列表里做的修改。新建表单里模型随供应商一起创建。\n */",
+    "after": "/**\n * Custom-provider details open as forms, without readonly states. Headers show protocols/API addresses; More menus contain Delete provider.\n * Names, API addresses, secrets, concurrency limits and provider multipliers share one edit unit submitted by bottom save bars.\n * Saved-provider models use lists: enablement applies immediately, other settings save individually in Sheets, outside this edit unit,\n * so whole saves never overwrite list edits. Creation forms create models with providers.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 116,
+    "before": "// 端点目录（后端单一真相源）：媒体类型、默认互斥分组与协议配对都从这里读。",
+    "after": "// Endpoint catalogs are sole backend truth for media types, mutually exclusive defaults and protocol pairing."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 126,
+    "before": "// 已保存的内容：新建表单在挂载时定下，此后保持同一个引用",
+    "after": "// Saved contents: creation forms establish these at mount and retain the same reference afterward."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 128,
+    "before": "// 供应商倍率不在供应商详情里，单独读写：保存后以 PUT 的回显为准，供应商重取不会带回它",
+    "after": "// Provider details exclude multipliers, read/written separately; saved PUT echoes are authoritative, provider refetches never carry them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 135,
+    "before": "// 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），",
+    "after": "// Wired endpoints determine protocols: ComfyUI endpoints pair only with ComfyUI providers (docs/adr/0081 bidirectional pairing),"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 136,
+    "before": "// 让用户自己去把协议改过来就是先让他撞一次保存失败。端点目录是异步取的，因此这里取派生值：",
+    "after": "// so making users switch protocols themselves first forces save failures. Catalogs load asynchronously; derive values here"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 137,
+    "before": "// 目录到齐后协议随之落定。",
+    "after": "// so protocols settle when catalogs arrive."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 156,
+    "before": "// 删除后离开：供应商已不存在，未保存的修改无处可存，这次跳转不经离开拦截询问。",
+    "after": "// Depart after deletion without guards: providers no longer exist, so unsaved edits have nowhere to persist."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 157,
+    "before": "// （新建后跳到新供应商不需要放行：跳转发生在保存在途时，拦截会等保存落定、修改清空后放行。）",
+    "after": "// (Postcreation navigation needs no bypass: while saves run, guards await completion and cleared edits before allowing.)"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 170,
+    "before": "// 保存失败的原因显示在保存栏上：先说用户自己填漏的字段，再说要等的端点目录",
+    "after": "// Save bars explain failures: user-missing fields first, then endpoint catalogs still loading."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 177,
+    "before": "// 已保存的供应商不在表单里编辑模型（value.models 恒为空），以下模型校验只对新建表单起作用",
+    "after": "// Saved providers never edit models in forms (value.models always empty); following model checks apply to creation only."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 180,
+    "before": "// 目录没取回来时行挂不挂得住当前协议判不了：接线端点还没解析出来，协议就回退成了 openai，",
+    "after": "// Unloaded catalogs cannot assess protocol compatibility; unresolved wired endpoints fall back to openai,"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 181,
+    "before": "// 那一行照样吃 422。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。",
+    "after": "// still yielding row 422. Without either condition, forms retain default protocols/endpoints and need no catalog lookup."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 187,
+    "before": "// 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库",
+    "after": "// Rows with unselected endpoints: servers validate pairings per row; one absent endpoint blocks the whole configuration."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 190,
+    "before": "// 可选时长只在 ComfyUI 视频行上编辑，且档位给得出来时才写回覆盖；其余行的覆盖原样回传",
+    "after": "// Edit durations only for ComfyUI video rows, writing overrides only with derivable tiers; echo other row overrides unchanged."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 213,
+    "before": "// 只更新供应商本身：不带 models，模型保持在列表与 Sheet 里保存的样子",
+    "after": "// Update providers only, omitting models and retaining list/Sheet saved models."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 220,
+    "before": "// 供应商倍率是另一份配置，改了才写；失败时供应商已经落库，按部分保存报告",
+    "after": "// Provider multipliers are separate settings, written only when changed; failures after provider persistence report partial saves."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 230,
+    "before": "// 入库内容以重取结果为准；重取失败不算保存失败",
+    "after": "// Refetched values define persisted state; refetch failure is not save failure."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 237,
+    "before": "// 与供应商一起交出去，两份已保存内容在同一次渲染里更新，不会先拼出一份新倍率配旧供应商的中间态",
+    "after": "// Return with providers so both saved values update in one render, without new-multiplier/old-provider intermediate states."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 265,
+    "before": "// 倍率挂在供应商 id 上，只能在创建之后写。供应商已经建好，倍率写失败不回退：",
+    "after": "// Multipliers reference provider IDs and write only after creation. Failed multiplier writes never undo created providers;"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 266,
+    "before": "// 提示后照常切到新供应商，在那里重新填写即可",
+    "after": "// notify then navigate normally to new providers, where users can reenter them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 293,
+    "before": "// 用户改动以派生后的行为基准写回，派生结果就此坐实。否则那些由派生兜底改写的字段（改挂的端点、",
+    "after": "// User edits write from derived rows, settling derived results. Otherwise fallback-reassigned endpoints and invalidated"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 294,
+    "before": "// 随之作废的默认标记）会在下一次派生里被同一条规则再改一遍，用户的改动看不见效果。",
+    "after": "// default markers get rewritten by the same rule on later derivation, hiding user edits' effects."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 301,
+    "before": "// 展开的模型行（只有新建表单有）：接线带来的行还没填模型 ID，默认展开",
+    "after": "// Expanded model rows exist only in creation forms; wired rows without IDs expand by default."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 313,
+    "before": "// ComfyUI 协议下新行必须挂 ComfyUI 端点：没有可挂的端点时按钮禁用并给出去处",
+    "after": "// New ComfyUI rows require compatible endpoints; without any, disable buttons and show where to configure them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 322,
+    "before": "// --- 测试连接与获取模型：用表单当前内容，不经保存 ---",
+    "after": "// --- Test connection/fetch models: current form contents, without saving ---"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 327,
+    "before": "// base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新密钥走明文路径，",
+    "after": "// Changed base_url versus stored values requires UI addresses/new secrets through plaintext paths,"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 328,
+    "before": "// 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。",
+    "after": "// or by-id endpoints use old DB base_url, diverging from newly saved addresses."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 330,
+    "before": "// 编辑时未输入新密钥且接口地址未变，用已存储凭证（by-id 端点）；新建或接口地址变更时必须明文",
+    "after": "// Unchanged API addresses without newly entered secrets use stored credentials (by-id); creation/address changes require plaintext"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 331,
+    "before": "// 密钥。勾选「无需密钥」后保存写入的是空密钥，测试与发现须同样走明文空密钥路径。",
+    "after": "// secrets. No key required saves empty keys, so tests/discovery must likewise use plaintext empty-key paths."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 333,
+    "before": "// ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节（docs/adr/0081），密钥留空是常态。",
+    "after": "// ComfyUI itself has no auth; proxy credential templates live in definition auth (docs/adr/0081), so empty secrets are normal."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 336,
+    "before": "/** 测试连接与获取模型列表的前置检查；不满足时提示并返回 false。 */",
+    "after": "/** Connection-test/model-fetch preflight: notify and return false when unmet. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 349,
+    "before": "// 获取模型：连接信息在打开对话框时定下，对话框里的列表不随表单之后的输入重取",
+    "after": "// Model fetch connection details freeze when dialogs open; later form edits never refetch their lists."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 363,
+    "before": "// 用 getState 读最新目录映射：目录在挂载时异步拉取，打开对话框时可能还没到",
+    "after": "// Read latest catalog mappings through getState: async mount fetches may remain pending when dialogs open."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 377,
+    "before": "// 每种媒体类型勾选的第一个模型标为默认，与已有行的默认冲突时由合并让出",
+    "after": "// First checked model per media type defaults; merging yields when existing-row defaults conflict."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 392,
+    "before": "// 先清空上一次结果：校验失败直接返回时也不残留旧的成功或失败提示",
+    "after": "// Clear prior results first; failed validation returning early must retain no old success/failure notices."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 413,
+    "before": "// 勾选「无需密钥」后才需要知道哪些端点其实要密钥，因而只在那时拉一次自定义端点列表。",
+    "after": "// Only No key required needs endpoint credential requirements, so fetch custom endpoint lists once then."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 414,
+    "before": "// 内置端点一律按需要密钥处理：它们的定义都带 auth 节，无凭证接口只可能是用户自建的。",
+    "after": "// Built-ins always require keys: their definitions contain auth; credential-free APIs can only be user-created."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 415,
+    "before": "// null 表示尚未成功拉到列表：此时不计算冲突提示——空 Set 会把全部模型行误报成需要密钥。",
+    "after": "// null means lists have not loaded successfully; skip conflict hints, since empty Sets falsely flag every model as needing keys."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 436,
+    "before": "// 拉不到时不提示：联动提示是辅助信息，缺失好过误报。",
+    "after": "// Failed reads show no hints; supplementary guidance is better absent than incorrect."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 448,
+    "before": "// 模型 Sheet 保存或移除之后重取供应商：删除确认里的模型数与「无需密钥」的冲突提示都读它",
+    "after": "// Refetch providers after model Sheet saves/removal; delete-confirmation model counts and credential-conflict hints depend on them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 458,
+    "before": "// --- 删除供应商 ---",
+    "after": "// --- Delete provider ---"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 468,
+    "before": "// 该供应商上的模型与能力覆盖随之消失，项目会退回解析别的模型；这同样不落任何项目字段。",
+    "after": "// Provider models/overrides disappear together, making projects resolve other models without changing any project fields."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 497,
+    "before": "/* 自定义供应商不按名称猜品牌图标：中转站与协议无关，统一用名称首字 */",
+    "after": "/* Never infer custom-provider brand icons from names; relay sites are protocol-independent, so use initials. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 649,
+    "before": "/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */",
+    "after": "/* Proxy custom-header auth may block ComfyUI probes; explain this criterion in advance. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 659,
+    "before": "/* 供应商设置在模型列表之上：接口地址与倍率经页面保存栏保存 */",
+    "after": "/* Provider settings precede model lists; page save bars save API addresses/multipliers. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 720,
+    "before": "/* comfyui 没有模型发现，用说明替代按钮 */",
+    "after": "/* comfyui lacks model discovery; explanatory text replaces buttons. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+    "line": 803,
+    "before": "// 删除请求在途时不响应 Esc",
+    "after": "// In-flight deletion ignores Esc."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 231,
+    "before": "// 点行任意位置展开或收起；行内的勾选框、按钮与输入框各有自己的动作，点它们不切换",
+    "after": "// Row clicks expand/collapse; inline checkboxes/buttons/inputs perform their own actions without toggling."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 323,
+    "before": "/** 展开的编辑区：属性共用一条标签列，「删除模型」在底部。 */",
+    "after": "/** Expanded editors share attribute label columns, with Delete model at bottom. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 331,
+    "before": "// 只有 ComfyUI 视频行还编辑可选时长；其余行的时长由模型条目决定，存量覆盖原样保留",
+    "after": "// Only ComfyUI video rows edit durations; other durations follow entries, retaining legacy overrides unchanged."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 354,
+    "before": "// 能力覆盖的合法性绑在 (endpoint, model_id) 上，改了模型 ID 即作废",
+    "after": "// Capability validity binds to (endpoint, model_id); changed model IDs invalidate overrides."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 369,
+    "before": "// 覆盖的合法性随 endpoint 变化（last_frame 要求目标 endpoint 支持尾帧），请求地址修改只对原端点有意义：",
+    "after": "// Override validity follows endpoints (last_frame requires ending-frame support); request overrides apply only to original endpoints:"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 370,
+    "before": "// 换端点即一并作废",
+    "after": "// endpoint changes invalidate both."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 431,
+    "before": "/* 分辨率（仅 image/video，audio 无分辨率维度） */",
+    "after": "/* Resolution: image/video only; audio lacks this dimension. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 435,
+    "before": "// 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。",
+    "after": "// Disabled reasons require visible explanations; title is inaccessible to keyboards/touch."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 450,
+    "before": "/* ComfyUI 视频行的可选时长：写进能力覆盖的 durations 键，留空跟随 workflow 原生时长 */",
+    "after": "/* ComfyUI video durations write capability durations overrides; blank follows native workflows. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 456,
+    "before": "// 禁用原因必须有一行可见说明。缺帧率来源那一支是可修的定义，文案指向补哪里；",
+    "after": "// Disabled reasons require visible explanations. Missing frame-rate sources are fixable, so say where to repair;"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 457,
+    "before": "// 换算不出整秒时长那一支补不出帧率来，不说成「补一处就能恢复」。",
+    "after": "// unconvertible whole-second durations lack missing rates to supply; never promise a single repair restores them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 478,
+    "before": "/* 能力覆盖（仅 video endpoint；首批只开放 last_frame）。ComfyUI 端点的能力只从节点绑定推导，\n          服务端对该协议的覆盖写入一律 422，故不给入口。 */",
+    "after": "/* Capability overrides: video endpoints only, initially last_frame. ComfyUI capabilities derive solely from bindings;\n          servers reject all protocol override writes with 422, so expose no controls. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 484,
+    "before": "// 系统判定要后端按 (endpoint, model_id) 算，新建的行还没有",
+    "after": "// Backend system decisions require (endpoint, model_id); new rows do not have them yet."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 502,
+    "before": "/** 编辑区里的对应条目：已对应时显示条目名与「模型厂商/官方模型名」。 */",
+    "after": "/** Matching entries in editors: matched rows show names and vendor/official model names. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+    "line": 517,
+    "before": "/** 对应条目下方的说明：未定价写明调用会怎样记账，还不知道时说明何时给出。 */",
+    "after": "/** Below-entry explanations: unpriced explains billing; unknown explains when results become available. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/FetchModelsDialog.tsx",
+    "line": 132,
+    "before": "// 对应模型的媒体类型与调用端点不一致时，换成该媒体类型下的默认端点",
+    "after": "// Media mismatches between selected models/endpoints choose default endpoints for the matching media type."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/FetchModelsDialog.tsx",
+    "line": 143,
+    "before": "// 已添加的模型按当前列表现算：添加成功的行在上层刷新列表后自然移走",
+    "after": "// Already-added models derive from current lists; successful rows disappear naturally after parent refreshes."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/FetchModelsDialog.tsx",
+    "line": 161,
+    "before": "// 添加成功的行取消勾选（上层刷新列表后移走），失败的行留下并写明原因",
+    "after": "// Uncheck successful additions, removed after parent refreshes; retain failed rows with reasons."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/FetchModelsDialog.tsx",
+    "line": 189,
+    "before": "// 用户选了对应模型的行不提示：搜索结果不带价格，选择即视为用户的决定",
+    "after": "// User-selected matching models suppress hints: search results lack prices, so selection counts as user decisions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ManualEntryDialog.tsx",
+    "line": 126,
+    "before": "// 提示只是辅助：查不到时不拦用户，保存时服务端仍会核对",
+    "after": "// Hints are supplementary; failed lookups never block users, and servers still verify on saving."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ManualEntryDialog.tsx",
+    "line": 131,
+    "before": "// 换类型时字段按 `${media}:${key}` 全部重新挂载，上一类型里填错的输入卸载时自己收回「不合法」",
+    "after": "// Changed types remount every field by `${media}:${key}`; old invalid inputs withdraw invalid states on unmount."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+    "line": 56,
+    "before": "/** 「种类 · 名字」，如「Agent 工具 · 生成脚本」。 */",
+    "after": "/** Kind · name, for example Agent tool · Generate script. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+    "line": 77,
+    "before": "/** 各筛选轴在全部模版 `applies_to` 中出现过的取值，按首次出现顺序。 */",
+    "after": "/** Axis values found across all template `applies_to`, in first-seen order. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+    "line": 88,
+    "before": "/** 未声明某轴的模版对该轴全部取值适用，任何筛选下都保留。 */",
+    "after": "/** Templates omitting axes apply to all their values and remain under every filter. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+    "line": 97,
+    "before": "/** 模版列表：按流水线顺序分组，画风组默认折叠，可按创作类型、生成模式、源文件类型筛选。 */",
+    "after": "/** Pipeline-grouped templates; styles collapse by default; filter creation type, generation mode and source type. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+    "line": 234,
+    "before": "// 画风等长尾类别默认收起为两列紧凑表；其余类别平铺带说明的行。",
+    "after": "// Long-tail categories such as styles collapse into compact two-column tables; others show explanatory rows."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+    "line": 148,
+    "before": "/** 点「修改」时的起始值：原值；未收录的维度给一个可直接编辑的起点。 */",
+    "after": "/** Modify starts with original values; uncataloged dimensions get directly editable starting values. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+    "line": 164,
+    "before": "/** 数值输入下方的提示，给出时替换该维度的默认提示（如图片参考图上限的 0 与图生图的关系）。 */",
+    "after": "/** Numeric-input hints replace dimension defaults when supplied, such as zero reference-image limits versus image-to-image. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+    "line": 170,
+    "before": "/**\n * 一个能力维度的取值编辑器，「这个供应商支持的参数」与「模型信息」共用。文本输入只在挂载时取 `value` 作初值，\n * 外部改了取值（放弃修改、采用官方值）时由调用方换 `key` 重新挂载；卸载的文本输入不再拦着保存。\n */",
+    "after": "/**\n * Shared capability-dimension editors for Provider-supported parameters and Model information. Text inputs initialize from `value` only at mount;\n * callers change `key` to remount on external changes (discard/adopt official), and unmounted inputs no longer block saves.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+    "line": 297,
+    "before": "/**\n * 文本输入：每次输入都解析，合法时写回修改，不合法时就地提示并让保存栏拦下保存。\n * 卸载时收回自己报的「不合法」：换一代重新挂载、约束行随分辨率删除后，没改对的旧输入不再拦着保存。\n */",
+    "after": "/**\n * Text inputs parse every edit: valid values update drafts; invalid values show inline reasons and make save bars block saves.\n * Unmount withdraws invalid states: remounted generations/removed-resolution constraints leave no obsolete invalid inputs blocking saves.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+    "line": 345,
+    "before": "/** 时长联动约束：每个分辨率一行可选时长，另有「使用参考图时」一行；留空表示这一行不限定时长。 */",
+    "after": "/** Duration-linked constraints: one duration row per resolution plus With reference images; blank rows impose no duration limit. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+    "line": 348,
+    "before": "// 各行输入是否合法只用来汇总成整维的合法性，不参与渲染",
+    "after": "// Per-row validity aggregates whole-dimension validity only, without affecting rendering."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 64,
+    "before": "/** 用户负责的模型可以关联其他模型或手动填写；官方收录的模型由官方维护。 */",
+    "after": "/** User-maintained models may link other models or enter details manually; officially cataloged models stay officially maintained. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 66,
+    "before": "/** 模型的媒体类型（调用端点决定）：关联只能选同类型的条目，手动填写固定为这个类型。 */",
+    "after": "/** Endpoint-determined model media types restrict links to matching entries and fix manual-entry types. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 70,
+    "before": "/** 需传稳定引用：字段重新挂载时据此清掉上一代的「填写不正确」。 */",
+    "after": "/** Supply stable references to clear previous generations' invalid states during field remounts. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 72,
+    "before": "/** 恢复官方数据之后重新读取 Sheet 内容。 */",
+    "after": "/** Reread Sheet contents after restoring official data. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 76,
+    "before": "/**\n * Sheet 下段「模型信息」：对应到的模型条目，所有使用它的供应商共用。显示名与模型事实可以修改，与上段共用保存栏；\n * 厂商、官方模型名、媒体类型、别名只读。改过的条目在字段下方显示官方值并可逐项采用，「恢复官方数据」立即生效。\n */",
+    "after": "/**\n * Lower Sheet Model information: matching entries shared by every provider using them. Names/facts edit through shared save bars;\n * vendor/official name/media/aliases stay readonly. Modified entries show adoptable official values beneath fields; Restore official data applies immediately.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 101,
+    "before": "// 去掉的分辨率不再出现在时长联动约束里",
+    "after": "// Removed resolutions disappear from duration-linked constraints."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 109,
+    "before": "// 与上段分开：铺满 Sheet 宽度的浅底色，抵消 SheetBody 的左右与底部内边距",
+    "after": "// Separate from upper sections: pale backgrounds span Sheet width, offsetting SheetBody horizontal/bottom padding."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 293,
+    "before": "/** 「价格」一段：价格编辑器；价目表有填写不完整或条件重复的档时，保存栏拦下保存。 */",
+    "after": "/** Price sections use editors; incomplete or duplicate-condition tiers make save bars block saving. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 341,
+    "before": "/**\n * 一项模型事实。编辑器里的文本只在挂载时取初值：取值被外部改掉（放弃修改、采用官方值、恢复官方数据）时换一代\n * 重新挂载，上一代的文本输入卸载时收回它留下的「填写不正确」。\n */",
+    "after": "/**\n * One model fact. Editor text initializes only at mount; external changes (discard/adopt/restore official values) change generations\n * and remount; prior inputs withdraw their invalid states on unmount.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 370,
+    "before": "/** 改过的条目在字段下方显示官方值，可以「采用」。 */",
+    "after": "/** Modified entries show adoptable official values beneath fields. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 391,
+    "before": "/** 维护说明一行：官方维护 / 我改过（可恢复官方数据）/ 我新建的（官方收录后可改用官方数据）。 */",
+    "after": "/** Maintenance rows: official / modified (restorable) / user-created (can adopt data after official cataloging). */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 398,
+    "before": "// 官方数据日后收录了同一个模型：不自动合并，由用户决定是否改用",
+    "after": "// Later official cataloging never automatically merges identical models; users choose whether to adopt."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 440,
+    "before": "/** 丢弃用户副本、回到官方数据：「恢复官方数据」与「改用官方数据」是同一个接口，先确认，确认后立即生效。 */",
+    "after": "/** Discard user copies/restore official data: Restore and Switch to official share APIs, confirming first and applying immediately. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 458,
+    "before": "// 已经生效：刷新失败只提示刷新，不再让用户以为没有恢复而重试",
+    "after": "// Already applied: refresh failures notify refresh only, preventing users believing restoration failed and retrying."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 517,
+    "before": "/**\n * 用户指定了条目绑定时的说明：这个模型不再按名字对应，可以解除。关联的条目还在时显示它的显示名；条目已不在目录里时\n * 没有显示名可取，退回「厂商/官方模型名」。\n */",
+    "after": "/**\n * Explicit entry bindings stop name matching and allow unlinking. Existing linked entries show display names; missing catalog entries\n * lack names and fall back to vendor/official-model names.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+    "line": 544,
+    "before": "/** 还没保存的条目改动的说明：保存后会发生什么，以及放弃。 */",
+    "after": "/** Unsaved entry-change explanations: what saving will do, and discard actions. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 59,
+    "before": "/**\n * 供应商详情的模型列表：按文本、图片、视频、音频分组，筛选「全部 / 已启用」。行上的启用开关点击即生效，\n * 停用时同时取消默认。上方是「获取模型」（有模型列表接口的供应商）与「添加模型」，添加后打开新模型的 Sheet。\n * 内置与自定义供应商共用；自定义供应商的行另显示调用端点。\n * 应用版本不够的官方收录模型排在各组末尾，置灰并标出所需版本：开关不可用，也不能打开 Sheet（docs/adr/0103）。\n */",
+    "after": "/**\n * Provider model lists group text/image/video/audio and filter All/Enabled. Enablement applies immediately;\n * disabling also clears defaults. Fetch models (providers with list APIs) and Add model precede lists; additions open new Sheets.\n * Built-in/custom providers share lists; custom rows also show endpoints.\n * Official models requiring newer app versions append last, disabled with version requirements; switches/Sheets unavailable (docs/adr/0103).\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 81,
+    "before": "// 「添加模型」里的「手动填写」：带当时的搜索词，作为新模型的 ID 与模型名称的初值",
+    "after": "// Add model manual entry carries then-current search terms as initial model IDs/names."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 88,
+    "before": "// 打开的模型 Sheet；每次打开换一个 key，关掉再打开同一个模型时重新读取",
+    "after": "// Open model Sheets use unique keys per opening, rereading even identical models after reopening."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 98,
+    "before": "// 整表重取在途时切换了开关：重取的结果可能早于这次切换，切换完成后再取一次，不让旧行盖回开关",
+    "after": "// Switch toggles during full refetches may postdate returned data; refetch again after toggling so stale rows never restore switches."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 150,
+    "before": "// Sheet 保存后整表重取：设为默认会取消同组其他模型的默认，改名会换掉行的键",
+    "after": "// Refetch whole lists after Sheet saves: new defaults clear peer defaults; renames change row keys."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 154,
+    "before": "// 改了模型 ID：Sheet 继续显示同一个模型，不重新打开",
+    "after": "// Changed model IDs keep Sheets on identical models, without reopening."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 170,
+    "before": "// 添加或启用之后：整表重取（新模型可能成为默认），并打开新模型的 Sheet",
+    "after": "// After addition/enablement, refetch whole lists (new models may default) and open new model Sheets."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 191,
+    "before": "// 已添加：自定义供应商按模型 ID；内置供应商按 API 模型名，停用的官方收录模型不算（添加即启用它）",
+    "after": "// Already added uses model IDs for custom, API model names for built-ins; disabled official models do not count, since addition enables them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 208,
+    "before": "// react-doctor-disable-next-line react-doctor/async-await-in-loop -- 逐个添加：服务端让某媒体类型的第一个新模型成为默认，并发添加会争抢默认并交错写同一供应商",
+    "after": "// react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential additions: servers default first models per media type; concurrency races defaults and interleaves same-provider writes"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 226,
+    "before": "// 手动填写（或选中填写时发现的同名条目）：先写入条目，再按它添加模型；模型 ID 取搜索词，没有时取模型名称",
+    "after": "// Manual entry or discovered same-name selection first persists entries, then adds models; IDs use search terms, otherwise model names."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+    "line": 316,
+    "before": "// Sheet 在三种状态里处于同一位置：列表加载完成时不会被重新挂载",
+    "after": "// Sheets occupy identical positions in all three states, preventing remounts when lists finish loading."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 334,
+    "before": "// 能力覆盖不落任何项目字段，在用的能力查询不会因此重取：显式作废",
+    "after": "// Overrides change no project fields and cannot trigger active capability refetches; explicitly invalidate."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 346,
+    "before": "// 关闭 Sheet：有未保存修改或保存在途时交给离开拦截；否则直接关，不连带询问页面上其他编辑单元",
+    "after": "// Unsaved/in-flight Sheet closure uses leave guards; otherwise close directly without consulting other page edit units."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 361,
+    "before": "// 官方收录的模型也展示生效能力，只读；用户负责的模型可以修改 editable 里的维度",
+    "after": "// Official models show effective capabilities readonly; user-maintained models may change editable dimensions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 373,
+    "before": "// 「已修改」在下段的维护说明里讲，标题旁只留影响调用的标记",
+    "after": "// Lower maintenance explanations describe Modified; title badges retain invocation-relevant markers only."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 378,
+    "before": "// 恢复官方数据立即生效、不经保存栏：重读 Sheet 内容，只把下段的草稿换成官方值，上段未保存的修改保留",
+    "after": "// Immediate Restore official data bypasses save bars: reread Sheets, replace lower drafts only, retaining upper unsaved edits."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 467,
+    "before": "// 换回原来的端点时取回保存的请求地址与参数修改；换到别的端点时两者都作废",
+    "after": "// Returning to original endpoints restores saved request/parameter overrides; different endpoints invalidate both."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 498,
+    "before": "// 换回原来的端点时取回保存的参数修改；换到别的端点时作废，保存后再按新端点修改",
+    "after": "// Returning to original endpoints restores saved parameter overrides; different endpoints invalidate them, requiring saving before new overrides."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 588,
+    "before": "// 保存在途时不能移除：两个写入会互相覆盖",
+    "after": "// In-flight saves prevent removal; both writes would overwrite each other."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 606,
+    "before": "// 与修改原条目互斥：原条目的草稿修改连同没填对的标记一起放下",
+    "after": "// Mutually exclusive with original-entry edits; clear their drafts and invalid markers together."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 644,
+    "before": "/** 「从『X』移除」：先确认；有设置或项目在用这个模型时在确认框里列出。 */",
+    "after": "/** Remove from X confirms first, listing settings/projects currently using models. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 682,
+    "before": "// 被移除的模型连同 Sheet 里未保存的修改一起消失，确认框本身就是这次确认，不再经离开拦截",
+    "after": "// Removed models and unsaved Sheet edits disappear together; removal confirmation suffices, bypassing further leave guards."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+    "line": 765,
+    "before": "/* 引用查到之前不能确认，免得没看到哪些设置与项目还在用它就移除；查询失败时已提示，仍可移除 */",
+    "after": "/* Await references before confirmation so users see affected settings/projects; failed queries already notify, but removal remains available. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.test.tsx",
+    "line": 51,
+    "before": "// 端点剥掉了版本段，灰显部分是归一化后的接口地址",
+    "after": "// Endpoints strip version segments; grey prefixes show normalized API addresses."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.test.tsx",
+    "line": 66,
+    "before": "// 有修改的请求相对原样接口地址，不再剥版本段",
+    "after": "// Overridden requests use raw API addresses without stripping versions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.test.tsx",
+    "line": 155,
+    "before": "// 与服务端 strip_base_url_version 的用例表同口径：全角数字不算版本段",
+    "after": "// Match server strip_base_url_version tests: fullwidth digits are not version segments."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 27,
+    "before": "/** 没有修改时端点按声明的规则归一化接口地址；有修改的请求一律相对原样值。 */",
+    "after": "/** Unmodified endpoints normalize addresses by declared rules; overridden requests always use raw values. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 48,
+    "before": "/** 调用端点的每条请求一条分段地址条：接口地址灰显，路径部分点击就地修改。 */",
+    "after": "/** Segmented address bars per endpoint request: grey API addresses, clickable inline-edit paths. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 59,
+    "before": "// 空值不算修改；与默认同文本的路径只在接口地址不经归一化时才不改变请求地址",
+    "after": "// Empty values are not overrides; default-equivalent paths preserve addresses only without API normalization."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 100,
+    "before": "/** 展示用路径，模型名占位符已换成模型 ID。 */",
+    "after": "/** Display paths with model-name placeholders replaced by IDs. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 105,
+    "before": "/** 一条请求的地址条：点击路径进入行内输入，Enter 或失焦提交，Esc 取消。 */",
+    "after": "/** Request address bars: click paths to edit; Enter/blur submits, Esc cancels. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 127,
+    "before": "// 修改后的路径相对原样接口地址，编辑时前缀即原样值",
+    "after": "// Overridden paths use raw API addresses; editing prefixes show raw values."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 141,
+    "before": "// 没改动就失焦不提交，否则归一化端点上点开路径再离开就会生成一条修改；Enter 是明确确认，照常提交",
+    "after": "// Unchanged blur never submits, preventing mere opening/leaving normalized paths from creating edits; Enter explicitly confirms and submits."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+    "line": 144,
+    "before": "// 输入法组合输入中按 Enter 是在确认候选词，不应提交",
+    "after": "// Enter during IME composition confirms candidates, never submits."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/agent-access/ExternalAgentSection.test.tsx",
+    "line": 51,
+    "before": "// 提示词只给安装指引地址，不夹带任何令牌",
+    "after": "// Prompts include installation-guide addresses only, never tokens."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/agent-access/ExternalAgentSection.test.tsx",
+    "line": 69,
+    "before": "// 有状态的接口替身：创建写入、列表读出，模拟同一个后端",
+    "after": "// Stateful API fakes persist creations and read lists, simulating one backend."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/agent-access/ExternalAgentSection.test.tsx",
+    "line": 85,
+    "before": "// 设置页挂载时会拉取配置状态，这里让它拿到空结果",
+    "after": "// Settings mount fetches configuration status; return empty results here."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/asset-library/AssetLibraryAccountsBlock.tsx",
+    "line": 390,
+    "before": "// 关闭动画期间 account 已清空，沿用最后一次的内容，标题不闪成空白",
+    "after": "// During closing account is cleared; retain previous contents so titles never flash blank."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 112,
+    "before": "/** 新建表单的模型发现结果转成「获取模型」对话框的行；自定义供应商以名字对应上条目为已识别。 */",
+    "after": "/** Convert creation-form discovery results into Fetch models rows; name-matched custom-provider entries count as recognized. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 127,
+    "before": "// 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。",
+    "after": "// Concurrency limits use controlled numeric strings; empty means unset (null/global defaults)."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 132,
+    "before": "/** 自定义供应商没有设置倍率时的值；新建表单还取不到服务端的默认值，按它显示。 */",
+    "after": "/** Unset provider multipliers; creation forms lacking server defaults display this value. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 135,
+    "before": "/**\n * 新建供应商还没有 id、取不到服务端的默认倍率，按协议给出同一份默认值：ComfyUI 协议为 0，其余为 1\n * （与 lib/billing/multipliers.py 的 default_provider_multiplier 一致）。\n */",
+    "after": "/**\n * New providers lack IDs/server multiplier defaults; mirror protocol defaults: ComfyUI 0, others 1\n * (matching default_provider_multiplier in lib/billing/multipliers.py).\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 143,
+    "before": "// 供应商倍率：等于默认值时显示为空，表示「跟随默认」；保存空串即恢复默认。",
+    "after": "// Default-equivalent provider multipliers display blank to follow defaults; saving blank restores defaults."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 148,
+    "before": "/** 已保存的供应商对应的表单内容。已保存的模型在模型列表与模型 Sheet 里逐个保存，不进表单。 */",
+    "after": "/** Saved-provider form contents; existing models save individually in lists/Sheets, never enter forms. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 167,
+    "before": "/** 新建表单的初始内容；从「调用端点」接线过来时预填接口地址，并按所选端点起一行模型。 */",
+    "after": "/** Initial creation forms prefill API addresses from wired Endpoints, creating one row for selected endpoints. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 183,
+    "before": "// 空串 = 未设置（null）；否则必须是正整数（≥1）。返回 undefined 表示非法",
+    "after": "// Empty means unset (null); otherwise require positive integers (≥1). undefined indicates invalid"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 184,
+    "before": "// 输入（0、小数、科学计数、负号、含非数字字符），由保存拦截并提示——不再用 parseInt",
+    "after": "// inputs (0, fractions, scientific notation, negatives, nondigits), blocked/explained on save; never parseInt"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 185,
+    "before": "// 静默截断（\"1.5\"→1、\"1e3\"→1）把非法值写成错误配置。0 不是合法用户输入。",
+    "after": "// silently truncating \"1.5\"→1 or \"1e3\"→1 into incorrect settings. Zero is invalid user input."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 194,
+    "before": "/** 供应商倍率：空串 = 恢复默认（null）；否则同 parseMultiplier，非法输入返回 undefined。 */",
+    "after": "/** Provider multipliers: blank restores defaults (null); otherwise parseMultiplier, returning undefined for invalid inputs. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 199,
+    "before": "/**\n * 行在当前编辑下对应到的条目。条目由服务端按模型 ID 与端点的媒体类型对应，改过这两项的行\n * 对应结果要重新算，前端不猜，按「还不知道」（undefined）处理；改回原值即取回加载时的结果。\n */",
+    "after": "/**\n * Entries matching current row edits. Servers match model IDs and endpoint media types; changing either\n * requires reevaluation. Frontend never guesses, reporting unknown (undefined); reverting restores loaded results.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 208,
+    "before": "/** 这一行的可选时长可编辑（ComfyUI 视频端点、档位给得出来）：此时由 durations_text 写回覆盖。 */",
+    "after": "/** Editable durations for ComfyUI video endpoints with available tiers write overrides from durations_text. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 215,
+    "before": "// 失败时直接抛 DurationParseError；保存在调用前应已拦截，故此处只负责诚实地把字符串",
+    "after": "// Raise DurationParseError directly; presave validation already blocks invalid input, so only convert strings honestly"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 216,
+    "before": "// 转成 list[int] 而不静默降级（无效输入被当成空串，会把用户的档位悄悄换回原生时长）",
+    "after": "// into list[int], never silently degrade invalid inputs into blanks, which would replace user tiers with native durations."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 226,
+    "before": "// 其余行的覆盖（含升级迁移写入的 durations、max_output_tokens）原样回传：整表 PUT 省略即清空",
+    "after": "// Echo other overrides unchanged, including migrated durations/max_output_tokens; full-table PUT omissions clear values."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 229,
+    "before": "// 保存前已拦截非法倍率，这里的回退值不会生效",
+    "after": "// Presave validation rejects invalid multipliers; fallback values here never take effect."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 235,
+    "before": "/**\n * 行挂不挂得住当前协议是一路派生下来的，不是切协议那一刻改写一遍行就算数：ComfyUI 端点只挂得上\n * ComfyUI 供应商，反之亦然（docs/adr/0081 的双向配对），而这份判断要查端点目录——目录是异步取的，\n * 切协议那一刻它可能还没回来，回来之后也不会有人再重算一遍。留着挂不住的旧值，那一行在端点选择器\n * 里是隐着的（选择器按协议过滤），用户看不见它，保存时才吃一个 422。\n *\n * 改挂的去处：切进 ComfyUI 取第一个 ComfyUI 端点，切走退回新行的默认端点；一个 ComfyUI 端点都\n * 还没有时没有去处，行落在 UNSET_ENDPOINT 上——用户看得见、保存拦得住，比留个隐形的旧端点强。\n * 派生而非改写还带来一点：切走再切回来，原先手选的那个端点自己回来了，models 里存的始终是用户\n * 最后一次显式选择。目录还没回来时（`catalog` 为 null）一行都判不了，原样返回。\n */",
+    "after": "/**\n * Protocol compatibility is continuously derived, never a one-time row rewrite on switches: ComfyUI endpoints pair only with\n * ComfyUI providers and vice versa (docs/adr/0081). This requires endpoint catalogs, fetched asynchronously and potentially absent\n * during switches; without derivation nobody reevaluates on arrival. Incompatible old endpoints hide in protocol-filtered\n * selectors, invisible to users until save-time 422.\n *\n * Reassign to first ComfyUI endpoints when entering, new-row default endpoints when leaving. Without ComfyUI endpoints,\n * use UNSET_ENDPOINT: visible and save-blocking rather than invisible old endpoints.\n * Derivation also restores previously selected endpoints after switching away/back: models always store users' last\n * explicit choices. Before catalogs arrive (`catalog` null), no row can be classified; return unchanged.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 257,
+    "before": "// 换了一路，默认标记、能力覆盖与请求地址修改随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，",
+    "after": "// Route changes invalidate defaults, capabilities and request-address overrides: validity binds to (endpoint, model_id),"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderFormState.ts",
+    "line": 258,
+    "before": "// 而 ComfyUI 协议整个关闭覆盖（服务端 _check_protocol_constraints），留着必被拒。",
+    "after": "// and ComfyUI disables overrides entirely (server _check_protocol_constraints), so retaining them guarantees rejection."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 43,
+    "before": "/** 切 default：非 image 媒体类型（text/video/audio）同 media_type 内互斥；image 按 capability 集合交集互斥。\n *  互斥清理仅在 enabling（false→true）时触发——取消已有默认（true→false）时不应连带清掉\n *  其他默认项，否则一次\"取消\"会误删兄弟槽位（如 wildcard ↔ split-edits 的 I2I 重叠）。\n *  catalog 未加载或 endpoint 不在映射内时降级为「单行 toggle」——避免所有 endpoint\n *  都解析成 undefined 时被当作同组，误清掉其他媒体类型的默认项。\n *\n *  endpointToImageCaps：来自 endpoint-catalog-store，仅 image endpoint 有条目。 */",
+    "after": "/** Toggle default: nonimage text/video/audio exclude peers by media_type; images by capability intersections.\n *  Exclusion cleanup triggers only when enabling (false→true); disabling existing defaults (true→false) must not clear\n *  other defaults, or one cancellation deletes sibling slots, such as wildcard ↔ split-edits I2I overlaps.\n *  Unloaded catalogs or unmapped endpoints degrade to single-row toggles, preventing all-undefined endpoint\n *  resolution from grouping and clearing defaults across media types.\n *\n *  endpointToImageCaps comes from endpoint-catalog-store, containing image endpoints only. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 63,
+    "before": "// 非 image（text/video/audio）：仅 enabling 时清同 media_type 其他默认",
+    "after": "// Nonimage text/video/audio clears same-media_type defaults only when enabling."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 72,
+    "before": "// image：仅 enabling 时按 capability 交集清冲突",
+    "after": "// Images clear capability-intersection conflicts only when enabling."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 83,
+    "before": "/** 两个 image 默认分不分得开。与后端 `_check_unique_defaults` 同一条判据。\n *\n *  能力集为空即「这个端点没声明它能做什么」——ComfyUI 端点在能力推导落地前都是空集。它与任何一个\n *  image 默认都分不开，因此算冲突：放两个进去，取默认模型时会一次查出两行。两边判据若不一致，界面\n *  会放行一份保存时才被拒的配置。 */",
+    "after": "/** Whether two image defaults are distinguishable, sharing backend `_check_unique_defaults` predicates.\n *\n *  Empty capabilities mean endpoints declare no abilities; ComfyUI had empty sets before inference landed. They are indistinguishable\n *  from any image default, hence conflicting: two defaults yield two default-model rows. Divergent predicates would let UI\n *  admit configurations rejected only on saving. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 94,
+    "before": "/** 一行模型占用的「默认槽位」集合：非 image → media_type 自身；image → 各 capability\n *  前缀 `image:`。endpoint 不在 catalog（如已下线的端点）或 catalog 未加载 →\n *  空集，该行不参与互斥（与后端 _check_unique_defaults 对未知 endpoint 跳过校验一致）。 */",
+    "after": "/** Default slots occupied by model rows: nonimage uses media_type itself; images use capabilities\n *  prefixed `image:`. Unknown/discontinued endpoints or unloaded catalogs yield\n *  empty sets without exclusion, matching backend _check_unique_defaults skipping unknown endpoints. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 105,
+    "before": "// 能力集为空的 image 端点在这里不占槽：只有 ComfyUI 端点会是空集，而该协议没有模型发现，",
+    "after": "// Empty-capability images occupy no slots here: only ComfyUI can have empty sets, and that protocol lacks discovery,"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 106,
+    "before": "// 这条合并路径走不到它。互斥判据在 toggleDefaultReducer 与服务端两处。",
+    "after": "// so this merge path cannot reach them. toggleDefaultReducer and servers enforce exclusion separately."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 112,
+    "before": "/** 把「获取模型」勾选的模型并入新建表单的模型行，并消解默认冲突。\n *\n *  表单还没有行时原样返回新行（调用方已按媒体类型给每类只标一个默认）。否则按新行顺序并入：模型 ID 与已有行\n *  相同的保留已有行（含其默认与倍率等编辑），其余追加；未填模型 ID 的手动行（model_id 同为空串）不进 Map\n *  去重，否则键冲突会静默丢行，单独按原顺序补在末尾。\n *\n *  默认消解：已有行先占据其默认槽位，新行命中已占槽位时让出（is_default→false），空槽位仍允许新行补默认；\n *  否则保存时被后端 _check_unique_defaults 拒绝（default_model_conflict）。endpoint 未知或端点目录未加载的\n *  行不占槽也不让出。 */",
+    "after": "/** Merge checked Fetch models rows into creation forms, resolving default conflicts.\n *\n *  Empty forms return new rows unchanged; callers already mark one default per media type. Otherwise merge in incoming order: existing\n *  matching model IDs retain rows, including edited defaults/multipliers; append others. Empty-ID manual rows never enter Map\n *  deduplication, whose key collisions silently lose rows; retain them separately at the end in original order.\n *\n *  Existing defaults occupy slots first; incoming rows hitting occupied slots yield (is_default→false), while empty slots allow new defaults.\n *  Otherwise backend _check_unique_defaults rejects saves with default_model_conflict. Unknown endpoints/unloaded catalogs\n *  neither occupy nor yield slots. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 131,
+    "before": "// 未填 model_id 的手动行 model_id 同为空串，进 Map 会互相覆盖（键唯一）导致静默丢行；",
+    "after": "// Manual rows with empty model_id collide in Maps, overwriting each other and silently losing rows;"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 132,
+    "before": "// 单独留存，按原顺序补在末尾。",
+    "after": "// retain separately, appending in original order."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 152,
+    "before": "// 保留未被发现响应覆盖的既存行（含未填 model_id 的手动行）",
+    "after": "// Retain existing rows not replaced by discovery responses, including empty-ID manual rows."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 160,
+    "before": "// 既存行先占槽（prev 来自已通过后端校验的 DB，内部无冲突），新发现行后处理、命中即让出",
+    "after": "// Existing DB-validated prev rows occupy slots first without internal conflicts; discovered rows follow, yielding on collisions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 183,
+    "before": "// 能力覆盖（模型级，首批仅 last_frame）",
+    "after": "// Model-level capability overrides, initially last_frame only"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 186,
+    "before": "/** 稀疏覆盖字典的唯一写入点：next === undefined 表示回到「跟随判定」，此时把该键从字典移除\n *  而不是写 false——键缺席与显式 false 在后端是两种语义（跟随判定 vs 强制关）。移除后字典为空\n *  则整体收敛回 null，避免把 {} 存进去让「有无覆盖」多出一种等价表示。 */",
+    "after": "/** Sole sparse-override writer: next === undefined restores Follow decisions, removing keys\n *  rather than writing false; backend absence and explicit false differ (follow versus force-off). Empty dictionaries\n *  normalize to null after removal, preventing {} as another equivalent override-absence representation. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+    "line": 202,
+    "before": "/** 稀疏覆盖字典里 durations 键的唯一写入点（只有 ComfyUI 视频行编辑它）：undefined 即移除该键，回到跟随\n *  workflow 的原生时长；移除后为空则与 withLastFrameOverride 一样收敛回 null。 */",
+    "after": "/** Sole durations override writer, edited only by ComfyUI video rows: undefined removes keys, restoring\n *  native workflow durations; empty dictionaries normalize to null like withLastFrameOverride. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 142,
+    "before": "/** 从 workflow 的全部落点里手选。产物是节点级的，其余语义键只列字面值输入。 */",
+    "after": "/** Manually choose among all workflow targets; outputs are node-level, other semantic keys list literal inputs only. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 160,
+    "before": "// 原生下拉：选项是带节点号与字面值的一长串落点，值选中即生效、随即回到占位项",
+    "after": "// Native dropdowns list long node-ID/literal target strings; selection applies immediately and resets placeholders."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 187,
+    "before": "/**\n * 手填帧率：有限且不小于 1 才收下，否则给 `undefined`（这一项不声明）。允许小数——29.97 这类\n * 帧率是真实存在的。\n *\n * `min={1}` 只拦得住原生控件的上下箭头，手打的负数、`Infinity` 与空串照样进得来；定义保存时\n * 不再走一次表单校验，故在写进状态这一步就挡掉。\n */",
+    "after": "/**\n * Manual frame rates accept finite values ≥1 only; otherwise `undefined` leaves the item undeclared. Fractions such as 29.97\n * are real rates and allowed.\n *\n * `min={1}` guards native arrows only; typed negatives, `Infinity` and blanks still arrive. Saving definitions\n * does not rerun form validation, so reject before writing state.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 199,
+    "before": "/** 对齐步长：schema 声明为整数，小数存下去会被定义校验打回，故在这里就不收。 */",
+    "after": "/** Alignment steps are schema integers; reject fractions here before definition validation rejects persistence. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 205,
+    "before": "/** 条目自带的附加项：对齐步长、手填帧率、种子策略、帧率的只读说明。 */",
+    "after": "/** Entry extras: alignment steps, manual rates, seed policies, readonly frame-rate explanations. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 263,
+    "before": "// 单选：再次点击已选项不取消选择",
+    "after": "// Single-select: clicking selected items again never deselects."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 284,
+    "before": "/** 本轮被用户改过的语义键：改过即算「手动指定」，不再显示为自动识别。 */",
+    "after": "/** User-edited semantic keys this round count as manually specified, no longer automatically recognized. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 288,
+    "before": "/** 正在重新识别的语义键；同一时刻只会有一个。 */",
+    "after": "/** Currently rerecognized semantic keys; at most one at a time. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 292,
+    "before": "/**\n * 节点绑定表：一行一个语义键，展开后是候选列表、手选下拉与该键的附加项。\n * 并列候选与待确认的行默认展开——它们挡着保存，折叠起来用户找不到要做什么。\n */",
+    "after": "/**\n * Binding tables: one semantic key per row, expanding candidates/manual dropdowns/key extras.\n * Tied candidates and unconfirmed rows expand by default; they block saves and would hide required actions if collapsed.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 307,
+    "before": "// 用户亲手开合过的行，压过下面那份默认值；每行各算各的，不受其他行影响。",
+    "after": "// User row expansion choices override defaults below, independently per row."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 311,
+    "before": "// 默认展开哪几行只由到手的这一轮推断定：跟着行状态走的话，用户选中第一个候选的那一刻面板",
+    "after": "// Default expansion depends only on this inference round, never changing row states; otherwise first selections close panels,"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 312,
+    "before": "// 就合上了，有序多选的第二张点不到，宽高帧数与种子的附加项也正好在这时才出现。",
+    "after": "// hiding second ordered references and newly appearing dimension/frame/seed extras."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 363,
+    "before": "// 重导入在这一行留下的记号，显示在条目旁边——折叠着也看得见哪些是沿用、哪些重匹配过。",
+    "after": "// Reimport marks appear beside entries, revealing reused/rematched bindings even when collapsed."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 432,
+    "before": "/* 说明与展开区与上面那行同列宽，从状态列起排，与语义键名错开 */",
+    "after": "/* Explanations/expanded areas match preceding column widths, starting at status columns, offset from semantic names. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+    "line": 484,
+    "before": "// 手选只做加法：同键的其余落点是别的分支在用的，删要从候选列表里取消勾选。",
+    "after": "// Manual selection only adds; same-key targets serve other branches, so removal requires candidate deselection."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 249,
+    "before": "// 没被推断提到的语义键一并算未找到：reference_images、宽、高、帧数、帧率与 output 共 7 项。",
+    "after": "// Semantic keys absent from inference also count missing: reference_images, width, height, frames, fps, output; seven total."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 270,
+    "before": "// 参考图是有序多选：选中第一张之后面板合上的话，第二张根本点不到。",
+    "after": "// References are ordered multiselect; closing after first selection prevents choosing second images."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 307,
+    "before": "// 宽高可以有多个落点，候选列表因此是多选组而不是单选组。",
+    "after": "// Multiple dimension targets require multiselect groups, never radios."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 314,
+    "before": "// `min={1}` 只拦得住上下箭头；负数与 `Infinity` 手打得进来，保存时又不再过一次表单校验。",
+    "after": "// `min={1}` guards arrows only; typed negatives/`Infinity` remain possible, without save-time form revalidation."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 335,
+    "before": "// schema 把 step 声明为整数：小数存下去会被定义校验打回。",
+    "after": "// schema declares integer step; persisted fractions fail definition validation."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 401,
+    "before": "// 宽高帧数帧率都写/读全部落点：点中一个候选只增删这一条，把同键其余落点顶掉会让那几路",
+    "after": "// Write/read all dimension/frame/rate targets: selecting candidates changes that target only; replacing same-key peers stops other"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 402,
+    "before": "// 分支再也收不到尺寸与帧数。",
+    "after": "// branches receiving dimensions/frame counts."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 422,
+    "before": "// 再点一次即取消，只去掉这一条。",
+    "after": "// Click again to deselect this target only."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 471,
+    "before": "// 已确认的绑定正是重匹配的输入，要重来的那一项因此必须先从载荷里摘掉。",
+    "after": "// Confirmed bindings supply rematching inputs; remove keys being rerecognized from payloads first."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 479,
+    "before": "// 重新识别在途时用户自己定了同一项：他后按的那一下比在途那轮新，结果回来不该把它改掉。",
+    "after": "// User choices during same-key rerecognition postdate in-flight inference; returned results must not overwrite them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 543,
+    "before": "// 服务端重匹配对无标题节点一律回填 title: \"\"，落盘的那一份省略这个键：同一份绑定，两种写法。",
+    "after": "// Servers backfill title: \"\" on untitled rematches; persisted bindings omit it, two spellings of identical bindings."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 633,
+    "before": "// 只在 query 里配了凭据的端点实发时照样把它拼进 URL；只认 headers 的话，展示的是一句",
+    "after": "// Query-only credential templates still enter actual URLs; inspecting headers alone displays unused"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 634,
+    "before": "// 它根本不用的 Authorization。",
+    "after": "// Authorization text."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 640,
+    "before": "// 凭据模版不折行，预览会横向滚动：区域自身可聚焦，键盘才能滚动",
+    "after": "// Credential templates never wrap; horizontally scrolling previews must focus for keyboard scrolling."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+    "line": 662,
+    "before": "// 服务端校验器会按 comfyui_binding_required 拒收这份定义，两卡先在界面上挡住。",
+    "after": "// Servers reject definitions with comfyui_binding_required; both cards block first in UI."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+    "line": 294,
+    "before": "// 推断未就绪或节点绑定还有问题时服务端不收这份定义；原因在绑定表上方列出。",
+    "after": "// Servers reject unready inference/problematic bindings; reasons appear above tables."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+    "line": 457,
+    "before": "// 单选：再次点击已选项不取消选择",
+    "after": "// Single-select: clicking selected items again never deselects."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+    "line": 471,
+    "before": "/* 凭据模版不折行，长的会横向滚动；预览是只读文本，区域自身可聚焦，键盘才能滚动 */",
+    "after": "/* Credential templates never wrap; readonly previews scroll horizontally and must focus for keyboard scrolling. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+    "line": 508,
+    "before": "/** 用户本轮亲手定过的那几条节点绑定。 */",
+    "after": "/** Node bindings manually chosen by users this round. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+    "line": 517,
+    "before": "/**\n * 定义里配了什么就照它自己那份显示，一条也没配才给出这一节该长什么样的模板。\n *\n * 两张表都要看：只在 `query` 里配了凭据的端点实发时照样把它拼进 URL，这里却只认 `headers`\n * 的话，展示的是一句它根本不用的 `Authorization`。\n */",
+    "after": "/**\n * Show actual configured definition values; only entirely unconfigured sections show shape templates.\n *\n * Inspect both tables: endpoints with credentials solely in `query` append them to actual URLs. Inspecting `headers` alone\n * would display `Authorization` that these endpoints never use.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 145,
+    "before": "// ComfyUI 端点没有模型名可填：模型就是这份 workflow。名字进调用记录，好让「用量」页上认得出",
+    "after": "// ComfyUI endpoints have no model names; workflows are models. Names enter invocation records so Usage identifies"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 146,
+    "before": "// 这一笔是哪个端点发的。",
+    "after": "// which endpoint issued each call."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 225,
+    "before": "// 非正整数（含退格清空后的空串）落成空态，输入框据此显示占位符而不是被填回一个",
+    "after": "// Nonpositive/noninteger values, including backspace-cleared blanks, become empty states showing placeholders rather than restored"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 226,
+    "before": "// 数字——改秒数的第一步就是清空它。空态按占位符那个秒数发出。",
+    "after": "// numbers; editing seconds starts with clearing them. Empty states send placeholder seconds."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 375,
+    "before": "/**\n * 换算说明：左边是请求侧给的，右边是真正写进 workflow 的。\n *\n * 没驱动这份 workflow 的那几维显式写出来——「我在项目页选的分辨率对这个端点根本不起作用」只有\n * 在这里说得出口，光看一份几十个节点的 JSON 是看不出来的。\n */",
+    "after": "/**\n * Conversion explanations: requested values left, actual workflow writes right.\n *\n * Explicitly identify dimensions not driving workflows; only here can users learn that project-selected resolutions do not\n * affect endpoints, which large JSON workflows alone cannot reveal.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 388,
+    "before": "/** 种子这一维的取值策略，来自节点绑定；没绑就没有策略。 */",
+    "after": "/** Seed-value policies derive from bindings; absent bindings mean no policies. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 468,
+    "before": "/** 一次测试连接走到哪儿了：四段状态点 + `prompt_id`，随后是产物卡或失败码卡。 */",
+    "after": "/** Connection-test progress: four stage indicators + `prompt_id`, followed by output or failure-code cards. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+    "line": 530,
+    "before": "// eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源",
+    "after": "// eslint-disable-next-line jsx-a11y/media-has-caption -- connection-test outputs have no available caption sources"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 329,
+    "before": "// 「更多操作」里与 kind 无关的条目：删除、分享与它们的对话框两种详情共用。",
+    "after": "// Kind-independent More entries: deletion/sharing/dialogs share both detail implementations."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 355,
+    "before": "// 删除请求在途时不响应 Esc 与遮罩点击",
+    "after": "// In-flight deletion ignores Esc/backdrop clicks."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 393,
+    "before": "// 提交结果由页头的分享状态标记表达",
+    "after": "// Header sharing-status markers communicate submission results."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 402,
+    "before": "// ComfyUI 端点的定义是 workflow 加节点绑定，没有声明式表单的 submit / poll 两节，",
+    "after": "// ComfyUI definitions combine workflows/bindings, without declarative submit/poll sections;"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 403,
+    "before": "// 详情与绑定编辑器另有其形；删除与分享入口仍由本组件提供，两种 kind 共用同一条生命周期。",
+    "after": "// details/binding editors have distinct shapes, but this component supplies deletion/sharing, sharing lifecycles across kinds."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 406,
+    "before": "// 端点测试的凭证来源只列 comfyui 协议的供应商：别的协议的地址与密钥打不到一台 ComfyUI 上。",
+    "after": "// ComfyUI test credentials list comfyui providers only; other protocols' addresses/secrets cannot access ComfyUI machines."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 479,
+    "before": "// 内置端点只读，常见去向是拿它新建供应商；复制为我的端点是次要操作",
+    "after": "// Built-ins are readonly; creating providers is common, copying endpoints secondary."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 543,
+    "before": "// 保存栏与正文的表单列同宽同起点（正文 max-w-190 含左右各 24px 内边距）",
+    "after": "// Save bars match body form-column widths/origins (body max-w-190 includes 24px padding each side)."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 635,
+    "before": "// 单选：再次点击已选项不取消选择",
+    "after": "// Single-select: clicking selected items again never deselects."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+    "line": 661,
+    "before": "// 非法原文仍登记为修改，表单与诊断保留最后一份可渲染定义。",
+    "after": "// Invalid raw text still counts as modified; forms/diagnostics retain latest renderable definitions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 63,
+    "before": "// 行名就是正在编辑的键：行 key 用随名字转移的客户端 id，改名不重建输入框、不丢焦点",
+    "after": "// Edited row keys use name-transferring client IDs; renames never recreate inputs or lose focus."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 149,
+    "before": "/* 1 基本信息 */",
+    "after": "/* 1 Basics */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 192,
+    "before": "/* 2 访问凭证 */",
+    "after": "/* 2 Credentials */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 272,
+    "before": "/* 3 输入素材 */",
+    "after": "/* 3 Input materials */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 346,
+    "before": "/* 4 提交生成任务 */",
+    "after": "/* 4 Submit generation tasks */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 396,
+    "before": "/* 5 查询进度与结果 */",
+    "after": "/* 5 Query progress/results */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 510,
+    "before": "/* 6 状态对照 */",
+    "after": "/* 6 Status mappings */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+    "line": 566,
+    "before": "/* 7 支持的功能 */",
+    "after": "/* 7 Supported features */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointImportDialog.tsx",
+    "line": 121,
+    "before": "// 请求在途时不响应 Esc 与遮罩点击；识别与推断在途时「取消」仍可用，它会作废在途的请求",
+    "after": "// In-flight requests ignore Esc/backdrop clicks; Cancel remains available during recognition/inference, invalidating those requests."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointImportDialog.tsx",
+    "line": 151,
+    "before": "// 同一份文件再选一次也要触发 change，因此每次读完就清空。",
+    "after": "// Reselecting identical files must fire change; clear after every read."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointImportDialog.tsx",
+    "line": 234,
+    "before": "// 单选：再次点击已选项不取消选择",
+    "after": "// Single-select: clicking selected items again never deselects."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+    "line": 146,
+    "before": "// 非 JSON 文本原样送服务端，由它给出解析层面的判定。",
+    "after": "// Send non-JSON text unchanged for server parsing decisions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+    "line": 196,
+    "before": "/* 验证响应 */",
+    "after": "/* Response validation */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+    "line": 245,
+    "before": "/* 预览请求 */",
+    "after": "/* Request previews */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+    "line": 279,
+    "before": "/* 测试连接 */",
+    "after": "/* Connection tests */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+    "line": 414,
+    "before": "// eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源",
+    "after": "// eslint-disable-next-line jsx-a11y/media-has-caption -- connection-test outputs have no available caption sources"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 231,
+    "before": "// 重新导入的 workflow 与已保存的不同，备份导出才分得清带走的是哪一份。",
+    "after": "// Reimported workflows differ from saved versions, distinguishing exported backups."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 266,
+    "before": "// 更新只覆盖市场安装的那一个端点；别的端点上还没保存的重新导入草稿不能跟着丢。",
+    "after": "// Updates replace only market-installed endpoints; retain other endpoints' unsaved reimport drafts."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 315,
+    "before": "// 占位名要先改掉：同作者同名的两份 workflow 会被判成同一份。",
+    "after": "// Rename placeholders first: same-author/name workflows count as identical."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 345,
+    "before": "// 推断在途时取消：迟到的那一份会把一个已经被放弃的 workflow 装进详情并跳过去。",
+    "after": "// Cancel in-flight inference; late results would install abandoned workflows into details and navigate there."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 346,
+    "before": "// 放宽超时：粘贴后要真实等完 400ms 的校验防抖，再加整页渲染与多次 userEvent，高负载下超过默认 5 秒。",
+    "after": "// Extend timeout: real 400ms validation debounce after pastes plus full-page renders/userEvents exceed default 5s under load."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 401,
+    "before": "// 粘贴进来的没有文件名，头部的「来源文件」因此不显示。",
+    "after": "// Pasted payloads lack filenames, hiding Source file headers."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 449,
+    "before": "// 重匹配的输入是「新 workflow 加它原来那份节点绑定」，身份与媒体类型一并沿用。",
+    "after": "// Rematching uses new workflows plus original bindings, retaining identity/media types too."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 452,
+    "before": "// 判重时要把这个端点自己排除掉，不然它跟自己同名。",
+    "after": "// Exclude endpoints themselves from duplicate checks, since their own names match."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 459,
+    "before": "// 详情把定义收在自己的 state 里，只在挂载那一刻取自 props：重新导入不换实例的话，来源",
+    "after": "// Details own definitions in state, reading props only at mount; reimports without new instances change source"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 460,
+    "before": "// 文件名换了、屏幕上的 workflow 还是旧的，保存下去的也是旧的。",
+    "after": "// filenames but keep old workflows onscreen and in saves."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 493,
+    "before": "// 手上留着端点 A 的未保存草稿、人却走到端点 B 上点重新导入时，沿用 A 的身份会把 B 的",
+    "after": "// Holding endpoint A's unsaved draft while reimporting on B must not reuse A's identity, persisting B's"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 494,
+    "before": "// workflow 存到 A 身上——那是一次谁都没要求过的覆盖。",
+    "after": "// workflow onto A, an overwrite nobody requested."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 522,
+    "before": "// 不保存这份草稿，直接走到另一个 workflow 端点上再点重新导入。",
+    "after": "// Leave drafts unsaved, navigate directly to another workflow endpoint and reimport."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+    "line": 528,
+    "before": "// excludeId 取的就是这份草稿背着的 record.id，它也是保存时会被写回的那一行。",
+    "after": "// excludeId uses draft record.id, the same row saving will update."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.share.test.tsx",
+    "line": 80,
+    "before": "// slug 默认由端点名称派生；诊断未清零前不可提交。",
+    "after": "// slug defaults from endpoint names; block submission until diagnostics clear."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.share.test.tsx",
+    "line": 132,
+    "before": "// 图标读取未完成时不可提交，否则会带着上一次的图标或不带图标出站。",
+    "after": "// Block submission while icons load, preventing old or missing icons going outbound."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 67,
+    "before": "/**\n * 调用端点分区（全出血档）：左侧二级栏按「我的端点 | 内置」分组，右侧端点详情。\n * 选中项写进 URL 的 endpoint 参数，切换经路由，刷新与外部跳转都能落回同一个端点；\n * 从自定义供应商跳来时带 from 参数，详情顶部显示「返回『供应商名』」，切换端点时保留。\n */",
+    "after": "/**\n * Full-width Endpoints section: secondary sidebar groups My endpoints | Built-in, endpoint details at right.\n * Selection persists in URL endpoint parameters via routing, preserving refresh/external-navigation targets;\n * custom-provider entries carry from, showing Return to provider above details and retaining it across endpoint switches.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 91,
+    "before": "// 导入弹窗在途的请求：推断节点绑定（取消即作废）或落盘（已发出就收不回，期间不能取消）。",
+    "after": "// Import-dialog requests: binding inference invalidates on cancellation; persistence cannot be withdrawn after dispatch, so cancellation disables."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 95,
+    "before": "// 粘进来的原始载荷：换媒体类型时要拿它重跑一次校验，包装结果随之更新。只在处理函数里读，不参与渲染。",
+    "after": "// Raw pasted payloads rerun validation on media changes, updating wrappers; handlers only, outside rendering."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 98,
+    "before": "// 重新导入的落点：新 workflow 接到这份定义上，身份与已确认的节点绑定沿用它。只在处理函数里读，不参与渲染。",
+    "after": "// Reimport destinations attach new workflows to these definitions, retaining identities/confirmed bindings; handler-only, outside rendering."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 104,
+    "before": "// 未保存定义的一次性身份发号器；只进详情的 React key，不参与渲染。",
+    "after": "// Unsaved-definition disposable identity allocator: detail React keys only, outside rendering."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 116,
+    "before": "// 官方服务开启时才有值：各端点最近一次分享提交，进入页面时刷新一次；关闭或取不回时不展示分享入口与状态。",
+    "after": "// Only enabled official services supply latest endpoint shares, refreshed on entry; disabled/unreadable states hide sharing/status."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 131,
+    "before": "// 官方服务不可用时端点页照常工作，只是不提供分享入口。",
+    "after": "// Endpoint pages work normally without official services, simply omitting sharing."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 137,
+    "before": "/** 端点地址：保留「从哪个供应商来」，切到别的端点后仍能返回。 */",
+    "after": "/** Endpoint addresses retain originating providers, allowing returns after endpoint switches. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 161,
+    "before": "// eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey 变化时点亮加载态并重新拉取，是动作驱动重置",
+    "after": "// eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey changes set loading and refetch as action-driven resets"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 178,
+    "before": "/** 使用各端点的模型行：只有自定义供应商的模型行能指定端点。 */",
+    "after": "/** Model rows using endpoints; custom-provider rows alone may select endpoints. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 181,
+    "before": "// 本节管的是自定义端点，内置端点只作参照。自定义端点的媒体类型由定义自己声明（一份",
+    "after": "// Manage custom endpoints, with built-ins as references. Definitions declare custom media types (ComfyUI"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 182,
+    "before": "// ComfyUI workflow 可以产图），因此自定义端点不按 video 过滤——否则导进来的图像端点在设置页",
+    "after": "// workflows can produce images), so never filter customs to video, which would hide imported images"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 183,
+    "before": "// 里既看不到也删不掉。内置端点默认只列视频；来自模型行的深链也展示其选中的非视频端点。",
+    "after": "// and prevent deletion. Built-ins default to video only; model-row deep links also show selected nonvideo endpoints."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 204,
+    "before": "// 刚导入还没保存的 ComfyUI 端点只在选中时列出：离开即放弃（离开前由拦截询问）。",
+    "after": "// Imported unsaved ComfyUI endpoints list only while selected; leaving discards after guard confirmation."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 239,
+    "before": "// 刚导入还没保存的那份压过同一个键上的已保存定义——不然重新导入一回来就看不见了。",
+    "after": "// Imported unsaved definitions override same-key saved ones, or reimports disappear immediately."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 248,
+    "before": "// 详情表单只吃声明式定义；ComfyUI 端点走它自己那一路，否则表单会解引用它没有的 submit / poll。",
+    "after": "// Detail forms accept declarative definitions only; ComfyUI follows its own path, avoiding missing submit/poll dereferences."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 260,
+    "before": "// 地址里没有选中项、或指向已不存在的新导入草稿时，选中第一个端点（我的端点优先）；与供应商分区的兜底一致，用 replace。",
+    "after": "// Absent selections or nonexistent imported drafts choose first endpoints, preferring owned; replace history like provider fallbacks."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 274,
+    "before": "// --- 导入 ---",
+    "after": "// --- Import ---"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 276,
+    "before": "// 连续选文件时后一次接管：作废在途的读取与校验，避免第二个文件的定义配上",
+    "after": "// Later file choices take over, invalidating reads/validation so second definitions never pair with"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 277,
+    "before": "// 第一个文件的校验结果。",
+    "after": "// first-file validation results."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 280,
+    "before": "/** 校验一份载荷并接手结果；换媒体类型时拿同一份载荷再跑一次。 */",
+    "after": "/** Validate/adopt payload results; media changes rerun identical payloads. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 283,
+    "before": "// 不带 kind 的载荷此刻还没有定义身份：服务端按 workflow 收下时，包装结果随校验结果回来。",
+    "after": "// Payloads without kind lack definition identities; server workflow acceptance returns wrappers alongside validation."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 296,
+    "before": "// react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中；被后一次接管时由接管方负责复位，不动它的状态",
+    "after": "// react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- already in finally; successors own resets after takeover, so never alter their state"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 303,
+    "before": "/** 清掉上一次交出去的载荷与它的结果；弹窗开着时用户可以接着再交一份。 */",
+    "after": "/** Clear prior submitted payloads/results; open dialogs permit subsequent submissions. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 313,
+    "before": "/** 接下弹窗交出来的一份载荷：上传的文件与粘贴的文本走同一条分流。 */",
+    "after": "/** Accept dialog payloads: uploaded files/pasted text share routing. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 325,
+    "before": "// `JSON.parse` 抛的是英文语法错误，对着它用户也不知道要改什么；弹窗留在原处让他改完再交一次。",
+    "after": "// `JSON.parse` throws English syntax errors without useful user repair guidance; retain dialogs for correction/resubmission."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 341,
+    "before": "/** 换媒体类型：原始 workflow 按哪一种包装由它决定，包装结果与诊断都要重来一遍。 */",
+    "after": "/** Media changes determine raw-workflow wrappers, rerunning wrappers and diagnostics together. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 367,
+    "before": "/**\n   * ComfyUI 的两种形状都不在弹窗里直接落盘，而是先进绑定编辑器：包装出来的定义节点绑定是空的，\n   * 带 `kind` 的定义也要让用户把沿用 / 已重匹配 / 需确认再过一遍（`docs/adr/0082`）。\n   */",
+    "after": "/**\n   * Both ComfyUI shapes enter binding editors before persistence: automatically wrapped definitions have empty bindings;\n   * `kind` definitions also require user review of reused/rematched/unconfirmed bindings (`docs/adr/0082`).\n   */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 373,
+    "before": "// 推断期间用户可以取消弹窗，也可以再交一份载荷；两者都递增这个号，回来发现号变了就整份丢弃",
+    "after": "// During inference, cancellation/new payloads increment this sequence; changed numbers discard entire returned results,"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 374,
+    "before": "// ——迟到的那一份会把一个已经被放弃的 workflow 装进详情并跳过去。",
+    "after": "// preventing abandoned workflows being installed into details and navigated to."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 406,
+    "before": "/** 关掉导入弹窗：在途的识别与推断一并作废，回来的那一份不再装进详情。 */",
+    "after": "/** Closing import dialogs invalidates recognition/inference together; late results never populate details. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 421,
+    "before": "/** 为当前这个 ComfyUI 端点换一份 workflow：身份与已确认的节点绑定沿用手上这一份。 */",
+    "after": "/** Replace current ComfyUI workflows, retaining held identities/confirmed bindings. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 424,
+    "before": "// 草稿的身份只在它就是当前选中的那一个时才算数：手上留着端点 A 的未保存草稿、人却走到",
+    "after": "// Draft identities apply only to currently selected drafts; holding A's unsaved draft while reimporting"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 425,
+    "before": "// 端点 B 上点了重新导入时，沿用 A 的 record 会把 B 的 workflow 存到 A 身上。",
+    "after": "// on B must not reuse A's record, which would save B's workflow onto A."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 463,
+    "before": "// --- 从市场更新 ---",
+    "after": "// --- Update from market ---"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 500,
+    "before": "// react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中；被后一次接管时由接管方负责复位，不动它的状态",
+    "after": "// react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- already in finally; successors own resets after takeover, so never alter their state"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 509,
+    "before": "// --- 接线到供应商 ---",
+    "after": "// --- Wire to providers ---"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 526,
+    "before": "// 导入的未保存定义整份丢掉：新导入的由兜底选中落回第一个端点，重新导入的落回已保存的那份。",
+    "after": "// Discard entire imported unsaved definitions; new imports fall back to first endpoints, reimports return to saved versions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+    "line": 565,
+    "before": "// 未保存的导入定义已经落盘，让位给列表里那一条，否则同一个键上两份定义谁也说不清。",
+    "after": "// Persisted imported definitions yield to list records, avoiding two competing same-key definitions."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+    "line": 82,
+    "before": "/**\n * 分享到官方市场：先展示本地校验结果，通过后才可提交。提交的是端点已保存的定义与可选图标；\n * 同一 slug 的提交在 PR 合并前再次提交会进入同一个 PR。\n */",
+    "after": "/**\n * Share to official markets: show local validation first, allowing submission only after passing. Submit saved endpoint definitions/optional icons;\n * repeated same-slug submissions join existing PRs before merge.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+    "line": 107,
+    "before": "// 每次选择或移除图标都递增；读取完成时序号已变说明被更新的选择取代，结果丢弃。",
+    "after": "// Every icon choice/removal increments sequence; changed sequences on read completion mean superseded choices, discarding results."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+    "line": 111,
+    "before": "// null：校验中或尚未取回。",
+    "after": "// null: validation in progress or not retrieved yet."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+    "line": 120,
+    "before": "// eslint-disable-next-line react-hooks/set-state-in-effect -- 预检请求换参时立即清除旧结果，避免等待期间提交未校验的内容",
+    "after": "// eslint-disable-next-line react-hooks/set-state-in-effect -- clear old results immediately when preflight arguments change, preventing unchecked submissions while waiting"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+    "line": 192,
+    "before": "// 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失",
+    "after": "// In-flight submissions ignore Esc/backdrop clicks, preventing dialogs disappearing before results."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 152,
+    "before": "/**\n * 可手选的落点全集。产物是节点级的（没有 `input`），其余语义键只能落在字面值输入上——\n * 往连线上填值会被上游覆盖，服务端的校验器直接拒。\n */",
+    "after": "/**\n * All manually selectable targets. Outputs are node-level (without `input`); other semantic keys require literal inputs,\n * because values written into links are overwritten upstream and server validators reject them.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 177,
+    "before": "/**\n * 有序列表键的勾选与取消。选中项按候选列表的次序排（推断侧的并列次序就是节点序），\n * 手选进来、不在候选列表里的条目排在其后并保持加入顺序——列表顺序即参考图序号。\n */",
+    "after": "/**\n * Ordered-list selection/deselection: candidates follow candidate-list order (inference ties follow node order),\n * manually selected noncandidates append in insertion order; list positions define reference-image indices.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 199,
+    "before": "/** 两条目标指向同一个落点：产物比节点，其余比节点加字段。 */",
+    "after": "/** Targets match by node for outputs, node plus field otherwise. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 204,
+    "before": "/** 一条目标写进 workflow 的哪一格；只读的 `fps` 不写值，因此不占格子。 */",
+    "after": "/** Workflow cells written by targets; readonly `fps` writes no values and occupies no cells. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 211,
+    "before": "// 推断结果 → 待保存的节点绑定",
+    "after": "// Inference results → pending bindings"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 214,
+    "before": "/**\n * 推断结果的落盘形态：只有「唯一最高分」的键会自动带上条目，歧义与待确认一条也不带——\n * 那正是要用户来定的。显式不支持沿用它的空列表，其余键缺席（从未推断）。\n */",
+    "after": "/**\n * Persisted inference shape: only unique highest-score keys automatically include entries; ambiguous/unconfirmed keys include none,\n * requiring user decisions. Explicit unsupported retains empty lists; other keys remain absent, never inferred.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 237,
+    "before": "/** 媒体类型改了之后，越界的语义键连同它的条目一起摘掉——它本就不会被填值。 */",
+    "after": "/** Changed media removes out-of-scope semantic keys and entries, which would never receive values anyway. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 247,
+    "before": "/** 该键当前选中的条目在候选列表里的下标集合。 */",
+    "after": "/** Candidate-list indices of currently selected entries for this key. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 260,
+    "before": "/**\n * 一行的状态。用户本轮改过、或条目来自已保存的定义（沿用与重匹配都是），都算手动指定——\n * 按 `docs/adr/0082`，保存下来的每一条节点绑定本来就是用户确认过的。\n */",
+    "after": "/**\n * Row states: user edits this round or entries from saved definitions (reused/rematched) count as manually specified;\n * `docs/adr/0082` treats every saved binding as already user-confirmed.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 274,
+    "before": "// 并列候选优先于「必填未绑定」：有候选摆在那里时，该做的事是选一个，不是从头找。",
+    "after": "// Tied candidates precede required-unbound states: users should choose available candidates rather than search anew."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 283,
+    "before": "/** 这一行的条目各自是怎么来的；手选进来、不在候选列表里的条目不在其中。 */",
+    "after": "/** Origins of row entries; manually selected noncandidate entries are absent. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 293,
+    "before": "/**\n * 重导入在这一行留下的记号：只要有一条是按类型加标题迁移过来的就报「已重匹配」——它是更需要\n * 用户过目的那一种；全都原样沿用时报「沿用」；本轮新推断或手选的行没有记号。\n */",
+    "after": "/**\n * Reimport marks: any type-plus-title-migrated entry means Rematched, requiring closer user review;\n * all unchanged entries mean Reused; freshly inferred/manual rows show no marks.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 307,
+    "before": "/** 表头右侧的四类计数。 */",
+    "after": "/** Four header-side count categories. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 323,
+    "before": "// 保存门控",
+    "after": "// Save gates"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 326,
+    "before": "/** 一条挡住保存的原因：`key` 用来渲染语义键名，`code` 决定说哪一句。 */",
+    "after": "/** Save-blocking reasons: `key` renders semantic names, `code` selects explanatory copy. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 330,
+    "before": "/** `target_taken` 专属：撞在同一格子上的另一个语义键。 */",
+    "after": "/** `target_taken` only: other semantic keys occupying identical cells. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 334,
+    "before": "/**\n * 保存门控的原因清单，空表即可以保存。三条都是服务端校验器的硬闸门：提示词与产物必须有着落、\n * 并列候选必须有人来定、两个语义键不能写同一个字段；另加一条改名——自动包装的 `meta` 是占位值，\n * 两份不相干的 workflow 会因同作者同名被判成重复。\n */",
+    "after": "/**\n * Save-blocking reasons, empty when saveable. Three server hard gates require prompt/output targets,\n * user resolution of tied candidates, and distinct fields for semantic keys; additionally require renaming placeholder `meta`,\n * preventing unrelated same-author/name workflows from counting as duplicates.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 358,
+    "before": "// 重导入把条目判丢、重跑推断又一无所获时，这一行一个候选也没有：该做的是手选或标为不支持。",
+    "after": "// Bindings lost on reimport with no reinferred candidates require manual selection or explicit unsupported marking."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 374,
+    "before": "/**\n * 这份定义连端点测试都过不去吗。\n *\n * 保存门控里只有这两条同时是服务端**校验器**的硬闸门（`comfyui_binding_required` 与\n * `comfyui_target_collision`），带着它们去预览或测试连接只会换回一条 422。另外三条不是：并列\n * 候选未定与原绑定失效只是这一维没绑上，预览照样渲得出来——换算说明里那个「未驱动这份 workflow」\n * 正是它该有的样子；占位名只挡保存。\n */",
+    "after": "/**\n * Whether definitions fail even endpoint tests.\n *\n * Only two save blockers are also server **validator** hard gates (`comfyui_binding_required` and\n * `comfyui_target_collision`), causing preview/test 422s. Three others are not: unresolved tied candidates\n * and invalidated old bindings merely leave dimensions unbound; previews still render, correctly explaining dimensions\n * not driving workflows. Placeholder names block saving only.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+    "line": 386,
+    "before": "/**\n * 一份定义用于「改过没有」比对的规范形。\n *\n * 直接串比会把两份内容相同的定义判成不同：空标题在手选那一侧是「不写 `title` 这个键」\n * （见 `withTitle`），服务端重匹配回来的却是 `\"title\": \"\"`；键的次序也各按各的来源。\n * 递归按键名排序、并把空 `title` 一律当作缺省，两侧才在同一把尺子上。这只影响按钮文案与\n * 可点性，落盘的仍是原样的 `draft`。\n */",
+    "after": "/**\n * Canonical definition shapes for changed-state comparison.\n *\n * Raw string comparison misclassifies identical contents: manually selected empty titles omit `title`\n * (see `withTitle`), whereas server rematches return `\"title\": \"\"`; key order also varies by origin.\n * Recursively sort keys and treat empty `title` as absent for common comparison. Only button copy/enabled states change;\n * persisted values remain original `draft`.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 80,
+    "before": "/** 表单分节 id，同时是诊断卡定位与竖轨编号的依据。 */",
+    "after": "/** Form section IDs also locate diagnostics and number vertical rails. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 91,
+    "before": "/** 新建定义的预填：方法与恒等状态映射有通用答案，能力与取值路径各家差异大，留空。 */",
+    "after": "/** New-definition prefill: methods/identity status mappings have common defaults; variable capabilities/extraction paths stay empty. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 120,
+    "before": "// 取值路径",
+    "after": "// Extraction paths"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 123,
+    "before": "/** 读出取值声明中的路径数组；两种简写/全写形态归一，缺席为空数组。 */",
+    "after": "/** Read path arrays, normalizing short/full declarations; absence means empty arrays. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 130,
+    "before": "/** 写回路径数组，保留原形态的 accept；空数组写成空简写而非删键，避免字段静默消失。 */",
+    "after": "/** Write paths retaining original accept; empty arrays become empty shorthand, never deleted keys, avoiding silent field loss. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 141,
+    "before": "/** 路径项是否可在表单里直接编辑；json_decode 形态只在 JSON 视图编辑。 */",
+    "after": "/** Whether path items edit directly in forms; json_decode edits only through JSON views. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 151,
+    "before": "// 诊断定位",
+    "after": "// Diagnostic locations"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 165,
+    "before": "/**\n * 把诊断的定位串（如 `poll.extract.video_url[0]`）映射到所属表单分节。\n * `enum_maps`、`defaults`、`schema_version` 这类字段表单里没有控件，返回 null\n * 表示只能在 JSON 视图处理——归给某个分节会把用户送到一个找不到该字段的地方。\n */",
+    "after": "/**\n * Map diagnostic paths, such as `poll.extract.video_url[0]`, to form sections.\n * Fields without controls, such as `enum_maps`, `defaults`, `schema_version`, return null,\n * requiring JSON views; assigning sections would send users somewhere the field does not exist.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 176,
+    "before": "// 不可变写入",
+    "after": "// Immutable writes"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 179,
+    "before": "/** 按键序重建对象，让重命名键不改变字段顺序——顺序变化会让 JSON 视图无谓地跳动。 */",
+    "after": "/** Rebuild objects in key order so renaming preserves field order, avoiding needless JSON-view jumps. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 200,
+    "before": "/**\n * 这份定义是不是声明式的。ComfyUI 定义只有 `workflow` 与 `bindings`，详情表单与头部直接解引用的\n * `submit` / `poll` 在它上面根本不存在，两者只能在同一个判据上分道。\n */",
+    "after": "/**\n * Whether definitions are declarative. ComfyUI has only `workflow`/`bindings`, lacking directly dereferenced\n * `submit` / `poll` in forms/headers; both must branch on the same predicate.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 208,
+    "before": "/**\n * JSON 视图写回草稿前的结构闸：表单与头部不做防御性访问（草稿即定义），\n * 直接解引用 meta、submit.extract、poll.extract 这几个容器，缺任一即不可渲染。\n * 字段级缺失（如 meta.name）只影响单个控件的取值，交给服务端校验诊断。\n */",
+    "after": "/**\n * Structural gates before JSON-view draft writes: forms/headers do not defensively access definitions,\n * directly dereferencing meta, submit.extract and poll.extract; any missing container prevents rendering.\n * Missing individual fields such as meta.name affect single controls only; server validation diagnoses them.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 224,
+    "before": "/**\n * ComfyUI 定义的结构闸，与 {@link isRenderableDefinition} 同一用途：只认展示时会解引用的\n * meta 与 workflow 两个容器，字段级问题交给服务端校验。\n */",
+    "after": "/**\n * ComfyUI structure gates serve {@link isRenderableDefinition}'s purpose, checking only display-dereferenced\n * meta/workflow containers; servers validate individual fields.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 232,
+    "before": "/**\n * 由端点名称派生市场条目 slug，规则 `^[a-z0-9][a-z0-9-]{0,63}$`：去重音、转小写，其余字符折成连字符；\n * 名称里没有可用 ASCII 字符时为空串。\n */",
+    "after": "/**\n * Derive market slugs by `^[a-z0-9][a-z0-9-]{0,63}$`: remove accents, lowercase, replace other characters with hyphens;\n * names without usable ASCII yield empty strings.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+    "line": 247,
+    "before": "/** 导出文件名：有安装记录的端点直接用记录里的 slug，否则由 meta.name 派生，派生为空时退化为 `endpoint`。 */",
+    "after": "/** Export filenames use installed slugs, otherwise derive from meta.name, falling back to `endpoint` when empty. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 146,
+    "before": "// 字段",
+    "after": "// Fields"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 150,
+    "before": "/** 省略时字段不带可见标签，由 ariaLabel 承担无障碍名（用于表格式的行内字段）。 */",
+    "after": "/** Omitted labels leave fields visually unlabeled, with ariaLabel naming inline table fields accessibly. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 156,
+    "before": "/** 等宽字体，用于请求路径、请求头与变量名；同时关掉拼写检查。 */",
+    "after": "/** Monospace for request paths/headers/variable names; also disable spellcheck. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 158,
+    "before": "/** 不换等宽字体但也不该拼写检查的值（如接口地址）。 */",
+    "after": "/** Nonmonospace values still unsuitable for spellcheck, such as API addresses. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 234,
+    "before": "/** 表单内的下拉：选项文案由调用方本地化；只读时整体禁用。 */",
+    "after": "/** Form dropdowns use caller-localized options and disable entirely when readonly. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 273,
+    "before": "/**\n * 添加一行。行以名字为键，未命名的行只能存在一个，因此上一行未命名时按钮停用，\n * 并把原因写成可见文本——只挂 title 的话键盘与读屏用户读不到。\n */",
+    "after": "/**\n * Add rows keyed by names; only one unnamed row can exist, so disable buttons while preceding rows lack names,\n * explaining visibly because title alone is unavailable to keyboard/screen-reader users.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 300,
+    "before": "// 取值路径编辑器",
+    "after": "// Extraction-path editors"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 303,
+    "before": "/**\n * 编号路径列表：按顺序取第一个命中值。带 json_decode 的路径项只读展示，\n * 改动它们要切到 JSON 视图——表单里放不下嵌套解码的形态，硬塞会静默丢字段。\n */",
+    "after": "/**\n * Numbered path lists take first matching values in order. json_decode paths display readonly,\n * requiring JSON edits because forms cannot represent nested decoding without silent field loss.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+    "line": 321,
+    "before": "// 路径文本可重复且正在编辑，不能作 key；删掉中间一项时其余行不能错位",
+    "after": "// Editable/repeated path text cannot key rows; middle deletion must not shift other inputs."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+    "line": 29,
+    "before": "/**\n * 「浏览」Tab：搜索、媒体类型筛选、启用的市场源多于一个时的来源筛选、「只看已安装」，下面是条目网格。\n * 条目类型目前只有调用端点，不显示类型筛选。刷新失败的源在筛选行之上列出原因与快照时间。\n */",
+    "after": "/**\n * Browse tabs: search, media filters, sources when multiple enabled sources exist, Installed only, then entry grids.\n * Endpoints are the only entry type, so omit type filters. Failed sources show reasons/snapshot times above filters.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+    "line": 42,
+    "before": "/** 媒体类型筛选的初始值，来自地址的 `media` 参数；null 表示「全部」。 */",
+    "after": "/** Initial media filters from URL `media`; null means All. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+    "line": 45,
+    "before": "/** null 表示还在加载。 */",
+    "after": "/** null means still loading. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+    "line": 61,
+    "before": "// 来源被停用的条目不显示，即使条目列表还没随源的变化重新拉取。",
+    "after": "// Hide disabled-source entries even before source changes refetch lists."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+    "line": 116,
+    "before": "// 单选：再次点击已选项会清空选择，此时保持原筛选",
+    "after": "// Radio reselection clears values; retain existing filters then."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+    "line": 132,
+    "before": "/**\n * 安装与更新共用的确认弹窗：先完整展示来源、校验和凭证去向，安装、更新与卸载由服务端原子执行。\n * 信任信息按定义类型分支：声明式展示请求地址与 auth 原文，ComfyUI 展示 auth 与 workflow 摘要。\n * 可更新时进入更新态，确认后经同一安装接口原地覆盖持有记录的端点；本地改过的定义先提示会被覆盖并可先导出。\n * 卸载会删除端点，先用 AlertDialog 确认。\n * 传入 `official` 时（官方服务开启且条目来自官方市场源）头部显示安装量与评分，并提供评分控件。\n */",
+    "after": "/**\n * Shared install/update confirmations show complete origins/validation/credential destinations first; servers execute install/update/uninstall atomically.\n * Trust differs by kind: declarative request URLs/raw auth, ComfyUI auth/workflow summaries.\n * Update mode uses the same installation API to overwrite recorded endpoints in place; warn local edits will be overwritten and offer export first.\n * Uninstall deletes endpoints after AlertDialog confirmation.\n * Supplied `official` means enabled official services/official-source entries; headers show installs/ratings and rating controls.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+    "line": 166,
+    "before": "// react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮",
+    "after": "// react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- postawait writes first check controller.signal.aborted; cleanup abort invalidates predecessors"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+    "line": 212,
+    "before": "// 卡片与条目详情都可能早于定义所属的快照。投影一致时定义 meta 与该快照的条目逐字段相同，",
+    "after": "// Cards/details may predate definition snapshots. Consistent projections match definition meta and snapshot entries field by field;"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+    "line": 213,
+    "before": "// 头部取自摘要绑定的这份定义，与信任块同源；否则安装已被拦下，退回条目详情或卡片。",
+    "after": "// headers use digest-bound definitions, sharing trust-block origins. Otherwise blocked installation falls back to details/cards."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+    "line": 231,
+    "before": "// 从调用端点小节打开时导航不会卸载弹窗，需主动关闭。",
+    "after": "// Endpoint-section navigation never unmounts these dialogs; explicitly close them."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+    "line": 377,
+    "before": "// react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 市场定义里的只读提示，一次取回不重排不增删、无组件状态；条目字段未经校验，没有可靠的唯一标识",
+    "after": "// react-doctor-disable-next-line react-doctor/no-array-index-as-key -- readonly market hints fetched once, no reorder/add/remove or component state; unvalidated fields lack reliable unique identities"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketSection.test.tsx",
+    "line": 136,
+    "before": "/** 市场源列表里的顺序，按每行拖动把手的名称读出。 */",
+    "after": "/** Market-source list order, read through row drag-handle names. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketSection.test.tsx",
+    "line": 143,
+    "before": "/** 「设置」Tab 先渲染空的市场源区，列表数据随后到达：等到行出现再同步查询行内控件。 */",
+    "after": "/** Settings first renders empty source sections; await rows before synchronously querying their controls. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketSection.test.tsx",
+    "line": 214,
+    "before": "// 条目类型目前只有调用端点，不显示类型筛选",
+    "after": "// Endpoints are the only entry type; omit type filters."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketSection.test.tsx",
+    "line": 687,
+    "before": "// 再次打开同一个源时不残留上一次的错误。",
+    "after": "// Reopening identical sources retains no previous errors."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketSourceList.tsx",
+    "line": 356,
+    "before": "// 对话框关闭动画期间 source 已是 null，保留上一次的内容避免闪成空白。每次打开（含再次打开同一个源）都从源的当前名称开始。",
+    "after": "// During close animations source is null; retain previous contents against blank flashes. Every opening, including identical sources, starts from current names."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/market/MarketSourceList.tsx",
+    "line": 416,
+    "before": "// 关闭动画期间保留上一次的源；每次打开都清掉上一次的错误。",
+    "after": "// Retain prior sources during closing; clear previous errors on every opening."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 163,
+    "before": "// 档在数据里没有身份（条件可编辑、可暂时重复）：行 key 用客户端 id，删掉中间一档时其余档的输入不错位",
+    "after": "// Tiers lack data identities because conditions edit/duplicate temporarily; client IDs prevent shifted inputs after middle deletion."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 342,
+    "before": "// ---- 条件标签 ----",
+    "after": "// ---- Condition labels ----"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 350,
+    "before": "/** 值为 `undefined` 时标签上写什么，缺省是「不限」。 */",
+    "after": "/** Labels for `undefined`, defaulting to Any. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 354,
+    "before": "/** 一个可点选的条件标签：点开选取值；布尔、服务档点选，分辨率可点选已有取值或另填，上下文档与时长填数字。 */",
+    "after": "/** Clickable conditions: booleans/service tiers select, resolutions select existing values or custom input, context/duration use numbers. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 411,
+    "before": "// 条件换了值重新挂载，输入框回到当前值",
+    "after": "// Changed condition values remount inputs with current values."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 438,
+    "before": "/** 自由取值：分辨率等标签、上下文档的下界、时长秒数；点「确定」或回车应用。 */",
+    "after": "/** Free values: resolution labels, context lower bounds, duration seconds; Confirm/Enter applies. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 491,
+    "before": "// ---- 数字输入 ----",
+    "after": "// ---- Numeric inputs ----"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+    "line": 514,
+    "before": "/**\n * 不小于 0 的数字输入。文本只在输入时改变；外部把取值换掉（采用官方值、放弃修改）时跟着换，\n * 输入到一半的文字（如「0.」）不会被覆盖。取值为空或不合法时 `onChange(null)`。\n */",
+    "after": "/**\n * Nonnegative numeric inputs. Text changes during editing, following external replacements (official adoption/discard),\n * never overwriting partial text such as 0.; empty/invalid values call `onChange(null)`.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+    "line": 84,
+    "before": "/** 上下文档的下界，按从小到大排列：一档覆盖（下界, 下一档下界]。 */",
+    "after": "/** Ascending context lower bounds: each tier covers (lower bound, next lower bound]. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+    "line": 106,
+    "before": "/** 一个条件取值的文字，如「720p」「有声」「标准」「≤ 200,000 token」；`undefined` 是「不限」。 */",
+    "after": "/** Condition-value labels, such as 720p, Audio, Standard, ≤ 200,000 token; `undefined` means Any. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+    "line": 124,
+    "before": "/** 条件标签的文字：布尔维度直接写取值（「有声」），其余写成「维度：取值」。 */",
+    "after": "/** Boolean condition labels show values directly (Audio); others show Dimension: value. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+    "line": 131,
+    "before": "/** 一档的条件文字，如「分辨率：720p，有声」；不分条件的计费项为空串。 */",
+    "after": "/** Tier conditions, such as Resolution: 720p, Audio; unconditional meters use empty strings. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+    "line": 138,
+    "before": "/** 价目表的文字概览（官方价格对比用），如「输入 $2/百万 token（≤ 200,000 token）；输出 $12/百万 token」。 */",
+    "after": "/** Price-table text for official comparisons, such as Input $2/million tokens (≤ 200,000 token); Output $12/million tokens. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+    "line": 153,
+    "before": "/** 维度取值的候选（标签与上下文档没有固定候选，由用户填写）。 */",
+    "after": "/** Dimension candidates; labels/context tiers lack fixed candidates and require user input. */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/promptTemplateSchema.ts",
+    "line": 70,
+    "before": "// 多个分支合并为一行且不向下展开：展开任一分支的字段都会把其余分支的形状藏起来。",
+    "after": "// Merge multiple branches into one unexpanded row; expanding one branch hides other branches' shapes."
+  },
+  {
+    "file": "frontend/src/components/pages/settings/useRowIds.ts",
+    "line": 18,
+    "before": "/**\n * 数组行的 id，与行一一对应。增行、删行时在发出 `onChange` 的同一个处理函数里调用 `append`、`remove`；\n * 行数与 id 数对不上即外部整体换了值（采用官方值、放弃修改），全部重建。\n */",
+    "after": "/**\n * Array-row IDs correspond one-to-one. Call `append`/`remove` in the same handlers issuing `onChange`;\n * mismatched row/ID counts mean external whole-value replacement (official adoption/discard), rebuilding all IDs.\n */"
+  },
+  {
+    "file": "frontend/src/components/pages/settings/useRowIds.ts",
+    "line": 50,
+    "before": "/**\n * 以名字为键的记录行的 id。改名时在同一个处理函数里调用 `rename`，id 跟着名字走：\n * 对象键的枚举顺序会把整数形式的键提到前面，行的位置在改名中可能变化，所以不按下标对应。\n * 没见过的名字（新增的行、外部换进来的值）在渲染时补发 id。\n */",
+    "after": "/**\n * Named-record row IDs: call `rename` within the same handler, moving IDs with names.\n * Object enumeration moves integer-like keys first, potentially changing row positions during renames; never match by index.\n * Unseen names (new rows/external replacements) receive IDs during rendering.\n */"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 79,
+    "before": "/** 第 index 次建流时传给 `API.openAssistantEntriesStream` 的参数（会话与冷订阅游标）。 */",
+    "after": "/** Arguments to `API.openAssistantEntriesStream` on creation index: sessions and cold-subscription cursors. */"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 104,
+    "before": "// 冷读之后接上常驻 entry 流，游标从冷读的最后一条之后开始",
+    "after": "// Attach resident entry streams after cold reads, starting after last cold entries."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 131,
+    "before": "// 重复 seq：身份（seq）门槛去重，不做内容比对",
+    "after": "// Duplicate seq: dedupe by identity (seq), never compare contents."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 163,
+    "before": "// Agent 接纳第一条：条目先到，随后移出托盘",
+    "after": "// Agent admits first messages: entries arrive first, then leave trays."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 199,
+    "before": "// 流上的移出可能晚于响应到达：内容不再退回第二次",
+    "after": "// Stream removals may postdate responses; never restore contents twice."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 330,
+    "before": "// Agent 最终没有处理它：按编辑退回输入框",
+    "after": "// Agent ultimately skipped messages; return them to inputs as edits."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 436,
+    "before": "// 第二条的响应迟到：流上它已被接纳、离开排队",
+    "after": "// Second responses arrive late; streams already admitted messages and removed them from queues."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 472,
+    "before": "// 重连首帧快照：携带累积态 + rev 门槛",
+    "after": "// Reconnection first-frame snapshots carry accumulated state + rev gates."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 478,
+    "before": "// 订阅间隙重复投递的 delta（rev ≤ 门槛）须被过滤",
+    "after": "// Filter gap-redelivered deltas with rev ≤ gates."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 498,
+    "before": "// 同 message_id 的权威条目落库：draft 被精确替换（身份比对）",
+    "after": "// Persisted authoritative same-message_id entries replace drafts exactly by identity."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 535,
+    "before": "// 中断保留 draft（被中断内容不入日志，刷新后自然消失）",
+    "after": "// Interruptions retain drafts; interrupted contents never log and disappear on refresh."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 556,
+    "before": "// 开场与上一轮收尾下发的终态 status",
+    "after": "// Initial and previous-round terminal status deliveries"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 622,
+    "before": "// CLI 没接纳就退出：消息离开排队、没有条目，会话落到终态",
+    "after": "// CLI exits without admission: messages leave queues without entries; sessions become terminal."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 796,
+    "before": "// 无本地合成消息：时间线唯一来源是响应携带的权威条目",
+    "after": "// No locally synthesized messages; response-authoritative entries alone supply timelines."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 802,
+    "before": "// 发送复用打开会话时建立的那条流",
+    "after": "// Sending reuses streams established when sessions opened."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 806,
+    "before": "// client_key 随请求发送",
+    "after": "// Requests carry client_key."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 828,
+    "before": "// 失败：无合成消息可回滚，时间线不变、状态不变、输入由调用方保留",
+    "after": "// Failure: no synthetic rollback; timelines/status unchanged, callers retain inputs."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 840,
+    "before": "// 同内容重试复用同一幂等键：服务端按键去重，不产生重复",
+    "after": "// Same-content retries reuse idempotency keys; server key dedupe prevents duplicates."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 905,
+    "before": "// 面板为长生命周期单例，切换项目不卸载：项目 A 的失败缓存（clientKey + 签名）",
+    "after": "// Long-lived singleton panels survive project switches; project A failure caches (clientKey + signatures)"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 906,
+    "before": "// 会跨项目存活。签名含项目维度后，切到 B 重发同内容应生成新键、不复用 A 的键。",
+    "after": "// survive across projects. Project-aware signatures must generate fresh keys on same-content B retries, never reuse A keys."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 910,
+    "before": "// 项目 A：失败并缓存 clientKey",
+    "after": "// Project A: fail and cache clientKey."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 924,
+    "before": "// 切换项目（同一 hook 实例，失败缓存的 ref 存活）",
+    "after": "// Switch projects, retaining the same hook instance and failure-cache refs."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 935,
+    "before": "// 跨项目同内容重发：签名含项目维度 → 生成新键，不复用旧项目缓存的 clientKey",
+    "after": "// Cross-project same-content retries: project signatures generate fresh keys, never reuse prior-project cached clientKey."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 989,
+    "before": "// 迟到的发送完成不得污染已切换会话的时间线，也不为原会话建流",
+    "after": "// Late send completion must not pollute switched-session timelines or create original-session streams."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 997,
+    "before": "// 版本失配分支必须与失败路径一致返回 false：调用方（AgentCopilot.handleSend）",
+    "after": "// Version mismatches must return false like failures; callers (AgentCopilot.handleSend)"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 998,
+    "before": "// 依据返回值清空输入框，误返回 true 会清空用户已切换到的新会话里刚输入的内容。",
+    "after": "// clear inputs based on returns, so incorrect true erases freshly entered contents in newly switched sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1044,
+    "before": "// 独立于版本号的第二道防线：currentSessionId 是跨 hook 实例共享的全局 store 字段，",
+    "after": "// Second defense independent of versions: currentSessionId is globally shared across hook instances,"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1045,
+    "before": "// 可能被本实例之外的路径直接改写（不经过 invalidatePendingSend）。即便版本号未失配，",
+    "after": "// potentially changed externally without invalidatePendingSend. Even matching versions"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1046,
+    "before": "// 只要响应回来时 currentSessionId 已不是发送时的会话，也不能返回 true 清空新会话输入框。",
+    "after": "// must not return true and clear new-session inputs when response-time currentSessionId differs from sending sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1094,
+    "before": "// 项目 A：running 会话冷订阅建流，灌入残留条目",
+    "after": "// Project A running sessions create cold streams and receive residual entries."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1109,
+    "before": "// 切到项目 B（其会话亦为 running）",
+    "after": "// Switch to project B, also running sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1119,
+    "before": "// 冷订阅游标由重置后的空 entries 推导（after=-1，等效从头订阅），",
+    "after": "// Cold cursors derive from reset empty entries (after=-1, equivalent to start),"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1120,
+    "before": "// 不被 A 的残留最大 seq 污染",
+    "after": "// unaffected by A's residual maximum seq."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1122,
+    "before": "// 时间线不含 A 的条目",
+    "after": "// Timelines contain no A entries."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1140,
+    "before": "// 项目 A：idle 会话冷读出一条历史条目",
+    "after": "// Project A idle sessions cold-read one historical entry."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1145,
+    "before": "// 切到无会话项目：初始化路径「无会话」分支同样重置时间线",
+    "after": "// Switching to sessionless projects also resets timelines through no-session initialization."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1167,
+    "before": "// 首帧冷订阅从头开始（entries 为空）",
+    "after": "// Initial cold subscriptions start at beginning, with empty entries."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1180,
+    "before": "// 句柄仍打开：断线重建由流式客户端带 Last-Event-ID 完成，hook 不重复建流",
+    "after": "// Open handles reconnect through streaming clients carrying Last-Event-ID; hooks never duplicate streams."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1187,
+    "before": "// 句柄已被客户端永久关闭（如服务端拒绝）：再次建流时游标停在最后 seq（after=1）",
+    "after": "// Permanently closed handles, such as server rejection, recreate streams after last seq (after=1)."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1197,
+    "before": "// 项目 A 的 running 会话：loadSession 卡在 getAssistantSession；切到 B 后 A 的",
+    "after": "// Project A running-session loadSession suspends at getAssistantSession; after switching to B, A's"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1198,
+    "before": "// 迟到响应不得建 SSE 连接、不得回写任何 store 状态（否则为已离开的项目建立",
+    "after": "// late responses must create no SSE connections or write store state, which would create unconsumed"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1199,
+    "before": "// 无人消费的 SSE 订阅，服务端订阅者堆积泄漏）。",
+    "after": "// subscriptions for departed projects, accumulating server subscriber leaks."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1221,
+    "before": "// 项目 A：loadSession 卡在 getAssistantSession（deferredA 未 resolve）",
+    "after": "// Project A loadSession suspends at getAssistantSession; deferredA remains unresolved."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1226,
+    "before": "// 切到项目 B（其 idle 会话冷读一条条目）",
+    "after": "// Switch to B, whose idle session cold-reads one entry."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1233,
+    "before": "// 迟到：A 的 getAssistantSession 此刻才返回 running；signal 已被 cleanup abort，短路",
+    "after": "// Late A getAssistantSession returns running after cleanup abort; short-circuit"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1239,
+    "before": "// 不为已离开的项目 A 建 SSE 连接；状态与时间线保持项目 B",
+    "after": "// without departed-A SSE creation, retaining B state/timelines."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1248,
+    "before": "// 快速连续切会话：前一次切换的冷读挂起期间发起下一次切换，前任加载链被",
+    "after": "// Rapid session switches: next switches begin during earlier suspended cold reads, aborting prior"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1249,
+    "before": "// abort，迟到的 entries 不得覆盖新会话时间线。",
+    "after": "// loading chains so late entries never overwrite new-session timelines."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1275,
+    "before": "// 切到 session-2：冷读挂起；随即切到 session-3：正常完成",
+    "after": "// Switch session-2, suspending cold reads; immediately switch session-3, finishing normally."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1286,
+    "before": "// 迟到：session-2 的冷读此刻才返回，不得覆盖 session-3 的时间线",
+    "after": "// Late session-2 reads now return, never overwriting session-3 timelines."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1306,
+    "before": "// 项目事件流的恢复通知留给会话列表等视图，当前会话不因它重新订阅",
+    "after": "// Project-stream recovery notices serve session lists/other views; current sessions never resubscribe because of them."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1334,
+    "before": "// 句柄已被流式客户端永久关闭（如服务端拒绝）：补建，游标停在最后 seq",
+    "after": "// Streaming clients permanently closed handles, such as server rejection: recreate after last seq."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1363,
+    "before": "// 加载链已按 idle 走冷读：此时到达的通知不建流（冷读随后整帧覆写时间线），",
+    "after": "// Loading chains already cold-read idle sessions; incoming notices create no streams before cold reads overwrite timelines,"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1364,
+    "before": "// 由加载收尾时建立的那条流接上。",
+    "after": "// leaving completion-created streams to continue."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1424,
+    "before": "// 冷读 listAssistantEntries 挂起期间，用户在同一会话内发送消息：sendMessage",
+    "after": "// While cold listAssistantEntries waits, users send within identical sessions; admitted sendMessage"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1425,
+    "before": "// 受理后作废在途加载链。冷读迟到完成后携带的是发消息前的旧快照，不得据此",
+    "after": "// invalidates in-flight loads. Late cold reads contain presend snapshots and must never"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1426,
+    "before": "// 覆盖 running 状态与已追加的权威条目。",
+    "after": "// overwrite running states/appended authoritative entries."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1460,
+    "before": "// running 状态与已发送的条目保留，不被冷读前捕获的旧 idle 快照回退",
+    "after": "// Retain running states/sent entries, never revert through idle snapshots captured before cold reads."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1466,
+    "before": "// 面板为长生命周期单例，切项目为 null 后 sessions 列表不清空（见初始化",
+    "after": "// Long-lived singleton panels retain session lists after null project switches (initialization"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1467,
+    "before": "// effect 的前置 guard）；SessionHistory 据此仍可能渲染出旧项目的会话项。",
+    "after": "// effect guards); SessionHistory may therefore still render previous-project entries."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1468,
+    "before": "// 点击它们不得以 null projectName 发起请求。",
+    "after": "// Clicking them must never request with null projectName."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1490,
+    "before": "// switchSession 同步把 currentSessionId 设为目标 sessionId，随后用户离开项目",
+    "after": "// switchSession synchronously sets target currentSessionId, then users leave projects"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1491,
+    "before": "// （projectName -> null，不重置 currentSessionId）。effect cleanup abort 加载链，",
+    "after": "// (projectName → null without resetting currentSessionId). Cleanup aborts loading chains;"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1492,
+    "before": "// 迟到响应短路，不用旧闭包的 projectName 为已离开的项目建 SSE 连接。",
+    "after": "// late responses short-circuit without old-closure projectName creating departed-project SSE connections."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1517,
+    "before": "// 离开项目：projectName 置空，currentSessionId 不受影响，仍是 \"session-2\"",
+    "after": "// Leave projects: projectName clears, currentSessionId remains \"session-2\"."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1520,
+    "before": "// 迟到：switchSession 发起的 getAssistantSession 此刻才返回 running",
+    "after": "// Late switchSession getAssistantSession now returns running."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1526,
+    "before": "// 只有离开前打开的 session-1 建过流，且已随离开项目关闭",
+    "after": "// Only predeparture session-1 created streams, closed on departure."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1534,
+    "before": "// init 的 listAssistantSessions 挂起期间用户新建会话：迟到响应不得把",
+    "after": "// Users create sessions while init listAssistantSessions waits; late responses must not"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1535,
+    "before": "// currentSessionId 覆盖回旧会话并为其重建 SSE 连接。",
+    "after": "// restore old currentSessionId or rebuild its SSE connections."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1552,
+    "before": "// 迟到：init 的会话列表此刻才返回，携带一个 running 会话",
+    "after": "// Late init lists now return running sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1558,
+    "before": "// 列表（项目级数据）照常落地；自动选择让位于用户操作，不重建 SSE",
+    "after": "// Project-level lists still settle; automatic selection yields to users without rebuilding SSE."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1567,
+    "before": "// 同上，换成挂起期间用户直接切到另一会话（如通过历史记录/深链接跳转）。",
+    "after": "// Same, with direct user switches during waits, such as history/deep links."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1582,
+    "before": "// 迟到：init 的会话列表此刻才返回，携带一个 running 会话",
+    "after": "// Late init lists now return running sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1588,
+    "before": "// 不覆盖用户已切到的会话，不为已放弃的会话建 SSE 连接",
+    "after": "// Never overwrite user-selected sessions or create abandoned-session SSE connections."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1594,
+    "before": "// 同上，换成挂起期间用户删除当前会话且无其它会话可切（清空到无会话）。",
+    "after": "// Same, deleting current sessions during waits with no alternatives, clearing to sessionless."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1603,
+    "before": "// 模拟用户此前已选中会话（挂起期间 store 中已有当前会话可删）",
+    "after": "// Simulate previously selected sessions, present in stores for deletion during waits."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1615,
+    "before": "// 迟到：init 的会话列表此刻才返回，携带一个 running 会话",
+    "after": "// Late init lists now return running sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1621,
+    "before": "// 不覆盖用户的删除操作，不为已删除的会话建 SSE 连接",
+    "after": "// Never undo user deletions or create deleted-session SSE connections."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1627,
+    "before": "// init 的 listAssistantSessions 挂起期间用户从草稿直接发送首条消息建会话：",
+    "after": "// During init listAssistantSessions waits, users send first messages from drafts, creating sessions;"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1628,
+    "before": "// 迟到的初始化响应不得把 currentSessionId 覆盖回列表里的旧会话。",
+    "after": "// late initialization must never restore old list currentSessionId."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1652,
+    "before": "// 迟到：init 的会话列表此刻才返回",
+    "after": "// Late init session lists now return."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1658,
+    "before": "// 不覆盖发送建立的新会话，不为列表里的旧会话另建 SSE 连接",
+    "after": "// Retain newly send-created sessions without extra old-list-session SSE connections."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1665,
+    "before": "// 技能列表是项目级数据：挂起期间的会话操作不作废它，慢响应照常落地，",
+    "after": "// Skills are project-level: session operations during waits never invalidate slow skill responses,"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1666,
+    "before": "// 否则 / 技能命令在该项目内持续不可用直到重进项目。",
+    "after": "// or / skill commands remain unavailable until project reentry."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1683,
+    "before": "// 技能响应挂起期间发生会话操作",
+    "after": "// Session operations occur during pending skill responses."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1699,
+    "before": "// 项目切换后 B 的 listAssistantSessions 未返回前，面板仍渲染 A 的残留会话",
+    "after": "// After switching to B, panels retain A session lists until B listAssistantSessions returns;"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1700,
+    "before": "// 列表；点击陈旧项触发 switchSession（请求以 404 静默失败），不得作废 B 的",
+    "after": "// stale clicks invoke switchSession (silent 404), never invalidating B project-level lists,"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1701,
+    "before": "// 会话列表落地——列表是项目级数据，走独立于会话加载链的取消域。",
+    "after": "// whose cancellation domain is independent of session loading chains."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1725,
+    "before": "// 切到项目 B：其会话列表挂起；点击残留的 A 会话项（在 B 上 404 静默失败）",
+    "after": "// Switch to B with pending lists; click residual A entries, silently failing 404 on B."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1736,
+    "before": "// B 的会话列表照常落地，供用户重新选择；不为 B 的任何会话建 SSE 连接，A 的流已随切项目关闭",
+    "after": "// B lists settle for reselection without creating any B SSE; A streams closed on project switches."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1743,
+    "before": "// 项目 A 的 listAssistantSessions 挂起期间切到项目 B；A 的响应在 abort() 之后",
+    "after": "// Switch A→B while A listAssistantSessions waits; A responses resolve after abort()"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1744,
+    "before": "// 才 resolve（fetch 不会因此 reject），此时不得把 A 的会话列表写入已切到 B 的",
+    "after": "// without fetch rejection, so never write A lists into B's"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1745,
+    "before": "// store（写入前须复核 projectAbort.signal.aborted）。",
+    "after": "// store; recheck projectAbort.signal.aborted before writes."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1760,
+    "before": "// 切到项目 B：其会话列表正常落地",
+    "after": "// Switch to B, whose lists settle normally."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1766,
+    "before": "// 迟到：A 的会话列表此刻才返回，signal 已 abort，不得覆盖 B 的列表",
+    "after": "// Late A lists now return after abort; never overwrite B lists."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1776,
+    "before": "// 同上，针对技能列表：A 的响应在离开 A 之后才 resolve，不得写入 B 的 skills。",
+    "after": "// Same for skills: A responses resolving after departure must not write B skills."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1799,
+    "before": "// 迟到：A 的技能列表此刻才返回，不得覆盖 B 的技能列表",
+    "after": "// Late A skills now return; never overwrite B skill lists."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1809,
+    "before": "// 项目 A 的 running 会话终态触发 listAssistantSessions 刷新（获取 SDK summary",
+    "after": "// Project A running-session termination refreshes listAssistantSessions for SDK summary"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1810,
+    "before": "// 标题）；响应挂起期间切到项目 B，A 的迟到响应不得覆盖 B 的会话列表——终态",
+    "after": "// titles; switching to B while waiting must prevent late A responses overwriting B lists. Terminal"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1811,
+    "before": "// 刷新纳入项目级取消域，与 init/switchSession 的写入同口径。",
+    "after": "// refreshes share project cancellation domains, matching init/switchSession writes."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1837,
+    "before": "// running 会话终态：触发刷新，挂起在 deferredRefresh",
+    "after": "// Running sessions terminate, triggering refresh suspended at deferredRefresh."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1842,
+    "before": "// 切到项目 B：其会话列表正常落地",
+    "after": "// Switch to B, whose lists settle normally."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1848,
+    "before": "// 迟到：A 的终态刷新此刻才返回，signal 已 abort，不得覆盖 B 的列表",
+    "after": "// Late A terminal refresh returns after abort; never overwrite B lists."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1858,
+    "before": "// switchSession 的 loadSession 挂起期间离开项目（projectName 变为 null）：",
+    "after": "// Leave projects (projectName null) while switchSession loadSession waits:"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1859,
+    "before": "// cleanup abort 了 loadSignal，但没有新项目的 init 接管收尾——effect 需在",
+    "after": "// cleanup aborts loadSignal without new-project init taking over completion; effects must"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1860,
+    "before": "// 离开分支显式复位 messagesLoading，否则永久卡在 true。",
+    "after": "// explicitly reset messagesLoading on departure, preventing permanently true states."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1886,
+    "before": "// 离开项目：switchSession 的加载链被 abort，但没有后续加载链接管",
+    "after": "// Leave projects; abort switchSession loading chains without successor loads."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1891,
+    "before": "// 迟到的 getAssistantSession 不再产生任何写入（signal 已 abort）",
+    "after": "// Late getAssistantSession performs no writes after signal abort."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1939,
+    "before": "// 旧会话不再出现在列表；改写后的时间线由新会话整体重建，编辑态随之清空",
+    "after": "// Old sessions disappear; new-session timeline reconstruction clears edit states."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1943,
+    "before": "// 原会话的流随切换关闭；running 的新会话由 entry 流从头回放，游标不带上一条时间线的残留",
+    "after": "// Switching closes old streams; running new sessions replay from start without residual timeline cursors."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1947,
+    "before": "// 刷新后仍停在新分支",
+    "after": "// Refresh retains new branches."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1971,
+    "before": "// 编辑态保留，用户可以改完再试",
+    "after": "// Retain edit states for user correction/retry."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1976,
+    "before": "// 同内容重试复用同一幂等键：服务端据此在新分支里认领已受理的那一条",
+    "after": "// Same-content retries reuse idempotency keys, letting servers claim already-admitted messages in new branches."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 1999,
+    "before": "// 正文被改空的带图消息仍是有内容的消息，附件即内容",
+    "after": "// Image messages with emptied bodies still contain content: attachments count as content."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2053,
+    "before": "// 首次（init）立即给出改写前的列表；第二次（轮次结束的补拉）挂起到改写返回之后",
+    "after": "// Initial lists return prerewrite state immediately; second, round-end refresh waits until rewrite responses."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2074,
+    "before": "// 轮次结束触发补拉，该请求在服务端分叉之前就已发出",
+    "after": "// Round-end refresh dispatches before server branching."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2087,
+    "before": "// 补拉这才返回，带回的是分叉前的列表——已被本地权威写入取代，不得写回",
+    "after": "// Refresh returns prebranch lists, superseded by local authoritative writes; never write back."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2108,
+    "before": "// 初始列表还在途，此间已有本地权威写入（删除会话）",
+    "after": "// Initial lists remain pending while authoritative local session deletions occur."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2124,
+    "before": "// 迟到的初始列表不得让已删除的会话复活",
+    "after": "// Late initial lists must not resurrect deleted sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2129,
+    "before": "// 初始列表在途期间删除的是「非当前」会话：加载链不会被作废，若只跳过写列表、",
+    "after": "// Deleting noncurrent sessions during initial loading leaves chains valid; skipping only list writes but"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2130,
+    "before": "// 仍照这份名单自动选择，就会选中一条已经不存在的会话并去加载它的时间线。",
+    "after": "// still autoselecting from these lists would load nonexistent sessions' timelines."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2144,
+    "before": "// 删的不是当前会话（此刻还没有当前会话）",
+    "after": "// Delete noncurrent sessions; none is current yet."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2169,
+    "before": "// 点一下本来就选中的这条：不重建时间线，也就不会丢掉还没提交的编辑草稿",
+    "after": "// Clicking already selected sessions keeps timelines and unsubmitted edit drafts intact."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2178,
+    "before": "// 改写被删除作废后照常补拉列表的话，补拉可能赶在 DELETE 返回前把新分支带进",
+    "after": "// Refreshing after deletion-invalidated rewrites may fetch branches before DELETE returns, making"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2179,
+    "before": "// 列表，删除收尾读到它就会顺手切过去——正是进入时那次作废要避免的结果。",
+    "after": "// deletion completion select them, exactly what entry invalidation must prevent."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2187,
+    "before": "// 补拉一旦发生，拿到的就是服务端已分叉后的列表",
+    "after": "// Any refresh would fetch already-branched server lists."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2221,
+    "before": "// DELETE 在途期间不补拉：拉回来的分支会被删除收尾顺手选中",
+    "after": "// No refresh during DELETE; returned branches would be selected by deletion completion."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2229,
+    "before": "// 删除收尾没把用户装到分支上，但记账的补拉在收尾后补上，分支不至于消失在列表外",
+    "after": "// Deletion completion never moves users into branches; accounting refreshes afterward keep branches visible in lists."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2237,
+    "before": "// 删除当前会话在途期间删掉列表里的另一条：后者先收尾，不得替前者把保护摘掉。",
+    "after": "// Delete other listed sessions while current deletion waits; earlier completion must not remove current-session protection."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2273,
+    "before": "// 另一条会话的删除整轮走完，其收尾不涉及当前会话的保护",
+    "after": "// Other-session deletion finishes fully without affecting current-session protection."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2285,
+    "before": "// 当前会话的 DELETE 还在途，保护仍在：补拉不得发生",
+    "after": "// Current DELETE still waits; protections remain and prevent refresh."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2296,
+    "before": "// 同项目内删 session-1 挂起期间改写 session-2：保护只针对被删的那条源会话，",
+    "after": "// Rewrite session-2 while same-project session-1 deletion waits; protect only deleted source sessions,"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2297,
+    "before": "// 否则 session-2 的分支既不进列表也不建 SSE，刷新页面前一直找不回来。",
+    "after": "// or session-2 branches never enter lists/create SSE and remain unreachable until page refresh."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2309,
+    "before": "// session-1 的删除一直挂着",
+    "after": "// session-1 deletion remains pending."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2360,
+    "before": "// 项目 A 的删除一直挂着，模拟慢请求",
+    "after": "// Project A deletion remains pending, simulating slow requests."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2381,
+    "before": "// B 里的改写被切会话作废：A 那次仍在途的删除不该连带压掉 B 的补拉",
+    "after": "// B rewrites invalidate on session switches; A's pending deletion must not suppress B refreshes."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2427,
+    "before": "// DELETE 在途期间切到项目 B",
+    "after": "// Switch to B during DELETE."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2434,
+    "before": "// 旧项目的 DELETE 这才失败：补偿不得拿旧 projectName 去加载 B 的当前会话",
+    "after": "// Old-project DELETE now fails; compensation must not use old projectName to load B current sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2445,
+    "before": "// 切到 B 后 B 的会话列表还在途，此刻新建并发送：合并时若把仍留在 store 里的 A",
+    "after": "// Create/send while B lists wait after switching; merging residual A sessions from stores would"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2446,
+    "before": "// 会话一起写进去，B 的权威列表会因这次写入被判过期丢弃，外来会话就一直挂着。",
+    "after": "// obsolete/discard B authoritative lists and leave foreign sessions permanently visible."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2480,
+    "before": "// 只留本项目的新会话，A 的会话不混进来",
+    "after": "// Retain new current-project sessions only; never mix A sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2485,
+    "before": "// 网络中断说不清服务端受理没有：换新键重试会真的分叉两次，不对账则受理了的分支",
+    "after": "// Network interruption leaves admission uncertain: fresh-key retries truly branch twice, while unreconciled admitted branches"
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2486,
+    "before": "// 要等刷新页面才出现。",
+    "after": "// appear only after page refresh."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2514,
+    "before": "// 切走使本轮作废，随后改写以网络错误告终",
+    "after": "// Switching invalidates this round, then rewrites fail with network errors."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2525,
+    "before": "// 回到原会话重试：沿用同一幂等键，服务端据此认领同一条权威条目而非二次分叉",
+    "after": "// Return to original sessions and retry with identical idempotency keys, claiming authoritative entries rather than branching again."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2570,
+    "before": "// 再点同一条会话不再被短路，重试成功，失败提示随之撤下",
+    "after": "// Clicking identical sessions no longer short-circuits; successful retries clear failure notices."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2591,
+    "before": "// 同一会话内错误照常显示",
+    "after": "// Errors display normally within identical sessions."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2601,
+    "before": "// 切项目后新项目的会话载入完成（接上新流）；新建与删光后落在无会话状态",
+    "after": "// After project switches, new sessions finish loading/attach streams; creation/deleting all leaves sessionless states."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2639,
+    "before": "// DELETE 挂起，让改写的受理落在它在途的那段窗口里",
+    "after": "// Suspend DELETE so rewrite admission occurs during its in-flight window."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2657,
+    "before": "// 删除当前会话与改写受理竞速：作废在 DELETE 发出时就已生效，不等它返回",
+    "after": "// Current-session deletion races rewrite admission: invalidation starts at DELETE dispatch, never waits for responses."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2672,
+    "before": "// 迟到的受理不得把用户装到一个分支上",
+    "after": "// Late admission must not move users into branches."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2714,
+    "before": "// 删除失败后会话还在：补一次重载，服务端已受理的那一轮才不会停在本地不可见",
+    "after": "// Failed deletion leaves sessions: reload once so server-admitted rounds do not remain locally invisible."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2751,
+    "before": "// 原始输入留在仍开着的编辑器里，重放归它",
+    "after": "// Original inputs remain in open editors, which own replay."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2781,
+    "before": "// 用户不等改写返回就切走：本轮作废，sending 由切换方复位",
+    "after": "// Switching before rewrite returns invalidates rounds; switches reset sending."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2787,
+    "before": "// 服务端此刻已经取代 session-1、开出分支 session-2",
+    "after": "// Servers already replaced session-1 with new branch session-2."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2803,
+    "before": "// 迟到的受理不得把用户从他已切去的会话拽到分支",
+    "after": "// Late admission never pulls users from selected sessions into branches."
+  },
+  {
+    "file": "frontend/src/hooks/useAssistantSession.test.tsx",
+    "line": 2806,
+    "before": "// 但服务端的分叉已经发生，列表补拉一次：已消失的 session-1 让位给 session-2",
+    "after": "// Server branching already happened, so refresh lists once, replacing vanished session-1 with session-2."
+  },
+  {
+    "file": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+    "line": 961,
+    "before": "// Second arrives during first: tavern scene → /scenes, replacing queuedFocusRef.",
+    "after": "// Second arrives during first: 酒馆 scene → /scenes, replacing queuedFocusRef."
+  }
+]

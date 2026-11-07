@@ -52,7 +52,7 @@ TEXT_TASK_TYPES = frozenset(
 
 UNIT_TASK_TYPES = frozenset({"storyboard", "grid", "tts", "video", "reference_video"})
 
-#: 本地渲染车道的任务（``server/services/tasks/render_tasks.py``）。
+#: Local-render-lane tasks (``server/services/tasks/render_tasks.py``).
 RENDER_TASK_TYPES = frozenset({"render_final_cut", "render_jianying_draft"})
 
 FIXED_TASK_TYPES = (
@@ -61,7 +61,7 @@ FIXED_TASK_TYPES = (
 
 ALL_TASK_TYPES = FIXED_TASK_TYPES | frozenset(ASSET_SPECS.keys())
 
-#: 工作流面板只展示规划器挂到步骤上的任务：文本任务、资产图与单元级生成任务。
+#: Workflow panels show only planner-attached text, asset-image, and unit-generation tasks.
 WORKFLOW_TASK_TYPES = TEXT_TASK_TYPES | UNIT_TASK_TYPES | frozenset(ASSET_SPECS.keys())
 
 EXPECTED_BY_NAMESPACE = {
@@ -91,7 +91,7 @@ def test_every_task_type_has_frontend_display_name(locale: str, namespace: str) 
 
 @pytest.mark.parametrize("namespace", sorted(EXPECTED_BY_NAMESPACE))
 def test_no_orphan_task_type_keys_in_any_locale(namespace: str) -> None:
-    """Frontend task_type_* keys 必须都对应该命名空间会展示的 task_type —— 防止过时翻译堆积。"""
+    """Frontend task_type_* keys must map to task types displayed by that namespace, preventing stale translations."""
     for locale in LOCALES:
         keys = _load_task_type_keys(locale, namespace)
         orphans = keys - EXPECTED_BY_NAMESPACE[namespace]

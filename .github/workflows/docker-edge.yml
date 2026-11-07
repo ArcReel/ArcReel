@@ -1,14 +1,14 @@
 name: Docker Edge
 
-# main 合入后构建开发镜像：推送不可变 sha-* 标签 + 可变 main 标签
-# （有部署环境跟踪 main 标签）。正式发布走 docker-release.yml。
+# Build development images after merges to main: push immutable sha-* tags and the mutable main tag
+# (some deployments track main). Formal releases use docker-release.yml.
 
 on:
   push:
     branches: [main]
-    # 影响镜像内容的路径：Dockerfile COPY 清单 + 依赖文件
+    # Paths affecting image contents: Dockerfile COPY sources and dependency files.
     paths:
-      # 本工作流自身变更也须在合入后立即演练发布管线
+      # Changes to this workflow must also exercise the publishing pipeline immediately after merge.
       - ".github/workflows/docker-edge.yml"
       - "Dockerfile"
       - ".dockerignore"
@@ -51,7 +51,7 @@ jobs:
         env:
           REPO: ${{ github.repository }}
 
-      # 按 ISO 周生成 APT_REFRESH，使 Dockerfile 的系统包层每周失效一次并重新 apt-get upgrade
+      # Generate APT_REFRESH by ISO week so the Dockerfile system-package layer expires weekly and reruns apt-get upgrade.
       - name: Compute apt refresh key
         id: apt
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
@@ -89,8 +89,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
 
-      # 逐平台扫描本次构建的 digest（分支标签可变，digest 才与推送内容严格一致）；
-      # 不指定平台时多架构 manifest 只会解析 amd64 变体，arm64 独有漏洞不可见
+      # Scan each platform digest from this build (branch tags are mutable; only digests identify the exact pushed content);
+      # without a platform, multi-architecture manifests resolve only amd64, hiding arm64-only vulnerabilities.
       - name: Trivy vulnerability scan amd64 (report only)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:

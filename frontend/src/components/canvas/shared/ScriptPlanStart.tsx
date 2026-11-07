@@ -13,21 +13,21 @@ import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 interface ScriptPlanStartProps {
   projectName: string;
   episode: number;
-  /** 本集上次保存的附加指令。 */
+  /** Last saved extra instructions for this episode. */
   savedInstructions: string;
   /**
-   * 提交前先落定同页的相关修改（如本集原文），返回是否继续；缺省时直接提交。
-   * 规划读的是已保存的内容，修改没落定就提交会按旧内容规划。
+   * Settle related edits on this page (e.g. episode source) before submission; return whether to continue. Omission submits directly.
+   * Planning reads saved content; unsettled edits would plan against old content.
    */
   prepare?: () => Promise<boolean>;
 }
 
 /**
- * 首次规划脚本的唯一入口：说明、附加指令、「交给 Agent」「AI 规划」，以及不用 AI 的「从空白开始」。
- * 规划在跑时换成状态说明。制作进度点名「脚本规划」时把焦点交给附加指令。
+ * Sole first-script-plan entry: explanation, extra instructions, Agent handoff/AI planning, and non-AI start-from-blank.
+ * Running plans show status instead. Focus extra instructions when production progress targets script planning.
  */
 export function ScriptPlanStart(props: ScriptPlanStartProps) {
-  // 换集时整块重建：集页直接切到另一集不会重新挂载，附加指令草稿会被当成下一集的指令提交并保存
+  // Rebuild the whole block on episode changes: direct navigation does not remount and could submit/save drafts as the next episode's instructions.
   return <ScriptPlanStartForm key={`${props.projectName}:${props.episode}`} {...props} />;
 }
 
@@ -37,7 +37,7 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, prepare 
   const fieldId = useId();
   const reasonId = useId();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
-  // 没动过输入框时跟随最新保存的指令（另一标签页或 Agent 保存的），动过之后保留自己的输入
+  // Untouched inputs follow latest saved instructions from other tabs/Agents; once edited, preserve local input.
   const [draft, setDraft] = useState<string | null>(null);
   const instructions = draft ?? savedInstructions;
   const { busy, latestTask, refusedReason } = useScriptPlanEntry(projectName, episode);

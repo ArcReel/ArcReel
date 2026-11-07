@@ -1,4 +1,4 @@
-"""价格编辑器的词表：前端用的 TS 文件由代码里的封闭集合生成，不手写第二份。"""
+"""Price-editor vocabulary: frontend TS derives from code-defined closed sets, without a second handwritten copy."""
 
 import json
 from pathlib import Path

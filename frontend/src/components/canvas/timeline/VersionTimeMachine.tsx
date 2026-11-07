@@ -24,26 +24,26 @@ interface VersionTimeMachineProps {
   /** Allow preview/download history without exposing the restore mutation. */
   readOnly?: boolean;
   /**
-   * 同资源正被生成/编辑占用（含 image_edit 乐观占用）：禁用版本恢复。
-   * image_edit 任务完成时会无条件把 current 覆盖为编辑结果，占用期间恢复旧版本会
-   * 显示成功但随后被编辑任务覆盖，用户最后一次选择丢失。
+   * Resource generation/edit occupancy, including optimistic image_edit, disables version restoration.
+   * image_edit unconditionally overwrites current on completion; restoring during occupancy could
+   * show success then be overwritten, losing users' last choices.
    */
   busy?: boolean;
   /**
-   * 恢复请求在途状态回传父级：`busy` 只做「外部占用 → 禁恢复」这一向，兄弟控件
-   * （生成、上传）还需反向知道恢复正在写同一个资源文件，否则恢复返回前它们仍可点，
-   * 两个请求并发写同一路径、后完成者覆盖前者且双方都提示成功。
+   * Report restoration occupancy to parents. `busy` only enforces external-occupancy → no-restore; siblings
+   * (generation/upload) need the reverse signal because restoration writes the same file. Otherwise before return
+   * both requests could write concurrently, later completion overwriting earlier while both report success.
    */
   onRestoringChange?: (restoring: boolean) => void;
   /**
-   * 提交时刻的占用复核（新鲜读）：`busy` 是最近一次渲染的快照，版本面板打开期间
-   * Agent 入队、批量入口或轮询落库都可能占用该资源，新 prop 冲刷到按钮之前的点击
-   * 仍会发出恢复请求，与在跑的任务并发写同一个资源文件。返回 true 即拒绝本次恢复。
+   * Fresh submit-time recheck: `busy` is a render snapshot; Agents/batches/polling may occupy resources
+   * while version panels stay open. Before new props reach buttons, clicks could
+   * still request restoration and race writes. Return true to reject restoration.
    */
   checkBusy?: () => boolean;
   /**
-   * 受控打开：由外部（如卡片的「更多」菜单）决定开合，不渲染自己的触发按钮，
-   * 弹层按 `anchor` 定位，关闭后焦点回到它。
+   * Controlled opening: external entries such as card more menus decide open/close, without an internal trigger button.
+   * Position popovers by `anchor`, restoring focus there on close.
    */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -58,7 +58,7 @@ function getImagePreviewHeightClass(
   return "h-64";
 }
 
-// 预览选中态记在所属资源身份与版本指纹之下：资源或其版本改变后不沿用另一份资源的选中
+// Key preview selections by owning resource/version fingerprint, never reusing another resource's selection after changes.
 interface VersionSelection {
   projectName: string;
   resourcePath: string;
@@ -67,8 +67,8 @@ interface VersionSelection {
 }
 
 /**
- * 资源的历史版本：触发按钮打开弹层，列出版本号，选中一个即预览媒体与生成说明，
- * 非当前版本可切换为当前。弹层随触发按钮定位，滚动时跟随，不会自行关闭。
+ * Resource version history: trigger opens version-list popovers; selection previews media/generation details,
+ * noncurrent versions can become current. Anchor-following popovers track scrolling without closing.
  */
 export function VersionTimeMachine({
   projectName,
@@ -94,7 +94,7 @@ export function VersionTimeMachine({
     resourceType === "reference_videos" ? `reference_videos/${resourceId}.mp4` :
     resourceType === "audio" ? `audio/segment_${resourceId}.wav` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
-    // 衍生的 resource id 本身是 `本体/衍生`，两段原样成为路径层级。
+    // Derivative resource IDs use `本体/衍生`, both segments preserved as path hierarchy.
     resourceType === "character_derivatives" ? `characters/derivatives/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
@@ -133,7 +133,7 @@ export function VersionTimeMachine({
     } catch {
       if (!signal.aborted) setVersions([]);
     } finally {
-      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；被 abort 时由接管的新一轮加载负责复位
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- Already reset in finally; abort hands reset responsibility to the replacing load
       if (!signal.aborted) setLoading(false);
     }
   }, [projectName, resourceType, resourceId]);
@@ -141,17 +141,17 @@ export function VersionTimeMachine({
   useEffect(() => {
     if (!open || !resourceId) return;
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开或资源更新时启动带取消信号的版本加载，并同步展示加载状态
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Opening/resource updates start cancelable version loads and synchronously show loading
     void loadVersions(controller.signal);
     return () => controller.abort();
   }, [open, resourceId, resourceFp, reload, loadVersions]);
 
 
   async function handleRestore(version: number) {
-    // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
-    // 这里兜底防止禁用态生效前的一次点击仍发出恢复请求。
+    // disabled reacts to restoringVersion/busy and updates if resources become occupied while panels remain open;
+    // guard clicks before disabled state reaches buttons too.
     if (busy || restoringVersion !== null) return;
-    // 渲染快照之外再做一次新鲜读：状态已变、渲染未到的窗口里按钮仍可点。
+    // Fresh-read beyond render snapshots: buttons may still accept clicks after state changes but before rerender.
     if (checkBusy?.()) {
       useAppStore.getState().pushToast(t("version_restore_busy_hint"), "error");
       return;
@@ -166,7 +166,7 @@ export function VersionTimeMachine({
         }
         await onRestore?.(version);
         setReload((current) => current + 1);
-        // 切换结果直接体现在「当前」标记与媒体上，成功时不弹提示；恢复已换了指纹，按最新指纹记选中
+        // Switch results appear in current markers/media without success toasts; restored fingerprints change, so record selection under latest fingerprints.
         setSelection({
           projectName,
           resourcePath,
@@ -287,7 +287,7 @@ export function VersionTimeMachine({
                   (resourceType === "videos" || resourceType === "reference_videos" ? (
                     <div className="aspect-video w-full overflow-hidden rounded-md bg-black">
                       {selectedInfo.presentation_available !== true ? (
-                        // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
+                        // eslint-disable-next-line jsx-a11y/media-has-caption -- Historical videos outside the shared finished-media reader show original media only
                         <video
                           src={selectedInfo.file_url}
                           aria-label={t("version_preview_alt", { version: selectedInfo.version })}
@@ -307,7 +307,7 @@ export function VersionTimeMachine({
                       )}
                     </div>
                   ) : resourceType === "audio" ? (
-                    // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
+                    // eslint-disable-next-line jsx-a11y/media-has-caption -- Historical narration text appears in the same preview card
                     <audio
                       src={selectedInfo.file_url}
                       aria-label={t("version_audio_preview_label", { version: selectedInfo.version })}

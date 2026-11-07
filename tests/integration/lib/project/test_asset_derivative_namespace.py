@@ -1,4 +1,4 @@
-"""同一本体下的衍生名判重不区分大小写：衍生图落在 ``characters/derivatives/{本体}/{衍生}.png``。"""
+"""Derivative names within one base are case-insensitively unique; images live at ``characters/derivatives/{本体}/{衍生}.png``."""
 
 from __future__ import annotations
 

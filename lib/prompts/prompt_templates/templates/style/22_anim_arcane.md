@@ -1,8 +1,8 @@
 ---
 id: style/anim_arcane
 category: style
-title: 油画三渲二
-description: 动画画风，双城之战 · Arcane。
+title: "Arcane (Oil 3D)"
+description: "Animation, Arcane · Fortiche."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-油画三渲二画风：参考《双城之战》(Fortiche / Arcane Style)画风
+Oil-painted cel-shaded 3D look, inspired by Arcane (Fortiche / Arcane Style)

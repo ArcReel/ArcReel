@@ -1,12 +1,13 @@
-"""联系表：把一个视频版本抽出的若干帧拼成带标注的图片。
+"""Contact sheets assemble frames extracted from one video version into annotated images.
 
-每张联系表最多 :data:`MAX_FRAMES_PER_SHEET` 帧，长边不超过 :data:`MAX_SHEET_EDGE` px；
-抽出的帧超过一张的容量时依次分到后续几张。顶部标注视频单元 ID 与版本号，每帧下方标注视频单元 ID
-与该帧的起始时刻（秒，以首帧为 0，与剪辑时间线的入出点同一时间轴）；帧落在黑屏段、卡帧段或是镜头首帧时，
-时刻下方再标 BLACK / FREEZE / CUT。抽帧计划见 ``lib.video_review.sampling``。
+Each sheet contains at most :data:`MAX_FRAMES_PER_SHEET` frames and a longest edge no greater than
+:data:`MAX_SHEET_EDGE` px; excess frames continue on subsequent sheets in order. The header shows
+video-unit ID/version; each frame labels its unit ID and starting time (seconds from first frame zero,
+sharing the editing timeline in/out time axis). Frames within black/frozen spans or at shot starts
+add BLACK / FREEZE / CUT below the time. Sampling plans: ``lib.video_review.sampling``.
 
-抽帧按帧索引精确定位：先只解复用读出逐帧时刻，再一次解码用 ``select`` 取出选中的帧，
-因此标注的时刻就是画面那一帧自身的起点。
+Locate frames precisely by index: first demux only to read frame timestamps, then decode once
+using ``select`` to extract chosen frames. Labels therefore show each pictured frame’s actual start.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ MAX_SHOT_FRAMES = 24
 MAX_SHEET_EDGE = 2000
 
 _EXTRACT_DEADLINE_SECONDS = 120.0
-# 抽出的帧先缩到这个长边再拼版：单帧铺满整张联系表时也不超过上限。
+# Scale extracted frames to this longest edge before assembly; even one frame filling the entire sheet stays within the limit.
 _FRAME_EDGE = 1280
 _PNG_END = b"IEND\xaeB`\x82"
 _PADDING = 8
@@ -46,17 +47,17 @@ _TAG_COLORS = {TAG_CUT: (90, 200, 255), TAG_BLACK: (255, 150, 60), TAG_FREEZE: (
 
 
 class ContactSheetError(RuntimeError):
-    """抽帧失败或超时。"""
+    """Frame extraction failed or timed out."""
 
 
 @dataclass(frozen=True, slots=True)
 class SheetFrame:
     time_seconds: float
-    """该帧的起始时刻（秒），以首帧为 0。"""
+    """Frame starting time in seconds, with first frame zero."""
     box: tuple[int, int, int, int]
-    """该帧画面在联系表上的位置（left, top, right, bottom）。"""
+    """Frame rectangle on the contact sheet (left, top, right, bottom)."""
     tags: tuple[str, ...] = ()
-    """该帧所在的信号标记（CUT / BLACK / FREEZE）。"""
+    """Signals covering the frame (CUT / BLACK / FREEZE)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +102,7 @@ async def _extract_frames(video_path: Path, indices: list[int]) -> list[Image.Im
     chunks = [chunk + _PNG_END for chunk in result.stdout.split(_PNG_END) if chunk]
     if len(chunks) != len(indices):
         raise ContactSheetError(f"抽帧数量不符：{video_path.name} 期望 {len(indices)} 帧，得到 {len(chunks)} 帧")
-    # 逐帧解码 PNG 是纯 CPU 工作，放进工作线程，不占用事件循环。
+    # Per-frame PNG decoding is CPU-only work; move it to worker threads rather than occupying the event loop.
     return await asyncio.to_thread(_decode_frames, chunks)
 
 
@@ -115,7 +116,7 @@ def _decode_frames(chunks: list[bytes]) -> list[Image.Image]:
 
 
 def _layout(count: int, aspect: float, label_height: int) -> tuple[int, int, int]:
-    """为 ``count`` 帧挑列数，使联系表长边不超上限时单帧面积最大；返回 (列数, 帧宽, 帧高)。"""
+    """Choose columns for ``count`` frames to maximize per-frame area within the sheet edge limit; return (columns, frame width, frame height)."""
     best: tuple[int, int, int] | None = None
     for cols in range(1, count + 1):
         rows = math.ceil(count / cols)
@@ -190,16 +191,17 @@ async def build_contact_sheets(
     frame_times: Sequence[float] | None = None,
     signals: VideoSignals | None = None,
 ) -> tuple[ContactSheet, ...]:
-    """为一个视频版本抽约 ``frames`` 帧，按顺序拼成一张或几张联系表。
+    """Extract approximately ``frames`` frames from one video version into one or more ordered contact sheets.
 
-    抽帧按 :func:`lib.video_review.sampling.plan_frame_indices` 计划：有 ``signals`` 时每个镜头至少一帧、
-    信号两侧加密，镜头数超过 ``frames`` 时总帧数提到镜头数（不超过 :data:`MAX_SHOT_FRAMES`）；
-    视频帧数更少时全取。``frame_times`` 缺省时现场探测。
+    Follow :func:`lib.video_review.sampling.plan_frame_indices`: with ``signals``, take at least
+    one frame per shot and sample densely around signals; when shots exceed ``frames``, raise the
+    total to shot count, capped at :data:`MAX_SHOT_FRAMES`. Take all frames if the video has fewer.
+    Probe ``frame_times`` on demand if omitted.
 
     Raises:
-        FfmpegUnavailableError: 随包 ffmpeg 不可用。
-        MediaProbeError: 视频无法解析或没有视频帧。
-        ContactSheetError: 抽帧失败或超时。
+        FfmpegUnavailableError: Bundled ffmpeg is unavailable.
+        MediaProbeError: Video cannot be parsed or has no frames.
+        ContactSheetError: Extraction failed or timed out.
     """
     times = frame_times if frame_times is not None else await probe_video_frame_times(video_path)
     indices = plan_frame_indices(times, signals, frames, max_count=MAX_SHOT_FRAMES)

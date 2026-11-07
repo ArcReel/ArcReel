@@ -1,8 +1,6 @@
-"""
-API Key 管理路由
+"""API key management routes.
 
-提供 API Key 的创建、列表查询和删除接口。
-"""
+Provide API key creation, listing and deletion endpoints."""
 
 import secrets
 from collections.abc import Callable
@@ -27,7 +25,7 @@ router = APIRouter()
 
 
 def _require_jwt_auth(user: CurrentUserInfo, _t: Callable[..., str]) -> None:
-    """确保请求通过 JWT 认证（非 API Key）。API Key 管理操作不允许由 API Key 本身执行。"""
+    """Require JWT authentication rather than API key authentication. API keys may not perform key-management operations themselves."""
     if user.sub.startswith("apikey:"):
         raise HTTPException(status_code=403, detail=_t("jwt_auth_required"))
 
@@ -36,7 +34,7 @@ API_KEY_DEFAULT_EXPIRY_DAYS = 30
 
 
 def _generate_api_key() -> str:
-    """生成格式为 arc-<32位随机字符> 的 API Key。"""
+    """Generate an API key formatted as arc-<32 random characters>."""
     random_part = secrets.token_hex(16)  # 32 hex chars
     return f"{API_KEY_PREFIX}{random_part}"
 
@@ -47,13 +45,13 @@ def _default_expires_at() -> datetime:
 
 class CreateApiKeyRequest(BaseModel):
     name: str
-    expires_days: int | None = Field(None, ge=0)  # None 使用默认 30 天，0 表示不过期
+    expires_days: int | None = Field(None, ge=0)  # None uses the 30-day default; 0 means no expiration.
 
 
 class CreateApiKeyResponse(BaseModel):
     id: int
     name: str
-    key: str  # 完整 key，仅在创建时返回
+    key: str  # Full key, returned only at creation.
     key_prefix: str
     created_at: str
     expires_at: str | None
@@ -74,7 +72,7 @@ async def create_api_key(
     user: CurrentUser,
     _t: Translator,
 ) -> CreateApiKeyResponse:
-    """创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。"""
+    """Create a new API key. Return the full key only once in this response; it cannot be viewed again afterward."""
     _require_jwt_auth(user, _t)
     key = _generate_api_key()
     key_hash = hash_api_key(key)
@@ -114,7 +112,7 @@ async def list_api_keys(
     user: CurrentUser,
     _t: Translator,
 ) -> list[ApiKeyInfo]:
-    """查询所有 API Key 的元数据（不含完整 key）。"""
+    """List metadata for all API keys, excluding full keys."""
     _require_jwt_auth(user, _t)
     async with async_session_factory() as session, session.begin():
         repo = ApiKeyRepository(session)
@@ -129,7 +127,7 @@ async def delete_api_key(
     user: CurrentUser,
     _t: Translator,
 ) -> None:
-    """删除（吊销）指定 API Key，并立即清除内存缓存。"""
+    """Delete (revoke) the specified API key and immediately clear its memory cache."""
     _require_jwt_auth(user, _t)
     async with async_session_factory() as session, session.begin():
         repo = ApiKeyRepository(session)
@@ -137,8 +135,8 @@ async def delete_api_key(
         if row is None:
             raise HTTPException(status_code=404, detail=_t("api_key_not_found", key_id=key_id))
         key_hash = row["key_hash"]
-        # 先失效缓存再删库：即使事务提交后崩溃，缓存也已清除，
-        # 不会出现 DB 已删但缓存仍有效的宽限窗口。
+        # Invalidate the cache before deleting from the database: even a crash after commit leaves the cache clear,
+        # avoiding a grace window where the database entry is gone but the cache remains valid.
         invalidate_api_key_cache(key_hash)
         deleted = await repo.delete(key_id)
 

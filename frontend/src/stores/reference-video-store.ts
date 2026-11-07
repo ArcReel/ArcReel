@@ -8,7 +8,7 @@ interface AddUnitPayload {
   prompt: string;
   duration_seconds?: number;
   note?: string | null;
-  /** 插在这个单元之后；缺省时追加到末尾。 */
+  /** Insert after this unit; append when omitted. */
   after_unit_id?: string;
 }
 
@@ -28,8 +28,8 @@ interface ReferenceVideoStore {
   /** Keyed by `${projectName}::${episode}`. */
   unitsByEpisode: Record<string, ReferenceVideoUnit[]>;
   /**
-   * 同 key 下逐单元的服务端定桶结论（桶、档位、引用分裂），随单元列表一起到达，写入口的
-   * 响应按单元合并——正文改了引用，桶与档位当场随响应更新，画布不自判。
+   * Same-key per-unit server results (buckets/tiers/reference splits) arrive with lists, merging write responses
+   * by unit. Edited references immediately update buckets/tiers; canvases never infer independently.
    */
   unitCapabilitiesByEpisode: Record<string, ReferenceUnitCapabilityMap>;
   selectedUnitId: string | null;
@@ -44,21 +44,21 @@ interface ReferenceVideoStore {
   select: (unitId: string | null) => void;
 }
 
-// 每个 cache key 上最新一次 loadUnits 的序号：`loadUnits` 有多个入口（画布 effect 随
-// 项目/剧集/任务完成失效重跑、单元写入后重拉、手动重试），同一 key 上可能有多个请求并发
-// 在途。没有这道校验时，先发后到的旧响应会盖掉新响应里已经生成的成片，界面停在「无成片」
-// 直到下一次失效。响应落定时序号已被更新的请求接管即丢弃，只让最新一次写回。
+// Latest loadUnits sequence per cache key: `loadUnits` has canvas project/episode/task-invalidation effects,
+// postwrite refetches and manual retries, potentially concurrent on the same keys.
+// Without guards, earlier requests arriving later overwrite fresh finished videos with old no-video data
+// until next invalidation. Discard responses superseded by newer sequence values, accepting latest only.
 const _loadSeqByKey = new Map<string, number>();
 let _loadSeq = 0;
 
 /**
- * 作废该 cache key 上所有在途加载。
+ * Invalidate every in-flight load for this cache key.
  *
- * 写入口（增删改排序）落定后调用：迟到的 GET 读的是写入之前的列表，直接写回会把用户刚做的
- * 编辑、增删或排序在界面上暂时撤销，直到下一次失效才复原。
+ * Call after add/edit/delete/reorder writes settle: late GET read prewrite lists, temporarily undoing fresh
+ * changes visually until subsequent invalidation.
  *
- * 一并结算 `loading`：被作废的那次加载会在响应落定时直接丢弃，不再自己复位，而作废它的是
- * 写入口、不是另一次加载，没有接管方来收尾——不在这里落定，画布会一直停在加载态。
+ * Settle `loading` too: invalidated loads discard responses without resetting. Writes,
+ * not successor loads, invalidated them, so nobody else owns cleanup; without settlement here canvases stay loading.
  */
 function invalidateInFlightLoads(cacheKey: string, set: (patch: { loading: false }) => void): void {
   _loadSeqByKey.set(cacheKey, ++_loadSeq);

@@ -1,4 +1,4 @@
-"""资产名与衍生名判重不区分大小写，产物身份与依据仍用名字原样的大小写：判重口径不进入清单键与依据摘要。"""
+"""Asset/derivative-name deduplication ignores case; artifact identity/basis retain original name casing, so deduplication rules never alter manifest keys or basis digests."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def test_an_asset_sheet_key_and_basis_digest_use_the_name_as_written(
 
     plan = plan_artifact_target_state(project_dir)
 
-    # 定值锁住清单键与依据摘要：名字按原样大小写参与，改动它们会让存量登记失配或过期
+    # Fixed values lock manifest keys/basis digests: original name casing participates; changing it would mismatch or expire existing registrations.
     assert dict(plan.entries) == {
         ArtifactKey.asset_sheet("character", "Alice"): ArtifactManifestEntry(
             artifact_path="characters/Alice.png",
@@ -76,7 +76,7 @@ def test_a_derivative_sheet_key_and_basis_digest_use_the_name_as_written(
 
     plan = plan_artifact_target_state(project_dir)
 
-    # 定值锁住衍生图的清单键与依据摘要：本体名与衍生名都按原样大小写参与
+    # Fixed values lock derivative-image manifest keys/basis digests: both base and derivative names retain original casing.
     key = ArtifactKey.asset_sheet("character", "Alice/Coat")
     assert plan.entries[key] == ArtifactManifestEntry(
         artifact_path="characters/derivatives/Alice/Coat.png",

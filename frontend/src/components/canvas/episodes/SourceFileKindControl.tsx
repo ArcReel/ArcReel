@@ -19,10 +19,10 @@ interface SourceFileKindControlProps {
 }
 
 /**
- * 文件条上的源文件类型下拉。改类型不改原文，也不动分集。
+ * Source-kind dropdown on the file bar. Changing kind changes neither source text nor episodes.
  *
- * 会让已开始制作的集的脚本规划判 stale 时，先列出这些集请创作者确认；没有这类集时直接改。
- * 文件在 ArcReel 之外被改动过、还没有更新分集账本时暂停。
+ * If script plans for episodes already in production would become stale, list those episodes for creator confirmation first; otherwise change directly.
+ * Suspend while a file modified outside ArcReel has not yet been reconciled with the episode ledger.
  */
 export function SourceFileKindControl({ projectName, file, episodes }: SourceFileKindControlProps) {
   const { t } = useTranslation("dashboard");

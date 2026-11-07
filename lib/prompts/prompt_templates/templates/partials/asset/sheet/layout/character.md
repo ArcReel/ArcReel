@@ -1,1 +1,1 @@
-横版 16:9 三视图，纯白背景：正面 / 正侧（90° 侧视图）/ 背面水平排列。
+Landscape 16:9 three-view sheet on a pure white background: front / exact side (90° side view) / rear arranged horizontally.

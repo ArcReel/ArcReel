@@ -29,20 +29,20 @@ import { formatNameList } from "@/utils/list-format";
 
 import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 
-/** 提示条里最多点名的文件数，其余以「等」概括。 */
+/** Maximum filenames named in the notice; summarize remaining files with an others suffix. */
 const NAMED_FILES = 2;
 
 interface UnregisteredFilesProps {
   projectName: string;
   files: UnregisteredSourceFile[];
   episodes: EpisodeMeta[];
-  /** 处置完成后重新拉取「分集」视图。 */
+  /** Reload Episodes after handling finishes. */
   onChanged: () => void;
 }
 
 /**
- * 页头下方的提示条：source/ 里有不属于整本源文、也不是任何一集原文的文件。点「处理」打开对话框逐个处置：
- * 加入整本源文、作为某一集的原文（新的一集或一集无原文的集），或者删除。没有这类文件时不渲染。
+ * Notice below the header for source/ files outside whole source and all episode sources. Handle opens per-file choices:
+ * add to whole source, use as source for a new/sourceless episode, or delete. Hide when no such files exist.
  */
 export function UnregisteredFilesBanner({ projectName, files, episodes, onChanged }: UnregisteredFilesProps) {
   const { t, i18n } = useTranslation("dashboard");
@@ -72,7 +72,7 @@ export function UnregisteredFilesBanner({ projectName, files, episodes, onChange
       <Dialog
         open={open}
         onOpenChange={(next) => {
-          // 处置请求在途时不响应 Esc 与遮罩点击
+          // Ignore Escape/backdrop clicks while handling requests are in flight
           if (!next && !busy) setOpen(false);
         }}
       >
@@ -110,7 +110,7 @@ function UnregisteredFileList({
   const [error, setError] = useState<string | null>(null);
   const noSourceEpisodes = episodes.filter((episode) => episode.source_origin === "none");
 
-  /** 处置一个文件：成功后文件从列表里消失，失败时在列表上方说明原因。 */
+  /** Handle one file: remove it from the list on success, or explain failure above the list. */
   const run = async (name: string, action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);

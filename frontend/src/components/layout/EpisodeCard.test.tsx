@@ -6,8 +6,8 @@ import type { EpisodeMeta } from "@/types/project";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 /**
- * 剧集卡上的两个数字都来自项目摘要，口径是产物清单：可用 = current ∪ stale，
- * stale 另计。工作台读的是同一份计数，两处不得各说各话。
+ * Both card numbers use project-summary manifests: usable = current ∪ stale,
+ * with stale counted separately. Workbenches share counts; neither may contradict.
  */
 function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
   return {
@@ -32,7 +32,7 @@ function renderCard(ep: EpisodeMeta, route: GenerationRoute = "storyboard") {
 
 describe("EpisodeCard", () => {
   it("reports available videos against the total, not the script item count", () => {
-    // item_count 与 videos.total 刻意取不同值：读错字段的实现会显示 4/4 或裸 4。
+    // Deliberately different item_count/videos.total catches wrong-field displays such as 4/4 or bare 4.
     renderCard(makeEpisode({ item_count: 9 }));
 
     expect(screen.getByText(/3\/4/)).toBeInTheDocument();
@@ -46,7 +46,7 @@ describe("EpisodeCard", () => {
       }),
     );
 
-    // stale 不从可用里扣：4 件视频全部可用，另有 3 件产物比当前内容旧
+    // Stale remains usable: four videos usable, three older than current contents.
     expect(screen.getByText(/4\/4/)).toBeInTheDocument();
     expect(screen.getByText("3 件产物比当前内容旧")).toBeInTheDocument();
   });
@@ -67,7 +67,7 @@ describe("EpisodeCard", () => {
   it("names the fallback count 分镜数 on the storyboard route", () => {
     renderCard(unplannedEpisode(), "storyboard");
 
-    // 名词进正文而不是 title：触屏没有悬停，读屏也不必依赖 tooltip
+    // Put nouns in bodies, not titles: touch lacks hover and screen readers need no tooltips.
     expect(screen.getByText(/^4 分镜/)).toBeInTheDocument();
   });
 
@@ -78,7 +78,7 @@ describe("EpisodeCard", () => {
   });
 });
 
-/** 一集只有脚本、还没排视频产物：卡片只能显示条目数本身。 */
+/** Script-only episodes without scheduled video artifacts display entry counts only. */
 function unplannedEpisode(): EpisodeMeta {
   return makeEpisode({
     status: "scripted",

@@ -1,30 +1,30 @@
 ---
 name: manage-project
-description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、级联重命名资产（rename_asset 工具）、合并同一身份被重复登记的资产（merge_asset 工具）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
+description: Project management tools. Use to add/update characters/scenes/props in project.json (patch_project upserts by table+name), cascade-rename assets (rename_asset), merge duplicate registrations of the same identity (merge_asset), write top-level settings, edit project overview, and query video model capabilities (get_video_capabilities). Episode planning is outside this skill; use server tools mcp__arcreel__plan_episodes / reset_episode_planning.
 user-invocable: false
 ---
 
-# 项目管理工具集
+# Project management tools
 
-提供 project.json 的角色/场景/道具批量写入、项目级 settings 与项目概述编辑，以及视频模型能力查询。
+Provides batch character/scene/prop writes in project.json, project-level settings and overview editing, and video model capability queries.
 
-## 工具一览
+## Tool overview
 
-| 工具 | 功能 | 调用者 |
+| Tool | Function | Caller |
 |------|------|--------|
-| `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | 子智能体 / 主 Agent |
-| `mcp__arcreel__rename_asset`（SDK tool） | 级联重命名资产：一次改齐资产表 key、全部剧集剧本与 script_plan 草稿的名称引用（引用数组 / speaker / `@[名称]` mention）及关联文件与版本历史 | 子智能体 / 主 Agent |
-| `mcp__arcreel__merge_asset`（SDK tool） | 把同一身份被登记成的两个同表资产并成一个：引用一次改指保留方，被并方的名字记为别名，或并为保留角色的衍生 | 主 Agent |
-| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **子智能体**（执行任务时自行查询） |
+| `mcp__arcreel__patch_project` (SDK tool) | Add/update project.json characters/scenes/props (upsert by table+name), top-level settings, or project overview (overview branch) | Subagent / main Agent |
+| `mcp__arcreel__rename_asset` (SDK tool) | Cascade-rename an asset: update asset-table keys, name references in all episode scripts and script_plan drafts (reference arrays / speaker / `@[名称]` mentions), associated files, and version history together | Subagent / main Agent |
+| `mcp__arcreel__merge_asset` (SDK tool) | Merge two same-table assets registered for one identity: redirect references to the survivor, retain the merged name as an alias, or merge as a derivative of the surviving character | Main Agent |
+| `mcp__arcreel__get_video_capabilities` (SDK tool) | Query video model capabilities (model granularity, resolved by the project's unique generation_mode, consistent project-wide, no episode required) | **Subagent** (query independently while executing tasks) |
 
-> 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 video-workflow 阶段 2。
+> Server tools `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` handle episode planning (splitting/adjusting). Adjust existing plans through “reset + replan”; see video-workflow stage 2.
 
-## 角色/场景/道具写入
+## Write characters/scenes/props
 
-经 `mcp__arcreel__patch_project` 工具写入（项目名由 session 绑定，无需传参）。按 table 分别调用，
-每个 entry 以 name 为键 upsert：name 不存在则新增、存在则合并改字段。**修订已有资产描述需用户显式
-意图驱动**（避免静默覆盖人工编辑过的字段）。本集新出现的资产由脚本规划带出、内容确认时登记，不需要在这里预先写入。
-`aliases`（别名）是字符串列表，只供脚本规划认人，不能写进引用。
+Write through `mcp__arcreel__patch_project` (the session binds the project name; no parameter needed). Call separately for each table;
+each entry upserts by name: add absent names, merge changed fields for existing names. **Revising existing asset descriptions requires explicit user
+intent** (avoid silently overwriting manually edited fields). Script planning discovers this episode's new assets and registers them at content confirmation; no advance registration here is needed.
+`aliases` is a string list used only for identity recognition in script planning; aliases must not appear in references.
 
 ```text
 mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"description": "...", "voice_style": "..."}}})
@@ -38,57 +38,57 @@ mcp__arcreel__patch_project({"settings": {"narration_voice": "Ethan", "narration
 mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与救赎"}})
 ```
 
-角色条目的 `derivatives` 表登记同一角色在本体之外的另一套外观（跨场景持续存在、可由图像生成表现），
-脚本里引用作 `@[角色/衍生]`。它按衍生名合并：同名改描述、新名加入、未提及的衍生原样保留（连同其资产图）。
-衍生只写 `description`——相对本体的变化，图像编辑指令的口吻；资产图由生成流水线回写。
-改衍生名走衍生子资源的改名端点（Web 端角色卡「衍生」浮层），`patch_project` 写新名只会新建一条。
+A character entry's `derivatives` table registers another appearance of that character beyond the base (persisting across scenes and representable through image generation),
+referenced in scripts as `@[角色/衍生]`. It merges by derivative name: update descriptions for existing names, add new names, and preserve unmentioned derivatives unchanged (including their asset images).
+Write only `description` for derivatives: changes relative to the base, worded as image-edit instructions; the generation pipeline writes asset images back.
+Rename a derivative through the derivative subresource rename endpoint (the character card's “Derivatives” overlay in Web); writing a new name with `patch_project` only creates another entry.
 
-**三种调用形态三选一**：传 `{"table", "entries"}` 走资产 upsert，传 `{"settings"}` 走顶层字段写入，
-传 `{"overview"}` 走项目概述编辑；同时给出多个或都不给会被拒。`settings` 白名单字段：
+**Choose exactly one of three call forms**: `{"table", "entries"}` for asset upsert, `{"settings"}` for top-level fields,
+or `{"overview"}` for overview editing; multiple forms or none are rejected. `settings` field allowlist:
 
-- `episode_target_units`：`int >= 1` 设置 / `null` 清除。每集目标体量（按 `source_language` 解读为阅读单位），分集规划工具按它把握每集切分体量；未设置时工具按 `episode_target_duration` 经口播语速折算出等效体量，不必为了控体量而先问用户字数
-- `episode_target_duration`：`10`–`600` 的整数秒设置 / `null` 清除。单集成片目标时长，脚本规划据它决定本集拆多少个分镜 / 视频单元；未设 `episode_target_units` 时分集规划也按它折算每集塞多少原文（`episode_target_units` 显式设置时以后者为准）。软目标（可被内容需要覆盖，超出只提示不阻断），仅非广告/短片项目可写，ad 项目写入会被拒（整集体量已由 `target_duration` 预算表达）
-- `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
-- `brief`：字符串设置 / `null` 清除。创作诉求短文本，仅广告/短片项目（`content_mode=ad`）可写，其他项目类型写入会被拒
-- `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目 TTS 快照里的旁白音色，只影响当前项目；TTS 配音项目必须有音色，清除会被拒
-- `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目 TTS 快照里的配音语速，只影响当前项目；清除表示不向供应商传语速
-- `character_voice_binding`：`"prompt" / "reference_audio"` 设置 / `null` 清除回默认（`prompt`）。角色声音靠什么约束：`prompt` 把角色 `voice_style` 写进提示词做软约束，`reference_audio` 才把角色已设的参考音频随请求挂给视频模型换取原生音色一致。要原生一致须两件事同时成立：本项设为 `reference_audio` 且该角色配了参考音频
+- `episode_target_units`: set with `int >= 1` / clear with `null`. Target episode size (reading units interpreted by `source_language`); episode planning uses it to determine split size. If unset, the tool converts `episode_target_duration` to an equivalent size using speech rate; no need to ask the user for a word/character count just to control size
+- `episode_target_duration`: set integer seconds `10`–`600` / clear with `null`. Target final episode duration; script planning uses it to determine the number of shots/video units. Without `episode_target_units`, episode planning also converts it to source-text size (explicit `episode_target_units` takes precedence). A soft target (content needs can override it; excess only warns, never blocks), writable only for non-ad/short-film projects; ad writes are rejected (whole-episode size already uses the `target_duration` budget)
+- `source_language`: set `"zh" / "en" / "vi"` / clear with `null`. Priority: **explicit user configuration > automatic inference**. Write when the user explicitly specifies a language (not limited to skipped/failed overview generation); without explicit user confirmation, do not guess and write it. The normal path persists it automatically through overview generation. If explicit configuration conflicts with inference / actual source language, warn the user (WARN) and continue using explicit configuration without blocking
+- `brief`: set a string / clear with `null`. Short creative-intent text, writable only for ad/short-film projects (`content_mode=ad`); other project types reject writes
+- `narration_voice`: set a nonempty string (voice ID per provider documentation) / clear with `null`. Narration voice in the project's TTS snapshot; affects this project only. TTS projects require a voice and reject clearing it
+- `narration_speed`: set a positive finite number (such as `1.2`) / clear with `null`. Speech rate in the project's TTS snapshot; affects this project only. Clearing means no speech-rate parameter is sent to the provider
+- `character_voice_binding`: set `"prompt" / "reference_audio"` / clear with `null` to default (`prompt`). Determines character-voice constraints: `prompt` places character `voice_style` in prompts as a soft constraint; only `reference_audio` attaches configured character reference audio to video-model requests for native voice consistency. Native consistency requires both this setting to be `reference_audio` and the character to have reference audio
 
-`generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作，并告知开关只影响后续生成——已生成的分镜图不会自动失效，要按新装配方式出图须显式重新生成对应分镜。
+`generation_mode` and `grid_storyboard` are not allowlisted; `patch_project` rejects them: `generation_mode` cannot change after project creation. If the user requests a generation-method change (storyboard ↔ reference_video), clearly explain it is immutable and has no workaround. Users toggle `grid_storyboard` in Web settings; direct grid-assembly change requests there and explain the switch affects only future generation. Existing storyboard images do not automatically become stale; explicitly regenerate corresponding storyboards to use the new assembly method.
 
-`overview` 白名单字段：`synopsis` / `genre` / `theme` / `world_setting`，**merge 语义**（只改传入字段、
-概述不存在时创建）。**修订概述需用户显式意图驱动**（避免静默覆盖人工编辑过的字段）。
+`overview` allowlists `synopsis` / `genre` / `theme` / `world_setting`, with **merge semantics** (change only supplied fields;
+create an overview if absent). **Revising the overview requires explicit user intent** (avoid silently overwriting manually edited fields).
 
-工具返回会区分**新增 N 个 / 合并改字段 N 个**,并显式列出被忽略的字段（``reference_image`` /
-``character_sheet`` 等系统管理字段、``type`` / ``importance`` 等已废弃字段）。结构非法（如缺
-description）时不落盘并返回 `is_error: true`。
-**严禁**用 Write/Edit/Bash 直接改 `project.json`——改字段走 patch_project 工具，改资产名走 rename_asset 工具，
-两个资产合一走 merge_asset 工具。`patch_project` 按 name upsert，用它改名只会「新名新建 + 旧名残留」且不更新任何引用。
+Tool results distinguish **N added / N field-merged** and explicitly list ignored fields (``reference_image`` /
+``character_sheet`` and other system-managed fields, deprecated ``type`` / ``importance``). Invalid structure (such as missing
+description) is not persisted and returns `is_error: true`.
+**Never** modify `project.json` directly with Write/Edit/Bash: use patch_project for fields, rename_asset for asset names,
+and merge_asset to combine assets. `patch_project` upserts by name; using it to rename only creates a new name while leaving the old entry and updates no references.
 
-## 合并重复登记的资产
+## Merge duplicate asset registrations
 
-同一个人、地点或物件被登记成两个同表资产时（如「老王」与「王建国」），用 `mcp__arcreel__merge_asset` 把
-`source` 并入 `target`。合并不可撤销，按以下顺序进行：
+When one person, location, or object has two same-table registrations (such as “Old Wang” and “Wang Jianguo”), use `mcp__arcreel__merge_asset` to merge
+`source` into `target`. Merging is irreversible; proceed in this order:
 
-1. 与用户确认保留哪一个作 `target`，以及并法：同一外观并为本体（默认）；`source` 是 `target` 的另一套外观
-   （如「黑衣人」是主角易容后的样子）时传 `as_derivative: true`，只适用于角色。
-2. 传 `dry_run: true` 调用，把回执里按集列出的引用改写数、将过期的分镜图与视频数，以及 `source` 不保留的内容
-   （描述、资产图及版本历史、声音设置、原图、参考音频）转述给用户。`source` 的描述里有 `target` 需要的信息时，
-   一并问用户是否先经 `patch_project` 补进 `target`。
-3. 得到用户同意后，去掉 `dry_run` 再调用一次执行。
+1. Confirm with the user which asset survives as `target` and the merge method: merge into the base for the same appearance (default); if `source` is another appearance of `target`
+   (such as a black-clad figure who is the protagonist in disguise), pass `as_derivative: true`, supported only for characters.
+2. Call with `dry_run: true` and relay per-episode reference rewrite counts, storyboard/video counts that will become stale, and discarded `source` content
+   (description, asset image and version history, voice settings, originals, reference audio). If `source` descriptions contain information needed by `target`,
+   also ask whether to first add it to `target` using `patch_project`.
+3. After user consent, call again without `dry_run` to execute.
 
-## 查视频模型能力
+## Query video model capabilities
 
-通过 MCP 工具查询（项目名由 session 绑定，无需传参）：
+Query through the MCP tool (the session binds the project name; no parameter needed):
 
 ```text
 mcp__arcreel__get_video_capabilities({})
 ```
 
-生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode_id` 参数。
+The project uniquely determines generation mode, with no episode-level override; capability queries are consistent project-wide and neither accept nor require `episode_id`.
 
-**返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按视频单元有无 `@` 引用分别适用；`units` 按 `unit_id` 给出每个已有正式视频单元由服务端按可用参考图判定的桶 `hydrated_capability`、该桶生效档位 `allowed_durations`、事实失败 `problem`，以及声明引用与可用参考图分裂时的 `problems` / `unavailable_references`——已有单元的桶与档位以它为准）；**ad 项目不返回该字段**——ad 的机器字段 `unit` 是从 `shots[]` 派生的轻量索引，分镜时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 分镜时长。
+**Returns**: JSON text containing `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`; narration / drama reference-to-video projects also include `reference_unit_durations` (effective `with_references` / `without_references` tiers, selected by whether a unit has `@` references; `units`, keyed by `unit_id`, gives each existing formal unit's server-determined available-reference bucket `hydrated_capability`, effective `allowed_durations`, factual failure `problem`, and `problems` / `unavailable_references` when declared references differ from available images; use these as authoritative for existing units' buckets and tiers). **Ad projects do not return this field**: ad machine field `unit` is a lightweight index derived from `shots[]`; shot durations are not governed by tier enums (see `video-workflow/SKILL.ad.md`). Do not wait for this field or rearrange ad shot durations to fit tiers.
 
-**用途**：所有 generation_mode（storyboard / reference_video）的脚本规划子智能体在执行时自查，用于决定单分镜 / 视频单元时长。**决策优先级**（高到低）：硬约束（storyboard 分镜时长必须取自 `supported_durations`；narration / drama 的 reference_video 视频单元时长必须取自该视频单元引用状态对应的 `reference_unit_durations` 档位；ad 的分镜时长按 `SKILL.ad.md` 的自由整数规则）> `episode_target_duration` / `default_duration` 偏好（前者是本集各单元时长合计的软目标，据它决定拆多少个；后者非 null 时作单个单元的默认值）> 内容需要（reference_video 按该视频单元内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆视频单元，不违约时长。
+**Use**: script-planning subagents for all generation_mode values (storyboard / reference_video) query independently during execution to determine individual shot/unit durations. **Decision priority** (highest first): hard constraints (storyboard shot duration must come from `supported_durations`; narration / drama reference_video unit duration must come from the `reference_unit_durations` tier matching that unit's reference state; ad shot duration follows free-integer rules in `SKILL.ad.md`) > `episode_target_duration` / `default_duration` preferences (the former is a soft target for this episode's summed unit durations and determines how many units to split into; the latter, when non-null, is the default per unit) > content needs (reference_video chooses a tier matching that unit's actual content length; narration / drama long sentences or complex visuals can use longer values). Resplit units when content does not fit; do not violate duration constraints.
 
-**错误**：项目未找到或模型能力无法解析时返回 `is_error: true`，文本中包含原因。
+**Errors**: if the project is absent or model capabilities cannot be resolved, returns `is_error: true` with the reason in text.

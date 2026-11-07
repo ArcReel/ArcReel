@@ -34,13 +34,13 @@ interface RefRow {
   thumbPath?: string;
   description?: string;
   isStale: boolean;
-  /** 本集新增资产（内容确认时可选），确认时才登记。 */
+  /** Episode-new assets selectable during content confirmation, registered only on confirmation. */
   isNew?: boolean;
-  /** 已选的「不登记」新增项：确认时从引用中移出，不是失效引用。 */
+  /** Selected unregistered additions leave references at confirmation, not invalid references. */
   isSkipped?: boolean;
 }
 
-/** 内容确认页额外的候选：本集新增项按类型给出名字。 */
+/** Extra confirmation-page candidates: episode-new names by type. */
 export type SegmentRefsNameSets = Partial<Record<SegmentAssetKind, ReadonlySet<string>>>;
 
 export interface SegmentRefsChanges {
@@ -52,9 +52,9 @@ export interface SegmentRefsChanges {
 interface SegmentRefsEditModalProps {
   open: boolean;
   onClose: () => void;
-  /** 确定：只带改动过的类型。返回的 Promise 落定前两个按钮禁用、不响应关闭。 */
+  /** Confirm changed types only; both buttons disable/closing ignores until returned Promise settles. */
   onSave: (changes: SegmentRefsChanges) => void | Promise<void>;
-  /** 提交中：禁用按钮并忽略关闭请求；由调用方维护 */
+  /** Submitting disables buttons/closing, caller-maintained. */
   saving?: boolean;
   initialCharacters: string[];
   initialScenes: string[];
@@ -64,9 +64,9 @@ interface SegmentRefsEditModalProps {
   props: Record<string, Prop>;
   projectName: string;
   onManageClick?: (kind: SegmentAssetKind) => void;
-  /** 本集新增、确认时登记的名字；须同时出现在对应的资产字典里。 */
+  /** New episode names registered at confirmation, also required in their corresponding asset dictionaries. */
   newNames?: SegmentRefsNameSets;
-  /** 本集新增里选了「不登记」的名字：不作候选，已选时按「确认时移出」呈现。 */
+  /** New names marked unregistered are not candidates; selected ones display removal-at-confirmation. */
   skippedNames?: SegmentRefsNameSets;
 }
 
@@ -84,7 +84,7 @@ function getSheetPath(kind: SegmentAssetKind, asset: Asset): string | undefined 
 
 const NO_NAMES: ReadonlySet<string> = new Set();
 
-/** 已选但不在候选里的名字：「不登记」的新增项按确认时移出呈现，其余是失效引用。 */
+/** Selected names outside candidates: unregistered additions display removal-at-confirmation, others invalid references. */
 function appendUnlisted(
   rows: RefRow[],
   kind: SegmentAssetKind,
@@ -119,8 +119,8 @@ function buildRows<A extends Asset>(
 }
 
 /**
- * 角色行按「形态」而非「资产条目」列：`characters_in_*` 收的是引用名，衍生
- * （`本体名/衍生名`）与本体一样可选（见 `docs/adr/0072`），各带自己的资产图与变化描述。
+ * Character rows list appearances, not asset entries: `characters_in_*` holds reference names; derivatives
+ * (`本体名/衍生名`) are selectable like bases (`docs/adr/0072`), each with own sheet/variation description.
  */
 function buildCharacterRows(
   characters: Record<string, Character>,
@@ -198,7 +198,7 @@ export function SegmentRefsEditModal({
     };
   }, [charRows, sceneRows, propRows, q]);
 
-  // stale 计数基于未过滤的完整 rows，避免搜索词把 stale 项过滤后徽标消失
+  // stale counts use complete unfiltered rows so search-filtered stale items do not erase badges.
   const countSelectedStale = (rows: RefRow[], set: Set<string>) =>
     rows.reduce((n, r) => (r.isStale && set.has(r.name) ? n + 1 : n), 0);
   const staleCounts = {
@@ -319,7 +319,7 @@ interface SectionProps {
   icon: ReactNode;
   rows: RefRow[];
   selectedSets: Record<SegmentAssetKind, Set<string>>;
-  /** 已选且失效的引用数；由 parent 基于未过滤集合计算，避免搜索过滤后徽标消失 */
+  /** Selected invalid-reference count, computed by parents from unfiltered sets so searches do not erase badges. */
   staleCount: number;
   onToggle: (kind: SegmentAssetKind, name: string) => void;
   projectName: string;
@@ -399,7 +399,7 @@ interface RowProps {
   projectName: string;
 }
 
-/** 一条候选：整行是一个切换按钮，按下即选中。失效引用与「不登记」的新增项在第二行说明。 */
+/** Candidate row is one toggle button; second line explains invalid references/unregistered additions. */
 function Row({ row, selected, onToggle, projectName }: RowProps) {
   const { t } = useTranslation("dashboard");
   const sheetFp = useProjectsStore((s) =>

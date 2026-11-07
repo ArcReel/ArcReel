@@ -3,9 +3,9 @@ import { loadRecordedResponses } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 页面外壳与全局设置导航：三档容器（全出血、限宽、铺满）、外壳保存栏与侧栏；
-// 「默认模型」「关于」「提示词模版」「素材库与存储」分区与配置问题的就地提示。
-// 其他分区的内容由各自的区域重做，这里不截它们的整块内容。供应商分区的场景在 providers.spec.ts。
+// Page shells/global settings: full-bleed/constrained/full-width containers, shell save bars/sidebars;
+// default models/About/prompt templates/library-storage and inline configuration issues.
+// Other regions own their content, omitted here; provider scenarios in providers.spec.ts.
 
 const RECORDED = loadRecordedResponses();
 
@@ -13,8 +13,8 @@ function settings(section: string) {
   return `/app/settings?section=${section}`;
 }
 
-// 压力变体：三家供应商各十个模型，供应商名与模型名都很长；视频与图片都有细分项已配置，
-// 细分区自动展开。
+// Stress variant: three providers with ten models each, long provider/model names and configured video/image subdivisions;
+// subdivision regions expand automatically.
 const LONG_PROVIDERS: [string, string][] = [
   ["gemini-aistudio", "AI Studio"],
   ["ark", "火山方舟 · 华北二区专属算力集群（企业版）"],
@@ -76,7 +76,7 @@ function manyModelsOverrides(): ApiOverrides {
   };
 }
 
-// 「关于」：有新版本，发布说明很长（多段、长链接）。代码块的横向滚动属于 Markdown 渲染的共用样式，不在这里覆盖。版本信息在录制环境里访问外网，固定由场景提供。
+// About: new versions with long release notes (multiple paragraphs/long links). Code-block horizontal scrolling uses shared Markdown styles, not covered here. Recorded version info accesses external networks, so scenarios supply fixed values.
 const LONG_RELEASE: ApiOverrides = {
   "GET /api/v1/system/version": {
     status: 200,
@@ -103,7 +103,7 @@ const LONG_RELEASE: ApiOverrides = {
   },
 };
 
-// 「素材库与存储」：已配置对象存储连接、新增图片保存到对象存储，桶里还有未清理的中转副本；桶名与 Endpoint 很长。
+// Material libraries/storage: configured object-storage connections, new images saved there, and uncleaned relay copies in buckets; long bucket names/Endpoints.
 const REMOTE_STORAGE: ApiOverrides = {
   "GET /api/v1/object-storage/connection": {
     status: 200,
@@ -199,7 +199,7 @@ defineRegionScenarios("全局设置", [
     },
     act: async (page) => {
       const nav = page.getByRole("navigation", { name: "设置" });
-      // 录制环境既没有可用的供应商，也没有 Agent 供应商。
+      // Recorded environments have neither usable providers nor Agent providers.
       const flagged = nav.getByRole("link").filter({ has: page.getByRole("img", { name: "配置不完整" }) });
       await expect(flagged).toHaveText(["供应商", "ArcReel Agent"]);
       await expect(page.getByRole("note", { name: "配置不完整" })).toBeInViewport();
@@ -296,7 +296,7 @@ defineRegionScenarios("全局设置", [
     act: async (page) => {
       await page.getByRole("button", { name: /发布说明/ }).click();
       const release = page.getByRole("link", { name: "打开 GitHub Release" });
-      // 等懒加载 Markdown 完成排版，再滚到位于正文之后的 Release 链接。
+      // Wait for lazy Markdown layout, then scroll to Release links following bodies.
       await expect(page.locator(".markdown-body")).toBeVisible();
       await release.scrollIntoViewIfNeeded();
       await expect(release).toBeInViewport();

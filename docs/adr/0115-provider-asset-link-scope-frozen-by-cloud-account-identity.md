@@ -2,14 +2,14 @@
 status: accepted
 ---
 
-# 供应商素材关联按冻结的云账号身份判断范围
+# Freeze cloud-account identity when scoping provider asset links
 
-供应商素材 ID 只在创建它的云账号内有效。素材库账号是一条可以原地修改的记录：设置页可以把它的 Access Key 换成另一个云账号的 Key，记录 ID、站点、区域与项目都不变。[ADR 0111](0111-asset-upload-job-and-link-share-one-record.md) 用账号记录 ID 加站点、区域、项目作为调用范围，换 Key 并重新确认绑定后，新账号的请求会选中旧账号的素材 ID；未完成的入库任务也会用新 Key 继续提交与查询。本 ADR 修订 ADR 0111 中调用范围的组成，其余决定不变。
+Provider asset IDs are valid only in their creating cloud account. Library-account records are editable in place: Access Keys may change accounts without changing record ID/site/region/project. [ADR 0111](0111-asset-upload-job-and-link-share-one-record.md) used record ID plus site/region/project, allowing old IDs after replacing keys and reconfirming; pending jobs would also submit/query with new keys. Amend only that scope composition.
 
-关联与入库任务在建立时冻结云账号身份，调用范围由云账号身份、站点、区域与供应商项目组成，不含账号记录 ID。选定唯一键、生成时的关联选择、上传与导入时的重复检查、设置页面板中关联与账号的对应、后台入库推进，都按这四项判断。账号换成另一个云账号的 Key 后，旧关联保留原范围，不删除、不改写，也不适用于新身份；未提交的任务失败并记录 `account_scope_changed`，处理中的任务停止自动查询。导入建立的关联同样适用。
+Links/jobs freeze cloud-account identity at creation. Scope is identity, site, region, and provider project, excluding account record ID. Selected uniqueness, generation selection, upload/import duplicate checks, settings-account matching, and background progression all use these four. On account-changing key replacement, retain old scopes without deletion/rewrite or applicability to new identities. Unsubmitted jobs fail with `account_scope_changed`; processing jobs stop automatic polling. Imported links follow the same rule.
 
-云账号身份取站点与 Access Key ID 的 SHA-256 摘要，带版本前缀，不包含 Secret Access Key，也不保存原始 Key。只改 Secret Access Key 不改变身份。不采用供应商的真实账号 ID：火山引擎 STS `GetCallerIdentity`（Version 2018-01-01）可以返回 AccountId，但它的主机不在控制面站点登记表里，保存账号时要多一次网络请求，子用户还可能没有调用权限；BytePlus 的对应端点没有找到官方文档。在没有真实账号验证这些条件之前，摘要是可以离线计算、只会更严格的选择。
+Identity is a version-prefixed SHA-256 of site and Access Key ID, excluding Secret Access Key and raw keys. Secret-only changes preserve identity. Do not use actual account IDs yet: Volcengine STS `GetCallerIdentity` (Version 2018-01-01) can return AccountId, but its host is unregistered, adds save-time network calls, and subusers may lack permissions; corresponding BytePlus official docs were not found. Until validated with real accounts, offline digests are conservative and only stricter.
 
-## 后果
+## Consequences
 
-同一云账号轮换 Access Key，或改用同账号下另一个子用户的 Key 时，已有关联不再适用，需要重新上传或选择图片：素材 ID 实际仍然有效，这是摘要方案的代价，但不会误用另一个账号的素材 ID。同一个云账号登记成两条账号记录时，两条记录共享关联。存量关联由 alembic 迁移按所记账号的当前 Key 补写身份；账号已删除或范围已改的关联补写一个不会与任何账号相等的值。以后若验证了两站的账号标识接口，可以换成真实账号 ID，并换掉摘要前缀。范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+Same-account Access Key rotation or switching subusers invalidates applicability and requires upload/reselection even though IDs remain valid. This is the digest tradeoff, without cross-account misuse. Duplicate records of one cloud identity share links. Alembic backfills current recorded-account identities; deleted/changed-scope links get values matching no account. Verified future account APIs may replace digests and their prefixes. Scope/acceptance: [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559).

@@ -6,7 +6,7 @@ import { marketSettingsPath } from "@/app-routes";
 import { Button } from "@/components/ui/button";
 
 /**
- * 官方服务开启后首次进入市场的说明：上报了什么、在哪里关闭（链接到市场「设置」）；确认或关闭后不再出现。
+ * Notice on first market visit after enabling official services: what was reported and where to disable it (market Settings link); hide after confirmation or dismissal.
  */
 export function OfficialServiceNotice({
   busy,

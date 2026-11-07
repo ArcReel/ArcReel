@@ -10,7 +10,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 class TestGenerationTasks:
     def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
-        """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""
+        """Grid fingerprints include overwritten canonical storyboard images for cache busting, rejecting paths outside project directories."""
         from lib.script.grid.grid_manager import GridManager
         from lib.script.grid.models import FrameCell, GridGeneration
 
@@ -46,7 +46,7 @@ class TestGenerationTasks:
                     row=0,
                     col=1,
                     frame_type="transition",
-                    # 项目内的绝对路径：允许纳入，但指纹 key 必须归一为相对路径
+                    # Allow absolute paths inside projects, but normalize fingerprint keys to relative paths.
                     image_path=str(project_path / "storyboards" / "scene_E1S02.png"),
                 ),
                 FrameCell(index=2, row=1, col=0, frame_type="transition", image_path="../outside.png"),

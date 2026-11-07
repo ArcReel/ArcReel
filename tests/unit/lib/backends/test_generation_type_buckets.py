@@ -1,4 +1,4 @@
-"""内置模型的任务类型桶归属：直读目录快照与 backend 能力声明。"""
+"""Built-in task buckets read catalog snapshots/backend capabilities directly."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ def _builtin_buckets(provider_id: str, model_id: str):
 
 
 def test_grok_lite_is_not_an_r2v_candidate():
-    """xAI 只给 1.5 与经典版写了参考生视频；lite 带参考图被供应商拒收，不进 r2v 桶。"""
+    """xAI reference-video is declared only for 1.5/classic; providers reject lite references, so exclude r2v."""
     assert _builtin_buckets("grok", "grok-imagine-video-1.5-lite") == frozenset({"i2v"})
     assert "r2v" in _builtin_buckets("grok", "grok-imagine-video-1.5")
     assert "r2v" in _builtin_buckets("grok", "grok-imagine-video")

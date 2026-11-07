@@ -10,19 +10,19 @@ interface RenderButtonProps {
   projectName: string;
   timelineId: string;
   timelineName: string;
-  /** 当前修订的 issues；有阻断全部交付物的 issue 时按钮不可点。 */
+  /** Current revision issues; disable the button when any issue blocks all deliverables. */
   issues: readonly EditTimelineIssueRef[];
-  /** 项目用 TTS 配音时可以选旁白版本。 */
+  /** Narration variants are selectable for TTS-voiceover projects. */
   narrationAvailable: boolean;
-  /** 打开剪辑视图的「问题」列表。 */
+  /** Open the editing view issues list. */
   onShowIssues: () => void;
 }
 
 /**
- * 剪辑视图顶部的「出片」按钮，打开当前标签对应剪辑时间线的出片对话框。
+ * Render button atop editing view opens the selected timeline tab's render dialog.
  *
- * 当前修订有阻断全部交付物的 issue 时按钮不可点：悬停显示原因，旁边给出跳到「问题」列表的链接。
- * 只阻断带旁白版本的 issue 由对话框按所选旁白版本处理。
+ * Disable when current issues block all deliverables; hover explains why and an adjacent link opens issues.
+ * Dialogs handle narration-only blocking issues according to the selected narration variant.
  */
 export function RenderButton({
   projectName,
@@ -50,7 +50,7 @@ export function RenderButton({
           </span>
         </>
       )}
-      {/* 禁用的 button 不触发悬停，原因挂在外层容器上。 */}
+      {/* Disabled buttons do not trigger hover; attach reasons to their outer container. */}
       <span title={reason ?? undefined}>
         <Button
           size="sm"

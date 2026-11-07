@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
 
-/** 焦点在可输入的控件里：J / K 是要输入的字符，不当作快捷键。 */
+/** Input-capable focus means J / K are typed characters, not shortcuts. */
 function isTypingTarget(target: Element): boolean {
   if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
   if (target instanceof HTMLInputElement) {
@@ -16,21 +16,21 @@ export function isApplePlatform(): boolean {
 }
 
 interface ShotShortcutsOptions {
-  /** 快捷键只在焦点位于这个容器内（或页面没有焦点元素）时生效，不抢 Agent 面板、页头与弹层的按键。 */
+  /** Activate only within this container or without page focus, never stealing Agent/header/overlay keys. */
   rootRef: RefObject<HTMLElement | null>;
-  /** 回调需传稳定引用（useCallback）。 */
+  /** Require stable callback references (useCallback). */
   onPrev: () => void;
   onNext: () => void;
-  /** ⌘S / Ctrl+S；传入时整页拦下浏览器的保存快捷键，不传时不拦截。 */
+  /** ⌘S / Ctrl+S: supplied handlers intercept browser-save pagewide; omitted means no interception. */
   onSave?: () => void;
-  /** 切换分镜暂不可用（改序、增删在途）。 */
+  /** Shot switching temporarily unavailable during reorder/add/remove. */
   navDisabled: boolean;
 }
 
 /**
- * 分镜视图的快捷键：J / K 切到下一个与上一个分镜，焦点在输入框里时不响应；⌘S（Windows 为 Ctrl+S）保存当前分镜，
- * 在输入框里也可用。弹层渲染在容器之外，打开时不响应，只拦下 ⌘S 的浏览器默认行为；输入法组合输入中的按键与
- * 带其他修饰键的组合都放行。
+ * Shot shortcuts: J / K next/previous outside inputs; ⌘S (Ctrl+S on Windows) saves current shots,
+ * including inside inputs. Overlays outside containers disable actions, intercepting only browser ⌘S defaults; permit IME composition
+ * and combinations with other modifiers.
  */
 export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled }: ShotShortcutsOptions): void {
   useEffect(() => {
@@ -43,7 +43,7 @@ export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled 
 
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && key === "s") {
         if (!onSave) return;
-        // 焦点在弹层或 Agent 面板里时不保存分镜，但浏览器的「保存网页」同样拦下
+        // Overlay/Agent focus prevents shot saves but still intercepts browser Save Page.
         event.preventDefault();
         if (inScope) onSave();
         return;

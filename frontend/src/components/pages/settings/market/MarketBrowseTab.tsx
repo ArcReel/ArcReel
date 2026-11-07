@@ -27,8 +27,8 @@ function matchesQuery(entry: MarketEntry, query: string): boolean {
 }
 
 /**
- * 「浏览」Tab：搜索、媒体类型筛选、启用的市场源多于一个时的来源筛选、「只看已安装」，下面是条目网格。
- * 条目类型目前只有调用端点，不显示类型筛选。刷新失败的源在筛选行之上列出原因与快照时间。
+ * Browse tabs: search, media filters, sources when multiple enabled sources exist, Installed only, then entry grids.
+ * Endpoints are the only entry type, so omit type filters. Failed sources show reasons/snapshot times above filters.
  */
 export function MarketBrowseTab({
   initialMedia,
@@ -39,10 +39,10 @@ export function MarketBrowseTab({
   onOpen,
   onOpenEndpoint,
 }: {
-  /** 媒体类型筛选的初始值，来自地址的 `media` 参数；null 表示「全部」。 */
+  /** Initial media filters from URL `media`; null means All. */
   initialMedia: MarketMediaType | null;
   sources: MarketSourceInfo[];
-  /** null 表示还在加载。 */
+  /** null means still loading. */
   entries: MarketEntry[] | null;
   aggregates: ReadonlyMap<string, MarketEntryAggregate>;
   refreshingIds: ReadonlySet<number>;
@@ -58,7 +58,7 @@ export function MarketBrowseTab({
   const enabled = sources.filter((source) => source.is_enabled);
   const failing = enabled.filter((source) => source.status !== "ok" && source.status !== "never_fetched");
   const sourcesById = new Map(sources.map((source) => [source.id, source]));
-  // 来源被停用的条目不显示，即使条目列表还没随源的变化重新拉取。
+  // Hide disabled-source entries even before source changes refetch lists.
   const available = (entries ?? []).filter((entry) => sourcesById.get(entry.source_id)?.is_enabled === true);
   const trimmedQuery = query.trim();
   const visible = available.filter(
@@ -113,7 +113,7 @@ export function MarketBrowseTab({
           spacing={0}
           value={[mediaFilter]}
           onValueChange={(value: string[]) => {
-            // 单选：再次点击已选项会清空选择，此时保持原筛选
+            // Radio reselection clears values; retain existing filters then.
             const next = MEDIA_FILTERS.find((filter) => filter.id === value[0]);
             if (next) setMediaFilter(next.id);
           }}

@@ -1,30 +1,30 @@
 /**
- * 剪辑时间线出片相关的类型：成片与剪映草稿的产物现状、提交结果。
+ * Edit timeline rendering types: artifact status and submission results for final cuts and Jianying drafts.
  *
- * 对应后端 server/routers/edit_timelines.py 的响应形态。
+ * Matches response shapes from backend server/routers/edit_timelines.py.
  */
 
 import type { EditTimelineIssue, TimelineNarration } from "./edit-timeline";
 
-/** 产物相对于剪辑时间线的时效；stale 仍可下载。 */
+/** Artifact currency relative to the edit timeline; stale artifacts remain downloadable. */
 export type RenderArtifactStatus = "current" | "stale" | "missing" | "blocked";
 
-/** 出片的两种交付物。 */
+/** The two render deliverables. */
 export type RenderKind = "final_cut" | "jianying_draft";
 
-/** 成片是否把字幕烧入画面。 */
+/** Whether the final cut burns subtitles into the picture. */
 export type SubtitleMode = "burned_subtitles" | "no_subtitles";
 
-/** 出片选项：旁白版本两种交付物都有，烧入字幕只有成片。 */
+/** Render options: narration variants apply to both deliverables; burned subtitles apply only to final cuts. */
 export interface RenderOptions {
   narration: TimelineNarration;
   subtitles: SubtitleMode;
 }
 
-/** 剪映版本：6 表示 6 及以上，5 表示 5.x。 */
+/** Jianying version: 6 means version 6 and later; 5 means 5.x. */
 export type JianyingVersion = "5" | "6";
 
-/** 出片入口只关心 issue 的级别、影响范围与定位；完整形态见剪辑视图的读取结果。 */
+/** Rendering entry points use only issue severity, scope, and location; the edit view readout contains the full shape. */
 export type EditTimelineIssueRef = Pick<EditTimelineIssue, "code" | "severity" | "applies_to" | "unit_id">;
 
 interface RenderArtifactStatusBase {
@@ -39,7 +39,7 @@ interface RenderArtifactStatusBase {
 export interface FinalCutStatus extends RenderArtifactStatusBase {
   narration: TimelineNarration;
   subtitles: SubtitleMode;
-  /** 只在文件存在时给出；走匿名媒体路由，可直接下载。 */
+  /** Present only when the file exists; uses an anonymous media route for direct download. */
   download_url: string | null;
 }
 

@@ -1,14 +1,16 @@
-"""后台推进入库任务：中转上传、提交 CreateAsset、查询处理状态，并清理到期的中转副本。
+"""Advance ingest tasks in background: relay upload, CreateAsset submission, status queries, and expired-relay cleanup.
 
-内容版本已作为正式对象保存在当前连接的桶里时直接为它签发地址，签发前以入库任务的引用方键
-（:func:`ingest_holder`，见 ``docs/adr/0118``）登记引用，按与中转副本相同的保留规则到期后撤下，
-供应商异步取图期间来源被彻底清除也不会回收这个对象。
+When content is already a formal object in the current bucket, sign it directly. Before signing,
+register an ingest-holder reference (:func:`ingest_holder`, ``docs/adr/0118``), releasing after
+the same retention rules as relays. Permanently clearing sources during provider retrieval
+therefore cannot collect objects.
 
-页面与 Agent 只创建入库任务并查询状态，不等待供应商审核；推进全部在这里进行，进程重启后从数据库继续。
-状态与选定的含义见 :mod:`lib.asset_library.links`。每一步都只按条件更新状态事实，不改变 ``selected``。
+Pages/Agents only create/query tasks, never wait for provider review; advance everything here,
+resuming from DB after restarts. State/selection meanings: :mod:`lib.asset_library.links`.
+Each step conditionally updates state facts, never ``selected``.
 
-:func:`run_once` 是一轮完整的处理，测试直接调用它；:class:`AssetIngestRunner` 在应用生命周期里循环调用，
-新任务创建后由 :func:`wake_asset_ingest` 提前唤醒。
+:func:`run_once` performs one complete round for direct tests; :class:`AssetIngestRunner` loops
+within app lifetime, woken early by :func:`wake_asset_ingest` after new task creation.
 """
 
 from __future__ import annotations
@@ -65,28 +67,28 @@ from lib.project.project_manager import get_project_manager
 
 logger = logging.getLogger(__name__)
 
-#: ArcReel 上传的素材所在的 AIGC 素材组名称，每个账号项目范围一个。
+#: AIGC group name for ArcReel uploads, one per account/project scope.
 ASSET_GROUP_NAME = "ArcReel"
 _ASSET_GROUP_DESCRIPTION = "ArcReel 上传的图片素材"
 
-#: 提交后第一次查询状态的等待时间，之后按指数退避到 :data:`CHECK_MAX_INTERVAL`。
+#: Delay before first post-submission status query, then exponential backoff to :data:`CHECK_MAX_INTERVAL`.
 CHECK_INITIAL_DELAY = timedelta(seconds=5)
 CHECK_MAX_INTERVAL = timedelta(minutes=5)
-#: 自提交起自动查询的时长；之后停在当前状态，由用户手动刷新。
+#: Automatic query duration from submission; afterward retain current state until manual refresh.
 POLL_WINDOW = timedelta(hours=72)
-#: 结果不确定的任务按名称查回素材的时长：下载地址过期后供应商已无法再取图。
+#: Name-based recovery window for uncertain submissions: providers cannot fetch after URL expiry.
 UNCERTAIN_LOOKUP_WINDOW = RELAY_URL_TTL + timedelta(hours=1)
-#: 循环在没有被唤醒时的轮询间隔。
+#: Polling interval when the loop receives no wake-up.
 LOOP_INTERVAL_SECONDS = 10.0
 
 _MESSAGE_LIMIT = 500
 
-#: 入库任务对直接签名的正式对象持有引用时的引用方键前缀（不是项目的消费者，见 ``docs/adr/0118``）。
+#: Ingest-holder prefix for directly signed formal objects (nonproject consumer, ``docs/adr/0118``).
 INGEST_HOLDER_PREFIX = "ingest:"
 
 
 def ingest_holder(link_id: int) -> str:
-    """入库任务 ``link_id`` 持有正式对象引用时的引用方键。"""
+    """Holder key when ingest task ``link_id`` references formal objects."""
     return f"{INGEST_HOLDER_PREFIX}{link_id}"
 
 
@@ -150,8 +152,9 @@ def _snapshot(link: ProviderAssetLink) -> _LinkSnapshot:
 
 
 def _account_matches(account: AssetLibraryAccount | None, link: _LinkSnapshot) -> bool:
-    """账号仍覆盖提交时的范围；账号被换成另一个云账号的 Access Key，或改到另一个站点、区域、项目后，
-    不再用它提交或查询：新凭证推进旧任务会把素材建进另一个账号，或拿另一个账号的结果改写这条关联。"""
+    """Account still covers submission scope. After cloud-account Access Key/site/region/project changes,
+    never submit/query through it: new credentials could create assets in another account or
+    overwrite links using another account’s results."""
     return (
         account is not None
         and account_identity(account.site, account.access_key_id) == link.account_identity
@@ -162,7 +165,7 @@ def _account_matches(account: AssetLibraryAccount | None, link: _LinkSnapshot) -
 
 
 def _next_check(now: datetime, attempts: int) -> datetime:
-    # 指数先封顶再乘：查询次数累积多了，timedelta 乘法会溢出，min 来不及截断
+    # Cap exponents before multiplying; accumulated query counts overflow timedelta before min can clamp.
     return now + min(CHECK_INITIAL_DELAY * (2 ** min(max(attempts, 0), 16)), CHECK_MAX_INTERVAL)
 
 
@@ -173,7 +176,7 @@ def _clip(text: str | None) -> str | None:
 async def _update(
     session_factory: async_sessionmaker[AsyncSession], link_id: int, *conditions: Any, **values: Any
 ) -> bool:
-    """按条件更新一条关联的状态事实，返回是否命中。不触碰 ``selected``。"""
+    """Conditionally update link state facts and return whether matched, never touching ``selected``."""
     assert "selected" not in values
     async with session_factory() as session:
         result = await session.execute(
@@ -185,8 +188,8 @@ async def _update(
         return bool(getattr(result, "rowcount", 0))
 
 
-#: ArcReel 自己判定的提交前失败。界面按码给出本地化原因，不当作供应商原文；前端的码表与它
-#: 经 ``frontend/src/test/contracts/provider-asset-local-failures.json`` 双向核对。
+#: ArcReel-determined pre-submission failures. UI localizes by code rather than treating as provider text; frontend codes
+#: are checked bidirectionally through ``frontend/src/test/contracts/provider-asset-local-failures.json``.
 LocalFailureCode = Literal[
     "unlinked_before_submit",
     "account_missing",
@@ -216,7 +219,7 @@ async def _fail_before_submit(
     code: str,
     message: str | None = None,
 ) -> None:
-    # 只用于提交之前的失败：此时供应商侧没有创建素材。``code`` 可以是供应商返回的错误码。
+    # Pre-submission failures only: providers created no asset yet. ``code`` may be provider-returned.
     await _update(
         session_factory,
         link_id,
@@ -230,8 +233,8 @@ async def _fail_before_submit(
 
 
 def _frozen_content_version(project_path: Path, link: _LinkSnapshot) -> ContentVersion:
-    # 按内容版本身份取此刻的定位：入库在途时资源改名会移动快照，提交时记下的路径随之失效。
-    # 摘要始终用提交时冻结的值，读到的内容与关联认定的内容不符即拒绝。
+    # Resolve current locators by content identity: resource renames during ingest move snapshots, invalidating captured paths.
+    # Always use submission-frozen digests; reject content differing from the link’s identified bytes.
     current = VersionManager(project_path).find_content_version(link.resource_type, link.content_version_id)
     return ContentVersion(
         material=current.material if current else MaterialRef(link.resource_type, link.resource_id),
@@ -244,10 +247,11 @@ def _frozen_content_version(project_path: Path, link: _LinkSnapshot) -> ContentV
 
 
 def _formal_object_on(connection: ObjectStorageConnection, content_version: ContentVersion) -> str | None:
-    """内容版本已作为正式对象保存在这条连接的桶里时返回对象 key：直接为它签发地址，不另写中转副本。
+    """Return object keys for content already stored formally in this connection’s bucket; sign directly without relay copies.
 
-    对象 key 按内容摘要命名，签发的地址固定指向这个内容版本；它不是中转副本，中转清理不会删除它。签发前由
-    :func:`_hold_formal_object` 以入库任务的引用方键登记引用，保留期内来源被彻底清除也不会回收它。
+    Digest-named keys fix URLs to this version. These are not relays and relay cleanup never
+    deletes them. Before signing, :func:`_hold_formal_object` registers ingest-holder references,
+    preventing collection during retention even if source content is permanently cleared.
     """
     stored = content_version.stored
     if stored is None or stored.connection_id != connection.id or stored.bucket != connection.bucket:
@@ -258,7 +262,7 @@ def _formal_object_on(connection: ObjectStorageConnection, content_version: Cont
 async def _content_bytes(
     project_path: Path, content_version: ContentVersion, session_factory: async_sessionmaker[AsyncSession]
 ) -> bytes:
-    # 取回到读取期间登记使用：缓存清理不会在两者之间删掉工作文件
+    # Register use throughout fetch/read so cache cleanup cannot delete work files between them.
     async with local_work_files(project_path, [content_version.locator.path], session_factory=session_factory):
         path = await ensure_content_version_file(project_path, content_version, session_factory=session_factory)
         return await asyncio.to_thread(path.read_bytes)
@@ -286,19 +290,19 @@ async def _submit(
         await _fail(session_factory, link.id, now, "object_storage_missing")
         return
 
-    # 内容按提交时冻结的内容版本读取并校验摘要：入库期间改选或替换图片不影响这次上传。
+    # Read/verify submission-frozen content versions; selection/replacement during ingest never affects this upload.
     client = ObjectStorageClient(config_from_connection(connection))
     try:
         project_path = await asyncio.to_thread(project_path_of, link.project_name)
         content_version = await asyncio.to_thread(_frozen_content_version, project_path, link)
         formal_key = _formal_object_on(connection, content_version)
         if formal_key is not None and not await _hold_formal_object(session_factory, link, content_version, now):
-            formal_key = None  # 对象已不在或等待删除之外的状态：按中转副本上传
+            formal_key = None  # Missing objects or states other than pending deletion: upload through relay copies.
         data = None if formal_key is not None else await _content_bytes(project_path, content_version, session_factory)
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
         return
-    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除，或远端取回失败
+    except (OSError, ValueError, ApiError):  # Snapshot absent, project missing/deleted, or remote retrieval failed.
         await _fail(session_factory, link.id, now, "content_unavailable")
         return
 
@@ -321,12 +325,12 @@ async def _submit(
     try:
         group_id = await ensure_asset_group(credentials, ASSET_GROUP_NAME, description=_ASSET_GROUP_DESCRIPTION)
     except AssetLibraryRequestError as exc:
-        # 素材组只是容器，没有提交素材，失败即可判定入库未发生。
+        # Asset groups are containers, not submitted assets; group failures prove ingest has not occurred.
         await _fail_before_submit(session_factory, link.id, now, exc.code or f"request_{exc.kind}", exc.message)
         return
     raise_if_cancel_absorbed()
 
-    # 发出 CreateAsset 前确认任务仍被选定且未被处理过；之后进程中断，按结果不确定处理。
+    # Before CreateAsset, verify tasks remain selected and unprocessed; later process interruption means uncertain outcome.
     started = await _update(
         session_factory,
         link.id,
@@ -357,7 +361,7 @@ async def _submit(
             _update(session_factory, link.id, ProviderAssetLink.state == "submitting", **values)
         )
         return
-    # 供应商已经接受：素材 ID 落账不可中断，否则重启后只能按结果不确定去查回。
+    # Providers accepted: persist asset IDs without interruption, or restart can only recover uncertain outcomes.
     await run_noninterruptible_async(
         _update(
             session_factory,
@@ -380,7 +384,7 @@ async def _hold_formal_object(
     content_version: ContentVersion,
     now: datetime,
 ) -> bool:
-    """签发正式对象地址前，以入库任务的引用方键登记引用，并把保留起点记为这次签发；返回对象是否仍可用。"""
+    """Before signing formal objects, add ingest-holder references and reset retention start to this signing; return continued availability."""
     assert content_version.stored is not None
     holder = ingest_holder(link.id)
     if not await add_reference(content_version.stored, holder, link.content_version_id, session_factory):
@@ -394,11 +398,12 @@ async def _hold_formal_object(
 
 
 async def release_ingest_holds(session_factory: async_sessionmaker[AsyncSession], *, now: datetime) -> int:
-    """撤下保留期已过的入库任务引用，并回收因此失去全部引用的正式对象；返回删除的对象数量。
+    """Release expired ingest-holder references, collect newly unreferenced formal objects, and return deletion count.
 
-    保留期与中转副本相同（:func:`~lib.object_storage.relay.signed_content_retained_until`），自最近一次签发起算：
-    任务有定论后至少一小时，没有定论（处理中、结果不确定、已解除、账号不可用）或任务记录已不在时保留到地址过期
-    再加一小时。进程重启不影响，引用与签发时间都在数据库里。
+    Match relay retention (:func:`~lib.object_storage.relay.signed_content_retained_until`), measured
+    from latest signing: at least one hour after resolution; unresolved tasks (processing, uncertain,
+    unlinked, unavailable accounts) or missing task records retain until URL expiry plus one hour.
+    Restarts do not affect persisted references/signing times.
     """
     async with session_factory() as session:
         rows = (
@@ -426,7 +431,7 @@ async def release_ingest_holds(session_factory: async_sessionmaker[AsyncSession]
 
 
 def _schedule_after(link: _LinkSnapshot, now: datetime, window: timedelta) -> datetime | None:
-    """下一次自动查询的时间；超出窗口后不再自动查询。"""
+    """Next automatic query time; no more automatic queries after the window."""
     started = link.submitted_at or now
     if now - started >= window:
         return None
@@ -487,7 +492,7 @@ async def _check_processing(
 async def _check_uncertain(
     session_factory: async_sessionmaker[AsyncSession], link: _LinkSnapshot, now: datetime
 ) -> None:
-    """提交结果不确定：按提交时的唯一名称在素材组里查回素材，查到即转为处理中，不重新创建。"""
+    """Uncertain submission: recover by unique submission name within groups; found assets become processing, never recreated."""
     async with session_factory() as session:
         account = await session.get(AssetLibraryAccount, link.account_id)
     if not _account_matches(account, link) or not link.provider_group_id:
@@ -546,7 +551,7 @@ async def _due_links(session_factory: async_sessionmaker[AsyncSession], now: dat
 
 
 async def recover_interrupted(session_factory: async_sessionmaker[AsyncSession], *, now: datetime | None = None) -> int:
-    """启动时把中断在提交中的任务改为结果不确定：CreateAsset 可能已经被供应商接受，不能重新提交。"""
+    """At startup, interrupted submissions become uncertain: providers may have accepted CreateAsset, so never resubmit."""
     now = now or utc_now()
     async with session_factory() as session:
         result = await session.execute(
@@ -564,7 +569,7 @@ async def run_once(
     now: datetime | None = None,
     project_path_of: Callable[[str], Path] = _default_project_path,
 ) -> None:
-    """处理一轮：到期的入库任务逐条推进，然后清理到期的中转副本。单条失败不影响其余。"""
+    """Advance due ingest tasks individually, then clean expired relays; one task’s failure leaves others unaffected."""
     now = now or utc_now()
     for link in await _due_links(session_factory, now):
         try:
@@ -604,7 +609,7 @@ async def run_once(
 
 
 class AssetIngestRunner:
-    """在应用生命周期里循环调用 :func:`run_once`。"""
+    """Loop :func:`run_once` within application lifetime."""
 
     def __init__(
         self,
@@ -652,7 +657,7 @@ _runner: list[AssetIngestRunner | None] = [None]
 
 
 def start_asset_ingest(session_factory: async_sessionmaker[AsyncSession]) -> AssetIngestRunner:
-    """启动后台入库循环：启动时先恢复中断的提交，之后每隔一段时间或被唤醒时处理一轮。"""
+    """Start ingest background loops: recover interrupted submissions first, then process rounds periodically or when woken."""
     runner = AssetIngestRunner(session_factory)
     runner.start()
     _runner[0] = runner
@@ -666,7 +671,7 @@ async def stop_asset_ingest(runner: AssetIngestRunner) -> None:
 
 
 def wake_asset_ingest() -> None:
-    """有新任务或需要立即查询时提前唤醒后台循环；循环没有运行时不做任何事。"""
+    """Wake background loops early for new tasks/immediate queries; do nothing if no loop runs."""
     runner = _runner[0]
     if runner is not None:
         runner.wake()

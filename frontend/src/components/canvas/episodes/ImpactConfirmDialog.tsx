@@ -16,20 +16,20 @@ import {
 
 export interface ImpactConfirmRequest {
   title: string;
-  /** 正文，通常是服务端成文的受影响集清单。 */
+  /** Body, usually a server-written affected-episode list. */
   body: ReactNode;
   confirmLabel: string;
-  /** 提交中的按钮文案；缺省沿用 `confirmLabel`。 */
+  /** Submitting button label, default `confirmLabel`. */
   runningLabel?: string;
-  /** 会丢失产物或无法恢复：确认按钮按危险操作显示。 */
+  /** Artifact loss or irreversibility makes the confirmation destructive. */
   destructive: boolean;
-  /** 正文里有输入框等可聚焦元素：正文不再单独进入 Tab 顺序。 */
+  /** Body has focusable elements such as inputs; exclude the body itself from Tab order. */
   interactiveBody?: boolean;
 }
 
 /**
- * 「分集」视图里改动分集与源文前的确认：删除一集、手工切分、整本源文文件改动、重新规划与采纳新方案等。
- * `request` 为 null 时关闭；提交中禁用两个按钮并忽略关闭请求。受影响集清单可能很长，正文可以用键盘滚动。
+ * Episodes-view confirmation before episode/source changes: delete, manual split, whole-source changes, replanning/adoption, etc.
+ * Null `request` closes; submissions disable both buttons and ignore closing. Long affected lists support keyboard scrolling.
  */
 export function ImpactConfirmDialog({
   request,
@@ -43,7 +43,7 @@ export function ImpactConfirmDialog({
   onCancel: () => void;
 }) {
   const { t } = useTranslation("common");
-  // 关闭动画期间沿用上一次的内容
+  // Retain prior content during closing animation.
   const [shown, setShown] = useState(request);
   if (request !== null && request !== shown) setShown(request);
 
@@ -79,7 +79,7 @@ export function ImpactConfirmDialog({
   );
 }
 
-/** 确认正文里服务端成文的清单：保留换行；清单在确认期间变了时先说明。 */
+/** Server-written confirmation list: preserve newlines and explain changes occurring during confirmation first. */
 export function ImpactText({ text, changedNotice }: { text: string; changedNotice?: string | null }) {
   return (
     <div className="flex flex-col gap-2">

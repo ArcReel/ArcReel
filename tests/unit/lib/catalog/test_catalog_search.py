@@ -1,4 +1,4 @@
-"""目录搜索：按名称与媒体类型查找模型条目的读契约。"""
+"""Catalog search read contracts by model name and media type."""
 
 import pytest
 

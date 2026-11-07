@@ -1,4 +1,4 @@
-"""Agent 的回收站工具：删除只把未引用文件或历史版本移进项目回收站并记为 Agent 发起，列出与恢复走同一个回收站模块。"""
+"""Agent trash tools move only unreferenced files/history versions into project trash with Agent attribution; listing/restoration share that module."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Alembic 迁移：方舟 Seedance 端点按代际拆成三个，已有模型回填为升级前实际使用的那一代。"""
+"""Alembic: split Ark Seedance into three generation endpoints, backfilling models to their actual preupgrade generation."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from alembic.config import Config
 from alembic import command
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 
-#: 自定义供应商模型：(model_id, endpoint, entry_binding)
+#: Custom-provider models: (model_id, endpoint, entry_binding).
 _CUSTOM_MODELS = [
-    # 靠条目绑定识别为 Seedance 2.0 的不透明 ID：升级前按条目的名字不带 service_tier、按 2.0 像素表估算
+    # Opaque IDs identified as Seedance 2.0 by entry binding omitted service_tier and used 2.0 pixel estimates before upgrade.
     ("ep-20261103-opaque", "ark-seedance", "bytedance/doubao-seedance-2.0"),
     ("ep-20261103-unbound", "ark-seedance", None),
     ("opaque-alias", "ark-seedance", None),
@@ -23,11 +23,11 @@ _CUSTOM_MODELS = [
     ("dreamina-seedance-2-5-260628", "ark-seedance", None),
     ("doubao-seedance-2.0-fast", "ark-seedance", None),
     ("doubao-seedance-1-5-pro-251215", "ark-seedance", None),
-    # 用户选过的、没有拆分的端点保持不变
+    # Preserve user-selected endpoints that were not split.
     ("doubao-seedance-2-0-260128", "openai-video", None),
 ]
 
-#: 内置供应商下用户添加的模型：(provider_id, model_id, endpoint, entry_binding)
+#: User-added built-in-provider models: (provider_id, model_id, endpoint, entry_binding).
 _BUILTIN_MODELS = [
     ("ark", "ep-builtin-opaque", "ark-seedance", "bytedance/doubao-seedance-2.5"),
     ("ark-agent-plan", "doubao-seedance-1.5-pro", "ark-seedance", None),
@@ -140,7 +140,7 @@ def test_existing_seedance_models_keep_the_generation_they_used_and_downgrade_re
         ("ark-agent-plan", "doubao-seedance-1.5-pro"): "ark-seedance-1",
         ("minimax", "acme-video-pro"): "minimax-hailuo-v1",
     }
-    # 请求与升级前一致：升级前只要模型或所绑定条目的名字属于 2.x 就不带 service_tier
+    # Preserve requests: before upgrade, a model or bound entry name in 2.x omitted service_tier.
     sent_service_tier_before_upgrade = {
         ("custom", "ep-20261103-opaque"): False,
         ("custom", "ep-20261103-unbound"): True,

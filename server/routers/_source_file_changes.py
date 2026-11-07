@@ -1,8 +1,7 @@
-"""整本源文文件改动（``SourceFileChangeOutcome`` / ``SourceFileChangeError``）→ HTTP 响应的共享映射。
+"""Shared mapping of whole-source file changes (``SourceFileChangeOutcome`` / ``SourceFileChangeError``) to HTTP responses.
 
-命令从 ``episodes_view``（「分集」视图的文件条）与 ``files``（上传、按文件名写入与删除源文件）两个 router 冒出来，
-同一结果给出同一种响应形态。
-"""
+Commands surface through ``episodes_view`` (the episode view’s file bar) and ``files`` (source uploads, filename-based writes
+and deletion); identical results produce the same response shape."""
 
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -28,10 +27,9 @@ _STATUS: dict[str, int] = {
 def source_file_change_payload(
     outcome: SourceFileChangeOutcome, project: Mapping[str, Any], _t: Translator
 ) -> dict[str, Any]:
-    """已执行时返回 ``status=applied``；需要确认时返回服务端成文的受影响集清单与它的 ``revision``。
+    """Return ``status=applied`` after execution; when confirmation is needed, return the server-written affected-episode list and its ``revision``.
 
-    ``project`` 须是改动前的项目，确认清单里的集按改动前的标题或播出位置指称。
-    """
+    ``project`` must be the pre-change project; the confirmation list identifies episodes by their pre-change titles or broadcast positions."""
     impact = outcome.impact.to_dict()
     if outcome.applied:
         return {"status": "applied", "impact": impact}
@@ -49,11 +47,10 @@ async def ensure_no_displaced_tasks(
     preview: Callable[[], SourceFileChangeOutcome],
     _t: Translator,
 ) -> None:
-    """带着 ``revision`` 执行前，用 ``preview``（命令的 ``dry_run``）重算受影响集清单。
+    """Before executing with ``revision``, recompute affected episodes using ``preview`` (the command’s ``dry_run``).
 
-    清单与确认过的一致、而要退下或移除的集还有排队或执行中的任务时返回 409，不写入。不带 ``revision``
-    或清单已经变了时不拦，交给命令本身返回确认。
-    """
+    If the list matches the confirmed one but episodes being retired or removed still have queued/running tasks, return 409
+    without writing. Do not block when ``revision`` is absent or the list changed; let the command return confirmation itself."""
     if revision is None:
         return
     outcome = await run_sync_transaction(preview)

@@ -1,10 +1,10 @@
-"""声明式图片定义的调用通道：在 :class:`DeclarativeJobEngine` 上组装图片的请求与产物语义。
+"""Declarative image channels: image requests/artifact semantics over :class:`DeclarativeJobEngine`.
 
-与视频通道共用提交、轮询、状态映射、二次取件与产物下载；图片一侧只多出自己的模板变量、
-能力声明与产物字段：产物可以是地址，也可以是响应体里内联的 base64。
+Share submission/polling/status mapping/secondary retrieval/downloads with videos; images add template variables,
+capabilities, and output fields for URLs or response-inline base64.
 
-图片没有续跑协议：服务重启时在途的图片任务由重启恢复记为重启丢失，所以这里不落供应商任务 id；
-产物没能取回时也接不回原任务，只能重新生成。
+Images lack resume protocols: restart recovery marks in-flight image tasks restart-lost, so never persist provider task ids here;
+failed retrieval cannot reconnect original tasks, requiring regeneration.
 """
 
 from __future__ import annotations
@@ -39,16 +39,16 @@ from lib.infra.async_thread import run_noninterruptible_sync
 
 _HTTP_TIMEOUT_SECONDS = 60
 
-#: 一次图片任务等到终态的墙钟上限。
+#: Image-task terminal wall-clock maximum.
 #:
-#: 不读全局的 ``video_poll_timeout_seconds``：那个设置项说的是视频，把它的含义扩到图片上，用户调它
-#: 的时候就不知道自己在调几件事。图片这一维没有可配项，取与 ComfyUI 图片端点相同的定值。
+#: Never read global ``video_poll_timeout_seconds``: extending video settings to images would obscure how many behaviors users change.
+#: Images have no configurable timeout; use the same fixed value as ComfyUI image endpoints.
 IMAGE_POLL_TIMEOUT_SECONDS = 1800
 
-#: 供应商已出图、产物却没能取回或落盘时的失败码，恢复方式是重新生成。
+#: Failures after provider generation but unsuccessful retrieval/persistence; recover through regeneration.
 IMAGE_SAVE_FAILED_CODE = "declarative_image_save_failed"
 
-#: 图片定义 ``capabilities`` 节的字段 → 端点的图片能力。
+#: Image-definition ``capabilities`` fields → endpoint capabilities.
 _IMAGE_CAPABILITY_BY_FIELD: Mapping[str, ImageCapability] = {
     "text_to_image": ImageCapability.TEXT_TO_IMAGE,
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
@@ -56,9 +56,9 @@ _IMAGE_CAPABILITY_BY_FIELD: Mapping[str, ImageCapability] = {
 
 
 def definition_reference_limit(definition: Mapping[str, Any]) -> int | None:
-    """定义声明的参考图上限（通道事实）；未声明或不是正数时为 ``None``，即通道不限张数。
+    """Declared reference maxima (channel facts); ``None`` without positive declarations means no channel limit.
 
-    定义里的 ``max_reference_images: 0`` 沿用协议约定，表示不声明上限。校验器保证声明了图生图就有正数上限。
+    ``max_reference_images: 0`` preserves protocol meaning, undeclared maxima. Validators require positive limits when image-to-image is declared.
     """
     value = (definition.get("capabilities") or {}).get("max_reference_images")
     if isinstance(value, float) and value.is_integer():
@@ -67,7 +67,7 @@ def definition_reference_limit(definition: Mapping[str, Any]) -> int | None:
 
 
 def image_capabilities_from_definition(definition: Mapping[str, Any]) -> frozenset[ImageCapability]:
-    """图片定义显式声明的图片能力。端点投影与 backend 共读这一份，两处不会给出不同的能力。"""
+    """Explicit image capabilities shared by endpoint projections/backends, preventing differing declarations."""
     declared: Mapping[str, Any] = definition.get("capabilities") or {}
     return frozenset(
         capability for name, capability in _IMAGE_CAPABILITY_BY_FIELD.items() if declared.get(name) is True
@@ -76,27 +76,27 @@ def image_capabilities_from_definition(definition: Mapping[str, Any]) -> frozens
 
 @dataclass(frozen=True)
 class ImageJobState(JobState):
-    """图片定义的判读结果：在 :class:`JobState` 之上加产物地址与内联的 base64 产物。"""
+    """Image interpretation results: :class:`JobState` plus artifact URLs/inline base64."""
 
     image_url: str | None
-    #: 按 ``image_b64`` 取到的原文，未解码。两者都取到时以 ``image_url`` 为准。
+    #: Raw undecoded ``image_b64``; prefer ``image_url`` if both present.
     image_b64: str | None
 
 
 _DATA_URI_PREFIX = re.compile(r"^data:image/[\w.+-]+;base64,", re.IGNORECASE)
 
-#: 内联图片落盘前认的容器：认不出的字节不当图片写盘。
+#: Recognized containers before inline persistence; unknown bytes are not saved as images.
 _INLINE_IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp"})
 
 
 def decode_image_b64(text: str) -> bytes:
-    """把 ``image_b64`` 取到的原文解成图片字节，裸 base64 与 ``data:image/...;base64,`` 都认。
+    """Decode raw ``image_b64`` into image bytes, accepting bare base64 and ``data:image/...;base64,``.
 
     Raises:
-        ValueError: 不是合法的 base64，解出来为空，超出图片产物的体积上限，或文件头不是 PNG / JPEG / WebP。
+        ValueError: Invalid/empty base64, oversized artifacts, or headers other than PNG / JPEG / WebP.
     """
     payload = "".join(_DATA_URI_PREFIX.sub("", text.strip(), count=1).split())
-    # 先按编码长度估算体积再解码：超限的串不值得花内存解出来。
+    # Estimate sizes from encoded lengths before decoding, avoiding memory costs for oversized payloads.
     if len(payload) // 4 * 3 > IMAGE_ARTIFACT_MAX_BYTES:
         raise ValueError(f"inline image exceeds {IMAGE_ARTIFACT_MAX_BYTES} bytes")
     try:
@@ -105,7 +105,7 @@ def decode_image_b64(text: str) -> bytes:
         raise ValueError("image_b64 is not valid base64") from exc
     if not image:
         raise ValueError("image_b64 decoded to an empty image")
-    # 纯字母数字的串（如 ``SUCCESS``）恰好是合法 base64：解得出来不等于是图片。
+    # Alphanumeric strings such as ``SUCCESS`` may be valid base64; decodable does not mean images.
     if sniff_container(image[:CONTAINER_HEAD_BYTES]) not in _INLINE_IMAGE_MIMES:
         raise ValueError("image_b64 decoded to bytes that are not a PNG, JPEG or WebP image")
     return image
@@ -118,7 +118,7 @@ def extract_image_state(
     status_map: Mapping[str, str] | None = None,
     status: ProviderJobStatus | None = None,
 ) -> ImageJobState:
-    """按图片定义的一节 ``extract`` 读一份响应体。运行时与验证响应共用的唯一判读实现。"""
+    """Read response bodies through one image-definition ``extract`` section; sole interpretation shared by runtime/response validation."""
     with response_extract_guard():
         job_status, provider_status = extract_job_status(body, extract, status_map=status_map, status=status)
         return ImageJobState(
@@ -133,7 +133,7 @@ def extract_image_state(
 
 
 class DeclarativeImageBackend:
-    """声明式图片定义的调用通道，实现 ``lib.backends.image_backends.base.ImageBackend`` 协议。"""
+    """Declarative image channels implementing ``lib.backends.image_backends.base.ImageBackend``."""
 
     def __init__(
         self,
@@ -201,8 +201,8 @@ class DeclarativeImageBackend:
             try:
                 return await self._collect(client, job_id, call, context, request)
             except DeclarativeRuntimeError as exc:
-                # 引擎把二次取件与下载耗尽记为可「重试下载」的码，那条恢复路径要靠续跑接回原任务；
-                # 图片不落任务 id、没有续跑，只能重新生成。
+                # Engine download/secondary-retrieval exhaustion uses retry-download codes requiring resumed original tasks;
+                # images persist no ids and cannot resume, so require regeneration.
                 if exc.code != "artifact_download_failed":
                     raise
                 raise DeclarativeRuntimeError(IMAGE_SAVE_FAILED_CODE, detail=str(exc)) from exc
@@ -242,7 +242,7 @@ class DeclarativeImageBackend:
 
 
 async def _write_inline_image(state: ImageJobState, output_path: Path) -> None:
-    """URL 没取到时落盘 base64 产物；两者都没有或解不出图片即判取件失败。"""
+    """Persist base64 when URLs unavailable; neither present or undecodable images mean retrieval failures."""
     if not state.image_b64:
         raise DeclarativeRuntimeError(
             "declarative_response_extract_failed",
@@ -256,7 +256,7 @@ async def _write_inline_image(state: ImageJobState, output_path: Path) -> None:
         output_path.write_bytes(image)
 
     try:
-        # 解码大图是 CPU 密集操作，放到线程里免得卡住事件循环。
+        # Large-image decoding is CPU-heavy; offload to threads to preserve event loops.
         await run_noninterruptible_sync(decode_and_save)
     except ValueError as exc:
         raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc

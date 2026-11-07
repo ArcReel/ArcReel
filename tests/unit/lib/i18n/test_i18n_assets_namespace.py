@@ -1,4 +1,4 @@
-"""assets namespace 注册到 MESSAGES。"""
+"""Register assets namespace in MESSAGES."""
 
 from __future__ import annotations
 

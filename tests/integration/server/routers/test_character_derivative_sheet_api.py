@@ -1,7 +1,7 @@
-"""角色衍生资产图的 HTTP 面：生成入队、过期暴露、版本列表与回退、删除级联。
+"""Character derivative-image HTTP: enqueue, exposed staleness, version lists/rollback, deletion cascades.
 
-用真 ``ProjectManager`` 与真产物清单：这些端点的判据全都落在盘上的文件、版本快照与清单
-条目上，替身替掉任何一层，断言就不再是「这条路真的成立」。
+Use real ``ProjectManager`` and manifests: endpoint predicates rely on disk files/version snapshots/manifest
+entries. Faking any layer no longer proves real paths work.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class _FakeQueue:
 
 
 class _FakeConfigResolver:
-    """i2i 槽解析：只回一个已配置的供应商，能力闸本身另有用例覆盖。"""
+    """i2i slot resolution returns configured providers only; capability gates have separate tests."""
 
     def __init__(self, _session_factory: Any) -> None:
         pass
@@ -165,7 +165,7 @@ class TestDerivativeVersionEndpoints:
 
 
 class TestDerivativeDeleteCascade:
-    """登记消失后那张图再无入口：图、版本快照与清单条目同一次删除里一起清掉。"""
+    """Removing registrations leaves images unreachable; delete images/version snapshots/manifest entries together."""
 
     def _assert_purged(self, project_path: Path) -> None:
         assert not (project_path / _SHEET_PATH).exists()
@@ -194,7 +194,7 @@ class TestDerivativeDeleteCascade:
         assert response.status_code == 200, response.text
         self._assert_purged(project_path)
         assert read_project_json(project_path)["characters"] == {}
-        # 本体的资产图与衍生一起进了同一条删除记录。
+        # Base images and derivatives enter the same deletion record.
         assert not (project_path / "characters/阿岚.png").exists()
 
     def test_purging_one_derivative_leaves_its_sibling_untouched(self, tmp_path, monkeypatch):
@@ -217,10 +217,10 @@ class TestDerivativeDeleteCascade:
 
 
 class TestDerivativeRenameCascade:
-    """衍生图的三样坐标都含名字：改名后图、版本历史与清单键必须一起落到新坐标。
+    """All three derivative coordinates contain names; renames move images/history/manifest keys together.
 
-    判据不止「文件在新路径」——还要状态端点仍报 ``stale: False``：只有图、清单条目与
-    规范状态三者在新 id 下重新对齐，过期判定才可能给出这个答案。
+    More than files at new paths, state must still report ``stale: False``; only realigned images/claims/
+    canonical state under new IDs can yield this answer.
     """
 
     def _assert_relocated(self, project_path: Path, digest: str, *, owner: str, derivative: str, sheet: bytes) -> None:
@@ -230,7 +230,7 @@ class TestDerivativeRenameCascade:
         entry = ProjectArtifactManifestAdapter(project_path).get_entry(derivative_artifact_key(owner, derivative))
         assert entry is not None
         assert entry.artifact_path == derivative_sheet_relative_path(owner, derivative)
-        # 依据摘要是不可变证据：改名只换 key 与路径，不重建依据。
+        # Basis digests are immutable evidence: renames move keys/paths without rebuilding bases.
         assert entry.basis_digest == digest
         assert ProjectArtifactManifestAdapter(project_path).get_entry(_ARTIFACT_KEY) is None
 
@@ -256,9 +256,9 @@ class TestDerivativeRenameCascade:
         self._assert_relocated(project_path, digest, owner="阿岚", derivative="夜行装", sheet=sheet)
         assert [version["version"] for version in listed.json()["versions"]] == [1]
         assert (project_path / listed.json()["versions"][0]["file"]).is_file()
-        # 名字进依据摘要，改名后判过期——与本体资产图改名后的既有口径一致（重键只搬 key
-        # 与路径，不重建那份不可变的证据）。能给出 stale 而非「查无此登记」，恰恰说明
-        # 清单条目确实躺在新 key 下、且指着新路径。
+        # Names enter basis digests, so renames become stale like base-image renames; rekeying moves keys
+        # and paths without rebuilding immutable evidence. Reporting stale rather than absent registration proves
+        # manifest entries exist under new keys, pointing to new paths.
         assert status.json()["derivatives"]["夜行装"] == {
             "description": "换上黑色重甲",
             "character_sheet": derivative_sheet_relative_path("阿岚", "夜行装"),
@@ -278,7 +278,7 @@ class TestDerivativeRenameCascade:
 
         assert renamed.status_code == 200, renamed.text
         self._assert_relocated(project_path, digest, owner="阿柳", derivative="战斗装", sheet=sheet)
-        # 旧本体名下的两个收纳目录随之作废。
+        # Both old-base storage directories become obsolete.
         assert not (project_path / derivative_sheet_dir("阿岚")).exists()
         assert not (project_path / _VERSION_DIR).exists()
         assert [version["version"] for version in listed.json()["versions"]] == [1]
@@ -288,10 +288,10 @@ class TestDerivativeRenameCascade:
         )
 
     def test_regenerating_after_a_rename_continues_the_moved_history(self, tmp_path, monkeypatch):
-        """改名后再生成一次：版本涨到 2 而不是从 1 重来，过期标记随之消解。
+        """Generate again after renaming: versions reach 2 rather than restart at 1, clearing staleness.
 
-        这是「三样确实都搬到了新坐标」最直接的证据——历史续得上、新图落在新路径、
-        新 key 下的登记与规范状态重新对齐。
+        This directly proves all three coordinates moved: histories continue, new images use new paths,
+        and new-key claims realign with canonical state.
         """
         pm, project_path = seed_derivative_project(tmp_path)
         run_derivative_generation(pm, project_path, monkeypatch)
@@ -355,7 +355,7 @@ class TestDerivativeRenameCascade:
             entry["derivatives"]["便装"] = {"description": "布衣", "character_sheet": ""}
 
         pm.update_asset_entry("character", "demo", "阿岚", _add_sibling)
-        # 字段还没写就先落盘的中间产物：本体改名后不该顶着旧名残留。
+        # Intermediate files persisted before fields were written must not retain old names after base renames.
         (project_path / derivative_sheet_relative_path("阿岚", "便装")).write_bytes(solid_png_bytes((9, 9, 9)))
 
         with _client(monkeypatch, pm) as client:

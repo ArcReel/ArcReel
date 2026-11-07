@@ -17,24 +17,24 @@ import { copyText } from "@/utils/clipboard";
 import type { RenderedPromptPreview } from "@/types";
 
 export interface PromptPreviewButtonProps<T extends RenderedPromptPreview> {
-  /** 弹窗标题，同时作为触发按钮的悬停说明，区分同一页面上的多个入口。 */
+  /** Dialog titles, also trigger hover explanations distinguishing multiple entries on a page. */
   title: string;
-  /** 取最终提示词：每次打开与刷新各调一次，调用时读到的是调用方最新的闭包（如当前草稿）。 */
+  /** Fetch final prompts once per opening/refresh; calls read latest caller closures, e.g. current drafts. */
   load: (signal: AbortSignal) => Promise<T>;
-  /** 标题下的口径说明，如「按已保存内容渲染」或「按当前模型能力计算」。 */
+  /** Scope explanations below titles, e.g. Rendered from saved contents or Computed from current model capabilities. */
   notice?: ReactNode;
-  /** 在最终文本下方追加的区块，拿到的是本次请求的完整结果（如随请求发出的参考图列表）。 */
+  /** Additional blocks below final text receive complete current-request results, e.g. reference images sent with requests. */
   renderExtra?: (result: T) => ReactNode;
   disabled?: boolean;
-  /** 有未保存修改时先保存；失败则保留原处，不打开预览。回调需用 useCallback。 */
+  /** Save unsaved changes first; failures remain in place without previews. Callbacks require useCallback. */
   beforeOpen?: () => Promise<boolean>;
   saveFirst?: boolean;
 }
 
 /**
- * 「查看提示词」按钮与最终提示词弹窗：打开才请求，弹窗内可复制与重新渲染。
+ * View prompt buttons/final-prompt dialogs: request on opening only, with copy/rerender actions inside.
  *
- * 渲染在后端完成（与执行期同一出口），前端不复刻任何拼接逻辑；预览只读，不触发生成。
+ * Backends render through the same runtime outlet; frontends duplicate no concatenation logic. Previews are read-only and never generate.
  */
 export function PromptPreviewButton<T extends RenderedPromptPreview>({
   title,
@@ -53,7 +53,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // 接管方轮换 controller：新一轮加载先作废上一轮，被作废方不再回写共享状态。
+  // New owners rotate controllers: new loads invalidate old ones, preventing previous owners from writing shared state.
   const inflight = useRef<AbortController | null>(null);
   const fetchPreview = useCallback(async (prepared?: AbortController) => {
     if (!prepared) inflight.current?.abort();
@@ -70,12 +70,12 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
       if (signal.aborted || inflight.current !== controller) return;
       setError(errMsg(e));
     } finally {
-      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；只有仍持有 inflight 的请求才复位，被接管的请求交给接管方收尾
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- Finally already resets; only requests still owning inflight reset it, while superseded requests leave cleanup to successors
       if (!signal.aborted && inflight.current === controller) setLoading(false);
     }
   }, [load]);
 
-  // 卸载时作废在途请求：清理函数不写 state，只切断被接管方的回写。
+  // Invalidate pending requests on unmount: cleanup never writes state, only cutting off superseded writers.
   useEffect(() => () => inflight.current?.abort(), []);
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
     }
   };
 
-  // 每次打开都重新取：关闭时丢弃结果，免得下次打开先闪出过期的文本。
+  // Refetch every opening: discard results on closing, preventing stale text flashing on next opening.
   const handleClose = () => {
     inflight.current?.abort();
     inflight.current = null;
@@ -112,7 +112,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
     setCopied(false);
   };
 
-  // 复制成功才显示「已复制」：非安全上下文走 execCommand 兜底，兜底也失败时不假报成功
+  // Show Copied only on success: insecure contexts use execCommand fallback, and failed fallbacks never falsely report success.
   const handleCopy = (text: string) => {
     void copyText(text).then(
       () => setCopied(true),
@@ -150,7 +150,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
                   className="flex flex-col gap-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn"
                 >
                   {result.warnings.map((warning, index) => (
-                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 一次预览结果里的只读提示文本，可能重复且无标识；条目不带状态，整份随预览结果替换
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Read-only prompt text in one preview may duplicate and lacks IDs; entries are stateless and entire results replace together
                     <li key={`prompt-preview-warning-${index}`}>{warning}</li>
                   ))}
                 </ul>

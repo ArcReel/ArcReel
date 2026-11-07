@@ -7,100 +7,100 @@ paths:
   - "packages/**"
 ---
 
-# 后端 Python
+# Backend Python
 
-## 并发
+## Concurrency
 
-生成任务与请求处理中有哪些取消与中断来源，见 `website/docs/dev/architecture.md`「取消与中断的来源」（`#cancellation-sources`）。
+For cancellation and interruption sources in tasks and request handling, see “取消与中断的来源” (`#cancellation-sources`) in `website/docs/dev/architecture.md`.
 
-### await 之后重新核对状态前提，前提已过时就补写当前状态或跳过副作用
+### Recheck state prerequisites after `await`; when stale, record current state or skip side effects
 
-跨 await 的窗口里另一条路径可能已经改过同一份状态：idle 结算落库期间会话重新进入 running，受理失败后递增的 epoch 让已入队的 idle 被判过时，连接锁释放到等待者醒来之间锁已被摘除。await 返回后先复核 epoch、锁身份或 meta 状态，前提仍成立再写入。改状态机本身时前提同样会过时：放开某个状态下的入口（如 running 时也接受发送）后，该入口原有失败分支假定的状态已变，逐条复核；计数类不变量的每个读点都隔着 await，先列出全部读到该计数的异步时序，再定修法。同步代码里先在锁内核验、释放锁去做耗时步骤（如跑项目迁移）、再重新加锁写入，是同一个窗口：在写入的那次加锁内重新核验前提，否则两个并发操作都按旧前提落地，例如同一条删除记录被恢复两次，留下指向不存在文件的对象。
+Another path can change state across an await: a session becomes running while idle settlement is being saved; an epoch increment after admission failure makes queued idle stale; a connection lock is removed between release and a waiter waking. Recheck epoch, lock identity, or metadata after await and write only if prerequisites still hold. State-machine changes also invalidate prerequisites: after opening a state to new operations (such as sending while running), revisit its failure branches' assumptions. For count invariants, list every asynchronous read sequence before choosing a fix. Synchronous code that checks under a lock, releases it for expensive work such as project migration, and reacquires it to write has the same window. Recheck inside the write lock, or concurrent actions both commit based on old state, such as restoring one deletion record twice and leaving objects pointing to absent files.
 
-### 事件循环线程只做调度
+### The event-loop thread schedules only
 
-`async def` 沿调用链会做文件 I/O、哈希、大块解析或等锁的同步代码，整体放进 `asyncio.to_thread`；锁已有异步版本的，直接改用异步版本。事件循环线程上的一次阻塞会让同进程的全部请求排队：媒体文件分块发送，一个视频要经过事件循环几十次，卡顿被成倍放大。ruff `ASYNC` 只查 `async def` 函数体里的直接调用，看不穿函数调用；整条调用链由测试中的 blockbuster 护栏（`tests/blocking_guard`）把关，lint 通过不等于没有阻塞。
+An `async def` chain doing synchronous file I/O, hashing, large parsing, or lock waits puts the complete synchronous segment in `asyncio.to_thread`; use asynchronous locks when available. One blocking operation delays every request in the process. Chunked media delivery crosses the loop many times, multiplying the delay. Ruff `ASYNC` checks only direct calls inside `async def` functions, not called functions; blockbuster in `tests/blocking_guard` guards the complete chain. Lint passing does not prove absence of blocking.
 
-放行条件：应用启动与关停路径上的一次性阻塞，登记进 `tests/blocking_guard/exemptions.toml` 并写明理由。
+Exception: one-time startup/shutdown blocking recorded with a reason in `tests/blocking_guard/exemptions.toml`.
 
-### 线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`
+### Use `run_sync_transaction` for threaded formal-file writes or temporary-artifact creation
 
-在请求或任务上下文里，把写入、替换、删除正式文件，或创建需要交还调用方清理的临时产物的同步代码放进线程时，调用 `lib/infra/async_thread.py` 的 `run_sync_transaction`。它让已开始的线程事务结束、结果确定后再传播取消。裸 `asyncio.to_thread` 被取消时，`await` 立即抛出 `CancelledError`，线程却继续运行，调用方的清理逻辑与线程并发执行，有两类后果：
+In request/task contexts, use `run_sync_transaction` from `lib/infra/async_thread.py` when moving synchronous writes, replacements, or deletions of formal files, or creation of temporary artifacts handed back for cleanup, into a thread. It waits for a started thread transaction to finish with a definite result before propagating cancellation. Cancelling bare `asyncio.to_thread` immediately raises `CancelledError` while its thread continues, racing cleanup in two ways:
 
-- 临时产物泄漏：线程在调用方清理之后才创建的临时目录、zip 等产物没有人回收。
-- 外部已成功、内部报失败：`finally` 的清理与线程里的 `replace` 竞争，文件已经落盘，调用方却按失败处理。
+- Temporary-artifact leaks: the thread creates a directory, zip, or other artifact after caller cleanup has finished.
+- External success with internal failure: cleanup in `finally` races the thread's `replace`; the file exists, but the caller treats the operation as cancelled.
 
-线程产出的产物能在线程内用完的，在线程内创建并删除。必须交回异步侧的，线程里一创建就登记进调用方持有的列表，调用方在 `finally` 按列表回收：`run_sync_transaction` 被取消后等线程结束再抛出取消，返回值随之丢弃，登记是调用方看到产物的唯一途径。
+If the thread can consume the artifact itself, create and delete it there. If it must return to the async caller, register it immediately on creation in a caller-owned list and clean that list in the caller's `finally`. When `run_sync_transaction` is cancelled, `run_sync_transaction` waits and then raises, discarding its return value; registration is the only way the caller sees the artifact.
 
-放行条件：只读文件，或产出可丢弃的中间结果时，用裸 `asyncio.to_thread`。
+Exception: use bare `asyncio.to_thread` for read-only files or disposable intermediate results.
 
-### 供应商返回之后的落账段不可中断
+### The settlement segment after provider return is noninterruptible
 
-`GLOSSARY.md` 「取消」要求已发出的供应商调用照常跑完、结果照常成为产物。落到代码上：从供应商返回或产物提交起，到执行器返回前，这一段里的每个线程调用用 `lib/infra/async_thread.py` 的 `run_noninterruptible_sync`，它等线程结束后把结果交回调用方，本次取消随之消失。两种已出现过的事故形态：参考图压缩副本的清理与线程并发，把刚付费拿到的图片一起删掉；完成回调与失败补偿同时执行。
+The cancellation definition in `GLOSSARY.md` requires submitted provider calls to finish and their results to become artifacts. From provider return or artifact commit until executor return, every threaded call uses `run_noninterruptible_sync` in `lib/infra/async_thread.py`. It waits for completion and returns the result, consuming that cancellation. Known failure shapes are reference-copy cleanup racing the thread and deleting a paid image, and completion callbacks racing failure compensation.
 
-它吞掉取消，调用点放在 `asyncio.timeout` 块与 `asyncio.wait_for` 之外，否则超时失效。
+Because `run_noninterruptible_sync` consumes cancellation, call it outside `asyncio.timeout` and `asyncio.wait_for` blocks, or timeouts stop working.
 
-图片、视频、音频后端落盘时按下面分工：
+Image, video, and audio backends write files as follows:
 
-- 内存里已有供应商返回的字节（`b64_json`、SDK 响应、已读完的响应体）时，解码、写盘、转码都放进 `run_noninterruptible_sync`。图片后端共用的 `lib/backends/image_backends/base.py::save_image_from_response_item` 的 b64 路径已满足本条，后端复用即可，不必自己绕开。
-- 产物地址的下载（`stream_to_file`）中，分片写入保持 `run_sync_transaction`：此时产物还没有成形，取消把下载整体回退（`.part` 被清掉），没有成形的产物可丢。网络取件保留可中断语义；使用 `with_artifact_retry` 的通道整体受墙钟预算（`asyncio.timeout`）约束，放进不可中断段会让预算失效，慢速出数据的下载不再有终点。产物成形的那一步，`.part` 改名为成品，是一次耗时可忽略的原子操作，用 `run_noninterruptible_sync`，取消不能落在成品已就位、调用方却按取消处理的间隙。下载返回之后的线程步骤（转 PNG、写盘）在预算之外，同样用 `run_noninterruptible_sync`。
+- When provider bytes are already in memory (`b64_json`, SDK response, fully read response body), decoding, writing, and transcoding all use `run_noninterruptible_sync`. The shared image-backend `lib/backends/image_backends/base.py::save_image_from_response_item` b64 path already satisfies this; reuse it.
+- During artifact downloads (`stream_to_file`), keep chunk writes on `run_sync_transaction`. The artifact is not complete yet; cancellation rolls back the download by removing `.part`, and incomplete output is disposable. Network retrieval stays interruptible. Backends using `with_artifact_retry` have a wall-clock `asyncio.timeout` budget; putting downloads in a noninterruptible segment removes that limit. The final atomic `.part` rename uses `run_noninterruptible_sync` so cancellation cannot fall between completion and caller recognition. Threaded work after download, such as PNG conversion or writing, is outside the budget and also noninterruptible.
 
-这条规则只护住段内的线程调用。段内的异步写入只保证写入本身不被中断，取消照常向外传播，其后的步骤随之跳过：`Ledger.record()` 的结算写入被取消后等写入落地再重新抛出，产物提交就不再执行；裸 `asyncio.shield` 被取消时立即抛出，写入与调用方的后续处理并发执行。生成链路的超时块都在供应商调用一侧，眼下只有事件循环拆除会打进这一段。给执行中的任务新增 `cancel()` 之前，先用 `run_noninterruptible_async` 把整段收进不可中断的异步边界。
+This protects only threaded calls in the segment. Async writes guarantee their own completion but still propagate cancellation, skipping later steps: cancelled `Ledger.record()` waits for settlement then reraises, so artifact commit is skipped. Bare `asyncio.shield` raises immediately while writes race later handling. Generation timeouts currently surround provider calls; only loop teardown reaches this segment. Before adding `cancel()` for executing tasks, wrap the complete segment in a noninterruptible async boundary with `run_noninterruptible_async`.
 
-## 异常
+## Exceptions
 
-### 带用户指引或携带身份的异常，在既有宽捕获之前单独处理
+### Handle exceptions carrying guidance or identity separately before broad catches
 
-带用户指引的异常（如 `ModelNotInCatalogError`、`NoAvailableProviderError`）在调用链上会经过已有的 `except Exception` 兜底。新增或改动这类异常的抛出点时，逐个检查它到达的入口：路由在兜底之前把它映射成带指引的业务错误；后台路径（入队、认领时的供应商推算）遇到携带供应商与模型的异常（如 `ModelNotInCatalogError`）时使用它携带的身份，不回落到默认值；不带身份的异常（如 `NoAvailableProviderError`）按该入口原有的回退处理。指引文案不放进裸 `ValueError` 抛出，先定义专门的异常类型，兜底之前才能单独接住它。违反时用户只看到「服务器内部错误」或笼统失败，失败任务也会记到别的供应商名下（#3248、#3663、#3671）。
+Exceptions with user guidance (such as `ModelNotInCatalogError` or `NoAvailableProviderError`) cross existing `except Exception` fallbacks. For new or changed raise sites, inspect the chain to its entry point. Routes map them to guided business errors before the fallback. Background enqueue/claim provider resolution uses the identity carried by exceptions such as `ModelNotInCatalogError`, without defaulting to another provider/model. Exceptions without identity, such as `NoAvailableProviderError`, keep that entry point's existing fallback. Do not raise guidance as bare `ValueError`: define a dedicated exception so it can be caught separately. Otherwise users see only “internal server error” or generic failure, and failed tasks may be attributed to another provider (#3248, #3663, #3671).
 
-## 路径与删除
+## Paths and deletion
 
-### 递归删除来自参数或配置的目录前，先确认归属
+### Verify ownership before recursively deleting directories from parameters or configuration
 
-`shutil.rmtree` 的目标来自命令行参数、环境变量或配置时（如脚本的 `--data-root`），删除前确认这个目录归本工具所有：只接受空目录，或带本工具建目录时写下的哨兵文件的目录，否则报错退出。参数可以指向任意位置，误指到真实数据目录时会删掉全部用户项目。参考 `scripts/perf/harness.py` 的 `.arcreel-perf-bench` 哨兵。
+Before `shutil.rmtree` on a directory from CLI arguments, environment variables, or configuration (such as `--data-root`), verify that the tool owns it: accept only an empty directory or one with the tool's creation sentinel; otherwise fail. Parameters may point anywhere, including real data, and a mistake deletes all user projects. See `.arcreel-perf-bench` in `scripts/perf/harness.py`.
 
-放行条件：目标是本进程用 `tempfile` 新建的目录。
+Exception: a directory this process just created with `tempfile`.
 
-### 拼进 `:path` 路由参数的 ID 在服务端拒绝点段
+### Reject dot segments server-side in IDs interpolated into `:path` routes
 
-用户输入或第三方返回的 ID（如供应商模型 ID）会拼进 `/{id:path}` 这类路由时，添加、改名与导入的服务端入口按 `/` 切分，拒绝任何等于 `.` 或 `..` 的段，只校验长度不够。WHATWG URL 把 `.`、`..` 及其百分号编码都当作点段规范化，`a/../b` 到达服务端时已变成 `b`，前端编码挡不住，带点段的 ID 会读、改、删到同一作用域下的另一个对象。参考 `lib/catalog/model_id.py` 的 `has_dot_segment`。
+For user-supplied or third-party IDs such as provider-model IDs used in `/{id:path}`, split on `/` and reject segments exactly `.` or `..` at add, rename, and import boundaries. Length checks alone are insufficient. WHATWG URL normalizes both literal and percent-encoded `.` / `..` segments: `a/../b` arrives as `b`, so frontend encoding cannot protect it. It can read, change, or delete another object in the same scope. See `has_dot_segment` in `lib/catalog/model_id.py`.
 
-## 删除与恢复
+## Deletion and restoration
 
-项目内的删除都成为项目回收站中的删除记录，恢复只新增、不覆盖，见 `docs/adr/0107-deletion-goes-to-trash-restore-only-adds.md`。下面几条违反时，后果都是用户以为能找回的内容实际找不回。
+Project deletions become project-trash deletion records; restoration adds without overwriting, per `docs/adr/0107-deletion-goes-to-trash-restore-only-adds.md`. Violating the rules below makes content users expect to recover unrecoverable.
 
-### 删除记录收下对象本身与恢复后可用所需的元数据，文件只收对象独占的
+### Deletion records include the object and metadata needed to restore usability, and only exclusively owned files
 
-对象存在于结构文件里就建删除记录，不以附属文件列表非空为前提：没有媒体或原文的集、分镜同样带着用户写下的标题、hook 与提示词，跳过就永久丢失。记录要带上恢复后照常可用所需的全部字段，不只是识别对象的那几个，例如历史版本的生成依据；缺了它们，恢复出的版本无法再选回。移进记录的文件先排除仍被其他现存对象引用的，否则删除一个对象会让另一个对象的文件消失。
+Create a deletion record whenever an object exists in structure data, regardless of attached-file count. Episodes and storyboard items without media or source still hold user titles, hooks, and prompts; skipping them loses that content permanently. Include all fields needed after restoration, not just identity, such as historical generation basis. Missing fields can make restored versions unselectable. Exclude files still referenced by other objects before moving attached files, or deleting one object removes another's files.
 
-### 恢复出的对象满足读取方的前提、关联整体提交后，才消耗删除记录
+### Consume a deletion record only after reader prerequisites and relationships commit together
 
-落地前在锁内核对读取方的前提：所属的集或项目仍在，名字能通过读取方的校验，引用字段指向存在的对象。前提不满足时按 ADR 0107 降级，或让本次恢复失败并保留记录。文件放回、结构写回与记录消耗放在同一个锁与写事务内，任一步失败都撤回文件、保留记录；结构写回不放在锁的退出段或锁外回调里。降级后什么也加不回时，同样返回失败并保留记录。违反时恢复看似成功，对象却打不开或没有接回，记录已经消失，用户无法重试。
+Before writing, verify reader prerequisites under the lock: parent episode/project exists, names validate, references point to existing objects. If not, degrade as ADR 0107 prescribes or fail while retaining the record. Restore files, structures, and record consumption in the same lock and write transaction; roll back files and retain the record on any failure. Do not save structures in lock-exit handling or callbacks outside the lock. If degradation adds nothing, fail and retain the record. Otherwise restoration appears successful but objects cannot open or reconnect and the record is gone.
 
-### 一次删除或恢复跨目录、数据库与多个结构文件时，失败与取消的补偿覆盖全部改动
+### Compensate every change on failure or cancellation when deletion/restoration spans directories, DB, and structure files
 
-先移动目录、再提交数据库记录时，提交失败要把目录移回，参考 `lib/project/deleted_projects.py` 的 `move_back`；被取消时落点也不能丢，登记进调用方持有的列表（见「线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`」），或用 `run_noninterruptible_async` 把整段收进不可中断边界。结构文件的回滚事务覆盖本次改写的每个文件，包括版本历史 `versions/versions.json`。漏掉任何一处，目录与任务、会话记录对不上，同名新项目继承旧记录，或登记失败时版本历史永久丢失。
+If moving directories precedes DB commit, move them back on commit failure; see `move_back` in `lib/project/deleted_projects.py`. Cancellation must preserve their locations too: register them in a caller-owned list (see threaded-write rules above), or wrap the complete segment in `run_noninterruptible_async`. File rollback covers every rewritten file, including `versions/versions.json`. Omissions misalign directories, tasks, and sessions, cause same-name new projects to inherit old records, or permanently lose version history on failed registration.
 
-### 文件移入删除记录后，只移走记录里的文件，不对原目录 `rmtree`
+### After moving files into deletion records, move only listed files and never `rmtree` the original directory
 
-枚举文件与收尾删除之间，原目录里可能出现新写入的内容，例如 Agent 写入的项目记忆、刚落盘的生成结果。它们不在记录里，`rmtree` 会把它们硬删且无法恢复。收尾时只移走记录里的文件，目录只用 `rmdir` 删除已经变空的那些。`# hard-delete` 标注写明的理由，要在枚举之后仍有并发写入时也成立。
+New content may appear between enumeration and cleanup, such as Agent project memory or generated output. Unlisted files are hard-deleted by `rmtree` without recovery. Move only listed files and use `rmdir` only for directories that became empty. A `# hard-delete` reason must remain valid with concurrent writes after enumeration.
 
-放行条件：所有写入方与枚举、删除持同一把锁。
+Exception: all writers share the same lock with enumeration and deletion.
 
-## 标识与引用
+## Identity and references
 
-### 改变对象标识时，按旧标识键控或引用的记录一起改写
+### Identity changes also rewrite records keyed by or referring to the old identity
 
-对象的名称、条目编号、模型 ID 和所在目录的绝对路径都是标识。换名恢复、换号恢复、改模型 ID 这类改变标识的写入路径，除了改对象本身，还要把按旧标识派生键的记录（SDK 会话按项目目录绝对路径派生的 `project_key`、产物清单按条目编号的登记）和引用旧标识的设置（项目与全局的模型设置键、`model_settings`）一起改到新标识下：先按旧标识搜出全部持有方，在 PR 里列明。漏掉的记录留在旧标识下，Agent 续聊报找不到对话，已有产物读作缺失、界面引导用户重新生成，悬空的模型引用在之后出现同 ID 的新模型时被静默接管。旧标识可能已被同名的新对象占用（新建的同名项目与旧路径共用一个 key），改写按对象自己的记录限定范围，例如按 session_id，不整键替换。标识在进程之外改变时（数据根搬到别的绝对路径），在启动时对齐。参考 `lib/agent/agent_session_store/rekey.py`、`lib/agent/agent_session_store/key_alignment.py` 与 `server/routers/custom_providers.py` 的 `rename_project_model_refs`。
+Names, entry numbers, model IDs, and absolute directory paths are identities. Renaming on restore, renumbering, and model changes must update keys derived from the old identity (SDK `project_key` from absolute project path; artifact registrations by item ID) and settings referencing it (project/global model-setting keys and `model_settings`) together. Search all holders of the old identity first and list them in the PR. Omissions leave SDK conversations unavailable, existing artifacts missing with regeneration requested, or dangling model references silently taken over by a new same-ID model. Another object may already occupy the old identity: constrain rewrites to records of the actual object, such as session_id, rather than all records under a key. Align identities at startup when changes happen externally, such as moving the data root. See `lib/agent/agent_session_store/rekey.py`, `lib/agent/agent_session_store/key_alignment.py`, and `rename_project_model_refs` in `server/routers/custom_providers.py`.
 
-## Windows 兼容
+## Windows compatibility
 
-主开发平台是 macOS / Linux，server（连同它依赖的 workspace 子包）同时要在 Windows 原生环境完成项目创建与基础流程。CI 只跑 Linux，下面这些问题在 Linux 上全部静默通过，只会在用户的 Windows 机器上出现。
+Development primarily uses macOS/Linux, but server and workspace dependencies must also create projects and support basic flows on native Windows. CI runs Linux only; the following issues pass silently there and fail on users' Windows machines.
 
-### 不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份
+### Without `O_NOFOLLOW`, verify file identity after opening untrusted paths
 
-`O_NOFOLLOW` 这类 POSIX 常量经 `getattr(os, "<常量名>", 0)` 取值（由 ruff TID251 强制），在 Windows 上取到 0，`os.open()` 不再拒绝符号链接。这时只能靠 `is_symlink()` 预检，可预检与随后的 `os.open()` 之间有 TOCTOU 窗口：路径在窗口内被换成指向数据根外的链接，就会越权读写，属于安全边界问题。
+POSIX constants such as `O_NOFOLLOW` use `getattr(os, "<常量名>", 0)` (enforced by ruff TID251). On Windows this returns zero, so `os.open()` no longer rejects symlinks. A preflight `is_symlink()` alone has a TOCTOU window in which the path can be replaced by a link outside the data root, crossing the security boundary.
 
-不可信路径（用户或 Agent 能影响其中目录项的路径）分两步校验。打开前逐级拒绝符号链接，并把路径约束在数据根内，因为 `os.lstat` 会跟随中间目录的链接；打开后再用 `os.fstat` 与 `os.lstat` 比对 `st_dev` / `st_ino`。参考 `server/tool_runtime.py` 的 `_resolve_business_file` 与 `_read_business_file`，以及 `lib/artifacts/artifact_manifest.py` 对父目录身份的校验。做不到时在该平台拒绝操作。
+For paths users or Agents can influence, use two steps. Before `os.open()`, reject symlinks in every component and confine the path to the data root: `os.lstat` follows intermediate links. After opening, compare `st_dev` / `st_ino` from `os.fstat` and `os.lstat`. See `_resolve_business_file` and `_read_business_file` in `server/tool_runtime.py` and parent-directory checks in `lib/artifacts/artifact_manifest.py`. Reject the operation on platforms where this cannot be guaranteed.
 
-放行条件：路径由服务端自行生成，目录内不会出现外部写入的符号链接，例如 `lib/agent/profile_manifest.py` 的项目锁、服务端自己原子落盘的产物。这类路径只做预检即可。
+Exception: server-generated paths in directories where externally written symbolic links cannot appear, such as profile locks in `lib/agent/profile_manifest.py` or atomically saved server artifacts. These need only prechecks.

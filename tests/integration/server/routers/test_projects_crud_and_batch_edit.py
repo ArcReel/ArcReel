@@ -31,7 +31,7 @@ class TestProjectsRouter:
             listed = client.get("/api/v1/projects")
             assert listed.status_code == 200
             names = [p["name"] for p in listed.json()["projects"]]
-            # 没有 project.json 的 "empty" 不是项目，不列出
+            # empty without project.json is not a project and remains unlisted.
             assert names == ["ready", "broken"]
             broken = next(p for p in listed.json()["projects"] if p["name"] == "broken")
             assert broken["status"] == {}
@@ -118,7 +118,7 @@ class TestProjectsRouter:
         ]
 
     def test_create_does_not_record_a_project_level_source_kind(self, tmp_path, monkeypatch):
-        """源文件类型随源文件记录：创建项目不接受、也不写入项目级类型。"""
+        """Source types belong to files; project creation accepts/persists no project-level type."""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
@@ -141,11 +141,11 @@ class TestProjectsRouter:
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
             assert resp.status_code == 200
-            # 「不接受该字段」的实质保证：请求体里的值不得落进项目数据
+            # Rejecting fields means request values never persist into project data.
             assert "source_kind" not in fake_pm.project_data["ready"]
 
     def test_project_details_report_whether_each_derivative_is_referenced(self, tmp_path, monkeypatch):
-        """读取项目时衍生附 ``referenced``：读时计算、不落盘（docs/adr/0072）。"""
+        """Project reads derive derivative ``referenced`` without persistence (docs/adr/0072)."""
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["characters"] = {
             "阿岚": {"description": "少女", "derivatives": {"战斗装": {"description": "重甲"}, "便装": {}}}
@@ -190,14 +190,14 @@ class TestProjectsRouter:
             assert ignored_mode.status_code == 200
             assert "content_mode" not in fake_pm.project_data["ready"]
 
-            # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
+            # aspect_ratio strings are now editable; dictionaries fail Pydantic 422.
             rejected_ratio_dict = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": {"videos": "16:9"}},
             )
             assert rejected_ratio_dict.status_code == 422
 
-            # aspect_ratio 字符串更新应成功
+            # aspect_ratio string updates succeed.
             updated_ratio = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": "16:9"},

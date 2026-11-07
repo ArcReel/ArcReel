@@ -59,10 +59,10 @@ frontend/playwright-report/
 .worktrees/
 .claude/worktrees/
 
-# Claude Code 本地配置（.worktreeinclude 据此复制到新 worktree）
+# Local Claude Code configuration, copied into new worktrees by .worktreeinclude
 .claude/settings.local.json
 
-# AFK 团队执行的批次账本（afk-team-workflow，本地运维状态，不提交）
+# AFK team batch ledger (afk-team-workflow; local operational state, not committed)
 .afk/
 
 # Superpowers (Claude Code plugin cache)
@@ -74,10 +74,10 @@ htmlcov/
 coverage/
 coverage.xml
 coverage-pg.xml
-# pytest-testmon 的依赖数据库（每个 worktree 一份）
+# pytest-testmon dependency DB, one per worktree
 .testmondata*
 
-# File locks (project_manager 原子写产物)
+# File locks for project_manager atomic artifact writes
 **/*.lock
 
 # Docker runtime data
@@ -94,8 +94,12 @@ deploy/production/vertex_keys/
 deploy/production/claude_data/
 deploy/production/pgdata/
 
-# scripts/verify_reference_video_sdks.py 的输出目录，报告是运行时快照
+# scripts/verify_reference_video_sdks.py output directory; reports are runtime snapshots
 docs/verification-reports/
 
-# mutmut 变异测试的工作副本（`mutmut run` 生成的整仓复制品）
+# mutmut mutation-testing working copy, the repository copy produced by `mutmut run`
 mutants/
+
+# Keep the maintenance-language policy linked from AGENTS.md in the repository,
+# including when a developer's global ignore excludes new ADR files.
+!docs/adr/0121-english-maintenance-language-preserves-localization-and-contracts.md

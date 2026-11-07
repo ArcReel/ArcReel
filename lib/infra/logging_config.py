@@ -1,4 +1,4 @@
-"""统一日志配置。"""
+"""Shared logging configuration."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _DISABLED_TRUTHY = frozenset({"1", "true", "yes"})
 
 
 class _StripUrlQueryFilter(logging.Filter):
-    """httpx 在 INFO 级别记录每个请求的完整 URL。预签名 URL 的 query 在有效期内等同下载凭证，记录前去掉 query。"""
+    """httpx logs complete request URLs at INFO. Presigned query strings act as download credentials while valid; remove queries before logging."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
@@ -42,16 +42,16 @@ def _file_logging_disabled() -> bool:
 
 
 def resolve_log_dir() -> Path:
-    """文件日志目录：``<数据根>/logs``（``DataRootLayout.log_dir``）。"""
+    """File-log directory: ``<数据根>/logs`` (``DataRootLayout.log_dir``)."""
     return DataRootLayout.current().log_dir
 
 
 LEGACY_LOG_DIR = PROJECT_ROOT / "logs"
-"""代码目录下的旧日志位置；Docker 旧卷 ``./logs:/app/logs`` 的挂载点同在此处。"""
+"""Legacy log location under the code directory; the old Docker volume ``./logs:/app/logs`` mounts here too."""
 
 
 def warn_if_log_dir_env_set() -> None:
-    """日志位置不读取 ``ARCREEL_LOG_DIR``；它仍被设置时提示一次日志的实际去向。"""
+    """``ARCREEL_LOG_DIR`` does not control log placement; warn once with the actual destination if it is still set."""
     raw = os.environ.get("ARCREEL_LOG_DIR", "").strip()
     if not raw:
         return
@@ -69,16 +69,16 @@ def warn_if_log_dir_env_set() -> None:
 
 
 def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
-    """把旧位置的日志逐项迁入数据根下的日志目录；须在挂文件日志 handler 之前调用。
+    """Move legacy logs individually into the data-root log directory before attaching the file handler.
 
-    - 新旧位置相同、互相包含或旧位置不存在 → 不动
-    - 旧位置不可写（只读代码目录）→ 告警，原样保留，不做只复制不删源的半截迁移
-    - 逐项 ``shutil.move``：同设备 rename，跨设备（Docker 旧卷）复制后删源
-    - 新位置已有同名条目 → 该条目留在旧位置并告警，不覆盖；重跑只会再次跳过它
-    - 单个条目迁移失败 → 该条目留在旧位置并记 ERROR，其余条目照常迁入
-    - 旧位置清空后尝试删除；删不掉（挂载点 EBUSY）就留下空目录
-    - 新位置被项目占着 → 不动（告警由 :func:`attach_file_handler` 记）
-    - OSError 记 ERROR，不中止启动：日志留在旧位置不影响数据根布局
+    - Same/containing paths or absent old location: do nothing.
+    - Unwritable old location (read-only source): warn and preserve it; never half-migrate by copying without removing sources.
+    - Use ``shutil.move`` per entry: rename on one device, copy/delete across devices such as old Docker volumes.
+    - Same-name target entries: preserve the old entry and warn, without overwriting; reruns skip it again.
+    - An entry fails: leave it at the old location, log ERROR and continue with others.
+    - Once empty, try removing the old directory; retain it if removal fails, such as EBUSY on a mount point.
+    - A project occupies the destination: do nothing; :func:`attach_file_handler` logs the warning.
+    - Log OSError as ERROR without aborting startup: old-location logs do not affect the data-root layout.
     """
     logger = logging.getLogger(__name__)
     old_dir = legacy_dir
@@ -119,7 +119,7 @@ def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
         if moved:
             logger.info("migrated %d legacy log entries %s -> %s", moved, old_dir, new_dir)
         with contextlib.suppress(OSError):
-            old_dir.rmdir()  # hard-delete: infra -- 迁走后的空旧日志目录
+            old_dir.rmdir()  # hard-delete: infra -- empty legacy log directory after migration
     except OSError as exc:
         logger.error(
             "legacy log dir migration FAILED (logs remain at %s; please move them to %s manually): %s",
@@ -130,14 +130,14 @@ def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
 
 
 def setup_logging(level: str | None = None, *, file: bool = True) -> None:
-    """配置根 logger。
+    """Configure the root logger.
 
     Args:
-        level: 日志级别字符串（DEBUG/INFO/WARNING/ERROR）。
-               如未提供，从环境变量 LOG_LEVEL 读取，默认 INFO。
-        file: 是否挂 TimedRotatingFileHandler。模块导入期传 False 推迟到
-              lifespan 之后挂——避免 import 期在数据根下创建 logs/，
-              也让 migrate_legacy_log_dir() 先于 handler 把旧的同名日志文件迁入。
+        level: DEBUG/INFO/WARNING/ERROR string. If absent, read LOG_LEVEL, default INFO.
+        file: Whether to attach TimedRotatingFileHandler. Use False during imports
+            and defer until after lifespan, avoiding import-time logs/ creation in
+            the data root and allowing migrate_legacy_log_dir() to move same-name
+            old logs before the handler creates them.
     """
     if level is None:
         level = os.environ.get("LOG_LEVEL", "INFO")
@@ -152,7 +152,7 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # 幂等：避免重复添加 stream handler
+    # Idempotent: do not add duplicate stream handlers.
     if not any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
@@ -162,34 +162,34 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
     if file:
         attach_file_handler(formatter)
 
-    # 统一 uvicorn 的日志格式，避免两种格式并存
+    # Use the same format for uvicorn logs rather than mixing two formats.
     for name in ("uvicorn", "uvicorn.error"):
         uv_logger = logging.getLogger(name)
         uv_logger.handlers.clear()
         uv_logger.propagate = True
 
-    # 禁用 uvicorn.access：请求日志由 app.py 的 middleware 统一处理
+    # Disable uvicorn.access; app.py middleware owns request logging.
     access_logger = logging.getLogger("uvicorn.access")
     access_logger.handlers.clear()
     access_logger.disabled = True
 
-    # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
+    # Suppress aiosqlite DEBUG noise (two lines per SQL operation).
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
 
-    # TOS SDK 在 INFO 级别记录重试时会带上请求体（上传的对象内容），DEBUG 级别记录签名过程；
-    # 媒体内容与签名不进普通诊断日志，只放行 WARNING 及以上。
+    # TOS SDK INFO retries include request bodies (uploaded object content); DEBUG logs signing;
+    # keep media and signatures out of ordinary diagnostics by allowing only WARNING and above.
     logging.getLogger("tos").setLevel(max(numeric_level, logging.WARNING))
 
-    # 供应商签发的素材与产物下载地址带签名参数，请求日志只保留去掉 query 的地址。
+    # Provider asset/artifact download URLs include signatures; request logs retain only the query-free URL.
     _install_httpx_url_redaction()
 
 
 def attach_file_handler(formatter: logging.Formatter | None = None) -> None:
-    """为 root logger 挂 TimedRotatingFileHandler（默认开启，按天切，保留 7 份）。
+    """Attach TimedRotatingFileHandler to the root logger (enabled by default, daily rotation, 7 backups).
 
-    幂等：已挂则直接返回。被 setup_logging 调用，也可在 lifespan 内
-    单独触发——后者用于先跑 migrate_legacy_log_dir() 迁入旧日志，再挂
-    file handler，避免 handler 先创建 arcreel.log 使旧的同名文件留在原处。
+    Idempotent: return if already attached. Called by setup_logging or separately in
+    lifespan, where migrate_legacy_log_dir() runs first; otherwise an early handler
+    could create arcreel.log and leave the same-name old file behind.
     """
     if _file_logging_disabled():
         return
@@ -206,7 +206,7 @@ def attach_file_handler(formatter: logging.Formatter | None = None) -> None:
 
     try:
         log_dir = resolve_log_dir()
-        # 日志目录位置上是一个项目时不往里写任何东西。
+        # Write nothing when a project occupies the log-directory location.
         if is_project_dir(log_dir):
             logging.getLogger(__name__).warning(
                 "file logging disabled for this run: %s contains %s; "

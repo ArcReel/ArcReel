@@ -1,10 +1,10 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# 仓库 YAML 默认整体替换网页端配置；inheritance 让这里没写的配置项继续沿用网页端设置。
+# Repository YAML normally replaces web configuration entirely; inheritance retains web settings for options omitted here.
 inheritance: true
 knowledge_base:
   code_guidelines:
-    # docs/standards/ 下各领域规范按 frontmatter 的 paths 应用到对应源码。
-    # standards:start 与 standards:end 之间由 `uv run python scripts/audit_conventions.py --fix` 生成，不手工修改。
+    # Domain standards under docs/standards/ apply to source paths declared in frontmatter paths.
+    # Between standards:start and standards:end, `uv run python scripts/audit_conventions.py --fix` generates entries; never edit them manually.
     filePatterns:
       # standards:start
       - files: "docs/standards/backend.md"

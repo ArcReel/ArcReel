@@ -79,7 +79,7 @@ export default {
   'lorebook': 'Sổ tri thức',
   'no_episodes_yet': 'Chưa có tập nào',
   'confirm_delete_file': 'Bạn có chắc muốn xóa "{{name}}"?',
-  // 全局设置侧栏
+  // Global-settings sidebar.
   'settings_group_generation': 'Tạo nội dung',
   'settings_group_agent': 'Agent',
   'settings_group_system': 'Hệ thống',
@@ -1002,7 +1002,7 @@ export default {
   'agent_profile_reset_confirm': 'Xác nhận đặt lại',
   'agent_profile_resetting': 'Đang đặt lại…',
   'agent_profile_reset_failed': 'Không thể đặt lại hồ sơ Agent: {{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
+  // Project settings: sidebar tabs, style dialogs and model-channel origins.
   'project_settings_group_project': 'Dự án',
   'project_settings_group_agent': 'Agent',
   'project_settings_tab_basics': 'Cơ bản',
@@ -1408,7 +1408,7 @@ export default {
   'pm_multiplier_help': 'Chi phí bằng giá chính thức nhân với hệ số. Ví dụ 0.8 nghĩa là giảm 20%.',
   'pm_multiplier_help_subscription': 'Gói thuê bao, mặc định là 0, không tính chi phí.',
   'pm_multiplier_save_failed': 'Đã lưu cấu hình nâng cao nhưng chưa lưu được hệ số: {{message}}',
-  // 供应商模型 Sheet
+  // Provider model Sheets.
   'pm_sheet_provider_settings': 'Cài đặt nhà cung cấp',
   'pm_sheet_model_info': 'Thông tin mô hình',
   'pm_sheet_enabled': 'Bật',
@@ -2182,7 +2182,7 @@ export default {
   'grid_preview_empty_episode': 'Tập này chưa có phân cảnh — hãy tách phân cảnh ở bước Kế hoạch kịch bản trước',
 
   // External Agent integration modal
-  // 外部 Agent 接入与访问令牌
+  // External Agent access and access tokens.
   'ext_agent_desc': 'Agent bên ngoài dùng khả năng sáng tạo của [[brand]] qua skills công khai và MCP từ xa. Hoàn tất ba bước dưới đây để kết nối.',
   'ext_agent_steps': 'Các bước kết nối',
   'ext_agent_step_skills_title': 'Cài đặt skills công khai',
@@ -3030,7 +3030,7 @@ export default {
   'script_edit_commit_failed': 'Không thể lưu kịch bản an toàn. Hãy thử lại.',
   'script_edit_rejected': 'Chỉnh sửa kịch bản bị từ chối. Hãy kiểm tra thao tác tương ứng rồi thử lại.',
 
-  // 自定义调用端点
+  // Custom endpoints.
   'ce_section_title': 'Điểm gọi',
   'ce_rail_label': 'Danh sách điểm gọi',
   'ce_rail_mine_empty': 'Chưa có điểm gọi tùy chỉnh.',
@@ -3384,7 +3384,7 @@ export default {
   'ce_download_policy_image': 'Khi cấu hình cả địa chỉ ảnh và base64, địa chỉ được ưu tiên. Địa chỉ ảnh được tải về tự động, mang theo khóa khi cùng máy chủ với địa chỉ giao diện, khác máy chủ thì không. Base64 nhận cả chuỗi thuần lẫn data URI và được lưu sau khi giải mã.',
   'cp_no_api_key': 'Nhà cung cấp này không cần khóa',
   'cp_no_api_key_conflict': 'Các mô hình sau dùng điểm gọi cần khóa: {{models}}. Yêu cầu của chúng sẽ đi ra mà không có thông tin xác thực.',
-  // ---- 市场 ----
+  // ---- Market ----
   'market_section_title': 'Chợ',
   'market_refresh_all': 'Làm mới tất cả',
   'market_sources_desc': 'Các mục được hiển thị theo thứ tự của danh sách này. Nguồn chợ bị tắt vẫn ở trong danh sách nhưng không hiển thị mục.',
@@ -3915,9 +3915,9 @@ export default {
   'ad_brief_placeholder': 'Mô tả video bạn muốn: đối tượng, phong cách, điểm bán hàng chính, lời kêu gọi hành động...',
   'ad_products_view_all': 'Xem tất cả',
   'ad_products_empty_hint': 'Thêm ảnh sản phẩm và điểm bán hàng để AI xây dựng kịch bản quanh sản phẩm. Không có sản phẩm, bạn vẫn có thể tạo kịch bản chỉ từ ý tưởng sáng tạo.',
-  // 共享组件：缩略图的查看大图
+  // Shared components: thumbnail image zoom.
   'image_fullscreen_preview': 'Xem ảnh lớn của {{name}}',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
+  // Shared components: model-catalog pickers, using conventional vendor brand names.
   'catalog_picker_title': 'Chọn từ danh mục mô hình',
   'catalog_picker_description': 'Tìm trong danh mục mô hình và chọn một mô hình.',
   'catalog_picker_search': 'Tìm theo tên mô hình',

@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /**
- * 分镜详情的栏位：页头在上，中间是「编辑栏 + 媒体栏」两栏，各自滚动，未保存提示条在最下方。
- * 不做拖拽调宽，按分镜详情自身的宽度切换：窄于 480px 时（如演示工作台在紧凑档里，Agent 面板
- * 不覆盖画布）上下排成一栏、整体滚动；480–860px 编辑栏占满、媒体栏 300px；
- * 再宽时编辑栏 360–560px，多出的宽度全部给媒体栏。
+ * Shot-detail regions: header, independently scrolling editor/media columns, and unsaved notice at the bottom.
+ * No drag resizing; respond to detail width. Below 480px (e.g. compact demo workbench with Agent panel
+ * not covering canvas), stack one column with overall scrolling; 480–860px uses remaining editor width and 300px media;
+ * wider layouts give editor 360–560px and all remaining width to media.
  */
 export function ShotDetailLayout({
   header,
@@ -18,7 +18,7 @@ export function ShotDetailLayout({
   media,
 }: {
   header: ReactNode;
-  /** 两栏下方横跨整宽的未保存提示条：出现时不推动正在编辑的字段。 */
+  /** Full-width unsaved notice below both columns; appearing does not move fields being edited. */
   footer?: ReactNode;
   main: ReactNode;
   media: ReactNode;
@@ -41,7 +41,7 @@ export function ShotDetailLayout({
   );
 }
 
-/** 编辑栏里的一组内容；组与组之间用分隔线隔开。 */
+/** One editor content group, separated from other groups by dividers. */
 export function ShotGroup({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col gap-4 border-t border-border/50 pt-5 first:border-t-0 first:pt-0">{children}</div>
@@ -49,8 +49,8 @@ export function ShotGroup({ children }: { children: ReactNode }) {
 }
 
 /**
- * 编辑栏里的一段：小标题加内容。给了 `htmlFor` 时标题是对应输入框的 label，
- * 否则是一个三级标题；`actions` 放在标题行右侧。
+ * Editor section: small title/content. With `htmlFor`, title labels the matching input;
+ * otherwise it is a level-three heading. `actions` goes on the title row right.
  */
 export function ShotSection({
   title,
@@ -87,7 +87,7 @@ export function ShotSection({
   );
 }
 
-/** 默认折叠的「对应原文与参考」。 */
+/** Initially collapsed corresponding-source/references section. */
 export function ShotSourceCollapsible({ children }: { children: ReactNode }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -104,8 +104,8 @@ export function ShotSourceCollapsible({ children }: { children: ReactNode }) {
 }
 
 /**
- * 媒体栏：媒体栏够宽时分镜图与视频并排（竖屏 440px、横屏 720px 起），否则上下排；
- * 配音卡在下方横跨整栏。
+ * Media column: storyboard/video side by side when wide enough (portrait 440px, landscape 720px), otherwise stacked;
+ * voiceover card spans the full column below.
  */
 export function ShotMediaGrid({
   aspectRatio,

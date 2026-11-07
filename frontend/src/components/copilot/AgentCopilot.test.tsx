@@ -14,8 +14,8 @@ vi.mock("@/hooks/useAssistantSession", () => ({
 
 const mockedUseAssistantSession = vi.mocked(useAssistantSession);
 
-// jsdom 没有布局：消息区的视口按 400px 高、每条消息按 300px 高打桩，滚动位置按元素记住，
-// scrollTo 直接写入并派发 scroll 事件。
+// jsdom has no layout: stub message viewports at 400px, messages at 300px, retaining scroll positions per element;
+// scrollTo writes directly and dispatches scroll events.
 const VIEWPORT_HEIGHT = 400;
 const ITEM_HEIGHT = 300;
 
@@ -145,7 +145,7 @@ describe("AgentCopilot", () => {
       const form = screen.getByRole("form", { name: "Agent 的提问" });
       expect(within(form).getByRole("progressbar")).toHaveTextContent("第 1 / 2 题");
 
-      // 没选就前进：留在原题并提示
+      // Advancing without selection remains on current questions with hints.
       await user.click(within(form).getByRole("button", { name: "下一题" }));
       expect(within(form).getByRole("progressbar")).toHaveTextContent("第 1 / 2 题");
       expect(within(form).getByRole("alert")).toHaveTextContent("选择一项，或写下你的回答");
@@ -222,7 +222,7 @@ describe("AgentCopilot", () => {
       const toggle = screen.getByRole("button", { name: "会话历史" });
       await user.click(toggle);
       expect(toggle).toHaveAttribute("aria-pressed", "true");
-      // 历史视图打开时输入框仍可用
+      // Inputs remain available in History views.
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();
 
       await user.type(screen.getByRole("searchbox", { name: "搜索会话" }), "原著");
@@ -277,7 +277,7 @@ describe("AgentCopilot", () => {
 
     it("closes the dialog once deleting succeeds, before the list catches up", async () => {
       const user = userEvent.setup();
-      // 删除成功由返回值告知，不看列表此刻是否已经去掉这一条
+      // Return values establish successful deletion, regardless of whether lists already removed entries.
       deleteSession.mockResolvedValueOnce(true);
       render(<AgentCopilot />);
       await user.click(screen.getByRole("button", { name: "会话历史" }));
@@ -390,7 +390,7 @@ describe("AgentCopilot", () => {
         { type: "image" as const, source: { type: "base64" as const, media_type: "image/png", data: "AAAA" } },
         { type: "text" as const, text: "第 3 镜改成黄昏" },
       ];
-      // 撤回成功时 hook 把内容交给输入框
+      // Successful recalls let hooks return contents to inputs.
       withdrawQueuedMessage.mockImplementationOnce(async () => {
         useAssistantStore.getState().appendToComposer(content);
       });
@@ -456,7 +456,7 @@ describe("AgentCopilot", () => {
       await user.click(within(within(tray).getAllByRole("listitem")[0]).getByRole("button", { name: "编辑" }));
       await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏"));
 
-      // 第二条的编辑还在等撤回答复时发出输入框里的内容；答复在发送受理前到达，内容追加进输入框
+      // Send inputs while second-message editing awaits recall; recall returns before send acceptance and appends contents.
       await user.click(within(within(tray).getAllByRole("listitem")[1]).getByRole("button", { name: "编辑" }));
       await user.click(screen.getByRole("button", { name: "发送消息" }));
       expect(sendMessage).toHaveBeenCalledWith("第 3 镜改成黄昏", [expect.objectContaining({ mimeType: "image/png" })]);
@@ -464,7 +464,7 @@ describe("AgentCopilot", () => {
       await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏\n片尾加字幕"));
       act(() => acceptSend());
 
-      // 只清掉已发出的文字和图片，发送途中退回的内容留在输入框
+      // Clear sent text/images only, retaining contents recalled during sends.
       await waitFor(() => expect(input).toHaveValue("片尾加字幕"));
       expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "放大图片附件 2" })).not.toBeInTheDocument();
@@ -481,7 +481,7 @@ describe("AgentCopilot", () => {
 
       await user.click(screen.getByRole("button", { name: "删除" }));
 
-      // 删除不可撤销：先在这一行原地确认，焦点落在取消上，误按 Enter 不会删除
+      // Irreversible deletion first confirms inline, focusing Cancel to prevent accidental Enter deletion.
       const confirm = screen.getByRole("group", { name: "删除这条消息？" });
       expect(withdrawQueuedMessage).not.toHaveBeenCalled();
       expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus();
@@ -503,7 +503,7 @@ describe("AgentCopilot", () => {
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.click(screen.getByRole("button", { name: "取消" }));
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
-      // 退出确认后焦点交还删除按钮，键盘用户不会掉到 body
+      // Exiting confirmation returns focus to Delete, never body for keyboard users.
       expect(screen.getByRole("button", { name: "删除" })).toHaveFocus();
 
       await user.click(screen.getByRole("button", { name: "删除" }));
@@ -511,13 +511,13 @@ describe("AgentCopilot", () => {
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "删除" })).toHaveFocus();
 
-      // Tab 离开确认区域：确认态结束，焦点留在用户去的地方
+      // Tab out exits confirmation, preserving focus at user destinations.
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.tab();
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "删除" })).not.toHaveFocus();
 
-      // 点区域内的提示文字不算离开；点区域外不可聚焦的消息文字算离开
+      // Clicking internal hint text stays inside; clicking external nonfocusable message text leaves.
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.click(screen.getByText("删除这条消息？"));
       expect(screen.getByRole("group", { name: "删除这条消息？" })).toBeInTheDocument();
@@ -539,7 +539,7 @@ describe("AgentCopilot", () => {
       await user.click(screen.getByRole("button", { name: "确认删除" }));
 
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
-      // 撤回没能移出消息时这一行还在：确认态不退出，焦点回到取消，可以重试或取消
+      // Failed recall leaves messages/rows in confirmation, returns focus to Cancel and permits retry/cancel.
       const confirm = screen.getByRole("group", { name: "删除这条消息？" });
       await waitFor(() => expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus());
       expect(within(confirm).getByRole("button", { name: "确认删除" })).toBeEnabled();
@@ -561,7 +561,7 @@ describe("AgentCopilot", () => {
       const [unsent, queued] = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("listitem");
       expect(within(unsent).getByText("未发送")).toBeInTheDocument();
       expect(within(queued).queryByRole("button", { name: "发送" })).not.toBeInTheDocument();
-      // 未发送的消息不在 CLI 队列里，没有轮次可打断：只有发送，没有立即发送
+      // Unsent messages are outside CLI queues without interruptible turns; offer Send only, never Send now.
       expect(within(unsent).queryByRole("button", { name: "立即发送" })).not.toBeInTheDocument();
 
       await user.click(within(unsent).getByRole("button", { name: "发送" }));
@@ -625,7 +625,7 @@ describe("AgentCopilot", () => {
     });
 
     it("scrolls a long queue inside the tray and follows the newest message, leaving the input and stop button in place", () => {
-      // jsdom 没有布局：托盘按 160px 高、每条按 40px 高打桩，滚动位置按元素记住
+      // jsdom lacks layout; stub trays at 160px/items at 40px, retaining per-element scroll positions.
       const scrollTops = new WeakMap<Element, number>();
       const isTray = (el: Element) => el.getAttribute("aria-label") === "排队消息";
       const indexInTray = (el: Element) =>
@@ -664,14 +664,14 @@ describe("AgentCopilot", () => {
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();
       expect(screen.getByRole("button", { name: "停止回复" })).toBeEnabled();
 
-      // 用户把托盘滚回顶部后，最前面的消息被接纳：不跳动；再发一条：滚到新消息
+      // After users scroll trays to tops, accepting first messages must not jump; new sends scroll to new messages.
       tray.scrollTop = 0;
       act(() => useAssistantStore.setState((s) => ({ queuedMessages: s.queuedMessages.slice(1) })));
       expect(tray.scrollTop).toBe(0);
       act(() => useAssistantStore.setState((s) => ({ queuedMessages: [...s.queuedMessages, queued(21)] })));
       expect(tray.scrollTop).toBe(640);
 
-      // 立即发送把末尾那条排到最前：快照重排不是追加，滚到顶部露出它
+      // Send now moves final messages first; snapshot reordering is not append, so scroll to tops to reveal them.
       act(() =>
         useAssistantStore.setState((s) => ({
           queuedMessages: [s.queuedMessages[s.queuedMessages.length - 1]!, ...s.queuedMessages.slice(0, -1)],
@@ -745,7 +745,7 @@ describe("AgentCopilot", () => {
       await waitFor(() => expect(viewport.scrollTop).toBe(end));
       expect(jump).toHaveAttribute("data-active", "false");
 
-      // 上翻：滚轮表明是用户在滚动，跟随随之停止
+      // Scroll upward: wheels establish user scrolling and stop following.
       fireEvent.wheel(viewport, { deltaY: -600 });
       viewport.scrollTop = 0;
       fireEvent.scroll(viewport);

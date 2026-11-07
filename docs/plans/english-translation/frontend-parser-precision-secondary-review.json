@@ -1,0 +1,43 @@
+{
+  "reviewer": "Coordinator, independent of refinement author",
+  "status": "PASS",
+  "scope": "All four reviewer-authored precision fixes, compared against original Chinese and actual installed comments. Read-only source verification; earlier parser/directive/line proofs and 165 tests remain separate evidence.",
+  "findings": [
+    {
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "before": "// invalidates pending chains first; late signals block stores and SSE connections.",
+      "after": "// invalidates pending chains first; signals reject late responses before store writes or SSE connections.",
+      "original_chinese": "// 先作废在途链，迟到响应经 signal 短路，不写 store、不建 SSE 连接。",
+      "current_verified": true,
+      "coordinator_secondary_review": "PASS: source conditions, actors, deletion scope, resulting state and unchanged error propagation retained",
+      "candidate_sha256": "d1590d36222550fd0fc6eb1eebec0557ffe649e52b12429acc114ca30580ef75"
+    },
+    {
+      "path": "frontend/src/hooks/useAssistantSession.ts",
+      "before": "// Reconcile invalidated rewrites after deletion, never during: premature refetch adds branches that",
+      "after": "// Reconcile invalidated rewrites; defer refetch while the source session is being deleted: it adds branches that",
+      "original_chinese": "// 改写被作废后的列表对账。源会话正在删除时不能当场补拉——补拉会把新分支带进列表，",
+      "current_verified": true,
+      "coordinator_secondary_review": "PASS: source conditions, actors, deletion scope, resulting state and unchanged error propagation retained",
+      "candidate_sha256": "d1590d36222550fd0fc6eb1eebec0557ffe649e52b12429acc114ca30580ef75"
+    },
+    {
+      "path": "frontend/src/stores/tasks-store.test.ts",
+      "before": "// removes optimistic/live rows briefly, allowing edits to race later splitting.",
+      "after": "// leaves scriptFile without optimistic marks or active rows, briefly allowing edits to race later splitting.",
+      "original_chinese": "// 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。",
+      "current_verified": true,
+      "coordinator_secondary_review": "PASS: source conditions, actors, deletion scope, resulting state and unchanged error propagation retained",
+      "candidate_sha256": "3b3ae5d836dd3a2ed19bf21b475b263a7d2d28230ae985f2954ba73855fa33fe"
+    },
+    {
+      "path": "frontend/src/actions/generation.ts",
+      "before": " * Whole regeneration requiring overwrite consent returns 409; callers inspect `diagnostic.script_overwrite`, confirm and retry tokens.",
+      "after": " * Whole regeneration requiring overwrite consent returns 409; errors propagate unchanged; callers inspect `diagnostic.script_overwrite`, confirm and retry tokens.",
+      "original_chinese": "/**\n * 提交广告/短片「AI 生成脚本」，占用与提示词编写同一个槽（服务端同一任务类型、`episode-{N}`）。\n * 整份重做需要确认覆盖时服务端 409，错误原样抛出，由调用方读 `diagnostic.script_overwrite` 弹确认框后带令牌重试。\n */",
+      "current_verified": true,
+      "coordinator_secondary_review": "PASS: source conditions, actors, deletion scope, resulting state and unchanged error propagation retained",
+      "candidate_sha256": "bf248527c53ab141240f0d89a08c264ac51371fb5ae371ab80bb57f1b8ee113a"
+    }
+  ]
+}

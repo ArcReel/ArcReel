@@ -5,12 +5,12 @@ import { useAppStore } from "@/stores/app-store";
 import type { ContentBlock, Turn } from "@/types";
 
 /**
- * 剧本生成是分钟级的 LLM 文本生成，Agent 调用开始时必须立即提供进度反馈，避免用户误以为
- * 卡死。本 hook 监听 Agent 会话流，识别到剧本生成类工具调用开始时弹一条瞬时 toast
- * （过程性提示，无需持久回看），告知该步骤耗时较长。
+ * Script generation takes minutes of LLM text generation; Agent call starts must immediately report progress so users do not assume
+ * freezes. This hook watches Agent session streams, showing transient toasts when script-generation tool calls start
+ * (process notices without persistent review), explaining the lengthy step.
  *
- * 工具名是 SDK 注册后的全限定名 mcp__arcreel__<id>，与 ToolCallWithResult 的解析口径
- * 一致。仅覆盖剧本/脚本规划类文本生成工具；媒体生成等长耗时工具已有任务队列 HUD。
+ * Tool names are SDK-registered fully qualified mcp__arcreel__<id>, matching ToolCallWithResult parsing.
+ * Cover script/script-planning text tools only; lengthy media generation already has task-queue HUDs.
  */
 const SCRIPT_GENERATION_TOOL_NAMES = new Set([
   "mcp__arcreel__generate_episode_script",
@@ -28,7 +28,7 @@ function collectBlocks(turns: Turn[], draftTurn: Turn | null): ContentBlock[] {
 
 export function useScriptGenerationNotice(): void {
   const { t } = useTranslation("dashboard");
-  // 经 ref 暴露最新 t，避免切语言重建 effect、丢失已弹记录。
+  // Expose latest t through refs, avoiding language changes rebuilding effects and losing shown-notice records.
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -38,21 +38,21 @@ export function useScriptGenerationNotice(): void {
   const draftTurn = useAssistantStore((s) => s.draftTurn);
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
 
-  // 已弹过提示的 tool_use id。跨会话/项目切换持久（StudioLayout 常驻），
-  // 切走再回同一进行中调用不重弹；SSE 重连重投同一 draft 也不重弹。
+  // tool_use IDs already notified, retained across session/project switches (StudioLayout persists),
+  // never re-notify the same ongoing call on return or identical drafts replayed after SSE reconnects.
   const notifiedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // 仅在会话运行中弹"耗时"提示：已完成/已中断会话重新载入时，其历史 tool_use 或
-    // 残留 draft 可能仍缺 result，运行态门槛把这类陈旧状态挡在外面。
+    // Show lengthy-step notices only for running sessions: completed/interrupted session reloads may retain historical tool_use or
+    // residual drafts without results. Running-state guards exclude these stale states.
     if (sessionStatus !== "running") return;
 
     const blocks = collectBlocks(turns, draftTurn);
 
-    // 完成判定的主信号是 tool_use 块自身带 result/is_error：前端投影层（entry-projection）
-    // 把配对的 tool_result 条目回填进发起调用的 tool_use 块（与 ToolCallWithResult 的渲染口径
-    // 一致），已完成调用不会再有独立 tool_result 块。仅扫描 tool_result 块会把回放的历史完成调用
-    // 误判为进行中，导致重载停在 AskUserQuestion（status 仍为 running）的会话时重复弹「耗时」提示。
+    // Main completion signals are result/is_error on tool_use blocks: frontend entry-projection backfills
+    // paired tool_result entries into originating tool_use blocks (matching ToolCallWithResult rendering),
+    // so completed calls have no separate tool_result blocks. Scanning only tool_result misclassifies replayed completed history
+    // as ongoing, repeating lengthy-step notices on reloaded AskUserQuestion sessions whose status remains running.
     const completedToolUseIds = new Set<string>();
     for (const block of blocks) {
       if (block.type === "tool_result" && block.tool_use_id) {

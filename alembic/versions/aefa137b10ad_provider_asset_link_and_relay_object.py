@@ -1,11 +1,12 @@
-"""供应商素材关联与对象存储中转副本表
+"""Provider asset links and object-storage relay-copy tables
 
 Revision ID: aefa137b10ad
 Revises: c8e2a4f61b93
 Create Date: 2026-11-03 18:00:00.000000
 
-供应商素材关联记录内容版本与供应商素材的对应关系，也承载取得素材 ID 之前的入库任务；中转副本记录为供应商
-取图写进用户对象存储的临时对象，供保留期结束后清理。两张都是新表，存量实例为空。
+Provider asset links map content versions to provider assets and hold registration tasks before asset IDs
+exist. Relay copies record temporary objects written to user storage for provider image retrieval, for
+cleanup after retention expires. Both tables are new and empty on existing instances.
 """
 
 from __future__ import annotations

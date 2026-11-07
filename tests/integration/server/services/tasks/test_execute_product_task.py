@@ -15,8 +15,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 class TestGenerationTasks:
     async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):
-        """product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），描述取自存储的条目；
-        完成后回写 product_sheet。"""
+        """Product sheets inject user-uploaded originals as standardization references and use stored descriptions; write product_sheet on completion."""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator(project_path)
@@ -35,10 +34,10 @@ class TestGenerationTasks:
         assert sent.name == "0000-保温杯_1.jpg"
         assert not sent.is_relative_to(project_path)
         assert fake_generator.image_reference_bytes[0] == [b"jpg"]
-        assert "商品「保温杯」的标准资产图。" in call["prompt"]
+        assert "Standard asset sheet for product “保温杯”." in call["prompt"]
         assert "不锈钢保温杯" in call["prompt"]
         assert "入队时的旧描述" not in call["prompt"]
-        assert call["prompt"].endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+        assert call["prompt"].endswith("Avoid: people appearing in the shot, watermarks, extra text, logos")
         assert "Style:" not in call["prompt"]
 
     async def test_execute_product_task_without_refs_is_t2i(self, tmp_path, monkeypatch):
@@ -58,7 +57,7 @@ class TestGenerationTasks:
         ["products/refs/缺失.jpg", "../outside.jpg", "products/refs/../../../outside.jpg", "products/refs"],
     )
     async def test_unreadable_original_is_refused_before_any_provider_call(self, tmp_path, monkeypatch, unreadable):
-        """声明了却读不到的原图（缺失、越出项目目录、是目录）在提交供应商前拒绝，不静默少图。"""
+        """Declared originals that are missing, outside projects or directories fail before provider submission, never silently reducing image count."""
         project_path = prepare_files(tmp_path)
         (tmp_path / "outside.jpg").write_bytes(b"jpg")
         fake_pm = _FakePM(project_path)

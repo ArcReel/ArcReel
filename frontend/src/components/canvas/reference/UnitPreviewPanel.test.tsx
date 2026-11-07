@@ -4,8 +4,8 @@ import { useAppStore } from "@/stores/app-store";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 
-// VersionTimeMachine 的 busy 只关面板内的恢复按钮，触发按钮的可用性不变；替身把这个
-// 入参渲染成可断言的属性，避免为了读它去展开面板、加载版本列表。
+// VersionTimeMachine busy disables inner restore buttons, not triggers; doubles render this
+// prop as assertable attributes, avoiding opening panels/loading versions just to inspect it.
 vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
   VersionTimeMachine: ({
     busy,
@@ -15,7 +15,7 @@ vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
     onRestoringChange?: (restoring: boolean) => void;
   }) => (
     <div data-testid="version-time-machine" data-busy={String(Boolean(busy))}>
-      {/* 替身把恢复态回传口暴露成一个按钮，供断言兄弟控件的反向互斥 */}
+      {/* Double exposes restoration-state reporting as a button to verify reverse sibling mutual exclusion. */}
       <button type="button" data-testid="start-restore" onClick={() => onRestoringChange?.(true)} />
     </div>
   ),
@@ -156,9 +156,9 @@ describe("UnitPreviewPanel", () => {
     expect(screen.getByRole("button", { name: /Regenerate narration audio|重新生成旁白配音/ })).toBeDisabled();
   });
 
-  // 版本恢复与生成回写同一个成片文件：占用期间恢复旧版本会显示成功、随后被在跑的
-  // 生成任务覆盖。VersionTimeMachine 的 busy 关掉的是面板内的恢复按钮（触发按钮照常
-  // 可开，只读浏览不受影响），故这里断言接线本身。
+  // Restore/generation write the same final file: occupied restoration could show success before running
+  // generation overwrites. VersionTimeMachine busy disables inner restore, not opening triggers
+  // because read-only browsing remains available; assert wiring itself here.
   describe("版本恢复的占用接线", () => {
     it("空闲时不置 busy", () => {
       render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" />);
@@ -171,7 +171,7 @@ describe("UnitPreviewPanel", () => {
     });
 
     it("占用命中而 status 仍是旧失败行时置 busy", () => {
-      // 重试的乐观窗口内旧失败行仍在，status 不是 running；仅看 status 会漏禁用
+      // Retry optimistic windows retain failed rows and nonrunning status; status-only checks miss disabling.
       render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" status="failed" busy />);
       expect(versionMachineBusy()).toBe(true);
     });
@@ -184,8 +184,8 @@ describe("UnitPreviewPanel", () => {
     });
 
     it("恢复在途反向禁用同一 unit 的生成与上传", () => {
-      // 恢复与生成、上传写同一个 reference_videos/{unit_id}.mp4：恢复返回前若这两个
-      // 入口仍可点，两个请求并发落盘，后完成者覆盖前者且双方都提示成功。
+      // Restore/generate/upload write reference_videos/{unit_id}.mp4. If generation/upload remain enabled
+      // before restoration returns, concurrent writes overwrite by settlement order while both report success.
       const { container } = render(
         <UnitPreviewPanel
           unit={mkUnit()}
@@ -205,15 +205,15 @@ describe("UnitPreviewPanel", () => {
     });
 
     it("外部恢复态同样置 busy——重挂载后不放行第二次恢复", () => {
-      // 面板在窄屏 sub-tab / 宽屏右栏之间切换时会重挂载，VersionTimeMachine 自身的
-      // 恢复中状态随之丢失；父级仍记录该 unit 恢复在途，此时放行会并发写同一成片文件。
+      // Narrow-subtab/wide-sidebar switches remount panels, losing VersionTimeMachine-local
+      // restoration state; parents retain unit occupancy, so allowing writes would race the same final file.
       render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" restoring />);
       expect(versionMachineBusy()).toBe(true);
     });
 
     it("恢复态上报带 unitId，供画布层按 unit 记录", () => {
-      // 恢复态必须存在面板之外：本面板有窄屏 sub-tab / 宽屏右栏两处挂载点，切换会卸载
-      // 它而在途请求不取消；且它随选中项复用，面板内的单个布尔量会串到别的 unit 上。
+      // Keep restoration outside panels: separate narrow/wide mount points unmount on switching
+      // without canceling requests; selection reuse would also leak one local boolean across units.
       const onRestoringChange = vi.fn();
       render(
         <UnitPreviewPanel

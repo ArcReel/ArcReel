@@ -6,62 +6,62 @@ import { EditUnitRetentionContext, useRetainWhile } from "./edit-unit-retention"
 
 import { useLeaveGuard } from "./LeaveGuard";
 
-/** 保存状态：「已保存」短暂显示后回到 idle。 */
+/** Save states: Saved briefly displays before returning to idle. */
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-/** 「已保存」在保存栏或提示条上停留的时长。 */
+/** Duration of Saved displays in save bars/notices. */
 const SAVED_DISPLAY_MS = 2000;
 
 export interface EditUnitOptions<T> {
   /**
-   * 已保存的内容：加载结果，以及之后 SSE 推送、Agent 改写带来的新值。
-   * 没有未保存修改时新值直接生效；有未保存修改时保留修改，并标出外部更新。
+   * Saved contents: loaded results and subsequent SSE/Agent-rewrite updates.
+   * New values apply directly without unsaved edits; otherwise retain edits and mark external updates.
    */
   source: T;
   /**
-   * 提交未保存修改。`savedValue` 是提交前的已保存内容，供按字段生成增量 PATCH。
-   * 返回服务端保存后的内容；不返回时以提交的内容为准。抛错即保存失败，错误信息显示在保存栏或提示条上。
-   * 一次保存分几步提交、前几步已经落盘时抛 `PartialSaveError`。需传稳定引用（`useCallback`）。
+   * Submit unsaved edits. `savedValue` is pre-submission saved content for field-incremental PATCH generation.
+   * Return server-saved contents; omitted returns use submitted contents. Errors mean failed saves and appear in save bars/notices.
+   * Throw `PartialSaveError` for multistep saves with earlier persisted steps. Stable references (`useCallback`) required.
    */
   save: (value: T, savedValue: T) => Promise<T | void>;
-  /** 判断两份内容是否相同，默认按 JSON 序列化比较。需传稳定引用（或模块级函数）。 */
+  /** Content equality, default JSON-serialization comparison; stable references or module functions required. */
   isEqual?: (a: T, b: T) => boolean;
-  /** 离开拦截对话框的标题，如「分镜 3 有未保存的修改」；缺省为通用标题。 */
+  /** Leave-dialog titles, e.g. Storyboard 3 has unsaved changes; defaults to generic titles. */
   leaveTitle?: string;
   /**
-   * 对返回 true 的应用内导航不拦截，用于不会卸载本编辑单元的跳转（如同一编辑单元的分页切换）。
-   * 参数是带查询串的目标路径。需传稳定引用。
+   * Allow in-app navigation returning true when it does not unmount this edit unit (e.g. tabs within one unit).
+   * Arguments are target paths including queries; stable references required.
    */
   allowNavigation?: (to: string) => boolean;
 }
 
 export interface SaveAndGenerateOptions {
-  /** 保存前的确认（如「重新生成会让下游失效」），返回 false 时什么都不保存、不生成。 */
+  /** Presave confirmations (e.g. regeneration invalidates downstream); false saves/generates nothing. */
   confirm?: () => boolean | Promise<boolean>;
 }
 
 export interface EditUnit<T> {
-  /** 当前内容，包含未保存修改。 */
+  /** Current contents including unsaved edits. */
   value: T;
-  /** 已保存的内容。按字段子集判断修改（如侧栏分页的修改标记）时与 `value` 比较。 */
+  /** Saved contents; compare with `value` for field-subset changes such as sidebar tab marks. */
   savedValue: T;
   setValue: (next: T | ((prev: T) => T)) => void;
-  /** 有未保存修改。 */
+  /** Unsaved changes. */
   dirty: boolean;
   status: SaveStatus;
-  /** 最近一次保存失败的原因；再次编辑、放弃或保存成功时清除。 */
+  /** Latest save-failure causes; clear on further editing/discard/successful saves. */
   error: string | null;
-  /** 有未保存修改期间，已保存内容被外部更新。放弃修改即采用新内容。 */
+  /** Saved contents were externally updated while unsaved edits exist; discarding adopts new contents. */
   externallyUpdated: boolean;
-  /** 外部移除或替换了当前单元，保留可见内容时的说明。 */
+  /** Explanations when external removal/replacement retains visible units. */
   externalChangeMessage?: string;
-  /** 提交未保存修改，返回是否成功；没有修改时直接返回 true。 */
+  /** Submit unsaved edits, returning success; unchanged contents immediately return true. */
   save: () => Promise<boolean>;
-  /** 丢弃未保存修改，回到最新的已保存内容。 */
+  /** Discard unsaved edits, restoring latest saved contents. */
   discard: () => void;
   /**
-   * 「保存并生成」：确认（如需要）→ 保存（有修改时）→ 生成。
-   * 确认被取消时什么都不保存，保存失败时不生成；返回是否执行了生成。
+   * Save and generate: confirm if necessary → save if dirty → generate.
+   * Canceled confirmations save nothing; failed saves never generate. Return whether generation executed.
    */
   saveAndGenerate: (generate: () => unknown, options?: SaveAndGenerateOptions) => Promise<boolean>;
 }
@@ -69,7 +69,7 @@ export interface EditUnit<T> {
 interface UnitState<T> {
   value: T;
   saved: T;
-  /** 最近一次见到的 `source`，用来识别外部更新。 */
+  /** Most recently observed `source`, identifying external updates. */
   seenSource: T;
   status: SaveStatus;
   error: string | null;
@@ -77,9 +77,9 @@ interface UnitState<T> {
 }
 
 /**
- * 保存只落盘了一部分（如项目 PATCH 成功、随后的参考图上传失败）：`saved` 成为新的已保存内容，
- * 放弃修改回到它，再次保存也以它为基准；`value` 是仍未保存的内容，缺省保留提交的内容。
- * 只抛普通错误会让已保存内容停在保存前，放弃修改后表单显示旧值，下次保存再把旧值写回。
+ * Partially persisted saves (e.g. successful project PATCH followed by failed reference uploads): `saved` becomes new saved contents,
+ * restored by discard and used for subsequent saves; `value` contains remaining unsaved contents, defaulting to submitted values.
+ * Ordinary errors would retain pre-save saved contents, display old values after discard and write those values back on next saves.
  */
 export class PartialSaveError<T> extends Error {
   readonly saved: T;
@@ -98,8 +98,8 @@ function jsonEqual<T>(a: T, b: T): boolean {
 }
 
 /**
- * 编辑单元：一次显式保存所提交的界面范围（一个设置视图、一张资产、一个分镜详情、一个记忆文件等）。
- * 单元内的字段先进入未保存修改，由 `save` 统一提交；挂载期间自动登记到离开拦截。
+ * Edit units: UI scopes submitted by single explicit saves (settings views/assets/storyboard details/memory files, etc.).
+ * Unit fields first become unsaved edits, submitted together through `save`; automatically register with leave guards while mounted.
  */
 export function useEditUnit<T>({
   source,
@@ -117,8 +117,8 @@ export function useEditUnit<T>({
     externallyUpdated: false,
   }));
 
-  // 已保存内容来自外部的变化：在渲染期同步（React 的「随 props 调整 state」写法），
-  // 避免先用旧内容渲染一帧。与当前已保存内容相同的推送（如自己保存后的回显）不算外部更新。
+  // External saved-content changes synchronize during render (React adjusting state to props),
+  // avoiding one-frame stale renders. Pushes equal to current saved contents (e.g. own save echoes) are not external updates.
   let current = state;
   if (!isEqual(source, state.seenSource)) {
     if (isEqual(source, state.saved)) {
@@ -171,11 +171,11 @@ export function useEditUnit<T>({
       setState((prev) => ({
         ...prev,
         saved: next,
-        // 保存期间没有继续编辑时，采用服务端规范化后的内容；继续编辑过的保留新修改
+        // Adopt server-normalized contents without further edits during saves; otherwise retain new edits.
         value: isEqual(prev.value, submitted) ? next : prev.value,
         status: "saved",
         error: null,
-        // 坚持保存时后写者生效，外部更新的标记随之清除
+        // Explicit saves remain last-writer-wins, clearing external-update marks.
         externallyUpdated: false,
       }));
       return true;
@@ -207,9 +207,9 @@ export function useEditUnit<T>({
     [save],
   );
 
-  // 外部替换后，可见单元已与真实视图分离，旧视图的放行规则不能继续用于主动跳转。
+  // After external replacement, visible units detach from actual views; old-view exemptions cannot govern active navigation.
   const discarding = useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation: retention?.message ? undefined : allowNavigation });
-  // 放弃修改后等待落定的删除自己移除了本单元，不当作外部移除保留
+  // Pending deletions after discard that remove their own units do not trigger external-removal retention.
   useRetainWhile((dirty || status === "saving") && !discarding);
 
   return {

@@ -1,10 +1,9 @@
-"""视频生成预检：把一次请求的整批准入结论折成逐单元的报价单，不建任务。
+"""Video-generation preflight: project whole-request admission into per-unit quotes without creating tasks.
 
-报价单与正式提交读同一份准入：参考生视频的申请档位与费用取自准入票本身，分镜图生视频按
-准入所用的同一份视频请求事实、以剧本编排时长报价。预检之后用户确认了档位，正式提交带上
-报价单给出的 ``confirmed_request_durations``，准入就不会再要求确认同一档位；投影在两次调用
-之间变了（换了模型、改了编排时长），准入照常重新要求确认。
-"""
+Quotes and formal submission share admission: reference-video tiers/costs come from admission tickets; storyboard-video
+quotes use the same video-request facts as admission and script-planned durations. After user tier confirmation,
+submit the quote’s ``confirmed_request_durations`` to avoid reconfirming the same tiers. If projection changes between
+calls, such as a model or planned-duration change, admission requests confirmation again normally."""
 
 from __future__ import annotations
 
@@ -21,19 +20,19 @@ from server.services.admission.cost_estimation import quote_video_request
 
 
 class VideoQuoteOutcome(StrEnum):
-    """正式提交时这个单元会怎样。"""
+    """What formal submission will do with this unit."""
 
-    #: 会入队生成（档位变化的单元在带上确认档位之后）。
+    #: Enqueues generation, after supplying confirmed tiers for units with tier changes.
     GENERATE = "generate"
-    #: 已有可用视频，正式提交会原样复用、不收费。
+    #: Existing usable video is reused unchanged by formal submission, without charges.
     REUSE = "reuse"
-    #: 有确认档位之外的缺口，修复前整批都不会入队。
+    #: Gaps beyond tier confirmation prevent enqueueing the whole batch until repaired.
     BLOCKED = "blocked"
 
 
 @dataclass(frozen=True, slots=True)
 class VideoUnitQuote:
-    """一个视频单元的预检结论。"""
+    """Preflight outcome for one video unit."""
 
     unit_id: str
     outcome: VideoQuoteOutcome
@@ -44,7 +43,7 @@ class VideoUnitQuote:
 
     @property
     def priced_cost(self) -> tuple[float, str] | None:
-        """报价里的 ``(金额, 币种)``；报不出价（没有报价，或金额为 ``None`` 的未定价报价）时为 ``None``。"""
+        """Quote ``(amount, currency)``; ``None`` when no quote is available or an unpriced quote has a ``None`` amount."""
 
         amount = self.cost.get("amount") if self.cost is not None else None
         currency = self.cost.get("currency") if self.cost is not None else None
@@ -54,13 +53,13 @@ class VideoUnitQuote:
 
     @property
     def unpriced(self) -> bool:
-        """会入队、却报不出价：Agent 须如实告知用户这一单元的费用未知，不能当作 0。"""
+        """Eligible to enqueue but unpriced: the Agent must tell the user this unit’s cost is unknown, never treat it as 0."""
 
         return self.outcome is VideoQuoteOutcome.GENERATE and self.priced_cost is None
 
     @property
     def tier_changed(self) -> bool:
-        """申请档位与剧本编排时长不同：成片会比编排的长或短，费用按申请档位算。"""
+        """Requested tier differs from script-planned duration: output is longer or shorter, priced by the requested tier."""
 
         return (
             self.script_duration_seconds is not None
@@ -83,19 +82,19 @@ class VideoUnitQuote:
 
 @dataclass(frozen=True, slots=True)
 class VideoQuoteSheet:
-    """一次 ``generate_videos`` 预检的报价单。"""
+    """Quote sheet for one ``generate_videos`` preflight."""
 
     units: tuple[VideoUnitQuote, ...] = field(default_factory=tuple)
 
     @property
     def submittable(self) -> bool:
-        """带上确认档位正式提交时整批能入队。"""
+        """Whether formal submission with confirmed tiers can enqueue the whole batch."""
 
         return all(unit.outcome is not VideoQuoteOutcome.BLOCKED for unit in self.units)
 
     @property
     def confirmed_request_durations(self) -> dict[str, int]:
-        """正式提交时原样带上的档位确认：只含档位有变化、会入队的单元。"""
+        """Tier confirmations copied unchanged into formal submission, including only enqueueable units with changed tiers."""
 
         return {
             unit.unit_id: unit.request_duration_seconds
@@ -105,17 +104,16 @@ class VideoQuoteSheet:
 
     @property
     def unpriced_count(self) -> int:
-        """会入队、却报不出价的单元数。"""
+        """Count of enqueueable units without a price."""
 
         return sum(1 for unit in self.units if unit.unpriced)
 
     @property
     def estimated_total(self) -> dict[str, float] | None:
-        """会入队单元里已定价部分的费用合计，按币种分开。
+        """Priced costs among enqueueable units, totaled separately by currency.
 
-        有单元报不出价时，合计只含已定价的部分，未定价的单元数见 :attr:`unpriced_count`；一个单元都
-        没有定价时为 ``None``（无从给出合计），不与「没有要收费的单元」的空合计混同。
-        """
+        If some units are unpriced, totals contain only priced units; :attr:`unpriced_count` gives the rest. With no priced units,
+        return ``None`` because no total is available, distinct from an empty total when no units require charges."""
 
         total: dict[str, float] = {}
         for unit in self.units:
@@ -177,13 +175,13 @@ def _unit_line(unit: VideoUnitQuote) -> str:
 
 
 def _own_problems(ticket: UnitAdmissionTicket) -> tuple[GenerationProblem, ...]:
-    """确认档位以外的缺口：档位确认正是报价单要交给用户的事，不算受阻。"""
+    """Gaps other than tier confirmation, which the quote asks users to decide and does not count as blocking."""
 
     return tuple(problem for problem in ticket.problems if problem.code != DURATION_CONFIRMATION_CODE)
 
 
 def _positive_seconds(value: object) -> int | None:
-    """剧本或投影里的秒数：正整数原样取用，其余（缺失、脏值、布尔）视为报不出。"""
+    """Seconds from scripts/projections: retain positive integers; treat absent, malformed or boolean values as unavailable."""
 
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else None
 
@@ -199,11 +197,10 @@ def quote_sheet(
     storyboard_durations: Mapping[str, object] | None = None,
     storyboard_costs: Mapping[str, Mapping[str, object] | None] | None = None,
 ) -> VideoQuoteSheet:
-    """把整批准入折成报价单。
+    """Project whole-batch admission into a quote.
 
-    参考生视频的准入票自带投影（编排时长、申请档位与费用）；分镜图生视频的票不带，申请档位
-    即剧本编排时长，费用由 :func:`quote_storyboard_video_units` 事先算好传入。
-    """
+    Reference-video admission tickets contain planned durations, requested tiers and costs. Storyboard-video tickets do not;
+    requested tiers equal script-planned durations, with costs precomputed by :func:`quote_storyboard_video_units`."""
 
     units: list[VideoUnitQuote] = [VideoUnitQuote(unit_id, VideoQuoteOutcome.REUSE) for unit_id in reused_ids]
     for ticket in admission.tickets if admission is not None else ():
@@ -235,11 +232,10 @@ async def quote_storyboard_video_units(
     *,
     aspect_ratio: str,
 ) -> dict[str, dict[str, object] | None]:
-    """分镜图生视频逐单元报价：按剧本编排时长、用准入同一份视频请求事实。
+    """Quote storyboard-video units using script-planned durations and the same video-request facts as admission.
 
-    ``aspect_ratio`` 是视频请求发出的画面比例。事实不成立或单元没写编排时长时报不出价，记 ``None``；
-    价目表算不出的单元报价金额为 ``None``，带未定价原因。
-    """
+    ``aspect_ratio`` is the ratio sent in video requests. Invalid facts or missing planned durations yield ``None``.
+    When the price list cannot price a unit, its quote amount is ``None`` with an unpriced reason."""
 
     costs: dict[str, dict[str, object] | None] = {}
     for unit_id, value in durations.items():

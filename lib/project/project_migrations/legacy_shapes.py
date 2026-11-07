@@ -1,36 +1,47 @@
-"""迁移链在第一次规划产物目标态之前，把过去正常流程写出的旧形态规整成当前代码认得的形态（ADR 0098）。
+"""Before its first artifact target-state plan, the migration chain normalizes shapes written by past normal workflows into shapes current code recognizes (ADR 0098).
 
-v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档导入）与 v8→v9、v9→v10、v14→v15 曾把
-这些形态当作数据错误拒绝整个项目；它们其实是旧版本代码自己写出来的。这里按确定规则规整，有取舍时另一份留作永久保留副本
-（:func:`lib.project.project_migrations.backups.set_aside_as_kept_copy`），每处改动都作为
-:class:`MigrationAdjustment` 进迁移报告：
+v6→v7 script rewriting, artifact target-state planning (steps from v7→v8 onward and archive import),
+and v8→v9, v9→v10, v14→v15 used to reject whole projects treating these shapes as data errors.
+They were actually written by older code. Normalize deterministically here, retaining the alternative
+as a permanent kept copy when choosing between them
+(:func:`lib.project.project_migrations.backups.set_aside_as_kept_copy`). Each change enters the
+migration report as a :class:`MigrationAdjustment`:
 
-- **账本里同一集号出现多条**：留一条（绑定的剧本在盘上、且优先规范路径的那条，都不在时留第一条），
-  其余从账本去掉；它们绑定的剧本文件原样留在盘上，改前的 ``project.json`` 留作保留副本。
-- **不同集号绑到同一份剧本**（旧版按剧本自报的集号同步账本）：剧本留给它自己声明的那一集，
-  都不是时留给账本里靠前的那一集；其余各集改绑到自己的规范路径。
-- **集绑定不是 ``scripts/episode_N.json``**（schema < 15；旧版 SSE 索引同步登记的任意剧本）：
-  剧本挪到规范路径并改绑。规范路径上已有另一份内容时，那一份先挪成保留副本。产物清单里该集剧本
-  的登记、版本记录里的 ``execution_script_file`` 与宫格记录里的 ``script_file`` 随之改写，已登记
-  的产物不因改绑丢失归属。
-- **剧本顶层的集号缺失或与绑定不符**（旧版同步与保存都接受缺集号的剧本）：以账本绑定为准写回。
-- **同一资产表里名字归一后相同**（去两端空白、Unicode NFC、不区分大小写），或名字归一后为空：
-  留第一条，其余从资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。去掉的条目
-  名下的衍生按资产合并的规则并进保留条目（迁走的衍生图搬到保留名下），各集剧本与草稿里指向只差
-  大小写那条的引用改写为保留名。
-- **资产图、参考图或参考音频指向别的资产名下的文件**（旧版资产 PATCH 接受任意路径）：复制一份到本资产名下
-  并改指过去，原文件留给它的主人。本资产名下的落点已被另一份内容占着时，那一份先挪成保留副本。资产图的清单
-  登记随之改写：登记在旧路径上的换到副本（同字节，依据摘要不变），登记在落点上的描述的是被挪走的那份，撤掉。
-  这些文件按名归属，之后的改名、删除与恢复只处理本资产名下的文件。
-- **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
-  条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目；只描述这些媒体的
-  生成状态一并清空，换号条目读作尚未生成。
-- **两集里有同号条目**：媒体与登记归 id 前缀所指的那一集，对不上时归账本里靠前的那一集；另一集的
-  条目在本集换新 id，不带走媒体。
-- **新旧草稿名并存**（schema < 10）：以新名为准，旧名文件挪成保留副本。
+- **Multiple ledger entries for one episode ID**: retain one (a bound script exists on disk, preferring
+  the canonical path; otherwise the first entry), removing the others from the ledger. Leave their bound
+  script files unchanged on disk and retain the previous ``project.json`` as a kept copy.
+- **Different episode IDs bound to the same script** (old ledger synchronization used the script's
+  self-declared episode): leave the script with its declared episode, or the earliest ledger episode
+  if none matches. Rebind the other episodes to their own canonical paths.
+- **Episode binding is not ``scripts/episode_N.json``** (schema < 15; arbitrary scripts registered by old
+  SSE index synchronization): move the script to its canonical path and rebind it. If another file already
+  occupies that path with different contents, set it aside as a kept copy first. Rewrite that episode's
+  script manifest entry, ``execution_script_file`` in version records, and ``script_file`` in grid records
+  accordingly, preserving registered artifacts' ownership through rebinding.
+- **Missing or mismatched top-level script episode ID** (old synchronization and saving both accepted
+  scripts without episode IDs): write the ledger binding's episode ID.
+- **Names normalize identically within an asset table** (trim, Unicode NFC, case-insensitive), or normalize
+  to empty: keep the first, removing the rest from the table. Leave asset-image files untouched and retain
+  the previous ``project.json`` as a kept copy. Merge removed entries' derivatives into the retained entry
+  under asset-merge rules (move relocated derivative images under the retained name), and rewrite script
+  and draft references to case-only variants to the retained name.
+- **Asset images, reference images, or reference audio point to files under another asset's name** (old
+  asset PATCH accepted arbitrary paths): copy under this asset's name and repoint, leaving the original
+  with its owner. If a different file occupies the destination, set it aside as a kept copy first. Rewrite
+  asset-image manifest entries: move entries at the old path to the copy (same bytes, unchanged basis
+  digest); remove entries at the destination because they describe the displaced file. These files are
+  owned by name; later rename, delete, and restore handle only files under this asset's name.
+- **Missing or duplicate script-entry IDs**: assign fresh IDs to missing entries and duplicates after the
+  first, using the same numbering rules as new entries. Clear artifact references to the old ID's canonical
+  media paths on renumbered entries: those files belong to the entry retaining the original ID. Clear
+  generation state describing only those media too, so renumbered entries read as not yet generated.
+- **Identical entry IDs in two episodes**: media and entries belong to the episode indicated by the ID
+  prefix, or the earliest ledger episode if none matches. Assign a fresh ID within the other episode
+  without taking the media along.
+- **Old and new draft names coexist** (schema < 10): prefer the new name, moving the old file to a kept copy.
 
-读不出的 ``project.json`` 或剧本不在这里处理：之后的迁移步照旧拒绝整个项目。
-"""
+Unreadable ``project.json`` or scripts are not handled here: later migration steps still reject the
+whole project."""
 
 from __future__ import annotations
 
@@ -83,23 +94,23 @@ from lib.script.script_editor import ScriptEditError, new_item_id, resolve_items
 
 logger = logging.getLogger(__name__)
 
-#: 从这个版本起账本与资产名称空间都已就位；规整先于 v6→v7（它按账本逐集改写剧本）与之后的
-#: 每一次产物目标态规划。
+#: Ledger and asset namespaces exist from this version onward; normalize before v6→v7 (which rewrites scripts by ledger episode)
+#: and every subsequent artifact target-state plan.
 NORMALIZE_FROM_SCHEMA_VERSION = 6
 _CANONICAL_BINDING_SCHEMA_VERSION = 15
 _DRAFT_RENAME_SCHEMA_VERSION = 10
-#: v9→v10 改名之前的落盘名：脚本规划草稿的新名 → 旧名，以及集条目上的确认记录字段。
+#: Pre-v9→v10 persisted names: script-plan draft new → old names, plus episode confirmation-record fields.
 _LEGACY_DRAFT_NAMES = {new: old for old, new in DRAFT_FILE_RENAMES.items()}
 _LEGACY_REVIEW_FIELD = "step1_review"
 _DERIVATIVE_SHEET_FIELD = ASSET_SPECS[DERIVATIVE_ASSET_TYPE].sheet_field
 
-#: 条目产物字段 → 资源类型；参考生视频单元的视频在 ``reference_videos`` 下。
+#: Entry artifact field → resource type; reference-to-video unit videos live under ``reference_videos``.
 _MEDIA_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("storyboard_image", "storyboards", "storyboards"),
     ("video_clip", "videos", "reference_videos"),
     ("narration_audio", "audio", "audio"),
 )
-#: 只描述某个主媒体的生成状态：主媒体不在时它们没有可描述的对象。
+#: Generation state describing only a main medium has no subject when that medium is absent.
 _MEDIA_COMPANION_FIELDS: dict[str, tuple[str, ...]] = {
     "storyboard_image": ("storyboard_last_image", "grid_id", "grid_cell_index"),
     "video_clip": ("video_thumbnail", "video_uri", "video_generated_at"),
@@ -111,11 +122,11 @@ class _Work:
     project_dir: Path
     schema_version: int
     project: dict[str, Any]
-    #: 内存里的 ``project`` 有尚未写盘的改动。
+    #: In-memory ``project`` has unpersisted changes.
     project_changed: bool = False
-    #: 已落盘的规整项：重跑发现不了它们，中途失败也要记下。改动 ``project.json`` 的规整项排在最前。
+    #: Persisted normalization items: reruns cannot discover them; record even on mid-process failure. ``project.json`` items come first.
     adjusted: list[MigrationAdjustment] = field(default_factory=list)
-    #: 改动 ``project.json`` 的规整项；写盘后才移进 ``adjusted``，保留副本路径要等第一次写盘时才知道。
+    #: ``project.json`` normalization items move to ``adjusted`` only after writing; kept-copy paths become known at the first write.
     project_adjustments: list[MigrationAdjustment] = field(default_factory=list)
     project_recorded: int = 0
     project_committed: bool = False
@@ -189,8 +200,8 @@ def _drop_duplicate_episodes(work: _Work) -> None:
 
 
 def _split_shared_bindings(work: _Work) -> None:
-    """不同集号绑到同一份剧本时，剧本留给它自己声明的那一集（都不是时留给账本里靠前的那一集），
-    其余各集改绑到自己的规范路径；那里没有文件时该集就是还没有剧本。"""
+    """When different episode IDs bind to the same script, leave it with its self-declared episode (or the earliest ledger episode if none matches).
+    Rebind others to their own canonical paths; an episode without a file there has no script yet."""
 
     groups: dict[Path, list[tuple[int, dict[str, Any]]]] = {}
     for episode, entry in _episode_entries(work.project):
@@ -202,7 +213,7 @@ def _split_shared_bindings(work: _Work) -> None:
             continue
         script = _load_object(path) if path.is_file() and not path.is_symlink() else None
         if script is None and path.is_file():
-            # 读不出的剧本不归规整：绑定原样留下，之后的迁移步照旧拒绝整个项目。
+            # Unreadable scripts are outside normalization: preserve bindings; later migration steps still reject the whole project.
             continue
         claimed = script.get("episode") if script is not None else None
         owner = next((sharer for sharer in sharers if sharer[0] == claimed), sharers[0])
@@ -224,7 +235,7 @@ def _split_shared_bindings(work: _Work) -> None:
 
 
 def _correct_script_episodes(work: _Work) -> None:
-    """剧本顶层的集号以账本绑定为准：缺了就补上，与绑定不符就改成绑定的集号。"""
+    """Make top-level script episode IDs match ledger bindings: fill missing IDs and correct mismatches."""
 
     for episode, entry in _episode_entries(work.project):
         path = _bound_path(work.project_dir, entry.get("script_file"))
@@ -250,11 +261,11 @@ def _correct_script_episodes(work: _Work) -> None:
 
 
 def _commit_project(work: _Work, *, keep_copy: bool = False) -> None:
-    """把内存里的 ``project`` 写回盘上，写过的 ``project.json`` 规整项随之记进 ``adjusted``。
+    """Persist in-memory ``project`` and move its written ``project.json`` normalization items into ``adjusted``.
 
-    第一次写之前留备份：有改动 ``project.json`` 的规整项时留保留副本（报告指向它），否则留版本化备份。
-    ``keep_copy`` 用于规整项尚未登记就要先提交的情形，让之后的规整项仍能指向改前的那份。
-    """
+    Back up before the first write: retain a kept copy (referenced by the report) if normalizations modify
+    ``project.json``, otherwise a versioned backup. ``keep_copy`` handles commits before recording the
+    normalization item so later items can still refer to the pre-change copy."""
 
     project_file = work.project_dir / "project.json"
     if not work.project_committed:
@@ -275,11 +286,10 @@ def _commit_project(work: _Work, *, keep_copy: bool = False) -> None:
 
 @dataclass
 class _Rebind:
-    """一集从非规范绑定改到规范路径。
+    """Rebind one episode from a noncanonical binding to its canonical path.
 
-    ``source`` 是要挪过去的剧本文件，没有可挪的文件时为 ``None``；``old_paths`` 是版本记录与宫格记录里
-    可能指向它的旧写法。
-    """
+    ``source`` is the script file to move, or ``None`` if absent; ``old_paths`` lists old spellings that
+    may reference it in version and grid records."""
 
     episode: int
     entry: dict[str, Any]
@@ -293,13 +303,13 @@ class _Rebind:
 
 
 def _staged_path(bound: Path, episode: int) -> Path:
-    """交叉绑定成环时剧本的临时名。由原绑定与集号确定，中断后重跑据此认回。"""
+    """Temporary script name for cyclic cross-bindings, determined by original binding and episode ID for recognition on interrupted reruns."""
 
     return bound.with_name(f".{bound.name}.rebind-{episode}")
 
 
 def _unstaged_path(path: Path, episode: int) -> Path | None:
-    """``path`` 是这一集成环时的临时名时，返回挪到临时名之前的原绑定。"""
+    """If ``path`` is this episode's cyclic temporary name, return its original binding before the temporary move."""
 
     prefix, suffix = ".", f".rebind-{episode}"
     if not (path.name.startswith(prefix) and path.name.endswith(suffix)):
@@ -309,10 +319,10 @@ def _unstaged_path(path: Path, episode: int) -> Path | None:
 
 
 def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], target_rel: str) -> None:
-    """让版本记录与宫格记录里指向该集旧剧本的引用改到 ``target_rel``。
+    """Repoint references to this episode's old script in version and grid records to ``target_rel``.
 
-    写入的是不带目录的文件名，与生成任务、宫格请求写下的形态一致（宫格按字面比对剧本）。
-    """
+    Write a filename without directories, matching generation tasks and grid requests (grids compare
+    script names literally)."""
 
     target = target_rel.removeprefix("scripts/")
 
@@ -365,11 +375,11 @@ def _rebind_manifest_entry(work: _Work, episode: int, canonical: str) -> None:
 
 
 def _relocate(work: _Work, rebind: _Rebind, target_rel: str) -> None:
-    """把一集剧本的引用与绑定改到 ``target_rel`` 并立即提交 ``project.json``。
+    """Repoint one episode's script references and binding to ``target_rel`` and immediately commit ``project.json``.
 
-    调用前剧本文件已经挪到位。每挪一次就提交一次：中断后重跑时，账本已改绑的集按新绑定处理，
-    没改绑的集原绑定上已没有文件（或留有临时名），不会把别集挪进来的剧本认成自己的。
-    """
+    The script file is already in place before this call. Commit after each move: on interrupted reruns,
+    rebound episodes use new bindings; unrebound episodes no longer have files at old bindings (or have
+    temporary names), so they will not claim scripts moved in from other episodes."""
 
     _rewrite_script_references(work, rebind.episode, rebind.old_paths, target_rel)
     rebind.entry["script_file"] = target_rel
@@ -379,12 +389,12 @@ def _relocate(work: _Work, rebind: _Rebind, target_rel: str) -> None:
 
 
 def _canonicalize_bindings(work: _Work) -> None:
-    """集绑定不是 ``scripts/episode_N.json`` 时，剧本挪到规范路径并改绑。
+    """Move scripts to canonical paths and rebind when episode bindings are not ``scripts/episode_N.json``.
 
-    一集的规范路径可能正是另一集还没挪走的剧本（旧版按剧本自报的集号建绑定，文件名与集号可以交叉），
-    所以先挪规范路径没被占用的那些；彼此占用成环时，先把其中一份挪到临时名断开。规范路径上剩下的是
-    不归任何一集的文件，内容不同时挪成保留副本。
-    """
+    One episode's canonical path may hold another episode's not-yet-moved script (old code bound using
+    self-declared IDs, allowing crossed filenames and episode IDs). Move episodes with unoccupied canonical
+    paths first; break cycles by moving one script to a temporary name. Files left at canonical paths belong
+    to no episode; set them aside as kept copies when contents differ."""
 
     if work.schema_version >= _CANONICAL_BINDING_SCHEMA_VERSION:
         return
@@ -402,22 +412,22 @@ def _canonicalize_bindings(work: _Work) -> None:
             old_paths.add(work.rel(bound))
             original = _unstaged_path(bound, episode)
             if original is not None:
-                # 上一次成环时改绑到临时名后中断：报告仍写原来的绑定。
+                # Previous cyclic run stopped after rebinding to a temporary name: report the original binding.
                 raw = work.rel(original)
             staged = _staged_path(bound, episode)
             if staged.is_file():
-                # 上一次在成环处中断：这一集的剧本在临时名下，原绑定上若有文件也是别集挪进来的。
+                # Interrupted at a cycle: this script has a temporary name; any file at its original binding was moved from another episode.
                 source = staged
                 old_paths.add(work.rel(staged))
             elif bound != canonical and bound.is_file():
                 source = bound
         if source is not None and _load_object(source) is None:
-            # 读不出的剧本不归规整，之后的迁移步照旧拒绝整个项目；这时不挪任何一集的剧本，
-            # 免得它被别集挪成保留副本、或拒绝点名的不再是盘上原来的文件。
+            # Unreadable scripts are outside normalization; later steps still reject the whole project. Move no episode scripts now,
+            # avoiding displacement to another episode's kept copy or rejection naming a different file from the original.
             return
         rebinds.append(_Rebind(episode=episode, entry=entry, raw=raw, old_paths=old_paths, source=source))
 
-    # 没有可挪文件的集也排进来：它的规范路径若正是别集待挪的剧本，等那一集挪走后再改它的引用。
+    # Include episodes with no movable file: if another script occupies their canonical path, repoint references after it moves.
     pending = rebinds
     while pending:
         sources = {rebind.source for rebind in pending if rebind.source is not None}
@@ -444,8 +454,8 @@ def _canonicalize_bindings(work: _Work) -> None:
             _relocate(work, ready, ready.canonical_rel)
         except BaseException:
             if backup is not None:
-                # 保留副本已经挪出来，重跑时发现不了它：中途失败也让报告指向它。重跑完成同一处改绑时
-                # 记下的那一条不带保留副本，按同一处改动只记一次。
+                # The kept copy is already moved and cannot be rediscovered. Report it even on failure. A rerun finishing this same rebinding
+                # records no kept copy; retain only one record for the same change.
                 work.adjusted.append(_binding_canonicalized(ready, backup))
             raise
         work.adjusted.append(_binding_canonicalized(ready, backup))
@@ -463,7 +473,7 @@ def _binding_canonicalized(rebind: _Rebind, backup: str | None) -> MigrationAdju
 
 @dataclass(frozen=True)
 class _AssetDrop:
-    """资产表里要去掉的一条重名资产，以及它并向的保留条目（归一后为空时 ``kept`` 为空串）。"""
+    """An asset-table duplicate to remove and its retained entry (``kept`` is empty when the name normalizes to empty)."""
 
     asset_type: str
     name: str
@@ -472,7 +482,7 @@ class _AssetDrop:
 
     @property
     def renames_references(self) -> bool:
-        """引用要不要改写：只差大小写时要；只差空白与 Unicode 形态的引用本就按比对坐标解析到保留条目。"""
+        """Whether references need rewriting: yes for case-only differences; whitespace/Unicode-only variants already resolve to retained entries via comparison coordinates."""
         return bool(self.kept) and asset_name_comparison_key(self.name) != asset_name_comparison_key(self.kept)
 
     def params(self) -> dict[str, str]:
@@ -480,11 +490,11 @@ class _AssetDrop:
 
 
 def _drop_duplicate_assets(work: _Work) -> None:
-    """资产表里归一后重名的资产留第一条，其余并进它：衍生迁过去，指向它们的引用改写为保留名。
+    """Keep the first asset with each normalized name; merge the rest into it, moving derivatives and repointing references to the retained name.
 
-    落盘顺序保证中途失败后重跑能收敛：引用、产物清单与版本历史先改，删资产的 ``project.json``
-    最后才提交；提交前失败时重跑仍能发现这些重名资产，已改过的引用与登记不再变动。
-    """
+    Persistence order converges on reruns after failure: change references, the artifact manifest, and
+    version history before committing ``project.json`` with asset removals. A pre-commit failure leaves
+    duplicates discoverable; rewritten references and entries do not change again."""
 
     drops: list[_AssetDrop] = []
     for asset_type, spec in ASSET_SPECS.items():
@@ -492,7 +502,7 @@ def _drop_duplicate_assets(work: _Work) -> None:
         if not isinstance(bucket, dict):
             continue
         seen: dict[str, str] = {}
-        # 保留条目的衍生表连同前面几条重名资产迁入的衍生：同一保留条目可能并入多条重名资产。
+        # Retained derivatives include those moved from earlier duplicates; multiple duplicates may merge into one retained entry.
         kept_tables: dict[str, dict[str, Any]] = {}
         for name in list(bucket):
             if not isinstance(name, str):
@@ -538,17 +548,18 @@ def _drop_duplicate_assets(work: _Work) -> None:
 
 
 def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> None:
-    """把各集剧本与草稿里指向被去掉资产的引用改写为保留名，规则同资产合并（并为本体）。
+    """Repoint script and draft references to removed assets to the retained name, using asset-merge rules (merge into the base).
 
-    改写的是已确认的正式脚本规划时，确认指纹随之平移，且先于草稿落盘提交：草稿已改写、确认还没
-    平移时失败，重跑就再也认不出那份确认了。v10 之前的项目按当时的草稿名与确认记录字段认这份规划，
-    确认不平移的话，v14→v15 也不会把只有确认规划的集转出正式脚本。
-    """
+    When rewriting a confirmed formal script plan, shift its confirmation fingerprint too, committing it
+    before the draft. Failure after draft rewriting but before shifting confirmation would prevent reruns
+    from recognizing that confirmation. Pre-v10 projects recognize plans via historical draft names and
+    confirmation fields; without shifting confirmation, v14→v15 will not produce formal scripts for episodes
+    with only confirmed plans either."""
 
     renaming = [drop for drop in drops if drop.renames_references]
     if not renaming:
         return
-    # script_review 经 project_manager 间接依赖迁移链，惰性 import 破环。
+    # script_review indirectly depends on this migration chain through project_manager; lazy import breaks the cycle.
     from lib.script.script_review import (
         carry_confirmation_through_migration,
         content_fingerprint_of_data,
@@ -606,7 +617,7 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
     if carried:
         work.project_changed = True
         _commit_project(work, keep_copy=True)
-    # 每写完一个文件就记下它的改写：中途失败时已改写的那几集重跑发现不了，要靠这份记录带到重试。
+    # Record each file rewrite immediately: failures leave rewritten episodes undiscoverable on rerun, requiring these records for retry.
     recorded: set[tuple[int, int]] = set()
     for episode, path, payload, _before, hits in changed:
         ensure_versioned_backup(path, work.schema_version)
@@ -623,18 +634,20 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
 
 
 def _carry_merged_derivative_records(work: _Work, drops: list[_AssetDrop]) -> None:
-    """并进保留条目的衍生带上自己的图、清单登记与版本历史，与资产合并处理衍生同一口径。
+    """Derivatives merged into retained entries carry images, manifest entries, and version history under asset-merge derivative rules.
 
-    - 迁走的衍生：图从被去掉条目的规范路径搬到保留名下，条目里的路径随之改写；清单登记换键并改路径，
-      依据摘要原样保留；版本历史换键。图不搬的话，之后改名衍生或本体时按规范路径搬图，条目里的路径
-      却对不上，引用就指空了。
-    - 并入已有衍生的：撤掉清单登记与版本历史。留着的登记按不区分大小写的路径占住保留方那个衍生的
-      登记位。它们的图与版本快照文件留在盘上。
+    - Relocated derivatives: move images from removed entries' canonical paths under the retained names,
+      updating paths in entries. Change manifest keys and paths without changing basis digests; change
+      version-history keys. Without image moves, later derivative/base renames move images by canonical
+      paths but paths in entries do not match, leaving dangling references.
+    - Derivatives merged into existing derivatives: remove manifest entries and version history. Remaining
+      entries occupy the retained derivative's registration slot using case-insensitive paths. Their images
+      and version snapshot files remain on disk.
 
-    新键下已有登记或历史时不动；重跑时旧键已不在、图已在新路径，同样收敛。
-    """
+    Preserve entries/history already at new keys. Reruns similarly converge because old keys are absent
+    and images are already at new paths."""
 
-    # （被去掉条目名, 保留名, 衍生名, 清单要改的路径）与（被去掉条目名, 衍生名）。
+    # (removed entry name, retained name, derivative name, manifest paths to rewrite) and (removed entry name, derivative name).
     moved: list[tuple[str, str, str, dict[str, str]]] = []
     retired: list[tuple[str, str]] = []
     for drop in drops:
@@ -692,11 +705,11 @@ def _carry_merged_derivative_records(work: _Work, drops: list[_AssetDrop]) -> No
 
 
 def _relocate_derivative_sheet(work: _Work, derivative: object, owner: str, kept: str, name: str) -> dict[str, str]:
-    """把迁走衍生的图从 ``owner`` 名下的规范路径搬到 ``kept`` 名下，改写条目里的路径；返回清单要改的路径。
+    """Move a relocated derivative image from its canonical path under ``owner`` to ``kept``, updating its entry path; return paths to rewrite in the manifest.
 
-    只动指在旧规范路径上的图。不区分大小写的文件系统上新旧路径可能是同一个文件，只改写路径；
-    盘上没有这张图时同样只改写路径，与改名衍生一致；新路径已被别的文件占着时不搬，路径照旧。
-    """
+    Move only images pointing to old canonical paths. On case-insensitive filesystems the paths may name
+    the same file, so only rewrite the path; likewise when the image is absent, matching derivative rename.
+    If another file occupies the new path, do not move, retaining the old path."""
 
     if not isinstance(derivative, dict):
         return {}
@@ -715,19 +728,19 @@ def _relocate_derivative_sheet(work: _Work, derivative: object, owner: str, kept
             return {}
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(source, target)
-        # 只是收纳目录：非空或删不掉都不影响任何登记。
+        # Container directory only: nonempty or undeletable directories affect no entries.
         with contextlib.suppress(OSError):
-            source.parent.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
+            source.parent.rmdir()  # hard-delete: infra -- empty directories after migration relocation
     derivative[_DERIVATIVE_SHEET_FIELD] = new_rel
     return {normalize_artifact_path(value): normalize_artifact_path(new_rel)}
 
 
-#: 参考文件字段 → 本资产名下的落点（资产类型目录下的子目录）；多图序列按 ``名字_{序号}`` 命名。资产图落在类型目录本级。
+#: Reference field → destination under its own asset (subdirectory of the asset-type directory); sequences use ``名字_{序号}``. Sheets live directly in type directories.
 _REFERENCE_FILE_SUBDIRS = {"reference_image": "refs", "reference_audio": "refs_audio", "reference_images": "refs"}
 
 
 def normalize_shared_reference_files(project_dir: Path, *, schema_version: int) -> list[MigrationAdjustment]:
-    """只规整共用的资产图与参考文件，供资产名称空间迁移在暂存树里提前拆分引用。"""
+    """Normalize only shared asset images and reference files, allowing the asset-namespace migration to split references early in its staging tree."""
     project = _load_object(project_dir / "project.json")
     if project is None:
         return []
@@ -742,7 +755,7 @@ def _named_file_fields(work: _Work) -> Iterator[tuple[str, str, dict[str, Any], 
         if not isinstance(bucket, dict):
             continue
         for name, entry in bucket.items():
-            # 复制目标用资产名拼文件名；导入包在校验资产名之前就跑迁移链，含路径分隔符的名字会把副本写出目录。
+            # Copy destinations build filenames from asset names. Imports migrate before asset-name validation; separators could write copies outside the directory.
             if not isinstance(name, str) or not isinstance(entry, dict) or "/" in name or "\\" in name:
                 continue
             for field_name in named_file_fields(spec):
@@ -750,7 +763,7 @@ def _named_file_fields(work: _Work) -> Iterator[tuple[str, str, dict[str, Any], 
 
 
 def _copy_shared_reference_files(work: _Work) -> None:
-    """资产图与参考文件复制到本资产名下；互相引用时冻结源字节，引用提交失败则源文件与清单一并恢复供重试。"""
+    """Copy asset images and reference files under their own assets; freeze source bytes for mutual references and restore sources plus manifest on reference-commit failure for retry."""
     fields = list(_named_file_fields(work))
     sources: dict[str, Path] = {}
     for asset_type, name, entry, field_name in fields:
@@ -773,7 +786,7 @@ def _copy_shared_reference_files(work: _Work) -> None:
                 sources[rel] = source
     content = {rel: source.read_bytes() for rel, source in sources.items()}
     before = len(work.adjusted)
-    #: 改指到副本的资产图：（资产类型, 名字, 旧值, 副本路径）。
+    #: Repointed asset-image copies: (asset type, name, old value, copy path).
     sheets: list[tuple[str, str, str, str]] = []
     manifest = work.project_dir / MANIFEST_FILENAME
     try:
@@ -805,12 +818,13 @@ def _copy_shared_reference_files(work: _Work) -> None:
 
 
 def _carry_sheet_claims(work: _Work, sheets: list[tuple[str, str, str, str]]) -> None:
-    """改指到副本的资产图带上清单登记，时效与改指前相同。
+    """Asset images repointed to copies carry their manifest entries, preserving currency.
 
-    改指前的时效看登记是否在旧值的路径上：在的话把它换到副本，依据摘要原样保留（副本与原文件同字节，读作时新
-    的仍读作时新）；不在的话本就读作缺失，落点上的登记描述的是被挪成保留副本的那份图，撤掉，不借副本伪造成时新。
-    互相共用时登记可能交叉在对方的路径上，逐条改写会经过同一路径被两个键登记的中间态，所以一次整体提交。
-    """
+    Pre-repoint currency depends on whether the entry is at the old value's path: if so, move it to the
+    copy with unchanged basis digest (identical bytes preserve current status). Otherwise it already reads
+    as missing: destination entries describe the image displaced to a kept copy, so remove them rather than
+    falsely marking the copy current. Mutual sharing may cross entries at each other's paths; rewriting
+    individually would let two keys temporarily register the same path, so commit the whole set atomically."""
 
     if not sheets or not (work.project_dir / MANIFEST_FILENAME).is_file():
         return
@@ -855,7 +869,7 @@ def _own_reference_copy(
     *,
     siblings: list[Any] | None = None,
 ) -> str | None:
-    """*value* 是别的资产名下的文件时复制到 *name* 名下，返回新路径；不必复制时返回 ``None``。"""
+    """Copy *value* under *name* if it belongs to another asset; return the new path, or ``None`` when no copy is needed."""
 
     spec = ASSET_SPECS[asset_type]
     if not isinstance(value, str) or not value:
@@ -867,7 +881,7 @@ def _own_reference_copy(
     target_dir = PurePosixPath(spec.subdir)
     if field_name != spec.sheet_field:
         target_dir /= _REFERENCE_FILE_SUBDIRS[field_name]
-    # 参考音频只认角色参考音频目录里的文件，别处的值本就不生效，复制过来反倒让它生效。
+    # Reference audio recognizes only character reference-audio directories; other values are already ineffective and copying would activate them.
     if owner is None or (field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir):
         return None
     content = sources.get(rel)
@@ -908,7 +922,7 @@ def _own_reference_copy(
 
 @contextlib.contextmanager
 def _displaced_copy(target: Path, schema_version: int) -> Generator[Path]:
-    """保留被替下的文件；外层提交失败时挪回原位，避免重试积累重复保留副本。"""
+    """Retain a displaced file; restore it on outer commit failure to avoid accumulating duplicate kept copies on retries."""
     backup = set_aside_as_kept_copy(target, schema_version)
     try:
         yield backup
@@ -926,7 +940,7 @@ def _sequenced_copy_target(
     content: bytes,
     siblings: list[Any],
 ) -> str:
-    """多图序列里新副本的落点：已有同字节、尚未登记的本资产文件就用它（重跑收敛），否则取最小的空闲序号。"""
+    """Destination for a new multi-image copy: reuse an unregistered own-asset file with identical bytes (rerun convergence), otherwise the lowest free sequence number."""
 
     listed = {item.replace("\\", "/") for item in siblings if isinstance(item, str)}
     directory = work.project_dir.joinpath(*target_dir.parts)
@@ -951,13 +965,14 @@ def _sequenced_copy_target(
 
 
 def _canonical_reference(project_dir: Path, value: str) -> str:
-    """参考文件字段值的项目相对写法。
+    """Project-relative spelling of a reference-file field value.
 
-    旧版 PATCH 原样收下任意字符串，运行时按项目内的落点解析：``refs/../refs/名.png``、``./``、反斜杠与
-    指向项目内的绝对路径都归到同一写法，归属判定才认得出它们。落在项目之外的值原样返回，不归任何资产。
-    """
+    Old PATCH accepted arbitrary strings unchanged; runtime resolves their locations inside the project:
+    ``refs/../refs/名.png``, ``./``, backslashes, and absolute paths inside the project normalize to one
+    spelling so ownership checks recognize them. Values outside the project remain unchanged and belong
+    to no asset."""
 
-    # 按运行平台的路径语义拼接：Windows 上 ``C:/…`` 才会被认作绝对路径。
+    # Join using runtime-platform path semantics: ``C:/…`` is recognized as absolute only on Windows.
     joined = os.path.normpath(os.path.join(project_dir, value.replace("\\", "/")))
     for base in dict.fromkeys((os.path.normpath(project_dir), os.path.realpath(project_dir))):
         if joined.startswith(base + os.sep):
@@ -966,7 +981,7 @@ def _canonical_reference(project_dir: Path, value: str) -> str:
 
 
 def _named_file_owner(project: dict[str, Any], rel: str) -> tuple[str, str] | None:
-    """按名归属 *rel* 的资产（类型、名字）；不在任何资产名下时为 ``None``。"""
+    """Asset (type, name) owning *rel* by name, or ``None`` if it is under no asset name."""
 
     for asset_type, spec in ASSET_SPECS.items():
         bucket = project.get(spec.bucket_key)
@@ -980,9 +995,9 @@ def _named_file_owner(project: dict[str, Any], rel: str) -> tuple[str, str] | No
     return None
 
 
-#: 条目 id 的集号前缀（与 ``script_editor`` 的条目 id 形态一致，含 ``_N`` 拆分后缀）。
+#: Episode prefix in entry IDs (same shape as ``script_editor``, including ``_N`` split suffixes).
 _ITEM_ID_EPISODE = re.compile(r"\AE(\d+)[SU]\d+(?:_\d+)?\Z")
-#: ``new_item_id`` 取出的号：集号、字母、序号。
+#: IDs allocated by ``new_item_id``: episode ID, letter, sequence number.
 _ITEM_ID_PARTS = re.compile(r"\AE(\d+)([SU])(\d+)\Z")
 
 
@@ -992,7 +1007,7 @@ def _id_owner_episode(item_id: str) -> int | None:
 
 
 def _fresh_item_id(script: dict[str, Any], taken: set[str]) -> str:
-    """按新增条目的取号规则取号，并避开其他集已经在用的 id。"""
+    """Allocate an ID using new-entry numbering rules, avoiding IDs already used in other episodes."""
 
     candidate = new_item_id(script)
     match = _ITEM_ID_PARTS.match(candidate)
@@ -1007,12 +1022,11 @@ def _fresh_item_id(script: dict[str, Any], taken: set[str]) -> str:
 
 
 def _repair_item_ids(work: _Work) -> None:
-    """条目 id 在剧本内缺失或重复、或与另一集的条目同号时换号。
+    """Renumber entries with missing/duplicate IDs within scripts or IDs shared with another episode.
 
-    产物路径只由条目 id 决定，两集同号的条目会认领同一个媒体文件。媒体与登记归 id 前缀 ``E<n>``
-    所指的那一集，前缀对不上任何一个同号集时归账本里靠前的那一集；另一集的条目在本集换新 id、
-    不带走媒体。
-    """
+    Artifact paths depend only on entry IDs, so equal IDs in two episodes claim the same media file.
+    Media and registration belong to the episode indicated by ID prefix ``E<n>``, or the earliest ledger
+    episode if neither matches. The other episode gets a fresh local ID without taking media along."""
 
     scripts: list[tuple[int, Path, dict[str, Any], list[Any], str, str]] = []
     for episode, entry in _episode_entries(work.project):
@@ -1053,7 +1067,7 @@ def _repair_item_ids(work: _Work) -> None:
                 seen.add(current)
                 continue
             old_id = current if isinstance(current, str) else ""
-            # 先清掉坏 id 再取号：取号只看现存条目，坏 id 不该参与顺延。
+            # Clear invalid IDs before allocation, which reads existing entries; invalid IDs must not advance the sequence.
             item.pop(id_field, None)
             new_id = _fresh_item_id(script, taken)
             item[id_field] = new_id
@@ -1078,12 +1092,12 @@ def _repair_item_ids(work: _Work) -> None:
 
 
 def _release_media_of(item: dict[str, Any], old_id: str, kind: str) -> None:
-    """换号条目放下原 id 的规范媒体，连同只描述那些媒体的生成状态，读作尚未生成。
+    """Renumbered entries release canonical media for the old ID and generation state describing only those media, reading as not yet generated.
 
-    缩略图、视频 URI、生成时刻跟着视频走，尾帧快照、宫格归属跟着分镜图走：主媒体不在时它们描述的是
-    原 id 那一条的产物，一并清掉。指向别处的媒体引用不是原 id 的规范路径，留着，它的伴随状态也留着。
-    落盘的 ``status`` 按剩下的媒体重算，口径同 ``ProjectManager.update_scene_status``。
-    """
+    Thumbnails, video URIs, and generation times follow videos; end-frame snapshots and grid membership
+    follow storyboard images. Without main media these describe the original ID's artifacts and are cleared
+    together. Media references elsewhere are not the old ID's canonical paths and remain with their related
+    state. Recompute persisted ``status`` from remaining media, matching ``ProjectManager.update_scene_status``."""
 
     if item.get("end_frame_image") == resource_relative_path("end_frames", old_id):
         item.pop("end_frame_image")
@@ -1135,11 +1149,11 @@ def _adjustment_identity(item: MigrationAdjustment) -> str:
 
 
 def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: list[MigrationAdjustment]) -> None:
-    """规整 ``project_dir`` 里的旧形态，做过的改动追加进 ``record``；无事可做时不写盘。
+    """Normalize legacy shapes in ``project_dir``, appending changes to ``record``; do not write when nothing needs changing.
 
-    中途失败时，此前已落盘的改动照样追加进 ``record``：重跑时规整已经发现不了它们，要靠未完成的
-    报告带到重试。``project.json`` 上的改动只在它写盘之后才算落盘。
-    """
+    On mid-process failure, still append already-persisted changes to ``record``: reruns cannot rediscover
+    them, so unfinished reports must carry them to retries. Changes to ``project.json`` count as persisted
+    only after writing it."""
 
     project_file = project_dir / "project.json"
     project = _load_object(project_file)
@@ -1149,8 +1163,8 @@ def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: l
     try:
         _drop_duplicate_episodes(work)
         _split_shared_bindings(work)
-        # 资产去重先于改绑：第一次提交 project.json 时，它的规整项已在待提交之列，留下的就是保留副本，
-        # 能覆盖全部 project.json 规整项。它平移确认指纹时自己先行提交，同样留保留副本。
+        # Deduplicate assets before rebinding: normalization items are pending at the first project.json commit, creating a kept copy
+        # covering all project.json normalizations. Confirmation-fingerprint shifts commit first themselves, also retaining a kept copy.
         _drop_duplicate_assets(work)
         _copy_shared_reference_files(work)
         _canonicalize_bindings(work)
@@ -1160,8 +1174,8 @@ def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: l
         if work.project_changed:
             _commit_project(work)
     finally:
-        # 上一次中途失败时已记下的改动，重跑时可能再次发现（如改绑没来得及提交）：同一处改动只记一次，
-        # 留先记下的那条，它带着当时挪出的保留副本。
+        # Reruns may rediscover changes recorded before an earlier failure (e.g. uncommitted rebinding). Record each change once,
+        # retaining the first record with the kept copy displaced at that time.
         recorded = {_adjustment_identity(item) for item in record}
         record.extend(item for item in work.adjusted if _adjustment_identity(item) not in recorded)
     if work.adjusted:

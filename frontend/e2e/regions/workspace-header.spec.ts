@@ -6,9 +6,9 @@ import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 工作区顶栏与侧栏集列表：项目切换器、通知面板、项目内未知路径的空状态与集的键盘排序。
+// Workspace headers/episode rails: switchers/notifications/unknown-project-path empty states/keyboard episode ordering.
 const CHARACTERS_PATH = "/app/projects/demo/characters";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+// Project events are unrecorded SSE; reject with nonretryable statuses, retaining recorded project data.
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -30,7 +30,7 @@ const recordedProject = recorded<RecordedProject>("project-demo");
 const [firstProject] = recorded<RecordedProjects>("projects").projects;
 const [firstEpisode] = recordedProject.project.episodes;
 
-// 当前项目名很长、项目很多且名字都长：切换器列表要在弹层里滚动，「← 项目」不能被挤得换行。
+// Long current-project names and many long-named projects require switcher-list scrolling; ← Projects must not wrap from squeezing.
 const MANY_PROJECTS: ApiOverrides = {
   ...EVENT_STREAM,
   "GET /api/v1/projects/demo": {
@@ -73,7 +73,7 @@ const MANY_EPISODES: ApiOverrides = {
   "POST /api/v1/projects/demo/episodes/2/move": { status: 200, body: { success: true } },
 };
 
-// 导出失败会记入工作区通知；用它在页面里攒出多条长通知。
+// Export failures enter workspace notifications; use them to accumulate multiple long notifications.
 const EXPORT_FAILS: ApiOverrides = {
   ...EVENT_STREAM,
   "POST /api/v1/projects/demo/export/token?scope=current": {
@@ -85,7 +85,7 @@ const EXPORT_FAILS: ApiOverrides = {
   },
 };
 
-// Agent 改了一个角色、新增了一个分镜：两条变更都带定位目标，进入工作区通知，各带「查看」。
+// Agent edited characters/added storyboards: both changes have location targets and enter workspace notifications with View actions.
 const NOTICE_CHARACTERS = Array.from({ length: 24 }, (_, i) => `巡夜人 ${i + 1}`);
 const NOTICE_CHARACTER = NOTICE_CHARACTERS.at(-1)!;
 const NOTICE_SHOT = "E1S05";
@@ -160,8 +160,8 @@ const NOTICE_TARGETS: ApiOverrides = {
 };
 
 /**
- * 事件流只推送一次这一批变更，之后的重连一律按不可重试的 404 拒绝：真实服务端按 Last-Event-ID 续传，
- * 静态替身每次重连都会从头重放，通知会重复。替身在页面加载后才挂上，所以挂好后重新加载页面。
+ * Event streams send these changes once; reject subsequent reconnects with nonretryable 404s. Real servers resume from Last-Event-ID,
+ * while static stubs replay from beginnings and duplicate notifications. Stubs attach after page loads, so reload after attachment.
  */
 async function deliverNoticeEventsOnce(page: Page) {
   let delivered = false;
@@ -187,7 +187,7 @@ async function shellReady(page: Page) {
   await switcher(page).waitFor();
 }
 
-/** 紧凑档侧栏自动收为图标栏，先展开才能看到集列表。 */
+/** Compact sidebars automatically become icon rails; expand before viewing episode lists. */
 async function expandSidebar(page: Page) {
   const expand = page.getByRole("button", { name: "展开侧栏" });
   if (await expand.isVisible()) await expand.click();
@@ -209,7 +209,7 @@ defineRegionScenarios("工作区顶栏", [
     ready: shellReady,
     act: async (page) => {
       const back = page.getByRole("link", { name: "项目", exact: true });
-      // 单行按钮高 28px，换行后会更高
+      // Single-line buttons are 28px high; wrapping makes them taller.
       expect((await back.boundingBox())?.height).toBeLessThanOrEqual(28);
       await expect(back).toBeInViewport({ ratio: 1 });
 
@@ -243,7 +243,7 @@ defineRegionScenarios("工作区顶栏", [
     ready: shellReady,
     act: async (page) => {
       for (let i = 0; i < 6; i++) await failExport(page);
-      // 提示 5 秒后自动消失；等它们走完，截图里只有通知面板
+      // Notifications auto-dismiss after 5 seconds; wait for them to leave screenshots containing only notification panels.
       await expect(page.locator('[data-slot="toast"]')).toHaveCount(0, { timeout: 15_000 });
       await expect(bell(page)).toHaveAccessibleName("工作区通知，未读 6 条");
 
@@ -264,7 +264,7 @@ defineRegionScenarios("工作区顶栏", [
     ready: shellReady,
     act: async (page) => {
       await deliverNoticeEventsOnce(page);
-      // 每条变更各记一条完成提示与一条带定位目标的通知，只有后者有「查看」
+      // Each change records a completion toast and a location-targeted notification; only the latter has View.
       await expect(bell(page)).toHaveAccessibleName("工作区通知，未读 4 条");
       await clearAgentOverlay(page);
       const panel = page.getByRole("dialog", { name: "工作区通知" });
@@ -319,8 +319,8 @@ defineRegionScenarios("工作区顶栏", [
       await page.getByRole("button", { name: `调整「${EPISODE_TITLE(2)}」的顺序` }).focus();
       await page.keyboard.press("Space");
       await expect(page.getByText(`已拿起「${EPISODE_TITLE(2)}」，位于第 2 项，共 12 项。`)).toBeAttached();
-      // dnd-kit 拿起后要等测量完成才响应方向键，之前的按键会被丢掉；按到播报移动为止。
-      // 目标是第 1 项，已在最前时再按上移不会继续移动，重按是安全的。
+      // dnd-kit ignores arrow keys until post-pickup measurement finishes; press until movement announcements.
+      // Targets are first entries; repeated Up presses cannot move them further and are safe.
       await expect(async () => {
         await page.keyboard.press("ArrowUp");
         await expect(page.getByText(`「${EPISODE_TITLE(2)}」移到第 1 项，共 12 项。`)).toBeAttached({ timeout: 200 });

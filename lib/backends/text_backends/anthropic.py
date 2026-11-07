@@ -1,7 +1,7 @@
-"""AnthropicTextBackend — Anthropic Messages 协议的文本生成后端。
+"""AnthropicTextBackend: text generation over the Anthropic Messages protocol.
 
-经国内厂商与中转站的 Anthropic 协议入口调用。结构化输出走 Messages 原生的
-``output_config.format``，不经 OpenAI 兼容层（后者忽略 ``response_format``）；图片走图片内容块。
+Call Anthropic-protocol endpoints from domestic vendors and relays. Structured output uses native Messages
+``output_config.format``, bypassing OpenAI compatibility layers (which ignore ``response_format``); images use image content blocks.
 """
 
 from __future__ import annotations
@@ -50,16 +50,16 @@ ANTHROPIC_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 
 
 class AnthropicTextBackend:
-    """Anthropic Messages 文本生成后端，只服务自定义供应商的 ``anthropic-messages`` 端点。
+    """Anthropic Messages text backend, serving only custom-provider ``anthropic-messages`` endpoints.
 
-    凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0017）。
+    Credentials come exclusively from custom-provider api_key and base_url, isolated from Agent Anthropic credentials (ADR 0017).
     """
 
     def __init__(
         self, *, api_key: str, model: str, base_url: str | None = None, transport_layer: TransportLayer | None = None
     ):
-        # base_url 为空时显式回填官方地址，断掉 SDK 对 ANTHROPIC_BASE_URL 的环境回落；
-        # 禁用 SDK 内置重试，由 _generate_native 统一管理。
+        # Explicitly fill official base_url when empty, preventing SDK fallback to ANTHROPIC_BASE_URL environment settings.
+        # Disable SDK retries; _generate_native manages them centrally.
         self._client = AsyncAnthropic(
             api_key=api_key,
             base_url=(base_url or "").strip() or OFFICIAL_ANTHROPIC_BASE_URL,
@@ -87,23 +87,23 @@ class AnthropicTextBackend:
         }
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。
+        """Generate a text response.
 
-        本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_native` 层完成，复验与降级
-        不进重试范围，免得降级失败连带重放已成功的原生调用。
+        No retry decorator here: transient retries occur in :meth:`_generate_native`; validation/fallback
+        stay outside retry scope, preventing fallback failures from replaying successful native calls.
         """
-        # 带图请求要读本地图片做 base64，放线程里构建，避免阻塞事件循环
+        # Build image requests in threads: local image reads/base64 encoding must not block the event loop.
         content = await asyncio.to_thread(_build_user_content, request)
         structured = bool(request.response_schema)
         native = await self._generate_native(request, content, structured=structured)
 
         if native is None:
-            # 网关不接受 output_config（schema 错误），结构化输出整体降级
+            # Gateway rejects output_config (schema error): fall back for the entire structured-output attempt.
             return await self._prompt_json_fallback(request)
 
         if request.response_schema:
-            # 中转站可能静默忽略 output_config 返回散文或违例 JSON。transform_schema 会把
-            # 不支持的约束挪进 description，原生请求等同未声明 strict，复验用 strict=False。
+            # Relays may silently ignore output_config and return prose or invalid JSON. transform_schema moves
+            # unsupported constraints into description; native requests effectively omit strict, so revalidate with strict=False.
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
                 logger.warning(
@@ -112,7 +112,7 @@ class AnthropicTextBackend:
                     truncate_for_log(native.text),
                 )
                 result = await self._prompt_json_fallback(request)
-                # 这次原生 200 调用已被计费，把它的 token 并入降级结果。
+                # This native 200 call was billed; merge its tokens into fallback results.
                 merge_billed_usage(result, native)
                 return result
 
@@ -121,7 +121,7 @@ class AnthropicTextBackend:
     async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
         async def _once(fb_request: TextGenerationRequest) -> TextGenerationResult:
             content = await asyncio.to_thread(_build_user_content, fb_request)
-            # 降级请求已不带 output_config，不会再返回 schema 错误的降级信号
+            # Fallback omits output_config, so cannot return the schema-error fallback signal again.
             result = await self._generate_native(fb_request, content, structured=True)
             assert result is not None
             return result
@@ -132,9 +132,9 @@ class AnthropicTextBackend:
     async def _generate_native(
         self, request: TextGenerationRequest, content: list[dict], *, structured: bool
     ) -> TextGenerationResult | None:
-        """单次 Messages 调用：瞬态错误重试；output_config 被拒时返回 ``None`` 作为降级信号。
+        """One Messages call: retry transient errors; return ``None`` to signal fallback when output_config is rejected.
 
-        输出上限可达数万 token，非流式请求会被 SDK 以超时风险拒绝，固定走流式再取完整消息。
+        Output limits can reach tens of thousands of tokens; SDK rejects nonstreaming calls for timeout risk, so always stream and retrieve the complete message.
         """
         kwargs: dict = {
             "model": self._model,
@@ -159,8 +159,8 @@ class AnthropicTextBackend:
             raise
 
         usage = message.usage
-        # Anthropic 的 input_tokens 不含缓存读写：总输入须加回缓存读与缓存写。缓存写按 TTL 分两档上报；
-        # 没有分档明细时按默认的 5 分钟档计。
+        # Anthropic input_tokens excludes cache reads/writes: add both for total input. Report cache writes by two TTL tiers;
+        # without tier details, use the default 5-minute tier.
         cache_read = usage.cache_read_input_tokens or 0
         cache_write = usage.cache_creation_input_tokens or 0
         breakdown = usage.cache_creation
@@ -189,7 +189,7 @@ class AnthropicTextBackend:
 
 
 def _build_user_content(request: TextGenerationRequest) -> list[dict]:
-    """图片内容块在前、文本在后，组成 user 消息的 content。"""
+    """Compose user message content with image blocks before text."""
     content: list[dict] = []
     for img in request.images or []:
         if img.path:

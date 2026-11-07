@@ -5,7 +5,7 @@ const SITE_LABEL_KEYS: Record<AssetLibrarySite, string> = {
   byteplus: "dashboard:asset_library_site_byteplus",
 };
 
-/** 站点的显示名翻译 key。 */
+/** Translation key for a site's display name. */
 export function siteLabelKey(site: AssetLibrarySite): string {
   return SITE_LABEL_KEYS[site];
 }
@@ -17,14 +17,14 @@ const STATUS_LABEL_KEYS: Record<ProviderAssetStatus, string> = {
   unknown: "assets:provider_asset_status_unknown",
 };
 
-/** 供应商素材状态的显示名翻译 key。 */
+/** Translation key for a provider-asset status display name. */
 export function providerAssetStatusLabelKey(status: ProviderAssetStatus): string {
   return STATUS_LABEL_KEYS[status];
 }
 
 /**
- * ArcReel 自己判定的入库失败码（``lib.asset_library.ingest.LOCAL_FAILURE_CODES``），界面按码给出本地化原因；
- * 其余失败码是供应商原文。两端经 `test/contracts/provider-asset-local-failures.json` 核对。
+ * ArcReel-local ingestion failure codes (``lib.asset_library.ingest.LOCAL_FAILURE_CODES``) receive localized UI reasons;
+ * other codes are raw provider text. Verify both sides through `test/contracts/provider-asset-local-failures.json`.
  */
 export const PROVIDER_ASSET_LOCAL_FAILURES: ReadonlySet<string> = new Set([
   "unlinked_before_submit",

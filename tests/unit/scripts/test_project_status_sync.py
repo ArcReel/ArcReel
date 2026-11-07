@@ -6,20 +6,20 @@ from scripts.project_status_sync import derive_status
 @pytest.mark.parametrize(
     ("state", "labels", "has_assignee", "has_open_closing_pr", "expected"),
     [
-        # Spec / parked 置空，优先于其余一切信号
+        # Spec / parked clears Status, ahead of all other signals.
         ("OPEN", {"Spec", "ready-for-agent"}, True, True, None),
         ("CLOSED", {"parked"}, False, False, None),
-        # closed → Done，优先于 open PR 与 assignee
+        # closed → Done, ahead of open PRs and assignees.
         ("CLOSED", {"needs-triage"}, True, True, "Done"),
-        # open closing PR → In review，优先于 assignee 与 ready 标签
+        # Open closing PR → In review, ahead of assignees and ready labels.
         ("OPEN", {"ready-for-agent"}, True, True, "In review"),
-        # assignee → In progress，优先于 ready / needs-info 标签
+        # assignee → In progress, ahead of ready / needs-info labels.
         ("OPEN", {"ready-for-human", "needs-info"}, True, False, "In progress"),
-        # ready-for-agent 优先于 ready-for-human，ready-for-human 优先于 needs-info
+        # ready-for-agent precedes ready-for-human, which precedes needs-info.
         ("OPEN", {"ready-for-agent", "ready-for-human"}, False, False, "Ready · agent"),
         ("OPEN", {"ready-for-human", "needs-info"}, False, False, "Ready · human"),
         ("OPEN", {"needs-info", "needs-triage"}, False, False, "Needs info"),
-        # needs-triage 与无标签一律兜底 Inbox
+        # needs-triage and unlabeled issues both fall back to Inbox.
         ("OPEN", {"needs-triage"}, False, False, "Inbox"),
         ("OPEN", set(), False, False, "Inbox"),
     ],

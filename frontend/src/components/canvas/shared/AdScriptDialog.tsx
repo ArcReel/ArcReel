@@ -36,7 +36,7 @@ function readScriptOverwrite(err: unknown): ScriptOverwrite | null {
   return diagnostic?.script_overwrite ?? null;
 }
 
-/** 集页上唯一的广告/短片「AI 生成脚本」弹窗宿主：按 {@link useAdScriptStore} 的请求打开。 */
+/** Sole episode-page ad/short-film AI-script dialog host, opening for {@link useAdScriptStore} requests. */
 export function AdScriptHost({ projectName, episode }: { projectName: string; episode: number }) {
   const request = useAdScriptStore((s) => s.request);
   const close = useAdScriptStore((s) => s.close);
@@ -44,7 +44,7 @@ export function AdScriptHost({ projectName, episode }: { projectName: string; ep
   if (!request || request.projectName !== projectName || request.episode !== episode) return null;
   return (
     <AdScriptDialog
-      // 每次打开都重新初始化，不沿用上一次弹窗里未提交的输入。
+      // Reinitialize every opening, not reusing previously unsubmitted inputs.
       key={`${projectName}:${episode}:${request.regenerate}`}
       request={request}
       onClose={close}
@@ -58,8 +58,8 @@ interface DialogProps {
 }
 
 /**
- * 广告/短片整份生成的弹窗：「AI 生成脚本」直接提交，结果写成正式脚本；「交给 Agent」把同一请求预填给助手。
- * 整份重做时服务端先拒绝并交回丢失清单，确认后带上清单版本重新提交。附加指令只随本次提交，不保存。
+ * Whole ad/short-film generation: AI generation submits directly to formal scripts; Agent handoff prefills the same request.
+ * Whole redo first receives server rejection/loss lists, then resubmits with list versions after confirmation. Extra instructions apply only to this request, unsaved.
  */
 export function AdScriptDialog({ request, onClose }: DialogProps) {
   const { t } = useTranslation(["dashboard", "workflow"]);
@@ -169,13 +169,13 @@ interface ButtonProps {
   projectName: string;
   episode: number;
   regenerate: boolean;
-  /** 页头动作用描边小按钮；空状态里的主操作用实心按钮。 */
+  /** Header actions use small outlined buttons; empty-state primary actions use solid buttons. */
   prominent?: boolean;
 }
 
 /**
- * 打开广告/短片「AI 生成脚本」弹窗的入口；`regenerate` 时为「重新生成脚本」。
- * 任务在跑或缺创作灵感与商品时照常显示、置灰，悬停说明原因。
+ * Ad/short-film AI-script dialog entry; `regenerate` labels script regeneration.
+ * Remain visible but disabled while running or missing inspiration/products, explaining reasons on hover.
  */
 export function AdScriptButton({ projectName, episode, regenerate, prominent = false }: ButtonProps) {
   const { t } = useTranslation("dashboard");
@@ -197,7 +197,7 @@ export function AdScriptButton({ projectName, episode, regenerate, prominent = f
     </Button>
   );
   if (reason === null) return button;
-  // 置灰的按钮收不到悬停：提示挂在外层 span 上，原因另以 sr-only 文本作按钮的描述
+  // Disabled buttons do not hover; outer spans carry hints, with reasons additionally in sr-only button descriptions.
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex" />}>
@@ -215,8 +215,8 @@ interface ProgressProps {
   projectName: string;
   episode: number;
   /**
-   * 本集还没有正式脚本：这时本集的脚本文本任务只可能是整份生成，排队与生成中都呈现。
-   * 有正式脚本时只呈现整份生成任务（与提示词编写共用占用槽），并在完成后列出新登记的资产。
+   * Without formal scripts, episode script-text tasks can only be whole generation; show queued/running states.
+   * With formal scripts, show only whole-generation tasks (sharing prompt-authoring occupancy slots), then list newly registered assets.
    */
   noScript: boolean;
   className?: string;
@@ -225,8 +225,8 @@ interface ProgressProps {
 const STATUS_CLS = "flex gap-2.5 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-subtle-foreground";
 
 /**
- * 广告/短片整份生成的任务进度：排队 / 生成中，或本次登记的待生成资产。
- * 失败的原因与出路由集页顶部的 `TextTaskFailureNote` 统一呈现，这里不重复。
+ * Ad/short-film whole-generation progress: queued/running, or newly registered pending assets.
+ * Episode-page `TextTaskFailureNote` already presents failure reasons/recovery; do not duplicate here.
  */
 export function AdScriptProgress({ projectName, episode, noScript, className = "" }: ProgressProps) {
   const { t, i18n } = useTranslation("dashboard");
@@ -284,7 +284,7 @@ export function AdScriptProgress({ projectName, episode, noScript, className = "
   );
 }
 
-/** 广告/短片在没有正式脚本时的置灰说明附带的去处：创作灵感在项目概览，商品在商品页，都从概览进入。 */
+/** Disabled-entry destinations without formal scripts: inspiration in project overview, products on product pages, both entered from overview. */
 export function AdScriptInputsLink({ className = "" }: { className?: string }) {
   const { t } = useTranslation("dashboard");
   return (

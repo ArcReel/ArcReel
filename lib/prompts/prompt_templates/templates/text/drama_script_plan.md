@@ -1,8 +1,8 @@
 ---
 id: text/drama_script_plan
 category: text
-title: 剧情演绎脚本规划
-description: 把本集源文拆为剧情演绎的结构化分镜内容：分镜边界、出场资产、画面描述、逐字口播与原文锚。
+title: "Drama script planning"
+description: "Split this episode’s source into structured drama shot content: boundaries, appearing assets, visual descriptions, verbatim spoken content, and source anchors."
 stage: script_plan
 invoked_by:
   kind: agent_tool
@@ -17,42 +17,42 @@ applies_to:
   - screenplay
 output_schema: lib.script.script_models:DramaNormalizedScript
 slots:
-  source_kind: 源文类型
-  target_language: 输出语言，取项目源语言
-  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
-  style: 项目画风
-  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
-  character_names: 可引用的角色名，衍生写作「本体/衍生」
-  scene_names: 可引用的场景名
-  prop_names: 可引用的道具名
-  novel_text: 本集源文
-  episode: 集号
-  durations: 视频模型支持的秒数档位
-  max_duration: 最长档位秒数
-  default_duration: 单个分镜的默认秒数；未设置为空
-  speech_rate: 口播语速（每秒阅读单位数）
-  speech_unit: 阅读单位量词（字或词）
-  episode_target_duration: 单集目标时长秒数；未设置为空
-  episode_outline: 本集大纲（title、story_beats、hook、next_episode_teaser）；未规划为空
-  next_episode_outline: 下集大纲，形状同本集大纲；未规划为空
-  instructions: 附加指令；未提供为空
+  source_kind: "Source kind"
+  target_language: "Output language, taken from the project source language"
+  project_overview: "Project overview, an object with all keys {synopsis, genre, theme, world_setting}; use null for missing values"
+  style: "Project visual style"
+  assets: "Registered assets, an object {characters, scenes, props}, each a [{name, aliases, appearance}] list (angle brackets neutralized; derivatives written as “base/derivative”)"
+  character_names: "Referenceable character names; derivatives written as “base/derivative”"
+  scene_names: "Referenceable scene names"
+  prop_names: "Referenceable prop names"
+  novel_text: "This episode’s source"
+  episode: "Episode number"
+  durations: "Duration tiers in seconds supported by the video model"
+  max_duration: "Longest tier in seconds"
+  default_duration: "Default seconds per shot; empty if not set"
+  speech_rate: "Speaking rate (reading units per second)"
+  speech_unit: "Reading-unit noun (characters or words)"
+  episode_target_duration: "Target episode duration in seconds; empty if not set"
+  episode_outline: "This episode’s outline (title, story_beats, hook, next_episode_teaser); empty if unplanned"
+  next_episode_outline: "Next episode’s outline, same shape as this episode’s; empty if unplanned"
+  instructions: "Additional instructions; empty if not provided"
 protected: false
 ---
 {{ variant("text/drama_script_plan/task", source_kind) }}
 
-**输出语言**：自然语言字符串值必须使用 {{ target_language }}；JSON 键名 / 枚举值保持英文。{{ variant("text/drama_script_plan/language_rule", source_kind) }}
-**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
+**Output language**: natural-language string values must use {{ target_language }}; keep JSON keys / enum values in English. {{ variant("text/drama_script_plan/language_rule", source_kind) }}
+**Structural constraints**: response_schema enforces fields / enums / required items; this prompt only explains **how to write each field’s content well**.
 
 {{ partial("shared/pacing/drama") }}
 
-## 项目信息
+## Project information
 
 <overview>
 {{ project_overview.synopsis or "" }}
 
-题材类型：{{ project_overview.genre or "" }}
-核心主题：{{ project_overview.theme or "" }}
-世界观设定：{{ project_overview.world_setting or "" }}
+Genre: {{ project_overview.genre or "" }}
+Core theme: {{ project_overview.theme or "" }}
+World setting: {{ project_overview.world_setting or "" }}
 </overview>
 
 <style>
@@ -61,7 +61,7 @@ protected: false
 
 {{ partial("shared/lists/asset_registry_blocks") }}
 
-## 源文
+## Source text
 
 <{{ source_kind }}>
 {{ novel_text }}
@@ -69,55 +69,55 @@ protected: false
 
 {% if episode_outline %}
 <episode_outline>
-本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：
+This episode’s outline (designed during episode planning; the script must cover every story beat):
 {% if episode_outline.title %}
-本集标题：{{ episode_outline.title }}
+This episode’s title: {{ episode_outline.title }}
 {% endif %}
 {{ partial("shared/lists/episode_outline_lines", outline=episode_outline) }}
 </episode_outline>
 
 {% if episode_outline.hook or episode_outline.next_episode_teaser %}
-末场（最后一个或几个分镜）的画面与对白须实际呈现集尾钩子的戏剧内容，让悬念定格在画面上；有下集预告语时，用结尾画面或对白自然引出，不要生硬插入「下集预告」字样的旁白。
+The final scene (the last shot or shots) must actually depict the dramatic content of the episode-end hook in visuals and dialogue, leaving the suspense on screen. If a next-episode teaser exists, introduce it naturally through the closing visuals or dialogue; do not awkwardly insert narration labeled “next-episode preview”.
 
 {% endif %}
 {% endif %}
 {% if next_episode_outline %}
 <next_episode_outline>
-下集大纲（仅用于设计本集结尾的衔接，不要把下集情节提前写进本集）：
+Next episode’s outline (only for designing the connection at this episode’s end; do not bring next episode’s plot into this episode):
 {% if next_episode_outline.title %}
-下集标题：{{ next_episode_outline.title }}
+Next episode’s title: {{ next_episode_outline.title }}
 {% endif %}
 {{ partial("shared/lists/episode_outline_lines", outline=next_episode_outline) }}
 </next_episode_outline>
 
 {% endif %}
-# 字段写作指引
+# Field-writing guide
 
-把源文拆为有序分镜，逐条产出结构化分镜内容。当前正在生成第 {{ episode }} 集。
+Split the source into ordered shots, producing structured content for each. You are currently generating episode {{ episode }}.
 
-## 基础字段
+## Basic fields
 
-- **scene_id**：`E{{ episode }}S{两位序号}` 格式（如 E{{ episode }}S01），按分镜顺序递增，不得用其他集号前缀。
-- **duration_seconds**：
-  - 档位：{% if default_duration %}从支持的秒数档位（{{ durations }}）中按画面内容选择：默认 {{ default_duration }} 秒，打斗 / 大场面 / 情绪铺陈等画面可取更长档至 {{ max_duration }} 秒，不要默认选最短档{% else %}从支持的秒数档位（{{ durations }}）中按画面内容复杂度匹配合适时长（最长 {{ max_duration }} 秒），不强制默认值{% endif %}。
-  - 口播下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数（口播语速约 {{ speech_rate }} {{ speech_unit }}/秒），在上述档位里取**不低于**这个秒数的最接近档位。这是单向下界，画面 / 情绪留白可在此之上取更长档位；utterances 为空的分镜没有此下界；若口播估算已超过最长 {{ max_duration }} 秒，取最长档即可，不删减台词。
+- **scene_id**: format `E{{ episode }}S{two-digit sequence}` (such as E{{ episode }}S01), increasing in shot order; do not use another episode-number prefix.
+- **duration_seconds**:
+  - Tiers: {% if default_duration %}choose from supported durations ({{ durations }}) according to visual content: default {{ default_duration }} seconds; fights / large scenes / emotional buildup may use longer tiers up to {{ max_duration }} seconds. Do not default to the shortest tier{% else %}match visual complexity to an appropriate supported duration ({{ durations }}), up to {{ max_duration }} seconds, without enforcing a default{% endif %}.
+  - Spoken-content lower bound: first estimate the seconds needed to speak this shot’s utterances (dialogue + off-screen speech), at approximately {{ speech_rate }} {{ speech_unit }}/second, then choose the closest tier **not below** that duration. This is a one-way lower bound; visuals / emotional pauses may justify a longer tier. Shots without utterances have no such lower bound. If the speech estimate exceeds the longest tier of {{ max_duration }} seconds, use the longest tier; do not cut dialogue.
 {% if episode_target_duration %}
-  - 单集目标：{{ partial("shared/episode_target_duration_rule") }}。
+  - Episode target: {{ partial("shared/episode_target_duration_rule") }}.
 {% endif %}
-- **segment_break**：{{ variant("text/drama_script_plan/break_rule", source_kind) }}
-- **characters_in_scene** / **scenes** / **props**：从下列候选中列出此分镜实际出现的资产。
-  - 候选 characters：[{{ character_names | join(", ") or "（暂无）" }}]
-  - 候选 scenes：[{{ scene_names | join(", ") or "（暂无）" }}]
-  - 候选 props：[{{ prop_names | join(", ") or "（暂无）" }}]
-  - 候选里没有的资产写原文称呼，并列进 `new_assets`（见下文）；泛指群演（如「老人甲」「村民若干」）不进 characters_in_scene。
-- **scene_description**：{{ variant("text/drama_script_plan/scene_rule", source_kind) }}
+- **segment_break**: {{ variant("text/drama_script_plan/break_rule", source_kind) }}
+- **characters_in_scene** / **scenes** / **props**: list assets actually appearing in this shot from these candidates.
+  - Candidate characters: [{{ character_names | join(", ") or "(none yet)" }}]
+  - Candidate scenes: [{{ scene_names | join(", ") or "(none yet)" }}]
+  - Candidate props: [{{ prop_names | join(", ") or "(none yet)" }}]
+  - For assets absent from the candidates, use the original source designation and list them in `new_assets` (see below); generic extras (such as “old man A” or “several villagers”) do not enter characters_in_scene.
+- **scene_description**: {{ variant("text/drama_script_plan/scene_rule", source_kind) }}
 
-## 逐字内容（内容真相源，定稿后原样保留、不再改写）
+## Verbatim content (the content source of truth; preserve unchanged once finalized)
 
-- **source_text**：逐字摘录本分镜对应的原文片段，尽量与原文一致、宁缺毋造（无把握可留空）。
-- **utterances**：{{ variant("text/drama_script_plan/utterances_rule", source_kind) }}
+- **source_text**: quote the corresponding source passage verbatim, staying as close to the source as possible. Prefer omission to invention; leave it empty if uncertain.
+- **utterances**: {{ variant("text/drama_script_plan/utterances_rule", source_kind) }}
 
-每个分镜应为一个独立的视觉画面、可在指定时长内完成；避免在一个分镜内安排多个动作或画面切换。
+Each shot should be one independent visual image achievable within its specified duration; avoid multiple actions or visual cuts within one shot.
 
 {{ partial("shared/new_assets_rule") }}
 {% if instructions %}

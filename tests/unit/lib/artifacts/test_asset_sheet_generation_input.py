@@ -1,6 +1,6 @@
-"""生成输入 interface：资产图与衍生资产图的参考图、缺口定性、画布比例与冻结。
+"""Generation-input interface: asset/derivative references, gap classification, canvas ratio, freezing.
 
-观测走执行器的 adapter，配内存清单 adapter；参考图是临时目录里的真实小图。
+Observe executor adapters with an in-memory manifest adapter; references are real small temporary images.
 """
 
 from __future__ import annotations

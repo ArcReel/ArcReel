@@ -1,4 +1,4 @@
-"""测试 GeminiImageBackend 对 image_size=None 的处理。"""
+"""GeminiImageBackend image_size=None handling."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -29,7 +29,7 @@ async def test_image_size_none_not_passed_to_image_config(tmp_path):
         aspect_ratio="9:16",
         image_size=None,
     )
-    with pytest.raises(RuntimeError):  # 因 mocked response 返回空 parts
+    with pytest.raises(RuntimeError):  # Mock responses return empty parts.
         await backend.generate(req)
 
     image_config_call = backend._types.ImageConfig.call_args

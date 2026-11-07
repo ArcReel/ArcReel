@@ -10,7 +10,7 @@ from lib.infra.data_root_layout import DataRootLayout
 
 
 class ProviderCredential(TimestampMixin, Base):
-    """供应商凭证。每个供应商可有多条凭证，其中最多一条 is_active=True。"""
+    """Provider credentials. Each provider may have multiple credentials, with at most one is_active=True."""
 
     __tablename__ = "provider_credential"
     __table_args__ = (
@@ -30,14 +30,14 @@ class ProviderCredential(TimestampMixin, Base):
     api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     credentials_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 按 registry key 命名的定型列，承载需要两个 secret 字符串的内置 provider（可灵 Kling 的
-    # access_key + secret_key，JWT HS256 鉴权）。除可灵外恒为 NULL 的稀疏列（见 ADR 0037）。
+    # Typed column named by registry key for built-in providers requiring two secret strings
+    # (Kling access_key + secret_key, JWT HS256 authentication). Sparse and always NULL except for Kling (ADR 0037).
     access_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     secret_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     def credentials_file(self) -> str | None:
-        """凭证文件位置：Vertex 凭证由 id 经数据根布局推导；推导位置没有文件时回退到记录的路径。"""
+        """Credential file location: derive Vertex paths from the ID through the data-root layout; fall back to the recorded path if that file is absent."""
         if self.provider == "gemini-vertex":
             derived = DataRootLayout.current().vertex_credential_path(self.id)
             if derived.is_file():
@@ -45,10 +45,10 @@ class ProviderCredential(TimestampMixin, Base):
         return self.credentials_path
 
     def overlay_config(self, config: dict[str, str]) -> dict[str, str]:
-        """将凭证字段合并到配置字典中，返回修改后的 config。
+        """Merge credential fields into the configuration dictionary and return the modified config.
 
-        列名即 config dict key（registry key 名 = 表单字段名 = backend 构造参数名 = config key
-        全程同名，不引翻译层；见 ADR 0037）。
+        Column names are config dictionary keys (registry key = form field = backend
+        constructor argument = config key throughout, without a translation layer; ADR 0037).
         """
         if self.api_key:
             config["api_key"] = self.api_key

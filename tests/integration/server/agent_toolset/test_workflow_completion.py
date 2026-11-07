@@ -1,6 +1,6 @@
-"""待补全工具（complete_script_plan_rebuild）经声明入口的 ``ToolOutcome``。
+"""complete_script_plan_rebuild returns declaration-entry ``ToolOutcome``.
 
-提交完成事实的服务函数与线程卸载经 handler 的关键字参数注入替身；请求校验走两宿主共用的声明入口。
+Inject completion-fact services and thread offload substitutes through handler keywords; shared dual-host declaration entries validate requests.
 """
 
 from __future__ import annotations

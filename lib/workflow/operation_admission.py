@@ -1,15 +1,16 @@
-"""AI 操作的结构准入：每个操作一份谓词，制作状态与操作入口调用同一份（见 ``docs/adr/0091``）。
+"""Structural admission for AI operations: one predicate per operation, shared by production status and operation entry points (``docs/adr/0091``).
 
-准入属于 AI 操作，不属于内容，也不属于流水线位置：每个谓词只检查该操作自己的输入是否成立。
-界面上的置灰原因、Agent 被拒的理由与建议下一步的依据都取自同一份结论，理由码是稳定的闭集。
+Admission belongs to AI operations, not content or pipeline positions. Predicates check only their
+own operation inputs. UI disabled reasons, Agent rejection reasons, and suggested-next-step evidence
+share the same conclusion, using a stable closed set of reason codes.
 
-这里只算**结构准入**：只读项目目录里已落盘的内容，不报价、不问供应商、不求视频请求事实。
-需要这些外部事实的**提交准入**仍在预览与提交时计算（整批准入见 ``docs/adr/0061``）。
-生成入口的引用准入维持 ``docs/adr/0073``，由 ``lib.references.reference_admission`` 承担。
+Compute **structural admission** only: read persisted project-directory content without quotes,
+provider queries, or video-request facts. **Submission admission** requiring external facts still runs
+at preview/submission (batch admission: ``docs/adr/0061``). Generation reference admission remains
+``docs/adr/0073``, handled by ``lib.references.reference_admission``.
 
-谓词的输入是事实而不是路径：同一条事实由本模块的事实函数统一取得，制作状态与入口各自读盘时
-经同一个事实函数，不各写一份「有没有源文」的判据。
-"""
+Predicates take facts, not paths. Shared fact functions here retrieve each fact consistently for
+production status and operation entry points reading disk, rather than duplicating source-presence criteria."""
 
 from __future__ import annotations
 
@@ -28,16 +29,16 @@ from lib.script.script_skeleton import SKELETONS
 
 
 class AdmissionState(StrEnum):
-    """一个 AI 操作此刻的准入结论。"""
+    """Current admission conclusion for one AI operation."""
 
     ADMITTED = "admitted"
     REFUSED = "refused"
-    #: 该操作对此类项目不适用（如广告/短片没有分集规划），不是缺了什么输入。
+    #: Operation inapplicable to this project type (e.g. ad/short-film has no episode planning), not missing inputs.
     NOT_APPLICABLE = "not_applicable"
 
 
 class AdmissionReason(StrEnum):
-    """不能执行的理由码闭集；界面按码取文案，Agent 按码转述。"""
+    """Closed set of inability reason codes; UI localizes by code, Agents paraphrase by code."""
 
     NOT_APPLICABLE = "operation_not_applicable"
     WHOLE_SOURCE_MISSING = "whole_source_missing"
@@ -52,7 +53,7 @@ class AdmissionReason(StrEnum):
 
 
 class OperationAdmission(BaseModel):
-    """一个 AI 操作的结构准入结论：放行时 ``reason`` 为空，其余两态必带理由码。"""
+    """Structural admission for one AI operation: ``reason`` empty when allowed, required in the other two states."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -73,23 +74,22 @@ def _refused(reason: AdmissionReason) -> OperationAdmission:
 
 
 # ---------------------------------------------------------------------------
-# 事实函数：制作状态与操作入口取同一条事实的唯一口径
+# Fact functions: sole shared definitions used by production status and operation entry points
 # ---------------------------------------------------------------------------
 
 
 def whole_source_present(docs: Iterable[SourceDoc]) -> bool:
-    """有可供分集规划的整本源文：项目登记的整本源文文件里有非空白的原文。
+    """Whole-source text available for episode planning: registered whole-source files contain non-whitespace text.
 
-    ``docs`` 取自 :func:`lib.episode.episode_sources.discover_sources`；未登记的文件不算。
-    """
+    ``docs`` comes from :func:`lib.episode.episode_sources.discover_sources`; unregistered files do not count."""
     return any(doc.text.strip() for doc in docs)
 
 
 def episode_source_present(project_path: Path, episode: int, entry: Mapping[str, Any] | None) -> bool:
-    """本集有非空白的集原文：账本记为切出集或自带原文，且集文件 ``source/episode_N.txt`` 非空白。
+    """Episode has non-whitespace source: ledger records a cut/own-source episode and ``source/episode_N.txt`` is non-whitespace.
 
-    不在账本里（``entry`` 为 None）或账本记为无原文的集，即使 ``source/`` 里恰好有同名文件也不算。
-    """
+    Episodes absent from the ledger (``entry`` None) or recorded as sourceless do not count even if a
+    same-name file happens to exist in ``source/``."""
     if entry is None or episode_source_origin(entry) is SourceOrigin.NONE:
         return False
     path = episode_source_path(project_path, episode)
@@ -102,14 +102,14 @@ def episode_source_present(project_path: Path, episode: int, entry: Mapping[str,
 
 
 def ad_inputs_present(project: Mapping[str, Any]) -> bool:
-    """广告/短片的创作灵感与商品至少填了一项。"""
+    """At least one of creative inspiration or products is provided for an ad/short film."""
     brief = project.get("brief")
     products = project.get("products")
     return (isinstance(brief, str) and bool(brief.strip())) or (isinstance(products, Mapping) and bool(products))
 
 
 def pending_authoring_entry_ids(items: Sequence[Any], kind: str | None) -> list[str]:
-    """正式脚本里带待编写标记的条目 id，按脚本顺序；四种骨架都由提示词编写补写。"""
+    """IDs marked pending authoring in formal scripts, in script order; prompt authoring fills all four skeletons."""
     if kind not in SKELETONS:
         return []
     id_field = SKELETONS[kind].id_field
@@ -124,14 +124,14 @@ def pending_authoring_entry_ids(items: Sequence[Any], kind: str | None) -> list[
 
 
 # ---------------------------------------------------------------------------
-# 准入谓词：每个 AI 操作一份
+# Admission predicates: one per AI operation
 # ---------------------------------------------------------------------------
 
 
 def admit_plan_episodes(
     content_mode: object, *, whole_source: bool, replan_pending: bool = False
 ) -> OperationAdmission:
-    """AI 分集规划：有整本源文，且没有悬而未决的重新规划候选。"""
+    """AI episode planning: whole-source text exists and no unresolved replan candidate remains."""
     if content_mode == "ad":
         return NOT_APPLICABLE
     if not whole_source:
@@ -140,7 +140,7 @@ def admit_plan_episodes(
 
 
 def admit_script_plan(content_mode: object, *, episode_source: bool) -> OperationAdmission:
-    """AI 规划脚本：本集有集原文。"""
+    """AI script planning: this episode has episode-source text."""
     if content_mode == "ad":
         return NOT_APPLICABLE
     return ADMITTED if episode_source else _refused(AdmissionReason.EPISODE_SOURCE_MISSING)
@@ -153,10 +153,9 @@ def admit_author_prompts(
     draft_pending: bool,
     explicit_ids: Sequence[str] = (),
 ) -> OperationAdmission:
-    """提示词编写：正式脚本中有待编写条目；点名补缺或重写的条目不看待编写标记。
+    """Prompt authoring: formal scripts have pending entries; explicitly targeted gap-filling/rewriting ignores pending markers.
 
-    编写自身的草稿在场时先处置草稿，编写结果无处落地。
-    """
+    Handle existing authoring drafts first, since new authoring results have nowhere to land."""
     if draft_pending:
         return _refused(AdmissionReason.PROMPT_AUTHORING_DRAFT_PENDING)
     if not formal_script:
@@ -169,10 +168,10 @@ def admit_author_prompts(
 def admit_ad_script(
     content_mode: object, *, formal_script: bool, ad_inputs: bool, regenerate: bool = False
 ) -> OperationAdmission:
-    """广告/短片 AI 生成脚本：创作灵感与商品至少一项；已有正式脚本时只接受显式整份重做。
+    """AI ad/short-film script generation: at least one inspiration/product input; existing formal scripts require explicit whole-script redo.
 
-    输入缺失先于「已有正式脚本」报出：理由为 ``formal_script_exists`` 时，整份重做的输入一定齐备。
-    """
+    Report missing inputs before existing formal scripts: ``formal_script_exists`` guarantees complete
+    inputs for whole-script redo."""
     if content_mode != "ad":
         return NOT_APPLICABLE
     if not ad_inputs:
@@ -183,7 +182,7 @@ def admit_ad_script(
 
 
 def admit_edit_timeline(*, available_videos: int) -> OperationAdmission:
-    """剪辑（新建剪辑时间线、交给 Agent 剪辑）：本集至少有一个可用视频（current 或 stale）。"""
+    """Editing (create timeline / ask Agent to edit): at least one usable video (current or stale) in this episode."""
     return ADMITTED if available_videos > 0 else _refused(AdmissionReason.NO_AVAILABLE_VIDEO)
 
 

@@ -1,11 +1,11 @@
-# 计划安全与确认
+# Plan safety and confirmation
 
-空的资产分类也可能是有效的完成结果。
+Empty asset categories may be valid completed results.
 
-旁白交付方式、已确认的请求时长等值只属于一次请求，不是持久项目设置。仅在用户选择仍然有效时把它们带入后续计划调用，不得为满足必填参数而臆造值。
+Narration delivery, confirmed request durations, and similar values apply to one request, not persistent project settings. Carry choices into later plan queries only while the user’s selection remains valid; never invent values to satisfy required arguments.
 
-计划报告阻断时，只执行 `next_action` 明确指定的恢复动作；`retry_project_migration` 只允许恢复迁移，不授权其他修改。根据结构化 problem code、action、path 和 details 处理，不解析散文来选择恢复方式。正式项目数据必须通过 ArcReel 事务工具修改；远程工具无法修复时，说明能力边界，不直接编辑存储。
+When the plan blocks, execute only recovery explicitly named by `next_action`; `retry_project_migration` authorizes migration recovery, not other changes. Use structured problem code, action, path, and details, not prose parsing, to choose recovery. Formal data must use ArcReel transactional tools; explain remote-tool limits instead of editing storage directly.
 
-执行破坏性修改，以及计划或工具标记为计费的动作前，取得用户明确同意。视频批次准入是全有或全无：准入被阻断或需要确认时，不加入任何任务；说明每个受影响单元，完成报告的处理动作，再请求新计划。
+Obtain explicit agreement before destructive changes and plan/tool-marked paid actions. Video admission is all-or-nothing: blocked/confirmation-required means no tasks; explain every affected unit, complete reported corrective actions, then request a new plan.
 
-过期产物仍可使用，不自动获得重新生成授权。只有用户明确选择时才重新生成当前或过期产物，不自动删除或覆盖付费历史。
+Stale artifacts remain usable and do not authorize regeneration automatically. Regenerate current/stale artifacts only on explicit user selection; never automatically delete/overwrite paid history.

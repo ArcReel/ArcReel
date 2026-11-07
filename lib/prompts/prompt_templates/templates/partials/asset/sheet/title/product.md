@@ -1,1 +1,1 @@
-商品「{{ name }}」的标准资产图。
+Standard asset sheet for product “{{ name }}”.

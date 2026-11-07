@@ -1,11 +1,11 @@
-"""官方同步：从目录数据仓库取回更新的数据集，整批应用到目录查询（docs/adr/0103）。
+"""Official synchronization: retrieve updated catalog datasets and apply whole batches to queries (docs/adr/0103).
 
-应用启动时检查一次，之后每天一次。只经 raw 地址抓取，复用市场的 GitHub raw 代理前缀与抓取工具（只接受 https、
-限制体积与耗时），请求不带实例标识。清单文件的数据集版本比本地官方数据新时才取数据文件，核对哈希、整份读入后
-存进官方同步表并装入目录查询；整份无法解析或抓取失败时这一次作废，本地目录不变，等下一轮。
+Check at startup and daily thereafter. Fetch raw URLs only, reusing market GitHub raw proxy prefixes/tools with https-only,
+size/time limits, and no instance identifiers. Fetch data files only for newer manifest dataset versions, verifying hashes and parsing whole files
+before storing/loading synchronized tables. Parsing/fetch failures discard this attempt, preserving local catalogs until next checks.
 
-停止跟随官方的条目由目录合成跳过（用户副本照旧替换官方条目）；上游删除的条目保留本地最后一个版本；内置供应商的
-供应商模型清单整份取新数据。官方数据收录了用户添加的同名模型时，目录查询改用官方版本，只保留启用状态。
+Composition skips official following for user-owned copies, still replacing official entries; retain last local versions of upstream-deleted entries.
+Replace built-in provider manifests entirely. When official data lists same-name user-added provider models, queries use official versions, retaining enabled state only.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ CATALOG_URL = f"{_REPO_RAW}/{CATALOG_FILENAME}"
 
 SYNC_INTERVAL_SECONDS = 24 * 60 * 60
 _MANIFEST_MAX_BYTES = 64 * 1024
-#: 远高于数据文件的实际体积，给数据增长留足余量；发版工作流抓取出厂快照用同一上限。
+#: Generously above actual dataset size for growth; release snapshot fetching shares this maximum.
 _CATALOG_MAX_BYTES = 8 * 1024 * 1024
 _FETCH_DEADLINE_SECONDS = 60.0
 _ERROR_MAX_CHARS = 1000
@@ -59,19 +59,19 @@ _ROW_ID = 1
 
 @dataclass(frozen=True)
 class SyncStatus:
-    """供系统诊断信息读取的同步状态。"""
+    """Synchronization status for system diagnostics."""
 
     last_success_at: datetime | None = None
     last_error: str | None = None
 
 
-# 进程内的同步状态，与官方同步表一致；诊断信息在线程里同步读取，不查库。单元素列表当信箱。
+# Process sync state matches official-sync tables; diagnostics read synchronously in threads without DB, via a single-element mailbox list.
 _status: list[SyncStatus] = [SyncStatus()]
 
 
 def _status_of(row: CatalogOfficialSync) -> SyncStatus:
     at = row.last_success_at
-    # SQLite 读回的时间不带时区，存的都是 UTC
+    # SQLite timestamps lack timezone; all stored values are UTC.
     return SyncStatus(at.replace(tzinfo=UTC) if at is not None and at.tzinfo is None else at, row.last_error)
 
 
@@ -89,7 +89,7 @@ def _parse_stored(content: bytes) -> CatalogData:
 
 
 async def load_synced_data(session: AsyncSession) -> None:
-    """应用启动时装入已存的同步数据与同步状态。存的数据读不进来时按没有同步数据处理，等下一轮同步。"""
+    """Load persisted sync data/status at startup; unreadable stored data means no synchronized data until next checks."""
     row = await session.get(CatalogOfficialSync, _ROW_ID)
     if row is None:
         return
@@ -105,7 +105,7 @@ async def load_synced_data(session: AsyncSession) -> None:
 
 
 def _with_retained(manifest: bytes, content: bytes, current: CatalogData) -> tuple[CatalogData, bytes]:
-    """读入新数据集（核对哈希与版本），补上本地官方数据里有、新数据集没有的条目，返回装入用的数据与存库的内容。"""
+    """Read new datasets, verifying hash/version; retain local official entries absent from new datasets, returning loadable data/persisted content."""
     data = load_catalog(manifest, content)
     merged = retain_entries(data, current)
     if merged is data:
@@ -146,7 +146,7 @@ async def sync_once(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
 ) -> None:
-    """检查一次：数据集版本比本地新时取回并整批应用。失败只记下原因，本地目录不变。"""
+    """Check once, fetching/applying whole batches only for newer versions. Failures record reasons, preserving local catalogs."""
     async with session_factory() as session:
         proxy_prefix = await SystemSettingRepository(session).get(PROXY_PREFIX_SETTING)
     try:
@@ -159,7 +159,7 @@ async def sync_once(
         content = await _fetch(http_client(), CATALOG_URL, _CATALOG_MAX_BYTES, proxy_prefix)
         data, stored = await asyncio.to_thread(_with_retained, manifest, content, current)
     except (MarketTransportError, MarketPayloadTooLargeError, ValueError) as exc:
-        # CatalogFormatError 是 ValueError 的子类：整份数据无法解析时拒收这一次
+        # CatalogFormatError subclasses ValueError: reject whole unparseable datasets.
         logger.info("官方同步检查失败，等下一轮：%s", exc)
         await _record(session_factory, error=str(exc)[:_ERROR_MAX_CHARS] or type(exc).__name__)
         return
@@ -176,9 +176,9 @@ async def _sync_loop(
             await sync_once(session_factory, http_client)
         except Exception as exc:
             logger.warning("官方同步异常，等下一轮", exc_info=True)
-            # 只更新进程内状态：异常可能就出在数据库上。诊断信息照样能看到这次失败
+            # Update process state only: errors may originate in DB; diagnostics still expose the failed attempt.
             _status[0] = replace(_status[0], last_error=(str(exc) or type(exc).__name__)[:_ERROR_MAX_CHARS])
-        # 抓取建立连接时，关停的取消可能被 anyio 吞掉、这一轮照常跑完；在这里生效，免得带着取消请求睡满一整天
+        # anyio may swallow shutdown cancellation during connection setup and finish the round; apply it here rather than sleeping an entire day with pending cancellation.
         raise_if_cancel_absorbed()
         await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
@@ -187,7 +187,7 @@ def start_official_sync(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
 ) -> asyncio.Task[None] | None:
-    """立即检查一次，之后每天一次；离线录制设 ARCREEL_SKIP_CATALOG_SYNC=1 跳过网络同步。"""
+    """Check immediately, then daily; ARCREEL_SKIP_CATALOG_SYNC=1 skips network sync for offline recording."""
     if os.getenv("ARCREEL_SKIP_CATALOG_SYNC") == "1":
         logger.info("ARCREEL_SKIP_CATALOG_SYNC=1，跳过官方目录同步")
         return None
@@ -197,7 +197,7 @@ def start_official_sync(
 
 
 async def stop_official_sync(task: asyncio.Task[None] | None) -> None:
-    """取消同步循环，等它连同被打断的数据库会话一起收尾完再返回。"""
+    """Cancel loops and wait for complete cleanup, including interrupted DB sessions, before returning."""
     if task is None:
         return
     task.cancel()

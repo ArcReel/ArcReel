@@ -2,20 +2,20 @@
 status: accepted
 ---
 
-# 安装记录是独立实体，已安装端点可原地编辑、不锁定
+# Installation records are separate entities; installed endpoints remain editable
 
-从市场安装一个调用端点，落地的是一行普通的自定义调用端点，外加一条「它来自哪个市场源的哪个条目」的绑定。我们决定**这条绑定作为独立实体存放、与端点一对一，记来源市场源的规范键、条目 slug、安装时的版本与定义摘要**，不放在 `custom_endpoint` 表上：该表的不变式是「除 `definition` 外的列都是由定义派生的只读镜像」（`docs/adr/0067`），安装记录不是镜像，是有独立生命周期的事实。来源用规范键字符串而非外键，删除市场源不抹掉已安装端点的来源。「已安装」只认安装记录：本地存在同作者、同名的定义不算已安装；覆盖既有定义只对没有安装记录的端点开放，不做安装记录的跨来源转移。
+Installing a market endpoint creates an ordinary custom-endpoint row plus a binding to source/entry. Store that binding as a separate one-to-one entity with canonical source key, entry slug, installed version, and definition digest, not on `custom_endpoint`. That table's invariant allows only definition-derived read-only mirrors outside `definition` (`docs/adr/0067`); installation is an independently lived fact, not a mirror. Use canonical strings, not source FKs, so removal preserves origin. Only installation records mean installed: matching local author/name does not. Overwriting existing definitions is allowed only without installation records; never transfer installations across sources.
 
-**已安装端点可原地编辑，不锁定。** 内置调用端点是只读加「复制为我的」，副本不跟随上游；市场端点不沿用，因为改一个请求头就得复制再重挂模型行。代价是本地修改会被更新覆盖，由「已修改」状态承接：安装摘要与当前定义不一致即标已修改，更新前警告并可先导出。状态因此是两个正交的轴，市场轴（最新 / 可更新 / 市场中不可用）与本地轴（是否已修改）。**不提供解除安装记录的动作**，已安装端点只有更新、删除或带着徽标继续用。
+**Installed endpoints remain editable in place.** Built-ins are read-only with Copy as mine, whose copies do not follow upstream. Reusing that for market endpoints would require copying and reattaching models for one header edit. Accept updates overwriting local edits, represented as modified when installed/current digests differ, with warnings and export before update. Market status (latest/update/unavailable) and local modification are orthogonal. **Do not offer unlinking installation records**: update, delete, or continue with the badge.
 
-**可更新只比较安装记录里的版本与索引版本是否相等**，不看本地定义的版本号，也不比内容：刷新只读索引、不逐条抓定义，索引也不放载荷摘要。同版本改内容不会被判可更新，这是有意的；官方仓靠投稿审查要求内容变更必升版本，第三方源由用户自担。
+**Update availability compares only installed and index versions for equality**, not local definition versions/content. Refresh reads indexes, not every definition, and indexes contain no payload digest. Same-version changes intentionally do not show updates. Official review requires content-change version bumps; users trust third parties themselves.
 
-## 对此前导入决议的修订
+## Amendment to the earlier import decision
 
-分享文件格式定稿时曾定「导入后不记来源」。本 ADR 修订为：**安装来源要记，但记在端点定义之外**，定义本体仍是协议唯一真相、导出字节不变。从本地文件导入维持不记来源。
+Sharing-format design originally said imports retain no origin. Amend this to record installation origins outside endpoint definitions: definitions remain protocol truth and export bytes are unchanged. Local imports still retain no origin.
 
 ## Consequences
 
-- 安装是服务端单事务接口，不由前端分步编排：安装记录的唯一性与「记录里的摘要就是落库的定义」只有单事务能保证。
-- 卸载就是删除端点，安装记录级联删除。
-- 提示词 / 风格模板将来进入市场时另起安装记录，不复用端点的这一张。
+- Installation is one server transaction, not frontend steps, ensuring uniqueness and that recorded digests match saved definitions.
+- Uninstall deletes endpoints and cascades installation records.
+- Future market prompts/styles get separate installation records, not this endpoint table.

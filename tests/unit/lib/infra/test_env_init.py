@@ -1,4 +1,4 @@
-"""lib.infra.env_init 读取 .env 的覆盖规则与不一致告警。"""
+"""lib.infra.env_init .env override rules and inconsistency warnings."""
 
 from __future__ import annotations
 
@@ -13,19 +13,19 @@ from lib.infra import env_init
 
 @pytest.fixture(autouse=True)
 def _dotenv_enabled(monkeypatch: pytest.MonkeyPatch):
-    # 根 conftest 为整个测试进程关掉 .env 读取，这里验证的正是读取规则。
+    # Root conftest disables .env reading process-wide; this tests those exact read rules.
     monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)
 
 
 @pytest.fixture
 def env_file(tmp_path: Path):
-    # load_env_file 会记下本次读取的结果供启动告警使用，用例结束后清掉，不让后续的 lifespan 用例告警。
+    # load_env_file stores read results for startup warnings; clear after tests to avoid later lifespan warnings.
     yield tmp_path / ".env"
     env_init.reset_env_file_load_for_tests()
 
 
 def test_empty_process_env_is_filled_from_env_file(env_file: Path, monkeypatch: pytest.MonkeyPatch):
-    """compose env_file 把模板里的 `AUTH_PASSWORD=` 注入为空串；.env 后来写入的值应生效。"""
+    """compose env_file injects template `AUTH_PASSWORD=` as empty; later .env-written values must apply."""
     env_file.write_text("AUTH_PASSWORD=my-new-pass\n", encoding="utf-8")
     monkeypatch.setenv("AUTH_PASSWORD", "")
 
@@ -97,7 +97,7 @@ def test_unset_keys_are_loaded_including_empty_values(env_file: Path, monkeypatc
 
 
 def test_returns_keys_whose_values_diverge(env_file: Path, monkeypatch: pytest.MonkeyPatch):
-    """保留的进程值与文件不同才算不一致；空串由 .env 补齐，不算。"""
+    """Only retained process values differing from files are inconsistent; .env-filled empty values are not."""
     env_file.write_text("AUTH_PASSWORD=new\nAUTH_USERNAME=admin\nAUTH_TOKEN_SECRET=s\n", encoding="utf-8")
     monkeypatch.setenv("AUTH_PASSWORD", "old")
     monkeypatch.setenv("AUTH_USERNAME", "admin")
@@ -140,7 +140,7 @@ def test_no_warning_when_env_matches_file(
 
 
 def test_unreadable_env_file_is_ignored(env_file: Path, monkeypatch: pytest.MonkeyPatch):
-    """沙箱拒读 .env 时 import lib 不能失败。"""
+    """Sandbox .env denial must not fail importing lib."""
     env_file.write_text("ARCREEL_TEST_DENIED=v\n", encoding="utf-8")
     monkeypatch.delenv("ARCREEL_TEST_DENIED", raising=False)
 

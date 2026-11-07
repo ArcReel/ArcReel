@@ -115,7 +115,7 @@ describe("ShotDetail 广告/短片", () => {
     const shot = makeShot();
     const { rerender } = renderDetail({ segment: shot });
 
-    // 干净草稿：上游 voiceover 变更后输入框跟随新值
+    // Clean draft: input follows upstream voiceover changes.
     const updated = makeShot({ voiceover_text: "上游改写后的口播" });
     rerender(
       <ShotDetail
@@ -134,7 +134,7 @@ describe("ShotDetail 广告/短片", () => {
     );
     expect(screen.getByDisplayValue("上游改写后的口播")).toBeInTheDocument();
 
-    // 脏草稿：用户先编辑，再有上游变更，保留用户输入
+    // Dirty draft: preserve user input after editing followed by upstream changes.
     fireEvent.change(screen.getByDisplayValue("上游改写后的口播"), {
       target: { value: "用户手改的口播" },
     });
@@ -176,7 +176,7 @@ describe("ShotDetail 广告/短片", () => {
       expect(screen.getByText("~$0.07")).toBeInTheDocument();
       expect(screen.getByText("~$0.32")).toBeInTheDocument();
     } finally {
-      // 先卸载再重置 store：组件仍挂载时清 store 会触发 act() 外的重渲染告警
+      // Unmount before resetting stores; clearing stores while mounted triggers outside-act() rerender warnings.
       view.unmount();
       useCostStore.getState().clear();
     }
@@ -226,10 +226,10 @@ describe("ShotDetail 广告/短片", () => {
     renderDetail({ onMoveShot, movePending: true, selectedIndex: 1 });
     expect(screen.getByRole("button", { name: "前移分镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "后移分镜" })).toBeDisabled();
-    // 分镜切换导航同样锁定：完成回调按当前索引偏移，在途切换会让选中态跳到错误分镜
+    // Shot-switch navigation is locked too: completion offsets current indices, so in-flight switching would select the wrong shot.
     expect(screen.getByRole("button", { name: "上一镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下一镜" })).toBeDisabled();
-    // tooltip 解释禁用原因，而非展示常规操作提示
+    // Tooltip explains why disabled, not normal action guidance.
     expect(screen.getByRole("button", { name: "上一镜" })).toHaveAccessibleDescription("重排进行中…");
     expect(screen.getByRole("button", { name: "前移分镜" })).toHaveAccessibleDescription("重排进行中…");
   });

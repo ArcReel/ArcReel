@@ -1,4 +1,4 @@
-"""角色衍生子资源路由：登记、改描述、改名、删除，以及能力未开启的资产类型不暴露该子资源。"""
+"""Character derivative subresource routes: register, describe, rename, delete; unsupported asset types expose none."""
 
 import json
 from pathlib import Path
@@ -17,7 +17,7 @@ from tests.fakes import FakeProjectAssetMutationMixin
 
 class _FakePM(FakeProjectAssetMutationMixin):
     def __init__(self, project_dir: Path):
-        # 删除路径要清理衍生的图、版本与清单条目，因此假替身也要给出一个真实项目目录。
+        # Deletion cleans derivative images, versions and manifest entries, so fakes also supply real project directories.
         self.project_dir = project_dir
         self.projects = {
             "demo": {
@@ -139,7 +139,7 @@ class TestCharacterDerivativesRouter:
         assert created.status_code == 422, created.text
         assert "战斗装" in created.json()["detail"]
         assert "phái sinh" in created.json()["detail"]
-        # 改名到自身的等价形式不算重名：strip + NFC 后与原键指向同一条目。
+        # Equivalent self-renames are not duplicates: strip + NFC points to the same entry as the original key.
         assert renamed.status_code == 200, renamed.text
         assert list(_derivatives(pm)) == ["战斗装"]
         assert _derivatives(pm)["战斗装"]["description"] == "重甲"
@@ -221,7 +221,7 @@ class TestCharacterDerivativesRouter:
                 json={"name": "老陈", "description": "老人", "derivatives": {"伪装": {"description": "x"}}},
             )
         assert response.status_code == 200, response.text
-        # 创建请求体里的衍生表不落盘：衍生只经衍生子资源登记。
+        # Derivative tables in creation bodies never persist; register derivatives through subresources only.
         assert response.json()["character"]["derivatives"] == {}
         assert pm.projects["demo"]["characters"]["老陈"]["derivatives"] == {}
 
@@ -243,7 +243,7 @@ class TestCharacterDerivativesRouter:
 
 
 class TestCharacterDerivativesPersistence:
-    """真实 ProjectManager：衍生落在角色条目里，随角色一起进出 project.json。"""
+    """Real ProjectManager: derivatives live in character entries, entering/leaving project.json with characters."""
 
     def test_derivative_lands_in_project_json_and_passes_validation(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
@@ -269,7 +269,7 @@ class TestCharacterDerivativesPersistence:
                 json={"name": "战斗装", "description": "另一套"},
             )
             assert rejected.status_code == 422, rejected.text
-            # 被拒的写入整体不落盘：mutation 在项目锁内抛出，project.json 一个字节都没改。
+            # Rejected writes never persist: mutations raise under project locks, leaving project.json byte-identical.
             unchanged = json.loads((pm.get_project_path("demo") / "project.json").read_text(encoding="utf-8"))
             assert unchanged["characters"]["阿岚"]["derivatives"]["战斗装"]["description"] == "换上黑色重甲"
 
@@ -280,7 +280,7 @@ class TestCharacterDerivativesPersistence:
         assert after["characters"] == {}
 
     def test_rename_cascades_into_the_script(self, tmp_path, monkeypatch):
-        """改名是一次级联事务：脚本里的 ``@[角色/旧衍生名]`` 随之改写（docs/adr/0072）。"""
+        """Renaming is a cascade transaction: script ``@[角色/旧衍生名]`` references update accordingly (docs/adr/0072)."""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")

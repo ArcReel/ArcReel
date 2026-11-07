@@ -1,14 +1,14 @@
-"""ComfyUI 节点绑定的推断接口。
+"""ComfyUI node-binding inference API.
 
-一份 workflow 里哪个节点承接提示词、哪个产出成片，ComfyUI 自己不声明，只能由外部推断。推断
-全部在服务端跑、只产出**候选**：每条候选带分数与命中信号说明，前端照着渲染，用户确认后才落盘
-（``docs/adr/0082``）。推断与重导入重匹配是同一个接口——重匹配的输入就是「这份 workflow 加它
-已有的节点绑定」，与首次导入只差一个「既有绑定是否为空」。
+ComfyUI does not declare which workflow nodes receive prompts or produce final output, so infer externally.
+Inference runs entirely on the server and returns **candidates only**, each with a score and matched signals.
+The frontend renders them; persist only after user confirmation (``docs/adr/0082``). Inference and reimport
+rematching share one endpoint: rematching supplies the workflow plus existing bindings, differing from first import
+only in whether existing bindings are empty.
 
-请求体与导入入口同形：带 ``kind`` 的按端点定义收，其余按 ComfyUI 的原始 API workflow 收并按
-``media_type`` 包成定义。放行的门槛只到结构层——重导入一份改过的 workflow 时，既有条目指向的
-节点大半已不存在，那正是重匹配要处理的输入。
-"""
+Request bodies match import: ``kind`` identifies endpoint definitions; otherwise accept raw ComfyUI API workflows
+and wrap them according to ``media_type``. Admission checks structure only: changed workflows often lack nodes
+referenced by existing bindings, precisely the input rematching must handle."""
 
 from __future__ import annotations
 
@@ -25,15 +25,15 @@ from server.i18n import Translator
 
 router = APIRouter(prefix="/comfyui", tags=["Custom Endpoints"])
 
-#: 请求体即载荷原样，与导入入口同形；不声明成 ``dict`` 以便非对象输入也走结构化诊断。
+#: Raw request payload, matching import; avoid ``dict`` so nonobject inputs receive structured diagnostics too.
 InferBody = Annotated[Any, Body()]
 
-#: 粘进来的是原始 workflow 时，由导入方指定它产图还是产视频。
+#: For pasted raw workflows, the importer specifies image versus video output.
 ImportMediaType = Literal["image", "video"]
 
 
 class SignalPayload(BaseModel):
-    """一条命中的信号：稳定名、它贡献的分量、给用户看的说明。"""
+    """One matched signal: stable name, score contribution and user-facing explanation."""
 
     signal: str
     weight: int
@@ -41,26 +41,26 @@ class SignalPayload(BaseModel):
 
 
 class NotePayload(BaseModel):
-    """一条提示。不拦保存，但有它用户才知道某个形态会怎么表现。"""
+    """An advisory hint that does not block saving but explains how a particular shape will behave."""
 
     code: str
     message: str
 
 
 class CandidatePayload(BaseModel):
-    """一条候选：可直接写进 ``bindings`` 的条目，加上它凭什么被选中。"""
+    """A candidate entry writable directly into ``bindings``, with reasons for its selection."""
 
     target: dict[str, Any]
     score: int
     signals: list[SignalPayload]
     selected: bool
     origin: str
-    # 产物候选的上游链长度，用于解释「为什么是这一个」；其余语义键为 null。
+    # Upstream chain length for output candidates, explaining their selection; null for other semantic keys.
     depth: int | None = None
 
 
 class KeyInferencePayload(BaseModel):
-    """一个语义键的推断结果。"""
+    """Inference results for one semantic key."""
 
     state: str
     candidates: list[CandidatePayload]
@@ -69,13 +69,13 @@ class KeyInferencePayload(BaseModel):
 
 class InferResponse(BaseModel):
     media_type: str
-    # 照这份结果直接落盘能不能过校验：任何键歧义或待确认、提示词与产物没着落都不行。
+    # Whether this result can persist directly: ambiguous/unconfirmed keys or unresolved prompts/outputs prevent validation.
     savable: bool
     bindings: dict[str, KeyInferencePayload]
     notes: list[NotePayload]
-    # 这份载荷被当成什么收的。
+    # How this payload was interpreted.
     import_shape: ImportShape
-    # 原始 API workflow 的包装结果；载荷本就是定义时为 null，客户端继续用手上那份。
+    # Wrapped raw API workflow; null for existing definitions, which clients retain unchanged.
     wrapped_definition: dict[str, Any] | None = None
 
 
@@ -85,11 +85,11 @@ async def infer_endpoint_bindings(
     _t: Translator,
     media_type: ImportMediaType = "video",
 ) -> InferResponse:
-    """推断一份 workflow 的节点绑定候选；带既有节点绑定时同时做重导入重匹配。
+    """Infer workflow node-binding candidates, also rematching reimports when existing bindings are supplied.
 
-    服务端不留状态：结果不入库，客户端拿它渲染绑定编辑器，用户确认后经端点的创建或整份替换接口
-    保存。``media_type`` 只在载荷是原始 workflow 时生效——端点定义自己带着这一项。
-    """
+    The server retains no state and persists no results. Clients render the binding editor and save through endpoint
+    creation or full replacement only after user confirmation. ``media_type`` affects only raw workflows; endpoint
+    definitions already contain it."""
     shape, definition = route_import_payload(body, media_type=media_type)
     if shape is ImportShape.COMFYUI_UI_WORKFLOW:
         raise UnprocessableError("custom_endpoint_definition_invalid").with_diagnostic(

@@ -1,14 +1,16 @@
-"""成片的渲染规划：把一个修订的剪辑片段落到输出帧网格上，并按硬切边界分段。
+"""Final-cut render planning maps revision clips onto the output-frame grid and splits at hard cuts.
 
-规划是纯函数。片段边界按时间线累计时长舍入到帧，而不是逐段舍入，因此总帧数与剪辑时间线
-总时长相差不超过半帧，且不随片段数累积漂移；画面与整集混音都按同一组帧边界摆放。
+Planning is pure. Round cumulative timeline durations to frames, never each segment independently,
+keeping total frame count within half a frame of timeline duration without clip-count drift.
+Pictures and episode mixes share the same frame boundaries.
 
-转场不改变片段的帧边界，窗口以切点为中心，前一半在切点之前、后一半在切点之后：
+Transitions never change clip boundaries. Their windows center on cuts, half before and half after:
 
-- 重叠型转场：前一片段在出点之后、后一片段在入点之前各多取半个窗口的源素材，两者在窗口内交叉过渡；
-  源素材余量不足（或前一片段带定格延长）时，用边缘帧定格补齐。相邻片段因此同属一段。
-- 非重叠型转场（闪黑、闪白）：不借素材，前一片段在最后半个窗口淡出，后一片段在开头半个窗口淡入，
-  切点两侧仍按硬切分段。
+- Overlapping transitions borrow half a window beyond the previous out-point/before the next in-point
+  and crossfade within it. Insufficient source handles (or a previous clip with a hold extension)
+  are filled with edge-frame freezes. Adjacent clips therefore share a segment.
+- Nonoverlapping transitions (black/white flashes) borrow no media: fade the previous clip out over
+  its final half-window and the next in over its opening half-window. Keep hard-cut segment boundaries.
 """
 
 from __future__ import annotations
@@ -23,21 +25,21 @@ from lib.edit_timeline.readout import effective_source_range_us
 from lib.edit_timeline.transitions import transition_preset
 
 FINAL_CUT_FPS = 30
-"""成片固定帧率：不同帧率的素材一律规整到这一帧率。"""
+"""Fixed final-cut frame rate; normalize all source frame rates to it."""
 
 _SHORT_EDGE = 1080
 
 
 @dataclass(frozen=True, slots=True)
 class OutputProfile:
-    """成片的画布与帧率。"""
+    """Final-cut canvas and frame rate."""
 
     width: int
     height: int
     fps: int
 
     def frame_at(self, microseconds: int) -> int:
-        """时间线上某一时刻最近的帧边界。"""
+        """Nearest frame boundary to a timeline time."""
         return round(Fraction(microseconds * self.fps, MICROSECONDS_PER_SECOND))
 
     def seconds(self, frames: int) -> float:
@@ -45,7 +47,7 @@ class OutputProfile:
 
 
 def output_profile_for_aspect_ratio(aspect_ratio: str) -> OutputProfile:
-    """按项目画幅取成片画布：短边 1080，长边按比例取偶数；无法解析的比例按 16:9。"""
+    """Resolve project aspect ratio to final-cut canvas: short edge 1080, even long edge by ratio; unparseable ratios use 16:9."""
     width_part, _, height_part = aspect_ratio.partition(":")
     try:
         ratio = Fraction(int(width_part), int(height_part))
@@ -62,7 +64,7 @@ def output_profile_for_aspect_ratio(aspect_ratio: str) -> OutputProfile:
 
 @dataclass(frozen=True, slots=True)
 class RenderMedia:
-    """一个视频单元 current 视频的渲染素材：路径、版本、实测时长与是否带音频流。"""
+    """Render media for current video-unit video: path, version, measured duration, and presence of an audio stream."""
 
     path: Path
     video_version: int
@@ -72,7 +74,7 @@ class RenderMedia:
 
 @dataclass(frozen=True, slots=True)
 class RenderClip:
-    """一个剪辑片段实际取用的素材：源区间已按截取规则解析。"""
+    """Media actually consumed by one clip, with source range resolved according to trim rules."""
 
     clip_id: str
     unit_id: str
@@ -91,7 +93,7 @@ class RenderClip:
 
 
 def render_clips(clips: Sequence[EditClip], media: Mapping[str, RenderMedia]) -> tuple[RenderClip, ...]:
-    """按修订的片段顺序解析每个剪辑片段的素材；没有渲染素材的片段（视频单元已删除）跳过。"""
+    """Resolve clip media in revision order; skip clips lacking render media because their units were deleted."""
     resolved: list[RenderClip] = []
     for clip in clips:
         unit_media = media.get(clip.unit_id)
@@ -117,7 +119,7 @@ def render_clips(clips: Sequence[EditClip], media: Mapping[str, RenderMedia]) ->
 
 @dataclass(frozen=True, slots=True)
 class Extension:
-    """片段为重叠型转场在自身区间之外多出的画面：先取 ``source_frames`` 帧源素材，再补 ``freeze_frames`` 帧定格。"""
+    """Pictures borrowed outside clip intervals for overlap transitions: take ``source_frames`` source frames, then add ``freeze_frames`` frozen frames."""
 
     source_frames: int = 0
     freeze_frames: int = 0
@@ -128,7 +130,7 @@ class Extension:
 
 
 def borrow_frames(needed: int, available_us: int, fps: int) -> Extension:
-    """从余量 ``available_us`` 的源素材里借 ``needed`` 帧；余量不足一帧的部分用边缘帧定格补齐。"""
+    """Borrow ``needed`` frames from ``available_us`` source handles; fill subframe shortfalls with edge-frame freezes."""
     available = max(available_us, 0) * fps // MICROSECONDS_PER_SECOND
     source = min(needed, available)
     return Extension(source_frames=source, freeze_frames=needed - source)
@@ -136,7 +138,7 @@ def borrow_frames(needed: int, available_us: int, fps: int) -> Extension:
 
 @dataclass(frozen=True, slots=True)
 class Fade:
-    """非重叠型转场在片段一端的淡入或淡出。"""
+    """Fade-in/out at a clip end for nonoverlapping transitions."""
 
     frames: int
     color: str
@@ -144,10 +146,11 @@ class Fade:
 
 @dataclass(frozen=True, slots=True)
 class PlannedClip:
-    """落到帧网格上的剪辑片段：先取 ``source_frames`` 帧源画面，再用出点帧补 ``hold_frames`` 帧。
+    """Clip on the frame grid: take ``source_frames`` source pictures, then add ``hold_frames`` using the out-point frame.
 
-    ``lead`` / ``trail`` 是为前后重叠型转场在片段区间之外多取的画面，``fade_in`` / ``fade_out`` 是
-    前后非重叠型转场的淡入、淡出；它们都不改变片段在时间线上的帧边界。
+    ``lead`` / ``trail`` borrow pictures outside clip intervals for preceding/following overlapping
+    transitions; ``fade_in`` / ``fade_out`` implement nonoverlapping transitions. None changes
+    timeline frame boundaries.
     """
 
     clip: RenderClip
@@ -169,13 +172,13 @@ class PlannedClip:
 
     @property
     def stream_frames(self) -> int:
-        """渲染这一片段要产出的画面帧数：前借、自身与后借之和。"""
+        """Picture-frame count for rendering this clip: leading borrowed frames + own frames + trailing borrowed frames."""
         return self.lead.frames + self.frames + self.trail.frames
 
 
 @dataclass(frozen=True, slots=True)
 class Crossfade:
-    """段内一次重叠型转场：``offset_frames`` 是窗口起点相对段起点的帧数。"""
+    """One overlapping transition within a segment; ``offset_frames`` locates window start relative to segment start."""
 
     effect: str
     offset_frames: int
@@ -184,7 +187,7 @@ class Crossfade:
 
 @dataclass(frozen=True, slots=True)
 class RenderSegment:
-    """硬切边界之间的一段：段内相邻片段以重叠型转场衔接，段与段之间直接拼接。"""
+    """A segment between hard cuts: adjacent clips overlap-transition within it; segments concatenate directly."""
 
     clips: tuple[PlannedClip, ...]
     crossfades: tuple[Crossfade, ...] = ()
@@ -214,7 +217,7 @@ class RenderPlan:
 
 
 def _window_frames(transition: Transition, profile: OutputProfile) -> tuple[int, int]:
-    """转场窗口在切点之前、之后各占的帧数。"""
+    """Transition-window frame counts before and after the cut."""
     frames = max(profile.frame_at(transition.duration_us), 1)
     before = frames // 2
     return before, frames - before
@@ -238,7 +241,7 @@ def _lay_out(clips: Sequence[RenderClip], profile: OutputProfile) -> tuple[list[
 
 
 def _join(previous: PlannedClip, following: PlannedClip, profile: OutputProfile) -> tuple[PlannedClip, PlannedClip]:
-    """按前一片段上的转场改写切点两侧的片段。"""
+    """Rewrite clips on both sides of a cut according to the previous clip’s transition."""
     transition = previous.clip.transition_to_next
     if transition is None:
         return previous, following
@@ -249,7 +252,7 @@ def _join(previous: PlannedClip, following: PlannedClip, profile: OutputProfile)
             replace(previous, fade_out=Fade(min(before, previous.frames), preset.fade_color)),
             replace(following, fade_in=Fade(min(after, following.frames), preset.fade_color)),
         )
-    # 带定格延长的片段以静帧收尾，转场窗口里延续这一静帧。
+    # Hold-extended clips end on frozen pictures; continue that freeze through the transition window.
     tail_us = 0 if previous.hold_frames else previous.clip.media_duration_us - previous.clip.source_out_us
     return (
         replace(previous, trail=borrow_frames(after, tail_us, profile.fps)),
@@ -263,9 +266,9 @@ def _overlaps(planned: PlannedClip) -> bool:
 
 
 def plan_render(clips: Sequence[RenderClip], profile: OutputProfile) -> RenderPlan:
-    """把片段首尾相接地排到帧网格上，展开转场，再按硬切边界分段；不足半帧的片段不进入成片。
+    """Arrange clips consecutively on the frame grid, expand transitions, then split at hard cuts; omit clips shorter than half a frame.
 
-    转场只作用于到下一个进入成片的片段之间的切点，最后一个片段上的转场没有效果。
+    Transitions apply only to cuts before the next included clip; the final clip’s transition has no effect.
     """
     planned, total_frames = _lay_out(clips, profile)
     for index in range(len(planned) - 1):

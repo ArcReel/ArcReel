@@ -2,47 +2,47 @@
 status: accepted
 ---
 
-# 一个生成环节一份整段模版，轴差异用命名变体片段解析，模版随版内置于核心库
+# One complete template per generation stage; resolve axis differences through named partial variants, bundled in the core library
 
-全仓约 60 处提示词定义点散在七种载体里（Python 常量、f-string 大模板、逐行拼接、dict 注册表、Markdown 文件、项目文件字段、运行时装配的系统提示）。同一个项目风格字段在四条路径里以四种句式注入，负向提示词在五条路径里各写一套措辞。创作者看不到一个环节实际发出的完整提示词，维护者改一句措辞要先找到它在哪个常量里、再确认有几处副本。
+Approximately 60 prompt definitions span seven carriers (Python constants, large f-strings, line concatenation, dict registries, Markdown, project fields, runtime system prompts). Four paths inject one project style field with four phrasings; five separately phrase negatives. Creators cannot see complete stage prompts, and maintainers must locate constants/copies before changing wording.
 
-决定：**一个生成环节恰对应一份模版文件，正文是那次调用的完整提示词，只留数据槽位**；共享措辞抽成模版片段；**轴上的口径差异（源文件类型、资产类型、广告时长档位、创作类型的单行差异）用片段的命名变体解析，模版内不比较轴值**；条件只允许对槽位做真值判断，用于可选数据块（集尾钩子、目标时长、附加指令、下集大纲）；**内置模版目录放在核心库包内随包分发，不放进 Agent 运行 profile**；**模版模块以模版目录为构造依赖**，不自行定位目录。
+**Exactly one template file per generation stage, containing the complete call prompt with data slots only**; extract shared wording into partials. **Resolve axis-specific wording (source kind, asset type, ad-duration tier, single-line content-mode differences) through named partial variants, never comparing axes inside templates**. Conditions test only slot truthiness for optional data blocks (ending hooks, target durations, extra instructions, next outlines). **Bundle templates inside core-library packages, outside Agent runtime profiles**. **Inject template directories as module construction dependencies**, without self-location.
 
-三条理由决定了上面每一项：
+Three reasons determine these choices:
 
-- **简化现有机制。** 一个环节一份文件之后，「这个环节发什么」有唯一答案；措辞的副本关系变成片段的引用关系，改一处措辞是改一个文件。
-- **把黑盒提示词变为用户可见。** 系统设置页按模版类别列出全部内置模版，点开即见源文。正文里模版语法越少，这一页越读得懂；轴差异若写成条件分支，设置页要么执行模版、要么让读者在脑子里跑分支，**而落到文件上时，设置页不执行模版就能枚举各轴值的措辞**。
-- **为后期用户修改与分享铺路。** 用户不改 ArcReel 代码，将来改的是模版与片段的散文文件。改某个轴值的口径就是改一份散文文件，改动面按文件隔离，不会波及别的轴值；新增一个源文件类型或资产类型是加文件，不是编辑模版。
+- **Simpler existing mechanisms.** One file answers what each stage sends; duplicated wording becomes partial references, so wording changes edit one file.
+- **User-visible prompts instead of black boxes.** Settings list all built-ins by category and show sources. Less syntax improves readability; axis conditionals require execution or mental branch tracing, while separate files let settings enumerate wording per axis value without execution.
+- **Prepare for user editing/sharing.** Future users edit prose templates/partials without ArcReel code. Editing axis-specific wording affects one isolated file, not other values; adding source/asset types adds files instead of editing templates.
 
-**模版随版内置于核心库包内**，因为它是代码的一部分而非 Agent 的可见指令：Docker 镜像与只读安装不需要额外拷贝步骤或环境变量，模版也不物化到项目目录。Agent 运行 profile 内的 Markdown（CLAUDE.md、skills、子智能体、references）由 SDK 逐字加载，不经渲染，不纳入本机制——把它伪装成渲染模版只会让两套语义混在一个目录里。**模版目录作为模块依赖注入**，使测试能把模块指向夹具目录断言错误行为、指向内置目录做完整性断言，而生产实例指向随包内置的那一个。
+**Bundle in core packages** because templates are code, not Agent-visible instructions: Docker/read-only installations need no copying/environment variables, and templates never materialize into projects. Runtime-profile Markdown (CLAUDE.md, skills, subagents, references) loads verbatim through SDK without rendering and stays outside this mechanism; pretending it is templates mixes semantics. **Inject directories** so tests target fixtures for errors and built-ins for completeness, while production targets bundled files.
 
-## 四条边界
+## Four boundaries
 
-以下四条是本决定成立的前提，其中可自动检查的部分有测试守卫，第一条只能靠 ADR 与代码审查。
+These are prerequisites; tests guard automatically checkable parts, while the first relies on ADR/review.
 
-- **真值条件的槽位不得由轴值比较派生。** 槽位的真假只能来自项目数据是否存在。代码不得对 `source_kind` / `content_mode` / `asset_type` / `generation_mode` 等轴值比较算出布尔槽位（现有 builder 的 `is_screenplay` 就是反例，`inject_style` 同理）。否则轴差异只是从模版语法搬到了槽位名里，设置页重新失去可枚举性。**目录扫描测不出这一条，它是代码审查项。**
-- **变体片段承载措辞差异，代码承载取值差异。** `aspect_ratio_label`（9:16 → 竖屏构图 / 16:9 → 横屏构图 / 其余按比例成句）是取值算出的短标签，不是轴，由代码作为槽位值产出，不做变体族。判据是：改这个分支改的是取值规则还是措辞——措辞进片段，取值留代码。
-- **槽位值是键齐全的投影。** 嵌套槽位（`project_overview.synopsis`、`episode_outline.hook`）由槽位值生产者补齐形状、缺值传 null，模版不写 `.get()`。StrictUndefined 下缺键即 fail loud，这正是要的：一次措辞改动不能静默丢掉项目数据。
-- **片段名必须是字面量，循环只出现在列表片段。** 片段名是相对 `partials/` 的路径，引擎不做隐式查找，模版内不得拼接片段名——动态拼名让加载期的静态扫描失效，只剩渲染期兜底。循环只用于列表槽位（候选名、大纲节点、资产外观）的逐项展开，且只写在列表片段里，正文不写循环。
+- **Truthiness slots must not derive from axis comparisons.** Booleans represent only project-data presence. Code must not compare `source_kind` / `content_mode` / `asset_type` / `generation_mode` to create boolean slots (existing `is_screenplay`, likewise `inject_style`, are counterexamples). Otherwise differences merely move into slot names, losing settings enumerability. **Directory scans cannot check this; review must.**
+- **Variants carry wording differences; code carries value differences.** `aspect_ratio_label` (9:16 → portrait composition / 16:9 → landscape / other ratios in sentences) is a computed short value label, not an axis, supplied by code without variant families. Ask whether branches change values or wording: wording belongs in partials, value rules in code.
+- **Slot values are complete-key projections.** Producers complete nested shapes (`project_overview.synopsis`, `episode_outline.hook`), using null for absent values; templates never use `.get()`. StrictUndefined missing-key failures are intentional: wording edits must never silently drop project data.
+- **Partial names must be literals; loops occur only in list partials.** Names are paths relative to `partials/`, without implicit lookup; concatenated names invalidate static loading scans, leaving only runtime fallback. Loops expand list slots (candidate names, outline beats, asset appearances), only in list partials, never main bodies.
 
-变体族的齐全性由加载期校验：按 frontmatter `applies_to` 检查每个族的轴值文件齐全，缺文件 fail loud；**某轴值刻意无话可说时放空文件**，不靠「文件不存在即渲染为空」——后者把「有意为空」与「忘了写」表达成同一件事。
+Validate variant completeness at load using frontmatter `applies_to`, failing loudly for missing axis-value files. **Intentional silence uses empty files**, never missing-file-means-empty, which conflates intent with omission.
 
-## 明确不采用
+## Explicitly rejected
 
-- **在模版内用条件分支表达轴差异**（`{% if source_kind == "screenplay" %}`）：设置页要执行模版才能知道某个轴值下的措辞，用户改一个轴值的口径要在分支里找位置，改动面覆盖全部轴值。这是本文三条理由同时否掉的那条路。
-- **把模版目录放进 Agent 运行 profile**：profile 是 Agent 逐字加载的指令目录，模版是服务端渲染的数据。放在一起会让物化、sha256 三态与 reset 接口去管一批根本不该物化的文件，并把核心库的渲染能力绑在 profile 的部署形态上。
-- **片段用 `{% include %}` 引用**：开启 `trim_blocks` 后 include 标签之后的换行会被吃掉，行级拼接不可控。改用表达式引用（`partial(...)` / `variant(...)`），并规定片段渲染结果去尾换行、换行由引用处决定，同一条规则覆盖行内与整行两种用法。
-- **模版模块自行定位模版目录**：错误路径的测试就只能靠猴子补丁或环境变量，而目录位置本就是部署形态的一部分。
-- **所有列表一律由代码预渲染成字符串槽位**：那会把「故事节点：」「（暂无）」「当前形态：」这类措辞藏回代码，与「提示词文本用户可见」相悖。
+- **Axis conditionals in templates** (`{% if source_kind == "screenplay" %}`): settings must execute to reveal wording; users locate branches to edit one value, with changes spanning all values. All three reasons reject this.
+- **Template directories inside Agent profiles**: profiles hold verbatim instructions, templates server-rendered data. Combining makes materialization, sha256 three-state sync, and reset manage files never meant for materialization, tying core rendering to profile deployment.
+- **`{% include %}` partials**: `trim_blocks` consumes post-tag newlines, making line joining unpredictable. Use expressions (`partial(...)` / `variant(...)`), strip trailing partial newlines, and let reference sites own newlines, covering inline/full-line usage uniformly.
+- **Self-located directories**: invalid-path tests would need monkeypatches/environment variables, while directory location is deployment configuration.
+- **Prerendering every list into string slots in code**: hides wording such as "Story beats:", "(None yet)", and "Current form:" back in code, contradicting visible prompt text.
 
 ## Consequences
 
-- 模版模块是全仓提示词文本的唯一渲染出口，对调用方只暴露三个动作（按 id 渲染、列出元数据、按 id 读源文与片段清单）。新增生成环节意味着新增一份模版文件，不是新增一个 builder 函数。
-- 新增一个轴值（新的源文件类型、资产类型、时长档位）要为该轴上每个变体族补一个文件，包括刻意留空的那些；漏一个在加载期报错，而非在某次生成时才发现。
-- 一个扫描内置目录的测试强制其中可自动检查的部分：无轴值比较、变体族齐全、片段名字面量、循环只在列表片段、判重只在纯文本回贴形态的模版上开启。第一条边界（禁止轴派生的布尔槽位）没有自动防线，评审需要盯住新增的布尔槽位是从哪里来的。
-- 共享片段以「两个及以上生成环节使用」为抽取门槛，按全部收编环节计、不按已迁移环节计；只被一个模版引用的固定措辞直接写在正文里。门槛同样约束片段之间的引用：只被一个片段引用的措辞内联回该片段，不另立文件，共享性不靠父片段传递。代价是共享片段的一次改动会跨环节生效，这正是它存在的理由，但迁移期需要逐环节确认新口径。
-- 模版的措辞升级不使既有产物 stale：模版是渲染器派生包装的来源，按 `docs/adr/0070` 不进产物依据。
-- 块与块之间的行距写在正文的引用处。块级引用（表达式独占一行）渲染为空或判重后无剩余内容时，所在行连同行尾换行一起消失，连续列表里的空变体因此不留空行；整段渲染后只塌缩模版自身产生的多余空行，槽位值（源文窗口一类用户数据）里的空行与首尾换行逐字保留。
-- 幂等去重不是渲染器的通用规则，而是模版在 frontmatter 以 `idempotent: true` 显式开启的能力，只给存在纯文本回贴形态的模版（`storyboard/image`、`storyboard/video`）；未开启的模版从不跳过片段。文本模版会在多处引用同一份数据片段（各资产名单同为「（暂无）」、本集与下集大纲共用列表片段），按内容判重会把后出现的数据吞掉。开启后只有块级引用参与判重，且逐行判定：片段渲染结果中已在正文或先前注入的片段里以完整行出现的行跳过，其余行照常注入——风格块的 `Style` 与 `Visual style` 各自判定，一行取值变化不会让另一行重复。行内引用一律注入，短措辞不被正文里偶然同形的字串吞掉；`lists/` 下的列表片段承载数据，任何模版里都不判重。`docs/adr/0070` 的「对已渲染纯文本重复调用不重复注入」相应要求这两个模版开启判重、共享风格块与 `Avoid` 行按块级引用。
-- frontmatter `description` 只写一句该模版的用途，读者是设置页的用户。措辞取舍的理由（例如资产图排除项写「出镜人物」而不写「人物」，是为了不波及画像与包装上的人像图案）写在 commit message 或本 ADR，不写进 `description`，也不写 Jinja 注释：片段正文就是提示词，Jinja 注释会随模版正文出现在设置页。
-- 模版语言变体不做也不预留命名位（`applies_to` 不含语言轴）；面向模型的模版与片段正文按仓库口径豁免 i18n。
+- One module is the repository's prompt-text rendering outlet, exposing only render by ID, list metadata, and read source/partial lists by ID. New stages add template files, not builder functions.
+- New axis values (source/asset types, duration tiers) require a file in every variant family on that axis, including intentionally empty ones. Omissions fail at load, not generation.
+- Built-in-directory tests enforce checkable rules: no axis comparisons, complete variants, literal names, loops only in list partials, deduplication only for plain-text round-trip templates. No automation protects against axis-derived boolean slots; reviewers inspect their origins.
+- Extract shared partials only when used by at least two generation stages, counting all consolidated stages rather than only migrated ones; single-template wording stays inline. The same threshold applies between partials: single-parent wording stays inside its parent, without inherited sharing claims. Shared edits intentionally affect multiple stages, requiring per-stage semantic checks during migration.
+- Template wording changes do not stale artifacts: templates supply derived rendering wrappers and stay outside bases under `docs/adr/0070`.
+- Main-body reference sites own block spacing. Empty/deduplicated block references (expressions alone on lines) remove their whole lines including trailing newlines, avoiding blank lines in consecutive empty variants. After whole rendering, collapse only template-created excess blank lines; preserve slot/user-data blanks and leading/trailing newlines verbatim.
+- Idempotent deduplication is opt-in through frontmatter `idempotent: true`, only for plain-text round-trip templates (`storyboard/image`, `storyboard/video`), never generic. Other templates never skip partials: repeated data such as asset-list "(None yet)" or shared current/next outline partials must not disappear. Opted-in deduplication covers only block references and works per line: skip complete lines already in bodies/prior partials, inject the rest. Style `Style` and `Visual style` lines are independent, so changed values on one do not repeat another. Always inject inline references, avoiding accidental short-string matches; data-bearing `lists/` partials never deduplicate in any template. `docs/adr/0070`'s repeat-rendered-plain-text rule consequently requires these two templates to opt in and use block references for shared style/`Avoid` lines.
+- Frontmatter `description` is one sentence on template purpose for settings users. Wording rationale (such as "on-screen people" rather than "people" to preserve portraits/package illustrations) belongs in commits/this ADR, never `description` or Jinja comments: partial bodies are prompts, and Jinja comments appear in settings alongside source.
+- Do not build/reserve template-language variants (`applies_to` has no language axis); model-facing template/partial bodies retain repository i18n exemption.

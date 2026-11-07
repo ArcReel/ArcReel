@@ -1,11 +1,12 @@
-"""从供应商素材库导入已有图片：查询素材、取回实际内容并校验成可保存的图片。
+"""Import existing provider-library images: query assets, retrieve actual content, validate saveable images.
 
-导入只接受可用（``Active``）的图片素材。内容只从 GetAsset 返回的签名访问地址下载，地址不来自请求方；
-下载限定 HTTPS 与公网地址（每一跳重定向都重新校验），响应体有总字节上限，取回的字节须能解码为
-PNG、JPEG 或 WebP。签名访问地址在有效期内等同下载凭证，不写日志、异常文本与诊断，也不持久保存。
+Accept available (``Active``) image assets only. Download exclusively from GetAsset-issued signed
+URLs, never requester-supplied addresses. Require HTTPS/public destinations, revalidating every
+redirect; bound response bytes and decode PNG/JPEG/WebP. Signed URLs are download credentials
+during validity: never log, expose in exceptions/diagnostics, or persist them.
 
-取回内容之后的正式写入与关联由调用方完成：按手动上传成品的语义保存为新版本，再经
-:func:`lib.asset_library.links.record_imported_link` 为这个新内容版本建立关联。
+Callers perform formal writes/linking after retrieval: save new versions with manual finished-
+upload semantics, then :func:`lib.asset_library.links.record_imported_link` links that new version.
 """
 
 from __future__ import annotations
@@ -36,10 +37,10 @@ from lib.db.models.asset_library import AssetLibraryAccount
 from lib.infra.api_errors import BadGatewayError, UnprocessableError
 from lib.infra.image_utils import IMAGE_FORMAT_SUFFIXES, MAX_UPLOAD_PIXELS, ImagePixelLimitError
 
-#: 导入图片的字节上限，与手动上传图片相同；供应商素材库的图片上限低于此值。
+#: Imported-image byte limit matches manual uploads; provider-library image limits are lower.
 IMPORT_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 
-#: 可以导入的图片格式与保存时使用的扩展名，与手动上传允许的格式同出一处。
+#: Importable formats/save extensions share the manual-upload format source.
 _FORMAT_SUFFIXES = {name: suffixes[0] for name, suffixes in IMAGE_FORMAT_SUFFIXES.items()}
 
 _DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
@@ -49,7 +50,7 @@ _DNS_TIMEOUT_SECONDS = 10.0
 
 @dataclass(frozen=True)
 class ProviderImage:
-    """取回的供应商图片：素材查询结果、原始字节与按实际格式确定的扩展名。"""
+    """Retrieved provider image: asset-query result, raw bytes, and extension from actual format."""
 
     asset: ProviderAssetDetail
     content: bytes
@@ -60,7 +61,7 @@ class ProviderImage:
 
 
 class _DestinationRejected(Exception):
-    """下载目标不是 HTTPS 公网地址。"""
+    """Download destination is not a public HTTPS address."""
 
 
 def _is_public(address: str) -> bool:
@@ -74,10 +75,10 @@ def _is_public(address: str) -> bool:
 
 
 async def _check_destination(url: httpx.URL, resolver: Resolver) -> None:
-    """素材地址由公有云供应商签发：只放行 HTTPS 与公网地址，环回、私网、链路本地与元数据地址一律拒绝。
+    """Public-cloud-issued URLs admit only HTTPS/public destinations; reject loopback/private/link-local/metadata addresses.
 
-    主机名解析失败或超时时不作判定，交给传输层照常连接，与产物下载的先例一致：经代理出网的部署里
-    本机可能解析不了目标主机。
+    Do not decide on DNS failure/timeout; let transports connect normally, matching artifact
+    downloads: proxy deployments may not resolve destination hosts locally.
     """
     if url.scheme != "https":
         raise _DestinationRejected
@@ -88,7 +89,7 @@ async def _check_destination(url: httpx.URL, resolver: Resolver) -> None:
         try:
             async with asyncio.timeout(_DNS_TIMEOUT_SECONDS):
                 addresses = await resolver(host, url.port or 443)
-        except OSError:  # TimeoutError 亦是 OSError
+        except OSError:  # TimeoutError is also OSError
             return
     if not all(_is_public(address) for address in addresses):
         raise _DestinationRejected
@@ -99,14 +100,14 @@ def _download_failed(reason: str, **diagnostic: object) -> BadGatewayError:
 
 
 async def download_provider_image_bytes(url: str, *, resolver: Resolver | None = None) -> bytes:
-    """从供应商签发的访问地址取回素材内容。
+    """Fetch content from provider-issued URLs.
 
-    失败一律抛不带地址的领域错误，并以 ``from None`` 断开异常链：httpx 的部分异常文本带完整 URL，
-    签名参数会随异常链进入日志。
+    Fail with URL-free domain errors and ``from None`` to sever exception chains; some httpx
+    errors contain full URLs, leaking signed parameters into logs through chained exceptions.
 
     Raises:
-        BadGatewayError: 地址不可用、目标被拒、网络失败、供应商返回错误状态或空内容。
-        UnprocessableError: 内容超过 :data:`IMPORT_IMAGE_MAX_BYTES`。
+        BadGatewayError: URL unavailable, destination rejected, network/provider status failure, or empty content.
+        UnprocessableError: Content exceeds :data:`IMPORT_IMAGE_MAX_BYTES`.
     """
     try:
         parsed = httpx.URL(url)
@@ -143,10 +144,10 @@ async def download_provider_image_bytes(url: str, *, resolver: Resolver | None =
 
 
 def image_suffix(content: bytes) -> str:
-    """按实际解码结果确定扩展名；不是可导入的格式、无法解码或像素超限时抛错。
+    """Choose extensions by actual decoding; reject unsupported formats, undecodable content, or excessive pixels.
 
     Raises:
-        UnprocessableError: 内容不是可用的 PNG、JPEG 或 WebP 图片。
+        UnprocessableError: Not a usable PNG, JPEG, or WebP image.
     """
     try:
         with Image.open(BytesIO(content)) as img:
@@ -167,11 +168,11 @@ async def fetch_provider_image(
     *,
     resolver: Resolver | None = None,
 ) -> ProviderImage:
-    """查询账号范围里的素材并取回它的图片内容。
+    """Query an account-scoped asset and retrieve its image content.
 
     Raises:
-        UnprocessableError: 素材不是图片、还不可用，或内容不是可导入的图片。
-        BadGatewayError: 控制面请求失败，或取不回素材内容。
+        UnprocessableError: Not an image, not yet available, or unimportable image content.
+        BadGatewayError: Control-plane failure or content retrieval failure.
     """
     try:
         download = await get_asset_download(credentials_of(account), asset_id)

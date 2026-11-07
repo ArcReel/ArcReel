@@ -103,8 +103,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema.
 
-    tasks 上自己建的索引在重建表之外先删——``preserve_sqlite_indexes`` 分不清有意删除与静默
-    丢失，放在它里面会被当作丢失回放，而 user_id 此时已不在表上，回放必然报错。
+    Delete migration-owned tasks indexes before rebuilding: ``preserve_sqlite_indexes`` cannot
+    distinguish intentional deletion from silent loss. Inside its scope they would be replayed as lost
+    indexes after user_id is removed, necessarily failing.
     """
     with op.batch_alter_table("agent_sessions", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_agent_sessions_user_id"))

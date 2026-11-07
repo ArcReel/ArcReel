@@ -1,4 +1,4 @@
-"""移除分镜再从项目回收站恢复：剧本条目路由与项目回收站路由串起来，在真实项目目录上验证。"""
+"""Remove/restore shots through joined script-entry/trash routes on real projects."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ _SHOT = {
 
 
 def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ProjectManager, TestClient]:
-    """解说项目 ``demo``：第 1 集三个分镜，E1S02 与 E1S03 各有一张带版本历史的分镜图。"""
+    """Narration ``demo`` episode 1 has three shots; E1S02/E1S03 each have versioned images."""
     manager = ProjectManager(str(tmp_path))
     manager.create_project("demo", content_mode="narration")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -106,7 +106,7 @@ def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_med
 
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
-        # 编号只分配、不复用：原编号空闲也不沿用，取本集用过的最大号之后的新编号。
+        # IDs allocate without reuse, even free originals; choose above episode's previously used maximum.
         assert restored.status_code == 200, restored.text
         assert (restored.json()["object"]["id"], restored.json()["degraded"]) == ("E1S04", False)
         segments = _segments(manager)
@@ -117,7 +117,7 @@ def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_med
         [snapshot] = VersionManager(project_dir).get_versions("storyboards", "E1S04")["versions"]
         assert snapshot["prompt"] == history["versions"][0]["prompt"]
         assert (project_dir / snapshot["file"]).read_bytes() == b"image-E1S02"
-        # 登记随新编号补录，依据摘要不变；新编号下的输入与删除前不同，照常判为过期而不是缺失。
+        # Backfill new IDs without changing basis digests; different inputs become stale, never missing.
         assert adapter.get_entry(key) is None
         new_key = ArtifactKey.episode_storyboard(1, "E1S04")
         new_claim = adapter.get_entry(new_key)
@@ -135,7 +135,7 @@ def test_a_removed_last_shot_keeps_its_id_out_of_new_items_and_comes_back_under_
     project_dir = manager.get_project_path("demo")
     with http:
         record = _remove(http, "E1S03")
-        # 末尾条目删掉后再新增不会取回它的编号：编号只分配、不复用。
+        # Deleting trailing entries never permits ID reuse on additions.
         inserted = http.post(
             "/api/v1/projects/demo/script-items",
             json={"script_file": "episode_1.json", "after_id": "E1S01", "novel_text": "新的一镜。"},
@@ -177,7 +177,7 @@ def test_a_renumbered_grid_member_comes_back_as_a_plain_shot_that_the_planner_pl
 
     assert restored.json()["object"]["id"] == "E1S05", restored.text
     assets = _segments(manager)[3]["generated_assets"]
-    # 宫格的成员仍是旧编号：新编号的分镜不再属于它，按普通分镜规划。
+    # Grid members keep old IDs; new-ID storyboards are ordinary nongrid targets.
     assert (assets.get("grid_id"), assets.get("grid_cell_index")) == (None, None)
     assert TargetStatePlanner(project_dir).resolve_basis(ArtifactKey.episode_storyboard(1, "E1S05")) is not None
 
@@ -203,10 +203,10 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
 
     def read_staged_source(path: Path) -> bytes:
         if path.name == source.name and any(p.name.startswith(".restore-") for p in path.parents):
-            # 编码迁移在铺设完成、释放项目锁之后读源文：两次恢复都到达后才允许继续。
+            # Encoding migration reads sources after placement/releases locks; both restores arrive before continuation.
             staged.wait(timeout=30)
             if degraded:
-                # 文件缺失是永久状态，迁移失败照常降级；磁盘满这类可重试的读写故障不降级。
+                # Missing files permanently degrade failed migrations; retryable disk-full IO never degrades.
                 raise FileNotFoundError(path)
         return read_bytes(path)
 
@@ -312,7 +312,7 @@ def test_a_removed_shot_without_media_still_becomes_a_record_and_returns_to_the_
 def test_a_shot_without_media_that_cannot_be_taken_out_keeps_its_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """没有被删文件的记录降级后什么都加回不了：恢复失败、记录保留，修好后可以重试。"""
+    """Degraded records without deleted files restore nothing, fail while retaining records for repair/retry."""
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
     with http:
@@ -341,7 +341,7 @@ def test_a_shot_without_media_that_cannot_be_taken_out_keeps_its_record(
 def test_a_renumbered_shot_does_not_take_the_history_its_new_id_had_when_it_was_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """删除时的快照里，新编号还属于另一个分镜：换编号恢复不能把那个分镜的版本历史带回来。"""
+    """Deletion snapshots show new IDs occupied by other shots; renamed restoration must not inherit their histories."""
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
     with http:
@@ -364,7 +364,7 @@ def test_a_renumbered_shot_does_not_take_the_history_its_new_id_had_when_it_was_
 def test_records_name_removed_shots_by_their_position_and_text_at_removal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """回收站按删除时的位置与正文摘录称呼条目：同一集删掉的多条记录凭它们区分，不靠内部编号。"""
+    """Trash names entries by deletion-time positions/excerpts, distinguishing same-episode records without internal IDs."""
     manager, http = _project(tmp_path, monkeypatch)
     with manager.locked_script("demo", "episode_1.json") as script:
         script["segments"][2]["novel_text"] = "夜色里  一盏灯\n亮了很久很久，直到天明。"
@@ -394,7 +394,7 @@ def test_overwriting_the_script_records_each_dropped_shot_at_its_position_before
 def test_a_record_without_a_position_snapshot_still_lists_and_restores(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """位置与摘录是可选字段；缺少这些字段的记录照常列出与恢复。"""
+    """Optional positions/excerpts may be absent; records still list/restore."""
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
     with http:

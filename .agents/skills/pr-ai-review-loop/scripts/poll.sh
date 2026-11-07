@@ -45,8 +45,8 @@
 #                                                       # (0 until the first mark) — the convergence budget counter
 #   "triage_hint": "<str>",                             # present only while has_new_findings holds (a non-ack new
 #                                                       # inline, a new CodeRabbit review, or a new Codex body finding):
-#                                                       # points back to SKILL「工程判断」 at the moment a batch is
-#                                                       # judged; from rounds >= 3 it also points to「收敛」
+#                                                       # points back to SKILL “Engineering judgment” when a batch is
+#                                                       # judged; from rounds >= 3 it also points to convergence guidance.
 #   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
 #   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
 #                                                       # first fix batch (null when every commit postdates creation)

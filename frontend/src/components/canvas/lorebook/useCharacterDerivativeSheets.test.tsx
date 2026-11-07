@@ -60,7 +60,7 @@ describe("useCharacterDerivativeSheets", () => {
     render(<Probe />);
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
 
-    // 任务离开占用集即代表刚有一次生成结束：重新取一次才能拿到新图与新的过期判定。
+    // A task leaving occupancy means generation just ended: refetch for the new image and currency decision.
     spy.mockResolvedValue({
       success: true,
       derivatives: {

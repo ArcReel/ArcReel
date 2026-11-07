@@ -1,6 +1,6 @@
-"""资产图 HTTP 面：卡片状态、批量生成的预览与提交、单张重生的连带影响。
+"""Asset-image HTTP: card states, batch previews/submission, single-image regeneration consequences.
 
-预览与提交使用真实项目、产物清单、队列与供应商配置；费用按测试数据库中的各通道单价计算。
+Previews/submissions use real projects/manifests/queues/provider settings; test DB channel prices determine costs.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ async def sheet_client(
                     "model_id": "text-image",
                     "display_name": "Text image",
                     "endpoint": "openai-images-generations",
-                    # 按条目计价：万相 2.7 图片每张 0.2 CNY，只按出图张数计费
+                    # Entry pricing: Wan 2.7 images cost 0.2 CNY each, billed by output count only.
                     "entry_binding": "alibaba/wan2.7-image",
                 },
                 {

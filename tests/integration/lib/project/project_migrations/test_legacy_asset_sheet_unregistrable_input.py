@@ -1,7 +1,7 @@
-"""资产图与衍生资产图的生成输入在升级时有缺口：照常登记、读作 current，经整条迁移链后的制作状态。
+"""Asset/derivative images with generation-input gaps at upgrade still register/read current: production status after the full migration chain.
 
-旧项目里可能有：声明了原图却读不到的角色、描述被清空的场景，以及本体有缺口的衍生。生成缺口只拦
-生成（ADR 0098）：v17→v18 把此前因缺口没登记的资产图补录，之后补齐缺口按常规判过期。
+Legacy projects may have characters with unreadable declared originals, scenes with cleared descriptions, or derivatives with incomplete bases. Gaps block only
+generation (ADR 0098): v17→v18 backfills previously unregistered asset images; filling gaps later uses normal staleness rules.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def test_asset_sheets_with_generation_input_gaps_are_backfilled_and_read_current
     characters = status.artifacts["asset_sheets"]["character"]
     assert characters["current_ids"] == ["张三", "李四"]
     assert characters["missing_ids"] == []
-    # 生成仍被拒：缺口只拦生成。
+    # Generation still rejects; gaps block generation only.
     project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
     refusal = asset_sheet_input(
         project, asset_type="scene", name="祠堂", observation=project_input_observation(project_dir)

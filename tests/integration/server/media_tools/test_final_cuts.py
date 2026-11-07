@@ -1,4 +1,4 @@
-"""渲染成片工具：经工具声明入口提交到 render 车道，内嵌调用方拿到可下载的成片，外部调用方拿到批次句柄。"""
+"""Final-cut tools submit through declarations to render lanes; embedded callers get downloadable videos, external callers batch handles."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ async def test_external_agent_gets_a_batch_handle_to_poll(
     assert isinstance(outcome.value, GenerationBatchReadModel)
     assert outcome.value.operation == "render_final_cut"
     [member] = outcome.value.members
-    # 省略的选项按项目补齐：后期配音项目不带旁白，字幕默认烧入。
+    # Fill absent options from projects: postproduction-voiceover projects omit narration; subtitles default burned in.
     assert member.unit_id == f"{timeline_id}.without_narration.burned_subtitles"
 
 

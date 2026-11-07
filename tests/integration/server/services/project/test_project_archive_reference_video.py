@@ -1,9 +1,9 @@
-"""归档导入针对 参考生视频（video_units）的修复测试。
+"""Archive reference-video (video_units) repair tests.
 
-覆盖 _repair_script_payload 对 generation_mode=reference_video 项目剧本里
-video_units 的处理：确保导出-导入往返时 video_units[*].generated_assets
-的路径规范化与版本回溯正常触发（该函数按 content_mode 走 segments/scenes
-的分支不覆盖 video_units，须单独校验）。
+Cover _repair_script_payload handling of video_units in generation_mode=reference_video
+projects, ensuring export/import roundtrips normalize video_units[*].generated_assets
+paths and trace versions correctly. Its content_mode segments/scenes branches
+do not cover video_units, requiring separate validation.
 """
 
 import json
@@ -21,7 +21,7 @@ from server.services.project.project_archive import ProjectArchiveService
 
 REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
 
-# 区分"未传 generated_assets（用默认）"与"显式传 None（不写该字段）"
+# Distinguish omitted generated_assets using defaults from explicit None omitting fields.
 _DEFAULT_ASSETS = object()
 
 
@@ -130,7 +130,7 @@ def _create_reference_video_project(
 
 class TestProjectArchiveReferenceVideo:
     def test_canonical_resource_path_reference_videos(self):
-        # 验收项：reference_videos 走 unit_id 无前缀分支（路径形状由 lib.project.resource_paths 独家拥有）
+        # Acceptance: reference_videos uses prefix-free unit_id branches; lib.project.resource_paths exclusively owns path shapes.
         assert resource_relative_path("reference_videos", "E1U1") == "reference_videos/E1U1.mp4"
 
     def test_round_trip_preserves_video_units(self, tmp_path):
@@ -149,16 +149,16 @@ class TestProjectArchiveReferenceVideo:
         assets = imported["video_units"][0]["generated_assets"]
         assert assets["video_clip"] == "reference_videos/E1U1.mp4"
         assert assets["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
-        # video_uri 是远端 URL，绝不能被当成本地路径覆盖
+        # video_uri is remote, never treat it as local overwrite paths.
         assert assets["video_uri"] == REMOTE_VIDEO_URI
         assert (project_dir / "reference_videos" / "E1U1.mp4").exists()
         assert (project_dir / "reference_videos" / "thumbnails" / "E1U1.jpg").exists()
 
     def test_import_migrates_legacy_per_shot_duration_before_validation(self, tmp_path):
-        """存量归档的 unit 仍是收编前形状（时长挂在 shots 上、无 unit 级 duration_seconds）：
-        结构校验要求 duration_seconds 落在合理区间内，早于迁移执行的话会把这类归档直接拒绝，
-        永远走不到能修复它的迁移器。修复须先于校验跑一次迁移，镜头正文随后由 schema 迁移
-        链拼回单元正文。
+        """Legacy units retain precoercion shapes: durations on shots without unit duration_seconds.
+        Structure validation requires plausible duration_seconds; running before migration would reject archives
+        before repair migrations can execute. Repair must migrate once before validation; later schema
+        migration chains join shot bodies into unit bodies.
         """
         pm = ProjectManager(tmp_path / "projects")
         legacy_unit = {
@@ -177,7 +177,7 @@ class TestProjectArchiveReferenceVideo:
             },
         }
         project_dir = _create_reference_video_project(pm, unit=legacy_unit)
-        # 缺 schema_version 的归档按最早版本处理：导入时补跑完整迁移链，时长收编在链上完成。
+        # Missing-schema archives count as earliest versions; imports run full migration chains, including duration coercion.
         project_file = project_dir / "project.json"
         payload = json.loads(project_file.read_text(encoding="utf-8"))
         payload.pop("schema_version", None)
@@ -200,10 +200,10 @@ class TestProjectArchiveReferenceVideo:
 
     @pytest.mark.parametrize(("legacy_seconds", "expected"), [(4, 4), (9, 10)])
     def test_import_migration_takes_the_union_of_both_bucket_tiers(self, tmp_path, legacy_seconds, expected):
-        """参考项目的单元按可用参考图落 r2v 或 i2v：导入收编取两桶声明全集的并集，与在线内容确认同口径。
+        """Reference units use r2v/i2v by available images; import coercion unions both full declarations, matching live confirmation.
 
-        r2v 为 [6, 10]、i2v 为 [4, 6, 8]，并集 [4, 6, 8, 10]：4 秒只在 i2v 合法，只按 r2v 取档会改成
-        6；9 秒两桶都不合法，只按 i2v 取档会降到 8，原样保留则不是任一桶的成员。
+        r2v [6, 10], i2v [4, 6, 8], union [4, 6, 8, 10]: 4s is i2v-only and r2v-only selection changes it to
+        6; 9s is invalid in both, i2v-only selection lowers to 8, while unchanged 9 is in neither bucket.
         """
         pm = ProjectManager(tmp_path / "projects")
         legacy_unit = {
@@ -244,10 +244,10 @@ class TestProjectArchiveReferenceVideo:
         assert imported["video_units"][0]["duration_seconds"] == expected
 
     def test_import_resolves_tiers_for_legacy_provider_alias(self, tmp_path):
-        """归档修复跑在 provider 归一化之前：video_backend 仍是 legacy 别名时也要解析出档位。
+        """Archive repair precedes provider normalization; legacy video_backend aliases must still resolve tiers.
 
-        解析落空会退回结构 clamp 把非档位秒数固化，而迁移幂等——等 migrate_project_dir 把
-        provider 归一化之后，已经没有第二次取档的机会。
+        Unresolved tiers fall back to structural clamps, persisting nontier seconds; idempotent migration leaves
+        no second tier-selection opportunity after migrate_project_dir normalizes providers.
         """
         pm = ProjectManager(tmp_path / "projects")
         legacy_unit = {
@@ -266,7 +266,7 @@ class TestProjectArchiveReferenceVideo:
             },
         }
         project_dir = _create_reference_video_project(pm, unit=legacy_unit)
-        # legacy 别名：档位只能靠归一化后查 registry 得到。
+        # Legacy aliases require normalized registry lookups to obtain tiers.
         project_file = project_dir / "project.json"
         payload = json.loads(project_file.read_text(encoding="utf-8"))
         payload["video_backend"] = "gemini/veo-3.1-generate-preview"
@@ -283,13 +283,13 @@ class TestProjectArchiveReferenceVideo:
         imported = json.loads(
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
-        # 求和 10s 不是该型号档位成员，取档后落盘的秒数必是成员。
+        # Summed 10s is not a model tier; persisted seconds after tier selection must be members.
         veo_tiers = _durations("gemini-aistudio", "veo-3.1-generate-preview")
         assert imported["video_units"][0]["duration_seconds"] in veo_tiers
 
     def test_import_restores_video_clip_from_version(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
-        # video_clip 指向失效的版本路径，靠 versions.json 回溯物化当前文件
+        # video_clip references invalid version paths; versions.json tracing materializes current files.
         unit = _build_unit(
             video_clip="versions/reference_videos/E1U1_v9.mp4",
             generated_assets={
@@ -377,8 +377,8 @@ class TestProjectArchiveReferenceVideo:
         assert any(item["code"] == "invalid_generated_assets" for item in result.diagnostics["auto_fixed"])
 
     def test_export_resets_invalid_generated_assets(self, tmp_path):
-        # 导出与导入共用 _repair_project_tree，但导出修的是快照副本：包内是干净结构，
-        # 源项目磁盘上的脏值保持原样（导出不改用户数据）。
+        # Export/import share _repair_project_tree, but exports repair snapshots: archives contain clean structures,
+        # while original-project dirty disk values remain unchanged; exports never edit user data.
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(video_clip=None, generated_assets="corrupted-value")
         project_dir = _create_reference_video_project(pm, unit=unit, write_clip=False, write_thumbnail=False)
@@ -402,8 +402,8 @@ class TestProjectArchiveReferenceVideo:
         assert on_disk["video_units"][0]["generated_assets"] == "corrupted-value"
 
     def test_import_adds_placeholder_for_missing_character_speaker(self, tmp_path):
-        # 说话人位在语法上就断定是角色：缺定义时与 narration/drama 对齐，自动补占位定义。
-        # 占位定义的描述留空，不把修复文字当作生成资产图的提示词。
+        # Speaker syntax identifies characters; missing definitions get placeholders like narration/drama.
+        # Placeholder descriptions stay empty; repair text never becomes image-generation prompts.
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
@@ -420,7 +420,7 @@ class TestProjectArchiveReferenceVideo:
 
         imported_project = pm.load_project(result.project_name)
         assert imported_project["characters"]["幽灵"]["description"] == ""
-        # 占位进了导入前确认过的报告，导入成功后的诊断不再重复列出。
+        # Preimport-confirmed reports already include placeholders; successful diagnostics never repeat them.
         report = load_migration_report(pm.get_project_path(result.project_name))
         assert report is not None
         assert [(item.code, item.params) for item in report.adjusted] == [
@@ -429,8 +429,8 @@ class TestProjectArchiveReferenceVideo:
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     def test_import_warns_without_blocking_on_unresolved_mention(self, tmp_path):
-        # 正文里的 @[名称] 是执行期才解析的派生来源：未登记只意味着这一处不出参考图，
-        # 导入照常完成，只留一条非阻断 warning。
+        # Body @[名称] mentions derive references at execution; unregistered mentions only omit these references,
+        # allowing imports with nonblocking warnings.
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
@@ -453,14 +453,14 @@ class TestProjectArchiveReferenceVideo:
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
         assert imported["video_units"][0]["text"] == unit["text"]
-        # 未解析的提及不补占位定义——只有说话人位才断定资产类型。
+        # Unresolved mentions never get placeholders; only speaker positions establish asset types.
         imported_project = pm.load_project(result.project_name)
         assert "缺失场景" not in imported_project["characters"]
 
     def test_import_resolves_nfc_speaker_against_nfd_registered_character(self, tmp_path):
-        # 说话人名已归一到 NFC（见 lib.project.asset_types.normalize_asset_name），登记侧的角色
-        # key 仍可能是落盘的 NFD 原形；自愈逻辑须把两者判等，而非把已登记角色误判缺失、
-        # 补出一份重复的占位定义。
+        # Speaker names normalize NFC (lib.project.asset_types.normalize_asset_name), while registered character
+        # keys may remain persisted NFD; self-healing must equate both rather than misclassify registered characters
+        # as missing and add duplicate placeholders.
         import unicodedata
 
         name_nfd = unicodedata.normalize("NFD", "Hiếu")

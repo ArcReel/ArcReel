@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// update-docs 的上站页面库存：frontmatter 声明覆盖档位，CONTRIBUTING「各页职责」必须与库存一致。
+// Published-page inventory for update-docs: frontmatter declares coverage tiers; CONTRIBUTING’s “各页职责” must match the inventory.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { readFrontMatterScalar, scanMarkdownLines, walkMarkdownFiles } from "./markdown-scan.mjs";
 
 const UPDATE_DOCS_VALUES = new Set(["full", "fact-check", "none"]);
-// CONTRIBUTING 的中文副本由 sync-contributing 在构建期生成，真相源不在 website/docs，不能进入库存。
+// sync-contributing generates the Chinese CONTRIBUTING copy at build time; its source of truth is outside website/docs, so exclude it from inventory.
 const GENERATED_DOCS = new Set(["website/docs/dev/contributing.md"]);
 
 function responsibilityDocPaths(content) {
@@ -43,7 +43,7 @@ function responsibilityDocPaths(content) {
  * @returns {{ entries: Array<{ path: string, updateDocs: string }>, problems: string[] }}
  */
 export function checkUpdateDocsInventory(repoRoot) {
-  // walkMarkdownFiles 已按 POSIX 相对路径排序，清单顺序在各平台一致。
+  // walkMarkdownFiles already sorts POSIX relative paths, keeping list order consistent across platforms.
   const entries = walkMarkdownFiles(repoRoot, "website/docs")
     .map((path) => ({
       path,

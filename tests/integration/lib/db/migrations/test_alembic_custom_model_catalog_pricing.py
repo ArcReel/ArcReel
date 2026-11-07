@@ -1,7 +1,7 @@
-"""Alembic 迁移：自定义供应商模型迁入模型目录（docs/adr/0106）。
+"""Alembic: migrate custom-provider models into the catalog (docs/adr/0106).
 
-旧价格列丢弃；可选时长与最大输出 token 等于所对应条目的值或按名字推断的预设时丢弃，其余转为能力覆盖；已有覆盖、
-默认分辨率与调用端点原样保留；新增供应商模型倍率（默认 1）与条目绑定。
+Discard old pricing columns. Drop durations/maximum output tokens matching entry values or name-inferred presets; convert other values to overrides.
+Preserve existing overrides, default resolutions, and endpoints; add provider-model multipliers (default 1) and entry bindings.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ _TS = "'2026-10-15 00:00:00'"
 
 
 def _comfyui_with_native_five_seconds() -> dict[str, Any]:
-    """帧数可驱动的 ComfyUI 视频定义：``length`` 字面 81、``fps`` 读出 16 → 原生 5 秒。"""
+    """Frame-driven ComfyUI video definition: literal ``length`` 81 and readable ``fps`` 16 yield native 5 seconds."""
     definition = comfyui_endpoint_definition()
     definition["workflow"]["5"]["inputs"]["length"] = 81
     definition["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
@@ -122,7 +122,7 @@ def test_values_equal_to_entry_or_preset_are_dropped_and_the_rest_become_overrid
             _insert_provider(conn, 2, "comfyui")
             _insert_comfyui_endpoint(conn, 7, _comfyui_with_native_five_seconds())
             _insert_comfyui_endpoint(conn, 8, comfyui_endpoint_definition())
-            # 视频：等于对应条目的值（也等于名字预设）→ 丢弃；价格一并丢弃，默认分辨率保留
+            # Video: values matching entries and name presets are dropped with prices; retain default resolution.
             _insert_model(
                 conn,
                 1,
@@ -132,15 +132,15 @@ def test_values_equal_to_entry_or_preset_are_dropped_and_the_rest_become_overrid
                 resolution="1080p",
                 price=0.4,
             )
-            # 视频：对应不上条目，等于当前名字预设（一个族都匹配不上时的 [4, 8]）→ 丢弃
+            # Video: unmatched entries matching current name presets ([4, 8] without any family match) are dropped.
             _insert_model(conn, 2, model_id="relay-video-x", endpoint="openai-video", durations=[4, 8])
-            # 视频：等于早年回填迁移按当时预设写入的值 → 丢弃
+            # Video: drop values written by old backfill migrations from their then-current presets.
             _insert_model(conn, 3, model_id="relay-minimax-x1", endpoint="openai-video", durations=[6])
-            # 视频：对应上条目，与条目和预设都不同 → 转为能力覆盖
+            # Video: matching entry, but differing from entry and presets → capability override.
             _insert_model(conn, 4, model_id="kling-v2-6", endpoint="openai-video", durations=[5])
-            # 视频：对应不上条目，与预设不同 → 转为能力覆盖
+            # Video: no matching entry, differing from presets → capability override.
             _insert_model(conn, 5, model_id="mystery-video", endpoint="openai-video", durations=[7, 3])
-            # 已有的同名覆盖优先，其余覆盖原样保留
+            # Existing same-named overrides win; preserve other overrides.
             _insert_model(
                 conn,
                 6,
@@ -149,9 +149,9 @@ def test_values_equal_to_entry_or_preset_are_dropped_and_the_rest_become_overrid
                 durations=[5],
                 overrides={"durations": [10], "last_frame": True},
             )
-            # 文本：等于条目的最大输出 token → 丢弃
+            # Text: drop maximum output tokens equal to entry values.
             _insert_model(conn, 7, model_id="gpt-5.4", endpoint="openai-chat", max_output_tokens=128000)
-            # 文本：与条目不同 → 转为能力覆盖，其余覆盖保留
+            # Text: differing entry values become capability overrides; retain other overrides.
             _insert_model(
                 conn,
                 8,
@@ -160,14 +160,14 @@ def test_values_equal_to_entry_or_preset_are_dropped_and_the_rest_become_overrid
                 max_output_tokens=8192,
                 overrides={"image_input": False},
             )
-            # 文本：对应不上条目、没有可比的值 → 转为能力覆盖
+            # Text: unmatched entries have no comparison value, so convert to overrides.
             _insert_model(conn, 9, model_id="my-private-llm", endpoint="openai-chat", max_output_tokens=4096)
-            # ComfyUI：等于 workflow 原生时长 → 丢弃；增删过 → 转为 durations 覆盖
+            # ComfyUI: drop native workflow durations; additions/removals become durations overrides.
             _insert_model(conn, 10, provider_id=2, model_id="wf-a", endpoint="ce-7", durations=[5])
             _insert_model(conn, 11, provider_id=2, model_id="wf-b", endpoint="ce-7", durations=[5, 10])
-            # ComfyUI：端点驱动不了时长（钉为空集）→ 丢弃
+            # ComfyUI: endpoints unable to drive duration, pinned to empty sets, drop values.
             _insert_model(conn, 12, provider_id=2, model_id="wf-c", endpoint="ce-8", durations=[])
-            # 不属于该媒体类型的旧值 → 丢弃
+            # Drop legacy values irrelevant to the media type.
             _insert_model(
                 conn, 13, model_id="gpt-image-2", endpoint="openai-images", durations=[4], max_output_tokens=10
             )

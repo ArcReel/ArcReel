@@ -1,12 +1,11 @@
-"""项目级资产类型规格（character / scene / prop / product）的单一事实源。
+"""Sole specification source for project assets (character / scene / prop / product).
 
-``AssetSpec`` 描述每类资产的 bucket、sheet 字段、子目录、显示标签、引用字段与扩展字段，
-供 ProjectManager 统一资产 API、名称空间校验和 server/routers/_asset_router_factory 共享。
-兼容常量 ASSET_TYPES / BUCKET_KEY / SHEET_KEY 均从 ASSET_SPECS 派生。
+``AssetSpec`` defines buckets, sheet fields, directories, labels, references, and extra fields, shared
+by ProjectManager APIs, namespaces, and server/routers/_asset_router_factory. ASSET_TYPES / BUCKET_KEY /
+SHEET_KEY compatibility constants derive from ASSET_SPECS.
 
-面向用户的显示名不落在 spec 里：``localize_asset_type`` 以注入的 translate 把类型标识
-映射到 ``lib/i18n`` 的 ``asset_type_*`` key，本模块因而不反向依赖 i18n。
-"""
+User-visible labels are outside specs: ``localize_asset_type`` maps internal types to ``lib/i18n``
+``asset_type_*`` through injected translation, avoiding reverse i18n dependencies."""
 
 from __future__ import annotations
 
@@ -18,33 +17,31 @@ from typing import Any
 
 @dataclass(frozen=True)
 class AssetSpec:
-    """单一资产类型的所有结构性属性。
+    """All structural properties of one asset type.
 
-    ``extra_string_fields`` 是 schema 维度——validator 据此校验「这些字段若存在须为
-    string」、`_build_asset_entry` 据此初始化默认空串、REST PATCH 据此扩展可更新字段集；
-    ``extra_list_fields`` 是 schema 维度的列表变体——字段若存在须为「字符串列表」，
-    `_build_asset_entry` 初始化默认空列表，REST PATCH 同样据此扩展；
-    ``agent_editable_extra_fields`` 是权限维度——Agent 写入路径的字段白名单
-    （:attr:`agent_writable_fields`）由它构造，**不复用 schema 维度**。两者解耦的原因：``reference_image`` /
-    ``reference_images`` 是用户上传或系统生成的文件路径，是 schema 维度字段但不是
-    ``agent_editable_extra_fields``（agent 不该覆写用户上传的路径，更新走专用 API，
-    与 sheet_field 同性质）。
+    ``extra_string_fields`` is a schema dimension: validators require strings when present,
+    `_build_asset_entry` initializes empty strings, and REST PATCH expands writable fields.
+    ``extra_list_fields`` similarly requires string lists and initializes empty lists through
+    `_build_asset_entry`, also expanding PATCH. ``agent_editable_extra_fields`` is a permission dimension,
+    constructing :attr:`agent_writable_fields` **without reusing schema dimensions**. ``reference_image`` /
+    ``reference_images`` are uploaded/system-generated paths, valid schema fields but outside
+    ``agent_editable_extra_fields``: Agents must not overwrite uploads; dedicated APIs update them,
+    as with sheet_field.
 
-    ``original_image_fields`` 列出该类型登记用户原图的字段（单值或列表均可）。参考生视频
-    执行期按「有资产图用资产图，否则用全部原图」展开参考图，该顺序即字段声明顺序；未登记
-    原图字段的类型（场景 / 道具）没有资产图时就不产生参考图候选。
+    ``original_image_fields`` declares user-original fields, single/list alike. Reference-to-video uses
+    sheets if available, otherwise all originals in declaration order. Types without original fields
+    (scenes/props) yield no image candidates without sheets.
 
-    ``in_global_library`` 控制该类型是否进入跨项目全局资产库（assets 表）：库的
-    单图列模型只兼容「一资产一图」的类型，多图列表型资产（product）暂不进入。
+    ``in_global_library`` controls cross-project assets-table inclusion. Its single-image-column shape
+    supports one-image-per-asset types only, excluding multi-image product lists for now.
 
-    ``supports_derivatives`` 是可选能力维度：开启后该类型的每个条目在 ``DERIVATIVES_FIELD``
-    下持有一张衍生表（衍生名 → ``{description, <sheet_field>}``），衍生共享本体的名字与
-    身份，只在所属条目内唯一，引用写作 ``本体名/衍生名``。机制按资产类型通用建模，当前
-    只有 character 开启（见 ``docs/adr/0072``）；未开启的类型条目里不出现该字段。
+    ``supports_derivatives`` optionally adds ``DERIVATIVES_FIELD`` tables (name →
+    ``{description, <sheet_field>}``), sharing base identity/names and unique only within bases, referenced
+    as ``本体名/衍生名``. Generic by asset type, currently character-only (``docs/adr/0072``);
+    other types omit the field.
 
-    ``label_zh`` 服务 logger 与 agent 侧字符串（两者按 i18n 规范豁免翻译）；
-    面向用户的资产类型显示名走 ``lib/i18n`` 的 ``asset_type_*`` key，不复用此字段。
-    """
+    ``label_zh`` serves logger/Agent strings, both exempt under i18n rules; user-visible types use
+    ``lib/i18n`` ``asset_type_*`` instead."""
 
     asset_type: str
     bucket_key: str
@@ -62,21 +59,20 @@ class AssetSpec:
 
     @property
     def agent_writable_fields(self) -> frozenset[str]:
-        """Agent 写入路径（`upsert_assets` 与资产抽取的原子提交）的字段白名单。
+        """Agent-write allowlist for `upsert_assets` and atomic asset-extraction commits.
 
-        `description` 是所有类型共有的基底（可为空，只在生成资产图时必需），
-        `agent_editable_extra_fields` 是各类型的字符串扩展，开启衍生能力的类型另收嵌套的
-        ``DERIVATIVES_FIELD``（它不是字符串字段，故不列进那个 tuple）。两条 Agent 入口取同一份，
-        新增可写字段只改这里。
-        """
+        `description` is shared and may be empty, required only for sheet generation.
+        `agent_editable_extra_fields` supplies string extras; derivative-capable types additionally accept
+        nested ``DERIVATIVES_FIELD``, outside that string tuple. Both Agent entry points share this source;
+        add writable fields here only."""
         fields = {"description", *self.agent_editable_extra_fields}
         if self.supports_derivatives:
             fields.add(DERIVATIVES_FIELD)
         return frozenset(fields)
 
 
-#: 角色、场景、道具的别名列表字段：源文中的其他叫法、改名前的旧名与合并掉的名字，只作 AI
-#: 规划或生成脚本时认出同一资产的参考，不参与程序匹配，不写进引用（见 ``docs/adr/0092``）。
+#: Character/scene/prop aliases: source alternative names, old names, merged names, used only by AI
+#: planning/script generation to recognize identities, never programmatic matching or references (``docs/adr/0092``).
 ALIASES_FIELD = "aliases"
 
 ASSET_SPECS: dict[str, AssetSpec] = {
@@ -90,14 +86,14 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         reference_list_fields=("characters_in_segment", "characters_in_scene", "characters_in_shot"),
         original_image_fields=("reference_image",),
         extra_string_fields=("voice_style", "reference_image", "reference_audio", "voice_notice_dismissed_at"),
-        # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
-        # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
+        # voice_style is LLM-generated, Agent-editable. reference_image / reference_audio
+        # are system-managed upload paths outside Agent allowlists, updated through
         # update_character_reference_image / update_character_reference_audio。
-        # voice_notice_dismissed_at 记录用户已确认到的 voice_updated_at 版本，由前端「关闭」
-        # 动作通过本通用 PATCH 写入；agent 不该也无需感知这个 UI 状态，不进白名单。
-        # 与之比较的 voice_updated_at 不在此列——只由系统在 reference_audio 实际变更时机械戳写
-        # （update_character_reference_audio 与全局资产库导入），不开放任意 PATCH 覆写
-        # （否则该比较可被客户端绕过）。
+        # voice_notice_dismissed_at records acknowledged voice_updated_at via frontend dismissal
+        # through generic PATCH; Agents need not see this UI state and cannot write it.
+        # voice_updated_at is excluded: systems mechanically stamp only actual reference_audio changes
+        # (update_character_reference_audio/library imports), never arbitrary PATCH
+        # that would let clients bypass comparisons.
         extra_list_fields=(ALIASES_FIELD,),
         agent_editable_extra_fields=("voice_style", ALIASES_FIELD),
         supports_derivatives=True,
@@ -135,15 +131,15 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         namespace_priority=3,
         reference_list_fields=("products_in_shot",),
         original_image_fields=("reference_images",),
-        # brand 是用户填写的品牌要素自由文本；reference_images 是用户上传的多张产品
-        # 原图路径（系统级，保真验收锚点），selling_points 是卖点列表（agent 起草、
-        # 用户可改）。
+        # brand is user free text; reference_images are system-managed uploaded product
+        # original paths/fidelity anchors; selling_points are Agent-drafted and
+        # user-editable.
         extra_string_fields=("brand",),
         extra_list_fields=("reference_images", "selling_points"),
-        # selling_points 允许 agent 起草/修改；reference_images 是上传路径（与
-        # reference_image 同性质），不进 agent 白名单，更新走专用上传 API。
+        # selling_points is Agent-editable; reference_images are uploaded paths like
+        # reference_image, outside allowlists and updated by dedicated upload APIs.
         agent_editable_extra_fields=("selling_points",),
-        # 全局资产库是单图列模型，多图列表型的 product 不进入。
+        # Global-library single-image columns exclude multi-image products.
         in_global_library=False,
     ),
 }
@@ -157,25 +153,25 @@ SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)
 
-#: 衍生表在资产条目内的字段名，供开启 ``supports_derivatives`` 的类型共用。
+#: Shared derivative-table field for ``supports_derivatives`` types.
 DERIVATIVES_FIELD = "derivatives"
 
 
 @dataclass(frozen=True)
 class ProjectAssetNameMatch:
-    """项目共享资产名称空间中的一个已有条目。"""
+    """Existing entry in the shared project asset namespace."""
 
     asset_type: str
     bucket_key: str
     name: str
 
     def is_entry(self, asset_type: str, name: str) -> bool:
-        """命中的是否就是 *asset_type* 表里的 *name* 本身（判等键相同），而非与它只差大小写的另一个资产。"""
+        """Whether matches are *name* itself in *asset_type* (same equality key), rather than another case-only asset."""
         return self.asset_type == asset_type and asset_name_comparison_key(self.name) == asset_name_comparison_key(name)
 
 
 class ProjectAssetNameConflictError(ValueError):
-    """项目内的资产名与另一资产冲突。"""
+    """Project asset names conflict with another asset."""
 
     def __init__(self, name: str, existing: ProjectAssetNameMatch, requested_asset_type: str | None = None):
         self.name = name
@@ -200,59 +196,53 @@ WINDOWS_RESERVED_BASENAMES: frozenset[str] = frozenset(
 
 
 def localize_asset_type(value: str, translate: Callable[..., str]) -> str:
-    """把资产类型内部标识（如 ``"product"``）替换为当前语言显示名。
+    """Replace internal asset types such as ``"product"`` with current-language labels.
 
-    未登记的类型值（不在 ``ASSET_SPECS`` 中）原样透传，不做语义映射。
-    """
+    Pass unregistered values outside ``ASSET_SPECS`` unchanged, without semantic mapping."""
     if value not in ASSET_SPECS:
         return value
     return translate(f"asset_type_{value}")
 
 
 def normalize_asset_name(name: str) -> str:
-    """把资产名归一到比对坐标系（Unicode NFC）——资产名判等/判成员的坐标系定义点。
+    """Normalize names to Unicode NFC, defining asset equality/membership coordinates.
 
-    同一个名字有两种等价编码：NFC（合成形式，网页表单与 project.json 登记侧的主形态）与
-    NFD（分解形式，macOS 文件名系统与部分输入法产出）。两者屏幕显示完全相同、字节不同，
-    ``==`` 与 ``in`` 判不相等；组合附加符高发的语种（如产品三语中的 vi）尤其容易同时出现
-    两种形式。逐字比对因此必须先落到同一形式，否则用户对着两个肉眼一致的名字无从排查。
+    NFC (composition, primary for Web/project.json registration) and NFD (decomposition, macOS filenames/
+    some input methods) display identically but differ in bytes, failing ``==`` / ``in``. Combining-mark
+    languages such as supported vi often use both. Normalize before verbatim comparison so users do not
+    have to diagnose visibly identical names.
 
-    约束：资产名判等和成员测试前必须归一化。文本名称调用本函数，资产表 key 调用
-    :func:`normalize_asset_bucket`。归一放在读取与解析的入口、不逐个比对点补；不得直接比较
-    未归一化的名称。
+    Always normalize before equality/membership: use this for text and :func:`normalize_asset_bucket`
+    for table keys. Do it once at read/resolve entrances, never patch individual comparison sites or
+    compare raw names.
 
-    归一只做编码形式收敛，不改字、不改长度语义，对纯 ASCII 名是恒等变换。
-    """
+    Only unify encoding forms without changing characters/length semantics; ASCII remains identical."""
     return unicodedata.normalize("NFC", name)
 
 
 def asset_name_comparison_key(name: str) -> str:
-    """项目级资产名判等键：去除两端空白后收敛到 Unicode NFC，不做 case-fold。
+    """Project asset equality key: strip whitespace then NFC, without casefold.
 
-    判定两个名字是不是同一个资产、同一处引用，也是产物清单身份与生成依据里资产名的形态；
-    改动它的返回值会让存量产物的清单键与依据摘要整体变化。判断新名字能否登记用
-    :func:`asset_name_namespace_key`。
-    """
+    Identifies same assets/references and is the name shape in manifest identities/bases. Changing returns
+    would globally change existing keys/digests. Use :func:`asset_name_namespace_key` for new-name admission."""
     return normalize_asset_name(name.strip())
 
 
 def asset_name_namespace_key(name: str) -> str:
-    """项目共享名称空间的判重键：判等键再 case-fold，只差大小写的名字视为重名。
+    """Shared-namespace duplicate key: equality key plus casefold, treating case-only names as duplicates.
 
-    资产名直接用作资产图文件名（``characters/{name}.png``）；macOS、Windows 默认的文件系统
-    不区分大小写，``Alice`` 与 ``alice`` 落到同一个文件，产物清单的路径唯一性校验也按
-    NFC + case-fold 比对。只用于新增、改名与旧形态规整的判重；资产名本身保留用户写下的大小写。
-    """
+    Asset names directly form ``characters/{name}.png``. Default macOS/Windows filesystems merge
+    ``Alice`` / ``alice``; manifest path uniqueness also uses NFC + casefold. Use only for creation,
+    rename, and legacy-shape dedup; preserve user-written case in names."""
     return asset_name_comparison_key(name).casefold()
 
 
 def build_asset_entry(asset_type: str, description: str, source: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """按 ASSET_SPECS 构造新条目：description + sheet 字段为空 + extra 字段从 source 取或默认。
+    """Build from ASSET_SPECS: description + empty sheet + extras from source/defaults.
 
-    source 为 None 时只写入 spec 中声明的 extra 字段默认值（字符串字段空串、列表字段空列表）；
-    source 提供时同时允许覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验
-    fail-loud。开启 ``supports_derivatives`` 的类型一律初始化为空衍生表。
-    """
+    None source initializes declared extras only (empty strings/lists). Supplied source may override
+    sheets too. Never repair invalid source types; pre-persistence structure checks fail loudly.
+    Initialize empty derivative tables for ``supports_derivatives`` types."""
     spec = ASSET_SPECS[asset_type]
     data = source or {}
     entry: dict[str, Any] = {"description": description, spec.sheet_field: data.get(spec.sheet_field, "")}
@@ -261,21 +251,20 @@ def build_asset_entry(asset_type: str, description: str, source: Mapping[str, An
     for field in spec.extra_list_fields:
         value = data.get(field)
         if isinstance(value, list):
-            entry[field] = list(value)  # 复制，避免 entry 与调用方共享同一列表对象
+            entry[field] = list(value)  # Copy lists to avoid sharing mutable objects with callers.
         elif value is None:
             entry[field] = []
         else:
-            entry[field] = value  # 非法类型透传，由落盘前结构校验 fail-loud
+            entry[field] = value  # Pass invalid types through for prewrite structural failure.
     if spec.supports_derivatives:
         entry[DERIVATIVES_FIELD] = {}
     return entry
 
 
 def record_asset_aliases(entry: dict[str, Any], aliases: Iterable[str], *, asset_name: str) -> None:
-    """把称呼并入资产条目的别名列表：按判等键去重，与资产名相同的称呼不记，资产名本身移出别名。
+    """Merge aliases by equality key; omit asset-name equivalents and remove asset names from aliases.
 
-    已有的非字符串元素原样保留，交给落盘前的结构校验报出。
-    """
+    Preserve existing nonstrings for pre-persistence structural errors."""
     name_key = asset_name_comparison_key(asset_name)
     raw = entry.get(ALIASES_FIELD)
     current = list(raw) if isinstance(raw, list) else []
@@ -298,13 +287,12 @@ def find_project_asset_name(
     exclude_asset_type: str | None = None,
     exclude_name: str | None = None,
 ) -> ProjectAssetNameMatch | None:
-    """在 ``ASSET_SPECS`` 驱动的四类项目资产中查找与 *name* 重名的条目（按 :func:`asset_name_namespace_key`）。
+    """Find matching names across four ``ASSET_SPECS`` types via :func:`asset_name_namespace_key`.
 
-    命中的可能是同名条目本身，也可能是只差大小写的另一个资产；用 :meth:`ProjectAssetNameMatch.is_entry`
-    区分。判等键相同的条目优先于只差大小写的条目：旧版登记出的只差大小写的资产仍各自可被就地更新。
-    ``exclude_*`` 只排除一个确切落盘条目，供 rename 检查目标名时忽略自身。
-    畸形 bucket 按空处理，其结构错误由 DataValidator 另行报告。
-    """
+    Matches may be the entry itself or case-only other assets; distinguish with
+    :meth:`ProjectAssetNameMatch.is_entry`. Equality matches precede case-only matches so legacy pairs
+    can update individually. ``exclude_*`` excludes one exact persisted entry for rename self-checks.
+    Treat malformed buckets as empty; DataValidator reports their structure."""
     if not isinstance(project, dict):
         return None
     target = asset_name_namespace_key(name)
@@ -338,7 +326,7 @@ def ensure_project_asset_name_available(
     exclude_asset_type: str | None = None,
     exclude_name: str | None = None,
 ) -> None:
-    """断言项目共享名称空间中 *name* 可用，否则给出结构化冲突诊断。"""
+    """Require *name* availability in the shared namespace, otherwise structured conflict diagnostics."""
     existing = find_project_asset_name(
         project,
         name,
@@ -350,12 +338,11 @@ def ensure_project_asset_name_available(
 
 
 def project_asset_name_conflicts(project: object) -> list[tuple[ProjectAssetNameMatch, ProjectAssetNameMatch]]:
-    """返回项目共享名称空间里的所有重名对，顺序稳定可复现。
+    """All shared-namespace duplicate pairs, in stable reproducible order.
 
-    这是写盘前的整项目守卫，按判等键（区分大小写）比对：旧版可以登记出只差大小写的资产，已在当前
-    schema 的这类项目不做迁移，按 case-fold 比对会让它们的任何写入都被拒。
-    新登记的名字由 :func:`ensure_project_asset_name_available` 按 case-fold 拦下。
-    """
+    Whole-project prewrite guards use case-sensitive equality. Legacy case-only assets already at current
+    schema are not migrated; casefold here would reject every write. New names use
+    :func:`ensure_project_asset_name_available` casefold admission."""
     if not isinstance(project, dict):
         return []
     first_by_key: dict[str, ProjectAssetNameMatch] = {}
@@ -377,7 +364,7 @@ def project_asset_name_conflicts(project: object) -> list[tuple[ProjectAssetName
 
 
 def ensure_project_asset_namespace(project: object) -> None:
-    """断言项目四类资产全局唯一，报告第一个稳定冲突。"""
+    """Require uniqueness across all four project asset types, reporting the first stable conflict."""
     conflicts = project_asset_name_conflicts(project)
     if conflicts:
         first, current = conflicts[0]
@@ -385,29 +372,26 @@ def ensure_project_asset_namespace(project: object) -> None:
 
 
 def normalize_asset_bucket(bucket: object) -> dict[str, Any]:
-    """把资产桶读成 key 已归一到比对坐标系的字典；非 dict 的畸形值按空桶处理。
+    """Read buckets as dictionaries with normalized comparison keys; malformed nondicts become empty.
 
-    资产名的比对总是「文本里的名字 × 资产表的 key」，两侧都要在同一坐标系里才判得准。
-    读取处归一一次即可覆盖存量数据——落盘的 key 可能是任一形式，而调用点只该关心比对结果。
+    Names compare text × table keys, requiring shared coordinates. Normalize once at reading to cover
+    legacy keys in either form while callers handle comparison results only.
 
-    同名不同形式的 key 归一后会合并（后写入的胜出）：它们本就指同一个资产名，资产表不应
-    同时存在两条，合并即修复而非丢数据。
-    """
+    Equivalent keys merge last-write-wins: they already denote one asset and should not coexist, so
+    merging repairs duplication rather than losing data."""
     if not isinstance(bucket, dict):
         return {}
     return {normalize_asset_name(str(name)): item for name, item in bucket.items()}
 
 
 def resolve_asset_key(bucket: object, name: str) -> str | None:
-    """在资产桶中按比对坐标系（NFC）解析 *name* 对应的真实落盘 key；未命中返回 None。
+    """Resolve *name* by NFC to actual persisted keys; None on misses.
 
-    写入侧已统一落 NFC（:func:`validate_asset_name`），但存量数据的 key 可能是任一
-    编码形式且无需迁移：按 key 就地更新/删除/冲突判定时不能拿归一后的名字直接下标，
-    须先解析出真实 key 再操作，否则会对同一个视觉名字新建第二条资产或漏判冲突。
+    Writes use NFC (:func:`validate_asset_name`), but legacy keys may use either form without migration.
+    In-place updates/deletion/conflict checks must resolve keys first, not index by normalized names,
+    or visually identical second entries/missed conflicts result.
 
-    同名多形式的存量 key 之间后写入的胜出，与 :func:`normalize_asset_bucket` 的合并
-    方向一致。非 dict 的畸形桶按空桶处理。
-    """
+    Equivalent legacy keys use last-write-wins, matching :func:`normalize_asset_bucket`. Nondict buckets count as empty."""
     if not isinstance(bucket, dict):
         return None
     target = normalize_asset_name(name)
@@ -419,15 +403,13 @@ def resolve_asset_key(bucket: object, name: str) -> str | None:
 
 
 def rekey_equivalent_entries[T](bucket: dict[str, T], old_name: str, new_name: str) -> T | None:
-    """把桶中与 *old_name* 视觉等价的全部 key 一并改成 *new_name*，返回改名后该 key 的值。
+    """Rename all visually equivalent *old_name* keys to *new_name*, returning the renamed value.
 
-    改名要收编整簇等价 key（NFC / NFD 并存）：只改 :func:`resolve_asset_key` 选中的那一条，
-    另一条等价 key 会顶着旧名带着失效的路径字段留在桶里，之后还可能被重建的同名资产接上。
-    合并方向与读侧一致——后写入的值胜出，即读侧解析到的那一条。桶里没有等价 key 时返回
-    ``None`` 且不改动桶。
+    Adopt entire NFC/NFD-equivalent clusters, not just :func:`resolve_asset_key` winners, or old-name
+    keys retain invalid paths and may reconnect to newly recreated assets. Match readers' last-write-wins.
+    No equivalent keys means ``None`` without changes.
 
-    原地重建而非 pop + 赋值，保留条目在桶中的原位置：JSON 里资产的排列顺序是用户可见的。
-    """
+    Rebuild in place instead of pop/assignment, preserving user-visible JSON entry order."""
     if resolve_asset_key(bucket, old_name) is None:
         return None
     target = normalize_asset_name(old_name)
@@ -438,23 +420,20 @@ def rekey_equivalent_entries[T](bucket: dict[str, T], old_name: str, new_name: s
 
 
 def validate_asset_name(name: object) -> str:
-    """校验并规范化（strip + NFC）资产名，非法时抛 ValueError，合法时返回规范化后的名字。
+    """Validate/normalize strip + NFC; invalid names raise ValueError, valid names return normalized.
 
-    这是登记路径的规范化闸口：所有新登记/新写入的资产名经此落到 NFC 坐标系
-    （见 :func:`normalize_asset_name`），NFD 输入不再以另一种编码形式落盘产生
-    视觉同名的重复资产。
+    Registration gate for all newly persisted names, using :func:`normalize_asset_name` coordinates so
+    NFD inputs cannot create visually duplicate assets.
 
-    资产名全链路被当作单段路径组件使用：文件名（``characters/{name}.png``、
-    ``versions/{type}/{name}_v{n}_{ts}.png``）与 REST 路由的单段路径参数。含路径
-    分隔符、控制字符或 ``..`` 的名字会产生嵌套路径与无法匹配的 URL；Windows 还会
-    拒绝 ``: * ? " < > |``、尾随点与保留设备名（CON / COM1 等，按首个点段判定，
-    ``CON.backup`` 同样保留）。项目目录须可跨平台迁移，这些约束在所有平台统一执行，
-    并在创建入口拒绝。
+    Names are single path components for ``characters/{name}.png``,
+    ``versions/{type}/{name}_v{n}_{ts}.png``, and REST path parameters. Separators, controls, and ``..``
+    cause nested/unmatchable paths; Windows also rejects ``: * ? " < > |``, trailing dots, and devices
+    (CON / COM1, etc., by first dotted segment; ``CON.backup`` is reserved too). Apply constraints on
+    all platforms at creation, ensuring portable projects.
 
-    ``]`` 一并拒绝：正文里的引用写作 ``@[名称]``，解析以首个 ``]`` 收尾
-    （见 :func:`lib.script.reference_video.text_parser._iter_mentions`），名字含 ``]`` 时写出的
-    引用会在中途截断。``[`` 不致坏——名为 ``[甲`` 时 ``@[[甲]`` 仍解析回完整的 ``[甲``——不拦。
-    """
+    Reject ``]`` too: ``@[名称]`` terminates at first ``]``
+    (:func:`lib.script.reference_video.text_parser._iter_mentions`), truncating names containing ``]``.
+    Allow ``[``: ``[甲`` in ``@[[甲]`` still parses completely as ``[甲``."""
     if not isinstance(name, str):
         raise ValueError(f"资产名称必须是字符串，当前为 {type(name).__name__}")
     cleaned = normalize_asset_name(name.strip())

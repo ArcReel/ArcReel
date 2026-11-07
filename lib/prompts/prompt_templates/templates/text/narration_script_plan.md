@@ -1,8 +1,8 @@
 ---
 id: text/narration_script_plan
 category: text
-title: 旁白解说 · 片段切分
-description: 按朗读节奏把源文逐字切分为旁白解说分镜，并登记出场资产与时长。
+title: "Narration · segment splitting"
+description: "Split the source verbatim into narration shots by reading rhythm, registering appearing assets and durations."
 stage: script_plan
 invoked_by:
   kind: agent_tool
@@ -14,64 +14,64 @@ applies_to:
   - storyboard
 output_schema: lib.script.script_models:NarrationScriptPlanDraft
 slots:
-  target_language: 输出语言
-  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
-  novel_text: 逐字源文
-  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
-  character_names: 角色候选引用名列表
-  scene_names: 场景候选引用名列表
-  prop_names: 道具候选引用名列表
-  episode: 当前集号
-  durations: 排序去重后的合法秒数档位
-  max_duration: 最长合法秒数
-  default_duration: 默认秒数偏好；缺值或不在合法档位时传 null
-  episode_target_duration: 单集目标秒数；缺值传 null
-  instructions: 附加指令正文；缺值传 null
+  target_language: "Output language"
+  project_overview: "Project overview, an object with all keys {synopsis, genre, theme, world_setting}; use null for missing values"
+  novel_text: "Verbatim source text"
+  assets: "Registered assets, an object {characters, scenes, props}, each a [{name, aliases, appearance}] list (angle brackets neutralized; derivatives written as “base/derivative”)"
+  character_names: "Candidate referenceable character names"
+  scene_names: "Candidate referenceable scene names"
+  prop_names: "Candidate referenceable prop names"
+  episode: "Current episode number"
+  durations: "Sorted, deduplicated valid duration tiers in seconds"
+  max_duration: "Longest valid duration in seconds"
+  default_duration: "Preferred default seconds; null if missing or not a valid tier"
+  episode_target_duration: "Target episode seconds; null if missing"
+  instructions: "Additional-instruction body; null if missing"
 protected: false
 ---
-# 角色与任务
+# Role and task
 
-你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的分镜表（script_plan 脚本规划）。
-旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、分镜边界、时长、场景切换标记与出场资产；
-视觉层（image_prompt / video_prompt）由后续 prompt_authoring 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
+You are a professional narration-content architect. Your task is to split the source verbatim, following reading rhythm, into a shot table suitable for short-video voiceover (script_plan).
+Narration / commentary scripts use two stages: this stage determines only the content layer: verbatim `novel_text`, shot boundaries, durations, scene-change markers, and appearing assets.
+The subsequent prompt_authoring stage generates the visual layer (image_prompt / video_prompt), aligned by `segment_id`; `novel_text` is finalized here, passed through, and not output again.
 
-**输出语言**：自然语言字符串值使用 {{ target_language }}；JSON 键名保持英文。
-例外（逐字保留、不翻译、不改写）：`novel_text` 逐字等于源文原句（含标点）；资产引用字段
-（`characters_in_segment` / `scenes` / `props`）逐字等于下方候选表中的登记名或 `new_assets` 里的称呼。
-**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
+**Output language**: natural-language string values use {{ target_language }}; keep JSON keys in English.
+Exceptions (preserve verbatim, without translation or rewriting): `novel_text` exactly matches the original source sentences (including punctuation); asset-reference fields
+(`characters_in_segment` / `scenes` / `props`) exactly match registered names in the candidate lists below or designations in `new_assets`.
+**Structural constraints**: response_schema enforces fields / enums / required items; this prompt only explains **how to write each field’s content well**.
 
 {{ partial("shared/pacing/narration") }}
 
-# 上下文
+# Context
 
 {{ partial("shared/overview_block") }}
 
 {{ partial("shared/lists/asset_registry_blocks") }}
 
-## 小说原文
+## Original novel text
 
 <novel>
 {{ novel_text }}
 </novel>
 
-# 拆分规则
+# Splitting rules
 
-当前正在生成第 {{ episode }} 集。
+You are currently generating episode {{ episode }}.
 
-- **novel_text**：逐字保留小说原文，不改编 / 不删减 / 不添加 / 不改标点（后期配音与透传的真相源）；
-  对话片段含完整说话内容与引导语（如「他说道」）。在句号 / 问号 / 感叹号 / 省略号等标点或段落结束处拆分，
-  保持语义完整，不拆断完整的语义单元。
-- **segment_id**：`E{{ episode }}S{两位序号}` 格式（如 E{{ episode }}S01），按顺序递增，不得用其他集号前缀。
-- **duration_seconds**：{% if default_duration %}单分镜默认取 {{ default_duration }} 秒（按朗读语速估算该秒数内能念完的字数）；长句 / 情绪铺陈 / 关键对话等可从档位中取更长值（至 {{ max_duration }} 秒）——偏好可被内容需要覆盖，硬约束不可{% else %}按朗读节奏从档位（{{ durations }}）中取值（最长 {{ max_duration }} 秒），不强制默认值{% endif %}{% if episode_target_duration %}。{{ partial("shared/episode_target_duration_rule") }}{% endif %}。取值必须落在支持档位（{{ durations }}）内。
-- **segment_break**：在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`，同一连续场景内标 `false`，不要滥用。
-- **characters_in_segment / scenes / props**：列出该分镜 `novel_text` 中实际出现（被叙述或对话提及）的已登记资产，
-  名称逐字取自下列候选，候选里没有的写原文称呼并列进 `new_assets`；泛指群演（老人甲 / 村民若干）不登记、不进 characters_in_segment。
-  三个数组均必填，无对应资产时显式写空数组 `[]`。
+- **novel_text**: preserve the novel source verbatim, without adaptation / removal / additions / punctuation changes (the source of truth for later voiceover and pass-through);
+  dialogue passages include the complete spoken content and attribution (such as “he said”). Split at periods / question marks / exclamation marks / ellipses or paragraph endings,
+  preserving complete meaning and never breaking a complete semantic unit.
+- **segment_id**: format `E{{ episode }}S{two-digit sequence}` (such as E{{ episode }}S01), increasing in order; do not use another episode-number prefix.
+- **duration_seconds**: {% if default_duration %}default to {{ default_duration }} seconds per shot (estimate how much text can be read in that duration at the reading rate); long sentences / emotional buildup / key dialogue may use longer tiers up to {{ max_duration }} seconds. Content needs may override preferences, but not hard constraints{% else %}choose a supported tier ({{ durations }}) according to reading rhythm, up to {{ max_duration }} seconds, without enforcing a default{% endif %}{% if episode_target_duration %}. {{ partial("shared/episode_target_duration_rule") }}{% endif %}. The value must be one of the supported tiers ({{ durations }}).
+- **segment_break**: mark `true` at a real scene change (time jump / spatial change / plot turn), and `false` within the same continuous scene; do not overuse it.
+- **characters_in_segment / scenes / props**: list registered assets actually present in this shot’s `novel_text` (mentioned by narration or dialogue).
+  Copy names exactly from the candidates below. For assets absent from the candidates, use the original source designation and list them in `new_assets`; do not register generic extras (old man A / several villagers) or put them in characters_in_segment.
+  All three arrays are required; explicitly use an empty array `[]` when no corresponding assets exist.
   - character: {{ partial("shared/asset_name_candidates", names=character_names) }}
   - scene: {{ partial("shared/asset_name_candidates", names=scene_names) }}
   - prop: {{ partial("shared/asset_name_candidates", names=prop_names) }}
 
-请覆盖全部源文，按叙事顺序逐分镜产出。
+Cover the entire source, producing shots in narrative order.
 
 {{ partial("shared/new_assets_rule") }}
 {% if instructions %}

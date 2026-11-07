@@ -1,4 +1,4 @@
-"""清单文件与数据文件：哈希与数据集版本对上才读入。"""
+"""Manifest and data files: load only when hashes and dataset versions agree."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def test_matching_pair_loads():
 
 
 def test_endpoint_declarations_survive_publishing():
-    """供应商模型写成发布文件再读回，端点声明保持原样。"""
+    """Provider models written to published files and read back preserve endpoint declarations."""
     data = catalog()
     data["builtin_providers"]["kling"]["models"][0]["endpoint"] = "kling-video-audio"
     manifest, content = _files(data)

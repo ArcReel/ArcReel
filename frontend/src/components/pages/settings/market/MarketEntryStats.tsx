@@ -4,8 +4,8 @@ import { cn } from "cn";
 import type { MarketEntryAggregate } from "@/types";
 
 /**
- * 官方服务的安装量与评分：安装量原样展示；有评分时显示平均分与人数，平均分为 null（人数不足）时只显示人数。
- * 数字旁的完整说明只给读屏，卡片上保持一行。
+ * Installation counts and ratings from the official service: show installation counts as received; when ratings exist, show the average and count, or only the count when the average is null (too few ratings).
+ * The full explanation beside each number is screen-reader-only, keeping the card to one line.
  */
 export function MarketEntryStats({ aggregate }: { aggregate: MarketEntryAggregate }) {
   const { t, i18n } = useTranslation("dashboard");

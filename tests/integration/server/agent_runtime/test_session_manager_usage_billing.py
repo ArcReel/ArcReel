@@ -1,8 +1,8 @@
-"""Agent 会话的用量记账：FakeSDKClient 发出 CLI 原始帧，真实 SessionManager、Ledger 与数据库落账。
+"""Agent usage accounting: FakeSDKClient emits raw CLI frames; real SessionManager, Ledger, and DB persist them.
 
-每轮每个模型一条供应商调用记录，按请求从 token 与模型目录计价（docs/adr/0102）。CLI 的累计值语义（``modelUsage``
-在一个连接内跨轮累计、恢复会话时带着此前的花费、会话重置后清零）与「``modelUsage`` 的键是映射后的真实模型名」
-用构造的帧序列固定在这里。
+One provider call per model/round prices request tokens against catalogs (docs/adr/0102). Pin CLI cumulative semantics: ``modelUsage``
+accumulates across rounds per connection, includes prior costs on resume, and resets on session reset. Its ``modelUsage`` keys
+are mapped actual model names; constructed frame sequences establish these contracts.
 """
 
 from __future__ import annotations
@@ -50,11 +50,11 @@ def _meter(meter: str, *rows: tuple[dict[str, object], float], dims: tuple[str, 
 
 
 def _tiered(meter: str, low: float, high: float) -> Meter:
-    """总输入超过 20 万 token 的请求按高档计价。"""
+    """Requests exceeding 200,000 total input tokens use higher-tier pricing."""
     return _meter(meter, ({"context_tier": 0}, low), ({"context_tier": 200_000}, high), dims=_TIER)
 
 
-#: 主模型：按单次请求的输入总量分两档，USD / 百万 token。
+#: Main model: two tiers by total request input, USD / million tokens.
 _MAIN = CatalogEntry(
     maker="acme",
     name="main-model",
@@ -73,7 +73,7 @@ _MAIN = CatalogEntry(
     ),
 )
 
-#: 子智能体模型：不分档。
+#: Subagent model: no tiers.
 _SUB = CatalogEntry(
     maker="acme",
     name="sub-model",
@@ -110,7 +110,7 @@ def _request(
     output: int = 0,
     split: bool = True,
 ) -> dict[str, Any]:
-    """一次 API 请求的 assistant 帧，``usage`` 原样转发 Messages API 的形状。``split`` 为假时只给缓存写的合计。"""
+    """One request assistant frame: ``usage`` preserves Messages API shape; false ``split`` supplies only aggregate cache writes."""
     usage: dict[str, Any] = {
         "input_tokens": input_tokens,
         "cache_read_input_tokens": cache_read,
@@ -130,7 +130,7 @@ def _request(
 
 
 def _totals(input_tokens: int = 0, output: int = 0, cache_read: int = 0, cache_write: int = 0) -> dict[str, Any]:
-    """``modelUsage`` 的一项：这个连接到本轮为止的累计值。"""
+    """One ``modelUsage`` item: connection-cumulative values through this round."""
     return {
         "inputTokens": input_tokens,
         "outputTokens": output,
@@ -142,7 +142,7 @@ def _totals(input_tokens: int = 0, output: int = 0, cache_read: int = 0, cache_w
 
 
 def _result(uuid: str, model_usage: dict[str, Any], **fields: Any) -> dict[str, Any]:
-    # total_cost_usd 与 costUSD 故意给出离谱的值：记账不采用 SDK 回报的费用。
+    # Deliberately absurd total_cost_usd/costUSD proves accounting ignores SDK-reported costs.
     return result_frame(session_id=SDK_ID, uuid=uuid, modelUsage=model_usage, total_cost_usd=123.0, **fields)
 
 
@@ -151,12 +151,12 @@ def _idle() -> dict[str, Any]:
 
 
 def _started() -> Callable[[FakeSDKClient], dict[str, Any]]:
-    """CLI 开始处理最近送入的那条消息。"""
+    """CLI begins processing the most recently submitted message."""
     return lambda client: command_lifecycle_frame(client.sent_messages[-1]["uuid"], "started", session_id=SDK_ID)
 
 
 class _Harness:
-    """真实 AssistantService + SessionManager；会话连接时经生产的凭证注入读当前生效的 Agent 凭证。"""
+    """Real AssistantService + SessionManager; production credential injection reads effective Agent credentials on connection."""
 
     def __init__(
         self, service: AssistantService, factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
@@ -164,7 +164,7 @@ class _Harness:
         self.service = service
         self.manager = service.session_manager
         self.factory = factory
-        #: 下一次连接拿到的 CLI 替身，连接之后是这个会话正在用的替身。
+        #: CLI substitute for the next connection, then the active client for that session.
         self.client: FakeSDKClient | None = None
 
         async def _build_options(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
@@ -174,20 +174,20 @@ class _Harness:
         use_sdk_client(monkeypatch, lambda options: self.client)
 
     async def new_session(self, prompt: str, *frames: ScriptedFrame) -> None:
-        """新建会话并跑完第一轮。"""
+        """Create a session and complete round one."""
         self.client = FakeSDKClient(frames=[system_frame("init", session_id=SDK_ID), *frames, _idle()])
         await self.service.send_or_create("demo", prompt)
         await self.wait_settled()
 
     async def resume(self, prompt: str, *frames: ScriptedFrame) -> None:
-        """会话被回收后发消息：冷启动恢复会话，跑完这一轮。"""
+        """Send after session eviction, cold-resuming and completing that round."""
         await self.manager.close_session(SDK_ID)
         self.client = FakeSDKClient(frames=[_started(), *frames, _idle()])
         await self.service.send_or_create("demo", prompt, session_id=SDK_ID)
         await self.wait_settled()
 
     async def turn(self, prompt: str, *frames: ScriptedFrame) -> None:
-        """在已连接的会话上再跑一轮。"""
+        """Run another round on connected sessions."""
         assert self.client is not None
         await self.service.send_or_create("demo", prompt, session_id=SDK_ID)
         for frame in (_started(), *frames, _idle()):
@@ -229,7 +229,7 @@ class _Harness:
 
 @pytest.fixture
 async def harness(tmp_path, file_db_factory, monkeypatch: pytest.MonkeyPatch) -> Any:
-    # 生产的凭证注入经 lib.db 的全局工厂读凭证，这里换成用例的数据库。
+    # Production credential injection reads the lib.db global factory; replace it with the case DB.
     bind_session_factory(monkeypatch, file_db_factory)
     manager = SessionManager(
         project_root=tmp_path,
@@ -259,10 +259,10 @@ class TestPricing:
     async def test_each_model_gets_one_row_and_frames_of_one_request_count_once(self, harness: Any) -> None:
         await harness.new_session(
             "写分镜",
-            # 同一请求的两帧：第一帧的 output 只是占位值
+            # Two frames of one request; first-frame output is only a placeholder.
             _request("msg-1", input_tokens=1_000, cache_read=10_000, write_5m=2_000, write_1h=1_000, output=1),
             _request("msg-1", input_tokens=1_000, cache_read=10_000, write_5m=2_000, write_1h=1_000, output=500),
-            # 子智能体的请求；网关只给缓存写合计
+            # Subagent request; gateway reports aggregate cache writes only.
             _request(
                 "msg-2",
                 model="sub-model",
@@ -273,7 +273,7 @@ class TestPricing:
                 split=False,
             ),
             _request("msg-3", input_tokens=500, cache_read=14_000, output=100),
-            # modelUsage 的键是映射后的真实模型名，与 assistant 帧的 model 一致：累计值等于流内合计，没有差额
+            # modelUsage actual-name keys match assistant model; cumulative totals equal stream sums with no delta.
             _result(
                 "r-1",
                 {
@@ -316,7 +316,7 @@ class TestPricing:
         )
 
         (row,) = await harness.rows()
-        # msg-1 总输入 15 万落低档；msg-2 总输入 21 万落高档
+        # msg-1 150,000 total input uses low tier; msg-2 210,000 uses high tier.
         low = 150_000 * 2 + 1_000 * 10
         high = 50_000 * 4 + 160_000 * 0.4 + 1_000 * 15
         assert row.cost_amount == pytest.approx((low + high) / 1e6)
@@ -325,7 +325,7 @@ class TestPricing:
         await harness.new_session(
             "写分镜",
             _request("msg-1", input_tokens=1_000, output=100),
-            # 压缩等流外调用：主模型多出 21 万输入与 5000 输出，另有一个流里没出现过的模型
+            # Out-of-stream calls such as compaction add 210,000 main input/5000 output and another model absent from streams.
             _result(
                 "r-1",
                 {"main-model": _totals(211_000, 5_100), "sub-model": _totals(2_000, 100)},
@@ -335,7 +335,7 @@ class TestPricing:
         rows = _by_model(await harness.rows())
         main, sub = rows["main-model"], rows["sub-model"]
         assert (main.input_tokens, main.output_tokens) == (211_000, 5_100)
-        # 差额按一次请求计价，总输入 21 万落高档
+        # Price delta as one request; total 210,000 input uses high tier.
         assert main.cost_amount == pytest.approx((1_000 * 2 + 100 * 10 + 210_000 * 4 + 5_000 * 15) / 1e6)
         assert (sub.input_tokens, sub.output_tokens) == (2_000, 100)
         assert sub.cost_amount == pytest.approx((2_000 * 1 + 100 * 5) / 1e6)
@@ -367,13 +367,13 @@ class TestDifferentialBaseline:
             _request("msg-1", input_tokens=1_000, output=100),
             _result("r-1", {"main-model": _totals(1_000, 100)}),
         )
-        # 第二轮另有 500 输入出现在流外
+        # Round two adds 500 out-of-stream input.
         await harness.turn(
             "第二轮",
             _request("msg-2", input_tokens=2_000, output=200),
             _result("r-2", {"main-model": _totals(3_500, 300)}),
         )
-        # 恢复会话：CLI 带着此前的累计值，另有 400 输入出现在流外，这一轮不计差额
+        # Resumed CLI includes prior cumulative values plus 400 out-of-stream input; do not account deltas this round.
         await harness.resume(
             "第三轮",
             _request("msg-3", input_tokens=1_000, output=100),
@@ -408,7 +408,7 @@ class TestDifferentialBaseline:
         )
         reset = {"type": "conversation_reset", "new_conversation_id": "conv-2", "uuid": "reset-1", "session_id": SDK_ID}
         harness.client.push_frame(reset)
-        # 重置后累计值从零开始：流内 1500 输入，流外另有 300
+        # Reset restarts cumulative values: 1500 in-stream input plus 300 out-of-stream.
         await harness.turn(
             "第二轮",
             _request("msg-2", input_tokens=1_500, output=150),
@@ -429,7 +429,7 @@ class TestDifferentialBaseline:
         assert harness.client is not None
         await harness.service.send_or_create("demo", "第二轮", session_id=SDK_ID)
         await harness.manager.interrupt_session(SDK_ID)
-        # 中断时这次请求只收到占位的 output；CLI 按已收到的部分记进累计值
+        # Interrupted requests have placeholder output only; CLI accumulates received portions.
         for frame in (
             _started(),
             _request("msg-2", input_tokens=1_000, output=1),
@@ -454,7 +454,7 @@ class TestDifferentialBaseline:
     async def test_a_retried_stream_bills_both_attempts(self, harness: Any) -> None:
         await harness.new_session(
             "写分镜",
-            # 流式中途失败的那次尝试只出现过开头一帧；重试是另一个请求。CLI 把失败尝试已收到的 30 个输出也记进累计值
+            # Failed streaming attempts emit only opening frames; retries are separate requests, and CLI includes 30 received failed-attempt outputs.
             _request("msg-1", input_tokens=1_000, output=1),
             _request("msg-2", input_tokens=1_000, output=300),
             _result("r-1", {"main-model": _totals(2_000, 330)}),
@@ -482,7 +482,7 @@ class TestSessionCredential:
             _request("msg-2", input_tokens=1_000, output=100),
             _result("r-2", {"main-model": _totals(2_000, 200)}),
         )
-        # 恢复会话的冷启动重新注入环境变量，之后的轮次按新的生效凭证计价
+        # Cold resume reinjects environment variables; later rounds price using newly effective credentials.
         await harness.resume(
             "第三轮",
             _request("msg-3", input_tokens=1_000, output=100),
@@ -491,7 +491,7 @@ class TestSessionCredential:
 
         rows = await harness.rows()
         assert [row.provider for row in rows] == [f"agent-{first}", f"agent-{first}", f"agent-{second}"]
-        # 倍率同样取会话连接时注入的凭证
+        # Multipliers also come from connection-injected credentials.
         cost = (1_000 * 2 + 100 * 10) / 1e6
         assert [row.cost_amount for row in rows] == pytest.approx([cost, cost, cost * 0.5])
 
@@ -510,7 +510,7 @@ class TestSessionCredential:
             _request("msg-2", input_tokens=1_000, output=100),
             _result("r-2", {"main-model": _totals(2_000, 200)}),
         )
-        # 恢复会话的冷启动重新取下凭证，之后的轮次才按新倍率计价
+        # Cold resume reacquires credentials; only subsequent rounds use new multipliers.
         await harness.resume(
             "第三轮",
             _request("msg-3", input_tokens=1_000, output=100),
@@ -531,7 +531,7 @@ class TestSessionCredential:
         )
 
         rows = _by_model(await harness.rows())
-        # 对应不到条目的模型同样记 0，不记为未定价；token 照常记下
+        # Unmatched models still record 0, not unpriced, and retain token counts.
         assert {model: (row.cost_amount, row.unpriced_reason, row.input_tokens) for model, row in rows.items()} == {
             "main-model": (0, None, 1_000),
             "mystery-model": (0, None, 1_000),
@@ -549,7 +549,7 @@ class TestSessionCredential:
                 write_1h=1_000,
                 output=500,
             ),
-            # 响应体里的模型名带日期后缀，modelUsage 的键是请求用的别名：二者对应到同一条目，记成一行
+            # Dated response names and request-alias modelUsage keys match one entry, recorded as one row.
             _request(
                 "msg-2", model="claude-haiku-4-5-20251001", parent_tool_use_id="tu-1", input_tokens=1_000, output=100
             ),
@@ -573,7 +573,7 @@ class TestSessionCredential:
 
 
 class TestUsageRecordsView:
-    """记账写出的 Agent 行经使用记录接口读出：写侧与会话视图、汇总之间只靠 ``purpose`` 与 ``session_id`` 衔接。"""
+    """Usage APIs read persisted Agent rows; only ``purpose`` and ``session_id`` connect writes to session views and aggregates."""
 
     @pytest.mark.usefixtures("acme_catalog")
     async def test_billed_turns_read_back_as_one_session_with_priced_total_and_unpriced_flag(
@@ -606,7 +606,7 @@ class TestUsageRecordsView:
         assert (row["session_id"], row["session_deleted"], row["project_name"]) == (SDK_ID, False, "demo")
         assert row["models"] == ["main-model", "mystery-model"]
         assert (row["calls"], row["unpriced_calls"]) == (3, 1)
-        # 会话用量的输入是总输入：未缓存 + 缓存读 + 两档缓存写
+        # Session usage input totals uncached + cache reads + both cache-write tiers.
         assert (row["input_tokens"], row["output_tokens"]) == (3_500 + 400 + 500, 100 + 50 + 20)
         assert row["cost"] == {"USD": pytest.approx(main_turn_1 + main_turn_2)}
 
@@ -621,7 +621,7 @@ class TestUsageRecordsView:
         assert (first["cache_write_5m_tokens"], first["cache_write_1h_tokens"]) == (300, 200)
         assert (items[1]["cost_amount"], items[1]["unpriced_reason"]) == (None, "no_entry")
 
-        # 合计含 Agent，构成里 Agent 会话合成一项；Agent 视图的供应商选项显示凭证名
+        # Totals include Agents; composition combines Agent sessions into one item, and Agent provider options show credential names.
         assert summary["kpi"]["calls"] == 3
         (agent_item,) = summary["breakdown"]["provider"]["rows"]
         assert (agent_item["agent"], agent_item["calls"]) == (True, 3)

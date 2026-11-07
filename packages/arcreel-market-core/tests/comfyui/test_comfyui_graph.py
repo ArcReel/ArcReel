@@ -1,4 +1,4 @@
-"""API 格式 workflow 的图原语。"""
+"""Graph primitives for API-format workflows."""
 
 import sys
 
@@ -53,13 +53,13 @@ def test_dependency_depth_counts_the_longest_upstream_chain():
 
 
 def test_dependency_depth_stops_on_a_cycle_instead_of_recursing():
-    """合法 workflow 是 DAG，但导入的是用户文件：遇到环要收敛到有限值而不是撞进无限递归。"""
+    """Valid workflows are DAGs, but imports are user files; cycles must converge to finite values instead of infinite recursion."""
     cyclic = {"1": {"class_type": "A", "inputs": {"x": ["2", 0]}}, "2": {"class_type": "B", "inputs": {"y": ["1", 0]}}}
     assert dependency_depth(cyclic, "1") <= len(cyclic)
 
 
 def test_dependency_depth_walks_a_chain_longer_than_the_recursion_limit():
-    """导入的 workflow 节点数没有上限：一条足够长的合法链不能把遍历打穿成 RecursionError。"""
+    """Imported workflows have unbounded node counts; a sufficiently long valid path must not cause traversal RecursionError."""
     deep = {"0": {"class_type": "PrimitiveInt", "inputs": {"value": 1}}}
     for index in range(1, sys.getrecursionlimit() + 100):
         deep[str(index)] = {"class_type": "ImageScale", "inputs": {"image": [str(index - 1), 0]}}
@@ -68,7 +68,7 @@ def test_dependency_depth_walks_a_chain_longer_than_the_recursion_limit():
 
 
 def test_an_explicit_null_literal_is_a_field_that_exists():
-    """``"value": null`` 是个填得进去的字面值字段，与「这个节点没有这个入口」不是一回事。"""
+    """``"value": null`` is a writable literal field, distinct from a node lacking that input."""
     workflow = chain()
     workflow["1"]["inputs"]["value"] = None
 

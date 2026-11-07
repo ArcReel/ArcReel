@@ -1,0 +1,33 @@
+{
+  "scope": "967 immediate-snapshot tracked Python test files, excluding three coordinator-owned tests",
+  "standalone_Expr_str_occurrences": 2,
+  "Han_occurrences": 2,
+  "items": [
+    {
+      "path": "tests/fakes.py",
+      "line": 346,
+      "end": 346,
+      "text": "\"\"\"替身发出的帧，或在发出时按替身状态生成帧的函数（用来引用 ArcReel 送入的消息 uuid）。\"\"\"",
+      "has_Han": true,
+      "source_sha256": "3db06e634396204bc9ddcbc0b6fbfe0bb758ca03f724f58458695f0003244bc1",
+      "raw_unchanged": false,
+      "classification": "translated_passive_module_annotation_independently_accepted",
+      "consumer_trace": "Discarded module-level string expression after a type alias or plain dict constant. No schema/tool/fixture doc introspection; annotation does not modify assigned type/constant values.",
+      "candidate": "Frames emitted by the substitute, or functions building frames from its state at emission time (to reference message uuids submitted by ArcReel).",
+      "proof": "test-standalone-annotation-review.json"
+    },
+    {
+      "path": "tests/integration/lib/final_cut/test_service.py",
+      "line": 49,
+      "end": 49,
+      "text": "\"\"\"现场合成的素材没有呈现模型，这里只渲染不带旁白、不烧入字幕的版本。\"\"\"",
+      "has_Han": true,
+      "source_sha256": "910ee129e1abff8950c3a9aaa7c738b2256ddd34add3f31acaedd5f4b1b26727",
+      "raw_unchanged": false,
+      "classification": "translated_passive_module_annotation_independently_accepted",
+      "consumer_trace": "Discarded module-level string expression after a type alias or plain dict constant. No schema/tool/fixture doc introspection; annotation does not modify assigned type/constant values.",
+      "candidate": "Freshly synthesized materials have no presentation model; render only variants without narration or burned-in subtitles here.",
+      "proof": "test-standalone-annotation-review.json"
+    }
+  ]
+}

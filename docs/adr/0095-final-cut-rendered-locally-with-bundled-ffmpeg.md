@@ -2,27 +2,27 @@
 status: accepted
 ---
 
-# 成片在本地渲染车道上用随包 ffmpeg 渲染，成片与剪映草稿落盘登记为产物
+> Jianying freeze extensions extract clip-out frames with bundled ffmpeg, and BGM loudness measurements use it too. If it cannot run, these are unavailable alongside rendering. “Jianying export is unaffected” below applies only without freeze extensions.
 
-> 带定格延长的剪映草稿要用随包 ffmpeg 取出片段出点帧，BGM 登记时的响度测量也用随包 ffmpeg；随包 ffmpeg 无法运行时，这两者与成片渲染一样不可用。下文「剪映草稿导出不受影响」只适用于不带定格延长的剪映草稿。
+# Render final cuts locally with bundled ffmpeg; save/register cuts and Jianying drafts as artifacts
 
-成片由服务端以子进程调用 ffmpeg 渲染。渲染成片与导出剪映草稿都是生成队列里的任务，走一条不绑定供应商的本地车道 `render`，全局并发固定为 1、不开放配置：渲染的峰值内存以 GB 计，并发一高就会撑爆 Docker 容器。它们不调用供应商，因此不写用量记录（`docs/adr/0076`）。
+Server ffmpeg subprocesses render cuts. Both cuts and Jianying exports are queue tasks in a provider-free local `render` lane, globally fixed at one without configuration: GB-scale peak memory would exhaust Docker under concurrency. They make no provider calls and write no usage records (`docs/adr/0076`).
 
-**成片固定使用 `imageio-ffmpeg` 随包分发的 ffmpeg，不看系统 PATH，也不提供路径配置。** 受支持的部署形态是 Docker 镜像（x86_64 与 aarch64）与 Windows、macOS 直接运行，`imageio-ffmpeg` 对这几者都有自带含 libx264、libass 与 xfade 的静态构建。系统里的 ffmpeg 能力参差：Homebrew 默认构建没有 libass，烧不了字幕；Windows 上通常根本没装。固定用随包的那一个，所有环境渲染出的成片一致，不需要能力挑选与逐项降级。随包 ffmpeg 在当前环境无法运行时，成片渲染不可用并报明原因，剪映草稿导出不受影响。仓库里其他调用 ffmpeg 的地方经同一个查找器取用它；它不带 ffprobe，媒体探测另行处理。字幕字体同样随仓库自带一款 OFL 许可的中文字体，不依赖系统字体。
+**Always use ffmpeg bundled with `imageio-ffmpeg`, never PATH or configurable paths.** Supported deployments are Docker x86_64/aarch64 and native Windows/macOS; `imageio-ffmpeg` provides static builds for all of them containing libx264/libass/xfade. System binaries vary: Homebrew lacks libass for subtitles and Windows often has none. One bundled binary ensures consistent output without capability selection or per-feature degradation. If it cannot run, rendering is unavailable with an explanation; Jianying export is unaffected as qualified above. Other repository ffmpeg calls share the locator. No ffprobe is bundled; probing is separate. Bundle one OFL Chinese subtitle font instead of relying on system fonts.
 
-**成片与剪映草稿落盘在项目目录内，并登记进产物清单。** 产物身份是「集 + 剪辑时间线 + 旁白版本」，成片再加上是否烧入字幕（`docs/adr/0089`、`docs/adr/0090`）。生成依据按开始渲染时指定的修订取快照，渲染期间剪辑时间线被改动时，产物一出来就如实判为 stale。用户本机的剪映草稿目录、剪映版本这类只影响落到用户机器上的形态的参数，在下载时才套用，不进产物身份与生成依据。每个产物身份只保留最新文件；项目归档不包含成片与剪映草稿，导入后判 missing，重新渲染即可。
+**Save both artifacts inside projects and register them.** Identity is episode + edit timeline + narration version, plus burned-subtitle choice for cuts (`docs/adr/0089`, `docs/adr/0090`). Freeze basis from the requested revision at render start; concurrent timeline changes make finished outputs stale immediately. Local Jianying directories/versions affect download packaging only, not identity/basis. Keep latest files per identity. Archives exclude cuts/drafts, so imports read missing and rerender.
 
-## 明确不采用
+## Rejected alternatives
 
-- **按「显式配置 → PATH → 随包二进制」查找并按能力挑选**：为几乎不存在的需求（自选更新版本、硬件编码）引入能力探测与不一致的出片结果。
-- **缺什么能力就逐项降级**（没有 libass 就改用图片叠加字幕、没有 xfade 就退化为硬切）：成片会静默地与剪映草稿不一致，违背两者同源。
-- **MoviePy、MLT、GES、Remotion 与浏览器端渲染**：分别因依赖冲突与性能、无法经 pip 安装、许可证与按次计费、编码能力与性能而排除。
-- **成片按供应商车道调度或并发可配**：没有供应商可挂靠，而内存峰值决定了并发只能是 1。
-- **剪映草稿维持现场生成、下载即删**：无法判定时效，也不符合产物的定义。
-- **保留成片的历史版本文件**：成片由剪辑时间线修订与素材在本地重新渲染即可得到，不花钱，体积却以百 MB 计；视频单元的视频是付费生成的，才保留全部版本。
+- **Configured path → PATH → bundled with capability selection**: adds probing/inconsistent outputs for almost nonexistent custom-version/hardware-encoding needs.
+- **Per-feature degradation** (image subtitles without libass, hard cuts without xfade): silently diverges from Jianying, violating shared sources.
+- **MoviePy, MLT, GES, Remotion, browser rendering**: excluded respectively for dependency/performance conflicts, pip unavailability, licensing/per-render pricing, and encoding/performance constraints.
+- **Provider lanes/configurable concurrency**: no provider exists, and peak memory requires one.
+- **Generate-on-download and delete Jianying drafts**: cannot judge currency and violates artifact semantics.
+- **Keep cut histories**: free local rerenders from revisions/materials replace hundreds-of-MB versions; paid unit videos retain histories.
 
 ## Consequences
 
-- `imageio-ffmpeg` 停在 FFmpeg 7.x，且 2025-01 之后没有发新版；需要更换时只改查找器一处。随包 ffmpeg 与字体都是再分发，发布时附上对应的许可证声明与源码获取方式。
-- 随包 libass 不对中文换行，整句会冲出画面；生成 ASS 时按可用宽度与字号为中文字幕显式插入换行，英文与越南语交给 libass 在空格处换行。剪映端自动换行，两端的换行位置不要求一致。
-- 渲染出的成片以剪辑时间线为准：转场不改变总时长（`docs/adr/0090`），两端视觉效果逐项实测，不一致的转场从词表剔除。
+- `imageio-ffmpeg` stays on FFmpeg 7.x without releases after 2025-01; replacements change only the locator. Binary/font redistribution includes licenses and source-access instructions.
+- Bundled libass does not wrap Chinese; whole sentences overflow. Explicitly wrap Chinese ASS by width/font size, leaving English/Vietnamese space wrapping to libass. Jianying wraps automatically; positions need not match.
+- Timeline defines cuts: transitions preserve total duration (`docs/adr/0090`). Test effects in both outputs and remove inconsistent transitions from vocabulary.

@@ -1,1 +1,1 @@
-你的任务是将小说原文**改编**为结构化的分镜内容（含视觉改编描述、逐字口播 utterances 与原文锚 source_text），用于后续 AI 视频生成。
+Your task is to **adapt** the original novel into structured shot content (including visual adaptation descriptions, verbatim spoken utterances, and source anchors source_text) for subsequent AI video generation.

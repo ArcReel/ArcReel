@@ -1,4 +1,4 @@
-"""ENDPOINT_REGISTRY 完整性与工具函数单测。"""
+"""Unit tests for ENDPOINT_REGISTRY completeness and helpers."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from lib.custom_provider.endpoints import (
 
 
 class TestMeteringBackend:
-    """计价读 ``metering_backend`` 类上的计量声明：它必须就是 ``build_backend`` 包装的那个调用通道类。"""
+    """Pricing reads metering declarations on ``metering_backend``; that class must be the channel wrapped by ``build_backend``."""
 
     @pytest.mark.parametrize(
         "key",
@@ -132,9 +132,9 @@ class TestRegistry:
                 "openrouter",
                 "xai",
             }
-            # 注册表里的都是内置端点，来源恒为 builtin；用户端点不进注册表，由 ce- 键现构造。
+            # Registry endpoints are built-in, always source builtin; user endpoints stay outside it and construct dynamically from ce- keys.
             assert spec.source == "builtin"
-            # 显示名两种来源恰有其一：Python 内置走 i18n key，声明式端点走定义里的 meta.name。
+            # Exactly one display-name source: Python built-ins use i18n keys; declarative endpoints use definition meta.name.
             if spec.kind == "declarative":
                 assert spec.display_name_key == ""
                 assert spec.display_name
@@ -155,17 +155,17 @@ class TestRegistry:
             "family": "openai",
             "kind": "python",
             "display_name_key": "endpoint_openai_chat_display",
-            # 显示名只有声明式端点从定义里带出，Python 内置按 display_name_key 取 i18n 文案
+            # Only declarative endpoints carry names from definitions; Python built-ins resolve i18n through display_name_key.
             "display_name": None,
             "source": "builtin",
             "request_method": "POST",
             "request_path_template": "/v1/chat/completions",
             "image_capabilities": None,
-            # 未声明的 endpoint cap 序列化为 None（resolver fallthrough 到 backend caps）
+            # Undeclared endpoint caps serialize as None (resolver falls through to backend caps).
             "video_max_reference_images": None,
             "end_image_capable": False,
             "reference_audio_capable": False,
-            # 参数约束五项只有 ComfyUI 端点会取非默认值；其余端点的尺寸与时长由请求参数决定。
+            # Only ComfyUI has nondefault values for the five parameter constraints; other endpoint sizes/durations follow request parameters.
             "size_fixed": False,
             "duration_fixed": False,
             "duration_frame_rate_missing": False,
@@ -183,7 +183,7 @@ class TestRegistry:
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
-        """v2/ark/vidu/dashscope/minimax/kling 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
+        """v2/ark/vidu/dashscope/minimax/kling declare no endpoint-level limit; the resolver reads backend pure caps functions."""
         for key in (
             "v2-video-generations",
             "ark-seedance-1",
@@ -204,17 +204,17 @@ class TestRegistry:
             "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
-        # 既有显式 int 保留，行为零变化
+        # Preserve existing explicit ints with unchanged behavior.
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
         assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images is None
 
     def test_video_caps_declaration_bindings(self):
-        """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
+        """Each video endpoint selects the right limit source: None-cap binds caps_fn; explicit int does not.
 
-        全注册表 XOR/非负不变式由 endpoints.py 的 module-load `_validate_registry()`
-        在 import 期保证（违反则本文件根本 import 不进来），故此处只断言「具体哪个 endpoint 选了哪条
-        路径」——这是 XOR 校验抓不到的（换机制仍满足 XOR），是真正的回归护栏。"""
-        # None-cap 的 video endpoint 必须绑定纯 caps 函数
+        endpoints.py module-load `_validate_registry()` guarantees registry-wide XOR/nonnegative invariants at import
+        (violations prevent this file importing), so assert which mechanism each endpoint selects. XOR validation cannot detect
+        a mechanism switch that still satisfies XOR; this is the actual regression guard."""
+        # None-cap video endpoints must bind pure caps functions.
         for key in (
             "v2-video-generations",
             "ark-seedance-1",
@@ -235,13 +235,13 @@ class TestRegistry:
             "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
-        # 显式 int 的 video endpoint 不应再绑 caps 函数
+        # Explicit-int video endpoints must not additionally bind caps functions.
         for key in ("openai-video",):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
     def test_dashscope_caps_fn_reads_channel_declaration_without_client(self):
-        """百炼异步视频端点 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），
-        resolver 据此与条目两侧求值而无需构造 backend / api_key。"""
+        """Dashscope asynchronous-video caps_fn is pure: declare channel capabilities (unlimited reference images and name-based request shape),
+        letting the resolver evaluate them with entries without constructing a backend / api_key."""
         caps_fn = ENDPOINT_REGISTRY["dashscope-reference-voice-video"].video_caps_for_model
         assert caps_fn is not None
         assert caps_fn("happyhorse-1.0-r2v", None).max_reference_images is None
@@ -255,14 +255,14 @@ class TestRegistry:
         assert s2v("S2V-01", None).max_reference_images == 1
         assert hailuo is not None
         assert hailuo("MiniMax-Hailuo-2.3", None).first_frame is True
-        # Fast 与 2.3 只差这一位：首帧必需 ⇒ text_to_video 推导为 False。
+        # Fast differs from 2.3 only here: required first frame implies text_to_video=False.
         assert hailuo("MiniMax-Hailuo-2.3", None).text_to_video is True
         assert fast is not None
         assert fast("MiniMax-Hailuo-2.3-Fast", None).text_to_video is False
 
     def test_kling_caps_fn_reads_channel_declaration_without_client(self):
-        """kling-video 的 caps_fn 是纯函数：多图主体子路径的通道上限 4 与型号无关，旧型号在无档位上下文时
-        保守关尾帧；各型号接不接受参考图由条目决定，resolver 据此两侧求值而无需构造 backend / api_key。"""
+        """kling-video caps_fn is pure: the multi-image subject subpath limit is 4 regardless of model; legacy models conservatively
+        disable last frames without tier context. Entries determine reference-image support; the resolver evaluates both without backend construction / api_key."""
         from lib.custom_provider.capabilities import two_sided_video_capabilities
 
         caps_fn = ENDPOINT_REGISTRY["kling-video-pro-silent"].video_caps_for_model
@@ -277,16 +277,16 @@ class TestRegistry:
         assert effective("kling-v3-omni").max_reference_images == 4
         assert effective("kling-video-o1").max_reference_images == 4
         assert effective("kling-v2-5-turbo").max_reference_images == 0
-        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写：归一化后仍对应条目
+        # Proxy model_id has a vendor prefix (existing / and : conventions) plus noncanonical case; normalize to match entries.
         for prefixed_id in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni"):
             assert effective(prefixed_id).max_reference_images == 4
-        # 对应不上条目的型号只受通道约束，尾帧按保守回落不开
+        # Unmatched models follow only channel constraints, with conservative last-frame fallback off.
         unknown = effective("kling-v4")
         assert unknown.max_reference_images == 4
         assert unknown.last_frame is False
 
     def test_negative_int_cap_rejected_at_validation(self):
-        """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
+        """Import invariants reject negative int caps: downstream references[:-1] would drop the last image instead of trimming to zero."""
         import dataclasses
 
         bad = dataclasses.replace(
@@ -296,11 +296,11 @@ class TestRegistry:
             validate_video_caps_declaration(bad)
 
     def test_non_callable_caps_fn_rejected_at_validation(self):
-        """import 期不变式拒绝非 callable 的 video_caps_for_model：否则误填字符串/整数会放行到
-        request 期才在 resolver `caps_fn(model_id)` 处炸，违背 fail-fast 初衷。"""
+        """Import invariants reject noncallable video_caps_for_model; otherwise strings/integers would survive until
+        request-time resolver `caps_fn(model_id)` failure, defeating fail-fast intent."""
         import dataclasses
 
-        # 非 callable 真值（字符串）冒充 caps_fn；同时清掉 int cap 避免先撞 XOR 校验
+        # A truthy noncallable string masquerades as caps_fn; clear int cap to avoid failing XOR first.
         bad = dataclasses.replace(
             ENDPOINT_REGISTRY["ark-seedance-2"],
             video_max_reference_images=None,
@@ -310,7 +310,7 @@ class TestRegistry:
             validate_video_caps_declaration(bad)
 
     def test_non_video_endpoint_declaring_reference_audio_rejected(self):
-        """import 期不变式：reference_audio_capable 只对 video 类有意义，非 video 类声明即 misconfig。"""
+        """Import invariant: reference_audio_capable is meaningful only for video; declarations on nonvideo are misconfiguration."""
         import dataclasses
 
         bad = dataclasses.replace(ENDPOINT_REGISTRY["openai-chat"], reference_audio_capable=True)
@@ -318,7 +318,7 @@ class TestRegistry:
             validate_video_caps_declaration(bad)
 
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
-        """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""
+        """Transport declarations match backend implementation: endpoints declaring True must actually assemble reference audio."""
         audio_capable = {k for k, s in ENDPOINT_REGISTRY.items() if s.reference_audio_capable}
         assert audio_capable == {
             "ark-seedance-1",
@@ -338,7 +338,7 @@ class TestRegistry:
         assert spec.media_type == "audio"
         assert spec.family == "openai"
         assert spec.request_path_template == "/v1/audio/speech"
-        # 非 video/image endpoint：不声明 video caps / image capabilities
+        # Nonvideo/nonimage endpoints declare neither video caps nor image capabilities.
         assert spec.video_max_reference_images is None
         assert spec.video_caps_for_model is None
         assert spec.image_capabilities is None
@@ -437,14 +437,14 @@ class TestHelpers:
         ("definition", "required"),
         [
             ({"submit": {"url": "{{ base_url }}/v1/video"}}, True),
-            # 提交写死绝对地址、轮询才引用 base_url：只查提交会放行到付费提交之后才失败。
+            # Hardcoded absolute submission URL with base_url only in polling: checking submission alone delays failure until after paid submission.
             (
                 {"submit": {"url": "https://fixed.test/v1/video"}, "poll": {"url": "{{ base_url }}/v1/task"}},
                 True,
             ),
             ({"submit": {"url": "https://fixed.test/v1/video"}, "result": {"url": "{{ base_url }}/v1/file"}}, True),
             ({"submit": {"url": "https://fixed.test/v1/video"}, "poll": {"url": "https://fixed.test/v1/task"}}, False),
-            # 写死的地址里恰好含 base_url 字样，不是占位符。
+            # A hardcoded address containing base_url text is not a placeholder.
             ({"submit": {"url": "https://fixed.test/base_url/video"}}, False),
         ],
     )
@@ -452,38 +452,38 @@ class TestHelpers:
         assert declarative_requires_base_url(definition) is required
 
 
-# infer_endpoint 按模型家族分组的规则表，行格式 (model_id, discovery_format, 期望 endpoint)。
+# infer_endpoint family rules; rows are (model_id, discovery_format, expected endpoint).
 INFER_RULE_CASES = [
-    # ── imagen 无专属规则，随通用图像家族按 discovery_format 推断 ──
+    # No imagen-specific rule; generic image-family inference follows discovery_format.
     ("imagen-4", "openai", "openai-images"),
     ("imagen-4", "google", "gemini-image"),
-    ("gemini-imagen-3", "openai", "gemini-image"),  # 靠 gemini + image 语义，与 imagen 规则无关
-    # ── qwen-tts / qwen3-tts 系列 → dashscope-tts，不分 discovery_format ──
+    ("gemini-imagen-3", "openai", "gemini-image"),  # Uses gemini + image semantics, unrelated to imagen rules.
+    # qwen-tts / qwen3-tts families → dashscope-tts, independent of discovery_format.
     ("qwen-tts", "openai", "dashscope-tts"),
     ("qwen3-tts-flash", "openai", "dashscope-tts"),
     ("Qwen3-TTS-Flash", "google", "dashscope-tts"),
     ("proxy/qwen3-tts-instruct-flash", "openai", "dashscope-tts"),
-    # ── qwen-audio-<版本>-tts 系列 → dashscope-speech-synthesizer，不分 discovery_format ──
+    # qwen-audio-<版本>-tts family → dashscope-speech-synthesizer, independent of discovery_format.
     ("qwen-audio-3.1-tts-flash", "openai", "dashscope-speech-synthesizer"),
     ("qwen-audio-3.0-tts-plus", "google", "dashscope-speech-synthesizer"),
     ("proxy/Qwen-Audio-3.1-TTS-Plus", "openai", "dashscope-speech-synthesizer"),
-    ("tts-1", "openai", "openai-tts"),  # 其余 TTS 仍为 openai-tts
+    ("tts-1", "openai", "openai-tts"),  # Other TTS remains openai-tts.
     ("cosyvoice-v2", "openai", "openai-tts"),
-    # ── Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──
+    # Veo infers gemini-video only for google discovery; otherwise remains openai-video.
     ("veo-3", "google", "gemini-video"),
     ("veo-3.1-generate-preview", "google", "gemini-video"),
     ("veo-3", "openai", "openai-video"),
     ("sora-2", "google", "openai-video"),
-    # ── MiniMax 的 speech-<版本>-hd|turbo → minimax-tts，不分 discovery_format ──
+    # MiniMax speech-<版本>-hd|turbo → minimax-tts, independent of discovery_format.
     ("speech-2.8-hd", "openai", "minimax-tts"),
     ("speech-02-turbo", "google", "minimax-tts"),
     ("minimax/Speech-2.6-HD", "openai", "minimax-tts"),
-    ("speech-1.5", "openai", "openai-tts"),  # 无档位后缀（Fish Audio 风格）仍为 openai-tts
-    # ── Gemini TTS → gemini-tts，不分 discovery_format ──
+    ("speech-1.5", "openai", "openai-tts"),  # Without tier suffix (Fish Audio style), remain openai-tts.
+    # Gemini TTS → gemini-tts, independent of discovery_format.
     ("gemini-3.8-flash-tts", "google", "gemini-tts"),
     ("gemini-2.5-flash-preview-tts", "openai", "gemini-tts"),
     ("models/gemini-3.8-flash-lite-tts", "google", "gemini-tts"),
-    ("gemini-3-flash-preview", "google", "gemini-generate"),  # 非 TTS 的 gemini 文本不受影响
+    ("gemini-3-flash-preview", "google", "gemini-generate"),  # Non-TTS Gemini text is unaffected.
 ]
 
 
@@ -508,15 +508,15 @@ class TestInferEndpoint:
     @pytest.mark.parametrize(
         ("model_id", "discovery_format", "expected"),
         [
-            # ── content-first 纠偏（中转站普遍 discovery_format="openai" 却夹带原生 id）──
-            ("gemini-2.5-flash", "openai", "gemini-generate"),  # 不再被错推到 openai-chat
+            # Content-first correction: gateways commonly advertise discovery_format="openai" while including native IDs.
+            ("gemini-2.5-flash", "openai", "gemini-generate"),  # No longer incorrectly infer openai-chat.
             ("gemini-2.5-flash", "google", "gemini-generate"),
-            # gemini 原生图像模型也按内容纠偏到 gemini-image（不被错推到 openai-images）
+            # Native Gemini images also correct by content to gemini-image instead of incorrectly selecting openai-images.
             ("gemini-2.5-flash-image", "openai", "gemini-image"),
             ("gemini-2.5-flash-image", "google", "gemini-image"),
             ("gemini-2.0-flash-exp-image-generation", "openai", "gemini-image"),
             ("gemini-3-pro-image-preview", "openai", "gemini-image"),
-            # ── 新视频分支路由 ──
+            # New video-branch routing.
             ("seedance-1.0", "openai", "ark-seedance-1"),
             ("doubao-seedance-2-0", "openai", "ark-seedance-2"),
             ("dreamina-seedance-2.5-260628", "openai", "ark-seedance-2-5"),
@@ -527,64 +527,64 @@ class TestInferEndpoint:
             ("viduq4-preview", "openai", "vidu-video-q4"),
             ("viduq3-i2v", "openai", "vidu-video-generic"),
             ("proxy/viduq3-turbo", "openai", "vidu-video-q3-turbo"),
-            # ── 阿里百炼 wan2.x / wan3.0 → 百炼异步视频端点（image 变体不受影响）──
+            # Alibaba Dashscope wan2.x / wan3.0 → Dashscope asynchronous video (image variants unaffected).
             ("wan2.7-i2v", "openai", "dashscope-always-on-video"),
             ("wan2.7-t2v", "openai", "dashscope-always-on-video"),
-            ("wan-2.7-i2v", "openai", "dashscope-always-on-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan-2.7-i2v", "openai", "dashscope-always-on-video"),  # Hyphen and dot forms match with equal breadth.
             ("wan_2.7-t2v", "openai", "dashscope-always-on-video"),
             ("wan3.0-video", "openai", "dashscope-wan3-video"),
-            ("Wan3.0-Video", "openai", "dashscope-wan3-video"),  # 大小写不敏感
+            ("Wan3.0-Video", "openai", "dashscope-wan3-video"),  # Case-insensitive.
             ("proxy/wan3.0-video", "openai", "dashscope-wan3-video"),
-            ("wan-3-turbo", "openai", "dashscope-wan3-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan-3-turbo", "openai", "dashscope-wan3-video"),  # Hyphen and dot forms match with equal breadth.
             ("wan3-turbo", "openai", "dashscope-wan3-video"),
-            ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
-            ("wan-2.7-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样落图像端点
-            ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
-            ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
-            # image-to-video 别名含 "image" 子串但本质是视频，须留在 百炼异步视频端点（同
-            # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
+            ("wan2.7-image", "openai", "openai-images"),  # Image variants remain unaffected.
+            ("wan-2.7-image", "openai", "openai-images"),  # Hyphenated image variants also select image endpoints.
+            ("wan3.0-video-image", "openai", "openai-images"),  # Image semantics remain unaffected.
+            ("wan-3-turbo-image", "openai", "openai-images"),  # Hyphenated image variants also remain unaffected.
+            # image-to-video aliases contain "image" but are video, so retain the Dashscope asynchronous-video endpoint (the same
+            # video-before-image principle as kling-image2video), rather than broad is_image misclassification.
             ("wan-3-turbo-image-to-video", "openai", "dashscope-wan3-video"),
             ("wan3-image2video", "openai", "dashscope-wan3-video"),
             ("wan-2.7-image-to-video", "openai", "dashscope-always-on-video"),
-            # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
-            # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
-            # 语义一律仍是图像。
+            # Inverse trap: real image aliases need not end in "image" (version/date/variant suffixes), so terminal spelling
+            # cannot determine image semantics. Only explicit image-to-video continuation is a video exception; other image
+            # semantics still mean images.
             ("wan3.0-image-edit", "openai", "openai-images"),
             ("wan-3-turbo-image-preview", "openai", "openai-images"),
             ("wan3.0-video-image-20260801", "openai", "openai-images"),
-            # 分隔符混用：下划线与连字符匹配宽度一致（WAN3_PATTERN 同时容忍二者）。
+            # Mixed separators: underscores and hyphens match equally broadly (WAN3_PATTERN accepts both).
             ("wan_3_turbo", "openai", "dashscope-wan3-video"),
             ("wan_3.0-image", "openai", "openai-images"),
             ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-wan3-video"),
-            # 标识符边界：含 "wan3"/"wan2" 子串但并非该家族的型号名不得被误判——WAN2_PATTERN /
-            # WAN3_PATTERN 两侧要求非字母数字边界，裸 "wan" 仍命中 _VIDEO_PATTERN 落回通用视频分支。
+            # Identifier boundaries: do not classify nonfamily model names merely containing "wan3"/"wan2"; WAN2_PATTERN /
+            # WAN3_PATTERN require nonalphanumeric boundaries on both sides; bare "wan" still matches _VIDEO_PATTERN for generic video.
             ("swan3", "openai", "openai-video"),
             ("vendorwan3", "openai", "openai-video"),
             ("wan30", "openai", "openai-video"),
             ("swan2", "openai", "openai-video"),
             ("vendorwan2", "openai", "openai-video"),
             ("wan20", "openai", "openai-video"),
-            # 同一边界陷阱、但字母粘连前缀后接完整点号形态 + 版本号 + 模态后缀：_WAN_DOT_FORM_PATTERN
-            # 若不做左侧边界校验，"swan2.7-r2v" 去掉首字符即与 "wan2.7-r2v" 字面相同，会被误判命中。
+            # Same boundary trap, but a letter-adjoining prefix followed by full dot form + version + modality: _WAN_DOT_FORM_PATTERN
+            # without left-boundary checks would match "swan2.7-r2v", whose first-character removal equals "wan2.7-r2v".
             ("swan2.7-r2v", "openai", "openai-video"),
             ("vendorwan2.7-t2v", "openai", "openai-video"),
-            # 万相 2.x 小版本边界：WAN2_PATTERN 只认 2.7，其余 2.x（2.1/2.2 等）的连字符/下划线
-            # 形态不落原生端点——本后端固定请求的 video-generation/video-synthesis 端点与这些
-            # 小版本的实际协议不符（见 dashscope.py WAN2_PATTERN 处的说明）。点号形态另受独立的
-            # 字面量判定约束，不受 WAN2_PATTERN 的版本锚定限制。
-            ("wan-2.1-kf2v", "openai", "openai-video"),  # 连字符 + 非 2.7 → 通用端点
-            ("wan_2.2-t2v", "openai", "openai-video"),  # 下划线 + 非 2.7 → 通用端点
-            ("wan2.1-kf2v", "openai", "dashscope-video"),  # 点号形态走字面量判定，非本正则
-            # 2.7 家族内 videoedit 模态：命中家族正则但 DashScopeVideoBackend 未实现其请求构造，
-            # 排除出原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
+            # Wan 2.x minor-version boundary: WAN2_PATTERN recognizes only 2.7; other 2.x (2.1/2.2 etc.) hyphen/underscore
+            # forms do not select native endpoints, because this backend's fixed video-generation/video-synthesis endpoint differs
+            # from their actual protocols (see WAN2_PATTERN in dashscope.py). Dot forms have a separate literal
+            # rule unaffected by WAN2_PATTERN version anchoring.
+            ("wan-2.1-kf2v", "openai", "openai-video"),  # Hyphen + non-2.7 → generic endpoint.
+            ("wan_2.2-t2v", "openai", "openai-video"),  # Underscore + non-2.7 → generic endpoint.
+            ("wan2.1-kf2v", "openai", "dashscope-video"),  # Dot form uses literal classification, not this regex.
+            # wan2.7 videoedit matches family regexes, but DashScopeVideoBackend lacks its request construction;
+            # exclude native routing (see _WAN_VIDEOEDIT_PATTERN).
             ("wan-2.7-videoedit", "openai", "openai-video"),
             ("wan_2.7-videoedit", "openai", "openai-video"),
             ("wan2.7-videoedit", "openai", "openai-video"),
-            # happyhorse 同一边界要求：与 DashScopeVideoBackend._profile_for_model 的兜底子串匹配
-            # 对同一 key 保持同等边界，否则会出现"路由到本后端却拿不到对应能力档"的矛盾。
+            # happyhorse has the same boundary requirement: maintain equal boundaries for the same key as the fallback substring matching
+            # in DashScopeVideoBackend._profile_for_model, avoiding native routing with no matching capability profile.
             ("myhappyhorse-1.0-r2v", "openai", "openai-chat"),
             ("happyhorse-1.0-r2v", "openai", "dashscope-reference-video"),
-            # ── 向后兼容（行为不变）──
+            # Backward compatibility (unchanged behavior).
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),
             ("dall-e-3", "openai", "openai-images"),
@@ -593,7 +593,7 @@ class TestInferEndpoint:
             ("sora-2", "openai", "openai-video"),
             ("SORA-2", "openai", "openai-video"),
             ("veo-3", "openai", "openai-video"),
-            # ── MiniMax 原生 token 二级路由 ──
+            # Secondary routing for native MiniMax tokens.
             ("MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
             ("MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
             ("minimax-hailuo-2.3-fast", "openai", "minimax-hailuo-v1-fast"),
@@ -603,13 +603,13 @@ class TestInferEndpoint:
                 "openai",
                 "minimax-hailuo-v1",
             ),
-            # Fast × 非 Fast 前缀碰撞：Fast 只认精确型号名（剥离命名空间前缀后比较）。
-            # 非精确的 Fast 形态别名上游是不是 Fast 无从确知，落通用海螺键（无输入要求），
-            # 不落首帧必需的 Fast 定义——与迁移 8c2b1e7d4a90 同一口径。
+            # Fast versus non-Fast prefix collision: recognize Fast only by exact model name after stripping namespace prefixes.
+            # Nonexact Fast aliases do not establish upstream Fast behavior; select generic Hailuo (no input requirement),
+            # not the first-frame-required Fast definition, matching migration 8c2b1e7d4a90.
             ("proxy/MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
             ("proxy/MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
             ("vendor:MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
-            # 多层命名空间同样剥到末段：承担判定的是末段逐字等于官方型号 id
+            # Strip multiple namespace levels to the last segment, which must equal the official model ID exactly.
             ("openrouter/minimax/MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
             ("proxy/vendor:S2V-01", "openai", "minimax-s2v-01"),
             ("MiniMax-Hailuo-2.3-Fast-preview", "openai", "minimax-hailuo-v1"),
@@ -617,37 +617,37 @@ class TestInferEndpoint:
             ("S2V-01", "openai", "minimax-s2v-01"),
             ("minimax-s2v-01", "openai", "minimax-s2v-01"),
             ("proxy/S2V-01", "openai", "minimax-s2v-01"),
-            # 非精确的 s2v 形态不再被误吞成参考图必需的 MiniMax S2V 协议
+            # Nonexact s2v spellings no longer incorrectly select the reference-image-required MiniMax S2V protocol.
             ("wan2.7-s2v", "openai", "openai-video"),
             ("wan-2.2-s2v", "openai", "openai-video"),
             ("vendor-s2v-custom", "openai", "openai-chat"),
             ("MiniMax-H3", "openai", "minimax-h3"),
             ("minimax-h3", "openai", "minimax-h3"),
-            ("h3", "openai", "openai-chat"),  # 裸 "h3" 不应匹配——防止退化成过于宽松的子串
-            ("other-vendor-h3", "openai", "openai-chat"),  # 其它厂商恰好含 h3 子串同样不应误路由
-            ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
+            ("h3", "openai", "openai-chat"),  # Bare "h3" must not match; prevent overly broad substring regression.
+            ("other-vendor-h3", "openai", "openai-chat"),  # Other vendors containing h3 must not be misrouted either.
+            ("image-01", "openai", "minimax-image"),  # "image" would otherwise select generic images.
             ("minimax/image-01", "openai", "minimax-image"),
-            ("S2V-01", "google", "minimax-s2v-01"),  # minimax 路由不分 discovery_format
-            # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video-* 而非 openai-video）──
+            ("S2V-01", "google", "minimax-s2v-01"),  # MiniMax routing is independent of discovery_format.
+            # Secondary native Kling proxy routing: video families containing kling select kling-video-*, not openai-video.
             ("kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
-            ("kling-v2", "openai", "kling-video-silent"),  # 不在请求形态表里的可灵名字取无声端点
+            ("kling-v2", "openai", "kling-video-silent"),  # Unlisted request-profile names select silent.
             ("kling-v3", "openai", "kling-video-audio"),
             ("kling-v2-6", "openai", "kling-video-pro-audio"),
             ("proxy/kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
-            ("KLING-V3", "openai", "kling-video-audio"),  # 大小写不敏感
-            ("kling-v3-omni", "openai", "kling-video-audio"),  # 图像/视频同名歧义 → 默认归视频
-            ("kling-4.0", "openai", "kling-video-model-path"),  # 只在新版 API 上提供的型号
+            ("KLING-V3", "openai", "kling-video-audio"),  # Case-insensitive.
+            ("kling-v3-omni", "openai", "kling-video-audio"),  # Ambiguous image/video names default to video.
+            ("kling-4.0", "openai", "kling-video-model-path"),  # Models available only on the new API.
             ("proxy/kling-3.0-turbo", "openai", "kling-video-model-path"),
-            # 含 image 语义的可灵图像 → kling-image（先于通用图像家族，不被推到 openai-images）
+            # Kling images with image semantics → kling-image before generic image-family matching, avoiding openai-images.
             ("kling-image-o1", "openai", "kling-image"),
             ("kling-v3-omni-image", "openai", "kling-image"),
             ("proxy/kling-image-o1", "openai", "kling-image"),
-            ("kling-image-o1", "google", "kling-image"),  # kling 路由不分 discovery_format
-            # image-to-video 含 image 语义但本质是视频 → video 优先于 image，归 kling-video
+            ("kling-image-o1", "google", "kling-image"),  # Kling routing is independent of discovery_format.
+            # image-to-video contains image semantics but is video: prioritize video over image and select kling-video.
             ("kling-image2video", "openai", "kling-video-silent"),
             ("kling-img2video", "openai", "kling-video-silent"),
             ("proxy/kling-image2video", "openai", "kling-video-silent"),
-            # 方舟 Seedream 没有 /images/edits，带参考图也走 /images/generations；不分 discovery_format
+            # Ark Seedream has no /images/edits; references also use /images/generations, independent of discovery_format.
             ("seedream-3.0", "openai", "ark-seedream-3"),
             ("doubao-seedream-5-0-260128", "openai", "ark-seedream-4"),
             ("proxy/Doubao-Seedream-4.5", "openai", "ark-seedream-4"),
@@ -655,11 +655,11 @@ class TestInferEndpoint:
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),
             ("jimengvideo-3.0", "openai", "openai-video"),
-            # ── 纯文本 MiniMax model 落到文本端点（不被裸 minimax 误推到视频）──
+            # Text-only MiniMax models select text endpoints, without bare minimax incorrectly implying video.
             ("MiniMax-M2.7", "openai", "openai-chat"),
             ("minimax-abab-6.5-chat", "openai", "openai-chat"),
             ("MiniMax-M2.7", "google", "gemini-generate"),  # discovery_format=google → gemini-generate
-            # viduq1/viduq2 是 vidu 早期图像版本 → 维持 image 推断不变
+            # viduq1/viduq2 are early Vidu image versions; preserve image inference.
             ("viduq1", "openai", "openai-images"),
             ("viduq1-classic", "openai", "openai-images"),
             ("my-proxy/viduq1", "openai", "openai-images"),
@@ -670,16 +670,16 @@ class TestInferEndpoint:
             ("vidu2", "openai", "openai-video"),
             ("vidu2.0", "openai", "openai-video"),
             ("provider:vidu2.0", "openai", "openai-video"),
-            # ── audio（TTS）识别：precedence 在 text 默认之前 ──
+            # Audio (TTS) detection precedes the text default.
             ("tts-1", "openai", "openai-tts"),
             ("tts-1-hd", "openai", "openai-tts"),
             ("gpt-4o-mini-tts", "openai", "openai-tts"),
-            ("vidu-tts", "openai", "openai-tts"),  # tts 尾缀优先于 text 默认
-            ("speech-1.5", "openai", "openai-tts"),  # Fish Audio 风格 id
+            ("vidu-tts", "openai", "openai-tts"),  # tts suffix takes priority over the text default.
+            ("speech-1.5", "openai", "openai-tts"),  # Fish Audio-style ID.
             ("cosyvoice-v2", "openai", "openai-tts"),
-            # audio endpoint 仅 OpenAI 兼容一条，google 发现格式同样归 openai-tts
+            # Audio has only the OpenAI-compatible endpoint; google discovery also selects openai-tts.
             ("tts-1", "google", "openai-tts"),
-            # 不应误伤：含 audio 字样的 chat 模型、ASR（语音转文字）、视频/图像家族仍按原分支
+            # Do not disturb chat models containing audio, ASR (speech-to-text), or video/image families; retain their branches.
             ("gpt-4o-audio-preview", "openai", "openai-chat"),
             ("whisper-1", "openai", "openai-chat"),
             ("speech-to-text-1", "openai", "openai-chat"),
@@ -704,7 +704,7 @@ class TestInferEndpoint:
         ],
     )
     def test_v2_never_auto_inferred(self, model_id, discovery_format):
-        """v2-video-generations 命名碎片化无法可靠识别，永不自动推断，留用户手选。"""
+        """Fragmented v2-video-generations names cannot be reliably recognized; never infer automatically, leaving manual selection to users."""
         assert infer_endpoint(model_id, discovery_format) != "v2-video-generations"
 
     @pytest.mark.parametrize(
@@ -713,20 +713,20 @@ class TestInferEndpoint:
     )
     @pytest.mark.parametrize("discovery_format", ["openai", "google"])
     def test_chat_image_never_auto_inferred(self, model_id, discovery_format):
-        """出图模型名与 openai-chat / openai-images 的模型名无从区分，不自动推断，由用户在获取或编辑模型时选择。"""
+        """Image model names cannot distinguish openai-chat from openai-images; do not infer automatically, letting users choose during model discovery/editing."""
         assert infer_endpoint(model_id, discovery_format) != "openai-chat-image"
 
     @pytest.mark.parametrize(
         ("model_id", "discovery_format", "media_type", "expected"),
         [
-            # 名字规则推出的端点就在这个媒体类型里：照用
+            # If name-based inference belongs to this media type, retain it.
             ("seedance-2.0-pro", "openai", "video", "ark-seedance-2"),
             ("gpt-5.5", "openai", "text", "openai-chat"),
             ("doubao-seedream-5-0-260128", "openai", "image", "ark-seedream-4"),
-            # 两栖模型按条目的媒体类型在名字族内选
+            # Dual-modality models select within their name family by entry media type.
             ("kling-v3-omni", "openai", "image", "kling-image"),
             ("gemini-3-pro-image", "openai", "text", "gemini-generate"),
-            # 名字族里没有：取该媒体类型在模型发现协议下的默认端点
+            # Without a family match, use the media type's default endpoint for the discovery protocol.
             ("house-painter", "openai", "image", "openai-images"),
             ("house-painter", "google", "image", "gemini-image"),
             ("house-motion", "openai", "video", "openai-video"),
@@ -769,7 +769,7 @@ def test_split_endpoints_have_single_capability():
 
 
 def test_existing_image_endpoints_have_full_capabilities():
-    """EndpointSpec 新增 image_capabilities 字段；已存在的 image entry 默认填两个能力。"""
+    """EndpointSpec adds image_capabilities; existing image entries default to both capabilities."""
     from lib.backends.image_backends import ImageCapability
     from lib.custom_provider.endpoints import (
         ENDPOINT_REGISTRY,

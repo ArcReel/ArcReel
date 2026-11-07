@@ -35,7 +35,7 @@ STRUCTURED_VIDEO_PROMPT = {
 
 
 def _drama_pm(project_path: Path) -> _FakePM:
-    """drama 项目：条目携带有序 utterances，角色资产带非空 voice_style。"""
+    """Drama fixture: entries have ordered utterances and character assets have nonempty voice_style."""
     pm = _FakePM(project_path)
     pm.project["content_mode"] = "drama"
     pm.project["characters"]["Alice"]["voice_style"] = "低沉沙哑"
@@ -100,7 +100,7 @@ CONTENT_MODES = ["narration", "drama", "ad"]
 
 
 class TestPreviewMatchesExecution:
-    """预览文本与执行期实际发出的提示词逐字一致。"""
+    """Preview text equals actual outgoing execution prompts verbatim."""
 
     @pytest.mark.parametrize("content_mode", CONTENT_MODES)
     async def test_storyboard_image_prompt_is_verbatim(self, tmp_path, monkeypatch, content_mode):
@@ -131,7 +131,7 @@ class TestPreviewMatchesExecution:
         assert preview.video.text == generator.video_calls[0]["prompt"]
 
     async def test_drama_text_form_video_prompt_keeps_utterance_speech(self, tmp_path, monkeypatch):
-        """文本形态不承载台词：发声序列仍由 utterances 决定，渲染层照常注入。"""
+        """Plain text carries no dialogue itself; utterances still determine speech sequences and rendering injects them normally."""
         project_path = prepare_files(tmp_path)
         pm = _drama_pm(project_path)
         _item_of(pm)["video_prompt"] = "镜头缓缓推近，雨水顺着伞沿滑落"
@@ -154,7 +154,7 @@ class TestPreviewMatchesExecution:
 
     @pytest.mark.parametrize("content_mode", CONTENT_MODES)
     async def test_text_form_image_prompt_is_the_prompt_body(self, tmp_path, monkeypatch, content_mode):
-        """文本形态的分镜图提示词就是提示词主体，渲染层只注入项目风格与反向约束。"""
+        """Plain-text storyboard prompts are the body; rendering injects only project style and negative restrictions."""
         body = "一条被雨水打湿的老街，霓虹反射在积水上"
         project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
@@ -170,12 +170,12 @@ class TestPreviewMatchesExecution:
         text = preview.storyboard_image.text
         assert text is not None
         assert preview.storyboard_image.is_text_form
-        assert text.startswith("Style: Anime\nVisual style: cinematic\nReference_Images: 图1")
-        assert f"\n\n{body}\n\nAvoid: 水印、多余文字、Logo" in text
+        assert text.startswith("Style: Anime\nVisual style: cinematic\nReference_Images: '图1")
+        assert f"\n\n{body}\n\nAvoid: watermarks, extra text, logos" in text
         assert text == generator.image_calls[0]["prompt"]
 
     async def test_reference_numbering_covers_the_previous_storyboard_and_mentions(self, tmp_path, monkeypatch):
-        """预览与执行读同一份参考图装配：上一分镜图占最后一个序位，正文里的 @[登记名] 换成对应的图N。"""
+        """Preview and execution share reference assembly: previous storyboard image is last; body @[登记名] becomes corresponding 图N."""
         project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         seed_current_storyboard(pm, "E1S01")
@@ -194,14 +194,13 @@ class TestPreviewMatchesExecution:
         text = preview.storyboard_image.text
         assert text is not None
         assert (
-            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；图4为上一分镜图，只参考构图与色调。\n"
-            "Scene: 图1站在图2门口，手里握着图3，身后是无名路人\n"
+            "Reference_Images: '图1: character reference images; 图2: scene reference images; 图3: prop reference images; 图4: previous storyboard image, use only composition and color.'\nScene: 图1站在图2门口，手里握着图3，身后是无名路人\n"
         ) in text
         assert text == generator.image_calls[0]["prompt"]
 
     @pytest.mark.parametrize("content_mode", CONTENT_MODES)
     async def test_text_form_video_prompt_is_the_prompt_body(self, tmp_path, monkeypatch, content_mode):
-        """视频侧同理：文本形态正文领先，逐字等于执行期实发文本。"""
+        """Video likewise places plain-text bodies first, verbatim equal to outgoing execution text."""
         body = "镜头缓缓推近，雨水顺着伞沿滑落"
         project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
@@ -221,7 +220,7 @@ class TestPreviewMatchesExecution:
         assert text == generator.video_calls[0]["prompt"]
 
     async def test_rendering_a_preview_text_again_does_not_duplicate_injections(self, tmp_path, monkeypatch):
-        """结构化 → 文本以当前渲染结果为初值：再渲染一次不叠出第二份风格与反向约束。"""
+        """Structured-to-text starts from current rendering; rendering again never duplicates style or negative restrictions."""
         project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         generator = FakeGenerator()
@@ -239,7 +238,7 @@ class TestPreviewMatchesExecution:
     async def test_rendering_a_preview_video_text_again_does_not_duplicate_injections(
         self, tmp_path, monkeypatch, content_mode
     ):
-        """视频侧同理：drama 的 Voice_Profiles / Dialogue 声明段已在正文里时不再追加第二份。"""
+        """Video likewise avoids duplicate drama Voice_Profiles / Dialogue sections already in the body."""
         project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         _patch_execution(monkeypatch, pm, FakeGenerator())
@@ -254,7 +253,7 @@ class TestPreviewMatchesExecution:
 
 
 class TestPreviewMatchesClampedExecution:
-    """参考图超过图像后端上限时，预览与执行按同一裁剪编号。"""
+    """Over-limit image references share clipping/numbering in preview and execution."""
 
     async def test_preview_text_is_verbatim_under_clamping(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
@@ -272,7 +271,7 @@ class TestPreviewMatchesClampedExecution:
 
         assert len(generator.image_calls[0]["reference_images"]) == 7
         assert preview.storyboard_image.text == generator.image_calls[0]["prompt"]
-        # 预览在生成前就给出与执行期任务结果同一条裁剪 warning；视频侧不裁剪参考图，不带
+        # Preview returns execution-equivalent clipping warnings before generation; video references are not clipped and carry no
         assert list(preview.storyboard_image.warnings) == result["warnings"]
         assert preview.storyboard_image.warnings == (
             {"key": "ref_too_many_images", "params": {"count": 8, "model": "gpt-image-2", "max_count": 7}},
@@ -291,11 +290,11 @@ class TestPreviewMatchesClampedExecution:
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
         assert preview.storyboard_image.text is not None
-        assert "图8为道具参考图。" in preview.storyboard_image.text
+        assert "图8: prop reference images." in preview.storyboard_image.text
         assert preview.storyboard_image.warnings == ()
 
     async def test_preview_falls_back_to_no_clamping_when_the_lane_cannot_resolve(self, tmp_path, monkeypatch):
-        """凭证缺失等解析失败只让预览退回不裁剪，仍渲染出提示词。"""
+        """Missing credentials and similar lookup failures disable preview clipping only; prompts still render."""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         monkeypatch.setattr(prompt_preview, "get_project_manager", lambda: pm)
@@ -308,7 +307,7 @@ class TestPreviewMatchesClampedExecution:
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
         assert preview.storyboard_image.text is not None
-        assert "图8为道具参考图。" in preview.storyboard_image.text
+        assert "图8: prop reference images." in preview.storyboard_image.text
         assert preview.storyboard_image.warnings == ()
 
 
@@ -351,7 +350,7 @@ class TestPreviewUnavailableSides:
         ]
 
     async def test_pending_prompt_reports_that_side_only(self, tmp_path, monkeypatch):
-        """机械转换写下的 ``None`` 与根本没有该字段的存量条目都是待生成：另一侧照常渲染。"""
+        """Mechanically converted ``None`` and legacy absent fields both mean pending generation; the other side still renders."""
         project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _item_of(pm)["video_prompt"] = None
@@ -389,7 +388,7 @@ class TestPreviewUnavailableSides:
         assert preview.storyboard_image.unavailable == prompt_preview.UNAVAILABLE_INVALID
 
     async def test_refused_generation_input_reports_its_gaps_and_matches_execution(self, tmp_path, monkeypatch):
-        """生成会被拒时预览显示不可用与缺口码，与执行期同一份拒绝；视频侧照常渲染。"""
+        """When generation would reject, preview reports unavailable with the same gap code; video side still renders."""
         project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         (project_path / "props" / "玉佩.png").unlink()
@@ -423,7 +422,7 @@ class TestPreviewUnavailableSides:
 
 
 class TestPromptPreviewTool:
-    """MCP 工具层是服务层的薄包装：同一份预览，两个 host 同一入口。"""
+    """MCP tools thinly wrap services: same preview and same entry point for both hosts."""
 
     def _services(self, pm: _FakePM):
         from typing import Any, cast
@@ -480,7 +479,7 @@ class TestPromptPreviewTool:
         assert outcome.problem.code == "invalid_request"
 
     def test_registered_in_the_tool_catalogue(self):
-        """内嵌 host 的工具目录；远程 host 的等价由 test_remote_mcp 的工具集相等断言兜住。"""
+        """Embedded-host tool catalog; test_remote_mcp toolset-equality assertions protect remote equivalence."""
         from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 
         assert "get_prompt_preview" in ARCREEL_MCP_TOOL_IDS

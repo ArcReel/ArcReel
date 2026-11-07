@@ -1,7 +1,7 @@
-"""大项目性能基准入口，用法见同目录 README.md。
+"""Large-project benchmark entry point; see the adjacent README.md.
 
-uv run python -m scripts.perf.bench all                 # 构建 90 集项目，跑空闲测量与高峰模拟，输出汇总
-uv run python -m scripts.perf.bench idle --only cost    # 只测某个接口
+uv run python -m scripts.perf.bench all                 # Build 90 episodes, measure idle/peak, print summary
+uv run python -m scripts.perf.bench idle --only cost    # Measure one interface only
 """
 
 from __future__ import annotations
@@ -74,9 +74,9 @@ async def _timed(client, probe: h.Probe | None, name: str, episode: int) -> dict
     return rec
 
 
-# ---------------------------------------------------------------- 空闲
+# ---------------------------------------------------------------- Idle
 async def _first_open(name: str, episode: int) -> dict[str, Any]:
-    """新进程里的第一次请求：服务重启后第一次打开。模块导入与建表不计入。"""
+    """First request in a fresh process after service restart; exclude module imports/table creation."""
 
     await h.ensure_db()
     probe = h.Probe()
@@ -154,9 +154,9 @@ def cmd_idle(a: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
-# ---------------------------------------------------------------- 剖析
+# ---------------------------------------------------------------- Profiling
 def cmd_profile(a: argparse.Namespace) -> None:
-    """每个接口一次清缓存后的请求与一次热请求，cProfile 输出到 out/<接口>-<cold|warm>.prof。"""
+    """One cache-cleared and one warm request per interface; cProfile output in out/<接口>-<cold|warm>.prof."""
 
     _ensure(a)
 
@@ -166,7 +166,7 @@ def cmd_profile(a: argparse.Namespace) -> None:
         async def inline(func, /, *args, **kwargs):
             return func(*args, **kwargs)
 
-        # 让 cProfile 看见线程里的同步核心：剖析时线程调用改为在事件循环线程内联执行。
+        # Expose synchronous thread cores to cProfile by inlining thread calls onto the event-loop thread while profiling.
         asyncio.to_thread = inline
         async with _client(h.build_app()) as c:
             for name in a.only or ENDPOINTS:
@@ -192,9 +192,9 @@ def cmd_profile(a: argparse.Namespace) -> None:
     asyncio.run(run())
 
 
-# ---------------------------------------------------------------- 高峰
+# ---------------------------------------------------------------- Peak
 def _complete_video(unit_id: str, episode: int, video_kb: int) -> None:
-    """一次视频任务完成：提交版本并登记产物清单，再把产物写回剧本。"""
+    """Complete one video task: commit version/register manifest, then write the artifact into the script."""
 
     from lib.project.project_manager import get_project_manager
     from server.services.tasks.reference_video_tasks import apply_unit_video_assets
@@ -256,11 +256,12 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 rec["server_s"] = time.perf_counter() - t0 - rec["t_start"]
 
         class Client:
-            """前端的重拉习惯（useProjectEventsSSE）：一条视频完成先到实体变更批次，再到任务终态批次。
+            """Frontend refetch behavior (useProjectEventsSSE): entity-change batch precedes task-terminal batch.
 
-            实体批次重拉项目详情与单元列表，制作状态与工作流规划随项目快照重拉，费用估算防抖 0.5 秒；
-            任务终态批次不重拉项目详情，只作废单元列表，制作状态与工作流规划随任务指纹重拉。
-            同一接口的新请求取代旧请求，旧请求被放弃但服务端照常算完。"""
+            Entity batches refetch details/units; production state and workflow planning follow project
+            snapshots, with cost estimates debounced 0.5 seconds. Task-terminal batches do not refetch
+            details, only invalidate units; production/workflow follow task fingerprints. New same-
+            interface requests replace old ones; abandoned requests still finish computing server-side."""
 
             def __init__(self) -> None:
                 self.pending: dict[str, dict[str, Any]] = {}
@@ -278,10 +279,10 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 task.add_done_callback(tasks.discard)
 
             def on_video_done(self, episode: int) -> None:
-                for name in ("project", "units", "wf_status", "wf_plan"):  # 实体变更批次
+                for name in ("project", "units", "wf_status", "wf_plan"):  # Entity-change batch.
                     if name in names:
                         self.fire(name, episode)
-                for name in ("units", "wf_status", "wf_plan"):  # 任务终态批次
+                for name in ("units", "wf_status", "wf_plan"):  # Task-terminal batch.
                     if name in names:
                         self.fire(name, episode)
                 if "cost" in names:
@@ -328,7 +329,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                     {
                         "t": time.perf_counter() - t0,
                         "loop_lag": wall - 0.5,
-                        # 进程占用的 CPU 核数：多份计算同时在算却始终贴着 1，说明它们被 GIL 串行。
+                        # Process CPU cores: simultaneous computations staying near 1 indicate GIL serialization.
                         "cpu_cores": (time.process_time() - cpu) / wall,
                         "qsize": executor._work_queue.qsize() if executor else 0,
                         "inflight": dict(inflight),
@@ -358,20 +359,20 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         if stacks is not None:
             stacks.stop()
         await asyncio.gather(*bg, return_exceptions=True)
-        # 最后一次写入触发的费用估算还在防抖里，等它发出后再判断是否有在途请求。
+        # Last-write cost estimation may still be debounced; wait until sent before deciding whether requests remain.
         await asyncio.gather(*(cl.cost_timer for cl in clients if cl.cost_timer), return_exceptions=True)
-        # 防抖期间在途请求可能一度清零、提前置位 drained，而防抖随后发出的请求还没完成。
+        # In-flight count can temporarily reach zero during debounce and set drained before later debounced requests finish.
         drained.clear()
         if any(inflight.values()):
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(drained.wait(), a.drain)
         drain_s = time.perf_counter() - t_stop
         if stacks is not None:
-            # 排空计时之后、在事件循环外写盘，不拖慢仍在途的请求。
+            # Write results after drain timing, outside the event loop, without delaying still-running requests.
             await asyncio.to_thread(stacks.write_collapsed, _out_dir() / f"peak-{a.tag}.stacks.txt")
         smp.cancel()
         leftover = {k: v for k, v in inflight.items() if v}
-        # 排空截止时仍未完成的请求按截止时刻计耗时（真实值只会更大），并标记 unfinished。
+        # Unfinished requests use drain-deadline elapsed time (a lower bound) and are marked unfinished.
         for r in reqs:
             if "server_s" not in r:
                 r["server_s"] = time.perf_counter() - t0 - r["t_start"]
@@ -400,7 +401,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             "mean_thread_hops": statistics.mean(r["hops"] for r in rs) if rs else 0,
             "mean_thread_qwait_s": statistics.mean(r["qwait"] for r in rs) if rs else 0,
             "mean_lock_wait_s": statistics.mean(r["lock_wait"] for r in rs) if rs else 0,
-            # 工作线程里的墙钟与线程 CPU：CPU 远小于墙钟说明在等 GIL 或 IO。
+            # Worker wall/thread CPU: CPU far below wall time indicates GIL or I/O waits.
             "mean_thread_run_s": statistics.mean(r["run"] for r in rs) if rs else 0,
             "mean_thread_cpu_s": statistics.mean(r["cpu"] for r in rs) if rs else 0,
         }
@@ -412,7 +413,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         "drain_capped": bool(leftover),
         "leftover": leftover,
         "manifest_lock_nb_failures": probe.lock_fail,
-        # 写入方登记后清单条目应都带内容指纹，否则热态判定会退回读视频内容。
+        # After writer registration all manifest entries need fingerprints, or warm checks fall back to video-content reads.
         "video_facts_after": h.video_fact_coverage(),
         "thread_queue_max": max((s["qsize"] for s in samples), default=0),
         "loop_lag_max_s": max((s["loop_lag"] for s in samples), default=0),
@@ -429,7 +430,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
     _ensure(a)
-    # 不用 asyncio.run：它收尾时会等默认线程池里被放弃的计算（最多 300 秒），结果文件写入随之推迟。
+    # Avoid asyncio.run: shutdown waits for abandoned default-pool computations (up to 300 seconds), delaying result writes.
     result = asyncio.new_event_loop().run_until_complete(_peak(a))
     print(
         f"\n=== peak {a.duration:.0f}s: writes={result['writes']} drain_after_stop={result['drain_s']:.1f}s"
@@ -457,11 +458,11 @@ def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
             print(f"    self {share:6.1%} {label}")
     (_out_dir() / f"peak-{a.tag}.json").write_text(json.dumps(result, indent=1))
     sys.stdout.flush()
-    # 放弃的请求可能仍在线程里跑（drain 被截断时），正常退出会等它们，这里直接结束进程。
+    # Abandoned requests may still run in threads after truncated drain; normal exit waits, so terminate the process directly.
     os._exit(0)
 
 
-# ---------------------------------------------------------------- 汇总
+# ---------------------------------------------------------------- Summary
 def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
     def s(x: float | None) -> str:
         return "-" if x is None or x != x else f"{x:.2f}s"
@@ -477,7 +478,7 @@ def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
         ip95 = i["p95"] if i else None
         pp95 = p["p95"] if p else None
         ratio = f"{pp95 / ip95:.1f}x" if ip95 and pp95 and pp95 == pp95 else "-"  # nan != nan
-        # 有未完成请求时 p95 只是下限
+        # With unfinished requests, p95 is only a lower bound.
         at_least = "≥" if p and p["unfinished"] else ""
         lines.append(
             f"| {name} | {s(i and i['first_open_s'])} | {s(ip95)} | {at_least}{s(pp95)} | {at_least}{ratio} | "
@@ -538,7 +539,7 @@ def cmd_all(a: argparse.Namespace) -> None:
 
 # ---------------------------------------------------------------- CLI
 def _sample_hz(value: str) -> float:
-    # 负数或 inf 会得到不正的采样间隔，采样线程空转、挤占被测进程的 CPU。
+    # Negative or inf intervals become nonpositive, spinning the sampler and stealing measured-process CPU.
     hz = float(value)
     if hz != 0 and not (math.isfinite(hz) and hz > 0):
         raise argparse.ArgumentTypeError("采样频率须为 0 或有限正数")

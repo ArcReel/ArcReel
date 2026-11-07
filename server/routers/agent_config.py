@@ -1,7 +1,6 @@
-"""Agent Anthropic 凭证 + 预设供应商目录 API。
+"""Agent Anthropic credentials and preset-provider catalog API.
 
-路由前缀: /api/v1/agent
-"""
+Route prefix: /api/v1/agent"""
 
 from __future__ import annotations
 
@@ -87,13 +86,13 @@ async def list_preset_providers(_t: Translator) -> PresetProvidersResponse:
 
 
 class TierStatusResponse(BaseModel):
-    """一个档位的定价状态，按当前目录现查。``model_name`` 为 None 表示档位留空、由 CLI 决定调用的模型。"""
+    """One tier’s pricing state, queried from the current catalog. ``model_name`` None means an empty tier whose model is chosen by the CLI."""
 
     tier: Tier
     model_name: str | None
     entry_display_name: str | None
     manually_bound: bool
-    # 档位存着绑定、但所绑条目已不在目录里：对应关系已回到按模型名，界面仍须能解除这条绑定。
+    # A tier may retain a binding to a missing entry; matching falls back to model name, but UI must still allow unbinding.
     binding_stale: bool
     priced: bool
 
@@ -111,7 +110,7 @@ class CredentialResponse(BaseModel):
     opus_model: str | None
     subagent_model: str | None
     multiplier: float
-    # 主模型、haiku、sonnet、opus、子智能体五个档位实际调用的模型名与定价状态，顺序固定。
+    # Actual model names and pricing states for main, haiku, sonnet, opus and subagent tiers, in fixed order.
     tiers: list[TierStatusResponse]
     is_active: bool
     created_at: str | None
@@ -125,7 +124,7 @@ class CreateCredentialRequest(BaseModel):
     preset_id: str
     display_name: str | None = None
     base_url: str | None = None
-    # 与 from_custom_provider_id 二选一：给出供应商 id 时密钥由服务端从该供应商复制
+    # Mutually exclusive with from_custom_provider_id; with a provider ID, the server copies that provider’s key.
     api_key: str | None = None
     from_custom_provider_id: int | None = None
     model: str | None = None
@@ -133,11 +132,11 @@ class CreateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
-    # Agent 凭证倍率（docs/adr/0100）：订阅制网关可填 0，费用记 0。
+    # Agent credential multiplier (docs/adr/0100): subscription gateways may use 0 to record zero cost.
     multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
-    # 档位 → 条目绑定（「模型厂商/官方模型名」，docs/adr/0105）；值为 null 的档位忽略。
+    # Tier → entry bindings (model maker/official model name, docs/adr/0105); ignore tiers with null values.
     tier_bindings: dict[Tier, str | None] | None = None
-    activate: bool | None = None  # None = 自动 (无 active 时自动 set active)
+    activate: bool | None = None  # None = automatic (set active automatically when none is active).
 
 
 class UpdateCredentialRequest(BaseModel):
@@ -150,18 +149,18 @@ class UpdateCredentialRequest(BaseModel):
     opus_model: str | None = None
     subagent_model: str | None = None
     multiplier: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    # 按档位合并：给出的档位设为该条目，值为 null 的档位解除绑定，没给出的档位保持不变。
+    # Merge by tier: bind supplied tiers to entries, unbind null tiers and preserve omitted tiers.
     tier_bindings: dict[Tier, str | None] | None = None
 
 
 class TierBindingRequest(BaseModel):
-    """给一个档位选择模型条目：「模型厂商/官方模型名」，须是目录里当前存在的文本模型条目。"""
+    """Select a model entry for one tier: model maker/official model name, requiring a currently existing catalog text-model entry."""
 
     entry_binding: str
 
 
 def _cred_to_response(cred: AgentAnthropicCredential, settings: dict[str, str]) -> CredentialResponse:
-    """``settings`` 是系统设置，凭证上留空的档位以其中的旧值兜底（与注入会话的环境变量一致）。"""
+    """``settings`` contains system settings; empty credential tiers fall back to legacy values there, matching injected session environment variables."""
     preset = get_preset(cred.preset_id) if cred.preset_id != CUSTOM_SENTINEL_ID else None
     return CredentialResponse(
         id=cred.id,
@@ -193,10 +192,10 @@ def _cred_to_response(cred: AgentAnthropicCredential, settings: dict[str, str]) 
 
 
 def _validated_tier_bindings(bindings: dict[Tier, str | None] | None, _t: Translator) -> dict[Tier, str | None]:
-    """写入侧校验：新给出的绑定必须指向目录里现有的文本条目。
+    """Write validation: new bindings must point to existing catalog text entries.
 
-    只校验这次提交的值；已存的绑定不会随保存回传（按档位合并），所绑条目下架后不会堵住与它无关的编辑。
-    """
+    Validate only values in this submission. Stored bindings are not echoed on save because tiers merge; discontinued bound entries
+    do not block unrelated edits."""
     validated: dict[Tier, str | None] = {}
     for tier, ref in (bindings or {}).items():
         ref = (ref or "").strip() or None
@@ -207,10 +206,9 @@ def _validated_tier_bindings(bindings: dict[Tier, str | None] | None, _t: Transl
 
 
 def _normalized_base_url(raw: str, _t: Translator) -> str:
-    """入库前归一 + 校验：存储值即 Claude CLI 的调用值。
+    """Normalize and validate before persistence; stored values are the actual Claude CLI call values.
 
-    错误文案固定，不回显输入——地址里可能带着用户误填的 api_key。
-    """
+    Use fixed error messages without echoing input, because addresses may contain accidentally entered api_key values."""
     try:
         return validate_anthropic_base_url(raw)
     except InvalidAnthropicBaseUrlError as exc:
@@ -220,11 +218,10 @@ def _normalized_base_url(raw: str, _t: Translator) -> str:
 async def _resolve_key_source(
     body: CreateCredentialRequest, _t: Translator, session: AsyncSession
 ) -> tuple[str, str | None]:
-    """确定新凭证的 (api_key, 待归一的 base_url)。
+    """Resolve new credentials as (api_key, base_url awaiting normalization).
 
-    给出 from_custom_provider_id 时密钥取自该供应商，请求未带 base_url 则沿用供应商的地址；
-    否则密钥取自请求体。两种来源不可同时给出。
-    """
+    With from_custom_provider_id, copy that provider’s key and retain its URL if base_url is absent.
+    Otherwise take the key from the request body. The two sources are mutually exclusive."""
     if body.from_custom_provider_id is None:
         if not body.api_key:
             raise HTTPException(status_code=422, detail=_t("agent_api_key_required"))
@@ -289,7 +286,7 @@ async def create_credential(
         multiplier=body.multiplier,
         tier_bindings={tier: ref for tier, ref in bindings.items() if ref is not None},
     )
-    # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
+    # Automatic activation: activate=True, or activate=None with no current active credential.
     should_activate = body.activate is True
     if body.activate is None:
         existing_active = await repo.get_active()
@@ -310,8 +307,8 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     repo = AgentCredentialRepository(session)
-    # exclude_unset 保留客户端显式传入的 None（用于清空 model/haiku_model 等可选覆盖项）
-    # 必需字段 (display_name/base_url/api_key/multiplier) 仍过滤 None：传 null 给它们没有意义
+    # exclude_unset preserves explicit None for clearing optional model/haiku_model overrides.
+    # Still filter None for required display_name/base_url/api_key/multiplier fields, where null has no meaning.
     fields = body.model_dump(exclude_unset=True)
     for required in ("display_name", "base_url", "api_key", "multiplier"):
         if fields.get(required) is None:
@@ -338,7 +335,7 @@ async def bind_tier(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
-    """为单个档位选择模型条目。绑定只存在凭证上，不修改条目，也不影响条目的官方同步。"""
+    """Select a model entry for one tier. Bindings exist only on credentials, without modifying entries or affecting official synchronization."""
     changes = _validated_tier_bindings({tier: body.entry_binding}, _t)
     if changes[tier] is None:
         raise HTTPException(status_code=422, detail=_t("agent_tier_binding_invalid"))
@@ -356,7 +353,7 @@ async def unbind_tier(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
-    """解除单个档位的绑定，回到按模型名自动对应；档位本来没有绑定时也成功。"""
+    """Unbind one tier and return to automatic name matching; succeed even if the tier was already unbound."""
     cred = await AgentCredentialRepository(session).merge_tier_bindings(cred_id, {tier: None})
     if cred is None:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))

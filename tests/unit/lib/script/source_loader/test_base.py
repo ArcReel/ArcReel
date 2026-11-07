@@ -31,6 +31,6 @@ def test_format_extractor_protocol_runtime_check():
             return ExtractedText(text="x")
 
     stub: FormatExtractor = _Stub()
-    # Protocol 仅做静态检查；运行期通过 hasattr 验证 duck-typing
+    # Protocol checks are static; verify runtime duck typing through hasattr.
     assert hasattr(stub, "extract")
     assert isinstance(stub.extract(Path(".")), ExtractedText)

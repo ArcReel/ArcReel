@@ -26,7 +26,7 @@ class TestCharacterPrompt:
         assert "黑发，冷静神态。" in prompt
         assert "Style: 古风" in prompt
         assert "Visual style: Cinematic, low-key lighting" in prompt
-        assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+        assert prompt.endswith("Avoid: watermarks, extra text, logos")
         assert "Cinematic, low-key lighting" in prompt
 
 
@@ -46,10 +46,10 @@ class TestScenePromptAndPropPrompt:
 
 
 class TestFigureExclusion:
-    """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
+    """Environment/object image types exclude people; image types whose subjects are people do not."""
 
-    # 断言完整片段而非「人物」二字：正文里的普通描述也可能出现该词，按关键词断言会误判。
-    _EXCLUSION = "Avoid: 出镜人物"
+    # Assert complete fragments, not merely 人物; ordinary descriptions may contain that word and falsely satisfy keyword checks.
+    _EXCLUSION = "Avoid: people appearing in the shot"
 
     def test_environment_and_object_sheets_exclude_people(self):
         assert self._EXCLUSION in build_scene_prompt("祠堂", "昏暗古朴")
@@ -58,7 +58,7 @@ class TestFigureExclusion:
 
     def test_exclusion_survives_a_description_that_repeats_it(self):
         prompt = build_scene_prompt("祠堂", "昏暗古朴，无出镜人物、无声响。")
-        assert prompt.endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+        assert prompt.endswith("Avoid: people appearing in the shot, watermarks, extra text, logos")
 
     def test_character_and_storyboard_keep_people(self):
         assert self._EXCLUSION not in build_character_prompt("张三", "短发青年")
@@ -68,7 +68,8 @@ class TestFigureExclusion:
 class TestStoryboardImageAvoidLine:
     def test_text_form_ends_with_one_image_avoid_line(self):
         assert (
-            render_storyboard_image_prompt("林清坐在窗边木桌前") == "林清坐在窗边木桌前\n\nAvoid: 水印、多余文字、Logo"
+            render_storyboard_image_prompt("林清坐在窗边木桌前")
+            == "林清坐在窗边木桌前\n\nAvoid: watermarks, extra text, logos"
         )
 
     def test_idempotent(self):
@@ -97,7 +98,7 @@ _STRUCTURED = {
 
 
 class TestRenderStoryboardImagePrompt:
-    """图N 编号由实际发出的参考图列表机械派生，对全部图像后端同一口径。"""
+    """图N numbering derives mechanically from actually sent reference lists, identically across image backends."""
 
     @pytest.mark.parametrize("prompt", [_STRUCTURED, _SCENE])
     def test_both_forms_share_style_block_and_wrappers_survive_text_roundtrip(self, prompt):
@@ -125,13 +126,13 @@ class TestRenderStoryboardImagePrompt:
         rendered = render_storyboard_image_prompt(_STRUCTURED, style="电影感写实，冷色调", references=references)
         assert rendered == (
             "Style: 电影感写实，冷色调\n"
-            "Reference_Images: 图1、图2为角色参考图；图3为场景参考图；图4为上一分镜图，只参考构图与色调。\n"
+            "Reference_Images: '图1, 图2: character reference images; 图3: scene reference images; 图4: previous storyboard image, use only composition and color.'\n"
             "Scene: 图1坐在窗边木桌前，目光落在信纸上；图2立在门口的阴影里。桌面摊着一只褪色的怀表，图3的木格窗棂外雨丝密集。\n"
             "Composition:\n"
             "  shot_type: Medium Shot\n"
             "  lighting: 右侧落地窗逆光，蓝灰色调\n"
             "  ambiance: 雨天，室内昏暗\n"
-            "Avoid: 水印、多余文字、Logo"
+            "Avoid: watermarks, extra text, logos"
         )
 
     def test_product_images_lead_the_numbering_and_replace_the_fidelity_tail(self):
@@ -152,13 +153,16 @@ class TestRenderStoryboardImagePrompt:
             style="Anime",
             references=references,
         )
-        assert "Reference_Images: 图1、图2为商品参考图，画面中的商品须与之完全一致；图3为角色参考图。\n" in rendered
+        assert (
+            "Reference_Images: '图1, 图2: product reference images; the product in the frame must match exactly; 图3: character reference images.'\n"
+            in rendered
+        )
         assert "Scene: 图3手持图1特写\n" in rendered
         assert "商品高保真还原" not in rendered
 
     def test_mentions_without_a_reference_image_render_as_bare_names(self):
         rendered = render_storyboard_image_prompt(_STRUCTURED, style="Anime", references=[_sheet("character", "林清")])
-        assert "Reference_Images: 图1为角色参考图。\n" in rendered
+        assert "Reference_Images: '图1: character reference images.'\n" in rendered
         assert (
             "Scene: 图1坐在窗边木桌前，目光落在信纸上；沈茹/黑化立在门口的阴影里。桌面摊着一只褪色的怀表，林家老宅·书房的"
             in rendered
@@ -177,9 +181,9 @@ class TestRenderStoryboardImagePrompt:
         assert rendered == (
             "Style: Anime\n"
             "Visual style: cinematic\n"
-            "Reference_Images: 图1为角色参考图；图2为上一分镜图，只参考构图与色调。\n\n"
+            "Reference_Images: '图1: character reference images; 图2: previous storyboard image, use only composition and color.'\n\n"
             "图1坐在窗边木桌前\n\n"
-            "Avoid: 水印、多余文字、Logo"
+            "Avoid: watermarks, extra text, logos"
         )
 
     def test_rendering_a_rendered_text_again_is_idempotent(self):
@@ -194,7 +198,7 @@ class TestRenderStoryboardImagePrompt:
 
 
 class TestTextFormRerenderAfterStyleFieldsChange:
-    """纯文本形态回贴后项目风格字段才补齐，再渲染时每条风格声明仍只出现一次。"""
+    """After plain-text paste and later project-style completion, repeated renders still include each style declaration once."""
 
     @pytest.mark.parametrize(
         ("first", "then"),
@@ -210,28 +214,46 @@ class TestTextFormRerenderAfterStyleFieldsChange:
         lines = again.split("\n")
         assert lines.count("Style: 水墨") == 1
         assert lines.count("Visual style: 留白写意") == 1
-        assert lines.count("Avoid: 水印、多余文字、Logo") == 1
+        assert lines.count("Avoid: watermarks, extra text, logos") == 1
         assert render_storyboard_image_prompt(again, **then) == again
 
     def test_legacy_text_with_description_first_is_not_stacked(self):
         legacy = "Visual style: 留白写意\n\nStyle: 水墨\n\n林清坐在窗边木桌前\n\nAvoid: 水印、多余文字、Logo"
         rendered = render_storyboard_image_prompt(legacy, style="水墨", style_description="留白写意")
-        assert rendered == legacy
+        assert rendered == legacy.replace("Avoid: 水印、多余文字、Logo", "Avoid: watermarks, extra text, logos")
+        assert rendered.count("Avoid:") == 1
+        assert render_storyboard_image_prompt(rendered, style="水墨", style_description="留白写意") == rendered
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "林清坐在窗边木桌前\n\nAvoid: 水印、多余文字、Logo、红色",
+            "A sign reads: Avoid: 水印、多余文字、Logo",
+        ],
+        ids=["custom-declaration", "inline-prose"],
+    )
+    def test_legacy_declaration_upgrade_preserves_other_user_text(self, body):
+        rendered = render_storyboard_image_prompt(body)
+
+        assert rendered.startswith(body)
+        assert rendered.count(body) == 1
+        assert rendered.endswith("Avoid: watermarks, extra text, logos")
+        assert render_storyboard_image_prompt(rendered) == rendered
 
 
 def test_product_sheet_preserves_product_and_ignores_project_style():
     prompt = build_product_prompt("护手霜", "白色管装", "水彩", "柔和笔触")
-    assert "商品「护手霜」的标准资产图。" in prompt
-    assert "logo、文字、配色、材质、比例与结构不得改变或臆造" in prompt
-    assert "包装上印刷的人像图案属于商品外观，须原样保留。" in prompt
+    assert "Standard asset sheet for product “护手霜”." in prompt
+    assert "do not change or invent the logo, text, colors, materials, proportions, or structure" in prompt
+    assert "Portraits printed on the packaging are part of the product appearance and must remain unchanged." in prompt
     assert "水彩" not in prompt
     assert "柔和笔触" not in prompt
-    assert prompt.endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+    assert prompt.endswith("Avoid: people appearing in the shot, watermarks, extra text, logos")
 
 
 def test_derivative_keeps_reference_layout_and_has_no_style_block():
     prompt = build_character_derivative_prompt("衣服变为黑色")
     assert prompt.startswith("衣服变为黑色")
-    assert "保持原图的三视图版式" in prompt
+    assert "Keep the original three-view layout" in prompt
     assert "Style:" not in prompt
-    assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+    assert prompt.endswith("Avoid: watermarks, extra text, logos")

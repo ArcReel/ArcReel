@@ -1,4 +1,4 @@
-"""ArcReel 的应用版本：取自仓库根的 ``pyproject.toml``（release-please 维护）。"""
+"""ArcReel application version from root ``pyproject.toml``, maintained by release-please."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ PYPROJECT_PATH = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
 def load_app_version(pyproject_path: Path) -> str:
-    """从给定 pyproject 读版本号；不缓存。读不到或为空时抛错。"""
+    """Read the version from the supplied pyproject without caching; raise if unavailable or empty."""
     with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
 
@@ -22,10 +22,10 @@ def load_app_version(pyproject_path: Path) -> str:
 
 @functools.cache
 def app_version() -> str:
-    """当前应用版本，进程内只读一次。"""
+    """Current application version, read only once per process."""
     return load_app_version(PYPROJECT_PATH)
 
 
 def reset_for_tests() -> None:
-    """清掉 :func:`app_version` 的进程级缓存，只供测试使用。"""
+    """Clear the process-wide :func:`app_version` cache for tests only."""
     app_version.cache_clear()

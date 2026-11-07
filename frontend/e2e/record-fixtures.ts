@@ -1,7 +1,7 @@
-// 对真实后端录制页面级套件的接口数据替身：`pnpm e2e:record`。
-// 在临时数据目录里启动后端、创建演示项目，按 RECORDINGS 逐个请求并写入 e2e/fixtures/recorded/。
-// 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
-// 后端改动接口形状的 PR 同时重录。
+// Record page-suite API fixtures against real backends: `pnpm e2e:record`.
+// Start backends in temporary data directories, create demos, request RECORDINGS sequentially and write e2e/fixtures/recorded/.
+// Normalize timestamps/temp roots/checkout paths/tokens/project revisions so rerecord diffs show interface-shape changes only.
+// Backend API-shape PRs rerecord fixtures too.
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -20,16 +20,16 @@ const PASSWORD = "e2e-password";
 const DEMO_PROJECT = "demo";
 
 interface Recording {
-  /** 替身文件名（不含扩展名）。 */
+  /** Fixture filenames without extensions. */
   file: string;
   method: "GET" | "POST" | "DELETE";
-  /** 页面实际请求的路径；带查询串时写全，参数顺序不限。查询串不同的请求分别录制。 */
+  /** Actual request paths, including complete queries in any parameter order; distinct queries record separately. */
   path: string;
-  /** 不带令牌请求。 */
+  /** Requests without tokens. */
   anonymous?: boolean;
   form?: Record<string, string>;
   json?: unknown;
-  /** 按录制环境（没有配置供应商）应当返回的非 2xx 状态，照实录下。 */
+  /** Expected non-2xx statuses in provider-unconfigured recording environments, recorded truthfully. */
   status?: number;
 }
 
@@ -52,7 +52,7 @@ const RECORDINGS: Recording[] = [
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "deleted-projects", method: "GET", path: "/api/v1/deleted-projects" },
   { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
-  // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
+  // Workspace/episode startup requests (project event SSE streams are unrecorded, replaced by scenarios as needed).
   { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
   { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
   { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
@@ -70,22 +70,22 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-workflow-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-status` },
   { file: "project-demo-workflow-plan", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-plan`, json: { episode_id: 1 } },
   { file: "project-demo-cost-estimate", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/cost-estimate` },
-  // 全局设置：默认落地的供应商详情（列表第一项）与默认模型的候选。
+  // Global settings: default provider details (first list item) and default-model candidates.
   { file: "provider-gemini-aistudio-config", method: "GET", path: "/api/v1/providers/gemini-aistudio/config" },
   { file: "provider-gemini-aistudio-credentials", method: "GET", path: "/api/v1/providers/gemini-aistudio/credentials" },
   { file: "provider-gemini-aistudio-multiplier", method: "GET", path: "/api/v1/providers/gemini-aistudio/multiplier" },
   { file: "provider-gemini-aistudio-models", method: "GET", path: "/api/v1/providers/gemini-aistudio/models" },
   { file: "system-config-model-candidates", method: "GET", path: "/api/v1/system/config/model-candidates" },
-  // 默认模型「自动选择」的实际模型（录制环境没有供应商，各用途都选不出），全局设置、项目设置与新建项目向导共用。
+  // Actual models for Automatic default-model selection (recorded environments lack providers, so no uses resolve), shared by global/project settings and new-project wizards.
   { file: "system-config-auto-backends", method: "GET", path: "/api/v1/system/config/auto-backends" },
-  // 全局设置：访问令牌列表（录制环境没有令牌，多条目由场景替换）。
+  // Global settings: access-token lists (recorded environments lack tokens; scenarios replace multiple entries).
   { file: "api-keys", method: "GET", path: "/api/v1/api-keys" },
-  // 全局设置「ArcReel Agent」：Agent 供应商列表（录制环境为空）与添加对话框的预设供应商目录。
+  // Global ArcReel Agent settings: Agent-provider lists (empty in recordings) and add-dialog preset-provider catalogs.
   { file: "agent-credentials", method: "GET", path: "/api/v1/agent/credentials" },
   { file: "agent-preset-providers", method: "GET", path: "/api/v1/agent/preset-providers" },
-  // 全局设置「Agent 记忆」：用户记忆目录（录制环境没有记忆文件，多条目与正文由场景替换）。
+  // Global Agent memory settings: user-memory directories (recorded environments lack memory files; scenarios replace entries/bodies).
   { file: "agent-memory", method: "GET", path: "/api/v1/agent/memory" },
-  // 全局设置「使用记录」：默认最近 30 天（起点由固定时间与 Asia/Shanghai 推出）与进行中的调用。
+  // Global Usage settings: default past 30 days (start derived from fixed times/Asia/Shanghai) and running calls.
   { file: "usage-summary-30d", method: "GET", path: "/api/v1/usage/summary?since=2025-12-02T16:00:00.000Z&tz=Asia/Shanghai" },
   {
     file: "usage-records-30d",
@@ -93,7 +93,7 @@ const RECORDINGS: Recording[] = [
     path: "/api/v1/usage/records?limit=20&since=2025-12-02T16:00:00.000Z&status=success,failed,cancelled",
   },
   { file: "usage-records-pending", method: "GET", path: "/api/v1/usage/records?limit=20&status=pending" },
-  // 全局设置：关于（版本信息访问外网，由场景替换）、提示词模版列表与详情。
+  // Global settings: About (external version information replaced by scenarios) and prompt-template lists/details.
   { file: "official-service", method: "GET", path: "/api/v1/official-service" },
   { file: "prompt-templates", method: "GET", path: "/api/v1/prompt-templates" },
   { file: "prompt-template-episode-plan", method: "GET", path: "/api/v1/prompt-templates/text/episode_plan" },
@@ -102,46 +102,46 @@ const RECORDINGS: Recording[] = [
     method: "GET",
     path: "/api/v1/prompt-templates/partials/shared/additional_instructions",
   },
-  // 全局设置「调用端点」：自定义端点列表（录制环境为空，多条目由场景替换）与各端点的分享提交（决定是否提供分享入口）；官方服务开关见上。
+  // Global API endpoints settings: custom endpoint lists (empty in recordings; scenarios supply entries) and share submissions determining share entries; official-service toggles above.
   { file: "custom-endpoints", method: "GET", path: "/api/v1/custom-endpoints" },
-  // 内置端点详情的只读定义。
+  // Read-only built-in endpoint definitions.
   {
     file: "custom-providers-endpoint-newapi-video-definition",
     method: "GET",
     path: "/api/v1/custom-providers/endpoints/newapi-video/definition",
   },
   { file: "market-submissions", method: "GET", path: "/api/v1/market/submissions" },
-  // 全局设置「素材库与存储」：对象存储连接与新增图片保存位置（录制环境没有连接，保存位置为本地）、素材库账号与推理凭证绑定（为空）；已配置的状态由场景替换。
+  // Global Material libraries/storage settings: object-storage connections/new-image save locations (no connections in recordings; local saves), library accounts/inference credential bindings (empty); scenarios supply configured states.
   { file: "object-storage-connection", method: "GET", path: "/api/v1/object-storage/connection" },
   { file: "asset-library-accounts", method: "GET", path: "/api/v1/asset-library/accounts" },
   { file: "asset-library-bindings", method: "GET", path: "/api/v1/asset-library/bindings" },
-  // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
+  // Global Market settings: sources (only never-refreshed built-in official sources in recordings) and empty entry snapshots; scenarios replace external refresh/aggregation/details.
   { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
   { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
-  // 新建项目向导：TTS 配音的预填值（全局默认）。
+  // New-project wizards: TTS prefilled values (global defaults).
   { file: "narration-defaults", method: "GET", path: "/api/v1/system/narration-defaults" },
-  // 资产库：默认的「角色」标签首页（项目画廊「从资产库导入」同一请求）、画廊的资产图状态，以及入库预览按名称查重。
+  // Asset libraries: default Characters first pages (same request as gallery Import from library), gallery asset-image states and name-duplicate checks for add previews.
   { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
   { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },
   { file: "assets-character-search-lin-xi", method: "GET", path: `/api/v1/assets?q=${encodeURIComponent("林夕")}&type=character` },
-  // 项目设置：Agent 配置状态与项目记忆（演示项目没有定制配置与记忆文件，多条目由场景替换）。
+  // Project settings: Agent configuration states/project memory (demos lack custom configurations/memory files; scenarios replace entries).
   { file: "project-demo-agent-profile", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-profile` },
   { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
-  // 项目「分集」视图：演示项目没有整本源文，只有一集无原文的集；整本源文、多集与未登记文件由场景替换。
+  // Project Episodes views: demos lack whole sources and contain only one sourceless episode; scenarios replace whole sources/multiple episodes/unregistered files.
   { file: "project-demo-episodes-view", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/episodes-view` },
-  // 项目「文件」视图：项目根与 scripts 目录（演示项目只有一集的空正式脚本；多文件、长文件名与预览正文由场景替换）。
+  // Project Files views: project roots/scripts directories (demos contain only one empty formal episode script; scenarios replace multiple files/long filenames/preview bodies).
   { file: "project-demo-file-view", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/file-view?path=` },
   { file: "project-demo-file-view-scripts", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/file-view?path=scripts` },
-  // 文件视图的「项目回收站」分区：演示项目没有删除记录，多条记录由场景替换。
+  // File-view Project trash sections: demos lack deletion records; scenarios supply multiple records.
   { file: "project-demo-trash", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/trash` },
-  // 集页「多宫格分镜图」：宫格档位上限与宫格记录（演示项目没有宫格，多组联合图由场景替换）。
+  // Episode Multi-grid storyboard images: grid-tier limits/records (demos lack grids; scenarios supply grouped composites).
   { file: "project-demo-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability` },
   { file: "project-demo-grids", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grids` },
-  // 集页剪辑视图：演示集还没有视频，也就没有剪辑时间线，显示空状态；有剪辑时间线的读取结果与出片现状由场景替换。
+  // Episode editing views: demos lack videos and therefore editing timelines, showing empty states; scenarios replace timeline reads/export states.
   { file: "project-demo-edit-timelines", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/edit-timelines?episode=1` },
 ];
 
-// 资产库里的演示资产：两个角色、一个场景、一个道具，都没有图片。
+// Demo library assets: two characters, one scene and one prop, all without images.
 const LIBRARY_ASSETS: Record<string, string>[] = [
   { type: "character", name: "林夕", description: "二十出头的旧城茶馆老板娘，短发，常穿靛蓝布衫。", voice_style: "温和、语速偏慢" },
   { type: "character", name: "陈默", description: "沉默寡言的修表匠，左手腕上有一道旧疤。", voice_style: "" },
@@ -149,14 +149,14 @@ const LIBRARY_ASSETS: Record<string, string>[] = [
   { type: "prop", name: "青铜罗盘", description: "巴掌大的罗盘，指针总是指向茶馆。", voice_style: "" },
 ];
 
-// 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。
+// Opaque values changing each recording: tokens derive from issuance times; project revisions digest project.json including creation times.
 const FIXED_VALUES = new Map<string, string>([
   ["access_token", RECORDED_ACCESS_TOKEN],
   ["project_revision", "sha256-v1:<project-revision>"],
 ]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-// 同一次录制里相同的 uuid 映射到同一个固定值，按首次出现的顺序编号。
+// Identical UUIDs within recordings map to identical fixed values, numbered in first-appearance order.
 const uuidAliases = new Map<string, string>();
 
 function fixedUuid(value: string): string {
@@ -208,7 +208,7 @@ async function waitForHealth(baseUrl: string, backendExited: () => boolean) {
       const resp = await fetch(`${baseUrl}/health`);
       if (resp.ok) return;
     } catch {
-      // 后端尚未开始监听。
+      // Backends have not started listening yet.
     }
     await new Promise((done) => setTimeout(done, 500));
   }
@@ -249,7 +249,7 @@ async function postForm(baseUrl: string, token: string, path: string, fields: Re
 }
 
 async function main() {
-  // 取真实路径：macOS 的临时目录经 /var → /private/var 符号链接，后端返回的是解析后的路径
+  // Resolve real paths: macOS temporary directories use /var → /private/var symlinks; backends return resolved paths.
   const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "arcreel-e2e-")));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -261,10 +261,10 @@ async function main() {
     AUTH_USERNAME: USERNAME,
     AUTH_PASSWORD: PASSWORD,
     AUTH_TOKEN_SECRET: "e2e-token-secret-for-recording-only",
-    // 后端启动时会读 .env（含向上查找到的主仓 .env），里面的 DATABASE_URL 会把录制接到开发者的库。
+    // Backend startup reads .env, including parent main-checkout .env, whose DATABASE_URL would connect recording to developer databases.
     PYTHON_DOTENV_DISABLED: "1",
   };
-  // 数据库落在临时数据目录里，不碰开发者自己的库。
+  // Databases reside in temporary roots, never touching developer databases.
   delete env.DATABASE_URL;
   delete env.AI_ANIME_PROJECTS;
 
@@ -288,12 +288,12 @@ async function main() {
 
     await postJson(baseUrl, token, "/api/v1/onboarding/seen", {});
     await postJson(baseUrl, token, "/api/v1/projects", { name: DEMO_PROJECT, title: "演示项目", generation_mode: "storyboard" });
-    // 一集还没有分镜的空正式脚本，集页显示「新增第一个分镜」。
+    // Empty formal scripts without episode storyboards show Add first storyboard.
     await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "第一集" });
     await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes/1/blank-script`, {});
     await postJson(baseUrl, token, "/api/v1/projects", { name: "deleted-demo", title: "已删除演示项目", generation_mode: "storyboard" });
     await request(baseUrl, token, { method: "DELETE", path: "/api/v1/projects/deleted-demo" });
-    // 资产库按更新时间倒序列出，逐个创建使顺序与 LIBRARY_ASSETS 相反、且每次录制一致。
+    // Libraries list newest-updated first; sequential creation reverses LIBRARY_ASSETS order consistently across recordings.
     for (const asset of LIBRARY_ASSETS) await postForm(baseUrl, token, "/api/v1/assets", asset);
 
     rmSync(RECORDED_DIR, { recursive: true, force: true });

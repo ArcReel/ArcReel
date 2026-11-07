@@ -1,17 +1,18 @@
-"""视频单元正文的读时派生：utterances + 降级可见性 warning。
+"""Read-time derivation of video-unit bodies: utterances and visible-degradation warnings.
 
-正文是唯一真相，utterances 与参考图一样机械派生、不落盘（见 ADR 0064）。
+The body is the sole source of truth. Like reference images, utterances are mechanically derived,
+not persisted (see ADR 0064).
 
-台词语法（与 :mod:`lib.script.reference_video.text_parser` 的行内切分原语同源）：
+Dialogue syntax shares inline splitting primitives with :mod:`lib.script.reference_video.text_parser`:
 
-- ``@[角色]{台词}``（mention 与花括号之间允许空白或中英冒号）→ ``dialogue`` utterance
-- 裸 ``{台词}`` → ``voiceover`` utterance
-- 两者都可出现在行内任意位置，一行可有多条；花括号没被识别成发声记号时不派生、原样保留，
-  只出 warning——不做「行内最近 mention 猜 speaker」启发式，推断错误会把台词静默绑到
-  错误角色的参考音频上
+- ``@[角色]{台词}`` (whitespace or ASCII/Chinese colons allowed between mention and braces) → ``dialogue`` utterance
+- Bare ``{台词}`` → ``voiceover`` utterance
+- Both can appear anywhere inline, with multiple marks per line. Unrecognized braces produce no
+  utterances and remain verbatim, with warnings only. Never guess a speaker from the nearest inline
+  mention: mistaken inference silently binds dialogue to the wrong character's reference audio.
 
-warning 是 locale-neutral 的 ``{"key", "params"}`` 条目（同 ``result.warnings`` 既有形态），
-由 router / 任务列表按请求语言渲染。
+Warnings are locale-neutral ``{"key", "params"}`` entries, matching existing ``result.warnings``;
+routers/task lists render them in the request language.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from lib.script.reference_video.text_parser import (
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_models import Utterance
 
-#: 未闭合花括号 warning 里回显的原行片段长度上限。
+#: Maximum original-line excerpt length echoed in unclosed-brace warnings.
 _EXCERPT_LEN = 30
 
 WARN_UNREGISTERED_MENTION = "ref_warn_unregistered_mention"
@@ -50,7 +51,7 @@ WARN_UNIT_WITHOUT_SCENE = "ref_warn_unit_without_scene"
 
 @dataclass(frozen=True)
 class ScriptPreview:
-    """一份视频单元正文的读时派生结果，即编辑器「解析预览面板」的内容源。"""
+    """Read-time derivation of a video-unit body, supplying the editor's parsed-preview panel."""
 
     utterances: list[Utterance]
     warnings: list[dict[str, Any]] = field(default_factory=list)
@@ -61,13 +62,14 @@ def _warning(key: str, **params: Any) -> dict[str, Any]:
 
 
 def derive_utterances(text: str) -> tuple[list[Utterance], list[dict[str, Any]]]:
-    """逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 未识别的花括号）。
+    """Derive utterances per line and collect syntax warnings for unclosed/unrecognized braces.
 
-    发声记号可出现在行内任意位置，一行可派生多条 utterance，顺序即正文出现顺序。warning
-    只看**记号之外**的残余描述：行内已识别的记号不该因为同行还写着别的花括号而被吞掉；
-    ``line`` 参数是 1-based 行号，让呈现层把 warning 锚回正文的具体一行。
+    Speech marks may appear anywhere inline; multiple utterances per line follow body order. Warnings
+    inspect only residual descriptions **outside marks**: other braces on a line must not swallow its
+    recognized speech. The ``line`` parameter is 1-based, anchoring warnings to specific body lines.
 
-    纯语法层：不认识项目资产表，speaker 是否登记由 :func:`build_script_preview` 另行判定。
+    Syntax only: project asset tables are unknown here. :func:`build_script_preview` separately checks
+    whether speakers are registered.
     """
     utterances: list[Utterance] = []
     warnings: list[dict[str, Any]] = []
@@ -90,11 +92,13 @@ def derive_utterances(text: str) -> tuple[list[Utterance], list[dict[str, Any]]]
 
 @dataclass(frozen=True)
 class VoiceBindings:
-    """一份文稿的声音派生结果：谁在说话、谁绑到了第几段参考音频。
+    """Voice derivation for a script: who speaks and which numbered reference audio each speaker binds.
 
-    ``speakers`` 是已登记的 dialogue speaker（首现顺序）——第一段声音特征声明按此顺序逐条发出。
-    ``audio_speakers`` 是其中真正绑上参考音频的子集，**顺序即 ``@音频N`` 编号与
-    ``VideoGenerationRequest.reference_audio_files`` 的字段顺序**（两者同一份派生，不各自重算）。
+    ``speakers`` lists registered dialogue speakers in first-appearance order, used to emit the first
+    section's voice-characteristic declarations. ``audio_speakers`` is the subset actually bound to
+    reference audio. **Its order determines both ``@音频N`` numbering and
+    ``VideoGenerationRequest.reference_audio_files`` field order**, from one derivation rather than
+    separate recomputations.
     """
 
     speakers: list[str]
@@ -109,43 +113,47 @@ def derive_voice_bindings(
     *,
     speakers_with_reference_image: Collection[str] | None = None,
 ) -> VoiceBindings:
-    """从 utterances 机械派生声音绑定：说话人顺序、参考音频编号与降级 warning。
+    """Mechanically derive speaker order, reference-audio numbering, and degradation warnings from utterances.
 
-    ``settings`` 收口本次渲染的声音输入档（见 :class:`~lib.script.reference_video.voice_settings
-    .VoiceRenderSettings`）。只有 ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与
-    上限，故「未设参考音频」「超出段数上限」两条只在该档发出；``none``（真无声）时改发一条
-    无声知会。
+    ``settings`` centralizes this render's voice-input tier (see :class:`~lib.script.reference_video.voice_settings
+    .VoiceRenderSettings`). Only ``native`` (class A, native audio references) supports reference-audio
+    bindings and limits, so missing-reference-audio and count-overflow warnings occur only there;
+    ``none`` (truly silent) emits a silent-output notice instead.
 
-    ``settings.requested_generate_audio`` 为 False 时无论模型档位如何都不产出
-    ``audio_speakers``，改发一条本集无声知会。参考音频只在这一处收口，prompt 的 ``@音频N``
-    与 ``reference_audio_files`` 因此同源消失，不会出现文本承诺了音色参考、请求里却没有对应
-    音频段的分叉；台词渲染与本开关无关（另见 :func:`lib.script.reference_video.prompt_render
-    ._render_segment_two`），供应商可继续拿台词文本做口型参考。无声知会优先于 ``none`` 档的
-    ``WARN_SILENT_MODEL``：两者都是「这一集听不到声音」，用户主动关掉音频时说模型不产音会指错
-    排查方向。
+    False ``settings.requested_generate_audio`` produces no ``audio_speakers`` regardless of model tier,
+    instead notifying that this episode is silent. Reference audio is centralized here, so prompt
+    ``@音频N`` and ``reference_audio_files`` disappear together: text cannot promise a voice reference
+    without the corresponding audio segment in the request. Dialogue rendering is independent of
+    this switch (see :func:`lib.script.reference_video.prompt_render
+    ._render_segment_two`); providers can still use dialogue text for lip-sync guidance. The episode
+    silence notice precedes the ``none`` tier's ``WARN_SILENT_MODEL``: both explain inaudibility, but
+    blaming model silence when users disabled audio would misdirect troubleshooting.
 
-    ``settings.audio_ready`` 为 None 时按角色资产的 ``reference_audio`` 字段非空判定；执行层
-    传入已解析且确实存在的文件对应的角色名，让编号与实际随请求发出的音频段数严格等长——字段
-    指向已删文件时编号若不同步，``@音频N`` 会指向不存在的段。两条路径共用本函数，避免预览
-    承诺的绑定与生成实际发出的绑定分叉。非 None 时降级原因区分两种：角色 ``reference_audio``
-    字段未设置发 ``WARN_SPEAKER_WITHOUT_AUDIO``；字段有值但不在集合内发
-    ``WARN_SPEAKER_AUDIO_UNAVAILABLE``——前者该去角色设置里补音频，后者字段已填好，该去查
-    它指向的音频本身，排查方向不同，不能合并成一条 warning。后者的成因不止一种（文件被删、
-    字段值指到 ``characters/refs_audio`` 之外都会被
-    :func:`lib.script.reference_video.prompt_render.resolve_reference_audio_paths` 排除），故文案
-    只说「不可用」，不断言具体是哪一种。
+    None ``settings.audio_ready`` checks whether character assets' ``reference_audio`` fields are nonempty.
+    Execution supplies character names with resolved, existing files, keeping numbering exactly equal
+    to the count of audio segments actually sent. Without synchronized numbering, deleted files make
+    ``@音频N`` point to absent segments. Both paths share this function to avoid preview/execution binding
+    divergence. For non-None values, distinguish two degradation reasons: unset ``reference_audio`` emits
+    ``WARN_SPEAKER_WITHOUT_AUDIO``; a set field absent from the collection emits
+    ``WARN_SPEAKER_AUDIO_UNAVAILABLE``. The first requires adding character audio; the second requires
+    investigating the already configured audio, so they must not share one warning. Several causes
+    can explain the latter: deleted files and values outside ``characters/refs_audio`` are excluded by
+    :func:`lib.script.reference_video.prompt_render.resolve_reference_audio_paths`. Say only unavailable,
+    without asserting a specific cause.
 
-    ``settings.requires_reference_image`` 为 True 时（目标 backend 的音频必须逐段挂在具体
-    参考素材项上，如 wan2.7-r2v），纯画外（无参考图）speaker 即使有可用音频也不绑定——绑定后
-    该角色的音频段数会算进 ``max_reference_audio``，但 backend 没有素材项可挂，要么错配给
-    别的角色/场景要么硬失败。降级发一条独立 warning（而非复用「未设参考音频」，原因不同：
-    这里音频确实可用，只是没有画面可挂）。``speakers_with_reference_image`` 是本次实际随
-    请求发出的参考图对应的角色名集合，仅在该位为 True 时读取。
+    True ``settings.requires_reference_image`` means the target backend attaches each audio segment
+    to a specific reference item, as wan2.7-r2v does. Offscreen speakers without reference images then
+    remain unbound even with usable audio. Binding would consume ``max_reference_audio`` without an
+    item for backend attachment, causing another character/scene's misbinding or hard failure. Emit a
+    separate degradation warning rather than reusing missing-audio: audio is usable but lacks an image.
+    ``speakers_with_reference_image`` contains character names for images actually sent with this
+    request and is read only when this flag is True.
 
-    角色表与两个按名字判定的集合（``audio_ready`` / ``speakers_with_reference_image``）都先归一
-    到资产名比对坐标系（:func:`lib.project.asset_types.asset_name_comparison_key`）。少归一一侧的后果不是
-    报错而是静默降级——该角色被判「未登记」而不发音色声明、或判「无可用音频」而不绑参考音频，
-    用户拿到的是一条声音不对的成片加一条非阻断 warning。
+    Normalize the character table and both name-based collections (``audio_ready`` /
+    ``speakers_with_reference_image``) to asset-name comparison coordinates first
+    (:func:`lib.project.asset_types.asset_name_comparison_key`). Omitting either side's normalization
+    silently degrades instead of raising: characters appear unregistered and lose voice declarations,
+    or lack usable audio and lose bindings. Users receive wrongly voiced output and a nonblocking warning.
     """
     warnings: list[dict[str, Any]] = []
     characters = normalize_asset_bucket(characters)
@@ -165,11 +173,11 @@ def derive_voice_bindings(
 
     audio_speakers: list[str] = []
     if settings.is_silent:
-        # 只对带归属的台词知会：无归属旁白整段不进 prompt（见
-        # :func:`lib.script.reference_video.prompt_render._render_segment_two`），两条文案都说
-        # 「台词仅用于提示词参考」，对一份只有旁白的文稿会指错排查方向。未登记的说话人算带
-        # 归属——它的台词按原文照常渲染。本集关闭音频的提示优先于模型不产音——前者是用户
-        # 当下可改的开关。
+        # Notify only for attributed dialogue. Unattributed narration is excluded entirely from prompts
+        # (see :func:`lib.script.reference_video.prompt_render._render_segment_two`). Both messages
+        # describe dialogue as prompt-only guidance, misleading for narration-only scripts. Unregistered
+        # speakers still count as attributed: their dialogue renders verbatim. Episode audio-off takes
+        # precedence over model silence because users can change that switch now.
         if any(entry.speaker for entry in utterances):
             if not settings.requested_generate_audio:
                 warnings.append(_warning(WARN_SILENT_EPISODE))
@@ -182,7 +190,7 @@ def derive_voice_bindings(
             if settings.audio_ready is not None
             else None
         )
-        # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
+        # Audio numbering follows first dialogue-speaker appearance, truncated by max_reference_audio.
         for speaker in registered:
             char_data = characters.get(speaker)
             audio_field_set = bool(char_data.get("reference_audio")) if isinstance(char_data, dict) else False
@@ -205,15 +213,15 @@ def derive_voice_bindings(
 
 
 def unit_lacks_scene_reference(text: str, project: dict) -> bool:
-    """该单元正文一个已登记场景资产都没引用（项目登记了场景时才成立）。
+    """Whether the body references no registered scene asset, provided the project has scenes.
 
-    未引用场景时画面地点由模型自由决定，室内外交替的相邻单元会各自发挥、对不上；项目一张
-    场景资产都没登记时恒为 False——那时没有可引用的场景，提示指不出任何动作（商品为主体的
-    广告项目即属此列）。
+    Without scene references, models freely choose locations, causing adjacent indoor/outdoor units
+    to disagree. Always False when the project has no scene assets: no referencable scene exists and
+    the notice suggests no actionable change, as with product-centered advertising projects.
 
-    判据的唯一出口：编辑器预览的读时 warning 与拆分回执的逐 unit 提示都经本函数，分成两处
-    各自判定时，同一份正文会在两个面板给出相反的结论。按未裁剪的派生结果判定：这条问的是
-    作者写没写场景引用，与能力上限裁掉了哪几张图无关。
+    The single predicate shared by editor read-time warnings and per-unit split receipts prevents
+    contradictory conclusions across panels. Use unclipped derivations: this asks whether the author
+    wrote a scene reference, independent of which images capability limits removed.
     """
     if not (project.get(BUCKET_KEY["scene"]) or {}):
         return False
@@ -228,31 +236,34 @@ def build_script_preview(
     *,
     max_reference_images: int | None = None,
 ) -> ScriptPreview:
-    """把视频单元正文派生成 utterances + 降级可见性 warning。
+    """Derive utterances and visible-degradation warnings from a video-unit body.
 
-    ``settings`` 必填无兜底（同 ``render_unit_prompt``），须与执行层拿到的同一份声音输入档同步，
-    否则预览会显示音频已绑定、实际请求却不带音频段。其中 ``requires_reference_image``（目标 backend 是否
-    要求音频逐段挂图）不涉及 IO，预览虽不碰文件系统也须一并同步，遗漏会让预览显示已绑定、
-    执行时才降级，用户直到生成后才发现声音没生效。``settings.audio_ready`` 在预览侧留 None：
-    预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
+    ``settings`` is required without fallback, like ``render_unit_prompt``, and must match execution's
+    voice-input tier; otherwise previews show bound audio absent from requests. In particular,
+    ``requires_reference_image`` (whether the backend requires per-image audio attachment) involves no
+    IO and must be synchronized even though previews never access the filesystem. Omitting it shows
+    bindings that degrade only during execution, so users discover ineffective voices after generation.
+    Leave ``settings.audio_ready`` None for previews: they resolve no files and check only nonempty
+    character ``reference_audio`` fields.
 
-    ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
-    执行期会把正文派生的参考图先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的参考图
-    严格等长，见 ``render_unit_prompt`` docstring）。预览若按未裁剪的全量派生结果判定
-    ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，预览仍
-    显示音频已绑定，执行时才补发 warning。``None``（未收录或能力不可解析）与 ``0``（不接受参考图）都不裁，
-    与请求投影 ``clamp_reference_assets`` 的口径一致。
+    ``max_reference_images`` must match execution capabilities (``VideoLaneResult.max_reference_images``).
+    Execution clips body-derived images before rendering, keeping ``图片N`` indices exactly equal to
+    sent images (see ``render_unit_prompt`` docstring). Deriving ``character_image_names`` from unclipped
+    references delays offscreen degradation past the cutoff: previews show bound audio after images
+    were removed, and execution alone warns. Neither ``None`` (unlisted/unresolvable capabilities) nor
+    ``0`` (no reference-image acceptance) clips, matching request projection's ``clamp_reference_assets``.
 
-    未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
-    说话人位写了该角色没有的衍生时同判——那个 ``@[角色/衍生]`` 不进参考图派生（说话人位一律
-    不进），未登记的事实要另行报出来，否则编辑器对它完全沉默。本体本身未登记时不在此重复：
-    那条由 ``derive_voice_bindings`` 的未登记说话人 warning 报出。
+    Unregistered ``@[名称]`` only warns, never blocks: authors wrote the body, with no machine contract
+    for previews to protect. Apply the same rule to missing character derivatives in speaker slots:
+    ``@[角色/衍生]`` never derives an image because speaker slots never do, so report its unregistered
+    status separately or the editor stays silent. Do not repeat missing base characters here:
+    ``derive_voice_bindings`` already reports unregistered speakers.
     """
     references, missing = derive_references_from_text(text, project)
 
     character_references = build_reference_catalog(project).reference_names("character")
-    # 同一个名字可能同时写在记号之外与说话人位，两处各自去重、彼此不排除；不减去 missing
-    # 会让同一个未登记衍生在预览面板上出现两条一模一样的提示。
+    # Names may appear both outside marks and in speaker slots, independently deduplicated without
+    # mutual exclusion. Subtract missing to avoid identical preview notices for one unregistered derivative.
     already_reported = set(missing)
     unknown_derivatives = [
         reference
@@ -270,8 +281,8 @@ def build_script_preview(
     utterances, syntax_warnings = derive_utterances(text)
     warnings.extend(syntax_warnings)
 
-    # 音频只能对齐到 character 参考图。同时按能力上限裁剪后再判定，
-    # 与执行层「先裁参考图再渲染」的口径对齐：上限为 0 时执行层同样不裁。
+    # Audio aligns only to character reference images. Clip by capability limits before checking,
+    # matching execution's clip-before-render order; execution likewise does not clip for a zero limit.
     bound = InputLimit.from_json(max_reference_images).clamp_bound()
     clipped_references = references[:bound] if bound is not None else references
     character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}

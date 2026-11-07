@@ -1,4 +1,4 @@
-"""GrokImageBackend 单元测试。"""
+"""GrokImageBackend unit tests."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from tests.http_capture import capture_http
 
 @contextmanager
 def _image_download(url: str, content: bytes) -> Generator[respx.Route]:
-    """成图下载的出站流：base 层用真实 httpx 取字节，走 respx 在 transport 层拦截。"""
+    """Base-layer output downloads use real httpx bytes intercepted by transport-level respx."""
     with capture_http() as router:
         yield router.get(url).mock(return_value=httpx.Response(200, content=content))
 
 
 @pytest.fixture
 def patch_xai_sdk():
-    """Patch create_grok_client 以免依赖真实 SDK。"""
+    """Patch create_grok_client to avoid real SDK dependencies."""
     mock_client_instance = MagicMock()
     with patch("lib.backends.image_backends.grok.create_grok_client", return_value=mock_client_instance):
         yield mock_client_instance
@@ -50,7 +50,7 @@ def backend_pro(patch_xai_sdk):
 
 
 # ---------------------------------------------------------------------------
-# 属性测试
+# Property tests
 # ---------------------------------------------------------------------------
 
 
@@ -72,14 +72,14 @@ class TestProperties:
 
     @pytest.mark.parametrize("model", ["grok-imagine-image", "grok-imagine-image-pro"])
     def test_declares_grok_reference_image_limit(self, patch_xai_sdk, model):
-        # xAI 官方上限：多图编辑单请求最多 5 张源图。
+        # Official xAI multi-image editing accepts at most 5 source images per request.
         from lib.backends.image_backends.grok import GrokImageBackend
 
         assert asyncio.run(GrokImageBackend(api_key="fake-xai-key", model=model).reference_image_limit()) == 5
 
 
 # ---------------------------------------------------------------------------
-# 构造函数测试
+# Constructor tests
 # ---------------------------------------------------------------------------
 
 
@@ -100,13 +100,13 @@ class TestInit:
 
 
 # ---------------------------------------------------------------------------
-# generate() T2I 测试
+# generate() T2I tests
 # ---------------------------------------------------------------------------
 
 
 class TestGenerateT2I:
     async def test_t2i_calls_image_sample(self, grok_backend, tmp_path):
-        """T2I 调用 client.image.sample 并下载结果。"""
+        """T2I calls client.image.sample and downloads outputs."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -124,7 +124,7 @@ class TestGenerateT2I:
             )
             result = await grok_backend.generate(request)
 
-        # 验证 SDK 调用参数（目录取值 "2K" 下发前转成 SDK 接受的小写 "2k"）
+        # Verify SDK arguments: catalog 2K converts to accepted lowercase 2k.
         grok_backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
@@ -135,18 +135,18 @@ class TestGenerateT2I:
         assert result.provider == "grok"
         assert result.model == "grok-imagine-image"
         assert result.image_uri == "https://example.com/generated.png"
-        # 验证文件已写入
+        # Verify files were written.
         assert output.read_bytes() == fake_image_bytes
 
 
 # ---------------------------------------------------------------------------
-# generate() I2I 测试
+# generate() I2I tests
 # ---------------------------------------------------------------------------
 
 
 class TestGenerateI2I:
     async def test_i2i_sends_image_urls(self, grok_backend, tmp_path):
-        """I2I 将参考图转为 data URI 列表传给 image_urls。"""
+        """I2I converts references into data-URI image_urls lists."""
         ref_image = tmp_path / "ref.png"
         ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
 
@@ -174,7 +174,7 @@ class TestGenerateI2I:
         assert result.provider == "grok"
 
     async def test_i2i_multiple_refs(self, grok_backend, tmp_path):
-        """多张参考图全部通过 image_urls 传递。"""
+        """Forward all references through image_urls."""
         ref1 = tmp_path / "ref1.png"
         ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
         ref2 = tmp_path / "ref2.jpg"
@@ -203,7 +203,7 @@ class TestGenerateI2I:
         assert len(call_kwargs["image_urls"]) == 2
 
     async def test_i2i_sends_every_reference_above_the_channel_limit(self, grok_backend, tmp_path):
-        """能力覆盖放行的参考图全部下发。"""
+        """Send every reference admitted by capability overrides."""
         refs = []
         for index in range(7):
             ref_path = tmp_path / f"ref{index}.png"
@@ -233,7 +233,7 @@ class TestGenerateI2I:
         assert len(call_kwargs["image_urls"]) == 7
 
     async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
-        """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
+        """Base64 reads whole images and must move to threads, preventing event-loop stalls."""
         ref_image = tmp_path / "ref.png"
         ref_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
@@ -260,7 +260,7 @@ class TestGenerateI2I:
         assert call_kwargs["image_urls"][0].startswith("data:image/png;base64,")
 
     async def test_i2i_skips_missing_ref(self, grok_backend, tmp_path):
-        """参考图不存在时退化为 T2I。"""
+        """Absent references fall back to T2I."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -283,13 +283,13 @@ class TestGenerateI2I:
 
 
 # ---------------------------------------------------------------------------
-# 审核测试
+# Moderation tests
 # ---------------------------------------------------------------------------
 
 
 class TestModeration:
     async def test_moderation_failure_raises(self, grok_backend, tmp_path):
-        """respect_moderation=False 时抛出 RuntimeError。"""
+        """respect_moderation=False raises RuntimeError."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = False
@@ -304,7 +304,7 @@ class TestModeration:
 
 
 # ---------------------------------------------------------------------------
-# resolution 小写转换测试
+# Lowercase-resolution conversion tests
 # ---------------------------------------------------------------------------
 
 
@@ -351,7 +351,7 @@ class TestResolutionLowercase:
 
 
 # ---------------------------------------------------------------------------
-# aspect_ratio 校验测试
+# Aspect-ratio validation tests
 # ---------------------------------------------------------------------------
 
 
@@ -365,5 +365,5 @@ class TestAspectRatioValidation:
     def test_unsupported_ratio_passed_through_with_warning(self):
         from lib.backends.image_backends.grok import _validate_aspect_ratio
 
-        # 不支持的比例透传给 API，不做映射
+        # Unsupported ratios pass to APIs without mapping.
         assert _validate_aspect_ratio("5:4") == "5:4"

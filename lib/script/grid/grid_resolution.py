@@ -1,8 +1,8 @@
-"""T2I 槽图像分辨率解析，及其上的宫格档位门控。
+"""Resolve T2I image resolution and gate grid tiers accordingly.
 
-4×4 / 5×5 档只在图像分辨率档为 4K 时放行（见 ``lib.script.grid.layout.large_grid_allowed``）。
-判定必须与实际入队、费用估算共用同一份解析，否则前端预览、估价与真正生成的宫格张数会漂移，
-故三条路径都经本模块取档；同一次解析还是费用估算里两路分镜图（宫格 / 普通）的计价档来源。
+4×4 / 5×5 require 4K image resolution (``lib.script.grid.layout.large_grid_allowed``).
+Preview, quoting, and enqueueing must share resolution or grid counts drift; all three use this module.
+The same resolution supplies pricing tiers for grid and ordinary storyboard image estimation.
 """
 
 from __future__ import annotations
@@ -17,17 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 async def resolve_image_resolution(r: ConfigResolver, project: dict) -> str | None:
-    """项目 T2I 槽生效的图像分辨率档；``None`` 表示未配置（由调用方按各自保底档处理）。
+    """Effective image-resolution tier for the project's T2I slot; ``None`` means unconfigured (callers apply their own fallback tiers).
 
-    以 T2I 槽解析身份：``execute_grid_task`` 在有参考图时走 I2I 槽，两槽解析到不同型号时门控与
-    实际渲染可能取到不同档位——门控须在入队时就定档，那时还没有参考图收集结果，取正交能力槽中
-    代表宫格主路径的 T2I。这里取 registry 身份 ``model_id`` 而非构造后的 backend 身份，避免为
-    一次门控判定构造 backend；执行侧按 backend 身份取档，两者在型号身份分叉的供应商上可能落到
-    不同档位。
+    Resolve identity through T2I: ``execute_grid_task`` uses I2I when reference images exist, so gating and actual rendering may resolve different tiers if the slots target different models. Gating must choose at enqueue time, before reference collection; use T2I as the orthogonal capability slot representing the main grid path. Use registry identity ``model_id`` rather than a constructed backend identity to avoid constructing a backend for one gate decision. Execution resolves tiers by backend identity; providers whose model identities diverge may therefore yield different tiers.
 
-    解析失败（未配置图像供应商等）按未配置处理：门控是收紧方向，取不到档位即不放行大宫格。
-    这条降级会让已配置 4K 的项目静默退回 3×3，故留一条 warning 便于排查。
-    """
+    Treat resolution failures (such as no configured image provider) as unconfigured: gating tightens, so an unknown tier never allows large grids. This fallback may silently return a configured 4K project to 3×3; retain a warning for diagnosis."""
     try:
         resolved = await r.resolve_image_backend(project, None, generation_type="t2i")
         return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
@@ -37,10 +31,10 @@ async def resolve_image_resolution(r: ConfigResolver, project: dict) -> str | No
 
 
 def grid_image_size(image_resolution: str | None, provider_id: str, model_id: str) -> str | None:
-    """宫格图下发的分辨率档，执行与估价共用：已配置取配置，未配置取 ``GRID_FALLBACK_RESOLUTION``。
+    """Grid resolution shared by execution/quotes: configured value or ``GRID_FALLBACK_RESOLUTION``.
 
-    模型目录给该型号声明了档位、却不含保底档时不传（``None``，见 ``docs/adr/0019``），由上游取默认档：
-    调用通道原样下发档位（``docs/adr/0104``），发出目录外的保底档会被上游拒绝、估价也查不到单价。
+    If catalog tiers exclude the fallback, omit it (``None``, ``docs/adr/0019``), letting upstream choose defaults:
+    channels forward tiers unchanged (``docs/adr/0104``); out-of-catalog fallback tiers cause rejection and lack prices.
     """
     if image_resolution:
         return image_resolution
@@ -51,11 +45,9 @@ def grid_image_size(image_resolution: str | None, provider_id: str, model_id: st
 
 
 async def resolve_large_grid_allowed(project: dict) -> bool:
-    """自开 session 的门控入口，供 HTTP 路由与宫格提交规划使用。
+    """Gate entry point opening its own session, for HTTP routes and grid submission planning.
 
-    已持有 :class:`ConfigResolver` session 的调用方（费用估算）改用
-    :func:`resolve_image_resolution` + ``large_grid_allowed``，不额外开 session。
-    """
+    Callers already holding a :class:`ConfigResolver` session (cost estimation) use :func:`resolve_image_resolution` + ``large_grid_allowed`` instead, without another session."""
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)

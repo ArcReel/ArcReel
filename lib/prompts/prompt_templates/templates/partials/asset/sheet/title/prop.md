@@ -1,1 +1,1 @@
-道具「{{ name }}」的资产图。
+Asset sheet for prop “{{ name }}”.

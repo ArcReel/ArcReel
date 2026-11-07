@@ -22,15 +22,15 @@ interface EpisodesHeaderProps {
   projectName: string;
   view: EpisodesView;
   episodeCount: number;
-  /** 本项目有分集规划在排队或执行。 */
+  /** Episode planning is queued or running for this project. */
   planning: boolean;
   onUpload: (mode: SourceUploadMode) => void;
   onCreate: () => void;
 }
 
 /**
- * 「分集」视图的页头工具行：左侧是标题、集数与整本源文的分集进度，右侧是「AI 规划分集」弹层、新建一集与上传原文。
- * 有新的分集方案时规划按钮不可用，先在方案栏里采纳或放弃。
+ * Episodes header toolbar: title, episode count and whole-source planning progress on the left; AI planning popover, new episode and upload on the right.
+ * Disable planning while a new episode-plan candidate exists; adopt or discard it in the candidate bar first.
  */
 export function EpisodesHeader({ projectName, view, episodeCount, planning, onUpload, onCreate }: EpisodesHeaderProps) {
   const { t } = useTranslation("dashboard");
@@ -44,7 +44,7 @@ export function EpisodesHeader({ projectName, view, episodeCount, planning, onUp
   let planLabel: string;
   if (planning) planLabel = t("episodes_header_plan_running", { percent });
   else if (replanPending) planLabel = t("episodes_header_plan_pending");
-  // 规划到了结尾，但切出集之间还夹着未切分的原文（删集留下的空当），要在集目录里逐段规划
+  // Planning reached the end but unsplit source remains between extracted episodes, such as gaps left by deletion; plan each gap from the episode directory
   else if (started && remaining === 0)
     planLabel = t(view.cut_units < view.units ? "episodes_header_plan_gaps" : "episodes_header_plan_done");
   else if (started) planLabel = t("episode_planning_continue");

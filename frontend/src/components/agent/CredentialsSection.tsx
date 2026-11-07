@@ -30,8 +30,8 @@ import type {
 import { errMsg, voidCall } from "@/utils/async";
 
 /**
- * Agent 供应商列表（数据上是 Agent 凭证）。增改、删除、切换生效都是即时动作：成功以列表变化为反馈，
- * 失败弹出提示；删除不可撤销，先经 AlertDialog 确认。
+ * Agent-provider lists (Agent credentials in data). Add/edit, delete and activation changes execute immediately: successful changes update lists;
+ * failures show notifications. Irreversible deletions first require AlertDialog confirmation.
  */
 export function CredentialsSection() {
   const { t } = useTranslation("dashboard");
@@ -40,10 +40,10 @@ export function CredentialsSection() {
   const [presets, setPresets] = useState<PresetProvider[]>([]);
   const [customSentinelId, setCustomSentinelId] = useState("__custom__");
   const [addModalOpen, setAddModalOpen] = useState(false);
-  // 每次打开新建弹窗换一个 key，弹窗重挂载，不带上一轮的草稿与诊断结果
+  // Change keys whenever new dialogs open, remounting without previous drafts/diagnostics.
   const [addSession, setAddSession] = useState(0);
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
-  // 档位绑定按 Agent 供应商分桶：不同供应商上的请求可以同时在途，一个结束不放开另一个。
+  // Bucket tier bindings by Agent provider: different providers may have concurrent requests, and finishing one does not release another.
   const [tierBusyIds, setTierBusyIds] = useState<ReadonlySet<number>>(() => new Set());
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
@@ -69,7 +69,7 @@ export function CredentialsSection() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取 Agent 供应商后回写，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Async Agent-provider fetching on mount writes back as controlled initialization
     void loadCreds();
     return () => loadController.current?.abort();
   }, [loadCreds]);
@@ -135,7 +135,7 @@ export function CredentialsSection() {
     }
   }, []);
 
-  // 绑定与解除绑定的响应是更新后的整条凭证，直接换进列表，不重新拉取。
+  // Bind/unbind responses contain entire updated credentials; replace list entries directly without refetching.
   const changeTierBinding = useCallback(async (id: number, change: () => Promise<AgentCredential>) => {
     setTierBusyIds((prev) => new Set(prev).add(id));
     try {
@@ -251,7 +251,7 @@ export function CredentialsSection() {
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(next) => {
-          // 删除请求在途时不响应 Esc，避免对话框先于结果消失
+          // Ignore Esc while delete requests are pending so dialogs cannot disappear before results.
           if (!next && !deletingCred) setDeleteTarget(null);
         }}
       >

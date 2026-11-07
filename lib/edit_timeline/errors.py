@@ -1,4 +1,4 @@
-"""剪辑时间线命令的领域错误：问题码稳定，HTTP 与 Agent 工具各自映射。"""
+"""Domain errors for timeline commands: stable problem codes mapped separately by HTTP and Agent tools."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ type EditTimelineErrorCode = Literal[
 
 
 class EditTimelineError(Exception):
-    """剪辑时间线命令无法完成；``code`` 供适配器映射，``params`` 携带定位信息。"""
+    """Timeline command cannot complete; ``code`` supports adapter mapping, ``params`` carries location information."""
 
     def __init__(self, code: EditTimelineErrorCode, message: str, **params: Any) -> None:
         super().__init__(message)
@@ -30,7 +30,7 @@ class EditTimelineError(Exception):
         self.params = params
 
 
-# 会展示给创作者的错误码 → 译文 key：项目与集复用通用 key。批量编辑的错误只回给 Agent，不在此登记；回滚的 revision_unchanged 两边都会遇到。
+# Creator-visible error code → translation key; project/episode reuse common keys. Batch-edit errors go only to Agents, not registered here; revision_unchanged occurs on both sides.
 _MESSAGE_KEYS: dict[str, str] = {
     "project_not_found": "project_not_found",
     "episode_not_found": "episode_not_found",
@@ -45,7 +45,7 @@ _MESSAGE_KEYS: dict[str, str] = {
 
 
 def edit_timeline_message(code: str, params: Mapping[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """错误码对应的译文 key 与插值参数；不是面向创作者的剪辑时间线错误码时返回 None。"""
+    """Translation key/interpolation parameters for an error code; None if not a creator-facing timeline error code."""
     key = _MESSAGE_KEYS.get(code)
     if key is None:
         return None

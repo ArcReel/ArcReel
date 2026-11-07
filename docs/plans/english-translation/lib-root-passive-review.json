@@ -1,0 +1,16 @@
+[
+  {
+    "path": "lib/app_version.py",
+    "translated_spans": 4,
+    "candidate_sha256": "475876e91d4e8fa337b4253eca4deab316a9e3703d1e200e6dda9e8be39cbf3d",
+    "executable_ast_equal": true,
+    "existing_English_and_behavior_literals_preserved": true
+  },
+  {
+    "path": "lib/__init__.py",
+    "translated_spans": 2,
+    "candidate_sha256": "fdfb475773bd40331779ed42638775503c30497d79fbdd4c1cd0789a9ca2cfd7",
+    "executable_ast_equal": true,
+    "existing_English_and_behavior_literals_preserved": true
+  }
+]

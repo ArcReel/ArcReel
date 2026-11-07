@@ -1,17 +1,16 @@
-"""角色衍生资产图的生成任务执行层（见 ``docs/adr/0072``）。
+"""Execution layer for character-derivative image tasks (``docs/adr/0072``).
 
-一次衍生资产图生成就是对**本体资产图**的一次图片编辑：本体图是唯一参考图，衍生的外观
-变化描述加固定守卫是唯一 prompt（守卫要求保持三视图版式与其余外观不变）。因此它必然
-i2i，与 ``image_edit`` 同属入队即知任务类型的例外。
+Generating a derivative edits the **base asset image**, the only reference. The derivative appearance-change description
+and fixed guard form the sole prompt; the guard preserves three-view layout and all other appearance. This is therefore
+always i2i, an exception like ``image_edit`` whose task type is known when enqueued.
 
-产物坐标与本体资产图同一族：清单键 ``asset_sheet("character", "本体/衍生")``、版本资源类型
-``character_derivatives``、落盘 ``characters/derivatives/{本体}/{衍生}.png``。正式产物的
-提交、版本活化与清单登记全部复用资产图任务的既有缝，本模块只提供「衍生自己的元数据写回」
-与「以本体资产图为输入」这两处差异。
+Artifact coordinates share the base-image family: manifest key ``asset_sheet("character", "本体/衍生")``, version resource
+type ``character_derivatives``, path ``characters/derivatives/{本体}/{衍生}.png``. Formal submission, version activation and
+manifest registration reuse existing asset-task interfaces. This module supplies only derivative metadata writeback
+and base-image input as differences.
 
-指令与依据都在执行时按当前项目状态重算，不吃入队时的快照：两者必须同源，否则衍生图的
-登记依据会与它实际收到的指令不符，规范状态比对随即恒判过期。
-"""
+Recompute instructions and basis from current project state at execution, not enqueue snapshots. They must share one source,
+otherwise recorded basis differs from received instructions and canonical-state comparison always marks the derivative stale."""
 
 from __future__ import annotations
 
@@ -62,12 +61,12 @@ _SPEC = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
 
 
 def build_derivative_sheet_instruction(description: str) -> str:
-    """把衍生的外观变化描述包成发往图像模型的编辑指令。"""
+    """Wrap the derivative appearance-change description as an image-model editing instruction."""
     return build_character_derivative_prompt(description)
 
 
 def _locate_derivative(project: Mapping[str, Any], owner_name: str, derivative_name: str) -> dict[str, Any]:
-    """在项目内按落盘真名取到衍生条目本身；任一层缺失抛 ``KeyError``。"""
+    """Retrieve a derivative entry by its actual persisted project names; raise ``KeyError`` for a missing layer."""
     bucket = project.get(_SPEC.bucket_key)
     owner_key = resolve_asset_key(bucket, owner_name)
     entry = bucket[owner_key] if isinstance(bucket, dict) and owner_key is not None else None
@@ -123,7 +122,7 @@ def point_derivative_at_sheet(
     on_commit: Callable[[Path], None],
     project_manager: ProjectManager | None = None,
 ) -> None:
-    """把衍生条目的资产图指针指回它的规范路径（版本还原用），衍生不存在时抛 ``KeyError``。"""
+    """Point the derivative asset image back to its canonical path for version restoration; raise ``KeyError`` for a missing derivative."""
     _write_back(
         pm=project_manager or get_project_manager(),
         project_name=project_name,
@@ -145,12 +144,11 @@ def derivative_sheet_commit_callback(
     selected_upload: bool = False,
     on_commit: ContentVersionCommitHook | None = None,
 ) -> StagedImageCommit:
-    """衍生资产图的正式活化回调：写回衍生条目 + 版本活化 + 清单登记同一次提交。
+    """Formal derivative-image activation callback: derivative writeback, version activation and manifest registration commit together.
 
-    生成、图片编辑与作者上传共用它，三条路线的写回口径因此不分叉。``selected_upload``
-    标记作者上传：上传的图是成品，依据只由图字节决定，由规划器在选中上传版本后投影。
-    ``on_commit`` 在同一次提交的最后收到新选中的内容版本，抛错时整次提交回滚。
-    """
+    Generation, image editing and creator uploads share it, preventing divergent writeback rules. ``selected_upload`` marks
+    creator uploads: finished-image basis depends only on bytes, projected by the planner after selecting the uploaded version.
+    ``on_commit`` receives the newly selected content version at the end of the same commit; errors roll back the entire commit."""
     pm = project_manager or get_project_manager()
     project_path = pm.get_project_path(project_name)
 
@@ -181,7 +179,7 @@ def derivative_sheet_commit_callback(
 
 @dataclass(frozen=True, slots=True)
 class _DerivativeSheetInputs:
-    """衍生资产图任务在解析 image lane 之前就能备齐的输入：项目快照、落盘坐标与成立的生成输入。"""
+    """Derivative-task input available before image-lane resolution: project snapshot, persisted coordinates and valid generation input."""
 
     project: dict[str, Any]
     project_path: Path
@@ -200,7 +198,7 @@ def _load(project_name: str, owner_name: str, derivative_name: str) -> _Derivati
         derivative=target.derivative_key,
         observation=project_input_observation(project_path),
     )
-    # 缺变化描述或本体资产图不可用时在解析供应商通道与付费之前失败，一次报出全部缺口。
+    # Fail on missing change descriptions or unusable base images before provider resolution/payment, reporting all gaps together.
     if (refusal := generation_input.refusal) is not None:
         raise input_refusal_error(refusal)
     return _DerivativeSheetInputs(
@@ -220,11 +218,10 @@ async def execute_character_derivative_task(
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
-    """执行一次衍生资产图生成：本体图 → i2i → 新版本覆盖 current → 写回衍生条目。
+    """Generate a derivative image: base image → i2i → new version replaces current → derivative entry writeback.
 
-    ``resource_id`` 是 ``本体名/衍生名``。缺变化描述、本体没有资产图或本体图不可用时拒绝执行，
-    不提交任何付费请求。
-    """
+    ``resource_id`` is ``本体名/衍生名``. Reject missing change descriptions, absent base images or unusable base images
+    without submitting any paid request."""
     owner_name, derivative_name = split_derivative_artifact_id(resource_id)
     inputs = await asyncio.to_thread(_load, project_name, owner_name, derivative_name)
     project, project_path, target = inputs.project, inputs.project_path, inputs.target

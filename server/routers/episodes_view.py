@@ -1,5 +1,5 @@
-"""「分集」视图：整本源文按集分段的只读投影、``source/`` 里没有登记的文件的处置，整本源文文件的类型、
-替换、编辑、删除与调序，以及按文件在服务之外的改动更新分集账本。"""
+"""Episode view: read-only whole-source episode segmentation, handling unregistered ``source/`` files, whole-source file
+types/replacement/editing/deletion/reordering, and ledger updates after external file changes."""
 
 from __future__ import annotations
 
@@ -65,14 +65,13 @@ router = APIRouter()
 
 @router.get("/projects/{name}/episodes-view")
 async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
-    """整本源文按集分段、每集的体量与首尾句、``source/`` 里没有登记的文本文件、新的分集方案 ``replan``，
-    以及在服务之外被改动过的文件 ``external_changes``。
+    """Whole-source episode segments, per-episode volume/first-last sentences, unregistered ``source/`` text files, a new
+    ``replan`` and externally modified ``external_changes`` files.
 
-    ``replan`` 是悬而未决的重新规划候选的摘要与逐集变化（见 :func:`lib.episode.episode_replan.replan_candidate_summary`），
-    没有候选时为 null。``external_changes`` 按文件顺序列出 ``changed_outside`` 的文件：``impact`` 是按快照对齐算出的
-    受影响集清单（含服务端成文的 ``text``），``revision`` 原样带给 ``accept-external`` 即确认；算不出清单时两者为
-    null，``problem`` 是原因。
-    """
+    ``replan`` contains unresolved candidate summaries/per-episode changes (:func:`lib.episode.episode_replan.replan_candidate_summary`),
+    or null when absent. ``external_changes`` lists ``changed_outside`` files in file order. ``impact`` is the snapshot-aligned
+    affected-episode list including server-written ``text``; pass ``revision`` unchanged to ``accept-external`` to confirm.
+    If impact cannot be computed, both are null and ``problem`` gives the reason."""
 
     def _external_change(manager: ProjectManager, project: dict[str, Any], filename: str) -> dict[str, Any]:
         try:
@@ -117,9 +116,9 @@ async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
 
 
 class AdoptSourceFileRequest(BaseModel):
-    #: whole_source 加入整本源文末尾；episode 用作一集的原文。
+    #: whole_source appends to whole-source text; episode uses it as episode source.
     target: Literal["whole_source", "episode"]
-    #: target=episode 时填给这一集（须是无原文的集）；缺省时在播出顺序末尾新建一集。
+    #: target=episode assigns to this sourceless episode; omission appends a new episode in broadcast order.
     episode: int | None = None
 
 
@@ -128,7 +127,7 @@ class AdoptSourceFileRequest(BaseModel):
     dependencies=[Depends(require_project_migration_ok)],
 )
 async def adopt_source_file(name: str, filename: str, req: AdoptSourceFileRequest, _t: Translator) -> dict[str, Any]:
-    """处置 ``source/`` 里没有登记的文件：加入整本源文，或用作一集的原文（原文件随即删除）。"""
+    """Handle unregistered ``source/`` files by adding to whole source or assigning as episode source, deleting the original file afterward."""
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
@@ -153,9 +152,9 @@ async def adopt_source_file(name: str, filename: str, req: AdoptSourceFileReques
 
 
 class _ManualSplitBase(BaseModel):
-    #: 创作者在确认清单里看过的有产物的集；锁内复核出清单之外的有产物集时退回确认。
+    #: Episodes with artifacts reviewed by the creator; extra such episodes found under lock require confirmation again.
     confirm_episodes: list[int] = Field(default_factory=list)
-    #: 只返回波及清单，不写入。
+    #: Return impact only, without writing.
     dry_run: bool = False
 
 
@@ -170,7 +169,7 @@ class SplitRequest(_ManualSplitBase):
     action: Literal["split"]
     episode: int
     at: int
-    #: ``at`` 所在的整本源文文件；缺省时按这一集起点所在的文件算。
+    #: Whole-source file containing ``at``; default to the file containing this episode’s start.
     source_file: str | None = None
 
 
@@ -178,14 +177,14 @@ class MoveBoundaryRequest(_ManualSplitBase):
     action: Literal["move_boundary"]
     episode: int
     at: int
-    #: ``at`` 所在的整本源文文件；缺省时按这一集终点所在的文件算。
+    #: Whole-source file containing ``at``; default to the file containing this episode’s end.
     source_file: str | None = None
 
 
 class MergeNextRequest(_ManualSplitBase):
     action: Literal["merge_next"]
     episode: int
-    #: 创作者在确认清单里看过的并入体量；与锁内复核出的体量不一致时退回确认。
+    #: Merged volume reviewed by the creator; different volume on locked recheck requires confirmation again.
     confirm_merged_units: int = 0
 
 
@@ -225,12 +224,11 @@ def _run_manual_split(project_dir: Path, req: _ManualSplitBody) -> ManualSplitOu
     dependencies=[Depends(require_project_migration_ok)],
 )
 async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> dict[str, Any]:
-    """手工切分：切分、拆分、移动分界、与下一集合并、清除之后的切分，直接写入分集账本。
+    """Manual segmentation: cut, split, move boundaries, merge with the next episode or clear later splits, writing directly to the ledger.
 
-    波及有产物的集、合并会并入两集之间未切分的原文（或 ``dry_run``）时返回 ``status=confirmation_required`` 与
-    服务端成文的确认清单 ``impact.text``，不写入；创作者确认后带上 ``confirm_episodes`` 与 ``confirm_merged_units``
-    重新提交。要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
-    """
+    Affected episodes with artifacts, merges incorporating unsplit text between episodes, or ``dry_run`` return
+    ``status=confirmation_required`` with server-written ``impact.text``, without writing. After confirmation, resubmit
+    ``confirm_episodes`` / ``confirm_merged_units``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."""
 
     def _displaced_episodes() -> list[int]:
         manager = get_project_manager()
@@ -271,7 +269,7 @@ async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> di
 
 class SetSourceFileKindRequest(BaseModel):
     source_kind: SourceKind
-    #: 已确认会让已开始制作的集的脚本规划判 stale。
+    #: Confirmed that plans for episodes already in production will become stale.
     confirm: bool = False
 
 
@@ -282,11 +280,10 @@ class SetSourceFileKindRequest(BaseModel):
 async def set_source_file_kind(
     name: str, filename: str, req: SetSourceFileKindRequest, _t: Translator
 ) -> dict[str, Any]:
-    """改整本源文文件的源文件类型（只对剧情演绎开放）；不改源文指纹，也不动分集账本。
+    """Change whole-source file kind for drama only, without changing source fingerprints or the episode ledger.
 
-    会让已开始制作的集的脚本规划判 stale 而 ``confirm`` 为 false 时不写入，返回 ``needs_confirmation``
-    与这些集的集 ID（``affected_episodes``）。
-    """
+    If plans for episodes already in production would become stale and ``confirm`` is false, write nothing and return
+    ``needs_confirmation`` plus their IDs in ``affected_episodes``."""
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
@@ -313,12 +310,12 @@ async def set_source_file_kind(
 
 
 # ---------------------------------------------------------------------------
-# 整本源文文件的替换、编辑、删除与调序
+# Whole-source file replacement, editing, deletion and reordering.
 # ---------------------------------------------------------------------------
 
 
 class _SourceFileChangeBase(BaseModel):
-    #: 创作者确认过的受影响集清单的版本；缺省或与锁内重算的不一致时只返回清单，不写入。
+    #: Creator-confirmed affected-list revision; absent/mismatched locked recalculation returns the list without writing.
     revision: str | None = None
 
 
@@ -340,7 +337,7 @@ async def _run_source_file_change(
     revision: str | None,
     command: Callable[[ProjectManager, bool], SourceFileChangeOutcome],
 ) -> dict[str, Any]:
-    """``command(manager, dry_run)`` 跑一个整本源文文件改动命令，``revision`` 已经传给了它。"""
+    """``command(manager, dry_run)`` runs a whole-source file-change command with ``revision`` already supplied."""
 
     def _manager() -> ProjectManager:
         manager = get_project_manager()
@@ -372,12 +369,11 @@ async def _run_source_file_change(
     dependencies=[Depends(require_project_migration_ok)],
 )
 async def edit_source_file(name: str, filename: str, req: EditSourceFileRequest, _t: Translator) -> dict[str, Any]:
-    """编辑整本源文文件的全文，按改动前后的对齐重映射触及它的切出集。
+    """Edit a whole-source file’s full text and remap affected extracted episodes using before/after alignment.
 
-    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
-    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
-    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
-    """
+    Without affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``
+    writes nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written
+    ``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."""
     return await _run_source_file_change(
         name,
         _t,
@@ -400,12 +396,11 @@ async def replace_source_file(
     source_kind: Annotated[SourceKind | None, Form()] = None,
     revision: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
-    """用上传的文件替换整本源文文件：保留位置与文件名，类型缺省时不变。
+    """Replace a whole-source file with an upload, preserving position/name and retaining kind if omitted.
 
-    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
-    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
-    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
-    """
+    Without affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``
+    writes nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written
+    ``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."""
     text = await asyncio.to_thread(extract_uploaded_source_text, file, _t)
     return await _run_source_file_change(
         name,
@@ -422,12 +417,11 @@ async def replace_source_file(
     dependencies=[Depends(require_project_migration_ok)],
 )
 async def move_source_file(name: str, filename: str, req: MoveSourceFileRequest, _t: Translator) -> dict[str, Any]:
-    """把整本源文文件上移或下移一位，其中的切出集整块跟着走。
+    """Move a whole-source file one position up/down, moving its extracted episodes together.
 
-    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
-    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
-    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
-    """
+    Without affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``
+    writes nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written
+    ``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."""
     return await _run_source_file_change(
         name,
         _t,
@@ -449,12 +443,12 @@ class AcceptExternalChangeRequest(_SourceFileChangeBase):
 async def accept_external_change(
     name: str, filename: str, req: AcceptExternalChangeRequest, _t: Translator
 ) -> dict[str, Any]:
-    """按文件在服务之外的改动更新分集账本：以快照为旧文本、当前文本为新文本对齐，重映射触及它的切出集。
+    """Update the ledger after external file changes, aligning snapshot old text against current new text and remapping affected extracted episodes.
 
-    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
-    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
-    文件没有改动过、或里面有切出集却没有快照时返回 409。要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
-    """
+    Without affected episodes, execute directly and return ``status=applied``. Otherwise missing/stale ``revision`` writes nothing
+    and returns ``status=confirmation_required``, categorized affected episodes with server-written ``impact.text``, and
+    ``revision``. Unchanged files or extracted episodes without snapshots return 409. Queued/running tasks in removed
+    or newly sourceless episodes return 409 without writing."""
     return await _run_source_file_change(
         name,
         _t,
@@ -468,12 +462,11 @@ async def accept_external_change(
     dependencies=[Depends(require_project_migration_ok)],
 )
 async def delete_whole_source(name: str, filename: str, req: DeleteSourceFileRequest, _t: Translator) -> dict[str, Any]:
-    """删除整本源文文件，等同于删掉它的全部文字。
+    """Delete a whole-source file, equivalent to deleting all its text.
 
-    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
-    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
-    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
-    """
+    Without affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``
+    writes nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written
+    ``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."""
     return await _run_source_file_change(
         name,
         _t,

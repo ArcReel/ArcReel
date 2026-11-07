@@ -63,7 +63,7 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
   about: { labelKey: "dashboard:about", icon: Info, tier: "constrained" },
 };
 
-/** 侧栏分组与顺序。市场与使用记录各自单独成项，不设分组标题。 */
+/** Sidebar groups and order. Market and usage records each stand alone without group headings. */
 const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection[] }[] = [
   { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints", "asset-library"] },
   {
@@ -75,7 +75,7 @@ const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection
   { id: "system", labelKey: "dashboard:settings_group_system", sections: ["general", "prompt-templates", "about"] },
 ];
 
-/** 引导第 4、5 步指向的侧栏入口。 */
+/** Sidebar entries targeted by onboarding steps 4 and 5. */
 const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
   providers: ONBOARDING_ANCHORS.settingsProviders,
   "arcreel-agent": ONBOARDING_ANCHORS.settingsAgent,
@@ -99,7 +99,7 @@ export function SystemConfigPage() {
     void fetchConfigStatus();
   }, [fetchConfigStatus]);
 
-  // 侧栏警告点与就地提示都只落在问题所属的分区。
+  // Sidebar warning dots and inline notices appear only in the section owning the problem.
   const issueSections = useMemo(() => new Set(configIssues.map((issue) => issue.section)), [configIssues]);
   const activeIssues = useMemo(
     () => configIssues.filter((issue) => issue.section === activeSection),
@@ -133,7 +133,7 @@ export function SystemConfigPage() {
       sidebar={<PageSidebar label={t("common:settings")} groups={groups} activeId={activeSection} replace />}
       tier={SECTIONS[activeSection].tier}
     >
-      {/* 全出血分区没有统一的页头，提示放在分区顶部；限宽分区在自己的页头说明之后放提示 */}
+      {/* Full-bleed sections have no shared header, so place notices at their top; width-limited sections put them after their own header explanation */}
       {SECTIONS[activeSection].tier === "bleed" && activeIssues.length > 0 && (
         <div className="shrink-0 px-6 pt-4">
           <ConfigIssueNotice issues={activeIssues} />

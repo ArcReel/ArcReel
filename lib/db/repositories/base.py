@@ -20,5 +20,5 @@ class BaseRepository:
 
 
 def rowcount(result: Any) -> int:
-    """SQLAlchemy AsyncResult.rowcount 在当前 stub 中是 Any，统一在此 narrow。"""
+    """SQLAlchemy AsyncResult.rowcount is Any in the current stub; narrow it consistently here."""
     return result.rowcount or 0

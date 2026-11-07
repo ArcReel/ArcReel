@@ -1,8 +1,9 @@
-"""带 deadline 运行外部子进程（ffmpeg 等）。
+"""Run external subprocesses (ffmpeg, etc.) with a deadline.
 
-超时或所在任务被取消时：``terminate()`` → 宽限期内等待退出 → 仍未退出则 ``kill()``
-→ ``wait()`` 收尸，并删除调用方声明的输出文件，避免残留进程与半成品产物。
-子进程 stdin 固定接 DEVNULL，不从父进程读取输入。
+On timeout or task cancellation: ``terminate()`` → wait for exit during the grace period
+→ ``kill()`` if still running → ``wait()`` to reap; delete caller-declared output files
+so neither orphan processes nor partial outputs remain.
+Subprocess stdin always uses DEVNULL and never reads input from the parent.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ DEFAULT_TERMINATE_GRACE_SECONDS = 2.0
 
 
 class SubprocessDeadlineExceeded(TimeoutError):
-    """子进程未在 deadline 内退出，已被终止。"""
+    """The subprocess did not exit within its deadline and has been terminated."""
 
 
 class _Process(Protocol):
@@ -51,7 +52,7 @@ async def _reap(proc: _Process, grace: float, cleanup: list[Path]) -> None:
     try:
         await _terminate(proc, grace)
     finally:
-        # 只经 _reap_to_completion 以 shield 运行，取消不会打断这次删除
+        # Run only through _reap_to_completion under shield; cancellation cannot interrupt this deletion
         await asyncio.to_thread(_remove, cleanup)
 
 
@@ -69,7 +70,7 @@ async def _terminate(proc: _Process, grace: float) -> None:
 
 
 async def _reap_to_completion(proc: _Process, grace: float, cleanup: list[Path]) -> None:
-    """清理结束前不返回；清理期间收到的取消在清理结束后再抛出。"""
+    """Do not return until cleanup finishes; re-raise cancellation received during cleanup afterward."""
     reap = asyncio.ensure_future(_reap(proc, grace, cleanup))
     cancelled = False
     while not reap.done():
@@ -83,10 +84,10 @@ async def _reap_to_completion(proc: _Process, grace: float, cleanup: list[Path])
 
 
 def _remove(paths: Iterable[Path]) -> None:
-    """尽力删除；删除失败只记录，不覆盖正在传播的超时或取消。"""
+    """Delete best effort; log failures without masking the propagating timeout or cancellation."""
     for path in paths:
         try:
-            path.unlink(missing_ok=True)  # hard-delete: temp -- 超时被杀的子进程留下的输出
+            path.unlink(missing_ok=True)  # hard-delete: temp -- output left by a subprocess killed after timeout
         except OSError:
             logger.warning("未能删除子进程输出 %s", path, exc_info=True)
 
@@ -102,13 +103,14 @@ async def run_with_deadline(
     spawn: Spawner | None = None,
     cwd: Path | None = None,
 ) -> SubprocessResult:
-    """运行子进程直至退出或到达 ``deadline_seconds`` 秒。
+    """Run a subprocess until it exits or ``deadline_seconds`` elapses.
 
-    ``spawn`` 缺省时于调用时取 ``asyncio.create_subprocess_exec``；``cwd`` 是子进程的工作目录，缺省时继承当前进程。
+    Without ``spawn``, resolve ``asyncio.create_subprocess_exec`` at call time; ``cwd`` is
+    the subprocess working directory, inherited from the current process by default.
 
     Raises:
-        SubprocessDeadlineExceeded: 到达 deadline；子进程已终止并收尸，``cleanup_paths`` 已删除。
-        asyncio.CancelledError: 所在任务被取消；清理同上后原样传播。
+        SubprocessDeadlineExceeded: Deadline reached; the subprocess was terminated and reaped, and ``cleanup_paths`` deleted.
+        asyncio.CancelledError: The task was cancelled; propagate unchanged after the same cleanup.
     """
     cleanup = list(cleanup_paths)
     proc = await (spawn or asyncio.create_subprocess_exec)(

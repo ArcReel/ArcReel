@@ -5,11 +5,11 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 「调用端点」分区：全出血档的二级栏（我的端点 | 内置 Tab、紧凑档图标栏）与端点详情
-// （使用这个端点的模型、定义表单、端点测试，底部保存栏）。
+// Endpoints: full-bleed secondary rails with Mine/Built-in tabs and compact icon rails, plus details
+// containing model users, definitions/tests and bottom save bars.
 
 const ENDPOINTS_PATH = "/app/settings?section=endpoints";
-// 录制的端点目录只有内置端点；压力变体在它后面接上自定义端点，「内置」Tab 仍是真实数据。
+// Recorded catalogs contain built-ins only; stress appends custom endpoints, retaining real Built-in data.
 const recordedCatalog = (
   JSON.parse(readFileSync(join(RECORDED_DIR, "custom-providers-endpoints.json"), "utf8")) as RecordedResponse
 ).body as { endpoints: unknown[] };
@@ -52,7 +52,7 @@ const VALID = {
   },
 };
 
-// 压力变体：自定义端点多且名称长，二级栏在自己的栏里滚动；第一个端点被很多模型使用。
+// Stress variant: many long-named custom endpoints; secondary rails scroll independently, and many models use the first endpoint.
 const MANY_ENDPOINTS: ApiOverrides = {
   "GET /api/v1/custom-endpoints": {
     status: 200,
@@ -127,7 +127,7 @@ const MANY_ENDPOINTS: ApiOverrides = {
       ],
     },
   },
-  // 详情编辑期持续校验：已保存的端点判重时排除自己（exclude_id），新建端点不带参数。
+  // Continuously validate during detail editing: saved endpoints exclude themselves from duplicate checks (exclude_id); new endpoints omit this parameter.
   "POST /api/v1/custom-endpoints/validate?exclude_id=1": VALID,
   "POST /api/v1/custom-endpoints/validate": VALID,
 };
@@ -175,7 +175,7 @@ defineRegionScenarios("调用端点", [
     api: MANY_ENDPOINTS,
     ready: detailReady,
     act: async (page) => {
-      // 紧凑档多组上下叠放，「新建端点」是「我的」组的末尾，在内置组上方，滚到底并不会经过它。
+      // Compact groups stack vertically; New endpoint ends My group above built-ins, so scrolling to the bottom never passes it.
       const create = rail(page).getByRole("link", { name: /新建端点/ }).filter({ visible: true });
       await create.scrollIntoViewIfNeeded();
       await expect(create).toBeInViewport();

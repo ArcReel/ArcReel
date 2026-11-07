@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 
-// 404 页：未注册的应用地址。项目内未注册的子路径在工作区画布里显示空状态，见 workspace-header.spec.ts。
+// 404 for unregistered app URLs. Unknown project subpaths show canvas empty states; see workspace-header.spec.ts.
 async function notFoundReady(page: Page) {
   await page.getByRole("heading", { name: "页面未找到" }).waitFor();
 }

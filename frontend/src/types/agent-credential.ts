@@ -1,7 +1,7 @@
 /**
- * Agent Anthropic 凭证 + 预设供应商目录类型。
+ * Agent Anthropic credential and preset provider catalog types.
  *
- * 与后端 server/routers/agent_config.py 的 Pydantic 模型对齐。
+ * Aligned with the Pydantic models in server/routers/agent_config.py.
  */
 
 export interface PresetProvider {
@@ -24,19 +24,19 @@ export interface PresetProvidersResponse {
   custom_sentinel_id: string;
 }
 
-/** Agent 凭证的模型档位：主模型与 haiku、sonnet、opus、子智能体四个路由。 */
+/** Agent credential model tiers: the main model and the haiku, sonnet, opus, and subagent routes. */
 export type AgentCredentialTier = "model" | "haiku" | "sonnet" | "opus" | "subagent";
 
-/** 一个档位的定价状态，由服务端按当前模型目录现查。 */
+/** Pricing status for one tier, resolved by the server against the current model catalog. */
 export interface AgentCredentialTierStatus {
   tier: AgentCredentialTier;
-  /** 档位实际调用的模型名；null 表示档位留空，由 Claude Code 决定调用哪个模型。 */
+  /** The model name actually used by the tier; null means the tier is unset and Claude Code chooses the model. */
   model_name: string | null;
-  /** 对应到的模型条目显示名；对应不上条目时为 null。 */
+  /** Display name of the matching catalog entry; null when no entry matches. */
   entry_display_name: string | null;
-  /** 对应关系取自用户为档位选择的模型条目，而不是按模型名自动对应。 */
+  /** The binding comes from the catalog entry selected by the user for the tier, rather than automatic name matching. */
   manually_bound: boolean;
-  /** 档位存着绑定、但所绑条目已不在模型目录里：对应关系已回到按模型名，绑定仍可解除。 */
+  /** The tier retains a binding whose entry is no longer in the catalog: matching falls back to the model name, and the binding can still be removed. */
   binding_stale: boolean;
   priced: boolean;
 }
@@ -53,9 +53,9 @@ export interface AgentCredential {
   sonnet_model: string | null;
   opus_model: string | null;
   subagent_model: string | null;
-  /** Agent 凭证倍率，乘在这条凭证每次调用的参考费用上；0 表示不计费用。 */
+  /** Agent credential multiplier applied to the reference cost of each call using this credential; 0 means no cost is counted. */
   multiplier: number;
-  /** 五个档位的定价状态，顺序固定：主模型、haiku、sonnet、opus、子智能体。 */
+  /** Pricing status of the five tiers in fixed order: main model, haiku, sonnet, opus, subagent. */
   tiers: AgentCredentialTierStatus[];
   is_active: boolean;
   created_at: string | null;
@@ -65,9 +65,9 @@ export interface CreateAgentCredentialRequest {
   preset_id: string;
   display_name?: string | null;
   base_url?: string | null;
-  /** 与 from_custom_provider_id 二选一。 */
+  /** Mutually exclusive with from_custom_provider_id. */
   api_key?: string;
-  /** 给出时由服务端从该自定义供应商复制密钥（请求中不得再带 api_key）。 */
+  /** When provided, the server copies the key from this custom provider (the request must not also include api_key). */
   from_custom_provider_id?: number;
   model?: string | null;
   haiku_model?: string | null;
@@ -75,7 +75,7 @@ export interface CreateAgentCredentialRequest {
   opus_model?: string | null;
   subagent_model?: string | null;
   multiplier?: number;
-  /** 档位 → 模型条目（「模型厂商/官方模型名」）；更新时按档位合并，null 解除该档位的绑定。 */
+  /** Tier → catalog entry ("model maker/official model name"); updates merge by tier, and null removes that tier's binding. */
   tier_bindings?: Partial<Record<AgentCredentialTier, string | null>>;
   activate?: boolean | null;
 }
@@ -111,7 +111,7 @@ export interface TestConnectionResponse {
   messages_probe: ProbeResult;
   diagnosis: DiagnosisCode | null;
   suggestion: SuggestionAction | null;
-  /** 本次实际请求的完整地址；与输入框下方的预览同值。 */
+  /** Full URL actually requested, matching the preview below the input. */
   messages_url: string;
 }
 

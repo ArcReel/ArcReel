@@ -1,12 +1,10 @@
-"""v11→v12 迁移：给存量角色补一张空衍生表，行为不变。
+"""v11→v12: add empty derivative tables to existing characters without changing behavior.
 
-``derivatives`` 是角色条目内的子表（衍生名 → 相对本体的变化描述 + 资产图路径），只有
-``AssetSpec.supports_derivatives`` 开启的类型才有。补空表让读侧不必区分「没有该字段」与
-「有该字段但为空」两种形态。
+``derivatives`` is a character child table (name → relative appearance change + sheet path), only for
+``AssetSpec.supports_derivatives`` types. Empty tables let readers ignore absent-versus-empty distinctions.
 
-只改 ``project.json`` 一个字段，不触碰剧本、草稿与产物清单：空衍生表不改写任何已落盘产物
-的身份，也不引入新的引用。
-"""
+Change one ``project.json`` field only, without scripts/drafts/manifests. Empty tables change no
+persisted artifact identity and introduce no references."""
 
 from __future__ import annotations
 
@@ -21,12 +19,11 @@ _TARGET_VERSION = 12
 
 
 def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
-    """纯函数：把 v11 形态的 project dict 转为 v12 形态。幂等。
+    """Pure, idempotent v11→v12 project-dict conversion.
 
-    只补齐没有该字段的条目：已带衍生表的原样保留，桶、条目或衍生表被手编成非 dict 时同样
-    原样保留，其结构错误由 DataValidator 另行报告——迁移覆盖脏值会把用户手写的内容抹掉，
-    且让该报告永远看不到原始形状。不改 schema_version（由文件级 migrate 提交时写入）。
-    """
+    Fill missing fields only, preserving existing derivatives and nondict manually edited buckets/entries/
+    tables. DataValidator separately reports structural errors; overwriting dirty values would erase user
+    content and hide original shapes. Leave schema_version to file-level commit."""
     data = copy.deepcopy(project)
     for spec in ASSET_SPECS.values():
         if not spec.supports_derivatives:
@@ -41,14 +38,14 @@ def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
 
 
 def migrate_v11_to_v12(project_dir: Path) -> None:
-    """v11→v12 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。"""
+    """File-level v11→v12 migration: one atomic write, retryable after crashes with old/new values and no partial state."""
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = load_json(pj)
     if not isinstance(data, dict):
         raise ValueError("project.json 必须是对象")
-    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
+    # Match runner int normalization: legacy project.json may store version strings.
     if int(data.get("schema_version") or 0) >= _TARGET_VERSION:
         return
     migrated = migrate_project_dict(data)

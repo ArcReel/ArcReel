@@ -1,4 +1,4 @@
-"""text_utils 单元测试：strip_json_code_fences 覆盖大小写变体、裸 JSON、仅开/闭栏、空白等输入；normalize_newlines 覆盖三种换行。"""
+"""text_utils: strip_json_code_fences covers case variants, bare JSON, lone opening/closing fences, whitespace; normalize_newlines covers three line endings."""
 
 import json
 
@@ -23,32 +23,32 @@ from lib.infra.text_utils import normalize_newlines, strip_json_code_fences
     ],
 )
 def test_stripped_output_parses_as_json(raw: str) -> None:
-    """剥离后必须能被 json.loads 正确解析为等价对象。"""
+    """Stripped text must json.loads into equivalent objects."""
     assert json.loads(strip_json_code_fences(raw)) == {"a": 1}
 
 
 def test_only_opening_fence() -> None:
-    """仅含开栏标记：去掉开栏前缀后可解析。"""
+    """Opening fence only: removing its prefix leaves parseable JSON."""
     assert json.loads(strip_json_code_fences('```json\n{"a": 1}')) == {"a": 1}
 
 
 def test_only_opening_fence_no_language() -> None:
-    """仅含无语言标注的开栏标记。"""
+    """Opening fence only without language annotations."""
     assert json.loads(strip_json_code_fences('```\n{"a": 1}')) == {"a": 1}
 
 
 def test_only_closing_fence() -> None:
-    """仅含闭栏标记：去掉尾部 ``` 后可解析。"""
+    """Closing fence only: removing trailing ``` leaves parseable JSON."""
     assert json.loads(strip_json_code_fences('{"a": 1}\n```')) == {"a": 1}
 
 
 def test_bare_json_untouched() -> None:
-    """无栅栏的裸 JSON 仅做两端 strip，内容不变。"""
+    """Bare JSON without fences only strips outer whitespace, preserving content."""
     assert strip_json_code_fences('  {"a": 1}  ') == '{"a": 1}'
 
 
 def test_case_insensitive_opening_marker() -> None:
-    """大小写变体开栏标记均剥离 7 字前缀，不把语言标注残留进正文。"""
+    """Case-varied opening fences strip seven-character prefixes without leaking language annotations into bodies."""
     assert strip_json_code_fences('```JSON\n{"a": 1}\n```').startswith("{")
 
 

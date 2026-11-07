@@ -47,7 +47,7 @@ const NARRATION_MISSING: EditTimelineIssueRef = {
   unit_id: "E1S04",
 };
 
-/** 本集正式脚本：E1S04 排第 3 个、E1S03 排第 4 个，阻断原因按位置称呼分镜。 */
+/** Formal script: E1S04 is third, E1S03 fourth; blocking reasons address shots by position. */
 function seedEpisodeScript() {
   useProjectsStore.setState({
     currentScripts: {

@@ -1,4 +1,4 @@
-"""Alembic 迁移：内置供应商下用户添加的模型记下调用端点，回填为升级前实际使用的通道。"""
+"""Alembic: retain endpoints for user-added built-in-provider models, backfilled to channels actually used before upgrade."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ def _upgrade_with(
     migration_revisions: Callable[[str], tuple[str, str]],
     rows: list[dict[str, object]],
 ) -> dict[tuple[str, str], str | None]:
-    """在父版本写入内置供应商模型行，升到本迁移，读回这些行的 ``(provider_id, model_id) → endpoint``。
+    """Insert built-in-provider model rows at the parent revision, upgrade, then read their ``(provider_id, model_id) → endpoint``.
 
-    更早的迁移会预置官方收录模型的状态行，只读回本用例写入的。
+    Earlier migrations seed official-model status rows; read only rows this case inserted.
     """
     cfg, db_path = alembic_cfg
     revision, parent = migration_revisions("*_builtin_model_endpoint.py")
@@ -53,7 +53,7 @@ def test_user_added_models_keep_the_channel_they_used_before_upgrade(
         alembic_cfg,
         migration_revisions,
         [
-            # 靠条目绑定识别为 H3 的不透明 ID：升级前内置 MiniMax 只按 API 模型名选通道，走的是海螺 2.3 的请求结构
+            # Opaque IDs bound to H3 entries used Hailuo 2.3 request shapes before upgrade, because built-in MiniMax selected channels only by API model name.
             {
                 "provider_id": "minimax",
                 "model_id": "acme-video-pro",
@@ -65,7 +65,7 @@ def test_user_added_models_keep_the_channel_they_used_before_upgrade(
             {"provider_id": "ark", "model_id": "doubao-seedance-x", "media_type": "video"},
             {"provider_id": "grok", "model_id": "grok-imagine-image-2", "media_type": "image"},
             {"provider_id": "openai", "model_id": "gpt-5.9", "media_type": "text"},
-            # 官方收录模型的启用状态行：端点跟随官方，不记
+            # Official-model enabled-state rows follow official endpoints, so store no endpoint.
             {"provider_id": "minimax", "model_id": "MiniMax-H3", "user_added": False},
         ],
     )

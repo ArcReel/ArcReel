@@ -1,12 +1,12 @@
-# 长期保留的 schema_version=1 迁移，与 v0→v1 一样不随时间移除。
+# Permanent schema_version=1 migration, retained over time like v0→v1.
 #
-# 把存量 project.json 里的 legacy provider 名（gemini/aistudio/vertex/seedance）归一化为规范 id，
-# 并把 legacy 单字段 image_backend 拆为 image_provider_t2i/i2i。此后解析链假设输入即规范 id、
-# 不再做读时归一化。
+# Normalize legacy project.json providers (gemini/aistudio/vertex/seedance) into canonical IDs,
+# splitting legacy image_backend into image_provider_t2i/i2i. Later resolution assumes canonical IDs,
+# without read-time normalization.
 #
-# 保留原因：迁移链不能断。缺少这一步时 runner 会抛 `no migrator from v1`，v0 项目升级也必须
-# 经过 v1→v2；v0/v1 项目以及旧导出包、旧备份的还原都依赖它。
-"""v1→v2 迁移：归一化 legacy provider 名 + 拆分 legacy image_backend 字段。"""
+# Retain chain continuity: missing steps cause `no migrator from v1`, and v0 upgrades also require
+# v1→v2. Existing v0/v1 projects, old archives, and restored backups depend on it.
+"""v1→v2: normalize legacy provider names and split legacy image_backend."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from pathlib import Path
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.infra.json_io import atomic_write_json, load_json
 
-# 系统中**唯一**一份 legacy 别名表（旧三处映射表的并集，不发明新别名）。
-# 校验：所有目标必须是 PROVIDER_REGISTRY 中真实存在的规范 id。
+# The sole legacy alias map, unioning three former tables without inventing aliases.
+# Every target must be a real canonical PROVIDER_REGISTRY ID.
 _LEGACY_PROVIDER_ALIASES: dict[str, str] = {
     "gemini": "gemini-aistudio",
     "aistudio": "gemini-aistudio",
@@ -28,7 +28,7 @@ assert all(target in PROVIDER_REGISTRY for target in _LEGACY_PROVIDER_ALIASES.va
     "legacy 别名目标必须是规范 provider id"
 )
 
-# 承载 provider id 的 7 个 project.json 字段，逐个归一化。
+# Normalize seven project.json provider-ID fields individually.
 _PROVIDER_FIELDS: tuple[str, ...] = (
     "video_backend",
     "image_backend",
@@ -41,54 +41,53 @@ _PROVIDER_FIELDS: tuple[str, ...] = (
 
 
 def _normalize_field(value: str) -> str:
-    """归一化单个 ``"provider/model"`` 或裸 ``"provider"`` 字段的 provider 部分。
+    """Normalize provider portions of ``"provider/model"`` or bare ``"provider"`` fields.
 
-    先 strip 再比对别名表：带空白的 legacy 名（如 ``" gemini / model "``）若不 strip 会比对落空、
-    残留未归一化，违背一次性「干净断裂」的目的。"""
+    Strip before alias matching; whitespace-padded legacy names such as ``" gemini / model "`` otherwise
+    miss matches and remain unnormalized, defeating the one-time clean break."""
     if "/" in value:
         provider, model = value.split("/", 1)
         provider, model = provider.strip(), model.strip()
         canonical = _LEGACY_PROVIDER_ALIASES.get(provider, provider)
-        # model 缺失（如 "gemini /"）只返回规范 provider，避免留下带尾斜杠的非规范字符串
+        # Missing models (e.g. "gemini /") return canonical providers only, avoiding noncanonical trailing slashes.
         return f"{canonical}/{model}" if model else canonical
     stripped = value.strip()
     return _LEGACY_PROVIDER_ALIASES.get(stripped, stripped)
 
 
 def migrate_project_dict(project: dict) -> dict:
-    """纯函数：把 v1 形态的 project dict 转为 v2 形态。幂等。
+    """Pure, idempotent v1→v2 project-dict conversion.
 
-    顺序：① legacy image_backend 且 t2i/i2i 缺失时拆成两字段（拷贝原值）；
-    ② 逐个归一化 7 个 provider 字段的 provider 部分；③ 删除 legacy image_backend 键。
-    不改 schema_version（由文件级 migrate 提交时写入）。
-    """
+    First split legacy image_backend into missing t2i/i2i fields by copying originals; then normalize
+    provider portions of seven fields; finally remove image_backend.
+    Leave schema_version to file-level commit."""
     data = dict(project)
 
-    # ① 字段拆分：legacy image_backend → image_provider_t2i / _i2i（仅填补缺失槽）
+    # 1. Split image_backend into image_provider_t2i / _i2i, filling missing slots only.
     legacy = data.get("image_backend")
     if isinstance(legacy, str) and legacy:
         data.setdefault("image_provider_t2i", legacy)
         data.setdefault("image_provider_i2i", legacy)
 
-    # ② 归一化 provider 字段
+    # 2. Normalize provider fields.
     for key in _PROVIDER_FIELDS:
         value = data.get(key)
         if isinstance(value, str) and value:
             data[key] = _normalize_field(value)
 
-    # ③ 删除 legacy 单字段
+    # 3. Remove the legacy single field.
     data.pop("image_backend", None)
 
     return data
 
 
 def migrate_v1_to_v2(project_dir: Path) -> None:
-    """v1→v2 文件级迁移。单次原子写，天然崩溃可重试（要么旧值要么新值，无半态）。"""
+    """File-level v1→v2 migration: one atomic write, inherently retryable after crashes with old/new values and no partial state."""
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = load_json(pj)
-    # or 0：显式 null 与字段缺失同义（v0），直接比较 None >= 2 会 TypeError
+    # or 0: explicit null equals absent (v0); None >= 2 would raise TypeError.
     if (data.get("schema_version") or 0) >= 2:
         return
     migrated = migrate_project_dict(data)

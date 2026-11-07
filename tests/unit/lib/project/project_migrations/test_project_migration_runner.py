@@ -1,4 +1,4 @@
-"""迁移 runner：版本检测、幂等、错误隔离、备份清理。"""
+"""Migration runner: version detection, idempotency, error isolation, and backup cleanup."""
 
 import json
 import time
@@ -36,8 +36,8 @@ def test_skip_already_current(tmp_projects: Path):
 
 
 def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
-    """runner 逐级跑到 CURRENT_SCHEMA_VERSION（此处 v0→v1→v2→v3）。"""
-    _write_project(tmp_projects, "p1", {"name": "p1"})  # 无 schema_version
+    """The runner applies each step through CURRENT_SCHEMA_VERSION (v0→v1→v2→v3 here)."""
+    _write_project(tmp_projects, "p1", {"name": "p1"})  # No schema_version.
 
     called: list[int] = []
 
@@ -63,7 +63,7 @@ def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
 
 
 def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
-    """用真实 MIGRATORS：v1 项目经 runner 归一化 legacy provider 名并升到最新版本。"""
+    """With real MIGRATORS, the runner normalizes legacy provider names and upgrades v1 projects to the latest version."""
     _write_project(
         tmp_projects,
         "p1",
@@ -79,7 +79,7 @@ def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
 
 
 def test_real_v2_to_v3_stamps_version_via_runner(tmp_projects: Path):
-    """用真实 MIGRATORS：v2 项目经 runner 盖章升级并产生版本化备份，episodes 内容不变。"""
+    """With real MIGRATORS, the runner stamps v2 projects, creating versioned backups without changing episodes."""
     novel = "第一集的正文内容。第二集还没拆出来的余文。"
     p = _write_project(
         tmp_projects,
@@ -99,27 +99,27 @@ def test_real_v2_to_v3_stamps_version_via_runner(tmp_projects: Path):
     assert "p1" in summary.migrated
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
-    # 盖章语义细节由 test_project_migration_v2_v3 专测，此处只验证迁移器经 MIGRATORS
-    # 注册生效与 runner 外围行为
-    # 无原文范围、有集文件且 source/ 另有整本源文的旧条目，v15→v16 判为切自整本源文
+    # test_project_migration_v2_v3 covers stamping details; only verify MIGRATORS registration
+    # and surrounding runner behavior here.
+    # Legacy entries without source ranges but with episode files and a whole-book source under source/ are classified by v15→v16 as whole-source excerpts.
     assert data["episodes"] == [
         {"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json", "source_origin": "whole_source"}
     ]
     assert data["whole_source_files"] == [{"source_file": "source/novel.txt"}]
     assert "planning_cursor" not in data
-    assert (source / "_remaining.txt").exists()  # 迁移不动 source/ 下任何文件
-    assert list(p.glob("project.json.bak.v2-*"))  # runner 自动版本化备份
+    assert (source / "_remaining.txt").exists()  # Migration changes no files under source/.
+    assert list(p.glob("project.json.bak.v2-*"))  # The runner automatically creates versioned backups.
 
 
 def test_migrate_project_dir_single_project(tmp_projects: Path):
-    """单项目入口（供导入路径复用）：v1 项目走完整链升到 v2 并归一化 legacy 名。"""
+    """Single-project entry for import reuse: run the full chain from v1 to v2, normalizing legacy names."""
     d = _write_project(tmp_projects, "imported", {"schema_version": 1, "image_backend": "vertex/y"})
     assert migrate_project_dir(d) is True
     data = json.loads((d / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["image_provider_t2i"] == "gemini-vertex/y"
     assert "image_backend" not in data
-    # 幂等：已是最新版本再调返回 False、不改动
+    # Idempotency: latest-version projects return False without changes on repeated calls.
     assert migrate_project_dir(d) is False
 
 
@@ -133,7 +133,7 @@ def test_skip_non_project_dirs(tmp_projects: Path):
 
 
 def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
-    """schema_version 不可解析的项目按损坏跳过：不盖戳、不中断其他项目迁移。"""
+    """Skip unparseable schema_version as corruption: no version stamping and no interruption of other project migrations."""
     _write_project(tmp_projects, "broken", {"schema_version": "corrupted"})
     _write_project(tmp_projects, "ok", {"schema_version": 1, "video_backend": "seedance/x"})
 
@@ -142,11 +142,11 @@ def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
     assert "broken" not in summary.migrated + summary.failed + summary.skipped
     assert "ok" in summary.migrated
     data = json.loads((tmp_projects / "broken" / "project.json").read_text(encoding="utf-8"))
-    assert data["schema_version"] == "corrupted"  # 原样保留，待人工修复
+    assert data["schema_version"] == "corrupted"  # Preserve unchanged for manual repair.
 
 
 def test_numeric_string_schema_version_is_not_classified_as_current(tmp_projects: Path):
-    """数字字符串也是损坏的持久化版本，不能被误判为已完成迁移。"""
+    """Numeric strings are also corrupt persisted versions; do not mistake them for completed migrations."""
     _write_project(tmp_projects, "numeric-string", {"schema_version": str(CURRENT_SCHEMA_VERSION)})
 
     summary = run_project_migrations(tmp_projects)
@@ -155,7 +155,7 @@ def test_numeric_string_schema_version_is_not_classified_as_current(tmp_projects
 
 
 def test_falsy_or_bool_schema_version_skipped_not_v0(tmp_projects: Path):
-    """空串 / bool 等不可解析版本号按损坏跳过，不误当 v0 重跑迁移。"""
+    """Skip unparseable versions such as empty strings / bool as corruption, not v0 needing migration."""
     for name, bad in [("empty", ""), ("bool-true", True), ("bool-false", False)]:
         _write_project(tmp_projects, name, {"schema_version": bad})
 
@@ -166,7 +166,7 @@ def test_falsy_or_bool_schema_version_skipped_not_v0(tmp_projects: Path):
 
 
 def test_explicit_null_schema_version_treated_as_v0(tmp_projects: Path):
-    """显式 null 与字段缺失同义（v0），正常走完整迁移链。"""
+    """Explicit null equals a missing field (v0) and follows the full migration chain."""
     _write_project(tmp_projects, "p1", {"schema_version": None, "episodes": []})
     summary = run_project_migrations(tmp_projects)
     assert "p1" in summary.migrated
@@ -215,7 +215,7 @@ def test_cleanup_old_backups(tmp_projects: Path):
     (old_clues_dir / "a.png").write_bytes(b"x")
     new_clues_dir.mkdir()
 
-    # mtime 控制：old 文件/目录 mtime 设为 8 天前
+    # Control mtime: set old file/directory timestamps to 8 days ago.
     eight_days_ago = time.time() - 8 * 86400
     import os
 
@@ -262,7 +262,7 @@ def test_cleanup_retains_v7_recovery_backups_until_schema_promotion_succeeds(tmp
 
 
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
-    """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
+    """Before v0→v1, hard-link clues/ backups into clues.bak.v0-<ts>/."""
     p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0
     (p / "clues").mkdir()
     (p / "clues" / "玉佩.png").write_bytes(b"prop-image")
@@ -285,7 +285,7 @@ def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
 
 
 def test_cleanup_reclaims_every_backup_the_draft_rename_leaves_behind(tmp_projects: Path) -> None:
-    """v9→v10 会为每个被改名的草稿与产物清单落备份，回收侧必须逐个覆盖，否则它们永久残留。"""
+    """v9→v10 backs up every renamed draft and artifact manifest; cleanup must cover each or they remain forever."""
     import os
 
     project_dir = _write_project(
@@ -316,7 +316,7 @@ def test_cleanup_reclaims_every_backup_the_draft_rename_leaves_behind(tmp_projec
 
 
 def test_failed_retry_does_not_duplicate_an_identical_project_backup(tmp_projects: Path, monkeypatch):
-    """同一起点版本、内容相同的 project.json 只留一份备份；内容变了才新增。"""
+    """Keep one project.json backup per starting version and identical content; create another only when content changes."""
     p = _write_project(tmp_projects, "p1", {"schema_version": 2, "name": "p1"})
 
     def bad(_d):

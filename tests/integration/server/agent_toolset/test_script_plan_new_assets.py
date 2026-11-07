@@ -1,4 +1,4 @@
-"""AI 规划脚本带出本集新增资产：上下文带已登记资产，引用须已登记或在本次新增项中。"""
+"""AI script plans include episode-new assets; context contains registered assets, and references must be registered or newly declared here."""
 
 from __future__ import annotations
 

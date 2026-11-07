@@ -1,7 +1,7 @@
-"""规划草稿进出项目回收站：未确认的正式脚本规划与待修复、可编辑草稿的删除成为一条带结构快照的删除记录。
+"""Move planning drafts through project trash: deleting unconfirmed formal plans and repair/editable drafts creates a record with a structural snapshot.
 
-恢复时所属的集必须还在。原路径空闲就回原位，脚本规划的产物登记取自删除前（迁移后）的清单一并补录；原路径已有
-文件时换成「<原名> (n)」加回，作为未引用文件、不带登记。
+Restoration requires the owning episode to exist. If the original path is free, restore it and backfill pre-deletion
+(post-migration) plan registration; otherwise add “<original name> (n)” as an unreferenced file without registration.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ PLANNING_DRAFT_KIND = "planning_draft"
 
 
 def trash_planning_draft(project_dir: Path, episode: int, path: Path) -> project_trash.TrashRecord | None:
-    """把第 ``episode`` 集的规划草稿 ``path`` 移进一条删除记录；不是普通文件时返回 None。调用方持有项目锁。"""
+    """Move episode ``episode`` planning draft ``path`` into one deletion record; None for nonregular files. Caller holds the project lock."""
     if path.is_symlink() or not path.is_file():
         return None
     rel = path.relative_to(project_dir).as_posix()
@@ -37,9 +37,9 @@ def trash_planning_draft(project_dir: Path, episode: int, path: Path) -> project
 
 
 def discard_quarantine(project_path: Path, episode: int, kind: str) -> bool:
-    """丢弃草稿（创作者或 Agent 放弃它）：移进项目回收站，返回是否真的有草稿；有时推进项目活动。
+    """Discard a draft abandoned by a creator/Agent into project trash; return actual presence and advance project activity if present.
 
-    调用方持有草稿锁、不持项目锁。
+    Caller holds the draft lock, not the project lock.
     """
     with project_metadata_lock(project_path):
         record = trash_planning_draft(project_path, episode, quarantine_path(project_path, episode, kind))
@@ -50,7 +50,7 @@ def discard_quarantine(project_path: Path, episode: int, kind: str) -> bool:
 
 
 def take_planning_draft(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """按原路径从迁移后的临时项目取出草稿与它的脚本规划登记。"""
+    """Take the draft and its plan registration from a migrated temporary project by original path."""
     rel, episode = str(obj.get("path")), int(obj.get("episode") or 0)
     staged_file = staged / rel
     if staged_file.is_symlink() or not staged_file.is_file():
@@ -62,10 +62,10 @@ def take_planning_draft(project_dir: Path, staged: Path, obj: Mapping[str, Any])
 
     def require_episode() -> None:
         if find_episode(projects.load_project(project_dir.name), episode) is None:
-            # 所属的集已删除：加回的草稿没有归属。
+            # Owning episode was deleted; the restored draft has no owner.
             raise ConflictError("trash_restore_failed", id=rel)
 
-    # 此处抛错按取不出对象降级；落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
+    # Treat errors here as unavailable objects; recheck under lock on restore. Intervening episode deletion fails restore, retaining the record.
     require_episode()
 
     def land(landing: Landing) -> Mapping[str, Any]:
@@ -79,7 +79,7 @@ def take_planning_draft(project_dir: Path, staged: Path, obj: Mapping[str, Any])
         landing.place(staged_file, target, original=rel)
         landed.append(target)
         if target == rel and claim is not None and claim.artifact_path == rel:
-            # 补录：依据摘要不变，输入此后变过的照常读为过期。
+            # Backfill with the same basis digest; later input changes still read as stale.
             register_artifact_entries_atomically(
                 project_dir, {key: ArtifactManifestEntry(claim.artifact_path, claim.basis_digest)}
             )

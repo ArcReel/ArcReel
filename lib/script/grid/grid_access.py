@@ -1,8 +1,8 @@
-"""宫格写操作的项目级准入判定。
+"""Project-level admission for grid writes.
 
-重生成 / 切分 / 上传 / 版本还原四条写入口共用这一份判定：任一入口漏掉它，
-被封禁项目的残留 grid 记录就能从那条路被改写。项目的加载留给各调用方，
-本模块只承担「这个项目此刻允不允许改写宫格」的策略。
+Regeneration, splitting, upload, and version restore share one decision. Any entry point omitting it would
+let blocked projects mutate leftover grid records. Callers load projects; this module only decides whether
+that project may currently modify grids.
 """
 
 from __future__ import annotations
@@ -14,11 +14,11 @@ from lib.project.project_manager import grid_storyboard_enabled
 
 
 def ensure_grid_writable(project: dict[str, Any]) -> None:
-    """项目不允许改写宫格时抛 BadRequestError。
+    """Raise BadRequestError when grids are not writable for this project.
 
-    - 广告/短片项目不开放宫格分镜，已有 grid 记录保持只读；
-    - 未启用宫格的项目（含 reference_video 生成模式）同样只读已有 grid 记录，
-      不允许重生成、切分、上传或还原。
+    - Ad/short-film projects do not expose grid storyboards; existing records remain read-only.
+    - Projects without grid enabled (including reference_video) likewise keep existing records read-only,
+      prohibiting regeneration, splitting, upload, and restore.
     """
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")

@@ -88,20 +88,20 @@ describe("ProviderModelList", () => {
     render(<ProviderModelList providerId="acme" providerName="Acme" />);
 
     const lists = await screen.findAllByRole("list");
-    // 文本组在图片组之前
+    // Text groups precede image groups.
     expect(lists).toHaveLength(2);
     const [text, image] = lists;
     expect(within(text).getByText("Chat One")).toBeInTheDocument();
     expect(within(text).getByText("默认")).toBeInTheDocument();
     expect(within(text).getByText("$0.05/百万 token 输入，$0.15–0.3/百万 token 输出")).toBeInTheDocument();
-    // 没有显示名时显示模型 ID
+    // Missing display names fall back to model IDs.
     expect(within(text).getAllByText("chat-legacy")).toHaveLength(2);
     expect(within(text).getByText("已下线")).toBeInTheDocument();
     expect(within(text).getByText("未定价")).toBeInTheDocument();
     expect(within(image).getByText("Image One")).toBeInTheDocument();
-    // 改过模型信息的行带「已修改」
+    // Modified model-info rows show Modified.
     expect(within(image).getByText("已修改")).toBeInTheDocument();
-    // 没有模型列表接口的供应商没有「获取模型」
+    // Providers without model-list APIs lack Fetch models.
     expect(screen.queryByRole("button", { name: "获取模型" })).not.toBeInTheDocument();
   });
 
@@ -134,7 +134,7 @@ describe("ProviderModelList", () => {
     expect(within(row!).getByText("需要 ArcReel ≥ 0.36.0")).toBeInTheDocument();
     expect(within(row!).getByRole("switch", { name: /Chat Next/ })).toHaveAttribute("aria-disabled", "true");
     expect(within(row!).queryByRole("button")).not.toBeInTheDocument();
-    // 满足版本要求的行不带这个标注，仍可打开 Sheet
+    // Version-compatible rows omit annotations and still open Sheets.
     expect(screen.getAllByText(/需要 ArcReel/)).toHaveLength(1);
     fireEvent.click(screen.getByText("Chat One"));
     await waitFor(() => expect(getModel).toHaveBeenCalled());
@@ -194,12 +194,12 @@ describe("ProviderModelList", () => {
     await waitFor(() => expect(setEnabled).toHaveBeenCalledWith("acme", "chat-1", false));
     await waitFor(() => expect(toggle).not.toBeChecked());
     expect(screen.queryByText("默认")).not.toBeInTheDocument();
-    // 上层按已启用的模型判断（如自定义供应商不填密钥时的冲突提示），启停后要通知它
+    // Parents judge enabled models (for example missing custom-provider credentials), requiring enable/disable notifications.
     expect(onModelsChanged).toHaveBeenCalledTimes(1);
   });
 
   it("refetches the rows when the saved provider multiplier changes", async () => {
-    // 倍率为 0 时不标「未定价」：倍率跨过 0 后行上的标记要跟着变
+    // Zero multipliers omit Unpriced; crossing zero updates row badges.
     const list = vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS, discoverable: false });
 
     const { rerender } = render(<ProviderModelList providerId="acme" providerName="Acme" providerMultiplier={1} />);
@@ -266,7 +266,7 @@ describe("ProviderModelList", () => {
     await user.click(await screen.findByRole("button", { name: "手动填写" }));
 
     const dialog = await screen.findByRole("dialog", { name: "手动填写模型信息" });
-    // 模型名称取搜索词；添加模型时类型由用户选
+    // Model names come from search terms, with user-selected types on addition.
     expect(within(dialog).getByLabelText("模型名称")).toHaveValue("relay-flux");
     await user.type(within(dialog).getByLabelText("模型厂商"), "bfl");
     await user.clear(within(dialog).getByLabelText("模型名称"));
@@ -307,12 +307,12 @@ describe("ProviderModelList", () => {
     expect(within(dialog).queryByRole("button", { name: "文本" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "音频" })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "视频" })).toBeInTheDocument();
-    // 默认选中第一个受支持的类型
+    // Select first supported types by default.
     expect(within(dialog).getByRole("button", { name: "图片" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("leaves the output limit of a hand-filled text model unset unless the user gives one", async () => {
-    // 预填一个常见值会作为模型事实写入，文本请求随之被压到这个上限；不填时按未登记处理
+    // Common prefilled values persist as model facts, capping text requests; blank means uncataloged.
     const user = userEvent.setup();
     const added = item({ model_id: "relay-chat", official: false, media_type: "text" });
     vi.spyOn(API, "listProviderModels")
@@ -367,7 +367,7 @@ describe("ProviderModelList", () => {
     render(<ProviderModelList providerId="acme" providerName="Acme" />);
     await user.click(await screen.findByRole("button", { name: "获取模型" }));
 
-    // 已启用的 chat-1 已添加；停用的官方收录模型列为已识别，添加即启用
+    // Enabled chat-1 is already added; disabled official models are recognized, enabled by addition.
     expect(await screen.findByRole("checkbox", { name: /chat-2/ })).toBeChecked();
     expect(screen.getByText("另有 1 个已添加的模型未列出。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "添加 1 个模型" }));

@@ -1,24 +1,24 @@
-/** 模版的触发方；`name` 是工具名、用户操作名或任务类型，取值由后端封闭声明。 */
+/** Template trigger; `name` is a tool name, user action name, or task type from the backend's closed declarations. */
 export interface PromptTemplateTrigger {
   kind: "agent_tool" | "user_action" | "generation_task";
   name: string;
 }
 
-/** 提示词模版元数据（frontmatter），列表与详情共用。 */
+/** Prompt template metadata (frontmatter), shared by list and detail responses. */
 export interface PromptTemplateMeta {
   id: string;
   category: string;
   title: string;
   description: string;
-  /** 所属制作步骤。 */
+  /** Production stage. */
   stage: string;
   invoked_by: PromptTemplateTrigger;
-  /** 轴名 → 适用的轴值；变体族按这里的轴值展开。 */
+  /** Axis name → applicable axis values; variant families expand over these values. */
   applies_to: Record<string, string[]>;
-  /** 槽位名 → 说明。 */
+  /** Slot name → description. */
   slots: Record<string, string>;
   protected: boolean;
-  /** `module:Class`，无结构化输出时为 null。 */
+  /** `module:Class`; null when there is no structured output. */
   output_schema: string | null;
 }
 
@@ -29,13 +29,13 @@ export interface PromptTemplateListResponse {
 export interface PromptTemplatePartial {
   name: string;
   source: string;
-  /** 锁定：不提供编辑入口。 */
+  /** Protected: no editing entry point is provided. */
   protected: boolean;
-  /** 引用它的模版 id，按注册顺序。 */
+  /** IDs of templates referencing this partial, in registration order. */
   referenced_by: string[];
 }
 
-/** JSON schema 节点，只声明设置页展开输出结构时读取的字段。 */
+/** JSON schema node declaring only fields read when the settings page expands the output structure. */
 export interface JsonSchemaNode {
   type?: string;
   description?: string;
@@ -50,7 +50,7 @@ export interface JsonSchemaNode {
 export interface PromptTemplateDetail {
   template: PromptTemplateMeta;
   source: string;
-  /** 按首次引用顺序；变体族展开为全部轴值。 */
+  /** In first-reference order; variant families expand to all axis values. */
   partials: PromptTemplatePartial[];
   output_schema?: JsonSchemaNode;
 }

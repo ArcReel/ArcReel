@@ -1,4 +1,4 @@
-"""注入的 transport 层叠在调用通道原有的 httpx 客户端之上：先改写请求，再由原客户端（含出站目的地校验）发出。"""
+"""Injected transports wrap existing httpx clients: rewrite first, then send through original clients including outbound validation."""
 
 from __future__ import annotations
 

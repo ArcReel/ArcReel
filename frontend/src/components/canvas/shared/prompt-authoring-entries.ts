@@ -1,11 +1,11 @@
-/** 弹窗清单里的一个条目：是否待编写、视觉层是否已有内容。 */
+/** One dialog-list entry: whether authoring is pending and whether the visual layer already has content. */
 export interface PromptAuthoringEntry {
   id: string;
   pending: boolean;
   hasContent: boolean;
 }
 
-/** 各条目形态的数组键、id 字段与视觉层字段；参考生视频单元的正文即视觉层。 */
+/** Array keys, ID fields and visual-layer fields for each entry shape; a reference-to-video unit's body is its visual layer. */
 const ENTRY_SHAPES: readonly { key: string; idField: string; fields: readonly string[] }[] = [
   { key: "video_units", idField: "unit_id", fields: ["text"] },
   { key: "segments", idField: "segment_id", fields: ["image_prompt", "video_prompt"] },
@@ -19,7 +19,7 @@ function filled(value: unknown): boolean {
   return Boolean(value);
 }
 
-/** 从正式脚本取出弹窗清单（剧本顺序）。 */
+/** Extract the dialog list from the formal script in script order. */
 export function promptAuthoringEntries(script: unknown): PromptAuthoringEntry[] {
   if (!script || typeof script !== "object") return [];
   const record = script as Record<string, unknown>;

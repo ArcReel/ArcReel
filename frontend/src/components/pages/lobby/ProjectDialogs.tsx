@@ -30,16 +30,16 @@ import { getProjectDisplayName } from "@/utils/project-display";
 import type { ProjectSummary } from "@/types";
 
 interface ProjectDialogProps {
-  /** 要操作的项目；为 null 时对话框关闭。 */
+  /** Target projects; null closes dialogs. */
   project: ProjectSummary | null;
   onClose: () => void;
-  /** 改动已保存，列表需要重新加载。 */
+  /** Changes persisted; lists need reloads. */
   onDone: () => void;
 }
 
 /**
- * 关闭动画期间 `project` 已是 null，保留上一次的项目避免内容闪成空白。
- * 每次打开（含再次打开同一个项目）时调用 `onOpen` 重置表单。
+ * During close animations, `project` is null; retain previous projects to avoid blank-content flashes.
+ * Invoke `onOpen` on every opening, including identical projects, to reset forms.
  */
 function useShownProject(project: ProjectSummary | null, onOpen: (project: ProjectSummary) => void) {
   const [prev, setPrev] = useState<ProjectSummary | null>(null);
@@ -54,7 +54,7 @@ function useShownProject(project: ProjectSummary | null, onOpen: (project: Proje
   return shown;
 }
 
-/** 改项目标题。项目 ID 决定项目的地址与目录，不随标题变化。 */
+/** Change project titles. Project IDs determine addresses/directories and never change with titles. */
 export function RenameProjectDialog({ project, onClose, onDone }: ProjectDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const formId = useId();
@@ -92,7 +92,7 @@ export function RenameProjectDialog({ project, onClose, onDone }: ProjectDialogP
     <Dialog
       open={project !== null}
       onOpenChange={(open) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during submission so the dialog cannot disappear before the request completes
         if (!open && !submitting) onClose();
       }}
     >
@@ -126,7 +126,7 @@ export function RenameProjectDialog({ project, onClose, onDone }: ProjectDialogP
   );
 }
 
-/** 删除项目先用 AlertDialog 确认：项目移入「已删除项目」，保留期内可以恢复。 */
+/** Confirm project deletion through AlertDialog first; projects move to Deleted projects, restorable within retention periods. */
 export function DeleteProjectDialog({ project, onClose, onDone }: ProjectDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [submitting, setSubmitting] = useState(false);
@@ -153,7 +153,7 @@ export function DeleteProjectDialog({ project, onClose, onDone }: ProjectDialogP
     <AlertDialog
       open={project !== null}
       onOpenChange={(open) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during submission so the dialog cannot disappear before the request completes
         if (!open && !submitting) onClose();
       }}
     >

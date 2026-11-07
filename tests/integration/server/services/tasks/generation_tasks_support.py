@@ -1,4 +1,4 @@
-"""server.services.tasks.generation_tasks 测试共享的替身与 helper。"""
+"""Shared substitutes/helpers for server.services.tasks.generation_tasks tests."""
 
 import asyncio
 import json
@@ -50,13 +50,9 @@ def fake_resolve_ctx(
     video_request_facts=None,
     seen_lane_requests=None,
 ):
-    """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
+    """Lane-aware fake resolve_generation_context builds frozen-dataclass results from declared lanes.
 
-    video lane 声明了路线时附带视频请求事实：``video_request_facts`` 给定时原样使用（可为失败对象），
-    否则按本替身的身份、分辨率与档位参数构造一份未收窄的事实。
-    ``seen_lane_requests`` 传入 list 时记录每次调用声明的 lane 请求，供断言任务只声明
-    自己用到的 lane。
-    """
+    Declared video routes include facts: use supplied ``video_request_facts`` unchanged (including failures), otherwise construct unrestricted facts from substitute identity, resolution and tier parameters. If ``seen_lane_requests`` is a list, record every declared lane request so assertions prove tasks declare only used lanes."""
 
     async def _resolve(
         project_name,
@@ -271,7 +267,7 @@ class _FakePM:
 
 
 class SheetGenerator:
-    """按生产口径经正式图活化回调提交一张生成的资产图。"""
+    """Commit one generated asset image through the formal-image activation callback, matching production."""
 
     def __init__(self, project_dir: Path, content: bytes) -> None:
         self.versions = VersionManager(project_dir)
@@ -286,7 +282,7 @@ class SheetGenerator:
 
 class FakeGenerator:
     def __init__(self, project_path: Path | None = None):
-        # 传入项目目录时把产出落到产物的规范路径，让任务按生产口径登记清单
+        # Given project directories, persist output at canonical paths so tasks register manifests as in production.
         self.project_path = project_path
         self.image_calls = []
         self.image_reference_bytes = []
@@ -296,8 +292,8 @@ class FakeGenerator:
 
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
-        # 落盘产出、读参考图与提交版本都在工作线程里做：MediaGenerator 的后端在线程里写产物，
-        # 正式提交回调也经 run_noninterruptible_sync 在线程里执行
+        # Artifact writes, reference reads and version commits run in worker threads, matching MediaGenerator backend writes;
+        # formal callbacks also execute threaded through run_noninterruptible_sync.
         return await asyncio.to_thread(self._produce_and_commit, kwargs)
 
     def _produce_and_commit(self, kwargs) -> tuple[Path, int]:
@@ -308,7 +304,7 @@ class FakeGenerator:
                 for reference in kwargs.get("reference_images") or []
             ]
         )
-        # 与 MediaGenerator 一样经 formal_output 的活化回调提交版本，返回回调给出的版本号
+        # Like MediaGenerator, commit versions through formal_output activation and return its version number.
         current = Path("/tmp/image.png")
         version = kwargs["commit_formal_output"](current, current, {})
         return current, version
@@ -423,7 +419,7 @@ _EIGHT_REFERENCE_CHARACTERS = ["配角1", "配角2", "配角3", "配角4", "配�
 
 
 def pm_with_eight_references(project_path: Path) -> _FakePM:
-    """E1S02 装配出 8 张参考图：6 张角色 sheet + 1 张场景 + 1 张道具（无上一分镜图），正文指认首角色、道具与场景。"""
+    """E1S02 assembles eight references: six character sheets + scene + prop, without a previous storyboard image; body names the first character, prop and scene."""
     pm = _FakePM(project_path)
     for name in _EIGHT_REFERENCE_CHARACTERS:
         pm.project["characters"][name] = {"description": name, "character_sheet": f"characters/{name}.png"}
@@ -469,7 +465,7 @@ def register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_p
 
 
 def ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
-    """ad 项目 fixture：商品分镜 E1S02（引用保温杯）+ 氛围分镜 E1S01/E1S03。"""
+    """Ad fixture: product storyboard E1S02 referencing 保温杯 plus atmosphere storyboards E1S01/E1S03."""
     pm = _FakePM(project_path)
     pm.project["content_mode"] = "ad"
     if with_sheet:
@@ -507,7 +503,7 @@ def ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
 
 
 def skip_artifact_registration(monkeypatch) -> None:
-    """正式图提交跳过产物清单登记（视作登记成功），用例只看提交与项目写回。"""
+    """Skip formal-image manifest registration as if successful; cases inspect only commit and project writeback."""
     monkeypatch.setattr(
         "server.services.tasks.formal_image_commit.register_current_resource_artifact", lambda *_a, **_kw: True
     )

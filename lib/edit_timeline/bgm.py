@@ -1,10 +1,11 @@
-"""BGM 轨的摆放：纯函数，时间一律是整数微秒。读取投影、成片与剪映草稿共用这份摆放。
+"""BGM-track placement: pure functions using integer microseconds. Read projection, final videos, and Jianying drafts share this placement.
 
-BGM 片段按绝对起点摆放，放完截取区间即止；同一时刻只有一首（由批量编辑保证）。超出时间线末尾的部分截断，
-截断处固定淡出 :data:`BGM_CUTOFF_FADE_MICROSECONDS`，不取片段自身的淡出时长；完全落在末尾之后的片段不出声。
-淡入淡出加起来超过摆放后的时长时：截断的片段先保住截断处的淡出，再缩短淡入；未截断的片段两者按比例缩短。
-剪辑视图预览直接取读取结果里摆放后的起止与淡入淡出，不另算一遍。
-"""
+Place BGM clips at absolute starts, ending after their trim ranges; only one track plays at a time
+(guaranteed by batch editing). Truncate beyond timeline end with fixed
+:data:`BGM_CUTOFF_FADE_MICROSECONDS` fade-out, ignoring clip fade-out duration. Clips wholly after
+end are silent. If combined fades exceed placed duration: truncated clips preserve cutoff fade-out
+before shortening fade-in; untruncated clips proportionally shorten both. Editing-view previews use
+placed starts/ends/fades directly from readouts rather than recomputing."""
 
 from __future__ import annotations
 
@@ -15,12 +16,12 @@ from lib.bgm.library import BgmSource
 from lib.edit_timeline.model import BgmClip
 
 BGM_CUTOFF_FADE_MICROSECONDS = 1_000_000
-"""超出时间线末尾被截断的 BGM 片段，在截断处淡出这么久。"""
+"""Fade-out duration at cutoff for BGM clips truncated beyond timeline end."""
 
 
 @dataclass(frozen=True, slots=True)
 class PlacedBgm:
-    """时间线上实际出声的一段 BGM：``volume`` 是片段音量，还没乘上 BGM 的响度增益。"""
+    """BGM actually sounding on the timeline: ``volume`` is clip volume before applying BGM loudness gain."""
 
     clip_id: str
     bgm_id: str
@@ -42,7 +43,7 @@ def bgm_clip_length_us(clip: BgmClip) -> int:
 
 
 def place_bgm(bgm: Sequence[BgmClip], duration_us: int) -> tuple[PlacedBgm, ...]:
-    """按起点排列 BGM 片段，截到时间线末尾；截成空的丢弃。"""
+    """Arrange BGM clips by start, truncate at timeline end, and discard clips truncated to empty."""
     placed: list[PlacedBgm] = []
     for clip in sorted(bgm, key=lambda item: item.start_us):
         natural_end = clip.start_us + bgm_clip_length_us(clip)
@@ -79,12 +80,12 @@ def _fit_fades(clip: BgmClip, length: int, *, truncated: bool) -> tuple[int, int
 
 
 def bgm_ids(bgm: Sequence[BgmClip]) -> tuple[str, ...]:
-    """BGM 轨引用的 BGM，按首次出现的顺序。"""
+    """Referenced BGM IDs in first-appearance order."""
     return tuple(dict.fromkeys(clip.bgm_id for clip in bgm))
 
 
 def bgm_sources_input(bgm: Sequence[BgmClip], sources: Mapping[str, BgmSource]) -> dict[str, object]:
-    """生成依据里 BGM 的部分：每首被引用 BGM 的内容指纹与静态增益；取不到的记为不可用。"""
+    """BGM contribution to generation basis: content fingerprints/static gain per referenced BGM; record unavailable if inaccessible."""
     return {
         bgm_id: source.to_input() if (source := sources.get(bgm_id)) is not None else {"unavailable": True}
         for bgm_id in bgm_ids(bgm)

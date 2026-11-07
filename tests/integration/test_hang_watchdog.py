@@ -1,13 +1,13 @@
-"""挂起诊断插件（`tests/hang_watchdog.py`）的端到端契约。
+"""End-to-end hang-diagnostic plugin (`tests/hang_watchdog.py`) contracts.
 
-每条用例在临时目录里另起一个 pytest 会话，只加载该插件。契约：
+Each case starts separate pytest in a temporary directory, loading only this plugin. Contracts:
 
-- 会话结束后进程迟迟不退出（被非 daemon 线程挡住）时，转储里有当前阶段与挡路线程的调用栈。
-- worker 被直接杀掉时，进展文件的最后一条是它正在执行的用例。
-- 进程调用 ``os._exit`` 时，转储里有退出码与调用它的栈；收到 SIGTERM 时，信号文件里有当时的栈，
-  进程照常被结束。用例 fork 出的子进程用 ``os._exit`` 收尾不算；转储失败也照常退出。
-- xdist 的 worker 宕掉时，controller 的进展文件记下它和终止它的信号。
-- 未设转储目录时插件不写任何文件。
+- If non-daemon threads prevent exit after session completion, dumps include the current phase and blocking-thread stacks.
+- When a worker is killed outright, its progress file ends with its active case.
+- ``os._exit`` dumps include exit codes and caller stacks; SIGTERM signal files include current stacks, then
+  normal termination proceeds. Test-forked children using ``os._exit`` do not count; dumping failures still permit exit.
+- After xdist worker crashes, controller progress records identify the worker and terminating signal.
+- Without a dump directory, the plugin writes no files.
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ def test_forked_child_exiting_via_os_exit_leaves_no_dump(tmp_path: Path) -> None
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    # 阈值只有 0.4s，负载高时可能有无进展转储；只断言子进程的 os._exit 没有留下转储。
+    # The 0.4s threshold may produce idle dumps under load; assert only that the child's os._exit left no dump.
     assert "os._exit" not in _single(dump_dir, "stacks")
 
 

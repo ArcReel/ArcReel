@@ -1,9 +1,9 @@
-"""分镜画面描述里 ``@[登记名]`` 的绑定检查。
+"""Check ``@[登记名]`` bindings in storyboard visual descriptions.
 
-分镜条目的参考图由引用字段（``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``）
-决定，正文 ``image_prompt.scene`` 里的 ``@[名称]`` 只指认、不派生参考图：一个 mention 要换成
-「图N」，它既须登记为资产，又须写进该条目的引用字段。两者缺一时，渲染层按裸名发送，本模块
-把这类 mention 收成 locale-neutral 的 ``{"key", "params"}`` 警告，供写剧本的工具随回执返回。
+Reference fields (``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``) determine storyboard images;
+``image_prompt.scene`` ``@[名称]`` mentions identify, never derive, references. Replacement with “图N” requires both
+asset registration and presence in this entry's reference fields. If either is missing, render the bare name and collect
+locale-neutral ``{"key", "params"}`` warnings here for script-writing tool receipts.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.storyboard_sequence import get_storyboard_items
 
-#: 画面描述里的 ``@[名称]`` 未登记为资产或不在该分镜引用字段中，将按裸名发送。
+#: Visual ``@[名称]`` absent from registration or this shot's reference fields is sent as a bare name.
 WARN_STORYBOARD_MENTION_UNBOUND = "storyboard_warn_mention_unbound"
 
 _REFERENCE_LIST_FIELDS: tuple[str, ...] = tuple(
@@ -47,10 +47,10 @@ def storyboard_mention_warnings(
     *,
     unit_ids: Collection[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """返回分镜条目画面描述里没有绑定到参考图的 mention 警告，按条目顺序、条目内按首次出现顺序。
+    """Return unbound visual-description mention warnings in entry order, then first-mention order within entries.
 
-    ``unit_ids`` 给出时只检查这些条目（写工具只对本次改动的条目负责）。没有分镜条目的骨架
-    （参考生视频）返回空列表。
+    If ``unit_ids`` is supplied, check only those entries (write tools own only entries changed in this call).
+    Skeletons without storyboards (reference-to-video) return an empty list.
     """
     items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
     catalog = build_reference_catalog(project)
@@ -75,10 +75,10 @@ def storyboard_mention_warnings(
 def render_storyboard_mention_warnings(
     warnings: Sequence[Mapping[str, Any]], translate: Callable[..., str]
 ) -> list[str]:
-    """把 :func:`storyboard_mention_warnings` 的条目按 ``translate`` 逐条渲染成回执文本行。
+    """Render :func:`storyboard_mention_warnings` entries as receipt text lines through ``translate``.
 
-    写剧本的两个工具边界（``generate_episode_script`` / ``patch_episode_script``）共用这一份
-    渲染，文案只登记在 i18n key 表里。
+    Both script-writing tool boundaries (``generate_episode_script`` / ``patch_episode_script``) share this renderer;
+    copy exists only in i18n key tables.
     """
     return [translate(str(warning["key"]), **warning["params"]) for warning in warnings]
 

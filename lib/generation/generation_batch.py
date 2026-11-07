@@ -45,7 +45,7 @@ class GenerationBatchRequestedItem(BaseModel):
     prior_artifact_path: str | None = None
     prior_artifact_status: ArtifactStatus | None = None
     admission: dict[str, Any] = Field(default_factory=dict)
-    #: 同批内的前置成员：它的任务成功后本成员才执行，失败则本成员不提交给供应商。
+    #: Predecessor members within batches: execute after predecessor success; failures prevent provider submission.
     depends_on: str | None = None
 
 
@@ -132,7 +132,7 @@ class GenerationBatchCancelResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     cancelled: list[str] = Field(default_factory=list)
-    #: 已开始执行、不可取消的成员：照常跑完，结果照常成为产物。
+    #: Already-executing noncancelable members finish normally, retaining artifacts.
     skipped_running: list[str] = Field(default_factory=list)
     skipped_terminal: list[str] = Field(default_factory=list)
 

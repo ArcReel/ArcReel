@@ -11,7 +11,7 @@
 export type SessionStatus = "idle" | "running" | "completed" | "error" | "interrupted";
 
 export interface SessionMeta {
-  id: string;              // 现在就是 sdk_session_id
+  id: string;              // The sdk_session_id
   project_name: string;
   title: string;
   status: SessionStatus;
@@ -19,7 +19,7 @@ export interface SessionMeta {
   updated_at: string;
 }
 
-/** 图片附件的传输形态：与 `/sessions/send`、`/sessions/{id}/rewrite` 的 `images` 元素同构。 */
+/** Image attachment transport shape, matching the `images` elements in `/sessions/send` and `/sessions/{id}/rewrite`. */
 export interface ImagePayload {
   data: string;
   media_type: string;
@@ -47,12 +47,12 @@ export interface ContentBlock {
   is_error?: boolean;
   tool_use_id?: string;
   content?: string;
-  // skill_invocation 块字段（写入点定型，只有名与入参，无注入全文）
+  // skill_invocation block fields (fixed at the write point: name and arguments only, without the full injected text)
   skill_name?: string;
   skill_args?: string;
-  // 子智能体子时间线：投影按 parent_tool_use_id 归组后挂在锚点 tool_use 块
+  // Subagent subtimeline: projection groups by parent_tool_use_id and attaches it to the anchor tool_use block
   sub_turns?: Turn[];
-  // 关联到锚点 tool_use 的子智能体状态/进度（由 task_progress 块折叠而来）
+  // Subagent status/progress associated with the anchor tool_use (folded from task_progress blocks)
   task_info?: ContentBlock;
   // image block fields
   source?: { type: "base64"; media_type: string; data: string };
@@ -63,9 +63,9 @@ export interface ContentBlock {
   summary?: string;
   task_status?: string;
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
-  // question_answer fields（AskUserQuestion 答复：问题 → 所选选项）
+  // question_answer fields (AskUserQuestion replies: question → selected option)
   answers?: Record<string, string>;
-  // agent_failure block（写入点定型的 Agent 故障观测）
+  // agent_failure block (Agent failure observations fixed at the write point)
   failure?: FailureObservation;
 }
 
@@ -77,12 +77,12 @@ export interface FailureObservation {
   session_id: string | null;
   summary: {
     /**
-     * 一句话结论的稳定机器 key，只从结构化证据派生（见 server/agent_runtime/failure_observation.py）。
-     * 早于该字段物化的历史事件没有 key，按阶段的通用 key 显示。
+     * Stable machine key for the one-sentence conclusion, derived only from structured evidence (see server/agent_runtime/failure_observation.py).
+     * Historical events predating materialization of this field have no key and use the generic key for their phase.
      */
     key?: string;
     source: string;
-    /** SDK / 上游可新增任意 JSON 形态；前端只呈现，不做枚举推断。 */
+    /** The SDK / upstream may add arbitrary JSON shapes; the frontend only presents them, without inferring enumerations. */
     type: unknown;
     status?: unknown;
     message: string | null;
@@ -108,43 +108,43 @@ export interface PendingQuestion {
   }>;
 }
 
-/** 会话事件日志条目（UI 时间线唯一读源；seq 为会话内单调序号）。 */
+/** Session event log entry (the sole read source for the UI timeline; seq increases monotonically within a session). */
 export interface TimelineEntry {
   seq: number;
   type: "user" | "assistant" | "tool_result" | "system";
   content?: ContentBlock[] | string;
   uuid?: string;
   timestamp?: string;
-  /** assistant 条目携带，供 draft 按身份精确替换。 */
+  /** Carried by assistant entries so drafts can be replaced by exact identity. */
   message_id?: string | null;
-  /** 子智能体消息标记：投影按 parent 归组为主时间线单一折叠卡片。 */
+  /** Subagent message marker: projection groups by parent into one collapsed card in the main timeline. */
   parent_tool_use_id?: string;
-  // tool_result / question_answer 条目字段
+  // tool_result / question_answer entry fields
   tool_use_id?: string | null;
   is_error?: boolean;
-  // 写入点定型的子类型：system 条目为 task_* / interrupt / skill_invocation /
-  // agent_turn_failure / subagent_outcome；user 条目为 question_answer / compact_summary
+  // Subtypes fixed at the write point: system entries use task_* / interrupt / skill_invocation /
+  // agent_turn_failure / subagent_outcome; user entries use question_answer / compact_summary
   subtype?: string;
   task_id?: string | null;
   description?: string;
   summary?: string | null;
   task_status?: string | null;
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
-  // system 条目字段（skill_invocation 子类型：只记名与入参）
+  // system entry fields (skill_invocation subtype: name and arguments only)
   skill_name?: string | null;
   skill_args?: string | null;
-  // question_answer 条目字段（AskUserQuestion 答复的结构化答案）
+  // question_answer entry fields (structured answers to AskUserQuestion)
   answers?: Record<string, string> | null;
-  // agent_turn_failure 系统条目
+  // agent_turn_failure system entry
   failure?: FailureObservation;
 }
 
-/** 排队消息的状态：`queued` 已交给 Agent、等待被接纳；`unsent` Agent 进程退出时仍在排队，需由用户决定发送、编辑或删除。 */
+/** Queued message state: `queued` has been handed to the Agent and awaits acceptance; `unsent` was still queued when the Agent process exited, and the user must choose to send, edit, or delete it. */
 export type QueuedMessageState = "queued" | "unsent";
 
 /**
- * 排队消息：已发出、Agent 尚未接纳进对话的用户消息（服务端内存态，不入事件日志）。
- * `id` 即被接纳后时间线用户条目的 uuid。
+ * Queued message: a user message sent but not yet accepted into the conversation by the Agent (server memory state, excluded from the event log).
+ * `id` is the uuid of the timeline user entry after acceptance.
  */
 export interface QueuedMessage {
   id: string;
@@ -153,55 +153,55 @@ export interface QueuedMessage {
   state: QueuedMessageState;
 }
 
-/** 撤回排队消息的意图：`edit` 把内容退回输入框，`delete` 直接丢弃。 */
+/** Intent when withdrawing a queued message: `edit` returns its content to the input; `delete` discards it. */
 export type QueuedMessageWithdrawal = "edit" | "delete";
 
-/** 编辑 / 删除排队消息的响应。 */
+/** Response to editing / deleting a queued message. */
 export interface QueuedMessageWithdrawalResponse {
   session_id: string;
   id: string;
-  /** `withdrawn`：已撤回并移出排队；`accepted`：Agent 已接收，消息照常进入对话。 */
+  /** `withdrawn`: withdrawn and removed from the queue; `accepted`: already received by the Agent and enters the conversation normally. */
   outcome: "withdrawn" | "accepted";
-  /** 编辑且撤回成功时为要退回输入框的消息，否则为 null。 */
+  /** The message to return to the input when editing and withdrawal succeed; null otherwise. */
   message: QueuedMessage | null;
 }
 
-/** 重新发送「未发送」消息的响应：同一条排队消息，已回到 `queued`。 */
+/** Response to resending an "unsent" message: the same queued message, now back in `queued`. */
 export interface QueuedMessageResendResponse {
   session_id: string;
   id: string;
   queued_message: QueuedMessage;
 }
 
-/** 立即发送排队消息的响应。 */
+/** Response to sending a queued message immediately. */
 export interface QueuedMessageSendNowResponse {
   session_id: string;
   id: string;
-  /** `sent`：已重新送入，Agent 打断当前轮先处理它，消息留在托盘里直到被接纳；`accepted`：Agent 已接收，不再重发。 */
+  /** `sent`: resubmitted for the Agent to interrupt the current turn and handle first; the message stays in the tray until accepted. `accepted`: already received by the Agent and not resent. */
   outcome: "sent" | "accepted";
 }
 
-/** 发送与改写端点的受理响应：排队消息与权威条目二者恰有其一。 */
+/** Acceptance response for send and rewrite endpoints: exactly one of a queued message and an authoritative entry is present. */
 export interface AcceptedMessageResponse {
   status: string;
   session_id: string;
-  /** 新会话首条消息，或同一 client_key 的重试命中已被接纳的消息。 */
+  /** The first message of a new session, or a retry with the same client_key matching an already accepted message. */
   entry: TimelineEntry | null;
-  /** 已有会话的消息：等待 Agent 接纳。 */
+  /** A message in an existing session, awaiting Agent acceptance. */
   queued_message: QueuedMessage | null;
 }
 
-/** 服务端流式预览态快照（身份为 message_id，不入日志）。 */
+/** Server streaming preview snapshot (identified by message_id, excluded from the log). */
 export interface DraftState {
   message_id: string;
   parent_tool_use_id?: string | null;
   content: ContentBlock[];
   rev?: number;
-  /** 各 tool_use 块已累积的原始 partial JSON（重连后续拼 input_json_delta 的前缀）。 */
+  /** Raw partial JSON accumulated for each tool_use block (the prefix for appending input_json_delta after reconnection). */
   tool_json?: Record<number, string>;
 }
 
-/** delta SSE 事件载荷（引用 message_id + block index，rev 单调用于重连过滤）。 */
+/** Delta SSE event payload (references message_id + block index; monotonically increasing rev is used for filtering after reconnection). */
 export interface DraftDeltaPayload {
   message_id: string;
   parent_tool_use_id?: string | null;
@@ -214,7 +214,7 @@ export interface DraftDeltaPayload {
   partial_json?: string;
 }
 
-/** GET /sessions/{id}/entries 响应。 */
+/** GET /sessions/{id}/entries response. */
 export interface EntriesResponse {
   session_id: string;
   status: SessionStatus;

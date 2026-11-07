@@ -1,23 +1,25 @@
-"""任务类型桶（t2i / i2i / i2v / r2v）归属判定 —— 把既有能力声明翻译成桶，不新增第二份声明。
+"""Task-type bucket membership (t2i / i2i / i2v / r2v), translating existing capability declarations without duplicating them.
 
-判定来源逐桶固定：
+Each bucket has fixed evidence sources:
 
-- 图片：生效能力（``lib.backends.image_capabilities``），即模型条目的文生图 / 图生图（自定义供应商的能力覆盖
-  整维替换；ComfyUI 端点不看条目）与调用通道声明（内置 backend 的 ``CHANNEL_CAPABILITIES``、自定义供应商
-  endpoint spec 的 ``image_capabilities``）都满足的部分，与执行层 ``MediaGenerator`` 的能力校验同一个结果；
-  图生图另须参考图上限的生效值接受参考图（条目显式记为 0 张时不进 i2i 桶）；
-- 视频：生效能力（``lib.backends.video_capabilities``），即调用通道声明（内置 backend 的 ``VideoCapabilities``、
-  自定义供应商 endpoint 的系统判定）与模型条目两侧求值、再叠加能力覆盖的结果，i2v 取 ``first_frame``、r2v 取
-  参考图上限的生效值（未收录或大于 0 即接受；条目显式记为 0 张时不进 r2v 桶）。ComfyUI 端点不看条目。
+- Images: effective ``lib.backends.image_capabilities``, intersecting entry text/image-to-image model facts
+  with channel declarations (built-in ``CHANNEL_CAPABILITIES``, custom endpoint-spec ``image_capabilities``).
+  Custom overrides replace model dimensions; ComfyUI ignores entries. Match execution ``MediaGenerator``
+  checks. Image-to-image additionally requires effective reference limits accepting input; explicit zero
+  excludes models from i2i.
+- Video: effective ``lib.backends.video_capabilities``, evaluating channel declarations (built-in
+  ``VideoCapabilities``, system-determined custom endpoints) and model entries, then capability overrides.
+  i2v uses ``first_frame``; r2v uses reference limits (unlisted or positive accepts, explicit zero excludes).
+  ComfyUI ignores entries.
 
-桶承诺的是「选中的组合执行得了」，故与执行闸门读同一个求值结果。视频两维的判定式本身由
-``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
+Buckets promise executable selected combinations, so share evaluated execution-gate results. Video's
+two predicates come from ``lib.config.resolver.video_capability_satisfied``, also shared by resolution gates.
 
-判定不出（endpoint 已下线、backend 未声明能力函数）时返回空集而非全集：候选列表宁缺勿滥，
-配进去的组合执行期一样必败，不如不出现在下拉里。
+Unresolvable cases (retired endpoints, backends without capability functions) yield empty sets, never
+all buckets. Prefer missing candidates over presenting combinations that inevitably fail execution.
 
-不进某个桶的模型带着原因（:class:`BucketFit`）：不满足的能力维度，取自进桶判定的同一个求值结果，维度键与能力
-接口（``lib.custom_provider.capability_view``）同名。候选接口据此告诉用户为什么在这一处找不到它。
+Excluded models carry :class:`BucketFit` reasons: unmet dimensions from the same evaluation, named like
+``lib.custom_provider.capability_view`` interface dimensions. Candidate APIs explain missing choices with these.
 """
 
 from __future__ import annotations
@@ -52,24 +54,25 @@ from lib.custom_provider.endpoints import (
 
 GenerationTypeBucket = Literal["t2i", "i2i", "i2v", "r2v"]
 
-#: 每个 media_type 有哪些桶。文本 / 音频不设桶，故不在表内。
+#: Buckets per media_type; text/audio have none and are absent.
 BUCKETS_BY_MEDIA_TYPE: dict[str, tuple[GenerationTypeBucket, ...]] = {
     "image": ("t2i", "i2i"),
     "video": ("i2v", "r2v"),
 }
 
 
-#: 进桶判定看的能力维度，键与能力接口的维度同名。``max_reference_images`` 在图片的图生图里指参考图上限记为 0 张
-#: （图生图本身走得通），在视频的参考生视频里指参考图上限不接受参考图（通道没实现或条目记为 0 张）。
+#: Membership dimensions, named like interface dimensions. ``max_reference_images`` means zero registered reference count
+#: for otherwise supported image-to-image; for video r2v it means refused images, from absent channel support or zero entry counts.
 BucketDimension = Literal["text_to_image", "image_to_image", "max_reference_images", "first_frame"]
 
 
 @dataclass(frozen=True)
 class BucketFit:
-    """一个模型对所在媒体类型各任务类型桶的判定。
+    """A model's membership determination across its media type's task buckets.
 
-    ``unmet`` 只收不进的桶：桶 → 不满足的能力维度。维度为空元组表示判定不出（endpoint 已下线、backend 未声明
-    能力函数），这类模型同样不进桶。文本 / 音频模型没有桶，``unmet`` 为空。
+    ``unmet`` contains excluded buckets only, mapped to unmet dimensions. Empty tuples mean unresolved
+    retired endpoints or missing backend capability functions, likewise excluding membership.
+    Text/audio models have no buckets and empty ``unmet``.
     """
 
     media_type: str
@@ -99,7 +102,7 @@ def _image_fit(
     return BucketFit("image", unmet)
 
 
-#: 视频各桶唯一看的那一维，与 ``video_capability_satisfied`` 的判定式一一对应。
+#: The sole dimension per video bucket, matching ``video_capability_satisfied`` predicates exactly.
 _VIDEO_BUCKET_DIMENSION: dict[GenerationTypeBucket, BucketDimension] = {
     "i2v": "first_frame",
     "r2v": "max_reference_images",
@@ -120,12 +123,12 @@ def _video_fit(has_i2v: bool, max_reference_images: int | None) -> BucketFit:
 
 
 def builtin_model_buckets(provider_id: str, model_id: str, model_info: CatalogModel) -> frozenset[GenerationTypeBucket]:
-    """内置模型具备的任务类型桶；文本 / 音频模型恒为空集。"""
+    """Built-in model task buckets; text/audio models always yield empty sets."""
     return builtin_model_bucket_fit(provider_id, model_id, model_info).buckets
 
 
 def builtin_model_bucket_fit(provider_id: str, model_id: str, model_info: CatalogModel) -> BucketFit:
-    """内置模型对各任务类型桶的判定，连同不进桶的原因。"""
+    """Built-in model bucket membership with exclusion reasons."""
     if model_info.media_type == "image":
         try:
             channel = builtin_channel_capabilities(provider_id, model_id)
@@ -156,7 +159,7 @@ def custom_model_buckets(
     endpoint_spec: EndpointSpec | None = None,
     entry_binding: str | None = None,
 ) -> frozenset[GenerationTypeBucket]:
-    """自定义供应商模型具备的任务类型桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
+    """Custom model task buckets; text/audio endpoints and unknown endpoints always yield empty sets."""
     return custom_model_bucket_fit(
         endpoint=endpoint,
         model_id=model_id,
@@ -174,7 +177,7 @@ def custom_model_bucket_fit(
     endpoint_spec: EndpointSpec | None = None,
     entry_binding: str | None = None,
 ) -> BucketFit:
-    """自定义供应商模型对各任务类型桶的判定，连同不进桶的原因；未知 endpoint 没有媒体类型，也就没有桶。"""
+    """Custom model membership with exclusion reasons; unknown endpoints lack media types and therefore buckets."""
     try:
         media_type = endpoint_spec.media_type if endpoint_spec is not None else endpoint_to_media_type(endpoint)
     except ValueError:

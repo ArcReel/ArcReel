@@ -23,7 +23,7 @@ type ImportError = Error & {
   diagnostics?: ImportFailureDiagnostics;
 };
 
-/** 一次导入请求的参数：用户确认过升级报告后，之后的请求（含编号冲突的处理）都带上确认。 */
+/** Import-request parameters: after users confirm upgrade reports, later requests (including ID-conflict handling) retain consent. */
 interface ImportAttempt {
   file: File;
   policy: ImportConflictPolicy;
@@ -35,8 +35,8 @@ function hasDiagnostics(diagnostics: ImportFailureDiagnostics | undefined): diag
 }
 
 /**
- * 导入项目 ZIP：选择文件、导入包升级有报告时请用户确认、处理项目编号冲突、展示导入诊断，导入成功后进入项目。
- * `element` 包含隐藏的文件输入与各个对话框，渲染在页面里一次即可。
+ * Import project ZIPs: choose files, confirm package-upgrade reports, handle project-ID conflicts, show diagnostics, then enter imported projects.
+ * `element` includes hidden file inputs/dialogs, rendered once in pages.
  */
 export function useProjectImport({ onImported }: { onImported: () => void }): {
   importing: boolean;
@@ -46,8 +46,8 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
   const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
-  // 大厅卸载时 abort；导入请求本身不接这个 signal（它是写入请求，abort 只会断开客户端），
-  // 仅在 await 之后据此判断用户是否已离开大厅。
+  // Abort on lobby unmount; import requests themselves do not use this signal (writes, whose abort only disconnects clients),
+  // checking it only after awaits to detect lobby departure.
   const unmountAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -88,7 +88,7 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
           ? t("import_auto_fixed", { title, count: autoFixed.length })
           : t("lobby_import_succeeded", { title });
       if (left) {
-        // 用户已不在大厅：不把人拉回新项目，也没有对话框可展示诊断，结果改以带「打开项目」按钮的提示告知。
+        // Users left lobbies: never pull them into projects or show absent dialogs; notify with Open project buttons instead.
         pushToast(text, "success", {
           action: { label: t("lobby_import_open_project"), onClick: () => navigate(navigateTo) },
         });
@@ -128,7 +128,7 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
         return;
       }
       setConflict(null);
-      // 接口总会带回一份诊断，没有任何条目时对话框不显示内容，改用提示说明失败原因。
+      // APIs always return diagnostics; empty diagnostics render no dialog content, so notify failure reasons instead.
       if (hasDiagnostics(error.diagnostics)) {
         setDiagnostics({ source: "failure", diagnostics: error.diagnostics });
       } else {

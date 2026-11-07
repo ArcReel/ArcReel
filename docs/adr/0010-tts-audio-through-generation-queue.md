@@ -2,28 +2,28 @@
 status: accepted
 ---
 
-> TTS 的适用范围与生成基数见 `docs/adr/0089`：只在旁白交付方式为 TTS 的项目里生成，每个含画外音的单位一段，生成时机在剪辑阶段；本 ADR 关于 audio 走生成队列、backend 保持同步的决定仍有效。
+> For TTS scope and generation cardinality, see `docs/adr/0089`: generate only in TTS-delivery projects, once per voiceover-bearing unit, during editing. This ADR's audio-generation-queue and synchronous-backend decisions remain valid.
 
-# TTS（audio 媒体类型）走 GenerationQueue/Worker，像 image/video；backend 仍同步、不像内联的 text
+# TTS (audio media type) uses GenerationQueue/Worker like image/video; backends stay synchronous, unlike inline text
 
-ArcReel 的媒体生成沿 `media_type` 轴扇出：image/video 走 **GenerationQueue + GenerationWorker**（按 provider×media_type 分 slot，带进度/取消/续传/孤儿处理），text 则是 **同步内联调用**（`TextGenerator` = TextBackend + UsageTracker，不入队、worker 只 `for media_type in ("image","video")`、不建 task）。接入旁白配音（TTS）时第一个分叉是：audio 跟 text 走（同步内联）还是跟 image/video 走（队列）。
+ArcReel media generation fans out by `media_type`: image/video use **GenerationQueue + GenerationWorker** (slots per provider×media_type, progress/cancellation/resumption/orphan handling), while text is **synchronous inline calling** (`TextGenerator` = TextBackend + UsageTracker, without queueing/tasks; workers use only `for media_type in ("image","video")`). Introducing narration dubbing (TTS) requires deciding whether audio follows text (synchronous inline) or image/video (queued).
 
-最初按"和文本调用一样、不做并发控制"倾向同步内联，理由是 TTS 后端调用本身**就是同步一次性 POST**（仿 `text_backends`，无提交-轮询，秒回），看上去更接近 text。但随后确认 **批量生成是 web 与 agent 双侧刚需**，且关键事实是：**旁白音频的生成基数（每 segment 一段、每集 N 段、可批量、可重生）与 image/video 一致，而非 text 的"每集一次"**。同步内联下的批量只能靠前端串行编排，进度绑在浏览器 tab、无任务面板、不能取消/续传/跨设备，与图片/视频的批量体验割裂；而队列正是为"批量长任务 + 进度 + 取消 + 续传"而生，图片/视频已在用。
+The initial preference was synchronous inline, "like text calls, without concurrency control," because TTS backends **are synchronous one-shot POSTs** (like `text_backends`, no submit/poll, returning in seconds), seemingly closer to text. But **both Web and Agent require batch generation**, and the key fact is **narration generation cardinality (one per segment, N per episode, batchable/regeneratable) matches image/video, not text's "once per episode."** Inline batches require serial frontend orchestration, browser-tab-bound progress, no task panel, and no cancellation/resumption/cross-device continuity, splitting experience from image/video. Queues already serve those media precisely for "long batch tasks + progress + cancellation + resumption."
 
-我们决定 **audio 走 GenerationQueue/Worker，与 image/video 一致**：单段=入队一条、批量=入队 N 条，复用现有 `/api/v1/tasks` 任务面板。同时保留一个**刻意的非对称**——audio 的 **backend 仍是同步一次性**（仿 `text_backends`，非 video 的 submit→poll→resume），worker claim 后直接调同步 backend、秒回即标终态。也就是说：**"是否入队"由生成基数（是否按 segment 批量）决定，而非由 backend 是否异步决定**——这是未来读者会困惑的点（"audio 后端和 text 一样同步，为什么 audio 入队而 text 不入队？"），故记此 ADR。
+**Audio uses GenerationQueue/Worker like image/video**: one segment enqueues one task, batches enqueue N, reusing `/api/v1/tasks`. Retain **intentional asymmetry**: audio **backends remain synchronous one-shot** (like `text_backends`, not video submit→poll→resume); workers call them directly after claiming and mark terminal states on quick return. Thus **queueing follows generation cardinality (per-segment batches), not whether backends are asynchronous**. This ADR records that distinction for future readers wondering "why queue audio when its backend is synchronous like text?"
 
 ## Considered Options
 
-- **同步内联（像 text）+ 前端串行批量** —— 最少代码、worker 不动。否决：批量进度绑浏览器 tab、无任务面板、不可取消/续传/跨设备，与 image/video 割裂；且 audio 生成基数像 image/video 而非 text，类比不成立。
-- **走队列（像 image/video）** —— 采纳。
+- **Synchronous inline (like text) + serial frontend batches**: least code, unchanged workers. Rejected: browser-tab-bound progress, no task panel, no cancellation/resumption/cross-device continuity, unlike image/video; cardinality also matches media, invalidating the text analogy.
+- **Queueing (like image/video)**: accepted.
 
 ## Consequences
 
-- **worker 增第三条 lane**：`ProviderPool` 加 `audio_max` / `has_audio_room`，claim 循环 `for media_type in ("image","video")` 扩到含 `"audio"`，并触及 `_resolve_dispatch_provider` / `_any_pool_has_room` / `_pool_full_providers` / `_load_pools_from_db` / `_build_default_pools` 等 lane 相关点（机械改动）。TTS 便宜快，`AUDIO_MAX_WORKERS` 默认放宽，lane 不应成为瓶颈。
-- **agent 工具是 `generate_narration_audio(segment_ids?)`**（注册名；实现为入队，见 `server/media_tools/narration_audio.py`，仿 storyboard 入队工具），语义是队列化而非同步等待；不传=所有缺失段、传 list=指定批量范围，单段即单元素列表（schema 只接受数组，裸字符串会被参数校验拒绝）。
-- **web 入队 + 复用现有任务面板**：单段与批量都 enqueue，前端轮询 `/api/v1/tasks` 看进度，复用既有取消/续传 UI。
-- **audio backend 保持同步、无 resume/`provider_job_id`**：worker claim → 调同步 backend（秒回）→ 标终态。`docs/adr/0007` 的孤儿处理对 audio 退化为"标 failed、不续传"，因同步且重生成廉价，无需 video 那套 submit-poll-resume 机制。
-- **"同步"是针对"短 segment + 同步 API"的选择，异步是预留扩展点**：v1 选同步因为（a）所选供应商的 TTS API 本就同步返回字节（DashScope Qwen-TTS sync HTTP、OpenAI 兼容 `/v1/audio/speech` 立即返回），（b）按 segment 的旁白短（`duration_seconds ≤ 60`、文本有界）秒级完成。**但长文本 TTS 接口业界是异步的**（MiniMax T2A async、豆包异步长文本 ≤10万字、Google long-audio LRO、Azure batch）。若未来接入只提供异步 API 的供应商，或改为"整集一次性合成长文本"，需要 video 式 submit-poll 生命周期——故 `AudioBackend` Protocol 设计上**预留**异步可能（如 text/video 那样允许各自的 backend 形态），但 v1 只建同步。
-- **Task 无需迁移**：`task.task_type` / `media_type` 是自由 String 列，audio 行直接落库。
-- **版本化不变**：audio 与 image/video 一样经 VersionManager 落版本（见 `GLOSSARY.md`「旁白配音」与「媒体类型（media_type / call_type）」词条）。
-- **与 text 的非对称是契约**：text 生成每集一次、同步内联不入队；audio 每集 N 段、入队。任何后续 PR 若想把 audio 改回同步内联（或把 text 改成入队），须先 deprecate 本 ADR 并说明生成基数的变化理由。
+- **A third worker lane**: add `audio_max` / `has_audio_room` to `ProviderPool`, extend claim-loop `for media_type in ("image","video")` with `"audio"`, and update lane-related `_resolve_dispatch_provider` / `_any_pool_has_room` / `_pool_full_providers` / `_load_pools_from_db` / `_build_default_pools` (mechanical changes). TTS is cheap/fast; allow a more generous `AUDIO_MAX_WORKERS` default so lanes do not bottleneck it.
+- **Agent tool `generate_narration_audio(segment_ids?)`** (registered name; enqueue implementation in `server/media_tools/narration_audio.py`, modeled after storyboard tools) queues instead of synchronously waiting. Omitted arguments mean all missing segments; lists specify batch scope; one segment uses a one-element list (schema accepts arrays only, rejecting bare strings during argument validation).
+- **Web enqueueing with existing task panels**: individual and batch operations enqueue; frontend polls `/api/v1/tasks` for progress and reuses cancellation/resumption UI.
+- **Synchronous audio backends without resume/`provider_job_id`**: worker claim → synchronous backend (seconds) → terminal state. `docs/adr/0007` orphan handling reduces to "mark failed, do not resume" for audio; synchronous, cheap regeneration needs no video submit/poll/resume.
+- **Synchronous is a choice for short segments and synchronous APIs; asynchronous remains an extension point**: v1 uses synchronous because (a) selected APIs return bytes synchronously (DashScope Qwen-TTS sync HTTP, OpenAI-compatible `/v1/audio/speech` returns immediately), (b) bounded short segment narration (`duration_seconds ≤ 60`) finishes in seconds. **Industry long-text TTS APIs are asynchronous** (MiniMax T2A async, Doubao asynchronous long text ≤100,000 characters, Google long-audio LRO, Azure batch). Asynchronous-only providers or "whole-episode long-text synthesis" would require video-style submit/poll lifecycles, so `AudioBackend` Protocol **reserves** asynchronous possibilities (allowing backend-specific forms like text/video); v1 builds only synchronous.
+- **No Task migration**: `task.task_type` / `media_type` are free String columns; audio rows persist directly.
+- **Unchanged versioning**: audio uses VersionManager like image/video (see "Narration dubbing" and "Media type (media_type / call_type)" in `GLOSSARY.md`).
+- **Asymmetry with text is contractual**: text generates once per episode inline without queueing; audio generates N segments per episode queued. Subsequent PRs moving audio back inline (or text into queues) must first deprecate this ADR and explain changed cardinality.

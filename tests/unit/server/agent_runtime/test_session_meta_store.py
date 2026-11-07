@@ -72,6 +72,6 @@ class TestSessionMetaStore:
         assert (await store.get(idle.id)).status == "idle"
 
     async def test_id_equals_sdk_session_id(self, store):
-        """SessionMeta.id 应直接映射 sdk_session_id 值。"""
+        """SessionMeta.id maps directly to sdk_session_id."""
         session = await store.create(project_name="demo", sdk_session_id="my-sdk-session-42")
         assert session.id == "my-sdk-session-42"

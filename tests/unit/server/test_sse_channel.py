@@ -1,7 +1,7 @@
-"""SseChannel 参数化订阅广播组件的行为测试。
+"""SseChannel parameterized subscription/broadcast behavior.
 
-直接断言订阅/广播/溢出/生命周期钩子的可见效果；两种溢出策略
-（会话流「逐出非关键 + 溢出信号」、项目事件流「移除订阅者」）分别覆盖。
+Assert observable subscription/broadcast/overflow/lifecycle effects; cover both overflow policies:
+session streams evict noncritical messages plus signal overflow; project events remove subscribers.
 """
 
 import asyncio
@@ -75,14 +75,14 @@ class TestIterate:
 
         stream = channel.iterate(queue, idle_timeout=0.02)
         assert await asyncio.wait_for(anext(stream), timeout=1.0) is IDLE
-        # 心跳后继续等待，直播消息照常送达。
+        # Keep waiting after heartbeats; live messages arrive normally.
         channel.broadcast({"type": "assistant", "uuid": "after-idle"})
         assert (await anext(stream))["uuid"] == "after-idle"
         await stream.aclose()
 
 
 class TestEvictNonCriticalAndSignalOverflow:
-    """会话流溢出策略：逐出非关键消息 + 溢出信号（流结束即重连信号）。"""
+    """Session overflow evicts noncritical messages and signals overflow; stream termination signals reconnection."""
 
     async def test_full_queue_drops_non_critical_message_silently(self):
         channel = _session_channel(queue_maxsize=1)
@@ -91,7 +91,7 @@ class TestEvictNonCriticalAndSignalOverflow:
 
         channel.broadcast({"type": "stream_event", "uuid": "dropped"})
 
-        # 非关键消息静默丢弃，订阅者保留，队列内容不变。
+        # Silently discard noncritical messages, retaining subscribers and queue contents.
         assert channel.subscriber_count == 1
         assert queue.get_nowait()["uuid"] == "keep"
         assert queue.empty()
@@ -116,14 +116,14 @@ class TestEvictNonCriticalAndSignalOverflow:
 
         channel.broadcast({"type": "assistant", "uuid": "no-room"})
 
-        # 订阅者被移除，队列被清空后注入溢出信号：流直接结束，无溢出事件泄漏。
+        # Remove subscribers, clear queues, inject overflow signals; streams end without leaking overflow events.
         assert channel.subscriber_count == 0
         received = [item async for item in channel.iterate(queue, idle_timeout=1.0)]
         assert received == []
 
 
 class TestDropSubscriberOverflow:
-    """项目事件流溢出策略：队列满移除订阅者并结束它的流，客户端重连后由快照补齐。"""
+    """Project-event overflow removes full-queue subscribers and ends streams; reconnections recover through snapshots."""
 
     async def test_full_queue_removes_subscriber_and_reports_count(self):
         removed_counts: list[int] = []
@@ -131,10 +131,10 @@ class TestDropSubscriberOverflow:
             overflow=DropSubscriber(on_removed=removed_counts.append),
             queue_maxsize=1,
         )
-        channel.subscribe()  # 不消费，第二条广播时溢出
+        channel.subscribe()  # No consumption; second broadcast overflows.
         healthy = channel.subscribe()
         channel.broadcast(("changes", {"batch_id": "b1"}))
-        healthy.get_nowait()  # healthy 跟上节奏
+        healthy.get_nowait()  # healthy keeps pace.
 
         channel.broadcast(("changes", {"batch_id": "b2"}))
 
@@ -143,14 +143,14 @@ class TestDropSubscriberOverflow:
         assert healthy.get_nowait() == ("changes", {"batch_id": "b2"})
 
     async def test_removed_subscriber_stream_ends(self):
-        """流不结束的话客户端只收到空闲心跳，不会重连，此后的一次性事件全部静默丢失。"""
+        """Without termination, clients receive idle heartbeats but never reconnect, silently losing all later one-shot events."""
         channel = SseChannel(overflow=DropSubscriber(), queue_maxsize=1)
         stale = channel.subscribe()
         channel.broadcast(("changes", {"batch_id": "b1"}))
-        channel.broadcast(("changes", {"batch_id": "b2"}))  # 溢出 → 移除
+        channel.broadcast(("changes", {"batch_id": "b2"}))  # Overflow → removal.
         assert channel.subscriber_count == 0
 
-        # 积压随之丢弃：重连后的快照会重新对齐
+        # Discard backlog; reconnection snapshots realign state.
         async def _drain() -> list:
             return [item async for item in channel.iterate(stale, idle_timeout=0.02)]
 
@@ -176,10 +176,10 @@ class TestLifecycleHooks:
         first = channel.subscribe()
         assert events == ["first"]
         channel.subscribe()
-        assert events == ["first"]  # 1→2 不触发
+        assert events == ["first"]  # 1→2 does not trigger.
 
         await channel.unsubscribe(first)
-        assert events == ["first"]  # 还剩订阅者，末位钩子不触发
+        assert events == ["first"]  # Subscribers remain, so no last-subscriber hook.
 
     async def test_first_subscriber_hook_sees_registered_queue(self):
         counts: list[int] = []
@@ -188,7 +188,7 @@ class TestLifecycleHooks:
             on_first_subscriber=lambda: counts.append(channel.subscriber_count),
         )
         channel.subscribe()
-        # 钩子触发时队列已注册——项目事件流的后台扫描以 has_subscribers 判存活。
+        # Register queues before hooks; project-event scans use has_subscribers for liveness.
         assert counts == [1]
 
     async def test_last_subscriber_hook_awaited_when_set_becomes_empty(self):
@@ -205,12 +205,12 @@ class TestLifecycleHooks:
         channel = self._channel_with_hooks(events, queue_maxsize=1)
         stale = channel.subscribe()
         channel.broadcast("a")
-        channel.broadcast("b")  # 溢出 → 移除最后一个订阅者
+        channel.broadcast("b")  # Overflow removes the final subscriber.
 
         assert channel.subscriber_count == 0
-        assert events == ["first"]  # 溢出移除不触发生命周期钩子
+        assert events == ["first"]  # Overflow removal does not trigger lifecycle hooks.
 
-        # 被溢出移除的订阅者事后正常退订：按「移除后集合为空」触发收尾。
+        # Later normal unsubscription after overflow removal triggers cleanup because the remaining set is empty.
         await channel.unsubscribe(stale)
         assert events == ["first", "last"]
 
@@ -222,7 +222,7 @@ class TestLifecycleHooks:
 
         assert channel.unsubscribe_nowait(first) is False
         assert channel.unsubscribe_nowait(second) is True
-        assert events == ["first"]  # 不触发末位钩子，收尾由调用方自理
+        assert events == ["first"]  # Suppress last-subscriber hooks; callers handle cleanup.
 
     async def test_first_subscriber_hook_exception_propagates_and_unwinds_queue(self):
         def _boom() -> None:
@@ -233,6 +233,6 @@ class TestLifecycleHooks:
         with pytest.raises(RuntimeError, match="hook failed"):
             channel.subscribe()
 
-        # 钩子抛异常时新注册的队列回退，订阅集合复原到调用前状态。
+        # Hook failures roll back new queues, restoring the previous subscriber set.
         assert not channel.has_subscribers
         assert channel.subscriber_count == 0

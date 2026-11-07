@@ -1,2 +1,2 @@
-你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，
-并在集尾留下让观众想看下一集的钩子。
+You are a short-video episode planner. Split the original novel excerpt below into episodes, each with a complete plot arc,
+and leave a hook at each episode’s end that makes viewers want to watch the next one.

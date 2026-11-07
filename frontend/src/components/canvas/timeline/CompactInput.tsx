@@ -6,11 +6,11 @@ interface CompactInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  /** 只读展示：保留可选中的文本，但不接受输入。 */
+  /** Read-only display: retain selectable text without accepting input. */
   readOnly?: boolean;
 }
 
-/** 结构化提示词里的单行字段：左侧标签、右侧输入框，放在 `PromptFieldGrid` 的两列里。 */
+/** Single-line structured-prompt field: label left, input right, in the two columns of `PromptFieldGrid`. */
 export function CompactInput({ label, value, onChange, placeholder, readOnly }: CompactInputProps) {
   const id = useId();
   return (

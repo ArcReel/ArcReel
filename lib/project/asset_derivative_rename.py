@@ -1,16 +1,14 @@
-"""衍生资产图随改名一起搬迁：图、版本历史与产物清单键（见 ``docs/adr/0072``）。
+"""Derivative-sheet rename relocation: images, history, and manifest keys (``docs/adr/0072``).
 
-衍生资产图的落盘坐标完全由两段名字决定（``characters/derivatives/{本体}/{衍生}.png``、
-版本资源 id ``本体/衍生``、清单键 ``asset_sheet("character", "本体/衍生")``）。任一段名字
-一改，这三样都得跟着走，否则改名后那张图既不在新坐标下，也不再被任何登记引用。
+Coordinates depend entirely on base/derivative names (``characters/derivatives/{本体}/{衍生}.png``,
+resource ID ``本体/衍生``, manifest key ``asset_sheet("character", "本体/衍生")``). Changing either
+requires moving all three, or images remain outside new coordinates and registrations no longer reference them.
 
-本体改名与衍生改名只差在改的是哪一段，落盘动作同形，因此共用同一份规划：调用方给出
-（旧本体名 → 新本体名）与一组（旧衍生名 → 新衍生名），本模块把全部动作算齐再交还，
-让「零写入的预检」与「按序落盘」落在调用方的同一把锁与同一次正式事务里。
+Base/derivative renames differ only by changed segment, so share planning. Callers provide old→new
+base names and derivative-name pairs; return complete plans so zero-write preflight and ordered
+persistence share caller locks/formal transactions.
 
-与 :mod:`lib.project.asset_trash` 是一对：那边是登记消失时三样一起进项目回收站，这边是登记
-改名时三样一起搬。
-"""
+Paired with :mod:`lib.project.asset_trash`: deletion trashes all three together; renaming relocates them together."""
 
 from __future__ import annotations
 
@@ -41,11 +39,10 @@ _SHEET_FIELD = ASSET_SPECS[DERIVATIVE_ASSET_TYPE].sheet_field
 
 @dataclass(frozen=True, slots=True)
 class DerivativeSheetRelocation:
-    """一次改名要对衍生资产图做的全部落盘动作，规划期算齐、落盘期照做。
+    """Complete derivative-sheet persistence actions for one rename, computed in planning and followed at write time.
 
-    ``relocate`` 搬图与版本历史，``commit_manifest`` 在调用方的正式事务里重键清单。
-    两步都幂等：源已不在就跳过，中途失败重跑同一次改名即可收敛。
-    """
+    ``relocate`` moves images/history; ``commit_manifest`` rekeys within caller formal transactions.
+    Both are idempotent, skipping absent sources and converging on retries of interrupted renames."""
 
     moves: tuple[tuple[Path, Path], ...]
     version_renames: tuple[tuple[str, str], ...]
@@ -55,7 +52,7 @@ class DerivativeSheetRelocation:
     _version_manager: VersionManager
 
     def relocate(self) -> None:
-        """搬图与版本快照，最后收掉空掉的旧目录。"""
+        """Move images/snapshots, then remove emptied old directories."""
         for source, destination in self.moves:
             if source.exists():
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -63,12 +60,12 @@ class DerivativeSheetRelocation:
         for old_id, new_id in self.version_renames:
             self._version_manager.rename_resource(CHARACTER_DERIVATIVE_RESOURCE_TYPE, old_id, new_id)
         for directory in self.retired_dirs:
-            # 非空、不存在或无权限都不是错误：目录只是收纳，留着不影响任何登记。
+            # Nonempty/absent/inaccessible directories are harmless containers; retaining them affects no registrations.
             with contextlib.suppress(OSError):
-                directory.rmdir()  # hard-delete: infra -- 衍生图搬走后的空目录
+                directory.rmdir()  # hard-delete: infra -- Empty directories after derivative-sheet relocation.
 
     def commit_manifest(self) -> None:
-        """把每个衍生的清单条目重键到新 id。各计划的键互不相交，逐个 CAS 提交安全。"""
+        """Rekey each derivative registration; disjoint planned keys permit safe individual CAS commits."""
         for plan in self.manifest_plans:
             plan.commit()
 
@@ -82,19 +79,18 @@ def plan_derivative_sheet_relocation(
     renames: Sequence[tuple[str, str]],
     carry_unlisted: bool = True,
 ) -> DerivativeSheetRelocation:
-    """规划一组衍生资产图的搬迁；只读，不写任何字节。
+    """Plan derivative-sheet relocation read-only, without writing bytes.
 
-    ``renames`` 是（旧衍生名 → 新衍生名）：本体改名时每对两段同名，衍生改名时只有一对。
-    本体改名时额外把旧本体目录下**全部**文件一并搬走并收掉旧目录——与
-    :func:`lib.project.asset_rename.plan_asset_file_renames` 同理，字段未写全的生成中间产物
-    不该顶着旧名残留；本体没换名时只动被改名的那一个衍生，同本体的兄弟图不受牵连。
-    ``carry_unlisted=False`` 时只搬 ``renames`` 列出的衍生、不收旧目录：资产合并只迁走一部分衍生，
-    其余的由调用方另行清理。
+    ``renames`` maps old→new derivative names: base renames preserve both sides per derivative; derivative
+    renames have one pair. Base renames also move **all** files under old base directories and remove
+    those directories, like :func:`lib.project.asset_rename.plan_asset_file_renames`: incomplete-field
+    intermediate outputs must not remain under old names. Without base renaming, touch only the renamed
+    derivative, never siblings. ``carry_unlisted=False`` moves only derivatives listed in ``renames`` and leaves old
+    directories for callers to clean, supporting partial migration during merges.
 
     Raises:
-        AssetRenameFileCollisionError: 某个迁移目标路径已被他人占用。
-        AssetRenameHistoryCollisionError: 新 id 下已有属于别的衍生的版本历史。
-    """
+        AssetRenameFileCollisionError: a destination path is occupied by others.
+        AssetRenameHistoryCollisionError: new-ID history belongs to another derivative."""
     owner_moved = normalize_asset_name(old_owner) != normalize_asset_name(new_owner)
     stem_map = {normalize_asset_name(old): new for old, new in renames}
 
@@ -129,7 +125,7 @@ def plan_derivative_sheet_relocation(
         new_id = derivative_artifact_id(new_owner, new_name)
         if old_id == new_id:
             continue
-        # dry-run 在此把「新 id 下已有别人的历史」拦成零写入，与本体改名同口径。
+        # Dry-run rejects other-owned new-ID history without writes, like base renames.
         snapshots += version_manager.rename_resource(CHARACTER_DERIVATIVE_RESOURCE_TYPE, old_id, new_id, dry_run=True)
         version_renames.append((old_id, new_id))
         if manifest is not None:
@@ -149,7 +145,7 @@ def plan_derivative_sheet_relocation(
         moves=tuple(moves),
         version_renames=tuple(version_renames),
         manifest_plans=tuple(manifest_plans),
-        # 本体换了名，旧本体的两个收纳目录就此作废；同本体内的衍生改名不动目录。
+        # Base renames invalidate both old storage directories; within-base derivative renames leave directories.
         retired_dirs=(
             (source_dir, project_dir / derivative_version_dir(old_owner)) if owner_moved and carry_unlisted else ()
         ),
@@ -165,17 +161,16 @@ def rewrite_derivative_sheet_paths(
     new_owner: str,
     renames: Sequence[tuple[str, str]],
 ) -> int:
-    """就地把衍生条目里的资产图路径改到新坐标，返回改写数。
+    """Repoint derivative-sheet fields in place, returning rewrite counts.
 
-    只动值恰好等于旧坐标规范路径的字段——与 :func:`lib.project.asset_rename.rewrite_entry_paths`
-    同一条判断：指到别处的路径不在搬迁范围内，改了字段反而把一条有效引用指空。
-    """
+    Change only exact old canonical paths, as :func:`lib.project.asset_rename.rewrite_entry_paths` does.
+    Other paths are outside relocation; changing them would turn valid references into missing targets."""
     table = entry.get(DERIVATIVES_FIELD)
     if not isinstance(table, dict):
         return 0
     count = 0
     for old_name, new_name in renames:
-        # 条目的键可能已被调用方改成新名，也可能还是旧名（本体改名时衍生名不变）。
+        # Caller keys may already be new names or remain old (base renames preserve derivative names).
         derivative = table.get(new_name) if new_name in table else table.get(old_name)
         if not isinstance(derivative, dict):
             continue
@@ -192,7 +187,7 @@ def rewrite_derivative_sheet_paths(
 
 
 def owner_derivative_renames(entry: Mapping[str, Any] | None) -> tuple[tuple[str, str], ...]:
-    """本体改名时的改名对：每个衍生自身不改名，只随本体换目录。"""
+    """Base-rename pairs: derivative names stay unchanged, moving directories with the base."""
     return tuple((name, name) for name in derivative_table(entry))
 
 

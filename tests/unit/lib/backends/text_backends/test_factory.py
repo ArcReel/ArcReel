@@ -1,9 +1,9 @@
 """Text backend factory tests.
 
-工厂构造已收口到 assemble_backend（media_type=text）：文本工厂只解析 provider/model，构造经统一缝
-下沉到 ProviderSpec 表。逐 provider 的构造参数表由 test_backend_assembly_specs.py 覆盖，这里只保工厂
-自身的两条契约：解析层给出的 provider/model/凭证真到达 spec 闭包；返回的 provider_id 取解析层 id
-（而非 backend 注册名），计费归因据此单一真相。
+Construction converges on assemble_backend (media_type=text): factories resolve providers/models
+and delegate ProviderSpec closures. test_backend_assembly_specs.py covers provider arguments;
+retain only factory contracts here: resolved providers/models/credentials reach spec closures,
+and returned provider_id uses resolver IDs rather than backend registry names, solely governing billing attribution.
 """
 
 import contextlib
@@ -17,7 +17,7 @@ from tests.fakes import captured_backend_construction
 
 
 def _make_mock_resolver(**async_methods):
-    """创建带 session() 上下文管理器的 mock resolver。"""
+    """Create mocked resolvers with session() context managers."""
     mock = MagicMock()
     for name, return_value in async_methods.items():
         setattr(mock, name, AsyncMock(return_value=return_value))
@@ -58,8 +58,8 @@ async def test_resolved_provider_model_and_credentials_reach_the_spec():
 @pytest.mark.parametrize(
     ("provider_id", "model", "credentials", "registry_backend"),
     [
-        # 解析层 id 与 backend 注册名不同的两族：gemini 双 id 共用 "gemini" 注册名；
-        # ark-agent-plan 复用 ArkTextBackend（name 报 "ark"）。记账须取解析层 id。
+        # Resolver IDs differ from registry names for gemini dual IDs sharing gemini, and
+        # ark-agent-plan sharing ArkTextBackend with name ark; accounting uses resolver IDs.
         ("gemini-aistudio", "gemini-3-flash-preview", {"api_key": "test-key", "base_url": ""}, "gemini"),
         ("gemini-vertex", "gemini-3-flash-preview", {"gcs_bucket": "my-bucket"}, "gemini"),
         ("ark-agent-plan", "doubao-seed-2.1-lite", {"api_key": "ark-plan-key"}, "ark-agent-plan"),

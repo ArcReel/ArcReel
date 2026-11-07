@@ -8,7 +8,7 @@ import type {
   WorkspaceNotificationTarget,
 } from "@/types";
 
-/** 提示上的操作按钮，用于可逆操作的「撤销」，或在用户已离开时打开刚完成的结果（如「打开项目」）；点击后执行回调并关闭这条提示。 */
+/** Notice action buttons undo reversible operations or open completed results after users leave (for example Open project); invoke callbacks and dismiss notices on click. */
 interface ToastAction {
   label: string;
   onClick: () => void;
@@ -66,7 +66,7 @@ function persistAssistantPanelOpen(open: boolean): void {
   try {
     window.localStorage.setItem(ASSISTANT_PANEL_OPEN_STORAGE_KEY, String(open));
   } catch {
-    // localStorage 不可用时仅保留内存值
+    // Retain memory values only when localStorage is unavailable.
   }
 }
 
@@ -81,7 +81,7 @@ interface AppState {
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
-  // Toast：最近一次发出的提示；ToastOverlay 订阅每次写入，同一批次连发的几条都会显示
+  // Toast: latest notice; ToastOverlay subscribes to every write, displaying all notices emitted consecutively within batches.
   toast: Toast | null;
   pushToast: (text: string, tone?: Toast["tone"], options?: { action?: ToastAction }) => void;
   pushNotification: (
@@ -96,16 +96,16 @@ interface AppState {
   removeWorkspaceNotification: (id: string) => void;
   clearWorkspaceNotifications: () => void;
 
-  // Agent 面板：默认展开，用户手动开合（toggleAssistantPanel）后记住选择；
-  // 程序打开（setAssistantPanelOpen，如把指令预填进输入框）只影响本次，不覆盖用户的选择。
+  // Agent panels default open and remember manual toggleAssistantPanel choices;
+  // programmatic setAssistantPanelOpen (for example prefilling instructions) affects this occasion only, preserving user choices.
   assistantPanelOpen: boolean;
   toggleAssistantPanel: () => void;
   setAssistantPanelOpen: (open: boolean) => void;
-  /** 展开时的宽度；挤压画布时实际宽度还受画布最小宽度约束。 */
+  /** Expanded width; minimum canvas widths additionally constrain actual widths when squeezing canvases. */
   assistantPanelWidth: number;
   setAssistantPanelWidth: (width: number) => void;
   persistAssistantPanelWidth: () => void;
-  /** 顶栏用量悬浮层的开合；画布侧也从这里打开面板。 */
+  /** Header usage-overlay visibility; canvas entries open panels through here too. */
   usagePanelOpen: boolean;
   setUsagePanelOpen: (open: boolean) => void;
 
@@ -113,13 +113,13 @@ interface AppState {
   gridsRevision: number;
   invalidateGrids: () => void;
 
-  // 项目回收站失效信号：删除、恢复、清除（含 Agent 发起的）经项目事件 SSE 推来时自增，
-  // 文件视图据此重拉目录树与回收站分区。
+  // Project-trash invalidation increments on project-event SSE delete/restore/purge, including Agent operations;
+  // file views refetch directory trees/trash sections from it.
   trashRevision: number;
   invalidateTrash: () => void;
 
-  // 视频单元失效信号：参考生视频任务终态经项目事件 SSE 推来时自增，参考生
-  // 视频画布据此重拉单元，生成完成后无需手动刷新即可看到成片。
+  // Video-unit invalidation increments on reference-video terminal task SSE events; reference-video
+  // canvases refetch units, showing finished videos without manual refresh.
   referenceVideoUnitsRevision: number;
   invalidateReferenceVideoUnits: () => void;
 
@@ -131,31 +131,31 @@ interface AppState {
 }
 
 /**
- * 通知系统分工规则：
+ * Notification responsibilities:
  *
  * - pushToast(text, tone, { action? })
- *     用于：用户主动操作的即时反馈。可逆操作附「撤销」action；不可逆操作先用 AlertDialog 确认。
- *     典型：表单保存/校验、导入/删除/切换/上传成功、scroll target 未找到、
- *          后台任务提交成功回执（task_submitted）、入队请求同步失败
- *          （用户在场可立即重试，不进 drawer）、轻量错误提示。
+ *     Use: immediate feedback for deliberate user actions. Reversible operations include Undo actions; irreversible ones require AlertDialog confirmation first.
+ *     Examples: form saves/validation, successful imports/deletions/switches/uploads, missing scroll targets,
+ *          successful background-task submission receipts (task_submitted), synchronous enqueue failures
+ *          (users can retry immediately, outside drawers), lightweight errors.
  *
  * - pushWorkspaceNotification({ text, tone, target })
- *     用于：后台异步产生的事件，用户可能不在当前页。
- *     典型：SSE 单条事件留痕（如 agent_update_scene）。
+ *     Use: asynchronous background events when users may be elsewhere.
+ *     Examples: individual SSE event records (such as agent_update_scene).
  *
  * - pushNotification(text, tone, options?)
- *     用于：用户需要后续回看的重要结果。
- *     典型：后台任务（worker）失败——storyboard/video/character/scene/prop/grid/
- *          参考生视频转入 failed，由 useTaskFailureNotifications 统一监听并附
- *          可点击回跳 target；剪映/ZIP 导出失败、项目 regenerate 失败；
- *          SSE grouped_notification。注意：入队请求同步失败属即时反馈，用 toast。
+ *     Use: important results requiring later review.
+ *     Examples: worker task failures for storyboard/video/character/scene/prop/grid/
+ *          reference-video failed transitions, centrally watched by useTaskFailureNotifications with
+ *          clickable return targets; Jianying/ZIP export failures, project regenerate failures;
+ *          SSE grouped_notification. Synchronous enqueue failures are immediate feedback, so toast.
  *
- * 判断口诀：
- *   1. 用户现在不在场 → 需要持久
- *   2. 后台任务"失败"需要留痕排查 → 需要持久
- *   3. 其余 → 仅 toast
+ * Decision rules:
+ *   1. Users currently absent → persistent
+ *   2. Background task failures need investigation records → persistent
+ *   3. Otherwise → toast only
  *
- * pushToast 不接受 { persist: true } 之类逃生门，强制调用点三选一，意图显式。
+ * pushToast accepts no escape hatches like { persist: true }, forcing explicit selection among three intents.
  */
 const MAX_WORKSPACE_NOTIFICATIONS = 40;
 
@@ -197,7 +197,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   requestPlaybackStart: (input) => {
     const requestId = `${Date.now()}-${Math.random()}`;
     set({ playbackStart: { ...input, request_id: requestId } });
-    // 单元没有可播放的视频时播放器不会出现，到期后作废，免得日后打开该单元时突然开播。
+    // Units without playable videos never mount players; expire intents to prevent unexpected future playback.
     setTimeout(() => get().clearPlaybackStart(requestId), PLAYBACK_START_TTL_MS);
   },
   clearPlaybackStart: (requestId) =>
@@ -270,7 +270,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         String(width),
       );
     } catch {
-      // localStorage 不可用（隐私模式 / quota exceeded）静默失败，内存值仍生效
+      // Unavailable localStorage (privacy/quota) fails silently, retaining effective memory values.
     }
   },
   usagePanelOpen: false,

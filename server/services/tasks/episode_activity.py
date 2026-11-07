@@ -1,4 +1,4 @@
-"""一集有没有排队或执行中的任务：改动要移除或退下切出集之前的检查，Web 路由与 Agent 工具共用。"""
+"""Whether an episode has queued/running tasks: shared Web/Agent checks before changes remove or retire derived episodes."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from lib.generation.generation_queue import GenerationQueue
 
 
 async def episode_has_active_tasks(queue: GenerationQueue, project_name: str, episode: int) -> bool:
-    """这一集是否有排队或执行中的任务：任务的资源、剧本文件或载荷带这一集的集 ID。"""
+    """Whether this episode has queued/running tasks: its ID appears in task resources, script files, or payloads."""
     for status in ("queued", "running"):
         page = 1
         while True:

@@ -1,4 +1,4 @@
-"""市场源索引的读取口径：过索引 schema 才可用，旧客户端忽略未知可选字段与未知条目类型。"""
+"""Market-index reading: require schema validity; older clients ignore unknown optional fields and entry types."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ class TestUnsupportedSchema:
         assert excinfo.value.supported == INDEX_SCHEMA_VERSION
 
     def test_higher_major_wins_over_otherwise_broken_content(self):
-        """新主版本的形状旧客户端本就判不了，一律报不支持而非索引无效。"""
+        """Old clients cannot validate new-major shapes; report unsupported rather than invalid indexes."""
         with pytest.raises(UnsupportedIndexSchemaError):
             parse_index({"schema_version": "2.0.0", "entries": "reshaped"})
 
@@ -155,7 +155,7 @@ class TestInvalidIndexes:
         ]
 
     def test_all_entries_are_judged_together(self):
-        """任一条目不合规即整份无效，诊断逐条给出。"""
+        """Any invalid entry invalidates the whole index; report diagnostics individually."""
         issues = _issues(_index(_entry(), _entry(slug="Bad"), _entry(version="x")))
 
         assert issues == [("entries[1].slug", "slug_invalid"), ("entries[2].version", "invalid_value")]

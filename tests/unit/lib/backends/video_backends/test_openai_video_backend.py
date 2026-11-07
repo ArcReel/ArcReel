@@ -1,4 +1,4 @@
-"""OpenAIVideoBackend 单元测试。"""
+"""OpenAIVideoBackend unit tests."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate,
 
 
 def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
-    """构造 mock Video 响应。"""
+    """Construct a mock Video response."""
     video = MagicMock()
     video.id = video_id
     video.status = status
@@ -35,14 +35,14 @@ def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
 
 
 def _make_mock_content(data: bytes = b"fake-video-data"):
-    """构造 mock download_content 响应。"""
+    """Construct a mock download_content response."""
     content = MagicMock()
     content.content = data
     return content
 
 
 def _stub_client_completed(client: AsyncMock, *, seconds="8", video_id="vid_123", data=b"fake-video-data"):
-    """常用 stub：create→queued、retrieve→completed、download_content→data。"""
+    """Common stub: create→queued, retrieve→completed, download_content→data."""
     client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", seconds=seconds, video_id=video_id))
     client.videos.retrieve = AsyncMock(
         return_value=_make_mock_video(status="completed", seconds=seconds, video_id=video_id)
@@ -78,7 +78,7 @@ class TestOpenAIVideoBackend:
         [("end_image", "video_last_frame_unsupported"), ("reference_audio_files", "video_reference_audio_unsupported")],
     )
     async def test_unsendable_input_rejected_before_submit(self, tmp_path: Path, field: str, code: str):
-        """Sora 请求体没有尾帧与参考音频字段，拒绝而不是丢弃后照常提交。"""
+        """The Sora request body has no last-frame/reference-audio fields; reject them rather than discard them and submit normally."""
         mock_client = AsyncMock()
         _stub_client_completed(mock_client)
         source = tmp_path / "input.bin"
@@ -105,7 +105,7 @@ class TestOpenAIVideoBackend:
         ],
     )
     async def test_unusable_image_inputs_rejected_before_submit(self, tmp_path: Path, kind: str, code: str):
-        """缺失的图与超出单槽位的图不静默跳过 / 丢弃：照常提交会出片计费却没用上用户给的图。"""
+        """Do not silently skip missing images or discard images beyond the single slot: normal submission would charge for a video ignoring supplied images."""
         mock_client = AsyncMock()
         _stub_client_completed(mock_client)
         real = tmp_path / "real.png"
@@ -196,7 +196,7 @@ class TestOpenAIVideoBackend:
         assert ref[2] == "image/png"
 
     async def test_start_image_encoding_keeps_event_loop_running(self, tmp_path: Path, monkeypatch):
-        """首帧读字节做 multipart 上传体，必须卸载到线程，否则事件循环被读堵住。"""
+        """Offload first-frame byte reads for multipart upload to a thread; otherwise the read blocks the event loop."""
         start_image = tmp_path / "start.png"
         start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
@@ -253,11 +253,11 @@ class TestOpenAIVideoBackend:
             with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
                 await backend.generate(request)
 
-        # 失败应该在轮询阶段抛出，不会进入下载
+        # Failure should raise during polling, without entering download.
         mock_client.videos.download_content.assert_not_called()
 
     async def test_duration_passthrough(self, tmp_path: Path):
-        """所有 duration 值应原值透传到 SDK，不被 _map_duration 改写。"""
+        """Pass every duration value unchanged to the SDK without _map_duration rewriting it."""
         mock_client = AsyncMock()
         _stub_client_completed(mock_client, seconds="6")
 
@@ -281,7 +281,7 @@ class TestOpenAIVideoBackend:
                 assert call_kwargs["seconds"] == str(seconds), f"duration={seconds}"
 
     async def test_video_seconds_none_fallback(self, tmp_path: Path):
-        """当 API 返回 video.seconds=None 时，应回退到请求的 duration。"""
+        """When the API returns video.seconds=None, fall back to requested duration."""
         mock_client = AsyncMock()
         _stub_client_completed(mock_client, seconds=None)
 
@@ -300,7 +300,7 @@ class TestOpenAIVideoBackend:
             )
             result = await backend.generate(request)
 
-        # 请求 6 秒 → 透传 → 回退应保留请求值 6
+        # Request 6 seconds, pass it through, and retain requested value 6 on fallback.
         assert result.duration_seconds == 6
 
     async def test_size_mapping(self, tmp_path: Path):
@@ -328,7 +328,7 @@ class TestOpenAIVideoBackend:
                 assert call_kwargs["size"] == expected_size, f"aspect={aspect}"
 
     async def test_content_download_retry_does_not_regenerate(self, tmp_path: Path):
-        """内容下载 502 失败后应单独重试下载，而非重新创建任务。"""
+        """Retry content download separately after a 502 download failure instead of creating another task."""
         error = InternalServerError(
             message="Failed to resolve Vertex video URL",
             response=MagicMock(status_code=502, headers={}),
@@ -356,13 +356,13 @@ class TestOpenAIVideoBackend:
 
         assert result.video_path == output_path
         assert output_path.read_bytes() == b"video-data"
-        # create 只调用 1 次，不因下载失败重新创建任务
+        # Call create only once; download failure must not create another task.
         assert mock_client.videos.create.call_count == 1
-        # download_content 调用 3 次（2 次失败 + 1 次成功）
+        # Call download_content 3 times (2 failures + 1 success).
         assert mock_client.videos.download_content.call_count == 3
 
     async def test_content_download_all_retries_exhausted(self, tmp_path: Path):
-        """内容下载全部重试耗尽后应抛出异常，且不重新生成视频。"""
+        """Raise after exhausting all content-download retries without regenerating the video."""
         error = InternalServerError(
             message="Failed to resolve Vertex video URL",
             response=MagicMock(status_code=502, headers={}),
@@ -386,15 +386,15 @@ class TestOpenAIVideoBackend:
                 output_path=output_path,
                 duration_seconds=8,
             )
-            # 共用的产物下载预算耗尽后抛的是带最后一次原错误的 RuntimeError。
+            # Exhausting the shared artifact-download budget raises RuntimeError carrying the last original error.
             with pytest.raises(RuntimeError, match="Failed to resolve Vertex video URL"):
                 await backend.generate(request)
 
-        # 即使下载重试耗尽，也只创建 1 次任务
+        # Create only 1 task even when download retries are exhausted.
         assert mock_client.videos.create.call_count == 1
 
     async def test_content_download_non_retryable_error_fails_immediately(self, tmp_path: Path):
-        """不可重试的下载错误（如 4xx）应立即失败，不浪费退避时间。"""
+        """Nonretryable download errors (such as 4xx) fail immediately without wasting backoff time."""
         from openai import AuthenticationError
 
         error = AuthenticationError(
@@ -423,19 +423,19 @@ class TestOpenAIVideoBackend:
             with pytest.raises(AuthenticationError):
                 await backend.generate(request)
 
-        # 不可重试错误：只调用 1 次下载就抛出，不进入退避重试
+        # Nonretryable error: raise after 1 download call without backoff retries.
         assert mock_client.videos.download_content.call_count == 1
         assert not output_path.exists()
 
     async def test_polls_until_completed_for_nonstandard_status(self, tmp_path: Path):
-        """OpenAI 兼容网关返回非标 status（如 NOT_START / running）时，必须继续轮询直到 completed。
+        """Keep polling until completed when an OpenAI-compatible gateway returns nonstandard status values (such as NOT_START / running).
 
-        SDK 内置 poll 只识别 4 种标准状态，遇到非标状态会提前退出并下载未就绪任务
-        （400 Task is not completed yet），因此后端不得依赖它。
+        The SDK built-in poll recognizes only 4 standard states; nonstandard states make it exit early and download an unready task
+        (400 Task is not completed yet), so the backend must not rely on it.
         """
         mock_client = AsyncMock()
         mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
-        # 模拟非标状态序列：NOT_START → running → in_progress → completed
+        # Simulate nonstandard states: NOT_START → running → in_progress → completed.
         mock_client.videos.retrieve = AsyncMock(
             side_effect=[
                 _make_mock_video(status="NOT_START"),
@@ -461,17 +461,17 @@ class TestOpenAIVideoBackend:
             )
             result = await backend.generate(request)
 
-        # 必须轮询 4 次（3 次非完成 + 1 次完成）才得到结果
+        # Poll 4 times (3 incomplete + 1 complete) before obtaining the result.
         assert mock_client.videos.retrieve.call_count == 4
-        # 下载只在完成后调用一次
+        # Download only once, after completion.
         assert mock_client.videos.download_content.call_count == 1
         assert result.video_path == output_path
 
     async def test_first_retrieve_completed_skips_polling_sleep(self, tmp_path: Path):
-        """首次 retrieve 即返回 completed 时只查一次、不等 poll_interval 就下载。
+        """If the first retrieve returns completed, query only once and download without waiting poll_interval.
 
-        _poll_until_complete 无条件走 poll_with_retry；其循环「先查再等」，首查即终态
-        时直接返回、不落入 sleep。记录的查询次数足以判定该次序成立。
+        _poll_until_complete always uses poll_with_retry; its loop queries before waiting. A terminal state
+        on the first query returns immediately without sleeping. The recorded query count establishes that order.
         """
         retrieved: list[str] = []
 
@@ -499,12 +499,12 @@ class TestOpenAIVideoBackend:
             )
             await backend.generate(request)
 
-        # 首查即 completed：poll_with_retry 一次 retrieve 即返回，不多查
+        # First query is completed: poll_with_retry returns after one retrieve without another query.
         assert retrieved == ["vid_123"]
         assert output_path.read_bytes() == b"v"
 
     async def test_first_retrieve_failed_raises_before_sleep(self, tmp_path: Path):
-        """首次 retrieve 即返回 failed 时直接抛错：poll_with_retry 首查经 is_failed 判定即抛，不落入 sleep。"""
+        """A first retrieve returning failed raises immediately: poll_with_retry checks is_failed on the first query and raises without sleeping."""
         err = MagicMock()
         err.message = "moderation rejected"
         failed = _make_mock_video(status="failed")
@@ -536,7 +536,7 @@ class TestOpenAIVideoBackend:
         assert not output_path.exists()
 
     async def test_polls_failed_status_raises_without_download(self, tmp_path: Path):
-        """轮询期间出现 status='failed' 应直接抛错，不进入下载。"""
+        """status='failed' during polling raises immediately without downloading."""
         err = MagicMock()
         err.message = "moderation rejected"
         failed = _make_mock_video(status="failed")
@@ -571,10 +571,10 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content.assert_not_called()
 
     async def test_resume_video_polls_existing_job(self, tmp_path: Path):
-        """resume_video 仅 poll + 下载,不调 videos.create (ADR 0007)。"""
+        """resume_video only polls and downloads; it does not call videos.create (ADR 0007)."""
         video_data = b"resumed-content"
         mock_client = AsyncMock()
-        # 不 stub create —— 调到就 fail
+        # Do not stub create; fail if it is called.
         mock_client.videos.create = AsyncMock(side_effect=AssertionError("resume 不应调 create"))
         mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
@@ -598,7 +598,7 @@ class TestOpenAIVideoBackend:
         assert output_path.read_bytes() == video_data
 
     async def test_download_write_settles_through_cancellation(self, tmp_path: Path):
-        """成片字节已到手：取消落在写盘期间时，写入先结算，取消随之消失，后续 faststart 与产物提交照常执行。"""
+        """Final-video bytes are available: cancellation during disk writing settles the write and is suppressed; subsequent faststart and artifact commit proceed normally."""
         mock_client = AsyncMock()
         mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"resumed-content"))
@@ -622,7 +622,7 @@ class TestOpenAIVideoBackend:
         assert written.read_bytes() == b"resumed-content"
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
-        """retrieve 返回 status='expired' → 抛 ResumeExpiredError，而不是白等 max_wait。"""
+        """retrieve returning status='expired' raises ResumeExpiredError instead of waiting out max_wait."""
         from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         mock_client = AsyncMock()
@@ -645,18 +645,18 @@ class TestOpenAIVideoBackend:
             assert ei.value.provider == PROVIDER_OPENAI
 
     async def test_is_openai_not_found_no_loose_string_match(self):
-        """不做 "not found" / "expired" 子串兜底，避免业务字符串误判；只认结构化 404。"""
+        """Do not fall back to "not found" / "expired" substrings, which can misclassify business strings; recognize only structured 404."""
         from lib.backends.video_backends.openai import _is_openai_not_found
 
         assert _is_openai_not_found(RuntimeError("file not found in storage")) is False
         assert _is_openai_not_found(RuntimeError("session expired but task is fine")) is False
-        # 仍能识别 status_code=404
+        # Still recognize status_code=404.
         exc = RuntimeError("any")
         exc.status_code = 404
         assert _is_openai_not_found(exc) is True
 
     async def test_resume_video_not_found_raises_resume_expired(self, tmp_path: Path):
-        """job 不存在/已过期 → ResumeExpiredError(走 [resume_expired] 路径)。"""
+        """A nonexistent/expired job raises ResumeExpiredError (the [resume_expired] path)."""
         from openai import NotFoundError
 
         from arcreel_market_core.video_backend_contract import ResumeExpiredError
@@ -683,9 +683,9 @@ class TestOpenAIVideoBackend:
             assert ei.value.provider == PROVIDER_OPENAI
 
     async def test_generate_expired_status_raises_runtime_error_not_resume_expired(self, tmp_path: Path):
-        """generate 路径下 status='expired' 抛 RuntimeError 而不是 ResumeExpiredError。
+        """status='expired' on the generate path raises RuntimeError, not ResumeExpiredError.
 
-        fresh submit 路径不该带 [resume_expired] 语义——后者只有 worker 重启接续场景才用。
+        Fresh submission must not carry [resume_expired] semantics; those apply only to resuming after worker restart.
         """
         from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
@@ -710,10 +710,10 @@ class TestOpenAIVideoBackend:
 
 
 class TestProxyStatusSynonyms:
-    """OpenAI 兼容代理网关（NewAPI 系）转发非 Sora 型号时会透传底层厂商状态串。
+    """OpenAI-compatible proxy gateways (NewAPI family) forward underlying vendor status strings for non-Sora models.
 
-    终态判定若只认 Sora 文档里的字面量，已就绪的任务会一直轮询到 max_wait 超时——
-    用户侧看到失败，供应商侧有成品且已计费。
+    If terminal-state detection recognizes only Sora-documented literals, ready tasks keep polling until max_wait expires:
+    users see failure even though the provider has a completed, billed video.
     """
 
     @pytest.mark.parametrize("proxy_status", ["succeeded", "success", "SUCCEEDED", "  succeeded  "])
@@ -762,7 +762,7 @@ class TestProxyStatusSynonyms:
         mock_client.videos.download_content.assert_not_awaited()
 
     async def test_uppercase_expired_still_splits_generate_and_resume(self, tmp_path: Path):
-        """大写 EXPIRED 同样命中过期档：generate 抛 RuntimeError、resume 抛 ResumeExpiredError。"""
+        """Uppercase EXPIRED also counts as expiry: generate raises RuntimeError, resume raises ResumeExpiredError."""
         from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         mock_client = AsyncMock()
@@ -785,22 +785,22 @@ class TestProxyStatusSynonyms:
 
 
 class TestFailureMessage:
-    """失败原因要以可读文本落进 task.error_message —— 用户在任务面板读的就是这一句。"""
+    """Store the failure reason as readable text in task.error_message; users read that sentence in the task panel."""
 
     @pytest.mark.parametrize(
         ("error", "expected"),
         [
-            # SDK 原生形态：带 code / message 的模型，只取 message
+            # Native SDK shape: a model with code / message; use only message.
             (VideoCreateError(code="moderation_blocked", message="content policy"), "content policy"),
-            # 代理网关透传的裸 dict / 裸字符串
+            # Bare dict / string forwarded by proxy gateways.
             ({"code": 500, "message": "upstream down"}, "upstream down"),
             ({"code": "billing_hard_limit_reached"}, "billing_hard_limit_reached"),
-            # 数字错误码同样是原因，别因为不是字符串就丢掉
+            # Numeric error codes are reasons too; do not discard them for not being strings.
             ({"code": 500}, "500"),
             ("boom", "boom"),
-            # 只给 status 不给 error 的网关：说不出原因，也不能写出一句 "None"
+            # A gateway supplying status but no error cannot explain the reason, but must not write "None".
             (None, "unknown"),
-            # 认不出的形态：宁可说不知道，也不把对象自身的 repr 写给用户
+            # Unknown shape: report that the reason is unknown instead of exposing the object repr.
             ({"detail": "internal"}, "unknown"),
             (SimpleNamespace(), "unknown"),
         ],
@@ -823,7 +823,7 @@ class TestFailureMessage:
                     VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8)
                 )
 
-        # 逐字断言：错误文本原样落 task.error_message，内部类型的 repr 不该出现在里面
+        # Exact assertion: persist error text unchanged in task.error_message, without internal-type repr.
         assert str(ei.value) == f"Sora 视频生成失败: {expected}"
 
 
@@ -845,9 +845,9 @@ def _video_json(video_id: str, status: str) -> dict:
 
 
 class TestSubmittedBaseUrlReplay:
-    """挂在自定义供应商下的 OpenAI 视频协议：提交时落下实际请求域名，续跑按该域名轮询与取件。
+    """OpenAI video protocol under a custom provider: persist the actual request host at submission and use it for polling/retrieval on resume.
 
-    真实 SDK client，respx 在 transport 层拦截。
+    Real SDK client; respx intercepts the transport.
     """
 
     async def test_generate_persists_request_base_url(self, tmp_path: Path):
@@ -871,7 +871,7 @@ class TestSubmittedBaseUrlReplay:
         assert [(r["job_id"], r["base_url"]) for r in persisted] == [("vid-a", _RELAY_A)]
 
     async def test_resume_polls_and_downloads_from_submitted_base_url(self, tmp_path: Path):
-        # 提交时域名为 A，续跑前配置已改成 B：任务与成片只在 A 上可取，凭据沿用当下这套
+        # Submit to host A, then configure B before resume: task/video exist only on A; use current credentials.
         from lib.backends.video_backends.openai import OpenAIVideoBackend
 
         with capture_http() as router, bounded_poll_clock():

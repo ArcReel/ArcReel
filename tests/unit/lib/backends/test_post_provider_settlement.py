@@ -1,8 +1,8 @@
-"""供应商返回之后的落盘不被取消打断（docs/standards/backend.md「供应商返回之后的落账段不可中断」）。
+"""Post-provider persistence is noninterruptible (docs/standards/backend.md, post-provider settlement rule).
 
-公共落盘助手与各后端共用的落盘函数：取消落在写盘期间时，已计费的产物照常写完，调用方后续的
-转码与产物提交照常执行。各后端自己的入口（Gemini 图片、OpenAI 音频与视频、DashScope 音频）
-的同类用例在各自的测试文件里。
+Shared save helpers complete paid-artifact writes despite cancellation during persistence, allowing
+caller transcoding/commits afterward. Gemini-image/OpenAI-audio-video/DashScope-audio entry-point
+counterparts live in their respective test files.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ async def test_declarative_inline_image_write_settles_through_cancellation(tmp_p
 
 
 async def test_downloaded_artifact_rename_settles_through_cancellation(tmp_path: Path, monkeypatch):
-    # 下载的产物成形在 .part 改名为成品这一步：取消落在改名期间时，成品就位、取消随之消失，后续步骤继续
+    # Artifacts become formal on .part final rename; cancellation during rename is consumed after installation, and later work continues.
     gate = WriteGate()
     real_replace = os.replace
 

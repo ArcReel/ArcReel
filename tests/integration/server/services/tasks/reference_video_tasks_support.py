@@ -1,4 +1,4 @@
-"""server.services.tasks.reference_video_tasks 测试共享的替身与 helper。"""
+"""Shared substitutes/helpers for server.services.tasks.reference_video_tasks tests."""
 
 from __future__ import annotations
 
@@ -77,11 +77,9 @@ def write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
 
 
 def register_asset_sheet(proj_dir: Path, asset_type: str, name: str, relative_path: str) -> None:
-    """把新增资产补成生产形态：sheet 文件在盘上，且在产物清单里登记。
+    """Complete added assets into production shape: sheets exist on disk and are manifest-registered.
 
-    调用前 project.json 必须已经写盘并带上该资产的 sheet 指针——清单登记的依据来自
-    project.json 的当前指针，只改内存里的 project 副本不构成一个可登记的资产。
-    """
+    Persist project.json with this asset's sheet pointer first: registration bases use current persisted pointers. Changing only an in-memory project copy cannot produce a registerable asset."""
 
     from lib.artifacts.artifact_activation import register_current_artifact
     from lib.artifacts.artifact_manifest import ArtifactKey
@@ -109,7 +107,7 @@ def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) 
     project["schema_version"] = 7
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
-    # 清单激活只落到 v8；产物读写要求当前 schema，故补齐剩余迁移链。
+    # Activation advances manifests only to v8; artifact reads/writes require current schema, so finish remaining migrations.
     migrate_project_dir(proj_dir)
     if register_script:
         ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register(
@@ -118,6 +116,6 @@ def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) 
             basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
         )
     else:
-        # 没有 script_plan 的剧本在激活时按无计划依据登记；这里要的是「绑定的剧本没有清单认领」，
-        # 故把激活登记的条目删掉。
+        # Activation registers scripts without script_plan using planless bases. This test needs a bound script without manifest claims,
+        # so remove the activation-registered entry.
         ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.episode_script(1))

@@ -1,4 +1,4 @@
-"""AssetRepository 异步 CRUD 测试。"""
+"""Asynchronous AssetRepository CRUD tests."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ async def test_list_filters_by_type_and_name_fuzzy(repo):
 
 
 async def test_list_pages_ties_on_updated_at_in_a_stable_order(repo, db_session):
-    """同一更新时间的条目按 id 排出确定的次序，offset 分页不重不漏。"""
+    """Equal-update-time entries sort deterministically by id, preventing offset-pagination duplicates/misses."""
     created = [await repo.create(type="character", name=f"角色{i}", description="", voice_style="") for i in range(6)]
     tied = datetime(2026, 9, 1, tzinfo=UTC)
     await db_session.execute(update(Asset).values(updated_at=tied))

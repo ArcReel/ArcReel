@@ -57,11 +57,11 @@ import { blockerViews, nextStepForAction } from "./problem-views";
 import { buildStepList, type StepAct } from "./step-list";
 
 /**
- * 任务指纹变化到发起重新求解之间的合并窗口（毫秒）。
+ * Merge window from changed task fingerprints to new solves, in milliseconds.
  *
- * 一批任务入队/开跑/落地时状态是逐条跳的，每跳一次就求解一次计划，等于为同一批生成
- * 打出十几个 `POST /workflow-plan`。窗口内的连续跳变合并成一次；窗口取值只需盖住同一
- * 轮轮询写回引起的连锁跳变，不该长到让面板明显滞后于任务列表。
+ * Batch enqueue/start/completion changes states one row at a time. Solving every change would send
+ * over a dozen `POST /workflow-plan` for one batch; merge consecutive window changes once. Cover same-poll
+ * write cascades only, never long enough to noticeably lag task lists.
  */
 const PLAN_REFRESH_DEBOUNCE_MS = 250;
 
@@ -72,7 +72,7 @@ const ASSET_ROUTES: [keyof ProjectData, string][] = [
   ["products", WORKSPACE_ROUTE_PRODUCTS],
 ];
 
-/** 资产名（衍生为「本体/衍生」）所在类型的画廊路由。 */
+/** Gallery routes for asset types, with derivative names in base/derivative form. */
 function assetRouteIn(project: ProjectData | null, name: string): string | null {
   if (!project) return null;
   const owner = name.split("/", 1)[0];
@@ -84,8 +84,8 @@ function assetRouteIn(project: ProjectData | null, name: string): string | null 
 }
 
 /**
- * 本集的剪辑概况，随计划刷新一起重取：剪辑时间线的写入与成片任务都会让计划刷新。
- * 计划里本集没有剪辑时间线时不请求。取不到时为 null，剪辑行退回只按计划陈述条数。
+ * Episode editing overviews refetch with plans; timeline writes/finished-video tasks trigger plan refreshes.
+ * Skip requests without episode editing timelines in plans. Null on unavailable overviews; editing rows report plan counts only.
  */
 function useEditOverview(projectName: string, episodeId: number | null, refetchOn: unknown, timelineCount: number) {
   const [overview, setOverview] = useState<{ key: string; value: EpisodeEditOverview } | null>(null);
@@ -126,23 +126,23 @@ interface PendingDiscard {
 interface Props {
   projectName: string;
   episode: number | null;
-  /** 跳到画布上的该单元。 */
+  /** Navigate to canvas units. */
   onViewUnit?: (unitId: string) => void;
-  /** 显式重生某一步的指定单元。 */
+  /** Explicitly regenerate specified units within steps. */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
-  /** 打开范围为全部待编写的「编写提示词」；本集还没有正式脚本时不传。 */
+  /** Open Write prompts scoped to all entries pending authoring; omit without formal episode scripts. */
   onAuthorPrompts?: () => void;
 }
 
 /**
- * 集页的制作进度（步骤清单），挂在集页页头第一行的行尾。
+ * Episode production progress (step lists), at ends of first episode-header rows.
  *
- * 它投影后端给出的制作状态：每行一类内容的现状，建议的下一步就地展开在所属行，入口按
- * 「交给 Agent」为主、直接 AI 调用为次。界面不自行推断下一步；准入不满足的入口照常显示，
- * 悬停说明原因。过期、缺描述这类提醒只挂在对应行。
+ * Project backend production states: each row describes one content class, expanding suggested next steps within owning rows;
+ * Hand to Agent primary, direct AI secondary. UIs never infer next steps; inadmissible entries remain visible
+ * with hover reasons. Stale/missing-description reminders attach only to relevant rows.
  *
- * 页头只放一枚入口：制作进度 · 一句话现状 · 阻断数；点开是非模态弹层，弹层是唯一的滚动区。
- * 计划的刷新也由它驱动，页头的批量补齐按钮读同一份计划。
+ * Headers contain one entry: Production progress ·status sentence ·blocking count; opening shows nonmodal popovers as sole scroll regions.
+ * Panels drive plan refreshes; header batch-fill buttons read the same plans.
  */
 export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, onAuthorPrompts }: Props) {
   const { t, i18n } = useTranslation(["workflow", "dashboard", "assets"]);
@@ -170,11 +170,11 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const scripts = useProjectsStore((s) => s.currentScripts);
   const ledger = useEpisodeLedger();
 
-  // 项目快照修订号与任务指纹是两条既有的变更信号：前者随 project.json / 剧本写入递增
-  // （SSE 项目事件驱动），后者随任务轮询变化。计划同时依赖这两类事实，故两者都进依赖。
+  // Existing change signals: project snapshot revisions rise with project.json/script writes
+  // driven by SSE events; task fingerprints change through polling. Plans depend on both fact sources, so depend on both.
   //
-  // 任务指纹只取当前项目的任务：任务列表在「不按项目过滤」的作用域下是全局的，别的项目
-  // 跑生成同样会让指纹变，本项目的计划却不会因此改变——不过滤就等于替别人的进度重求解。
+  // Task fingerprints use current-project tasks only; task lists in unfiltered scopes are global, so other-project
+  // generations change fingerprints without changing current-project plans, otherwise needlessly resolving others’ progress.
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
   const taskFingerprint = useTasksStore((s) =>
     s.tasks
@@ -199,7 +199,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   useEffect(() => () => resetTarget(), [resetTarget]);
 
   const currentKey = `${projectName}::${episode ?? ""}`;
-  // 计划属于另一个目标时不拿它陈述当前目标——切集途中的旧事实比没有事实更糟。
+  // Plans targeting other episodes must not describe current targets; stale switch-time facts are worse than none.
   const shown = planKey === currentKey ? plan : null;
   const episodeId = shown?.status.target?.episode ?? episode;
   const episodeMeta = projectData?.episodes?.find((entry) => entry.episode === episodeId);
@@ -251,7 +251,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
     async (act: StepAct) => {
       if (episodeId == null) return;
       const intent = act.intent;
-      // 交给 Agent、打开对话框或跳走的入口收起弹层，焦点和视线都在别处；就地执行的入口留着弹层看结果。
+      // Hand to Agent/dialog/navigation entries close popovers because focus/attention moves; inline execution keeps results visible.
       if (CLOSES_POPOVER.has(intent.type)) setOpen(false);
       switch (intent.type) {
         case "agent":
@@ -328,7 +328,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             break;
           case "create_edit_timeline": {
             const { created, refreshed } = await createScriptEditTimeline(projectName, episodeId, t);
-            // 刷新失败时已提示，不同时报告成功
+            // Refresh failures already notify; never simultaneously report success.
             if (refreshed === "success") {
               pushToast(t("workflow:edit_timeline_created", { name: created.timeline.name }), "success");
             }
@@ -405,7 +405,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
     }
   };
 
-  // 计划没能投影成步骤清单（项目整体不可用、目标集绑定损坏）时，只复述后端给的下一步。
+  // Plans unable to form step lists (unusable projects/broken episode bindings) repeat backend next steps only.
   const headline = view
     ? view.summary
     : shown
@@ -431,7 +431,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             </Badge>
           )}
         </PopoverTrigger>
-        {/* 非模态，贴着页头向下展开：不挤压画布，空间不够时收矮、弹层内部滚动，不翻到侧面盖住 Agent 面板。 */}
+        {/* Nonmodal beneath headers without squeezing canvases; insufficient room lowers height/internal scrolling instead of flipping sideways over Agent panels. */}
         <PopoverContent
           align="end"
           collisionAvoidance={{ side: "none" }}
@@ -460,8 +460,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             </p>
           )}
 
-          {/* 顶部只陈述项目整体的阻断与内容的数据问题。项目级的计划提示（数据升级失败）与阻断是同一件事，
-              不再列一遍；各步骤的提示与下一步只在所属行展开。 */}
+          {/* Top regions state only project-wide blockers/content-data issues. Project plan notices (upgrade failures) duplicate blockers,
+              so omit repetitions; step notices/next steps expand only within owning rows. */}
           {blockers.length > 0 && (
             <Alert variant="destructive">
               <AlertTitle id={alertId}>{t("blockers_title", { count: blockers.length })}</AlertTitle>

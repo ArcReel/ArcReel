@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
 
-# 落库 error_message 的长度上限。裸切片会把结构化原因切在 JSON 中途，使 render_failure
-# 无法解析、用户看到机器码碎片而非本地化文案，因此两条落库路径都经 bound_reason 收窄。
-# 级联编码另在编码前按预算裁剪 reason（_encode_bounded_cascade_failure），保证结果本身
-# 不需要再被截断，深层依赖链也不会近指数增长。
+# Maximum persisted error_message length. Raw slicing can cut structured reasons inside JSON, preventing render_failure
+# from parsing them and exposing machine-code fragments instead of localized copy; both persistence paths use bound_reason.
+# Cascade encoding also trims reason to budget before encoding (_encode_bounded_cascade_failure), ensuring the result
+# needs no further truncation and deep dependency chains do not grow near-exponentially.
 _MAX_ERROR_MESSAGE_LEN = 2000
 
 
@@ -42,11 +42,11 @@ def _active_dedupe_clauses(
     script_file: str | None,
     resource_type: str | None,
 ) -> list[ColumnElement[bool]]:
-    """``idx_tasks_dedupe_active`` 去重键中与 ``resource_id`` 无关的那部分匹配条件。
+    """Matching conditions for the part of the ``idx_tasks_dedupe_active`` dedupe key independent of ``resource_id``.
 
-    ``enqueue`` 的 ``IntegrityError`` 回查与 :meth:`TaskRepository.get_active_tasks_for_resources`
-    共用这一份，去重口径只有一处定义。``script_file`` / ``resource_type`` 以空串归一，与索引
-    表达式里的 ``COALESCE`` 对齐。
+    Shared by ``enqueue``'s ``IntegrityError`` lookup and :meth:`TaskRepository.get_active_tasks_for_resources`,
+    defining deduplication in one place. Normalize ``script_file`` / ``resource_type`` to empty strings,
+    matching ``COALESCE`` in the index expression.
     """
     return [
         Task.project_name == project_name,
@@ -59,8 +59,8 @@ def _active_dedupe_clauses(
 
 
 def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> str:
-    # 上游原因本身是级联串时先折叠到根本原因：逐层包裹近指数增长，深链上裁剪只能把内层信封
-    # 切在 JSON 中途，读侧会把残缺内层当普通文本嵌进本地化文案。折叠后串长与链深无关。
+    # Collapse upstream cascade strings to their root cause first: repeated wrapping grows near-exponentially, and deep-chain
+    # trimming can cut inner JSON envelopes into plain-text fragments inside localized copy. Collapsing makes length depth-independent.
     reason = collapse_cascade_reason(reason)
     encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
     if len(encoded) <= _MAX_ERROR_MESSAGE_LEN:
@@ -68,9 +68,9 @@ def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> 
 
     overhead = len(encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=""))
     budget = max(_MAX_ERROR_MESSAGE_LEN - overhead, 0)
-    # JSON 转义（reason 中的引号/反斜杠）会让 budget 字符的 reason 编码后略超预算；始终经
-    # bound_reason 收窄以保持结构化 reason 合法，不对已裁剪结果做原始字符再截断（那会切断
-    # JSON 尾部）。极少数迭代仍超限时接受结果略超 _MAX_ERROR_MESSAGE_LEN，好过写坏 JSON。
+    # JSON escaping of quotes/backslashes in reason may make a budget-character reason exceed the encoded budget; always use
+    # bound_reason to preserve structured validity rather than raw-slicing an already trimmed result and cutting its JSON tail.
+    # If rare iterations remain oversized, slightly exceeding _MAX_ERROR_MESSAGE_LEN is preferable to persisting broken JSON.
     for _ in range(5):
         reason = bound_reason(reason, budget)
         encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
@@ -127,7 +127,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
 
 
 class TaskNotCancellableError(Exception):
-    """任务已开始执行，不可取消：取消只对 queued 开放，执行中的任务照常跑完。"""
+    """The task has started and cannot be cancelled: only queued tasks allow cancellation; running tasks finish normally."""
 
     def __init__(self, task_id: str) -> None:
         super().__init__(f"任务 '{task_id}' 正在执行，不可取消")
@@ -137,9 +137,9 @@ class TaskNotCancellableError(Exception):
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
-        # 该 session 内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
-        # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
-        # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
+        # Terminal task transitions persisted in this session, for the upper layer (GenerationQueue) to publish project events after commit.
+        # Collect here instead of recording separately in each terminal method: all terminal transitions, including cascading failure,
+        # cascading cancellation and bulk queue cancellation, pass through _record_terminal_event, so one hook covers all paths.
         self.terminal_events: list[dict[str, Any]] = []
 
     def _record_terminal_event(
@@ -150,7 +150,7 @@ class TaskRepository(BaseRepository):
         status: str,
         task_type: str | None = None,
     ) -> None:
-        """非终态调用是空操作：状态守卫兜住未来新增的非终态调用点，避免发出无对应动作的事件。"""
+        """Nonterminal calls are no-ops: the status guard covers future nonterminal call sites, preventing events without corresponding actions."""
         if status in TERMINAL_TASK_STATUSES:
             self.terminal_events.append(
                 {
@@ -441,12 +441,12 @@ class TaskRepository(BaseRepository):
         resource_type: str | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> list[dict[str, Any]]:
-        """查询命中 ``idx_tasks_dedupe_active`` 去重键、当前处于活动态的任务。
+        """Find active tasks matching the ``idx_tasks_dedupe_active`` dedupe key.
 
-        match 条件与 :meth:`enqueue` 的 ``IntegrityError`` 分支共用
-        :func:`_active_dedupe_clauses`，供调用方在真正入队前探测冲突并拒绝，而不是让
-        ``enqueue`` 的原子去重悄悄回退到既有任务。结果按入队时间定序，调用方据此
-        组织的文案不随实现漂移。
+        Share :func:`_active_dedupe_clauses` with :meth:`enqueue`'s ``IntegrityError`` branch, allowing
+        callers to detect and reject conflicts before actual enqueueing instead of letting ``enqueue``'s
+        atomic deduplication silently fall back to existing tasks. Order results by enqueue time so
+        caller-generated copy remains stable across implementations.
         """
         if not resource_ids:
             return []
@@ -473,29 +473,31 @@ class TaskRepository(BaseRepository):
         *,
         pool_full_providers: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
-        """领取下一个 queued 任务。
+        """Claim the next queued task.
 
-        ``pool_full_providers`` 为本 cycle 已知池满的 provider_id 集合（黑名单语义）：
-        - ``None`` / 空集合 —— 不做 provider 过滤
-        - 非空集合 —— 按排队时记录的 ``provider_id`` 排除这些 provider 的任务，所有任务类型
-          同一口径。``provider_id IS NULL`` 的老数据和 ``provider_id`` 不在已知池集合里的任务
-          （例如自定义 provider 被删除）都不会被排除，worker claim 后再校验容量。
+        ``pool_full_providers`` contains provider_id values whose pools are known full this cycle (denylist semantics):
+        - ``None`` / empty set: no provider filtering.
+        - Nonempty set: exclude these providers' tasks by their recorded enqueue-time ``provider_id``,
+          consistently across all task types. Neither legacy rows with ``provider_id IS NULL`` nor tasks
+          whose ``provider_id`` is absent from known pools, such as deleted custom providers, are excluded;
+          workers check capacity after claiming them.
 
-        记录的 provider 可能已与项目现状不一致，按记录过滤不会让任务永久卡住：黑名单只含
-        此刻占满的 provider，它们的在跑任务结束后就会空出槽位，任务届时照常被领取，由执行
-        入口按现状核对 provider，不一致时改写记录并原位回队。
+        Recorded providers may no longer match project settings. Filtering by the record cannot permanently
+        strand tasks: the denylist contains only providers currently full, and running tasks eventually free
+        slots. Tasks are then claimed normally; execution checks the current provider and, if it differs,
+        updates the record and requeues the task in place.
 
-        采用黑名单语义而非白名单（早期实现）的原因：白名单会把"已知但未在当前
-        ``_pools`` 里的 provider"任务永久过滤掉（例如自定义 provider 被禁用 / 删除），
-        导致静默堆积。黑名单只排除已知池满，未知 provider 任务正常 claim 走 worker
-        二次解析（解析失败走 mark_failed 兜底，不会无声卡死）。
+        Denylist semantics replace the early allowlist because an allowlist permanently excludes tasks for
+        known providers absent from current ``_pools``, such as disabled/deleted custom providers, causing
+        silent accumulation. Excluding only known-full pools lets workers claim unknown-provider tasks
+        and resolve them again; resolution failures fall back to mark_failed instead of silently hanging.
         """
         now = utc_now()
 
         params: dict[str, Any] = {"media_type": media_type}
         provider_filter = ""
         if pool_full_providers:
-            # SQLite/PG 都支持 expanding bindparam：list 形式 + NOT IN (:providers)
+            # SQLite/PG both support expanding bindparam: list form + NOT IN (:providers)
             provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
             params["providers"] = tuple(pool_full_providers)
 
@@ -549,9 +551,10 @@ class TaskRepository(BaseRepository):
         return task_data
 
     async def mark_succeeded(self, task_id: str, result: dict[str, Any] | None = None) -> int:
-        """SQL `WHERE status='running'` 守卫；返回受影响行数。
+        """Guard with SQL `WHERE status='running'`; return the affected row count.
 
-        rows=0 表示任务已不在 running（已由别的路径落终态），该写入不生效，调用方只记录。
+        rows=0 means another path has already moved the task out of running into a terminal state;
+        the write has no effect and the caller only logs it.
         """
         now = utc_now()
 
@@ -568,7 +571,7 @@ class TaskRepository(BaseRepository):
         )
         affected = rowcount(update_result)
         if affected == 0:
-            # 不 commit；外部已写过其他终态，不要触发 event
+            # Do not commit or emit events: another path already wrote a terminal state
             return 0
 
         await self.session.flush()
@@ -584,10 +587,10 @@ class TaskRepository(BaseRepository):
         return affected
 
     async def mark_failed(self, task_id: str, error_message: str) -> int:
-        """SQL `WHERE status='running'` 守卫；返回受影响行数。
+        """Guard with SQL `WHERE status='running'`; return the affected row count.
 
-        rows=0 表示任务已不在 running（已由别的路径落终态），该写入不生效，调用方只记录。
-        级联失败（依赖 task）走独立路径。
+        rows=0 means another path has already moved the task out of running into a terminal state;
+        the write has no effect and the caller only logs it. Cascading failures of dependent tasks use a separate path.
         """
         affected = await self._mark_failed_running(task_id=task_id, error_message=error_message)
         if affected == 0:
@@ -598,10 +601,11 @@ class TaskRepository(BaseRepository):
         return affected
 
     async def retry_artifact_download(self, task_id: str) -> dict[str, Any]:
-        """把可恢复的下载失败任务原地翻回 running，并重开原 ApiCall 供 resume 结算。
+        """Restore a recoverable download-failure task to running in place and reopen its original ApiCall for resume settlement.
 
-        派发所需的 ``provider_id`` 一并作为资格条件：状态一旦翻成 running，本方法就已提交，
-        派发侧再拒绝就没有回滚点，任务会永久停在 running 上无人接手。
+        Require the ``provider_id`` needed for dispatch as part of eligibility: this method commits as soon
+        as the status becomes running. Rejection during subsequent dispatch has no rollback point and
+        would permanently leave the task running without a worker.
         """
         result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
@@ -615,11 +619,11 @@ class TaskRepository(BaseRepository):
             or not task.provider_id
         ):
             raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
-        # 落 artifact_download_failed 的任务，其调用可能停在 failed（首次下载耗尽后已结算），
-        # 也可能停在 pending（续跑路径下载耗尽，结算与任务翻状态之间有窗口）。两种都受理并
-        # 原地翻回 pending：仍是同一条调用，不新增计费行；上一次下载的失败原文与机器码一并
-        # 清掉，否则重试成功后 resume 结算只翻状态，这条 success 行会一直挂着 download_failed。
-        # 调用行按 ``api_calls.task_id`` 反查——任务与调用的关联只有这一个真相源。
+        # For artifact_download_failed tasks, the call may be failed (initial download exhausted and already settled)
+        # or pending (resume download exhausted, between settlement and task status update). Accept both and restore
+        # pending in place, reusing the same call without a new billing row. Clear the previous download failure text
+        # and machine code too, or successful resume settlement would change only status, leaving download_failed on a success row.
+        # Find the call through ``api_calls.task_id``, the sole source of truth for task/call associations.
         call_row = await self.session.execute(
             select(ApiCall.id)
             .where(
@@ -650,8 +654,8 @@ class TaskRepository(BaseRepository):
         task_update = await self.session.execute(
             update(Task)
             .where(Task.task_id == task_id, Task.status == "failed")
-            # started_at 一并刷新：重试是新的一段执行，留着首次提交的时间会让面板上的
-            # 耗时按上一段的起点算。
+            # Refresh started_at too: retry begins a new execution interval; keeping the original submission time would make
+            # the panel calculate elapsed time from the previous interval's start.
             .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=now)
         )
         if rowcount(task_update) != 1:
@@ -662,7 +666,7 @@ class TaskRepository(BaseRepository):
         return _task_to_dict(refreshed.scalar_one())
 
     async def _mark_failed_running(self, *, task_id: str, error_message: str) -> int:
-        """单点：将 running task 标 failed；返回受影响行数。不 commit。"""
+        """Single point for marking a running task failed; return affected row count. Do not commit."""
         now = utc_now()
         update_result = await self.session.execute(
             update(Task)
@@ -690,7 +694,7 @@ class TaskRepository(BaseRepository):
         return affected
 
     async def _mark_failed_queued_dep(self, *, task_id: str, error_message: str) -> int:
-        """级联专用：将 queued 依赖 task 标 failed；返回受影响行数。不 commit。"""
+        """Cascade-only path for marking a queued dependent task failed; return affected row count. Do not commit."""
         now = utc_now()
         update_result = await self.session.execute(
             update(Task)
@@ -718,9 +722,10 @@ class TaskRepository(BaseRepository):
         return affected
 
     async def _cascade_failed_queued(self, *, task_id: str, error_message: str) -> int:
-        """按依赖链级联标失败。`error_message` 沿链条原样传递（根因，不随层数重新嵌套），
-        每层只把自己的直接阻塞方 `task_id` 写入编码——避免深层依赖链把上一层的完整编码串
-        再嵌套进新一层 JSON 造成的近指数增长与落库截断损坏。
+        """Cascade failures along dependencies. Pass `error_message` unchanged as the root cause throughout the chain,
+        without nesting it again at each level. Each level encodes only its immediate blocking `task_id`,
+        avoiding near-exponential growth and database truncation corruption from nesting the previous level's
+        entire encoded string inside another JSON envelope.
         """
         result = await self.session.execute(
             select(Task.task_id)
@@ -743,10 +748,10 @@ class TaskRepository(BaseRepository):
         return cascaded
 
     async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
-        """预览取消某个排队中任务的影响范围：列出会被一并取消的排队中下游。
+        """Preview cancellation of a queued task, listing queued downstream tasks that would also be cancelled.
 
-        取消只对 ``queued`` 开放；执行中的任务抛 ``TaskNotCancellableError``。终态任务照常
-        返回摘要，由调用方决定是否继续。
+        Only ``queued`` tasks allow cancellation; running tasks raise ``TaskNotCancellableError``.
+        Terminal tasks still return a summary for callers to decide whether to proceed.
         """
         result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
@@ -767,7 +772,7 @@ class TaskRepository(BaseRepository):
         return {"task": task_summary, "cascaded": cascaded}
 
     async def _collect_queued_dependents(self, task_id: str) -> list[dict[str, Any]]:
-        """递归收集依赖于 task_id 的所有 queued 任务摘要。"""
+        """Recursively collect summaries of all queued tasks depending on task_id."""
         result = await self.session.execute(
             select(Task.task_id, Task.task_type, Task.resource_id, Task.project_name)
             .where(
@@ -784,13 +789,13 @@ class TaskRepository(BaseRepository):
         return dependents
 
     async def cancel_task(self, task_id: str) -> dict[str, Any]:
-        """取消一个排队中的任务，并级联取消依赖它的排队中下游。
+        """Cancel a queued task and cascade cancellation to its queued downstream dependents.
 
-        - ``queued`` → ``cancelled('user')``，下游 ``cancelled('cascade')``（含 grandchildren）；
-        - ``running`` → 抛 ``TaskNotCancellableError``，任务照常跑完；
-        - 终态（succeeded/failed/cancelled）→ ``skipped_terminal``。
+        - ``queued`` → ``cancelled('user')``; downstream tasks → ``cancelled('cascade')``, including grandchildren.
+        - ``running`` → raise ``TaskNotCancellableError``; the task finishes normally.
+        - Terminal (succeeded/failed/cancelled) → ``skipped_terminal``.
 
-        读到 queued 后 UPDATE 前被 worker 认领的竞态同样按 running 拒绝。
+        Also reject as running when a worker claims the task between reading queued and the UPDATE.
         """
         result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
@@ -821,11 +826,12 @@ class TaskRepository(BaseRepository):
         cancelled: list[dict[str, Any]],
         from_statuses: tuple[str, ...] = ("queued",),
     ) -> dict[str, Any] | None:
-        """把 ``from_statuses`` 内的任务落 cancelled 终态，再级联取消排队中的下游。
+        """Move a task in ``from_statuses`` to terminal cancelled, then cancel queued downstream dependents.
 
-        用户取消只从 ``queued`` 转移；进程级打断经 ``finalize_interrupted`` 额外放行
-        ``running``。下游依赖上游完成才会被认领，上游未完成时下游必然仍在排队，级联只需
-        处理 ``queued``。UPDATE 影响 0 行时返回 None。
+        User cancellation transitions only from ``queued``; process-level interruption additionally allows
+        ``running`` through ``finalize_interrupted``. Downstream tasks can only be claimed after upstream
+        completion, so before completion they remain queued and cascading need only handle ``queued``.
+        Return None if the UPDATE affects zero rows.
         """
         now = utc_now()
         stmt = (
@@ -853,7 +859,7 @@ class TaskRepository(BaseRepository):
             task_type=cancelled_task.task_type,
         )
 
-        # 先把自身入列再级联，响应体里父先于子。
+        # Enqueue the task itself before cascading so parents precede children in the response.
         cancelled.append(task_data)
         dependents = await self.session.execute(
             select(Task.task_id)
@@ -872,16 +878,17 @@ class TaskRepository(BaseRepository):
         endpoint: str | None = None,
         base_url: str | None = None,
     ) -> None:
-        """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
+        """Persist provider_job_id in a separate transaction, without a WHERE status guard (worker calls guarantee running).
 
-        端点信息按维度分列：``endpoint`` 是协议标识（只有自定义供应商有），落 ``provider_endpoint``；
-        ``base_url`` 是本次实际请求的域名（两类供应商通用），落 ``submitted_base_url``。两者都与
-        job_id 同一次 UPDATE 落地：域名必须与 job_id 同时可见，否则续跑拿到 job_id 却无从回放原
-        域名；协议标识同批落地，这笔供应商任务的协议归属才可查。None 时不写对应列——保留既有值比
-        清空更安全（清空等于丢掉协议归属 / 放弃回放）。
+        Store endpoint dimensions separately: ``endpoint`` is the protocol identifier for custom providers only,
+        written to ``provider_endpoint``; ``base_url`` is the domain actually requested for either provider type,
+        written to ``submitted_base_url``. Persist both in the same UPDATE as job_id: the domain must become
+        visible with job_id so resume can replay the original domain. Saving the protocol identifier together
+        also makes the provider job's protocol traceable. None leaves each corresponding column unchanged:
+        clearing would lose protocol identity or replay capability, making preservation safer.
 
-        失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
-        submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。
+        Raise on failure; worker finally falls back to mark_failed (ADR 0007 fail-fast: an unpersisted
+        submit fails the whole operation, preventing ghost tasks still running at the provider after the DB forgets).
         """
         now = utc_now()
         values: dict[str, Any] = {"provider_job_id": job_id, "updated_at": now}
@@ -920,12 +927,12 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
 
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
-        """改写 ``task.provider_id`` 这份排队记录，worker 的池满过滤与槽位归属都按它走。
+        """Update the enqueued ``task.provider_id`` record, which controls worker full-pool filtering and slot ownership.
 
-        写入时机：认领时推算了 provider 的任务（没有记录的存量任务，或记录的 provider 已不支持该
-        媒体类型）写回推算值；执行入口按项目现状解析出的 provider 与记录不一致时，回队前写入实际值，
-        下一次认领即落到新 provider 的槽位。
-        它不锁定 model，也不是执行身份。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
+        At claim time, persist inferred providers for legacy tasks without a record or whose recorded provider
+        no longer supports the media type. At execution entry, if current project settings resolve a different
+        provider, persist it before requeueing so the next claim uses the new provider's slot.
+        This does not lock the model or establish execution identity. No WHERE status guard, as with ``persist_provider_job_id``.
         """
         now = utc_now()
         await self.session.execute(
@@ -934,18 +941,19 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
-        """返回 running 状态任务用于重启自愈（ADR 0007）。"""
+        """Return running tasks for restart recovery (ADR 0007)."""
         result = await self.session.execute(
             select(Task).where(Task.status == "running").order_by(Task.updated_at.asc())
         )
         return [_task_to_dict(t) for t in result.scalars().all()]
 
     async def finalize_interrupted(self, task_id: str) -> int:
-        """进程级打断的兜底：把被打断的 queued / running 任务落 cancelled，返回受影响行数。
+        """Process-level interruption fallback: mark interrupted queued / running tasks cancelled and return affected row count.
 
-        执行协程被进程级原因（事件循环拆除、关停超时等）打断时由 worker 调用，让任务不停在
-        ``running``、不在每次重启时被重启自愈重新拉起。这不是用户取消：用户取消只对 queued
-        开放，见 ``cancel_task``。本 task 落终态后级联取消排队中的下游。
+        Workers call this when process-level causes, such as event-loop teardown or shutdown timeout, interrupt
+        execution coroutines. Tasks must not remain ``running`` or be revived by restart recovery on every restart.
+        This differs from user cancellation, which permits only queued tasks; see ``cancel_task``.
+        After this task becomes terminal, cascade cancellation to queued downstream dependents.
         """
         data = await self._mark_cancelled(
             task_id,
@@ -957,7 +965,7 @@ class TaskRepository(BaseRepository):
         return 1 if data is not None else 0
 
     async def get_cancel_all_preview(self, project_name: str, *, exclude_media_types: Collection[str] = ()) -> int:
-        """返回项目中当前 queued 状态的任务数量；``exclude_media_types`` 里的媒体类型不计。"""
+        """Return the project's current queued task count, excluding media types in ``exclude_media_types``."""
         stmt = (
             select(func.count())
             .select_from(Task)
@@ -971,7 +979,7 @@ class TaskRepository(BaseRepository):
     async def cancel_all_queued(
         self, project_name: str, *, exclude_media_types: Collection[str] = ()
     ) -> dict[str, Any]:
-        """取消项目中所有 queued 任务；``exclude_media_types`` 里的媒体类型不取消。"""
+        """Cancel all queued project tasks except media types in ``exclude_media_types``."""
         queued_result = await self.session.execute(
             self._scope_query(
                 select(Task).where(
@@ -986,7 +994,7 @@ class TaskRepository(BaseRepository):
         if not task_ids:
             return {"cancelled_count": 0, "skipped_running_count": 0}
 
-        # UPDATE 不经 _scope_query（只接受 Select），按作用域内查出的 id 集合限定目标行
+        # UPDATE cannot use _scope_query (Select only); constrain target rows to the IDs found within scope
         now = utc_now()
         stmt = (
             update(Task)
@@ -1014,7 +1022,7 @@ class TaskRepository(BaseRepository):
             )
 
         await self.session.commit()
-        # 竞态时部分任务可能在 UPDATE 前被 worker 领走，skipped = 预期取消数 - 实际取消数
+        # Workers may claim some tasks before UPDATE in a race; skipped = expected cancellations - actual cancellations
         skipped = len(task_ids) - cancelled_count
         return {
             "cancelled_count": cancelled_count,
@@ -1022,9 +1030,9 @@ class TaskRepository(BaseRepository):
         }
 
     async def requeue_running(self, *, limit: int = 1000) -> int:
-        """救援扳手：批量把 running 任务回队（保留供 ops 手动执行）。
+        """Rescue tool: bulk-requeue running tasks, retained for manual ops use.
 
-        Worker 启动期不再自动调，改走 ``list_orphan_tasks_on_start`` + ``resume_video``（ADR 0007）。
+        Worker startup no longer calls this automatically, using ``list_orphan_tasks_on_start`` + ``resume_video`` instead (ADR 0007).
         """
         now = utc_now()
         limit = max(1, min(5000, limit))
@@ -1114,9 +1122,9 @@ class TaskRepository(BaseRepository):
         }
 
     async def _attach_running_models(self, items: list[dict[str, Any]]) -> None:
-        """给运行中任务补上实际调用的模型（取该任务最近一次调用记录）；其余任务的 model 为 None。
+        """Add the actually called model to running tasks from their latest call record; model is None for other tasks.
 
-        排队中的任务还没发出调用，模型尚未解析，使用记录按模型筛选时据此把它们算作不匹配。
+        Queued tasks have not sent a call or resolved a model, so usage-record model filters treat them as nonmatches.
         """
         for item in items:
             item["model"] = None

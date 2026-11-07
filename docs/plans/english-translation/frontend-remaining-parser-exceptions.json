@@ -1,0 +1,382 @@
+{
+  "status": "All remaining owned Han-bearing comments individually read; no untranslated maintenance prose remains. Han is not completion criterion. Source/tests/IDs/data preserved.",
+  "files": [
+    {
+      "path": "frontend/e2e/regions/asset-editor.spec.ts",
+      "candidate_sha256": "0965e7d481ab23bc2e3b163d50dc1838d9016c105ef62a58b5f8f6669aeab540",
+      "reason": "Preserved names of multilingual fixtures; English explanatory prose surrounds unchanged names.",
+      "comments": [
+        {
+          "start": 5845,
+          "end": 5967,
+          "line": 150,
+          "text": "// Stress variant: 林夕 asset images are stale; pre-regeneration impact counting fails with long errors/unbreakable strings."
+        }
+      ]
+    },
+    {
+      "path": "frontend/e2e/regions/asset-gallery.spec.ts",
+      "candidate_sha256": "4e1fb87ec92baa31af84aea5ae1eb44722fe655690a8201f249c3b6d3b762868",
+      "reason": "Preserved names of multilingual fixtures; English explanatory prose surrounds unchanged names.",
+      "comments": [
+        {
+          "start": 1717,
+          "end": 1794,
+          "line": 38,
+          "text": "// Artifact manifests: 沈砚 asset images are stale; 阿岚 and 小满 await generation."
+        },
+        {
+          "start": 3053,
+          "end": 3112,
+          "line": 74,
+          "text": "// 小满 has running asset-image tasks; cards show Generating."
+        },
+        {
+          "start": 5756,
+          "end": 5847,
+          "line": 156,
+          "text": "// Pre-deletion reference previews (dry_run): 林夕 is referenced by the first three episodes."
+        },
+        {
+          "start": 7698,
+          "end": 7767,
+          "line": 222,
+          "text": "// Image viewers: 林夕, 沈砚 and 周掌柜 have asset images; 阿岚 and 小满 do not."
+        },
+        {
+          "start": 8968,
+          "end": 9030,
+          "line": 255,
+          "text": "// Wait for artifact manifests, the source of 沈砚 Stale badges."
+        },
+        {
+          "start": 15443,
+          "end": 15474,
+          "line": 430,
+          "text": "// 阿岚 lacks asset images; skip."
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/api.test.ts",
+      "candidate_sha256": "7ec43c8e6a021b0f451599025b71690de8daacd92fdda9dd66e36473035ba667",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 71436,
+          "end": 71563,
+          "line": 1820,
+          "text": "// Derivative resource IDs use `本体/衍生`; encoding entire values into single segments would make backends treat them as one name."
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/api.ts",
+      "candidate_sha256": "4da6fd5631100b5f258c86e8126ad394dd9a46ac6f75f1fbe41d2e1e608cb71a",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 8582,
+          "end": 8856,
+          "line": 328,
+          "text": "/**\n * Version-endpoint resource prefix. Character-derivative resource IDs use `本体/衍生`, which cannot fit a generic single-segment path parameter,\n * so the backend provides a separate two-segment route. Dispatch by resource type here; callers still pass one resource ID.\n */"
+        },
+        {
+          "start": 37968,
+          "end": 38397,
+          "line": 1064,
+          "text": "/**\n   * Derivatives are character-local subidentities such as costume changes, transformations and disguises, named uniquely within the character and referenced as\n   * `@[角色/衍生]`. These four methods only register them. See the three methods below for asset-image reads, generation and uploads; versioning\n   * and image editing reuse generic endpoints with resource types `character_derivatives` / `character_derivative`.\n   */"
+        },
+        {
+          "start": 122418,
+          "end": 122494,
+          "line": 3386,
+          "text": "/** Read provider multipliers. Custom-provider IDs use `custom-<数据库 id>`. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/app-routes.ts",
+      "candidate_sha256": "6477dbeaf55034e55ac2362166012f804ca929461aa126bfccb29cf64b60d5c7",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 1950,
+          "end": 2128,
+          "line": 51,
+          "text": "/**\n * Global-settings Market tab URLs (`tab=`).\n * Passing `media` writes `media=<媒体类型>`, presetting Browse media filters; omit media types absent from markets (text/audio).\n */"
+        },
+        {
+          "start": 2451,
+          "end": 2864,
+          "line": 62,
+          "text": "/**\n * Targets within Providers sections and corresponding URL parameters:\n * - `{ preset, model? }` → `provider=<预置供应商 id>`;\n * - `{ custom, model? }` → `custom=<自定义供应商 id>`;\n *   either opens model Sheets when carrying `model=<模型 ID>`;\n * - `{ newCustom }` → `custom=new`, optionally `endpoint=<端点 key>` and `base_url=<接口地址>` to prefill new-provider forms\n *   (the endpoint Create provider and use action).\n */"
+        },
+        {
+          "start": 3878,
+          "end": 4171,
+          "line": 93,
+          "text": "/**\n * Global-settings endpoint URLs in API endpoints sections: `endpoint=<端点 key>`.\n * Pass `fromCustomProvider` when arriving from custom providers, writing `from=<自定义供应商 id>`: endpoint pages then show\n * Return to provider name above, targeting `providerSettingsPath({ custom: from })`.\n */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/layout/SidebarEpisodeList.test.tsx",
+      "candidate_sha256": "54fe7f77cb6ccf1783c0fc801dcdacdd627516fd2b0cff46521d163650c89ac6",
+      "reason": "Preserved names of multilingual fixtures; English explanatory prose surrounds unchanged names.",
+      "comments": [
+        {
+          "start": 534,
+          "end": 625,
+          "line": 13,
+          "text": "// 第二章/第三章 cut whole sources in source order; 番外 owns standalone sources, freely placeable."
+        },
+        {
+          "start": 2512,
+          "end": 2533,
+          "line": 67,
+          "text": "// Move 番外 after 第二章."
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/shared/ModelConfigSection.test.tsx",
+      "candidate_sha256": "29bef0ec4a1588a0481de9ef8f34a12fd9e8550932ffb16fe9e87561f8eed79c",
+      "reason": "English comment quoting the existing localized default option, retained as test-output example.",
+      "comments": [
+        {
+          "start": 7576,
+          "end": 7645,
+          "line": 215,
+          "text": "// Opening each dropdown should reveal \"使用全局默认\" as the default option"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/shared/ScriptHighlight.tsx",
+      "candidate_sha256": "a7f55a1edf71304d555f8be385dfe5ddbb0ad015a08e27f5fd2d081296836fe7",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 1674,
+          "end": 1796,
+          "line": 40,
+          "text": "// Preserve marker text verbatim, including `@[名称]` and colons; add only backgrounds and speaker labels so preview matches"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/shared/episode-item/useEpisodeItem.ts",
+      "candidate_sha256": "ca906b0d6e8f3134b54f02d45a0494688e1782aa4b6a50ecdbc5f5d0962e55ea",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 1044,
+          "end": 1164,
+          "line": 21,
+          "text": "/** Function naming each entry in a list: `(itemId) => 「分镜 5」`, recomputing position from the current project script. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/usage/UsagePopover.cancel.test.tsx",
+      "candidate_sha256": "b620268bff9b9a935775d3d3d1461fa62af74791b1dc426af752779c5e009d30",
+      "reason": "Preserved names of multilingual fixtures; English explanatory prose surrounds unchanged names.",
+      "comments": [
+        {
+          "start": 726,
+          "end": 800,
+          "line": 20,
+          "text": "/** Backend entry references: storyboard at `position` in episode “雨夜”. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/components/usage/usage-record-format.ts",
+      "candidate_sha256": "9a85001f1fae85cfe053b63ce22ed29cd36b58b1bf7e074c838b9aa40f19479c",
+      "reason": "Preserved Chinese compact-number unit example and historical tombstone-name placeholders; surrounding prose translated.",
+      "comments": [
+        {
+          "start": 8552,
+          "end": 8771,
+          "line": 220,
+          "text": "/**\n * Compact token counts include units in values (e.g. 12.3 万 token). Chinese increments by 万/亿,\n * other languages use Intl compact notation (12.3K tokens); below ten thousand/thousand, use plain grouped counts.\n */"
+        },
+        {
+          "start": 10390,
+          "end": 10643,
+          "line": 262,
+          "text": "/**\n * Deleted-project records reattach to tombstone names `<项目名>#deleted-<UTC 时刻>` (see `lib/db/repositories/project_records.py`),\n * separate from new same-named projects. UI shows original names/deletion dates; filters retain raw tombstone names.\n */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/onboarding/tour.ts",
+      "candidate_sha256": "c975066c58c82e93c079c51ec55a7129b9ad0a8bca8c72297829b2ac4065ae6d",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 0,
+          "end": 627,
+          "line": 1,
+          "text": "/**\n * Thin driver.js adapter.\n *\n * Separate business onboarding steps from driver.js APIs: steps describe anchors/copy;\n * anchor→selector mappings, labels, skins and exit convergence are configured once here. Additional\n * steps declare TourStep without touching driver configuration.\n *\n * `anchor` comes from `anchors.ts`, mapping to `[data-onboarding=\"<名字>\"]`;\n * null means centered popovers without highlights, used for opening/closing. Anchors absent\n * from DOM after navigation or removal wait `anchorWaitMs`, then degrade\n * to centered explanations without skipping/stopping, recording `console.warn` evidence.\n */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/types/project.ts",
+      "candidate_sha256": "786a6fb95e0764851f9302c98f178a2292e43b1bbb6ef49750cd37c6afec3c88",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 1307,
+          "end": 1456,
+          "line": 31,
+          "text": "/** Whether the script contains `@[角色/衍生]` or `角色/衍生`. Computed at read time, not persisted, and returned with the entry when reading the project. */"
+        },
+        {
+          "start": 2471,
+          "end": 2606,
+          "line": 54,
+          "text": "/** Derivative table: derivative name → entry. Names are unique only within this character and are written as `@[角色/衍生]` in scripts. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/types/reference-video.ts",
+      "candidate_sha256": "746a12da426bb1b6b847dc92632d9a3da9a3fd256d578f1de28601f0f7ae86a3",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 0,
+          "end": 311,
+          "line": 1,
+          "text": "/**\n * Reference-to-video unit types — mirrors lib/script/script_models.py Pydantic models.\n *\n * One \"unit\" produces one rendered video clip. Its body (`text`) is the single\n * source of truth: reference images are resolved from the `@[名称]` mentions at\n * execution time and never persisted or transported.\n */"
+        },
+        {
+          "start": 2399,
+          "end": 2493,
+          "line": 62,
+          "text": "/** Unit body — free-form text carrying `@[名称]` mentions; the only persisted content truth. */"
+        },
+        {
+          "start": 9423,
+          "end": 9486,
+          "line": 225,
+          "text": "/** Unit body, using `@[名称]` to reference registered assets. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/utils/app-link.ts",
+      "candidate_sha256": "bc14fb9d01efb892f11e5e106bc023a0bacde456016d2f787d60f53f58284164",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 0,
+          "end": 773,
+          "line": 1,
+          "text": "/**\n * In-app links for Agent reply navigation, ordinary application paths supporting new tabs/copied addresses:\n *\n * - Edit views: `/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`\n *   `tl` / `t` are optional; `t` is global timeline seconds, with timelines choosing clips.\n * - Video-unit previews: `/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`\n *   Open unit previews, with `t`, starting at `t`. Optional `t` is seconds from that unit video's beginning; IDs are script `segment_id` / `shot_id` / `scene_id` / `unit_id`.\n *\n * Episode IDs come from project-detail `episodes[].episode`, never broadcast positions. Encode project names as URL segments. Never mix formats: `view=edit` ignores `unit`, interpreting `t` as global timeline time.\n */"
+        },
+        {
+          "start": 2031,
+          "end": 2144,
+          "line": 41,
+          "text": "/** Extract/decode project names from episode paths `/app/projects/{项目名}/...`; return null on decode failures. */"
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/utils/reference-mentions.test.ts",
+      "candidate_sha256": "758f7b1a504504c51ea546f48bff52be18553fefb16871f2c77881ca4e99bb86",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 3399,
+          "end": 3538,
+          "line": 98,
+          "text": "// Pasted `@[名<BOM>称]`: backends remove BOM at parser entry; failure to mirror would mark names unregistered and split previews/generation."
+        }
+      ]
+    },
+    {
+      "path": "frontend/src/utils/reference-mentions.ts",
+      "candidate_sha256": "0d6f78ced5d55e05febf2894fdf3f2c6ddf715aae9bf2abfe69131e81a88cfbc",
+      "reason": "Preserved reference/regex/URL/selector/callback syntax example or human placeholders within literal examples; surrounding prose is English.",
+      "comments": [
+        {
+          "start": 135,
+          "end": 1005,
+          "line": 4,
+          "text": "/**\n * Mention regex shared across frontend tokenizers. Mirrors backend\n * `lib/script/reference_video/text_parser.py` mention scanner; keep in sync.\n *\n * Different frontend/backend literals have equivalent semantics:\n * - JS `\\w` is always ASCII-only; `(?<!\\w)` directly means no ASCII word character on the left.\n * - Python `\\w` defaults to Unicode-aware (Chinese belongs to `\\w`), so backends explicitly use\n *   `[A-Za-z0-9_]` to avoid rejecting Chinese prefixes like `你好@张三`.\n *\n * CJK (`\\u4e00-\\u9fff`) is outside word-character sets on both sides, permitting Chinese prefixes.\n *\n * Supports legacy `@名称` plus wrapped `@[名称]` for asset names\n * containing punctuation, spaces, or parentheses.\n *\n * Curly-brace wrapping (`@{名称}`) is intentionally unsupported: the editor\n * only emits `@[名称]`, and braces are the speech syntax (see {@link splitSpeechLine}).\n */"
+        },
+        {
+          "start": 1398,
+          "end": 2199,
+          "line": 30,
+          "text": "/**\n * Normalize reference-syntax inputs: remove every U+FEFF and normalize encoding to Unicode NFC, matching backend\n * `lib/script/reference_video/text_parser.py::_normalize_source` so both derivation paths agree.\n *\n * Both are invisible byte differences splitting byte-based decisions, therefore handled at one entry point.\n * BOM occurs beyond document starts: pasted concatenations put it at arbitrary line starts, with line-local divergence. NFC defines asset-name\n * comparison coordinates (see {@link normalizeAssetName}); NFD bodies against NFC registries can look identical\n * while comparing unequal.\n *\n * Normalize parser inputs, never just extracted results: BOM inside names (`@[名<U+FEFF>称]`) cannot be fixed per-name afterward,\n * since matching already used BOM-containing bytes.\n */"
+        },
+        {
+          "start": 2878,
+          "end": 3113,
+          "line": 59,
+          "text": "/**\n * Character separating bases/derivatives in reference names, mirroring backend `lib/references/reference_catalog.py::DERIVATIVE_SEPARATOR`.\n * Invalid within both asset/derivative names, making `本体名/衍生名` splitting unambiguous.\n */"
+        },
+        {
+          "start": 3149,
+          "end": 3332,
+          "line": 65,
+          "text": "/**\n * Split references into `[本体名, 衍生名]`; nonderivative names return empty derivative names. Mirrors backend\n * `lib/references/reference_catalog.py::split_derivative_reference`.\n */"
+        },
+        {
+          "start": 3532,
+          "end": 3862,
+          "line": 74,
+          "text": "/**\n * Inline speech tokens; empty `speaker` means voiceover. `raw` preserves entire original spans.\n *\n * `@[角色/衍生]` speakers retain base names in `speaker` and derivative names in `derivative`: voices belong to\n * identities, with derivatives sharing base reference audio/timbre (backend `text_parser.SpeechMark`).\n */"
+        },
+        {
+          "start": 3968,
+          "end": 4202,
+          "line": 87,
+          "text": "/**\n * Inline whitespace allowed between mentions/`{`. JS `\\s` excludes U+001F while Python `str.isspace()` includes it;\n * omitting it makes `@[张三]<U+001F>{我来了}` bind speakers on backends but derive reference images on frontends.\n */"
+        },
+        {
+          "start": 4713,
+          "end": 5954,
+          "line": 104,
+          "text": "/**\n * Split lines into ordered visual-description fragments/speech tokens, mirroring backend\n * `lib/script/reference_video/text_parser.py::split_speech_line` across derivation paths;\n * changing either requires updating the other.\n *\n * Tokens appear anywhere inline: `{台词}` is voiceover; following `@[角色]` (with whitespace or one\n * Chinese/English colon), `{台词}` is that character speaking. Empty dialogue, whitespace-only speakers and malformed speakers\n * (`@[]{…}`, `@[张三]：：{…}`) never form tokens; braces remain descriptions for caller warnings.\n *\n * Deliberate backend difference: **never normalize source text**, only extracted speakers. Highlight tokenizers must reconstruct sources\n * character by character over textareas; normalization would prevent reconstruction. Decision paths (`extractMentions`/\n * `toScriptLines`) receive already normalized `splitScriptLines` inputs, so both sides still agree.\n *\n * Mention/`{` whitespace uses `INLINE_SPACE_RE`: JS `\\s` lacks Python `str.isspace()`\n * U+001F (coarser U+001C–U+001E/U+0085 become line breaks through `LINE_BREAK_RE`, never inline;\n * backends remove U+FEFF at normalization, while `\\s` matches it here). Added classes make both sets character-identical.\n */"
+        },
+        {
+          "start": 7539,
+          "end": 7621,
+          "line": 170,
+          "text": "// Malformed speakers (`@[]{…}`,`@[张三]：：{…}`) never silently degrade to voiceover."
+        },
+        {
+          "start": 9902,
+          "end": 10452,
+          "line": 222,
+          "text": "/**\n * Mention names in first-appearance order, deduplicated: reference-image\n * derivation. Mirrors `text_parser.py:extract_mentions`, including its rule that\n * **the speaker slot of a speech mark is excluded**: attaching a reference image to\n * a speaker would coax the model into drawing a character who only speaks off-screen.\n * Non-token `@[名称]` still enters image references, coexisting on the same lines.\n *\n * Names/deduplication are canonical; callers compare directly against normalized asset-table keys without further normalization.\n */"
+        },
+        {
+          "start": 13001,
+          "end": 13444,
+          "line": 287,
+          "text": "/**\n * Unique project-reference-name/type maps for editor highlights, mirroring backend\n * `lib/references/reference_catalog.py::build_reference_catalog` names: asset names plus character\n * `本体名/衍生名` (derivatives share base types; `docs/adr/0072`).\n *\n * Prototype-free dictionaries allow legal names such as `__proto__` as ordinary keys. Corrupt projects with duplicate names\n * resolve by stable product→character→scene→prop precedence.\n */"
+        },
+        {
+          "start": 14286,
+          "end": 14373,
+          "line": 310,
+          "text": "/** Reference names: base names or `本体名/衍生名`, written into `@[…]`/`characters_in_*`. */"
+        },
+        {
+          "start": 16183,
+          "end": 16257,
+          "line": 355,
+          "text": "/** Display reference names: derivatives as `本体 / 衍生`, bases unchanged. */"
+        }
+      ]
+    }
+  ]
+}

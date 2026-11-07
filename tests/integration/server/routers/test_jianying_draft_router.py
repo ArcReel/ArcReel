@@ -1,4 +1,4 @@
-"""剪映草稿路由：提交入队到 render 车道、读取现状、凭下载 token 下载，以及领域错误到 HTTP 状态码的映射。"""
+"""Jianying routes: render-lane enqueue, current states/token downloads, domain-error HTTP mappings."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ async def test_submit_queues_an_export_and_the_registered_draft_downloads_for_th
         operations=[SetReason(op="set_reason", clip="c1", reason="保留开场")],
         author=RevisionAuthor(kind="arcreel_agent"),
     )
-    # 省略 revision 的请求按提交时的最新修订入队：时间线前进后不再去重到旧修订的任务。
+    # Omitted revisions enqueue latest at submission; advanced timelines never dedupe into old-revision jobs.
     conflicting = await draft_client.post(url)
     before = await draft_client.get(url)
     not_exported = await draft_client.get(download, params=_download_params(token))

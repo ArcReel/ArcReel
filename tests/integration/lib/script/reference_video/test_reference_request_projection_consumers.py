@@ -26,11 +26,7 @@ from tests.integration.server.agent_tool_support import ToolHarness
 
 
 def _stub_batch_admission_queue(monkeypatch) -> None:
-    """Cut the batch admission's task-store lookups off the ambient database.
-
-    准入在评估每个 unit 之前先整批探在途任务，走的是全局引擎；
-    不打桩时这些用例会连上开发机上的 sqlite 文件，本地能过、干净环境报 no such table。
-    """
+    """Cut batch-admission task-store lookups off the ambient database. Admission probes in-flight tasks for the whole batch through global engines before per-unit evaluation; without stubs, cases hit development SQLite and pass locally but fail clean environments with missing tables."""
 
     async def _no_active_tasks(**_kwargs):
         return []
@@ -63,7 +59,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "generation_mode": "reference_video",
         "video_units": [unit],
     }
-    # 生产项目一律处于当前 schema，甲、乙的资产图由补录认领进产物清单；丙的图登记了路径但文件不在。
+    # Production projects use current schema; 甲/乙 sheets are backfill-claimed, while 丙 has a registered path but no file.
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters/a.png").write_bytes(b"a")
     (tmp_path / "characters/b.png").write_bytes(b"b")

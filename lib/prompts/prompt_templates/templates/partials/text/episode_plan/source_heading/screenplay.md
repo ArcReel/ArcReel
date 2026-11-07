@@ -1,1 +1,1 @@
-# 剧本原文片段
+# Original screenplay excerpt

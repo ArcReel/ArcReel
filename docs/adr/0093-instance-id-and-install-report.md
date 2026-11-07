@@ -2,25 +2,25 @@
 status: accepted
 ---
 
-# 实例标识与安装上报：随机可重置标识、只报官方源、默认开启且首次告知
+# Instance IDs and installation reporting: resettable random identity, official sources only, enabled with first-use notice
 
-官方服务要统计每个市场条目被多少个 ArcReel 实例安装，并据此限定谁能评分，就需要一个能去重的主体；而 ArcReel 不设账号（`docs/adr/0078`）。我们决定以**实例标识**作为唯一主体：
+The official service counts installing ArcReel instances and restricts ratings to them, requiring deduplication without accounts (`docs/adr/0078`). Use **instance ID as the sole subject**:
 
-- 实例标识是本地首次需要时生成的随机 UUID，存在系统设置里，与机器、用户、账号均无关联；用户可在设置页重置，重置后官方服务把它当作新实例。
-- 对官方服务的每个请求以请求头携带实例标识；官方服务只存其加盐哈希，不存原值，IP 只用于限流、不落库。
-- 只在从**官方市场源**完成安装后上报一次（市场源规范键、类型、slug、版本、应用版本）；更新与卸载不上报，第三方市场源的安装永不上报。同一实例对同一条目的重复上报是幂等的，安装量不扣减。
-- 上报默认开启；首次进入市场页时说明上报了什么、在哪里关闭，确认后不再提示。
-- 官方服务地址随版内置，可由环境变量覆盖；用户可见的总开关存系统设置。地址为空或开关关闭即视为关闭：市场页不展示任何官方服务元素，本地服务端对官方服务零出站。
-- 上报在安装事务提交之后发出，失败不影响安装、不重试；前端只与本地服务端通信，由本地服务端代理官方服务的全部调用。
+- Generate a random UUID locally on first need, store in system settings, with no machine/user/account association. Users reset it in settings; the service then sees a new instance.
+- Every official-service request carries it in a header. Store only salted hashes, not original IDs. Use IP only for rate limiting, without persistence.
+- Report once after installation from the **official source** (canonical source key, type, slug, version, app version). Never report updates/uninstalls or third-party installs. Repeated same-entry reports are idempotent; counts never decrease.
+- Default reporting on. First market entry explains data and disabling location; after confirmation do not repeat.
+- Bundle service URL with env overrides; save the visible master switch in settings. Empty URL or disabled switch hides all official-service elements and produces zero local-server outbound requests.
+- Report after install transaction commits. Failures neither affect installation nor retry. Frontend talks only to local server, which proxies all service requests.
 
 ## Considered Options
 
-- **账号或设备指纹**：账号要长期运营账号体系；指纹无法由用户重置，且越过了匿名计数所需的信息量。
-- **默认关闭（opt-in）**：统计几乎没有样本，评分的「已安装」前提也形同虚设；以默认开启加首次告知与一键关闭换取可用的数据。
-- **第三方市场源也上报**：官方服务会得知用户私下添加的源地址，且这些条目的计数对官方市场没有意义。
+- **Accounts or device fingerprints**: accounts require ongoing operations; fingerprints cannot be reset and exceed anonymous-count needs.
+- **Opt-in**: almost no samples and weak installer-only ratings. Default-on notice plus one-click disable yields useful data.
+- **Report third-party installs**: leaks privately added source addresses and gives counts irrelevant to official entries.
 
 ## Consequences
 
-- 安装记录（`docs/adr/0079`）不变；上报是安装事务之后的旁路，官方服务不可达时安装照常。
-- 评分以「该实例已上报过此条目的安装」为前提；重置实例标识等于放弃此前的评分身份。
-- 白标或自部署发行版把地址覆盖为空即可整体关闭官方服务。
+- Installation records (`docs/adr/0079`) remain unchanged; reporting is post-commit side work and outages do not block installs.
+- Ratings require a reported installation; resetting identity abandons the previous rating identity.
+- White-label/self-hosted distributions disable the whole service with an empty URL.

@@ -1,4 +1,4 @@
-"""系统级端点：诊断日志打包下载。"""
+"""System-level endpoints: package diagnostic logs for download."""
 
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ _LOG_GLOB = "arcreel.log*"
 
 
 def _write_diagnostics_zip(spooled: IO[bytes], log_dir: Path) -> None:
-    """把 logs/ 下的日志与诊断信息打成 zip 写入 ``spooled``，写完回到开头。"""
+    """Write logs from logs/ and diagnostic information as a zip to ``spooled``, then rewind to the beginning."""
     diagnostics_lines: list[str] = []
     with zipfile.ZipFile(spooled, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         if log_dir.exists():
             for path in sorted(log_dir.glob(_LOG_GLOB)):
-                # 跳过 symlink：防止有人在 logs/ 下放符号链接指向目录外的敏感文件，
-                # 通过诊断包外泄。
+                # Skip symlinks to prevent links in logs/ pointing to sensitive files outside the directory
+                # from leaking through diagnostic packages.
                 if path.is_symlink() or not path.is_file():
                     continue
                 size = path.stat().st_size
@@ -50,12 +50,12 @@ def _write_diagnostics_zip(spooled: IO[bytes], log_dir: Path) -> None:
 
 @router.get("/system/logs/download")
 async def download_logs(_t: Translator) -> StreamingResponse:
-    """打包返回 logs/ 目录所有文件 + diagnostics.txt。"""
+    """Return a package containing all files in logs/ plus diagnostics.txt."""
     log_dir = DataRootLayout.current().log_dir
 
-    spooled = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX)  # noqa: SIM115 -- 句柄要活过本函数、随 StreamingResponse 流式读完才关，不能收进 with
+    spooled = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX)  # noqa: SIM115 -- keep the handle alive until StreamingResponse finishes reading, beyond this function; no with block
     try:
-        # 打包与诊断采集（子进程、读日志）在线程里完成；取消时等线程写完再关句柄
+        # Package and collect diagnostics (subprocesses, log reads) in a thread; on cancellation, await its write before closing the handle.
         await run_sync_transaction(_write_diagnostics_zip, spooled, log_dir)
     except BaseException:
         spooled.close()

@@ -1,13 +1,13 @@
-"""SDK options 装配器：持依赖、允许 I/O，异步 build 产出 ClaudeAgentOptions。
+"""SDK options assembler: holds dependencies, permits I/O, and builds ClaudeAgentOptions asynchronously.
 
-从 SessionManager 析出会话冷启动/重连时"现场收集"的全部装配职责：DB 凭证注入
-（Anthropic 真值 + 其他供应商空值覆盖）、prompt 变体与项目上下文装配、各 PreToolUse/
-PostToolUse hook 工厂（含 JSON 校验 hook）、以及 AgentAccessPolicy 的 settings 编译与
-裁决 adapter 接线。与 AgentAccessPolicy 的 I/O 分工遵循同一判据：规则静态则零 I/O 归
-policy，装配天职是开会话时现场读 DB / 扫盘则允许 I/O 归本类。
+Extracts all on-demand assembly responsibilities for session cold starts/reconnections from SessionManager: DB credential injection
+(actual Anthropic values + empty overrides for other providers), prompt variants and project context, PreToolUse/
+PostToolUse hook factories (including JSON validation), AgentAccessPolicy settings compilation, and
+decision-adapter wiring. I/O responsibilities follow the same criterion as AgentAccessPolicy: static, zero-I/O rules belong to
+policy; session-opening assembly that inherently reads DB / scans disk permits I/O and belongs here.
 
-访问规则本身不在此类——policy 通过 ``access_policy_provider`` 每次 build 时现取，
-``configure_sandbox_runtime`` 整体换新 policy 后对后续所有会话立即生效。
+Access rules themselves are outside this class: each build retrieves policy through ``access_policy_provider``,
+so replacing policy through ``configure_sandbox_runtime`` immediately affects all subsequent sessions.
 """
 
 import asyncio
@@ -44,19 +44,19 @@ from claude_agent_sdk.types import HookEvent, HookMatcher, SettingSource, System
 
 SDK_AVAILABLE = True
 _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
-# CLI stdout 上单条 NDJSON 行的最大字节数（不约束 SDK 往 stdin 写入的方向）。
-# SDK 默认 1 MiB，超线即 CLIJSONDecodeError 打死 message reader、会话挂死。
-# 附图请求会两次撞上这条线：replay-user-messages 让 CLI 把带 base64 图的用户消息
-# 原样回显，Read 读图的 tool_result 也走同一条 stdout。按自身负载定额——5 张 ×
-# 1.5 MB 源 × 4/3 base64 ≈ 10 MB，取 32 MiB 留余量。官方无推荐值。
+# Maximum bytes per NDJSON line on CLI stdout (does not constrain SDK stdin writes).
+# SDK defaults to 1 MiB; excess causes CLIJSONDecodeError, killing the message reader and hanging sessions.
+# Image requests hit this boundary twice: replay-user-messages echoes base64-image user messages
+# unchanged, and image Read tool_result uses the same stdout. Size for our payload: 5 images ×
+# 1.5 MB source × 4/3 base64 ≈ 10 MB; use 32 MiB for headroom. No official recommendation exists.
 CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
 
 class AgentEnv(dict[str, str]):
-    """注入 ``ClaudeAgentOptions.env`` 的环境变量，并带着注入凭证的计价依据快照。
+    """Environment variables injected into ``ClaudeAgentOptions.env``, carrying a pricing-basis snapshot for injected credentials.
 
-    记账按会话连接时注入的凭证及其当时的倍率与档位绑定计价（docs/adr/0017、docs/adr/0102），快照随 env 一起交给
-    会话层；没有生效凭证、env 回退到系统设置时为默认值。
+    Account using credentials injected at connection and their then-current multiplier/tier bindings (docs/adr/0017, docs/adr/0102); pass the snapshot with env to
+    the session layer; use defaults without effective credentials when env falls back to system settings.
     """
 
     def __init__(self, env: dict[str, str], *, agent_pricing: AgentPricing) -> None:
@@ -65,19 +65,19 @@ class AgentEnv(dict[str, str]):
 
 
 def agent_pricing_of(options: object) -> AgentPricing:
-    """会话 options 注入的 Agent 凭证计价依据；env 不是 :class:`AgentEnv` 时取默认值。"""
+    """Pricing basis for Agent credentials injected through session options; default when env is not :class:`AgentEnv`."""
     env = getattr(options, "env", None)
     return env.agent_pricing if isinstance(env, AgentEnv) else AgentPricing()
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
-    """构造 options.env 注入字典，返回 :class:`AgentEnv`。
+    """Build the options.env injection dictionary and return :class:`AgentEnv`.
 
-    - ANTHROPIC_* 从 DB active credential 取真值
-    - 其他 provider env 全部空值覆盖（防御性兜底）
+    - ANTHROPIC_* receives actual values from the DB active credential
+    - Override every other provider env with empty values (defensive fallback)
 
-    环境变量名单以 ``env_keys`` 为单一真相源；SDK 子进程只认 env 认证，父进程环境
-    又是外部输入，故真值注入与空值围堵是常驻机制而非技术债（见 ADR）。
+    ``env_keys`` is the sole environment-variable source of truth. SDK subprocesses authenticate only through env, and parent environments
+    are external inputs, so actual-value injection and empty-value containment are permanent mechanisms, not technical debt (see ADR).
     """
     from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
     from lib.config.service import build_anthropic_env
@@ -93,25 +93,25 @@ async def load_provider_env_overrides() -> dict[str, str]:
 
 
 def _resolve_and_read_text(project_cwd: Path, file_path: str) -> tuple[Path, str]:
-    """解析 hook 收到的文件路径（相对路径按项目 cwd）并读出 UTF-8 文本。"""
+    """Resolve hook file paths (relative to project cwd) and read UTF-8 text."""
     p = Path(file_path)
     resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
     return resolved, resolved.read_text(encoding="utf-8")
 
 
 class OptionsAssembler:
-    """把开会话时现场收集的依赖装配成 ClaudeAgentOptions。
+    """Assemble dependencies collected at session opening into ClaudeAgentOptions.
 
-    构造参数分两类：静态依赖（``data_root`` / ``allowed_tools`` /
-    ``setting_sources``）在实例化时锁定；随运行时变化的依赖用 provider 回调每次 build
-    时现取——``access_policy_provider``（``configure_sandbox_runtime`` 会整体换新）与
-    ``max_turns_provider``（``refresh_config`` 会改写）。``resolve_project_cwd`` 由
-    SessionManager 注入（项目名校验/作用域是会话管理侧职责）。
+    Constructor arguments have two categories: static dependencies (``data_root`` / ``allowed_tools`` /
+    ``setting_sources``) fixed at instantiation; runtime-varying dependencies retrieved through provider callbacks on every build:
+    ``access_policy_provider`` (replaced by ``configure_sandbox_runtime``) and
+    ``max_turns_provider`` (changed by ``refresh_config``). ``resolve_project_cwd`` is injected by
+    SessionManager (project-name validation/scope belongs to session management).
 
-    ``session_factory_provider`` / ``user_id_provider`` 同样用回调而非构造期快照：
-    store 在首次 ``build_session_store`` 时按当时取值建好并缓存，与析出前
-    ``_build_session_store`` 惰性读 SessionManager 属性的时点一致——避免用量记录
-    （实时读 ``_user_id``）与 transcript store 落到不同的 per-user 命名空间。
+    ``session_factory_provider`` / ``user_id_provider`` likewise use callbacks, not construction-time snapshots:
+    create and cache the store using current values on the first ``build_session_store``, matching the pre-extraction
+    timing of ``_build_session_store`` lazy SessionManager reads; prevent usage records
+    (reading live ``_user_id``) and transcript stores from using different per-user namespaces.
     """
 
     def __init__(
@@ -137,13 +137,13 @@ class OptionsAssembler:
         self._provider_env_loader = provider_env_loader
         self._session_factory_provider = session_factory_provider or (lambda: None)
         self._user_id_provider = user_id_provider or (lambda: DEFAULT_USER_ID)
-        # session store 单例缓存：每个 assembler 一份，避免每次 build 都新建 store。
+        # Session-store singleton cache: one per assembler, avoiding a new store on every build.
         self._cached_session_store: DbSessionStore | None = None
         self._session_store_resolved = False
 
     async def build_provider_env_overrides(self) -> dict[str, str]:
-        """DB 凭证注入入口。默认走模块级 ``load_provider_env_overrides``（现取 module
-        global 以便测试 patch）；构造时注入 ``provider_env_loader`` 则改用注入源。"""
+        """DB credential injection entry point. Default to module-level ``load_provider_env_overrides`` (read module
+        global live for test patching); use an injected ``provider_env_loader`` instead when supplied at construction."""
         loader = self._provider_env_loader or load_provider_env_overrides
         return await loader()
 
@@ -171,16 +171,16 @@ class OptionsAssembler:
         return "\n\n".join(parts)
 
     async def _build_user_memory_section(self) -> str:
-        """用户记忆段：目录位置、两级分流规则、读写方式，外加截断后的索引。
+        """User-memory section: directory, two-level scope rules, access method, and truncated index.
 
-        原生 auto memory 只知道项目记忆一个目录，用户记忆的存在与两级分流规则是
-        它无从得知的两件事，故只补这两件；类别、格式、写入判据全由原生系统提示承载。
-        索引缺失或为空时省略索引要点——注入一段空索引会让 Agent
-        以为「以往没记过」，与「目录还没建出来」不是同一件事。
+        Native auto memory knows only the project-memory directory. It cannot know user memory exists or the two-level scope rules,
+        so add only those two facts; native system prompts carry categories, format, and write criteria.
+        Omit the index bullet when missing or empty: injecting an empty index would make the Agent
+        infer no past memories, distinct from a directory not yet created.
 
-        装配阶段不建目录：首次写入由 Agent 或记忆 REST API 完成，读不到就当没有。
-        ``user_id`` 非法时整段省略，与 ``AgentAccessPolicy`` 的 fail-closed 同向——
-        围栏没放行的目录，写入指引也不该给出去。
+        Do not create directories during assembly: first writes belong to the Agent or memory REST API; unreadable means absent.
+        Omit the whole section for invalid ``user_id``, matching ``AgentAccessPolicy`` fail-closed behavior:
+        do not provide write instructions for directories outside the allowed fence.
         """
         user_id = self._user_id_provider()
         if not is_valid_memory_user_id(user_id):
@@ -191,30 +191,32 @@ class OptionsAssembler:
         index = truncate_memory_index(await self._read_user_memory_index(memory_dir))
 
         lines = [
-            "## 用户记忆",
+            "## User memory",
             "",
-            "除项目记忆（auto memory，随本项目）外，你还有一份**用户记忆**：属于当前用户本人，"
-            f"对 ta 的所有项目生效，目录 `{memory_dir.as_posix()}`。文件结构与维护方式同项目记忆。",
+            "In addition to project memory (auto memory scoped to this project), you have **user memory** belonging to the current user, "
+            f"applying across all their projects, in `{memory_dir.as_posix()}`. Use the same file structure and maintenance approach as project memory.",
             "",
-            "- **分级**：对用户所有项目都成立的偏好写入用户记忆；只对本项目成立的留在项目记忆；拿不准留项目记忆",
-            "- **读写**：用 Read / Write / Edit / Glob / Grep 直接读写该目录下的文件；Bash 读写不了该目录",
+            "- **Scope**: store preferences that apply across all of this user's projects in user memory; keep project-specific information in project memory. When uncertain, use project memory.",
+            "- **Access**: use Read / Write / Edit / Glob / Grep directly on files in this directory; Bash cannot read or write this directory.",
         ]
         if index:
-            lines.append(f"- **索引**：以下是用户记忆的 `{INDEX_FILENAME}`，你以往会话留下的笔记")
+            lines.append(
+                f"- **Index**: the following is user memory's `{INDEX_FILENAME}`, containing notes from your previous sessions."
+            )
             lines.append("")
             lines.append(index)
         return "\n".join(lines)
 
     @staticmethod
     async def _read_user_memory_index(memory_dir: Path) -> str:
-        """读用户记忆索引；目录/文件不存在、读不动或不是 UTF-8 都当空索引。
+        """Read the user-memory index; missing directories/files, unreadable content, or non-UTF-8 count as empty.
 
-        读卸到线程：装配跑在事件循环上，索引虽小但落在数据根，可能是网络盘。
+        Offload reads to a thread: assembly runs on the event loop and the small data-root index may live on network storage.
 
-        编码错误与 I/O 错误同样吞掉：索引文件用户可直接编辑，非 UTF-8 存回来会让
-        ``read_text`` 抛 ``UnicodeDecodeError``——放它冒泡等于一份记事本存错编码的
-        笔记就开不了任何会话。不改用 ``errors="replace"``：GBK 之类整体错位的内容
-        换不回可读文本，注入一段乱码比省略索引更糟。
+        Swallow encoding errors like I/O failures: users may edit indexes directly, and non-UTF-8 saves make
+        ``read_text`` raise ``UnicodeDecodeError``; propagation would let a note saved with the wrong encoding
+        prevent all sessions from opening. Do not use ``errors="replace"``: systematically misdecoded GBK-like contents
+        cannot become readable that way, and injecting gibberish is worse than omitting the index.
         """
         index_path = memory_dir / INDEX_FILENAME
         try:
@@ -239,12 +241,12 @@ class OptionsAssembler:
             return ""
 
         parts = [
-            "## 当前项目上下文",
+            "## Current project context",
             "",
-            f"- 项目标识：{project_name}",
-            f"- 项目目录（即当前工作目录 cwd）：{project_cwd.as_posix()}",
-            "- 项目元数据（标题、风格、概述等）存于 project.json，需要时读取。",
-            "- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。",
+            f"- Project identifier: {project_name}",
+            f"- Project directory (the current working directory, cwd): {project_cwd.as_posix()}",
+            "- Project metadata (title, style, overview, etc.) lives in project.json; read it when needed.",
+            "- Write Bash commands on a single line, without `\\` line continuation; use compact JSON arguments.",
         ]
         return "\n".join(parts)
 
@@ -282,12 +284,12 @@ class OptionsAssembler:
     ) -> Any:
         """Build ClaudeAgentOptions for a session.
 
-        ``stderr`` 在 SDK 子进程退出非 0 时是唯一拿到真实错误的途径
-        （``ProcessError.stderr`` 在 SDK 内部被写死为占位符）；上层应在
-        会话启动失败时把回调累积的行包装到 ``AgentStartupError`` 透传。
+        ``stderr`` is the sole source of actual errors when SDK subprocesses exit nonzero
+        (``ProcessError.stderr`` is hardcoded to a placeholder inside the SDK); on session startup failure,
+        upper layers should wrap callback-accumulated lines in ``AgentStartupError`` and propagate them.
 
-        ``session_id`` 以预先指定的 id 开一个全新会话（无历史可 resume），
-        与 ``resume_id`` 互斥——SDK 只在 ``fork_session`` 下才允许两者并存。
+        ``session_id`` opens a brand-new session with a predetermined ID (no resumable history),
+        mutually exclusive with ``resume_id``; the SDK permits both only under ``fork_session``.
         """
         if not SDK_AVAILABLE:
             raise RuntimeError("claude_agent_sdk is not installed")
@@ -321,7 +323,7 @@ class OptionsAssembler:
                 HookMatcher(matcher=None, hooks=hook_callbacks),
                 HookMatcher(
                     matcher="Bash",
-                    hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]  # 只挂在 PreToolUse 的 Bash 匹配器上，按该事件实际传入的 dict 读 tool_input；SDK 的 HookCallback 以全部事件输入的联合声明参数
+                    hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]  # Attached only to PreToolUse Bash matchers; read tool_input from that event's dict. SDK HookCallback declares a union of all event inputs
                 ),
                 HookMatcher(
                     matcher="Write|Edit",
@@ -344,8 +346,8 @@ class OptionsAssembler:
         provider_env.update(
             {
                 "ARCREEL_EMBEDDED_AGENT": "1",
-                # 订阅 session_state_changed 帧：后台子智能体结束后 CLI 还欠一轮时持续报 running，
-                # 与 SDK 判定 run 是否结束的依据相同；会话层据此决定能否断开 CLI。
+                # Subscribe to session_state_changed frames: while the CLI owes another round after background-subagent completion it keeps reporting running,
+                # matching SDK run-completion criteria; the session layer uses this to decide whether CLI disconnection is safe.
                 "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
                 "ARCREEL_API_BASE": (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/"),
                 "ARCREEL_API_TOKEN": (
@@ -358,29 +360,29 @@ class OptionsAssembler:
         user_id = self._user_id_provider()
 
         def _build_sandbox_and_mcp_server() -> tuple[dict[str, Any], McpSdkServerConfig]:
-            # 两者都会扫盘/建目录（sandbox 敏感路径解析、MCP 服务的 ProjectManager），合并一次卸到线程。
+            # Both scan disk/create directories (sandbox sensitive-path resolution and MCP ProjectManager); combine and offload to a thread.
             sandbox = policy.build_sandbox_settings(project_cwd)
-            # 内置 ArcReel in-process MCP server — handler 跑在主进程，绕过 sandbox。
+            # Built-in ArcReel in-process MCP server: handlers run in the main process, bypassing sandboxing.
             server = build_arcreel_mcp_server(project_name=project_name, data_root=self.data_root, user_id=user_id)
             return sandbox, server
 
         sandbox_typed, arcreel_server = await asyncio.to_thread(_build_sandbox_and_mcp_server)
 
-        # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，
-        # 让 _can_use_tool 接管 prefix 白名单匹配。
+        # Windows fallback: with sandboxing disabled, remove Bash tools from allowed_tools,
+        # letting _can_use_tool handle prefix-whitelist matching.
         allowed_tools = policy.filter_allowed_tools(self._allowed_tools)
-        # 通配符让后续新增 tool 不必同步改 allowed_tools。
+        # Wildcards avoid updating allowed_tools for every newly added tool.
         allowed_tools.append("mcp__arcreel__*")
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self._setting_sources,
-            # 项目记忆：把原生 auto memory 的目录从「按 git 仓库根派生」重定向到项目目录内，
-            # 否则同一台机器上所有 ArcReel 项目与开发者的交互会话共用一份 MEMORY.md。
-            # 走 JSON 串而非物化 settings 文件：路径按会话变化，落盘会与 profile manifest 的
-            # 「未改内置文件」判定打架（ADR 0074）。settings 落 flag settings 层，优先级高于
-            # 项目 .claude/settings.json；SDK 随后把 ``sandbox`` 并进同一份 JSON。
-            # 不显式设 autoMemoryEnabled：原生默认即开启。
+            # Project memory: redirect native auto memory from git-root-derived directories into the project directory,
+            # or all ArcReel projects and developer interactive sessions on one machine would share MEMORY.md.
+            # Use a JSON string instead of a materialized settings file: paths vary per session, and disk writes conflict with the profile manifest's
+            # unmodified-built-in-file detection (ADR 0074). Settings use the flag-settings layer, higher priority than
+            # project .claude/settings.json; the SDK later merges ``sandbox`` into the same JSON.
+            # Do not explicitly set autoMemoryEnabled: native default is enabled.
             settings=json.dumps({"autoMemoryDirectory": str(project_memory_dir(project_cwd))}),
             allowed_tools=allowed_tools,
             max_turns=self._max_turns_provider(),
@@ -388,14 +390,15 @@ class OptionsAssembler:
                 type="preset",
                 preset="claude_code",
                 append=await self._build_append_prompt(project_name, locale=locale),
-                # 会话首轮记录系统提示，之后每轮（含 resume）原样沿用：记忆等动态段的变化
-                # 不再打断 prompt cache。代价是 append 在会话内固定，resume 不会按新 locale 重建。
+                # The SDK records the first-turn system prompt and reuses it across requests and resume
+                # until compaction or a new session. Within that boundary, changed memory/locale append
+                # text does not rebuild the cached prompt. File-based instruction loading is separate.
                 snapshot=True,
             ),
             include_partial_messages=True,
             max_buffer_size=CLI_STDOUT_MAX_BUFFER_BYTES,
-            # CLI 只在该开关下把 stdin 收到的用户消息带 uuid 回放到 stdout。
-            # 不开则回放副本根本不出现：echo 去重与用户消息身份映射都不会触发。
+            # Only this flag makes CLI replay stdin user messages with uuid to stdout.
+            # Without it no replay copy appears, so neither echo deduplication nor user-message identity mapping triggers.
             extra_args={"replay-user-messages": None},
             resume=resume_id,
             session_id=session_id,
@@ -404,7 +407,7 @@ class OptionsAssembler:
             mcp_servers={"arcreel": arcreel_server},
             session_store=self.build_session_store(),
             session_store_flush=session_store_flush_mode(),
-            sandbox=sandbox_typed,  # type: ignore[arg-type]  # SDK 的 SandboxSettings TypedDict 未声明 filesystem 子结构，CLI 按 JSON 透传接受
+            sandbox=sandbox_typed,  # type: ignore[arg-type]  # SDK SandboxSettings TypedDict omits the filesystem substructure, accepted by CLI as pass-through JSON
             env=provider_env,
             stderr=stderr,
         )
@@ -422,9 +425,9 @@ class OptionsAssembler:
         _tool_use_id: str | None,
         _context: Any,
     ) -> dict[str, Any]:
-        """只读子智能体的工具名单（``AgentAccessPolicy.check_subagent_tool``）的 SDK 封皮。
+        """SDK wrapper for the read-only-subagent tool list (``AgentAccessPolicy.check_subagent_tool``).
 
-        子智能体内的工具调用在 hook 输入里带 ``agent_type``；主对话不带，不受这道名单约束。
+        Subagent hook inputs contain ``agent_type``; main conversations omit it and are not constrained by this list.
         """
         deny_reason = self._access_policy_provider().check_subagent_tool(
             input_data.get("agent_type"), str(input_data.get("tool_name") or "")
@@ -445,14 +448,14 @@ class OptionsAssembler:
         _tool_use_id: str | None,
         _context: Any,
     ) -> dict[str, Any]:
-        """Bash 密钥剥离 hook（SDK 封皮）：变换语义与 Windows 回退跳包装的约束见
-        ``AgentAccessPolicy.wrap_bash_command_for_env_scrub``。
+        """Bash secret-stripping hook (SDK wrapper): see
+        ``AgentAccessPolicy.wrap_bash_command_for_env_scrub`` for transformation semantics and Windows fallback bypass constraints.
 
-        只返回 ``updatedInput``、不返回 ``permissionDecision``：PreToolUse hook
-        是权限链第 1 步，``allow`` 会短路后续所有步骤（包括 ``_can_use_tool``）。
-        sandbox 启用时 Bash 在 allowed_tools 内，包装后的命令由 allow 规则放行；
-        权限决策始终留给链上后续步骤。不包装时（Windows 回退 / 空命令）直接
-        continue，原始命令落到 ``_can_use_tool`` 做白名单匹配。
+        Return only ``updatedInput``, not ``permissionDecision``: PreToolUse hooks are
+        the first permission-chain step, and ``allow`` short-circuits every later step, including ``_can_use_tool``.
+        With sandboxing, Bash is in allowed_tools and allow rules admit wrapped commands;
+        leave permission decisions to later chain steps. Without wrapping (Windows fallback / empty command),
+        continue directly so ``_can_use_tool`` whitelist-matches the original command.
         """
         tool_input = input_data.get("tool_input") or {}
         wrapped = self._access_policy_provider().wrap_bash_command_for_env_scrub(tool_input.get("command"))
@@ -498,7 +501,7 @@ class OptionsAssembler:
                     file_path,
                     tool_name,
                     project_cwd,
-                    # 与 policy 同为现取：user_id 决定用户记忆目录，随会话所属用户变化。
+                    # Retrieve live like policy: user_id determines the memory directory and varies with session ownership.
                     user_id=self._user_id_provider(),
                 )
                 if not allowed:
@@ -762,16 +765,16 @@ class OptionsAssembler:
 
                 if restored:
                     ctx = (
-                        f"⚠ JSON 损坏已检测并回滚：{tool_name} 导致 "
-                        f"{file_path} 变成无效 JSON（{exc}）。"
-                        "文件已恢复到编辑前状态，请修正后重试。"
+                        f"⚠ JSON corruption detected and rolled back: {tool_name} made "
+                        f"{file_path} invalid JSON ({exc}). "
+                        "The file has been restored to its pre-edit state. Correct the edit and retry."
                     )
                 else:
                     ctx = (
-                        f"⚠ JSON 损坏已检测但无法恢复：{tool_name} 导致 "
-                        f"{file_path} 变成无效 JSON（{exc}）。"
-                        "文件当前仍为损坏状态（无可用备份或恢复写入失败），"
-                        "请先读取文件确认内容，再手动修正为合法 JSON。"
+                        f"⚠ JSON corruption detected but could not be restored: {tool_name} made "
+                        f"{file_path} invalid JSON ({exc}). "
+                        "The file is still corrupt (no backup available or the restore write failed). "
+                        "Read the file to confirm its contents first, then manually repair it to valid JSON."
                     )
 
                 return {

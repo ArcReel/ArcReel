@@ -24,7 +24,7 @@ interface ReferencesSectionProps {
   onSave: (patch: Record<string, string[]>) => void | Promise<void>;
   disabled?: boolean;
   disabledHint?: string;
-  /** 内容确认页：本集新增项，非「不登记」的项与已登记资产一起作候选。 */
+  /** Content-confirmation page: new episode entries not marked for non-registration join registered assets as candidates. */
   newAssets?: readonly PlanNewAsset[];
 }
 
@@ -36,7 +36,7 @@ function countMissing(names: string[], dict: Record<string, unknown>): number {
   return n;
 }
 
-/** 角色引用可以是 `本体/衍生`：这种名字不在角色表顶层，未登记须按形态判定。 */
+/** Character references may use `本体/衍生`: these names are not top-level character entries, so determine registration according to their form. */
 function countMissingCharacters(names: string[], characters: Record<string, Character>): number {
   let n = 0;
   for (const name of names) if (resolveCharacterForm(characters, name) === undefined) n += 1;
@@ -56,7 +56,7 @@ export function ReferencesSection({
 }: ReferencesSectionProps) {
   const { t } = useTranslation("dashboard");
   const project = useProjectsStore((s) => s.currentProjectData);
-  // 用 useMemo 把 `?? {}` fallback 物化成稳定引用，避免 hook deps 每次重算
+  // Materialize the `?? {}` fallback as a stable reference with useMemo, avoiding hook-dependency recalculation every render
   const candidates = useMemo(
     () =>
       planReferenceCandidates(
@@ -78,9 +78,9 @@ export function ReferencesSection({
   const isEmpty = totalCount === 0;
 
   const totalStale = useMemo(() => {
-    // project 未加载完时字典为空，会把所有已引用名都误判为 stale；此时跳过计算
+    // Before project loading finishes, the empty dictionary falsely marks all reference names stale; skip calculation then
     if (!project) return 0;
-    // 「不登记」的新增项确认时从引用中移出，不算失效引用。
+    // Remove new entries marked for non-registration from references at confirmation; they do not count as stale references.
     const listed = (names: string[], skipped: ReadonlySet<string>) => names.filter((name) => !skipped.has(name));
     return (
       countMissingCharacters(listed(characterNames, skippedNames.character), characters) +

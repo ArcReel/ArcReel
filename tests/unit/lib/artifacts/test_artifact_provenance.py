@@ -362,7 +362,7 @@ def test_structured_basis_rejects_malformed_formal_inputs() -> None:
 def _project_with_source_kinds(
     content_mode: str, generation_mode: str, *, first: str | None, second: str | None
 ) -> dict[str, object]:
-    """两个整本源文文件各记一种类型（None 为不记），第 1 集切自第一个文件，第 2 集切自第二个。"""
+    """Two whole-source files each have a kind (None omits it); episode 1 derives from the first, episode 2 the second."""
     return {
         "content_mode": content_mode,
         "generation_mode": generation_mode,
@@ -387,7 +387,7 @@ def _project_with_source_kinds(
 
 @pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
 def test_script_plan_basis_follows_the_source_kind_of_its_own_episode(generation_mode: str) -> None:
-    """改一个文件的类型只让原文切自这个文件的集的脚本规划依据变化；正式脚本的依据不受影响。"""
+    """Changing one file’s kind changes only its episodes’ script-plan provenance, not formal-script provenance."""
 
     def _basis(episode: int, first: str, second: str) -> str:
         project = _project_with_source_kinds("drama", generation_mode, first=first, second=second)
@@ -414,7 +414,7 @@ def test_script_plan_basis_reads_a_missing_source_kind_as_novel(generation_mode:
 
 
 def test_reference_script_plan_basis_without_source_kinds_is_the_novel_basis() -> None:
-    """参考生视频按小说规划时依据里没有类型：不区分类型的旧依据与之相同。"""
+    """Novel-planned reference video omits kind from provenance, matching old kind-independent provenance."""
     novel = _project_with_source_kinds("drama", "reference_video", first="novel", second="novel")
     legacy = {key: value for key, value in novel.items() if key not in {"whole_source_files", "episodes"}}
 
@@ -591,7 +591,7 @@ def test_script_plan_basis_ignores_an_unset_episode_target_duration(
     generation_mode: str,
     content_mode: str,
 ) -> None:
-    """未设目标时提示词与不带该参数时逐字相同，digest 不因该键存在而变——否则存量项目整体判 stale。"""
+    """Unset target yields byte-identical prompts to omitted parameters; key presence must not stale existing projects by changing digests."""
     project = {"content_mode": content_mode, "generation_mode": generation_mode}
 
     unset = build_script_plan_basis("source", episode=1, project=project)
@@ -599,7 +599,7 @@ def test_script_plan_basis_ignores_an_unset_episode_target_duration(
     dirty = build_script_plan_basis("source", episode=1, project={**project, "episode_target_duration": 5})
 
     assert explicit_null.digest == unset.digest
-    # 越界脏值读时降级为「未设目标」，提示词同样不变，basis 也不该动
+    # Invalid out-of-range values read as unset target; unchanged prompts imply unchanged basis.
     assert dirty.digest == unset.digest
 
 

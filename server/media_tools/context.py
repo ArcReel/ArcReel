@@ -1,4 +1,4 @@
-"""媒体工具 handler 共用的结果构造、生成类结果钩子与请求字段类型。"""
+"""Result construction, generation-result hooks and request-field types shared by media-tool handlers."""
 
 from __future__ import annotations
 
@@ -50,15 +50,14 @@ def generation_batch_submission_outcome(result: GenerationBatchReadModel) -> Too
 
 
 type GenerationToolValue = GenerationBatchReadModel | dict[str, Any]
-"""生成类工具的成功值：远程即返的批次句柄，或 :func:`generation_result_outcome` 给出的终态结果。"""
+"""Generation-tool success value: an immediately returned remote batch handle, or terminal result from :func:`generation_result_outcome`."""
 
 
 def generation_structured(value: GenerationToolValue) -> dict[str, Any]:
-    """生成类工具成功值的结构化结果。
+    """Structured successful values for generation tools.
 
-    批次句柄放在 ``generation_batch`` 下；终态结果把 ``generation_result`` 与附带字段平铺在顶层，
-    其中 ``generation_result`` 与批次终态查询附带的生成结果同形。``summary`` 只作摘要文本。
-    """
+    Batch handles live under ``generation_batch``; terminal results place ``generation_result`` and additional fields at the top level.
+    ``generation_result`` matches generation results attached to terminal batch queries. ``summary`` is summary text only."""
     if isinstance(value, GenerationBatchReadModel):
         return {"generation_batch": json_value(value)}
     payload = json_value(value)
@@ -71,7 +70,7 @@ def generation_summary(value: GenerationToolValue) -> str | None:
 
 
 def generation_is_error(value: GenerationToolValue) -> bool:
-    """终态结果未全部成功即为失败；等待用户确认的准入不算失败，批次句柄也不算。"""
+    """Terminal results fail unless all items succeeded; admission awaiting user confirmation and batch handles do not count as failures."""
     if isinstance(value, GenerationBatchReadModel):
         return False
     result = value.get("generation_result")
@@ -99,7 +98,7 @@ def validate_script_filename(value: str) -> str:
 
 
 ScriptFilename = Annotated[str, AfterValidator(validate_script_filename)]
-"""剧本纯文件名；带路径分隔符或为空时请求校验失败。"""
+"""Bare script filename; empty values or path separators fail request validation."""
 
 RequestedIds = Annotated[list[str], Field(min_length=1)]
-"""显式点名的目标 ID；空数组无效——省略参数才表示只补缺失项。"""
+"""Explicit target IDs; an empty array is invalid. Omit the argument to fill only missing items."""

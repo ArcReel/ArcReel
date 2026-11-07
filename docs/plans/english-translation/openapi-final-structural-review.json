@@ -1,0 +1,4703 @@
+{
+  "baseline_import_source": "/private/tmp/arcreel-english-7b4f781/source/server/app.py",
+  "candidate_import_source": "/Users/pablo.carminatti.br/Projects/ArcReelBR/server/app.py",
+  "baseline_capture_sha256": "d6df70445863914ca2741fd2714fe8a877c9a4bb111a214cd223fd1e4bd81f16",
+  "candidate_capture_sha256": "3c7c858f57052014fc2cc47b35d060d00bcdfa54ab7300baba75cf511ca8b3e5",
+  "description_changes": 445,
+  "non_description_changes": [],
+  "all_differences": [
+    {
+      "path": [
+        "info",
+        "description"
+      ],
+      "before": "AI 视频生成工作空间的 Web 管理界面",
+      "after": "Web management interface for the AI video-generation workspace"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/import",
+        "post",
+        "description"
+      ],
+      "before": "从 ZIP 导入项目。\n\n导入包升级时有调整或没能带入的内容时，未带 ``confirm_report`` 的请求以 409 返回\n``confirmation_required`` 与 ``migration_report``，不留下任何项目数据；用户确认后带上它重新提交。",
+      "after": "Import projects from ZIP.\n\nIf upgrades adjust/omit content and ``confirm_report`` is absent, return 409 with\n``confirmation_required`` and ``migration_report``, leaving no project data. Resubmit with ``confirm_report`` after user confirmation."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/export/token",
+        "post",
+        "description"
+      ],
+      "before": "签发短时效下载 token，用于浏览器原生下载认证。",
+      "after": "Issue short-lived download tokens for authentication of native browser downloads."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects",
+        "get",
+        "description"
+      ],
+      "before": "列出所有项目，最近有活动的在前。",
+      "after": "List all projects, most recent activity first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects",
+        "post",
+        "description"
+      ],
+      "before": "创建新项目",
+      "after": "Create a project."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/video-capabilities",
+        "get",
+        "description"
+      ],
+      "before": "解析当前项目视频模型能力 + 用户项目偏好。\n\n三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`\n并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。\n两条生成模式（storyboard/reference_video）都可复用。\n\n`video_backend`（\"provider/model\"）用于设置表单里尚未保存的候选模型：不带该参数时按已\n落盘配置解析，带上则按候选模型 × 本项目的生成模式解析，使 voice_consistency 等二维派生值\n对应用户当前选中的模型而非上一次保存的模型；候选身份先过所属桶能力闸。裸 provider（无 \"/\"）按其 registry\n默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。\n\n`resolution` / `uses_reference_images` 是表单里编辑中的未保存值：`uses_reference_images` 决定\n按哪个任务类型桶解析（缺省按项目生成模式），`resolution` 作为「覆盖分辨率」交给该桶的视频请求\n事实求值，响应里的 `duration_constraints` 即这次求值的收窄结果与成因。缺省按项目已保存档位求值\n（工作台）；`resolution` 传空串表示表单里选了「自动」：不回退到已保存档位，按项目未存档位解析\n（自定义供应商仍取模型默认档）。\n\n能力按项目生成模式定轴、全项目同一口径，故无需集号：生成模式创建即定、之后不可更改。",
+      "after": "Resolve current-project video-model capabilities plus project preferences.\n\nAfter three-level model selection (project > system settings > system default), read model\n`supported_durations` and derive `max_duration`, also returning user preference\n`project.json.default_duration`. Both storyboard/reference_video modes reuse this.\n\n`video_backend` (\"provider/model\") selects unsaved settings-form candidates: omitted resolves stored\nconfiguration; supplied resolves candidate × project generation mode, making two-dimensional values\nsuch as voice_consistency reflect current selections rather than last saves. First check candidate\nbucket capabilities. Complete bare providers (without \"/\") with registry video defaults, matching\nlegacy project.json overrides (see `_parse_project_provider`).\n\n`resolution` / `uses_reference_images` are unsaved form values. `uses_reference_images` chooses task\nbucket (default: project generation mode). Evaluate `resolution` as an override through that bucket's\nrequest facts, returning the narrowed result and its causes in `duration_constraints`. Omission uses saved tiers\n(dashboard); empty `resolution` explicitly means automatic, without fallback to saved tiers, resolving\nas if no project tier existed (custom providers still use model defaults).\n\nProject generation mode fixes capability axes throughout the project, requiring no episode number:\nmode is immutable after creation."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/workflow-status/episodes",
+        "get",
+        "description"
+      ],
+      "before": "账本顺序中每一集建议的下一步，供项目层的逐集清单使用。",
+      "after": "Suggested next steps for every episode in ledger order, for project-level episode lists."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}",
+        "get",
+        "description"
+      ],
+      "before": "获取项目详情（含实时计算字段）。同一项目、同一语言的并发请求合流计算。",
+      "after": "Get project details including computed fields; coalesce concurrent same-project/same-language requests."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}",
+        "patch",
+        "description"
+      ],
+      "before": "更新项目元数据",
+      "after": "Update project metadata."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}",
+        "delete",
+        "description"
+      ],
+      "before": "删除项目：整体移入「已删除项目」，保留期内可以恢复",
+      "after": "Move the entire project into deleted projects, recoverable during retention."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/deleted-projects",
+        "get",
+        "description"
+      ],
+      "before": "已删除项目，最近删除的在前",
+      "after": "List deleted projects, most recently deleted first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/deleted-projects/{deleted_id}/restore",
+        "post",
+        "description"
+      ],
+      "before": "整体恢复已删除项目：原名被占用时加后缀，记录改回恢复后的名字，再走启动时的迁移链",
+      "after": "Restore the whole project: suffix occupied names, rename records to the restored name, then run startup migrations."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/deleted-projects/{deleted_id}",
+        "delete",
+        "description"
+      ],
+      "before": "彻底删除已删除项目（只开放给创作者，不给 Agent 工具）",
+      "after": "Permanently delete already-deleted projects (creator-only, never Agent tools)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/scripts/{script_file}",
+        "get",
+        "description"
+      ],
+      "before": "获取剧本内容",
+      "after": "Get script content."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}/prompt-preview",
+        "get",
+        "description"
+      ],
+      "before": "渲染该条目当前会送进图像 / 视频模型的最终提示词文本。\n\n与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商\n发请求、不产生费用、不写产物清单。某一侧缺提示词或形状不合规时，该侧返回不可用原因、\n另一侧照常渲染，半成品条目仍能看到已写好的那一半。\n\n挂迁移闸门与生成入口同判据：商品参考的装配读产物清单，且被阻断的项目本就无法生成，\n此时报「先修复」比渲染一份不会被发出的文本诚实。",
+      "after": "Render this item's final prompt text currently sent to image/video models.\n\nShare execution renderers, matching actual outgoing prompts verbatim. Read-only: no provider requests,\ncharges, or manifest writes. If one side lacks valid prompts, return its unavailable reason while\nrendering the other, showing authored halves of incomplete items.\n\nApply the same migration gate as generation: product-reference assembly reads manifests and blocked\nprojects cannot generate. Repair-first guidance is more accurate than text that could never be sent."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}/prompt-preview",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "剧本文件名",
+      "after": "Script filename"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}/prompt-preview",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "剧本文件名",
+      "after": "Script filename"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items",
+        "post",
+        "description"
+      ],
+      "before": "新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``；新分镜的编号由服务端另发，取本集从没用过的号。",
+      "after": "Insert a pending-authoring storyboard using ``insert_after`` at current script revision; server issues an episode-unused ID."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes/{episode}/blank-script",
+        "post",
+        "description"
+      ],
+      "before": "从空白开始：本集没有正式脚本时建出空的正式脚本，弃置未确认的脚本规划。",
+      "after": "Start blank: create an empty formal script only if absent and discard unconfirmed planning."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}",
+        "delete",
+        "description"
+      ],
+      "before": "移除分镜 ``item_id``，按当前剧本 revision 执行 ``remove``；其产物随分镜一并移除。",
+      "after": "Remove storyboard ``item_id`` using ``remove`` at current revision, removing its artifacts too."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}",
+        "delete",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "剧本文件名",
+      "after": "Script filename"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}",
+        "delete",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "剧本文件名",
+      "after": "Script filename"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-items/{item_id}/move",
+        "post",
+        "description"
+      ],
+      "before": "把分镜 ``item_id`` 移到 ``after_id`` 之后，按当前剧本 revision 执行 ``move_after``；分镜连同产物一起移动。",
+      "after": "Move ``item_id`` after ``after_id`` with ``move_after`` at current revision, moving artifacts with it."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-scenes/{scene_id}",
+        "patch",
+        "description"
+      ],
+      "before": "更新剧情演绎剧本中的单个分镜（按 scene_id 定位）。\n\n路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，\n避免 FastAPI 按注册顺序优先匹配本端点导致 SceneCard 保存请求被截获、Pydantic\n必填字段校验返回双 \"Field required\"。",
+      "after": "Update one drama storyboard by scene_id.\n\nSeparate paths clearly from scene-asset CRUD (``/projects/{name}/scenes/{entry_name}``), preventing\nregistration-order matching from intercepting SceneCard saves and yielding two Pydantic \"Field required\" errors."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/script-shots/{shot_id}",
+        "patch",
+        "description"
+      ],
+      "before": "更新广告/短片剧本中的单个分镜（按 shot_id 定位）。\n\n路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等\n白名单字段可改，结构合法性由写盘统一入口的「不更坏」校验兜底。",
+      "after": "Update one ad/short-film storyboard by shot_id.\n\nAlign paths with ``script-scenes``; allowlist speech / section / duration / references, etc., with\ncentral persistence's do-not-worsen structural validation as fallback."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/segments/{segment_id}",
+        "patch",
+        "description"
+      ],
+      "before": "更新旁白/解说分镜",
+      "after": "Update a narration/commentary storyboard."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes/{episode}",
+        "patch",
+        "description"
+      ],
+      "before": "更新分集顶层元数据（当前仅标题）。\n\n有剧本时以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在\n「脚本锁 → 项目锁」临界区内改剧本 title，并内联 _apply_episode_sync 把镜像同步回\nproject.json 的 episodes[].title，原子且无 TOCTOU。镜像由 PATCH /projects 改写的入口\n已移除（title 不在 EpisodePatch 上），杜绝第二真相源。\n\n还没有剧本的集（新建的空集、尚未规划脚本的集）标题只记在账本条目上；之后建出的剧本以它为初值。\n标题可以清空，空标题的集名由呈现层按播出位置派生。",
+      "after": "Update episode top-level metadata (currently title only).\n\nWith scripts, scripts/*.json top-level title is authoritative: locked_episode_script changes it inside\nscript-lock → project-lock critical sections and calls _apply_episode_sync inline to synchronize\nproject.json episodes[].title, atomically without TOCTOU. PATCH /projects can no longer edit the mirror (title is\nabsent from EpisodePatch), eliminating duplicate truth sources.\n\nWithout scripts (new blank/unplanned episodes), store titles only in ledger entries; later scripts use\nthem initially. Titles may be cleared; presentation derives untitled episode names by broadcast position."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes/{episode}/source",
+        "put",
+        "description"
+      ],
+      "before": "集页填写或改写本集原文：无原文的集填上后转为自带原文的集。切出集的原文由分集规划派生，这里拒绝。\n\n改类型会让本集已有的脚本规划判 stale 而 ``confirm`` 为 false 时，原文与类型都不写入，返回\n``needs_confirmation`` 与受影响的集 ID（``affected_episodes``）。",
+      "after": "Enter/edit episode source on its page; filling sourceless episodes makes them source-owning. Reject cut-episode sources, derived by planning.\n\nIf changing type would stale existing plans and ``confirm`` is false, write neither source nor type;\nreturn ``needs_confirmation`` and affected IDs (``affected_episodes``)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source",
+        "post",
+        "description"
+      ],
+      "before": "上传小说源文件或直接提交文本内容，可选触发 AI 概述生成。\n\n两种输入方式（互斥，均使用 multipart/form-data）：\n- file：上传 .txt/.md 文件，文件名取自上传文件\n- content：直接提交文本内容，自动命名为 novel.txt\n\n最大 200000 字符（约 10 万汉字）。",
+      "after": "Upload novel source files or submit text, optionally triggering AI overview generation.\n\nTwo mutually exclusive multipart/form-data inputs:\n- file: .txt/.md upload retaining its filename.\n- content: direct text automatically named novel.txt.\n\nMaximum 200000 characters (about 100000 Chinese characters)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/generate-overview",
+        "post",
+        "description"
+      ],
+      "before": "使用 AI 生成项目概述",
+      "after": "Generate project overviews using AI."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/overview",
+        "patch",
+        "description"
+      ],
+      "before": "更新项目概述（手动编辑）",
+      "after": "Update project overviews manually."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{entry_name}",
+        "delete",
+        "description"
+      ],
+      "before": "删除资产；``dry_run=true`` 只返回按集列出的引用数（与重命名同一套扫描），不改动任何数据。\n\n删除不改写脚本里的引用，也不因有引用而拒绝：预览只用于删除前告知影响。",
+      "after": "Delete an asset; ``dry_run=true`` returns only per-episode reference counts using rename scans, without changing data.\n\nDeletion neither rewrites script references nor rejects referenced assets; preview only informs users of the impact first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{entry_name}/rename",
+        "post",
+        "description"
+      ],
+      "before": "级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。",
+      "after": "Cascade rename, or impact preview with dry_run; preview/execution share scans, so counts necessarily match."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{entry_name}/merge",
+        "post",
+        "description"
+      ],
+      "before": "把该资产并入同类型的 ``target``（dry_run 形态即影响预览，与执行共用同一次扫描）。",
+      "after": "Merge this asset into same-type ``target``; dry_run previews impact using the same scan as execution."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{entry_name}/derivatives/{derivative_name}/rename",
+        "post",
+        "description"
+      ],
+      "before": "改名是一次级联事务：本体条目内的键，与全部剧本 / 草稿里的 ``本体名/旧衍生名`` 引用。",
+      "after": "Renaming is one cascading transaction covering the base-entry key and ``本体名/旧衍生名`` references in all scripts/drafts."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/scenes/{entry_name}",
+        "delete",
+        "description"
+      ],
+      "before": "删除资产；``dry_run=true`` 只返回按集列出的引用数（与重命名同一套扫描），不改动任何数据。\n\n删除不改写脚本里的引用，也不因有引用而拒绝：预览只用于删除前告知影响。",
+      "after": "Delete an asset; ``dry_run=true`` returns only per-episode reference counts using rename scans, without changing data.\n\nDeletion neither rewrites script references nor rejects referenced assets; preview only informs users of the impact first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/scenes/{entry_name}/rename",
+        "post",
+        "description"
+      ],
+      "before": "级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。",
+      "after": "Cascade rename, or impact preview with dry_run; preview/execution share scans, so counts necessarily match."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/scenes/{entry_name}/merge",
+        "post",
+        "description"
+      ],
+      "before": "把该资产并入同类型的 ``target``（dry_run 形态即影响预览，与执行共用同一次扫描）。",
+      "after": "Merge this asset into same-type ``target``; dry_run previews impact using the same scan as execution."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/props/{entry_name}",
+        "delete",
+        "description"
+      ],
+      "before": "删除资产；``dry_run=true`` 只返回按集列出的引用数（与重命名同一套扫描），不改动任何数据。\n\n删除不改写脚本里的引用，也不因有引用而拒绝：预览只用于删除前告知影响。",
+      "after": "Delete an asset; ``dry_run=true`` returns only per-episode reference counts using rename scans, without changing data.\n\nDeletion neither rewrites script references nor rejects referenced assets; preview only informs users of the impact first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/props/{entry_name}/rename",
+        "post",
+        "description"
+      ],
+      "before": "级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。",
+      "after": "Cascade rename, or impact preview with dry_run; preview/execution share scans, so counts necessarily match."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/props/{entry_name}/merge",
+        "post",
+        "description"
+      ],
+      "before": "把该资产并入同类型的 ``target``（dry_run 形态即影响预览，与执行共用同一次扫描）。",
+      "after": "Merge this asset into same-type ``target``; dry_run previews impact using the same scan as execution."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/products/{entry_name}",
+        "delete",
+        "description"
+      ],
+      "before": "删除资产；``dry_run=true`` 只返回按集列出的引用数（与重命名同一套扫描），不改动任何数据。\n\n删除不改写脚本里的引用，也不因有引用而拒绝：预览只用于删除前告知影响。",
+      "after": "Delete an asset; ``dry_run=true`` returns only per-episode reference counts using rename scans, without changing data.\n\nDeletion neither rewrites script references nor rejects referenced assets; preview only informs users of the impact first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/products/{entry_name}/rename",
+        "post",
+        "description"
+      ],
+      "before": "级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。",
+      "after": "Cascade rename, or impact preview with dry_run; preview/execution share scans, so counts necessarily match."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/edit-timelines",
+        "post",
+        "description"
+      ],
+      "before": "按脚本机械新建；准入与制作状态 ``operations.create_edit_timeline`` 同一份谓词：本集至少有一个可用视频。\n\n读不出准入（项目或集不存在等）时不在这里拒绝，由命令报对应的领域错误。",
+      "after": "Mechanically create from the script; admission shares the production-state predicate in ``operations.create_edit_timeline``: at least one usable video in the episode.\n\nIf admission cannot be read, such as a missing project/episode, do not reject here; let the command report the appropriate domain error."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/edit-overview",
+        "get",
+        "description"
+      ],
+      "before": "一集的剪辑概况：剪辑时间线条数、最近修改那条的问题数，以及成片已落后的几条。",
+      "after": "Episode editing summary: timeline count, issue count for the most recently modified timeline, and timelines whose final cuts are stale."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}",
+        "patch",
+        "description"
+      ],
+      "before": "改显示名：不产生修订，成片与剪映草稿不因此过期。",
+      "after": "Rename the display name without creating a revision or making final cuts/Jianying drafts stale."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}",
+        "delete",
+        "description"
+      ],
+      "before": "删除剪辑时间线及其成片与剪映草稿；仍有渲染任务在排队或执行时拒绝，等任务结束后再删。",
+      "after": "Delete the timeline and its final cuts/Jianying drafts; reject while render tasks are queued or running, allowing deletion after completion."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/copy",
+        "post",
+        "description"
+      ],
+      "before": "把指定修订（缺省为最新修订）复制成同一集的新剪辑时间线，返回新时间线的第一个修订。",
+      "after": "Copy the specified revision, defaulting to latest, into a new timeline in the same episode and return its first revision."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/restore",
+        "post",
+        "description"
+      ],
+      "before": "回滚：以旧修订的内容追加一个新修订，历史不改写。",
+      "after": "Restore by appending a new revision with old content, without rewriting history."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut",
+        "post",
+        "description"
+      ],
+      "before": "先按所选版本检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。",
+      "after": "Check blocking issues for the selected variant before enqueueing; omitted ``revision`` renders the latest revision at submission time."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut",
+        "get",
+        "description"
+      ],
+      "before": "成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出。",
+      "after": "Final-cut state; stale cuts remain downloadable, with ``download_url`` supplied only if the file exists."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "旁白版本；省略时按项目取默认版本",
+      "after": "Narration variant; omit to use the project default"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "旁白版本；省略时按项目取默认版本",
+      "after": "Narration variant; omit to use the project default"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut",
+        "get",
+        "parameters",
+        3,
+        "schema",
+        "description"
+      ],
+      "before": "字幕方式；省略时为烧入字幕",
+      "after": "Subtitle mode; omit to burn subtitles in"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut",
+        "get",
+        "parameters",
+        3,
+        "description"
+      ],
+      "before": "字幕方式；省略时为烧入字幕",
+      "after": "Subtitle mode; omit to burn subtitles in"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft",
+        "post",
+        "description"
+      ],
+      "before": "先检查阻断问题再入队；``revision`` 省略时导出提交时的最新修订。",
+      "after": "Check blocking issues before enqueueing; omitted ``revision`` exports the latest revision at submission time."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft",
+        "get",
+        "description"
+      ],
+      "before": "剪映草稿现状：current、stale（已落后于剪辑时间线，仍可下载）或 missing（还没导出过）。",
+      "after": "Jianying-draft state: current, stale (behind the timeline but still downloadable), or missing (never exported)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "旁白版本；省略时按项目取默认版本",
+      "after": "Narration variant; omit to use the project default"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "旁白版本；省略时按项目取默认版本",
+      "after": "Narration variant; omit to use the project default"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/upload/{upload_type}",
+        "post",
+        "description"
+      ],
+      "before": "上传文件\n\nArgs:\n    project_name: 项目名称\n    upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref/bgm)\n    file: 上传的文件\n    name: 可选，用于角色/场景/道具/商品名称（自动更新元数据）；product_ref 必填；\n        分镜/视频上传走 shot_uploads 路由\n    on_conflict: source 类型独有 — fail / replace / rename\n    role: source 类型独有 — whole_source 登记为整本源文的文件，接在清单末尾；episode 登记为\n        播出顺序末尾的一集自带原文的集\n    insert_at: role=whole_source 独有 — 登记后文件在整本源文清单里的下标，缺省或超出末尾时接在末尾\n    source_kind: source 类型独有 — 剧情演绎项目这份原文的源文件类型，缺省为小说；其他创作类型忽略\n    revision: role=whole_source 独有 — 确认过的受影响集清单的版本。插入处落在一个跨文件的集内部，或\n        on_conflict=replace 覆盖已登记的整本源文文件时，有受影响的集而它缺省或已过时，不写入，返回\n        ``status=confirmation_required`` 与受影响集清单",
+      "after": "Upload a file.\n\nArgs:\n    project_name: Project name.\n    upload_type: Upload type (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref/bgm).\n    file: Uploaded file.\n    name: Optional character/scene/prop/product name (automatically updates metadata); required for product_ref.\n        Storyboard/video uploads use shot_uploads routes.\n    on_conflict: source only: fail / replace / rename.\n    role: source only: whole_source registers a whole-source file at the end of its list;\n        episode registers a source-owning episode at the end of broadcast order.\n    insert_at: role=whole_source only: registered index in the whole-source file list; omitted/out-of-end appends.\n    source_kind: source only: original source-file type for drama projects, novel by default; ignored by other content modes.\n    revision: role=whole_source only: approved affected-episode-list revision. If insertion falls inside a cross-file\n        episode, or on_conflict=replace overwrites a registered whole-source file, and episodes are affected,\n        missing/stale revision prevents writes and returns ``status=confirmation_required`` with affected episodes."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/bgm",
+        "get",
+        "description"
+      ],
+      "before": "项目里已上传的 BGM，按上传先后排列；``gain`` 是把响度统一到 −16 LUFS 的线性增益。",
+      "after": "Uploaded project BGM in upload order; ``gain`` is linear gain normalizing loudness to −16 LUFS."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{name}/reference-audio",
+        "delete",
+        "description"
+      ],
+      "before": "删除角色的参考音频样本：清空 project.json 字段并移除文件。",
+      "after": "Delete character reference audio: clear its project.json field and remove the file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/files",
+        "get",
+        "description"
+      ],
+      "before": "列出项目中的所有文件",
+      "after": "List every project file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/source/{filename}",
+        "get",
+        "description"
+      ],
+      "before": "获取 source 文件的文本内容",
+      "after": "Get source-file text content."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/source/{filename}",
+        "put",
+        "description"
+      ],
+      "before": "更新或创建 source 文件；新建的文件登记为整本源文的文件，接在清单末尾。\n\n已登记的整本源文文件按编辑处理（:func:`lib.episode.source_file_changes.edit_whole_source_file`）：有受影响的集而\n``revision`` 缺省或已过时时不写入，返回 ``status=confirmation_required`` 与受影响集清单。\n``episode_N.txt`` 是集原文文件名，这里拒绝：集原文经集页填写，切出集的集原文由分集规划派生。",
+      "after": "Update/create source files; register new files at the end of the whole-source list.\n\nEdit registered whole-source files via :func:`lib.episode.source_file_changes.edit_whole_source_file`:\nif affected episodes exist and ``revision`` is missing/stale, do not write; return\n``status=confirmation_required`` with affected episodes. Reject ``episode_N.txt`` episode-source\nfilenames here: episode pages edit episode-owned sources, while planning derives cut-episode sources."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/source/{filename}",
+        "delete",
+        "description"
+      ],
+      "before": "删除 source 文件，并撤销它的登记：移出整本源文；是自带原文的集的集文件时，该集转为无原文。\n\n已登记的整本源文文件按删除处理（:func:`lib.episode.source_file_changes.delete_whole_source_file`）：有受影响的\n集而 ``revision`` 缺省或已过时时不删除，返回 ``status=confirmation_required`` 与受影响集清单。\n切出集的集文件由分集规划派生，这里拒绝删除。",
+      "after": "Delete/unregister source files: remove from whole source; source-owning episode files leave their episode sourceless.\n\nDelete registered whole-source files via :func:`lib.episode.source_file_changes.delete_whole_source_file`:\nif affected episodes exist and ``revision`` is missing/stale, do not delete; return\n``status=confirmation_required`` with affected episodes. Reject deletion of planning-derived cut-episode files here."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/drafts/{episode}/{stage}",
+        "get",
+        "description"
+      ],
+      "before": "获取特定步骤的草稿内容",
+      "after": "Get draft content for a particular step."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/drafts/{episode}/{stage}",
+        "put",
+        "description"
+      ],
+      "before": "更新草稿内容",
+      "after": "Update draft content."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/drafts/{episode}/{stage}",
+        "delete",
+        "description"
+      ],
+      "before": "删除草稿文件",
+      "after": "Delete a draft file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/style-image",
+        "post",
+        "description"
+      ],
+      "before": "上传风格参考图并分析风格\n\n1. 保存图片到 projects/{project_name}/style_reference.png\n2. 调用文本供应商分析风格\n3. 更新 project.json 的 style_image 和 style_description 字段",
+      "after": "Upload a style reference and analyze style.\n\n1. Save to projects/{project_name}/style_reference.png.\n2. Ask the text provider to analyze style.\n3. Update project.json style_image and style_description fields."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/file-view",
+        "get",
+        "description"
+      ],
+      "before": "列出 ``path`` 目录（缺省为项目根）的直接子项。",
+      "after": "List direct children of ``path``, defaulting to the project root."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/file-view",
+        "delete",
+        "description"
+      ],
+      "before": "把一个未引用文件移进项目回收站；其余角色在服务端一律拒绝。",
+      "after": "Move an unreferenced file to the project trash; the server rejects all other file roles."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/file-view/content",
+        "get",
+        "description"
+      ],
+      "before": "预览或下载单个文件。",
+      "after": "Preview or download one file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/trash/{record_id}/files",
+        "get",
+        "description"
+      ],
+      "before": "下载记录里的一个被删文件：降级恢复后只能下载的结构文件从这里取回。",
+      "after": "Download a deleted file from a record: retrieve structure files available only for download after degraded recovery here."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes-view",
+        "get",
+        "description"
+      ],
+      "before": "整本源文按集分段、每集的体量与首尾句、``source/`` 里没有登记的文本文件、新的分集方案 ``replan``，\n以及在服务之外被改动过的文件 ``external_changes``。\n\n``replan`` 是悬而未决的重新规划候选的摘要与逐集变化（见 :func:`lib.episode.episode_replan.replan_candidate_summary`），\n没有候选时为 null。``external_changes`` 按文件顺序列出 ``changed_outside`` 的文件：``impact`` 是按快照对齐算出的\n受影响集清单（含服务端成文的 ``text``），``revision`` 原样带给 ``accept-external`` 即确认；算不出清单时两者为\nnull，``problem`` 是原因。",
+      "after": "Whole-source episode segments, per-episode volume/first-last sentences, unregistered ``source/`` text files, a new\n``replan`` and externally modified ``external_changes`` files.\n\n``replan`` contains unresolved candidate summaries/per-episode changes (:func:`lib.episode.episode_replan.replan_candidate_summary`),\nor null when absent. ``external_changes`` lists ``changed_outside`` files in file order. ``impact`` is the snapshot-aligned\naffected-episode list including server-written ``text``; pass ``revision`` unchanged to ``accept-external`` to confirm.\nIf impact cannot be computed, both are null and ``problem`` gives the reason."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/adopt",
+        "post",
+        "description"
+      ],
+      "before": "处置 ``source/`` 里没有登记的文件：加入整本源文，或用作一集的原文（原文件随即删除）。",
+      "after": "Handle unregistered ``source/`` files by adding to whole source or assigning as episode source, deleting the original file afterward."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes-view/manual-split",
+        "post",
+        "description"
+      ],
+      "before": "手工切分：切分、拆分、移动分界、与下一集合并、清除之后的切分，直接写入分集账本。\n\n波及有产物的集、合并会并入两集之间未切分的原文（或 ``dry_run``）时返回 ``status=confirmation_required`` 与\n服务端成文的确认清单 ``impact.text``，不写入；创作者确认后带上 ``confirm_episodes`` 与 ``confirm_merged_units``\n重新提交。要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。",
+      "after": "Manual segmentation: cut, split, move boundaries, merge with the next episode or clear later splits, writing directly to the ledger.\n\nAffected episodes with artifacts, merges incorporating unsplit text between episodes, or ``dry_run`` return\n``status=confirmation_required`` with server-written ``impact.text``, without writing. After confirmation, resubmit\n``confirm_episodes`` / ``confirm_merged_units``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/source-kind",
+        "put",
+        "description"
+      ],
+      "before": "改整本源文文件的源文件类型（只对剧情演绎开放）；不改源文指纹，也不动分集账本。\n\n会让已开始制作的集的脚本规划判 stale 而 ``confirm`` 为 false 时不写入，返回 ``needs_confirmation``\n与这些集的集 ID（``affected_episodes``）。",
+      "after": "Change whole-source file kind for drama only, without changing source fingerprints or the episode ledger.\n\nIf plans for episodes already in production would become stale and ``confirm`` is false, write nothing and return\n``needs_confirmation`` plus their IDs in ``affected_episodes``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/text",
+        "put",
+        "description"
+      ],
+      "before": "编辑整本源文文件的全文，按改动前后的对齐重映射触及它的切出集。\n\n没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，\n返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。\n要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。",
+      "after": "Edit a whole-source file’s full text and remap affected extracted episodes using before/after alignment.\n\nWithout affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``\nwrites nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written\n``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/replace",
+        "post",
+        "description"
+      ],
+      "before": "用上传的文件替换整本源文文件：保留位置与文件名，类型缺省时不变。\n\n没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，\n返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。\n要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。",
+      "after": "Replace a whole-source file with an upload, preserving position/name and retaining kind if omitted.\n\nWithout affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``\nwrites nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written\n``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/move",
+        "post",
+        "description"
+      ],
+      "before": "把整本源文文件上移或下移一位，其中的切出集整块跟着走。\n\n没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，\n返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。\n要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。",
+      "after": "Move a whole-source file one position up/down, moving its extracted episodes together.\n\nWithout affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``\nwrites nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written\n``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/accept-external",
+        "post",
+        "description"
+      ],
+      "before": "按文件在服务之外的改动更新分集账本：以快照为旧文本、当前文本为新文本对齐，重映射触及它的切出集。\n\n没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，\n返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。\n文件没有改动过、或里面有切出集却没有快照时返回 409。要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。",
+      "after": "Update the ledger after external file changes, aligning snapshot old text against current new text and remapping affected extracted episodes.\n\nWithout affected episodes, execute directly and return ``status=applied``. Otherwise missing/stale ``revision`` writes nothing\nand returns ``status=confirmation_required``, categorized affected episodes with server-written ``impact.text``, and\n``revision``. Unchanged files or extracted episodes without snapshots return 409. Queued/running tasks in removed\nor newly sourceless episodes return 409 without writing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/source-files/{filename}/delete",
+        "post",
+        "description"
+      ],
+      "before": "删除整本源文文件，等同于删掉它的全部文字。\n\n没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，\n返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。\n要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。",
+      "after": "Delete a whole-source file, equivalent to deleting all its text.\n\nWithout affected episodes, execute directly and return ``status=applied``. Otherwise, missing/stale ``revision``\nwrites nothing and returns ``status=confirmation_required``, categorized affected episodes with server-written\n``impact.text``, and ``revision``. Queued/running tasks in removed or newly sourceless episodes return 409 without writing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes",
+        "post",
+        "description"
+      ],
+      "before": "新建一集：分配新集 ID，插在 ``after`` 之后（缺省放在末尾）；带原文时是自带原文的集。",
+      "after": "Create an episode: allocate a new episode ID and insert after ``after`` (default: append); supplied source text makes it an own-source episode."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes/{episode}/move",
+        "post",
+        "description"
+      ],
+      "before": "调整播出顺序：把这一集移到 ``after`` 之后。切出集之间保持源文顺序。",
+      "after": "Reorder broadcasting: move this episode after ``after``. Preserve source order among extracted episodes."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/episodes/{episode}/delete",
+        "post",
+        "description"
+      ],
+      "before": "删除一集（硬删除）。\n\n先不带 ``revision`` 调用，得到 ``status=confirmation_required`` 与服务端成文的丢失清单 ``impact.text``；\n创作者确认后带上 ``impact.revision`` 重新提交。清单在两次调用之间变了时再次返回确认，不删除。",
+      "after": "Delete an episode permanently.\n\nFirst call without ``revision`` for ``status=confirmation_required`` and the server-written loss list ``impact.text``.\nAfter creator confirmation, resubmit with ``impact.revision``. If the list changed between calls, request confirmation again without deleting."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/storyboard/{segment_id}",
+        "post",
+        "description"
+      ],
+      "before": "提交分镜图生成任务到队列，立即返回 task_id。\n\n生成由 GenerationWorker 异步执行，状态通过 SSE 推送。",
+      "after": "Queue storyboard-image generation and immediately return task_id.\n\nGenerationWorker executes asynchronously; SSE pushes status."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/video/{segment_id}",
+        "post",
+        "description"
+      ],
+      "before": "提交视频生成任务到队列，立即返回 task_id。\n\n需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。\n\n仅服务分镜图生视频：参考生视频没有分镜图这一步，在此拒绝并指引换入口。",
+      "after": "Queue video generation and immediately return task_id.\n\nRequires a storyboard image as start frame. GenerationWorker executes asynchronously.\n\nOnly for storyboard image-to-video: reference-to-video has no storyboard-image step and is rejected with guidance to the appropriate entry point."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/tts/{segment_id}",
+        "post",
+        "description"
+      ],
+      "before": "显式提交一个 narrator-owned unit 的旁白配音任务。",
+      "after": "Explicitly enqueue narration audio generation for one narrator-owned unit."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/tts",
+        "post",
+        "description"
+      ],
+      "before": "批量提交旁白配音任务：只入队缺少 narration_audio 的 narrator-owned 单元。",
+      "after": "Queue narration audio in batch: only narrator-owned units missing narration_audio."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/audio-backend/voices",
+        "get",
+        "description"
+      ],
+      "before": "返回当前项目实际生效的 audio backend 音色枚举，供 TTS 试听弹窗选择音色。\n\n未配置任何 audio 供应商时返回 configured=false + 空列表，不 400——前端据此禁用\n生成入口而非报错，与角色卡「audio_backend 未配置该入口不可用」的口径一致。",
+      "after": "Return voices from the current project's actual effective audio backend for TTS preview selection.\n\nWithout an audio provider, return configured=false + empty list, not 400: frontend disables generation\nrather than reporting an error, matching character-card behavior when audio_backend is unconfigured."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{name}/voice-sample",
+        "post",
+        "description"
+      ],
+      "before": "提交角色 TTS 试听样本生成任务：文本/音色显式传入，不落回全局旁白配置。\n\n生成产物是预览件，仅在 confirm 端点被显式提升为角色 reference_audio；本端点\n只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白配音完全同一套）。",
+      "after": "Queue character TTS preview generation with explicit text/voice, never falling back to global narration settings.\n\nArtifacts are previews, promoted to character reference_audio only explicitly through confirm. This\nendpoint only enqueues, using the existing audio lane with identical concurrency/rate/accounting to narration."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{name}/voice-sample/confirm",
+        "post",
+        "description"
+      ],
+      "before": "把已生成、已试听的 TTS 样本提升为角色 reference_audio；不确认不落资产。\n\n只信一个 task_id 指向的 voice_sample 任务结果，不接受客户端直传文件路径——\n产物已在执行层过一遍与上传同口径的格式/时长/大小校验（见\n``execute_character_voice_sample_task``），此处只做「任务确属本角色、已成功」\n的归属校验后原样落盘，不重复校验。",
+      "after": "Promote a generated, auditioned TTS sample to character reference_audio; without confirmation, do not persist it to assets.\n\nTrust only voice_sample results identified by task_id, never client-supplied paths. Execution already\nvalidated format/duration/size under upload rules (see ``execute_character_voice_sample_task``).\nCheck only successful-task ownership by this character, then persist unchanged without repeating validation."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/character/{char_name}",
+        "post",
+        "description"
+      ],
+      "before": "提交角色资产图生成任务到队列，立即返回 task_id。",
+      "after": "Queue character asset-sheet generation and immediately return task_id."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/character/{char_name}/derivatives/{derivative_name}",
+        "post",
+        "description"
+      ],
+      "before": "提交角色衍生资产图生成任务到队列，立即返回 task_id。\n\n衍生图是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体\n因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。本体没有\n资产图、或衍生还没写变化描述时在此拒绝，不建任务。",
+      "after": "Queue character derivative asset-sheet generation and immediately return task_id.\n\nDerivatives edit base asset sheets using their own appearance-change descriptions plus fixed guards.\nThus request bodies contain no prompt; enqueue/execution read current project state, avoiding separate\ninstruction copies. Reject missing base sheets or unwritten derivative change descriptions here, without creating tasks."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/scene/{scene_name}",
+        "post",
+        "description"
+      ],
+      "before": "提交场景资产图生成任务到队列，立即返回 task_id。",
+      "after": "Queue scene asset-sheet generation and immediately return task_id."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/prop/{prop_name}",
+        "post",
+        "description"
+      ],
+      "before": "提交道具资产图生成任务到队列，立即返回 task_id。",
+      "after": "Queue prop asset-sheet generation and immediately return task_id."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/product/{product_name}",
+        "post",
+        "description"
+      ],
+      "before": "提交商品标准参考图（product sheet）生成任务到队列，立即返回 task_id。",
+      "after": "Queue product standard-reference-image (product sheet) generation and immediately return task_id."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit/image",
+        "post",
+        "description"
+      ],
+      "before": "提交图片指令式编辑任务到队列，立即返回 task_id。\n\n以当前图为唯一参考图、编辑指令为唯一 prompt 走 i2i；新图覆盖 current、旧图自动进\n版本历史，原 image_prompt 不回写（编辑语义见 ``docs/adr/0050``）。",
+      "after": "Queue instruction-based image editing and immediately return task_id.\n\nUse i2i with the current image as sole reference and editing instructions as sole prompt. New images\nreplace current, old images enter version history automatically; do not write back original image_prompt\n(semantics in ``docs/adr/0050``)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/storyboards/batch/preview",
+        "post",
+        "description"
+      ],
+      "before": "规划一批分镜图但不建任务：要生成的分镜、跳过项与已定价部分的预估费用及未定价项数。",
+      "after": "Plan storyboard images without tasks: generation targets, skipped items, estimated costs of priced items and the count of unpriced items."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/storyboards/batch",
+        "post",
+        "description"
+      ],
+      "before": "提交一批分镜图，立即返回；相邻分镜在批内按参考链排队。",
+      "after": "Submit storyboard images and return immediately; adjacent shots queue within the batch according to the reference chain."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/videos/batch/preview",
+        "post",
+        "description"
+      ],
+      "before": "规划一批分镜视频但不建任务：要生成的分镜、跳过项、整批准入结论与已定价部分的预估费用及未定价项数。",
+      "after": "Plan storyboard videos without tasks: generation targets, skipped items, whole-batch admission, estimated costs of priced items and the count of unpriced items."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/videos/batch",
+        "post",
+        "description"
+      ],
+      "before": "重新规划后提交一批分镜视频。整批准入未通过时以 200 返回结论、一个任务也不建。",
+      "after": "Replan and submit storyboard videos. Failed whole-batch admission returns the decision with HTTP 200 and creates no tasks."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/asset-sheets/batch/preview",
+        "post",
+        "description"
+      ],
+      "before": "规划一批但不建任务：要生成的名单、跳过项与已定价部分的预估费用及未定价项数。",
+      "after": "Plan a batch without tasks: generation targets, skipped items, estimated costs of priced items and the count of unpriced items."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/asset-sheets/batch",
+        "post",
+        "description"
+      ],
+      "before": "提交一批，立即返回；成员任务的终态由界面按任务跟踪，整批汇总成一条通知。",
+      "after": "Submit a batch and return immediately; the UI tracks member task terminal states and consolidates the batch into one notification."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/asset-sheets/{asset_type}/{name}/regeneration-impact",
+        "get",
+        "description"
+      ],
+      "before": "这张资产图此刻是否过期，以及重生它会让多少件现行产物转为过期。",
+      "after": "Whether this asset image is stale now and how many current artifacts regeneration would make stale."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/script-review",
+        "get",
+        "description"
+      ],
+      "before": "读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。\n\n``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时\n那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。\n先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式\nscript_plan 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的\n违约报告」这一侧——面板会误判成仍有待处置草稿、阻塞确认，下一轮轮询自然纠正；反过来的顺序会\n让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，\n用户点下确认时实际晋升的是他从未看过的那份新内容。",
+      "after": "Read structured episode script_plan and confirmation state for Web rendering/editing.\n\nMerge ``quarantine`` separately, non-None only for reference_video with existing drafts. Revalidate on read using\nthe original output validator, independently of ``get_state`` disk operations.\nRead ``quarantine`` before ``state``: if Agent promotion clears drafts and updates formal planning between reads,\nthis order can pair new content with old violations. The panel conservatively blocks confirmation until the next\npoll corrects it. Reversing order could pair old content with quarantine None, falsely allow confirmation, and\npromote new content the user never reviewed."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/script-review/content",
+        "put",
+        "description"
+      ],
+      "before": "保存手动 / Agent 编辑后的结构化中间态，并使该集重新等待确认。\n\n``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，\n编辑期间 script_plan 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。\n\n``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时\nAgent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作\n「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按待处置草稿文件存在性返回 409。\n\n保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力\n解析）：晋升工具若恰好在这条 await 期间把草稿清掉，越晚读 quarantine 越可能读到\n「已清除」而不是晋升前那份，响应就会落在「保存的内容 + quarantine: null」这一侧，\n使用户没看过的、晋升后的内容被当作可放行确认——同 GET 端点的顺序取舍，先取的一侧读到\n的是相对更旧但更保守的快照，读时序错位只会让确认被多余地拦一轮，不会误放行。",
+      "after": "Save manually/Agent-edited structured intermediate content and return the episode to pending confirmation.\n\nQuery ``base_fingerprint`` is the editor’s GET content fingerprint. If supplied, compare under lock; competing\nscript_plan writes during editing return 409 without persistence. Omission skips comparison for direct calls without baselines.\n\nMerge ``quarantine`` like GET: saving changes the formal planning document, independently of the repairable draft file.\nAgent generation may create a new draft during saving. Omitting this field makes ``adopt()`` infer no draft, falsely\nshow clean state and allow confirmation, while confirm() still rejects draft existence with 409.\n\nFetch ``quarantine`` immediately after saving, before ``_attach_duration_tiers`` awaits capability resolution. Promotion\nduring that await may clear the draft; later reads increasingly risk pairing saved content with quarantine null, allowing\nconfirmation of unseen promoted content. Like GET, read the relatively older conservative snapshot first: read skew may\nblock confirmation for one extra poll, but cannot incorrectly authorize it."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/script-review/confirm",
+        "post",
+        "description"
+      ],
+      "before": "用户显式确认 script_plan 内容：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。\n\n该集已有正式脚本时须带 ``overwrite_revision``（覆盖清单的 ``revision``），缺失或与当前正式脚本不符\n时 409，诊断里的 ``script_overwrite`` 列出当前将被移除的分镜与产物摘要，不写正式脚本与确认记录。\n\n``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已\n按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在\n三个端点里时有时无。",
+      "after": "Explicit user confirmation converts the whole script_plan to a formal script with all shots pending authoring, enabling prompt_authoring visuals.\n\nExisting formal scripts require ``overwrite_revision``, the overwrite list’s ``revision``. Missing/mismatched revisions\nreturn 409 with current removed-shot/artifact summaries in diagnostic ``script_overwrite``, writing neither scripts nor confirmation.\n\nMerge ``quarantine`` like GET/PUT for identical response shapes. Although ``confirm()`` rejects pending draft existence\ninternally, responses must still accurately expose draft state at confirmation completion rather than inconsistently\nomitting the field across endpoints."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/drafts",
+        "get",
+        "description"
+      ],
+      "before": "本集在场的草稿摘要。",
+      "after": "Summaries of existing drafts for this episode."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}",
+        "get",
+        "description"
+      ],
+      "before": "一份草稿的呈现视图：违约与降级提示逐条目定位；Agent 的可编辑草稿不带正文。",
+      "after": "A draft presentation view with violations and degradation hints located per item; editable Agent drafts omit the body."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}",
+        "put",
+        "description"
+      ],
+      "before": "手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。",
+      "after": "Save manual repairs: the server fully revalidates, adopting as formal content when violations clear; otherwise return the refreshed draft view."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}",
+        "delete",
+        "description"
+      ],
+      "before": "丢弃草稿，回到正式内容。",
+      "after": "Discard the draft and return to formal content."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}/repair",
+        "post",
+        "description"
+      ],
+      "before": "提交 AI 修复，返回生成批次：只改违约所在的条目，修完照常重判，违约清零即采用。",
+      "after": "Submit AI repair and return a generation batch: modify only items with violations, revalidate normally, and adopt once violations clear."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/prompt-authoring/instructions",
+        "put",
+        "description"
+      ],
+      "before": "只保存本集的附加指令（「交给 Agent」路径用），不提交生成。",
+      "after": "Save only this episode’s additional instructions for the “Hand to Agent” path, without submitting generation."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/prompt-authoring",
+        "post",
+        "description"
+      ],
+      "before": "保存附加指令并提交提示词编写，返回生成批次。\n\n显式重写会替换已有视觉层内容而未带（或带了过期的）``overwrite_revision`` 时 409，诊断里的\n``prompt_overwrite`` 列出将被覆盖的条目与字段、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。",
+      "after": "Save additional instructions and submit prompt authoring, returning a generation batch.\n\nWhen explicit rewriting would replace existing visual content and ``overwrite_revision`` is absent or stale, return 409\nwithout submitting tasks. Diagnostic ``prompt_overwrite`` lists entries and fields to overwrite, rendered ``text``, and\nthe acceptance token ``revision``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episode-planning",
+        "post",
+        "description"
+      ],
+      "before": "提交 AI 分集规划，从规划起点逐窗规划到整本源文结尾，返回首窗的生成批次。\n\n带 ``gap`` 时是「规划这段未切分的原文」：只规划到这段原文的结尾，新集按源文位置插入。",
+      "after": "Submit AI planning from the planning start through whole-source end, window by window, returning the first window’s batch.\n\nWith ``gap``, plan only that unsplit source range through its ending and insert new episodes by source position."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episode-planning/stop",
+        "post",
+        "description"
+      ],
+      "before": "停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，已切出的集保留。",
+      "after": "Stop planning by cancelling queued windows; the running window finishes normally and existing planned episodes remain."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episode-replan",
+        "post",
+        "description"
+      ],
+      "before": "从某一集开始重新规划：逐窗生成一份候选，分集账本不动，返回首窗的生成批次。\n\n``dry_run`` 时返回 ``status=preview``：会被替换的切出集 ``replaced`` 与其中已开始制作的集 ``started``。",
+      "after": "Replan from an episode by generating a candidate window by window without changing the ledger; return the first window’s batch.\n\n``dry_run`` returns ``status=preview`` with extracted episodes to replace in ``replaced`` and those already in production in ``started``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episode-replan/continue",
+        "post",
+        "description"
+      ],
+      "before": "接着生成中途停止的新的分集方案：从方案的结尾逐窗生成到整本源文结尾，沿用发起时的附加指令。\n\n返回首窗的生成批次。方案已覆盖到结尾、已过时或已不在时按原因码拒绝；分集规划在进行时 409。",
+      "after": "Continue an interrupted replan from the candidate ending through whole-source end, window by window, reusing original additional instructions.\n\nReturn the first window’s batch. Reject completed, stale or absent candidates by reason code; return 409 while episode planning is active."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episode-replan/adopt",
+        "post",
+        "description"
+      ],
+      "before": "采纳新的分集方案。\n\n先不带 ``revision`` 调用，得到 ``status=confirmation_required`` 与服务端成文的 ``impact.text``（采纳的后果）和\n``impact.delete_text``（勾选「一并删除」时会丢失的内容）；确认后带上 ``impact.revision`` 重新提交。清单在两次调用\n之间变了时再次返回确认，不采纳。",
+      "after": "Adopt the new episode plan.\n\nFirst omit ``revision`` for ``status=confirmation_required``, server-written adoption consequences in ``impact.text`` and\ncontent lost by selecting deletion in ``impact.delete_text``. After confirmation, resubmit with ``impact.revision``.\nIf lists change between calls, request confirmation again without adopting."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episode-replan/discard",
+        "post",
+        "description"
+      ],
+      "before": "放弃新的分集方案：分集账本什么都不变。",
+      "after": "Discard the new episode plan without changing the ledger."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/script-plan/instructions",
+        "put",
+        "description"
+      ],
+      "before": "只保存本集的附加指令（「交给 Agent」路径用），不提交生成。",
+      "after": "Save only this episode’s additional instructions for the “Hand to Agent” path, without submitting generation."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/script-plan",
+        "post",
+        "description"
+      ],
+      "before": "保存附加指令并提交 AI 规划脚本，返回生成批次。\n\n新的脚本规划整份替换本集现有的规划与草稿；是否先向用户确认由调用方负责。",
+      "after": "Save additional instructions and submit AI script planning, returning a generation batch.\n\nThe new script plan replaces this episode’s entire existing plan and draft; the caller is responsible for deciding whether to confirm with the user first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/episodes/{episode}/ad-script",
+        "post",
+        "description"
+      ],
+      "before": "提交广告/短片整份生成，返回生成批次。\n\n``regenerate`` 时已有正式脚本而未带（或带了过期的）``overwrite_revision`` 返回 409，诊断里的\n``script_overwrite`` 列出将被移除的条目与产物、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。",
+      "after": "Submit full ad / short-film generation, returning a generation batch.\n\nIf ``regenerate`` encounters an existing formal script and ``overwrite_revision`` is absent or stale, return 409 without\nsubmitting tasks. Diagnostic ``script_overwrite`` lists entries and artifacts to remove, rendered ``text``, and the\nacceptance token ``revision``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/shots/{shot_id}/upload/{kind}",
+        "post",
+        "description"
+      ],
+      "before": "上传分镜图或分镜视频，替换该分镜的 AI 生成资产。\n\n与生成链路保持一致：staging → 正式选择与元数据原子提交（status 自动推导）→\nSSE batch 推送。",
+      "after": "Upload a storyboard image or video, replacing the shot’s AI-generated asset.\n\nMatch generation: staging → atomic formal selection/metadata commit with derived status → SSE batch notification."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/characters/{char_name}/derivatives/{derivative_name}/upload",
+        "post",
+        "description"
+      ],
+      "before": "上传一张图替换角色衍生的资产图，成为该衍生的当前版本。\n\n不要求本体已有资产图：上传的图是成品，不以本体资产图为输入。",
+      "after": "Upload an image to replace a character derivative’s asset image as its current version.\n\nNo base asset image is required: the upload is a finished image, not generated from the base image."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/shots/{shot_id}/end-frame/upload",
+        "post",
+        "description"
+      ],
+      "before": "上传任意图片作为该分镜的尾帧。",
+      "after": "Upload any image as this storyboard’s end frame."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/shots/{shot_id}/end-frame/select",
+        "post",
+        "description"
+      ],
+      "before": "指定项目内已有图片的相对路径作为该分镜的尾帧（快照复制，不建立引用）。",
+      "after": "Select an existing project image by relative path as this storyboard’s end frame, copying a snapshot rather than creating a reference."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/shots/{shot_id}/end-frame",
+        "delete",
+        "description"
+      ],
+      "before": "清除该分镜的尾帧：删快照文件并把字段置空。",
+      "after": "Clear this storyboard’s end frame: delete the snapshot and clear the field."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/migration/retry",
+        "post",
+        "description"
+      ],
+      "before": "重跑本项目的数据升级链（含产物补录）；已是最新版本时直接成功。\n\n升级仍失败时 422，诊断里的 ``reason`` 是失败原文，``details`` 是结构化明细（集 / 文件 / 违约）。",
+      "after": "Rerun this project’s upgrade chain, including artifact backfill; succeed immediately if already current.\n\nContinued upgrade failure returns 422 with original failure text in diagnostic ``reason`` and structured episode/file/violation ``details``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/migration-report/acknowledge",
+        "post",
+        "description"
+      ],
+      "before": "记下用户已看过上一次升级的报告：项目页不再提示。没有待确认的报告时同样成功。\n\n``acknowledged`` 为假表示盘上没有这份待确认的报告：要么已确认过，要么已换成另一份。",
+      "after": "Record that the user has seen the last upgrade report so the project page stops prompting. Also succeed when no report awaits acknowledgment.\n\nFalse ``acknowledged`` means this pending report is absent on disk: it was already acknowledged or replaced by another."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/versions/{resource_type}/{resource_id}",
+        "get",
+        "description"
+      ],
+      "before": "获取资源的所有版本列表\n\nArgs:\n    project_name: 项目名称\n    resource_type: 资源类型 (storyboards, videos, characters, scenes, props)\n    resource_id: 资源 ID",
+      "after": "List all versions of a resource.\n\nArgs:\n    project_name: Project name.\n    resource_type: Resource type (storyboards, videos, characters, scenes, props).\n    resource_id: Resource ID."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/versions/character-derivative/{owner_name}/{derivative_name}",
+        "get",
+        "description"
+      ],
+      "before": "获取一个角色衍生资产图的版本列表。\n\n衍生的资源 id 是 ``本体名/衍生名``，塞不进通用版本路由的单段路径参数，故单列两段路径。",
+      "after": "List versions of a character-derivative image.\n\nDerivative IDs ``本体名/衍生名`` do not fit generic single-segment parameters, so use a separate two-segment path."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/versions/character-derivative/{owner_name}/{derivative_name}/restore/{version}",
+        "post",
+        "description"
+      ],
+      "before": "把一个角色衍生资产图切回指定历史版本。",
+      "after": "Restore a character-derivative image to a specified historical version."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/versions/{resource_type}/{resource_id}/restore/{version}",
+        "post",
+        "description"
+      ],
+      "before": "切换到指定版本\n\n会将指定版本复制到当前路径，并把当前版本指针切换到该版本。\n\nArgs:\n    project_name: 项目名称\n    resource_type: 资源类型\n    resource_id: 资源 ID\n    version: 要还原的版本号",
+      "after": "Switch to a specified version.\n\nCopy the selected version to the current path and select it as current.\n\nArgs:\n    project_name: Project name.\n    resource_type: Resource type.\n    resource_id: Resource ID.\n    version: Version number to restore."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "项目名称；端点试跑记录用空串",
+      "after": "Project name; use an empty string for endpoint trial records"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "项目名称；端点试跑记录用空串",
+      "after": "Project name; use an empty string for endpoint trial records"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        1,
+        "schema",
+        "description"
+      ],
+      "before": "供应商 id，逗号分隔多选",
+      "after": "Provider IDs, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        1,
+        "description"
+      ],
+      "before": "供应商 id，逗号分隔多选",
+      "after": "Provider IDs, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "模型，逗号分隔多选",
+      "after": "Models, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "模型，逗号分隔多选",
+      "after": "Models, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        3,
+        "schema",
+        "description"
+      ],
+      "before": "媒体类型 (image/video/text/audio)，逗号分隔多选",
+      "after": "Media types (image/video/text/audio), comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        3,
+        "description"
+      ],
+      "before": "媒体类型 (image/video/text/audio)，逗号分隔多选",
+      "after": "Media types (image/video/text/audio), comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        5,
+        "schema",
+        "description"
+      ],
+      "before": "分镜 id，逗号分隔多选",
+      "after": "Storyboard IDs, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        5,
+        "description"
+      ],
+      "before": "分镜 id，逗号分隔多选",
+      "after": "Storyboard IDs, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        6,
+        "schema",
+        "description"
+      ],
+      "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+      "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        6,
+        "description"
+      ],
+      "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+      "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        7,
+        "schema",
+        "description"
+      ],
+      "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+      "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        7,
+        "description"
+      ],
+      "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+      "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        8,
+        "schema",
+        "description"
+      ],
+      "before": "每页记录数",
+      "after": "Records per page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        8,
+        "description"
+      ],
+      "before": "每页记录数",
+      "after": "Records per page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        9,
+        "schema",
+        "description"
+      ],
+      "before": "上一页返回的不透明游标",
+      "after": "Opaque cursor returned by the previous page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/records",
+        "get",
+        "parameters",
+        9,
+        "description"
+      ],
+      "before": "上一页返回的不透明游标",
+      "after": "Opaque cursor returned by the previous page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "description"
+      ],
+      "before": "Agent 会话列表：按 ``session_id`` 聚合，每个会话一行，按最近一轮的时间倒序。\n\n筛选与 ``/usage/records`` 同口径（时间范围、项目、供应商、模型）；已经以 ``anthropic`` 落库的\n历史记录同样按会话聚合。",
+      "after": "Agent sessions aggregated by ``session_id``, one row per session ordered by latest turn descending.\n\nShare time/project/provider/model filters with ``/usage/records``. Historical records stored as ``anthropic``\nalso aggregate by session."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "项目名称",
+      "after": "Project name"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "项目名称",
+      "after": "Project name"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        1,
+        "schema",
+        "description"
+      ],
+      "before": "供应商 id，逗号分隔多选",
+      "after": "Provider IDs, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        1,
+        "description"
+      ],
+      "before": "供应商 id，逗号分隔多选",
+      "after": "Provider IDs, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "模型，逗号分隔多选",
+      "after": "Models, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "模型，逗号分隔多选",
+      "after": "Models, comma-separated for multiple selections"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        3,
+        "schema",
+        "description"
+      ],
+      "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+      "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        3,
+        "description"
+      ],
+      "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+      "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        4,
+        "schema",
+        "description"
+      ],
+      "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+      "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        4,
+        "description"
+      ],
+      "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+      "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        5,
+        "schema",
+        "description"
+      ],
+      "before": "每页会话数",
+      "after": "Sessions per page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        5,
+        "description"
+      ],
+      "before": "每页会话数",
+      "after": "Sessions per page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        6,
+        "schema",
+        "description"
+      ],
+      "before": "上一页返回的不透明游标",
+      "after": "Opaque cursor returned by the previous page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions",
+        "get",
+        "parameters",
+        6,
+        "description"
+      ],
+      "before": "上一页返回的不透明游标",
+      "after": "Opaque cursor returned by the previous page"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/sessions/{session_id}",
+        "get",
+        "description"
+      ],
+      "before": "一个 Agent 会话的明细：按时间每条记录一行，不套列表的筛选。",
+      "after": "Agent-session details, one chronological row per record, without list filters."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "description"
+      ],
+      "before": "一次返回总览所需的全部聚合；不传 since / until 即全部时间。\n\n合计、趋势与构成包含 Agent 记录（构成里 Agent 会话单独占一项），「需要关注」只统计生成调用。\n\n不收 ``status``：pending 不进聚合，其余三个终态一起构成 KPI 的口径，按状态再切会让\n调用次数与成功率互相矛盾。记录表的状态筛选带上来时在此被忽略。\n\nsince / until 展开的日桶超过 ``MAX_DAILY_BUCKETS`` 返回 422：桶数由这两个时刻直接决定，\n不设上界会让一对离谱的时刻在服务端同步铺出几百万个桶。",
+      "after": "Return all overview aggregates at once; omitted since / until means all time.\n\nTotals, trends and composition include Agent records, with sessions as a separate composition item; attention-needed\ncounts include generation calls only.\n\nDo not accept ``status``: pending is excluded and all three terminal states jointly define KPIs. Further status slicing\nwould contradict call counts and success rates, so ignore record-table status filters here.\n\nReturn 422 when since / until expands beyond ``MAX_DAILY_BUCKETS``. Those timestamps directly determine bucket count;\nwithout a limit, extreme dates could synchronously allocate millions of daily buckets."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "IANA 时区名，按此切天",
+      "after": "IANA timezone name used for day boundaries"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "IANA 时区名，按此切天",
+      "after": "IANA timezone name used for day boundaries"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        1,
+        "schema",
+        "description"
+      ],
+      "before": "项目名称（空串筛选端点试跑）",
+      "after": "Project name (an empty string filters endpoint trials)"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        1,
+        "description"
+      ],
+      "before": "项目名称（空串筛选端点试跑）",
+      "after": "Project name (an empty string filters endpoint trials)"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "按供应商筛选",
+      "after": "Filter by provider"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "按供应商筛选",
+      "after": "Filter by provider"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        3,
+        "schema",
+        "description"
+      ],
+      "before": "按模型筛选",
+      "after": "Filter by model"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        3,
+        "description"
+      ],
+      "before": "按模型筛选",
+      "after": "Filter by model"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        4,
+        "schema",
+        "description"
+      ],
+      "before": "媒体类型 (image/video/text/audio)",
+      "after": "Media type (image/video/text/audio)"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        4,
+        "description"
+      ],
+      "before": "媒体类型 (image/video/text/audio)",
+      "after": "Media type (image/video/text/audio)"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        5,
+        "schema",
+        "description"
+      ],
+      "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+      "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        5,
+        "description"
+      ],
+      "before": "起始时刻（含），ISO 8601，无时区按 UTC",
+      "after": "Inclusive start time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        6,
+        "schema",
+        "description"
+      ],
+      "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+      "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        6,
+        "description"
+      ],
+      "before": "结束时刻（不含），ISO 8601，无时区按 UTC",
+      "after": "Exclusive end time, ISO 8601; timezone-naive values use UTC"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        7,
+        "schema",
+        "description"
+      ],
+      "before": "决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图",
+      "after": "Select which view supplies project, provider and model filter candidates; totals do not distinguish views"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/usage/summary",
+        "get",
+        "parameters",
+        7,
+        "description"
+      ],
+      "before": "决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图",
+      "after": "Select which view supplies project, provider and model filter candidates; totals do not distinguish views"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/auth/verify",
+        "get",
+        "description"
+      ],
+      "before": "验证 token 有效性\n\n使用 OAuth2 Bearer token 依赖自动提取和验证 token。",
+      "after": "Validate a token.\n\nUse the OAuth2 Bearer dependency to extract and validate the token automatically."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/rewrite",
+        "post",
+        "description"
+      ],
+      "before": "改写会话中某条历史用户消息：分叉出新会话并在其上重跑。\n\n``session_id`` 是被改写的原会话；响应里的 ``session_id`` 是承接改写的新会话，\n前端据此整体切换过去。运行中的会话由端点自动中断，调用方不必先停止。",
+      "after": "Rewrite a historical user message by forking a new session and rerunning there.\n\nInput ``session_id`` identifies the original session; response ``session_id`` identifies the new session carrying the rewrite,\nletting the frontend switch completely. The endpoint interrupts active sessions automatically; callers need not stop them first."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/entries",
+        "get",
+        "description"
+      ],
+      "before": "冷读会话事件日志（历史回放；``after`` 为 seq 游标）。",
+      "after": "Read stored session events for history replay, with ``after`` as the seq cursor."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/entries/stream",
+        "get",
+        "description"
+      ],
+      "before": "SSE entry 流：事件 id 即 seq。\n\n游标优先级：前端流式客户端重连携带的 ``Last-Event-ID`` > ``?after=<seq>``\n（冷订阅）。",
+      "after": "SSE entry stream: event IDs are seq values.\n\nCursor priority: ``Last-Event-ID`` from frontend streaming reconnection overrides ``?after=<seq>`` for initial subscriptions."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/queued-messages/{message_id}/edit",
+        "post",
+        "description"
+      ],
+      "before": "把一条排队消息退回输入框：撤回成功时响应带回它的内容（``message``）。\n\n``outcome`` 为 ``withdrawn`` 时消息已移出排队；为 ``accepted`` 时 Agent 已接收它，消息照常进入对话。",
+      "after": "Return a queued message to the input box; successful withdrawal returns its content in ``message``.\n\n``outcome`` ``withdrawn`` means removed from the queue; ``accepted`` means the Agent already received it and it enters the conversation normally."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/queued-messages/{message_id}",
+        "delete",
+        "description"
+      ],
+      "before": "删除一条排队消息：撤回成功即丢弃。响应形状同编辑端点，``message`` 恒为 null。",
+      "after": "Delete a queued message by discarding after successful withdrawal. Match the edit response shape with ``message`` always null."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/queued-messages/{message_id}/resend",
+        "post",
+        "description"
+      ],
+      "before": "把一条「未发送」消息重新交给 Agent，会话已中断时先重建连接。响应带回这条排队消息（``queued_message``）。",
+      "after": "Resend an unsent message to the Agent, reconnecting interrupted sessions first; return the queued message in ``queued_message``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/assistant/sessions/{session_id}/queued-messages/{message_id}/send-now",
+        "post",
+        "description"
+      ],
+      "before": "立即发送一条排队消息：Agent 打断当前轮先处理它。\n\n``outcome`` 为 ``sent`` 时已重新送入，消息仍留在托盘里直到被接纳；为 ``accepted`` 时 Agent 已接收它，不再重发。",
+      "after": "Immediately send a queued message, interrupting the current Agent turn to handle it first.\n\n``outcome`` ``sent`` means resubmitted, remaining in the tray until accepted; ``accepted`` means already received by the Agent, without resending."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers",
+        "get",
+        "description"
+      ],
+      "before": "返回所有供应商及其状态。",
+      "after": "Return every provider and its status."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/video-capabilities",
+        "get",
+        "description"
+      ],
+      "before": "无项目上下文的视频模型能力：创建向导里项目尚不存在，按候选模型直接解析。\n\n与 `/projects/{name}/video-capabilities` 同一条桶能力闸和模型能力解析链路，\n只是没有项目可读：`default_duration` / `generation_mode` 等项目偏好为 None。\n`duration_constraints` 由候选模型所在桶（`uses_reference_images` 为真即 r2v，否则 i2v）的视频请求\n事实给出，`resolution` 作为「覆盖分辨率」参与求值（缺省即「自动」：自定义供应商取模型默认档，其余不带分辨率）。\n裸 provider 的补全与格式校验同项目端点。",
+      "after": "Video-model capabilities without project context: creation wizards resolve candidate models before a project exists.\n\nShare the bucket-capability gate/model-capability resolution chain with `/projects/{name}/video-capabilities`,\nbut with no project to read: `default_duration` / `generation_mode` and other preferences are None.\n`duration_constraints` comes from video request facts for the candidate's bucket (`uses_reference_images`\ntrue → r2v, otherwise i2v). `resolution` evaluates as an override (omitted means automatic: custom\nproviders use model defaults, others omit resolution). Bare-provider completion and format validation\nmatch the project endpoint."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/config",
+        "get",
+        "description"
+      ],
+      "before": "返回单个供应商的配置字段（registry 元数据与 DB 值合并）。",
+      "after": "Return one provider's configuration fields, merging registry metadata and DB values."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/config",
+        "patch",
+        "description"
+      ],
+      "before": "更新供应商配置。值为 null 表示删除该键。供应商倍率只经 ``PUT /{provider_id}/multiplier`` 修改。",
+      "after": "Update provider configuration. null deletes a key. Change provider multipliers only through ``PUT /{provider_id}/multiplier``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/multiplier",
+        "get",
+        "description"
+      ],
+      "before": "供应商倍率：乘在这个供应商全部调用的参考费用上。",
+      "after": "Provider multiplier, applied to reference costs of every call through this provider."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/multiplier",
+        "put",
+        "description"
+      ],
+      "before": "设置供应商倍率，只影响之后结算的调用；已记下的费用不重算。",
+      "after": "Set provider multiplier for calls settled afterward only; do not recalculate recorded costs."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/gemini-vertex/credentials/upload",
+        "post",
+        "description"
+      ],
+      "before": "上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。",
+      "after": "Upload a Vertex AI service-account JSON credential file and create its credential record."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/test",
+        "post",
+        "description"
+      ],
+      "before": "调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。",
+      "after": "Call provider APIs to check connectivity; credential_id may select a specific credential."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models",
+        "get",
+        "description"
+      ],
+      "before": "供应商的全部供应商模型，带启用状态、状态标记与价格摘要。",
+      "after": "All models for a provider, with enabled state, status flags, and price summaries."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models",
+        "post",
+        "description"
+      ],
+      "before": "按 ID 添加模型。\n\n内置供应商：对上官方收录的模型即启用它，对不上的作为用户添加的模型。自定义供应商：没给调用端点时按名字推断，\n这个媒体类型还没有默认模型时新模型成为默认。",
+      "after": "Add a model by ID.\n\nBuilt-ins enable official matches, otherwise add user models. Custom providers infer endpoints by\nname when omitted; new models become default if their media type has none."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models/enabled",
+        "put",
+        "description"
+      ],
+      "before": "启用或停用一个供应商模型，立即生效。\n\n自定义供应商开放哪些媒体类型由已启用的模型决定，启停后与其他模型改动一样清缓存、刷新 worker 的容量表。",
+      "after": "Enable/disable a provider model immediately.\n\nEnabled models determine custom-provider available media types; clear caches and refresh worker\ncapacity tables after changes, as with other model edits."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models/discover",
+        "post",
+        "description"
+      ],
+      "before": "获取模型：调用供应商的模型列表接口，返回全部模型 ID 与对应结果，由界面排除已添加的模型。\n\n自定义供应商按名字对应条目并给出默认调用端点；内置供应商按清单中的 API 模型名精确匹配。获取结果不用来判断\n模型是否可用。",
+      "after": "Discover models through the provider's model-list API; return every ID and match, leaving exclusion of already-added models to the UI.\n\nCustom providers match entry names and supply default endpoints; built-ins match exact catalog API\nmodel names. Discovery results do not establish model availability."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models/{model_id}",
+        "delete",
+        "description"
+      ],
+      "before": "移除用户负责的模型：自定义供应商的模型（同时清空全局设置与项目里指向它的引用），或内置供应商下用户添加的模型。\n官方收录的模型只能停用。",
+      "after": "Remove user-managed models: custom models (also clearing global/project references), or user-added\nbuilt-in models. Officially listed models may only be disabled."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models/{model_id}",
+        "get",
+        "description"
+      ],
+      "before": "读取单个供应商模型：列表行、供应商设置、对应条目，以及「这个供应商支持的参数」的生效值与原值。",
+      "after": "Read one provider model: list row, provider settings, matched entry, and effective/original supported-parameter values."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/models/{model_id}",
+        "patch",
+        "description"
+      ],
+      "before": "保存供应商模型 Sheet 的供应商设置与模型信息，一次请求原子保存；返回保存后的 Sheet 内容。",
+      "after": "Atomically save provider settings and model information in one request; return the saved Sheet content."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/providers/{provider_id}/model-references",
+        "get",
+        "description"
+      ],
+      "before": "引用这个供应商模型的全局设置项与项目，供「从供应商移除」的确认框提示。",
+      "after": "Global settings and projects referencing this provider model, for removal-confirmation dialogs."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/entries",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "按名称搜索；留空列出全部",
+      "after": "Search by name; leave empty to list all entries"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/entries",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "按名称搜索；留空列出全部",
+      "after": "Search by name; leave empty to list all entries"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/entries",
+        "get",
+        "parameters",
+        1,
+        "schema",
+        "description"
+      ],
+      "before": "只列这个媒体类型的条目",
+      "after": "List entries of this media type only"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/entries",
+        "get",
+        "parameters",
+        1,
+        "description"
+      ],
+      "before": "只列这个媒体类型的条目",
+      "after": "List entries of this media type only"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/entries",
+        "post",
+        "description"
+      ],
+      "before": "目录中找不到的模型，由用户手动填写新建条目；新建的条目不跟随官方。\n\nSheet 里的「手动填写」不走这个接口：新条目随 Sheet 的保存写入（``PATCH /providers/{id}/models/{model}`` 的\n``new_entry``），取消则不留下条目。这个接口给没有 Sheet 的入口，如添加模型的对话框。\n\n已有的供应商模型可能从此按名字对应上新条目，能力随之改变，所以与恢复官方数据一样清空 backend 缓存。",
+      "after": "Create a user-entered model absent from the catalog; new entries do not follow official data.\n\nSheet manual entry does not use this endpoint: new entries persist with Sheet saves through ``new_entry`` in\n``PATCH /providers/{id}/models/{model}``; cancellation leaves no entry. This endpoint supports non-Sheet entry points\nsuch as the add-model dialog.\n\nExisting provider models may now match the entry by name and change capabilities, so clear backend caches as for official-data restoration."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/new-entry-hints",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "准备填写的模型名称",
+      "after": "Model name to enter"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/new-entry-hints",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "准备填写的模型名称",
+      "after": "Model name to enter"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/new-entry-hints",
+        "get",
+        "parameters",
+        1,
+        "schema",
+        "description"
+      ],
+      "before": "准备填写的媒体类型",
+      "after": "Media type to enter"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/new-entry-hints",
+        "get",
+        "parameters",
+        1,
+        "description"
+      ],
+      "before": "准备填写的媒体类型",
+      "after": "Media type to enter"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/catalog/entries/restore-official",
+        "post",
+        "description"
+      ],
+      "before": "恢复官方数据：丢弃这个条目的用户副本，条目回到跟随官方，所有使用它的供应商一起生效。不能撤销。\n\n用户改过官方条目时叫「恢复官方数据」；用户新建的条目在官方数据收录了同一身份的条目之后，叫「改用官方数据」，\n是同一个接口。条目没有用户副本时什么都不做；官方数据里还没有这个条目时拒绝。",
+      "after": "Restore official data: discard the user copy and resume following official data, affecting every provider using the entry. Irreversible.\n\nFor modified official entries this is “Restore official data”; user-created entries with a matching identity later included\nin official data use “Adopt official data”, through the same endpoint. Do nothing without a user copy; reject if official\ndata does not yet contain the entry."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/object-storage/new-image-target",
+        "put",
+        "description"
+      ],
+      "before": "选择之后新提交的图片内容版本保存在本地还是对象存储；已有图片与历史版本不搬迁。",
+      "after": "Choose local or object storage for subsequently submitted image versions; do not move existing images or historical versions."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/object-storage/connection/test",
+        "post",
+        "description"
+      ],
+      "before": "用已保存的连接确认凭证有效、桶存在且可以访问。",
+      "after": "Use the saved connection to verify credentials and confirm the bucket exists and is accessible."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/object-storage/work-cache/cleanup",
+        "post",
+        "description"
+      ],
+      "before": "删除远端素材闲置的本地工作文件（项目与全局资产库）；需要时预览与读取会从对象存储重新取回。",
+      "after": "Delete idle local working files for remote materials in projects/global assets; previews and reads retrieve them from object storage when needed."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/asset-library/accounts/{account_id}",
+        "patch",
+        "description"
+      ],
+      "before": "修改账号。站点、区域、项目或 Access Key ID 变化后，该账号上的绑定都需要重新确认。",
+      "after": "Update an account. Changes to site, region, project or Access Key ID require reconfirming all its bindings."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/asset-library/accounts/{account_id}",
+        "delete",
+        "description"
+      ],
+      "before": "删除账号与它上面的全部绑定；不影响供应商素材库里的任何素材。",
+      "after": "Delete the account and all its bindings, without affecting assets in the provider library."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/asset-library/bindings",
+        "get",
+        "description"
+      ],
+      "before": "全部可绑定的推理凭证及其当前绑定状态。",
+      "after": "All bindable inference credentials and their current binding states."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/asset-library/bindings/{credential_type}/{credential_id}",
+        "put",
+        "description"
+      ],
+      "before": "按推理凭证与账号的当前内容确认绑定；重新确认与改绑都走这里。",
+      "after": "Confirm a binding using current inference-credential and account contents; reconfirmation and rebinding use the same endpoint."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/asset-library/accounts/{account_id}/assets",
+        "get",
+        "description"
+      ],
+      "before": "按账号的站点、区域与项目范围分页列出供应商素材库里的素材。",
+      "after": "Page through provider-library assets within the account’s site, region and project scope."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/provider-asset-links",
+        "get",
+        "description"
+      ],
+      "before": "图片当前选中版本在各个素材库范围里的关联与入库状态。改选另一版本后，返回的是那个版本的关联。",
+      "after": "Links and ingestion state of the image’s selected version within each library scope; selecting another version returns that version’s links."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/provider-asset-links",
+        "post",
+        "description"
+      ],
+      "before": "把图片当前选中的版本上传到账号对应的素材库。立即返回入库任务，之后按状态轮询。",
+      "after": "Upload the image’s currently selected version to the account’s library. Return the ingestion job immediately, then poll its state."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/provider-asset-links/import",
+        "post",
+        "description"
+      ],
+      "before": "从素材库选择一张可用的图片：取回原图保存为资产图的新版本，并为这个版本建立关联。\n\n取不回内容或保存失败时不建立关联，原选中版本不变。",
+      "after": "Select an available library image: retrieve the original, save a new asset-image version, and link that version.\n\nIf retrieval or saving fails, create no link and retain the previously selected version."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/provider-asset-links/{link_id}",
+        "delete",
+        "description"
+      ],
+      "before": "解除关联：只解除当前关系，不删除 ArcReel 图片或供应商素材。",
+      "after": "Unlink only the current relationship, without deleting the ArcReel image or provider asset."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/provider-asset-links/{link_id}/refresh",
+        "post",
+        "description"
+      ],
+      "before": "请后台立即重新查询状态；已可用或已失败的关联原样返回。",
+      "after": "Ask the background worker to recheck state immediately; return available or failed links unchanged."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/system/config/model-candidates",
+        "get",
+        "description"
+      ],
+      "before": "任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。\n\n默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的\n组合执行得了」，故按桶过滤。被某个桶滤掉的默认层模型连同不满足的能力维度列在 ``filtered``，原因与进桶判定\n同一个求值结果（:class:`BucketFit`）。\n\n另带引用处的下线提示（``lifecycle``），一键切换的目标从同一份候选里挑。设置与项目里引用了清单之外的模型时，\n按被引用的值对应本地保留的条目补上提示（:func:`_unlisted_references`）。",
+      "after": "Candidate source for task-type bucket dropdowns: all defaults plus capability-filtered model lists per bucket.\n\nDefaults are unfiltered because that layer promises no capabilities; resolution gates report unsupported\ncapabilities. Only buckets promise executable configured combinations, hence bucket filtering. Default\nmodels excluded from a bucket appear in ``filtered`` with unmet capability dimensions, using the same\n:class:`BucketFit` evaluation as bucket admission.\n\nAlso include retirement notices at references (``lifecycle``), choosing one-click targets from the same\ncandidates. For settings/project references to unlisted models, supplement notices by matching values\nto retained local entries (:func:`_unlisted_references`)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/system/config/auto-backends",
+        "get",
+        "description"
+      ],
+      "before": "「自动选择」的实际模型：与执行期解析同口径，设置界面据此显示当前模型并按它查询能力。",
+      "after": "Actual automatically selected models, matching execution resolution; settings display them and query capabilities accordingly."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/system/narration-defaults",
+        "get",
+        "description"
+      ],
+      "before": "全局默认音频模型、旁白音色与配音语速：创建向导与项目设置切到 TTS 配音时用它预填项目快照。",
+      "after": "Global default audio model, narration voice, and speech rate: creation wizards and project settings switching to TTS use these to prefill project snapshots."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/system/tts-model-capabilities",
+        "get",
+        "description"
+      ],
+      "before": "所选 TTS 模型（``provider/model``）是否把配音语速传给供应商，以及它可选的音色。\n\n语速不支持时设置页置灰语速输入。音色的 label 对部分供应商是 lib/i18n 翻译 key，按请求 locale 渲染；\nlabel 本就是展示名的供应商 _t() 找不到 key 时原样返回。",
+      "after": "Whether the selected TTS model (``provider/model``) forwards speech rate to the provider, and its available voices.\n\nSettings disable speech-rate input when unsupported. Some providers use lib/i18n translation keys as\nvoice labels, rendered by request locale; for providers using display names directly, _t() returns them\nunchanged when no key matches."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/system/logs/download",
+        "get",
+        "description"
+      ],
+      "before": "打包返回 logs/ 目录所有文件 + diagnostics.txt。",
+      "after": "Return a package containing all files in logs/ plus diagnostics.txt."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/api-keys",
+        "get",
+        "description"
+      ],
+      "before": "查询所有 API Key 的元数据（不含完整 key）。",
+      "after": "List metadata for all API keys, excluding full keys."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/api-keys",
+        "post",
+        "description"
+      ],
+      "before": "创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。",
+      "after": "Create a new API key. Return the full key only once in this response; it cannot be viewed again afterward."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/api-keys/{key_id}",
+        "delete",
+        "description"
+      ],
+      "before": "删除（吊销）指定 API Key，并立即清除内存缓存。",
+      "after": "Delete (revoke) the specified API key and immediately clear its memory cache."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/credentials/{cred_id}/tiers/{tier}/binding",
+        "put",
+        "description"
+      ],
+      "before": "为单个档位选择模型条目。绑定只存在凭证上，不修改条目，也不影响条目的官方同步。",
+      "after": "Select a model entry for one tier. Bindings exist only on credentials, without modifying entries or affecting official synchronization."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/credentials/{cred_id}/tiers/{tier}/binding",
+        "delete",
+        "description"
+      ],
+      "before": "解除单个档位的绑定，回到按模型名自动对应；档位本来没有绑定时也成功。",
+      "after": "Unbind one tier and return to automatic name matching; succeed even if the tier was already unbound."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers",
+        "get",
+        "description"
+      ],
+      "before": "列出所有自定义供应商（含模型列表）。",
+      "after": "List all custom providers including model lists."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers",
+        "post",
+        "description"
+      ],
+      "before": "创建自定义供应商，可同时创建模型列表。",
+      "after": "Create a custom provider, optionally with models."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/endpoints",
+        "get",
+        "description"
+      ],
+      "before": "暴露两个命名空间的 endpoint 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。\n\n内置取自 ENDPOINT_REGISTRY，自定义由 custom_endpoint 表的定义现构造——不做启动时全量装载，\n定义原地改完、目录下次拉取即是新的。单行定义构造不出 spec（只可能来自手工改库）时跳过并\n告警，而不是让整份目录失败：一条坏定义不该把端点下拉整个打空。",
+      "after": "Expose both endpoint namespaces as frontend source of truth for dropdowns, paths, and grouping.\n\nBuilt-ins use ENDPOINT_REGISTRY; custom definitions resolve from custom_endpoint rows on demand,\nwithout startup-wide loading, so in-place edits appear next fetch. Skip/warn on unconstructable specs\n(manual DB edits only) rather than failing catalogs: one bad definition must not empty entire selectors."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/endpoints/{endpoint_key}/definition",
+        "get",
+        "description"
+      ],
+      "before": "取内置声明式端点的定义 JSON，供「复制为我的」原样 POST 成 ce-<id> 副本。\n\nPython 实现的内置端点没有定义可取，与未知键一并回 404。返回体是定义原样（零封套），\n与导入导出的文件格式同一份东西。",
+      "after": "Get built-in declarative definition JSON for verbatim POST as a ce-<id> personal copy.\n\nPython built-ins have no definition and return 404 like unknown keys. Return raw definitions without\nenvelopes, identical to import/export file formats."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/{provider_id}",
+        "get",
+        "description"
+      ],
+      "before": "获取单个自定义供应商详情。",
+      "after": "Get one custom provider's details."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/{provider_id}",
+        "patch",
+        "description"
+      ],
+      "before": "更新自定义供应商配置。",
+      "after": "Update custom-provider configuration."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/{provider_id}",
+        "put",
+        "description"
+      ],
+      "before": "原子更新供应商元数据与模型列表（单一事务），并清理全局默认中指向被删模型的引用。\n\n``models`` 不传时只更新元数据与并发上限，模型原样不动。",
+      "after": "Atomically update provider metadata/model list in one transaction and clear global defaults referencing removed models.\n\nOmitted ``models`` updates only metadata/concurrency, leaving models unchanged."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/{provider_id}",
+        "delete",
+        "description"
+      ],
+      "before": "删除自定义供应商（级联删除模型，清理悬空默认配置）。",
+      "after": "Delete a custom provider, cascading model deletion and clearing dangling defaults."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/discover",
+        "post",
+        "description"
+      ],
+      "before": "模型发现：根据 discovery_format + base_url + api_key 查询可用模型。",
+      "after": "Discover models using discovery_format + base_url + api_key."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/discover-anthropic",
+        "post",
+        "description"
+      ],
+      "before": "Anthropic 协议模型发现：Agent 配置专用。\n\n凭据缺失时 fallback 到 active credential（AgentCredentialRepository）。",
+      "after": "Anthropic model discovery for Agent configuration.\n\nMissing credentials fall back to active credentials (AgentCredentialRepository)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/{provider_id}/discover",
+        "post",
+        "description"
+      ],
+      "before": "使用已存储凭证发现指定供应商的可用模型。",
+      "after": "Discover a provider's available models using stored credentials."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/test",
+        "post",
+        "description"
+      ],
+      "before": "连通性检查：验证 discovery_format + base_url + api_key 是否可达。免费探针，不证明任何模型可生成。",
+      "after": "Check discovery_format + base_url + api_key reachability. Free probe, proving no model generation capability."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-providers/{provider_id}/test",
+        "post",
+        "description"
+      ],
+      "before": "用已存储凭证对指定供应商做连通性检查。",
+      "after": "Check a provider's connectivity using stored credentials."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/preview-request",
+        "post",
+        "description"
+      ],
+      "before": "渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、提交后才有的 id 保持占位符。",
+      "after": "Render the outgoing request without sending it. Mask credentials, replace assets with size summaries, and retain placeholders for postsubmission IDs."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/check-response",
+        "post",
+        "description"
+      ],
+      "before": "用一份供应商真实响应验证取值路径与状态映射，不外发。零费用。",
+      "after": "Validate extraction paths and status mappings against a real provider response, without sending requests. Zero cost."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/trial-runs",
+        "post",
+        "description"
+      ],
+      "before": "真实提交一次生成并轮询到终态，**会产生费用**。接口不设确认参数——明示计费归调用方。\n\n定义内联或 ``model_ref`` 二选一：后者按模型行解析端点与凭证，内置与自定义走同一资源、同一\n结果体、同一记账。每用户同时只允许一个。",
+      "after": "Actually submit generation and poll to terminal state; **incurs charges**. There is no confirmation parameter: callers own explicit billing disclosure.\n\nChoose exactly one of inline definition or ``model_ref``. The latter resolves endpoint/credentials by\nmodel row; built-in and custom providers share the same resource, result shape, and accounting.\nAllow only one concurrent run per user."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/trial-runs/{run_id}",
+        "get",
+        "description"
+      ],
+      "before": "读一次测试连接。运行中读内存、终态读盘；取消或被重启打断的 run 不留结果。",
+      "after": "Read a connection test: memory while running, disk when terminal. Canceled or restart-interrupted runs retain no results."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/trial-runs/{run_id}/cancel",
+        "post",
+        "description"
+      ],
+      "before": "停本地轮询，记账按失败结算。远端由 backend 的取消路径自己叫停，停不下来时照跑、钱照花。",
+      "after": "Stop local polling and settle accounting as failed. Backend cancellation handles remote stopping; if unsuccessful, it continues running and charging."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/trial-runs/{run_id}/artifact",
+        "get",
+        "description"
+      ],
+      "before": "播放该测试连接生成的产物。\n\nMIME 按落盘字节的文件头给，不按文件名：产物名是本层起的（视频 ``artifact.mp4``、图像\n``artifact.png``），而 ComfyUI 那一侧导出的容器可以是同族里的另一个，按名字声明会让浏览器\n按一个错误的类型解。",
+      "after": "Play the artifact generated by this connection test.\n\nDetermine MIME from persisted byte headers, not filenames: this layer chooses names (video\n``artifact.mp4``, image ``artifact.png``), but ComfyUI may export another container in the same family.\nDeclaring by name would make browsers decode using the wrong type."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/comfyui/infer",
+        "post",
+        "description"
+      ],
+      "before": "推断一份 workflow 的节点绑定候选；带既有节点绑定时同时做重导入重匹配。\n\n服务端不留状态：结果不入库，客户端拿它渲染绑定编辑器，用户确认后经端点的创建或整份替换接口\n保存。``media_type`` 只在载荷是原始 workflow 时生效——端点定义自己带着这一项。",
+      "after": "Infer workflow node-binding candidates, also rematching reimports when existing bindings are supplied.\n\nThe server retains no state and persists no results. Clients render the binding editor and save through endpoint\ncreation or full replacement only after user confirmation. ``media_type`` affects only raw workflows; endpoint\ndefinitions already contain it."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints",
+        "post",
+        "description"
+      ],
+      "before": "创建（即导入）一条自定义调用端点。请求体是定义 JSON 原样，键由系统分配。\n\n请求体也可以是一份 ComfyUI 的原始 API workflow，此时服务端按 ``media_type`` 把它包成\nComfyUI 端点定义——包装结果的节点绑定是空的，因此会被「提示词与产物必须绑定」挡下。",
+      "after": "Create (import) a custom call endpoint. The body is verbatim definition JSON; keys are system-assigned.\n\nBodies may also be raw ComfyUI API workflows; the server wraps them as ComfyUI endpoint definitions\nusing ``media_type``. Wrapped node bindings are empty, so required prompt/output binding checks reject them."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints",
+        "get",
+        "description"
+      ],
+      "before": "列出全部自定义调用端点（含定义本体）。",
+      "after": "List all custom call endpoints, including full definitions."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/validate",
+        "post",
+        "description"
+      ],
+      "before": "保存前的单段确认：形状分流 + 校验诊断 + 同作者同名的既有端点 + 提示回显 + 版本档位 + 应用版本门槛。服务端不留任何状态。\n\n``exclude_id`` 供编辑既有端点时排除自身，否则它总会把自己报成重复。载荷是原始 API workflow\n时，回的每一项都算在包装结果上——客户端接着要带走的就是它。",
+      "after": "One-step presave confirmation: shape routing + validation diagnostics + matching author/name endpoints + echoed hints + version levels + minimum app version. The server retains no state.\n\n``exclude_id`` excludes the edited endpoint itself; otherwise it always reports itself as a duplicate.\nFor raw API workflow payloads, compute every returned item from the wrapped result, which the client then takes forward."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/{endpoint_id}",
+        "get",
+        "description"
+      ],
+      "before": "读取单条端点。导出即取本响应的 ``definition`` 存成文件，服务端不参与下载。",
+      "after": "Read one endpoint. Export means saving this response's ``definition`` to a file; the server does not handle downloads."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/{endpoint_id}",
+        "put",
+        "description"
+      ],
+      "before": "整份替换定义。原地更新：键与模型行挂接不变，新任务立即用新定义。",
+      "after": "Replace the entire definition in place: retain its key and model-row attachments; new tasks use the new definition immediately."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/custom-endpoints/{endpoint_id}",
+        "delete",
+        "description"
+      ],
+      "before": "删除端点；被模型行引用时拒删并回引用清单。\n\n不级联删除引用它的模型行——模型行承载用户手工配置（定价、能力覆盖），级联会丢用户劳动；\n也不留悬空引用，那只会把错误推迟到生成时才爆。",
+      "after": "Delete an endpoint; reject referenced endpoints and return their reference list.\n\nDo not cascade-delete referencing model rows: they carry manual user configuration (pricing, capability\noverrides), and cascading loses that work. Do not leave dangling references either, delaying failure until generation."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/refresh",
+        "post",
+        "description"
+      ],
+      "before": "刷新全部启用源，逐源返回刷新后的行；禁用源不刷新、不出现在结果里。",
+      "after": "Refresh all enabled sources and return updated rows per source; neither refresh nor include disabled sources."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/refresh",
+        "post",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "只刷新距上次成功刷新超过 1 小时的启用源（打开市场页时的自动刷新）",
+      "after": "Refresh only enabled sources whose last successful refresh was over 1 hour ago (automatic refresh on opening the market page)"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/refresh",
+        "post",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "只刷新距上次成功刷新超过 1 小时的启用源（打开市场页时的自动刷新）",
+      "after": "Refresh only enabled sources whose last successful refresh was over 1 hour ago (automatic refresh on opening the market page)"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/entries",
+        "get",
+        "description"
+      ],
+      "before": "所有启用源缓存快照里的条目：按源顺序、源内按名称排列，不分页、不发请求。",
+      "after": "Entries from enabled sources’ cached snapshots, ordered by source then by name within each source; no pagination or outbound requests."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/entries",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "条目类型；首期只有 endpoint",
+      "after": "Entry type; only endpoint is available initially"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/entries",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "条目类型；首期只有 endpoint",
+      "after": "Entry type; only endpoint is available initially"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/entries/aggregates",
+        "get",
+        "description"
+      ],
+      "before": "启用的官方市场源里各条目在官方服务的安装量与评分；第三方源的条目不发给官方服务。官方服务关闭时 409。",
+      "after": "Official-service install counts and ratings for enabled official-source entries; never send third-party entries to the official service. Return 409 when the official service is disabled."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/entries/aggregates",
+        "get",
+        "parameters",
+        0,
+        "schema",
+        "description"
+      ],
+      "before": "条目类型；首期只有 endpoint",
+      "after": "Entry type; only endpoint is available initially"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/entries/aggregates",
+        "get",
+        "parameters",
+        0,
+        "description"
+      ],
+      "before": "条目类型；首期只有 endpoint",
+      "after": "Entry type; only endpoint is available initially"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/sources/{source_id}/entries/{slug}",
+        "get",
+        "description"
+      ],
+      "before": "索引条目与源摘要，只读缓存快照、不抓定义；禁用源的条目同样可查。",
+      "after": "Index entry and source summary from cached snapshots only, without fetching definitions; disabled-source entries remain queryable."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/sources/{source_id}/entries/{slug}/install",
+        "post",
+        "description"
+      ],
+      "before": "官方市场源的首次安装在事务提交后以后台任务上报官方服务；更新（已有安装记录）与第三方源不上报。",
+      "after": "Report first official-source installs through a background task after commit; do not report updates with existing installation records or third-party sources."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/sources/{source_id}/entries/{slug}/rating",
+        "put",
+        "description"
+      ],
+      "before": "经官方服务提交或修改评分；只有官方市场源的条目可评分。官方服务的错误码与状态码原样落到本地响应。",
+      "after": "Submit/update ratings through the official service for official-source entries only; preserve official error/status codes in local responses."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/submissions/check",
+        "post",
+        "description"
+      ],
+      "before": "本地市场校验与疑似字面凭证检查；诊断均阻断分享，不出站。",
+      "after": "Run local market validation and suspected literal-credential checks; all diagnostics block sharing without outbound requests."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/submissions",
+        "get",
+        "description"
+      ],
+      "before": "本地记录的提交，按提交时间倒序；未采纳的逐个向官方服务刷新一次，官方服务不可达时不再继续出站。",
+      "after": "List locally recorded submissions newest first; refresh each unaccepted submission once through the official service, stopping outbound requests if it is unreachable."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/market/submissions",
+        "post",
+        "description"
+      ],
+      "before": "本地预检通过后经官方服务创建提交；官方服务的错误码与状态码原样落到本地响应。",
+      "after": "Create a submission through the official service after local preflight passes; preserve official error and status codes in the local response."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/official-service/instance-id/reset",
+        "post",
+        "description"
+      ],
+      "before": "删除实例标识；下次请求官方服务时生成新的，与此前的上报和评分不再关联。",
+      "after": "Delete the instance identifier; the next official-service request creates a new one, no longer associated with earlier reports or ratings."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/cost-estimate",
+        "get",
+        "description"
+      ],
+      "before": "获取项目费用估算（预估 + 实际）。同一项目、同一语言的并发请求合流计算。",
+      "after": "Get project cost estimates (estimated + actual). Coalesce concurrent requests for the same project and language."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/generate/grid/{episode}",
+        "post",
+        "description"
+      ],
+      "before": "提交宫格联合图生成任务到队列，立即返回 grid_ids、task_ids 与两者的逐项映射。\n\n不传 scene_ids 时缺失即生成：只为仍缺分镜图的分组出图，联合图已就绪而未切分落格的宫格\n跳过（``unsplit_grid_ids``）；传 scene_ids 时重生成包含这些分镜的宫格。同一组分镜的宫格\n正在生成时沿用在途记录，入队去重、不重复计费。任务只产出联合图，切分落格由用户审阅后另行发起。\n\n规划与落地见 :mod:`server.services.grid.grid_submission`；准入是整批的，任一分镜受阻即\n不建任何任务。",
+      "after": "Enqueue grid-composite generation and immediately return grid_ids, task_ids and per-grid mappings.\n\nWithout scene_ids, generate only groups missing storyboard images and skip ready unsplit composites\n(``unsplit_grid_ids``). With scene_ids, regenerate containing grids. Reuse in-flight records for identical shot\ngroups, deduplicating tasks without duplicate charges. Tasks create composites only; users separately initiate\nsplitting after review.\n\nSee :mod:`server.services.grid.grid_submission` for planning/persistence. Admission is whole-batch; any blocked\nshot prevents every task."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/grid-capability",
+        "get",
+        "description"
+      ],
+      "before": "当前项目的宫格档位上限。\n\n前端批次预览据此镜像后端阶梯——预览与入队若各自判定 4K 门控，批次数会漂移。\n路径不挂在 ``/grids/`` 下，避免与 ``/grids/{grid_id}`` 抢匹配。",
+      "after": "Current project grid-tier limit.\n\nFrontend batch previews mirror backend tiers from this value; separate 4K gating would cause batch-count drift.\nThe path stays outside ``/grids/`` to avoid matching conflicts with ``/grids/{grid_id}``."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/grids",
+        "get",
+        "description"
+      ],
+      "before": "列出项目下所有宫格图记录。",
+      "after": "List all grid records in the project."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/grids/{grid_id}",
+        "get",
+        "description"
+      ],
+      "before": "获取单个宫格图记录。",
+      "after": "Get one grid record."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/grids/{grid_id}/regenerate",
+        "post",
+        "description"
+      ],
+      "before": "重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。\n\n读记录、置 pending 与入队同在提交临界区内：另一提交既不会在其间清理掉这条记录，\n也不会看到它停在 pending 却还没有任务。",
+      "after": "Reset grid state and requeue composite generation, without implicit splitting, which requires separate explicit execution.\n\nRead records, set pending and enqueue inside one submission section, preventing other submissions from removing\nthe record midway or observing pending without a task."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/grids/{grid_id}/split",
+        "post",
+        "description"
+      ],
+      "before": "按当前联合图切分并覆写各分镜格——唯一覆写分镜格的操作，直接执行不设确认。\n\n逐格覆写前旧文件补登版本、覆写后登记新版本；frame_chain 中已不在剧本内的\nscene id 跳过（missing_scene_ids 返回）。切坏可在分镜格的版本史逐格回滚。",
+      "after": "Split the current composite and overwrite storyboard cells, the only cell-overwrite operation; execute directly without confirmation.\n\nRegister old versions before each overwrite and new versions afterward. Skip frame_chain scene IDs absent from\nthe script, returning missing_scene_ids. Bad splits can be rolled back per cell through version history."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/grids/{grid_id}/upload",
+        "post",
+        "description"
+      ],
+      "before": "上传联合图替换当前宫格图。\n\n仅做格式归一化（转 PNG、EXIF 方向矫正，不缩放不校验 rows×cols 布局，\n布局正确性由用户自行负责），登记为一个新的 grids 版本；不触发切分、\n不触碰任何分镜格。",
+      "after": "Upload a composite to replace the current grid image.\n\nOnly normalize format: PNG conversion/EXIF orientation, without resizing or validating rows×cols layout, which\nremains the user’s responsibility. Register a new grids version without splitting or touching storyboard cells."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/reference-videos/episodes/{episode}/units/{unit_id}/move",
+        "post",
+        "description"
+      ],
+      "before": "把单元移到 ``after_unit_id`` 之后，按当前剧本 revision 执行 ``move_after``；单元连同产物一起移动。",
+      "after": "Move a unit after ``after_unit_id`` through ``move_after`` using current script revision; artifacts move with it."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/reference-videos/episodes/{episode}/units/{unit_id}/duration-precheck",
+        "get",
+        "description"
+      ],
+      "before": "入队前的时长取档预检：申请秒数与剧本计划时长不一致时前端需先向用户确认。\n\n``needs_confirmation`` 为 false 时仅表示计划时长本身是当前档位成员。能力或档位元数据\n无法解析时返回结构化 blocker，不制造无约束申请。",
+      "after": "Pre-enqueue tier preflight: frontend must obtain user confirmation when requested seconds differ from planned duration.\n\nFalse ``needs_confirmation`` only means planned duration belongs to current tiers. Unresolved capabilities/tier\nmetadata return structured blockers, never unconstrained requests."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/reference-videos/episodes/{episode}/units/{unit_id}/prompt-preview",
+        "post",
+        "description"
+      ],
+      "before": "按草稿正文投影并渲染，不保存、不入队。",
+      "after": "Project/render draft text without saving or enqueueing."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/reference-videos/episodes/{episode}/script-preview",
+        "post",
+        "description"
+      ],
+      "before": "视频单元正文的读时派生预览：utterances + 降级可见性 warning。\n\n只读、不落盘——正文是唯一真相，utterances 与参考图都是机械派生物。声音相关的\nwarning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限）与本集的无声\n开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。",
+      "after": "Read-time unit-body preview: derived utterances and visible degradation warnings.\n\nRead-only, without persistence: the body is authoritative; utterances/references are mechanical derivations.\nVoice warnings depend on episode backend ``voice_consistency``, reference-audio segment limits and audio-disabled\nsettings, sharing execution resolution. Capability failures degrade to ``soft``, merely omitting those warnings."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/reference-videos/episodes/{episode}/units/{unit_id}/upload-video",
+        "post",
+        "description"
+      ],
+      "before": "上传单元成片视频，替换该 unit 的 AI 生成视频。\n\n复用生成链路的 finalize（抽缩略图、清旧 video_uri、status=completed），\n并纳入版本管理。参考图上传走既有的项目资产上传通路，不在此处。",
+      "after": "Upload a unit clip to replace its AI-generated video.\n\nReuse generation finalization for thumbnails, old video_uri cleanup and status=completed, with version tracking.\nReference images use existing project-asset upload paths, outside this endpoint."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/assets",
+        "get",
+        "description"
+      ],
+      "before": "按 offset 分页列出资产。\n\n``total`` 是当前类型与搜索词下的匹配总数，用于判断是否还有下一页；``counts`` 只跟随搜索词、\n不跟随类型筛选，各类型标签据此显示当前搜索下的匹配数，没打开过的标签也不例外。",
+      "after": "List assets with offset pagination.\n\n``total`` counts matches for current type/search to determine next-page availability. ``counts`` follows\nsearch only, not type filtering, so every type tab shows search matches, including unopened tabs."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/memory",
+        "get",
+        "description"
+      ],
+      "before": "列出当前用户的记忆目录内容。",
+      "after": "List the current user’s memory-directory contents."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/memory/files/{filename}",
+        "get",
+        "description"
+      ],
+      "before": "读取当前用户的单个记忆文件。",
+      "after": "Read one memory file for the current user."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/memory/files/{filename}",
+        "put",
+        "description"
+      ],
+      "before": "幂等写入当前用户的单个记忆文件。",
+      "after": "Idempotently write one memory file for the current user."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/memory/files/{filename}",
+        "delete",
+        "description"
+      ],
+      "before": "删除当前用户的单个记忆文件。",
+      "after": "Delete one memory file for the current user."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/agent/memory/clear",
+        "post",
+        "description"
+      ],
+      "before": "清空当前用户的整个记忆目录。",
+      "after": "Clear the current user’s entire memory directory."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/agent-memory",
+        "get",
+        "description"
+      ],
+      "before": "列出项目的记忆目录内容。",
+      "after": "List the project’s memory-directory contents."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/agent-memory/files/{filename}",
+        "get",
+        "description"
+      ],
+      "before": "读取项目的单个记忆文件。",
+      "after": "Read one project-memory file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/agent-memory/files/{filename}",
+        "put",
+        "description"
+      ],
+      "before": "幂等写入项目的单个记忆文件。",
+      "after": "Idempotently write one project-memory file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/agent-memory/files/{filename}",
+        "delete",
+        "description"
+      ],
+      "before": "删除项目的单个记忆文件。",
+      "after": "Delete one project-memory file."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/agent-memory/clear",
+        "post",
+        "description"
+      ],
+      "before": "清空项目的整个记忆目录。",
+      "after": "Clear the project’s entire memory directory."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/onboarding/status",
+        "get",
+        "description"
+      ],
+      "before": "引导是否已看过。未设置视为未看过 —— 前端据此决定是否自动弹出。",
+      "after": "Whether onboarding has been seen. Unset means unseen; the frontend uses this to decide whether to open it automatically."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/onboarding/seen",
+        "post",
+        "description"
+      ],
+      "before": "标记引导已看过。幂等 —— 跳过/看完/关闭三条退出路径都打到这里。",
+      "after": "Mark onboarding as seen. Idempotent: skip, finish, and close exit paths all call this endpoint."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/prompt-templates",
+        "get",
+        "description"
+      ],
+      "before": "Agent 语言规范随 Agent 会话拼进系统提示，展示在 Agent 分栏，不进本列表；详情接口仍可读取。",
+      "after": "Agent language rules join session system prompts and appear in the Agent tab, not this list; detail endpoints still expose them."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/auth/status",
+        "get",
+        "description"
+      ],
+      "before": "暴露 ``AUTH_ENABLED`` 状态供前端 bootstrap 判断是否需要登录拦截。\n\n前端 ``auth-store.initialize()`` 在 localStorage 无 token 时调用本接口：\n``enabled=false`` 时跳过登录页直接进主界面；``enabled=true`` 时保留原\n登录链路。本接口本身**不要求认证**——一个 boolean 比 401 探针更直观，\n且实际\"是否需要登录\"通过 401/200 也能从外部观察到，因此不增量泄露。",
+      "after": "Expose ``AUTH_ENABLED`` so frontend bootstrap can decide whether to enforce login.\n\n``auth-store.initialize()`` calls this endpoint when localStorage has no token. ``enabled=false`` skips login and\nopens the main UI; ``enabled=true`` retains the login flow. The endpoint itself **requires no authentication**:\na boolean is clearer than probing 401, and login requirements are already externally observable through 401/200,\nso this discloses no additional information."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/auth/token",
+        "post",
+        "description"
+      ],
+      "before": "用户登录\n\n使用 OAuth2 标准表单格式验证凭据，成功返回 access_token。\n``AUTH_ENABLED=false`` 时跳过凭据校验，直接签发 token，让前端\nLoginPage 即便被打开也能正常跳转主界面。",
+      "after": "User login.\n\nValidate credentials using standard OAuth2 form data and return access_token on success.\nWith ``AUTH_ENABLED=false``, skip validation and issue a token directly so an opened frontend\nLoginPage can still navigate to the main UI."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/files/{project_name}/{path}",
+        "get",
+        "description"
+      ],
+      "before": "服务项目内的媒体文件（图片/视频/音频），范围见 ``is_public_media_path``\n\n图片可带 ``?w=`` 取 WebP 缩略图（档位与回退规则见 ``lib.infra.image_thumbnails``）；\n缓存头与条件请求对缩略图同样适用，ETag 按缩略图文件计算。",
+      "after": "Serve project media (images/video/audio), scoped by ``is_public_media_path``.\n\nImages accept ``?w=`` for WebP thumbnails (tiers/fallbacks in ``lib.infra.image_thumbnails``).\nCache headers and conditional requests also apply to thumbnails, with ETags calculated from thumbnail files."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/global-assets/{asset_type}/{filename}",
+        "get",
+        "description"
+      ],
+      "before": "服务 global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）",
+      "after": "Serve global_assets media (global-library types only: character/scene/prop)."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{name}/export",
+        "get",
+        "description"
+      ],
+      "before": "将项目导出为 ZIP。需要 download_token 认证（通过 POST /export/token 获取）。",
+      "after": "Export projects as ZIP; require download_token from POST /export/token."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "description"
+      ],
+      "before": "下载已登记的剪映草稿：本机草稿目录与剪映版本在此代入，过期的草稿照常可下载。",
+      "after": "Download a registered Jianying draft, substituting the local draft directory and Jianying version here; stale drafts remain downloadable."
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        2,
+        "schema",
+        "description"
+      ],
+      "before": "用户本机的剪映草稿目录",
+      "after": "Jianying draft directory on the user’s local machine"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        2,
+        "description"
+      ],
+      "before": "用户本机的剪映草稿目录",
+      "after": "Jianying draft directory on the user’s local machine"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        3,
+        "schema",
+        "description"
+      ],
+      "before": "下载 token",
+      "after": "Download token"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        3,
+        "description"
+      ],
+      "before": "下载 token",
+      "after": "Download token"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        4,
+        "schema",
+        "description"
+      ],
+      "before": "剪映版本：6 表示 6 及以上，5 表示 5.x",
+      "after": "Jianying version: 6 means 6 or later; 5 means 5.x"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        4,
+        "description"
+      ],
+      "before": "剪映版本：6 表示 6 及以上，5 表示 5.x",
+      "after": "Jianying version: 6 means 6 or later; 5 means 5.x"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        5,
+        "schema",
+        "description"
+      ],
+      "before": "旁白版本；省略时按项目取默认版本",
+      "after": "Narration variant; omit to use the project default"
+    },
+    {
+      "path": [
+        "paths",
+        "/api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
+        "get",
+        "parameters",
+        5,
+        "description"
+      ],
+      "before": "旁白版本；省略时按项目取默认版本",
+      "after": "Narration variant; omit to use the project default"
+    },
+    {
+      "path": [
+        "paths",
+        "/health",
+        "get",
+        "description"
+      ],
+      "before": "健康检查；commit 为镜像构建时注入的 commit sha，源码运行时为 null。",
+      "after": "Health check; commit is the SHA injected at image build time, or null when running from source."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AdScriptRequest",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "附加指令原文；只随本次生成，不保存",
+      "after": "Original additional instructions; apply only to this generation, without saving"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AdScriptRequest",
+        "properties",
+        "regenerate",
+        "description"
+      ],
+      "before": "整份重做，替换已有的正式脚本",
+      "after": "Redo the whole script, replacing the existing formal script"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AdScriptRequest",
+        "properties",
+        "overwrite_revision",
+        "description"
+      ],
+      "before": "认可覆盖的正式脚本版本，取自 script_overwrite.revision",
+      "after": "Formal-script revision accepted for overwrite, from script_overwrite.revision"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AddProviderModelRequest",
+        "description"
+      ],
+      "before": "按 ID 添加：``media_type`` 用来区分两栖模型，以及给对应不上条目的模型指定媒体类型；``entry_binding`` 是\n用户为它指定的条目（「模型厂商/官方模型名」）。``endpoint`` 是新模型的调用端点，不给时按名字推断\n（docs/adr/0105）；内置供应商只接受它在该媒体类型下的内置调用端点，对上官方收录的模型时忽略。",
+      "after": "Add by ID: ``media_type`` distinguishes multimodal models and specifies type for unmatched models;\n``entry_binding`` is the user-selected entry (model vendor/official model name). ``endpoint`` is the\nnew model's call endpoint, inferred by name if omitted (docs/adr/0105). Built-ins accept only their\nbuilt-in endpoints for that media type, ignoring this field when matching an officially listed model."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AddProviderModelResponse",
+        "description"
+      ],
+      "before": "``official`` 为真时对上了官方收录的模型，添加即启用它。",
+      "after": "``official`` true means an officially listed match, enabled by adding it."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AdmissionReason",
+        "description"
+      ],
+      "before": "不能执行的理由码闭集；界面按码取文案，Agent 按码转述。",
+      "after": "Closed set of inability reason codes; UI localizes by code, Agents paraphrase by code."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AdmissionState",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的准入结论。",
+      "after": "Current admission conclusion for one AI operation."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AgentToolTrigger",
+        "description"
+      ],
+      "before": "Agent 调用 MCP 工具时渲染；``name`` 是工具名。",
+      "after": "Render on Agent MCP calls; ``name`` is the tool name."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AssetSheetBatchRequest",
+        "description"
+      ],
+      "before": "批量生成的范围：``asset_type``（画廊类型页）与 ``episode_id``（集层）二选一。",
+      "after": "Batch scope: choose exactly one of ``asset_type`` (gallery type page) and ``episode_id`` (episode level)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AuthorPromptsRequest",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "附加指令原文；空白视同清除",
+      "after": "Original additional instructions; whitespace clears them"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AuthorPromptsRequest",
+        "properties",
+        "entry_ids",
+        "description"
+      ],
+      "before": "编写范围（分镜 / 单元 id）；省略时为全部待编写条目，给出时至少一条",
+      "after": "Authoring scope (storyboard / unit IDs); omit for all pending entries; an explicit selection requires at least one entry"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AuthorPromptsRequest",
+        "properties",
+        "rewrite",
+        "description"
+      ],
+      "before": "显式重写范围内条目的全部视觉层；省略时补缺",
+      "after": "Explicitly rewrite all visual layers of entries in scope; omit to fill gaps"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AuthorPromptsRequest",
+        "properties",
+        "overwrite_revision",
+        "description"
+      ],
+      "before": "认可覆盖的正式脚本版本，取自 prompt_overwrite.revision",
+      "after": "Formal-script revision accepted for overwrite, from prompt_overwrite.revision"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "AutoBackendsResponse",
+        "description"
+      ],
+      "before": "各用途在项目与全局各层都留空时自动选中的模型（``provider/model``）；没有可用供应商时为 None。",
+      "after": "Models automatically selected when project/global layers are all empty for each purpose (``provider/model``); None without an available provider."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "BgmView",
+        "description"
+      ],
+      "before": "BGM 片段的读取形态。``end`` 是截到时间线末尾后的实际结束时间，片段完全落在末尾之后时等于 ``start``；\n``fade_in`` / ``fade_out`` 是摆放后实际生效的淡入淡出（截断处固定淡出、超出片段时长时缩短），片段完全落在\n末尾之后时是所设的值；``name`` 是所引用 BGM 的名称，BGM 不在项目里时为 None。",
+      "after": "Read representation of a BGM clip. ``end`` is actual end after truncating to timeline end, equal to ``start`` for clips wholly beyond it.\n``fade_in`` / ``fade_out`` are effective placed fades (fixed fade-out at cutoff, shortened when exceeding\nclip duration), or configured values for clips wholly beyond timeline end. ``name`` is the referenced\nBGM name, None if absent from the project."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CandidatePayload",
+        "description"
+      ],
+      "before": "一条候选：可直接写进 ``bindings`` 的条目，加上它凭什么被选中。",
+      "after": "A candidate entry writable directly into ``bindings``, with reasons for its selection."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CapabilityViewResponse",
+        "description"
+      ],
+      "before": "「这个供应商支持的参数」：每个维度的原值（没有能力覆盖时运行时采用的值，``null`` 表示未收录）、生效的能力\n覆盖与生效值。``editable`` 是可以修改的维度，按界面顺序；官方收录的模型为空。``displayed`` 是界面要显示的全部维度，\n按界面顺序，不在 ``editable`` 里的只读。",
+      "after": "Parameters this provider supports: original values per dimension (runtime values without overrides;\n``null`` means unlisted), effective overrides, and effective values. ``editable`` lists modifiable\ndimensions in UI order, empty for officially listed models. ``displayed`` lists every shown dimension\nin UI order; dimensions outside ``editable`` are read-only."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CatalogEntryHit",
+        "description"
+      ],
+      "before": "一个命中的模型条目。``maker``、``name`` 与 ``media_type`` 合起来标识条目，界面只展示显示名。\n\n``discontinued`` 是条目在今天（UTC 日期）是否已下线，含关停日期已到的条目。",
+      "after": "A matching model entry, identified jointly by ``maker``, ``name`` and ``media_type``; the UI shows only its display name.\n\n``discontinued`` means the entry is offline as of today’s UTC date, including entries whose shutdown date has arrived."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CatalogEntryKey",
+        "description"
+      ],
+      "before": "条目身份：「模型厂商/官方模型名」，两栖模型再以媒体类型区分。",
+      "after": "Entry identity: model maker/official model name, additionally distinguished by media type for dual-media models."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ClipView",
+        "description"
+      ],
+      "before": "剪辑片段的读取形态。\n\n``status`` 为 ``unit_deleted`` 时渲染跳过，时长计 0；为 ``video_missing`` 时时长暂按编排时长占位。\n``source_duration`` 是 current 视频的全长，没有可用视频或时长探测不出时为 None。",
+      "after": "Read representation of an editing clip.\n\n``status`` ``unit_deleted`` skips rendering with zero duration; ``video_missing`` temporarily uses planned\nduration as a placeholder. ``source_duration`` is current video full length, None without usable video\nor when duration probing fails."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ConcurrentRevision",
+        "description"
+      ],
+      "before": "写入所依据的修订之后、本次写入之前由他人追加的修订。",
+      "after": "Revision appended by someone else after the write's base revision and before this write."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ConfirmScriptReviewRequest",
+        "properties",
+        "overwrite_revision",
+        "description"
+      ],
+      "before": "认可覆盖的正式脚本版本，取自 script_overwrite.revision；该集尚无正式脚本时不必给",
+      "after": "Formal-script revision accepted for overwrite, from script_overwrite.revision; unnecessary when the episode has no formal script"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CopyEditTimelineRequest",
+        "properties",
+        "revision",
+        "description"
+      ],
+      "before": "被复制的修订号；省略时复制最新修订",
+      "after": "Revision number to copy; omit to copy the latest revision"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CredentialSecretField",
+        "description"
+      ],
+      "before": "凭证表单需渲染的 secret 输入字段（按 provider 的 required ∩ secret ∩ 凭证键派生）。\n\n驱动设置页凭证表单渲染：单 secret provider 给 ``[api_key]``（见 ADR 0037），可灵给\n``[api_key, access_key, secret_key]``（二选一分组见 ``secret_field_groups``）。\nkey 名全程同名，前端据此读写各字段。",
+      "after": "Secret inputs required by credential forms (derived from provider required ∩ secret ∩ credential keys).\n\nDrive settings forms: single-secret providers expose ``[api_key]`` (ADR 0037), while Kling exposes\n``[api_key, access_key, secret_key]`` (alternative groups in ``secret_field_groups``).\nKey names remain identical throughout frontend reads/writes."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "CustomEndpointResponse",
+        "description"
+      ],
+      "before": "一条自定义调用端点。``definition`` 即导出内容，客户端直接存成文件。",
+      "after": "One custom call endpoint. ``definition`` is its export content; clients save it directly as a file."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "DiscoverProviderModelsResponse",
+        "description"
+      ],
+      "before": "获取模型的结果。``not_applicable`` 为真时这个供应商没有模型列表接口，``reason`` 说明原因。",
+      "after": "Model-discovery result. ``not_applicable`` true means no model-list API; ``reason`` explains why."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "DiscoveredModelItem",
+        "description"
+      ],
+      "before": "获取到的一个模型。\n\n- ``recognized``：自定义供应商为名字对应上了条目；内置供应商为对上了清单里官方收录的模型（API 模型名精确匹配），\n  ``model_key`` 是它的模型键，对不上时为 ``null``。\n- ``media_type``：对应上的取条目或官方收录模型的，对应不上的按名字推断；添加时作为用户添加的模型的媒体类型。\n- ``matched_entry``：对应到的条目摘要。\n- ``endpoint`` 与 ``endpoint_by_media_type``：自定义供应商的默认调用端点，以及改为对应其他媒体类型的条目时\n  各媒体类型下的默认端点；内置供应商为 ``null``。",
+      "after": "One discovered model.\n\n- ``recognized``: custom providers match an entry by name; built-ins match an officially listed model\n  by exact API model name. ``model_key`` is its model key, or ``null`` without a match.\n- ``media_type``: matched entry/official model type, otherwise name-inferred; used as media type when adding user models.\n- ``matched_entry``: matched-entry summary.\n- ``endpoint`` and ``endpoint_by_media_type``: custom-provider default endpoint and defaults per\n  media type when switching to an entry of another type; ``null`` for built-ins."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "DuplicateDescriptor",
+        "description"
+      ],
+      "before": "与待导入定义同作者同名（``meta.author`` + ``meta.name``）的既有端点。",
+      "after": "Existing endpoint matching the import definition's author/name (``meta.author`` + ``meta.name``)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EditTimelineWriteResult",
+        "description"
+      ],
+      "before": "一批编辑的写入结果：只含受影响片段的新状态与更新后的 issues，不含整份时间线。\n\n``clips`` 按播放顺序列出本批点名或改动过的片段（含新插入的片段、跟随相邻关系恢复硬切的\n片段与旁白改挂到的片段）；``bgm`` 按起点列出本批点名或改动过的 BGM 片段；``deleted_clip_ids``\n是本批删除的剪辑片段与 BGM 片段。",
+      "after": "Write result for one edit batch: only affected clips' new states and updated issues, without the whole timeline.\n\n``clips`` lists clips named or changed by this batch in playback order, including newly inserted clips,\nclips reset to hard cuts after adjacency changes, and clips receiving reassigned narration. ``bgm`` lists\nBGM clips named or changed in start-time order; ``deleted_clip_ids`` contains editing and BGM clips\ndeleted by this batch."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EndpointDescriptor",
+        "description"
+      ],
+      "before": "前端从 catalog API 拿到的单条 endpoint 描述（与 lib.custom_provider.endpoints.EndpointSpec 对齐，去掉闭包）。",
+      "after": "One catalog-API endpoint descriptor for frontend use, aligned with lib.custom_provider.endpoints.EndpointSpec without closures."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EndpointOption",
+        "description"
+      ],
+      "before": "内置供应商下用户添加的模型可选的一个调用端点。``display_name_key`` 是界面文案的 i18n key（dashboard ns），\n声明式端点为空串，名字取 ``display_name``。",
+      "after": "One selectable call endpoint for user-added built-in models. ``display_name_key`` is a dashboard\nnamespace i18n key; declarative endpoints use an empty string and take names from ``display_name``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EndpointRequestDescriptor",
+        "description"
+      ],
+      "before": "调用端点发出的一条可覆盖路径的请求，与 lib.custom_provider.path_overrides.EndpointRequest 对齐。",
+      "after": "One endpoint request with overridable path, aligned with lib.custom_provider.path_overrides.EndpointRequest."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EntryInfoResponse",
+        "description"
+      ],
+      "before": "供应商模型对应到的条目（合成后），供 Sheet 下段「模型信息」。\n\n- ``discontinued``：条目在今天（UTC 日期）是否已下线，含关停日期已到的条目。\n- ``price``：价目表（目录数据的格式，可直接作为 ``EntryUpdate.price`` 回写）；没有价目表时为 ``null``。\n- ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 用户新建、由用户填写。\n- ``official``：用户改过、或用户新建的条目日后被官方数据收录时，官方数据里的值（可「恢复官方数据」「改用官方数据」）；\n  其余情况为 ``null``。\n- ``shared_with``：同样使用这个条目的其他供应商（已配置密钥的内置供应商与自定义供应商中启用的模型），\n  修改与恢复官方数据会一起影响它们。",
+      "after": "Merged entry matched to the provider model, for the Sheet's lower Model information section.\n\n- ``discontinued``: whether retired today (UTC date), including entries whose shutdown date has arrived.\n- ``price``: price table in catalog format, directly writable as ``EntryUpdate.price``; ``null`` without one.\n- ``source``: ``official`` follows official updates; ``modified`` is user-edited and no longer follows;\n  ``user_created`` is created and populated by the user.\n- ``official``: official values when user-modified entries, or user-created entries later officially\n  listed, allow restoring/switching to official data; ``null`` otherwise.\n- ``shared_with``: other providers sharing this entry (configured-key built-ins and enabled custom\n  provider models); edits and official restoration affect them together."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EntryUpdate",
+        "description"
+      ],
+      "before": "Sheet 下段「模型信息」的修改。``maker``、``name``、``media_type`` 是 Sheet 读到的条目身份，须与这个供应商模型\n当前对应的条目一致；``display_name``、``facts`` 与 ``price`` 没有传的不改，``facts`` 只给要改的模型事实。\n``price`` 是整份价目表（见 ``EntryInfoResponse.price``），整份替换；显式传 ``null`` 清除价目表，调用费用记为未定价。",
+      "after": "Changes to the Sheet's lower Model information section. ``maker``, ``name``, and ``media_type`` are\nthe entry identity read by the Sheet and must match the provider model's current entry. Omitted\n``display_name``, ``facts``, and ``price`` stay unchanged; ``facts`` includes only model facts to change.\n``price`` replaces the entire table (see ``EntryInfoResponse.price``); explicit ``null`` clears it,\nrecording calls as unpriced."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodeItemRef",
+        "description"
+      ],
+      "before": "条目所属集的标题与播出位置、条目在本集里的当前位置；界面据此显示「标题 · 5」，不显示条目 ID。",
+      "after": "Owning episode title/broadcast position and current item position; the UI displays “Title · 5” rather than item IDs."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodeNextStep",
+        "description"
+      ],
+      "before": "账本中一集建议的下一步，供项目层的逐集清单使用；与按集查询制作状态的 ``next_action`` 相同。",
+      "after": "Suggested next step for one ledger episode in project-level episode lists; matches episode-query ``next_action``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodePatch",
+        "description"
+      ],
+      "before": "单集更新请求体。仅包含可写字段；未声明字段会被忽略。",
+      "after": "Episode update body, writable fields only; ignore undeclared fields."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodePlanningRequest",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "附加指令原文；空白视同未传",
+      "after": "Original additional instructions; whitespace counts as omitted"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodePlanningRequest",
+        "properties",
+        "gap",
+        "description"
+      ],
+      "before": "只规划以这一点为终点的那段未切分原文；缺省时从规划起点规划到整本源文结尾",
+      "after": "Plan only the unsplit source range ending at this point; omit to plan from the planning start through the whole source’s end"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodeReplanRequest",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "附加指令原文；空白视同未传",
+      "after": "Original additional instructions; whitespace counts as omitted"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "EpisodeReplanRequest",
+        "properties",
+        "dry_run",
+        "description"
+      ],
+      "before": "只返回重新规划的范围，不发起",
+      "after": "Return only the replanning range without starting replanning"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "FilteredCandidate",
+        "description"
+      ],
+      "before": "默认层里有、某个任务类型桶因能力不满足而没有列出的模型。",
+      "after": "A default-layer model excluded from a task-type bucket because capabilities do not satisfy it."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "FullUpdateProviderRequest",
+        "description"
+      ],
+      "before": "PUT 全量更新：provider 元数据，以及可选的模型列表。\n\n``models`` 不传（``None``）时不改模型：供应商详情的模型经供应商模型接口逐个保存，整表回传会覆盖其间单行的\n启停与设置。传列表时整体替换。",
+      "after": "Full PUT update: provider metadata plus optional model list.\n\nOmitted ``models`` (``None``) leaves models unchanged. Provider-detail models save individually via\nmodel APIs; whole-table readback would overwrite intervening per-row enablement/settings. Supplied lists replace all."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "GenerateUnitsBatchRequest",
+        "description"
+      ],
+      "before": "批量视频生成请求。\n\n``unit_ids`` 省略时只补齐缺失项；指定 id 则重新生成对应单元。\n``confirmed_request_durations`` 为用户在聚合确认中接受的时长档位。",
+      "after": "Batch video-generation request.\n\nOmitted ``unit_ids`` fills missing items only; selected IDs regenerate those units.\n``confirmed_request_durations`` contains tiers the user accepted through aggregated confirmation."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "GenerationTaskTrigger",
+        "description"
+      ],
+      "before": "生成任务执行时渲染；``name`` 是任务类型，``asset`` 合指角色、场景、道具、商品与角色衍生五种资产图任务。",
+      "after": "Render during generation execution; ``name`` is task type, and ``asset`` covers character, scene, prop, product, and derivative images."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ImportShape",
+        "description"
+      ],
+      "before": "一份导入载荷的形状。",
+      "after": "Imported payload shapes."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "IssueScope",
+        "description"
+      ],
+      "before": "issue 影响的渲染版本：全部版本，或只影响带旁白版本。",
+      "after": "Render versions affected by an issue: all versions, or only versions with narration."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "JianyingDraftStatus",
+        "description"
+      ],
+      "before": "一个剪映草稿产物身份的现状；``status`` 为 missing 时没有版本与导出时间。",
+      "after": "Current state of a Jianying-draft artifact identity; when ``status`` equals ``missing``, there is no version or export timestamp."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "KeyInferencePayload",
+        "description"
+      ],
+      "before": "一个语义键的推断结果。",
+      "after": "Inference results for one semantic key."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "LifecycleNotice",
+        "description"
+      ],
+      "before": "引用处的下线提示：状态、关停日期、官方后继，以及每个引用位置可一键切换的目标。",
+      "after": "Retirement notice at a reference: status, shutdown date, official successor, and one-click replacement targets for each reference location."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "LifecycleResponse",
+        "description"
+      ],
+      "before": "供应商模型所对应条目在今天的生命周期（UTC 日期）：状态、关停日期与官方后继（「模型厂商/官方模型名」）。\n\n对应不上条目的模型为 ``available``，两个日期字段为 ``null``。",
+      "after": "Matched entry lifecycle as of today (UTC date): status, shutdown date, and official successor (model vendor/official model name).\n\nUnmatched models are ``available`` with both date fields ``null``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "MediaCandidates",
+        "description"
+      ],
+      "before": "单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集，以及各桶滤掉的模型与原因。",
+      "after": "Candidates for one media_type: full default layer, filtered subsets per task-type bucket, and excluded models/reasons for each bucket."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "MinAppVersionInfo",
+        "description"
+      ],
+      "before": "``meta.min_app_version`` 与当前应用版本的比对。不满足只是提示，不拦导入。",
+      "after": "Compare ``meta.min_app_version`` with current application version. Noncompliance is advisory, not an import blocker."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "NarrationDefaultsResponse",
+        "description"
+      ],
+      "before": "新建 TTS 项目的预填值；未配置任何音频供应商时 ``audio_backend`` 为 None。",
+      "after": "Prefills for new TTS projects; ``audio_backend`` is None without any configured audio provider."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "NarrationView",
+        "description"
+      ],
+      "before": "旁白从承载片段的起点开始；配音时长未知（没有旁白配音）时 ``end`` 为 None。",
+      "after": "Narration starts at its carrier clip's start; ``end`` is None when voiceover duration is unknown (no narration audio)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "NewEntryBody",
+        "description"
+      ],
+      "before": "用户手动填写的新条目。``display_name`` 不填用模型名称；``facts`` 缺省的字段取该媒体类型的默认值；\n``price`` 是目录数据格式的价目表，不填即调用费用记为未定价。",
+      "after": "A manually entered model. Omitted ``display_name`` uses the model name; omitted ``facts`` fields use media-type defaults.\n``price`` is a price list in catalog-data format; omission records call costs as unpriced."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "NewEntryHints",
+        "description"
+      ],
+      "before": "手动填写模型信息时随名字给出的提示：目录里已有的同名模型（有就应直接选择），以及视频模型按名字预设预填的\n可选时长（其他媒体类型为 ``null``）。",
+      "after": "Name-based hints for manual model entry: existing catalog matches, which should be selected directly, and optional\nvideo durations prefilled from name-based presets; other media types use ``null``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "NotePayload",
+        "description"
+      ],
+      "before": "一条提示。不拦保存，但有它用户才知道某个形态会怎么表现。",
+      "after": "An advisory hint that does not block saving but explains how a particular shape will behave."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "OfficialEntryValues",
+        "description"
+      ],
+      "before": "用户改过的条目在官方数据里的值，供逐项比对与「采用」。",
+      "after": "Official-data values of a user-modified entry, for per-field comparison and adoption."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PartialEntry",
+        "description"
+      ],
+      "before": "片段清单条目：去掉 frontmatter 的正文、锁定标记与引用它的模版 id（按注册顺序）。",
+      "after": "Partial inventory entry: body without frontmatter, protection flag, and referencing template IDs in registration order."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PreviewBgm",
+        "description"
+      ],
+      "before": "BGM 文件的项目内路径与响度静态增益（线性倍数）；预览音量是片段音量乘以这个增益。",
+      "after": "Project-relative BGM path and static loudness gain (linear multiplier); preview volume is clip volume multiplied by this gain."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PreviewNarrationAudio",
+        "description"
+      ],
+      "before": "旁白配音 current 文件的项目内路径与版本号。",
+      "after": "Project-relative path and version number of the current narration-audio file."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PreviewResponse",
+        "description"
+      ],
+      "before": "渲染后的各节请求，外加「这份请求是怎么算出来的」。\n\n``conversions`` 的形状由定义的 ``kind`` 决定：声明式端点的请求全部来自模板直填、没有可说明\n的换算，为 null；ComfyUI 端点给出尺寸 / 帧数 / 种子的换算与这次改图删掉的节点。",
+      "after": "Rendered request sections plus how the request was calculated.\n\n``conversions`` shape follows definition ``kind``: declarative endpoints fill templates directly with\nno explainable conversions, so null; ComfyUI reports dimension/frame/seed conversions and nodes\nremoved by this graph transformation."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PreviewUnitMedia",
+        "description"
+      ],
+      "before": "``narration_audio`` 只在该单元按带旁白版本呈现时给出；呈现模型物化不出时 ``subtitles`` 为空。\n\n``provider_audio`` 是 current 视频生成时的供应商原声开关，与成片同口径：为 False 时视频文件里即使带音轨，\n预览也按静音播放；预览音量是片段原声音量乘以这个开关。",
+      "after": "Include ``narration_audio`` only when this unit uses the narrated presentation variant; ``subtitles`` is empty if the presentation model cannot materialize.\n\n``provider_audio`` is the provider-audio switch used when generating the current video, matching final-cut rules: False mutes\nthe preview even if the file contains an audio track. Preview volume is the clip’s original-audio volume multiplied by this switch."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PriceSummaryItemResponse",
+        "description"
+      ],
+      "before": "一个计费项的单价范围；``per`` 是单价对应的计数量（每百万 token 为 1000000，每张、每秒为 1）。",
+      "after": "Unit-price range for one billing item; ``per`` is its counting quantity (1000000 per million tokens, 1 per image/second)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "PromptAuthoringInstructions",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "附加指令原文；空白视同清除",
+      "after": "Original additional instructions; whitespace clears them"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderModelDetail",
+        "description"
+      ],
+      "before": "供应商模型 Sheet 的内容。\n\n- ``multiplier``：供应商模型倍率；官方收录的模型随官方数据下发、界面不显示，为 ``null``。\n- ``provider_multiplier``：供应商倍率，界面据此提示两级相乘后的最终倍率。\n- ``entry``：对应到的条目；对应不上时为 ``null``，调用费用记为未定价。\n- ``entry_binding``：用户指定的条目绑定（「模型厂商/官方模型名」）；没有绑定、按名字对应时为 ``null``。官方收录的\n  模型没有绑定。\n- 自定义供应商的模型另有 ``endpoint``、``resolution``、``path_overrides`` 与 ``requests``（调用端点可覆盖路径的\n  请求）；内置供应商为空。\n- 内置供应商下用户添加的模型另有 ``endpoint``（挂接的内置调用端点）与 ``endpoint_options``（这个供应商在该媒体类型下\n  可选的内置调用端点，按声明顺序）；官方收录的模型两者为空，端点跟随官方。",
+      "after": "Provider-model Sheet content.\n\n- ``multiplier``: provider-model multiplier; official models receive it from official data, hidden in UI as ``null``.\n- ``provider_multiplier``: provider multiplier, used to show the product of both levels.\n- ``entry``: matched entry; ``null`` means unmatched and calls are recorded as unpriced.\n- ``entry_binding``: user-selected entry (model vendor/official model name); ``null`` for name-based\n  matching without binding. Officially listed models have no binding.\n- Custom models additionally expose ``endpoint``, ``resolution``, ``path_overrides``, and ``requests``\n  (endpoint requests whose paths can be overridden); empty for built-ins.\n- User-added built-in models additionally expose ``endpoint`` (attached built-in endpoint) and\n  ``endpoint_options`` (this provider's selectable endpoints for that media type, in declaration order).\n  Official models leave both empty and follow official endpoints."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderModelEnabledUpdate",
+        "description"
+      ],
+      "before": "启用或停用一个供应商模型；自定义供应商的模型停用时同时取消默认。",
+      "after": "Enable/disable one provider model; disabling custom models also clears their default status."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderModelItem",
+        "description"
+      ],
+      "before": "供应商详情模型列表的一行。\n\n- ``model_id``：设置与项目里引用这个模型的模型键；``api_model_name`` 是发给供应商的模型名。\n- ``display_name``：对应条目的显示名（自定义供应商取用户填写的名字）；没有时为 ``null``，界面显示模型 ID。\n- ``is_default``：实际生效的默认模型；停用或已下线的模型不标，自定义供应商存下的默认设置不因此改动。\n- ``official``：内置供应商官方收录的模型，只能启用、停用；用户添加的与自定义供应商的模型为 ``false``。\n- ``flags``：``discontinued`` 条目已下线；``retiring`` 条目即将下线（关停日期在 ``lifecycle``）；``unpriced`` 调用费用会记为未定价（对应不上条目或条目没有价格，\n  两级倍率之积为 0 时不计费，不标）；``modified`` 用户改过对应的条目，不再随官方更新。\n- ``endpoint``：自定义供应商模型的调用端点键；内置供应商为 ``null``。\n- ``lifecycle``：所对应条目在今天的生命周期。已下线的模型仍在列表里，但不进入任何候选、也不能调用。\n- ``min_app_version``：官方收录的模型标注的最低应用版本；没有标注、或不是官方收录的模型时为 ``null``。\n- ``min_app_version_satisfied``：应用版本达到 ``min_app_version``。不满足的模型排在列表末尾，``enabled`` 与\n  ``is_default`` 为假，不进入任何候选、不作默认模型、也不能调用；不能启用，也没有模型设置可读（docs/adr/0103）。",
+      "after": "One row in a provider's model list.\n\n- ``model_id``: key referenced by settings/projects; ``api_model_name`` is sent to the provider.\n- ``display_name``: matched-entry display name (user-entered for custom providers); ``null`` falls back to model ID in the UI.\n- ``is_default``: effective default; never marked for disabled/retired models, without changing stored custom-provider defaults.\n- ``official``: officially listed built-in models allow only enabling/disabling; user-added/custom models are ``false``.\n- ``flags``: ``discontinued`` means retired; ``retiring`` means pending shutdown (date in ``lifecycle``);\n  ``unpriced`` means calls are recorded as unpriced (no matched entry or no price; omit when the two-level multiplier product is 0, so no billing);\n  ``modified`` means a user-edited entry no longer follows official updates.\n- ``endpoint``: custom model call-endpoint key; ``null`` for built-in providers.\n- ``lifecycle``: matched-entry lifecycle today. Retired models remain listed but are neither candidates nor callable.\n- ``min_app_version``: minimum app version for officially listed models; ``null`` if unspecified or not official.\n- ``min_app_version_satisfied``: app meets ``min_app_version``. Unsatisfied models appear last, with\n  ``enabled`` and ``is_default`` false, excluded from candidates/defaults/calls. They cannot be enabled\n  or have model settings read (docs/adr/0103)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderModelReferences",
+        "description"
+      ],
+      "before": "引用这个供应商模型的全局设置键与项目；移除前提示用。",
+      "after": "Global setting keys and projects referencing this provider model, for preremoval warnings."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderModelSettingsUpdate",
+        "description"
+      ],
+      "before": "保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。\n\n- 所有供应商模型：``enabled``，以及 ``entry``（修改对应的条目，存为用户副本，条目从此不再随官方更新）。\n- 用户负责的模型：``model_id``（改模型 ID）、``endpoint``（调用端点；内置供应商只能选它在该媒体类型下的内置调用\n  端点）、``multiplier``、``capability_overrides``（整份替换，``null`` 或\n  空对象表示清除）、``entry_binding``（关联到目录里的另一个模型，须是同媒体类型的现有条目；``null`` 解除，改回\n  按名字对应）、``new_entry``（目录里找不到时手动填写：新建条目并绑定到它，目录里已有同名模型时 422；与\n  ``entry_binding`` 同传时以 ``new_entry`` 为准）。条目与绑定都随这一次保存写入，任一步被拒则都不落库。\n- 自定义供应商的模型：``is_default``、``path_overrides``、``resolution``。",
+      "after": "Save provider settings and model information from the provider-model Sheet; omitted fields stay unchanged.\n\n- All provider models: ``enabled`` and ``entry`` (edit the matched entry as a user copy, no longer following official updates).\n- User-managed models: ``model_id`` (change ID), ``endpoint`` (built-ins select only their own\n  endpoints for that media type), ``multiplier``, ``capability_overrides`` (whole replacement;\n  ``null`` or empty object clears), ``entry_binding`` (associate another existing same-media-type\n  catalog entry; ``null`` detaches and restores name matching), ``new_entry`` (manually describe an\n  unlisted model: create and bind; existing same-name catalog model yields 422; ``new_entry`` takes precedence over\n  simultaneous ``entry_binding``). Save entries/bindings together; refusal of any step persists neither.\n- Custom models: ``is_default``, ``path_overrides``, ``resolution``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderModelsResponse",
+        "description"
+      ],
+      "before": "``discoverable``：供应商可以「获取模型」（自定义供应商的 ComfyUI 协议与没有模型列表接口的内置供应商不行）。",
+      "after": "``discoverable``: provider supports model discovery (not custom ComfyUI or built-ins lacking model-list APIs)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderMultiplierResponse",
+        "description"
+      ],
+      "before": "供应商倍率：``multiplier`` 是生效值，``default`` 是没有设置时的值。",
+      "after": "Provider multiplier: ``multiplier`` is effective; ``default`` applies when unset."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ProviderMultiplierUpdate",
+        "description"
+      ],
+      "before": "设置供应商倍率；``null`` 表示恢复默认值。",
+      "after": "Set provider multiplier; ``null`` restores the default."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "RepairDraftBody",
+        "properties",
+        "base_revision",
+        "description"
+      ],
+      "before": "读取草稿时拿到的 revision",
+      "after": "Revision obtained when reading the draft"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "RepairDraftBody",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "随修复传入的附加指令，不保存；空白视同未传",
+      "after": "Additional repair instructions, not saved; whitespace counts as omitted"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "RestoreEditTimelineRequest",
+        "properties",
+        "revision",
+        "description"
+      ],
+      "before": "要回滚到的修订号",
+      "after": "Revision number to restore"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "RevisionAuthor",
+        "description"
+      ],
+      "before": "修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。",
+      "after": "Revision author: creator (Web), ArcReel Agent, or external Agent."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "RevisionHistory",
+        "description"
+      ],
+      "before": "一条剪辑时间线的修订历史，按修订号从旧到新排列。",
+      "after": "One timeline's revision history in ascending revision order."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "RevisionSummary",
+        "description"
+      ],
+      "before": "修订历史里的一条：谁在什么时候为什么改，以及改动了哪些片段（旧修订没有记录时为 null）。",
+      "after": "Revision-history entry: who changed what clips, when, and why (changed-clip information is null for old revisions lacking it)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "SaveDraftRequest",
+        "properties",
+        "content",
+        "description"
+      ],
+      "before": "修改后的完整草稿正文",
+      "after": "Complete revised draft content"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "SaveDraftRequest",
+        "properties",
+        "base_revision",
+        "description"
+      ],
+      "before": "读取草稿时拿到的 revision",
+      "after": "Revision obtained when reading the draft"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "SaveObjectStorageConnectionRequest",
+        "description"
+      ],
+      "before": "保存连接。已有连接时，两个密钥字段留空表示保留已保存的值。",
+      "after": "Save the connection. For existing connections, empty secret fields preserve stored values."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "SchemaVersionInfo",
+        "description"
+      ],
+      "before": "文件版本与当前版本的比对结果。``level`` 只是提示信号，闸门始终是 schema 校验器。",
+      "after": "File/current-version comparison. ``level`` is only a hint; the schema validator remains the gate."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "ScriptPlanInstructions",
+        "properties",
+        "instructions",
+        "description"
+      ],
+      "before": "附加指令原文；空白视同清除",
+      "after": "Original additional instructions; whitespace clears them"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "SignalPayload",
+        "description"
+      ],
+      "before": "一条命中的信号：稳定名、它贡献的分量、给用户看的说明。",
+      "after": "One matched signal: stable name, score contribution and user-facing explanation."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "TierBindingRequest",
+        "description"
+      ],
+      "before": "给一个档位选择模型条目：「模型厂商/官方模型名」，须是目录里当前存在的文本模型条目。",
+      "after": "Select a model entry for one tier: model maker/official model name, requiring a currently existing catalog text-model entry."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "TierStatusResponse",
+        "description"
+      ],
+      "before": "一个档位的定价状态，按当前目录现查。``model_name`` 为 None 表示档位留空、由 CLI 决定调用的模型。",
+      "after": "One tier’s pricing state, queried from the current catalog. ``model_name`` None means an empty tier whose model is chosen by the CLI."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "TimelinePreviewMedia",
+        "description"
+      ],
+      "before": "``bgm`` 只含 BGM 轨引用且文件在项目里的 BGM。",
+      "after": "``bgm`` includes only BGM referenced by the BGM track whose files exist in the project."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "TimelineSummary",
+        "description"
+      ],
+      "before": "列表里的一条剪辑时间线；``updated_*`` 描述最新修订。",
+      "after": "One timeline in a list; ``updated_*`` describes the latest revision."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UpdateAccountRequest",
+        "description"
+      ],
+      "before": "省略的字段保持不变；两个密钥字段留空表示保留已保存的值。",
+      "after": "Omitted fields remain unchanged; leaving either secret field empty preserves its stored value."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageAgentSession",
+        "description"
+      ],
+      "before": "一个 Agent 会话在会话列表里的一行；合计只含落在筛选内的记录。",
+      "after": "One Agent-session list row, totaling only records matching filters."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageAgentSessionPage",
+        "description"
+      ],
+      "before": "keyset 分页的一页，按最近一轮的时间倒序；``next_cursor`` 为空表示已到末页。",
+      "after": "One keyset page ordered by latest turn descending; empty ``next_cursor`` means the last page."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageAgentSessionRecord",
+        "description"
+      ],
+      "before": "会话明细里的一条记录：一轮里某个模型的用量与费用。",
+      "after": "One session-detail record: one model’s usage and cost in a turn."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageBreakdownOther",
+        "description"
+      ],
+      "before": "构成表列表外的余量：被合并的分组数与它们的合计。",
+      "after": "Remainder outside the composition list: merged group count and totals."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageRange",
+        "description"
+      ],
+      "before": "趋势覆盖的本地日区间，两端均含，与 daily 首尾桶一致。",
+      "after": "Inclusive local-day trend interval, matching first/last daily buckets."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageRecord",
+        "description"
+      ],
+      "before": "一次供应商调用在列表里的投影。``user_id`` 不出现。",
+      "after": "List projection of one provider call, omitting ``user_id``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageRecordDetail",
+        "description"
+      ],
+      "before": "详情比列表多三项重载荷，列表里不返回。",
+      "after": "Details add three heavy payloads omitted from lists."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageRecordPage",
+        "description"
+      ],
+      "before": "keyset 分页的一页；``next_cursor`` 为空表示已到末页。",
+      "after": "One keyset page; empty ``next_cursor`` means the last page."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UsageStats",
+        "description"
+      ],
+      "before": "一组调用的计数与分币种参考费用。",
+      "after": "Call counts and reference costs separated by currency."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "UserActionTrigger",
+        "description"
+      ],
+      "before": "用户在界面上的一次操作直接触发渲染；``name`` 是操作名，``agent_session`` 指发起或恢复 Agent 会话。",
+      "after": "Render directly from a UI operation; ``name`` is its name, and ``agent_session`` means starting/resuming a session."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkCacheCleanupRequest",
+        "description"
+      ],
+      "before": "只清理闲置超过 ``min_idle_seconds`` 的工作文件；缺省为 0，正在使用的文件始终保留。",
+      "after": "Clean only working files idle longer than ``min_idle_seconds``, default 0; always retain files in use."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowActionType",
+        "description"
+      ],
+      "before": "``WorkflowNextAction.type`` 的闭集。\n\n三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时\n额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。\n消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即\n自动进入各处覆盖检查，不必再手抄一份清单。",
+      "after": "Closed set of ``WorkflowNextAction.type`` values.\n\nCombines three sources: this module's next actions/alternatives, additional actions injected during\n``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``\nreturned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action\ntables, action translations) derive from this enum. New members automatically enter all coverage checks\nwithout manually maintaining another list."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowContent",
+        "description"
+      ],
+      "before": "内容现状：各类内容此刻是什么样，不含「该做哪一步」的判断。\n\n集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、\n脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。\n\n``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的\n下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、\n没有待重新规划的集，且整本源文没有剩余。",
+      "after": "Current content state without deciding which step should come next.\n\nEpisode fields have values only with a target episode. ``episode_plan_stale`` means episode planning\nis stale and script planning awaits rebuilding: state it here without adding it to suggested next actions.\n\n``episode_complete`` indicates target-episode completion (``is_episode_complete``); completed episodes\nmay still have within-episode suggestions, e.g. pending authoring or missing sheets. ``project_complete``\nappears only in queries without a specified episode: every episode complete, none awaiting replanning,\nand no remaining whole-source text."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowDraft",
+        "description"
+      ],
+      "before": "目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。",
+      "after": "One draft present on the target episode; ``needs_repair`` distinguishes quarantined drafts from Agent-editable drafts."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowOperation",
+        "description"
+      ],
+      "before": "一个 AI 操作此刻的结构准入：与操作入口调用同一份谓词（见 ``lib.workflow.operation_admission``）。",
+      "after": "Current structural admission for one AI operation, sharing entry-point predicates (``lib.workflow.operation_admission``)."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowPlanRequest",
+        "properties",
+        "episode_id",
+        "description"
+      ],
+      "before": "要规划的集的集 ID（项目详情 episodes[].episode）；缺省时按播出顺序选定当前集",
+      "after": "Episode ID to plan (project details episodes[].episode); when omitted, select the current episode in broadcast order"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowPlanRequest",
+        "properties",
+        "confirmed_request_durations",
+        "description"
+      ],
+      "before": "已与用户确认的视频请求时长，{ 单元 id: 秒数 }；只作用于本次计划的视频准入判定",
+      "after": "Video-request durations confirmed with the user, { unit ID: seconds }; apply only to video admission in this plan"
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowProblem",
+        "description"
+      ],
+      "before": "计划里的一条提示：稳定问题码、所属单元与可本地化参数。\n\n只下发界面与 Agent 能据以陈述的结构：``code`` 是本地化的机器 key，``params`` 是文案参数。\n原始理由文本（``GenerationProblem.detail``）与发声准入的整份载荷不进这里；需要逐字段定位\n改脚本时，Agent 读 ``patch_episode_script`` 动作 ``args.problems`` 里的完整问题。",
+      "after": "One plan notice: stable problem code, owning unit, and localizable parameters.\n\nSend only structure UI/Agents can state: ``code`` is a localization machine key; ``params`` contains text-interpolation parameters.\nExclude raw reason text (``GenerationProblem.detail``) and complete speech-admission payloads. Agents\nneeding field-level locations to edit scripts read full problems in ``patch_episode_script`` action\n``args.problems``."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowProviderCheckpoint",
+        "description"
+      ],
+      "before": "供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。",
+      "after": "Whether the provider accepted submission; state only this fact, excluding provider IDs/job numbers as internal handles."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowStatus",
+        "description"
+      ],
+      "before": "Shared response model serialized unchanged by REST and MCP adapters.\n\n制作状态陈述三件事（见 ``docs/adr/0091``）：``content`` 与 ``artifacts`` 是内容现状；\n``operations`` 是每个 AI 操作能否执行及原因；``next_action`` 是建议的下一步，分岔处的并列\n选项在 ``next_alternatives``。``blockers`` 只表示项目整体不可用，内容本身的数据问题进\n``issues``，只陈述、不阻断其余内容。",
+      "after": "Shared response model serialized unchanged by REST and MCP adapters.\n\nProduction status states three things (``docs/adr/0091``): ``content`` and ``artifacts`` describe current\ncontent, ``operations`` describes each AI operation's availability/reason, and ``next_action`` suggests\nthe next step, with branch alternatives in ``next_alternatives``. ``blockers`` means only whole-project\nunavailability; content-data problems enter ``issues`` as information without blocking other content."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "WorkflowTaskObservation",
+        "description"
+      ],
+      "before": "One task axis, kept separate from provider submission and artifact currency.\n\n计划只观测排队中与运行中的任务，它们是进度而不是问题，所以这里不带问题。",
+      "after": "One task axis, kept separate from provider submission and artifact currency.\n\nPlans observe only queued/running tasks, which are progress rather than problems; carry no problems here."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "_CreateRequest",
+        "description"
+      ],
+      "before": "创建请求体。按资产类型接受不同的额外字段。",
+      "after": "Creation request accepting extra fields according to asset type."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "_DerivativeCreateRequest",
+        "description"
+      ],
+      "before": "新增衍生：名字在所属本体内唯一，描述是相对本体的外观变化。",
+      "after": "Add a derivative: the name is unique within its base and the description contains appearance changes relative to the base."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "_DerivativeUpdateRequest",
+        "description"
+      ],
+      "before": "更新衍生描述。改名走 ``/rename``，资产图路径由生成侧写入，均不在此。",
+      "after": "Update a derivative description. Renaming uses ``/rename`` and generation writes image paths; neither belongs here."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "_MergeRequest",
+        "description"
+      ],
+      "before": "资产合并请求体：把路径里的资产并入 ``target``。``dry_run=True`` 只返回按集列出的影响预览。",
+      "after": "Asset-merge request: merge the path asset into ``target``; ``dry_run=True`` returns only per-episode impact previews."
+    },
+    {
+      "path": [
+        "components",
+        "schemas",
+        "_RenameRequest",
+        "description"
+      ],
+      "before": "级联重命名请求体。``dry_run=True`` 只返回影响预览（将更新的集数/引用处数/文件数）。",
+      "after": "Cascade-rename request. ``dry_run=True`` returns only impact previews: updated episode/reference/file counts."
+    }
+  ],
+  "scope": "Complete app.openapi() values with no lifespan/server/model calls, dotenv disabled and disposable data-root paths. All paths, methods, operationIds, schema structure, enums/defaults/limits/example values remain compared exactly; description metadata reviewed separately."
+}

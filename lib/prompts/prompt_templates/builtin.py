@@ -1,4 +1,4 @@
-"""随核心库分发的生产模版实例。"""
+"""Production template instance distributed with the core library."""
 
 from pathlib import Path
 

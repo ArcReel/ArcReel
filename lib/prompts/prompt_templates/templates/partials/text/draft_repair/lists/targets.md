@@ -1,12 +1,12 @@
 {% for target in targets %}
 ## `{{ root }}[{{ target.index }}]`
 
-违约：
+Violations:
 {% for message in target.messages %}
 - {{ message }}
 {% endfor %}
 
-当前内容：
+Current content:
 
 ```json
 {{ target.item_json }}

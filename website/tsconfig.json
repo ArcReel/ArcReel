@@ -1,8 +1,8 @@
 {
   "extends": "@docusaurus/tsconfig",
   "compilerOptions": {
-    // @docusaurus/tsconfig 在 compilerOptions 里设置 baseUrl，该选项自 TypeScript 6.0
-    // 起被标记为弃用（TS5101），不显式豁免则 typecheck 直接报错。
+    // @docusaurus/tsconfig sets baseUrl in compilerOptions; TypeScript 6.0
+    // deprecates that option (TS5101), so typecheck fails without an explicit exemption.
     "ignoreDeprecations": "6.0"
   },
   "exclude": [".docusaurus", "build"]

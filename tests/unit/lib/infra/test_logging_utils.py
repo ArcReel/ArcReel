@@ -37,7 +37,7 @@ def test_diagnostic_payload_redacts_credentials_embedded_in_text():
 
 
 def test_diagnostic_payload_redacts_credentials_echoed_in_prose():
-    # 上游 4xx 常把密钥连同一句话回显，标签与值之间隔着普通词，键值型规则匹配不到。
+    # Upstream 4xx often echoes secrets within sentences; ordinary words between labels/values evade key/value patterns.
     sanitized = sanitize_diagnostic_payload(
         {
             "detail": "Incorrect API key provided: vda_live_SECRET123",
@@ -261,8 +261,8 @@ def test_formatter_swallows_internal_errors():
 
 
 def test_fallback_returns_fixed_placeholder_not_raw_repr():
-    """_to_safe 抛错时必须返回固定占位符，不能回退到 repr(payload)，
-    否则会把未脱敏的原始对象内容（含敏感字段字面量）重新带回日志。"""
+    """_to_safe failures return fixed placeholders, never repr(payload), which would reintroduce raw
+    unsanitized objects and sensitive-field literals into logs."""
 
     class Disaster:
         def __repr__(self) -> str:
@@ -273,10 +273,10 @@ def test_fallback_returns_fixed_placeholder_not_raw_repr():
 
 
 def test_fallback_does_not_leak_sensitive_via_repr():
-    """同一 payload 里既有敏感字面量、又有序列化会炸的对象：走兜底也不能把 api_key 带出来。
+    """Payloads with sensitive literals plus serialization-failing objects must never leak api_key through fallback.
 
-    炸点由真实对象触发（``__repr__`` 抛错），不替换脱敏函数——兜底一旦改回 repr(payload)，
-    整个 payload 连同未脱敏的 api_key 会一起进日志。
+    A real object triggers failure through ``__repr__``, without replacing sanitizers. Switching
+    fallback back to repr(payload) would log whole payloads, including unsanitized api_key.
     """
 
     class Disaster:
@@ -311,8 +311,8 @@ def test_pydantic_class_not_called_as_instance():
 
 
 def test_diagnostic_payload_keeps_numeric_token_counters():
-    # *_tokens 同时落在敏感键形里，但带的是用量计数：遮蔽它会让读侧的计费与诊断信息消失。
-    # 被凭证词直接限定的 auth_token 不在此列，值是数字也照遮。
+    # *_tokens overlaps sensitive key shapes but carries usage counts; masking it loses billing/diagnostic facts.
+    # Direct credential-qualified auth_token remains sensitive, even with numeric values.
     assert sanitize_diagnostic_payload(
         {
             "usage": {"prompt_tokens": 128, "completion_tokens": 64, "total_tokens": 192, "cost": 0.5},

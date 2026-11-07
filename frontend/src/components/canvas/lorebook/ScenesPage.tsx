@@ -10,7 +10,7 @@ interface Props {
   onRestoreSceneVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingSceneNames?: Set<string>;
-  /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传入口。 */
+  /** Read-only onboarding demo: render no add, library-ingestion, generation or upload actions. */
   readOnly?: boolean;
 }
 

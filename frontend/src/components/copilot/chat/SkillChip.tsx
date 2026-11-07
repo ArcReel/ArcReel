@@ -3,14 +3,14 @@ import { WorkDetail, WorkRow, useSessionDone } from "./WorkRow";
 import { SKILL_ICON } from "./work-label";
 
 // ---------------------------------------------------------------------------
-// SkillChip – Skill 调用的工序行：「/skill-name」加入参。展开查看日志中已有的参数与
-// 结果；注入的 skill 全文不在日志里，没有参数与结果时不可展开。
+// SkillChip: a skill-call workflow row showing /skill-name and arguments. Expand to view arguments and
+// results already in the log; injected skill text is absent from logs, so rows without arguments/results cannot expand.
 // ---------------------------------------------------------------------------
 
 interface SkillChipProps {
   name?: string;
   args?: string;
-  /** Skill tool_use 还没有结果；独立的 skill_invocation 记录视为已完成。 */
+  /** The Skill tool_use has no result yet; standalone skill_invocation records count as completed. */
   pending?: boolean;
   failed?: boolean;
   result?: string;

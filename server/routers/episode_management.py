@@ -1,4 +1,4 @@
-"""集管理的 Web 入口：新建一集、调序与删除一集。"""
+"""Web entry point for episode creation, reordering and deletion."""
 
 from __future__ import annotations
 
@@ -33,27 +33,27 @@ _STATUS: dict[str, int] = {"episode_not_found": 404}
 class CreateEpisodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 插在哪一集之后（集 ID）；缺省时放在播出顺序末尾。
+    #: Episode ID to insert after; omit to append in broadcast order.
     after: int | None = None
     title: Annotated[str, Field(max_length=200)] = ""
     hook: Annotated[str, Field(max_length=2000)] = ""
-    #: 集原文；空白视同没有原文。
+    #: Episode source text; whitespace counts as absent.
     source_text: str | None = None
-    #: 集原文的源文件类型，只对剧情演绎项目生效；缺省为小说。
+    #: Episode source kind, effective only for drama projects; defaults to novel.
     source_kind: SourceKind | None = None
 
 
 class DeleteEpisodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 创作者看过的丢失清单的 ``revision``；缺省或与当前清单不符时只返回清单，不删除。
+    #: ``revision`` of the loss list seen by the creator; missing or mismatched revisions return the list without deleting.
     revision: str | None = None
 
 
 class MoveEpisodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 移到哪一集之后（集 ID）；null 时移到最前。
+    #: Episode ID to move after; null moves to the beginning.
     after: int | None
 
 
@@ -80,7 +80,7 @@ async def _run[T](name: str, _t: Translator, action: Callable[[ProjectManager], 
 
 @router.post("/projects/{name}/episodes", dependencies=[Depends(require_project_migration_ok)], status_code=201)
 async def create_episode_endpoint(name: str, req: CreateEpisodeRequest, _t: Translator) -> dict[str, Any]:
-    """新建一集：分配新集 ID，插在 ``after`` 之后（缺省放在末尾）；带原文时是自带原文的集。"""
+    """Create an episode: allocate a new episode ID and insert after ``after`` (default: append); supplied source text makes it an own-source episode."""
     episode = await _run(
         name,
         _t,
@@ -99,23 +99,22 @@ async def create_episode_endpoint(name: str, req: CreateEpisodeRequest, _t: Tran
 
 @router.post("/projects/{name}/episodes/{episode}/move", dependencies=[Depends(require_project_migration_ok)])
 async def move_episode_endpoint(name: str, episode: int, req: MoveEpisodeRequest, _t: Translator) -> dict[str, Any]:
-    """调整播出顺序：把这一集移到 ``after`` 之后。切出集之间保持源文顺序。"""
+    """Reorder broadcasting: move this episode after ``after``. Preserve source order among extracted episodes."""
     await _run(name, _t, lambda manager: move_episode(manager, name, episode, after=req.after), episode=episode)
     return {"success": True}
 
 
 async def episode_has_active_tasks(project_name: str, episode: int) -> bool:
-    """这一集是否有排队或执行中的任务：任务的资源、剧本文件或载荷带这一集的集 ID。"""
+    """Whether this episode has queued/running tasks: the task resource, script filename or payload carries this episode’s ID."""
     return await episode_tasks_active(get_generation_queue(), project_name, episode)
 
 
 @router.post("/projects/{name}/episodes/{episode}/delete", dependencies=[Depends(require_project_migration_ok)])
 async def delete_episode_endpoint(name: str, episode: int, req: DeleteEpisodeRequest, _t: Translator) -> dict[str, Any]:
-    """删除一集（硬删除）。
+    """Delete an episode permanently.
 
-    先不带 ``revision`` 调用，得到 ``status=confirmation_required`` 与服务端成文的丢失清单 ``impact.text``；
-    创作者确认后带上 ``impact.revision`` 重新提交。清单在两次调用之间变了时再次返回确认，不删除。
-    """
+    First call without ``revision`` for ``status=confirmation_required`` and the server-written loss list ``impact.text``.
+    After creator confirmation, resubmit with ``impact.revision``. If the list changed between calls, request confirmation again without deleting."""
 
     if req.revision is not None and await episode_has_active_tasks(name, episode):
         raise HTTPException(status_code=409, detail=_t("episode_manage_tasks_active"))

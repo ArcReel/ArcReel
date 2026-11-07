@@ -1,7 +1,7 @@
-"""DashScopeSpeechSynthesizerBackend：百炼 SpeechSynthesizer 同步语音合成（respx 在 transport 层替身）。
+"""DashScopeSpeechSynthesizerBackend: synchronous Bailian SpeechSynthesizer, intercepted at transport by respx.
 
-响应 fixture 取官方非流式示例的最小形态，出处 https://help.aliyun.com/zh/model-studio/qwen-audio-tts-http-api ；
-3.1 系的 token 用量字段名见同页 ``usage`` 字段说明。
+Fixtures use minimal official nonstreaming examples: https://help.aliyun.com/zh/model-studio/qwen-audio-tts-http-api ;
+3.1 token fields follow that page’s ``usage`` section.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ _AUDIO_URL = "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/out.wav?Ex
 
 
 def _official_response(usage: dict) -> dict:
-    """官方非流式响应形态：音频是 output.audio.url 指向的文件，output.audio.data 为空串。"""
+    """Official nonstreaming responses put audio at output.audio.url and leave output.audio.data empty."""
     return {
         "request_id": "ee88b03d-0457-9286-8c67-000000000000",
         "output": {
@@ -96,7 +96,7 @@ class TestRequest:
         assert submitted.headers["Authorization"] == "Bearer sk"
         assert "X-DashScope-Async" not in submitted.headers
         assert "X-DashScope-SSE" not in submitted.headers
-        # 输出格式随落盘扩展名，language_type 不发送；未给语速时不带 rate
+        # Formats follow extensions; omit language_type and unspecified rate.
         assert request_json(submitted) == {
             "model": "qwen-audio-3.0-tts-flash",
             "input": {
@@ -108,7 +108,7 @@ class TestRequest:
         }
         assert str(only_request(routes.download).url) == _AUDIO_URL
         assert (tmp_path / "o.wav").read_bytes() == b"RIFFbytes"
-        # 3.0 系只报计费字符数，不报 token：按字符计价由计算器从原文统计
+        # 3.0 reports billable characters, not tokens; calculators count original text for character pricing.
         assert result.text == "我家的后面有一个很大的花园。"
         assert result.input_tokens is None
         assert result.audio_output_tokens is None
@@ -176,7 +176,7 @@ class TestVoices:
             ("qwen-audio-3.1-tts-flash", "yuxiaoyun_v3.1", "longanlingxin"),
             ("qwen-audio-3.0-tts-plus", "longanlufeng", "longanhuan_v3.1"),
             ("qwen-audio-3.0-tts-flash", "longanhuan_v3.6", "longanhuan_v3.1"),
-            # 中转命名空间与日期快照后缀不影响代际判定
+            # Relay namespaces/date-snapshot suffixes do not affect generation detection.
             ("aliyun/Qwen-Audio-3.0-TTS-Flash-2026-03-04", "loongjohn", "longanhuan_v3.1"),
         ],
     )
@@ -206,7 +206,7 @@ class TestVoices:
 
 
 class TestCustomProviderEndpoint:
-    """自定义供应商挂 ``dashscope-speech-synthesizer``：构造本后端，路径覆盖作用在 SpeechSynthesizer 请求上。"""
+    """Custom ``dashscope-speech-synthesizer`` providers build this backend and apply path overrides to SpeechSynthesizer requests."""
 
     def _build(self, overrides: dict[str, str] | None = None):
         from types import SimpleNamespace

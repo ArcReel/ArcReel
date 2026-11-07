@@ -2,21 +2,21 @@ import { create } from "zustand";
 import { API } from "@/api";
 
 interface OnboardingState {
-  /** 后端「已看过」标记；null = 尚未查询 */
+  /** Backend seen marker; null means not queried yet. */
   seen: boolean | null;
   /**
-   * `seen: true` 是否已被后端确认过(GET 返回过 true，或 POST 成功过)。
-   * 查询失败时也会把 `seen` 置真用于本次抑制自动弹出，但那不算确认——
-   * 靠这个字段把两种「true」的含义分开，避免 `exit()` 把前者误判成不必再写。
+   * Whether backends confirmed `seen: true` (GET returned true or POST succeeded).
+   * Failed queries also set `seen` true to suppress auto-opening this session, but never count as confirmation;
+   * distinguish both true meanings here so `exit()` does not mistakenly skip persistence for the former.
    */
   seenConfirmed: boolean;
-  /** 引导是否正在运行 */
+  /** Whether onboarding is running. */
   active: boolean;
-  /** 拉取「是否已看过」。失败时按已看过处置，宁可不弹也不误弹。 */
+  /** Fetch seen status; failures treat it as seen, preferring no display over mistaken display. */
   loadStatus: (options?: { signal?: AbortSignal }) => Promise<void>;
-  /** 打开引导。自动首弹与「重看引导」共用这一条路径。 */
+  /** Open onboarding; initial automatic display and replay share this path. */
   start: () => void;
-  /** 任一退出路径（跳过 / 关闭 / 走完）。首次退出时标记已看；重看不重复写。 */
+  /** Any exit path (skip / close / complete). Mark seen on first exit; replay never writes repeatedly. */
   exit: () => void;
 }
 
@@ -29,14 +29,14 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
     try {
       const { seen } = await API.getOnboardingStatus({ signal: options.signal });
       if (options.signal?.aborted) return;
-      // 迟到的查询结果不得回退已确立的「已看过」——用户可能在这次查询飞行途中
-      // 已经跑完并退出过一轮引导(本地 exit() 早已写入 seen: true)。
+      // Late query results must not revert established seen state: users may have completed/exited onboarding while
+      // these queries were in flight (local exit() already wrote seen: true).
       if (get().seen === true) return;
       set({ seen, seenConfirmed: seen });
     } catch (err) {
       if (options.signal?.aborted) return;
-      // 后端抖动时不该给老用户重复弹引导。仅抑制本次会话，刷新后重新判定；
-      // 不算后端确认，后续 exit() 仍要真正写一次。
+      // Backend instability must not repeat onboarding for existing users. Suppress this session only, reevaluating after refresh;
+      // never count as backend confirmation, so later exit() still persists once.
       console.warn("[onboarding] status fetch failed; suppressing auto-start", err);
       set({ seen: true });
     }
@@ -51,8 +51,8 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
     const { active, seenConfirmed } = get();
     if (!active) return;
     set({ active: false, seen: true });
-    // 后端已确认过「已看过」时再写一次没有意义 —— 引导全程只允许这一个写操作，
-    // 能省则省。查询失败导致的本地临时抑制不算确认，仍要写。
+    // Rewriting backend-confirmed seen states is pointless; onboarding permits only this one write,
+    // skipping it when possible. Query-failure local suppression is not confirmation and still requires writes.
     if (seenConfirmed) return;
     void API.markOnboardingSeen()
       .then(() => set({ seenConfirmed: true }))

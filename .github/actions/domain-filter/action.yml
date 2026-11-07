@@ -36,9 +36,9 @@ runs:
       id: filter
       with:
         filters: |
-          # .github/** 覆盖 workflows/actions/codeql 配置等全部 CI 基础设施；
-          # .codecov.yml 决定覆盖率状态与 flag 行为；.gitignore 影响 ruff 的
-          # 文件发现（respect-gitignore 对已跟踪文件同样生效）
+          # .github/** covers all CI infrastructure, including workflows/actions/codeql configuration;
+          # .codecov.yml controls coverage statuses and flags; .gitignore affects ruff file
+          # discovery (respect-gitignore also applies to tracked files).
           workflow:
             - '.github/**'
             - '.codecov.yml'
@@ -54,7 +54,7 @@ runs:
             - 'packages/**'
             - 'pyproject.toml'
             - 'uv.lock'
-            # 后端契约测试直接读取这些前端源文件；它们同时命中 frontend 域。
+            # Backend contract tests read these frontend source files directly; they also match the frontend domain.
             - 'frontend/src/i18n/*/dashboard.ts'
             - 'frontend/src/i18n/*/events.ts'
             - 'frontend/src/types/workflow.ts'
@@ -62,17 +62,17 @@ runs:
             - 'frontend/src/test/contracts/**'
           frontend:
             - 'frontend/**'
-          # public/ 目录与根目录 README.md 是 Dockerfile 的 COPY 源且不属于
-          # backend/frontend 域，单独变更时需经 docker-verify 验证镜像装配
+          # public/ and root README.md are Dockerfile COPY sources outside the
+          # backend/frontend domains; isolated changes require docker-verify image-assembly validation.
           docker:
             - 'Dockerfile'
             - '.dockerignore'
             - 'public/**'
             - 'README.md'
-          # CONTRIBUTING.md 构建时复制上站；两个 README 不上站，但都在翻译 lockfile 的
-          # 特例映射内，改动须当场冒出缺译/滞后报告。translate-docs skill 目录同样列入：
-          # website-checks 的孤儿译文检测、滞后报告与该 skill 的单测都执行其中的
-          # translation-lock.mjs，脚本单独变更时这些检查必须照常跑。
+          # CONTRIBUTING.md is copied onto the site during builds; neither README is published there, but both have
+          # special translation-lockfile mappings, so changes must immediately produce missing/stale reports. Include the translate-docs skill too:
+          # website-checks orphan-translation detection, stale reports, and the skill unit tests all execute its
+          # translation-lock.mjs; those checks must still run when only that script changes.
           website:
             - 'website/**'
             - 'CONTRIBUTING.md'
@@ -84,7 +84,7 @@ runs:
       shell: bash
       env:
         FULL: ${{ inputs.full }}
-        # full 模式跳过 filter 步骤时其 outputs 为空，在表达式层统一兜底
+        # When full mode skips filter, its outputs are empty; apply the fallback consistently in expressions.
         F_WORKFLOW: ${{ steps.filter.outputs.workflow || 'false' }}
         F_BACKEND: ${{ steps.filter.outputs.backend || 'false' }}
         F_FRONTEND: ${{ steps.filter.outputs.frontend || 'false' }}

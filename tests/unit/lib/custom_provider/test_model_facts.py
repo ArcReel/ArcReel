@@ -1,4 +1,4 @@
-"""供应商模型的生效模型事实：能力覆盖 > 对应条目 > 运行时回落。"""
+"""Effective provider-model facts: capability overrides > matching entries > runtime fallback."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ class TestVideoOtherFacts:
             {"resolutions": ["720p"], "duration_constraints": {"by_resolution": {"720P": [4]}}},
         )
         assert facts.resolutions == ("720p",)
-        # 整维替换：没写的参考图约束随之消失，不与条目合并
+        # Replace the whole dimension: omitted reference-image constraints disappear instead of merging with entries.
         assert facts.duration_constraints == DurationConstraints(by_resolution={"720p": (4,)})
 
 

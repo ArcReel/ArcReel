@@ -1,12 +1,12 @@
-"""目录合成：官方数据与用户修改合成运行时读到的模型目录（docs/adr/0099、0103）。
+"""Catalog composition: official data plus user modifications form runtime catalogs (docs/adr/0099, 0103).
 
-- 官方数据：出厂快照与官方同步中，数据集版本较新的一份（:func:`newest_official`）；另一份里有、它没有的条目
-  保留下来（:func:`merge_official`），同步不删除模型条目（docs/adr/0103）。
-- 用户修改：整个条目的副本。有副本的条目停止跟随官方，只用副本；丢弃副本即恢复跟随官方。用户新建的条目（官方
-  数据里没有它时手动填写的）从一开始就不跟随官方；日后官方数据收录了同一身份的条目，它仍是用户新建的，同时能看到
-  官方的值，用户可以改用官方数据。
+- Official: newer dataset version of factory snapshots/synchronized data (:func:`newest_official`); retain entries unique to the other
+  candidate (:func:`merge_official`), never deleting entries on sync (docs/adr/0103).
+- User modifications: whole-entry copies. Copies replace official following until discarded. User-created entries manually
+  entered before official listing never follow official data; later official entries with matching identities do not change their ownership,
+  but expose official values so users can switch to official data.
 
-本模块只做纯计算；副本的存储与装入见 ``lib.catalog.user_entries``，进程内的缓存见 ``lib.catalog.query``。
+Pure computation only; copy persistence/loading in ``lib.catalog.user_entries``, process caches in ``lib.catalog.query``.
 """
 
 from __future__ import annotations
@@ -17,12 +17,12 @@ from typing import Literal
 
 from arcreel_catalog_core import CatalogData, CatalogEntry, EntryKey, parse_dataset_version
 
-#: 条目由谁维护：``official`` 跟随官方数据；``modified`` 用户改过官方条目；``user_created`` 用户新建、由用户填写。
+#: Entry ownership: ``official`` follows official data, ``modified`` changes official entries, ``user_created`` is user-authored.
 EntrySource = Literal["official", "modified", "user_created"]
 
 
 def newest_official(candidates: Sequence[CatalogData]) -> CatalogData:
-    """官方数据的候选中数据集版本最新的一份；版本相同时取靠前的。``candidates`` 不能为空。"""
+    """Newest dataset version among official candidates, preferring earlier candidates on ties. ``candidates`` must not be empty."""
     newest = candidates[0]
     for candidate in candidates[1:]:
         if parse_dataset_version(candidate.dataset_version) > parse_dataset_version(newest.dataset_version):
@@ -31,21 +31,21 @@ def newest_official(candidates: Sequence[CatalogData]) -> CatalogData:
 
 
 def retain_entries(newest: CatalogData, older: CatalogData) -> CatalogData:
-    """``older`` 里有、``newest`` 里没有的条目接在 ``newest`` 的条目之后；供应商清单与数据集版本仍取 ``newest``。"""
+    """Append entries present in ``older`` but absent from ``newest`` after ``newest`` entries; retain ``newest`` provider manifests/dataset versions."""
     keys = {entry.key for entry in newest.entries}
     retained = tuple(entry for entry in older.entries if entry.key not in keys)
     return replace(newest, entries=newest.entries + retained) if retained else newest
 
 
 def merge_official(snapshot: CatalogData, synced: CatalogData) -> CatalogData:
-    """出厂快照与官方同步合成的官方数据：取数据集版本较新的一份（相同时取快照），保留另一份独有的条目。"""
+    """Compose official snapshot/sync data: newer dataset version, snapshot on ties, retaining entries unique to the other."""
     newest = newest_official((snapshot, synced))
     return retain_entries(newest, synced if newest is snapshot else snapshot)
 
 
 @dataclass(frozen=True)
 class ComposedCatalog:
-    """合成后的目录。``data`` 是运行时读的目录数据：条目已换成用户副本，供应商清单与数据集版本取官方数据。"""
+    """Composed catalogs. Runtime ``data`` replaces entries with user copies, retaining official manifests/dataset versions."""
 
     official: CatalogData
     data: CatalogData
@@ -59,15 +59,15 @@ class ComposedCatalog:
         return "user_created" if key in self._created_keys or key not in self._official_by_key else "modified"
 
     def official_entry(self, key: EntryKey) -> CatalogEntry | None:
-        """官方数据里同一身份的条目；用户新建的条目在官方数据收录它之前没有。"""
+        """Official entry with matching identity; user-created entries lack one until official data lists it."""
         return self._official_by_key.get(key)
 
 
 def compose_catalog(
     official: CatalogData, user_entries: Iterable[CatalogEntry], created: Iterable[EntryKey] = ()
 ) -> ComposedCatalog:
-    """用户副本按身份替换官方条目（保持官方顺序），官方数据里没有的副本排在最后。``created`` 是用户新建的条目身份；
-    官方数据里没有的副本无论是否在其中，都按用户新建处理。"""
+    """Replace official entries by matching user-copy identity, preserving official order; append nonofficial copies. ``created`` holds user-created identities;
+    copies absent from official data count as user-created whether present there or not."""
     copies: dict[EntryKey, CatalogEntry] = {}
     for entry in user_entries:
         copies.setdefault(entry.key, entry)

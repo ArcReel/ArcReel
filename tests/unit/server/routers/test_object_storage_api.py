@@ -1,6 +1,6 @@
-"""对象存储连接配置 API。
+"""Object-storage connection-configuration API.
 
-TOS SDK 基于 requests，不经 httpx；对象存储的网络边界在 ``create_sdk_client`` 一处替换为内存替身。
+TOS SDK uses requests, not httpx; replace the object-storage network boundary at ``create_sdk_client`` with in-memory fakes.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ _BODY = {
 
 
 class FakeTos:
-    """TOS SDK 客户端替身：记录构造参数与调用，``fail`` 设为异常时 head_bucket 抛出它。"""
+    """TOS SDK client fake records constructor arguments/calls; exception-valued ``fail`` makes head_bucket raise it."""
 
     instances: ClassVar[list[FakeTos]] = []
 
@@ -144,7 +144,7 @@ def test_delete_returns_instance_to_local_only(storage_api: TestClient):
 
 
 async def test_presigned_download_address_is_a_url_string(fake_tos):
-    """SDK 返回的是带 ``signed_url`` 的对象，客户端交给调用方的是地址本身。"""
+    """SDK returns objects with ``signed_url``; clients return the addresses themselves to callers."""
     config = ObjectStorageConfig("tos", "cn-beijing", "tos-cn-beijing.volces.com", "b", AK, SK)
     url = await ObjectStorageClient(config).presign_get("relay/a.png", expires_seconds=600)
     assert url == "https://b.example/relay/a.png?sig"

@@ -1,12 +1,11 @@
-"""v10→v11 迁移：补写项目级角色声音绑定方式，存量项目行为不变。
+"""v10→v11: backfill project character-voice binding without changing existing behavior.
 
-取值按「任一角色设过 ``reference_audio`` → ``reference_audio``，否则 ``prompt``」推导：给角色
-配过参考音频的项目，其成片就是按参考音频直传交付的，补写默认档会让下一次生成静默换一种声音
-口径。两条分支都如实保留项目迁移前的交付口径。
+Derive any character's ``reference_audio`` → ``reference_audio``, otherwise ``prompt``. Projects with
+reference audio already delivered direct audio; inserting defaults would silently change next-generation
+voice rules. Both branches preserve actual pre-migration delivery.
 
-只改 ``project.json`` 一个字段，不触碰剧本、草稿与产物清单：绑定方式只影响下一次渲染与产物
-时效判定，不改写任何已落盘产物的身份。
-"""
+Change one ``project.json`` field only, leaving scripts/drafts/manifests. Binding affects next rendering/
+currency decisions, never existing persisted artifact identities."""
 
 from __future__ import annotations
 
@@ -20,11 +19,10 @@ _TARGET_VERSION = 11
 
 
 def _any_character_has_reference_audio(project: dict[str, Any]) -> bool:
-    """项目里是否有任一角色设过参考音频。
+    """Whether any project character has reference audio.
 
-    project.json 是明文文件，角色桶与条目可能被手编成非 dict；解析不出的形状一律当作「没设」，
-    与迁移前读侧对同一批脏值的口径一致（读不出的 ``reference_audio`` 本就挂不上音频）。
-    """
+    Plaintext project.json may have manually edited nondict character buckets/entries; unparseable shapes
+    count as unset, matching prior readers (unreadable ``reference_audio`` could not attach audio anyway)."""
     characters = project.get("characters")
     if not isinstance(characters, dict):
         return False
@@ -35,11 +33,9 @@ def _any_character_has_reference_audio(project: dict[str, Any]) -> bool:
 
 
 def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
-    """纯函数：把 v10 形态的 project dict 转为 v11 形态。幂等。
+    """Pure, idempotent v10→v11 project-dict conversion.
 
-    已带合法取值的项目原样保留（含手工先写好该字段的情形）；不改 schema_version（由文件级
-    migrate 提交时写入）。
-    """
+    Preserve valid existing values, including manually preset fields. Leave schema_version to file-level commit."""
     data = dict(project)
     existing = data.get(PROJECT_FIELD)
     if isinstance(existing, str) and existing in VALID_CHARACTER_VOICE_BINDINGS:
@@ -51,14 +47,14 @@ def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
 
 
 def migrate_v10_to_v11(project_dir: Path) -> None:
-    """v10→v11 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。"""
+    """File-level v10→v11 migration: one atomic write, retryable after crashes with old/new values and no partial state."""
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = load_json(pj)
     if not isinstance(data, dict):
         raise ValueError("project.json 必须是对象")
-    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
+    # Match runner int normalization: legacy project.json may store version strings.
     if int(data.get("schema_version") or 0) >= _TARGET_VERSION:
         return
     migrated = migrate_project_dict(data)

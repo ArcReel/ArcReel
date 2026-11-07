@@ -1,1 +1,1 @@
-# 小说原文片段
+# Original novel excerpt

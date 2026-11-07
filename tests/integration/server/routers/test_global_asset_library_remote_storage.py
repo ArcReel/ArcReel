@@ -1,10 +1,10 @@
-"""全局资产库与远端主存储：库里的图片按全局设置保存到对象存储，保存与应用时带上供应商素材关联；
-删除来源后库与已应用的项目照常从对象存储取得实际内容。
+"""Global libraries/remote primary storage: images follow global object-storage settings, copying provider-material associations on saves/application;
+after source deletion, libraries/targets still retrieve actual object contents.
 
-真实编排：资产图经文件路由上传，经资产库路由保存到库与应用到项目，预览经公开文件路由读取，
-工作文件经对象存储路由的清理入口清理，项目删除与彻底删除经项目路由。
-只替换对象存储的网络边界：TOS SDK 在 ``create_sdk_client`` 换成内存桶；供应商素材库的关联直接按导入的形状落库，
-不发出供应商 HTTP 请求。
+Real orchestration uploads through file routes, saves/applies through library routes, previews through public files,
+cleans working files through object-storage routes, deletes/purges projects through project routes.
+Replace object-storage network boundaries only: ``create_sdk_client`` uses in-memory TOS buckets; material associations persist directly in import shapes,
+without provider HTTP requests.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ CONNECTION = {
 
 
 class MemoryBucket:
-    """TOS SDK 客户端替身：对象存在内存里；``fail`` 里列出的操作抛服务端错误。"""
+    """TOS SDK fake stores objects in memory; operations named in ``fail`` raise server errors."""
 
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
@@ -217,7 +217,7 @@ async def _account(library_sessions, access_key_id: str) -> AssetLibraryAccount:
 async def _link_current_version(
     library_sessions, library_projects: ProjectManager, account: AssetLibraryAccount
 ) -> ProviderAssetLink:
-    """给 demo 里 Alice 当前选中的内容版本建立一条可用关联（与从素材库导入建立的关联同形）。"""
+    """Create usable associations for demo Alice selected versions, matching library-import association shapes."""
     manager = VersionManager(library_projects.get_project_path("demo"))
     content_version = manager.ensure_content_version(
         "characters", "Alice", manager.get_current_version("characters", "Alice")
@@ -251,7 +251,7 @@ async def _library_asset(library_sessions) -> Asset:
 
 
 async def _choose(library_sessions, library_projects: ProjectManager, project_name: str, scope, image: bytes):
-    """目标项目生成时为 Alice 这张参考图选择：按实发字节对应内容版本，按调用范围选用关联。"""
+    """Select Alice references during target generation by actual outgoing-byte content versions and invocation-scope associations."""
     source = ReferenceImageSource(
         locator="characters/Alice.png", sha256=hashlib.sha256(image).hexdigest(), name="Alice"
     )
@@ -282,7 +282,7 @@ def _apply(library_api: TestClient, asset_id: str):
 async def test_remote_image_through_global_library_survives_source_deletion(
     library_api, library_sessions, library_projects, library_bucket, monkeypatch
 ):
-    """远端图片存进全局库、应用到另一个项目，删除来源后库与目标仍从对象存储取得实际内容；关联随内容复制、各自独立。"""
+    """Remote images save to libraries/apply elsewhere; source deletion preserves remote contents for libraries/targets, with independently copied associations."""
     await _remote(library_sessions)
     image = solid_png_bytes((30, 140, 220), size=(400, 400))
     digest = hashlib.sha256(image).hexdigest()
@@ -290,7 +290,7 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert _upload(library_api, image).status_code == 200
     account_a = await _account(library_sessions, "TEST-CONTROL-PLANE-AK-A")
     source_link = await _link_current_version(library_sessions, library_projects, account_a)
-    # 来源的工作文件已被清理：保存时从远端取回
+    # Source working files cleaned; retrieve remotely on saves.
     assert _cleanup(library_api)["removed"] == 2
 
     saved = _save_to_library(library_api)
@@ -300,7 +300,7 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert entry.image_digest == digest
     assert entry.image_storage is not None
     assert entry.image_storage["key"] == key
-    assert library_bucket.stored_keys() == [key]  # 同字节共用一个正式对象，没有重复上传
+    assert library_bucket.stored_keys() == [key]  # Identical bytes share formal objects without repeated uploads.
     assert library_bucket.calls.count(("put", key)) == 1
     [library_link] = await _links_of(library_sessions, holder)
     assert library_link.content_version_id == entry.image_content_id
@@ -311,7 +311,7 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     )
     assert links.scope_of(library_link) == links.scope_of(source_link)
 
-    # 库里的图同样只是工作文件（连同保存时取回的来源正式文件）：清理后预览从远端取回
+    # Library images/source formal files retrieved during saving are working files too; cleaned previews retrieve remotely.
     assert _cleanup(library_api)["removed"] == 2
     library_file = library_projects.data_root / entry.image_path
     assert not library_file.exists()
@@ -324,27 +324,27 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert applied.status_code == 200, applied.text
     assert applied.json()["succeeded"] == [{"id": entry.id, "name": "Alice"}]
     [target_record] = _history(library_projects, "other")["versions"]
-    assert target_record["storage"]["key"] == key  # 遵循全局设置写远端，与库共用同一个对象
+    assert target_record["storage"]["key"] == key  # Follow global storage; share library objects.
     assert target_record["content_digest"] == digest
     [target_link] = await _links_of(library_sessions, "other")
     assert target_link.content_version_id == target_record["content_version_id"]
     assert target_link.provider_asset_id == source_link.provider_asset_id
 
-    # 解除任一副本只解除它自己
+    # Unlinking either copy affects itself only.
     async with library_sessions() as session:
         await links.release_link(session, await session.get(ProviderAssetLink, source_link.id))
         await session.commit()
     assert [link.selected for link in await _links_of(library_sessions, holder)] == [True]
     assert [link.selected for link in await _links_of(library_sessions, "other")] == [True]
 
-    # 目标生成按实际调用范围选用：原账号范围用素材引用，另一个云账号的范围没有适用关联
+    # Generation selects associations by actual scope: original accounts use material references; other cloud accounts have none applicable.
     choice = await _choose(library_sessions, library_projects, "other", account_scope(account_a), image)
     assert choice is not None
     assert choice.asset_uri == f"asset://{source_link.provider_asset_id}"
     account_b = await _account(library_sessions, "TEST-CONTROL-PLANE-AK-B")
     assert await _choose(library_sessions, library_projects, "other", account_scope(account_b), image) is None
 
-    # 删除来源项目并彻底清除，来源不再持有任何引用；启动结算与维护循环都不删除库与目标仍在用的对象
+    # Delete/purge source projects, removing their claims; startup/maintenance retain objects still referenced by libraries/targets.
     with build_projects_client(monkeypatch, library_projects, session_factory=library_sessions) as projects_api:
         assert projects_api.delete("/api/v1/projects/demo").status_code == 200
         [deleted] = projects_api.get("/api/v1/deleted-projects").json()["projects"]
@@ -368,7 +368,7 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert library_api.get(_preview_url(entry.image_path)).content == image
     assert [link.selected for link in await _links_of(library_sessions, "other")] == [True]
 
-    # 删除库条目只丢弃这条条目的关联与引用；目标仍引用对象，统一回收不删除它
+    # Library deletion removes that entry's associations/references only; target-referenced objects survive collection.
     assert library_api.delete(f"/api/v1/assets/{entry.id}").status_code == 204
     assert await _links_of(library_sessions, holder) == []
     assert [link.selected for link in await _links_of(library_sessions, "other")] == [True]
@@ -380,7 +380,7 @@ async def test_remote_image_through_global_library_survives_source_deletion(
 async def test_startup_settlement_keeps_the_library_reference(
     library_api, library_sessions, library_projects, library_bucket
 ):
-    """启动结算遇到全局资产库名下中断的占用时，不把它当作缺失的项目而撤下库已登记的引用。"""
+    """Startup reconciliation of interrupted library occupancy must not treat libraries as missing projects and remove registered references."""
     await _remote(library_sessions)
     assert _upload(library_api, solid_png_bytes((120, 60, 30), size=(64, 64))).status_code == 200
     assert _save_to_library(library_api).status_code == 200
@@ -393,7 +393,7 @@ async def test_startup_settlement_keeps_the_library_reference(
         await session.commit()
 
     assert await recover_formal_commits(library_sessions, project_path_of=library_projects.get_project_path) == 1
-    # 维护循环逐个项目重算引用、撤下过期墓碑名的引用；条目键既不是项目名也不是墓碑名，不受影响
+    # Maintenance recomputes project references/removes old tombstones; entry keys are neither project nor tombstone names and remain unaffected.
     await retain_formal_objects(
         library_projects.layout.projects_dir,
         library_projects.layout.deleted_projects_dir,
@@ -410,7 +410,7 @@ async def test_startup_settlement_keeps_the_library_reference(
 async def test_local_library_image_applied_under_remote_storage_fails_without_partial_target(
     library_api, library_sessions, library_projects, library_bucket
 ):
-    """存量本地库图片应用到远端存储下的项目：上传失败时目标不变，成功后目标版本写远端；库条目照旧是本地文件。"""
+    """Legacy local-library images applied into remote projects leave targets unchanged on upload failure; success stores remote target versions, retaining local library files."""
     assert _upload(library_api, solid_png_bytes((10, 220, 90), size=(64, 64))).status_code == 200
     assert _save_to_library(library_api).status_code == 200
     entry = await _library_asset(library_sessions)
@@ -436,7 +436,7 @@ async def test_local_library_image_applied_under_remote_storage_fails_without_pa
 async def test_concurrent_replacements_of_a_library_image_each_retire_the_image_they_displace(
     library_api, library_sessions, library_bucket, monkeypatch
 ):
-    """同一库条目的两次换图交错：后一次在锁内读到前一次提交的图片并撤下它，条目只持有当前图片的引用。"""
+    """Interleaved same-entry replacements read prior committed images under locks and release them, retaining current-image references only."""
     await _remote(library_sessions)
     first, second, third = (
         solid_png_bytes(rgb, size=(64, 64)) for rgb in ((10, 10, 10), (90, 90, 90), (170, 170, 170))
@@ -490,7 +490,7 @@ async def test_concurrent_replacements_of_a_library_image_each_retire_the_image_
 async def test_skipped_library_entry_does_not_fetch_its_evicted_remote_image(
     library_api, library_sessions, library_projects, library_bucket
 ):
-    """应用到已有同名资产的项目、冲突策略为跳过：不会应用的条目不取回远端图片，对象存储读不了也照常返回跳过。"""
+    """Skip-conflict application to existing same-name assets never retrieves unused remote images; unreadable storage still returns skipped."""
     await _remote(library_sessions)
     assert _upload(library_api, solid_png_bytes((150, 90, 20), size=(64, 64))).status_code == 200
     assert _save_to_library(library_api).status_code == 200

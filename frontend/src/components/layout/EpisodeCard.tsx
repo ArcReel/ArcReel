@@ -10,15 +10,15 @@ import { totalBreakdown } from "@/utils/cost-format";
 
 interface EpisodeCardProps {
   ep: EpisodeMeta;
-  /** 在播出顺序（episodes[] 排列）中的位置，从 1 起；徽标显示它而不是集 ID。 */
+  /** One-based broadcast positions from episodes[], displayed instead of IDs. */
   position: number;
   active: boolean;
   onClick: () => void;
-  /** ad 项目隐藏集语义：徽标不显示播出位置，改用场记板图标。 */
+  /** Ads hide episode semantics, using clapboard icons instead of positions. */
   showEpisodeBadge?: boolean;
-  /** ep.title 为空时的兜底显示文本（ad 项目用项目标题）。 */
+  /** Missing ep.title fallback text, project titles for ads. */
   fallbackTitle?: string;
-  /** 项目生成模式：决定条目数报「分镜数」还是「视频单元数」。必填，漏接线时类型报错而不是静默显示错名词。 */
+  /** Required generation modes determine storyboard/video-unit nouns; missing wiring type-errors rather than silently mislabels. */
   route: GenerationRoute;
 }
 
@@ -39,7 +39,7 @@ const STATUS_LABEL_KEY: Record<string, string> = {
 };
 
 /**
- * 侧栏的集卡片：左边是播出位置，中间是集名、状态与进度，右边是实际费用。当前打开的集带底色。
+ * Sidebar episode cards: broadcast positions left, names/status/progress middle, actual costs right; current episodes have backgrounds.
  */
 export function EpisodeCard({
   ep,
@@ -54,8 +54,8 @@ export function EpisodeCard({
   const status = ep.status ?? "draft";
   const statusLabel = t(STATUS_LABEL_KEY[status] ?? STATUS_LABEL_KEY.draft);
 
-  // 进度按视频产物的可用数算——可用 = current ∪ stale，与工作台同一份计数。
-  // 视频总数为 0（尚未成脚本）时退回剧本条目数，只用于显示"这集有几件内容"。
+  // Video progress uses current ∪ stale usable artifacts, shared with workbenches.
+  // Zero video totals before scripts fall back to entry counts, describing content volume only.
   const videoTotal = ep.videos?.total ?? 0;
   const itemCount = ep.item_count ?? 0;
   const totalShots = videoTotal || itemCount;
@@ -63,8 +63,8 @@ export function EpisodeCard({
   const progress = videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
   const showProgress = videoTotal > 0 && (active || progress > 0);
 
-  // stale 是可用产物，不进缺口计数：单独报一个数说明有几件可以考虑重生。
-  // 汇总该集全部产物类型，与大厅卡片上那一行同口径。
+  // Stale is usable, excluded from gaps; report separately as possible regeneration candidates.
+  // Aggregate all artifact kinds per episode, matching lobby cards.
   const staleCount = (ep.storyboards?.stale ?? 0) + (ep.videos?.stale ?? 0);
 
   const episodeCost = useCostStore((s) => s.getEpisodeCost(ep.episode));

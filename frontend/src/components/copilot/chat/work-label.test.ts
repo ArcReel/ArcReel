@@ -10,7 +10,7 @@ const EPISODES: EpisodeRefs = [
   { episode: 3, title: "雨夜", script_file: "scripts/episode_3.json" },
 ];
 
-// 本集分镜的排列与 ID 序号不一致：E3S04 被挪到了最前，摘要按当前位置称呼。
+// Episode order differs from ID numbers: E3S04 moved first, summaries use current positions.
 const SCRIPTS = {
   "episode_3.json": {
     episode: 3,

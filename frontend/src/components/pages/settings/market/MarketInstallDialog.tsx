@@ -47,7 +47,7 @@ import { MarketEntryStats } from "./MarketEntryStats";
 interface Preview {
   detail: MarketEntryDetail;
   definition: unknown;
-  /** 安装时带回，确保装上的就是这里展示给用户核对的定义。 */
+  /** Return on installation, ensuring installed definitions exactly match those users reviewed here. */
   digest: string | null;
   matches: boolean;
   validation: EndpointValidateResponse;
@@ -76,7 +76,7 @@ function AuthSource({ auth }: { auth: EndpointAuth | undefined }) {
         {t("market_auth")}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        {/* 自动换行而不是横向滚动：横向滚动区拿不到键盘焦点。 */}
+        {/* Wrap instead of horizontal scrolling; horizontal scroll areas cannot receive keyboard focus. */}
         <pre className="mt-1 rounded-md bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {JSON.stringify(auth, null, 2)}
         </pre>
@@ -85,7 +85,7 @@ function AuthSource({ auth }: { auth: EndpointAuth | undefined }) {
   );
 }
 
-/** 声明式定义的信任信息：凭证发往的提交与轮询地址，以及 auth 原文。 */
+/** Declarative-definition trust information: credential submission/polling addresses and original auth text. */
 function DeclarativeTrust({ definition }: { definition: EndpointDefinition }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -106,8 +106,8 @@ function DeclarativeTrust({ definition }: { definition: EndpointDefinition }) {
 }
 
 /**
- * ComfyUI 定义的信任信息。定义里没有请求地址，请求发往供应商填写的服务地址；
- * 定义决定的是携带什么凭证，以及提交哪些节点。
+ * ComfyUI-definition trust information. Definitions lack request addresses; requests use provider-entered service URLs.
+ * Definitions determine attached credentials and submitted nodes.
  */
 function ComfyuiTrust({ definition }: { definition: ComfyuiEndpointDefinition }) {
   const { t } = useTranslation("dashboard");
@@ -130,11 +130,11 @@ function ComfyuiTrust({ definition }: { definition: ComfyuiEndpointDefinition })
 }
 
 /**
- * 安装与更新共用的确认弹窗：先完整展示来源、校验和凭证去向，安装、更新与卸载由服务端原子执行。
- * 信任信息按定义类型分支：声明式展示请求地址与 auth 原文，ComfyUI 展示 auth 与 workflow 摘要。
- * 可更新时进入更新态，确认后经同一安装接口原地覆盖持有记录的端点；本地改过的定义先提示会被覆盖并可先导出。
- * 卸载会删除端点，先用 AlertDialog 确认。
- * 传入 `official` 时（官方服务开启且条目来自官方市场源）头部显示安装量与评分，并提供评分控件。
+ * Shared install/update confirmations show complete origins/validation/credential destinations first; servers execute install/update/uninstall atomically.
+ * Trust differs by kind: declarative request URLs/raw auth, ComfyUI auth/workflow summaries.
+ * Update mode uses the same installation API to overwrite recorded endpoints in place; warn local edits will be overwritten and offer export first.
+ * Uninstall deletes endpoints after AlertDialog confirmation.
+ * Supplied `official` means enabled official services/official-source entries; headers show installs/ratings and rating controls.
  */
 export function MarketInstallDialog({
   entry,
@@ -163,7 +163,7 @@ export function MarketInstallDialog({
   const [references, setReferences] = useState<EndpointReference[] | null>(null);
   const [confirmingUninstall, setConfirmingUninstall] = useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- postawait writes first check controller.signal.aborted; cleanup abort invalidates predecessors
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
@@ -209,8 +209,8 @@ export function MarketInstallDialog({
     !!preview && (!preview.detail.entry.min_app_version_satisfied || validation?.min_app_version?.satisfied === false);
   const blocked = !preview?.digest || !definition || !preview.matches || !!validation?.errors.length || appVersionUnmet;
   const updating = installed?.state === "update_available";
-  // 卡片与条目详情都可能早于定义所属的快照。投影一致时定义 meta 与该快照的条目逐字段相同，
-  // 头部取自摘要绑定的这份定义，与信任块同源；否则安装已被拦下，退回条目详情或卡片。
+  // Cards/details may predate definition snapshots. Consistent projections match definition meta and snapshot entries field by field;
+  // headers use digest-bound definitions, sharing trust-block origins. Otherwise blocked installation falls back to details/cards.
   const shown = preview?.detail.entry ?? entry;
   const header =
     preview?.matches && definition
@@ -228,7 +228,7 @@ export function MarketInstallDialog({
   const close = () => {
     if (!busy) onClose();
   };
-  // 从调用端点小节打开时导航不会卸载弹窗，需主动关闭。
+  // Endpoint-section navigation never unmounts these dialogs; explicitly close them.
   const openEndpoint = (key: string) => {
     navigate(endpointSettingsPath(key));
     onClose();
@@ -374,7 +374,7 @@ export function MarketInstallDialog({
                       validation.hints.suggested_models
                         .filter((model) => model !== null && typeof model === "object")
                         .map((model, index) => (
-                          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 市场定义里的只读提示，一次取回不重排不增删、无组件状态；条目字段未经校验，没有可靠的唯一标识
+                          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- readonly market hints fetched once, no reorder/add/remove or component state; unvalidated fields lack reliable unique identities
                           <p key={index}>{displayValue(model.label ?? model.id)}</p>
                         ))}
                     {!validation?.hints && <p>{t("market_no_hints")}</p>}

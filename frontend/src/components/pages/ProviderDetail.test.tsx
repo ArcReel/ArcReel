@@ -77,8 +77,8 @@ describe("ProviderDetail", () => {
   });
 
   it("surfaces a language refetch failure when no detail is on screen yet", async () => {
-    // 首轮请求还在途时切换语言：接管的那次失败后没有可展示的详情，必须报错并给出重试入口，
-    // 否则页面停在加载态。
+    // Switch language during initial requests: failed successors without displayable details must report errors and retries,
+    // or pages remain loading.
     let resolveFirst: (detail: ProviderConfigDetail) => void = () => {};
     vi.spyOn(API, "getProviderConfig")
       .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
@@ -93,7 +93,7 @@ describe("ProviderDetail", () => {
   });
 
   it("keeps a multiplier load failure when the detail arrives after it", async () => {
-    // 倍率先失败、详情后到：详情成功不能清掉倍率的错误，否则页面停在加载态且没有重试入口。
+    // Multipliers fail before details arrive; detail success must not clear multiplier errors, leaving loading without retries.
     const detail = createDeferred<ProviderConfigDetail>();
     vi.spyOn(API, "getProviderConfig")
       .mockImplementationOnce(() => detail.promise)
@@ -129,7 +129,7 @@ describe("ProviderDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Gemini AI Studio (EN)");
 
-    // 语言重取最后才返回，带的是保存前的旧值——它已被保存后的重取接管，不得回写。
+    // Language refetch returns last with presave values; post-save refetch superseded it, so never write.
     await act(async () => resolveLanguage(detailFor("en")));
     expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);
   });
@@ -169,7 +169,7 @@ describe("ProviderDetail", () => {
     fireEvent.click(await screen.findByRole("button", { name: "激活 主号" }));
     await waitFor(() => expect(API.activateCredential).toHaveBeenCalled());
 
-    // 密钥已经改完：随后的详情重取被语言重取作废，二级栏的数量与状态仍须刷新
+    // Credentials already changed: language refetch invalidates detail refetch, but secondary-sidebar counts/status still refresh.
     await act(async () => i18n.changeLanguage("en"));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
   });
@@ -191,7 +191,7 @@ describe("ProviderDetail", () => {
     vi.spyOn(API, "patchProviderConfig").mockResolvedValue(undefined);
     vi.spyOn(API, "getProviderConfig")
       .mockResolvedValueOnce(detailFor("zh"))
-      // 保存后的重取挂起，直到被接管方 abort——与真实 fetch 的行为一致
+      // Post-save refetch suspends until takeover abort, matching real fetch.
       .mockImplementationOnce(
         (_id, options) =>
           new Promise((_resolve, reject) => {
@@ -213,7 +213,7 @@ describe("ProviderDetail", () => {
 
     await act(async () => i18n.changeLanguage("en"));
 
-    // PATCH 已经成功：草稿要清、目录要刷新，否则已入库的值仍标着未保存、还能被重复提交。
+    // PATCH succeeded: clear drafts/refresh catalogs, or persisted values remain unsaved and can resubmit.
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
     expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);
@@ -238,7 +238,7 @@ describe("ProviderDetail", () => {
     expect(input).toHaveValue("0.8");
     expect(patch).not.toHaveBeenCalled();
 
-    // 清空即恢复默认值
+    // Clearing restores defaults.
     fireEvent.change(input, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(setMultiplier).toHaveBeenLastCalledWith("gemini-aistudio", null));

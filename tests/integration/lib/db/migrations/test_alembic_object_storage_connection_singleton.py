@@ -1,4 +1,4 @@
-"""Alembic 迁移：对象存储连接在数据库层保证单例，迁移前的重复记录按确定规则处理。"""
+"""Alembic: enforce one object-storage connection at DB level, deterministically reconciling premigration duplicates."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def test_duplicates_keep_lowest_as_current_and_retire_only_referenced_ones(
         ]
         assert unreferenced not in {row[0] for row in rows}
 
-        # 唯一索引挡住第二条当前连接；删除的连接 ID 不回收。
+        # Unique indexes block a second current connection; deleted connection IDs are not reused.
         with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
             _insert_connection(conn, "second-current", slot=1)
         with engine.begin() as conn:

@@ -1,7 +1,7 @@
-"""模型名对应条目（见 docs/adr/0105）：由模型名在一组条目里找出对应的那一条。
+"""Model-name entry matching (docs/adr/0105): find corresponding entries by name.
 
-规则只有名字这一层，不存储对应关系，也不修改条目：调用方每次拿当前目录的条目现查。名字归一化沿用
-``arcreel_catalog_core.normalize_model_name``，构建侧的名字冲突检查与这里是同一份实现。
+Name-level rules only: neither store mappings nor modify entries. Callers query current catalogs each time. Normalization uses
+``arcreel_catalog_core.normalize_model_name``, shared with build-side name-conflict detection.
 """
 
 from __future__ import annotations
@@ -10,12 +10,12 @@ from collections.abc import Iterable
 
 from arcreel_catalog_core import CatalogEntry, EntryKey, normalize_model_name
 
-# 命中的先后：精确命中优先于归一化命中；同等命中时，官方模型名优先于模型别名。
+# Exact before normalized matches; official names before aliases within equal tiers.
 _EXACT_NAME, _EXACT_ALIAS, _NORMALIZED_NAME, _NORMALIZED_ALIAS = range(4)
 
 
 def _hit_rank(model_name: str, normalized: str, entry: CatalogEntry) -> int | None:
-    """条目对这个模型名的最好一档命中；对不上返回 ``None``。"""
+    """Best matching tier for this entry/model name; ``None`` without matches."""
     if model_name == entry.name:
         return _EXACT_NAME
     if model_name in entry.aliases:
@@ -34,15 +34,15 @@ def match_entry(
     media_type: str | None = None,
     binding: EntryKey | None = None,
 ) -> CatalogEntry | None:
-    """模型名对应的条目；对应不上，或不能唯一确定时返回 ``None``。
+    """Corresponding entries by model name; ``None`` when absent or not uniquely determinable.
 
-    ``binding`` 是用户为这个模型指定的条目：它在 ``entries`` 里（且与 ``media_type`` 一致）就直接取它；
-    条目已不在目录里，或与媒体类型不符时，绑定不生效，继续按名字查。
+    ``binding`` is user-selected: use directly when present in ``entries`` and matching ``media_type``;
+    absent/type-mismatched bindings do not apply, continuing name lookup.
 
-    按名字查时，只看与 ``media_type`` 一致的条目（不给则不限），取命中最靠前的一档：精确的官方模型名、
-    精确的模型别名、归一化的官方模型名、归一化的模型别名。一个名字同时命中同一媒体类型下的多个条目时按
-    目录顺序取第一个；命中的是不同媒体类型的条目（两栖模型）而没有给 ``media_type`` 时无法选择，返回
-    ``None``，由调用方先确定媒体类型。已下线的条目照常对应。
+    Name lookup considers matching ``media_type`` only, unrestricted if omitted; prefer exact official names,
+    exact aliases, normalized official names, then normalized aliases. Multiple same-media matches choose first catalog order;
+    cross-media matches (dual-modality models) without ``media_type`` cannot choose, returning
+    ``None`` for callers to determine media first. Discontinued entries still match.
     """
     candidates = [entry for entry in entries if media_type in (None, entry.media_type)]
     if binding is not None:

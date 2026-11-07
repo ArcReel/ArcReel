@@ -1,7 +1,7 @@
-"""script_plan→prompt_authoring 内容确认的服务层与纯逻辑测试。
+"""script_plan→prompt_authoring content-confirmation service and pure-logic tests.
 
-只测外部可观察行为：内容确认状态流转（script_plan 产出 → pending → 阻塞 → 确认 → confirmed → 放行）、
-适用范围、内容编辑后重新等待确认、结构校验。
+External behavior only: confirmation transitions (script_plan produced → pending → blocked → confirm → confirmed → admitted),
+applicability, reconfirmation after edits, structural validation.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def _drama_script_plan() -> dict:
 
 
 def _admitted_drama_script_plan() -> dict:
-    """确认即转换，转换过发声准入：分镜只留台词，不与画外音混排。"""
+    """Confirmation converts through speech admission: shots contain dialogue only, never interleaved voiceover."""
     plan = _drama_script_plan()
     plan["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "阿离", "text": "你终于回来了。"}]
     return plan
@@ -92,9 +92,9 @@ def _narration_script_plan() -> dict:
 
 
 def _rv_script_plan() -> dict:
-    """reference_video script_plan 结构化中间态（``script_plan_reference_units.json`` 形状）。
+    """Structured reference_video script_plan intermediate state (``script_plan_reference_units.json`` shape).
 
-    正文是单元的唯一内容真相：参考图由其中的 ``@[名称]`` 读时派生，不落盘。
+    Unit bodies are sole content truth; derive references from ``@[名称]`` on reads, never persist.
     """
     return {
         "units": [
@@ -109,7 +109,7 @@ def _rv_script_plan() -> dict:
 
 
 def _narrowed_rv_facts(supported_durations):
-    """生效档位为 4/8 秒，覆盖配置收窄与换型号后声明全集收窄。"""
+    """Effective 4/8-second tiers cover configuration narrowing and full declared-set narrowing after model changes."""
     return make_video_request_facts(
         route="reference_video",
         generation_type="i2v",
@@ -119,7 +119,7 @@ def _narrowed_rv_facts(supported_durations):
 
 
 def _off_tier_rv_script_plan() -> dict:
-    """第二个单元的已确认时长 6 秒落在收窄后的档位之外。"""
+    """Second-unit confirmed 6-second durations fall outside narrowed tiers."""
     plan = _rv_script_plan()
     plan["units"][0]["duration_seconds"] = 4
     plan["units"].append({"unit_id": "E1U02", "text": "@[裴与] 策马而来。", "duration_seconds": 6})
@@ -128,9 +128,9 @@ def _off_tier_rv_script_plan() -> dict:
 
 @pytest.fixture(autouse=True)
 def unresolvable_video_request_facts(set_video_request_facts) -> None:
-    """本模块默认让视频请求事实解析不到型号：不碰 DB，也不让系统级默认模型的档位漂进断言。
+    """By default this module leaves video-request model facts unresolved: no DB access or system-default tier drift into assertions.
 
-    需要具体档位的用例用 ``video_request_facts`` fixture 或再调 ``set_video_request_facts`` 覆盖。
+    Tests requiring tiers use ``video_request_facts`` or override through ``set_video_request_facts``.
     """
     set_video_request_facts(VideoRequestFactsFailure("video_capability_unavailable", (("capability", "i2v"),)))
 
@@ -141,7 +141,7 @@ def _make_project(
     *,
     generation_mode: str | None = None,
 ) -> ProjectManager:
-    """建测试项目；档位由用例经 ``set_video_request_facts`` 供给的视频请求事实决定。"""
+    """Create test projects; tiers derive from test-supplied video-request facts through ``set_video_request_facts``."""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -158,12 +158,12 @@ def _make_project(
 
 
 def _service(pm: ProjectManager) -> ScriptReviewService:
-    """内容确认面板的档位与确认转换的档位断言都读视频请求事实，事实由用例供给；注入的解析器只是占位。"""
+    """Review-panel and conversion-tier assertions both read test-supplied video-request facts; injected resolvers are placeholders only."""
     return ScriptReviewService(pm, config_resolver=cast(ConfigResolver, FakeConfigResolver()))
 
 
 def _register_script_plan(pm: ProjectManager) -> None:
-    """转换读的是已登记的正式脚本规划：补上源文并激活产物清单，让规划产物可证明、被登记。"""
+    """Conversion reads registered formal planning: add sources/activate manifests to prove and register artifacts."""
     project_path = pm.get_project_path("demo")
     source = project_path / "source" / "episode_1.txt"
     if not source.exists():
@@ -183,7 +183,7 @@ def _write_script_plan(pm: ProjectManager, content_mode: str, content: dict) -> 
 
 
 def _write_rv_script_plan(pm: ProjectManager, content: dict) -> Path:
-    """写出 reference_video 的结构化 script_plan（``script_plan_reference_units.json``）。"""
+    """Write structured reference_video script_plan (``script_plan_reference_units.json``)."""
     drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
     path = drafts / "script_plan_reference_units.json"
@@ -193,8 +193,8 @@ def _write_rv_script_plan(pm: ProjectManager, content: dict) -> Path:
 
 
 def test_content_fingerprint_of_data_matches_path_based_fingerprint(tmp_path: Path):
-    """对同一份内容，从已解析对象取的指纹须与对文件路径取的指纹相同——两者共用同一套
-    规范化逻辑，调用方才能安全地用前者替代"读入内存后再对路径复核一次"的二次读盘。
+    """Identical-content fingerprints from parsed objects must match file-path fingerprints, sharing
+    normalization so callers safely replace rereading paths after loading into memory.
     """
     path = tmp_path / "content.json"
     data = {"b": 2, "a": 1, "nested": {"z": [3, 2, 1]}}
@@ -204,7 +204,7 @@ def test_content_fingerprint_of_data_matches_path_based_fingerprint(tmp_path: Pa
 
 
 def _write_prompt_authoring(pm: ProjectManager) -> Path:
-    """写出 prompt_authoring 产物（生成的剧本 JSON），模拟「已产 prompt_authoring」。"""
+    """Write prompt_authoring artifacts (generated script JSON), simulating produced prompt_authoring."""
     scripts = pm.get_project_path("demo") / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     path = scripts / "episode_1.json"
@@ -213,7 +213,7 @@ def _write_prompt_authoring(pm: ProjectManager) -> Path:
 
 
 def _make_manual_split_project(tmp_path: Path, content_mode: str) -> ProjectManager:
-    """没有整本源文、账本为空的项目：集由调用方逐集登记或直接写文件构造。"""
+    """Projects without whole sources/with empty ledgers: callers register episodes individually or construct files directly."""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -229,7 +229,7 @@ def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# 状态流转（drama）
+# State transitions, drama
 # ---------------------------------------------------------------------------
 
 
@@ -241,7 +241,7 @@ def _set_episode_target_duration(pm: ProjectManager, seconds: int) -> None:
 
 
 class TestEpisodeTargetDuration:
-    """审核面板的「本集合计 / 目标」对比取自 state：目标与合计出自同一次读取。"""
+    """Review-panel episode-total/target comparisons come from state, with both values read together."""
 
     async def test_state_carries_the_project_target(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
@@ -261,7 +261,7 @@ class TestEpisodeTargetDuration:
         assert state["episode_target_duration"] is None
 
     async def test_out_of_range_value_degrades_to_no_target(self, tmp_path):
-        """手改 project.json 的脏值不应让面板拿着越界目标去对比。"""
+        """Dirty manually edited project.json values must not make panels compare out-of-range targets."""
         pm = _make_project(tmp_path, "drama")
         _set_episode_target_duration(pm, 5)
         _write_script_plan(pm, "drama", _drama_script_plan())
@@ -303,10 +303,10 @@ class TestDramaGateFlow:
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
 
-        # script_plan 未产出
+        # script_plan not produced
         assert (await svc.get_state("demo", 1))["status"] == "no_script_plan"
 
-        # script_plan 产出 → 可审中间态、阻塞
+        # Produced script_plan → reviewable intermediate state, blocked
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
@@ -316,7 +316,7 @@ class TestDramaGateFlow:
         project = pm.load_project("demo")
         assert script_review.review_status(project_path, project, 1) == "pending_review"
 
-        # 确认 → 放行
+        # Confirmation → admitted
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
@@ -324,8 +324,8 @@ class TestDramaGateFlow:
         assert script_review.review_status(project_path, project, 1) == "confirmed"
 
     async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path, video_request_facts):
-        """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、prompt_authoring 被阻塞，即使正式 script_plan
-        早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未看过的上一版内容。"""
+        """Drama drafts independently block: existing drafts reject confirmation/block prompt_authoring even with confirmed formal script_plan,
+        unchanged on checkout; fingerprints alone would admit previous content users have not reviewed."""
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         project_path = pm.get_project_path("demo")
@@ -369,7 +369,7 @@ class TestDramaGateFlow:
     async def test_confirmed_script_plan_stays_read_only_while_a_rerun_draft_is_pending(
         self, tmp_path, video_request_facts
     ):
-        """重跑脚本规划留下待修复草稿时，正式脚本规划仍是已确认的那一份，照样不能保存。"""
+        """Rerun planning with repair drafts retains confirmed formal planning but still forbids saves."""
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         path = _write_script_plan(pm, "drama", _admitted_drama_script_plan())
@@ -460,24 +460,24 @@ class TestDramaGateFlow:
         assert exc.value.admission.problems[0].code == "needs_replan"
 
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path, video_request_facts):
-        """纯键序 / 空白重排不改语义 → 指纹不变、保持 confirmed。"""
+        """Key-order/whitespace-only changes preserve semantics/fingerprints and confirmed state."""
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         path = _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         await svc.confirm("demo", 1)
 
-        # 同内容、不同缩进 / 键序重写
+        # Identical contents rewritten with different indentation/key order
         path.write_text(json.dumps(_admitted_drama_script_plan(), ensure_ascii=False, indent=4), encoding="utf-8")
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
 
 # ---------------------------------------------------------------------------
-# 内容确认即整集转换：无正式脚本时新建，已有正式脚本时须认可覆盖
+# Confirmation converts whole episodes: create absent formal scripts; existing scripts require overwrite consent.
 # ---------------------------------------------------------------------------
 
 
 async def _confirm_over_existing_script(pm: ProjectManager) -> dict:
-    """该集已有正式脚本时按覆盖清单的版本认可覆盖并确认。"""
+    """Existing formal scripts require versioned overwrite-list consent before confirmation."""
     svc = _service(pm)
     revision = (await svc.get_state("demo", 1))["script_overwrite"]["revision"]
     return await svc.confirm("demo", 1, overwrite_revision=revision)
@@ -623,7 +623,7 @@ class TestConfirmMaterializesScript:
 
         assert state["status"] == "confirmed"
         [segment] = _formal_script(pm)["segments"]
-        # 规划里的 E1S01 已被旧剧本用过，转出时换成本集用过的最大号之后的新编号
+        # Planned E1S01 already used by old scripts; conversion issues IDs above this episode's previously used maximum.
         assert segment["segment_id"] == "E1S10"
         assert segment["pending_authoring"] is True
         assert segment["image_prompt"] is None
@@ -632,7 +632,7 @@ class TestConfirmMaterializesScript:
         assert ArtifactKey.episode_script(1) in snapshot
 
     async def test_acknowledged_overwrite_moves_old_entries_to_the_project_trash(self, tmp_path, video_request_facts):
-        """覆盖后旧条目的媒体与版本历史移进项目回收站：新条目换新编号，不接旧历史；被移除的条目同样移走。"""
+        """Overwrite moves old media/version histories into project trash; new entries get fresh IDs without old histories; removed entries move too."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
@@ -658,7 +658,7 @@ class TestConfirmMaterializesScript:
     async def test_acknowledged_overwrite_keeps_old_entries_without_media_recoverable(
         self, tmp_path, video_request_facts
     ):
-        """覆盖时旧分镜都按结构移除处置：没有生成媒体、只有文字的旧条目同样成为删除记录。"""
+        """Overwrite structurally removes all old shots; text-only entries without generated media also become deletion records."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
@@ -673,7 +673,7 @@ class TestConfirmMaterializesScript:
     async def test_overwrite_is_refused_untouched_when_version_history_is_unreadable(
         self, tmp_path, video_request_facts
     ):
-        """旧条目移进项目回收站是覆盖的一部分：版本记录读不出时整次覆盖不写入，剧本与旧媒体原样保留。"""
+        """Moving old entries to project trash is transactional overwrite: unreadable version records block all writes, preserving scripts/media."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
@@ -693,7 +693,7 @@ class TestConfirmMaterializesScript:
         assert project_trash.list_records(project_path) == []
 
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
-        """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""
+        """Consent covers listed formal-script revisions only; changed scripts reject old-version confirmations with new lists."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
@@ -720,9 +720,9 @@ class TestConfirmMaterializesScript:
     async def test_binding_lost_with_another_episode_at_the_canonical_path_is_refused(
         self, tmp_path, video_request_facts
     ):
-        """绑定文件已不在、规范路径上是别集剧本：确认在写盘前被拒，那一集的剧本与本集绑定都不动。
+        """Missing bound files with other-episode scripts at canonical paths reject confirmation before writes, preserving other scripts/current bindings.
 
-        迁移跳过的集就是这个形态。回落到规范路径会让确认整份重建别集的在世剧本，并把本集绑上去。
+        Migration-skipped episodes have this shape; canonical fallback would reconstruct another living script and bind this episode to it.
         """
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
@@ -747,7 +747,7 @@ class TestConfirmMaterializesScript:
         assert script_review.stored_review(pm.load_project("demo"), 1) == {}
 
     async def test_unresolvable_video_model_is_refused_with_a_configuration_hint(self, tmp_path):
-        """确认转换要确定分镜时长档位：视频请求事实解析不出时拒绝确认，携带事实的问题码与参数。"""
+        """Confirmation conversion needs duration tiers; unresolved video-request facts reject with their problem codes/parameters."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         svc = _service(pm)
@@ -786,7 +786,7 @@ class TestConfirmMaterializesScript:
         read_overwrite = script_generator_module.formal_script_overwrite
 
         def rewrite_plan_then_read_overwrite(project_path: Path, project: dict, episode: int):
-            # 物化已加载并核对过规划、尚未落盘时，另一入口写入了新规划。
+            # Materialization loaded/verified planning but not persisted; another entry writes new planning.
             atomic_write_json(plan_path, rewritten)
             return read_overwrite(project_path, project, episode)
 
@@ -801,7 +801,7 @@ class TestConfirmMaterializesScript:
 
 
 # ---------------------------------------------------------------------------
-# 状态流转（narration，共用同一 gate）
+# State transitions, narration, sharing the same gate
 # ---------------------------------------------------------------------------
 
 
@@ -838,9 +838,9 @@ class TestNarrationGateFlow:
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path, video_request_facts):
-        """narration 的待修复草稿与另两条路线同口径地独立阻塞：草稿在场期间确认被拒、prompt_authoring 被
-        阻塞，即使正式 script_plan 早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未
-        看过的上一版内容。"""
+        """Narration repair drafts independently block like other routes: drafts reject confirmation/block prompt_authoring even with confirmed
+        formal script_plan, unchanged on checkout; fingerprints alone would admit previous content users have not
+        reviewed."""
         pm = _make_project(tmp_path, "narration")
         svc = _service(pm)
         project_path = pm.get_project_path("demo")
@@ -867,7 +867,7 @@ class TestNarrationGateFlow:
 
 
 # ---------------------------------------------------------------------------
-# 状态流转（reference_video，跨 content_mode 共用同一 gate）
+# State transitions, reference_video, sharing the gate across content_mode
 # ---------------------------------------------------------------------------
 
 
@@ -877,10 +877,10 @@ class TestReferenceVideoGateFlow:
         svc = _service(pm)
         project_path = pm.get_project_path("demo")
 
-        # script_plan 未产出
+        # script_plan not produced
         assert (await svc.get_state("demo", 1))["status"] == "no_script_plan"
 
-        # script_plan 产出 → 可审中间态、阻塞 prompt_authoring
+        # Produced script_plan → reviewable intermediate state, blocking prompt_authoring
         _write_rv_script_plan(pm, _rv_script_plan())
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
@@ -888,7 +888,7 @@ class TestReferenceVideoGateFlow:
         assert state["content"]["units"][0]["text"].startswith("@[阿离]")
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
-        # 确认 → 放行
+        # Confirmation → admitted
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
@@ -911,7 +911,7 @@ class TestReferenceVideoGateFlow:
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
     async def test_editing_unit_text_after_rerun_keeps_review_pending(self, tmp_path, video_request_facts):
-        """重跑后编辑单元正文仍待确认；正文是落盘的唯一内容，参考图不随之落一份副本。"""
+        """Rerun-edited unit bodies await confirmation; bodies alone persist, without copied references."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
         svc = _service(pm)
@@ -933,10 +933,10 @@ class TestReferenceVideoGateFlow:
         assert "references" not in unit
 
     async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path, video_request_facts):
-        """草稿在场 → 确认被拒、prompt_authoring 被阻塞，即使正式 script_plan 早已确认过。
+        """Existing drafts reject confirmation/block prompt_authoring even if formal script_plan was confirmed.
 
-        待处置草稿与「正式 script_plan 的内容指纹」相互独立：重拆分违约时正式文件保持不变，只看
-        指纹会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
+        Pending drafts are independent of formal content fingerprints: violating resplits leave formal files unchanged; fingerprints
+        alone would mark episodes confirmed/admitted while users see previous content.
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
@@ -959,15 +959,15 @@ class TestReferenceVideoGateFlow:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
 
-        # 草稿清除后回到既有的指纹判定（内容未变，确认仍然有效）
+        # Cleared drafts restore existing fingerprint decisions; unchanged content retains confirmation.
         clear_quarantine(project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
     def test_quarantine_path_follows_the_project_variant(self, tmp_path):
-        """草稿按项目当前变体解析：三条路线各认自己的文件名。
+        """Parse drafts by current project variant; each route recognizes its own filename.
 
-        共用一个文件名或不分变体地判，会让其他生成模式的遗留草稿被当作当前模式的待处置件——
-        那份文件没有当前写入方会清理，该集会被永久卡在阻塞态。
+        Shared filenames or variant-independent checks misclassify other modes' legacy drafts as current pending work;
+        no current writer cleans them, permanently blocking episodes.
         """
         drama_pm = _make_project(tmp_path / "drama", "drama")
         rv_pm = _make_project(tmp_path / "rv", "drama", generation_mode="reference_video")
@@ -991,7 +991,7 @@ class TestReferenceVideoGateFlow:
         assert narration_path.name == "script_plan_segments.invalid.json"
 
     def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
-        """其他生成模式的遗留草稿不参与当前模式的阻塞判定。"""
+        """Other generation modes' legacy drafts never affect current-mode blocking."""
         pm = _make_project(tmp_path, "drama")
         project_path = pm.get_project_path("demo")
         write_quarantine(
@@ -1005,18 +1005,18 @@ class TestReferenceVideoGateFlow:
         assert script_review.script_plan_quarantined(project_path, pm.load_project("demo"), 1) is False
 
     async def test_confirm_rejects_unit_duration_out_of_range(self, tmp_path, video_request_facts):
-        """损坏的 script_plan（unit 时长越界）→ 确认被结构校验拒绝，不放行 prompt_authoring。"""
+        """Corrupt script_plan with out-of-range unit durations fails confirmation structure checks, blocking prompt_authoring."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         bad = _rv_script_plan()
-        bad["units"][0]["duration_seconds"] = 9999  # 超出 unit 时长的结构合理性区间
+        bad["units"][0]["duration_seconds"] = 9999  # Outside unit-duration structural plausibility intervals
         _write_rv_script_plan(pm, bad)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
 
     async def test_confirm_rejects_text_with_unregistered_mention(self, tmp_path, video_request_facts):
-        """正文画面位引用的资产既未登记、也不是本集登记的新增资产时，确认拒绝并指出单元与名字。"""
+        """Visual-body assets neither registered nor episode additions reject confirmation, naming units/assets."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         candidate = _rv_script_plan()
@@ -1030,8 +1030,8 @@ class TestReferenceVideoGateFlow:
         assert exc.value.message == "E1U01: 酒馆"
 
     async def test_confirm_rejects_speech_problem_in_an_unmarked_unit(self, tmp_path, video_request_facts):
-        """发声准入对全部 unit 生效，不只对标了 needs_replan 的那些：一个 unit 里既有人物
-        台词又有无归属旁白，两条音轨在同一段视频上无从叠加，须在确认这一关就拒。"""
+        """Speech admission applies to all units, not only needs_replan: character dialogue plus unowned voiceover in one unit
+        cannot combine both audio tracks on one video, so confirmation must reject."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         candidate = _rv_script_plan()
@@ -1047,7 +1047,7 @@ class TestReferenceVideoGateFlow:
     async def test_confirm_names_the_off_tier_unit_by_position(
         self, tmp_path, set_video_request_facts, supported_durations
     ):
-        """已确认时长被收窄出局的单元：按脚本规划里的单元位置报出现时长与可选档位，原因不带内部单元 ID。"""
+        """Confirmed durations excluded by narrowed tiers report current duration/options at planning unit positions, without internal IDs."""
         set_video_request_facts(_narrowed_rv_facts(supported_durations))
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         _write_rv_script_plan(pm, _off_tier_rv_script_plan())
@@ -1066,7 +1066,7 @@ class TestReferenceVideoGateFlow:
     async def test_confirm_tool_reports_the_off_tier_unit_by_position(
         self, tmp_path, set_video_request_facts, supported_durations
     ):
-        """Agent 入口：同一场景下失败原因按单元位置说明，不含内部单元 ID。"""
+        """Agent entry reports failure reasons by unit position in identical cases, excluding internal unit IDs."""
         set_video_request_facts(_narrowed_rv_facts(supported_durations))
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         _write_rv_script_plan(pm, _off_tier_rv_script_plan())
@@ -1086,7 +1086,7 @@ class TestReferenceVideoGateFlow:
         assert "E1U02" not in refused.problem.detail
 
     async def test_confirm_other_conversion_refusals_stay_generic(self, tmp_path, video_request_facts):
-        """时长越档之外的转换拒绝仍走通用的 conversion_refused。"""
+        """Other conversion rejections retain generic conversion_refused."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         plan = _rv_script_plan()
         plan["units"].append(dict(plan["units"][0]))
@@ -1101,10 +1101,10 @@ class TestReferenceVideoGateFlow:
     async def test_reference_duration_tiers_take_narrowed_with_reference_durations(
         self, tmp_path, set_video_request_facts
     ):
-        """gate 下拉的档位是 r2v 事实收窄后的档位而非声明全集，与 prompt_authoring 落盘前的校验同一把尺。
+        """Gate options use narrowed r2v facts, never full declarations, matching prompt_authoring presave checks.
 
-        Veo 3.1 设 1080p 时只接受 8 秒；若暴露声明全集，用户能选中 4/6 秒，save + confirm 都不拦，
-        直到 prompt_authoring 才硬拒——用户已确认过的内容变成付完钱才失败。
+        Veo 3.1 at 1080p accepts 8s only; exposing declarations lets users select 4/6s, passing save/confirm
+        until prompt_authoring rejects, making confirmed content fail only after payment.
         """
         set_video_request_facts(
             {
@@ -1126,7 +1126,7 @@ class TestReferenceVideoGateFlow:
         assert tiers == {"with_references": [8], "units": {}}
 
     async def test_reference_duration_tiers_report_each_plan_unit_bucket(self, tmp_path, set_video_request_facts):
-        """面板逐单元取档以服务端定桶为准：登记了角色却没有资产图的单元落 i2v，并点名不可用引用。"""
+        """Per-unit panel tiers follow server buckets: registered characters lacking images use i2v and name unavailable references."""
         set_video_request_facts(
             {
                 "i2v": make_video_request_facts(
@@ -1169,7 +1169,7 @@ class TestReferenceVideoGateFlow:
         assert units["E1U02"]["problems"] == []
 
     async def test_no_image_i2v_tier_is_available_in_review_state(self, tmp_path, set_video_request_facts):
-        """无引用单元按 i2v 桶事实取档：i2v 独有的秒数在读时迁移与面板档位里都保留。"""
+        """Unreferenced units use i2v facts, retaining i2v-only seconds in read-time migration/panel options."""
         set_video_request_facts(
             {
                 "r2v": make_video_request_facts(route="reference_video", generation_type="r2v"),
@@ -1200,7 +1200,7 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.parametrize("operation", ["read", "confirm"])
     async def test_unknown_i2v_preserves_no_image_legacy_duration(self, tmp_path, set_video_request_facts, operation):
-        """i2v 桶事实解析不出时：读时迁移不借 r2v 档位改写无引用单元的秒数，确认按 i2v 的问题码拒绝。"""
+        """Unresolved i2v facts never borrow r2v tiers to rewrite unreferenced durations during migration; confirmation rejects with i2v codes."""
         set_video_request_facts(
             {
                 "r2v": make_video_request_facts(route="reference_video", generation_type="r2v"),
@@ -1239,23 +1239,23 @@ class TestReferenceVideoGateFlow:
         assert tiers["units"]["E1U01"]["problem"]["code"] == "reference_capability_unavailable"
 
     async def test_reference_duration_tiers_none_when_with_reference_facts_unresolved(self, tmp_path):
-        """r2v 桶的视频请求事实解析不出时为 None，呈现层保持只读，不借任何声明全集提供可选项。"""
+        """Unresolved r2v facts return None; presentation stays readonly, never borrowing declared sets for options."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
 
         assert await svc.get_reference_duration_tiers("demo", 1) is None
 
     async def test_reference_duration_tiers_none_for_non_reference_video_episode(self, tmp_path, video_request_facts):
-        """非 reference_video 变体不求值事实、直接 None——判据是方法自身的 script_plan_kind，
-        不能靠调用方按 get_state.supported_durations 是否非 None 短路。"""
-        pm = _make_project(tmp_path, "drama")  # generation_mode 缺省，非 reference_video
+        """Non-reference_video variants return None without evaluating facts, using their own script_plan_kind,
+        never relying on caller short-circuiting by get_state.supported_durations non-None."""
+        pm = _make_project(tmp_path, "drama")  # Absent generation_mode, not reference_video
         svc = _service(pm)
 
         assert await svc.get_reference_duration_tiers("demo", 1) is None
 
     async def test_reference_duration_tiers_take_custom_provider_facts(self, tmp_path, set_video_request_facts):
-        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：档位表唯一来源是视频请求事实，
-        r2v 事实给出的档位原样进面板。"""
+        """Custom providers (``custom-``) lack ``PROVIDER_REGISTRY`` entries; video facts alone supply tiers,
+        forwarding r2v facts unchanged to panels."""
         set_video_request_facts(
             {
                 "r2v": make_video_request_facts(
@@ -1277,11 +1277,11 @@ class TestReferenceVideoGateFlow:
 
 
 class TestReferenceVideoScriptPlanMigration:
-    """存量 script_plan 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""
+    """One-time gate-side coercion migration of legacy per-shot-duration script_plan drafts."""
 
     @staticmethod
     def _legacy_script_plan(seconds: int = 8) -> dict:
-        """收编前形状：正文已是 v9 形态，但仍带着退役的 ``duration_override`` 标记。"""
+        """Precoercion shapes: bodies already use v9 but retain retired ``duration_override`` markers."""
         legacy = _rv_script_plan()
         legacy["units"][0]["duration_seconds"] = seconds
         legacy["units"][0]["duration_override"] = False
@@ -1290,11 +1290,11 @@ class TestReferenceVideoScriptPlanMigration:
     async def test_migration_takes_slot_so_prompt_authoring_never_sees_a_non_member_duration(
         self, tmp_path, set_video_request_facts
     ):
-        """内容确认迁移落盘的秒数必是档位成员，不能只是「落在结构区间内」。
+        """Confirmation migration must persist tier-member seconds, not merely values inside structural intervals.
 
-        迁移幂等一次性、谁先跑谁定终局，而正常产品流程是先做内容确认再生成：内容确认若按结构
-        区间落一个非档位秒数，prompt_authoring 的枚举 schema 随后硬拒，用户在 gate 里看不出问题也改不动。
-        故内容确认与生成侧取同一份档位表。
+        One-time idempotent migration makes first execution definitive; normal flows confirm before generation. Structural-only
+        migration could persist nontier seconds later rejected by prompt_authoring enum schemas, invisible/uneditable in gates.
+        Therefore confirmation and generation share tier tables.
         """
         set_video_request_facts(
             make_video_request_facts(
@@ -1307,7 +1307,7 @@ class TestReferenceVideoScriptPlanMigration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
-        # 10s 落在结构区间内，但不是档位成员——只做结构 clamp 时会原样固化。
+        # 10s fits structural intervals but not tiers; structural clamp alone would persist it unchanged.
         legacy["units"][0]["duration_seconds"] = 10
         path = _write_rv_script_plan(pm, legacy)
 
@@ -1315,10 +1315,10 @@ class TestReferenceVideoScriptPlanMigration:
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 12
 
     async def test_custom_provider_draft_migration_takes_slot_from_facts(self, tmp_path, set_video_request_facts):
-        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：档位表只有视频请求事实给得出。
+        """Custom providers (``custom-``) lack ``PROVIDER_REGISTRY`` entries; video facts alone provide tiers.
 
-        读时收编按事实的声明全集取档，落盘的秒数是档位成员，prompt_authoring 的枚举 schema 不会硬拒；
-        ``supported_durations`` 一并带出同一份档位，面板的可选项与收编到的值同源。
+        Read-time coercion uses full fact declarations, persisting tier-member seconds accepted by prompt_authoring enum schemas;
+        ``supported_durations`` returns identical tiers, sharing panel-option/coercion origins.
         """
         set_video_request_facts(
             make_video_request_facts(
@@ -1333,7 +1333,7 @@ class TestReferenceVideoScriptPlanMigration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
-        # 7s 在结构区间内，但不是 [5, 10] 的成员。
+        # 7s fits structural intervals but not [5, 10].
         legacy["units"][0]["duration_seconds"] = 7
         path = _write_rv_script_plan(pm, legacy)
 
@@ -1343,8 +1343,8 @@ class TestReferenceVideoScriptPlanMigration:
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 10
 
     async def test_custom_provider_direct_confirm_takes_slot_from_facts(self, tmp_path, set_video_request_facts):
-        """Agent / API 绕过 get_state 直接 confirm 时同样按事实档位收编——两个入口口径不一致
-        的话，先跑的那个会把非档位秒数固化到盘上（迁移幂等一次性）。"""
+        """Agent/API direct confirm bypassing get_state also coerces through fact tiers; divergent entries let first execution
+        persist nontier seconds, because migration is one-time/idempotent."""
         set_video_request_facts(
             make_video_request_facts(
                 route="reference_video",
@@ -1368,7 +1368,7 @@ class TestReferenceVideoScriptPlanMigration:
     async def test_migration_falls_back_to_structural_clamp_without_video_backend(
         self, tmp_path, set_video_request_facts
     ):
-        """项目未配置可解析的视频型号：档位表取不到，退回结构区间 clamp 而非阻断草稿加载。"""
+        """Unresolved configured video models lack tiers; fall back to structural clamps rather than block draft loading."""
         set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
@@ -1379,7 +1379,7 @@ class TestReferenceVideoScriptPlanMigration:
         assert (await svc.get_state("demo", 1))["content"]["units"][0]["duration_seconds"] == 10
 
     async def test_legacy_draft_is_migrated_on_read_and_written_back(self, tmp_path, video_request_facts):
-        """读状态即收编：退役的 ``duration_override`` 被剥掉、unit 时长保持，且一次落盘、二次读不再改写。"""
+        """State reads coerce: strip retired ``duration_override``, retain unit durations, persist once and never rewrite on rereads."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         path = _write_rv_script_plan(pm, self._legacy_script_plan())
@@ -1392,13 +1392,13 @@ class TestReferenceVideoScriptPlanMigration:
         assert on_disk["units"][0]["duration_seconds"] == 8
         assert "duration_override" not in on_disk["units"][0]
 
-        # 幂等：二次读不再改写落盘内容。
+        # Idempotent: second reads never rewrite persisted content.
         before = path.read_bytes()
         await svc.get_state("demo", 1)
         assert path.read_bytes() == before
 
     async def test_legacy_draft_can_be_confirmed_and_saved(self, tmp_path, video_request_facts):
-        """收编后存量草稿在 gate 里可确认、可保存——迁移前两者都撞结构校验（unit 带已退役字段）。"""
+        """Coerced legacy drafts become confirmable/saveable; both failed structure checks before migration due to retired unit fields."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         _write_rv_script_plan(pm, self._legacy_script_plan())
@@ -1411,13 +1411,13 @@ class TestReferenceVideoScriptPlanMigration:
         assert confirmed["status"] == "confirmed"
 
     async def test_confirm_survives_migration_without_reopening_review(self, tmp_path, video_request_facts):
-        """迁移是机械收编、不是内容编辑：已确认的分集不因加载而重新等待确认。"""
+        """Migration is mechanical coercion, not content editing; loading confirmed episodes never demands reconfirmation."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
         path = _write_rv_script_plan(pm, legacy)
 
-        # 先在收编前的内容上记录确认指纹（模拟升级前已通过审核的分集）。
+        # Record confirmation fingerprints before coercion, simulating preupgrade approved episodes.
         def _confirm_legacy(p: dict) -> None:
             script_review.apply_confirmation(p, 1, script_review.content_fingerprint(path), "2026-01-01T00:00:00Z")
 
@@ -1430,8 +1430,8 @@ class TestReferenceVideoScriptPlanMigration:
         assert state["content"]["units"][0]["duration_seconds"] == 8
 
     async def test_confirm_reopens_review_when_migration_clamps_duration(self, tmp_path, set_video_request_facts):
-        """迁移带 warnings（时长被 clamp 改写）不是纯格式收编：已确认分集须重新等待确认，
-        不能像纯结构收编那样平移确认——clamp 后的秒数不是用户确认时看到的值。
+        """Warning-producing clamps change content rather than format only; confirmed episodes must await reconfirmation,
+        never transfer confirmation as pure structural coercion does, because users reviewed different seconds.
         """
         set_video_request_facts(
             make_video_request_facts(
@@ -1444,7 +1444,7 @@ class TestReferenceVideoScriptPlanMigration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
-        # 90s 超出最大档位（12s），迁移会取档改写并记 warning。
+        # 90s exceeds maximum 12s tiers; migration selects tiers, rewrites and warns.
         legacy["units"][0]["duration_seconds"] = 90
         path = _write_rv_script_plan(pm, legacy)
 
@@ -1458,9 +1458,9 @@ class TestReferenceVideoScriptPlanMigration:
         assert state["content"]["units"][0]["duration_seconds"] == 12
 
     async def test_clamping_migration_reopens_review_for_grandfathered_episode(self, tmp_path, set_video_request_facts):
-        """从未存过确认指纹、靠 grandfather 判据（prompt_authoring 已存在）放行的存量集：迁移 clamp
-        改写时长后须重新等待确认——迁移幂等落盘，重试不再产生 warnings，不落失配标记的话
-        后续生成会静默采用用户从未过目的取值。
+        """Legacy episodes without confirmation fingerprints admitted through grandfather prompt_authoring presence must await confirmation
+        after duration clamps. Idempotent migration retries produce no warnings; without persisted mismatch markers,
+        later generation silently adopts values users never reviewed.
         """
         set_video_request_facts(
             make_video_request_facts(
@@ -1479,16 +1479,16 @@ class TestReferenceVideoScriptPlanMigration:
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
-        # 幂等重读不会把状态放回 grandfather 放行：失配标记已持久化。
+        # Idempotent rereads never restore grandfather admission; mismatch markers persisted.
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_clamping_migration_marker_survives_interrupted_project_write(
         self, tmp_path, monkeypatch, set_video_request_facts
     ):
-        """迁移是「project 失配标记 + 草稿」两次写：project 那次失败后重试仍须收敛到待确认。
+        """Migration writes project mismatch markers and drafts separately; failed project writes must retry toward pending confirmation.
 
-        草稿先落盘则重试判 changed=False、标记再也补不上，grandfather 存量集会带着被 clamp
-        的时长停在 confirmed；标记先落盘时草稿仍是迁移前内容，重试重跑迁移即自愈。
+        Draft-first persistence yields changed=False on retries, permanently omitting markers and leaving grandfather episodes
+        confirmed with clamped durations. Marker-first keeps old drafts, so retries rerun migration and self-heal.
         """
         set_video_request_facts(
             make_video_request_facts(
@@ -1523,8 +1523,8 @@ class TestReferenceVideoScriptPlanMigration:
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_confirm_direct_call_confirms_migrated_content(self, tmp_path, set_video_request_facts):
-        """Agent / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
-        时（枚举外 clamp + warning 的宽容口径），confirm 按迁移后的落盘内容确认放行。
+        """Agent/API can confirm directly without get_state; when internal migration clamps
+        through tolerant outside-enum clamp/warning rules, confirm approves migrated persisted contents.
         """
         set_video_request_facts(
             make_video_request_facts(
@@ -1547,9 +1547,9 @@ class TestReferenceVideoScriptPlanMigration:
     async def test_confirmation_carry_uses_written_content_not_post_write_reread(
         self, tmp_path, monkeypatch, video_request_facts
     ):
-        """迁移写回后平移确认指纹须用刚写入的内容直接算，不能再读一次磁盘——写回与该次读取
-        之间若有并发编辑落下，读到的会是并发内容的指纹，把确认记录错误地平移到一份未经审阅
-        的内容上。
+        """Transfer confirmation fingerprints directly from freshly written content, never reread disk: concurrent edits between writes
+        and rereads would supply different fingerprints, incorrectly transferring confirmation onto unreviewed
+        content.
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
@@ -1588,9 +1588,9 @@ class TestReferenceVideoScriptPlanMigration:
     async def test_migration_carries_confirmation_that_lands_after_project_snapshot_loaded(
         self, tmp_path, monkeypatch, video_request_facts
     ):
-        """get_state 在迁移前加载的 project 快照此后不再刷新：若确认发生在这份快照加载
-        之后、迁移写回完成之前，携带确认的判断不能依赖这份陈旧快照——那样会把刚发生的
-        确认误判成"未确认"而跳过搬移，永久丢失它（迁移幂等，往后重试也补不回来）。
+        """get_state never refreshes premigration project snapshots; confirmations between snapshot loading
+        and migration completion must not rely on stale snapshots, misclassifying freshly confirmed
+        episodes and skipping transfer permanently, unrecoverable through idempotent migration retries.
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
@@ -1601,7 +1601,7 @@ class TestReferenceVideoScriptPlanMigration:
         original_migrate = script_review.migrate_unit_durations
 
         def _migrate_with_concurrent_confirm(units, **kwargs):
-            # 模拟另一请求的 confirm() 在 get_state 加载 project 快照之后、迁移完成之前落下确认。
+            # Simulate another request confirm() after get_state project snapshot loading but before migration completion.
             def _confirm_legacy(p: dict) -> None:
                 script_review.apply_confirmation(p, 1, before, "2026-01-01T00:00:00Z")
 
@@ -1614,7 +1614,7 @@ class TestReferenceVideoScriptPlanMigration:
         assert state["status"] == "confirmed"
 
     async def test_migration_does_not_confirm_an_unconfirmed_episode(self, tmp_path, video_request_facts):
-        """指纹本就对不上（script_plan 确实改过）时不平移确认记录，照常按待确认处理。"""
+        """Already mismatched fingerprints from actual edits never transfer confirmation; retain pending state."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         _write_rv_script_plan(pm, self._legacy_script_plan())
@@ -1628,8 +1628,8 @@ class TestReferenceVideoScriptPlanMigration:
 
 class TestReferenceVideoPromptAuthoringEnforcement:
     async def test_confirm_tool_materializes_the_script_authoring_reads(self, tmp_path, video_request_facts):
-        """Agent 路径：rv 的 script_plan 未确认时尚无正式脚本，编写入口指向内容确认；confirm_script_review
-        工具确认即生成正式脚本，编写入口随之放行。"""
+        """Agent route: unconfirmed rv planning lacks formal scripts, so authoring points to confirmation; confirm_script_review
+        materializes formal scripts on confirmation, admitting authoring."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         _write_rv_script_plan(pm, _rv_script_plan())
         project_path = pm.get_project_path("demo")
@@ -1654,18 +1654,18 @@ class TestReferenceVideoPromptAuthoringEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# 适用范围：drama / narration / reference_video 纳入 gate；ad 不纳入
+# Scope: drama/narration/reference_video gated; ad excluded.
 # ---------------------------------------------------------------------------
 
 
 class TestApplicability:
     async def test_reference_video_applicable(self, tmp_path, video_request_facts):
-        """reference_video（跨 content_mode）纳入 gate，script_plan 变体判为 reference_video。"""
+        """reference_video across content_mode is gated, with reference_video planning variants."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         project = pm.load_project("demo")
         assert script_review.script_plan_kind(project) == "reference_video"
         assert script_review.is_applicable(project) is True
-        # 未产 script_plan → no_script_plan（区别于 ad 的 not_applicable）。
+        # Absent script_plan → no_script_plan, distinct from ad not_applicable.
         assert (await _service(pm).get_state("demo", 1))["status"] == "no_script_plan"
 
     async def test_ad_not_applicable(self, tmp_path):
@@ -1678,7 +1678,7 @@ class TestApplicability:
 
 
 # ---------------------------------------------------------------------------
-# 编辑校验 + 确认前置错误
+# Edit validation + confirmation prerequisites
 # ---------------------------------------------------------------------------
 
 
@@ -1778,22 +1778,22 @@ class TestErrors:
         assert script_review.review_status(pm.get_project_path("demo"), project, 1) == "pending_review"
 
     async def test_save_not_applicable_rejected(self, tmp_path):
-        pm = _make_project(tmp_path, "ad")  # ad 无结构化 script_plan，gate 不适用
+        pm = _make_project(tmp_path, "ad")  # ad lacks structured script_plan; gate inapplicable.
         svc = _service(pm)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, _drama_script_plan())
         assert exc.value.code == "not_applicable"
 
     async def test_get_state_unregistered_episode_rejected(self, tmp_path):
-        """适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_script_plan）。"""
-        pm = _make_project(tmp_path, "drama")  # 仅登记第 1 集
+        """Applicable gates with unregistered episodes return episode_not_found, never no_script_plan."""
+        pm = _make_project(tmp_path, "drama")  # Register episode 1 only.
         svc = _service(pm)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.get_state("demo", 99)
         assert exc.value.code == "episode_not_found"
 
     async def test_save_unregistered_episode_writes_no_orphan(self, tmp_path):
-        """给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 script_plan 文件。"""
+        """Saving unregistered episodes returns episode_not_found without orphan drafts/episode_99 script_plan files."""
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         with pytest.raises(ScriptReviewError) as exc:
@@ -1803,14 +1803,14 @@ class TestErrors:
         assert not orphan.exists()
 
     async def test_save_with_stale_fingerprint_conflicts_reference_video(self, tmp_path, video_request_facts):
-        """rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、
-        不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。"""
+        """rv concurrent edits with stale baseline fingerprints conflict without persistence/overwrite;
+        retrying latest fingerprints, equivalent to refresh/merge, succeeds."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         path = _write_rv_script_plan(pm, _rv_script_plan())
         stale = (await svc.get_state("demo", 1))["fingerprint"]
 
-        # 另一编辑方先保存（内容变化 → 指纹漂移）
+        # Another editor saves first, changing content/fingerprints.
         other = _rv_script_plan()
         other["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, other)
@@ -1829,7 +1829,7 @@ class TestErrors:
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["text"] == "@[裴与] 下马。"
 
     async def test_save_with_stale_fingerprint_conflicts_drama(self, tmp_path):
-        """drama/narration 的 web 保存同样受基线比对保护：同一个 conflict 错误码。"""
+        """Drama/narration Web saves share baseline protections and identical conflict codes."""
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         path = _write_script_plan(pm, "drama", _drama_script_plan())
@@ -1846,7 +1846,7 @@ class TestErrors:
         assert path.read_text(encoding="utf-8") == before
 
     async def test_save_without_fingerprint_skips_baseline_check(self, tmp_path, video_request_facts):
-        """不带基线指纹的直连调用维持原语义：不比对、直接落盘。"""
+        """Direct calls without baseline fingerprints preserve prior semantics: no comparison, immediate persistence."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         _write_rv_script_plan(pm, _rv_script_plan())
@@ -1858,20 +1858,20 @@ class TestErrors:
         assert state["status"] == "pending_review"
 
     async def test_rv_save_clears_stale_prompt_authoring_quarantine_on_change(self, tmp_path, video_request_facts):
-        """web 保存改了 script_plan 内容 → 在场的 prompt_authoring 草稿作废（其保结构 diff 以旧 script_plan 为
-        基底）；内容未变的保存不清。与 Agent 侧写盘同一出口、同一语义。"""
+        """Changed Web-saved script_plan invalidates existing prompt_authoring drafts whose structure-preserving diffs use old planning;
+        unchanged saves retain drafts, sharing Agent persistence outlets/semantics."""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         project_path = pm.get_project_path("demo")
         _write_rv_script_plan(pm, _rv_script_plan())
-        # 先经一次保存把归一化形状（含模型默认字段）落盘，"内容未变"的比较才有同一基准
+        # First save normalized shapes, including model defaults, to establish common unchanged-content comparison bases.
         await svc.save_content("demo", 1, _rv_script_plan())
         prompt_authoring_q = quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
 
         write_quarantine(
             project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "旧基底"}]}, violations=[]
         )
-        await svc.save_content("demo", 1, _rv_script_plan())  # 内容未变（校验结果与盘上一致）
+        await svc.save_content("demo", 1, _rv_script_plan())  # Unchanged content: validated results match disk.
         assert prompt_authoring_q.exists()
 
         edited = _rv_script_plan()
@@ -1880,7 +1880,7 @@ class TestErrors:
         assert not prompt_authoring_q.exists()
 
     async def test_confirm_corrupt_script_plan_rejected(self, tmp_path):
-        """script_plan 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
+        """Corrupt script_plan JSON, even with content_fingerprint hashes, fails confirmation structure validation."""
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         path = _write_script_plan(pm, "drama", _drama_script_plan())
@@ -1891,7 +1891,7 @@ class TestErrors:
 
 
 # ---------------------------------------------------------------------------
-# 单一写盘出口（lib.script.script_review.write_script_plan_locked）
+# Sole persistence outlet: lib.script.script_review.write_script_plan_locked
 # ---------------------------------------------------------------------------
 
 
@@ -1919,7 +1919,7 @@ class TestScriptPlanWriteStore:
         assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 1}]}
 
     def test_matching_baseline_and_none_baseline_write(self, tmp_path: Path):
-        """基线一致放行；``None`` 基线表示「取基线时文件不存在」，首写同样放行。"""
+        """Matching baselines pass; ``None`` means files absent when captured, also permitting first writes."""
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]}, expected_fingerprint=None)
@@ -1930,7 +1930,7 @@ class TestScriptPlanWriteStore:
         assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 2}]}
 
     def test_none_baseline_conflicts_when_file_appeared(self, tmp_path: Path):
-        """基线 None（取基线时无正式文件）而写盘前文件已被另一方写出 → 冲突，不覆盖。"""
+        """None baselines with files created by others before writes conflict without overwrite."""
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
@@ -1946,7 +1946,7 @@ class TestScriptPlanWriteStore:
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
 
-        # 内容未变 → 不清
+        # Unchanged content → retain
         write_quarantine(
             project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
         )
@@ -1954,12 +1954,12 @@ class TestScriptPlanWriteStore:
             assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]}) is False
         assert prompt_authoring_q.exists()
 
-        # 内容变了 → 清
+        # Changed content → clear
         with script_review.script_plan_write_lock(project_path, 1):
             assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}) is True
         assert not prompt_authoring_q.exists()
 
-        # 迁移回写按机械收编处理：内容变了也不清
+        # Migration writes are mechanical coercion; retain even on content changes.
         write_quarantine(
             project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
         )
@@ -1990,7 +1990,7 @@ class TestScriptPlanWriteStore:
         assert registered == [ArtifactKey.episode_script_plan(1)]
 
     def test_content_change_moves_project_activity_forward(self, tmp_path: Path):
-        # 脚本规划是 JSON，修改时间不计入活动，由写盘出口记账；内容未变的写入不算活动。
+        # Planning JSON mtimes never count as activity; write outlets record activity, excluding unchanged writes.
         project_path = self._project_path(tmp_path)
         stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
         (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
@@ -2007,7 +2007,7 @@ class TestScriptPlanWriteStore:
         assert recorded_project_activity(project_path) == stale
 
     def test_failed_commit_leaves_project_activity_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        # 内容变化会作废下游草稿，清草稿的出口在事务内记账；登记失败回滚时账本一并回到原值。
+        # Content changes invalidate downstream drafts; transactional cleanup records activity, rolled back with failed registration.
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
@@ -2033,7 +2033,7 @@ class TestScriptPlanWriteStore:
     def test_failed_commit_keeps_activity_recorded_by_other_writers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # 账本是项目全局的，草稿、记忆等写入方不经过正式文件的锁：回滚时不能抹掉它们同期的记账。
+        # Global project ledgers have draft/memory writers outside formal-file locks; rollback must retain concurrent accounting.
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
@@ -2071,13 +2071,13 @@ class TestScriptPlanWriteStore:
 
 
 # ---------------------------------------------------------------------------
-# prompt_authoring 与内容确认：编写不受确认门禁阻塞，确认工具走同一服务
+# prompt_authoring and confirmation: authoring is ungated; confirmation tools share services.
 # ---------------------------------------------------------------------------
 
 
 class TestPromptAuthoringEnforcement:
     async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path, video_request_facts):
-        """编写只读正式剧本：script_plan 重跑后尚未确认时，编写入口照常放行。"""
+        """Authoring reads formal scripts only; unconfirmed rerun planning never blocks authoring entry."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script({**_narration_script_segment("E1S01"), "pending_authoring": True}))
@@ -2104,7 +2104,7 @@ class TestPromptAuthoringEnforcement:
         assert "DRY RUN" in result.value.message
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
-        """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""
+        """Agent confirm_script_review admits gates, preserving existing script_plan→prompt_authoring flows."""
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         project_path = pm.get_project_path("demo")
@@ -2124,7 +2124,7 @@ class TestPromptAuthoringEnforcement:
     async def test_confirm_tool_refusal_carries_the_same_loss_text_as_the_web_state(
         self, tmp_path, video_request_facts
     ):
-        """Agent 收到的丢失清单与 Web 确认框读的是同一份服务端文本，令牌另在 params 里。"""
+        """Agent loss lists share server text with Web confirmations; tokens stay separately in params."""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(
@@ -2158,7 +2158,7 @@ class TestPromptAuthoringEnforcement:
             assert lost in web_overwrite["text"]
 
     async def test_confirm_tool_reports_the_video_request_facts_problem(self, tmp_path, set_video_request_facts):
-        """Agent 路径：视频请求事实解析不出时，确认回执带事实的问题码与参数，不止于内部错误类别。"""
+        """Agent unresolved video facts return problem codes/parameters in confirmation receipts, beyond internal error classes."""
         set_video_request_facts(
             VideoRequestFactsFailure(
                 "video_supported_durations_incompatible",
@@ -2185,7 +2185,7 @@ class TestPromptAuthoringEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# 存量穷举：{script_plan 有无 × prompt_authoring 有无 × script_plan_review 有无} 的 gate 派生态
+# Exhaustive legacy cases: {script_plan present × prompt_authoring present × script_plan_review present} gate derivations
 # ---------------------------------------------------------------------------
 
 
@@ -2195,13 +2195,13 @@ class TestLegacyEnumeration:
         assert (await _service(pm).get_state("demo", 1))["status"] == "no_script_plan"
 
     async def test_script_plan_no_prompt_authoring_no_review_pending(self, tmp_path):
-        """feature 后首次产 script_plan（未产 prompt_authoring、无确认）→ 待确认、阻塞。"""
+        """First postfeature script_plan without prompt_authoring/confirmation awaits confirmation and blocks."""
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _drama_script_plan())
         assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
 
     async def test_script_plan_prompt_authoring_no_review_pending(self, tmp_path):
-        """已产 script_plan + prompt_authoring、无确认记录 → 无从判断正式脚本出自这份规划，待确认。"""
+        """Existing script_plan + prompt_authoring without confirmation cannot prove scripts came from planning, so await confirmation."""
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _drama_script_plan())
         _write_prompt_authoring(pm)
@@ -2217,7 +2217,7 @@ class TestLegacyEnumeration:
         assert (await _service(pm).get_state("demo", 1))["status"] == "confirmed"
 
     async def test_script_plan_prompt_authoring_review_mismatch_pending(self, tmp_path, video_request_facts):
-        """已确认后 script_plan 又被重跑（即便 prompt_authoring 在）→ 重新等待确认，指纹优先于 grandfather。"""
+        """Confirmed script_plan reruns await reconfirmation even with prompt_authoring; fingerprints precede grandfather rules."""
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         _write_prompt_authoring(pm)
@@ -2229,14 +2229,14 @@ class TestLegacyEnumeration:
 
 
 # ---------------------------------------------------------------------------
-# 手动预拆分自愈：episodes[] 账本为空但 source/episode_N.txt 派生文件已存在时，
-# _require_episode 自愈补建条目而非直接判死锁。
+# Manual presplit self-healing: empty episodes[] ledgers with existing source/episode_N.txt derived files
+# make _require_episode register missing entries rather than declare deadlock.
 # ---------------------------------------------------------------------------
 
 
 class TestOwnSourceEpisodes:
     async def test_unregistered_episode_file_is_not_an_episode(self, tmp_path):
-        """source/ 里未登记的 episode_N.txt 不会被补登为一集：读状态报 episode_not_found，账本不动。"""
+        """Unregistered source/episode_N.txt files never backfill episodes; state reads return episode_not_found without ledger changes."""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
 
@@ -2247,7 +2247,7 @@ class TestOwnSourceEpisodes:
         assert pm.load_project("demo")["episodes"] == []
 
     async def test_confirm_unblocks_prompt_authoring_for_an_own_source_episode(self, tmp_path, video_request_facts):
-        """逐集登记的自带原文的集走同一条内容确认出口。"""
+        """Individually registered own-source episodes share content-confirmation outlets."""
         pm = _make_manual_split_project(tmp_path, "drama")
         pm.add_character("demo", "阿离", "少女")
         assert register_project_sources(pm, "demo", own_episodes=("任意原文内容",)) == [1]

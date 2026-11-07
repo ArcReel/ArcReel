@@ -212,7 +212,7 @@ describe("AgentConfigTab", () => {
         ),
       );
       expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "选择模型" })).not.toBeInTheDocument();
-      // 面板选中后关闭
+      // Close after panel selection.
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -235,7 +235,7 @@ describe("AgentConfigTab", () => {
     });
 
     it("所选模型已下线的档位仍可解除绑定", async () => {
-      // 档位已回到按名字对应而已定价，但存着的绑定还在，用户须能清掉
+      // Name-matched tiers are priced again, but persisted bindings remain; users must be able to clear them.
       setupBaseMocks({
         credentials: [credentialWith({ entry_display_name: "Claude Haiku 4.5", binding_stale: true, priced: true })],
       });

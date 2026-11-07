@@ -5,14 +5,14 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目「分集」视图：页头工具行、集目录与原文、方案栏，以及上传、新建、未登记文件等弹层。
+// Episodes view: header tools, episode directory/sources, plan bars and upload/create/unregistered-file overlays.
 const PATH = "/app/projects/demo/episodes";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+// Project events are unrecorded SSE; reject with nonretryable statuses, retaining recorded project data.
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-// 标准档与紧凑档的分界，与外壳的媒体查询一致；紧凑档的 Agent 面板盖在画布右侧。
+// Standard/compact breakpoint matches shell media queries; compact Agent panels overlay canvas right sides.
 const STANDARD_TIER_MIN_WIDTH = 1280;
 
 interface RecordedProject {
@@ -25,7 +25,7 @@ const recordedProject = (
 const [firstEpisode] = recordedProject.project.episodes;
 
 // ---------------------------------------------------------------------------
-// 压力数据：两个整本源文文件、几十集、长标题与长文件名，切出集之间留一段空当，结尾还有未分集的原文
+// Stress: two whole-source files, dozens of episodes, long titles/filenames, gaps between cuts and unplanned tails.
 // ---------------------------------------------------------------------------
 
 const PARAGRAPHS = [
@@ -72,7 +72,7 @@ const FILES = [
     name: "上卷：雨夜里的旧城茶馆与修表匠的约定（作者手改第三稿，含删去的支线与批注）.txt",
     original_filename: "上卷 第三稿 批注版 最终 最终.docx",
     episodes: 14,
-    // 第 6 集删掉后留下的空当
+    // Gap after deleting episode 6.
     gapAfter: 5,
     tail: 3,
   },
@@ -126,7 +126,7 @@ const files = FILES.map((spec) => {
   };
 });
 
-// 原文不在整本源文里的集：两集自带原文、一集还没有原文
+// Episodes outside whole sources: two standalone-source episodes, one sourceless.
 for (const origin of ["own", "own", "none"] as const) {
   infos.push({
     episode: nextEpisode,
@@ -191,7 +191,7 @@ const POPULATED: ApiOverrides = {
   "GET /api/v1/projects/demo/episodes-view": { status: 200, body: VIEW },
 };
 
-// 从第 7 集起重新规划：新方案把第 7–9 集重新切成四集
+// Replan from episode 7: new plans recut episodes 7–9 into four episodes.
 const [upper] = files;
 const replanFrom = upper.segments.find((segment) => segment.episode === 7);
 const replanTo = upper.segments.find((segment) => segment.episode === 9);
@@ -255,7 +255,7 @@ async function box(locator: Locator) {
   return rect;
 }
 
-/** 紧凑档的 Agent 面板盖在画布右侧：点画布右侧的控件之前先收起它。 */
+/** Compact Agent panels cover canvas right sides; collapse before clicking right-side canvas controls. */
 async function revealCanvasRight(page: Page) {
   if (viewport(page).width >= STANDARD_TIER_MIN_WIDTH) return;
   await agentToggle(page).click();
@@ -267,7 +267,7 @@ async function populatedReady(page: Page) {
   await manuscript(page).getByRole("article").first().waitFor();
 }
 
-/** 画布里只有集目录与原文两处在滚动；文档本身由溢出探针检查。 */
+/** Only episode directories/source bodies scroll within canvases; overflow probes check documents themselves. */
 async function expectOnlyColumnsScroll(page: Page) {
   const scrolling = await canvas(page).evaluate((main) =>
     [main, ...main.querySelectorAll("*")]
@@ -301,7 +301,7 @@ defineRegionScenarios("分集视图", [
     act: async (page) => {
       await expectOnlyColumnsScroll(page);
       const text = await box(page.locator("[data-manuscript]"));
-      // 正文栏最宽 40em：Agent 面板展开的 1440 宽下约 630px，2560 宽下也不再变宽
+      // Body columns cap at 40em: about 630px with Agent panels expanded at width 1440, without further widening at 2560.
       expect(text.width).toBeLessThanOrEqual(641);
       if (viewport(page).width === 1440) expect(text.width).toBeGreaterThan(600);
       const rail = await box(outline(page));

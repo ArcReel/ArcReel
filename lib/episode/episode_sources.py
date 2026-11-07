@@ -1,15 +1,15 @@
-"""集原文来源与整本源文的文件清单：由项目显式登记，不按 ``source/`` 目录内容推断（ADR 0031、0097）。
+"""Episode source origins and whole-source file manifests: explicitly registered by projects, never inferred from ``source/`` contents (ADRs 0031, 0097).
 
-- 每个账本条目用 :data:`SOURCE_ORIGIN_FIELD` 记录集原文的来源：切自整本源文、自带原文、无原文。
-  切自整本源文的集文件 ``source/episode_N.txt`` 是账本的派生物；自带原文的集文件就是该集的源文；
-  无原文的集没有集文件，即使 ``source/`` 里恰好有同名文件也不算。
-- ``project.json`` 顶层 :data:`WHOLE_SOURCE_FILES_KEY` 按创作者排定的顺序列出整本源文的文件，新文件
-  接在末尾。``source/`` 里没有登记的文件不属于整本源文，也不是任何一集的原文。
-- 接续规划的起点由账本推导：按源文位置（文件在清单中的先后，再按文件内偏移）排在最后的那个切出集的
-  结尾，不另存游标。
-- 登记过切出集的文件在 ``source/snapshots/`` 下保留一份规范化文本快照，是服务之外改动文件时的对齐基准。
+- Each ledger entry records episode source origin through :data:`SOURCE_ORIGIN_FIELD`: cut from whole sources, standalone source, or sourceless.
+  Cut episode files ``source/episode_N.txt`` derive from ledgers; standalone episode files are their own sources;
+  sourceless episodes have no episode files, even if same-name files happen to exist in ``source/``.
+- Top-level ``project.json`` :data:`WHOLE_SOURCE_FILES_KEY` lists whole-source files in creator-defined order, appending new files
+  last. Unregistered ``source/`` files are neither whole sources nor any episode's source.
+- Derive continuation planning starts from ledgers: the end of the last cut episode by source position
+  (manifest file order, then in-file offset). Never store separate cursors.
+- Files with registered cut episodes retain normalized-text snapshots under ``source/snapshots/``, providing alignment baselines for external edits.
 
-本模块只读写 ``project.json`` 的内存形态与快照文件，不取锁；调用方在项目锁内使用。
+This module reads/writes in-memory ``project.json`` representations and snapshot files without locks; callers use it inside project locks.
 """
 
 from __future__ import annotations
@@ -39,29 +39,29 @@ from lib.episode.episode_paths import episode_source_relpath
 
 logger = logging.getLogger(__name__)
 
-#: 账本条目字段：集原文的来源。
+#: Ledger-entry field: episode source origin.
 SOURCE_ORIGIN_FIELD = "source_origin"
 
-#: ``project.json`` 顶层字段：整本源文的文件清单，元素形如 ``{"source_file": "source/novel.txt"}``。
+#: Top-level ``project.json`` field: whole-source file manifests, with elements like ``{"source_file": "source/novel.txt"}``.
 WHOLE_SOURCE_FILES_KEY = "whole_source_files"
 
-#: 规范化文本快照所在目录（相对项目根）。
+#: Normalized-text snapshot directory (project-relative).
 SOURCE_SNAPSHOTS_DIR = "source/snapshots"
 
-#: ``project.json`` 顶层字段：整本源文是否还有未规划成集的原文（:func:`source_remaining` 的结论）。
-#: ``ProjectManager`` 写 ``project.json`` 时按当时的源文记下，项目列表据此判「已完成」而不读源文；
-#: 源文在 ArcReel 之外被改动、账本尚未更新时，它与制作状态可能短暂不一致。
+#: Top-level ``project.json`` field: whether whole sources retain text not planned into episodes (:func:`source_remaining` result).
+#: ``ProjectManager`` records current sources when writing ``project.json``. Project lists use this for completion without reading sources;
+#: external edits outside ArcReel, before ledger updates, can briefly disagree with production state.
 SOURCE_REMAINING_KEY = "source_remaining"
 
 
 class SourceOrigin(StrEnum):
-    """一集的集原文来源。"""
+    """An episode's source origin."""
 
-    #: 由分集规划从整本源文切出一段范围。
+    #: Ranges cut from whole sources by episode planning.
     WHOLE_SOURCE = "whole_source"
-    #: 创作者逐集上传或直接填写的一份原文，集文件就是该集的源文。
+    #: Standalone sources uploaded or entered per episode by creators; episode files are their sources.
     OWN = "own"
-    #: 没有原文。
+    #: No source.
     NONE = "none"
 
 
@@ -69,10 +69,10 @@ SOURCE_ORIGINS: tuple[str, ...] = tuple(origin.value for origin in SourceOrigin)
 
 
 def episode_source_origin(entry: Mapping[str, Any]) -> SourceOrigin:
-    """条目记录的集原文来源。
+    """Episode source origin recorded by entries.
 
-    字段缺失或取值非法时，带 ``source_range`` 字段（不论结构是否完整）的按切自整本源文处理，其余按无原文
-    处理；不看磁盘上有没有集文件。结构损坏的原文范围因此仍落在切出集的校验里，不会被当成无原文放过。
+    If missing or invalid, entries with ``source_range`` (regardless of structural completeness) count as cut from whole sources; others count as sourceless.
+    Never inspect episode-file presence on disk. Structurally broken ranges therefore still undergo cut-episode validation rather than escaping as sourceless.
     """
     raw = entry.get(SOURCE_ORIGIN_FIELD)
     if isinstance(raw, str) and raw in SOURCE_ORIGINS:
@@ -81,15 +81,15 @@ def episode_source_origin(entry: Mapping[str, Any]) -> SourceOrigin:
 
 
 def is_cut_episode(entry: Mapping[str, Any]) -> bool:
-    """条目是否为切自整本源文的集（含没有原文范围记录的旧拆分流程存量集）。"""
+    """Whether entries represent episodes cut from whole sources (including legacy split-flow episodes without source-range records)."""
     return episode_source_origin(entry) is SourceOrigin.WHOLE_SOURCE
 
 
 def legacy_cut_episode_ids(project: Mapping[str, Any]) -> list[int]:
-    """切自整本源文、却没有原文范围记录的集 ID（旧拆分流程的存量集），按播出顺序。
+    """IDs cut from whole sources without source-range records (legacy split-flow episodes), in broadcast order.
 
-    这类集照常消费，但无法据以续接规划：分集规划遇到它们拒绝执行，要重新规划须从第 1 集起。
-    自带原文与无原文的集本来就不占用整本源文，不在此列。
+    These episodes remain consumable but cannot support continuation planning: episode planning refuses them; replanning must start from episode 1.
+    Standalone-source and sourceless episodes never occupy whole sources and are excluded.
     """
     ids: list[int] = []
     for entry in _entries(project):
@@ -100,7 +100,7 @@ def legacy_cut_episode_ids(project: Mapping[str, Any]) -> list[int]:
 
 
 def first_cut_episode_id(project: Mapping[str, Any]) -> int | None:
-    """播出顺序中第一个切出集的集 ID；从它起重置即全量重置。"""
+    """First cut episode ID in broadcast order; resetting from it is a full reset."""
     return next(
         (parse_positive_episode_num(entry.get("episode")) for entry in _entries(project) if is_cut_episode(entry)),
         None,
@@ -108,7 +108,7 @@ def first_cut_episode_id(project: Mapping[str, Any]) -> int | None:
 
 
 def episode_entry(project: Mapping[str, Any], episode_id: int) -> Mapping[str, Any] | None:
-    """账本里集 ID 为 ``episode_id`` 的第一个条目。"""
+    """First ledger entry whose episode ID is ``episode_id``."""
     return next(
         (entry for entry in _entries(project) if parse_positive_episode_num(entry.get("episode")) == episode_id),
         None,
@@ -116,9 +116,9 @@ def episode_entry(project: Mapping[str, Any], episode_id: int) -> Mapping[str, A
 
 
 def is_episode_source_file(project: Mapping[str, Any], rel: str) -> bool:
-    """``rel`` 是否为账本里某一集的集文件 ``source/episode_N.txt``（派生物或自带原文）。
+    """Whether ``rel`` is a ledger episode file ``source/episode_N.txt`` (derived or standalone source).
 
-    无原文的集没有集文件，盘上与它同名的文件不算。
+    Sourceless episodes have no episode files; same-name disk files do not count.
     """
     return any(
         (episode_id := parse_positive_episode_num(entry.get("episode"))) is not None
@@ -134,14 +134,14 @@ def _entries(project: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# 整本源文的文件清单
+# Whole-source file manifests.
 # ---------------------------------------------------------------------------
 
 
 def is_whole_source_file_path(value: object) -> TypeGuard[str]:
-    """直接位于 ``source/`` 下、扩展名合法、非点 / 下划线前缀的项目相对 POSIX 路径。
+    """Project-relative POSIX paths directly under ``source/``, with valid extensions and no dot / underscore prefix.
 
-    ``episode_N.txt`` 留给集文件：切出集的集文件由规划按集 ID 写出，整本源文用这个名字会被覆盖。
+    Reserve ``episode_N.txt`` for episode files: planning writes cut episode files by ID, overwriting whole sources with that name.
     """
     if not isinstance(value, str) or "\\" in value:
         return False
@@ -156,7 +156,7 @@ def is_whole_source_file_path(value: object) -> TypeGuard[str]:
 
 
 def whole_source_files(project: Mapping[str, Any]) -> list[str]:
-    """整本源文的文件（项目相对路径），按清单顺序；形状非法或重复的元素跳过。"""
+    """Whole-source files (project-relative paths) in manifest order; skip malformed or duplicate elements."""
     raw = project.get(WHOLE_SOURCE_FILES_KEY)
     files: list[str] = []
     for item in raw if isinstance(raw, list) else []:
@@ -167,9 +167,9 @@ def whole_source_files(project: Mapping[str, Any]) -> list[str]:
 
 
 def append_whole_source_file(project: dict[str, Any], rel: str, *, index: int | None = None) -> bool:
-    """把文件登记进整本源文清单；已在清单里时不动，返回是否新增。
+    """Register files in whole-source manifests; leave existing registrations unchanged, returning whether added.
 
-    ``index`` 是登记后文件在 :func:`whole_source_files` 里的下标，缺省或超出末尾时接在末尾，负数按 0 处理。
+    ``index`` is the resulting position in :func:`whole_source_files`; absent or beyond-end indices append, negative indices become 0.
     """
     if not is_whole_source_file_path(rel):
         raise ValueError(f"整本源文的文件须直接位于 source/ 下且为 .txt / .md：{rel}")
@@ -180,7 +180,7 @@ def append_whole_source_file(project: dict[str, Any], rel: str, *, index: int | 
     items = list(raw) if isinstance(raw, list) else []
     position = len(items)
     if index is not None and index < len(files):
-        # 清单里可能夹着形状非法或重复的元素，按合法文件定位到原始列表里的插入处
+        # Manifests may contain malformed/duplicate elements; locate insertion points in raw lists by valid files.
         anchor = files[max(index, 0)]
         position = next(
             i for i, item in enumerate(items) if isinstance(item, Mapping) and item.get("source_file") == anchor
@@ -191,7 +191,7 @@ def append_whole_source_file(project: dict[str, Any], rel: str, *, index: int | 
 
 
 def remove_whole_source_file(project: dict[str, Any], rel: str) -> bool:
-    """从整本源文清单移除文件，返回是否移除。"""
+    """Remove files from whole-source manifests, returning whether removed."""
     raw = project.get(WHOLE_SOURCE_FILES_KEY)
     if not isinstance(raw, list):
         return False
@@ -211,9 +211,9 @@ def _read_text_or_none(path: Path) -> str | None:
 
 
 def discover_sources(project_dir: Path, project: Mapping[str, Any]) -> list[SourceDoc]:
-    """整本源文的各个文件，按清单顺序给出规范化全文。
+    """Whole-source files with normalized full texts in manifest order.
 
-    读不到的文件（不存在、符号链接、非 UTF-8）跳过；``source/`` 目录本身是符号链接或目录联接时视为没有源文。
+    Skip unreadable files (missing, symlink, non-UTF-8); a symlink/junction ``source/`` directory counts as no sources.
     """
     source_dir = project_dir / "source"
     if source_dir.is_symlink() or source_dir.is_junction() or not source_dir.is_dir():
@@ -230,14 +230,14 @@ def discover_sources(project_dir: Path, project: Mapping[str, Any]) -> list[Sour
 
 
 # ---------------------------------------------------------------------------
-# 由账本推导的规划起点
+# Planning starts derived from ledgers.
 # ---------------------------------------------------------------------------
 
 
 def planning_start(project: Mapping[str, Any], docs: list[SourceDoc]) -> tuple[str, int] | None:
-    """接续规划的起点：按源文位置排在最后的切出集的结尾；还没有切出集时是第一个文件的开头。
+    """Continuation planning start: end of the last cut episode by source position, or first file beginning without cut episodes.
 
-    原文范围的终点文件不在 ``docs`` 里的切出集不参与推导；文件按 NFC 归一后的路径对应。整本源文没有文件时返回 None。
+    Ignore cut episodes whose range end file is absent from ``docs``; match files by NFC-normalized paths. Return None when whole sources have no files.
     """
     order = {unicodedata.normalize("NFC", doc.rel_path): index for index, doc in enumerate(docs)}
     last: tuple[int, int] | None = None
@@ -257,9 +257,9 @@ def planning_start(project: Mapping[str, Any], docs: list[SourceDoc]) -> tuple[s
 
 @dataclass(frozen=True)
 class CutPlacement:
-    """一个切出集在整本源文里的位置：起点 ``(file_index, start)``，终点 ``(end_file_index, end)``（不含）。
+    """A cut episode's whole-source position: start ``(file_index, start)``, exclusive end ``(end_file_index, end)``.
 
-    下标指 ``docs`` 里的文件，偏移是各自文件内的下标。原文范围可以跨文件，中间的文件整个属于这一集。
+    Indices address files in ``docs``; offsets are within their respective files. Ranges may span files, entirely including intermediate files.
     """
 
     episode: int
@@ -270,12 +270,12 @@ class CutPlacement:
 
     @property
     def position(self) -> tuple[int, int]:
-        """按源文位置排序的键：起点的文件先后，再按文件内偏移。"""
+        """Source-position sort key: start-file order, then in-file offset."""
         return self.file_index, self.start
 
     @property
     def end_position(self) -> tuple[int, int]:
-        """终点按源文位置的键。"""
+        """Source-position key for ends."""
         return self.end_file_index, self.end
 
     @property
@@ -283,7 +283,7 @@ class CutPlacement:
         return self.end_file_index != self.file_index
 
     def portion(self, file_index: int, length: int) -> tuple[int, int] | None:
-        """这一集落在第 ``file_index`` 个文件（长 ``length``）里的那部分 ``[start, end)``；不经过这个文件时为 None。"""
+        """This episode's ``[start, end)`` portion within ``file_index`` (length ``length``); None if it does not traverse the file."""
         if not self.file_index <= file_index <= self.end_file_index:
             return None
         return (
@@ -293,7 +293,7 @@ class CutPlacement:
 
 
 def placement_text(docs: Sequence[SourceDoc], placement: CutPlacement) -> str:
-    """切出集的原文：起点到终点之间，沿文件顺序接起来的文字。"""
+    """Cut episode source: text concatenated in file order from start to end."""
     parts: list[str] = []
     for index in range(placement.file_index, placement.end_file_index + 1):
         text = docs[index].text
@@ -304,9 +304,9 @@ def placement_text(docs: Sequence[SourceDoc], placement: CutPlacement) -> str:
 
 
 def span_text(texts: Mapping[str, str], order: Sequence[str], span: SourceSpan) -> str | None:
-    """账本里一段原文范围的文字：``texts`` 是文件的规范化全文，``order`` 是整本源文的文件顺序。
+    """Text for a ledger source range: ``texts`` contains normalized full file texts; ``order`` is whole-source file order.
 
-    单个文件内的范围不看 ``order``。跨文件时起止文件不在 ``order`` 里、先后颠倒，或文件文字缺失、偏移越界时返回 None。
+    Single-file ranges ignore ``order``. For cross-file ranges, return None if endpoints are absent from ``order`` or reversed, file text is missing, or offsets out of bounds.
     """
     if not span.crosses_files:
         text = texts.get(span.source_file)
@@ -330,10 +330,10 @@ def span_text(texts: Mapping[str, str], order: Sequence[str], span: SourceSpan) 
 
 
 def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) -> dict[int, CutPlacement]:
-    """能落进整本源文的切出集，按集 ID 索引。
+    """Placeable cut episodes within whole sources, indexed by episode ID.
 
-    起止文件不在 ``docs`` 里、终点文件排在起点文件之前、起点越界的不落位；文件按 NFC 归一后的路径对应。
-    按源文位置排序，与前一集重叠的不落位。终点超出文件长度时截到文件末尾。「分集」视图与手工切分按同一份落位认集。
+    Do not place ranges whose endpoint files are absent from ``docs``, whose end file precedes the start file, or whose start is out of bounds; match NFC-normalized paths.
+    Sort by source position and omit episodes overlapping the previous one. Clamp ends beyond file length. Episodes views and manual splitting identify episodes using this same placement.
     """
     order = {unicodedata.normalize("NFC", doc.rel_path): index for index, doc in enumerate(docs)}
     candidates: list[CutPlacement] = []
@@ -372,9 +372,9 @@ def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) ->
 def unsplit_range_ending_at(
     placements: Mapping[int, CutPlacement], *, file_index: int, end: int
 ) -> tuple[int, int] | None:
-    """文件里以 ``end`` 为终点的那段未切分原文 ``[start, end)``：从这个文件里前面最近的切出集结尾（没有时从文件开头）起。
+    """Unsplit file range ``[start, end)`` ending at ``end``: starts at the nearest preceding cut episode's end in this file (file beginning if none).
 
-    ``end`` 落在某个切出集的原文里时返回 None。
+    Return None when ``end`` falls inside a cut episode's source.
     """
     ends_before = 0
     for p in placements.values():
@@ -392,10 +392,10 @@ def unsplit_range_ending_at(
 def cut_insert_index(
     entries: Sequence[object], placements: Mapping[int, CutPlacement], position: tuple[int, int]
 ) -> int:
-    """源文位置为 ``position`` 的新切出集在账本里的插入下标。
+    """Ledger insertion index for new cut episodes at source ``position``.
 
-    排在按源文位置前面最近的切出集之后；前面没有切出集时排在后面最近的切出集之前；一个落位的切出集都没有时
-    排在最后一个切出集之后，账本里还没有切出集时排在末尾。
+    Place after the nearest preceding cut episode by source position, or before the nearest following cut episode if none precedes. If no cut episodes are placeable,
+    place after the last cut episode, or at the end if the ledger has no cut episodes.
     """
     ordered = sorted(placements.values(), key=lambda p: p.position)
     before = [p for p in ordered if p.position < position]
@@ -423,7 +423,7 @@ def cut_insert_index(
 
 
 def unplanned_text_remains(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
-    """规划起点之后是否还有非空白的原文。"""
+    """Whether nonwhitespace source text remains after planning starts."""
     start = planning_start(project, docs)
     if start is None:
         return False
@@ -435,15 +435,15 @@ def unplanned_text_remains(project: Mapping[str, Any], docs: list[SourceDoc]) ->
 
 
 def source_fingerprints_diverged(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
-    """源文在分集规划之后被改动过：已记录的源文指纹与当前源文不一致。"""
+    """Sources changed after episode planning: recorded fingerprints differ from current sources."""
     return bool(mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs))
 
 
 def source_remaining(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
-    """整本源文还有未规划成集的原文，下一步是继续分集规划。
+    """Whole sources retain text not planned into episodes; continuing episode planning is next.
 
-    有非空白的整本源文，且源文在规划之后被改动过（规划转为重置），或规划起点之后还有非空白的原文。
-    广告项目没有分集规划，恒为 False。制作状态的「继续分集规划」与项目列表的「已完成」都取这一判定。
+    Nonwhitespace whole sources exist and either changed since planning (planning becomes reset), or retain nonwhitespace text after planning starts.
+    Ad projects have no episode planning and always return False. Production-state continuation planning and project-list completion both use this predicate.
     """
     if project.get("content_mode") == "ad" or not any(doc.text.strip() for doc in docs):
         return False
@@ -451,9 +451,9 @@ def source_remaining(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
 
 
 def source_planning_inputs(project: Mapping[str, Any]) -> str:
-    """:func:`source_remaining` 在 ``project.json`` 里的全部输入，序列化为可比较的字符串。
+    """All ``project.json`` inputs to :func:`source_remaining`, serialized to comparable strings.
 
-    写入方据此判断一次改动是否可能改变结论，没变就不必重读源文。
+    Writers use this to detect changes that could alter the result; unchanged inputs avoid rereading sources.
     """
     episodes = [
         {key: entry.get(key) for key in ("episode", SOURCE_ORIGIN_FIELD, "source_range")} for entry in _entries(project)
@@ -472,24 +472,24 @@ def source_planning_inputs(project: Mapping[str, Any]) -> str:
 
 
 def record_source_remaining(project_dir: Path, project: dict[str, Any]) -> None:
-    """按盘上的整本源文把 :func:`source_remaining` 的结论写进 ``project`` 的 :data:`SOURCE_REMAINING_KEY`。"""
+    """Write :func:`source_remaining` evaluated from on-disk whole sources to :data:`SOURCE_REMAINING_KEY` in ``project``."""
     project[SOURCE_REMAINING_KEY] = source_remaining(project, discover_sources(project_dir, project))
 
 
 def stored_source_remaining(project: Mapping[str, Any]) -> bool:
-    """``project.json`` 记下的 :data:`SOURCE_REMAINING_KEY`；缺失或不是布尔值时按没有剩余原文。"""
+    """Recorded :data:`SOURCE_REMAINING_KEY` in ``project.json``; absent/nonboolean means no remaining sources."""
     return project.get(SOURCE_REMAINING_KEY) is True
 
 
 def archive_episode_file_path(path: Path) -> Path:
-    """集文件的留底路径：下划线前缀 + ``.bak`` 尾缀，同名时追加序号。
+    """Episode-file archive paths: underscore prefix + ``.bak`` suffix, adding numbers for collisions.
 
-    下划线前缀与 ``.bak`` 尾缀让留底文件既不是整本源文文件名，也不匹配 ``episode_N.txt``。
+    Underscore prefixes and ``.bak`` suffixes exclude archive files from whole-source filenames and ``episode_N.txt`` matching.
     """
     base = f"_{path.name}"
     candidate = path.with_name(f"{base}.bak")
     index = 1
-    # exists() 对悬空符号链接返回 False，留底路径本身可能就是悬空链接，须一并视为占用
+    # exists() returns False for dangling symlinks; archive paths themselves can be dangling links and must count as occupied.
     while candidate.exists() or candidate.is_symlink():
         candidate = path.with_name(f"{base}.{index}.bak")
         index += 1
@@ -497,17 +497,17 @@ def archive_episode_file_path(path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# 规范化文本快照
+# Normalized-text snapshots.
 # ---------------------------------------------------------------------------
 
 
 def source_snapshot_path(project_dir: Path, rel: str) -> Path:
-    """整本源文文件 ``rel`` 的快照路径。"""
+    """Snapshot path for whole-source file ``rel``."""
     return project_dir / SOURCE_SNAPSHOTS_DIR / PurePosixPath(rel).name
 
 
 def cut_episode_source_files(project: Mapping[str, Any]) -> list[str]:
-    """登记过切出集的整本源文文件，按首次出现的播出顺序去重；跨文件的集经过的中间文件也算。"""
+    """Whole-source files with registered cut episodes, deduplicated in first-seen broadcast order; include intermediate files traversed by spanning episodes."""
     order = whole_source_files(project)
     files: list[str] = []
     for entry in _entries(project):
@@ -531,11 +531,11 @@ def sync_source_snapshots(
     *,
     refreshed: Collection[str] | None = None,
 ) -> None:
-    """让快照与账本一致：登记过切出集的文件写入 ``texts`` 里的规范化全文，其余快照删除。
+    """Align snapshots with ledgers: write normalized full texts from ``texts`` for files with registered cut episodes; delete other snapshots.
 
-    ``texts`` 里没有的文件保留已有快照不动。给出 ``refreshed`` 时，只有其中的文件可以覆盖在服务之外被改动过的
-    文件的快照；其余改动过的文件保留快照，留待更新分集账本时作为旧文本对齐。``project`` 的源文指纹须仍是本次
-    写入之前的记录。
+    Preserve existing snapshots for files absent from ``texts``. When ``refreshed`` is supplied, only its files may overwrite snapshots for files changed outside
+    the service; preserve snapshots of other changed files for old-text alignment when updating episode ledgers. Source fingerprints in ``project`` must still be the records
+    preceding this write.
     """
     wanted = cut_episode_source_files(project)
     snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
@@ -561,11 +561,13 @@ def sync_source_snapshots(
     keep = {PurePosixPath(rel).name for rel in wanted}
     for path in snapshot_dir.iterdir():
         if path.name not in keep and (path.is_file() or path.is_symlink()):
-            path.unlink(missing_ok=True)  # hard-delete: derived -- 过期的整本源文快照，可由账本重新生成
+            path.unlink(
+                missing_ok=True
+            )  # hard-delete: derived -- expired whole-source snapshots, regenerable from ledgers
 
 
 def read_source_snapshot(project_dir: Path, rel: str) -> str | None:
-    """整本源文文件 ``rel`` 的快照文本；没有快照、快照是符号链接或读不到时为 None。"""
+    """Snapshot text for whole-source file ``rel``; None if missing, a symlink, or unreadable."""
     path = source_snapshot_path(project_dir, rel)
     if path.is_symlink() or not path.is_file():
         return None
@@ -573,9 +575,9 @@ def read_source_snapshot(project_dir: Path, rel: str) -> str | None:
 
 
 def changed_outside_service(project_dir: Path, project: Mapping[str, Any], doc: SourceDoc) -> bool:
-    """可读的整本源文文件在服务之外被改动过：已记录的源文指纹或快照与当前的规范化文本不符。
+    """Readable whole-source files changed outside the service: recorded fingerprints or snapshots differ from current normalized text.
 
-    没有记录指纹、也没有快照的文件无从比对，不算改动过。
+    Files without recorded fingerprints or snapshots cannot be compared and do not count as changed.
     """
     raw = project.get(SOURCE_FINGERPRINTS_KEY)
     recorded = raw.get(doc.rel_path) if isinstance(raw, Mapping) else None

@@ -1,4 +1,4 @@
-"""list_pending_assets 与 generate_assets handler 的 ``ToolOutcome``。"""
+"""list_pending_assets / generate_assets handler ``ToolOutcome``."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ async def test_generate_assets_happy(fake_ctx: ToolHarness) -> None:
 
     out = await run_declared_tool("generate_assets", fake_ctx, {"type": "character"}, batch_waiter=fake_batch)
 
-    # 李四 没有 description，作为 blocked 逐 ID 报告。
+    # 李四 lacks description; report blocked by ID.
     result = read_generation_result(out)
     assert result.succeeded == ["character/张三"]
     assert result.blocked == ["character/李四"]
@@ -106,7 +106,7 @@ async def test_generate_assets_happy(fake_ctx: ToolHarness) -> None:
 async def test_generate_assets_rejects_an_ambiguous_selection_before_enqueue(
     fake_ctx: ToolHarness, arguments: dict[str, Any]
 ) -> None:
-    """含糊的选择是调用方错误，绝不能被当成「全部缺图资产」去扫全库付费。"""
+    """Ambiguous selections are caller errors, never permission to scan all missing assets and pay for the entire library."""
 
     async def fail_batch(**_kwargs):
         raise AssertionError("含糊的选择不该入队任何任务")
@@ -118,7 +118,7 @@ async def test_generate_assets_rejects_an_ambiguous_selection_before_enqueue(
 
 
 async def test_episode_scope_matches_the_web_episode_plan(tmp_path: Path) -> None:
-    """Agent 按 episode_id 列出与生成的，与 Web 集层批量生成同一份规划。"""
+    """Agent episode_id listing/generation shares Web episode-batch plans."""
 
     projects_root = tmp_path / "projects"
     pm = ProjectManager(projects_root)

@@ -1,28 +1,25 @@
-"""v14→v15 迁移：正式脚本成为该集唯一的内容真相，脚本规划的条目指纹与增量合并随之退役（ADR 0080）。
+r"""v14→v15: formal scripts become sole episode content truth; retire plan-item fingerprints/incremental merging (ADR 0080).
 
-存量项目在这一步收编成新机制的形态：
+Adopt existing projects into the new mechanism:
 
-- **集绑定**：``script_file`` 只认逐字等于该集规范剧本 ``scripts/episode_N.json`` 的绑定。旧版写出的
-  非规范绑定与重复集号由链上的旧形态规整（:mod:`lib.project.project_migrations.legacy_shapes`）在本步之前
-  改成规范形态；本步仍在写盘前拒绝漏网的两种形态，失败裁决写明集号与绑定。绑定缺席的集按规范路径处理。
-- **指纹字段**：剧本条目的 ``script_plan_entry_revision`` 与剧本 metadata 的 ``script_plan_revision``
-  删除。
-- **已确认、尚无正式脚本的集**：按确认过的脚本规划整份转为正式脚本（全部条目待编写），与内容
-  确认同一份投影（``lib.script.script_document.build_materialized_script``）。投影不出来或结构校验不过的集
-  不转换，进迁移报告。
-- **已有正式脚本的集**：分镜（segments / scenes / shots）视觉层两侧都为空的盖上待编写标记；
-  drama 分镜缺 ``scene_description`` 的从脚本规划回填；参考生视频单元缺 ``source_text`` 的从脚本
-  规划补录，取不到留空。
-- **grandfather 集**（有正式脚本、有脚本规划、无确认记录）：把当前规划指纹记为确认基线，此后
-  重跑脚本规划即回到待确认。账本 stale 的集不记：它的
-  确认要由重规划后的首次确认给出。
-- **剧本清单登记**：剧本 basis 自 v3 起不以脚本规划为输入。改写前正是时新的登记（v2 按当前规划
-  算出的摘要，或无计划依据的摘要）改写为 v3 登记，本就过期的登记原样保留；新转出与此前未登记
-  的在场剧本按 v3 登记。
+- **Episode bindings**: ``script_file`` must equal canonical ``scripts/episode_N.json`` verbatim.
+  :mod:`lib.project.project_migrations.legacy_shapes` already normalizes old noncanonical bindings/
+  duplicate episode IDs. Reject remaining cases before writes with episode/binding verdicts. Missing bindings use canonical paths.
+- **Fingerprint fields**: remove item ``script_plan_entry_revision`` and metadata ``script_plan_revision``.
+- **Confirmed episodes without formal scripts**: convert whole confirmed plans into formal scripts,
+  all items pending authoring, sharing ``lib.script.script_document.build_materialized_script`` with
+  confirmation. Unprojectable/invalid episodes remain unconverted and enter reports.
+- **Existing formal scripts**: mark segments/scenes/shots pending when both visual sides are empty;
+  backfill drama ``scene_description`` and reference-unit ``source_text`` from plans, leaving absent source empty.
+- **Grandfathered episodes** with formal scripts/plans but no confirmation: record current plan fingerprints
+  as confirmation baselines so reruns require review. Exclude ledger-stale episodes, whose first
+  postreplanning confirmation must establish baselines.
+- **Script registrations**: v3 script basis excludes plans. Rebase previously current registrations
+  (v2 current-plan digests or plan-free digests) to v3; preserve already-stale entries. Register newly
+  converted and previously unregistered present scripts under v3.
 
-ad 项目没有脚本规划，本步只提升版本号。提交顺序是剧本 → 清单 → ``project.json``：中途崩溃时整步
-重跑，已写的剧本与清单都按「已是目标形态」跳过，``project.json`` 的版本号最后落盘。
-"""
+Ad has no plans, so only advance schema. Commit scripts → manifests → ``project.json``; interruption
+reruns skip already-target scripts/manifests, with the schema version in ``project.json`` committed last."""
 
 from __future__ import annotations
 
@@ -68,15 +65,15 @@ from lib.script.script_structure_validator import validate_script_structure
 
 TARGET_SCHEMA_VERSION = 15
 
-#: 存量剧本上退役的两个指纹字段名。历史事实，写死在这一步。
+#: Two retired script fingerprint fields, historical facts frozen in this step.
 _ENTRY_REVISION_FIELD = "script_plan_entry_revision"
 _SCRIPT_REVISION_FIELD = "script_plan_revision"
 
-#: 分镜形态条目的视觉层字段；参考生视频单元的视觉层是正文本身，不按「为空」判待编写。
+#: Storyboard visual fields; reference-unit visuals are bodies, not empty-driven pending markers.
 _STORYBOARD_KINDS = ("segments", "scenes", "shots")
 _VISUAL_FIELDS = ("image_prompt", "video_prompt")
 
-#: 剧本 basis 的历史版本：v2 以脚本规划内容为输入，无计划依据的版本只含集号。
+#: Historical script bases: v2 inputs plans, plan-free versions include episode numbers only.
 _LEGACY_SCRIPT_BASIS_KIND = "structured-content/episode-script"
 _LEGACY_PLANLESS_SCRIPT_BASIS_KIND = "structured-content/episode-script-without-plan"
 
@@ -84,11 +81,11 @@ _LEGACY_PLANLESS_SCRIPT_BASIS_KIND = "structured-content/episode-script-without-
 @dataclass
 class _EpisodeWork:
     episode: int
-    #: 剧本在盘上的项目内相对路径，恒为该集规范路径。
+    #: On-disk project-relative script paths, always canonical for episodes.
     script_rel: str
-    #: 改写后的剧本；None 表示剧本不需要改写。
+    #: Rewritten scripts; None means no rewrite needed.
     script: dict[str, Any] | None = None
-    #: 本集是新转出的正式脚本。
+    #: Newly materialized formal script for this episode.
     materialized: bool = False
 
 
@@ -96,7 +93,7 @@ class _EpisodeWork:
 class _Plan:
     project: dict[str, Any]
     works: list[_EpisodeWork] = field(default_factory=list)
-    #: 集号 → 该集参与清单改写的剧本路径与改写前的脚本规划内容（无规划为 None）。
+    #: Episode → script path for manifest rebase plus premigration plan content (None without plans).
     registrations: dict[int, tuple[str, object | None]] = field(default_factory=dict)
     skipped: list[MigrationSkippedArtifact] = field(default_factory=list)
 
@@ -106,7 +103,7 @@ def _visual_empty(value: object) -> bool:
 
 
 def _load_object(path: Path) -> dict[str, Any] | None:
-    """读一个 JSON 对象；缺失、损坏或非对象都返回 None（不在本步修复）。"""
+    r"""Read JSON objects; None for missing/corrupt/nonobjects, without repair here."""
 
     try:
         parsed = json.loads(path.read_bytes())
@@ -116,13 +113,12 @@ def _load_object(path: Path) -> dict[str, Any] | None:
 
 
 def _is_canonical_binding(raw_binding: str, episode: int) -> bool:
-    r"""这条绑定是不是逐字等于该集规范剧本 ``scripts/episode_N.json``。
+    r"""Whether bindings equal episode canonical ``scripts/episode_N.json`` verbatim.
 
-    判据是字面相等，不做任何归一：裸名 ``episode_1.json``、``./`` 前缀、反斜杠写法
-    （``scripts\episode_1.json``）、带目录段的 ``scripts/archive/custom.json``、序号不符的
-    ``scripts/episode_01.json`` 一律算非规范绑定。后端所有写入点都写规范名，v15 起绑定恒为规范名，
-    本步比目标态规划器更严。
-    """
+    No normalization: reject bare ``episode_1.json``, ``./`` prefixes, backslash
+    ``scripts\episode_1.json``, nested ``scripts/archive/custom.json``, or wrong numbering
+    ``scripts/episode_01.json``. All backend writers use canonical paths, mandatory since v15;
+    this step is stricter than target-state planning."""
 
     return raw_binding == episode_script_relpath(episode)
 
@@ -152,7 +148,7 @@ def _plan_items_by_id(kind: ScriptPlanKind, plan_document: object, episode: int)
 def _fill_from_plan(
     kind: ScriptPlanKind | None, script: dict[str, Any], plan_document: object | None, episode: int
 ) -> None:
-    """已有正式脚本的集：标记视觉层为空的分镜，回填 drama 视觉基底与参考单元对应原文。"""
+    r"""For existing scripts, mark empty visuals and backfill drama visual foundations/reference-unit source text."""
 
     if kind is None:
         return
@@ -180,7 +176,7 @@ def _fill_from_plan(
 def _materialize(
     project: dict[str, Any], kind: ScriptPlanKind, plan_document: object, episode: int
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """按确认过的脚本规划投影整份正式脚本；投影不出来时返回 (None, 原因)。"""
+    r"""Project whole formal scripts from confirmed plans; (None, reason) when impossible."""
 
     entries = plan_entries_from_document(kind, plan_document)
     if not entries:
@@ -200,18 +196,17 @@ def _materialize(
     )
     if not validate_script_structure(script).valid:
         return None, "materialized script from the confirmed script_plan fails structure validation"
-    # 与 ``ProjectManager.save_script`` 写盘时补的默认状态一致。
+    # Match ``ProjectManager.save_script`` default status filling.
     script["metadata"].setdefault("status", "draft")
     _stamp_confirmation_time(script["metadata"], stored_review(project, episode).get("confirmed_at"))
     return script, None
 
 
 def _stamp_confirmation_time(metadata: dict[str, Any], confirmed_at: object) -> None:
-    """转出的正式脚本以确认时间为创建与更新时间。
+    r"""Use confirmation time for materialized script creation/update timestamps.
 
-    投影按迁移运行的时刻盖时间戳；剧本的 ``updated_at`` 是项目最近活动时间的来源，留着它会让
-    迁移把项目顶到大厅最前面。确认时间读不出来时去掉两个时间戳，最近活动时间回落到其他来源。
-    """
+    Projection initially stamps migration time; ``updated_at`` feeds project activity and would push
+    projects to listing tops. Remove both timestamps if confirmation time is unreadable, falling back to other activity sources."""
     try:
         valid = isinstance(confirmed_at, str) and datetime.fromisoformat(confirmed_at).tzinfo is not None
     except ValueError:
@@ -225,7 +220,7 @@ def _stamp_confirmation_time(metadata: dict[str, Any], confirmed_at: object) -> 
 
 
 def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
-    """只读：算出全部剧本改写、转换与 project.json 改写，不落盘。"""
+    r"""Read-only computation of all script rewrites/conversions and project.json changes, without persistence."""
 
     migrated = copy.deepcopy(project)
     plan = _Plan(project=migrated)
@@ -240,8 +235,8 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if not is_episode_number(entry_episode):
             continue
         if entry_episode in seen_episodes:
-            # 同一集号出现两次时账本认不出哪一条是这一集。旧形态规整已在链上先行去重，这里只拦
-            # 漏网的形态：在只读预检里拒绝，裁决写明集号与绑定。
+            # Duplicate IDs make ledger ownership ambiguous. Earlier normalization already deduplicates;
+            # reject remaining cases during read-only preflight, recording IDs/bindings.
             raise ProjectMigrationError(
                 "ledger has more than one entry for this episode",
                 episode=entry_episode,
@@ -250,7 +245,7 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         seen_episodes.add(entry_episode)
         raw_binding = entry.get("script_file")
         if isinstance(raw_binding, str) and raw_binding and not _is_canonical_binding(raw_binding, entry_episode):
-            # 非规范绑定已由旧形态规整改成规范路径；漏网的一律不认，把集号与绑定写进裁决。
+            # Earlier normalization canonicalized bindings; reject remaining noncanonical ones with episode/binding verdicts.
             raise ProjectMigrationError(
                 "script binding is not this episode's canonical script", episode=entry_episode, file=raw_binding
             )
@@ -265,7 +260,7 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         binding_path = try_safe_join(project_dir, canonical)
         plan_path = script_plan_path(project_dir, migrated, episode) if kind is not None else None
         plan_document = _load_object(plan_path) if plan_path is not None else None
-        # 读不成对象的规划文件没有可转换或回填的条目，也不据它记确认基线。
+        # Nonobject plans have no convertible/backfillable items and provide no confirmation baseline.
         plan_fingerprint = (
             content_fingerprint(plan_path) if plan_path is not None and plan_document is not None else None
         )
@@ -305,7 +300,7 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
 
 
 def _skip_script(plan: _Plan, episode: int, artifact_path: str, reason: str) -> None:
-    """已确认的集转不出正式脚本：记进迁移报告。"""
+    r"""Record confirmed episodes unable to materialize in migration reports."""
 
     plan.skipped.append(
         MigrationSkippedArtifact(
@@ -319,7 +314,7 @@ def _skip_script(plan: _Plan, episode: int, artifact_path: str, reason: str) -> 
 
 
 def _legacy_script_bases(project: Mapping[str, Any], episode: int, plan_document: object | None) -> list[str]:
-    """改写前剧本登记可能的两种时新摘要：v2（按当前规划）与无计划依据。"""
+    r"""Two possible current premigration script digests: v2 from current plans, or plan-free basis."""
 
     digests = [
         ArtifactBasis.build(
@@ -351,11 +346,10 @@ def _rewrite_manifest_entries(
     target: ArtifactTargetStatePlan,
     plan: _Plan,
 ) -> int:
-    """剧本登记改写为 v3。
+    r"""Rebase script registrations to v3.
 
-    改写前时新或未登记的改写过去，本就过期的原样保留。目标登记取自整份目标态规划（不校验项目
-    是否为当前 schema，链上后续版本存在时照常可用）。返回改写条数。
-    """
+    Rewrite previously current/unregistered entries, preserving already-stale registrations. Use complete
+    target-state planning without current-schema validation, supporting later chain versions. Return rewrite count."""
 
     adapter = ProjectArtifactManifestAdapter(project_dir)
     snapshot = adapter.snapshot_entries()
@@ -385,7 +379,7 @@ def _rewrite_manifest_entries(
 
 
 def migrate_v14_to_v15(project_dir: Path) -> ArtifactBackfillOutcome | None:
-    """v14→v15 文件级迁移。"""
+    r"""File-level v14→v15 migration."""
 
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
@@ -432,7 +426,7 @@ def _target_plan(project_dir: Path, after_bytes: bytes) -> ArtifactTargetStatePl
 
 
 def _outcome(project_dir: Path, target: ArtifactTargetStatePlan, plan: _Plan) -> ArtifactBackfillOutcome:
-    """本步的迁移报告：runner 只留链上最后一份清单全貌，所以并入整份目标态规划的跳过项。"""
+    r"""Migration report: runners retain only the last full manifest view, so merge complete target-planning skips."""
 
     return ArtifactBackfillOutcome.from_entries(
         ProjectArtifactManifestAdapter(project_dir).snapshot_entries(),

@@ -334,9 +334,9 @@ describe("MentionPicker", () => {
     );
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(5);
-    // 第一个 tab 是 "全部/All"，默认选中
+    // First tab is "全部/All", selected by default.
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
+    // All count = 2 characters + 1 scene + 1 prop = 4.
     expect(tabs[0]).toHaveTextContent(/4/);
   });
 
@@ -354,10 +354,10 @@ describe("MentionPicker", () => {
     const sceneTab = screen.getByRole("tab", { name: /场景|Scene/i });
     await user.click(sceneTab);
     expect(sceneTab).toHaveAttribute("aria-selected", "true");
-    // 场景里的"酒馆"可见；角色里的"张三"被过滤掉
+    // Scene 酒馆 is visible; character 张三 is filtered out.
     expect(screen.getByRole("option", { name: /酒馆/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /张三/ })).not.toBeInTheDocument();
-    // 单 tab 选中时 group 小标题被抑制（避免和 tab 语义重复）
+    // Single-tab selection suppresses group headings, avoiding repeated tab semantics.
     expect(screen.queryByTestId("picker-group-scene")).not.toBeInTheDocument();
   });
 
@@ -388,7 +388,7 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // 张三 的 imagePath 在 fixture 里是 "/files/characters/zs.png"
+    // 张三 fixture imagePath is "/files/characters/zs.png".
     const img = screen.getByRole("option", { name: /张三/ }).querySelector("img");
     expect(img).not.toBeNull();
     expect(img!).toHaveAttribute("src", expect.stringMatching(/zs\.png/));
@@ -406,13 +406,13 @@ describe("MentionPicker", () => {
         onClose={onClose}
       />,
     );
-    // picker 以 window keydown 监听；Shift+Tab 应当是 no-op（不插入、不吞 preventDefault）
+    // Picker listens on window keydown; Shift+Tab is no-op, without insertion/preventDefault.
     const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true });
     window.dispatchEvent(event);
     expect(onSelect).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
 
-    // 普通 Tab（无 shift）仍补全并阻止默认（保留原有行为，防回归）
+    // Plain Tab still completes/prevents default, preserving behavior against regressions.
     const tabEvent = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
     window.dispatchEvent(tabEvent);
     expect(onSelect).toHaveBeenCalled();
@@ -433,16 +433,16 @@ describe("MentionPicker", () => {
       />,
     );
     const listbox = screen.getByRole("listbox");
-    // listbox 不应出现在 render() 返回的测试容器子树里
+    // listbox is outside render() test-container subtrees.
     expect(container.contains(listbox)).toBe(false);
-    // 但必须在 document.body 子树里
+    // But must be within document.body.
     expect(document.body.contains(listbox)).toBe(true);
   });
 
   it("does not close when pointerdown hits the anchorElement", () => {
     function Host({ onClose }: { onClose: () => void }) {
-      // 用 state 承接按钮 DOM：与 ReferencePanel / ReferenceVideoCard 生产路径一致
-      // （floating-ui 的 setReference 需在元素挂载后触发 re-render 才能感知到）。
+      // Use state for button DOM like production ReferencePanel / ReferenceVideoCard
+      // so floating-ui setReference sees postmount rerenders.
       const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
       return (
         <div>

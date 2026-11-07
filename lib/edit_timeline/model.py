@@ -1,8 +1,9 @@
-"""剪辑时间线的领域模型（``docs/adr/0090``）。
+"""Editing-timeline domain model (``docs/adr/0090``).
 
-一集可以有多条具名剪辑时间线；每条按集存成一个文件，内含不可变修订的追加序列。修订内容由
-剪辑片段排成的主轨与 BGM 轨组成；内部时间一律是整数微秒，秒制只出现在读取投影与工具入参上。
-"""
+One episode may have multiple named timelines, each stored in its own file under the episode with
+an appended sequence of immutable revisions. Revision content consists of an ordered main clip track
+and a BGM track. All internal times are integer microseconds; seconds appear only in read projections
+and tool arguments."""
 
 from __future__ import annotations
 
@@ -17,10 +18,10 @@ EDIT_TIMELINE_DOCUMENT_SCHEMA = 1
 MICROSECONDS_PER_SECOND = 1_000_000
 
 DEFAULT_SOURCE_VOLUME = 1.0
-"""台词与无人声单位的剪辑片段原声默认音量：保持原音量。"""
+"""Default clip source volume for dialogue units and units without speech: preserve original volume."""
 
 VOICEOVER_SOURCE_VOLUME = 0.3
-"""画外音单位的剪辑片段原声默认音量：整轨压低，作为旁白下的环境声垫底。"""
+"""Default clip source volume for voiceover units: lower the whole track to provide ambient sound beneath narration."""
 
 DEFAULT_BGM_VOLUME = 0.25
 DEFAULT_BGM_FADE_MICROSECONDS = 1_000_000
@@ -31,7 +32,7 @@ TIMELINE_ID_PATTERN = r"^tl-[0-9a-f]{8}$"
 CLIP_ID_PATTERN = r"^c[1-9][0-9]*$"
 BGM_CLIP_ID_PATTERN = r"^b[1-9][0-9]*$"
 ANY_CLIP_ID_PATTERN = r"^[cb][1-9][0-9]*$"
-"""剪辑片段（``c``）或 BGM 片段（``b``）的 ID。"""
+"""ID for an editing clip (``c``) or BGM clip (``b``)."""
 
 _TIMELINE_ID_RE = re.compile(TIMELINE_ID_PATTERN)
 
@@ -47,19 +48,19 @@ def is_timeline_id(value: object) -> bool:
 
 
 def seconds_to_microseconds(seconds: float) -> int:
-    """秒按毫秒精度规整后换算成整数微秒。"""
+    """Normalize seconds to millisecond precision, then convert to integer microseconds."""
     return round(round(seconds, 3) * MICROSECONDS_PER_SECOND)
 
 
 def microseconds_to_seconds(microseconds: int) -> float:
-    """整数微秒换算成最多三位小数的秒。"""
+    """Convert integer microseconds to seconds with at most three decimal places."""
     return round(microseconds / MICROSECONDS_PER_SECOND, 3)
 
 
 class TransitionType(StrEnum):
-    """ArcReel 转场词表：每一项同时对应一个剪映非 VIP 预设与一个 ffmpeg ``xfade`` 等效效果。
+    """ArcReel transition vocabulary: every entry maps to both a non-VIP Jianying preset and an equivalent ffmpeg ``xfade`` effect.
 
-    硬切不在词表里，剪辑片段没有转场即为硬切。
+    Hard cuts are outside this vocabulary: a clip without a transition uses a hard cut.
     """
 
     DISSOLVE = "dissolve"
@@ -88,14 +89,14 @@ class _Frozen(BaseModel):
 
 
 class Transition(_Frozen):
-    """相邻两个剪辑片段之间的转场；窗口以切点为中心，前后各占一半，不改变总时长。"""
+    """Transition between adjacent editing clips; its window is centered on the cut, half on each side, without changing total duration."""
 
     type: TransitionType
     duration_us: Microseconds
 
 
 class ClipTrim(_Frozen):
-    """剪辑片段的截取：入出点只对 ``basis_version`` 这一视频版本有效。"""
+    """Clip trim whose in/out points apply only to video version ``basis_version``."""
 
     in_us: Microseconds
     out_us: Microseconds
@@ -109,10 +110,9 @@ class ClipTrim(_Frozen):
 
 
 class EditClip(_Frozen):
-    """主轨上的一格：引用视频单元，画面一律取该单元的 current 视频版本。
+    """One main-track slot referencing a video unit, always using its current video version.
 
-    ``trim`` 为 None 时整段使用；``transition_to_next`` 为 None 时与下一片段硬切。
-    """
+    ``trim`` None uses the entire video; ``transition_to_next`` None makes a hard cut to the next clip."""
 
     id: str = Field(pattern=CLIP_ID_PATTERN)
     unit_id: str = Field(min_length=1)
@@ -125,7 +125,7 @@ class EditClip(_Frozen):
 
 
 class BgmClip(_Frozen):
-    """BGM 轨上的一段：同一时刻只有一首，超出时间线末尾的部分截断。"""
+    """One BGM-track clip: only one plays at a time, with portions beyond timeline end truncated."""
 
     id: str = Field(pattern=BGM_CLIP_ID_PATTERN)
     bgm_id: str = Field(min_length=1)
@@ -144,7 +144,7 @@ class BgmClip(_Frozen):
 
 
 class EditTimelineContent(_Frozen):
-    """一个修订的剪辑内容：主轨按相对顺序排列，绝对时间由读取时计算。"""
+    """One revision's editing content: relative main-track order, with absolute times computed on read."""
 
     clips: tuple[EditClip, ...] = ()
     bgm: tuple[BgmClip, ...] = ()
@@ -168,7 +168,7 @@ class EditTimelineContent(_Frozen):
 
 
 def clip_number(clip_id: str) -> int:
-    """片段编号里的序号：``c12`` / ``b3`` → 12 / 3。"""
+    """Sequence number in clip IDs: ``c12`` / ``b3`` → 12 / 3."""
     return int(clip_id[1:])
 
 
@@ -176,14 +176,14 @@ type AuthorKind = Literal["creator", "arcreel_agent", "external_agent"]
 
 
 class RevisionAuthor(_Frozen):
-    """修订作者：创作者（Web）、ArcReel Agent 或外部 Agent。"""
+    """Revision author: creator (Web), ArcReel Agent, or external Agent."""
 
     kind: AuthorKind
     user_id: str | None = None
 
 
 class TimelineRevision(_Frozen):
-    """不可变修订；回滚与复制同样追加新修订，不改写旧修订。"""
+    """Immutable revision; rollback and copy likewise append new revisions without rewriting old ones."""
 
     number: int = Field(ge=1, strict=True)
     parent: int | None = Field(default=None, ge=1, strict=True)
@@ -192,16 +192,15 @@ class TimelineRevision(_Frozen):
     created_at: str
     content: EditTimelineContent
     changed_clip_ids: tuple[Annotated[str, Field(pattern=ANY_CLIP_ID_PATTERN)], ...] | None = None
-    """本修订实际改动的剪辑片段与 BGM 片段（含批内改后恢复）；旧修订缺省时由内容差异推断。"""
+    """Editing/BGM clips actually changed by this revision, including changes reverted within the batch; infer from content differences when absent in old revisions."""
     restored_from: int | None = Field(default=None, ge=1, strict=True)
-    """回滚产生的修订记录它还原到的修订号；内容取自那一修订，历史不改写。"""
+    """Rollback-created revisions record the restored revision number, taking its content without rewriting history."""
 
 
 class EditTimelineDocument(_Frozen):
-    """一条剪辑时间线的持久化形态。
+    """Persisted form of one editing timeline.
 
-    ``next_clip_number`` / ``next_bgm_number`` 是片段编号分配器：编号在这条时间线内稳定、不复用。
-    """
+    ``next_clip_number`` / ``next_bgm_number`` allocate clip IDs, stable and never reused within this timeline."""
 
     schema_version: Literal[1] = EDIT_TIMELINE_DOCUMENT_SCHEMA
     id: str = Field(pattern=TIMELINE_ID_PATTERN)

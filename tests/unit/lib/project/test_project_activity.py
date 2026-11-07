@@ -1,4 +1,4 @@
-"""项目活动账本：写入出口记下的时刻能原样读回，坏账本按没有账本处理。"""
+"""Project activity ledger: write-exit timestamps round-trip unchanged; treat corrupt ledgers as absent."""
 
 from __future__ import annotations
 

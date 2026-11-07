@@ -1,8 +1,11 @@
-"""任务与调用记录里出现过的集 ID。
+"""Episode IDs that have appeared in task and call records.
 
-集 ID 在这两张表里没有独立列，只藏在资源 ID（``E3S01`` / ``E3U02`` / ``episode-3``）、剧本路径
-（``scripts/episode_3.json``）、产物路径与生成输入里。项目历史最高号须覆盖它们，否则复用的集 ID 会让新集
-认领旧集的费用与任务。资产类任务（资产图、衍生资产图、试听音，以及改图对象是资产的改图）的资源 ID 是资产名，不算。
+Neither table has a dedicated episode-ID column: IDs appear in resource IDs
+(``E3S01`` / ``E3U02`` / ``episode-3``), script paths (``scripts/episode_3.json``),
+artifact paths and generation inputs. The project's historical maximum must include
+these, otherwise reused IDs make new episodes claim old costs and tasks. Asset-task
+resource IDs are asset names and excluded: asset images, derivative images, voice previews,
+and image edits targeting assets.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ _ASSET_TASK_TYPES = frozenset({*ASSET_SPECS, DERIVATIVE_TASK_TYPE, "voice_sample
 
 
 async def max_recorded_episode_id(session: AsyncSession, project_name: str) -> int:
-    """项目在任务与调用记录里出现过的最大集 ID；没有记录时为 0。"""
+    """Maximum episode ID appearing in the project's task/call records; 0 when no records exist."""
 
     names: list[str] = []
     recorded: set[int] = set()
@@ -40,7 +43,7 @@ async def max_recorded_episode_id(session: AsyncSession, project_name: str) -> i
         ).where(Task.project_name == project_name)
     )
     for task_id, task_type, resource_type, resource_id, script_file, *documents in tasks:
-        # 改图任务跨资产与分镜共用一个任务类型，改的是哪类资源由 resource_type 指明
+        # Asset and storyboard image edits share one task type; resource_type identifies the resource kind being edited
         if (resource_type if task_type == "image_edit" else task_type) in _ASSET_TASK_TYPES:
             asset_task_ids.add(task_id)
             resource_id = None

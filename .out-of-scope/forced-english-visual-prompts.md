@@ -1,17 +1,17 @@
-# 视觉提示词不全局强制英文
+# Do not globally force visual prompts to English
 
-ArcReel 不把图片 / 视频生成的视觉提示词（`image_prompt`、`video_prompt`、参考生视频单元正文等）全局固定为英文。视觉提示词与台词、旁白一样，使用项目内容语言（`source_language`）编写；内嵌 Agent 的提示词语言随会话语言。
+ArcReel does not globally fix image/video visual prompts (`image_prompt`, `video_prompt`, reference-video unit bodies, etc.) to English. Like dialogue/narration, visual prompts use project content language (`source_language`); embedded-Agent prompt language follows the session language.
 
 ## Why this is out of scope
 
-- **提示词是用户可读、可改的创作内容**：分镜的 `image_prompt` / `video_prompt` 和参考生视频单元正文都在 Web 端直接展示并允许编辑。全局改成英文后，非英文用户需要读写一种非创作语言的提示词，编辑与审核成本明显上升。
-- **主流模型对非英文提示词支持良好**：ArcReel 内置的多数图像 / 视频供应商可以直接理解中文等项目语言的提示词，没有证据表明全局改用英文能带来普遍收益。
-- **同一段正文会混用两种语言**：参考生视频单元正文用 `@[角色]{台词}` 内嵌逐字台词，台词必须保留项目语言；画面描述改成英文后，同一段正文会混用两种语言，逐字保真与可读性都会变差。
+- **Prompts are creator-readable/editable content**: storyboard `image_prompt` / `video_prompt` and reference-video bodies appear directly in the Web editor. Globally forcing English makes non-English creators read/write outside their creative language, increasing editing/review cost.
+- **Mainstream models support non-English prompts well**: most built-in image/video providers understand project languages such as Chinese directly, without evidence of universal benefit from global English prompts.
+- **One body would mix languages**: reference-video bodies embed verbatim speech with `@[角色]{台词}`, which must retain project language. English visuals would mix two languages in one body, harming verbatim fidelity/readability.
 
-## 重访条件
+## Revisit conditions
 
-问题确实存在，但只发生在部分模型上：一些模型对中文提示词理解较差，典型的是自部署的 ComfyUI 工作流，以及 Midjourney、Stable Diffusion 一类图像模型。这类场景的解决方案待评估，方向是针对具体模型或调用端点适配，例如在提交给该模型前转写提示词，或在项目 / 端点级别选择提示词语言，而不是全局改变提示词语言。
+The problem exists for some models: certain models understand Chinese poorly, notably self-hosted ComfyUI workflows and image models such as Midjourney / Stable Diffusion. Solutions remain under evaluation, oriented to a particular model/endpoint: rewrite prompts before submitting to that model or select prompt language at project/endpoint level, rather than globally changing it.
 
 ## Prior requests
 
-- PR #3051：refactor: separate visual and dialogue prompts across languages（其中的英文视觉提示词部分）
+- PR #3051: refactor: separate visual and dialogue prompts across languages (the English-visual-prompt portion)

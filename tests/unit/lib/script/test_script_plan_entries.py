@@ -1,4 +1,4 @@
-"""``lib.script.script_plan_entries``：脚本规划条目的读取归一与到正式脚本内容层的投影。"""
+"""``lib.script.script_plan_entries``: read normalization and projection of planning entries into formal-script content."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class TestPlanEntriesFromDocument:
 
     @pytest.mark.parametrize("kind", ["narration", "reference_video"])
     def test_defaulted_fields_are_filled_like_the_generator_sees_them(self, kind: str) -> None:
-        """带草稿模型的两个变体经模型归一：转换与迁移消费的正是归一后的条目。"""
+        """Normalize both draft-model variants through models; conversion and migration consume those normalized entries."""
         omitted = {"narration": "segment_break", "reference_video": "source_text"}[kind]
         entry = PLAN_FACTORIES[kind]()
         entry.pop(omitted)
@@ -85,7 +85,7 @@ class TestPlanEntriesFromDocument:
 
     @pytest.mark.parametrize("kind", ["narration", "reference_video"])
     def test_entries_the_draft_model_rejects_yield_nothing(self, kind: str) -> None:
-        """归一失败即「没有可读的条目」，不另造一类错误。"""
+        """Normalization failure means no readable entries, without inventing another error type."""
         assert plan_entries_from_document(kind, {plan_variant(kind).plan_items_key: [{"乱写": 1}]}) == []
 
     @pytest.mark.parametrize("document", [None, [], {"scenes": "坏形状"}, {}])

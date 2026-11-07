@@ -1,4 +1,4 @@
-"""宫格 4K 门控的分辨率取档。"""
+"""Resolution-tier selection for grid 4K gates."""
 
 from typing import Any, cast
 
@@ -10,7 +10,7 @@ from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed
 
 
 class _FakeResolver:
-    """只实现门控用到的两个方法；记录被问到的能力槽与身份。"""
+    """Implement only the gate's two methods, recording queried capability slots and identities."""
 
     def __init__(self, resolution: str | None = None, raises: bool = False):
         self._resolution = resolution
@@ -30,7 +30,7 @@ class _FakeResolver:
 
 
 def _as_resolver(fake: _FakeResolver) -> ConfigResolver:
-    """测试边界的一次显式转换：替身只实现门控用到的两个方法，其余接口不参与本模块。"""
+    """One explicit test-boundary conversion: the substitute implements only two gate methods; other interfaces are outside this module."""
     return cast(ConfigResolver, fake)
 
 
@@ -49,7 +49,7 @@ async def test_resolution_drives_the_gate(resolution: str | None):
 
 
 async def test_resolution_failure_blocks_large_grid():
-    # 解析不出图像供应商时按未配置处理：门控是收紧方向，不放行大宫格
+    # Unresolved image providers count as unconfigured; this narrowing gate must not allow large grids.
     resolver = _FakeResolver(raises=True)
     resolved = await resolve_image_resolution(_as_resolver(resolver), {})
     assert resolved is None
@@ -59,10 +59,10 @@ async def test_resolution_failure_blocks_large_grid():
 @pytest.mark.parametrize(
     ("provider_id", "model_id", "expected"),
     [
-        ("vidu", "viduq1", None),  # 目录只声明 1080p：不发保底档，交上游默认
-        ("vidu", "viduq2", GRID_FALLBACK_RESOLUTION),  # 目录含保底档
-        ("ark", "doubao-seedream-4-5", GRID_FALLBACK_RESOLUTION),  # 目录未声明档位
-        ("custom-1", "any-model", GRID_FALLBACK_RESOLUTION),  # 不在目录中
+        ("vidu", "viduq1", None),  # Catalog declares only 1080p: omit fallback and leave upstream default.
+        ("vidu", "viduq2", GRID_FALLBACK_RESOLUTION),  # Catalog includes the fallback tier.
+        ("ark", "doubao-seedream-4-5", GRID_FALLBACK_RESOLUTION),  # Catalog declares no tiers.
+        ("custom-1", "any-model", GRID_FALLBACK_RESOLUTION),  # Not in the catalog.
     ],
 )
 def test_unset_grid_size_follows_catalog(provider_id: str, model_id: str, expected: str | None):

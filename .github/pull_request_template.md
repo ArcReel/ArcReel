@@ -1,23 +1,23 @@
-<!-- PR 标题使用 Conventional Commit 格式：type(scope): summary -->
+<!-- PR titles use Conventional Commit format: type(scope): summary -->
 
-<!-- 有关联 issue 时填写 “Closes #123”；无则删除。 -->
+<!-- With a related issue, write “Closes #123”; otherwise delete this line. -->
 Closes #
 
-## 变更
+## Changes
 
-<!-- 说明为什么改、改了什么；必要时说明不包含的范围。 -->
-<!-- UI/交互变化附截图或录屏；用户可见内容同步文档和全部支持语言。 -->
-
--
-
-## 验证
-
-<!-- 列出执行的命令及结果；未执行时说明原因。 -->
+<!-- Explain why and what changed; clarify excluded scope when necessary. -->
+<!-- Include screenshots/recordings for UI/interaction changes; update docs and every supported language for user-visible content. -->
 
 -
 
-## 风险与遗留
+## Validation
 
-<!-- 说明兼容性、迁移、回滚或后续事项；没有则写“无”。 -->
+<!-- List commands run and results; explain any omitted execution. -->
+
+-
+
+## Risks and follow-up
+
+<!-- Describe compatibility, migration, rollback, or follow-up; write “None” if absent. -->
 
 -

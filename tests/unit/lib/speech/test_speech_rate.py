@@ -1,7 +1,7 @@
-"""lib.speech.speech_rate 语速估算单一真相源测试。
+"""Tests for lib.speech.speech_rate as the single speech-rate source.
 
-只测公开行为（按语言取速率、按口径估时长、缺省回退），数值断言取自单一真相源
-helper / 常量而非写死，避免与可调常量耦合。
+Test only public behavior (language rates, duration estimates, default fallback), deriving numeric
+assertions from shared helpers/constants instead of hardcoding tunable values.
 """
 
 import pytest
@@ -33,7 +33,7 @@ class TestSpeechRateUnitsPerSecond:
         assert speech_rate_units_per_second("ru") > 0
 
     def test_ru_shares_latin_word_rate(self):
-        # ru 按词计，语速与 en / vi 同档（2.5 词/秒）
+        # ru counts words, using the en / vi rate (2.5 words/second).
         assert speech_rate_units_per_second("ru") == speech_rate_units_per_second("en")
         assert speech_rate_units_per_second("ru") == speech_rate_units_per_second("vi")
 
@@ -50,7 +50,7 @@ class TestEstimateSpokenSeconds:
         assert estimate_spoken_seconds(None, "zh") == 0.0
 
     def test_duration_is_reading_units_over_rate(self):
-        # 5 个汉字阅读单位 ÷ zh 语速；口径取自单一真相源 helper，不写死秒数。
+        # 5 Chinese reading units ÷ zh rate; derive units from the shared helper rather than hardcoding seconds.
         expected = 5 / speech_rate_units_per_second("zh")
         assert estimate_spoken_seconds("一二三四五", "zh") == pytest.approx(expected)
 
@@ -60,8 +60,8 @@ class TestEstimateSpokenSeconds:
         assert longer > short
 
     def test_language_changes_timing(self):
-        # 同为 5 个阅读单位，zh（计字）与 en（计词）各按本语言的语速换算：
-        # language 既决定阅读单位计法，也决定语速，两处都不能退回默认。
+        # The same 5 reading units use zh character rates versus en word rates:
+        # language controls both reading-unit counting and rate; neither may fall back to defaults.
         zh = estimate_spoken_seconds("一二三四五", "zh")
         en = estimate_spoken_seconds("one two three four five", "en")
         assert zh == pytest.approx(5 / speech_rate_units_per_second("zh"))
@@ -86,11 +86,11 @@ class TestSpeechRateOverride:
             assert speech_rate_units_per_second("zh", bad) == speech_rate_units_per_second("zh")
 
     def test_estimate_uses_override(self):
-        # 5 个阅读单位 ÷ 覆盖语速；覆盖生效即时长随之变化
+        # 5 reading units ÷ override rate; an effective override changes duration.
         assert estimate_spoken_seconds("一二三四五", "zh", 2.0) == pytest.approx(2.5)
 
     def test_boundary_values(self):
-        # 钉住区间字面量：断言全从常量推导时，常量被误改成 0.00095 / 20.0005 也照样通过
+        # Lock literal bounds: constant-derived assertions would also pass erroneous 0.00095 / 20.0005 values.
         assert MIN_SPEECH_RATE_UPS == 0.001
         assert MAX_SPEECH_RATE_UPS == 20.0
         assert is_valid_speech_rate(MIN_SPEECH_RATE_UPS)
@@ -100,27 +100,27 @@ class TestSpeechRateOverride:
         assert not is_valid_speech_rate(MAX_SPEECH_RATE_UPS + 0.001)
 
     def test_rate_below_the_lower_bound_is_out_of_range(self):
-        # 下界之下的语速会让估算时长逼近双精度上限，下游微秒换算随之溢出；在入口一律拒掉，
-        # 不逐个下游乘数追补有限性检查
+        # Rates below the lower bound approach double limits and overflow downstream microseconds; reject at entry,
+        # rather than adding finiteness checks separately for each downstream multiplier.
         assert not is_valid_speech_rate(1e-302)
         assert not is_valid_speech_rate(1e-308)
         assert not is_valid_speech_rate(5e-324)
-        # 被拒的覆盖按无覆盖处理，多个阅读单位照常按语言默认语速估算
+        # Rejected overrides act as absent; estimate multiple units at the language-default rate.
         assert estimate_spoken_seconds("你好世界", "zh", 1e-308) == pytest.approx(0.8)
 
     def test_lower_bound_keeps_downstream_microseconds_within_int64(self):
-        # 下界的取值依据：探针长度的假想文本按下界估算，换算成微秒仍远在 int64 上限内
+        # Lower-bound rationale: hypothetical probe-length text still converts to microseconds far within int64.
         probe_units = 1e6
         seconds = probe_units / MIN_SPEECH_RATE_UPS
         assert int(seconds * 1_000_000) < 2**63 - 1
 
     def test_bool_is_not_a_rate(self):
-        # bool 是 int 子类，float(True) 落在合法区间内；谓词的入参域含 project.json 解析值，故自行拒
+        # bool subclasses int and float(True) falls inside bounds; inputs include parsed project.json, so reject explicitly.
         assert not is_valid_speech_rate(True)
         assert not is_valid_speech_rate(False)
 
     def test_integer_beyond_float_range_is_out_of_range(self):
-        # JSON 整数字面量无位宽上限，超出双精度表示范围的整数按越界收掉而非抛 OverflowError
+        # JSON integers are unbounded; values beyond double representation count as out-of-range, not OverflowError.
         assert not is_valid_speech_rate(10**400)
         assert not is_valid_speech_rate(-(10**400))
 
@@ -136,10 +136,10 @@ class TestProjectSpeechRateOverride:
 
     @pytest.mark.parametrize("dirty", ["6", None, [], {}, True, False])
     def test_dirty_value_is_none(self, dirty):
-        # bool 是 int 子类，True/False 不得被当成 1.0 / 0.0 的语速
+        # bool subclasses int; True/False must not become 1.0 / 0.0 speech rates.
         assert project_speech_rate_override({SPEECH_RATE_FIELD: dirty}) is None
 
     @pytest.mark.parametrize("bad", [0, -3, MAX_SPEECH_RATE_UPS + 1, 10**400, float("inf"), float("nan")])
     def test_out_of_range_value_is_none(self, bad):
-        # 手改 project.json 可写进超出双精度范围的整数：按脏值回退语言默认，不让生成崩在这里
+        # Hand-edited project.json may contain integers beyond doubles; fall back to language defaults instead of crashing generation.
         assert project_speech_rate_override({SPEECH_RATE_FIELD: bad}) is None

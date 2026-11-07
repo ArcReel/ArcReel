@@ -2,9 +2,9 @@ import type { TFunction } from "i18next";
 import type { PriceSummary, ProviderModelItem } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 
-// 供应商模型列表与模型 Sheet 共用的展示文字：媒体类型名与价格摘要。
+// Shared display copy for provider-model lists and model Sheets: media-type names and price summaries.
 
-/** 媒体类型的界面名。 */
+/** Media type's UI name. */
 export const MEDIA_LABEL_KEY: Record<ProviderModelItem["media_type"], string> = {
   text: "media_type_text",
   image: "media_type_image",
@@ -12,7 +12,7 @@ export const MEDIA_LABEL_KEY: Record<ProviderModelItem["media_type"], string> = 
   audio: "media_type_audio",
 };
 
-// 价格摘要里各计费项的写法，如「$0.05/百万 token 输入」；没有登记的计费项不显示。
+// Price-summary billing-item wording, such as $0.05 per million input tokens; omit unregistered billing items.
 const PRICE_ITEM_KEY: Record<string, string> = {
   uncached_input_tokens: "pm_price_input_tokens",
   output_tokens: "pm_price_output_tokens",
@@ -33,7 +33,7 @@ function priceRange(currency: string, min: number, max: number): string {
   return `${low}–${max.toLocaleString("en", PRICE_DIGITS)}`;
 }
 
-/** 价格摘要的一行文字，如「$0.05/百万 token 输入，$0.4/百万 token 输出」。 */
+/** One price-summary line, such as $0.05 per million input tokens and $0.4 per million output tokens. */
 export function priceSummaryText(t: TFunction, price: PriceSummary): string {
   return price.items
     .filter((item) => PRICE_ITEM_KEY[item.meter])

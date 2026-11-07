@@ -1,6 +1,6 @@
-"""自定义供应商 Backend 包装类。
+"""Custom-provider backend wrappers.
 
-将已有后端（OpenAI/Gemini 等）包装为自定义供应商，覆盖 name 和 model 属性。
+Wrap existing OpenAI/Gemini/etc. backends, overriding name/model properties.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides,
 
 
 class CustomTextBackend:
-    """自定义供应商文本生成后端包装类。"""
+    """Custom-provider text wrapper."""
 
     def __init__(self, *, provider_id: str, delegate: TextBackend, model: str) -> None:
         self._provider_id = provider_id
@@ -61,13 +61,13 @@ class CustomTextBackend:
 
 
 class CustomImageBackend:
-    """自定义供应商图片生成后端包装类。
+    """Custom-provider image wrapper.
 
-    ``capabilities`` 是调用通道声明（被包装 backend 实现了什么）。``model_capabilities`` 是模型事实一侧
-    允许的部分（能力覆盖整维替换条目的值，``None`` 即不加约束），由工厂按模型行注入；执行层的能力校验
-    取两者的交集（:attr:`effective_capabilities`），与任务类型桶的候选同一个结果。``entry_reference_limit``
-    是对应条目记录的参考图上限（``None`` 为未收录，ComfyUI 端点不读条目），与通道上限两侧求值见
-    :func:`lib.backends.image_capabilities.backend_reference_image_limit`。
+    ``capabilities`` declares implemented channels; ``model_capabilities`` permits model-side capabilities
+    from whole-dimension entry overrides, unconstrained for ``None``, injected by factories. Execution
+    intersects both (:attr:`effective_capabilities`), matching bucket candidates. ``entry_reference_limit``
+    is matching-entry maxima (``None`` unlisted; ComfyUI ignores entries), jointly evaluated with channels through
+    :func:`lib.backends.image_capabilities.backend_reference_image_limit`.
     """
 
     def __init__(
@@ -94,7 +94,7 @@ class CustomImageBackend:
         entry_reference_limit: int | None,
         reference_limit_override: int | None = None,
     ) -> CustomImageBackend:
-        """返回注入了模型事实一侧的新实例：文生图 / 图生图与参考图上限（工厂按模型行的条目与能力覆盖算出）。"""
+        """Return new instances injecting model-side T2I/I2I/reference maxima, factory-resolved from rows/entries/overrides."""
         return CustomImageBackend(
             provider_id=self._provider_id,
             delegate=self._delegate,
@@ -126,23 +126,23 @@ class CustomImageBackend:
 
     @property
     def effective_capabilities(self) -> frozenset[ImageCapability]:
-        """调用通道实现了、且模型事实一侧允许的文生图 / 图生图。"""
+        """T2I/I2I implemented by channels and permitted by model facts."""
         implemented = frozenset(self.capabilities)
         return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
     async def reference_image_limit(self) -> int | None:
-        # 通道一侧的上限即被包装的 backend 声明的那一个。
+        # Channel limits come from wrapped declarations.
         return await self._delegate.reference_image_limit()
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self._delegate.generate(request)
-        # 没有声明计量的通道（ComfyUI、声明式图片、OpenAI Chat 出图）按通用口径上报张数；内置调用通道自己带的
-        # 计量原样保留并补上张数，计价交给对应条目的价目表（docs/adr/0100）。
+        # Undeclared metering channels (ComfyUI/declarative images/OpenAI Chat images) report generic counts; preserve built-in
+        # measurements and supplement counts, leaving entry price tables to price (docs/adr/0100).
         return replace(result, usage=with_image_counts(result.usage, len(request.reference_images)))
 
 
 class CustomAudioBackend:
-    """自定义供应商语音合成后端包装类。"""
+    """Custom-provider speech-synthesis wrapper."""
 
     def __init__(self, *, provider_id: str, delegate: AudioBackend, model: str) -> None:
         self._provider_id = provider_id
@@ -169,11 +169,11 @@ class CustomAudioBackend:
 
 
 class CustomVideoBackend:
-    """自定义供应商视频生成后端包装类。
+    """Custom-provider video wrapper.
 
-    ``video_capabilities`` 可被工厂注入生效能力（系统判定与模型条目两侧求值 ⊕ 用户覆盖），此时不再转发
-    被包装 backend 的声明——后者只是通道一侧的来源，模型条目与用户覆盖都要能收窄或翻转执行层看到的能力。
-    未注入时（endpoint 闭包直接构造）回落到转发。
+    Factories may inject effective ``video_capabilities`` (joint system/entries ⊕ user overrides), replacing forwarding
+    wrapped declarations, which provide channel facts only; entries/overrides must narrow or flip execution capabilities.
+    Without injection, such as direct endpoint-closure construction, forward declarations.
     """
 
     def __init__(
@@ -199,19 +199,19 @@ class CustomVideoBackend:
 
     @property
     def endpoint(self) -> str | None:
-        """构造本 backend 所用的 endpoint（ENDPOINT_REGISTRY 键），由工厂注入。
+        """Construction endpoint keys from ENDPOINT_REGISTRY, factory-injected.
 
-        endpoint 决定协议，是 backend 构造的真正输入粒度；模型行的 endpoint 可在同媒体类型内
-        被改写，故已提交任务的续跑须比对它而非只比对 provider/model（``docs/adr/0054``）。
-        绕过工厂直接构造时为 None，此时续跑不比对、行为与未持久化 endpoint 的存量任务一致。
+        Endpoints determine protocols, the actual construction granularity. Model endpoints can change within media,
+        so submitted-task resume compares endpoints, not provider/models alone (``docs/adr/0054``).
+        None when bypassing factories: resume skips comparisons, matching legacy tasks without persisted endpoints.
         """
         return self._endpoint
 
     @property
     def endpoint_guard(self) -> str | None:
-        """冻结进执行检查点的协议标识：endpoint 连同构造所用的路径覆盖（``docs/adr/0101``）。
+        """Checkpoint-frozen protocols: endpoints plus construction path overrides (``docs/adr/0101``).
 
-        续跑时覆盖已被修改，与「调用端点已更换」一样按协议漂移失败（``docs/adr/0007``）。
+        Changed overrides fail resume as protocol drift, like changed endpoints (``docs/adr/0007``).
         """
         return None if self._endpoint is None else endpoint_guard(self._endpoint, self._path_overrides)
 
@@ -222,13 +222,13 @@ class CustomVideoBackend:
         overrides: dict[str, object] | None = None,
         entry_facts: VideoFacts | None = None,
     ) -> CustomVideoBackend:
-        """返回注入生效能力的新实例（不就地改写，包装器保持构造后不可变）。
+        """Return new effective-capability instances, keeping wrappers immutable after construction.
 
-        ``overrides`` 是过滤后的稀疏用户覆盖（`filter_valid_overrides` 的返回值），``entry_facts`` 是模型对应条目
-        上的视频事实（ComfyUI 端点不读条目，为 ``None``），两者供 `video_capabilities_for_tier` 在档位感知基底上
-        按同一规则求值；与 ``capabilities``（两侧求值 ⊕ 覆盖的完整合成结果，供 context-free 的
-        `video_capabilities` 属性使用）分开传递——两者不能合一，否则档位查询会短路回完整合成结果，见
-        `video_capabilities_for_tier`。
+        ``overrides`` is filtered sparse values from `filter_valid_overrides`; ``entry_facts`` is corresponding entry
+        video facts, ``None`` for ComfyUI. `video_capabilities_for_tier` uses both against tier-aware bases
+        under identical rules. Pass separately from ``capabilities``, complete jointly evaluated/overridden results for context-free
+        `video_capabilities`. Combining them would short-circuit tier queries into full composed results; see
+        `video_capabilities_for_tier`.
         """
         return CustomVideoBackend(
             provider_id=self._provider_id,
@@ -242,7 +242,7 @@ class CustomVideoBackend:
         )
 
     def with_endpoint(self, endpoint: str, *, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
-        """返回记住构造 endpoint 与路径覆盖的新实例（不就地改写，包装器保持构造后不可变）。"""
+        """Return new instances retaining construction endpoints/path overrides, preserving postconstruction immutability."""
         return CustomVideoBackend(
             provider_id=self._provider_id,
             delegate=self._delegate,
@@ -255,16 +255,16 @@ class CustomVideoBackend:
         )
 
     def with_catalog_entry(self, entry: CatalogEntry | None) -> CustomVideoBackend:
-        """返回让被包装协议 backend 按 ``entry`` 认定通道能力与素材引用槽位的新实例；协议不按条目认定时原样返回。
+        """Return new instances whose wrapped protocol identifies capabilities/asset slots through ``entry``; unchanged if protocols ignore entries.
 
-        ``entry`` 是这个模型对应的条目（条目绑定优先，否则按名字现查）。档位查询（:meth:`video_capabilities_for_tier`）
-        以协议 backend 的声明为基底，所以协议 backend 要与工厂注入的合成能力按同一个条目认定；请求里的模型不变。
-        素材引用槽位见 :attr:`provider_asset_roles`。
+        ``entry`` matches this model, bindings first/current names otherwise. :meth:`video_capabilities_for_tier`
+        uses protocol declarations as bases, requiring the same entry as factory-composed capabilities; request models remain unchanged.
+        Asset slots: :attr:`provider_asset_roles`.
         """
         rebind = getattr(self._delegate, "with_catalog_entry", None)
         if not callable(rebind):
             return self
-        # 协议 backend 的 with_catalog_entry 返回同类副本（见 name_family.EntryBoundCapabilities）。
+        # Protocol with_catalog_entry returns same-class copies, name_family.EntryBoundCapabilities.
         delegate = cast("VideoBackend", rebind(entry))
         return CustomVideoBackend(
             provider_id=self._provider_id,
@@ -293,28 +293,28 @@ class CustomVideoBackend:
 
     @property
     def inference_credential(self) -> InferenceCredentialRef | None:
-        """被包装协议 backend 发请求所用的推理凭证，即这个自定义供应商的配置。"""
+        """Wrapped protocol inference credentials, namely this custom-provider configuration."""
         return inference_credential(self._delegate)
 
     @property
     def provider_asset_roles(self) -> frozenset[str]:
-        """沿用被包装协议 backend 的素材引用声明：能否发 ``asset://`` 取决于调用协议与模型条目，不随包装改变。
+        """Forward wrapped asset declarations: ``asset://`` acceptance depends on protocols/entries, unchanged by wrappers.
 
-        工厂经 :meth:`with_catalog_entry` 交给协议 backend 这个模型对应的条目；没有交（直接构造）时协议 backend
-        没有条目可认，不声明任何槽位。
+        Factories provide entries through :meth:`with_catalog_entry`; without them, directly constructed protocol backends
+        cannot identify entries and declare no slots.
         """
         return provider_asset_roles(self._delegate)
 
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
-        """按请求档位收窄能力：以被包装 backend（如 Kling）的档位感知查询为基底——
-        `getattr` 探测是否实现（与 `media_generator` 的探测方式一致），未实现则回落其
-        context-free `video_capabilities`——与工厂注入的条目事实两侧求值，再叠加稀疏用户覆盖
-        （未覆盖字段跟随求值结果）。没有注入条目事实（ComfyUI 端点、绕过工厂直接构造）时不与条目求值。
+        """Narrow by request tiers using wrapped tier-aware queries, such as Kling;
+        detect with `getattr`, matching `media_generator`, falling back to context-free
+        `video_capabilities`. Jointly evaluate factory entry facts, then sparse user overrides,
+        leaving other fields evaluated. Without injected facts, such as ComfyUI/direct construction, skip entry evaluation.
 
-        不能直接短路返回工厂注入的完整合成结果（`self._video_capabilities`）：那是用
-        context-free 的系统判定算出的（对 Kling 等档位敏感 backend 而言是保守声明），工厂
-        路径下该字段永远非 None，短路会让本方法在生产环境等价于未实现档位感知，
-        Pro 档本可接受的尾帧被静默丢弃。
+        Never short-circuit to factory-composed `self._video_capabilities`: these use
+        context-free system declarations, conservative for tier-sensitive backends. Factory paths always
+        populate this field; short-circuiting would disable production tier awareness,
+        silently dropping Pro-acceptable last frames.
         """
         tier_aware = getattr(self._delegate, "video_capabilities_for_tier", None)
         base = (
@@ -327,8 +327,8 @@ class CustomVideoBackend:
 
             base = effective_video_capabilities(base, self._entry_facts)
         if self._capability_overrides:
-            # 合并后不变式与 synthesize 同口径：本路径也是一次「基底 ⊕ 稀疏覆盖」合并，
-            # 漏掉就会让档位查询产出 direct ⊕ 上限 0 这种合成侧已挡住的组合。
+            # Postmerge invariants match synthesize; this path also merges bases ⊕ sparse overrides.
+            # Omitting checks would permit direct ⊕ limit0 combinations rejected by composition.
             from lib.custom_provider.capabilities import enforce_audio_capability_invariant, merge_overrides
 
             return enforce_audio_capability_invariant(
@@ -339,16 +339,16 @@ class CustomVideoBackend:
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 注入实际执行的 endpoint，让下游协议 backend 在 submit 后与 job_id 一并持久化——
-        # 续跑据此判定协议是否已被换掉。replace 而非就地改写：request 由调用方持有，
-        # 包装层不该留下副作用。
+        # Inject execution endpoints so downstream protocols persist them with job_id after submission,
+        # allowing resume drift checks. Replace instead of mutate: callers own requests,
+        # and wrappers must leave no side effects.
         if self._endpoint is not None:
             request = replace(request, execution_endpoint=self._endpoint)
         return await self._delegate.generate(request)
 
     @property
     def catalog_entry(self) -> CatalogEntry | None:
-        """被包装协议 backend 认定模型所按的条目（工厂经 :meth:`with_catalog_entry` 交给它）；没有交时为 ``None``。"""
+        """Wrapped model-identifying entries, supplied by :meth:`with_catalog_entry`; ``None`` without them."""
         return catalog_entry_of(self._delegate)
 
     def metered_usage(
@@ -359,15 +359,15 @@ class CustomVideoBackend:
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量：被包装的调用通道有声明时取它，认不得这个模型或没有声明时按通用口径上报。
+        """Request metering: wrapped declarations when present/recognized, generic for unknown models or missing declarations.
 
-        ``entry`` 是模型对应的条目，结算经 ``backend_metered_usage`` 调用时取 :attr:`catalog_entry`，被包装的调用通道
-        按它认定模型。见 :mod:`lib.custom_provider.metering`。
+        ``entry`` corresponds to models, taken from :attr:`catalog_entry` during ``backend_metered_usage`` settlement;
+        wrapped channels identify models through it. :mod:`lib.custom_provider.metering`.
         """
         return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result, entry=entry)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，
-        # 由 orphan handler 标 [resume_unsupported]。回放提交时的 base，让路径覆盖按它认出续跑请求。
+        # Forward downstream; unsupported resume raises NotImplementedError,
+        # marked [resume_unsupported] by orphan handlers. Replay submitted bases so overrides recognize resume requests.
         with replaying_base_url(request.submitted_base_url):
             return await self._delegate.resume_video(job_id, request)

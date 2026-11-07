@@ -1,4 +1,4 @@
-"""Anthropic probe 单元测试：respx 在 transport 层拦截，不打真实网络。"""
+"""Anthropic probes use transport-level respx interception, without real network traffic."""
 
 from __future__ import annotations
 
@@ -23,9 +23,10 @@ _ANTHROPIC_OK = {"id": "msg_1", "type": "message", "content": [{"type": "text", 
 
 @pytest.fixture
 async def probe_client() -> AsyncIterator[httpx.AsyncClient]:
-    """真实 httpx 客户端；出站流量由 respx 在 transport 层接管。
+    """Real httpx client with outbound traffic intercepted by respx transport.
 
-    生产的共享单例要靠 lifespan 初始化，单测经 `http_client` seam 显式注入。
+    Production’s shared singleton requires lifespan initialization; unit tests explicitly inject
+    through the `http_client` seam.
     """
     async with httpx.AsyncClient() as client:
         yield client
@@ -74,7 +75,7 @@ async def test_probe_messages_401_marks_failure(probe_client: httpx.AsyncClient)
 
 
 async def test_probe_messages_200_but_not_anthropic_marks_failure(probe_client: httpx.AsyncClient) -> None:
-    """OpenAI 兼容协议响应：200 但缺 type=message 应判失败。"""
+    """OpenAI-compatible 200 responses missing type=message must fail."""
     with capture_http() as router:
         router.post("https://api.example.com/v1/messages").mock(
             return_value=httpx.Response(200, json={"id": "chatcmpl-1", "object": "chat.completion", "choices": []})
@@ -104,7 +105,7 @@ async def test_probe_messages_200_but_not_anthropic_marks_failure(probe_client: 
 async def test_probe_messages_timeout_only_read_timeout_means_upstream_slow(
     probe_client: httpx.AsyncClient, exc: httpx.TimeoutException, expected: DiagnosisCode
 ) -> None:
-    """只有 ReadTimeout 证明服务可达；其余超时与网络不通同类。"""
+    """Only ReadTimeout establishes reachability; other timeouts count as network failures."""
     with capture_http() as router:
         router.post("https://api.example.com/v1/messages").mock(side_effect=exc)
         result = await probe_messages(
@@ -178,7 +179,7 @@ def test_classify_probe_failure_unknown_404_no_model() -> None:
 
 
 async def test_run_test_probes_only_messages_endpoint(probe_client: httpx.AsyncClient) -> None:
-    """测试连接只打 Agent 真正调用的 messages 端点：不发 /v1/models，也不补 /anthropic 重试。"""
+    """Connection tests hit only the Agent’s real messages endpoint, without /v1/models or /anthropic retries."""
     with capture_http() as router:
         messages = router.post("https://api.deepseek.com/v1/messages").mock(
             return_value=httpx.Response(404, text="not found")
@@ -209,7 +210,7 @@ async def test_run_test_probes_only_messages_endpoint(probe_client: httpx.AsyncC
 async def test_run_test_preset_with_base_url_override_probes_stored_value(
     probe_client: httpx.AsyncClient,
 ) -> None:
-    """preset 凭证覆盖 base_url：整条完整端点归一后即为调用值，探测打的就是它。"""
+    """Preset base_url overrides normalize complete endpoints to invoked values; probes use exactly those."""
     with capture_http() as router:
         messages = router.post("https://proxy.internal/anthropic/v1/messages").mock(
             return_value=httpx.Response(200, json=_ANTHROPIC_OK)
@@ -238,7 +239,7 @@ async def test_run_test_preset_with_base_url_override_probes_stored_value(
     ],
 )
 async def test_run_test_rejects_unsupported_base_url(base_url: str) -> None:
-    """带 query / fragment / userinfo 或缺 scheme 的地址在探测前就被拒，文案不回显输入。"""
+    """Reject query/fragment/userinfo or missing-scheme URLs before probing; errors never echo input."""
     with pytest.raises(InvalidAnthropicBaseUrlError) as exc_info:
         await run_test(preset_id=CUSTOM_SENTINEL_ID, base_url=base_url, api_key="sk", model="m")
     assert "sk-x" not in str(exc_info.value)
@@ -255,7 +256,7 @@ async def test_run_test_unknown_preset_raises() -> None:
 
 
 def test_classify_probe_failure_400_missing_model_is_model_required() -> None:
-    """火山方舟缺 model 参数时返回 400 MissingParameter，不该落到 UNKNOWN。"""
+    """Ark 400 MissingParameter for absent model must not become UNKNOWN."""
     p = ProbeResult(
         success=False,
         status_code=400,
@@ -274,7 +275,7 @@ def test_classify_probe_failure_400_missing_model_is_model_required() -> None:
     ],
 )
 def test_classify_probe_failure_400_missing_model_wording_variants(message: str) -> None:
-    """缺参措辞与 model 之间夹着单词时同样归为 model_required。"""
+    """Words between missing-parameter wording and model still classify as model_required."""
     p = ProbeResult(success=False, status_code=400, latency_ms=10, error=message)
     assert classify_probe_failure(p) == DiagnosisCode.MODEL_REQUIRED
 
@@ -295,7 +296,7 @@ def test_classify_probe_failure_400_without_model_keyword_stays_unknown() -> Non
 
 
 async def test_run_test_preset_without_model_short_circuits(probe_client: httpx.AsyncClient) -> None:
-    """预设默认模型为空且用户未填：不发 messages 请求，直接给 MODEL_REQUIRED。"""
+    """Empty preset default and user model sends no messages request, returning MODEL_REQUIRED directly."""
     preset = get_preset("anthropic-official")
     assert preset is not None
 
@@ -323,7 +324,7 @@ async def test_run_test_preset_without_model_short_circuits(probe_client: httpx.
 
 
 async def test_run_test_ark_preset_uses_default_model(probe_client: httpx.AsyncClient) -> None:
-    """火山方舟 Agent Plan：预设默认模型直接可用。"""
+    """Ark Agent Plan preset defaults work directly."""
     preset = get_preset("ark-agent-plan")
     assert preset is not None
 
@@ -345,7 +346,7 @@ async def test_run_test_ark_preset_uses_default_model(probe_client: httpx.AsyncC
 
 
 async def test_run_test_custom_mode_without_model_uses_fallback(probe_client: httpx.AsyncClient) -> None:
-    """自定义模式不受空模型短路影响，仍用内置兜底模型。"""
+    """Custom mode bypasses empty-model short-circuiting and keeps its built-in fallback model."""
     with capture_http() as router:
         messages = router.post("https://api.example.com/anthropic/v1/messages").mock(
             return_value=httpx.Response(200, json=_ANTHROPIC_OK)
@@ -364,7 +365,7 @@ async def test_run_test_custom_mode_without_model_uses_fallback(probe_client: ht
 
 
 def test_classify_probe_failure_400_missing_other_param_is_not_model_required() -> None:
-    """缺参提示指向别的字段时不连坐到 model。"""
+    """Missing-parameter errors for other fields must not implicate model."""
     p = ProbeResult(
         success=False,
         status_code=400,

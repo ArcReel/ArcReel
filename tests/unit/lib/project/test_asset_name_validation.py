@@ -1,10 +1,10 @@
-"""资产名路径安全校验。
+"""Asset-name path-safety validation.
 
-资产名全链路被当作单段路径组件使用：文件名（characters/{name}.png、
-versions/{type}/{name}_v{n}_{ts}.png）与 REST 路由的单段路径参数
-（PATCH/DELETE /projects/{p}/characters/{name}、POST .../generate/character/{name}）。
-含路径分隔符的名字会产生嵌套目录（版本登记 shutil.copy2 因父目录缺失而失败）和
-无法匹配的 URL（uvicorn 把 %2F 解码回 / 后单段参数 404），因此须在所有创建入口拒绝。
+Asset names are single path components throughout the chain: filenames (characters/{name}.png,
+versions/{type}/{name}_v{n}_{ts}.png) and single-segment REST parameters
+(PATCH/DELETE /projects/{p}/characters/{name}, POST .../generate/character/{name}).
+Names containing separators create nested directories (version-registration shutil.copy2 fails without parents) and
+unmatchable URLs (uvicorn decodes %2F to /, making single-segment parameters return 404), so reject them at every creation entry.
 """
 
 import unicodedata
@@ -25,7 +25,7 @@ class TestValidateAssetName:
         assert validate_asset_name("Mr. Smith-2") == "Mr. Smith-2"
 
     def test_nfd_input_normalized_to_nfc(self):
-        """登记闸口统一落 NFC：NFD 输入不得以另一种编码形式落盘产生视觉同名的重复资产。"""
+        """Registration consistently writes NFC; NFD input must not create visually duplicate assets under another encoding."""
         assert _NAME_NFD != _NAME_NFC
         assert validate_asset_name(_NAME_NFD) == _NAME_NFC
         assert validate_asset_name(_NAME_NFC) == _NAME_NFC
@@ -46,12 +46,12 @@ class TestResolveAssetKey:
         assert resolve_asset_key("not-a-dict", "李白") is None
 
     def test_duplicate_forms_last_wins(self):
-        # 与 normalize_asset_bucket 的合并方向一致：后写入的胜出
+        # Match normalize_asset_bucket merge direction: later writes win.
         bucket = {_NAME_NFC: {"description": "first"}, _NAME_NFD: {"description": "last"}}
         assert resolve_asset_key(bucket, _NAME_NFC) == _NAME_NFD
 
     def test_duplicate_forms_last_wins_after_json_roundtrip(self, tmp_path):
-        """胜出结果由写入顺序决定，落盘再读回后仍一致——JSON 序列化不重排键顺序。"""
+        """Write order determines the winner, unchanged after disk round-trip; JSON serialization does not reorder keys."""
         import json
 
         bucket = {_NAME_NFC: {"description": "first"}, _NAME_NFD: {"description": "last"}}
@@ -106,13 +106,13 @@ class TestResolveAssetKey:
         ],
     )
     def test_windows_unsafe_names_rejected(self, bad):
-        """名称会拼进文件名，Windows 上保留字符 / 控制字符 / 尾随点 / 保留设备名
-        会"校验通过但写盘失败"；项目须可跨平台迁移，所有平台统一拒绝。"""
+        """Names enter filenames; Windows reserved/control characters, trailing dots, and reserved device names
+        can pass validation yet fail disk writing. Projects must migrate across platforms, so reject these consistently everywhere."""
         with pytest.raises(ValueError, match=r"含非法字符|是 Windows 保留设备名|不能以点结尾"):
             validate_asset_name(bad)
 
     def test_mention_delimiter_rejected(self):
-        """正文引用写作 ``@[名称]``、以首个 ``]`` 收尾，名字含 ``]`` 会让写出的引用中途截断。"""
+        """Body references use ``@[名称]`` ending at the first ``]``; names containing ``]`` would truncate written references."""
         with pytest.raises(ValueError, match="含非法字符"):
             validate_asset_name("甲]乙")
         assert validate_asset_name("甲[乙") == "甲[乙"
@@ -124,7 +124,7 @@ class TestResolveAssetKey:
             validate_asset_name(123)
 
     def test_reserved_device_names_not_overmatched(self):
-        # 仅精确（首个点段）匹配保留设备名，CON1 / CONAN / COM10 这类合法名不误杀
+        # Match reserved device names exactly in the first dot segment; allow CON1 / CONAN / COM10.
         assert validate_asset_name("CON1") == "CON1"
         assert validate_asset_name("CONAN") == "CONAN"
         assert validate_asset_name("COM10") == "COM10"
@@ -154,7 +154,7 @@ class TestProjectManagerCreationEntryPoints:
         assert "庙/宇" not in demo_pm.load_project("demo").get("scenes", {})
 
     def test_add_batch_rejects_normalized_collision(self, demo_pm):
-        """strip 后等价的两个 key 不允许静默覆盖，整批 fail-loud 不落盘（与 upsert_assets 一致）。"""
+        """Keys equal after strip must not silently overwrite; fail the whole batch loudly without writing, matching upsert_assets."""
         with pytest.raises(ValueError, match="冲突"):
             demo_pm.add_scenes_batch("demo", {"庙宇": {"description": "a"}, "  庙宇  ": {"description": "b"}})
         assert "庙宇" not in demo_pm.load_project("demo").get("scenes", {})
@@ -178,7 +178,7 @@ class TestProjectManagerCreationEntryPoints:
 
 
 def _seed_nfd_character(demo_pm: ProjectManager) -> None:
-    """绕过登记闸口直写 NFD key，模拟存量数据（存量无需迁移，读写按坐标系解析）。"""
+    """Bypass registration to write NFD keys directly, simulating existing data; no migration is needed, as reads/writes resolve by coordinate system."""
 
     def _mutate(project: dict) -> None:
         project.setdefault("characters", {})[_NAME_NFD] = {"description": "legacy", "voice_style": ""}
@@ -227,7 +227,7 @@ class TestNfcConvergence:
         assert chars[_NAME_NFD]["reference_audio"] == "characters/refs_audio/x.wav"
 
     def test_collect_reference_images_matches_across_forms(self, demo_pm):
-        """剧本里的名字与桶 key 形态可以不同（登记闸口落 NFC，剧本原文未归一）。"""
+        """Script names and bucket keys may differ in form; registration writes NFC without normalizing original script text."""
         demo_pm.add_character("demo", _NAME_NFD, "desc")
         sheet = "characters/sheet.png"
         sheet_path = demo_pm.get_project_path("demo") / sheet

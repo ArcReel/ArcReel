@@ -311,7 +311,7 @@ class UnwrapParagraphTest(unittest.TestCase):
 
 
 class IgnoreMarkerScopeTest(unittest.TestCase):
-    """跳过标记只在代码块和 HTML 块之外独立成行时生效。"""
+    """Skip markers apply only as standalone lines outside code and HTML blocks."""
 
     def test_standalone_marker_returns_text_unchanged(self):
         text = "<!-- unwrap-disable-file -->\n\n第一行\n第二行\n"

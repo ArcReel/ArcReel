@@ -1,4 +1,4 @@
-"""Alembic split_default_image_backend_setting 双向迁移测试。"""
+"""Bidirectional Alembic split_default_image_backend_setting migration tests."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from alembic import command
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
-# 本文件只覆盖拆分迁移本身，停在该 revision——后续 revision 会把两桶重新收敛回默认层。
+# Cover only splitting and stop at that revision; later revisions collapse both buckets back into defaults.
 _SPLIT_REVISION = "5b87accc10dd"
 
 
@@ -19,7 +19,7 @@ def _sync_engine(db_path: Path) -> sa.Engine:
 
 
 def test_upgrade_copies_legacy_setting_to_two_new_keys(alembic_cfg):
-    """前置：写入旧 default_image_backend；执行迁移；验证两条新 key 同值。"""
+    """Write old default_image_backend, migrate, and verify two new keys with equal values."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "eedf0aa985e6")
 
@@ -48,7 +48,7 @@ def test_upgrade_copies_legacy_setting_to_two_new_keys(alembic_cfg):
 
 
 def test_upgrade_preserves_already_set_new_keys(alembic_cfg):
-    """前置：旧 default_image_backend + _t2i 都已有；迁移不应覆盖 _t2i。"""
+    """With old default_image_backend and _t2i already present, migration must not overwrite _t2i."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "eedf0aa985e6")
 
@@ -72,14 +72,14 @@ def test_upgrade_preserves_already_set_new_keys(alembic_cfg):
             )
         ).fetchall()
     settings = {r.key: r.value for r in rows}
-    # _t2i 已存在 → 不覆盖
+    # Existing _t2i is not overwritten.
     assert settings.get("default_image_backend_t2i") == "openai/already-set"
-    # _i2i 不存在 → 用 legacy 值填充
+    # Missing _i2i is filled from legacy values.
     assert settings.get("default_image_backend_i2i") == "openai/legacy"
 
 
 def test_upgrade_no_op_when_no_legacy(alembic_cfg):
-    """前置：未写入旧 default_image_backend；迁移应无副作用。"""
+    """Without old default_image_backend, migration has no side effects."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, _SPLIT_REVISION)
 

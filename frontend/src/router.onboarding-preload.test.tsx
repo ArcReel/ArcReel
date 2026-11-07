@@ -1,5 +1,5 @@
-// 引导开启时预取设置页 chunk：设置页承载引导锚点（settingsProviders、settingsAgent），
-// 懒加载后锚点要等 chunk 到达才出现，引导的锚点等待有上限，只能靠提前拉取兜住。
+// Active onboarding prefetches settings chunks, which host settingsProviders/settingsAgent anchors;
+// lazy anchors appear only after chunks arrive, and bounded onboarding waits require early prefetching.
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -8,7 +8,7 @@ import { memoryLocation } from "wouter/memory-location";
 const systemConfigPageLoaded = vi.hoisted(() => vi.fn());
 const preloaded = vi.hoisted(() => vi.fn());
 
-// 预取的决定在 effect 里同步发出：包一层 preload 记下调用，不必等 chunk 异步求值才能断言「没有预取」
+// Effects decide prefetch synchronously; wrap preload to record calls without waiting for chunk evaluation to assert No prefetch.
 vi.mock("@/utils/lazy-component", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/utils/lazy-component")>();
   return {
@@ -25,7 +25,7 @@ vi.mock("@/utils/lazy-component", async (importOriginal) => {
 });
 
 vi.mock("@/components/pages/SystemConfigPage", () => {
-  // 模块求值即代表设置页 chunk 已被拉取
+  // Module evaluation proves settings chunks were fetched.
   systemConfigPageLoaded();
   return { SystemConfigPage: () => <div data-testid="system-config-page" /> };
 });
@@ -38,7 +38,7 @@ vi.mock("@/onboarding/OnboardingTour", () => ({
   OnboardingTour: () => null,
 }));
 
-/** 每个用例换一份全新的模块表，懒加载组件的请求缓存与模块求值都从头开始。 */
+/** Every case gets fresh module registries, resetting lazy-request caches/module evaluation. */
 async function renderProjectsWithTour(active: boolean) {
   const [{ AppRoutes }, { useAuthStore }, { useConfigStatusStore }, { useOnboardingStore }] = await Promise.all([
     import("@/router"),
@@ -47,7 +47,7 @@ async function renderProjectsWithTour(active: boolean) {
     import("@/stores/onboarding-store"),
   ]);
   useAuthStore.setState({ isAuthenticated: true, isLoading: false });
-  // 让 ConfigStatusLoader 的 fetch() 短路，避免触发未 mock 的接口
+  // Short-circuit ConfigStatusLoader fetch(), avoiding unmocked endpoints.
   useConfigStatusStore.setState({ initialized: true });
   useOnboardingStore.setState({ active });
 

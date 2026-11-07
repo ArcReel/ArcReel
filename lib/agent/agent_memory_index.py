@@ -1,38 +1,40 @@
-"""记忆索引 ``MEMORY.md`` 的加载口径：行数、字节数、超限判定与截断的单一实现。
+"""Shared MEMORY.md loading rules: line/byte counts, limit detection and truncation.
 
-两级记忆共用这一套口径。会话装配注入用户记忆索引时按它截断，记忆列表接口按它
-报 ``line_count`` / ``byte_size`` / ``over_limit``——同一份索引因此在文件柜里显示的
-``N/200`` 与 Agent 实际读到的内容一致，``over_limit`` 为真等价于「装配时会被截断」。
+Both memory levels use these rules. Session assembly truncates the user-memory
+index, while the listing API reports line_count / byte_size / over_limit. The
+file cabinet's N/200 display therefore agrees with what the Agent reads;
+over_limit means session assembly will truncate the index.
 
-口径取自原生 auto memory（CLI 2.1.259：``MEMORY.md``、200 行、25 000）。行数与字节
-都按 ``strip()`` 之后的正文算：首尾空行不进上下文，也就不该占额度。字节按 UTF-8 实际
-字节，而非原生那处 JS 字符串 ``.length``（UTF-16 码元，中文一字算 1）——中文索引下
-按 UTF-8 算更保守，也与「25 000 字节」的字面一致。
+Limits follow native auto memory (CLI 2.1.259: MEMORY.md, 200 lines, 25,000).
+Measure after strip(): outer blank lines do not enter context and should not
+consume the allowance. Count actual UTF-8 bytes, not native JS .length (UTF-16
+code units, where a Chinese character counts as 1). UTF-8 is more conservative
+for Chinese indexes and matches the literal 25,000-byte limit.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: 保留的索引文件名：它是记忆的目录页。
+#: Reserved index filename, serving as the memory table of contents.
 INDEX_FILENAME = "MEMORY.md"
 
-#: 索引的加载上限：装配时按此截断，列表接口按此标 ``over_limit``，写入不受拦截。
+#: Loading limits: assembly truncates and listing reports ``over_limit``; writes are not blocked.
 INDEX_MAX_LINES = 200
 INDEX_MAX_BYTES = 25_000
 
-#: 截断后追加的提示。Agent 看不到被丢掉的部分，只有提示能让它去整理索引，
-#: 而不是以为索引就这么长。
+#: Notice appended after truncation: the Agent cannot see discarded text and needs this cue
+#: to reorganize the index rather than assuming the visible portion is the entire file.
 _TRUNCATION_NOTICE = (
-    "> 提示：`{filename}` 共 {line_count} 行 / {byte_size} 字节，"
-    "超出 {max_lines} 行 / {max_bytes} 字节的加载上限，以上只是被加载的部分。"
-    "每条索引保持一行、约 200 字符以内，细节写进记忆文件。"
+    "> Notice: `{filename}` has {line_count} lines / {byte_size} bytes, "
+    "exceeding the loading limit of {max_lines} lines / {max_bytes} bytes; only the loaded portion is shown above. "
+    "Keep each index entry on one line, within about 200 characters; put details in memory files."
 )
 
 
 @dataclass(frozen=True)
 class MemoryIndexStats:
-    """一份索引正文的规模与超限判定。"""
+    """Index body size and limit status."""
 
     line_count: int
     byte_size: int
@@ -43,7 +45,7 @@ class MemoryIndexStats:
 
 
 def memory_index_stats(text: str) -> MemoryIndexStats:
-    """索引正文的行数与 UTF-8 字节数；空白内容按零处理。"""
+    """Count index-body lines and UTF-8 bytes; whitespace-only content counts as zero."""
     trimmed = text.strip()
     if not trimmed:
         return MemoryIndexStats(line_count=0, byte_size=0)
@@ -51,11 +53,11 @@ def memory_index_stats(text: str) -> MemoryIndexStats:
 
 
 def truncate_memory_index(text: str) -> str:
-    """把索引正文截到加载上限内，超限时追加一行提示。
+    """Truncate the index to loading limits, appending a notice when exceeded.
 
-    先按行截到 200 行，再按 UTF-8 字节截到 25 000 以内的最后一个换行——两道都做，
-    因为单行可以很长，只截行数护不住上下文。按字节切时 ``errors="ignore"`` 只丢掉
-    被切开的那个码位，不会留下半个字符。
+    First keep at most 200 lines, then cut at the final newline within 25,000 UTF-8
+    bytes. Both checks are needed because a single line can be long. On a byte cut,
+    errors="ignore" drops only the split code point, leaving no partial character.
     """
     trimmed = text.strip()
     if not trimmed:

@@ -1,6 +1,6 @@
-分集节奏（短剧体裁建议）：
-- 开篇 ~4 秒承担钩子职能：用强冲击 / 悬念 / 危机切入，避免介绍性远景。
-- 中段每 ~15 秒宜安排一次转折点（动作转折 / 情绪反差 / 关系撕裂 / 异常事件），
-  通过画面权重和景别变化呈现，避免长段平铺。
-- 末镜停在情绪极致瞬间，shot_type 倾向 Close-up / Extreme Close-up，
-  给观众留下回看的钩子。
+Episode pacing (suggestions for short drama):
+- The first ~4 seconds serve as a hook: open with impact, suspense, or danger, avoiding an introductory wide shot.
+- Aim for a turning point every ~15 seconds in the middle (a turn in action, emotional contrast, rupture in a relationship, or unusual event),
+  expressed through visual emphasis and changes in shot size; avoid long, even exposition.
+- End the final shot at an emotional peak, favoring Close-up / Extreme Close-up for shot_type,
+  leaving a hook that invites viewers to watch again.

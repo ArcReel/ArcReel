@@ -1,0 +1,1494 @@
+{
+  "scope": "All frontend tracked TS/JS outside canvas/hooks/stores/actions/pages; source snapshot /tmp/frontend-remaining-before-passive",
+  "coverage_method": "Robust TypeScript syntax-tree leading/trailing comments at node pos/end/getStart with JSX/template parsing and overlap deduplication, independently crosschecked against coordinator extraction.",
+  "supersedes": "Prior bare-scanner scope completion claims. Earlier code/line/inline proofs remain valid only for actual translated pairs.",
+  "status": "source translation independently accepted by passive reviewer; official full e2e underway",
+  "changed_files": 293,
+  "changed_comments": 2961,
+  "proof": {
+    "files": 540,
+    "executable_equal": true,
+    "lines_equal": true,
+    "inline_code_counter_equal": true
+  },
+  "checks": {
+    "typecheck": "PASS full source and e2e under Node24.12.0",
+    "eslint": "PASS full frontend under Node24.12.0",
+    "serialized_unit_tests": "Stopped explicitly before official e2e to avoid contention; partial execution is not a pass. Coordinator final pnpm check pending.",
+    "focused_layout_api": "218 passed /21files serialized",
+    "focused_shared_agent_utils": "715 passed /61files serialized",
+    "focused_usage_workflow": "217 passed /21files serialized",
+    "copilot": "228passed1failed clipboard expectation; isolated failing file5passed. Full final check still required.",
+    "official_known_onboarding": "3passed /19.1s; E2E_SCREENSHOTS=1",
+    "official_full_e2e": "running, one toast auto-dismiss failure observed at1024x600; narrow candidate/baseline differential pending after full run"
+  },
+  "exceptions": "frontend-remaining-parser-exceptions.json",
+  "files": [
+    {
+      "path": "frontend/playwright.config.ts",
+      "candidate_sha256": "dbc279b4c711f51cdef563ff35338ad8e7d807ca47dcd62f1f8da1dc0c571093",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/eslint.config.js",
+      "candidate_sha256": "481aa1d38ae14397a7eadbbb2ca0de061d9dddd75bb40532de0ca10ee539e3d4",
+      "changed_comments": 70
+    },
+    {
+      "path": "frontend/vitest.config.ts",
+      "candidate_sha256": "5459235827904a828a819de1291b86ddb7efa74e92a87056d61805ab99e66fbc",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/regions/not-found.spec.ts",
+      "candidate_sha256": "4cf6a78effbc95961805ad2f9aca7ff8da39862ee0497b865d45a3577d04a337",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/e2e/regions/overview.spec.ts",
+      "candidate_sha256": "1659972927038b509bdff09b71a826c567cf0ad13c32de7eba3162175e9dcacf",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/e2e/regions/agent-messages.spec.ts",
+      "candidate_sha256": "f5ccf8309b41bf9314e3bb72770e3bdb6c789d46819ea2b08486e71b2477c0c0",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/e2e/regions/market.spec.ts",
+      "candidate_sha256": "821dbc853136c78f1c8d5132cb0a7934d878820fdf52ce3fe6be4a3e48092438",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/e2e/regions/auto-textarea.spec.ts",
+      "candidate_sha256": "af553597d75744a6e0c2a1f7366067376c176066600f02b12fa451c1631d5b4a",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/e2e/regions/episode-page.spec.ts",
+      "candidate_sha256": "b5de232907a12e07d52c3d88cd7f90422d56a32c574d7d722e130946a9a15240",
+      "changed_comments": 16
+    },
+    {
+      "path": "frontend/e2e/regions/grid-canvas.spec.ts",
+      "candidate_sha256": "7b29611d8c345083c147c3d6ec02aeab7620d7f90db5e17d919eec08aeff6374",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/e2e/regions/agent-work-rows.spec.ts",
+      "candidate_sha256": "68982abb2302f5bcd9fbd03d9e7df4ab2c4f1c3ad916a608b671fb7cd4ec9220",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/e2e/regions/overlays.spec.ts",
+      "candidate_sha256": "01aee2858862a0b713fb43acea16590d2c331d53ce73b0e70287c6d8381c8b08",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/e2e/regions/script-plan-start.spec.ts",
+      "candidate_sha256": "e0afa0315a385c1212fd589ec84cd6bc5e90bce7391e4c6ff8a646dbdb3a133f",
+      "changed_comments": 16
+    },
+    {
+      "path": "frontend/e2e/regions/settings-arcreel-agent.spec.ts",
+      "candidate_sha256": "17a4b99eb4c3b4ee49c312cac0dcfe8da5890faaf889330e05bfda899fead974",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/e2e/regions/end-frame-picker.spec.ts",
+      "candidate_sha256": "d4635f308b31e71d4d2f767e6443ad39488ea5263377ee9ea12b3eda0310a458",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/e2e/regions/project-settings.spec.ts",
+      "candidate_sha256": "a085065622bd3e5cdd9a8e671d9fd5b143d99ba8f3a18573415444d10c577573",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/regions/agent-access.spec.ts",
+      "candidate_sha256": "4abe56b7ffd127f81cac3c03c7e0d058b07c3c088a67976178eb9ece7898b7c9",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/regions/reference-editor-alignment.spec.ts",
+      "candidate_sha256": "b8f53a7e339ff9a2d54f3add3ee2ecdb9e344bb3034d1c501735a14ef79d4e0e",
+      "changed_comments": 20
+    },
+    {
+      "path": "frontend/e2e/regions/shot-detail.spec.ts",
+      "candidate_sha256": "bd0cdb4e3c44b789c4922298dc09aa99a7024fb9aaea8d8eab38b151f51f75a8",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/e2e/regions/settings.spec.ts",
+      "candidate_sha256": "73ab0e63bf289afc8225d650af0a21146cdd52d8b59af039884d9cabdaf5c12a",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/e2e/regions/file-view.spec.ts",
+      "candidate_sha256": "aac955039e6fd3f60107fd4f3f5325fbb8e1c4e23463bded6b85196a3d96a129",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/e2e/regions/project-status-bar.spec.ts",
+      "candidate_sha256": "2775651db3c39f3dc91c237a5fbf7d7775f63863ff535b437cb300b327ae5a5c",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/e2e/regions/workspace-header.spec.ts",
+      "candidate_sha256": "e77b5bea2b5efce33a365eaa3351fb616dc3235cf387200f86794ff7faeec21e",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/e2e/regions/agent-memory.spec.ts",
+      "candidate_sha256": "5a8373ba395a4d15ae414ba7a067df2a530df8a89d0e09b9b65e6be0f8d6dfec",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/e2e/regions/shared-components.spec.ts",
+      "candidate_sha256": "821c40868dc131cc2bafe192860e79b5b2c24b0d3dfb7fecd566afc9b4bee5ab",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/e2e/regions/asset-gallery.spec.ts",
+      "candidate_sha256": "4e1fb87ec92baa31af84aea5ae1eb44722fe655690a8201f249c3b6d3b762868",
+      "changed_comments": 16
+    },
+    {
+      "path": "frontend/e2e/regions/agent-composer.spec.ts",
+      "candidate_sha256": "8aa3b9c4f4317fc2a3c0d8e61693d8071f22e803bad577d4d513b72ad09574f5",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/e2e/regions/providers.spec.ts",
+      "candidate_sha256": "d52709ee67eddfc22d05064d605700e701bea003ae7e65ffdeec9df2434d77fc",
+      "changed_comments": 19
+    },
+    {
+      "path": "frontend/e2e/regions/asset-editor.spec.ts",
+      "candidate_sha256": "0965e7d481ab23bc2e3b163d50dc1838d9016c105ef62a58b5f8f6669aeab540",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/e2e/regions/onboarding.spec.ts",
+      "candidate_sha256": "db3c84e9ea38c19d02bb17135f752863ac0754c966f78150b9a992d3f1700f78",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/e2e/regions/light-theme.spec.ts",
+      "candidate_sha256": "4cbc042a40792916dd130fae059c6e422269a2f64c4279d2eb100e06e2753776",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/e2e/regions/ad-project.spec.ts",
+      "candidate_sha256": "7c8cad22bfe5291431f4f262a7429897da783102d5be475a3876ac6984e5c809",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/e2e/regions/workspace-shell.spec.ts",
+      "candidate_sha256": "e37bda2ee21e11e1104b11d21e91d783c785f63c4f895469bd4fef3b940eaaa6",
+      "changed_comments": 17
+    },
+    {
+      "path": "frontend/e2e/regions/export.spec.ts",
+      "candidate_sha256": "6d767b4ef6a96ab5527d980f3d3e36b287a7766ea38a875218f2ded85cd160ae",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/e2e/regions/lobby.spec.ts",
+      "candidate_sha256": "521c2a172db045c544268e9d19ada3298a69ec3c945fbc334af0bed02bc5af33",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/e2e/regions/asset-library.spec.ts",
+      "candidate_sha256": "0706c42cd63c0a9a620e371230009af1c0fa8101d3f58d0aac819c527f9f7fd2",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/e2e/regions/usage.spec.ts",
+      "candidate_sha256": "630bed47c0d45640f08c5e4190f2d0aafc240bcbffcb05a557ef3328414ee462",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/e2e/regions/agent-session-projection.spec.ts",
+      "candidate_sha256": "398f68d424060d3c3e3992c3295dc39913b2bf130482b00711f054e943f313b8",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/e2e/regions/endpoints.spec.ts",
+      "candidate_sha256": "5cec3c261c4fa4b98c64a7007d4668378576d7e1799e1cd9cc3c8865530a50ef",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/regions/reference-workbench.spec.ts",
+      "candidate_sha256": "d34017de392f624fa9e940cb4cd7ec8c670a3113b2447abe36d42f9ac26e4f06",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/e2e/regions/create-project.spec.ts",
+      "candidate_sha256": "572c8b46bf8b09a12b76e6c3b9839b63d29c1194681a8a0c6df1b728608161a0",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/regions/episodes.spec.ts",
+      "candidate_sha256": "b9a9f8184713823350de8e099493b1ea0803a2f6c07938c75aab1ddf017231ad",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/e2e/regions/edit-view.spec.ts",
+      "candidate_sha256": "1231132526c51f15f2e9c842b1510e67261e0b4f006335d354984b83ec692add",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/e2e/run-server.ts",
+      "candidate_sha256": "44b993d9666d4a0081bae527af2b5d439bbe42bc360caa9b4ca768d1a8617f60",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/e2e/support/region-helpers.ts",
+      "candidate_sha256": "60d2d0b37fea289e2de31330aee70cc8298de33187b0c6141e93d48352b30662",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/e2e/support/origin.ts",
+      "candidate_sha256": "214a8b7aeb04d23c0d6bef796ab68527ef256b6dda31fecc47eace4a44a8c3b2",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/e2e/support/assistant-session.ts",
+      "candidate_sha256": "d58fe42895091b0a4899ae2c5b68d044712a5edd384fe7bb1a30426f0bc6f64d",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/e2e/support/layout-probe.ts",
+      "candidate_sha256": "e0c03a35485e705ed4e4e9e81eac4549123bba506bb14b047185d9e7de968b81",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/e2e/support/test.ts",
+      "candidate_sha256": "35b2d09f90e648507f4a9a4e9d5702e3a3b165171829d3aef833b18590723ead",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/support/recorded.ts",
+      "candidate_sha256": "123bb4813220031f4c192061007c5d597bfd8eab520b1c55932d51ee6559d874",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/e2e/support/scenarios.ts",
+      "candidate_sha256": "44a95eff9333b3df42c7d5af28b2a7728236aa8179f0ab75277f31a97c47c896",
+      "changed_comments": 15
+    },
+    {
+      "path": "frontend/e2e/record-fixtures.ts",
+      "candidate_sha256": "04800a70d92db2552dee2de7ff793893bd734714db62cf52bae870519aa91716",
+      "changed_comments": 37
+    },
+    {
+      "path": "frontend/e2e/probe/layout-probe.spec.ts",
+      "candidate_sha256": "80ec93d1a7bc3988d4cc38bc6745d423475c3b4b70e82cb63c5840716f1a7d6d",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/main.tsx",
+      "candidate_sha256": "cbd2dd36821da285324ffd63c55b3fcf58b1f85049664825c068863fdcd50a22",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/test/media-element.ts",
+      "candidate_sha256": "ff2ec2a19032ec67589eaa26c6b49db2aa97ff3a94bcb60d4f74b58c149bf55e",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/test/deferred.ts",
+      "candidate_sha256": "b23473d9038dcec84034c1e6feb64333dc7e14d859a0f11fd29733d7bf21ae29",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/test/setup.ts",
+      "candidate_sha256": "6be3684a90ee0b15eb5352b4a7a367297b8ca39bce8fdfb1c2c2527745ae1c9e",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/test/image-data.ts",
+      "candidate_sha256": "86dfcc10d437f435d46ffe2f03307ec74c6156ff8d3412078c6f5ee36e481772",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/test/factories.ts",
+      "candidate_sha256": "63b6a3f79403cf63341251d8daee1fa9af55c696c7fd5c5b365fcd672419a910",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/test/fakeSseStream.ts",
+      "candidate_sha256": "2821995c742efb9032773fc8d517489eacdcd62bc88e65b1287e1aa238f5dd13",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/test/imageCanvas.ts",
+      "candidate_sha256": "e329f81136d4c48137e5642582d98392d6e013013365837381e559844ec749c9",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/test/fakeSseFetch.ts",
+      "candidate_sha256": "955805fc807deb61cd724fc803f94eeea171b2bb0fa1f5adbcaca94b56913c14",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/router.test.tsx",
+      "candidate_sha256": "4e5d10832a39a2c922ec4e6f9922977e67010af1a9f0e336911582ad067cc0b6",
+      "changed_comments": 23
+    },
+    {
+      "path": "frontend/src/router.onboarding-preload.test.tsx",
+      "candidate_sha256": "992f8bda9e8878a43655f0a4173017858fe19a838877b5b58798314af821dd89",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/utils/sse-stream.ts",
+      "candidate_sha256": "2915158e2d06c23f590905b1469b50faf1c91f6621a05d4df1cc548c429aba45",
+      "changed_comments": 19
+    },
+    {
+      "path": "frontend/src/utils/image-transcode.ts",
+      "candidate_sha256": "c9ea764b10a03094d4a634d87588246fb50a03a5658d04d2868fdac3e454158d",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/utils/entry-projection.test.ts",
+      "candidate_sha256": "73f625e4e23cf657de828365e986275dcbe02f3500f44fb4feabe409ba9f27aa",
+      "changed_comments": 47
+    },
+    {
+      "path": "frontend/src/utils/task-target.ts",
+      "candidate_sha256": "f6d2d054b58d7c5ebd8f8f5bf7d94f744ae7fc574fd5ef1bf1c34167b59cd87e",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/utils/image-resize.test.ts",
+      "candidate_sha256": "b151202463665b88c81d8a9dd3c225cd65c4cb53236e69a4756d2c20e494909e",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/utils/lazy-component.test.tsx",
+      "candidate_sha256": "d3e952fa357d30768af0dd3370a6fd4281ed81bc16b51969bef0b88744faa799",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/utils/generation-mode.ts",
+      "candidate_sha256": "4359bc9c9b5ec1c6717c9ad052b7fe2444ac22791c406c55133f6607d4c1cfe4",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/utils/script-shape.ts",
+      "candidate_sha256": "7b22f824f46ffe1d6cfa93e363c43b51e0d92afabadfeaa83a0e49590481dd01",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/utils/sse-stream.test.ts",
+      "candidate_sha256": "a8a198dd82e1d192358735a7a9599d21ac8ab59e3c953c88e4bd454a8745b863",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/utils/task-target.test.ts",
+      "candidate_sha256": "5c27b64c181df37b78a5a99d2bf15614c2ec351628e4b08444d5346359770ff7",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/utils/task-elapsed.ts",
+      "candidate_sha256": "e5e05273307ddf9f00981f93c76ee3d1f42f0a348a889c1133379c63b64287dc",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/utils/anthropic-url.ts",
+      "candidate_sha256": "01cb894b36b22a8ae0f8dac2e0b2b158bc4b1cac40eda11bb84b4dd71f6be1cd",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/utils/provider-models.ts",
+      "candidate_sha256": "fd179d4bb0d07fc93bad9193fbf1614374faef50cd751c0b2c9cc23dce10bda1",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/utils/image-resize.ts",
+      "candidate_sha256": "1a7d50164f9cd4d37d8e15f61d6f27dcf88029a62544f8a1779a5562f9ffee86",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/utils/episode-display.ts",
+      "candidate_sha256": "f5844c307c3d86608072698c6d5fad9c5d06f995be55555bb015c74a974240c3",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/utils/grid-layout.ts",
+      "candidate_sha256": "b0d2878fcec4d78b6d6e498d63df0c994745cf602500b75b7b8fee5fc92b8b64",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/utils/entry-projection.ts",
+      "candidate_sha256": "f8a9e91be27826c4fbe5cb6a2310c796df8b07e6675fad3b6c9ff788288ce44f",
+      "changed_comments": 53
+    },
+    {
+      "path": "frontend/src/utils/plan-new-assets.ts",
+      "candidate_sha256": "ea7b7336ec1c8fd52c30335dc59bb9889d51438c8fd07eb29b3b5d344acad0e3",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/utils/reference-mentions.test.ts",
+      "candidate_sha256": "758f7b1a504504c51ea546f48bff52be18553fefb16871f2c77881ca4e99bb86",
+      "changed_comments": 15
+    },
+    {
+      "path": "frontend/src/utils/reference-mentions.ts",
+      "candidate_sha256": "0d6f78ced5d55e05febf2894fdf3f2c6ddf715aae9bf2abfe69131e81a88cfbc",
+      "changed_comments": 34
+    },
+    {
+      "path": "frontend/src/utils/duration_format.ts",
+      "candidate_sha256": "47f99332115e18a66724891a3a2f7308f47a84d6216a464621a57a2646d17183",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/utils/grid-layout.test.ts",
+      "candidate_sha256": "88acca88afeab268d4eb5d7495f1e77e0eb2744bfb6bd062eb6a332592130574",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/utils/episode-order.test.ts",
+      "candidate_sha256": "33f22141b1a74240aa3f31bdc8e3feb367980cf386e4ec16e333bd39048b2072",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/utils/episode-item.ts",
+      "candidate_sha256": "c0797b1cb5489193e2802b09141eef1f23d97ecd4182f9850edc03303eba95e6",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/src/utils/provider-models.test.ts",
+      "candidate_sha256": "1138422ef90391ffae851d34e409bc69f7ea0a7f5e67b97140591ec8e25cae63",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/utils/project-changes.ts",
+      "candidate_sha256": "1ac6916fe6c93e23535eea8eaedcfee843e2520857e525d3273f7b0acc3f7db1",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/src/utils/app-link.ts",
+      "candidate_sha256": "bc14fb9d01efb892f11e5e106bc023a0bacde456016d2f787d60f53f58284164",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/utils/lazy-component.ts",
+      "candidate_sha256": "af733346c0966cf3cd3b32dcb33a4b80e329af660cc9641221f9744577f6d3e9",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/utils/date-format.ts",
+      "candidate_sha256": "8440c13c15fc477627c2f3a2107c955b503aed5236996392ad9feaaea5dbd51b",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/utils/inline-confirm.ts",
+      "candidate_sha256": "0b486d4d02996dde6d42d688b815fc998af514226313ec4e2f6f987a18da6114",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/utils/project-changes.test.ts",
+      "candidate_sha256": "28f9db58e0315bb225aa3f1e7d09c14b71e3768a263271608d242bf3c0503b9d",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/utils/duration_format.test.ts",
+      "candidate_sha256": "753264241dc8480f034162f098ca3d2bd1e362f32aed2baa0d9f004e644f19d9",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/utils/prompt-shape.ts",
+      "candidate_sha256": "fa55517af966da45a3cb46dfb0c43fc7ede99ac9e76a0f8f85d0763ca69de815",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/api.ts",
+      "candidate_sha256": "4da6fd5631100b5f258c86e8126ad394dd9a46ac6f75f1fbe41d2e1e608cb71a",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/lint-class-guards.test.ts",
+      "candidate_sha256": "60a8be14dbcf5ec6562e701eadc97827732a1a742e87934c325bb04474230cd6",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/components/ui/alert-dialog.tsx",
+      "candidate_sha256": "1bf06e5ec30096a4c54730ed3e9a58deee6bd7684627373d2ae4a64ca34bfee9",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/ui/input-group.tsx",
+      "candidate_sha256": "e039176924188328d096f98a38e0c0473b045946e3f4e2a44f3b498cafaa8ac8",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/ui/chart.tsx",
+      "candidate_sha256": "c178d03bc7e66294a22c330c35984e5430698fe73a4cef840a4e7f2ee53cd7f4",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/ui/sheet.tsx",
+      "candidate_sha256": "70de023fd30277ec80d6e30595a519243308730697a12b5e8e342365f0ba13e9",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/ui/textarea.test.tsx",
+      "candidate_sha256": "a642063537ad42fbd0b5697df5c950bc202c87c42886e1a9336fffe9b13b9ecc",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/ui/dialog.tsx",
+      "candidate_sha256": "d6e7689a5299d473b772a558a25b5f1b7953486d28b625c648bfadc574d20cd5",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/ui/info-tip.tsx",
+      "candidate_sha256": "37216ef5b2a4a06bf04995fb3fc06e9d65493ebdeab9a0bafc6ff2a030729c43",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/ui/toast.tsx",
+      "candidate_sha256": "ead96ca13ef25826c85facb3b0497924e65e578d65d64a7377b94b0304e36e5c",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/ui/textarea.tsx",
+      "candidate_sha256": "76d117c62746081c6a6fcb16fb14bc3633d2cce9a6aea2177f522027d60ba2a5",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/ui/message-scroller.tsx",
+      "candidate_sha256": "19c1cd63cdf466b6575495b847a8ee71cfad475938e3c74125420eebdfe8fc47",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/copilot/AgentCopilot.tsx",
+      "candidate_sha256": "b9bec2ed9b84a2d5f3c099e379f41c1fec1f794f907b124ab3f8d9b805ad7275",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/WorkRow.tsx",
+      "candidate_sha256": "02fbe2393085f2469e759ec0bca2c99a716097ac9c99a91d0f1be754094c76a2",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/MessageFlow.tsx",
+      "candidate_sha256": "9f9b10913950617548f1b459a1681e3a2bb18923069f577584a794e2fa4441c0",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/utils.test.ts",
+      "candidate_sha256": "9c001e196c96e315fae925c8e4926d9a51425ba89af9ac15846888c955f3433f",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/work-label.ts",
+      "candidate_sha256": "9304356dfa5fbca9872259e00b2144922646d5b3d12af529755860a33cf75819",
+      "changed_comments": 17
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/MessageRow.test.tsx",
+      "candidate_sha256": "204489b397793920499a435166d7073dd39e969fdd7d6b65bf2dba09debda2ce",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/SubagentCard.tsx",
+      "candidate_sha256": "e4d0c6f6e494d7f0bca3ea31cd282265b86d4bba65a6d9138c4526bc561440c7",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/ContentBlockRenderer.tsx",
+      "candidate_sha256": "286e99f8b96877e53ab9b47885a0620e8bd0d2cc1903b568752c1f732915c768",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/AgentFailureCard.test.tsx",
+      "candidate_sha256": "2f3c16eab5534be977f51c278fa3f76c05380dc038201437de077d81fccbf55c",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/display-items.ts",
+      "candidate_sha256": "6c613423c5a03a6f81d9c1893ea22b156816e069dd48cbd0cbff16ca1b6be35e",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/utils.ts",
+      "candidate_sha256": "563d8a71ab02efaf238d4765c6f7523376f2f3e98d619b199a293691c6fc3b02",
+      "changed_comments": 19
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/timeline-density.test.tsx",
+      "candidate_sha256": "0d783b49b40c231ef47f3d9e78349f4b8c9151b33f78f537a9e6dd491dd0ea65",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/AgentFailureCard.tsx",
+      "candidate_sha256": "aa330a46b7a484b1ee9a8455c36723dc19204cb301790b8cd3bd83958bf18c10",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/MessageEditor.tsx",
+      "candidate_sha256": "423f6356500535c4b91a003f1b2fb9199d27e8169c03d530a14c75fb2c0bdb2f",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/work-label.test.ts",
+      "candidate_sha256": "46d8824909d23aab496c2d2442e17e4e857f0493d7eff2070f96c09ee762f358",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/display-items.test.ts",
+      "candidate_sha256": "7b9a38553569dbd279759c95657fa67f79d0d7eeb903ef43b95d7ffe91383872",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/arcreel-tool-summaries.ts",
+      "candidate_sha256": "c5377130e76e083c43beb72f7c76972088938bd46ee8ccce5ebb6f93dc822e72",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/copilot/chat/MessageRow.tsx",
+      "candidate_sha256": "8962b5e2e639f8a45ff3a9102be94c7d8f368f4531e34c7e8d959286c80098b1",
+      "changed_comments": 24
+    },
+    {
+      "path": "frontend/src/components/copilot/SessionHistory.tsx",
+      "candidate_sha256": "f3e8dc60c3f23f78d8c81520d28ca4e69e64f18f05ced7ce55f31b45bb472aee",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/components/copilot/StreamMarkdown.tsx",
+      "candidate_sha256": "d7461aedc2ccf0b98aaa5782d012342c44d74ea40083fff78b3448f22077d78c",
+      "changed_comments": 21
+    },
+    {
+      "path": "frontend/src/components/copilot/QueuedMessageTray.tsx",
+      "candidate_sha256": "97e0be89ef968c3a846c15efa9e6e51c9d4fef8c60d02cd1bfca9e644acec556",
+      "changed_comments": 30
+    },
+    {
+      "path": "frontend/src/components/copilot/SlashCommandMenu.tsx",
+      "candidate_sha256": "06b033e8f47bf36f28c21f0e8e35b990057b2b424458bd7e79ab922c25be59b0",
+      "changed_comments": 15
+    },
+    {
+      "path": "frontend/src/components/copilot/AgentQuestionnaire.tsx",
+      "candidate_sha256": "9a8ff98b09e9fdcfe6d7c3d5ea1a4ac5a04cd63c62c364eac5cc5c6971cd6b01",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/copilot/AgentComposer.tsx",
+      "candidate_sha256": "b43530f197d7a92499e4488fcda2ff01618a7986496630ecd1a59343e972439a",
+      "changed_comments": 26
+    },
+    {
+      "path": "frontend/src/components/copilot/StreamMarkdown.test.tsx",
+      "candidate_sha256": "d9935acc1a5054718019cb4ac4ef18837ab09c539b9b8f1794dd470d4a160e2a",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/copilot/AgentCopilot.test.tsx",
+      "candidate_sha256": "a852aa2bc8c74f10c8a4af0a5765c72f430f97bd5026e7e4d5d4e16aaf40d32d",
+      "changed_comments": 18
+    },
+    {
+      "path": "frontend/src/components/layout/GlobalHeader.test.tsx",
+      "candidate_sha256": "667cad6d7f8f715b0f32ddedbb5e1981d3714f4ca1c8046e3a451d2e07eec629",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/layout/useProjectExport.tsx",
+      "candidate_sha256": "a81d961570614442706ea2111e4fec7b88c3a89d3c753355345f4ffbbae0cdff",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/layout/AssetSidebar.tsx",
+      "candidate_sha256": "63dfe28b3b38dd8f44948e27914822546c9536956b65fb4730065a63df59543d",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/components/layout/ProjectStatusBar.test.tsx",
+      "candidate_sha256": "4012348a85dc5e6bebe341347f224232d5ba2a1b79e4fed07ce84f3f7b083fd6",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/layout/GlobalHeader.tsx",
+      "candidate_sha256": "ce76487715aedcb15090c668a4bf288592a64c33fa168e89284f1caec205d85a",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/layout/ProjectMenu.test.tsx",
+      "candidate_sha256": "939e036541b3f85ac95eded0043b52ed8659a038aaf8f44d13af2f1e3fb81b72",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/layout/SidebarEpisodeList.tsx",
+      "candidate_sha256": "c6b797fad6784c3b3246013b85f1ddfc6110e56a349b688800f80016460d7b29",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/layout/WorkspaceResizeHandle.tsx",
+      "candidate_sha256": "45754d3b7127e644bda6b7c53925c0c25a2f5cf6e25e18a545ee690e9f474377",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/layout/EpisodeCard.test.tsx",
+      "candidate_sha256": "ec37527196f03627fd33a3442a481b305572c3a9cd7391079811a6e3c82f61e7",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/layout/SidebarEpisodeList.test.tsx",
+      "candidate_sha256": "54fe7f77cb6ccf1783c0fc801dcdacdd627516fd2b0cff46521d163650c89ac6",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/layout/EpisodeCard.tsx",
+      "candidate_sha256": "b17e2532fa9acb6ad8e3892a8248b954f22b892e6269ca833f554159815b2b7e",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/layout/StudioLayout.test.tsx",
+      "candidate_sha256": "d35b2bd74cd7280b9a1dcbd42b70820aada9ee83b6e3b98536765cae48d503f3",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/layout/ToastOverlay.test.tsx",
+      "candidate_sha256": "57117509627b3a556d246d984ad9e4e1fe49c593379266d885ab89e0e86f1a1a",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/layout/project-guide.ts",
+      "candidate_sha256": "aed84afd82003c70a60ded1ab5940300a957f96bcb77e91ebff147a35b48d7c6",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/components/layout/ProjectStatusBar.tsx",
+      "candidate_sha256": "6220063046d0c1cbeb2021bfc62e72f06823ce3479e3e4708794450e6a839683",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/components/layout/WorkspaceNotificationsDrawer.test.tsx",
+      "candidate_sha256": "f9e178738aa1c1f1dd5800078d52f7ccf94dd05205ab82c45b8fe088ee8026d5",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/layout/StudioLayout.tsx",
+      "candidate_sha256": "962472c5330c99625346823931bd9954eca31e7f4d6799a762a76e80595e8df2",
+      "changed_comments": 30
+    },
+    {
+      "path": "frontend/src/components/layout/workspace-layout.ts",
+      "candidate_sha256": "dc9a4e84bdb6675ec07845fd0dbb2a103cf7b647d9e34e54dc2fc99e4ab4c79f",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.breakdown.test.tsx",
+      "candidate_sha256": "7b3835ec9cb868e53f727a8e292cb10d3ce2f523c412e014901df9c04f1b82e6",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/usage/UsageBreakdownCard.tsx",
+      "candidate_sha256": "061f8bd46e7f600b7a420153b604cb6798d97b9cd44143726b5674937384c43f",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.cancelAll.test.tsx",
+      "candidate_sha256": "79d4784e0530d723059c82edd525c0dbd5ddd39f76a09be73efc9980e39c5b04",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/usage/UsageFilterBar.tsx",
+      "candidate_sha256": "c1d638d423b16037073399beb11a19b8b5727ad35166fe3a9c9b30f9356e4034",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/usage/UsageTrendChart.tsx",
+      "candidate_sha256": "17bd7dd138f75dff373a7b88272cc91dcb223e785fdc157c965c3301d286027a",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/usage/usage-record-view.test.ts",
+      "candidate_sha256": "b2cf9dcd359e0b017cba0828a8eab7fcda6f6903dbc844223a513f5776673a64",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/usage/use-task-cancellation.ts",
+      "candidate_sha256": "9c6ce626a995e663e6df8b2c85ab275acf0d3e1d0e8643a9926fa50110b184d2",
+      "changed_comments": 15
+    },
+    {
+      "path": "frontend/src/components/usage/CancelConfirmDialog.tsx",
+      "candidate_sha256": "9bcca46b5bd185fb849a3de6e6b168cee1a1a82d448217c11a9f07a7347fac40",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/usage/CancelConfirmDialog.test.tsx",
+      "candidate_sha256": "a58f466e002be933b6ab85a8379909c5747d5dc4483e873cab3aed755fc16e26",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordDetailModal.tsx",
+      "candidate_sha256": "50c61e44356d048629690e0baa6443058241d88b6ee01d5baed30d4364a02b64",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.tsx",
+      "candidate_sha256": "9ad1d83141dbc82efdf1adb7c702fc6d98f6e5622090127afcce191dd5c3398f",
+      "changed_comments": 19
+    },
+    {
+      "path": "frontend/src/components/usage/UsagePopover.cancel.test.tsx",
+      "candidate_sha256": "b620268bff9b9a935775d3d3d1461fa62af74791b1dc426af752779c5e009d30",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/usage/RecordRow.test.tsx",
+      "candidate_sha256": "1a10cf1a99fa797b2e569d3723dbb3f355941c1eb44b70f56a59b778420f672c",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/usage/usage-record-view.ts",
+      "candidate_sha256": "b821c3081ed952f4f5c337d545e39049d313046e10eea6ce8ae030fddaf89fdd",
+      "changed_comments": 16
+    },
+    {
+      "path": "frontend/src/components/usage/usage-record-format.ts",
+      "candidate_sha256": "9a85001f1fae85cfe053b63ce22ed29cd36b58b1bf7e074c838b9aa40f19479c",
+      "changed_comments": 22
+    },
+    {
+      "path": "frontend/src/components/usage/UsageSessionsCard.tsx",
+      "candidate_sha256": "ac9aa01d395a1aaf163bfc5654c583898b9b429208b61ac2d4485f6f9fe5ce07",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.trend.test.tsx",
+      "candidate_sha256": "05b927b9563eac37653e7f2fca74ed454f5415c9e38a26d6b305d934c26ebba4",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/usage/RecordRow.tsx",
+      "candidate_sha256": "6ebb8087ed2871f3129333be633be2145b00608b3b3c962088dfb800bcf7ece1",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/usage/usage-record-format.test.ts",
+      "candidate_sha256": "aa1fedf8c6d772c70c914a5abdb017c2f4771ab031241d63c07b8d76386626e2",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/usage/UsagePopover.refresh.test.tsx",
+      "candidate_sha256": "ad4c510cfb6a9d5718d65a3881d0af5a1f9260a8b55c96526771920737a3f489",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.agent.test.tsx",
+      "candidate_sha256": "134be5fc8801dec2cc10103453818ed443db82f65a5564bc7c8df08b2d732d95",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.detail.test.tsx",
+      "candidate_sha256": "0b5f906df98cfd5c7c435e79446a58cc4ef786483ff1e15d137b16c44c333f6a",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/usage/usage-trend.ts",
+      "candidate_sha256": "d46881e2147c868a4bffdbdc290ac47b7e5486ad34e9f96230a22144be64b57e",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.records.test.tsx",
+      "candidate_sha256": "b6efc0b667a05a2742d6b3c14b570cf171bb8a9bb861cdf7fd82ed413efe8e6e",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/components/usage/UsagePopover.test.tsx",
+      "candidate_sha256": "bd980f1975ecd7d6269372409e314ed6dade3f541cfc47450a5bc9fc3e8dc471",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/usage/UsageRecordsSection.filters.test.tsx",
+      "candidate_sha256": "d694786ed107ac8580fca2d887902db83fa0832ddd397e35794247e2b2c3d207",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/usage/usage-trend.test.ts",
+      "candidate_sha256": "5accacc3af9eb399b5ce6ee6bb7a8911ef9282966a9bdde79af5e49512bb014c",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/usage/UsagePopover.tsx",
+      "candidate_sha256": "90b5c679b0062a0984c78537e1aeb60af98d5eab7046378284736fa22c7eb51c",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/components/usage/UsageKpiStrip.test.tsx",
+      "candidate_sha256": "8dcc76f5905428af6ee65794369aa47172c48efde974be5086da70b507340774",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/agent/CredentialsSection.tsx",
+      "candidate_sha256": "1cbd88e59fe697415007c786eeab4c849cd22c1b905454e8d7e88c9f09c01e6c",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/agent/AddCredentialModal.tsx",
+      "candidate_sha256": "f30c6472dd819edb010e76f3a3cd79de520eecbf72c5064704e07f00f2336a1a",
+      "changed_comments": 30
+    },
+    {
+      "path": "frontend/src/components/agent/CredentialTierPricing.tsx",
+      "candidate_sha256": "22bd32eae322ae3f609469876927fdc7bacf07539c162291c2514abd4d7ffe15",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/agent/AddCredentialModal.test.tsx",
+      "candidate_sha256": "6c21723d5a06db7ba425a0d3be3f1364a6a8daf093073e9c3ea71879bc6c5d65",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/components/shared/LayeredModelFields.test.tsx",
+      "candidate_sha256": "6beecf9384d282a4e332267b69f43c97d20dbab2313540999222cb46d8a06250",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/src/components/shared/video-option-meta.ts",
+      "candidate_sha256": "e158406348a3e24cf28808e2019e0574ed6c33f5c0ae7a0826f45ad137995d06",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/shared/model-layers.ts",
+      "candidate_sha256": "30776691cbc0f8df72e7953f92ec410d5a1f953db869a0dc388fa08bb896ae6a",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/shared/PromptPreviewButton.tsx",
+      "candidate_sha256": "565b153eb852d450cb53de6d10c91cadc0e549626e9417b36f472bb824b03465",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/components/shared/ProviderModelSelect.test.tsx",
+      "candidate_sha256": "c3b155deb86af2a7605e0250479c362cef9bceebb23fe89da8d5af024a859cc6",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/PresentationPlayer.tsx",
+      "candidate_sha256": "eb7c794fa463b2a217ebc90424eb34ec76cf807c6cd355d0e52ebb1f3545527d",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/shared/ModelConfigSection.tsx",
+      "candidate_sha256": "08cca8e36d0156a94b27e329873618a63d75992f27f38ce4a89c5f79b4fff7ee",
+      "changed_comments": 73
+    },
+    {
+      "path": "frontend/src/components/shared/LayeredModelFields.tsx",
+      "candidate_sha256": "38504e3ae911fbdd48b392479d9ccc10a27acdd63c5ba1c828c482a39efe4099",
+      "changed_comments": 29
+    },
+    {
+      "path": "frontend/src/components/shared/DraftStatus.tsx",
+      "candidate_sha256": "6e79818237ebc2cd4c5592e8422225b2a4266d993f1487913b3651cf0858cecf",
+      "changed_comments": 15
+    },
+    {
+      "path": "frontend/src/components/shared/CatalogEntryPicker.tsx",
+      "candidate_sha256": "ca1452ac543975abae9dd04d047efc4240a69b9905ac4e2579af17c0269d1aed",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/shared/CopyButton.test.tsx",
+      "candidate_sha256": "5d95a4caf8e0b2052124886c21292034136cad4e281da2f6854e1075fb2e9128",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/EpisodeTargetDurationField.tsx",
+      "candidate_sha256": "7a83b6a5b88d0d7c4cc59750edf89da5a25634f36ad616b3a265611ab4e515fd",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/SpeechRateField.test.tsx",
+      "candidate_sha256": "beb92c69bbc6d0120fa01c4e88700b9f88651969854919d7c5adcc37140d1f06",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/shared/ModelConfigSection.test.tsx",
+      "candidate_sha256": "29bef0ec4a1588a0481de9ef8f34a12fd9e8550932ffb16fe9e87561f8eed79c",
+      "changed_comments": 63
+    },
+    {
+      "path": "frontend/src/components/shared/LazyBoundary.test.tsx",
+      "candidate_sha256": "805faf5dcddbf64b8af3573eb2b64c38ee08b26630166e1a7b6771cd5809349d",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/EpisodeDurationSummary.tsx",
+      "candidate_sha256": "05f2ba863f384de2b5a0793005c11906af5d98c74225ac8a217b4c155c602663",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/shared/ProviderIcon.test.tsx",
+      "candidate_sha256": "412fc512cb90da2e1fc3f36c242bb52aa941f7b44f7fcf2e73a52a0772aa3993",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/episode-item/EpisodeItemRef.tsx",
+      "candidate_sha256": "c1a4eb9b95fa33fa1806709fe551836e4f8ba18887aa3238abdf982cbdb6972a",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/shared/DurationTierPicker.tsx",
+      "candidate_sha256": "819277f395e01b37dda350cbd23e2521f7f8a61c8f5e844e7cb03e412237b47c",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/SpeechRateField.tsx",
+      "candidate_sha256": "2e77da2380d69ca58c107f2ab034785d9d746422770a20bbee08666168d0aa79",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/ProviderModelSelect.tsx",
+      "candidate_sha256": "98cfd1231524b6580298f9277ee78777980fd01828df0aa7c6f40994de24c24d",
+      "changed_comments": 20
+    },
+    {
+      "path": "frontend/src/components/shared/VideoModelSpecBar.tsx",
+      "candidate_sha256": "a4ae967ea53b035217b8c2a6e0731b4cde1a85216f3c73a9b1b377a678f45276",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/shared/ProviderIcon.tsx",
+      "candidate_sha256": "355590f0908ced6a31a79d3c33449b27e20a29672b7cf08e20185011c4b3d3ea",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/LazyBoundary.tsx",
+      "candidate_sha256": "004f4c572bd12039cec6ff9aa0e30d6c5c91042ee59b94f3ed95f8fe183ec0f4",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/TaskElapsedReadout.tsx",
+      "candidate_sha256": "612a9ff805b2bcc5adb2f64439b376112fdc3a323de904f9ec90e7039169dd10",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/TextTierFields.test.tsx",
+      "candidate_sha256": "d714373cece904ea1d46e911a11d2f8054edd74717f1421329f383967a311e93",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/shared/TextTierFields.tsx",
+      "candidate_sha256": "1565419aeaad95cea74e6a63ae6da294e738bced2b688688bb5ebdf1581b75ab",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/src/components/shared/GenerationRouteCards.tsx",
+      "candidate_sha256": "095bb2fe4a3cf81e9d3dcf9201863f68a97e6f1c48c168c596dfa7edd28e286b",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/shared/generation-route-meta.ts",
+      "candidate_sha256": "adf583880b3ef4de4b92315a90a67890fc86e3e98a3a79bbf174d22555b73d8d",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/TruncatedText.test.tsx",
+      "candidate_sha256": "54bb77fcbe1d0855e6fd9537657e0d80464f422095a26810a6448d0c4fe74bce",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/shared/PresentationPlayer.test.tsx",
+      "candidate_sha256": "ec59ab231bad482df5dfe6b5b97bb0b6a0a88e56c41f02ca17cb7a132d1205a2",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/StylePicker.tsx",
+      "candidate_sha256": "4d7a498df9908cd9975390af196ad8dfd2343f663e4fa2ffd8441ff0d904c4a8",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/VideoModelSpecBar.test.tsx",
+      "candidate_sha256": "471b3fff58173367207e6d23a69ad8ba32af4faaef37d5453408f89b42eed26a",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/shared/ScriptHighlight.test.tsx",
+      "candidate_sha256": "685efcd88eb52cc6daef2f4f74da6ac197a879f97e2d8e62b24eb5afe7ebf5c8",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/InlineWarning.tsx",
+      "candidate_sha256": "e6f97599f8f092b250e761fecae4eb4523c6a323781ba5ec8f0beb10e2864a1b",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/TaskElapsedReadout.test.tsx",
+      "candidate_sha256": "4eb84ac285870db90b70abf259c546360c41247f9d765c8c8576c3da3b1f2aa2",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/ModelLifecycleNotice.tsx",
+      "candidate_sha256": "d19de3955d0cebde8e3e3da983db269f0b6d47bd3fcd8740956119dc09149bf7",
+      "changed_comments": 6
+    },
+    {
+      "path": "frontend/src/components/shared/OptionalNumberField.tsx",
+      "candidate_sha256": "a1576ac18dc6a9dd75138237efc0b803ab055d3079f1feae4dcac335303f2e79",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/src/components/shared/master-detail/SecondaryRail.test.tsx",
+      "candidate_sha256": "722542b39aea75e6ff39ee71b81529179ce70999fb4941805bb4ff63187bc77f",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/master-detail/SecondaryRail.tsx",
+      "candidate_sha256": "c00c3e3304c6e15ce09d907a4a064bcd35035c69152e6127eef052598a60d58f",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/components/shared/master-detail/DetailPane.tsx",
+      "candidate_sha256": "9de703d1f17fb418cbdd08916acb3f675fcde1fbabdf6883090b3d23ba3f5acc",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/shared/page-shell/return-to.ts",
+      "candidate_sha256": "e46c6f2db4cd78b2db69e458c7bc39073eafc50926a63e33225fd1ca8a19d292",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/page-shell/return-to.test.tsx",
+      "candidate_sha256": "56efc1b9bc961b508e7fe39c419262f05f98041f2aa4168b590f06310d6bb2b1",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/shared/page-shell/PageShell.tsx",
+      "candidate_sha256": "b4cf9ea4660858ccd49d7b860314045ed98b5d86ed27c8e3708c9697736fdea2",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/shared/page-shell/PageSidebar.tsx",
+      "candidate_sha256": "ddec3ac622e8abdf2c40001fbc2102e0e0d6c9b89209cb1dad13e7c1087b2a66",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/shared/TruncatedText.tsx",
+      "candidate_sha256": "ad574c6f537eea0bf7d45496e3ed3c6156f5652ec357134b420de45a8743147a",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/shared/sortable/SortableList.test.tsx",
+      "candidate_sha256": "72fca53458d8b775a8319c3f10a38210f5d5664dbcb3e0e5d05a374a2aeb0998",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/components/shared/sortable/SortableList.tsx",
+      "candidate_sha256": "07eec8fccb7dc568d0ce9f61eb2b8f613bb78c9ae8dd01e683c68f3301903ab8",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/edit-unit.test.tsx",
+      "candidate_sha256": "1d271530d06efe3343f268470f3361a56c9514e7120791422b8a1baf42ae8de7",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/useEditUnit.ts",
+      "candidate_sha256": "9a1e8ad12cf94df6d75fea4e7c71bee733ba247090bfc39b23d19234b6d0c2e4",
+      "changed_comments": 26
+    },
+    {
+      "path": "frontend/src/components/shared/edit-unit/LeaveGuard.tsx",
+      "candidate_sha256": "30267215046efdecc2c49beb6f0b3ac5b77cb08eddab6d4c6d5c64e3c8afe8ae",
+      "changed_comments": 35
+    },
+    {
+      "path": "frontend/src/components/workflow/problem-views.ts",
+      "candidate_sha256": "84ab774dd095a51c02cdb6d434629ea64819913687953bd53600aa0585ffd796",
+      "changed_comments": 17
+    },
+    {
+      "path": "frontend/src/components/workflow/step-list.ts",
+      "candidate_sha256": "0e6dd10f8742a0ad80f04d4ddce2f9046fe01ab1da1bc9d2eee05d2002727b01",
+      "changed_comments": 42
+    },
+    {
+      "path": "frontend/src/components/workflow/TaskChips.tsx",
+      "candidate_sha256": "b1a961eb948d26156d7a2153656df0ec138acee6e07e26e878075146818d6c46",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/workflow/BatchAdmissionSummary.tsx",
+      "candidate_sha256": "8a223778509904121c74020a07feef6c95698053c9db1468d672bcec27db583d",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/workflow/problem-views.test.ts",
+      "candidate_sha256": "46af60726ad92faaf15490da86726ce048209447613d291ab68a63247e6b1203",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/workflow/StepListRow.tsx",
+      "candidate_sha256": "30d9b32f59c34d7c10a87b084f53e8005bbe5d6bcf846004aa6ceba56cbe39cf",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/components/workflow/action-language.test.ts",
+      "candidate_sha256": "bfd0c15609a0ee7ad11e547980971f4d8472a256b37f2a08a5725d5e7ad6215e",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/workflow/WorkflowPanel.test.tsx",
+      "candidate_sha256": "51edba9cbaf1da9fa72437665328256af16649800088215cfa36ee8ec0ad2eef",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/src/components/workflow/WorkflowPanel.tsx",
+      "candidate_sha256": "bded032d1f881595927dd4432920e067dda9f10428088e2b1a13a19a707bb454",
+      "changed_comments": 17
+    },
+    {
+      "path": "frontend/src/components/workflow/StaleArtifacts.tsx",
+      "candidate_sha256": "3befd8910015ac1f68954c3cd2c86ca9c863b3eb07defde1b01930bc0827ec3a",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/workflow/StepActButton.tsx",
+      "candidate_sha256": "bd3e3826c364f23ef38417f2b6f027ec7fcddba3397d8266c04e9db50c016c95",
+      "changed_comments": 4
+    },
+    {
+      "path": "frontend/src/components/agent-memory/memory-files.ts",
+      "candidate_sha256": "a035ae3b594654d21318105a7c474d8afde81a73303119cc896cfab33becd5d8",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/agent-memory/AgentMemorySection.test.tsx",
+      "candidate_sha256": "c84e1fceec1f3df526b23ea020a601b70ed76aaeaac2b2657a98abb490310d3e",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/agent-memory/MemoryWorkspace.tsx",
+      "candidate_sha256": "9953825d3bb922e07229ef2cce50c6b05e369b478f1d46d97311697449af4ec0",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/components/agent-memory/MemoryFileEditor.tsx",
+      "candidate_sha256": "0cde4aa0681af98af51dc758b9ce7a554bbc7d8a634f09c8e6c7b652a7b61b2d",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/components/assets/ProviderAssetUploadDialog.tsx",
+      "candidate_sha256": "62a6ab2b8649d6ae2b836d5c545bea498eff746aae09aa969a71d2567eed37ce",
+      "changed_comments": 10
+    },
+    {
+      "path": "frontend/src/components/assets/AssetDetailSheet.tsx",
+      "candidate_sha256": "77425f9860f2a62cd2fd02c4510e653e58d01c99eb8b6b3ccbce0606ee830e0b",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/components/assets/ProviderAssetBrowserDialog.test.tsx",
+      "candidate_sha256": "2f278cf478b4fec3a7f27b13650aec77280c009af52a8814a41cd5191ebd61a7",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/assets/useAssetPages.ts",
+      "candidate_sha256": "22074a240955f143bb333886f0eab2b35684c2556361a0a09487be13760768d7",
+      "changed_comments": 18
+    },
+    {
+      "path": "frontend/src/components/assets/AddToLibraryDialog.tsx",
+      "candidate_sha256": "f5eb002ce25b547c276c4034dab40f684646c4500106bd70b9be4efcc2adc0bf",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/components/assets/ProviderAssetUploadDialog.test.tsx",
+      "candidate_sha256": "3de01a5801382ff33cbfcfdc3b94a3b3a23b54a8a8d45f4d6c4a7cced1f82b7e",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/components/assets/AddToLibraryDialog.test.tsx",
+      "candidate_sha256": "fa8d7b2a97e7e2d86acfe3dff5475525dfe422f106913add62d8cf05d0269a50",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/components/assets/ProviderAssetBrowserDialog.tsx",
+      "candidate_sha256": "39ab6cad71ec065028096bd04f1f13a71cfff7cd869c667220b76b2e85e5eac3",
+      "changed_comments": 11
+    },
+    {
+      "path": "frontend/src/router.tsx",
+      "candidate_sha256": "5baea442301b78e1e9cdefaf9de5a1cddc395530083c6dbf0f7c6507633f79c2",
+      "changed_comments": 32
+    },
+    {
+      "path": "frontend/src/api/errors.ts",
+      "candidate_sha256": "eee89c007cd73004287a20824731b960faf2523d6a593dee3d5d9fab3f52b0b7",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/api/types.ts",
+      "candidate_sha256": "dd475e9ae6e70f7d1b69793def8ac0fbd85207d18098dd8529b1af5b120d3f7b",
+      "changed_comments": 37
+    },
+    {
+      "path": "frontend/src/api/transport.ts",
+      "candidate_sha256": "23e69fa24ae7018cdf9ad7c1181dd3a3efa333cb10150e5ee2c5efbabaff911a",
+      "changed_comments": 19
+    },
+    {
+      "path": "frontend/src/i18n/vi/dashboard.ts",
+      "candidate_sha256": "a02fa019c17ca5317b3cfae3b285c32d2d820433bfecf9f7dc1382d939b03e79",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/i18n/locale-wording.test.ts",
+      "candidate_sha256": "e0ef1f4b338a2672641f3aeb2be2d4275a2f998ece4f04f3b0ebad6e0cf8b83c",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/i18n/ru/dashboard.ts",
+      "candidate_sha256": "7ecd8a2c4eea3ac6bf2e779e1deacb59aaeccb0151c2c8f1261bb615c51e85aa",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/i18n/types.ts",
+      "candidate_sha256": "545072e30347508d68e23c41f5c3ce69179ab585f288f13d3bd9f7dd56d0f80c",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/i18n/zh/workflow.ts",
+      "candidate_sha256": "8927d77269c666948357b611fd4de14a730892becbb643b4612c179e1e0af54e",
+      "changed_comments": 7
+    },
+    {
+      "path": "frontend/src/i18n/zh/errors.ts",
+      "candidate_sha256": "4886a1035bc47cd1d2106911adb595d6aefdf1d5d2c7bbcf54dd79a4521172ac",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/i18n/zh/dashboard.ts",
+      "candidate_sha256": "fd819b6bed38f392a139ae7612e153b14ae0ce242f9c8a0662aa57d2b43ce5ff",
+      "changed_comments": 35
+    },
+    {
+      "path": "frontend/src/i18n/zh/onboarding.ts",
+      "candidate_sha256": "f5a2a7044fe29da5b7d3e4a08b6bf91e02f3d02bb801ab91757a9a8113a4a691",
+      "changed_comments": 12
+    },
+    {
+      "path": "frontend/src/i18n/en/dashboard.ts",
+      "candidate_sha256": "9b7eb8234c3c506a498f804c4eabcbf14202bc3219154a2841a1833169d0b119",
+      "changed_comments": 8
+    },
+    {
+      "path": "frontend/src/api.enqueue-methods.test.ts",
+      "candidate_sha256": "21b03d1db9ee72c24593fa58c214c4014fe1df41863f36fc68e918a664b26c47",
+      "changed_comments": 3
+    },
+    {
+      "path": "frontend/src/api.test.ts",
+      "candidate_sha256": "7ec43c8e6a021b0f451599025b71690de8daacd92fdda9dd66e36473035ba667",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/onboarding/demo-project.test.ts",
+      "candidate_sha256": "faebbc0697a58aaae282cb34b4dd67248401e57313a796cf87eaa36901fee408",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/onboarding/OnboardingDemoCard.tsx",
+      "candidate_sha256": "68b67487dc141e5fc0e971d1579d08c731ff470e029afa01f3a907ec882facdd",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/onboarding/OnboardingTour.tsx",
+      "candidate_sha256": "0149520e5203f2a152f47c32919294ec162575c5fb6f8f3875c21819f0f5af2a",
+      "changed_comments": 52
+    },
+    {
+      "path": "frontend/src/onboarding/tour.ts",
+      "candidate_sha256": "c975066c58c82e93c079c51ec55a7129b9ad0a8bca8c72297829b2ac4065ae6d",
+      "changed_comments": 56
+    },
+    {
+      "path": "frontend/src/onboarding/read-only-mode.test.ts",
+      "candidate_sha256": "fa7dffba81c7f2efc1120764acc2c3c3cd340b8b3d3afd071d441ac2a61f9ce5",
+      "changed_comments": 14
+    },
+    {
+      "path": "frontend/src/onboarding/use-demo-workbench.ts",
+      "candidate_sha256": "6cb6b61cadb178e03bafbdf48d1c9ed207ec1fd70981620e4feea5f5fa235c68",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/onboarding/demo-project.ts",
+      "candidate_sha256": "86789621f82bbf6183b22b20823a2a812b2f8fc11d06172f9e572396bff611b6",
+      "changed_comments": 18
+    },
+    {
+      "path": "frontend/src/onboarding/anchors.test.tsx",
+      "candidate_sha256": "4e3bafca3ce89c961bcdb815c4c5dbd7a901669733e4df11bb49c4a98545711f",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/onboarding/DemoAssistantPanel.tsx",
+      "candidate_sha256": "2ad38981625ea9a465c6656e8aeb15fc6177ce10972c5d6687b52e2dba85b1ed",
+      "changed_comments": 5
+    },
+    {
+      "path": "frontend/src/onboarding/anchors.ts",
+      "candidate_sha256": "73d22982c7e95ff035de8fddf451cf5b7ef233082fef9c51355931b289fd39ca",
+      "changed_comments": 1
+    },
+    {
+      "path": "frontend/src/onboarding/DemoAssistantPanel.test.tsx",
+      "candidate_sha256": "38b9748109326cddbade2af1cc2b7d06d092652a0df2b8af5bb5ea31f2f746f6",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/onboarding/steps.test.ts",
+      "candidate_sha256": "f86508ab2538117b42aa37a0ddd4481ec83a3ffbf5cb71a00379bbb9a7b7d0aa",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/onboarding/tour.test.ts",
+      "candidate_sha256": "79ceb0b2cd76aee6aba42438c0f4885b91def378898885cf664fa90a0292d968",
+      "changed_comments": 29
+    },
+    {
+      "path": "frontend/src/onboarding/demo-placeholder.ts",
+      "candidate_sha256": "e01ea444a745525d278dba8b73dc3963dbf091ce5a1a10b5e899f4fa5b856d40",
+      "changed_comments": 9
+    },
+    {
+      "path": "frontend/src/onboarding/OnboardingTour.test.tsx",
+      "candidate_sha256": "17b466745bacec47b36f532d87034b0c091b38150955d2621ab90abed79569ec",
+      "changed_comments": 40
+    },
+    {
+      "path": "frontend/src/onboarding/use-demo-workbench.test.tsx",
+      "candidate_sha256": "fedc4cd2ac83f23cb5b1c4f7a5170862af8a8a75dcb8f9986a040686dd4d343a",
+      "changed_comments": 2
+    },
+    {
+      "path": "frontend/src/onboarding/steps.ts",
+      "candidate_sha256": "f8d027e54c8ee8ff4fd8ed324144030be97130386f1961c7fa9783c4a388683a",
+      "changed_comments": 13
+    },
+    {
+      "path": "frontend/src/app-routes.ts",
+      "candidate_sha256": "6477dbeaf55034e55ac2362166012f804ca929461aa126bfccb29cf64b60d5c7",
+      "changed_comments": 18
+    }
+  ],
+  "independent_review": "frontend-remaining-independent-review.json"
+}

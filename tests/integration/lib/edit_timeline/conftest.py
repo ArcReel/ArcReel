@@ -1,4 +1,4 @@
-"""剪辑时间线服务测试共用的真实临时项目与 current 媒体登记。"""
+"""Shared real temporary projects/current-media registration for timeline service tests."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from tests.factories import make_test_video, wav_bytes
 
 @pytest.fixture
 def pm(tmp_path: Path) -> ProjectManager:
-    """参考生视频项目，第 1 集依次为台词单元 E1U1、画外音单元 E1U2、无人声单元 E1U3，编排时长各 4 秒。"""
+    """Reference-video project: episode 1 has dialogue E1U1, voiceover E1U2, silent E1U3, each arranged for 4 seconds."""
     manager = ProjectManager(str(tmp_path / "projects"))
     manager.create_project("demo")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -51,7 +51,7 @@ def service(pm: ProjectManager) -> EditTimelineService:
 
 
 def _install_media(pm: ProjectManager, resource_type: str, unit_id: str, source: Path) -> None:
-    """登记一个新的 current 版本，并把它放到正式路径上。"""
+    """Register a new current version and place it at the formal path."""
     project_path = pm.get_project_path("demo")
     VersionManager(project_path).add_version(resource_type, unit_id, "prompt", source_file=source)
     target = project_path / resource_relative_path(resource_type, unit_id)
@@ -61,7 +61,7 @@ def _install_media(pm: ProjectManager, resource_type: str, unit_id: str, source:
 
 @pytest.fixture
 def install_video(pm: ProjectManager, tmp_path: Path) -> Callable[[str, float], None]:
-    """为视频单元登记一个指定时长的新 current 视频版本。"""
+    """Register a new current unit-video version with specified duration."""
     counter = iter(range(1, 1_000))
 
     def install(unit_id: str, seconds: float) -> None:
@@ -74,7 +74,7 @@ def install_video(pm: ProjectManager, tmp_path: Path) -> Callable[[str, float], 
 
 @pytest.fixture
 def three_clips(install_video: Callable[[str, float], None]) -> None:
-    """E1U1、E1U2、E1U3 各登记一个视频，时长依次 1、1.5、0.5 秒，按脚本新建的时间线共 3 秒。"""
+    """Register E1U1/E1U2/E1U3 videos lasting 1/1.5/0.5 seconds; script-derived timeline totals 3 seconds."""
     install_video("E1U1", 1.0)
     install_video("E1U2", 1.5)
     install_video("E1U3", 0.5)
@@ -82,7 +82,7 @@ def three_clips(install_video: Callable[[str, float], None]) -> None:
 
 @pytest.fixture
 def install_narration(pm: ProjectManager, tmp_path: Path) -> Callable[[str, float], None]:
-    """为视频单元登记一个指定时长的 current 旁白配音。"""
+    """Register current narration audio with specified duration for a video unit."""
 
     def install(unit_id: str, seconds: float) -> None:
         source = tmp_path / "media" / f"{unit_id}.wav"

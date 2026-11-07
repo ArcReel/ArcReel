@@ -1,8 +1,7 @@
-"""供应商素材库 API：控制面账号、与推理凭证的显式绑定，以及只读的素材浏览。
+"""Provider asset-library API: control-plane accounts, explicit bindings to inference credentials, and read-only asset browsing.
 
-控制面凭证只经本接口写入，读取返回掩码；控制面请求只发往站点登记的官方主机。浏览只列出供应商素材的
-名称、类型与可用状态，不下发供应商的签名下载地址，也不导入任何素材。
-"""
+Only these endpoints write control-plane credentials; reads return masked values. Control-plane requests go only to registered
+official site hosts. Browsing lists asset names, types and availability, without signed provider download URLs or importing assets."""
 
 from __future__ import annotations
 
@@ -72,7 +71,7 @@ class CreateAccountRequest(BaseModel):
 
 
 class UpdateAccountRequest(BaseModel):
-    """省略的字段保持不变；两个密钥字段留空表示保留已保存的值。"""
+    """Omitted fields remain unchanged; leaving either secret field empty preserves its stored value."""
 
     name: _Name | None = None
     site: AssetLibrarySite | None = None
@@ -132,7 +131,7 @@ async def _get_account_or_404(repo: AssetLibraryRepository, account_id: int) -> 
     return account
 
 
-# ── 账号 ──────────────────────────────────────────────────────────
+# ── Accounts ──────────────────────────────────────────────────────────
 
 
 @router.get("/accounts", response_model=AccountListResponse)
@@ -167,7 +166,7 @@ async def create_account(
 async def update_account(
     account_id: int, body: UpdateAccountRequest, session: AsyncSession = Depends(get_async_session)
 ) -> AccountResponse:
-    """修改账号。站点、区域、项目或 Access Key ID 变化后，该账号上的绑定都需要重新确认。"""
+    """Update an account. Changes to site, region, project or Access Key ID require reconfirming all its bindings."""
     account = await _get_account_or_404(AssetLibraryRepository(session), account_id)
     if body.name is not None:
         account.name = body.name
@@ -187,7 +186,7 @@ async def update_account(
 
 @router.delete("/accounts/{account_id}", status_code=204)
 async def delete_account(account_id: int, session: AsyncSession = Depends(get_async_session)) -> Response:
-    """删除账号与它上面的全部绑定；不影响供应商素材库里的任何素材。"""
+    """Delete the account and all its bindings, without affecting assets in the provider library."""
     repo = AssetLibraryRepository(session)
     account = await _get_account_or_404(repo, account_id)
     await repo.delete_account(account)
@@ -195,12 +194,12 @@ async def delete_account(account_id: int, session: AsyncSession = Depends(get_as
     return Response(status_code=204)
 
 
-# ── 绑定 ──────────────────────────────────────────────────────────
+# ── Bindings ──────────────────────────────────────────────────────────
 
 
 @router.get("/bindings", response_model=BindingListResponse)
 async def list_bindings(session: AsyncSession = Depends(get_async_session)) -> BindingListResponse:
-    """全部可绑定的推理凭证及其当前绑定状态。"""
+    """All bindable inference credentials and their current binding states."""
     views = {(v.credential.credential_type, v.credential.credential_id): v for v in await list_binding_views(session)}
     items: list[BindableCredentialResponse] = []
     for credential in await list_bindable_credentials(session):
@@ -226,7 +225,7 @@ async def put_binding(
     body: ConfirmBindingRequest,
     session: AsyncSession = Depends(get_async_session),
 ) -> BindingInfo:
-    """按推理凭证与账号的当前内容确认绑定；重新确认与改绑都走这里。"""
+    """Confirm a binding using current inference-credential and account contents; reconfirmation and rebinding use the same endpoint."""
     credential = await get_bindable_credential(session, credential_type, credential_id)
     if credential is None:
         raise NotFoundError("asset_library_credential_not_found")
@@ -249,7 +248,7 @@ async def delete_binding(
     return Response(status_code=204)
 
 
-# ── 浏览 ──────────────────────────────────────────────────────────
+# ── Browsing ──────────────────────────────────────────────────────────
 
 
 @router.get("/accounts/{account_id}/assets", response_model=ProviderAssetListResponse)
@@ -259,5 +258,5 @@ async def browse_assets(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderAssetListResponse:
-    """按账号的站点、区域与项目范围分页列出供应商素材库里的素材。"""
+    """Page through provider-library assets within the account’s site, region and project scope."""
     return await browse_provider_assets(session, account_id=account_id, page=page, page_size=page_size)

@@ -1,1 +1,1 @@
-本集成片目标时长约 {{ episode_target_duration }} 秒：据此决定本集的单元数与拆分粒度，让各单元时长合计向该目标靠拢。这是软目标、不是硬上限：不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节
+The target finished duration of this episode is approximately {{ episode_target_duration }} seconds: use it to decide the number of units and splitting granularity so their durations sum toward this target. This is a soft target, not a hard upper bound: do not pad or fragment content to fill it, and do not remove necessary plot to fit it

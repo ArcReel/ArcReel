@@ -74,9 +74,10 @@ def _write_artifact(project_path: Path, relative_path: str) -> None:
 
 
 def _register_produced_artifacts(project_path: Path) -> None:
-    """把已落盘的产物按规范目标态补录进产物清单。
+    """Adopt on-disk artifacts into the manifest according to canonical target states.
 
-    产物清单是读取已生成产物的唯一口径，落盘本身不代表已登记；这里走的是生产的补录路径。
+    The artifact manifest is the sole read authority for generated artifacts; disk presence alone
+    does not establish registration. Exercise the production adoption path here.
     """
     activate_artifact_target_state(project_path, bump_schema=False)
 
@@ -88,9 +89,10 @@ def _write_registered_script(
     episode: int = 1,
     filename: str = "episode_1.json",
 ) -> None:
-    """写剧本并登记认领——落盘本身不进读取口径，未登记的剧本一律按 missing 处理。
+    """Write and claim a script; disk presence alone is not readable, and unregistered scripts are always missing.
 
-    剧集剧本的取证以 script_plan 为输入，故一并登记 script_plan（广告/短片无 script_plan，登记为不可取证即跳过）。
+    Episode-script evidence takes script_plan as input, so register script_plan too (ads/short films
+    have none; register as unverifiable and skip).
     """
     atomic_write_json(project_path / "scripts" / filename, script)
     register_current_artifact_if_provable(project_path, ArtifactKey.episode_script_plan(episode))
@@ -98,7 +100,7 @@ def _write_registered_script(
 
 
 def _register_script_plan(project_path: Path, episode: int = 1) -> None:
-    """把已落盘的 script_plan 登记认领——script_plan 同样只按产物清单读取。"""
+    """Claim an on-disk script_plan; script_plan also reads only through the artifact manifest."""
     register_current_artifact(project_path, ArtifactKey.episode_script_plan(episode))
 
 
@@ -108,9 +110,9 @@ def _edit_claimed_script(
     *,
     filename: str = "episode_1.json",
 ) -> None:
-    """把一份已登记认领的剧本在盘上改成 payload（外部编辑造成的脏数据）。
+    """Modify a claimed script on disk to payload, simulating dirty data from external edits.
 
-    未登记的文件根本不进读取口径，所以脏数据要能被观察到，必须先有认领。
+    Unregistered files are never read; dirty data requires an existing claim to be observable.
     """
     path = project_path / "scripts" / filename
     if isinstance(payload, str):
@@ -120,16 +122,17 @@ def _edit_claimed_script(
 
 
 def _write_episode_source(project_path: Path, episode: int = 1, text: str = "原文") -> None:
-    """写分集原文——script_plan 的取证以它为输入，缺了 script_plan 就无法登记。"""
+    """Write episode source text; script_plan evidence takes it as input and cannot register without it."""
     path = project_path / "source" / f"episode_{episode}.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
 
 def _commit_media_version(project_path: Path, resource_type: str, resource_id: str) -> str:
-    """按规范路径落一个媒体产物并提交版本记录，返回项目内相对路径。
+    """Write a media artifact at its canonical path and commit its version record; return a project-relative path.
 
-    视频 / 旁白配音的清单取证只认版本记录里的执行事实，落盘文件本身不构成证据。
+    Video/voiceover manifest evidence accepts only execution facts from version records; the
+    on-disk file alone is not evidence.
     """
     relative = resource_relative_path(resource_type, resource_id)
     current = project_path / relative
@@ -164,7 +167,7 @@ def _commit_audio_version(
     episode: int = 1,
     script_file: str = "episode_1.json",
 ) -> str:
-    """按 TTS 执行事实提交一条旁白配音版本记录，返回项目内相对路径。"""
+    """Commit a voiceover version record with TTS execution facts; return a project-relative path."""
     preparation = admit_script_unit(skeleton_kind, item).preparation
     basis = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, _TTS_SETTINGS))
     relative = resource_relative_path("audio", resource_id)
@@ -190,7 +193,7 @@ def _commit_audio_version(
 
 
 def _complete_episode_media(project_path: Path, resource_id: str = "E1S01") -> dict[str, str]:
-    """落齐一个分镜的分镜图与视频（含版本记录），返回可写进 generated_assets 的指针。"""
+    """Create one storyboard’s image and video, including version records; return pointers suitable for generated_assets."""
     storyboard = resource_relative_path("storyboards", resource_id)
     _write_artifact(project_path, storyboard)
     return {
@@ -349,7 +352,7 @@ def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) ->
 
 
 def test_own_source_episodes_route_to_script_plan_without_episode_planning(tmp_path: Path) -> None:
-    """逐集登记自带原文、没有整本源文的项目：直达本集脚本规划，不经分集规划，也不先提取资产清单。"""
+    """Projects registering episodes with their own source text and no whole-book source go straight to episode script planning, bypassing episode planning and initial asset extraction."""
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     register_project_sources(pm, "demo", own_episodes=tuple(f"第{number}集原文" for number in (1, 2, 3)))
     project_file = project_path / "project.json"
@@ -369,9 +372,10 @@ def test_own_source_episodes_route_to_script_plan_without_episode_planning(tmp_p
 
 
 def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path: Path) -> None:
-    """逐集登记自带原文的项目没有整本源文与源文指纹（从未走过分集规划），产物齐备时照样进入剪辑。
+    """Per-episode source projects have no whole-book source/fingerprint (episode planning never ran); complete artifacts still advance to editing.
 
-    没有待排布的整本源文；「源文尚未排布完」的口径对它不成立，不得把做完的集打回分集规划。
+    No whole-book source awaits allocation; the unallocated-source condition does not apply and
+    must not send completed episodes back to episode planning.
     """
     pm, project_path = _make_project(tmp_path, "narration")
     assert register_project_sources(pm, "demo", own_episodes=("第一集原文",)) == [1]
@@ -398,7 +402,7 @@ def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path:
 
 
 def test_unregistered_episode_files_do_not_become_episodes(tmp_path: Path) -> None:
-    """直接放进 source/ 的 episode_N.txt 没有登记，读状态与项目列表都不把它们当成集，project.json 不动。"""
+    """Unregistered episode_N.txt files placed directly in source/ count as episodes in neither status nor project lists; leave project.json unchanged."""
     pm, project_path = _make_project(tmp_path, "narration")
     _write_episode_source(project_path, 1, "第一集原文")
     _write_episode_source(project_path, 2, "第二集原文")
@@ -466,7 +470,7 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
     )
     status = WorkflowStateService(pm).get_status("demo")
 
-    # 越界指针是硬阻断（不是「当作没生成」），项目内但未登记的指针才是 missing。
+    # Out-of-bounds pointers block hard, not merely count as ungenerated; only in-project unregistered pointers are missing.
     assert status.artifacts["storyboards"]["state"] == "blocked"
     assert status.artifacts["storyboards"]["current_ids"] == []
     assert [blocker.code for blocker in status.issues] == ["artifact_path_invalid"]
@@ -534,7 +538,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     _register_produced_artifacts(project_path)
     video = service.get_status("demo")
     assert video.next_action.type == "generate_videos"
-    # 剪辑的准入：本集至少有一个可用视频。
+    # Editing admission requires at least one available video in this episode.
     assert video.operations["create_edit_timeline"].model_dump(mode="json") == {
         "state": "refused",
         "reason": "no_available_video",
@@ -543,8 +547,8 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     script["segments"][0]["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
-    # 视频齐备后进入剪辑：本集还没有剪辑时间线，下一步是新建剪辑时间线。
-    # 后期配音项目不报旁白配音缺口。
+    # With videos complete, advance to editing; no editing timeline exists yet, so the next step creates one.
+    # Post-production dubbing projects report no voiceover gaps.
     editing = service.get_status("demo")
     assert editing.next_action.type == "create_edit_timeline"
     assert editing.next_action.args == {"episode_id": 1}
@@ -565,7 +569,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     assert ready.content is not None
     assert ready.content.episode_complete
 
-    # 剪辑时间线目录读不了时停在「剪辑」一步并报 issue，不让整个状态查询失败。
+    # An unreadable editing-timeline directory stays at editing and reports an issue without failing the whole status query.
     if os.geteuid() != 0:
         edit_root = project_path / "edit_timelines"
         edit_root.chmod(0)
@@ -580,7 +584,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
         assert unreadable.blockers == []
         assert [issue.code for issue in unreadable.issues] == ["invalid_edit_timelines"]
 
-    # 已有一条可用时间线，另一条文件损坏时同样停在「剪辑」一步并报 issue。
+    # One available timeline plus another corrupt file likewise stays at editing and reports an issue.
     corrupt = project_path / "edit_timelines" / "episode_1" / "tl-0000beef.json"
     corrupt.write_text("{", encoding="utf-8")
     try:
@@ -606,7 +610,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     )
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
-    # 缺旁白配音只在 TTS 配音项目的 artifacts["audio"] 里如实报告，不推进状态机。
+    # Missing voiceovers are reported truthfully only in TTS-dubbing projects’ artifacts["audio"], without advancing the state machine.
     still_ready = service.get_status("demo")
     assert workflow_finished(still_ready)
     assert still_ready.artifacts["audio"]["current_ids"] == ["E1S01"]
@@ -620,11 +624,11 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
 
 
 def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path: Path, monkeypatch) -> None:
-    """旁白配音只作为信息报告，不参与状态推进：即便 Manifest 判定该条 TTS 状态不可读
-    （BLOCKED），也不能让它借道共享 blockers 列表拦住剪辑——视频齐备时下一步仍是新建
-    剪辑时间线，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
-    narration_audio 键抛错的假 resolver 隔离验证，不牵扯 script_plan/script Manifest 激活的
-    全套前置状态。"""
+    """Voiceovers are informational only, never state-transition inputs: even if Manifest marks this TTS state unreadable
+    (BLOCKED), it must not enter shared blockers and prevent editing. With videos complete, the next step
+    still creates an editing timeline; report unreadability only through artifacts["audio"]["state"].
+    Isolate this with a fake resolver throwing only for narration_audio, without the full prerequisite
+    states for activating script_plan/script Manifest entries."""
     from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -674,7 +678,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
     atomic_write_json(script_path, script)
 
     class _AudioBlockedResolver:
-        """narration_audio 键 compare 抛错（BLOCKED），其余键一律 current。"""
+        """compare raises for narration_audio (BLOCKED); every other key is current."""
 
         def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
             if key == ArtifactKey.episode_audio(1, "E1S01"):
@@ -734,9 +738,9 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
 def _one_complete_episode(
     pm: ProjectManager, project_path: Path, *, source_end: int | None = None, **segment_overrides: object
 ) -> None:
-    """单集项目：整本源文切出第一集（``source_end`` 为切到的位置，缺省切完），脚本、分镜图与视频齐全。
+    """Single-episode project: whole-book source yields episode one (``source_end`` is the cut position, defaulting to all); script/storyboards/videos are complete.
 
-    ``segment_overrides`` 改写那一个分镜的字段。
+    ``segment_overrides`` replaces fields on its one storyboard.
     """
 
     source_text = "完整原文"
@@ -789,7 +793,7 @@ def test_project_is_complete_once_every_episode_has_an_edit_timeline_and_no_sour
     assert project.next_action.type == "none"
     assert project.content is not None
     assert project.content.project_complete
-    # 按集查询只陈述这一集，项目是否全部完成不在集的口径里。
+    # Episode queries describe only that episode; whole-project completion is outside their scope.
     episode = service.get_status("demo", episode=1)
     assert episode.content is not None
     assert episode.content.episode_complete
@@ -797,7 +801,7 @@ def test_project_is_complete_once_every_episode_has_an_edit_timeline_and_no_sour
 
 
 def test_episode_with_videos_and_an_edit_timeline_is_complete_despite_in_episode_suggestions(tmp_path: Path) -> None:
-    """一集完成只看视频齐全与剪辑时间线：待编写条目与缺资产图仍作为集内建议的下一步，但不拦完成。"""
+    """Episode completion depends only on complete videos and editing timelines; pending entries/missing asset sheets remain suggested episode steps but do not block completion."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     pm.add_character("demo", "小明", "红衣")
@@ -837,7 +841,7 @@ def test_completed_episodes_with_source_remaining_are_not_a_complete_project(tmp
 
 
 def test_edit_timelines_are_stated_before_the_videos_are_complete(tmp_path: Path) -> None:
-    """剪辑时间线只陈述本类内容：视频后来又缺了，已有的剪辑时间线照样列出，下一步回到补视频。"""
+    """Editing timelines describe their own content only: if videos later become missing, list existing timelines and return the next step to filling video gaps."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     _one_complete_episode(pm, project_path)
@@ -853,7 +857,7 @@ def test_edit_timelines_are_stated_before_the_videos_are_complete(tmp_path: Path
 
 
 def _create_edit_timeline(pm: ProjectManager, episode: int = 1) -> str:
-    """按脚本机械新建一条剪辑时间线，让该集走完「剪辑」一步。"""
+    """Mechanically create an editing timeline from the script, completing the episode’s editing step."""
 
     readout = asyncio.run(
         EditTimelineService(pm).create_from_script(
@@ -864,7 +868,7 @@ def _create_edit_timeline(pm: ProjectManager, episode: int = 1) -> str:
 
 
 def _count_source_reads(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> dict[str, int]:
-    """记录 ``source/`` 直下每份源文被读取的次数，字节与文本两条读法都算。"""
+    """Count reads of every source file directly under ``source/``, including byte and text reads."""
 
     counts: dict[str, int] = {}
     source_dir = (project_path / "source").resolve()
@@ -893,7 +897,7 @@ def _count_source_reads(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> 
 
 
 def test_status_reads_each_source_file_exactly_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """修订号计算与分集排布共用同一次读取；源文越多，重复读的代价越大。"""
+    """Revision computation shares reads with episode allocation; more sources increase the cost of duplicate reads."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     register_project_sources(pm, "demo", whole_source={"novel.txt": "第一份原文", "extra.md": "第二份原文"})
@@ -908,7 +912,7 @@ def test_status_reads_each_source_file_exactly_once(tmp_path: Path, monkeypatch:
 def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, segment_overrides: dict
 ) -> None:
-    """跨集选择跳过已完成的集；集内还有待编写条目不影响它已完成。"""
+    """Cross-episode selection skips completed episodes; pending entries within an episode do not undo its completion."""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
@@ -955,8 +959,8 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    # 整本源文仍只读一次；自带原文的集的集文件计入源文修订号读一次，另被「本集有集原文」这条准入事实
-    # 读一次、比对 script_plan 基线时读一次。
+    # Whole-book sources are still read only once. Per-episode source files are read once for source revision, once for the
+    # admission fact that the episode has its source text, and once when comparing the script_plan baseline.
     assert source_reads == {"novel.txt": 1, "episode_1.txt": 3}
     assert status.target is not None
     assert status.target.episode == 2
@@ -964,7 +968,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
 
 
 def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
-    """集规划状态为 stale 的集只在现状里陈述，不进建议的下一步。"""
+    """Episodes with stale planning state appear only in current-status descriptions, not suggested next steps."""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
@@ -1009,7 +1013,7 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     assert first.content is not None
     assert first.content.episode_complete
 
-    # 其余集都完成时，默认视图停在待重建的 stale 集上陈述现状，不报全部完成。
+    # When all other episodes are done, default view describes the stale episode awaiting rebuild, without claiming everything complete.
     status = service.get_status("demo")
     assert status.target is not None
     assert status.target.episode == 2
@@ -1026,7 +1030,7 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
 
 
 def test_episode_next_steps_follow_the_ledger_and_match_the_per_episode_status(tmp_path: Path) -> None:
-    """逐集清单按账本顺序给出每一集的下一步，与按集查询的制作状态相同。"""
+    """Per-episode lists provide each episode’s next step in ledger order, matching episode-specific production status."""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
@@ -1135,7 +1139,7 @@ def test_requested_missing_episode_is_an_issue_not_a_blocker(tmp_path: Path) -> 
 
 
 def _cut_whole_source(pm: ProjectManager, project_path: Path, source_file: str, end: int) -> None:
-    """账本切出一集覆盖 ``source_file`` 的 ``[0, end)``，并记下参与源文的指纹。"""
+    """The ledger allocates one episode covering ``source_file`` range ``[0, end)`` and records participating source fingerprints."""
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -1540,7 +1544,7 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
 def _confirmed_narration_project_with_script(
     tmp_path: Path, plan_segments: list[dict], script_segments: list[dict]
 ) -> tuple[ProjectManager, Path, str]:
-    """造一个 script_plan 已确认、剧本已登记的 narration 项目，返回整集 script_plan 指纹。"""
+    """Create a narration project with confirmed script_plan and registered script; return the whole-episode script_plan fingerprint."""
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source(pm, project_path)
     pm.update_project(
@@ -1930,7 +1934,7 @@ def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(
     still_pending = service.get_status("demo", 1)
     assert still_pending.content is not None
     assert still_pending.content.episode_plan_stale is True
-    # 制作计划给出带前缀的 revision，原样回传即可；早先拿到的裸 hex 写法同样被接受。
+    # Production plans supply a prefixed revision; return it unchanged. Previously obtained bare-hex forms are also accepted.
     expected = before.content.expected_stale_script_plan_revision
     assert expected is not None
     script_review.complete_stale_script_plan_rebuild(
@@ -1971,7 +1975,7 @@ def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan
             "segments": [_valid_narration_segment()],
         },
     )
-    # 剧本的认领留存，但它所依据的 script_plan 已不在盘上——这正是待重建的祖传剧本形态。
+    # The script claim remains, but its underlying script_plan is missing on disk: exactly the legacy-script shape needing rebuild.
     script_plan_path.unlink()
     service = WorkflowStateService(pm)
     awaiting_rebuild = service.get_status("demo", 1)
@@ -2020,7 +2024,7 @@ def test_quarantined_script_plan_is_a_draft_to_resolve_not_a_confirmation_loop(t
 
 
 def _narration_project_with_confirmed_plan(tmp_path: Path, *, write_script: bool) -> tuple[ProjectManager, Path, Path]:
-    """script_plan 已确认的 narration 项目；``write_script`` 为真时正式脚本已登记。返回脚本规划路径。"""
+    """Narration project with confirmed script_plan; when ``write_script`` is true, the formal script is registered. Return its script-planning path."""
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source(pm, project_path)
     pm.update_project(
@@ -2054,7 +2058,7 @@ def _narration_project_with_confirmed_plan(tmp_path: Path, *, write_script: bool
 
 
 def test_unconfirmed_script_plan_rerun_only_shows_as_pending_review(tmp_path: Path) -> None:
-    """已有正式脚本时重跑脚本规划而未确认：内容确认转为待确认，正式脚本仍时新，下游照常推进。"""
+    """Rerunning script planning without confirmation when a formal script exists makes content confirmation pending; the formal script stays current and downstream advances normally."""
     pm, project_path, script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
     atomic_write_json(script_plan_path, {"segments": [_plan_segment("E1S01", "新内容")]})
     _register_script_plan(project_path)
@@ -2068,7 +2072,7 @@ def test_unconfirmed_script_plan_rerun_only_shows_as_pending_review(tmp_path: Pa
 
 
 def test_confirmed_script_plan_change_keeps_the_formal_script_current(tmp_path: Path) -> None:
-    """正式脚本是该集唯一的内容真相：脚本规划内容变化并被确认，也不回头把正式脚本判过期。"""
+    """Formal scripts are the sole episode-content truth: changed/confirmed script-plan content does not retroactively expire them."""
     pm, project_path, script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
     atomic_write_json(script_plan_path, {"segments": [_plan_segment("E1S01", "新内容")]})
     new_revision = script_review.content_fingerprint(script_plan_path)
@@ -2085,7 +2089,7 @@ def test_confirmed_script_plan_change_keeps_the_formal_script_current(tmp_path: 
 
 
 def test_quarantined_script_plan_rerun_is_resolved_before_the_formal_script_moves_on(tmp_path: Path) -> None:
-    """重跑落了待修复草稿、但正式脚本在用：脚本规划标 blocked 且不给阻塞项，下一步先处置草稿。"""
+    """Reruns leave a repair-needed draft while the formal script is active: mark planning blocked without blockers; handle the draft next."""
     pm, project_path, _script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
     quarantine = script_review.script_plan_quarantine_path(project_path, pm.load_project("demo"), 1)
     assert quarantine is not None
@@ -2102,7 +2106,7 @@ def test_quarantined_script_plan_rerun_is_resolved_before_the_formal_script_move
 
 
 def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_path: Path) -> None:
-    """已确认却缺正式脚本：下一步是重新确认（确认即转出正式脚本），不给无从下手的 generate_script。"""
+    """Confirmed planning without a formal script requires reconfirmation (which exports the formal script), not an unusable generate_script step."""
     pm, _project_path, _script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=False)
     service = WorkflowStateService(pm)
 
@@ -2117,7 +2121,7 @@ def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_p
 
 
 def test_ad_without_script_still_asks_to_generate_the_script(tmp_path: Path) -> None:
-    """ad 没有脚本规划，缺剧本时仍由 generate_script 直接产出。"""
+    """ad has no script planning; missing scripts still come directly from generate_script."""
     pm, _project_path = _make_project(tmp_path, "ad")
     pm.update_project("demo", lambda project: project.update(brief="夏季新品"))
 
@@ -2471,8 +2475,8 @@ def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: 
 
 
 def test_unmigrated_project_reports_only_the_migration_blocker(tmp_path: Path) -> None:
-    """产物清单是读取已生成产物的唯一口径：schema 未到 8 的项目没有可读的登记，
-    get_status 只报「未迁移」这一条阻断，不按文件是否在磁盘上倒推任何产物状态。"""
+    """The artifact manifest is the sole generated-artifact read authority: projects below schema 8 have no readable registrations;
+    get_status reports only the unmigrated blocker, never deriving artifact states from disk presence."""
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source(pm, project_path)
     _write_artifact(project_path, resource_relative_path("storyboards", "E1S01"))
@@ -2581,7 +2585,7 @@ def test_script_plan_registered_from_read_text_source_stays_current_with_crlf_by
 
 
 def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generation(tmp_path: Path) -> None:
-    """待编写条目：剧本条目本身是当前的，下一步是补提示词而非生成分镜图。"""
+    """Pending entries: script entries themselves are current; fill prompts next rather than generate storyboard images."""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
     pm, _project_path, _revision = _confirmed_narration_project_with_script(
         tmp_path,
@@ -2601,7 +2605,7 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
 
 
 def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
-    """参考生视频确认后单元全部待编写：下一步补写单元，而不是直接进入生成。"""
+    """After reference-to-video confirmation, all units are pending authoring: author units next rather than starting generation."""
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     _write_source(pm, project_path)
     pm.update_project(
@@ -2637,7 +2641,7 @@ def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
 
 
 def test_pending_ad_shots_ask_to_author_prompts(tmp_path: Path) -> None:
-    """ad 手动新增的分镜带待编写标记：下一步同样是补提示词。"""
+    """Manually added ad storyboards with pending-authoring markers likewise require filling prompts next."""
     pm, project_path = _make_project(tmp_path, "ad")
     _write_registered_script(
         project_path,
@@ -2659,7 +2663,7 @@ def test_pending_ad_shots_ask_to_author_prompts(tmp_path: Path) -> None:
 
 
 def test_author_prompts_lists_marked_entries_not_empty_prompts(tmp_path: Path) -> None:
-    """补充提示词只读待编写标记：带标记的条目即使已有提示词也列入，无标记的空提示词条目不列入。"""
+    """Prompt supplementation reads only pending-authoring markers: include marked entries even with prompts; exclude unmarked empty-prompt entries."""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
     pm, _project_path, _revision = _confirmed_narration_project_with_script(
         tmp_path,

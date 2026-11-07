@@ -47,7 +47,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** 供应商模型 Sheet 的地址：自定义供应商的记录写的是 `custom-<id>`。 */
+/** Provider-model Sheet URLs; custom-provider records use `custom-<id>`. */
 function providerModelPath(provider: string, model: string): string {
   const custom = /^custom-(\d+)$/.exec(provider);
   return custom
@@ -56,8 +56,8 @@ function providerModelPath(provider: string, model: string): string {
 }
 
 /**
- * 调用的模型：供应商还在供应商设置里时打开它的 Sheet；Agent 凭证、已删除的自定义供应商、不再内置的旧值与没有供应商的
- * 旧记录只显示模型名。
+ * Called models: open provider Sheets when providers still exist in settings. Agent credentials, deleted custom providers, formerly built-in values and providerless
+ * historical records show model names only.
  */
 function ProviderModelLink({ provider, model, linkable }: { provider: string; model: string; linkable: boolean }) {
   const { t } = useTranslation("dashboard");
@@ -81,9 +81,9 @@ function Field({
 }: {
   label: string;
   value: ReactNode;
-  /** 悬停、点按标签或按 Enter/Space 时显示的说明。 */
+  /** Explanations on hover, label clicks or Enter/Space. */
   hint?: string;
-  /** 从属于上一行的明细（如缓存写入的两档）。 */
+  /** Details subordinate to previous rows, e.g. two cache-write tiers. */
   indent?: boolean;
 }) {
   return (
@@ -103,7 +103,7 @@ function Field({
   );
 }
 
-/** 项目内相对路径的缩略图；文件已不存在时换成占位，历史记录也能照常打开。 */
+/** Project-relative thumbnails; missing files use placeholders so historical records still open normally. */
 function Thumbnail({
   projectName,
   path,
@@ -123,7 +123,7 @@ function Thumbnail({
         </div>
       ) : (
         <img
-          // 用量记录引用的图可能已被覆盖或删除，这里没有指纹可用：显式不带版本，走服务端的协商缓存
+          // Referenced images may be overwritten/deleted without available fingerprints; explicitly omit versions and use server negotiated caching.
           src={API.getFileUrl(projectName, path, null, { width: 320 })}
           alt={itemIdsInEpisodeText(caption ?? path)}
           onError={() => setBroken(true)}
@@ -237,7 +237,7 @@ function UsageGroup({ detail }: { detail: UsageRecordDetail }) {
     return <p className="text-sm text-muted-foreground">{t("usage_detail_empty")}</p>;
   }
   const hasWrite = write5m !== null || write1h !== null;
-  // 记录里的总输入含缓存读写；对外的「输入」只指没有命中也没有写入缓存的那部分。
+  // Total input includes cache reads/writes; external Input means only portions neither hitting nor writing caches.
   const uncachedInput =
     input === null ? null : Math.max(0, input - (cacheRead ?? 0) - (write5m ?? 0) - (write1h ?? 0));
   const show = (value: number | null) => (value === null ? "—" : formatTokens(value));

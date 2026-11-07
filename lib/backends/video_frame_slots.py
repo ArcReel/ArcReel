@@ -1,12 +1,12 @@
-"""视频生成的请求期能力校验（``gate_video_request``）与帧槽位组装（``plan_frame_slots``）。
+"""Video request-time capability validation (``gate_video_request``) and frame-slot assembly (``plan_frame_slots``).
 
-从 ``MediaGenerator.generate_video_async`` 抽出的纯函数，不触碰记账、版本管理与
-provider 调用，可独立导入并直接单测各能力组合分支。
+Pure functions extracted from ``MediaGenerator.generate_video_async``, independent of accounting,
+version management, and provider calls, directly importable for capability-combination unit tests.
 
-槽位序位是与 ``lib.references.reference_compression`` 的契约：压缩器按 index 原样返回压缩后的
-路径列表，调用方据 ``FrameSlotPlan`` 上的三个索引还原回 ``VideoGenerationRequest``
-的 ``start_image`` / ``end_image`` / ``reference_images`` 三个字段。数组参考图恒排在
-首/尾帧之后，故用一个起始索引即可切出全部数组项。
+Slot positions contract with ``lib.references.reference_compression``: compressors return paths in
+input-index order; callers restore ``VideoGenerationRequest`` ``start_image`` / ``end_image`` /
+``reference_images`` using ``FrameSlotPlan``'s three indices. Array reference images always follow
+first/last frames, so one start index selects all array entries.
 """
 
 from dataclasses import dataclass
@@ -32,17 +32,17 @@ __all__ = [
     "resolve_video_capabilities",
 ]
 
-# 供应商侧字面量，表示"跟随首帧图片自身比例"而非用户指定的固定比例。仅对声明
-# ``first_frame_ratio_adaptive_only`` 的 backend 有意义，通用比例解析器认不得它。
+# Provider literal meaning follow first-frame image ratio, not user-fixed ratios; meaningful only for
+# declaring ``first_frame_ratio_adaptive_only`` backends and unknown to general ratio resolvers.
 FIRST_FRAME_ADAPTIVE_RATIO = "adaptive"
 
 
 class VideoCapabilityProbe(Protocol):
-    """能力查询实际需要的最小后端接口：只读能力声明，不碰 generate / resume。
+    """Minimal backend interface for capability queries: read declarations without generate / resume.
 
-    比 ``VideoBackend`` 窄是有意的——收窄到用得着的那一个成员，调用方与测试替身都不必
-    为一次能力查询实现整个生成协议。档位感知的 ``video_capabilities_for_tier`` 不在此列，
-    它是可选成员，由 ``resolve_video_capabilities`` 探测。
+    Intentionally narrower than ``VideoBackend``: callers/test doubles need only the used member, not
+    the whole generation protocol. Optional tier-aware ``video_capabilities_for_tier`` is detected
+    through ``resolve_video_capabilities``, outside this interface.
     """
 
     @property
@@ -55,11 +55,11 @@ def resolve_video_capabilities(
     service_tier: str = "default",
     resolution: str | None = None,
 ) -> VideoCapabilities:
-    """解析后端在本次请求档位下的视频能力。
+    """Resolve backend video capabilities for this request's tier.
 
-    优先取 ``video_capabilities_for_tier``（若后端实现）：某些后端（如 Kling）的
-    ``last_frame`` 仅在特定 ``service_tier`` 生效，无请求上下文的 ``video_capabilities``
-    属性只能保守声明，会让合法档位的请求被误判为不支持。
+    Prefer implemented ``video_capabilities_for_tier``: backends such as Kling enable ``last_frame``
+    only for specific ``service_tier`` values. Context-free ``video_capabilities`` must declare
+    conservatively, otherwise rejecting legitimate tier-specific requests as unsupported.
     """
     tier_aware = getattr(backend, "video_capabilities_for_tier", None)
     if tier_aware is not None:
@@ -73,16 +73,16 @@ def resolve_first_frame_aspect_ratio(
     aspect_ratio: str,
     has_first_frame: bool,
 ) -> str:
-    """按 ``caps.first_frame_ratio_adaptive_only`` 施加首帧任务的 ratio 覆盖。
+    """Apply first-frame ratio overrides under ``caps.first_frame_ratio_adaptive_only``.
 
-    声明该约束的后端在带首帧（image-to-video）的请求上只接受
-    :data:`FIRST_FRAME_ADAPTIVE_RATIO`——调用方原始持有的 ``aspect_ratio``（用户比例意图，仍
-    完整作用于分镜图生成）不受影响，本函数只决定实际下发给该次视频请求的值。``caps`` 为 None
-    或未声明该约束、或实际下发的请求不带首帧（纯文生 / 仅参考图）时原样返回 ``aspect_ratio``。
+    Declaring backends accept only :data:`FIRST_FRAME_ADAPTIVE_RATIO` for image-to-video requests.
+    Preserve the caller's original ``aspect_ratio`` user intent, still fully applied to storyboard images;
+    choose only this actual video request's value. Return ``aspect_ratio`` unchanged for None ``caps``,
+    undeclared constraints, or requests without first frames (text-only/references-only).
 
-    ``has_first_frame`` 由调用方按"实际下发的请求是否带首帧"传入，而不是按入参是否非空——
-    :func:`plan_frame_slots` 只让 ``str`` / ``Path`` 文件源进槽位，判定须与真正下发的
-    ``VideoGenerationRequest.start_image`` 一致，否则约束会与实际请求脱节。
+    Callers set ``has_first_frame`` from actual sent requests, never merely nonempty inputs:
+    :func:`plan_frame_slots` accepts only ``str`` / ``Path`` file sources. Match actual
+    ``VideoGenerationRequest.start_image`` to keep constraints aligned with sent requests.
     """
     if caps is not None and caps.first_frame_ratio_adaptive_only and has_first_frame:
         return FIRST_FRAME_ADAPTIVE_RATIO
@@ -91,11 +91,10 @@ def resolve_first_frame_aspect_ratio(
 
 @dataclass(frozen=True)
 class FrameSlotPlan:
-    """压缩器输入 specs 及各请求字段在其中的序位。
+    """Compressor input specs and each request field's position.
 
-    ``start_index`` / ``end_index`` 为 None 表示该槽位本次不下发；
-    ``reference_start_index`` 为 None 表示无可压缩的数组参考项，调用方回落原
-    ``reference_images``（保留 None / [] 语义）。
+    None ``start_index`` / ``end_index`` means omit that slot. None ``reference_start_index`` means no
+    compressible array references; callers retain original ``reference_images``, preserving None / [] semantics.
     """
 
     specs: "list[ReferenceSpec]"
@@ -117,36 +116,37 @@ def gate_video_request(
     reference_audio_files: "list[Path] | None" = None,
     reference_audio_total_seconds: float | None = None,
 ) -> None:
-    """统一的请求期能力前置校验：违约抛 ``VideoCapabilityError``，通过则静默返回。
+    """Unified request capability preflight: raise ``VideoCapabilityError`` for violations, otherwise return silently.
 
-    纯文生能力与四条可选输入路径（首帧 / 尾帧 / 参考图 / 参考音频）在这里一处判定，而不是散在各 backend 的
-    payload 组装里各写一套——散写的后果是同一种违约在不同供应商下有的硬失败、有的静默截断，
-    用户拿到照常扣费但与意图不符的结果却无从得知。故本函数只做拒绝，不做降级：
-    能力不支持一律抛错，由上层渲染成用户可读错误（文案见 ``lib/i18n/*/errors.py``）。
+    Centralize text-only support and four optional paths (first frame / last frame / image references /
+    audio references), avoiding per-backend payload implementations that inconsistently fail or truncate.
+    Silent truncation would still bill users for unintended output without notice. Reject only, never
+    degrade: unsupported capabilities raise for user-readable upper-layer errors (``lib/i18n/*/errors.py``).
 
-    ``has_image`` 由调用方按实际下发的图片槽位填写；为 False 时检查纯文生能力。
-    ``has_first_frame`` 同样按实际下发的请求是否带首帧填写（``plan_frame_slots`` 的 ``start_index``）。
+    Callers set ``has_image`` from actual image slots; False checks text-only support.
+    Likewise ``has_first_frame`` reflects actual requests (``plan_frame_slots`` ``start_index``).
 
-    ``caps`` 为 None 表示调用方未查询后端能力——四条路径都不走时能力声明不影响任何结果，
-    调用方可省去这次查询。传 None 却带任一路径的输入一律按不支持拒绝，而不是放行：占位一份
-    "支持"的假能力会让未经能力核实的请求下发出去，正是本函数要堵的降级。
+    None ``caps`` means capabilities were not queried. With none of the four paths, declarations cannot
+    affect results and queries may be omitted. With any path input, None means reject unsupported,
+    never invent permissive placeholder capabilities that would send unchecked requests.
 
-    ``reference_audio_total_seconds`` 是调用方前置探测好的多段参考音频总时长（秒），本函数
-    不做 I/O、不自行探测——探测需要读音频元数据，只能在能拿到文件的组装前置校验处完成
-    （见 :func:`lib.generation.media_generator.MediaGenerator.generate_video_async`）。传 None 表示总时长
-    未知（探测失败/环境不支持），此时跳过总时长校验而不是当作超限拒绝——与本仓库媒体探测
-    不可用时降级放行的既有口径一致。
+    ``reference_audio_total_seconds`` is caller-probed combined reference duration. This function does
+    no I/O/probing: metadata reads belong in assembly preflight with file access
+    (:func:`lib.generation.media_generator.MediaGenerator.generate_video_async`). None means unknown
+    from failed/unsupported probes; skip total-duration validation, never treat unknown as overflow,
+    matching existing unavailable-media-probe permissive fallback.
 
-    ``prompt`` 与四条可选路径不同：它在每个请求上都存在，故 ``caps`` 未声明
-    ``max_prompt_chars`` 时（含 ``caps`` 为 None）跳过该项——未声明约束不等于上限为 0。
+    Unlike optional paths, ``prompt`` exists in every request. Skip length checks when ``caps`` does not
+    declare ``max_prompt_chars``, including None ``caps``; undeclared limits never mean zero.
 
-    与 :func:`plan_frame_slots` 分离是有意的：校验会抛、组装是纯函数，两者调用时机不同——
-    校验须先于记账括号（硬失败要不扣费、不留 failed ApiCall 行），组装则可在其后按需进行。
+    Deliberately separate :func:`plan_frame_slots`: validation raises, assembly is pure, and timing differs.
+    Validate before accounting scopes so hard failures incur neither charges nor failed ApiCall rows;
+    assembly may happen afterward as needed.
     """
     prompt_limit = None if caps is None else caps.max_prompt_chars
     if prompt_limit is not None and prompt is not None and len(prompt) > prompt_limit:
-        # 供应商对超长 prompt 普遍是静默截断而非报错（如 wan2.7 文档原文「超过部分会自动截断」，
-        # 错误码表无对应条目），照常扣费却产出与意图不符的成片——付费前拒绝，不放行。
+        # Providers often silently truncate long prompts, such as wan2.7 documentation, without error codes,
+        # still charging for unintended output. Refuse before paid requests, never permit them.
         raise VideoCapabilityError(
             "video_prompt_too_long",
             provider=provider,
@@ -165,8 +165,8 @@ def gate_video_request(
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)
 
     if reference_images:
-        # 上限是条目与调用通道两侧求值的生效值（lib.backends.video_capabilities）：0 为不接受，None 为未收录
-        # （不在这里拦数量，超出部分由上游拒绝）。
+        # Effective entry/channel limit from lib.backends.video_capabilities: zero refuses, None unlisted,
+        # leaving counts unchecked here and excess for upstream rejection.
         image_limit = InputLimit.unsupported() if caps is None else reference_image_limit(caps)
         if not image_limit.accepts_input:
             raise VideoCapabilityError("video_reference_images_unsupported", provider=provider, model=model)
@@ -181,8 +181,8 @@ def gate_video_request(
             )
 
     if reference_audio_files:
-        # 不支持音色输入的模型收到音频不静默丢弃：静默丢弃会生成一段音色随机的视频并照常
-        # 扣费，用户以为角色声音已受控，直到成片拼接才发现跨片段音色不一致。
+        # Never silently drop audio for models without voice inputs: they would bill for random voices while users
+        # assume character voices are controlled, discovering cross-clip inconsistency only during final composition.
         audio_limit = InputLimit.unsupported() if caps is None else reference_audio_count_limit(caps)
         if not audio_limit.accepts_input:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=provider, model=model)
@@ -217,13 +217,13 @@ def plan_frame_slots(
     end_image: Path | None = None,
     reference_images: "list[Path] | None" = None,
 ) -> FrameSlotPlan:
-    """按输入组装帧/参考图槽位——纯函数，不判定能力、不抛异常。
+    """Assemble frame/reference slots from inputs: pure, without capability checks or exceptions.
 
-    能力判定归 :func:`gate_video_request`；本函数只负责把三个请求字段铺进压缩器的 specs
-    序列并记下各自序位。
+    :func:`gate_video_request` validates capabilities. Here only flatten three request fields into
+    compressor specs and record positions.
 
-    ``start_image`` 仅 ``str`` / ``Path`` 文件源进压缩器；``PIL.Image`` 与 None 不入
-    specs（对应请求字段保持 None）。
+    Only ``str`` / ``Path`` ``start_image`` file sources enter compressors; ``PIL.Image`` and None
+    stay outside specs, leaving corresponding request fields None.
     """
     from lib.references.reference_compression import ReferenceSpec, RefRole
 

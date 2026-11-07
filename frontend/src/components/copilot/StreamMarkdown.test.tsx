@@ -8,7 +8,7 @@ import { StreamMarkdown } from "./StreamMarkdown";
 const URL_ATTRS = ["href", "src", "xlink:href", "action", "formaction", "srcdoc", "data"];
 const ACTIVE_TAGS = ["script", "iframe", "object", "embed", "form", "svg", "math", "style", "base", "meta", "link"];
 
-// 按浏览器 URL 解析规则归一：去掉首尾 C0 控制符与空白、剔除中间的制表与换行后取协议。
+// Normalize browser URLs: trim edge C0 controls/whitespace, remove interior tabs/newlines, then inspect protocols.
 function urlScheme(value: string): string {
   let start = 0;
   let end = value.length;
@@ -42,7 +42,7 @@ function collectActiveContent(root: HTMLElement): string[] {
   return findings;
 }
 
-// 链接按钮不带 href，地址只保存在点击回调里，DOM 属性检查看不到；PAYLOADS 不含允许的链接，完整渲染后不应出现可点击元素。
+// Link buttons lack href, keeping URLs in click callbacks invisible to DOM-attribute checks; PAYLOADS contains no permitted links, so full rendering must expose no clickable elements.
 function clickableElements(root: HTMLElement): string[] {
   return Array.from(
     root.querySelectorAll('a, button, [data-streamdown="link"]'),
@@ -52,7 +52,7 @@ function clickableElements(root: HTMLElement): string[] {
 
 async function renderLoaded(content: string) {
   const view = render(<StreamMarkdown content={content} />);
-  // 等实际按需模块加载完成，再断言 Markdown 结构，不把加载耗时计入查询超时。
+  // Wait for actual lazy modules before Markdown-structure assertions, excluding loading time from query timeouts.
   await act(async () => { await import("streamdown"); });
   await waitFor(() => {
     expect(view.container.querySelector(".markdown-body")).not.toBeNull();
@@ -163,7 +163,7 @@ describe("StreamMarkdown 渲染惰性", () => {
     for (let cut = 1; cut < payload.length; cut += 1) {
       rerender(<StreamMarkdown content={payload.slice(0, cut)} />);
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
-      // 前段中不完整链接渲染为占位链接按钮，点击后既不打开确认框也不打开窗口。
+      // Incomplete prefix links render placeholder buttons; clicking opens neither confirmation nor windows.
       for (const el of container.querySelectorAll('a, button, [data-streamdown="link"]')) fireEvent.click(el);
       expect(screen.queryByRole("button", { name: "打开链接" }), `cut=${cut} 前段确认框`).not.toBeInTheDocument();
       expect(open, `cut=${cut} 前段打开窗口`).not.toHaveBeenCalled();
@@ -227,7 +227,7 @@ describe("StreamMarkdown 应用内链接", () => {
       "click",
       (event) => {
         prevented = event.defaultPrevented;
-        event.preventDefault(); // 挡掉 jsdom 的真实导航
+        event.preventDefault(); // Prevent real jsdom navigation.
       },
       { once: true },
     );

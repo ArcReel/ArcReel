@@ -1,19 +1,19 @@
 ---
 id: storyboard/image
 category: storyboard
-title: 分镜图
-description: 分镜图的完整提示词，由风格、参考图声明与分镜画面组成。
+title: "Storyboard image"
+description: "Complete storyboard-image prompt combining style, reference-image declarations, and shot imagery."
 stage: storyboard_image
 invoked_by:
   kind: generation_task
   name: storyboard
 applies_to: {}
 slots:
-  style: 项目画风
-  style_description: 项目风格描述
-  reference_images: 已序列化的参考图类型声明，无参考图为空
-  structured_body: 已序列化的 Scene 与 Composition，纯文本形态为空
-  text_body: 纯文本正文，结构化形态为空
+  style: "Project visual style"
+  style_description: "Project style description"
+  reference_images: "Serialized reference-image type declarations; empty without reference images"
+  structured_body: "Serialized Scene and Composition; empty for the plain-text form"
+  text_body: "Plain-text body; empty for the structured form"
 protected: false
 idempotent: true
 ---

@@ -11,7 +11,7 @@ def test_docx_extracts_paragraphs(docx_factory):
 
 
 def test_docx_falls_back_to_mammoth(monkeypatch, docx_factory):
-    """docx2txt 抛错 → 回退到 mammoth.convert_to_markdown。"""
+    """docx2txt errors fall back to mammoth.convert_to_markdown."""
     src = docx_factory(["回退路径内容"])
 
     import lib.script.source_loader.docx as mod

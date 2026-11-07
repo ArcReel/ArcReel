@@ -1,18 +1,18 @@
-"""价目表计算器与用量契约（docs/adr/0100）。
+"""Price-table calculator and usage contract (docs/adr/0100).
 
-调用通道按用量契约上报 :class:`Usage`：互不重叠的计量项用量与选择维度取值，未缓存输入、缓存读与两档缓存写之和
-等于总输入；各家 usage 的语义差异由调用通道在上报前处理。字符数是例外：调用通道只上报原始文本，字符数由计算器
-按条目价目表上的「汉字计 2」属性统计。
+Channels report :class:`Usage`: nonoverlapping measurement quantities and selection dimensions. Uncached input + cache reads + two cache-write tiers
+sum to total input; channels normalize vendor semantics before reporting. Characters are exceptional: channels report raw text only;
+calculators count according to entry price-table CJK-double properties.
 
-:func:`price_usage` 按价目表的计量项求和：费用 = 倍率 × Σ max(用量 − 免费额度, 0) × 单价(选择维度)，不按定价
-形状、媒体类型或供应商分派。查不到单价时返回 :class:`Unpriced` 并带原因，不回落到别的模型或别的档。
+:func:`price_usage` sums measurements: cost = multiplier × Σ max(usage − free allowance, 0) × unit price(dimensions), without pricing-shape,
+media, or provider dispatch. Missing rates return :class:`Unpriced` with reasons, never other models/tiers.
 
-上报了用量、价目表却没有这个计量项时，按计量项的类别处理（``arcreel_catalog_core.MeterKind``）：token 类是同一份
-token 总量拆出的一部分，缺单价就算查不到单价，不按 0 计；计数类（秒数、张数、调用次数等）各是一条独立的计费轴，
-价目表没有它表示厂商不按它收费。调用通道因此可以如实上报实际发生的全部计数类用量，不必知道条目按哪一项计价。
+For reported usage absent from tables, distinguish ``arcreel_catalog_core.MeterKind``: token measurements split one total,
+so missing prices remain unpriced rather than zero; count measurements (seconds/images/calls) are independent billing axes,
+so missing table items mean vendors do not charge that axis. Channels therefore report all actual count usage without knowing billing items.
 
-一次调用可能含多次供应商请求（降级链上被丢弃的请求也已计费）：:func:`price_requests` 让每次请求按自己的输入
-总量落上下文档、单独计价，再把费用相加。
+Calls may contain several provider requests, including billed but discarded fallback attempts. :func:`price_requests` assigns context tiers
+and prices each separately using its own input totals, then sums costs.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from enum import StrEnum
 
 from arcreel_catalog_core import CJK_DOUBLE_METER, METERS, Meter, PriceTable
 
-#: 计入上下文档落档总量的输入类计量项：单次请求的输入 token 总量含缓存读写。
+#: Input measurements contributing context totals: per-request input includes cache reads/writes.
 _INPUT_TOKEN_METERS = frozenset(
     {
         "uncached_input_tokens",
@@ -39,33 +39,33 @@ _INPUT_TOKEN_METERS = frozenset(
 
 _CONTEXT_TIER = "context_tier"
 
-# 「汉字计 2」中的汉字：CJK 统一表意文字（含扩展区）与兼容表意文字。
+# CJK double-counting covers Unified Ideographs including extensions and Compatibility Ideographs.
 _HAN = re.compile(r"[㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
 
 
 class UnpricedReason(StrEnum):
-    """未定价的原因，原样写入 ``api_calls.unpriced_reason``。"""
+    """Unpriced reasons stored unchanged in ``api_calls.unpriced_reason``."""
 
-    #: 供应商模型对应不上模型条目。
+    #: Provider models without entry matches.
     NO_ENTRY = "no_entry"
-    #: 条目没有价目表。
+    #: Entries without price tables.
     NO_PRICE_TABLE = "no_price_table"
-    #: 查不到单价：单价表缺少请求的维度组合且没有默认值；上报了用量的 token 类计量项不在价目表里；或结算时
-    #: 价目表的计量项一项用量都没有拿到。
+    #: Missing rates: absent request-dimension combinations without defaults, reported token measurements absent from tables, or settlement
+    #: without any table-measurement usage.
     MISSING_RATE = "missing_rate"
-    #: 价目表依赖当前代码不认识的币种、计量项或选择维度。
+    #: Tables depend on unknown currencies/measurements/dimensions.
     UNRECOGNIZED_TERMS = "unrecognized_terms"
-    #: 只用于提交前预估：价目表里有计量项的用量既不能从请求事实得出，也没有估算函数。
+    #: Presubmission estimates only: table measurement quantities cannot be derived from request facts or estimators.
     NO_USAGE_ESTIMATE = "no_usage_estimate"
 
 
 @dataclass(frozen=True)
 class Usage:
-    """一次供应商调用上报的用量。
+    """Reported usage for one provider call.
 
-    ``quantities`` 按计量项给出用量（按计量项的计数单位，如 token 数、张数、秒数），各项互不重叠；
-    ``dimensions`` 是选择维度的取值，取自真正发给供应商的请求字段，没发送的维度不写；``text`` 是按字符计价时
-    发送的原始文本。上下文档不由调用通道上报，由计算器按输入 token 总量落档。
+    ``quantities`` contains nonoverlapping measurements in their units (tokens/images/seconds);
+    ``dimensions`` contains actually sent request-field values, omitting unsent dimensions; ``text`` is raw sent text
+    for character pricing. Channels do not report context tiers; calculators derive them from total input tokens.
     """
 
     quantities: Mapping[str, float] = field(default_factory=dict)
@@ -82,9 +82,9 @@ def token_usage(
     cache_write_1h_tokens: int | None = None,
     output_meter: str = "output_tokens",
 ) -> dict[str, float]:
-    """按总输入与三项缓存拆出互不重叠的 token 计量项。
+    """Split total input and three cache portions into nonoverlapping token measurements.
 
-    ``input_tokens`` 是总输入（含缓存读写），未缓存输入 = 总输入 − 缓存读 − 两档缓存写；没有上报的项不写。
+    ``input_tokens`` includes cache reads/writes; uncached = total − reads − both writes. Omit unreported measurements.
     """
     caches = {
         "cache_read_tokens": cache_read_tokens or 0,
@@ -100,7 +100,7 @@ def token_usage(
 
 
 def count_characters(text: str, *, cjk_double: bool) -> int:
-    """字符数计量项的用量：``cjk_double`` 时每个汉字计 2 个字符，其余字符计 1 个。"""
+    """Character quantities: ``cjk_double`` counts each CJK ideograph as 2, all others as 1."""
     if not cjk_double:
         return len(text)
     return len(text) + len(_HAN.findall(text))
@@ -121,14 +121,14 @@ Cost = Priced | Unpriced
 
 
 def _quantity(meter: Meter, usage: Usage) -> float | None:
-    """计量项的用量；用量没有上报时为 ``None``。"""
+    """Measurement quantities; ``None`` when unreported."""
     if meter.meter == CJK_DOUBLE_METER and usage.text is not None:
         return count_characters(usage.text, cjk_double=meter.cjk_double)
     return usage.quantities.get(meter.meter)
 
 
 def _context_tier(table: PriceTable, usage: Usage) -> int | None:
-    """整个请求落入的上下文档：价目表各取值为档的下界（不含），取总量大于它的最大一档；不分档时为 ``None``。"""
+    """Whole-request context tiers: table values are exclusive lower bounds; select highest below total, ``None`` if untiered."""
     bounds = sorted(
         {bound for meter in table.meters for row in meter.rows if isinstance(bound := row.when.get(_CONTEXT_TIER), int)}
     )
@@ -146,7 +146,7 @@ def _same(expected: object, actual: object) -> bool:
 
 
 def _rate(meter: Meter, dimensions: Mapping[str, object]) -> float | None:
-    """计量项在请求维度下的单价；请求缺少的维度取计量项的默认值，仍对不上任何一行时返回 ``None``。"""
+    """Rates by request dimensions, using measurement defaults for missing dimensions; ``None`` without matching rows."""
     values = {dim: dimensions.get(dim, meter.defaults.get(dim)) for dim in meter.dims}
     for row in meter.rows:
         if all(values.get(dim) is not None and _same(expected, values[dim]) for dim, expected in row.when.items()):
@@ -155,9 +155,9 @@ def _rate(meter: Meter, dimensions: Mapping[str, object]) -> float | None:
 
 
 def _unpriced_meter(table: PriceTable, usage: Usage) -> bool:
-    """是否上报了价目表没有的 token 类计量项：这部分 token 查不到单价，不能按 0 计。
+    """Whether reported token measurements lack table entries: missing rates cannot mean zero cost.
 
-    计数类计量项不在价目表里表示厂商不按它收费，不算查不到单价。不认识的计量项按 token 类处理。
+    Count measurements absent from tables are uncharged, not missing-rate failures. Unknown measurements behave as tokens.
     """
     priced = {meter.meter for meter in table.meters}
     return any(
@@ -178,13 +178,13 @@ def price_usage(
     entry_found: bool = True,
     estimate: bool = False,
 ) -> Cost:
-    """按价目表计算一次供应商请求的参考费用；结算与提交前预估共用。
+    """Calculate one provider request's reference cost, shared by settlement/estimates.
 
-    ``multiplier`` 是供应商倍率与供应商模型倍率之积，为 0 时直接记 0、不查价；``entry_found`` 为 False 表示
-    供应商模型对应不上模型条目。价目表里用量为 0 或没有上报的计量项不参与查价：结算时供应商没回报就是没有这项
-    用量，但价目表的计量项一项用量都没有拿到时，这次调用的费用无从得知，记为未定价，不静默记 0；``estimate``
-    为真时用量来自请求事实与估算函数，缺一项就无从估算，记为未定价。上报的 token 类计量项用量大于 0、价目表
-    却没有这个计量项时记为未定价（:attr:`UnpricedReason.MISSING_RATE`），计数类不在价目表里的不计费。
+    ``multiplier`` is provider × provider-model factors; zero directly records zero without lookup. False ``entry_found`` means
+    unmatched models. Zero/unreported table measurements skip lookup: absent settlement reports mean absent usage,
+    but if none of a table's measurements are available, cost is unknown/unpriced, never silently zero. True ``estimate``
+    uses request facts/estimators, requiring every item or marking unpriced. Positive reported token measurements missing
+    from tables are unpriced (:attr:`UnpricedReason.MISSING_RATE`); missing count items are uncharged.
     """
     if multiplier == 0:
         return Priced(0.0, table.currency if table is not None and table.is_priceable else "USD")
@@ -227,9 +227,9 @@ def price_requests(
     entry_found: bool = True,
     estimate: bool = False,
 ) -> Cost:
-    """一次调用所含各次供应商请求的费用之和：每次请求单独落上下文档、单独计价，任一次未定价则整笔未定价。
+    """Sum provider-request costs per call, individually context-tiered/priced; any unpriced request makes the whole call unpriced.
 
-    参数含义同 :func:`price_usage`。
+    Parameters match :func:`price_usage`.
     """
     costs = [
         price_usage(table, usage, multiplier=multiplier, entry_found=entry_found, estimate=estimate)

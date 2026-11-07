@@ -37,7 +37,7 @@ function CostColumn({ label, rows, total }: { label: string; rows: CostRow[]; to
   );
 }
 
-/** 没有价格的模型去重后，只留能跳到设置价格的自定义供应商模型。 */
+/** Deduplicate unpriced models; retain custom-provider models with navigable pricing settings only. */
 function priceTargets(models: UnpricedModel[]): { key: string; label: string; href: string }[] {
   const targets = new Map<string, { key: string; label: string; href: string }>();
   for (const model of models) {
@@ -53,19 +53,19 @@ function priceTargets(models: UnpricedModel[]): { key: string; label: string; hr
 const countOf = (models: UnpricedModel[]) => models.reduce((sum, model) => sum + model.count, 0);
 
 /**
- * 费用一行：「费用 预估 … · 已花 …」，「明细」打开预估与实际两列的 Popover，底部链接到本项目的使用记录。
- * 数据来自 `useCostStore` 的项目合计（`costData.project_totals`），由概览挂载时按项目拉取。
+ * Cost row: estimated/spent amounts; details opens estimated/actual columns in a Popover, with a project-usage link below.
+ * Data comes from `useCostStore` project totals (`costData.project_totals`), fetched per project on overview mount.
  *
- * 合计为空时区分真实的 0 与未知：有没计价的部分、或项目没有本机生成记录时写「—」，并在下方说明原因；
- * 原因是模型没有价格时列出这些模型，链接到自定义供应商里的对应模型。部分没计价时仍显示已计价的金额。
- * 拿不到数据（未加载、加载失败、属于别的项目）时同样写「—」。只读的演示项目不在本机，没有费用数据。
+ * Distinguish zero from unknown totals: unpriced portions or no local generation records display “—” with explanations below.
+ * For unpriced models, list/link corresponding custom-provider models. Partly unpriced totals still show priced amounts.
+ * Unavailable data (unloaded, failed, another project) also displays “—”. Read-only demos are not local and have no cost data.
  */
 export function CostLine({ projectName, readOnly = false }: { projectName: string; readOnly?: boolean }) {
   const { t } = useTranslation("dashboard");
   const costData = useCostStore((s) => s.costData);
   const loading = useCostStore((s) => s.loading);
   const error = useCostStore((s) => s.error);
-  // store 是单例，切项目的窗口期里可能还留着上一个项目的数据
+  // Singleton store may retain previous-project data during project switching.
   const data = costData?.project_name === projectName ? costData : undefined;
   const totals = data?.project_totals;
   const unpricedEstimate = data?.unpriced.estimate ?? [];
@@ -73,7 +73,7 @@ export function CostLine({ projectName, readOnly = false }: { projectName: strin
   const recorded = !data?.missing_local_calls;
   const estimateComplete = unpricedEstimate.length === 0;
   const actualComplete = unpricedActual.length === 0 && recorded;
-  // 明细逐行判断：只有含没计价调用的那一类写「—」，其余类型照常区分真实的 0
+  // Evaluate detail rows individually: only categories with unpriced calls show “—”; others still distinguish real zero.
   const estimateUnpriced = new Set(unpricedEstimate.map((model) => model.call_type));
   const actualUnpriced = new Set(unpricedActual.map((model) => model.call_type));
 
@@ -86,7 +86,7 @@ export function CostLine({ projectName, readOnly = false }: { projectName: strin
   ];
   const actualRows = (by: CostByType): CostRow[] => [
     ...typeRows(by, actualUnpriced, recorded),
-    // 资产图都来自图片调用
+    // All sheets come from image calls.
     ...(["characters", "scenes", "props", "products"] as const)
       .filter((kind) => by[kind] != null)
       .map((kind) => ({

@@ -1,9 +1,9 @@
-"""MiniMaxImageBackend — MiniMax（海螺）image-01 图像生成后端（单步同步）。
+"""MiniMaxImageBackend: synchronous single-step MiniMax (Hailuo) image-01 generation.
 
-走 OpenAI 兼容 base 上的原生 /image_generation 同步端点：单次 POST 直接返回图片 URL
-（24h 有效）或 base64，立即落地为本地资产。T2I 与 I2I 共用同一请求体，I2I 经
-subject_reference 单脸参考驱动多场景角色一致性立绘。尺寸用 width/height（512–2048、8 倍数），
-按「比例优先、清晰度其次」从项目 aspect_ratio + image_size 精确算出。
+Native /image_generation shares OpenAI-compatible bases. One POST returns URLs valid 24h or base64,
+immediately persisted locally. T2I/I2I share bodies; subject_reference single faces preserve characters
+across scenes. Compute width/height, 512–2048 and multiples of 8, from aspect_ratio + image_size,
+prioritizing ratio over resolution.
 """
 
 from __future__ import annotations
@@ -50,26 +50,26 @@ DEFAULT_MODEL = "image-01"
 
 _IMAGE_ENDPOINT = "/image_generation"
 
-# image-01 宽高均 ∈ [512, 2048] 且须被 8 整除；可表达的最极端比例为 2048/512 = 4:1。
+# image-01 dimensions [512, 2048], divisible by 8; most extreme representable ratio 2048/512 = 4:1.
 _MIN_EDGE = 512
 _MAX_EDGE = 2048
 _ROUND_TO = 8
 _MAX_RATIO = 4.0
 
-# 缺 image_size 时的默认短边（2K 档），经 max_long_edge=2048 收口后竖屏得 1152*2048。
+# Default short edge without image_size, 2K tier, becomes portrait 1152*2048 under max_long_edge=2048.
 _DEFAULT_SHORT = 1440
 
-# image-01 单脸参考：subject_reference 只支持一张参考图。
+# image-01 subject_reference supports one face image only.
 _SUBJECT_REF_LIMIT = 1
 
 
 def _clamp_edge(value: int) -> int:
-    """把单边像素夹进 [512, 2048]。两端点均为 8 的倍数，夹取后仍满足 8 整除约束。"""
+    """Clamp dimensions to [512, 2048]; both endpoints are divisible by 8, preserving alignment."""
     return max(_MIN_EDGE, min(_MAX_EDGE, value))
 
 
 class MiniMaxImageBackend:
-    """MiniMax 图像后端（单步同步 image_generation 端点）。"""
+    """MiniMax image backend, synchronous single-step image_generation."""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _SUBJECT_REF_LIMIT
@@ -99,7 +99,7 @@ class MiniMaxImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        # 文生图 + 图生图（subject_reference）同一端点。
+        # Text-to-image and subject_reference image-to-image share endpoints.
         return set(self.CHANNEL_CAPABILITIES)
 
     async def reference_image_limit(self) -> int | None:
@@ -107,13 +107,13 @@ class MiniMaxImageBackend:
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        """预估只报张数：image-01 按张统一价，尺寸不影响费用。"""
+        """Estimate image counts only: uniform image-01 per-image pricing ignores sizes."""
         refs = facts.reference_count
         return per_image_usage(output_images=1, input_images=refs)
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
-        # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
+        # No orchestration retries: isolate nonidempotent billed image submit and idempotent downloads into
+        # _submit / _download_result retry scopes, preventing retrieval failures from repeating billed generation.
         width, height = self._resolve_dimensions(request)
 
         payload: dict = {
@@ -123,14 +123,14 @@ class MiniMaxImageBackend:
             "height": height,
             "response_format": "url",
             "n": 1,
-            # ArcReel 剧本 prompt 已是 LLM 精炼描述，关闭智能改写保留原意。
+            # ArcReel prompts are already LLM-refined; disable optimization to retain intent.
             "prompt_optimizer": False,
         }
         if request.seed is not None:
             payload["seed"] = request.seed
         if request.reference_images:
-            # 参考图读盘 + base64 编码（可能数 MB）offload 到线程，避免阻塞事件循环；
-            # 单次 to_thread 整体执行同步 helper，最小化线程调度开销。
+            # Reference reads/base64, possibly megabytes, run off-thread to preserve event-loop responsiveness.
+            # One to_thread call wraps the entire synchronous helper, minimizing scheduling overhead.
             payload["subject_reference"] = await asyncio.to_thread(self._build_subject_reference, request)
 
         data = await self._submit(payload)
@@ -151,12 +151,12 @@ class MiniMaxImageBackend:
 
     @with_retry_async(retry_if=should_retry_submit)
     async def _submit(self, payload: dict) -> dict:
-        """单步图像生成 POST（非幂等「建图 + 计费」），返回解析后的响应体。
+        """Nonidempotent billed image-generation POST, returning parsed responses.
 
-        重试范围严格限定在本方法内、不含下载——下载失败不会触发整流程重试导致重复建图与
-        重复计费。submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败避免重复计费；
-        >=400 落 body 日志 + 抛 HTTPStatusError（保留 status_code 供咽喉层识别 413 降档），
-        交 should_retry_submit 按状态码分流。
+        Retry this method only, excluding downloads, so retrieval failures never restart image creation /
+        billing. submit_post converts ambiguous transport into terminal AmbiguousSubmitError. >=400 logs
+        bodies/raises HTTPStatusError, retaining status_code for central 413 lower-tier fallback;
+        should_retry_submit routes by statuses.
         """
         logger.info(
             "调用 %s 图片 API model=%s body=%s",
@@ -176,12 +176,13 @@ class MiniMaxImageBackend:
             return resp.json()
 
     def _resolve_dimensions(self, request: ImageGenerationRequest) -> tuple[int, int]:
-        """按「比例优先、清晰度其次」算出 (宽, 高)。
+        """Compute (width, height), prioritizing ratio over resolution.
 
-        比例永远来自 aspect_ratio；image_size（档位词 / 自定义 宽*高 / None）只决定清晰度短边，
-        自定义值剥离其自带比例（取 min）。短边先夹到 ≥ _MIN_EDGE 再算尺寸——否则过小的短边会让
-        aspect_size 产出 <512 的边，随后 _clamp_edge 对宽高独立夹取会破坏比例（如 16:9 退化成
-        512x512 的 1:1）。结果被 8 整除、长边受 2048 收口，每边仍经 _clamp_edge 夹进 [512, 2048] 兜底。
+        aspect_ratio alone determines ratio; image_size tiers/custom width*height/None determine short-edge
+        resolution only. Strip custom ratios by min dimensions. Clamp short edges to ≥ _MIN_EDGE before
+        sizing: otherwise aspect_size may yield <512, and independent _clamp_edge would corrupt ratios,
+        such as 16:9 becoming 512x512 square. Results align to 8, cap long edges at 2048, and independently
+        clamp every edge to [512, 2048] as final protection.
         """
         short = max(
             _MIN_EDGE,
@@ -195,7 +196,7 @@ class MiniMaxImageBackend:
         return _clamp_edge(w), _clamp_edge(h)
 
     def _build_subject_reference(self, request: ImageGenerationRequest) -> list[dict]:
-        """构建单脸参考；拒绝超量或不可读输入，避免丢图后照常计费。"""
+        """Build single-face references; reject excessive/unreadable inputs instead of dropping images while still charging."""
         refs = request.reference_images
         if len(refs) > _SUBJECT_REF_LIMIT:
             raise ImageCapabilityError(
@@ -205,7 +206,7 @@ class MiniMaxImageBackend:
                 count=len(refs),
             )
         ref = refs[0]
-        # 空路径无文件名可显示，用序号 #1 标识，避免中文占位漏进非中文报错模板。
+        # Empty paths lack filenames; identify as #1 to keep Chinese placeholders out of non-Chinese errors.
         path = Path(ref.path) if ref.path else None
         if path is None or not path.is_file():
             raise ImageCapabilityError(
@@ -219,10 +220,10 @@ class MiniMaxImageBackend:
         return [{"type": "character", "image_file": image_file}]
 
     async def _persist_image(self, data: dict, output_path: Path) -> str | None:
-        """把 image_generation 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。
+        """Persist image_generation responses locally, returning remote URLs or None for base64.
 
-        先查 base_resp 业务错误（200 + 非零 status_code），再优先 URL（立即下载，24h 失效前落地），
-        URL 缺失降级 base64 解码写盘；两者皆空即报错。
+        First check base_resp business failures, HTTP 200 with nonzero status_code. Prefer URLs, downloading
+        immediately before 24-hour expiry; missing URLs fall back to base64. Both absent is an error.
         """
         reason = minimax_failure_reason(data)
         if reason:
@@ -238,25 +239,26 @@ class MiniMaxImageBackend:
             await _write_base64_image(b64, output_path)
             return None
 
-        # 完整响应体记日志便于诊断，但不嵌进异常消息——避免 body 里的 "503"/"timeout" 等子串
-        # 被默认 should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
+        # Log full responses for diagnosis but exclude bodies from exceptions, where 503/timeout substrings could
+        # mislead default should_retry. Established policy retries by statuses, never strings.
         logger.error("MiniMax 图像响应缺少 image_urls/image_base64: %s", data)
         raise RuntimeError("MiniMax 图像响应缺少 image_urls/image_base64")
 
     async def _download_result(self, url: str, output_path: Path) -> None:
-        """下载已签发的结果图 URL（幂等 GET），走共用的产物下载预算。
+        """Download issued image URLs via idempotent GET under shared artifact budgets.
 
-        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST。共用谓词把 403/404 也算作
-        可重试：终态刚签发的产物地址可能尚未在对象存储侧传播。其余 4xx 确定性失败。
-        下载比生成更宽容——失败不浪费生成额度，故预算比生成阶段大得多。
+        Retry transient failures here only, never restart nonidempotent generation POST. Shared predicates
+        retry 403/404 because just-issued artifact URLs may not have propagated in object storage.
+        Other 4xx fail deterministically. Downloads have much larger budgets than generation because failed
+        retrieval must not waste generation quota.
         """
         await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="MiniMax 图像")
 
 
 async def _write_base64_image(b64: str, output_path: Path) -> None:
-    """解码 base64 图片并写盘（解码 + 写盘 offload 到线程，避免事件循环内做 CPU 密集解码）。
+    """Decode/persist base64 in threads, avoiding CPU-intensive decoding on event loops.
 
-    容忍少数中转返回 data URI（``data:image/...;base64,<payload>``）：剥前缀后再解码。
+    Tolerate relay data URIs (``data:image/...;base64,<payload>``), stripping prefixes before decoding.
     """
     payload = b64
     if payload.startswith("data:") and "," in payload:

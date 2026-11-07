@@ -106,7 +106,7 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
 
     assert result["selected_current"] is False
     assert (project_path / str(result["file_path"])).read_bytes() == b"paid"
-    # 分镜视频没有提示时，结果不带 warnings 这一键。
+    # Without storyboard-video notices, omit warnings keys entirely.
     assert "warnings" not in result
     finalize.assert_not_awaited()
     completed.assert_called_once_with()
@@ -115,7 +115,7 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
 
 @pytest.mark.asyncio
 async def test_a_storyboard_video_kept_only_in_history_still_carries_its_warnings(tmp_path: Path) -> None:
-    """这一格是「付费成片进了历史但没被选中」，提示照样要跟着走，否则只有被选中的那一次说得出。"""
+    """This case retains paid final output in history without selection; notices still follow it rather than appearing only for selected results."""
     project_path = tmp_path / "demo"
     paid = project_path / "paid.mp4"
     paid.parent.mkdir(parents=True)
@@ -511,7 +511,7 @@ async def test_selected_video_finalize_failure_is_compensated_before_reraising()
 
 @pytest.mark.asyncio
 async def test_cancellation_during_the_completion_callback_keeps_the_finalized_selection() -> None:
-    """完成回调在线程里发事件时到达的取消不打断它：回调结算后照常返回，不补偿已定型的选中。"""
+    """Cancellation while completion callbacks emit threaded events does not interrupt them: settle and return normally without compensating finalized selections."""
     committer = MagicMock()
     committer.outcome = PaidVersionCommit(version=2, selected=True)
     committer.release_admission_guard = AsyncMock()
@@ -692,7 +692,7 @@ def test_current_video_basis_rejects_an_episode_rebound_to_another_script(tmp_pa
 
 
 def test_video_currency_duration_tracks_only_the_planned_tier(tmp_path: Path) -> None:
-    """时长档位基准只取剧本计划时长：项目的旁白交付方式与已有旁白配音都不改变视频时效。"""
+    """Duration-tier bases use planned script duration only; narration delivery and existing audio never change video currency."""
     project_path, project, _script, metadata = _storyboard_state(tmp_path)
     project["content_mode"] = "narration"
     project["characters"] = {}
@@ -725,7 +725,7 @@ def test_video_currency_duration_tracks_only_the_planned_tier(tmp_path: Path) ->
     use_tts = {**project, "narration_delivery": "use_tts"}
     without_tts = _basis(post_production, script)
 
-    # 一份比计划时长更长的当前旁白配音
+    # Current narration audio longer than planned duration.
     audio = project_path / "audio" / "segment_E1S01.wav"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
@@ -758,7 +758,7 @@ def test_video_currency_duration_tracks_only_the_planned_tier(tmp_path: Path) ->
 
 
 def _reference_video_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, object]]:
-    """一个已用参考音频生成过的参考生视频片段，连同它冻结下来的执行事实。"""
+    """A reference-video clip generated with reference audio and its frozen execution facts."""
 
     project_path = tmp_path / "demo"
     sheet = project_path / "characters" / "阿离.png"
@@ -848,7 +848,7 @@ def _reference_video_basis(project_path: Path, project: dict, script: dict, meta
 
 
 def test_switching_to_prompt_voice_binding_makes_a_reference_video_stale(tmp_path: Path) -> None:
-    """声音绑定方式属于交付内容：切回提示词软约束后，挂过参考音频的成片不再对得上当前设置。"""
+    """Voice binding is delivered content: returning to soft prompt constraints makes reference-audio-generated output mismatch current settings."""
     project_path, project, script, metadata = _reference_video_state(tmp_path)
     before = _reference_video_basis(project_path, project, script, metadata)
     assert before is not None
@@ -857,7 +857,7 @@ def test_switching_to_prompt_voice_binding_makes_a_reference_video_stale(tmp_pat
     switched["character_voice_binding"] = "prompt"
     assert _reference_video_basis(project_path, switched, script, metadata) != before
 
-    # 字段缺省即默认档，与显式写 prompt 同判
+    # Absent field means default tier, judged like explicit prompt.
     absent = deepcopy(project)
     del absent["character_voice_binding"]
     assert _reference_video_basis(project_path, absent, script, metadata) != before

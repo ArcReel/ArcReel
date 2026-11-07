@@ -7,7 +7,7 @@ import type { PresetProvider } from "@/types/agent-credential";
 import { AddCredentialModal } from "./AddCredentialModal";
 
 beforeEach(() => {
-  // 默认 mock：没有自定义供应商，import 按钮不显示，不污染既有断言
+  // Default mocks lack custom providers, hiding Import without affecting existing assertions.
   vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
 });
 
@@ -262,10 +262,10 @@ describe("AddCredentialModal", () => {
       /display[_ ]name|显示名/i,
     ) as HTMLInputElement;
     expect(nameInput.value).toBe("DeepSeek");
-    // 用户改名
+    // Users rename.
     fireEvent.change(nameInput, { target: { value: "My Custom Name" } });
     expect(nameInput.value).toBe("My Custom Name");
-    // 切换到另一个 preset → displayName 跟随预设切换
+    // Switching presets makes displayName follow presets.
     fireEvent.click(screen.getByRole("button", { name: /Moonshot/i }));
     expect(nameInput.value).toBe("Moonshot");
   });
@@ -310,7 +310,7 @@ describe("AddCredentialModal", () => {
         onClose={vi.fn()}
       />,
     );
-    // 改一个非 api_key 字段触发 dirty,api_key 留空提交
+    // Change non-api_key fields to trigger dirty, submitting with api_key empty.
     fireEvent.change(
       screen.getByLabelText(/display[_ ]name|显示名/i),
       { target: { value: "DS Prod 2" } },
@@ -406,7 +406,7 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // effect 跑完后仍无按钮（默认 mock 返回空数组）
+      // After effects, buttons remain absent (default mocks return empty arrays).
       await waitFor(() => {
         expect(API.listCustomProviders).toHaveBeenCalled();
       });
@@ -481,7 +481,7 @@ describe("AddCredentialModal", () => {
       const payload = onSubmit.mock.calls[0][0];
       expect(payload.from_custom_provider_id).toBe(42);
       expect(payload.preset_id).toBe("__custom__");
-      // 预填地址未改动时交给服务端取供应商的当前地址
+      // Unchanged prefilled URLs let servers read current provider URLs.
       expect(payload.base_url).toBeUndefined();
       expect(payload.api_key).toBeUndefined();
     });
@@ -542,8 +542,8 @@ describe("AddCredentialModal", () => {
         />,
       );
 
-      // edit 模式即使有可导入供应商也不显示按钮（避免误操作覆盖现有凭证）
-      // 等几个事件循环确保 effect 不会触发（edit 模式 effect 不该调 API）
+      // Edit mode hides Import even with importable providers, avoiding accidental existing-credential overwrites.
+      // Wait several event-loop rounds to ensure effects never trigger (edit-mode effects must not call APIs).
       await new Promise((r) => setTimeout(r, 0));
       expect(API.listCustomProviders).not.toHaveBeenCalled();
       expect(screen.queryByTestId("import-from-provider")).not.toBeInTheDocument();
@@ -569,7 +569,7 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // 初始 custom 模式：baseUrl 空 → 测试按钮禁用
+      // Initial custom mode: empty baseUrl disables Test.
       const btn = screen.getByTestId("test-connection");
       expect(btn).toBeDisabled();
     });
@@ -600,9 +600,9 @@ describe("AddCredentialModal", () => {
           }),
         );
       });
-      // TestResultPanel headline 渲染（test_ok 文案三语 OR-match）
+      // TestResultPanel headline rendering (OR-match test_ok across three languages).
       await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
-      // 结果面板只剩调用地址，没有发现端点行
+      // Results retain called URLs only without discovery-endpoint rows.
       const panel = within(screen.getByRole("status"));
       expect(panel.getByText("https://api.deepseek.com/anthropic/v1/messages")).toBeInTheDocument();
       expect(panel.queryByText(/发现端点|Discovery endpoint|Endpoint discovery/i)).not.toBeInTheDocument();
@@ -617,7 +617,7 @@ describe("AddCredentialModal", () => {
       fireEvent.click(screen.getByTestId("test-connection"));
       await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
 
-      // 编辑态的父组件每次渲染都传新的 initial 字面量，不算重开
+      // Editing parents pass new initial literals on each render, without counting as reopening.
       rerender(<AddCredentialModal open {...props} initial={{}} />);
       expect(screen.getByText(/test[_ ]ok|连通正常|Kết nối/i)).toBeInTheDocument();
     });

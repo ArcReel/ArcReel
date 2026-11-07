@@ -12,13 +12,13 @@ from lib.references.reference_admission import (
 )
 from lib.references.reference_catalog import build_reference_catalog
 
-#: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对坐标系的用例。
+#: Vietnamese combining-mark names: visually identical encodings with different bytes test asset-name comparison coordinates.
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 def _project(**buckets: dict[str, object]) -> dict[str, object]:
-    """按资产类型名给出 project.json 载荷（``characters`` 等桶键从 ASSET_SPECS 取）。"""
+    """Build project.json payloads by asset type, obtaining buckets such as ``characters`` from ASSET_SPECS."""
     return {ASSET_SPECS[asset_type].bucket_key: bucket for asset_type, bucket in buckets.items()}
 
 
@@ -31,7 +31,7 @@ def _catalog(**buckets: dict[str, object]):
 
 
 def test_sheet_required_types_exclude_product():
-    """商品没有资产图时原图直接进下游参考（ADR 0034），不进阻断轴。"""
+    """Products without sheets pass originals downstream (ADR 0034), outside the blocking axis."""
     assert set(ASSET_SPECS) - {"product"} == SHEET_REQUIRED_ASSET_TYPES
 
 
@@ -51,7 +51,7 @@ def test_registered_reference_with_sheet_is_admitted(asset_type: str):
 
 @pytest.mark.parametrize("asset_type", sorted(SHEET_REQUIRED_ASSET_TYPES))
 def test_registered_reference_without_sheet_blocks_and_names_it(asset_type: str):
-    """没有资产图即阻断，并列出名称——原图不再顶替（ADR 0073）。"""
+    """Missing sheets block and list names; originals no longer substitute (ADR 0073)."""
     catalog = _catalog(**{asset_type: {"甲": {"reference_image": "uploads/raw.png"}}})
 
     admission = admit_references(catalog, references=[(asset_type, "甲")])
@@ -62,7 +62,7 @@ def test_registered_reference_without_sheet_blocks_and_names_it(asset_type: str)
 
 
 def test_product_without_sheet_is_admitted():
-    """商品原图是保真验收锚点，缺资产图不阻断。"""
+    """Product originals anchor fidelity acceptance; missing sheets do not block."""
     catalog = _catalog(product={"可乐": {"reference_images": ["uploads/a.png"]}})
 
     assert admit_references(catalog, references=[("product", "可乐")]).admitted is True
@@ -75,7 +75,7 @@ def test_empty_sheet_field_counts_as_no_sheet():
 
 
 def test_non_dict_asset_entry_counts_as_no_sheet():
-    """外部编辑写坏的条目按没有资产图处理，不抛异常。"""
+    """Externally malformed entries act as missing sheets without exceptions."""
     catalog = _catalog(character={"甲": "坏数据"})
 
     assert admit_references(catalog, references=[("character", "甲")]).without_sheet == (("character", "甲"),)
@@ -92,7 +92,7 @@ def test_unregistered_reference_blocks_and_names_it():
 
 
 def test_pre_derived_unregistered_names_join_the_same_axis():
-    """正文派生已认定未登记的名字（含删资产后的残留引用）直接进阻断轴。"""
+    """Names already classified unregistered from the body, including deleted-asset residuals, block directly."""
     catalog = _catalog(character={"张三": _sheet("character")})
 
     admission = admit_references(catalog, references=[("character", "张三")], unregistered=["已删除的道具"])
@@ -118,14 +118,14 @@ def test_repeated_sheetless_reference_is_reported_once():
 
 
 def test_lookup_does_not_borrow_registration_from_another_type():
-    """跨类型重名不折叠：场景位写的名字只在场景表里登记才算数。"""
+    """Cross-type names do not collapse: scene slots require registration in the scene table."""
     catalog = _catalog(character={"月台": _sheet("character")})
 
     assert admit_references(catalog, references=[("scene", "月台")]).unregistered == ("月台",)
 
 
 def test_name_comparison_is_unicode_normalized():
-    """资产表以 NFC 落盘、剧本以 NFD 写同一个名字时判为已登记。"""
+    """NFC asset names and equivalent NFD script names count as registered."""
     catalog = _catalog(character={_NAME_NFC: _sheet("character")})
 
     assert admit_references(catalog, references=[("character", _NAME_NFD)]).admitted is True
@@ -153,7 +153,7 @@ def test_storyboard_item_reads_every_reference_field():
 
 @pytest.mark.parametrize("char_field", ["characters_in_segment", "characters_in_scene", "characters_in_shot"])
 def test_storyboard_item_covers_every_skeleton_character_field(char_field: str):
-    """三种骨架的角色名单字段共用同一判定，谁都不能漏过未登记引用。"""
+    """Character-list fields in all three skeletons share admission; none may miss unregistered references."""
     catalog = _catalog(character={})
 
     assert admit_storyboard_item(catalog, {char_field: ["李四"]}).unregistered == ("李四",)
@@ -161,7 +161,7 @@ def test_storyboard_item_covers_every_skeleton_character_field(char_field: str):
 
 @pytest.mark.parametrize("raw", [None, "张三", 7, {"name": "张三"}], ids=["缺字段", "字符串", "数字", "对象"])
 def test_storyboard_item_skips_non_list_reference_fields(raw: object):
-    """脏剧本的引用字段不打成 500，跳过而不抛。"""
+    """Malformed reference fields are skipped without throwing or producing 500."""
     catalog = _catalog(character={})
 
     assert admit_storyboard_item(catalog, {"characters_in_shot": raw}).admitted is True
@@ -178,7 +178,7 @@ def test_non_mapping_item_is_admitted():
 
 
 def test_storyboard_items_merge_gaps_across_the_batch():
-    """整批一次报全缺口：逐条报出会让用户提交多次才看全要改什么。"""
+    """Report all batch gaps together, avoiding repeated submissions to discover required fixes."""
     catalog = _catalog(character={"张三": {}})
     items = [
         {"characters_in_shot": ["张三", "李四"]},
@@ -199,7 +199,7 @@ def _character_with_derivatives(sheet: str, **derivatives: str) -> dict[str, obj
 
 
 def test_a_derivative_without_a_sheet_blocks_and_names_the_form():
-    """阻断指向的是写在正文里的那个引用名 `角色/衍生`，不是本体（ADR 0073）。"""
+    """Block the body’s `角色/衍生` reference, not its base character (ADR 0073)."""
     catalog = _catalog(character={"张三": _character_with_derivatives("characters/张三.png", 劲装="")})
 
     admission = admit_references(catalog, references=[("character", "张三/劲装")])

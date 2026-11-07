@@ -1,9 +1,9 @@
-"""OpenAIChatImageBackend — 经 Chat Completions 出图（``modalities`` 含 ``image``）的图片后端。
+"""OpenAIChatImageBackend: Chat Completions image generation with ``image`` in ``modalities``.
 
-与文本的 ``openai-chat`` 打同一个 API：提示词与参考图作为一条多段 user 消息发出，参考图是
-``image_url`` 内容段（data URI）。出图位置各中转站不一：OpenRouter 约定在
-``choices[0].message.images[].image_url.url``，也有中转站把图以 Markdown 内联在 ``content`` 里，
-两处都认；图片本身可以是 data URI 或可下载的 URL。
+Use the same API as text ``openai-chat``: send prompts/references in one multipart user message,
+references as ``image_url`` data-URI content. Relay output locations vary: OpenRouter uses
+``choices[0].message.images[].image_url.url``; others inline Markdown in ``content``. Accept both,
+with images supplied as data URIs or downloadable URLs.
 """
 
 from __future__ import annotations
@@ -35,9 +35,9 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-#: image_config.image_size 只下传档位词（1K / 2K / 4K …）；自定义 WxH 没有对应取值，不下传。
+#: Forward image_config.image_size tier labels only, 1K / 2K / 4K …; custom WxH has no matching value and is omitted.
 _IMAGE_SIZE_TIERS = {k.lower(): k for k in IMAGE_TIER_SHORT_EDGE}
-#: content 里内联的 Markdown 图片：``![alt](url)``，url 可以是 data URI 或 http(s) 地址。
+#: Inline content Markdown images ``![alt](url)``, accepting data URIs or http(s).
 _MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*([^)\s]+)\s*\)")
 
 
@@ -50,7 +50,7 @@ def _image_config(request: ImageGenerationRequest) -> dict[str, str]:
 
 
 def _extract_image_url(message: Any) -> str | None:
-    """从 assistant 消息里取第一张图的地址：先看 ``images``，再看 ``content`` 里的 Markdown 图片。"""
+    """First assistant image URL, preferring ``images`` then Markdown inside ``content``."""
     for item in getattr(message, "images", None) or []:
         image_url = item.get("image_url") if isinstance(item, dict) else getattr(item, "image_url", None)
         url = image_url.get("url") if isinstance(image_url, dict) else getattr(image_url, "url", None)
@@ -66,7 +66,7 @@ def _extract_image_url(message: Any) -> str | None:
 
 async def _save_image(url: str, output_path: Path) -> None:
     if not url.startswith("data:"):
-        # 取件失败只在下载层重试，不回退到重跑已计费的出图请求
+        # Retry retrieval only in downloads, never repeat already billed image requests.
         await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="Chat Completions 图像")
         return
 
@@ -79,9 +79,9 @@ async def _save_image(url: str, output_path: Path) -> None:
 
 
 class OpenAIChatImageBackend:
-    """经 Chat Completions 出图，支持文生图与图生图。"""
+    """Chat Completions image generation supporting text-to-image and image-to-image."""
 
-    # 同一个协议背后挂的是各家模型，通道本身不限张数，上限取条目，未收录时交由上游裁决。
+    # Protocols wrap multiple model families; channels impose no counts. Use entries, otherwise let upstream decide.
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -125,7 +125,7 @@ class OpenAIChatImageBackend:
         await _save_image(url, request.output_path)
         logger.info("Chat Completions 出图完成: %s", request.output_path)
 
-        # 按现有字段上报总输入与总输出（读侧把两类相加，见 usage_repo）。
+        # Report existing total-input/total-output fields, summed by readers in usage_repo.
         usage = response.usage
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -142,7 +142,7 @@ class OpenAIChatImageBackend:
         return await self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "user", "content": content}],
-            modalities=["image", "text"],  # type: ignore[list-item]  # SDK 类型只列 text / audio
+            modalities=["image", "text"],  # type: ignore[list-item]  # SDK types enumerate text / audio only.
             extra_body={"image_config": _image_config(request)},
         )
 
@@ -157,7 +157,7 @@ class OpenAIChatImageBackend:
                 continue
             parts.append({"type": "image_url", "image_url": {"url": data_uri}})
         if request.reference_images and not parts:
-            # 用户提交的是图生图却没有一张可用素材：报错而不是悄悄降级成文生图
+            # User requested I2I without usable materials: error instead of silently downgrading to T2I.
             raise ImageCapabilityError(
                 "image_endpoint_mismatch_no_i2i",
                 model=self._model,

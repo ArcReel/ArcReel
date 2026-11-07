@@ -43,8 +43,8 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 /**
- * 在 fetch 边界按路由回放响应：真实的 API 方法与 HTTP 状态到 ApiRequestError 的映射都参与测试。
- * 每条路由按队列取回复，最后一条重复使用；数字回复是带 detail 的错误状态。
+ * Replay route responses at fetch boundaries, testing real API methods and HTTP-status → ApiRequestError mappings.
+ * Routes consume queued responses, reusing last responses; numeric responses are error statuses with detail.
  */
 function stubTrialRunServer(replies: Partial<Record<Route, Reply[]>>) {
   const queues: Record<Route, Reply[]> = { create: [RUNNING], read: [], cancel: [], ...replies };

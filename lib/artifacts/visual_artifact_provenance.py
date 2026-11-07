@@ -163,7 +163,7 @@ def build_asset_sheet_visual_basis(
 
 
 UPLOADED_ASSET_SHEET_BASIS_KIND = "artifact-visual/asset-sheet-upload"
-"""作为成品带入的资产图与衍生资产图的依据种类：只含图字节，描述、画风与本体资产图都不是输入。"""
+"""Basis kind for asset/derivative sheets carried in as finished media: image bytes only; descriptions, style, and base sheets are not inputs."""
 
 
 def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) -> ArtifactBasis:
@@ -188,7 +188,7 @@ def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) ->
 
 
 UPLOADED_STORYBOARD_BASIS_KIND = "artifact-visual/storyboard-upload"
-"""手动上传分镜图的依据种类：只含上传字节，提示词与参考图都不是输入。"""
+"""Basis kind for manually uploaded storyboards: upload bytes only; prompts/reference images are not inputs."""
 
 UPLOADED_VIDEO_BASIS_KIND = "artifact-video/upload"
 
@@ -502,39 +502,39 @@ def build_reference_video_artifact_visual_basis(
     )
 
 
-#: 宫格联合图、切格分镜与参考视频的依据从这一 schema 起记风格描述。
+#: Grid-composite, split-storyboard, and reference-video bases record style descriptions from this schema onward.
 STYLE_DESCRIPTION_BASIS_SCHEMA_VERSION = 14
 
 
 def project_basis_style_description(project: Mapping[str, object]) -> str:
-    """宫格联合图、切格分镜与参考视频的依据所记的风格描述。
+    """Style description recorded in grid-composite, split-storyboard, and reference-video bases.
 
-    schema 低于 14 的项目只在迁移链中出现：v13→v14 之前各步的整份激活与来源补写沿用那时不记描述
-    的口径，描述由 v13→v14 连同选中版本记录一并补记。
-    """
+    Projects below schema 14 occur only within migration chains. Full activation/provenance backfills
+    before v13→v14 retain the historical description-free rules; v13→v14 backfills descriptions together
+    with selected-version records."""
 
     if parse_project_schema_version(project) < STYLE_DESCRIPTION_BASIS_SCHEMA_VERSION:
         return ""
     return normalize_style_value(project.get("style_description"))
 
 
-#: 分镜图与宫格（联合图、切格分镜）的依据从这一 schema 起不记资产名。
+#: Storyboard/grid (composite and split) bases omit asset names from this schema onward.
 ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION = 19
 
 _STORYBOARD_IMAGE_KIND = "artifact-visual/storyboard-image"
 _GRID_COMPOSITE_KIND = "artifact-visual/grid-composite"
 _GRID_MEMBER_KIND = "artifact-visual/grid-member"
 
-#: 不记资产名的依据种类。参考生视频与资产图的模型输入含资产名，依据照记。
+#: Nameless basis kinds. Reference-to-video and asset-image model inputs contain names, retained in bases.
 ASSET_NAME_FREE_IMAGE_BASIS_KINDS = frozenset({_STORYBOARD_IMAGE_KIND, _GRID_COMPOSITE_KIND, _GRID_MEMBER_KIND})
 
 
 def project_basis_records_asset_names(project: Mapping[str, object]) -> bool:
-    """分镜图与宫格的依据是否仍按记资产名的口径投影。
+    """Whether storyboard/grid bases still project under rules recording asset names.
 
-    schema 低于 19 的项目只在迁移链中出现：v18→v19 之前各步的整份激活与改前改后规划沿用当时
-    记资产名的口径，与清单里存量的登记同源；v18→v19 把改写前时新的登记连同版本记录一并平移。
-    """
+    Projects below schema 19 occur only within migration chains. Full activation and before/after planning
+    before v18→v19 retain historical asset-name rules matching existing manifest entries. v18→v19 shifts
+    entries current before the rewrite together with version records."""
 
     return parse_project_schema_version(project) < ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION
 
@@ -548,17 +548,17 @@ def _build_image_basis(kind: str, inputs: dict[str, object], *, asset_names: boo
 
 
 def without_asset_names(kind: str, inputs: Mapping[str, object]) -> dict[str, object]:
-    """把分镜图或宫格依据的输入改写成不含资产名的形态。
+    """Rewrite storyboard/grid basis inputs to exclude asset names.
 
-    这些产物的模型输入不含资产名：类型声明行只按类型列「图N」，正文 ``@[名称]`` 渲染成该资产
-    首张参考图的「图N」（``lib/prompts/reference_image_numbering.py``）。依据因此与之对齐：
-    资产参考图的证据去掉逻辑身份里的名字，只留类型、角色、种类与内容指纹；图像提示词里指认
-    资产参考图的 mention 换成「图N」，对不上参考图的 mention 原样保留（模型看到的就是名字）。
-    上一分镜图等非资产参考图的身份不是资产名，原样保留。
+    Model inputs for these artifacts omit asset names: type declarations list 图N by type, and body
+    ``@[名称]`` renders as 图N for the asset's first reference image (``lib/prompts/reference_image_numbering.py``).
+    Align bases accordingly: asset-reference evidence drops names from logical identity, retaining type,
+    role, kind, and content fingerprint. Image-prompt mentions identifying asset references become 图N;
+    unmatched mentions remain unchanged because models see those names. Non-asset reference identities,
+    such as previous storyboards, are not asset names and remain unchanged.
 
-    构造器与 v18→v19 迁移共用这一函数：迁移按版本记录冻结的记名依据改写出的形态，与构造器
-    直接投影的形态逐字一致。已不含资产名的输入原样返回。
-    """
+    Constructors and v18→v19 share this function: rewriting name-bearing bases frozen in version records
+    produces exactly the same shape as direct constructor projection. Return already-nameless inputs unchanged."""
 
     if kind not in ASSET_NAME_FREE_IMAGE_BASIS_KINDS:
         raise ValueError(f"basis kind does not drop asset names: {kind!r}")
@@ -605,18 +605,18 @@ def without_asset_names(kind: str, inputs: Mapping[str, object]) -> dict[str, ob
 
 
 def _add_style_description(inputs: dict[str, object], style_description: str) -> None:
-    """风格描述非空才入依据：描述为空的项目摘要与不记描述时逐字一致，存量产物不因此过期。"""
+    """Include only nonempty style descriptions: empty-description project digests equal description-free digests byte for byte, preserving existing currency."""
 
     if normalized := _require_string("style_description", style_description).strip():
         inputs["style_description"] = normalized
 
 
 def _reference_visual_lines(text: str) -> list[str]:
-    """产物依据只取画面描述：剥掉全部发声记号后剩下的文本。
+    """Artifact bases use visual descriptions only: text remaining after all speech markers are removed.
 
-    台词改一个字不该让已生成的视频判过期——画面依据里不能含台词，而记号可写在行内任意
-    位置，故按记号逐段剔除而非整行跳过，同一行里的画面描述照常留下。
-    """
+    Changing one dialogue character must not outdate generated video, so visual bases cannot include
+    dialogue. Markers may occur anywhere inline: remove marker-delimited spans, not whole lines,
+    preserving visual descriptions sharing those lines."""
     lines: list[str] = []
     for raw_line in text.splitlines():
         line = strip_speech_marks(raw_line).strip()

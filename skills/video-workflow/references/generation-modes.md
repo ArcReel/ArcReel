@@ -1,15 +1,15 @@
-# 内容与生成模式
+# Content and generation modes
 
-ArcReel 把内容类型与视频生成路径分开：
+ArcReel separates content type from the video-generation path:
 
-- `content_mode` 为 `narration`、`drama` 或 `ad`。
-- `generation_mode` 为 `storyboard` 或 `reference_video`。
-- `grid_storyboard` 只改变分镜图的拼装方式，不是第三种生成模式。
+- `content_mode` is `narration`, `drama`, or `ad`.
+- `generation_mode` is `storyboard` or `reference_video`.
+- `grid_storyboard` changes only storyboard assembly, not a third generation mode.
 
-计划会说明每种组合适用哪些步骤。以 `steps[].required` 和 `next_action.args` 为准，不维护另一份“模式到步骤”表，也不推断预处理器。
+The plan specifies applicable steps for each combination. Follow `steps[].required` and `next_action.args`, without a separate mode-to-step table or inferred preprocessors.
 
-分镜模式项目用逐镜头或逐片段的分镜图作为视频输入。参考视频模式项目使用自包含的视频单元，并直接解析具名资产引用。因此，旁白、短剧和广告可能呈现不同的剧本结构，但这些结构不能覆盖计划。
+Storyboard projects use per-shot/segment images as video inputs. Reference video uses self-contained units and directly parses named asset references. Narration, drama, and ads may have different script structures, but those structures cannot override the plan.
 
-参考视频模式跳过分镜图，不跳过旁白选择。无论使用哪种生成模式，每次生成带旁白的视频前，都要询问用户使用当前 TTS，还是把旁白留到后期制作。
+Reference video skips storyboard images, not narration selection. In every generation mode, before each video generation with narration, ask whether to use current TTS or leave narration to post-production.
 
-模式和内容设置属于项目级选择。
+Mode and content settings are project-level choices.

@@ -1,1 +1,1 @@
-logo、文字、配色、材质、比例与结构不得改变或臆造
+do not change or invent the logo, text, colors, materials, proportions, or structure

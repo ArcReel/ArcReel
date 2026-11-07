@@ -52,10 +52,10 @@ from tests.http_capture import capture_http, only_request, request_json
 
 
 class _FakeClock:
-    """轮询时钟替身：sleep 只记不等，monotonic 按给定序列或固定步长推进。
+    """Polling clock substitute records sleeps without waiting; monotonic follows supplied times or fixed steps.
 
-    不传 times 时表按 step 无限推进——终态判定失灵的回归会在若干轮内撞上 max_wait 抛
-    TimeoutError，而不是以近乎为零的真实耗时空转成挂起。
+    Without times, advance indefinitely by step so broken terminal detection reaches max_wait
+    within a few rounds and raises TimeoutError rather than busy-looping forever in near-zero real time.
     """
 
     def __init__(self, times: list[float] | None = None, *, step: float = 1.0) -> None:
@@ -70,7 +70,7 @@ class _FakeClock:
 
 
 def _http_status_error(status_code: int, *, text: str = "boom") -> httpx.HTTPStatusError:
-    """构造真实 httpx.HTTPStatusError；URL 故意含 "503" 子串以验证不会按字符串误判。"""
+    """Construct real httpx.HTTPStatusError with deliberate URL 503 substrings, proving no string-based misclassification."""
     request = httpx.Request("GET", "https://relay.example/v2/video/generations?generation_id=task-503")
     response = httpx.Response(status_code, request=request, text=text)
     return httpx.HTTPStatusError(f"error '{status_code}'", request=request, response=response)
@@ -83,10 +83,10 @@ def _http_status_error_with_headers(status_code: int, headers: dict[str, str]) -
 
 
 class TestPollWithRetry:
-    """poll_with_retry 通用轮询辅助函数测试。"""
+    """poll_with_retry helper tests."""
 
     async def test_immediate_done(self):
-        """poll_fn 首次返回即完成。"""
+        """poll_fn completes on its first response."""
         poll_fn = AsyncMock(return_value="done_result")
 
         result = await poll_with_retry(
@@ -102,7 +102,7 @@ class TestPollWithRetry:
         assert poll_fn.await_count == 1
 
     async def test_polls_until_done(self):
-        """多次轮询后完成。"""
+        """Complete after repeated polls."""
         poll_fn = AsyncMock(side_effect=["pending", "pending", "done"])
 
         result = await poll_with_retry(
@@ -118,7 +118,7 @@ class TestPollWithRetry:
         assert poll_fn.await_count == 3
 
     async def test_transient_error_retries(self):
-        """轮询瞬态错误后重试成功。"""
+        """Retry transient polling errors successfully."""
         poll_fn = AsyncMock(side_effect=[ConnectionError("reset"), "done"])
 
         result = await poll_with_retry(
@@ -134,7 +134,7 @@ class TestPollWithRetry:
         assert poll_fn.await_count == 2
 
     async def test_non_retryable_error_propagates(self):
-        """不可重试的错误立即抛出。"""
+        """Nonretryable errors raise immediately."""
         poll_fn = AsyncMock(side_effect=ValueError("invalid"))
 
         with pytest.raises(ValueError, match="invalid"):
@@ -150,7 +150,7 @@ class TestPollWithRetry:
         assert poll_fn.await_count == 1
 
     async def test_timeout_raises(self):
-        """超时抛出 TimeoutError。"""
+        """Timeouts raise TimeoutError."""
         poll_fn = AsyncMock(return_value="pending")
         clock = _FakeClock([0.0, 0.0, 100.0])
 
@@ -184,7 +184,7 @@ class TestPollWithRetry:
         assert clock.sleeps == [5]
 
     async def test_failed_status_raises(self):
-        """is_failed 返回错误信息时抛出 RuntimeError。"""
+        """is_failed messages raise RuntimeError."""
         poll_fn = AsyncMock(return_value="failed_result")
 
         with pytest.raises(RuntimeError, match="任务失败"):
@@ -198,7 +198,7 @@ class TestPollWithRetry:
             )
 
     async def test_on_progress_called(self):
-        """on_progress 每轮非终态回调一次，终态轮不回调。"""
+        """on_progress fires once per nonterminal round, never for terminal rounds."""
         poll_fn = AsyncMock(side_effect=["pending", "done"])
         progress_calls = []
         clock = _FakeClock([0.0, 1.0, 2.0, 3.0])
@@ -218,7 +218,7 @@ class TestPollWithRetry:
         assert progress_calls == ["pending"]
 
     async def test_retry_if_overrides_default_and_fails_fast(self):
-        """retry_if 返回 False 时即便异常属"可重试类型"也立即抛，不重试。"""
+        """retry_if False raises immediately even for otherwise retryable exception types."""
         poll_fn = AsyncMock(side_effect=ConnectionError("would normally retry"))
 
         with pytest.raises(ConnectionError):
@@ -235,7 +235,7 @@ class TestPollWithRetry:
         assert poll_fn.await_count == 1
 
     async def test_retry_if_overrides_default_and_retries(self):
-        """retry_if 返回 True 时重试，即便异常类型默认不可重试。"""
+        """retry_if True retries even otherwise nonretryable types."""
         poll_fn = AsyncMock(side_effect=[ValueError("transient"), "done"])
 
         result = await poll_with_retry(
@@ -315,7 +315,7 @@ class TestPollWithRetry:
         assert clock.sleeps == [5]
 
     async def test_backoff_base_follows_caller_poll_interval(self):
-        """图片通道等调用方自带节奏：退避以调用方的 poll_interval 为基数，不是视频通道的 5 秒。"""
+        """Image callers supply cadence: backoff bases on poll_interval, never fixed video 5-second cadence."""
         poll_fn = AsyncMock(side_effect=[ConnectionError("a"), ConnectionError("b"), "done"])
         clock = _FakeClock(step=0)
 
@@ -331,7 +331,7 @@ class TestPollWithRetry:
         assert clock.sleeps == [3, 6]
 
     async def test_backoff_never_sleeps_past_the_deadline(self):
-        """退避等待受剩余预算限制：第二次退避要 10 秒而只剩 5 秒，睡 5 秒后即到截止时刻。"""
+        """Clamp backoff to remaining budgets: requested 10 seconds with 5 remaining sleeps 5 and reaches deadline."""
         poll_fn = AsyncMock(side_effect=[ConnectionError("a"), ConnectionError("b"), ConnectionError("c")])
         clock = _FakeClock([0.0, 0.0, 55.0, 60.0])
 
@@ -403,7 +403,7 @@ class TestExtractProviderErrorMessage:
 
 
 class TestIsRetryableHttpStatus:
-    """is_retryable_http_status 状态码分类。"""
+    """is_retryable_http_status classification."""
 
     def test_transient_statuses_retry(self):
         for code in (408, 425, 429, 500, 502, 503, 504):
@@ -421,10 +421,10 @@ class TestIsRetryableHttpStatus:
 
 
 class TestRetryPredicates:
-    """should_retry_submit / should_retry_poll 中转视频后端重试谓词。
+    """Relay-video should_retry_submit/should_retry_poll predicates.
 
-    submit 是非幂等的「创建 + 计费」：传输错误只重试「请求确定未送达」的子集；
-    poll 是幂等 GET：传输错误一律重试。
+    Submit creates/bills nonidempotently: retry only transport failures proving nondelivery.
+    Poll uses idempotent GET and retries all transport failures.
     """
 
     def test_deterministic_4xx_fail_fast(self):
@@ -445,7 +445,7 @@ class TestRetryPredicates:
             assert should_retry_poll(err) is True
 
     def test_submit_retries_only_not_sent_transport_errors(self):
-        # 连接建立失败 / 从未取得连接 / 代理握手失败 → 请求确定未送达 → submit 重试安全。
+        # Failed connection creation/acquisition/proxy handshake proves nondelivery, making submit retries safe.
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ConnectTimeout("connect timed out"),
@@ -455,23 +455,23 @@ class TestRetryPredicates:
             assert should_retry_submit(exc) is True
 
     def test_submit_does_not_retry_ambiguous_transport_errors(self):
-        # 请求可能已送达服务端（已建任务 / 已计费）→ submit 不重试，避免重复计费。
-        # 注意：实际 create 路径中这些原始异常会先被 submit_post 包成 AmbiguousSubmitError 再
-        # 进重试谓词，should_retry_submit 运行时并不会直接收到它们；此处单独断言谓词对原始异常
-        # 的防御性行为（文档化兜底），与 submit_post 的包装互为双保险。
+        # Possible delivered requests may already create/bill tasks; never retry submit and duplicate charges.
+        # Real creation wraps these raw errors as AmbiguousSubmitError through submit_post before predicates;
+        # runtime should_retry_submit does not directly receive them. Assert defensive raw-error behavior
+        # separately as documented fallback, complementing submit_post wrapping.
         for exc in (
             httpx.ReadTimeout("read timed out"),
             httpx.WriteTimeout("write timed out"),
             httpx.ReadError("conn reset mid-read"),
             httpx.WriteError("conn reset mid-write"),
             httpx.RemoteProtocolError("server disconnected"),
-            ConnectionError(),  # 内建：歧义，不重试
-            TimeoutError(),  # 内建：歧义，不重试
+            ConnectionError(),  # Built-in ambiguity, never retry.
+            TimeoutError(),  # Built-in ambiguity, never retry.
         ):
             assert should_retry_submit(exc) is False
 
     def test_poll_retries_all_transport_errors(self):
-        # 幂等 GET：连接建立失败与读/写阶段错误一律重试。
+        # Idempotent GET retries connection/read/write transport errors alike.
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ReadTimeout("read timed out"),
@@ -482,13 +482,13 @@ class TestRetryPredicates:
             assert should_retry_poll(exc) is True
 
     def test_ambiguous_submit_error_never_retries(self):
-        # AmbiguousSubmitError 是终态：被装饰器捕获后谓词须返回 False。
+        # Terminal AmbiguousSubmitError makes decorator predicates return False.
         assert should_retry_submit(AmbiguousSubmitError(provider="v2")) is False
         assert should_retry_poll(AmbiguousSubmitError(provider="v2")) is False
 
     def test_local_protocol_errors_fail_fast_both_paths(self):
-        # UnsupportedProtocol / LocalProtocolError 在请求发出前就确定失败（均为 RequestError
-        # 子类），两条路径都快速失败——poll 不该重试到 max_wait，submit 也无重复计费风险。
+        # UnsupportedProtocol/LocalProtocolError are pre-send RequestError subclasses; both paths fail fast,
+        # neither polling to max_wait nor risking duplicate billed submission.
         for exc in (
             httpx.UnsupportedProtocol("scheme not http(s)"),
             httpx.LocalProtocolError("bad local request"),
@@ -497,22 +497,22 @@ class TestRetryPredicates:
             assert should_retry_submit(exc) is False
 
     def test_poll_still_retries_remote_protocol_error(self):
-        # RemoteProtocolError 与 LocalProtocolError 同为 ProtocolError 子类，但属「服务端中途
-        # 断开」，幂等 GET 重试安全——确认本地错误的排除没有误伤它。
+        # RemoteProtocolError also subclasses ProtocolError but means midrequest server disconnect;
+        # idempotent GET safely retries it, verifying local-error exclusions do not overreach.
         assert should_retry_poll(httpx.RemoteProtocolError("server disconnected")) is True
 
     def test_business_exceptions_fail_fast(self):
-        # ResumeExpiredError 的 job_id 含 "503" 子串：若按字符串兜底会误判为可重试。
+        # ResumeExpiredError job_id 503 substrings must not trigger string-fallback retries.
         resume_exc = ResumeExpiredError(job_id="job-503", provider="v2")
         assert should_retry_poll(resume_exc) is False
         assert should_retry_submit(resume_exc) is False
-        # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
+        # Ordinary exceptions never retry solely due to status-like message substrings.
         assert should_retry_poll(ValueError("503 in message")) is False
         assert should_retry_submit(RuntimeError("got 500 somewhere")) is False
 
 
 class TestShouldRetryDownload:
-    """should_retry_download 下载阶段谓词：403/404 未就绪及瞬态错误重试。"""
+    """should_retry_download retries unready 403/404 and transient download errors."""
 
     def test_download_retries_not_ready_403_and_404(self):
         for code in (400, 401, 413, 422):
@@ -525,7 +525,7 @@ class TestShouldRetryDownload:
             assert should_retry_download(_http_status_error(code)) is True
 
     def test_retries_all_transport_errors(self):
-        # 幂等 GET 下载：连接建立失败与读阶段错误一律重试（与 poll 一致，无重复计费风险）。
+        # Idempotent GET downloads retry connection/read failures like polling, without repeat billing.
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ReadTimeout("read timed out"),
@@ -538,19 +538,19 @@ class TestShouldRetryDownload:
     def test_local_protocol_errors_and_business_exceptions_fail_fast(self):
         assert should_retry_download(httpx.UnsupportedProtocol("scheme")) is False
         assert should_retry_download(httpx.LocalProtocolError("bad")) is False
-        # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
+        # Ordinary exceptions never retry solely due to status-like message substrings.
         assert should_retry_download(ValueError("503 in message")) is False
 
 
 class TestShouldRetrySignedDownload:
-    """should_retry_signed_download：预签发 URL 的 4xx 一律确定性失败，瞬态码照常重试。"""
+    """Signed-download 4xx is deterministic; transient statuses still retry."""
 
     def test_all_client_errors_fail_fast(self):
         for code in (400, 401, 403, 404, 413, 422):
             assert should_retry_signed_download(_http_status_error(code)) is False
 
     def test_transient_codes_still_retry(self):
-        # 429/408/425 是限流与瞬态，不属于「签名 URL 确定性失败」，与 5xx 同样重试。
+        # 429/408/425 are transient/rate-limit statuses, not deterministic signed failures; retry like 5xx.
         for code in (408, 425, 429, 500, 503):
             assert should_retry_signed_download(_http_status_error(code)) is True
 
@@ -560,7 +560,7 @@ class TestShouldRetrySignedDownload:
 
 
 class TestSubmitPost:
-    """submit_post：create/提交阶段按「请求是否确定送达」给失败分流。"""
+    """submit_post routes creation failures by certainty of request delivery."""
 
     async def test_returns_response_on_success(self):
         resp = httpx.Response(200, request=httpx.Request("POST", "https://x/v2"), json={"id": "ok"})
@@ -578,7 +578,7 @@ class TestSubmitPost:
         assert recorded == [("submit", {"id": "ok"})]
 
     async def test_recorded_response_is_sanitized_before_it_is_persisted(self):
-        # 留痕会落库并经 API 回读：上游把凭证回显在字段里时不能原样存下来。
+        # Traces persist and return through APIs; never store credential-echoing provider values unchanged.
         request_obj = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(
             200,
@@ -603,8 +603,8 @@ class TestSubmitPost:
 
         await submit_post(_post, provider="v2", request=request)
 
-        # 厂商私有的查询参数名不在通用遮蔽器的清单里，只有整体剥离查询串才拦得住；
-        # 没有冒号的裸令牌权限段（https://TOKEN@host）同理，通用遮蔽器只认 user:password@
+        # Provider-private query names evade generic masks, requiring removal of entire queries;
+        # token-only authorities https://TOKEN@host likewise evade user:password@-only generic masks.
         assert recorded == [
             (
                 "submit",
@@ -618,7 +618,7 @@ class TestSubmitPost:
         ]
 
     async def test_not_sent_error_propagates_for_retry(self):
-        # 连接建立失败 / 代理握手失败原样抛出，交 should_retry_submit 重试（不包成终态）。
+        # Propagate connection/proxy-handshake failures for should_retry_submit, never terminal wrapping.
         for exc in (httpx.ConnectError("refused"), httpx.ProxyError("proxy handshake failed")):
 
             async def _post(_exc: httpx.RequestError = exc) -> httpx.Response:
@@ -629,8 +629,8 @@ class TestSubmitPost:
             assert excinfo.value is exc
 
     async def test_local_protocol_error_propagates_raw_not_ambiguous(self):
-        # 本地/协议错误请求发出前就失败、无计费风险 → 原样抛出，不包成 AmbiguousSubmitError
-        # （否则会误导运维去供应商侧确认一个从未创建的任务）。
+        # Pre-send local/protocol errors have no billing risk; propagate without AmbiguousSubmitError
+        # rather than ask operators to verify provider tasks never created.
         for exc in (
             httpx.UnsupportedProtocol("scheme not http(s)"),
             httpx.LocalProtocolError("bad local request"),
@@ -643,7 +643,7 @@ class TestSubmitPost:
                 await submit_post(_post, provider="v2")
 
     async def test_ambiguous_error_wrapped_with_manual_retry_hint(self):
-        # ReadTimeout（请求可能已送达）包成 AmbiguousSubmitError，消息含手动重试提示。
+        # Possibly delivered ReadTimeout becomes AmbiguousSubmitError with manual-retry guidance.
         async def _post() -> httpx.Response:
             raise httpx.ReadTimeout("read timed out")
 
@@ -655,7 +655,7 @@ class TestSubmitPost:
         assert isinstance(excinfo.value.__cause__, httpx.ReadTimeout)
 
     async def test_http_status_error_propagates_for_status_gate(self):
-        # >=400 响应经 raise_for_status 抛 HTTPStatusError，交 should_retry_submit 按 status_code 分流。
+        # >=400 uses raise_for_status HTTPStatusError for status-based should_retry_submit routing.
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(503, request=request, text="upstream busy")
 
@@ -666,8 +666,8 @@ class TestSubmitPost:
             await submit_post(_post, provider="v2")
 
     async def test_deterministic_4xx_carries_the_redacted_provider_reason(self):
-        # 确定性 4xx 抛 ProviderRejectedError：消息仍不含查询串里的 api_key，拒因另挂在
-        # provider_reason 上，供落库侧作为独立字段编码。
+        # Deterministic 4xx becomes ProviderRejectedError without query api_key; attach separate
+        # provider_reason for independent persistence encoding.
         request = httpx.Request("POST", "https://x/v2?api_key=SECRETKEY")
         resp = httpx.Response(
             400,
@@ -686,7 +686,7 @@ class TestSubmitPost:
         assert should_retry_submit(excinfo.value) is False
 
     async def test_server_error_stays_a_plain_status_error(self):
-        # 5xx 说的是「上游此刻不可用」，响应体不并入错误信息——异常类型也保持原样。
+        # 5xx denotes currently unavailable upstreams; omit response bodies from messages, retaining original exception types.
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
 
@@ -700,8 +700,8 @@ class TestSubmitPost:
         assert str(excinfo.value) == "502 response for https://x/v2"
 
     async def test_error_message_drops_url_userinfo(self):
-        # base_url 允许用户自填：写成 https://user:pw@host 时口令落在权限段里，剥查询串剥不掉它，
-        # 而这条消息会进 task.error_message 并随任务列表回传。
+        # User base_url may contain https://user:pw@host credentials, which query stripping cannot remove;
+        # messages enter task.error_message and return with task lists.
         request = httpx.Request("POST", "https://user:SECRETPW@x/v2?api_key=SECRETKEY")
         resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
 
@@ -718,8 +718,8 @@ class TestSubmitPost:
         [(401, {"message": "Incorrect API key provided: vda_live_SECRET"}), (400, {}), (403, {"unknown": "shape"})],
     )
     async def test_deterministic_4xx_is_structured_even_without_a_reason(self, status: int, body: dict[str, str]):
-        # 摘要缺席（认证类不透传、空响应体、字段全不认得）时拒绝本身仍要结构化，
-        # 否则读侧拿不到本地化文案与「修改输入」的后续动作，只剩一行裸状态。
+        # Even absent summaries (auth nondisclosure, empty bodies, unknown fields) require structured rejections,
+        # preserving localized copy/modify-input actions rather than bare status lines.
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(status, request=request, json=body)
 
@@ -733,7 +733,7 @@ class TestSubmitPost:
         assert excinfo.value.response.status_code == status
 
     async def test_failure_body_is_redacted_before_it_reaches_the_log(self, caplog):
-        # 失败响应体照样落日志保留可诊断性，但凭证不随它进日志文件。
+        # Log failed-response bodies for diagnosis without credentials.
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(
             401,
@@ -776,14 +776,14 @@ class TestSubmitPost:
 
 
 class TestProviderReasonSummary:
-    """provider_reason_summary：4xx 响应体 → 脱敏、截断后的拒因摘要。"""
+    """provider_reason_summary maps 4xx bodies into sanitized, truncated rejection summaries."""
 
     @staticmethod
     def _response(status: int, **kwargs: object) -> httpx.Response:
         return httpx.Response(status, request=httpx.Request("POST", "https://x/v2"), **kwargs)
 
     def test_prefers_the_message_field_over_the_whole_body(self):
-        # 错误体常把请求原样回显回来；只取消息字段，prompt 全文不会进摘要。
+        # Error bodies often echo requests; take message fields only, never whole prompts.
         summary = provider_reason_summary(
             self._response(
                 400,
@@ -851,7 +851,7 @@ class TestProviderReasonSummary:
 
     @pytest.mark.parametrize("status", [401, 407])
     def test_returns_none_for_credential_errors(self, status: int):
-        # 认证失败的响应体讲的就是凭证，上游常把整把密钥回显在句子里；这类拒因不透传。
+        # Auth bodies often echo full keys in sentences; never forward those rejection reasons.
         assert (
             provider_reason_summary(
                 self._response(status, json={"message": "Incorrect API key provided: vda_live_SECRET"})
@@ -860,7 +860,7 @@ class TestProviderReasonSummary:
         )
 
     def test_masks_a_credential_echoed_in_prose(self):
-        # 密钥不一定以键值形式出现：上游也会把它嵌在一句话里回显。
+        # Keys can appear in prose rather than key/value form.
         summary = provider_reason_summary(
             self._response(400, json={"message": "Incorrect API key provided: vda_live_SECRET"})
         )
@@ -869,15 +869,15 @@ class TestProviderReasonSummary:
 
 
 def _make_operational_error(msg: str) -> OperationalError:
-    """构造 sqlalchemy OperationalError（params/orig/connection 仅签名形式占位）。"""
+    """Build sqlalchemy OperationalError with params/orig/connection signature placeholders only."""
     return OperationalError(msg, params=None, orig=Exception(msg))
 
 
 class TestPersistJobIdRetry:
-    """persist_provider_job_id 在 DB 瞬态错误下重试 + 结构化日志。"""
+    """persist_provider_job_id retries transient DB errors with structured logs."""
 
     async def test_retries_on_sqlite_locked(self, caplog):
-        """前 2 次 OperationalError → 第 3 次成功；retry 实际执行 3 次。"""
+        """Two OperationalErrors precede third-attempt success; retry actually runs three times."""
         attempts = 0
 
         async def _flaky_persist(_tid: str, _job: str) -> None:
@@ -905,7 +905,7 @@ class TestPersistJobIdRetry:
         assert any("provider_job_id 已持久化" in r.message for r in caplog.records)
 
     async def test_terminal_failure_logs_structured(self, caplog):
-        """全部重试失败 → logger.error 记录 task_id / provider / job_id 三键 + 重抛。"""
+        """Exhaustion logs task_id/provider/job_id through logger.error and reraises."""
 
         async def _always_fail(_tid: str, _job: str) -> None:
             raise _make_operational_error("database is locked")
@@ -934,7 +934,7 @@ class TestPersistJobIdRetry:
         assert "job_id=job-X" in msg
 
     async def test_no_retry_for_value_error(self):
-        """ValueError 不在 retryable_errors 内 → 立即抛出，retry 仅尝试 1 次。"""
+        """ValueError outside retryable_errors raises after one attempt."""
         attempts = 0
 
         async def _bad(_tid: str, _job: str) -> None:
@@ -960,10 +960,10 @@ class TestPersistJobIdRetry:
         assert attempts == 1
 
     async def test_no_retry_for_value_error_with_transient_string(self):
-        """业务异常即使消息含 ``timed out`` / ``503`` 等串，也不该被字符串兜底吞掉重试。
+        """Business errors containing ``timed out`` / ``503`` must not trigger string-fallback retries.
 
-        `should_retry` 在 isinstance 不匹配时会做 RETRYABLE_STATUS_PATTERNS 字符串子串兜底，
-        因而须显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 严格按类型判断。
+        `should_retry` falls back to RETRYABLE_STATUS_PATTERNS substrings after isinstance misses;
+        explicitly pass `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` for type-only decisions.
         """
         attempts = 0
 
@@ -991,17 +991,17 @@ class TestPersistJobIdRetry:
 
 
 class TestProviderJobIdPersistenceMixin:
-    """提交-轮询型 video backend 的持久化收口点：单一统一调用点承接 None 判断 + 写回 + fail-fast。"""
+    """Single submit/poll-video persistence seam handles None checks, writes, and fail-fast behavior."""
 
     def _backend(self) -> ProviderJobIdPersistenceMixin:
-        # 裸 mixin 实例即可——_persist_provider_job_id 不依赖任何子类状态。
+        # Bare mixins suffice; _persist_provider_job_id needs no subclass state.
         return ProviderJobIdPersistenceMixin()
 
     def _request(self, *, task_id: str | None) -> VideoGenerationRequest:
         return VideoGenerationRequest(prompt="p", output_path=Path("/tmp/out.mp4"), task_id=task_id)
 
     async def test_worker_path_persists_via_module_helper(self):
-        """worker 路径（task_id 非空）经统一点转调模块级 persist_provider_job_id。"""
+        """Worker nonempty task_id routes through unified module-level persist_provider_job_id."""
         with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"), "job-1", provider="ark"
@@ -1017,7 +1017,7 @@ class TestProviderJobIdPersistenceMixin:
         ]
 
     async def test_worker_path_persists_execution_endpoint(self):
-        """自定义供应商包装层注入的 endpoint 与 job_id 一并落库，供续跑比对协议是否被换掉。"""
+        """Persist custom-provider endpoint identities with job_ids so resume detects protocol changes."""
         request = self._request(task_id="local-task-1")
         request.execution_endpoint = "openai-video"
         with captured_provider_job_ids() as persisted:
@@ -1025,7 +1025,7 @@ class TestProviderJobIdPersistenceMixin:
         assert [(r["endpoint"], r["base_url"]) for r in persisted] == [("openai-video", None)]
 
     async def test_worker_path_persists_backend_domain_when_builtin(self):
-        """内置供应商由 backend 传入实际请求域名 → 落域名列供续跑回放，协议标识位保持空。"""
+        """Built-in backends persist actual request domains for resume replay, leaving protocol identities empty."""
         with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"),
@@ -1036,7 +1036,7 @@ class TestProviderJobIdPersistenceMixin:
         assert [(r["endpoint"], r["base_url"]) for r in persisted] == [(None, "https://maas.example.com/api/v1")]
 
     async def test_execution_endpoint_and_backend_domain_land_in_separate_columns(self):
-        """自定义供应商：协议标识走 endpoint 位供比对，域名走 base_url 位供回放，互不覆盖。"""
+        """Custom providers persist protocol under endpoint and replay domains under base_url, never overwriting each other."""
         request = self._request(task_id="local-task-1")
         request.execution_endpoint = "dashscope-video"
         with captured_provider_job_ids() as persisted:
@@ -1048,13 +1048,13 @@ class TestProviderJobIdPersistenceMixin:
         ]
 
     async def test_non_worker_path_skips_persist(self):
-        """非 worker 路径（grid / 直生 / 测试，task_id=None）跳过持久化，不触碰 DB。"""
+        """Nonworker grid/direct/test task_id=None skips persistence without DB access."""
         with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(self._request(task_id=None), "job-1", provider="ark")
         assert persisted == []
 
     async def test_persist_failure_propagates_fail_fast(self):
-        """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
+        """Persistence failures propagate originals for worker finally mark_failed, never swallowed."""
         boom = _make_operational_error("database is locked")
         with (
             captured_provider_job_ids(fail=boom),
@@ -1066,7 +1066,7 @@ class TestProviderJobIdPersistenceMixin:
 
 
 class TestRedirectMethodRewrite:
-    """跟随重定向时的方法改写规则，与 httpx / RFC 9110 同口径。"""
+    """Redirect method rewriting matches httpx/RFC 9110."""
 
     @pytest.mark.parametrize(
         ("status_code", "method", "expected"),
@@ -1076,7 +1076,7 @@ class TestRedirectMethodRewrite:
             (303, "HEAD", False),
             (301, "POST", True),
             (302, "POST", True),
-            # PUT 在 301/302 上保留方法与请求体：改写会让端点收到语义完全不同的请求。
+            # PUT 301/302 retains methods/bodies; rewriting would change endpoint semantics.
             (301, "PUT", False),
             (302, "PUT", False),
             (307, "POST", False),
@@ -1088,11 +1088,11 @@ class TestRedirectMethodRewrite:
 
 
 class TestScopedCredentialRedirect:
-    """``request_with_scoped_credentials`` 逐跳跟随时随行数据的作用域。"""
+    """Per-hop data scopes for ``request_with_scoped_credentials`` redirects."""
 
     @pytest.mark.parametrize("status", [307, 308])
     async def test_a_cross_origin_hop_forwards_neither_credentials_nor_the_body(self, status: int):
-        """307 / 308 保留方法，但请求体与凭证都不带出凭证作用域。"""
+        """307/308 retains methods, but bodies/credentials never leave credential scopes."""
         with capture_http() as router:
             router.post("https://relay.test/submit").mock(
                 return_value=httpx.Response(status, headers={"Location": "https://other.test/submit"})
@@ -1138,9 +1138,9 @@ class TestScopedCredentialRedirect:
 
 class TestWithArtifactRetry:
     async def test_single_slow_attempt_is_cut_off_at_max_wait(self):
-        """一次取件迟迟不返回时也要受墙钟上限约束——poll_with_retry 只在返回后才比对预算。
+        """Wall-clock limits also bound never-returning downloads; poll_with_retry checks budgets only after return.
 
-        判据不靠真实等待：预算给 0，取件停在一个永不置位的事件上，截止时刻即刻到达。
+        Avoid real waits: budget 0 and a never-set event reach deadlines immediately.
         """
         never_ready = asyncio.Event()
 
@@ -1159,7 +1159,7 @@ _LIMIT = 64 * 1024 * 1024
 class TestStreamToFile:
     async def test_writes_body_and_leaves_no_partial_file(self, tmp_path: Path):
         output = tmp_path / "nested" / "out.mp4"
-        payload = b"x" * (9 * 1024 * 1024)  # 跨过攒批阈值，走多次落盘
+        payload = b"x" * (9 * 1024 * 1024)  # Exceed batch-write thresholds to exercise multiple disk writes.
 
         with capture_http() as router:
             router.get("https://cdn.test/a.mp4").mock(return_value=httpx.Response(200, content=payload))
@@ -1170,7 +1170,7 @@ class TestStreamToFile:
         assert not (output.parent / f"{output.name}.part").exists()
 
     async def test_redirect_without_location_is_not_written_as_the_artifact(self, tmp_path: Path):
-        """raise_for_status 放行 3xx：没有 Location 就无处可跳，跳转响应体不能当成片存下来。"""
+        """raise_for_status admits 3xx; without Location redirects have nowhere to go, so never save redirect bodies as videos."""
         output = tmp_path / "out.mp4"
 
         with capture_http() as router:
@@ -1246,7 +1246,7 @@ class TestDownloadVideoDestination:
         assert not output.exists()
 
     async def test_resumable_download_keeps_destination_rejection_terminal(self, tmp_path: Path):
-        # 目的地不合规重试取件也不会变，不落可重试下载的 ArtifactDownloadError
+        # Retrying invalid destinations cannot help; never wrap them as retryable ArtifactDownloadError.
         with capture_http() as router:
             target = router.get("http://169.254.169.254/a.mp4").mock(return_value=httpx.Response(200))
             with pytest.raises(ArtifactDestinationRejectedError):
@@ -1266,7 +1266,7 @@ class TestDownloadVideoDestination:
 
 
 class TestRecordingPoll:
-    """轮询留痕：每收到一次响应即写入，早于状态与错误解读。"""
+    """Polling traces persist every received response before status/error interpretation."""
 
     @staticmethod
     def _request(recorded: list[tuple[str, object]]) -> VideoGenerationRequest:
@@ -1281,7 +1281,7 @@ class TestRecordingPoll:
         )
 
     async def test_terminal_failure_body_is_recorded_before_it_raises(self):
-        """终态失败由 is_failed 在 poll_with_retry 内抛出，留痕仍须拿到该响应体。"""
+        """Terminal is_failed errors inside poll_with_retry still retain response-body traces."""
         recorded: list[tuple[str, object]] = []
         body = {"status": "failed", "error": "provider said no"}
 
@@ -1298,7 +1298,7 @@ class TestRecordingPoll:
         assert recorded == [("poll", body)]
 
     async def test_http_error_response_body_is_recorded(self):
-        """4xx/5xx 响应从 poll_fn 自己抛出，同样是需要诊断的那次调用。"""
+        """poll_fn’s own 4xx/5xx failures are also diagnostically relevant calls."""
         recorded: list[tuple[str, object]] = []
         response = httpx.Response(500, json={"detail": "boom"}, request=httpx.Request("GET", "https://x/t"))
         error = httpx.HTTPStatusError("500", request=response.request, response=response)
@@ -1330,7 +1330,7 @@ class TestRecordingPoll:
         assert recorded == [("result", {"video_url": "https://cdn.test/video.mp4"})]
 
     async def test_diagnostic_write_failure_does_not_fail_the_generation(self):
-        """留痕列写不进去时任务照常推进——供应商已受理的生成不因诊断数据失败。"""
+        """Trace-write failures never interrupt provider-accepted generation; tasks advance normally."""
         request = VideoGenerationRequest(
             prompt="p",
             output_path=Path("out.mp4"),
@@ -1342,7 +1342,7 @@ class TestRecordingPoll:
 
 
 class TestResumeExpiryGate:
-    """续跑轮询闸门：只有续跑时的 404 转 ResumeExpiredError，其余异常与新提交路径原样透出。"""
+    """Resume-only 404 becomes ResumeExpiredError; other exceptions match fresh-submission propagation."""
 
     async def test_resume_404_becomes_resume_expired(self):
         gated = resume_expiry_gate(AsyncMock(side_effect=_http_status_error(404)), resume_job_id="job-1", provider="p")

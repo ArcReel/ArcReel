@@ -1,1 +1,1 @@
-"""素材与素材存储：内容版本的身份、摘要、持久定位，以及保存与读取入口。"""
+"""Materials/storage: content-version identities, digests, durable locators, and save/read entry points."""

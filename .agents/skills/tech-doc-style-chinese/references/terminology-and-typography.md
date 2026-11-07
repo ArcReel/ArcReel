@@ -1,18 +1,18 @@
-# 术语与排版
+# Terminology and typography
 
-仅在需要处理术语、错词、标点、留白或大小写时读取本文件。所有规则只作用于可见正文，不作用于代码、路径、字段、命令、配置项和用户指定的固定字面量。
+Read this file only when handling terminology, wrong words, punctuation, spacing, or capitalization. All rules apply only to visible body text, not code, paths, fields, commands, configuration options, or fixed literals specified by the user.
 
-## 术语原则
+## Terminology principles
 
-- 同一概念使用同一首选术语。
-- 优先采用目标项目术语表和产品官方写法。
-- 不因为追求词汇变化而替换同义词。
-- 词语可能有多个合法含义时，先判断语境，不做全局替换。
-- 项目专属术语放在目标项目的覆盖文件中。
+- Use one preferred term per concept.
+- Prefer the target project glossary and official product spellings.
+- Do not substitute synonyms merely for variety.
+- When words have multiple valid meanings, judge context first rather than replace globally.
+- Put project-specific terminology in the target project's override file.
 
-## 空泛表达与黑话
+## Vague language and jargon
 
-以下词语容易掩盖具体动作。只有在有明确业务定义、属于正式术语、引用原文或用户要求保留时才使用：
+The following terms can obscure concrete actions. Use them only with explicit business definitions, as formal terminology, in original quotations, or when the user requests preservation:
 
 - `赋能`
 - `抓手`
@@ -36,20 +36,20 @@
 - `收口`
 - `透传`
 
-优先说明它实际指什么：
+Prefer stating what they actually mean:
 
-- `赋能` -> `提供`，或直接写提供的能力
+- `赋能` -> `提供`, or name the capability provided directly
 - `抓手` -> `关键措施`
-- `闭环` -> `完整流程`，或列出开始、处理和完成条件
+- `闭环` -> `完整流程`, or list start, processing, and completion conditions
 - `沉淀` -> `形成`、`积累`、`保存`
 - `对齐` -> `统一`、`确认一致`
 - `拉通` / `打通` -> `连接`、`贯通`
 - `洞察` -> `分析结论`
-- `兜底` -> 写出失败后的具体保障机制
+- `兜底` -> state the specific fallback mechanism after failure
 - `落盘` -> `写入文件`、`保存到本地`
 - `透传` -> `原样传给下游`
 
-以下词语依赖语境，不应由检查器自动替换：
+The following terms depend on context and must not be automatically replaced by the checker:
 
 - `场景`
 - `生态`
@@ -65,25 +65,25 @@
 - `输出`
 - `提炼`
 
-保留内部术语时，在首次出现处说明实际含义，避免连续堆叠多个术语。
+When retaining internal terminology, explain its actual meaning on first use and avoid stacking multiple terms.
 
-## 标点
+## Punctuation
 
-- 中文正文默认使用全角中文标点。
-- 中文引号使用直角引号 `「」`，嵌套引用使用 `『』`；项目、地区、出版或固定引用规范可以覆盖。
-- 中文全角标点前后不额外加空格；英文句子和代码遵循各自规则。
-- 中文说明使用全角括号 `（）`，括号内侧不留空格。英文原文、代码和函数调用中的括号保持原样。
-- 文档、书籍等作品名称使用书名号 `《》`；按钮、菜单和字段展示名使用 `「」`。机器可读字段名使用行内代码并保持原样。
-- 中文省略号使用 `……`，破折号使用 `——`；不以三个英文句点或连续连字符代替。代码、命令选项和 Markdown 结构标记保持原样。
-- 避免连续感叹号、省略号和口号式断句。
-- 完整句式的列表项统一使用句号；短语型列表项可以不加句号，但同一列表保持一致。
-- 并列词语使用顿号，并列分句根据层级使用逗号或分号。
-- 冒号后应当确有解释、列举或引用，不要把每句话都拆成冒号列表。
-- 破折号、括号和斜线只在关系明确时使用，不用它们代替句子组织。
+- Use full-width Chinese punctuation in Chinese body text by default.
+- Use corner brackets `「」` for Chinese quotations and `『』` for nested quotations; project, regional, publishing, or fixed-quotation conventions may override this.
+- Do not add spaces around full-width Chinese punctuation; English sentences and code follow their own rules.
+- Use full-width parentheses `（）` in Chinese descriptions, without interior spaces. Keep parentheses in original English text, code, and function calls unchanged.
+- Use title brackets `《》` for documents, books, and similar works; use `「」` for button, menu, and field display names. Use inline code for machine-readable field names and preserve them unchanged.
+- Use `……` for Chinese ellipses and `——` for Chinese dashes rather than three English periods or repeated hyphens. Keep code, command options, and Markdown structural markers unchanged.
+- Avoid repeated exclamation marks, ellipses, and slogan-like fragments.
+- Use periods consistently for full-sentence list items. Phrase items may omit periods, but keep each list consistent.
+- Separate parallel terms with enumeration commas and parallel clauses with commas or semicolons according to hierarchy.
+- Use colons only before actual explanations, enumerations, or quotations; do not split every sentence into a colon-led list.
+- Use dashes, parentheses, and slashes only for clear relationships, not as substitutes for sentence structure.
 
-以下反例仅针对可编辑的中文正文，不要求修改固定引用或代码原文：
+The counterexamples below concern only editable Chinese body text; they do not require changing fixed quotations or original code:
 
-| 不推荐写法 | 推荐写法 |
+| Not recommended | Recommended |
 | --- | --- |
 | `点击“保存”按钮。` | `点击「保存」按钮。` |
 | `提示为「请选择「保存」」。` | `提示为「请选择『保存』」。` |
@@ -93,17 +93,17 @@
 | `正在加载...` | `正在加载……` |
 | `检查结果--连接失败。` | `检查结果——连接失败。` |
 
-## 称呼
+## Address
 
-- 技术文档默认不直接称呼读者，优先使用无主句或明确角色。
-- 根据语境使用 `开发者`、`技术负责人`、`实施人员`、`业务负责人`、`产品经理`。
-- `你`、`您`、`同学` 属于风格提示，不是普遍语言错误；消费产品、帮助文本或品牌规范可以允许第二人称。
+- By default, technical documentation does not directly address readers; prefer subjectless sentences or explicit roles.
+- Use `开发者`, `技术负责人`, `实施人员`, `业务负责人`, or `产品经理` according to context.
+- `你`, `您`, and `同学` are style hints, not universal language errors; consumer products, help text, or brand guidelines may allow second person.
 
-## 中文与英文、数字之间的留白
+## Spacing between Chinese, English, and numbers
 
-在可见正文中，中文与英文单词、英文缩写、阿拉伯数字和版本号之间加一个普通半角空格（U+0020），即「盘古之白」。不是半个空格，也不使用全角空格、连续空格或 Tab 模拟对齐。Markdown 缩进、表格结构和行尾两个空格表示的显式换行除外。
+In visible body text, insert one ordinary half-width space (U+0020) between Chinese and English words, English abbreviations, Arabic numerals, or version numbers, known as “盘古之白”. This is not half a space; do not simulate alignment with full-width spaces, repeated spaces, or tabs. Exceptions are Markdown indentation, table structures, and two trailing spaces indicating explicit line breaks.
 
-| 不推荐写法 | 推荐写法 |
+| Not recommended | Recommended |
 | --- | --- |
 | `使用API获取数据` | `使用 API 获取数据` |
 | `等待3秒` | `等待 3 秒` |
@@ -111,39 +111,39 @@
 | `增长50%` | `增长 50%` |
 | `使用  API 获取数据` | `使用 API 获取数据` |
 
-中文与行内代码之间加一个半角空格，只调整代码标记外侧，不修改代码内部。例如：
+Insert one half-width space between Chinese and inline code, adjusting only outside code delimiters without modifying code contents. For example:
 
-- 不推荐：``运行`npm install`安装依赖。``
-- 推荐：``运行 `npm install` 安装依赖。``
-- 行内代码紧邻中文标点时不加空格，例如：``运行 `npm install`。``
+- Not recommended: ``运行`npm install`安装依赖。``
+- Recommended: ``运行 `npm install` 安装依赖。``
+- Do not add spaces between inline code and adjacent Chinese punctuation, for example: ``运行 `npm install`。``
 
-链接按显示文字判断边界，不在链接语法内部插入排版空格，也不修改目标地址。例如：
+Judge link boundaries by displayed text; do not insert typographic spaces inside link syntax or change targets. For example:
 
-- 不推荐：`参见[API](https://example.com)说明。`
-- 推荐：`参见 [API](https://example.com) 说明。`
-- 中文链接文字不额外留白：`参见[安装说明](https://example.com)。`
+- Not recommended: `参见[API](https://example.com)说明。`
+- Recommended: `参见 [API](https://example.com) 说明。`
+- Do not add spaces around Chinese link text: `参见[安装说明](https://example.com)。`
 
-以上规则服从目标项目约定，不对以下内容内部做机械替换：
+These rules defer to target-project conventions. Do not mechanically replace text inside:
 
-- 行内代码和代码块
-- JSON 键名
-- URL 和 API 路径
-- 数据库字段名
-- 命令、配置项、占位符和正则表达式
-- 直接镜像接口定义的表头
-- 产品官方拼写和用户指定字面量
+- Inline code and code blocks
+- JSON keys
+- URLs and API paths
+- Database field names
+- Commands, configuration options, placeholders, and regular expressions
+- Table headings directly mirroring interface definitions
+- Official product spellings and user-specified literals
 
-## 数字、单位与日期
+## Numbers, units, and dates
 
-- 数字与半角单位符号之间加一个半角空格，例如 `10 GB`、`200 ms`、`25 °C`。
-- 百分号和角度符号紧邻数字，例如 `50%`、`90°`；温度单位 `°C` 与角度符号 `°` 不同。
-- 中文与完整数值之间留白，不拆开数值内部结构，例如 `增长 50%`、`旋转 90° 后停止`、`温度为 25 °C`。
-- 负号、小数点、千位分隔符与数字之间不加空格。已有数值和精度保持不变，不为排版擅自换算单位或增减小数位。
-- 普通中文中的数值范围优先使用 `至`，例如 `3 至 5 天`；保持原有上下界和包含关系，代码中的连接符不变。
-- 中文日期写作 `2026 年 9 月 29 日`，中文时间写作 `下午 3 点`；数字时间内部不加空格，例如 `15:30`。
-- 面向跨时区读者时注明已知时区；缺失时提示补充，不根据所在地猜测。英文日期遵循目标地区规范，有歧义的纯数字日期不自动转换。
+- Insert one half-width space between a number and a half-width unit symbol, for example `10 GB`, `200 ms`, and `25 °C`.
+- Keep percent and degree signs adjacent to numbers, for example `50%` and `90°`; the temperature unit `°C` differs from the degree sign `°`.
+- Space Chinese from complete numeric values without splitting their internal structure, for example `增长 50%`, `旋转 90° 后停止`, and `温度为 25 °C`.
+- Do not space minus signs, decimal points, or thousands separators from digits. Preserve existing values and precision; do not convert units or alter decimal places for typography.
+- Prefer `至` for numeric ranges in ordinary Chinese, for example `3 至 5 天`; preserve bounds and inclusivity, leaving code connectors unchanged.
+- Write Chinese dates as `2026 年 9 月 29 日` and Chinese times as `下午 3 点`; do not space inside numeric times, for example `15:30`.
+- State known time zones for cross-time-zone audiences. If missing, request the information rather than guess from location. English dates follow target-region conventions; do not automatically convert ambiguous all-numeric dates.
 
-| 不推荐写法 | 推荐写法 |
+| Not recommended | Recommended |
 | --- | --- |
 | `容量为10GB` | `容量为 10 GB` |
 | `耗时200ms` | `耗时 200 ms` |
@@ -154,49 +154,49 @@
 | `2026年9月29日` | `2026 年 9 月 29 日` |
 | `15 : 30` | `15:30` |
 
-数字排版还应检查：
+Also check numeric typography for:
 
-- 日期、时间和时区是否完整
-- 百分比与百分点是否混用
-- 数值是否带有必要单位
-- 区间上下界和包含关系是否明确
-- 货币、温度、存储单位和千位分隔是否一致
+- Complete dates, times, and time zones
+- Confusion between percentages and percentage points
+- Necessary units on values
+- Explicit range bounds and inclusivity
+- Consistent currency, temperature, storage units, and thousands separators
 
-## 段落换行与源文件行宽
+## Paragraph wrapping and source line width
 
-中文 Markdown 段落在源文件中保持一段一行，不为了控制源码行宽在段落中间手动断行。长行交给编辑器软换行阅读。
+Keep Chinese Markdown paragraphs on one source line per paragraph. Do not manually break paragraphs to control source line width; let the editor soft-wrap long lines.
 
-取消硬换行的原因：
+Reasons to remove hard wraps:
 
-- 段落被手动断成多行后，源文件很碎，改写、比对和审阅都更难对照上下文。
-- 软换行在多数渲染器中按空格处理，中文与英文边界上的断行会多出或吞掉空格。
+- Manual paragraph wrapping fragments source files and makes context harder to follow during rewriting, comparison, and review.
+- Most renderers treat soft line breaks as spaces; breaks at Chinese/English boundaries may add or swallow spaces.
 
-保持一段一行的范围：
+Keep one paragraph per line for:
 
-- 正文段落
-- 列表项正文；列表层级、标记和缩进不变
+- Body paragraphs
+- List-item body text; preserve list hierarchy, markers, and indentation
 
-以下内容保留原有换行：
+Preserve existing line breaks in:
 
-- 围栏代码块和缩进代码块，包括写在列表标记之后的围栏和列表项内的缩进代码
-- 表格的行结构
-- 标题、Setext 下划线、分隔线和链接引用定义
-- HTML 块按整块保留，包括多行 `<pre>` 和多行注释
-- 引用块，它可能需要保持原文形态
-- 行尾两个空格或反斜杠表示的显式换行
+- Fenced and indented code blocks, including fences after list markers and indented code within list items
+- Table row structures
+- Headings, Setext underlines, separators, and link-reference definitions
+- Entire HTML blocks, including multiline `<pre>` and multiline comments
+- Blockquotes, which may need to retain their original form
+- Explicit line breaks indicated by two trailing spaces or a backslash
 
-展开硬换行后，逐处复查拼接边界的留白：
+After unwrapping, recheck spacing at every join:
 
-- 中文与中文之间不加空格
-- 中文与半角英文、数字之间加一个空格，例如 `作为 ASR`、`的 stdio 模式`
-- 全角标点两侧不加空格，例如 `说明，API 返回`
-- 行内代码、链接和强调标记按可见文字判断，例如 `详见 **接口说明**文档`
+- Do not insert spaces between Chinese characters
+- Insert one space between Chinese and half-width English or numbers, for example `作为 ASR` and `的 stdio 模式`
+- Do not space around full-width punctuation, for example `说明，API 返回`
+- Judge inline code, links, and emphasis by visible text, for example `详见 **接口说明**文档`
 
-需要批量处理时使用 `scripts/unwrap_md_paragraphs.py`。工具只处理拼接边界，不修改段落内部已有的留白、标点和措辞，结果仍需人工复核。
+Use `scripts/unwrap_md_paragraphs.py` for bulk processing. It handles only joins without modifying existing interior spacing, punctuation, or wording; results still need manual review.
 
-## 技术术语大小写
+## Technical-term capitalization
 
-以下是常见推荐写法，不应覆盖项目或产品的官方命名：
+These common recommended spellings must not override official project or product naming:
 
 - `id` / `Id` -> `ID`
 - `http` / `Http` -> `HTTP`
@@ -223,17 +223,17 @@
 - `xml` -> `XML`
 - `jwt` -> `JWT`
 
-以下写法依赖语境，只能提示人工确认：
+The following forms depend on context and should only prompt manual confirmation:
 
-- `JS`：简短界面或既有名称中可能合理，正式正文可写 `JavaScript`
-- `H5`：可能指移动 Web 活动页，不等同于 HTML5 标准
-- `Postgres`：可能是项目采用的正式简称
-- `OAuth`：可能指协议家族，不能自动补成 `OAuth 2.0`
-- `k8s`：正式文档可写 `Kubernetes`，命令、标签和社区语境可能保留
+- `JS`：may be appropriate in compact UIs or existing names; formal body text may use `JavaScript`
+- `H5`：may mean mobile Web campaign pages, not the HTML5 standard
+- `Postgres`：may be the project's official abbreviation
+- `OAuth`：may refer to a protocol family; do not automatically expand to `OAuth 2.0`
+- `k8s`：formal documentation may use `Kubernetes`，may remain in commands, labels, and community contexts
 
-## 高频错词与语境词
+## Common wrong words and contextual terms
 
-可以作为确定错误处理：
+May be treated as definite errors:
 
 - `阀值` -> `阈值`
 - `布署` -> `部署`
@@ -243,23 +243,23 @@
 - `embeding` -> `embedding`
 - `提示工程学` -> `提示工程`
 
-必须结合语境判断：
+Must be judged in context:
 
-- `登录系统`，但可以说 `登陆月球`
-- `配置参数`，但可以说 `配制溶液`
-- `截至 4 月 12 日`，但可以说 `截止日期`
-- `启用功能`，但可以说 `起用新人`
-- `标识字段`，但可以说 `在图中标示位置`
-- 技术能力通常写 `实时通信`，但 `即时` 在其他语境中可能正确
-- `认证` 表示确认身份，`授权` 表示授予权限
+- `登录系统`, but valid wording includes `登陆月球`
+- `配置参数`, but valid wording includes `配制溶液`
+- `截至 4 月 12 日`, but valid wording includes `截止日期`
+- `启用功能`, but valid wording includes `起用新人`
+- `标识字段`, but valid wording includes `在图中标示位置`
+- Technical capabilities usually use `实时通信`, but `即时` may be correct in other contexts
+- `认证` means verifying identity; `授权` means granting permissions
 
-## 数量与逻辑
+## Quantities and logic
 
-- `缩小了 3 倍` -> `缩小到原来的 1/3` 或写明减少比例
-- `从 20% 增长到 30%`：增加 10 个百分点，相对增长 50%
-- `转化率提升了 5%`：确认是提升 5% 还是 5 个百分点
+- `缩小了 3 倍` -> `缩小到原来的 1/3` or specify the reduction ratio
+- `从 20% 增长到 30%`: an increase of 10 percentage points, or 50% relative growth
+- `转化率提升了 5%`: confirm whether the increase is 5% or 5 percentage points
 - `翻了 1 倍` -> `变为原来的 2 倍`
 - `不超过 100 以上` -> `不超过 100`
 - `预计大约在 3 点左右` -> `预计 3 点左右`
 
-修正表达时不得自行补充原文没有的基数、年份、期限或测量结果。
+When correcting expression, do not add bases, years, deadlines, or measurement results absent from the original.

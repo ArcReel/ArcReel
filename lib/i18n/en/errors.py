@@ -519,7 +519,7 @@ MESSAGES = {
     "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
-    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
+    # Compatibility key: read historical task results only; new code uses ref_single_ref_only.
     "ref_sora_single_ref": "This model accepts only one reference image; the first one was used",
     "ref_single_ref_only": "{model} accepts only one reference image; the first one was used",
     "ref_episode_not_found": "Episode (id={episode}) not found",

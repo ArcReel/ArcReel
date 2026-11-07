@@ -1,4 +1,4 @@
-"""费用估算 API 路由。"""
+"""Cost-estimation API routes."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def get_cost_estimate(
     locale: Locale,
     coalescer: Annotated[RequestCoalescer, Depends(get_cost_estimate_coalescer)],
 ):
-    """获取项目费用估算（预估 + 实际）。同一项目、同一语言的并发请求合流计算。"""
+    """Get project cost estimates (estimated + actual). Coalesce concurrent requests for the same project and language."""
 
     reject_retired_query_params(request, "narration_delivery", "reference_unit_id")
     return await coalescer.run((project_name, locale), lambda: _estimate(project_name, _t))
@@ -52,7 +52,7 @@ async def _estimate(project_name: str, _t: Translator):
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
 
-        # 加载所有剧本
+        # Load every script
         scripts: dict[str, dict] = {}
         for ep in project_data.get("episodes", []):
             script_file = ep.get("script_file", "")

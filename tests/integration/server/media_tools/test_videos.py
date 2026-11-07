@@ -62,7 +62,7 @@ async def fake_scene_batch(*, project_name, specs, on_success=None, on_failure=N
 
 _EPISODE_1: dict[str, Any] = {"scope": "episode", "episode_id": 1}
 _ALL: dict[str, Any] = {"scope": "all"}
-# 越出项目根的成片路径：清单无从检查这份产物，它的状态既不是「缺失」也不是「可用」。
+# Outside-project final paths cannot be manifest-checked; their state is neither missing nor usable.
 _UNREADABLE_CLIP = "../outside/E1S01.mp4"
 
 
@@ -75,13 +75,13 @@ def _selected(*unit_ids: str) -> dict[str, Any]:
 
 
 def _is_error(out: ToolOutcome[Any]) -> bool:
-    """两宿主置 isError 的同一判定：problem，或终态结果未全部成功（待确认档位不算）。"""
+    """Both hosts set isError identically: problems or terminal results not wholly successful, excluding tier confirmation pending."""
 
     return out.problem is not None or generation_is_error(out.value)
 
 
 def _text(out: ToolOutcome[Any]) -> str:
-    """调用方读到的人读文本：problem 的 detail，或终态结果的摘要。"""
+    """Caller-readable text is problem detail or terminal-result summary."""
 
     if out.problem is not None:
         return out.problem.detail
@@ -90,7 +90,7 @@ def _text(out: ToolOutcome[Any]) -> str:
 
 
 def _recording_batch(enqueued: list[Any]):
-    """记下每批入队的 spec，不产出任何终态。"""
+    """Record batch specs without producing terminal results."""
 
     async def _batch(*, specs, **_batch_kwargs):
         enqueued.extend(specs)
@@ -121,10 +121,10 @@ def _select_manual_video(
 
 
 def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None = None) -> dict[str, Any]:
-    """构造一个已迁移到当前 schema 的项目，并把点名的分镜图登记进产物清单。
+    """Construct a current-schema project and register named storyboard images in manifests.
 
-    直接调用入队构造函数的用例不经 pm，项目形态得在这里补齐：清单是读取已生成产物的
-    唯一口径，没有登记的分镜图不能作为视频输入。
+    Cases calling enqueue builders directly bypass pm and need complete project shapes here; manifests alone
+    determine generated-artifact presence, so unregistered storyboards cannot feed videos.
     """
 
     from lib.artifacts.artifact_manifest import (
@@ -157,7 +157,7 @@ def _refused_problems(refused: list[Any]) -> dict[str, tuple[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# generate_videos：请求校验
+# generate_videos request validation.
 # ---------------------------------------------------------------------------
 
 
@@ -166,7 +166,7 @@ _VALID_REQUEST: dict[str, Any] = {
     "target": _EPISODE_1,
 }
 
-# 项目级旁白交付配置的两种取值；视频请求对两者一视同仁。
+# Both project narration-delivery choices receive identical video requests.
 _POST_PRODUCTION_PROJECT: dict[str, Any] = {"narration_delivery": "post_production"}
 _USE_TTS_PROJECT: dict[str, Any] = {
     "narration_delivery": "use_tts",
@@ -213,7 +213,7 @@ async def test_generate_videos_refuses_a_malformed_request_before_enqueuing(
 async def test_generate_videos_refuses_a_narration_delivery_without_enqueuing(
     fake_ctx: ToolHarness, delivery: str
 ) -> None:
-    """旁白交付方式是项目配置：请求里带上它时整次调用被拒，指引说明视频按剧本计划时长请求。"""
+    """Narration delivery belongs to projects; supplying it in requests rejects the call with guidance that videos request script-planned durations."""
     enqueue = AsyncMock(return_value=([], []))
 
     out = await run_declared_tool(
@@ -232,7 +232,7 @@ async def test_generate_videos_refuses_a_narration_delivery_without_enqueuing(
 async def test_generate_videos_refuses_a_retired_param_with_its_replacement(
     fake_ctx: ToolHarness, retired_param: str
 ) -> None:
-    """已退役的参数名被拒，报错点名该参数并给出当下写法。"""
+    """Retired parameter names reject with errors naming them and current syntax."""
 
     out = await run_declared_tool("generate_videos", fake_ctx, {**_VALID_REQUEST, retired_param: "dummy"})
 
@@ -257,7 +257,7 @@ async def test_generate_videos_refuses_an_episode_target_that_is_not_the_scripts
 
 
 # ---------------------------------------------------------------------------
-# generate_videos：分镜图生视频
+# generate_videos storyboard-image-to-video.
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +268,7 @@ async def test_generate_videos_episode_scope_happy(fake_ctx: ToolHarness) -> Non
 
 
 async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolHarness) -> None:
-    """整集调用复用清单已认领的旧片段。"""
+    """Whole-episode calls reuse manifest-claimed legacy clips."""
 
     project = fake_ctx.pm.project_payload
     project.update(
@@ -301,8 +301,8 @@ async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolHa
 async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_is_unreadable(
     fake_ctx: ToolHarness,
 ) -> None:
-    """整集调用里某片段的 Manifest 比对抛错（BLOCKED）时必须报 blocked，不能落入
-    「既不可复用也不算 blocked」的空档而被当作缺失去付费重生——不可读不等于没有。"""
+    """Whole-episode manifest comparison failures report BLOCKED, never falling into neither-reusable-nor-blocked
+    gaps that would pay to regenerate supposedly missing clips; unreadable is not absent."""
 
     project = fake_ctx.pm.project_payload
     project.update(
@@ -348,9 +348,9 @@ async def test_generate_videos_episode_scope_rejects_unbound_active_script_befor
 async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_abort_batch(
     fake_ctx: ToolHarness,
 ) -> None:
-    """整集入队先按 generated_assets.video_clip 过滤已完成条目。容器被外部编辑损坏为非 dict
-    时该过滤须按「未生成」处理，而不是在 pending 过滤阶段就抛未处理 AttributeError；随后该条目
-    以自己的问题码拦住整批，本次不创建任何任务。"""
+    """Whole-episode enqueue first filters generated_assets.video_clip; externally corrupted nondict containers
+    count as ungenerated instead of raising unhandled AttributeError during filtering. Their own problem codes
+    then block the entire batch without creating any tasks."""
     project_dir = fake_ctx.pm.get_project_path("demo")
     (project_dir / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
     fake_ctx.pm.script_payload["segments"] = [
@@ -371,7 +371,7 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
-    # E1S01 的分镜图绑定不可用：整批准入不成立，零任务入队，合法条目也如实报告被搁置的原因。
+    # Unavailable E1S01 storyboard bindings block admission with zero tasks; valid siblings truthfully report why deferred.
     assert enqueued == []
     result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1S01", "E1S02"]
@@ -458,7 +458,7 @@ async def test_generate_videos_scene_scope_happy(fake_ctx: ToolHarness) -> None:
 async def test_generate_videos_storyboard_request_is_independent_of_project_narration_delivery(
     fake_ctx: ToolHarness,
 ) -> None:
-    """分镜图生视频：TTS 配音项目与后期配音项目得到同一份准入结论与同一份入队请求。"""
+    """Storyboard-image-to-video TTS/postproduction projects receive identical admission decisions and queued requests."""
 
     async def _submit(project_config: dict[str, Any]) -> tuple[dict[str, Any], list[Any]]:
         fake_ctx.pm.project_payload.update(project_config)
@@ -554,7 +554,7 @@ async def test_generate_videos_scene_scope_accepts_legacy_narration_string_promp
 async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_speech(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """分镜图生视频的整批入口同样过发声准入：一个混合发声条目扣下整批，零任务入队。"""
+    """Whole-batch storyboard-video admission checks speech; one mixed-speech item blocks everything without tasks."""
     project_dir = fake_ctx.pm.get_project_path("demo")
     for segment_id in ("E1S01", "E1S02"):
         (project_dir / "storyboards" / f"scene_{segment_id}.png").write_bytes(b"png")
@@ -562,7 +562,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
         {
             "segment_id": "E1S01",
             "novel_text": "风吹过旷野。",
-            # 旁白与角色台词同时出现：需要重规划，不是可以直接下单的条目。
+            # Narration plus character dialogue requires replanning, not direct generation.
             "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
             "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
         },
@@ -589,7 +589,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
 async def test_generate_videos_episode_scope_storyboard_batch_blocks_when_a_video_prompt_is_pending(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """机械转换出的条目 video_prompt 为 None：整批受阻、零任务入队，回执点名待生成的条目。"""
+    """Mechanically derived video_prompt=None blocks whole batches with zero tasks and names pending items in receipts."""
     project_dir = fake_ctx.pm.get_project_path("demo")
     for segment_id in ("E1S01", "E1S02"):
         (project_dir / "storyboards" / f"scene_{segment_id}.png").write_bytes(b"png")
@@ -630,9 +630,9 @@ async def test_generate_videos_scene_scope_missing(fake_ctx: ToolHarness) -> Non
 @pytest.mark.parametrize(
     "storyboard_value",
     [
-        123,  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非未处理 TypeError
-        "/etc/passwd",  # 绝对路径：越权引用项目外文件
-        "../../outside.png",  # `..` 穿越出项目目录
+        123,  # Corrupt nonstring script JSON must fail readably, not unhandled TypeError.
+        "/etc/passwd",  # Absolute paths reference unauthorized outside files.
+        "../../outside.png",  # `..` escapes the project.
     ],
 )
 async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
@@ -643,7 +643,7 @@ async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
     out = await run_generate_videos(fake_ctx, _scene("E1S01"), force=True)
 
     assert _is_error(out)
-    # 锁定 resolve_storyboard_image_ref 抛出的 canonical 消息，而不是模糊子串或通用失败文本
+    # Pin resolve_storyboard_image_ref canonical messages, not vague substrings/generic errors.
     assert f"invalid storyboard image path: {storyboard_value!r}" in _text(out)
 
 
@@ -688,7 +688,7 @@ async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolHarness) ->
 
 
 # ---------------------------------------------------------------------------
-# generate_videos：参考生视频
+# generate_videos reference-to-video.
 # ---------------------------------------------------------------------------
 
 
@@ -722,8 +722,8 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
 
 
 async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_container(fake_ctx: ToolHarness) -> None:
-    """``video_units`` 非数组：生成模式闸门只问键在不在，容器校验落在入队侧，
-    须报出可定位的结构错误而不是下传到 unit 迭代抛 TypeError。"""
+    """Nonarray ``video_units`` passes key-presence mode gates, but enqueue container checks
+    must locate structural errors before unit iteration raises TypeError."""
     use_reference_route(fake_ctx)
     for malformed in (
         {"E1U1": {}},
@@ -732,8 +732,8 @@ async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_co
         False,
         None,
     ):
-        # 键在场即按类型判定，不看真值：``{}`` / ``""`` / ``False`` 同样是类型错误，
-        # 报成「为空」会把成因埋掉。
+        # Existing keys validate types regardless of truthiness; ``{}`` / ``""`` / ``False`` are type errors too,
+        # not empty containers, which would hide the cause.
         fake_ctx.pm.script_payload = reference_video_script(video_units=malformed)
 
         out = await run_generate_videos(fake_ctx, _EPISODE_1)
@@ -745,7 +745,7 @@ async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_co
 async def test_generate_videos_episode_scope_reference_duration_needs_confirmation(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """申请秒数与剧本总时长不一致时，首次调用不入队，逐 ID 结果给出机器可读的待确认结论。"""
+    """Requested seconds differing from script totals do not enqueue initially; per-ID results expose machine-readable pending confirmation."""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
     use_reference_route(fake_ctx)
@@ -766,21 +766,21 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
 
     assert not _is_error(out), out
     assert enqueued == []
-    # 待确认不是 prose-only 的死角：调用方能拿到机器可读结论，不必解析文本猜测。
+    # Pending confirmation is machine-readable, avoiding prose-only conclusions requiring guesses.
     result = read_generation_result(out)
     assert result.blocked == ["E1U1"]
     item = result.items[0]
     assert item.problem is not None
     assert item.problem.code == "reference_duration_confirmation_required"
     assert item.problem.action == "confirm_request_duration"
-    # 摘要以剧本计划时长为比较基准，并直接给出成片会变长还是变短。
+    # Summaries compare script-planned durations and state whether final videos get longer or shorter.
     assert "E1U1：剧本时长 5s，将申请 8s（成片更长 3s）" in _text(out)
 
 
 async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """带精确申请档位的再次调用按取档结果入队并生成成功。"""
+    """Repeat calls with exact requested tiers enqueue those tiers and generate successfully."""
     from lib.generation.generation_queue_client import BatchTaskResult
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
@@ -815,7 +815,7 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
 async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """一批里档位不止一个时按 unit 确认，原目标集合仍作为一批重发，各任务带自己那一档确认。"""
+    """Multitier batches confirm per unit and resend original target sets as one batch; each task carries its own confirmation."""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
     use_reference_route(fake_ctx)
@@ -851,8 +851,8 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
 
     assert out.problem is None, out
     assert sorted(spec.resource_id for spec in enqueued) == ["E1U1", "E1U2"]
-    # 各任务带的是自己那一档确认：worker 重投影时读任务上的这份选项，
-    # 只写整批共用的一份会让准入已接受的档位在执行期重新变成待确认。
+    # Workers reproject using per-task tier confirmations;
+    # one shared batch option would turn admission-accepted tiers back into confirmation-pending at execution.
     confirmed = {
         spec.resource_id: (spec.payload or {})["reference_request_options"]["confirmed_request_duration_seconds"]
         for spec in enqueued
@@ -864,7 +864,7 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
     fake_ctx: ToolHarness,
     set_video_request_facts,
 ) -> None:
-    """参考生视频：TTS 配音项目与后期配音项目得到同一份申请档位、准入结论、报价与入队请求。"""
+    """Reference-to-video TTS/postproduction projects receive identical tiers, admission, quotes, and queued requests."""
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
     fake_ctx.pm.script_payload["video_units"][0]["text"] = "推门"
@@ -918,7 +918,7 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
 async def test_generate_videos_episode_scope_reference_duration_repeat_without_confirm_still_blocked(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """不带确认参数的重复调用仍不入队。"""
+    """Repeated unconfirmed calls still do not enqueue."""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
     use_reference_route(fake_ctx)
@@ -940,7 +940,7 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
 async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_directly(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """总时长为档位成员时单次调用直接入队，行为与现状一致。"""
+    """Total durations already in tiers enqueue directly in one call, preserving behavior."""
     from lib.generation.generation_queue_client import BatchTaskResult
     from lib.script.reference_video.duration_slots import EXACT, DurationSlot
 
@@ -975,7 +975,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
 async def test_generate_videos_episode_scope_reference_duration_resolves_project_context_once(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """批量预检让每个可入队 unit 都经过公共 request projection。"""
+    """Batch prechecks send every enqueueable unit through public request projection."""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
     script = reference_video_script()
@@ -1006,7 +1006,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
-    # 三个 unit 均 5 秒、申请 8 秒 → 都需确认，本批不入队；实际水合桶随每个结果可观察。
+    # Three 5-second units request 8: all need confirmation, none enqueue; each projection exposes its hydrated bucket.
     assert not _is_error(out), out
     assert context_calls == ["r2v", "r2v", "i2v"]
     assert enqueued == []
@@ -1015,8 +1015,8 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
 async def test_generate_videos_episode_scope_reference_skips_duration_context_when_nothing_to_precheck(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """整批都没有可预检的 unit 时不解析项目能力——解析推迟到第一个真正要取档的 unit，
-    重构不能让「全部已完成/全部被跳过」的批次凭空多付一轮 DB 往返。"""
+    """Batches without precheckable units never resolve project capabilities; defer until the first real tier query,
+    avoiding extra DB round-trips for already-complete/all-skipped batches after refactoring."""
     script = reference_video_script()
     for unit in script["video_units"]:
         unit["text"] = ""
@@ -1034,8 +1034,8 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
 async def test_generate_videos_episode_scope_reference_skips_duration_context_when_prompt_blank(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """正文全空白时 build_specs 会拒绝该 unit——预检须复用同一份结构校验提前判定，
-    不能先触发项目能力解析再让 build_specs 事后跳过。"""
+    """Whitespace bodies fail build_specs; prechecks share structural validation first,
+    avoiding capability resolution followed by later skipping."""
     script = reference_video_script()
     for unit in script["video_units"]:
         unit["text"] = "   "
@@ -1054,7 +1054,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
 async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """广告/短片的参考生视频走同一条视频单元时长确认闸门。"""
+    """Ad/short-film reference-to-video shares unit-duration confirmation gates."""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
     seen_units: list[dict[str, Any]] = []
@@ -1085,7 +1085,7 @@ async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirm
 async def test_generate_video_reference_duration_confirmation_across_entries(
     fake_ctx: ToolHarness, monkeypatch, target: dict[str, Any], force: bool | None
 ) -> None:
-    """reference 路径的整集与点名入口共用确认闸门：未确认不入队、确认后入队。"""
+    """Whole-episode/named reference entries share confirmation gates: enqueue only after confirmation."""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
 
     use_reference_route(fake_ctx)
@@ -1123,7 +1123,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
 
 
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
-    """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
+    """duration is a capability dimension, no longer enqueue-validated; pass any duration to execution (ADR-0001)."""
     from server.services.admission.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
@@ -1134,7 +1134,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
             "segment_id": "S01",
             "novel_text": "他在旷野上奔跑。",
             "video_prompt": "一个奔跑的镜头",
-            "duration_seconds": 7,  # 不属于任何典型 supported_durations
+            "duration_seconds": 7,  # Outside typical supported_durations.
             "generated_assets": {"storyboard_image": "storyboards/scene_S01.png"},
         }
     ]
@@ -1151,7 +1151,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     assert len(specs) == 1
     assert specs[0].payload["duration_seconds"] == 7
 
-    # 未显式指定 duration 时不携带该键，留给执行层按 caps 收口默认。
+    # Absent explicit duration omits the key; execution applies caps defaults.
     items[0].pop("duration_seconds")
     specs2, _ = _build_video_specs(
         items=items,
@@ -1169,16 +1169,16 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
 @pytest.mark.parametrize(
     "storyboard_value",
     [
-        123,  # 剧本 JSON 里的脏数据（非字符串）
-        "/etc/passwd",  # 绝对路径
-        "../../outside.png",  # `..` 穿越出项目目录
+        123,  # Corrupt nonstring script JSON.
+        "/etc/passwd",  # Absolute path.
+        "../../outside.png",  # `..` escapes the project.
     ],
 )
 def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch(
     tmp_path: Path, storyboard_value: object
 ) -> None:
-    """批量入队场景下，单个条目 storyboard_image 非法（脏数据/越界/绝对路径）只记为该 ID 的
-    blocked，不应让 `project_dir / storyboard_image` 抛未处理异常中断整批。"""
+    """Invalid storyboard_image (corrupt/out-of-bounds/absolute) blocks only that batch ID,
+    without unhandled `project_dir / storyboard_image` exceptions aborting everything."""
     from server.services.admission.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
@@ -1213,8 +1213,8 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
 
 
 def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batch(tmp_path: Path) -> None:
-    """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「没有分镜图」跳过，
-    不应让 `.get("storyboard_image")` 在非 dict 上抛未处理 AttributeError 中断整批。"""
+    """Externally corrupted nondict generated_assets, such as lists, counts as no storyboard and skips,
+    without unhandled `.get("storyboard_image")` AttributeError aborting the batch."""
     from server.services.admission.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
@@ -1249,8 +1249,8 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
 
 
 async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_rejection(fake_ctx: ToolHarness) -> None:
-    """generated_assets 容器本身非 dict 时须走「没有分镜图」的可读拒绝分支，
-    不应在单条路径上抛未处理 AttributeError。"""
+    """Nondict generated_assets follows readable no-storyboard rejection,
+    never unhandled AttributeError on single-item paths."""
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = ["bad"]
 
     out = await run_generate_videos(fake_ctx, _scene("E1S01"), force=True)
@@ -1260,9 +1260,9 @@ async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_re
 
 
 def _admitted_video_yaml(item: dict, **kwargs) -> dict:
-    """准入渲染出口产出的 YAML 文档。
+    """YAML from admission rendering.
 
-    该出口与执行路径共用 ``render_storyboard_video_prompt``，反向约束是其中的 ``Avoid`` 键。
+    This exit shares execution ``render_storyboard_video_prompt``; negative constraints occupy ``Avoid``.
     """
     import yaml
 
@@ -1272,8 +1272,8 @@ def _admitted_video_yaml(item: dict, **kwargs) -> dict:
 
 
 def test_storyboard_video_prompt_drama_sources_dialogue_from_utterances() -> None:
-    """drama：准入渲染出口从分镜级 dialogue-kind utterances 派生 video YAML 台词，
-    voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
+    """Drama admission derives video YAML dialogue from dialogue-kind storyboard utterances, excluding
+    voiceover; narration/ad without utterances renders existing video_prompt.dialogue unchanged."""
     drama_item = {
         "scene_id": "E1S01",
         "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
@@ -1299,8 +1299,8 @@ def test_storyboard_video_prompt_drama_sources_dialogue_from_utterances() -> Non
 
 
 def test_storyboard_video_prompt_injects_voice_profiles_when_characters_given() -> None:
-    """drama：传入带非空 voice_style 的角色资产时 YAML 顶部出现 Voice_Profiles；
-    voice_characters 缺省（既有调用点行为）不注入。"""
+    """Drama character assets with nonempty voice_style add YAML Voice_Profiles;
+    absent voice_characters retains existing no-injection behavior."""
     drama_item = {
         "scene_id": "E1S01",
         "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
@@ -1321,8 +1321,8 @@ def test_storyboard_video_prompt_injects_voice_profiles_when_characters_given() 
 
 
 def test_storyboard_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
-    """utterances 迁移前的存量 drama 剧本（无 utterances 字段，台词仍在
-    video_prompt.dialogue）：改走 legacy 出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
+    """Legacy drama before utterances migration, with dialogue still in video_prompt.dialogue,
+    derives Voice_Profiles through legacy exits instead of silently losing it."""
     legacy_drama_item = {
         "scene_id": "E1S01",
         "video_prompt": {
@@ -1340,9 +1340,9 @@ def test_storyboard_video_prompt_injects_voice_profiles_from_legacy_dialogue() -
 
 
 def test_storyboard_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
-    """narration/ad（item 无 utterances 字段）剧本 video_prompt 自带 voice_profiles 时一律剥离：
-    该声明段唯一来源是 build_drama_video_prompt 的机械派生，剧本残留值不得越权、绕过 C 类
-    （真无声）门控直达 YAML。"""
+    """Strip narration/ad stored video_prompt.voice_profiles when items lack utterances;
+    build_drama_video_prompt mechanical derivation is the sole declaration source. Leftovers cannot
+    bypass class-C true-silence gates into YAML."""
     narration_item = {
         "segment_id": "E1S01",
         "video_prompt": {
@@ -1357,7 +1357,7 @@ def test_storyboard_video_prompt_strips_caller_supplied_voice_profiles_for_non_d
 
 
 async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolHarness) -> None:
-    """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
+    """Narration/ad skips voice_consistency resolution, lacking drama dialogue speakers."""
     from server.services.admission.video_batch_admission import resolve_voice_context as _resolve_voice_context
 
     assert await _resolve_voice_context(fake_ctx.pm.project_payload, "narration") is None
@@ -1366,7 +1366,7 @@ async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolHarness) -> N
 async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    """drama：读项目角色资产，无声（C 类真无声、或本集关闭音频）时退回不注入。"""
+    """Drama reads project character assets but omits injection for class-C silence or disabled episode audio."""
     from server.services.admission import video_batch_admission as admission_mod
 
     async def fake_not_silent(_project, _episode=None):
@@ -1384,7 +1384,7 @@ async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
 
 
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
-    """参考生视频 prompt 只用于统一结构守卫，不冻结进任务 payload。"""
+    """Reference prompts serve only shared structural guards, without freezing into task payloads."""
     from server.media_tools.videos import _build_reference_specs
 
     units = [
@@ -1402,7 +1402,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
 
 
 def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
-    """正文全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
+    """Whitespace unit bodies skip with warnings before execution; structural validation moves to guards."""
     from server.media_tools.videos import _build_reference_specs
 
     units = [
@@ -1432,18 +1432,18 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
     )
 
     assert [spec.resource_id for spec in specs] == ["E1U2"]
-    # 发声准入的问题码原样透出，调用方不必读文本判断下一步。
+    # Expose speech-admission codes unchanged, avoiding text parsing for next steps.
     assert _refused_problems(refused) == {"E1U1": ("mixed_speech", "replan_unit")}
 
 
 def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
-    """unit_id 为空或键缺失（Agent 裸写 JSON 可致）在筛查处按位置记名拒收，健康的 unit 照常构造。"""
+    """Absent/empty unit_id from raw Agent JSON rejects by array position; healthy units still construct normally."""
     from server.media_tools.videos import _build_reference_specs
     from server.services.admission.video_batch_admission import screen_script_entries
 
     entries = [
-        {"unit_id": "", "text": "@张三 推门"},  # 空串
-        {"text": "@王五 起身"},  # 缺 unit_id 键
+        {"unit_id": "", "text": "@张三 推门"},  # Empty string.
+        {"text": "@王五 起身"},  # Missing unit_id.
         {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     units, tickets = screen_script_entries(entries, requested_ids=None)
@@ -1455,18 +1455,18 @@ def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
 
 
 def test_build_reference_specs_handles_a_non_string_text(tmp_path) -> None:
-    """text 为显式 null 的畸形 unit 不应崩溃整批，且不得把 'None' 注入 prompt。"""
+    """Malformed text=null units must neither crash whole batches nor inject 'None' into prompts."""
     from server.media_tools.videos import _build_reference_specs
 
     units = [
-        # text 显式 null → 被守卫点按「text 必须是字符串」拒收（不注入 'None'）。
+        # Explicit text=null fails the text-must-be-string guard without injecting None.
         {"unit_id": "E1U1", "text": None},
         {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     specs, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert [s.resource_id for s in specs] == ["E1U2"]
     assert all("None" not in (s.payload.get("prompt") or "") for s in specs)
-    # 显式拒收与静默跳过在 specs 上不可分辨，问题码才锁得住守卫点确实拒了这一条。
+    # Specs alone cannot distinguish rejection from silent skips; problem codes pin actual guard rejection.
     assert _refused_problems(refused) == {"E1U1": ("generation_unit_request_invalid", "fix_input")}
 
 
@@ -1519,7 +1519,7 @@ def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
         successes: list[BatchTaskResult] = []
         for spec in specs:
             enqueued.append(spec)
-            # 产物由生成 worker 在别处落盘，不占工具所在的事件循环。
+            # Workers persist elsewhere, outside tool event loops.
             await write_backend_output(ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4", b"\x00")
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
@@ -1538,7 +1538,7 @@ def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
 async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entries(
     ad_reference_ctx: ToolHarness,
 ) -> None:
-    """脏 unit 元素交给逐条校验拒绝，不在完成扫描、音频闸门或时长预检抛未处理异常。"""
+    """Validate malformed units individually, without unhandled completion-scan/audio-gate/duration-precheck exceptions."""
     valid = ad_reference_ctx.pm.script_payload["video_units"][0]
     ad_reference_ctx.pm.script_payload["video_units"] = ["bad", {}, valid]
     enqueued: list[Any] = []
@@ -1547,7 +1547,7 @@ async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entr
         ad_reference_ctx, _EPISODE_1, batch_waiter=_successful_reference_batch(ad_reference_ctx, enqueued)
     )
 
-    # 脏 unit 逐条记为 blocked（没有 unit_id 可寻址时按位置编号），并拦住整批。
+    # Block malformed units individually, using positions if IDs are unavailable, and stop the whole batch.
     assert enqueued == []
     result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1U1", "video_units[0]", "video_units[1]"]
@@ -1558,7 +1558,7 @@ async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entr
 async def test_generate_videos_episode_scope_ad_reference_enqueues_existing_video_units(
     ad_reference_ctx: ToolHarness,
 ) -> None:
-    """广告/短片的参考生视频直接消费自包含 video_units，不派生或写入 reference_units。"""
+    """Ad/short-film reference generation consumes self-contained video_units without deriving/writing reference_units."""
     enqueued: list[Any] = []
 
     out = await run_generate_videos(
@@ -1575,7 +1575,7 @@ async def test_generate_videos_episode_scope_ad_reference_enqueues_existing_vide
 async def test_generate_videos_episode_scope_ad_reference_does_not_claim_orphan_file(
     ad_reference_ctx: ToolHarness,
 ) -> None:
-    """同名文件没有 generated_assets 归属时仍须入队，不能把孤儿文件报告为成功。"""
+    """Same-named files lacking generated_assets ownership still enqueue; do not report orphan files as success."""
     orphan = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
     orphan.parent.mkdir(parents=True, exist_ok=True)
     orphan.write_bytes(b"orphan")
@@ -1592,9 +1592,9 @@ async def test_generate_videos_episode_scope_ad_reference_does_not_claim_orphan_
 async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manifest_state_is_unreadable(
     ad_reference_ctx: ToolHarness,
 ) -> None:
-    """整集参考生视频里某 unit 已有成片、但 Manifest 比对抛错（BLOCKED）时必须报
-    blocked，不能让 ``artifact_is_usable`` 的 fail-loud 异常穿透成整批 tool_error——
-    与 storyboard 整集路线的同一场判定必须同步处理（同一个不可读产物、两条路线）。
+    """Existing reference videos whose manifests raise BLOCKED report blocked, not whole-batch tool_error from
+    ``artifact_is_usable`` fail-loud errors. Handle the same unreadable-artifact judgment consistently
+    across reference and storyboard whole-episode routes.
     """
     project_path = ad_reference_ctx.project_path
     ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
@@ -1620,7 +1620,7 @@ async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manif
 async def test_generate_videos_episode_scope_ad_reference_replan_unit_cannot_reuse_owned_clip(
     ad_reference_ctx: ToolHarness,
 ) -> None:
-    """迁移保留的已归属视频不能绕过 needs_replan 生成闸门。"""
+    """Migration-retained owned videos cannot bypass needs_replan generation gates."""
     ad_reference_ctx.pm.script_payload["video_units"] = [
         _ad_reference_unit(
             needs_replan=True,
@@ -1643,7 +1643,7 @@ async def test_generate_videos_episode_scope_ad_reference_replan_unit_cannot_reu
 async def test_generate_videos_selected_scope_ad_reference_regenerates_named_unit(
     ad_reference_ctx: ToolHarness,
 ) -> None:
-    """广告点名重做沿用统一 video_unit 路径。"""
+    """Named ad regeneration uses the common video_unit path."""
     enqueued: list[Any] = []
 
     out = await run_generate_videos(
@@ -1677,7 +1677,7 @@ def test_video_generation_dispatches_by_generation_mode_for_every_content_mode(
     content_mode: str,
     generation_mode: str,
 ) -> None:
-    """六个组合各自派给正确的生成模式，且骨架闸门放行本组合应有的骨架。"""
+    """All six combinations dispatch correct generation modes and pass their expected skeleton gates."""
     fake_ctx.pm.project_payload["content_mode"] = content_mode
     fake_ctx.pm.project_payload["generation_mode"] = generation_mode
     skeleton = _SKELETON_BY_MODE_PAIR[(content_mode, generation_mode)]
@@ -1694,7 +1694,7 @@ def test_video_generation_refuses_a_script_from_the_other_generation_mode(
     content_mode: str,
     generation_mode: str,
 ) -> None:
-    """骨架来自另一种生成模式时六个组合一律拒绝入队，不静默按剧本形态改派。"""
+    """All six combinations reject other-mode skeletons before enqueue, without silently rerouting by shape."""
     other_mode = "storyboard" if generation_mode == "reference_video" else "reference_video"
     fake_ctx.pm.project_payload["content_mode"] = content_mode
     fake_ctx.pm.project_payload["generation_mode"] = generation_mode
@@ -1718,9 +1718,9 @@ def test_video_generation_refuses_a_script_from_the_other_generation_mode(
 async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_route(
     fake_ctx: ToolHarness, target: dict[str, Any], force: bool | None
 ) -> None:
-    """分镜图生视频项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
+    """video_units under storyboard-image-to-video projects yield structural errors/resplitting guidance at all four entries.
 
-    静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
+    Neither silent downgrade nor route substitution is constructible; legacy mixed episodes require resplitting/regeneration.
     """
     fake_ctx.pm.script_payload = {
         "content_mode": "narration",
@@ -1739,7 +1739,7 @@ async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_rout
 async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_script_on_reference_route(
     fake_ctx: ToolHarness,
 ) -> None:
-    """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
+    """Inverse storyboard skeletons under reference projects also reject with unit-resplitting guidance."""
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
@@ -1750,7 +1750,7 @@ async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_scrip
 
 
 # ---------------------------------------------------------------------------
-# generate_videos：预检（只报价、不入队）
+# generate_videos precheck: quote only, no enqueue.
 # ---------------------------------------------------------------------------
 
 
@@ -1764,7 +1764,7 @@ async def test_generate_videos_preview_quotes_the_reference_tier_without_enqueui
     fake_ctx: ToolHarness,
     set_video_request_facts,
 ) -> None:
-    """参考生视频预检：不入队；报价、档位与正式提交时的准入一致；带报价单的确认档位提交时不再要求确认。"""
+    """Reference prechecks never enqueue; quotes/tiers match final admission, and submissions confirming quoted tiers need no further confirmation."""
 
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
@@ -1817,7 +1817,7 @@ async def test_generate_videos_preview_reports_blockers_per_unit(
     fake_ctx: ToolHarness,
     set_video_request_facts,
 ) -> None:
-    """整集预检：缺口照实记 blocked，整批标为不可提交；其余单元仍给出报价。"""
+    """Whole-episode prechecks report actual blocked gaps and make batches unsubmittable, while still quoting other units."""
 
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script(
@@ -1848,7 +1848,7 @@ async def test_generate_videos_preview_reports_blockers_per_unit(
 
 
 async def test_generate_videos_preview_reports_a_reused_clip_as_free(fake_ctx: ToolHarness) -> None:
-    """整集预检：已有可用视频的单元记 reuse，不进合计。"""
+    """Whole-episode prechecks mark usable videos reuse and exclude them from totals."""
 
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {
         "storyboard_image": "storyboards/scene_E1S01.png",
@@ -1872,7 +1872,7 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     fake_ctx: ToolHarness,
     set_admission_video_request_facts,
 ) -> None:
-    """分镜图生视频预检：不入队，按编排时长报价，档位不变；报价与 Web 批量确认的计价同一口径。"""
+    """Storyboard-video prechecks quote orchestration durations without enqueue or tier changes, matching Web batch-confirmation pricing."""
 
     from lib.db import async_session_factory
     from lib.generation.video_request_facts import VideoRequestCostFacts
@@ -1907,7 +1907,7 @@ async def test_generate_videos_preview_states_plainly_that_a_unit_is_unpriced(
     fake_ctx: ToolHarness,
     set_admission_video_request_facts,
 ) -> None:
-    """分镜图生视频预检：价目表算不出价的单元如实返回未定价，不当作 0 元，也不给出偏低的合计。"""
+    """Storyboard-video units without calculable prices return unpriced, never zero costs or underestimated totals."""
 
     set_admission_video_request_facts(
         make_video_request_facts(provider_id="grok", model_id="grok-model-without-a-price", resolution="720p")

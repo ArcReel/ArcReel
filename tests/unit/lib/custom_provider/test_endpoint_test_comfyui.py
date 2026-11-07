@@ -1,4 +1,4 @@
-"""ComfyUI 端点的预览请求与测试连接目标。"""
+"""ComfyUI endpoint preview requests and connection-test targets."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _definition(**overrides: Any) -> dict[str, Any]:
 
 
 def _with_image_bindings() -> dict[str, Any]:
-    """在最小定义上补首帧与两个参考图格子，把素材那一段带进来。"""
+    """Add first-frame and two reference-image slots to the minimal definition to include materials."""
     definition = comfyui_endpoint_definition()
     definition["workflow"]["10"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
     definition["workflow"]["11"] = {"class_type": "LoadImage", "inputs": {"image": "ref-a.png"}}
@@ -45,7 +45,7 @@ def _with_image_bindings() -> dict[str, Any]:
 
 
 def _with_reference_slots() -> dict[str, Any]:
-    """两个参考图格子经 ``ImageBatch`` 汇进视频节点的可选入口——张数变少时改得动图。"""
+    """Two reference slots merge through ``ImageBatch`` into an optional video-node input, allowing graph changes when image count decreases."""
     definition = comfyui_endpoint_definition()
     definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "ref_a.png"}}
     definition["workflow"]["21"] = {"class_type": "LoadImage", "inputs": {"image": "ref_b.png"}}
@@ -90,13 +90,13 @@ class TestPreviewRequest:
         assert preview.submit.url == "https://comfy.test/prompt"
         body = preview.submit.body
         assert isinstance(body, dict)
-        # 提示词按绑定填进正向节点，Avoid 行拆去负向节点——与真发同一个构造。
+        # Fill positive nodes by bindings and split Avoid lines into negative nodes, using the actual-request builder.
         assert body["prompt"]["6"]["inputs"]["text"] == "一只猫走过屋顶"
         assert "文字字幕" in body["prompt"]["7"]["inputs"]["text"]
         assert body["client_id"] == "arcreel-{{ prompt_id }}"
 
     def test_the_poll_section_carries_the_same_credentials(self):
-        """ComfyUI 多半套在反向代理后面：要核的正是这组头会不会发到每一条路由上。"""
+        """ComfyUI usually sits behind a reverse proxy; verify these headers reach every route."""
         definition = _definition(auth={"headers": {"Authorization": "Bearer {{api_key}}"}})
 
         preview = _preview(definition, credentials=CREDENTIALS)
@@ -114,7 +114,7 @@ class TestPreviewRequest:
         assert preview.submit.headers == {"Authorization": "Bearer ****1234"}
 
     def test_a_masked_query_credential_reads_as_asterisks_in_the_url(self):
-        """查询参数会被百分号编码，打码记号在预览 URL 上还原成惯用形。"""
+        """Query parameters are percent-encoded; restore redaction markers to their conventional form in preview URLs."""
         definition = _definition(auth={"query": {"token": "{{api_key}}"}})
 
         preview = _preview(definition, credentials=CREDENTIALS)
@@ -122,7 +122,7 @@ class TestPreviewRequest:
         assert preview.submit.url == "https://comfy.test/prompt?token=****1234"
 
     def test_an_empty_api_key_renders_no_credential_at_all(self):
-        """ComfyUI 原生无鉴权：空凭证发出去只会让代理以 401 拒掉一个本该放行的请求。"""
+        """Native ComfyUI has no auth; sending empty credentials only makes proxies reject otherwise allowed requests with 401."""
         definition = _definition(auth={"headers": {"Authorization": "Bearer {{api_key}}"}})
 
         preview = _preview(definition, credentials=EndpointTestCredentials(base_url="https://comfy.test", api_key=""))
@@ -140,7 +140,7 @@ class TestPreviewRequest:
 
         conversions = preview.conversions
         assert conversions is not None
-        # 9:16 + 720p 的落地像素、以及实际生效的随机种子，都只在换算说明里看得到。
+        # Resolved 9:16 + 720p pixels and the actual random seed appear only in conversion explanations.
         assert (conversions["width"], conversions["height"]) == (720, 1280)
         assert conversions["aspect_ratio"] == "9:16"
         assert conversions["resolution"] == "720p"
@@ -149,7 +149,7 @@ class TestPreviewRequest:
         assert conversions["dropped_nodes"] == []
 
     def test_an_unbound_dimension_reads_as_null(self):
-        """未绑定即「以 workflow 字面值为准」：用户在项目页选的时长对这个端点根本不起作用。"""
+        """Unbound means follow workflow literals; the project-page duration has no effect on this endpoint."""
         preview = _preview(credentials=CREDENTIALS)
 
         assert preview.conversions is not None
@@ -162,7 +162,7 @@ class TestPreviewRequest:
         assert len(str(preview.conversions["workflow_sha256"])) == 64
 
     def test_missing_assets_are_summarised_so_the_shape_does_not_collapse(self):
-        """真发时用户是会带上素材的：留空会让改图把读图节点连同下游删掉。"""
+        """Real submissions include user materials; leaving them empty makes graph modification delete image loaders and their downstream nodes."""
         preview = _preview(_with_image_bindings(), credentials=CREDENTIALS)
 
         body = preview.submit.body
@@ -182,7 +182,7 @@ class TestPreviewRequest:
         assert body["prompt"]["10"]["inputs"]["image"] == "<start_image, 9 bytes>"
 
     def test_fewer_reference_images_than_slots_reports_the_dropped_nodes(self):
-        """张数少于格子数正是会触发改图的输入，删了哪些节点是预览最该说清的事。"""
+        """Fewer images than slots triggers graph modification; previews must explain which nodes were removed."""
         assets = EndpointTestAssets(by_source={"reference_images": [AssetData("image/png", b"one")]})
 
         preview = _preview(_with_reference_slots(), credentials=CREDENTIALS, assets=assets)
@@ -191,11 +191,11 @@ class TestPreviewRequest:
         assert isinstance(body, dict)
         assert "21" not in body["prompt"]
         assert preview.conversions is not None
-        # 空出来的格子连同被它旁路掉的合并节点一起进说明：用户看到的就是这次图上少了哪几个节点。
+        # Explain empty slots and bypassed merge nodes together, showing users exactly which nodes this graph lost.
         assert preview.conversions["dropped_nodes"] == ["21", "22"]
 
     def test_not_placeholding_missing_assets_gives_the_shape_a_real_submit_would_have(self):
-        """关掉占位摘要后走的是真发那条路：绑定了却没给值的读图节点连同下游一并删掉。"""
+        """Disabling placeholder summaries follows actual submission: delete bound image loaders with no value and their downstream nodes."""
         preview = _preview(_with_image_bindings(), credentials=CREDENTIALS, placeholder_missing_assets=False)
 
         body = preview.submit.body
@@ -212,7 +212,7 @@ class TestPreviewRequest:
         assert definition["workflow"]["6"]["inputs"]["text"] == "一只猫"
 
     def test_the_conversions_payload_keys_match_the_dataclass(self):
-        """换算说明原样进响应体：字段名就是接口，加字段要同时改两处。"""
+        """Conversion explanations enter response bodies unchanged; field names are the API, so add fields in both places together."""
         preview = _preview(credentials=CREDENTIALS)
 
         assert preview.conversions is not None
@@ -232,17 +232,17 @@ class TestTrialRunTarget:
         assert isinstance(await target.build_backend(), ComfyuiVideoBackend)
 
     def test_it_skips_the_capability_gate(self):
-        """费用固定 0，而能力只从节点绑定推导——内联定义这条入口拿不到推导结果。"""
+        """Cost is fixed at 0, but only node bindings derive capabilities; the inline-definition entry point cannot obtain that derivation."""
         assert comfyui_target(_definition(), CREDENTIALS, PARAMETERS).gate_capabilities is False
 
     def test_it_leaves_the_result_body_without_a_rendered_request(self):
-        """实发 workflow 的种子与素材引用名要到提交那一刻才定下来。"""
+        """Actual workflow seeds and material-reference names become known only at submission."""
         assert support_for_kind("comfyui").trial_run_request_preview is False
 
 
 class TestCredentialNeeds:
     def test_base_url_is_always_required(self):
-        """ComfyUI 的路由全在服务地址根下，定义里一个绝对地址都不写。"""
+        """All ComfyUI routes live under the service root; definitions contain no absolute URLs."""
         assert comfyui_credential_needs(_definition())[0] is True
 
     def test_an_auth_section_that_sends_something_asks_for_an_api_key(self):
@@ -252,8 +252,8 @@ class TestCredentialNeeds:
         assert comfyui_credential_needs(definition)[1] is True
 
     def test_two_empty_tables_ask_for_nothing(self):
-        """``{"headers": {}}`` 是合法定义、渲染出来一个头都没有：为它索要 api_key 会把一台
-        不设防的 ComfyUI 挡在预览与测试连接之外。校验器与渲染都按这个口径。"""
+        """``{"headers": {}}`` is a valid definition rendering no headers; requiring api_key would block an unauthenticated
+        ComfyUI from preview and connection testing. Validation and rendering share this rule."""
         definition = _definition()
         definition["auth"] = {"headers": {}}
 

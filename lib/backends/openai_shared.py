@@ -1,14 +1,13 @@
-"""
-OpenAI 共享工具模块
+"""Shared OpenAI utilities.
 
-供 text_backends / image_backends / video_backends / providers 复用。
+Reused by text_backends / image_backends / video_backends / providers.
 
-包含：
-- OPENAI_RETRYABLE_ERRORS — 可重试错误类型
-- create_openai_client — AsyncOpenAI 客户端工厂
-- OPENAI_IMAGE_QUALITY_MAP — image_size 档位 → quality 映射，供 image_backends.openai 消费。
-  尺寸不再用静态 (image_size, aspect_ratio) → "WxH" 表，改由 arcreel_market_core.aspect_size 按比例精确计算
-  （比例优先、清晰度其次），见 docs/adr/0011。
+Includes:
+- OPENAI_RETRYABLE_ERRORS: retryable exception types.
+- create_openai_client: AsyncOpenAI client factory.
+- OPENAI_IMAGE_QUALITY_MAP: image_size tier → quality mapping for image_backends.openai.
+  Sizes no longer use static (image_size, aspect_ratio) → "WxH" tables; arcreel_market_core.aspect_size
+  computes exact proportional sizes, prioritizing ratio over resolution (docs/adr/0011).
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ try:
         RateLimitError,
     )
 except ImportError:
-    pass  # openai 是必装依赖，此分支仅作防御性保护；回退到空 tuple
+    pass  # openai is required; this branch is defensive only, falling back to an empty tuple.
 
 
 def create_openai_client(
@@ -56,11 +55,12 @@ def create_openai_client(
     max_retries: int | None = None,
     transport_layer: TransportLayer | None = None,
 ) -> AsyncOpenAI:
-    """创建 AsyncOpenAI 客户端，统一处理 api_key 和 base_url。
+    """Create AsyncOpenAI clients with consistent api_key/base_url handling.
 
-    base_url 为空（None/空白）时显式回填官方端点：AsyncOpenAI 对空 base_url
-    会回落读取 OPENAI_BASE_URL 环境变量，环境残留将静默覆盖 DB 配置。base_url
-    的唯一来源是 DB，此处兜死显式值断掉该回落路径。``transport_layer`` 叠在 SDK 默认客户端之上。
+    Explicitly supply official endpoints for None/blank base_url: otherwise AsyncOpenAI reads
+    OPENAI_BASE_URL environment variables, silently overriding DB configuration with residual values.
+    DB is the sole base_url source; explicit values close that fallback. ``transport_layer`` layers
+    over the SDK's default client.
     """
     kwargs: dict = {"base_url": (base_url or "").strip() or OFFICIAL_OPENAI_BASE_URL}
     if api_key:

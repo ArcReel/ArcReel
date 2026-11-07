@@ -1,8 +1,8 @@
 /**
- * 逐锚点验证「引导指向的元素确实存在于界面上」。
+ * Verify each onboarding anchor actually exists in UIs.
  *
- * `RENDERERS` 用 `Record<OnboardingAnchor, …>` 标注：注册表新增锚点而这里不补渲染场景，
- * 就是编译期错误。名字漂移由类型拦，元素消失由这些用例拦 —— 两头都不靠人肉巡检。
+ * `RENDERERS` uses `Record<OnboardingAnchor, …>`; adding registered anchors without render scenarios
+ * fails compilation. Types prevent name drift; cases prevent disappearing elements, neither relying on manual inspection.
  */
 
 import { act, render, screen, waitFor } from "@testing-library/react";
@@ -36,7 +36,7 @@ vi.mock("@/components/pages/CreateProjectModal", () => ({
   CreateProjectModal: () => <div data-testid="create-project-modal" />,
 }));
 
-// 顶栏与分镜画布的重子组件与锚点无关，替身挡掉它们各自的数据依赖。
+// Heavy header/storyboard-canvas children are unrelated to anchors; stub their data dependencies.
 vi.mock("@/components/usage/UsageHeaderEntry", () => ({ UsageHeaderEntry: () => null }));
 vi.mock("@/components/canvas/timeline/ScriptReviewGate", async () => {
   const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
@@ -62,8 +62,8 @@ function renderSettings() {
   );
 }
 
-// 工作台四步落在演示项目上，锚点测试直接用同一份演示数据构建 props——挂载条件与
-// 引导实际走到的界面一致，不另造 mock 数据。
+// Four workbench steps target demos; anchor tests construct props from identical demo data, matching actual
+// onboarding mount conditions without separately invented mocks.
 const demoT = i18n.getFixedT("zh", "onboarding");
 
 function renderWorkbenchHeader() {
@@ -75,11 +75,11 @@ function renderWorkbenchHeader() {
   );
 }
 
-/** 每个锚点挂载它所在的界面。断言统一在下面的用例里做。 */
+/** Mount owning interfaces per anchor; shared assertions occur below. */
 const RENDERERS: Record<OnboardingAnchor, () => void> = {
   [ONBOARDING_ANCHORS.lobbyCreateProject]: renderLobby,
   [ONBOARDING_ANCHORS.lobbySettings]: renderLobby,
-  // 演示卡只在引导跑起来时注入，所以先把 store 打开
+  // Demo cards inject only during tours; open stores first.
   [ONBOARDING_ANCHORS.lobbyDemoCard]: () => {
     useOnboardingStore.setState({ active: true });
     renderLobby();
@@ -89,7 +89,7 @@ const RENDERERS: Record<OnboardingAnchor, () => void> = {
   [ONBOARDING_ANCHORS.workbenchOverview]: () => {
     render(<OverviewCanvas projectName={DEMO_PROJECT_NAME} projectData={buildDemoProjectData(demoT)} readOnly />);
   },
-  // 锚点挂在演示态专用的 Agent 面板上（真实面板演示态不挂载，见 anchors.ts）
+  // Anchors attach to demo-only Agent panels; real panels do not mount in demos (anchors.ts).
   [ONBOARDING_ANCHORS.workbenchAgent]: () => {
     render(<DemoAssistantPanel />);
   },
@@ -165,9 +165,9 @@ describe("onboarding anchors", () => {
     useOnboardingStore.setState({ active: true });
     renderLobby();
 
-    // 海报与标题各出现一次
+    // Posters/titles each appear once.
     expect(await screen.findAllByText("爱丽丝梦游仙境")).toHaveLength(2);
-    // 演示卡是纯前端常量，不经过项目列表，也没有任何写入
+    // Demo cards are frontend constants outside project lists, without writes.
     expect(useProjectsStore.getState().projects).toEqual([]);
     expect(API.listProjects).toHaveBeenCalledTimes(1);
   });

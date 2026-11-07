@@ -1,8 +1,9 @@
-"""内存库共享连接并发写检查（`tests/memory_db_guard`）的契约。
+"""Shared in-memory connection concurrent-write contracts (`tests/memory_db_guard`).
 
-内存库夹具上，一个任务的写事务未结束时另一个任务写库，写语句当场失败并指向对应的文件库夹具；
-写事务的发起任务已经结束、事务却没有提交或回滚时同样算数。失败被宽泛异常捕获吞掉时，engine
-关闭时照样报告。先后完成的写、同一任务里嵌套的 session 不算并发。
+With in-memory fixtures, a write while another task's write transaction remains open fails immediately
+and identifies the corresponding file fixture. This includes finished tasks leaving transactions without
+commit/rollback. Even if broad handlers swallow failures, engine teardown reports them. Sequential writes
+and nested sessions within one task are not concurrent.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ async def _insert(session: AsyncSession, value: str) -> None:
 
 
 async def _write_while_other_task_holds_open_write(factory: async_sessionmaker[AsyncSession]) -> BaseException | None:
-    """任务 A 写入后挂起不提交，任务 B 此时写入；返回 B 的写入异常。"""
+    """Task A writes and pauses without committing; task B writes then; return B's write exception."""
     a_wrote = asyncio.Event()
     release = asyncio.Event()
 

@@ -1,4 +1,4 @@
-"""内置图片调用通道的预估用量：每条内置通道都能按请求事实推出用量，并能按目录价目表计价。"""
+"""Every built-in image channel derives estimated usage from request facts, priceable by catalog tables."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -
         key for key, info in catalog.list_models(provider_id).items() if info.media_type == "image" and not info.hidden
     )
     assert model is not None
-    # 通道原样下发档位，所以取目录里确实声明的档位（没声明分辨率的模型用 1K）。
+    # Channels send tiers unchanged, so select declared tiers; unrecorded resolution defaults 1K.
     resolutions = catalog.get_model(provider_id, model, media_type="image").resolutions
     image_size = "1K" if not resolutions or "1K" in resolutions else resolutions[0]
     usage = estimate_builtin_image_usage(
@@ -34,7 +34,7 @@ def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -
 
 
 def test_reference_surcharge_beyond_free_allowance() -> None:
-    """Agnes 前 3 张参考图免费，之后每张 $0.003（价目表 free_allowance）。"""
+    """Agnes grants three free references, then $0.003 each via free_allowance."""
     usage = estimate_builtin_image_usage(
         "agnes",
         ImageRequestFacts(model="agnes-image-2.5-flash", aspect_ratio="9:16", image_size="1K", reference_count=5),
@@ -72,7 +72,7 @@ def test_provider_without_image_channel_raises() -> None:
 
 
 def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """内置 OpenAI 的输出 token 估算读供应商模型所引条目上的质量档基数；条目没收录时不估算。"""
+    """Built-in OpenAI output-token estimates read referenced-entry quality bases; absent bases mean no estimate."""
     facts = ImageRequestFacts(model="gpt-image-2", aspect_ratio="1:1", image_size="1K", reference_count=0)
     snapshot = catalog.factory_snapshot()
 
@@ -81,7 +81,7 @@ def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypat
 
     bases = {"low": 16, "medium": 48, "high": 96}
     install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases=bases))
-    # 1K → medium、1:1 → 1024x1024：官方计算器 1756 个输出 token
+    # 1K→medium,1:1→1024x1024: official calculator 1756 output tokens.
     assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1756
 
 

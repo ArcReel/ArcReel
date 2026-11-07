@@ -1,8 +1,6 @@
-"""分集规划工具的声明：规划下一源文窗口的分集，以及把账本退回未规划状态。
+"""Episode-planning declarations: plan the next source window or reset the ledger to unplanned.
 
-``plan_episodes`` 是长任务：ArcReel Agent 等到规划完成，拿到 ``episode_plan``；外部 Agent 立即拿到
-``generation_batch`` 句柄并轮询。重置不调用文本模型，两宿主都同步返回。
-"""
+``plan_episodes`` is a long task: ArcReel Agent waits for completion and receives ``episode_plan``; external Agents immediately receive a ``generation_batch`` handle and poll. Reset makes no text-model call and returns synchronously on both hosts."""
 
 from __future__ import annotations
 
@@ -21,7 +19,7 @@ from server.tool_runtime import (
 
 
 def _plan_structured(value: PlanEpisodesResult | GenerationBatchReadModel) -> dict[str, Any]:
-    """批次句柄投到 ``generation_batch``，规划完成的账本摘要投到 ``episode_plan``。"""
+    """Project batch handles under ``generation_batch`` and completed planning ledger summaries under ``episode_plan``."""
     if isinstance(value, GenerationBatchReadModel):
         return {"generation_batch": json_value(value)}
     return {"episode_plan": json_value(value)}
@@ -30,24 +28,8 @@ def _plan_structured(value: PlanEpisodesResult | GenerationBatchReadModel) -> di
 PLAN_EPISODES = ToolDeclaration(
     name="plan_episodes",
     description=(
-        "分集规划：按项目登记的整本源文文件清单顺序，从最后一个切出集的结尾起读一个源文窗口，调用项目配置的文本模型一次"
-        "规划出窗口内所有剧情弧完整的集（标题 / 钩子 / 原文范围；drama 另含分集大纲），在同一把项目锁内写账本、派生 "
-        "source/episode_{集 ID}.txt 并清理残留派生文件。新切出的集排在最后一个切出集之后，自带原文与无原文的集不参与"
-        "切分、位置不变。source/ 里未登记进文件清单的文件不是整本源文，不会被读取。返回账本摘要（每集标题、集 ID 与播出位置、钩子、体量，以及本集原文的首句与尾句，超长句截断），首尾句供用户核对"
-        "分集边界。新集按项目历史最高集 ID 递增分配，集 ID 不代表播出顺序，向用户指称一集用标题与播出位置。"
-        "源文窗口固定 50000 字符，每批最多规划的集数由当前文本模型登记的最大输出长度推导，二者都不可配置。"
-        "窗口内找不到剧情弧完整的切分点时本批报错，请用户先手工切出这一段再继续规划。"
+        "Episode planning: read a source window from the end of the last extracted episode, following the registered whole-source file list. Call the configured text model once to plan all episodes with complete plot arcs in that window (title / hook / source range; drama also includes outlines), then write the ledger, derive source/episode_{episode ID}.txt, and clean residual derived files under the same project lock. New extracted episodes follow the last extracted episode; own-source and no-source episodes do not participate and retain their positions. Unlisted source/ files are not whole-source material and are not read. Returns a ledger summary (per-episode title, ID, playback position, hook, volume, and source opening/closing sentences, truncated if long), allowing the user to check boundaries. Allocate IDs above the project’s historical maximum; IDs are not playback order, so refer to episodes by title and playback position. The source window is fixed at 50000 characters, and the maximum episodes per batch derives from the current text model’s registered output limit; neither is configurable. If no complete-arc cut exists in the window, the batch errors: ask the user to split that range manually before continuing. Only one episode-planning operation may run per project; calls during Web AI episode planning are rejected. Target volume uses episode_target_units, otherwise converts episode_target_duration using speaking rate (the returned checking material identifies the source of conversion). Pass user-supplied planning instructions verbatim through instructions (such as chapter alignment or a specified ending); the prompt also receives planned count, remaining volume, and window volume for pacing. Planning is batched by window (long works require repeated calls). instructions is not persisted: repeat the same instructions on every batch until planning finishes. The last batch, or a later call finding no new content, also returns overall volume-checking material (total episodes, smallest-volume episodes, median volume, target volume). Check user structural preferences such as total count or chapter alignment and explicitly report deviations; normal batches report only cumulative planned count. Submission records source-file content fingerprints. If recorded files changed or disappeared (replacement / edit / deletion, even if ledger coordinates remain in bounds), planning rejects and names changed files; call reset_episode_planning for a full reset before replanning. An unhandled candidate new episode plan in the Web Episodes view also rejects planning; ask the user to accept or discard it there first."
         + TEXT_OUTPUT_TRUNCATED_NOTE
-        + "同一项目同一时间只能有一个分集规划，Web 端「AI 规划分集」进行中时调用会被拒。"
-        "每集目标体量取 episode_target_units，未设时按 episode_target_duration 经口播语速折算（折算值在返回的核对材料里"
-        "标明来源）。用户提供分集附加指令（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文，规划 prompt 另附"
-        "已规划集数、未规划余量、本窗口体量供换算切分节奏。规划按窗口分多批（长篇会多次调用本工具），instructions "
-        "不持久化，规划全部完成前每一批调用都要重复带上同一附加指令。末批即全部源文规划完毕、或再次调用已无新内容时，"
-        "返回会额外附全局体量核对材料（累计集数、体量最小几集、体量中位数、目标体量）：若用户给过总集数、按章节对齐等"
-        "结构性偏好，须对照核对、有偏差明确告知用户；常规批次只报累计已规划集数。提交时按参与源文件记录内容指纹；若检测到"
-        "已记录的源文件内容被改动或消失（源文被替换 / 编辑 / 删除，即使账本坐标仍在界内），会拒绝规划并指名变动文件，"
-        "此时需调用 reset_episode_planning 做全量重置后才能重新规划。Web 端「分集」视图有一份等待处理的「新的分集方案」"
-        "（重新规划的候选）时也会拒绝，请用户先在「分集」视图里采纳或放弃它。"
     ),
     request_model=PlanEpisodesRequest,
     migration=BLOCKED,
@@ -60,18 +42,7 @@ PLAN_EPISODES = ToolDeclaration(
 RESET_EPISODE_PLANNING = ToolDeclaration(
     name="reset_episode_planning",
     description=(
-        "重置分集规划：把账本退回未规划状态的逃生口，不调用文本模型，不受供应商配置影响。"
-        "只动切自整本源文的集，自带原文与无原文的集原样保留。"
-        "省略 episode_id（或给播出顺序中第一个切出集的集 ID）是全量重置：移除全部切出集，源文被替换或删除重建、"
-        "账本写坏导致规划报「起点越界」「范围无效」等错误并永久失败时用它恢复，零前置校验、任何损坏状态都能执行成功。"
-        "给其他切出集的 episode_id 是部分重置：保留播出顺序中该集之前的集，只清除该集及之后的切出集，下一批规划的起点"
-        "随之退到保留段最后一个切出集的结尾；这条路径有前置校验（全部已记录源文指纹须与当前源文一致，且保留段坐标须在当前源文"
-        "界内、依次推进不重叠），任一不满足会拒绝执行并指明具体原因，此时改用全量重置。之后 plan_episodes 规划的集分配"
-        "新的集 ID，被清除的集 ID 不再复用。两种模式都对波及已消费集（已有 script_plan / 剧本 / 媒体产物）时不执行，"
-        "返回 confirmation_required=true 与受影响清单，须告知用户、确认后带 confirm_consumed=true 重新调用。"
-        "确认后已消费集转为无原文的集、标 stale（原文已重新规划），移到播出顺序末尾，剧本、媒体等产物与产物登记都归它保留，"
-        "不会接到新规划的集上；没有产物的切出集移出账本。重置范围内可由账本重造的派生集文件会被删除，无原文范围记录的"
-        "集文件改名留底（不会丢内容），保留段的派生文件不受影响。"
+        "Reset episode planning: an escape hatch returning the ledger to an unplanned state, without a text-model call or dependence on provider configuration. Changes only whole-source extracted episodes; preserves own-source and no-source episodes. Omit episode_id (or give the first extracted episode’s ID in playback order) for full reset: removes all extracted episodes, recovering from replaced / deleted-and-recreated source or corrupted ledgers causing persistent start-out-of-bounds / invalid-range errors, with no prevalidation and success in any damaged state. Another extracted episode’s episode_id performs partial reset: retain preceding episodes in playback order and remove that and later extracted episodes; the next planning start returns to the end of the last retained extracted episode. Partial reset validates all recorded fingerprints against current source and requires retained coordinates to be in bounds, increasing, and nonoverlapping. Failure rejects with a specific reason; use full reset instead. Subsequent plan_episodes allocates new IDs and never reuses cleared IDs. Both modes initially refuse if consumed episodes are affected (existing script_plan / script / media), returning confirmation_required=true and an impact list. Inform the user, obtain confirmation, then retry with confirm_consumed=true. After confirmation, consumed episodes become no-source, stale (source replanned), and move to the end of playback order; they retain scripts, media, and artifact records, which are not transferred to newly planned episodes. Unconsumed extracted episodes leave the ledger. Reconstructible derived episode files in reset scope are deleted; episode files without source-range records are renamed for safekeeping, preserving content. Retained derived files are unaffected."
     ),
     request_model=ResetEpisodePlanningRequest,
     migration=BLOCKED,

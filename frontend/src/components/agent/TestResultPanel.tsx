@@ -9,7 +9,7 @@ interface Props {
   result: TestConnectionResponse;
 }
 
-/** Agent 供应商连接测试的结果：结论、诊断建议、实际请求的地址与响应，失败时可展开原始报错。 */
+/** Agent-provider connection-test results: conclusion, diagnostic advice, actual request URL and response; expand raw errors on failure. */
 export function TestResultPanel({ result }: Props) {
   const { t } = useTranslation("dashboard");
   const { overall, messages_probe, diagnosis, messages_url } = result;
@@ -32,7 +32,7 @@ export function TestResultPanel({ result }: Props) {
 
       {diagnosis && <p className="text-subtle-foreground">{t(`diagnosis_${diagnosis}`)}</p>}
 
-      {/* 探测的就是 Agent 运行时调用的地址，二者同一个字符串 */}
+      {/* The probe uses the exact same address string as the Agent runtime */}
       <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
         <span>{t("messages_url")}</span>
         <TruncatedText text={messages_url} className="font-mono" />

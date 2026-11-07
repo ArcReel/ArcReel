@@ -1,8 +1,8 @@
-"""角色衍生资产图任务用例共享的项目 fixture 与出站请求解码器。
+"""Shared project fixtures/outbound decoders for character-derivative image-task cases.
 
-生成侧的判据落在「发往图像供应商的那次请求」上，因此这里搭的是一条真实通路：真
-``ProjectManager`` + 真 ``MediaGenerator`` + 真图像后端，只把记账账本换成不碰数据库的
-替身，出站流量交给 respx 在 transport 层拦截。
+Generation assertions target the actual image-provider request, so use a real path: real ``ProjectManager`` +
+real ``MediaGenerator`` + real image backend. Only the accounting ledger becomes a database-free substitute;
+respx intercepts outbound traffic at the transport layer.
 """
 
 from __future__ import annotations
@@ -25,21 +25,21 @@ from lib.project.project_manager import ProjectManager
 from tests.fakes import FakeConfigResolver, use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import register_stale_visual_claim
 
-#: 本体资产图的可辨识内容：左右两半各一个纯色块，压缩后仍能按像素认出来。
+#: Recognizable base-image contents: two solid-color halves, still identifiable by pixels after compression.
 OWNER_SHEET_SIZE = (96, 48)
 OWNER_LEFT_RGB = (220, 30, 40)
 OWNER_RIGHT_RGB = (30, 60, 220)
 
-#: 供应商回图的内容，与本体图刻意不同，便于区分「送进去的」和「收回来的」。
+#: Provider-returned image contents intentionally differ from the base image to distinguish sent and received images.
 RESULT_IMAGE_RGB = (20, 200, 90)
 
-#: DashScope 多模态生成端点与它回给的产物地址（respx 在 transport 层应答这两条）。
+#: DashScope multimodal endpoint and returned artifact URL (respx answers both at the transport layer).
 GENERATION_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 RESULT_URL = "https://dashscope.example/out.png"
 
 
 def write_two_tone_png(path: Path, *, left: tuple[int, int, int], right: tuple[int, int, int]) -> bytes:
-    """写一张左右双色 PNG 并返回它的字节。"""
+    """Write a two-color left/right PNG and return its bytes."""
     width, height = OWNER_SHEET_SIZE
     image = Image.new("RGB", OWNER_SHEET_SIZE, left)
     for x in range(width // 2, width):
@@ -51,20 +51,20 @@ def write_two_tone_png(path: Path, *, left: tuple[int, int, int], right: tuple[i
 
 
 def solid_png_bytes(rgb: tuple[int, int, int], size: tuple[int, int] = (32, 32)) -> bytes:
-    """返回一张纯色 PNG 的字节，用作供应商回图。"""
+    """Return solid-color PNG bytes for the provider response."""
     buffer = BytesIO()
     Image.new("RGB", size, rgb).save(buffer, format="PNG")
     return buffer.getvalue()
 
 
 def decode_data_url_image(data_url: str) -> Image.Image:
-    """把请求体里的 ``data:image/...;base64,`` 解回可按像素比对的图片。"""
+    """Decode request-body ``data:image/...;base64,`` into an image for pixel comparisons."""
     _header, _, encoded = data_url.partition(",")
     return Image.open(BytesIO(base64.b64decode(encoded)))
 
 
 def close_to(pixel: tuple[int, ...], expected: tuple[int, int, int], *, tolerance: int = 24) -> bool:
-    """有损压缩后的像素与期望色的逐通道距离判定。"""
+    """Compare per-channel distances between lossy-compressed pixels and expected colors."""
     return all(abs(int(actual) - int(want)) <= tolerance for actual, want in zip(pixel[:3], expected, strict=True))
 
 
@@ -76,10 +76,10 @@ def seed_derivative_project(
     description: str = "换上黑色重甲",
     with_owner_sheet: bool = True,
 ) -> tuple[ProjectManager, Path]:
-    """建一个只含「一个角色 + 一个衍生登记」的真实项目，返回管理器与项目目录。
+    """Create a real project with one character + one derivative registration; return manager and project directory.
 
-    ``with_owner_sheet`` 为假时本体没有资产图，也没有对应的清单登记——那正是生成侧应当
-    拒绝的形态。
+    With ``with_owner_sheet`` false, the owner lacks both image and manifest registration, precisely
+    the state generation should reject.
     """
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
@@ -116,10 +116,10 @@ class _FakeLedgerCall:
 
 
 class _FakeLedger:
-    """记账括号替身：语义与真账本一致，但不落库。
+    """Accounting-bracket substitute matching real-ledger semantics without database writes.
 
-    取消穿透、异常记 failed 后重抛、正常退出未声明成功即报错——生成路径依赖这三条，
-    替身不复刻就会把用例的失败挪到别处。
+    Cancellation propagates; exceptions record failed then re-raise; normal exit without declared success
+    raises. Generation depends on all three; omitting them moves failures elsewhere.
     """
 
     def __init__(self) -> None:
@@ -149,7 +149,7 @@ class _FakeLedger:
 
 
 def build_generator(project_path: Path, backend: Any, *, provider_id: str = "dashscope") -> MediaGenerator:
-    """真 ``MediaGenerator``（真版本管理器 + 真图像后端），账本换成不落库的替身。"""
+    """Real ``MediaGenerator`` (real version manager + image backend) with database-free accounting substitute."""
     generator = MediaGenerator(
         project_path,
         image_backend=backend,
@@ -161,7 +161,7 @@ def build_generator(project_path: Path, backend: Any, *, provider_id: str = "das
 
 
 def wire_derivative_generation(monkeypatch: Any, pm: ProjectManager, generator: MediaGenerator) -> None:
-    """把衍生资产图任务的项目管理器与生成上下文接到用例自己的真实项目与生成器上。"""
+    """Connect derivative-image task project management/generation context to the case's own real project/generator."""
     from server.services.tasks import derivative_sheet_tasks
     from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
@@ -179,7 +179,7 @@ def run_derivative_generation(
     owner: str = "阿岚",
     derivative: str = "战斗装",
 ) -> bytes:
-    """跑一次真实的衍生资产图生成（出站请求由 respx 应答），返回落盘的图片字节。"""
+    """Run real derivative-image generation (respx answers outbound requests) and return persisted image bytes."""
     from lib.backends.image_backends.dashscope import DashScopeImageBackend
     from server.services.tasks import derivative_sheet_tasks
     from tests.http_capture import capture_http

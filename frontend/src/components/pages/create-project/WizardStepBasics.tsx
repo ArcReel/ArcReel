@@ -11,16 +11,16 @@ export type ContentMode = "drama" | "narration" | "ad";
 
 export interface WizardBasicsValue {
   title: string;
-  /** 创作类型。null = 未选：必选，没有默认值。 */
+  /** Creation types; null = unselected, required without defaults. */
   contentMode: ContentMode | null;
   aspectRatio: "9:16" | "16:9";
-  /** 生成模式，创建时锁定。null = 未选：必选，没有默认值。 */
+  /** Generation modes, fixed on creation; null = unselected, required without defaults. */
   generationRoute: GenerationRoute | null;
-  /** 多宫格分镜装配开关；只对分镜图生视频有意义，广告项目不支持。 */
+  /** Multigrid storyboard assembly switch, meaningful only for storyboard image-to-video, unsupported for ads. */
   gridStoryboard: boolean;
 }
 
-/** 选择卡的呈现顺序：剧情演绎在前。 */
+/** Choice-card order: drama first. */
 const CONTENT_MODES: readonly { mode: ContentMode; labelKey: string; descKey: string }[] = [
   { mode: "drama", labelKey: "drama_animation", descKey: "content_mode_drama_desc" },
   { mode: "narration", labelKey: "narration_visuals", descKey: "content_mode_narration_desc" },
@@ -32,7 +32,7 @@ const ASPECT_RATIOS = [
   { ratio: "16:9", labelKey: "landscape_16_9", glyph: "h-2 w-3.5" },
 ] as const;
 
-/** 整块可点的单选卡：选中项用品牌色描边与浅底。 */
+/** Whole-card radio targets, selected with brand-color borders and pale backgrounds. */
 function choiceClass(selected: boolean): string {
   return cn(
     "relative flex cursor-pointer rounded-lg border transition-colors has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
@@ -85,13 +85,13 @@ export function WizardStepBasics({ value, onChange, titleRef }: WizardStepBasics
                 value={mode}
                 checked={value.contentMode === mode}
                 onChange={() =>
-                  // 广告项目不支持多宫格分镜：切到广告时清掉已打开的开关
+                  // Ads do not support multigrid storyboards; switching to ads clears enabled switches.
                   onChange({ ...value, contentMode: mode, gridStoryboard: mode === "ad" ? false : value.gridStoryboard })
                 }
                 className="sr-only"
               />
               <span className="text-sm font-medium text-foreground">{t(labelKey)}</span>
-              {/* 选中项浅底上用中间档文字，保证对比度 */}
+              {/* Use medium-tier text against pale selected backgrounds for contrast. */}
               <span className={cn("text-xs", value.contentMode === mode ? "text-subtle-foreground" : "text-muted-foreground")}>
                 {t(descKey)}
               </span>
@@ -125,7 +125,7 @@ export function WizardStepBasics({ value, onChange, titleRef }: WizardStepBasics
           onChange({
             ...value,
             generationRoute: next,
-            // 宫格是分镜图生视频内的装配选项：切到参考生视频即清空
+            // Grids are storyboard image-to-video assembly options; switching to reference video clears them.
             gridStoryboard: next === "storyboard" ? value.gridStoryboard : false,
           })
         }

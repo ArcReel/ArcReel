@@ -40,7 +40,7 @@ def test_decode_gbk_via_charset_normalizer():
     raw = ("第一章 起点。" * 50).encode("gbk")
     text, enc = decode_txt(raw)
     assert "起点" in text
-    # charset-normalizer 通常返回 gbk / gb18030 / cp936 之一
+    # charset-normalizer usually returns gbk / gb18030 / cp936.
     assert enc
     assert enc.lower() in {"gbk", "gb18030", "cp936"}
 
@@ -54,8 +54,8 @@ def test_decode_big5_via_charset_normalizer():
 
 
 def test_decode_random_bytes_raises():
-    # 使用固定种子的伪随机字节：charset-normalizer 无法给出可信结果，
-    # gb18030 errors='replace' 兜底也会产生远高于 5% 阈值的 \ufffd，触发 SourceDecodeError。
+    # Fixed-seed pseudorandom bytes prevent charset-normalizer from producing trustworthy results;
+    # gb18030 errors='replace' fallback also yields \ufffd far above 5%, triggering SourceDecodeError.
     rng = random.Random(42)
     raw = bytes(rng.randint(0, 255) for _ in range(4000))
     with pytest.raises(SourceDecodeError) as exc_info:
@@ -68,8 +68,8 @@ def test_decode_clean_gb18030_without_replacements():
     # Short, very few sinograms — charset-normalizer may not be confident
     # (chaos >= 0.5 → falls through to gb18030 fallback). Decoding should
     # still succeed cleanly (no \ufffd) and be labeled "gb18030" (not "-lossy").
-    # 使用 GB18030 4 字节序列（U+20000 "𠀀"），绕过 GBK/Big5 的误检，
-    # 要么被 charset-normalizer 正确识别为 gb18030，要么直接走 gb18030 干净兜底。
+    # GB18030 4-byte sequence (U+20000 "𠀀") avoids GBK/Big5 misdetection;
+    # charset-normalizer either recognizes gb18030 correctly or clean gb18030 fallback applies.
     raw = "𠀀".encode("gb18030")
     text, enc = decode_txt(raw)
     assert text == "𠀀"
@@ -81,7 +81,7 @@ def test_decode_clean_gb18030_without_replacements():
 
 def test_extractor_writes_via_decode(tmp_path):
     src = tmp_path / "novel.txt"
-    # 样本需足够长且具备真实中文分布，charset-normalizer 才能稳定识别为 gbk 系列
+    # Samples must be long enough with realistic Chinese distribution for stable gbk-family detection.
     src.write_bytes(("第一章 内容起点。" * 50).encode("gbk"))
     result = TxtExtractor().extract(src)
     assert "内容" in result.text

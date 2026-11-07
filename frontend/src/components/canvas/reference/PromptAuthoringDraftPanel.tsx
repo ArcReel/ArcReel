@@ -25,7 +25,7 @@ import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPosition
 
 const DOC_TYPE = "reference_prompt_authoring";
 
-/** 提示词编写草稿的正文：按剧本顺序对应正式剧本单元的一组 unit 正文。 */
+/** Prompt-authoring draft bodies: unit bodies corresponding to formal units in script order. */
 interface PromptAuthoringDraft {
   units: { text: string }[];
 }
@@ -40,17 +40,17 @@ function narrowPromptAuthoringDraft(content: Record<string, unknown> | null): Pr
 }
 
 /**
- * 本集的提示词编写草稿：随 `draft:episode_N_prompt_authoring` 事件（Agent 写入、采用、丢弃）重新拉取。
- * 无草稿时为 null。
+ * Episode prompt-authoring drafts refetch on `draft:episode_N_prompt_authoring` events (Agent writes, adoption, discard).
+ * Null without drafts.
  */
 export function usePromptAuthoringDraft(projectName: string, episode: number) {
   const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_prompt_authoring`));
-  // 按所属项目与集号记下视图：切换后新一轮拉取回来前，不把上一集的草稿当作本集的呈现。
+  // Key views by project/episode so previous drafts cannot appear as current before new fetches arrive.
   const [loaded, setLoaded] = useState<{ key: string; view: EpisodeDraftView | null } | null>(null);
   const scopeKey = `${projectName}:${episode}`;
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入先检查 signal.aborted，cleanup 中 abort 作废上一轮
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- Writes after await check signal.aborted first; cleanup abort invalidates prior rounds
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -60,7 +60,7 @@ export function usePromptAuthoringDraft(projectName: string, episode: number) {
       const next = present ? await API.getEpisodeDraft(projectName, episode, DOC_TYPE, { signal }) : null;
       if (!signal.aborted) setLoaded({ key: scopeKey, view: next });
     };
-    // 拉取失败保留现有视图：草稿面板是附加呈现，不因一次刷新失败把单元工作台换掉。
+    // Failed fetches retain views: draft panels are additional presentation, not reasons to replace unit workbenches.
     load().catch(() => undefined);
     return () => controller.abort();
   }, [projectName, episode, scopeKey, draftRevision, reloadNonce]);
@@ -77,8 +77,8 @@ interface PromptAuthoringDraftPanelProps {
 }
 
 /**
- * 提示词编写草稿在视频单元页的呈现。待修复草稿：违约挂到所在单元、整集层面的违约置顶，逐单元正文
- * 可就地修改后保存并校验，违约清零即写回正式剧本。Agent 的可编辑草稿：只提示有一份未完成的修改。
+ * Prompt-authoring drafts on video-unit pages. Quarantined violations attach to units, episode-wide violations at top; unit bodies
+ * edit/save/validate in place, writing to formal scripts when violations clear. Agent-editable drafts only indicate unfinished edits.
  */
 export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettled }: PromptAuthoringDraftPanelProps) {
   const { t } = useTranslation("dashboard");
@@ -127,7 +127,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
 
   const content = editor.content;
   const unitIds = (content?.units ?? []).map((_, i) => view.item_ids?.[i] ?? `#${i + 1}`);
-  // 草稿可能只覆盖本集的一部分单元：位置按正式剧本现算，草稿没写单元 ID 时退回草稿里的序号。
+  // Drafts may cover only some units: compute formal positions now, falling back to draft position number without IDs.
   const unitPositions = unitIds.map((id, i) =>
     view.item_ids?.[i] ? (findEpisodeItem(scripts, id)?.position ?? null) : i + 1,
   );

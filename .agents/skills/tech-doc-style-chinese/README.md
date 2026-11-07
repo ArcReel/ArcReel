@@ -1,72 +1,72 @@
 # Chinese Tech Doc Style
 
-本项目是一份面向中文技术文档、产品文案与界面文案的写作 Skill，支持撰写、改写、校对和审阅。
+This project is a writing Skill for Chinese technical documentation, product copy, and UI copy, supporting writing, rewriting, proofreading, and review.
 
-这份 Skill 的目标很明确：中文技术写作应更克制、更准确、更易读。不追求宣传感，也不试图把所有内容都写成统一模板，而是聚焦几类高频问题：
+Its goal is explicit: make Chinese technical writing more restrained, accurate, and readable. It does not pursue a promotional tone or try to fit everything into one template, instead addressing recurring problems:
 
-- 中文技术文案容易空泛、重复、宣传化
-- 中文与英文、数字混合排版时可读性差
-- 常见英文状态词和错误词容易被机械直译
-- 文档首页、解决方案页、接口说明页、FAQ 的信息密度和结构经常失衡
-- 操作说明中的术语、条件和动作不够明确，容易造成理解或执行偏差
+- Chinese technical copy becoming vague, repetitive, or promotional
+- Poor readability when mixing Chinese with English and numbers
+- Mechanical literal translations of common English status and error terms
+- Unbalanced information density and structure in documentation homepages, solution pages, interface descriptions, and FAQs
+- Unclear terms, conditions, and actions in operating instructions, causing misunderstanding or execution errors
 
-如果需要一套适合中文技术文档的基础写作规范，这份 Skill 可以直接拿来使用，或是作为参考。
+Use this Skill directly, or as a reference, when you need foundational Chinese technical-writing guidelines.
 
-## 适用场景
+## Use cases
 
-本 Skill 适合以下内容：
+This Skill suits:
 
-- 文档首页、落地页、首屏文案
-- 接口文档、参数说明、错误码说明、更新日志
-- 操作手册、安装与部署步骤、多步骤 API 调用流程
-- 故障排查、运维 Runbook、安全说明
-- 产品能力介绍、解决方案页、能力说明页
-- 界面文案、按钮文案、导航标签、提示信息
+- Documentation homepages, landing pages, and first-screen copy
+- Interface documentation, parameter descriptions, error-code explanations, and changelogs
+- Operating manuals, installation and deployment steps, and multistep API call workflows
+- Troubleshooting, operations runbooks, and security guidance
+- Product capability introductions, solution pages, and capability descriptions
+- UI copy, button copy, navigation labels, and notices
 
-文档中的以下内容保持原样，不应用文案改写和排版替换：
+Keep these document elements unchanged; do not apply copy rewriting or typographic replacements:
 
-- 代码字面量
-- JSON 键名
-- URL
-- API 路径
-- 数据库字段名
-- 其他机器可读标识符
+- Code literals
+- JSON keys
+- URLs
+- API paths
+- Database field names
+- Other machine-readable identifiers
 
-## 核心规则概览
+## Core rules overview
 
-这份 Skill 主要覆盖以下规则：
+This Skill mainly covers:
 
-- 改写时保留事实、限制、条件和确定程度
-- 中文引号统一使用直角引号 `「」`
-- 默认避免不必要的直接称呼，允许项目语气覆盖
-- 在可见正文中处理中文与英文、数字之间的留白
-- 中文段落在源文件中保持一段一行，不做硬换行
-- 避免机械直译 `Success`、`Invalid`、`Bad Request` 等英文状态词
-- 避免高频互联网黑话，如 `赋能`、`抓手`、`闭环`、`打通`
-- 对操作、排查和运维文档应用受控中文技术写作方法
+- Preserving facts, constraints, conditions, and certainty when rewriting
+- Consistent corner brackets `「」` for Chinese quotations
+- Avoiding unnecessary direct address by default, with project tone overrides allowed
+- Spacing between Chinese, English, and numbers in visible body text
+- One source line per Chinese paragraph, without hard wraps
+- Avoiding mechanical literal translations of English statuses such as `Success`, `Invalid`, and `Bad Request`
+- Avoiding frequent internet jargon such as `赋能`, `抓手`, `闭环`, and `打通`
+- Applying controlled Chinese technical-writing methods to operations, troubleshooting, and maintenance documentation
 
-完整规范请阅读：
+Read the complete guidelines:
 
 - [SKILL.md](./SKILL.md)
-- [公开说明稿](./NoCode-Skill.md)
+- [Public overview](./NoCode-Skill.md)
 
-## 借鉴 STE 的技术写作方法
+## Technical-writing methods inspired by STE
 
-本项目的[受控中文技术写作模块](./references/controlled-technical-chinese.md)借鉴 ASD-STE100（Simplified Technical English，简称 STE）的受控语言思路，通过一致的术语、明确的动作和清晰的逻辑顺序，减少技术说明中的歧义。
+This project's [controlled Chinese technical-writing module](./references/controlled-technical-chinese.md) draws on the controlled-language approach of ASD-STE100 (Simplified Technical English, or STE), reducing ambiguity in technical instructions through consistent terminology, explicit actions, and clear logical order.
 
-模块将可迁移的方法适配到中文写作中：
+The module adapts transferable methods to Chinese writing:
 
-- 同一概念使用同一首选术语，不为避免重复而轮换同义词。
-- 一个步骤包含一个主要动作，多个有先后顺序的动作拆成编号步骤。
-- 执行前必须知道的条件和风险警告放在动作之前。
-- 明确执行者、操作对象和预期结果，区分人工操作与系统自动行为。
-- 保留原文事实、限制、例外和确定程度，不为简化表达而补造信息。
+- Use one preferred term per concept rather than rotating synonyms to avoid repetition.
+- Give each step one main action; split multiple sequential actions into numbered steps.
+- Put conditions and risk warnings that must be known before execution ahead of actions.
+- Make actors, operation targets, and expected results explicit; distinguish manual operations from automatic system behavior.
+- Preserve original facts, constraints, exceptions, and certainty; do not invent information to simplify wording.
 
-这些方法主要用于操作手册、安装与部署、故障排查、运维文档、安全说明和多步骤 API 流程。概念说明和产品介绍可选择性采用术语一致、指代明确等规则，不把品牌文案、叙事文本、固定引用或短按钮文案机械改成操作步骤。
+These methods mainly serve operating manuals, installation and deployment, troubleshooting, operations documentation, security guidance, and multistep API workflows. Conceptual descriptions and product introductions may selectively apply terminology consistency and explicit references; do not mechanically turn brand copy, narratives, fixed quotations, or short button copy into operating steps.
 
-STE 面向英文技术文档，其受控词典、词性、时态和句长规则不能直接套用于中文。本项目不是该标准的中文版本，也不承诺输出符合该标准；自动检查结果不代表 STE 合规。标准背景见 [ASD-STE100 官方说明](https://www.asd-ste100.org/about_STE.html)。
+STE addresses English technical documentation; its controlled vocabulary, part-of-speech, tense, and sentence-length rules cannot be applied directly to Chinese. This project is not a Chinese version of that standard and does not promise compliant output; automated checks do not indicate STE compliance. See the [official ASD-STE100 introduction](https://www.asd-ste100.org/about_STE.html) for background.
 
-## 仓库结构
+## Repository structure
 
 ```text
 tech-doc-style-chinese/
@@ -89,45 +89,45 @@ tech-doc-style-chinese/
     └── test_unwrap_md_paragraphs.py
 ```
 
-各文件的作用：
+File roles:
 
-- `SKILL.md`：正式技能入口，供 Codex、Claude Code 等 Agent 使用
-- `NoCode-Skill.md`：对外说明稿，适合公开阅读和分享
-- `README.md`：GitHub 仓库首页说明
-- `agents/openai.yaml`：技能展示元数据
-- `references/`：按任务读取的详细规则和项目覆盖模板
-- `scripts/lint_copy_rules.py`：轻量检查器
-- `scripts/unwrap_md_paragraphs.py`：展开段落硬换行的工具
-- `tests/`：检查器、技能结构和硬换行工具的回归测试
+- `SKILL.md`: formal skill entry point for agents such as Codex and Claude Code
+- `NoCode-Skill.md`: public overview suitable for reading and sharing
+- `README.md`: GitHub repository homepage
+- `agents/openai.yaml`: skill display metadata
+- `references/`: detailed rules and project override templates read as needed
+- `scripts/lint_copy_rules.py`: lightweight checker
+- `scripts/unwrap_md_paragraphs.py`: paragraph hard-wrap removal tool
+- `tests/`: regression tests for the checker, skill structure, and unwrapping tool
 
-## 如何在 Codex 中使用
+## Using in Codex
 
-### 使用 npx 安装（推荐）
+### Install with npx (recommended)
 
-如果本机有 Node.js 环境，可直接用 `npx skills` 安装：
+With Node.js installed locally, install directly with `npx skills`:
 
 ```bash
-# 直接安装
+# Install directly
 npx skills add https://github.com/Fenng/tech-doc-style-chinese
 ```
 
-如需无交互并明确安装到全局 Codex，可使用：
+For noninteractive installation explicitly targeting global Codex, use:
 
 ```bash
 npx -y skills add https://github.com/Fenng/tech-doc-style-chinese -a codex -g
 ```
 
-参数说明：
+Arguments:
 
-- `-a codex` 表示安装到 Codex agent
-- `-g` 表示全局安装（用户级），不加则安装到当前项目范围
-- `-y` 表示跳过交互确认，便于自动化执行
+- `-a codex` installs for the Codex agent
+- `-g` installs globally (user level); without it, installation is scoped to the current project
+- `-y` skips interactive confirmation for automation
 
-安装后建议重启 Codex，以确保新 Skill 被加载。
+Restart Codex after installation to ensure the new Skill loads.
 
-### 按 Release 安装（推荐）
+### Install a Release (recommended)
 
-固定版本安装，便于团队复现：
+Pin a version for team reproducibility:
 
 ```bash
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -138,74 +138,74 @@ git clone --depth 1 --branch <release-tag> \
   "$CODEX_HOME/skills/tech-doc-style-chinese"
 ```
 
-`<release-tag>` 可替换为已发布版本，例如 `v0.1.0.2.4`。
+Replace `<release-tag>` with a published version, for example `v0.1.0.2.4`.
 
-### 本地目录安装（开发场景）
+### Install from a local directory (development)
 
-如果正在本地修改或调试，可直接复制目录：
+When modifying or debugging locally, copy the directory directly:
 
 ```bash
 mkdir -p "$CODEX_HOME/skills/tech-doc-style-chinese"
 cp -R ./* "$CODEX_HOME/skills/tech-doc-style-chinese/"
 ```
 
-安装后可快速校验：
+Quickly verify installation:
 
 ```bash
 test -f "$CODEX_HOME/skills/tech-doc-style-chinese/SKILL.md" && echo "installed"
 ```
 
-安装完成后，可在任务中显式调用：
+After installation, invoke explicitly in a task:
 
 ```text
 Use $tech-doc-style-chinese to rewrite this Chinese technical copy.
 ```
 
-或者直接在相关任务中触发，例如：
+Or trigger it through relevant tasks, for example:
 
-- 重写中文技术文案
-- 整理 FAQ
-- 优化 API 文档措辞
-- 优化落地页中文文案
+- Rewrite Chinese technical copy
+- Organize FAQs
+- Improve API documentation wording
+- Improve Chinese landing-page copy
 
-## 如何在 Claude Code 中使用
+## Using in Claude Code
 
-### 直接让 Claude Code 安装（最简单）
+### Ask Claude Code to install (simplest)
 
-如果当前 Claude Code 环境支持安装 Skills，可让它读取本仓库并安装：
+If the current Claude Code environment supports Skill installation, ask it to read and install this repository:
 
 ```text
 请安装这份 Skill：https://github.com/Fenng/tech-doc-style-chinese
 ```
 
-这种方式较省事，但具体装到项目级还是全局取决于 Claude Code 当时的能力与判断。团队协作或需要写进文档、CI 的场景，建议用下面的 npx 命令。
+This is convenient, but project-level versus global installation depends on Claude Code's current capabilities and judgment. For team collaboration or instructions embedded in documentation or CI, prefer the npx commands below.
 
-### 使用 npx 安装（推荐）
+### Install with npx (recommended)
 
-如果本机有 Node.js 环境，可直接用 `npx skills` 安装：
+With Node.js installed locally, install directly with `npx skills`:
 
 ```bash
-# 安装到当前项目
+# Install in the current project
 npx skills add https://github.com/Fenng/tech-doc-style-chinese -a claude-code
 ```
 
-如需无交互并明确安装到全局 Claude Code，可使用：
+For noninteractive installation explicitly targeting global Claude Code, use:
 
 ```bash
 npx -y skills add https://github.com/Fenng/tech-doc-style-chinese -a claude-code -g
 ```
 
-参数说明：
+Arguments:
 
-- `-a claude-code` 表示安装到 Claude Code
-- `-g` 表示全局安装（用户级，写入 `~/.claude/skills/`），不加则安装到当前项目范围（写入 `./.claude/skills/`）
-- `-y` 表示跳过交互确认，便于自动化执行
+- `-a claude-code` installs for Claude Code
+- `-g` installs globally (user level, into `~/.claude/skills/`); without it, installation is scoped to the current project (into `./.claude/skills/`)
+- `-y` skips interactive confirmation for automation
 
-安装后建议重启 Claude Code，以确保新 Skill 被加载。
+Restart Claude Code after installation to ensure the new Skill loads.
 
-### 本地目录安装（开发场景）
+### Install from a local directory (development)
 
-如果正在本地修改或调试，可直接复制目录：
+When modifying or debugging locally, copy the directory directly:
 
 ```bash
 mkdir -p ~/.claude/skills/tech-doc-style-chinese
@@ -213,130 +213,130 @@ cp SKILL.md ~/.claude/skills/tech-doc-style-chinese/
 cp -R references ~/.claude/skills/tech-doc-style-chinese/
 ```
 
-安装后可快速校验：
+Quickly verify installation:
 
 ```bash
 test -f ~/.claude/skills/tech-doc-style-chinese/SKILL.md && echo "installed"
 ```
 
-Claude Code 会根据 `SKILL.md` 里的 `description` 自动判断何时调用该 Skill，无须手动触发，例如：
+Claude Code automatically decides when to invoke the Skill based on the `description` in `SKILL.md`; no manual trigger is needed, for example:
 
-- 重写中文技术文案
-- 整理 FAQ
-- 优化 API 文档措辞
-- 优化落地页中文文案
+- Rewrite Chinese technical copy
+- Organize FAQs
+- Improve API documentation wording
+- Improve Chinese landing-page copy
 
-## 如何做项目级覆盖
+## Project-level overrides
 
-这份 Skill 只放通用规则，不把某个项目的版本展示、品牌语气、术语表或信息架构硬编码到核心规范里。
+This Skill contains only general rules; it does not hardcode one project's version display, brand voice, glossary, or information architecture into core guidelines.
 
-如果项目存在自己的约定，在目标项目中建立单独的覆盖文件。可以从以下模板开始：
+If a project has its own conventions, create a separate override file in the target project. Start from this template:
 
 - `references/project-overrides-example.md`
 
-这类覆盖文件适合放：
+Override files suit:
 
-- 版本展示约定
-- 品牌或术语偏好
-- 文档结构偏好
-- 当前项目特有示例
+- Version display conventions
+- Brand or terminology preferences
+- Documentation structure preferences
+- Examples specific to the current project
 
-模板本身不包含默认生效的业务术语。不要把示例文件当成目标项目约定。
+The template itself contains no business terminology effective by default. Do not treat the sample file as target-project conventions.
 
-## 轻量校验与 CI
+## Lightweight validation and CI
 
-仓库内置了一个零依赖校验脚本，用于检查高频规则。结果分为：
+The repository includes a zero-dependency validation script for frequent rules. Results are categorized as:
 
-- `error`：高度确定的错误，默认导致非零退出
-- `warning`：依赖语境的可疑表达，需要人工判断
-- `style`：项目风格和术语偏好
+- `error`: highly certain errors; causes nonzero exit by default
+- `warning`: context-dependent suspicious expressions requiring human judgment
+- `style`: project style and terminology preferences
 
-检查器会保护代码块、行内代码、URL、Markdown 链接目标和单段或多段 API 路径。`截止日期`、`登陆月球`、`配制溶液`、`H5` 等语境项不再作为确定错误。
+The checker protects code blocks, inline code, URLs, Markdown link targets, and single- or multi-segment API paths. Contextual items such as `截止日期`, `登陆月球`, `配制溶液`, and `H5` are no longer treated as definite errors.
 
-本地执行：
+Run locally:
 
 ```bash
 python scripts/lint_copy_rules.py
 ```
 
-仅检查指定文件或目录：
+Check only specified files or directories:
 
 ```bash
 python scripts/lint_copy_rules.py SKILL.md NoCode-Skill.md references/
 ```
 
-将警告和风格提示也作为失败处理：
+Treat warnings and style hints as failures too:
 
 ```bash
 python scripts/lint_copy_rules.py --strict SKILL.md references/
 ```
 
-忽略单行检查：
+Skip checks for one line:
 
 ```markdown
 需要保留的原文 <!-- copy-lint-disable-line -->
 ```
 
-运行回归测试：
+Run regression tests:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-GitHub Actions 配置文件为 `.github/workflows/skill-lint.yml`，会在 `pull_request` 和 `main` 分支 `push` 时自动运行。
+The GitHub Actions configuration is `.github/workflows/skill-lint.yml`, running automatically on `pull_request` and `push` to `main`.
 
-## 展开段落硬换行
+## Unwrap paragraph hard breaks
 
-为了控制源码行宽而在段落中间手动断行，会让源文件读起来很碎；中文与英文边界上的断行还会在部分渲染器里多出或吞掉空格。仓库提供一个零依赖脚本，把段落和列表项还原为「一段一行」，正文靠编辑器软换行阅读。
+Manually breaking paragraphs to control source line width fragments source text; breaks at Chinese/English boundaries may also add or swallow spaces in some renderers. A zero-dependency script restores paragraphs and list items to one paragraph per line, relying on editor soft wrapping for reading.
 
-检查是否存在硬换行，不改动文件：
+Check for hard wraps without changing files:
 
 ```bash
 python scripts/unwrap_md_paragraphs.py --check .
 ```
 
-展开指定文件或目录，直接写回：
+Unwrap specified files or directories and write back directly:
 
 ```bash
 python scripts/unwrap_md_paragraphs.py docs/ README.md
 ```
 
-只查看结果，不写回文件：
+Preview results without writing files:
 
 ```bash
 python scripts/unwrap_md_paragraphs.py --stdout docs/guide.md
 ```
 
-拼接边界按中西文留白规则处理：中文与中文之间不加空格，中文与半角英文、数字之间加一个空格，全角标点两侧不加空格。
+Join boundaries follow Chinese/Western spacing rules: no spaces between Chinese characters, one space between Chinese and half-width English or numbers, and no spaces around full-width punctuation.
 
-脚本先扫描结构再拼接段落，因此以下内容按整块保留，不只保护起始行：front matter、围栏代码块（包括写在列表标记之后的 `- ```sh`）、缩进代码块（包括列表项内的缩进代码）、表格行、标题、分隔线、多行 HTML 块（`<pre>`、`<script>`、`<style>`、`<textarea>` 和注释）、链接引用定义、引用块，以及行尾两个空格或反斜杠表示的显式换行。
+The script scans structure before joining paragraphs, preserving these as complete blocks rather than protecting only their first lines: front matter, fenced code blocks (including `- ```sh` following list markers), indented code blocks (including indented code in list items), table rows, headings, separators, multiline HTML blocks (`<pre>`, `<script>`, `<style>`, `<textarea>`, and comments), link-reference definitions, blockquotes, and explicit breaks indicated by two trailing spaces or a backslash.
 
-需要整份文件跳过时，在代码块之外单独用一行写出标记：
+To skip an entire file, place this marker alone on a line outside code blocks:
 
 ```markdown
 <!-- unwrap-disable-file -->
 ```
 
-标记只在独立成行且不在代码块、HTML 块内时生效，因此上面这段代码示例不会让本文件免检。
+The marker only applies when standing alone outside code and HTML blocks, so the code example above does not exempt this file.
 
-脚本只处理拼接边界，不修改段落内部已有的留白、标点和措辞。展开后仍需人工复查一遍边界留白和列表、表格结构。
+The script handles joins only, without modifying existing interior spacing, punctuation, or wording. After unwrapping, manually recheck boundary spacing and list and table structures.
 
-## 发布建议
+## Publishing recommendations
 
-如果只是公开分享规范内容：
+For publicly sharing guideline content only:
 
-- 保留 `NoCode-Skill.md`
-- 用 `README.md` 做仓库首页说明
+- Retain `NoCode-Skill.md`
+- Use `README.md` as the repository homepage
 
-如果希望别人能直接安装使用：
+For directly installable use:
 
-- 保留 `SKILL.md`
-- 保留 `agents/openai.yaml`
-- 在仓库里明确目录结构和安装方式
+- Retain `SKILL.md`
+- Retain `agents/openai.yaml`
+- Clearly document directory structure and installation in the repository
 
 <!-- 作者：Fenng（GitHub：@Fenng） -->
 
 ## License
 
-本项目采用 MIT License。  
-详见 [LICENSE](./LICENSE)。
+This project uses the MIT License.\
+See [LICENSE](./LICENSE).

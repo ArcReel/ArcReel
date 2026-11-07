@@ -1,8 +1,9 @@
-"""BGM 命令：上传登记与列出；HTTP 与 Agent 工具共用。
+"""BGM upload/registration and listing commands shared by HTTP and Agent tools.
 
-上传时先把字节写进 ``bgm/`` 下的隐藏暂存文件，探测出音频时长、实测积分响度后，在 ``project.json`` 的同一次
-原子更新里落正式文件、写元数据并按字节登记产物；任何一步失败，正式文件、元数据与登记都不留下。
-上传后的 BGM 不能替换或删除。
+Upload bytes into a hidden staging file under ``bgm/``, probe audio duration and measure integrated
+loudness, then atomically place the formal file, write metadata, and register the byte-based artifact
+in one ``project.json`` update. Failure at any step leaves no formal file, metadata, or registration.
+Uploaded BGM cannot be replaced or deleted.
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ type BgmErrorCode = Literal[
 
 
 class BgmError(Exception):
-    """BGM 上传无法完成；``code`` 供适配器映射，``params`` 携带定位信息。"""
+    """BGM upload cannot complete; adapters map ``code``, while ``params`` carries location information."""
 
     def __init__(self, code: BgmErrorCode, message: str, **params: Any) -> None:
         super().__init__(message)
@@ -63,7 +64,7 @@ def _utc_now() -> str:
 
 
 def bgm_display_name(filename: str) -> str:
-    """BGM 的显示名取上传文件名去掉扩展名，过长截断；取不出时为「BGM」。"""
+    """Derive BGM display names from upload filenames without extensions, truncating overlong names; fall back to “BGM”."""
     stem = unicodedata.normalize("NFC", Path(filename).stem).strip()
     return stem[:BGM_NAME_MAX_LENGTH].strip() or "BGM"
 
@@ -79,7 +80,7 @@ class BgmLibraryService:
         return self._projects.get_project_path(project_name)
 
     async def list(self, project_name: str) -> tuple[BgmTrack, ...]:
-        """项目里已上传的 BGM，按上传先后排列。"""
+        """Uploaded project BGM, ordered by upload time."""
         project = await asyncio.to_thread(self._load_project, project_name)
         return tuple(read_bgm_library(project).values())
 
@@ -88,7 +89,7 @@ class BgmLibraryService:
         return self._projects.load_project(project_name)
 
     async def upload(self, project_name: str, *, filename: str, content: bytes) -> BgmTrack:
-        """登记一首 BGM：校验格式与大小，探测时长，实测积分响度并折算增益，原子落盘并按字节登记。"""
+        """Register BGM: validate format/size, probe duration, measure loudness/derive gain, atomically save and register by bytes."""
         project_dir = await asyncio.to_thread(self._project_dir, project_name)
         extension = Path(filename).suffix.lower()
         if extension not in BGM_EXTENSIONS:
@@ -124,7 +125,7 @@ class BgmLibraryService:
             )
             await run_sync_transaction(self._commit, project_name, project_dir, staged, track)
         finally:
-            await asyncio.to_thread(staged.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+            await asyncio.to_thread(staged.unlink, missing_ok=True)  # hard-delete: temp -- Upload staging file
         return track
 
     async def _duration_us(self, path: Path) -> int:

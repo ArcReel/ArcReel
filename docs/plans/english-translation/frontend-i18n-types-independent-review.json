@@ -1,0 +1,8 @@
+{
+  "reviewer": "Coordinator independent of either possible translator",
+  "status": "PASS",
+  "path": "frontend/src/i18n/types.ts",
+  "candidate_sha256": "545072e30347508d68e23c41f5c3ce69179ab585f288f13d3bd9f7dd56d0f80c",
+  "scope": "All three changed comment lines: en-shaped key structures, widened string values without literal-type constraints, zh/vi satisfies guard, extra/missing nested-key typecheck failures. No language resource or executable type changes.",
+  "authorship": "Not inferred from snapshot; overlapping earlier batch provenance does not affect this independent clause review."
+}

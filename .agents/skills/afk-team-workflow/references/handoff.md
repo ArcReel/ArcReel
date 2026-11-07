@@ -1,13 +1,13 @@
 # Handoff
 
-每个 issue 一份 `.afk/<batch-id>/handoff-<N>.md`；stage 集成审查与 review loop 共用 `.afk/<batch-id>/handoff-stage-<K>.md`。handoff 是交接便签，不是工作日志。
+Each issue has one `.afk/<batch-id>/handoff-<N>.md`; stage integration review and the review loop share `.afk/<batch-id>/handoff-stage-<K>.md`. Handoffs are transfer notes, not work logs.
 
-各角色追加自己的「实现」「集成审查」「QA」「QA 修复」「Base sync」或「审查循环」段。保留下一位执行者需要、但 diff、issue、PR 无法重推的判断：关键取舍、环境限制、未决风险，以及不修改的发现、故障或冲突处置的依据。已有记录可引用。
+Each role appends its own “Implementation”, “Integration review”, “QA”, “QA fixes”, “Base sync”, or “Review loop” section. Retain judgments the next executor needs that cannot be reconstructed from diffs, issues, or PRs: key tradeoffs, environment limitations, unresolved risks, and the reasoning behind unchanged findings, failures, or conflict handling. Existing records may be referenced.
 
-Base sync 段留下 rebase 前后的远程 HEAD；审查硬停时留下远程 HEAD，并说明进展、未决事项及建议的下一步。其余交付信息按各角色契约回报。
+In Base sync, record remote HEADs before and after rebase. At a review hard stop, record the remote HEAD, progress, unresolved matters, and recommended next step. Report other delivery information according to each role's contract.
 
-follow-up 记录尚未解决的问题或改进机会及依据，可以涉及工程、产品设计或执行方式；区分事实与猜测，价值评估留给复盘。批次内清尾与立 issue 都归 team-lead，按范围与 [escalation.md](../../../../docs/agents/escalation.md) 分流。
+Record unresolved problems or improvement opportunities and supporting evidence as follow-ups. They may concern engineering, product design, or execution methods. Distinguish facts from guesses and leave value assessment to the retrospective. The team-lead owns within-batch cleanup and issue creation, routing by scope and [escalation.md](../../../../docs/agents/escalation.md).
 
-收尾自查发现的教训候选按 [lessons.md](../../../../docs/agents/lessons.md) 的条目格式单独写一段，由 team-lead 发到 stage PR。
+Write lesson candidates found during the closing self-check in a separate section using the entry format in [lessons.md](../../../../docs/agents/lessons.md); the team-lead posts them to the stage PR.
 
-其他复盘线索随相关判断顺手留下；handoff 可以没有复盘候选，知识分类留给复盘。
+Leave other retrospective leads alongside the relevant judgments as you go. A handoff need not contain retrospective candidates; leave knowledge classification to the retrospective.

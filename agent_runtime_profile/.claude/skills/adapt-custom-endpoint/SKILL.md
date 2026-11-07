@@ -1,38 +1,38 @@
 ---
 name: adapt-custom-endpoint
-description: 当用户要求把采用 JSON 提交后轮询协议的视频或图片供应商接入 ArcReel，或要求编写、验证、测试、保存自定义调用端点定义时使用。
+description: Use when the user asks to connect a video or image provider using JSON submission followed by polling, or to write, validate, test, or save a custom endpoint definition in ArcReel.
 ---
 
-# 适配自定义调用端点
+# Adapt a custom endpoint
 
-使用随 skill 提供的 `scripts/custom_endpoint.py` 调用 ArcReel HTTP API；共享 validator 和 API 是验证与保存定义的唯一入口。
+Use the bundled `scripts/custom_endpoint.py` to call the ArcReel HTTP API; the shared validator and API are the only entry points for validating and saving definitions.
 
-## 工作流
+## Workflow
 
-1. 读取用户提供的供应商文档 URL；无法读取时请用户粘贴提交、查询任务与响应示例。
-   确认协议属于 JSON 请求/响应的「提交后轮询」形态。签名鉴权、multipart 请求或按素材切换路由
-   无法由首期定义表达，直接说明缺口。
-2. 需要编写或修正定义时读取[定义格式](references/definition-format.md)，在工作目录创建定义 JSON、
-   测试参数 JSON，以及供应商提供的真实响应样本。凭证优先引用 ArcReel 已保存的自定义供应商
-   `provider_id`；不得把 API Key 写入项目文件、命令参数或回复。
-3. 运行当前 skill 目录下的 `scripts/custom_endpoint.py`，用 `validate <definition.json>` 子命令校验。
-   修正到 `errors` 为空。`schema_version.level` 非 `direct` 或仍有 `warnings` 时，修正或向用户说明接受的原因和影响；用 `hints` 准备测试所需的接口地址和模型。
-4. 对供应商的提交与轮询响应分别运行 `check-response`；定义包含 `result` 时也检查取件响应。
-5. 运行 `preview-request`，核对 URL、method、打码后的 headers、body 与素材摘要。定义有必需素材时，
-   用 `--start-image` / `--end-image` / `--reference-images` / `--reference-audio-files` 附上对应文件。
-6. **测试连接会真实请求供应商并可能计费。调用前必须回问用户。** 获得明确同意后才运行
-   `trial-run ... --confirm-cost`（沿用预览时的素材参数），再用 `trial-status <run-id>` 查询到终态，
-   并转述请求、响应、取值与错误。状态为 `succeeded` 时继续；其他终态停止，只有用户明确要求保存未验证定义时才继续。
-7. 再次 validate。没有同血统端点时用 `save` 新建；有重复时默认另存副本并告知用户。
-   **只有覆盖既有端点必须回问用户**；明确同意后才用
-   `save ... --endpoint-id <id> --confirm-overwrite`。保存成功以返回 `ce-<id>` 为完成判据。
+1. Read the provider-documentation URL supplied by the user; if inaccessible, ask them to paste submission, task-query, and response examples.
+   Confirm that the protocol uses JSON requests/responses with submission followed by polling. Signed authentication, multipart requests, or input-dependent routing
+   cannot be expressed by the initial definition format; explain these gaps directly.
+2. When writing or correcting definitions, read the [definition format](references/definition-format.md); create definition JSON,
+   test-parameter JSON, and real response samples supplied by the provider in the working directory. Prefer credentials referenced through an existing ArcReel custom provider’s
+   `provider_id`; never write API keys into project files, command arguments, or replies.
+3. Run this skill directory’s `scripts/custom_endpoint.py` with `validate <definition.json>` to validate.
+   Correct until `errors` is empty. If `schema_version.level` is not `direct` or `warnings` remain, fix them or explain the reason and impact of accepting them; use `hints` to prepare the endpoint addresses and models needed for testing.
+4. Run `check-response` separately for the provider’s submission and polling responses; also check the retrieval response if the definition contains `result`.
+5. Run `preview-request` and check URL, method, redacted headers, body, and material summaries. When the definition requires inputs,
+   supply the corresponding files using `--start-image` / `--end-image` / `--reference-images` / `--reference-audio-files`.
+6. **Connection tests make real provider requests and may incur charges. Ask the user before calling.** Only after explicit agreement run
+   `trial-run ... --confirm-cost` (reusing preview material arguments), then query `trial-status <run-id>` until terminal,
+   and relay requests, responses, extracted values, and errors. Continue on `succeeded`; stop on other terminal states unless the user explicitly requests saving an unverified definition.
+7. Validate again. Use `save` to create when no same-lineage endpoint exists; if duplicated, default to saving a copy and tell the user.
+   **Overwriting an existing endpoint requires asking the user**; only after explicit agreement use
+   `save ... --endpoint-id <id> --confirm-overwrite`. Completion requires a successful save returning `ce-<id>`.
 
-## 连接
+## Connection
 
-在当前工作区根目录运行脚本。脚本读取 `setup-arcreel-skills` 创建的 `.arcreel/settings.json`，从
-`mcp_url` 派生同实例的 `/api/v1` 地址，并用 `api_key` 鉴权；配置缺失或无效时先执行 setup skill，
-不回退到 localhost。
+Run the script from the current workspace root. It reads `.arcreel/settings.json` created by `setup-arcreel-skills`, derives
+the same instance’s `/api/v1` address from `mcp_url`, and authenticates with `api_key`; run the setup skill first if configuration is absent or invalid,
+without falling back to localhost.
 
-设置 `ARCREEL_EMBEDDED_AGENT=1` 时，脚本优先使用 `ARCREEL_API_BASE` 与 `ARCREEL_API_TOKEN`；该 JWT
-有效期 15 分钟且不续期，API 调用返回 401 时告知用户重开会话获取新 token。
-`AUTH_ENABLED=false` 的本地部署可留空 token。
+With `ARCREEL_EMBEDDED_AGENT=1`, the script prefers `ARCREEL_API_BASE` and `ARCREEL_API_TOKEN`; this JWT
+expires after 15 minutes without renewal; on API 401, tell the user to reopen the session for a new token.
+Local deployments with `AUTH_ENABLED=false` may leave the token empty.

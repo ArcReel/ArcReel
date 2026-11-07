@@ -57,7 +57,7 @@ const order = () => screen.getAllByRole("listitem").map((item) => item.textConte
 
 describe("SortableList", () => {
   beforeEach(() => {
-    // jsdom 不做布局：按条目在列表里的位置给出纵向排开的矩形，键盘拖动才有落点可算。
+    // jsdom lacks layout; assign vertically stacked rectangles by item positions so keyboard drags can calculate targets.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const item = this.closest("li");
       const index = item ? Array.from(item.parentElement?.children ?? []).indexOf(item) : 0;
@@ -91,7 +91,7 @@ describe("SortableList", () => {
     render(<Harness onMove={onMove} />);
     const handle = screen.getByRole("button", { name: "调整「甲」的顺序" });
     handle.focus();
-    // 同一轮事件循环，不留时间给传感器的 timer 与测量完成。
+    // Same event loop without waiting for sensor timers/measurement.
     fireEvent.keyDown(handle, { code: "Space", key: " " });
     fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
     fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
@@ -128,7 +128,7 @@ describe("SortableList", () => {
 
   it("refuses moves rejected by canMove, also when dropped with the keyboard", async () => {
     const onMove = vi.fn();
-    // 第一项固定在最前
+    // First entries remain fixed first.
     render(<Harness onMove={onMove} canMove={(move) => move.id !== "甲" && move.to !== 0} />);
     expect(screen.getByRole("button", { name: "上移 乙" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下移 甲" })).toBeDisabled();

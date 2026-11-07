@@ -1,4 +1,4 @@
-"""分镜图画布比例：执行器登记的依据与目标态规划器重建的依据走同一条项目比例规则，生成后判 current。"""
+"""Storyboard canvas ratio: executor registration and target-state planner reconstruction share project-ratio rules, so generated artifacts are current."""
 
 import json
 
@@ -23,7 +23,7 @@ ARTIFACT_PATH = f"storyboards/scene_{ITEM_ID}.png"
 
 
 def _persist_with_ratio(pm: _FakePM, *, content_mode: str, aspect_ratio: object) -> None:
-    """持久化替身项目后改写创作类型与画布比例；``aspect_ratio=None`` 表示项目缺该字段。"""
+    """After persisting fake projects, change content mode and canvas ratio; ``aspect_ratio=None`` means the project lacks that field."""
     persist_active_fake_project(pm)
     pm.project["content_mode"] = content_mode
     if aspect_ratio is None:

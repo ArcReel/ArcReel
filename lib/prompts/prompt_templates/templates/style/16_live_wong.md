@@ -1,8 +1,8 @@
 ---
 id: style/live_wong
 category: style
-title: 王家卫
-description: "真人画风，胶片颗粒 · 东方都市。"
+title: "Wong Kar-wai"
+description: "Live action, film grain · East Asian city."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-王家卫风格，慵懒暧昧的氛围，颗粒感胶片，东方都市孤独美学
+Wong Kar-wai style, languid ambiguous atmosphere, grainy film, aesthetics of loneliness in an East Asian city

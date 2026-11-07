@@ -1,9 +1,9 @@
-"""ArcReel 模型目录数据的格式定义与校验器。
+"""Format definitions and validators for ArcReel model catalog data.
 
-ArcReel 应用加载出厂快照与官方同步数据、目录数据仓库的 CI 共用这一份实现：实例侧从宽读入
-（``parse_*``、``load_catalog``），构建侧从严校验（``check_*``）；用户修改的条目副本经 ``dump_entry``
-写回；内置调用端点清单（``BUILTIN_ENDPOINTS``、``BUILTIN_PROVIDER_ENDPOINTS``）供端点声明的校验与最低应用版本的
-推导使用。本包只依赖标准库，不依赖 ArcReel 应用。
+The ArcReel app uses this implementation to load factory snapshots and official sync data, and catalog repository CI shares it: instances read permissively
+(``parse_*``, ``load_catalog``), while builds validate strictly (``check_*``); user-modified entry copies are written back through ``dump_entry``;
+built-in endpoint lists (``BUILTIN_ENDPOINTS``, ``BUILTIN_PROVIDER_ENDPOINTS``) support endpoint declaration validation and minimum app version
+derivation. This package depends only on the standard library, not the ArcReel app.
 """
 
 from .dataset import (

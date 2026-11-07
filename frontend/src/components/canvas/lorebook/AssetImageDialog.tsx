@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 /**
- * 在详情 Sheet 里查看大图。放在 Sheet 的子树里渲染：Sheet 是模态弹层，挂到别处的浮层会被它
- * 当作外部点击而关闭 Sheet。
+ * View a full-size image inside the detail Sheet. Render within its subtree: Sheet is modal and would treat an overlay mounted elsewhere
+ * as an outside click, closing the Sheet.
  */
 export function AssetImageDialog({
   src,
@@ -11,13 +11,13 @@ export function AssetImageDialog({
   alt,
   onClose,
 }: {
-  /** 为 null 时关闭。 */
+  /** null closes the dialog. */
   src: string | null;
   title: string;
   alt: string;
   onClose: () => void;
 }) {
-  // 关闭动画期间沿用上一张图
+  // Retain the previous image during closing animation
   const [shown, setShown] = useState(src);
   if (src !== null && src !== shown) setShown(src);
   return (
@@ -27,7 +27,7 @@ export function AssetImageDialog({
         if (!open) onClose();
       }}
     >
-      {/* 看图区域固定深色：浅底会干扰对画面明暗的判断 */}
+      {/* Keep the viewing area dark: light backgrounds interfere with judgments of image brightness */}
       <DialogContent size="xl" className="dark">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

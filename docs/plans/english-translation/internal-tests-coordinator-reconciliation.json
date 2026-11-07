@@ -1,0 +1,17 @@
+{
+  "unit_server_spans": 1304,
+  "integration_services_spans": 865,
+  "integration_generation_script_spans": 712,
+  "integration_router_spans": 1172,
+  "total_coordinator_completed_spans": 4053,
+  "proofs": [
+    "root-unit-server-passive-review.json",
+    "root-unit-server-doc-consumer-review.json",
+    "root-integration-services-passive-review.json",
+    "root-integration-lib-passive-review.json",
+    "root-integration-doc-consumer-review.json",
+    "integration-project-tests-passive-proof.json",
+    "integration-router-tests-passive-proof.json"
+  ],
+  "note": "Counts reconciled against original span inventory. Delegated semantic/input-consumer review belongs to named proof owners; global AST/directive/doctest verification below checks all candidate files."
+}

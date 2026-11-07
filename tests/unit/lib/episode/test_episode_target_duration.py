@@ -1,4 +1,4 @@
-"""单集目标时长的区间守卫与 project.json 读时解析。"""
+"""Episode target-duration bounds and project.json read-time parsing."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class TestIsValidEpisodeTargetDuration:
         assert is_valid_episode_target_duration(value) is False
 
     def test_rejects_floats_instead_of_rounding_them(self) -> None:
-        """秒数是整数量纲：静默取整会让用户看到的设置与生效值不同。"""
+        """Seconds are integral; silent rounding would make displayed settings differ from effective values."""
         assert is_valid_episode_target_duration(90.0) is False
         assert is_valid_episode_target_duration(90.5) is False
 
@@ -44,7 +44,7 @@ class TestProjectEpisodeTargetDuration:
 
     @pytest.mark.parametrize("raw", [5, 900, "120", 120.0, True])
     def test_dirty_or_out_of_range_values_degrade_to_no_target(self, raw: object) -> None:
-        """手改 project.json / 历史脏数据不应让一次生成崩在偏好字段上。"""
+        """Hand-edited/legacy-invalid preferences must not crash generation."""
         assert project_episode_target_duration({EPISODE_TARGET_DURATION_FIELD: raw}) is None
 
     def test_non_mapping_project_is_no_target(self) -> None:

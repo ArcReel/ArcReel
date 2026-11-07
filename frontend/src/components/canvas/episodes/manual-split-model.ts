@@ -1,9 +1,9 @@
 import type { EpisodesView } from "@/types";
 
 /**
- * 手工切分的落点：整本源文清单里第 `file` 个文件、文件内第 `offset` 个码位之前。
+ * Manual-split target: before code point `offset` within whole-source list file `file`.
  *
- * 偏移与后端 `source_range` 同一坐标系（规范化文本的 Unicode 码位），不是 JS 字符串的 UTF-16 下标。
+ * Offsets match backend `source_range` normalized Unicode code points, not JS UTF-16 indices.
  */
 export interface ManuscriptPoint {
   file: number;
@@ -11,15 +11,15 @@ export interface ManuscriptPoint {
 }
 
 /**
- * 落点上能做的手工切分。`file` / `offset` 是落点本身（随请求发给服务端）；`start`、`at`、`end`、`boundary`
- * 是整本源文里的全局码位偏移（前面各文件的码位数之和加文件内偏移），一集的原文可以跨文件。
+ * Manual splitting available at a target. `file` / `offset` locate it for server requests; `start`, `at`, `end`, `boundary`
+ * are whole-source global code-point offsets (preceding file lengths plus local offset). Episode sources may cross files.
  */
 export type PointAction =
-  /** 在未切分的原文上切分：`[start, end)` 成为新的一集。 */
+  /** Cut unsplit text: `[start, end)` becomes a new episode. */
   | { kind: "cut"; file: number; offset: number; start: number; end: number }
-  /** 在切出集内拆分：`[start, at)` 保留集 ID，`[at, end)` 是新的一集。 */
+  /** Split cut episodes: `[start, at)` retains ID, `[at, end)` becomes a new episode. */
   | { kind: "split"; file: number; offset: number; episode: number; start: number; at: number; end: number }
-  /** 把 `left` 与 `right` 的分界从 `boundary` 移到 `at`。 */
+  /** Move the `left` / `right` boundary from `boundary` to `at`. */
   | {
       kind: "move";
       file: number;
@@ -32,10 +32,10 @@ export type PointAction =
       end: number;
     };
 
-/** 正在移动的分界：左侧一集的集 ID。 */
+/** Moving boundary: left episode ID. */
 export type MovingBoundary = number | null;
 
-/** 码位数：`text` 里 UTF-16 下标 `index` 之前有几个码位。下标落在代理对中间时按整个字符之后算。 */
+/** Code points before UTF-16 `index` in `text`; indices inside surrogate pairs count after the whole character. */
 function codePointsBefore(text: string, index: number): number {
   let count = 0;
   let i = 0;
@@ -47,13 +47,13 @@ function codePointsBefore(text: string, index: number): number {
   return count;
 }
 
-/** 一行原文：在文件内的码位起点与文字。 */
+/** Source line: file-local code-point start and text. */
 export interface TextRun {
   start: number;
   text: string;
 }
 
-/** 把一段原文按换行拆成非空行，每行带上它在文件内的码位起点（`base` 是这段原文的起点）。 */
+/** Split source into nonempty newline-separated lines with file-local code-point starts; `base` is this segment's start. */
 export function textRuns(text: string, base: number): TextRun[] {
   const runs: TextRun[] = [];
   let offset = base;
@@ -65,8 +65,8 @@ export function textRuns(text: string, base: number): TextRun[] {
 }
 
 /**
- * 点击落在一行原文里：行在文件内的码位起点是 `runStart`，光标在行文字的 UTF-16 下标 `index` 处。
- * 返回落点；下标超出行文字时落在行尾。
+ * Click inside a source line: `runStart` is its file-local code-point start, `index` the cursor UTF-16 index.
+ * Return the target, clamping out-of-line indices to line end.
  */
 export function pointInRun(file: number, runStart: number, runText: string, index: number): ManuscriptPoint {
   return { file, offset: runStart + codePointsBefore(runText, Math.min(index, runText.length)) };
@@ -82,14 +82,14 @@ function bases(view: EpisodesView): number[] {
   return result;
 }
 
-/** 落点在整本源文里的全局偏移：前面各文件的码位数之和加文件内偏移。 */
+/** Global whole-source target offset: preceding file code-point lengths plus file-local offset. */
 export function toGlobal(view: EpisodesView, point: ManuscriptPoint): number {
   return bases(view)[point.file] + point.offset;
 }
 
 /**
- * 全局偏移换回落点。恰好落在两个文件交界处时取前一个文件的末尾：后一个文件的开头之前没有正文，
- * 不是有意义的分集点。读不到的文件长度为 0，不会被落到。
+ * Convert global offsets to targets; exact file boundaries choose the previous file end because no body precedes
+ * the next file start, so it is not a meaningful split. Unreadable files have zero length and receive no targets.
  */
 function fromGlobal(view: EpisodesView, global: number): ManuscriptPoint | null {
   let prefix = 0;
@@ -109,7 +109,7 @@ interface Span {
   end: number;
 }
 
-/** 落位的切出集在整本源文里的全局范围，按起点排序；跨文件的集合成一段。 */
+/** Located cut-episode global ranges, start-sorted; combine cross-file episodes into one range. */
 function episodeSpans(view: EpisodesView): Span[] {
   const base = bases(view);
   const spans = new Map<number, Span>();
@@ -125,7 +125,7 @@ function episodeSpans(view: EpisodesView): Span[] {
   return [...spans.values()].sort((a, b) => a.start - b.start);
 }
 
-/** 源文件类型切换处的全局偏移：一集的原文不跨过它。非剧情演绎项目没有类型，也就没有切换处。 */
+/** Global source-kind change positions, uncrossable by episode sources; non-drama projects lack kinds and changes. */
 function kindWalls(view: EpisodesView): number[] {
   const base = bases(view);
   const readable = view.files.map((file, index) => ({ file, index })).filter(({ file }) => !file.missing);
@@ -138,7 +138,7 @@ function wallsInside(walls: number[], start: number, end: number): number[] {
   return walls.filter((wall) => start < wall && wall < end);
 }
 
-/** 改动后的范围 `[start, end)` 是否新跨过源文件类型的切换处（原来的范围 `old` 里已有的不算）。 */
+/** Whether changed `[start, end)` newly crosses a source-kind change, excluding changes already within `old`. */
 function crossesNewWall(walls: number[], start: number, end: number, ...old: Span[]): boolean {
   const allowed = new Set(old.flatMap((span) => wallsInside(walls, span.start, span.end)));
   return wallsInside(walls, start, end).some((wall) => !allowed.has(wall));
@@ -153,8 +153,8 @@ function movingPair(view: EpisodesView, moving: number): { left: Span; right: Sp
 }
 
 /**
- * 两集之间相连的分界，供左栏放分界按钮：左右两集的集 ID，以及右侧一集起点所在的文件（按钮放在那里）。
- * 分界可以落在文件交界上。
+ * Connected boundaries between episodes for left-column buttons: left/right IDs and the right episode's starting file, where buttons live.
+ * Boundaries may occur at file edges.
  */
 export function adjacentBoundaries(view: EpisodesView): { left: number; right: number; file: number }[] {
   const spans = episodeSpans(view);
@@ -173,17 +173,17 @@ export function adjacentBoundaries(view: EpisodesView): { left: number; right: n
   });
 }
 
-/** 插入光标取哪一集的集色：拆分取这一集，切分与移动分界取品牌色（null）。 */
+/** Cursor episode color: split uses its episode; cutting/moving boundaries use brand color (null). */
 export function caretEpisode(action: PointAction): number | null {
   return action.kind === "split" ? action.episode : null;
 }
 
 /**
- * 落点上能做的手工切分；做不了时返回 null。
+ * Manual operation available at the target, null if unavailable.
  *
- * - 正在移动分界时，只接受两集合起来的范围之内、原分界之外的落点，两侧都不能新跨过源文件类型的切换处。
- * - 落在切出集内部为拆分；落在未切分的原文上为切分，新集从这段未切分原文的开头起（可以从前一个文件接过来），
- *   不跨过源文件类型的切换处。
+ * - Moving accepts only targets within combined episode ranges except the old boundary; neither side may newly cross source-kind changes.
+ * - Inside cut episodes, split; within unsplit text, cut a new episode from the unsplit segment start, possibly continuing from the preceding file,
+ *   without crossing source-kind changes.
  */
 export function resolvePointAction(
   view: EpisodesView,
@@ -233,10 +233,10 @@ function sameAction(a: PointAction, b: PointAction): boolean {
 }
 
 /**
- * ←/→ 微调：沿整本源文移动 `delta` 个码位，可以跨过文件边界。
+ * ←/→ adjustment moves `delta` code points through whole-source text, across file boundaries.
  *
- * 只在同一种操作里移动（拆分不换集）：目标位置恰是不能落点的单个位置（原分界、刚好切空）时再跨一格，
- * 仍然不行就退回到这个方向上最远的可用位置；一格也动不了时保持原位。
+ * Keep the same operation, never changing episodes during splitting. Skip isolated invalid positions (old boundary/empty cuts) by one extra step;
+ * if still unavailable, fall back to the farthest valid position in that direction, or remain unchanged when none.
  */
 export function stepPoint(
   view: EpisodesView,
@@ -266,11 +266,11 @@ export function stepPoint(
   return point;
 }
 
-// 与后端 `lib/infra/text_metrics.py` 的阅读单位同一口径：中文按汉字与全角标点计，英文、越南文按词计。
+// Reading units match backend `lib/infra/text_metrics.py`: Han/full-width punctuation for Chinese, words for English/Vietnamese.
 const ZH_UNIT = /[\u3400-\u9fff\uf900-\ufaff\u3000-\u303f\uff00-\uffef\u{20000}-\u{323af}]/gu;
 const WORD_UNIT = /[\p{L}\p{N}_]+/gu;
 
-/** 整本源文里全局范围 `[start, end)` 的阅读单位数，供操作条预览两侧体量。 */
+/** Reading-unit count in global `[start, end)` for action-bar volume previews on both sides. */
 export function rangeUnits(view: EpisodesView, start: number, end: number): number {
   const pattern = view.unit === "words" ? WORD_UNIT : ZH_UNIT;
   const base = bases(view);
@@ -288,7 +288,7 @@ export function rangeUnits(view: EpisodesView, start: number, end: number): numb
   return count;
 }
 
-/** 右栏单集操作的可用性：按源文位置的下一个切出集能否合并、之后有没有切出集。 */
+/** Right-column episode operations: whether next source-ordered cut episode can merge, and whether subsequent cut episodes exist. */
 export function cutEpisodeActions(
   view: EpisodesView,
   episode: number,

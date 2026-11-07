@@ -12,46 +12,47 @@ from PIL import Image, ImageOps
 
 _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2 MB
 _MAX_LONG_EDGE = 2048
-# 解码后的像素总数上限（8192×8192）。字节上限拦不住这一层：低熵 PNG 能把上亿像素压进
-# 30MB 以内；PIL 自带的 MAX_IMAGE_PIXELS 也只在超过其两倍时才抛 DecompressionBombError，
-# 介于一倍与两倍之间（约 8900 万至 1.78 亿像素）仅告警放行，而一份 RGBA 缓冲即数百 MB。
-# 宫格联合图最高档位为 4K 见方（约 1700 万像素），此处留出数倍余量后显式拒绝。
+# Decoded pixel limit (8192 x 8192). Byte limits cannot protect this: low-entropy PNG can fit 100M+ pixels
+# within 30MB. PIL raises DecompressionBombError only above twice its MAX_IMAGE_PIXELS;
+# between once and twice that value (about 89M-178M pixels) it merely warns, yet one RGBA buffer uses hundreds of MB.
+# Grid composites reach 4K square (about 17M pixels); allow several times that before explicitly rejecting.
 MAX_UPLOAD_PIXELS = 8192 * 8192
 _JPEG_QUALITY = 85
-# sentinel：意为「不向 PIL 传 subsampling」。PIL 的 subsampling=-1 仅在 JPEG→JPEG 时表示
-# “保持源色度”，对 PNG/其它源解码后再编码不合法，故默认用本 sentinel 拦掉，保证缺省行为不变。
+# Sentinel means omit subsampling from PIL. subsampling=-1 means retain source chroma only for JPEG-to-JPEG;
+# it is invalid when re-encoding decoded PNG/other sources. This default sentinel preserves omission behavior.
 _SUBSAMPLING_KEEP = -1
 
-# EXIF Orientation tag（ImageOps.exif_transpose 读取的字段）
+# EXIF Orientation tag read by ImageOps.exif_transpose.
 _EXIF_ORIENTATION = 0x0112
 
 
-#: 可以上传、导入并按原格式保存的图片格式。键是 PIL 识别出的格式名，值是该格式的文件后缀，
-#: 首项是按内容确定后缀时保存使用的后缀。
+#: Image formats accepted for upload/import and original-format storage. Keys are PIL format names;
+#: values are extensions, with the first used when choosing an extension from content.
 IMAGE_FORMAT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "PNG": (".png",),
     "JPEG": (".jpg", ".jpeg"),
     "WEBP": (".webp",),
 }
-#: 上述格式的全部文件后缀；上传校验、文件服务与路径识别都以此为准。
+#: All extensions for these formats, shared by upload validation, serving and path recognition.
 IMAGE_FILE_EXTENSIONS: tuple[str, ...] = tuple(suffix for group in IMAGE_FORMAT_SUFFIXES.values() for suffix in group)
 
 
 class ImagePixelLimitError(ValueError):
-    """图片解码后的像素总数超过 ``MAX_UPLOAD_PIXELS``。
+    """Decoded pixel count exceeds ``MAX_UPLOAD_PIXELS``.
 
-    继承 ValueError：调用方不单独处理时，与其它无效图片一样收口为 400。
+    Subclass ValueError so callers without special handling return 400, as for other
+    invalid images.
     """
 
 
 def _ensure_pixel_budget(size: tuple[int, int]) -> None:
-    """在解码分配像素缓冲之前拦掉超大图。"""
+    """Reject oversized images before allocating the decoded pixel buffer."""
     if size[0] * size[1] > MAX_UPLOAD_PIXELS:
         raise ImagePixelLimitError(f"image has {size[0]}x{size[1]} pixels, over the {MAX_UPLOAD_PIXELS} limit")
 
 
 def _open_oriented(content: bytes, *, target_modes: tuple[str, ...], fallback_mode: str) -> Image.Image:
-    """解码 + EXIF 方向矫正 + 收敛到目标颜色模式。返回与源解码器解耦的图像对象。"""
+    """Decode, correct EXIF orientation and convert to the target color mode; return an image independent of its decoder."""
     with Image.open(BytesIO(content)) as src:
         img = ImageOps.exif_transpose(src)
         if img.mode not in target_modes:
@@ -60,7 +61,7 @@ def _open_oriented(content: bytes, *, target_modes: tuple[str, ...], fallback_mo
 
 
 def _fit_long_edge(img: Image.Image, max_long_edge: int) -> Image.Image:
-    """长边超限时等比缩放；极端宽高比下短边钳到至少 1 像素，避免 resize(…, 0) 报错。"""
+    """Scale proportionally when the long edge exceeds the limit; clamp the short edge to at least 1 pixel for extreme ratios to avoid resize(..., 0)."""
     w, h = img.size
     long_edge = max(w, h)
     if long_edge <= max_long_edge:
@@ -86,15 +87,15 @@ def convert_image_bytes_to_png(content: bytes) -> bytes:
 
 
 def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _MAX_LONG_EDGE) -> bytes:
-    """
-    将上传的分镜图归一化为 PNG 字节：exif 矫正方向、长边超限时等比缩放。
+    """Normalize uploaded storyboard images to PNG bytes, correcting EXIF orientation and limiting the long edge proportionally.
 
-    分镜图 canonical 路径固定为 .png（resource_paths / VersionManager / restore
-    均按此扩展名工作），因此无论输入格式一律转 PNG。
-    已合规的 PNG（模式/方向/尺寸均达标）原样返回，不做无谓的解码重编码。
+    Canonical storyboard paths use .png (resource_paths / VersionManager / restore),
+    so all input formats convert to PNG. Return compliant PNGs unchanged when mode,
+    orientation and size already match, avoiding unnecessary decode/re-encode.
 
-    ``max_long_edge=None`` 表示不缩放，只做格式/方向归一化——宫格联合图等
-    分辨率即信息量的上传走此档，避免 4K 联合图被静默降采样后切格失真。
+    ``max_long_edge=None`` disables resizing, retaining only format/orientation
+    normalization. Use it for resolution-dependent uploads such as grid composites,
+    avoiding silent downsampling and distorted cells when splitting 4K composites.
 
     Raises:
         ImagePixelLimitError: if the decoded pixel count exceeds MAX_UPLOAD_PIXELS.
@@ -102,7 +103,7 @@ def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _
     """
     try:
         with Image.open(BytesIO(content)) as probe:
-            # 尺寸来自文件头，此时尚未分配像素缓冲
+            # Dimensions come from the header; no pixel buffer has been allocated yet.
             _ensure_pixel_budget(probe.size)
             if (
                 probe.format == "PNG"
@@ -119,7 +120,7 @@ def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _
             img.save(out, format="PNG")
             return out.getvalue()
     except ImagePixelLimitError:
-        # 图片本身可解析，只是过大——保留该类型，让调用方给出可操作的提示
+        # The image parses but is oversized; preserve the error type for actionable caller guidance.
         raise
     except Exception as e:
         raise ValueError("Invalid image") from e
@@ -145,12 +146,12 @@ def compress_image_bytes(
     quality: int = _JPEG_QUALITY,
     subsampling: int = _SUBSAMPLING_KEEP,
 ) -> bytes:
-    """
-    将任意图片字节压缩为 JPEG：等比缩放到长边不超过 max_long_edge，
-    quality 控制 JPEG 压缩质量。
+    """Compress arbitrary image bytes to JPEG, scaling proportionally to max_long_edge;
+    quality controls JPEG compression quality.
 
-    subsampling 控制 JPEG 色度抽样（0=4:4:4 视觉无损，2=4:2:0 默认）；缺省为
-    _SUBSAMPLING_KEEP，此时完全不向 PIL 传该参数，保持 PIL 默认（与历史行为一致）。
+    subsampling controls JPEG chroma sampling (0=4:4:4 visually lossless, 2=4:2:0 default).
+    The default _SUBSAMPLING_KEEP omits this parameter entirely from PIL, retaining
+    PIL defaults and historical behavior.
 
     Raises:
         ValueError: if the input bytes are not a valid image.

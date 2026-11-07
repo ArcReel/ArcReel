@@ -34,7 +34,7 @@ def make_project_key(project_cwd: Path | str) -> str:
 
 
 def default_sdk_config_dir() -> Path:
-    """Claude SDK 配置目录：``CLAUDE_CONFIG_DIR`` > ``~/.claude``。SDK 本地会话数据在其下的 ``projects/``。"""
+    """Claude SDK config directory: ``CLAUDE_CONFIG_DIR`` > ``~/.claude``; SDK-local sessions live under its ``projects/``."""
     raw = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
     return Path(raw).expanduser() if raw else Path.home() / ".claude"
 

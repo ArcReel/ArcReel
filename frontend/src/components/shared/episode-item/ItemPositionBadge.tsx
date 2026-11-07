@@ -4,19 +4,19 @@ import { cn } from "cn";
 import type { EpisodeItemKind } from "@/utils/episode-item";
 
 interface ItemPositionBadgeProps {
-  /** 本集数组里的当前位置，从 1 起；null 表示条目已不在剧本里。 */
+  /** Current position in this episode's array, starting at 1; null means the entry no longer exists in the script. */
   position: number | null;
   kind: EpisodeItemKind;
-  /** 叠在缩略图左上角；缺省时作为行内标签。 */
+  /** Overlay on the thumbnail's top left; otherwise an inline label by default. */
   overlay?: boolean;
-  /** 选中态：行内标签换成主色底。 */
+  /** Selected state: inline labels use the primary background. */
   active?: boolean;
   className?: string;
 }
 
 /**
- * 分镜与视频单元的位置角标：只写数字，类型交给可访问名称（「分镜 5」「视频单元 5」）。
- * 条目已不在剧本里时写「已删除」，不回退成条目 ID。
+ * Position badge for storyboard/video units: numbers only; accessible names supply the type, such as Storyboard 5 or Video unit 5.
+ * Show Deleted when absent from the script rather than falling back to item IDs.
  */
 export function ItemPositionBadge({ position, kind, overlay = false, active = false, className }: ItemPositionBadgeProps) {
   const { t } = useTranslation("common");

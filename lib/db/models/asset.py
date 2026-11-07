@@ -1,4 +1,4 @@
-"""Asset ORM: 全局资产库条目。"""
+"""Asset ORM: global asset-library entries."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ from lib.db.base import Base, TimestampMixin
 
 
 class GlobalImageColumns:
-    """库里一张图片的内容事实，见 ``lib.material.global_library``。
+    """Content facts for one library image; see ``lib.material.global_library``.
 
-    ``image_digest`` 是库存储文件的裸 sha256；``image_content_id`` 是这张图片在全局资产库里的内容身份，
-    供应商素材关联与正式对象引用以它为键（持有方为条目键 ``library_holder(asset_id)``），换图时重新生成；
-    ``image_storage`` 是远端持久定位（``ObjectLocator.to_record()`` 的形状），有它时 ``image_path`` 只是工作文件。
-    三列都为空的存量行按本地文件解释。
+    ``image_digest`` is the stored file's bare sha256. ``image_content_id`` identifies this
+    image's content in the global library, keying provider asset links and formal object
+    references (held by entry key ``library_holder(asset_id)``); regenerate it on image replacement.
+    ``image_storage`` is its persistent remote locator (the ``ObjectLocator.to_record()`` shape);
+    when present, ``image_path`` is only a working file. Interpret legacy rows with all three
+    columns empty as local files.
     """
 
     image_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -43,11 +45,12 @@ class Asset(GlobalImageColumns, TimestampMixin, Base):
 
 
 class AssetDerivative(GlobalImageColumns, TimestampMixin, Base):
-    """全局资产库里挂在一条角色资产下的衍生（见 ``docs/adr/0072``）。
+    """A derivative belonging to a character asset in the global library (``docs/adr/0072``).
 
-    衍生随本体资产整套进出资产库：``from-project`` 把角色条目里的衍生表连同资产图一起
-    写进本表，``apply-to-project`` 再把它们写回目标项目的角色条目并落盘。名字只在所属
-    资产内唯一，与项目内的衍生表同口径。
+    Derivatives enter and leave the library together with the base asset: ``from-project``
+    writes the character's derivative table and asset images here; ``apply-to-project``
+    writes and persists them back to the target project's character entry. Names are unique
+    only within the owning asset, matching the project derivative table.
     """
 
     __tablename__ = "asset_derivatives"

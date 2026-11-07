@@ -9,7 +9,7 @@ import { episodeItemKind, isPositionedItemId, type EpisodeItemKind } from "@/uti
 import { formatElapsedMs } from "@/utils/task-elapsed";
 import type { ElapsedTranslate } from "@/utils/task-elapsed";
 
-/** 媒体类型的字形与色调：`iconClass` 给图标着色，`swatchClass` 给色块，`color` 供图表填充，三者是同一个 `--media-*` token。 */
+/** Media glyphs/tones: `iconClass` colors icons, `swatchClass` swatches, `color` chart fills; all share `--media-*` tokens. */
 export const MEDIA_META: Record<
   CallType,
   { Icon: typeof Image; iconClass: string; swatchClass: string; color: string; labelKey: string }
@@ -20,7 +20,7 @@ export const MEDIA_META: Record<
   audio: { Icon: AudioLines, iconClass: "text-media-audio", swatchClass: "bg-media-audio", color: "var(--media-audio)", labelKey: "usage_media_audio" },
 };
 
-/** 无值时的占位。 */
+/** Missing-value placeholders. */
 const DASH = "—";
 
 export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
@@ -30,7 +30,7 @@ export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
   cancelled: "usage_status_cancelled",
 };
 
-/** 状态文字与状态点的颜色。 */
+/** Status wording/status-dot colors. */
 export const STATUS_TEXT_CLASSES: Record<UsageRecordStatus, string> = {
   pending: "text-primary",
   success: "text-good",
@@ -45,7 +45,7 @@ export const STATUS_DOT_CLASSES: Record<UsageRecordStatus, string> = {
   cancelled: "bg-muted-foreground",
 };
 
-/** 有翻译的失败短语。列表只显示短语，原始报错只在详情里显示。 */
+/** Translated failure phrases; lists show phrases only and details raw errors. */
 const FAILURE_PHRASE_KEYS: Record<string, string> = {
   rate_limited: "usage_error_rate_limited",
   content_policy: "usage_error_content_policy",
@@ -75,21 +75,21 @@ export function purposeKey(purpose: string | null): string | null {
 }
 
 /**
- * 目标列拆成两段：分镜号（集内 ID）作为不截断的前缀，集名在后、放不下时截断。
- * 没有分镜的调用按用途显示，前缀为空。
+ * Two-part targets: storyboard numbers (episode-local IDs) as untruncated prefixes, then episode titles truncated if necessary.
+ * Calls without storyboards show uses with empty prefixes.
  */
 export interface TargetItem {
   kind: EpisodeItemKind;
-  /** 在本集里的当前位置；条目已不在剧本里时为 null。 */
+  /** Current episode positions; null when no longer scripted. */
   position: number | null;
   excerpt: string;
   thumbnail: string | null;
 }
 
 export interface TargetParts {
-  /** 分镜或视频单元：以位置、缩略图与正文摘录指认。 */
+  /** Storyboards/video units identified by positions, thumbnails and body excerpts. */
   item: TargetItem | null;
-  /** 不按位置指称的条目（宫格）的集内 ID。 */
+  /** Episode-local IDs of non-positional entries (grids). */
   prefix: string | null;
   name: string;
 }
@@ -117,7 +117,7 @@ export function targetParts(
     }
     const itemId = itemIdWithinEpisode(segmentId);
     if (itemId === segmentId) return { item: null, prefix: segmentId, name: "" };
-    // 带集前缀却没有指称：集已移出账本，集名用「未命名集」；条目随集一起不在了，显示「已删除」。
+    // Episode prefixes without references mean episodes left ledgers; show Untitled episode and Deleted because entries left with episodes.
     const name = t("common:episode_unlisted_name");
     if (!positioned) return { item: null, prefix: itemId, name };
     return { item: { kind: episodeItemKind(segmentId), position: null, excerpt: "", thumbnail: null }, prefix: null, name };
@@ -126,7 +126,7 @@ export function targetParts(
   return { item: null, prefix: null, name: key ? t(`dashboard:${key}`) : DASH };
 }
 
-/** 供应商显示名优先取筛选候选值里的 label，查不到回退 id。 */
+/** Prefer provider filter-candidate labels; unresolved providers fall back to IDs. */
 export function providerLabelResolver(
   summary: UsageSummary | null,
 ): (provider: string | null) => string {
@@ -139,7 +139,7 @@ export function providerLabelResolver(
   return (provider) => (provider ? (labels.get(provider) ?? provider) : DASH);
 }
 
-/** 未定价原因码 → 文案 key；码来自后端 `UnpricedReason`，不认识的码回落到通用说明。 */
+/** Unpriced reason codes → copy keys; backend `UnpricedReason` codes unknown here use generic explanations. */
 const UNPRICED_REASON_KEYS: Record<string, string> = {
   no_entry: "usage_unpriced_reason_no_entry",
   no_price_table: "usage_unpriced_reason_no_price_table",
@@ -152,13 +152,13 @@ export function unpricedReasonKey(reason: string | null): string {
   return (reason && UNPRICED_REASON_KEYS[reason]) || "usage_unpriced_reason_unknown";
 }
 
-/** 汇总里只有项目名，标题从 `filter_options.project_titles` 查。 */
+/** Summaries contain project names only; look up titles in `filter_options.project_titles`. */
 export function projectTitleResolver(summary: UsageSummary | null): (name: string) => string | null {
   const titles = summary?.filter_options.project_titles ?? {};
   return (name) => titles[name] ?? null;
 }
 
-/** i18n 语言码 → Intl locale；两者不同名，故显式映射，未知语言回落英文。 */
+/** i18n language codes → Intl locales; names differ, requiring explicit maps; unknown languages fall back to English. */
 const INTL_LOCALES: Record<string, string> = {
   zh: "zh-CN",
   en: "en-US",
@@ -186,8 +186,8 @@ function percentFormatter(language: string): Intl.NumberFormat {
 }
 
 /**
- * 成功率与失败率共用的百分比渲染，KPI 条、构成表、趋势 tooltip、悬浮层同走这一处：
- * 同一个数在同一页出现多次，格式必须一致。分母为 0 时后端给 null，显示破折号。
+ * Shared success/failure percentage formatting across KPI bars/breakdowns/trend tooltips/popovers:
+ * repeated same-page values must format identically. Zero denominators yield backend null, displayed as dashes.
  */
 export function formatRatio(rate: number | null, language: string): string {
   return rate === null ? DASH : percentFormatter(language).format(rate);
@@ -196,9 +196,9 @@ export function formatRatio(rate: number | null, language: string): string {
 const countFormatters = new Map<string, Intl.NumberFormat>();
 
 /**
- * 计数的千分位按界面语言渲染。设置页 KPI 条与悬浮层 KPI 行共用，与 `formatRatio` 同走
- * `intlLocale`：一行里的调用次数与成功率必须是一套分隔习惯，`toLocaleString()` 跟的是
- * 浏览器语言。
+ * Count grouping follows UI languages. Settings/popover KPIs share `intlLocale` with `formatRatio`:
+ * call counts/success rates within rows must use consistent separators, while `toLocaleString()` follows
+ * browser languages.
  */
 export function formatCount(value: number, language: string): string {
   const locale = intlLocale(language);
@@ -212,14 +212,14 @@ export function formatCount(value: number, language: string): string {
 
 const compactFormatters = new Map<string, Intl.NumberFormat>();
 
-/** 末位去零的定点小数：12.0 → 12，12.34 → 12.3。 */
+/** Fixed decimals trimmed of trailing zeros: 12.0 → 12, 12.34 → 12.3. */
 function trimmedFixed(value: number): string {
   return String(Number(value.toFixed(1)));
 }
 
 /**
- * token 数量带单位的紧凑写法，单位写在值里（如「12.3 万 token」）。中文按「万」「亿」进位，
- * 其余语言走 Intl 的紧凑记数（12.3K tokens）；不足一万（千）的原样写出，带千分位。
+ * Compact token counts include units in values (e.g. 12.3 万 token). Chinese increments by 万/亿,
+ * other languages use Intl compact notation (12.3K tokens); below ten thousand/thousand, use plain grouped counts.
  */
 export function formatTokenAmount(value: number, language: string, t: TFunction): string {
   if (language.split("-")[0] === "zh") {
@@ -239,8 +239,8 @@ export function formatTokenAmount(value: number, language: string, t: TFunction)
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /**
- * 日历日 `YYYY-MM-DD` 按当前语言渲染。这个日期是后端算好的本地日，不是时刻，故按
- * 本地时区构造 Date——交给 `new Date(string)` 会当成 UTC 午夜，东西半球各挪一天。
+ * Render calendar `YYYY-MM-DD` dates in UI languages. These are backend-computed local days, not instants, so construct
+ * local-timezone Dates; `new Date(string)` would interpret UTC midnight, shifting days across hemispheres.
  */
 export function formatCalendarDay(
   day: string,
@@ -260,14 +260,14 @@ export function formatCalendarDay(
 }
 
 /**
- * 已删除项目的记录改挂到墓碑名 `<项目名>#deleted-<UTC 时刻>`（见 `lib/db/repositories/project_records.py`），
- * 与同名新项目分开。界面显示原名与删除日期，筛选仍用墓碑名原值。
+ * Deleted-project records reattach to tombstone names `<项目名>#deleted-<UTC 时刻>` (see `lib/db/repositories/project_records.py`),
+ * separate from new same-named projects. UI shows original names/deletion dates; filters retain raw tombstone names.
  */
 const DELETED_PROJECT = /^(.+)#deleted-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/;
 
 /**
- * 用量页的项目显示名：有标题显示标题；没有标题（项目已删除、读不到或未设标题）时回退到项目名，
- * 已删除的项目显示原名与删除日期；端点试跑的记录没有项目，给「未命名」。
+ * Usage-page project names: show titles when available, otherwise names (deleted/unreadable/untitled projects);
+ * deleted projects show original names/deletion dates; projectless endpoint trials show Untitled.
  */
 export function usageProjectLabel(
   name: string,
@@ -286,7 +286,7 @@ export function usageProjectLabel(
   return t("usage_project_deleted", { name: project, date });
 }
 
-/** 耗时列；无时长可显示时给破折号。文案与任务读数共用 `formatElapsedMs`。 */
+/** Duration columns show dashes without available durations; copy shares task-readout `formatElapsedMs`. */
 export function formatDurationMs(
   durationMs: number | null,
   t: ElapsedTranslate,
@@ -295,7 +295,7 @@ export function formatDurationMs(
   return formatElapsedMs(durationMs, t);
 }
 
-/** 进行中行的实时耗时，起点为 ISO 时刻。 */
+/** Live running-row durations, starting at ISO instants. */
 export function elapsedSince(startedAt: string, now: number, t: ElapsedTranslate): string {
   const start = parseIsoTimestamp(startedAt).getTime();
   if (Number.isNaN(start)) return DASH;

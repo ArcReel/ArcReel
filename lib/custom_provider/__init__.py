@@ -1,36 +1,36 @@
-"""自定义供应商模块。"""
+"""Custom providers."""
 
 import re
 
 CUSTOM_PROVIDER_PREFIX = "custom-"
 
-#: 用户自定义调用端点的键前缀（``ce-<id>``）。内置端点键不得占用该前缀（``lib.custom_provider.
-#: endpoints`` 在导入期校验）——两套键共享模型行的 ``endpoint`` 列与端点查表入口，前缀划分出两个
-#: 永不重叠的命名空间，查表走哪一侧由它唯一决定。
+#: Custom endpoint prefixes (``ce-<id>``), forbidden for built-in keys (``lib.custom_provider.
+#: endpoints`` validates at import). Both share model ``endpoint`` columns/lookup entry points; prefixes define disjoint
+#: namespaces and uniquely determine lookup sides.
 CUSTOM_ENDPOINT_KEY_PREFIX = "ce-"
 
 
 def make_provider_id(db_id: int) -> str:
-    """构造自定义供应商的 provider_id 字符串，如 'custom-3'。"""
+    """Construct custom provider_id strings, such as 'custom-3'."""
     return f"{CUSTOM_PROVIDER_PREFIX}{db_id}"
 
 
 def parse_provider_id(provider_id: str) -> int:
-    """从 'custom-3' 格式的 provider_id 提取数据库 ID。
+    """Extract DB IDs from provider_id in 'custom-3' form.
 
     Raises:
-        ValueError: 如果格式不正确
+        ValueError: Invalid formats.
     """
     return int(provider_id.removeprefix(CUSTOM_PROVIDER_PREFIX))
 
 
 def is_custom_provider(provider_id: str) -> bool:
-    """判断是否为自定义供应商的 provider_id。"""
+    """Whether provider_id identifies custom providers."""
     return provider_id.startswith(CUSTOM_PROVIDER_PREFIX)
 
 
 def make_endpoint_key(db_id: int) -> str:
-    """构造自定义调用端点的 endpoint 键，如 'ce-3'。键由系统分配，分享文件不带键。"""
+    """Construct custom endpoint keys, such as 'ce-3'. System-assigned; share files omit keys."""
     return f"{CUSTOM_ENDPOINT_KEY_PREFIX}{db_id}"
 
 
@@ -38,13 +38,13 @@ _CUSTOM_ENDPOINT_KEY = re.compile(rf"^{re.escape(CUSTOM_ENDPOINT_KEY_PREFIX)}([1
 
 
 def parse_endpoint_key(endpoint: str) -> int:
-    """从 'ce-3' 格式的 endpoint 键提取数据库 ID。
+    """Extract DB IDs from 'ce-3' endpoint keys.
 
-    只认规范形：前缀 + 无前导零的正整数。键的字面量即唯一规范形，删除路径按字面量比对
-    模型行的 endpoint 列，解析侧放宽会让两条路径对「同一端点」的判定分裂。
+    Canonical forms only: prefix + positive integers without leading zeroes. Literal keys are uniquely canonical; deletion compares
+    model endpoint columns literally, so relaxed parsing would split the meaning of identical endpoints across paths.
 
     Raises:
-        ValueError: 非规范形（前导零、正负号、空白、下划线分隔、非 ASCII 数字等）
+        ValueError: Noncanonical forms: leading zeroes, signs, whitespace, underscores, non-ASCII digits, etc.
     """
     match = _CUSTOM_ENDPOINT_KEY.match(endpoint)
     if match is None:
@@ -53,5 +53,5 @@ def parse_endpoint_key(endpoint: str) -> int:
 
 
 def is_custom_endpoint(endpoint: str) -> bool:
-    """判断是否为自定义调用端点的键。"""
+    """Whether keys identify custom endpoints."""
     return endpoint.startswith(CUSTOM_ENDPOINT_KEY_PREFIX)

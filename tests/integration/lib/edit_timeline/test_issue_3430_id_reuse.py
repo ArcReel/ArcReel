@@ -1,8 +1,8 @@
-"""新增条目与覆盖剧本不复用编号，旧剪辑片段保持已删除。
+"""New entries/script overwrites never reuse IDs; old timeline clips stay deleted.
 
-每个用例：E1U1..E1U3 各有视频 v1 → 按脚本建时间线并裁切 c3（E1U3）→ 删掉/替换 E1U3 → 新单元登记 v1 → 读时间线。
-断言写的是期望行为（不复用编号、旧片段判 unit_deleted）。编号由服务端在落盘前发出：批量插入请求里的编号
-只是占位，新单元的编号从提交结果或落盘后的剧本读取。
+Each case: E1U1..E1U3 video v1 → script-derived timeline, trim c3 (E1U3) → delete/replace E1U3 →
+register new-unit v1 → read timeline. Assert no ID reuse and old clips unit_deleted. Server assigns
+IDs before persistence; batch-insert IDs are placeholders, and new IDs come from commit results or scripts.
 """
 
 from __future__ import annotations
@@ -86,8 +86,8 @@ def _assert_not_reconnected(report: dict[str, Any]) -> None:
 async def test_web_path_delete_last_unit_then_add(
     pm: ProjectManager, service: EditTimelineService, install_video: Callable[[str, float], None]
 ) -> None:
-    """Web：删除走批量编辑 remove；新增照 reference_videos.add_unit，以 new_item_id(current) 为占位 insert_after，
-    新编号取自提交结果。"""
+    """Web: batch remove, then reference_videos.add_unit-style insert_after using new_item_id(current)
+    as placeholder; take new IDs from commit results."""
     timeline_id = await _timeline_with_trim_on_e1u3(service)
 
     _batch(pm, [{"op": "remove", "id": "E1U3"}])
@@ -116,7 +116,7 @@ async def test_web_path_delete_last_unit_then_add(
 async def test_agent_path_delete_last_unit_then_add(
     pm: ProjectManager, service: EditTimelineService, install_video: Callable[[str, float], None]
 ) -> None:
-    """Agent：patch_episode_script 的 remove 与 insert（insert 经 insert_segment → new_item_id 取号）。"""
+    """Agent: patch_episode_script remove/insert, with insert_segment → new_item_id allocation."""
     timeline_id = await _timeline_with_trim_on_e1u3(service)
     ctx = ToolHarness(project_name="demo", data_root=pm.projects_dir, pm=pm)
 
@@ -149,7 +149,7 @@ async def test_agent_path_delete_last_unit_then_add(
 async def test_overwrite_formal_script_keeps_old_ids(
     pm: ProjectManager, service: EditTimelineService, install_video: Callable[[str, float], None]
 ) -> None:
-    """覆盖正式剧本：照 script_generator（内容确认 / 广告整稿）在落盘前发号，再整份保存。"""
+    """Formal overwrite follows script_generator confirmation/ad flow: issue IDs before saving the whole script."""
     timeline_id = await _timeline_with_trim_on_e1u3(service)
 
     script = pm.load_script("demo", "episode_1.json")

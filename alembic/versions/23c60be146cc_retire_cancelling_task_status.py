@@ -46,8 +46,8 @@ def _create_dedup_index(active_statuses: str) -> None:
 
 
 def upgrade() -> None:
-    # cancelling 父行的排队下游（含孙辈）按级联取消落终态：下游只在上游 succeeded 后被认领，
-    # 不级联会永远停在 queued 并占住去重槽位。须在父行离开 cancelling 之前执行。
+    # Cascade queued descendants (including grandchildren) of cancelling parents to cancelled: they are claimed only
+    # after upstream success, so otherwise remain queued forever and occupy deduplication slots. Run before parents leave cancelling.
     op.execute(
         sa.text(
             """
@@ -67,7 +67,7 @@ def upgrade() -> None:
             """
         )
     )
-    # 存量 cancelling 行已无人接手，收敛为 cancelled；cancelled_by 在进入 cancelling 时已写入。
+    # Existing cancelling rows have no worker to finish them; set cancelled. cancelled_by was recorded on entering cancelling.
     op.execute(
         sa.text(
             """

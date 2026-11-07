@@ -2,37 +2,37 @@
 status: accepted
 ---
 
-# 模型事实记在条目上，与所挂端点的通道能力共同约束，渠道限制记在供应商模型上
+# Model entries hold model facts, jointly constrained by endpoint channel capabilities; provider models hold channel-specific restrictions
 
-模型目录把模型的能力随官方同步下发，但有一部分能力不是模型本身的事实，而取决于调用通道怎样打包请求，并且会随执行子路径分叉：同一个视频模型走图生视频和参考生视频时，音轨形态可能不同；可灵在 pro 档才放开尾帧。模型条目记录模型接受什么，所挂调用端点声明通道实现了什么；生效能力由两侧共同约束，渠道差异由供应商模型上的能力覆盖表达。
+Model catalogs distribute capabilities through official synchronization, but some capabilities are not model facts: they depend on how invocation channels package requests and vary by execution subpath. The same video model may have different audio shapes for image-to-video versus reference-to-video; Kling enables last frames only in pro tiers. Entries record what models accept; attached endpoints declare what channels implement. Both constrain effective capabilities; provider-model capability overrides express channel differences.
 
-- **模型事实记在模型条目上，随官方同步下发**：文本是否接受图片输入、是否支持结构化输出、最大输出 token；图片是否支持文生图与图生图、参考图上限、输出 token 的估算基数（质量档 → 基数）；视频的可选时长、分辨率，以及时长与分辨率、参考图之间的联动约束；视频接受哪些输入（文生视频、首帧、尾帧、参考音频）与能接受多少（参考图上限、参考音频段数与总时长上限）。
-- **通道事实由供应商模型挂接的调用端点在代码中声明**：视频调用通道实现了哪些输入路径、一次请求能承载多少参考图与参考音频，提示词长度上限、音轨形态；图片调用端点实现了文生图还是图生图、一次请求能承载的参考图张数，以及分辨率档位到请求 quality 参数的映射。
+- **Model entries hold model facts distributed by official synchronization**: text image-input support, structured-output support, maximum output tokens; image text-to-image/image-to-image support, reference limits, output-token estimation bases (quality tier → basis); video selectable durations/resolutions and coupled constraints between duration, resolution, and references; video accepted inputs (text-to-video, first frame, last frame, reference audio) and quantities (reference-image limits, reference-audio clip-count/total-duration limits).
+- **Attached invocation endpoints declare channel facts in code**: video input paths, per-request reference-image/audio capacity, prompt-length limits, and audio shape; image text-to-image/image-to-image implementation, per-request reference count, and resolution-tier to request-quality mapping.
 
-## 规则
+## Rules
 
-- 能力按供应商模型求值。供应商一级没有自己的能力声明，供应商支持哪些媒体类型和能力，由其下的供应商模型聚合得出。
-- 通道能力只来自供应商模型挂接的调用端点。官方收录的供应商模型读取官方数据声明的端点；用户负责的供应商模型读取用户保存的选择。型号名、对应条目的官方模型名与模型别名都不参与运行时端点选择。添加模型时按名字预填端点，用户可以修改；条目绑定只决定模型事实。
-- 图片的文生图与图生图在两侧各是一个维度，含义不同：模型条目说模型接不接受，通道声明说这条通道实现了没有。生效能力取两者都满足的部分，任务类型桶的候选和执行时的校验都用这一个结果。
-- 图片的参考图上限同样两侧各是一个维度：条目记模型最多接受几张，通道声明这条通道一次能承载几张。生效上限取两者中较小的那个，分三种情况：图生图不在生效能力里时为「不支持」；两侧都没有声明时为「未收录」，执行时不裁剪，超出部分由上游拒绝；其余为上限 N，N 可以为 0，即条目显式记录「不接受参考图」。0 只表示上限为 0，不再兼作「不裁剪」。上限为 0 与不支持都不接受参考图：候选不列图生图，执行时拒绝，编排层不把参考图裁成 0 张后改走文生图。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个求值结果。调用通道不按型号名声明上限；超出生效上限的请求在执行时的校验处拒绝，不交给调用通道静默截断。
-- 图片的参考图上限可以用能力覆盖整维替换两侧求值的结果，覆盖为 0 表示不接受参考图，删除覆盖时回到两侧求值。图生图能力仍须调用通道实现，数量覆盖不能开启未实现的路径。ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目。
-- 输出 token 的估算基数按条目上的质量档取，条目未收录时不估算输出 token。
-- 视频的输入能力同样两侧共同约束，与图片同一套规则：是否支持类（文生视频、首帧、尾帧、参考音频）取两侧都满足的部分；数值类（参考图上限、参考音频段数与总时长上限）取两侧中较小的那个，表示与图片的参考图上限相同，0 只表示不接受，调用通道声明 0 即没有实现这条路径，两侧都没有声明时为「未收录」，执行时不裁剪，超出部分由上游拒绝。条目未收录首帧、尾帧时沿用保守回落：首帧跟随通道，尾帧不开；未收录文生视频时跟随通道，未收录参考音频时不开。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个求值结果。调用通道不按型号名声明这些输入能力。
-- 同一型号的输入能力随请求档位或输入组合变化的，属于通道事实，由调用通道按实际请求求值，再与条目两侧求值：可灵旧型号只在 pro 档接受尾帧，Grok 经典版拒收首帧与参考图并存。
-- 调用通道不另带与模型条目重复的时长或分辨率检查，时长原样透传，超出上游范围时由上游拒绝。`docs/adr/0018` 保留的 Vidu 端点级时长校正不在此列：它校正的是同一模型在不同 API 端点上的合法时长差异，属于通道事实。
-- 渠道与模型条目、通道声明不一致时，用供应商模型上的能力覆盖表达，不修改模型条目；只有模型本身的事实有误时才修改条目。能力覆盖两类维度都可以覆盖，包括音轨形态，每个维度整体替换，在两侧求值之后生效，优先级最高。
-- 只有用户负责的供应商模型带能力覆盖，即自定义供应商的供应商模型，以及内置供应商下用户添加的供应商模型。官方收录的供应商模型不带能力覆盖（见 `docs/adr/0099`）。
-- ComfyUI 端点的能力只从节点绑定推导，不接受能力覆盖（见 `docs/adr/0082`）。唯一的例外是 ComfyUI 视频模型的可选时长：它是 `docs/adr/0082` 允许用户在 workflow 原生时长之外增删的偏好，不是能力声明，存为可选时长这一维的能力覆盖；端点驱动不了时长时这一维不存在，覆盖不生效。
+- Evaluate capabilities per provider model. Providers have no capability declarations of their own; aggregate their media/capability support from provider models.
+- Channel capabilities come only from attached endpoints. Official provider models read endpoints declared by official data; user-owned models read saved user choices. Model names and matched-entry official names/aliases never choose endpoints at runtime. Names prefill endpoints during addition, editable by users; entry bindings determine only model facts.
+- Image text-to-image/image-to-image each have dimensions on both sides with different meanings: entries say whether models accept them, channels whether they implement them. Effective capabilities require both, and task-type-bucket candidates and execution validation share this result.
+- Image reference limits also have dimensions on both sides: model maximum versus channel per-request capacity. Take the smaller effective limit, with three cases: "unsupported" when image-to-image is not effective; "not cataloged" when neither side declares a limit, with no execution clipping and upstream rejection of excess; otherwise limit N, possibly 0, explicitly meaning "accept no references." Zero means only a zero limit, never "do not clip." Both zero limits and unsupported states reject references: omit image-to-image candidates, reject at execution, and never let orchestration clip to zero then switch to text-to-image. Bucket candidates, execution validation, orchestration clipping, and settings all consume this evaluated result. Channels do not declare model-name-based limits; execution validation rejects requests above effective limits instead of channel-side silent truncation.
+- Capability overrides may replace the entire image-reference-limit result; 0 means no references, removal restores joint evaluation. Channels must still implement image-to-image: quantity overrides cannot enable unimplemented paths. ComfyUI reference limits derive only from bound reference slots, ignoring entries.
+- Estimate output tokens from entry quality-tier bases; without cataloged bases, do not estimate output tokens.
+- Video input capabilities follow the same joint rules: boolean support (text-to-video, first frame, last frame, reference audio) requires both sides; numeric limits (reference images, audio clip count/total duration) take the smaller value. Their representation matches image limits: 0 accepts none; channel 0 means that path is unimplemented; neither side declaring means "not cataloged," without execution clipping and with upstream rejection of excess. Uncataloged first/last frames retain conservative fallbacks: first frames follow channels, last frames remain disabled; uncataloged text-to-video follows channels, uncataloged reference audio remains disabled. Bucket candidates, execution validation, orchestration clipping, and settings share this result. Channels do not declare these inputs by model name.
+- Input support varying by requested tier or input combination is a channel fact, evaluated against actual requests before joint entry/channel evaluation: old Kling models accept last frames only in pro; classic Grok rejects simultaneous first frames and references.
+- Channels add no duration/resolution checks duplicating entries; pass durations unchanged and let upstream reject out-of-range requests. Vidu endpoint-level duration correction retained by `docs/adr/0018` is exempt: it corrects legal-duration differences between API endpoints for one model, a channel fact.
+- Express channel differences from entries/channel declarations through provider-model overrides, without editing entries; edit entries only when model facts themselves are wrong. Overrides may cover either dimension family, including audio shape, replacing whole dimensions after joint evaluation with highest priority.
+- Only user-owned provider models carry overrides: custom-provider models and user-added models under built-in providers. Official provider models have no overrides (see `docs/adr/0099`).
+- ComfyUI capabilities derive only from bindings without overrides (see `docs/adr/0082`). The sole exception is selectable durations for ComfyUI video: user additions/removals beyond native workflow duration allowed by `docs/adr/0082` are preferences, not declarations, stored as overrides for that dimension. When endpoints cannot drive duration, the dimension does not exist and overrides do not apply.
 
 ## Considered Options
 
-- **视频的输入能力只由调用通道按型号名声明**：条目不必维护这些数据。但下一代模型改名后只能拿到保守能力，要用上全部能力必须发版加一条型号名分支。改为记在条目上、与通道两侧共同约束后，按执行子路径或请求档位的分叉仍由调用通道求值，条目只记模型本身接受什么。
-- **条目未收录的输入乐观回落到通道实现的全部能力**：用户不必手动打开就能用尾帧与参考音频，但模型不接受时提交会被上游拒绝。保守回落（首帧跟随通道，尾帧与参考音频不开）仍能走图生视频这条主路线。
-- **官方数据给供应商模型下发能力覆盖**：可以表达官方渠道之间的差异，也能让老版本实例抢先用上新一代模型的全部能力。但目前同一模型在不同内置供应商下的能力完全一致，没有用例；日后需要时只是新增字段。
-- **在官方收录的供应商模型上叠加一层用户能力覆盖，不影响同步**：可以照顾把内置供应商接到中转站的用户。但内置供应商代表官方渠道，中转站应该用自定义供应商（见 `docs/adr/0099`）。
+- **Channel-only, model-name-based video input declarations**: entries need no such data, but renamed next-generation models receive only conservative capabilities until a release adds name branches. Joint entry/channel constraints allow channels to retain execution-subpath/tier decisions while entries record only model acceptance.
+- **Optimistically falling back to all channel inputs absent from entries**: last frames/reference audio work without manual enabling but fail upstream when models reject them. Conservative defaults (first frames follow channels, last frames/reference audio disabled) still support the main image-to-video route.
+- **Official data distributing provider-model overrides**: expresses official-channel differences and lets older instances access all next-generation capabilities early. Currently, identical models have identical capabilities across built-in providers, so no use case exists; adding a field later suffices.
+- **User overrides layered on official models without affecting synchronization**: helps users routing built-ins to intermediaries, but built-ins represent official channels; intermediaries should use custom providers (see `docs/adr/0099`).
 
 ## Consequences
 
-- 沿用已有请求结构的新一代视频模型补完条目数据就能用上全部输入能力，不用发版。需要新请求结构的模型仍要等调用端点支持；目录数据仓库在端点可用后声明模型所挂的端点，由构建推导最低应用版本（见 `docs/adr/0103`）。
-- 对应不上条目的视频模型（自定义供应商下名字对不上任何条目）只受通道约束：数量不裁剪、超出由上游拒绝，尾帧与参考音频不开。用户可以绑定条目或用能力覆盖拿回能力。
-- 自定义供应商的供应商模型不再单独存可选时长，可选时长来自对应的条目，渠道限制写进能力覆盖。按模型名推断时长的预设只用于新建模型条目时预填，以及对应不上条目的供应商模型在运行时回落（见 `docs/adr/0105`）。
+- Next-generation video models reusing existing request shapes gain all inputs through completed entry data without application releases. New request shapes still await endpoint support; catalog-data repositories declare attached endpoints once available, deriving minimum application versions at build time (see `docs/adr/0103`).
+- Unmatched video models (custom-provider names matching no entries) are constrained only by channels: no quantity clipping, excess rejected upstream, last frames/reference audio disabled. Users regain capabilities through bindings or overrides.
+- Custom-provider models no longer separately store selectable durations: entries supply them and overrides hold channel restrictions. Name-inferred duration presets only prefill newly created model entries and supply runtime fallbacks for unmatched provider models (see `docs/adr/0105`).

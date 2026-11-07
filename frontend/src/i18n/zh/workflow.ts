@@ -1,7 +1,7 @@
 import type enWorkflow from "@/i18n/en/workflow";
 
 export default {
-  // ---- 面板外壳 ----
+  // ---- Panel shells ----
   'panel_title': '制作进度',
   'panel_blocker_count_one': '{{count}} 处需要修复',
   'panel_blocker_count_other': '{{count}} 处需要修复',
@@ -14,7 +14,7 @@ export default {
   'technical_detail': '技术细节',
   'next_step': '下一步：{{step}}',
 
-  // ---- 步骤清单 ----
+  // ---- Step lists ----
   'next_label': '下一步',
   'alternatives_lead': '或者',
   'summary_row': '{{title}}：{{status}}',
@@ -185,7 +185,7 @@ export default {
   'refusal_operation_not_applicable': '这类项目不适用',
   'refusal_unknown': '暂时不能执行',
 
-  // ---- 已过时但可用的产物 ----
+  // ---- Stale but usable artifacts ----
   'stale_title_one': '{{count}} 件产物比当前内容旧',
   'stale_title_other': '{{count}} 件产物比当前内容旧',
   'stale_still_usable': '这些文件仍然保留，可以在画布上查看，也照常参与本集成片。保留不花钱，重新生成会再次向供应商计费。',
@@ -196,7 +196,7 @@ export default {
   'stale_regenerate_all_one': '重新生成这 {{count}} 件',
   'stale_regenerate_all_other': '重新生成全部 {{count}} 件',
 
-  // ---- 任务与 provider checkpoint ----
+  // ---- Tasks/provider checkpoints ----
   'tasks_title_one': '{{count}} 次尝试进行中',
   'tasks_title_other': '{{count}} 次尝试进行中',
   'task_type_storyboard': '分镜图',
@@ -224,7 +224,7 @@ export default {
   'task_status_interrupted': '已中断',
   'checkpoint_submitted': '已提交给供应商，重试可能再次计费。',
 
-  // ---- 整批准入判定 ----
+  // ---- Whole-batch admission ----
   'admission_blocked_intro': '这一批一个任务也没有创建，没有产生费用。修好下面这些再发一次即可。',
   'admission_withheld_title_one': '{{count}} 个单元本身没问题，随本批一起未提交：',
   'admission_withheld_title_other': '{{count}} 个单元本身没问题，随本批一起未提交：',
@@ -244,7 +244,7 @@ export default {
   'duration_seconds': '{{value}} 秒',
   'unit_request_tier': '申请 {{request}}',
 
-  // ---- 下一步动作短语 ----
+  // ---- Next-action phrases ----
   'action_unknown': '按 Agent 给出的指引继续',
   'action_none': '暂时无需操作',
   'action_retry': '稍后重试',
@@ -279,7 +279,7 @@ export default {
   'action_create_edit_timeline': '新建剪辑时间线并交给 Agent 剪辑',
   'action_retry_project_migration': '修复报告的项目文件后重试数据升级',
 
-  // ---- 问题摘要 ----
+  // ---- Issue summaries ----
   'problem_generation_unit_not_found': '脚本里已经没有这个单元了。',
   'problem_generation_unit_input_unusable': '这个单元缺少生成所需的输入。',
   'problem_generation_unit_request_invalid': '这个单元的请求参数不合法。',

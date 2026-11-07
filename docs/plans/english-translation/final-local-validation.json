@@ -1,0 +1,168 @@
+{
+  "state": "locally-validated-candidate",
+  "delivery_state": 2,
+  "completed_date": "2026-11-07",
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "branch": "refactor/english-maintenance-base",
+  "scope": "English maintenance translation with preserved behavior contracts, localization, public Chinese-to-English pipeline and project-owned state. No English-only product/default-language customization.",
+  "inventory": {
+    "baseline_paths": 4423,
+    "changed": 3039,
+    "preserved": 1384,
+    "known_scoped_translation_gaps": 0,
+    "known_exact_scope_review_record_gaps": 0,
+    "record": "inventory.json",
+    "final_source_manifest": "tracked-files-final.json",
+    "independent_verification": "final-inventory-independent-verification.json",
+    "new_policy_adr": "docs/adr/0121-english-maintenance-language-preserves-localization-and-contracts.md",
+    "adr_delivery": "Visible in ordinary untracked Git discovery through an exact repository .gitignore exception; global ignores unchanged."
+  },
+  "checks": [
+    {
+      "domain": "backend",
+      "command": "uv run python scripts/gate.py backend",
+      "exit_code": 0,
+      "passed": 18768,
+      "skipped": 13,
+      "warnings": 131,
+      "log": "logs/backend-final-stable-candidate.log",
+      "post_gate_passive_delta": "One pragma trailing reason only; AST/directive/line attachment exact,60focusedtests plus Ruff passed. Explicit final-residual-independent-review.json."
+    },
+    {
+      "domain": "frontend",
+      "command": "uv run python scripts/gate.py frontend",
+      "exit_code": 0,
+      "test_files": 303,
+      "passed": 4048,
+      "static_checks": [
+        "TypeScript includinge2e",
+        "ESLint",
+        "knip"
+      ],
+      "log": "logs/frontend-final-complete-gate.log"
+    },
+    {
+      "domain": "market-core,catalog-core,workflows",
+      "command": "uv run python scripts/gate.py market-core catalog-core workflows website",
+      "exit_code": 0,
+      "package_passed": {
+        "market-core": 696,
+        "catalog-core": 99
+      },
+      "log": "logs/final-stable-domain-gates.log"
+    },
+    {
+      "domain": "final tests,conventions,website",
+      "command": "uv run python scripts/gate.py website tests conventions",
+      "exit_code": 0,
+      "log": "logs/final-public-tests-conventions-gates.log"
+    },
+    {
+      "domain": "documentary production build",
+      "command": "pnpm --dir website build",
+      "exit_code": 0,
+      "locales": [
+        "zh-Hans",
+        "en"
+      ],
+      "log": "logs/website-final-production-build.log"
+    },
+    {
+      "domain": "official browser full rerun",
+      "exit_code": 0,
+      "passed": 1496,
+      "skipped": 5,
+      "skip_reason": "Original remote run-server visible-scrollbar guard, covered natively below.",
+      "log": "logs/frontend-official-full-e2e-rerun.log"
+    },
+    {
+      "domain": "original native reference-editor alignment",
+      "exit_code": 0,
+      "passed": 5,
+      "viewports": 5,
+      "log": "logs/frontend-native-final-reference-alignment.log"
+    },
+    {
+      "domain": "actual profile/tool declarations",
+      "exit_code": 0,
+      "tools": 61,
+      "static_script_models": 38,
+      "dynamic_cases": 25,
+      "structural_capture_exact": true,
+      "record": "final-profile-contract-verification.json"
+    },
+    {
+      "domain": "full OpenAPI declarations",
+      "reviewed_description_metadata_differences": 445,
+      "other_differences": 0,
+      "record": "openapi-final-structural-review.json"
+    },
+    {
+      "domain": "final emitted frontend files",
+      "files": 161,
+      "raw_paths_sizes_sha256_equal": true,
+      "normalized": false,
+      "builds": [
+        "clean immutable-source baseline",
+        "official-suite tested build",
+        "final rebuilt candidate"
+      ],
+      "record": "frontend-final-rebuilt-assets-independent-review.json"
+    },
+    {
+      "domain": "Markdown auditor",
+      "raw_exit_code": 1,
+      "checked_files": 446,
+      "exact_reviewed_findings": 45,
+      "unreviewed_findings": 0,
+      "candidate_hashes_current": true,
+      "record": "markdown-audit-reconciliation.json"
+    }
+  ],
+  "semantic_review": {
+    "all75_changed_prompt_partials": "final-prompt-partials-independent-review.json",
+    "public_English_completion": "final-public-english-independent-review.json",
+    "frontend_source_and_examples": "frontend-inventory-reconciliation.md",
+    "developer_diagnostic_boundaries": "frontend-eslint-diagnostic-independent-review.json",
+    "residual_literals_and_examples": "final-residual-independent-review.json",
+    "review_scope_limit": "Per-path/pair/hash reports apply only to their actual covered spans; structural or zero-Han checks are not semantic acceptance."
+  },
+  "lifecycle_and_artifacts": {
+    "synthetic_three_mode_profile_cases": 6,
+    "actual_source_tree_profile_cases": 6,
+    "records": [
+      "profile-roundtrip-review.json",
+      "artifact-contract-review.json",
+      "reference-renderer-fingerprint-review.json",
+      "session-snapshot-source-review.json"
+    ],
+    "rollback_procedure": "rollout.md"
+  },
+  "retained_observations": {
+    "toast": "Original official full run1failure retained; candidate5/5 andbaseline5/5 matchednarrowPASS and completeofficialrerunPASS. Trace supports hover/focus timerpausehypothesis, notprovenrootcause/preexistingclassification.",
+    "native_onboarding": "Known measurednativefont/layoutfailure reproduced in initialcontrolled baseline andcandidate; authoritativeofficialimage passed. Latercontaminatedbaseline3repetitions explicitlynotcontrolled.",
+    "tailwind": "Rejected new42byteCSS fromdeveloperdiagnosticexample repaired withsemanticallyequivalentliteral delimiters; all161filesexactafterward.",
+    "earlier_intermittent_tests": "All failures/pairedreruns remain documented; laterpassinggates do not prove causes."
+  },
+  "behavioral_release": {
+    "status": "not-granted",
+    "real_model_evaluation": "pending, outside locally validated candidate; model/environment/budget not selected and no paid calls run",
+    "protocol": "evaluation.md",
+    "unproven_external_boundaries": [
+      "actual model constraint/quality equivalence",
+      "compaction and file-based instruction reload behavior",
+      "token-budget impact and output variability"
+    ]
+  },
+  "operations": {
+    "committed": false,
+    "staged_by_execution": false,
+    "published_or_deployed": false,
+    "paid_model_or_media_generation": false,
+    "real_project_profile_sync_or_rewrite": false,
+    "unrelated_untracked_user_content_modified": false,
+    "owned_test_browser_server_container_cleaned_up": true
+  },
+  "limitations": "Finite tests and bilingual source review reduce risk; they do not prove universal model equivalence. This local delivery is a reviewable uncommitted candidate, not a behavioral publication.",
+  "additional_precommit_review": "precommit-review.json"
+}

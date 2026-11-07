@@ -722,7 +722,7 @@ class PresentationReadModelService:
             try:
                 script = await run_sync_transaction(self._project_manager.load_script, project_name, script_file)
             except FileNotFoundError:
-                # 分集规划阶段已写入 script_file 但剧本尚未生成，属于正常状态，跳过该集。
+                # Episode planning has set script_file but script generation has not happened; this is normal, so skip the episode.
                 continue
             items, id_field, kind = resolve_items(script)
             expected_type = "reference_videos" if kind == "video_units" else "videos"
@@ -914,7 +914,8 @@ def _presentation_restore_target(
 
 def _restore_file(path: Path, snapshot: bytes | None) -> None:
     if snapshot is None:
-        path.unlink(missing_ok=True)  # hard-delete: rollback -- 回滚时移除事务前不存在的文件
+        # hard-delete: rollback -- Remove files absent before the transaction during rollback
+        path.unlink(missing_ok=True)
     else:
         atomic_write_bytes(path, snapshot)
 

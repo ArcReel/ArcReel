@@ -214,12 +214,12 @@ def test_report_describes_the_completed_chain_and_keeps_legacy_audio_skips(tmp_p
     }
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
     assert status.migration_report == report
-    # 旧音频的选中版本记录没有 TTS 设置，不被登记，项目判为后期配音
+    # Selected legacy audio versions lack TTS settings and are not registered; project narration becomes postproduction voiceover.
     assert _read_json(project_dir / "project.json")["narration_delivery"] == "post_production"
 
 
 async def _tts_status(project_dir: Path, unit_id: str) -> ArtifactStatus:
-    """工作流状态与缺失补齐读到的旁白配音时效。"""
+    """Narration voiceover currency read by workflow status and missing-output completion."""
 
     comparison = ArtifactCurrencyResolver(project_dir).compare(
         ArtifactKey.episode_audio(1, unit_id), artifact_path=resource_relative_path("audio", unit_id)
@@ -300,7 +300,7 @@ async def test_tts_snapshot_takes_the_most_recently_generated_audio_settings(tmp
     project = _read_json(project_dir / "project.json")
     assert project["narration_delivery"] == "use_tts"
     assert (project["audio_backend"], project["narration_voice"]) == ("openai/tts-1", "alloy")
-    # 快照不设语速：旧项目里「跟随全局默认」的语速字段不再保留
+    # Snapshots omit speech rate; legacy follow-global-default speech-rate fields no longer persist.
     assert "narration_speed" not in project
     assert await _tts_status(project_dir, "E1S2") is ArtifactStatus.CURRENT
     assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.STALE
@@ -387,7 +387,7 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
         "whole_source_files": [{"source_file": "source/1-7-0227.txt"}],
         "narration_delivery": "post_production",
         EPISODE_ID_HIGH_WATER_KEY: 1,
-        # 整本源文还没有切出集
+        # Whole sources have no extracted episodes yet.
         "source_remaining": True,
         "schema_version": 16,
     }
@@ -470,7 +470,7 @@ async def test_current_presentation_and_subtitle_stay_current_and_preview_rebuil
     project_dir = _v15_legacy_presentation(tmp_path)
     legacy = _read_json(project_dir / _PRESENTATION_PATH)
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    # v15 的读法：登记等于按实时转场算出的旧依据，即为时新。
+    # v15 reads registrations equal to live-transition-derived legacy bases as current.
     assert adapter.get_entry(_PRESENTATION_KEY) == ArtifactManifestEntry(
         _PRESENTATION_PATH, _legacy_digest_of(legacy, transition="fade")
     )
@@ -622,7 +622,7 @@ def test_the_whole_chain_registers_uploads_made_before_the_manifest(tmp_path: Pa
 
 
 # ---------------------------------------------------------------------------
-# 集 ID 与播出顺序分离
+# Episode IDs are independent of broadcast order.
 # ---------------------------------------------------------------------------
 
 
@@ -669,7 +669,7 @@ def test_high_water_ignores_asset_names_that_look_like_item_ids(tmp_path: Path) 
 
 
 def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_path: Path) -> None:
-    """下集大纲改为「没有规划数据时给标题」：只因此变了依据的脚本规划登记随升级改写，仍是时新。"""
+    """Next-episode outlines now provide titles without planning data; upgrade rewrites plan registrations changed only by that rule, retaining currency."""
 
     project_dir = write_legacy_script_plan_project(tmp_path / "projects", variant="drama", schema_version=10)
     advance_project_schema(project_dir, to_version=15)
@@ -686,7 +686,7 @@ def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_pa
 
 
 def _register_script_plans_as_v15_did(project_dir: Path, variant: str) -> None:
-    """按 v15 的口径重登记脚本规划：剧情演绎的依据含项目级类型，参考生视频的依据不分类型。"""
+    """Reregister plans with v15 semantics: drama bases include project-level source type; reference-to-video bases ignore type."""
     project = _read_json(project_dir / "project.json")
     view = project
     if variant == "drama":
@@ -721,7 +721,7 @@ def _register_script_plans_as_v15_did(project_dir: Path, variant: str) -> None:
 def test_screenplay_project_records_the_source_kind_on_each_source(
     tmp_path: Path, variant: str, plan_name: str, expected: ArtifactStatus
 ) -> None:
-    """项目级类型补记到各集原文上：剧情演绎的脚本规划依据不变；参考生视频此前按小说出稿，改后读为过期。"""
+    """Backfill project source types into episode text; drama planning bases stay unchanged, while reference-to-video drafts previously treated as novels become stale."""
 
     project_dir = write_legacy_script_plan_project(
         tmp_path / "projects", variant=variant, schema_version=10, source_kind="screenplay"
@@ -777,13 +777,13 @@ def test_episode_file_without_a_ledger_entry_becomes_an_own_source_episode(tmp_p
     assert status.content.episode_source == "present"
     assert status.content.source_remaining is True
     assert status.operations["prepare_script_plan"].state == "admitted"
-    # 项目列表不读源文，读迁移记下的结论：与制作状态一致，已有的集全部完成也不算项目完成
+    # Project lists do not read source text, using migration conclusions matching production status; all existing episodes complete still does not imply project completion.
     assert project["source_remaining"] is True
     assert WorkflowStateService(pm).get_project_summary(project_dir.name, currency="registered").source_remaining
 
 
 def test_screenplay_whole_source_files_and_cut_episodes_read_as_screenplay(tmp_path: Path) -> None:
-    """剧情演绎的项目级类型补记到整本源文的每个文件与自带原文的集上；切出集取范围起点所在文件。"""
+    """Backfill drama project source types into every whole-source file and self-sourced episode; extracted episodes use their range-start file."""
 
     project_dir = write_legacy_episode_sources_project(
         tmp_path / "projects", content_mode="drama", source_kind="screenplay"

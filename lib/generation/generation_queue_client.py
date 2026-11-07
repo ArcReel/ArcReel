@@ -215,12 +215,12 @@ async def enqueue_task_only(
     if not await queue.is_worker_online(name=lease_name):
         raise WorkerOfflineError("queue worker is offline")
 
-    # image_edit 跨四类资产 + storyboard 共用 task_type，resource_id 命名空间不互斥
-    # （角色和道具可能同名）；顶层 resource_type 是去重/占用匹配键的一部分（见
-    # lib/generation/generation_queue.py::enqueue_task），从 payload.resource_type 回填而非要求
-    # 每个调用方重复传参——路由层的直接 queue.enqueue_task() 调用已显式传入，这里补齐
-    # 经 enqueue_task_only()/enqueue_and_wait()/batch_enqueue_and_wait() 入队的路径
-    # （目前是 SDK edit_images 工具），避免同名跨类型资源被误判为重复任务。
+    # image_edit shares task_type across four assets/storyboards with overlapping resource_id names,
+    # such as same-name characters/props. resource_type participates in dedup/ownership
+    # (lib/generation/generation_queue.py::enqueue_task), filled from payload rather than
+    # duplicated caller arguments. Direct router calls already pass it; fill paths through
+    # enqueue_task_only/enqueue_and_wait/batch_enqueue_and_wait,
+    # currently SDK edit_images, preventing cross-kind names falsely deduplicating.
     raw_resource_type = (payload or {}).get("resource_type")
     resource_type = raw_resource_type if isinstance(raw_resource_type, str) and raw_resource_type else None
 
@@ -252,11 +252,11 @@ async def get_active_tasks_for_resources(
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
 ) -> list[dict[str, Any]]:
-    """查询命中入队去重键、当前处于活动态（queued/running）的任务。
+    """Find active queued/running tasks matching enqueue deduplication keys.
 
-    match 条件与 ``GenerationQueue.enqueue_task`` 的唯一索引去重口径一致（``resource_type``
-    固定 None——调用方均非 image_edit 任务，不占用该维度）。供调用方在真正入队前探测冲突并
-    拒绝，不消费也不影响任务本身的去重状态。
+    Match ``GenerationQueue.enqueue_task`` unique-index semantics, ``resource_type``
+    fixed None because callers are not image_edit. Presubmission conflict probes/rejections
+    neither consume nor change task deduplication states.
     """
     queue = queue or get_generation_queue()
     return await queue.get_active_tasks_for_resources(
@@ -322,10 +322,10 @@ def enqueue_and_wait_sync(**kwargs) -> dict[str, Any]:
 # plain-string-only asset prompts still flow through the image branch (no scene key).
 _VIDEO_TASK_TYPES = frozenset({"video"})
 _IMAGE_STRUCTURED_TASK_TYPES = frozenset({"storyboard"})
-# 旁白合成任务：文本默认由执行层从剧本 novel_text 读取，prompt 允许缺省；
-# 显式传入时必须是非空字符串（作为待合成文本覆盖）。
+# Narration synthesis reads script novel_text by default; prompt may be absent,
+# but explicit overrides require nonempty strings.
 _TTS_TASK_TYPES = frozenset({"tts"})
-# 资产图任务：描述由执行层从项目里存储的条目读取，入队不收 prompt、载荷不存快照。
+# Asset-image descriptions come from execution-time project entries, no enqueue prompts/snapshots.
 _ASSET_SHEET_TASK_TYPES = frozenset(ASSET_SPECS)
 
 
@@ -340,8 +340,8 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
         if isinstance(prompt, dict):
             if not is_structured_video_prompt(prompt):
                 raise TaskSpecValidationError("video_prompt_must_be_string_or_action_object")
-            # ``or ""`` 而非默认参数：``{"action": null}`` 时 get 返回 None，
-            # ``str(None)`` 会得到 truthy 的 "None" 字符串绕过空值校验。
+            # ``or ""`` rather than defaults: ``{"action": null}`` returns None,
+            # whose ``str(None)`` truthy "None" would bypass empty checks.
             if not str(prompt.get("action") or "").strip():
                 raise TaskSpecValidationError("video_prompt_action_empty")
             dialogue = prompt.get("dialogue")
@@ -371,8 +371,8 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
     if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
         if not is_structured_image_prompt(prompt):
             raise TaskSpecValidationError("prompt_must_be_string_or_scene_object")
-        # 与渲染出口共用 scene 判据，入队与执行期的接受集合完全一致；
-        # 入队不做归一化快照，投影结果由执行期从 script_file 重新取得。
+        # Share scene predicates with rendering exits, identical enqueue/execution acceptance;
+        # no normalized enqueue snapshots, reproject script_file at execution.
         try:
             require_storyboard_scene(prompt)
         except ValueError as exc:
@@ -401,19 +401,19 @@ class TaskSpecValidationError(ValueError):
         self.params = params
 
 
-#: 产物 id 天然带层级的资源 → 段数。段数取自落盘形状的真相源：衍生资产图的 id 是
-#: ``本体名/衍生名``，落盘为 ``characters/derivatives/{本体}/{衍生}.png``，两段各自是
-#: 一段合法资产名。
+#: Hierarchical resource IDs→segment counts from persisted shapes: derivative IDs
+#: ``本体名/衍生名`` map ``characters/derivatives/{本体}/{衍生}.png``, with each segment
+#: independently valid asset names.
 _HIERARCHICAL_RESOURCE_ID_SEGMENTS: dict[str, int] = {
     DERIVATIVE_TASK_TYPE: resource_id_segments(CHARACTER_DERIVATIVE_RESOURCE_TYPE)
 }
 
 
 def _expected_resource_id_segments(task_type: str, extra_payload: Mapping[str, Any] | None) -> int:
-    """该请求的 resource_id 应有几段。
+    """Expected resource_id segment counts.
 
-    ``image_edit`` 跨多类资源共用一个 task_type，寻址的资源由 ``payload.resource_type``
-    指明；其余任务类型自身即资源类型。
+    ``image_edit`` shares task_type across resources identified by ``payload.resource_type``;
+    other task types directly identify resources.
     """
     resource = str((extra_payload or {}).get("resource_type") or "") if task_type == "image_edit" else task_type
     return _HIERARCHICAL_RESOURCE_ID_SEGMENTS.get(resource, 1)
@@ -465,14 +465,14 @@ class TaskSpec:
         both the WebUI routes and the SDK spec builders construct through here so the
         rules can't diverge. Raises :class:`TaskSpecValidationError` on invalid input.
         """
-        # 纯空白的 id 与空 id 同样不可用：它非空、能过下面的字符检查，却会在执行期变成一段
-        # 空白文件名。判空统一按 strip 后的值，各调用点因此不必各自 strip 一遍。
+        # Whitespace-only IDs are invalid like empty IDs despite passing nonempty character guards;
+        # execution would produce whitespace filenames. Central strip-based emptiness avoids per-caller duplication.
         if not resource_id.strip():
             raise TaskSpecValidationError("resource_id_required")
-        # resource_id 在执行期是产物路径的一段：带路径分隔符或 .. 的值要到 worker 拼路径时
-        # 才被 safe_join 拒绝，那时同批健康的任务已经在跑并计费。结构守卫在这里就拒，让它
-        # 与其它结构问题一样折成该 unit 的准入问题码。带层级 id 的任务类型按段逐一守同一条
-        # 规则（段数固定，段内不含分隔符），不放宽单段本身的约束。
+        # resource_id enters artifact paths; separators/.. rejected only by worker safe_join would be too late,
+        # after healthy batch members already execute/bill. Reject here as per-unit admission problems,
+        # matching other structural failures. Hierarchical IDs validate fixed segment counts/each segment
+        # without relaxing separator restrictions inside segments.
         expected_segments = _expected_resource_id_segments(task_type, extra_payload)
         segments = resource_id.split("/") if expected_segments > 1 else [resource_id]
         if len(segments) != expected_segments or any(
@@ -482,19 +482,19 @@ class TaskSpec:
             raise TaskSpecValidationError("invalid_resource_id", resource_id=resource_id)
         _validate_prompt(task_type, prompt)
 
-        # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点
-        # 把未校验的 prompt / script_file 入队。
+        # extra_payload cannot override reserved validated keys, bypassing sole guards
+        # for prompt/script_file.
         reserved = {"prompt", "script_file"}
-        # tts 执行层读 payload.text 优先于 prompt（历史任务排空通道）；新入队一律走
-        # 受校验的 prompt，不允许借 extra_payload.text 绕过结构校验。
+        # TTS reads payload.text before prompt for historical draining; new tasks use validated
+        # prompts only, never extra_payload.text validation bypasses.
         if task_type in _TTS_TASK_TYPES:
             reserved = reserved | {"text"}
         if extra_payload and (conflict := reserved & extra_payload.keys()):
             raise ValueError(f"extra_payload contains reserved keys: {', '.join(sorted(conflict))}")
 
         payload: dict[str, Any] = dict(extra_payload) if extra_payload else {}
-        # reference_video 的 prompt 是可变剧本内容：这里只用当前文本做结构守卫，任务仅保存
-        # unit 定位与请求选项，worker 开始时按 script_file + resource_id 重读最新 shots。
+        # reference_video prompt is mutable script content; structural guards inspect current text, but tasks retain
+        # unit locations/options only; workers reread latest shots by script_file/resource_id.
         if task_type != "reference_video" and task_type not in _ASSET_SHEET_TASK_TYPES:
             payload["prompt"] = prompt
         if script_file is not None:
@@ -657,8 +657,8 @@ async def _enqueue_sequentially(
                         resource_id=pending.unit_id or pending.resource_id,
                         task_id="",
                         status="failed",
-                        # detail 与 ``enqueue_problem`` 的两个默认值同为英文：它是契约字段，
-                        # 面向 Agent 与排障，用户可读的那句由各端按问题码本地化。
+                        # detail and both ``enqueue_problem`` defaults are English contract fields
+                        # for Agents/diagnostics; endpoints localize user text through problem codes.
                         error=f"batch enqueue stopped at '{spec.resource_id}'; this target was never queued",
                         enqueue_interrupted=True,
                     )
@@ -804,10 +804,10 @@ async def batch_enqueue_and_wait(
             task = await wait_for_task(tid, queue=queue)
             return _task_result_from_finished(task, unit_id, tid)
         except (TaskWaitTimeoutError, WorkerOfflineError) as exc:
-            # wait_for_task 抛出前刚确认过 task 仍非终态（未 succeeded/failed/cancelled）——
-            # 这是等待被打断，不是 provider 判定的失败，用独立 status 区分，让
-            # record_batch_outcomes 能报告 INTERRUPTED 而不是 FAILED，避免下游对一个
-            # 仍可能正常落地的任务盲目 retry 造成重复付费提交。
+            # wait_for_task confirmed nonterminal state immediately before raising,
+            # meaning interrupted waits, not provider failure. Separate status lets
+            # record_batch_outcomes report INTERRUPTED, not FAILED, preventing blind retry
+            # of still-successful tasks and duplicate paid submissions.
             return BatchTaskResult(
                 resource_id=unit_id,
                 task_id=tid,

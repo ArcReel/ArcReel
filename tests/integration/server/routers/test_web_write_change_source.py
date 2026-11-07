@@ -1,13 +1,13 @@
-"""Web 端写入经真实项目事件服务按 ``webui`` 广播；Agent 的同类写入仍按原来源广播。
+"""Real project events broadcast Web writes as ``webui``; equivalent Agent writes retain original sources.
 
-前端据来源区分自己的操作与外部改动：非 ``webui`` 的草稿新建会自动跳到对应集，其余变更弹通知、排队聚焦。
-每个用例订阅事件流后发起一次写入，收齐这次写入引起的全部批次再断言来源：除了显式广播的那一批，
-事件服务读盘补扫或 hint 唤醒扫描发现的连带变更（草稿消失、登记变化）同样要带上发起方的来源。
+Frontend uses sources to identify own/external changes: non-``webui`` new drafts navigate to episodes, others notify/queue focus.
+Subscribe, write once, collect all caused batches, then assert sources: beyond explicit batches,
+incidental draft/registration changes found through supplemental reads/hint scans must retain initiating sources.
 
-来源按扫描读盘前已到达的 hint 结算。一次写入若含多步落盘，前一步的 hint 唤醒的扫描可能读到后一步的
-盘面，而后一步的 hint 尚未送达，这次变更就结算成 ``filesystem``；定时轮询落在写盘与 hint 之间同理。
-这是来源按扫描窗口结算的已知窗口，不由本组用例覆盖：用例关掉定时轮询，并在写入在途期间扣住事件服务读盘，
-写入返回后各步的 hint 均已送达，扫描才读盘。
+Sources settle from hints received before scan reads. Multistep writes may let earlier hints wake scans reading later
+files before their hints arrive, yielding ``filesystem``; polling between writes/hints behaves likewise.
+This known scan-window boundary is outside these tests: disable polling and hold event-service reads while writes run;
+after writes return, every hint has arrived before scans read.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ _SEGMENT = {
     "props": [],
 }
 _DOC_TYPE = "narration_script_plan"
-# 定时轮询不参与：扫描只由写入出口的 hint 与显式批次唤醒，收齐事件由显式批次屏障确认。
+# Disable polling: hints/explicit batches alone wake scans; explicit batch barriers establish complete events.
 _POLL_SECONDS = 3600.0
 _AGENT = RevisionAuthor(kind="arcreel_agent")
 
@@ -89,7 +89,7 @@ class _Env:
 
     @contextlib.contextmanager
     def reads_held(self) -> Generator[None]:
-        """写入在途期间扣住事件服务读盘；退出时各步的 hint 均已送达，被唤醒的扫描才读盘。"""
+        """Hold event reads during writes; after exit every hint has arrived before woken scans read."""
         self.reads_open.clear()
         try:
             yield
@@ -97,7 +97,7 @@ class _Env:
             self.reads_open.set()
 
     async def batches_until(self, predicate: Callable[[dict], bool]) -> list[dict]:
-        """等待真实变更，再用串行重建的两条屏障批次收齐连带变更。"""
+        """Await real changes, then collect incidental batches through two serial rebuild barriers."""
         collected: list[dict] = []
 
         async def _pull_until_match() -> None:
@@ -111,9 +111,9 @@ class _Env:
         return collected + await self.batches_after_barrier()
 
     async def batches_after_barrier(self) -> list[dict]:
-        """用串行重建的两条屏障批次收齐此前写入引起、尚未取走的全部批次。"""
+        """Two serial rebuild barriers collect all unconsumed batches caused by prior writes."""
         collected: list[dict] = []
-        # 批次先广播自身再补扫；第二条到达证明第一条的补扫已结束。屏障不发 hint，不改变真实变更的来源。
+        # Batches broadcast themselves then supplement; second arrival proves first supplement finished. Hint-free barriers preserve real sources.
         for marker in ("scan", "done"):
             emit_project_change_batch(
                 "demo",
@@ -149,13 +149,13 @@ def _changes(batches: list[dict]) -> list[tuple[str, str, str]]:
     return [(c["entity_type"], c["action"], c["entity_id"]) for batch in batches for c in batch["changes"]]
 
 
-#: 应用依赖替换：键是依赖函数，值是返回替身的工厂。
+#: App dependency overrides map functions to fake factories.
 _Overrides = dict[Callable[..., Any], Callable[[], Any]]
 
 
 @pytest.fixture
 def open_env(monkeypatch) -> Callable[..., contextlib.AbstractAsyncContextManager[_Env]]:
-    """为 *pm* 下的 demo 项目订阅事件流、装好被测路由，产出 :class:`_Env`。"""
+    """Subscribe to *pm* demo events, mount routes, yield :class:`_Env`."""
 
     @contextlib.asynccontextmanager
     async def _open(pm: ProjectManager, overrides: _Overrides | None = None) -> AsyncGenerator[_Env]:
@@ -180,7 +180,7 @@ def open_env(monkeypatch) -> Callable[..., contextlib.AbstractAsyncContextManage
         await service.start()
         stream = project_events_router.stream_project_events("demo", _ConnectedRequest(service), service=service)
         assert (await anext(stream)).event == "snapshot"
-        # 事件流由后台任务转进队列：对流本身设超时会取消生成器、关掉订阅。
+        # Background tasks forward streams into queues; stream-level timeouts would cancel generators/subscriptions.
         batches: asyncio.Queue[dict] = asyncio.Queue()
 
         async def _pump() -> None:
@@ -203,7 +203,7 @@ def open_env(monkeypatch) -> Callable[..., contextlib.AbstractAsyncContextManage
 
 @pytest.fixture
 async def env(tmp_path: Path, open_env) -> AsyncIterator[_Env]:
-    """已订阅 demo 项目事件流的旁白项目：第 1 集自带原文，已有正式脚本规划。"""
+    """Subscribed demo narration projects: episode 1 owns sources/has formal planning."""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -376,7 +376,7 @@ _UNITS = "/projects/demo/reference-videos/episodes/1/units"
 
 @pytest.fixture
 async def reference_env(timeline_project: ProjectManager, tmp_path: Path, open_env, monkeypatch) -> AsyncIterator[_Env]:
-    """参考生视频项目：第 1 集有 E1U1、E1U2 两个单元，E1U2 已有当前视频。"""
+    """Reference projects: episode 1 has E1U1/E1U2, with E1U2 current video."""
     use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(4, 8)))
     _install_video(timeline_project, tmp_path, "E1U2")
     async with open_env(timeline_project) as opened:
@@ -410,7 +410,7 @@ async def test_editing_reference_units_broadcasts_as_webui(
 
 
 async def test_deleting_a_reference_unit_with_its_video_broadcasts_as_webui(reference_env: _Env) -> None:
-    """单元连同视频移入回收站：单元删除与回收站这批都按 webui 广播，回收站记录为用户删除。"""
+    """Units/videos move into trash; unit deletion/trash batches broadcast webui with user-deletion records."""
     with reference_env.reads_held():
         response = await reference_env.client.delete(f"{_UNITS}/E1U2")
     assert response.status_code == 204
@@ -423,7 +423,7 @@ async def test_deleting_a_reference_unit_with_its_video_broadcasts_as_webui(refe
 
 
 async def test_moving_a_reference_unit_broadcasts_nothing(reference_env: _Env) -> None:
-    """快照按单元编号比对条目、不记顺序，调换单元顺序不产生变更批次，也就不会被当成外部改动。"""
+    """Snapshots compare IDs without order; reordered units produce no changes/external notifications."""
     with reference_env.reads_held():
         response = await reference_env.client.post(f"{_UNITS}/E1U2/move", json={"after_unit_id": None})
     assert [unit["unit_id"] for unit in response.json()["units"]] == ["E1U2", "E1U1"]
@@ -440,7 +440,7 @@ _TIMELINES = "/projects/demo/edit-timelines"
 async def timeline_env(
     timeline_project: ProjectManager, tmp_path: Path, open_env, file_db_factory
 ) -> AsyncIterator[_Env]:
-    """参考生视频项目：E1U1 已有用户上传、登记为当前产物的视频，可按脚本新建剪辑时间线。"""
+    """Reference projects with uploaded/current E1U1 videos can create script-derived timelines."""
     timeline_project.update_script_locked(
         "demo",
         "episode_1.json",
@@ -473,7 +473,7 @@ async def timeline_env(
 
 
 async def _agent_timeline(env: _Env) -> str:
-    """Agent 建一条剪辑时间线并改出第 2 个修订，收完它引起的批次；返回时间线 id。"""
+    """Agents create timelines/revision 2, collect resulting batches, return timeline IDs."""
     service = EditTimelineService(env.pm)
     created = await service.create_from_script("demo", episode=1, name="完整版", author=_AGENT)
     timeline_id = created.timeline.id
@@ -529,7 +529,7 @@ async def test_managing_an_edit_timeline_broadcasts_as_webui(
 
 
 async def test_retrying_a_migration_broadcasts_its_changes_as_webui(tmp_path: Path, open_env) -> None:
-    """升级链改写 project.json 与剧本时不发 hint；重试入口补发，这些变更按 webui 广播。"""
+    """Migration edits project.json/scripts without hints; retry entries emit webui hints for those changes."""
     _old_project(tmp_path)
 
     async with open_env(ProjectManager(tmp_path)) as env:
@@ -543,7 +543,7 @@ async def test_retrying_a_migration_broadcasts_its_changes_as_webui(tmp_path: Pa
 
 
 async def test_acknowledging_a_migration_report_broadcasts_nothing_as_an_outside_change(env: _Env) -> None:
-    """确认报告只改升级报告文件，不是项目状态的输入：不产生任何变更批次。"""
+    """Report confirmation changes upgrade-report files only, outside state inputs, emitting no batches."""
     write_migration_report(
         env.project_path,
         build_migration_report(
@@ -565,12 +565,12 @@ async def test_acknowledging_a_migration_report_broadcasts_nothing_as_an_outside
     assert await env.batches_after_barrier() == []
 
 
-# ---------------------------------------------------------------- Agent 的同类写入
+# ---------------------------------------------------------------- Equivalent Agent writes
 
 
 @pytest.mark.parametrize("source", ["filesystem", "worker"])
 async def test_agent_draft_writes_keep_their_original_source(env: _Env, source) -> None:
-    """Agent 或任务的草稿写入、改写与丢弃保留原来源，前端照常提醒创作者。"""
+    """Agent/task draft writes/edits/discards retain sources, preserving creator notices."""
     workflow = DraftWorkflow(DraftContext(project_name="demo", data_root=env.pm.data_root, pm=env.pm))
 
     with project_change_source(source):

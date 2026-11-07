@@ -1,33 +1,33 @@
 ---
 name: add-release-highlights
-description: 起草指定版本的版本亮点；确认后同步到 Changelog 与 GitHub Release，并推送 main。
+description: Draft release highlights for a specified version; after confirmation, synchronize them to the Changelog and GitHub Release and push main.
 disable-model-invocation: true
 ---
 
-# 添加版本亮点
+# Add release highlights
 
-## 草案
+## Draft
 
-1. 以目标版本的完整 Changelog 为事实边界；条目含义不足时再追溯关联 issue、commit 或版本比较。把用户可见改动归并为少量结果导向的主题，内部改动仅在产生用户可感知结果时纳入。
-2. 按以下格式写出完整草案：
+1. Use the target version's complete Changelog as the factual boundary. Trace related issues, commits, or version comparisons when an entry's meaning is insufficient. Group user-visible changes into a few outcome-oriented themes; include internal changes only when they produce a result users can perceive.
+2. Write the complete draft in this format:
 
    ```markdown
    ### 🌟 版本亮点
 
-   * **主题：** 用户可感知的结果。
+   * **Theme:** A result users can perceive.
    ```
 
-   正文语言跟随该版本的现有语言。
-3. 向用户展示草案并请求确认，保持 Changelog 与 GitHub Release 只读并结束当前回合。
+   Follow the existing language of that version in the body.
+3. Show the draft to the user and request confirmation. Keep the Changelog and GitHub Release read-only and end the current turn.
 
-完成判据：每个重要的用户可见主题均已覆盖，每项表述有版本变更支持，且用户已明确确认完整草案。
+Completion criteria: every important user-visible theme is covered, each statement is supported by changes in the release, and the user has explicitly confirmed the complete draft.
 
-## 执行
+## Execute
 
-草案完成判据满足后：
+After the draft completion criteria are met:
 
-1. 确认工作树位于 `main`，在 Changelog 的版本标题与分类明细之间插入确认稿；已有时原位更新，保留原有明细。
-2. 将同一区块同步到该版本的 GitHub Release，保持逐字一致。
-3. 只暂存本次 Changelog 变更，以 `chore(changelog): add <version> highlights` 提交，然后执行 `git push origin main`。
+1. Confirm that the worktree is on `main`. Insert the confirmed draft between the version heading and categorized details in the Changelog; update it in place if already present, preserving the original details.
+2. Synchronize the same block to that version's GitHub Release, keeping it identical word for word.
+3. Stage only this Changelog change, commit with `chore(changelog): add <version> highlights`, then run `git push origin main`.
 
-完成判据：Changelog 与 GitHub Release 各有一个 `### 🌟 版本亮点`，内容与确认稿一致；提交已位于 `main` 与 `origin/main`。
+Completion criteria: the Changelog and GitHub Release each contain one `### 🌟 版本亮点` with content matching the confirmed draft; the commit is on both `main` and `origin/main`.

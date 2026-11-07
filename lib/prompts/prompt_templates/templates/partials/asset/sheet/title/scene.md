@@ -1,1 +1,1 @@
-场景「{{ name }}」的资产图。
+Asset sheet for scene “{{ name }}”.

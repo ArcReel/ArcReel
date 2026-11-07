@@ -26,13 +26,13 @@ function refLabel(ref: AssetSheetRef): string {
 }
 
 function ownerOf(unitId: string): string {
-  // `<类型>/<本体>`：去掉类型段即本体名。
+  // `<类型>/<本体>`: remove the type segment to obtain the base name.
   return unitId.slice(unitId.indexOf("/") + 1);
 }
 
 /**
- * 资产图批量生成的确认框：按类型列出要生成的资产图、跳过项与原因，能算出时给出预估费用。
- * 确认后提交一批并交给批次跟踪，整批结束时汇总成一条通知。
+ * Asset-image batch confirmation: list targets, skipped items and reasons by type, with estimated costs where available.
+ * After confirmation, submit and track the batch, consolidating completion into one notification.
  */
 export function AssetSheetBatchDialog({
   projectName,
@@ -157,7 +157,7 @@ export function AssetSheetBatchDialog({
     <Dialog
       open
       onOpenChange={(next) => {
-        // 提交在途时忽略 Esc 与遮罩点击
+        // Ignore Escape and backdrop clicks while submission is in flight
         if (!next && !submitting) onClose();
       }}
     >

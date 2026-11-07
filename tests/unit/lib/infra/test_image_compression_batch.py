@@ -23,12 +23,12 @@ def test_compress_single_image_under_long_edge_2048():
 
 
 def test_compress_batch_nine_images_memory_ok():
-    """批量压缩 9 张 4K 图，检查每张输出尺寸与体积都符合预期。"""
+    """Batch-compress nine 4K images, checking every output’s dimensions/size."""
     raw = _make_big_png()
     outputs = [compress_image_bytes(raw, max_long_edge=2048, quality=85) for _ in range(9)]
     assert len(outputs) == 9
     for out in outputs:
-        # 压缩后体积显著小于原 PNG
+        # Compressed size is substantially below original PNG.
         assert len(out) < len(raw)
         with Image.open(io.BytesIO(out)) as im:
             assert max(im.size) <= 2048

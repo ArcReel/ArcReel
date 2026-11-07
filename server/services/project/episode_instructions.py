@@ -1,6 +1,6 @@
-"""按集保存的附加指令：脚本规划与提示词编写各存一份在集条目上，重新生成时预填。
+"""Per-episode additional instructions: separate script-planning and prompt-authoring values stored on episode entries and prefilled on regeneration.
 
-提交生成与「交给 Agent」都经这里保存；空白视同清除。
+Generation submissions and handoffs to Agent both save here; blank means clear.
 """
 
 from enum import StrEnum
@@ -12,7 +12,7 @@ from lib.project.project_manager import ProjectManager, find_episode
 
 
 class EpisodeInstructionKind(StrEnum):
-    """附加指令所属的 AI 动作；值即集条目上的字段名。"""
+    """AI action owning additional instructions; values are episode-entry field names."""
 
     SCRIPT_PLAN = "script_plan_instructions"
     PROMPT_AUTHORING = "prompt_authoring_instructions"

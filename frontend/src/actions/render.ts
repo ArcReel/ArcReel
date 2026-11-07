@@ -1,9 +1,9 @@
 /**
- * 出片入队动作：成片渲染与剪映草稿导出。剪映草稿只取选项里的旁白版本。
+ * Enqueue output actions: final rendering and Jianying draft export. Jianying drafts use only the narration version in options.
  *
- * render 车道任务不占用任何资源槽，也不进用量悬浮层，因此这里不打乐观占用标记；
- * 进度由出片对话框按返回的 task_id 轮询。deduped=true（同一产物已有任务在处理）时
- * 弹统一 info 提示，调用方照常跟踪返回的 task_id。失败一律向上抛，由调用方提示。
+ * Render-lane tasks occupy no resource slot and do not enter the usage overlay, so do not mark optimistic occupancy here.
+ * The output dialog polls progress by returned task_id. With deduped=true, an existing task already handles this artifact;
+ * show the shared info notice and let callers track the returned task_id normally. Always propagate failures for caller feedback.
  */
 import { API } from "@/api";
 import i18n from "@/i18n";

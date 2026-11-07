@@ -3,7 +3,7 @@ import type { ReferenceVideoUnit, TaskItem, UnitStatus } from "@/types";
 
 export interface UnitStatusConf {
   i18nKey: string;
-  /** 徽标的文字与底色。 */
+  /** Badge text/background. */
   badgeClass: string;
   dotClass: string;
 }
@@ -31,7 +31,7 @@ export const STATUS_CONF: Record<UnitStatus, UnitStatusConf> = {
   },
 };
 
-/** 从画布传下来的 statusMap 取该单元状态；未提供时按有无成片退化为 ready/pending。 */
+/** Unit status from canvas statusMap; without it, infer ready/pending from final-video presence. */
 export function resolveUnitStatus(
   unit: ReferenceVideoUnit,
   statusMap?: Record<string, UnitStatus>,
@@ -40,30 +40,30 @@ export function resolveUnitStatus(
 }
 
 export interface UnitStatusInput {
-  /** 该单元是否已有成片资产。 */
+  /** Whether this unit has a final-video asset. */
   hasClip: boolean;
-  /** 该单元的最新任务行；「最新行胜出」由 selectLatestTaskByResource 保证。 */
+  /** Latest unit task row; selectLatestTaskByResource guarantees latest-row wins. */
   queueRow: TaskItem | undefined;
-  /** 占用集命中——真实任务行占用或入队动作层的乐观标记。 */
+  /** Occupancy from actual tasks or enqueue-layer optimistic marks. */
   busy: boolean;
-  /** 该单元正在上传成片。 */
+  /** Unit final-video upload in progress. */
   uploading?: boolean;
   /**
-   * 本画布是否提供手动上传成片入口。提供时成片可能来自上传而非生成，历史失败行不该
-   * 覆盖已有的可播放资产；不提供时成片只能来自生成，最新行失败即本次尝试失败，必须
-   * 展示失败而不能被旧成片压成 ready，否则失败原因无处可见。
+   * Whether canvases offer manual final-video upload. If so, final assets may be uploaded and historical failures must not
+   * override playable assets. Without uploads, final videos only derive from generation; latest failed rows mean failed attempts and
+   * must remain visible rather than suppressed to ready by older videos, or failure reasons disappear.
    */
   supportsManualUpload?: boolean;
 }
 
 /**
- * 视频单元的展示状态：两个参考生视频画布共用的单一推导口径。
+ * Unit display status, one derivation shared by both reference-to-video canvases.
  *
- * 判定按优先级依次落位——上传中 → 队列行活跃 → 队列行失败 → 乐观占用窗口。
- * 展示语义用 isActiveStatus；控件禁用看占用集 `busy`，独立于本函数的返回值另行接线。
+ * Priority: uploading → active queue rows → failed queue rows → optimistic occupancy.
+ * Display uses isActiveStatus; disabled controls separately wire occupancy `busy`, independently of returned status.
  *
- * 乐观分支要求 `!queueRow`：有任务行时状态一律由该行决定。重试与重新生成这两条路径上
- * 任务行始终在，乐观窗口内的禁用因此不能只看本函数返回值——见 `busy` 的说明。
+ * Optimistic branches require `!queueRow`; existing rows always determine status. Retries/regeneration retain rows,
+ * so optimistic-window disabling cannot use these returns alone; see `busy`.
  */
 export function deriveUnitStatus({
   hasClip,
@@ -72,11 +72,11 @@ export function deriveUnitStatus({
   uploading = false,
   supportsManualUpload = false,
 }: UnitStatusInput): UnitStatus {
-  // 上传中视为 running：批量生成按状态挑 pending 目标，否则上传期间会被再次入队，
-  // 与生成回写同一个成片文件。
+  // Uploading counts as running: batches select pending units, otherwise uploads would be enqueued again
+  // and generation would write the same final file.
   if (uploading) return "running";
   if (queueRow && isActiveStatus(queueRow.status)) return "running";
-  // 失败任务行 DB 持久化、不会过期，故成片是否压过失败取决于成片能否来自上传。
+  // Failed rows persist in DB without expiration; whether final assets override failures depends on upload availability.
   if (queueRow?.status === "failed" && !(supportsManualUpload && hasClip)) return "failed";
   if (!queueRow && busy) return "running";
   return hasClip ? "ready" : "pending";

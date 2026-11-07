@@ -1,2 +1,2 @@
-请分析以下成品剧本，提炼项目概述（题材 / 主题 / 故事梗概 / 世界观）。
-剧本里可能附有作者写下的创作方案——以任意形态（开篇前言、大纲、设定卡等，标题与排版各异）写明题材、主题、一句话故事、世界观等核心设定。若能识别出这类创作方案，请优先照用作者已写下的设定填充对应字段（忠于原意，可精炼归并、不另起炉灶重新推断）；剧本未附创作方案时，再从剧本正文自行归纳。
+Analyze the following finished screenplay and derive a project overview (genre / theme / synopsis / world setting).
+The screenplay may include the author’s creative plan in any form (preface, outline, setting cards, etc., with varying headings and formatting), explicitly stating core premises such as genre, theme, one-sentence story, and world setting. If you recognize such a plan, prioritize the author’s existing premises for the corresponding fields (remain faithful to the intent; concise consolidation is allowed, but do not infer a new premise). Only derive them from the screenplay itself when no creative plan is provided.

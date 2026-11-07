@@ -1,4 +1,4 @@
-"""ProviderCredential Repository 测试。"""
+"""ProviderCredential repository tests."""
 
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ class TestCredentialRepository:
         await db_session.flush()
         updated = await repo.get_by_id(c.id)
         assert updated is not None
-        # 只更新传入的 secret，另一个保持原值
+        # Update only supplied secrets; preserve the other.
         assert updated.access_key == "AK-new"
         assert updated.secret_key == "SK-original"
 
@@ -144,13 +144,13 @@ class TestCredentialRepository:
         await db_session.flush()
         config: dict[str, str] = {}
         c.overlay_config(config)
-        # 列名即 config key，逐字段原样产出
+        # Column names are configuration keys, yielded unchanged per field.
         assert config["access_key"] == "AK-1"
         assert config["secret_key"] == "SK-1"
         assert "api_key" not in config
 
     async def test_update_can_explicitly_clear_secret_fields(self, db_session: AsyncSession):
-        """显式传 None 清空 api_key/access_key/secret_key/base_url；省略参数（默认）不动它们。"""
+        """Explicit None clears api_key/access_key/secret_key/base_url; omitted defaults preserve them."""
         repo = CredentialRepository(db_session)
         c = await repo.create(
             provider="kling",
@@ -160,7 +160,7 @@ class TestCredentialRepository:
         )
         await db_session.flush()
 
-        # 省略 access_key/secret_key：保持未设置，不受影响
+        # Omitted access_key/secret_key stay unset and unaffected.
         await repo.update(c.id, name="改名")
         await db_session.flush()
         untouched = await repo.get_by_id(c.id)
@@ -168,7 +168,7 @@ class TestCredentialRepository:
         assert untouched.api_key == "AK-legacy"
         assert untouched.name == "改名"
 
-        # 显式传 None：清空该字段
+        # Explicit None clears the field.
         await repo.update(c.id, api_key=None, base_url=None, access_key="AK-new", secret_key="SK-new")
         await db_session.flush()
         switched = await repo.get_by_id(c.id)

@@ -43,11 +43,11 @@ class WorkflowPlanRequest(BaseModel):
         default=None,
         ge=1,
         strict=True,
-        description="要规划的集的集 ID（项目详情 episodes[].episode）；缺省时按播出顺序选定当前集",
+        description="Episode ID to plan (project details episodes[].episode); when omitted, select the current episode in broadcast order",
     )
     confirmed_request_durations: dict[str, PositiveStrictInt] = Field(
         default_factory=dict,
-        description="已与用户确认的视频请求时长，{ 单元 id: 秒数 }；只作用于本次计划的视频准入判定",
+        description="Video-request durations confirmed with the user, { unit ID: seconds }; apply only to video admission in this plan",
     )
 
     @field_validator("confirmed_request_durations")
@@ -60,12 +60,12 @@ class WorkflowPlanRequest(BaseModel):
 
 
 class WorkflowProblem(BaseModel):
-    """计划里的一条提示：稳定问题码、所属单元与可本地化参数。
+    """One plan notice: stable problem code, owning unit, and localizable parameters.
 
-    只下发界面与 Agent 能据以陈述的结构：``code`` 是本地化的机器 key，``params`` 是文案参数。
-    原始理由文本（``GenerationProblem.detail``）与发声准入的整份载荷不进这里；需要逐字段定位
-    改脚本时，Agent 读 ``patch_episode_script`` 动作 ``args.problems`` 里的完整问题。
-    """
+    Send only structure UI/Agents can state: ``code`` is a localization machine key; ``params`` contains text-interpolation parameters.
+    Exclude raw reason text (``GenerationProblem.detail``) and complete speech-admission payloads. Agents
+    needing field-level locations to edit scripts read full problems in ``patch_episode_script`` action
+    ``args.problems``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -75,7 +75,7 @@ class WorkflowProblem(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-#: 不作为文案参数下发的 params 键：单元 ID 已提为 ``unit_id``，发声准入载荷是逐字段定位用的原始结构。
+#: Params keys excluded from copy parameters: unit IDs are extracted into ``unit_id``; speech-admission payloads provide raw field-level location structure.
 _UNLOCALIZABLE_PARAMS = frozenset({"unit_id", "speech_admission"})
 
 
@@ -88,7 +88,7 @@ def _problem_unit_id(problem: GenerationProblem) -> str | None:
 
 
 def workflow_problem(problem: GenerationProblem) -> WorkflowProblem:
-    """把生成契约里的问题投影成计划提示：提出所属单元，去掉原始理由与定位载荷。"""
+    """Project generation-contract problems into plan notices: extract owning units, remove raw reasons/location payloads."""
 
     return WorkflowProblem(
         code=problem.code,
@@ -99,7 +99,7 @@ def workflow_problem(problem: GenerationProblem) -> WorkflowProblem:
 
 
 class WorkflowProviderCheckpoint(BaseModel):
-    """供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。"""
+    """Whether the provider accepted submission; state only this fact, excluding provider IDs/job numbers as internal handles."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -109,8 +109,7 @@ class WorkflowProviderCheckpoint(BaseModel):
 class WorkflowTaskObservation(BaseModel):
     """One task axis, kept separate from provider submission and artifact currency.
 
-    计划只观测排队中与运行中的任务，它们是进度而不是问题，所以这里不带问题。
-    """
+    Plans observe only queued/running tasks, which are progress rather than problems; carry no problems here."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -158,7 +157,7 @@ class WorkflowPlan(BaseModel):
     steps: list[WorkflowPlanStep]
     blockers: list[WorkflowBlocker]
     problems: list[WorkflowProblem]
-    """不属于任何步骤的项目级提示（如数据升级失败）；步骤自己的提示只在 ``steps[].problems`` 下发一次。"""
+    """Project-level notices belonging to no step (e.g. data-upgrade failure); step-specific notices appear only once under ``steps[].problems``."""
     next_action: WorkflowNextAction
     next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
 
@@ -173,18 +172,18 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
     "edit": "edit_timelines",
 }
 
-#: 草稿 AI 修复的任务类型；资源 ID 见 :func:`draft_repair_resource_id`。
+#: Draft AI-repair task types; resource IDs in :func:`draft_repair_resource_id`.
 TEXT_DRAFT_REPAIR_TASK_TYPE = "text_draft_repair"
 _PROMPT_AUTHORING_DRAFT_DOC_TYPE = "reference_prompt_authoring"
-#: 分集规划的两个占用槽。Agent 的单批规划与 Web 逐窗串联的首窗占前一个；串联时，执行中的窗口
-#: 在请求模型前把下一窗排进另一个槽，两槽交替，停止规划即取消排队中的那一窗。
+#: Two episode-planning occupancy slots. Agent single-batch planning and Web chained windows' first window use the first;
+#: running windows queue the next in the other slot before model requests, alternating. Stopping cancels the queued window.
 EPISODE_PLANNING_SLOT = "episode-planning"
 EPISODE_PLANNING_NEXT_SLOT = "episode-planning-next"
 EPISODE_PLANNING_SLOTS = (EPISODE_PLANNING_SLOT, EPISODE_PLANNING_NEXT_SLOT)
 
 
 def draft_repair_resource_id(episode: int, doc_type: str) -> str:
-    """AI 修复任务的占用槽：一份草稿一个，同一集的脚本规划草稿与提示词编写草稿互不占用。"""
+    """AI draft-repair occupancy slot: one per draft; script-plan and prompt-authoring drafts in the same episode occupy separate slots."""
     return f"episode-{episode}-{doc_type}"
 
 
@@ -203,14 +202,14 @@ _TASK_STEP: dict[str, str] = {
 
 
 def _task_step(observation: WorkflowTaskObservation) -> str | None:
-    """任务归入的步骤：草稿 AI 修复按草稿归入脚本规划或正式脚本（提示词编写草稿），其余按任务类型。"""
+    """Task-owning step: draft AI repair belongs to script planning or formal script for prompt-authoring drafts; other tasks map by type."""
     if observation.task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
         prompt_authoring = observation.unit_id.endswith(f"-{_PROMPT_AUTHORING_DRAFT_DOC_TYPE}")
         return "final_script" if prompt_authoring else "script_plan_content"
     return _TASK_STEP.get(observation.task_type)
 
 
-#: 建议下一步归属的步骤：步骤顺序只用于呈现，下一步挂在它所属内容的那一步上。
+#: Suggested-next-step ownership: step order is presentation only; attach actions to their content-owning steps.
 _ACTION_STEP: dict[WorkflowActionType, str] = {
     WorkflowActionType.COLLECT_PROJECT_INPUT: "project_input",
     WorkflowActionType.RETRY_PROJECT_MIGRATION: "project_input",
@@ -235,7 +234,7 @@ _ACTION_STEP: dict[WorkflowActionType, str] = {
 
 
 def _owner_step(status: WorkflowStatus) -> str:
-    """建议下一步所属的步骤 id；没有动作时按陈述了问题的那类内容归属。"""
+    """Step ID owning the suggested next action; without an action, use ownership of the content whose problems are stated."""
     action = status.next_action
     if action.type is WorkflowActionType.RESOLVE_DRAFT:
         return (
@@ -263,7 +262,7 @@ def _owner_step(status: WorkflowStatus) -> str:
 
 
 def _step_done(step_id: str, status: WorkflowStatus) -> bool:
-    """该步的内容自身是否已齐：只看这一类内容，不看前面的步骤。"""
+    """Whether this step's own content is complete, independently of prior steps."""
     content = status.content
     if content is None:
         return False
@@ -377,9 +376,9 @@ def build_workflow_plan(
 ) -> WorkflowPlan:
     """Project one immutable status snapshot and transient request observations.
 
-    每条提示只下发一次：``project_problems``（项目级，如数据升级失败）在顶层 ``problems``，
-    ``structure_problems`` 在「脚本结构」一步，视频整批准入的逐单元问题只在视频一步的 ``admission`` 里。
-    """
+    Send each notice once: ``project_problems`` (project-level, e.g. data-upgrade failure) in top-level
+    ``problems``, ``structure_problems`` in script structure, and batch-video-admission per-unit problems
+    only in the video step's ``admission``."""
 
     plan_problems = [workflow_problem(problem) for problem in project_problems or []]
 
@@ -408,7 +407,7 @@ def build_workflow_plan(
 
     for step_rule in rules:
         artifact_key = _ARTIFACT_BY_STEP.get(step_rule.id)
-        # 走完的工作流没有下一步可挂：完成的「剪辑」一步不带动作。
+        # Finished workflows have no next action to attach; completed editing carries no action.
         owns = step_rule.id == owner and not complete
         step = WorkflowPlanStep(
             id=step_rule.id,

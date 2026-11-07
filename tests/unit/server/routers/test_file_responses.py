@@ -1,4 +1,4 @@
-"""公开媒体文件响应的缓存头与条件请求（304）。"""
+"""Public media-file response cache headers and conditional requests (304)."""
 
 from __future__ import annotations
 

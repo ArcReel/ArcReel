@@ -63,7 +63,7 @@ class TestGridManager:
         assert GridManager(tmp_path).get("grid_000000000000") is None
 
     def test_malformed_id_rejected(self, tmp_path):
-        """grid_id 直接来自 URL 路径参数：格式不符即拒，不落到文件系统。"""
+        """grid_id comes directly from URL parameters; reject invalid formats before reaching the filesystem."""
         import pytest
 
         gm = GridManager(tmp_path)
@@ -132,7 +132,7 @@ class TestGridManager:
 
 
 class TestLegacyRecordMigration:
-    """两段式生命周期之前落盘的记录没有 split_at 字段，读回时按旧 status 推断切分态。"""
+    """Records predating the two-stage lifecycle lack split_at; infer split state from legacy status on read."""
 
     def _legacy_payload(self, status: str) -> dict:
         payload = _make_grid().to_dict()
@@ -141,9 +141,9 @@ class TestLegacyRecordMigration:
         return payload
 
     def test_legacy_completed_reads_as_already_split(self):
-        """旧流程只在切格落盘后才写 completed，这类记录等价于已切分。
+        """Legacy flows wrote completed only after cells reached disk, so these records count as split.
 
-        读成未切分会让前端提示待切分，用户照做就用旧联合图覆盖了之后单独重生成过的分镜图。
+        Reading them as unsplit would prompt users to split again, overwriting later individually regenerated storyboards with the old combined image.
         """
         payload = self._legacy_payload("completed")
         grid = GridGeneration.from_dict(payload)
@@ -151,13 +151,13 @@ class TestLegacyRecordMigration:
         assert grid.split_at == payload["created_at"]
 
     def test_legacy_splitting_reads_as_unsplit(self):
-        """splitting 是「联合图已落盘、尚未落格」的中间态，迁移后仍待切分。"""
+        """splitting means the combined image is written but cells are not; migration leaves it pending splitting."""
         grid = GridGeneration.from_dict(self._legacy_payload("splitting"))
         assert grid.status == "completed"
         assert grid.split_at is None
 
     def test_explicit_null_split_at_stays_unsplit(self):
-        """新记录显式写 null 表示未切分，不被旧记录的迁移规则波及。"""
+        """Explicit null in new records means unsplit, unaffected by legacy migration rules."""
         payload = _make_grid().to_dict()
         payload["status"] = "completed"
         payload["split_at"] = None
@@ -165,10 +165,10 @@ class TestLegacyRecordMigration:
 
 
 class TestCleanupSuperseded:
-    """重生成清理规则：同脚本同集、scene_ids 是当前组子集、与本次重画的宫格有交集、非在途的旧记录被删。
+    """Regeneration cleanup removes nonflight old records for the same script/episode whose scene_ids are a subset of the current group and overlap the redrawn grid.
 
-    HTTP 路由与 Agent 工具 (generate_grid) 共用 GridManager.cleanup_superseded，
-    本类锁定规则的唯一实现。
+    HTTP routes and the Agent generate_grid tool share GridManager.cleanup_superseded;
+    this class pins the sole rule implementation.
     """
 
     def _save(self, gm: GridManager, *, status: str = "completed", **kwargs) -> GridGeneration:
@@ -246,7 +246,7 @@ class TestCleanupSuperseded:
         assert GridManager(tmp_path).cleanup_superseded("ep1.json", 1, {"S1"}) == 0
 
     def test_skips_inflight_records(self, tmp_path):
-        """pending/generating 的记录必须保留：worker 执行时还要找得到资源。"""
+        """Preserve pending/generating records; workers still need to locate those resources."""
         gm = GridManager(tmp_path)
         pending = self._save(gm, status="pending", scene_ids=["S1", "S2"])
         generating = self._save(gm, status="generating", scene_ids=["S3"])
@@ -256,7 +256,7 @@ class TestCleanupSuperseded:
         assert gm.get(generating.id) is not None
 
     def test_deletes_abandoned_inflight_records(self, tmp_path):
-        """调用方证明已没有活动任务的 pending/generating 记录按已结束的记录清理，其余在途记录保留。"""
+        """Treat pending/generating records proven to lack active tasks as finished for cleanup; preserve other in-flight records."""
         gm = GridManager(tmp_path)
         abandoned = self._save(gm, status="generating", scene_ids=["S1", "S2"])
         running = self._save(gm, status="pending", scene_ids=["S1", "S2"])
@@ -266,7 +266,7 @@ class TestCleanupSuperseded:
         assert gm.get(running.id) is not None
 
     def test_skips_records_with_non_subset_scene_ids(self, tmp_path):
-        """scene_ids 不是当前组子集的记录属于其它组/代，不得误删。"""
+        """Records whose scene_ids are not a subset of the current group belong to other groups/generations; do not delete them."""
         gm = GridManager(tmp_path)
         overlap = self._save(gm, scene_ids=["S1", "S9"])
         outside = self._save(gm, scene_ids=["S9"])
@@ -276,7 +276,7 @@ class TestCleanupSuperseded:
         assert gm.get(outside.id) is not None
 
     def test_regenerating_one_chunk_keeps_the_group_s_untouched_chunks(self, tmp_path):
-        """只重画组内一张时：与它有交集的旧记录（含横跨多张的）被删，组内其余分块自己的记录保留。"""
+        """Redrawing one group image removes intersecting old records, including multiframe ones, while retaining other chunks' own records."""
         gm = GridManager(tmp_path)
         spanning = self._save(gm, scene_ids=["S1", "S2", "S3", "S4"])
         same_chunk = self._save(gm, scene_ids=["S1", "S2"])
@@ -297,7 +297,7 @@ class TestCleanupSuperseded:
         assert gm.get(other_episode.id) is not None
 
     def test_dedupes_many_generations(self, tmp_path):
-        """反复重生成后，同一组只留下最新一批（在途记录除外）。"""
+        """Repeated regeneration leaves only the latest batch per group, except in-flight records."""
         gm = GridManager(tmp_path)
         for _ in range(3):
             self._save(gm, scene_ids=["S1", "S2", "S3", "S4"])

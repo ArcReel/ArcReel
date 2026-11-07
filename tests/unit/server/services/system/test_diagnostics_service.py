@@ -1,4 +1,4 @@
-"""diagnostics.collect_diagnostics 行为测试。"""
+"""diagnostics.collect_diagnostics behavior tests."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def test_collect_masks_db_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     text = diag_mod.collect_diagnostics()
     db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
     assert "supersecretpassword" not in db_line
-    # 精确匹配脱敏后的 URL：避免 substring 检查导致 CodeQL 误报 URL sanitization 不完整。
+    # Match the complete sanitized URL to avoid CodeQL false positives for incomplete URL sanitization from substring checks.
     assert db_line == "Database URL: postgresql+asyncpg://••••:••@db.example.com:5432/arcreel"
 
 
@@ -52,7 +52,7 @@ def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_pat
     db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
     assert "topsecret" not in db_line
     assert "abc123" not in db_line
-    # 精确匹配脱敏后完整 URL（key 顺序由 parse_qsl→urlencode 保留输入顺序）。
+    # Match complete sanitized URL exactly (parse_qsl→urlencode retains input key order).
     assert (
         db_line
         == "Database URL: postgresql://host.example.com/arcreel?sslmode=require&password=%E2%80%A2%E2%80%A2&token=%E2%80%A2%E2%80%A2"

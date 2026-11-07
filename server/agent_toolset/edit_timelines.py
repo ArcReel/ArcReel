@@ -1,4 +1,4 @@
-"""剪辑时间线工具的声明：新建（按脚本或复制）、列出、读取、批量编辑、改名、修订历史与回滚，以及列出可摆进时间线的 BGM。"""
+"""Edit-timeline declarations: create from script or copy, list, read, batch-edit, rename, revision history and restoration, and list available BGM."""
 
 from __future__ import annotations
 
@@ -29,16 +29,7 @@ from server.media_tools.edit_timelines import (
 CREATE_TIMELINE = ToolDeclaration(
     name="create_timeline",
     description=(
-        "新建一条具名剪辑时间线，同一集可以有多条，显示名不能重名（timeline_name_conflict）。"
-        "from=script：为 episode 集按当前脚本顺序排列每个视频单元，作为剪辑的起点："
-        "整段使用、全部硬切，画外音单位原声 0.3、台词与无人声单位 1.0，旁白挂在该单元的第一个片段上；"
-        "集不存在返回 episode_not_found。"
-        "from=timeline：复制 timeline 的 revision 修订（省略时为最新修订）到同一集的新时间线，"
-        "内容原样带过去（顺序、截取、原声音量、定格、转场、旁白落点、BGM），片段 ID 不变，新时间线从修订 1 起；"
-        "适合大规模重构前留一份退路，或并排做出另一种剪法；源时间线不受影响，"
-        "revision 不存在返回 revision_not_found。"
-        "剪辑片段的画面一律取视频单元的 current 视频版本；剪辑时间线不随脚本自动变化，脚本改动后在 issues 里看到差异。"
-        "结果与 read_timeline 同形。"
+        "Create a named edit timeline; multiple timelines may belong to one episode, but display names must be unique (timeline_name_conflict). from=script arranges the episode’s video units in current script order as an editing starting point: full clips, hard cuts, source volume 0.3 for off-screen-speech units and 1.0 for dialogue / speechless units, narration placed on the unit’s first clip. Missing episode returns episode_not_found. from=timeline copies timeline revision (latest if omitted) into a new timeline in the same episode, preserving order, trims, source volume, holds, transitions, narration placement, BGM, and clip IDs; the new timeline starts at revision 1. Useful as a fallback before major changes or an alternate edit alongside the original; the source timeline is unaffected. Missing revision returns revision_not_found. Clip visuals always use each video unit’s current video version. Timelines do not automatically follow script changes; differences appear in issues. Result shape matches read_timeline."
     ),
     request_model=CreateTimelineRequest,
     migration=BLOCKED,
@@ -50,8 +41,7 @@ CREATE_TIMELINE = ToolDeclaration(
 LIST_TIMELINES = ToolDeclaration(
     name="list_timelines",
     description=(
-        "列出项目里的剪辑时间线：id、集 ID、显示名、最新修订号、剪辑片段数与最近修改时间，按集与创建顺序排列。"
-        "只读，无副作用。"
+        "List project edit timelines: id, episode ID, display name, latest revision, clip count, and last modified time, ordered by episode and creation. Read-only, no side effects."
     ),
     request_model=ListTimelinesRequest,
     migration=BLOCKED,
@@ -63,27 +53,7 @@ LIST_TIMELINES = ToolDeclaration(
 READ_TIMELINE = ToolDeclaration(
     name="read_timeline",
     description=(
-        "读取一条剪辑时间线最新修订的完整内容，revision 为当前修订号。只读，无副作用；"
-        "ID 不存在返回 timeline_not_found。时间一律以秒为单位，最多三位小数。"
-        "clips 按播放顺序排列，每个剪辑片段带 id（如 c3，在这条时间线内稳定，与创作者沟通时用它指代片段）、"
-        "unit_id、start 与 duration（服务端算好的绝对起点与时长）、source_volume（原声音量 0–1）、"
-        "trim（入出点与所依据的视频版本 basis_version）、source_duration（current 视频全长，没有可用视频时为 null）、"
-        "hold（尾部定格延长）、transition_to_next（到下一片段的转场，null 为硬切）、narration（旁白起止，end 为 null 表示还没有旁白配音）和 status："
-        "ready 可用；video_missing 时时长暂按编排时长占位；unit_deleted 时渲染跳过、时长计 0。"
-        "issues 每条带 code、severity（blocking 阻断出片；warning、info 不阻断）、"
-        "applies_to（all，或 with_narration 只影响带旁白版本）与相关的 clip_ids / unit_id："
-        "video_missing 视频单元还没有可用视频；unit_deleted 片段引用的视频单元已从脚本删除；"
-        "unit_unused 脚本里的视频单元没进这条时间线；trim_ignored 截取所依据的视频版本已不是 current，"
-        "渲染时暂用完整视频；hold_too_long 单个片段的定格延长超过 2 秒。"
-        "旁白相关的三种只在 TTS 配音项目里报告：narration_missing 画外音单位还没有旁白配音（blocking，只阻断带旁白版本）；"
-        "narration_overrun 旁白压到下一段旁白上（params.cause=next_narration，clip_ids 为两个承载片段）"
-        "或超出时间线末尾（cause=timeline_end）；narration_source_collision 旁白延伸到台词片段（cause=dialogue）"
-        "或原声音量高于 0.3 的片段（cause=source_volume）上，clip_ids 为承载片段与被覆盖的片段。"
-        "subtitle_missing_glyphs（warning）视频单元的字幕里有随包字幕字体没有的字符，params.characters 列出这些字符，"
-        "烧入成片后它们可能无法正常显示。"
-        "bgm 按起点排列，每个 BGM 片段带 id（如 b2）、bgm_id 与 name（所引用的 BGM）、start、end（截到时间线末尾后的"
-        "实际结束时间）、source_in / source_out（取用 BGM 的哪一段）、volume、fade_in 与 fade_out（实际生效的淡入淡出）；"
-        "bgm_missing（blocking）表示 BGM 片段引用的 BGM 已不在项目里，clip_ids 为该 BGM 片段。"
+        "Read the full latest edit-timeline revision; revision is its current revision number. Read-only, no side effects. Missing ID returns timeline_not_found. All times are seconds, at most three decimal places. clips are in playback order, each with id (such as c3, stable within this timeline; use it when discussing clips with the creator), unit_id, start and duration (server-calculated absolute start and duration), source_volume (0–1), trim (in/out points and basis_version), source_duration (full current-video length, null without usable video), hold (tail freeze-frame extension), transition_to_next (null for hard cut), narration (start/end, null end means no narration audio yet), and status: ready usable; video_missing temporarily uses planned duration; unit_deleted is skipped during rendering with zero duration. Each issue has code, severity (blocking prevents final cuts; warning/info do not), applies_to (all, or with_narration affecting only narrated variants), and relevant clip_ids / unit_id: video_missing means no usable video; unit_deleted means the referenced unit left the script; unit_unused means a script unit is absent from this timeline; trim_ignored means the trim’s basis version is no longer current, so rendering temporarily uses the whole video; hold_too_long means a clip’s hold extension exceeds 2 seconds. Three narration issues are reported only for TTS projects: narration_missing for off-screen-speech units without narration (blocking, narrated variant only); narration_overrun for overlap into the next narration (params.cause=next_narration, clip_ids identify both carrier clips) or past timeline end (cause=timeline_end); narration_source_collision for narration extending into dialogue clips (cause=dialogue) or clips with source volume above 0.3 (cause=source_volume), with carrier and overlapped clip IDs. subtitle_missing_glyphs (warning) lists subtitle characters absent from the bundled font in params.characters; these may display incorrectly when burned in. bgm is ordered by start; each clip has id (such as b2), bgm_id and name, start, end (actual end clipped to timeline end), source_in / source_out (selected BGM range), volume, and effective fade_in / fade_out. bgm_missing (blocking) means referenced BGM no longer exists in the project; clip_ids identifies that BGM clip."
     ),
     request_model=ReadTimelineRequest,
     migration=BLOCKED,
@@ -95,30 +65,7 @@ READ_TIMELINE = ToolDeclaration(
 EDIT_TIMELINE = ToolDeclaration(
     name="edit_timeline",
     description=(
-        "用一批按剪辑片段 ID 定位的操作修改一条剪辑时间线，整批原子提交为一个带改动摘要的新修订。"
-        "base_revision 取自 read_timeline 的 revision，整批按它解读；操作按顺序执行，后一条看到前一条的结果。"
-        "任一条非法时整批不生效，返回 operation_invalid，params 带 operation_index（从 0 起）、clip_id、field "
-        "与 allowed（合法取值范围）。base_revision 已不是最新修订时：本批涉及的片段在那之后都没被改过，"
-        "就照常应用到最新修订上，结果的 concurrent_revisions 列出期间的修订；否则返回 revision_conflict，"
-        "带 latest_revision 与 conflicting_clip_ids，重新读取后再改。"
-        "操作：insert 新建片段，ID 由服务端分配并在结果里返回，同一视频单元可以插入多次，"
-        "未给 source_volume 时画外音单位 0.3、台词与无人声单位 1.0；delete；move；"
-        "set_trim 按 current 视频版本设置入出点，换版本后截取作废、暂用完整视频；set_volume；set_hold；"
-        "set_reason；set_transition；place_narration。时间一律以秒为单位，最多三位小数，结果里是服务端规整后的值。"
-        "转场挂在前一片段上，表示到下一片段的转场，不改变总时长：窗口以切点为中心、前后各占一半，"
-        "一个片段两侧转场的时长之和不能超过它时长的两倍。insert、delete、move 让相邻关系变了的切点一律恢复硬切，"
-        "包括被移动片段自己的转场；需要时在同一批里随后重新 set_transition。"
-        "一个视频单元的旁白只挂在它的一个片段上，从该片段起点开始，按配音实测时长播放，可以延伸到后续片段上："
-        "插入的片段在该单元还没有承载旁白的片段时承载旁白；删除承载片段时，旁白改挂到该单元剩下的第一个片段上；"
-        "place_narration 把旁白改挂到画外音单位的指定片段上，同一单元原先的承载片段随之卸下。"
-        "BGM 轨：insert_bgm 摆放 list_bgm 列出的 BGM，ID（如 b2）由服务端分配；start 是时间线上的绝对起点，"
-        "source_in / source_out 截取 BGM 的一段（省略时整首），volume 省略时 0.25，fade_in / fade_out 省略时各 1 秒；"
-        "set_bgm 只改给出的字段；delete_bgm。BGM 片段按绝对时间摆放，主轨的增删移动不会挪动它。"
-        "同一时刻只能有一首：本批改动的 BGM 片段与其他 BGM 片段重叠或起点不在时间线内时返回 operation_invalid。"
-        "超出时间线末尾的部分渲染时截断并在截断处淡出 1 秒；淡入淡出之和超过片段时长时按比例缩短。"
-        "BGM 的响度已在上传时统一，volume 是在此之上的倍数，两端渲染一致。"
-        "结果只含新 revision、一行确认 message、受影响片段的新状态 clips（字段同 read_timeline）与 bgm、"
-        "deleted_clip_ids（含 BGM 片段）、总时长 duration 与更新后的 issues，不返回整份时间线。"
+        "Modify an edit timeline through a batch of operations addressed by clip ID, atomically committing one new revision with a change summary. base_revision comes from read_timeline revision and governs the whole batch; operations run in order, each seeing prior results. Any invalid operation leaves the whole batch unapplied, returning operation_invalid with params.operation_index (zero-based), clip_id, field, and allowed values. If base_revision is outdated but none of this batch’s clips changed since it, apply normally to the latest revision and list intervening concurrent_revisions; otherwise return revision_conflict with latest_revision and conflicting_clip_ids, requiring a reread before editing. Operations: insert creates a server-assigned ID returned in the result, allowing repeated use of one video unit; omitted source_volume defaults to 0.3 for off-screen speech and 1.0 for dialogue / speechless units; delete; move; set_trim uses current video version and becomes invalid on version changes, temporarily using the full video; set_volume; set_hold; set_reason; set_transition; place_narration. Times are seconds, at most three decimals, with server-normalized values in results. Transitions attach to the preceding clip toward the next and do not change total duration: the window straddles the cut equally, and the sum of transitions on both sides of a clip cannot exceed twice its duration. insert/delete/move reset cuts with changed adjacency to hard cuts, including the moved clip’s own transition; subsequently set_transition again in the same batch if needed. A unit’s narration attaches to only one of its clips, starting at that clip’s beginning and running for measured audio duration, possibly into later clips. Inserted clips carry narration if no clip of that unit does yet; deleting its carrier transfers it to the first remaining clip of the unit. place_narration moves narration to a specified clip of an off-screen-speech unit, unloading the old carrier. BGM track: insert_bgm places BGM listed by list_bgm with a server-assigned ID (such as b2); start is absolute timeline time, source_in / source_out choose a range (whole track if omitted), default volume 0.25, default fade_in / fade_out 1 second each. set_bgm changes only supplied fields; delete_bgm removes it. BGM uses absolute positions and does not move when the main track changes. Only one track may sound at a time: changed BGM overlapping another BGM clip or starting outside the timeline returns operation_invalid. Rendering truncates BGM past timeline end and fades out for 1 second there; if summed fades exceed clip duration, shorten them proportionally. Upload already normalizes loudness; volume is a multiplier above it, rendered consistently at both outputs. Result contains only new revision, one-line message, new states of affected clips (read_timeline fields) and bgm, deleted_clip_ids (including BGM), total duration, and updated issues; not the full timeline."
     ),
     request_model=EditTimelineRequest,
     migration=BLOCKED,
@@ -130,8 +77,7 @@ EDIT_TIMELINE = ToolDeclaration(
 RENAME_TIMELINE = ToolDeclaration(
     name="rename_timeline",
     description=(
-        "修改一条剪辑时间线的显示名，同一集内不能重名（timeline_name_conflict）。"
-        "只改名字：剪辑内容、修订历史与时间线 ID 都不变，不产生新修订，已渲染的成片与剪映草稿也不因此过期。"
+        "Change an edit timeline’s display name; duplicates within an episode return timeline_name_conflict. Changes only the name: content, revision history, and timeline ID stay unchanged, no revision is created, and existing final cuts / Jianying drafts do not become stale."
     ),
     request_model=RenameTimelineRequest,
     migration=BLOCKED,
@@ -143,10 +89,7 @@ RENAME_TIMELINE = ToolDeclaration(
 LIST_REVISIONS = ToolDeclaration(
     name="list_revisions",
     description=(
-        "列出一条剪辑时间线的修订历史，按修订号从旧到新：number、parent、author（creator 创作者、arcreel_agent、"
-        "external_agent）、summary（改动摘要）、created_at、clip_count、changed_clip_ids（该修订改动过的剪辑片段，"
-        "没有记录时为 null）与 restored_from（回滚产生的修订，值为它还原到的修订号）。只读，无副作用；"
-        "ID 不存在返回 timeline_not_found。要复制或回滚到某个修订时，先在这里确认修订号。"
+        "List edit-timeline revision history oldest first: number, parent, author (creator, arcreel_agent, external_agent), summary, created_at, clip_count, changed_clip_ids (clips changed by the revision, null when unrecorded), and restored_from (the source revision number when rollback created this revision). Read-only, no side effects; missing ID returns timeline_not_found. Confirm revision numbers here before copying or restoring a revision."
     ),
     request_model=ListRevisionsRequest,
     migration=BLOCKED,
@@ -158,9 +101,7 @@ LIST_REVISIONS = ToolDeclaration(
 LIST_BGM = ToolDeclaration(
     name="list_bgm",
     description=(
-        "列出项目里已上传的 BGM：id（如 bgm-3f9a0c21，edit_timeline 的 insert_bgm 用它引用）、name 与 duration（秒），"
-        "按上传先后排列。BGM 属于整个项目，各集的剪辑时间线都能用；上传由创作者在剪辑视图的 BGM 轨完成，"
-        "列表为空时请创作者先上传。只读，无副作用。"
+        "List uploaded project BGM: id (such as bgm-3f9a0c21, used by edit_timeline insert_bgm), name, and duration in seconds, ordered by upload. BGM is project-wide and usable by every episode timeline. The creator uploads it via the BGM track in the editing view; if empty, ask the creator to upload first. Read-only, no side effects."
     ),
     request_model=ListBgmRequest,
     migration=BLOCKED,
@@ -172,13 +113,7 @@ LIST_BGM = ToolDeclaration(
 RESTORE_REVISION = ToolDeclaration(
     name="restore_revision",
     description=(
-        "把一条剪辑时间线回滚到某个旧修订：以那个修订的内容追加一个新修订（restored_from 记录来源），"
-        "历史不改写，回滚前的最新修订仍可再回滚回去。回滚总是作用在最新修订上，会整段替换当前内容，"
-        "所以回滚前先用 list_revisions 与 read_timeline 确认目标修订和当前内容。"
-        "目标修订的内容与最新修订相同时返回 revision_unchanged，修订不存在返回 revision_not_found。"
-        "之后基于回滚前修订的 edit_timeline 会按被回滚改动的片段判定冲突。"
-        "结果与 edit_timeline 同形：新 revision、message、受影响片段 clips（回滚后的状态）、"
-        "deleted_clip_ids（回滚后不再存在的片段）、duration 与 issues。"
+        "Restore an edit timeline to an old revision by appending a new revision with that content (restored_from records the source), without rewriting history; the previously latest revision remains restorable. Restoration always replaces the entire current content on the latest revision, so use list_revisions and read_timeline first to confirm the target revision and current content. Returns revision_unchanged if target and latest contents match, or revision_not_found if absent. Later edit_timeline calls based on the pre-restore revision detect conflicts for clips changed by restoration. Result shape matches edit_timeline: new revision, message, affected clips in restored state, deleted_clip_ids (clips no longer present), duration, and issues."
     ),
     request_model=RestoreRevisionRequest,
     migration=BLOCKED,

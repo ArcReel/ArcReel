@@ -1,18 +1,21 @@
-"""内置供应商下用户添加的模型记下调用端点，回填为升级前实际使用的通道
+"""Record endpoints for user-added built-in models, backfilling the backend actually used before upgrade
 
 Revision ID: c4e8a1f7b3d2
 Revises: b7f2a6d91c40
 Create Date: 2026-11-04 12:00:00.000000
 
-内置供应商的供应商模型改为先定下挂接的内置调用端点、再由端点构造调用通道。``builtin_provider_model`` 新增
-``endpoint`` 列，只对用户添加的模型有意义；官方收录模型的启用状态行留空，端点跟随官方。
+Built-in provider models first select a built-in endpoint, which constructs the backend. New
+``builtin_provider_model`` ``endpoint`` applies only to user-added models; official-model enablement
+rows stay unset and follow official endpoints.
 
-回填复现升级前装配实际依据的输入：内置供应商在一个媒体类型下只有一条通道时取这条通道；MiniMax 视频按 API 模型名
-（即模型键）选声明式端点，条目绑定与对应条目的官方模型名、模型别名都不参与。两条规则与升级前的
-``lib.backends.backend_assembly.specs`` 一致，字面量在此各存一份而不 import 应用代码：迁移是时点快照，日后
-选端点的规则改了也不该改写已迁移过的行。媒体类型不在下表的行（供应商没有这个媒体类型的通道，升级前就调用不了）留空。
+Backfill reproduces actual pre-upgrade assembly inputs: use the sole backend when a built-in provider
+has only one for a media type. MiniMax video chooses declarative endpoints by API model name (model key),
+not bindings, matched-entry official names, or aliases. Both rules match pre-upgrade
+``lib.backends.backend_assembly.specs``; freeze literals here without application imports. Migrations
+are point-in-time snapshots; later routing changes must not rewrite migrated rows. Media types absent
+from the table (unsupported by that provider before upgrade) remain unset.
 
-降级删除该列。
+Downgrade removes the column.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ down_revision: str | Sequence[str] | None = "b7f2a6d91c40"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-#: 升级前每个「内置供应商 + 媒体类型」唯一的通道（MiniMax 视频除外，见 _minimax_video_endpoint）。
+#: Sole pre-upgrade backend per built-in provider + media type (except MiniMax video; see _minimax_video_endpoint).
 _CHANNELS: dict[tuple[str, str], str] = {
     ("agnes", "image"): "agnes-image",
     ("agnes", "text"): "agnes-chat",
@@ -68,7 +71,7 @@ _CHANNELS: dict[tuple[str, str], str] = {
 
 
 def _minimax_video_endpoint(model_id: str) -> str:
-    """升级前内置 MiniMax 视频按 API 模型名选声明式端点的规则（原样抄录）。"""
+    """Pre-upgrade built-in MiniMax API-model-name endpoint rules, copied verbatim."""
     model = model_id.lower()
     if model_id == "S2V-01":
         return "minimax-s2v-01"

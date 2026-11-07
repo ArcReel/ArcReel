@@ -152,7 +152,7 @@ function discovered(modelId: string, endpoint = "openai-chat"): DiscoveredModel 
   };
 }
 
-/** 填满新建表单的全部必填项：名称、接口地址、密钥，以及一行启用的模型。 */
+/** Fill all required new fields: names, API addresses, secrets and one enabled model. */
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
   fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
@@ -220,7 +220,7 @@ describe("CustomProviderForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("网关拒绝");
-    // 保存失败不能通知宿主：宿主会切走表单并当作已落库，用户的输入随之丢失
+    // Failed saves must not notify hosts, which navigate away treating values as persisted and lose inputs.
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o");
   });
@@ -251,7 +251,7 @@ describe("CustomProviderForm", () => {
     const sheet = await screen.findByRole("dialog");
     expect(await within(sheet).findByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o-mini");
     expect(API.getProviderModel).toHaveBeenCalledWith("custom-3", "gpt-4o-mini", expect.anything());
-    // 已保存的供应商不再有整表编辑的模型表
+    // Saved providers lack whole-table model editors.
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 

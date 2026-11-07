@@ -1,4 +1,4 @@
-"""启动断言测试 — 父进程 env 不得含 provider 密钥。"""
+"""Startup assertions: parent-process environment must contain no provider secrets."""
 
 from __future__ import annotations
 
@@ -19,21 +19,21 @@ from server.app import (
 
 
 def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
-    """构造 subprocess.run 替身，用于桩 bwrap 试跑结果。"""
+    """Build subprocess.run substitutes for bwrap probe outcomes."""
 
     def _stub(cmd, *args, **kwargs):
         assert cmd[0] == "bwrap"
-        # probe 必须用 unshare-user + unshare-net + unshare-pid 才能在启动期捕获三类典型失败：
-        # userns 创建被拒 / loopback 配置被拒（缺 NET_ADMIN）/ pid namespace 被拒。
-        # 缺一断言，probe 命令未来意外回退到更弱形态时这层测试就会漏检。
+        # Probes require unshare-user, unshare-net, and unshare-pid to detect three startup failures:
+        # denied userns creation, denied loopback configuration (missing NET_ADMIN), and denied PID namespaces.
+        # Missing any assertion would let accidentally weakened future probes evade detection.
         assert "--unshare-user" in cmd
         assert "--unshare-net" in cmd
         assert "--unshare-pid" in cmd
-        # 锁住 probe 调用的关键 kwargs——决定"启动不卡死 + 失败能拿 stderr 诊断"：
-        # 没 timeout 会被 hung bwrap 永久阻塞 startup；没 capture_output 拿不到
-        # bwrap 真实 stderr 给运维诊断；check=False 是为了让 returncode!=0 也走
-        # 我们自己的 SANDBOX_BWRAP_BROKEN 包装，而不是抛 CalledProcessError 让
-        # _diagnose_bwrap_failure 没机会跑。
+        # Pin critical probe kwargs determining nonhanging startup and diagnosable stderr:
+        # without timeout, hung bwrap blocks startup forever; without capture_output, real bwrap stderr
+        # cannot diagnose deployment failures. check=False routes nonzero returncodes through
+        # our SANDBOX_BWRAP_BROKEN wrapper rather than CalledProcessError, which would prevent
+        # _diagnose_bwrap_failure from running.
         assert kwargs["timeout"] == 5
         assert kwargs["capture_output"] is True
         assert kwargs["check"] is False
@@ -42,8 +42,8 @@ def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
     return _stub
 
 
-# 复用生产代码（assert_no_provider_secrets_in_environ）所基于的同一份真相源，
-# 避免测试与运行时密钥清单漂移。sorted() 让 parametrize 测试 ID 稳定。
+# Share production assert_no_provider_secrets_in_environ’s source of truth to prevent
+# runtime/test secret-list drift; sorted() stabilizes parametrized IDs.
 _SECRET_KEYS_SORTED = sorted(PROVIDER_SECRET_KEYS)
 
 
@@ -66,14 +66,14 @@ def test_any_single_secret_triggers_raise(monkeypatch: pytest.MonkeyPatch, leake
 
 
 def test_empty_string_value_not_treated_as_leak(monkeypatch: pytest.MonkeyPatch) -> None:
-    """空字符串不算泄漏（os.environ.pop 后 SDK 子进程会跳过空值）。"""
+    """Empty strings are not leaks; SDK subprocesses skip empty values after os.environ.pop."""
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    assert_no_provider_secrets_in_environ()  # 空值不 raise
+    assert_no_provider_secrets_in_environ()  # Empty values do not raise.
 
 
 def test_claude_code_oauth_token_does_not_trigger_startup_rejection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Claude 登录态会在会话环境中清空，但不属于启动期 provider 密钥。"""
+    """Claude login state clears from session environments but is not startup provider-secret material."""
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "user-login-token")
     assert_no_provider_secrets_in_environ()
@@ -93,7 +93,7 @@ def test_sandbox_missing_macos_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _linux_which_stub(present: set[str]):
-    """构造 shutil.which 替身：仅 present 集合内的 binary 视为已安装。"""
+    """Build shutil.which substitutes treating only present-set binaries as installed."""
 
     def _stub(name: str):
         return f"/usr/bin/{name}" if name in present else None
@@ -116,7 +116,7 @@ def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sandbox_missing_socat_only_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Linux sandbox 需同时安装 socat 供网络代理使用。
+    """Linux sandboxes also require socat for network proxies.
 
     https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2
     """
@@ -133,10 +133,9 @@ def _patch_sysctls(
     userns_clone: str | None = None,
     max_user_ns: str | None = None,
 ) -> None:
-    """桩三条 host sysctl 读取，模拟不同的失败拓扑。
+    """Stub three host sysctl reads to simulate failure topologies.
 
-    None 表示该 sysctl 在测试系统上不存在（read_text 抛 OSError），
-    与 mac / 老内核行为一致。
+    None means absent sysctl with read_text OSError, matching mac/old kernels.
     """
 
     def _stub(self: Path, *args, **kwargs):
@@ -156,9 +155,9 @@ def _patch_sysctls(
 def test_sandbox_bwrap_probe_apparmor_userns_diagnoses_ubuntu_2404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ubuntu 24.04 默认 kernel.apparmor_restrict_unprivileged_userns=1 →
-    异常信息必须把"在 host 上关 sysctl"作为根因路径透传，因为这是 PR #534
-    实测线上 Oracle Cloud Ubuntu 24.04 撞到的真根因，docker compose 改不动。"""
+    """Ubuntu 24.04 kernel.apparmor_restrict_unprivileged_userns=1 must expose host-side sysctl
+    repair as the root-cause path: PR #534 confirmed this on Oracle Cloud Ubuntu 24.04,
+    beyond docker compose’s ability to change."""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
     monkeypatch.setattr(
@@ -178,7 +177,7 @@ def test_sandbox_bwrap_probe_apparmor_userns_diagnoses_ubuntu_2404(
 
 
 def test_sandbox_bwrap_probe_userns_clone_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    """老内核 / 强化系统：kernel.unprivileged_userns_clone=0 → 给老 sysctl 修复路径。"""
+    """Old kernels/hardened systems with kernel.unprivileged_userns_clone=0 receive legacy-sysctl repairs."""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
     monkeypatch.setattr(
@@ -196,8 +195,8 @@ def test_sandbox_bwrap_probe_userns_clone_disabled(monkeypatch: pytest.MonkeyPat
 
 
 def test_sandbox_bwrap_probe_fallback_container_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """sysctl 都正常但 bwrap 仍跑不起来 → 兜底给出 docker compose 修复建议
-    （seccomp/apparmor unconfined + NET_ADMIN）。"""
+    """Normal sysctls but failing bwrap fall back to docker compose repairs:
+    seccomp/apparmor unconfined plus NET_ADMIN."""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
     monkeypatch.setattr(
@@ -210,7 +209,7 @@ def test_sandbox_bwrap_probe_fallback_container_hint(monkeypatch: pytest.MonkeyP
     msg = str(exc_info.value)
     assert "seccomp:unconfined" in msg
     assert "NET_ADMIN" in msg
-    assert "Ubuntu 24.04" not in msg  # 未命中 apparmor sysctl，不应误导
+    assert "Ubuntu 24.04" not in msg  # Unmatched apparmor sysctls must not mislead.
 
 
 @pytest.mark.parametrize(
@@ -225,9 +224,9 @@ def test_sandbox_bwrap_probe_exec_failure_linux_raises(
     monkeypatch: pytest.MonkeyPatch,
     exc: Exception,
 ) -> None:
-    """subprocess.run 抛执行类异常（OSError / TimeoutExpired）都要包成
-    SANDBOX_BWRAP_BROKEN。生产 ``except (OSError, subprocess.TimeoutExpired)``，
-    两类必须都跑过——只盖 timeout 半边，未来把 OSError 从元组里删掉 CI 仍会绿。"""
+    """Wrap subprocess.run OSError/TimeoutExpired as SANDBOX_BWRAP_BROKEN. Production catches
+    ``except (OSError, subprocess.TimeoutExpired)``; exercise both classes, since timeout-only
+    coverage would stay green if OSError disappeared from the tuple."""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
 
@@ -240,7 +239,7 @@ def test_sandbox_bwrap_probe_exec_failure_linux_raises(
 
 
 def test_sandbox_windows_warns_not_raises(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """Windows 上 SDK 不支持 sandbox：返回 False + warning，不 raise。"""
+    """Windows SDK lacks sandbox support: return False plus warning, never raise."""
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     with caplog.at_level("WARNING", logger="server.app"):
         result = check_sandbox_available()
@@ -264,8 +263,8 @@ def test_detect_no_docker(tmp_path) -> None:
     assert detect_docker_environment(dockerenv_path=tmp_path / "nope", cgroup_path=tmp_path / "also_nope") is False
 
 
-# bool 是 int 子类，``isinstance(True, int) and True > 0`` 为真——这一组三连测试
-# 防止 startup 日志判定回退到天真的 isinstance 写法，把 abort 信号误打成"同步完成"。
+# bool subclasses int, so ``isinstance(True, int) and True > 0`` is true; these three tests
+# prevent naive isinstance startup logging from labeling abort signals as completed syncs.
 def test_log_profile_sync_outcome_aborted_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -302,7 +301,7 @@ def test_log_profile_sync_outcome_success_counts_logs_info(
 def test_log_profile_sync_outcome_all_zero_is_silent(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """无 abort、所有计数为 0 → 不打日志（避免每次空启动也刷一行）。"""
+    """No abort with all-zero counts emits no logs, avoiding one line on every empty startup."""
     stats = {
         "created": 0,
         "repaired": 0,

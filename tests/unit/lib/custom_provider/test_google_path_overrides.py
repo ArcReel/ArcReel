@@ -1,4 +1,4 @@
-"""google 家族 Python 端点的路径覆盖：经 transport 层按请求名改写 google-genai SDK 发出的路径。"""
+"""Google-family Python endpoint path overrides: rewrite google-genai SDK paths by request name at transport level."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _stop_here() -> httpx.Response:
 
 
 async def _generate(endpoint: str, model: str, overrides: dict[str, str], tmp_path: Path) -> list[str]:
-    """按端点发一次生成，回包一律拒绝，只返回发出的请求路径。"""
+    """Attempt one generation per endpoint, rejecting all responses and returning only the emitted request path."""
     backend: Any = get_endpoint_spec(endpoint).build_backend(PROVIDER, model, overrides)
     call = {
         "gemini-generate": lambda: backend.generate(TextGenerationRequest(prompt="猫")),

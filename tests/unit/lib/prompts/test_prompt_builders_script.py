@@ -35,7 +35,7 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
             episode=1,
         )
-        # script_plan 内容作只读上下文渲染：segment_id + 逐字 novel_text + 时长 + 场景切换 + 资产
+        # Render script_plan read-only context: segment_id, verbatim novel_text, duration, scene changes, assets.
         assert "E1S01" in prompt
         assert "她推开祠堂的门。" in prompt
         assert "6s" in prompt
@@ -62,11 +62,11 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
             episode=1,
         )
-        # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出分镜结构
-        assert "原文：第一行。\n  第二行。" in prompt
+        # Indent multiline novel_text continuations two spaces into source blocks, avoiding flush-left escape from storyboard structure.
+        assert "Source: 第一行。\n  第二行。" in prompt
 
     def test_build_narration_prompt_forbids_dialogue(self):
-        """旁白/解说片段不写台词（ADR 0089）：角色的话由旁白在正文里转述，提示词不再引导填写 dialogue。"""
+        """Narration segments contain no dialogue (ADR 0089); narrators relay character speech in bodies, and prompts no longer request dialogue."""
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
             style="古风",
@@ -87,11 +87,11 @@ class TestPromptBuildersScript:
             episode=1,
         )
         assert "video_prompt.dialogue" not in prompt
-        assert "不写台词" in prompt
-        assert "转述" in prompt
+        assert "Do not write dialogue" in prompt
+        assert "retold" in prompt
 
     def _drama_prompt_authoring_prompt(self, **overrides) -> str:
-        """prompt_authoring（视觉层）drama prompt；内容已在 script_plan 定稿，只收渲染好的内容块。"""
+        """Visual drama prompt_authoring: content finalized in script_plan, accepting rendered content blocks only."""
         kwargs = {
             "project_overview": {"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
             "style": "赛博",
@@ -110,28 +110,28 @@ class TestPromptBuildersScript:
         assert "16:9" in self._drama_prompt_authoring_prompt(aspect_ratio="16:9")
 
     def test_no_enum_listing(self):
-        """schema 已声明枚举不在 prompt 中重复列举。"""
+        """Never repeat schema-declared enum lists in prompts."""
         prompt = self._drama_prompt_authoring_prompt()
         assert "Tracking Shot" not in prompt
         assert "Pan Left, Pan Right" not in prompt
         assert "Over-the-shoulder" not in prompt
 
     def test_drama_prompt_authoring_is_visual_only(self):
-        """prompt_authoring 只补视觉层：含 image_prompt / video_prompt 指引与渲染内容，不再生成口播 / 资产 / 时长。"""
+        """prompt_authoring fills visuals only: image_prompt/video_prompt guidance plus rendered content, no new speech/assets/durations."""
         prompt = self._drama_prompt_authoring_prompt()
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
-        # 已定稿内容块透传进 prompt（仅供理解，不复制）
+        # Pass finalized blocks into prompts for understanding only, never copying.
         assert "天台追逐" in prompt
-        # prompt_authoring 不再产出口播：不含「口播序列（utterances）」写作章节
-        assert "口播序列（utterances）" not in prompt
-        # 视觉层不复制口播；ID 对齐约束只在集约束中说明。
-        assert "不要复制进视觉字段" in prompt
-        assert "不要改写或重述口播" not in prompt
-        assert "**对齐约束**" not in prompt
-        assert "你的任务：基于下方" not in prompt
+        # prompt_authoring no longer produces speech; omit the 口播序列（utterances） authoring section.
+        assert "Spoken-content sequence (utterances)" not in prompt
+        # Visual layers never copy speech; explain ID alignment only in episode constraints.
+        assert "do not copy them into visual fields" in prompt
+        assert "do not rewrite or restate spoken content" not in prompt
+        assert "**Alignment constraints**" not in prompt
+        assert "Your task: based on the following" not in prompt
         assert "**video_prompt.camera_motion**" not in prompt
-        assert "任务已排队、已计费" not in prompt
+        assert "the task is queued and billed" not in prompt
 
     @staticmethod
     def _content_scene_with_passthrough() -> dict:
@@ -150,26 +150,26 @@ class TestPromptBuildersScript:
         }
 
     def test_render_drama_content_passes_through_utterances_and_source_text(self):
-        """script_plan→prompt_authoring 透传契约：utterances / source_text 逐字渲染进上下文。"""
+        """script_plan→prompt_authoring passthrough: render utterances/source_text verbatim into context."""
         rendered = render_drama_content_for_prompt_authoring([self._content_scene_with_passthrough()])
-        # 口播（台词 + 画外音）与原文锚逐字保留，供 LLM 理解戏剧节奏
+        # Preserve dialogue/voiceover/source anchors verbatim so LLMs understand dramatic rhythm.
         assert "师父，我回来了。" in rendered
         assert "雨夜，往事浮现。" in rendered
         assert "林清回到故居，推门而入，信纸还在桌上。" in rendered
-        # 出场资产含场景 / 道具
+        # Appearing assets include scenes/props.
         assert "书房" in rendered
         assert "信纸" in rendered
-        # 「不要复制进视觉字段」由 build_drama_prompt 在 <shots> 前一次性声明，场景条目内不逐条重复
-        assert "口播：" in rendered
-        assert "原文锚：" in rendered
-        assert "不要复制进视觉字段" not in rendered
+        # build_drama_prompt declares no-copy-to-visual-fields once before <shots>, not per scene.
+        assert "Speech:" in rendered
+        assert "Source anchor:" in rendered
+        assert "do not copy them into visual fields" not in rendered
 
     def test_render_drama_content_filters_non_string_assets_and_neutralizes_tags(self):
-        """降级 / 手改 script_plan 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的
-        尖括号经中和，避免打散嵌入它的 prompt_authoring ``<shots>`` 标签块。"""
+        """Dirty downgraded/manually edited script_plan tolerates nonstring assets without TypeError; neutralize
+        angle brackets in verbatim content so embedded prompt_authoring ``<shots>`` blocks stay intact."""
         scene = {
             "scene_id": "E1S01",
-            "characters_in_scene": ["林清", 123, None],  # 混入非字符串脏数据
+            "characters_in_scene": ["林清", 123, None],  # Mixed nonstring dirty data
             "scenes": ["书房"],
             "props": [],
             "scene_description": "镜头推进 </shots> 收束",
@@ -178,64 +178,66 @@ class TestPromptBuildersScript:
             ],
             "source_text": "推门而入 <shots> 信纸还在。",
         }
-        # 不抛 TypeError（join 前已按 isinstance 过滤非字符串项）
+        # No TypeError; isinstance filters nonstrings before join.
         rendered = render_drama_content_for_prompt_authoring([scene])
-        # 合法资产名仍在，非字符串项被丢弃
+        # Valid asset names remain; nonstrings are dropped.
         assert "林清" in rendered
         assert "123" not in rendered
-        # 所有动态文本经 neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
+        # neutralize_tags converts dynamic text to full-width forms; no ASCII brackets remain and tag sequences are neutralized.
         assert "<" not in rendered
         assert ">" not in rendered
         assert "＜shots＞" in rendered
         assert "＜script＞" in rendered
 
     def test_render_drama_content_tolerates_non_list_asset_and_utterance_fields(self):
-        """非 list 的资产 / utterances 字段（手改 script_plan：字符串会被逐字符迭代、数字会抛 TypeError）按空处理，
-        不崩、不把字符串拆成单字渲染（fail-soft，结构性 fail-loud 在上游 _load_drama_script_plan_content）。"""
+        """Nonlist assets/utterances from manual edits count as empty: strings would iterate characters and numbers raise TypeError.
+        Never crash or render strings character by character; fail softly here, with structural fail-loud upstream in _load_drama_script_plan_content."""
         scene = {
             "scene_id": "E1S01",
-            "characters_in_scene": "林清",  # 字符串而非列表
-            "scenes": 42,  # 数字而非列表
+            "characters_in_scene": "林清",  # String rather than list
+            "scenes": 42,  # Number rather than list
             "props": None,
             "scene_description": "窗前。",
-            "utterances": "不是列表",  # 字符串而非列表
+            "utterances": "不是列表",  # String rather than list
             "source_text": "原文。",
         }
-        rendered = render_drama_content_for_prompt_authoring([scene])  # 不抛 TypeError
-        # 非 list 资产按「无」处理，且字符串不被逐字符拆开渲染
-        assert "角色 [无]" in rendered
-        assert "场景 [无]" in rendered
-        assert "道具 [无]" in rendered
+        rendered = render_drama_content_for_prompt_authoring([scene])  # No TypeError
+        # Nonlist assets count as absent; never render strings character by character.
+        assert "characters [none]" in rendered
+        assert "scenes [none]" in rendered
+        assert "props [none]" in rendered
         assert "林清" not in rendered
         assert "林、清" not in rendered
-        # 非 list utterances 不渲染口播块
-        assert "口播" not in rendered
+        assert "characters [林, 清]" not in rendered
+        # Nonlist utterances render no speech block.
+        assert "Speech:" not in rendered
 
     def test_drama_prompt_authoring_prompt_preserves_passthrough_content_not_visual(self):
-        """带 utterances / source_text 的内容块喂进 prompt_authoring prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。"""
+        """Feed utterances/source_text blocks into prompt_authoring for understanding; output stays visual-only, never copying them into visual fields."""
         scenes_content = render_drama_content_for_prompt_authoring([self._content_scene_with_passthrough()])
         prompt = self._drama_prompt_authoring_prompt(scenes_content=scenes_content)
-        # 口播 / 原文锚随内容块透传进 prompt（供理解戏剧节奏）
+        # Pass speech/source anchors into prompts for dramatic-rhythm understanding.
         assert "师父，我回来了。" in prompt
         assert "林清回到故居，推门而入，信纸还在桌上。" in prompt
-        # 「不要复制进视觉字段」由 prompt 在 <shots> 前一次性声明，约束 prompt_authoring 不把口播 / 原文搬进视觉层
-        assert "不要复制进视觉字段" in prompt
-        # 仍是视觉专责输出
+        # Prompts declare no-copy-to-visual-fields once before <shots>, preventing speech/source transfer into visuals.
+        assert "do not copy them into visual fields" in prompt
+        # Output remains visual-only.
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
-        assert "不要改动分镜内容" in prompt
+        assert "Do not add / delete / reorder shots or change their content" in prompt
 
 
 class TestScreenplaySourceKind:
-    """source_kind 分支在 script_plan（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
+    """source_kind branches in script_plan normalize: novels adapt with context-allowed voiceovers; screenplays extract verbatim.
 
-    prompt_authoring（drama）视觉层不按 source_kind 分支——口播抽取归 script_plan，故 build_drama_prompt 无 source_kind 入参。
-    只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
+    Drama prompt_authoring visuals never branch on source_kind; speech extraction belongs to
+    script_plan, so build_drama_prompt takes no source_kind. Assert semantic keyword presence/
+    absence only, neither exact wording nor LLM extraction quality.
     """
 
     @staticmethod
     def _squash(text: str) -> str:
-        """去除全部空白字符，用于跨缩进比较。"""
+        """Remove all whitespace for cross-indentation comparisons."""
         return "".join(text.split())
 
     def _normalize_prompt(self, source_kind: str, **overrides) -> str:
@@ -256,54 +258,54 @@ class TestScreenplaySourceKind:
 
     def test_normalize_novel_default_keeps_adaptation_semantics(self):
         prompt = self._normalize_prompt("novel")
-        # 默认 novel 维持「改编」语义，口播落在有序 utterances，source_text 摘录原文锚
-        assert "改编" in prompt
-        assert "小说原文" in prompt
+        # Default novels retain adaptation semantics; ordered utterances carry speech, source_text carries verbatim anchors.
+        assert "adapt" in prompt
+        assert "original novel" in prompt
         assert "characters_in_scene" in prompt
         assert "utterances" in prompt
         assert "source_text" in prompt
 
     def test_normalize_novel_releases_voiceover_by_context(self):
-        # novel 源画外音克制放开——由语境判断产出，不一律禁用、不预设规则白名单、不作兜底
+        # Novel voiceovers are cautiously context-driven: neither universally forbidden, predefined by whitelists, nor fallback content.
         prompt = self._normalize_prompt("novel")
-        assert "画外音" in prompt
-        assert "语境" in prompt
-        # 旧的「不产出 voiceover」禁令必须移除
-        assert "不产出 voiceover" not in prompt
+        assert "off-screen speech" in prompt
+        assert "context" in prompt
+        # Remove the old prohibition on voiceover output.
+        assert "do not produce voiceover" not in prompt
 
     def test_normalize_screenplay_flips_to_extract_first(self):
         prompt = self._normalize_prompt("screenplay")
-        # 提取 / 逐字保留语义在场，剧本原文为输入，口播落 utterances、原文落 source_text，不含「改编」
-        assert "提取" in prompt
-        assert "逐字" in prompt
-        assert "画外音" in prompt
+        # Extraction/verbatim semantics exist: screenplay source feeds utterances/source_text, without adaptation.
+        assert "extract" in prompt
+        assert "verbatim" in prompt
+        assert "off-screen speech" in prompt
         assert "<screenplay>\n【第1集】角色甲：「你好」\n</screenplay>" in prompt
         assert "utterances" in prompt
         assert "source_text" in prompt
-        assert "改编" not in prompt
+        assert "adapt" not in prompt
 
     def test_normalize_screenplay_language_rule_exempts_verbatim_fields(self):
-        # 逐字字段与资产引用须排除在目标语言要求外，否则与逐字提取冲突或与已登记资产失配。
+        # Exempt verbatim fields/asset references from target-language requirements to avoid extraction conflicts or registered-name mismatches.
         screenplay = self._normalize_prompt("screenplay")
-        # screenplay：台词 text + 说话人 speaker + 原文锚 source_text 全部逐字豁免
-        assert "不翻译" in screenplay
+        # Screenplays exempt dialogue text, speaker, and source_text verbatim.
+        assert "without translation" in screenplay
         assert "utterances[].speaker" in screenplay
         assert "utterances[].text" in screenplay
         assert "source_text" in screenplay
-        # 资产引用键（characters_in_scene / scenes / props）同为精确集合校验对象，须一并豁免
+        # Asset-reference fields characters_in_scene/scenes/props undergo exact-set validation and need exemptions too.
         assert "characters_in_scene[]" in screenplay
 
     def test_normalize_novel_exempts_speaker_and_source_text_not_dialogue_text(self):
-        # speaker 是资产引用值（须等于 characters_in_scene 登记名），被翻译会破坏字幕归属 / TTS 映射，
-        # 故 novel 也豁免 speaker；但 novel 台词 text 仍按目标语言改编（非逐字提取）。
+        # speaker references assets and must equal registered characters_in_scene names; translating it breaks subtitle/TTS mapping,
+        # so novels also exempt speaker, but adapt dialogue text into target languages rather than extracting verbatim.
         novel = self._normalize_prompt("novel")
         assert "utterances[].speaker" in novel
         assert "source_text" in novel
-        # 关键判别：novel 不逐字保留台词 text（screenplay 才豁免 utterances[].text）
+        # Key distinction: novels do not preserve dialogue text verbatim; only screenplays exempt utterances[].text.
         assert "utterances[].text" not in novel
 
     def test_normalize_includes_episode_outline_when_present(self):
-        # 分集大纲（故事节点 / 钩子）驱动 script_plan 的内容覆盖与末场落地
+        # Episode outline story beats/hooks drive script_plan content coverage and final-scene implementation.
         prompt = self._normalize_prompt(
             "novel",
             episode_outline={
@@ -319,45 +321,53 @@ class TestScreenplaySourceKind:
     def test_normalize_source_block_has_one_heading_and_kind_tag(self):
         for source_kind, other in (("novel", "screenplay"), ("screenplay", "novel")):
             prompt = self._normalize_prompt(source_kind)
-            assert f"## 源文\n\n<{source_kind}>\n【第1集】角色甲：「你好」\n</{source_kind}>" in prompt
+            assert f"## Source text\n\n<{source_kind}>\n【第1集】角色甲：「你好」\n</{source_kind}>" in prompt
             assert f"<{other}>" not in prompt
-            assert "## 小说原文" not in prompt
-            assert "## 剧本原文" not in prompt
+            assert "## Novel source" not in prompt
+            assert "## Screenplay source" not in prompt
 
     def test_normalize_segment_break_rule_for_both_source_kinds(self):
         novel = self._normalize_prompt("novel")
         screenplay = self._normalize_prompt("screenplay")
-        assert "\n- **segment_break**：改编时自行判断：地点 / 时间跳转或场景切换后的第一个分镜标「是」" in novel
-        assert "\n- **segment_break**：沿用剧本自带的场次 / 场景切换" in screenplay
-        assert "不要重新切碎作者的场次" not in novel
+        assert (
+            "\n- **segment_break**: Use your judgment during adaptation: mark the first shot after a location / time jump or scene change “是”"
+            in novel
+        )
+        assert "\n- **segment_break**: Retain the screenplay’s scene divisions / scene changes" in screenplay
+        assert "do not fragment the author’s scenes again" not in novel
 
     def test_normalize_duration_rule_splits_into_three_sub_items(self):
         prompt = self._normalize_prompt("novel", episode_target_duration=90)
-        section = prompt.split("- **duration_seconds**：\n", 1)[1].split("\n- **segment_break**", 1)[0]
+        section = prompt.split("- **duration_seconds**:\n", 1)[1].split("\n- **segment_break**", 1)[0]
         lines = section.split("\n")
-        assert [line.split("：", 1)[0] for line in lines] == ["  - 档位", "  - 口播下界", "  - 单集目标"]
-        assert "默认 8 秒" in lines[0]
-        assert "不低于" in lines[1]
-        assert "本集成片目标时长约 90 秒" in lines[2]
-        assert "保存时会另有提示" not in prompt
+        assert [line.split(":", 1)[0] for line in lines] == [
+            "  - Tiers",
+            "  - Spoken-content lower bound",
+            "  - Episode target",
+        ]
+        assert "default 8 seconds" in lines[0]
+        assert "not below" in lines[1]
+        assert "The target finished duration of this episode is approximately 90 seconds" in lines[2]
+        assert "a separate notice will appear on save" not in prompt
 
         without_target = self._normalize_prompt("novel")
-        assert "  - 单集目标：" not in without_target
-        assert "  - 口播下界：" in without_target
+        assert "  - Episode target:" not in without_target
+        assert "  - Spoken-content lower bound:" in without_target
 
     def test_normalize_output_language_keeps_main_clause_for_both_source_kinds(self):
         for source_kind in ("novel", "screenplay"):
             prompt = self._normalize_prompt(source_kind, target_language="English")
             assert (
-                "**输出语言**：自然语言字符串值必须使用 English；JSON 键名 / 枚举值保持英文。例外（逐字保留" in prompt
+                "**Output language**: natural-language string values must use English; keep JSON keys / enum values in English. Exceptions (preserve"
+                in prompt
             )
 
     def test_normalize_mentions_extras_exclusion_once(self):
         for source_kind in ("novel", "screenplay"):
             prompt = self._normalize_prompt(source_kind)
-            assert prompt.count("老人甲") == 1
-            assert "不登记为角色资产" not in prompt
-        assert "是否产出由你依语境创作判断" not in self._normalize_prompt("novel")
+            assert prompt.count("old man A") == 1
+            assert "do not register as character assets" not in prompt
+        assert "whether to produce it is your creative judgment based on context" not in self._normalize_prompt("novel")
 
     def test_normalize_lists_every_asset_type_when_multiple_are_empty(self):
         prompt = self._normalize_prompt(
@@ -367,17 +377,17 @@ class TestScreenplaySourceKind:
             props={},
         )
         assert "<characters>\n- 姜月茴\n</characters>" in prompt
-        assert "<scenes>\n（暂无）\n</scenes>" in prompt
-        assert "<props>\n（暂无）\n</props>" in prompt
-        assert "  - 候选 scenes：[（暂无）]" in prompt
-        assert "  - 候选 props：[（暂无）]" in prompt
+        assert "<scenes>\n(none yet)\n</scenes>" in prompt
+        assert "<props>\n(none yet)\n</props>" in prompt
+        assert "  - Candidate scenes: [(none yet)]" in prompt
+        assert "  - Candidate props: [(none yet)]" in prompt
 
     def test_normalize_renders_null_overview_fields_as_blank(self):
         prompt = self._normalize_prompt(
             "novel",
             project_overview={"synopsis": None, "genre": None, "theme": "真相", "world_setting": None},
         )
-        assert "<overview>\n\n题材类型：\n核心主题：真相\n世界观设定：\n</overview>" in prompt
+        assert "<overview>\n\nGenre: \nCore theme: 真相\nWorld setting: \n</overview>" in prompt
 
     def test_narration_prompts_keep_every_empty_asset_block(self):
         empty_assets = {"characters": {}, "scenes": {}, "props": {}}
@@ -402,7 +412,7 @@ class TestScreenplaySourceKind:
         ]
         for prompt in prompts:
             for tag in ("characters", "scenes", "props"):
-                assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+                assert f"<{tag}>\n(none yet)\n</{tag}>" in prompt
 
     def test_normalize_omits_blank_or_non_text_outline_fields(self):
         prompt = self._normalize_prompt(
@@ -410,10 +420,10 @@ class TestScreenplaySourceKind:
             episode_outline={"title": 42, "story_beats": ["  ", "踏进祖宅"], "hook": "  ", "next_episode_teaser": None},
         )
         assert (
-            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n故事节点：\n- 踏进祖宅\n</episode_outline>"
+            "<episode_outline>\nThis episode’s outline (designed during episode planning; the script must cover every story beat):\nStory beats:\n- 踏进祖宅\n</episode_outline>"
             in prompt
         )
-        assert "末场（最后一个或几个分镜）" not in prompt
+        assert "The final scene (the last shot or shots)" not in prompt
         blank = {"title": " ", "story_beats": [""], "hook": " ", "next_episode_teaser": " "}
         assert self._normalize_prompt("novel", episode_outline=blank) == self._normalize_prompt("novel")
 
@@ -424,36 +434,39 @@ class TestScreenplaySourceKind:
             next_episode_outline={"title": "族谱", "story_beats": ["族谱缺页"]},
         )
         assert (
-            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n本集标题：归家\n"
-            "故事节点：\n- 踏进祖宅\n集尾钩子：信纸落下\n</episode_outline>"
+            "<episode_outline>\nThis episode’s outline (designed during episode planning; the script must cover every story beat):\nThis episode’s title: 归家\n"
+            "Story beats:\n- 踏进祖宅\nEpisode-end hook: 信纸落下\n</episode_outline>"
         ) in prompt
-        assert "末场（最后一个或几个分镜）的画面与对白须实际呈现集尾钩子" in prompt
         assert (
-            "<next_episode_outline>\n下集大纲（仅用于设计本集结尾的衔接，不要把下集情节提前写进本集）：\n"
-            "下集标题：族谱\n故事节点：\n- 族谱缺页\n</next_episode_outline>"
+            "The final scene (the last shot or shots) must actually depict the dramatic content of the episode-end hook in visuals and dialogue"
+            in prompt
+        )
+        assert (
+            "<next_episode_outline>\nNext episode’s outline (only for designing the connection at this episode’s end; do not bring next episode’s plot into this episode):\n"
+            "Next episode’s title: 族谱\nStory beats:\n- 族谱缺页\n</next_episode_outline>"
         ) in prompt
 
     def test_normalize_omits_hook_landing_without_hook_or_teaser(self):
         prompt = self._normalize_prompt("novel", episode_outline={"title": "归家", "story_beats": ["踏进祖宅"]})
         assert "<episode_outline>" in prompt
-        assert "末场（最后一个或几个分镜）" not in prompt
+        assert "The final scene (the last shot or shots)" not in prompt
 
     def test_normalize_appends_instructions_after_single_blank_line(self):
         for source_kind in ("novel", "screenplay"):
             prompt = self._normalize_prompt(source_kind, instructions="多用近景。\n少用旁白。")
-            assert prompt.endswith("留空。\n\n# 附加指令\n多用近景。\n少用旁白。")
+            assert prompt.endswith("empty for `merge` and `skip`.\n\n# Additional instructions\n多用近景。\n少用旁白。")
             plain = self._normalize_prompt(source_kind)
-            assert "# 附加指令" not in plain
+            assert "# Additional instructions" not in plain
             assert plain == self._normalize_prompt(source_kind, instructions="")
 
     def test_normalize_injects_pacing(self):
-        # script_plan 无条件提供开篇节奏建议。
-        assert "开篇~4秒承担钩子职能" in self._squash(self._normalize_prompt("novel"))
+        # script_plan always provides opening-rhythm guidance.
+        assert "Thefirst~4secondsserveasahook" in self._squash(self._normalize_prompt("novel"))
 
 
 class TestOverviewPrompt:
-    """source_kind=screenplay 下 overview prompt 翻为「提取优先」：作者写下的创作方案前言优先照用、
-    缺失才退回从正文归纳。只断言语义关键词在场/缺席与分支路由，不锁逐字措辞、不测 LLM 提取质量。"""
+    """Screenplay overview prompts prioritize extraction: retain author-written creative-plan introductions first,
+    summarizing bodies only if absent. Assert semantic presence/absence and routing, not exact wording or LLM quality."""
 
     def test_novel_default_keeps_source_text(self):
         prompt = build_overview_prompt("正文内容", source_kind="novel")
@@ -466,16 +479,16 @@ class TestOverviewPrompt:
     def test_prompt_has_task_language_and_source_in_order(self):
         prompt = build_overview_prompt("正文内容", source_kind="novel", target_language="English")
         assert prompt == (
-            "请分析以下小说内容，提取关键信息：\n\n"
-            "**输出语言**：所有字符串值必须使用 English；JSON 键名 / 枚举值保持英文。\n\n"
+            "Analyze the following novel content and extract key information:\n\n"
+            "**Output language**: all string values must use English; keep JSON keys / enum values in English.\n\n"
             "正文内容"
         )
 
     def test_screenplay_prefers_author_creative_plan(self):
         prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
-        assert prompt.startswith("请分析以下成品剧本，提炼项目概述")
-        assert "优先照用作者已写下的设定" in prompt
-        assert "请分析以下小说内容" not in prompt
+        assert prompt.startswith("Analyze the following finished screenplay and derive a project overview")
+        assert "prioritize the author’s existing premises" in prompt
+        assert "Analyze the following novel content" not in prompt
 
     def test_screenplay_differs_from_novel(self):
         content = "同一段源文本"
@@ -495,14 +508,15 @@ class TestOverviewPrompt:
 
 
 class TestDramaDurationSpeechLowerBound:
-    """drama script_plan 时长指引的「台词口播时长」单向下界软指引（生成期，纯 prompt 软约束）。
+    """Drama script_plan dialogue-duration guidance supplies a one-way soft lower bound during generation.
 
-    语速从 lib.speech.speech_rate 单一真相源按项目 source_language 注入；drama prompt 内不写死语速数字。
-    单向：画面 / 留白可把时长撑长，台词永不把时长压短；空 utterances 无下界、行为同今日。
-    narration / ad / prompt_authoring 视觉层不受影响。只断言语义关键词与注入值，不锁逐字措辞。
+    Inject rates from lib.speech.speech_rate by source_language, never hardcode them in drama
+    prompts. One-way means visuals/pauses may lengthen scenes, never shorten them due to dialogue;
+    empty utterances have no lower bound and keep current behavior. Narration/ad/visual
+    prompt_authoring are unaffected. Assert semantic keywords/injected values, not exact wording.
     """
 
-    _SPEECH_MARKER = "口播语速约"
+    _SPEECH_MARKER = "Spoken-content lower bound:"
 
     def _normalize(self, **overrides) -> str:
         kwargs = {
@@ -520,41 +534,42 @@ class TestDramaDurationSpeechLowerBound:
         return build_normalize_prompt(**kwargs)
 
     def test_speech_rate_injected_from_single_source(self):
-        # 语速数字来自 lib.speech.speech_rate 单一真相源，按 source_language 取；zh 计字、en / vi 计词
+        # Rates come solely from lib.speech.speech_rate by source_language: zh characters, en/vi words.
+        assert self._SPEECH_MARKER in self._normalize()
         for lang in ("zh", "en", "vi"):
             rate = speech_rate_units_per_second(lang)
             assert f"{rate:g}" in self._normalize(source_language=lang)
-        assert "字/秒" in self._normalize(source_language="zh")
-        assert "词/秒" in self._normalize(source_language="en")
-        assert "词/秒" in self._normalize(source_language="vi")
+        assert "字/second" in self._normalize(source_language="zh")
+        assert "词/second" in self._normalize(source_language="en")
+        assert "词/second" in self._normalize(source_language="vi")
 
     def test_no_hardcoded_speech_rate_number(self):
-        # 语速随语言变化 → 证明是注入而非写死；zh（字/秒）与 en（词/秒）语速不同则两处数字不同
+        # Language-varying rates prove injection, not hardcoding; different zh characters/second and en words/second yield different numbers.
         zh_rate = speech_rate_units_per_second("zh")
         en_rate = speech_rate_units_per_second("en")
-        assert zh_rate != en_rate  # 前置：两语言语速确实不同
-        assert f"{zh_rate:g} 字/秒" in self._normalize(source_language="zh")
-        assert f"{en_rate:g} 词/秒" in self._normalize(source_language="en")
+        assert zh_rate != en_rate  # Precondition: both language rates really differ.
+        assert f"{zh_rate:g} 字/second" in self._normalize(source_language="zh")
+        assert f"{en_rate:g} 词/second" in self._normalize(source_language="en")
 
     def test_missing_source_language_falls_back_to_default_rate(self):
-        # source_language 缺省 → 回退默认语速（speech_rate 单一真相源同口径），向后兼容
+        # Missing source_language uses default rates from the same source, preserving backward compatibility.
         default_rate = speech_rate_units_per_second(None)
         assert f"{default_rate:g}" in self._normalize()
 
     def test_non_string_source_language_falls_back_to_default_rate(self):
-        # source_language 为非字符串脏数据（project.json 类型未强校验）→ 回退默认语速不崩溃，
-        # 与保存期上界 warning 同口径守卫；回退 None 走 zh 计字口径
+        # Nonstring dirty source_language (project.json not strictly typed) uses defaults without crashing,
+        # matching save-time upper-bound warnings; None falls back to zh character units.
         default_rate = speech_rate_units_per_second(None)
         for dirty in (5, ["zh"]):
-            assert f"{default_rate:g} 字/秒" in self._normalize(source_language=dirty)
+            assert f"{default_rate:g} 字/second" in self._normalize(source_language=dirty)
 
     def test_project_override_wins_over_language_default(self):
-        # 项目级语速覆盖生效时，注入 prompt 的是覆盖值而非语言默认；量词仍随语言
-        assert "7.5 字/秒" in self._normalize(source_language="zh", speech_rate_override=7.5)
-        assert "7.5 词/秒" in self._normalize(source_language="en", speech_rate_override=7.5)
+        # Effective project overrides inject overridden rates, not defaults; units still follow language.
+        assert "7.5 字/second" in self._normalize(source_language="zh", speech_rate_override=7.5)
+        assert "7.5 词/second" in self._normalize(source_language="en", speech_rate_override=7.5)
 
     def test_narration_and_prompt_authoring_drama_have_no_speech_lower_bound(self):
-        # 生成期时长下界只在 drama script_plan（normalize）；narration prompt_authoring 与 drama prompt_authoring 视觉层不含
+        # Generation lower bounds apply only to drama script_plan normalize, not narration/drama visual prompt_authoring.
         narration = build_narration_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="古风",
@@ -578,7 +593,7 @@ class TestDramaDurationSpeechLowerBound:
         assert self._SPEECH_MARKER not in drama_prompt_authoring
 
     def test_ad_prompt_unaffected(self):
-        # 广告脚本规划走字数→时长折算，不注入台词标记。
+        # Ad script planning converts text counts into durations, without dialogue markers.
         ad = build_ad_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -596,12 +611,12 @@ class TestDramaDurationSpeechLowerBound:
 
 
 class TestPromptAuthoringPromptGuards:
-    """prompt_authoring（视觉层）prompt 骨架守卫：节奏建议始终注入、schema 枚举不重复列举、
-    无字数硬限制、episode 约束在场且 scene_id 对齐要求不施加固定格式。"""
+    """Visual prompt_authoring skeleton guards: always-injected rhythm guidance, no repeated schema enums,
+    no hard text-count cap, episode constraints present, and no fixed scene_id alignment format."""
 
     @staticmethod
     def _squash(text: str) -> str:
-        """去除全部空白字符，用于跨缩进比较。"""
+        """Remove all whitespace for cross-indentation comparisons."""
         return "".join(text.split())
 
     def _narration_prompt(self, **overrides) -> str:
@@ -630,63 +645,65 @@ class TestPromptAuthoringPromptGuards:
 
     def test_drama_prompt_injects_pacing(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
-        assert "开篇~4秒承担钩子职能" in self._squash(self._drama_prompt())
+        assert "Thefirst~4secondsserveasahook" in self._squash(self._drama_prompt())
 
     @pytest.mark.parametrize("instructions", [None, "", "末镜保留雨声。"])
     def test_narration_instructions_are_an_optional_section(self, instructions):
         text = self._narration_prompt(instructions=instructions)
         if instructions:
-            assert text.endswith("\n\n# 附加指令\n末镜保留雨声。")
-            assert text.count("# 附加指令") == 1
+            assert text.endswith("\n\n# Additional instructions\n末镜保留雨声。")
+            assert text.count("# Additional instructions") == 1
         else:
-            assert "# 附加指令" not in text
-        assert "任务已排队、已计费" not in text
+            assert "# Additional instructions" not in text
+        assert "the task is queued and billed" not in text
         assert "**video_prompt.action**" in text
         assert "None" not in text
 
     def test_narration_prompt_injects_pacing(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
-        assert "首段画面（朗读前~4秒）服务于钩子" in self._squash(self._narration_prompt())
+        assert "Theopeningvisualsegment(thefirst~4secondsofreading)servesthehook" in self._squash(
+            self._narration_prompt()
+        )
 
     def test_drama_no_enum_dump_in_prompt(self):
-        """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
+        """Omit repeated schema enum lists from prompts, saving tokens and preventing drift."""
         text = self._drama_prompt()
         assert "Tracking Shot" not in text
         assert "Pan Left, Pan Right" not in text
 
     def test_drama_no_hard_char_limit(self):
-        """LLM 无法精确数字数，prompt 不写硬性字数上限。"""
+        """LLMs cannot count characters precisely; prompts contain no hard character-count caps."""
         text = self._drama_prompt()
-        assert "200 字以内" not in text
-        assert "150 字以内" not in text
+        assert "within 200 characters" not in text
+        assert "within 150 characters" not in text
 
     def test_drama_injects_episode_constraints(self):
-        """drama prompt 必须明确告知 LLM 当前 episode，避免 ID 跨集污染。"""
+        """Drama prompts explicitly identify the current episode to prevent cross-episode ID pollution."""
         text = self._drama_prompt()
         assert "E2S" in text
 
     def test_drama_prompt_authoring_scene_id_preserves_edit_suffix_no_fixed_format(self):
-        """prompt_authoring 视觉层 scene_id 须逐字保留 script_plan 原 ID（含拆分/编辑后缀如 E2S02_1）；
-        不得施加 E{集}S{两位序号} 固定格式约束——模型若去掉后缀，merge 按精确串对齐会整集失败。"""
+        """Visual prompt_authoring scene_id preserves exact script_plan IDs, including split/edit suffixes such as E2S02_1.
+        Never impose E{集}S{两位序号}; models dropping suffixes would fail whole-episode exact-string merges."""
         text = self._drama_prompt()
-        assert "逐字等于" in text
-        assert "后缀" in text
-        assert "两位序号" not in text
+        assert "exactly match" in text
+        assert "suffixes" in text
+        assert "two-digit sequence" not in text
 
     def test_narration_injects_episode_constraints(self):
-        """narration prompt 须告知 episode；script_plan 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
+        """Narration prompts identify episodes; script_plan already allocated E{N}S prefixes, so render segment_id and require exact alignment."""
         text = self._narration_prompt()
         assert "E2S" in text
 
     def test_narration_injects_asset_appearance(self):
-        """prompt_authoring 资产块携带外观描述并声明取材口径，视觉字段写细节时从登记描述取材、不自行发明。"""
+        """prompt_authoring asset blocks carry appearance descriptions/source rules; visuals draw registered details rather than inventing them."""
         text = self._narration_prompt()
-        assert "- 主角：X" in text
-        assert "- 庙宇：Y" in text
-        assert "- 玉佩：Z" in text
+        assert "- 主角: X" in text
+        assert "- 庙宇: Y" in text
+        assert "- 玉佩: Z" in text
 
     def test_drama_injects_asset_appearance_when_provided(self):
-        """drama prompt_authoring 传入资产 bucket 时渲染外观词典；缺描述的资产退化为纯名字。"""
+        """Drama asset buckets render appearance dictionaries; undescribed assets fall back to names only."""
         text = build_drama_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -697,15 +714,15 @@ class TestPromptAuthoringPromptGuards:
             scenes={"庙宇": {"description": "Y"}},
             props={"玉佩": {}},
         )
-        assert "- 主角：X" in text
-        assert "- 庙宇：Y" in text
+        assert "- 主角: X" in text
+        assert "- 庙宇: Y" in text
         assert "- 玉佩" in text
 
     @pytest.mark.parametrize("builder", ["drama", "narration", "ad"])
     def test_prompt_authoring_warns_off_task_type_trigger_words(self, builder: str):
-        """三条 prompt_authoring 路径都须把任务类型触发词避讳带给真正落笔 video_prompt 的文案模型。
+        """All three prompt_authoring routes deliver task-type-trigger avoidance to the text model actually writing video_prompt.
 
-        编排层 CLAUDE.*.md 里的同名约束进不了这次调用，故此处锁的是 prompt 正文本身。
+        Orchestration CLAUDE.*.md constraints never reach this invocation, so pin prompt bodies themselves.
         """
         if builder == "drama":
             text = self._drama_prompt()
@@ -725,19 +742,19 @@ class TestPromptAuthoringPromptGuards:
                 generation_mode="image",
                 supported_durations=[4, 6, 8],
             )
-        assert "任务类型触发词" in text
-        assert "改成" in text
-        assert "延长" in text
+        assert "task-type trigger words" in text
+        assert "change to" in text
+        assert "extend" in text
 
     def test_drama_omits_asset_block_without_assets(self):
-        """兼容旧调用：不传资产参数时 drama prompt_authoring 不渲染资产块与取材注记。"""
+        """Legacy calls omitting assets render neither asset blocks nor sourcing notes in drama prompt_authoring."""
         text = self._drama_prompt()
         assert "<characters>" not in text
-        assert "资产外观以上述描述为准" not in text
+        assert "The descriptions above are authoritative for asset appearance" not in text
 
 
 class TestBuildNarrationSplitPrompt:
-    """script_plan 说书分镜拆分 prompt（源文 → 结构化分镜表）。"""
+    """Narration script_plan storyboard-splitting prompt: source text to structured storyboard table."""
 
     def _prompt(self, **overrides):
         kwargs = {
@@ -758,17 +775,17 @@ class TestBuildNarrationSplitPrompt:
         assert "E1S" in text
         assert "张三" in text
         assert "村口" in text
-        # 档位与默认偏好进 prompt
+        # Inject tiers/default preferences into prompts.
         assert "4, 6, 8" in text
-        assert "默认取 4 秒" in text
+        assert "default to 4 seconds" in text
 
     def test_mirrors_narration_pacing_rules(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
         text = self._prompt()
-        assert "旁白/解说节奏建议：" in text
+        assert "Pacing suggestions for narration / commentary:" in text
 
     def test_drifted_default_treated_as_null_not_raised(self):
-        """default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。"""
+        """Defaults outside supported_durations behave as null rather than failing loudly, preserving soft-preference rules."""
         assert self._prompt(default_duration=5)
 
     def test_empty_supported_durations_raises(self):
@@ -782,14 +799,14 @@ class TestBuildNarrationSplitPrompt:
         assert "张三走向村口，久久凝望。" in text
 
 
-#: 一个带衍生的角色表：候选块要列出 `姜月茴/劲装`，其外观是本体描述加上这一段变化。
+#: Character table with derivatives: list `姜月茴/劲装`, whose appearance combines base descriptions and derivative changes.
 _CHARACTERS_WITH_DERIVATIVE = {
     "姜月茴": {"description": "青衣少女", "derivatives": {"劲装": {"description": "换上黑色劲装"}}}
 }
 
 
 class TestDerivativeAssetCandidates:
-    """角色候选块列出 `本体/衍生`，外观是本体描述加上这一段变化（ADR 0072）。"""
+    """Character candidates list `本体/衍生`, combining base descriptions and derivative appearance changes (ADR 0072)."""
 
     def test_narration_split_prompt_lists_the_derivative_candidate(self):
         prompt = build_narration_split_prompt(
@@ -819,4 +836,4 @@ class TestDerivativeAssetCandidates:
             episode=1,
         )
 
-        assert "- 姜月茴/劲装：青衣少女\n  当前形态：换上黑色劲装" in prompt
+        assert "- 姜月茴/劲装: 青衣少女\n  Current appearance: 换上黑色劲装" in prompt

@@ -1,4 +1,4 @@
-"""Web 与 Agent 共用的整批准入判定适配层：分镜图生视频与参考生视频的当前状态判定。"""
+"""Shared Web/Agent batch-admission adapter: assess current storyboard-image-to-video and reference-to-video state."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _stub_state(
 
 
 async def test_storyboard_admission_consults_only_active_tasks(monkeypatch, tmp_path: Path):
-    """分镜图生视频的档位由执行期按剧本取，整批准入唯一查询的状态是在途任务冲突。"""
+    """Storyboard-video tiers are selected from scripts during execution; batch admission checks only in-flight task conflicts."""
 
     probes = _stub_state(monkeypatch)
 
@@ -59,7 +59,7 @@ async def test_storyboard_admission_consults_only_active_tasks(monkeypatch, tmp_
 
 
 async def test_storyboard_facts_failure_blocks_each_target_with_code_params_and_action(monkeypatch, tmp_path: Path):
-    """分镜路线只有一个桶：事实失败时每个目标都带同一问题码、参数与修复指引，不塌成一句通用错误。"""
+    """Storyboard route has one bucket: request-fact failures give every target the same problem code, parameters and recovery guidance rather than one generic error."""
     _stub_state(monkeypatch)
     failure = VideoRequestFactsFailure(
         "video_supported_durations_incompatible",
@@ -82,7 +82,7 @@ async def test_storyboard_facts_failure_blocks_each_target_with_code_params_and_
 
 
 async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch, tmp_path: Path):
-    """在途任务是整批的前置冲突：占用中的 unit 不再解析，也不让整批入队。"""
+    """In-flight tasks are a batch-level prerequisite conflict: do not resolve occupied units again or enqueue the batch."""
 
     _stub_state(monkeypatch, active=[{"resource_id": "E1U1", "id": "task-1", "status": "queued"}])
     projected: list[str] = []
@@ -200,7 +200,7 @@ async def test_reference_facts_failure_keeps_action_for_each_unit(monkeypatch, t
 async def test_reference_bucket_failure_blocks_only_its_units_and_withholds_the_healthy_bucket(
     monkeypatch, tmp_path: Path
 ):
-    """i2v 桶解析不出、r2v 桶健康：无图单元带自己的问题码阻断，有图单元本身通过，整批只因前者受阻。"""
+    """Unresolvable i2v bucket with healthy r2v: imageless units block with their own codes, image-backed units pass individually, and only the former block the batch."""
     from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
 
     _stub_state(monkeypatch)
@@ -251,7 +251,7 @@ async def test_reference_bucket_failure_blocks_only_its_units_and_withholds_the_
 
 
 async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
-    """调用方在准入前就判死的目标（不存在的 ID、坏 unit）与本批共用一个结论。"""
+    """Targets already rejected by callers (missing IDs, malformed units) share this batch's conclusion."""
 
     from lib.generation.batch_admission import refused_ticket
 
@@ -297,7 +297,7 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
 
 
 def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict[str, Any]:
-    """已激活产物清单的项目：张三的图由补录认领；李四的图在盘上、路径已登记，但清单从未认领。"""
+    """A project with active artifact manifests: 张三's image is claimed by backfill; 李四's image exists with a registered path but was never claimed."""
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters" / "张三.png").write_bytes(b"image")
     project = activate_reference_project(
@@ -312,7 +312,7 @@ def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict[str, Any]:
 async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
     monkeypatch, tmp_path: Path, set_video_request_facts
 ):
-    """整批准入与画布逐单元结论同判据：图在盘上但清单未认领的单元两侧都落 i2v，准入阻断而非按 r2v 放行。"""
+    """Batch and canvas per-unit admission use identical criteria: on-disk but unclaimed images select i2v on both paths and block, rather than admitting as r2v."""
     _stub_state(monkeypatch)
 
     set_video_request_facts(
@@ -362,7 +362,7 @@ async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
 async def test_reference_admission_judges_the_whole_batch_on_one_manifest_snapshot(
     monkeypatch, tmp_path: Path, set_video_request_facts
 ):
-    """一批单元在同一份清单快照上判定：中途清单被替换（认领被撤），后面的单元仍按批开始时的结论。"""
+    """Assess a batch against one manifest snapshot: even if replaced mid-batch and claims revoked, later units retain the initial assessment."""
     _stub_state(monkeypatch)
     set_video_request_facts(
         make_video_request_facts(
@@ -409,7 +409,7 @@ async def test_reference_admission_judges_the_whole_batch_on_one_manifest_snapsh
 async def test_reference_admission_is_identical_for_tts_and_post_production_projects(
     monkeypatch, tmp_path: Path, set_video_request_facts
 ):
-    """旁白交付方式不影响视频请求：同一批单元在 use_tts 与 post_production 项目下取档、确认与报价坐标一致。"""
+    """Narration delivery does not affect video requests: identical units in use_tts and post_production projects share tier, confirmation and quote coordinates."""
     _stub_state(monkeypatch)
     set_video_request_facts(
         make_video_request_facts(

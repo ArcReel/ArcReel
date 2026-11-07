@@ -41,7 +41,7 @@ import { ModelIdField } from "./ModelIdField";
 import { PresetIcon } from "./PresetIcon";
 import { TestResultPanel } from "./TestResultPanel";
 
-// Anthropic 官方预设：留空的路由档位交给 Claude Code 决定，不填成默认模型（与后端 lib/agent/credential_tiers.py 一致）。
+// Official Anthropic presets leave empty routing tiers to Claude Code rather than filling default models (matching lib/agent/credential_tiers.py).
 const ANTHROPIC_OFFICIAL_PRESET_ID = "anthropic-official";
 
 interface Props {
@@ -78,25 +78,25 @@ export function AddCredentialModal({
         initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
       ),
   );
-  // 从自定义供应商导入：列出已配置 api_key 的 providers，选中后预填 baseUrl，
-  // 提交时只带供应商 id，密钥由服务端从该供应商复制，前端不经手明文。
+  // Import custom providers: list providers with configured api_key and prefill baseUrl after selection;
+  // submit provider IDs only, letting servers copy keys from providers without frontend plaintext handling.
   const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
   const [importSource, setImportSource] = useState<CustomProviderInfo | null>(null);
 
-  // 草稿态连接测试：保存前先验 base_url + api_key 是否能真实跑通
+  // Draft connection tests: verify base_url + api_key actually work before saving.
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
 
-  // 异步竞态隔离：modal 关闭后，discover/test 的 await 仍可能返回并写 state。
-  // async 路径在 await 后比对 session id，不一致则丢弃结果。
+  // Isolate async races: discover/test awaits may return and write state after modals close.
+  // Async paths compare session IDs after await, discarding mismatched results.
   const sessionRef = useRef(0);
 
   useEffect(() => {
     if (!open || mode !== "create") return;
     let cancelled = false;
-    // 拉取前先清旧列表：失败时不会残留上一轮 providers（同一 React 组件实例
-    // 跨 modal 会话保留 state），避免用户点到已删除/失效的 provider 触发 404。
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开 modal 是外部事件，拉取前须同步清空上一轮列表
+    // Clear old lists before fetching: failures cannot retain previous providers (the same React component instance
+    // retains state across modal sessions), preventing selections of deleted/invalid providers that trigger 404.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Modal opening is external; synchronously clear previous lists before fetching
     setProviders([]);
     void (async () => {
       try {
@@ -105,7 +105,7 @@ export function AddCredentialModal({
           setProviders(res.providers.filter((p) => p.api_key_masked));
         }
       } catch {
-        // 静默：导入是可选快捷入口，失败不打断主流程
+        // Silent: optional import shortcuts must not interrupt primary flows on failure.
       }
     })();
     return () => {
@@ -113,8 +113,8 @@ export function AddCredentialModal({
     };
   }, [open, mode]);
 
-  // 每次打开由父组件换 key 重挂载，表单与诊断状态随之从 initial 重建。关闭（或卸载）时换一轮
-  // session：弹窗关着时返回的 discover/test 结果比对不上，不再写 state、不弹提示。
+  // Parents change keys to remount each opening, rebuilding forms/diagnostics from initial state. Closing/unmounting rotates
+  // sessions so discover/test results returning while closed cannot match, write state or show notifications.
   useEffect(
     () => () => {
       sessionRef.current += 1;
@@ -127,23 +127,23 @@ export function AddCredentialModal({
     return presets.find((p) => p.id === form.presetId) ?? null;
   }, [form.presetId, presets, customSentinelId]);
 
-  // 供应商不提供模型列表接口时（如火山方舟两档套餐），下拉框回退到预设的建议模型，
-  // 用户不必知道模型 ID 也能选中一个可用值。
+  // When providers lack model-list APIs (e.g. the two Volcengine Ark subscription tiers), selects fall back to recommended preset models
+  // so users can choose usable values without knowing model IDs.
   const availableModels = modelOptions.length > 0 ? modelOptions : (selected?.suggested_models ?? []);
 
-  // 预览即 Agent 运行时固定调用的地址：base_url 原样存储，CLI 内置 SDK 只在其后拼 /v1/messages
+  // Previews show fixed Agent runtime destinations: store base_url unchanged; CLI SDKs append only /v1/messages.
   const baseUrlRejected = hasUnsupportedUrlComponents(form.baseUrl);
   const messagesUrlPreview = form.baseUrl.trim() ? anthropicMessagesUrl(form.baseUrl) : "";
 
-  // 草稿任意可影响连通性的字段（preset / base_url / api_key / model）变化后，
-  // 旧 testResult 已经不对应当前草稿了，必须失效，避免用户把未重新验证的配置
-  // 当成已通过验证。
+  // Changes to connectivity-relevant draft fields (preset / base_url / api_key / model) mean
+  // previous testResult no longer describes current drafts; invalidate it so users never mistake unverified configurations
+  // for verified ones.
   const invalidateDraftTest = () => {
     setTestResult(null);
   };
 
-  // modelOptions 是按 (endpoint, credential) 元组发现出来的；base_url 或 api_key
-  // 变了，旧列表里的 id 在新 endpoint 不一定支持，让它失效避免用户保存无效配置。
+  // modelOptions are discovered by (endpoint, credential) tuples; changed base_url/api_key may leave old
+  // IDs unsupported at new endpoints, so invalidate lists to prevent saving unusable configurations.
   const invalidateDiscoveredModels = () => {
     setModelOptions([]);
     setDiscoverError(null);
@@ -165,10 +165,10 @@ export function AddCredentialModal({
     setDiscovering(true);
     setDiscoverError(null);
     try {
-      // 用户覆盖了 base_url 时按覆盖值发现：仍走预设默认端点会选到当前 endpoint 不支持的模型。
-      // 选预设时表单预填的是预设的 messages_url，它不是覆盖：此时回退到预设目录的
-      // discovery_url（DeepSeek 等预设的模型列表不在 messages 根之下）。是否覆盖按保存时
-      // 同一套归一化后的值比较，只多一个尾斜杠仍算预设默认。
+      // Discover against overridden base_url values; preset default endpoints might select models unsupported by current endpoints.
+      // Preset selection prefills messages_url, which is not an override: fall back to preset catalog
+      // discovery_url (DeepSeek and other preset model lists are outside messages roots). Detect overrides using the same
+      // normalized comparison as saving; a trailing slash alone still means preset default.
       const typedBase = form.baseUrl.trim();
       const isPresetDefault =
         form.presetId !== customSentinelId &&
@@ -207,7 +207,7 @@ export function AddCredentialModal({
   };
 
   const handleImportProvider = (provider: CustomProviderInfo) => {
-    // 切到 __custom__：避免预设的 messages_url 覆盖导入的 base_url
+    // Switching to __custom__: avoid overwriting imported base_url with preset messages_url.
     form.setPreset(customSentinelId);
     form.setApiKey("");
     form.setBaseUrl(provider.base_url);
@@ -236,7 +236,7 @@ export function AddCredentialModal({
     const session = sessionRef.current;
     setSubmitError(null);
     setTesting(true);
-    // 失败时清旧的"连接成功"面板，避免用户看到上一次的过期结果
+    // Clear previous Connection successful panels on failure, avoiding stale results.
     setTestResult(null);
     const submitBaseUrl = form.baseUrl.trim() || undefined;
     try {
@@ -266,7 +266,7 @@ export function AddCredentialModal({
     setSubmitError(null);
     try {
       const req = form.buildRequest();
-      // 预填地址未改动时不带 base_url，由服务端取供应商提交时的地址；用户改过才作为覆盖提交
+      // Unchanged prefilled URLs omit base_url so servers read provider URLs at submission; edited URLs submit as overrides.
       const baseUrlOverride =
         importSource && form.baseUrl.trim() !== importSource.base_url ? req.base_url : undefined;
       await onSubmit(
@@ -296,7 +296,7 @@ export function AddCredentialModal({
     (mode === "edit" && !form.isDirty(initial));
 
   const closeUnlessSubmitting = (nextOpen: boolean) => {
-    // 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失
+    // Ignore Esc/backdrop clicks while submitting so dialogs cannot disappear before results.
     if (!nextOpen && !submitting) onClose();
   };
 
@@ -336,13 +336,13 @@ export function AddCredentialModal({
                   </DropdownMenu>
                 )}
               </div>
-              {/* 自定义固定在首格，推荐项次之 */}
+              {/* Custom stays in the first cell, followed by recommendations. */}
               <ToggleGroup
                 aria-labelledby="cred-preset-label"
                 variant="outline"
                 value={[form.presetId]}
                 onValueChange={(next: string[]) => {
-                  // 单选：再次点击已选项不取消选择
+                  // Single selection: clicking selected options again does not deselect.
                   if (next[0]) handlePresetClick(next[0]);
                 }}
                 disabled={mode === "edit"}

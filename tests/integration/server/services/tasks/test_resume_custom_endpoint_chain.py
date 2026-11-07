@@ -1,11 +1,6 @@
-"""自定义端点（``ce-<id>``）视频任务重启续跑的整链回归。
+"""Full-chain restart/resume regression for custom-endpoint (``ce-<id>``) video tasks.
 
-覆盖「DB 里的 ce- 行 → 孤儿扫描 → execute_resume_video_task →
-resolve_generation_context → 真 DeclarativeVideoBackend → HTTP」全链：
-custom_endpoint / custom_provider / custom_provider_model 三行与 running 任务行
-都真实落库，业务链路上的函数一律真跑，仅出站 HTTP 用 respx 打桩。判据落在
-行为上：HTTP 计数（resume 不重复提交计费）、任务终态与付费产物字节。
-"""
+Exercise DB ce- rows → orphan scan → execute_resume_video_task → resolve_generation_context → real DeclarativeVideoBackend → HTTP. Persist actual custom_endpoint / custom_provider / custom_provider_model and running-task rows; keep all business functions real, stubbing outbound HTTP only with respx. Assert HTTP counts (no duplicate submission charges), terminal task state and paid artifact bytes."""
 
 from __future__ import annotations
 
@@ -47,12 +42,9 @@ from tests.http_capture import capture_http
 
 @pytest.fixture(autouse=True)
 def clean_backend_cache():
-    """除清空缓存条目外，同时清空 per-key 锁。
+    """Clear per-key locks as well as cache entries.
 
-    pytest-asyncio 按测试函数切换独立事件循环，跨测试复用同一缓存 key 时，
-    前一个测试触发过竞争的 ``asyncio.Lock`` 会永久绑定在已关闭的旧循环上，
-    后续测试再次竞争即抛 ``RuntimeError``。清空 locks 不影响被测生产行为。
-    """
+    pytest-asyncio uses independent loops per test. Reusing cache keys after prior contention leaves ``asyncio.Lock`` bound to a closed loop; later contention raises ``RuntimeError``. Clearing locks does not change production behavior under test."""
     generation_context.reset_backend_cache_for_tests()
     yield
     generation_context.reset_backend_cache_for_tests()
@@ -60,19 +52,13 @@ def clean_backend_cache():
 
 @pytest.fixture
 async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
-    """整链共用环境：全局 session 工厂指向方言敏感测试库 + tmp 真 ProjectManager。
+    """Shared full-chain environment: global session factories point to dialect-sensitive test DB and a real temporary ProjectManager.
 
-    环境阻碍逐项处理，业务链路不打桩：
-    - resume 链路上两个全局 session 工厂（``resolve_generation_context`` 函数内
-      导入的 ``lib.db.async_session_factory``、worker 自开 session 用的
-      ``safe_session_factory``）都指到测试库；``safe_session_factory``
-      单例内部经 ``lib.db.engine.async_session_factory`` 开 session，一并指过去。
-    - 准入文件锁落 ``app_data_dir()``，隔离到 tmp。
-    - ``get_project_manager`` 在链路各消费模块（resolver / generation_context /
-      resume_executor / finalize helpers / worker 清理）逐点换成 tmp 下的真
-      ProjectManager——resolver 等在模块顶部绑定了该名字，只 patch 定义处不生效。
-    - 缩略图抽取走 ffmpeg 子进程，替换为 no-op 保持测试封闭。
-    """
+    Address environment dependencies without stubbing business flow:
+    - Redirect both resume-path factories: ``lib.db.async_session_factory`` imported inside ``resolve_generation_context``, and worker ``safe_session_factory``. Its ``safe_session_factory`` singleton opens sessions through ``lib.db.engine.async_session_factory``, which is redirected too.
+    - Isolate admission file locks under temporary ``app_data_dir()``.
+    - Replace ``get_project_manager`` in each consuming module (resolver / generation_context / resume_executor / finalize helpers / worker cleanup) with the real temporary manager; top-level bound imports would ignore patches only at the definition site.
+    - Replace ffmpeg thumbnail extraction with no-op to keep tests self-contained."""
     bind_session_factory(monkeypatch, session_factory)
     bind_safe_session_factory(monkeypatch, session_factory)
     monkeypatch.setattr("lib.db.engine.async_session_factory", session_factory)
@@ -129,12 +115,9 @@ async def _seed_custom_video_rows(
     path_overrides: dict[str, str] | None = None,
     model_id: str = "video-x",
 ) -> dict:
-    """落自定义供应商三件套：端点定义、供应商、挂端点键的视频模型行。
+    """Persist custom-provider trio: endpoint definition, provider and video-model row bound to an endpoint key.
 
-    ``endpoint_count`` > 1 时额外建端点行；``model_endpoint_index`` 决定模型行
-    挂哪个端点键——guard 用例据此制造「模型行端点 ≠ checkpoint 冻结端点」。
-    ``path_overrides`` 是模型行当前的路径覆盖；``model_id`` 与目录条目同名时按名字对应到该条目。
-    """
+    ``endpoint_count`` > 1 creates extra endpoint rows; ``model_endpoint_index`` selects model binding to exercise model-endpoint/checkpoint mismatch. ``path_overrides`` is the model's current path override; ``model_id`` matching a catalog entry binds by name."""
     async with session_factory() as session:
         endpoint_repo = CustomEndpointRepository(session)
         endpoint_keys: list[str] = []
@@ -170,7 +153,7 @@ async def _seed_custom_video_rows(
 def _storyboard_checkpoint_json(
     task_id: str, *, provider_id: str, endpoint_guard: str | None, model_id: str = "video-x"
 ) -> str:
-    """真实 ``StoryboardSubmissionCheckpoint.create(...).to_json()``：身份指向 ``provider_id`` 的 ``model_id``。"""
+    """Real ``StoryboardSubmissionCheckpoint.create(...).to_json()`` with ``provider_id`` / ``model_id`` identity."""
     visual = ArtifactBasis.build(
         "artifact-visual/video-storyboard",
         kind_version=1,
@@ -242,7 +225,7 @@ async def _seed_running_video_task(
     checkpoint_json: str,
     submitted_base_url: str | None = None,
 ) -> None:
-    """种一行已提交（有 job_id + checkpoint）的 running 视频任务，供孤儿扫描认领。"""
+    """Seed a submitted running video task with job_id + checkpoint for orphan-scan claiming."""
     now = datetime.now(UTC)
     async with session_factory() as session:
         session.add(
@@ -274,7 +257,7 @@ async def _load_task_row(session_factory, task_id: str) -> Task:
 
 
 async def _run_orphan_recovery(session_factory) -> None:
-    """真 worker + 真 queue 驱动一轮启动期孤儿扫描，并等后台 dispatcher 跑完。"""
+    """Use real worker + queue for one startup orphan scan and await background dispatcher completion."""
     worker = GenerationWorker(
         queue=GenerationQueue(session_factory=session_factory),
         executor=execute_generation_task,
@@ -287,11 +270,9 @@ async def _run_orphan_recovery(session_factory) -> None:
 
 
 async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: Path, session_factory):
-    """happy path：ce- 行经 resolve 构出真 backend，续跑只 poll+download、不重新提交。
+    """Happy path: resolve ce- rows into real backends and resume only poll/download without resubmission.
 
-    任务行落了历史提交域名（``submitted_base_url``），而供应商行当前域名已不同：
-    续跑必须按历史域名轮询（域名回放），提交后改 base_url 不能让付费任务失联。
-    """
+    Task ``submitted_base_url`` is historical and differs from current provider domain. Resume must replay it; changing base_url after submission must not strand paid jobs."""
     rows = await _seed_custom_video_rows(session_factory)
     await _seed_running_video_task(
         session_factory,
@@ -320,8 +301,8 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
 
         await _run_orphan_recovery(session_factory)
 
-    # resume 不重复提交计费：submit 零请求，接续只按原 job 轮询并取回产物；
-    # 轮询走历史提交域名，不落到供应商行的当前域名。
+    # Resume never resubmits charges: zero submit requests, only poll original jobs and retrieve artifacts.
+    # Poll historical submission domains rather than providers' current domains.
     assert submit.call_count == 0
     assert poll_current.call_count == 0
     assert poll.call_count == 1
@@ -331,13 +312,13 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
     assert row.status == "succeeded"
     result = json.loads(row.result_json or "{}")
     assert result["resource_id"] == "E1S01"
-    # 付费字节落入版本历史（当前项目态与提交冻结态不一致时按史存不选中，任务仍成功）。
+    # Paid bytes enter version history; if current project differs from frozen submission, retain history without selection while task still succeeds.
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
 
 async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_project: Path, session_factory):
-    """endpoint guard：模型行改挂另一端点键后，续跑在发出任何 HTTP 请求前失败。"""
+    """After model endpoint rebinding, the endpoint guard fails resume before any HTTP request."""
     rows = await _seed_custom_video_rows(session_factory, endpoint_count=2, model_endpoint_index=1)
     await _seed_running_video_task(
         session_factory,
@@ -356,7 +337,7 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
 
         await _run_orphan_recovery(session_factory)
 
-    # 逐字比对失败在 backend 调用之前：poll/submit 都不该有流量。
+    # Exact-comparison failure precedes backend calls: neither poll nor submit may send traffic.
     assert submit.call_count == 0
     assert poll.call_count == 0
 
@@ -364,12 +345,12 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
     assert row.status == "failed"
     assert row.error_message is not None
     assert "resume_endpoint_changed" in row.error_message
-    # 无产物落盘。
+    # No artifacts persisted.
     assert not (chain_project / "versions" / "videos").exists()
 
 
 async def test_ce_orphan_fails_without_resubmitting_when_path_overrides_changed(chain_project: Path, session_factory):
-    """路径覆盖随协议冻结：提交后改了请求地址，续跑与改绑端点同样失败，且不重新提交。"""
+    """Path overrides freeze with protocol: editing request addresses after submission fails resume like endpoint rebinding, without resubmission."""
     rows = await _seed_custom_video_rows(session_factory, path_overrides={"poll": "/v2/fetch/{{ task_id }}"})
     endpoint_key = rows["endpoint_keys"][0]
     await _seed_running_video_task(
@@ -400,7 +381,7 @@ async def test_ce_orphan_fails_without_resubmitting_when_path_overrides_changed(
 
 
 async def test_ce_orphan_resumes_through_unchanged_path_overrides(chain_project: Path, session_factory):
-    """覆盖未改：续跑通过协议比对，并按覆盖后的轮询地址取件。"""
+    """Unchanged overrides pass protocol comparison and retrieve through overridden polling URLs."""
     overrides = {"poll": "/v2/fetch/{{ task_id }}"}
     rows = await _seed_custom_video_rows(session_factory, path_overrides=overrides)
     await _seed_running_video_task(
@@ -430,14 +411,14 @@ async def test_ce_orphan_resumes_through_unchanged_path_overrides(chain_project:
     assert (await _load_task_row(session_factory, "T-ce-paths-kept")).status == "succeeded"
 
 
-#: 关停日期之后续跑的模型：内置 agnes 收录它，自定义供应商里同名的模型按名字对应到同一个条目。
+#: Model resumed after shutdown: built-in agnes includes it; same-name custom models match the same catalog entry.
 RETIRED_MODEL = "agnes-video-v2.0"
 SHUTDOWN = date(2026, 11, 24)
 
 
 @pytest.fixture
 def retired_model(monkeypatch) -> None:
-    """``RETIRED_MODEL`` 的条目定在 ``SHUTDOWN`` 关停，今天就是关停日：任务在此之前已提交，重启后才续跑。"""
+    """``RETIRED_MODEL`` shuts down at ``SHUTDOWN`` and today is that day: tasks were submitted earlier and resume after restart."""
     install_catalog(
         monkeypatch,
         with_entry_changes(
@@ -459,8 +440,7 @@ async def _configure_agnes(session_factory) -> None:
 
 
 async def _assert_new_submission_rejected(provider_id: str) -> None:
-    """同一模型在关停日期之后的新提交仍报下线：按当前配置解析（队列执行移除了入队时的身份）报错，
-    载荷里锁定了同一身份、但没有声明是续跑的调用同样报错。"""
+    """New submissions after model shutdown still fail discontinued: current-config resolution (queue execution removed enqueue identity) fails, as do calls locking the same payload identity without declaring resume."""
     identity = f"{provider_id}/{RETIRED_MODEL}"
     with pytest.raises(ModelDiscontinuedError) as excinfo:
         await resolve_generation_context(
@@ -480,7 +460,7 @@ async def _assert_new_submission_rejected(provider_id: str) -> None:
 async def test_builtin_job_submitted_before_shutdown_still_resumes_after_it(
     chain_project: Path, session_factory, retired_model
 ):
-    """内置供应商：关停前已提交、带厂商任务 ID 的任务，关停后重启续跑照常轮询取回结果，不重新提交；新提交仍报下线。"""
+    """Built-in providers resume pre-shutdown jobs with provider task IDs after shutdown/restart, polling/retrieving without resubmission; new submissions still fail discontinued."""
     await _configure_agnes(session_factory)
     await _seed_running_video_task(
         session_factory,
@@ -509,14 +489,14 @@ async def test_builtin_job_submitted_before_shutdown_still_resumes_after_it(
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
-    # 续跑构造的 backend 已进实例缓存，新提交也不能经缓存绕过下线检查。
+    # Resume-created backends may be cached; new submissions still cannot bypass shutdown checks through cache.
     await _assert_new_submission_rejected("agnes")
 
 
 async def test_custom_job_submitted_before_shutdown_still_resumes_after_it(
     chain_project: Path, session_factory, retired_model
 ):
-    """自定义供应商：模型对应的条目关停后，重启续跑关停前已提交的任务照常轮询取回结果，不重新提交；新提交仍报下线。"""
+    """Custom providers resume jobs submitted before their matched entry shutdown, polling/retrieving without resubmission; new submissions still fail discontinued."""
     rows = await _seed_custom_video_rows(session_factory, model_id=RETIRED_MODEL)
     await _seed_running_video_task(
         session_factory,
@@ -551,13 +531,13 @@ async def test_custom_job_submitted_before_shutdown_still_resumes_after_it(
     await _assert_new_submission_rejected(rows["provider_id"])
 
 
-#: 端点拆分前的方舟 Seedance 端点名：升级前提交的任务把它冻结在检查点里。
+#: Pre-split Ark Seedance endpoint name frozen by tasks submitted before upgrade.
 LEGACY_SEEDANCE_ENDPOINT = "ark-seedance"
 SEEDANCE_MODEL = "doubao-seedance-2-0-260128"
 
 
 async def _seed_relay_model(session_factory, *, endpoint: str, model_id: str) -> str:
-    """落一个经内置调用端点 ``endpoint`` 调用 ``model_id`` 的自定义供应商，返回供应商 ID。"""
+    """Persist a custom provider using built-in ``endpoint`` to invoke ``model_id`` and return its provider ID."""
     async with session_factory() as session:
         provider = await CustomProviderRepository(session).create_provider(
             display_name="方舟中转",
@@ -579,7 +559,7 @@ async def _seed_relay_model(session_factory, *, endpoint: str, model_id: str) ->
 
 
 async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory):
-    """升级前经 ``ark-seedance`` 提交的任务：模型行已回填为协议等价的 ``ark-seedance-2``，续跑照常取回结果、不重新提交。"""
+    """Pre-upgrade ``ark-seedance`` tasks resume through protocol-equivalent backfilled ``ark-seedance-2`` and retrieve without resubmission."""
     provider_id = await _seed_relay_model(session_factory, endpoint="ark-seedance-2", model_id=SEEDANCE_MODEL)
     await _seed_running_video_task(
         session_factory,
@@ -624,7 +604,7 @@ async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_projec
 
 
 async def test_seedance_job_rejected_after_switching_protocol(chain_project: Path, session_factory):
-    """升级前经 ``ark-seedance`` 提交的任务：模型行在途改挂了别的协议，续跑在发出任何请求前失败。"""
+    """Pre-upgrade ``ark-seedance`` tasks fail before any request if their model changes to another protocol while in flight."""
     provider_id = await _seed_relay_model(session_factory, endpoint="openai-video", model_id=SEEDANCE_MODEL)
     await _seed_running_video_task(
         session_factory,
@@ -655,7 +635,7 @@ async def test_seedance_job_rejected_after_switching_protocol(chain_project: Pat
     ["kling-video-pro-silent", "kling-video-pro-audio", "kling-video-audio", "kling-video-silent"],
 )
 async def test_kling_job_submitted_before_split_resumes(chain_project: Path, session_factory, endpoint: str):
-    """旧可灵任务可经协议等价后继取回结果，零次重新提交。"""
+    """Old Kling tasks retrieve through protocol-equivalent successors with zero resubmissions."""
     model = "kling-v2-6"
     provider_id = await _seed_relay_model(session_factory, endpoint=endpoint, model_id=model)
     await _seed_running_video_task(

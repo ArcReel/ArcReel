@@ -3,18 +3,18 @@ import type { AssetSheetType, Character, Product } from "@/types";
 import type { GalleryAssetSource } from "./gallery-model";
 
 /**
- * 详情编辑器里进入未保存修改的字段。四类资产共用一个形状，按类型只用到其中几项：
- * 角色有声音风格，商品有品牌与卖点。改名、上传、增删别名是立即执行的动作，不在这里。
+ * Unsaved detail-editor fields. Four asset types share shape, using subsets by type:
+ * characters use voice style, products brand/selling points. Rename/upload/alias changes execute immediately outside this model.
  */
 export interface AssetFields {
   description: string;
   voiceStyle: string;
   brand: string;
-  /** 卖点，每行一条。 */
+  /** Selling points, one per line. */
   sellingPoints: string;
 }
 
-/** 新建资产时多一个名称。 */
+/** Asset creation additionally has a name. */
 export interface NewAssetFields extends AssetFields {
   name: string;
 }
@@ -30,7 +30,7 @@ export function assetFieldsOf(type: AssetSheetType, asset: GalleryAssetSource): 
   };
 }
 
-/** 卖点文本按行拆开，去掉空行与两端空白。 */
+/** Split selling-point text into lines, dropping blanks/trimming whitespace. */
 export function parseSellingPoints(text: string): string[] {
   return text
     .split("\n")
@@ -38,7 +38,7 @@ export function parseSellingPoints(text: string): string[] {
     .filter(Boolean);
 }
 
-/** 卖点只比较拆分后的条目：多一个空行不算修改。 */
+/** Compare split selling-point entries only; extra blank lines are not edits. */
 export function assetFieldsEqual(a: AssetFields, b: AssetFields): boolean {
   return (
     a.description === b.description &&
@@ -48,7 +48,7 @@ export function assetFieldsEqual(a: AssetFields, b: AssetFields): boolean {
   );
 }
 
-/** 只带改过的字段，键名是资产接口的字段名。 */
+/** Only changed fields, keyed by asset-API field names. */
 export function assetFieldsPatch(type: AssetSheetType, value: AssetFields, saved: AssetFields): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   if (value.description !== saved.description) patch.description = value.description;
@@ -61,7 +61,7 @@ export function assetFieldsPatch(type: AssetSheetType, value: AssetFields, saved
   return patch;
 }
 
-/** 保存后的规范形状：卖点去掉空行，与服务端回写的内容一致。 */
+/** Canonical saved shape: remove blank selling-point lines, matching server writeback. */
 export function normalizeAssetFields(value: AssetFields): AssetFields {
   return { ...value, sellingPoints: parseSellingPoints(value.sellingPoints).join("\n") };
 }

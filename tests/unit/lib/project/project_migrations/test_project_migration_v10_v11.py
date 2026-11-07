@@ -1,4 +1,4 @@
-"""v10→v11 迁移：按角色是否已设参考音频补写声音绑定方式；版本守卫与幂等。"""
+"""v10→v11: backfill voice binding mode by existing character reference audio; version guards and idempotency."""
 
 import json
 from pathlib import Path
@@ -21,7 +21,7 @@ def _load(d: Path) -> dict:
 
 class TestMigrateProjectDict:
     def test_project_with_reference_audio_keeps_reference_audio_binding(self):
-        """存量项目里已设过参考音频的走的就是直传路径，补写 prompt 会静默换掉声音口径。"""
+        """Existing reference audio already uses direct transmission; backfilling prompt would silently change voice semantics."""
         after = migrate_project_dict(
             {
                 "characters": {
@@ -50,7 +50,7 @@ class TestMigrateProjectDict:
         ],
     )
     def test_unreadable_characters_fall_back_to_prompt(self, characters):
-        """手编脏值一律当作没设过参考音频：读不出的字段本就挂不上音频。"""
+        """Treat manually corrupted values as no reference audio; unreadable fields cannot bind audio anyway."""
         assert migrate_project_dict({"characters": characters})["character_voice_binding"] == "prompt"
 
     def test_existing_valid_binding_preserved(self):

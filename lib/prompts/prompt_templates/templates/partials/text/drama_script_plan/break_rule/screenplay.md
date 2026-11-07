@@ -1,1 +1,1 @@
-沿用剧本自带的场次 / 场景切换：场次变更（地点 / 时间 / 场景切换）标「是」，同一场次内标「否」；不要重新切碎作者的场次。
+Retain the screenplay’s scene divisions / scene changes: mark a change of scene (location / time / scene transition) “是”, and shots within the same scene “否”; do not fragment the author’s scenes again.

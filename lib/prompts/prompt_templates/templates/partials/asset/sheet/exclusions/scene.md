@@ -1,1 +1,1 @@
-出镜人物、
+ people appearing in the shot,

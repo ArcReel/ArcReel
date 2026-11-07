@@ -1,7 +1,8 @@
-"""供应商素材库站点：控制面主机、签名所用的服务名与区域。
+"""Provider-library sites: control-plane hosts, signing service names, and regions.
 
-控制面凭证只发往这里登记的官方主机。主机由站点与区域在代码中决定，不从推理凭证的 base_url
-或用户输入推断；官方文档只给出每个站点的一个素材库区域，未登记的区域一律拒绝。
+Send credentials only to registered official hosts. Code derives hosts from sites/regions,
+never inference base_url or user-input guesses. Official docs give one library region per site;
+reject every unregistered region.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ DEFAULT_PROJECT_NAME = "default"
 
 @dataclass(frozen=True)
 class SiteSpec:
-    #: 区域 → 控制面主机
+    #: Region → control-plane host
     hosts: dict[str, str]
 
     @property
@@ -39,7 +40,7 @@ SITES: dict[str, SiteSpec] = {
 
 
 def control_plane_host(site: str, region: str) -> str | None:
-    """站点与区域对应的控制面主机；未登记的组合返回 None。"""
+    """Control-plane host for a site/region pair, or None when unregistered."""
     spec = SITES.get(site)
     if spec is None:
         return None

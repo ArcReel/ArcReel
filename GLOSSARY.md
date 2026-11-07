@@ -1,1022 +1,1268 @@
 # ArcReel
 
-AI 视频创作平台：将小说、剧本或创作构想转化为短视频。本文件是领域术语表（ubiquitous language），只定义概念，不含实现细节。
+An AI video creation platform that turns novels, screenplays, or creative ideas into short videos. This domain glossary (ubiquitous language) defines concepts only, without implementation details. Chinese product labels are retained alongside English terms for correspondence with the existing Chinese interface and its copy rules.
 
 ## Language
 
-### 供应商与模型
-
-**供应商（provider）**：
-向 ArcReel 提供文本、图片、视频或语音生成能力的外部服务方。
-_Avoid_: vendor、channel。
-
-**调用通道（backend）**：
-一对供应商 + 模型落到具体协议后的可调用形态；供应商解析产出的是供应商模型组合（ProviderModel）身份，据此构造出的调用通道才真正发起供应商调用。
-_Avoid_: client、adapter、后端——「后端」在中文里已被 frontend/backend 占用。
-
-**模型（model）**：
-由模型厂商发布、经供应商提供的一项具体生成服务；同一供应商可以提供多个用途和能力不同的模型，同一模型也可以经多个供应商调用。
-_Avoid_: 把供应商与模型当作同一层概念。
-
-**模型厂商（model maker）**：
-训练并发布模型的一方，如 Google、字节跳动；与供应商不同，Gemini 经 AI Studio 和 Vertex 两个供应商调用，模型厂商都是 Google。
-_Avoid_: 把模型厂商当作供应商、用「官方渠道」指代模型厂商。
-
-**模型目录（model catalog）**：
-ArcReel 所知的全部模型条目，是内置供应商、自定义供应商与 Agent 共用的模型元信息与价格来源。
-_Avoid_: 注册表、价格表、把它当作某个供应商的模型列表。
-
-**模型条目（catalog entry）**：
-模型目录中的一项，描述一个模型本身的事实：媒体类型、能力、限额与官方价格；与经哪个供应商调用无关，各供应商共用同一条，身份是「模型厂商/官方模型名」，两栖模型的两个条目再以媒体类型区分。
-_Avoid_: 把同一模型在不同供应商下登记成多条、在条目上记录某个供应商的价差。
+### Providers and models
 
-**供应商模型（provider model）**：
-某个供应商名下提供的一个模型，记录它经哪个调用端点、以什么 API 模型名调用；内置供应商与自定义供应商共用这一概念。内置供应商下分官方收录与用户添加两种。
-_Avoid_: 模型行（旧称）、在供应商模型上另立价格、供应商模型的同步开关。
+**provider (供应商)**:
+An external service that supplies ArcReel with text, image, video, or speech generation capabilities.
+_Avoid_: vendor, channel.
 
-**模型别名（model alias）**：
-同一个模型在官方模型名之外的其他调用名，如带日期的快照名、中转站的常见命名；只用于把模型名对应到模型条目。价格、能力或下线时间不同的变体不是模型别名，各自是一个条目。
-_Avoid_: 不加限定地说「别名」、与资产别名混用、把价格不同的日期快照登记为模型别名。
 
-**条目绑定（entry binding）**：
-用户为自定义供应商的供应商模型或 Agent 凭证的档位手动指定的模型条目。
-_Avoid_: 关联、条目引用、把按名字现查的结果当作存下来的对应关系。
+**backend (调用通道)**:
+A callable implementation of a provider and model pair using a specific protocol. Provider resolution yields a ProviderModel identity; the backend constructed from it actually makes the provider call.
+_Avoid_: client, adapter; the Chinese term 后端, already used for the frontend/backend architectural distinction.
 
-**官方收录（officially listed）**：
-内置供应商的某个供应商模型出现在官方数据给该供应商的清单中；与之相对的是用户添加的供应商模型。
-_Avoid_: 预设模型、内置模型。
 
-**能力覆盖（capability override）**：
-供应商模型上对模型能力的整维替换，表达这个渠道与模型条目或调用通道声明的差异（见 `docs/adr/0104`）。
-_Avoid_: 为渠道限制修改模型条目、在官方收录的供应商模型上覆盖能力。
+**model (模型)**:
+A specific generation service published by a model maker and offered through a provider. One provider can offer models for different purposes and capabilities, and the same model can be called through multiple providers.
+_Avoid_: Treating providers and models as the same conceptual layer.
 
-**出厂快照（factory snapshot）**：
-随版本发布的模型目录数据，取自发版时的目录数据仓库。
-_Avoid_: 内置价格表、默认数据。
 
-**官方数据（official data）**：
-来自目录数据仓库的模型目录数据，即出厂快照与官方同步的合称，与用户修改相对。
-_Avoid_: 预设数据、上游数据。
+**model maker (模型厂商)**:
+The party that trains and publishes a model, such as Google or ByteDance. It differs from the provider: Gemini is offered through AI Studio and Vertex, but its model maker is Google in both cases.
+_Avoid_: Treating a model maker as a provider; using “official channel” to mean the model maker.
 
-**官方同步（official sync）**：
-实例自动从目录数据仓库取回比出厂快照更新的模型目录数据。
-_Avoid_: 自动更新、在线目录、把它当作官方服务的功能。
 
-**目录数据仓库（catalog data repository）**：
-发布模型目录数据的公开仓库，出厂快照与官方同步都取自它。
-_Avoid_: 把它当作市场源、同步服务器。
+**model catalog (模型目录)**:
+All model entries known to ArcReel, providing shared model metadata and prices for built-in providers, custom providers, and the Agent.
+_Avoid_: Registry, price table, or a model list belonging to one provider.
 
-**最低应用版本（minimum app version）**：
-官方收录的供应商模型上标注的、能调用这个模型的最低 ArcReel 版本。目录构建按所挂调用端点推导，也可以手写（见 `docs/adr/0103`）。
-_Avoid_: schema 版本、兼容版本。
 
-**第三方数据源（third-party metadata source）**：
-由外部项目维护的模型元信息与价格数据，如 basellm、models.dev，是目录数据仓库的构建输入。
-_Avoid_: 同步源、上游目录。
+**catalog entry (模型条目)**:
+One entry in the model catalog describing facts about a model itself: media type, capabilities, limits, and official prices. It is independent of the provider; providers share the same entry, identified by model maker/official model name. The two entries of an amphibious model are further distinguished by media type.
+_Avoid_: Registering the same model separately for each provider; storing a provider's price difference on the entry.
 
-**凭证（credential）**：
-ArcReel 访问某个供应商所需的认证信息。媒体供应商的设置界面称「密钥」（英文界面为 Key），如「已配置 2 个密钥」「添加密钥」。
-_Avoid_: 模型、供应商、连接。
 
-**内置供应商（built-in provider）**：
-ArcReel 随版本内置、开箱可用的供应商，用户填好凭证并选定模型即可使用，代表官方渠道。
-_Avoid_: preset、official、用内置供应商接中转站。
+**provider model (供应商模型)**:
+A model offered by a provider, recording which endpoint and API model name it uses. Built-in and custom providers share this concept. Models under built-in providers may be officially listed or user-added.
+_Avoid_: The former term 模型行 (“model row”); separate prices on provider models; a synchronization switch on a provider model.
 
-**自定义供应商（custom provider）**：
-用户在运行时自行创建的供应商，其供应商模型各自挂接一个调用端点；凭证只有 api_key 与 base_url 两项，api_key 可留空。
-_Avoid_: 内置供应商。
 
-**调用端点（endpoint）**：
-供应商模型可挂接的一种调用形态——或是一套协议约定（URL 模板、鉴权约定与字段语义），或是一份 ComfyUI workflow 连同其节点绑定。
-_Avoid_: protocol、format、端口、接口格式、HTTP 端点——它不是某个 URL，是一整套调用约定。
+**model alias (模型别名)**:
+An alternative call name for a model, such as a dated snapshot name or a common relay-service name. It only matches model names to catalog entries. Variants with different prices, capabilities, or retirement dates are separate entries, not aliases.
+_Avoid_: Unqualified “alias”; confusing it with an asset alias; registering differently priced dated snapshots as aliases.
 
-**内置调用端点（builtin endpoint）**：
-ArcReel 随版本内置在注册表中的调用端点，实现形态可以是 Python backend，也可以是一份随版声明式定义；只读，不可编辑或删除，声明式实现的内置端点可「复制为我的」产出一个自定义调用端点。
-_Avoid_: 系统预设端点、预设端点、preset。
 
-**自定义调用端点（custom endpoint）**：
-用户在运行时创建或导入的调用端点，持有一份端点定义；全局存在，可被多个自定义供应商的供应商模型挂接，与内置调用端点同属「调用端点」，只是来源不同。
-_Avoid_: 协议模板、自定义协议、把它当作某个自定义供应商的附属物。
+**entry binding (条目绑定)**:
+A catalog entry manually assigned by the user to a custom provider's provider model or an Agent credential's tier.
+_Avoid_: Association, entry reference; treating an on-demand name lookup as a saved binding.
 
-**声明式端点（declarative endpoint）**：
-端点定义为一套协议约定的调用端点，请求模板、响应取值与状态映射都写在定义里、由通用运行时执行。
-_Avoid_: JSON 端点、模板端点。
 
-**ComfyUI 端点（ComfyUI endpoint）**：
-端点定义为一份 ComfyUI workflow 及其节点绑定的自定义调用端点，只能挂接到 ComfyUI 协议供应商的供应商模型上；一份 workflow 恰是一个端点。
-_Avoid_: workflow 端点、工作流端点、把它当作供应商——一台 ComfyUI 服务是供应商，一份 workflow 才是端点；把一份 workflow 当作一个供应商模型。
+**officially listed (官方收录)**:
+A built-in provider's provider model that appears in the provider's official-data list, as opposed to a user-added provider model.
+_Avoid_: Preset model, built-in model.
 
-**端点定义（endpoint definition）**：
-描述一个调用端点如何被调用的 JSON，按 `kind` 分声明式协议定义与 ComfyUI workflow 定义两种；是该端点的唯一真相，也是导入、导出与市场安装的载荷；两份定义是否算同一份，看 `meta` 中的作者与名称。
-_Avoid_: 配置、协议模板、血统 / provenance——说「同作者、同名的定义」。
 
-**路径覆盖（path override）**：
-自定义供应商的供应商模型上，对其调用端点的某一条请求整条替换 URL 路径，请求的其余部分不变（见 `docs/adr/0101`）。
-_Avoid_: 自定义路径、URL 覆盖、把它记在供应商或调用端点上。
+**capability override (能力覆盖)**:
+A whole-dimension replacement of model capabilities on a provider model, expressing differences between this channel and the catalog entry or backend declaration (see `docs/adr/0104`).
+_Avoid_: Changing a catalog entry for channel restrictions; overriding capabilities on an officially listed provider model.
 
-**节点绑定（node binding）**：
-ComfyUI 端点上，ArcReel 的一个具名语义（提示词、首帧、尾帧、参考图、宽高、帧数、帧率、种子、产物）落到 workflow 中哪些节点的哪个输入（产物则是哪个节点的输出）的对应关系；导入时自动推断出的只是候选，用户保存后才算节点绑定。某项语义没有节点绑定即 ArcReel 不驱动该维度、对应值以 workflow 字面值为准，提示词与产物两项必有。一项语义有三态：有节点绑定、经用户确认的「此 workflow 不支持」、以及从未推断过——后两者都是「没有节点绑定」，但只有后者会在导入时重新跑推断。
-_Avoid_: 槽位、映射、mapping、裸用「绑定」、把推断候选当作节点绑定、把「从未推断」说成「不支持」。
 
-**示例模板（example template）**：
-随前端源码附带、不可挂接的定义示例，仅作「新建自定义调用端点」表单的预填内容。
-_Avoid_: 起步模板、起步骨架、模板文件。
+**factory snapshot (出厂快照)**:
+Model-catalog data bundled with a release, taken from the catalog data repository at release time.
+_Avoid_: Built-in price table, default data.
 
-**端点测试（endpoint test）**：
-对一份自定义调用端点定义在保存前后进行的验证操作，分预览请求、验证响应、测试连接三种模式；ComfyUI 端点只有预览请求与测试连接两种。
-_Avoid_: 试跑、试跑器、试运行。
 
-**预览请求（preview request）**：
-端点测试的一种：按定义与参数渲染出将要发出的请求供人查看，不向供应商发送。
+**official data (官方数据)**:
+Model-catalog data from the catalog data repository, comprising the factory snapshot and official sync, as opposed to user modifications.
+_Avoid_: Preset data, upstream data.
 
-**验证响应（check response）**：
-端点测试的一种：用一份供应商的真实响应验证定义的取值路径与状态映射，不向供应商发送请求。
 
-**测试连接（trial run）**：
-对一份自定义调用端点定义或一个供应商模型真实提交一次生成并轮询到终态，会产生费用或占用算力；是唯一能证明模型可成功调用的检查。
-_Avoid_: 把供应商级的连通性检查叫作测试连接。
+**official sync (官方同步)**:
+An instance's automatic retrieval of model-catalog data newer than its factory snapshot from the catalog data repository.
+_Avoid_: Automatic update, online catalog; treating it as a feature of the official service.
 
-**连通性检查（connectivity check）**：
-供应商级的免费探针，只验证凭证可达（如能列出模型），不证明任何模型能成功生成。
-_Avoid_: 测试连接（旧称）。
 
-**规范供应商 id（canonical provider id）**：
-供应商身份的规范写法，是全系统唯一接受的写入形式。
+**catalog data repository (目录数据仓库)**:
+The public repository publishing model-catalog data, used by both factory snapshots and official sync.
+_Avoid_: Market source, synchronization server.
 
-**旧版供应商别名（legacy provider alias）**：
-历史数据中曾用于指代供应商、但不属于规范供应商 id 的兼容名称。
-_Avoid_: 将旧版供应商别名作为可写的供应商身份。
 
-**API 模型名（api_model_name）**：
-供应商模型实际发送给供应商 API 的模型名，可以与模型条目的官方模型名不同，如中转站上的 `anthropic/claude-sonnet-4.5`（见 `docs/adr/0038`）。
-_Avoid_: 把模型条目的身份直接当作发给供应商的模型名。
+**minimum app version (最低应用版本)**:
+The lowest ArcReel version able to call a provider model, recorded on officially listed provider models. Catalog builds derive it from the attached endpoint, or it can be written explicitly (see `docs/adr/0103`).
+_Avoid_: Schema version, compatibility version.
 
-**两栖模型（amphibious model）**：
-同一个供应商 API 模型名同时承载图像与视频两种 media_type 的模型，在 ArcReel 内拆成两条模型条目分别登记（见 `docs/adr/0038`）。
-_Avoid_: 把别名键当成真实模型名。
 
-**模型发现协议（discovery_format）**：
-自定义供应商上决定「模型发现」与「连通性检查」按哪套接口进行的声明，不决定任何模型的调用协议；`comfyui` 取值下模型发现不适用，只做连通性检查。
-_Avoid_: api_format、把它当模型调用协议开关。
+**third-party metadata source (第三方数据源)**:
+Model metadata and pricing data maintained by external projects such as basellm and models.dev, used as inputs to catalog-data-repository builds.
+_Avoid_: Sync source, upstream catalog.
 
-**生效凭证（active credential）**：
-同一供应商下配置多套凭证时当前生效的那一套，由用户在 UI 手动切换、全局生效，每个供应商至多一条生效凭证。
-_Avoid_: default credential、已启用凭证——该词暗示可同时启用多条、把切换理解为自动轮换或负载均衡。
 
-**Agent 凭证（agent_credential）**：
-供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 Agent 凭证表，与自定义供应商凭证互不相通（见 `docs/adr/0017`）。界面上称「Agent 供应商」（「添加供应商」「删除供应商」），每条对应一个网关。
-_Avoid_: 把它当成一个自定义供应商。
+**credential (凭证)**:
+Authentication information ArcReel needs to access a provider. Media-provider settings call it 密钥 in Chinese and Key in English, as in “2 keys configured” and “Add key.”
+_Avoid_: Model, provider, connection.
 
-### 市场
 
-**市场（market）**：
-用户从一个或多个市场源浏览并安装内容的功能区，浏览与安装只靠本地 ArcReel 与市场源仓库运转，不依赖任何中心服务或账号；首期唯一的市场条目类型是调用端点。
-_Avoid_: 模板库、商店 / store、registry、插件市场、社区。
+**built-in provider (内置供应商)**:
+A provider bundled with ArcReel and ready to use after the user supplies credentials and selects a model; it represents an official channel.
+_Avoid_: preset, official; using a built-in provider for a relay service.
 
-**市场源（market source）**：
-一个以索引文件列出其市场条目的 GitHub 仓库（或等价的直链地址），在 ArcReel 内登记后即可从中浏览与安装；官方市场源随版预置，其余是用户自行添加的第三方市场源。
-_Avoid_: 裸「源」「仓库」「来源」、registry、feed、镜像。
 
-**市场条目（market entry）**：
-市场源索引中的一项可安装内容，由源内唯一的 slug 标识、以 `meta.name` 为显示名，载荷是一份端点定义；跨源同 slug 不代表同一份定义。
-_Avoid_: 裸「条目」、插件、包、模板。
+**custom provider (自定义供应商)**:
+A provider created by the user at runtime, with each provider model attached to an endpoint. Its credentials contain only api_key and base_url; api_key may be empty.
+_Avoid_: Built-in provider.
 
-**安装（install）**：
-把一个市场条目的端点定义落为本地自定义调用端点，并记下它来自哪个市场源的哪个条目，此后该端点跟随该条目；从本地文件导入不留这层绑定，不算已安装。
-_Avoid_: 把「导入」与「安装」混用、下载、订阅。
 
-**官方服务（official service）**：
-由 ArcReel 方运营、位于市场之上的覆盖层，记录安装量与评分、接收分享提交；不是市场源，不参与浏览与安装链路，可由用户关闭。
-_Avoid_: 云服务、后台、registry。
+**endpoint (调用端点)**:
+A call mechanism attachable to a provider model: either a protocol convention (URL templates, authentication, and field semantics) or a ComfyUI workflow with node bindings.
+_Avoid_: protocol, format, port, interface format, HTTP endpoint: it is an entire call convention, not one URL.
 
-**实例标识（instance id）**：
-一个 ArcReel 实例本地生成的随机标识，随发往官方服务的请求发送，用于服务端去重；可由用户重置。
-_Avoid_: 设备 ID、用户 ID。
 
-**分享提交（submission）**：
-用户从客户端经官方服务把一个自定义调用端点提交到官方市场源的动作及其记录；采纳与否由市场源仓库的 PR 决定。
-_Avoid_: 投稿（保留给手工 PR 路径）、发布、上传。
+**builtin endpoint (内置调用端点)**:
+An endpoint bundled in ArcReel's registry, implemented as a Python backend or a bundled declarative definition. It is read-only and cannot be edited or deleted. A declarative built-in endpoint can be copied with “Copy as mine” to create a custom endpoint.
+_Avoid_: System preset endpoint, preset endpoint, preset.
 
-### 任务与取消
 
-**生成任务（task）**：
-ArcReel 为完成一次媒体生成而排队和跟踪的工作单元。
-_Avoid_: 作业、供应商调用。
+**custom endpoint (自定义调用端点)**:
+An endpoint created or imported by the user at runtime, holding an endpoint definition. It exists globally and can be attached to multiple custom providers' provider models. Like a built-in endpoint it is an endpoint; only its origin differs.
+_Avoid_: Protocol template, custom protocol; treating it as a child of one custom provider.
 
-**供应商调用（api_call）**：
-ArcReel 向外部模型供应商发起的一次 API 请求，也是费用与用量记账的最小单位；内嵌 Agent 例外，一轮中对同一模型的各次请求合记为一次供应商调用（见 `docs/adr/0102`）。它可以服务于一个生成任务（一个任务可对应零到多次调用），也可以独立发生（剧本生成、Agent 会话、端点试跑）。
-_Avoid_: 供应商任务、生成任务、把调用与任务当作一一对应。
 
-**供应商任务（provider_job）**：
-供应商侧为一次提交-轮询型生成创建的远端异步操作；它的状态由供应商写入，与 ArcReel 本地的生成任务状态同名不同物。
-_Avoid_: 与本地 task 状态混为一谈、生成任务。
+**declarative endpoint (声明式端点)**:
+An endpoint whose definition is a protocol convention, with request templates, response extraction, and status mappings written in the definition and executed by the generic runtime.
+_Avoid_: JSON endpoint, template endpoint.
 
-**整批准入判定（batch_admission）**：
-「生成全部 / 批量生成」在创建任何任务之前对全部目标做的一次性全有或全无判定，三种结论：放行、待确认（跨档费用聚合等用户拍板）、受阻（零任务创建）；它只说这一批能不能建，不预言建成后的执行成败。
-_Avoid_: 把整批拒绝说成「批量失败」。
 
-**执行检查点（execution_checkpoint）**：
-视频任务首次向供应商提交前冻结的单次付费请求身份与实际输入事实，只证明「这次提交如何发生」，不是入队快照或产物标记。
-_Avoid_: request snapshot、resume payload、current marker。
+**ComfyUI endpoint (ComfyUI 端点)**:
+A custom endpoint defined by a ComfyUI workflow and its node bindings. It can attach only to provider models of ComfyUI-protocol providers. Exactly one workflow is one endpoint.
+_Avoid_: Workflow endpoint; treating it as a provider (a ComfyUI service is a provider, a workflow is an endpoint); treating one workflow as a provider model.
 
-**孤儿任务（orphan task）**：
-记录为执行中、但实际已没有任何执行体在跑的生成任务，现实成因是服务重启（见 `docs/adr/0007`）。
 
-**续跑（resume）**：
-服务重启后对持有供应商任务 id 的孤儿视频任务接续轮询与下载、不重新提交的自愈路径；供应商侧任务已过期或找不到时续跑显式失败，不回退为重新提交。
-_Avoid_: 重试、重新提交、重启自愈（那是成因描述，不是路径名）。
+**endpoint definition (端点定义)**:
+JSON describing how to call an endpoint. Its `kind` distinguishes declarative protocol definitions and ComfyUI workflow definitions. It is the endpoint's sole source of truth and the import, export, and market-installation payload. Definitions are considered the same by author and name in `meta`.
+_Avoid_: Configuration, protocol template, lineage / provenance: say “definitions with the same author and name.”
 
-**取消（cancel）**：
-用户主动撤下一个尚未开始执行的生成任务，只对 `queued` 开放；任务一旦开始执行就不可取消——已发出的供应商调用照常跑完、结果照常成为产物，不让已产生的费用落空。
-_Avoid_: abort、stop、把取消理解为中断执行中的生成。
 
-**取消来源（cancelled_by）**：
-取消来源标记：`user` 表示用户从 UI 触发，`cascade` 表示下游依赖被一并取消，`interrupted` 表示进程级打断（事件循环拆除、关停超时等）落下的取消，不是用户动作；系统内部超时回收不算取消。
+**path override (路径覆盖)**:
+A replacement of the complete URL path for one request of a custom provider model's endpoint, leaving the rest of the request unchanged (see `docs/adr/0101`).
+_Avoid_: Custom path, URL override; storing it on a provider or endpoint.
 
-### 解析
 
-**供应商解析（resolve）**：
-给定一个生成任务，决定它应使用哪个 ProviderModel；优先级自高而低：本次请求 > 项目级 > 全局默认，这是"选身份"，不含调用通道构造。
-_Avoid_: 用 resolution 指代此过程——resolution 专指图像/视频分辨率。
+**node binding (节点绑定)**:
+A correspondence on a ComfyUI endpoint between an ArcReel named semantic input (prompt, first frame, last frame, reference images, dimensions, frame count, frame rate, seed, output) and workflow node inputs, or node outputs for generated output. Import inference produces only candidates; they become bindings after the user saves. With no binding for a semantic input, ArcReel does not drive it and the workflow literal applies. Prompt and output bindings are mandatory. Each semantic input has three states: bound, user-confirmed unsupported by this workflow, or never inferred. The latter two both have no binding, but only the last is inferred again on import.
+_Avoid_: Slot, mapping, bare “binding”; treating inference candidates as bindings; calling “never inferred” unsupported.
 
-**供应商模型组合（ProviderModel）**：
-供应商解析的结果——一对 `(provider_id, model_id)`，是指认一个供应商模型的值对象，不是调用通道。
-_Avoid_: ResolvedBackend、BackendSelection。
 
-**文本任务档位（text task tier）**：
-文本生成调用点的粗粒度分级，取值简单 / 复杂；用户配置的是「每档用哪个文本调用通道」，另有一个「默认模型」作为各档未设置时的回退（见 `docs/adr/0051`）。
-_Avoid_: 为单个调用点开专属模型设置项、把 Agent 对话模型当作某个档位。
+**example template (示例模板)**:
+A definition example bundled in frontend source that cannot be attached, used only to prefill the “New custom endpoint” form.
+_Avoid_: Starter template, starter skeleton, template file.
 
-**模型能力（capabilities）**：
-一个模型支持的生成输入、输出和控制方式，例如是否接受参考图、是否生成有声视频或是否支持尾帧。
-_Avoid_: 把模型能力与用户选择哪个模型混为一谈。
 
-**模型选择（model_selection）**：
-为不同生成用途指定所用模型的设置；未单独指定时使用默认模型。
-_Avoid_: 生成模型。
+**endpoint test (端点测试)**:
+Validation of a custom endpoint definition before or after saving, with preview request, check response, and trial run modes. ComfyUI endpoints have only preview request and trial run.
+_Avoid_: Test drive, runner, dry run.
 
-**任务类型（generation_type）**：
-一次生成请求按输入形态划分的分类，与媒体类型正交——媒体类型说产出什么媒体，任务类型说拿什么输入去生成：图片 t2i（文生图）/ i2i（图生图），视频 i2v（图生视频，首帧驱动）/ r2v（参考生视频，参考图槽位驱动）；图片的 t2i/i2i 只有执行时才能确定（见 `docs/adr/0001`）。
-_Avoid_: t2v、与模型能力混为一谈。
 
-**任务类型桶（GenerationTypeBucket）**：
-按任务类型细分的可选模型配置槽位（图片 t2i / i2i，视频 i2v / r2v），是「默认模型」之上的细化覆盖，未配置的桶回退同层默认模型（见 `docs/adr/0054`）。
-_Avoid_: 把桶当强制配置、在用户可见文案里写「任务类型桶」。
+**preview request (预览请求)**:
+An endpoint-test mode that renders the request for inspection without sending it to the provider.
 
-**执行模型（effective model）**：
-给定调用点的任务类型与当前配置，分层解析最终选中的模型；与「默认层模型」相对——默认层只是解析的一层输入，执行模型才是真正会执行的那一个。
-_Avoid_: 把执行模型当可配置项、用默认层模型作能力查询键。
 
-**视频请求事实（video request facts）**：
-一次视频生成请求的执行事实——执行模型、下发的分辨率、收窄后的可选时长及成因、时长是否由端点固定、音轨形态；每次请求只求值一次，提交前与执行时只差身份来源（见 `docs/adr/0086`）。
-_Avoid_: 在报价、预检或界面各自推算其中一项。
+**check response (验证响应)**:
+An endpoint-test mode that uses a real provider response to validate extraction paths and status mappings without sending a provider request.
 
-**图片编辑（image_edit）**：
-根据创作者的编辑指令修改一张已有图片，并保留未要求改变的主要内容；编辑产生新版本，不会改写生成原图所用的图片提示词。
-_Avoid_: 重新生成、局部重绘、把编辑指令当作图片提示词保存。
 
-### 尺寸与比例
+**trial run (测试连接)**:
+A real generation submission using a custom endpoint definition or provider model, polled to a terminal state. It incurs charges or consumes compute and is the only check that proves successful model invocation.
+_Avoid_: Calling a provider-level connectivity probe a trial run.
 
-**比例（aspect_ratio）**：
-输出的宽高比（如 `9:16` / `16:9` / `1:1`），项目级设定。
-_Avoid_: 把比例混进分辨率或尺寸字段。
 
-**分辨率（resolution）**：
-清晰度档位，只决定清晰度规模，不决定比例；自定义值若自带比例只取其短边作清晰度规模，比例仍由 aspect_ratio 决定（见 `docs/adr/0011`）。
-_Avoid_: 用 resolution 指代供应商解析；把「未设置」说成某个具体档位。
+**connectivity check (连通性检查)**:
+A free provider-level probe that checks credential reachability, such as listing models; it does not prove that any model can generate successfully.
+_Avoid_: 测试连接 (“trial run”), the former name.
 
-**尺寸（size）**：
-最终下传给调用通道的宽×高像素，由比例 × 分辨率档位在各调用通道的像素约束内推导。
-_Avoid_: 把 size 当比例或清晰度的同义词。
 
-**可选时长（supported_durations）**：
-某视频模型允许的离散时长集合（秒）（见 `docs/adr/0018`）；空集只在时长这一维「由端点固定」时合法（见 `docs/adr/0082`）。
-_Avoid_: 全局时长白名单；把「由端点固定」的空集当作配置缺失。
+**canonical provider id (规范供应商 id)**:
+The canonical spelling of a provider identity and the only accepted write form throughout the system.
 
-**维度由端点固定（endpoint-fixed dimension）**：
-尺寸或时长这一维不由 ArcReel 驱动、只由端点自身决定的状态；当前只有 ComfyUI 端点会进入（见 `docs/adr/0082`）。
-_Avoid_: 把它说成「不支持该维度」或「配置缺失」。
 
-**时长联动约束（duration_resolution_constraints / reference_image_durations）**：
-在 `supported_durations` 全集之上，按分辨率或参考图上下文进一步收窄可选时长的两条逐模型声明；收窄结果与成因属于视频请求事实。
-_Avoid_: 全局时长约束表；在界面复算收窄。
+**legacy provider alias (旧版供应商别名)**:
+A compatibility name formerly used for a provider in historical data that is not its canonical provider id.
+_Avoid_: Using a legacy provider alias as a writable provider identity.
 
-**偏好时长（default_duration）**：
-项目级偏好时长（int）；为 null 或缺失时是有语义的「auto」档——由 AI 按内容节奏在 supported_durations 内自行决定。
-_Avoid_: 把 null 读成「未配置」而擅自补默认值。
 
-### 素材存储与供应商素材关联
+**api_model_name (API 模型名)**:
+The model name actually sent to a provider API by a provider model. It may differ from the catalog entry's official name, for example `anthropic/claude-sonnet-4.5` on a relay service (see `docs/adr/0038`).
+_Avoid_: Using the catalog entry identity directly as the model name sent to the provider.
 
-**素材（media material）**：
-创作中使用的图片、视频或音频内容，具有独立于存储位置与供应商的身份，可包含不同内容版本；项目内一个资源的版本历史就是一个素材。资产图是素材的一种用途，角色、场景等项目资产是使用素材的创作对象。
-_Avoid_: 把素材身份等同于本地路径、对象存储地址或供应商素材 ID。
 
-**内容版本（content version）**：
-素材的一份具体内容，对应版本历史中的一条版本记录，有项目内唯一的稳定身份、可验证的内容摘要与持久定位。改选、恢复版本和资源改名都不改变身份；同字节的两条版本记录，包括不同项目里的副本，是两个内容版本（见 `docs/adr/0109`）。
-_Avoid_: 用内容哈希、资产条目、资源 ID 加版本号或文件路径充当内容版本身份。
+**amphibious model (两栖模型)**:
+A model whose provider API model name supports both image and video media_type values, `registered` as two catalog entries in ArcReel (see `docs/adr/0038`).
+_Avoid_: Treating alias keys as real model names.
 
-**素材存储（material storage）**：
-素材内容的保存位置与方式，包括本地文件和对象存储。内容版本在素材存储中的位置称为持久定位：本地的持久定位是项目内的版本快照，远端的持久定位是写入时的对象存储连接、桶与对象 key。资源的正式文件是选中内容版本的工作副本，临时签名 URL 只是一次访问的凭据，两者都不是持久定位。新图片内容版本保存在哪里由正式提交按全局设置「新增图片保存位置」决定，缺省本地；已有版本不随设置或连接变化重新解释（见 `docs/adr/0116`）。不建版本记录的图片（如分镜尾帧、角色原图）不在此列，始终保存在本地。
-_Avoid_: 把供应商素材关联作为与本地文件、对象存储互斥的存储类型；把正式文件路径或签名 URL 当作持久定位。
 
-**正式对象（formal object）**：
-远端内容版本保存在用户对象存储里的对象，按内容摘要命名，同一连接里同字节的内容版本共用一个。引用记在引用方名下：项目的版本历史与项目回收站、已删除项目、跨项目消费者、正在供应商取图保留期内的入库任务，以及进行中的正式提交。只要还有任何引用就保留，失去全部引用后统一回收；正式提交结算撤下占用后，失去全部引用的对象同样回收。等待删除且没有任何引用的对象不阻止更换或删除连接，变更后脱离当前连接、不再自动删除（见 `docs/adr/0116`、`docs/adr/0118`）。
-_Avoid_: 与中转副本混用；按对象前缀扫描删除；由各消费者自行决定零引用对象何时删除。
+**discovery_format (模型发现协议)**:
+A custom-provider declaration selecting the API used for model discovery and connectivity checks, without determining any model's invocation protocol. With `comfyui`, model discovery does not apply; only connectivity is checked.
+_Avoid_: api_format; treating it as a model-invocation protocol switch.
 
-**工作文件（work file）**：
-远端内容版本在本地的副本，位于版本快照与正式文件的原位置。它只是缓存：读取前按需从对象存储取回并校验摘要，闲置且未被使用时可以清理，清理不影响正式对象。工作文件不在本地不算素材缺失：在场判定与内容摘要按版本记录回答，只有实际读取字节时才取回。
-_Avoid_: 把工作文件当作持久定位；读取方绕过工作文件入口自行下载对象。
 
-**供应商素材（provider asset）**：
-保存在供应商素材库中、由供应商标识并按其权限与审核条件提供使用的图片、视频或音频素材。
-_Avoid_: 与 ArcReel 的项目资产混为一谈。
+**active credential (生效凭证)**:
+The credential currently selected when multiple credentials are configured under one provider. The user switches it manually in the UI; it applies globally, with at most one active credential per provider.
+_Avoid_: default credential, enabled credential (which implies several may be enabled); interpreting switching as automatic rotation or load balancing.
 
-**供应商素材关联（provider asset link）**：
-素材的某个内容版本与对应供应商素材之间的关联，受供应商账号、项目与使用条件约束。关联建立时冻结素材库账号所属的云账号身份，账号记录之后换成另一个云账号的 Access Key，关联仍属于原范围，不适用于新身份（见 `docs/adr/0115`）；同一内容版本可同时关联多个供应商素材，不同图片或内容版本的关联彼此独立。关联由上传入库建立，或从素材库选择已有图片时建立：后者先取回素材的实际内容保存为新的内容版本，再为这个版本建立关联（见 `docs/adr/0112`）。生成时按调用通道实际使用的推理凭证及其绑定选用关联，适用的关联不可用时生成失败，不改发图片内容（见 `docs/adr/0113`）。项目归档带上范围内内容版本的可用关联，导入实例原样保留冻结的范围，绑定到其他云账号身份时选不中、照常发送图片内容（见 `docs/adr/0119`）。
-_Avoid_: 登记、素材存储。
 
-**对象存储连接（object storage connection）**：
-用户自有对象存储的区域、Endpoint、桶与访问凭证，首期只支持 TOS，独立于媒体供应商的凭证。只配置连接不改变任何图片的保存位置。
-_Avoid_: 把它当作一个供应商；把配置连接等同于启用远端存储。
+**agent_credential (Agent 凭证)**:
+An Anthropic-compatible gateway credential (base_url + api_key + routing model) for the Claude Agent SDK, stored in a separate Agent credential table and not interchangeable with custom-provider credentials (see `docs/adr/0017`). The UI calls these “Agent providers” (“Add provider,” “Delete provider”), one per gateway.
+_Avoid_: Treating it as a custom provider.
 
-**素材库账号（asset library account）**：
-访问供应商素材库控制面的 Access Key 连同它的资源范围：站点、区域与项目。控制面凭证与推理 API Key 互不相通，控制面请求只发往站点对应的官方主机（见 `docs/adr/0110`）。
-_Avoid_: 用推理 API Key 访问控制面；按推理凭证的 base_url 推断控制面主机。
 
-**素材库绑定（asset library binding）**：
-用户显式确认某条推理凭证可以使用某个素材库账号的资源范围，每条推理凭证至多绑定一个账号。推理凭证的内容或 endpoint、账号的站点、区域、项目或 Access Key ID 变化后，绑定回到待确认，确认前按无绑定处理。绑定不替代供应商自己的权限校验。
-_Avoid_: 按供应商名称或域名推断绑定；因凭证记录 ID 未变而沿用旧绑定。
+### Market
 
-**入库任务（asset upload job）**：
-把一个内容版本上传到某个素材库调用范围（云账号身份、站点、区域与供应商项目）的过程。用户发起上传时即存在，取得供应商素材 ID 之前也可查询；供应商处理完成后成为该内容版本的供应商素材关联，只有可用状态才用于生成。同一内容版本在同一调用范围内至多有一条当前选定的关联或入库任务，选定只由用户上传或解除关联改变（见 `docs/adr/0111`）。
-_Avoid_: 登记；把供应商返回素材 ID 等同于素材可用；提交结果不确定时重新创建。
+**market (市场)**:
+The area where users browse and install content from one or more market sources. Browsing and installation depend only on local ArcReel and market-source repositories, with no central service or account. The sole initial market-entry type is endpoint.
+_Avoid_: Template library, shop / store, registry, plugin market, community.
 
-**中转副本（relay copy）**：
-为供应商取图而写进用户对象存储的临时对象，保留到入库任务有结果或下载地址过期之后再清理，与正式素材对象分开管理。
-_Avoid_: 把中转副本当作素材存储或持久定位；把签名过期等同于对象已删除。
 
-### 参考图与压缩
+**market source (市场源)**:
+A GitHub repository (or equivalent direct-link address) listing its market entries in an index file, registered in ArcReel for browsing and installation. The official market source is bundled; users add other third-party market sources themselves.
+_Avoid_: Unqualified source, repository, origin; registry, feed, mirror.
 
-**原图（reference_image）**：
-用户上传的、用于表达主体真实外观或创作意图的源图片；角色、场景、道具的原图只作为生成资产图的输入，不直接充当分镜或视频生成的参考图，商品原图例外（见 `docs/adr/0034`、`docs/adr/0073`）。
-_Avoid_: 资产图、把所有上传图片都叫参考图、用原图顶替缺失的资产图。
 
-**参考图（reference image）**：
-在某次生成中作为条件输入、用于引导身份、风格或构图的图片；原图、资产图和其他生成结果都可以在一次具体生成中充当参考图。
-_Avoid_: 把参考图当作图片的永久类型。
+**market entry (市场条目)**:
+Installable content in a market-source index, identified by a source-local unique slug, displayed by `meta.name`, with an endpoint definition as payload. The same slug across sources does not imply the same definition.
+_Avoid_: Unqualified entry, plugin, package, template.
 
-**声明引用 / 可用参考图（declared reference / available reference image）**：
-参考生视频的视频单元正文里作为画面参考引用的资产是声明引用；其中此刻确实能随请求发出参考图的部分是可用参考图。
-_Avoid_: 只凭「名字已登记」判断视频单元带参考图。
 
-**参考上传副本（reference upload copy）**：
-把参考图编码进供应商请求体那一刻所用的那份字节数据，是临时副本，用完即删，不是磁盘上的源资产文件或生成产出。
-_Avoid_: 把「压缩参考图」误读为压缩源文件或产出。
+**install (安装)**:
+Materializing a market entry's endpoint definition as a local custom endpoint and recording its source and entry, which the endpoint follows thereafter. Importing a local file creates no such binding and does not count as installed.
+_Avoid_: Interchanging import and install; download, subscribe.
 
-**参考图压缩（reference image compression）**：
-仅对参考上传副本做的等比缩放 + 重编码，对源资产与产出零影响（见 `docs/adr/0012`）。
-_Avoid_: 把它与上传保存时压缩混为一谈。
 
-**参考图裁剪（reference image clamping）**：
-一次生成装配出的参考图超过所选模型的数量上限时，按装配序保留前 N 张、去尾丢弃其余，编号只指认实发的图；产物依据仍按完整装配集登记（上限是供应商属性，见 `docs/adr/0062`）。裁剪一旦发生，分镜图 / 宫格任务结果与参考生视频路线一样在 `warnings` 里带一条超限提示，最终提示词预览也随分镜图侧给出同一条，用户与 Agent 都能看到有参考图没随请求发出。
-_Avoid_: 把裁剪当作按类型取舍——它不看类型优先级；把它当成只写日志的静默行为。
+**official service (官方服务)**:
+An ArcReel-operated layer above the market that records installation counts and ratings and receives sharing submissions. It is not a market source, does not participate in browsing or installation, and can be disabled by the user.
+_Avoid_: Cloud service, backend, registry.
 
-### 计费
 
-**生成费用（cost）**：
-使用模型完成内容生成所产生的费用，按模型目录的价目表与倍率估算，是参考指标而非实际账单；提交前显示预计费用，调用完成后记录该次调用的费用，无法关联到具体内容的费用显示为未归属费用。
-_Avoid_: 成本快照、费用归属；面向用户文案里把它称为实际账单。
+**instance id (实例标识)**:
+A locally generated random identifier of an ArcReel instance, sent with requests to the official service for server-side deduplication. The user may reset it.
+_Avoid_: Device ID, user ID.
 
-**参考费用（reference cost）**：
-面向用户展示的费用口径，按模型目录的价目表与倍率估算得出，不是供应商账单金额。
-_Avoid_: 实际费用、账单、成本。
 
-**价目表（price table）**：
-模型条目上的官方价格：以一个币种标价，列出各计量项按选择维度取值的单价。
-_Avoid_: 定价形状、费率表。
+**submission (分享提交)**:
+The action and record of submitting a custom endpoint from the client through the official service to the official market source. Acceptance is determined by the PR in the market-source repository.
+_Avoid_: 投稿 (reserved for manual PR contributions), publish, upload.
 
-**计量项（meter）**：
-计价时被计数的一种用量，如未缓存输入 token、缓存读 token、输出张数、输出秒数、字符数、次数。
-_Avoid_: 计价单位、计费类型。
 
-**选择维度（pricing dimension）**：
-决定计量项取哪一档单价的调用属性，如分辨率、质量档、是否有声、服务档、上下文档。
-_Avoid_: 档位、规格。
+### Tasks and cancellation
 
-**上下文档（context tier）**：
-按单次请求的输入 token 总量落入的价格档，整个请求的 token 单价都按这一档取。
-_Avoid_: 阶梯价、长上下文加价。
+**task (生成任务)**:
+A work unit ArcReel queues and tracks to complete one media generation.
+_Avoid_: Job, provider call.
 
-**倍率（price multiplier）**：
-表达渠道价差的系数，乘在整笔参考费用上：供应商调用分供应商倍率与供应商模型倍率两级，Agent 调用只有 Agent 凭证倍率一级。
-_Avoid_: 折扣、分组倍率、补全倍率。
 
-**未定价（unpriced）**：
-一次供应商调用找不到适用单价时的费用状态，与费用为 0 不同。
-_Avoid_: 免费、0 元。
+**api_call (供应商调用)**:
+One API request ArcReel makes to an external model provider, the smallest cost and usage accounting unit. The embedded Agent is an exception: requests to the same model in one turn count together as one provider call (see `docs/adr/0102`). A call may serve a generation task (a task can have zero to many calls) or occur independently (script generation, Agent sessions, endpoint trial runs).
+_Avoid_: Provider job, generation task; assuming calls and tasks are one-to-one.
 
-**使用记录（usage record）**：
-面向用户的供应商调用视图：分「生成调用」与「Agent 会话」两个视图——前者以一次调用为一行的时间线，后者把 Agent 的调用按会话聚合、每个会话一行，展开后按时间列出各模型的明细；另有筛选、汇总与异常关注。它是对调用事实的投影，不是独立存储的实体，两个视图只是展示方式不同，记账粒度不变。
-_Avoid_: 账本、落账、费用明细、调用记录。
 
-**来源（purpose）**：
-一次供应商调用被发起的原因，取值为剧本生成、分集规划、项目概览、风格分析、Agent 会话、端点试跑、生成任务之一。
-_Avoid_: origin、调用场景、任务类型。
+**provider_job (供应商任务)**:
+A remote asynchronous operation created by the provider for a submit-and-poll generation. Its provider-written status is distinct from ArcReel's local task status even when names match.
+_Avoid_: Confusing it with local task status; generation task.
 
-**主币种（primary currency）**：
-一段使用记录期间内参考费用汇总金额最大的币种；图表与构成表只按主币种作图，其余币种单独列出而不折算。
-_Avoid_: 默认币种、基准币种、把多币种折算成单一金额。
 
-**需要关注（attention）**：
-使用记录中自动判定出的调用异常：某供应商或模型的失败率显著高于同期总体，或同一生成目标连续失败，只统计生成调用，Agent 的调用不参与；无异常时不出现。
-_Avoid_: 告警、报警、异常列表。
+**batch_admission (整批准入判定)**:
+A single all-or-nothing decision over every target before “Generate all / Batch generate” creates any task. Outcomes are admitted, awaiting confirmation (such as aggregated cross-tier costs requiring the user), or blocked (zero tasks created). It decides whether tasks can be created, not whether execution will succeed.
+_Avoid_: Calling whole-batch rejection “batch failure.”
 
-### 媒体类型与配音（TTS）
 
-**媒体类型（media_type / call_type）**：
-贯穿全系统的媒体维度，取值 `image` / `video` / `text` / `audio`，供应商解析、调用通道家族、用量与计费都按媒体类型扇出；其中 `audio` 承载文本转语音，与 image / video 一样经生成队列调度（见 `docs/adr/0010`）。
-_Avoid_: modality、media kind、用 tts / voice / speech 指代 audio。
+**execution_checkpoint (执行检查点)**:
+The identity and actual input facts of a single paid video request, frozen before its first submission to the provider. It proves how that submission occurred, not a queue snapshot or artifact marker.
+_Avoid_: request snapshot, resume payload, current marker.
 
-**旁白配音（narration_audio）**：
-为旁白或解说文本生成的独立语音素材，可与画面在后期合成。
-_Avoid_: 生成旁白、视频声音、TTS 音频。
 
-**旁白交付方式（narration delivery）**：
-项目为画外音选定的配音途径：由 ArcReel 按项目的 TTS 设置生成旁白配音，或交付后由创作者自行后期配音；它不影响视频生成。
-_Avoid_: 旁白模式、配音设置、把它当作每次生成请求的参数。
+**orphan task (孤儿任务)**:
+A generation task recorded as running with no executor actually running, caused in practice by service restart (see `docs/adr/0007`).
 
-**生成有声视频（generate_audio）**：
-由视频模型在生成画面的同时生成与画面同步的声音。
-_Avoid_: 生成音频、旁白配音、视频音频。
 
-**音色（voice）**：
-供应商内置的一位预设发音人，决定合成出来的语音听上去是谁在念。
-_Avoid_: 用 voice 指代 audio 媒体类型本身、把音色与声音复刻混为一谈。
+**resume (续跑)**:
+The self-recovery path that resumes polling and downloading an orphan video task holding a provider job id after service restart, without resubmission. An expired or missing provider job fails explicitly; it does not fall back to resubmission.
+_Avoid_: Retry, resubmit, restart recovery (the cause, not the path's name).
 
-**编排语速（speech rate）**：
-估算一段台词或画外音要念多少秒所用的绝对速度（中文为字/秒，英文、越南语与俄语为词/秒），按语言取默认值，项目可以覆盖；用于写剧本时安排编排时长和校验说话量，与由谁发声无关。
-_Avoid_: 裸称「语速」、把它当作 TTS 的速度参数。
 
-**配音语速（narration speed）**：
-TTS 项目为旁白配音设定的速度倍率，基准是所选音色本身的语速；它是项目 TTS 设置的一部分，只影响旁白配音，不影响台词。
-_Avoid_: 裸称「语速」、按视频单元单独设置配音语速、把它换算成编排语速。
+**cancel (取消)**:
+A user withdrawing a generation task that has not started, available only for `queued`. Once execution begins the task cannot be cancelled: submitted provider calls finish and their results become artifacts, so incurred costs are not wasted.
+_Avoid_: abort, stop; interpreting cancellation as interrupting running generation.
 
-**音色试听（voice_sample）**：
-用于试听和确认某种音色的短音频，不属于成片素材。
-_Avoid_: 旁白配音、参考音频。
 
-**环境音描述（ambiance_audio）**：
-脚本中喂给视频模型的环境音效提示词，是文本字段而非音频文件。
-_Avoid_: 旁白配音、生成有声视频。
+**cancelled_by (取消来源)**:
+A cancellation-origin marker: `user` means triggered from the UI, `cascade` means downstream dependencies were cancelled together, and `interrupted` means a process-level interruption (event-loop teardown, shutdown timeout, etc.), not a user action. Internal timeout reclamation is not cancellation.
 
-**声音一致性档位（voice_consistency）**：
-视频模型在跨片段保持角色音色上的三级标识：`native`（参考生视频直传角色原声）/ `soft`（有音轨但只能靠文字描述引导音色）/ `none`（无声），由「模型有无音轨」×「项目生成模式」×「角色声音绑定方式」三维派生。
-_Avoid_: 用 `generate_audio` 的真假直接代指有无音轨。
 
-**角色声音绑定方式（character_voice_binding）**：
-项目级设置，声明角色的声音靠什么约束：`prompt`（默认）把角色的音色描述写进提示词做软约束，`reference_audio` 才把角色已设的参考音频随请求挂给视频模型。
-_Avoid_: 声音模式、音频模式、用它指代旁白配音的音色设置。
+### Resolution
 
-### 项目与资产
+**resolve (供应商解析)**:
+Selecting a task's ProviderModel with descending precedence: this request > project > global default. This selects identity and does not construct the backend.
+_Avoid_: Using resolution for this process: resolution means image/video resolution only.
 
-**项目（project）**：
-ArcReel 中一项完整的视频创作，拥有自己的源文件、脚本、资产、生成模式和成片内容。
-_Avoid_: 作品、工程、用剧集指代整个项目。
 
-**数据根（data root）**：
-一次部署在文件系统上存放运行数据的目录，项目只是其中一类数据。
-_Avoid_: 项目根、projects 目录（用来指数据根时）、把数据根下的任意目录当作项目。
+**ProviderModel (供应商模型组合)**:
+The result of provider resolution: a `(provider_id, model_id)` pair, a value object identifying one provider model, not a backend.
+_Avoid_: ResolvedBackend, BackendSelection.
 
-**集（episode）**：
-项目中的一个连续内容单元；广告/短片项目也只有一集，但界面可以隐藏集选择。
-_Avoid_: 用剧集同时指一集和整个系列。
 
-**资产图（sheet）**：
-为角色、场景、道具或商品确定标准视觉形象的图片，供同一项目中的后续创作复用；资产图用于某次生成时也同时充当该次生成的参考图。尚无可用资产图的资产称「待生成」。
-_Avoid_: 设计图、设定图、参考设计图。
+**text task tier (文本任务档位)**:
+A coarse classification of text-generation call sites as simple or complex. Users configure a text backend per tier, with a default model as fallback for unset tiers (see `docs/adr/0051`).
+_Avoid_: Dedicated model settings per call site; treating the Agent conversation model as a tier.
 
-**角色（character）**：
-在项目内容中以特定身份出现、可被多个视频单元复用的资产；一个角色有一个本体外观，可拥有若干衍生。
-_Avoid_: 人物、人物资产。
 
-**本体（base look）**：
-角色条目自身的描述与资产图所定义的常驻外观；脚本中裸写 `@[角色]` 引用的就是本体。
-_Avoid_: 默认形态、把本体当作衍生之一。
+**capabilities (模型能力)**:
+The generation inputs, outputs, and controls a model supports, such as accepting reference images, generating sound with video, or accepting an end frame.
+_Avoid_: Confusing capabilities with the user's model choice.
 
-**衍生（derivative）**：
-角色在本体之外的另一套持续外观（换装、变身、易容、年龄跨越等），与本体共享名字、声音与身份，只持有相对本体的外观变化描述和一张资产图；资产图由本体资产图编辑生成，或由作者上传替换，上传的是成品（见 `docs/adr/0072`）。在脚本中写作 `@[角色/衍生]`。
-_Avoid_: 变体（已指 Agent profile 变体）、形象、皮肤、把衍生登记为独立角色、给衍生上传原图（上传的是资产图本身，不作为编辑生成的底图）。
 
-**场景（scene）**：
-可在多个视频单元中复用的环境资产，描述故事发生的地点与空间外观。
-_Avoid_: 用场景指代脚本中的视频单元或剧情段落。
+**model_selection (模型选择)**:
+Settings specifying models for different generation purposes, falling back to the default model when not individually specified.
+_Avoid_: Generation model.
 
-**项目资产（project asset）**：
-当前项目拥有的角色、场景、道具和商品；它们只属于该项目，不会与全局资产库自动同步。
-_Avoid_: 资源库、设定集。
 
-**全局资产库（global asset library）**：
-跨项目保存和复用角色、场景与道具的资产集合；角色的衍生以子表随本体整套进出（见 `docs/adr/0072`）。资产应用到项目后成为独立的项目资产，之后两边的修改互不影响。库里的图片与项目内容版本共用素材存储：新图片按全局设置保存在本地或对象存储，图片当前版本的可用供应商素材关联随图片复制，库与各项目独立持有自己的副本（见 `docs/adr/0120`）。
-_Avoid_: 项目资产、以为库内资产与项目资产会自动同步。
+**generation_type (任务类型)**:
+A generation-request classification by input form, orthogonal to media type: media type describes the output, while generation type describes inputs. Images use t2i (text-to-image) / i2i (image-to-image); videos use i2v (first-frame-driven image-to-video) / r2v (reference-slot-driven video). Image t2i/i2i can be determined only at execution (see `docs/adr/0001`).
+_Avoid_: t2v; confusing it with model capabilities.
 
-**商品（product）**：
-广告/短片中需要准确呈现和推广的商品资产，以用户上传的商品原图作为外观真实性依据。
-_Avoid_: 产品、产品资产、商品角色。
 
-**资产重命名（asset rename）**：
-以名称为身份的资产改换名称的原子级联事务，该名称的全部引用一次改齐（见 `docs/adr/0057`）。
-_Avoid_: 用「新名 upsert + 删旧名」拼装改名。
+**GenerationTypeBucket (任务类型桶)**:
+An optional model-setting slot specialized by generation type (image t2i / i2i, video i2v / r2v), refining the default model. Unconfigured buckets fall back to the same layer's default model (see `docs/adr/0054`).
+_Avoid_: Treating buckets as mandatory configuration; showing “generation type bucket” in user-facing copy.
 
-**资产合并（asset merge）**：
-把同一身份被登记成的两个同类型角色、场景或道具并成一个的原子级联事务：被并资产的全部引用一次改指保留资产，被并资产的名字成为保留资产的资产别名（见 `docs/adr/0057`、`docs/adr/0092`）。角色也可以并为保留角色的衍生：被并资产的名字成为衍生名而不是本体的资产别名，画面引用改指 `保留角色/衍生`，说话人改指保留角色。
-_Avoid_: 用重命名到已有名字表达合并、把 upsert 的字段并入称为合并。
 
-**资产别名（asset alias）**：
-登记在角色、场景或道具上的其他称呼，包括源文中的其他叫法、改名前的旧名与合并掉的名字（并为衍生的除外），只作 AI 规划或生成脚本时认出同一资产的参考，不是资产的名字（见 `docs/adr/0092`）。
-_Avoid_: 昵称、称呼表、把资产别名写进引用、不加限定地说「别名」、与模型别名混用。
+**effective model (执行模型)**:
+The final model selected by layered resolution given a call site's generation type and current settings. The default-layer model is only one resolution input; the effective model actually executes.
+_Avoid_: Treating it as a configurable setting; querying capabilities using the default-layer model.
 
-**风格模版（style_template）**：
-预置的整段画风提示词文本（真人 / 动画两类），选定时把展开后的提示词作为快照写入项目风格（见 `docs/adr/0023`）。
-_Avoid_: 把 style 理解为短标签、与风格参考图叠加——二者互斥。
 
-**线索（clue）**：
-ArcReel 早期对「场景 + 道具」的统称，现已拆为独立的 scene 与 prop 两类资产。
-_Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具。
+**video request facts (视频请求事实)**:
+Execution facts for one video request: effective model, submitted resolution, narrowed supported durations and reasons, whether duration is endpoint-fixed, and audio-track form. Evaluated once per request; pre-submission and execution differ only in identity source (see `docs/adr/0086`).
+_Avoid_: Recomputing individual facts in pricing, preflight, or UI paths.
 
-**项目事件（project event）**：
-服务端推给浏览器的一条「项目里哪个实体发生了什么」的记录，含实体类型、动作、实体 id、标签与定位；浏览器据此刷新项目并决定是否提示、是否跳转（见 `docs/adr/0085`）。
-_Avoid_: 通知（通知只是前端对项目事件的一种呈现）、变更 hint（hint 只触发重扫，不描述发生了什么）。
 
-**项目状态投影（project state projection）**：
-把项目当前状态（项目元数据与全部剧本）归一成可比对快照的规则，它决定哪些状态变化算作项目事件。
-_Avoid_: 影子 schema、手挑字段的快照。
+**image_edit (图片编辑)**:
+Changing an existing image according to the creator's editing instructions while preserving major content not requested to change. Editing produces a new version and does not rewrite the image prompt used for the original generation.
+_Avoid_: Regenerate, inpaint; saving editing instructions as the image prompt.
 
-### 脚本与分镜
 
-**创作类型（content_mode）**：
-项目内容如何组织和表达的分类，它与生成模式相互独立。
-_Avoid_: 把创作类型与视频生成方法混为一谈。
+### Dimensions and aspect ratios
 
-**旁白/解说（narration）**：
-以连续的旁白或解说组织内容、由画面配合讲述推进的创作类型。
-_Avoid_: 旁白模式、说书模式。
+**aspect_ratio (比例)**:
+The output width-to-height ratio (such as `9:16`, `16:9`, or `1:1`), configured per project.
+_Avoid_: Mixing aspect ratio into resolution or size fields.
 
-**剧情演绎（drama）**：
-以角色行动、对白和剧情场面组织内容的创作类型，可采用真人、动画等不同视觉风格。
-_Avoid_: 剧集动画、drama 模式。
 
-**广告/短片（ad）**：
-围绕单条成片及传播目标组织内容的创作类型，适用于商品推广、品牌传播和独立创意短片。它没有源文与脚本规划，正式脚本由 AI 依创作灵感与商品整份生成或手写。
-_Avoid_: 广告模式、短片模式、把它限定为带货视频。
+**resolution (分辨率)**:
+A clarity tier determining pixel scale, not aspect ratio. For custom values containing a ratio, only the short side determines scale; aspect_ratio still determines the ratio (see `docs/adr/0011`).
+_Avoid_: Using resolution to mean provider resolution; describing unset as a specific tier.
 
-**创作灵感（brief）**：
-创作者对一条广告/短片想要什么的自由描述，如目标人群、风格调性、重点卖点与行动号召。
-_Avoid_: 简报、需求、创作简报。
 
-**骨架（skeleton）**：
-脚本条目数组的结构种类，四值：`segments`（旁白/解说）/ `scenes`（剧情演绎）/ `shots`（广告/短片）/ `video_units`（参考生视频），由创作类型与生成模式两轴派生（见 `docs/adr/0045`）。
-_Avoid_: 把骨架当 content_mode 的同义词、对未知模式做二值兜底。
+**size (尺寸)**:
+The final width × height in pixels sent to a backend, derived from aspect ratio and resolution within that backend's pixel constraints.
+_Avoid_: Using size as a synonym for aspect ratio or clarity.
 
-**生成模式（generation_mode）**：
-项目创建时选定的视频生成方法，决定视频由分镜图还是资产图等参考图驱动；同一项目内所有集采用同一种生成模式，创建后不可更改。
-_Avoid_: 生成路线、与创作类型混为一谈。
 
-**分镜图生视频（storyboard）**：
-先为每个分镜生成分镜图，再以分镜图驱动对应视频生成的生成模式。
-_Avoid_: 图生视频模式、分镜模式。
+**`supported_durations` (可选时长)**:
+The discrete set of durations in seconds allowed by a video model (see `docs/adr/0018`). An empty set is legal only when duration is endpoint-fixed (see `docs/adr/0082`).
+_Avoid_: Global duration allowlist; treating an endpoint-fixed empty set as missing configuration.
 
-**参考生视频（reference_video）**：
-以角色、场景、道具或商品的参考图直接驱动视频生成的生成模式，不需要先为每个分镜生成分镜图。
-_Avoid_: 参考视频、参考模式、参考直出。
 
-**多宫格分镜（grid）**：
-把多个分镜合并成一张联合图统一生成、再经切分落格写成各分镜图的生产方式，用于增强画面风格与主体的一致性。
-_Avoid_: 分镜板、故事板、把它当成与其他生成模式并列的模式。
+**endpoint-fixed dimension (维度由端点固定)**:
+A dimension, size or duration, that ArcReel does not drive and only the endpoint determines. Currently only ComfyUI endpoints enter this state (see `docs/adr/0082`).
+_Avoid_: Calling it unsupported or missing configuration.
 
-**联合图（grid composite）**：
-多宫格分镜中一次生成出的整张多宫格图，覆盖同一分组内按格排列的若干分镜；它本身是可审阅、可上传替换、可回滚的产物，不直接作为任何分镜的画面输入。
-_Avoid_: 宫格图片、拼图、把联合图当成分镜图。
 
-**切分落格（grid split）**：
-把联合图按格切开、写成它覆盖的全部分镜的分镜图的动作，由用户审阅联合图后确认发起，Web 与 Agent 一致；联合图已就绪而尚未切分落格的宫格处于「未切分」状态，被切分覆盖的旧分镜图留在版本历史里可回滚。
-_Avoid_: 拆图、自动切分、待切分、把切分落格当成生成的一部分。
+**duration_resolution_constraints / reference_image_durations (时长联动约束)**:
+Two per-model declarations narrowing supported_durations by resolution or reference-image context. The narrowed set and its reasons are video request facts.
+_Avoid_: Global duration-constraint table; recomputing narrowing in the UI.
 
-**分镜（segment / scene / shot）**：
-以分镜图驱动视频时，脚本中可独立编辑和生成的一条内容，即分镜图生视频下的视频单元；旁白/解说、剧情演绎和广告/短片都以分镜组织脚本。分镜的数量即分镜图生视频项目的内容规模度量。
-_Avoid_: 把分镜与分镜图混为一谈、把参考生视频的视频单元计入分镜数。
 
-**分镜图（storyboard_image）**：
-为一个分镜确定构图和起始画面的图片，也是该分镜生成视频时的画面输入。
-_Avoid_: 分镜、资产图、多宫格分镜。
+**default_duration (偏好时长)**:
+An integer project-level preferred duration. Null or missing means the semantic “auto” tier: the AI selects a duration within supported_durations according to content pacing.
+_Avoid_: Reading null as unconfigured and supplying a default without authorization.
 
-**章节切分点（segment_break）**：
-标在脚本某个分镜上、表示从这里另起一个章节的标记，像视频时间线上的章节；它是分镜图参考链与多宫格分组的边界，属于生成输入，不是剪辑决策。
-_Avoid_: 以「场景」命名，如场景切换点（场景已指环境资产）、把它与源文的章节或分集混为一谈。
 
-**视频单元（video unit）**：
-一次视频生成对应的内容，是生成、计费、发声归属与剪辑引用的最小单位：分镜图生视频时即分镜，参考生视频时即一段自由文本加编排时长构成的条目（脚本字段 `video_units` 只指后者）；参考生视频项目以视频单元的数量度量内容规模。
-_Avoid_: 场景、单位、用分镜指代参考生视频的视频单元。
+### Material storage and provider asset links
 
-**引用语法（writing_syntax）**：
-创作者在正文中直接书写的记号。参考生视频的视频单元正文支持三种：`@[名称]` 引用已登记的商品/角色/场景/道具资产（`@[角色/衍生]` 引用该角色的某个衍生），`@[名称]{台词}` 引用资产并附带角色台词（说话人位写衍生时只绑该角色的声音），裸 `{台词}` 标注画外音（不引用任何资产）。分镜的 `image_prompt.scene` 只支持 `@[名称]`，用于指认该分镜引用字段里已声明的资产，渲染时换成参考图的「图N」编号；它不派生参考图。
-_Avoid_: 把记号解析规则与资产登记混为一谈。
+**media material (素材)**:
+Image, video, or audio content used in creation, with an identity independent of storage location and provider, and potentially multiple content versions. A resource's version history within a project is one media material. A sheet is one use of material; project assets such as characters and scenes are creative objects using material.
+_Avoid_: Equating material identity with a local path, object-storage address, or provider asset ID.
 
-**脚本（script）**：
-ArcReel 根据小说、剧本或创作构想整理出的结构化创作内容，用于后续生成视频单元。
-_Avoid_: 用剧本指代 ArcReel 的结构化产物。
 
-**小说（novel）**：
-供 ArcReel 改编为脚本的叙事文本源文件。
-_Avoid_: 原作、脚本。
+**content version (内容版本)**:
+Specific content of a media material, corresponding to one version-history record, with a project-unique stable identity, verifiable content digest, and durable locator. Selection, restoration, and resource renaming do not change its identity. Two records with identical bytes, including copies in different projects, are two content versions (see `docs/adr/0109`).
+_Avoid_: Using a content hash, asset entry, resource ID plus version number, or file path as content-version identity.
 
-**剧本（screenplay）**：
-用户上传的、已经包含剧情组织与对白安排的文本源文件；ArcReel 应优先保留其中可听见的内容，并补充视频制作所需的信息。
-_Avoid_: 脚本。
 
-**源文件类型（source_kind）**：
-剧情演绎中一份原文的类型，分为小说和剧本，决定 ArcReel 是改编内容，还是优先保留作者已写成的剧情与对白。它属于源文件而非项目：整本源文的每个文件、自带原文的每一集各有一个（见 `docs/adr/0036`）。
-_Avoid_: 与创作类型或生成模式混为一谈、当作项目级属性。
+**material storage (素材存储)**:
+Where and how material content is saved, including local files and object storage. A content version's location in storage is its durable locator: a local version snapshot within the project, or the object-storage connection, bucket, and key recorded at write time. A resource's formal file is a working copy of the selected version; a temporary signed URL is an access credential. Neither is a durable locator. Formal commit determines new image-version storage from the global “New image storage location” setting, defaulting to local; existing versions are not reinterpreted when settings or connections change (see `docs/adr/0116`). Images without version records, such as end frames and character originals, are excluded and always local.
+_Avoid_: Treating provider asset links as a storage type mutually exclusive with local files or object storage; treating formal paths or signed URLs as durable locators.
 
-**发声条目（utterance）**：
-视频单元里「说出来的话」的统一单元——每条要么是台词（有说话人，含对白、内心独白与角色的画外解说），要么是画外音（无说话人），插入顺序即先后。
-_Avoid_: 把台词与画外音当两个独立无序字段、把角色的画外解说算作画外音。
 
-**对应原文（source_text）**：
-一个视频单元所依据的小说或剧本文本，用于创作者对照来源，不会作为独立内容被朗读或生成。
-_Avoid_: 把对应原文当作旁白文本。
+**formal object (正式对象)**:
+An object holding a remote content version in the user's object storage, named by content digest and shared by byte-identical versions within one connection. References belong to their holders: project version histories and project trash, deleted projects, cross-project consumers, upload jobs still within the provider fetch retention period, and ongoing formal commits. Retain it while any reference exists and collect it centrally after all references disappear, including after formal-commit settlement releases its claim. Unreferenced objects pending deletion do not block connection changes or deletion; afterwards they are detached from the current connection and no longer automatically deleted (see `docs/adr/0116`, `docs/adr/0118`).
+_Avoid_: Confusing it with a relay copy; deleting by object-prefix scans; letting individual consumers decide when zero-reference objects are deleted.
 
-**尾帧（end_frame_image）**：
-用户为单个分镜指定的、视频生成收束到的目标画面，是分镜条目的用户意图持久属性，不是生成产出。
-_Avoid_: 把它与宫格产出字段混为一谈。
 
-**脚本规划（script_plan）**：
-ArcReel 把一集的集原文整理为可供创作者检查的脚本内容的制作步骤名；也指该步骤的产出，即供创作者在内容确认时检查与修改、确认后转为正式脚本的那份脚本内容，连同 AI 对本集新出现资产的处理决定，确认时随正式脚本登记（见 `docs/adr/0092`）。
-_Avoid_: step1、内容整理、预处理、内容层、规划文件、中间态。
+**work file (工作文件)**:
+A local copy of a remote content version at the original snapshot and formal-file locations. It is only a cache: fetch from object storage and verify its digest on demand before reading; remove when idle and unused without affecting the formal object. An absent work file does not mean missing material. Presence and digests come from the version record; fetch only when bytes are actually read.
+_Avoid_: Treating a work file as a durable locator; readers bypassing the work-file entry point to download objects themselves.
 
-**提示词编写（prompt_authoring）**：
-为正式脚本中待编写的视频单元补出视觉层的制作步骤名，输入是正式脚本自身的内容，不读脚本规划。
-_Avoid_: step2、视觉展开、generate-script、增量编写。
 
-**提示词形态（prompt form）**：
-最终剧本中的视觉提示词所采用的表达形态，可以是结构化 JSON 或纯文本；两者都是正式提示词内容，形态本身也区分内容（见 `docs/adr/0070`）。
-_Avoid_: 把纯文本当作预览缓存、把两种形态视为可无损互换的同一内容。
+**provider asset (供应商素材)**:
+Image, video, or audio material stored in a provider asset library, identified by the provider and usable subject to its permissions and review conditions.
+_Avoid_: Confusing it with ArcReel project assets.
 
-**提示词模版（prompt_template）**：
-一个生成环节发给模型的完整提示词的定义，正文带数据槽位，随版本内置；渲染时填入项目数据后才是实发文本（见 `docs/adr/0077`）。
-_Avoid_: 生成场景、prompt 模板、把它与风格模版或提示词正文混为一谈。
 
-**生成环节（generation stage）**：
-流水线上一次向文本、图像或视频模型发起调用的固定位置，按制作步骤、创作类型与生成模式区分，相同者合并；恰对应一个提示词模版。
-_Avoid_: 生成入口（那是准入闸门，见 `docs/adr/0073`）、场景、调用点、builder。
+**provider asset link (供应商素材关联)**:
+A link between one material content version and a corresponding provider asset, constrained by provider account, project, and usage conditions. Creation freezes the asset-library account's cloud-account identity. Replacing the account's Access Key with one from another cloud account does not move the link to the new identity (see `docs/adr/0115`). One version can link to multiple provider assets; different images or versions have independent links. Upload creates links; selecting an existing library image first saves its actual content as a new content version, then links that version (see `docs/adr/0112`). Generation selects links using the backend's actual inference credential and binding. If an applicable link is unavailable, generation fails instead of sending image content (see `docs/adr/0113`). Archives carry available links for included versions and preserve their frozen scope on import; binding another cloud identity cannot select them, so image content is sent normally (see `docs/adr/0119`).
+_Avoid_: Registration, material storage.
 
-**模版类别（template category）**：
-提示词模版按产出媒体的分组：文本生成、资产图、分镜图、视频；无槽位的画风提示词单列为画风一组。
-_Avoid_: 用创作类型或生成模式当类别。
 
-**模版片段（partial）**：
-供提示词模版引用的一段措辞，或是跨模版共享的，或是单个模版按源文件类型、资产类型等轴拆出的命名变体，模版按轴值引用；只被一个模版引用的固定措辞不做片段。
-_Avoid_: 规则常量、prompt_rules、用条件分支在模版内切换轴值。
+**object storage connection (对象存储连接)**:
+The region, Endpoint, bucket, and credentials for the user's own object storage. Initially only TOS is supported, independently of media-provider credentials. Configuring a connection alone changes no image's storage location.
+_Avoid_: Treating it as a provider; equating connection configuration with enabling remote storage.
 
-**负向提示词（negative prompt）**：
-按产出媒体共享的排除项片段，图像与视频各一份，以提示词正文里的 `Avoid:` 行渲染；只有 ComfyUI 端点把它从正文拆出填入负向提示词的节点绑定，其余通道都不是供应商参数；生成环节只能追加专属排除项，不得另起措辞。
-_Avoid_: 反向词表、negative_prompt 参数、各环节自写的禁止清单。
 
-**模版正文（template body）**：
-提示词模版去掉元数据之后的那份带槽位与片段引用的文本，是系统设置页展示与编辑的对象；它既不是项目的源文，也不是渲染后的实发提示词。
-_Avoid_: 源文（那是项目的叙事文本）、源码、把它叫作预览。
+**asset library account (素材库账号)**:
+An Access Key for a provider asset library's control plane, together with its site, region, and project scope. Control-plane credentials and inference API Keys are not interchangeable. Control-plane requests go only to official hosts for that site (see `docs/adr/0110`).
+_Avoid_: Using inference API Keys for the control plane; deriving its host from an inference credential's base_url.
 
-**内容确认（review gate）**：
-脚本内容已经整理完成、正在等待创作者确认的制作步骤名；确认即把脚本规划转为正式脚本，此后脚本规划只读。
-_Avoid_: 审核 gate、门禁、pending。
 
-**待编写（pending authoring）**：
-正式脚本中视觉层尚未补出的视频单元的状态；由内容确认的转换与不带视觉层的手动新增置位，提示词编写完成或手写齐视觉层后清除。
-_Avoid_: 待生成、缺提示词、pending。
+**asset library binding (素材库绑定)**:
+The user's explicit confirmation that an inference credential may use an asset-library account's resource scope. One inference credential binds to at most one account. Changes to credential content or endpoint, or account site, region, project, or Access Key ID return it to pending confirmation; treat it as unbound until confirmed. Binding does not replace provider authorization.
+_Avoid_: Inferring bindings from provider names or domains; retaining a binding merely because the credential record ID did not change.
 
-**待修复草稿（invalid draft）**：
-生成结果未满足内容约束、需要修正后才能继续使用的草稿；已有正式内容不受它影响，草稿在场期间，内容确认与生成入口一律拒绝继续。创作者可以直接改它，每次保存都重新校验，违约清零即采用为正式内容；也可以交给 AI 修复、重新生成（替换整份草稿）或丢弃。
-_Avoid_: 隔离草稿、违约产物、quarantine。
 
-**AI 修复（draft repair）**：
-由 AI 修正待修复草稿中违约所在的条目，其余条目原样保留；违约落在整集层面时才整份修改。修完照常校验，违约清零即采用，否则仍是待修复草稿。
-_Avoid_: 重新生成、重抽、自动修复。
+**asset upload job (入库任务)**:
+Uploading a content version into a specific asset-library call scope (cloud identity, site, region, and provider project). It exists and is queryable from the user's upload action, before a provider asset ID is obtained. Once provider processing completes it becomes the version's provider asset link, usable for generation only when available. Within one scope, one version has at most one currently selected link or upload job; only user upload or unlinking changes selection (see `docs/adr/0111`).
+_Avoid_: Registration; equating a returned provider asset ID with usability; recreating after an uncertain submission outcome.
 
-**可编辑草稿（editable draft）**：
-从正式内容取回、供 Agent 修改并重新校验的草稿；它可以没有任何违约。草稿在场期间的阻断与待修复草稿相同；创作者不直接编辑它，只能交给 Agent 完成或丢弃。
-_Avoid_: 隔离草稿、待修复草稿。
 
-**软违约（soft violation）**：
-不阻断落盘、不进待修复草稿判定，但须随产物一并呈现的降级结论（如「角色没配参考音频」「本单元没引用场景」）；对 Agent 与创作者以「降级提示」成文。
-_Avoid_: 与违约混为一谈、把它算进待修复草稿的违约条目。
+**relay copy (中转副本)**:
+A temporary object written to the user's object storage so a provider can fetch an image, retained until the upload job has an outcome or its download URL expires, then cleaned up separately from formal material objects.
+_Avoid_: Treating it as material storage or a durable locator; equating signature expiry with object deletion.
 
-**需要重新规划（needs_replan）**：
-正式脚本中一个视频单元的状态：其内容已不能直接生成（如台词与画外音混在一起、缺正文或时长），须回到规划层改写。
-_Avoid_: 待编写、待修复草稿、失效。
 
-**分集账本（episode ledger）**：
-记录每一集的身份与其集原文来源的账本，是分集的唯一真相源：切自整本源文的集记原文范围，自带原文或没有原文的集不占用整本源文；切自整本源文的集的分集文件是账本的派生物，自带原文的集文件就是该集的源文（见 `docs/adr/0031`）。
-_Avoid_: 绕过账本、以物理集文件的存在性推断分集状态或集数、把不带原文范围的集当作异常条目。
+### Reference images and compression
 
-**播出顺序（episode order）**：
-项目内所有集排成的唯一序列，即分集账本中条目的先后；创作者以标题和一集在其中的位置认集（见 `docs/adr/0096`）。
-_Avoid_: 集号、按集号排序、按集的来源分成多条编号线。
+**reference_image (原图)**:
+A source image uploaded by the user to express a subject's actual appearance or creative intent. Character, scene, and prop originals are only inputs to sheet generation, not direct references for storyboard or video generation; product originals are the exception (see `docs/adr/0034`, `docs/adr/0073`).
+_Avoid_: Sheet; calling all uploads reference images; substituting originals for missing sheets.
 
-**整本源文（whole source）**：
-分集规划从中切出集的叙事原文，由一个或多个文件按创作者排定的顺序接成；文件的先后是整本源文的一部分，不由文件名决定，文件边界也不是集的边界（见 `docs/adr/0097`）。
-_Avoid_: 按文件名排序认定文件先后、把一个文件当作一集或一批集的容器。
 
-**集原文（episode source）**：
-一集据以规划脚本的原文，按来源分三种：切自整本源文（由分集规划切出一段范围），自带原文（创作者逐集上传或直接填写的一份原文），无原文（此时不经脚本规划，除广告/短片外只能手写脚本）（见 `docs/adr/0031`）。
-_Avoid_: 预拆分例外、手动预拆分（作为特例称呼）、分集文件（指称内容时）。
+**reference image (参考图)**:
+An image used as a conditioning input in a particular generation to guide identity, style, or composition. Originals, sheets, and other generated results can all serve as reference images in a specific generation.
+_Avoid_: Treating reference image as a permanent image type.
 
-**未切分的原文（unsplit source）**：
-整本源文中不属于任何集的部分：最后一个切出集之后尚未规划的原文，以及第一个切出集之前、切出集之间的空段（删除切出集、插入新文件或删改原文后留下）。
-_Avoid_: 缺口、跳过的原文、剩余原文。
 
-**集规划状态（ledger_status）**：
-一集在分集账本里的三态生命周期：`planned`（已规划、尚无下游产物）/ `consumed`（已有下游产物）/ `stale`（规划或下游产物与原文错位：范围内的原文被删改，或已有产物的集原文范围被手工切分改动、在重新规划中被替换下来）。
-_Avoid_: 与产物时效的 stale 混为一谈、与制作状态混为一谈——它只说规划与产物的关系，不说做到哪一步。
+**declared reference / available reference image (声明引用 / 可用参考图)**:
+Assets referenced as visual guidance in a reference-video unit's body are declared references. The subset whose reference images can actually be sent with the request now are available reference images.
+_Avoid_: Assuming a video unit has reference images just because its names are registered.
 
-**附加指令（instructions）**：
-创作者为一次规划或生成附加的额外要求，只在该次操作中生效；反复提出的同一要求由 Agent 记忆承载为偏好。
-_Avoid_: 指令、用户意见、附加说明、常驻偏好、创作要求、prompt。
 
-**分集规划（plan）**：
-从整本源文切出集的行为，有两种做法：AI 规划由服务端逐段读取源文，一次规划出其中所有剧情弧完整的集（标题、钩子、原文范围）；手工切分由创作者在源文上直接划定集的边界。两种做法切出的集同属「切自整本源文」，受同一套连续性与重新规划规则约束（见 `docs/adr/0032`）。
-_Avoid_: 让主 Agent 自行读原文选切分点、把手工切分当作分集规划之外的另一种集原文来源。
+**reference upload copy (参考上传副本)**:
+The bytes used when a reference image is encoded into a provider request. It is a temporary copy deleted after use, not the source asset file or generated output.
+_Avoid_: Reading “compress reference image” as compressing source files or outputs.
 
-**重新规划（replan）**：
-由 AI 从某一集起重新规划、替换现有切自整本源文的集：AI 先产出候选规划，分集账本不动；创作者看过候选的集与变更摘要后采纳，才一次性替换，放弃则什么都不变。整本源文被改动不要求重新规划。创作者亲手调整边界、拆分合并或移除切分属于手工切分，直接写入账本，不经候选（见 `docs/adr/0032`）。
-_Avoid_: 先重置再规划、把重置当作面向创作者的动作、把手工切分称作重新规划。
 
-**重置分集规划（reset_episode_planning）**：
-把分集账本中切自整本源文的集退回未规划状态的底层操作，分全量重置与保留指定集之前条目的部分重置两种；自带原文或没有原文的集不受重置影响（见 `docs/adr/0032`）。面向创作者的调整入口是重新规划。
-_Avoid_: 把重置当删除。
+**reference image compression (参考图压缩)**:
+Proportional resizing and re-encoding of only a reference upload copy, with no effect on source assets or outputs (see `docs/adr/0012`).
+_Avoid_: Confusing it with compression when saving uploads.
 
-### 产物与制作状态
 
-**产物（artifact）**：
-一次生成或渲染落到项目里的正式文件——资产图、脚本、分镜图、视频、旁白配音、成片、剪映草稿等——连同它与生成依据之间的关系。
-_Avoid_: 与商品混淆、用「文件存在」代替「产物存在」。
+**reference image clamping (参考图裁剪)**:
+When assembled reference images exceed the selected model's limit, retain the first N in assembly order and discard the tail; numbering identifies only sent images. Artifact basis still records the complete assembled set (the limit is a provider property; see `docs/adr/0062`). Clamping adds an over-limit `warnings` entry to storyboard/grid task results, as on the reference-video route, and the storyboard final-prompt preview gives the same warning. Users and the Agent can see that some reference images were not sent.
+_Avoid_: Treating clamping as type-priority selection; treating it as a silent log-only behavior.
 
-**产物清单（artifact_manifest）**：
-登记每件正式产物的身份、位置与生成依据摘要的单一真相源；视频与音频条目还记下登记时正式文件自身的内容指纹、字节数与纳秒修改时间，这些是写入时的事实，不是时效结论。产物是否存在、是否与当前内容一致，一律问清单（见 `docs/adr/0062`）。
-_Avoid_: 扫目录或读脚本路径串判断产物存在。
 
-**生成依据（artifact basis）**：
-决定一件产物内容的那组输入的规范描述：提示词、画风、画布比例、按装配序排列的完整参考图集（每张记逻辑身份与内容指纹）等；供应商、模型、分辨率、种子这类请求参数不算在内。产物落地时写进清单的是登记依据，判定时效时按项目现状重算的是期望依据，两者一致即 current（见 `docs/adr/0062`）。用户提供的产物（上传的资产图、衍生资产图、分镜图、视频）与从资产库应用到项目的资产图、衍生资产图是成品，在该版本仍被选中且字节未变时按图本身登记：依据只由字节决定，提示词、描述、画风与本体资产图不参与；改选生成版本或文件被外部替换后，回到按生成输入判定。
-_Avoid_: basis、provenance 与中文术语混用；把实发的裁剪后子集当作依据；把供应商请求参数算进依据；把用户上传或从资产库应用的产物当作按当前内容生成的。
+### Billing
 
-**生成输入（generation input）**：
-一个生成环节为一个目标按项目现状装配的内容输入：语义提示词、画风、画布比例与按装配序排列的完整参考图集；生成依据由它算出（见 `docs/adr/0062`）。
-_Avoid_: 把裁剪、提示词渲染与供应商参数算进生成输入；执行与时效判定各自装配参考图。
+**cost (生成费用)**:
+The cost of model generation estimated from catalog price tables and multipliers, a reference metric rather than an actual bill. Estimated cost appears before submission; the call's cost is recorded on completion. Costs not attributable to specific content appear as unattributed costs.
+_Avoid_: Cost snapshot, cost attribution; calling it an actual bill in user-facing copy.
 
-**生成缺口（input gap）**：
-生成输入里缺的一项，如描述为空、引用的资产没有资产图（见 `docs/adr/0098`）。
-_Avoid_: 生成输入不成立；与产物时效的 missing 混淆。
 
-**产物时效（artifact currency）**：
-清单条目相对当前内容的四态判定：`current`（一致）/ `stale`（比当前内容旧但仍可用）/ `missing`（应有而没有）/ `blocked`（读不出或依据不可用）；stale 仍可查看、参与成片与导出（见 `docs/adr/0062`）。
-_Avoid_: 用「已过期」表述 stale、与 ledger_status 的 stale 混为一谈。
+**reference cost (参考费用)**:
+The user-facing cost measure estimated from catalog price tables and multipliers, not a provider invoice amount.
+_Avoid_: Actual cost, bill, production cost.
 
-**补录（backfill）**：
-项目迁移或归档导入时，把项目里已有的正式产物写进产物清单的动作（见 `docs/adr/0062`、`docs/adr/0098`）。
-_Avoid_: 与成本归属的「回填」混淆、认领。
 
-**项目迁移（project migration）**：
-应用启动或归档导入时把一个项目目录从旧 schema 版本逐级改写到当前版本的过程，每级一步、幂等、单项目失败隔离（见 `docs/adr/0022`）。
-_Avoid_: 与数据库的 alembic 迁移混称、把它当重对账入口。
+**price table (价目表)**:
+Official prices on a catalog entry, in one currency, listing unit prices for meters according to pricing dimensions.
+_Avoid_: Pricing shape, rate table.
 
-**迁移报告（migration report）**：
-一次项目迁移或归档导入后留在项目内的持久记录，列出这次迁移改变与丢失的内容（见 `docs/adr/0098`）。
-_Avoid_: 与迁移失败判定混淆、只写进日志。
 
-**迁移失败判定（migration verdict）**：
-一次 schema 迁移没跑完时对该项目留下的持久裁决，携带原样失败原因与结构化明细；裁决在则该项目「需要修复」，生成入口一律拒绝、项目仍可打开。
-_Avoid_: 把它当一次性通知、用它阻断只读查看。
+**meter (计量项)**:
+A usage category counted for pricing, such as uncached input tokens, cache-read tokens, output images, output seconds, characters, or requests.
+_Avoid_: Pricing unit, billing type.
 
-**制作状态（workflow status）**：
-以清单口径对项目及一个目标集的权威判定：各类内容与产物的现状、每个 AI 操作此刻能否执行及不能执行的原因、建议的下一步；阻断项只表示项目整体不可用（见 `docs/adr/0091`）。它是唯一状态口径。
-_Avoid_: 并存另一套按文件存在性统计的阶段/进度；把流水线位置当作操作前提。
 
-**制作计划（workflow plan）**：
-制作状态之上的步骤视图，每步陈述该类内容的现状、可执行的操作、涉及的产物与问题；步骤顺序只用于呈现，不构成前提；服务端权威生成，Web 与 Agent 消费同一份。
-_Avoid_: Agent 自行按文件推断下一步。
+**pricing dimension (选择维度)**:
+A call attribute selecting a meter's unit-price tier, such as resolution, quality, audio, service tier, or context tier.
+_Avoid_: Tier, specification.
 
-**项目摘要（project summary）**：
-制作状态的跨集聚合投影，供项目列表与剧集卡使用：集进度、可用资产计数、每集可用产物计数与脚本状态。产物判定有两种口径：`verified` 逐件做产物时效比对，供单个项目的详情与剧集卡；`registered` 只看清单登记与文件在场、不读产物内容、产物比对不产生 stale（重规划壳的 stale 标记两种口径相同），供项目列表。两者都以清单为准，不扫目录。
-_Avoid_: 用它替代目标集的制作状态、把 `registered` 口径当成按文件存在性统计、给多集项目标一个统一的「所在阶段」。
 
-### 文件与回收站
+**context tier (上下文档)**:
+The price tier selected by total input tokens of a single request; its token price applies to the entire request.
+_Avoid_: Graduated pricing, long-context surcharge.
 
-**文件视图（file view）**：
-按磁盘目录结构呈现项目内文件、并标出每个文件在项目中角色（结构文件、被引用的正式文件、历史版本、未引用文件、派生文件）的界面。
-_Avoid_: 文件管理器、资源管理器、用文件视图里文件的在场判断产物存在。
 
-**未引用文件（unreferenced file）**：
-项目目录中没有被任何项目数据、产物清单或版本历史引用的文件，如结构移除后留下的旧媒体、Agent 写下的杂项文件。
-_Avoid_: 孤儿文件、未登记文件（「登记」专指产物清单登记）、垃圾文件。
+**price multiplier (倍率)**:
+A coefficient expressing channel price differences, applied to the whole reference cost. Provider calls have provider and provider-model multipliers; Agent calls have only an Agent-credential multiplier.
+_Avoid_: Discount, group multiplier, completion multiplier.
 
-**项目回收站（project trash）**：
-项目内删除记录的存放处，不属于项目内容。
-_Avoid_: 回收站（单说时不分层级）、把版本历史当回收站、把被覆盖的旧版本算进回收站。
 
-**删除记录（deletion record）**：
-项目回收站中的一条，对应一次删除：被删的内容连同它删除前在项目中的位置与关系。
-_Avoid_: 回收站条目、已删除文件（指整条记录时）。
+**unpriced (未定价)**:
+The cost state of a provider call with no applicable unit price, distinct from zero cost.
+_Avoid_: Free, zero currency units.
 
-**恢复（restore）**：
-把一条删除记录或一个已删除项目重新加回的动作（规则见 `docs/adr/0107`）。
-_Avoid_: 回滚（已指版本历史）、撤销。
 
-**已删除项目（deleted project）**：
-被整体删除、仍可恢复的项目。
-_Avoid_: 归档项目、把项目删除称为移入项目回收站。
+**usage record (使用记录)**:
+The user-facing projection of provider calls, with generation-call and Agent-session views. The first is a timeline with one row per call; the second groups Agent calls by session, one row per session, expandable to chronological per-model details. It also supports filters, summaries, and attention signals. It is a projection of call facts, not a separately stored entity. Views differ in presentation, not accounting granularity.
+_Avoid_: Ledger, bookkeeping, cost details, call records.
 
-### 剪辑与成片
 
-**剪辑时间线（edit timeline）**：
-一集的一套具名剪辑决策：由剪辑片段排成的主轨、片段之间的转场、旁白与字幕、BGM 轨；是由它渲染出的成片与剪映草稿的唯一真相源。一集可以有多条剪辑时间线，彼此独立修改；它不随脚本变化自动更新。剪辑时间线是正式内容，不是产物。
-_Avoid_: 裸称「时间线」（已指调用记录与对话时间线）、剪辑方案、把剪辑时间线当作产物。
+**purpose (来源)**:
+Why a provider call was initiated: script generation, episode planning, project overview, style analysis, Agent session, endpoint trial run, or generation task.
+_Avoid_: origin, call scenario, task type.
 
-**剪辑片段（clip）**：
-剪辑时间线主轨上的一格：某个视频单元在入点与出点之间的一段画面，一律取该视频单元的 current 视频版本，挑版本即改 current。一个视频单元可以对应多个剪辑片段，也可以不进入某条剪辑时间线。
-_Avoid_: 裸称「片段」（已指模版片段）、把剪辑片段与视频单元混为一谈。
 
-**剪辑（edit）**：
-Agent 或创作者修改剪辑时间线的动作；不含把时间线渲染成文件。
-_Avoid_: 把渲染、合成、导出称作剪辑。
+**primary currency (主币种)**:
+The currency with the largest total reference cost in a usage-record period. Charts and breakdowns plot only this currency; others are listed separately without conversion.
+_Avoid_: Default currency, base currency; converting multiple currencies to one amount.
 
-**联系表（contact sheet）**：
-从一个视频版本中抽出若干帧、拼成一张并标注视频单元 ID 与各帧时刻的图片，供 Agent 看图审阅素材。随工具结果返回，不落盘，不是产物。抽帧保证每个镜头至少一帧，并在视频信号附近加密。
-_Avoid_: 缩略图、宫格（已指宫格分镜）。
 
-**视频信号（video signal）**：
-随包 ffmpeg 在本地为一个视频版本算出的三类机器检查结果：黑屏段、卡帧段、镜头切换点。黑屏段与卡帧段是疑似缺陷，镜头切换点是结构信息；信号只作提示，不自动裁切或废弃素材。第一次被看时才计算，按视频版本缓存，不接入生成链路。
-_Avoid_: 质检结果、缺陷检测（切换点不是缺陷）。
+**attention (需要关注)**:
+Automatically identified generation-call anomalies in usage records: a provider or model failure rate significantly above the period's overall rate, or repeated failures for one target. Agent calls are excluded; nothing appears without anomalies.
+_Avoid_: Alert, alarm, anomaly list.
 
-**审片子智能体（review-footage）**：
-替主 Agent 看一组视频单元的联系表、回文字审片报告的只读子智能体，用于首轮全量审阅与重新生成后的新旧版本比较。只能看素材和读项目文件，联系表只留在它的上下文里。
-_Avoid_: 质检 Agent、让审片子智能体直接改剪辑时间线或挑版本。
 
-**审图子智能体（review-images）**：
-替主 Agent 看一组资产图或分镜图、对照设定与提示词回文字审图报告的只读子智能体，用于资产图、分镜图生成后的审核检查点。只能看图和读项目文件，图片只留在它的上下文里；是否重新生成或编辑由用户决定。
-_Avoid_: 质检 Agent、让审图子智能体直接重新生成或编辑图片。
+### Media types and text-to-speech (TTS)
 
-**勾选清单（checklist）**：
-一轮剪辑结束时，用 AskUserQuestion 多选交给创作者一次确认的待决定事项：重新生成哪些视频单元（附预检得出的预计费用与档位）、改写哪些画外音。勾选即授权，执行时不再追问。
-_Avoid_: 逐条询问付费动作、把挑版本放进勾选清单（挑版本不必确认）。
+**media_type / call_type (媒体类型)**:
+The system-wide media dimension `image` / `video` / `text` / `audio`, used to branch provider resolution, backend families, usage, and billing. `audio` is text-to-speech and, like image/video, is scheduled through the generation queue (see `docs/adr/0010`).
+_Avoid_: modality, media kind; using tts / voice / speech to mean audio.
 
-**成片（final cut）**：
-由一条剪辑时间线渲染出的一集视频文件，是产物，按产物时效判定是否与剪辑时间线一致。
-_Avoid_: 合成视频、最终视频、把单个视频单元的视频称作成片。
 
-**剪映草稿（JianYing draft）**：
-剪辑时间线的一种导出形态，交给剪映继续精修；书面与界面一律称「剪映草稿」，不单称「草稿」。
-_Avoid_: 草稿（已指脚本流程里的待修复草稿与可编辑草稿）、剪辑草稿。
+**narration_audio (旁白配音)**:
+Independent speech material generated from narration or commentary text, compositable with visuals in post-production.
+_Avoid_: Generate narration, video sound, TTS audio.
 
-**字幕草稿（subtitle draft）**：
-按视频单元、由台词与画外音文字机械生成的一组定时字幕，是产物，不宣称与声音逐句对齐（切分与计时规则见 `docs/adr/0089`）。它是剪辑时间线上字幕文字的唯一来源：剪辑时间线只决定字幕落在哪里，不改字、不删条，改字回脚本。
-_Avoid_: 把剪辑时间线上的字幕当作可以单独编辑的文本；单称「草稿」。
 
-### Agent 运行时
+**narration delivery (旁白交付方式)**:
+The project's chosen route for off-screen speech: ArcReel generates narration audio using project TTS settings, or the creator supplies voiceover after delivery. It does not affect video generation.
+_Avoid_: Narration mode, voiceover settings; treating it as a per-generation-request parameter.
 
-**ArcReel Agent**：
-在 ArcReel 中理解创作者要求、协助组织内容并调用创作能力完成工作的对话式 AI。中文产品命名写「ArcReel Agent」；其他中文说明可写「Agent」或「智能体」。
-_Avoid_: 助手、创作助手、Copilot。
 
-**外部 Agent 接入（external Agent integration）**：
-把运行在 ArcReel 之外的受信任 Agent 连接到 ArcReel 的过程，包括安装公开 skills、配置远程 MCP 与 API Key，并验证连通。
-_Avoid_: 仅称为 skills 安装、与 ArcReel Agent 配置混为一谈。
+**`generate_audio` (生成有声视频)**:
+Sound generated by a video model together with and synchronized to the visuals.
+_Avoid_: Generate audio, narration audio, video audio.
 
-**Agent 工具集（Agent toolset）**：
-ArcReel 向 ArcReel Agent 与外部 Agent 提供的同一套创作工具。两类 Agent 调用同一个工具，得到同样的能力与结果，也受同样的迁移失败判定约束；差别只在两处：操作某个项目时，ArcReel Agent 的项目由所在会话决定，外部 Agent 每次指明项目；提交生成任务时，ArcReel Agent 等到任务结束才拿到结果，外部 Agent 先拿到提交回执、之后自行查询结果。
-_Avoid_: 工具目录、MCP 工具列表、工具注册表、sdk tools。
 
-**子智能体（subagent）**：
-Agent 为实现一个聚焦目标而委派的一段工作，运行时由下级 Agent 执行；主对话只展示其目标、状态和结果。
-_Avoid_: 子任务、子 Agent。
+**voice (音色)**:
+A provider's preset speaker, determining whose voice synthesized speech sounds like.
+_Avoid_: Using voice for the audio media type itself; confusing presets with voice cloning.
 
-**SessionActor**：
-每个 Agent 会话专属的执行体，串行化该会话对 SDK 的所有调用（见 `docs/adr/0028`）。
-_Avoid_: 与 ManagedSession 混为一谈。
 
-**自主轮次（autonomous turn）**：
-Agent 会话在一轮结束后、没有收到用户消息时自行开启的新一轮，典型来源是后台子智能体完成后 CLI 注入的任务通知；会话因此从 idle 回到 running。
-_Avoid_: 把 result 当作会话不再产出消息的信号。
+**speech rate (编排语速)**:
+The absolute rate used to estimate spoken duration (characters/second for Chinese; words/second for English, Vietnamese, and Russian), defaulted by language and overridable per project. It arranges planned durations and validates speech volume during script writing, independently of who speaks.
+_Avoid_: Unqualified “speed”; treating it as a TTS speed parameter.
 
-**排队消息（queued message）**：
-用户已发出、Agent 尚未接纳进对话的消息；被接纳时才成为对话时间线上的用户消息，位置取它实际进入对话的时刻。
-_Avoid_: 把排队消息当作已发生的对话、按发送时刻排定它在时间线上的位置；把接纳称为「受理」（与 AI 操作的准入混淆）。
 
-**立即发送（send now）**：
-让一条排队消息打断当前轮、先于其他排队消息被接纳的动作；被打断的那一轮与用户主动停止一样记为中断。
-_Avoid_: 引导、插队。
+**narration speed (配音语速)**:
+A TTS project's speed multiplier for narration audio, relative to the selected voice's own rate. It is part of project TTS settings and affects only narration audio, not dialogue.
+_Avoid_: Unqualified “speed”; configuring per-video-unit narration speed; converting it to planning speech rate.
 
-**Agent 启动失败（agent_startup_failure）**：
-Agent 尚未建立可用运行环境时发生的系统故障，位于任何对话轮次之前。
-_Avoid_: 与 Agent 轮次失败混为一谈。
 
-**Agent 轮次失败（agent_turn_failure）**：
-Agent 已成功启动后，某一轮未完成的故障终态；它是系统故障事件，不是 Agent 回答。
-_Avoid_: 把 SDK 合成的错误消息作为普通 Agent 回答；把被停止或被立即发送打断的轮次当作轮次失败。
+**voice_sample (音色试听)**:
+A short audio sample for auditioning and confirming a voice, not material for the final cut.
+_Avoid_: Narration audio, reference audio.
 
-**故障观测（failure_observation）**：
-ArcReel 在一次 Agent 故障中实际获得的上下文与原始故障事实；它是排障证据，不是根因结论。
-_Avoid_: 把未识别事实归一成"未知错误"。
 
-**Agent 记忆（agent memory）**：
-Agent 跨会话持久保存、自主写入并可由创作者查看修改的关于创作者与项目的自然语言笔记，形态为一份记忆索引加按需读取的记忆文件；只记 Agent 无法从项目数据或指令文件推出、且未来会话仍有用的偏好、纠正、决策与外部线索，分项目记忆与用户记忆两级。
-_Avoid_: 把项目正式数据、SDK transcript / 会话事件日志、附加指令或制作进度当作记忆；把 `CLAUDE.<mode>.md` 这类人写的指令文件叫作记忆。
+**ambiance_audio (环境音描述)**:
+The script's textual environmental-sound prompt for the video model, not an audio file.
+_Avoid_: Narration audio, generate video with sound.
 
-**记忆索引（memory index）**：
-一份 Agent 记忆的目录，每条一行，概述并指向一份记忆文件；会话开始即载入。
-_Avoid_: 索引文件；把记忆细节直接写进索引。
 
-**记忆文件（memory file）**：
-记忆索引所指向的单份笔记，只记一件事，Agent 在任务相关时才读取。
-_Avoid_: 主题文件、topic file——「主题」在创作语境里先被读成作品主题，也与界面主题撞词。
+**voice_consistency (声音一致性档位)**:
+A three-level indication of cross-clip character-voice consistency: `native` (character reference audio sent directly in reference-video mode), `soft` (audio track with voice guided only by text), or `none` (silent). Derived from model audio-track support × project generation mode × character voice binding.
+_Avoid_: Using generate_audio alone to indicate whether an audio track exists.
 
-**项目记忆（project memory）**：
-随项目走的 Agent 记忆，只在该项目的会话中生效，承载该项目的风格取向、被确认的做法与创作者对本项目的纠正。
-_Avoid_: 跨项目复用；写进项目正式数据；与项目设置混为一谈。
 
-**用户记忆（user memory）**：
-按用户归属、对该用户所有项目生效的 Agent 记忆，承载创作者的身份背景与长期工作偏好。
-_Avoid_: 绑定服务实例或宿主目录；写入只对某一个项目成立的内容。
+**character_voice_binding (角色声音绑定方式)**:
+A project setting stating how character voices are constrained: default `prompt` includes voice descriptions as soft constraints; only `reference_audio` attaches configured character reference audio to video-model requests.
+_Avoid_: Voice mode, audio mode; using it for narration-audio voice settings.
 
-**项目私有区（project private area）**：
-项目目录内由 ArcReel 运行时自行维护、不属于项目正式数据的落盘区，承载项目记忆这类「随项目目录、不随归档」的内容；不入归档、不入数据校验，也不随 Agent 运行 profile 的物化与重置一起被清掉。
-_Avoid_: 把它与 profile 物化目录混为一谈；把其中内容当作正式数据导出或校验。
 
-**SDK transcript**：
-SDK 按自身协议写入的会话记录，唯一职责是供 SDK 重建 Agent 上下文。
-_Avoid_: 把 transcript 当 UI 对话时间线的数据源。
+### Projects and assets
 
-**会话事件日志（session event log）**：
-对话时间线的唯一读源：每个会话一条有序事件序列，是 SDK transcript 的物化视图。
-_Avoid_: 把它当第二真相源与 transcript 对账。
+**project (项目)**:
+A complete video creation in ArcReel, with its own source files, scripts, assets, generation mode, and final-cut content.
+_Avoid_: Work, engineering project; using series to mean the entire project.
 
-**消息改写（message rewrite）**：
-用户对已发出的某条历史用户消息的编辑-重跑动作：等同于回到该消息发出前用改写后的内容重新发出，原消息及其后的全部对话随之废弃。
-_Avoid_: 与图片编辑的「编辑」混称。
 
-**分支会话（session branch）**：
-承接一次消息改写的新会话：改写点之前的对话前缀成为新会话的全部历史，原会话保留为不可见备份（见 `docs/adr/0058`）。
-_Avoid_: 与 SDK 原生 `fork_session` 混为一谈。
+**data root (数据根)**:
+A deployment's filesystem directory for runtime data, of which projects are only one category.
+_Avoid_: Project root, projects directory when meaning data root; treating any directory under it as a project.
 
-**子时间线（subagent timeline）**：
-同一会话内属于同一个子智能体的消息序列，主时间线上只呈现一张可折叠的子智能体卡片。
-_Avoid_: 把子智能体消息平铺进主时间线。
 
-**Agent 运行 profile（agent_runtime_profile）**：
-Agent 专属的运行态配置树，与开发者本地的编辑器配置物理分离，运行时物化进各项目目录。
-_Avoid_: 用「.claude」笼统指代、称为 agent config。
+**episode (集)**:
+A continuous content unit within a project. Ad/short-film projects also have one episode, although the UI may hide episode selection.
+_Avoid_: Using series for both an episode and the entire series.
 
-**profile 物化（materialization）**：
-把 Agent 运行 profile 落盘进某个项目目录的过程，按该项目的创作类型选定变体。
-_Avoid_: 用「同步 / 复制」泛指。
 
-**Agent 沙箱（agent_sandbox）**：
-Agent 工具调用外围的内核级隔离层，约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
-_Avoid_: 用「沙箱」泛指应用层路径围栏 hook。
+**sheet (资产图)**:
+An image establishing a standard visual appearance for a character, scene, prop, or product for reuse in later creation within the project. When used in a generation it is also that generation's reference image. Assets without an available sheet are “pending generation.”
+_Avoid_: Design image, setting image, reference-design image.
 
-**AgentAccessPolicy**：
-「Agent 能碰什么」的单一规则来源，同一份规则为内核沙箱与应用层围栏各做一种投影（见 `docs/adr/0046`）。
-_Avoid_: SandboxPolicy。
 
-### 认证与凭证
+**character (角色)**:
+An asset appearing with a specific identity in project content and reusable across video units. A character has one base look and may have derivatives.
+_Avoid_: Person, person asset.
 
-**会话 JWT（session JWT）**：
-交互式登录签发的管理员凭证，通常可访问 ArcReel 的全部管理能力；泄漏视为完整管理员身份失陷。
-_Avoid_: 把所有 bearer token 都叫 API Key。
 
-**API Key**：
-面向自动化访问的广泛权限凭证，可访问绝大多数业务与配置能力，但无权管理 API Key；泄漏仍属于高影响安全事件。界面称「访问令牌」（英文 Access tokens），与媒体供应商下的「密钥」区分签发方向。
-_Avoid_: 与会话 JWT 完全等同、scoped token；界面上称「API 令牌」「API 密钥」。
+**base look (本体)**:
+The persistent appearance defined by the character entry's own description and sheet, referenced by bare `@[角色]` in scripts.
+_Avoid_: Default form; treating the base look as a derivative.
 
-**下载 token（download token）**：
-为项目导出签发的短时效凭证，只对导出端点有效，是自带认证端点目前唯一的凭证形态（见 `docs/adr/0071`）。
-_Avoid_: 把它称为一次性或低权限凭证；把会话 JWT 放进任何 URL。
 
-**浏览器原生请求（browser-native request）**：
-由浏览器自身发起、无法携带 `Authorization` header 的请求，只有 `<img>` / `<video>` 的 src 加载与原生下载导航两类；静态媒体匿名可读与下载 token 的存在都以它为成因。
-_Avoid_: 浏览器直发请求；把 SSE 归入此类——事件流是普通的带凭证 API 请求（见 `docs/adr/0071`）。
+**derivative (衍生)**:
+Another persistent appearance of a character outside its base look (costume change, transformation, disguise, age change, etc.), sharing name, voice, and identity. It holds only appearance changes relative to the base and one sheet. The sheet is generated by editing the base sheet or replaced by the author's finished upload (see `docs/adr/0072`). Written as `@[角色/衍生]` in scripts.
+_Avoid_: Variant (already used for Agent profile variants), look, skin; registering a derivative as a separate character; uploading an original for it (the upload is the finished sheet, not an editing input).
 
-**自带认证端点（self-authenticated endpoint）**：
-不依赖登录会话、在端点内部自行校验专用凭证的端点，成因一律是浏览器原生请求；它与公开端点同样不要求登录，但拦得住匿名请求。
-_Avoid_: 与公开端点混为一谈。
 
-### 界面编辑与布局
+**scene (场景)**:
+An environment asset reusable across video units, describing a story location and its spatial appearance.
+_Avoid_: Using scene to mean a script video unit or story passage.
 
-**编辑单元（edit unit）**：
-一次显式保存所提交的界面范围，如一个设置视图、一张资产、一个分镜详情、一个记忆文件。单元内的字段先进入未保存修改，由单元统一保存或放弃；离开或切换前有未保存修改时，先询问继续编辑、放弃修改还是保存。上传、生成、改名、删除这类动作不进入编辑单元，立即执行。结构与离开拦截见 `website/docs/dev/architecture.md`「编辑单元与离开拦截」。
-_Avoid_: 编辑模式、按字段即时保存。
 
-**未保存修改（unsaved changes）**：
-编辑单元里尚未提交的本地编辑。期间已保存内容被 Agent 改写或推送更新时，未保存修改保留，由创作者选择采用新内容或坚持保存（后写者生效）。
-_Avoid_: 单称「草稿」（已指待修复草稿与可编辑草稿）、本地草稿。
+**project asset (项目资产)**:
+The current project's characters, scenes, props, and products. They belong only to that project and do not automatically synchronize with the global asset library.
+_Avoid_: Resource library, setting collection.
 
-**宽窗口（wide window）**：
-CSS 视口宽度大（如 1920、2560 逻辑宽度）引起的布局问题，与像素密度无关。
-_Avoid_: 大屏、高分屏、高 DPI。
+
+**global asset library (全局资产库)**:
+A collection for saving and reusing characters, scenes, and props across projects. Character derivatives travel with the base as a child table (see `docs/adr/0072`). Applying an asset creates an independent project asset; later changes do not propagate either way. Library images share material storage with project versions: new images follow global local/object-storage settings. Available provider asset links of the current image version are copied with the image, with independent copies held by the library and each project (see `docs/adr/0120`).
+_Avoid_: Project assets; assuming library and project assets synchronize automatically.
+
+
+**product (商品)**:
+A product asset that must be accurately presented and promoted in an ad/short film, with the user's uploaded product originals as the visual-fidelity basis.
+_Avoid_: 产品 (“product” when referring to the application), product asset under that alternate Chinese name, product character.
+
+
+**asset rename (资产重命名)**:
+An atomic cascading transaction changing the name of a name-identified asset and updating every reference to that name together (see `docs/adr/0057`).
+_Avoid_: Implementing rename as upsert-new-name plus delete-old-name.
+
+
+**asset merge (资产合并)**:
+An atomic cascading transaction merging two same-type character, scene, or prop registrations of one identity into one. References switch together to the retained asset, and the merged name becomes an asset alias (see `docs/adr/0057`, `docs/adr/0092`). A character may also merge as a derivative of a retained character: its name becomes the derivative name rather than a base alias, visual references point to `保留角色/衍生`, and speakers point to the retained character.
+_Avoid_: Expressing merge as renaming to an existing name; calling upsert field combination a merge.
+
+
+**asset alias (资产别名)**:
+Other names registered on characters, scenes, or props: names in the source, former names, and merged names except those merged into derivatives. They only help AI recognize one asset when planning or generating scripts; they are not its name (see `docs/adr/0092`).
+_Avoid_: Nickname, name table; using aliases in references; unqualified alias; confusing with model aliases.
+
+
+**style_template (风格模版)**:
+A preset whole visual-style prompt (live-action or animation). Selection saves its expanded text as a snapshot in the project style (see `docs/adr/0023`).
+_Avoid_: Treating style as a short label; combining it with a style-reference image (they are mutually exclusive).
+
+
+**clue (线索)**:
+ArcReel's former collective term for scenes and props, now split into separate scene and prop asset types.
+_Avoid_: Using clue/线索 for scenes or props in new code or documentation.
+
+
+**project event (项目事件)**:
+A server-pushed record telling the browser which project entity changed and how, including entity type, action, id, label, and location. The browser uses it to refresh the project and decide on notifications or navigation (see `docs/adr/0085`).
+_Avoid_: Notification (only one frontend presentation of an event); change hint (only triggers rescanning, without describing what happened).
+
+
+**project state projection (项目状态投影)**:
+Rules normalizing current project state (metadata and all scripts) into comparable snapshots, determining which state changes count as project events.
+_Avoid_: Shadow schema, hand-picked-field snapshot.
+
+
+### Scripts and storyboards
+
+**content_mode (创作类型)**:
+How project content is organized and expressed, independently of generation mode.
+_Avoid_: Confusing content organization with video-generation methods.
+
+
+**narration (旁白/解说)**:
+A content mode organized by continuous narration or commentary, with visuals accompanying the telling.
+_Avoid_: Narration mode, storytelling mode.
+
+
+**drama (剧情演绎)**:
+A content mode organized by character action, dialogue, and dramatic scenes, supporting visual styles such as live-action or animation.
+_Avoid_: Series animation, drama mode.
+
+
+**ad (广告/短片)**:
+A content mode organized around one final cut and its communication goal, for product promotion, branding, or standalone creative shorts. It has no source text or script plan; AI generates the complete formal script from the creative brief and products, or it is handwritten.
+_Avoid_: Ad mode, short-film mode; restricting it to sales videos.
+
+
+**brief (创作灵感)**:
+The creator's free-form description of the desired ad/short film, such as audience, tone, key selling points, and call to action.
+_Avoid_: 简报, 需求, 创作简报 (alternate Chinese terms).
+
+
+**skeleton (骨架)**:
+The structural kind of script-entry array, with four values: `segments` (narration), `scenes` (drama), `shots` (ad/short film), and `video_units` (reference video), derived from content mode and generation mode (see `docs/adr/0045`).
+_Avoid_: Using skeleton as a synonym for content_mode; binary fallback for unknown modes.
+
+
+**generation_mode (生成模式)**:
+The video-generation method selected at project creation, determining whether storyboard images or references such as sheets drive generation. All episodes share it, and it cannot change after creation.
+_Avoid_: Generation route; confusing it with content mode.
+
+
+**storyboard (分镜图生视频)**:
+A generation mode that first generates an image for each storyboard item, then uses it to drive that item's video generation.
+_Avoid_: Image-to-video mode, storyboard mode as abbreviated Chinese 分镜模式.
+
+
+**reference_video (参考生视频)**:
+A generation mode that drives videos directly with character, scene, prop, or product reference images, without first generating an image for each storyboard item.
+_Avoid_: Reference video as a media object, reference mode, direct-reference output.
+
+
+**grid (多宫格分镜)**:
+A production method generating several storyboard items together as one composite image, then splitting its cells into individual storyboard images to improve style and subject consistency.
+_Avoid_: Storyboard board; treating it as a generation mode alongside other modes.
+
+
+**grid composite (联合图)**:
+The whole multicell image generated for a grid group, covering its arranged storyboard items. It is a reviewable artifact that can be replaced by upload or rolled back, not a direct visual input for any storyboard item.
+_Avoid_: Grid picture, collage; treating it as a storyboard image.
+
+
+**grid split (切分落格)**:
+Splitting a grid composite into cells and writing the storyboard images for all covered items, explicitly confirmed after reviewing the composite, identically on Web and Agent. A ready but unsplit grid is “unsplit”; overwritten storyboard images remain in version history for rollback.
+_Avoid_: Split image, automatic split, pending split; treating splitting as part of generation.
+
+
+**segment / scene / shot (分镜)**:
+One independently editable and generatable script entry when storyboard images drive video: the video unit of storyboard generation. Narration, drama, and ads/short films all organize these scripts into storyboard items. Their count measures content scale for storyboard projects.
+_Avoid_: Confusing an item with its image; counting reference-video units as storyboard items.
+
+
+**storyboard_image (分镜图)**:
+An image establishing a storyboard item's composition and starting visuals, also used as visual input for its video generation.
+_Avoid_: Storyboard item, sheet, grid storyboard.
+
+
+**segment_break (章节切分点)**:
+A marker on a script storyboard item starting a new chapter, like a video-timeline chapter. It bounds the storyboard-image reference chain and grid groups, and is a generation input rather than an editing decision.
+_Avoid_: Scene-based names such as scene switch point (scene is an environment asset); confusing it with source chapters or episode planning.
+
+
+**video unit (视频单元)**:
+Content corresponding to one video generation, the smallest unit of generation, billing, speech ownership, and editing references. In storyboard mode it is a storyboard item; in reference-video mode it is an entry containing free text and planned duration (`video_units` refers only to the latter). Reference-video projects measure scale by video-unit count.
+_Avoid_: Scene, unqualified unit; calling reference-video units storyboard items.
+
+
+**writing_syntax (引用语法)**:
+Notation written directly in content by the creator. Reference-video unit bodies support `@[名称]` for registered product/character/scene/prop assets (`@[角色/衍生]` for a derivative), `@[名称]{台词}` for an asset with character speech (a derivative speaker binds only its character's voice), and bare `{台词}` for off-screen narration without an asset reference. A storyboard's `image_prompt.scene` supports only `@[名称]` to identify assets already declared in that item's reference fields; rendering substitutes the reference-image number 图N and does not derive references.
+_Avoid_: Confusing notation parsing with asset registration.
+
+
+**script (脚本)**:
+Structured creative content ArcReel organizes from a novel, screenplay, or creative idea for subsequent video-unit generation.
+_Avoid_: Calling ArcReel's structured output a screenplay.
+
+
+**novel (小说)**:
+A narrative-text source file for ArcReel to adapt into a script.
+_Avoid_: Original work, script.
+
+
+**screenplay (剧本)**:
+A user-uploaded text source that already organizes drama and dialogue. ArcReel should prioritize preserving its audible content and supplement it with video-production information.
+_Avoid_: Script.
+
+
+**source_kind (源文件类型)**:
+The type of a source text in drama: novel or screenplay, determining adaptation versus prioritizing the author's existing story and dialogue. It belongs to the source file, not the project: each whole-source file and each episode with its own source has one (see `docs/adr/0036`).
+_Avoid_: Confusing it with content mode or generation mode; treating it as project-level.
+
+
+**utterance (发声条目)**:
+The unified unit of spoken content in a video unit. Each entry is either character speech (with a speaker, including dialogue, inner monologue, and a character's off-screen commentary) or off-screen narration (without a speaker), ordered by insertion.
+_Avoid_: Treating dialogue and narration as independent unordered fields; counting character off-screen commentary as speakerless narration.
+
+
+**source_text (对应原文)**:
+The novel or screenplay text underlying a video unit, for creators to check its source. It is not read aloud or generated as separate content.
+_Avoid_: Treating corresponding source text as narration text.
+
+
+**end_frame_image (尾帧)**:
+The target final image the user specifies for one storyboard item's video generation. It is persistent user intent on the item, not generated output.
+_Avoid_: Confusing it with grid-output fields.
+
+
+**script_plan (脚本规划)**:
+The production step organizing an episode's source into script content for creator inspection, and its output: content editable at the review gate and converted to a formal script on confirmation. It also includes AI decisions about assets first appearing in the episode, registered with the formal script on confirmation (see `docs/adr/0092`).
+_Avoid_: step1, content organization, preprocessing, content layer, plan file, intermediate state.
+
+
+**prompt_authoring (提示词编写)**:
+The production step filling the visual layer of pending-authoring units in a formal script. Its input is the formal script itself, not the script plan.
+_Avoid_: step2, visual expansion, generate-script, incremental authoring.
+
+
+**prompt form (提示词形态)**:
+The representation of visual prompts in the final script: structured JSON or plain text. Both are formal prompt content, and the form itself distinguishes content (see `docs/adr/0070`).
+_Avoid_: Treating plain text as a preview cache; assuming the forms interchange losslessly.
+
+
+**prompt_template (提示词模版)**:
+The definition of the complete prompt sent to a model at one generation stage, with data slots in its body and bundled with releases. Only rendering with project data produces the actual sent text (see `docs/adr/0077`).
+_Avoid_: Generation scenario, the alternate Chinese prompt 模板; confusing it with style templates or prompt content.
+
+
+**generation stage (生成环节)**:
+A fixed pipeline position initiating one text, image, or video model call, distinguished by production step, content mode, and generation mode, combining identical cases. It corresponds to exactly one prompt template.
+_Avoid_: Generation entry point (an admission gate; see `docs/adr/0073`), scenario, call site, builder.
+
+
+**template category (模版类别)**:
+Prompt templates grouped by output media: text generation, sheets, storyboard images, and videos. Slotless visual-style prompts have their own style category.
+_Avoid_: Using content mode or generation mode as a category.
+
+
+**partial (模版片段)**:
+Wording referenced by prompt templates, either shared across templates or a named variant split along axes such as source kind or asset type, selected by axis value. Fixed wording used by one template is not a partial.
+_Avoid_: Rule constant, prompt_rules; switching axis values with conditionals inside templates.
+
+
+**negative prompt (负向提示词)**:
+Media-specific shared exclusions, one partial each for images and video, rendered as an `Avoid:` line in the prompt body. Only ComfyUI endpoints extract it into a negative-prompt node binding; for other backends it is not a provider parameter. Stages may append their own exclusions but cannot invent separate shared wording.
+_Avoid_: Reverse word list, negative_prompt parameter, separate per-stage prohibition lists.
+
+
+**template body (模版正文)**:
+A prompt template's text after removing metadata, containing slots and partial references, displayed and edited in system settings. It is neither the project's source narrative nor the rendered provider prompt.
+_Avoid_: Source text (the narrative input), source code; calling it a preview.
+
+
+**review gate (内容确认)**:
+The production step where organized script content awaits creator confirmation. Confirmation converts the script plan to a formal script, after which the plan is read-only.
+_Avoid_: Audit gate, access gate, pending.
+
+
+**pending authoring (待编写)**:
+The state of a formal-script video unit whose visual layer has not been authored. Set on review-gate conversion or manual creation without visuals; cleared by prompt authoring or manually completing the visual layer.
+_Avoid_: Pending generation, missing prompt, pending.
+
+
+**invalid draft (待修复草稿)**:
+A generated draft failing content constraints that must be corrected before further use. Existing formal content is unaffected. While the draft exists, review confirmation and generation entry points reject further progress. Creators can edit it directly; every save revalidates and adopts it as formal content once violations reach zero. They can also request AI repair, regenerate the entire draft, or discard it.
+_Avoid_: Isolated draft, violating artifact, quarantine.
+
+
+**draft repair (AI 修复)**:
+AI correction of the entries violating constraints in an invalid draft, preserving the others. Only episode-level violations permit changing the entire draft. Revalidation adopts it when violations reach zero; otherwise it remains invalid.
+_Avoid_: Regenerate, reroll, automatic repair.
+
+
+**editable draft (可编辑草稿)**:
+A draft retrieved from formal content for Agent editing and revalidation, potentially with no violations. Its presence blocks the same operations as an invalid draft. Creators do not edit it directly; they ask the Agent to complete it or discard it.
+_Avoid_: Isolated draft, invalid draft.
+
+
+**soft violation (软违约)**:
+A degraded-result conclusion that does not block saving or determine invalid-draft status but must accompany the output, such as missing character reference audio or no scene reference in a unit. Presented to the Agent and creator as a degradation notice.
+_Avoid_: Confusing it with a violation; counting it among invalid-draft violation entries.
+
+
+**needs_replan (需要重新规划)**:
+A formal-script video unit state indicating its content cannot generate directly (for example mixed character speech and off-screen narration, missing body, or duration). It must return to planning for rewriting.
+_Avoid_: Pending authoring, invalid draft, invalidated.
+
+
+**episode ledger (分集账本)**:
+The ledger of each episode's identity and source origin, the sole truth for episode planning. Whole-source episodes record a source range; own-source and source-free episodes consume no whole source. A split episode's file is derived from the ledger; an own-source episode's file is its source (see `docs/adr/0031`).
+_Avoid_: Bypassing the ledger; inferring episode count or planning state from physical files; treating entries without source ranges as abnormal.
+
+
+**episode order (播出顺序)**:
+The single sequence of all episodes in the project, defined by ledger entry order. Creators identify episodes by title and position (see `docs/adr/0096`).
+_Avoid_: Episode id, sorting by id, separate numbering sequences by source origin.
+
+
+**whole source (整本源文)**:
+The narrative source from which episode planning splits episodes, consisting of one or more files concatenated in creator-defined order. File order is part of the source, not determined by names; file boundaries are not episode boundaries (see `docs/adr/0097`).
+_Avoid_: Sorting by filename to determine order; treating a file as a container for one episode or a batch of episodes.
+
+
+**episode source (集原文)**:
+The source used to plan an episode's script, with three origins: split from the whole source by episode planning, own source uploaded or entered for the episode, or no source (bypassing script planning; except ads/short films, scripts must then be handwritten) (see `docs/adr/0031`).
+_Avoid_: Presplit exception, manual presplit as a special case; episode file when referring to content.
+
+
+**unsplit source (未切分的原文)**:
+Whole-source portions belonging to no episode: not-yet-planned text after the last split episode, and unassigned spans before the first or between split episodes after deletion, file insertion, or source edits.
+_Avoid_: Gap, skipped source, remaining source.
+
+
+**ledger_status (集规划状态)**:
+An episode's three-state lifecycle in the ledger: `planned` (planned with no downstream artifacts), `consumed` (with downstream artifacts), or `stale` (planning or artifacts misaligned with source after range edits/deletion, manual changes to an artifact-bearing episode's boundaries, or replacement by replanning).
+_Avoid_: Confusing it with artifact-currency stale or workflow status: it describes the planning/artifact relationship, not production progress.
+
+
+**instructions (附加指令)**:
+Extra creator requirements for a single planning or generation operation, effective only for that operation. Repeated requirements become preferences in Agent memory.
+_Avoid_: Unqualified instructions, user opinions, additional notes, standing preferences, creative requirements, prompt.
+
+
+**plan (分集规划)**:
+Splitting episodes from the whole source in two ways. Server-side AI planning reads source in sections and plans all episodes with complete story arcs in that section (title, hook, source range); manual splitting lets creators mark boundaries directly. Both produce whole-source episodes under the same continuity and replanning rules (see `docs/adr/0032`).
+_Avoid_: Having the main Agent read source and select cuts itself; treating manual splits as a separate source origin outside episode planning.
+
+
+**replan (重新规划)**:
+AI planning again from a chosen episode to replace existing whole-source episodes. AI first produces a candidate without changing the ledger. Only creator adoption, after reviewing candidate episodes and the change summary, replaces them atomically; discarding changes nothing. Whole-source edits do not require replanning. Manual boundary changes, split/merge, and unsplitting update the ledger directly without candidates (see `docs/adr/0032`).
+_Avoid_: Resetting before planning; exposing reset as the creator action; calling manual splitting replanning.
+
+
+**reset_episode_planning (重置分集规划)**:
+A low-level operation returning whole-source episodes in the ledger to unplanned status, either completely or partially retaining entries before a specified episode. Own-source and source-free episodes are unaffected (see `docs/adr/0032`). The creator-facing adjustment is replanning.
+_Avoid_: Treating reset as deletion.
+
+
+### Artifacts and workflow status
+
+**artifact (产物)**:
+A formal project file produced by generation or rendering (sheet, script, storyboard image, video, narration audio, final cut, Jianying draft, etc.), together with its relationship to generation inputs.
+_Avoid_: Confusing it with product; replacing artifact existence with file existence.
+
+
+**artifact_manifest (产物清单)**:
+The sole source of truth recording formal artifacts' identities, locations, and generation-basis digests. Video/audio entries also record the formal file's content digest, byte count, and nanosecond mtime at registration: write-time facts, not currency conclusions. Ask the manifest whether artifacts exist and match current content (see `docs/adr/0062`).
+_Avoid_: Scanning directories or reading script path strings to determine artifact existence.
+
+
+**artifact basis (生成依据)**:
+A canonical description of inputs determining artifact content: prompt, style, canvas ratio, and the complete reference-image set in assembly order (logical identity and digest per image). Provider, model, resolution, and seed are excluded request parameters. Registration basis is recorded at commit; expected basis is recomputed from current project content. Equality means current (see `docs/adr/0062`). User-supplied artifacts (uploaded sheets, derivative sheets, storyboard images, videos) and sheets applied from the asset library are finished content. While that version remains selected and bytes unchanged, their basis depends only on bytes, not prompts, descriptions, style, or the base sheet. Selecting a generated version or externally replacing the file returns to generation-input-based judgment.
+_Avoid_: Mixing basis/provenance with canonical Chinese terms; using the clamped sent subset as basis; including provider request parameters; treating uploads/library-applied artifacts as generated from current content.
+
+
+**generation input (生成输入)**:
+The content inputs assembled from current project state for one stage and target: semantic prompt, style, canvas ratio, and the complete reference-image set in assembly order. Artifact basis is computed from these (see `docs/adr/0062`).
+_Avoid_: Including clamping, prompt rendering, or provider parameters; assembling references independently for execution and currency.
+
+
+**input gap (生成缺口)**:
+A missing part of generation input, such as an empty description or a referenced asset without a sheet (see `docs/adr/0098`).
+_Avoid_: Saying generation input does not exist; confusing it with missing artifact currency.
+
+
+**artifact currency (产物时效)**:
+A manifest entry's four-state judgment against current content: `current` (matches), `stale` (older but usable), `missing` (expected but absent), or `blocked` (unreadable or basis unavailable). Stale artifacts remain viewable and usable for final cuts and export (see `docs/adr/0062`).
+_Avoid_: Calling stale expired; confusing it with ledger_status stale.
+
+
+**backfill (补录)**:
+Registering existing formal project artifacts in the manifest during project migration or archive import (see `docs/adr/0062`, `docs/adr/0098`).
+_Avoid_: Confusing it with cost-attribution backfill; claiming.
+
+
+**project migration (项目迁移)**:
+Upgrading a project directory from an old schema to the current one, step by step, on application startup or archive import. Each version has one idempotent step, and failures are isolated per project (see `docs/adr/0022`).
+_Avoid_: Confusing it with Alembic database migrations; treating it as a reconciliation entry point.
+
+
+**migration report (迁移报告)**:
+A durable project-local record after project migration or archive import, listing changed and lost content (see `docs/adr/0098`).
+_Avoid_: Confusing it with a migration verdict; logging only.
+
+
+**migration verdict (迁移失败判定)**:
+A persistent decision left on a project after an incomplete schema migration, carrying the unchanged failure reason and structured details. While present, the project needs repair: generation entry points reject it, but it remains openable.
+_Avoid_: Treating it as a one-time notification; blocking read-only viewing.
+
+
+**workflow status (制作状态)**:
+The authoritative manifest-based judgment for a project and target episode: current content and artifacts, whether each AI operation can run and why not, and the suggested next action. Blockers indicate only whole-project unusability (see `docs/adr/0091`). This is the sole state definition.
+_Avoid_: A parallel file-existence stage/progress calculation; using pipeline position as an operation prerequisite.
+
+
+**workflow plan (制作计划)**:
+A step view over workflow status, each step stating content status, available operations, artifacts, and issues. Order is presentation only, not prerequisites. The server generates it authoritatively for both Web and Agent.
+_Avoid_: The Agent inferring next steps from files.
+
+
+**project summary (项目摘要)**:
+A cross-episode projection of workflow status for project lists and episode cards: episode progress, available assets and per-episode artifacts, and script status. `verified` compares artifact currency individually for one project's detail/cards. `registered` uses only registrations and file presence, without reading artifact content or producing stale from comparison, for project lists. Replanning-shell stale markers are identical in both. Both use the manifest, not directory scans.
+_Avoid_: Replacing target-episode workflow status; interpreting registered as file-existence statistics; assigning one uniform stage to a multi-episode project.
+
+
+### Files and trash
+
+**file view (文件视图)**:
+An interface presenting project files by disk directory structure, labeling each file's role (structure file, referenced formal file, historical version, unreferenced file, derived file).
+_Avoid_: File manager, resource explorer; using presence in the file view to determine artifact existence.
+
+
+**unreferenced file (未引用文件)**:
+A project-directory file referenced by no project data, manifest, or version history, such as old media after structural removal or miscellaneous Agent files.
+_Avoid_: Orphan file, unregistered file (registration specifically means manifest registration), junk file.
+
+
+**project trash (项目回收站)**:
+Storage for deletion records within a project, outside project content.
+_Avoid_: Unqualified trash; treating version history or overwritten versions as project trash.
+
+
+**deletion record (删除记录)**:
+One project-trash record for a deletion, containing deleted content and its prior project position and relationships.
+_Avoid_: Trash entry; deleted file when referring to the whole record.
+
+
+**restore (恢复)**:
+Adding back a deletion record or a deleted project (rules in `docs/adr/0107`).
+_Avoid_: Rollback (reserved for version history), undo.
+
+
+**deleted project (已删除项目)**:
+A project deleted as a whole but still restorable.
+_Avoid_: Archived project; calling project deletion moving it to project trash.
+
+
+### Editing and final cuts
+
+**edit timeline (剪辑时间线)**:
+A named set of editing decisions for one episode: a primary track of clips, transitions, narration, subtitles, and BGM. It is the sole truth for rendered final cuts and Jianying drafts. One episode can have multiple independently edited timelines. It does not update automatically with script changes. It is formal content, not an artifact.
+_Avoid_: Unqualified timeline (used for call and conversation timelines), editing plan; treating it as an artifact.
+
+
+**clip (剪辑片段)**:
+One slot in an edit timeline's primary track: visuals from one video unit between in/out points, always using that unit's current video version. Selecting a version changes current. A video unit may supply multiple clips or none for a timeline.
+_Avoid_: Unqualified “片段” (already a template partial); confusing clips with video units.
+
+
+**edit (剪辑)**:
+An Agent or creator modifying an edit timeline, excluding rendering it to a file.
+_Avoid_: Calling rendering, compositing, or export editing.
+
+
+**contact sheet (联系表)**:
+An image assembled from frames of one video version, labeled with video-unit ID and frame times, for Agent footage review. Returned with tool results, not saved and not an artifact. Sampling guarantees at least one frame per shot and denser frames near video signals.
+_Avoid_: Thumbnail, grid (reserved for grid storyboards).
+
+
+**video signal (视频信号)**:
+Three local machine checks computed by bundled ffmpeg for one video version: black intervals, frozen intervals, and shot boundaries. The first two are suspected defects; shot boundaries are structural information. Signals are advisory and do not automatically trim or discard footage. Computed on first viewing, cached per video version, outside the generation pipeline.
+_Avoid_: QA result, defect detection (shot boundaries are not defects).
+
+
+**review-footage (审片子智能体)**:
+A read-only subagent reviewing video-unit contact sheets for the main Agent and returning a textual footage report, used for initial full review and comparing old/new regenerated versions. It can only view footage and read project files; contact sheets remain only in its context.
+_Avoid_: QA Agent; letting it edit timelines or select versions directly.
+
+
+**review-images (审图子智能体)**:
+A read-only subagent reviewing sheets or storyboard images against settings and prompts for the main Agent and returning a textual image report, used at review checkpoints after generation. It can only view images and read project files; images remain only in its context. The user decides regeneration or editing.
+_Avoid_: QA Agent; letting it regenerate or edit images directly.
+
+
+**checklist (勾选清单)**:
+Decisions submitted together to the creator through AskUserQuestion multiselect after an editing round: which video units to regenerate (with preflight estimated costs and tiers) and which off-screen narration to rewrite. Selection is authorization; do not ask again during execution.
+_Avoid_: Asking separately for each paid action; including version selection (which needs no confirmation).
+
+
+**final cut (成片)**:
+An episode video file rendered from an edit timeline, an artifact whose currency determines whether it matches the timeline.
+_Avoid_: Composite video, final video; calling one video unit's video a final cut.
+
+
+**JianYing draft (剪映草稿)**:
+An export of an edit timeline for further refinement in Jianying. In Chinese writing and UI, always call it 剪映草稿, not bare 草稿.
+_Avoid_: Bare draft (reserved for invalid/editable drafts in script workflow), editing draft.
+
+
+**subtitle draft (字幕草稿)**:
+Mechanically generated timed subtitles from dialogue and off-screen narration by video unit, an artifact without a claim of line-by-line audio alignment (splitting/timing rules in `docs/adr/0089`). It is the only source of subtitle text on an edit timeline; the timeline places subtitles without editing or deleting them. Text edits return to the script.
+_Avoid_: Treating timeline subtitle text as independently editable; bare draft.
+
+
+### Agent runtime
+
+**ArcReel Agent**:
+The conversational AI in ArcReel that understands creator requests, helps organize content, and invokes creation capabilities. The Chinese product name is ArcReel Agent; other Chinese explanations may use Agent or 智能体.
+_Avoid_: Assistant, creation assistant, Copilot.
+
+
+**external Agent integration (外部 Agent 接入)**:
+Connecting a trusted Agent outside ArcReel, including installing public skills, configuring remote MCP and an API Key, and verifying connectivity.
+_Avoid_: Calling it only skills installation; confusing it with ArcReel Agent configuration.
+
+
+**Agent toolset (Agent 工具集)**:
+The same creation tools supplied to ArcReel Agent and external Agents, with the same capabilities, results, and migration-failure constraints. They differ only in project selection (session-bound for ArcReel Agent, explicit per call externally) and generation submission (ArcReel Agent waits for completion; external Agents receive a receipt then query results).
+_Avoid_: Tool directory, MCP tool list, tool registry, sdk tools.
+
+
+**subagent (子智能体)**:
+Focused work delegated by an Agent and executed by a subordinate Agent at runtime. The main conversation displays only its goal, status, and result.
+_Avoid_: Subtask, sub-Agent.
+
+
+**SessionActor**:
+The per-session executor serializing all SDK calls for that Agent session (see `docs/adr/0028`).
+_Avoid_: Confusing it with ManagedSession.
+
+
+**autonomous turn (自主轮次)**:
+A new Agent-session turn started after a turn ends without a user message, typically from CLI-injected notifications of background subagent completion. The session returns from idle to running.
+_Avoid_: Treating result as proof the session will produce no more messages.
+
+
+**queued message (排队消息)**:
+A user-sent message not yet admitted to the Agent conversation. It becomes a user message on the conversation timeline only upon admission, positioned at that actual time.
+_Avoid_: Treating queued messages as already in the conversation; ordering them by send time; calling admission 受理 (confused with AI-action admission).
+
+
+**send now (立即发送)**:
+The action making one queued message interrupt the current turn and be admitted before other queued messages. The interrupted turn is recorded as interrupted, just like user stop.
+_Avoid_: Steering, queue jumping.
+
+
+**agent_startup_failure (Agent 启动失败)**:
+A system failure before the Agent establishes a usable runtime environment, before any conversation turn.
+_Avoid_: Confusing it with Agent turn failure.
+
+
+**agent_turn_failure (Agent 轮次失败)**:
+A failed terminal state in which a turn does not complete after successful startup. It is a system-failure event, not an Agent reply.
+_Avoid_: Showing SDK-synthesized errors as normal Agent replies; treating user-stopped or send-now-interrupted turns as failures.
+
+
+**failure_observation (故障观测)**:
+The context and raw failure facts ArcReel actually obtains during an Agent failure: diagnostic evidence, not a root-cause conclusion.
+_Avoid_: Normalizing unrecognized facts into “unknown error.”
+
+
+**agent memory (Agent 记忆)**:
+Natural-language notes about creators and projects that the Agent writes autonomously, persists across sessions, and creators can inspect and edit, consisting of a memory index and on-demand memory files. Record only preferences, corrections, decisions, and external leads unavailable from project data or instructions and useful in future sessions. Split into project and user memory.
+_Avoid_: Formal project data, SDK transcripts/session event logs, additional instructions, or production progress as memory; calling human-written instruction files such as `CLAUDE.<mode>.md` memory.
+
+
+**memory index (记忆索引)**:
+The directory of one Agent memory, one line per entry summarizing and pointing to a memory file, loaded when a session starts.
+_Avoid_: Index file; putting memory details directly into the index.
+
+
+**memory file (记忆文件)**:
+One note referenced by the memory index, recording one matter and read only when relevant to the task.
+_Avoid_: Theme file, topic file: theme is first read as a creative-work theme and also conflicts with interface themes in Chinese.
+
+
+**project memory (项目记忆)**:
+Agent memory traveling with a project and effective only in its sessions, carrying style preferences, confirmed practices, and creator corrections for that project.
+_Avoid_: Cross-project reuse; writing project memory into formal project data; confusing it with project settings.
+
+
+**user memory (用户记忆)**:
+Agent memory belonging to a user and effective across all that user's projects, carrying identity background and long-term work preferences.
+_Avoid_: Binding it to an instance or host directory; recording content true for only one project.
+
+
+**project private area (项目私有区)**:
+Runtime-managed storage within a project directory, outside formal project data, for content such as project memory that travels with the directory but not archives. It is excluded from archives and data validation and survives runtime-profile materialization and resets.
+_Avoid_: Confusing it with profile materialization directories; exporting or validating its contents as formal data.
+
+
+**SDK transcript**:
+The session record the SDK writes using its own protocol, solely to reconstruct Agent context.
+_Avoid_: Using it as the UI conversation timeline's data source.
+
+
+**session event log (会话事件日志)**:
+The sole read source for the conversation timeline: an ordered sequence per session, materialized from the SDK transcript.
+_Avoid_: Treating it as a second truth source to reconcile against the transcript.
+
+
+**message rewrite (消息改写)**:
+Editing and rerunning a historical user message, equivalent to returning to before that message and sending the revised content anew. The original and all subsequent conversation are discarded.
+_Avoid_: Confusing it with image editing.
+
+
+**session branch (分支会话)**:
+A new session carrying a message rewrite: the prefix before the rewrite point is its entire history. The original session remains as an invisible backup (see `docs/adr/0058`).
+_Avoid_: Confusing it with native SDK `fork_session`.
+
+
+**subagent timeline (子时间线)**:
+The message sequence belonging to one subagent within a session, represented by one collapsible subagent card on the main timeline.
+_Avoid_: Flattening subagent messages into the main timeline.
+
+
+**agent_runtime_profile (Agent 运行 profile)**:
+The Agent-specific runtime configuration tree, physically separate from developers' local editor configuration, materialized into projects at runtime.
+_Avoid_: Using .claude as an imprecise collective name; calling it agent config.
+
+
+**materialization (profile 物化)**:
+Writing the Agent runtime profile into a project directory, selecting variants by the project's content mode.
+_Avoid_: Generic sync / copy.
+
+
+**agent_sandbox (Agent 沙箱)**:
+The kernel-level isolation layer around Agent tool calls, constraining filesystem and network access of all subprocesses in the sandbox (see `docs/adr/0025`, `docs/adr/0026`).
+_Avoid_: Using sandbox to mean the application path-guard hook.
+
+
+**AgentAccessPolicy**:
+The single rule source for what the Agent may access, projected separately for kernel sandbox and application guard (see `docs/adr/0046`).
+_Avoid_: SandboxPolicy.
+
+
+### Authentication and credentials
+
+**session JWT (会话 JWT)**:
+An administrator credential issued on interactive login, normally granting all ArcReel management capabilities. Leakage means full administrator compromise.
+_Avoid_: Calling every bearer token an API Key.
+
+
+**API Key**:
+A broad-permission automation credential accessing most business and configuration capabilities but not API Key management. Leakage remains a high-impact security event. The UI calls them 访问令牌 / Access tokens, distinguishing the issuance direction from media-provider keys.
+_Avoid_: Treating it as identical to session JWT; scoped token; UI labels API 令牌 or API 密钥.
+
+
+**download token (下载 token)**:
+A short-lived project-export credential valid only for the export endpoint, currently the only credential form of self-authenticated endpoints (see `docs/adr/0071`).
+_Avoid_: Calling it one-time or low-privilege; placing session JWTs in URLs.
+
+
+**browser-native request (浏览器原生请求)**:
+A request issued by the browser itself without an `Authorization` header: only `<img>` / `<video>` src loading and native download navigation. It motivates anonymous static-media reading and download tokens.
+_Avoid_: Browser-direct request; including SSE (an ordinary credentialed API request; see `docs/adr/0071`).
+
+
+**self-authenticated endpoint (自带认证端点)**:
+An endpoint validating a dedicated credential internally rather than relying on login, always motivated by browser-native requests. Like public endpoints it needs no login, but it rejects anonymous requests.
+_Avoid_: Confusing it with public endpoints.
+
+
+### Interface editing and layout
+
+**edit unit (编辑单元)**:
+The interface scope submitted by one explicit save, such as a settings view, asset card, storyboard detail, or memory file. Fields first become unsaved changes; the unit saves or discards them together. Before leaving or switching with unsaved changes, ask whether to keep editing, discard, or save. Upload, generate, rename, and delete act immediately, outside edit units. Structure and navigation interception are in “编辑单元与离开拦截” in `website/docs/dev/architecture.md`.
+_Avoid_: Edit mode, immediate per-field saves.
+
+
+**unsaved changes (未保存修改)**:
+Local edits in an edit unit that have not been submitted. If the Agent or pushed updates change saved content meanwhile, retain local edits and let the creator adopt the new content or insist on saving (last writer wins).
+_Avoid_: Bare draft (reserved for invalid/editable drafts), local draft.
+
+
+**wide window (宽窗口)**:
+Layout issues caused by a wide CSS viewport, such as logical widths 1920 or 2560, unrelated to pixel density.
+_Avoid_: Big screen, high-resolution screen, high DPI.

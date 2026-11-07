@@ -1,4 +1,4 @@
-"""节点绑定推断规则表的数据契约。"""
+"""Data contracts for node-binding inference rule tables."""
 
 import json
 
@@ -17,7 +17,7 @@ from lib.custom_provider.comfyui.inference_rules import (
     semantic_key_names,
 )
 
-#: 两份规则表里逐字相同的几节：它们是节点类型的事实，与产图还是产视频无关。
+#: Sections identical in both rule tables: these are node-type facts, independent of image or video output.
 SHARED_SECTIONS = (
     "constant_nodes",
     "optional_inputs",
@@ -41,16 +41,16 @@ def test_shipped_rules_pass_their_schema(media_type):
 
 @pytest.mark.parametrize("section", SHARED_SECTIONS)
 def test_node_type_facts_are_identical_across_both_rule_files(section):
-    """与媒体类型无关的几节不得漂移：同一个节点不会因为端点产图还是产视频而改变形状。"""
+    """Media-independent sections must not drift: the same node does not change shape based on endpoint image/video output."""
     assert read("image")[section] == read("video")[section]
 
 
 @pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
 def test_every_adjustable_input_comes_from_one_of_the_two_tables(media_type):
-    """张数变少时改得动的入口只有两种：可选入口摘键、两两合并节点 bypass。
+    """Only two input shapes can be modified for fewer images: remove optional input keys or bypass pairwise merge nodes.
 
-    推断的「这个格子改不动图」提示与实发构造的「改图还是重复填充」读的是这同一条判据，它落在
-    规则表上而不是各写一份表。
+    The inference notice that a slot cannot modify the graph and request construction's choice of graph modification versus repeated filling
+    read this same rule-table criterion, rather than maintaining separate tables.
     """
     rules = load_inference_rules(media_type)
 
@@ -62,10 +62,10 @@ def test_every_adjustable_input_comes_from_one_of_the_two_tables(media_type):
 
 @pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
 def test_minimax_h3_slots_are_adjustable(media_type):
-    """海螺 H3 的首尾帧与参考图槽位都是节点上的可选口。
+    """Hailuo H3 first/last-frame and reference-image slots are optional node inputs.
 
-    没登记就会被构造层当成必需输入——首尾帧少带时删读图节点会一路级联到产物节点，参考图少带时
-    则退回重复填最后一张。参考图是 autogrow 口，按 ``ref_images.ref_image_`` 前缀一条登记全部槽位。
+    Without registration, construction treats them as required: removing image loaders for absent first/last frames cascades to the output node, while fewer references
+    fall back to repeating the last image. Reference images use autogrow inputs; one ``ref_images.ref_image_`` prefix entry registers all slots.
     """
     rules = load_inference_rules(media_type)
 
@@ -86,7 +86,7 @@ def test_a_prefixed_optional_input_only_matches_its_own_node_and_prefix(media_ty
 
 
 def test_minimax_h3_reference_slots_are_one_prefixed_entry_per_section():
-    """autogrow 口逐槽登记会随节点的槽数上限漂移，收敛成一条前缀条目。"""
+    """Per-slot autogrow registration would drift with node slot limits; consolidate into one prefix entry."""
     video = read("video")
 
     assert [item for item in video["optional_inputs"] if item["class_type"] == "MiniMaxH3ReferenceToVideo"] == [
@@ -148,7 +148,7 @@ def test_the_schema_wants_exactly_one_of_input_and_input_prefix(section, entry):
 
 
 def test_prefix_forms_stay_out_of_the_other_node_input_sections():
-    """只有可选入口与消费口两节认前缀：读图节点等节点按精确入口名取值，前缀在那里没有意义。"""
+    """Only optional-input and consumer-input sections recognize prefixes; image loaders and other nodes read exact input names, where prefixes have no meaning."""
     entry = {"class_type": "X", "input_prefix": "a_"}
 
     for section in ("image_loaders", "batch_size_inputs"):
@@ -165,7 +165,7 @@ def _with_entry(section: str, entry: dict) -> dict:
 
 @pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
 def test_every_semantic_key_the_rules_mention_is_on_that_media_types_roster(media_type):
-    """规则表提到的键名都得在名录里：写错一个 schema 照样过，那一节规则却谁都读不到。"""
+    """Every rule-table key must exist in the catalog: misspellings still pass schema validation but leave that rule section unreadable to all consumers."""
     assert semantic_key_names(read(media_type)) <= set(BINDING_KEYS_BY_MEDIA_TYPE[media_type])
 
 
@@ -186,7 +186,7 @@ def test_a_mistyped_key_name_is_seen_wherever_a_section_names_one(section):
 
 
 def test_a_rule_table_naming_a_key_off_the_roster_fails_at_load(tmp_path, monkeypatch):
-    """随包数据写坏了在读入时就炸，而不是让某个语义键悄悄推断不出来。"""
+    """Malformed packaged data must fail on load instead of silently preventing inference for a semantic key."""
     path = tmp_path / "inference_rules.video.json"
     path.write_text(json.dumps(read("video") | {"consumer_ports": {"framez": []}}), encoding="utf-8")
     monkeypatch.setattr(rules_module, "RULES_PATHS", {**RULES_PATHS, "video": path})
@@ -199,10 +199,10 @@ def test_a_rule_table_naming_a_key_off_the_roster_fails_at_load(tmp_path, monkey
 
 
 def sub_signal_ceiling() -> int:
-    """一条候选能拿到的次级信号加总上界，按实发数据文件算。
+    """Upper bound on a candidate's total secondary signals, calculated from the shipped data file.
 
-    承载节点档位与产物优先级同一个信号位，一条候选只可能命中其中一个，故取两者的较大值；
-    加表决权重不随数据变化的另外两个次级信号。
+    Carrier-node tier and output priority occupy the same signal slot; a candidate can match only one, so take the larger value.
+    Add the other two secondary signals whose voting weights do not vary with the data.
     """
     rules = [load_inference_rules(media_type) for media_type in RULES_PATHS]
     tiers = max(len(tier) for rule in rules for tier in rule.class_type_tiers.values())
@@ -211,7 +211,7 @@ def sub_signal_ceiling() -> int:
 
 
 def test_sub_signals_cannot_outrank_the_weakest_graded_signal():
-    """次级信号只决同分先后：它们加总也压不过任何一级分级信号。"""
+    """Secondary signals only break ties: their combined sum must not outweigh any ranked signal level."""
     assert sub_signal_ceiling() < WEAKEST_GRADED_WEIGHT
 
 
@@ -273,7 +273,7 @@ def test_external_families_are_recognised_by_class_type_prefix():
 
 
 def test_the_audio_track_rule_points_at_the_output_side_node():
-    """音轨看的是产物节点（或它上游那个成片节点）的音频入口有没有连线。"""
+    """Audio depends on whether the output node (or its upstream final-video node) has a connected audio input."""
     sources = {source.class_type: source for source in load_inference_rules("video").audio_track_sources}
     assert sources["VHS_VideoCombine"].audio_input == "audio"
     assert sources["SaveVideo"].through_input == "video"

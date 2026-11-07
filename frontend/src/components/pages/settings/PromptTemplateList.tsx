@@ -10,17 +10,17 @@ import { errMsg } from "@/utils/async";
 import { categoryLabel } from "./promptTemplateCategory";
 import { EmptyCard, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
 
-/** 按流水线顺序排列；接口返回的其他类别按首次出现顺序排在最后。 */
+/** Pipeline ordering, appending other API-returned categories in first-seen order. */
 const CATEGORY_ORDER = ["text", "asset", "storyboard", "video", "style"];
 
-/** 默认折叠为紧凑表的类别。 */
+/** Categories collapsed to compact tables by default. */
 const COMPACT_CATEGORIES = new Set(["style"]);
 
 const FILTER_AXES = ["content_mode", "generation_mode", "source_kind"] as const;
 type FilterAxis = (typeof FILTER_AXES)[number];
 type AxisFilter = Partial<Record<FilterAxis, string>>;
 
-/** 轴值沿用新建项目与项目设置里的用户文案；未收录的取值原样显示。 */
+/** Axis labels reuse creation/project-setting copy; unlisted values display unchanged. */
 const AXIS_VALUE_LABEL_KEYS: Record<FilterAxis, Record<string, string>> = {
   content_mode: {
     narration: "narration_visuals",
@@ -38,8 +38,8 @@ const AXIS_VALUE_LABEL_KEYS: Record<FilterAxis, Record<string, string>> = {
 };
 
 /**
- * 触发方的具体名沿用 Agent 会话面板的工具名与任务队列的任务类型文案；
- * 用户操作与资产图任务没有现成的对应文案，单独映射。未收录的取值原样显示。
+ * Trigger-specific names reuse Agent-session tool names and task-queue task-type copy;
+ * user actions/asset-image tasks lack existing equivalents and map separately. Unlisted values display unchanged.
  */
 const TRIGGER_NAME_KEYS: Record<PromptTemplateTrigger["kind"], (name: string) => string> = {
   agent_tool: (name) => `tool_name_${name}`,
@@ -53,7 +53,7 @@ function stageLabel(t: Translate, stage: string): string {
   return t(`prompt_templates_stage_${stage}`, { defaultValue: stage });
 }
 
-/** 「种类 · 名字」，如「Agent 工具 · 生成脚本」。 */
+/** Kind · name, for example Agent tool · Generate script. */
 function triggerLabel(t: Translate, trigger: PromptTemplateTrigger): string {
   const kind = t(`prompt_templates_trigger_kind_${trigger.kind}`, { defaultValue: trigger.kind });
   const name = t(TRIGGER_NAME_KEYS[trigger.kind](trigger.name), { defaultValue: trigger.name });
@@ -74,7 +74,7 @@ function groupByCategory(templates: PromptTemplateMeta[]): [string, PromptTempla
   return [...byCategory].sort(([a], [b]) => rank(a) - rank(b));
 }
 
-/** 各筛选轴在全部模版 `applies_to` 中出现过的取值，按首次出现顺序。 */
+/** Axis values found across all template `applies_to`, in first-seen order. */
 function collectAxisValues(templates: PromptTemplateMeta[]): [FilterAxis, string[]][] {
   return FILTER_AXES.map((axis): [FilterAxis, string[]] => {
     const values = new Set<string>();
@@ -85,7 +85,7 @@ function collectAxisValues(templates: PromptTemplateMeta[]): [FilterAxis, string
   }).filter(([, values]) => values.length > 0);
 }
 
-/** 未声明某轴的模版对该轴全部取值适用，任何筛选下都保留。 */
+/** Templates omitting axes apply to all their values and remain under every filter. */
 function matchesFilter(template: PromptTemplateMeta, filter: AxisFilter): boolean {
   return FILTER_AXES.every((axis) => {
     const selected = filter[axis];
@@ -94,7 +94,7 @@ function matchesFilter(template: PromptTemplateMeta, filter: AxisFilter): boolea
   });
 }
 
-/** 模版列表：按流水线顺序分组，画风组默认折叠，可按创作类型、生成模式、源文件类型筛选。 */
+/** Pipeline-grouped templates; styles collapse by default; filter creation type, generation mode and source type. */
 export function PromptTemplateList({ onSelect }: { onSelect: (id: string) => void }) {
   const { t } = useTranslation("dashboard");
   const [state, setState] = useState<Load<PromptTemplateMeta[]>>({ status: "loading" });
@@ -231,7 +231,7 @@ function CategoryGroup({
   const label = categoryLabel(t, category);
   const count = <span className="text-xs text-muted-foreground">{t("prompt_templates_count", { count: items.length })}</span>;
 
-  // 画风等长尾类别默认收起为两列紧凑表；其余类别平铺带说明的行。
+  // Long-tail categories such as styles collapse into compact two-column tables; others show explanatory rows.
   if (compact) {
     return (
       <Collapsible render={<section aria-labelledby={headingId} />}>

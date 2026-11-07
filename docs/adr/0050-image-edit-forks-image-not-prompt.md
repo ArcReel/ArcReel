@@ -2,24 +2,24 @@
 status: accepted
 ---
 
-# 图片编辑是图的分叉：仅当前图作参考、指令即 prompt、不回写 image_prompt
+# Image editing branches the image: use only the current image as reference, use instructions as the prompt, and do not write back image_prompt
 
-对已生成的资产设计图 / 分镜图做局部微调时，按原 prompt 重画整图会连同满意的部分一并推翻，越改越远；上传替换则要求用户自备外部图像编辑能力。决定新增独立的图片编辑任务类型 `image_edit`：以资源的**当前图为唯一参考图**、用户的**增量修改指令为唯一 prompt** 调用 i2i，产出保持原图大体不变的新图覆盖 current，旧图自动进版本历史；新版本以 `source: "image_edit"` 标记、prompt 字段即编辑指令。编辑是对**图**的分叉而非对 prompt 的分叉——原 image_prompt 不回写，编辑后再触发重新生成仍按原 prompt 重画，编辑效果只能从版本历史找回。
+When making local adjustments to a generated asset design image / storyboard image, redrawing the entire image from the original prompt also overturns satisfactory parts and drifts further with each edit; uploading a replacement instead requires users to have external image-editing capabilities. Add a separate image-editing task type, `image_edit`: call i2i with the resource's **current image as the sole reference image** and the user's **incremental editing instructions as the sole prompt**, producing a new image that largely preserves the original and replaces current, while the old image automatically enters version history. Mark the new version with `source: "image_edit"`, and use the editing instructions as its prompt field. Editing branches the **image**, rather than the prompt: the original image_prompt is not written back; regenerating after an edit still redraws from the original prompt, and the edited result can only be recovered from version history.
 
-- **仅当前图**：不混入生成路径的自动参考图收集（角色/场景/道具 sheet、上一分镜）——多余参考会稀释底图锚定，重蹈「重画后与原图极大出入」。任务 payload 天然可扩展，未来若开放追加参考图也不改变「当前图是唯一底图锚点」的语义。
-- **底图执行时读 current**：与所有生成任务「执行时读最新状态」一致，不做入队时快照。
-- **必然 i2i、入队即知**：capability 执行时才定的唯一例外（`docs/adr/0001`）；i2i 槽解析前置到入队 fail-fast（不可用即拒绝、不创建任务），执行层 capability gating 保留兜底。
-- **失败零损失**：backend 调用失败时 current 图与版本文件不被触碰，资源字段写回不发生。
+- **Only the current image**: do not include automatic reference-image collection from the generation path (character/scene/prop sheets or the previous storyboard). Extra references dilute anchoring to the base image, repeating the problem of "a redraw that differs greatly from the original." The task payload is naturally extensible; allowing additional reference images in the future would still preserve the semantics that "the current image is the only base-image anchor."
+- **Read current at execution time for the base image**: follow all generation tasks' rule of "read the latest state at execution time," without taking a snapshot at enqueue time.
+- **Always i2i, known at enqueue time**: this is the sole exception to determining capability at execution time (`docs/adr/0001`). Resolve the i2i slot before enqueueing to fail fast (reject if unavailable, without creating a task), while retaining capability gating at the execution layer as a fallback.
+- **No loss on failure**: if the backend call fails, neither the current image nor version files are touched, and no resource fields are written back.
 
-## 明确不采用
+## Explicitly rejected
 
-- **蒙版 / inpaint 选区交互**：当前供应商矩阵仅单家原生支持 mask，收益窄成本高；指令式编辑无选区语义。
-- **编辑指令回写 / 合并进 image_prompt**：编辑指令是相对当前图的增量，脱离该图即失效；合并会污染可独立重画的完整生成 prompt。
-- **编辑结果预览确认制**：直接覆盖 + 版本历史兜底，与重生成的心智模型一致。
-- **服务端同资源任务互斥**：与现有生成语义对称，防重是前端占用态的职责。
+- **Mask / inpaint selection interactions**: only one provider in the current matrix natively supports masks, yielding narrow benefits at high cost; instruction-based editing has no selection semantics.
+- **Writing editing instructions back to / merging them into image_prompt**: editing instructions are incremental changes relative to the current image and become invalid without it; merging would contaminate the complete generation prompt that can independently redraw the image.
+- **Previewing and confirming editing results**: directly replace the image with version history as the fallback, matching the mental model of regeneration.
+- **Server-side mutual exclusion for tasks on the same resource**: preserve symmetry with existing generation semantics; preventing duplicates is the frontend's occupied-state responsibility.
 
 ## Consequences
 
-- 「编辑后再重新生成会回到原 prompt、丢失编辑效果」是编辑语义的固有属性，不引入 prompt 同步机制；找回编辑效果走版本回滚。
-- 编辑范围限定 character / scene / prop / product 设计图与分镜图；宫格图（中间产物，编辑需重切割回填）、全局资产库图片（不挂项目，任务/版本/记账/SSE 全是项目内机制）、角色参考图（用户上传素材，不满意应重新上传）不适用。
-- `image_edit` 是独立 task_type（media_type=image，走图片并发通道），用量统计、失败排查、任务列表中与生成任务清晰区分；完成事件与同资源的生成完成事件同形状，前端刷新机制无需区分两者。
+- "Regenerating after editing returns to the original prompt and loses the edit" is inherent to editing semantics. Do not introduce prompt synchronization; recover edited results through version rollback.
+- Editing is limited to character / scene / prop / product design images and storyboard images. It does not apply to grid images (intermediate artifacts whose editing requires re-slicing and backfilling), global asset-library images (not attached to a project, while tasks/versions/accounting/SSE are all project-scoped mechanisms), or character reference images (user-uploaded material that should be re-uploaded if unsatisfactory).
+- `image_edit` is a separate task_type (media_type=image, using the image concurrency lane), clearly distinguishable from generation tasks in usage statistics, failure diagnosis, and task lists. Its completion event has the same shape as a generation-completion event for the same resource, so the frontend refresh mechanism need not distinguish them.

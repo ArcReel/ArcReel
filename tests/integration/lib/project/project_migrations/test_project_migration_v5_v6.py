@@ -1,4 +1,4 @@
-"""v5→v6 项目资产共享名称空间迁移。"""
+"""v5→v6 shared project-asset namespace migration."""
 
 from __future__ import annotations
 
@@ -155,11 +155,11 @@ def test_migration_assigns_stable_safe_names_and_cascades_everywhere(tmp_path: P
         {"type": "scene", "name": "Hero_scene"},
         {"type": "product", "name": "Hero_product"},
     ]
-    # 无类型 mention 按稳定优先级归 character，不被较低优先级资产抢走。
+    # Untyped mentions stably prefer characters; lower-priority assets must not take them.
     assert shot["text"] == "@[Hero] beside @[café]"
     draft = _read_json(project_dir / "drafts" / "episode_1" / "quarantine.json")
     assert draft["units"][0]["references"] == [{"type": "product", "name": "Hero_product"}]
-    # 同容器唯一 typed reference 可判定归属，mention 随 product 级联。
+    # A unique typed reference in the same container establishes ownership; mentions cascade with products.
     assert draft["units"][0]["text"] == "@[Hero_product]"
     assert draft["units"][1]["references"] == [{"type": "scene", "name": "Hero_scene"}]
     assert draft["units"][1]["shots"][0]["text"] == "@[Hero_scene] in view"
@@ -330,7 +330,7 @@ def test_migration_uses_declared_owner_for_ambiguous_product_reference(tmp_path:
 
 
 def test_migration_does_not_claim_sibling_sequence_file_without_declaration(tmp_path: Path) -> None:
-    """未被任何条目声明的序号文件：Hero 的 Hero_1.jpg 不能被认成商品 Hero_1 自己的文件。"""
+    """Unclaimed numbered files: Hero's Hero_1.jpg must not be mistaken for product Hero_1's own file."""
     project_dir = tmp_path / "demo"
     _write_json(
         project_dir / "project.json",
@@ -392,10 +392,10 @@ def test_migration_preserves_distinct_nfd_and_nfc_declared_media(tmp_path: Path)
 
 
 def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path) -> None:
-    """迁移在暂存树里失败时，原目录须逐字节不变、暂存目录不残留。
+    """Migration failure in staging preserves original directory bytes and leaves no staging directory.
 
-    故障由一份读不动的剧本真实触发：改写剧本是暂存树迁移的必经步骤，坏 JSON 到那一步才炸，
-    此时暂存树已建好、原目录还没换过去——正是回滚要覆盖的窗口。
+    An unreadable script causes a real failure: script rewriting is mandatory, so malformed JSON fails only after staging
+    creation but before replacing the original directory, precisely the rollback window to cover.
     """
     project_dir = tmp_path / "demo"
     _write_json(

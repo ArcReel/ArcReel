@@ -24,29 +24,29 @@ import { formatShortDateTime } from "@/utils/date-format";
 import { INDEX_LINE_LIMIT, memoryFilePath, type MemoryEntry } from "./memory-files";
 
 /**
- * `pane`：全出血区段的详情栏，编辑框占满正文高度、在框内滚动。
- * `flow`：限宽页里随页面主体滚动，编辑框随内容撑高到上限（半个视口高，整块编辑器在最矮的视口里也放得下）。
+ * `pane`: detail columns in full-bleed sections; editors fill body height and scroll internally.
+ * `flow`: scroll with width-limited page bodies; editors expand with content up to half viewport height, fitting even the shortest viewports.
  */
 export type MemoryEditorLayout = "pane" | "flow";
 
 interface MemoryFileEditorProps {
   scope: AgentMemoryScope;
   entry: MemoryEntry;
-  /** 记忆目录的服务端路径，与文件名拼成完整路径展示。 */
+  /** Server memory-directory path, combined with filenames to display full paths. */
   dir: string;
   layout: MemoryEditorLayout;
-  /** 保存成功后重取文件列表（说明、修改时间与索引行数随之更新）。 */
+  /** Refetch file lists after successful saves, updating descriptions, modification times and index line counts. */
   onSaved: () => void;
   onDelete: () => void;
   onClear: () => void;
 }
 
 /**
- * 单个记忆文件的原文编辑器：含 frontmatter 的 Markdown 纯文本，不渲染。一个文件是一个编辑单元，
- * 未保存修改由内联提示条保存或放弃，切换文件、切换分页或离开时经离开拦截询问。
+ * Raw editors for individual memory files: unrendered Markdown text including frontmatter. Each file is one edit unit;
+ * inline bars save/discard unsaved changes, and leave guards ask before switching files/tabs or leaving.
  *
- * 由调用点按文件名 remount（`key`），未保存修改与加载状态都属于上一个文件。
- * 保存是纯覆盖 PUT，服务端无冲突检测，后写者生效。
+ * Callers remount by filename (`key`); unsaved changes and loading states belong to previous files.
+ * Saves are overwrite-only PUTs without server conflict detection; last writers win.
  */
 export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete, onClear }: MemoryFileEditorProps) {
   const { t } = useTranslation("dashboard");
@@ -55,7 +55,7 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
   const [attempt, setAttempt] = useState(0);
   const filename = entry.name;
 
-  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- 每轮加载持有自己的 AbortController，await 之后两处写 state 前都先复核 signal.aborted，过期结果不会回写
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- Each load owns an AbortController; both post-await state writes recheck signal.aborted, preventing stale results from writing back
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {
@@ -65,7 +65,7 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
         setContent(raw);
       } catch (err) {
         if (controller.signal.aborted) return;
-        // 列表里的文件可能已被 Agent 删除或读不出来；不落错误态就会永远停在加载态。
+        // Listed files may have been deleted by Agent or become unreadable; without error states, loading would persist forever.
         setLoadError(errMsg(err));
       }
     };
@@ -83,7 +83,7 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
     />
   );
 
-  // 详情栏的正文没有内边距，由编辑器自己给；限宽页里正文贴齐文件头
+  // Detail bodies have no padding; editors supply it. On width-limited pages, bodies align with file headers.
   const inset = layout === "pane" ? "px-6 py-4" : "";
   let body: ReactNode;
   if (loadError !== null) {
@@ -229,7 +229,7 @@ function LoadedMemoryEditor({
 
   const editor = (
     <Textarea
-      // 记忆是 Markdown 原文，按代码类输入用等宽字体
+      // Memory is raw Markdown; use monospace as for code inputs.
       mono
       value={unit.value}
       aria-label={filename}
@@ -240,7 +240,7 @@ function LoadedMemoryEditor({
   );
 
   const body = (
-    // 宽窗口下编辑框限宽，Markdown 原文的行不会横跨整栏
+    // Limit editor width on wide windows so raw Markdown lines do not span entire columns.
     <div className={cn("flex flex-col gap-3", layout === "pane" && "h-full min-h-72 max-w-252 px-6 py-4")}>
       <div className="flex min-h-0 flex-1 flex-col">{editor}</div>
       <UnsavedChangesBar unit={unit} className="shrink-0" />

@@ -2,11 +2,11 @@
 status: accepted
 ---
 
-# 供应商多凭证用独立凭证表 + 手动切换活跃凭证，不做自动轮换
+# Separate provider credential tables with manual active switching, without automatic rotation
 
-凭证是结构化实体（名称 / 密钥 / URL / 活跃位），与共享 KV 配置职责不同。决定每个供应商支持多套凭证、存于专用 `provider_credential` 表（与共享配置分表），每供应商至多一条 `is_active`（DB partial unique index 兜底），由用户在 UI 手动切换、全局生效，删除活跃凭证时自动改选 `created_at` 最早的另一条；明确**不做**自动轮换 / 负载均衡 / 加密存储 / 使用统计——KV 前缀建模命名脆弱、单 JSON 字段并发读改写复杂，专用表职责清晰且行为可预测。
+Credentials are structured entities (name / secret / URL / active flag), with responsibilities distinct from shared KV settings. Support multiple credentials per provider in a dedicated `provider_credential` table, separate from shared configuration. Each provider has at most one `is_active`, backed by a DB partial unique index; users switch it manually in the UI with global effect. Deleting the active credential automatically selects the earliest `created_at` among the remaining credentials. Explicitly exclude automatic rotation, load balancing, encrypted storage, and usage statistics: KV-prefix naming is fragile and concurrent read-modify-write of one JSON field is complex, whereas a dedicated table has clear responsibilities and predictable behavior.
 
 ## Consequences
 
-- 活跃位互斥要应用层在事务内保证，切换/删除需触发 backend 缓存失效。
-- Agent Anthropic 凭证沿用同一「多凭证 + 单 active」模型但独立成表（见 `docs/adr/0017`）；其删除行为更严格——活跃凭证不可直接删除、须先切换到另一条，没有「自动改选最早」。
+- The application must enforce active exclusivity within transactions, and switching/deletion must invalidate backend caches.
+- Agent Anthropic credentials use the same multiple-credentials/single-active model but a separate table (see `docs/adr/0017`). Their deletion is stricter: an active credential cannot be deleted directly; switch first. There is no automatic earliest-credential selection.

@@ -1,30 +1,30 @@
 ---
 id: text/draft_repair
 category: text
-title: 待修复草稿 AI 修复
-description: 按违约报告修改待修复草稿：违约落在条目上时只改这些条目，落在整集层面时整份修改。脚本规划草稿与参考生视频的提示词编写草稿共用。
+title: "AI repair of a draft requiring repair"
+description: "Revise a draft using its violation report: edit only affected entries for entry-level violations, or the whole document for episode-level violations. Shared by script-plan drafts and reference-video prompt-authoring drafts."
 stage: script_plan
 invoked_by:
   kind: user_action
   name: draft_repair
 applies_to: {}
 slots:
-  document: 草稿是哪种文档、条目数组的结构说明
-  root: 草稿正文里条目数组的键名（scenes / segments / units）
-  draft_json: 完整草稿正文的 JSON
-  targets: 条目模式下要修改的条目，键齐全的对象列表 {index, item_json, messages}；整集模式传 null
-  messages: 整集模式下的全部违约消息列表；条目模式传 null
-  source_text: 本集源文正文；没有源文可参照时传 null
-  instructions: 附加指令正文；无时传 null
+  document: "Draft document type and entry-array structure description"
+  root: "Key of the entry array in the draft body (scenes / segments / units)"
+  draft_json: "Full draft-body JSON"
+  targets: "Entries to revise in entry mode, a list of objects with all keys {index, item_json, messages}; null in whole-episode mode"
+  messages: "All violation messages in whole-episode mode; null in entry mode"
+  source_text: "This episode’s source body; null without source text for reference"
+  instructions: "Additional-instruction body; null if absent"
 protected: false
 ---
-你是短视频脚本的校对编辑。下面是一份没有通过校验的草稿，请按违约报告修改它，让它通过校验。
+You are a short-video script copy editor. The draft below failed validation. Revise it according to the violation report so that it passes validation.
 
-# 草稿说明
+# Draft description
 
 {{ document }}
 
-完整草稿（只供参照上下文）：
+Full draft (for context only):
 
 ```json
 {{ draft_json }}
@@ -36,25 +36,25 @@ protected: false
 </source_text>
 {% endif %}
 
-# 修改要求
+# Revision requirements
 
-违约消息原本写给能调用工具的 Agent。消息里提到的工具调用（如 `patch_draft`）在这里都不适用，只按消息指出的内容问题修改 JSON。
+The violation messages were originally written for an Agent that can call tools. Tool calls mentioned in them (such as `patch_draft`) do not apply here; only revise the JSON to address the content problems identified by the messages.
 
 {% if targets %}
-违约只落在下列条目上。只修改这些条目，逐条消除它们的违约；不涉及违约的字段保持原值，条目 ID 不变。
+Violations affect only the entries below. Revise only these entries, eliminating each violation; preserve the original values of unaffected fields and keep entry IDs unchanged.
 
 {{ partial("text/draft_repair/lists/targets") }}
 
-只输出一个 JSON 对象：`{"{{ root }}": [...]}`。数组按上面的顺序，依次给出每个条目修改后的完整对象，不输出其他条目。
+Output only one JSON object: `{"{{ root }}": [...]}`. In the order above, provide each revised entry’s complete object; do not output other entries.
 {% else %}
-违约落在整集层面，需要整份修改：
+Violations affect the episode as a whole, requiring revision of the entire draft:
 
 {{ partial("text/draft_repair/lists/messages") }}
 
-没有违约的条目尽量保持原样。只输出修改后的完整草稿 JSON 对象，顶层字段与原草稿相同。
+Keep entries without violations as unchanged as possible. Output only the complete revised draft JSON object, with the same top-level fields as the original draft.
 {% endif %}
 
-保持草稿原有的语言与写法，不要输出 JSON 以外的内容。
+Keep the draft’s original language and writing style. Output nothing except JSON.
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

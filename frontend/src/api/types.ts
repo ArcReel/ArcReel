@@ -1,6 +1,6 @@
 /**
- * API 共享类型：请求载荷、查询筛选与跨端点复用的响应结构。
- * 对外经 `@/api` 再导出，调用方继续从 `@/api` 导入。
+ * Shared API types: payloads, query filters and cross-endpoint response structures.
+ * Reexport through `@/api`, retaining caller imports from `@/api`.
  */
 
 import type {
@@ -14,13 +14,13 @@ import type {
 import type { GenerationRoute } from "@/utils/generation-mode";
 import type { SseStreamError } from "@/utils/sse-stream";
 
-/** 项目内四类资产（与后端 ASSET_SPECS 的 asset_type 对齐）。 */
+/** Four project asset kinds, matching backend ASSET_SPECS asset_type. */
 export type ProjectAssetType = "character" | "scene" | "prop" | "product";
 
-/** 可以合并的资产类型：带别名的类型，商品不开放（与后端 MERGEABLE_ASSET_TYPES 对齐）。 */
+/** Mergeable aliased asset kinds; products excluded, matching backend MERGEABLE_ASSET_TYPES. */
 export type MergeableAssetType = Exclude<ProjectAssetType, "product">;
 
-/** 资产级联重命名的影响报告（dry_run 预览与执行同一结构）。 */
+/** Cascading asset-rename impacts, identical for dry_run previews/execution. */
 export interface AssetRenameResult {
   success: boolean;
   dry_run: boolean;
@@ -31,7 +31,7 @@ export interface AssetRenameResult {
   files: number;
 }
 
-/** 资产合并对一集的影响：各处改写的引用数，以及将过期的分镜图与视频数。 */
+/** Per-episode merge impacts: rewritten references and stale storyboard/video counts. */
 export interface AssetMergeEpisodeImpact {
   episode: number;
   script_plan: number;
@@ -43,7 +43,7 @@ export interface AssetMergeEpisodeImpact {
   videos: number;
 }
 
-/** 资产合并的影响报告（dry_run 预览与执行同一结构）。 */
+/** Asset-merge impacts, identical for dry_run previews/execution. */
 export interface AssetMergeResult {
   success: boolean;
   dry_run: boolean;
@@ -58,12 +58,12 @@ export interface AssetMergeResult {
   episodes: AssetMergeEpisodeImpact[];
 }
 
-/** 删除资产前的引用预览（`DELETE …?dry_run=true`）：与重命名同一套扫描，按集号升序列出。 */
+/** Predelete references (`DELETE …?dry_run=true`), sharing rename scans and ascending episode-number order. */
 export interface AssetDeletionPreview {
   success: boolean;
   dry_run: true;
   name: string;
-  /** 全部引用处数；个别引用归不到某一集时，会多于各集之和。 */
+  /** Total reference sites, possibly exceeding episode sums for unattributed references. */
   references: number;
   episodes: { episode: number; references: number }[];
 }
@@ -106,11 +106,11 @@ export interface VersionInfo {
   file_url?: string;
   prompt?: string;
   restored_from?: number;
-  /** 版本来源标记；"manual_upload" 表示用户手动上传 */
+  /** Version origins; "manual_upload" means user uploads. */
   source?: string;
 }
 
-/** 分镜/视频单元媒体上传的统一响应。 */
+/** Unified storyboard/video-unit media-upload responses. */
 export interface ShotUploadResult {
   success: boolean;
   path: string;
@@ -120,21 +120,21 @@ export interface ShotUploadResult {
 
 export interface ProjectEventStreamOptions {
   projectName: string;
-  /** 每次建连（含断线重建）后服务端都会先发一次 snapshot。 */
+  /** Servers first send snapshots on every connection, including reconnects. */
   onSnapshot?: (payload: ProjectEventSnapshotPayload) => void;
   onChanges?: (payload: ProjectChangeBatchPayload) => void;
-  /** 项目目录被删除后收到一次，随后服务端正常关流；订阅方应在此关闭句柄以停止自动重建。 */
+  /** Sent once on project-directory deletion, followed by normal stream closure; subscribers close handles to stop reconnects. */
   onProjectDeleted?: (payload: ProjectDeletedPayload) => void;
-  /** 项目下某个 Agent 会话自主回到 running；当前会话经常驻 entry 流收到这一轮，此通知供会话列表等其他视图使用。 */
+  /** Agent sessions independently return running; active sessions receive entry streams, this serves lists/other views. */
   onAssistantSessionResumed?: (payload: AssistantSessionResumedPayload) => void;
-  /** 连接失败或中断；`retryable` 为 true 时客户端随后自动重建。 */
+  /** Failed/interrupted connections; true `retryable` automatically reconnects. */
   onError?: (error: SseStreamError) => void;
 }
 
 export interface AssistantEntriesStreamOptions {
   projectName: string;
   sessionId: string;
-  /** 冷订阅游标（seq）；断线重建的续传由 `Last-Event-ID` 承担。 */
+  /** Cold subscription seq cursors; reconnection continuation uses `Last-Event-ID`. */
   after?: number;
   onEvent: (event: string, payload: Record<string, unknown>) => void;
   onError?: (error: SseStreamError) => void;
@@ -150,28 +150,28 @@ export interface TaskListFilters {
   pageSize?: number;
 }
 
-/** {@link API.getUsageRecords} 的筛选；数组维度在查询串里逗号分隔。 */
+/** {@link API.getUsageRecords} filters; arrays use query commas. */
 export interface UsageRecordsQuery {
-  /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
+  /** Empty strings filter endpoint trials, `undefined` means no project filter. */
   projectName?: string;
   providers?: readonly string[];
   models?: readonly string[];
   mediaTypes?: readonly string[];
   statuses?: readonly string[];
   segmentIds?: readonly string[];
-  /** ISO 8601 时刻，半开区间 [since, until)，作用于 started_at。 */
+  /** ISO8601 half-open [since, until) instants, applied to started_at. */
   since?: string;
   until?: string;
   limit?: number;
-  /** 上一页返回的不透明游标。 */
+  /** Opaque prior-page cursors. */
   cursor?: string;
-  /** 视图；缺省为「生成调用」，不含 Agent 记录。 */
+  /** Views default Generation calls, excluding Agent records. */
   view?: "generation" | "agent";
 }
 
-/** {@link API.getUsageSessions} 的筛选：与记录列表同口径，不含状态、媒体类型与分镜。 */
+/** {@link API.getUsageSessions} filters match records, without status/media/storyboards. */
 export interface UsageSessionsQuery {
-  /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
+  /** Empty strings filter endpoint trials, `undefined` means no project filter. */
   projectName?: string;
   providers?: readonly string[];
   models?: readonly string[];
@@ -181,18 +181,18 @@ export interface UsageSessionsQuery {
   cursor?: string;
 }
 
-/** {@link API.getUsageSummary} 的筛选；不收状态，pending 不进聚合。 */
+/** {@link API.getUsageSummary} filters exclude status; pending never aggregates. */
 export interface UsageSummaryQuery {
-  /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
+  /** Empty strings filter endpoint trials, `undefined` means no project filter. */
   projectName?: string;
   provider?: string;
   model?: string;
   mediaType?: string;
   since?: string;
   until?: string;
-  /** IANA 时区名，按此切天；缺省 UTC。 */
+  /** IANA timezone day boundaries, default UTC. */
   tz?: string;
-  /** 决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图。 */
+  /** Views controlling project/provider/model filter candidates; totals remain cross-view. */
   view?: "generation" | "agent";
 }
 
@@ -202,7 +202,7 @@ export interface SuccessResponse {
   message?: string;
 }
 
-/** 新建项目资产的结果；项目回收站里有同类型同名资产的删除记录时带上最新那条的 ID。 */
+/** Created assets include latest matching kind/name trash deletion IDs when present. */
 export interface AssetCreateResult extends SuccessResponse {
   trash_record_id?: string | null;
 }
@@ -218,31 +218,31 @@ export interface CreateProjectPayload {
   name?: string;
   content_mode?: "narration" | "drama" | "ad";
   aspect_ratio?: "9:16" | "16:9";
-  /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
+  /** Required binary creation modes without defaults; omitted values receive backend 422. */
   generation_mode: GenerationRoute;
-  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频有意义。 */
+  /** Creation-time multigrid assembly switches, meaningful only for storyboard image-to-video. */
   grid_storyboard?: boolean;
-  /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
+  /** Estimated reading units/second; blank uses project-language defaults. */
   speech_rate_units_per_second?: number | null;
   default_duration?: number | null;
-  /** 单集目标时长（秒）；未设即不传。ad 项目服务端拒绝该字段。 */
+  /** Optional episode target seconds; omit unset. Servers reject this for ads. */
   episode_target_duration?: number | null;
-  /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
+  /** Ads only: total target seconds, UI tiers 15/30/60/90. */
   target_duration?: number;
-  /** 仅 ad：创作诉求短文本（可空）。 */
+  /** Ads only: optional short creative briefs. */
   brief?: string | null;
   style_template_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;
-  /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），任务类型桶留给项目设置页。 */
+  /** Default project image models; wizards expose defaults only (docs/adr/0054), buckets remain in settings. */
   default_image_backend?: string | null;
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
   default_text_backend?: string | null;
   model_settings?: Record<string, { resolution?: string | null }>;
-  /** 旁白交付方式；服务端缺省后期配音。 */
+  /** Narration delivery defaults to postproduction dubbing on servers. */
   narration_delivery?: NarrationDelivery;
-  /** TTS 快照（仅 use_tts）：省略的字段由服务端以全局默认预填。 */
+  /** use_tts-only snapshots; omitted fields prefill global defaults on servers. */
   audio_backend?: string;
   narration_voice?: string;
   narration_speed?: number | null;
@@ -251,7 +251,7 @@ export interface CreateProjectPayload {
 export interface VideoCapabilitiesQuery {
   signal?: AbortSignal;
   videoBackend?: string;
-  /** undefined = 服务端按项目已保存档位；null = 显式「自动」（发空串）；字符串 = 按该档位。 */
+  /** undefined = saved project tiers; null = explicit Auto, sending empty strings; strings = specified tiers. */
   resolution?: string | null;
   usesReferenceImages?: boolean;
 }

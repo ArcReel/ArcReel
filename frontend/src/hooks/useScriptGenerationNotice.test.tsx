@@ -14,8 +14,8 @@ function toolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {} };
 }
 
-// 前端投影层（entry-projection）把配对的 tool_result 条目回填进发起调用的 tool_use 块的
-// result/is_error 字段，完成的调用没有独立 tool_result 块。这是 UI 真实渲染的形状。
+// Frontend entry-projection backfills paired tool_result entries into originating tool_use blocks'
+// result/is_error fields; completed calls lack independent tool_result blocks. This is actual UI rendering shape.
 function completedToolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {}, result: "✅ done", is_error: false };
 }
@@ -122,9 +122,9 @@ describe("useScriptGenerationNotice", () => {
   });
 
   it("does not fire when a running session reloads a completed script call (result merged onto tool_use)", () => {
-    // 会话停在 AskUserQuestion 时后端 status 仍为 "running"。重新进入项目会重载快照，
-    // 其中已完成的剧本工具调用以「tool_use 带 result」形式回放（无独立 tool_result 块）。
-    // 该回放不应再弹「耗时」提示。
+    // AskUserQuestion sessions retain backend status "running". Project reentry reloads snapshots,
+    // replaying completed script-tool calls as tool_use with result, without independent tool_result blocks.
+    // These replays must not repeat lengthy-step notices.
     useAssistantStore.setState({ sessionStatus: "running" });
     const spy = vi.spyOn(useAppStore.getState(), "pushToast");
     render(<Harness />);
@@ -144,8 +144,8 @@ describe("useScriptGenerationNotice", () => {
   });
 
   it("treats a failed-but-completed call (only is_error, no result) as completed", () => {
-    // 注释与 ContentBlock 契约把 result/is_error 都列为完成信号。即便回放一个仅带
-    // is_error 而无 result 的失败完成块，也不应被误判为进行中而弹「耗时」提示。
+    // Comments/ContentBlock contracts list both result/is_error as completion signals. Even failed-completion replays with only
+    // is_error and no result must not be misclassified ongoing or trigger lengthy-step notices.
     useAssistantStore.setState({ sessionStatus: "running" });
     const spy = vi.spyOn(useAppStore.getState(), "pushToast");
     render(<Harness />);

@@ -85,7 +85,7 @@ def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
     )
 
 
-#: 旧版检查点记录的旁白交付事实；新版不再记录，旧载荷只为校验 request_digest 原样保留。
+#: Legacy checkpoints retain narration-delivery facts solely for unchanged request_digest validation; new checkpoints omit them.
 _LEGACY_NARRATION = {
     "delivery": "use_tts",
     "tts_status": "current",
@@ -96,7 +96,7 @@ _LEGACY_NARRATION = {
 
 
 def _redigest(raw: dict[str, object], *, excluded: frozenset[str] = frozenset()) -> None:
-    """按旧版写侧的口径重算 request_digest，模拟升级前落库的检查点。"""
+    """Recompute request_digest by legacy write rules to simulate pre-upgrade persisted checkpoints."""
 
     digest_payload = {key: value for key, value in raw.items() if key != "request_digest" and key not in excluded}
     raw["request_digest"] = hashlib.sha256(
@@ -358,7 +358,7 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
 
 
 def test_checkpoint_from_before_task_linkage_drops_its_stale_call_id(tmp_path: Path) -> None:
-    """升级前落库的在途检查点带 api_call_id：丢弃该键后照常接续，摘要不受影响。"""
+    """Pre-upgrade in-flight checkpoints with api_call_id resume after discarding that key without changing digests."""
     checkpoint = _checkpoint(tmp_path / "demo")
     raw = json.loads(checkpoint.to_json())
     raw["api_call_id"] = 42
@@ -463,7 +463,7 @@ def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_vide
 
 
 def test_narration_recording_checkpoint_stays_resumable_with_complete_currency(tmp_path: Path) -> None:
-    """v3 检查点仍带旁白交付事实：原样保留以校验摘要，产物时效事实照常可用。"""
+    """v3 checkpoints retain narration-delivery facts verbatim for digest validation; artifact-currency facts remain usable."""
 
     checkpoint = _checkpoint(tmp_path / "demo")
     raw = json.loads(checkpoint.to_json())
@@ -663,7 +663,7 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
 
 
 def test_v4_checkpoint_without_provider_asset_references_stays_resumable(tmp_path: Path) -> None:
-    """升级前落库的 v4 检查点没有素材引用一项：照常接续，读出来是空的引用表。"""
+    """Pre-upgrade v4 checkpoints without asset-reference fields resume with empty reference maps."""
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 4
     raw.pop("provider_asset_references")
@@ -677,7 +677,7 @@ def test_v4_checkpoint_without_provider_asset_references_stays_resumable(tmp_pat
 
 
 def test_provider_asset_references_are_bound_to_staged_reference_images(tmp_path: Path) -> None:
-    """素材引用进请求摘要与版本元数据，只能指向暂存的参考图；改写引用会让摘要对不上。"""
+    """Asset references enter request digests and version metadata and may point only to staged reference images; edits invalidate digests."""
     from lib.script.reference_video.execution_checkpoint import ProviderAssetReference
 
     base = _checkpoint(tmp_path / "demo")
@@ -702,7 +702,7 @@ def test_provider_asset_references_are_bound_to_staged_reference_images(tmp_path
     with pytest.raises(ValueError, match="request_digest"):
         ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
-    # 下标 1 是参考音频，不能以素材引用代替。
+    # Index one is reference audio and cannot become an asset reference.
     with pytest.raises(ValueError, match="staged reference image"):
         replace(checkpoint, provider_asset_references=(replace(ref, media_index=1),))
     with pytest.raises(ValueError, match="asset://"):

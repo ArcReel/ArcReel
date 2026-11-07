@@ -1,7 +1,7 @@
-"""分支会话服务：锚点校验、前缀落库、原会话 superseded、事件日志重建。
+"""Branch-session services: anchor validation, prefix persistence, superseded originals, and event-log reconstruction.
 
-用真实 DB fixture（transcript 镜像表 + 会话元数据表 + 身份映射表同库），
-断言的是服务的外部行为，不触及前缀是怎么拼出来的。
+Real DB fixtures share transcript mirrors, session metadata, and identity mappings;
+assert external behavior without inspecting prefix construction.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ SECOND_USER_ENTRY = "user-second"
 
 @pytest.fixture
 async def branching(session_factory, tmp_path):
-    """一个有两轮对话、两条用户消息都已建立身份映射的原会话。"""
+    """Original two-round session with identity mappings for both user messages."""
     store = DbSessionStore(session_factory)
     meta_store = SessionMetaStore(session_factory=session_factory)
     log_store = EventLogStore(session_factory=session_factory)
@@ -99,7 +99,7 @@ async def test_superseded_session_leaves_the_list_and_the_new_one_joins(branchin
 
 
 async def test_editing_the_first_message_yields_a_fresh_session(branching):
-    """AC：空前缀 = 新会话——仍有新 session_id 与 superseded 指针，只是无可 resume 的前缀。"""
+    """AC: empty prefixes mean new sessions, with fresh session_id/superseded pointers but no resumable history."""
     service, meta_store, store, _, session_id, tmp_path = branching
 
     branched = await service.branch(session_id, FIRST_USER_ENTRY)
@@ -112,7 +112,7 @@ async def test_editing_the_first_message_yields_a_fresh_session(branching):
 
 
 async def test_new_session_id_is_a_uuid_the_sdk_accepts(branching):
-    """SDK 以 session_id 作路径分量并校验 UUID 形态，非 UUID 会被当作无此会话。"""
+    """SDK uses session_id as a path component and validates UUID shape; non-UUID values appear nonexistent."""
     from uuid import UUID
 
     service, _, _, _, session_id, _ = branching
@@ -139,7 +139,7 @@ async def test_unmapped_anchor_is_rejected(branching):
 
 
 async def test_anchor_pointing_at_a_non_user_entry_is_rejected(branching):
-    """身份映射表若因脏数据指向 Agent 条目，仍按「锚点非用户消息」拒绝。"""
+    """Corrupt identity mappings pointing to Agent rows still reject as nonuser anchors."""
     service, _, store, log_store, session_id, tmp_path = branching
     main = await store.load({"project_key": make_project_key(tmp_path), "session_id": session_id})
     assert main is not None
@@ -171,13 +171,13 @@ async def test_rejection_leaves_no_new_session_behind(branching):
 
 
 async def test_second_branch_of_the_same_origin_is_refused(branching):
-    """已被取代的会话再分叉即冲突：首个指针不被覆盖，冲突分支的元数据与 transcript 都不留。"""
+    """Rebranching superseded sessions conflicts without overwriting first pointers or retaining conflicting branch metadata/transcripts."""
     service, meta_store, store, _, session_id, tmp_path = branching
     project_key = make_project_key(tmp_path)
     first = await service.branch(session_id, SECOND_USER_ENTRY)
     sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
 
-    # 同一个非空锚点：第二次分叉会先把前缀复制到新 session_id 下，冲突后须整个撤回。
+    # Same nonempty anchors copy prefixes to new IDs before the second branch conflicts; roll everything back.
     with pytest.raises(SessionBranchError):
         await service.branch(session_id, SECOND_USER_ENTRY)
 
@@ -189,7 +189,7 @@ async def test_second_branch_of_the_same_origin_is_refused(branching):
 
 
 async def test_deleting_the_branch_brings_the_origin_back_to_the_list(branching):
-    """删掉分支会话后原会话必须回到列表——否则它会带着一个指向不存在会话的指针永久消失。"""
+    """Deleting branches restores originals to lists instead of permanently hiding them behind nonexistent-session pointers."""
     service, meta_store, _, _, session_id, _ = branching
     branched = await service.branch(session_id, SECOND_USER_ENTRY)
 
@@ -203,10 +203,10 @@ async def test_deleting_the_branch_brings_the_origin_back_to_the_list(branching)
 
 
 async def test_deleting_a_middle_branch_keeps_the_origin_pointing_at_the_live_end(branching):
-    """链中间被删时前身改指后继：否则前身与末端会同时出现在列表里，取代关系断掉。"""
+    """Deleting middle chain sessions retargets predecessors to successors, preventing broken supersession and duplicate listed ends."""
     service, meta_store, store, log_store, session_id, tmp_path = branching
     middle = await service.branch(session_id, SECOND_USER_ENTRY)
-    # 分支会话被续写后，新消息才有身份映射、才能再被分叉——链由此形成。
+    # New branch messages gain mappings on continuation and become branchable, forming chains.
     project_key = make_project_key(tmp_path)
     copied = await store.load({"project_key": project_key, "session_id": middle.session_id})
     assert copied is not None
@@ -228,11 +228,11 @@ async def test_deleting_a_middle_branch_keeps_the_origin_pointing_at_the_live_en
 
 
 class _StoreGone(Exception):
-    """store 在复制途中失联。"""
+    """Store disconnects during copying."""
 
 
 class _StoreFailingAfterMainWrite:
-    """主 transcript 已写入、收集子智能体子路径时失败的 store。"""
+    """Store fails collecting subagent paths after writing main transcripts."""
 
     def __init__(self, inner: DbSessionStore) -> None:
         self._inner = inner
@@ -251,7 +251,7 @@ class _StoreFailingAfterMainWrite:
 
 
 class _MetaStoreLosingTheCallerAfterCommit(SessionMetaStore):
-    """指针已提交、调用方在拿到结果前被取消。"""
+    """Cancellation after pointer commit but before callers receive results."""
 
     async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
         await super().mark_superseded(session_id, superseded_by)
@@ -259,7 +259,7 @@ class _MetaStoreLosingTheCallerAfterCommit(SessionMetaStore):
 
 
 async def _seed_session_with_a_subagent(store, meta_store, log_store, project_key, tmp_path):
-    """一个前缀里派出过子智能体的原会话，锚点是末轮用户消息。"""
+    """Original session whose prefix launched subagents, anchored at its final-round user message."""
     session_id = str(uuid4())
     await meta_store.create(PROJECT_NAME, session_id)
     u1, a1, r1, u2 = (f"m{i}-{uuid4().hex[:8]}" for i in range(4))
@@ -277,7 +277,7 @@ async def _seed_session_with_a_subagent(store, meta_store, log_store, project_ke
 
 
 async def test_failure_midway_through_copying_leaves_no_trace_of_the_new_session(session_factory, tmp_path):
-    """store 的每次 append 各自提交，半份 transcript 会被会话枚举看见——中途失败须整体撤回。"""
+    """Each store append commits independently, exposing partial transcripts to enumeration; intermediate failures require full rollback."""
     store = DbSessionStore(session_factory)
     meta_store = SessionMetaStore(session_factory=session_factory)
     log_store = EventLogStore(session_factory=session_factory)
@@ -300,7 +300,7 @@ async def test_failure_midway_through_copying_leaves_no_trace_of_the_new_session
 
 
 async def test_pointer_is_withdrawn_when_the_caller_is_cancelled_after_it_commits(session_factory, tmp_path):
-    """指针提交后当场被取消：撤回不能只删新会话，否则原会话指向一个不存在的会话且自己也从列表消失。"""
+    """Immediate cancellation after pointer commit must restore originals too; deleting only new sessions leaves originals pointing nowhere and absent from lists."""
     store = DbSessionStore(session_factory)
     meta_store = _MetaStoreLosingTheCallerAfterCommit(session_factory=session_factory)
     log_store = EventLogStore(session_factory=session_factory)
@@ -326,7 +326,7 @@ async def test_pointer_is_withdrawn_when_the_caller_is_cancelled_after_it_commit
 
 
 async def test_branching_requires_the_db_transcript_store(session_factory, tmp_path):
-    """ARCREEL_SDK_SESSION_STORE=off 时没有可复制的镜像，拒绝而非静默产出空会话。"""
+    """ARCREEL_SDK_SESSION_STORE=off has no copyable mirror; reject instead of silently creating empty sessions."""
     service = SessionBranchService(
         store=None,
         meta_store=SessionMetaStore(session_factory=session_factory),
@@ -339,10 +339,10 @@ async def test_branching_requires_the_db_transcript_store(session_factory, tmp_p
 
 
 async def _seed_three_rounds(store, meta_store, project_key):
-    """三轮对话的原会话，只有末轮用户消息建了身份映射。
+    """Original three-round session with only the last user identity mapped.
 
-    前两轮模拟「早于映射表的历史」：分支会话拿到的前缀条目同样没有映射行，
-    正是恒等回退要服务的那一类锚点。
+    First rounds simulate premapping history; copied branch prefixes likewise have no mapping rows,
+    precisely the anchor type identity fallback serves.
     """
     session_id = str(uuid4())
     await meta_store.create(PROJECT_NAME, session_id)
@@ -361,14 +361,14 @@ async def _seed_three_rounds(store, meta_store, project_key):
 
 
 async def test_a_prefix_message_without_a_mapping_row_can_still_be_rewritten(branching):
-    """AC：分支会话的前缀历史消息没有映射行，靠恒等性仍能作锚点再分叉。"""
+    """AC: unmapped branch-prefix user history still serves as identity-based anchors for rebranching."""
     service, meta_store, store, log_store, _, tmp_path = branching
     project_key = make_project_key(tmp_path)
     origin, uuids = await _seed_three_rounds(store, meta_store, project_key)
     await log_store.record_user_message_link(origin, "user-third", uuids[4])
 
     branched = await service.branch(origin, "user-third")
-    # 分支会话的前缀是前两轮，其中第二条用户消息在新会话里没有任何映射行。
+    # Prefix contains first two rounds; its second user message has no new-session mapping.
     again = await service.branch(branched.session_id, uuids[2])
 
     assert again.resumable is True
@@ -378,7 +378,7 @@ async def test_a_prefix_message_without_a_mapping_row_can_still_be_rewritten(bra
 
 
 async def test_rewriting_recurses_through_branches_of_branches(branching):
-    """AC：分支的分支同样可再改写——uuid 随前缀复制原样保留，恒等性递归成立。"""
+    """AC: branches of branches remain rewritable; prefix-copy uuids stay unchanged, preserving recursive identity."""
     service, meta_store, store, log_store, _, tmp_path = branching
     project_key = make_project_key(tmp_path)
     origin, uuids = await _seed_three_rounds(store, meta_store, project_key)
@@ -389,12 +389,12 @@ async def test_rewriting_recurses_through_branches_of_branches(branching):
     third = await service.branch(second.session_id, uuids[0])
 
     assert third.session_id not in {origin, first.session_id, second.session_id}
-    # 锚点是整段历史的第一条，前缀为空——新会话就是全新会话。
+    # First-history-message anchors have empty prefixes, creating wholly fresh sessions.
     assert third.resumable is False
 
 
 async def test_a_continued_branch_message_is_anchored_through_the_mapping(branching):
-    """续写进分支会话的新消息走映射表这一段，与前缀历史消息两类锚点并存。"""
+    """Newly continued branch messages use mappings, coexisting with prefix-history anchors."""
     service, _, store, log_store, session_id, tmp_path = branching
     project_key = make_project_key(tmp_path)
     branched = await service.branch(session_id, SECOND_USER_ENTRY)
@@ -413,7 +413,7 @@ async def test_a_continued_branch_message_is_anchored_through_the_mapping(branch
 
 
 async def test_branch_records_where_it_forked_from(branching):
-    """分叉血统在 branch 时刻写入：父会话 + transcript 域的锚点 uuid。"""
+    """Branch lineage records parent sessions and transcript-domain anchor uuids at branching time."""
     service, meta_store, store, _, session_id, tmp_path = branching
     main = await store.load({"project_key": make_project_key(tmp_path), "session_id": session_id})
     assert main is not None
@@ -431,7 +431,7 @@ async def test_branch_records_where_it_forked_from(branching):
 
 
 async def test_a_tool_result_carrying_entry_is_refused_as_an_anchor(branching):
-    """transcript 把工具回执也写成 type:"user"；混排 tool_result 的条目作锚会悬空前一轮 tool_use。"""
+    """Transcripts also encode tool receipts as type:"user"; mixed tool_result anchors would leave prior tool_use dangling."""
     service, meta_store, store, _, _, tmp_path = branching
     project_key = make_project_key(tmp_path)
     session_id = str(uuid4())
@@ -464,7 +464,7 @@ async def test_a_tool_result_carrying_entry_is_refused_as_an_anchor(branching):
 
 
 async def test_an_identity_anchor_that_transcript_never_saw_fails_loud(branching):
-    """活跃路径条目丢了映射行：恒等回退放行，由前缀切片拒绝，不静默切错位置。"""
+    """Active-path entries missing mappings pass identity fallback but fail prefix slicing, never silently slicing wrong locations."""
     service, meta_store, store, log_store, _, tmp_path = branching
     project_key = make_project_key(tmp_path)
     session_id = str(uuid4())
@@ -477,14 +477,14 @@ async def test_an_identity_anchor_that_transcript_never_saw_fails_loud(branching
             make_sdk_transcript_entry(a1, u1, "assistant", session_id, "在"),
         ],
     )
-    # 事件日志里有这条主线用户条目，transcript 里没有——mint 出来的 id 本该由
-    # 回显认领落进映射表，认领失败就是这个形态。
+    # Mainline user entries exist in event logs but not transcripts; minted identities normally enter mappings
+    # through echo claims, whose failure produces this shape.
     ghost = f"user-{uuid4().hex[:8]}"
     await log_store.append(session_id, [{"type": "user", "uuid": ghost, "content": "改我"}])
 
     sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
 
-    # 拒绝来自前缀切片（"not on the main timeline"），不是恒等回退自己拦下的。
+    # Prefix slicing rejects "not on the main timeline", not identity fallback itself.
     with pytest.raises(SessionBranchError, match="main timeline"):
         await service.branch(session_id, ghost)
 
@@ -492,7 +492,7 @@ async def test_an_identity_anchor_that_transcript_never_saw_fails_loud(branching
 
 
 async def test_new_session_event_log_is_rebuilt_from_the_copied_transcript(branching):
-    """AC：新会话的事件日志按既有重放重建机制从 transcript 懒生成。"""
+    """AC: new-session event logs lazily reconstruct from transcripts through existing replay mechanisms."""
     service, _, store, log_store, session_id, tmp_path = branching
     event_log = EventLogService(log_store, SdkTranscriptAdapter(store=store))
 

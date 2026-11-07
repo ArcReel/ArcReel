@@ -4,8 +4,8 @@ import { clearAgentOverlay, viewport, waitForEntrance } from "../support/region-
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 资产画廊：工具栏（筛选、批量生成、新增）+ 按画布宽度加列的浏览卡网格；点卡片打开右侧详情 Sheet，
-// 次要操作收在卡片的「更多」里。
+// Asset galleries: filter/batch-generation/add toolbars plus width-responsive card grids; cards open right detail Sheets,
+// secondary actions live in More menus.
 
 const PATH = "/app/projects/demo/characters";
 
@@ -13,7 +13,7 @@ const LONG_NAME = "旧城茶馆二楼临窗座位上总在午后出现的说书�
 const LONG_DESCRIPTION =
   "四十岁上下，瘦高，穿洗得发白的灰布长衫，袖口磨出了毛边；左眼角有一颗痣，说话时习惯用折扇轻敲桌面。每天午后准时出现在茶馆二楼临窗的位置，讲到紧要处会突然停下喝茶，让听众干着急。";
 
-// 内联 SVG 资产图：getFileUrl 原样使用 data: 地址，不发请求。
+// Inline SVG asset images: getFileUrl uses data: unchanged, without requests.
 function sheetSvg(hue: number) {
   return `data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="hsl(${hue} 18% 20%)"/><circle cx="640" cy="300" r="120" fill="hsl(${hue} 14% 42%)"/><rect x="460" y="440" width="360" height="200" rx="40" fill="hsl(${hue} 14% 42%)"/></svg>`,
@@ -35,7 +35,7 @@ const CHARACTERS: Record<string, Character> = {
   小满: { description: "隔壁绸缎庄的学徒，常来茶馆听书。" },
 };
 
-// 产物清单：沈砚的资产图已过期，阿岚与小满待生成。
+// Artifact manifests: 沈砚 asset images are stale; 阿岚 and 小满 await generation.
 function statusRows(names: string[], stale: Set<string>, missing: Set<string>) {
   return {
     status: 200,
@@ -59,7 +59,7 @@ function projectWith(characters: Record<string, Character>, episodeTitles?: stri
   const body = structuredClone(recorded.body) as { project: Record<string, unknown> };
   body.project.characters = characters;
   if (episodeTitles) {
-    // 以录制的第 1 集为模板，按标题铺出多集。
+    // Template multiple episodes from recorded episode 1 using titles.
     const [template] = body.project.episodes as Record<string, unknown>[];
     body.project.episodes = episodeTitles.map((title, i) => ({
       ...template,
@@ -71,7 +71,7 @@ function projectWith(characters: Record<string, Character>, episodeTitles?: stri
   return { status: recorded.status, body };
 }
 
-// 小满有一个进行中的资产图任务，卡片显示「生成中」。
+// 小满 has running asset-image tasks; cards show Generating.
 const RUNNING_TASKS = {
   status: 200,
   body: {
@@ -104,7 +104,7 @@ const RUNNING_TASKS = {
   },
 };
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，画廊停在替换的项目数据上。
+// Project event SSE streams are unrecorded; reject with nonretryable statuses so galleries retain substituted project data.
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": projectWith(CHARACTERS),
@@ -134,7 +134,7 @@ const BASE: ApiOverrides = {
   },
 };
 
-// 压力变体：40 个名字与描述都很长、带别名与衍生的角色。
+// Stress variant: 40 characters with long names/descriptions, aliases and derivatives.
 const MANY: Record<string, Character> = Object.fromEntries(
   Array.from({ length: 40 }, (_, i) => [
     `${LONG_NAME} ${i + 1}`,
@@ -153,7 +153,7 @@ const MANY_API: ApiOverrides = {
   "GET /api/v1/tasks?page_size=200&project_name=demo": { status: 200, body: { items: [], total: 0, page: 1, page_size: 200 } },
 };
 
-// 删除前的引用预览（dry_run）：林夕被前三集引用。
+// Pre-deletion reference previews (dry_run): 林夕 is referenced by the first three episodes.
 const DELETE_PREVIEW_KEY = "DELETE /api/v1/projects/demo/characters/林夕?dry_run=true";
 const DELETE_API: ApiOverrides = {
   ...BASE,
@@ -173,7 +173,7 @@ const DELETE_API: ApiOverrides = {
     },
   },
 };
-// 压力变体：被 30 集引用，集标题很长。
+// Stress variant: references from 30 episodes with long titles.
 const MANY_EPISODES = Array.from({ length: 30 }, (_, i) => `${LONG_NAME}的第 ${i + 1} 段故事`);
 const DELETE_MANY_API: ApiOverrides = {
   ...BASE,
@@ -219,13 +219,13 @@ function versionsOf(name: string, count: number) {
   };
 }
 
-// 图片查看器：林夕、沈砚、周掌柜有资产图，阿岚与小满没有。
+// Image viewers: 林夕, 沈砚 and 周掌柜 have asset images; 阿岚 and 小满 do not.
 const VIEWER_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo/versions/characters/沈砚": versionsOf("沈砚", 2),
   "GET /api/v1/projects/demo/versions/characters/周掌柜": versionsOf("周掌柜", 1),
 };
-// 压力变体：名字很长、有 60 个版本。
+// Stress variant: long names and 60 versions.
 const VIEWER_MANY_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo": projectWith({ [LONG_NAME]: { description: LONG_DESCRIPTION, character_sheet: sheetSvg(200) }, ...CHARACTERS }),
@@ -252,7 +252,7 @@ function cards(page: Page) {
 
 async function galleryReady(page: Page) {
   await expect(cards(page).first()).toBeVisible();
-  // 等产物清单回来：沈砚的「已过期」标记来自它。
+  // Wait for artifact manifests, the source of 沈砚 Stale badges.
   await expect(page.getByRole("button", { name: /^已过期/ })).toContainText("1");
 }
 
@@ -281,7 +281,7 @@ defineRegionScenarios("资产画廊", [
       await expect(xiaoman.getByText("生成中")).toBeVisible();
       await expect(page.getByRole("article", { name: "周掌柜" }).getByText("缺描述")).toBeVisible();
       await expect(page.getByRole("article", { name: "阿岚" }).getByText("待生成")).toBeVisible();
-      // 1440 宽、Agent 面板展开时，角色网格是两列。
+      // At width 1440 with Agent panels expanded, character grids have two columns.
       if (viewport(page).width === 1440) {
         await expect(page.getByRole("button", { name: "Agent", exact: true })).toHaveAttribute("aria-pressed", "true");
         expect(await columnCount(page)).toBe(2);
@@ -375,7 +375,7 @@ defineRegionScenarios("资产画廊", [
     path: PATH,
     api: {
       ...BASE,
-      // 详情的衍生区块读取衍生图状态
+      // Detail derivative sections read derivative-image statuses.
       "GET /api/v1/projects/demo/characters/林夕/derivatives": { status: 200, body: { success: true, derivatives: {} } },
     },
     ready: galleryReady,
@@ -427,7 +427,7 @@ defineRegionScenarios("资产画廊", [
       await page.keyboard.press("ArrowRight");
       viewer = page.getByRole("dialog", { name: "沈砚", exact: true });
       await expect(viewer.getByText("2 / 3")).toBeVisible();
-      // 阿岚没有资产图，跳过
+      // 阿岚 lacks asset images; skip.
       await page.keyboard.press("ArrowRight");
       viewer = page.getByRole("dialog", { name: "周掌柜", exact: true });
       await expect(viewer.getByText("3 / 3")).toBeVisible();

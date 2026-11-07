@@ -1,4 +1,4 @@
-"""带 deadline 运行子进程：超时与取消时的终止升级与产物清理。"""
+"""Deadline subprocesses: escalating termination/cleanup on timeout and cancellation."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ async def test_repeated_cancellation_waits_for_cleanup_to_finish(tmp_path: Path)
     task.cancel()
     await proc.terminate_requested.wait()
     task.cancel()
-    await asyncio.sleep(0)  # 取消经一次回调送达任务
+    await asyncio.sleep(0)  # Deliver cancellation through one callback.
 
     assert not task.done()
     assert partial.exists()

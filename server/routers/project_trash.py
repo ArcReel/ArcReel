@@ -1,4 +1,4 @@
-"""项目回收站：列出删除记录、恢复、下载记录里的文件、彻底删除与清空。彻底删除与清空只开放给创作者：不给 Agent 工具，服务端也拒绝内嵌 Agent 的令牌。"""
+"""Project trash: list deletion records, restore, download recorded files, permanently delete, and empty. Permanent deletion/emptying are creator-only: no Agent tools, and the server rejects embedded-Agent tokens."""
 
 from __future__ import annotations
 
@@ -32,9 +32,9 @@ def _project_dir(project_name: str) -> Path:
 
 
 async def _collect_released_objects(project_name: str) -> None:
-    """彻底删除的记录不再持有正式对象：重算项目的引用，回收失去全部引用的对象。
+    """Permanently deleted records no longer retain formal objects; recompute project references and reclaim objects with no remaining references.
 
-    失败只记日志：记录已删除，引用多留只会让对象晚些回收，维护循环会再重算一次。
+    Log failures only: records are already deleted, excess references merely delay reclamation, and maintenance recomputes them again.
     """
     try:
         await reconcile_and_collect(project_name, await asyncio.to_thread(_project_dir, project_name))
@@ -66,7 +66,7 @@ async def restore_trash_record(project_name: str, record_id: str):
 
 @router.get("/{record_id}/files")
 async def download_trash_record_file(project_name: str, record_id: str, path: str = Query(...)):
-    """下载记录里的一个被删文件：降级恢复后只能下载的结构文件从这里取回。"""
+    """Download a deleted file from a record: retrieve structure files available only for download after degraded recovery here."""
     name = Path(path).name
 
     def _sync():

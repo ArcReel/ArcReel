@@ -1,9 +1,9 @@
-"""TXT/MD 文本解码：4 层策略。
+"""TXT/MD decoding: four strategies.
 
-1. BOM 优先（UTF-8-SIG / UTF-16 LE/BE）
-2. 严格 UTF-8
-3. charset-normalizer 概率检测（chaos < 0.5）
-4. gb18030 + errors='replace' 兜底（>5% 乱码判定失败）
+1. BOM first (UTF-8-SIG / UTF-16 LE/BE)
+2. Strict UTF-8
+3. charset-normalizer probabilistic detection (chaos < 0.5)
+4. gb18030 + errors='replace' fallback (failure if >5% garbled)
 """
 
 import logging

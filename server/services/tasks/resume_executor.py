@@ -1,9 +1,7 @@
-"""Resume executor：`VideoResumeRunner.run` 直接调用的入口。
+"""Resume executor called directly by `VideoResumeRunner.run`.
 
-不走 `execute_video_task` / `execute_reference_video_task` 流水线——provider 端
-job 已经在跑，本地分镜图 / 参考图是否存在不该影响接续轮询。仅复用 service
-层的 finalize helpers 写回 scene/unit 资产。
-"""
+Bypass `execute_video_task` / `execute_reference_video_task`: the provider job is already running, so local storyboard/
+reference-image availability must not affect resumed polling. Reuse only service-layer finalization helpers for scene/unit writeback."""
 
 from __future__ import annotations
 
@@ -45,10 +43,9 @@ def _ensure_checkpoint_endpoint_unchanged(
     *,
     job_id: str,
 ) -> None:
-    """提交时冻结的协议守卫与当下的比对：同一端点或退役端点的协议等价后继才放行（见 lib.backends.resume_guard）。
+    """Compare the protocol guard frozen at submission against current configuration: allow only the same endpoint or a protocol-equivalent successor of a retired endpoint (lib.backends.resume_guard).
 
-    内置与自定义之间的切换、换了端点或路径覆盖都拒绝续跑。
-    """
+    Reject switches between built-in/custom providers, endpoint changes and path overrides."""
 
     if resume_guard_accepts(checkpoint.endpoint_guard, current_endpoint):
         return
@@ -78,16 +75,17 @@ def _validate_resolved_checkpoint_identity(checkpoint: VideoSubmissionCheckpoint
 
 
 def _submitted_base_url(task: dict[str, Any]) -> str | None:
-    """提交本供应商任务时的请求域名，供 backend 回放轮询；未记录时 None。
+    """Request domain used when submitting this provider job, replayed by backend polling; None if unrecorded.
 
-    域名不分供应商类型，一律落 ``submitted_base_url``（``provider_endpoint`` 只承载协议标识）。
-    调用点在 ``_ensure_checkpoint_endpoint_unchanged`` 之后：协议标识与内置/自定义的归属已经与
-    提交时逐字相等，落库的域名必定属于当下这套凭据，可直接回放。列为空（未落此值的存量任务、
-    提交域名不随配置变化的供应商）时回退 None，backend 按当下配置的域名轮询。
+    All provider types store domains in ``submitted_base_url``; ``provider_endpoint`` holds only protocol identity.
+    Call after ``_ensure_checkpoint_endpoint_unchanged``: protocol identity and built-in/custom ownership already match
+    submission verbatim, so the stored domain belongs to current credentials and is safe to replay. An empty column
+    (legacy jobs without this value or providers with configuration-independent submission domains) returns None,
+    letting the backend poll the currently configured domain.
 
-    http(s) 形态判别是对落库值的兜底断言：写入侧只往该列放请求域名，读到别的形态说明这行来路
-    不明（人工改库、迁移前两列都有值的畸形行），宁可回退到当下配置的域名，也不拿它拼轮询 URL。
-    """
+    Checking http(s) shape is a fallback assertion on stored values: writers store only request domains. Other forms
+    indicate unknown provenance (manual database edits or malformed pre-migration rows with both columns populated).
+    Prefer the current configured domain rather than constructing polling URLs from them."""
     submitted = task.get("submitted_base_url")
     if isinstance(submitted, str) and submitted.lower().startswith(("http://", "https://")):
         return submitted
@@ -99,15 +97,14 @@ async def execute_resume_video_task(
     *,
     job_id: str,
 ) -> dict[str, Any]:
-    """重启自愈入口：`VideoResumeRunner.run` 直接调。
+    """Restart-recovery entry point called directly by `VideoResumeRunner.run`.
 
-    1. 解析项目 + 构造 MediaGenerator（受 task["provider_id"] 锁定 payload.video_provider）
-    2. 调 `generator.resume_video_async(job_id=..., ...)`——内部走 backend.resume_video
-    3. finalize：写 scene asset / unit assets、抽缩略图、返回 result dict
+    1. Resolve project and construct MediaGenerator, locking payload.video_provider to task["provider_id"].
+    2. Call `generator.resume_video_async(job_id=..., ...)`, internally using backend.resume_video.
+    3. Finalize: write scene/unit assets, extract thumbnails and return a result dict.
 
-    不读 storyboard / reference 本地图片，不调 assert_duration_supported——这些前置
-    校验若失败会让本地资产缺失"卡死"已经提交给 provider 的 job（变幽灵任务）。
-    """
+    Do not read local storyboard/reference images or call assert_duration_supported: such precondition failures
+    would let missing local assets strand an already submitted provider job as a ghost task."""
     task_type = task["task_type"]
     project_name = task["project_name"]
     resource_id = str(task["resource_id"])
@@ -122,7 +119,7 @@ async def execute_resume_video_task(
     resolver_payload = {
         f"video_provider_{checkpoint.generation_type}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
     }
-    # 厂商侧的任务已经提交（可能已经计费），续跑只轮询它：模型在提交之后下线，结果也要照常取回。
+    # The provider job was submitted and may be charged; resume only polls it. Retrieve results even if the model went offline after submission.
     video_request = VideoLaneRequest(generation_type=checkpoint.generation_type, submitted_job=True)
 
     project, project_path = await asyncio.to_thread(
@@ -172,7 +169,7 @@ async def execute_resume_video_task(
             prompt=prompt_text,
         )
 
-        #: 续跑期 backend 产生的非阻断提示，与首跑同一条通道落进任务 result。
+        #: Nonblocking backend hints during resume enter task result through the same channel as initial execution.
         warnings: list[dict[str, Any]] = []
         with project_change_source("worker"):
             try:
@@ -195,7 +192,7 @@ async def execute_resume_video_task(
                     **optional_kwargs,
                 )
             except GenerationTargetDeletedError as deleted:
-                # 结果已进项目回收站，任务照常成功；没有写回任何资源，不发生成成功事件。
+                # Results reached project trash, so the task still succeeds; no resources were written back, so emit no generation-success event.
                 return deleted.result
             output_path, version, _, video_uri = resumed
 

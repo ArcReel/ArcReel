@@ -1,1 +1,1 @@
-## 小说原文
+## Original novel text

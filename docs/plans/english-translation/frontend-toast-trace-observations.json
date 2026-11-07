@@ -1,0 +1,112 @@
+{
+  "trace": "/tmp/arcreel-english-7b4f781/evidence/official-first-failure/regions-workspace-header-工-3a40d-通知面板：角标立即清零，未读高亮保留，列表在面板里滚动-1024x600/trace.zip",
+  "trace_sha256": "1206151b7b9696f595085d37e644dafd951c6c9f2de006505c11155f85942e74",
+  "last_recorded_input": {
+    "type": "input",
+    "callId": "call@5219",
+    "point": {
+      "x": 659,
+      "y": 449
+    },
+    "box": {
+      "x": 634,
+      "y": 433,
+      "width": 50,
+      "height": 32
+    }
+  },
+  "failed_assertion_after_snapshot_toast_attributes": [
+    {
+      "tabindex": "-1",
+      "role": "region",
+      "aria-live": "polite",
+      "aria-atomic": "false",
+      "aria-relevant": "additions text",
+      "aria-label": "提示",
+      "data-slot": "toast-viewport",
+      "class": "pointer-events-none fixed top-16 left-1/2 z-toast flex w-sm max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 outline-none",
+      "style": "--toast-frontmost-height: 150px;",
+      "data-expanded": ""
+    },
+    {
+      "__playwright_target__": "",
+      "data-type": "error",
+      "role": "alertdialog",
+      "tabindex": "0",
+      "aria-modal": "false",
+      "aria-hidden": "true",
+      "data-slot": "toast",
+      "class": "group/toast pointer-events-auto relative flex max-h-48 w-full rounded-lg border bg-popover text-popover-foreground shadow-overlay outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 transition-[opacity,translate] duration-base ease-emphasized data-starting-style:-translate-y-2 data-starting-style:opacity-0 data-ending-style:opacity-0 data-limited:hidden",
+      "aria-labelledby": "_r_48_",
+      "data-expanded": "",
+      "style": "--toast-swipe-movement-x: 0px; --toast-swipe-movement-y: 0px; --toast-index: 0; --toast-offset-y: 0px; --toast-height: 150px;"
+    },
+    {
+      "__playwright_target__": "",
+      "data-type": "error",
+      "role": "alertdialog",
+      "tabindex": "0",
+      "aria-modal": "false",
+      "aria-hidden": "true",
+      "data-slot": "toast",
+      "class": "group/toast pointer-events-auto relative flex max-h-48 w-full rounded-lg border bg-popover text-popover-foreground shadow-overlay outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 transition-[opacity,translate] duration-base ease-emphasized data-starting-style:-translate-y-2 data-starting-style:opacity-0 data-ending-style:opacity-0 data-limited:hidden",
+      "aria-labelledby": "_r_3r_",
+      "style": "--toast-swipe-movement-x: 0px; --toast-swipe-movement-y: 0px; --toast-index: 1; --toast-offset-y: 150px; --toast-height: 150px;",
+      "data-expanded": ""
+    },
+    {
+      "__playwright_target__": "",
+      "data-type": "error",
+      "role": "alertdialog",
+      "tabindex": "0",
+      "aria-modal": "false",
+      "aria-hidden": "true",
+      "data-slot": "toast",
+      "class": "group/toast pointer-events-auto relative flex max-h-48 w-full rounded-lg border bg-popover text-popover-foreground shadow-overlay outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 transition-[opacity,translate] duration-base ease-emphasized data-starting-style:-translate-y-2 data-starting-style:opacity-0 data-ending-style:opacity-0 data-limited:hidden",
+      "aria-labelledby": "_r_3e_",
+      "style": "--toast-swipe-movement-x: 0px; --toast-swipe-movement-y: 0px; --toast-index: 2; --toast-offset-y: 300px; --toast-height: 150px;",
+      "data-expanded": ""
+    }
+  ],
+  "last_screencast": {
+    "type": "screencast-frame",
+    "pageId": "page@a227c59f3ae3dc626e6643adf115f8ac",
+    "file": "screencast/page@a227c59f3ae3dc626e6643adf115f8ac-1794077623913.jpeg",
+    "width": 1024,
+    "height": 600,
+    "timestamp": 963911.573,
+    "frameSwapWallTime": 1794077623909.499
+  },
+  "observations": [
+    "Failed-assertion after snapshot has data-expanded on viewport and all three remaining toasts.",
+    "Last input point visually falls within the third toast in final screencast after the export dialog closes. This is an image/geometry inference, not a recorded pointerenter event."
+  ],
+  "local_dependency_contract": {
+    "store": "frontend/node_modules/@base-ui/react/toast/store.js",
+    "selector": "expanded: state => state.hovering || state.focused",
+    "viewport": "frontend/node_modules/@base-ui/react/toast/viewport/ToastViewport.js",
+    "behavior": "Hover and focus handlers call pauseTimers.",
+    "installed_version": "@base-ui/react 1.9.0",
+    "source_line_ranges": {
+      "store.js": [
+        58,
+        67
+      ],
+      "viewport/ToastViewport.js": [
+        129,
+        133,
+        152,
+        168
+      ]
+    },
+    "source_sha256": {
+      "frontend/node_modules/@base-ui/react/toast/store.js": "5dc69ce244b82c713edd49606ecbe4e188445007a1049b8bf71e88e32892b42b",
+      "frontend/node_modules/@base-ui/react/toast/viewport/ToastViewport.js": "800884a44c9df89c17b94859e624101904ff4032a1d247f1702f38559922f829"
+    }
+  },
+  "limitations": [
+    "Trace does not expose full hover/focus store state, timer state or the responsible event throughout the entire15-second assertion.",
+    "Hover/focus pause is supported as a hypothesis; exact root cause is not proven.",
+    "Narrow candidate5/5 and clean baseline5/5 passed; full failure is not classified as preexisting."
+  ]
+}

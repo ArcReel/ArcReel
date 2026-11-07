@@ -1,8 +1,8 @@
-"""出厂快照：随代码打包、过校验器，且与注册表登记的供应商一级代码事实对得上。
+"""Shipped factory snapshots pass validation and match provider-level registry facts.
 
-模型清单、模型事实、默认模型与价目表只在快照里有一份，模型级内容的登记见 ``test_builtin_provider_models.py``。
-这里核对快照与代码之间的约定：快照里的内置供应商就是注册表登记的那些，供应商在某个媒体类型下有模型时，
-代码里登记了这一媒体类型的调用通道。
+Model lists/facts/defaults/prices exist only in the snapshot; model registration is tested in
+``test_builtin_provider_models.py``. Here verify snapshot/code agreement: built-in providers match
+registry entries, and code supplies a backend for every media type with listed models.
 """
 
 import pytest
@@ -28,7 +28,7 @@ def test_snapshot_lists_exactly_the_registry_providers():
 
 @pytest.mark.parametrize("provider_id", list(PROVIDER_REGISTRY))
 def test_every_listed_model_resolves_to_an_entry(provider_id: str):
-    # 引用不到条目的供应商模型会在查询时被跳过，这里要求清单与查询结果一一对应。
+    # Models with unresolved entries are skipped by queries; require one-to-one listing/query correspondence.
     listing = catalog.factory_snapshot().builtin_providers[provider_id]
     assert len(catalog.list_models(provider_id)) == len(listing.models)
 
@@ -40,7 +40,7 @@ def test_every_listed_media_type_has_a_call_channel(provider_id: str):
 
 
 def test_agent_plan_model_sharing_an_entry_takes_the_maker_facts():
-    # 两个供应商引用同一个模型条目，共享它的事实。
+    # Two providers referencing one model entry share its facts.
     plan = catalog.get_model("ark-agent-plan", "deepseek-v4-pro")
     maker = catalog.get_model("dashscope", "deepseek-v4-pro")
 
@@ -72,6 +72,6 @@ def test_every_listed_model_with_a_price_table_is_priceable():
 
 
 def test_every_entry_survives_a_user_copy_round_trip():
-    # 用户修改存下整条副本：任何快照条目（含价目表）写回再读入都必须原样还原
+    # User edits store entire copies: every snapshot entry, including prices, must round-trip unchanged.
     for entry in catalog.factory_snapshot().entries:
         assert parse_entry(dump_entry(entry)) == entry, entry.key

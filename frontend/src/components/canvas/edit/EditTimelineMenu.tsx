@@ -34,12 +34,12 @@ import { Label } from "@/components/ui/label";
 import type { EditTimelineSummary } from "@/types/edit-timeline";
 import { errMsg } from "@/utils/async";
 
-/** 与服务端 `TIMELINE_NAME_MAX_LENGTH` 一致。 */
+/** Matches server `TIMELINE_NAME_MAX_LENGTH`. */
 const NAME_MAX_LENGTH = 40;
 
 interface EditTimelineMenuProps {
   projectName: string;
-  /** 菜单作用的剪辑时间线，即当前选中的标签。 */
+  /** Menu target timeline, the currently selected tab. */
   timeline: EditTimelineSummary;
   onRenamed: () => void;
   onDeleted: () => void;
@@ -48,8 +48,8 @@ interface EditTimelineMenuProps {
 type OpenDialog = "rename" | "delete" | null;
 
 /**
- * 剪辑时间线标签旁的「更多操作」菜单：重命名、删除（二次确认）。复制与回滚只交给 Agent。
- * 成功只以标签变化为反馈，不弹提示；失败原因留在对话框里。
+ * More-actions menu beside timeline tabs: rename and delete with confirmation. Copy/rollback are Agent-only.
+ * Success appears only through tab changes, without toasts; failure reasons stay in dialogs.
  */
 export function EditTimelineMenu({ projectName, timeline, onRenamed, onDeleted }: EditTimelineMenuProps) {
   const { t } = useTranslation("dashboard");
@@ -73,7 +73,7 @@ export function EditTimelineMenu({ projectName, timeline, onRenamed, onDeleted }
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {/* 换了剪辑时间线就重新挂载；同一条再次打开时由对话框自己清掉上一次的输入与错误。 */}
+      {/* Remount on timeline changes; reopening the same timeline lets its dialog clear previous input/errors. */}
       <RenameDialog
         key={`rename-${timeline.id}`}
         open={dialog === "rename"}
@@ -135,7 +135,7 @@ function RenameDialog({ open, projectName, timeline, onClose, onRenamed }: Dialo
     } catch (cause) {
       setError(t("edit_view_rename_failed", { message: errMsg(cause) }));
     } finally {
-      // 改名不换 id，对话框不会重新挂载：成功后也要复位，否则下次打开时整个对话框都是禁用的
+      // Renaming preserves IDs without remounting: reset on success too, or the entire dialog stays disabled next time.
       setSaving(false);
     }
   };
@@ -144,7 +144,7 @@ function RenameDialog({ open, projectName, timeline, onClose, onRenamed }: Dialo
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 提交中不响应关闭，避免请求还在途时对话框先消失
+        // Ignore closing during submission so dialogs do not disappear before requests finish.
         if (!next && !saving) onClose();
       }}
     >
@@ -215,7 +215,7 @@ function DeleteDialog({ open, projectName, timeline, onClose, onDeleted }: Dialo
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during submission so the dialog cannot disappear before the request completes
         if (!next && !deleting) onClose();
       }}
     >

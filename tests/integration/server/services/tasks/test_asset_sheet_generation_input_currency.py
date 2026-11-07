@@ -1,4 +1,4 @@
-"""资产图与衍生资产图任务执行：生成后判 current；生成输入不成立时在解析供应商通道与付费前失败。"""
+"""Asset/derivative image execution yields current artifacts; invalid generation inputs fail before provider-backend resolution or paid calls."""
 
 import pytest
 

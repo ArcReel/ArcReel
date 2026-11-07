@@ -1,9 +1,8 @@
-"""SDK 0.1.76 新字段消费的单元测试。
+"""Unit tests consuming SDK 0.1.76 fields.
 
-覆盖：
-- ResultMessage.api_error_status 透传到 SSE 状态 payload
-- ToolPermissionContext.decision_reason 拼到 _can_use_tool default-deny hint
-"""
+Coverage:
+- Forward ResultMessage.api_error_status into SSE status payloads.
+- Append ToolPermissionContext.decision_reason to _can_use_tool default-deny hints."""
 
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ from server.agent_runtime.service import AssistantService
 
 
 class TestApiErrorStatusInStatusPayload:
-    """0.1.76 新字段 api_error_status 透传到 SSE payload。"""
+    """Forward the 0.1.76 api_error_status field into SSE payloads."""
 
     def test_api_error_status_present_when_set(self):
         result_message: dict[str, Any] = {
@@ -49,7 +48,7 @@ class TestApiErrorStatusInStatusPayload:
         assert "api_error_status" not in payload
 
     def test_api_error_status_absent_when_field_missing(self):
-        # 老 SDK / 老消息没有 api_error_status 字段
+        # Older SDKs / messages lack api_error_status.
         result_message: dict[str, Any] = {
             "type": "result",
             "subtype": "success",
@@ -64,7 +63,7 @@ class TestApiErrorStatusInStatusPayload:
 
 
 class TestResultErrorLogging:
-    """result 错误终态在 _finalize_turn 写结构化 logger.warning，含 api_error_status。"""
+    """For error results, _finalize_turn logs structured logger.warning including api_error_status."""
 
     @pytest.mark.asyncio
     async def test_logger_warning_emitted_on_error_with_api_status(
@@ -112,7 +111,7 @@ class TestResultErrorLogging:
 
 
 class TestCanUseToolDecisionReason:
-    """0.1.74 新字段 ToolPermissionContext.decision_reason 拼到 default-deny hint。"""
+    """Append the 0.1.74 ToolPermissionContext.decision_reason field to default-deny hints."""
 
     @pytest.mark.asyncio
     async def test_default_deny_includes_decision_reason(self, tmp_path):

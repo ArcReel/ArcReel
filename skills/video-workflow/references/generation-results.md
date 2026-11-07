@@ -1,22 +1,22 @@
-# 生成结果
+# Generation results
 
-生成工具返回按 ID 划分的结构化结果。读取结构，不概括面向人的说明文本。
+Generation tools return structured per-ID results. Read the structure rather than summarizing human-facing prose.
 
-选择有三种语义：
+Selection has three meanings:
 
-- 非空 ID 列表表示显式选择任务，并可能强制重新生成。
-- 省略 ID 字段表示只补齐缺失产物。
-- 空 ID 列表无效，应省略该字段。
+- Nonempty IDs explicitly select tasks and may force regeneration.
+- Omitted IDs fill only missing artifacts.
+- Empty IDs are invalid; omit the field.
 
-请求的 ID 会被划分到 `succeeded`、`failed` 和 `blocked`；`skipped` 记录不属于该请求划分的复用结果。使用结构化 problem code 和 action 报告每个 ID，不根据散文解释自动重试。
+Requested IDs partition into `succeeded`, `failed`, and `blocked`; `skipped` records reuse outside that partition. Report each ID using structured problem code/action, without automatic retries inferred from prose.
 
-状态报告必须区分四个独立维度：
+State reports must distinguish four independent dimensions:
 
-- 工作流步骤状态；
-- 任务或队列状态；
-- 供应商提交检查点；
-- 产物状态（`current`、`stale`、`missing` 或 `blocked`）。
+- Workflow-step state;
+- Task/queue state;
+- Provider-submission checkpoint;
+- Artifact state (`current`, `stale`, `missing`, or `blocked`).
 
-任务成功不代表产物与当前输入一致；产物缺失不代表付费任务失败；已提交供应商的任务可能已经计费；不得把 blocked 产物当作 missing 后重新生成。
+Task success does not guarantee current-input fidelity; missing artifacts do not mean paid-task failure; submitted tasks may already be charged; never treat blocked as missing and regenerate.
 
-供应商审核拒绝输入图片（`provider_input_image_rejected`、`provider_input_image_rejected_at`）时，转述原因并说明可以把相关图片上传到供应商素材库，由用户决定。只有用户明确要求上传某张图片时，才调用 `upload_to_provider_asset_library` 并传 `user_requested=true`；拒绝本身不构成上传授权，也不授权自动重新生成。上传立即返回入库任务，用 `get_provider_asset_links` 查询状态，状态为 `active` 后再按用户意愿重新生成；`provider_asset_link_processing` 与 `provider_asset_link_failed` 表示入库尚未完成或失败，转述给用户，不自动解除关联或重传。
+For provider moderation rejection (`provider_input_image_rejected`, `provider_input_image_rejected_at`), relay the reason and explain provider-library upload is an option for the user. Only explicit requests to upload a particular image authorize `upload_to_provider_asset_library` with `user_requested=true`; rejection itself authorizes neither upload nor automatic regeneration. Upload immediately returns an ingestion task; query `get_provider_asset_links`, then regenerate after `active` only according to user wishes. Relay `provider_asset_link_processing` / `provider_asset_link_failed` without automatically unlinking or reuploading.

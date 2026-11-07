@@ -1,14 +1,13 @@
-"""实发 workflow 的构造：在底稿深拷贝上按节点绑定填值、换算尺寸与帧数、定种子、按张数改图。
+"""Actual workflow construction: deep-copy templates, bind values, convert sizes/frames, resolve seeds, edit by image counts.
 
-一次生成请求要变成一份 ComfyUI 能提交的 workflow，中间隔着四件换算：项目只给比例与分辨率档，
-workflow 要的是像素；项目只给时长，workflow 要的是帧数；种子按绑定条目的策略或随机或保留；参考
-图张数少于 workflow 预留的格子时得把多余的读图节点连同它们的下游一起删掉，而不是把最后一张
-重复填满。四件都只依赖入参，不读配置、不碰数据库、不发请求——上传素材由调用方先做完，传进来的
-是服务端已认得的引用名。
+Generation requests require four conversions: project ratios/resolution tiers to pixels; durations to frames;
+seeds random/preserved by binding policy; fewer references than slots require deleting excess loaders/downstream nodes
+rather than repeating last images. All depend on inputs only, without config/DB/network;
+callers upload first, supplying server-recognized references.
 
-底稿一律不动：``definition["workflow"]`` 是这个端点的唯一真相，每次提交都从它深拷贝一份再填。
-产出连同 ``workflow_sha256`` 一起回传，同一份入参两次构造得到同一个摘要，预览请求与真实提交据此
-可比。
+Never mutate templates: ``definition["workflow"]`` alone is authoritative, deep-copied per submission.
+Return ``workflow_sha256`` too; identical inputs construct identical digests, enabling preview/
+actual submission comparisons.
 """
 
 from __future__ import annotations
@@ -45,19 +44,19 @@ from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 
 logger = logging.getLogger(__name__)
 
-#: 随机种子的取值区间上界（不含）：ComfyUI 各采样器的 seed 输入按 32 位无符号整数收。
+#: Exclusive random-seed upper bound; ComfyUI samplers accept unsigned 32-bit seed inputs.
 SEED_UPPER_BOUND = 2**32
 
-#: 种子条目缺省策略，与 schema 的 ``default`` 同值。
+#: Default seed policy, identical to schema ``default``.
 _DEFAULT_SEED_POLICY = "random"
 
 
 @dataclass(frozen=True)
 class MediaInputs:
-    """本次生成实际带上的素材引用名：服务端上传响应给出的 ``subfolder/name``（无子目录只写
-    ``name``），由调用方在上传后拼好。
+    """Actual asset references from upload responses: ``subfolder/name``, or ``name``
+    without directories, composed by callers after uploads.
 
-    ``None`` 与空序列的区别是「这次没给」，与「这个端点不支持」无关——后者看的是绑定三态。
+    ``None`` versus empty sequences concerns this request's absence, not endpoint support, determined by binding tristates.
     """
 
     start_image: str | None = None
@@ -67,14 +66,14 @@ class MediaInputs:
 
 @dataclass(frozen=True)
 class BuiltWorkflow:
-    """一次构造的产出：实发 workflow、它的摘要，以及三项换算的落地值。
+    """Construction results: actual workflows/digests/three conversion outcomes.
 
-    ``width`` / ``height`` / ``frames`` / ``seed`` 为 ``None`` 表示该维度没有绑定、值以 workflow
-    字面值为准。端点测试的预览请求按这几项给出换算说明，``dropped_nodes`` 则说明这次改图删掉了
-    哪些节点，故它们与 workflow 一并回传而不是只留在日志里。
+    ``width`` / ``height`` / ``frames`` / ``seed`` = ``None`` means unbound dimensions preserving workflow
+    literals. Previews explain conversions through these fields; ``dropped_nodes`` identifies graph deletions,
+    returned with workflows rather than logged only.
 
-    ``negative_prompt`` 是从正文里拆出的排除项文本本身，不是负向节点最终的值——后者还带着
-    workflow 作者写在那里的字面值，未绑定负向入口时更是一个字也没写进去。
+    ``negative_prompt`` is extracted exclusion text, not final negative-node values, which also retain
+    author literals; unbound negative inputs receive nothing at all.
     """
 
     workflow: dict[str, Any]
@@ -98,14 +97,14 @@ def build_workflow(
     seed: int | None = None,
     rng: Random | None = None,
 ) -> BuiltWorkflow:
-    """按一份 ComfyUI 端点定义与一次生成请求，构造实发 workflow。
+    """Build actual workflows from ComfyUI definitions/generation requests.
 
-    ``rng`` 是随机种子的注入点，生产默认用模块级 :class:`~random.Random`；``seed`` 是请求自带的
-    种子（图像请求可指定），它顶掉随机但顶不掉 ``keep`` 策略——作者声明保留字面值时，请求里的种子
-    不该悄悄改写这份 workflow 的既定行为。
+    ``rng`` injects random seeds, production default module :class:`~random.Random`; request ``seed``
+    (image requests can specify) overrides random, never ``keep`` policies: author-preserved literals
+    must not silently change through request seeds.
 
-    先改图后填值：删节点会改变图的形状，而填值只认节点 id 与字段名，在残缺的图上填值只会把值写进
-    一个即将消失的节点里。
+    Edit graphs before writing values: deletions reshape graphs; filling by node id/field first
+    would merely write into nodes about to disappear.
     """
     workflow = deepcopy(dict(definition["workflow"]))
     bindings: Mapping[str, Any] = definition.get("bindings") or {}
@@ -117,8 +116,8 @@ def build_workflow(
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
-    # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
-    # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
+    # Preserve authored lengths lacking native-duration tiers: endpoints declare durations undriven by
+    # ArcReel through empty tiers/readonly UI; planning borrows seconds, never user-selected.
     driven = None if keeps_its_own_frame_count(definition) else duration_seconds
     frames = _write_frames(workflow, bindings, duration_seconds=driven)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
@@ -136,20 +135,20 @@ def build_workflow(
 
 
 def workflow_sha256(workflow: Mapping[str, Any]) -> str:
-    """一份 workflow 的内容摘要。
+    """Workflow content digests.
 
-    按规范化 JSON（键排序、无多余空白、非 ASCII 原样）取 SHA-256：同一份内容不论 dict 的插入序
-    如何都得到同一个摘要，预览请求与真实提交、两次构造之间才可比。
+    SHA-256 canonical JSON with sorted keys/no extra whitespace/non-ASCII preserved makes identical
+    contents independent of dict insertion order, comparable across previews/submissions/repeated builds.
     """
     canonical = json.dumps(workflow, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-# ---------------------------------------------------------------- 填值原语
+# Value-writing primitives.
 
 
 def _mutable_inputs(node: Any) -> dict[str, Any]:
-    """取一个节点可写的 ``inputs``。缺 ``inputs`` 或形状不对时就地补一个空表。"""
+    """Writable node ``inputs``, creating empty mappings when ``inputs`` is missing/malformed."""
     if not isinstance(node, dict):
         return {}
     inputs = node.get("inputs")
@@ -160,7 +159,7 @@ def _mutable_inputs(node: Any) -> dict[str, Any]:
 
 
 def _write_one(workflow: dict[str, Any], target: Mapping[str, Any], value: object) -> None:
-    """把一个值写进一个目标。目标节点已在改图中消失时跳过，不新建节点。"""
+    """Write targets, skipping deleted nodes without recreating them."""
     node_id = str(target["node"])
     name = target.get("input")
     if node_id not in workflow or not isinstance(name, str):
@@ -170,31 +169,31 @@ def _write_one(workflow: dict[str, Any], target: Mapping[str, Any], value: objec
 
 
 def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], value: object) -> None:
-    """把同一个值写进一个语义键的全部目标。
+    """Write identical values to every semantic-key target.
 
-    收 已规范化 的条目序列，不在内部再规范一次：调用方手里本就有 :func:`_targets` 的结果，函数
-    再收一次原始值就会出现「传进来的到底是哪一种」的歧义——传规范化过的结果进来反而被判成形状
-    不对而整批丢掉。
+    Accept normalized entries, never renormalize: callers already have :func:`_targets` results. Raw-value
+    signatures would create ambiguity, potentially rejecting normalized inputs as malformed
+    and discarding whole batches.
     """
     for target in targets:
         _write_one(workflow, target, value)
 
 
-# ---------------------------------------------------------------- 负向提示词
+# Negative prompts.
 
 
 def _write_negative_prompt(workflow: dict[str, Any], targets: object, avoid_text: str) -> None:
-    """把正文里拆出的排除项追加到负向节点的字面值之后。
+    """Append body-extracted exclusions after literal negative-node values.
 
-    未绑定（空列表或键缺失）时什么也不填：排除项已在拆分时从正文里删掉，这份 workflow 没有负向
-    入口，硬塞回正文只会把「不要出现的东西」当成「要出现的东西」描述给模型。
+    Empty/missing bindings write nothing: extraction already removed exclusions from bodies, and no negative
+    input exists. Reinserting would describe unwanted entities as desired subjects to models.
     """
     for target in _targets(targets):
         literal = _literal(workflow, target)
         _write_one(workflow, target, append_avoid_text(literal if isinstance(literal, str) else "", avoid_text))
 
 
-# ---------------------------------------------------------------- 尺寸
+# Size.
 
 
 def _write_size(
@@ -205,19 +204,19 @@ def _write_size(
     resolution: str | None,
     media: str,
 ) -> tuple[int | None, int | None]:
-    """按项目比例与分辨率档派生宽高，逐条目按步长向下对齐后写入。
+    """Derive ratio/resolution dimensions, align down per entry steps, then write.
 
-    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~arcreel_market_core.aspect_size.aspect_size` 产出的宽高
-    都是它的整数倍，于是每个条目各自的步长天然被整除，比例零偏差。写入前仍按条目步长再向下对齐
-    一次——对齐是 workflow 那个输入自己的约束，它成立与否不该取决于 ``round_to`` 恰好怎么取。
+    ``round_to`` is LCM of every width/height step; :func:`~arcreel_market_core.aspect_size.aspect_size` dimensions
+    divide by each naturally, preserving exact ratios. Still align down again per entry before writes:
+    constraints belong to workflow inputs, independent of coincidental ``round_to`` selection.
 
-    分辨率未选时短边取 workflow 字面宽高的较小者：这份 workflow 的原生尺寸就是作者调好的那一档，
-    比例仍按项目走。字面值读不出整数时退到跨后端统一的兜底短边。
+    Without selected resolutions, short edges use minimum literal workflow dimensions, author-tuned native tiers;
+    ratios still follow projects. Unreadable integer literals use shared cross-backend fallback short edges.
 
-    尺寸这一维驱不驱动得了走 :func:`~lib.custom_provider.comfyui.capabilities.size_is_fixed` 这一份
-    判据——界面据它禁用分辨率选择器，填值据它决定写不写，两处不各写一份。只绑一侧时它判为固定：
-    派生出的宽高只写得进绑了的那一侧，另一侧仍是 workflow 的字面值，产出的比例既不是原生的也不是
-    用户要的。
+    UI/construction share :func:`~lib.custom_provider.comfyui.capabilities.size_is_fixed`:
+    UI disables selectors, construction decides writes. One-sided bindings mean fixed because
+    writing derived sizes on one side while preserving other literals yields neither native nor
+    selected ratios.
     """
     if size_is_fixed(bindings):
         return None, None
@@ -254,7 +253,7 @@ def _literal_short_edge(
 
 
 def _write_stepped(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], value: int) -> int | None:
-    """把一个派生尺寸按各条目的步长向下对齐后写入，回传最后写出的值。"""
+    """Align derived dimensions down per entry steps, write, and return final written values."""
     written: int | None = None
     for target in targets:
         written = _align_down(value, step_of(target))
@@ -263,27 +262,27 @@ def _write_stepped(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]
 
 
 def _align_down(value: int, step: int) -> int:
-    """向下对齐到 ``step`` 的整数倍，下限一个 ``step``——零尺寸提交上去必然报错。"""
+    """Align down to ``step`` multiples, minimum one ``step`` because zero dimensions always fail submission."""
     return max(step, value - value % step)
 
 
-# ---------------------------------------------------------------- 帧数
+# Frames.
 
 
 def _write_frames(
     workflow: dict[str, Any], bindings: Mapping[str, Any], *, duration_seconds: float | None
 ) -> int | None:
-    """按时长与帧率换算帧数并写入。
+    """Convert duration/fps to frames and write.
 
-    ``frames = round(时长 × 帧率) + 1``：ComfyUI 的视频模型按「首帧 + 若干段间隔」计帧，24 帧
-    每秒的 1 秒是 25 帧而不是 24。帧率优先取 ``fps`` 只读绑定读出的字面值——那是这份 workflow 真
-    正在用的帧率；没有该绑定时取 ``frames`` 条目上手填的常量。两处都没有就不写：凭一个猜出来的
-    帧率改帧数，比让 workflow 保持它自己的字面值更容易出片长不符。
+    ``frames = round(时长 × 帧率) + 1``: video models count first frames + intervals, so 1s @ 24fps
+    means 25 frames, not 24. Prefer readonly ``fps`` binding literals, actual workflow rates;
+    otherwise manual ``frames`` entry constants. Without either, leave literals rather than guess fps
+    and risk incorrect lengths.
 
-    步长对帧数的含义是 ``frames ≡ 1 (mod step)``（4n+1 / 8n+1 这类），向下对齐、下限 ``1 + step``。
+    Frame steps mean ``frames ≡ 1 (mod step)``, such as 4n+1/8n+1; align down with minimum ``1 + step``.
 
-    ``duration_seconds`` 为 ``None`` 即「这一维不由本次请求驱动」，调用方在端点给不出档位时传的
-    就是它：那种情形下 workflow 的字面帧数原样留着。
+    ``duration_seconds`` = ``None`` means requests do not drive this dimension, supplied by callers
+    when endpoints lack tiers; preserve literal frame counts.
     """
     targets = _targets(bindings.get("frames"))
     if not targets or duration_seconds is None:
@@ -302,20 +301,20 @@ def _write_frames(
     return written
 
 
-# ---------------------------------------------------------------- 种子
+# Seeds.
 
 
 def _write_seed(
     workflow: dict[str, Any], bindings: Mapping[str, Any], *, requested: int | None, rng: Random
 ) -> int | None:
-    """按各条目的策略定种子并写入，回传本次实际生效的种子。
+    """Write per-entry seed policies, returning actually effective seeds.
 
-    ``random`` 条目写同一个值：一份 workflow 里的多个采样器（MoE 的双采样器是常见形态）共用一个
-    种子，两个采样器各随机一次会让同一次生成不可复现。``keep`` 条目一个字节都不动，请求自带的
-    种子也顶不掉它——作者声明保留字面值是这份 workflow 的既定行为。
+    ``random`` entries share one value across samplers, commonly MoE pairs, preserving reproducibility.
+    ``keep`` remains byte-unchanged, even with request seeds: author-preserved literals
+    are established workflow behavior.
 
-    回传值是「实际生效的种子」而不是「生成的种子」：全是 ``keep`` 时回传字面值，版本元数据记下
-    的才是重跑这一版真正要用的那个数。
+    Return effective, not generated seeds: all-``keep`` returns literals, recording actual rerun
+    numbers in version metadata.
     """
     targets = _targets(bindings.get("seed"))
     if not targets:
@@ -330,16 +329,16 @@ def _write_seed(
     return value
 
 
-# ---------------------------------------------------------------- 改图
+# Graph edits.
 
 
 def _apply_media(
     workflow: dict[str, Any], bindings: Mapping[str, Any], media: MediaInputs, rules: InferenceRules
 ) -> tuple[str, ...]:
-    """填入本次带上的素材，并把没有素材可填的读图节点连同下游一并删掉。
+    """Fill supplied assets and delete unsupplied loaders/downstream nodes.
 
-    首尾帧与参考图都是「绑定了但这次没给值」就要改图：读图节点留在图里会按 workflow 的字面
-    文件名去读一张上次的图，模型照着它出片，用户看到的是一张自己没选过的首帧。
+    Bound-but-unsupplied first/last/reference inputs require graph edits: otherwise loaders read previous images from
+    workflow literal filenames, generating with first frames users never selected.
     """
     doomed: list[str] = []
     for key, value in (("start_image", media.start_image), ("end_image", media.end_image)):
@@ -362,14 +361,14 @@ def _apply_reference_images(
     values: Sequence[str],
     rules: InferenceRules,
 ) -> list[str]:
-    """按张数填参考图，回传要删的读图节点。
+    """Fill references by count, returning loader nodes to delete.
 
-    张数少于格子数时删多余的格子，而不是把最后一张重复填满——重复一张会让模型把它当成被强调了
-    两次的主体。前提是认得这个格子接到的那个入口：``consumer`` 是保存绑定时记下的落点，它落在
-    可选入口或两两合并节点上才改得动图。没记下 ``consumer``、或它落在这两张表之外，都算不认识
-    ——此时退回重复最后一张，宁可构图偏了也不凭猜测把一个必需输入摘掉、让 ComfyUI 在提交时报
-    ``node_errors``。保存这份绑定时推断已按同一条判据给过提示。一张都没给时连可重复的都没有，
-    读图节点保持底稿字面值。
+    Delete excess slots rather than repeat last images, which doubles subject emphasis. Require known
+    ``consumer`` destinations saved with bindings, adjustable only for optional inputs/pairwise merges.
+    Missing ``consumer`` or unknown destination types fall back to repeating last images:
+    prefer compositional bias over guessing away required inputs and causing submission
+    ``node_errors``. Inference already warned via identical predicates at binding saves. With zero images,
+    nothing can repeat, so preserve loader literals.
     """
     filled = min(len(targets), len(values))
     for index in range(filled):
@@ -386,7 +385,7 @@ def _apply_reference_images(
 
 
 def _adjustable(target: Mapping[str, Any], rules: InferenceRules) -> bool:
-    """这个参考图格子在张数变少时改得动图吗。"""
+    """Whether reference slots permit graph adjustment when counts shrink."""
     consumer = target.get("consumer")
     if not isinstance(consumer, Mapping):
         return False
@@ -404,11 +403,11 @@ def _output_nodes(bindings: Mapping[str, Any]) -> frozenset[str]:
 def _drop_nodes(
     workflow: dict[str, Any], seeds: Sequence[str], *, output_nodes: frozenset[str], rules: InferenceRules
 ) -> tuple[str, ...]:
-    """删掉给定的节点，前向级联到下游、后向清理只喂给它们的上游。
+    """Delete nodes, cascading forward and pruning upstream feeding deleted nodes only.
 
-    前向三种处置按节点类型分（判据在推断规则表的可选入口与合并节点两节）：允许缺席的输入摘键、
-    两两合并节点 bypass、其余连它一起删并继续级联。级联触到产物节点即失败：成片链路本身依赖这张
-    图，提交一份缺了它的 workflow 只会换来一次远端报错加一次等待。
+    Rule tables classify forward handling: detach optional inputs, bypass pairwise merges,
+    otherwise delete/cascade whole nodes. Reaching output nodes fails because outputs depend on those images;
+    broken submissions would merely cause remote errors/waits.
     """
     deleted: list[str] = []
     orphan_candidates: set[str] = set()
@@ -435,7 +434,7 @@ def _detach_consumers(
     orphan_candidates: set[str],
     rules: InferenceRules,
 ) -> list[str]:
-    """处置引用了刚删掉那个节点的全部下游，回传其中必须一并删除的。"""
+    """Handle downstream references to deleted nodes, returning required cascading deletions."""
     doomed: list[str] = []
     for consumer_id in list(workflow):
         consumer = workflow.get(consumer_id)
@@ -467,13 +466,13 @@ def _bypass_merge(
     deleted: list[str],
     orphan_candidates: set[str],
 ) -> bool:
-    """把一个两两合并节点从图里摘掉，它的下游改接剩下那一路。
+    """Remove pairwise merges, reconnecting downstream to surviving branches.
 
-    剩下那一路必须是条还连着活节点的连线才摘得掉。两种情况摘不掉，都只能把这个节点也删掉、继续
-    级联：换成字面值就没有「上游」可以改接；两个入口接的是同一个读图节点时，「剩下那一路」指的
-    正是刚刚删掉的那个节点，照它改接只会给下游留一条悬空连线，而这份 workflow 照样会提交出去。
+    Surviving branches must link live nodes. Otherwise delete/cascade merges too: literals have no upstream to reconnect;
+    when both inputs share deleted loaders, purported survivors are already deleted, leaving dangling links
+    in still-submitted workflows.
 
-    不新增节点，只改下游的引用。
+    Add no nodes, only rewrite downstream references.
     """
     inputs = _mutable_inputs(workflow[merge_id])
     first, second = merge.inputs
@@ -496,11 +495,11 @@ def _bypass_merge(
 def _prune_orphans(
     workflow: dict[str, Any], candidates: set[str], *, pinned: frozenset[str], deleted: list[str]
 ) -> None:
-    """后向清理：只喂给已删节点的上游随之删除。
+    """Prune upstream feeding deleted nodes only.
 
-    候选只来自被删节点的连线上游，不是「图里所有没有下游的节点」——预览节点之类本来就没有下游，
-    一并扫掉等于替用户改写这份 workflow。承载绑定的节点不额外留下：下游全没了之后它已是死节点，
-    往里填的值 ComfyUI 也不会执行到。
+    Candidates come only from deleted-node links, never all nodes lacking downstream consumers; previews naturally lack them,
+    so whole scans would rewrite user workflows. Bound carriers receive no special protection: after all consumers vanish,
+    they are dead and ComfyUI never executes their filled values.
     """
     pending = set(candidates)
     while pending:
@@ -522,16 +521,16 @@ def _has_consumer(workflow: Mapping[str, Any], node_id: str) -> bool:
 
 
 def _as_link(raw: object) -> list[Any] | None:
-    """该字段是一条连线时回传它本身，否则 ``None``。字面数组的包装形态不算连线。"""
+    """Return actual links, otherwise ``None``; literal-array wrappers are not links."""
     return raw if isinstance(raw, list) and is_link(raw) else None
 
 
 def _refers_to(raw: object, node_id: str) -> bool:
-    """该字段是否是一条指向 ``node_id`` 的连线。"""
+    """Whether fields link to ``node_id``."""
     link = _as_link(raw)
     return link is not None and str(link[0]) == node_id
 
 
 def _link_sources(node: Any) -> set[str]:
-    """一个节点全部连线输入的上游节点 id。"""
+    """All upstream node ids from node link inputs."""
     return {str(link[0]) for raw in node_inputs(node).values() if (link := _as_link(raw)) is not None}

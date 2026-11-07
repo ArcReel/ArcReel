@@ -1,4 +1,4 @@
-"""迁移报告：只记调整与没能带入的内容，确认过、未完成或为空的报告不再给出。"""
+"""Migration reports list only adjustments and content not carried over; omit acknowledged, incomplete, and empty reports."""
 
 from __future__ import annotations
 
@@ -125,7 +125,7 @@ def test_acknowledging_the_report_shown_before_new_items_were_added_leaves_them_
 
 
 def test_a_basis_that_cannot_be_computed_is_not_shown(tmp_path: Path) -> None:
-    """报告只给用户看读不出的文件与旧版旁白音频；依据算不出的跳过只记账，写盘时去掉。"""
+    """Reports show only unreadable files and legacy narration audio; skips without computable bases are bookkeeping only and removed on write."""
     gap = MigrationSkippedArtifact(
         kind="episode-video", episode=1, resource_id="E1S01", artifact_path="videos/scene_E1S01.mp4", reason="gap"
     )
@@ -140,7 +140,7 @@ def test_a_basis_that_cannot_be_computed_is_not_shown(tmp_path: Path) -> None:
 
 
 def test_a_skip_shown_to_the_user_wins_over_an_unclassified_one_for_the_same_artifact() -> None:
-    """前一步因生成缺口跳过（只记账），后一步发现同一文件读不出：合并后留读不出那条，报告才看得到。"""
+    """An earlier bookkeeping-only generation-gap skip followed by the same file becoming unreadable merges to retain the report-visible unreadable entry."""
     gap = MigrationSkippedArtifact(
         kind="episode-storyboard",
         episode=1,
@@ -162,7 +162,7 @@ def test_adding_nothing_writes_nothing(tmp_path: Path) -> None:
 
 
 def test_media_of_a_unit_that_needs_replanning_is_left_out_of_the_report(tmp_path: Path) -> None:
-    """需要重新规划的条目在界面上另有标记，它的产物不进「未能带入」，不论哪条路径写报告。"""
+    """Entries requiring replanning have separate UI markers; their artifacts never count as not carried over, regardless of report-writing path."""
     (tmp_path / "scripts").mkdir()
     (tmp_path / "project.json").write_text(
         json.dumps({"episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}), encoding="utf-8"

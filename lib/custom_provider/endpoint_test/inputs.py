@@ -1,8 +1,8 @@
-"""端点测试三模式共用的输入值对象：调用参数、凭证、素材。
+"""Input value objects shared by three endpoint-test modes: parameters, credentials, assets.
 
-参数集与 ``VideoGenerationRequest`` 同名，唯独没有 seed——产品界面无处设置它，试跑里恒为 null
-只会让模板把键删掉，留一个永远走不到的分支。素材不落资产库、不进项目：调用方读进内存交给这里，
-用完即丢。
+Parameters match ``VideoGenerationRequest`` except seed: no product control sets it, trial null would only delete
+that template key, leaving unreachable branches. Assets never enter libraries/projects: callers read bytes into memory,
+pass them here, then discard after use.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from arcreel_market_core.endpoint_definition import AssetData
 
-#: 素材来源名（``inputs.*.source`` 的枚举）到「是否列表型」的对应，multipart 字段名即来源名。
+#: Source names (``inputs.*.source`` enum) → list/single shape; multipart fields equal source names.
 ASSET_SOURCES: Mapping[str, bool] = {
     "start_image": False,
     "end_image": False,
@@ -23,7 +23,7 @@ ASSET_SOURCES: Mapping[str, bool] = {
 
 @dataclass(frozen=True)
 class EndpointTestParameters:
-    """一次端点测试的调用参数。"""
+    """Parameters for one endpoint test."""
 
     model: str
     prompt: str
@@ -35,7 +35,7 @@ class EndpointTestParameters:
 
 @dataclass(frozen=True)
 class EndpointTestCredentials:
-    """内联凭证。按 ``provider_id`` 读库的入口在服务边界换成同一个值对象。"""
+    """Inline credentials. Service boundaries normalize DB lookups by ``provider_id`` into the same objects."""
 
     base_url: str
     api_key: str
@@ -43,7 +43,7 @@ class EndpointTestCredentials:
 
 @dataclass(frozen=True)
 class EndpointTestAssets:
-    """按来源名归拢的素材内容。缺席的来源取 ``None``（列表型取空列表）。"""
+    """Assets grouped by source name; absent sources yield ``None``, lists yield empty lists."""
 
     by_source: Mapping[str, AssetData | Sequence[AssetData] | None] = field(default_factory=dict)
 
@@ -51,13 +51,13 @@ class EndpointTestAssets:
         return self.by_source.get(source)
 
     def items(self, source: str) -> list[AssetData]:
-        """列表型来源的素材；缺席或单值来源取空列表。"""
+        """List-source assets; empty lists for absent/single-value sources."""
         value = self.by_source.get(source)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             return list(value)
         return []
 
     def single(self, source: str) -> AssetData | None:
-        """单值型来源的素材；缺席即 ``None``。"""
+        """Single-source assets; ``None`` when absent."""
         value = self.by_source.get(source)
         return value if isinstance(value, AssetData) else None

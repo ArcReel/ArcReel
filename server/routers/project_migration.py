@@ -1,9 +1,8 @@
-"""项目数据升级的 Web 入口：重试升级，确认升级报告。
+"""Web entry point for project-data upgrades: retry upgrades and acknowledge reports.
 
-重试与 Agent 的 ``retry_project_migration`` 调用同一个服务命令，路由只把结果映射成 HTTP。升级失败时项目的
-其余写入入口都被阻断，重试正是解除阻断的途径，所以不挂 ``require_project_migration_ok``；确认报告只记下
-用户已看过，同样不挂。
-"""
+Retry uses the same service command as Agent ``retry_project_migration``; routes only map results to HTTP. Upgrade failures
+block other project writes, and retry clears that blockage, so it does not use ``require_project_migration_ok``. Report
+acknowledgment only records that the user has seen it and likewise omits that guard."""
 
 import asyncio
 
@@ -30,10 +29,9 @@ router = APIRouter()
 
 @router.post("/projects/{name}/migration/retry")
 async def retry_migration(name: str, user: CurrentUser):
-    """重跑本项目的数据升级链（含产物补录）；已是最新版本时直接成功。
+    """Rerun this project’s upgrade chain, including artifact backfill; succeed immediately if already current.
 
-    升级仍失败时 422，诊断里的 ``reason`` 是失败原文，``details`` 是结构化明细（集 / 文件 / 违约）。
-    """
+    Continued upgrade failure returns 422 with original failure text in diagnostic ``reason`` and structured episode/file/violation ``details``."""
     pm = get_project_manager()
     if not await asyncio.to_thread(pm.project_exists, name):
         raise NotFoundError("project_not_found", name=name)
@@ -46,8 +44,8 @@ async def retry_migration(name: str, user: CurrentUser):
                 Services.defaults(pm),
             )
         finally:
-            # 升级链直接改写 project.json 与剧本，不发 hint；在这里补发，升级带来的变更按 webui 广播，
-            # 而不是等定时轮询发现、按 filesystem 广播。
+            # The upgrade chain rewrites project.json/scripts without hints; emit them here and broadcast upgrade changes as webui,
+            # rather than waiting for periodic polling to discover and broadcast them as filesystem.
             emit_project_change_hint(name)
     if outcome.problem is not None:
         params = outcome.problem.params or {}
@@ -58,16 +56,15 @@ async def retry_migration(name: str, user: CurrentUser):
 
 
 class AcknowledgeReportRequest(BaseModel):
-    #: 用户看过的那份报告的生成时间。盘上已换成另一份报告（之后又升级过）时不确认，新报告照常提示。
+    #: Generation time of the report the user saw. Do not acknowledge a replacement report after another upgrade; keep prompting for it.
     migrated_at: str
 
 
 @router.post("/projects/{name}/migration-report/acknowledge")
 async def acknowledge_report(name: str, body: AcknowledgeReportRequest, _user: CurrentUser):
-    """记下用户已看过上一次升级的报告：项目页不再提示。没有待确认的报告时同样成功。
+    """Record that the user has seen the last upgrade report so the project page stops prompting. Also succeed when no report awaits acknowledgment.
 
-    ``acknowledged`` 为假表示盘上没有这份待确认的报告：要么已确认过，要么已换成另一份。
-    """
+    False ``acknowledged`` means this pending report is absent on disk: it was already acknowledged or replaced by another."""
     with project_change_source("webui"):
         acknowledged = await run_sync_transaction(_acknowledge, get_project_manager(), name, body.migrated_at)
     return {"success": True, "acknowledged": acknowledged}

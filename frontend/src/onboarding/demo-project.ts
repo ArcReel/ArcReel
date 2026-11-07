@@ -1,14 +1,14 @@
 /**
- * 引导演示用的项目数据。
+ * Onboarding demo project data.
  *
- * 纯前端常量，用真实的 `ProjectSummary` / `ProjectData` / `EpisodeScript` 类型标注 ——
- * 字段随类型演化漂移时会在编译期暴露，而不是在引导跑到某一步时才显形。这份数据不入库、
- * 不落盘、不进项目列表，进演示工作台时灌进 store，离开即随之清空。
+ * Frontend constants typed with real `ProjectSummary` / `ProjectData` / `EpisodeScript`,
+ * exposing evolving-field drift at compilation, not later onboarding steps. Never enter DBs,
+ * disk or project lists; inject stores on demo entry, clear on departure.
  *
- * 数字取自一个推进到「制作中」的项目：分集拍完一半、角色差一个、道具还在补。引导要讲的是
- * 「界面上这些格子分别代表什么」，所以每一类都取不满的值，让统计格都有话说。
+ * Counts describe in-production projects: episodes half filmed, one character missing, props still filling. Onboarding explains
+ * what interface cells mean, so every category remains incomplete, giving statistics something to communicate.
  *
- * 内容只完整到第 1 集：8 集都有标题，第 1 集有 6 条分镜。文案全部走 i18n，结构留在这里。
+ * Full contents only for episode 1: eight titles, six first-episode storyboards. Copy uses i18n, structure stays here.
  */
 
 import type { TFunction } from "i18next";
@@ -28,20 +28,20 @@ import type {
 import { demoPlaceholder } from "./demo-placeholder";
 
 /**
- * 演示项目的标识。含下划线，后端 `PROJECT_NAME_PATTERN`（`^[A-Za-z0-9-]+$`）永远拒绝，
- * 所以磁盘上不可能出现同名真实项目来遮蔽演示路由。
+ * Demo identities contain underscores, always rejected by backend `PROJECT_NAME_PATTERN` (`^[A-Za-z0-9-]+$`),
+ * preventing real same-name disk projects from shadowing demo routes.
  */
 export const DEMO_PROJECT_NAME = "onboarding_demo";
 
-/** 演示里唯一有剧本的分集。 */
+/** Sole scripted demo episode. */
 export const DEMO_SCRIPTED_EPISODE = 1;
 
-/** 该分集的剧本文件名，与 `EpisodeMeta.script_file` 去掉 `scripts/` 前缀后一致。 */
+/** Script filenames equal `EpisodeMeta.script_file` without `scripts/`. */
 const DEMO_SCRIPT_FILE = "E1.json";
 
-// 路由参数大小写不敏感比较：wouter 编译路由时带 `i` 标志（见 APP_PROJECT_WORKSPACE_PATTERN），
-// `/APP/Projects/ONBOARDING_DEMO` 等大小写变体同样会命中工作台路由，若仅用 === 比较则无法
-// 识别成演示项目，转而被当成真实项目名向后端请求一个实际不存在的项目。
+// Compare route parameters case-insensitively: wouter compiles `i` flags (APP_PROJECT_WORKSPACE_PATTERN),
+// matching variants like `/APP/Projects/ONBOARDING_DEMO`; strict === would miss demos
+// and request nonexistent real projects from backends.
 export function isDemoProject(name: string | null | undefined): boolean {
   return name?.toLowerCase() === DEMO_PROJECT_NAME;
 }
@@ -59,10 +59,10 @@ const DEMO_STATUS: ProjectStatus = {
 };
 
 /**
- * 8 集的状态分布，与 `DEMO_STATUS.episodes_summary` 的计数对齐。
- * 只有第 1 集在演示里带剧本，真实后端对没有剧本的分集只会算出 draft（见
- * `lib/workflow/workflow_state.py::_episode_production_status`）——第 2-8 集因此不能标成
- * scripted/completed，否则点进去发现只有占位说明，统计与内容对不上。
+ * Eight-episode state distribution matches `DEMO_STATUS.episodes_summary`.
+ * Only episode 1 has scripts; real backends classify unscripted episodes draft (see
+ * `lib/workflow/workflow_state.py::_episode_production_status`), so episodes 2-8 cannot claim
+ * scripted/completed while showing placeholders, contradicting statistics.
  */
 const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [
   "in_production",
@@ -75,7 +75,7 @@ const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [
   "draft",
 ];
 
-/** 第 1 集 6 条分镜的骨架：时长、出场引用、镜别与运镜。文案按 index 从 i18n 取。 */
+/** Six first-episode storyboard skeletons: durations/references/shot types/camera motion; copy indexes into i18n. */
 const SEGMENT_SKELETONS: {
   duration: number;
   segmentBreak: boolean;
@@ -155,7 +155,7 @@ const characterNames = (t: DemoT): string[] =>
 const sceneNames = (t: DemoT): string[] => [1, 2, 3].map((n) => t(`demo_scene_${n}_name`));
 const propNames = (t: DemoT): string[] => [1, 2, 3].map((n) => t(`demo_prop_${n}_name`));
 
-/** 大厅演示卡用的摘要形态。 */
+/** Summaries for lobby demo cards. */
 export function buildDemoProject(t: DemoT): ProjectSummary {
   return {
     name: DEMO_PROJECT_NAME,
@@ -165,19 +165,19 @@ export function buildDemoProject(t: DemoT): ProjectSummary {
     style_image: null,
     thumbnail: null,
     status: DEMO_STATUS,
-    // 演示项目没有真实的修改记录，卡片上不写「几天前更新」。
+    // Demo projects lack real modification records; omit Updated days ago.
     last_activity_at: null,
   };
 }
 
-/** 演示工作台用的完整项目形态。 */
+/** Complete demo-workbench project shapes. */
 export function buildDemoProjectData(t: DemoT): ProjectData {
   const characters: Record<string, Character> = {};
   characterNames(t).forEach((name, i) => {
     characters[name] = {
       description: t(`demo_character_${i + 1}_desc`),
       voice_style: t(`demo_character_${i + 1}_voice`),
-      // 第 4 个角色还没出图，对应统计格里的 3/4
+      // Fourth characters lack images, matching 3/4 statistics.
       ...(i < 3 ? { character_sheet: demoPlaceholder(name, "character") } : {}),
     };
   });
@@ -194,7 +194,7 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
   propNames(t).forEach((name, i) => {
     props[name] = {
       description: t(`demo_prop_${i + 1}_desc`),
-      // 第 3 个道具还没出图，对应统计格里的 2/3
+      // Third props lack images, matching 2/3 statistics.
       ...(i < 2 ? { prop_sheet: demoPlaceholder(name, "prop") } : {}),
     };
   });
@@ -206,7 +206,7 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
     return {
       episode,
       title: t(`demo_episode_${episode}_title`),
-      // 只有第 1 集在演示里带剧本；其余分集只有标题，进去会看到「演示只到第 1 集」的说明
+      // Only first demo episodes have scripts; others have titles only and show Demo covers episode 1 only.
       script_file: isScripted ? `scripts/${DEMO_SCRIPT_FILE}` : "",
       status,
       ...(isScripted
@@ -219,7 +219,7 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
               available: SEGMENT_SKELETONS.filter((s) => s.hasStoryboard).length,
               stale: 0,
             },
-            // 视频没有可用的占位形态（占位图只能替静态图），演示里一条都没出片
+            // Videos lack usable placeholders (placeholder images replace static images only); demos generate no videos.
             videos: { total: segmentCount, available: 0, stale: 0 },
           }
         : { script_status: "none" as const }),
@@ -247,7 +247,7 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
   };
 }
 
-/** 演示工作台用的剧本集合，键与 `EpisodeMeta.script_file` 去前缀后对应。 */
+/** Demo script collections keyed by prefix-stripped `EpisodeMeta.script_file`. */
 export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScript> {
   const chars = characterNames(t);
   const scns = sceneNames(t);
@@ -286,7 +286,7 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
         storyboard_last_image: null,
         grid_id: null,
         grid_cell_index: null,
-        // 视频与配音没有可用的占位形态，演示里保持未生成
+        // Videos/speech lack usable placeholders and remain ungenerated in demos.
         video_clip: null,
         video_thumbnail: null,
         video_uri: null,

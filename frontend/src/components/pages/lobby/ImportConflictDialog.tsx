@@ -16,17 +16,17 @@ import { Button } from "@/components/ui/button";
 import type { ImportConflictPolicy } from "@/types";
 
 interface ImportConflictDialogProps {
-  /** 导入包要用的项目编号已被占用时为该编号，否则为 null（对话框关闭）。 */
+  /** The requested project ID when an import package conflicts with an existing ID; otherwise null closes the dialog. */
   projectName: string | null;
   importing: boolean;
   onResolve: (policy: Exclude<ImportConflictPolicy, "prompt">) => void;
   onCancel: () => void;
 }
 
-/** 导入包的项目编号与现有项目重复：覆盖现有项目不可撤销，用 AlertDialog 确认；也可以改用新编号导入。 */
+/** The import package's project ID conflicts: overwriting is irreversible and requires AlertDialog confirmation; importing under a new ID is also available. */
 export function ImportConflictDialog({ projectName, importing, onResolve, onCancel }: ImportConflictDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 关闭动画期间保留上一次的编号，避免标题闪成空白。
+  // Keep the last ID during closing animation so the title does not flash empty.
   const [shown, setShown] = useState(projectName);
   if (projectName !== null && projectName !== shown) setShown(projectName);
   const [policy, setPolicy] = useState<Exclude<ImportConflictPolicy, "prompt"> | null>(null);
@@ -40,7 +40,7 @@ export function ImportConflictDialog({ projectName, importing, onResolve, onCanc
     <AlertDialog
       open={projectName !== null}
       onOpenChange={(open) => {
-        // 导入中不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Escape during import so the dialog cannot disappear before the request completes
         if (!open && !importing) onCancel();
       }}
     >

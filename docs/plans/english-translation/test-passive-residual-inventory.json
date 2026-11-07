@@ -1,0 +1,1765 @@
+{
+  "scope": "967 tracked Python test files from immediate candidate snapshot; separate comments and leading docstrings scanned for residual Han. Standalone Expr[str] inventoried separately.",
+  "remaining_Han_prose_spans": 194,
+  "untranslated_maintenance_prose_pending": 0,
+  "exceptions": [
+    {
+      "path": "tests/catalog_support.py",
+      "line": 81,
+      "kind": "docstring",
+      "text": "\"\"\"Reference cost ``(金额, 币种)`` of one single-request built-in-provider call at multiplier 1; assert if unavailable.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "8410c7f7660ec28e562fb3b4f4550f2f99a446bc00aa1946a82c432cb7fbe0f8"
+    },
+    {
+      "path": "tests/hang_watchdog.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"Hang diagnosis: dump all thread stacks when a process makes no test progress for an extended period.\n\nLoaded by root conftest ``pytest_plugins``; enabled only when ``ARCREEL_TEST_HANG_DUMP_DIR`` names\na directory (CI backend-test jobs), leaving local runs unaffected. The xdist controller and each worker\nwrite separate files with worker id and pid, distinguishing replacement workers from crashed originals:\n\n- ``<id>-<pid>.progress``: executing processes record each starting case. After a worker is killed outright,\n  the last line identifies its active case.\n- ``<id>-<pid>.stacks``: after ``IDLE_DUMP_SECONDS`` without progress, record the current phase and dump\n  all thread stacks; repeat at the same interval while idle. Before ``os._exit``, likewise record the exit\n  code and all thread stacks.\n- ``<id>-<pid>.<信号名>``: all thread stacks upon a ``CRASH_SIGNALS`` signal, then the original handling\n  continues (SIGTERM still terminates; SIGINT still raises KeyboardInterrupt).\n- The controller's ``.progress`` also records each crashed worker and its exit code or terminating signal.\n\npytest-timeout covers only individual setup/call/teardown phases; its signal method also waits for main-thread\nbytecode. It misses session teardown and worker exits waiting for non-daemon threads. This independent daemon\nwatchdog covers those phases too. Avoid faulthandler ``dump_traceback_later``: its single process-wide timer\ncan be reset or canceled by any other caller, losing the dump.\n\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e4a5549e8117f44d6e420074f4e5c08da1d069eb9cf9bd959dda9aecf41007c9"
+    },
+    {
+      "path": "tests/integration/lib/artifacts/test_visual_artifact_provenance.py",
+      "line": 1117,
+      "kind": "docstring",
+      "text": "\"\"\"The model sees “图N”, not asset names: renaming alone leaves bases unchanged; replacing images changes them.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "60d15bb2916e4d7ca34f2f09b0b408f1bd5f9d1afbe9a46a299594300494a2b9"
+    },
+    {
+      "path": "tests/integration/lib/db/migrations/test_alembic_backfill_catalog_user_facts.py",
+      "line": 37,
+      "kind": "docstring",
+      "text": "\"\"\"Insert ``(条目, 是否用户新建)`` at the parent revision, upgrade, and read ``(条目, user_created, updated_at)`` in insertion order.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "58cd5bf394a5a86df636a3f4e0290d3ccc14714d5a2138013bfc2a9083a0f143"
+    },
+    {
+      "path": "tests/integration/lib/db/migrations/test_alembic_resource_type_dedupe_downgrade.py",
+      "line": 61,
+      "kind": "comment",
+      "text": "# Coexisting character 玉佩 and prop 玉佩 active image_edit tasks in one project:",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e432c06544741d85262742f03c5dccd8c47f74c4376e643e4879c0d453ee53b5"
+    },
+    {
+      "path": "tests/integration/lib/db/repositories/test_display_names.py",
+      "line": 40,
+      "kind": "comment",
+      "text": "# Unknown IDs outside agent-<数字> still use the generic deleted-provider label.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "2377f9a8776398dc4b14c6349f10b11dbc1b63fc727c8636032a08865afc9de1"
+    },
+    {
+      "path": "tests/integration/lib/db/repositories/test_task_repo.py",
+      "line": 194,
+      "kind": "docstring",
+      "text": "\"\"\"Identically named different asset types, such as character/prop 玉佩, must not deduplicate each other.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e9d833b1bbb36d46eff9c47d557fa241d9544aa86f973234d54b6d087c07f3aa"
+    },
+    {
+      "path": "tests/integration/lib/episode/test_episode_management.py",
+      "line": 113,
+      "kind": "comment",
+      "text": "# Leave titles empty; UI displays 第 N 集 by broadcast position, remaining sequential after insertion/reordering.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "5adaca1d47ce21b4f60954a66dc733da7c61d1bd24d90f01093334ce9b1e683e"
+    },
+    {
+      "path": "tests/integration/lib/episode/test_episode_manual_split.py",
+      "line": 387,
+      "kind": "comment",
+      "text": "# Between episodes lie a.txt 第三章。夜雨。 and b.txt 第四章。重逢。, each 7 characters.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "4b3a21ebf5767e8de51d01b2dbb4f0d6a26a924b7669ca6228da1fac59a44a90"
+    },
+    {
+      "path": "tests/integration/lib/episode/test_episode_planner.py",
+      "line": 573,
+      "kind": "docstring",
+      "text": "\"\"\"Overlapping anchors are nonunique too; nonoverlapping counts would falsely locate 哪哪 uniquely in 哪哪哪.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "fbd21129f15234730ae6b426fce25fbbe36ee0e53d6dc7fdd5cc4e72d8eb58b1"
+    },
+    {
+      "path": "tests/integration/lib/episode/test_episode_planner.py",
+      "line": 828,
+      "kind": "comment",
+      "text": "# Two fullwidth-period occurrences of 说好的。.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "fbd21129f15234730ae6b426fce25fbbe36ee0e53d6dc7fdd5cc4e72d8eb58b1"
+    },
+    {
+      "path": "tests/integration/lib/episode/test_episode_planner.py",
+      "line": 1537,
+      "kind": "comment",
+      "text": "# Ascending volume: 丙 < 乙 < 甲.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "fbd21129f15234730ae6b426fce25fbbe36ee0e53d6dc7fdd5cc4e72d8eb58b1"
+    },
+    {
+      "path": "tests/integration/lib/generation/test_generation_worker_capacity_table.py",
+      "line": 84,
+      "kind": "docstring",
+      "text": "\"\"\"Replace from_db provider config / custom providers / custom endpoints with in-memory data.\n\n        custom_providers is ``list_providers_with_models`` output, shaped ``[(provider, models), ...]``, empty by default. custom_endpoints maps ``自增 id → custom_endpoint 行`` for models bound to ``ce-`` endpoints, also empty by default.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "4184786a2893ec7beca67cec2f36e6c1eccaf562878ab660fe64b8d9f6b68e78"
+    },
+    {
+      "path": "tests/integration/lib/generation/test_media_generator_module.py",
+      "line": 1840,
+      "kind": "docstring",
+      "text": "\"\"\"Forward reference audio unchanged after gate admission, or it would disappear silently after validation.\n\n        Audio never enters image-only compression specs, so never reorder it with compression output. Order defines prompt “音频N”; reordering assigns character A's voice to B.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "b96dda65d8fdbcd8699a7a2d6840f7578afa5125831f48d2a41b75ffc72e3d9c"
+    },
+    {
+      "path": "tests/integration/lib/project/project_migrations/test_project_migration_legacy_shapes.py",
+      "line": 445,
+      "kind": "docstring",
+      "text": "\"\"\"At v7, 阿青 shares 阿离 reference images as asset images; after advancing to the prior version, 雨巷 retargets to 伞 asset images.\n\n    Return the sample, each image's content before retargeting, and 阿青's basis digest registered on the shared path.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "35ec8be3184bb7a131fc0cbe6ed04766da5444a9b1af83f85adf2bd7588d6512"
+    },
+    {
+      "path": "tests/integration/lib/project/project_migrations/test_project_migration_legacy_shapes.py",
+      "line": 477,
+      "kind": "comment",
+      "text": "# 雨巷 registration describes the image moved to preserved originals; withdraw it, remaining missing before/after instead of fabricating currency from copies.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "35ec8be3184bb7a131fc0cbe6ed04766da5444a9b1af83f85adf2bd7588d6512"
+    },
+    {
+      "path": "tests/integration/lib/project/project_migrations/test_project_migration_v6_v7.py",
+      "line": 119,
+      "kind": "comment",
+      "text": "# References no longer persist; write body `@[名称]` markers in old field order and derive them on read.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ae5408fb3ef72cc72b4c6b08fccd054053ee21d86903a5cec7784ffba58a9301"
+    },
+    {
+      "path": "tests/integration/lib/project/project_migrations/test_project_migration_v6_v7.py",
+      "line": 400,
+      "kind": "comment",
+      "text": "# Same-named products/characters produce one `@[同名]`; read derivation assigns type with product priority.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ae5408fb3ef72cc72b4c6b08fccd054053ee21d86903a5cec7784ffba58a9301"
+    },
+    {
+      "path": "tests/integration/lib/project/test_asset_derivative_namespace.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"Derivative names within one base are case-insensitively unique; images live at ``characters/derivatives/{本体}/{衍生}.png``.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "83f506c8177ae58c52ca01b85e582f3579321830b0d5e241e523033808036686"
+    },
+    {
+      "path": "tests/integration/lib/project/test_asset_merge.py",
+      "line": 569,
+      "kind": "comment",
+      "text": "# E1S03 derivative 战损 moves with its image to 王建国; storyboard bases record images, not names, so it remains current.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "aa8f961d9e6feadbb629b33fdb7646e2e914fb2e7a803c64551e5bc49bace472"
+    },
+    {
+      "path": "tests/integration/lib/project/test_data_validator.py",
+      "line": 865,
+      "kind": "docstring",
+      "text": "\"\"\"Legacy scene_type values such as 对话/动作/过渡 must not block exports.\n\n        scene_type is retired and no longer validated.\n        \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0a4fc884b82f18e9e9bf655e50fc544ed62d2d5ffc1c63db0e60f5a0feb72067"
+    },
+    {
+      "path": "tests/integration/lib/project/test_data_validator.py",
+      "line": 896,
+      "kind": "docstring",
+      "text": "\"\"\"``characters_in_*`` accepts ``角色/衍生`` using the same valid-reference set as body mentions (docs/adr/0072).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0a4fc884b82f18e9e9bf655e50fc544ed62d2d5ffc1c63db0e60f5a0feb72067"
+    },
+    {
+      "path": "tests/integration/lib/project/test_data_validator.py",
+      "line": 1570,
+      "kind": "docstring",
+      "text": "\"\"\"References derive at execution; unregistered body `@[名称]` only warns during rendering, without structural error.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0a4fc884b82f18e9e9bf655e50fc544ed62d2d5ffc1c63db0e60f5a0feb72067"
+    },
+    {
+      "path": "tests/integration/lib/project/test_data_validator.py",
+      "line": 1627,
+      "kind": "docstring",
+      "text": "\"\"\"Generic unregistered speakers in dialogue, outside characters_in_scene, pass validation.\n\n        Only characters_in_scene membership requires registration, not dialogue.speaker;\n        screenplay extras such as speaker=老人甲 must pass without forced registration.\n        \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0a4fc884b82f18e9e9bf655e50fc544ed62d2d5ffc1c63db0e60f5a0feb72067"
+    },
+    {
+      "path": "tests/integration/lib/project/test_data_validator_reference.py",
+      "line": 91,
+      "kind": "docstring",
+      "text": "\"\"\"Unregistered `@[名称]` is not structural corruption; references derive at execution and unresolved mentions only warn while rendering.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "94e61db22218cc9e9fb1f44f08d21b15aa926d94cf2d15b79e17275b6823b581"
+    },
+    {
+      "path": "tests/integration/lib/project/test_project_manager.py",
+      "line": 742,
+      "kind": "comment",
+      "text": "# 卧室 already exists.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "33162a5d803ebabfe953b34d46272e846ec48f11b193a4a6bb8897ee1897882e"
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_projection_provider_assets.py",
+      "line": 59,
+      "kind": "docstring",
+      "text": "\"\"\"Create a selected library-account association for 张三's current content version.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "b395adc16bddb7dee70be42bc154999cdc01dbb1f356ede6c69df3e229bbc4a8"
+    },
+    {
+      "path": "tests/integration/lib/script/reference_video/test_reference_request_projection_consumers.py",
+      "line": 62,
+      "kind": "comment",
+      "text": "# Production projects use current schema; 甲/乙 sheets are backfill-claimed, while 丙 has a registered path but no file.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "48ef7c15faf3e9ea7bdd2ee8f2d85247dee256c8c89eeb01bd83054fc367567f"
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator.py",
+      "line": 2127,
+      "kind": "comment",
+      "text": "# References are never persisted: bodies are authoritative; readers derive `@[名称]` references.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "34403a5898d40c6a7b19bfcc598e93798eca95848cfcd70cf33efca9c1459a1c"
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "line": 1071,
+      "kind": "comment",
+      "text": "#: Violating expansion mentions unregistered @[路人甲], absent from original unit bodies.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "893caedf5f631a81aa96d5955c65762b857bc6a98ca335682fa64590e9dca18b"
+    },
+    {
+      "path": "tests/integration/lib/script/test_script_generator_reference_branch.py",
+      "line": 1521,
+      "kind": "docstring",
+      "text": "\"\"\"Before promotion, reassess current formal units with production's preflight. Timeline edits while drafts exist must not bypass it: human editors only warn for unregistered @[名称], while structure-preserving diff compares dialogue structure without revalidating current body legality.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "893caedf5f631a81aa96d5955c65762b857bc6a98ca335682fa64590e9dca18b"
+    },
+    {
+      "path": "tests/integration/server/agent_toolset/test_draft_tools.py",
+      "line": 1109,
+      "kind": "docstring",
+      "text": "\"\"\"Failed prepromotion formal-unit checks still return draft_invalid; explanations use 视频单元 N rather than internal IDs.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3241c59083bb37f3909da902ffad5d91fa38fd32a9854753dccea03296e1016e"
+    },
+    {
+      "path": "tests/integration/server/agent_toolset/test_patch_tools.py",
+      "line": 286,
+      "kind": "docstring",
+      "text": "\"\"\"Visual @[名称] not matching shot references or registration still commits, with warnings.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "882ac1a06ce27109cab0e4566fa4a80052633d3aa14fdecbbb3489aede2d4560"
+    },
+    {
+      "path": "tests/integration/server/agent_toolset/test_patch_tools.py",
+      "line": 998,
+      "kind": "docstring",
+      "text": "\"\"\"Raw keys equal after strip, such as \"李白\" / \"  李白  \", fail loudly instead of later keys\n        silently overwriting earlier attributes; Agents must see collisions and deduplicate.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "882ac1a06ce27109cab0e4566fa4a80052633d3aa14fdecbbb3489aede2d4560"
+    },
+    {
+      "path": "tests/integration/server/agent_toolset/test_split_reference_video_units.py",
+      "line": 317,
+      "kind": "comment",
+      "text": "# References never persist; reads derive them from body @[名称].",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a05c145cc55eaf39570ed943699418fc1746810e161d0d0640dfecdbaf039ca1"
+    },
+    {
+      "path": "tests/integration/server/agent_toolset/test_text_generation.py",
+      "line": 549,
+      "kind": "docstring",
+      "text": "\"\"\"Rewritten visual @[名称] mismatching references yields warnings in receipts for written scripts.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "64d49949ecb663f5da0475e282b97e22e0590d6b1d0601333a06f046da531fcb"
+    },
+    {
+      "path": "tests/integration/server/agent_toolset/test_text_generation.py",
+      "line": 703,
+      "kind": "comment",
+      "text": "# Use UI position 视频单元 2 and unchanged parameters for Agent relay.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "64d49949ecb663f5da0475e282b97e22e0590d6b1d0601333a06f046da531fcb"
+    },
+    {
+      "path": "tests/integration/server/asset_library_support.py",
+      "line": 15,
+      "kind": "comment",
+      "text": "#: Two derivatives of library character 王: names, change descriptions, and image solid colors.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3d01144522739a81bcb62c61d630c60d3ebbd260d142a256268deba85686a255"
+    },
+    {
+      "path": "tests/integration/server/asset_library_support.py",
+      "line": 26,
+      "kind": "docstring",
+      "text": "\"\"\"Create character 王 with an asset image and two derivative images in source project source, store through ``/assets/from-project``, return library id.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3d01144522739a81bcb62c61d630c60d3ebbd260d142a256268deba85686a255"
+    },
+    {
+      "path": "tests/integration/server/media_tools/test_assets.py",
+      "line": 92,
+      "kind": "comment",
+      "text": "# 李四 lacks description; report blocked by ID.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "d969c0fff283156076c8ffea4ee1af05c69e216fe890a181fa0bf28897423d5f"
+    },
+    {
+      "path": "tests/integration/server/media_tools/test_image_edits.py",
+      "line": 135,
+      "kind": "docstring",
+      "text": "\"\"\"One unreadable edit artifact must not swallow other computed batch results.\n\n    ``resolve_usable_image_edit_source`` intentionally raises ``ArtifactManifestError`` for BLOCKED\n    manifest states. ``_build_specs`` must catch per edit, or handler-level ``except`` turns the\n    escaped error into unreadable whole-batch text, losing 李四's otherwise admissible edit\n    together with 张三's outcome.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "64154fbe94beb5a41c42efa0aa070289724668a01aafd474b3b234b9f51b0390"
+    },
+    {
+      "path": "tests/integration/server/media_tools/test_image_edits.py",
+      "line": 279,
+      "kind": "comment",
+      "text": "# 李四 lacks character_sheet.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "64154fbe94beb5a41c42efa0aa070289724668a01aafd474b3b234b9f51b0390"
+    },
+    {
+      "path": "tests/integration/server/media_tools/test_storyboards.py",
+      "line": 100,
+      "kind": "docstring",
+      "text": "\"\"\"Mismatched scripts must not falsely report ✨ 所有分镜的分镜图都已生成; return structural errors and resplitting guidance.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "c11304ad7aa5c66aefe1f687f09527f93c6ff2f6e8454d8279dfa94daf796289"
+    },
+    {
+      "path": "tests/integration/server/routers/projects_router_support.py",
+      "line": 40,
+      "kind": "docstring",
+      "text": "\"\"\"仅用于让 fake 生成器抛出真实的 pydantic ValidationError（也是 ValueError 子类）。\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "06bbbf3cf8427b0c2b07568f620236ddea141231620d64ff506e1fcf26443e24"
+    },
+    {
+      "path": "tests/integration/server/routers/test_asset_trash_router.py",
+      "line": 193,
+      "kind": "docstring",
+      "text": "\"\"\"Preupgrade 阿青 images point to 阿岚 files via legacy arbitrary PATCH; upgrades give 阿青 its own copy.\n\n    Deleting 阿岚 then removes its files only, leaving 阿青 pointers valid; restoring 阿岚 leaves both owning separate files.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cb5f5e2c7da63b75138ae6b5750b7b570b966e628ed09a44bae9228024e542b1"
+    },
+    {
+      "path": "tests/integration/server/routers/test_asset_trash_router.py",
+      "line": 232,
+      "kind": "docstring",
+      "text": "\"\"\"Delete, recreate same names, restore: renamed assets' file fields point to their correspondingly renamed restored files.\n\n    Preupgrade 阿青 shares 阿岚 reference images/audio via arbitrary PATCH; upgrades give it separate copies,\n    so deleting 阿岚 takes its own files only, restored with cascade renames.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cb5f5e2c7da63b75138ae6b5750b7b570b966e628ed09a44bae9228024e542b1"
+    },
+    {
+      "path": "tests/integration/server/routers/test_assets_router.py",
+      "line": 543,
+      "kind": "comment",
+      "text": "# Apply first: creates \"玉佩\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e9b6f074b5c1b675310a1e0c8cf9039b137b6ba22522a6d6c53867225a2ba262"
+    },
+    {
+      "path": "tests/integration/server/routers/test_assets_router.py",
+      "line": 552,
+      "kind": "comment",
+      "text": "# Apply again with rename: creates \"玉佩 (2)\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e9b6f074b5c1b675310a1e0c8cf9039b137b6ba22522a6d6c53867225a2ba262"
+    },
+    {
+      "path": "tests/integration/server/routers/test_assets_router.py",
+      "line": 579,
+      "kind": "comment",
+      "text": "# Pre-populate target with a different \"王\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e9b6f074b5c1b675310a1e0c8cf9039b137b6ba22522a6d6c53867225a2ba262"
+    },
+    {
+      "path": "tests/integration/server/routers/test_reference_unit_text_acceptance.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"Reference-body end-to-end acceptance: v8 → v9 migration → two write paths → real generation projection.\n\nCover complete seams: old ``shots[]`` + ``references[]`` disk shapes migrate to bodies; REST/\nAgent tools read/write identical bodies, while projection derives images by first ``@[名称]`` mention order;\nno persisted reference list can diverge from bodies.\n\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "1cb28d1e4808c5af9888c0a322f1c21fdef334d0b4c9537ed9857c3d62480ce1"
+    },
+    {
+      "path": "tests/integration/server/routers/test_reference_unit_text_acceptance.py",
+      "line": 319,
+      "kind": "docstring",
+      "text": "\"\"\"Unregistered ``@[名称]`` warns in editors but blocks generation with names.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "1cb28d1e4808c5af9888c0a322f1c21fdef334d0b4c9537ed9857c3d62480ce1"
+    },
+    {
+      "path": "tests/integration/server/routers/test_reference_videos_router.py",
+      "line": 1927,
+      "kind": "docstring",
+      "text": "\"\"\"Duplicate entries use `id#序号`; existing same-name units require fresh diagnostic names.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "331019c1257dec7b7d6fb3f08c3f4975fc4a160ac805d32b558a1bc528320e8f"
+    },
+    {
+      "path": "tests/integration/server/services/admission/test_prompt_preview.py",
+      "line": 178,
+      "kind": "docstring",
+      "text": "\"\"\"Preview and execution share reference assembly: previous storyboard image is last; body @[登记名] becomes corresponding 图N.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "344966d6a2bebe2a59e6afe1a99303b5839be96449ea7ac7a594d4481f1ff7fc"
+    },
+    {
+      "path": "tests/integration/server/services/currency/test_asset_rename_currency.py",
+      "line": 45,
+      "kind": "comment",
+      "text": "# Reference-video declarations use “<名称>的…”, putting names in model inputs; staleness after renaming is correct.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "9c690e595ec2aaa575488b7ca17f9bffb9cf0f2d98410220e3e49822ded935de"
+    },
+    {
+      "path": "tests/integration/server/services/currency/test_asset_rename_currency.py",
+      "line": 63,
+      "kind": "docstring",
+      "text": "\"\"\"Body ``@[名称]`` becomes “图N” for models, so rewriting asset names does not change model inputs.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "9c690e595ec2aaa575488b7ca17f9bffb9cf0f2d98410220e3e49822ded935de"
+    },
+    {
+      "path": "tests/integration/server/services/presentation/test_timeline_final_cut.py",
+      "line": 70,
+      "kind": "comment",
+      "text": "# Without narration, subtitles follow source-media time: S01 “旁白一句” at 0.5s burns below the frame.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "52ad38859ee718e57a444ec268eef02177cd456194b8e86af3f25769895cf87e"
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_reference_video.py",
+      "line": 432,
+      "kind": "comment",
+      "text": "# Body @[名称] mentions derive references at execution; unregistered mentions only omit these references,",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a595d06f871476ff4b719648895bd147d42d91f682ad143ef0c5974c5c75beeb"
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_service_applied_sheets.py",
+      "line": 121,
+      "kind": "docstring",
+      "text": "\"\"\"Existing generated 战斗装/旧装 derivatives: overwrite selects imported 战斗装 versions, retaining generated 旧装.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "73a0c18d05a9c8d3f4f3cf124260ebe23c9458a29573073b61c2ca88a5750615"
+    },
+    {
+      "path": "tests/integration/server/services/project/test_script_review.py",
+      "line": 95,
+      "kind": "docstring",
+      "text": "\"\"\"Structured reference_video script_plan intermediate state (``script_plan_reference_units.json`` shape).\n\n    Unit bodies are sole content truth; derive references from ``@[名称]`` on reads, never persist.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "6ef03dba3c90da3f1227414f021170ea86c833753e513824ded6de52ac55a4b3"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/generation_tasks_support.py",
+      "line": 468,
+      "kind": "docstring",
+      "text": "\"\"\"Ad fixture: product storyboard E1S02 referencing 保温杯 plus atmosphere storyboards E1S01/E1S03.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "6d96413d94a1a72b9dc69970a75b55e42560cb7641ad4db27bd55626fe0a007b"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_emit_generation_success_batch.py",
+      "line": 143,
+      "kind": "docstring",
+      "text": "\"\"\"Storyboard/video completion notices match per-storyboard events: derive entity types from project skeletons and use the Chinese noun “分镜” across all three storyboard skeletons.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "d997f75e4f8cdc61a108a17084e88ef609860e05d57531d97befef9de2f00bef"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_emit_generation_success_batch.py",
+      "line": 172,
+      "kind": "docstring",
+      "text": "\"\"\"Reference-to-video completion entity_type is frontend-recognized \"reference_unit\", never backend-only \"reference_video_unit\", so group titles use “视频单元” rather than generic “内容”. Entry wording stays “视频单元” regardless of skeleton nouns.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "d997f75e4f8cdc61a108a17084e88ef609860e05d57531d97befef9de2f00bef"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_emit_generation_success_batch.py",
+      "line": 268,
+      "kind": "docstring",
+      "text": "\"\"\"If skeleton lookup cannot read scripts (missing/corrupt), fall back to segments/“分镜” without interrupting notifications.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "d997f75e4f8cdc61a108a17084e88ef609860e05d57531d97befef9de2f00bef"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_emit_generation_success_batch.py",
+      "line": 299,
+      "kind": "docstring",
+      "text": "\"\"\"Nondict scripts such as top-level arrays fall back to segments/“分镜”, preventing resolve_script_kind .get() AttributeError from interrupting notifications.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "d997f75e4f8cdc61a108a17084e88ef609860e05d57531d97befef9de2f00bef"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_generation_task.py",
+      "line": 57,
+      "kind": "comment",
+      "text": "# References travel only by array position without labels; prompt Reference_Images declarations identify them as “图N”.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "54a7f5f4be4451b7fc470a880b0237ce7e8af27984bd5f4ef5fb4f1e37dff2ed"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 458,
+      "kind": "docstring",
+      "text": "\"\"\"Class A tracer bullet: request reference_audio_files order exactly matches first-section @音频N declarations.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 520,
+      "kind": "comment",
+      "text": "# Speaker first-occurrence order = audio numbering = request-field order (李四 speaks first although 张三 appears first).",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 530,
+      "kind": "comment",
+      "text": "# Speaker slots derive no reference image: 李四 has no @图片N binding.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 741,
+      "kind": "docstring",
+      "text": "\"\"\"For backends binding audio clips to images (such as wan2.7-r2v), align reference_audio_targets by name to correct image indices. Purely offscreen 李四 degrades without binding; never assume equal list order.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 762,
+      "kind": "comment",
+      "text": "# Scene precedes 张三 in body mentions: image order is 酒馆 at index 0, then 张三 at index 1;",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 763,
+      "kind": "comment",
+      "text": "# audio order 李四→张三 differs, so positional alignment would attach audio to the tavern image.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 807,
+      "kind": "comment",
+      "text": "# 李四 is purely offscreen with no image; degrade without binding, leaving only 张三 audio.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 809,
+      "kind": "comment",
+      "text": "# Body first mentions determine reference order: 酒馆 index 0, 张三 index 1; bind audio by name to 张三's image.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 1740,
+      "kind": "comment",
+      "text": "# Existing characters 张三 sheet plus scenes 酒馆 sheet already give two references.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 1798,
+      "kind": "docstring",
+      "text": "\"\"\"Prompt `@图片N` indices match backend reference_images. After clipping references, slice again to `constrained_refs` length; rendering full `unit.references` would create out-of-range `@图片N` indices (five images clipped to one but prompt still contains `@图片5`).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 1860,
+      "kind": "comment",
+      "text": "# Clip three images to one: first section binds only @图片1, never @图片2/@图片3.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 1866,
+      "kind": "comment",
+      "text": "# Clipped @酒馆 / @瓶子 remain visual subjects (<X> is independent of image numbering), without binding lines or outgoing images.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_execute_reference_video_task.py",
+      "line": 1906,
+      "kind": "docstring",
+      "text": "\"\"\"If unit.references has NFC/NFD duplicates for one character, prompt `@图片N` numbering matches deduplicated reference_images. Use the same deduplication count for images and logical render references; otherwise `@图片2` rebinds `@图片1`'s asset and a genuinely different later image loses its number.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e002b0757bd28afe4d9cca0a08537c20bffef6ab947d62e453e8dce830fa5897"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_image_clamping.py",
+      "line": 100,
+      "kind": "docstring",
+      "text": "\"\"\"Return ``(任务结果, 供应商收到的调用)``.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3e37db9a3aff2676f93ca8cc470b2ecec41edcea97b4a6c13bb1cbdd6c1543cd"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_image_clamping.py",
+      "line": 107,
+      "kind": "docstring",
+      "text": "\"\"\"Vidu limit seven: send seven, declarations end at 图7, eighth reference reverts to its bare name.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3e37db9a3aff2676f93ca8cc470b2ecec41edcea97b4a6c13bb1cbdd6c1543cd"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_image_clamping.py",
+      "line": 145,
+      "kind": "docstring",
+      "text": "\"\"\"OpenAI limit sixteen: send all eight, numbering through 图8.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3e37db9a3aff2676f93ca8cc470b2ecec41edcea97b4a6c13bb1cbdd6c1543cd"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_reference_image_clamping.py",
+      "line": 190,
+      "kind": "docstring",
+      "text": "\"\"\"Revoking the still-outgoing scene image 图7 before submission also blocks recheck; provider receives nothing.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "3e37db9a3aff2676f93ca8cc470b2ecec41edcea97b4a6c13bb1cbdd6c1543cd"
+    },
+    {
+      "path": "tests/integration/server/services/tasks/test_resolve_reference_assets.py",
+      "line": 184,
+      "kind": "docstring",
+      "text": "\"\"\"Derivatives without images never fall back to base sheets; admission reports `character: 张三/劲装` (ADR 0073).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "253d73b848aab30e384abbe0b67bfc4148f22a17d2f63700bb418d4aec2a2fb3"
+    },
+    {
+      "path": "tests/integration/server/test_text_task_queue.py",
+      "line": 502,
+      "kind": "docstring",
+      "text": "\"\"\"Repaired prompt-authoring draft promotion blocked by formal units: localized 视频单元 N failure, input-change classification, draft unchanged.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "b7a35a266535babd5a6e58c2ba1c152c1bd4a216a3aec2954b091535e2a8ace0"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 378,
+      "kind": "docstring",
+      "text": "\"\"\"Project determining whole-book source by ``source/`` filename order and registering unlisted episode files on read.\n\n    ``content_mode`` and project-level ``source_kind`` are written unchanged to ``project.json`` (schema ≤ 15 source-file types).\n\n    Default: ``第10章.txt`` sorts before ``第2章.txt``; the ledger has two episodes, ``planning_cursor`` stops midway\n    through ``第10章.txt``, and ``episode_7.txt`` has no ledger entry. With ``pre_split=True``, ``source/`` contains\n    only user-split ``episode_1.txt`` / ``episode_2.txt`` and the ledger is empty.\n\n    ``legacy_split=True``: two legacy-split episodes lack ``source_range``, source fingerprints, and cursors;\n    ``source/`` retains ``_remaining.txt``. Episode 3 has a ledger entry but no episode file.\n    ``edited_outside=True``: ``第10章.txt`` changed outside the service after fingerprint recording.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 728,
+      "kind": "docstring",
+      "text": "\"\"\"Legacy-style project with asset images, grids, and individual storyboard images: all four visual bases exist.\n\n    ``style`` accepts values prefixed with 画风： or short labels such as ``Photographic``; omit ``style_template_id``\n    when None, the prerequisite for short-label parsing. Grids and individual storyboard images coexist because\n    only these two basis categories normalize style values, and both must be assertable.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 843,
+      "kind": "docstring",
+      "text": "\"\"\"Schema 18 project whose storyboard/grid/cropped-storyboard bases retain asset names (removed from v19).\n\n    Build on :func:`write_legacy_style_project`: all three storyboards reference 阿离, identified by ``@[阿离]``\n    in visual descriptions; the grid freezes the same character image. Advance through v18 so the manifest registers\n    names under that policy. Then write selected v18-style version records (frozen bases) for the grid and E1S03;\n    write two E1S01 versions and select version 2.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 1246,
+      "kind": "docstring",
+      "text": "\"\"\"Legacy asset PATCH accepted arbitrary paths; reference images/audio could point under other asset names.\n\n    Character 阿离 owns reference images/audio; added 阿青 points both fields there and owns another unreferenced\n    image. Product 咖啡 owns its first original; added 茶 points its originals list there. Return each file's contents.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 1277,
+      "kind": "docstring",
+      "text": "\"\"\"Legacy asset PATCH accepted arbitrary paths, allowing asset-image fields to reference another asset's image.\n\n    阿离 owns a reference image; added 阿青 uses it as an asset image and owns another unreferenced asset image.\n    Written before v8, whole-project v7→v8 activation registers 阿青's image at the shared path (no other registration\n    exists there). Return reference-image contents; use a project with 阿离 such as ``write_legacy_storyboard_project``.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 1310,
+      "kind": "docstring",
+      "text": "\"\"\"After asset-image registration, PATCH points to another asset: scene 雨巷's image points to prop 伞's image.\n\n    雨巷 retains its image/registration; mismatched paths read as missing. Two entries declare one image, and the\n    planner before repointing rejects the whole project. Return both original images' contents, using a project\n    with 雨巷/伞 and existing manifest registrations.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/legacy_project_shapes.py",
+      "line": 1742,
+      "kind": "docstring",
+      "text": "\"\"\"Legacy SSE sync bound self-reported episode numbers, allowing crossed filenames (e.g. episode 1 named ``episode_2.json``).\n\n    Register episode 2 copied from episode 1, renumbering items and omitting media; rename scripts to\n    ``scripts/<filenames[集号]>`` and rebind, ordering the ledger by ``ledger_order``. Episode 1's manifest\n    script registration follows its new filename.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "0af7fa591cd9b9f242e67f8886c3587be14dd3e5cd10d4ac2984cdbfd552c2b2"
+    },
+    {
+      "path": "tests/unit/lib/artifacts/test_grid_executor.py",
+      "line": 479,
+      "kind": "docstring",
+      "text": "\"\"\"Trim reference tails before numbering to backend limits; declarations/cell “图N” identify only sent images.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "35c0e103e874e79a702bf5fa307f107da8b6aa3530b02d5c08b389455364ff57"
+    },
+    {
+      "path": "tests/unit/lib/artifacts/test_grid_executor.py",
+      "line": 522,
+      "kind": "comment",
+      "text": "# Image 3 was not sent; body retains only its bare name, never a nonexistent 图3 reference.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "35c0e103e874e79a702bf5fa307f107da8b6aa3530b02d5c08b389455364ff57"
+    },
+    {
+      "path": "tests/unit/lib/backends/image_backends/test_openrouter_image_backend.py",
+      "line": 324,
+      "kind": "docstring",
+      "text": "\"\"\"One missing reference would shift later 图N labels; raise without /images calls rather than skip it.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "35e9a76a299a55cb4e98d8fa8f98a6a18647c1455b26026afc48b7659f5b4feb"
+    },
+    {
+      "path": "tests/unit/lib/backends/test_kling_shared.py",
+      "line": 247,
+      "kind": "comment",
+      "text": "# Shared image/video failure_reason must not hardcode 视频, allowing image reuse.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "da8e64265d3ef8cc7bdd0037371c2db2f0ce8c5d605893db96815347e5ba1930"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/response_schema_support.py",
+      "line": 81,
+      "kind": "docstring",
+      "text": "\"\"\"Class-docstring descriptions in default ``model`` schemas, text that must not reach models.\n\n    Read root/nested ``$defs`` ``description`` values. Exclude text equal to field descriptions\n    (e.g. ``Composition`` 构图信息): default schemas retain only definition descriptions then,\n    making them indistinguishable, so collect field descriptions from model classes for exclusion.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "81ad3a58cd8f9c27396121904153dff75c01ebd13101cef3661687c3b0b243bb"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "line": 198,
+      "kind": "docstring",
+      "text": "\"\"\"枚举实现说明\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "e9a5828a971c63b6a8871eb811e84c49390cffae490f81140bd8e8dc96fa9c2e"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "line": 203,
+      "kind": "docstring",
+      "text": "\"\"\"构图信息\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "e9a5828a971c63b6a8871eb811e84c49390cffae490f81140bd8e8dc96fa9c2e"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "line": 208,
+      "kind": "docstring",
+      "text": "\"\"\"实现说明\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "e9a5828a971c63b6a8871eb811e84c49390cffae490f81140bd8e8dc96fa9c2e"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "line": 213,
+      "kind": "docstring",
+      "text": "\"\"\"顶层实现说明：ADR 编号、迁移口径\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "e9a5828a971c63b6a8871eb811e84c49390cffae490f81140bd8e8dc96fa9c2e"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "line": 255,
+      "kind": "docstring",
+      "text": "\"\"\"嵌套实现说明\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "e9a5828a971c63b6a8871eb811e84c49390cffae490f81140bd8e8dc96fa9c2e"
+    },
+    {
+      "path": "tests/unit/lib/backends/text_backends/test_base.py",
+      "line": 260,
+      "kind": "docstring",
+      "text": "\"\"\"顶层实现说明\"\"\"",
+      "classification": "Frozen multilingual schema-test input",
+      "consumer": "Pydantic/Enum schema description tests; exact raw occurrence proof in test-docstring-consumer-review.json.",
+      "current_file_sha256": "e9a5828a971c63b6a8871eb811e84c49390cffae490f81140bd8e8dc96fa9c2e"
+    },
+    {
+      "path": "tests/unit/lib/backends/video_backends/test_dashscope_video_backend.py",
+      "line": 883,
+      "kind": "docstring",
+      "text": "\"\"\"Audio order from first speaker occurrences and image order from first mentions derive independently.\n\n        With references=[场景, 张三] (图0=场景, 图1=张三), audio_speakers=[张三] identifies the sole\n        speaker. Positional alignment would attach 张三’s voice to scenery; targets=[1] explicitly\n        links that voice to image 1, requiring reference_items[1].\n        \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ac8dcedcb672cb4e9391be42febab95853ccfcc9b6f5bb10d4d2facdf5b62b02"
+    },
+    {
+      "path": "tests/unit/lib/backends/video_backends/test_dashscope_video_backend.py",
+      "line": 1183,
+      "kind": "comment",
+      "text": "# Ordering is the prompt 音频N contract; never reorder.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ac8dcedcb672cb4e9391be42febab95853ccfcc9b6f5bb10d4d2facdf5b62b02"
+    },
+    {
+      "path": "tests/unit/lib/backends/video_backends/test_video_backend_ark.py",
+      "line": 814,
+      "kind": "comment",
+      "text": "# Order determines the prompt marker 音频N: the first clip must be the first one in the request.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "4fd93eca7e371118e78cd6b0f9aa4d3842a7a1f9635686da4c4bb36d6982a243"
+    },
+    {
+      "path": "tests/unit/lib/custom_provider/comfyui/test_comfyui_capabilities.py",
+      "line": 310,
+      "kind": "docstring",
+      "text": "\"\"\"``frames = round(时长 × 帧率) + 1`` and this inverse conversion must share one source.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7176ee8adb6b2f5c3853324f700c1b9ebdd1b529d225c59b4d58555c79e74cc0"
+    },
+    {
+      "path": "tests/unit/lib/custom_provider/comfyui/test_comfyui_import_shapes.py",
+      "line": 48,
+      "kind": "docstring",
+      "text": "\"\"\"An object without any nodes is not a workflow: a definition missing kind should report missing kind, not treat each section\n    as a node and return cascading errors under workflow.<节名>.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "602dab94f3c7ac152dc9c107d2b1ea3efaa7e6ea6d222f8f7c99b738b38b5b20"
+    },
+    {
+      "path": "tests/unit/lib/custom_provider/comfyui/test_comfyui_request_builder.py",
+      "line": 551,
+      "kind": "docstring",
+      "text": "\"\"\"Links referencing nodes no longer in the graph: ``(消费方, 入口名, 上游)``.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "79551a83ebaa8fcae176bc2195a2749b9d478d3fdbf3815cbdd220952c1864ed"
+    },
+    {
+      "path": "tests/unit/lib/custom_provider/comfyui/test_comfyui_video_backend.py",
+      "line": 100,
+      "kind": "docstring",
+      "text": "\"\"\"``/queue`` shape: entries are ``[序号, prompt_id, prompt, 待执行节点, 额外数据]``.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "65bf9ca0a41ea876389840d77372df363ee1700a11b61c7404d9d68576e6acd5"
+    },
+    {
+      "path": "tests/unit/lib/custom_provider/test_custom_provider_endpoints.py",
+      "line": 466,
+      "kind": "comment",
+      "text": "# qwen-audio-<版本>-tts family → dashscope-speech-synthesizer, independent of discovery_format.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "25538e7a3ce7cb39e1a23f15ad99d70a397992716029ee205c35c57c978c8eac"
+    },
+    {
+      "path": "tests/unit/lib/custom_provider/test_custom_provider_endpoints.py",
+      "line": 477,
+      "kind": "comment",
+      "text": "# MiniMax speech-<版本>-hd|turbo → minimax-tts, independent of discovery_format.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "25538e7a3ce7cb39e1a23f15ad99d70a397992716029ee205c35c57c978c8eac"
+    },
+    {
+      "path": "tests/unit/lib/i18n/test_i18n_consistency.py",
+      "line": 131,
+      "kind": "comment",
+      "text": "# Use `str.format` parsing: escaped `{{…}}` braces (e.g. `@[角色]：{台词}` syntax)",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "d56b54f5eeb3d49549b8c2bae21cfd613f1309eef9591bd4b11919b2a3f32dda"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_logging_persistence.py",
+      "line": 53,
+      "kind": "docstring",
+      "text": "\"\"\"Pin data roots to tmp_path/data; file logs must land in ``<数据根>/logs``.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7e331b695c53a8f0a68b3f84249ac0f8dcee43a2e2d0ee5e2f1321cf95e91746"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_logging_persistence.py",
+      "line": 264,
+      "kind": "docstring",
+      "text": "\"\"\"Old ``<数据根>/logs`` may be a project named logs; skip migration/file handlers this startup,\n    preserve its directory, and warn once.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7e331b695c53a8f0a68b3f84249ac0f8dcee43a2e2d0ee5e2f1321cf95e91746"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_text_metrics.py",
+      "line": 14,
+      "kind": "comment",
+      "text": "# “你好” plus full stop and punctuation besides “。”; 「」 and 。 all count.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a30fad7076e762216bf8c6087dd9c2c660cf4ecfe249548d052932e24b6b4cd1"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_text_metrics.py",
+      "line": 20,
+      "kind": "comment",
+      "text": "# “他说：abc 123”: two Han characters plus full-width colon (＀-￯) = 3 units; ASCII letters/digits do not count.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a30fad7076e762216bf8c6087dd9c2c660cf4ecfe249548d052932e24b6b4cd1"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_text_metrics.py",
+      "line": 102,
+      "kind": "comment",
+      "text": "# “今天天气真好”: end of third Han character “天” → offset 3, zero-based exclusive.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a30fad7076e762216bf8c6087dd9c2c660cf4ecfe249548d052932e24b6b4cd1"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_text_metrics.py",
+      "line": 106,
+      "kind": "comment",
+      "text": "# “他说：abc 123，好” reading units: 他 说 ： (full-width), ， (full-width), 好.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a30fad7076e762216bf8c6087dd9c2c660cf4ecfe249548d052932e24b6b4cd1"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_text_metrics.py",
+      "line": 161,
+      "kind": "docstring",
+      "text": "\"\"\"Unit labels share count_reading_units language categories: word counting → 词, character counting → 字.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a30fad7076e762216bf8c6087dd9c2c660cf4ecfe249548d052932e24b6b4cd1"
+    },
+    {
+      "path": "tests/unit/lib/infra/test_text_metrics.py",
+      "line": 177,
+      "kind": "comment",
+      "text": "# Unknown / None / empty languages follow count_reading_units zh fallback → 字.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a30fad7076e762216bf8c6087dd9c2c660cf4ecfe249548d052932e24b6b4cd1"
+    },
+    {
+      "path": "tests/unit/lib/jianying_draft/test_placement.py",
+      "line": 170,
+      "kind": "comment",
+      "text": "# Touching endpoints do not overlap: 丁 joins track one when 甲 ends; only track three is free when 戊 starts.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "9c5c1fc8171b074d1162e9091ca5ef3df13f32adb5016b82f8002f92efc07469"
+    },
+    {
+      "path": "tests/unit/lib/project/project_migrations/test_project_migration_v13_v14.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"v13→v14: strip the 画风： prefix, resolve legacy short labels, and expand snapshots; version guards and idempotency.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "39e84f10bd467306d8e721b324e0bff95276e122f541c8f0576180f8438908cb"
+    },
+    {
+      "path": "tests/unit/lib/project/project_migrations/test_project_migration_v13_v14.py",
+      "line": 32,
+      "kind": "docstring",
+      "text": "\"\"\"For ``anim_arcane``, 油画三渲二画风： is a compound term, not a removable prefix.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "39e84f10bd467306d8e721b324e0bff95276e122f541c8f0576180f8438908cb"
+    },
+    {
+      "path": "tests/unit/lib/project/test_asset_name_validation.py",
+      "line": 115,
+      "kind": "docstring",
+      "text": "\"\"\"Body references use ``@[名称]`` ending at the first ``]``; names containing ``]`` would truncate written references.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ef68a8b17ddbd35d83d1ea9a4f14fe9df7dc7866b904a743a38aa99237a7af96"
+    },
+    {
+      "path": "tests/unit/lib/project/test_asset_rename.py",
+      "line": 283,
+      "kind": "docstring",
+      "text": "\"\"\"Storyboard visual ``@[名称]`` mentions identify assets in reference fields; renamed mentions must still identify the same assets.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "5a85257d4a1caa359e324d8fcfb39af4530e2de8d414c12847b0dd7d10c69042"
+    },
+    {
+      "path": "tests/unit/lib/project/test_asset_rename.py",
+      "line": 441,
+      "kind": "docstring",
+      "text": "\"\"\"``旧名_2`` is a valid asset name; numbered-stem matching must not capture a sibling asset's image.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "5a85257d4a1caa359e324d8fcfb39af4530e2de8d414c12847b0dd7d10c69042"
+    },
+    {
+      "path": "tests/unit/lib/project/test_asset_rename.py",
+      "line": 1030,
+      "kind": "docstring",
+      "text": "\"\"\"Numbered-directory files use ``名_<n>``; files whose stem exactly equals the asset name belong elsewhere.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "5a85257d4a1caa359e324d8fcfb39af4530e2de8d414c12847b0dd7d10c69042"
+    },
+    {
+      "path": "tests/unit/lib/project/test_asset_rename.py",
+      "line": 1046,
+      "kind": "docstring",
+      "text": "\"\"\"When names end with ``_数字``, neither path-field rewriting nor file scans capture sibling assets' numbered files.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "5a85257d4a1caa359e324d8fcfb39af4530e2de8d414c12847b0dd7d10c69042"
+    },
+    {
+      "path": "tests/unit/lib/project/test_asset_rename.py",
+      "line": 1068,
+      "kind": "docstring",
+      "text": "\"\"\"Cascading ``角色/衍生`` renames (docs/adr/0072): base renaming includes derivatives; derivative renaming touches only its own files.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "5a85257d4a1caa359e324d8fcfb39af4530e2de8d414c12847b0dd7d10c69042"
+    },
+    {
+      "path": "tests/unit/lib/project/test_project_manager_content_mode_dispatch.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"Regression guards for PM content_mode-based structure dispatch.\n\nPin an edge case: malformed content_mode=narration scripts storing data under `scenes` without `segments`.\nPM must retain key-presence fallback to `scenes`, rather than return an empty list by mapping content_mode literally\nto `segments`.\n\nWhen consolidating field dispatch through lib.script.script_skeleton evidence-based resolution, naively replacing it with\n`items = script.get(<content_mode 对应 items_key>, [])` and removing the `\"segments\" in script`\nguard makes these assertions fail, precisely the regression they protect. Assert external behavior only; do not patch private methods.\n\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "f0636e9ca9fbaff6199f5c1004062ba462b174d24b6cab2ef848f203a1731d9f"
+    },
+    {
+      "path": "tests/unit/lib/project/test_project_manager_save_validation.py",
+      "line": 345,
+      "kind": "docstring",
+      "text": "\"\"\"In reference mode, update_scene_asset indexes video_units by unit_id for asset writeback.\n        The old helper searched \"scenes\", found no unit_id, and raised KeyError(\"分镜不存在\"),\n        masking the actual wrong-path cause as a nonexistent ID.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "70f649ad09d2a5f4f86eede54a812a1a3c6891def3478134e24593246307af67"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders.py",
+      "line": 51,
+      "kind": "comment",
+      "text": "# Assert complete fragments, not merely 人物; ordinary descriptions may contain that word and falsely satisfy keyword checks.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "4e9ace88f23f4a81b0532d08aea4f08cd9cd7bb66bb251c6339456cdb34ae224"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders.py",
+      "line": 101,
+      "kind": "docstring",
+      "text": "\"\"\"图N numbering derives mechanically from actually sent reference lists, identically across image backends.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "4e9ace88f23f4a81b0532d08aea4f08cd9cd7bb66bb251c6339456cdb34ae224"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders_ad.py",
+      "line": 85,
+      "kind": "comment",
+      "text": "# Default target_language 中文 is not a language code, so use default zh rate and 字 units.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "2fd4c3d64b9370e4a0a747862615c75d8e2c3979d21b889025f33864c638ee8e"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders_reference.py",
+      "line": 243,
+      "kind": "docstring",
+      "text": "\"\"\"Coupled constraints inspect visual descriptions; dialogue speakers in `@[角色]{台词}` do not count.\n\n    ``extract_mentions`` excludes speaking-marker speakers from references (offscreen speakers\n    create no images; see shot_parser docstring). Merely asking whether body text contains `@`\n    would misclassify speaker-only units as referenced and select narrower tiers, while persisted\n    derived references remain empty, contradicting the model’s decision basis.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "37c93ca3a3b0a85648a151975cf250d63d472bcca8fb87baa7caee386dc8318f"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders_script.py",
+      "line": 126,
+      "kind": "comment",
+      "text": "# prompt_authoring no longer produces speech; omit the 口播序列（utterances） authoring section.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "da84bec9eddc2dbbb75c8c7a291b8dfdb5bdc43c3f332140cdb9843f95b7f8b8"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders_script.py",
+      "line": 686,
+      "kind": "docstring",
+      "text": "\"\"\"Visual prompt_authoring scene_id preserves exact script_plan IDs, including split/edit suffixes such as E2S02_1.\n        Never impose E{集}S{两位序号}; models dropping suffixes would fail whole-episode exact-string merges.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "da84bec9eddc2dbbb75c8c7a291b8dfdb5bdc43c3f332140cdb9843f95b7f8b8"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders_script.py",
+      "line": 802,
+      "kind": "comment",
+      "text": "#: Character table with derivatives: list `姜月茴/劲装`, whose appearance combines base descriptions and derivative changes.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "da84bec9eddc2dbbb75c8c7a291b8dfdb5bdc43c3f332140cdb9843f95b7f8b8"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_prompt_builders_script.py",
+      "line": 809,
+      "kind": "docstring",
+      "text": "\"\"\"Character candidates list `本体/衍生`, combining base descriptions and derivative appearance changes (ADR 0072).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "da84bec9eddc2dbbb75c8c7a291b8dfdb5bdc43c3f332140cdb9843f95b7f8b8"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_style_templates.py",
+      "line": 37,
+      "kind": "comment",
+      "text": "# Presets never start with 画风：, avoiding stacked English Style: labels rendered as \"Style: 画风：\".",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "56f0c63e9135735d84e9e85512ed1ea5ca034f9297e76f04a4207ba1a2d3ad88"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_style_templates.py",
+      "line": 38,
+      "kind": "comment",
+      "text": "# anim_arcane alone is exempt: 画风 belongs to compound 油画三渲二画风, not a removable prefix.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "56f0c63e9135735d84e9e85512ed1ea5ca034f9297e76f04a4207ba1a2d3ad88"
+    },
+    {
+      "path": "tests/unit/lib/prompts/test_style_templates.py",
+      "line": 46,
+      "kind": "comment",
+      "text": "# Exclude full-/half-width colons alike, matching v13→v14 removal (画风： / 画风:).",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "56f0c63e9135735d84e9e85512ed1ea5ca034f9297e76f04a4207ba1a2d3ad88"
+    },
+    {
+      "path": "tests/unit/lib/references/test_reference_admission.py",
+      "line": 202,
+      "kind": "docstring",
+      "text": "\"\"\"Block the body’s `角色/衍生` reference, not its base character (ADR 0073).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7e524c5ec9cc181eed7fd363d88373206d9e256889a7d366f44fb9327304ab15"
+    },
+    {
+      "path": "tests/unit/lib/references/test_reference_catalog.py",
+      "line": 179,
+      "kind": "docstring",
+      "text": "\"\"\"``本体名/衍生名`` adds a character-specific reference-namespace level (``docs/adr/0072``).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "36166a7ef5168268ca8c1fb6b5a611649056589c7febbff9388a36be997ad13d"
+    },
+    {
+      "path": "tests/unit/lib/references/test_reference_catalog.py",
+      "line": 228,
+      "kind": "docstring",
+      "text": "\"\"\"Types without derivative capability do not create ``名/子名`` references even if derivatives are stored.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "36166a7ef5168268ca8c1fb6b5a611649056589c7febbff9388a36be997ad13d"
+    },
+    {
+      "path": "tests/unit/lib/references/test_reference_compression.py",
+      "line": 267,
+      "kind": "comment",
+      "text": "# Passthrough preserves original paths/order, aligned with [图N].",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ee9474f7badac13b8e5478bdec0d5e3ee57e077d09024a089bf73d69d8cb462e"
+    },
+    {
+      "path": "tests/unit/lib/references/test_reference_compression.py",
+      "line": 313,
+      "kind": "comment",
+      "text": "# Reencoded copies retain source stems (e.g. 张三), allowing name-based tracing inside temporary directories.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "ee9474f7badac13b8e5478bdec0d5e3ee57e077d09024a089bf73d69d8cb462e"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_unit_request_projection.py",
+      "line": 491,
+      "kind": "docstring",
+      "text": "\"\"\"A project with active artifact manifests: 张三's image is claimed by backfill; 李四's image exists with a registered path but was never claimed.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "c1477835458ca9d7804249d71c76d6e9b9f3356d60788e3dc6534f4a5fec1201"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_draft_validation.py",
+      "line": 25,
+      "kind": "comment",
+      "text": "#: Project payload with character derivatives for registration checks of ``@[角色/衍生]`` (docs/adr/0072).",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cea611eec76cd9f6e81bbef411349774a1f2ae83d15a4a760e6d72ab581e51f6"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_draft_validation.py",
+      "line": 148,
+      "kind": "docstring",
+      "text": "\"\"\"``@[角色/衍生]`` and ``@[角色/衍生]{台词}`` both accept registered derivatives.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cea611eec76cd9f6e81bbef411349774a1f2ae83d15a4a760e6d72ab581e51f6"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_draft_validation.py",
+      "line": 212,
+      "kind": "docstring",
+      "text": "\"\"\"Scene/prop subheadings are valid visual descriptions; do not classify every @[名称]： shape as malformed dialogue.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cea611eec76cd9f6e81bbef411349774a1f2ae83d15a4a760e6d72ab581e51f6"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_draft_validation.py",
+      "line": 236,
+      "kind": "docstring",
+      "text": "\"\"\"Dialogue on the ``镜头N：`` line becomes a canonical line after splitting; evaluate after stripping headers.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cea611eec76cd9f6e81bbef411349774a1f2ae83d15a4a760e6d72ab581e51f6"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 77,
+      "kind": "comment",
+      "text": "# Audio order follows request fields and @音频N numbering.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 90,
+      "kind": "docstring",
+      "text": "\"\"\"Silent episode: assemble no reference audio or @音频N in prompts; still send dialogue for lip-sync reference.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 110,
+      "kind": "docstring",
+      "text": "\"\"\"Episode audio disabled and nonaudio-producing models (class C) agree: neither silent path injects 声音特征：….\n\n    ``voice_style`` describes audible timbre; injecting it into silent video wastes model capacity on unused constraints.\n    Dialogue is unaffected, with separate cases comparing the second part exactly.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 227,
+      "kind": "docstring",
+      "text": "\"\"\"李四 appears only as a dialogue speaker: no reference-image binding, but voice declarations and dialogue render normally.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 475,
+      "kind": "docstring",
+      "text": "\"\"\"Bodies without dialogue markers still have all three parts: bindings, body, and constraints, without semantic fallback.\n\n    Body `镜头N：` is ordinary text, passed verbatim into prompts without structural recognition.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 492,
+      "kind": "docstring",
+      "text": "\"\"\"Do not bind fields pointing to deleted files: numbering exactly matches sent clip count, and degradation warnings say\n    audio unavailable rather than unconfigured; 张三 has a field value but is absent from audio_ready.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 507,
+      "kind": "docstring",
+      "text": "\"\"\"Audio order (first dialogue speaker) and image order (first mention) derive independently: references place the scene\n    before 张三, who speaks first. ``audio_speaker_reference_index`` must find image index 1 (0-based) by name,\n    not assume first audio corresponds to first image.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 517,
+      "kind": "comment",
+      "text": "# references[0]=酒馆, references[1]=张三 → 张三 has 0-based index 1; no 李四 image was sent.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 522,
+      "kind": "docstring",
+      "text": "\"\"\"When backends require per-image audio attachment (such as wan2.7-r2v), offscreen speakers without references bind no audio.\n    Generate numbering/warnings together during rendering so @音频N never promises an unsent binding.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 530,
+      "kind": "comment",
+      "text": "# 李四 has no reference image (entirely offscreen), so even usable audio stays unbound.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_prompt_render.py",
+      "line": 540,
+      "kind": "docstring",
+      "text": "\"\"\"All four NFC/NFD combining-name pairings render identical prompts and audio bindings.\n\n    At this chain endpoint, missing normalization in speaker, subject mention, image numbering, or voice declaration silently leaks\n    ``@[名称]`` syntax to provider requests, prevents official dialogue reconstruction, or fails audio binding,\n    leaving users with wrong faces and voices instead of errors.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a33c326a13b5aac6713ee48ccfeec090fa9098e02f2b2f41f5bb3881d710d418"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 226,
+      "kind": "comment",
+      "text": "# Retain only @[张三]; trim the @[酒馆] image.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 255,
+      "kind": "comment",
+      "text": "#: 张三 with one registered derivative, without scenes to avoid an additional unreferenced-scene warning.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 263,
+      "kind": "docstring",
+      "text": "\"\"\"Editors only warn on ``@[角色/衍生]`` without blocking (docs/adr/0064 / 0072).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 330,
+      "kind": "comment",
+      "text": "# 张三 is configured, 李四 is not; empty audio_ready means execution resolved no usable clips.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 406,
+      "kind": "docstring",
+      "text": "\"\"\"Execution trims references to capability limits before rendering (图片N numbering exactly matches sent image count).\n    Preview must use the same trimming boundary; otherwise trimmed characters still show bound audio until execution degrades it.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 408,
+      "kind": "comment",
+      "text": "# 张三 must appear in description to derive an image; limit 1 keeps only @[酒馆], making its trimming the sole warning cause.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 414,
+      "kind": "comment",
+      "text": "# Retain only @[酒馆]; trim 张三's image.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_reference_video_script_preview.py",
+      "line": 564,
+      "kind": "comment",
+      "text": "# Replace all placeholders; escaped example `{{台词}}` renders literal braces, not a residual placeholder.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92a975be8f87adb969c859c6fbb7907f6655490ad03fb1b56a66ac9dcd6f1793"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 104,
+      "kind": "docstring",
+      "text": "\"\"\"Underscores belong to \\\\w; typos such as `foo_@张三` must not trigger mentions.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 251,
+      "kind": "docstring",
+      "text": "\"\"\"Replace with subject markers despite different encodings; missing replacements leak ``@[名称]`` unchanged into provider requests.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 293,
+      "kind": "docstring",
+      "text": "\"\"\"``@[ ]{台词}`` has an empty speaker; dialogue requires a nonempty speaker and does not degrade to voiceover.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 298,
+      "kind": "docstring",
+      "text": "\"\"\"``@[]：{台词}`` means someone speaks; silent conversion to voiceover is harder to detect than nonrecognition.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 303,
+      "kind": "docstring",
+      "text": "\"\"\"``@[张三]：：{台词}`` consumes only one separator colon; the remaining colon makes it nondialogue syntax.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 350,
+      "kind": "comment",
+      "text": "# @[角色/衍生] (docs/adr/0072).",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/reference_video/test_text_parser.py",
+      "line": 401,
+      "kind": "docstring",
+      "text": "\"\"\"``@[/劲装]`` has no voice-bindable identity; do not silently degrade to voiceover.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "7cefde9969758d8de55be6955eb65c98b833180f1438a5f00b7c1f11403bd4e2"
+    },
+    {
+      "path": "tests/unit/lib/script/source_loader/conftest.py",
+      "line": 36,
+      "kind": "docstring",
+      "text": "\"\"\"Construct an N-chapter .epub by writing an OCF/OPF-compliant zip directly.\n\n    - ``toc``: table-of-contents source, ``\"ncx+nav\"`` (default), ``\"ncx\"``, ``\"nav\"``, or ``None`` (no TOC).\n    - ``toc_entries``: override TOC entries as ``(标题, 相对 OPF 目录的 href)``; default one per chapter.\n    - ``nav_id``: nav-document manifest ID; always include nav in spine to verify exclusion.\n    - ``opf_dir``: OPF directory, shared by chapters, NCX, and nav.\n    \"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "47ae1c92b13f1bcb82716c1d6168384efd681e0c0a4e60ee60cff1ab1d6865d6"
+    },
+    {
+      "path": "tests/unit/lib/script/source_loader/test_epub.py",
+      "line": 40,
+      "kind": "comment",
+      "text": "# Without TOC, titles fall back to \"第 N 章\".",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92e9b5dea239d6108077aa4df4e75daa40e52159d5845fd9b80555614297f2d3"
+    },
+    {
+      "path": "tests/unit/lib/script/source_loader/test_epub.py",
+      "line": 206,
+      "kind": "comment",
+      "text": "# One occurrence comes from injected \"# 起点\", the other from body <h1>.",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "92e9b5dea239d6108077aa4df4e75daa40e52159d5845fd9b80555614297f2d3"
+    },
+    {
+      "path": "tests/unit/lib/script/source_loader/test_loader.py",
+      "line": 37,
+      "kind": "comment",
+      "text": "# GBK encoding of \"第\".",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "16c01e36b146cd1bb2893b67a4af79123b06c78e9290802b37f38f55e38f0189"
+    },
+    {
+      "path": "tests/unit/lib/script/source_loader/test_txt.py",
+      "line": 10,
+      "kind": "comment",
+      "text": "# \"你好\"",
+      "classification": "Raw multilingual test input annotation",
+      "consumer": "GBK/UTF text-loader fixture; retain original sample.",
+      "current_file_sha256": "0fb9bed4a3875061c4e7cb1e6459f44905ed43f768fa187d3558e77bba417776"
+    },
+    {
+      "path": "tests/unit/lib/script/test_storyboard_mentions.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"Binding checks for storyboard visual-description ``@[登记名]`` mentions.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "75f488318e0a1e66e006fecf739aeaf9c80bf36d1bad8819a118553d565c456e"
+    },
+    {
+      "path": "tests/unit/lib/speech/test_speech_presentation.py",
+      "line": 107,
+      "kind": "comment",
+      "text": "# 甲。 = 2 units, 乙乙乙！ = 4, 丙丙？ = 3 (CJK punctuation counts as a unit).",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e01798dca9ee649de42635116708e9bc800b20d60a3975bf3310a5766798f3c3"
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_agent_access_policy.py",
+      "line": 440,
+      "kind": "docstring",
+      "text": "\"\"\"Deny both Read and Write for sensitive files; errors include \"敏感文件\".\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "8eccaa73bb5ac61c056be9029c39b5f3a10e8deb144459c36b2b99d4e8f85645"
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_agent_access_policy.py",
+      "line": 880,
+      "kind": "docstring",
+      "text": "\"\"\"On case-insensitive volumes, ``<仓库根>/PROJECTS`` is data root; repository-reference allowance must not admit case variants.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "8eccaa73bb5ac61c056be9029c39b5f3a10e8deb144459c36b2b99d4e8f85645"
+    },
+    {
+      "path": "tests/unit/server/agent_runtime/test_session_manager_sandbox.py",
+      "line": 64,
+      "kind": "docstring",
+      "text": "\"\"\"SessionManager resolves environment (ARCREEL_PROFILE_DIR / data_root arguments) and supplies resolved roots to AgentAccessPolicy. Denial must follow relocated data/profile directories, even outside the repository. Logs are at ``<数据根>/logs``; ARCREEL_LOG_DIR does not change denial scope.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "027e9f0a3e938c74c2bb1ad315eabfe09aeab3a68d2e39baa31f230864ed4d61"
+    },
+    {
+      "path": "tests/unit/server/routers/test_character_derivatives_router.py",
+      "line": 283,
+      "kind": "docstring",
+      "text": "\"\"\"Renaming is a cascade transaction: script ``@[角色/旧衍生名]`` references update accordingly (docs/adr/0072).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a2a6cbc45628e3e7d76171917ea9afee5eeca5d3e6c3a19cfadbbfa655055d2c"
+    },
+    {
+      "path": "tests/unit/server/routers/test_providers_api.py",
+      "line": 218,
+      "kind": "docstring",
+      "text": "\"\"\"One Chinese-display-name model (可灵 v3) and one pure-brand-name model (Kling 2.1).\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "70db2ce1f7cb405291fcc8758510d0f2b3411d00793ed55305db77a4c5b85e3a"
+    },
+    {
+      "path": "tests/unit/server/services/admission/test_video_batch_admission.py",
+      "line": 300,
+      "kind": "docstring",
+      "text": "\"\"\"A project with active artifact manifests: 张三's image is claimed by backfill; 李四's image exists with a registered path but was never claimed.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "a3880386d1debde5f5ee618cb414bb16939d9471b88e608628ab7d4f3bb9cedc"
+    },
+    {
+      "path": "tests/unit/server/services/tasks/test_reference_video_e2e.py",
+      "line": 242,
+      "kind": "docstring",
+      "text": "\"\"\"Delete scenes/酒馆.png; executor retains the projector's structured blocker.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "cbefd3c27528cb867b8452db6e4e28e614a5c8929de33f877c21e5f33bcca936"
+    },
+    {
+      "path": "tests/unit/test_instruction_terminology.py",
+      "line": 1,
+      "kind": "docstring",
+      "text": "\"\"\"Terminology drift defense: active Chinese copy calls `instructions` only “附加指令”.\n\nPreviously tool schemas, prompt headings, and subagent guidance used three names. Models infer\nargument semantics from copy, so inconsistent names make main/subagents interpret one input\ndifferently. Scan active backend/profile/frontend source and tests only; historical CHANGELOG,\ndocs/adr, and skill-optimization-workspace research retain original terminology and are excluded.\n\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e7d9fea4faceaebbde6f3d8293ccafaa270d80dff27910bc3feb083f3ecd4e97"
+    },
+    {
+      "path": "tests/unit/test_instruction_terminology.py",
+      "line": 38,
+      "kind": "docstring",
+      "text": "\"\"\"Report file/line for old labels; replace them with “附加指令” or unambiguous nonterm wording.\"\"\"",
+      "classification": "Preserved literal/example inside English explanatory prose",
+      "consumer": "Existing test input/output names, Chinese reference-marker grammar, historical prefix/path placeholder, unit label, locale terminology, or raw model/schema examples. Surrounding maintenance prose translated; executable scenario inputs remain exact.",
+      "current_file_sha256": "e7d9fea4faceaebbde6f3d8293ccafaa270d80dff27910bc3feb083f3ecd4e97"
+    }
+  ],
+  "standalone_annotations": "test-standalone-string-inventory.json + test-standalone-annotation-review.json",
+  "frozen_schema_occurrences": 9,
+  "frozen_note": "Seven Chinese-leading schema docs plus two already-English schema docs; every occurrence raw exact, including repeated class names.",
+  "global_AST_doctest_directive_proof": "internal-tests-passive-review.json",
+  "inline_literal_proof": "test-inline-literal-audit.json",
+  "coordinator_owned_consumer_proofs": [
+    "root-unit-server-doc-consumer-review.json",
+    "root-integration-doc-consumer-review.json",
+    "integration-project-tests-passive-proof.json",
+    "integration-router-tests-passive-proof.json"
+  ],
+  "executable_test_message_exceptions": "Chinese assertion/error message strings in helper implementations (e.g. tests/http_capture.py, tests/memory_db_guard.py) are executable test diagnostics outside passive-prose scope. They remain unchanged under candidate AST equality, together with all test IDs/inputs/assertions/snapshots."
+}

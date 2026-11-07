@@ -1,4 +1,4 @@
-"""Agent 工具测试共享的装配、替身与 helper；``fake_ctx`` 等 fixture 在 ``tests/integration/server/conftest.py``。"""
+"""Shared assembly, substitutes, and helpers for Agent-tool tests; fixtures such as ``fake_ctx`` live in ``tests/integration/server/conftest.py``."""
 
 from __future__ import annotations
 
@@ -56,9 +56,9 @@ def read_generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> Generation
 
 
 class ToolHarness:
-    """一次 Agent 工具调用的装配：会话项目、调用方与 ``Services``；项目管理器、能力解析器与队列可换成替身。
+    """Assembly for one Agent-tool call: session project, caller, and ``Services``; project manager, capability resolver, and queue are replaceable.
 
-    ``services`` 每次按当前属性重建，用例改了 ``config_resolver`` 等属性后下一次调用即生效。
+    ``services`` rebuilds from current attributes each time, so changes such as ``config_resolver`` affect the next call.
     """
 
     def __init__(
@@ -126,10 +126,10 @@ async def run_declared_tool(
     batch_waiter: BatchWaiter = batch_enqueue_and_wait,
     **collaborators: Any,
 ) -> ToolOutcome[Any]:
-    """经工具声明的共享入口（两宿主同一入口）调用，拿到 handler 的 ``ToolOutcome``。
+    """Call the shared declaration entry (identical for both hosts) and obtain the handler's ``ToolOutcome``.
 
-    ``declaration`` 可传声明或工具名；内嵌批次等待器随 caller 注入；``collaborators`` 作为 handler 的
-    关键字参数注入领域协作者替身。
+    ``declaration`` accepts a declaration or tool name; inject the embedded batch waiter through caller and
+    domain substitutes as handler keyword arguments through ``collaborators``.
     """
 
     if isinstance(declaration, str):
@@ -143,7 +143,7 @@ async def run_declared_tool(
 
 
 def said(outcome: ToolOutcome[Any]) -> str:
-    """结果的可读文本：失败时的 problem detail，文本生成的 message，其余为值的 JSON。"""
+    """Readable result: problem detail on failure, message for text generation, otherwise JSON of the value."""
 
     if outcome.problem is not None:
         return outcome.problem.detail
@@ -153,7 +153,7 @@ def said(outcome: ToolOutcome[Any]) -> str:
 
 
 def draft_of(outcome: ToolOutcome[Any]) -> dict[str, Any]:
-    """草稿工具成功时返回的草稿。"""
+    """The draft returned by a successful draft tool."""
 
     assert outcome.problem is None, outcome.problem
     assert isinstance(outcome.value, dict)
@@ -173,7 +173,7 @@ async def run_generate_videos(
     batch_waiter: BatchWaiter = batch_enqueue_and_wait,
     **arguments: Any,
 ) -> ToolOutcome[Any]:
-    """经 ``generate_videos`` 声明入口生成视频，拿到 handler 的 ``ToolOutcome``。"""
+    """Generate videos through the ``generate_videos`` declaration entry and obtain the handler's ``ToolOutcome``."""
 
     return await run_declared_tool(
         "generate_videos",
@@ -195,7 +195,7 @@ def fake_reference_projection(
     slot_for=None,
     calls: list[str] | None = None,
 ):
-    """Agent 工具测试用的 in-process request projection adapter。"""
+    """In-process request-projection adapter for Agent-tool tests."""
 
     async def _project(*, project, script, unit, options=None, **_kwargs):
         from lib.script.reference_video.request_projection import (
@@ -247,20 +247,20 @@ def fake_reference_projection(
 
 
 def fake_caps_resolver(**kwargs: Any) -> Any:
-    """构造假能力解析器（见 ``tests.fakes.FakeConfigResolver``）。
+    """Build a fake capability resolver (see ``tests.fakes.FakeConfigResolver``).
 
-    返回值按 ``Any`` 交出：注入点标注的是生产的 ``ConfigResolver``，替身只实现被调到的那几个
-    方法，逐个调用点写类型豁免不如在这唯一的构造点交出去。
+    Return ``Any``: injection points require production ``ConfigResolver`` but the substitute implements
+    only called methods. Adapt once at this constructor instead of suppressing types at each call site.
     """
     return FakeConfigResolver(**kwargs)
 
 
 def use_fake_caps(fake_ctx: ToolHarness, **kwargs: Any) -> Any:
-    """给这个会话装上假能力解析器并返回它。
+    """Install and return this session's fake capability resolver.
 
-    ``ToolHarness.config_resolver`` 经 ``Services.capabilities`` 透传给能力 dict 与图像能力的取值器（如
-    ``get_video_capabilities`` 的能力载荷、图生图能力闸）。时长档位与声音档不经它：那些读视频请求
-    事实，用例用 ``set_video_request_facts`` / ``video_request_facts`` 提供。
+    ``ToolHarness.config_resolver`` reaches capability-dict/image-capability readers through ``Services.capabilities``
+    (e.g. ``get_video_capabilities`` payloads and image-to-image gates). Duration/audio tiers instead read video-request
+    facts, supplied through ``set_video_request_facts`` / ``video_request_facts``.
     """
     resolver = fake_caps_resolver(**kwargs)
     fake_ctx.config_resolver = resolver
@@ -297,14 +297,14 @@ def reference_video_script(**overrides: Any) -> dict[str, Any]:
 
 
 def use_reference_route(fake_ctx: ToolHarness) -> None:
-    """把 fake 项目切到参考生视频——生成模式是项目级事实，剧本不携带戳。"""
+    """Switch the fake project to reference-video generation: generation mode is a project fact, not a script stamp."""
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
 
 def rv_generator_returning(
     units: list[dict], captured: dict[str, Any] | None = None, *, new_assets: list[dict] | None = None
 ):
-    """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
+    """Build fake TextGenerator.create returning specified flat units JSON, optionally capturing task_type / project_name."""
 
     class _FakeGenerator:
         async def generate(self, _request, project_name=None):
@@ -330,9 +330,9 @@ _RV_NOVEL = "张三在村口等人"
 
 
 def rv_project(fake_ctx: ToolHarness, generation_mode: str = "reference_video") -> None:
-    """把项目声明成参考生视频路径——草稿的拆分 / 晋升 / 阻塞判定都以此为前提。
+    """Declare the reference-video route, a prerequisite for draft splitting/promotion/blocking decisions.
 
-    盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
+    Synchronize disk project.json and pm memory: generation reads disk; promotion reads ``pm.load_project``.
     """
     fake_ctx.pm.project_payload["content_mode"] = "narration"
     fake_ctx.pm.project_payload["generation_mode"] = generation_mode
@@ -350,12 +350,12 @@ def rv_source(fake_ctx: ToolHarness) -> None:
 
 
 def rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
-    """script_plan 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 引用语法正文）。"""
+    """script_plan LLM output shape: flat duration + source anchor + reference-syntax text."""
     return {"duration_seconds": duration, "source_text": source_text, "text": text}
 
 
 def derived_reference_names(fake_ctx: ToolHarness, text: str) -> list[str]:
-    """正文 → 参考图名称：读侧的唯一派生入口，落盘不带 references。"""
+    """Text to reference-image names: the sole read-side derivation entry; persisted data has no references."""
     from lib.script.reference_video.text_parser import derive_references_from_text
 
     project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
@@ -401,14 +401,14 @@ async def promote_reference_draft(fake_ctx: ToolHarness, **caps_kwargs) -> ToolO
 
 
 def write_rv_script_plan(fake_ctx: ToolHarness, units: list[dict]) -> None:
-    """直接铺一份正式 script_plan（模拟上一轮拆分的落盘产物）。"""
+    """Lay out a formal script_plan directly, simulating the previous split round's persisted output."""
     path = rv_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"units": units}, ensure_ascii=False), encoding="utf-8")
 
 
 def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> dict:
-    """正式 script_plan 的落盘形状（正文 + 机器派生的 unit_id）。"""
+    """Persisted formal script_plan shape: text + machine-derived unit_id."""
     return {
         "unit_id": unit_id,
         "text": text,
@@ -435,7 +435,7 @@ def nr_source(fake_ctx: ToolHarness) -> None:
 def nr_generator_returning(
     segments: list[dict], captured: dict[str, Any] | None = None, *, new_assets: list[dict] | None = None
 ):
-    """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
+    """Build fake TextGenerator.create returning specified segments JSON, optionally capturing task_type / project_name."""
 
     class _FakeGenerator:
         async def generate(self, _request, project_name=None):
@@ -477,8 +477,9 @@ _DRAMA_NOVEL = "三年后，阿离回到山门。"
 
 
 def drama_project(fake_ctx: ToolHarness) -> None:
-    """把项目声明成 drama + 分镜图生视频，登记 ``drama_scene`` 引用的角色，并铺好源文——正式 script_plan
-    的写禁与草稿通道以此为前提。"""
+    """Declare drama + storyboard-image-to-video, register characters referenced by ``drama_scene``, and prepare source text;
+    formal script_plan write prohibitions and draft channels depend on this.
+    """
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(
             {

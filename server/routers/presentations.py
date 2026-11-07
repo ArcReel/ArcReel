@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
-# fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
+# FastAPI reexports plural BackgroundTasks only; the singular version comes from Starlette.
 from starlette.background import BackgroundTask
 
 from lib.infra.api_errors import ApiError
@@ -41,7 +41,7 @@ PresentationBundleServiceDep = Annotated[PresentationBundleService, Depends(get_
 
 
 def _cleanup_bundle(path: str) -> None:
-    shutil.rmtree(Path(path).parent, ignore_errors=True)  # hard-delete: temp -- 导出包的临时目录
+    shutil.rmtree(Path(path).parent, ignore_errors=True)  # hard-delete: temp -- Export-package temporary directory
 
 
 @router.get("/projects/{project_name}/presentations/{resource_type}/{resource_id}/bundle")

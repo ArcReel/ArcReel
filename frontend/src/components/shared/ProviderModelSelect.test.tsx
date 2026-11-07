@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
 import { ProviderModelSelect } from "./ProviderModelSelect";
 
-/** 弹层异步打开：点击触发按钮后等列表出现再查询。 */
+/** Popovers open asynchronously; click triggers and wait for lists before querying. */
 async function open(user: ReturnType<typeof userEvent.setup>, trigger = screen.getAllByRole("combobox")[0]) {
   await user.click(trigger);
   await screen.findByRole("listbox");
@@ -58,8 +58,8 @@ describe("ProviderModelSelect – trigger display", () => {
   });
 
   it("shows the provider name for a bare provider id carrying no model", () => {
-    // 后端接受不带 model 的裸 provider id（下游按该供应商默认模型执行）；按 provider/model
-    // 硬拆会把触发按钮显示成空的「 · 」，用户看不出这项其实已配置
+    // Backends accept bare provider IDs without models (downstream uses provider defaults); hard-splitting provider/model
+    // would show empty " · " triggers, hiding existing configuration from users.
     render(
       <ProviderModelSelect
         value="ark"
@@ -321,7 +321,7 @@ describe("ProviderModelSelect – model display names", () => {
 
     await open(user, trigger);
     const option = screen.getByRole("option", { name: /Seedance 1\.5 Pro/ });
-    // model id 仍在选项行内可辨识——同名译名下用户靠它区分具体条目
+    // Model IDs remain recognizable in rows, distinguishing entries sharing translated names.
     expect(option).toHaveTextContent("seedance");
   });
 
@@ -337,7 +337,7 @@ describe("ProviderModelSelect – model display names", () => {
       />,
     );
     await open(user);
-    // 无译名时不补第二行，否则同一串 id 会重复出现两遍
+    // Without translations, omit second lines to avoid repeating identical IDs.
     expect(screen.getByRole("option", { name: /seedance/ })).toHaveTextContent(/^seedance$/);
   });
 

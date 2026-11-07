@@ -5,14 +5,14 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { ENQUEUE_METHODS } from "../eslint.config.js";
 
-// 入队类方法以 api.ts 上的 JSDoc `@enqueue` 标记识别（返回类型不统一，无法按类型推断）。
-// 该集合必须与 eslint.config.js 的 ENQUEUE_METHODS 完全相同，否则漏登记的方法可被组件直调。
+// Identify enqueue methods through api.ts JSDoc `@enqueue`, since heterogeneous returns prevent type inference.
+// Sets must exactly match eslint.config.js ENQUEUE_METHODS, or unregistered methods become directly callable by components.
 function taggedEnqueueMethods(): string[] {
   const path = resolve(process.cwd(), "src/api.ts");
   const sf = ts.createSourceFile("api.ts", readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
   const names: string[] = [];
   sf.forEachChild(function visit(node) {
-    // 箭头函数属性（`static foo = async () => …`）也算方法定义，否则改写形态后会被静默漏掉
+    // Arrow properties (`static foo = async () => …`) also count as methods, preventing silent omissions after syntax changes.
     const isMethod = ts.isMethodDeclaration(node) || ts.isPropertyDeclaration(node);
     if (isMethod && ts.getJSDocTags(node).some((t) => t.tagName.text === "enqueue")) {
       names.push(node.name.getText(sf));

@@ -1,4 +1,4 @@
-"""/health 端点：返回镜像构建 commit，供部署实例确认运行版本。"""
+"""/health returns image-build commits so deployments can confirm runtime versions."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 def app_client():
     from server.app import app
 
-    # 不进入 with，不跑 lifespan：/health 不依赖启动期的数据库与运行时目录
+    # Avoid with/lifespan; /health needs no startup DB/runtime directories.
     return TestClient(app)
 
 
@@ -31,7 +31,7 @@ def test_health_commit_is_null_when_run_from_source(app_client, monkeypatch):
 
 
 def test_health_commit_is_null_when_image_built_without_commit(app_client, monkeypatch):
-    # Dockerfile 未传 BUILD_COMMIT 时，ENV 得到空串
+    # Without Dockerfile BUILD_COMMIT, ENV is empty.
     monkeypatch.setenv("ARCREEL_BUILD_COMMIT", "")
 
     assert app_client.get("/health").json()["commit"] is None

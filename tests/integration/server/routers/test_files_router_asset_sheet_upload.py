@@ -1,4 +1,4 @@
-"""资产图上传即成品：清单按上传本身认领，时效不随描述与画风变化；每次提交是一个独立的内容版本。"""
+"""Uploaded asset images are finished outputs; claims depend on uploads, not descriptions/styles; every submission is independent content versions."""
 
 import hashlib
 from pathlib import Path

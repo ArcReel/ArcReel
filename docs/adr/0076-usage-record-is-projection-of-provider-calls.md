@@ -2,10 +2,10 @@
 status: accepted
 ---
 
-# 使用记录是供应商调用的投影，任务与调用为一对多
+# Usage records project provider calls; tasks have one-to-many calls
 
-「使用记录」页面要把排队中 / 进行中的生成任务与已结束的供应商调用放进同一条时间线，直觉做法是让两者共用一个存储实体：要么在任务入队时就开一条 `api_calls` 行，要么在读侧把两表拼成带复合主键的统一行。我们决定两者都不做：`api_calls` 只记录真实发生过的对外请求（费用与用量的最小单位，经可空 `task_id` 指向它服务的任务，经 `purpose` 说明来源），`tasks` 只负责意图与调度，「使用记录」是读模型而非实体。进行中区由任务提供、终态记录由调用提供，两者在前端拼成一列，各自保留自己的状态词汇与刷新机制。
+The usage page combines queued/running tasks and completed provider calls in one timeline. Intuitive shared-storage approaches create `api_calls` at enqueue or join tables into composite-key rows. Reject both: `api_calls` records only actual external requests, the smallest cost/usage unit, with nullable `task_id` linking served tasks and `purpose` recording origin. `tasks` owns intent and scheduling; usage records are a read model, not an entity. Tasks supply in-progress rows, calls terminal rows, and frontend combines them in one column while retaining each state's vocabulary/refresh mechanism.
 
-理由：钱按请求花，不按意图花；一个任务未来会对应多次调用（真实重试、参考生视频多单元），把记录焊在任务上等于断言一对一，并让账本出现从未请求过供应商的「排队即取消」行。读侧统一行则需要复合主键和「进行中区特例」，是在给写侧缺陷打补丁。
+Money is spent per request, not intent. Tasks may have multiple calls (real retries, multi-unit reference video); welding records to tasks asserts one-to-one and records queued cancellations that never called providers. Unified read rows need composite keys and in-progress exceptions, patching a write-side defect.
 
-后果：`api_calls` 需补 `task_id`、`purpose`、`session_id` 并让文本调用透传 `user_id`；`tasks.payload_json.api_call_id` 由 `api_calls.task_id` 取代；调用状态增加 `cancelled` 以免用户取消被计为失败。
+Consequences: add `task_id`, `purpose`, and `session_id` to `api_calls`, and forward `user_id` through text calls. `api_calls.task_id` replaces `tasks.payload_json.api_call_id`. Add `cancelled` call status so user cancellations do not count as failures.

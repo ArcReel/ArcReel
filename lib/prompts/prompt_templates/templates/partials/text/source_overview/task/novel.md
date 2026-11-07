@@ -1,1 +1,1 @@
-请分析以下小说内容，提取关键信息：
+Analyze the following novel content and extract key information:

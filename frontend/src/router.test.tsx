@@ -53,14 +53,14 @@ describe("AppRoutes", () => {
   beforeEach(() => {
     resetStores();
     useAuthStore.setState({ isAuthenticated: true, isLoading: false });
-    // ConfigStatusLoader 在 AppRoutes 中始终挂载；预置 initialized 让其 fetch() 短路，
-    // 路由测试无需关心配置状态，也避免触发未 mock 的供应商接口与退避重试。
+    // ConfigStatusLoader always mounts in AppRoutes; initialized prestate short-circuits fetch(),
+    // leaving configuration states outside router tests and avoiding unmocked provider APIs/backoff.
     useConfigStatusStore.setState({ initialized: true });
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
-    // 个别用例切到 fake timers,统一还原,避免污染其它用例。
+    // Some cases use fake timers; restore consistently to avoid cross-case contamination.
     vi.useRealTimers();
   });
 
@@ -80,7 +80,7 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/app/projects");
   });
 
-  // 旧的 lorebook、clues 入口已移除且不重定向；项目内未注册的子路径保留工作区外壳，空状态由画布显示。
+  // Removed lorebook/clues entries have no redirects; unregistered project subpaths retain workspace shells with canvas empty states.
   it.each(["/app/projects/demo/lorebook", "/app/projects/demo/clues", "/app/projects/demo/unknown/"])(
     "keeps the workspace shell for the unregistered workspace path %s",
     async (path) => {
@@ -155,8 +155,8 @@ describe("AppRoutes", () => {
   });
 
   it("切换界面语言不重跑真实项目的加载", async () => {
-    // 回归：演示项目的常量随 `t` 重灌，但这条依赖不能落到真实项目的加载 effect 上——
-    // 否则切语言会先清空 store 闪一次空态，还连带清掉 Agent 会话状态。
+    // Regression: demo-project constants refresh with `t`, but must not enter real-project loading-effect dependencies;
+    // otherwise language changes clear stores/flash empty states and erase Agent sessions.
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo Project",
@@ -212,9 +212,9 @@ describe("AppRoutes", () => {
       (_name, options) =>
         new Promise((_resolve, reject) => {
           capturedSignal = options?.signal;
-          // 模拟真实 fetch + AbortSignal 语义：abort 后 reject，而不是永久悬挂——
-          // 否则 refreshProject 的共享「在途」标志会被这条请求永久卡住，污染同一
-          // 文件里排在后面的用例（它们的 refreshProject 调用会被无限期排队）。
+          // Simulate real fetch/AbortSignal: abort rejects instead of hanging forever,
+          // otherwise shared refreshProject pending flags stay permanently occupied, contaminating subsequent same-file
+          // cases by indefinitely queuing refreshProject calls.
           options?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
         }),
     );
@@ -228,9 +228,9 @@ describe("AppRoutes", () => {
   });
 
   it("快速切换项目：旧项目的迟到响应不覆盖新项目的首屏数据", async () => {
-    // 回归：首屏加载收编进 refreshProject 的取消域后，A → B 快速切换时 A 的响应可能
-    // 在切换完成之后才落定（abort 与响应落定同为异步，响应先到时网络层不会 reject）。
-    // 它既不该写回 currentProject，也不该让 B 自己的首屏加载失踪或停在加载态。
+    // Regression: initial loads now share refreshProject cancellation domains; rapid A→B switches may leave A responses
+    // settling after switches (abort/response settlement are async; response-first network layers do not reject).
+    // A must neither write currentProject nor lose/stall B initial loads.
     let resolveA!: (value: Awaited<ReturnType<typeof API.getProject>>) => void;
     const pendingA = new Promise<Awaited<ReturnType<typeof API.getProject>>>((res) => {
       resolveA = res;
@@ -241,8 +241,8 @@ describe("AppRoutes", () => {
         : Promise.resolve({ project: { title: "B-数据" } as never, scripts: {} }),
     );
 
-    // 只看最终态不足以证伪「迟到覆盖」——A 的数据即便写进去了，也会被随后跑完的 B 盖回
-    // 去。订阅整段过程，断言 A 的数据一次都没有落进 store。
+    // Final states alone cannot refute late overwrites; even wrongly written A data could later be overwritten by B.
+    // Subscribe throughout and assert A data never enters stores.
     const seenTitles: Array<string | undefined> = [];
     const unsubscribe = useProjectsStore.subscribe((s) =>
       seenTitles.push(s.currentProjectData?.title),
@@ -259,7 +259,7 @@ describe("AppRoutes", () => {
     });
 
     act(() => navigate("/app/projects/B"));
-    // 切换完成后 A 的响应才落定
+    // A responses settle after switches complete.
     await act(async () => {
       resolveA({ project: { title: "A-迟到数据" } as never, scripts: {} });
       await pendingA;
@@ -269,7 +269,7 @@ describe("AppRoutes", () => {
       const s = useProjectsStore.getState();
       expect(s.currentProjectName).toBe("B");
       expect(s.currentProjectData?.title).toBe("B-数据");
-      // B 的首屏加载正常收口，不因 A 占着在途/排队名额而停在加载态
+      // B initial loads finish normally without A occupying pending/queue slots and leaving Loading.
       expect(s.projectDetailLoading).toBe(false);
     });
     unsubscribe();
@@ -293,8 +293,8 @@ describe("AppRoutes", () => {
   it("redirects unauthenticated nested project URL to top-level /login", async () => {
     useAuthStore.setState({ isAuthenticated: false, isLoading: false });
     renderAt("/app/projects/demo");
-    // 回归：AuthGuard 渲染在 nest 路由内，相对的 /login 会被拼成
-    // /app/projects/demo/login（无匹配 → 404）；用 ~/login 绝对路径才落到 /login。
+    // Regression: AuthGuard renders in nested routes; relative /login becomes
+    // /app/projects/demo/login (unmatched 404); absolute ~/login reaches /login.
     expect(await screen.findByTestId("login-page")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "页面未找到" })).not.toBeInTheDocument();
   });
@@ -318,24 +318,24 @@ describe("AppRoutes", () => {
 
   it("ConfigStatusLoader 挂载后拉取配置状态,未初始化时按退避重试", async () => {
     vi.useFakeTimers();
-    // 从未初始化起步,让根级 ConfigStatusLoader 真正执行 fetch/重试逻辑
+    // Start uninitialized so root ConfigStatusLoader exercises actual fetch/retry logic.
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    // 让配置拉取失败 → store 保持未初始化 → loader 按退避重试
+    // Failed config fetching keeps stores uninitialized, making loaders retry with backoff.
     vi.spyOn(API, "getProviders").mockRejectedValue(new Error("backend not ready"));
     vi.spyOn(API, "listCustomProviders").mockRejectedValue(new Error("backend not ready"));
     vi.spyOn(API, "getSystemConfig").mockRejectedValue(new Error("backend not ready"));
 
     renderAt("/app/projects");
 
-    // 挂载即首次拉取
+    // Initial fetch on mount.
     await vi.advanceTimersByTimeAsync(0);
     expect(API.getProviders).toHaveBeenCalledTimes(1);
 
-    // 第一次退避重试(800ms)
+    // First backoff retry (800ms).
     await vi.advanceTimersByTimeAsync(800);
     expect(API.getProviders).toHaveBeenCalledTimes(2);
 
-    // 第二次退避重试(再 1600ms)
+    // Second backoff retry (after 1600ms).
     await vi.advanceTimersByTimeAsync(1600);
     expect(API.getProviders).toHaveBeenCalledTimes(3);
   });

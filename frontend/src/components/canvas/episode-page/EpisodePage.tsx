@@ -41,11 +41,11 @@ import { EpisodePageHeader } from "./EpisodePageHeader";
 import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
 import { StorySettingView } from "./StorySettingView";
 
-// 剪辑视图（时间线播放器与轨道）只在切到「剪辑」时用到，按需拉取
+// Editing timeline player/tracks are used only in editing view; load on demand.
 const EditTimelineView = lazyNamed(() => import("@/components/canvas/edit/EditTimelineView"), "EditTimelineView");
 
 export interface EpisodeViewChangeOptions {
-  /** 替换当前历史记录而不是新增一条：程序触发的切换（如跳到某个单元）用它，后退不必多退一步。 */
+  /** Replace history instead of pushing: programmatic navigation such as unit jumps should not add a back step. */
   replace?: boolean;
 }
 
@@ -55,11 +55,11 @@ export interface EpisodeCanvasContext {
 }
 
 /**
- * 一集的页面：两行页头（集头、制作进度、视图 tab 与动作插槽）与下方的视图区。
+ * Episode page: two header rows (episode head, progress, view tabs/action slots), then the view region.
  *
- * 视图记在地址的 `?view=` 上（见 `episode-view.ts`）。脚本规划、多宫格分镜图与分镜三个视图由同一个画布承担，
- * 切换时画布不卸载；画布里的编辑单元只挂在某一个视图下，经 `EpisodeViewFactsProvider` 判断哪些跳转会卸载自己。
- * 故事设定（只在广告项目出现）与剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
+ * URL `?view=` stores views (see `episode-view.ts`). Script planning/grids/storyboards share one canvas,
+ * retained across switches. Canvas editing units mount only in certain views; `EpisodeViewFactsProvider` determines unmounting navigation.
+ * Story settings (ads only) and editing replace the whole canvas. Before script generation, planning shows source confirmation.
  */
 function EpisodePageContent({
   projectName,
@@ -75,15 +75,15 @@ function EpisodePageContent({
   projectName: string;
   episode: number;
   projectData: ProjectData | null;
-  /** 本集的正式剧本；还没有时为 null。 */
+  /** Formal episode script, null before it exists. */
   script: EpisodeScript | null;
-  /** 演示项目：只读，没有制作进度与剪辑视图。 */
+  /** Demo projects: read-only, without production progress/editing view. */
   demo: boolean;
-  /** 保存集标题；reject 时标题保持编辑态。 */
+  /** Save episode title; rejection preserves title editing. */
   onSaveTitle: (title: string) => Promise<void>;
-  /** 制作进度里「查看」某个单元。 */
+  /** View a unit from production progress. */
   onViewUnit: (unitId: string) => void;
-  /** 制作进度里重生某一步的指定单元；不传时只给「查看」。 */
+  /** Regenerate a specified step's units from production progress; omitted means view-only. */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
   renderCanvas: (context: EpisodeCanvasContext) => ReactNode;
 }) {
@@ -105,7 +105,7 @@ function EpisodePageContent({
   const tabs = useMemo(() => episodeViewTabs(facts), [facts]);
   const view = resolveEpisodeView(searchParams.get(EPISODE_VIEW_PARAM), facts);
 
-  // 切到不可选的视图不生效；切到当前视图不写历史。
+  // Unavailable view switches do nothing; selecting the current view writes no history.
   const changeView = useCallback(
     (next: EpisodeView, options?: EpisodeViewChangeOptions) => {
       if (next === view || !tabs.some((tab) => tab.view === next && !tab.disabled)) return;
@@ -114,8 +114,8 @@ function EpisodePageContent({
     [view, tabs, facts, setSearchParams],
   );
 
-  // 制作进度里的「查看」：分镜与视频单元只在分镜视图里选得中。不在该视图时，切视图与定位合成一次离开拦截，
-  // 放行后才发出定位请求；选择继续编辑时什么都不变，也不留下等分镜视图挂载后才消费的定位。
+  // Progress view actions select shots/units only in storyboard view. When elsewhere, combine view switch/location into one leave guard;
+  // issue positioning only after approval. Continuing editing changes nothing and leaves no pending positioning for later view mounting.
   const confirmLeave = useConfirmLeave();
   const viewUnit = useCallback(
     (unitId: string) => {
@@ -134,7 +134,7 @@ function EpisodePageContent({
   useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => changeView("plan"));
   useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => changeView("board"));
 
-  // 页头的预估费用读费用估算；演示项目由费用表自己清空。
+  // Header estimated costs use cost estimates; demo cost tables clear themselves.
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
   useEffect(() => {
     debouncedFetch(projectName);
@@ -158,7 +158,7 @@ function EpisodePageContent({
           aspect={previewAspect(projectData)}
           ttsNarration={ttsNarration}
           renderActions={({ timelineId, timelineName, issues, showIssues }) =>
-            // 读取完成前不知道有没有阻断级 issue，先不给出片入口。
+            // Before reads complete, blocking-issue presence is unknown; omit render entry.
             issues === null ? null : (
               <EpisodeHeaderActions>
                 <RenderButton
@@ -197,7 +197,7 @@ function EpisodePageContent({
       <div className="flex min-h-0 flex-1 flex-col">
         <EpisodePageHeader
           head={
-            // 换集时重置：编辑到一半的标题草稿与删除确认不能带到另一集
+            // Reset on episode changes: partial title drafts/deletion confirmations must not carry across episodes.
             <EpisodeHead
               key={`${projectName}::${episode}`}
               projectName={projectName}
@@ -210,7 +210,7 @@ function EpisodePageContent({
             />
           }
           progress={
-            // 演示态没有真实项目事实可投影，制作进度不挂载。
+            // Demo mode has no real project facts to project; do not mount production progress.
             demo ? null : (
               <WorkflowPanel
                 projectName={projectName}
@@ -252,7 +252,7 @@ function EpisodePageContent({
   );
 }
 
-/** 保留的是可见集页；原文编辑期间脚本到达，不让异步事件卸载编辑器。 */
+/** Retain the visible episode page: asynchronous script arrival during source editing must not unmount editors. */
 export function EpisodePage(props: Parameters<typeof EpisodePageContent>[0]) {
   const { t } = useTranslation("dashboard");
   const meta = props.projectData?.episodes?.find((entry) => entry.episode === props.episode);

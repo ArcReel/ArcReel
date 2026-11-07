@@ -1,4 +1,4 @@
-"""媒体探测接口：对随包 ffmpeg 现场合成的素材断言容器格式、流与时长。"""
+"""Media probe interface: assert container formats, streams, and durations of media synthesized with bundled ffmpeg."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def test_video_with_longer_audio_tail_reports_each_stream(tmp_path: Path):
     [
         ("tone.wav", ("-c:a", "pcm_s16le"), "wav", "pcm_s16le", 1e-6),
         ("tone.m4a", ("-c:a", "aac"), "m4a", "aac", 1e-6),
-        # mp3 末尾的编码器填充只在解码时裁掉，逐包时长最多多出一帧（1152 采样）。
+        # Encoder padding at the mp3 end is trimmed only during decoding; packet-based duration can exceed it by at most one frame (1152 samples).
         ("tone.mp3", ("-c:a", "libmp3lame"), "mp3", "mp3", 1152 / 44100),
     ],
 )
@@ -72,7 +72,7 @@ async def test_missing_file_raises(tmp_path: Path):
 
 
 async def test_input_is_restricted_to_local_files(tmp_path: Path):
-    """媒体可能嵌套 HLS/RTMP 等播放列表引用；探测必须把输入协议限定为 file，防 SSRF。"""
+    """Media may nest HLS/RTMP playlist references; restrict probe input protocols to file to prevent SSRF."""
     path = _sine(tmp_path / "tone.wav", 1.0, "-c:a", "pcm_s16le")
     calls: list[tuple[object, ...]] = []
     orig_exec = asyncio.create_subprocess_exec

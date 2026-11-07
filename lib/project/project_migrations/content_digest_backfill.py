@@ -1,12 +1,11 @@
-"""v17→v18 的内容指纹补录：给存量视频与配音记下产物自身的内容指纹（``docs/adr/0062``）。
+"""v17→v18 content-fingerprint backfill for existing video/narration artifacts (``docs/adr/0062``).
 
-v18 起视频与音频产物登记时，清单条目记下正式文件的内容事实（指纹、字节数、纳秒 mtime），版本记录
-记下快照的指纹。存量产物在这一步补录：已登记条目的正式文件与选中版本快照各取一次指纹，两者一致才
-同时写入版本记录与清单条目；读不出、不一致或找不到选中快照的不补录，判定与补录前相同。
+From v18, registrations store formal-file facts (digest, size, nanosecond mtime), while history stores
+snapshot digests. Hash registered formal files and selected snapshots once; only matching pairs update
+both history/manifests. Unreadable/mismatched/missing selected snapshots stay unchanged, preserving prior decisions.
 
-这一步跑在缺口补录之后，规划器刚对同一批文件取过指纹，按 stat 标识命中进程内摘要缓存，不再读第二遍。
-字节数与 mtime 取自取指纹时打开的那个描述符。
-"""
+Run after gap backfill: planners just hashed the same files, so stat identities hit process digest caches
+without rereading. Size/mtime come from the same opened descriptor used for hashing."""
 
 from __future__ import annotations
 
@@ -31,10 +30,9 @@ from lib.project.resource_paths import resource_relative_path
 
 
 def backfill_content_digests(project_dir: Path) -> None:
-    """补录已登记视频与配音的内容指纹。调用方持有项目元数据锁，并已在改写前备份清单与版本记录。
+    """Backfill registered video/narration fingerprints. Callers hold metadata locks and already backed up manifests/history.
 
-    先写版本记录、再提交清单；清单提交失败时把版本记录写回改写前的字节，重跑从头再来。
-    """
+    Write history before committing manifests; failed manifest commits restore original history bytes, letting retries restart."""
 
     project_dir = Path(project_dir)
     versions_path = project_dir / "versions" / "versions.json"
@@ -79,7 +77,7 @@ def backfill_content_digests(project_dir: Path) -> None:
         atomic_write_json(versions_path, versions)
     try:
         expected = {key: stored[key] for key in proven}
-        # 没写入也可能是上一次中断的重跑已经写过同样的事实；只有清单真被改动过才算冲突。
+        # No write may mean an interrupted previous run already stored identical facts; only actual manifest changes count as conflicts.
         if not adapter.replace_entries_if_matches_atomically(
             expected=expected, replacements=proven
         ) and not same_entry_records({key: adapter.get_entry(key) for key in proven}, proven):
@@ -91,7 +89,7 @@ def backfill_content_digests(project_dir: Path) -> None:
 
 
 def _resource_type(key: ArtifactKey, artifact_path: str) -> str | None:
-    """条目所属的版本资源类型：配音固定为 audio；视频按规范路径区分分镜视频与参考视频。"""
+    """History resource type: narration is audio; canonical video paths distinguish storyboard/reference video."""
 
     resource_id = str(key.components[1])
     candidates = ("audio",) if key.kind is ArtifactKind.EPISODE_AUDIO else ("videos", "reference_videos")

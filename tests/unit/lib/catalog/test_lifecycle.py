@@ -1,4 +1,4 @@
-"""目录读模型的生命周期：按当天日期（UTC）推出状态，候选、默认模型与调用随日期变化，不依赖同步。"""
+"""Catalog lifecycle derives UTC-today status; candidates/defaults/invocation change with dates, without syncing."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ _CATALOG = {
         _image("img-lite", shutdown_date=SHUTDOWN.isoformat(), successor="acme/img-pro"),
         _image("img-pro"),
         _image("img-old", discontinued=True),
-        # 只在本地保留、已不在任何清单里的条目
+        # Locally retained entry absent from every listing.
         _image("img-gone", shutdown_date="2026-01-31", successor="acme/img-pro"),
     ],
     "builtin_providers": {
@@ -51,13 +51,13 @@ _CATALOG = {
 
 @pytest.fixture
 def lifecycle_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
-    # 构建侧的严格校验不许默认模型带关停日期；实例侧读入照常，这里正好模拟默认模型到期的情形。
+    # Build validation disallows shutdown dates on defaults; instance reads allow them, simulating default expiration.
     install_catalog(monkeypatch, parse_catalog(_CATALOG))
 
 
 @pytest.fixture
 def today(monkeypatch: pytest.MonkeyPatch):
-    """注入时钟：返回一个设定「今天」的函数。"""
+    """Injected clock returns a function representing configured today."""
 
     def _set(day: date) -> None:
         set_catalog_today(monkeypatch, day)
@@ -76,9 +76,9 @@ class TestEntryLifecycle:
     @pytest.mark.parametrize(
         ("day", "status"),
         [
-            (date(2026, 11, 23), "retiring"),  # 关停日期在未来
-            (SHUTDOWN, "discontinued"),  # 关停当天即下线
-            (date(2026, 11, 25), "discontinued"),  # 关停日期已过
+            (date(2026, 11, 23), "retiring"),  # Future shutdown date.
+            (SHUTDOWN, "discontinued"),  # Delist on shutdown day itself.
+            (date(2026, 11, 25), "discontinued"),  # Shutdown date has passed.
         ],
     )
     def test_status_follows_the_shutdown_date(self, day, status):
@@ -94,7 +94,7 @@ class TestEntryLifecycle:
 
 @pytest.mark.usefixtures("lifecycle_catalog")
 class TestCrossingTheShutdownDate:
-    """同一进程、同一份目录、没有同步：从关停前一天跨到当天，候选、默认模型与调用立即随之变化。"""
+    """Same process/catalog without sync: crossing into shutdown day immediately changes candidates/defaults/invocation."""
 
     def test_candidates_default_and_call_change_on_the_shutdown_day(self, today):
         today(date(2026, 11, 23))
@@ -106,7 +106,7 @@ class TestCrossingTheShutdownDate:
 
         today(SHUTDOWN)
         assert "img-lite" in disabled_without_state("acme")
-        # 默认模型已下线：按没有指定默认模型处理，不换成别的模型
+        # Delisted default acts as unspecified; do not substitute another model.
         assert catalog.default_model("acme", "image") is None
         with pytest.raises(ModelDiscontinuedError) as excinfo:
             catalog.require_callable("acme", "img-lite", "image")
@@ -114,7 +114,7 @@ class TestCrossingTheShutdownDate:
             "model_discontinued",
             {"provider": "acme", "model": "img-lite", "shutdown_date": "2026-11-24", "successor": "acme/img-pro"},
         )
-        # 仍在供应商模型列表里，标明状态
+        # Still present in provider listings, with status.
         view = next(v for v in catalog.provider_models("acme") if v.model_id == "img-lite")
         assert (view.lifecycle.status, view.model.hidden, view.model.default) == ("discontinued", True, False)
 
@@ -124,7 +124,7 @@ class TestCrossingTheShutdownDate:
             catalog.require_callable("acme", "img-gone", "image")
         assert excinfo.value.params["shutdown_date"] == "2026-01-31"
         assert excinfo.value.params["successor"] == "acme/img-pro"
-        # 本地也没有条目的引用：只说不在清单里、请重新选择
+        # Reference lacks even a local entry: report unlisted and ask reselection.
         with pytest.raises(ModelNotInCatalogError) as excinfo:
             catalog.require_callable("acme", "img-unknown", "image")
         assert excinfo.value.code == "model_not_in_provider_catalog"

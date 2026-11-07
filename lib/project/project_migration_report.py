@@ -91,7 +91,7 @@ class MigrationSkippedArtifact(BaseModel):
 
 
 def skipped_artifact_identity(key: ArtifactKey) -> SkippedArtifactIdentity:
-    """一件产物在迁移报告里的身份：产物种类、集号（项目级产物为空）与资源 id。"""
+    """Artifact report identity: kind, episode number (empty for project-level artifacts), and resource ID."""
 
     episode = key.components[0]
     return (key.kind.value, episode if type(episode) is int else None, str(key.components[-1]))
@@ -231,14 +231,14 @@ def build_migration_report(
     )
 
 
-#: 以剧本条目 id 为资源 id 的产物种类：条目需要重新规划时，它们不进报告。
+#: Artifact types using item IDs as resource IDs; omit when items need replanning.
 _UNIT_ARTIFACT_KINDS = frozenset(
     {ArtifactKind.EPISODE_STORYBOARD.value, ArtifactKind.EPISODE_VIDEO.value, ArtifactKind.EPISODE_AUDIO.value}
 )
 
 
 def _units_needing_replan(project_dir: Path) -> frozenset[tuple[int, str]]:
-    """绑定剧本里带 ``needs_replan`` 标记的条目，按（集号, 条目 id）。读不出的剧本不贡献条目。"""
+    """Bound-script ``needs_replan`` items by (episode, item ID); unreadable scripts contribute none."""
 
     try:
         project = json.loads((project_dir / "project.json").read_bytes())
@@ -260,7 +260,7 @@ def _units_needing_replan(project_dir: Path) -> frozenset[tuple[int, str]]:
         except (OSError, ValueError):
             continue
         if not isinstance(script, dict):
-            # 根不是对象的剧本同样读不出：迁移链失败时这里正为它写未完成的报告，不能盖过链本身的失败。
+            # Nonobject-root scripts are unreadable too: incomplete-report writes for failed migrations must not mask the original failure.
             continue
         try:
             items, id_field, _kind = resolve_items(script)
@@ -277,10 +277,9 @@ def _units_needing_replan(project_dir: Path) -> frozenset[tuple[int, str]]:
 def write_migration_report(project_dir: Path, report: MigrationReport) -> None:
     """Persist the report, replacing any earlier one. Raises when it cannot be written.
 
-    「未能带入」只收读不出的文件与没有合成设置记录的旧版旁白音频（``category`` 非空）；依据算不出
-    的跳过与需要重新规划的条目的产物在这里统一去掉（ADR 0098）。迁移链与归档导入的报告都经过
-    这里，不靠各条跳过路径各自记得。
-    """
+    Not-carried-over includes only unreadable files/legacy narration lacking synthesis settings (nonempty
+    ``category``). Centrally remove uncomputable-basis skips and artifacts of replan-needed items
+    (ADR 0098). Migration/archive reports both pass here, without relying on individual skip paths remembering."""
 
     replan = _units_needing_replan(project_dir)
     kept = [
@@ -385,7 +384,7 @@ def extend_migration_report(
     earlier report does not cover them.
     """
 
-    # 依据算不出的跳过不给用户看，并进来也会在写盘时去掉；先滤掉，免得它让已确认的报告重新出现。
+    # Hide uncomputable-basis skips (persistence would remove them anyway); prefilter so they do not resurrect approved reports.
     skipped = [item for item in skipped if item.category is not None]
     report = load_migration_report(project_dir)
     if report is None:

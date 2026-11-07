@@ -1,8 +1,6 @@
-"""任务终态经 project_events 通道发布的测试。
+"""Task terminal events through project_events.
 
-覆盖两层：`build_task_terminal_change` 的纯转换，以及 GenerationQueue 各终态入口
-（成功 / 失败 / 取消 / 批量取消 / 级联失败）落库后是否把事件发上 batch 总线。
-"""
+Cover pure `build_task_terminal_change` conversion and GenerationQueue terminal entry points (success / failure / cancellation / batch cancellation / cascade failure) publishing batch events after persistence."""
 
 from contextlib import asynccontextmanager
 
@@ -20,7 +18,7 @@ async def queue(db_factory):
 
 @pytest.fixture
 def captured_batches():
-    """收集本测试期间发上 batch 总线的 (project_name, changes)。"""
+    """Collect (project_name, changes) published on the batch bus during this test."""
     batches: list[tuple[str, list[dict]]] = []
 
     def listener(project_name, _source, changes):
@@ -32,10 +30,9 @@ def captured_batches():
 
 
 def _commit_failing_factory(factory):
-    """代理真实 session factory，只把 ``commit`` 换成抛错，其余读写照常落到真实库。
+    """Proxy real session factories, replacing only ``commit`` with failure while reads/writes use the real DB.
 
-    故障因此正好卡在「终态已收集、事务未提交」这一窗口；会话退出时真实事务照常回滚。
-    """
+    Fail exactly after terminal events are collected but before transaction commit; real session exit rolls back normally."""
 
     class _CommitFails:
         def __init__(self, session):
@@ -56,7 +53,7 @@ def _commit_failing_factory(factory):
 
 
 def _task_changes(batches):
-    """只取任务终态变更，忽略同期其它项目变更。"""
+    """Select only terminal-task changes, ignoring concurrent unrelated project changes."""
     return [c for _, changes in batches for c in changes if c["entity_type"] == "task"]
 
 
@@ -74,7 +71,7 @@ class TestBuildTaskTerminalChange:
         assert change["task_type"] == "video"
 
     def test_refresh_signal_not_user_facing_notification(self):
-        """终态变更只用于触发刷新：不弹通知、不聚焦跳转。"""
+        """Terminal changes refresh only: never show notifications or navigate/focus."""
         change = build_task_terminal_change({"task_id": "t1", "status": "succeeded"})
         assert change is not None
         assert change["important"] is False
@@ -159,14 +156,14 @@ class TestQueueEmitsTerminalEvents:
 
         await queue.cancel_all_queued("demo")
 
-        # 三条终态合并进同一批，避免每任务一次快照重建。
+        # Combine three terminal changes into one batch to avoid rebuilding snapshots per task.
         assert len(captured_batches) == 1
         changes = _task_changes(captured_batches)
         assert len(changes) == 3
         assert {c["action"] for c in changes} == {"task_cancelled"}
 
     async def test_non_terminal_transitions_emit_nothing(self, queue, captured_batches):
-        """入队与领取只是中间态，不该触发终态事件。"""
+        """Enqueue and claim are intermediate states and emit no terminal events."""
         await queue.enqueue_task(
             project_name="demo",
             task_type="video",
@@ -181,14 +178,9 @@ class TestQueueEmitsTerminalEvents:
         assert _task_changes(captured_batches) == []
 
     async def test_no_publish_when_commit_fails(self, queue, db_factory, captured_batches):
-        """终态已收集但会话提交失败时不得发布——没有终态落库就没有终态可通告。
+        """Never publish collected terminal events if commit fails; unpersisted terminal state cannot be announced.
 
-        `_task_repo` 把发布放在 `async with` 之后正是为此；若发布挪进 repo 内部或提到
-        提交之前，前端会收到一条对应状态并未落库的终态事件。
-
-        故障打在会话这个协作者的提交动作上，与生产上真实的提交失败同形：终态收集照常发生，
-        事务随即回滚，落库与通告因而必须一起没有。
-        """
+        `_task_repo` publishes after `async with` for this reason. Moving publication inside repositories or before commit would announce state never persisted. Fail the session collaborator's actual commit seam: collect normally, then rollback, preserving absence of both persistence and publication."""
         task_id = await self._enqueue_running(queue)
         captured_batches.clear()
 
@@ -200,7 +192,7 @@ class TestQueueEmitsTerminalEvents:
         assert (await queue.get_task(task_id))["status"] == "running"
 
     async def test_cascade_failure_emits_event_for_dependent(self, queue, captured_batches):
-        """级联失败的下游任务同样进事件——终态收口在 _record_terminal_event，一处覆盖全路径。"""
+        """Cascade-failed downstream tasks emit terminal events too; _record_terminal_event centralizes every path."""
         parent = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",

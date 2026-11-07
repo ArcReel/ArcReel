@@ -26,10 +26,10 @@ import { errMsg, voidCall } from "@/utils/async";
 import { EndpointSelect } from "./EndpointSelect";
 import { MEDIA_LABEL_KEY } from "./providerModelDisplay";
 
-/** 勾选要添加的一个模型：自定义供应商带调用端点，未识别的模型可以带用户选的对应模型。 */
+/** One checked model to add: custom providers include endpoints; unrecognized models may include user-selected matching models. */
 export interface FetchSelection {
   model: FetchedProviderModel;
-  /** 添加后的媒体类型：选了对应模型时取对应模型的，否则取获取结果的。 */
+  /** Added media types follow selected matches, otherwise discovery results. */
   mediaType: MediaType;
   endpoint: string | null;
   binding: CatalogEntryHit | null;
@@ -39,20 +39,20 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   providerName: string;
-  /** 调用供应商的模型列表接口。 */
+  /** Call provider model-list APIs. */
   load: (signal: AbortSignal) => Promise<FetchProviderModelsResponse>;
-  /** 已添加的模型不列出，只计数。 */
+  /** Existing models are counted only, never listed. */
   isAdded: (model: FetchedProviderModel) => boolean;
-  /** 自定义供应商的模型发现协议：给出时每行有调用端点下拉。 */
+  /** Custom-provider discovery protocols; supplied values add per-row endpoint dropdowns. */
   protocol?: DiscoveryFormat;
-  /** 添加勾选的模型，按顺序返回每个模型的失败原因（成功为 null）。全部成功时对话框关闭。 */
+  /** Add checked models, returning failure reasons in order (null on success); close dialogs only if all succeed. */
   onAdd: (selections: FetchSelection[]) => Promise<(string | null)[]>;
 }
 
 /**
- * 「获取模型」对话框：调用供应商的模型列表接口，只列尚未添加的模型，分「已识别」（默认勾选）与「未识别」
- * 两组。未识别的行默认不勾，可以选一个「对应模型」，添加时存为条目绑定；名字已对应到条目的行显示条目名，
- * 只有对应不上条目、或条目没有价格的行提示费用会记为未定价。
+ * Fetch models dialogs call provider lists, showing unadded models in Recognized (checked by default) and Unrecognized
+ * groups. Unrecognized rows default unchecked, permitting matching-model selections stored as entry bindings. Name-matched rows show entry names;
+ * only unmatched/unpriced-entry rows warn calls remain unpriced.
  */
 export function FetchModelsDialog({ open, onOpenChange, ...rest }: Props) {
   return (
@@ -129,7 +129,7 @@ function FetchModelsBody({
 
   const mediaOf = (model: FetchedProviderModel, row: RowState): MediaType => row.binding?.media_type ?? model.media_type;
 
-  // 对应模型的媒体类型与调用端点不一致时，换成该媒体类型下的默认端点
+  // Media mismatches between selected models/endpoints choose default endpoints for the matching media type.
   const bind = (model: FetchedProviderModel, binding: CatalogEntryHit | null) => {
     const row = rows[rowKey(model)];
     const media = binding?.media_type ?? model.media_type;
@@ -140,7 +140,7 @@ function FetchModelsBody({
     updateRow(model, { binding, endpoint, checked: binding ? true : row.checked });
   };
 
-  // 已添加的模型按当前列表现算：添加成功的行在上层刷新列表后自然移走
+  // Already-added models derive from current lists; successful rows disappear naturally after parent refreshes.
   const fetched = state.status === "ready" ? state.models : [];
   const models = fetched.filter((m) => !isAdded(m));
   const alreadyAdded = fetched.length - models.length;
@@ -158,7 +158,7 @@ function FetchModelsBody({
         onClose();
         return;
       }
-      // 添加成功的行取消勾选（上层刷新列表后移走），失败的行留下并写明原因
+      // Uncheck successful additions, removed after parent refreshes; retain failed rows with reasons.
       setRows((prev) => {
         const next = { ...prev };
         selections.forEach((s, i) => {
@@ -186,7 +186,7 @@ function FetchModelsBody({
     if (!row) return null;
     const media = mediaOf(model, row);
     const entryName = row.binding?.display_name ?? model.matched_entry?.display_name;
-    // 用户选了对应模型的行不提示：搜索结果不带价格，选择即视为用户的决定
+    // User-selected matching models suppress hints: search results lack prices, so selection counts as user decisions.
     const unpriced = !model.recognized && !row.binding && !model.matched_entry?.priced;
     return (
       <FetchedRow

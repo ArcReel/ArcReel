@@ -1,6 +1,6 @@
-// 把仓库根的 CONTRIBUTING.md 复制成文档站的开发区页面。
-// 真相源留在仓库根，副本是构建产物（website/.gitignore 忽略），build / start 前置执行。
-// pnpm 10 默认不跑 pre/post script，所以由 package.json 的 build / start / sync-contributing 显式串联。
+// Copy root CONTRIBUTING.md into the documentation-site developer section.
+// The source of truth remains at repository root; the copy is a build artifact (ignored by website/.gitignore), generated before build / start.
+// pnpm 10 does not run pre/post scripts by default, so package.json build / start / sync-contributing explicitly chain this step.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -12,9 +12,9 @@ const websiteDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(websiteDir, "..", "CONTRIBUTING.md");
 const target = resolve(websiteDir, "docs", "dev", "contributing.md");
 
-// 显式锚点 ID 在复制时注入，不写进仓库根的真相源：GitHub 不认 `{#id}` 语法，会把它当正文原样显示。
-// 标题改动后这里必须同步登记，否则复制失败——锚点是中英两个 locale 共用的链接目标，不能静默漂移。
-// 键是「井号前缀 + 标题文本」：同名标题（如两处「工作流程」）出现在不同层级时才能各自登记。
+// Inject explicit anchor IDs during copying, leaving root source untouched: GitHub does not recognize `{#id}` and would display it as text.
+// Register heading changes here too or copying fails: anchors are shared link targets for Chinese and English locales and must not drift silently.
+// Keys combine hash prefixes and heading text, allowing equal titles (e.g. two “工作流程” headings) at different levels to register separately.
 const ANCHORS = new Map([
   ["# 贡献指南", "contributing"],
   ["## 本地开发环境", "local-development"],
@@ -53,7 +53,7 @@ function injectAnchors(markdown) {
         `CONTRIBUTING.md 的标题「${key}」没有登记锚点 ID，请在 website/scripts/sync-contributing.mjs 的 ANCHORS 中补上`,
       );
     }
-    // 重复 id 会产出无效 HTML，且锚点链接只会落到第一处；onBrokenAnchors 查不出这种碰撞。
+    // Duplicate IDs create invalid HTML and anchor links reach only the first occurrence; onBrokenAnchors cannot detect this collision.
     if (usedAnchors.has(anchor)) {
       throw new Error(`锚点 ID「${anchor}」被多个标题共用（最后一处是「${key}」），请在 ANCHORS 中改成唯一值`);
     }
@@ -69,7 +69,7 @@ function injectAnchors(markdown) {
   return lines.join("\n");
 }
 
-// 副本不入库，「编辑此页」须指回仓库根的真相源，否则会指向不存在的 website/docs/dev/contributing.md。
+// The copy is untracked; “Edit this page” must point to root source, or it targets nonexistent website/docs/dev/contributing.md.
 const frontmatter = [
   "---",
   "id: contributing",
@@ -81,8 +81,8 @@ const frontmatter = [
   "",
 ].join("\n");
 
-// Windows 下 Git 若开启 autocrlf，CONTRIBUTING.md 会以 CRLF 检出；split("\n") 按行切分后非标题行仍带尾部
-// \r、标题行被替换后丢失 \r，混合换行符写入产物会触发 Prettier 等格式检查。读取后统一归一为 \n。
+// With Git autocrlf on Windows, CONTRIBUTING.md checks out as CRLF; split("\n") leaves trailing
+// \r on non-heading lines but replacements drop it on headings, producing mixed line endings that fail Prettier etc. Normalize to \n after reading.
 const body = injectAnchors((await readFile(source, "utf8")).replace(/\r\n/g, "\n"));
 await mkdir(dirname(target), { recursive: true });
 await writeFile(target, frontmatter + body, "utf8");

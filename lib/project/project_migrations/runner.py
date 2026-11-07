@@ -1,4 +1,4 @@
-"""Runner: 扫描 projects/ 并按版本顺序跑迁移器。"""
+"""Runner: scan projects/ and run migrators in version order."""
 
 from __future__ import annotations
 
@@ -69,26 +69,26 @@ logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
-#: 迁移可能在草稿目录里落备份的全部文件名。备份按落盘那一刻的文件名生成，而这些草稿在
-#: v9→v10 改过名，改名前后两侧都可能留着待回收的备份，故回收侧两侧一起枚举。
+#: All filenames migrations may back up in draft directories. Backups use names at write time; these drafts
+#: were renamed in v9→v10, so either old or new names may have pending backups. Reclaim both sides.
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
-#: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告。
-#: 按确定规则改了用户数据的那几步（如 v6→v7 换编号）把改动追加进 runner 传入的 ``record``，并进报告的「已调整」。
+#: Migrator results: manifest-rewriting steps return registered/skipped artifacts; the runner folds the last result into the migration report.
+#: Steps deterministically changing user data (such as v6→v7 renumbering) append to the runner-provided ``record`` and the report adjustments.
 MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
-#: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9、v14 备份自己改写的文件），runner 不为它们备份 project.json。
+#: Migrators backing up their own inputs (activation backs up dependencies; v8/v9/v14 their rewritten files); no runner project.json backup.
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14})
 
-# 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
+# Read-only preflight runs before any runner backup; rejection leaves every project-directory byte untouched.
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
 
 
 def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
     """Resolve every script-shaped source a migration was allowed to back up.
 
-    账本里绑定的剧集脚本，加上同集的 script_plan 草稿——草稿是同一份正文的上一形态，改写脚本的
-    迁移同批改写它，备份因此成对出现，回收也必须成对，否则草稿备份没有任何清理路径。
-    """
+    Ledger-bound episode scripts plus script_plan drafts for the same episodes: drafts are the previous
+    form of the same body, rewritten in the same batch by script migrations. Backups therefore occur
+    in pairs and must also be reclaimed in pairs; otherwise draft backups have no cleanup path."""
 
     try:
         project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
@@ -123,7 +123,7 @@ class MigrationSummary:
 def _load_schema_version(project_dir: Path) -> int:
     pj = project_dir / "project.json"
     if not pj.exists():
-        return -1  # 跳过非项目目录
+        return -1  # Skip non-project directories
     try:
         data = json.loads(pj.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -135,13 +135,13 @@ def _load_schema_version(project_dir: Path) -> int:
 
 
 def _backup_project_json(project_dir: Path, from_version: int) -> None:
-    """同一起点版本、内容相同的 ``project.json`` 只留一份备份。"""
+    """Keep one backup for identical ``project.json`` contents at the same starting version."""
 
     ensure_versioned_backup(project_dir / "project.json", from_version)
 
 
 def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
-    """v0→v1 专用：硬链接备份 clues/ 到 clues.bak.v0-<ts>/，失败则 copytree。0 磁盘开销且可完整回滚。"""
+    """v0→v1 only: hard-link clues/ to clues.bak.v0-<ts>/, falling back to copytree. Zero disk overhead and full rollback."""
     src = project_dir / "clues"
     if not src.is_dir():
         return
@@ -161,21 +161,23 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
             try:
                 os.link(entry, target)
             except OSError:
-                # 跨文件系统（EXDEV）等情况 fallback 到复制
+                # Fall back to copying across filesystems (EXDEV), etc.
                 shutil.copy2(entry, target)
     except OSError as exc:
         logger.warning("clues 备份失败（非阻塞）：%s: %s", project_dir, exc)
 
 
 def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None) -> bool:
-    """将单个项目目录逐级升级到 CURRENT_SCHEMA_VERSION，返回是否实际迁移。
+    """Upgrade one project directory stepwise to CURRENT_SCHEMA_VERSION; return whether migration occurred.
 
-    供启动期 ``run_project_migrations`` 与项目导入路径共用：启动期 runner 只覆盖启动时已存在的
-    项目，启动后导入的旧归档需在导入入口补跑此函数走完整迁移链，否则解析链（不再读 legacy
-    字段）会让该项目静默回退到全局默认。非项目目录 / 已是最新版本返回 False。
+    Shared by startup ``run_project_migrations`` and project import: the startup runner covers only
+    projects present at startup. Old archives imported afterward must run the full chain through this
+    function at the import entry point; otherwise parsers, which no longer read legacy fields, silently
+    fall back to global defaults. Non-project directories / already-current projects return False.
 
-    ``recorded_episode_ids`` 按项目名查任务与调用记录里出现过的最大集 ID，转交 v15→v16 覆盖进
-    项目历史最高号；缺省时只看项目目录本身。"""
+    ``recorded_episode_ids`` looks up the highest episode ID in task and call records by project name,
+    passing it to v15→v16 for inclusion in the project high-water mark. When omitted, only the project
+    directory itself is considered."""
     version = _load_schema_version(project_dir)
     if version < 0:
         return False
@@ -184,7 +186,7 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
         return False
     start_version = version
     outcome: ArtifactBackfillOutcome | None = None
-    # 上一次没走完的链规整过的旧形态已经落盘，这一次规整不会再发现它们：从未完成的报告里接着记。
+    # Previously persisted normalizations will not be rediscovered: carry them forward from the unfinished report.
     carried = load_migration_report(project_dir)
     if carried is not None and not carried.complete:
         start_version = min(start_version, carried.from_schema_version)
@@ -195,7 +197,7 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
     try:
         while version < CURRENT_SCHEMA_VERSION:
             if not normalized and version >= NORMALIZE_FROM_SCHEMA_VERSION:
-                # 旧形态规整先于这条链上第一次产物目标态规划，后者认不得这些形态。
+                # Normalize legacy shapes before the first target-state plan in this chain; that planner cannot recognize them.
                 normalize_legacy_shapes(project_dir, schema_version=version, record=adjusted)
                 normalized = True
             # Activation migrations must finish their complete read-only preflight
@@ -227,7 +229,7 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                         if outcome is not None
                         else (previous_report.skipped if previous_report is not None else ())
                     )
-                    # 这一步之后已登记的产物，此前的跳过记录不再成立（如 v17→v18 补录了因生成缺口跳过的产物）。
+                    # Entries registered after this step invalidate earlier skips (e.g. v17→v18 backfills generation-gap skips).
                     still_skipped = [skip for skip in previous_skips if skip.identity not in step_outcome.resolved]
                     step_outcome = ArtifactBackfillOutcome(
                         registered=step_outcome.registered,
@@ -237,7 +239,7 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                 outcome = step_outcome
             version += 1
         if outcome is not None or adjusted:
-            # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
+            # The final manifest rewrite describes the complete manifest at migration completion; retain only that result.
             write_migration_report(
                 project_dir,
                 build_migration_report(
@@ -248,9 +250,9 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                 ),
             )
     except BaseException:
-        # 收尾那次写报告失败、或最后一步提交了当前版本之后才失败，同样留下未完成的报告：
-        # 下次启动看到项目已在当前版本，由 ``_finish_unfinished_report`` 补写成完成的报告。
-        # 链已走完时 ``outcome`` 就是清单的全貌，跳过项随报告留下；中途失败时重试会重新算出它们。
+        # A final report-write failure or failure after the last step commits the current version also leaves an unfinished report:
+        # next startup sees the current version and completes it through ``_finish_unfinished_report``.
+        # Once the chain finishes, ``outcome`` is the whole manifest, retaining skips in the report; mid-chain retries recompute them.
         finished = outcome if version >= CURRENT_SCHEMA_VERSION else None
         if adjusted or finished is not None:
             _record_unfinished_report(project_dir, finished, adjusted, from_version=start_version, to_version=version)
@@ -259,11 +261,11 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
 
 
 def _finish_unfinished_report(project_dir: Path) -> None:
-    """项目已在当前版本、报告却仍未完成时补写成完成的报告；写不下只记日志，下次启动再补。
+    """Complete an unfinished report for an already-current project; log write failures and retry next startup.
 
-    链在提交当前版本之后才失败（最后一步提交后报错，或收尾那次写报告失败）时，重跑不会再进链，
-    未完成的报告不补写就永远不对用户显示。
-    """
+    When the chain fails after committing the current version (an error after the last step commits,
+    or failure writing the final report), rerunning will not reenter the chain. Without completion,
+    the unfinished report would never be shown to users."""
 
     try:
         complete_migration_report(project_dir, to_schema_version=CURRENT_SCHEMA_VERSION)
@@ -279,7 +281,7 @@ def _record_unfinished_report(
     from_version: int,
     to_version: int,
 ) -> None:
-    """链失败时留下已落盘的规整记录（链已走完时连同清单结果）；写不下只记日志，不盖过链本身的失败。"""
+    """On chain failure, retain persisted normalizations (and manifest results if finished); log write failures without masking the chain failure."""
 
     try:
         write_migration_report(
@@ -320,7 +322,7 @@ def migrate_project_with_verdict(
 
     try:
         migrate_project_dir(project_dir, recorded_episode_ids=recorded_episode_ids)
-    except Exception as exc:  # 单个项目失败被隔离，不中断整体迁移
+    except Exception as exc:  # Isolate individual project failures without interrupting all migrations
         logger.error("迁移失败 %s: %s", project_dir.name, exc)
         # The persisted verdict is what the production status, the production plan
         # and every generation entry read to refuse work on this project.
@@ -349,7 +351,7 @@ def migrate_project_with_verdict(
 def run_project_migrations(
     projects_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None
 ) -> MigrationSummary:
-    """扫项目目录下每个项目，升级到 CURRENT_SCHEMA_VERSION。"""
+    """Scan each project in the projects directory and upgrade it to CURRENT_SCHEMA_VERSION."""
     summary = MigrationSummary()
     if not projects_dir.exists():
         return summary
@@ -357,7 +359,7 @@ def run_project_migrations(
     for child in list_project_dirs(projects_dir):
         version = _load_schema_version(child)
         if version < 0:
-            continue  # project.json 损坏
+            continue  # Corrupt project.json
         # Persisting the verdict is itself disk work: one project whose directory
         # cannot be written must not abort the pass for every project after it.
         try:
@@ -381,14 +383,14 @@ def run_project_migrations(
 
 
 def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days、且可归属到迁移输入的版本化备份与目录交换中间目录。"""
+    """Delete versioned backups attributable to migration inputs and directory-swap intermediates older than max_age_days."""
     if not projects_dir.exists():
         return
     cutoff = time.time() - max_age_days * 86400
     cleanup_completed_swap_dirs(projects_dir, cutoff)
     for project_dir in list_project_dirs(projects_dir):
-        # 每一步的输入备份留到那一步的版本提升坐实为止：项目仍停在 v<N> 时，``*.bak.v<N>-*``
-        # 是那一步失败后唯一的恢复线索，只回收起点版本已低于当前 schema 的备份。
+        # Retain each input backup until that step commits its version bump: while at v<N>, ``*.bak.v<N>-*``
+        # is the only recovery clue after failure. Reclaim only backups whose starting version is below the current schema.
         schema_version = _load_schema_version(project_dir)
         project_backup_versions = tuple(
             version for version in range(CURRENT_SCHEMA_VERSION) if version < schema_version
@@ -396,12 +398,12 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
         sources = (
             (project_dir / "project.json", project_backup_versions),
             (project_dir / "versions" / "versions.json", project_backup_versions),
-            # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影，
-            # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记，
-            # v15→v16 改写呈现模型登记。
+            # The manifest changes beyond activation: v9→v10 rewrites keys/draft paths, v12→v13 reprojects it entirely,
+            # v13→v14 rewrites entries affected by style normalization/description backfills, v14→v15 script entries,
+            # v15→v16 presentation-model entries.
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
-            # v17→v18 删去剪辑时间线修订上的 Agent 轮次；时间线删除后备份仍要回收。
+            # v17→v18 removes Agent turns from timeline revisions; reclaim backups even after timeline deletion.
             *((source, project_backup_versions) for source in timeline_backup_sources(project_dir)),
         )
         for source, versions in sources:
@@ -410,7 +412,7 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
                     continue
                 try:
                     if bak.stat().st_mtime < cutoff:
-                        bak.unlink()  # hard-delete: infra -- 过期的迁移备份
+                        bak.unlink()  # hard-delete: infra -- expired migration backups
                 except OSError:
                     logger.warning("无法删除备份：%s", bak)
         for bak_dir in versioned_backup_candidates(project_dir / "clues", (0,)):
@@ -418,12 +420,14 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
                 continue
             try:
                 if bak_dir.stat().st_mtime < cutoff:
-                    shutil.rmtree(bak_dir, ignore_errors=True)  # hard-delete: infra -- 过期的迁移备份目录
+                    shutil.rmtree(
+                        bak_dir, ignore_errors=True
+                    )  # hard-delete: infra -- expired migration backup directories
             except OSError:
                 logger.warning("无法删除 clues 备份：%s", bak_dir)
 
 
-# 注册迁移器（顶部 import，此处仅赋值）
+# Register migrators (imported at top; assignments only here)
 MIGRATORS[0] = migrate_v0_to_v1
 MIGRATORS[1] = migrate_v1_to_v2
 MIGRATORS[2] = migrate_v2_to_v3

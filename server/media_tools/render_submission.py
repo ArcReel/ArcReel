@@ -1,8 +1,7 @@
-"""把一个本地渲染任务作为单成员生成批次提交到 ``render`` 车道。
+"""Submit one local render task as a single-member generation batch in the ``render`` lane.
 
-ArcReel Agent 等到任务终态拿到任务结果；外部 Agent 立即拿到批次句柄，用 ``get_generation_batch`` 轮询。
-成片与剪映草稿的工具共用这一入口。
-"""
+The ArcReel Agent waits for a terminal task result; external Agents immediately receive a batch handle and poll ``get_generation_batch``.
+Final-cut and Jianying-draft tools share this entry point."""
 
 from __future__ import annotations
 
@@ -28,7 +27,7 @@ from server.tool_runtime import CallerContext, ProjectScope, Services, ToolProbl
 
 @dataclass(frozen=True, slots=True)
 class RenderSubmission:
-    """提交结果：外部调用方只有 ``batch``；内嵌调用方另有成功任务的结果，失败时为 ``problem``。"""
+    """Submission result: external callers receive only ``batch``; embedded callers also receive successful task results or ``problem`` on failure."""
 
     batch: GenerationBatchReadModel
     result: dict[str, Any] | None = None

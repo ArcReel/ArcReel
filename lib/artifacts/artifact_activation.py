@@ -1,13 +1,12 @@
 """Eager Artifact Manifest target-state planning and activation.
 
-The schema migration and archive-import boundary both call this module.  It is
+The schema migration and archive-import boundary both call this module. It is
 the only place that reconstructs a complete manifest from canonical project
 state; ordinary readers never repair or infer entries on first access.
 
-规划、时新性判定、输入认领与注册各自独立成模块（``artifact_planner`` /
-``artifact_currency`` / ``artifact_input_claims`` / ``artifact_registration``）；
-本模块留下激活与提交编排，并作为四者对外的统一入口 re-export 全部公开符号。
-"""
+Planning, currency checks, input claims, and registration have separate modules
+(``artifact_planner`` / ``artifact_currency`` / ``artifact_input_claims`` / ``artifact_registration``).
+This module retains activation/commit orchestration and re-exports their public symbols as a unified entry point."""
 
 from __future__ import annotations
 
@@ -108,12 +107,12 @@ def activate_artifact_target_state(
 ) -> bool:
     """Commit one complete target state, optionally advancing schema last.
 
-    ``backup_file`` 与 ``commit_schema`` 是临界区内两个落盘步骤的注入点，缺省即生产实现。
-    ``plan`` 供调用方把只读预检提到自身写盘段之前完成；缺省即在此就地预检。传入的计划仍要
-    过 ``assert_artifact_target_state_plan_unchanged``，它对着盘上事实自证，晚于预检的改动一律拒绝。
-    ``target_schema_version`` 是 ``bump_schema`` 时提交的版本：项目必须正停在它的前一版，
-    备份按那一版命名（``*.bak.v<前一版>-*``）。
-    """
+    ``backup_file`` and ``commit_schema`` inject the two persistence steps inside the critical section,
+    defaulting to production implementations. ``plan`` lets callers finish read-only preflight before
+    their own write phase; omitted plans are preflighted here. Supplied plans still pass
+    ``assert_artifact_target_state_plan_unchanged``, proving themselves against disk facts and rejecting
+    all changes since preflight. ``target_schema_version`` is committed with ``bump_schema``: the project
+    must be exactly one version earlier, and backups use that version (``*.bak.v<前一版>-*``)."""
 
     if plan is None:
         plan = plan_artifact_target_state(project_dir)
@@ -167,22 +166,21 @@ def ensure_imported_artifact_target_state(
     """Eagerly materialize the v8 sidecar at the archive staging boundary.
 
     Official exports carry the complete source Manifest in their visible archive
-    envelope.  Its basis digests are immutable generation evidence and its content
-    digests bind those claims to the exported formal bytes.  Validate the claims
+    envelope. Its basis digests are immutable generation evidence and its content
+    digests bind those claims to the exported formal bytes. Validate the claims
     against the imported canonical target plan, then commit one snapshot in which
     each claim is settled by its content evidence: an exact digest match restores
     the frozen claim; a digest that only matches the text-mode view (CRLF folded,
     cut at ``0x1A``) cannot prove the whole artifact, so that key is re-registered
     from the current self-proving projection instead; any other digest rejects the
-    import.  Formal artifacts the envelope carries no claim for because generation-input
+    import. Formal artifacts the envelope carries no claim for because generation-input
     gaps once blocked their projection are backfilled from the self-proving projection
     (``docs/adr/0098``, the same rule as the v17→v18 backfill); other unclaimed
-    artifacts stay unregistered.  Legacy archives without the envelope retain the
+    artifacts stay unregistered. Legacy archives without the envelope retain the
     self-proving path.
 
-    返回规划器看见、但最终没有登记的产物及原因：导入不分 schema 版本都把它们列进迁移报告的
-    「未能带入」（ADR 0098）。
-    """
+    Return artifacts seen by the planner but ultimately unregistered, with reasons: imports list these
+    as not carried over in migration reports regardless of schema version (ADR 0098)."""
 
     raw = (project_dir / "project.json").read_bytes()
     try:
@@ -211,8 +209,8 @@ def ensure_imported_artifact_target_state(
             for key, entry in preserved_entries.items():
                 evidence = _archived_content_evidence(adapter, entry.artifact_path, preserved_content_digests[key])
                 if evidence == "exact":
-                    # 视频与音频只在激活证明「正式文件 = 选中快照」成立、且证明的就是这份字节时带上内容事实；
-                    # 证明不成立的条目不带事实，导入后照常判 stale，与源项目一致。
+                    # Carry content facts for video/audio only when activation proves formal file = selected snapshot, and proves these exact bytes;
+                    # unproven entries lack facts and read stale after import, matching the source project.
                     projected = plan.entries.get(key)
                     content = projected.content if projected is not None else None
                     restored[key] = (
@@ -221,8 +219,8 @@ def ensure_imported_artifact_target_state(
                         else entry
                     )
                 elif evidence == "text_mode":
-                    # 文本模式摘要丢了字节，绑不住整份产物：这条 claim 按无信封归档的口径，
-                    # 用当前投影自证补录；投影不出条目的目标不登记。
+                    # Text-mode digests lose bytes and cannot bind whole artifacts. As with envelope-free archives,
+                    # backfill these claims via current self-proving projections; leave unprojectable targets unregistered.
                     projected = plan.entries.get(key)
                     if projected is not None:
                         restored[key] = projected
@@ -244,11 +242,11 @@ def ensure_imported_artifact_target_state(
 
 
 def stage_preserved_artifact_claims(project_dir: Path, preserved: ArtifactManifestArchiveSnapshot) -> bool:
-    """把归档信封里的 claim 落成暂存项目的清单，迁移链随后像原地升级一样平移它们。
+    """Persist archive-envelope claims as the staged project's manifest; the migration chain then shifts them as in an in-place upgrade.
 
-    归档 schema 早于清单引入（v8）时不落，返回 ``False``：那一步迁移自己从项目状态建清单。``project.json``
-    读不出时同样不落，由迁移链报告它。
-    """
+    Do not persist when the archive schema predates manifest introduction (v8); return ``False`` because
+    that migration constructs a manifest from project state itself. Likewise do not persist if
+    ``project.json`` is unreadable, leaving the migration chain to report it."""
 
     try:
         project = json.loads((project_dir / "project.json").read_bytes().decode("utf-8"))
@@ -263,12 +261,13 @@ def stage_preserved_artifact_claims(project_dir: Path, preserved: ArtifactManife
 def take_migrated_artifact_claims(
     project_dir: Path, preserved: ArtifactManifestArchiveSnapshot
 ) -> ArtifactManifestArchiveSnapshot:
-    """读回迁移链平移后的 claim，撤下暂存清单，交给 :func:`ensure_imported_artifact_target_state`。
+    """Read claims shifted by the migration chain, remove the staged manifest, and pass them to :func:`ensure_imported_artifact_target_state`.
 
-    内容摘要按键沿用信封。迁移给 claim 换键并搬图（如链首规整把重名资产的衍生迁到保留名下）时依据摘要
-    不变、图的字节不变：新键的图若与某条依据相同、已消失的旧 claim 的内容摘要一致，就沿用这个摘要。
-    迁移撤掉的 claim 一并丢弃；迁移补录的条目对不上旧 claim，不在其列，由导入激活按缺口规则重新补录。
-    """
+    Reuse envelope content digests by key. When migration rekeys claims and moves images (e.g. initial
+    normalization moves duplicate assets' derivatives under the retained name), basis digests and image
+    bytes remain unchanged. Reuse a digest if the new-key image matches the content digest of a vanished
+    old claim with the same basis. Drop claims removed by migration. Backfilled entries do not match old
+    claims and are excluded; import activation backfills them again under gap rules."""
 
     adapter = ProjectArtifactManifestAdapter(project_dir)
     entries = adapter.snapshot_entries()
@@ -283,7 +282,9 @@ def take_migrated_artifact_claims(
             digest = read_artifact_content_digest(adapter, entry.artifact_path)
             if digest in candidates:
                 digests[key] = digest
-    (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)  # hard-delete: temp -- 归档导入暂存目录里给迁移链用的清单
+    (project_dir / MANIFEST_FILENAME).unlink(
+        missing_ok=True
+    )  # hard-delete: temp -- archive-import staging manifest used by the migration chain
     return ArtifactManifestArchiveSnapshot(
         entries={key: entry for key, entry in entries.items() if key in digests},
         content_digests=digests,
@@ -298,9 +299,9 @@ def snapshot_preserved_artifact_manifest(
 ) -> ArtifactManifestArchiveSnapshot:
     """Rebase preserved claims and bind them to one stable formal-byte snapshot.
 
-    依据的视频或音频已不是选中版本的字幕与呈现登记暂不适用、不让导出失败。``ships_unselected_versions`` 为假时
-    包里没有它们依据的旧版本快照，导入方核验不了，这些登记不随包。
-    """
+    Subtitle/presentation entries based on video/audio that is no longer selected are temporarily
+    inapplicable and must not fail export. When ``ships_unselected_versions`` is false, packages lack
+    those old version snapshots, so importers cannot verify them and these entries do not ship."""
 
     with project_metadata_lock(project_dir):
         plan = _plan_preserved_artifact_target_state(project_dir)
@@ -347,11 +348,10 @@ def _rebase_preserved_artifact_entries(
     *,
     keep_unselected_media_claims: bool = True,
 ) -> dict[ArtifactKey, ArtifactManifestEntry]:
-    """把保全的 claim 落到规划器证明的正式路径上，依据摘要不变；证明不了的 claim 一律拒绝。
+    """Place preserved claims at formal paths proven by the planner without changing basis digests; reject every unprovable claim.
 
-    依据的视频或音频已不是选中版本、对那个版本仍自证的字幕与呈现 claim 暂不适用：保留时照常落路径，
-    ``keep_unselected_media_claims`` 为假时略去。
-    """
+    Subtitle/presentation claims still self-proving for video/audio versions no longer selected are
+    temporarily inapplicable: normally retain their paths; omit when ``keep_unselected_media_claims`` is false."""
 
     rebased: dict[ArtifactKey, ArtifactManifestEntry] = {}
     invalid: list[str] = []

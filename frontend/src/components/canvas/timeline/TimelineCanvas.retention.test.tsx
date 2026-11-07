@@ -47,7 +47,7 @@ describe("TimelineCanvas 定位到分镜", () => {
   });
 });
 
-/** 父级空态切换也不能卸载有修改的最后一个分镜。 */
+/** Parent empty-state changes must not unmount the last storyboard with edits either. */
 describe("TimelineCanvas 外部删除最后一个分镜", () => {
   it("最后一镜消失时继续显示编辑器，放弃后才显示空态", () => {
     const script: NarrationEpisodeScript = { episode: 1, title: "第一集", content_mode: "narration", novel: { title: "小说", chapter: "第一章" }, segments: [makeNarrationSegment({ image_prompt: "原画面" })] };

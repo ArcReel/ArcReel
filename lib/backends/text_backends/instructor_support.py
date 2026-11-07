@@ -1,8 +1,8 @@
-"""Instructor 降级支持 — 原生 json_schema 通道不可用时的结构化输出降级链。
+"""Instructor fallback support: structured-output chains when native json_schema is unavailable.
 
-链路为 TOOLS → MD_JSON：前者用 function calling 在 wire 层传 schema，后者把 schema 注入
-prompt。只有 wire 层失败才继续降档，校验类失败即判终局（见 :func:`_classify_mode_failure`）。
-OpenAI 兼容与 Ark 两个 backend 共用本模块，故降级链的调整在此一处生效。
+TOOLS → MD_JSON: the former sends schemas over wire-level function calling, the latter injects them into
+prompts. Only wire failures descend further; validation failures are terminal (:func:`_classify_mode_failure`).
+OpenAI-compatible and Ark backends share this module, centralizing fallback-chain changes here.
 """
 
 from __future__ import annotations
@@ -40,14 +40,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 结构化输出降级链：TOOLS 用 function calling 传 schema，是 OpenAI 兼容端点里约束最强、
-# 兼容面最广的一档；MD_JSON 纯靠 prompt 注入 schema，是最后兜底。native json_schema 档在
-# 各 backend 的 generate() 里，本模块只负责 native 之后的两档（见 docs/adr/0014）。
+# Structured fallback: TOOLS sends schemas through function calling, the strongest and most broadly compatible
+# OpenAI-compatible tier; MD_JSON prompt injection is the final fallback. Native json_schema lives in
+# backend generate() methods; this module handles only the two postnative tiers (docs/adr/0014).
 _STRUCTURED_MODE_CHAIN: tuple[Mode, ...] = (Mode.TOOLS, Mode.MD_JSON)
 
-# 上游不接受 tools 参数时的错误关键字，匹配前把错误文本转小写（各家代理的大小写不统一）。
-# 与 openai backend 的 _SCHEMA_ERROR_KEYWORDS 同构：代理网关会把上游的参数不兼容包装成非 400
-# 状态码，只认 BadRequestError 会漏判。
+# Error keywords for upstream tools-parameter rejection; lowercase before matching because proxy capitalization varies.
+# Like openai backend _SCHEMA_ERROR_KEYWORDS: gateways wrap upstream parameter incompatibility in non-400
+# statuses, so BadRequestError alone misses failures.
 _TOOLS_UNSUPPORTED_KEYWORDS = (
     "tools",
     "tool_calls",
@@ -56,9 +56,9 @@ _TOOLS_UNSUPPORTED_KEYWORDS = (
     "functions",
 )
 
-# 终止一档的解析 / 校验类异常，与 Instructor v2 重试循环的 _RETRYABLE_PARSE_ERRORS 同集合。
-# 判据靠「终止原因是否属这一类」区分模型输出问题与 API 调用问题，集合漂移会让区分失准，
-# 故由 TestInstructorExceptionShape 对真实 Instructor 钉住。
+# Parsing/validation exceptions terminating tiers, matching Instructor v2 retry loop _RETRYABLE_PARSE_ERRORS.
+# Their terminating-cause types distinguish model-output failures from API failures; drift would break this distinction,
+# so TestInstructorExceptionShape pins actual Instructor behavior.
 _PARSE_FAILURE_TYPES: tuple[type[BaseException], ...] = (
     ValidationError,
     JSONDecodeError,
@@ -68,7 +68,7 @@ _PARSE_FAILURE_TYPES: tuple[type[BaseException], ...] = (
 
 
 def _mode_chain_steps() -> list[tuple[Mode, Mode | None]]:
-    """降级链的 (当前档, 下一档) 序列；下一档为 None 表示已是末档、无处可退。"""
+    """Fallback (current tier, next tier) pairs; None next tier means the last tier, with nowhere further to fall back."""
     return [
         (mode, _STRUCTURED_MODE_CHAIN[index + 1] if index + 1 < len(_STRUCTURED_MODE_CHAIN) else None)
         for index, mode in enumerate(_STRUCTURED_MODE_CHAIN)
@@ -76,17 +76,17 @@ def _mode_chain_steps() -> list[tuple[Mode, Mode | None]]:
 
 
 def _output_tokens_from_incomplete(exc: IncompleteOutputException) -> int | None:
-    """尽力从截断异常携带的部分响应里取 output_tokens，取不到则 None（不阻断异常转换）。"""
+    """Best-effort output_tokens from partial responses on truncation exceptions; None if unavailable, without blocking exception conversion."""
     usage = getattr(getattr(exc, "last_completion", None), "usage", None)
     return getattr(usage, "completion_tokens", None) if usage else None
 
 
 def _raw_output_from_exception(exc: BaseException) -> str:
-    """尽力从 Instructor 异常里取模型这一轮的原始输出文本，取不到返回占位串。
+    """Best-effort raw output text for this attempt from Instructor exceptions; return a placeholder if unavailable.
 
-    Instructor 把最后一次（失败的）completion 挂在异常上；不同档位的响应形态不同
-    （MD_JSON 在 message.content、TOOLS 在 tool_calls 的 arguments），两处都取，
-    供降级点的诊断日志说清「模型到底输出了什么」。
+    Instructor attaches the final failed completion to exceptions; response shapes vary by tier
+    (MD_JSON in message.content, TOOLS in tool_calls arguments). Read both locations
+    for fallback diagnostics explaining what the model actually produced.
     """
     completion = getattr(exc, "last_completion", None)
     if completion is None:
@@ -110,15 +110,15 @@ def _raw_output_from_exception(exc: BaseException) -> str:
 
 
 def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
-    """取终止这一档的原始异常；若终止在模型输出的解析 / 校验上则返回 None。
+    """Get the original exception terminating this tier; None if termination occurred during output parsing/validation.
 
-    Instructor 把终止原因挂在 ``__cause__`` 上（``raise ... from last_exception``），判据必须
-    穿过这层包装才认得出「上游拒收 tools 参数」。
+    Instructor attaches termination causes through ``__cause__`` (``raise ... from last_exception``); predicates must
+    unwrap this layer to recognize upstream tools-parameter rejection.
 
-    不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次累积进 ``failed_attempts``
-    且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下 ``failed_attempts`` 非空而终止
-    原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉调用方的重试。终止原因是否落在
-    模型输出上由 :func:`_model_output_failure` 按终止原因的类型判定。
+    Nonempty ``failed_attempts`` is not a proxy: parsing/validation failures accumulate in ``failed_attempts`` without
+    clearing. After one parsing failure followed by proxy 503, ``failed_attempts`` is nonempty but termination
+    is 503. Using the former would misclassify transients as output noncompliance and swallow caller retries.
+    :func:`_model_output_failure` classifies output-side termination from the terminating cause's type.
     """
     if exc.__cause__ is None or _model_output_failure(exc) is not None:
         return None
@@ -126,21 +126,21 @@ def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
 
 
 def _model_output_failure(exc: InstructorRetryException) -> BaseException | None:
-    """这一档若折在模型输出的解析 / 校验上，返回那条解析 / 校验异常；折在 API 调用上返回 None。
+    """Return parsing/validation exceptions when model output terminates this tier; None for API failures.
 
-    Instructor 把终止原因挂在 ``__cause__`` 上；解析 / 校验类失败时它就是最后一次尝试的解析
-    异常。TOOLS 档响应里没有 tool call 也属此类：Instructor 把它当作可重试的解析失败，reask 时
-    附上纠正提示重发，档内重试耗尽才以 ``ResponseParsingError`` 终止。
+    Instructor attaches the terminating cause through ``__cause__``; for parsing/validation failures it is the last attempt's
+    parsing exception. Missing tool calls in TOOLS responses count too: Instructor retries parsing failures with
+    corrective reask prompts, terminating as ``ResponseParsingError`` only after within-tier exhaustion.
 
-    这里只回答「折在模型输出上」，不回答「值得换档」：换不换档由 :func:`_tool_call_absent`
-    按响应结构判定。
+    This answers only whether output failed, not whether changing tiers helps: :func:`_tool_call_absent`
+    decides tier changes from response structure.
     """
     cause = exc.__cause__
     return cause if isinstance(cause, _PARSE_FAILURE_TYPES) else None
 
 
 def _first_choice_message(exc: BaseException | None) -> Any | None:
-    """取解析异常携带的原始响应里首个 choice 的 message；不是解析异常、无响应或无 choice 时为 None。"""
+    """First choice message from raw responses attached to parsing exceptions; None without parsing exceptions, responses, or choices."""
     if not isinstance(exc, ResponseParsingError):
         return None
     choices = getattr(getattr(exc, "raw_response", None), "choices", None) or []
@@ -150,12 +150,12 @@ def _first_choice_message(exc: BaseException | None) -> Any | None:
 
 
 def _tool_call_absent(exc: BaseException | None) -> bool:
-    """响应里根本没有 tool call（wire 层不兼容），而非给了 tool call 但参数不可用。
+    """Responses contain no tool calls at all (wire incompatibility), rather than tool calls with unusable arguments.
 
-    TOOLS 档下 ``ResponseParsingError`` 有三种成因：没有 tool call、tool call 的 arguments
-    缺失、arguments 不可 JSON 序列化。只有第一种说明上游这条通道不产 tool call、值得换档；
-    后两种上游确实回了 tool call，只是内容不合规，属校验类失败——换约束更弱的档只会更差。
-    按响应结构判而非按错误文案判，免得 Instructor 改文案就失效。
+    TOOLS ``ResponseParsingError`` has three causes: missing tool calls, missing tool-call arguments,
+    or arguments not JSON-serializable. Only the first means this upstream channel produces no tool calls and merits changing tiers;
+    the other two return actual tool calls with invalid content, a validation failure that weaker tiers would worsen.
+    Inspect response structure, never error wording, so Instructor wording changes cannot break detection.
     """
     if not isinstance(exc, ResponseParsingError):
         return False
@@ -166,7 +166,7 @@ def _tool_call_absent(exc: BaseException | None) -> bool:
 
 
 def _failure_reason(exc: BaseException) -> str:
-    """把某一档的失败压成一句可读原因，供 StructuredOutputExhaustedError 携带。"""
+    """Reduce a tier failure to a readable reason carried by StructuredOutputExhaustedError."""
     if not isinstance(exc, InstructorRetryException):
         return f"降级链失败（{type(exc).__name__}: {exc}）"
     api_failure = _api_call_failure(exc)
@@ -178,11 +178,11 @@ def _failure_reason(exc: BaseException) -> str:
 
 
 def _billed_usage(exc: BaseException, *, provider: str, model: str) -> TextGenerationResult:
-    """取这一档已经计费的 token，供降档时并入最终结果。
+    """Get already-billed tier tokens for merging into final results on fallback.
 
-    档内重试里每次拿到 HTTP 200 的尝试都已被计费，即便响应最终没通过解析 / 校验；Instructor
-    把它们累加在 ``total_usage`` 上。上游直接拒收参数时该累加值为零，此时按「无计量」处理，
-    以免把 None 塌成字面 0 token。
+    Every within-tier retry receiving HTTP 200 was billed, even if parsing/validation ultimately failed; Instructor
+    accumulates these in ``total_usage``. Direct upstream parameter rejection has zero accumulated usage; treat this as unmeasured,
+    avoiding collapsing None into literal zero tokens.
     """
     usage = getattr(exc, "total_usage", None)
     details = getattr(usage, "prompt_tokens_details", None)
@@ -197,7 +197,7 @@ def _billed_usage(exc: BaseException, *, provider: str, model: str) -> TextGener
 
 
 def _propagated_cause(exc: Exception) -> Exception:
-    """冒泡时该抛的异常：API 调用失败抛原异常本身，其余抛原样。"""
+    """Exception to propagate: original API-call failures themselves; otherwise preserve exceptions unchanged."""
     if isinstance(exc, InstructorRetryException):
         api_failure = _api_call_failure(exc)
         if isinstance(api_failure, Exception):
@@ -206,36 +206,36 @@ def _propagated_cause(exc: Exception) -> Exception:
 
 
 class _ModeFailure(Enum):
-    """某一档失败后的处置。"""
+    """Disposition after a tier failure."""
 
     DOWNGRADE = "downgrade"
-    """wire 层不兼容，换下一档还有机会。"""
+    """Wire-layer incompatibility; the next tier may still work."""
 
     TERMINAL = "terminal"
-    """模型输出反复不合规，换约束更弱的档只会更差。"""
+    """Repeatedly invalid model output; weaker constraints would only worsen it."""
 
     PROPAGATE = "propagate"
-    """与结构化输出能力无关，交调用方判定。"""
+    """Unrelated to structured-output capability; let the caller decide."""
 
 
 def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
-    """判定某一档的失败该降档、判终局，还是原样冒泡。
+    """Classify tier failures as fallback, terminal, or unchanged propagation.
 
-    只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
-    tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。后者
-    要等 Instructor 在本档内 reask 重试耗尽才降档：纠正提示可能让偶尔漏调工具的模型在约束更强的
-    本档内成功，代价是上游确实不产 tool call 时多花档内重试的请求。
+    Only wire incompatibility causes fallback: upstream tools-parameter rejection (API exceptions whose text explicitly names
+    tools / functions), or acceptance without returning tool calls (:func:`_tool_call_absent`). For the latter,
+    exhaust Instructor reask retries within the current tier first: corrective prompts can let occasionally tool-omitting models
+    succeed under stronger constraints, at the cost of extra within-tier calls when upstream never produces tool calls.
 
-    API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
-    不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
-    当成 tools 不兼容，既白花一次 MD_JSON 调用，又会把真实原因替换成不可重试的终局异常、
-    使调用方拿到错误的处置指引。
+    All API exceptions use keyword predicates, including 400: Ark models lacking ``STRUCTURED_OUTPUT`` bypass native
+    tiers directly into this chain, so 400 may mean invalid model names, context limits, or policy rejection. Treating
+    all as tools incompatibility wastes MD_JSON calls and replaces real causes with nonretryable terminal exceptions,
+    giving callers incorrect handling guidance.
 
-    上游确实回了 tool call、只是参数结构反复不合规，属校验类失败，判终局。
+    Actual upstream tool calls with repeatedly invalid arguments are validation failures and terminal.
 
-    其余一律冒泡：瞬态 5xx 与连接错误交调用方的 ``@with_retry_async`` 判定，不被降级链吞成
-    不可重试的终局异常；``TextOutputTruncatedError`` 是可操作硬错误，重发同一份必然再截断的
-    请求没有意义（见 docs/adr/0044），它自身已是 NonRetryableError，原样传给调用方即可。
+    Propagate everything else: transient 5xx/connection errors reach caller ``@with_retry_async`` predicates rather than being
+    swallowed as nonretryable terminal failures. ``TextOutputTruncatedError`` is an actionable hard error: resending the same
+    inevitably truncated request is pointless (docs/adr/0044); already NonRetryableError, it propagates unchanged.
     """
     if not isinstance(exc, InstructorRetryException):
         return _ModeFailure.PROPAGATE
@@ -250,11 +250,11 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
 
 
 def _strip_think_block_in_response(response: Any) -> None:
-    """Instructor ``completion:response`` 钩子：解析前就地剥掉响应正文开头的思考块。
+    """Instructor ``completion:response`` hook: strip leading thinking blocks from response bodies in place before parsing.
 
-    Instructor 的 MD_JSON 档取正文里第一段能解析的 JSON；思考块里若出现草稿 JSON，会被当成
-    结果采用。钩子在解析前改写 ``message.content``，解析、reask 与 ``failed_attempts`` 看到的
-    都是正文，与原生路径同口径。
+    Instructor MD_JSON takes the first parseable JSON in bodies; draft JSON inside thinking blocks could be mistaken for
+    results. Rewrite ``message.content`` before parsing so parsing, reask, and ``failed_attempts`` all see
+    only the body, matching native paths.
     """
     choices = getattr(response, "choices", None) or []
     if not choices:
@@ -279,12 +279,12 @@ def generate_structured_via_instructor(
     token_param: TokenParam = "max_tokens",
     provider: str = "",
 ) -> TextGenerationResult:
-    """通过 Instructor 生成结构化输出（同步版，供 Ark 等同步 SDK 使用）。
+    """Generate structured output through Instructor (synchronous, for Ark and other sync SDKs).
 
-    token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
-    返回的结果以 JSON 文本为 ``text``，带这次调用的计量。Instructor 的
-    ``IncompleteOutputException``（输出被 max_tokens 截断）归一为 :class:`TextOutputTruncatedError`，
-    与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
+    token_param selects the wire parameter name carrying max_tokens, chosen by callers per endpoint.
+    Results contain JSON text in ``text`` and this call's measurements. Instructor
+    ``IncompleteOutputException`` (max_tokens truncation) normalizes to :class:`TextOutputTruncatedError`,
+    matching native structured truncation behavior (docs/adr/0044).
     """
     patched = instructor.from_openai(client, mode=mode)
     patched.on("completion:response", _strip_think_block_in_response)
@@ -292,7 +292,7 @@ def generate_structured_via_instructor(
     try:
         result, completion = patched.chat.completions.create_with_completion(
             model=model,
-            messages=messages,  # type: ignore[arg-type]  # messages 是 OpenAI 与 Ark 通道共用的普通 dict，instructor 只声明 openai 的消息 TypedDict
+            messages=messages,  # type: ignore[arg-type]  # messages are ordinary dicts shared by OpenAI/Ark; instructor declares only OpenAI message TypedDicts.
             response_model=model_facing_response_model(response_model),
             max_retries=max_retries,
             **extra,
@@ -315,12 +315,12 @@ async def generate_structured_via_instructor_async(
     token_param: TokenParam = "max_tokens",
     provider: str = "",
 ) -> TextGenerationResult:
-    """通过 Instructor 生成结构化输出（异步版，供 OpenAI AsyncOpenAI 使用）。
+    """Generate structured output through Instructor (asynchronous, for OpenAI AsyncOpenAI).
 
-    token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
-    返回的结果以 JSON 文本为 ``text``，带这次调用的计量。Instructor 的
-    ``IncompleteOutputException``（输出被 max_tokens 截断）归一为 :class:`TextOutputTruncatedError`，
-    与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
+    token_param selects the wire parameter name carrying max_tokens, chosen by callers per endpoint.
+    Results contain JSON text in ``text`` and this call's measurements. Instructor
+    ``IncompleteOutputException`` (max_tokens truncation) normalizes to :class:`TextOutputTruncatedError`,
+    matching native structured truncation behavior (docs/adr/0044).
     """
     patched = instructor.from_openai(client, mode=mode)
     patched.on("completion:response", _strip_think_block_in_response)
@@ -328,7 +328,7 @@ async def generate_structured_via_instructor_async(
     try:
         result, completion = await patched.chat.completions.create_with_completion(
             model=model,
-            messages=messages,  # type: ignore[arg-type]  # messages 是 OpenAI 与 Ark 通道共用的普通 dict，instructor 只声明 openai 的消息 TypedDict
+            messages=messages,  # type: ignore[arg-type]  # messages are ordinary dicts shared by OpenAI/Ark; instructor declares only OpenAI message TypedDicts.
             response_model=model_facing_response_model(response_model),
             max_retries=max_retries,
             **extra,
@@ -341,10 +341,10 @@ async def generate_structured_via_instructor_async(
 
 
 def inject_json_instruction(messages: list[dict]) -> list[dict]:
-    """向 messages 注入 JSON 格式指令，确保 json_object 模式可用。
+    """Inject JSON-format instructions into messages to enable json_object mode.
 
-    OpenAI API 要求 prompt 中包含 "JSON" 关键字才能启用 json_object 模式。
-    若 messages 中已包含 "JSON"，则原样返回副本。
+    OpenAI APIs require the "JSON" keyword in prompts for json_object mode.
+    If messages already contain "JSON", return an unchanged copy.
     """
     fb_messages = list(messages)
     if any("JSON" in (m.get("content") or "") for m in fb_messages):
@@ -366,14 +366,14 @@ def _handle_mode_failure(
     provider: str,
     model: str,
 ) -> TextGenerationResult:
-    """处理降级链某一档的失败：可降档则记日志后正常返回，否则抛终局异常或原样冒泡。
+    """Handle tier failure: log and return normally for fallback, otherwise raise terminal errors or propagate unchanged.
 
-    正常返回即「调用方应继续下一档」，返回值是这一档已计费、需并入最终结果的 token。
+    Normal return means callers should continue to the next tier; returned tokens are this tier's billed usage to merge into final results.
     """
     failure = _classify_mode_failure(exc)
     if failure is _ModeFailure.PROPAGATE:
-        # 冒泡时剥掉 Instructor 的包装：调用方的 @with_retry_async 先按异常类型判瞬态
-        # （ConnectionError / TimeoutError），包着一层就只剩消息文本匹配，漏判连接类错误。
+        # Strip Instructor wrappers before propagation: caller @with_retry_async first identifies transients by exception types
+        # (ConnectionError / TimeoutError); wrappers leave only text matching and miss connection errors.
         raise _propagated_cause(exc)
     if failure is _ModeFailure.DOWNGRADE and next_mode is not None:
         logger.warning(
@@ -384,7 +384,7 @@ def _handle_mode_failure(
             _raw_output_from_exception(exc),
         )
         return _billed_usage(exc, provider=provider, model=model)
-    # 校验类耗尽，或末档仍是 wire 层不兼容——降级链已无更弱的档可退。
+    # Validation exhausted, or final tier remains wire-incompatible: no weaker tier remains.
     logger.warning(
         "Instructor %s 档失败且降级链已走完，判定为结构化输出能力不足；模型原始输出：%s",
         mode.value,
@@ -402,13 +402,13 @@ def instructor_fallback_sync(
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
 ):
-    """同步 Instructor 降级路径。
+    """Synchronous Instructor fallback.
 
-    - response_schema 为 Pydantic 类 → TOOLS → MD_JSON 降级链
-    - response_schema 为 dict → inject JSON instruction + json_object 模式
+    - Pydantic-class response_schema → TOOLS → MD_JSON chain
+    - dict response_schema → inject JSON instruction + json_object mode
 
-    供 Ark 等同步 SDK 后端使用（调用方用 asyncio.to_thread 包装）。
-    不做瞬态重试，瞬态错误由调用方的重试循环统一处理；档内的结构化校验重试由 Instructor 自带。
+    For Ark and other sync SDK backends (callers wrap in asyncio.to_thread).
+    No transient retries here; callers handle them centrally. Instructor provides within-tier structured-validation retries.
     """
     if isinstance(response_schema, type):
         result: TextGenerationResult | None = None
@@ -429,7 +429,7 @@ def instructor_fallback_sync(
             except Exception as exc:
                 discarded = _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
                 merge_billed_usage(billed, discarded)
-        assert result is not None  # 链内每条失败路径都抛异常，走到这里必有结果
+        assert result is not None  # Every chain failure path raises; reaching here guarantees results.
         merge_billed_usage(billed, result)
         billed.text = result.text
         return billed
@@ -447,11 +447,11 @@ def instructor_fallback_sync(
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
     content = choice.message.content or ""
-    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
+    # Match native paths: leading embedded thinking blocks in content never enter results.
     text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
-    # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
-    # Instructor 通道），截断同样升级为硬错误。
+    # dict schemas still request structured output (nonempty response_schema without Pydantic models for native
+    # Instructor channels); truncation likewise becomes a hard error.
     check_truncation(
         getattr(choice, "finish_reason", None),
         provider=provider,
@@ -471,13 +471,13 @@ async def instructor_fallback_async(
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
 ):
-    """异步 Instructor 降级路径。
+    """Asynchronous Instructor fallback.
 
-    - response_schema 为 Pydantic 类 → TOOLS → MD_JSON 降级链 (async)
-    - response_schema 为 dict → inject JSON instruction + json_object 模式 (async)
+    - Pydantic-class response_schema → TOOLS → MD_JSON chain (async)
+    - dict response_schema → inject JSON instruction + json_object mode (async)
 
-    供 OpenAI 等原生异步 SDK 后端使用。
-    不做瞬态重试，瞬态错误由调用方的重试循环统一处理；档内的结构化校验重试由 Instructor 自带。
+    For OpenAI and other native async SDK backends.
+    No transient retries here; callers handle them centrally. Instructor provides within-tier structured-validation retries.
     """
     if isinstance(response_schema, type):
         result: TextGenerationResult | None = None
@@ -498,7 +498,7 @@ async def instructor_fallback_async(
             except Exception as exc:
                 discarded = _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
                 merge_billed_usage(billed, discarded)
-        assert result is not None  # 链内每条失败路径都抛异常，走到这里必有结果
+        assert result is not None  # Every chain failure path raises; reaching here guarantees results.
         merge_billed_usage(billed, result)
         billed.text = result.text
         return billed
@@ -516,11 +516,11 @@ async def instructor_fallback_async(
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
     content = choice.message.content or ""
-    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
+    # Match native paths: leading embedded thinking blocks in content never enter results.
     text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
-    # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
-    # Instructor 通道），截断同样升级为硬错误。
+    # dict schemas still request structured output (nonempty response_schema without Pydantic models for native
+    # Instructor channels); truncation likewise becomes a hard error.
     check_truncation(
         getattr(choice, "finish_reason", None),
         provider=provider,

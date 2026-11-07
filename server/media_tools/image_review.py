@@ -53,18 +53,17 @@ type ImageStatus = Literal["ok", "image_missing", "image_unreadable"]
 class InspectImagesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    resource_type: EditableResourceType = Field(description="要看的图片类型；一次调用只看同一类型")
+    resource_type: EditableResourceType = Field(description="Image type to inspect; inspect only one type per call")
     ids: list[str] = Field(
         min_length=1,
         description=(
-            "要看的 ID 列表：资产为资产名称；storyboard 为分镜 ID（segment_id / scene_id，如 E1S05）；"
-            "character_derivative 为「本体名/衍生名」"
+            "IDs to inspect: asset names for assets; storyboard IDs (segment_id / scene_id, for example E1S05) for storyboard; base name/derivative name for character_derivative"
         ),
     )
     version: StrictInt | None = Field(
         default=None,
         ge=1,
-        description="版本号，对列表中每一项都取这个版本；省略时取各项的 current 版本",
+        description="Version number, applied to every listed item; when omitted, use each item's current version",
     )
 
 
@@ -73,9 +72,9 @@ class InspectedImage:
     id: str
     version: int | None
     status: ImageStatus
-    #: 该项现有的全部版本号，用来发现还没看过的历史版本。
+    #: All existing version numbers for finding historical versions not yet inspected.
     available_versions: tuple[int, ...] = ()
-    #: 生成该版本时登记的提示词；手动上传等没有登记提示词的版本为 None。
+    #: Prompt recorded for this version; None for manual uploads and other versions without recorded prompts.
     prompt: str | None = None
     detail: str | None = None
     jpeg: bytes | None = None
@@ -88,14 +87,14 @@ class InspectImagesResult:
 
 
 def _storyboard_images(services: Services, project_name: str) -> dict[str, str | None]:
-    """项目全部剧本里的分镜 ID 与登记的当前图；参考生视频的剧本没有分镜。"""
+    """Storyboard IDs and registered current images across project scripts; reference-video scripts have no storyboards."""
     found: dict[str, str | None] = {}
     for script_name in sorted(services.projects.list_scripts(project_name)):
         try:
             script = services.projects.load_script_readonly(project_name, script_name)
             items, id_field, *_ = get_storyboard_items(script)
         except (ScriptEditError, ValueError, OSError):
-            # 读不出的剧本无法证明分镜存在，跳过；其余剧本照常判定
+            # Unreadable scripts cannot establish storyboard existence; skip them and inspect other scripts normally.
             logger.warning("查找分镜时跳过无法读取的剧本: %s", script_name, exc_info=True)
             continue
         for item in items:
@@ -108,7 +107,7 @@ def _storyboard_images(services: Services, project_name: str) -> dict[str, str |
 def _resolve_ids(
     services: Services, project_name: str, resource_type: str, ids: list[str]
 ) -> tuple[list[tuple[str, str | None]], list[str]]:
-    """返回归一后的 ID 与登记的当前图，以及不存在的请求 ID。"""
+    """Return normalized IDs and registered current images, plus requested IDs that do not exist."""
     if resource_type == "storyboard":
         known = _storyboard_images(services, project_name)
         return [(item_id, known[item_id]) for item_id in ids if item_id in known], [
@@ -121,7 +120,7 @@ def _resolve_ids(
         try:
             resolved.append(resolve_current_image_pointer(project, resource_type, item_id, None))
         except KeyError:
-            # 包括不合「本体名/衍生名」格式的衍生 ID
+            # Includes derivative IDs not matching the base-name/derivative-name format.
             missing.append(item_id)
     return resolved, missing
 
@@ -135,7 +134,7 @@ def _available_versions(versions: VersionManager, resource_type: str, resource_i
 
 
 def _read_image(path: Path) -> tuple[bytes | None, str | None]:
-    """读快照并缩成 JPEG；读不出或解不开时返回原因。"""
+    """Read a snapshot and resize to JPEG; return a reason if reading or decoding fails."""
     try:
         return compress_image_bytes(path.read_bytes(), max_long_edge=MAX_IMAGE_EDGE, quality=_JPEG_QUALITY), None
     except OSError as exc:
@@ -194,7 +193,7 @@ async def inspect_images(
                     if version is not None
                     else None
                 )
-                # 仅当前产物归档可省略历史；无版本时只读登记的当前图，不补写版本记录。
+                # Only current-artifact archival may omit history; without versions, read the registered current image without backfilling records.
                 if version is None and pointer:
                     current_path = try_safe_join(project_path, pointer, require_file=True)
                     found = (current_path, {}) if current_path is not None else None
@@ -236,7 +235,7 @@ async def inspect_images(
                             files.append(file)
             return project_path, files
 
-        # 要看的版本快照是缓存已清理的远端内容版本时先取回，读图期间登记使用
+        # Retrieve remote version snapshots after cache cleanup before inspection, registering use while reading images.
         project_path, files = await asyncio.to_thread(snapshot_files)
         async with local_work_files(project_path, files):
             inspected = await asyncio.to_thread(inspect_all)

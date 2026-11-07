@@ -1,4 +1,4 @@
-"""实例侧从宽：不认识的内容不阻断读入，只有结构无法解析时整份拒收。"""
+"""Permissive instance reads: unknown content does not block loading; reject the whole dataset only for unparseable structure."""
 
 from __future__ import annotations
 
@@ -179,7 +179,7 @@ def test_single_entry_is_read_like_a_catalog_entry():
 
 
 def test_endpoint_declaration_is_optional_and_unknown_names_are_kept():
-    """实例侧不按端点清单拒收：较新的数据可能挂接这个版本还不认识的端点。"""
+    """Instances do not reject by endpoint catalog: newer data may attach endpoints unknown to this version."""
     data = catalog()
     data["builtin_providers"]["gemini-aistudio"]["models"][0].pop("endpoint")
     data["builtin_providers"]["kling"]["models"][0]["endpoint"] = "kling-video-v9"

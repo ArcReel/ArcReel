@@ -1,4 +1,4 @@
-"""覆盖导入等同于删除现有项目再导入：现有项目的记录按删除收尾，覆盖失败时项目与记录原样保留。"""
+"""Overwrite-import finalizes existing records like deletion; failed replacement preserves projects/records unchanged."""
 
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from tests.integration.server.routers.projects_router_support import build_proje
 
 
 def _create_demo_with_archive(manager: ProjectManager) -> bytes:
-    """建好项目 demo，返回它的导出包，并给现有项目留下导出包里没有的项目记忆。"""
+    """Create demo/export archives, adding existing-project memory absent from archives."""
     manager.create_project("demo")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
     archive_path, _ = ProjectArchiveService(manager).export_project("demo")
@@ -70,8 +70,8 @@ async def test_failed_overwrite_leaves_the_project_and_its_records(tmp_path, mon
     refused: list[Path] = []
 
     def _failing_rename(self: Path, target):
-        # existing-out：现有项目目录被占用、移不走（如 Windows 上有文件仍被打开）。
-        # import-in：现有项目已移走，导入内容移入项目名时失败。
+        # existing-out: occupied directories cannot move, such as open Windows files.
+        # import-in: old projects moved, importing into original names fails.
         if not refused and (self == project_dir if failing_rename == "existing-out" else Path(target) == project_dir):
             refused.append(self)
             raise PermissionError(f"in use: {self}")
@@ -94,6 +94,6 @@ async def test_failed_overwrite_leaves_the_project_and_its_records(tmp_path, mon
         assert len(await SessionRepository(session).list(project_name="demo")) == 1
         [row] = await UsageRepository(session).fetch_summary_rows(filters=UsageFilters(project_name="demo"))
         assert row.cost_amount == 1.5
-    # 执行中的任务仍可落盘
+    # Running tasks still persist.
     with claim_task_project(old["running"], "demo"):
         ensure_task_project_claim("demo")

@@ -1,4 +1,4 @@
-"""声明式调用端点的请求模板渲染。"""
+"""Request-template rendering for declarative invocation endpoints."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ _PLACEHOLDER = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9
 _WHOLE_PLACEHOLDER = re.compile(r"^\s*{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}\s*$")
 _DROP = object()
 
-#: 媒体类型 → 分辨率档位的短边像素表：图片与视频的档位名与像素各成一套。
+#: Media type to resolution-tier short-edge pixel tables; image and video each have their own tier names and pixel values.
 _TIER_SHORT_EDGE_BY_MEDIA_TYPE: Mapping[str, dict[str, int]] = {
     "image": IMAGE_TIER_SHORT_EDGE,
     "video": VIDEO_TIER_SHORT_EDGE,
@@ -33,7 +33,7 @@ _TIER_SHORT_EDGE_BY_MEDIA_TYPE: Mapping[str, dict[str, int]] = {
 
 
 class TemplateRenderError(ValueError):
-    """模板无法在给定上下文中安全渲染。"""
+    """The template cannot render safely in the given context."""
 
     def __init__(self, code: DefinitionErrorCode, **params: object) -> None:
         self.code = code
@@ -43,7 +43,7 @@ class TemplateRenderError(ValueError):
 
 @dataclass(frozen=True)
 class AssetData:
-    """调用方已读取并识别 MIME 的素材内容。"""
+    """Asset contents already read and MIME-identified by the caller."""
 
     mime_type: str
     content: bytes
@@ -55,8 +55,8 @@ class RenderedRequest:
     url: str
     headers: dict[str, str]
     body: object | None = None
-    #: auth 节按 query 渲染出的凭证，已经拼在 ``url`` 上；单列一份是因为重定向会用
-    #: ``Location`` 整体替换查询串，同源续跳时要把它们重新贴回去。
+    #: Credentials rendered as query parameters from auth, already appended to ``url``; retained separately because redirects replace
+    #: the entire query with ``Location``, requiring reattachment on same-origin redirects.
     auth_query: dict[str, str] = field(default_factory=dict)
 
 
@@ -64,7 +64,7 @@ def encode_inputs(
     declarations: Mapping[str, Mapping[str, str]],
     assets: Mapping[str, AssetData | Sequence[AssetData] | None],
 ) -> dict[str, str | list[str] | None]:
-    """按 inputs 声明把素材编码为 data URI 或裸 base64。"""
+    """Encode assets as data URIs or bare base64 according to inputs declarations."""
     encoded: dict[str, str | list[str] | None] = {}
     for name, declaration in declarations.items():
         raw = assets.get(declaration["source"])
@@ -84,10 +84,10 @@ def build_context(
     *,
     media_type: str = DEFAULT_DECLARATIVE_MEDIA_TYPE,
 ) -> dict[str, object]:
-    """补齐模板保留变量；宽高只由比例与分辨率派生，分辨率档位按 ``media_type`` 换算。
+    """Complete reserved template variables; derive dimensions only from ratio and resolution, converting resolution tiers by ``media_type``.
 
-    ``defaults`` 在这里生效，早于整值占位符的删字段判断与宽高派生：调用方没给的参数取定义
-    声明的缺省值，请求里该字段照常出现，派生出的宽高也跟着这个值走。
+    Apply ``defaults`` here before whole-value-placeholder field omission and dimension derivation: parameters omitted by callers use the definition's
+    declared defaults, the request field remains present, and derived dimensions follow that value.
     """
     context = dict(parameters)
     for name, value in (defaults or {}).items():
@@ -117,7 +117,7 @@ def render_request(
     enum_maps: Mapping[str, Mapping[str, object]] | None = None,
     auth: Mapping[str, Mapping[str, str]] | None = None,
 ) -> RenderedRequest:
-    """渲染一节 submit/poll/result 请求；URL 占位符不做转义。"""
+    """Render one submit/poll/result request section; URL placeholders are not escaped."""
     maps = enum_maps or {}
     url = _render_string(request["url"], context, maps)
     if not isinstance(url, str):
@@ -166,7 +166,7 @@ def _lookup(context: Mapping[str, object], name: str) -> object:
 
 
 def enum_map_key(value: object) -> str:
-    """值到 ``enum_maps`` 查表键的转换。校验器用它判缺省值是否在表内，与渲染同一条口径。"""
+    """Convert values to ``enum_maps`` lookup keys. Validators use this to check default membership consistently with rendering."""
     return str(value).lower() if isinstance(value, bool) else str(value)
 
 
@@ -272,10 +272,10 @@ def _render_node(
 
 
 def _put_unique(target: dict[str, object], key: str, value: object) -> None:
-    """写入一个键；与已有键重名时报错，不覆盖。
+    """Write a key; raise on collision with an existing key rather than overwrite.
 
-    静态键在 JSON 里本就唯一，只有对象式 ``$each`` 铺出的键会撞上。覆盖意味着前面的素材被悄悄丢掉、
-    请求照常发出，所以在提交前拒绝。
+    Static JSON keys are already unique; only object-form ``$each`` expansion can collide. Overwriting silently drops earlier assets while
+    the request still sends normally, so reject before submission.
     """
     if key in target:
         raise TemplateRenderError(DefinitionErrorCode.EACH_KEY_DUPLICATE, field=key)
@@ -301,7 +301,7 @@ def _render_auth_query(
     context: Mapping[str, object],
     enum_maps: Mapping[str, Mapping[str, object]],
 ) -> dict[str, str]:
-    """渲染 auth.query 的键值；整串占位符解析为 null 的项照常删掉。"""
+    """Render auth.query key/value pairs; continue omitting items whose whole-string placeholders resolve to null."""
     rendered_pairs: dict[str, str] = {}
     for name, template in query_templates.items():
         rendered = _render_string(template, context, enum_maps)
@@ -311,7 +311,7 @@ def _render_auth_query(
 
 
 def _append_auth_query(url: str, auth_query: Mapping[str, str]) -> str:
-    """把 auth.query 追加到原串尾；URL 自带的 query 原样保留，只有追加项做百分号编码。"""
+    """Append auth.query to the original query; preserve existing URL queries unchanged and percent-encode only appended items."""
     if not auth_query:
         return url
     parts = urlsplit(url)

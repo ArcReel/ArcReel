@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { buttonVariants } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 
-/** 项目工作区里没有路由承接的地址：画布内显示空状态，外壳保留，可回到项目概览。 */
+/** Unmatched project-workspace routes: show an empty state inside the canvas, retain the shell and allow returning to the project overview. */
 export function WorkspaceNotFound() {
   const { t } = useTranslation(["dashboard", "common"]);
   return (

@@ -1,18 +1,18 @@
-"""分集规划服务：读源文窗口 → 调项目配置的文本模型 → 写分集账本并派生集文件。
+"""Episode-planning service: read source windows → call project-configured text models → write ledgers and derive episode files.
 
-plan() 从账本推导的规划起点（按源文位置排在最后的切出集的结尾，见
-:func:`lib.episode.episode_sources.planning_start`）起取一个源文窗口，由文本模型一次规划出窗口内所有
-剧情弧完整的集（标题/钩子/切分锚点；drama 另含分集大纲），schema 强约束 + 锚点存在性/唯一性/连续性
-机械校验，失败自动重试并附上一轮失败原因。整本源文的文件先后取项目登记的清单顺序。自带原文与无原文的
-集不占用整本源文，也不挡规划；新切出的集紧接在最后一个切出集之后，账本里还没有切出集时排在末尾。
-窗口内找不到剧情弧完整的切分点时，模型返回空列表，这一批以 :class:`NoCutPointError` 报错。
+plan() reads windows from ledger-derived planning starts (last cut episode's end by source position; see
+:func:`lib.episode.episode_sources.planning_start`). Text models plan all complete-story-arc episodes within each window
+(titles/hooks/split anchors; drama also includes outlines), enforced by schemas and mechanical anchor existence/uniqueness/continuity
+checks. Failures retry automatically with prior rejection reasons. Whole-source files follow project manifest order. Standalone-source and sourceless
+episodes neither occupy whole sources nor block planning; newly cut episodes follow the last cut episode, or append if no cut episodes exist.
+Without complete-story-arc split points in windows, models return empty lists and batches raise :class:`NoCutPointError`.
 
-写入阶段在同一把项目锁内完成：写账本 + 写本批新集的集文件（其他集的集文件不动）+ 清理余文文件 + 同步源文
-快照。重新规划的候选由 :meth:`EpisodePlanner.plan_candidate` 逐窗生成，写进候选而不写账本（见
-:mod:`lib.episode.episode_replan`）。窗口固定取
-:data:`PLANNING_WINDOW_CHARS`，每批集数由文本模型实际生效的输出上限推导（见 :func:`episodes_per_batch`），
-二者都不是创作者参数，项目设置不能覆盖（见 docs/adr/0032、0044）。新提交的集 ID 若在磁盘上已有下游产物
-（历史残留），标 stale 而非直接覆盖状态，产物不删除。
+Writes share one project lock: ledgers + new batch episode files (other episode files unchanged) + remainder cleanup + source
+snapshot synchronization. Replanning candidates generate window by window through :meth:`EpisodePlanner.plan_candidate`, writing candidates instead of ledgers (see
+:mod:`lib.episode.episode_replan`). Windows use fixed
+:data:`PLANNING_WINDOW_CHARS`; batch episode counts derive from effective text-model output limits (see :func:`episodes_per_batch`).
+Neither is a creator parameter or overridable project setting (see docs/adr/0032, 0044). New IDs with existing downstream disk artifacts
+(historical remnants) become stale instead of directly overwriting statuses; artifacts remain.
 """
 
 from __future__ import annotations
@@ -88,37 +88,37 @@ from lib.script import script_review
 
 logger = logging.getLogger(__name__)
 
-# 单批源文窗口字数，不是创作者参数，Web、Agent 与项目设置都不能覆盖
+# Characters per source window, never creator parameters; Web, Agent and project settings cannot override.
 PLANNING_WINDOW_CHARS = 50000
 
-# 每集在结构化输出里占用的 token 估算（标题、钩子、锚点；剧情演绎另含故事节点与下集预告语），
-# 按偏大口径取值；剧情演绎实际约 250–450 token
+# Estimated structured-output tokens per episode (title, hook, anchors; drama also story beats and next-episode teasers),
+# conservatively high; actual drama output approximately 250–450 tokens.
 _EPISODE_OUTPUT_TOKENS = {"drama": 500, "narration": 200}
 
-# 输出上限里留给分集条目的比例：推理型模型的思考 token 与 JSON 包装也计入同一上限
+# Output-limit proportion reserved for episode entries: reasoning-model thinking tokens and JSON wrappers share the same limit.
 _OUTPUT_SAFETY_FACTOR = 0.5
 
-# LLM 输出未通过 schema / 机械校验时的总尝试次数（含首次）
+# Total attempts, including initial, when LLM outputs fail schema/mechanical checks.
 _MAX_PLAN_ATTEMPTS = 3
 
-# 注入 prompt 的已规划上下文条数上限（保持续写连贯，不膨胀 prompt）
+# Maximum planned-context entries injected into prompts (coherent continuation without prompt inflation).
 _CONTEXT_EPISODES_LIMIT = 5
 
-# 缺位置记录的集号在拒绝信息里最多逐个列出的条数（整本老项目可能每一集都缺，逐个列
-# 会把错误信息撑成几百集的清单）
+# Maximum individually listed episode numbers missing positional records in refusals (every episode in old whole-source projects may lack them;
+# listing all would inflate errors to hundreds of episodes).
 _MISSING_RANGE_LISTED_LIMIT = 10
 
 
 class EpisodePlanningError(RuntimeError):
-    """分集规划失败（源文缺失、校验重试耗尽等）。"""
+    """Episode planning failed (missing sources, exhausted validation retries, etc.)."""
 
 
 class PlanningConflictError(EpisodePlanningError):
-    """规划期间账本被并发修改，提交被拒绝；重新调用即可基于新状态规划。"""
+    """Ledgers changed concurrently during planning; commit refused. Calling again plans against new state."""
 
 
 class NoCutPointError(EpisodePlanningError):
-    """窗口内找不到剧情弧完整的切分点。``source_file`` / ``offset`` 是这一批未切分原文的起点。"""
+    """No complete-story-arc split point within windows. ``source_file`` / ``offset`` locate this batch's unsplit source beginning."""
 
     def __init__(self, *, source_file: str, offset: int):
         self.source_file = source_file
@@ -130,7 +130,7 @@ class NoCutPointError(EpisodePlanningError):
 
 
 class PlanningOutputTruncatedError(EpisodePlanningError, TextOutputTruncatedError):
-    """分集规划中文本模型的输出被截断：同时是规划失败与 :class:`TextOutputTruncatedError`，字段沿用后者。"""
+    """Text-model output truncated during episode planning: both planning failure and :class:`TextOutputTruncatedError`, retaining the latter's fields."""
 
     def __init__(self, cause: TextOutputTruncatedError):
         TextOutputTruncatedError.__init__(
@@ -144,14 +144,14 @@ class PlanningOutputTruncatedError(EpisodePlanningError, TextOutputTruncatedErro
 
 
 def episodes_per_batch(max_output_tokens: int, content_mode: str) -> int:
-    """每批最多规划的集数 = 实际生效的输出上限 × 安全系数 ÷ 每集输出估算，至少 1 集。"""
+    """Maximum episodes per batch = effective output limit × safety factor ÷ estimated output per episode, at least 1."""
     estimate = _EPISODE_OUTPUT_TOKENS["drama" if content_mode == "drama" else "narration"]
     return max(1, int(max_output_tokens * _OUTPUT_SAFETY_FACTOR) // estimate)
 
 
 @dataclass
 class EpisodePlanSummary:
-    """单集摘要：标题 + 钩子 + 体量（按 source_language 计的阅读单位）+ 本集原文首句与尾句。"""
+    """Episode summary: title + hook + volume (reading units by source_language) + first/last source sentences."""
 
     episode: int
     title: str
@@ -164,14 +164,14 @@ class EpisodePlanSummary:
 
 @dataclass
 class LedgerStats:
-    """全账本体量分布快照（机械现算，不做「多小算畸小」之类的阈值判断）。
+    """Whole-ledger volume-distribution snapshot (mechanically calculated, without thresholds such as what counts as unusually small).
 
-    语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主 Agent 做——
-    这里只报分布事实。
+    Main Agents handle semantic judgments (deviation from structural user preferences such as one chapter per episode or 32 episodes total);
+    report distribution facts only here.
     """
 
     total_episodes: int
-    smallest: list[tuple[int, int]]  # (集号, 体量) 体量最小的最多 5 集，按体量升序
+    smallest: list[tuple[int, int]]  # (episode number, volume) Up to five smallest episodes, ascending by volume.
     median_units: int | None
     target_volume: EpisodeTargetVolume | None
 
@@ -188,7 +188,7 @@ class PlanResult:
 
 @dataclass
 class _PlanningProgress:
-    """本批规划时的全局进度快照，仅在 instructions 非空时注入 prompt（供模型换算切分节奏）。"""
+    """Global batch-planning progress snapshot, injected into prompts only for nonempty instructions (model splitting-pace calculations)."""
 
     planned_count: int
     remaining_units: int
@@ -197,7 +197,7 @@ class _PlanningProgress:
 
 @dataclass(frozen=True)
 class CandidateEpisodeSummary:
-    """候选集摘要：尚未分配集 ID。"""
+    """Candidate episode summary, without allocated episode IDs."""
 
     title: str
     hook: str
@@ -208,7 +208,7 @@ class CandidateEpisodeSummary:
 
 @dataclass
 class CandidatePlanResult:
-    """候选生成一批的结果：本批追加的候选集、候选是否已覆盖到整本源文结尾，以及候选的集数。"""
+    """One candidate-generation batch result: appended episodes, whether candidates cover whole-source ends and candidate episode counts."""
 
     episodes: list[CandidateEpisodeSummary]
     source_exhausted: bool
@@ -217,21 +217,21 @@ class CandidatePlanResult:
 
 @dataclass(frozen=True)
 class _Window:
-    """本批要读的源文：一个文件里从 ``start`` 到 ``limit`` 的原文，窗口从 ``start`` 起取。"""
+    """Sources read for this batch: one file's text from ``start`` to ``limit``, window beginning at ``start``."""
 
     source_rel: str
     text: str
     start: int
     limit: int
-    #: ``limit`` 之后再没有待规划的原文：整本源文的最后一个文件，或规划空段时的空段结尾。
+    #: No unplanned sources after ``limit``: last whole-source file, or gap endpoint when planning gaps.
     reaches_end: bool
-    #: ``limit`` 之后紧接着已有的集（规划空段）：最后一窗要规划到 ``limit``，不留尾巴。
+    #: Existing episodes immediately after ``limit`` (gap planning): final windows must reach ``limit`` without leftover tails.
     followed_by_episode: bool = False
 
     def end(self, window_chars: int) -> int:
-        # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
-        # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
-        # 不会让常规批次显著超出窗口设置的预期体量。
+        # Flexible windows: consume to the end when full remaining text is below 1.2 times window size, preventing orphan leftovers
+        # from becoming tiny separate episodes in the next batch (a mechanical cause of unusually small episodes). Factor 1.2 allows small enough variation
+        # that ordinary batches do not substantially exceed expected window volume.
         return self.limit if self.limit - self.start <= window_chars * 1.2 else self.start + window_chars
 
     def is_final(self, window_chars: int) -> bool:
@@ -242,7 +242,7 @@ _DRAFT_CONFIG = ConfigDict(extra="forbid")
 
 
 class NarrationEpisodeDraft(BaseModel):
-    """narration 条目：精确切分锚点 + 钩子。"""
+    """Narration entries: exact split anchors + hooks."""
 
     model_config = _DRAFT_CONFIG
 
@@ -252,14 +252,14 @@ class NarrationEpisodeDraft(BaseModel):
 
 
 class DramaEpisodeDraft(NarrationEpisodeDraft):
-    """drama 条目加厚为分集大纲：故事节点 + 下集预告语。"""
+    """Drama entries expand into episode outlines: story beats + next-episode teasers."""
 
     story_beats: list[str] = Field(min_length=1)
     next_episode_teaser: str | None = None
 
 
 class NarrationPlanDraft(BaseModel):
-    """空列表表示窗口内找不到剧情弧完整的切分点。"""
+    """Empty lists mean no complete-story-arc split points found within windows."""
 
     model_config = _DRAFT_CONFIG
 
@@ -267,7 +267,7 @@ class NarrationPlanDraft(BaseModel):
 
 
 class DramaPlanDraft(BaseModel):
-    """空列表表示窗口内找不到剧情弧完整的切分点。"""
+    """Empty lists mean no complete-story-arc split points found within windows."""
 
     model_config = _DRAFT_CONFIG
 
@@ -275,45 +275,45 @@ class DramaPlanDraft(BaseModel):
 
 
 class _DraftRejected(Exception):
-    """单轮 LLM 输出被 schema / 机械校验拒绝；reasons 注入下一轮重试 prompt。"""
+    """One LLM output rejected by schema/mechanical validation; reasons feed the next retry prompt."""
 
     def __init__(self, reasons: list[str]):
         super().__init__("; ".join(reasons))
         self.reasons = reasons
 
 
-# 全/半角标点折叠表：把同一标点的全角 / 表意形态映射到半角规范形，仅供匹配时构造
-# 折叠副本用，绝不落库。逐字符 1:1 映射（长度不变），折叠坐标即 NFC 精确坐标。
+# Full-/halfwidth punctuation folding: map fullwidth/ideographic punctuation to canonical halfwidth forms, solely to build matching
+# copies, never persist. Characterwise equal-length 1:1 mapping makes folded coordinates exact NFC coordinates.
 _PUNCT_FOLD: dict[str, str] = {
-    "。": ".",  # U+3002 表意句号
-    "．": ".",  # U+FF0E 全角句点
-    "，": ",",  # U+FF0C 全角逗号
-    "！": "!",  # U+FF01 全角叹号
-    "？": "?",  # U+FF1F 全角问号
-    "：": ":",  # U+FF1A 全角冒号
-    "；": ";",  # U+FF1B 全角分号
-    "（": "(",  # U+FF08 全角左括号
-    "）": ")",  # U+FF09 全角右括号
-    "～": "~",  # U+FF5E 全角波浪号
-    "〜": "~",  # U+301C CJK 波浪号（与 U+FF5E 同族，一并折向半角 ~）
-    "“": '"',  # U+201C 左弯双引号
-    "”": '"',  # U+201D 右弯双引号
-    "‘": "'",  # U+2018 左弯单引号
-    "’": "'",  # U+2019 右弯单引号
-    "＂": '"',  # U+FF02 全角直双引号
-    "＇": "'",  # U+FF07 全角直单引号
+    "。": ".",  # U+3002 IDEOGRAPHIC FULL STOP
+    "．": ".",  # U+FF0E FULLWIDTH FULL STOP
+    "，": ",",  # U+FF0C FULLWIDTH COMMA
+    "！": "!",  # U+FF01 FULLWIDTH EXCLAMATION MARK
+    "？": "?",  # U+FF1F FULLWIDTH QUESTION MARK
+    "：": ":",  # U+FF1A FULLWIDTH COLON
+    "；": ";",  # U+FF1B FULLWIDTH SEMICOLON
+    "（": "(",  # U+FF08 FULLWIDTH LEFT PARENTHESIS
+    "）": ")",  # U+FF09 FULLWIDTH RIGHT PARENTHESIS
+    "～": "~",  # U+FF5E FULLWIDTH TILDE
+    "〜": "~",  # U+301C CJK wave dash (same family as U+FF5E, both fold to halfwidth ~)
+    "“": '"',  # U+201C LEFT DOUBLE QUOTATION MARK
+    "”": '"',  # U+201D RIGHT DOUBLE QUOTATION MARK
+    "‘": "'",  # U+2018 LEFT SINGLE QUOTATION MARK
+    "’": "'",  # U+2019 RIGHT SINGLE QUOTATION MARK
+    "＂": '"',  # U+FF02 FULLWIDTH QUOTATION MARK
+    "＇": "'",  # U+FF07 FULLWIDTH APOSTROPHE
 }
-# 折叠值必须是单字符：_fold_for_match 的逐字符 1:1 等长依赖于此。一旦某条映射折成多字符，
-# 折叠串偏移就相对 NFC 原文漂移，end = start + len(anchor) 会算出错误切点。导入期即拦截违例。
+# Folded values must be single characters: _fold_for_match's equal-length 1:1 mapping depends on this. Multicharacter mappings shift
+# folded offsets relative to original NFC text, making end = start + len(anchor) wrong. Reject violations at import time.
 assert all(len(dst) == 1 for dst in _PUNCT_FOLD.values()), "折叠表的值必须是单字符以保证等长映射"
 
 
 def _fold_for_match(text: str) -> str:
-    """构造匹配用折叠副本：折叠全/半角标点 + 把每个空白字符折成一个半角空格（逐字符等长，不合并连续空白）。
+    """Build folded matching copies: fold full-/halfwidth punctuation and each whitespace character into one ASCII space (characterwise equal length, never merge consecutive whitespace).
 
-    严格逐字符 1:1 映射（每个字符映射为恰好一个字符，连续空白按原数量逐个保留、不压缩），
-    长度与原文一致，因而折叠串上的偏移即原文 NFC 坐标系内的精确偏移。容差只限定在标点
-    全/半角与单个空白字符的宽度，不做编辑距离 / 语义级模糊匹配。
+    Strict 1:1 character mapping (exactly one output character per input; retain consecutive whitespace counts without compression)
+    preserves source length, so folded-string offsets exactly match original NFC coordinates. Tolerance covers only full-/halfwidth
+    punctuation and individual whitespace widths, never edit-distance / semantic fuzzy matching.
     """
     out: list[str] = []
     for ch in text:
@@ -328,11 +328,11 @@ def _fold_for_match(text: str) -> str:
 
 
 def _find_all_overlapping(haystack: str, needle: str) -> list[int]:
-    """收集 needle 在 haystack 内的全部起点（允许重叠）。
+    """Collect every needle start in haystack, including overlaps.
 
-    str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
-    步进 1 滑动查找，按允许重叠的口径判定 0/1/多次。空 needle 直接返回空列表
-    （调用方的 anchor 受 min_length=2 约束不会为空，此处仅作 helper 的防御边界）。
+    str.count counts nonoverlapping matches only, misclassifying overlapping occurrences ("aaa" in "aaaa") as unique.
+    Slide by 1, classifying 0/1/multiple matches with overlaps. Empty needles return empty lists directly
+    (caller anchors have min_length=2 and cannot be empty; defensive helper boundary only).
     """
     if not needle:
         return []
@@ -350,36 +350,36 @@ def _resolve_boundaries(
     *,
     snap_whitespace_tail: bool,
 ) -> list[int]:
-    """把每集 end_anchor 解析为窗口内相对结束偏移，校验存在/唯一/连续。
+    """Resolve episode end_anchor values to window-relative end offsets, checking existence/uniqueness/continuity.
 
-    范围由锚点构造性保证连续不重叠：第 i 集 = [第 i-1 集末尾, 第 i 集锚点末尾)。
-    末尾只剩空白时（``snap_whitespace_tail=True``，即 plan 命中全文结尾窗口）把
-    最后一集贴齐到窗口末尾，贴齐后每个字符都归属某一集。
+    Anchors construct contiguous nonoverlapping ranges: episode i = [episode i-1 end, episode i anchor end).
+    If only whitespace remains (``snap_whitespace_tail=True``, plan's final full-text window), align
+    the final episode to window end, assigning every character to an episode.
 
-    锚点定位分级：先精确 ``find``（命中即与逐字节匹配完全一致，Tier1 不做任何归一）；
-    精确落空时退化到容错——先对锚副本施加与 window 相同的 ``normalize_source_text`` 归一
-    （NFC + 换行统一），把「window 已归一、anchor 未归一」整类失配一次性闭合，再按折叠
-    全/半角标点 + 折叠空白宽度的等价口径在折叠副本上扫描。折叠对 window 为 1:1 等长映射，
-    故命中起点即归一坐标系下的精确起点；跨度取归一后的锚长（``normalize_source_text`` 非
-    长度保持，end 必须用归一锚长而非原 anchor 长，否则 \\r 或组合字符撑长会让偏移漂移）。
-    切片仍取归一后的原文、不改写源文标点。折叠后仍多处命中时维持「无法唯一定位」拒绝。
+    Tiered anchor lookup: exact ``find`` first (hits identical to bytewise matching; Tier1 performs no normalization).
+    On exact misses, tolerate differences: apply window-equivalent ``normalize_source_text`` to anchor copies
+    (NFC + unified newlines), closing all normalized-window/unnormalized-anchor mismatches, then scan folded copies
+    with equivalent full-/halfwidth punctuation and whitespace-width folding. Window folding is equal-length 1:1,
+    so hit starts are exact normalized-coordinate starts. Use normalized anchor lengths for spans (``normalize_source_text`` is not
+    length-preserving; ends must use normalized lengths, never original anchor lengths, or \\r/combining-character expansion shifts offsets).
+    Slice normalized original text without rewriting source punctuation. Multiple folded hits still reject as nonunique.
     """
     reasons: list[str] = []
     ends: list[int] = []
     pos = 0
     ordering_valid = True
-    folded_window: str | None = None  # 懒构造：仅在精确匹配落空时折叠一次
+    folded_window: str | None = None  # Lazy construction: fold once only after exact matching misses.
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
-        match_len = len(anchor)  # 精确命中：跨度即原 anchor 长度（与 window 逐字节一致）
+        match_len = len(anchor)  # Exact hits: spans equal original anchor lengths (byte-identical to window).
         starts = _find_all_overlapping(window, anchor)
         matched_by_fold = False
         if not starts:
-            # 精确落空：退化到容错匹配。对「匹配用的锚副本」施加与 window 完全相同的归一
-            # （normalize_source_text：NFC + 换行统一，window 本就经它产出），再折叠标点全/半角
-            # 与空白宽度，在对 window 等长的折叠副本上定位精确偏移；Tier1 字节级行为与源文坐标
-            # 不变。normalize_source_text 非长度保持，故 end 跨度取归一后锚长 match_len（不是原
-            # anchor 长），与归一坐标系对齐，避免 \r / 组合字符撑长导致偏移漂移、损坏切片坐标。
+            # Exact misses fall back to tolerant matching. Normalize matching anchor copies exactly as windows
+            # (normalize_source_text: NFC + unified newlines; windows already use it), then fold full-/halfwidth punctuation
+            # and whitespace width to locate exact offsets on equal-length folded window copies. Tier1 byte behavior/source coordinates
+            # remain unchanged. normalize_source_text is not length-preserving, so end spans use normalized anchor match_len (never original
+            # anchor length), aligned with normalized coordinates, avoiding \r / combining-character expansion shifting/damaging slice coordinates.
             if folded_window is None:
                 folded_window = _fold_for_match(window)
             normalized_anchor = normalize_source_text(anchor)
@@ -393,8 +393,8 @@ def _resolve_boundaries(
             continue
         if len(starts) > 1:
             if matched_by_fold:
-                # 折叠路径的「出现 N 次」是标点 / 空白折叠对齐后的计数；模型按字面 anchor 逐字数
-                # 往往是 0 次，必须点明计数口径，否则模型对不上、可能反复重交同一 anchor 耗尽重试
+                # Folded-path occurrence counts follow punctuation/whitespace alignment. Literal model anchor counts
+                # are often 0; state counting rules explicitly or models may resubmit identical anchors and exhaust retries.
                 reasons.append(
                     f"第 {idx} 条的 end_anchor 在原文窗口中按归一（NFC 与换行统一）及标点全/半角、空白折叠对齐后出现 {len(starts)} 次"
                     f"（逐字精确匹配可能为 0 次），无法唯一定位，请改用更长或更独特、与原文逐字一致的片段: {anchor!r}"
@@ -431,7 +431,7 @@ def _ledger_entry_from_draft(
     end: int,
     status: str,
 ) -> dict[str, Any]:
-    """把单集草稿物化为账本条目。"""
+    """Materialize episode drafts as ledger entries."""
     entry: dict[str, Any] = {
         "episode": num,
         "title": draft_ep.title,
@@ -452,7 +452,7 @@ def _ledger_entry_from_draft(
 def _candidate_entry_from_draft(
     draft_ep: NarrationEpisodeDraft, *, source_rel: str, start: int, end: int
 ) -> dict[str, Any]:
-    """把单集草稿物化为候选集：与账本条目同样的标题、钩子、原文范围与分集大纲，集 ID 留到采纳时分配。"""
+    """Materialize episode drafts as candidates: same titles, hooks, source ranges and outlines as ledger entries; allocate IDs on adoption."""
     entry: dict[str, Any] = {
         "title": draft_ep.title,
         "hook": draft_ep.hook,
@@ -471,12 +471,12 @@ def _language_of(project: Mapping[str, Any]) -> str | None:
     return language if isinstance(language, str) else None
 
 
-#: 从第一个切出集起重新规划的两个入口：Web 与 Agent 都会看到规划失败的原因。
+#: Two replanning entries from the first cut episode: both Web and Agent see planning failure reasons.
 _REPLAN_FROM_FIRST = "在「分集」视图选中第一个切出集，选「从这一集开始重新规划」；或由 Agent 调用 reset_episode_planning（不带 episode_id）"
 
 
 def _source_changed_error(paths: list[str]) -> EpisodePlanningError:
-    """构造源文已变动的拒绝错误：指名变动文件并指路全量重置。"""
+    """Build source-change refusals naming changed files and directing to full reset."""
     return EpisodePlanningError(
         f"源文件已被修改或移除：{'、'.join(paths)}。账本坐标绑定的是修改前的原文内容，继续规划会静默切出"
         f"错误内容；需要从第一个切出集起重新规划：{_REPLAN_FROM_FIRST}。"
@@ -484,7 +484,7 @@ def _source_changed_error(paths: list[str]) -> EpisodePlanningError:
 
 
 def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
-    """构造账本有旧拆分流程存量集的拒绝错误：指名集 ID 并指路全量重置。"""
+    """Build refusals for legacy split-flow ledger episodes, naming IDs and directing to full reset."""
     listed = "、".join(str(num) for num in nums[:_MISSING_RANGE_LISTED_LIMIT])
     if len(nums) > _MISSING_RANGE_LISTED_LIMIT:
         listed += f" 等 {len(nums)} 集"
@@ -497,9 +497,9 @@ def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
 
 
 class EpisodePlanner:
-    """分集规划器。``generator`` 为 None 时仅可构造，调用 plan() 会报错。
+    """Episode planner. None ``generator`` permits construction only; plan() raises.
 
-    ``window_chars`` 只供测试缩小窗口，生产调用一律取 :data:`PLANNING_WINDOW_CHARS`。
+    ``window_chars`` only shrinks windows for tests; production always uses :data:`PLANNING_WINDOW_CHARS`.
     """
 
     def __init__(
@@ -519,7 +519,7 @@ class EpisodePlanner:
 
     @classmethod
     async def create(cls, project_path: str | Path) -> EpisodePlanner:
-        """异步工厂：按项目配置创建文本后端（与剧本生成同一条 SCRIPT 任务配置链）。"""
+        """Async factory: create text backends from project configuration, using the same SCRIPT-task chain as script generation."""
         project_name = Path(project_path).name
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name, purpose=CallPurpose.EPISODE_PLANNING)
         return await asyncio.to_thread(cls, project_path, generator)
@@ -533,29 +533,29 @@ class EpisodePlanner:
         on_more_to_plan: Callable[[], Awaitable[None]] | None = None,
         gap: tuple[str, int] | None = None,
     ) -> PlanResult:
-        """规划下一批集：从账本推导的规划起点取窗口，产出剧情弧完整的集并提交账本。
+        """Plan the next episode batch: read windows at ledger-derived starts, produce complete-story-arc episodes and commit ledgers.
 
-        当前源文件已无剩余有效内容时按整本源文清单的顺序推进到下一个文件；
-        ``source_exhausted=True`` 表示全部源文件都已规划完毕。
+        Advance through whole-source manifest order when current files have no remaining effective content;
+        ``source_exhausted=True`` means all source files are fully planned.
 
-        ``on_more_to_plan`` 在本批之后整本源文还有待规划的原文时调用一次：窗口不含整本源文的结尾时，
-        在请求模型之前调用；含结尾时，在模型给出的本批没有规划到结尾（如被每批集数上限截断）时调用。
-        源文已全部规划完毕、或本批报错时不调用。
+        Call ``on_more_to_plan`` once when whole sources retain unplanned text after this batch: before model requests if windows
+        exclude whole-source ends; otherwise when model batches do not reach the end (for example batch episode limits truncate them).
+        Never call when sources are fully planned or batches fail.
 
-        ``gap`` 是一段未切分原文的终点 ``(源文件, 偏移)``：只规划以它为终点的那段未切分原文（删除切出集等留下的空段），
-        起点是同一文件里前面最近的切出集的结尾，终点之后不再规划；新集按源文位置插入，不替换任何集。
-        ``source_exhausted=True`` 此时表示这段原文已全部规划完毕。
+        ``gap`` is an unsplit segment end ``(源文件, 偏移)``: plan only the segment ending there (gaps from deleted cut episodes, etc.),
+        starting at the nearest preceding cut episode's end in the same file. Never plan beyond this endpoint; insert new episodes by source position without replacing any.
+        Here ``source_exhausted=True`` means this segment is fully planned.
 
-        ``instructions`` 是可选的用户分集附加指令（如按章节对齐切分），strip 后为空视同未传；
-        非空则原样注入规划 prompt 的中性「附加指令」分节，遵循强度由附加指令正文自行表达。规划按窗口
-        分多批、附加指令不持久化，调用方须在每批 plan 调用都重复带上。
+        ``instructions`` are optional additional user planning instructions (for example chapter-aligned cuts), absent when empty after strip;
+        inject nonempty values unchanged into neutral additional-instruction prompt sections, with adherence strength expressed by their own text. Planning uses window
+        batches without persisting additional instructions; callers must repeat them with every plan call.
 
-        新提交的集号若在磁盘上已有下游产物（剧本/script_plan/媒体，见
-        :func:`lib.episode.episode_ledger.has_downstream_products`），说明该集实际已被消费过
-        （典型场景：先 ``reset_episode_planning`` 部分重置到更早集号、再带新 ``instructions``
-        重新规划，新布局与原消费范围重叠）；这类集提交时直接标 ``stale``（产物不删除），
-        随 ``PlanResult.stale_episodes`` 返回，不再需要额外确认——重置阶段已完成过一次
-        已消费集确认。
+        New episode numbers with existing downstream disk artifacts (script/script_plan/media, see
+        :func:`lib.episode.episode_ledger.has_downstream_products`) were actually consumed already
+        (typically ``reset_episode_planning`` partially reset to earlier numbers, then new ``instructions``
+        replan layouts overlapping prior consumed ranges). Commit them directly as ``stale`` without deleting artifacts,
+        returning them in ``PlanResult.stale_episodes`` without further confirmation: reset already completed consumed-episode
+        confirmation.
         """
         planning_instructions = (instructions or "").strip() or None
 
@@ -566,9 +566,9 @@ class EpisodePlanner:
             self._check_source_fingerprints(project, sources=sources)
             return project, sources, compute_source_fingerprints(sources)
 
-        # 提交时复核的基线只留指纹摘要，不为暂不参与本批规划的源文件常驻其全文：
-        # discover_sources 已读入整本源文全部文件的原文用于计算这批指纹，本函数下方
-        # 显式释放该列表，避免大型多源项目在跨模型调用的等待期间叠加持有整套原文
+        # Retain fingerprint digests only for commit rechecks, not full source texts unused by this batch:
+        # discover_sources already read every whole-source file to calculate these fingerprints. Explicitly release
+        # that list below, avoiding full-source retention throughout model-call waits in large multisource projects.
         project, pre_call_sources, used_fingerprints = await asyncio.to_thread(snapshot)
         source_order = [doc.rel_path for doc in pre_call_sources]
 
@@ -581,7 +581,7 @@ class EpisodePlanner:
         text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
-        # 规划在当前文件里的终点：规划空段时是空段结尾，否则是文件末尾
+        # Current-file planning end: gap end when planning gaps, otherwise file end.
         limit = len(text) if gap is None else gap[1]
         while not text[start:limit].strip():
             next_rel = None if gap is not None else _next_source_rel(source_order, source_rel)
@@ -600,7 +600,7 @@ class EpisodePlanner:
             source_rel, start = next_rel, 0
             text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
             limit = len(text)
-        # 全局进度只在有附加指令时注入 prompt；后续文件的体量在释放原文前算好
+        # Inject global progress only with additional instructions; compute later-file volumes before releasing sources.
         later_units = (
             sum(
                 count_reading_units(doc.text, _language_of(project))
@@ -612,7 +612,7 @@ class EpisodePlanner:
         context_entries = (
             _context_entries(project) if gap is None else _gap_context_entries(project, pre_call_sources, start_ref)
         )
-        pre_call_sources = []  # 之后只需 used_fingerprints（摘要）与本批实际使用的 text，显式释放原文引用
+        pre_call_sources = []  # Only used_fingerprints (digests) and this batch's actual text remain necessary; explicitly release source references.
 
         window = _Window(
             source_rel=source_rel,
@@ -636,13 +636,13 @@ class EpisodePlanner:
 
         summaries: list[EpisodePlanSummary] = []
         committed: dict[str, Any] = {"stale": []}
-        # 派生文件的事务保护路径按锁外快照预算，锁内分配出的集 ID 必须与之一致
+        # Budget transaction-protected derived paths from unlocked snapshots; IDs allocated under locks must match.
         next_num = episode_id_high_water(project) + 1
         protected_ids = list(range(next_num, next_num + len(drafts)))
 
         def _commit(p: dict) -> None:
-            # 锁内复核：模型调用期间账本与源文件都可能被并发改动（新登记的旧拆分存量集、外部改动的
-            # 源文），与锁外预检查同一套逃生口，复用同一错误提示——重试只会再次命中同一比对，须先重置
+            # Locked recheck: ledgers/sources may change concurrently during model calls (newly registered legacy split episodes, externally changed
+            # sources). Share unlocked prechecks' escape hatches and refusal messages; retries repeat identical comparisons, requiring reset first.
             self._check_source_ranges(p)
             current_sources = discover_sources(self.project_path, p)
             self._check_source_fingerprints(p, sources=current_sources)
@@ -651,16 +651,16 @@ class EpisodePlanner:
             )
             if locked_start != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")
-            # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而切分坐标与派生
-            # 文件都基于本次调用读入的 used_fingerprints，故直接比指纹堵住补记路径裸露的窗口——
-            # 本次调用读入的任一源文若在模型调用期间被改动，同样会被这里拦下
+            # Fingerprint comparisons cover recorded files only, always empty for legacy backfill paths. Split coordinates and derived
+            # files use this call's used_fingerprints, so compare them directly to close the exposed backfill window:
+            # any source read by this call that changes during model calls is also blocked here.
             current_fingerprints = compute_source_fingerprints(current_sources)
             changed = sorted(rel for rel, fp in used_fingerprints.items() if current_fingerprints.get(rel) != fp)
             if changed:
                 raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
-            # 新集一律分配历史最高号之后的集 ID，紧接在最后一个切出集之后（没有切出集时排在末尾）；
-            # 规划空段时按源文位置插在空段两侧的切出集之间
+            # New episodes always receive IDs beyond historical maxima, following the last cut episode (append if none);
+            # gap planning inserts by source position between cut episodes flanking gaps.
             if gap is None:
                 insert_at = next(
                     (
@@ -685,8 +685,8 @@ class EpisodePlanner:
                 entry = _ledger_entry_from_draft(
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
-                # 新集 ID 在磁盘上已有剧本/script_plan 产物（历史最高号之外的手工残留），说明该 ID
-                # 实际已被消费过；标 stale 提示主 Agent 需重做下游产物，产物本身不删除
+                # New IDs with existing disk script/script_plan artifacts (manual remnants beyond historical maxima) were actually
+                # consumed; mark stale to tell main Agents to redo downstream artifacts, never delete artifacts themselves.
                 if has_downstream_products(self.project_path, num, entry):
                     script_review.mark_ledger_stale(self.project_path, p, entry, num)
                     committed["stale"].append(num)
@@ -734,8 +734,8 @@ class EpisodePlanner:
             source_exhausted=exhausted,
             stale_episodes=list(committed["stale"]),
             total_planned=_count_planned_episodes(final_project),
-            # 全局核对材料只在末批即耗尽时附上；常规批次只报「累计已规划 N 集」，
-            # 避免主 Agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
+            # Attach global checking material only on final exhausted batches; ordinary batches report total planned N only,
+            # avoiding per-batch main-Agent context inflation (tool-layer total_planned rendering).
             ledger_stats=await asyncio.to_thread(self._compute_ledger_stats, final_project) if exhausted else None,
         )
 
@@ -748,11 +748,11 @@ class EpisodePlanner:
         *,
         on_more_to_plan: Callable[[], Awaitable[None]] | None = None,
     ) -> CandidatePlanResult:
-        """为重新规划的候选生成下一批集：从候选的结尾取窗口，产出的集追加到候选，分集账本不动。
+        """Generate the next replanning-candidate batch: read windows from candidate ends, append generated episodes to candidates without ledger changes.
 
-        候选见 :mod:`lib.episode.episode_replan`。候选不在了（已放弃或已采纳）、被并发追加过，或整本源文在
-        候选生成后有改动时拒绝。账本里旧拆分流程的存量集与已记录的源文指纹不挡候选生成：这两种情况下候选从
-        整本源文开头起。``on_more_to_plan`` 与 :meth:`plan` 同义；候选已覆盖到整本源文结尾时标记候选完成。
+        See :mod:`lib.episode.episode_replan`. Refuse absent candidates (discarded/adopted), concurrent appends, or whole-source changes
+        since candidate generation. Legacy split-flow ledger episodes and recorded source fingerprints do not block candidate generation: both situations start candidates
+        at whole-source beginning. ``on_more_to_plan`` matches :meth:`plan`; mark candidates complete when covering whole-source ends.
         """
         planning_instructions = (instructions or "").strip() or None
 
@@ -791,7 +791,7 @@ class EpisodePlanner:
             {"episode": index, "title": entry.get("title"), "hook": entry.get("hook")}
             for index, entry in enumerate([*before, *drafted], start=1)
         ]
-        sources = []  # 之后只需本批实际使用的 text，显式释放原文引用
+        sources = []  # Only this batch's actual text remains necessary; explicitly release source references.
 
         window = _Window(
             source_rel=source_rel,
@@ -842,7 +842,7 @@ class EpisodePlanner:
         complete: bool,
         fingerprints: Mapping[str, str],
     ) -> int:
-        """在项目锁内把本批追加到候选，返回候选的集数。"""
+        """Append this batch to candidates under project locks; return candidate episode counts."""
         committed: dict[str, int] = {}
 
         def _commit(p: dict) -> None:
@@ -870,9 +870,9 @@ class EpisodePlanner:
         later_units: int,
         on_more_to_plan: Callable[[], Awaitable[None]] | None,
     ) -> tuple[list[NarrationEpisodeDraft], list[int]]:
-        """取窗口、请求模型并校验，返回本批的集草稿与各集在窗口内的结尾偏移。
+        """Read windows, request models and validate; return batch episode drafts and their window-relative end offsets.
 
-        窗口内找不到剧情弧完整的切分点时抛 :class:`NoCutPointError`。``on_more_to_plan`` 的调用时机见 :meth:`plan`。
+        No complete-story-arc split points in windows raise :class:`NoCutPointError`. See :meth:`plan` for ``on_more_to_plan`` timing.
         """
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
@@ -888,9 +888,9 @@ class EpisodePlanner:
             DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
         )
         language = _language_of(project)
-        # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
-        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无附加指令路径行为可复现，
-        # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
+        # Compute/inject global progress only with instructions:
+        # Without instructions, prompts must remain byte-identical: batch planning requires reproducible no-additional-instruction behavior within batches.
+        # Global progress changes prompts, so calculate/inject it only with instructions.
         progress: _PlanningProgress | None = None
         if instructions:
             progress = _PlanningProgress(
@@ -899,7 +899,7 @@ class EpisodePlanner:
                 window_units=count_reading_units(window_text, language),
             )
 
-        # 窗口只取一个文件里的原文，一个窗口内只有一种源文件类型
+        # Windows read one file only, so each contains one source kind.
         source_kind = whole_source_file_kind(project, window.source_rel) or DEFAULT_SOURCE_KIND
 
         def _prompt(failure: list[str] | None) -> str:
@@ -941,15 +941,15 @@ class EpisodePlanner:
         snap_whitespace_tail: bool,
         max_episodes: int | None,
     ) -> tuple[list[NarrationEpisodeDraft], list[int]]:
-        """LLM 调用 + schema/机械校验循环；重试 prompt 附上一轮失败原因。模型返回空列表时原样返回。
+        """LLM call + schema/mechanical validation loop; retry prompts include prior rejection reasons. Return empty model lists unchanged.
 
-        结构化输出被输出上限截断时 :class:`TextOutputTruncatedError` 直接短路本循环——
-        重发同一份必然再截断的请求没有意义；转为 :class:`PlanningOutputTruncatedError` 冒泡，
-        带出出路所需的模型信息（见 docs/adr/0044）。
+        Structured output truncated at output limits raises :class:`TextOutputTruncatedError`, immediately short-circuiting this loop:
+        resending identical requests certain to truncate again is pointless. Convert to :class:`PlanningOutputTruncatedError` and propagate,
+        including model information needed for remedies (see docs/adr/0044).
 
-        后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
-        转为 :class:`EpisodePlanningError`，让 Agent 拿到「供应商结构化输出能力不足」的可读
-        话术而非后端内部异常原文。
+        Backend structured-output fallback exhaustion, :class:`StructuredOutputExhaustedError`, also short-circuits this loop;
+        convert to :class:`EpisodePlanningError` so Agents receive readable insufficient-provider-structured-output-capability
+        explanations instead of raw backend internal exceptions.
         """
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
@@ -967,7 +967,7 @@ class EpisodePlanner:
             except TextOutputTruncatedError as exc:
                 raise PlanningOutputTruncatedError(exc) from exc
             except StructuredOutputExhaustedError as exc:
-                # 后端的降级链已把各档与档内重试都走完，本层再重试只是重复同一条必败路径。
+                # Backend fallback exhausted all tiers and their retries; retrying here only repeats the same certain-failure path.
                 raise EpisodePlanningError(str(exc)) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
@@ -1010,7 +1010,7 @@ class EpisodePlanner:
 
     @staticmethod
     def _effective_start(project: Mapping[str, Any], sources: list[SourceDoc]) -> tuple[str, int]:
-        """下一批规划起点：由账本推导，见 :func:`lib.episode.episode_sources.planning_start`。"""
+        """Next batch start derived from ledgers; see :func:`lib.episode.episode_sources.planning_start`."""
         start = planning_start(project, sources)
         if start is None:
             raise EpisodePlanningError("整本源文还没有文件，请先上传小说原文")
@@ -1018,7 +1018,7 @@ class EpisodePlanner:
 
     @staticmethod
     def _span_files(order: list[str], span: SourceSpan) -> list[str]:
-        """原文范围经过的文件，按整本源文顺序；起止文件不在清单里时只给起止两个文件。"""
+        """Files traversed by source ranges in whole-source order; if endpoint files are absent from manifests, return only those two."""
         if span.source_file in order and span.end_file in order:
             return order[order.index(span.source_file) : order.index(span.end_file) + 1]
         return list(dict.fromkeys((span.source_file, span.end_file)))
@@ -1036,10 +1036,10 @@ class EpisodePlanner:
             raise EpisodePlanningError(f"源文件读取失败：{rel}: {exc}") from exc
 
     def _check_source_fingerprints(self, project: Mapping[str, Any], *, sources: list[SourceDoc] | None = None) -> None:
-        """比对账本记录的源文指纹与当前源文，不一致（含记录文件已消失）即拒绝规划。
+        """Compare ledger-recorded fingerprints with current sources, refusing planning on mismatches (including missing recorded files).
 
-        存量项目无记录 / 新源文件尚未记录时不比对（首次 plan 只补记不报错）。``sources`` 由
-        调用方传入以复用已读取的源文快照，缺省时现读一次。
+        Skip unrecorded legacy projects / new source files (initial plan backfills without errors). Callers supply ``sources``
+        to reuse read snapshots; otherwise read once now.
         """
         docs = sources if sources is not None else discover_sources(self.project_path, project)
         mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs)
@@ -1048,11 +1048,11 @@ class EpisodePlanner:
 
     @staticmethod
     def _check_source_ranges(project: Mapping[str, Any]) -> None:
-        """账本存在没有位置记录的切出集即拒绝规划（旧拆分流程遗留，指路全量重置）。
+        """Refuse planning if cut ledger episodes lack positional records (legacy split-flow remnants; direct to full reset).
 
-        没有 ``source_range`` 的切出集既无法重造派生文件、也无法证明其覆盖的原文范围，
-        续接规划只会与它重叠或遗漏。消费链路（剧本 / 媒体 / 状态 / 导出）不受影响；
-        自带原文与无原文的集不占用整本源文，不在此列。
+        Cut episodes without ``source_range`` cannot reconstruct derived files or prove covered source ranges;
+        continued planning would overlap or omit them. Consumption (scripts / media / statuses / export) remains unaffected;
+        standalone-source and sourceless episodes do not occupy whole sources and are excluded.
         """
         missing = legacy_cut_episode_ids(project)
         if missing:
@@ -1064,14 +1064,14 @@ class EpisodePlanner:
         *,
         used_fingerprints: dict[str, str],
     ) -> dict:
-        """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
-        提交闭包，若跳过会让「首次 plan 补记指纹」对源文已规划完的存量项目失效——后续等长
-        编辑旧正文都因无基线可比而放行。已有指纹的项目直接原样返回，不重复计算。
+        """Backfill legacy-project fingerprints on ``source_exhausted`` early return: this bypasses ``plan()``'s
+        commit closure. Skipping would break initial-plan backfill for fully planned legacy sources; later same-length
+        edits to old text would pass without comparison baselines. Projects with fingerprints return unchanged without recomputation.
 
-        ``used_fingerprints`` 是本次 plan() 调用锁外读入的源文摘要基线（入口快照 + 循环
-        中途新发现的源文件）：锁内复核与常规提交路径同一套逃生口——若 plan() 保存快照后、
-        本闭包读取前源文被改动，直接把变更内容登记为基线会让这次变更永久失去可比对象，
-        须先拒绝。
+        ``used_fingerprints`` is the source-digest baseline read outside locks in this plan() call (entry snapshots + newly discovered
+        files midloop). Locked rechecks share regular commit-path escape hatches: if sources changed after plan() saved snapshots
+        but before this closure reads, registering changed contents directly as baselines permanently loses comparison evidence for this edit;
+        refuse first.
         """
         if project.get(SOURCE_FINGERPRINTS_KEY) is not None:
             return dict(project)
@@ -1103,16 +1103,16 @@ class EpisodePlanner:
     def _write_new_episode_files(
         self, project: Mapping[str, Any], text_cache: dict[str, str], *, new_ids: frozenset[int]
     ) -> None:
-        """写本次新规划的集的派生集文件，其他集的集文件不动。
+        """Write derived files for newly planned episodes only; leave others unchanged.
 
-        新集 ID 上已有的同名文件不在账本里，不是任何一集的原文，先改名留底，再写新集的派生文件。余文文件
-        ``_remaining.txt`` 不是源文，也不记录规划进度，一并清理。
+        Same-name files for new IDs are absent from ledgers and not any episode's source; archive by renaming before writing new derived files. Remainder
+        ``_remaining.txt`` is not source and records no planning progress; clean it too.
 
-        两阶段执行：先校验并构建写入计划，全部通过后再统一落盘——原文范围非法或源文不可读时在校验阶段抛错中止
-        提交（账本写回随之回滚，集文件未动）。
+        Execute in two stages: validate/build write plans first, then persist all after validation passes. Invalid ranges/unreadable sources raise during validation and abort
+        commits (rolling back ledgers with episode files untouched).
         """
         source_dir = self.project_path / "source"
-        # source/ 是符号链接时拒绝写入：派生文件会落到链接目标（可能在项目外）
+        # Refuse writes when source/ is a symlink: derived files would land at link targets, potentially outside projects.
         if source_dir.is_symlink():
             raise EpisodePlanningError("source/ 不能是符号链接，拒绝派生集文件")
         writes: list[tuple[Path, str]] = []
@@ -1132,7 +1132,7 @@ class EpisodePlanner:
                         text_cache[rel] = self._load_normalized_source(rel)
                     except EpisodePlanningError as exc:
                         raise EpisodePlanningError(f"集（id={num}）集文件写入失败，提交已中止：{exc}") from exc
-            # Python 切片对负值/越界静默容忍，脏坐标会写出与账本不符的内容，必须显式拦截
+            # Python slicing silently tolerates negatives/out-of-bounds; corrupt coordinates produce ledger-inconsistent contents, so reject explicitly.
             content = span_text(text_cache, order, span)
             if content is None:
                 raise EpisodePlanningError(
@@ -1146,20 +1146,20 @@ class EpisodePlanner:
                 for alias in aliases:
                     alias.rename(archive_episode_file_path(alias))
         for episode_path, content in writes:
-            # 派生文件的字节与账本切片文本一致：不做平台换行翻译，Manifest 依据按字节重算才稳定。
+            # Derived-file bytes match ledger slice text: no platform newline translation, ensuring stable byte-recomputed Manifest bases.
             episode_path.write_text(content, encoding="utf-8", newline="\n")
         remaining = source_dir / "_remaining.txt"
         if remaining.is_file():
             try:
-                remaining.unlink()  # hard-delete: derived -- 未切分原文的派生文件，可由分集账本重新生成
+                remaining.unlink()  # hard-delete: derived -- derived unsplit-source files, regenerable from episode ledgers
             except OSError as exc:
                 logger.warning("余文文件清理失败（不阻断提交）：%s: %s", remaining, exc)
 
     def _compute_ledger_stats(self, project: Mapping[str, Any]) -> LedgerStats:
-        """账本现算全局体量分布：累计集数、最小 5 集、体量中位数（供偏差核对用）。
+        """Compute global ledger volume distributions: total episodes, five smallest episodes and median volume (for deviation checks).
 
-        读原文按 source_range 切片计体量。无位置记录或原文读取失败的条目跳过，
-        不阻断整体统计（核对材料本身是尽力而为、非提交前置校验）。
+        Slice sources by source_range for volume. Skip entries without positions or readable sources,
+        without blocking overall statistics (best-effort checking material, never commit prevalidation).
         """
         language = _language_of(project)
         text_cache: dict[str, str] = {}
@@ -1196,7 +1196,7 @@ class EpisodePlanner:
 
 
 def _next_source_rel(source_order: list[str], rel: str) -> str | None:
-    """整本源文清单中 ``rel`` 之后的下一个文件；``rel`` 不在清单或已是最后一个时返回 None。"""
+    """Next whole-source manifest file after ``rel``; None if ``rel`` is absent or last."""
     try:
         index = source_order.index(rel)
     except ValueError:
@@ -1205,7 +1205,7 @@ def _next_source_rel(source_order: list[str], rel: str) -> str | None:
 
 
 def _gap_start(project: Mapping[str, Any], sources: list[SourceDoc], gap: tuple[str, int]) -> tuple[str, int]:
-    """以 ``gap`` 为终点的那段未切分原文的起点；它已不是未切分的原文时拒绝。"""
+    """Beginning of the unsplit source segment ending at ``gap``; refuse if no longer unsplit."""
     rel, end = gap
     index = next((i for i, doc in enumerate(sources) if doc.rel_path == rel), None)
     if index is None:
@@ -1221,7 +1221,7 @@ def _gap_start(project: Mapping[str, Any], sources: list[SourceDoc], gap: tuple[
 def _gap_context_entries(
     project: Mapping[str, Any], sources: list[SourceDoc], start_ref: tuple[str, int]
 ) -> list[dict[str, Any]]:
-    """规划空段时的续写上下文：按源文位置排在空段之前的末尾若干个切出集。"""
+    """Continuation context for gap planning: the last few cut episodes preceding gaps by source position."""
     placements = cut_episode_placements(project, sources)
     index = next(i for i, doc in enumerate(sources) if doc.rel_path == start_ref[0])
     before = sorted((p for p in placements.values() if p.position < (index, start_ref[1])), key=lambda p: p.position)
@@ -1259,7 +1259,7 @@ def _check_candidate_sources(candidate: Mapping[str, Any], sources: list[SourceD
 def _candidate_context_before(
     project: Mapping[str, Any], sources: list[SourceDoc], candidate: Mapping[str, Any]
 ) -> list[Mapping[str, Any]]:
-    """候选起点之前的切出集，按源文位置；从整本源文开头重新规划时为空。"""
+    """Cut episodes before candidate starts in source order; empty when replanning from whole-source beginning."""
     if candidate.get("from_beginning"):
         return []
     try:
@@ -1280,7 +1280,7 @@ def _candidate_context_before(
 
 
 def _count_planned_episodes(project: Mapping[str, Any]) -> int:
-    """账本现算已切出的集数（含全部 ledger_status），供全局进度提示使用；其他来源的集不计。"""
+    """Current ledger cut-episode count (all ledger_status values) for global progress prompts, excluding other origins."""
     return sum(
         1
         for entry in (project.get("episodes") or [])
@@ -1289,10 +1289,10 @@ def _count_planned_episodes(project: Mapping[str, Any]) -> int:
 
 
 def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """已规划末尾若干集的 标题+钩子，作为续写连贯性上下文。
+    """Titles/hooks from the last few planned episodes as coherent continuation context.
 
-    只取有位置记录的切出集：其他来源的集与没有 source_range 的旧拆分存量集不是本机制规划出来的，
-    它们的标题/钩子未必出自同一套分集口径，不拿来当续写基准。
+    Only cut episodes with positional records: other-origin episodes and legacy splits without source_range did not come from this mechanism;
+    their titles/hooks may follow different planning rules and must not guide continuation.
     """
     anchored = [
         entry
@@ -1319,10 +1319,10 @@ def _build_planning_prompt(
     failure: list[str] | None,
     progress: _PlanningProgress | None = None,
 ) -> str:
-    """规划 prompt。仅面向文本模型，不做 i18n。
+    """Planning prompts for text models only, without i18n.
 
-    ``instructions`` 为空时不注入附加指令分节，prompt 与无附加指令时逐字一致。``progress``
-    非 None 时注入「全局进度」分节（调用方只在 instructions 非空时传入）。
+    Empty ``instructions`` omits additional-instruction sections, keeping prompts byte-identical to no additional instructions. Non-None ``progress``
+    injects global-progress sections (callers pass it only with nonempty instructions).
     """
     overview = project.get("overview")
     if not isinstance(overview, Mapping):

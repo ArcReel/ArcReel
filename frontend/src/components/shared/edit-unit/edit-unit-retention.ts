@@ -1,8 +1,8 @@
 import { createContext, useContext, useId, useLayoutEffect } from "react";
 
 /**
- * 子树里的编辑单元经它报告「有未保存修改或保存在途」。同一视图里可能有多个单元（如资产与它的各条衍生），
- * 按 `key` 分别登记，任一单元在保护中视图就保留。
+ * Descendant editing units report unsaved changes or in-flight saves here. One view may contain several units, such as an asset and its derivatives;
+ * register each by `key`, retaining the view while any unit requires protection.
  */
 export const EditUnitRetentionContext = createContext<{
   protect: (key: string, value: boolean) => void;
@@ -10,8 +10,8 @@ export const EditUnitRetentionContext = createContext<{
 } | null>(null);
 
 /**
- * 编辑单元在 `active`（有未保存修改或保存在途）期间要求所在的 RetainedEditUnit 保留可见内容。
- * 同一视图里的多个保护者各自调用。返回所在的保留上下文，取其 `message` 判断是否已被外部替换。
+ * An editing unit requests its RetainedEditUnit preserve visible content while `active`, meaning unsaved changes or an in-flight save.
+ * Multiple protectors in one view call independently. Return the enclosing retention context; inspect `message` for external replacement.
  */
 export function useRetainWhile(active: boolean) {
   const retention = useContext(EditUnitRetentionContext);

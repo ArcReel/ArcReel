@@ -29,23 +29,23 @@ function toPickerValue(style: ProjectStyle): StylePickerValue {
   return { mode: "template", templateId, activeCategory: category, uploadedFile: null, uploadedPreview: null };
 }
 
-/** 选择器里是否已选定风格：模版选了卡片，或参考图有图。 */
+/** Whether selectors have chosen styles: selected template cards or supplied reference images. */
 function draftComplete(draft: StylePickerValue): boolean {
   return draft.mode === "template" ? !!draft.templateId : !!(draft.uploadedFile ?? draft.uploadedPreview);
 }
 
-/** 选择器里的选择换算成项目风格；还没选定时返回 null。只在采用时调用：新参考图会新建预览地址。 */
+/** Convert selections to project styles, null before selection. Call on adoption only; new references create preview URLs. */
 function fromPickerValue(draft: StylePickerValue, current: ProjectStyle): ProjectStyle | null {
   if (draft.mode === "template") {
     return draft.templateId ? { kind: "template", templateId: draft.templateId } : null;
   }
   if (draft.uploadedFile) {
     if (current.kind === "image" && current.file === draft.uploadedFile) return current;
-    // 选择器只在自己挂载期间持有文件的预览地址；写进项目风格的这一个归页面，由页面在不再使用时收回
-    // react-doctor-disable-next-line react-doctor/no-create-object-url-without-revoke -- 地址经 onChange 存入表单值，ProjectSettingsPage 的 effect 在换图、放弃、保存或卸载时 revoke
+    // Selectors own preview URLs during their mounts only; URLs written into project styles belong to pages, revoked when no longer used.
+    // react-doctor-disable-next-line react-doctor/no-create-object-url-without-revoke -- onChange stores URLs in forms; ProjectSettingsPage effects revoke on replacement, discard, save or unmount
     return { kind: "image", preview: URL.createObjectURL(draft.uploadedFile), description: "", file: draft.uploadedFile };
   }
-  // 沿用已保存的参考图
+  // Reuse saved reference images.
   return draft.uploadedPreview && current.kind === "image" ? current : null;
 }
 
@@ -84,7 +84,7 @@ function CurrentStyle({ value: style }: { value: ProjectStyle }) {
   );
 }
 
-/** 「风格」：只显示当前风格；「更换」在对话框里选，「使用此风格」写回未保存修改，随其他修改一起保存。 */
+/** Style shows current styles only; Change opens dialogs, Use this style updates drafts, saved with other edits. */
 export function StyleTab({ value: style, onChange }: { value: ProjectStyle; onChange: (next: ProjectStyle) => void }) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);

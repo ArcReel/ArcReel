@@ -77,14 +77,14 @@ class FakePM:
         return self._project_dir
 
     def mirror_to_disk(self, script_filename: str | None = None) -> None:
-        """把内存态落盘并重建产物清单：清单是读取已生成产物的唯一口径。
+        """Persist memory state and rebuild the manifest, the sole authority for reading generated artifacts.
 
-        ``load_script`` 每次读取都会先调用本方法；``load_project`` 与生产一样只读不写，只经它
-        读项目、随后又从盘上读产物的工具，由用例在调用前显式调用本方法。
+        ``load_script`` calls this before each read. Like production, ``load_project`` only reads; cases must call
+        this explicitly before tools that read projects through it and then artifacts from disk.
 
-        清单按当下的项目与剧本重新激活（生产的补录路径），随后补回那些夹具不重建来源凭据的
-        产物声明。用例故意构造的畸形条目激活不了，留空清单即可——工具侧本来就该按「产物不
-        可用」逐条拒收。
+        Reactivate the manifest from current project/scripts (production backfill), then restore declarations
+        whose provenance fixtures do not rebuild. Deliberately malformed entries cannot activate; leave the
+        manifest empty, as tools should reject each unavailable artifact individually.
         """
 
         (self._project_dir / "project.json").write_text(
@@ -99,8 +99,8 @@ class FakePM:
             )
         from lib.artifacts.artifact_activation import activate_artifact_target_state
 
-        # 用例故意构造的畸形项目/剧本激活不了；此处吞掉异常让清单留空，
-        # 被测工具随后按「产物不可用」逐条拒收，这正是这些用例要断言的路径。
+        # Deliberately malformed project/scripts cannot activate; swallow errors here and leave the manifest empty.
+        # Tested tools then reject unavailable artifacts individually, precisely the path these cases assert.
         with contextlib.suppress(Exception):
             activate_artifact_target_state(self._project_dir, bump_schema=False)
         self._register_claims(filename)
@@ -110,7 +110,7 @@ class FakePM:
         return f"episode_{episode}.json" if isinstance(episode, bool) is False and isinstance(episode, int) else None
 
     def _script_episode(self, script_filename: str | None) -> int | None:
-        """剧本身份取自身字段，缺字段时按规范文件名兜底——与生产的解析口径一致。"""
+        """Use script identity fields, falling back to canonical filenames when absent, matching production parsing."""
 
         episode = self.script_payload.get("episode")
         if isinstance(episode, int) and not isinstance(episode, bool) and episode >= 1:
@@ -119,10 +119,10 @@ class FakePM:
         return int(match.group(1)) if match else None
 
     def _register_claims(self, script_filename: str | None = None) -> None:
-        """把剧本已登记的产物补进清单：生产里它们在产出那一刻就登记过。
+        """Restore registered script artifacts to the manifest; production registered them at creation.
 
-        激活能从来源凭据重建的条目以激活结果为准，这里只兜住夹具不重建凭据的那些
-        （付费媒体的版本记录、缺 image_prompt 的历史分镜）。
+        Respect activation results for reconstructible provenance; cover only fixtures lacking rebuilt
+        provenance here (paid-media version records, historical storyboards without image_prompt).
         """
 
         from lib.artifacts.artifact_manifest import (
@@ -195,7 +195,7 @@ class FakePM:
         return True
 
     def reserve_item_ids(self, _name: str, episode: int, kind: str, count: int) -> list[str]:
-        """内存版的发号：与生产同口径，从本集记录的最大号与剧本现存编号之后取号并记下最大号。"""
+        """In-memory ID issuance matching production: allocate after the episode's recorded maximum and existing script IDs, recording the maximum."""
 
         entry = next((ep for ep in self.project_payload.get("episodes", []) if ep.get("episode") == episode), None)
         items = self.script_payload.get(next((k for k in ITEM_ID_LETTERS if k in self.script_payload), ""), [])
@@ -213,7 +213,7 @@ class FakePM:
 
 @pytest.fixture
 def assets_env(db_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """全局资产库路由的测试客户端（``client``）与指向 ``tmp_path/projects`` 的 ``ProjectManager``（``pm``）。"""
+    """Global-library router test client (``client``) and ``ProjectManager`` (``pm``) rooted at ``tmp_path/projects``."""
 
     pm = ProjectManager(tmp_path / "projects")
     use_assets_router_sessions(monkeypatch, db_factory)
@@ -227,7 +227,7 @@ def assets_env(db_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> d
 
 @pytest.fixture
 def usage_app(monkeypatch: pytest.MonkeyPatch) -> Callable[[async_sessionmaker[AsyncSession]], FastAPI]:
-    """使用记录路由的应用工厂：路由按传入的 session factory 读库，以管理员身份免鉴权。"""
+    """Usage-router app factory: routes read the supplied session factory and bypass authentication as administrator."""
 
     def build(session_factory: async_sessionmaker[AsyncSession]) -> FastAPI:
         monkeypatch.setattr(usage, "async_session_factory", session_factory)
@@ -320,7 +320,7 @@ async def fake_ctx(
 
 @pytest.fixture
 def active_episode_tasks(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[dict[str, Any]]]:
-    """在途任务检查读到的生成队列：按状态（``queued`` / ``running``）回放写进返回字典的任务。"""
+    """Queue for in-flight checks: replay tasks from the returned dictionary by status (``queued`` / ``running``)."""
     from server.routers import episode_management
 
     tasks: dict[str, list[dict[str, Any]]] = {}

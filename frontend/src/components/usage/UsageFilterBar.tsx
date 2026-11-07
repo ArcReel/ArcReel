@@ -14,7 +14,7 @@ import { MEDIA_META, projectTitleResolver, providerLabelResolver, usageProjectLa
 interface UsageFilterBarProps {
   filters: UsageRecordsFilters;
   summary: UsageSummary | null;
-  /** 分镜筛选值所属集的标题与播出位置，取自已载入的记录；没有时显示未命名集与集内 ID。 */
+  /** Storyboard-filter owning episode titles/broadcast positions from loaded records; absent values show Untitled episode/local IDs. */
   segmentRef?: EpisodeItemRef | null;
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
   onRefresh: () => void;
@@ -48,14 +48,14 @@ function FilterSelect({
   options: FilterOption[];
   onChange: (value: string | null) => void;
 }) {
-  // 「全部」用 null 表示：项目名可以是空串（端点试跑记录），自定义模型 ID 不受限制，任何字符串哨兵都可能与真实取值相撞。
+  // All uses null: project names can be empty (endpoint trials), and custom-model IDs are unrestricted, making all string sentinels collision-prone.
   const items: { value: string | null; label: string }[] = [{ value: null, label: allLabel }, ...options];
   return (
     <Select items={items} value={value} onValueChange={onChange}>
       <SelectTrigger size="sm" aria-label={label} className="w-40">
         <SelectValue />
       </SelectTrigger>
-      {/* 项目标题、供应商名可能很长：下拉可比触发器宽，超过上限的选项截断，悬停看全文 */}
+      {/* Long project/provider names: dropdowns may exceed trigger widths; truncate over-limit options, revealing full text on hover. */}
       <SelectContent alignItemWithTrigger={false} align="start" className="w-auto max-w-md min-w-(--anchor-width)">
         <SelectItem value={null}>
           <TruncatedText text={allLabel} focusable={false} />
@@ -82,7 +82,7 @@ export function UsageFilterBar({
   const providerLabel = providerLabelResolver(summary);
   const titleOf = projectTitleResolver(summary);
   const options = summary?.filter_options;
-  // 选定供应商后只列它的模型：跨供应商的同名模型混在一起既选不准也读不懂。
+  // Selected providers restrict model lists; cross-provider duplicate names are otherwise ambiguous/unreadable.
   const models = (options?.models ?? []).filter(
     (option) => !filters.provider || option.provider === filters.provider,
   );
@@ -102,8 +102,8 @@ export function UsageFilterBar({
   if (filters.mediaType) {
     chips.push({ key: "media", label: t(MEDIA_META[filters.mediaType].labelKey), clear: { mediaType: null } });
   }
-  // 分镜没有下拉可选，只由「需要关注」的连续失败条目写入；chip 是它唯一的出口。
-  // 只有分镜与视频单元带类型前缀；宫格等其他条目直接用指称标签。
+  // Storyboards lack selectable dropdowns, set only by Needs attention repeated-failure entries; chips provide their sole clearing exits.
+  // Only storyboards/video units have type prefixes; grids/others use reference labels directly.
   if (filters.segment) {
     const id = episodeItemRefLabel(filters.segment, segmentRef, t);
     chips.push({
@@ -153,11 +153,11 @@ export function UsageFilterBar({
           label={t("usage_filter_model")}
           value={filters.model}
           allLabel={t("usage_filter_all_models")}
-          // 同名模型在不同供应商下各出现一次；下拉只按模型名筛选，去重后列出。
+          // Same-named models appear per provider; dropdowns filter model names only, listing deduplicated values.
           options={[...new Set(models.map((option) => option.model))].map((model) => ({ value: model, label: model }))}
           onChange={(model) => onChange({ model })}
         />
-        {/* Agent 记录的媒体类型都是文本，筛不出东西；这一维只属于「生成调用」 */}
+        {/* All Agent records are text media, making filters useless; this dimension belongs only to Generation calls. */}
         {filters.view === "generation" && (
           <FilterSelect
             label={t("usage_filter_media_type")}

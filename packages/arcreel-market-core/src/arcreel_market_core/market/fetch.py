@@ -1,8 +1,8 @@
-"""市场源的远程抓取边界。
+"""Remote-fetch boundary for market sources.
 
-后端代用户抓取任意 ``https://`` 地址，按服务端请求伪造的暴露面设边界：每一跳都须 ``https``、
-重定向手动跟随且有上限、一次抓取（含重定向与读取响应体）有总时限、响应体边读边计数。只经 raw 文件地址，不调用
-GitHub API；代理前缀只拼在 ``raw.githubusercontent.com`` 地址前，失败不回退直连。
+The backend fetches arbitrary ``https://`` URLs for users, bounded for the server-side request forgery exposure: require ``https`` at every hop,
+follow redirects manually with a limit, bound total fetch time (redirects and body reads included), and count body bytes while reading. Use only raw file URLs, never the
+GitHub API; prepend proxy prefixes only to ``raw.githubusercontent.com`` URLs, with no direct-connection fallback on failure.
 """
 
 from __future__ import annotations
@@ -22,23 +22,23 @@ from .address import GITHUB_RAW_HOST
 from .index import INDEX_SCHEMA_VERSION, InvalidIndexError, MarketIndex, UnsupportedIndexSchemaError, parse_index
 from .issues import MarketIssue
 
-#: 一次抓取的总时限（含重定向与读取响应体），独立于共享客户端的默认超时。
+#: Total fetch deadline (redirects and body reads included), independent of the shared client default timeout.
 FETCH_TIMEOUT_SECONDS = 10.0
-#: 索引与定义响应体上限。
+#: Response-body limit for indexes and definitions.
 INDEX_MAX_BYTES = 1024 * 1024
 MAX_REDIRECTS = 5
-#: 保存的 ETag 长度上限，与 ``market_source.etag`` 列宽一致；超长的 ETag 不保存，之后的自动刷新整份抓取。
+#: Maximum stored ETag length, matching ``market_source.etag`` width; do not store oversized ETags, so later automatic refreshes fetch in full.
 MAX_ETAG_LENGTH = 512
-#: 索引 JSON 的容器嵌套上限；合规索引只有三层（顶层对象 → entries → 条目）。
+#: Index JSON container nesting limit; valid indexes have only three levels (top-level object to entries to entry).
 MAX_JSON_DEPTH = 32
-#: 手动刷新绕过边缘缓存时追加的查询参数名。
+#: Query parameter appended by manual refresh to bypass edge caches.
 CACHE_BUST_PARAM = "_ts"
 
 _REPORTED_ISSUES = 3
 
 
 class SourceStatus(StrEnum):
-    """市场源的刷新状态。"""
+    """Market-source refresh state."""
 
     NEVER_FETCHED = "never_fetched"
     OK = "ok"
@@ -48,19 +48,19 @@ class SourceStatus(StrEnum):
 
 
 class MarketTransportError(Exception):
-    """请求没有拿到可用响应：网络、超时、非成功状态码、重定向越界。消息即原因。"""
+    """Request received no usable response: network failure, timeout, unsuccessful status, or redirect boundary violation. Message states the reason."""
 
 
 class MarketPayloadTooLargeError(Exception):
-    """响应体超过上限。"""
+    """Response body exceeds the limit."""
 
 
 class MarketPayloadNotJsonError(Exception):
-    """响应体不是可用的 JSON：解码失败或容器嵌套过深。消息即原因。"""
+    """Response body is not usable JSON: decoding failure or excessive container nesting. Message states the reason."""
 
 
 class MarketFetchError(Exception):
-    """抓取索引失败；``status`` 是该失败应落的源状态，``detail`` 是记入 ``last_error`` 的原因。"""
+    """Index fetch failed; ``status`` is the source state for this failure, and ``detail`` is the reason recorded in ``last_error``."""
 
     def __init__(self, status: SourceStatus, detail: str) -> None:
         super().__init__(f"{status.value}: {detail}")
@@ -77,7 +77,7 @@ class RawResponse:
 
 @dataclass(frozen=True)
 class FetchedIndex:
-    """一次索引抓取的结果；``not_modified`` 时没有正文。"""
+    """One index-fetch result; no body when ``not_modified``."""
 
     not_modified: bool
     document: Any = None
@@ -86,7 +86,7 @@ class FetchedIndex:
 
 
 def with_proxy_prefix(url: str, proxy_prefix: str) -> str:
-    """非空代理前缀只作用于 raw.githubusercontent.com 地址。"""
+    """Nonempty proxy prefixes apply only to raw.githubusercontent.com URLs."""
     prefix = proxy_prefix.strip()
     if not prefix or urlsplit(url).hostname != GITHUB_RAW_HOST:
         return url
@@ -102,11 +102,11 @@ async def fetch_bytes(
     headers: dict[str, str] | None = None,
     deadline_seconds: float = FETCH_TIMEOUT_SECONDS,
 ) -> RawResponse:
-    """按抓取边界 GET 一个地址，返回 2xx 或 304 响应；``deadline_seconds`` 是整次抓取的总时限。
+    """GET a URL within fetch boundaries, returning a 2xx or 304 response; ``deadline_seconds`` is the total fetch deadline.
 
     Raises:
-        MarketTransportError: 非 https、网络失败、超过总时限、重定向越界或非成功状态码。
-        MarketPayloadTooLargeError: 响应体超过 ``max_bytes``。
+        MarketTransportError: Non-https, network failure, exceeded total deadline, redirect boundary violation, or unsuccessful status.
+        MarketPayloadTooLargeError: Response body exceeds ``max_bytes``.
     """
     try:
         async with asyncio.timeout(deadline_seconds):
@@ -167,13 +167,13 @@ async def fetch_index(
     cache_bust: int | None = None,
     translate: Translator = code_translator,
 ) -> FetchedIndex:
-    """抓取并整份判定一份索引（规则 ①）。
+    """Fetch and validate an entire index (rule ①).
 
-    ``etag`` 非空时带 ``If-None-Match``；``cache_bust`` 非空时追加时间戳查询参数绕过边缘缓存。
-    ``translate`` 渲染索引不合规时写进 ``MarketFetchError.detail`` 的诊断，缺省输出诊断码与参数。
+    Include ``If-None-Match`` for nonempty ``etag``; for nonempty ``cache_bust``, append a timestamp query parameter to bypass edge caches.
+    ``translate`` renders invalid-index diagnostics written to ``MarketFetchError.detail``; default output is diagnostic codes and parameters.
 
     Raises:
-        MarketFetchError: 抓取或判定失败，``status`` 为应落的源状态。
+        MarketFetchError: Fetch or validation failed; ``status`` is the applicable source state.
     """
     url = _with_cache_bust(index_url, cache_bust) if cache_bust is not None else index_url
     headers = {"If-None-Match": etag} if etag else None
@@ -230,10 +230,10 @@ def _with_cache_bust(url: str, token: int) -> str:
 
 
 def decode_json_payload(content: bytes) -> Any:
-    """按 UTF-8 解码并严格解析 JSON：不收 ``NaN`` / ``Infinity``，容器嵌套不超过 :data:`MAX_JSON_DEPTH`。
+    """Decode UTF-8 and parse strict JSON: reject ``NaN`` / ``Infinity`` and container nesting beyond :data:`MAX_JSON_DEPTH`.
 
     Raises:
-        MarketPayloadNotJsonError: 不是 JSON（含非标准常量与超出整数位数上限的数字）或嵌套过深。
+        MarketPayloadNotJsonError: Not JSON (including nonstandard constants and numbers exceeding the integer digit limit), or excessive nesting.
     """
     try:
         document = json.loads(content.decode("utf-8"), parse_constant=_reject_constant)

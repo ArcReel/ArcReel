@@ -16,7 +16,7 @@ vi.mock("@/components/usage/UsageHeaderEntry", () => ({
   ),
 }));
 
-/** 打开「导出项目」弹窗并选择归档范围。 */
+/** Open Export project and choose archive scopes. */
 async function openExportScope(option: "current" | "full") {
   screen.getByRole("button", { name: "导出项目归档" }).click();
   const name = option === "current" ? /仅当前版本/ : /全部数据/;
@@ -40,7 +40,7 @@ const PROJECT_WITH_EPISODES = {
   content_mode: "narration",
   style: "Anime",
   episodes: [
-    // 集 ID 与播出顺序不同：ID 3 排第一，ID 1 排第二且没有标题
+    // IDs differ from broadcast order: 3 first, 1 second without titles.
     { episode: 3, title: "开端", script_file: "scripts/episode_3.json" },
     { episode: 1, title: "", script_file: "scripts/episode_1.json" },
   ],
@@ -168,8 +168,8 @@ describe("GlobalHeader", () => {
     screen.getByRole("button", { name: "导出项目归档" }).click();
     expect(await screen.findByText("选择导出范围")).toBeInTheDocument();
 
-    // 浏览器前进/后退等场景会复用同一个 GlobalHeader 实例切到演示项目——已打开的
-    // 导出弹窗须随之关闭，不能继续展示可点击的导出操作
+    // Browser Forward/Back may reuse GlobalHeader into demos; open exports
+    // must close, never retaining clickable writes.
     useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
 
     await waitFor(() => {
@@ -184,8 +184,8 @@ describe("GlobalHeader", () => {
     screen.getByRole("button", { name: "导出项目归档" }).click();
     expect(await screen.findByText("选择导出范围")).toBeInTheDocument();
 
-    // 对话框打开时记下的是项目 A；经浏览器前进/后退复用同一个 GlobalHeader 切到项目 B 后，
-    // 弹窗须随之关闭，不能让选定范围后导出的仍是 A
+    // Dialogs captured project A; reused headers navigating B through browser history
+    // must close them, preventing later scope selection exporting A.
     useProjectsStore.setState({ currentProjectName: "project-b", currentProjectData: PROJECT_WITH_EPISODES as never });
 
     await waitFor(() => {
@@ -217,7 +217,7 @@ describe("GlobalHeader", () => {
 
     const hint = "你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。";
     const badge = screen.getByText("演示 · 只读");
-    // 说明写进徽标本身，读屏不依赖弹层；徽标可聚焦，聚焦时弹出同一段说明
+    // Badges carry explanations directly for screen readers, focusable with identical focus hints.
     expect(badge).toHaveTextContent(hint);
     act(() => badge.focus());
     expect(badge).toHaveFocus();
@@ -231,7 +231,7 @@ describe("GlobalHeader", () => {
     expect(screen.queryByText("演示 · 只读")).not.toBeInTheDocument();
   });
 
-  // 项目设置在项目切换器里；齿轮在项目内也只通往全局设置
+  // Project settings live in switchers; gears always open globals, even in projects.
   it("links the gear to global settings and the back link to the lobby", () => {
     useProjectsStore.setState({ currentProjectName: "real-project" });
 
@@ -264,7 +264,7 @@ describe("GlobalHeader", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("导出失败");
     });
-    // 导出失败记入工作区通知，事后可在通知中心回看
+    // Export failures persist workspace notifications for later review.
     expect(useAppStore.getState().workspaceNotifications[0]?.text).toContain("导出失败");
   });
 });

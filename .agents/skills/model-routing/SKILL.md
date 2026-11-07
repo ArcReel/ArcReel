@@ -1,29 +1,29 @@
 ---
 name: model-routing
-description: 委派任务时选模型。为 subagent 或 teammate 选 Category、模型与 effort，或为方案与实现选跨 Harness reviewer 时使用。
+description: Choose models when delegating. Use when selecting a Category, model, and effort for a subagent or teammate, or choosing a cross-Harness reviewer for a plan or implementation.
 ---
 
-# 模型路由
+# Model routing
 
-委派前按任务性质选一个 Category，再到 [models.md](models.md) 查它对应的 Harness、模型与 effort。首选不可用时改用同行的 fallback，并在汇报中注明降级。
+Before delegation, choose a Category by task nature, then look up its Harness, model, and effort in [models.md](models.md). If the preferred option is unavailable, use the same row's fallback and report the downgrade.
 
 ## Category
 
-| Category | 适用任务 |
+| Category | Suitable work |
 |---|---|
-| `quick` | 琐碎任务、简单修改 |
-| `unspecified-low` | 一般通用任务 |
-| `unspecified-high` | 复杂通用任务，包括目标或边界尚需判断的任务 |
-| `deep-low` | 目标与验收标准明确、需要深入自主执行的任务；关键决策可通过证据解决 |
-| `deep-high` | 目标与验收标准明确的深度任务，但关键决策无法仅凭证据确定 |
-| `ultrabrain` | 目标明确的极难逻辑推理与复杂算法问题 |
-| `architect` | 系统级架构设计与技术权衡，只提供方案、不负责实现 |
-| `visual-engineering` | 视觉设计、UI/UX、前端、样式、动画和设计系统 |
-| `artistry` | 创造性、非常规的问题解决 |
-| `writing` | 文档、技术写作及其他文字内容 |
+| `quick` | Trivial tasks and simple changes |
+| `unspecified-low` | Ordinary general-purpose tasks |
+| `unspecified-high` | Complex general-purpose work, including unclear goals or boundaries |
+| `deep-low` | Clear goals and acceptance criteria requiring deep autonomous execution; key decisions can be resolved through evidence |
+| `deep-high` | Clear deep-work goals and acceptance criteria, but key decisions cannot be settled by evidence alone |
+| `ultrabrain` | Extremely difficult logical reasoning and complex algorithms with clear goals |
+| `architect` | System architecture and technical tradeoffs; planning only, no implementation |
+| `visual-engineering` | Visual design, UI/UX, frontend, styling, animation, and design systems |
+| `artistry` | Creative, unconventional problem solving |
+| `writing` | Documentation, technical writing, and other prose |
 
-`deep-*` 与 `ultrabrain` 路由到 GPT。GPT 倾向过度遵循，目标模糊时容易过度设计、过度防御、过度测试，所以这三档以目标明确为前提；目标或边界尚需判断的复杂任务选 `unspecified-high`。
+The `deep-*` and `ultrabrain` categories route to GPT. GPT tends toward overcompliance and, under ambiguous goals, overdesign, overdefense, and overtesting. These three require clear goals. Use `unspecified-high` for complex work with unclear goals or boundaries.
 
 ## Review
 
-方案与实现的审查单独走 Review 路由：reviewer 取实现者所在 Harness 的对侧，映射见 [models.md](models.md) 的 Review 表。
+Plan and implementation reviews use separate Review routing: the reviewer is from the opposite Harness to the implementer, as mapped in the Review table in [models.md](models.md).

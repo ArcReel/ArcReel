@@ -1,5 +1,3 @@
-"""Agent 工具集：每个工具一份宿主无关声明，ArcReel Agent 与外部 Agent 各由一个薄 adapter 投影。
+"""Agent toolset: one host-independent declaration per tool, projected through thin adapters for ArcReel Agent and external Agents.
 
-声明与统一调用入口不依赖任何宿主 SDK；内嵌 adapter（``embedded``）与远程 adapter（``remote``）
-只负责项目如何确定、结果如何装进各自的信封。
-"""
+Declarations and the shared invocation entry depend on no host SDK. The embedded and remote adapters handle only project selection and packaging results in their respective envelopes."""

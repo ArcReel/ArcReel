@@ -16,6 +16,6 @@ paths:
   - "lib/prompts/prompt_builders*.py"
 ---
 
-# 供应商能力与契约
+# Provider capabilities and contracts
 
-修改 provider、endpoint、供应商 API 契约、能力、参数约束或计费前，先读 `docs/api-docs/AGENTS.md`，并同步对应官方文档索引。
+Before changing providers, endpoints, provider API contracts, capabilities, parameter constraints, or billing, read `docs/api-docs/AGENTS.md` and update the corresponding official-documentation index.

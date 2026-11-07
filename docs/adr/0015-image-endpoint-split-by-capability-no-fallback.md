@@ -2,11 +2,11 @@
 status: accepted
 ---
 
-# 图像端点按能力拆分为 T2I/I2I 双槽，运行时严格 gating 不做隐式 fallback
+# Split image defaults into T2I/I2I capability slots with strict runtime gating and no implicit fallback
 
-NewAPI/OneAPI 中转生态里很多模型只暴露 generations（不支持 edits），给「只有 generations 的模型」传参考图会被路由到 edit 调用、远端 404 且归因模糊。决定把 OpenAI 图像端点从单条通配拆为「通配 / 仅 T2I / 仅 I2I」三条，默认配置按能力分槽（`default_image_backend_t2i` / `default_image_backend_i2i`——单一默认模型之上的可选能力桶覆盖键，未配置的槽回退默认模型，见 `docs/adr/0054`）；运行时严格按是否携带参考图选择路径，能力不匹配直接抛出带稳定 code 的 `ImageCapabilityError`，**不再做**「参考图无法读取就回退 T2I」之类的隐式 fallback——失败前置且错误清晰，胜过自动派发后远端模糊报错。
+Many models in NewAPI/OneAPI relay ecosystems expose generations only, not edits. Reference images route such models to edit calls, causing ambiguous remote 404s. Split the single wildcard OpenAI image endpoint into wildcard / T2I-only / I2I-only endpoints, with `default_image_backend_t2i` / `default_image_backend_i2i` as optional capability-bucket overrides above one default model. Unset slots fall back to the default (see `docs/adr/0054`). At runtime, reference presence strictly selects the path; mismatches raise `ImageCapabilityError` with stable codes. Remove implicit fallback such as unreadable references becoming T2I: early clear failure is preferable to automatic dispatch followed by vague remote errors.
 
 ## Consequences
 
-- 配置粒度变细，t2i / i2i 可各自指定模型；前端双下拉、数据迁移随之。两槽按 `docs/adr/0054` 的能力桶形态呈现，不强制逐个填写；本 ADR 的端点三拆与运行时 gating 与该形态无关，两槽为空时同样按能力严格 gating。
-- 与 `docs/adr/0001`（capability 执行时解析）正交：那条讲「请求形态决定 t2i/i2i」，这条讲「按能力拆默认配置槽 + 不 fallback」。同一三 mode + 错误码已被 dashscope / vidu 等图像后端复用。
+- T2I and I2I can select separate models, with corresponding frontend dropdowns and migrations. Present both as optional buckets per `docs/adr/0054`, not mandatory fields. Endpoint splitting/runtime gating are independent of presentation and remain strict when slots are empty.
+- Orthogonal to `docs/adr/0001`: that ADR derives t2i/i2i from execution request form; this one splits defaults by capability and forbids fallback. DashScope / Vidu image backends reuse the same three modes and error codes.

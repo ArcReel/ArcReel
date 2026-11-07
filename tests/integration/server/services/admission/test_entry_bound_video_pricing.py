@@ -1,9 +1,6 @@
-"""绑定模型目录条目的不透明模型 ID：预估、报价、结算计量与同条目的官方模型一致，请求里仍是原 API 模型 ID。
+"""Opaque API model IDs bound to catalog entries share official-entry estimates, quotes and settlement metering; outgoing requests still use original API IDs.
 
-走生产配置路径：真实数据库里的自定义供应商与凭证、``ConfigResolver`` 求出的请求事实与音频计价参数、
-``assemble_backend``（自定义供应商经 ``create_custom_backend``）装配的调用通道、``quote_video_request`` 读库报价。
-不替换请求事实，不发出网络请求。
-"""
+Exercise production configuration: real DB custom providers/credentials, ``ConfigResolver`` request facts/audio pricing parameters, ``assemble_backend`` (via ``create_custom_backend`` for custom providers), and DB-reading ``quote_video_request``. Never replace request facts or issue network requests."""
 
 from __future__ import annotations
 
@@ -79,7 +76,7 @@ def _sent_request(facts: VideoRequestFacts, **fields: object) -> VideoGeneration
 
 
 async def _quote_and_usage(db_factory, provider_id: str, model_id: str):
-    """一个模型的报价与执行时调用通道上报的预估、结算计量，全部按生产配置求得。"""
+    """Derive model quotes, execution estimates and settlement metering entirely through production configuration."""
     resolver = ConfigResolver(db_factory)
     facts = await _facts(resolver, provider_id, model_id)
     quote = await quote_video_request(
@@ -94,7 +91,7 @@ async def _quote_and_usage(db_factory, provider_id: str, model_id: str):
 
 
 async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official_model(db_factory):
-    """自定义供应商的不透明 ID 绑定 Seedance 2.0：按 2.0 像素表估算视频 token，不上报服务档，报价与官方 ID 相同。"""
+    """Custom opaque IDs bound to Seedance 2.0 use 2.0 pixel-table token estimates, report no service tier, and quote identically to official IDs."""
     provider_id = await _custom_provider(
         db_factory,
         "ark-seedance-2",
@@ -118,7 +115,7 @@ async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official
 
 
 async def test_custom_opaque_id_on_the_seedance_1_endpoint_keeps_the_conservative_metering(db_factory):
-    """未绑定条目的不透明 ID 挂 1.x 端点（迁移按拆分前的认定回填）：没有视频 token 估算，按请求带的服务档上报，报价记为未定价。"""
+    """Unbound opaque IDs on 1.x endpoints (migration backfills pre-split classifications) have no video-token estimate, report request service tiers and quote unpriced."""
     provider_id = await _custom_provider(db_factory, "ark-seedance-1", [{"model_id": OPAQUE, "is_default": True}])
 
     quote, _, estimate, _ = await _quote_and_usage(db_factory, provider_id, OPAQUE)
@@ -129,7 +126,7 @@ async def test_custom_opaque_id_on_the_seedance_1_endpoint_keeps_the_conservativ
 
 
 async def test_builtin_user_added_seedance_id_is_quoted_and_metered_like_the_official_model(db_factory):
-    """内置方舟下用户添加的不透明 ID 绑定 Seedance 2.0：报价与结算计量与清单里的官方模型相同。"""
+    """User-added opaque IDs under built-in Ark bound to Seedance 2.0 share official-model quotes/settlement metering."""
     async with db_factory() as session:
         await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-inference-key-0001")
         await session.commit()
@@ -150,10 +147,9 @@ async def test_builtin_user_added_seedance_id_is_quoted_and_metered_like_the_off
 async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_parameter(
     db_factory, official: str, generates_audio: bool
 ):
-    """内置可灵下用户添加的不透明 ID：选择与官方模型相同的端点、绑定相同的条目后，默认执行档的音频计价参数一致。
+    """User-added opaque IDs under built-in Kling share default-tier audio pricing with official models when endpoint and entry bindings match.
 
-    v3 有声不受分辨率约束，默认档按有声计价；v2-6 有声只支持 1080P，没有档位上下文时保守按无声计价。
-    """
+    v3 audio is resolution-independent, so defaults price audio; v2-6 audio requires 1080P, so without tier context conservatively price silence."""
     catalog.install_user_added_models(
         [
             catalog.UserAddedModel(
@@ -175,7 +171,7 @@ async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_paramet
 
 @pytest.mark.parametrize("model", [OPAQUE, "kling-v2-6"])
 async def test_custom_kling_id_bound_to_v2_6_meters_720p_as_silent(db_factory, model: str):
-    """自定义可灵端点上绑定 v2-6 的不透明 ID：720P 档请求档位收窄为无声，结算计量按无声上报，与官方 ID 一致。"""
+    """Custom Kling opaque IDs bound to v2-6 narrow 720P requests to silence and report silent settlement metering, matching official IDs."""
     provider_id = await _custom_provider(
         db_factory,
         "kling-video-pro-audio",

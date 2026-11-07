@@ -1,4 +1,4 @@
-"""``python -m arcreel_market_core``：市场源工具命令行入口。"""
+"""``python -m arcreel_market_core``: market source tools CLI entry point."""
 
 from .market.cli import main
 

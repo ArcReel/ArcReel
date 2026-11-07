@@ -147,12 +147,12 @@ describe("canEditUserTurn", () => {
   });
 
   it("hides sibling entries while a send or rewrite is in flight", () => {
-    // 放行的话，点别处的编辑会顶掉正在提交的编辑器，草稿随之消失
+    // Allowing other edits would replace submitting editors, losing drafts.
     expect(canEditUserTurn(userTurn, { ...idle, isSending: true })).toBe(false);
   });
 
   it("hides the entry while queued messages wait to join the conversation", () => {
-    // 此刻分叉，排队消息会落在被取代的原会话里
+    // Branching now strands queued messages in superseded original sessions.
     expect(canEditUserTurn(userTurn, { ...idle, hasQueuedMessages: true })).toBe(false);
   });
 });

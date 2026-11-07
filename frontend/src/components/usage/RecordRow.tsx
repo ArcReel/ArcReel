@@ -22,22 +22,22 @@ import type { UsageRecordView } from "./usage-record-view";
 
 export interface RecordRowProps {
   record: UsageRecordView;
-  /** `table` 是设置页记录表的一行；`compact` 供顶栏悬浮层复用，两行排布且不显示项目。 */
+  /** `table` means settings record-table rows; `compact` is reused by header popovers, with two lines and no projects. */
   layout: "table" | "compact";
-  /** 供应商 id → 显示名，查不到回退 id。 */
+  /** Provider ID → display name, falling back to the ID when unknown. */
   providerLabel: (provider: string | null) => string;
-  /** 记录的项目显示名；只有表格布局在显示项目列时用到。 */
+  /** Record project display names, used only when table layouts show project columns. */
   projectLabel?: (record: UsageRecordView) => string;
-  /** 筛选已固定某个项目时隐藏项目列，避免整列重复同一个值。 */
+  /** Hide project columns under fixed-project filters, avoiding entire columns repeating values. */
   showProject?: boolean;
   onOpenDetail?: (recordId: number) => void;
-  /** 行尾的额外动作（取消、重试下载），取代默认的「详情」。 */
+  /** Additional row-end actions (cancel/retry downloads), replacing default Details. */
   trailing?: ReactNode;
 }
 
 /**
- * 目标：分镜或视频单元以位置角标与缩略图开头、不截断，后面的集名与正文摘录在放不下时截断；
- * 宫格这类条目以集内 ID 开头；其余记录只写用途。
+ * Targets: storyboards/video units begin with untruncated positional badges/thumbnails; following episode titles/body excerpts truncate when needed;
+ * grids/other such entries begin with episode-local IDs; remaining records show uses only.
  */
 export function TargetLabel({ record, focusable = true }: { record: UsageRecordView; focusable?: boolean }) {
   const { t } = useTranslation("dashboard");
@@ -65,7 +65,7 @@ export function TargetLabel({ record, focusable = true }: { record: UsageRecordV
   );
 }
 
-/** 状态只放状态与失败短语；没有短语的失败只写「失败」，原始报错在详情里看。 */
+/** States contain statuses/failure phrases only; failures without phrases say Failed, with raw errors in details. */
 function StatusLabel({
   record,
   showPhrase,
@@ -88,7 +88,7 @@ function StatusLabel({
   );
 }
 
-/** 进行中行订阅秒级时钟；已定格的耗时是静态文本，不为它每秒重渲染。 */
+/** Running rows subscribe to second clocks; frozen durations remain static without per-second rerenders. */
 function ElapsedCell({ record }: { record: UsageRecordView }) {
   const { t } = useTranslation("dashboard");
   const now = useNowTick();
@@ -100,7 +100,7 @@ function DurationLabel({ record }: { record: UsageRecordView }) {
   return record.status === "pending" ? <ElapsedCell record={record} /> : <>{formatDurationMs(record.durationMs, t)}</>;
 }
 
-/** 进行中的调用还没结算，显示破折号；未定价与 0 元是两件事，分别显示「未定价」和 0。 */
+/** Unsettled running calls show dashes; unpriced differs from zero cost, showing Unpriced and 0 respectively. */
 function costText(record: UsageRecordView, unpricedLabel: string): string {
   if (record.status === "pending") return "—";
   if (record.costAmount === null) return unpricedLabel;
@@ -130,7 +130,7 @@ export function RecordRow({
   const canOpen = recordId !== null && onOpenDetail !== undefined;
 
   if (layout === "compact") {
-    // 可打开详情时整行是按钮，行内截断的文字不再单独进入 Tab 顺序。
+    // Detail-openable rows are entire buttons; nested truncated text no longer separately enters Tab order.
     const focusable = !canOpen;
     const body = (
       <>

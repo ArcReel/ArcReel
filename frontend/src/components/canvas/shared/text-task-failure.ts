@@ -1,7 +1,7 @@
 import { taskResourceKind } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
 
-/** 集页上会留下失败反馈的文本任务：AI 规划脚本、编写提示词与 AI 修复。 */
+/** Text tasks leaving failure feedback on episode pages: AI script planning, prompt authoring and AI repair. */
 export type EpisodeTextTaskKind = "text_script_plan" | "text_episode_script" | "text_draft_repair";
 
 export interface EpisodeTextTaskFailure {
@@ -9,7 +9,7 @@ export interface EpisodeTextTaskFailure {
   task: TaskItem;
 }
 
-/** 文本任务是否属于这一集：脚本规划与提示词编写占 `episode-{N}`，AI 修复占 `episode-{N}-{doc_type}`。 */
+/** Whether a text task belongs to this episode: script planning/prompt authoring use `episode-{N}`; AI repair uses `episode-{N}-{doc_type}`. */
 function episodeTextTaskKind(task: TaskItem, episode: number): EpisodeTextTaskKind | null {
   const kind = taskResourceKind(task);
   const slot = `episode-${episode}`;
@@ -18,7 +18,7 @@ function episodeTextTaskKind(task: TaskItem, episode: number): EpisodeTextTaskKi
   return null;
 }
 
-/** 本集最近一次文本任务若以失败收尾，返回它与任务种类；最近一次没有失败或没有任务时返回 null。 */
+/** Return the latest episode text task and its kind only if it failed; return null if it did not fail or no task exists. */
 export function latestEpisodeTextTaskFailure(
   tasks: readonly TaskItem[],
   projectName: string,

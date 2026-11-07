@@ -30,7 +30,7 @@ def split_sentences(text: str) -> tuple[str, ...]:
         matches = list(_ZH_SENTENCE.finditer(text))
         pieces = [match.group() for match in matches]
         if matches:
-            # 匹配不到的只有全文末尾、紧跟闭合符号的句末标点：不单独成条，并入上一句。
+            # Only terminal punctuation immediately after a closing symbol at the end of the text is unmatched; append it to the preceding sentence.
             pieces[-1] += text[matches[-1].end() :]
     else:
         pieces = _LATIN_BOUNDARY.split(text)

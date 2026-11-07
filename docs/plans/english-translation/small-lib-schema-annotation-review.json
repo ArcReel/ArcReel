@@ -1,0 +1,95 @@
+{
+  "changes": [
+    {
+      "path": [
+        "models",
+        "BgmTrack",
+        "description"
+      ],
+      "before": "一首已登记的 BGM。``gain_db`` 是把实测积分响度统一到 −16 LUFS 的静态增益。",
+      "after": "One registered BGM track. ``gain_db`` is the static gain normalizing measured integrated loudness to −16 LUFS."
+    },
+    {
+      "path": [
+        "models",
+        "FinalCutCheck",
+        "description"
+      ],
+      "before": "渲染前检查通过：将要渲染的修订与版本，以及该版本里不阻断出片的 issues。",
+      "after": "Passed pre-render check: the revision and variant to render, plus issues in that variant that do not block final-cut production."
+    },
+    {
+      "path": [
+        "models",
+        "FinalCutRender",
+        "$defs",
+        "FinalCutAcceptance",
+        "description"
+      ],
+      "before": "成片验收结果：剪辑时间线应有的时长与实测的音视频流时长（秒）。",
+      "after": "Final-cut acceptance results: expected editing-timeline duration and measured audio/video stream durations, in seconds."
+    },
+    {
+      "path": [
+        "models",
+        "FinalCutRender",
+        "description"
+      ],
+      "before": "一次渲染登记下来的成片。",
+      "after": "A final cut registered by one render."
+    },
+    {
+      "path": [
+        "models",
+        "FinalCutStatus",
+        "description"
+      ],
+      "before": "一个成片产物身份的现状；``status`` 为 missing 时没有版本与渲染时间。",
+      "after": "Current state of a final-cut artifact identity; when ``status`` equals ``missing``, there is no version or render timestamp."
+    },
+    {
+      "path": [
+        "models",
+        "JianyingDraftCheck",
+        "description"
+      ],
+      "before": "导出前检查通过：将要导出的修订，以及不阻断导出的 issues。",
+      "after": "Passed pre-export check: the revision to export, plus issues that do not block export."
+    },
+    {
+      "path": [
+        "models",
+        "JianyingDraftRender",
+        "description"
+      ],
+      "before": "一次导出登记下来的剪映草稿。",
+      "after": "A Jianying draft registered by one export."
+    },
+    {
+      "path": [
+        "models",
+        "JianyingDraftStatus",
+        "description"
+      ],
+      "before": "一个剪映草稿产物身份的现状；``status`` 为 missing 时没有版本与导出时间。",
+      "after": "Current state of a Jianying-draft artifact identity; when ``status`` equals ``missing``, there is no version or export timestamp."
+    },
+    {
+      "path": [
+        "openapi",
+        "components",
+        "schemas",
+        "JianyingDraftStatus",
+        "description"
+      ],
+      "before": "一个剪映草稿产物身份的现状；``status`` 为 missing 时没有版本与导出时间。",
+      "after": "Current state of a Jianying-draft artifact identity; when ``status`` equals ``missing``, there is no version or export timestamp."
+    }
+  ],
+  "proof": "Complete recursive diff: 9 description-annotation values only (7 root models, 1 nested dataclass, 1 OpenAPI occurrence). No structural fields, including any properties named description, changed.",
+  "baseline_description_confirmed_against_immediate_source_snapshot": true,
+  "before_sha256": "12dec88c2ae39bb96b884d5415fed3c4849488bec44b845541898665cc46a015",
+  "after_sha256": "5c1eae21ebe840b3c0f6f294c395afc6ccf582c71ba929bcd34c0e04627f9fa4",
+  "app_lifespan_started": false,
+  "temporary_data_root": true
+}

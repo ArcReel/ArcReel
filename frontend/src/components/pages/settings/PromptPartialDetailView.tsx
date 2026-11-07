@@ -17,7 +17,7 @@ import {
 
 type PartialDetail = {
   partial: PromptTemplatePartial;
-  /** 模版 id → 元数据，用于把引用方显示为标题；列表加载失败时为空，退回显示 id。 */
+  /** Template ID → metadata for displaying referrers by title; empty on list-load failure, falling back to IDs. */
   templates: Map<string, PromptTemplateMeta>;
 };
 
@@ -110,7 +110,7 @@ function PartialBody({
 
       <DetailSection title={t("prompt_templates_partial_source")}>
         {partial.source.trim() ? (
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Read-only scroll regions require keyboard focus for scrolling
           <div tabIndex={0} role="region" aria-label={t("prompt_templates_partial_source")} className={SOURCE_BLOCK_CLS}>
             {partial.source}
           </div>

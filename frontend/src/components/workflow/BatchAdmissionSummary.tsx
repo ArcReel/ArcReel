@@ -8,24 +8,24 @@ import { admissionUnitViews, isWithheld } from "./problem-views";
 
 interface Props {
   admission: WorkflowAdmission;
-  /** 已有产物、本次跳过的单元数；批量端点才有这份信息。 */
+  /** Units skipped because artifacts exist, available from batch endpoints only. */
   skippedUnitIds?: string[];
   className?: string;
 }
 
 /**
- * 整批准入判定的结论正文。两种未提交的结局共用它，因为它们说的是同一件事——
- * 「这一批一个任务也没有创建，原因如下」：
+ * Whole-batch admission conclusions. Both unsubmitted outcomes share contents because both explain:
+ * no tasks were created for these reasons:
  *
- * - `confirmation_required`：按申请档位分组陈述秒数 × 单元数与合计费用，用户按整批拍板。
- *   分组而非逐个列行——同档位的单元讲的是同一件事，逐行重复会淹没档位本身；每档仍列出
- *   全部 unit_id，用户才知道自己在为谁拍板。
- * - `blocked`：逐个列出全部缺口，不塌成一句通用错误。真正有问题的排在前面，被它们连带
- *   扣下的列在后面并标明原因，用户一眼分得清该去修哪几个。
+ * - `confirmation_required`: group seconds × unit counts and total costs by requested tiers for whole-batch decisions.
+ *   Groups avoid duplicate unit rows obscuring tiers, while still listing
+ *   every unit_id so users know what they approve.
+ * - `blocked`: list every gap individually, never generic errors. Actual problems precede
+ *   consequentially blocked units with causes, making repair targets clear.
  *
- * 正文与外壳分开：参考生视频把它装进弹窗当场拍板，工作流面板把它就地摊在视频步骤下，
- * 两处陈述同一份结论、共用同一段判定，不各推一遍。正文自己不滚动：外壳（弹窗 Body、
- * 制作进度弹层）是唯一的滚动区。
+ * Contents are shell-independent: reference video uses decision dialogs, workflow panels show them beneath video steps;
+ * both share identical conclusions/predicates without recomputation. Contents never scroll independently; shells (dialog Body,
+ * production-progress overlays) are sole scroll areas.
  */
 export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: Props) {
   const { t } = useTranslation("workflow");

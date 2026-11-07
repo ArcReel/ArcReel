@@ -1,12 +1,12 @@
 {% if outline.story_beats %}
-故事节点：
+Story beats:
 {% for beat in outline.story_beats %}
 - {{ beat }}
 {% endfor %}
 {% endif %}
 {% if outline.hook %}
-集尾钩子：{{ outline.hook }}
+Episode-end hook: {{ outline.hook }}
 {% endif %}
 {% if outline.next_episode_teaser %}
-下集预告语：{{ outline.next_episode_teaser }}
+Next-episode teaser: {{ outline.next_episode_teaser }}
 {% endif %}

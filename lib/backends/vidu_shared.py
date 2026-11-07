@@ -1,15 +1,15 @@
-"""Vidu (生数科技) 共享工具模块。
+"""Shared Vidu (Shengshu) utilities.
 
-供 image_backends / video_backends / providers router 复用。包含：
-- VIDU_BASE_URL — Vidu 开放平台 API 基础 URL
-- resolve_vidu_api_key — API Key 解析（缺失即 raise，不走 env fallback）
-- create_vidu_client — 经出站目的地校验的 httpx.AsyncClient 工厂
-- image_to_data_uri — 本地图片 → base64 data URI（API 限制 body ≤20MB）
-- fetch_vidu_task / is_vidu_done / vidu_failure_reason / extract_vidu_url — 任务轮询工具
-- VIDU_RETRYABLE_ERRORS — Vidu HTTPX 瞬态错误集合（仅 NetworkError / TimeoutException）
-- VIDU_MAX_BODY_BYTES / assert_vidu_body_size — 20MB 请求体上限校验
-- safe_body_for_log — 日志输出白名单视图（避免泄漏 base64 图片或意外字段）
-- test_vidu_connection — 连接测试（fork-only，从 providers router 抽出）
+Reused by image_backends / video_backends / providers routers. Includes:
+- VIDU_BASE_URL: Vidu API base URL.
+- resolve_vidu_api_key: API-key resolution, raising when absent without environment fallback.
+- create_vidu_client: destination-validated httpx.AsyncClient factory.
+- image_to_data_uri: local images → base64 data URIs, within 20MB body limits.
+- fetch_vidu_task / is_vidu_done / vidu_failure_reason / extract_vidu_url: polling helpers.
+- VIDU_RETRYABLE_ERRORS: transient HTTPX NetworkError / TimeoutException only.
+- VIDU_MAX_BODY_BYTES / assert_vidu_body_size: 20MB request-body validation.
+- safe_body_for_log: allowlisted log views excluding base64 images/unexpected fields.
+- test_vidu_connection: fork-only connection tests extracted from providers routers.
 """
 
 from __future__ import annotations
@@ -30,15 +30,15 @@ logger = logging.getLogger(__name__)
 
 VIDU_BASE_URL = "https://api.vidu.cn/ent/v2"
 
-# 仅重试瞬态网络错误：HTTPError 涵盖 HTTPStatusError，会让 401/404 等业务错误持续
-# 重试到超时浪费 API 配额；这里只取 NetworkError + TimeoutException。
+# Retry transient networking only: HTTPError includes HTTPStatusError and would keep retrying 401/404 business
+# failures until timeout, wasting API quota. Use NetworkError + TimeoutException only.
 VIDU_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     *BASE_RETRYABLE_ERRORS,
     httpx.NetworkError,
     httpx.TimeoutException,
 )
 
-# Vidu 文档限制单次请求体 ≤ 20MB；base64 自带 ~33% 膨胀，留 2MB 余量给非 images 字段。
+# Vidu caps bodies at 20MB; base64 adds approximately 33%, so reserve 2MB for non-image fields.
 VIDU_MAX_BODY_BYTES = 18 * 1024 * 1024
 
 _IMAGE_MIME_TYPES: dict[str, str] = {
@@ -62,7 +62,7 @@ def create_vidu_client(
     timeout: float = 60.0,
     transport_layer: TransportLayer | None = None,
 ) -> httpx.AsyncClient:
-    """创建带 Authorization 头、经出站目的地校验的 ``httpx.AsyncClient``。"""
+    """Create destination-validated ``httpx.AsyncClient`` with Authorization headers."""
     token = resolve_vidu_api_key(api_key)
     return artifact_http_client(
         base_url=base_url or VIDU_BASE_URL,
@@ -76,18 +76,18 @@ def create_vidu_client(
 
 
 def image_to_data_uri(image_path: Path) -> str:
-    """本地图片 → base64 data URI（Vidu 接受 URL 或 data URI；走 data URI 免依赖文件服务）。"""
+    """Local image → base64 data URI; Vidu accepts URLs/data URIs, the latter avoiding file services."""
     return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
-# 日志输出仅允许的字段白名单（避免 CodeQL 担心 body 里其他字段含敏感数据）。
+# Allowlisted log fields only, excluding potential sensitive unexpected body fields flagged by CodeQL.
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
     {"model", "duration", "resolution", "aspect_ratio", "seed", "audio", "off_peak"}
 )
 
 
 def safe_body_for_log(body: dict) -> dict:
-    """生成安全的日志视图：仅保留白名单字段 + prompt 截断 + images、sounds 仅计数。"""
+    """Safe log views: allowlisted fields, truncated prompts, images/sounds counts only."""
     view: dict = {k: body[k] for k in _SAFE_LOG_KEYS if k in body}
     if "prompt" in body:
         prompt = body["prompt"] or ""
@@ -100,7 +100,7 @@ def safe_body_for_log(body: dict) -> dict:
 
 
 def assert_vidu_body_size(body: dict) -> None:
-    """Vidu 单次请求体硬上限 20MB；这里在序列化后估算并提前拒绝（留 2MB 余量）。"""
+    """Check Vidu 20MB hard request limits after serialization, refusing early with 2MB headroom."""
     encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
     if len(encoded) > VIDU_MAX_BODY_BYTES:
         raise ValueError(
@@ -110,13 +110,13 @@ def assert_vidu_body_size(body: dict) -> None:
         )
 
 
-# 终态状态枚举
+# Terminal-state enum.
 _DONE_STATE = "success"
 _FAILED_STATE = "failed"
 
 
 async def fetch_vidu_task(client: httpx.AsyncClient, task_id: str) -> dict:
-    """查询 Vidu 任务状态（GET /tasks/{id}/creations）。"""
+    """Query Vidu task states with GET /tasks/{id}/creations."""
     resp = await client.get(f"/tasks/{task_id}/creations")
     raise_for_status_redacted(resp)
     return resp.json()
@@ -134,7 +134,7 @@ def vidu_failure_reason(payload: dict) -> str | None:
 
 
 def extract_vidu_url(payload: dict) -> str:
-    """从 success 响应中提取生成物 URL。"""
+    """Extract generated URLs from success responses."""
     creations = payload.get("creations") or []
     if not creations:
         raise RuntimeError(f"Vidu 任务无 creations: task_id={payload.get('id')}")
@@ -145,22 +145,22 @@ def extract_vidu_url(payload: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 连接测试（fork-only，原住在 server/routers/providers.py，抽出以降低 router 侵入）
+# Fork-only connection test, formerly server/routers/providers.py, extracted to reduce router coupling.
 # ---------------------------------------------------------------------------
 def test_vidu_connection(config: dict[str, str]) -> None:
-    """通过查询不存在的 task id 验证 Vidu API Key。
+    """Validate Vidu keys by querying nonexistent task ids.
 
-    Vidu 无 list-models 端点，借助 ``GET /tasks/<bogus>/creations`` 校验认证。
-    Vidu 服务端把 task id 当作整数解析，必须传数字字符串；非数字会在 auth 检查
-    之前返回 400 CODEC parse error，让连接测试始终失败。
+    Vidu has no list-models endpoint, so use ``GET /tasks/<bogus>/creations`` for authentication.
+    Servers parse task ids as integers: use numeric strings. Nonnumeric ids produce 400 CODEC parse
+    errors before authentication, making connection tests always fail.
 
-    采用白名单：凭证有效时返回 404（task 不存在）；401/403 视为凭证无效；
-    其他状态码（含 5xx）一律视为不可判定，抛错避免误判成功。
+    Allowlist outcomes: valid credentials return 404 missing-task; 401/403 mean invalid credentials.
+    All other statuses, including 5xx, are indeterminate and raise, never falsely passing.
     """
     api_key = resolve_vidu_api_key(config.get("api_key"))
     base_url = (config.get("base_url") or VIDU_BASE_URL).rstrip("/")
     headers = {"Authorization": f"Token {api_key}"}
-    # 用一个语法上合法但极不可能存在的数字 id（避开整数解析失败的 400 CODEC）
+    # Use a syntactically valid numeric id extremely unlikely to exist, avoiding 400 CODEC integer parse errors.
     with httpx.Client(timeout=10.0) as client:
         resp = client.get(f"{base_url}/tasks/0/creations", headers=headers)
     if resp.status_code == 404:

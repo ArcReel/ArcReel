@@ -264,7 +264,7 @@ def test_nested_partial_sees_caller_context(tmp_path):
 
 
 def test_inline_partial_is_injected_even_when_body_repeats_it(tmp_path):
-    """行内片段常是短措辞，正文里偶然同形的字串不得把它吞掉。"""
+    """Inline fragments are short phrases; accidentally matching body text must never swallow them."""
     write_template(tmp_path, '排除：{{ partial("shared/people") }}水印\n\n{{ name }}', idempotent=True)
     write_partial(tmp_path, "shared/people", "出镜人物、")
     templates = PromptTemplates(tmp_path)
@@ -316,7 +316,7 @@ def test_skipped_block_partial_in_contiguous_list_removes_its_line(tmp_path):
 
 
 def test_block_partial_lines_are_deduplicated_one_by_one(tmp_path):
-    """风格块的一行已在正文里时只补缺的那行，取值变化的那行照常注入。"""
+    """When one style-block line exists in bodies, inject missing lines only, including lines whose values changed."""
     write_template(tmp_path, '{{ partial("shared/style") }}\n\n{{ name }}', idempotent=True)
     write_partial(tmp_path, "shared/style", "Style: 水墨\nVisual style: 留白写意")
     templates = PromptTemplates(tmp_path)
@@ -355,7 +355,7 @@ def test_idempotent_must_be_a_boolean(tmp_path):
 
 
 def test_slot_values_keep_their_blank_lines_verbatim(tmp_path):
-    """空行塌缩只作用于模版自身的空白，源文窗口一类槽位值逐字保留。"""
+    """Collapse blank lines in templates only; preserve slot values such as source windows verbatim."""
     write_template(tmp_path, '\n\n{{ partial("shared/head") }}\n\n\n\n{{ name }}\n\n\n')
     write_partial(tmp_path, "shared/head", "开头：{{ name }}")
     source = "\n\n第一段\n\n\n\n第二段\n\n\n"

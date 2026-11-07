@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 
-/** 目标时长的常用档位（秒）；其他正整数秒走「自定义」。 */
+/** Common target-duration tiers (seconds); other positive integer seconds use Custom. */
 const DURATION_TIERS = [15, 30, 60, 90] as const;
 
 function isTier(value: number | null): boolean {
@@ -25,18 +25,18 @@ function chipClass(active: boolean, disabled: boolean): string {
 }
 
 export interface DurationTierPickerProps {
-  /** 当前时长（秒）；「自定义」里的输入不是正整数时为 null，调用方据此拦住提交。 */
+  /** Current seconds; null for Custom inputs that are not positive integers so callers can block submission. */
   value: number | null;
   onChange: (value: number | null) => void;
-  /** 已翻译的字段名，同时作为单选组的可访问名称；默认「目标总时长」。 */
+  /** Translated field names, also radio-group accessible names; defaults to Total target duration. */
   label?: string;
   disabled?: boolean;
 }
 
 /**
- * 时长档位选择器：15 / 30 / 60 / 90 秒单选，其余正整数秒在「自定义」里填写。
- * 自定义输入不是正整数时回报 null，并在行内说明原因。
- * 外部把值改成档位之外的数（例如放弃修改）时自动切到「自定义」并回填。
+ * Duration-tier picker: 15 / 30 / 60 / 90-second radio options; other positive integer seconds enter through Custom.
+ * Custom inputs that are not positive integers report null and explain inline.
+ * External changes to non-tier values (e.g. discarding edits) automatically select Custom and fill inputs.
  */
 export function DurationTierPicker({ value, onChange, label, disabled = false }: DurationTierPickerProps) {
   const { t } = useTranslation("dashboard");
@@ -48,7 +48,7 @@ export function DurationTierPicker({ value, onChange, label, disabled = false }:
   const [custom, setCustom] = useState(value !== null && !isTier(value));
   const [customText, setCustomText] = useState(value !== null && !isTier(value) ? String(value) : "");
   const [prevValue, setPrevValue] = useState(value);
-  // 随外部写入调整内部状态：自定义框里正在输入的值回传过来时不打断输入
+  // Synchronize internal state to external writes without interrupting ongoing Custom input echoed back from callers.
   if (value !== prevValue) {
     setPrevValue(value);
     if (value !== null && value !== parseSeconds(customText)) {

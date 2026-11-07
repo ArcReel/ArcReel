@@ -1,1 +1,1 @@
-旁白/解说（narration）
+Narration / commentary (narration)

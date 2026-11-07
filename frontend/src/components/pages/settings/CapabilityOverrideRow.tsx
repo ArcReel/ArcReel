@@ -5,21 +5,21 @@ import { Badge } from "@/components/ui/badge";
 import type { KeyboardEvent, ReactNode } from "react";
 
 // ---------------------------------------------------------------------------
-// CapabilityOverrideRow —— 视频模型行内的能力覆盖三态控件（首批仅 last_frame）
+// CapabilityOverrideRow: three-state inline video capability overrides, initially last_frame only.
 //
-// 三态直接映射稀疏覆盖字典的写入形态，不引入第四种中间态：
-//   follow → 覆盖字典中该键缺席，生效值跟随系统判定，判定变化时自动跟着变
-//   on/off → 覆盖字典写入 { last_frame: true|false }，永久压过系统判定
-// 「跟随判定」段把系统判定值内联在段内，用户在同一个控件里既看到系统怎么判的、
-// 又能决定要不要改，不需要额外的说明行。
+// States directly match sparse-override writes, without fourth intermediate states:
+//   follow → key absent, effective values follow system decisions and their changes
+//   on/off → { last_frame: true|false } permanently overrides system decisions
+// Follow embeds system decisions within segments, letting users see decisions and choose overrides
+// in the same controls, without extra explanation rows.
 // ---------------------------------------------------------------------------
 
 export type OverrideState = "follow" | "on" | "off";
 
-/** 段的排布顺序，同时是键盘左右移动的顺序。 */
+/** Segment display order, also keyboard left/right order. */
 const SEGMENT_ORDER: OverrideState[] = ["follow", "on", "off"];
 
-/** 覆盖值（undefined = 键缺席）与三态之间的双向映射，写入侧的唯一转换点。 */
+/** Bidirectional mapping of override values (undefined = absent) and states, sole write conversion point. */
 function overrideToState(override: boolean | undefined): OverrideState {
   if (override === undefined) return "follow";
   return override ? "on" : "off";
@@ -31,11 +31,11 @@ function stateToOverride(state: OverrideState): boolean | undefined {
 }
 
 interface CapabilityOverrideRowProps {
-  /** 当前覆盖值；undefined = 跟随判定。 */
+  /** Current overrides; undefined follows system decisions. */
   override: boolean | undefined;
-  /** 系统判定值；null = 尚未判定（新增或改过 model_id 的行，后端保存后才算得出）。 */
+  /** System decisions; null before evaluation (new/changed model_id rows, calculated after server saves). */
   systemValue: boolean | null;
-  /** 当前 endpoint 的执行层是否下传尾帧约束；false 时「强制开」不可选（后端会 422 拒绝）。 */
+  /** Whether endpoint execution forwards ending-frame constraints; false disables force-on, otherwise backends reject with 422. */
   endImageCapable: boolean;
   onChange: (next: boolean | undefined) => void;
 }
@@ -55,10 +55,10 @@ export function CapabilityOverrideRow({
   const detectedLabel = systemValue === null ? t("cap_override_value_unknown") : valueLabel(systemValue);
 
   const groupRef = useRef<HTMLDivElement>(null);
-  // 「强制开」在 endpoint 不下传尾帧时不可选，键盘移动要跳过它而不是停在一个点不动的段上。
+  // Skip unavailable force-on segments when endpoints omit ending frames; never trap keyboard focus on unselectable segments.
   const reachable = SEGMENT_ORDER.filter((s) => s !== "on" || endImageCapable);
-  // roving tabindex：整组只占一个 Tab 位，组内移动交给方向键（对齐 ModelConfigSection 的时长
-  // 选择组）。当前态不可达时（理论上不会出现）退回第一个可达段，避免整组都是 -1 而 Tab 不进去。
+  // Roving tabindex: groups occupy one Tab stop, arrows navigate internally (matching ModelConfigSection duration
+  // selectors). Unreachable current states (theoretically absent) use first reachable segments, preventing all -1 inaccessible groups.
   const tabbable = reachable.includes(state) ? state : reachable[0];
 
   const select = (target: OverrideState) => {
@@ -66,8 +66,8 @@ export function CapabilityOverrideRow({
     groupRef.current?.querySelector<HTMLButtonElement>(`[data-state="${target}"]`)?.focus();
   };
 
-  // radio 组的标准键盘行为：方向键移动焦点即选中，Home/End 跳到首尾。挂在各段而非容器上——
-  // 焦点本就落在段内，容器自身不该可聚焦。
+  // Standard radio keyboard behavior: arrows focus/select, Home/End jump boundaries. Attach per segment, never containers,
+  // since focus already sits in segments and containers must not focus.
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     const current = reachable.indexOf(state);
     const from = current === -1 ? 0 : current;
@@ -120,7 +120,7 @@ export function CapabilityOverrideRow({
               {t("cap_override_follow")}
               <span className="text-muted-foreground"> · {detectedLabel}</span>
             </span>,
-            // 可访问名带上判定值，读屏用户与视觉用户听到／看到的是同一句
+            // Accessible names include decisions, matching screen-reader/visual information.
             `${t("cap_override_follow")}·${detectedLabel}`,
             t("cap_override_follow_title"),
           )}
@@ -144,7 +144,7 @@ export function CapabilityOverrideRow({
         )}
       </div>
 
-      {/* title 对键盘与触屏不可达，禁用原因必须有一行可见说明 */}
+      {/* title is inaccessible to keyboards/touch; disabled reasons require visible explanatory rows. */}
       {!endImageCapable && <p className="text-xs text-muted-foreground">{t("cap_override_on_unavailable")}</p>}
     </div>
   );

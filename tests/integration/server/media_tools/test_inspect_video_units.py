@@ -1,4 +1,4 @@
-"""inspect_video_units：经声明入口调用，断言结果信封里的结构化结果与联系表图片。"""
+"""inspect_video_units through declarations: assert structured envelopes and contact-sheet images."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ async def _inspect(ctx: ToolHarness, arguments: dict[str, Any]) -> tuple[Any, To
 
 
 def _dominant(jpeg: bytes) -> str:
-    """纯色素材的联系表里画面占绝大部分面积：按整张图的平均色判断画面是红还是蓝。"""
+    """Solid-color frames occupy most contact-sheet area; full-image mean colors identify red versus blue."""
     pixel = Image.open(io.BytesIO(jpeg)).convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
     assert isinstance(pixel, tuple)
     red, _green, blue = pixel

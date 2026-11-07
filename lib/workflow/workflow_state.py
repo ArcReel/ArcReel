@@ -1,7 +1,6 @@
 """Authoritative workflow status for ArcReel projects.
 
-状态计算只读，不写盘。
-"""
+Status computation is read-only, without persistence."""
 
 from __future__ import annotations
 
@@ -81,12 +80,12 @@ logger = logging.getLogger(__name__)
 
 
 class WorkflowRequestError(ValueError):
-    """调用方给出的查询参数本身不合法。
+    """Caller-supplied query parameters are invalid.
 
-    与之相对的是持久化数据损坏（剧本骨架、content_mode / generation_mode 组合等）：
-    那类问题同样以 ``ValueError`` 家族抛出，但责任在服务端数据而非本次请求，消费方
-    据此区分「回 400 / invalid_request」与「按服务端故障上报」，不把排障方向指向调用方。
-    """
+    Contrast persisted corruption (script skeletons, content_mode / generation_mode combinations, etc.),
+    also raised through the ``ValueError`` family but attributable to server data, not this request.
+    Consumers distinguish 400 / invalid_request from server-failure reporting accordingly, avoiding
+    misdirecting troubleshooting toward callers."""
 
 
 class WorkflowProject(BaseModel):
@@ -115,15 +114,15 @@ class WorkflowBlocker(BaseModel):
 
 
 class WorkflowActionType(StrEnum):
-    """``WorkflowNextAction.type`` 的闭集。
+    """Closed set of ``WorkflowNextAction.type`` values.
 
-    三个来源合成同一份取值：本模块给出的建议下一步与分岔、``lib.workflow.workflow_plan`` 投影时
-    额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation.generation_result.GenerationAction``。
-    消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即
-    自动进入各处覆盖检查，不必再手抄一份清单。
-    """
+    Combines three sources: this module's next actions/alternatives, additional actions injected during
+    ``lib.workflow.workflow_plan`` projection, and ``lib.generation.generation_result.GenerationAction``
+    returned unchanged by rejected batch admission. Consumers (frontend unions, controlled profile action
+    tables, action translations) derive from this enum. New members automatically enter all coverage checks
+    without manually maintaining another list."""
 
-    # 本模块给出的建议下一步及其分岔
+    # Suggested next actions and alternatives produced by this module
     NONE = "none"
     COLLECT_PROJECT_INPUT = "collect_project_input"
     CREATE_EPISODE = "create_episode"
@@ -145,13 +144,13 @@ class WorkflowActionType(StrEnum):
     GENERATE_VIDEOS = "generate_videos"
     CREATE_EDIT_TIMELINE = "create_edit_timeline"
 
-    # 数据升级失败的项目在任何阶段都只报这一个动作
+    # Data-upgrade failures report only this action at every stage.
     RETRY_PROJECT_MIGRATION = "retry_project_migration"
 
-    # ``build_workflow_plan`` 投影时注入的动作
+    # Actions injected during ``build_workflow_plan`` projection
     PATCH_EPISODE_SCRIPT = "patch_episode_script"
 
-    # ``GenerationAction`` 闭集；整批准入判定与任务失败把它原样交回成 next_action
+    # ``GenerationAction`` closed set; batch-admission rejection/task failure returns it unchanged as next_action.
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
@@ -174,7 +173,7 @@ class WorkflowNextAction(BaseModel):
 
 
 class WorkflowOperation(BaseModel):
-    """一个 AI 操作此刻的结构准入：与操作入口调用同一份谓词（见 ``lib.workflow.operation_admission``）。"""
+    """Current structural admission for one AI operation, sharing entry-point predicates (``lib.workflow.operation_admission``)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -183,7 +182,7 @@ class WorkflowOperation(BaseModel):
 
 
 class WorkflowDraft(BaseModel):
-    """目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。"""
+    """One draft present on the target episode; ``needs_repair`` distinguishes quarantined drafts from Agent-editable drafts."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -193,15 +192,15 @@ class WorkflowDraft(BaseModel):
 
 
 class WorkflowContent(BaseModel):
-    """内容现状：各类内容此刻是什么样，不含「该做哪一步」的判断。
+    """Current content state without deciding which step should come next.
 
-    集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、
-    脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。
+    Episode fields have values only with a target episode. ``episode_plan_stale`` means episode planning
+    is stale and script planning awaits rebuilding: state it here without adding it to suggested next actions.
 
-    ``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的
-    下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、
-    没有待重新规划的集，且整本源文没有剩余。
-    """
+    ``episode_complete`` indicates target-episode completion (``is_episode_complete``); completed episodes
+    may still have within-episode suggestions, e.g. pending authoring or missing sheets. ``project_complete``
+    appears only in queries without a specified episode: every episode complete, none awaiting replanning,
+    and no remaining whole-source text."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -218,13 +217,13 @@ class WorkflowContent(BaseModel):
     script_item_count: int | None = None
     pending_authoring_ids: list[str] = Field(default_factory=list)
     needs_replan_ids: list[str] = Field(default_factory=list)
-    #: 本集引用、但没有资产图的角色 / 场景 / 道具（含衍生），与生成入口同一判定（ADR 0073）。
+    #: Referenced characters/scenes/props (including derivatives) without sheets, matching generation admission (ADR 0073).
     referenced_assets_without_sheet: list[str] = Field(default_factory=list)
-    #: 本集引用、但没有登记的名字；生成入口会据此拒绝。
+    #: Referenced names absent from registration; generation rejects them.
     unregistered_references: list[str] = Field(default_factory=list)
-    #: 本集引用、资产图过期的资产（含衍生）。只陈述，不进建议的下一步。
+    #: Referenced assets (including derivatives) with outdated sheets; informational, excluded from next suggestions.
     referenced_asset_sheets_stale: list[str] = Field(default_factory=list)
-    #: 本集引用、缺描述因而不能生成资产图的资产（含衍生）。只陈述，不进建议的下一步。
+    #: Referenced assets (including derivatives) lacking descriptions and unable to generate sheets; informational, excluded from next suggestions.
     referenced_assets_without_description: list[str] = Field(default_factory=list)
     episode_complete: bool = False
     project_complete: bool = False
@@ -233,11 +232,10 @@ class WorkflowContent(BaseModel):
 class WorkflowStatus(BaseModel):
     """Shared response model serialized unchanged by REST and MCP adapters.
 
-    制作状态陈述三件事（见 ``docs/adr/0091``）：``content`` 与 ``artifacts`` 是内容现状；
-    ``operations`` 是每个 AI 操作能否执行及原因；``next_action`` 是建议的下一步，分岔处的并列
-    选项在 ``next_alternatives``。``blockers`` 只表示项目整体不可用，内容本身的数据问题进
-    ``issues``，只陈述、不阻断其余内容。
-    """
+    Production status states three things (``docs/adr/0091``): ``content`` and ``artifacts`` describe current
+    content, ``operations`` describes each AI operation's availability/reason, and ``next_action`` suggests
+    the next step, with branch alternatives in ``next_alternatives``. ``blockers`` means only whole-project
+    unavailability; content-data problems enter ``issues`` as information without blocking other content."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -255,23 +253,22 @@ class WorkflowStatus(BaseModel):
     next_action: WorkflowNextAction
     next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
     migration_report: MigrationReport | None = None
-    """上一次迁移调整了什么、没能带入什么，用户尚未确认过时才给出；只作说明，不影响状态与阻断。"""
+    """What the last migration adjusted or could not carry over, supplied only until user acknowledgment; informational only, without affecting state or blocking."""
 
 
-#: 剪辑时间线目录读不出、或有时间线文件无法解析时记下的 issue 码。
+#: Issue code for unreadable timeline directories or unparseable timeline files.
 INVALID_EDIT_TIMELINES_CODE = "invalid_edit_timelines"
-#: 一集完成且集内没有别的建议动作时 ``next_action`` 的理由；此时下一步为 ``none``。
+#: ``next_action`` reason when an episode is complete with no other suggestions; next step is ``none``.
 EPISODE_COMPLETE_REASON = "episode has an edit timeline"
-#: 查询范围内每一集都完成、源文也已排布完时 ``next_action`` 的理由。
+#: ``next_action`` reason when all scoped episodes are complete and source text fully arranged.
 ALL_EPISODES_COMPLETE_REASON = "every episode has an edit timeline"
 
 
 def workflow_finished(status: WorkflowStatus) -> bool:
-    """建议的下一步已走到末尾：集查询里是一集完成且集内没有别的建议动作，项目查询里是全部完成。
+    """Suggested next actions have ended: episode queries mean completion with no other within-episode suggestions; project queries mean all complete.
 
-    这不是「一集完成」的判定：完成的集仍可能有待编写条目等集内建议，那一集的完成看
-    ``content.episode_complete``。
-    """
+    This does not define episode completion: completed episodes may still have suggestions such as pending
+    authoring. Use ``content.episode_complete`` for their completion."""
 
     return status.next_action.type is WorkflowActionType.NONE and status.next_action.reason in {
         EPISODE_COMPLETE_REASON,
@@ -279,21 +276,20 @@ def workflow_finished(status: WorkflowStatus) -> bool:
     }
 
 
-#: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 script_plan 即 segmented。
+#: Per-episode script artifact-derived state: usable formal script means generated, only script_plan means segmented.
 EpisodeScriptStatus = Literal["none", "segmented", "generated"]
 
-#: 每集在广度视图上的粗粒度进度，由该集产物计数派生。
+#: Broad-view coarse episode progress derived from artifact counts.
 EpisodeProductionStatus = Literal["draft", "scripted", "in_production", "completed"]
-#: 项目摘要的产物判定口径：``verified`` 与规范状态逐件比对；``registered`` 只看清单登记与文件在场。
+#: Summary currency rules: ``verified`` compares canonical states per artifact; ``registered`` checks manifest registration/presence only.
 ProjectSummaryCurrency = Literal["verified", "registered"]
 
 
 class ArtifactCount(BaseModel):
-    """一组产物的计数：可用 = current ∪ stale，stale 另计。
+    """Artifact-group counts: available = current ∪ stale, with stale counted separately.
 
-    stale 不从 available 里扣——比当前内容旧的产物仍然可用（见 ADR 0062），
-    它是「可以决定要不要重生」的提示，不是缺口。
-    """
+    Do not subtract stale from available: artifacts older than current content remain usable (ADR 0062).
+    Staleness suggests deciding whether to regenerate, not a gap."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -312,11 +308,11 @@ class ArtifactCount(BaseModel):
 
 
 def is_episode_complete(videos: ArtifactCount, *, has_edit_timeline: bool) -> bool:
-    """一集完成：视频齐全（可用 = current ∪ stale），且至少有一条剪辑时间线。
+    """Episode completion: all videos usable (current ∪ stale) and at least one editing timeline.
 
-    这是「一集完成」唯一的判定，集进度、项目卡、制作状态的 ``episode_complete`` 与跨集选择都用它。
-    分镜图、待编写条目、待重新规划的单元与资产图都不参与，它们只作为集内建议的下一步。
-    """
+    Sole episode-completion criterion shared by episode progress, project cards, production-status
+    ``episode_complete``, and cross-episode selection. Storyboards, pending authoring, units awaiting
+    replanning, and asset sheets do not participate; they are only within-episode next suggestions."""
 
     return videos.total > 0 and videos.available >= videos.total and has_edit_timeline
 
@@ -327,8 +323,8 @@ class EpisodeSummary(BaseModel):
     episode: int
     script_status: EpisodeScriptStatus
     status: EpisodeProductionStatus
-    # 该集的内容规模：分镜图生视频报分镜数、参考生视频报视频单元数，
-    # 三种创作类型同一口径。读时按脚本条目数算，不落盘。
+    # Episode content size: storyboard-image-to-video reports shots, reference-to-video reports video units,
+    # consistent across three content modes; compute script-entry counts on read, never persist.
     item_count: int
     duration_seconds: int
     storyboards: ArtifactCount
@@ -345,44 +341,45 @@ class EpisodesSummary(BaseModel):
 
 
 class ProjectSummary(BaseModel):
-    """项目在广度视图上的投影：资产可用计数、分集汇总与各集进度。
+    """Broad-view project projection: available asset counts, episode summaries, and per-episode progress.
 
-    与 ``WorkflowStatus`` 同源不同粒度——后者回答「这个项目下一步做什么」，本模型回答
-    「几十个项目各自完成了几集、手上有多少可用产物」；项目的进度就是各集的进度。因此它只读
-    项目元数据、各集脚本、产物清单与剪辑时间线的文件名：源文正文与源文修订号（sha256）不参与，否则列出
-    N 个项目就要读 N 份小说。剪辑时间线不解析内容，文件损坏只在制作状态里报 issue。
+    Same source as ``WorkflowStatus`` at different granularity: status answers what to do next; this answers
+    how many episodes dozens of projects finished and how many artifacts are usable. Project progress is
+    episode progress. Read only project metadata, episode scripts, manifest, and timeline filenames, excluding
+    source bodies and source revisions (sha256), or listing N projects would read N novels. Do not parse
+    timelines; production status alone reports corrupt files as issues.
 
-    「源文是否还有未规划的原文」只能由源文得出，本投影读取写账本的命令记在 ``project.json`` 里的结论
-    （``source_remaining``），与制作状态的「继续分集规划」同一判定；源文在 ArcReel 之外被改动、账本
-    尚未更新时两处可能短暂不一致。产物口径本身两处一致：可用与 stale 都取自同一份产物清单。
+    Only source text determines unplanned-source availability. Read the ledger-writing commands' conclusion
+    in ``project.json`` (``source_remaining``), matching production status's continue-planning criterion.
+    External source edits before ledger updates may temporarily disagree between these views. Artifact
+    rules themselves agree: available/stale both come from the same manifest.
 
-    产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
-    区分 current 与 stale；``registered`` 只看清单登记与文件在场，产物比对不产生 stale。
-    前者供单个项目的详情与剧集卡，后者供项目列表——列出 N 个项目时不读任何产物内容。
-    参考生视频的重规划壳（``needs_replan``）在两种口径下都计 stale：那是脚本条目自身的
-    标记，不是产物比对的结果。
-    """
+    Two currency rules (``ProjectSummaryCurrency``): ``verified`` compares each artifact with canonical
+    state, distinguishing current/stale; ``registered`` checks only manifest registration and file presence,
+    never producing stale through comparison. The former serves individual details/episode cards, the latter
+    project lists without reading artifact content for N projects. Reference-to-video replan shells
+    (``needs_replan``) count stale under both: a script-entry marker, not an artifact-comparison result."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[2] = 2
     needs_repair: bool
     repair_reason: str | None
-    #: 按 ``ASSET_SPECS`` 的资产类型键给出资产图计数，新增资产类型自动进入投影。
+    #: Sheet counts by ``ASSET_SPECS`` asset-type keys; new types automatically enter projection.
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
-    #: 整本源文还有未规划的原文：已有的集全部完成也不算项目完成，下一步是继续分集规划。
+    #: Remaining unplanned whole-source text prevents project completion even if all episodes are complete; next action continues planning.
     source_remaining: bool
 
 
 class EpisodeNextStep(BaseModel):
-    """账本中一集建议的下一步，供项目层的逐集清单使用；与按集查询制作状态的 ``next_action`` 相同。"""
+    """Suggested next step for one ledger episode in project-level episode lists; matches episode-query ``next_action``."""
 
     model_config = ConfigDict(extra="forbid")
 
     episode: int
-    #: 该集的集规划已失效（原文已重新规划），下一步为 ``none``，等待重建。
+    #: Episode plan invalidated by source replanning: next step ``none``, awaiting rebuild.
     plan_stale: bool
     next_action: WorkflowNextAction
 
@@ -422,11 +419,10 @@ def _action(
 
 
 def planning_docs(project: Mapping[str, Any], source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
-    """把修订号计算那一次读取的原文转成整本源文：按项目登记的文件清单顺序，账本坐标系里的规范化全文。
+    """Convert sources read for revision computation into normalized whole-source text in ledger coordinates and project-registered file order.
 
-    源文在一次状态查询里只读一遍：``compute_source_revision`` 已经把每份源文读进内存，
-    分集排布所需的归一化全文由那一次读取派生，不再回磁盘重读。
-    """
+    Read sources only once per status query: ``compute_source_revision`` already loaded every source into
+    memory; derive normalized full text for episode arrangement from that read without rereading disk."""
 
     if source is None or source.blockers:
         return ()
@@ -454,7 +450,7 @@ def _episode_production_status(
     *,
     has_edit_timeline: bool,
 ) -> EpisodeProductionStatus:
-    """完成按 ``is_episode_complete`` 判定；分镜图或视频有任何一件可用即为制作中。"""
+    """Completion uses ``is_episode_complete``; any usable storyboard/video means production underway."""
 
     if script_status != "generated":
         return "draft"
@@ -676,7 +672,7 @@ class WorkflowStateService:
             issues.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None
         raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
-        # 空的正式脚本合法（见 docs/adr/0091）：「非空」只留在各 AI 生成动作的产出验收里。
+        # Empty formal scripts are valid (docs/adr/0091); nonempty requirements belong only to AI-generation output acceptance.
         if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
             issues.append(
                 WorkflowBlocker(
@@ -829,11 +825,10 @@ class WorkflowStateService:
         return status
 
     def get_episode_next_steps(self, project_name: str) -> list[EpisodeNextStep]:
-        """按账本顺序给出每一集的下一步。
+        """Give each episode's next step in ledger order.
 
-        项目整体不可用（迁移失败、项目数据读不出、存在 blockers）时没有集层的下一步，返回空列表；
-        此时项目层的制作状态会说明原因。
-        """
+        Whole-project unavailability (migration failure, unreadable project data, blockers) yields no episode
+        next steps: return an empty list. Project-level production status explains why."""
 
         project_path = self.pm.get_project_path(project_name)
         try:
@@ -866,15 +861,15 @@ class WorkflowStateService:
         preloaded_scripts: Mapping[str, dict[str, Any]] | None = None,
         currency: ProjectSummaryCurrency = "verified",
     ) -> ProjectSummary:
-        """项目在广度视图上的投影（见 ``ProjectSummary``）。
+        """Broad-view project projection (``ProjectSummary``).
 
-        ``preloaded_scripts`` 按 ``episodes[].script_file`` 原值作 key，命中即复用调用方
-        （项目列表把同一份剧本喂给封面解析）已经读过的那份，一次列表请求每集只读一次剧本。
+        ``preloaded_scripts`` keys use original ``episodes[].script_file`` values; hits reuse caller reads
+        (project lists feed the same scripts to cover resolution), reading scripts once per episode per list request.
 
-        ``currency`` 选产物判定口径：``verified`` 逐件与规范状态比对，代价是每件产物都要
-        重建基线（读清单、哈希分镜图与其引用图）；``registered`` 一次读入清单，只判断登记
-        与在场，不读产物内容（在场检查只探一个字节）。列表页取后者，其余取前者。
-        """
+        ``currency`` chooses rules: ``verified`` compares canonical states per artifact, rebuilding every basis
+        (reading manifests, hashing storyboard/reference images); ``registered`` loads the manifest once,
+        checking only registration/presence without reading contents (presence probes one byte). Lists use
+        the latter, other views the former."""
 
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
@@ -889,8 +884,8 @@ class WorkflowStateService:
                 else ArtifactCurrencyResolver(project_path)
             )
         except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
-            # 清单读不出来时不退回「文件存在即产物存在」：本投影一律按 0 件可用报告，
-            # 与工作台把它记成 artifact_currency_unavailable 阻断同一口径。
+            # Unreadable manifests never fall back to file existence as artifact presence: report zero usable here,
+            # matching workbench artifact_currency_unavailable blocking.
             resolver = None
         assets = self._asset_counts(project_path, project, resolver)
         episode_summaries = [
@@ -1012,8 +1007,8 @@ class WorkflowStateService:
         try:
             return self.pm.load_script_readonly(project_name, script_file)
         except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
-            # 列出项目不因一集剧本损坏而失败：该集按 0 件产物报告，损坏本身由工作台的
-            # 制作状态查询报成 invalid_script 阻断。
+            # Listing projects survives one corrupt episode script, reporting zero artifacts for it; workbench production-status
+            # queries report corruption as invalid_script blocking.
             return None
 
     def _episode_script_status(
@@ -1024,11 +1019,11 @@ class WorkflowStateService:
         entry: dict[str, Any],
         resolver: ArtifactComparer | None,
     ) -> EpisodeScriptStatus:
-        """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
+        """Derive episode script progress from script_plan/formal-script artifact states.
 
-        集规划状态为 stale 且脚本规划尚未重建的集（重新规划后原文范围已失效）回到 none：它的
-        下游要重做。判定与顶栏同用 ``_stale_episode_plan``，重建完成后按常规产物态派生。
-        """
+        Stale episode plans without rebuilt script plans return none because downstream work must be redone
+        (source ranges invalidated by replanning). Share ``_stale_episode_plan`` with the top bar; after rebuilding,
+        derive normal artifact states."""
 
         if project.get("content_mode") != "ad" and self._stale_episode_plan(project_path, project, number, entry)[0]:
             return "none"
@@ -1041,8 +1036,8 @@ class WorkflowStateService:
         if script_plan is None:
             return "none"
         if script_review.script_plan_quarantined(project_path, project, number):
-            # 草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
-            # 路由回源文审阅页，见不到草稿详情与修复入口。
+            # A present draft already means segmented: failed first splitting never wrote formal files. Reporting none would
+            # route users back to source review, hiding draft details/repair entry points.
             return "segmented"
         if resolver is None:
             return "none"
@@ -1058,12 +1053,11 @@ class WorkflowStateService:
         episodes: list[tuple[int, dict[str, Any]]],
         failure: MigrationFailureRecord,
     ) -> ProjectSummary:
-        """升级失败的项目照常列出，但一件产物都不报可用。
+        """Still list upgrade-failed projects, reporting zero usable artifacts.
 
-        产物清单是唯一的产物口径，而它对未升级的数据不可读——报「有几件可用」就要
-        退回按文件是否存在计数，恰是本口径要退场的那一套。用户仍看到项目、集数与
-        待修复原因，只读入口照常打开。
-        """
+        The manifest is the sole artifact authority but unreadable for unupgraded data. Counting usable
+        artifacts would require reverting to file-existence rules this design retires. Users still see projects,
+        episode counts, and repair reasons; read-only entry points remain open."""
 
         summaries = [
             EpisodeSummary(
@@ -1094,11 +1088,11 @@ class WorkflowStateService:
         )
 
     def _shared_facts(self, project_path: Path, project: dict[str, Any]) -> _SharedWorkflowFacts:
-        """一次查询内各集共用的事实。
+        """Facts shared across episodes within one query.
 
-        阻断项只收「项目整体不可用」：创作类型或生成模式读不出（无从判定任何内容），或产物清单读不出。
-        其余数据问题进 ``issues``，只在现状里陈述，不挡其他内容与操作（见 ``docs/adr/0091``）。
-        """
+        Block only whole-project unavailability: unreadable content/generation modes (no content can be judged)
+        or unreadable manifests. Other data problems enter ``issues`` as current-state information without
+        blocking other content/operations (``docs/adr/0091``)."""
         mode = project.get("content_mode")
         generation_mode = project.get("generation_mode")
         blockers: list[WorkflowBlocker] = []
@@ -1226,11 +1220,10 @@ class WorkflowStateService:
         project_path: Path,
         shared: _SharedWorkflowFacts,
     ) -> WorkflowStatus:
-        """没有指定集时：取账本顺序中第一个未完成、且集规划状态不是 stale 的集。
+        """Without a specified episode, choose the first incomplete, non-stale-planned episode in ledger order.
 
-        其余集都完成时回到项目层：整本源文还有未切分的原文就继续分集规划；有 stale 集时停在
-        第一个 stale 集上陈述现状，不给动作；否则全部完成。
-        """
+        When all other episodes are complete, return to project level: continue planning if whole-source text
+        remains uncut; otherwise stop at the first stale episode with state only, no action; otherwise all complete."""
         if not shared.episodes:
             return self._project_status(project, shared)
         first: WorkflowStatus | None = None
@@ -1267,7 +1260,7 @@ class WorkflowStateService:
     def _planning_action(
         self, project: dict[str, Any], shared: _SharedWorkflowFacts, reason: str
     ) -> WorkflowNextAction:
-        """继续分集规划的动作：规划器会拒绝接续时（切出集缺位置记录、源文已改动）改为从头重置。"""
+        """Continue-planning action; switch to reset from beginning when the planner rejects continuation (cut episodes lack positions or sources changed)."""
         if legacy_cut_episode_ids(project):
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
@@ -1313,7 +1306,7 @@ class WorkflowStateService:
         }
 
     def _project_status(self, project: dict[str, Any], shared: _SharedWorkflowFacts) -> WorkflowStatus:
-        """没有集的项目：有整本源文则 AI 分集规划，否则上传原文；两者都可以改为新建一集。"""
+        """Episodeless project: AI episode planning with whole-source text, otherwise source upload; either can switch to creating one episode."""
         if shared.whole_source:
             next_action = self._planning_action(project, shared, "episode ledger has no episodes")
         else:
@@ -1343,10 +1336,9 @@ class WorkflowStateService:
         artifacts: dict[str, dict[str, Any]],
         issues: list[WorkflowBlocker],
     ) -> list[str] | None:
-        """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。结果同时写进 ``artifacts``。
+        """Editing-step completion: at least one timeline in the episode. Also write results into ``artifacts``.
 
-        目录读取失败或有时间线文件无法解析时记一条 issue 并返回 None。
-        """
+        Record an issue and return None if directory reads fail or any timeline file cannot be parsed."""
 
         try:
             documents = EditTimelineStore(self.pm, project_name).list_documents(episode, strict=True)
@@ -1393,7 +1385,7 @@ class WorkflowStateService:
 
     @staticmethod
     def _episode_drafts(project_path: Path, project: dict[str, Any], number: int) -> list[WorkflowDraft]:
-        """目标集上在场的草稿：脚本规划草稿，以及参考生视频的提示词编写草稿。"""
+        """Drafts present for the target episode: script-plan drafts and reference-to-video prompt-authoring drafts."""
         kinds: list[str] = []
         script_plan_kind = script_review.script_plan_quarantine_kind(project)
         if script_plan_kind is not None:
@@ -1409,7 +1401,7 @@ class WorkflowStateService:
                 WorkflowDraft(
                     kind=kind,
                     path=quarantine_path(project_path, number, kind).relative_to(project_path).as_posix(),
-                    # 信封读不出的草稿同样要先修好才能处置。
+                    # Drafts with unreadable envelopes also require repair before disposition.
                     needs_repair=draft is None or bool(draft.violations),
                 )
             )
@@ -1419,10 +1411,10 @@ class WorkflowStateService:
     def _stale_episode_plan(
         project_path: Path, project: dict[str, Any], number: int, entry: Mapping[str, Any]
     ) -> tuple[bool, str | None]:
-        """集规划状态为 stale 且脚本规划尚未重建：返回 ``(是否 stale, 重建基线 revision)``。
+        """Stale episode plan without rebuilt script plan: return ``(是否 stale, 重建基线 revision)``.
 
-        重建完成（正式 script_plan 已不是 stale 时的那一份，或已显式记下重建完成）后按常规内容陈述。
-        """
+        After rebuilding (formal script_plan differs from the stale one, or rebuilding explicitly recorded
+        complete), state content normally."""
         if entry.get("ledger_status") != "stale":
             return False, None
         if script_review.STALE_SCRIPT_PLAN_REVISION_FIELD not in entry:
@@ -1461,7 +1453,7 @@ class WorkflowStateService:
 
     @staticmethod
     def _reference_admission(project: dict[str, Any], items: list[dict[str, Any]], kind: str | None) -> Any:
-        """本集条目的引用准入，与生成入口同一判定（ADR 0073）：正文单元从正文派生，分镜条目读引用字段。"""
+        """Episode reference admission matches generation (ADR 0073): derive body-unit references from bodies; storyboard entries use reference fields."""
         catalog = build_reference_catalog(project)
         if kind != "video_units":
             return admit_storyboard_items(catalog, items)
@@ -1484,10 +1476,10 @@ class WorkflowStateService:
         shared: _SharedWorkflowFacts,
         issues: list[WorkflowBlocker],
     ) -> tuple[list[str], list[str], list[str]]:
-        """本集引用的资产图现状：(待生成且可生成, 过期, 缺描述)。
+        """Referenced sheet state for this episode: (pending and generatable, outdated, missing description).
 
-        待生成与资产图批量的集范围同一判定：缺描述的不算；衍生的本体没有可用资产图、也不在同批时不算。
-        """
+        Pending uses sheet-batch episode-scope rules: exclude missing descriptions, and derivatives whose bases
+        lack usable sheets and are not in the same batch."""
         missing: list[str] = []
         stale: list[str] = []
         without_description: list[str] = []
@@ -1546,7 +1538,7 @@ class WorkflowStateService:
         shared: _SharedWorkflowFacts,
         selected: tuple[int, dict[str, Any]],
     ) -> WorkflowStatus:
-        """一集的内容现状、各 AI 操作的准入与建议的下一步（顺序见 ``docs/adr/0091`` 与 Spec）。"""
+        """Episode content state, AI-operation admission, and next suggestions (order in ``docs/adr/0091`` and Spec)."""
         number, entry = selected
         mode = project.get("content_mode")
         is_ad = mode == "ad"
@@ -1611,8 +1603,8 @@ class WorkflowStateService:
                 "state": "confirmed" if review == "confirmed" else "pending",
                 "revision": artifacts["script_plan"].get("revision"),
             }
-            # 已有正式脚本在用时，重跑的规划未确认只陈述为待确认，不进下一步；集规划 stale 的集
-            # 旧脚本已不可用，重建的规划仍须确认。
+            # When existing formal scripts are used, unconfirmed rerun plans are informational pending-confirmation only, not next steps;
+            # stale episode plans make old scripts unusable, so rebuilt plans still require confirmation.
             formal_in_use = entry.get("ledger_status") != "stale" and script_review.prompt_authoring_generated(
                 project_path, project, number
             )
@@ -1672,9 +1664,9 @@ class WorkflowStateService:
                 resolver=shared.currency,
                 issues=issues,
             )
-            # 旁白配音只作为信息报告，不参与下一步：缺 TTS 不拦剪辑，补 TTS 由用户显式发起（见
-            # generate_narration_audio）；后期配音项目不需要 TTS，不报缺口。读不出的配音状态只落在集合的
-            # state 上，不进 issues。
+            # Narration audio is informational only, excluded from next actions: missing TTS does not block editing; users explicitly
+            # request TTS (generate_narration_audio). Post-production-voiceover projects need no TTS and report no gap. Unreadable audio
+            # state appears only in the collection state, not issues.
             artifacts["audio"] = (
                 self._media_collection(
                     project_path,
@@ -1696,7 +1688,7 @@ class WorkflowStateService:
             )
         content.pending_authoring_ids = pending_ids
         content.needs_replan_ids = replan_ids
-        # 剪辑时间线只陈述这一类内容：视频是否齐全不影响列出已有的几条。
+        # Timelines describe only their own content type: incomplete videos do not affect listing existing timelines.
         timeline_ids = self._edit_timeline_ids(project_name, number, artifacts, issues) if formal_present else []
         videos = artifacts["videos"]
         operations[WorkflowActionType.CREATE_EDIT_TIMELINE] = admit_edit_timeline(

@@ -3,15 +3,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { BuiltinEndpointOption } from "@/types";
 
 interface BuiltinEndpointSelectProps {
-  /** 触发按钮的 id，供字段标签用 `htmlFor` 关联。 */
+  /** Trigger button ID for the field label's `htmlFor` association. */
   id?: string;
   value: string;
   onChange: (next: string) => void;
-  /** 这个供应商在该媒体类型下的内置调用端点，由服务端给出。 */
+  /** Built-in endpoints for this provider and media type, supplied by the server. */
   options: BuiltinEndpointOption[];
 }
 
-/** 内置供应商下用户添加的模型的「调用端点」选择器：只列这个供应商在该媒体类型下的内置调用端点。 */
+/** Endpoint picker for user-added models under built-in providers: list only that provider's built-in endpoints for the media type. */
 export function BuiltinEndpointSelect({ id, value, onChange, options }: BuiltinEndpointSelectProps) {
   const { t } = useTranslation("dashboard");
   const label = (option: BuiltinEndpointOption) =>

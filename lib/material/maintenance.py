@@ -1,5 +1,5 @@
-"""远端素材的后台维护：启动时结算中断的正式提交，之后定期重试删除待删除的正式对象，并按小时重算各项目的对象引用、
-回收失去全部引用的对象、清理闲置的本地工作文件。"""
+"""Remote-material background maintenance: settle interrupted formal commits at startup, periodically retry pending deletions, and hourly reconcile project references,
+collect unreferenced objects, and clean idle local work files."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from lib.material.work_files import DEFAULT_MIN_IDLE, cleanup_work_cache
 
 logger = logging.getLogger(__name__)
 
-#: 重试删除待删除对象的间隔。
+#: Retry interval for pending object deletions.
 SWEEP_INTERVAL_SECONDS = 300.0
-#: 重算对象引用与清理闲置工作文件的间隔；闲置门槛见 :data:`lib.material.work_files.DEFAULT_MIN_IDLE`。
+#: Object-reference reconciliation/idle-cache cleanup interval; idle threshold: :data:`lib.material.work_files.DEFAULT_MIN_IDLE`.
 CACHE_CLEANUP_INTERVAL = timedelta(hours=1)
 
 
@@ -87,7 +87,7 @@ def start_material_maintenance(
     deleted_projects_dir: Path | None = None,
     data_root: Path | None = None,
 ) -> MaterialMaintenance:
-    """``data_root`` 给出时一并清理全局资产库里远端图片的闲置工作文件。"""
+    """With ``data_root``, also clean idle remote-image work files in global libraries."""
     maintenance = MaterialMaintenance(session_factory, projects_dir, deleted_projects_dir, data_root)
     maintenance.start()
     return maintenance

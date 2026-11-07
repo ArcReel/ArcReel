@@ -1,1 +1,1 @@
-## 剧本原文
+## Original screenplay text

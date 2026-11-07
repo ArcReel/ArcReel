@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 import { itemPositionLabel } from "@/utils/episode-display";
 import { episodeItemKind } from "@/utils/episode-item";
 
-/** 草稿诊断按草稿下标称呼条目；提示词草稿可传正式剧本中的位置，避免按内部编号推算。 */
+/** Draft diagnostics name entries by draft index; prompt drafts may supply formal-script positions to avoid inferring from internal IDs. */
 export function draftViolationMessage(
   violation: Pick<ScriptReviewViolation, "message" | "label" | "item_id" | "item_index"> | DraftSoftViolation,
   t: TFunction,
@@ -17,7 +17,7 @@ export function draftViolationMessage(
   return violation.message.replace(label, itemPositionLabel(kind, current, t));
 }
 
-/** 草稿违约按条目分组：带条目定位的挂到对应条目，其余是整集层面的违约。 */
+/** Group draft violations by entry: attach positioned ones to entries and all others to the episode. */
 export interface DraftViolationGroups {
   episodeLevel: ScriptReviewViolation[];
   byItem: Map<number, ScriptReviewViolation[]>;
@@ -30,8 +30,8 @@ function pushTo<V>(map: Map<number, V[]>, index: number, value: V): void {
 }
 
 /**
- * 按服务端下发的条目定位分组：优先取 `item_index`，只带 `item_id` 的按草稿里的条目 ID 找回下标。
- * 定位落在条目之外的违约（草稿已被改短、ID 已改名）归入整集层面，不会挂到不存在的条目上而消失。
+ * Group by server-provided entry positions: prefer `item_index`; if only `item_id` exists, recover its index from draft IDs.
+ * Violations pointing outside entries, after draft shortening or ID renaming, stay at episode level instead of disappearing on nonexistent entries.
  */
 export function groupDraftViolations(
   violations: ScriptReviewViolation[],
@@ -48,7 +48,7 @@ export function groupDraftViolations(
   return { episodeLevel, byItem };
 }
 
-/** 降级提示按条目分组；`excludeCodes` 中的提示由调用方按当前正文实时判，不取服务端快照。 */
+/** Group downgrade hints by entry; callers derive `excludeCodes` hints live from current body text instead of server snapshots. */
 export function groupSoftViolations(
   softViolations: DraftSoftViolation[],
   excludeCodes: ReadonlySet<string> = new Set(),

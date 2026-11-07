@@ -1,4 +1,4 @@
-"""GeminiImageBackend — 从 GeminiClient 提取的图片生成逻辑。"""
+"""GeminiImageBackend: image-generation logic extracted from GeminiClient."""
 
 from __future__ import annotations
 
@@ -36,15 +36,15 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
-# 默认图片模型
+# Default image model.
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 
 
 class GeminiImageBackend:
-    """Gemini 图片生成后端，支持 AI Studio 和 Vertex AI。"""
+    """Gemini image backend supporting AI Studio and Vertex AI."""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：Gemini 各代图像模型的上限是模型事实，记在条目上。
+    # Channels impose no reference-count limit; generation-specific Gemini image maxima are model-entry facts.
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -113,9 +113,10 @@ class GeminiImageBackend:
 
     @staticmethod
     def _usage(image_size: str | None) -> Usage:
-        """上报输出张数，分辨率取请求里的 ``image_size``（没发就不报）。
+        """Report output image counts and requested ``image_size`` resolution, omitted when unsent.
 
-        参考图按输入 token 计费，不报张数，以免与输入 token 重叠；输入 token 与思考 token 目前不在价目表里，也不报。
+        References bill as input tokens, never image counts, avoiding duplicate metering. Input/thinking
+        tokens are currently absent from price tables and likewise unreported.
         """
         return per_image_usage(
             output_images=1,
@@ -129,15 +130,15 @@ class GeminiImageBackend:
 
     @with_retry_async(max_attempts=5, backoff_seconds=(2, 4, 8, 16, 32))
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        """异步生成图片。"""
-        # 1. 限流
+        """Generate images asynchronously."""
+        # 1. Rate limiting.
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._image_model)
 
-        # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
-        #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
+        # 2. Assemble contents: reference images first in array order, prompt last.
+        #    Reference_Images prompt declarations identify images as 图N; insert no text labels between images.
         refs = request.reference_images
-        # 打开并解码参考图是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
+        # Opening/decoding references blocks I/O; offload individually and await concurrently without blocking event loops.
         contents: list = await asyncio.gather(*[asyncio.to_thread(self._load_image_detached, ref.path) for ref in refs])
         contents.append(request.prompt)
 
@@ -150,7 +151,7 @@ class GeminiImageBackend:
             image_config=self._types.ImageConfig(**image_config_kwargs),
         )
 
-        # 4. 调用异步 API
+        # 4. Call asynchronous API.
         logger.info(
             "调用 %s 图片 SDK payload=%s",
             self.name,
@@ -162,8 +163,8 @@ class GeminiImageBackend:
             model=self._image_model, contents=contents, config=config
         )
 
-        # 5. 解析响应并保存
-        # 供应商已返回：解码与写盘不可被取消打断（docs/standards/backend.md「供应商返回之后的落账段不可中断」）
+        # 5. Parse responses/save.
+        # Providers returned: decoding/persistence cannot be interrupted by cancellation, per backend.md postresponse accounting rules.
         await run_noninterruptible_sync(self._process_image_response, response, request.output_path)
 
         return ImageGenerationResult(
@@ -175,13 +176,13 @@ class GeminiImageBackend:
 
     @staticmethod
     def _load_image_detached(image_path: str | Path) -> Image.Image:
-        """从路径加载图片并与底层文件句柄解绑。"""
+        """Load images from paths, detaching underlying file handles."""
         with Image.open(image_path) as img:
             return img.copy()
 
     @staticmethod
     def _process_image_response(response, output_path: Path) -> Image.Image:
-        """解析图片生成响应并保存到文件。"""
+        """Parse image-generation responses and save files."""
         for part in response.parts:
             if part.inline_data is not None:
                 image = part.as_image()

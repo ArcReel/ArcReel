@@ -1,11 +1,11 @@
-"""`ProjectManager.locked_episode_script` 的跨锁竞态（TOCTOU）防护测试。
+"""Cross-lock race (TOCTOU) protection for `ProjectManager.locked_episode_script`.
 
-覆盖：
-  1. 写脚本不经会二次取项目锁的 `sync_episode_from_script`（避免自死锁），但仍在持锁内联
-     刷新 project.json 的 `updated_at`；
-  2. 解析→写入全程持 `_project_lock`，并发 `update_project` 被挡到临界区之外；
-  3. 加锁前后绑定改变（并发 PATCH 改绑）抛 `EpisodeScriptReboundError`，不误写任何脚本；
-  4. 整段不挂起（sync 自死锁回归）。
+Cover:
+  1. Script writes avoid `sync_episode_from_script`, which reacquires the project lock and self-deadlocks, while inline
+     synchronization still refreshes project.json `updated_at` under lock.
+  2. Hold `_project_lock` throughout resolution and writing, blocking concurrent `update_project` outside the critical section.
+  3. Binding changes across lock acquisition (concurrent PATCH rebinding) raise `EpisodeScriptReboundError` without writing any wrong script.
+  4. The whole section completes without hanging (sync self-deadlock regression).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 
 def _seed(pm: ProjectManager, name: str) -> None:
-    """创建项目 + 一个 参考生视频的 episode_1 剧本。"""
+    """Create a project with one reference-to-video episode_1 script."""
     pm.create_project(name)
     pm.save_project(
         name,
@@ -42,17 +42,17 @@ def _seed(pm: ProjectManager, name: str) -> None:
             "video_units": [],
         },
         "episode_1.json",
-        validate=False,  # 测锁/TOCTOU 用简化替身剧本，结构守卫不在本测试关注范围
+        validate=False,  # Simplified script substitute for locking/TOCTOU tests; structural guards are outside their scope.
     )
 
 
 def test_locked_episode_script_no_relock_but_refreshes_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """locked_episode_script 不走会二次取项目锁的 sync_episode_from_script，但仍刷新 project.json。"""
+    """locked_episode_script avoids project-lock-reacquiring sync_episode_from_script while still refreshing project.json."""
     pm = ProjectManager(tmp_path)
     name = "p-sync"
     _seed(pm, name)
 
-    # 把 project.json 的 updated_at 置为哨兵旧值（绕过会自动 touch 的写入路径）
+    # Set project.json updated_at to an old sentinel, bypassing automatically touching writes.
     from lib.infra.json_io import atomic_write_json
 
     project_file = pm._get_project_file_path(name)
@@ -66,15 +66,15 @@ def test_locked_episode_script_no_relock_but_refreshes_project(tmp_path: Path, m
     with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
         script["video_units"] = [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}]
 
-    # 不调用会二次取项目锁的 sync_episode_from_script（否则自死锁）
+    # Do not call sync_episode_from_script, which would reacquire the project lock and self-deadlock.
     assert calls == [], "locked_episode_script 不应调用 sync_episode_from_script"
-    # 但 project.json 的 updated_at 仍被内联刷新（对齐旧路径行为）
+    # Still refresh project.json updated_at inline, matching the old path.
     refreshed = pm.load_project(name)
     assert refreshed["metadata"]["updated_at"] != "2020-01-01T00:00:00+00:00", "project.json updated_at 未刷新"
 
 
 def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Path) -> None:
-    """临界区内持有项目锁：并发 update_project 被阻塞直到 with 块退出。"""
+    """Hold the project lock inside the critical section; concurrent update_project blocks until the with block exits."""
     pm = ProjectManager(tmp_path)
     name = "p-lock"
     _seed(pm, name)
@@ -86,8 +86,8 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
 
     def _other() -> None:
         inside.wait(timeout=5)
-        attempting.set()  # 即将去抢项目锁
-        pm.update_project(name, lambda p: p.setdefault("episodes", []))  # 需要 _project_lock
+        attempting.set()  # About to acquire the project lock.
+        pm.update_project(name, lambda p: p.setdefault("episodes", []))  # Requires _project_lock.
         order.append("other")
         other_done.set()
 
@@ -95,8 +95,8 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
     t.start()
     try:
         with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
-            inside.set()  # 此刻已持脚本锁 + 项目锁
-            # 等对方真的开始申请，而不是睡一段猜它到没到——到了仍未完成，才说明是被锁挡住的
+            inside.set()  # Both script and project locks are now held.
+            # Wait until the other thread actually requests the lock; incompletion then proves blocking without guessed sleeps.
             assert attempting.wait(timeout=5), "另一线程应已开始申请项目锁"
             assert not other_done.is_set(), "持项目锁期间 update_project 不应完成"
             order.append("critical-section")
@@ -109,12 +109,12 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
 
 
 def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
-    """加锁前后解析出的 script_file 不同（并发改绑）→ 抛 EpisodeScriptReboundError，不误写。"""
+    """Different script_file resolutions before/after locking (concurrent rebinding) raise EpisodeScriptReboundError without misdirected writes."""
     pm = ProjectManager(tmp_path)
     name = "p-rebind"
     _seed(pm, name)
 
-    # 有状态解析器：候选解析返回旧绑定，持锁复核返回新绑定
+    # Stateful resolver: candidate resolution yields the old binding; locked recheck yields the new one.
     seq = iter(["scripts/episode_1.json", "scripts/episode_2.json"])
 
     def _resolver(_project: dict) -> str:
@@ -123,14 +123,14 @@ def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
     with pytest.raises(EpisodeScriptReboundError), pm.locked_episode_script(name, _resolver, validate=False) as script:
         script["video_units"] = [{"unit_id": "SHOULD_NOT_PERSIST"}]
 
-    # 旧脚本未被写入（with 体未执行）
+    # The old script was not written; the with body never ran.
     units = pm.load_script(name, "episode_1.json").get("video_units") or []
     assert units == [], "重绑检测命中时不应改写旧脚本"
 
 
 def test_locked_episode_script_title_write_mirrors_to_project(tmp_path: Path) -> None:
-    """写剧本顶层 title → 内联 _apply_episode_sync 把镜像同步进 project.json episodes[].title；
-    且后续保存脚本不丢标题（这是 PATCH /episodes/{episode} 改名端点依赖的机制）。"""
+    """Writing script top-level title lets inline _apply_episode_sync mirror it into project.json episodes[].title;
+    later script saves retain the title, as required by PATCH /episodes/{episode} renaming."""
     pm = ProjectManager(tmp_path)
     name = "p-title"
     _seed(pm, name)
@@ -138,12 +138,12 @@ def test_locked_episode_script_title_write_mirrors_to_project(tmp_path: Path) ->
     with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
         script["title"] = "改后的集名"
 
-    # 剧本顶层 title 落盘 + project.json 镜像同步
+    # Persist script top-level title and synchronize its project.json mirror.
     assert pm.load_script(name, "episode_1.json")["title"] == "改后的集名"
     ep = next(e for e in pm.load_project(name)["episodes"] if e["episode"] == 1)
     assert ep["title"] == "改后的集名"
 
-    # 后续保存脚本（不显式动 title）不丢标题
+    # Later script saves without explicitly changing title retain it.
     with pm.locked_script(name, "episode_1.json", validate=False) as script:
         script.setdefault("video_units", [])
     assert pm.load_script(name, "episode_1.json")["title"] == "改后的集名"
@@ -152,7 +152,7 @@ def test_locked_episode_script_title_write_mirrors_to_project(tmp_path: Path) ->
 
 
 def test_locked_episode_script_no_self_deadlock(tmp_path: Path) -> None:
-    """正常写入路径不挂起（sync 自死锁回归）：写入在超时内完成且生效。"""
+    """Normal writes do not hang (sync self-deadlock regression): finish within timeout and take effect."""
     pm = ProjectManager(tmp_path)
     name = "p-nodeadlock"
     _seed(pm, name)

@@ -1,11 +1,11 @@
-"""用户条目表：用户修改的模型条目副本
+"""User-entry table: copies of user-edited model entries
 
 Revision ID: f4b8d2a6c913
 Revises: e3a7c91f5d24
 Create Date: 2026-10-17 10:00:00.000000
 
-用户修改模型信息时，整个条目的副本存进这张表，每个条目一行；有行的条目停止跟随官方（docs/adr/0099）。
-存量数据里没有用户修改，新表为空。
+Editing model information stores an entire entry copy here, one row per entry; rows stop following
+official updates (docs/adr/0099). Existing data contains no user edits, so the new table is empty.
 """
 
 from __future__ import annotations

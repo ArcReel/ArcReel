@@ -34,14 +34,14 @@ export interface DraftItemJump {
 }
 
 interface InvalidDraftBarProps {
-  /** 标题；缺省为「待修复草稿」。 */
+  /** Titles; defaults to Draft needing repair. */
   title?: string;
   violationCount: number;
   itemJumps: DraftItemJump[];
   episodeLevelCount: number;
   onJump: (index: number) => void;
   onJumpEpisodeLevel: () => void;
-  /** 草稿能否在页面上修改（结构收不成可编辑形状时为 false）。 */
+  /** Whether drafts are editable on pages; false if structures cannot form editable shapes. */
   editable: boolean;
   dirty: boolean;
   saving: boolean;
@@ -51,18 +51,18 @@ interface InvalidDraftBarProps {
   onSave: () => void;
   onReloadLatest: () => void;
   onHandToAgent: () => void;
-  /** AI 修复已保存的草稿；返回 `true` 时收起弹窗。 */
+  /** AI repairs saved drafts; returning `true` closes dialogs. */
   onRepair: (instructions: string) => Promise<boolean>;
   onDiscard: () => void;
-  /** 「重新规划」入口；草稿没有对应的重新生成动作时省略。 */
+  /** Replan entries; omit when drafts lack corresponding regeneration actions. */
   regenerateAction?: ReactNode;
 }
 
 /**
- * 待修复草稿的状态条：违约计数与逐条目跳转、整集层面的违约计数。有违约时修复入口以「交给 Agent」为主、
- * 「AI 修复」为次，另有「保存并校验」与「丢弃草稿」，脚本规划草稿另有「重新规划」。违约清零时保存即可采用，
- * 「保存并校验」成为主按钮、即便没有改动也允许保存，不再提供「AI 修复」。有未保存的修改时，「交给 Agent」与
- * 「AI 修复」都不可用：它们读取的是已保存的草稿，原因写在状态条第二行。
+ * Repair-draft status bars: violation counts/per-entry links and episode-wide counts. With violations, Hand to Agent is primary,
+ * AI repair secondary, alongside Save and validate/Discard draft; script-planning drafts also offer Replan. At zero violations, saving adopts drafts,
+ * Save and validate becomes primary and stays available even without edits, and AI repair disappears. Unsaved edits disable both Hand to Agent and
+ * AI repair because they read saved drafts; second status-bar lines explain why.
  */
 export function InvalidDraftBar({
   title,
@@ -215,7 +215,7 @@ interface DraftRepairDialogProps {
   onClose: () => void;
 }
 
-/** 「AI 修复」弹窗：说明修复范围，可带附加指令（随修复提交，不保存）。提交中忽略关闭请求。 */
+/** AI repair dialogs: explain scopes, optionally adding instructions submitted with repairs without persistence. Ignore closing while submitting. */
 function DraftRepairDialog({ repairing, onSubmit, onClose }: DraftRepairDialogProps) {
   const { t } = useTranslation("dashboard");
   const fieldId = useId();
@@ -268,7 +268,7 @@ interface AgentDraftBarProps {
   onDiscard: () => void;
 }
 
-/** Agent 的可编辑草稿在场：不展示内容，只给「交给 Agent 完成 / 丢弃这份修改」两个入口。 */
+/** Existing editable Agent drafts: hide contents and offer only Hand to Agent to finish/Discard these edits. */
 export function AgentDraftBar({ busy, onFinish, onDiscard }: AgentDraftBarProps) {
   const { t } = useTranslation("dashboard");
   return (
@@ -293,7 +293,7 @@ export function AgentDraftBar({ busy, onFinish, onDiscard }: AgentDraftBarProps)
   );
 }
 
-/** 整集层面的违约：置顶呈现，是状态条「整集」跳转的落点。 */
+/** Episode-wide violations pinned first, targeting status-bar Whole episode links. */
 export function DraftEpisodeViolations({
   violations,
   anchorRef,
@@ -311,14 +311,14 @@ export function DraftEpisodeViolations({
   );
 }
 
-/** 逐条违约（红）。 */
+/** Individual violations (red). */
 export function DraftViolationList({ violations, position }: { violations: ScriptReviewViolation[]; position?: number | null }) {
   const { t } = useTranslation();
   if (violations.length === 0) return null;
   return (
     <ul className="mt-1.5 flex flex-col gap-1">
       {violations.map((v, i) => (
-        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 校验结果的只读列表，条目没有唯一标识、不带状态，界面不重排也不筛选，整份随校验结果替换
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Read-only validation lists lack unique IDs/state; UI neither reorders nor filters, replacing entire lists with results
         <li key={`${v.code}-${i}`} className="flex items-start gap-1.5 text-xs leading-snug text-destructive">
           <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
           <span>{draftViolationMessage(v, t, position)}</span>
@@ -328,14 +328,14 @@ export function DraftViolationList({ violations, position }: { violations: Scrip
   );
 }
 
-/** 逐条降级提示（琥珀）：只提示、不阻断。 */
+/** Individual degradation hints (amber): advisory, never blocking. */
 export function DraftSoftViolationList({ softViolations, position }: { softViolations: DraftSoftViolation[]; position?: number | null }) {
   const { t } = useTranslation();
   if (softViolations.length === 0) return null;
   return (
     <ul className="mt-1.5 flex flex-col gap-1">
       {softViolations.map((soft, i) => (
-        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 校验结果的只读列表，条目没有唯一标识、不带状态，界面不重排也不筛选，整份随校验结果替换
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Read-only validation lists lack unique IDs/state; UI neither reorders nor filters, replacing entire lists with results
         <li key={`${soft.code}-${i}`} className="flex items-start gap-1.5 text-xs leading-snug text-warn">
           <AlertTriangle className="mt-px size-3 shrink-0" aria-hidden="true" />
           <span>{draftViolationMessage(soft, t, position)}</span>
@@ -347,16 +347,16 @@ export function DraftSoftViolationList({ softViolations, position }: { softViola
 
 interface DiscardDraftDialogProps {
   open: boolean;
-  /** Agent 的可编辑草稿用「丢弃这份修改」的措辞。 */
+  /** Editable Agent drafts use Discard these edits wording. */
   agentOwned: boolean;
-  /** 丢弃后回到哪份内容的说明。 */
+  /** Explanations of contents restored after discarding. */
   fallbackText: string;
   loading: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
 
-/** 丢弃草稿的确认：写明丢弃后回到哪份内容。丢弃中忽略关闭请求。 */
+/** Discard-draft confirmations specify restored contents; ignore closing during discard. */
 export function DiscardDraftDialog({ open, agentOwned, fallbackText, loading, onConfirm, onCancel }: DiscardDraftDialogProps) {
   const { t } = useTranslation("dashboard");
   const confirmLabel = agentOwned ? t("draft_agent_discard") : t("draft_discard_action");

@@ -74,14 +74,14 @@ class TestScenesRouter:
     def test_error_mapping(self, monkeypatch):
         fake_pm = _FakePM()
         with _client(monkeypatch, fake_pm) as client:
-            # 重复名 → 409
+            # Duplicate name → 409
             dup_resp = client.post(
                 "/api/v1/projects/demo/scenes",
                 json={"name": "祠堂", "description": ""},
             )
             assert dup_resp.status_code == 409
 
-            # 不存在的场景 → 404
+            # Missing scene → 404
             missing_resp = client.patch(
                 "/api/v1/projects/demo/scenes/不存在",
                 json={"description": "x"},
@@ -93,12 +93,12 @@ class TestScenesRouter:
 
 
 class TestScenesRouterDoesNotCollideWithProjects:
-    """Path 模板冲突回归保护。
+    """Path-template collision regression guard.
 
-    projects.router 与 scenes.router 都在同一 ``/api/v1`` 前缀下注册，且历史上
-    都使用过 ``PATCH /projects/{name}/scenes/{*}`` 路径。FastAPI 按注册顺序匹配
-    path 模板，drama 端点（必填字段 ``script_file`` / ``updates``）若优先匹配
-    会让 SceneCard "保存" 请求收到 422 "Field required; Field required"。
+    projects.router and scenes.router register under the same ``/api/v1`` prefix and historically
+    both used ``PATCH /projects/{name}/scenes/{*}``. FastAPI matches path templates in registration
+    order; matching drama endpoints (required ``script_file`` / ``updates``) first
+    makes SceneCard Save requests receive 422 "Field required; Field required".
     """
 
     def test_patch_scene_with_description_only_body_hits_asset_router(self, monkeypatch):
@@ -111,7 +111,7 @@ class TestScenesRouterDoesNotCollideWithProjects:
         app = FastAPI()
         register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        # 与 server/app.py 同序：projects 先 include
+        # Same order as server/app.py: include projects first.
         app.include_router(projects_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         app.include_router(scenes.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 

@@ -1,4 +1,4 @@
-"""generate_storyboards handler 的 ``ToolOutcome``。"""
+"""generate_storyboards handler ``ToolOutcome``."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue
 
 
 async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(fake_ctx: ToolHarness) -> None:
-    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    """Nondict corrupt generated_assets, such as strings, counts as missing without AttributeError."""
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = "corrupt"
 
     out = await run_declared_tool(
@@ -76,7 +76,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(f
 
 
 async def test_generate_storyboards_blocks_an_unregistered_reference(fake_ctx: ToolHarness) -> None:
-    """agent 入口与 Web 提交同判：未登记的引用阻断这条分镜，不建任务、不计费。"""
+    """Agent/Web submissions agree: unregistered references block that storyboard without tasks or charges."""
 
     async def unreachable_batch(**_batch_kwargs):
         raise AssertionError("引用有缺口时不该走到入队")
@@ -97,7 +97,7 @@ async def test_generate_storyboards_blocks_an_unregistered_reference(fake_ctx: T
 
 
 async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: ToolHarness) -> None:
-    """失配剧本不能落进"✨ 所有分镜的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
+    """Mismatched scripts must not falsely report ✨ 所有分镜的分镜图都已生成; return structural errors and resplitting guidance."""
     fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
@@ -124,7 +124,7 @@ async def test_generate_storyboards_error(fake_ctx: ToolHarness) -> None:
 
 
 async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolHarness) -> None:
-    """Agent 传带路径分隔符的 script 名在请求校验即被拒绝。"""
+    """Agent script names containing path separators reject during request validation."""
     out = await run_declared_tool("generate_storyboards", fake_ctx, {"script": "../etc/passwd"})
 
     assert out.problem is not None
@@ -132,7 +132,7 @@ async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolHar
 
 
 async def test_generate_storyboards_blocks_only_the_entry_whose_prompt_is_pending(fake_ctx: ToolHarness) -> None:
-    """机械转换出的条目 image_prompt 为 None：逐条阻断该分镜、不计费，其余分镜照常入队。"""
+    """Mechanically derived image_prompt=None blocks individual storyboards without charges; valid siblings enqueue normally."""
     enqueued: list[str] = []
 
     async def fake_batch(*, specs, **_batch_kwargs):

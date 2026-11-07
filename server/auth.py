@@ -1,14 +1,14 @@
 """
-认证核心模块
+Authentication core
 
-提供密码生成、JWT token 创建/验证、凭据校验等功能。
-同时支持 API Key 认证（`arc-` 前缀的 Bearer token）。
+Provides password generation, JWT token creation/verification, and credential validation.
+Also supports API Key authentication (Bearer tokens with the `arc-` prefix).
 
-凭证只经 ``Authorization`` header 传递，不接受 query param 形态的会话凭证。
-浏览器原生请求（``<img>`` / ``<video>`` src 与原生下载导航）带不了该 header：
-- 导出下载端点使用短时效下载 token（``purpose=download``）作为 query param 唯一认证方式
-- 静态媒体文件不要求认证
-SSE 由前端以 fetch 带 header 消费，与普通受保护端点走同一依赖（见 ``docs/adr/0071``）。
+Pass credentials only through the ``Authorization`` header; reject session credentials in query parameters.
+Native browser requests (``<img>`` / ``<video>`` src and native download navigation) cannot carry that header:
+- Export-download endpoints use short-lived download tokens (``purpose=download``) as their sole query-parameter authentication method
+- Static media files require no authentication
+The frontend consumes SSE through fetch with headers, using the same dependency as ordinary protected endpoints (see ``docs/adr/0071``).
 """
 
 import hashlib
@@ -45,30 +45,30 @@ class CurrentUserInfo(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-# JWT 签名密钥缓存
+# JWT signing-key cache
 _cached_token_secret: str | None = None
 
-# Token 有效期：7 天
+# Token lifetime: 7 days
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
 
-# 关闭认证时返回的匿名用户标识
+# Anonymous user identity returned when authentication is disabled
 _ANONYMOUS_USER_SUB = "local"
 
-# 视为"关闭认证"的 env 取值。空串不在内 —— .env 误写 `AUTH_ENABLED=` 应回退到默认（开启），
-# 避免静默 fail-open。
+# Environment values interpreted as authentication disabled. Empty strings are excluded: accidental .env `AUTH_ENABLED=` falls back to enabled,
+# preventing silent fail-open behavior.
 _AUTH_DISABLED_VALUES = frozenset({"false", "0", "no", "off"})
 
 
 def is_auth_enabled() -> bool:
-    """``AUTH_ENABLED`` env 解析。默认 ``true``，保持现有部署行为；空值也按默认。
+    """Parse ``AUTH_ENABLED``. Default ``true`` preserves existing deployments; empty values also use the default.
 
-    ``false`` / ``0`` / ``no`` / ``off`` 一律视为关闭（不区分大小写）。
+    ``false`` / ``0`` / ``no`` / ``off`` all disable authentication, case-insensitively.
     """
     return os.environ.get("AUTH_ENABLED", "true").strip().lower() not in _AUTH_DISABLED_VALUES
 
 
 def warn_if_auth_disabled() -> None:
-    """认证关闭时输出一条 WARNING，提示全部管理接口无需认证。"""
+    """Log a WARNING when authentication is disabled, indicating all management interfaces require no authentication."""
     if is_auth_enabled():
         return
     logger.warning(
@@ -78,7 +78,7 @@ def warn_if_auth_disabled() -> None:
 
 
 def _anonymous_user() -> "CurrentUserInfo":
-    """关闭认证时返回的固定匿名用户。"""
+    """Fixed anonymous user returned when authentication is disabled."""
     from lib.db.base import DEFAULT_USER_ID
 
     return CurrentUserInfo(id=DEFAULT_USER_ID, sub=_ANONYMOUS_USER_SUB, role="admin")
@@ -88,22 +88,22 @@ def _anonymous_user() -> "CurrentUserInfo":
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
-# 密码哈希
+# Password hashing
 _password_hash = PasswordHash.recommended()
 _cached_password_hash: str | None = None
 
 
 def generate_password(length: int = 16) -> str:
-    """生成随机字母数字密码"""
+    """Generate a random alphanumeric password"""
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def get_token_secret() -> str:
-    """获取 JWT 签名密钥
+    """Get the JWT signing key
 
-    显式设置的非空 ``AUTH_TOKEN_SECRET`` 优先；未设置时使用数据目录里持久化的密钥，
-    首次使用时生成，重启后沿用，已登录会话不因重启失效。
+    Prefer explicitly configured nonempty ``AUTH_TOKEN_SECRET``; otherwise use the key persisted in the data directory,
+    generating on first use and retaining across restarts so logged-in sessions survive restart.
     """
     global _cached_token_secret
 
@@ -117,20 +117,20 @@ def get_token_secret() -> str:
 
 
 def reset_token_secret_for_tests() -> None:
-    """清掉进程内缓存的签名密钥，模拟进程重启。"""
+    """Clear the in-process signing-key cache to simulate process restart."""
     global _cached_token_secret
     _cached_token_secret = None
 
 
 def ensure_token_secret() -> None:
-    """启动时预先解析签名密钥，请求路径上不再读写密钥文件。"""
+    """Resolve the signing key at startup to avoid key-file I/O on request paths."""
     get_token_secret()
 
 
 def _load_or_create_persisted_token_secret() -> str:
-    """读取数据目录里的签名密钥，不存在则生成并以 0600 写入。
+    """Read the data-directory signing key; if absent, generate and write with mode 0600.
 
-    读写失败时退回进程内随机密钥，不阻断启动；此时重启后已登录会话失效。
+    On read/write failure, use an in-process random key without blocking startup; logged-in sessions then expire after restart.
     """
     path = DataRootLayout.current().auth_token_secret_path
     try:
@@ -158,7 +158,7 @@ def _load_or_create_persisted_token_secret() -> str:
 
 
 def _write_owner_only(path: Path, content: str) -> None:
-    """先写同目录临时文件（创建即 0600）再换入，中途失败不留下半个密钥文件。"""
+    """Write a same-directory temporary file (mode 0600 at creation), then replace; failures leave no partial key file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -169,19 +169,19 @@ def _write_owner_only(path: Path, content: str) -> None:
             os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:
-        tmp.unlink(missing_ok=True)  # hard-delete: infra -- 写入失败的签名密钥临时文件
+        tmp.unlink(missing_ok=True)  # hard-delete: infra -- Signing-key temporary file after a failed write
         raise
 
 
 def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -> str:
-    """创建 JWT token
+    """Create a JWT token
 
     Args:
-        username: 用户名
-        expiry_seconds: token 有效秒数；网页登录沿用 7 天，内嵌 Agent 使用短时效。
+        username: Username
+        expiry_seconds: Token lifetime in seconds; web login retains 7 days, embedded agents use short lifetimes.
 
     Returns:
-        JWT token 字符串
+        JWT token string
     """
     now = time.time()
     payload = {
@@ -193,15 +193,15 @@ def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -
 
 
 def verify_token(token: str) -> dict | None:
-    """验证会话 JWT token
+    """Verify a session JWT token
 
-    带 ``purpose`` 声明的 token（如下载 token）只供对应端点自行校验，不作为会话凭据。
+    Tokens with a ``purpose`` claim (such as download tokens) are verified by their corresponding endpoints only, not used as session credentials.
 
     Args:
-        token: JWT token 字符串
+        token: JWT token string
 
     Returns:
-        成功返回 payload dict，失败返回 None
+        Return the payload dict on success, None on failure
     """
     try:
         payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
@@ -212,11 +212,11 @@ def verify_token(token: str) -> dict | None:
     return payload
 
 
-DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300  # 5 分钟
+DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300  # 5 minutes
 
 
 def create_download_token(username: str, project_name: str) -> str:
-    """签发短时效下载 token，用于浏览器原生下载认证"""
+    """Issue short-lived download tokens for native browser download authentication"""
     now = time.time()
     payload = {
         "sub": username,
@@ -229,15 +229,15 @@ def create_download_token(username: str, project_name: str) -> str:
 
 
 def verify_download_token(token: str, project_name: str) -> dict:
-    """验证下载 token
+    """Verify a download token
 
     Returns:
-        成功返回 payload dict
+        Return the payload dict on success
 
     Raises:
-        jwt.ExpiredSignatureError: token 已过期
-        jwt.InvalidTokenError: token 无效
-        ValueError: purpose 或 project 不匹配
+        jwt.ExpiredSignatureError: Token expired
+        jwt.InvalidTokenError: Invalid token
+        ValueError: purpose or project mismatch
     """
     if not is_auth_enabled():
         return {
@@ -254,7 +254,7 @@ def verify_download_token(token: str, project_name: str) -> dict:
 
 
 def _get_password_hash() -> str:
-    """获取当前密码的哈希值（缓存）"""
+    """Get the current password hash (cached)"""
     global _cached_password_hash
     if _cached_password_hash is None:
         raw = os.environ.get("AUTH_PASSWORD", "")
@@ -263,12 +263,12 @@ def _get_password_hash() -> str:
 
 
 def check_credentials(username: str, password: str) -> bool:
-    """校验用户名密码（使用哈希比对）
+    """Validate username/password by hash comparison
 
-    从 AUTH_USERNAME（默认 admin）和 AUTH_PASSWORD 环境变量读取。
-    即使用户名不匹配也执行哈希验证，防止时序攻击。
+    Read AUTH_USERNAME (default admin) and AUTH_PASSWORD environment variables.
+    Perform hash verification even on username mismatch to prevent timing attacks.
 
-    ``AUTH_ENABLED=false`` 时无条件返回 True。
+    Return True unconditionally when ``AUTH_ENABLED=false``.
     """
     if not is_auth_enabled():
         return True
@@ -280,18 +280,18 @@ def check_credentials(username: str, password: str) -> bool:
 
 
 def ensure_auth_password(env_path: str | None = None) -> str:
-    """确保 AUTH_PASSWORD 已设置
+    """Ensure AUTH_PASSWORD is set
 
-    如果 AUTH_PASSWORD 环境变量为空，自动生成密码，写入环境变量，
-    回写到 .env 文件，并用 logger.warning 输出到控制台。
+    If AUTH_PASSWORD is empty, generate a password, set the environment variable,
+    write back to .env, and output through logger.warning to the console.
 
-    ``AUTH_ENABLED=false`` 时整个步骤跳过（不生成、不回写）。
+    Skip this entire step when ``AUTH_ENABLED=false`` (no generation or writeback).
 
     Args:
-        env_path: .env 文件路径，默认为项目根目录的 .env
+        env_path: .env path, defaulting to .env in the project root
 
     Returns:
-        当前的 AUTH_PASSWORD 值；关闭认证时返回空串。
+        Current AUTH_PASSWORD; empty string when authentication is disabled.
     """
     if not is_auth_enabled():
         return ""
@@ -299,11 +299,11 @@ def ensure_auth_password(env_path: str | None = None) -> str:
     if password:
         return password
 
-    # 自动生成密码
+    # Generate a password automatically
     password = generate_password()
     os.environ["AUTH_PASSWORD"] = password
 
-    # 回写到 .env 文件
+    # Write back to .env
     if env_path is None:
         env_path = str(PROJECT_ROOT / ".env")
 
@@ -313,9 +313,9 @@ def ensure_auth_password(env_path: str | None = None) -> str:
             try:
                 lines = env_file.read_text(encoding="utf-8").splitlines()
             except UnicodeDecodeError:
-                # 历史 .env 可能用 cp936 / ANSI 等本地编码（早期 Windows 用户写过中文注释/值）；
-                # 不强制覆写以免丢失用户内容，仅 log 并跳过自动回写。
-                # 进程内 password 已 set 到 os.environ，本次启动仍可用，只是不持久化。
+                # Historical .env files may use local encodings such as cp936 / ANSI (early Windows users wrote Chinese comments/values);
+                # do not force overwrites that could lose user content; log and skip automatic writeback.
+                # The in-process password is already set in os.environ and works for this startup, without persistence.
                 logger.warning(
                     "无法以 UTF-8 解码 %s，跳过 AUTH_PASSWORD 自动回写；"
                     "请将该文件转存为 UTF-8 后重启以持久化生成的密码",
@@ -333,7 +333,7 @@ def ensure_auth_password(env_path: str | None = None) -> str:
             if not found:
                 new_lines.append(f"AUTH_PASSWORD={password}")
             new_content = "\n".join(new_lines) + "\n"
-            # 使用原地写入（truncate + write）保留 inode，兼容 Docker bind mount
+            # Write in place (truncate + write) to preserve inode for Docker bind-mount compatibility
             with open(env_file, "r+", encoding="utf-8") as f:
                 f.seek(0)
                 f.write(new_content)
@@ -348,31 +348,31 @@ def ensure_auth_password(env_path: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# API Key 认证支持
+# API Key authentication support
 # ---------------------------------------------------------------------------
 
 API_KEY_PREFIX = "arc-"
-API_KEY_CACHE_TTL = 300  # 5 分钟
+API_KEY_CACHE_TTL = 300  # 5 minutes
 
-# LRU 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
-# payload 为 None 表示 key 不存在或已过期（负缓存）
-# 使用 OrderedDict 实现 LRU：命中时 move_to_end，淘汰时 popitem(last=False)
+# LRU cache: key_hash to (payload_dict | None, expires_at_timestamp)
+# None payload means missing or expired key (negative cache)
+# Use OrderedDict for LRU: move_to_end on hits, popitem(last=False) on eviction
 _api_key_cache: OrderedDict[str, tuple[dict | None, float]] = OrderedDict()
 _API_KEY_CACHE_MAX = 512
 
 
 def hash_api_key(key: str) -> str:
-    """计算 API Key 的 SHA-256 哈希。"""
+    """Compute an API Key's SHA-256 hash."""
     return hashlib.sha256(key.encode()).hexdigest()
 
 
 def invalidate_api_key_cache(key_hash: str) -> None:
-    """立即清除指定 key_hash 的缓存条目（key 删除时调用）。"""
+    """Immediately evict the specified key_hash entry (called when deleting keys)."""
     _api_key_cache.pop(key_hash, None)
 
 
 def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, dict | None]:
-    """从缓存中查找。返回 (命中, payload 或 None)。命中时将条目移至末尾（LRU）。"""
+    """Look up the cache. Return (hit, payload or None); move hits to the end (LRU)."""
     entry = _api_key_cache.get(key_hash)
     if entry is None:
         return False, None
@@ -385,19 +385,19 @@ def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, dict | None]:
 
 
 def _set_api_key_cache(key_hash: str, payload: dict | None, expires_at_ts: float | None = None) -> None:
-    """写入缓存（含 LRU 淘汰）。
+    """Write the cache, including LRU eviction.
 
-    正向缓存（payload 非 None）TTL 以 key 实际过期时间为上界，
-    避免 key 过期后仍在缓存中通过验证的安全问题。
+    Positive-cache (non-None payload) TTL is bounded by the key's actual expiration,
+    preventing expired keys from passing validation through the cache.
     """
     if len(_api_key_cache) >= _API_KEY_CACHE_MAX:
-        # 淘汰最久未使用的条目（LRU：OrderedDict 头部）
+        # Evict the least recently used entry (OrderedDict front)
         _api_key_cache.popitem(last=False)
     ttl = API_KEY_CACHE_TTL
     if payload is not None and expires_at_ts is not None:
         time_to_expiry = expires_at_ts - time.monotonic()
         if time_to_expiry <= 0:
-            # key 已过期，写入负缓存
+            # Key expired; write a negative-cache entry
             _api_key_cache[key_hash] = (None, time.monotonic() + API_KEY_CACHE_TTL)
             return
         ttl = min(ttl, time_to_expiry)
@@ -405,19 +405,19 @@ def _set_api_key_cache(key_hash: str, payload: dict | None, expires_at_ts: float
 
 
 async def verify_api_key(token: str) -> dict | None:
-    """验证 API Key token，返回 payload dict 或 None（失败/过期/不存在）。
+    """Verify an API Key token; return payload dict or None (failed/expired/missing).
 
-    内部先查缓存，缓存未命中再查数据库。
-    查库成功后更新 last_used_at（后台异步，不阻塞响应）。
+    Look up cache first, then database on a miss.
+    After successful database lookup, update last_used_at asynchronously in the background without blocking responses.
     """
     key_hash = hash_api_key(token)
 
-    # 缓存查询
+    # Cache lookup
     hit, cached_payload = _get_cached_api_key_payload(key_hash)
     if hit:
         return cached_payload
 
-    # 数据库查询
+    # Database lookup
     from lib.db import async_session_factory
     from lib.db.repositories.api_key_repository import ApiKeyRepository
 
@@ -429,7 +429,7 @@ async def verify_api_key(token: str) -> dict | None:
         _set_api_key_cache(key_hash, None)
         return None
 
-    # 检查过期
+    # Check expiration
     expires_at = row.get("expires_at")
     expires_at_monotonic: float | None = None
     if expires_at:
@@ -442,7 +442,7 @@ async def verify_api_key(token: str) -> dict | None:
             if datetime.now(UTC) >= exp_dt:
                 _set_api_key_cache(key_hash, None)
                 return None
-            # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
+            # Convert expiration to a monotonic timestamp for the cache TTL upper bound
             remaining_secs = (exp_dt - datetime.now(UTC)).total_seconds()
             expires_at_monotonic = time.monotonic() + remaining_secs
         except (ValueError, TypeError):
@@ -451,7 +451,7 @@ async def verify_api_key(token: str) -> dict | None:
     payload = {"sub": f"apikey:{row['name']}", "via": "apikey"}
     _set_api_key_cache(key_hash, payload, expires_at_ts=expires_at_monotonic)
 
-    # 异步更新 last_used_at（不阻塞，保存引用防止 GC）
+    # Update last_used_at asynchronously (nonblocking; retain references against GC)
     import asyncio
 
     async def _touch():
@@ -468,7 +468,7 @@ async def verify_api_key(token: str) -> dict | None:
 
 
 def _verify_and_get_payload(token: str) -> dict:
-    """同步验证 JWT token 并在失败时抛出 401 异常。（仅用于 JWT 路径）"""
+    """Synchronously verify JWT and raise 401 on failure (JWT paths only)."""
     payload = verify_token(token)
     if payload is None:
         raise HTTPException(
@@ -480,7 +480,7 @@ def _verify_and_get_payload(token: str) -> dict:
 
 
 async def _verify_and_get_payload_async(token: str) -> dict:
-    """异步验证 token，支持 API Key（arc- 前缀）和 JWT 两种模式。"""
+    """Asynchronously verify tokens in API Key (arc- prefix) and JWT modes."""
     if token.startswith(API_KEY_PREFIX):
         payload = await verify_api_key(token)
         if payload is None:
@@ -490,7 +490,7 @@ async def _verify_and_get_payload_async(token: str) -> dict:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return payload
-    # JWT 路径
+    # JWT path
     return _verify_and_get_payload(token)
 
 
@@ -505,10 +505,10 @@ def _payload_to_user(payload: dict) -> CurrentUserInfo:
 async def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
 ) -> CurrentUserInfo:
-    """标准认证依赖 — 支持 JWT 和 API Key Bearer token。
+    """Standard authentication dependency supporting JWT and API Key Bearer tokens.
 
-    ``AUTH_ENABLED=false`` 时无视 token，直接返回匿名 admin。
-    启用时缺 token 抛 401（与旧 oauth2_scheme auto_error 行为等价）。
+    With ``AUTH_ENABLED=false``, ignore tokens and return anonymous admin directly.
+    When enabled, missing tokens raise 401 (equivalent to the previous oauth2_scheme auto_error behavior).
     """
     if not is_auth_enabled():
         return _anonymous_user()
@@ -525,14 +525,14 @@ async def get_current_user(
 # Type aliases for FastAPI dependency injection
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
 
-#: 内嵌 Agent 调用本地服务所用令牌的 sub（见 ``server/agent_runtime/options_assembler.py``）。
+#: Token sub used by embedded agents calling local services (see ``server/agent_runtime/options_assembler.py``).
 EMBEDDED_AGENT_SUB = "embedded-agent"
 
 
 async def reject_embedded_agent(user: CurrentUser) -> None:
-    """不可恢复的操作只属于创作者：拒绝内嵌 Agent 的令牌，Agent 在沙箱里直接调 HTTP 也绕不过。
+    """Irrecoverable operations belong only to creators: reject embedded-agent tokens, preventing bypass through direct sandbox HTTP calls.
 
-    鉴权关闭时所有请求都是同一个匿名用户、调用方不可区分，这道检查随之失效，与其余身份限制相同。
+    With authentication disabled, every request is the same anonymous user and callers are indistinguishable; this check becomes ineffective, like other identity restrictions.
     """
     if user.sub == EMBEDDED_AGENT_SUB:
         raise ApiError("creator_only_operation", status_code=403)

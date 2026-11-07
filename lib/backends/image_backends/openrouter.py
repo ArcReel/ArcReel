@@ -1,25 +1,26 @@
-"""OpenRouterImageBackend — OpenRouter 统一图片生成后端。
+"""OpenRouterImageBackend: unified OpenRouter image-generation backend.
 
-OpenRouter 的图片 API 与 OpenAI 官方不同源：不提供 /images/edits，T2I 与
-I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data URI 进
-``input_references``，响应 ``data[].b64_json``。本后端因此不复用 OpenAI SDK，请求构造
-仿 MiniMax 的 raw httpx 模式，落盘在不可中断段内解码并统一转为 PNG。
+OpenRouter image APIs differ from official OpenAI APIs: no /images/edits; T2I and
+I2I share the JSON endpoint ``POST {base_url}/images``. References enter as data URIs in
+``input_references``, returning ``data[].b64_json``. Therefore this backend avoids the OpenAI SDK,
+uses MiniMax-style raw httpx requests, and decodes/persists normalized PNGs in a noninterruptible segment.
 
-模型能力取自 ``GET {base_url}/images/models`` 里该模型声明的 ``supported_parameters``（缓存在 backend
-实例上：查到的结果 1h，查询失败 60s）。参考图上限（``input_references``）经 :meth:`reference_image_limit`
-交给编排层先裁剪再编号；未声明的参数（``n`` / ``seed``）不下发。尺寸参数按声明自适应（OpenRouter 把
-``size`` 与 ``resolution`` 同时出现视为冲突并返回 400，两套参数互斥、只能按声明选其一）：
+Model capabilities come from ``supported_parameters`` in ``GET {base_url}/images/models`` (cached per backend
+instance: successful results 1h, failures 60s). The reference limit (``input_references``) passes through :meth:`reference_image_limit`
+to orchestration for trimming before numbering; undeclared parameters (``n`` / ``seed``) are omitted. Size parameters
+adapt to declarations (OpenRouter rejects simultaneous ``size`` and ``resolution`` with 400; the two mutually
+exclusive parameter sets require selecting one from declarations):
 
-- 声明 ``resolution``（gemini / seedream / qwen / grok / krea 系，同时声明 ``size`` 也算）→
-  ``aspect_ratio`` + ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
-- 未声明 ``resolution`` 但声明 ``size`` 或 ``aspect_ratio``（gpt-image / recraft / mai 系）→ ``size``
-  （声明了 size 枚举时只发枚举里的值，否则合成 OpenAI 同款 WxH）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
-- 模型未收录或目录查询失败 → 只发 ``size``（与 OpenAI 兼容网关同款），保证生成不因查询
-  失败而中断。
-- 收录但 size / aspect_ratio / resolution 一概不声明（如包装型模型）→ 省略全部尺寸参数，
-  信任模型默认。
+- Declared ``resolution`` (gemini / seedream / qwen / grok / krea families, even with ``size`` also declared) →
+  ``aspect_ratio`` + ``resolution`` (omit size). Map tier short edges to the smallest declared tier ≥ requested size; omit if unmappable.
+- No ``resolution``, but ``size`` or ``aspect_ratio`` declared (gpt-image / recraft / mai families) → ``size``
+  (declared enum values only, otherwise synthesize OpenAI-style WxH) + ``aspect_ratio``, adding ``quality`` if declared.
+- Unlisted model or failed catalog lookup → send only ``size`` (like OpenAI-compatible gateways), keeping generation
+  available despite lookup failures.
+- Listed model declaring none of size / aspect_ratio / resolution (such as wrapper models) → omit all size parameters,
+  trusting model defaults.
 
-usage 只按张上报输出与参考图张数，不解析响应里的 ``usage.cost``。
+Usage reports output/reference image counts only, without parsing response ``usage.cost``.
 """
 
 from __future__ import annotations
@@ -67,26 +68,26 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "openai/gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
 
-#: 生成与模型目录查询的请求路径（相对 base_url）。路径覆盖（docs/adr/0101）按这两条默认路径认出请求。
+#: Generation and model-catalog paths relative to base_url; path overrides (docs/adr/0101) recognize these defaults.
 IMAGES_PATH = "/images"
 MODELS_PATH = "/images/models"
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-#: 落盘后能转成 PNG 的输出格式
+#: Output formats that can be converted to PNG after persistence.
 _RASTER_OUTPUT_FORMATS = frozenset({"png", "jpeg", "jpg", "webp"})
 
-#: 生成耗时可达 90s+，超时须远大于常规请求
+#: Generation can take 90s+, requiring much longer timeouts than ordinary requests.
 _HTTP_TIMEOUT = httpx.Timeout(300.0, connect=15.0)
-#: 模型目录查询是轻量元数据请求，超时收紧；失败只影响参数精化，不影响生成
+#: Catalog lookup is lightweight metadata: tighter timeouts; failures affect parameter refinement only, not generation.
 _MODELS_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
-# 档位 → quality 大小写不敏感（与 OpenAIImageBackend 同口径）：自定义档位词可能写
-# "2k"/"4K "，不归一会让 size 解析成功但 quality 静默丢失。自定义 WxH（无档位）→ None。
+# Case-insensitive tier → quality, matching OpenAIImageBackend: custom tiers may use
+# "2k"/"4K "; without normalization size succeeds but quality silently disappears. Custom WxH (no tier) → None.
 _QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
 
-# 模型目录查询结果缓存在 backend 实例上：实例随供应商配置（base_url、密钥、路径覆盖）构造，配置变更时
-# 调用方整体失效 backend 缓存，目录结果随之作废，不会被另一份配置复用。查到的结果（含「目录里没有这个
-# 模型」）缓存 1h；查询失败也短暂缓存为「未收录」，免得目录不可用时每次生成都重查一遍、各打一份堆栈。
+# Cache catalog results per backend instance, constructed for provider configuration (base_url, credentials, path overrides).
+# Configuration changes invalidate the entire backend cache and its catalog results, preventing reuse across configurations.
+# Successful results (including unlisted models) last 1h; failures briefly cache as unlisted to avoid repeated lookups/stack traces.
 _MODEL_PARAMS_TTL_SECONDS = 3600.0
 _MODEL_PARAMS_FAILURE_TTL_SECONDS = 60.0
 
@@ -96,14 +97,14 @@ def _quality_for(image_size: str | None) -> str | None:
 
 
 def _enum_values(supported: dict, name: str) -> list[str]:
-    """取声明枚举的取值列表（{"type": "enum", "values": [...]}）；声明缺失 / 形态不符 → []。"""
+    """Get declared enum values ({"type": "enum", "values": [...]}), or [] for missing / malformed declarations."""
     spec = supported.get(name)
     values = spec.get("values") if isinstance(spec, dict) else None
     return [v for v in values if isinstance(v, str)] if isinstance(values, list) else []
 
 
 def _range_bound(supported: dict, name: str, bound: str) -> int | None:
-    """取声明 range 的一端（{"type": "range", "min": m, "max": n}，``bound`` 为 min / max）；缺失 → None。"""
+    """Get one declared range bound ({"type": "range", "min": m, "max": n}, ``bound`` is min / max); None if absent."""
     spec = supported.get(name)
     if not isinstance(spec, dict):
         return None
@@ -112,8 +113,8 @@ def _range_bound(supported: dict, name: str, bound: str) -> int | None:
 
 
 def _declared_reference_max(supported: dict | None) -> int | None:
-    """目录声明的参考图上限：收录了该模型却没声明 ``input_references`` 时为 ``0``（不收参考图）；
-    目录不可得、未收录该模型或声明里没写上限时为 ``None``（不知道）。"""
+    """Catalog reference maximum: ``0`` when a listed model omits ``input_references`` (no references);
+    ``None`` for unavailable catalogs, unlisted models, or declarations without a maximum (unknown)."""
     if supported is None:
         return None
     if "input_references" not in supported:
@@ -123,13 +124,13 @@ def _declared_reference_max(supported: dict | None) -> int | None:
 
 
 def _effective_reference_limit(supported: dict | None) -> int:
-    """实际按多少张裁剪：模型声明的上限封顶端点的 16 张；声明不出正数上限时取 16。"""
+    """Effective trimming count: cap declared maxima at the endpoint limit of 16; use 16 without a positive declared maximum."""
     declared = _declared_reference_max(supported)
     return min(declared, _MAX_REFERENCE_IMAGES) if declared else _MAX_REFERENCE_IMAGES
 
 
 def _resolution_px(value: str) -> int | None:
-    """把 resolution 枚举值换算成短边像素（"512" → 512，"1K" / "1.5K" / "2K" → 1024 / 1536 / 2048）。"""
+    """Convert resolution enum values to short-edge pixels ("512" → 512, "1K" / "1.5K" / "2K" → 1024 / 1536 / 2048)."""
     text = value.strip().upper()
     scale = 1
     if text.endswith("K"):
@@ -142,7 +143,7 @@ def _resolution_px(value: str) -> int | None:
 
 
 def _pick_resolution(values: list[str], short_edge: int | None) -> str | None:
-    """档位短边 → 声明枚举里「≥ 请求值的最小档」（不降档）；全档都低于请求值取最大档。"""
+    """Tier short edge → smallest declared tier ≥ requested size (no downgrade); use the maximum if all tiers are smaller."""
     if short_edge is None:
         return None
     candidates = sorted(px for v in values if (px := _resolution_px(v)) is not None)
@@ -160,7 +161,7 @@ def _pick_resolution(values: list[str], short_edge: int | None) -> str | None:
 
 
 def _pick_aspect_ratio(values: list[str], aspect_ratio: str) -> str | None:
-    """项目比例 → 声明枚举：精确命中（大小写不敏感）优先，否则取数值最接近的一档。"""
+    """Project ratio → declared enum: prefer exact case-insensitive matches, otherwise the numerically closest ratio."""
     candidates = [v for v in values if v.lower() != "auto"]
     lowered = {v.lower(): v for v in candidates}
     if aspect_ratio.lower() in lowered:
@@ -180,7 +181,7 @@ def _pick_aspect_ratio(values: list[str], aspect_ratio: str) -> str | None:
 
 
 def _parse_size(value: str) -> tuple[int, int] | None:
-    """把 size 枚举值解析成 (宽, 高)；"auto" 等非 WxH 值 → None。"""
+    """Parse size enum values into (width, height); non-WxH values such as "auto" → None."""
     w, sep, h = value.strip().lower().partition("x")
     if not sep or not w.isdigit() or not h.isdigit() or int(w) <= 0 or int(h) <= 0:
         return None
@@ -188,8 +189,8 @@ def _parse_size(value: str) -> tuple[int, int] | None:
 
 
 def _pick_size(values: list[str], aspect_ratio: str, short_edge: int) -> str | None:
-    """从声明的 WxH 枚举选一档：比例最接近者优先，同比例里取短边「≥ 请求值的最小档」，全档都低于
-    请求值取最大档。枚举里没有可解析的 WxH → None。"""
+    """Select declared WxH: prefer the closest ratio, then the smallest short edge ≥ requested size among equal ratios;
+    use the maximum if all are smaller. No parseable WxH enum values → None."""
     parsed = [(v, dims) for v in values if (dims := _parse_size(v)) is not None]
     if not parsed:
         return None
@@ -206,10 +207,10 @@ def _pick_size(values: list[str], aspect_ratio: str, short_edge: int) -> str | N
 
 
 def _resolve_model_params(supported: dict | None, image_size: str | None, aspect_ratio: str) -> dict[str, str]:
-    """按声明自适应下发尺寸参数，互斥的两套通道只能选其一（同传 size+resolution 必 400）。"""
+    """Send size parameters adaptively from declarations, selecting only one mutually exclusive channel (size+resolution always returns 400)."""
     quality = _quality_for(image_size)
     if supported is None:
-        # 模型未收录 / 目录不可得：只发 OpenAI 同款 size，不带任何没有声明依据的参数（如 quality）
+        # Unlisted model / unavailable catalog: OpenAI-style size only, never undeclared parameters such as quality.
         short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
         w, h = aspect_size(aspect_ratio, short, round_to=16)
         return {"size": f"{w}x{h}"}
@@ -221,21 +222,21 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
 
     params: dict[str, str] = {}
     ratio = _pick_aspect_ratio(ratio_values, aspect_ratio) if ratio_values else None
-    # size 由「实际下发的比例」算：ratio 选中枚举档时按该档，选不到才退回请求比例——
-    # 否则 size 按 2:3 算、aspect_ratio 却写 9:16，两个参数自相矛盾，模型行为不可预期。
+    # Compute size from the ratio actually sent: use the selected enum ratio, falling back to the requested ratio only without a match.
+    # Otherwise size could use 2:3 while aspect_ratio says 9:16, contradicting each other with unpredictable model behavior.
     effective_ratio = ratio or aspect_ratio
     short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
     if resolution_values:
-        # 声明 resolution 即走这一支，即便同时声明了 size：两者互斥，不传 size。ratio / resolution
-        # 拿不到（档位映射不上、极端比例超出枚举）时各自省略——比传冲突参数被 400 拒掉好。
+        # Declared resolution takes this branch even when size is declared: mutually exclusive, so omit size. Omit ratio / resolution
+        # individually when unmappable (tier mismatch or extreme ratios beyond enums), avoiding conflicting parameters rejected with 400.
         resolution = _pick_resolution(resolution_values, short)
         if resolution:
             params["resolution"] = resolution
         if ratio:
             params["aspect_ratio"] = ratio
     elif size_values or ratio:
-        # 声明 size 或只声明 aspect_ratio：WxH 撑清晰度，ratio 锁比例。声明了 size 枚举时只发枚举里的值：
-        # 有 WxH 就选最接近的一档，只有 auto 就发 auto；未声明 size 才按 OpenAI 同款合成精确 WxH。
+        # Declared size or aspect_ratio alone: WxH provides resolution and ratio locks proportions. With size enums, send enum values only:
+        # choose closest WxH, or auto when it is the only option; synthesize exact OpenAI-style WxH only without declared size.
         size = _pick_size(size_values, effective_ratio, short)
         if size is None and size_values:
             size = next((v for v in size_values if v.strip().lower() == "auto"), None)
@@ -246,16 +247,16 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
             params["size"] = size
         if ratio:
             params["aspect_ratio"] = ratio
-    # 收录但三类都不声明：省略全部尺寸参数，信任模型默认
+    # Listed model without any of the three declarations: omit all size parameters and trust model defaults.
     if quality and quality_values and quality.lower() in {v.lower() for v in quality_values}:
         params["quality"] = quality
     return params
 
 
 class OpenRouterImageBackend:
-    """OpenRouter 统一图片后端：T2I 与 I2I 同 hit ``POST {base_url}/images``。"""
+    """Unified OpenRouter image backend: T2I and I2I both hit ``POST {base_url}/images``."""
 
-    # 端点一次最多收 16 张；运行时再按模型目录声明的 ``input_references`` 收窄（见 :meth:`reference_image_limit`）。
+    # Endpoint accepts at most 16 images; narrow further using declared ``input_references`` at runtime (see :meth:`reference_image_limit`).
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
 
     def __init__(
@@ -269,12 +270,12 @@ class OpenRouterImageBackend:
     ):
         self._api_key = api_key or ""
         self._model = model or DEFAULT_MODEL
-        # OpenRouter 的 base_url 已含 /api/v1，不做 ensure_openai_base_url 的 /v1 追加
+        # OpenRouter base_url already includes /api/v1; do not append /v1 through ensure_openai_base_url.
         self._base_url = (str(base_url).strip().rstrip("/") if base_url else "") or DEFAULT_BASE_URL
-        # 路径覆盖（docs/adr/0101）在 transport 层按请求路径改写，生成与目录查询两条请求都经过它
+        # Transport rewrites request paths through overrides (docs/adr/0101); both generation and catalog requests pass through it.
         self._transport_layer = transport_layer
-        # (clock 到期时刻, supported_parameters)；None = 还没查过。并发的首次查询经锁串行化，
-        # 免得晚到的失败结果覆盖先到的成功结果。
+        # (clock expiry, supported_parameters); None means never queried. Serialize concurrent first queries with a lock
+        # to prevent a late failure from overwriting an earlier success.
         self._clock = clock
         self._model_params: tuple[float, dict | None] | None = None
         self._model_params_lock = asyncio.Lock()
@@ -292,10 +293,10 @@ class OpenRouterImageBackend:
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     async def reference_image_limit(self) -> int:
-        """这个模型单请求可携带的参考图上限：目录声明的 ``input_references`` 上限，封顶 16。
+        """Maximum references per request for this model: declared ``input_references`` maximum, capped at 16.
 
-        目录不可得、目录里没有这个模型，或模型没声明可用的参考图上限时取端点的 16：没声明参考图的模型由
-        ``generate`` 按不支持图生图报错（docs/adr/0015）。
+        Use the endpoint limit of 16 for unavailable catalogs, unlisted models, or no usable declared maximum:
+        ``generate`` rejects models without declared reference support as lacking image-to-image support (docs/adr/0015).
         """
         return _effective_reference_limit(await self._fetch_supported_params())
 
@@ -305,14 +306,14 @@ class OpenRouterImageBackend:
 
         input_references = await asyncio.to_thread(self._encode_references, refs)
         payload: dict = {"model": self._model, "prompt": request.prompt}
-        # 目录收录了该模型却没声明的参数（n / seed）不下发：未声明的参数会被拒；未收录时照常带上
+        # Omit undeclared parameters (n / seed) for listed models because they are rejected; include normally for unlisted models.
         if supported is None or "n" in supported:
             payload["n"] = 1
         payload.update(_resolve_model_params(supported, request.image_size, request.aspect_ratio))
         if request.seed is not None and (supported is None or "seed" in supported):
             payload["seed"] = request.seed
-        # 产物路径固定是 .png：模型声明可选 png 时直接要 png，省去落盘后的转码；声明的格式里没有
-        # 位图（如只出 SVG）时，产物注定转不成 PNG，在提交这次计费请求之前就拒绝
+        # Artifact paths always end in .png: request png when declared to avoid subsequent conversion. If declared formats contain
+        # no raster (such as SVG only), conversion to PNG is impossible: reject before submitting this billed request.
         output_formats = [v.lower() for v in _enum_values(supported, "output_format")] if supported else []
         if "png" in output_formats:
             payload["output_format"] = "png"
@@ -328,20 +329,21 @@ class OpenRouterImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_OPENROUTER,
             model=self._model,
-            # 用量契约（docs/adr/0100）：按张上报输出与实际下发的参考图张数
+            # Usage contract (docs/adr/0100): report output and actually sent reference image counts.
             usage=per_image_usage(output_images=1, input_images=len(input_references)),
         )
 
     def _fit_references(self, refs: list, supported: dict | None) -> list:
-        """按目录声明核对参考图：模型不收参考图、必须带参考图或张数超出上限时报错，不截断。
+        """Validate references against catalog declarations: reject unsupported, required-but-missing, or excessive references without truncating.
 
-        编排层已按 :meth:`reference_image_limit` 裁剪参考图并在提示词里编号「图N」。这里仍超限，说明两次
-        读到的目录不一致（如编排时目录查询失败按 16 张编号，提交前又查到更小的上限）；此时截断会让提示词
-        指认没有发出的图、照常计费，所以不提交，交给重新生成按最新上限重新裁剪编号。
+        Orchestration already trims using :meth:`reference_image_limit` and numbers references as “图N” in prompts. Excess here
+        indicates inconsistent catalog reads (such as a failed lookup allowing 16 numbered references, followed by a smaller limit
+        before submission). Truncation would leave prompt references to unsent images while still charging, so refuse submission
+        and let regeneration trim and renumber using the latest limit.
         """
         if supported is not None:
             if refs and _declared_reference_max(supported) == 0:
-                # 目录收录了该模型，却没声明参考图或声明上限为 0：没有供应商接受参考图
+                # Listed model omits references or declares maximum 0: no provider accepts references.
                 raise ImageCapabilityError(
                     "image_endpoint_mismatch_no_i2i",
                     model=self._model,
@@ -358,9 +360,9 @@ class OpenRouterImageBackend:
         return refs
 
     async def _fetch_supported_params(self) -> dict | None:
-        """查该 model 的 supported_parameters（缓存在实例上）；目录不可得或不含该模型时返回 None。
+        """Fetch model supported_parameters (cached per instance); None for unavailable catalogs or unlisted models.
 
-        网络异常与非 2xx 只影响参数精化：生成按 size 兜底照常走，不因查询失败而中断。
+        Network errors and non-2xx responses only affect parameter refinement: generation continues with size fallback despite lookup failures.
         """
         cached = self._model_params
         if cached and self._clock() < cached[0]:
@@ -374,7 +376,7 @@ class OpenRouterImageBackend:
             return supported
 
     async def _query_supported_params(self) -> tuple[dict | None, float]:
-        """查一次模型目录，返回 (supported_parameters, 结果的缓存时长)。"""
+        """Query the model catalog once, returning (supported_parameters, result cache lifetime)."""
         try:
             async with artifact_http_client(timeout=_MODELS_TIMEOUT, transport_layer=self._transport_layer) as client:
                 resp = await client.get(
@@ -398,14 +400,14 @@ class OpenRouterImageBackend:
         return None, _MODEL_PARAMS_TTL_SECONDS
 
     def _encode_references(self, refs) -> list[dict]:
-        """参考图 data URI 编码；任一张读不出即 fail-loud。
+        """Encode reference images as data URIs; fail loudly if any cannot be read.
 
-        prompt 按数组序位用「图N」指认参考图，跳过缺失的图会让后续参考图前移、序位错指，
-        生成照常计费。因此收集全部读不出的参考图后统一报 image_reference_images_unreadable。
+        Prompts identify references as “图N” by array position. Skipping missing images shifts later references and misidentifies
+        them while generation still charges. Collect all unreadable images, then raise image_reference_images_unreadable together.
         """
         encoded: list[dict] = []
         unreadable: list[str] = []
-        # names 进多语言错误模板：空路径无文件名时用序号 #N 标识第几张，避免占位漏进非中文报错。
+        # names enter multilingual error templates: empty paths use ordinal #N instead of placeholders leaking into other locales.
         for idx, ref in enumerate(refs, start=1):
             path = Path(ref.path) if ref.path else None
             if path is None or not path.is_file():
@@ -424,11 +426,11 @@ class OpenRouterImageBackend:
 
     @with_retry_async(retry_if=should_retry_submit)
     async def _submit(self, payload: dict) -> Any:
-        """单步图像生成 POST（非幂等「建图 + 计费」），返回解析后的响应体。
+        """Single-step image-generation POST (nonidempotent creation + billing), returning parsed response bodies.
 
-        重试范围严格限定在本方法内、不含落盘——落盘失败不会触发整流程重试导致重复建图与
-        重复计费。submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败避免重复计费；
-        >=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流。
+        Retry strictly within this method, excluding persistence, so persistence failures cannot repeat the whole workflow and
+        duplicate creation/billing. submit_post converts ambiguous transport errors to terminal AmbiguousSubmitError to avoid
+        duplicate billing; >=400 raises HTTPStatusError for should_retry_submit to route by status.
         """
         log_view = {**payload, "prompt": payload.get("prompt", "")[:80]}
         logger.info("调用 %s 图片 API kwargs=%s", self.name, format_kwargs_for_log(log_view))
@@ -447,12 +449,12 @@ class OpenRouterImageBackend:
         items = body.get("data") if isinstance(body, dict) else None
         first = items[0] if isinstance(items, list) and items else None
         if not isinstance(first, dict) or not (first.get("b64_json") or first.get("url")):
-            # 成功响应却没带回图片：通常是内容安全过滤命中或上游异常
+            # Successful response without images usually means moderation filtering or upstream anomalies.
             raise ImageOutputMissingError(model=self._model)
         media_type = first.get("media_type") if isinstance(first.get("media_type"), str) else None
         b64 = first.get("b64_json")
-        # 供应商已返回、本次已计费：落盘与转 PNG 都在不可中断段内跑完，取消不能把付费产物丢掉
-        # （docs/standards/backend.md「供应商返回之后的落账段不可中断」）。
+        # Provider has returned and billed: persistence and PNG conversion finish in a noninterruptible segment so cancellation cannot lose paid artifacts
+        # (docs/standards/backend.md, “The accounting segment after the provider returns is noninterruptible”).
         if b64:
 
             def _decode_and_save() -> None:
@@ -462,20 +464,22 @@ class OpenRouterImageBackend:
 
             await run_noninterruptible_sync(_decode_and_save)
             return
-        # 取件失败只在下载层重试，不回退到重跑已计费的出图请求
+        # Retry retrieval failures only in downloads, never restart billed image-generation requests.
         await with_artifact_retry(lambda: download_image_to_path(first["url"], output_path), label="OpenRouter 图像")
         await run_noninterruptible_sync(self._ensure_png, output_path, media_type)
 
     def _ensure_png(self, output_path: Path, media_type: str | None) -> None:
-        """产物路径固定是 .png：JPEG / WebP 等位图转成 PNG 落盘；转不了（如 SVG）即报错，不留错标格式的产物。"""
+        """Artifacts always use .png paths: convert JPEG / WebP and other rasters to PNG; reject unconvertible outputs (such as SVG) without leaving mislabeled artifacts."""
         content = output_path.read_bytes()
         if content.startswith(_PNG_SIGNATURE):
             return
         try:
             png = convert_image_bytes_to_png(content)
         except ValueError:
-            # 转不成位图就不留下这份内容：格式与 .png 扩展名不符，下游会按 PNG 误读
-            output_path.unlink(missing_ok=True)  # hard-delete: temp -- 刚写入暂存路径、无法转换的供应商输出
+            # Remove unconvertible content: format mismatches the .png extension and downstream would misread it as PNG.
+            output_path.unlink(
+                missing_ok=True
+            )  # hard-delete: temp -- just-written provider output in a staging path that cannot be converted
             raise ImageOutputFormatError(model=self._model, media_type=media_type or "unknown") from None
         logger.info("OpenRouter 返回 %s，已转为 PNG: %s", media_type or "非 PNG 图片", output_path)
         output_path.write_bytes(png)

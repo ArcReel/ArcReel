@@ -1,1 +1,1 @@
-"""资产外观与引用名的数据投影，产出提示词模版的槽位值。"""
+"""Project asset appearances and reference names into prompt-template slots."""

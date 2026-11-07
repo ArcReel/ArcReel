@@ -12,19 +12,19 @@ const MODE_LABEL_KEY = {
   ad: "ad_short_video_mode",
 } as const;
 
-/** 项目画幅；旧项目的分类画幅取分镜那一项，没有设置时不显示。 */
+/** Project aspect ratio; legacy categorized ratios use the storyboard entry, and unset values are hidden. */
 function aspectRatioOf(data: ProjectData): string | null {
   const raw = typeof data.aspect_ratio === "string" ? data.aspect_ratio : data.aspect_ratio?.storyboard;
   return raw || null;
 }
 
 function formatDuration(seconds: number): string {
-  // 先对总秒数取整再拆分，否则 119.6 秒会写成 1:60
+  // Round total seconds before splitting, or 119.6 seconds becomes 1:60
   const total = Math.round(seconds);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-/** 概览页头：标题、元信息（模式 · 画幅 · 集数 · 脚本时长）与「项目设置」。 */
+/** Overview header: title, metadata (mode · aspect ratio · episode count · script duration) and Project settings. */
 export function OverviewHeader({
   projectName,
   data,
@@ -37,7 +37,7 @@ export function OverviewHeader({
   const { t } = useTranslation("dashboard");
   const isAd = data.content_mode === "ad";
   const episodes = data.episodes ?? [];
-  // 各集脚本条目的计划时长之和，与侧栏集卡上的时长同一口径，不代表已生成的视频。
+  // Sum planned durations of script entries across episodes, matching sidebar episode cards; this does not represent generated video.
   const scriptSeconds = episodes.reduce((sum, ep) => sum + (ep.duration_seconds ?? 0), 0);
   const aspect = aspectRatioOf(data);
 

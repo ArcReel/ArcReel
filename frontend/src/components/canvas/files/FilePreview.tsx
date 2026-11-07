@@ -22,7 +22,7 @@ function prettyText(text: string, name: string): string {
   }
 }
 
-/** 选中文件的预览：图片、视频、音频与文本（含 JSON）经鉴权接口取回内容，其余类型与过大的文本只提供下载。 */
+/** Selected-file preview: fetch images, video, audio and text (including JSON) through authenticated APIs; other types and oversized text offer download only. */
 export function FilePreview({ projectName, entry }: { projectName: string; entry: FileViewEntry }) {
   const { t } = useTranslation("dashboard");
   const kind = previewKind(entry.name);
@@ -63,7 +63,7 @@ export function FilePreview({ projectName, entry }: { projectName: string; entry
   if (state.status === "text") {
     return (
       <pre
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读长文本，须能用键盘聚焦后滚动
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Long read-only text must accept keyboard focus for scrolling
         tabIndex={0}
         aria-label={label}
         className="focus-ring rounded-md border border-border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap wrap-break-word"
@@ -74,9 +74,9 @@ export function FilePreview({ projectName, entry }: { projectName: string; entry
   }
   if (kind === "image") return <img src={state.url} alt={label} className="max-h-120 max-w-full rounded-md border border-border object-contain" />;
   if (kind === "video") {
-    // eslint-disable-next-line jsx-a11y/media-has-caption -- 项目里的生成视频没有字幕轨，预览只用于确认内容
+    // eslint-disable-next-line jsx-a11y/media-has-caption -- Generated project videos have no caption track; preview is only for content confirmation
     return <video src={state.url} controls aria-label={label} className="max-h-120 max-w-full rounded-md border border-border" />;
   }
-  // eslint-disable-next-line jsx-a11y/media-has-caption -- 同上：音频预览没有字幕轨
+  // eslint-disable-next-line jsx-a11y/media-has-caption -- Likewise, audio previews have no caption track
   return <audio src={state.url} controls aria-label={label} className="w-full" />;
 }

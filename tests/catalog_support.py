@@ -1,4 +1,4 @@
-"""目录查询的测试数据：在出厂快照上改写条目或换一份目录数据，再交给目录查询读取；按目录价目表给内置供应商的一次调用计价。"""
+"""Catalog query test data: rewrite entries in the factory snapshot or replace catalog data for queries; price one built-in-provider call from catalog rates."""
 
 from __future__ import annotations
 
@@ -16,17 +16,17 @@ from lib.catalog import lifecycle, query
 
 
 def install_catalog(monkeypatch: pytest.MonkeyPatch, data: CatalogData) -> None:
-    """让目录查询在本用例内读 ``data``，代替出厂快照。"""
+    """Make catalog queries read ``data`` instead of the factory snapshot for this case."""
     monkeypatch.setattr(query, "factory_snapshot", lambda: data)
 
 
 def set_catalog_today(monkeypatch: pytest.MonkeyPatch, day: date) -> None:
-    """让目录读模型在本用例内把 ``day`` 当作今天（UTC 日期），判定生命周期用；可在用例中途再次调用跨日。"""
+    """Make the catalog read model treat ``day`` as today (UTC) for lifecycle checks; call again mid-case to cross days."""
     monkeypatch.setattr(lifecycle, "utc_today", lambda: day)
 
 
 def with_entry_changes(data: CatalogData, provider_id: str, api_model_name: str, **changes: Any) -> CatalogData:
-    """把供应商模型引用的条目按 ``dataclasses.replace`` 改写；改的是条目，引用它的其他供应商模型一并受影响。"""
+    """Rewrite the entry referenced by a provider model through ``dataclasses.replace``; other provider models sharing it also change."""
     listing = data.builtin_providers[provider_id]
     model = next(m for m in listing.models if m.api_model_name == api_model_name)
     target = data.entry_of(model)
@@ -36,7 +36,7 @@ def with_entry_changes(data: CatalogData, provider_id: str, api_model_name: str,
 
 
 def with_min_app_version(data: CatalogData, provider_id: str, api_model_name: str, version: str) -> CatalogData:
-    """给内置供应商的一个官方收录模型标上最低应用版本。"""
+    """Set a minimum application version on one officially cataloged built-in-provider model."""
     listing = data.builtin_providers[provider_id]
     models = tuple(
         replace(model, min_app_version=version) if model.api_model_name == api_model_name else model
@@ -47,7 +47,7 @@ def with_min_app_version(data: CatalogData, provider_id: str, api_model_name: st
 
 
 def with_entry_facts(data: CatalogData, provider_id: str, api_model_name: str, **changes: Any) -> CatalogData:
-    """改写供应商模型所引用条目的模型事实（``facts`` 上的字段）。"""
+    """Rewrite model facts (fields on ``facts``) of the entry referenced by a provider model."""
     listing = data.builtin_providers[provider_id]
     model = next(m for m in listing.models if m.api_model_name == api_model_name)
     target = data.entry_of(model)
@@ -60,7 +60,7 @@ def catalog_of(
     providers: Mapping[str, tuple[str, ...]],
     defaults: Mapping[str, dict[str, str]] | None = None,
 ) -> CatalogData:
-    """由条目与「供应商 → 条目引用」构造一份目录数据；供应商模型的 API 模型名取条目的官方模型名。"""
+    """Build catalog data from entries and provider-to-entry references; provider API model names use official entry model names."""
     listings = {
         provider_id: BuiltinProviderListing(
             models=tuple(BuiltinProviderModel(api_model_name=ref.partition("/")[2], entry=ref) for ref in refs),
@@ -78,7 +78,7 @@ def builtin_price(
     quantities: Mapping[str, float],
     dimensions: Mapping[str, object] | None = None,
 ) -> tuple[float, str]:
-    """内置供应商一次单请求调用在倍率 1 下的参考费用 ``(金额, 币种)``；算不出时断言失败。"""
+    """Reference cost ``(金额, 币种)`` of one single-request built-in-provider call at multiplier 1; assert if unavailable."""
     cost = price_builtin_call(
         provider=provider_id,
         model=model,

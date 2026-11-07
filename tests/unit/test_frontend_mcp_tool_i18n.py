@@ -43,7 +43,7 @@ def test_every_backend_tool_has_frontend_display_name(locale: str) -> None:
 
 
 def test_no_orphan_tool_name_keys_in_any_locale() -> None:
-    """Frontend tool_name_* keys 必须都对应 backend tool id —— 防止过时翻译堆积。"""
+    """Frontend tool_name_* keys must map to backend tool IDs, preventing stale translations."""
     expected = {f"tool_name_{tid}" for tid in ARCREEL_MCP_TOOL_IDS}
     for locale in LOCALES:
         keys = _load_tool_name_keys(locale)
@@ -55,12 +55,12 @@ def test_no_orphan_tool_name_keys_in_any_locale() -> None:
 
 
 SUMMARIES_TS = "frontend/src/components/copilot/chat/arcreel-tool-summaries.ts"
-# ARCREEL_TOOL_SUMMARIES 的条目一行一个：两格缩进 + 工具 id + 冒号。
+# ARCREEL_TOOL_SUMMARIES has one entry per line: two-space indentation + tool ID + colon.
 _SUMMARY_KEY_RE = re.compile(r"^  ([a-z0-9_]+):", re.MULTILINE)
 
 
 def test_every_backend_tool_has_frontend_summary_format() -> None:
-    """工序行的一句摘要按工具 id 登记，缺漏时界面退回截断的参数原文，多余的条目是过时格式。"""
+    """Operation-row summaries register by tool ID; missing entries expose truncated raw arguments, extras are stale."""
     text = (REPO_ROOT / SUMMARIES_TS).read_text(encoding="utf-8")
     keys = set(_SUMMARY_KEY_RE.findall(text))
     expected = set(ARCREEL_MCP_TOOL_IDS)

@@ -96,7 +96,7 @@ def test_reports_duplicate_eval_ids_in_root_array(tmp_path: Path) -> None:
 
 
 def test_reports_evals_targeting_missing_skills_or_unregistered_tools(tmp_path: Path) -> None:
-    """eval 是验收资产：点名的 skill 与工具不存在，按它验收就是在验一份不存在的契约。"""
+    """Evals are acceptance assets: missing named skills/tools mean evaluating a nonexistent contract."""
     profile = _valid_profile(tmp_path)
     (profile / "evals" / "cases.json").write_text(
         json.dumps(

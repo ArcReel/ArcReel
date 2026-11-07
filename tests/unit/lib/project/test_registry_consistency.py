@@ -1,8 +1,8 @@
-"""Registry consistency — 资源注册表派生自单一真相源。
+"""Registry consistency: derive resource registries from a single source of truth.
 
-`lib.project.resource_paths` 是「资源类型 → 路径/扩展名」的唯一真相源；VersionManager 的
-`RESOURCE_TYPES` / `EXTENSIONS` 均从它派生。本测试断言派生未脱钩——若有人把
-VersionManager 改回手写副本、与真相源漂移，立刻红。
+`lib.project.resource_paths` alone maps resource types to paths/extensions; VersionManager
+`RESOURCE_TYPES` / `EXTENSIONS` derive from it. Assert that derivation remains connected: if someone
+restores handwritten VersionManager copies that drift from the source, fail immediately.
 """
 
 from __future__ import annotations

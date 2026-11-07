@@ -1,4 +1,4 @@
-"""Agent 能力载荷逐单元标注读取的正式视频单元：只读取剧本，单集损坏不拖垮整份能力查询。"""
+"""Agent capabilities mark formal video units per read unit: read scripts only; one corrupt episode does not fail the entire query."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from server.services.tasks.video_caps import reference_script_units
 
 
 def _legacy_script(episode: int, unit_ids: list[str]) -> dict:
-    """收编前的剧本形状（时长挂在镜头上）：写回式读取会把迁移结果落盘，只读读取不会。"""
+    """Pre-coercion script shape has durations on shots: writeback reads persist migrations, read-only reads do not."""
     return {
         "episode": episode,
         "title": f"E{episode}",

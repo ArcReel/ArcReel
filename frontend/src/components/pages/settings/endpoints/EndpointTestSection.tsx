@@ -25,7 +25,7 @@ import { FormSection } from "./endpoint-form-primitives";
 import { RequestPreview, TestCard, TestField, TestSelect } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
-/** 命中值的展示文案。`image_b64` 的命中值是后端给的字节数摘要 `{ image_bytes }`，不是原串。 */
+/** Matched-value copy. `image_b64` matches backend byte summaries `{ image_bytes }`, never original strings. */
 function fieldValueText(field: EndpointExtractionField, t: TFunction): string {
   const { value } = field;
   if (field.key !== "image_b64" || typeof value !== "object" || value === null || !("image_bytes" in value)) {
@@ -78,21 +78,21 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const { t } = useTranslation(["dashboard", "common"]);
   const idBase = useId();
 
-  // --- 验证响应 ---
+  // --- Response validation ---
   const [stage, setStage] = useState<EndpointTestStage>("poll");
   const [responseText, setResponseText] = useState("");
   const [checking, setChecking] = useState(false);
   const [checkReport, setCheckReport] = useState<EndpointStageReport | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
 
-  // --- 预览请求 ---
+  // --- Request previews ---
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<EndpointPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // --- 测试连接 ---
+  // --- Connection tests ---
   const [credSource, setCredSource] = useState<"provider" | "inline">(
     providers.length > 0 ? "provider" : "inline",
   );
@@ -143,7 +143,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
       try {
         body = JSON.parse(responseText);
       } catch {
-        // 非 JSON 文本原样送服务端，由它给出解析层面的判定。
+        // Send non-JSON text unchanged for server parsing decisions.
       }
       setCheckReport(await API.checkEndpointResponse({ definition, stage, response_body: body }));
     } catch (e) {
@@ -193,7 +193,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   return (
     <FormSection id="test" step={8} title={t("ce_section_test")} desc={t("ce_section_test_desc")}>
       <div className="flex flex-col gap-4">
-        {/* 验证响应 */}
+        {/* Response validation */}
         <TestCard title={t("ce_test_check")} desc={t("ce_test_check_desc")}>
           <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-3">
@@ -242,7 +242,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
           </div>
         </TestCard>
 
-        {/* 预览请求 */}
+        {/* Request previews */}
         <TestCard title={t("ce_test_preview")} desc={t("ce_test_preview_desc")}>
           <div className="flex flex-wrap items-end gap-3">
             <TestField label={t("ce_test_model")} htmlFor={ids.previewModel} className="w-56">
@@ -276,7 +276,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
           )}
         </TestCard>
 
-        {/* 测试连接 */}
+        {/* Connection tests */}
         <TestCard title={t("ce_test_trial")} badge={t("ce_test_trial_billed")} desc={t("ce_test_trial_desc")}>
           <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-3">
@@ -411,7 +411,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                       className="w-full rounded-lg border border-border bg-black object-contain"
                     />
                   ) : artifactUrl ? (
-                    // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
+                    // eslint-disable-next-line jsx-a11y/media-has-caption -- connection-test outputs have no available caption sources
                     <video
                       controls
                       preload="metadata"

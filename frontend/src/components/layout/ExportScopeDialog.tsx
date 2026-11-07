@@ -20,14 +20,14 @@ export type ExportScope = "current" | "full";
 interface ExportScopeDialogProps {
   open: boolean;
   onClose: () => void;
-  /** 点击「导出」时以选中的范围调用；对话框随即关闭，导出进度由调用方展示。 */
+  /** On Export, invoke with the selected scope and immediately close; callers display progress. */
   onSelect: (scope: ExportScope) => void;
-  /** 提示里「打开剪辑视图」链接指向的集（集 ID 与集名）；不传或为 null 时只显示提示。 */
+  /** Episode ID/name targeted by Open editing view; omission or null shows only the hint. */
   editViewEpisode?: { episode: number; name: string } | null;
   onOpenEditView?: (episode: number) => void;
 }
 
-/** 「导出项目」的范围选择：只有项目归档；成片与剪映草稿在各集的剪辑视图中导出。 */
+/** Export-project scope selection offers project archives only; final cuts/Jianying drafts export from each episode's editing view. */
 export function ExportScopeDialog({
   open,
   onClose,
@@ -54,7 +54,7 @@ export function ExportScopeDialog({
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
-      // 每次打开都回到推荐的范围
+      // Reset to the recommended scope on every opening
       onOpenChangeComplete={(next) => {
         if (!next) setScope("current");
       }}
@@ -72,7 +72,7 @@ export function ExportScopeDialog({
               onValueChange={(next) => setScope(next as ExportScope)}
             >
               {options.map((option) => (
-                // eslint-disable-next-line jsx-a11y/label-has-associated-control -- 控件是嵌套的 RadioGroupItem（Base UI 单选），规则识别不到
+                // eslint-disable-next-line jsx-a11y/label-has-associated-control -- Control is a nested RadioGroupItem (Base UI radio), which the rule cannot detect
                 <label
                   key={option.value}
                   className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-fast hover:bg-muted/50 has-data-checked:border-primary"
@@ -93,7 +93,7 @@ export function ExportScopeDialog({
               <div className="flex min-w-0 flex-col items-start gap-1">
                 <p>{t("dashboard:export_renders_moved_hint")}</p>
                 {editViewEpisode && onOpenEditView && (
-                  // 集名可能很长，链接要能换行，不用不换行的 Button
+                  // Episode names can be long; let links wrap instead of using a nonwrapping Button
                   <button
                     type="button"
                     onClick={() => onOpenEditView(editViewEpisode.episode)}

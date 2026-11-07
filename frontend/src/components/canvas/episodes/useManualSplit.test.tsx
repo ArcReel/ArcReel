@@ -7,7 +7,7 @@ import type { EpisodesView } from "@/types";
 
 import { useManualSplit } from "./useManualSplit";
 
-// a.txt：未切分 [0, 30)
+// a.txt: unsplit [0, 30)
 const view: EpisodesView = {
   unit: "chars",
   units: 0,

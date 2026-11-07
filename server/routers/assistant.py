@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# pydantic 顶层不 re-export PydanticCustomError，只能直接依赖 pydantic-core。
+# Top-level pydantic does not re-export PydanticCustomError; depend directly on pydantic-core.
 from pydantic_core import PydanticCustomError
 
 from lib import PROJECT_ROOT
@@ -43,9 +43,9 @@ router = APIRouter()
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
 MAX_IMAGE_SOURCE_BYTES = 5 * 1024 * 1024
-# 前端把附图缩放重编码到这个预算之内；服务端合计上限按它折算，单张上限仍留 5 MB 作为
-# 绕过前端时的兜底。合计按 5 × 1.5 MB 计，base64 约 10 MB，稳在 Messages API 的
-# 32 MB 单请求上限（Bedrock 20 MB / Vertex 30 MB）之内。
+# Frontend attachments are resized/reencoded within this budget; derive the server total from it, retaining 5 MB per image
+# as a fallback when bypassing frontend checks. Total 5 × 1.5 MB is about 10 MB base64, below Messages API limits
+# of 32 MB per request (Bedrock 20 MB / Vertex 30 MB).
 MAX_RESIZED_IMAGE_SOURCE_BYTES = 3 * 1024 * 1024 // 2
 # Base64 needs four characters for every three source bytes, rounded up to a full quartet.
 MAX_IMAGE_BASE64_CHARS = 4 * ((MAX_IMAGE_SOURCE_BYTES + 2) // 3)
@@ -65,7 +65,7 @@ def agent_startup_failure_detail(
     session_id: str | None,
     title: str,
 ) -> dict:
-    """把 runtime 启动异常映射为两个 Agent API 共用的结构化错误。"""
+    """Map runtime startup exceptions to structured errors shared by both Agent APIs."""
     original = exc.__cause__ or exc
     failure = exc.failure_observation or build_startup_failure_observation(
         original,
@@ -135,12 +135,12 @@ class ImageRequest(BaseModel):
 class SendRequest(ImageRequest):
     content: str = ""
     session_id: str | None = None
-    # 请求侧幂等键：同键重试返回既有权威条目，不产生重复。
+    # Request idempotency key: retries with the same key return the existing authoritative entry without duplicates.
     client_key: str | None = Field(default=None, max_length=128)
 
 
 class RewriteRequest(ImageRequest):
-    # 锚点：被改写的那条用户消息在事件日志里的条目 uuid。
+    # Anchor: the rewritten user message’s entry uuid in the event log.
     anchor_entry_uuid: str = Field(min_length=1, max_length=256)
     content: str = ""
     client_key: str | None = Field(default=None, max_length=128)
@@ -178,7 +178,7 @@ async def send_message(
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout")) from exc
     except ValueError as exc:
-        # 空消息内容 / 非法项目名等坏请求，str(exc) 只进日志
+        # For empty messages, invalid project names and other bad requests, str(exc) goes only to logs.
         logger.warning("会话发送请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
     except AgentStartupError as exc:
@@ -204,11 +204,10 @@ async def rewrite_message(
     request: Request,
     _t: Translator,
 ):
-    """改写会话中某条历史用户消息：分叉出新会话并在其上重跑。
+    """Rewrite a historical user message by forking a new session and rerunning there.
 
-    ``session_id`` 是被改写的原会话；响应里的 ``session_id`` 是承接改写的新会话，
-    前端据此整体切换过去。运行中的会话由端点自动中断，调用方不必先停止。
-    """
+    Input ``session_id`` identifies the original session; response ``session_id`` identifies the new session carrying the rewrite,
+    letting the frontend switch completely. The endpoint interrupts active sessions automatically; callers need not stop them first."""
     try:
         service = get_assistant_service()
         return await service.rewrite_message(
@@ -331,7 +330,7 @@ async def list_entries(
     _t: Translator,
     after: int = Query(default=-1, ge=-1),
 ):
-    """冷读会话事件日志（历史回放；``after`` 为 seq 游标）。"""
+    """Read stored session events for history replay, with ``after`` as the seq cursor."""
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -354,11 +353,9 @@ async def stream_entries(
     after: int = Query(default=-1, ge=-1),
     deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
 ) -> AsyncIterator[ServerSentEvent]:
-    """SSE entry 流：事件 id 即 seq。
+    """SSE entry stream: event IDs are seq values.
 
-    游标优先级：前端流式客户端重连携带的 ``Last-Event-ID`` > ``?after=<seq>``
-    （冷订阅）。
-    """
+    Cursor priority: ``Last-Event-ID`` from frontend streaming reconnection overrides ``?after=<seq>`` for initial subscriptions."""
     service, meta = deps
     cursor = after
     last_event_id = request.headers.get("last-event-id", "").strip()
@@ -407,10 +404,9 @@ async def interrupt_session(project_name: str, session_id: str, _t: Translator):
 async def _act_on_queued_message(
     project_name: str, session_id: str, action: Callable[[AssistantService], Awaitable[dict]], _t: Translator
 ) -> dict:
-    """排队消息操作（编辑、删除、重新发送、立即发送）共用的错误映射。
+    """Shared error mapping for queued-message editing, deletion, resending and immediate sending.
 
-    重新发送与对「未发送」消息的立即发送会在 CLI 已退出时重建会话连接，可能遇到容量已满或启动失败。
-    """
+    Resending or immediately sending unsent messages reconnects when the CLI has exited, potentially hitting capacity or startup failures."""
     try:
         return await action(get_assistant_service())
     except QueuedMessageNotFoundError as exc:
@@ -449,22 +445,21 @@ async def _withdraw_queued_message(
 
 @router.post("/sessions/{session_id}/queued-messages/{message_id}/edit")
 async def edit_queued_message(project_name: str, session_id: str, message_id: str, _t: Translator):
-    """把一条排队消息退回输入框：撤回成功时响应带回它的内容（``message``）。
+    """Return a queued message to the input box; successful withdrawal returns its content in ``message``.
 
-    ``outcome`` 为 ``withdrawn`` 时消息已移出排队；为 ``accepted`` 时 Agent 已接收它，消息照常进入对话。
-    """
+    ``outcome`` ``withdrawn`` means removed from the queue; ``accepted`` means the Agent already received it and it enters the conversation normally."""
     return await _withdraw_queued_message(project_name, session_id, message_id, "edit", _t)
 
 
 @router.delete("/sessions/{session_id}/queued-messages/{message_id}")
 async def delete_queued_message(project_name: str, session_id: str, message_id: str, _t: Translator):
-    """删除一条排队消息：撤回成功即丢弃。响应形状同编辑端点，``message`` 恒为 null。"""
+    """Delete a queued message by discarding after successful withdrawal. Match the edit response shape with ``message`` always null."""
     return await _withdraw_queued_message(project_name, session_id, message_id, "delete", _t)
 
 
 @router.post("/sessions/{session_id}/queued-messages/{message_id}/resend")
 async def resend_queued_message(project_name: str, session_id: str, message_id: str, request: Request, _t: Translator):
-    """把一条「未发送」消息重新交给 Agent，会话已中断时先重建连接。响应带回这条排队消息（``queued_message``）。"""
+    """Resend an unsent message to the Agent, reconnecting interrupted sessions first; return the queued message in ``queued_message``."""
     return await _act_on_queued_message(
         project_name,
         session_id,
@@ -475,10 +470,9 @@ async def resend_queued_message(project_name: str, session_id: str, message_id: 
 
 @router.post("/sessions/{session_id}/queued-messages/{message_id}/send-now")
 async def send_queued_message_now(project_name: str, session_id: str, message_id: str, _t: Translator):
-    """立即发送一条排队消息：Agent 打断当前轮先处理它。
+    """Immediately send a queued message, interrupting the current Agent turn to handle it first.
 
-    ``outcome`` 为 ``sent`` 时已重新送入，消息仍留在托盘里直到被接纳；为 ``accepted`` 时 Agent 已接收它，不再重发。
-    """
+    ``outcome`` ``sent`` means resubmitted, remaining in the tray until accepted; ``accepted`` means already received by the Agent, without resending."""
     return await _act_on_queued_message(
         project_name,
         session_id,
@@ -511,7 +505,7 @@ async def answer_question(
     except FileNotFoundError as exc:
         raise NotFoundError("session_not_found", session_id=session_id) from exc
     except ValueError as exc:
-        # 会话未运行或无待回答问题
+        # Session is not running or has no pending question.
         logger.warning("会话回答请求非法: %s", exc)
         raise BadRequestError("session_question_unavailable") from exc
     except Exception as exc:

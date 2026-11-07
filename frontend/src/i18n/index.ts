@@ -4,9 +4,9 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import resourcesToBackend from 'i18next-resources-to-backend';
 import { BRAND } from '@/branding';
 
-// 按需加载 i18n namespace：
-// Vite import.meta.glob 在编译期为每个 (lang, ns) 文件生成独立 chunk；运行时由
-// i18next 异步 load。资源仍是 .ts（保留 satisfies Record schema 锁），不是 JSON。
+// Load i18n namespaces on demand:
+// Vite import.meta.glob creates a separate chunk for each (lang, ns) file at build time;
+// i18next loads it asynchronously at runtime. Resources remain .ts (retaining the satisfies Record schema constraint), not JSON.
 const loaders = import.meta.glob<{ default: Record<string, string> }>(
   './{en,zh,vi,ru}/*.ts',
 );
@@ -61,15 +61,15 @@ function applyBrandPlaceholders(value: unknown): unknown {
   return value;
 }
 
-// 返回 init Promise，调用方（main.tsx / test setup）await 后再 render，避免首屏闪 key。
+// Return the init Promise; callers (main.tsx / test setup) await it before rendering to prevent keys flashing on the first screen.
 export const i18nReady = i18n
   .use(
     resourcesToBackend(async (lang: string, ns: string) => {
       const loader = loaders[pathFor(lang, ns)];
       if (!loader) {
-        // LanguageDetector 可能解析出 zh-CN / en-GB 等带区域的 BCP47 代码，
-        // i18next 会先按完整代码请求一次再 fallback 到 zh/en。这是预期路径，
-        // 不应该升级成异常。返回空对象让 i18next 走 fallback 链。
+        // LanguageDetector may resolve regional BCP47 codes such as zh-CN / en-GB;
+        // i18next first requests the full code, then falls back to zh/en. This is expected,
+        // so it must not become an exception. Return an empty object to let i18next follow its fallback chain.
         console.warn(`i18n: no resource for ${pathFor(lang, ns)}, falling back`);
         return {};
       }

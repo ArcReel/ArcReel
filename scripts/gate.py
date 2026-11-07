@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""按域运行完整质量闸门，整机同一时刻只跑一份。
+"""Run full quality gates by domain, with only one run per machine at a time.
 
-    uv run python scripts/gate.py --changed            # 按相对 origin/main 的改动选域
-    uv run python scripts/gate.py backend frontend     # 直接点名域
-    uv run python scripts/gate.py --list               # 各域的触发路径与步骤
+    uv run python scripts/gate.py --changed            # Select domains from changes relative to origin/main
+    uv run python scripts/gate.py backend frontend     # Name domains explicitly
+    uv run python scripts/gate.py --list               # Show domain trigger paths and steps
 
-完整闸门里的 pytest 与 vitest 都按整机核数并行；几个 worktree 同时跑时互相抢核，
-vitest 的 jsdom 用例会先超时。本脚本用机器级文件锁把各次闸门排成队：谁拿到锁谁独占
-整机跑完，排队的只打印等待信息。各域的命令与触发路径只在这里定义一次。
+Full-gate pytest and vitest runs parallelize using machine cores. Concurrent worktrees
+compete for them, with vitest jsdom cases timing out first. A machine-level file lock
+queues gate runs: the holder uses the machine exclusively through completion, while
+queued runs print only waiting information. Domain commands and triggers are defined
+only here.
 
-锁文件默认在用户目录下（同一台机器上的所有 worktree 都看得到），`ARCREEL_GATE_LOCK`
-可改路径。命令任一失败即停止并以其退出码退出，与 `&&` 串联一致。
+The lock defaults to the user directory, visible to all worktrees on the machine;
+`ARCREEL_GATE_LOCK` overrides its path. Stop at the first failed command with its exit
+code, just like chaining commands with `&&`.
 """
 
 from __future__ import annotations
@@ -43,8 +46,8 @@ class Step:
 
 
 UV = ("uv", "run")
-# 域名 → 步骤。`-n 4 --dist loadfile` 的取值理由见 pyproject.toml 的 pytest 配置注释，
-# `--max-worker-restart=0` 的理由见 .github/workflows/test.yml 的后端测试步骤。
+# Domain → steps. See pytest configuration comments in pyproject.toml for `-n 4 --dist loadfile`,
+# and the backend test step in .github/workflows/test.yml for `--max-worker-restart=0`.
 DOMAINS: dict[str, tuple[Step, ...]] = {
     "backend": (
         Step((*UV, "ruff", "check", ".")),
@@ -72,10 +75,12 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
 }
 
-# 域 → 触发路径，fnmatch 通配（`*` 也跨目录分隔符）。与 CI 的 .github/actions/domain-filter/action.yml
-# 对照维护：CI 的 backend 域对应这里的 backend、market-core 与 catalog-core，workflow 域对应 workflows；
-# CI 的 docker 域（Dockerfile、public/）没有本地闸门。tests 与 conventions 两个域是秒级的
-# 结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
+# Domain → trigger paths, using fnmatch wildcards (`*` also crosses directory separators).
+# Maintain alongside CI .github/actions/domain-filter/action.yml: CI backend maps to backend,
+# market-core and catalog-core here; workflow maps to workflows. CI docker (Dockerfile, public/)
+# has no local gate. The tests and conventions domains are structural audits taking seconds;
+# triggers such as newly added exemption comments cannot be inferred from paths, so always
+# include them when selecting domains from changes.
 TRIGGERS: dict[str, tuple[str, ...]] = {
     "backend": (
         "lib/*",
@@ -88,8 +93,8 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "packages/*",
         "pyproject.toml",
         "uv.lock",
-        ".gitignore",  # ruff 的文件发现尊重 gitignore
-        # 后端契约测试直接读取的前端源文件
+        ".gitignore",  # ruff file discovery respects gitignore
+        # Frontend sources read directly by backend contract tests
         "frontend/src/i18n/*/dashboard.ts",
         "frontend/src/i18n/*/events.ts",
         "frontend/src/types/workflow.ts",
@@ -100,14 +105,14 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     "catalog-core": ("packages/arcreel-catalog-core/*",),
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
-    # website-checks 同时跑翻译 lockfile 的缺译与滞后报告，CONTRIBUTING 与两个 README 在其特例映射内
+    # website-checks also reports missing/stale translation-lockfile entries, with special mappings for CONTRIBUTING and both READMEs
     "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md", ".claude/skills/translate-docs/*"),
 }
 ALWAYS_WHEN_CHANGED = ("tests", "conventions")
 
 
 def select_domains(paths: Iterable[str]) -> list[str]:
-    """按改动路径选域，顺序与 DOMAINS 一致；秒级审计域总是入选。"""
+    """Select domains by changed paths in DOMAINS order; always include the audits that take seconds."""
     changed = list(paths)
     hit = {
         name
@@ -119,9 +124,9 @@ def select_domains(paths: Iterable[str]) -> list[str]:
 
 
 def _vcs(root: Path, *args: str) -> str:
-    # 路径按 UTF-8 解码，不随平台区域编码变；非 UTF-8 字节用 surrogateescape 保留原样。
+    # Decode paths as UTF-8 regardless of platform locale; preserve non-UTF-8 bytes with surrogateescape.
     completed = subprocess.run(
-        ("git", *args),  # noqa: S607 -- 开发者环境的 git 本就经 PATH 查找
+        ("git", *args),  # noqa: S607 -- git is intentionally resolved through PATH in the developer environment
         cwd=root,
         capture_output=True,
         text=True,
@@ -133,10 +138,11 @@ def _vcs(root: Path, *args: str) -> str:
 
 
 def changed_paths(base: str, root: Path = ROOT) -> list[str]:
-    """相对 base 与 HEAD 公共祖先的全部改动：已提交、未提交与未跟踪的都算。
+    """All changes from the common ancestor of base and HEAD: committed, uncommitted and untracked.
 
-    关掉重命名识别，移动的文件新旧路径都列出来：旧路径所在域可能因此少了文件而失败。
-    按 NUL 分隔读取，含非 ASCII 字符的路径才是原文而不是加引号的转义串。
+    Disable rename detection to list both old and new paths of moved files: the old
+    domain may fail because the file is absent. Read NUL-separated paths so non-ASCII
+    paths remain original text rather than quoted escape sequences.
     """
     merge_base = _vcs(root, "merge-base", base, "HEAD").strip()
     tracked = _vcs(root, "diff", "--name-only", "--no-renames", "-z", merge_base).split("\0")
@@ -153,7 +159,7 @@ def _holder_note() -> str:
 
 
 def _write_holder(handle: IO[str] | None, note: str) -> None:
-    """锁文件的内容就是持有者说明，排队方据此打印是谁在跑。"""
+    """The lock file contains the holder description, letting queued runs identify the active runner."""
     if handle is None:
         return
     handle.seek(0)
@@ -163,9 +169,9 @@ def _write_holder(handle: IO[str] | None, note: str) -> None:
 
 
 def _acquire_gate_lock() -> portalocker.Lock:
-    """拿到机器级锁后返回；别人持有时每秒重试，只在开始排队时打印一次。"""
+    """Return after acquiring the machine lock; retry once per second while held, announcing the queue only once."""
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # 持有者说明含非 ASCII 字符，读写两端都显式用 UTF-8，避开 Windows 的区域默认编码。
+    # Holder descriptions contain non-ASCII text; explicitly read/write UTF-8 to avoid Windows locale encoding.
     lock = portalocker.Lock(LOCK_PATH, mode="a", encoding="utf-8")
     waited_from = time.monotonic()
     announced = False

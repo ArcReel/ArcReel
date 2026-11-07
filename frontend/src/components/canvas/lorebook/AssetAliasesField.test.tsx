@@ -41,7 +41,7 @@ describe("AssetAliasesField", () => {
     await user.click(screen.getByRole("button", { name: "删除别名「村头」" }));
 
     await waitFor(() => expect(update).toHaveBeenCalledWith("p", "村口", { aliases: ["槐树下"] }));
-    // 刷新后的项目数据里已经没有这个别名
+    // Refreshed project data no longer contains this alias.
     rerender(<AssetAliasesField projectName="p" name="村口" assetType="scene" aliases={["槐树下"]} />);
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe("已删除别名「村头」");

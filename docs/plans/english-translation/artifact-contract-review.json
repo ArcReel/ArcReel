@@ -1,0 +1,13 @@
+{
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "formal_bases_equal": [
+    "asset",
+    "grid",
+    "image",
+    "image_legacy_text",
+    "reference_video",
+    "video"
+  ],
+  "exact_request_fingerprint_changed": true,
+  "interpretation": "Rendered provider text changes exact request equivalence; the six representative formal-content bases remain identical. Existing resume tests verify replay from frozen checkpoints, not rebuilding current prompts. This is bounded local evidence, not universal behavior proof."
+}

@@ -1,4 +1,4 @@
-"""Web 的诊断改写不改变机器定位、正文或 Agent 诊断原文。"""
+"""Web diagnostic rendering never changes machine locations, bodies or original Agent diagnostics."""
 
 import json
 
@@ -95,7 +95,7 @@ def _write_script(projects: ProjectManager, filename: str, script: dict) -> None
 
 
 def test_item_refs_carry_current_position_excerpt_and_thumbnail(tmp_path) -> None:
-    """条目指称带上它在本集数组里的当前位置、正文摘录与缩略图；条目已不在剧本里时位置为 None。"""
+    """Entry references include current episode-array positions, excerpts and thumbnails; absent script entries have position None."""
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")

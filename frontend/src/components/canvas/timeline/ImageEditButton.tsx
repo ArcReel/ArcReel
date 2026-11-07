@@ -31,16 +31,16 @@ interface ImageEditTarget {
   projectName: string;
   resourceType: ImageEditResourceType;
   resourceId: string;
-  /** 分镜编辑必带的剧集文件；其余资产类型忽略 */
+  /** Episode script file required for storyboard edits, ignored for other asset types. */
   scriptFile?: string | null;
-  /** 是否存在可编辑的当前图；无图时禁用并提示先生成/上传 */
+  /** Editable current image exists; otherwise disable and request generation/upload first. */
   hasImage: boolean;
-  /** 资源被生成/编辑任务占用：禁用编辑入口 */
+  /** Generation/edit tasks occupy this resource; disable editing. */
   busy?: boolean;
 }
 
 /**
- * 图片卡片上的图标式「局部修改」入口：图标按钮 + 指令对话框。
+ * Local-edit icon entry on image cards: icon button/instruction dialog.
  */
 export function ImageEditButton(props: ImageEditTarget) {
   const { t } = useTranslation("dashboard");
@@ -64,8 +64,8 @@ export function ImageEditButton(props: ImageEditTarget) {
 }
 
 /**
- * 局部修改的指令对话框：以当前图为底图、指令为 prompt 入队 i2i 编辑；完成后经 SSE fingerprint 自动刷新。
- * 受控打开，供卡片的「更多」菜单等没有专属按钮的入口使用。
+ * Local-edit instructions: current image as base plus instruction prompt enqueue i2i; SSE fingerprints refresh on completion.
+ * Controlled opening supports more menus and other entries without dedicated buttons.
  */
 export function ImageEditDialog({
   projectName,
@@ -85,22 +85,22 @@ export function ImageEditDialog({
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
-    // disabled（busy||!hasImage）仍要拦：busy 还带着 store 按资源占用之外的维度——启用宫格装配时
-    // 本集有 grid 任务在跑（切割阶段覆写多张 storyboard，见 selectHasActiveTaskForScriptFile）、
-    // 卡片内正在上传底图，二者都不会出现在本资源的占用集里；且键盘快捷键提交绕过按钮的
-    // disabled 属性，此处是这层判定唯一的落点。
+    // Still guard disabled (busy||!hasImage): busy includes more than resource-store occupancy, such as episode grid tasks
+    // during grid assembly (splits overwrite multiple storyboards; selectHasActiveTaskForScriptFile),
+    // or card-local base-image uploads. Neither enters this resource's occupancy, and keyboard submission bypasses button
+    // disabled attributes; this is the sole enforcement point for that layer.
     if (!trimmed || submitting || disabled) return;
-    // 再用 getState() 新鲜读复核：弹窗停留期间响应式 busy prop 的更新依赖父组件
-    // 重渲染，存在感知延迟；这里直接读 store 当前值，与 resourceType/resourceId
-    // 命中同一占用槽（taskResourceKind 对 image_edit 按 resource_type 归槽）。
+    // Also recheck fresh getState(): reactive busy updates while dialogs remain open depend on parent
+    // rerendering and may lag. Read current stores directly for resourceType/resourceId
+    // in the same occupancy slot (taskResourceKind maps image_edit by resource_type).
     if (isAssetBusy(resourceType, projectName, resourceId)) {
       useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
       return;
     }
     const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
-    // storyboard 资源占用集查不到 grid 任务（其 resource_id 是 grid_id）；启用宫格装配时
-    // 本集有切割任务在跑时需按 scriptFile 复核，否则新鲜读会漏过 busy prop 尚未追上
-    // 的这一维度，见 selectHasActiveTaskForScriptFile 与 GridImageToVideoCanvas 的
+    // Storyboard occupancy misses grid tasks because resource_id is grid_id; with grid assembly enabled,
+    // recheck episode splitting by scriptFile or fresh reads miss this dimension before busy props catch up;
+    // see selectHasActiveTaskForScriptFile and GridImageToVideoCanvas.
     // gridActiveForEpisode。
     if (
       resourceType === "storyboard" &&
@@ -131,7 +131,7 @@ export function ImageEditDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 提交在途时忽略 Esc 与遮罩点击
+        // Ignore Escape and backdrop clicks while submission is in flight
         if (!next && submitting) return;
         onOpenChange(next);
       }}
@@ -155,7 +155,7 @@ export function ImageEditDialog({
                 }
               }}
               rows={3}
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- 对话框打开即聚焦指令输入，符合“点开就写”的心智
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- Opening the dialog immediately focuses instructions, matching open-and-write expectations
               autoFocus
               placeholder={t("image_edit_instruction_placeholder")}
             />

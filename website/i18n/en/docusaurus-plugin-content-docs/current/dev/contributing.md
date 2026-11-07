@@ -13,7 +13,7 @@ Contributions whose main purpose is to promote a commercial service (for example
 
 Issues labeled `ready-for-agent` already have implementation notes and are implemented by the maintainers' coding Agent. An external PR will not get them done sooner; it only adds another round of review, so such PRs will be closed.
 
-Before developing a new feature or making a large-scale change, open an issue to discuss the direction first.
+Before developing a new feature or making a large-scale change, we recommend opening an issue to discuss the direction first, to avoid a PR being closed later because its direction does not fit the project.
 
 Before a PR can be merged, its author must sign the CLA. CLA Assistant posts the signing link as a PR comment.
 

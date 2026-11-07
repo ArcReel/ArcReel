@@ -1,6 +1,6 @@
-"""衍生资产图上传即成品：上传替换当前版本，依据只由图字节决定，切回生成版本后回到按生成输入判定。
+"""Uploaded derivative images are finished outputs: replace selected versions with byte-only bases; restoring generated versions restores generation-input currency.
 
-用真 ``ProjectManager``、真版本记录与真产物清单：判据落在盘上的图、版本快照与清单条目上。
+Use real ``ProjectManager``, versions and manifests, with assertions grounded in files/snapshots/claims.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _status(project_path: Path) -> ArtifactStatus:
 
 
 def _regenerate_owner_sheet(project_path: Path) -> None:
-    """本体资产图换了字节：生成的衍生图以它为唯一输入，按生成输入判定的会随之过期。"""
+    """Base-image bytes change: generated derivatives use them exclusively and become stale under generation-input evaluation."""
     write_two_tone_png(project_path / "characters/阿岚.png", left=(10, 10, 10), right=(240, 240, 240))
 
 

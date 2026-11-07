@@ -40,7 +40,7 @@ class TestTruncate:
         assert truncate_memory_index("   ") == ""
 
     def test_truncation_is_exactly_what_over_limit_predicts(self):
-        """``over_limit`` 与截断同源：文件柜显示的超限与 Agent 实际读到的内容一致。"""
+        """``over_limit`` shares truncation logic, so file-browser limits match what the Agent actually reads."""
         for text in [
             "line\n" * INDEX_MAX_LINES,
             "line\n" * (INDEX_MAX_LINES + 1),
@@ -55,7 +55,7 @@ class TestTruncate:
 
         kept = truncate_memory_index(text)
 
-        body = kept.split("\n> 提示：")[0]
+        body = kept.split("\n> Notice:")[0]
         assert body.count("\n") + 1 <= INDEX_MAX_LINES
         assert len(body.encode()) <= INDEX_MAX_BYTES
         assert text.startswith(body)
@@ -65,5 +65,5 @@ class TestTruncate:
 
         notice = truncate_memory_index(text).rsplit("\n", 1)[-1]
 
-        assert f"共 300 行 / {len(text.encode())} 字节" in notice
-        assert f"{INDEX_MAX_LINES} 行 / {INDEX_MAX_BYTES} 字节" in notice
+        assert f"has 300 lines / {len(text.encode())} bytes" in notice
+        assert f"{INDEX_MAX_LINES} lines / {INDEX_MAX_BYTES} bytes" in notice

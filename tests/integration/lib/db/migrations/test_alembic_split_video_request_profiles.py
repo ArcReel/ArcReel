@@ -1,4 +1,4 @@
-"""Alembic 迁移：视频请求端点拆分保持已有模型行为。"""
+"""Alembic: splitting video request endpoints preserves existing model behavior."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ def test_split_request_profiles_preserves_existing_behavior_and_downgrades(
         ("kling", "builtin-kling"): "kling-video-audio",
         ("grok", "builtin-grok"): "grok-video-mixed",
     }
-    # 升级前 vidu2.0 的 img2video 把 12 秒校正为 8 秒，且不发送音轨开关；绑定不透明 ID 同样保持。
+    # Before upgrade, vidu2.0 img2video coerced 12 seconds to 8 and omitted the audio switch; preserve this for bound opaque IDs too.
     backend = VIDU_BACKENDS[upgraded[("custom", "opaque-vidu")]]
     request = VideoGenerationRequest(
         prompt="test", output_path=Path("out.mp4"), duration_seconds=12, start_image=Path("in.png")

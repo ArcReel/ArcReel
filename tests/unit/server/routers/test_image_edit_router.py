@@ -1,4 +1,4 @@
-"""图片指令式编辑端点（POST /projects/{name}/edit/image）的请求校验与入队行为。"""
+"""Instruction-based image editing POST /projects/{name}/edit/image: request validation and enqueue behavior."""
 
 import json
 from pathlib import Path
@@ -67,7 +67,7 @@ def _script_dict() -> dict:
         "content_mode": "narration",
         "segments": [
             _segment("E1S01", "storyboards/scene_E1S01.png"),
-            # 旧宫格项目的指针指向非 canonical 路径
+            # Legacy grid-project pointers use noncanonical paths.
             _segment("E1S02", "storyboards/scene_E1S02_first.png"),
             _segment("E1S03", None),
         ],
@@ -91,7 +91,7 @@ class _FakePM:
 
 
 def _prepare_files(tmp_path: Path) -> Path:
-    """按生产形态搭一个项目：schema 当前、剧本已绑定、已落盘的图都登记进产物清单。"""
+    """Create production-shaped projects: current schemas, bound scripts, persisted images registered in artifact manifests."""
     project_path = tmp_path / "projects" / "demo"
     for subdir in ("storyboards", "characters", "scenes", "props", "products", "scripts", "source", "drafts/episode_1"):
         (project_path / subdir).mkdir(parents=True, exist_ok=True)
@@ -113,7 +113,7 @@ def _prepare_files(tmp_path: Path) -> Path:
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(project_path, bump_schema=True)
-    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
+    # Manifest activation changes manifest versions only; subsequent migration updates project schemas before artifact-read admission.
     migrate_project_dir(project_path)
     return project_path
 
@@ -162,11 +162,11 @@ class TestEditImageEnqueue:
                 assert call["media_type"] == "image"
                 assert call["resource_id"] == resource_id
                 assert call["source"] == "webui"
-                # 顶层 resource_type 纳入 image_edit 去重键，避免不同资产类型同名互相误判去重
+                # Top-level resource_type enters image_edit dedupe keys, preventing cross-asset-type same-name false deduplication.
                 assert call["resource_type"] == resource_type
                 assert call["payload"]["resource_type"] == resource_type
                 assert call["payload"]["prompt"] == "把头发改成红色"
-                # i2i 槽在入队前已解析，provider_id 直接复用（限流池按 i2i 槽精确记账）
+                # i2i slots resolve before enqueue; reuse provider_id directly for exact i2i-slot rate-pool accounting.
                 assert call["provider_id"] == "gemini-aistudio"
 
     def test_storyboard_enqueue_success_carries_script_file(self, tmp_path, monkeypatch):
@@ -192,7 +192,7 @@ class TestEditImageEnqueue:
             assert call["payload"]["resource_type"] == "storyboard"
 
     def test_storyboard_pointer_path_accepted(self, tmp_path, monkeypatch):
-        """generated_assets.storyboard_image 指向非 canonical 路径（旧宫格项目）也可编辑。"""
+        """Noncanonical generated_assets.storyboard_image paths in legacy grid projects remain editable."""
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, _FakePM(project_path), fake_queue)
@@ -303,7 +303,7 @@ class TestEditImageValidation:
             assert fake_queue.calls == []
 
     def test_storyboard_blank_script_file_400(self, tmp_path, monkeypatch):
-        """script_file 为纯空白字符串时应等同未提供，不能绕过必填校验。"""
+        """Whitespace-only script_file equals omission, never bypassing required validation."""
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, _FakePM(project_path), fake_queue)
@@ -317,7 +317,7 @@ class TestEditImageValidation:
             assert fake_queue.calls == []
 
     def test_i2i_unavailable_400_no_task(self, tmp_path, monkeypatch):
-        """i2i 槽解析不出供应商：入队前 fail-fast，不创建任务。"""
+        """Unresolved i2i providers fail before enqueue, creating no tasks."""
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, _FakePM(project_path), fake_queue, i2i_ready=False)
@@ -331,7 +331,7 @@ class TestEditImageValidation:
             assert fake_queue.calls == []
 
     def test_model_not_in_catalog_asks_to_reselect(self, tmp_path, monkeypatch):
-        """项目引用的图片模型已不在供应商清单中：要求重新选择模型，不说成「i2i 不可用」，不创建任务。"""
+        """Project image models missing from provider lists require model reselection, not unavailable i2i; create no tasks."""
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()
         error = ModelNotInCatalogError(provider_id="openai", model_id="gpt-image-retired", media_type="image")
@@ -348,7 +348,7 @@ class TestEditImageValidation:
             assert fake_queue.calls == []
 
     def test_no_current_image_400(self, tmp_path, monkeypatch):
-        """目标资源无 current 图（sheet 未设置 / 分镜图文件不存在）时拒绝入队。"""
+        """Targets without current images, unset sheets or absent storyboard files, reject enqueue."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["Alice"]["character_sheet"] = ""
@@ -361,7 +361,7 @@ class TestEditImageValidation:
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "x"},
             )
             assert resp.status_code == 400
-            # E1S03 无 generated_assets 指针且 canonical 文件不存在
+            # E1S03 lacks generated_assets pointers and canonical files.
             resp = client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={
@@ -375,7 +375,7 @@ class TestEditImageValidation:
             assert fake_queue.calls == []
 
     def test_sheet_file_missing_on_disk_400(self, tmp_path, monkeypatch):
-        """sheet 字段有值但文件不在磁盘上：同样按无 current 图拒绝。"""
+        """Nonempty sheet fields with absent disk files likewise reject as missing current images."""
         project_path = _prepare_files(tmp_path)
         (project_path / "characters" / "Alice.png").unlink()
         fake_queue = _FakeQueue()

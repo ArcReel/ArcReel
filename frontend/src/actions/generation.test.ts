@@ -1,9 +1,9 @@
 /**
- * 入队动作层测试：spy API 静态方法 + 真实 zustand store，
- * 验证「乐观打标（请求发出前）→ API 调用 → 兑现/回滚 → toast → 返回值归一化」的固定封装，
- * 以及 deduped=true 统一 info 提示与失败回滚。
+ * Enqueue action-layer tests: spy static API methods with real zustand stores,
+ * validating fixed optimistic marks (before requests) → API calls → settlement/rollback → toasts → normalized returns,
+ * plus shared deduped=true info notices and failure rollback.
  *
- * 占用一律按 selector 断言而非比对标记 key 的字面量——key 编码是 store 内部实现。
+ * Assert occupancy through selectors, never literal marker keys: encoding belongs to store internals.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -38,13 +38,13 @@ import { makeTask } from "@/test/factories";
 
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
-/** 该资源是否被占用（真实任务行或乐观标记）。 */
+/** Whether resources are occupied by real task rows or optimistic markers. */
 function occupied(projectName: string, resourceKind: ResourceKind, resourceId: string): boolean {
   const { tasks, optimisticActive } = useTasksStore.getState();
   return selectActiveResourceIds(tasks, resourceKind, projectName, optimisticActive).has(resourceId);
 }
 
-/** 该剧集在指定 taskType 下是否被占用。 */
+/** Whether episodes are occupied under specified taskType. */
 function scriptFileOccupied(projectName: string, taskType: string, scriptFile: string): boolean {
   const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
   return selectHasActiveTaskForScriptFile(
@@ -85,7 +85,7 @@ describe("enqueueStoryboard", () => {
   });
 
   it("请求发出前就完成打标，往返窗口内资源即被判为占用", async () => {
-    // 打标若等到 API 返回才落，这段往返里资源判定为空闲，各调用方就得自备在途 ref
+    // Marking only after API responses leaves resources idle during round trips, forcing callers to hold in-flight refs.
     let release: (v: typeof SINGLE_OK) => void = () => {};
     vi.spyOn(API, "generateStoryboard").mockReturnValue(
       new Promise<typeof SINGLE_OK>((resolve) => {
@@ -124,8 +124,8 @@ describe("enqueueStoryboard", () => {
   });
 
   it("响应体形状意外时同样回滚，不留下永不清除的在途标记", async () => {
-    // 在途标记不被任何轮询写回清除，故兑现前的异常路径（如 204 让 API.request 返回
-    // undefined、随后取 task_id 抛 TypeError）也必须回滚，否则资源锁死到刷新为止。
+    // Polling writes never clear in-flight markers, so even presettlement exceptions (for example 204 makes API.request return
+    // undefined and task_id access raises TypeError) must roll back or resources stay locked until refresh.
     vi.spyOn(API, "generateStoryboard").mockResolvedValue(
       undefined as unknown as Awaited<ReturnType<typeof API.generateStoryboard>>,
     );
@@ -225,7 +225,7 @@ describe("enqueueEpisodeNarration", () => {
 
     expect(occupied("demo", "tts", "E1S01")).toBe(true);
     expect(occupied("demo", "tts", "E1S02")).toBe(true);
-    // 服务端跳过的段（已有旁白 / 无原文）不在映射里，不能被标成生成中
+    // Server-skipped segments (existing narration / no sources) are absent from maps and must not be marked generating.
     expect(occupied("demo", "tts", "E1S03")).toBe(false);
     expect(markCounts()).toEqual({ resource: 2, scriptFile: 0 });
     expect(useAppStore.getState().toast?.text).toBe(
@@ -234,8 +234,8 @@ describe("enqueueEpisodeNarration", () => {
     expect(res).toEqual({ taskIds: ["t1", "t2"], deduped: false });
   });
 
-  // 每段的标记只等它自己的任务行：等全批落库时，任务列表快照只留最新若干行，
-  // 早的行可能再不出现，那些段会一直显示成生成中。
+  // Each segment waits only for its own row: batch-wide waits miss earlier rows trimmed from latest-row
+  // task snapshots, leaving those segments generating forever.
   it("每段的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
@@ -247,7 +247,7 @@ describe("enqueueEpisodeNarration", () => {
 
     await enqueueEpisodeNarration("demo", "episode_1.json");
 
-    // 只有 E1S01 的任务行落库：它让位，E1S02 仍占用。
+    // Only E1S01 persisted: yield its marker, keeping E1S02 occupied.
     useTasksStore.getState().setTasks([
       {
         task_id: "t1",
@@ -291,7 +291,7 @@ describe("enqueueImageEdit", () => {
       scriptFile: "episode_1.json",
     });
 
-    // 编辑任务与目标资源的生成任务同槽：按 storyboard 归槽而非 image_edit
+    // Edit tasks share target generation slots: bucket by storyboard, never image_edit.
     expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
     expect(useAppStore.getState().toast?.text).toBe("已提交图片编辑");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
@@ -318,8 +318,8 @@ describe("enqueueGrid", () => {
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
   });
 
-  // 每张宫格的标记只等它自己的任务行，理由与参考视频批量同：等全批落库会让早的宫格
-  // 因任务快照裁剪而一直显示成生成中。
+  // Each grid waits only for its own row, like reference-video batches: batch-wide waits leave early grids
+  // generating forever after task-snapshot trimming.
   it("每张宫格的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateGrid").mockResolvedValue({
       success: true,
@@ -333,7 +333,7 @@ describe("enqueueGrid", () => {
 
     await enqueueGrid("demo", 1, "episode_1.json");
 
-    // 只有 g1 的任务行落库：它让位，g2 仍占用。
+    // Only g1 persisted: yield its marker, keeping g2 occupied.
     useTasksStore.getState().setTasks([
       {
         task_id: "t1",
@@ -423,7 +423,7 @@ describe("enqueueScriptPlan", () => {
 });
 
 describe("enqueuePromptAuthoring", () => {
-  /** 入队时任务列表正在跟踪本项目：编写入口都在工作室内，刷新范围即当前项目。 */
+  /** Enqueue task lists track this project: authoring entries live in studios, refreshing current-project scopes. */
   beforeEach(() => {
     useTasksStore.setState({ refreshScope: { projectName: "demo" } });
   });
@@ -474,7 +474,7 @@ describe("enqueuePromptAuthoring", () => {
     useAppStore.setState({ toast: null });
     finish(result, status);
     expect(useAppStore.getState().toast).toBeNull();
-    // 本次任务已结束，监听器随之退订：后续同项目的空操作任务行不归它管。
+    // Terminal tasks unsubscribe listeners; later same-project no-op task rows are outside their responsibility.
     finish({ message: "没有待编写的条目", no_pending_authoring: true }, "succeeded", "t-other");
     expect(useAppStore.getState().toast).toBeNull();
   });
@@ -568,8 +568,8 @@ describe("enqueueReferenceVideoBatch", () => {
     expect(res.decision).toBe("admitted");
   });
 
-  // 每个单元的标记只等它自己的任务行：等全批落库时，任务列表快照只留最新若干行，
-  // 早的行可能再不出现，那些单元会一直显示成生成中。
+  // Each unit waits only for its own row: batch-wide waits miss early rows trimmed from latest-row
+  // task snapshots, leaving those units generating forever.
   it("admitted 时每个单元的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue({
       ...ADMISSION,
@@ -582,7 +582,7 @@ describe("enqueueReferenceVideoBatch", () => {
       unit_ids: ["E1U1", "E1U2"],
     });
 
-    // 只有 E1U1 的任务行落库：它让位，E1U2 仍占用。
+    // Only E1U1 persisted: yield its marker, keeping E1U2 occupied.
     useTasksStore.getState().setTasks([
       {
         task_id: "t1",
@@ -597,8 +597,8 @@ describe("enqueueReferenceVideoBatch", () => {
     expect(occupied("demo", "reference_video", "E1U2")).toBe(true);
   });
 
-  // 入队中断不撤销已建的任务：建成的单元继续占用等自己的任务行，没轮到的单元让位，
-  // 并且用户要听到「少了几个」，否则只看到成功提示会以为整批都在跑。
+  // Interrupted enqueue never undoes created tasks: created units stay occupied awaiting their rows, unreached units yield;
+  // tell users how many are missing, or success-only notices imply entire batches are running.
   it("入队中断时只保留已建任务的占用标记并提示未创建的单元", async () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue({
       ...ADMISSION,
@@ -625,9 +625,9 @@ describe("enqueueReferenceVideoBatch", () => {
     );
   });
 
-  // 首个目标就没入队时一个任务也没建：只报中断，不要再来一句「已提交 0 个」。
+  // No first-target enqueue means no tasks created: report interruption only, never add submitted-zero notices.
   it("入队在首个目标处中断时不弹已提交提示", async () => {
-    // 断言的是「弹了几句」，故收集全部 toast：store 只留最后一句，光看它无法发现多出来的那句。
+    // Assert notice counts by collecting every toast: stores retain latest only, hiding extraneous notices.
     const realPushToast = useAppStore.getState().pushToast;
     type ToastTone = Parameters<typeof realPushToast>[1];
     const pushed: Array<{ text: string; tone: ToastTone }> = [];
@@ -672,8 +672,8 @@ describe("enqueueReferenceVideoBatch", () => {
     expect(occupied("demo", "reference_video", "E1U2")).toBe(false);
   });
 
-  // confirmation_required / blocked 一个任务也没建：占用标记必须整批回滚，
-  // 否则界面会把没入队的单元显示成生成中，直到刷新页面。
+  // confirmation_required / blocked create no tasks: roll back entire optimistic-marker batches,
+  // or unqueued units falsely appear generating until page refresh.
   it.each(["confirmation_required", "blocked"] as const)(
     "%s 时回滚占用标记且不弹入队提示",
     async (decision) => {

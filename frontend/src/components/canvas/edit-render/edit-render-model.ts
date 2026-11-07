@@ -2,8 +2,8 @@ import type { EditTimelineIssueRef } from "@/types";
 import type { TimelineNarration } from "@/types/edit-timeline";
 
 /**
- * 阻断出片的 issues。不给旁白版本时只算阻断全部交付物的；给出旁白版本时，
- * 带旁白版本还算上只阻断带旁白版本的（如缺旁白配音）。
+ * Issues blocking rendering. Without a narration version, count only issues blocking every deliverable; when a version is specified,
+ * the version with narration also includes issues blocking only that version, such as missing narration audio.
  */
 export function blockingIssues<T extends EditTimelineIssueRef>(
   issues: readonly T[],
@@ -16,7 +16,7 @@ export function blockingIssues<T extends EditTimelineIssueRef>(
   );
 }
 
-/** issues 涉及的视频单元编号，去重后按出现顺序排列。 */
+/** Video-unit numbers affected by issues, deduplicated in order of appearance. */
 export function issueUnitIds(issues: readonly EditTimelineIssueRef[]): string[] {
   return [...new Set(issues.flatMap((issue) => (issue.unit_id ? [issue.unit_id] : [])))];
 }

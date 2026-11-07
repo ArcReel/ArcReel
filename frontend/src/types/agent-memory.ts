@@ -1,10 +1,10 @@
-// Agent 记忆目录的读模型（后端 lib/agent/agent_memory_store.py 的 overview 响应）。
-// 用户记忆与项目记忆的形状完全一致，差别只在请求路径，故共用一套类型。
+// Read model for the Agent memory directory (the overview response from backend lib/agent/agent_memory_store.py).
+// User and project memory have identical shapes and differ only in request paths, so they share these types.
 
-/** frontmatter 里合法的记忆类型；取值之外的一律由后端判为无 frontmatter。 */
+/** Valid memory types in frontmatter; the backend treats any other value as absent frontmatter. */
 export type AgentMemoryType = "user" | "feedback" | "project" | "reference";
 
-/** 解析成功的 frontmatter；`name` / `description` 缺失或全空白时为 null。 */
+/** Successfully parsed frontmatter; `name` / `description` is null when absent or entirely whitespace. */
 export interface AgentMemoryFrontmatter {
   name: string | null;
   description: string | null;
@@ -14,13 +14,13 @@ export interface AgentMemoryFrontmatter {
 export interface AgentMemoryFile {
   name: string;
   size: number;
-  /** 带时区偏移的 UTC ISO 8601。 */
+  /** UTC ISO 8601 with a timezone offset. */
   modified_at: string;
-  /** frontmatter 缺失、语法错误或 type 非法时整体为 null。 */
+  /** Null in its entirety when frontmatter is missing, malformed, or has an invalid type. */
   frontmatter: AgentMemoryFrontmatter | null;
 }
 
-/** 索引文件 MEMORY.md 的统计；它不出现在 `files` 里。 */
+/** Statistics for the MEMORY.md index file, which does not appear in `files`. */
 export interface AgentMemoryIndexStats {
   exists: boolean;
   line_count: number;
@@ -29,11 +29,11 @@ export interface AgentMemoryIndexStats {
 }
 
 export interface AgentMemoryOverview {
-  /** 记忆目录的服务端绝对路径，直接展示给创作者，不进 i18n。 */
+  /** Absolute server path of the memory directory, shown directly to the creator without i18n. */
   path: string;
   index: AgentMemoryIndexStats;
   files: AgentMemoryFile[];
 }
 
-/** 记忆的归属层级：两级只换请求路径与文案。 */
+/** Memory ownership scope: the two levels differ only in request paths and wording. */
 export type AgentMemoryScope = { level: "user" } | { level: "project"; projectName: string };

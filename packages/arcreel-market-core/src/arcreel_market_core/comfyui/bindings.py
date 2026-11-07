@@ -1,8 +1,8 @@
-"""节点绑定的语义键名录：推断、校验与运行时填值共读这一份。
+"""Semantic key catalog for node bindings, shared by inference, validation, and runtime value population.
 
-语义键与声明式端点共用命名（``prompt`` / ``start_image`` / ``reference_images`` …），这样同一个
-维度在两种 ``kind`` 上叫同一个名字。哪些键属于哪种媒体类型是名录里的事实，不是各处各写一份
-``if media_type == "image"``——白名单漂移会让保存期放行的绑定在填值期落空。
+Semantic keys share declarative-endpoint names (``prompt`` / ``start_image`` / ``reference_images`` …), so the same
+dimension has the same name across both ``kind`` values. Key membership by media type is a catalog fact rather than duplicated
+``if media_type == "image"`` branches: whitelist drift lets save-time-accepted bindings fail during population.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from .workflow import node_inputs
 
 logger = logging.getLogger(__name__)
 
-#: 视频端点可用的全部语义键，也是 schema 里 ``bindings`` 的封闭键集。
+#: All semantic keys for video endpoints, also the closed key set for schema ``bindings``.
 VIDEO_BINDING_KEYS = (
     "prompt",
     "negative_prompt",
@@ -30,7 +30,7 @@ VIDEO_BINDING_KEYS = (
     "output",
 )
 
-#: 图像端点可用的语义键：没有首尾帧，也没有帧数与帧率这两个时间轴维度。
+#: Semantic keys for image endpoints: no first/last frames and no frame-count/frame-rate timeline dimensions.
 IMAGE_BINDING_KEYS = (
     "prompt",
     "negative_prompt",
@@ -41,22 +41,22 @@ IMAGE_BINDING_KEYS = (
     "output",
 )
 
-#: ``media_type`` → 该媒体类型允许的语义键。
+#: ``media_type`` to allowed semantic keys for that media type.
 BINDING_KEYS_BY_MEDIA_TYPE: dict[str, frozenset[str]] = {
     "image": frozenset(IMAGE_BINDING_KEYS),
     "video": frozenset(VIDEO_BINDING_KEYS),
 }
 
-#: 两种媒体类型都必须绑定的语义键：没有提示词无从下笔，没有产物取不到成片。
+#: Semantic keys requiring bindings for both media types: no prompt means no starting input; no artifact means no retrievable output.
 REQUIRED_BINDING_KEYS = ("prompt", "output")
 
 
 def targets_of(raw: object) -> tuple[Mapping[str, Any], ...]:
-    """一个语义键的目标列表。
+    """Target list for one semantic key.
 
-    三态里「空列表」与「键缺失」在此同形：两者都是「没有目标」，区别只在导入时要不要重跑推断，
-    与填值、校验、能力推导都无关。非列表值与列表里的非对象条目一并丢掉——schema 已把形状挡在
-    保存期之前，这里只保证读侧拿到的每一项都可当条目用。
+    Among the three states, empty lists and absent keys are equivalent here: both mean no targets. They differ only in whether import reruns inference,
+    not population, validation, or capability derivation. Discard nonlist values and nonobject list entries alike: schema validation already gates shape before
+    saving; this merely ensures every item supplied to readers is usable as an entry.
     """
     if not isinstance(raw, list):
         return ()
@@ -64,10 +64,10 @@ def targets_of(raw: object) -> tuple[Mapping[str, Any], ...]:
 
 
 def literal_of(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> object:
-    """一个目标当前的字面值；节点或字段已不在图里则 ``None``。
+    """A target's current literal value, or ``None`` if its node or field no longer exists in the graph.
 
-    填值、校验与能力推导读的是同一份字面值，判据因此只此一处：三个消费方各写一份的话，「节点不在
-    图里」这类边界迟早各判各的，而它们本该对同一份 workflow 得出同一个结论。
+    Population, validation, and capability derivation read the same literal, so keep the criterion here: three separate implementations would eventually judge boundaries such as a node missing
+    from the graph differently, though they should reach the same conclusion for the same workflow.
     """
     node = workflow.get(str(target["node"]))
     name = target.get("input")
@@ -77,22 +77,22 @@ def literal_of(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> object
 
 
 def int_literal_of(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> int | None:
-    """字面值取整数；布尔不算数——``True`` 是 ``int`` 的子类，当尺寸或帧数用会静默变成 1。"""
+    """Read integer literals, excluding booleans: ``True`` is an ``int`` subclass and silently becomes 1 when used as size or frame count."""
     raw = literal_of(workflow, target)
     return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
 
 
 def positive_number(raw: object) -> float | None:
-    """正数值，否则 ``None``。帧率与尺寸都只在正数时有意义。"""
+    """A positive numeric value, otherwise ``None``. Frame rates and dimensions are meaningful only when positive."""
     return float(raw) if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0 else None
 
 
 def bound_fps(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> float | None:
-    """``fps`` 只读绑定读出的、这份 workflow 实际在用的帧率。
+    """The actual frame rate used by this workflow, read from read-only ``fps`` bindings.
 
-    多个只读绑定读出不同字面值时取第一个：那是一份自相矛盾的定义，保存期已由
-    ``comfyui_fps_conflict`` 挡下（``arcreel_market_core/comfyui/validator.py``），到这里只剩存量
-    数据，取谁都是猜，取第一个至少让填值与推导口径一致。
+    Use the first literal when multiple read-only bindings differ: this is a contradictory definition already blocked at save time by
+    ``comfyui_fps_conflict`` (``arcreel_market_core/comfyui/validator.py``). Only existing
+    data reaches here; any selection is a guess, and the first at least keeps population and derivation consistent.
     """
     for target in targets_of(bindings.get("fps")):
         fps = positive_number(literal_of(workflow, target))
@@ -102,25 +102,25 @@ def bound_fps(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> float
 
 
 def fps_literals(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> list[float]:
-    """全部 ``fps`` 只读绑定各自读出的正字面值，按绑定顺序。"""
+    """Positive literal values read from all read-only ``fps`` bindings, in binding order."""
     return [
         value for target in targets_of(bindings.get("fps")) if (value := positive_number(literal_of(workflow, target)))
     ]
 
 
 def step_of(target: Mapping[str, Any]) -> int:
-    """条目声明的步长；未声明按 1 看待——没有步长信息时不替 workflow 作者假设一个。"""
+    """Step declared by the entry, defaulting to 1 when omitted; do not assume a step for the workflow author without information."""
     raw = target.get("step")
     return raw if isinstance(raw, int) and raw >= 1 else 1
 
 
 def align_frames(frames: int, step: int) -> int:
-    """向下对齐到 ``frames ≡ 1 (mod step)``，下限 ``1 + step``。
+    """Align downward to ``frames ≡ 1 (mod step)``, with lower bound ``1 + step``.
 
-    下限只留日志不报错：时长短到连一个步长都凑不出时，提交最小合法帧数仍能出片，把这次生成拒了
-    反而不如让用户看见一段比预期短的成片。
+    Log the lower bound without raising: if duration is too short for one step, submitting the minimum valid frame count can still produce output; rejecting generation
+    is less useful than showing the user output shorter than expected.
 
-    填值与能力推导共读这一份：前者据它写帧数，后者据它判「这一档选中之后还是不是原来那份图」。
+    Population and capability derivation share this: the former writes frame counts; the latter decides whether selecting this tier still preserves the original graph.
     """
     aligned = frames - (frames - 1) % step
     if aligned < 1 + step:

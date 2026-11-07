@@ -16,10 +16,10 @@ const config: Config = {
   onBrokenAnchors: "throw",
 
   markdown: {
-    // .md 按 CommonMark 解析，只有 .mdx 走 MDX：文档正文里的 `<1.0.0`、`<域名>` 等
-    // 尖括号片段在 MDX 下会被当成 JSX 而编译失败，且 CONTRIBUTING.md 还要在 GitHub 上原样可读
+    // Parse .md as CommonMark and only .mdx as MDX: angle-bracket fragments such as `<1.0.0` and `<域名>` in documents
+    // become JSX and fail MDX compilation; CONTRIBUTING.md must also remain readable unchanged on GitHub
     format: "detect",
-    // 配合 @docusaurus/theme-mermaid，把 ```mermaid 围栏渲染成图
+    // Render ```mermaid fences as diagrams with @docusaurus/theme-mermaid
     mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: "throw",
@@ -36,7 +36,7 @@ const config: Config = {
       "classic",
       {
         docs: {
-          // docs-only 模式：文档直接挂在站点根，因此 src/pages/index.* 不能存在（路由冲突）
+          // docs-only mode mounts documents at the site root, so src/pages/index.* must not exist (route conflict)
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
           editUrl: "https://github.com/ArcReel/ArcReel/tree/main/website/",
@@ -55,7 +55,7 @@ const config: Config = {
       "@easyops-cn/docusaurus-search-local",
       {
         indexBlog: false,
-        // docs-only 模式下须与 docs 的 routeBasePath 一致，否则索引为空
+        // In docs-only mode, match the docs routeBasePath or the index is empty
         docsRouteBasePath: "/",
         language: ["en", "zh"],
         hashed: true,

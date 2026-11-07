@@ -1,13 +1,12 @@
-"""本集引用的资产：一集正式脚本里写到的资产与衍生，按资产表的落盘真名给出。
+"""Episode asset references: assets/derivatives in a formal script, using actual persisted asset-table names.
 
-「本集要用到哪些资产图」只在这里算一次：集层批量生成资产图、Agent 按集列出与生成待生成资产、
-制作状态里「本集引用的资产缺资产图」都取这一份，三处不各自拼集合。
+Compute required sheets once here, shared by episode batch generation, Agent episode listings/pending
+asset generation, and production-state missing-referenced-sheet checks, without three independent sets.
 
-引用落点与级联改名、引用状态共用 :func:`lib.script.script_references.payload_reference_names`
-（引用数组、``speaker``、正文 ``@[名称]``），名字归属由 :class:`ReferenceCatalog` 决议，未登记的
-名字不算。衍生引用 ``本体/衍生`` 同时算引用了本体：衍生资产图是对本体资产图的一次编辑，
-本体没有可用资产图时衍生无从生成。
-"""
+Share :func:`lib.script.script_references.payload_reference_names` with cascading renames/reference
+status (arrays, ``speaker``, body ``@[名称]``). :class:`ReferenceCatalog` resolves ownership; unregistered
+names do not count. Derivative ``本体/衍生`` also references its base, since derivative sheets edit base
+sheets and cannot generate without an available base sheet."""
 
 from __future__ import annotations
 
@@ -23,19 +22,19 @@ from lib.script.script_references import payload_reference_names
 
 @dataclass(frozen=True, slots=True)
 class ReferencedAsset:
-    """一条被本集引用的资产或衍生。"""
+    """One asset/derivative referenced by this episode."""
 
     asset_type: str
-    #: 资产表里的落盘真名；衍生写作 ``本体/衍生``（两段都是落盘真名）。
+    #: Actual asset-table name; derivatives use ``本体/衍生`` with actual names in both segments.
     name: str
-    #: 衍生所属本体的落盘真名；本体条目为 ``None``。
+    #: Derivative base actual name, ``None`` for base entries.
     owner: str | None = None
 
 
 def episode_referenced_assets(
     project: Mapping[str, Any], script: Mapping[str, Any] | None
 ) -> frozenset[ReferencedAsset]:
-    """一集正式脚本引用的全部已登记资产与衍生；没有正式脚本时为空。"""
+    """All registered assets/derivatives referenced by an episode formal script; empty without one."""
 
     if script is None:
         return frozenset()

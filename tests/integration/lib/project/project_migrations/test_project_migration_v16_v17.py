@@ -1,4 +1,4 @@
-"""v16→v17 迁移：项目文本 backend 里已退役的 Flash-Lite preview ID 改为正式 ID。"""
+"""v16→v17: replace retired Flash-Lite preview IDs in project text backends with stable IDs."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def test_schema_16_project_with_retired_flash_lite_resolves_the_formal_id(
         **legacy,
         "default_text_backend": f"{provider_id}/gemini-3.1-flash-lite",
         "text_backend_simple": f"{provider_id}/gemini-3.1-flash-lite",
-        # v18→v19 记下本集用过的最大分镜号（样本剧本到 E1S02）
+        # v18→v19 records highest used shot IDs; the sample ends at E1S02.
         "episodes": [{**entry, "item_id_high_water": 2} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }

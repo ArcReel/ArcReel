@@ -1,4 +1,4 @@
-"""商品 Cup 与 Cup_1 同时存在时，经真实 REST 入口改名 / 删除 / 恢复 Cup_1，不得带走 Cup 的原图。"""
+"""Coexisting Cup/Cup_1 products rename/delete/restore Cup_1 through real REST without taking Cup originals."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def test_delete_cup_1_leaves_cup_untouched(setup):
 
 
 def test_delete_then_cup_uploads_again_then_restore_cup_1(setup):
-    """删除期间 Cup 再传一张图，再恢复 Cup_1，Cup 原有的图仍归 Cup。"""
+    """Upload more Cup images while Cup_1 is deleted; restoration preserves Cup ownership of originals."""
     client, _pm, project_dir, uploads = setup
     cup_images = {rel: (project_dir / rel).read_bytes() for rel in uploads["Cup"]}
     deleted_product_image = (project_dir / uploads["Cup_1"][0]).read_bytes()

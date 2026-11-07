@@ -1,9 +1,11 @@
-"""Grok、Vidu、可灵按请求契约拆端点，冻结升级前名字识别规则回填。
+"""Split Grok, Vidu, and Kling endpoints by request contract, freezing pre-upgrade name-recognition backfill.
 
-只改旧端点；显式选过其他端点的模型保持不变。条目绑定优先，再按名字对应条目；
-用户条目副本的官方名与别名参与旧规则。无条目时用 API 模型名，不把 API 名附加到条目名字后。
-出厂快照的全部视频条目名字冻结在本迁移，不依赖以后刷新的快照；已同步的数据和用户副本按升级前顺序覆盖。
-旧任务检查点不改写，由 RETIRED_ENDPOINT_SUCCESSORS 放行等价轮询；降级后新检查点无法在旧版本续跑。
+Only old endpoints change; models explicitly assigned other endpoints stay unchanged. Entry bindings take
+precedence, then name-based entry matching; user-copy official names and aliases participate in old rules.
+Without an entry, use the API model name, without appending it to entry names.
+Freeze all shipped video-entry names here, independent of later snapshots; synced data and user copies
+overlay them in pre-upgrade order. Old task checkpoints remain unchanged; RETIRED_ENDPOINT_SUCCESSORS
+permits equivalent polling. After downgrade, new checkpoints cannot resume in old versions.
 """
 
 from __future__ import annotations
@@ -157,7 +159,7 @@ def upgrade() -> None:
         }
     )
 
-    # 升级前按名字对应条目的归一化规则（ADR 0105）。
+    # Pre-upgrade normalization for matching entries by name (ADR 0105).
     def normalize(value: str) -> str:
         return value.rpartition("/")[2].lower().replace(".", "-")
 

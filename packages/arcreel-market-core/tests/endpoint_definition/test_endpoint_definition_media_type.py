@@ -1,4 +1,4 @@
-"""定义的媒体类型由定义自己声明：声明式缺省为视频，名录外的 kind 拒绝。"""
+"""Definitions declare media type: declarative defaults to video; reject unknown kinds."""
 
 from __future__ import annotations
 

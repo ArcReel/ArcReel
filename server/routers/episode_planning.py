@@ -1,13 +1,13 @@
-"""AI 分集规划的 Web 入口：AI 规划分集与重新规划。
+"""Web entry points for AI episode planning and replanning.
 
-「AI 规划分集」调用 :func:`server.tool_runtime.start_episode_planning`：准入（有整本源文、没有悬而未决的
-重新规划候选）与 Agent 的 ``plan_episodes`` 同一个谓词，从账本推导的规划起点逐窗规划到整本源文结尾，每一窗是
-一个排队的文本任务。提交后立即返回首窗的生成批次，进度经任务事件与项目快照呈现。附加指令随任务传递，不写进项目。
+Planning calls :func:`server.tool_runtime.start_episode_planning`, sharing Agent ``plan_episodes`` admission: whole-source
+text exists and no unresolved replan candidate exists. Plan window by window from the ledger-derived starting point
+through source end, each window a queued text task. Submission immediately returns the first window’s batch; task
+events/project snapshots expose progress. Additional instructions travel with tasks and are not saved in the project.
 
-「从这一集开始重新规划」调用 :func:`server.tool_runtime.start_episode_replan`：逐窗生成一份候选，分集账本不动；
-生成中途停止后可以接着生成（:func:`server.tool_runtime.continue_episode_replan`）。候选的采纳与放弃见
-:mod:`lib.episode.episode_replan`。
-"""
+Replanning from an episode calls :func:`server.tool_runtime.start_episode_replan`, generating a candidate window by
+window without changing the episode ledger. Interrupted generation can continue through
+:func:`server.tool_runtime.continue_episode_replan`. See :mod:`lib.episode.episode_replan` for adoption/discard."""
 
 import asyncio
 import logging
@@ -67,14 +67,15 @@ class EpisodePlanningRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instructions: Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)] | None = Field(
-        default=None, description="附加指令原文；空白视同未传"
+        default=None, description="Original additional instructions; whitespace counts as omitted"
     )
     gap: PlanningGap | None = Field(
-        default=None, description="只规划以这一点为终点的那段未切分原文；缺省时从规划起点规划到整本源文结尾"
+        default=None,
+        description="Plan only the unsplit source range ending at this point; omit to plan from the planning start through the whole source’s end",
     )
 
 
-#: 重新规划被拒的原因码 → 状态码；未列出的为 409。
+#: Replan rejection reason → status; unlisted reasons use 409.
 _REPLAN_STATUS: dict[str, int] = {
     "episode_not_found": 404,
     "candidate_not_found": 404,
@@ -116,10 +117,9 @@ def _context(project_name: str, user_id: str) -> tuple[ProjectScope, CallerConte
 
 @router.post("/projects/{project_name}/episode-planning")
 async def plan_episodes_to_end(project_name: str, req: EpisodePlanningRequest, user: CurrentUser, _t: Translator):
-    """提交 AI 分集规划，从规划起点逐窗规划到整本源文结尾，返回首窗的生成批次。
+    """Submit AI planning from the planning start through whole-source end, window by window, returning the first window’s batch.
 
-    带 ``gap`` 时是「规划这段未切分的原文」：只规划到这段原文的结尾，新集按源文位置插入。
-    """
+    With ``gap``, plan only that unsplit source range through its ending and insert new episodes by source position."""
     scope, caller, services = _context(project_name, user.id)
     outcome = await start_episode_planning(
         ToolRequest(PlanEpisodesRequest(instructions=req.instructions)),
@@ -135,7 +135,7 @@ async def plan_episodes_to_end(project_name: str, req: EpisodePlanningRequest, u
 
 @router.post("/projects/{project_name}/episode-planning/stop")
 async def stop_planning(project_name: str, user: CurrentUser):
-    """停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，已切出的集保留。"""
+    """Stop planning by cancelling queued windows; the running window finishes normally and existing planned episodes remain."""
     scope, caller, services = _context(project_name, user.id)
     result = await stop_episode_planning(scope, caller, services)
     return {"cancelled": result.cancelled, "running": result.running}
@@ -144,20 +144,19 @@ async def stop_planning(project_name: str, user: CurrentUser):
 class EpisodeReplanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 从哪一集开始重新规划（集 ID）。
+    #: Episode ID from which to replan.
     episode: Annotated[int, Field(gt=0)]
     instructions: Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)] | None = Field(
-        default=None, description="附加指令原文；空白视同未传"
+        default=None, description="Original additional instructions; whitespace counts as omitted"
     )
-    dry_run: bool = Field(default=False, description="只返回重新规划的范围，不发起")
+    dry_run: bool = Field(default=False, description="Return only the replanning range without starting replanning")
 
 
 @router.post("/projects/{project_name}/episode-replan", dependencies=[Depends(require_project_migration_ok)])
 async def start_replan(project_name: str, req: EpisodeReplanRequest, user: CurrentUser, _t: Translator):
-    """从某一集开始重新规划：逐窗生成一份候选，分集账本不动，返回首窗的生成批次。
+    """Replan from an episode by generating a candidate window by window without changing the ledger; return the first window’s batch.
 
-    ``dry_run`` 时返回 ``status=preview``：会被替换的切出集 ``replaced`` 与其中已开始制作的集 ``started``。
-    """
+    ``dry_run`` returns ``status=preview`` with extracted episodes to replace in ``replaced`` and those already in production in ``started``."""
     scope, caller, services = _context(project_name, user.id)
     outcome = await start_episode_replan(
         ToolRequest(PlanEpisodesRequest(instructions=req.instructions)),
@@ -182,10 +181,9 @@ class ReplanContinueRequest(BaseModel):
 
 @router.post("/projects/{project_name}/episode-replan/continue", dependencies=[Depends(require_project_migration_ok)])
 async def continue_replan(project_name: str, req: ReplanContinueRequest, user: CurrentUser, _t: Translator):
-    """接着生成中途停止的新的分集方案：从方案的结尾逐窗生成到整本源文结尾，沿用发起时的附加指令。
+    """Continue an interrupted replan from the candidate ending through whole-source end, window by window, reusing original additional instructions.
 
-    返回首窗的生成批次。方案已覆盖到结尾、已过时或已不在时按原因码拒绝；分集规划在进行时 409。
-    """
+    Return the first window’s batch. Reject completed, stale or absent candidates by reason code; return 409 while episode planning is active."""
     scope, caller, services = _context(project_name, user.id)
     outcome = await continue_episode_replan(req.candidate_id, scope, caller, services)
     if outcome.problem is not None:
@@ -197,9 +195,9 @@ class ReplanAdoptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate_id: str
-    #: 创作者看过的变更清单的 ``revision``；缺省或与当前清单不符时只返回清单，不采纳。
+    #: ``revision`` of the change list seen by the creator; absent/mismatched revisions return the list without adopting.
     revision: str | None = None
-    #: 一并删除退下的集（已开始制作、转为无原文的集）。
+    #: Also delete retired episodes that already entered production and became sourceless.
     delete_retired: bool = False
 
 
@@ -210,7 +208,7 @@ class ReplanDiscardRequest(BaseModel):
 
 
 async def _run_replan[T](name: str, user_id: str, _t: Translator, action: Callable[[ProjectManager], T]) -> T:
-    """候选生成进行中时拒绝；其余在线程里执行，``ReplanError`` 映射为对应状态码与文案。"""
+    """Reject while candidate generation is active; otherwise execute in a thread and map ``ReplanError`` to its status/message."""
     scope, caller, services = _context(name, user_id)
     if not await asyncio.to_thread(services.projects.project_exists, name):
         raise NotFoundError("project_not_found", name=name)
@@ -234,14 +232,13 @@ async def _run_replan[T](name: str, user_id: str, _t: Translator, action: Callab
 
 @router.post("/projects/{project_name}/episode-replan/adopt", dependencies=[Depends(require_project_migration_ok)])
 async def adopt_replan(project_name: str, req: ReplanAdoptRequest, user: CurrentUser, _t: Translator) -> dict[str, Any]:
-    """采纳新的分集方案。
+    """Adopt the new episode plan.
 
-    先不带 ``revision`` 调用，得到 ``status=confirmation_required`` 与服务端成文的 ``impact.text``（采纳的后果）和
-    ``impact.delete_text``（勾选「一并删除」时会丢失的内容）；确认后带上 ``impact.revision`` 重新提交。清单在两次调用
-    之间变了时再次返回确认，不采纳。
-    """
+    First omit ``revision`` for ``status=confirmation_required``, server-written adoption consequences in ``impact.text`` and
+    content lost by selecting deletion in ``impact.delete_text``. After confirmation, resubmit with ``impact.revision``.
+    If lists change between calls, request confirmation again without adopting."""
     if req.revision is not None:
-        # 与手工切分同一道检查：要退下或移除的集有在途任务时拒绝，免得任务把产物写进被替换的集
+        # Share manual-split checks: reject active tasks in retiring/removing episodes so tasks cannot persist into replaced episodes.
         preview = await _run_replan(
             project_name,
             user.id,
@@ -271,7 +268,7 @@ async def adopt_replan(project_name: str, req: ReplanAdoptRequest, user: Current
 
 @router.post("/projects/{project_name}/episode-replan/discard", dependencies=[Depends(require_project_migration_ok)])
 async def discard_replan(project_name: str, req: ReplanDiscardRequest, user: CurrentUser, _t: Translator):
-    """放弃新的分集方案：分集账本什么都不变。"""
+    """Discard the new episode plan without changing the ledger."""
 
     def _discard(manager: ProjectManager) -> dict[str, Any]:
         discard_replan_candidate(manager.get_project_path(project_name), req.candidate_id)

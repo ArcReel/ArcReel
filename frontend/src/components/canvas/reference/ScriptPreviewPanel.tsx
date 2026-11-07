@@ -8,40 +8,40 @@ import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { errMsg } from "@/utils/async";
 import type { ScriptPreview } from "@/types";
 
-/** 停止输入到发起解析请求的等待时长（ms）：解析是纯读，节流只为省往返。 */
+/** Wait after typing before parse requests, in ms; parsing is read-only, throttled only to reduce round trips. */
 const DEBOUNCE_MS = 400;
 
 export interface ScriptPreviewPanelProps {
   projectName: string;
   episode: number;
-  /** 当前单元正文（草稿优先），与编辑器同一个值。 */
+  /** Current unit body, preferring drafts, matching the editor. */
   text: string;
-  /** 资产名 → 类型，供 mention 着色；调用侧须 memo 化。 */
+  /** Asset name → type for mention coloring; callers must memoize. */
   lookup: MentionLookup;
 }
 
 /**
- * 解析预览面板：把编辑器里的正文按解析器读到的样子摊开。
+ * Parse preview: show editor bodies as interpreted by parsers.
  *
- * 分工——高亮正文在本地即时渲染，跟得上打字；派生出的台词与降级提示由后端解析接口
- * 给出（声音相关的几条依赖项目当前视频模型能力，前端无从判断），停止输入后才发一次
- * 请求。前一次请求随下一次输入立即作废（AbortSignal），慢响应不会盖住新结果。
+ * Local highlighting responds immediately to typing; derived dialogue/fallback hints come from backend parsing
+ * (voice-related ones depend on current project video capabilities, unknowable frontend-side), requested once
+ * typing stops. Next keystrokes immediately abort preceding requests via AbortSignal, preventing stale-response overwrite.
  *
- * 派生结果还取决于项目资产表（未登记 mention / speaker 未登记 / 角色未设参考音频三条
- * warning 都读它），故 `lookup` 变化同样重新拉取——否则资产改完面板仍报旧提示。
+ * Derived outputs also depend on project assets (unregistered mentions/speakers/missing character reference audio
+ * warnings read them), so `lookup` changes refetch too, avoiding old notices after asset edits.
  *
- * 滚动与键盘焦点由调用方的 tabpanel 承担（面板只读、无可聚焦后代，WAI tabs 惯例是
- * tabpanel 自身取 `tabindex="0"`）。换处复用时父容器须带 `overflow-y-auto` +
- * `tabIndex={0}`，否则长文稿溢出且键盘够不到折线以下。
+ * Caller tabpanels own scrolling/keyboard focus: read-only panels have no focusable descendants, and WAI tabs
+ * convention gives tabpanel `tabindex="0"`. Other parent containers must provide `overflow-y-auto` +
+ * `tabIndex={0}`, preventing long-text overflow and keyboard-inaccessible content below the fold.
  */
 export function ScriptPreviewPanel({ projectName, episode, text, lookup }: ScriptPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const [preview, setPreview] = useState<ScriptPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 手上这份 preview 是按哪套输入派生的。与当前输入不一致 = 面板过期（节流等待 +
-  // 请求在途的窗口）。此时不清空——边打字边清会让整块反复闪空——改为标记过期：
-  // 降透明度并置 aria-busy，读者不会把旧的台词与提示当成当前正文的结果。
+  // Inputs that produced this preview. Mismatches mean stale panels during throttle waiting plus
+  // requests in flight. Do not clear on every keystroke and flash empty; mark stale instead:
+  // reduce opacity/set aria-busy so readers do not mistake old dialogue/notices for current-body results.
   const [appliedFor, setAppliedFor] = useState<{
     projectName: string;
     episode: number;
@@ -64,8 +64,8 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
-          // 同时清空上一次结果：正文已经改了，留着旧派生会让面板在报错横幅下继续
-          // 展示对不上当前正文的台词。
+          // Also clear prior results: changed bodies with old derived output would otherwise leave
+          // mismatched dialogue beneath error banners.
           setPreview(null);
           setError(errMsg(e));
           setAppliedFor(null);
@@ -75,8 +75,8 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           setLoading(false);
         });
     }, DEBOUNCE_MS);
-    // 文稿一改就作废在途请求，而不是等下一个 debounce 到点才换 controller——否则
-    // 旧请求可能在这 400ms 里返回，把对不上正文的派生结果写进面板。
+    // Invalidate requests immediately on edits, not at next debounce/controller replacement;
+    // otherwise old results may return during these 400ms, populating mismatched output.
     return () => {
       clearTimeout(timer);
       controllerRef.current?.abort();
@@ -129,7 +129,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           }`}
         >
           {warnings.map((w, i) => (
-            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 告警是服务端按正文整表派生的只读文本，同一 key 可重复出现，行内无状态
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Warnings are read-only text derived as a whole list from bodies; keys may repeat and rows have no state
             <li key={`${w.key}-${i}`} className="flex gap-1.5 text-xs leading-relaxed text-warn">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
               <span>{w.message}</span>
@@ -161,7 +161,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
         </dd>
       </dl>
 
-      {/* 服务端派生出的逐条台词：与上方本地高亮互为对照，解析口径若有出入在此显形。 */}
+      {/* Backend-derived dialogue contrasts with local highlighting above, revealing any parser-rule mismatch. */}
       {utterances.length > 0 && (
         <ul
           aria-busy={stale || undefined}

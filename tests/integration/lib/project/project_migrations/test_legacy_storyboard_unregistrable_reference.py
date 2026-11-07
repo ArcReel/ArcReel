@@ -1,6 +1,6 @@
-"""分镜图引用的资产图在升级时不能登记：该分镜图照常补录、读作 current，经整条迁移链后的制作状态。
+"""Storyboard references whose asset images cannot register at upgrade still backfill/read current after the full migration chain.
 
-生成缺口只拦生成（ADR 0098）：v17→v18 补录此前因缺口没登记的分镜图，已登记条目不动。
+Generation gaps block only generation (ADR 0098): v17→v18 backfills previously skipped storyboards without touching existing registrations.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ def test_storyboard_with_an_unregistrable_sheet_is_backfilled_and_reads_current(
     report = load_migration_report(project_dir)
     assert report is not None
     assert [item for item in report.skipped if item.kind == "episode-storyboard"] == []
-    # E1S3 早先按不带上一分镜图的依据登记，v17→v18 不动已登记条目；E1S2 补录后成为它可用的上一分镜图，
-    # 期望依据随之带上 E1S2，E1S3 读为过期——与运行期上一分镜图变为可用时同一口径。
+    # E1S3 previously registered without a previous storyboard; v17→v18 leaves it untouched. E1S2 backfill makes it usable as predecessor,
+    # adding E1S2 to expected bases and making E1S3 stale, as when previous storyboards become available at runtime.
     assert [_status(project_dir, unit_id) for unit_id in ("E1S1", "E1S2", "E1S3")] == ["current", "current", "stale"]
     storyboards = (
         WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name).episodes[0].storyboards

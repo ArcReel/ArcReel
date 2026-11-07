@@ -1,4 +1,4 @@
-"""项目内容读取工具的声明。"""
+"""Project-content reading tool declarations."""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ from server.tool_runtime import (
     read_project_file,
 )
 
-_READ_ONLY_FILE = Exempt("只读：按路径直取项目文件，不经产物清单，也不签发写入凭据；迁移失败时仍须可读，供诊断与修复。")
+_READ_ONLY_FILE = Exempt(
+    "Read-only direct project-file access by path, without artifact manifests or write credentials. Must remain readable for diagnosis and repair after migration failure."
+)
 
 GET_PROJECT_CONTENT = ToolDeclaration(
     name="get_project_content",
     description=(
-        "读取项目 project.json 的完整内容（标题、内容模式、生成模式、风格、分集与资产设定等）"
-        "及其 canonical revision。episodes[] 的排列即播出顺序，每项的 episode 是集 ID（内部标识，不是第几集）。"
-        "只读，无副作用。"
+        "Read the complete project.json (title, content mode, generation mode, style, episodes, asset definitions, etc.) and its canonical revision. episodes[] order is playback order; each episode value is an episode ID (an internal identifier, not its ordinal position). Read-only, no side effects."
     ),
     request_model=NoArguments,
     migration=_READ_ONLY_FILE,
@@ -36,8 +36,7 @@ GET_PROJECT_CONTENT = ToolDeclaration(
 LIST_SOURCE_FILES = ToolDeclaration(
     name="list_source_files",
     description=(
-        "列出项目 source/ 下的源文文件（UTF-8 的 .txt / .md），返回每个文件的项目相对路径、字节数与 etag，"
-        "以及整份列表的 revision。只读，无副作用。读取正文用 get_source_text。"
+        "List source-text files under project source/ (UTF-8 .txt / .md), returning each file’s project-relative path, byte size, and etag, plus a revision for the full list. Read-only, no side effects. Use get_source_text for body text."
     ),
     request_model=NoArguments,
     migration=_READ_ONLY_FILE,
@@ -48,8 +47,7 @@ LIST_SOURCE_FILES = ToolDeclaration(
 GET_SOURCE_TEXT = ToolDeclaration(
     name="get_source_text",
     description=(
-        "读取 source/ 下一个 UTF-8 源文文件的全文及其 revision 与 etag。只读，无副作用。"
-        "source/ 之外的路径、非文本文件、symlink 与超过大小上限的文件会被拒绝。"
+        "Read the full text of one UTF-8 source file under source/, with revision and etag. Read-only, no side effects. Paths outside source/, non-text files, symlinks, and files over the size limit are rejected."
     ),
     request_model=SourceTextRequest,
     migration=_READ_ONLY_FILE,
@@ -60,10 +58,7 @@ GET_SOURCE_TEXT = ToolDeclaration(
 GET_EPISODE_SCRIPT = ToolDeclaration(
     name="get_episode_script",
     description=(
-        "读取一集剧本的 JSON 正文及其 canonical revision。把返回的 revision 原样作为 "
-        "patch_episode_script 的 base_revision；剧本被改动后 revision 随之变化，须重新读取。只读，无副作用。"
-        "项目数据升级失败时不签发 revision，返回 project_migration_failed problem；按其明细修复后调用 "
-        "retry_project_migration。"
+        "Read an episode script’s JSON body and canonical revision. Pass the returned revision unchanged as patch_episode_script base_revision; reread after changes, as revision changes with the script. Read-only, no side effects. If project-data upgrade failed, no revision is issued: returns project_migration_failed; repair according to its details and call retry_project_migration."
     ),
     request_model=EpisodeScriptRequest,
     migration=READ_CHECK,
@@ -74,9 +69,7 @@ GET_EPISODE_SCRIPT = ToolDeclaration(
 GET_SCRIPT_PLAN_CONTENT = ToolDeclaration(
     name="get_script_plan_content",
     description=(
-        "读取指定集当前正式的 script_plan（剧本规划中间态，位于 drafts/episode_{集 ID}/）正文及其 canonical "
-        "revision。只读，无副作用。项目不使用 script_plan 时返回 script_plan_not_applicable；"
-        "该集尚无 script_plan 时返回 file_not_found。"
+        "Read the specified episode’s current formal script_plan body (the script-planning intermediate under drafts/episode_{episode ID}/) and canonical revision. Read-only, no side effects. Returns script_plan_not_applicable if the project does not use script_plan, or file_not_found if this episode has no script_plan yet."
     ),
     request_model=ScriptPlanContentRequest,
     migration=_READ_ONLY_FILE,
@@ -87,9 +80,7 @@ GET_SCRIPT_PLAN_CONTENT = ToolDeclaration(
 LIST_PROJECT_FILES = ToolDeclaration(
     name="list_project_files",
     description=(
-        "列出可供诊断读取的项目业务文本文件：project.json、source/ 源文、scripts/ 剧本与 drafts/episode_N/ "
-        "下的 script_plan，返回路径、字节数与 etag，以及整份列表的 revision。敏感文件、symlink 与其他路径"
-        "不列出。只读，无副作用。"
+        "List project business-text files available for diagnostic reading: project.json, source/ text, scripts/ scripts, and script_plan under drafts/episode_N/. Returns paths, byte sizes, etags, and a revision for the full list. Sensitive files, symlinks, and other paths are excluded. Read-only, no side effects."
     ),
     request_model=NoArguments,
     migration=_READ_ONLY_FILE,
@@ -100,10 +91,7 @@ LIST_PROJECT_FILES = ToolDeclaration(
 READ_PROJECT_FILE = ToolDeclaration(
     name="read_project_file",
     description=(
-        "读取一个项目业务文本文件的内容及其 revision 与 etag：JSON 文件返回解析后的对象，文本文件返回字符串。"
-        "可读范围与 list_project_files 一致，敏感文件、symlink、越界路径与超过大小上限的文件会被拒绝。"
-        "只读，无副作用。有专用读取工具的文件（get_project_content、get_source_text、get_episode_script、"
-        "get_script_plan_content）优先使用专用工具。"
+        "Read a project business-text file with revision and etag: JSON files return parsed objects, text files return strings. The readable scope matches list_project_files; sensitive files, symlinks, out-of-bounds paths, and oversized files are rejected. Read-only, no side effects. Prefer dedicated readers when available (get_project_content, get_source_text, get_episode_script, get_script_plan_content)."
     ),
     request_model=ProjectFileRequest,
     migration=_READ_ONLY_FILE,

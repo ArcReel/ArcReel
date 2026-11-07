@@ -1,4 +1,4 @@
-"""PROVIDER_REGISTRY 字段与注册完整性单元测试；模型清单经目录查询读取。"""
+"""Unit tests for PROVIDER_REGISTRY fields and registration completeness; model lists are read through catalog queries."""
 
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
@@ -50,8 +50,8 @@ def test_ark_agent_plan_fast_has_no_1080p() -> None:
 
 
 def test_kling_credentials_and_base_url() -> None:
-    """可灵三键 required/secret key（api_key 单键 / access_key+secret_key 双键二选一）+
-    默认 base_url（国内域名已迁移至 api-beijing）。"""
+    """Kling three-key required/secret key declarations (choose api_key alone or access_key+secret_key together), plus
+    default base_url (the domestic host migrated to api-beijing)."""
     p = PROVIDER_REGISTRY["kling"]
     assert p.required_keys == ["api_key", "access_key", "secret_key"]
     assert p.secret_keys == ["api_key", "access_key", "secret_key"]
@@ -60,19 +60,19 @@ def test_kling_credentials_and_base_url() -> None:
 
 
 def test_kling_credential_groups_api_key_or_dual_secret() -> None:
-    """凭证二选一分组：api_key 单键，或 access_key+secret_key 双键。"""
+    """Alternative credential groups: api_key alone, or access_key+secret_key together."""
     p = PROVIDER_REGISTRY["kling"]
     assert p.credential_groups == [["api_key"], ["access_key", "secret_key"]]
 
 
 def test_provider_meta_credential_groups_default_empty() -> None:
-    """未声明 credential_groups 的 provider（绝大多数）保持空列表默认，语义不变。"""
+    """Providers without credential_groups (the vast majority) retain the empty-list default with unchanged semantics."""
     assert PROVIDER_REGISTRY["gemini-aistudio"].credential_groups == []
     assert PROVIDER_REGISTRY["dashscope"].credential_groups == []
 
 
 def test_kling_declares_image_and_video_max_workers() -> None:
-    """可灵覆盖 image + video 两条 lane，optional_keys 须声明两者的并发上限字段。"""
+    """Kling covers image and video lanes; optional_keys must declare both concurrency-limit fields."""
     p = PROVIDER_REGISTRY["kling"]
     assert {"image", "video"} <= set(catalog.provider_media_types("kling"))
     assert "image_max_workers" in p.optional_keys
@@ -80,7 +80,7 @@ def test_kling_declares_image_and_video_max_workers() -> None:
 
 
 def test_kling_default_video_model_v2_5_turbo() -> None:
-    """JWT 直连视频默认模型 kling-v2-5-turbo，能力声明齐备。"""
+    """JWT direct-video default model kling-v2-5-turbo has complete capability declarations."""
     assert catalog.default_model("kling", "video") == "kling-v2-5-turbo"
     turbo = catalog.get_model("kling", "kling-v2-5-turbo")
     assert turbo is not None
@@ -93,17 +93,17 @@ def test_kling_default_video_model_v2_5_turbo() -> None:
 
 
 def test_kling_image_models() -> None:
-    """图像模型：默认 kling-image-o1，v3-omni 的图像模型沿用别名键。"""
+    """Image models: default kling-image-o1; the v3-omni image model retains an alias key."""
     assert catalog.default_model("kling", "image") == "kling-image-o1"
     o1 = catalog.get_model("kling", "kling-image-o1")
     assert o1 is not None
     assert o1.media_type == "image"
     assert o1.capabilities == ["text_to_image", "image_to_image"]
     assert o1.resolutions == ["1K", "2K"]
-    # 普通模型：无别名，键名即 API 名。
+    # Ordinary model: no alias; the key is the API name.
     assert o1.api_model_name is None
 
-    # 两栖模型：图像模型用别名键避开与视频模型撞键，api_model_name 回指真实 API 名。
+    # Dual-modality model: an image alias avoids colliding with the video key; api_model_name points to the real API name.
     omni = catalog.get_model("kling", "kling-v3-omni-image")
     assert omni is not None
     assert omni.media_type == "image"
@@ -114,7 +114,7 @@ def test_kling_image_models() -> None:
 
 
 def test_kling_video_backend_registered() -> None:
-    """可灵视频后端在 video registry 自注册（JWT 直连）。"""
+    """The Kling video backend self-registers in the video registry (JWT direct connection)."""
     from lib.backends.video_backends.kling import KlingVideoBackend
     from lib.backends.video_backends.registry import _BACKEND_FACTORIES as video_reg
 
@@ -122,7 +122,7 @@ def test_kling_video_backend_registered() -> None:
 
 
 def test_ark_agent_plan_backend_registered() -> None:
-    """复用现有 ark backend 类支持 ark-agent-plan provider；视频按 Seedance 端点注册，两个方舟供应商共用。"""
+    """Reuse the Ark backend class for ark-agent-plan; video registers by Seedance endpoint, shared by both Ark providers."""
     from lib.backends.image_backends.ark import ArkImageBackend
     from lib.backends.image_backends.registry import _BACKEND_FACTORIES as image_reg
     from lib.backends.text_backends.ark import ArkTextBackend

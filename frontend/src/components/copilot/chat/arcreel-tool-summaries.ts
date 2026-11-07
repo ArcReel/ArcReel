@@ -1,14 +1,14 @@
 import type { SummaryFormat, ToolInput } from "./work-label";
 
 // ---------------------------------------------------------------------------
-// ArcReel MCP 工具的一句摘要：键是工具 id（`mcp__arcreel__<id>` 去掉前缀），每个
-// 工具都要登记，没有可读参数的工具登记为空摘要。tests/unit/test_frontend_mcp_tool_i18n.py
-// 按 server/agent_toolset/toolset.py 的 ARCREEL_MCP_TOOL_IDS 校验这里的键没有缺漏与多余，
-// 所以键保持「两格缩进 + 工具 id + 冒号」的写法，一行一个。
+// One-sentence ArcReel MCP tool summaries: keys are tool IDs without `mcp__arcreel__<id>` prefixes; every
+// tool must register, using empty summaries without readable arguments. tests/unit/test_frontend_mcp_tool_i18n.py
+// checks keys exactly against server/agent_toolset/toolset.py ARCREEL_MCP_TOOL_IDS without missing/excess entries,
+// so retain two-space indentation + tool ID + colon, one per line.
 //
-// 集 ID、剧本文件名与条目 ID 一律换成创作者认得的集名与集内编号（见 SummaryFormat）；
-// 条目编号已带集名时不再重复写剧本所属的集。
-// 剪辑时间线、生成批次这类不透明 ID 不进摘要。
+// Replace episode IDs/script filenames/entry IDs with creator-recognizable episode titles/local numbers (see SummaryFormat);
+// entry numbers already carrying episode titles never repeat script-owning episodes.
+// Opaque editing-timeline/generation-batch IDs never enter summaries.
 // ---------------------------------------------------------------------------
 
 type Summarize = (input: ToolInput, f: SummaryFormat) => string;

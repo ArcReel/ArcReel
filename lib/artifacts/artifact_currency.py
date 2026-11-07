@@ -1,8 +1,7 @@
-"""产物时新性判定。
+"""Artifact currency checks.
 
-在不写盘的前提下回答「磁盘上这份产物是否仍等于规范状态应有的那份」，
-以及由此派生的剧集身份解析与可用性分类。
-"""
+Without writing, determine whether an artifact on disk still equals its canonical expected state,
+and derive episode identity resolution and availability classification."""
 
 from __future__ import annotations
 
@@ -81,20 +80,19 @@ def decode_script_content_snapshot(content: bytes, artifact_path: str) -> dict[s
 
 
 class ArtifactComparer(Protocol):
-    """一件产物的可用性判定入口：完整时新性比对与只看登记的轻量判定共用。"""
+    """Availability-check entry point for an artifact, shared by full currency comparison and lightweight registration-only checks."""
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison: ...
 
 
 class RegisteredArtifactResolver:
-    """只按「清单已登记且文件在场」判定产物，不重建规范状态。
+    """Resolve artifacts solely by manifest registration and file presence, without reconstructing canonical state.
 
-    与 ``ArtifactCurrencyResolver`` 的差别是不回答「是否比当前内容旧」：清单一次读入
-    内存，每件产物只做一次路径准入检查（在场探针只读一个字节），不哈希产物内容、
-    不构造目标态规划。
-    因此它只会返回 current / missing / blocked，登记在案的过期产物一律按 current 报告。
-    适用于项目列表这类只需要「有几件可用」的广度视图；工作台的决策仍走完整比对。
-    """
+    Unlike ``ArtifactCurrencyResolver``, does not determine whether artifacts predate current content.
+    Load the manifest once into memory; each artifact receives one path-admission check (presence probes
+    read one byte), without content hashing or target-state planning. Therefore returns only current /
+    missing / blocked, reporting all registered outdated artifacts as current. For broad views such as
+    project lists needing only available counts; workbench decisions still use full comparison."""
 
     def __init__(self, project_dir: Path, project: Mapping[str, Any]) -> None:
         if not project_schema_is_current(project):

@@ -2,44 +2,44 @@
 status: accepted
 ---
 
-# 全局资产库条目以条目键持有正式对象引用与关联副本
+# Global asset-library entries hold formal-object references and link copies under entry keys
 
-[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 规定新图片经正式提交保存，正式对象的引用按（引用方，内容版本）登记。[ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md) 规定不是项目的消费者用带冒号的引用方键持有引用，失去全部引用的对象统一回收。[ADR 0108](0108-material-storage-independent-of-provider-registration.md) 与 [ADR 0109](0109-content-version-identity-on-version-records.md) 规定关联属于具体内容版本，键带持有方。全局资产库不是项目，没有版本历史；它要保存远端图片，也要在保存与应用时带上供应商素材关联。决定如下。
+[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) saves new images through formal commits, registering formal-object references by (holder, content version). [ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md) requires non-project consumers to use colon-bearing holder keys and centrally collects objects losing all references. [ADR 0108](0108-material-storage-independent-of-provider-registration.md) and [ADR 0109](0109-content-version-identity-on-version-records.md) attach links to specific content versions with holder-bearing keys. The global asset library is not a project and has no version history; it must save remote images and carry provider-material links when saving/applying them. Decisions follow.
 
-**条目记下内容事实**：资产与衍生的条目增加三列。
+**Entries record content facts**: asset and derivative entries gain three columns.
 
-- `image_digest`：库存储文件的摘要。
-- `image_content_id`：这张图片在库里的内容身份。每次写入新图片时随机生成，换图即换身份。
-- `image_storage`：远端持久定位，形状同版本记录的 `storage`。
+- `image_digest`: digest of the file stored in the library.
+- `image_content_id`: the image's content identity in the library, randomly generated whenever a new image is written; replacing the image changes identity.
+- `image_storage`: persistent remote location, shaped like version-record `storage`.
 
-有 `image_storage` 时，`image_path` 只是工作文件：预览与应用前按摘要从对象存储取回，闲置时由同一个清理入口清理。三列为空的存量条目照旧按本地文件解释，不回填。
+With `image_storage`, `image_path` is only a working file: retrieve it from object storage by digest before preview/application, and clean it through the same cleanup entry point when idle. Existing entries with all three columns empty retain local-file interpretation without backfill.
 
-**新图片经正式提交保存**：保存到库、上传或替换库里的图片，都经 `lib/material/global_library.py` 的 `global_image_commit` 进入 `formal_commit`。新图片按全局设置写本地或对象存储；同一连接里同字节的内容共用一个正式对象。应用到项目时，目标的新内容版本同样在 `formal_commit` 中提交，遵循当前全局设置。库里的图片是远端还是本地，与目标保存在哪里互不约束。
+**Save new images through formal commits**: saving to the library, uploading, or replacing library images enters `formal_commit` through `global_image_commit` in `lib/material/global_library.py`. Save new images locally or in object storage according to global settings; identical bytes within one connection share a formal object. Application to a project likewise commits the target's new content version through `formal_commit` under current global settings. Whether library images are remote/local does not constrain where targets are saved, or vice versa.
 
-**条目键**：每个库条目以 `asset-library:<条目 ID>`（`library_holder(asset_id)`）为持有方，以 `image_content_id` 为内容版本身份，复用两张既有的表。衍生图与本体同属一个条目，共用这个键。
+**Entry keys**: each library entry uses `asset-library:<条目 ID>` (`library_holder(asset_id)`) as holder and `image_content_id` as content-version identity, reusing two existing tables. Derivative and base images belong to one entry and share this key.
 
-- 正式对象引用：写条目前经 `add_reference` 登记 `active` 引用；换图或覆盖后经 `remove_reference` 撤下旧图的引用（同一条目的换图、覆盖与删除在进程内串行，撤下的是这次提交真正换下的图片），条目删除后经 `release_holder` 撤下条目名下的全部引用。对象失去全部引用后由这两个入口统一回收，库不自行删除对象。
-- 关联副本：写在 `provider_asset_link`，`project_name` 取同一个条目键，形状与项目里的关联相同。条目删除时删除这个键名下的全部关联记录，不删除供应商素材。
+- Formal-object references: register `active` references through `add_reference` before writing entries; remove old-image references through `remove_reference` after replacement/overwrite (image replacement, overwrite, and deletion within an entry are serialized in-process, removing the image actually displaced by this commit). After entry deletion, `release_holder` removes all its references. These two entry points centrally collect objects losing all references; the library does not delete objects itself.
+- Link copies: store in `provider_asset_link`, with `project_name` set to the same entry key and the same link shape as projects. Deleting entries removes every link record under the key without deleting provider materials.
 
-带冒号的键不会与项目名或墓碑名重名。按项目名枚举、重算或清理的读点因此不会把条目当作缺失的项目，包括启动结算、维护循环的保留校正、项目退役改键与已删除项目的彻底删除。入库后台只处理待核对的关联，复制得到的副本不在其中。
+Colon-bearing keys cannot collide with project or tombstone names. Reads enumerating, recalculating, or cleaning by project name therefore do not mistake entries for missing projects, including startup settlement, maintenance-loop retention correction, project-retirement rekeying, and permanent deletion of deleted projects. Registration background processing handles only links awaiting reconciliation, excluding copied links.
 
-**关联随内容复制**：复制只发生在同一份字节之间，由 `copy_usable_links` 按摘要核对。
+**Links copy with content**: copying occurs only between identical bytes, verified by digest through `copy_usable_links`.
 
-- 保存到库时，来源资源当前选中版本的关联复制给库里的新图片。应用到项目时，库里那份关联复制给目标的新内容版本，在版本提交的最后落库；落库失败时整次应用回滚。
-- 只复制选定且可用的关联，原样保留供应商素材 ID 与冻结的调用范围。入库中或失败的任务不复制，否则后台会为同一张图重复提交入库。
-- 副本由各持有方独立持有，解除或换图只改自己那一份。生成仍按目标实际推理凭证的绑定范围选用，复制不授予新账号资格。
+- Saving to the library copies links from the source resource's currently selected version to the new library image. Applying to a project copies library links to the target's new content version, persisting them at the end of version commit; persistence failure rolls back the whole application.
+- Copy only selected, usable links, preserving provider-material IDs and frozen invocation scopes unchanged. Do not copy registering or failed tasks, which would make background processing register the same image repeatedly.
+- Each holder independently owns its copy; unlinking or replacing images changes only its own copy. Generation still selects by the target's actual inference-credential binding scope; copying grants no eligibility to new accounts.
 
 ## Considered Options
 
-- **整个库共用一个保留持有方**：删除条目时须逐张列出它的图片才能撤下引用，撤漏的引用会让对象永远不被回收。条目键让删除条目直接经 `release_holder` 撤下它名下的全部引用，与项目的用法一致。
-- **为全局资产库另建关联表与引用表**：生成、面板、后台入库都按持有方查询关联。另建表要么让这些读点各加一路分支，要么另写一套复制与清理规则；复用既有的表让同一组函数与唯一索引直接适用。
-- **以条目 ID 充当关联的内容身份**：条目换图后 ID 不变，新图会继承旧图的关联，违反 ADR 0108。
-- **以内容摘要充当库里的内容身份**：同字节的两张图会共用关联，解除一方会牵连另一方，与 ADR 0109 不以哈希充当身份同理。
-- **复制入库中的任务**：后台按记录推进入库，副本会让同一张图被提交两次。
+- **One retention holder for the entire library**: deleting entries would require listing each image to remove references; missed references would prevent collection forever. Entry keys let deletion call `release_holder` directly to remove every owned reference, matching project usage.
+- **Separate link/reference tables for the global asset library**: generation, panels, and background registration all query links by holder. Separate tables require either another branch at every read point or separate copying/cleanup rules; reusing existing tables directly applies the same functions and unique indexes.
+- **Using entry IDs as link content identity**: entry IDs survive image replacement, so new images would inherit old links, violating ADR 0108.
+- **Using content digests as library content identity**: byte-identical images would share links, so unlinking one affects the other, the same rationale as ADR 0109's rejection of hashes as identity.
+- **Copying registering tasks**: background processing advances registration by record, so copies would submit the same image twice.
 
 ## Consequences
 
-- 删除来源项目或资产不影响库与目标：库条目与目标各自持有对象引用与关联副本。删除库条目只撤下这条条目的引用；目标仍引用的对象保留，失去全部引用的对象统一回收。
-- 新建条目在保存图片前先定下条目 ID，引用才能登记在条目名下。
-- 存量库条目没有内容身份，不携带关联；重新保存后才有。
-- 库里远端图片的工作文件与项目工作文件共用清理入口：`POST /api/v1/object-storage/work-cache/cleanup` 与后台维护循环都会清理两处。
+- Deleting source projects/assets affects neither library nor targets: library entries and targets independently hold object references and link copies. Deleting a library entry removes only its references; objects still referenced by targets remain, while objects losing all references are centrally collected.
+- New entries receive IDs before saving images so references can be registered under them.
+- Existing library entries lack content identity and carry no links until saved again.
+- Remote-library working files share project working-file cleanup: both `POST /api/v1/object-storage/work-cache/cleanup` and background maintenance clean both locations.

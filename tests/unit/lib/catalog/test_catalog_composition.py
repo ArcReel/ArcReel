@@ -1,4 +1,4 @@
-"""目录合成：官方数据取较新的一份，用户副本整条替换官方条目（docs/adr/0099）。"""
+"""Catalog composition takes newer official data; entire user copies replace official entries (docs/adr/0099)."""
 
 from dataclasses import replace
 
@@ -31,7 +31,7 @@ class TestNewestOfficial:
         assert newest_official([synced, factory]) is synced
 
     def test_older_sync_does_not_shadow_a_newer_factory_snapshot(self):
-        # 升级应用后出厂快照可能比库里存的官方同步更新
+        # Application upgrades may ship newer snapshots than stored official sync data.
         factory = _official("2026-11-01T00:00:00Z", _text("chat", "Chat v3"))
         synced = _official("2026-10-20T00:00:00Z", _text("chat", "Chat v2"))
 
@@ -46,7 +46,7 @@ class TestNewestOfficial:
 
 class TestMergeOfficial:
     def test_newer_sync_keeps_entries_only_the_snapshot_has(self):
-        # 同步不删除模型条目：上游删掉的条目在本地保留最后一个版本（docs/adr/0103）
+        # Sync never deletes entries: retain the last version of upstream-deleted entries locally (docs/adr/0103).
         factory = _official("2026-10-01T00:00:00Z", _text("chat", "Chat v1"), _text("legacy"))
         synced = _official("2026-10-20T00:00:00Z", _text("chat", "Chat v2"))
 
@@ -116,7 +116,7 @@ class TestComposeCatalog:
         assert composed.official_entry(mine.key) == _text("chat", "Chat v2")
 
     def test_user_created_entry_stays_user_created_once_official_data_adds_it(self):
-        # 用户新建的条目日后被官方数据收录：仍是用户新建、不跟随官方，同时能看到官方的值（可改用官方数据）
+        # User-created entries later officially listed remain user-created/unsynced, with official values available for switching.
         official = _official("2026-10-20T00:00:00Z", _text("homebrew", "Official Homebrew"))
         mine = _text("homebrew", "My Homebrew")
 
@@ -126,5 +126,5 @@ class TestComposeCatalog:
         assert created.data.entries == (mine,)
         assert created.source_of(mine.key) == "user_created"
         assert created.official_entry(mine.key) == _text("homebrew", "Official Homebrew")
-        # 同一份副本没有新建的标记时，是用户改过官方条目
+        # The same copy without a creation marker represents a user-edited official entry.
         assert modified.source_of(mine.key) == "modified"

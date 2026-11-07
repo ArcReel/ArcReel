@@ -64,31 +64,31 @@ from server.agent_runtime.session_store import SessionMetaStore
 
 
 class MessageRewriteError(RuntimeError):
-    """消息改写无法进行。"""
+    """Message rewriting cannot proceed."""
 
 
 class RewriteAnchorError(MessageRewriteError):
-    """锚点不是该会话内的一条用户消息。"""
+    """The anchor is not a user message within this session."""
 
 
 class PendingQuestionError(MessageRewriteError):
-    """会话有未决问答卡片，问答优先。"""
+    """The session has a pending question card; answering takes priority."""
 
 
 class QueuedMessagesPendingError(MessageRewriteError):
-    """会话还有排队消息没进入对话：此刻分叉，它们会在被取代的原会话里继续执行。"""
+    """The session has queued messages not yet in the conversation; branching now would leave them executing in the superseded original session."""
 
 
 class SessionSupersededError(MessageRewriteError):
-    """会话已被一次改写取代，改写入口只对当前分支开放。"""
+    """A rewrite has superseded this session; rewriting is available only on the current branch."""
 
 
 class RewriteUnavailableError(MessageRewriteError):
-    """当前部署形态下无法改写（transcript 镜像未开启）。"""
+    """Rewriting is unavailable in this deployment (transcript mirroring is disabled)."""
 
 
 class InterruptSettleTimeoutError(MessageRewriteError):
-    """等待运行中轮次中断到终态超时。"""
+    """Timed out waiting for the interrupted running turn to reach a terminal state."""
 
 
 class AssistantService:
@@ -99,8 +99,8 @@ class AssistantService:
 
         self.pm = ProjectManager(self.data_root)
         self.meta_store = SessionMetaStore()
-        # 会话事件日志：UI 时间线唯一读源。store 与 SessionManager 共享同一实例，
-        # live 写入点（entry pipeline）与读取端（REST / SSE / 懒生成）落同一张表。
+        # Session event log: sole read source for the UI timeline. Store and SessionManager share one instance,
+        # so live writes (entry pipeline) and readers (REST / SSE / lazy generation) use the same table.
         self.event_log_store = EventLogStore()
         self.session_manager = SessionManager(
             project_root=self.project_root,
@@ -122,29 +122,28 @@ class AssistantService:
         )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
-        # 新会话幂等映射：client_key 唯一索引按 (session_id, client_key) 分区，
-        # 覆盖不到 session_id 尚不存在的新会话受理——响应丢失后的重试若再走
-        # 新会话分支会重复建会话、重复执行同一 prompt。进程内 LRU 为快路径，
-        # 重启 / 淘汰后由事件日志的跨会话查询兜底（_find_accepted_new_session）。
+        # New-session idempotency mapping: the client_key unique index partitions by (session_id, client_key),
+        # so it cannot cover new-session acceptance before session_id exists. Retrying after a lost response
+        # through the new-session branch would duplicate sessions and execution of the same prompt. In-process LRU is the fast path;
+        # cross-session event-log queries provide fallback after restart / eviction (_find_accepted_new_session).
         self._new_session_client_keys: OrderedDict[str, str] = OrderedDict()
         self._new_session_client_keys_max = 256
-        # 同一 client_key 的并发新建请求在此串行化，避免在途窗口内重复建会话
+        # Serialize concurrent creation requests with the same client_key to prevent duplicate sessions during the in-flight window.
         self._new_session_locks = KeyedLocks()
-        # 同一（原会话, client_key）的并发改写请求在此串行化：分叉的幂等预检读的是
-        # 原会话的 superseded 指针，在途窗口内不串行会让两个请求各自分叉一次。
+        # Serialize concurrent rewrites for the same (original session, client_key): branch idempotency prechecks read
+        # the original session's superseded pointer; without serialization, two in-flight requests could each create a branch.
         self._rewrite_locks = KeyedLocks()
-        # 已有会话的消息受理锁：发送与改写互斥。改写从排队检查持有到分支发布，期间到达的发送
-        # 等它结束后看到原会话已被取代，不会排进一个即将被取代的会话。
+        # Existing-session message acceptance lock: sending and rewriting exclude each other. Rewriting holds it from queue check to branch publication;
+        # sends arriving meanwhile wait, then see the original session superseded instead of queuing into a soon-superseded session.
         self._admission_locks = KeyedLocks()
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
         """Run async initialization (must be called from event loop).
 
-        ``sandbox_enabled=False`` 时关闭 SDK SandboxSettings 并把 Bash 工具调用
-        切到代码白名单路径（详见 ``SessionManager.configure_sandbox_runtime``）。
-        默认 ``True`` 保持 macOS / Linux 现状不变。
-        """
+        With ``sandbox_enabled=False``, disable SDK SandboxSettings and route Bash calls through the
+        code allowlist (see ``SessionManager.configure_sandbox_runtime``). The default ``True``
+        preserves existing macOS / Linux behavior."""
         if self._startup_done:
             return
         async with self._startup_lock:
@@ -257,7 +256,7 @@ class AssistantService:
         content: str,
         images: list["ImageAttachment"] | None = None,
     ) -> str | list[dict[str, Any]]:
-        """送入 CLI 的消息内容：纯文本为字符串，带图片时为图片块在前、文本块在后的列表。"""
+        """Message content sent to the CLI: a string for plain text, or a list with image blocks before the text block when images are present."""
         text = content.strip()
         if not text and not images:
             raise ValueError("消息内容不能为空")
@@ -270,7 +269,7 @@ class AssistantService:
 
     @staticmethod
     def _build_user_log_entry(content: str | list[dict[str, Any]]) -> dict[str, Any]:
-        """构造用户消息的权威条目：身份在发送时分配，被 Agent 接纳时写入日志。"""
+        """Build the authoritative user-message entry: allocate its identity on send, and log it when the Agent accepts it."""
         return build_user_entry([{"type": "text", "text": content}] if isinstance(content, str) else content)
 
     async def send_or_create(
@@ -285,11 +284,11 @@ class AssistantService:
     ) -> dict[str, Any]:
         """Unified send: create new session or send to existing one.
 
-        已有会话：有轮次在跑时同样受理，响应携带排队消息（``queued_message``），被 Agent 接纳时
-        才作为条目经 entry 流下发；同一 ``client_key`` 的重试若消息已入日志，响应携带权威条目
-        （``entry``）。已被改写取代的会话不再受理消息（``SessionSupersededError``）。新会话：首条消息
-        写入日志后才返回，响应携带权威条目。前端不渲染任何本地合成消息。
-        """
+        Existing sessions accept messages even while a turn is running, returning ``queued_message``;
+        only Agent acceptance delivers them as entries through the entry stream. If a retry with the same
+        ``client_key`` finds a logged message, return its authoritative ``entry``. Sessions superseded by
+        rewriting no longer accept messages (``SessionSupersededError``). For new sessions, return only
+        after logging the first message, with its authoritative entry. The frontend renders no locally synthesized messages."""
         await asyncio.to_thread(self.pm.get_project_path, project_name)  # Validate project
 
         if session_id:
@@ -305,7 +304,7 @@ class AssistantService:
                         f"session {session_id} has already been superseded by {meta.superseded_by}"
                     )
                 prompt = self._prepare_content(content, images)
-                # 旧会话懒生成先行：保证本条消息排在重放重建的历史之后。
+                # Lazily generate the old session first, ensuring this message follows history reconstructed by replay.
                 await self.event_log.ensure_backfilled(
                     session_id, await self._aresolve_project_cwd_safe(meta.project_name)
                 )
@@ -326,11 +325,11 @@ class AssistantService:
         if existing is not None:
             return existing
 
-        # 同一 client_key 的并发请求在此串行化：send_new_session 在途期间
-        # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
+        # Serialize concurrent requests with the same client_key: while send_new_session is in flight,
+        # later requests wait for the lock instead of creating sessions independently and duplicating prompt execution.
         lock = self._new_session_locks.lock_for(client_key)
         async with lock:
-            # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
+            # Double-check: the preceding request may have created the session for this client_key while we awaited the lock.
             existing = await self._find_accepted_new_session(client_key, project_name)
             if existing is not None:
                 return existing
@@ -339,58 +338,59 @@ class AssistantService:
             return result
 
     async def _find_accepted_new_session(self, client_key: str, project_name: str) -> dict[str, Any] | None:
-        """按幂等键定位已受理的新会话：进程内映射为快路径，事件日志跨会话
-        查询兜底——进程重启 / LRU 淘汰后映射丢失，受理已落库的重试仍须命中
-        既有会话而非重复建会话（重复执行同一 prompt、重复计费）。
+        """Find an accepted new session by idempotency key: use the in-process mapping as a fast path and
+        cross-session event-log queries as fallback. After process restart / LRU eviction loses the mapping,
+        retries of persisted acceptances must still find the existing session instead of creating another
+        (repeating the same prompt and billing).
 
-        命中会话的项目归属须与调用方 ``project_name`` 一致：不一致则视为未命中
-        （返回 None，由调用方在当前项目新建会话），不抛错——用户未指名任何
-        会话，跨项目复用同一 client_key 时新会话意图应落在当前项目。两条查找
-        路径口径一致，均在返回前做归属校验。"""
+        The matched session must belong to the caller's ``project_name``. A mismatch is a miss (return None
+        so the caller creates a session in the current project), not an error: the user named no session, so
+        reusing client_key across projects should create the new session in the current project. Both lookup
+        paths check project ownership before returning."""
         mapped_session_id = self._new_session_client_keys.get(client_key)
         if mapped_session_id is not None:
-            # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
+            # Idempotent retry: initial acceptance already created the session and delivered; return that session's authoritative entry.
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
             if entry is None:
-                # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
-                # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
-                # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。上一行
-                # await 期间该 key 可能已被其他并发请求写入更新的映射；仅当当前
-                # 值仍是本次读到的旧值时才清，避免清掉并发写入的新映射（DB 兜底
-                # 查询本身按 client_key 定位一定命中同一权威会话，误删只是白跑
-                # 一次查询，但仍以精确条件避免这层不必要的抖动）。
+                # The mapped session entry no longer exists (e.g. session deletion); the mapping is stale.
+                # Remove it and continue probing to avoid a ghost "accepted" response pointing at a deleted session:
+                # the caller would connect to a nonexistent session and silently lose the message. During the preceding
+                # await, another concurrent request may have updated this key's mapping. Remove it only if its current
+                # value still equals the old value read here, preserving newer concurrent mappings (the DB fallback
+                # query by client_key necessarily finds the same authoritative session, so mistaken deletion would only
+                # waste a query; still use precise conditions to avoid this unnecessary churn).
                 if self._new_session_client_keys.get(client_key) == mapped_session_id:
                     self._new_session_client_keys.pop(client_key, None)
             elif await self._new_session_matches_project(mapped_session_id, project_name):
-                # 命中即刷新 LRU 位置：否则被频繁重试命中的 key 仍按插入
-                # 顺序（而非访问顺序）淘汰，退化成 FIFO。上一行 await 期间
-                # 该 key 可能已被其他并发请求的淘汰逻辑移除，直接
-                # move_to_end 对不存在的键会抛 KeyError；复用
-                # _record_new_session_client_key 的赋值语义（不存在则插入，
-                # 存在则原地更新）再显式挪到最近使用端，两种情形都安全。
+                # Refresh LRU position on hits; otherwise frequently retried keys are evicted by insertion order
+                # rather than access order, degrading to FIFO. During the preceding await,
+                # concurrent eviction may have removed the key; directly calling
+                # move_to_end on a missing key raises KeyError. Reuse
+                # _record_new_session_client_key assignment semantics (insert if missing,
+                # update in place if present), then explicitly move to most-recently-used; both cases are safe.
                 self._record_new_session_client_key(client_key, mapped_session_id)
                 return {"status": "accepted", "session_id": mapped_session_id, "entry": entry, "queued_message": None}
-            # else：映射命中的会话属于其他项目 → 视为未命中，落到 DB 兜底 / 新建
-            # 路径。不清映射：它对原项目仍有效；后续在当前项目新建会话时由
-            # _record_new_session_client_key 以本项目 session 覆盖同一 client_key。
+            # else: the mapped session belongs to another project; treat as a miss and continue to DB fallback / creation.
+            # Keep the mapping because it remains valid for its original project; later creation in the current project uses
+            # _record_new_session_client_key to replace the same client_key with this project's session.
         recovered = await self.event_log_store.find_new_session_by_client_key(client_key)
         if recovered is None:
             return None
         session_id, entry = recovered
         if not await self._new_session_matches_project(session_id, project_name):
-            # 兜底命中的会话属于其他项目 → 视为未命中，走当前项目新建路径。
+            # The fallback session belongs to another project; treat as a miss and create in the current project.
             return None
-        # 上一行 await 期间该 key 可能已被其他并发请求记入新映射；仅当当前
-        # 无映射或已是同一 session_id 时才写入，避免用本次查到的（较旧）
-        # session_id 覆盖并发写入的映射。
+        # Another concurrent request may have recorded a new mapping during the preceding await. Write only if
+        # no mapping exists or it already has the same session_id, preventing this older lookup result
+        # from overwriting a concurrently written mapping.
         if self._new_session_client_keys.get(client_key) in (None, session_id):
             self._record_new_session_client_key(client_key, session_id)
         return {"status": "accepted", "session_id": session_id, "entry": entry, "queued_message": None}
 
     async def _new_session_matches_project(self, session_id: str, project_name: str) -> bool:
-        """幂等命中的新会话是否属于当前调用项目。校验依据为会话 meta 的
-        ``project_name``；meta 不存在（异常 / 已删）时不阻断命中，保持既有幂等
-        语义——跨项目串号的前提是命中会话 meta 存在且项目不同。"""
+        """Whether an idempotently matched new session belongs to the calling project. Check session metadata
+        ``project_name``. Missing metadata (error / deletion) does not block the match, preserving existing
+        idempotency semantics: cross-project misrouting requires existing metadata with a different project."""
         meta = await self.meta_store.get(session_id)
         return meta is None or meta.project_name == project_name
 
@@ -408,7 +408,7 @@ class AssistantService:
         locale: str,
         client_key: str | None,
     ) -> dict[str, Any]:
-        """实际创建新会话并投递首条消息，不涉及 client_key 幂等映射记账。"""
+        """Actually create a session and deliver the first message, without accounting for the client_key idempotency mapping."""
         prompt = self._prepare_content(content, images)
         new_sdk_session_id = await self.session_manager.send_new_session(
             project_name,
@@ -423,7 +423,7 @@ class AssistantService:
 
     @staticmethod
     def _accepted_response(session_id: str, accepted: dict[str, Any], **extra: Any) -> dict[str, Any]:
-        """已有会话的受理响应：排队消息与权威条目二者恰有其一（条目在幂等重试命中已入日志的消息时给出）。"""
+        """Existing-session acceptance response: exactly one queued message or authoritative entry (the latter for idempotent retries of already logged messages)."""
         return {
             "status": "accepted",
             "session_id": session_id,
@@ -432,10 +432,10 @@ class AssistantService:
             "queued_message": accepted.get("queued_message"),
         }
 
-    # ==================== 消息改写（分支会话编排） ====================
+    # ==================== Message rewriting (branch-session orchestration) ====================
 
-    # 等待运行中轮次中断到终态的上限与轮询间隔：终态由 inbox 任务收到 SDK 的
-    # result 消息后推导，没有可等的 event，只能观察状态。
+    # Timeout and polling interval for interrupted running turns to reach terminal state: the inbox task derives it
+    # after receiving the SDK result message; no event is available to await, so observe status.
     _INTERRUPT_SETTLE_TIMEOUT = 30.0
     _INTERRUPT_SETTLE_POLL = 0.05
 
@@ -450,16 +450,16 @@ class AssistantService:
         locale: str = DEFAULT_LOCALE,
         client_key: str | None = None,
     ) -> dict[str, Any]:
-        """改写 ``session_id`` 中锚点处的那条用户消息，返回承接改写的新会话。
+        """Rewrite the anchored user message in ``session_id`` and return the new session receiving the rewrite.
 
-        编排顺序即拒绝的代价顺序：能拒的先拒（锚点、未决问答），代价大的后做
-        （中断运行中的轮次、分叉、派发）——被拒的请求不该已经打断用户的轮次。
-        分叉之后任何一步失败都是整次改写失败，分支整体撤回，原会话回到可再改写
-        的状态。
+        Order orchestration by rejection cost: reject early when possible (anchor, pending questions), then
+        perform expensive steps (interrupting the running turn, branching, dispatch). Rejected requests should
+        not already have interrupted the user's turn. Failure at any step after branching fails the whole rewrite:
+        withdraw the entire branch and restore the original session to a state permitting another rewrite.
 
-        响应与发送端点同构：``client_key`` 为请求侧幂等键，重试不产生第二个分支
-        会话；改写后的消息在新会话里先是排队消息（``queued_message``），被接纳后落进新会话的日志。
-        """
+        The response matches the send endpoint: ``client_key`` is the request idempotency key, so retries
+        create no second branch session. The rewritten message initially appears in the new session as
+        ``queued_message`` and enters its log once accepted."""
         await asyncio.to_thread(self.pm.get_project_path, project_name)  # Validate project
         if not client_key:
             return await self._rewrite_message_once(
@@ -502,15 +502,15 @@ class AssistantService:
                 "message rewrite requires the DB transcript store (ARCREEL_SDK_SESSION_STORE=db)"
             )
 
-        # 原会话已被取代：同一 client_key 的重试在新分支里认领自己的权威条目，
-        # 其余情形是对一个已作废分支发起的改写，明确拒绝而非再分叉一次。
+        # Original session superseded: retries with the same client_key claim their authoritative entry in the new branch;
+        # other cases try rewriting an invalidated branch, so explicitly reject rather than branch again.
         if meta.superseded_by is not None:
             replay = await self._replay_rewrite(meta.superseded_by, client_key)
             if replay is not None:
                 return replay
             raise SessionSupersededError(f"session {session_id} has already been superseded by {meta.superseded_by}")
 
-        # 内容校验先于任何有副作用的步骤：空消息不该中断运行中的轮次。
+        # Validate content before any side effects: empty messages must not interrupt running turns.
         prompt = self._prepare_content(content, images)
 
         project_cwd = await self._aresolve_project_cwd_safe(meta.project_name)
@@ -518,12 +518,12 @@ class AssistantService:
         if anchor is None:
             raise RewriteAnchorError(f"anchor {anchor_entry_uuid} is not a user message of session {session_id}")
 
-        # 问答优先：未决问答卡片存在时不改写。卡片只活在内存里（回答经 future
-        # 交回运行中的轮次），会话被驱逐或进程重启后卡片已随之取消，冷会话没有
-        # 可回答的问答，读内存即读真相。
+        # Questions take priority: do not rewrite while a question card is pending. Cards live only in memory
+        # (answers return to the running turn via future) and are canceled on eviction or process restart. Cold sessions
+        # have no answerable questions, so memory is authoritative.
         if await self.session_manager.get_pending_questions_snapshot(session_id):
             raise PendingQuestionError(f"session {session_id} has pending questions")
-        # 排队检查到分支发布之间不受理新消息：中断只停当前轮，排队消息会接着执行，分支里也不会有它们
+        # Accept no new messages between queue check and branch publication: interruption stops only the current turn; queued messages would continue and would not appear in the branch.
         async with self._admission_locks.lock_for(session_id):
             if self.session_manager.get_queued_messages_snapshot(session_id):
                 raise QueuedMessagesPendingError(f"session {session_id} has queued messages")
@@ -532,14 +532,14 @@ class AssistantService:
 
             branched = await self._branch_or_reject(session_id, anchor_entry_uuid)
         new_session_id = branched.session_id
-        # 分支一旦发布（superseded 指针已指向新会话），其后每一步都在补偿范围内：
-        # 中途失败若不撤回，原会话被隐藏、新会话又没收到改写后的消息，重试还会
-        # 撞上「已被取代」。send_message 抛出时不留下排队消息，也没有写入任何条目
-        # （条目在 Agent 接纳时才写），因此整体撤回不丢数据。
+        # Once the branch is published (superseded points at the new session), every subsequent step is compensatable:
+        # without rollback on failure, the original is hidden, the new session lacks the rewritten message, and retries
+        # hit "superseded". A failing send_message leaves no queued message and writes no entry
+        # (entries are written only on Agent acceptance), so withdrawing everything loses no data.
         try:
             new_meta = await self.meta_store.get(new_session_id)
             if branched.resumable:
-                # 懒生成先行：改写后的消息要排在复制来的前缀历史之后。
+                # Lazy generation first: the rewritten message must follow copied prefix history.
                 await self.event_log.ensure_backfilled(new_session_id, project_cwd)
             accepted = await self.session_manager.send_message(
                 new_session_id,
@@ -557,7 +557,7 @@ class AssistantService:
         return self._accepted_response(new_session_id, accepted, origin_session_id=session_id)
 
     async def _replay_rewrite(self, new_session_id: str, client_key: str | None) -> dict[str, Any] | None:
-        """幂等重放：给定 client_key 的改写是否已由 ``new_session_id`` 承接。"""
+        """Idempotent replay: whether ``new_session_id`` already received the rewrite for the given client_key."""
         if not client_key:
             return None
         accepted = self.session_manager.find_queued_message_by_client_key(new_session_id, client_key)
@@ -574,12 +574,12 @@ class AssistantService:
         )
 
     async def _settle_running_session(self, session_id: str) -> None:
-        """中断运行中的轮次并等它落到终态——运行中的会话分叉不出干净的前缀。
+        """Interrupt the running turn and wait for its terminal state; a running session cannot yield a clean prefix for branching.
 
-        对用户是一步操作：改写请求自带中断，不需要先点停止。终态由 inbox 任务
-        在收到 SDK 的 result 消息后推导，只能观察状态；被中断轮次尾巴上的消息
-        本就排在锚点之后、要随原分支作废，无需等它们落库。
-        """
+        This is one user action: rewriting includes interruption, without requiring Stop first. The inbox task
+        derives terminal state after receiving the SDK result message, so only status can be observed. Trailing
+        messages of the interrupted turn follow the anchor and are invalidated with the original branch anyway;
+        there is no need to wait for their persistence."""
         status = await self.session_manager.interrupt_session(session_id)
         if status != "running":
             return
@@ -591,35 +591,35 @@ class AssistantService:
             status = await self.session_manager.get_status(session_id) or "idle"
 
     async def _branch_or_reject(self, session_id: str, anchor_entry_uuid: str) -> BranchedSession:
-        """分叉，并把分支服务的异常翻译回编排层能分辨的拒绝理由。"""
+        """Branch and translate branch-service exceptions into rejection reasons distinguishable by the orchestration layer."""
         try:
             return await self.session_branch.branch(session_id, anchor_entry_uuid)
         except BranchAnchorError as exc:
-            # 编排层的预检放行了、切片却拒绝：解析出的 uuid 在 transcript 里查无
-            # 此条（锚点是运行中轮次刚发出、SDK 尚未回放的那条），或该条目载有
-            # tool_result。都是调用方能改正的坏请求，与「分叉失败」区分开。
+            # Orchestration precheck allowed it, but slicing rejected it: the parsed uuid is absent from the transcript
+            # (the anchor just emitted by a running turn has not yet been replayed by the SDK), or the entry contains
+            # tool_result. Both are caller-correctable bad requests, distinct from branch failure.
             raise RewriteAnchorError(
                 f"anchor {anchor_entry_uuid} is not a forkable user message of session {session_id}"
             ) from exc
         except SessionBranchError as exc:
             meta = await self.meta_store.get(session_id)
             if meta is not None and meta.superseded_by is not None:
-                # 预检与分叉之间输给了另一次改写（指针的条件更新只让一个赢）。
+                # Another rewrite won between precheck and branching (the conditional pointer update permits only one winner).
                 raise SessionSupersededError(
                     f"session {session_id} has already been superseded by {meta.superseded_by}"
                 ) from exc
             raise
 
     async def _discard_branch(self, origin_session_id: str, new_session_id: str) -> None:
-        """撤回一个没能承接住改写的分支：先断开它的运行时，再清数据。"""
+        """Withdraw a branch that failed to receive the rewrite: disconnect its runtime first, then clear its data."""
         try:
             if new_session_id in self.session_manager.sessions:
                 await self.session_manager.close_session(new_session_id, reason="message rewrite dispatch failed")
         except Exception:
             logger.exception("关闭未完成分支会话失败 session_id=%s", new_session_id)
         try:
-            # 分叉本身不写事件日志，但派发路径可能已经写过；与 delete_session
-            # 同口径连日志一起清，避免撤回后留下无主条目。
+            # Branching itself writes no event log, but dispatch may have already done so; clear the log too,
+            # consistently with delete_session, to avoid orphaned entries after withdrawal.
             await self.event_log_store.delete_session(new_session_id)
         except Exception:
             logger.exception("删除未完成分支会话事件日志失败 session_id=%s", new_session_id)
@@ -659,15 +659,16 @@ class AssistantService:
     async def withdraw_queued_message(
         self, project_name: str, session_id: str, message_id: str, *, intent: WithdrawalIntent
     ) -> dict[str, Any]:
-        """编辑或删除一条排队消息：先向 CLI 撤回，撤回成功才移出排队，编辑时响应带回消息内容。
+        """Edit or delete a queued message: withdraw it from the CLI first, removing it from the queue only
+        on success; editing returns the message content.
 
-        ``outcome`` 为 ``withdrawn`` 时消息已移出排队（编辑时 ``message`` 是要退回输入框的内容）；
-        为 ``accepted`` 时 Agent 已接收这条消息，它照常进入对话。
-        """
+        ``outcome`` of ``withdrawn`` means the message left the queue (when editing, ``message`` is the
+        content to return to the input box). ``accepted`` means the Agent already received it and it enters
+        the conversation normally."""
         meta = await self.meta_store.get(session_id)
         if meta is None or meta.project_name != project_name:
             raise FileNotFoundError(f"session not found: {session_id}")
-        # 与发送共用受理锁：发送重建连接期间「未发送」消息暂离会话，撤回等连接建好后再找它
+        # Share the send acceptance lock: unsent messages temporarily leave the session during send reconnection; withdrawal waits for connection restoration before looking them up.
         async with self._admission_locks.lock_for(session_id):
             outcome, queued = await self.session_manager.withdraw_queued_message(session_id, message_id, intent)
         return {
@@ -680,8 +681,8 @@ class AssistantService:
     async def resend_queued_message(
         self, project_name: str, session_id: str, message_id: str, *, locale: str = DEFAULT_LOCALE
     ) -> dict[str, Any]:
-        """把一条「未发送」消息重新交给 CLI，必要时先复活会话；响应带回这条排队消息。"""
-        # 与发送、改写共用受理锁：复活会话与送入 CLI 不与它们交错
+        """Resubmit an unsent message to the CLI, reviving the session first if needed; return the queued message in the response."""
+        # Share the acceptance lock with sending and rewriting, preventing revival and CLI delivery from interleaving with them.
         async with self._admission_locks.lock_for(session_id):
             meta = await self.meta_store.get(session_id)
             if meta is None or meta.project_name != project_name:
@@ -690,15 +691,14 @@ class AssistantService:
         return {"session_id": session_id, "id": message_id, "queued_message": queued.to_payload()}
 
     async def send_queued_message_now(self, project_name: str, session_id: str, message_id: str) -> dict[str, Any]:
-        """立即发送一条排队消息：Agent 打断当前轮先处理它。
+        """Send a queued message immediately: the Agent interrupts its current turn to handle it first.
 
-        ``outcome`` 为 ``sent`` 时已以 ``now`` 优先级重新送入，它仍是托盘里的同一条消息；为
-        ``accepted`` 时 Agent 已接收这条消息，不再重发，它照常进入对话。
-        """
+        ``outcome`` of ``sent`` means resubmitted with ``now`` priority, still the same message in the tray.
+        ``accepted`` means the Agent already received it; do not resend, and let it enter the conversation normally."""
         meta = await self.meta_store.get(session_id)
         if meta is None or meta.project_name != project_name:
             raise FileNotFoundError(f"session not found: {session_id}")
-        # 同撤回：不与发送重建连接交错；对「未发送」消息还会自己重建连接，与重新发送一样串行
+        # As with withdrawal, do not interleave with send reconnection; unsent messages also rebuild their own connection, serialized as for resending.
         async with self._admission_locks.lock_for(session_id):
             outcome = await self.session_manager.send_queued_message_now(session_id, message_id)
         return {"session_id": session_id, "id": message_id, "outcome": outcome}
@@ -716,7 +716,7 @@ class AssistantService:
             "session_status": session_status,
         }
 
-    # ==================== 会话事件日志（UI 时间线唯一读源） ====================
+    # ==================== Session event log (sole read source for UI timeline) ====================
 
     async def list_session_entries(
         self,
@@ -725,7 +725,7 @@ class AssistantService:
         meta: SessionMeta | None = None,
         after_seq: int = -1,
     ) -> dict[str, Any]:
-        """冷读事件日志（历史回放 / 非 running 会话初始加载）。"""
+        """Cold-read the event log (history replay / initial loading of non-running sessions)."""
         if meta is None:
             meta = await self.meta_store.get(session_id)
             if meta is None:
@@ -752,15 +752,15 @@ class AssistantService:
         request: Request | None = None,
         after_seq: int = -1,
     ) -> AsyncIterator[ServerSentEvent]:
-        """SSE entry 流：事件 ``id`` 即 seq，断线重连按 cursor 续传、不整帧重算。
+        """SSE entry stream: event ``id`` is seq; reconnect using the cursor without recomputing whole frames.
 
-        生命周期跟随会话面板：开场依次下发 ``entry``×N（cursor 之后的存量）、
-        ``draft``（流式累积态 + rev 过滤门槛）、``queue``（排队消息快照）、``question``×N
-        （未决问题）和当前 ``status``，之后直播 entry / delta / 排队消息变化（``queue_upsert`` /
-        ``queue_remove``，立即发送重排托盘时再发一次 ``queue``）/ question / status。``status`` 只更新
-        状态、不关流；流只在客户端离开（或订阅者被溢出移除，即重连信号）时结束。
-        会话不常驻时同样建流等待，之后由发送复活的会话照常推送。
-        """
+        Lifetime follows the session panel. Initially send ``entry``×N (stored entries after cursor),
+        ``draft`` (accumulated streaming state + rev filter threshold), ``queue`` (queued-message snapshot),
+        ``question``×N (pending questions), and current ``status``, in that order. Then stream entry / delta /
+        queue changes (``queue_upsert`` / ``queue_remove``, plus another ``queue`` when immediate sending
+        reorders the tray) / question / status. ``status`` updates state without closing the stream; it ends only
+        when the client leaves (or subscriber overflow removes it, signaling reconnection). Establish and wait
+        on the stream even for nonresident sessions; sessions revived by sending then push normally."""
         if meta is None:
             meta = await self.meta_store.get(session_id)
             if meta is None:
@@ -774,15 +774,15 @@ class AssistantService:
             ready = await anext(stream, None)
             if not isinstance(ready, SubscriptionReady):
                 return
-            # 订阅已先行建立（无缝隙）；订阅与库读之间重复投递的条目由 seq
-            # 门槛过滤——身份比对，非内容比对。
+            # Subscription is established first (no gap); filter duplicate entries delivered between subscription and DB read by seq
+            # threshold: compare identity, not content.
             for entry in await self.event_log.list_entries(session_id, project_cwd, after_seq=last_seq):
                 last_seq = max(last_seq, self._entry_seq(entry))
                 yield self._entry_sse_event(entry)
 
             yield self._draft_sse_event(session_id)
 
-            # 快照与订阅之间重复投递的增量按排队消息 id 幂等应用，订阅先行保证最终一致
+            # Apply duplicate deltas between snapshot and subscription idempotently by queued-message ID; subscribing first guarantees eventual consistency.
             yield self._sse_event(
                 "queue",
                 {"session_id": session_id, "messages": self.session_manager.get_queued_messages_snapshot(session_id)},
@@ -794,14 +794,14 @@ class AssistantService:
             status: SessionStatus = await self.session_manager.get_status(session_id) or meta.status
             yield self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))
 
-            # result 只代表一轮结束，不推状态：会话离开 running 以 CLI 报 idle 为准，由 inbox
-            # 在本轮条目全部广播之后发出 runtime_status。
+            # result marks only a turn ending, without status emission: a session leaves running when the CLI reports idle; the inbox
+            # emits runtime_status after broadcasting all entries for this turn.
             async for stream_event in stream:
                 if request is not None and await request.is_disconnected():
                     break
 
                 if isinstance(stream_event, Heartbeat):
-                    # 驱逐等不经广播的状态变化由心跳对齐。
+                    # Heartbeats reconcile status changes without broadcasts, such as eviction.
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status != status:
                         status = live_status
@@ -819,8 +819,8 @@ class AssistantService:
                     msg_type in ("log_entry", "log_delta", "ask_user_question", "queued_message")
                     and status != "running"
                 ):
-                    # 发送、自主轮次都先切 running 再产出这些消息（发送登记排队消息与切 running 同步完成）：
-                    # 先推 running，新一轮的内容与排队消息不落在旧终态之下。
+                    # Sending and autonomous turns both switch to running before producing these messages (send queue registration and switching are synchronous):
+                    # emit running first, so new-turn content and queued messages do not appear beneath an old terminal state.
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status == "running":
                         status = live_status
@@ -842,11 +842,11 @@ class AssistantService:
 
                 if msg_type == "queued_message":
                     if message.get("op") == "remove":
-                        # 按用户撤回移出时带上意图（``withdrawn``）与编辑时退回输入框的内容（``message``）
+                        # User withdrawal includes intent (``withdrawn``) and, for editing, content returned to the input box (``message``).
                         removed = {k: v for k, v in message.items() if k in ("id", "withdrawn", "message")}
                         yield self._sse_event("queue_remove", {"session_id": session_id, **removed})
                     elif message.get("op") == "reorder":
-                        # 立即发送把消息排到最前：重播整份快照，客户端按它重排托盘
+                        # Immediate send moves a message first: replay the whole snapshot so the client reorders the tray.
                         yield self._sse_event("queue", {"session_id": session_id, "messages": message.get("messages")})
                     else:
                         yield self._sse_event(
@@ -872,8 +872,9 @@ class AssistantService:
         return self._sse_event("draft", {"session_id": session_id, **self.session_manager.get_draft_state(session_id)})
 
     def _status_change_events(self, status: SessionStatus, session_id: str) -> list[ServerSentEvent]:
-        """不经 runtime_status 广播的状态变化。回到 running 时补一帧 draft 快照：会话若经驱逐后
-        复活，新进程的 delta rev 从头计数，客户端要换用新的过滤门槛。"""
+        """Status changes without runtime_status broadcasts. On returning to running, add a draft snapshot:
+        if a session revives after eviction, the new process restarts delta rev counting, so the client must
+        switch to the new filter threshold."""
         events = [self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))]
         if status == "running":
             events.append(self._draft_sse_event(session_id))
@@ -884,7 +885,7 @@ class AssistantService:
         session_id: str,
         failure: dict[str, Any],
     ) -> AsyncIterator[ServerSentEvent]:
-        """即时发送冷恢复启动失败；只落终态，不把故障详情写入历史。"""
+        """Immediately send cold-restoration startup failure; persist only the terminal state, without failure details in history."""
         entry = build_failure_entry(failure)
         await self.meta_store.update_status(session_id, "error")
         yield self._sse_event("entry", entry)
@@ -900,7 +901,7 @@ class AssistantService:
 
     @staticmethod
     def _entry_sse_event(entry: dict[str, Any]) -> ServerSentEvent:
-        """entry 事件：SSE ``id`` 字段即 seq，前端流式客户端重连时以 Last-Event-ID 续传。"""
+        """Entry event: SSE ``id`` is seq; the frontend streaming client resumes with Last-Event-ID on reconnect."""
         return ServerSentEvent(event="entry", data=entry, id=str(entry.get("seq")))
 
     _TERMINAL_STATUSES: ClassVar[frozenset[SessionStatus]] = frozenset(
@@ -940,7 +941,7 @@ class AssistantService:
             return None
 
     async def _aresolve_project_cwd_safe(self, project_name: str) -> Path | None:
-        """``_resolve_project_cwd_safe`` 的异步入口：项目目录探测会 stat，卸到线程。"""
+        """Async entry point for ``_resolve_project_cwd_safe``: project-directory probing calls stat, so offload to a thread."""
         return await asyncio.to_thread(self._resolve_project_cwd_safe, project_name)
 
     @staticmethod
@@ -1065,14 +1066,14 @@ class AssistantService:
 
     @staticmethod
     def _resolve_skill_entry_file(skill_dir: Path) -> Path | None:
-        # profile 端的 content_mode 变体（SKILL.narration.md / SKILL.drama.md）只在 sync
-        # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
-        # 否则 video-workflow 这类 variant-only skill 永远拿不到。
+        # Profile content_mode variants (SKILL.narration.md / SKILL.drama.md) materialize as SKILL.md only when synced
+        # into the project directory. A list endpoint scanning the profile directly must recognize variants itself,
+        # or variant-only skills such as video-workflow will never be found.
         #
-        # 查找契约与 tests/unit/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
-        # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、
-        # 校验 common/variant 互斥、变体完整，且所有变体的 name/user-invocable 一致。
-        # 非法形态 warning 后返回 None，避免列表随机暴露某个 mode 的破损配置。
+        # Keep the lookup contract consistent with tests/unit/test_frontend_skill_i18n.py:_find_skill_md:
+        # strictly select files with is_file, explicitly enumerate valid modes using sorted(VALID_CONTENT_MODES),
+        # verify common/variant mutual exclusion, complete variants, and consistent name/user-invocable across all variants.
+        # Warn and return None for invalid layouts, preventing the list from randomly exposing a broken configuration for one mode.
         variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
         existing = [v for v in variants if v.is_file()]
         common = skill_dir / "SKILL.md"

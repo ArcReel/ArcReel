@@ -38,15 +38,15 @@ interface GridImageToVideoCanvasProps extends EpisodeCanvasContext {
   scriptFile?: string;
   projectData: ProjectData | null;
   durationOptions?: number[];
-  /** 内容确认页的剧本规划档位；时长由端点固定时与 `durationOptions` 不同。 */
+  /** Content-confirmation script-plan duration tiers, differing from `durationOptions` when endpoints fix duration. */
   planDurationOptions?: number[];
   durationEndpointFixed?: boolean;
   videoModelUnresolved?: boolean;
   lastFrame?: boolean | null;
   capabilitiesLoading?: boolean;
-  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
+  /** Cause classification for saved out-of-range durations; omitted makes ShotDetail use generic warnings without cause distinction. */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
-  /** 保存分镜字段：失败时抛错；resolve 为本地剧本是否已刷新到保存后的内容。 */
+  /** Save shot fields, throwing on failure; resolves whether local scripts refreshed to persisted contents. */
   onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
@@ -59,11 +59,11 @@ interface GridImageToVideoCanvasProps extends EpisodeCanvasContext {
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<unknown> | void;
   onRestoreVideo?: () => Promise<unknown> | void;
-  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否成功 */
+  /** Reorder shots after afterId, null to front; resolves success. */
   onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
-  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  /** Add a shot, including narration body; null afterId appends; resolves success. */
   onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
-  /** 移除分镜，resolve 为是否成功 */
+  /** Remove a shot; resolves success. */
   onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
 }
 
@@ -97,9 +97,9 @@ export function GridImageToVideoCanvas({
 }: GridImageToVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
-  // grid 画布仅服务 narration/drama（ad 不开放宫格生视频）；
-  // 子视图按窄类型接收，ad 显式不进（不落 drama 兜底）。
-  // 未知/脏 content_mode 沿用历史兜底落 drama 视图，仅 ad 显式排除。
+  // Grid canvas serves narration/drama only; ad excludes grid-to-video;
+  // narrow subview types explicitly exclude ad instead of drama fallback.
+  // Unknown/corrupt content_mode retains historical drama fallback; only ad is explicitly excluded.
   const editorContentMode: "narration" | "drama" | null =
     contentMode === "narration" ? "narration" : contentMode === "ad" ? null : "drama";
 
@@ -129,13 +129,13 @@ export function GridImageToVideoCanvas({
     [contentMode, episodeScript, projectData],
   );
 
-  // 任务派生 loading：活跃 + 最新行胜出下沉到 store selector（各 task_type 一组活跃 resource）
+  // Task-derived loading delegates active/latest-row rules to store selectors, one active-resource set per task_type.
   const storyboardBusyIds = useActiveResourceIds("storyboard", projectName);
   const videoBusyIds = useActiveResourceIds("video", projectName);
   const ttsBusyIds = useActiveResourceIds("tts", projectName);
-  // 本集有宫格任务在跑：切割阶段会覆写本集内多个分镜的 storyboard 文件，grid 任务的
-  // resource_id 是 grid_id、无法归入按分镜 resource_id 判定的 storyboardBusyIds，
-  // 故按 scriptFile 粗粒度判定，启用宫格装配时禁用分镜编辑入口，避免并发写同一文件。
+  // Running episode grid tasks overwrite multiple storyboard files during splitting; grid task
+  // resource_id is grid_id, outside per-shot resource_id storyboardBusyIds,
+  // so use scriptFile coarse occupancy, disabling shot editing during grid assembly to avoid concurrent file writes.
   const gridActiveForEpisode = useHasActiveTaskForScriptFile("grid", scriptFile, projectName);
   const generatingStoryboard = useCallback(
     (segId: string) => storyboardBusyIds.has(segId) || gridActiveForEpisode,
@@ -149,7 +149,7 @@ export function GridImageToVideoCanvas({
     (segId: string) => ttsBusyIds.has(segId),
     [ttsBusyIds],
   );
-  // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队
+  // Batch narration: disable while any episode TTS task remains unfinished to avoid duplicate enqueueing.
   const currentSegmentIds = useMemo(
     () => new Set(segments.map((s) => getScriptItemId(s, editorContentMode ?? "drama"))),
     [segments, editorContentMode],
@@ -188,7 +188,7 @@ export function GridImageToVideoCanvas({
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;
-  // 结构操作与时间线一致；演示态只读，不给入口。
+  // Structural actions match timelines; read-only demos expose none.
   const handleMoveShot =
     onMoveShot && !demoReadOnly
       ? (shotId: string, afterId: string | null) => onMoveShot(shotId, afterId, scriptFile)

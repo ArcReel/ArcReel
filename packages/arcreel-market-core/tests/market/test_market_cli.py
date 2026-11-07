@@ -1,4 +1,4 @@
-"""``python -m arcreel_market_core`` 命令行：退出码即 CI 判定，诊断逐行可定位。"""
+"""``python -m arcreel_market_core`` CLI: exit codes decide CI status; diagnostics are individually locatable."""
 
 from __future__ import annotations
 

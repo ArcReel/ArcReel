@@ -1,4 +1,4 @@
-"""市场安装记录：来源独立于端点定义与市场源的生命周期。"""
+"""Market installation records: provenance independent of endpoint-definition and market-source lifecycles."""
 
 from datetime import datetime
 

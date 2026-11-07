@@ -32,9 +32,9 @@ interface MergeAssetDialogProps {
   assetType: MergeableAssetType;
   name: string;
   description: string;
-  /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中）。 */
+  /** Disabled state shared by sibling card controls (generating/uploading). */
   busy?: boolean;
-  /** 画廊各卡片在途的本地写入（上传、版本恢复、删除），任务队列里读不到，保留方命中时不能合并。 */
+  /** Local gallery-card uploads/version restores/deletions are absent from queues; occupied retained assets prevent merging. */
   writingNames?: ReadonlySet<string>;
 }
 
@@ -44,7 +44,7 @@ type PreviewState =
   | { phase: "ready"; result: AssetMergeResult }
   | { phase: "failed"; message: string };
 
-/** 引用改写数按落点列出的顺序，与后端报告字段一一对应。 */
+/** Reference-rewrite counts in destination order correspond one-to-one with backend report fields. */
 const REFERENCE_COUNTS = ["script_plan", "script", "draft", "prompt_text", "speaker"] as const;
 
 function sameTypeNames(project: ProjectData | null, assetType: MergeableAssetType): string[] {
@@ -54,12 +54,12 @@ function sameTypeNames(project: ProjectData | null, assetType: MergeableAssetTyp
 }
 
 /**
- * 「并入…」对话框：选同类型的保留方（角色还可选并为衍生），按集预览将改写的引用数与将过期的
- * 分镜图、视频数，确认后执行合并。被并方的描述在对话框里展示，供创作者复制取用。
+ * Merge-into dialog selects same-type retained assets (characters may merge as derivatives), previews per-episode reference rewrites/outdated
+ * storyboard/video counts, then merges after confirmation. Display removed descriptions for creator copying.
  *
- * 预览随保留方与并法的每次改动重取（dry-run），旧请求经 AbortSignal 作废；只有与当前选择对应的
- * 预览就绪后才能确认。合并改写全部剧集引用并删除被并方，不可撤销，打开与提交时都复核双方的占用态。
- * 受控打开：入口是画廊卡片「更多」菜单里的「并入…」。
+ * Refetch dry-run previews for every target/method change, invalidating old requests through AbortSignal; enable confirmation
+ * only for ready previews matching selections. Merges rewrite all episode references/delete removed assets irreversibly; recheck both parties on opening/submission.
+ * Controlled opening from gallery-card more menus.
  */
 export function MergeAssetDialog({
   open,
@@ -84,7 +84,7 @@ export function MergeAssetDialog({
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  // 每次打开都从空白开始；打开时资源已被占用则不打开。
+  // Start blank on every opening; already-occupied resources prevent opening.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -97,7 +97,7 @@ export function MergeAssetDialog({
   }
 
   const occupiedNames = useAssetBusyNames(assetType, projectName);
-  // 合并是一键执行的破坏性确认：保留方在对话框打开后被占用时实时禁用，并说明原因
+  // Merge is destructive one-click confirmation: newly occupied retained assets disable it immediately with reasons.
   const targetBusyReason = !target
     ? null
     : writingNames?.has(target)
@@ -157,7 +157,7 @@ export function MergeAssetDialog({
     try {
       await API.mergeProjectAsset(projectName, assetType, name, target, { asDerivative });
       onOpenChange(false);
-      // 合并已提交，刷新是独立的后续步骤：被并方的卡片随刷新消失，刷新失败时它会停在页面上。
+      // Merge committed; refresh is separate. Removed cards disappear on refresh, remaining on-page if refresh fails.
       const refreshed = await useProjectsStore.getState().refreshProject(projectName);
       if (refreshed === "failed") {
         useAppStore.getState().pushToast(t("assets:merge_refresh_failed"), "warning");
@@ -237,7 +237,7 @@ export function MergeAssetDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // 合并在途时不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Esc during merging so dialogs remain until requests finish.
         if (!next && !merging) close();
       }}
     >
@@ -290,7 +290,7 @@ export function MergeAssetDialog({
                   disabled={merging}
                 >
                   {(["asset", "derivative"] as const).map((mode) => (
-                    // eslint-disable-next-line jsx-a11y/label-has-associated-control -- 控件是嵌套的 RadioGroupItem（Base UI 单选），规则识别不到
+                    // eslint-disable-next-line jsx-a11y/label-has-associated-control -- Control is a nested RadioGroupItem (Base UI radio), which the rule cannot detect
                     <label key={mode} className="flex cursor-pointer items-start gap-2.5">
                       <RadioGroupItem value={mode} className="mt-0.5" />
                       <span className="flex min-w-0 flex-col gap-0.5">

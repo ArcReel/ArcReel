@@ -1,0 +1,65 @@
+{
+  "description_only_changes": [
+    {
+      "path": [
+        "models",
+        "server.tool_runtime.ScriptSpeechAdmission",
+        "description"
+      ],
+      "before": "剧本编辑因发声组合被拒时，被点名单元的发声准入；与 ``SpeechAdmission.to_dict()`` 同形。",
+      "after": "Speech admission for the identified unit when speech composition rejects a script edit; same shape as ``SpeechAdmission.to_dict()``."
+    },
+    {
+      "path": [
+        "models",
+        "server.tool_runtime.ScriptPatchResult",
+        "$defs",
+        "ScriptSpeechAdmission",
+        "description"
+      ],
+      "before": "剧本编辑因发声组合被拒时，被点名单元的发声准入；与 ``SpeechAdmission.to_dict()`` 同形。",
+      "after": "Speech admission for the identified unit when speech composition rejects a script edit; same shape as ``SpeechAdmission.to_dict()``."
+    },
+    {
+      "path": [
+        "models",
+        "server.tool_runtime.ScriptPatchResult",
+        "description"
+      ],
+      "before": "``patch_episode_script`` 的结果：剧本批量编辑结果，加上给 Agent 的后续动作提示。\n\n- ``regeneration_required_ids``：提交成功且改了 image_prompt / video_prompt 的条目，须紧接着重新生成对应图 / 视频；\n- ``speech_admission``：首个问题属于发声组合时，被点名单元的全部发声问题。\n未绑定 mention 的提示沿用 ``warnings``。",
+      "after": "``patch_episode_script`` result: batch script-edit results plus Agent follow-up guidance.\n\n- ``regeneration_required_ids``: successfully submitted entries whose image_prompt / video_prompt changed; immediately regenerate the corresponding images / videos.\n- ``speech_admission``: all speech problems for the identified unit when the first problem concerns speech composition.\nUnbound mention hints continue using ``warnings``."
+    },
+    {
+      "path": [
+        "models",
+        "server.tool_runtime.NoArguments",
+        "description"
+      ],
+      "before": "不带参数的工具请求。",
+      "after": "Tool request without arguments."
+    },
+    {
+      "path": [
+        "models",
+        "server.draft_workflow.PatchDraftRequest",
+        "description"
+      ],
+      "before": "``accept_formal_revision`` 与 ``source`` 以「是否出现」区分省略与显式 null：省略即不接受 / 不改。",
+      "after": "``accept_formal_revision`` and ``source`` distinguish omission from explicit null by presence: omission means no acceptance / no change."
+    }
+  ],
+  "direct_model_count": 57,
+  "tool_count": 61,
+  "tool_schemas_exactly_equal": true,
+  "independent_semantic_review": "PASS: root-server-159-independent-review.json",
+  "hashes": {
+    "server/draft_workflow.py": "6cd55c1598fba6a1295e51fc9fbfb4e35424eabf561692ed4f8abd7c0ba0fa54",
+    "server/tool_runtime.py": "61c39cc4746109c72d92a3fb016e65ef1b572c982d73cd1ad898b6eecfcd8a22"
+  },
+  "actual_MCP_input_schemas_exactly_equal": true,
+  "standalone_residual_batch_preserves_all_captured_models_and_tools": true,
+  "related_tests": {
+    "passed": 112,
+    "log_sha256": "de2298fbd56e348e06611372c3674050c9e492c7e348506ba7cde9625c13ee01"
+  }
+}

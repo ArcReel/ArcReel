@@ -284,7 +284,7 @@ describe("EpisodeSourceReview", () => {
 
     render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[OWN]} />);
     const box = await sourceBox();
-    // 原文框在 act 之外挂载，订阅请求的 effect 可能还没提交；先冲刷，否则请求投递在订阅之前被丢掉
+    // Source box mounts outside act; subscription effects may not have committed. Flush first, or requests arrive before subscription and are lost.
     await act(async () => {});
 
     act(() => useEpisodeSurfaceStore.getState().show({ projectName: "demo", episode: 6, surface: "episode_source" }));

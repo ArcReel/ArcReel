@@ -29,25 +29,25 @@ interface ShotListProps {
   onSelect: (index: number) => void;
   contentMode: ListContentMode;
   projectName: string;
-  /** 竖屏分镜图的缩略图是竖条，横屏是横条。 */
+  /** Portrait storyboards use vertical thumbnails, landscape horizontal. */
   aspectRatio?: "9:16" | "16:9";
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** 追加一条分镜到末尾；缺省时列表头部不显示新增按钮。 */
+  /** Append a shot; omitted hides the list-header add button. */
   onAppend?: InsertShotHandler;
-  /** 增删或保存在途时禁用新增。 */
+  /** Add/remove/save requests disable addition. */
   appendDisabled?: boolean;
-  /** 改序：把分镜移到 afterId 之后，null 移到最前；缺省时列表不可排序。 */
+  /** Reorder after afterId, null to front; omitted makes lists unsortable. */
   onMove?: (itemId: string, afterId: string | null) => void | Promise<void>;
-  /** 改序或增删在途时禁用排序。 */
+  /** Reorder/add/remove requests disable sorting. */
   moveDisabled?: boolean;
-  /** 展开时固定在列表底部的内容（快捷键提示）；收起时不显示。 */
+  /** Expanded-list bottom content (shortcut hints), absent when collapsed. */
   footer?: ReactNode;
 }
 
 function getImagePromptScene(seg: Segment): string {
-  // 校验 scene 是 string 而非仅 key 存在 —— 类型允许 ImagePrompt | string，且实际数据中
-  // scene 可能为 null/undefined（手编 JSON、半生成态），返回 null 后下游 toLowerCase() 会炸。
+  // Validate scene is a string, not just present: types permit ImagePrompt | string, while actual data
+  // may be null/undefined from hand-edited JSON/partial generation; returning null would break downstream toLowerCase().
   const ip = seg.image_prompt;
   if (typeof ip === "string") return ip;
   if (ip && typeof ip === "object") {
@@ -60,18 +60,18 @@ function getImagePromptScene(seg: Segment): string {
 function getSegmentText(seg: Segment, mode: ListContentMode): string {
   if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
   if (mode === "ad") {
-    // 广告/短片：口播文案是一等内容，列表预览优先展示；无口播的纯画面分镜退回画面描述
+    // Ad/short-film spoken copy is primary, preferred in list previews; silent visual shots fall back to descriptions.
     const voiceover = (seg as AdShot).voiceover_text;
     if (typeof voiceover === "string" && voiceover.trim()) return voiceover;
     return getImagePromptScene(seg);
   }
-  // 剧情演绎：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
+  // Drama uses image_prompt.scene as visual previews, symmetric with narration novel_text.
   return getImagePromptScene(seg);
 }
 
 /**
- * 分镜列表：展开 220px，收起为 44px 的位置栏。展开时可搜索，并用把手拖动或键盘排序；
- * 按搜索词筛选时排序没有明确含义，把手禁用。
+ * Shot list: 220px expanded, 44px position strip collapsed. Expanded search/handle-drag/keyboard sorting;
+ * sorting has no clear meaning under search filtering, so disable handles.
  */
 export function ShotList({
   segments,
@@ -90,7 +90,7 @@ export function ShotList({
 }: ShotListProps) {
   const { t } = useTranslation("dashboard");
   const [search, setSearch] = useState("");
-  // 改序请求在途时先按新顺序显示，落定后回到 segments（成功时它已是新顺序，失败时回到原序）。
+  // Show new order optimistically during reorder requests, then return to segments (new on success, original on failure).
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -107,7 +107,7 @@ export function ShotList({
     return pendingOrder;
   }, [indexById, pendingOrder]);
 
-  // 显示的位置跟着显示顺序走：改序在途时按新顺序编号，落定后与剧本一致。
+  // Display positions follow displayed order: optimistic new numbering, script numbering after settlement.
   const positionById = useMemo(() => new Map(orderedIds.map((id, i) => [id, i + 1])), [orderedIds]);
   const positionLabel = (id: string) => t("common:item_position_shot", { position: positionById.get(id) });
 
@@ -124,7 +124,7 @@ export function ShotList({
 
   const selectedId = segments[selectedIndex] ? getScriptItemId(segments[selectedIndex], contentMode) : null;
 
-  // 选中项被键盘或详情里的翻页切走时，列表跟着滚到它；已在可见范围内时不动。
+  // Keyboard/detail navigation scrolls selection into view unless already visible.
   useEffect(() => {
     if (!selectedId) return;
     const node = scrollRef.current?.querySelector<HTMLElement>(`[data-shot-id="${CSS.escape(selectedId)}"]`);

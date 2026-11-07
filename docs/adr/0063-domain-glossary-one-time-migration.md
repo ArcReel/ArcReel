@@ -2,24 +2,24 @@
 status: accepted
 ---
 
-# 领域术语一次性迁移，不保留兼容别名
+# Migrate domain terminology in one pass without compatibility aliases
 
-`GLOSSARY.md` 全量改写为符合 `CONTEXT-FORMAT.md` 的单层短词条格式：标题为规范中文产品名并在括号内标注机器标识，定义 1–2 句只说它是什么，`_Avoid_` 只列同义词与歧义词。陈述/机制类条目与通用技术概念条目删除；被删内容中不可从代码推导的跨模块不变量写到唯一真相源函数或模块的文档字符串。
+Rewrite all of `GLOSSARY.md` into the flat, short-entry format defined by `CONTEXT-FORMAT.md`: use the canonical Chinese product name as the heading, with the machine identifier in parentheses; definitions use 1–2 sentences to say only what it is; `_Avoid_` lists only synonyms and ambiguous terms. Remove statement/mechanism entries and generic technical-concept entries; place cross-module invariants from removed content that cannot be inferred from code in the docstring of the sole source-of-truth function or module.
 
-## 决定
+## Decisions
 
-- **一次性全量改写，不保留兼容别名。** 旧词条用语（如「隔离草稿」→「待修复草稿」、「内容待确认」→「内容确认」、「设计图」→「资产图」）直接替换为规范产品名，不在新术语表内保留旧名到新名的重定向条目。全仓库的代码行为不变——术语表只规范人类措辞（文档、commit、PR、agent prompt），不是代码符号重命名。
-- **机器标识入标题、不入 _Avoid_。** 术语表的读者需要知道一个产品概念对应的代码符号，标题括号是最短的交叉引用；`_Avoid_` 专门收录应当避免使用的同义词与歧义词，机器标识不属于此类。
-- **陈述/机制/通用技术概念条目删除。** 术语表只回答"它是什么"；"它怎么运作"、"某两件事的关系"、"某个字段的三种含义"属于实现文档范畴，由 ADR 与代码文档字符串承载。被删除条目中不可从代码推导的跨模块不变量写入唯一真相源代码的文档字符串。
-- **规范产品名由 `GLOSSARY.md` 持有。** Spec #1840 是本次迁移的输入；迁移完成后，当前规范产品名及应避免的同义词只在 `GLOSSARY.md` 维护，ADR 不复制会随产品语言演进的词表快照。
+- **Rewrite everything in one pass without compatibility aliases.** Replace old entry wording directly with canonical product names (for example, “隔离草稿” → “待修复草稿”, “内容待确认” → “内容确认”, and “设计图” → “资产图”), without retaining redirect entries from old to new names in the new glossary. Repository-wide code behavior remains unchanged: the glossary standardizes only human wording (documents, commits, PRs, agent prompts), rather than renaming code symbols.
+- **Put machine identifiers in headings, not in _Avoid_.** Glossary readers need to know the code symbol corresponding to a product concept; heading parentheses provide the shortest cross-reference. `_Avoid_` specifically lists synonyms and ambiguous terms that should be avoided; machine identifiers do not belong there.
+- **Remove statement/mechanism/generic technical-concept entries.** The glossary answers only "what is it"; "how it works," "the relationship between two things," and "the three meanings of a field" belong to implementation documentation, carried by ADRs and code docstrings. Write cross-module invariants from removed entries that cannot be inferred from code into the docstrings of their sole source-of-truth code.
+- **`GLOSSARY.md` owns canonical product names.** Spec #1840 is the input to this migration; after migration, maintain current canonical product names and synonyms to avoid only in `GLOSSARY.md`. ADRs do not duplicate vocabulary snapshots that evolve with product language.
 
-## 明确不采用
+## Explicitly rejected
 
-- **保留旧名到新名的别名条目**：别名存在即无法收敛——总有人继续写旧名并引用别名条目作为正当性。一次性切换代价低（术语表不是 API 契约），持续维护别名代价高。
-- **分批迁移或按区段逐步替换**：术语表条目间互相引用，局部替换会产生新旧措辞交叉引用的中间状态，比全量替换更容易出错。
-- **代码符号跟着产品名一起改**：术语表规范的是人类措辞而非代码标识符。同名不同义的代码符号（如 `scene` 既是资产类型又是脚本骨架内的场景条目）由上下文消歧，不在术语表层面解决。
+- **Keeping alias entries from old to new names**: aliases prevent convergence, because someone will continue writing the old name and cite the alias entry to justify it. A one-time switch costs little (the glossary is not an API contract); maintaining aliases continuously costs more.
+- **Migrating in batches or replacing sections gradually**: glossary entries cross-reference one another, so partial replacement creates an intermediate state with cross-references between old and new wording that is more error-prone than complete replacement.
+- **Renaming code symbols along with product names**: the glossary standardizes human wording, rather than code identifiers. Context disambiguates code symbols with the same name and different meanings (for example, `scene` is both an asset type and a scene entry in a script skeleton); this is not resolved at the glossary level.
 
 ## Consequences
 
-- 全仓库新增文档、commit 标题、PR 描述、agent prompt 模板统一使用本次确定的产品名，旧名出现在新增文本中视为措辞错误。
-- 存量代码注释与文档中的旧名不做机械批量替换——只在修改所在文件时顺带更新，避免无内容变更的大范围 diff。
+- New documents, commit titles, PR descriptions, and agent-prompt templates throughout the repository uniformly use the product names established by this migration; old names in new text are wording errors.
+- Do not mechanically replace old names in existing code comments and documents in bulk. Update them when modifying the containing file, avoiding broad diffs without substantive changes.

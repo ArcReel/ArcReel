@@ -1,7 +1,7 @@
-"""自定义供应商管理 API 在 ``discovery_format = comfyui`` 下的行为。
+"""Custom-provider management API behavior with ``discovery_format = comfyui``.
 
-与 ``test_custom_providers_api.py`` 同一个被测对象、同一套 app / client 装配，按行为域分文件：
-该协议特有的连通性检查、模型发现「不适用」、端点挂接双向校验与能力覆盖关闭集中在这里。
+Same subject/app/client setup as ``test_custom_providers_api.py``, split by behavior:
+protocol-specific connectivity, inapplicable discovery, bidirectional endpoint pairing and disabled capability overrides.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def comfyui_client(custom_providers_app) -> Generator[TestClient, None, None]:
 
 
 async def _store_endpoint(session_factory, definition: dict[str, Any]) -> str:
-    """把一份定义落库并返回它的端点键。镜像列取自定义本身，与保存路由同源。"""
+    """Persist definitions, returning endpoint keys; mirror columns derive from definitions, sharing save-route truth."""
     async with session_factory() as session:
         row = await CustomEndpointRepository(session).create(
             definition=definition,
@@ -71,13 +71,13 @@ def _model(endpoint: str, **overrides: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 供应商创建与端点目录
+# Provider creation and endpoint catalogs
 # ---------------------------------------------------------------------------
 
 
 class TestComfyuiProviderCreation:
     async def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient, custom_providers_app_session_factory):
-        """ComfyUI 本体零鉴权，凭据模板在端点定义里：供应商行的 api_key 留空须能保存。"""
+        """ComfyUI itself has no authentication; credential templates live in definitions, so empty provider api_key must save."""
         provider = _create_provider(comfyui_client)
         assert provider["discovery_format"] == "comfyui"
         stored = await _stored_provider(custom_providers_app_session_factory, provider["id"])
@@ -85,7 +85,7 @@ class TestComfyuiProviderCreation:
         assert stored.base_url == _COMFY_URL
 
     def test_an_unknown_protocol_is_refused_at_the_request_boundary(self, comfyui_client: TestClient):
-        """协议名录是封闭的：新增取值只能由 DiscoveryFormatLiteral 放行。"""
+        """Protocol catalogs are closed: only DiscoveryFormatLiteral admits new values."""
         resp = comfyui_client.post(
             "/api/v1/custom-providers",
             json={
@@ -101,7 +101,7 @@ class TestComfyuiProviderCreation:
     async def test_a_comfyui_endpoint_reaches_the_endpoint_catalog(
         self, comfyui_client, custom_providers_app_session_factory
     ):
-        """ComfyUI 端点在端点目录里：媒体类型与能力位都读定义，能力由节点绑定推导。"""
+        """ComfyUI endpoint catalogs read media/capabilities from definitions, deriving capabilities from bindings."""
         key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
@@ -116,18 +116,18 @@ class TestComfyuiProviderCreation:
     async def test_an_image_comfyui_endpoint_carries_its_own_media_type(
         self, comfyui_client, custom_providers_app_session_factory
     ):
-        """一份 workflow 产图还是产视频由定义自己说了算，端点键推不出来。"""
+        """Definitions determine image versus video outputs; endpoint keys cannot infer media types."""
         definition = comfyui_endpoint_definition(media_type="image")
         key = await _store_endpoint(custom_providers_app_session_factory, definition)
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
         assert entry["media_type"] == "image"
-        # 夹具没有参考图绑定：这份 workflow 只走得通文生图那一条（``docs/adr/0082``）。
+        # Fixtures lack reference-image bindings: workflows support text-to-image only (``docs/adr/0082``).
         assert entry["image_capabilities"] == ["text_to_image"]
 
 
 # ---------------------------------------------------------------------------
-# 连通性检查
+# Connectivity checks
 # ---------------------------------------------------------------------------
 
 
@@ -150,7 +150,7 @@ class TestComfyuiConnectivityCheck:
         assert only_request(route).headers["authorization"] == "Bearer proxy-token"
 
     def test_an_empty_api_key_sends_no_credentials_at_all(self, comfyui_client: TestClient):
-        """留空不该退化成 ``Bearer ``：反向代理会把空凭证当作一次失败的鉴权而非匿名请求。"""
+        """Empty credentials must not become ``Bearer ``: proxies treat them as failed authentication, not anonymous requests."""
         with capture_http() as router:
             route = router.get(_SYSTEM_STATS).mock(return_value=_stats_response())
             resp = comfyui_client.post(
@@ -171,7 +171,7 @@ class TestComfyuiConnectivityCheck:
         assert "0.3.60" in body["message"]
 
     def test_a_missing_version_still_counts_as_reachable(self, comfyui_client: TestClient):
-        """老版本与部分代理不回这一字段；据此判失败会把能用的部署拦在外面。"""
+        """Older versions/some proxies omit this field; treating absence as failure blocks usable deployments."""
         with capture_http() as router:
             router.get(_SYSTEM_STATS).mock(return_value=_stats_response(version=None))
             body = comfyui_client.post(
@@ -182,7 +182,7 @@ class TestComfyuiConnectivityCheck:
         assert body["message"]
 
     def test_an_unreachable_service_comes_back_as_a_readable_failure(self, comfyui_client: TestClient):
-        """软失败回 200 + success=False，与另外两条协议同形，界面直接展示原因。"""
+        """Soft failures return 200 + success=False like both other protocols, with UI directly displaying reasons."""
         with capture_http() as router:
             router.get(_SYSTEM_STATS).mock(side_effect=httpx.ConnectError("connection refused"))
             resp = comfyui_client.post(
@@ -205,7 +205,7 @@ class TestComfyuiConnectivityCheck:
         assert "401" in body["message"]
 
     def test_the_stored_credential_entry_probes_the_same_way(self, comfyui_client: TestClient):
-        """已存储凭证入口与明文入口共用同一条探针，不该各打各的路径。"""
+        """Stored/plaintext credential entries share one probe, never different paths."""
         provider = _create_provider(comfyui_client)
         with capture_http() as router:
             route = router.get(_SYSTEM_STATS).mock(return_value=_stats_response())
@@ -215,7 +215,7 @@ class TestComfyuiConnectivityCheck:
 
 
 class TestComfyuiProbeDestination:
-    """探针与产物下载共用同一道出站目的地校验。"""
+    """Probes and artifact downloads share outbound-destination validation."""
 
     @pytest.mark.parametrize(
         "base_url",
@@ -241,7 +241,7 @@ class TestComfyuiProbeDestination:
 
     @pytest.mark.parametrize("base_url", ["http://127.0.0.1:8188", "http://192.168.24.7:8188"])
     def test_loopback_and_private_addresses_stay_reachable(self, comfyui_client: TestClient, base_url: str):
-        """自建 ComfyUI 合法地跑在环回与私网上，这道校验不许把它们一并拦掉。"""
+        """Self-hosted ComfyUI legitimately uses loopback/private networks; this validation must allow them."""
         with capture_http() as router:
             route = router.get(f"{base_url}/system_stats").mock(return_value=_stats_response())
             body = comfyui_client.post(
@@ -253,13 +253,13 @@ class TestComfyuiProbeDestination:
 
 
 # ---------------------------------------------------------------------------
-# 模型发现
+# Model discovery
 # ---------------------------------------------------------------------------
 
 
 class TestComfyuiDiscovery:
     def test_discovery_reports_not_applicable_rather_than_an_empty_list(self, comfyui_client: TestClient):
-        """空列表会被读成「一个都没发现」，界面据此提示检查凭证——那是另一回事。"""
+        """Empty lists mean no discovered models, prompting credential checks in UI; that is a different condition."""
         resp = comfyui_client.post(
             "/api/v1/custom-providers/discover",
             json={"discovery_format": "comfyui", "base_url": _COMFY_URL, "api_key": ""},
@@ -276,7 +276,7 @@ class TestComfyuiDiscovery:
         assert body["not_applicable"] is True
 
     def test_other_protocols_keep_reporting_applicable(self, comfyui_client: TestClient):
-        """「不适用」只属于 comfyui；别的协议一次失败的发现仍须是失败，不是不适用。"""
+        """Inapplicable belongs only to comfyui; failed discovery under other protocols must remain failure, never inapplicable."""
         with capture_http() as router:
             router.get(url__regex=r".*/models.*").mock(return_value=httpx.Response(200, json={"data": []}))
             body = comfyui_client.post(
@@ -287,7 +287,7 @@ class TestComfyuiDiscovery:
 
 
 # ---------------------------------------------------------------------------
-# 端点挂接双向校验
+# Bidirectional endpoint-association validation
 # ---------------------------------------------------------------------------
 
 
@@ -327,7 +327,7 @@ class TestComfyuiEndpointAttachment:
         assert key in resp.json()["detail"]
 
     async def test_a_comfyui_provider_cannot_hang_a_builtin_endpoint(self, comfyui_client: TestClient):
-        """内置端点的 kind 是 ``python``，同样不是 ComfyUI 端点。"""
+        """Built-in endpoint kind ``python`` is likewise not ComfyUI."""
         resp = comfyui_client.post(
             "/api/v1/custom-providers",
             json={
@@ -348,7 +348,7 @@ class TestComfyuiEndpointAttachment:
     async def test_other_protocols_keep_their_free_attachment(
         self, comfyui_client, custom_providers_app_session_factory
     ):
-        """约束只在 comfyui 上生效：声明式端点挂 openai 供应商照旧。"""
+        """Constraints apply only to comfyui; declarative endpoints still attach to openai providers normally."""
         key = await _store_endpoint(custom_providers_app_session_factory, custom_endpoint_definition())
         resp = comfyui_client.post(
             "/api/v1/custom-providers",
@@ -363,7 +363,7 @@ class TestComfyuiEndpointAttachment:
         assert resp.status_code == 201
 
     async def test_the_full_update_path_checks_the_pair_too(self, comfyui_client, custom_providers_app_session_factory):
-        """协议读库里那一行而非请求体（PUT 不接受改协议），换端点同样要重判。"""
+        """Read protocols from database rows, not bodies; PUT forbids protocol changes, and endpoint changes require reevaluation."""
         comfyui_key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         declarative_key = await _store_endpoint(custom_providers_app_session_factory, custom_endpoint_definition())
         provider = _create_provider(comfyui_client, models=[_model(comfyui_key)])
@@ -379,13 +379,13 @@ class TestComfyuiEndpointAttachment:
             },
         )
         assert resp.status_code == 422
-        # 整批不入库：原来那一行还在。
+        # Entire batches remain unpersisted; original rows remain.
         kept = comfyui_client.get(f"/api/v1/custom-providers/{provider['id']}").json()
         assert [m["endpoint"] for m in kept["models"]] == [comfyui_key]
 
 
 # ---------------------------------------------------------------------------
-# 能力覆盖关闭
+# Capability overrides disabled
 # ---------------------------------------------------------------------------
 
 
@@ -394,11 +394,11 @@ class TestComfyuiCapabilityOverrides:
     async def test_writing_an_override_is_refused_for_the_protocol_reason(
         self, comfyui_client, custom_providers_app_session_factory, override: dict[str, Any]
     ):
-        """拒因必须是「该协议不支持覆盖」。
+        """Rejection must specifically identify unsupported protocol overrides.
 
-        ComfyUI 端点的能力位全空，``last_frame=True`` 同样过不了通用的尾帧校验；协议判定若排在
-        后面，用户读到的是「endpoint 不支持尾帧」，会去找一个开得起尾帧的 ComfyUI 端点——而该协
-        议根本没有覆盖这回事。两种取值都断言，顺序一旦回退就红。
+        ComfyUI endpoints have empty capabilities, so ``last_frame=True`` also fails generic ending-frame validation. Protocol checks
+        ordered later tell users endpoints lack ending frames, sending them to find ending-frame-capable ComfyUI endpoints, although this
+        protocol has no overrides at all. Assert both values so ordering regressions fail.
         """
         key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         resp = comfyui_client.post(
@@ -419,7 +419,7 @@ class TestComfyuiCapabilityOverrides:
     async def test_the_full_update_path_refuses_it_for_the_same_reason(
         self, comfyui_client, custom_providers_app_session_factory
     ):
-        """整表保存与建档走同一条判定顺序，不该只有建档路径给得出专用文案。"""
+        """Full-table saves share creation decision order; dedicated explanations must not exist only on creation paths."""
         key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         provider = _create_provider(comfyui_client, models=[_model(key)])
         resp = comfyui_client.put(
@@ -437,7 +437,7 @@ class TestComfyuiCapabilityOverrides:
         assert "节点绑定" in resp.json()["detail"]
 
     async def test_a_stored_override_is_ignored_on_read(self, comfyui_client, custom_providers_app_session_factory):
-        """写入侧拦不住手工改库；回显侧一并忽略，界面才不会显示一条执行层不认的覆盖。"""
+        """Write guards cannot prevent manual DB edits; responses also ignore overrides so UI never shows execution-unsupported values."""
         key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         provider = _create_provider(comfyui_client, models=[_model(key)])
         async with custom_providers_app_session_factory() as session:
@@ -457,7 +457,7 @@ def _comfyui_spec(definition: dict[str, Any]):
 
 
 def _with_frames(**frames_extra: Any) -> dict[str, Any]:
-    """一份帧数可驱动的定义：``length`` 字面 81、``fps`` 只读绑定读出 16 → 原生 5 秒。"""
+    """Frame-count-driven definition: ``length`` literal 81, readonly ``fps`` binding reads 16 → native 5 seconds."""
     definition = comfyui_endpoint_definition()
     definition["workflow"]["5"]["inputs"]["length"] = 81
     definition["bindings"]["frames"] = [
@@ -472,11 +472,11 @@ def _stored_durations(model, definition: dict[str, Any]) -> object:
 
 
 class TestComfyuiSupportedDurations:
-    """时长档位默认由节点绑定决定，不走模型名启发式；用户增删过的档位存为 ``durations`` 覆盖
-    （``docs/adr/0082``、``0104`` 的例外）。"""
+    """Default duration tiers derive from bindings, never model-name heuristics; user-added/removed tiers persist as ``durations`` overrides
+    (exceptions in ``docs/adr/0082``, ``0104``)."""
 
     def test_without_an_edit_nothing_is_stored_and_the_name_heuristic_never_runs(self):
-        """``my-wan-workflow`` 在启发式预设表里会得到 ``[4, 8]``，与这份 workflow 毫无关系。"""
+        """Heuristic presets give ``my-wan-workflow`` ``[4, 8]``, unrelated to this workflow."""
         from lib.custom_provider.duration_presets import infer_supported_durations
         from server.routers.custom_providers import ModelInput
 
@@ -502,7 +502,7 @@ class TestComfyuiSupportedDurations:
         assert model.to_db_dict(_comfyui_spec(_with_frames()))["capability_overrides"] is None
 
     def test_frames_unbound_drops_the_edit(self):
-        """时长固定的 workflow 上用户改不动档位，传什么都不存。"""
+        """Fixed-duration workflows cannot change tiers; never persist supplied overrides."""
         from server.routers.custom_providers import ModelInput
 
         model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", capability_overrides={"durations": [3, 5]})
@@ -529,7 +529,7 @@ class TestComfyuiSupportedDurations:
 
 
 class TestComfyuiDurationsOverrideApi:
-    """ComfyUI 视频模型行只开放 ``durations`` 一维覆盖；其余维度与图片端点仍按协议拒绝。"""
+    """ComfyUI video rows permit only ``durations`` overrides; other dimensions and image endpoints remain protocol-rejected."""
 
     @staticmethod
     def _create(client: TestClient, key: str, overrides: dict[str, Any]):

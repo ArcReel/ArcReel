@@ -26,13 +26,13 @@ from lib.db.repositories.usage_repo import (
 
 
 async def backdate_call(session, call_id: int, *, delta: timedelta) -> None:
-    """把调用行的 started_at 改到 ``delta`` 之前，模拟长期停在 pending 的行。"""
+    """Move call started_at back by ``delta``, simulating long-pending rows."""
     await session.execute(update(ApiCall).where(ApiCall.id == call_id).values(started_at=utc_now() - delta))
     await session.commit()
 
 
 async def stored_calls(session, project_name: str = "demo") -> list[ApiCall]:
-    """按 id 升序读回该项目落库的 api_calls 行。"""
+    """Read persisted project api_calls in ascending ID order."""
     stmt = select(ApiCall).where(ApiCall.project_name == project_name).order_by(ApiCall.id)
     return list((await session.execute(stmt)).scalars().all())
 
@@ -73,15 +73,15 @@ class TestUsageRepository:
         assert len(json.dumps(stored, ensure_ascii=False).encode()) < MAX_PROVIDER_RESPONSE_BYTES
 
     async def test_non_ascii_response_is_bounded_by_what_gets_persisted(self, async_session):
-        """量的必须是 JSON 列真正写出去的那份文本。
+        """Measure the exact text actually serialized by JSON columns.
 
-        JSON 列按 ensure_ascii=True 序列化，非 ASCII escape 成 \\uXXXX；按 ensure_ascii=False
-        量体积，一段表情符号能量出 60 KiB 却写出 180 KiB，上限就形同虚设。
+        JSON uses ensure_ascii=True, escaping non-ASCII as \\uXXXX. Measuring with ensure_ascii=False
+        can count emoji as 60 KiB but write 180 KiB, rendering the limit ineffective.
         """
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
-        # 每个表情符号 4 字节 UTF-8，escape 成两个 \uXXXX 转义序列后是 12 字节。
+        # Each emoji uses 4 UTF-8 bytes but 12 bytes as two \uXXXX escape sequences.
         await repo.update_last_provider_response(call_id, {"payload": "🎬" * 15000})
 
         stored = (await stored_calls(async_session))[0].last_provider_response
@@ -90,7 +90,7 @@ class TestUsageRepository:
         assert len(json.dumps(stored).encode()) <= MAX_PROVIDER_RESPONSE_BYTES
 
     async def test_response_just_under_the_cap_is_stored_verbatim(self, async_session):
-        """判据按 JSON 列的缺省序列化算——它带空白分隔符，比紧凑写法更占地方。"""
+        """Use JSON-column default serialization, whose whitespace separators consume more space than compact form."""
         from lib.db.repositories.usage_repo import bound_provider_response
 
         body = {"payload": "x" * (MAX_PROVIDER_RESPONSE_BYTES - 1024)}
@@ -117,13 +117,13 @@ class TestClassifyAssetOutputPath:
 
 
 class TestFinalizePendingByCallId:
-    """Resume 路径专用：按 call_id 精准翻 pending → success/failed。"""
+    """Resume-only path: update exactly call_id from pending to success/failed."""
 
     async def test_flips_pending_to_success(self, async_session):
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
-        # 显式 cost_amount=0.0 维持单元测试的确定性，绕过 auto-calc 路径
+        # Explicit cost_amount=0.0 preserves deterministic tests by bypassing automatic calculation.
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
@@ -132,7 +132,7 @@ class TestFinalizePendingByCallId:
         assert calls[0].cost_amount == 0.0
 
     async def test_auto_calculates_cost_when_amount_omitted(self, async_session):
-        """cost_amount=None + status='success' → 按续跑请求上报的计量查价目表算实际 cost。"""
+        """cost_amount=None + status='success' prices actual costs from resumed-request metering."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -150,13 +150,13 @@ class TestFinalizePendingByCallId:
         assert affected == 1
 
         calls = await stored_calls(async_session)
-        # (1080p, 有声) 0.40 USD/s × 8s
+        # (1080p, audio) 0.40 USD/s × 8s.
         assert calls[0].status == "success"
         assert calls[0].cost_amount == pytest.approx(3.2)
         assert calls[0].unpriced_reason is None
 
     async def test_builtin_video_prices_the_reported_usage(self, async_session):
-        """内置视频按调用通道上报的计量与选择维度查价目表，回报的视频 token 同时写回 ApiCall.usage_tokens。"""
+        """Built-in video prices channel-reported metering/selection dimensions; reported video tokens also persist in ApiCall.usage_tokens."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -178,14 +178,14 @@ class TestFinalizePendingByCallId:
 
         calls = await stored_calls(async_session)
         assert calls[0].currency == "CNY"
-        # 1080p、无输入视频：51 CNY / 百万 token
+        # 1080p without input video: 51 CNY / million tokens.
         assert calls[0].cost_amount == pytest.approx(246840 * 51.0 / 1_000_000)
         assert calls[0].unpriced_reason is None
         assert calls[0].usage_tokens == 246840, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
 
     async def test_builtin_video_without_usage_is_unpriced(self, async_session):
-        """内置视频没有上报计量时，价目表的计量项全部落空，记为未定价：不按秒数或 token 近似值猜一个金额，
-        也不静默记 0。"""
+        """Without reported built-in video metering, every price-list item is absent, so mark unpriced: neither guess costs from seconds/token approximations
+        nor silently record 0."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -208,8 +208,8 @@ class TestFinalizePendingByCallId:
         ids=["reported", "non-positive", "over-limit"],
     )
     async def test_billed_duration_written_back_with_fallback(self, async_session, billed, expected):
-        """provider 回报的实际计费时长回写 ApiCall.duration_seconds；非正或超出合理上限（24h）的视同未提供，
-        保留请求时长（repo 写入层是全部 backend 的最后防线，防超大数值写入 DB Integer 列溢出）。"""
+        """Persist provider-reported billed duration in ApiCall.duration_seconds; nonpositive or unreasonable values above 24h count as absent,
+        retaining requested duration. Repository writes are every backend's final defense against oversized DB Integer overflow."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -241,7 +241,7 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=cid_a, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
-        # 全量查询
+        # Query all rows.
         calls = await stored_calls(async_session)
         by_id = {c.id: c for c in calls}
         assert by_id[cid_a].status == "success"
@@ -298,7 +298,7 @@ class TestFinalizePendingByCallId:
         assert row.error_params == {"retry_after_seconds": 30}
 
     async def test_truncates_the_raw_failure_message_at_500(self, async_session):
-        """与 finish_call 同口径：原文列不因一段超长上游错误体撑爆。"""
+        """Match finish_call: oversized upstream error bodies must not inflate the raw-response column without bound."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
@@ -313,7 +313,7 @@ class TestFinalizePendingByCallId:
         assert row.error_message == "x" * 500
 
     async def test_leaves_the_failure_triple_untouched_without_one(self, async_session):
-        """success / cancelled 出口不带失败信息，那三列不该被这次 finalize 写成任何值。"""
+        """success / cancelled exits carry no failure information; finalize must write none of the three failure columns."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
@@ -323,7 +323,7 @@ class TestFinalizePendingByCallId:
         assert (row.error_message, row.error_code, row.error_params) == (None, None, None)
 
     async def test_writes_duration_ms(self, async_session):
-        """resume 完成的调用必须回写 duration_ms，否则记录表的耗时列与详情都读不到这次调用的时长。"""
+        """Completed resume calls must persist duration_ms so table duration columns/details can show this call's elapsed time."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
@@ -332,12 +332,12 @@ class TestFinalizePendingByCallId:
 
         calls = await stored_calls(async_session)
         item = calls[0]
-        # started_at 与 finished_at 同瞬间内完成；duration_ms 必须是已写入的非 None 整数
+        # started_at/finished_at occur within one instant; persisted duration_ms must still be a non-None integer.
         assert item.duration_ms is not None
         assert item.duration_ms >= 0
 
     async def test_settles_call_pending_for_over_int32_milliseconds(self, async_session):
-        """停机超过 24.8 天后续接：墙钟耗时超出 int4 毫秒上限，PostgreSQL 下也要写入真实耗时。"""
+        """Resuming after over 24.8 days exceeds int4 milliseconds; PostgreSQL must still persist actual wall-clock duration."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
         await backdate_call(async_session, call_id, delta=timedelta(days=30))
@@ -351,10 +351,10 @@ class TestFinalizePendingByCallId:
         assert row.duration_ms >= 30 * 24 * 3600 * 1000
 
     async def test_generate_audio_override_written_back(self, async_session):
-        """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
-        覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义）。计价按调用通道上报的有声维度，与之同源。"""
+        """Providers may downgrade/disable audio after submission; finalize accepts caller generate_audio overrides
+        replacing start_call request values, matching finish_call. Pricing uses the same channel-reported audio dimension."""
         repo = UsageRepository(async_session)
-        # start_call 时请求 generate_audio=True
+        # start_call requested generate_audio=True.
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
@@ -365,7 +365,7 @@ class TestFinalizePendingByCallId:
             provider="gemini-aistudio",
         )
 
-        # provider 实际降级到关闭音频
+        # Provider actually disabled audio.
         usage = Usage(quantities={"output_seconds": 8}, dimensions={"resolution": "720p", "audio": False})
         affected = await repo.finalize_pending_by_call_id(
             call_id=call_id, settlement=SettlementInput(generate_audio=False, usage=(usage,))
@@ -374,7 +374,7 @@ class TestFinalizePendingByCallId:
 
         calls = await stored_calls(async_session)
         assert calls[0].generate_audio is False
-        # (720p, 无声) 0.20 USD/s × 8s
+        # (720p, silent) 0.20 USD/s × 8s.
         assert calls[0].cost_amount == pytest.approx(1.6)
 
 
@@ -406,11 +406,11 @@ class TestMultiProviderUsage:
         assert item.provider == "ark"
         assert item.currency == "CNY"
         assert item.usage_tokens == 246840
-        # 46.00 CNY/百万 token
+        # 46.00 CNY / million tokens.
         assert item.cost_amount == pytest.approx(246840 * 46.0 / 1_000_000, rel=1e-3)
 
     async def test_provider_neither_builtin_nor_custom_settles_unpriced(self, async_session):
-        # 供应商标识既不在注册表、也不是自定义供应商的存量行（如裸 gemini）对应不上条目，记为未定价，结算本身不报错
+        # Provider IDs outside registries and existing custom providers, such as bare gemini, match no entry; record unpriced without settlement failure.
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -431,7 +431,7 @@ class TestMultiProviderUsage:
         assert item.unpriced_reason == "no_entry"
 
     async def test_builtin_call_without_reported_usage_settles_unpriced(self, async_session):
-        # 没有上报用量的内置供应商调用同样查价目表：计量项全部落空，记为未定价，不按默认模型或秒数猜
+        # Built-in calls without usage still query price lists; absent metering means unpriced, without guessing default models or seconds.
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo", call_type="image", model="gemini-3-pro-image", provider="gemini-aistudio"
@@ -523,7 +523,7 @@ BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
 
 def make_call(**overrides) -> ApiCall:
-    """一行 api_calls；未覆写的列取一组不影响筛选的中性值。"""
+    """One api_calls row; untouched columns receive neutral values that do not affect filtering."""
     fields: dict = {
         "project_name": "demo",
         "call_type": "image",
@@ -586,7 +586,7 @@ class TestListRecords:
 
         page = await UsageRepository(async_session).list_records()
 
-        # 同一 started_at 上按 id 倒序，后写入的 tie-b 排在 tie-a 之前。
+        # Equal started_at sorts by descending ID; later tie-b precedes tie-a.
         assert [item["segment_id"] for item in page["items"]] == ["tie-b", "tie-a", "older"]
         assert page["total"] == 3
         assert page["next_cursor"] is None
@@ -832,7 +832,7 @@ class TestGetRecord:
 
 
 class SummaryProjectScopedUsageRepository(UsageRepository):
-    """只看得到一个项目的仓储，用来验证汇总读接口的查询确实经过 ``_scope_query``。"""
+    """A one-project-visible repository verifies aggregate-read queries pass through ``_scope_query``."""
 
     def _scope_query(self, stmt, model):
         return stmt.where(ApiCall.project_name == "visible")
@@ -866,7 +866,7 @@ class TestSummaryQueriesRespectScope:
 
 
 class TestNullCostReadPaths:
-    """cost_amount 为 NULL 表示未定价：读路径不报错，NULL 不进合计，也不与 0 混为一谈。"""
+    """NULL cost_amount means unpriced; reads do not fail, totals exclude NULL, and NULL remains distinct from 0."""
 
     async def _seed_mixed(self, async_session) -> None:
         async_session.add_all(
@@ -904,7 +904,7 @@ class TestNullCostReadPaths:
 
         rows = await UsageRepository(async_session).get_unpriced_calls_by_model("demo")
 
-        # 7 行里 4 行 NULL，0 元与已定价的不计。
+        # Four of seven rows are NULL; exclude zero-cost and priced rows from that count.
         assert rows == [("image", "gemini", "gemini-3.1-flash-image-preview", 3)]
 
     async def test_summary_rows_keep_null_distinct_from_zero(self, async_session):
@@ -944,7 +944,7 @@ class TestNullCostReadPaths:
             )
 
     async def test_write_path_still_records_priced_cost(self, async_session):
-        """现有写入路径不变：结算后的费用是数值（含 0），新列留空。"""
+        """Existing writes remain unchanged: settled costs are numeric, including 0, and new columns stay empty."""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="image", model="m", provider="gemini")
         await repo.finish_call(call_id, status="success", settlement=SettlementInput(cost_amount=0.0))
@@ -956,7 +956,7 @@ class TestNullCostReadPaths:
 
 
 class TestSettleInterruptedPendingCalls:
-    """启动收口：没有存活任务的 pending 调用行按任务结局翻终态。"""
+    """Startup closure: pending call rows without live tasks become terminal according to task outcomes."""
 
     async def _seed_task(self, async_session, task_id: str, status: str) -> None:
         now = datetime(2026, 1, 1, tzinfo=UTC)
@@ -1003,7 +1003,7 @@ class TestSettleInterruptedPendingCalls:
         assert row.finished_at is not None
 
     async def test_stale_taskless_call_settles_without_overflow_and_leaves_duration_null(self, async_session):
-        """30 天前发起的无任务行：墙钟时长超出 int4 毫秒上限，收口不得整批回滚；中断行不记耗时。"""
+        """Taskless rows from 30 days ago exceed int4 milliseconds; closure must not roll back the batch, and interrupted rows record no duration."""
         stale_id = await self._seed_pending_call(async_session)
         await backdate_call(async_session, stale_id, delta=timedelta(days=30))
         fresh_id = await self._seed_pending_call(async_session)
@@ -1023,7 +1023,7 @@ class TestSettleInterruptedPendingCalls:
         assert (await self._row(async_session, stale_id)).error_code == "interrupted"
 
     async def test_finish_call_records_positive_duration(self, async_session):
-        """正常结算记真实耗时：finish_call 按 finished_at - started_at 写入，与收口中断行留空的口径不同。"""
+        """Normal finish_call settlement records finished_at - started_at, unlike interrupted closure rows that leave duration empty."""
         repo = UsageRepository(async_session)
         call_id = await self._seed_pending_call(async_session)
         await backdate_call(async_session, call_id, delta=timedelta(seconds=5))
@@ -1035,7 +1035,7 @@ class TestSettleInterruptedPendingCalls:
         assert row.duration_ms >= 5000
 
     async def test_taskless_call_is_kept_when_excluded_but_task_bound_still_settles(self, async_session):
-        """进程存活期间的重扫只收口绑定任务的行：无任务身份的调用可能正在跑，原样留 pending。"""
+        """Rescans during process lifetime close only task-bound rows; taskless calls may still run and remain pending."""
         taskless_id = await self._seed_pending_call(async_session)
         await self._seed_task(async_session, "t-done", "failed")
         bound_id = await self._seed_pending_call(async_session, task_id="t-done")
@@ -1047,7 +1047,7 @@ class TestSettleInterruptedPendingCalls:
         assert (await self._row(async_session, bound_id)).status == "failed"
 
     async def test_taskless_call_started_after_the_cutoff_is_left_pending(self, async_session):
-        """进程启动后才发起的无任务调用还在本进程里跑：启动收口只收在启动时刻之前发起的。"""
+        """Taskless calls begun after process startup still run here; startup closure includes only calls begun before startup time."""
         old_id = await self._seed_pending_call(async_session)
         cutoff = utc_now()
         await asyncio.sleep(0.001)
@@ -1120,7 +1120,7 @@ class TestSettleInterruptedPendingCalls:
 
 
 class TestCustomProviderSettlement:
-    """自定义供应商的调用按所对应条目的价目表结算，乘供应商倍率 × 模型倍率（docs/adr/0100、0106）。"""
+    """Custom-provider settlement uses matched-entry price lists multiplied by provider × model multipliers (docs/adr/0100, 0106)."""
 
     @staticmethod
     async def _custom_provider(session, discovery_format: str, *, model_id: str, multiplier: float = 1.0) -> str:
@@ -1158,7 +1158,7 @@ class TestCustomProviderSettlement:
 
         call = await self._settle(async_session, provider, "relay/kling-v2-6")
 
-        # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒 × 供应商 0.5 × 模型 2
+        # Kling 2.6: 1080p silent 0.5 CNY/second × 5 seconds × provider 0.5 × model 2.
         assert (call.cost_amount, call.currency, call.unpriced_reason) == (pytest.approx(2.5), "CNY", None)
 
     async def test_unmatched_model_is_unpriced_with_reason_no_entry(self, async_session):

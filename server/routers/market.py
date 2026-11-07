@@ -1,10 +1,9 @@
-"""市场 API：市场源的登记、排序与刷新，以及条目的浏览。
+"""Market API: register, order and refresh sources, and browse entries.
 
-只服务前端、走现有会话鉴权。添加即抓取一次，抓取失败或索引无效即 422 不落库；官方市场源
-可禁用、可排序、可改名，删除返回 409。刷新失败不算请求失败：结果落在源的 ``status`` 与
-``last_error`` 上。条目列表与详情只读缓存快照；定义原文与 icon 按需经抓取边界取回，上游取不回
-或内容不可用时返回 502。
-"""
+Frontend-only with existing session authentication. Adding fetches immediately; fetch failure or an invalid index returns
+422 without persistence. Official sources can be disabled, reordered and renamed but deletion returns 409. Refresh
+failure is not request failure; record it in source ``status`` / ``last_error``. Lists/details read only cached snapshots;
+fetch raw definitions and icons on demand through the fetch boundary, returning 502 for inaccessible or unusable upstream content."""
 
 from __future__ import annotations
 
@@ -64,9 +63,9 @@ EntryService = Annotated[MarketEntryService, Depends(get_market_entry_service)]
 AppVersionReader = Annotated[Callable[[], str], Depends(get_app_version_reader)]
 OfficialService = Annotated[OfficialServiceGateway, Depends(get_official_service_gateway)]
 
-#: icon 地址由前端带上条目版本作查询参数，版本变了地址就变，故浏览器可缓存较久。
+#: Frontend icon URLs include the entry version as a query parameter, changing with versions and allowing long browser caching.
 ICON_CACHE_CONTROL = "private, max-age=86400"
-#: SVG 可内嵌脚本：直接打开 icon 地址时也不让它执行、不让它加载外部资源。
+#: SVG may embed scripts; prevent execution and external resource loading even when icon URLs open directly.
 ICON_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 _MISSING_KEYS = {
@@ -83,7 +82,7 @@ _ORDER_ERROR_KEYS = {
 
 
 # ---------------------------------------------------------------------------
-# Pydantic 模型
+# Pydantic models
 # ---------------------------------------------------------------------------
 
 
@@ -107,9 +106,9 @@ class MarketSourceResponse(BaseModel):
     fetched_at: str | None
     created_at: str | None
     updated_at: str | None
-    #: 快照中本客户端认识的条目数（未知 ``type`` 不计）。
+    #: Snapshot entries recognized by this client, excluding unknown ``type`` values.
     entry_count: int
-    #: 快照索引的顶层信息；从未成功抓取时为 null。
+    #: Top-level snapshot-index information; null before any successful fetch.
     index: MarketIndexSummary | None
 
 
@@ -129,17 +128,17 @@ class MarketEntryResponse(BaseModel):
     media_type: str
     description: str | None
     homepage: str | None
-    #: 索引里的 icon 相对路径；非 null 时经 ``/market/sources/{id}/entries/{slug}/icon`` 取图。
+    #: Relative index icon path; non-null values load through ``/market/sources/{id}/entries/{slug}/icon``.
     icon: str | None
     min_app_version: str | None
-    #: 当前应用版本满足 ``min_app_version``；无要求或读不到应用版本时为 true。
+    #: Whether current app version meets ``min_app_version``; true without a requirement or readable app version.
     min_app_version_satisfied: bool
     installation: EntryInstallationResponse | None = None
 
 
 class MarketEntryListResponse(BaseModel):
     entries: list[MarketEntryResponse]
-    #: 当前应用版本；读不到时为 null。
+    #: Current app version; null when unreadable.
     app_version: str | None
 
 
@@ -157,10 +156,10 @@ class MarketEntrySourceSummary(BaseModel):
 class MarketEntryAggregateResponse(BaseModel):
     source_id: int
     slug: str
-    #: 官方服务取整后的展示值，原样展示。
+    #: Rounded display value from the official service, shown unchanged.
     installs: int
     rating_count: int
-    #: 评分人数不足官方服务的阈值时为 null，只展示人数。
+    #: Null below the official rating-count threshold; show only the count.
     rating_average: float | None
 
 
@@ -179,10 +178,10 @@ class MarketEntryDetailResponse(BaseModel):
 
 
 class MarketEntryDefinitionResponse(BaseModel):
-    #: 市场源里的定义文件按 JSON 解析后的原文，未经定义校验。
+    #: Raw market-source definition parsed as JSON, without definition validation.
     definition: Any
     entry_matches_definition: bool
-    #: 定义是 JSON 对象时的摘要；安装时须原样带回，证明确认的就是这份定义。
+    #: Digest for JSON-object definitions; return unchanged at installation to prove this exact definition was confirmed.
     definition_digest: str | None
 
 
@@ -284,7 +283,7 @@ def _entry_api_error(
 
 
 def _iso_utc(value: datetime | None) -> str | None:
-    """SQLite 读回的时间不带时区，库内一律按 UTC 存，序列化时补上。"""
+    """SQLite returns timezone-naive timestamps; store all times as UTC and restore the timezone when serializing."""
     if value is None:
         return None
     return (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).isoformat()
@@ -298,7 +297,7 @@ async def _require_source(repo: MarketSourceRepository, source_id: int) -> Marke
 
 
 # ---------------------------------------------------------------------------
-# 路由
+# Routes
 # ---------------------------------------------------------------------------
 
 
@@ -378,10 +377,13 @@ async def refresh_source(source_id: int, service: Service) -> MarketSourceRespon
 async def refresh_sources(
     service: Service,
     stale_only: Annotated[
-        bool, Query(description="只刷新距上次成功刷新超过 1 小时的启用源（打开市场页时的自动刷新）")
+        bool,
+        Query(
+            description="Refresh only enabled sources whose last successful refresh was over 1 hour ago (automatic refresh on opening the market page)"
+        ),
     ] = False,
 ) -> MarketSourceListResponse:
-    """刷新全部启用源，逐源返回刷新后的行；禁用源不刷新、不出现在结果里。"""
+    """Refresh all enabled sources and return updated rows per source; neither refresh nor include disabled sources."""
     sources = await service.refresh_all(stale_only=stale_only)
     return MarketSourceListResponse(sources=[_to_response(s) for s in sources])
 
@@ -390,9 +392,11 @@ async def refresh_sources(
 async def list_entries(
     read_app_version: AppVersionReader,
     session: AsyncSession = Depends(get_async_session),
-    entry_type: Annotated[str, Query(alias="type", description="条目类型；首期只有 endpoint")] = ENDPOINT_ENTRY_TYPE,
+    entry_type: Annotated[
+        str, Query(alias="type", description="Entry type; only endpoint is available initially")
+    ] = ENDPOINT_ENTRY_TYPE,
 ) -> MarketEntryListResponse:
-    """所有启用源缓存快照里的条目：按源顺序、源内按名称排列，不分页、不发请求。"""
+    """Entries from enabled sources’ cached snapshots, ordered by source then by name within each source; no pagination or outbound requests."""
     sources = await MarketSourceRepository(session).list_ordered()
     app_version = _app_version(read_app_version)
     merged = merge_entries(sources, entry_type=entry_type)
@@ -410,9 +414,11 @@ async def list_entries(
 async def list_entry_aggregates(
     official: OfficialService,
     session: AsyncSession = Depends(get_async_session),
-    entry_type: Annotated[str, Query(alias="type", description="条目类型；首期只有 endpoint")] = ENDPOINT_ENTRY_TYPE,
+    entry_type: Annotated[
+        str, Query(alias="type", description="Entry type; only endpoint is available initially")
+    ] = ENDPOINT_ENTRY_TYPE,
 ) -> MarketEntryAggregateListResponse:
-    """启用的官方市场源里各条目在官方服务的安装量与评分；第三方源的条目不发给官方服务。官方服务关闭时 409。"""
+    """Official-service install counts and ratings for enabled official-source entries; never send third-party entries to the official service. Return 409 when the official service is disabled."""
     client = await official.require()
     sources = [
         source for source in await MarketSourceRepository(session).list_ordered() if source.kind == OFFICIAL_KIND
@@ -442,7 +448,7 @@ async def get_entry(
     read_app_version: AppVersionReader,
     session: AsyncSession = Depends(get_async_session),
 ) -> MarketEntryDetailResponse:
-    """索引条目与源摘要，只读缓存快照、不抓定义；禁用源的条目同样可查。"""
+    """Index entry and source summary from cached snapshots only, without fetching definitions; disabled-source entries remain queryable."""
     source = await _require_source(MarketSourceRepository(session), source_id)
     entry = find_entry(source, slug)
     if entry is None:
@@ -484,7 +490,7 @@ class _CheckedDefinition:
 async def _checked_definition(
     service: MarketEntryService, session: AsyncSession, source_id: int, slug: str
 ) -> _CheckedDefinition:
-    """抓定义后再读当前快照做规则 ④⑤；抓取期间源已刷新、条目或索引地址变了即 409，不拿旧地址的内容对新条目校验。"""
+    """After fetching a definition, reread the current snapshot for rules ④⑤. Return 409 if refresh changed the entry/index address during fetch; never validate old-address content against a new entry."""
     try:
         fetched = await service.fetch_definition(source_id, slug)
     except (MarketEntryNotFoundError, MarketSourceDisabledError, MarketAssetFetchError, MarketAssetInvalidError) as exc:
@@ -533,7 +539,7 @@ async def get_entry_icon(source_id: int, slug: str, service: EntryService) -> Re
 
 
 class InstallMarketEntryRequest(BaseModel):
-    #: 确认页展示的定义摘要。安装时重新抓取，内容与用户核对过的不同即拒装。
+    #: Definition digest shown at confirmation; refetch on installation and reject content differing from what the user reviewed.
     definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     overwrite_endpoint_id: int | None = Field(default=None, gt=0)
 
@@ -555,7 +561,7 @@ async def install_entry(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> InstallMarketEntryResponse:
-    """官方市场源的首次安装在事务提交后以后台任务上报官方服务；更新（已有安装记录）与第三方源不上报。"""
+    """Report first official-source installs through a background task after commit; do not report updates with existing installation records or third-party sources."""
     checked = await _checked_definition(service, session, source_id, slug)
     source, entry, definition = checked.source, checked.entry, checked.definition
     if not source.is_enabled:
@@ -614,7 +620,7 @@ async def rate_entry(
     official: OfficialService,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """经官方服务提交或修改评分；只有官方市场源的条目可评分。官方服务的错误码与状态码原样落到本地响应。"""
+    """Submit/update ratings through the official service for official-source entries only; preserve official error/status codes in local responses."""
     source = await _require_source(MarketSourceRepository(session), source_id)
     entry = find_entry(source, slug)
     if entry is None:

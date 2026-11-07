@@ -161,7 +161,7 @@ describe("AssetGallery", () => {
     const user = userEvent.setup();
     renderGallery();
     const menu = await openMenu(user, "庭院");
-    // 菜单打开之后，该场景被 Agent 入队占用，菜单应即时禁用写入入口。
+    // After menu opening, an Agent queues work for this scene; immediately disable menu writes.
     act(() => useTasksStore.setState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
     }));
@@ -391,7 +391,7 @@ describe("AssetGallery", () => {
       });
       renderGallery();
 
-      // 保留方「书房」的卡片上正在上传资产图
+      // The retained 书房 card is uploading its sheet.
       const target = screen.getByRole("article", { name: "书房" });
       const file = new File(["sheet"], "scene.png", { type: "image/png" });
       fireEvent.change(within(target).getByLabelText("上传资产图", { selector: "input" }), { target: { files: [file] } });
@@ -440,7 +440,7 @@ describe("AssetGallery", () => {
     async function openViewer(user: ReturnType<typeof userEvent.setup>, name: string) {
       await user.click(within(await openMenu(user, name)).getByRole("menuitem", { name: "查看大图" }));
       const viewer = await screen.findByRole("dialog", { name });
-      // 菜单关闭时会把焦点还给触发按钮，等查看器接过焦点再操作
+      // Menu closing returns focus to its trigger; wait for the viewer to receive focus before interacting.
       await waitFor(() => expect(viewer).toContainElement(document.activeElement as HTMLElement));
       return viewer;
     }
@@ -451,7 +451,7 @@ describe("AssetGallery", () => {
 
       let viewer = await openViewer(user, "庭院");
       expect(within(viewer).getByText("1 / 2")).toBeInTheDocument();
-      // 书房没有资产图，→ 直接跳到卧室
+      // 书房 has no sheet, so → skips directly to 卧室.
       await user.keyboard("{ArrowRight}");
       viewer = await screen.findByRole("dialog", { name: "卧室" });
       expect(within(viewer).getByText("2 / 2")).toBeInTheDocument();
@@ -523,14 +523,14 @@ describe("AssetGallery", () => {
       renderGallery();
       const viewer = await openViewer(user, "庭院");
       const current = within(viewer).getByRole("img", { name: "「庭院」的资产图，第 2 版" });
-      // 大图区域（版本条另有缩略图）
+      // Large-image region; the version bar separately has thumbnails.
       const stage = current.closest("span")?.parentElement as HTMLElement;
       fireEvent.load(current);
 
       await user.click(await within(viewer).findByRole("button", { name: "第 1 版" }));
       fireEvent.error(within(viewer).getByRole("img", { name: "「庭院」的资产图，第 1 版" }));
 
-      // 第 1 版读不出来：显示占位，不能让第 2 版的画面冒充第 1 版
+      // Version 1 is unreadable: show a placeholder, never impersonate it with version 2 images.
       expect(stage.querySelector("img")).toBeNull();
     });
 

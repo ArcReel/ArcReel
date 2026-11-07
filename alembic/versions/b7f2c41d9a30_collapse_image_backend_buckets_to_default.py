@@ -49,21 +49,23 @@ def _delete(bind: sa.Connection, key: str) -> None:
 
 
 def _configured(value: str | None) -> TypeGuard[str]:
-    """有效配置值 = 形如 ``provider/model``；空串与无斜杠的残值都不构成配置。"""
+    """Valid configuration has the form ``provider/model``; empty or slashless residual values are not configured."""
     return value is not None and "/" in value
 
 
 def upgrade() -> None:
-    """把图片 t2i / i2i 从强制槽位收敛为可选覆盖桶，默认层升为 default_image_backend。
+    """Make image t2i / i2i optional override buckets, promoting default_image_backend as the default layer.
 
-    存量键组合逐一处置（``docs/adr/0054``）：
+    Handle existing key combinations individually (``docs/adr/0054``):
 
-    - 桶值无效（空串 / 无斜杠）：删除。旧语义下它表示「显式清空 → 跟随自动推断」，新语义
-      下桶无值即回退默认层——删除后两者同形，配置面不再留下会被误读为「已配置」的空桶。
-    - 两桶同值且默认层未配置：桶值升为默认层、删除两桶。拆分前只配过一个图片模型的用户
-      由此回到「只配默认」的规范形态。
-    - 两桶同值且与默认层相同：删除两桶。这是拆分迁移复制出的冗余副本。
-    - 其余（两桶取值不同，或同值但默认层另有配置）：原样保留，桶继续作为覆盖生效。
+    - Invalid bucket (empty / no slash): delete. Previously this meant explicit clearing followed by
+      automatic inference; now an absent bucket falls back to the default layer. Deletion normalizes
+      both forms and removes empty buckets that could be mistaken for configured overrides.
+    - Equal buckets with no configured default: promote to default and delete both buckets. Users
+      who configured one image model before splitting return to the canonical default-only form.
+    - Equal buckets matching the default: delete both redundant copies from the splitting migration.
+    - Otherwise (different buckets, or equal buckets differing from a configured default): preserve
+      unchanged, continuing to apply bucket overrides.
     """
     bind = op.get_bind()
     default = _read(bind, _DEFAULT_KEY)
@@ -86,14 +88,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """还原「桶即权威」形态：默认层有配置而两桶皆无有效值时，把默认值复制回两桶。
+    """Restore authoritative buckets: copy a configured default into both buckets if neither has a valid value.
 
-    先按 upgrade 的同一口径规范化无效桶行再判断：配置面清空某个桶写入的是空串行而非删行
-    （见 ``server/routers/system_config.py`` 的 backend 键写入），若按「行存在即有效覆盖」判定，
-    降级后旧语义会把这个空桶当权威、跳过默认层，使该能力从用户配置的默认层静默落到自动推断。
+    Normalize invalid bucket rows using upgrade semantics first: clearing a bucket writes an empty row
+    rather than deleting it (backend-key writes in ``server/routers/system_config.py``). Treating row
+    existence as a valid override would make old semantics prefer that empty bucket after downgrade,
+    skipping the configured default and silently falling back to automatic inference.
 
-    无法逐条还原被删除的无效桶值（旧语义的「显式清空」与「从未配置」在降级后同形），
-    降级后这类配置按未配置处理。
+    Deleted invalid values cannot be reconstructed individually: old explicit-clear and never-configured
+    states become identical after downgrade; these configurations are treated as unconfigured.
     """
     bind = op.get_bind()
     default = _read(bind, _DEFAULT_KEY)

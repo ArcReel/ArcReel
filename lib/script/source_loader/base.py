@@ -1,4 +1,4 @@
-"""协议与数据类。"""
+"""Protocols and data classes."""
 
 from dataclasses import dataclass
 from pathlib import Path

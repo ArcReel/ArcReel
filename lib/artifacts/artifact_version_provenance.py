@@ -39,10 +39,10 @@ _VIDEO_VISUAL_KINDS = {
 }
 
 IMAGE_ARTIFACT_BASIS_FIELD = "artifact_image_basis"
-# 迁移后的时效基准与实际付费档位分离；执行事实与请求摘要保持原样。
+# Separate migrated currency baselines from actual paid tiers; execution facts/request digests remain unchanged.
 VIDEO_CURRENCY_DURATION_FIELD = "artifact_video_currency_duration_seconds"
-# 版本记录里的图像产物 → 资产类型。衍生资产图与本体共用 asset-sheet 依据种类，
-# 只是 resource_id 写作 ``本体名/衍生名``。
+# Image artifacts in version records → asset types. Derivative/base sheets share asset-sheet basis kinds;
+# only resource_id uses ``本体名/衍生名``.
 _IMAGE_ASSET_TYPES = {
     **{spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()},
     CHARACTER_DERIVATIVE_RESOURCE_TYPE: DERIVATIVE_ASSET_TYPE,

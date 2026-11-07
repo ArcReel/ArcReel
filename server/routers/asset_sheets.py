@@ -1,12 +1,13 @@
-"""项目资产图的读取视图与批量生成入口。
+"""Project asset-image read views and batch generation.
 
-- 状态：每张资产图（含衍生）按产物清单判定的现状与是否缺描述，供卡片状态、画廊筛选与批量按钮计数；
-  清单读不出时各图报告 blocked。
-- 批量生成：画廊各类型页（类型范围）与集层下一步（集范围）共用一个服务命令
-  （:mod:`server.services.admission.asset_sheet_batch`），与 Agent 的 ``generate_assets`` 同一份规划。
-  预览只规划不建任务，供确认框列名单、跳过项与预估费用；提交不等待结果，返回成员任务供界面跟踪整批终态。
-- 重生影响：单张重生一张过期资产图前，列出会随之过期的分镜图、视频与衍生资产图数量。
-"""
+- State: artifact-manifest status and missing-description flags for every image, including derivatives, support card states,
+  gallery filters and batch-button counts. Unreadable manifests report blocked for each image.
+- Batch generation: gallery type pages (type scope) and episode next-step actions (episode scope) share one service command
+  (:mod:`server.services.admission.asset_sheet_batch`) and the Agent’s ``generate_assets`` plan. Preview only plans without
+  tasks, supplying confirmation targets, skips and estimated costs. Submission returns member tasks without awaiting results,
+  allowing the UI to track the whole batch’s terminal state.
+- Regeneration impact: before individually regenerating a stale asset image, count storyboard images, videos and derivative
+  images that would become stale."""
 
 from __future__ import annotations
 
@@ -46,7 +47,7 @@ router = APIRouter()
 
 AssetType = Literal["character", "scene", "prop", "product"]
 
-#: 资产不存在时的文案 key；场景沿用历史前缀 ``project_scene_*``。
+#: Message key for missing assets; scenes retain the historical ``project_scene_*`` prefix.
 _NOT_FOUND_KEYS: dict[str, str] = {
     "character": "character_not_found",
     "scene": "project_scene_not_found",
@@ -56,7 +57,7 @@ _NOT_FOUND_KEYS: dict[str, str] = {
 
 
 class AssetSheetBatchRequest(BaseModel):
-    """批量生成的范围：``asset_type``（画廊类型页）与 ``episode_id``（集层）二选一。"""
+    """Batch scope: choose exactly one of ``asset_type`` (gallery type page) and ``episode_id`` (episode level)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -125,7 +126,7 @@ async def get_asset_sheet_status(project_name: str):
 
 @router.post("/projects/{project_name}/asset-sheets/batch/preview")
 async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchRequest, user: CurrentUser):
-    """规划一批但不建任务：要生成的名单、跳过项与已定价部分的预估费用及未定价项数。"""
+    """Plan a batch without tasks: generation targets, skipped items, estimated costs of priced items and the count of unpriced items."""
 
     project, plan = await _plan(project_name, request, user.id)
     new_ids = plan.new_task_ids
@@ -154,7 +155,7 @@ async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchR
 
 @router.post("/projects/{project_name}/asset-sheets/batch")
 async def submit_asset_sheet_batch_route(project_name: str, request: AssetSheetBatchRequest, user: CurrentUser):
-    """提交一批，立即返回；成员任务的终态由界面按任务跟踪，整批汇总成一条通知。"""
+    """Submit a batch and return immediately; the UI tracks member task terminal states and consolidates the batch into one notification."""
 
     _project, plan = await _plan(project_name, request, user.id)
     batch, enqueued = await submit_asset_sheet_batch(
@@ -184,7 +185,7 @@ async def submit_asset_sheet_batch_route(project_name: str, request: AssetSheetB
 async def get_asset_regeneration_impact(
     project_name: str, asset_type: AssetType, name: str, derivative_name: str | None = None
 ):
-    """这张资产图此刻是否过期，以及重生它会让多少件现行产物转为过期。"""
+    """Whether this asset image is stale now and how many current artifacts regeneration would make stale."""
 
     def _sync() -> dict[str, bool | int]:
         try:

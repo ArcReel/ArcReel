@@ -1,8 +1,9 @@
-"""失败文案里的供应商、模型与条目显示名。
+"""Provider/model/entry display names in failure copy.
 
-失败的 ``params`` 存机器值（供应商 ID、上游模型 ID、条目引用），Agent 与前端都按它们定位；渲染成文时才把
-约定参数名的值换成创作者认得的名称。替换规则只有 :meth:`DisplayNames.apply` 这一份，所有失败
-渲染函数都把目录作为必填参数传到这里。
+Failure ``params`` stores machine values (provider IDs, upstream model IDs, entry references) used
+by Agents/frontend for identification. Replace agreed parameter values with creator-recognizable
+names only at rendering. :meth:`DisplayNames.apply` alone defines replacements; every failure
+renderer passes the catalog here as a mandatory argument.
 """
 
 from __future__ import annotations
@@ -11,21 +12,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-#: 值是供应商 ID 的参数名。
+#: Parameter names whose values are provider IDs.
 PROVIDER_PARAMS = ("provider", "provider_id", "claimed_provider_id", "actual_provider_id")
-#: 值是模型 ID 的参数名。
+#: Parameter names whose values are model IDs.
 MODEL_PARAM = "model"
-#: 值是条目引用（「模型厂商/官方模型名」）的参数名：已下线模型的官方后继。
+#: Parameter names holding entry references (“模型厂商/官方模型名”): official successors of discontinued models.
 SUCCESSOR_PARAM = "successor"
 DISPLAY_NAME_PARAMS = frozenset((*PROVIDER_PARAMS, MODEL_PARAM))
 
 
-#: Agent 供应商的供应商 ID 前缀：记账时 ``provider`` 记 ``agent-<凭证 id>``。
+#: Agent-provider ID prefix: accounting records ``provider`` as ``agent-<凭证 id>``.
 AGENT_PROVIDER_PREFIX = "agent-"
 
 
 def is_agent_provider(provider_id: str) -> bool:
-    """``provider_id`` 是否为 Agent 供应商记账的形态（``agent-<凭证 id>``）。"""
+    """Whether ``provider_id`` uses Agent-provider accounting form (``agent-<凭证 id>``)."""
     return provider_id.startswith(AGENT_PROVIDER_PREFIX) and provider_id[len(AGENT_PROVIDER_PREFIX) :].isdecimal()
 
 
@@ -35,12 +36,14 @@ def agent_provider_id(credential_id: int) -> str:
 
 @dataclass(frozen=True)
 class DisplayNames:
-    """一次请求内按请求语言成文的供应商名、模型名与条目名。
+    """Provider/model/entry names localized to one request’s language.
 
-    ``providers`` 以供应商 ID 为键；``models`` 以 ``(供应商 ID, 模型 ID)`` 为键；``entries`` 以条目引用为键，
-    只收显示名唯一的引用（两栖条目各媒体类型的显示名不同时不收）。
-    ``deleted_provider`` 是目录里查不到的供应商的泛称；``deleted_agent_provider`` 是查不到的
-    Agent 供应商（``agent-<凭证 id>``，凭证已删除）的泛称，未提供时与 ``deleted_provider`` 相同。
+    ``providers`` keys are provider IDs; ``models`` keys are ``(供应商 ID, 模型 ID)``; ``entries`` keys
+    are entry references, including only references with unique display names (omit multimodal
+    entries when media types have different names).
+    ``deleted_provider`` generically names providers absent from the catalog;
+    ``deleted_agent_provider`` names absent Agent providers (``agent-<凭证 id>``, deleted credentials),
+    defaulting to ``deleted_provider`` when omitted.
     """
 
     providers: Mapping[str, str]
@@ -51,8 +54,8 @@ class DisplayNames:
     _models_by_id: Mapping[str, str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        # 参数里只有模型 ID、没有供应商时按模型 ID 查名；同一个模型 ID 在不同供应商下名称不一时
-        # 无从判断指哪一个，保留模型 ID。
+        # Without a provider parameter, look up names by model ID; if its names differ across providers,
+        # ownership is ambiguous, so retain the model ID.
         candidates: dict[str, set[str]] = {}
         for (_, model_id), name in self.models.items():
             candidates.setdefault(model_id, set()).add(name)
@@ -60,7 +63,7 @@ class DisplayNames:
         object.__setattr__(self, "_models_by_id", unique)
 
     def provider(self, provider_id: str) -> str:
-        """供应商名；目录里查不到时返回「已删除的供应商」，Agent 供应商返回「已删除的 Agent 供应商」。"""
+        """Provider name; missing catalog entries render localized “deleted provider” or “deleted Agent provider” labels."""
         name = self.providers.get(provider_id)
         if name is not None:
             return name
@@ -69,17 +72,17 @@ class DisplayNames:
         return self.deleted_provider
 
     def model(self, model_id: str, *, provider_id: str | None = None) -> str:
-        """模型名；目录里查不到时返回模型 ID。"""
+        """Model name, falling back to model ID when absent from the catalog."""
         if provider_id is not None:
             return self.models.get((provider_id, model_id), model_id)
         return self._models_by_id.get(model_id, model_id)
 
     def entry(self, ref: str) -> str:
-        """条目显示名；目录里查不到、或同一引用有多个显示名时返回条目引用。"""
+        """Entry display name, falling back to its reference when absent or when one reference has multiple display names."""
         return self.entries.get(ref, ref)
 
     def apply(self, params: Mapping[str, Any]) -> dict[str, Any]:
-        """返回把约定参数名的 ID 换成显示名后的参数副本，其余参数原样保留。"""
+        """Copy parameters, replacing IDs under agreed names with display names and retaining all others unchanged."""
         applied = dict(params)
         owner = next((value for key in ("provider", "provider_id") if isinstance(value := params.get(key), str)), None)
         for key in PROVIDER_PARAMS:

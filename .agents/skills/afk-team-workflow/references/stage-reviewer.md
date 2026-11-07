@@ -1,11 +1,11 @@
-# Stage reviewer 契约
+# Stage reviewer contract
 
-你在 stage 全部 issue 集成后审查整个 stage diff，修复后向 team-lead 交付 **green HEAD**，供其创建 stage PR。
+After every issue in a stage is integrated, review the entire stage diff, fix it, and deliver a **green HEAD** to the team-lead for stage PR creation.
 
-输入：stage branch、stage worktree、Spec（仅 Spec 批次）、本 stage issues、batch handoff 目录、stage handoff 绝对路径。
+Inputs: stage branch, stage worktree, Spec (Spec batches only), this stage's issues, batch handoff directory, and absolute stage handoff path.
 
-1. 确认 stage worktree、branch 与远程最新提交一致。读 Spec（若有）、本 stage 所有 issue 正文与评论及其 handoff。git 命令一律写 `git -C <stage worktree 绝对路径>`。
-2. 使用 Skill 工具调用 `code-review`，固定点为 `origin/main`，spec 来源为输入的 Spec 与本 stage issues。Spec 中归属其他 stage 或已跳过的要求不计为缺失；Spec 要求没有任何 issue 覆盖时，作为 Spec gap 请示 team-lead。
-3. 以实际 diff 和验收边界裁决 findings，断言行为缺陷前按生产调用方的真实用法复现。修复成立的 findings，并结清各 issue handoff 中以 stage 集成为移除条件的临时实现；接近重做，或按 [escalation.md](../../../../docs/agents/escalation.md) 需要找用户时请示 team-lead，其余自行决定并在 handoff 留一行理由。
-4. 用 `uv run python scripts/gate.py --changed` 跑本 stage diff 触及的全部域的完整闸门。implementer 只跑过相关测试，这是本 stage 第一次完整闸门。修复以 integration-fix commit push；commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)。闸门卡住（同一失败特征第 2 次出现）时记为 `fault` 并上报 team-lead。
-5. 达到 **green HEAD** 且工作树干净后，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，按 [handoff.md](handoff.md) 追加「集成审查」段，向 team-lead 回报 HEAD SHA 与验证结果并停止。
+1. Confirm the stage worktree, branch, and latest remote commit agree. Read the Spec if present, every stage issue's body and comments, and their handoffs. Always write Git commands as `git -C <absolute-stage-worktree-path>`.
+2. Invoke `code-review` through the Skill tool with `origin/main` as the fixed point and the supplied Spec and stage issues as spec sources. Do not count requirements belonging to other stages or skipped requirements as missing. Refer Spec requirements with no issue coverage to the team-lead as Spec gaps.
+3. Judge findings against the actual diff and acceptance boundaries. Before asserting a behavioral defect, reproduce it using actual production-caller usage. Fix valid findings and resolve temporary implementations whose issue handoffs specify stage integration as the removal condition. Consult the team-lead if the fix approaches a rewrite or requires the user under [escalation.md](../../../../docs/agents/escalation.md); otherwise decide yourself and leave a one-line reason in the handoff.
+4. Run full gates for every domain touched by this stage diff with `uv run python scripts/gate.py --changed`. Implementers ran only relevant tests; this is the stage's first full gate. Push fixes as integration-fix commits with messages following [the `CONTRIBUTING.md` commit conventions](../../../../CONTRIBUTING.md). If the gate gets stuck (the same failure signature appears a second time), record a `fault` and report to the team-lead.
+5. Once you have a **green HEAD** and clean worktree, perform the “Closing self-check” in [lessons.md](../../../../docs/agents/lessons.md), append an “Integration review” section under [handoff.md](handoff.md), report HEAD SHA and validation results to the team-lead, and stop.

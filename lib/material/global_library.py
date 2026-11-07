@@ -1,22 +1,25 @@
-"""全局资产库里的图片：与项目内容版本共用素材存储契约（见 ``docs/adr/0120``）。
+"""Global-library images share project content-version storage contracts (``docs/adr/0120``).
 
-库里的每张图片（资产图与衍生图）在条目上记三项事实（列见 ``lib.db.models.asset.GlobalImageColumns``）：
+Each asset/derivative image stores three facts on its entry (``lib.db.models.asset.GlobalImageColumns``):
 
-- ``image_digest``：库存储文件的裸 sha256，取回远端内容时据此校验；
-- ``image_content_id``：这张图片在全局资产库里的内容身份，每次写入新图片时随机生成；
-- ``image_storage``：远端持久定位。有它时 ``image_path`` 只是本地工作文件，可以清理、按需取回。
+- ``image_digest``: raw sha256 of library-stored files, verifying fetched remote content;
+- ``image_content_id``: library content identity, randomly regenerated for every new image write;
+- ``image_storage``: remote durable locator; when present, ``image_path`` is only a cleanable, refetchable local work file.
 
-新写入的图片按全局设置保存在本地或对象存储，经 :func:`global_image_commit` 进入同一个正式提交入口。全局资产库
-不是项目，没有版本历史；每个库条目以引用方键 :func:`library_holder`（``asset-library:<条目 ID>``）持有两类以
-内容身份为键的记录：
+New images follow global local/object-storage settings via :func:`global_image_commit`, the same
+formal commit entry. Global libraries are not projects and have no history. Each entry uses
+:func:`library_holder` (``asset-library:<条目 ID>``) for two content-identity-keyed record types:
 
-- 正式对象引用：按 ``docs/adr/0118`` 的保留契约，使用前 ``add_reference``，换图或覆盖后对旧图
-  ``remove_reference``，条目删除时 ``release_holder``；零引用对象的回收由契约统一完成。
-- 供应商素材关联的副本：保存时从来源内容版本复制，应用到项目时再复制给目标的新内容版本。
+- Formal-object references follow ``docs/adr/0118``: ``add_reference`` before use,
+  ``remove_reference`` for old images after replacements/overwrites, ``release_holder`` on entry
+  deletion; the contract centrally collects zero-reference objects.
+- Provider asset-link copies transfer from source content at save, then to newly created target
+  content versions when applied to projects.
 
-引用方键带冒号，不会与项目名或已删除项目的墓碑名重名；按项目名重算、改键或结算的读点都不会碰它。
+Colon-bearing holder keys cannot collide with project/tombstone names; project-name-based
+reconciliation, rekeying, and settlement readers never touch them.
 
-存量条目三列都为空，按库存储里的本地文件解释，照常预览与应用。
+Existing entries with all three columns empty use local library files, previewing/applying normally.
 """
 
 from __future__ import annotations
@@ -66,12 +69,12 @@ from lib.project.asset_types import ASSET_SPECS
 
 logger = logging.getLogger(__name__)
 
-#: 全局资产库条目作为正式对象引用方与供应商素材关联持有方时的键前缀（``docs/adr/0118`` 的非项目引用方格式）。
+#: Library-holder prefix for formal-object references/provider links, following ``docs/adr/0118`` nonproject key format.
 LIBRARY_HOLDER_PREFIX = "asset-library:"
 
 
 def library_holder(asset_id: str) -> str:
-    """库条目的引用方键，同时写进 ``object_storage_formal_object_ref`` 与 ``provider_asset_link`` 的 ``project_name``。"""
+    """Library-holder key, written into ``project_name`` for both ``object_storage_formal_object_ref`` and ``provider_asset_link``."""
     return f"{LIBRARY_HOLDER_PREFIX}{asset_id}"
 
 
@@ -79,10 +82,11 @@ _ENTRY_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
 
 def library_entry_lock(asset_id: str) -> asyncio.Lock:
-    """同一库条目的换图、覆盖与删除串行进行（单进程部署，见 ADR 0007）。
+    """Serialize same-entry replacement/overwrite/deletion (single process, ADR 0007).
 
-    每次写入在锁内读取条目当前的图片、提交新图，再撤下被它换下的那张；并发的两次换图因此各自撤下真正被换下的图片，
-    不会两次都撤同一张旧图、留下一张已不在条目上却仍持有引用的图片。
+    Each write locks, reads current images, commits new images, then releases those actually replaced.
+    Concurrent replacements therefore release their own displaced images rather than both releasing
+    the same old image and leaking a reference to an image no longer on the entry.
     """
     key = (id(asyncio.get_running_loop()), asset_id)
     lock = _ENTRY_LOCKS.get(key)
@@ -93,7 +97,7 @@ def library_entry_lock(asset_id: str) -> asyncio.Lock:
 
 @dataclass(frozen=True)
 class GlobalImage:
-    """库里一张图片的内容事实。"""
+    """Content facts for one library image."""
 
     path: str
     digest: str | None = None
@@ -112,7 +116,7 @@ class GlobalImage:
         )
 
     def columns(self) -> dict[str, Any]:
-        """写进条目的列值。"""
+        """Column values written into entries."""
         return {
             "image_path": self.path,
             "image_digest": self.digest,
@@ -121,7 +125,7 @@ class GlobalImage:
         }
 
 
-#: 条目没有图片时写入的列值。
+#: Column values for entries without images.
 NO_IMAGE_COLUMNS: dict[str, Any] = {
     "image_path": None,
     "image_digest": None,
@@ -131,25 +135,25 @@ NO_IMAGE_COLUMNS: dict[str, Any] = {
 
 
 def _resource_type(asset_type: str) -> str:
-    """全局资产类型在版本历史里的资源类型名（决定是否属于随全局设置写远端的图片）。"""
+    """Version-history resource type for global assets, determining whether images follow global remote-save settings."""
     return ASSET_SPECS[asset_type].bucket_key
 
 
 @dataclass
 class GlobalImageWriter:
-    """一个库条目这次写入里新保存的图片。:meth:`save` 是同步磁盘与网络操作，在工作线程里调用。"""
+    """Images newly saved by this entry write; :meth:`save` performs synchronous disk/network operations in worker threads."""
 
     data_root: Path
     holder: str
     storage: ObjectContentStorage | None
     session_factory: async_sessionmaker[AsyncSession] | None = None
     saved: list[GlobalImage] = field(default_factory=list)
-    #: 本次写入落盘的库存储文件（相对数据根），失败时由 :meth:`discard` 删除。
+    #: Library file written this time, relative to data root; :meth:`discard` removes it on failure.
     written: list[str] = field(default_factory=list)
     _committed: bool = field(default=False, init=False)
 
     def save(self, source: Path, asset_type: str, default_ext: str) -> GlobalImage:
-        """把 ``source`` 保存为库里的一张新图片：本地写入库存储文件，全局设置为对象存储时再写成正式对象。"""
+        """Save ``source`` as a new library image: write library-local files and, when globally selected, formal remote objects."""
         ext = source.suffix.lower() or default_ext
         rel_path = f"{GLOBAL_ASSETS_DIRNAME}/{asset_type}/{uuid.uuid4().hex}{ext}"
         self.written.append(rel_path)
@@ -162,7 +166,7 @@ class GlobalImageWriter:
         return image
 
     def save_bytes(self, content: bytes, asset_type: str, ext: str) -> GlobalImage:
-        """把上传的字节保存为库里的一张新图片，语义同 :meth:`save`。"""
+        """Save uploaded bytes as a new library image, with :meth:`save` semantics."""
         directory = self.data_root / GLOBAL_ASSETS_DIRNAME / asset_type
         directory.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(prefix=".upload.", suffix=ext, dir=directory)
@@ -172,10 +176,10 @@ class GlobalImageWriter:
                 handle.write(content)
             return self.save(tmp, asset_type, ext)
         finally:
-            tmp.unlink(missing_ok=True)  # hard-delete: temp -- 上传字节的暂存文件，内容已保存为库存储文件
+            tmp.unlink(missing_ok=True)  # hard-delete: temp -- Upload staging file; bytes saved to library
 
     async def hold(self) -> None:
-        """为本次保存到远端的图片登记条目的对象引用。在提交条目之前调用：引用在，对象才不会被结算或回收删除。"""
+        """Register entry references for images saved remotely in this write, before committing entries; references prevent settlement/collection deletion."""
         for image in self.saved:
             if (
                 image.stored is not None
@@ -187,14 +191,14 @@ class GlobalImageWriter:
                 raise RemoteSaveFailedError("not_confirmed")
 
     async def discard(self) -> None:
-        """条目没有写成时撤下引用与文件；提交后的响应或读取失败不撤销已保存的图片。"""
+        """On failed entry writes, release references/files; post-commit response/read failures never revoke saved images."""
         if self._committed:
             return
         await forget_global_images(self.holder, self.saved, session_factory=self.session_factory)
         await asyncio.to_thread(_delete_files, self.data_root, self.written)
 
     async def commit(self, session: AsyncSession) -> None:
-        """提交条目并关闭失败补偿窗口，取消不会落在数据库已提交、图片仍可被撤下的间隙。"""
+        """Commit entries and close compensation windows, preventing cancellation between DB commit and image revocability."""
 
         async def _commit() -> None:
             await session.commit()
@@ -211,15 +215,15 @@ async def global_image_commit(
     saves_images: bool = True,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> AsyncGenerator[GlobalImageWriter]:
-    """库条目 ``holder`` 写入新图片的正式提交入口：图片按全局设置保存在本地或对象存储。
+    """Formal entry ``holder`` image-write context, saving locally/remotely by global settings.
 
-    调用方在上下文里经 :meth:`GlobalImageWriter.save` 保存图片、:meth:`GlobalImageWriter.hold` 登记引用，
-    再经 :meth:`GlobalImageWriter.commit` 提交条目，
-    条目写入失败时调用 :meth:`GlobalImageWriter.discard`。退出时结算本次提交，没有引用的新建对象被删除。
-    ``saves_images`` 为 False（这次写入没有图片）时不检查对象存储连接，按本地处理。
+    Call :meth:`GlobalImageWriter.save` for images, :meth:`GlobalImageWriter.hold` for references,
+    then :meth:`GlobalImageWriter.commit` for the entry. If entry writes fail, call
+    :meth:`GlobalImageWriter.discard`. Settle on exit, deleting unreferenced newly created objects.
+    With ``saves_images`` False (no images written), skip connection checks and treat as local.
 
     Raises:
-        ObjectStorageRequiredError: 全局设置为对象存储而实例没有配置连接。
+        ObjectStorageRequiredError: Global target is object storage without a configured connection.
     """
     target = None if saves_images else "local"
     async with formal_commit(holder, session_factory=session_factory, target=target) as storage:
@@ -232,7 +236,7 @@ async def forget_global_images(
     *,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> None:
-    """条目 ``holder`` 不再使用这些图片（换图或覆盖）：逐张撤下引用，失去全部引用的对象按保留契约统一回收。"""
+    """Entry ``holder`` stops using these images after replacements/overwrites: release each reference and centrally collect unreferenced objects."""
     for image in images:
         if image is not None and image.stored is not None and image.content_id is not None:
             await remove_reference(image.stored, holder, image.content_id, session_factory=session_factory)
@@ -241,21 +245,21 @@ async def forget_global_images(
 async def release_library_entry(
     holder: str, *, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> None:
-    """库条目已删除：撤下它名下的全部引用，失去全部引用的对象按保留契约统一回收。"""
+    """Library entry deleted: release all its references and centrally collect fully unreferenced objects."""
     await release_holder(holder, session_factory=session_factory)
 
 
 def _delete_files(data_root: Path, rel_paths: Iterable[str]) -> None:
     for rel_path in rel_paths:
         try:
-            (data_root / rel_path).unlink()  # hard-delete: out-of-scope -- 全局资产库文件，不属于项目
+            (data_root / rel_path).unlink()  # hard-delete: out-of-scope -- Global-library file, outside projects
         except FileNotFoundError:
             continue
         except OSError:
             logger.warning("delete global asset file failed: %s", rel_path)
 
 
-# ---- 读取：工作文件取回 -------------------------------------------------------------------------
+# ---- Read: fetch working files ----------------------------------------------------------
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
@@ -299,17 +303,17 @@ def _install(target: Path, digest: str | None, data: bytes) -> None:
             os.replace(tmp, target)
     finally:
         with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)  # hard-delete: temp -- 取回工作文件的临时文件
+            tmp.unlink(missing_ok=True)  # hard-delete: temp -- Temporary working-file download
 
 
 async def ensure_global_image(
     data_root: Path, rel_path: str, *, session_factory: async_sessionmaker[AsyncSession] | None = None
 ) -> bool:
-    """``rel_path`` 是库里远端图片的工作文件且不在本地时，从对象存储取回并按摘要校验。返回是否做了取回。
+    """If ``rel_path`` is a remote library image’s missing work file, fetch/verify by digest; return whether fetched.
 
     Raises:
-        MaterialConnectionUnavailableError: 记录的连接已不存在或已换桶。
-        MaterialFetchFailedError: 下载失败或内容与摘要不符。
+        MaterialConnectionUnavailableError: Recorded connection absent or changed buckets.
+        MaterialFetchFailedError: Download failed or digest mismatched.
     """
     target = Path(data_root) / rel_path
     if await asyncio.to_thread(target.is_file):
@@ -326,7 +330,7 @@ async def ensure_global_image(
     return True
 
 
-# ---- 清理 -------------------------------------------------------------------------------------
+# ---- Cleanup ---------------------------------------------------------------------------
 
 
 def _evict(target: Path, digest: str, idle_before: float) -> tuple[int, int, int]:
@@ -347,9 +351,10 @@ async def cleanup_global_work_files(
     min_idle: timedelta = DEFAULT_MIN_IDLE,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> CacheCleanupResult:
-    """删除库里远端图片闲置超过 ``min_idle`` 的本地工作文件，口径同 ``cleanup_work_cache``。
+    """Remove remote library-image work files idle beyond ``min_idle``, following ``cleanup_work_cache``.
 
-    只删除远端已确认保存（``stored``）、本地内容与摘要一致、此刻没有使用登记的文件；本地图片不受影响。
+    Delete only confirmed-remote (``stored``), digest-matching local files without current use
+    registrations. Local images remain untouched.
     """
     session_factory = session_factory or _default_session_factory()
     idle_before = time.time() - min_idle.total_seconds()

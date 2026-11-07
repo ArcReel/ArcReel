@@ -5,19 +5,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 interface TooltipIconButtonProps {
   label: string;
-  /** 禁用原因：禁用时代替名称显示在提示里，并作为按钮的无障碍描述。 */
+  /** Disabled reason: replace the name with it in the tooltip when disabled, and use it as the button's accessible description. */
   hint?: string;
   disabled?: boolean;
   onClick: () => void;
   size?: "icon-xs" | "icon-sm";
-  /** 对应的快捷键（如「J」）：写进 `aria-keyshortcuts`，并显示在提示里。 */
+  /** Associated shortcut, such as J: set `aria-keyshortcuts` and show it in the tooltip. */
   shortcut?: string;
   children: ReactNode;
 }
 
 /**
- * 只有图标的工具按钮，悬停或聚焦显示名称。禁用的按钮不响应指针，提示改挂在外层，
- * 悬停时仍能看到禁用原因。
+ * Icon-only tool button, showing its name on hover/focus. Disabled buttons do not respond to pointers, so attach the tooltip to the wrapper
+ * to keep the disabled reason available on hover.
  */
 export function TooltipIconButton({
   label,

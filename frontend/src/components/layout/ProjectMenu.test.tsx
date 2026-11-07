@@ -62,7 +62,7 @@ describe("ProjectMenu", () => {
     await user.keyboard("不存在的项目");
 
     expect(await screen.findByText("没有匹配的项目")).toBeInTheDocument();
-    // 底部入口不随搜索词过滤
+    // Bottom entries ignore search filters.
     expect(screen.getByRole("link", { name: "全部项目" })).toBeInTheDocument();
   });
 

@@ -15,8 +15,8 @@ const SECTION_TITLE_KEY: Record<EndpointFormSection, string> = {
 };
 
 /**
- * 诊断卡：与保存、导入共用同一个服务端校验器，常驻头部下方。
- * 每条标注所属分节，点击滚动到该节。
+ * Diagnostic card: shares the server-side validator used by save and import, and stays below the header.
+ * Each entry identifies its section; click it to scroll there.
  */
 export function EndpointDiagnostics({
   errors,

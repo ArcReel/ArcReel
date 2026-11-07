@@ -1,4 +1,4 @@
-"""项目旁白配置：交付方式与 TTS 快照只从 project.json 读，不回落全局默认。"""
+"""Project narration delivery/TTS snapshots come only from project.json, without global defaults."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ class TestProjectTtsSettings:
         assert settings.speed == 0.8
 
     def test_snapshot_is_independent_of_delivery(self):
-        # 改为后期配音后快照仍在，已有旁白配音的依据照旧可复算
+        # Switching to post-production dubbing keeps the snapshot, so existing narration provenance remains recomputable.
         settings = project_tts_settings({**_TTS_PROJECT, "narration_delivery": "post_production"})
         assert settings is not None
         assert settings.voice == "Cherry"

@@ -1,4 +1,4 @@
-"""Alembic 迁移：custom_provider 在 SQLite 上启用 AUTOINCREMENT 的 upgrade / downgrade。"""
+"""Alembic: SQLite custom_provider AUTOINCREMENT upgrade / downgrade."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def _snapshot(engine: sa.Engine) -> dict[str, object]:
 
 
 def _schema(engine: sa.Engine) -> dict[str, object]:
-    """引用方与本表的外键、索引、约束：升降级前后都应保持不变。"""
+    """Foreign keys, indexes, and constraints on this table and its referrers remain unchanged across upgrade/downgrade."""
     insp = sa.inspect(engine)
     return {
         "model_fks": insp.get_foreign_keys("custom_provider_model"),
@@ -113,7 +113,7 @@ _PROBLEM = (
 
 
 def _insert_reference(conn: sa.Connection, table: str, column: str, value: str) -> None:
-    """升级前留下的失败记录或用量，在指定列里引用供应商。"""
+    """Preupgrade failure/usage records reference providers in the specified column."""
     if table == "tasks":
         values = {"provider_id": None, "error_message": None, column: value}
         conn.execute(
@@ -146,7 +146,7 @@ def _insert_reference(conn: sa.Connection, table: str, column: str, value: str) 
 def test_upgrade_skips_ids_deleted_before_upgrade_that_records_still_reference(
     alembic_cfg: tuple[Config, Path], autoincrement_revisions: tuple[str, str], table: str, column: str, value: str
 ):
-    """升级前删掉的最大 ID 仍被失败记录或用量引用：新供应商不能拿到它，否则旧记录会错归。"""
+    """The maximum ID deleted before upgrade remains referenced by failure/usage records; new providers must not reuse it and inherit old attribution."""
     revision_id, parent_id = autoincrement_revisions
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, parent_id)

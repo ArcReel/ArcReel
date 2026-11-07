@@ -1,11 +1,11 @@
-"""端点测试三模式：预览请求、验证响应、测试连接。
+"""Three endpoint-test modes: preview requests, validate responses, test connections.
 
-三者对同一份定义回答三个层层递进的问题——「我要发出去的是什么」「供应商这样回我时我读成了什么」
-「真发一次到底能不能成」。前两者不外发一个字节，第三者真实提交并计费。
+Progressively answer what will be sent, how provider responses will be interpreted,
+and whether real requests succeed. First two transmit no bytes; third submits/bills real calls.
 
-服务层与 HTTP 形状 1:1、无 session 态、返回体不含凭证：router 是薄封装，外部 Agent 走同一批
-HTTP 接口，两侧不会各自长出一套语义。定义的判定始终委托 ``endpoint_definition`` 的共享校验器，
-执行始终委托 ``declarative_backend`` 的运行时——本包不新增第二份判定。
+Services match HTTP shapes 1:1 without session state/response credentials. Thin routers expose the same APIs to external
+Agents, avoiding diverging semantics. Definition decisions always delegate to shared ``endpoint_definition`` validators;
+execution always delegates to ``declarative_backend`` runtimes, never adding second interpretations here.
 """
 
 from .check import STAGES, FieldExtraction, PathAttempt, StageReport, check_response, parse_response_body

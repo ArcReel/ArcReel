@@ -1,19 +1,19 @@
-"""整本源文改动时，切出集原文范围的重映射（ADR 0097）。
+"""Remap split source ranges after whole-source changes (ADR 0097).
 
-整本源文的一个文件被编辑或替换、删除、插入或调序时，只有原文范围触及这个文件的切出集受影响：
+Editing/replacement/deletion/insertion/reordering affects only episodes touching changed files:
 
-- **编辑、替换**（:func:`remap_for_edit`）：对改动前后的规范化文本做对齐，逐集映射原文范围的边界。范围内文字
-  没变的集只平移；范围内文字有变化的集取映射后的范围，``text_changed``。恰好插在两集分界上的新文字归前一集；
-  落在任何切出集之外的新文字（第一个切出集之前、最后一个之后、切出集之间的空段里）是未切分的原文。
-- **删除**（:func:`remap_for_delete`）：等同于删掉这个文件的全部文字。跨进这个文件的集保留其余部分。
-- **插入**（:func:`remap_for_insert`）：插入处落在一个跨文件的集内部时，新文件归这一集；否则不动任何集。
-- **调序**（:func:`remap_for_move`）：原文范围不变。跨过被移动文件边界的集只保留起点所在文件里、调序后仍相连
-  的部分。
+- **Edit/replace** (:func:`remap_for_edit`): align normalized old/new texts, mapping episode boundaries. Unchanged content
+  shifts only; changed content takes mapped ranges with ``text_changed``. Insertions exactly between episodes belong to preceding episodes;
+  insertions outside all splits, before first/after last/in gaps, stay unsplit.
+- **Delete** (:func:`remap_for_delete`): delete all file text; spanning episodes retain remaining portions.
+- **Insert** (:func:`remap_for_insert`): new files belong to spanning episodes when inserted inside them, otherwise unchanged.
+- **Move** (:func:`remap_for_move`): preserve recorded ranges. Spanning episodes retain only reordered-connected
+  portions anchored to their starting files.
 
-映射后范围里没有非空白文字的集，``after`` 为 None：整段被删，由调用方按移除切分处理。
+Mapped ranges without nonwhitespace have ``after`` None, entirely deleted for caller split removal.
 
-原文范围的偏移是各自文件内的下标，落在 ``normalize_source_text`` 的坐标系里；文件顺序以传入的 ``docs`` 为准。
-服务之外的改动以快照为旧文本、以盘上文件为新文本，走同一套映射。本模块是纯函数，不读写磁盘与账本。
+Offsets are per-file ``normalize_source_text`` coordinates; order follows supplied ``docs``.
+External changes use snapshots as old/disk as new, sharing mapping. Pure functions, no disk/ledger I/O.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from lib.episode.episode_ledger import SourceDoc, SourceSpan
 
-#: 逐字对齐的单侧字数上限。行级对齐后，替换块两侧都不超过它时再逐字细化；更大的块整体按替换处理。
+#: Per-side character-refinement maximum after line alignment; refine only when both replacement sides fit, otherwise whole-block replacements.
 _CHAR_ALIGN_LIMIT = 8000
 
 Opcode = tuple[str, int, int, int, int]
@@ -32,17 +32,17 @@ Opcode = tuple[str, int, int, int, int]
 
 @dataclass(frozen=True)
 class TextAlignment:
-    """改动前后两段文本的对齐：``difflib`` 风格的操作序列，依次覆盖旧文本与新文本的全部位置。"""
+    """``difflib``-style operations covering every old/new text position in sequence."""
 
     opcodes: tuple[Opcode, ...]
     old_length: int
     new_length: int
 
     def map_position(self, position: int, *, after_insertions: bool) -> int:
-        """旧文本位置在新文本里的对应位置。
+        """Old positions mapped to new text.
 
-        恰好在这个位置插入了新文字时，``after_insertions`` 决定落在插入文字之后还是之前。落在被替换的文字里时
-        按比例换算，落在被删除的文字里时取删除处。
+        At exact insertions, ``after_insertions`` chooses before/after inserted text. Replacement interiors
+        map proportionally; deleted interiors map to deletion positions.
         """
         for tag, i1, _i2, j1, j2 in self.opcodes:
             if tag == "insert" and i1 == position:
@@ -57,9 +57,9 @@ class TextAlignment:
         return self.new_length if position >= self.old_length else position
 
     def changed_between(self, start: int, end: int, *, insertions_at_start: bool, insertions_at_end: bool) -> bool:
-        """旧文本 ``[start, end)`` 里的文字是否有变化：其中有字被删改，或其中插入了新文字。
+        """Whether old ``[start, end)`` changed through deletion/replacement/insertion.
 
-        恰好插在 ``start`` / ``end`` 上的新文字是否算在这段里，由两个参数决定。
+        Two parameters decide whether insertions exactly at ``start`` / ``end`` count.
         """
         for tag, i1, i2, _j1, _j2 in self.opcodes:
             if tag == "equal":
@@ -88,7 +88,7 @@ def _align_chars(old: str, new: str, old_base: int, new_base: int) -> list[Opcod
 
 
 def _align_middle(old: str, new: str, old_base: int, new_base: int) -> list[Opcode]:
-    """先按行对齐，替换块不大时再逐字细化。"""
+    """Align lines, refining small replacement blocks character-by-character."""
     if not old or not new:
         if not old and not new:
             return []
@@ -110,7 +110,7 @@ def _align_middle(old: str, new: str, old_base: int, new_base: int) -> list[Opco
 
 
 def align_texts(old: str, new: str) -> TextAlignment:
-    """对齐改动前后的规范化文本。先去掉相同的开头与结尾，只对齐中间改动过的部分。"""
+    """Align normalized old/new text after stripping identical prefixes/suffixes, processing changed middles only."""
     limit = min(len(old), len(new))
     prefix = 0
     while prefix < limit and old[prefix] == new[prefix]:
@@ -118,8 +118,8 @@ def align_texts(old: str, new: str) -> TextAlignment:
     suffix = 0
     while suffix < limit - prefix and old[len(old) - 1 - suffix] == new[len(new) - 1 - suffix]:
         suffix += 1
-    # 相同的开头与结尾退到整行：不然被删掉的整行与后面一行同样的开头字会被认成没删，改动落到错误的集里。
-    # 一行太长时不退，避免整段没有换行的文本退成全文对齐
+    # Back identical prefixes/suffixes to whole lines, preventing deleted-line prefixes matching following lines and assigning edits to wrong episodes.
+    # Do not backtrack extremely long lines, avoiding whole-text alignment for unbroken paragraphs.
     line_start = old.rfind("\n", 0, prefix) + 1
     if prefix - line_start <= _CHAR_ALIGN_LIMIT:
         prefix = line_start
@@ -141,18 +141,18 @@ def align_texts(old: str, new: str) -> TextAlignment:
 
 @dataclass(frozen=True)
 class RangeRemap:
-    """一个切出集原文范围的重映射结果。"""
+    """One split-range remap result."""
 
     episode: int
     before: SourceSpan
-    #: 改动后的原文范围；范围里没有非空白文字（整段被删）时为 None。
+    #: New ranges, None when entirely deleted/no nonwhitespace.
     after: SourceSpan | None
-    #: 范围内的文字有变化（含整段被删）。
+    #: Changed interior text, including entire deletion.
     text_changed: bool
 
 
 class _Files:
-    """一组按顺序排列的文件：路径、长度与全局偏移。"""
+    """Ordered file paths/lengths/global offsets."""
 
     def __init__(self, docs: Sequence[SourceDoc]):
         self.docs = list(docs)
@@ -179,7 +179,7 @@ class _Files:
         return "".join(parts)
 
     def normalized(self, span: SourceSpan) -> SourceSpan:
-        """把落在文件交界上的起止点挪到范围以内：起点在文件末尾时挪到下一个文件开头，终点在文件开头时挪到上一个文件末尾。"""
+        """Move file-boundary endpoints inward: end-of-file starts to next-file beginnings, beginning-of-file ends to previous-file endings."""
         first, start = self.index(span.source_file), span.start
         last, end = self.index(span.end_file), span.end
         while first < last and start >= len(self.docs[first].text):
@@ -206,7 +206,7 @@ def _unchanged(episode: int, span: SourceSpan) -> RangeRemap:
 def remap_for_edit(
     docs: Sequence[SourceDoc], spans: Mapping[int, SourceSpan], *, rel: str, new_text: str
 ) -> list[RangeRemap]:
-    """文件 ``rel`` 的规范化全文改为 ``new_text`` 后各集的原文范围。``docs`` 是改动前的整本源文。"""
+    """Episode ranges after normalized ``rel`` becomes ``new_text``; ``docs`` is prior whole sources."""
     old = _Files(docs)
     target = old.index(rel)
     old_text = old.docs[target].text
@@ -222,7 +222,7 @@ def remap_for_edit(
         starts_here, ends_here = first == target, last == target
         low = span.start if starts_here else 0
         high = span.end if ends_here else len(old_text)
-        # 终点与下一集起点相接时，插在分界上的新文字归这一集；终点之后是未切分的原文时不归
+        # Boundary insertions belong to preceding episodes only when next starts touch, never when following spans remain unsplit.
         shared_end = old.global_end(span) in starts
         include_end = not ends_here or shared_end
         changed = alignment.changed_between(
@@ -241,7 +241,7 @@ def remap_for_edit(
 
 
 def remap_for_delete(docs: Sequence[SourceDoc], spans: Mapping[int, SourceSpan], *, rel: str) -> list[RangeRemap]:
-    """删除文件 ``rel`` 后各集的原文范围：等同于删掉这个文件的全部文字。"""
+    """Ranges after deleting ``rel``, equivalent to deleting every file character."""
     old = _Files(docs)
     target = old.index(rel)
     new = _Files([doc for doc in docs if doc.rel_path != rel])
@@ -266,9 +266,9 @@ def remap_for_delete(docs: Sequence[SourceDoc], spans: Mapping[int, SourceSpan],
 
 
 def remap_for_insert(docs: Sequence[SourceDoc], spans: Mapping[int, SourceSpan], *, index: int) -> list[RangeRemap]:
-    """在 ``docs`` 的第 ``index`` 个文件之前插入新文件后各集的原文范围。
+    """Ranges after insertion before ``docs`` file ``index``.
 
-    插入处落在一个跨文件的集内部时，新文件归这一集，``text_changed``；原文范围的记录不用改。
+    Insertions within spanning episodes belong to them, ``text_changed``, without changing range records.
     """
     old = _Files(docs)
     boundary = old.bases[min(index, len(docs))]
@@ -282,9 +282,9 @@ def remap_for_insert(docs: Sequence[SourceDoc], spans: Mapping[int, SourceSpan],
 def remap_for_move(
     docs: Sequence[SourceDoc], spans: Mapping[int, SourceSpan], *, rel: str, new_index: int
 ) -> list[RangeRemap]:
-    """把文件 ``rel`` 移到第 ``new_index`` 位后各集的原文范围。
+    """Ranges after moving ``rel`` to ``new_index``.
 
-    原文范围不变；跨过被移动文件边界的集只保留起点所在文件里、调序后仍相连的部分。
+    Preserve recorded ranges; spanning episodes keep reordered-connected portions in starting files only.
     """
     old = _Files(docs)
     order = [doc for doc in docs if doc.rel_path != rel]

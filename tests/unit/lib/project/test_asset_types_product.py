@@ -1,4 +1,4 @@
-"""product 资产类型的 spec 层行为：第 4 条目、列表字段抽象、全局库豁免。"""
+"""Product asset spec behavior: fourth entry, list-field abstraction, and global-library exemption."""
 
 from lib.project.asset_types import (
     ASSET_SPECS,

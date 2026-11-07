@@ -1,84 +1,84 @@
-# 中文技术文档与产品文案规范
+# Chinese technical documentation and product-copy guidelines
 
-这是一份面向中文技术文档、产品文案和界面文案的写作 Skill。正式、可安装的规则入口是 [SKILL.md](SKILL.md)；本页只说明设计目标和内容结构，不复制完整规则。
+This is a writing Skill for Chinese technical documentation, product copy, and UI copy. The formal, installable rule entry point is [SKILL.md](SKILL.md); this page explains only the design goals and content structure without duplicating the full rules.
 
-## 目标
+## Goals
 
-- 准确先于修辞
-- 清晰先于热闹
-- 事实保真先于表达优化
-- 可执行先于抽象概括
-- 可扫读先于堆砌解释
+- Accuracy before rhetoric
+- Clarity before excitement
+- Factual fidelity before expression optimization
+- Actionability before abstract summaries
+- Scannability before accumulated explanations
 
-## 适用内容
+## Applicable content
 
-- 文档首页和产品介绍
-- API 文档、参数说明和错误码
-- 操作手册、故障排查和运维 Runbook
-- 常见问题、更新日志和解决方案页
-- 按钮、导航、状态和提示信息
+- Documentation homepages and product introductions
+- API documentation, parameter descriptions, and error codes
+- Operating manuals, troubleshooting, and operations runbooks
+- FAQs, changelogs, and solution pages
+- Buttons, navigation, statuses, and notices
 
-代码字面量、JSON 键名、URL、API 路径、数据库字段、命令和配置项不属于自然语言改写范围。
+Code literals, JSON keys, URLs, API paths, database fields, commands, and configuration options are outside natural-language rewriting scope.
 
-## 最重要的边界
+## The most important boundary
 
-文案优化不能改变事实。不得自行增加原文没有的：
+Copy improvements must not change facts. Do not add information absent from the original:
 
-- 日期和年份
-- 数字和单位
-- 处理期限和 SLA
-- 产品能力
-- 前置条件和因果关系
-- 确定性结论
+- Dates and years
+- Numbers and units
+- Processing deadlines and SLAs
+- Product capabilities
+- Prerequisites and causal relationships
+- Definite conclusions
 
-资料不足时保留原意，或明确标记待确认。
+When information is insufficient, retain the original meaning or explicitly mark it pending confirmation.
 
-## 内容结构
+## Content structure
 
-核心入口 [SKILL.md](SKILL.md) 负责：
+The core entry point [SKILL.md](SKILL.md) covers:
 
-- 规则优先级
-- 事实保真
-- 撰写、改写、校对和审阅流程
-- 核心语义、结构和语气规则
-- 按内容类型选择参考资料
-- 最终检查
+- Rule priority
+- Factual fidelity
+- Writing, rewriting, proofreading, and review workflows
+- Core meaning, structure, and tone rules
+- Reference selection by content type
+- Final checks
 
-详细规则按需读取：
+Read detailed rules as needed:
 
-- [术语与排版](references/terminology-and-typography.md)
-- [API 状态与错误文案](references/api-status-copy.md)
-- [受控中文技术写作](references/controlled-technical-chinese.md)
-- [项目覆盖模板](references/project-overrides-example.md)
+- [Terminology and typography](references/terminology-and-typography.md)
+- [API status and error copy](references/api-status-copy.md)
+- [Controlled Chinese technical writing](references/controlled-technical-chinese.md)
+- [Project override template](references/project-overrides-example.md)
 
-## 受控中文技术写作
+## Controlled Chinese technical writing
 
-操作手册、故障排查、安全说明和运维文档可以使用受 ASD-STE100 启发的受控中文写作方法，重点控制：
+Operating manuals, troubleshooting, security guidance, and operations documentation can use controlled Chinese writing inspired by ASD-STE100, focusing on:
 
-- 术语是否一致
-- 条件是否位于动作之前
-- 一个步骤是否包含清晰的主要动作
-- 执行者、对象和结果是否明确
-- 指代、否定范围和确定程度是否有歧义
+- Consistent terminology
+- Conditions before actions
+- A clear main action in each step
+- Explicit actors, objects, and results
+- Unambiguous references, negation scope, and degree of certainty
 
-该模块不是 ASD-STE100 的中文版本，也不表示输出符合 ASD-STE100。英语受控词典、词性和句长规则不能直接移植到中文。
+This module is not a Chinese version of ASD-STE100 and does not imply output complies with ASD-STE100. English controlled-vocabulary, part-of-speech, and sentence-length rules cannot be directly transferred to Chinese.
 
-## 项目覆盖
+## Project overrides
 
-通用 Skill 不包含任何项目默认生效的业务术语。目标项目如有版本、品牌、术语或信息架构约定，应在目标项目中建立覆盖文件。
+The general Skill contains no business terminology effective by default for any project. If a target project has version, brand, terminology, or information-architecture conventions, create an override file in that target project.
 
-[项目覆盖模板](references/project-overrides-example.md) 只提供结构，不包含默认业务规则。
+The [Project override template](references/project-overrides-example.md) provides structure only, without default business rules.
 
-## 自动检查
+## Automated checks
 
-仓库内置轻量检查器，将结果分为：
+The repository includes a lightweight checker with these result categories:
 
-- `error`：高度确定的错误，默认导致检查失败
-- `warning`：依赖语境的可疑表达，需要人工判断
-- `style`：项目风格或术语偏好
+- `error`: highly certain errors that fail checks by default
+- `warning`: context-dependent suspicious wording requiring human judgment
+- `style`: project style or terminology preferences
 
-仓库另外提供一个零依赖脚本，把源文件中为了行宽而手动断开的段落还原为一段一行，并按中西文留白规则处理拼接边界。代码块、表格、标题、列表结构和显式换行保持原样。
+A separate zero-dependency script restores paragraphs manually wrapped for source line width to one paragraph per line, handling Chinese/Western spacing at joins. Code blocks, tables, headings, list structures, and explicit line breaks remain unchanged.
 
-自动检查不能证明语义正确，也不能代替作者判断。事实保真、条件顺序、指代关系和过度简化仍需人工复核。
+Automated checks cannot prove semantic correctness or replace author judgment. Factual fidelity, condition order, reference relationships, and oversimplification still need manual review.
 
 <!-- 作者：Fenng（GitHub：@Fenng） -->

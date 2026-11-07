@@ -1,17 +1,16 @@
-"""项目状态投影：把项目当前状态归一成可比对快照，并把两份快照的差异描述成项目事件。
+"""Project-state projection: normalize current state into comparable snapshots and describe differences as project events.
 
-纯函数，不读盘：读取项目状态的 IO 归事件服务。投影规则按注册表派生、整条目比对
-（见 ``docs/adr/0085``）：
+Pure functions without disk reads; the event service owns state-reading I/O. Derive projection rules from registries
+and compare whole entries (``docs/adr/0085``):
 
-- 资产按 ``ASSET_SPECS`` 的每一行取整条；开启衍生能力的类型，衍生单独成条，身份写作
-  ``本体/衍生``，本体条目比对时排除衍生表。
-- 集条目、概述、剧本条目、剧本层字段取整条；项目设置取 ``project.json`` 去掉资产表、集、
-  概述与 ``metadata`` 后的全部内容。
-- 草稿（待修复草稿与 Agent 的可编辑草稿）按文件内容摘要比对：Agent 写入、采用（草稿随之清除）
-  与丢弃都报成草稿事件，面板据此实时刷新。
-- 排除两类：每次写盘都会变的 ``metadata``；剧本条目的 ``generated_assets``，它只用于判定
-  分镜图 / 视频就绪，其余变化归显式事件。
-"""
+- Take whole asset entries for every ``ASSET_SPECS`` row. Types supporting derivatives project each derivative separately
+  as ``本体/衍生``, excluding derivative tables when comparing bases.
+- Take whole episode entries, overview, script entries and script-level fields. Project settings are all ``project.json``
+  content excluding asset tables, episodes, overview and ``metadata``.
+- Compare repairable/Agent-editable drafts by file-content digest: Agent writes, adoption (which clears the draft) and
+  discard all emit draft events for live panel refresh.
+- Exclude ``metadata``, changed on every write, and script-entry ``generated_assets``: it determines storyboard/video
+  readiness only; other changes use explicit events."""
 
 from __future__ import annotations
 
@@ -40,11 +39,11 @@ logger = logging.getLogger(__name__)
 _METADATA_KEY = "metadata"
 _GENERATED_ASSETS_KEY = "generated_assets"
 
-# 剧本里不属于「剧本层字段」的顶层键：当前骨架的条目数组单独按条目比对；其他骨架的残留数组
-# （如参考生视频剧本里遗留的 shots）不参与比对，否则其中的生成产物回写会被报成集更新。
+# Top-level keys excluded from script-level fields: compare current skeleton items separately; omit residual arrays
+# from other skeletons, such as shots in reference-video scripts, so artifact writebacks do not appear as episode updates.
 _NON_DOCUMENT_KEYS = frozenset(SKELETONS) | {_METADATA_KEY}
 
-# project.json 里不属于「项目设置」的顶层键：它们各自单独投影，或不参与比对。
+# Top-level project.json keys outside project settings: project separately or exclude from comparison.
 _NON_SETTINGS_KEYS = frozenset(
     {spec.bucket_key for spec in ASSET_SPECS.values()} | {"episodes", "overview", _METADATA_KEY}
 )
@@ -52,10 +51,9 @@ _NON_SETTINGS_KEYS = frozenset(
 
 @dataclass(frozen=True)
 class ProjectState:
-    """项目当前状态：``project.json``、``scripts/`` 下每份可解析剧本（文件名 → 剧本）与在场草稿。
+    """Current project state: ``project.json``, every parseable script under ``scripts/`` (filename → script), and existing drafts.
 
-    ``drafts`` 以 ``draft_state_key`` 为键、草稿文件内容摘要为值。
-    """
+    ``drafts`` maps ``draft_state_key`` to draft-file content digests."""
 
     project: Mapping[str, Any]
     scripts: Mapping[str, Mapping[str, Any]]
@@ -63,13 +61,13 @@ class ProjectState:
 
 
 def draft_state_key(episode: int, kind: str) -> str:
-    """``ProjectState.drafts`` 的键：集号与草稿来源。"""
+    """``ProjectState.drafts`` key: episode identity and draft source."""
     return f"{episode}:{kind}"
 
 
 @dataclass(frozen=True)
 class ProjectSnapshot:
-    """归一后的项目状态；``fingerprint`` 相同即两份快照不会差分出任何项目事件。"""
+    """Normalized project state; equal ``fingerprint`` values mean snapshots produce no differential project events."""
 
     data: dict[str, Any]
     fingerprint: str
@@ -126,7 +124,7 @@ def diff_snapshots(previous: ProjectSnapshot, current: ProjectSnapshot) -> list[
 
 
 def _bucket_entries(project: Mapping[str, Any], spec: AssetSpec) -> list[tuple[str, dict[str, Any]]]:
-    """资产表里结构合法的条目，按名排序；畸形的表或条目按缺失处理（结构错误由校验层报告）。"""
+    """Structurally valid asset-table entries sorted by name; treat malformed tables/entries as absent, with structural errors reported by validation."""
     bucket = project.get(spec.bucket_key)
     if not isinstance(bucket, dict):
         return []
@@ -165,7 +163,7 @@ def _episode_entries(project: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _script_projection(script: Mapping[str, Any]) -> dict[str, Any]:
-    """剧本拆成条目表与剧本层字段；骨架种类按数据形状取证（``resolve_kind_items``）。"""
+    """Split scripts into item tables and script-level fields; determine skeleton kind from data shape (``resolve_kind_items``)."""
     raw_items, id_field, kind = resolve_kind_items(dict(script))
     if kind not in script:
         raw_items = []
@@ -198,7 +196,7 @@ def _diff_assets(
     label_key: str,
 ) -> list[dict[str, Any]]:
     def focus(entity_id: str) -> dict[str, Any]:
-        # 衍生没有自己的卡片，定位到本体卡；资产名不含分隔符，本体的 id 原样保留。
+        # Derivatives have no separate cards; locate the base card. Asset names contain no separator, so retain the base ID unchanged.
         owner = entity_id.partition(DERIVATIVE_ID_SEPARATOR)[0]
         return {"pane": pane, "anchor_type": asset_type, "anchor_id": owner}
 
@@ -253,11 +251,11 @@ def _diff_episodes(previous: Mapping[str, Any], current: Mapping[str, Any]) -> l
 
 
 def _diff_scripts(previous: Mapping[str, Any], current: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """剧本的条目差异与剧本层差异；剧本层差异（含剧本文件新出现或消失）报所属集更新。"""
+    """Script item and script-level differences; script-level changes, including file appearance/disappearance, report owning-episode updates."""
     changes: list[dict[str, Any]] = []
     for script_file in sorted(previous.keys() | current.keys()):
         if script_file not in previous or script_file not in current:
-            # 剧本文件整份出现或消失，不逐条报条目增删。
+            # Report whole-script appearance/disappearance without individual item additions/deletions.
             present = current[script_file] if script_file in current else previous[script_file]
             changes.extend(_script_level_change(present, script_file))
             continue
@@ -289,7 +287,7 @@ def _script_level_change(script: Mapping[str, Any], script_file: str) -> list[di
     episode = script["episode"]
     if not isinstance(episode, int):
         return []
-    # script_file 与集条目同口径（相对项目根），同一集两路报出的集更新载荷一致。
+    # script_file matches episode-entry paths relative to project root, keeping episode-update payloads identical on both paths.
     return [_episode_change("updated", episode, script_file=f"scripts/{script_file}", important=True)]
 
 
@@ -317,7 +315,7 @@ def _item_change(
 
 
 def _diff_drafts(previous: Mapping[str, str], current: Mapping[str, str]) -> list[dict[str, Any]]:
-    """草稿出现、内容变化、消失；只有出现才算重要（需要创作者处理），其余只驱动面板刷新。"""
+    """Draft appearance, content change and disappearance; only appearance is important, requiring creator action; others only refresh panels."""
     changes = [_draft_change(key, "created", important=True) for key in sorted(current.keys() - previous.keys())]
     changes.extend(_draft_change(key, "deleted", important=False) for key in sorted(previous.keys() - current.keys()))
     changes.extend(
@@ -329,7 +327,7 @@ def _diff_drafts(previous: Mapping[str, str], current: Mapping[str, str]) -> lis
 
 
 def _draft_change(key: str, action: str, *, important: bool) -> dict[str, Any]:
-    """草稿事件：脚本规划三种来源共用 ``episode_N_script_plan`` 身份，提示词编写为 ``episode_N_prompt_authoring``。"""
+    """Draft events: all three planning sources share ``episode_N_script_plan`` identity; prompt authoring uses ``episode_N_prompt_authoring``."""
     raw_episode, _, kind = key.partition(":")
     episode = int(raw_episode)
     stage = "prompt_authoring" if kind == QUARANTINE_KIND_PROMPT_AUTHORING else "script_plan"
@@ -375,10 +373,9 @@ def _change(
 
 
 def _dedupe_episode_updates(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """同一集已由更早的事件报过（新增 / 删除 / 更新）时，丢掉后续的「集更新」。
+    """Discard later episode-update events if an earlier event already reported the episode’s addition/deletion/update.
 
-    一次写入可能同时改到集条目与该集剧本：集条目的差异排在前面，剧本层的集更新让给它。
-    """
+    One write can change both an episode entry and its script: episode-entry differences come first and take precedence over script-level episode updates."""
     reported: set[str] = set()
     unique: list[dict[str, Any]] = []
     for change in changes:

@@ -1,17 +1,17 @@
 """
 Background worker that consumes generation tasks from SQLite queue.
 
-Per-provider × media_type 调度，拆成两件独立的东西：CapacityTable（上限，来自
-ConfigService 的用户配置）+ SlotTable（运行时占用台账）。
+Per-provider × media_type scheduling separates two independent parts: CapacityTable (limits from
+ConfigService user configuration) + SlotTable (runtime slot ledger).
 
-受支持的部署只启动一个 uvicorn 进程；server lifespan 在该进程内创建唯一的
-GenerationWorker，二者生命周期一致，孤儿任务只来自进程重启。lease 能在进程短暂重叠时防止
-重复认领，并为跨进程接管提供防御，但不让多 uvicorn worker 成为受支持部署；若支持多进程，
-须重审孤儿判定（见 ``docs/adr/0007``）。取消只对排队中的任务开放，worker 不接收取消信号，
-执行中的任务总是跑到终态（见 ``docs/adr/0006``）。
+Supported deployments start one uvicorn process; server lifespan creates its unique
+GenerationWorker with matching lifetimes. Orphans arise only from process restarts. Leases prevent
+repeated claims during brief process overlap and defend cross-process takeover, without making multiple uvicorn workers supported;
+if supporting multiple processes, revisit orphan detection (see ``docs/adr/0007``). Cancellation is available only for queued tasks;
+workers receive no cancellation signals, and running tasks always reach terminal states (see ``docs/adr/0006``).
 
-任务执行器与续跑执行器由应用装配处注入；重启自愈与续跑分别在 ``restart_recovery`` 与
-``video_resume``，由 worker 持有。
+Application assembly injects task/resumption executors. Restart recovery and resumption live in ``restart_recovery`` and
+``video_resume``, held by workers.
 """
 
 from __future__ import annotations
@@ -68,10 +68,10 @@ if TYPE_CHECKING:
 
 
 class TaskExecutor(Protocol):
-    """任务执行器：按任务类型执行一个已认领的任务，返回任务结果。
+    """Task executor: execute claimed tasks by type, returning task results.
 
-    ``claimed_provider_id`` 是认领时路由到的容量桶；图片、音频、视频任务据此在执行入口核对 provider，
-    不一致时在调用供应商之前抛 ``DispatchProviderChanged``。
+    ``claimed_provider_id`` is the claimed capacity bucket; image/audio/video execution entries check providers against it,
+    raising ``DispatchProviderChanged`` on mismatch before calling providers.
     """
 
     def __call__(self, task: dict[str, Any], *, claimed_provider_id: str) -> Awaitable[dict[str, Any]]: ...
@@ -79,9 +79,9 @@ class TaskExecutor(Protocol):
 
 logger = logging.getLogger(__name__)
 
-# Lease 丢失超过 ``lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT`` 才认为是真切换 owner
-# （另一个 worker 进程曾持过 lease 且写入了新 orphan），需要重扫；短 flap（续约抖动）
-# 不触发。lease_ttl 默认 10s → 阈值 30s。常量化便于单测注入与调参。
+# Treat lease loss beyond ``lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT`` as actual owner switching
+# (another worker process held leases and wrote new orphans), requiring rescans. Short renewal flaps
+# do not trigger. Default lease_ttl 10s → threshold 30s. Constants support test injection/tuning.
 _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
 # Default provider used when a task payload does not specify one.
@@ -99,15 +99,15 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     return max(minimum, value)
 
 
-#: ComfyUI 协议供应商每条 lane 的缺省并发：一台 ComfyUI 服务后面通常只有一张显卡。
+#: Default concurrency per lane for ComfyUI-protocol providers: typically one GPU behind one ComfyUI service.
 COMFYUI_LANE_DEFAULT = 1
 
 
 def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id: str) -> int:
-    """逐 key 容错解析单条 lane 的并发上限。
+    """Parse individual lane concurrency limits with per-key tolerance.
 
-    解析失败回退默认值并告警，不让单个坏值（写入校验上线前的存量脏数据）拖垮
-    整表加载；可解析的负数沿用 clamp 语义（→0，即该 lane fail-fast）并告警。
+    Failed parsing falls back to defaults with warnings, preventing individual corrupt values (legacy dirty data preceding write validation)
+    from breaking whole-table loading. Parseable negatives retain clamp semantics (→0, lane fails fast), with warnings.
     """
     raw = config.get(key)
     if raw is None:
@@ -126,19 +126,19 @@ def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id:
 class CapacityTable:
     """Per-provider concurrency limits keyed by ``provider_id × media_type``.
 
-    纯标量配置表，唯一真相来自 provider config。改并发 = 只改这张表上一个数字，
-    占用台账不受影响。``get`` 三态语义区分"已知但不支持（0）"与"provider 未知（懒默认）"。
+    Pure scalar configuration table, with provider config as sole truth. Changing concurrency changes one number only,
+    never the slot ledger. ``get`` has three-state semantics distinguishing known-but-unsupported (0) from unknown providers (lazy defaults).
     """
 
-    _limits: dict[str, dict[str, int]]  # provider_id → {media_type → 上限}
-    _defaults: dict[str, int]  # {"image": 5, "video": 3, "audio": 10}，未知 provider 懒默认
+    _limits: dict[str, dict[str, int]]  # provider_id → {media_type → limit}
+    _defaults: dict[str, int]  # {"image": 5, "video": 3, "audio": 10}, lazy defaults for unknown providers
 
     def get(self, provider_id: str, media_type: str) -> int:
-        """返回 ``(provider, media)`` 的并发上限。
+        """Return concurrency limits for ``(provider, media)``.
 
-        - provider 已知 + lane 在表 → 登记值（可能 0=不支持该 lane）
-        - provider 已知 + lane 不在表 → 0（不支持）
-        - provider 整个未知 → ``_defaults[media_type]``（纯查询，不写回表）
+        - Known provider + lane in table → recorded value (possibly 0 = unsupported lane)
+        - Known provider + lane absent → 0 (unsupported)
+        - Entirely unknown provider → ``_defaults[media_type]`` (query only, never writes table)
         """
         if media_type == RENDER_MEDIA_TYPE:
             return RENDER_LANE_CONCURRENCY if provider_id == RENDER_PROVIDER_ID else 0
@@ -148,14 +148,14 @@ class CapacityTable:
         return lanes.get(media_type, 0)
 
     def replace(self, new_limits: dict[str, dict[str, int]]) -> None:
-        """整表换数字（reload 入口）。占用台账与默认值不受影响。"""
+        """Replace whole-table numbers (reload entry). Slot ledgers and defaults remain unaffected."""
         self._limits = new_limits
 
     @staticmethod
     def _lane_limits(media_types: Any, image: int, video: int, audio: int) -> dict[str, int]:
-        """按 provider 支持的 media_types 把上限投影成 lane 字典；不支持的 lane → 0。
+        """Project limits into lane dictionaries by supported provider media_types; unsupported lanes → 0.
 
-        容量装载的单一映射点：新增 lane 时在这里加一行即可。
+        Sole capacity-loading mapping: add one line here for new lanes.
         """
         return {
             "image": image if "image" in media_types else 0,
@@ -165,23 +165,23 @@ class CapacityTable:
 
     @staticmethod
     def _lane_default(meta: ProviderMeta, lane: str, global_default: int) -> int:
-        """某条 lane 在用户未配时的回退默认：供应商注册表声明默认（若有）→ 否则全局默认。
+        """Lane fallback without user configuration: provider-registry declared defaults if present, otherwise global defaults.
 
-        三层回退的中间层单点：from_env / from_db 共用，避免两路漂移。声明默认的合法性
-        （key 是合法 lane、值为 >=1 整数）由 ProviderMeta.__post_init__ 在 import 期保证。
+        Sole middle layer in three-level fallback, shared by from_env / from_db to prevent drift. ProviderMeta.__post_init__ ensures declared defaults
+        have valid lane keys and integer values >=1 at import time.
         """
         return meta.default_concurrency.get(lane, global_default)
 
     @staticmethod
     def _custom_lane_default(provider: Any, column: int | None, global_default: int) -> int:
-        """自定义供应商某条 lane 的上限：列有值取列值，列为 NULL 取协议默认。
+        """Custom-provider lane limits: column values when present, protocol defaults when NULL.
 
-        ComfyUI 协议的供应商是用户自己的一张显卡，图像与视频各开 1 条即占满；全局默认（视频 3、
-        图像 5）会让几个任务同时抢同一张卡，排队都排在远端、本地看不见。用户仍可把列显式调高。
-        其余协议面向的是商业 API，按全局默认走。
+        ComfyUI providers are users' own GPUs; one image and one video lane each fill them. Global defaults (video 3,
+        image 5) make tasks compete for one card, queueing remotely and invisibly locally. Users can still explicitly raise column values.
+        Other protocols target commercial APIs and use global defaults.
 
-        与 :meth:`_lane_default` 分开：那一条读的是内置供应商注册表的声明默认，自定义供应商没有
-        注册表条目，声明来源只有协议本身。
+        Separate from :meth:`_lane_default`, which reads built-in provider registry declarations. Custom providers lack
+        registry entries; declarations originate solely from protocols.
         """
         if column is not None:
             return column
@@ -189,11 +189,11 @@ class CapacityTable:
 
     @classmethod
     def from_env(cls) -> CapacityTable:
-        """从环境变量 / 默认值构造（DB 不可用前或测试用）。"""
+        """Construct from environment variables / defaults (before DB availability or for tests)."""
         image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
         video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
         audio_max = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
-        # 无用户配置的装载路径：每条 lane 取声明默认（若有）→ 否则全局默认
+        # Loading without user configuration: per-lane declared defaults if present, otherwise global defaults.
         limits = {
             pid: cls._lane_limits(
                 catalog.provider_media_types(pid),
@@ -216,7 +216,7 @@ class CapacityTable:
 
     @classmethod
     async def from_db(cls) -> CapacityTable:
-        """从 ConfigService + PROVIDER_REGISTRY + 自定义供应商加载容量表。"""
+        """Load capacity tables from ConfigService + PROVIDER_REGISTRY + custom providers."""
         default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
         default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
         default_audio = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
@@ -227,8 +227,8 @@ class CapacityTable:
             all_configs = await svc.get_all_provider_configs()
             for provider_id, meta in PROVIDER_REGISTRY.items():
                 config = all_configs.get(provider_id, {})
-                # 用户未配某条 lane 时，_parse_lane_max 回退到此处给的 default——
-                # 即声明默认（若有）→ 否则全局默认；用户配了则解析值覆盖之
+                # Without user lane configuration, _parse_lane_max falls back to supplied defaults:
+                # declared defaults if present, otherwise global; configured user values override after parsing.
                 image_max = _parse_lane_max(
                     config, "image_max_workers", cls._lane_default(meta, "image", default_image), provider_id
                 )
@@ -238,18 +238,18 @@ class CapacityTable:
                 audio_max = _parse_lane_max(
                     config, "audio_max_workers", cls._lane_default(meta, "audio", default_audio), provider_id
                 )
-                # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
+                # _lane_limits handles unsupported lanes → 0 uniformly, shared by all three loading paths.
                 limits[provider_id] = cls._lane_limits(
                     catalog.provider_media_types(provider_id), image_max, video_max, audio_max
                 )
 
             repo = CustomProviderRepository(session)
             get_custom_endpoint = CustomEndpointRepository(session).get
-            # 同一端点可能挂在多行乃至多个供应商上，媒体类型按端点键缓存，整张表只读一次库。
+            # One endpoint can serve multiple rows/providers. Cache media types by endpoint key, reading the DB once for the entire table.
             media_type_by_endpoint: dict[str, str] = {}
             for provider, models in await repo.list_providers_with_models():
                 pid = provider.provider_id  # "custom-{id}"
-                # 模型行可以挂 ce- 端点，媒体类型写在它那份定义里，只能解析 spec 取。
+                # Model rows can use ce- endpoints, whose media types are in their definitions; parse specs to read them.
                 media_types: set[str] = set()
                 for m in models:
                     if not m.is_enabled:
@@ -259,14 +259,14 @@ class CapacityTable:
                         try:
                             media_type = (await resolve_endpoint_spec(m.endpoint, get_custom_endpoint)).media_type
                         except ValueError:
-                            # 端点已不在：该行发起生成必然失败，不凭它开 lane，也不作废整张表的刷新。
+                            # Missing endpoints guarantee generation failure: never open lanes from these rows or invalidate whole-table refreshes.
                             logger.warning("无法解析模型 endpoint，容量表跳过该行: endpoint=%r", m.endpoint)
                             continue
                         media_type_by_endpoint[m.endpoint] = media_type
                     media_types.add(media_type)
-                # 自定义供应商不在内置注册表，无声明默认层 → 两层回退：列有值取列值，
-                # 列为 NULL 取协议默认（见 _custom_lane_default）。投影仍交给 _lane_limits
-                # 统一处理不支持的 lane。
+                # Custom providers lack built-in registry declarations: two-level fallback uses column values when present,
+                # protocol defaults when NULL (see _custom_lane_default). _lane_limits still handles
+                # unsupported lanes uniformly.
                 image_max = cls._custom_lane_default(provider, provider.image_max_workers, default_image)
                 video_max = cls._custom_lane_default(provider, provider.video_max_workers, default_video)
                 audio_max = cls._custom_lane_default(provider, provider.audio_max_workers, default_audio)
@@ -287,11 +287,11 @@ class CapacityTable:
 
 @dataclass
 class _Occupant:
-    """一条占用：执行体 + phase 标志。
+    """One occupant: execution task + phase flag.
 
-    ``pending=True`` 仅由 video 的 sem-throttled dispatcher 在 sub-task 排队期产生；
-    image / audio 无 sem dispatcher（audio 后端同步），一律 ``pending=False``。promote
-    只翻这个标志（天然原子），避免"两层容器间瞬时既不在 pending 也不在 inflight"的窗口。
+    Only video semaphore-throttled dispatchers produce ``pending=True`` during subtask queueing;
+    image / audio lack semaphore dispatchers (audio backends are synchronous), always ``pending=False``. promote
+    flips only this flag (naturally atomic), avoiding windows where tasks are momentarily in neither pending nor inflight containers.
     """
 
     task: asyncio.Future[Any]
@@ -299,17 +299,17 @@ class _Occupant:
 
 
 class SlotTable:
-    """占用台账：``(provider_id, media_type)`` → ``{task_id: _Occupant}``。
+    """Slot ledger: ``(provider_id, media_type)`` → ``{task_id: _Occupant}``.
 
-    被动纯内存数据结构，**容量无关**：``has_room`` 由 caller 传入 ``capacity``。
-    不写 DB、不解析 provider、不决定孤儿策略、不碰状态机守卫。
+    Passive in-memory data structure, **capacity-independent**: callers supply ``capacity`` to ``has_room``.
+    Never writes DB, resolves providers, chooses orphan policies or touches state-machine guards.
 
-    ``capacity`` 的 ``0`` 只有一个含义——该 lane 不受支持，是内部哨兵值。用户契约面的
-    并发上限是「≥1 的整数或留空」，``0`` 不可由用户输入抵达（见 ``docs/adr/0043``）。
+    ``capacity`` of ``0`` means only unsupported lanes, an internal sentinel. User-facing concurrency
+    limits are integers ≥1 or blank; users cannot supply ``0`` (see ``docs/adr/0043``).
 
-    **空 bucket 不残留（by design）**：``release`` / ``drain_finished`` 移除最后一个
-    占用时一并删掉该 ``(provider,media)`` bucket，保证 ``occupied_providers`` 永不
-    返回已清空的 provider（池满黑名单决策的支点）。
+    **No residual empty buckets (by design)**: ``release`` / ``drain_finished`` delete ``(provider,media)``
+    buckets along with their last occupants, ensuring ``occupied_providers`` never
+    returns emptied providers (the basis for full-pool blacklists).
     """
 
     def __init__(self) -> None:
@@ -324,14 +324,14 @@ class SlotTable:
         *,
         pending: bool = False,
     ) -> None:
-        """登记占用；幂等覆盖。bucket 不存在时自动创建。"""
+        """Register occupancy, idempotently replacing; create buckets when absent."""
         self._slots.setdefault((provider, media), {})[task_id] = _Occupant(task=task, pending=pending)
 
     def promote(self, provider: str, media: str, task_id: str) -> None:
-        """PENDING→INFLIGHT：sem.acquire 成功后调用，只翻 ``pending`` 标志。
+        """PENDING→INFLIGHT: call after sem.acquire succeeds, flipping only ``pending``.
 
-        占用对象已是同一 sub-task（``asyncio.current_task()`` 即登记时的 task），
-        无需替换 task。不存在则 no-op。
+        Occupants already reference the same subtask (``asyncio.current_task()`` is the originally registered task),
+        so never replace tasks. No-op when absent.
         """
         bucket = self._slots.get((provider, media))
         if bucket is None:
@@ -341,7 +341,7 @@ class SlotTable:
             occ.pending = False
 
     def release(self, provider: str, media: str, task_id: str) -> None:
-        """释放，不论 phase；幂等；清空后移除该 ``(provider,media)`` bucket。"""
+        """Release regardless of phase, idempotently; delete emptied ``(provider,media)`` buckets."""
         bucket = self._slots.get((provider, media))
         if bucket is None:
             return
@@ -350,23 +350,23 @@ class SlotTable:
             del self._slots[(provider, media)]
 
     def has_room(self, provider: str, media: str, capacity: int) -> bool:
-        """``capacity>0`` 且 占用数（含 pending）< capacity。"""
+        """``capacity>0`` and occupant count (including pending) < capacity."""
         if capacity <= 0:
             return False
         bucket = self._slots.get((provider, media))
         return (0 if bucket is None else len(bucket)) < capacity
 
     def occupied(self, provider: str, media: str) -> int:
-        """当前占用数（含 pending）。"""
+        """Current occupant count (including pending)."""
         bucket = self._slots.get((provider, media))
         return 0 if bucket is None else len(bucket)
 
     def occupied_providers(self, media: str) -> set[str]:
-        """该 ``media`` 下有占用(≥1)的 provider；空 bucket 不计（黑名单源，含未知 provider）。"""
+        """Providers with ≥1 occupant under ``media``; omit empty buckets (blacklist source, including unknown providers)."""
         return {provider for (provider, m), bucket in self._slots.items() if m == media and bucket}
 
     def drain_finished(self) -> list[tuple[str, asyncio.Future[Any]]]:
-        """移除并返回所有 done 的 INFLIGHT 占用（pending 不动）。``(task_id, task)``。"""
+        """Remove and return all done INFLIGHT occupants (leave pending untouched). ``(task_id, task)``."""
         finished: list[tuple[str, asyncio.Future[Any]]] = []
         for key in list(self._slots.keys()):
             bucket = self._slots[key]
@@ -377,34 +377,34 @@ class SlotTable:
         return finished
 
     def active_task_ids(self) -> set[str]:
-        """所有占用的 task_id（pending+inflight）：self-active 扫描用。"""
+        """All occupant task_id values (pending+inflight), for self-active scans."""
         return {tid for bucket in self._slots.values() for tid in bucket}
 
     def all_active_tasks(self) -> list[asyncio.Future[Any]]:
-        """所有占用的执行体（pending+inflight）：shutdown wait 用。"""
+        """All occupant execution tasks (pending+inflight), for shutdown waits."""
         return [occ.task for bucket in self._slots.values() for occ in bucket.values()]
 
     def clear(self) -> None:
-        """清空全表（shutdown 收尾）。"""
+        """Clear entire tables (shutdown cleanup)."""
         self._slots.clear()
 
 
 async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
-    图片、音频、视频任务只在排队记录缺失（或记录的 provider 已不支持该媒体类型）时调用一次，
-    结果写回记录；文本与渲染通道的 provider 固定，每次认领都调用。
+    Image/audio/video tasks call once only when queue records are missing (or recorded providers no longer support the media type),
+    persisting results. Text/render providers are fixed and resolved on every claim.
 
-    这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
-    ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``generation_type="t2i"`` 取一个
-    **代表性** provider——worker 认领时拿不到真实任务类型（见 ``docs/adr/0001``），这点近似不影响
-    生成正确性（执行层会独立精确再解析一次）；``I2I_ONLY_TASK_TYPES``（图片编辑与衍生资产图）是
-    唯一例外（必然 i2i、入队即知），按 i2i 槽精确解析。两种视频生成模式都忽略 enqueue payload 中的旧身份，分镜视频定桶经
-    ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
-    project/script/unit，以实际可用资产调用公共 request projection。
-    这份 provider 投影只服务槽位归属与限流路由，不是执行身份；executor 在开始时按最新状态
-    物化请求，与认领槽位不一致时回队。
-    模型目录错误保留异常里的供应商；其余解析失败（未配置供应商）回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
+    Thin resolution-chain projection: dispatch media lanes (``media_type``) to ``resolve_video_backend`` /
+    ``resolve_image_backend`` and take ``.provider_id``. Image tasks use ``generation_type="t2i"`` for a
+    **representative** provider: real task types are unknown at claim time (see ``docs/adr/0001``). This approximation does not affect
+    generation correctness (execution independently resolves precisely again). ``I2I_ONLY_TASK_TYPES`` (image edits/derivative asset images) are the
+    sole exception (necessarily i2i, known at enqueue time), resolved through exact i2i slots. Both video modes ignore legacy enqueue payload identities. Storyboard buckets share
+    ``video_bucket_for_queued_task`` with enqueue derivation; reference_video rereads latest
+    project/script/unit and calls shared request projection with actual available assets.
+    This provider projection serves slot ownership/rate-limit routing only, never execution identity; executors materialize requests
+    from latest state at startup, requeueing mismatches with claimed slots.
+    Catalog errors retain providers from exceptions; other resolution failures (unconfigured providers) fall back to DEFAULT_PROVIDER solely for rate limiting, without blocking claims.
     """
     project_name = task.get("project_name")
     raw_payload = task.get("payload")
@@ -413,7 +413,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         # Task.script_file is the immutable queue coordinate. The payload copy is retained only for old/direct
         # callers and must not be able to redirect claim-time current-state projection to a different script.
         payload = {**payload, "script_file": task["script_file"]}
-    # 以 media lane 区分 video / audio / image：reference_video 等 task_type 同属 video lane。
+    # Distinguish video / audio / image by media lanes: task_types such as reference_video share the video lane.
     is_text = task.get("media_type") == "text"
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
@@ -422,8 +422,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     if task.get("media_type") == RENDER_MEDIA_TYPE:
         return RENDER_PROVIDER_ID
 
-    # 整体兜底：含项目加载（队列里可能残留指向已删除/不可读项目的任务，load_project 会抛
-    # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
+    # Whole-operation fallback: any failure, including project loading (queued tasks may reference deleted/unreadable projects, where load_project raises
+    # FileNotFoundError), falls back to DEFAULT_PROVIDER without escaping to block claim loops (see docstring).
     try:
         project: dict | None = None
         if project_name:
@@ -469,15 +469,15 @@ class GenerationWorker:
         settle_interrupted_calls: InterruptedCallSettler | None = None,
     ):
         self.queue = queue or get_generation_queue()
-        # 按项目现状推算 provider：只用于没有记录的存量任务、provider 固定的文本与渲染通道，以及重启自愈。
+        # Derive current project providers only for unrecorded legacy tasks, fixed-provider text/render lanes and restart recovery.
         self._provider_projection = provider_projection
         self._executor = executor
         self._lanes = lanes
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
-        # 容量表（上限，用户配置驱动）与占用台账（运行时记账）分离：前者是配置真相，
-        # reload 只换它的数字；后者承载 inflight/pending，占用容器引用恒定不被重建。
+        # Separate capacity tables (user-configured limits) from slot ledgers (runtime accounting): the former is configuration truth,
+        # reload replacing numbers only; the latter holds inflight/pending with stable container references, never rebuilt.
         self._capacity: CapacityTable = capacity or CapacityTable.from_env()
         self._slots: SlotTable = slots or SlotTable()
         logger.info("Worker 初始容量表: %s", self._capacity._limits)
@@ -489,11 +489,11 @@ class GenerationWorker:
         self._stop_event = asyncio.Event()
         self._wake_event = asyncio.Event()
         self._owns_lease = False
-        # 一次性扫描开关：单 lease 互斥架构下，进程一旦扫过 orphan 就不再重扫；
-        # 配合 _lease_lost_monotonic 阈值在「真切换 owner」时清零、「短 flap」不清零。
+        # One-shot scan switch: under exclusive single-lease architecture, once processes scan orphans they do not rescan;
+        # _lease_lost_monotonic thresholds clear it on actual owner switches, never short flaps.
         self._orphan_handled_once: bool = False
-        # 本 worker 的构造时刻：早于 web 层开始接受请求。首次收口只收口在此之前发起的无任务
-        # 调用行——之后发起的还在本进程里跑；后续重扫发生在进程存活期间，无任务行一律不碰。
+        # Worker construction time precedes Web request acceptance. Initial settlement includes taskless calls started
+        # before it only; later calls still run in this process. Subsequent rescans occur during process life and never touch taskless rows.
         self._constructed_at = datetime.now(UTC)
         self._startup_settled: bool = False
         self._lease_lost_monotonic: float | None = None
@@ -511,7 +511,7 @@ class GenerationWorker:
             reload_limits=lambda: self.reload_limits(),
             provider_projection=provider_projection,
             resume=self._resume,
-            # 启动收口入口（记账层的公开方法）。默认走队列同一处落库接线。
+            # Startup settlement entry (public accounting-layer method). Default uses the queue's persistence wiring.
             settle_interrupted_calls=settle_interrupted_calls or self._settle_interrupted_calls_via_ledger,
         )
 
@@ -522,11 +522,11 @@ class GenerationWorker:
     async def reload_limits(self) -> None:
         """Reload per-provider concurrency limits from DB into the CapacityTable.
 
-        只换容量表的数字（``replace``）——占用台账纹丝不动，inflight/pending 容器
-        引用恒定，彻底消除"reload 时活体搬运在跑 task"的脆弱性。某 provider 被删后其
-        在跑占用照常 drain；新任务的容量判定经 ``CapacityTable.get``：lane 被降级为不
-        支持→0（fail-fast），provider 整个消失→懒默认（此时该 provider 已无法解析，
-        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。
+        Replace capacity numbers only (``replace``), never slot ledgers. Inflight/pending container references remain
+        stable, eliminating fragile moving of running tasks during reload. Deleted providers' ongoing occupancy
+        drains normally; new-task capacity uses ``CapacityTable.get``: unsupported lanes
+        become 0 (fail fast), entirely missing providers use lazy defaults (already unresolvable,
+        tasks fall back to DEFAULT_PROVIDER or fail execution, never actually occupying missing providers at default capacity).
         """
         try:
             new = await CapacityTable.from_db()
@@ -558,7 +558,7 @@ class GenerationWorker:
         """Wake the local worker without changing cross-process polling."""
         self._wake_event.set()
 
-    async def _wait_for_wake(self, timeout: float) -> None:  # noqa: ASYNC109 -- 本地唤醒的等待上限，由 asyncio.wait_for 实现；仓库无 trio/anyio cancel scope
+    async def _wait_for_wake(self, timeout: float) -> None:  # noqa: ASYNC109 -- local wakeup wait limit implemented by asyncio.wait_for; repository has no trio/anyio cancel scope
         # No local wake is normal; cross-process work is discovered on the polling timeout.
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
@@ -574,14 +574,14 @@ class GenerationWorker:
                 try:
                     await self._run_cycle()
                 except Exception:
-                    # 一轮里任何一步（续约 lease、收尾、认领）抛错都不能让主循环退出：退出会在 finally 里
-                    # 释放 lease，进程里再没有 worker，所有入队请求都报 worker offline，直到重启进程。
-                    # 典型来源是负载高峰时连接池取连接超时，等一个心跳间隔重试即可恢复。
+                    # Errors in any cycle step (lease renewal, finishing, claiming) must not exit main loops: finally would release
+                    # leases, leaving no worker in the process and every enqueue reporting worker offline until process restart.
+                    # Typical causes are peak-load connection-pool acquisition timeouts; retrying after a heartbeat interval recovers.
                     logger.exception("worker 主循环本轮出错，%.1fs 后重试", self.heartbeat_interval)
-                    # 出错那一轮可能留下 running 行：认领后、登记进槽位前抛错的任务不在本进程槽位里；
-                    # 续约连续出错期间另一进程可能接过 lease 后崩溃。下一次持有 lease 时重扫孤儿收口它们，
-                    # 本进程槽位里的任务由 handle_orphans 排除。_startup_settled 不动：进程存活期间的
-                    # 重扫只收口绑定了任务的调用行。
+                    # Failed cycles may leave running rows: errors after claims but before slot registration leave tasks outside local slots;
+                    # repeated renewal errors can let another process take leases then crash. Rescan/settle orphans on the next held lease;
+                    # handle_orphans excludes locally occupied tasks. Leave _startup_settled unchanged: rescans during process life
+                    # settle task-bound call rows only.
                     self._orphan_handled_once = False
                     await self._wait_for_wake(self.heartbeat_interval)
 
@@ -592,7 +592,7 @@ class GenerationWorker:
             self._owns_lease = False
 
     async def _run_cycle(self) -> None:
-        """主循环的一轮：续约 lease、收尾已完成任务、按需收口孤儿任务，持有 lease 时认领新任务。"""
+        """One main-loop cycle: renew leases, finish completed tasks, settle orphans as needed and claim new tasks while holding leases."""
         had_lease = self._owns_lease
         self._owns_lease = await self.queue.acquire_or_renew_worker_lease(
             name=self.lease_name,
@@ -607,8 +607,8 @@ class GenerationWorker:
 
         await self._drain_finished_tasks()
 
-        # Lease 状态变化跟踪：首次失去 lease 时打点；重夺 lease 后判断
-        # 「真切换 owner」（>= 3× ttl）→ 重置开关；「续约 flap」（< 3× ttl）→ 保持。
+        # Track lease transitions: timestamp initial loss; after takeover, distinguish
+        # actual owner switches (>= 3× ttl), resetting switches, from renewal flaps (< 3× ttl), retaining them.
         if had_lease and not self._owns_lease and self._lease_lost_monotonic is None:
             self._lease_lost_monotonic = time.monotonic()
         if self._owns_lease and self._lease_lost_monotonic is not None:
@@ -623,13 +623,13 @@ class GenerationWorker:
                 self._orphan_handled_once = False
             self._lease_lost_monotonic = None
 
-        # 一次性扫描：进程持 lease 后只扫一次 orphan；后续主循环不再重扫。
-        # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
+        # One-shot scan: scan orphans once after acquiring leases; subsequent main-loop cycles do not rescan.
+        # Single-lease exclusion prevents concurrent scans by other workers; thresholds above defend cross-process takeover.
         if self._owns_lease and not self._orphan_handled_once:
             await self._recovery.handle_orphans()
-            # 首次收口是进程启动：构造时刻之前发起的无任务 pending 行（文本调用、端点试跑）
-            # 没人接续，一并翻终态。lease 长时间丢失触发的重扫发生在进程存活期间，无任务行
-            # 可能正在本进程里跑，只收口绑定了任务的行。
+            # Initial settlement occurs at startup: taskless pending rows (text calls, endpoint trials) started before construction
+            # cannot resume and become terminal too. Rescans after prolonged lease loss occur during process life; taskless rows
+            # may still be running locally, so settle task-bound rows only.
             await self._recovery.settle_interrupted_calls(
                 taskless_started_before=None if self._startup_settled else self._constructed_at
             )
@@ -648,16 +648,16 @@ class GenerationWorker:
             await self._wait_for_wake(self.poll_interval)
 
     def _pool_full_providers(self, media_type: str) -> frozenset[str]:
-        """返回当前 cycle ``media_type`` 已满的 provider_id 集合（黑名单，用于 claim SQL）。
+        """Return provider_id sets full for this cycle's ``media_type`` (blacklists for claim SQL).
 
-        黑名单源是**有占用的 provider**（``SlotTable.occupied_providers``），而非容量表
-        已知 provider 全集：只有占着槽的 provider 才可能"满"。空 provider 本就 has_room、
-        不该进黑名单；"未知但有占用"的 provider（首次 reload 前的启动窗口 / 运行中途被删的
-        custom provider）照旧能进黑名单，避免其池满任务每 cycle 被 claim→requeue 刷屏。
+        Blacklists originate from **occupied providers** (``SlotTable.occupied_providers``), never all known capacity-table
+        providers: only occupied slots can be full. Empty providers already have room,
+        so never blacklist them. Unknown-but-occupied providers (startup before first reload / custom providers deleted
+        during execution) remain eligible for blacklisting, preventing full-pool claim→requeue churn each cycle.
 
-        守卫 ``cap > 0`` 保留：``has_room`` 在 ``cap == 0`` 时也返回 False，若不加守卫
-        会把"不支持该 lane 的 provider"也归入黑名单，让 SQL 把这些 task 静默 drop，
-        而不是走 worker 二次校验的 ``cap == 0`` fail-fast mark_failed 路径。
+        Retain ``cap > 0`` guards: ``has_room`` also returns False for ``cap == 0``. Without guards,
+        unsupported providers enter blacklists, causing SQL to silently drop their tasks
+        rather than using the worker's second-check ``cap == 0`` fail-fast mark_failed path.
         """
         return frozenset(
             pid
@@ -668,17 +668,17 @@ class GenerationWorker:
     async def _claim_tasks(self) -> bool:
         """Claim tasks from queue and route to per-provider slots.
 
-        池满过滤在 SQL 层按 ``pool_full_providers`` 黑名单完成，池满任务始终保持 ``queued``。
-        槽位归属只看排队时记录的 provider，认领时不按项目现状推算，池满时一个认领周期的开销
-        因此与排队任务数无关。排队期间项目改了供应商，由执行入口核对出漂移、改写记录并原位
-        回队，新供应商在下一次认领时才占槽。没有记录的存量任务在认领时推算一次并写回。
-        文本与渲染通道的 provider 固定，照常推算。
+        SQL filters full pools with ``pool_full_providers`` blacklists; full-pool tasks remain ``queued``.
+        Slot ownership uses queued provider records only, never current-project derivation at claim time. Full-pool claim-cycle costs
+        therefore do not depend on queued-task counts. If projects switch providers while queued, execution entries detect drift, rewrite records and
+        requeue in place; new providers acquire slots on the next claim. Legacy unrecorded tasks resolve once on claim and persist.
+        Text/render providers are fixed and still resolve normally.
         """
         claimed_any = False
 
         for media_type in self._lanes:
             while True:
-                # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
+                # Recompute full-pool sets every iteration: newly claimed tasks can fill provider pools.
                 pool_full = self._pool_full_providers(media_type)
                 task = await self.queue.claim_next_task(media_type=media_type, pool_full_providers=pool_full)
                 if not task:
@@ -688,7 +688,7 @@ class GenerationWorker:
                 cap = self._capacity.get(provider_id, media_type)
 
                 if cap <= 0:
-                    # 供应商不支持此媒体类型（容量 ≤ 0），直接失败（与 has_room 守卫一致）
+                    # Providers unsupported for this media type (capacity ≤ 0) fail directly (matching has_room guards).
                     logger.warning(
                         "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
                         provider_id,
@@ -707,26 +707,26 @@ class GenerationWorker:
                     continue
 
                 if not self._slots.has_room(provider_id, media_type, cap):
-                    # 认领后推算出的 provider 躲过了 SQL 过滤（NULL 存量任务等）且池满
-                    # → 回队等下个 cycle（FIFO 顺序由 queued_at 维持）。
-                    # 绝不能 mark_failed：NULL 不等于"无效任务"，这条路径必须保持可重试。
+                    # Postclaim-derived providers bypassed SQL filters (legacy NULL tasks, etc.) and are full:
+                    # requeue for the next cycle (queued_at preserves FIFO order).
+                    # Never mark_failed: NULL does not mean invalid tasks; this path must remain retryable.
                     logger.info(
                         "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
                         provider_id,
                         media_type,
                         task["task_id"],
                     )
-                    # 回队前把推算出的 provider 写回记录，下一轮 SQL 黑名单就能过滤它，
-                    # 不会每个 cycle 重复 claim → requeue。写回失败只损失过滤精度。
+                    # Persist derived providers before requeueing so next-cycle SQL blacklists can filter them,
+                    # preventing repeated claim → requeue every cycle. Failed persistence only reduces filtering accuracy.
                     if not recorded:
                         recorded = await self._record_provider(task["task_id"], provider_id)
                     await self._requeue_single_task(task["task_id"])
                     if recorded:
-                        # 记录已指向池满 provider，下一轮 SQL 排除它，继续找其它 provider 的可运行任务。
+                        # Records now point to full providers; next-cycle SQL excludes them, continuing to runnable tasks from other providers.
                         continue
                     break
 
-                # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
+                # Dispatch: register INFLIGHT occupancy; register automatically creates buckets.
                 claimed_any = True
                 self._slots.register(
                     provider_id,
@@ -743,11 +743,11 @@ class GenerationWorker:
         return claimed_any
 
     async def _slot_provider(self, task: dict[str, Any], media_type: str) -> tuple[str, bool]:
-        """任务的槽位归属：返回 ``(provider_id, 任务行是否已记录该 provider)``。
+        """Task slot ownership: return ``(provider_id, 任务行是否已记录该 provider)``.
 
-        有记录且该 provider 支持此媒体类型时直接用记录。没有记录的存量任务，或记录的 provider
-        已不支持此媒体类型时，按项目现状推算一次并写回，之后的认领不再推算。文本与渲染通道的
-        provider 固定，照常推算，不写回。
+        Use recorded providers directly when they support this media type. Legacy unrecorded tasks, or recorded providers
+        no longer supporting this media type, resolve current project state once and persist; later claims do not resolve again. Text/render
+        providers are fixed, resolving normally without persistence.
         """
         if media_type in ("text", RENDER_MEDIA_TYPE):
             return await self._provider_projection(task), False
@@ -758,7 +758,7 @@ class GenerationWorker:
         return provider_id, await self._record_provider(task["task_id"], provider_id)
 
     async def _record_provider(self, task_id: str, provider_id: str) -> bool:
-        """best-effort 写回任务行的 provider 记录，返回是否写入成功。"""
+        """Best-effort task-row provider persistence, returning whether successful."""
         try:
             await self.queue.persist_execution_provider_id(task_id, provider_id)
         except Exception:
@@ -769,11 +769,11 @@ class GenerationWorker:
     async def _requeue_single_task(self, task_id: str) -> bool:
         """Put a claimed (running) task back to queued status.
 
-        池满任务通常在 claim 阶段被 ``pool_full_providers`` SQL 过滤排除；认领后推算出的
-        provider 池满时（``provider_id IS NULL`` 的存量任务等），本方法把任务放回 queued
-        等下次 cycle 重试（不可 mark_failed——NULL 不等于"无效任务"）。执行入口发现
-        provider 漂移时也复用同一条 guarded UPDATE，并根据返回值决定能否安全退出当前执行槽。
-        回队不改 ``queued_at``，任务保留原排队位置。
+        Full pools normally filter at claim through ``pool_full_providers`` SQL; when postclaim-derived providers
+        are full (for example legacy ``provider_id IS NULL`` tasks), requeue
+        for the next cycle (never mark_failed: NULL does not mean invalid tasks). Execution-entry provider drift
+        reuses the same guarded UPDATE, using its result to determine safe exit from current execution slots.
+        Requeue preserves ``queued_at`` and original queue positions.
         """
         try:
             async with safe_session_factory() as session:
@@ -803,14 +803,14 @@ class GenerationWorker:
 
     async def _drain_finished_tasks(self) -> None:
         for task_id, finished_task in self._slots.drain_finished():
-            # 同步判定取消/异常：drain_finished() 只返回 done() 的 task，无需 await。
-            # 不 await 就没有挂起点，自然不会误吞针对 _run_loop 自身的取消信号。
+            # Check cancellation/errors synchronously: drain_finished() returns done() tasks only, requiring no awaits.
+            # Without awaits there are no suspension points, preventing accidental swallowing of _run_loop's own cancellation.
             if finished_task.cancelled():
-                # 子任务被进程级原因打断。正常路径 _process_task 已落终态并 re-raise；
-                # 但打断可能落在 _process_task 进入 try 之前（协程尚未开始执行），那一刻
-                # 子任务来不及落终态。drain 端兜底——
-                # SQL 守卫只放行 queued / running，已落终态则 0 rows 无副作用，避免任务
-                # 永久停在 running 被重启自愈反复拉起。
+                # Subtasks interrupted for process-level reasons: normally _process_task already persisted terminal states and reraised;
+                # however, interruption can precede _process_task's try entry (coroutines not yet running), leaving
+                # no chance for subtasks to settle terminal states. Drain-side fallback handles this:
+                # SQL guards allow only queued / running; terminal rows return 0 without side effects, preventing permanently
+                # running tasks repeatedly revived by restart recovery.
                 try:
                     await self.queue.mark_task_interrupted(task_id)
                 except Exception:
@@ -822,7 +822,7 @@ class GenerationWorker:
                 logger.debug("已处理的任务异常已在 _process_task 中记录")
 
     async def _wait_inflight_completion(self) -> None:
-        # shutdown：先等重启自愈的 dispatcher 派完最后一批 sub-task，再等所有 active task。
+        # Shutdown: await restart-recovery dispatchers' final subtasks, then every active task.
         await self._recovery.wait_dispatchers()
 
         active_tasks = self._slots.all_active_tasks()
@@ -834,13 +834,13 @@ class GenerationWorker:
     async def _process_task(self, task: dict[str, Any], *, claimed_provider_id: str) -> None:
         """Run a generation task to a terminal state.
 
-        执行中的任务不可取消，执行结果照常落终态。协程只会被进程级原因（事件循环拆除、
-        关停超时等）打断：此时经 ``mark_task_interrupted`` 落 cancelled，避免任务停在
-        running、被每次重启的自愈重新拉起。所有 DB 写入都用 ``asyncio.shield`` 包裹，
-        打断落在 await 期间时让 UPDATE 跑完再向外传播。
+        Running tasks cannot cancel and persist outcomes normally. Coroutines only interrupt for process-level reasons (event-loop teardown,
+        shutdown timeouts, etc.), settling cancelled through ``mark_task_interrupted`` to avoid stuck
+        running tasks repeatedly revived by restart recovery. All DB writes use ``asyncio.shield``,
+        allowing UPDATE completion before propagating interruptions during awaits.
 
-        执行在任务对项目的认领下进行。项目在执行期间被删除时认领作废，执行器在落盘前中止；
-        无论执行器以什么结果返回，任务都以 ``project_deleted_during_task`` 失败。
+        Execute under task project claims. Project deletion invalidates claims during execution; executors abort before persistence.
+        Regardless of executor outcomes, tasks fail with ``project_deleted_during_task``.
         """
         task_id = task["task_id"]
         with claim_task_project(task_id, task.get("project_name")) as claim:
@@ -856,20 +856,20 @@ class GenerationWorker:
 
         try:
             if task_type in ("video", "reference_video"):
-                # 派发时把当下的全局轮询超时写进任务字典，执行器与续跑执行器都从这里读。
+                # At dispatch, write current global polling timeouts into task dicts, read by both task and resume executors.
                 task["video_poll_timeout_seconds"] = await read_video_poll_timeout_seconds()
             result = await self._executor(task, claimed_provider_id=provider_id)
         except asyncio.CancelledError:
-            # 进程级打断：用户取消不会打到执行中的任务。
+            # Process-level interruption: user cancellation never reaches running tasks.
             await asyncio.shield(self.queue.mark_task_interrupted(task_id))
             raise
         except DispatchProviderChanged as exc:
             if claim.revoked:
                 await fail_task_of_deleted_project(self.queue, task)
                 return
-            # 执行入口按项目现状解析 provider；若已从认领时的槽漂移，
-            # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
-            # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
+            # Execution entries resolve current project providers; if drifted from claimed slots,
+            # never submit to new providers while occupying old slots. Refresh advisory columns and requeue so next cycles
+            # validate new-slot capacities before execution. No provider calls yet, so no duplicate charges.
             try:
                 await asyncio.shield(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
             except Exception:
@@ -919,13 +919,13 @@ class GenerationWorker:
         try:
             await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
         except asyncio.CancelledError:
-            # mark_succeeded 期间被进程级打断：shield 让 inner 跑完；inner 已落 succeeded 时
-            # 兜底命中终态返回 0 rows，无副作用。
+            # Process-level interruption during mark_succeeded: shield lets inner finish; if inner already persisted succeeded,
+            # fallback hits terminal rows, returning 0 without side effects.
             await asyncio.shield(self.queue.mark_task_interrupted(task_id))
             raise
         except Exception:
-            # mark_succeeded 自身抛错（DB 超时 / OperationalError）：上层 _drain_finished_tasks
-            # 只吞掉异常 debug 日志，stack trace 会丢失，因此在这里显式 logger.exception 保留现场。
+            # mark_succeeded itself raises (DB timeout / OperationalError): upstream _drain_finished_tasks
+            # only swallows exceptions into debug logs, losing stack traces; explicitly logger.exception here to retain evidence.
             logger.exception("标记任务成功失败 %s", task_id)
             raise
         logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
@@ -935,18 +935,18 @@ class GenerationWorker:
     # ------------------------------------------------------------------
 
     async def _settle_interrupted_calls_via_ledger(self, *, taskless_started_before: datetime | None) -> int:
-        # 与队列共用同一处 session factory：任务行与它的调用行必须落在同一个库里。
+        # Share queue session factories: task rows and their call rows must persist in the same database.
         ledger = Ledger(session_factory=self.queue.session_factory)
         return await ledger.settle_interrupted_calls(taskless_started_before=taskless_started_before)
 
     async def read_video_poll_timeout_seconds(self) -> int:
-        """派发前解析全局轮询超时。
+        """Resolve global polling timeouts before dispatch.
 
-        调用方在翻任务状态之前先取它：状态一旦提交就没有回滚点，派发侧此后再抛错任务就永久
-        停在 running 上无人接手（与 ``provider_id`` 同为资格条件，见 ``retry_artifact_download``）。
+        Callers must read before task-state transitions: committed states have no rollback point, and later dispatcher errors leave tasks permanently
+        running without owners (like ``provider_id``, an eligibility condition; see ``retry_artifact_download``).
         """
         return await read_video_poll_timeout_seconds()
 
     async def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
-        """按原 provider job 派发一次下载恢复，不重新提交供应商任务。"""
+        """Dispatch one download recovery against original provider jobs, never resubmit provider tasks."""
         await self._recovery.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)

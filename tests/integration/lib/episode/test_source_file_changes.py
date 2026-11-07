@@ -1,4 +1,4 @@
-"""整本源文文件的插入、替换、编辑、删除与调序：在真实的临时项目目录上只经公开命令验证账本、集文件与确认握手。"""
+"""Whole-source insertion/replacement/editing/deletion/reordering: verify ledgers, episode files, and confirmation handshakes through public commands in real temporary projects."""
 
 from __future__ import annotations
 

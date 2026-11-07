@@ -1,0 +1,163 @@
+{
+  "scope": "Exact708 baseline-to-pre-remaining-snapshot comment pairs only: i18n loader and28DTOtypefiles. Distinct from604 parser-repair pairs and later frontend batches.",
+  "pairs_artifact": "docs/plans/english-translation/frontend-types-loader-708-review-pairs.json",
+  "pairs_sha256": "0dc5b5263f8908e096f5503aa014e8c579477065058498309fadf0aa7933b995",
+  "source_snapshot": "/tmp/arcreel-english-7b4f781/source",
+  "candidate_snapshot": "/tmp/frontend-remaining-before-passive",
+  "reviewed_pairs": 708,
+  "reviewed_files": 29,
+  "method": "Independently read all bilingual pairs in ranges0-124,125-244,245-364,365-484,485-599,600-707; checked conditions, defaults, modes/languages, permission boundaries, null-vs-absence semantics, units, complete examples and literals. Inspected actual interface context for23/403/427/52.",
+  "findings": [
+    {
+      "pair": 427,
+      "path": "frontend/src/types/provider.ts",
+      "line": 18,
+      "severity": "semantic correction required",
+      "issue": "Text-to-video and first-frame image-to-video incorrectly became text generation and image generation.",
+      "suggestion": "`i2v` covers text-to-video and first-frame image-to-video; `r2v` is reference-to-video. Per-route capability flags use this value.",
+      "resolution": "Independently rechecked coordinator correction in current source; accepted."
+    },
+    {
+      "pair": 52,
+      "path": "frontend/src/types/asset-sheet.ts",
+      "line": 11,
+      "severity": "literal preservation correction requested",
+      "issue": "Inline path placeholders translated despite exact path/example preservation policy.",
+      "suggestion": "Restore `<类型>/<名字>` and `<类型>/<本体>/<衍生>`; translate surrounding prose only.",
+      "resolution": "Accepted narrow coordinator-traced human-placeholder exception: unit_id producer returns asset_type/name; derivative names add base/derivative. English placeholders preserve segment roles/structure; no stored name, enum, identifier, or executable literal changed."
+    },
+    {
+      "pair": 403,
+      "path": "frontend/src/types/project.ts",
+      "line": 308,
+      "severity": "condition clarity correction requested",
+      "issue": "Excluded here ambiguously means excluded from valid durations rather than not represented by these reason codes.",
+      "suggestion": "Durations absent from the model's full set are not represented by these reasons; identify them by absence from supported_durations.",
+      "resolution": "Independently rechecked coordinator correction in current source; accepted."
+    }
+  ],
+  "accepted_other_pairs": 705,
+  "result": "All708 exact supplied pairs accepted after independent full review, two semantic corrections, and one explicitly traced human-placeholder exception.",
+  "current_file_hashes": [
+    {
+      "path": "frontend/src/i18n/index.ts",
+      "sha256": "b7beb8aea25451b64cf0066c3ccc97f5b44c6f52bbc04c6d8321f7370eeae03f"
+    },
+    {
+      "path": "frontend/src/types/agent-credential.ts",
+      "sha256": "ce58136b1adf12175574ea518c83870610a2df497a2fd6b02833101cf14be6fb"
+    },
+    {
+      "path": "frontend/src/types/agent-memory.ts",
+      "sha256": "7bcb0c48d4e25cbfafcceb384d2e59951be85b141d7c7637f9a7810fbe6b8078"
+    },
+    {
+      "path": "frontend/src/types/api-key.ts",
+      "sha256": "36b7cb0a709a425000d99e1a53f29a4cb5aa93f8a59dc4cad98a18274d0a966a"
+    },
+    {
+      "path": "frontend/src/types/asset-library.ts",
+      "sha256": "6091d2a8955a6ad7d238263ecf97b086520b390173dd68f36d179898f5b56a50"
+    },
+    {
+      "path": "frontend/src/types/asset-sheet.ts",
+      "sha256": "3c841662517efb6a3c98ad081d8615aedf513c9a20e169d767f501495c550e76"
+    },
+    {
+      "path": "frontend/src/types/asset.ts",
+      "sha256": "2b04e1c9408ab8e42d5a5ae5e99ab95e50523634f3296a52e163dded6db164fd"
+    },
+    {
+      "path": "frontend/src/types/assistant.ts",
+      "sha256": "94575f7259fc6a97e78cd2a6e8e8cf77c10a9c5f43dde09b46cb50809e8e1290"
+    },
+    {
+      "path": "frontend/src/types/catalog.ts",
+      "sha256": "4381430718f33c5c41d646fcddf69a8eab6198ae12250cf5bdff01fa304a9291"
+    },
+    {
+      "path": "frontend/src/types/cost.ts",
+      "sha256": "8018677f38c398066c340d19427c752a418457aad5cf9564d5a7e93494a97218"
+    },
+    {
+      "path": "frontend/src/types/custom-endpoint.ts",
+      "sha256": "b6b68f8ced23295bf1654677132d010109d1dfdf1d13de29d702e54bf4594c97"
+    },
+    {
+      "path": "frontend/src/types/custom-provider.ts",
+      "sha256": "90a5c1da01602ec07a49ad698bcb1c3da6c81286eb766879e24afc5b84b783c4"
+    },
+    {
+      "path": "frontend/src/types/edit-render.ts",
+      "sha256": "275e843111db842f831139b294d161142418a426121c659c0eb03cf94bf0bb07"
+    },
+    {
+      "path": "frontend/src/types/edit-timeline.ts",
+      "sha256": "d5decd3d0db9f2740d4f800ff87fe523bd48d532a80345075d7773744d08d414"
+    },
+    {
+      "path": "frontend/src/types/episodes-view.ts",
+      "sha256": "c7aa966379678ad7817b5bd5f5c500998cece8982bfba6acac9df140417f9109"
+    },
+    {
+      "path": "frontend/src/types/file-view.ts",
+      "sha256": "71f5d0a827cd12e157b0d97cf1360bbb9fd7acd6df7b6623bb382c0830a39863"
+    },
+    {
+      "path": "frontend/src/types/grid.ts",
+      "sha256": "8326a4bf61f0f69e469ba432e2448a0c4c88151237bece3826524ca96eaa9817"
+    },
+    {
+      "path": "frontend/src/types/market.ts",
+      "sha256": "b7835511e92f431780aa9f9ecef6decfa49c1d57db30efe28da35637940046ee"
+    },
+    {
+      "path": "frontend/src/types/project.ts",
+      "sha256": "8010c3b819629a657c79bec78b58540777d1696c42780d6e519cdc58f30d889c"
+    },
+    {
+      "path": "frontend/src/types/prompt-template.ts",
+      "sha256": "bc851c7a1d57f587dd2bd9f791b4a0720cf4d62a6cdd299bbd62724b6ead2873"
+    },
+    {
+      "path": "frontend/src/types/provider.ts",
+      "sha256": "8f4897d42314990af08517eb42ae975a6ceefe5cb7ffafc92ee8243820f7dee2"
+    },
+    {
+      "path": "frontend/src/types/reference-video.ts",
+      "sha256": "746a12da426bb1b6b847dc92632d9a3da9a3fd256d578f1de28601f0f7ae86a3"
+    },
+    {
+      "path": "frontend/src/types/script.ts",
+      "sha256": "70f8a2a2fc132226fd7fb9983e986237bb14241e43486b9183cb39042ca3c2e3"
+    },
+    {
+      "path": "frontend/src/types/storyboard-batch.ts",
+      "sha256": "82a5b007e11ac00ce405b37d05b6727c1b1441279cad50b87223cc1f3e0f9c87"
+    },
+    {
+      "path": "frontend/src/types/system.ts",
+      "sha256": "02751a829829d61a7c4e1b533caad00b38c1b077445efa69a2afa7df58c40890"
+    },
+    {
+      "path": "frontend/src/types/task.ts",
+      "sha256": "ce4f919834cf8d3b8cf8416d761ba2a534b5acfa45e917733ff284fb18a3e988"
+    },
+    {
+      "path": "frontend/src/types/usage-record.ts",
+      "sha256": "33cba4251f5294a6aebcd31900bf22f3724f610ca7ea61df38c3d77151239b7f"
+    },
+    {
+      "path": "frontend/src/types/workflow.ts",
+      "sha256": "cafae40ca8b1db998041c388d9d598d7846416c584d6658d61ed91ace6f0c7b3"
+    },
+    {
+      "path": "frontend/src/types/workspace.ts",
+      "sha256": "64296ca33a6212f0530a0d9ba3a5300274c4492c76eff63c56127e62a7bf6d3a"
+    }
+  ],
+  "consumer_classification": "TypeScript comments on developer DTO/interface declarations and i18n loader; executable literals/types/locale policy unchanged, structural proof owned by frontend batch artifacts. Frozen Chinese reference-syntax examples remain.",
+  "followup": "No outstanding semantic findings within exact708-pair scope. Later frontend comment batches remain separately reviewed.",
+  "accepted_after_recheck": 708,
+  "correction_evidence": "frontend-late-review-refinements.json"
+}

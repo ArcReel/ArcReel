@@ -1,16 +1,19 @@
-"""对象存储连接配置 API。
+"""Object-storage connection configuration API.
 
-实例至多一条连接（数据库唯一约束保证，并发首次保存时后到的请求按更新那一条处理），首期只支持 TOS。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
-读取返回掩码；测试连接的失败原因只带服务端错误码与原文摘要，不带签名或请求地址。
+At most one connection per instance, enforced by a database uniqueness constraint; concurrent initial saves update the
+winning connection. Initially only TOS is supported. Saving connection configuration never changes image storage locations.
+Only these endpoints write secrets; reads return masks. Connection-test failures expose only server error codes and original
+message summaries, never signatures or request URLs.
 
-新增图片的保存位置（``material_storage_target``）是另一项全局设置，缺省本地，只能在已有连接时设为对象存储；
-新增图片保存到对象存储期间不能删除连接。设置只影响之后提交的图片内容版本，已有版本照旧按各自的定位读取。
+New-image storage location (``material_storage_target``) is a separate global setting, local by default. Object storage requires
+an existing connection, which cannot be deleted while new images target it. Changes affect only subsequently submitted image
+content versions; existing versions retain their own read locations.
 
-连接上还有仍可能被读取的正式素材对象（上传未确认、已保存或仍有引用）时，不能更换桶、Endpoint、区域或删除连接（旧对象
-会失去可读取的位置），只能更新访问密钥。没有任何引用、只等待补偿删除的对象不阻止变更：变更时标为脱离当前连接，
-不再自动删除，数量与中转副本一样在连接设置里提示。
-另提供远端素材本地工作文件的清理入口，清理不删除对象存储里的任何对象。
-"""
+While the connection has formal material objects that may still be read (unconfirmed uploads, saved objects or referenced objects),
+its bucket, Endpoint and region cannot change and it cannot be deleted, or old objects would lose readable locations. Only access
+keys may change. Unreferenced objects awaiting compensating deletion do not block changes: detach them from the connection,
+stop automatic deletion and show counts in connection settings alongside relay copies.
+Also provide cleanup for local working files of remote materials, without deleting any object-storage objects."""
 
 from __future__ import annotations
 
@@ -68,11 +71,11 @@ class ObjectStorageConnectionResponse(BaseModel):
 
 class ObjectStorageConnectionEnvelope(BaseModel):
     connection: ObjectStorageConnectionResponse | None
-    #: 新增图片内容版本的保存位置；只配置连接不改变它。
+    #: Storage location for new image versions; configuring the connection alone does not change it.
     new_image_target: NewContentTarget
-    #: 还没有清理的中转副本数量：更换桶或 Endpoint 后，旧桶里的这些副本不再自动删除。
+    #: Uncleared relay-copy count; changing bucket/Endpoint stops automatic deletion of these copies in the old bucket.
     retained_relay_objects: int
-    #: 没有任何引用、还没有删除的图片对象数量（多为保存失败留下的）：更换桶或 Endpoint 后同样不再自动删除。
+    #: Undeleted image objects with no references, mostly left by failed saves; changing bucket/Endpoint also stops their automatic deletion.
     unreleased_image_objects: int
 
 
@@ -81,7 +84,7 @@ class NewImageTargetBody(BaseModel):
 
 
 class SaveObjectStorageConnectionRequest(BaseModel):
-    """保存连接。已有连接时，两个密钥字段留空表示保留已保存的值。"""
+    """Save the connection. For existing connections, empty secret fields preserve stored values."""
 
     kind: Literal["tos"] = "tos"
     region: _Stripped
@@ -96,7 +99,7 @@ class ObjectStorageTestResponse(BaseModel):
 
 
 class WorkCacheCleanupRequest(BaseModel):
-    """只清理闲置超过 ``min_idle_seconds`` 的工作文件；缺省为 0，正在使用的文件始终保留。"""
+    """Clean only working files idle longer than ``min_idle_seconds``, default 0; always retain files in use."""
 
     min_idle_seconds: NonNegativeInt = 0
 
@@ -144,8 +147,8 @@ async def get_connection(session: AsyncSession = Depends(get_async_session)) -> 
 async def save_new_image_target(
     body: NewImageTargetBody, session: AsyncSession = Depends(get_async_session)
 ) -> NewImageTargetBody:
-    """选择之后新提交的图片内容版本保存在本地还是对象存储；已有图片与历史版本不搬迁。"""
-    # 与删除连接串行：「连接存在」的核对与设置的提交在同一段里，不会留下目标为对象存储而连接已删除的状态
+    """Choose local or object storage for subsequently submitted image versions; do not move existing images or historical versions."""
+    # Serialize with connection deletion: checking existence and committing settings together prevents an object-storage target without a connection.
     async with connection_change_lock():
         if body.target == "object_storage" and await ObjectStorageConnectionRepository(session).get() is None:
             raise ConflictError("material_storage_target_needs_connection")
@@ -162,12 +165,12 @@ async def save_connection(
         raise UnprocessableError("object_storage_fields_required")
     if is_s3_compatible_endpoint(body.endpoint):
         raise UnprocessableError("object_storage_s3_endpoint_unsupported")
-    # 与正式对象的首次登记串行：核对连接上没有仍占用它的正式对象与提交改动在同一段里完成，进行中的提交随后按新连接复核。
+    # Serialize with initial formal-object registration: check for occupying objects and commit changes together; active submissions recheck against the new connection.
     async with connection_change_lock():
         try:
             conn = await _save_connection(session, body)
         except IntegrityError:
-            # 另一请求同时首次保存，已建出唯一的当前连接：回滚后按更新那一条重做一次，校验照常进行。
+            # Another concurrent initial save created the unique connection; roll back and retry as an update with normal validation.
             await session.rollback()
             conn = await _save_connection(session, body)
     return _to_response(conn)
@@ -201,7 +204,7 @@ async def delete_connection(session: AsyncSession = Depends(get_async_session)) 
         if existing is not None:
             await _ensure_connection_unused(session, existing)
             if await new_content_target(session) == "object_storage":
-                # 删除后每次图片提交都会失败：先把新增图片改回本地保存
+                # Deletion would fail every image submission; first switch new images back to local storage.
                 raise ConflictError("object_storage_connection_is_new_image_target")
             await detach_orphaned_objects(session, existing)
         if not await repo.delete():
@@ -222,7 +225,7 @@ _TEST_FAILURE_KEYS = {
 
 @router.post("/connection/test", response_model=ObjectStorageTestResponse)
 async def check_connection(session: AsyncSession = Depends(get_async_session)) -> ObjectStorageTestResponse:
-    """用已保存的连接确认凭证有效、桶存在且可以访问。"""
+    """Use the saved connection to verify credentials and confirm the bucket exists and is accessible."""
     client = await load_object_storage_client(session)
     if client is None:
         raise NotFoundError("object_storage_not_configured")
@@ -236,7 +239,7 @@ async def check_connection(session: AsyncSession = Depends(get_async_session)) -
 
 @router.post("/work-cache/cleanup", response_model=WorkCacheCleanupResponse)
 async def cleanup_cache(body: WorkCacheCleanupRequest | None = None) -> WorkCacheCleanupResponse:
-    """删除远端素材闲置的本地工作文件（项目与全局资产库）；需要时预览与读取会从对象存储重新取回。"""
+    """Delete idle local working files for remote materials in projects/global assets; previews and reads retrieve them from object storage when needed."""
     request = body or WorkCacheCleanupRequest()
     min_idle = timedelta(seconds=request.min_idle_seconds)
     project_manager = get_project_manager()

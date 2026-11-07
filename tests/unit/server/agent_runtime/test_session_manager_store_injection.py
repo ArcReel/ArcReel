@@ -12,7 +12,7 @@ from tests.fakes import use_provider_env
 
 
 async def _fake_provider_env():
-    """Stub: 跳过 DB 访问，返回空 dict（不影响 session_store/flush 字段断言）。"""
+    """Stub database access with an empty dict; session_store/flush assertions are unaffected."""
     return {}
 
 
@@ -57,8 +57,7 @@ def test_store_db_explicit_returns_store(monkeypatch, tmp_path):
 
 
 def test_store_uses_session_factory_seam(monkeypatch, tmp_path):
-    """SessionManager 的 _session_factory / _user_id 经装配器 provider 现取生效于
-    build_session_store（store 首次构建时按当时属性值取，与析出前时点一致）。"""
+    """SessionManager _session_factory / _user_id are read afresh through assembler providers for build_session_store (at first store construction, matching the pre-extraction timing)."""
     monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE", raising=False)
     sm = _build_sm(tmp_path)
 

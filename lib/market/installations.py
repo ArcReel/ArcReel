@@ -1,7 +1,8 @@
-"""安装记录：将校验通过的定义与记录原子写入（唯一约束守住并发安装），并判定已安装端点的两轴状态。
+"""Installation records atomically save validated definitions/records (unique constraints guard concurrent installs) and judge two installed-endpoint state axes.
 
-市场轴只比对安装记录版本与当前索引条目版本的字符串，不看本地 ``meta.version``；来源被禁用、被删除或
-条目已从索引移除一律为 ``unavailable``。本地修改轴只比对当前定义摘要与安装摘要。两轴互不影响。
+The market axis compares only installation-record/index-entry version strings, ignoring local
+``meta.version``. Disabled/deleted sources or removed entries mean ``unavailable``. The local-change
+axis compares only current-definition and installation digests. Neither axis affects the other.
 """
 
 import hashlib
@@ -38,14 +39,14 @@ class InstallationStatus(NamedTuple):
 
 
 def definition_digest(definition: Mapping[str, Any]) -> str:
-    """安装记录与本地修改判定共用的摘要：键排序、紧凑分隔符、不转义 Unicode 的 UTF-8 JSON。"""
+    """Digest shared by installation records/local-change checks: UTF-8 JSON with sorted keys, compact separators, and unescaped Unicode."""
     return hashlib.sha256(
         json.dumps(definition, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     ).hexdigest()
 
 
 def available_entries(source: MarketSource | None) -> dict[str, MarketIndexEntry]:
-    """按 slug 索引安装记录在市场中仍可用的条目：来源须存在、已启用，且快照里仍列出该 slug。"""
+    """Index installed records’ still-available market entries by slug; source must exist, be enabled, and still list the slug."""
     if source is None or not source.is_enabled:
         return {}
     return {entry.slug: entry for entry in snapshot_entries(source)}
@@ -54,7 +55,7 @@ def available_entries(source: MarketSource | None) -> dict[str, MarketIndexEntry
 def installation_status(
     *, installed_version: str, installed_digest: str, definition: Mapping[str, Any], entry: MarketIndexEntry | None
 ) -> InstallationStatus:
-    """``entry`` 为 None 表示条目在市场中不可用；索引版本更旧同样算可更新。"""
+    """None ``entry`` means unavailable in the market; older index versions also count as updatable."""
     if entry is None:
         state = InstallationState.UNAVAILABLE
     elif entry.version != installed_version:
@@ -77,10 +78,11 @@ async def write_installation(
     definition: dict[str, Any],
     overwrite_endpoint_id: int | None,
 ) -> CustomEndpoint:
-    """调用方负责校验与提交；任一失败回滚端点与记录两者。
+    """Callers validate/commit; any failure rolls back both endpoint and record.
 
-    覆盖目标只能是持有本条目安装记录的端点，或没有安装记录、与定义同作者同名的端点。安装记录按
-    :func:`~arcreel_market_core.market.address.source_identity` 归属来源，与市场源判重同一口径。
+    Overwrite only endpoints holding this entry’s installation record, or unrecorded endpoints
+    sharing the definition author/name. Source ownership follows
+    :func:`~arcreel_market_core.market.address.source_identity`, matching market-source deduplication.
     """
     repo = CustomEndpointRepository(session)
     mirror = derive_mirror_columns(definition)
@@ -127,7 +129,7 @@ async def write_installation(
         if endpoint is None:
             raise NotFoundError("custom_endpoint_not_found")
     record = existing or MarketInstallation(custom_endpoint_id=endpoint.id, slug=slug)
-    # 来源删除后以大小写不同的地址重新添加时，记录随之改用当前规范键。
+    # If a deleted source is readded under differently cased addresses, move records to its current canonical key.
     record.source_key = source_key
     record.installed_version = definition["meta"]["version"]
     record.installed_digest = definition_digest(definition)

@@ -1,0 +1,403 @@
+{
+  "snapshot": "/tmp/arcreel-hidden-skill-before",
+  "scope": "pr-ai-review-loop/scripts and tech-doc-style-chinese/scripts,tests; testdata excluded from translation but hashed for preservation.",
+  "translated_python_passive_spans": 56,
+  "translated_shell_comment_lines": 3,
+  "files": [
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/poll.sh",
+      "source_sha256": "bbf925e1f378cd539acac6f4eb87ca21aed2179ce305bffe622fd14b2a44f6f5",
+      "candidate_sha256": "8fdaf04a66b02506c5762b2683d72995d3d9ceb3958297092b11f7e45e040f1d",
+      "changed": true,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": [
+          48,
+          49
+        ]
+      },
+      "exception": "Executable jq triage strings and tests matching them, plus raw user-note round-trip fixture, preserved exactly."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/query.sh",
+      "source_sha256": "c51a978d1a486603f998bf8e829c86a9c7865da6434651d9523f025756205332",
+      "candidate_sha256": "c51a978d1a486603f998bf8e829c86a9c7865da6434651d9523f025756205332",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/repo-context.sh",
+      "source_sha256": "2ab0c383595e5a0d7399ee6dc7248a7454e498069a60316880923e33d3b70746",
+      "candidate_sha256": "2ab0c383595e5a0d7399ee6dc7248a7454e498069a60316880923e33d3b70746",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/round.sh",
+      "source_sha256": "a3490cd2882c9f8bf4bbb5297ecf6b03659cdd46e17a9fd974ddefb3aacedd40",
+      "candidate_sha256": "4628035bb0cfeff6eca863f2842ddd8d09b57101ccd7c37f6feaa81e059b2046",
+      "changed": true,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": [
+          15
+        ]
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_quota_alerts.sh",
+      "source_sha256": "385d69145c42e6d86f64907c5a147e4707781b5b49a20f0c2477794d331dddd0",
+      "candidate_sha256": "385d69145c42e6d86f64907c5a147e4707781b5b49a20f0c2477794d331dddd0",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_rest.sh",
+      "source_sha256": "dde6ac08adfdf8bcc2a3442fc33f53e121667c0bfd5e63142991291bfda4f1e5",
+      "candidate_sha256": "dde6ac08adfdf8bcc2a3442fc33f53e121667c0bfd5e63142991291bfda4f1e5",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_review_body_flags.sh",
+      "source_sha256": "a7e15b69ae1c4c01ecb4647b78d3c472f07aa4bd776c0f255f013cd4f083298c",
+      "candidate_sha256": "a7e15b69ae1c4c01ecb4647b78d3c472f07aa4bd776c0f255f013cd4f083298c",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_round.sh",
+      "source_sha256": "828258d785713b71b77042ce3fbe3728cd785c2cbc091425a87b547ec70dab73",
+      "candidate_sha256": "828258d785713b71b77042ce3fbe3728cd785c2cbc091425a87b547ec70dab73",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      },
+      "exception": "Executable jq triage strings and tests matching them, plus raw user-note round-trip fixture, preserved exactly."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_triage_hint.sh",
+      "source_sha256": "45dcf5c71552836c48e00394a6d342bea8cc5e908696cdf0b660802418750868",
+      "candidate_sha256": "45dcf5c71552836c48e00394a6d342bea8cc5e908696cdf0b660802418750868",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      },
+      "exception": "Executable jq triage strings and tests matching them, plus raw user-note round-trip fixture, preserved exactly."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_wait.sh",
+      "source_sha256": "96840a71a3f21ff285b4152fa03ccc52dd51dd541bbc88603288676146ab90d7",
+      "candidate_sha256": "96840a71a3f21ff285b4152fa03ccc52dd51dd541bbc88603288676146ab90d7",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/test_walkthrough_head.sh",
+      "source_sha256": "95bc0ac1c3e69f83c7a984e620690a7082cdb6c1533878d1aeb5b7be9ed0a941",
+      "candidate_sha256": "95bc0ac1c3e69f83c7a984e620690a7082cdb6c1533878d1aeb5b7be9ed0a941",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/coderabbit_inline_review_pr1767.txt",
+      "source_sha256": "22a11cd61244fb2497e82098e7031a0cab1280b3800e05e49a446bf9f4aff318",
+      "candidate_sha256": "22a11cd61244fb2497e82098e7031a0cab1280b3800e05e49a446bf9f4aff318",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/coderabbit_outside_diff_pr1767.txt",
+      "source_sha256": "a1e0fd01efc174e03a3d705e89d478f517555364237114d0867c5278f44aa5ec",
+      "candidate_sha256": "a1e0fd01efc174e03a3d705e89d478f517555364237114d0867c5278f44aa5ec",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/coderabbit_walkthrough_full_pr2620.txt",
+      "source_sha256": "4d37648baaf9e8bd0acd94d9896f063345143e2fd0a286c416aefa8e4e25229d",
+      "candidate_sha256": "4d37648baaf9e8bd0acd94d9896f063345143e2fd0a286c416aefa8e4e25229d",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/coderabbit_walkthrough_incremental_pr2614.txt",
+      "source_sha256": "e23a4fcaa1c78e8dc9e236d05d4cae0bcf14639f7bd9a0b8f99c9a3bb05f8a49",
+      "candidate_sha256": "e23a4fcaa1c78e8dc9e236d05d4cae0bcf14639f7bd9a0b8f99c9a3bb05f8a49",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/coderabbit_walkthrough_skip_bot_pr3319.txt",
+      "source_sha256": "aeffa7a7fbc486bb5b2a725f6a5f48deef9fdbf94cba1f96efa09b4a6c6ddba7",
+      "candidate_sha256": "aeffa7a7fbc486bb5b2a725f6a5f48deef9fdbf94cba1f96efa09b4a6c6ddba7",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/coderabbit_walkthrough_skip_no_changes_pr3356.txt",
+      "source_sha256": "08ab43c5f338c0f0ef0f6051234d0a34e3ce04ad37660c1c7eeb46ad772c4880",
+      "candidate_sha256": "08ab43c5f338c0f0ef0f6051234d0a34e3ce04ad37660c1c7eeb46ad772c4880",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/codex_body_finding_pr1727.txt",
+      "source_sha256": "44cb010c0260bac613c17b28ad87611813d766e845ca175deeba636cc194bf29",
+      "candidate_sha256": "44cb010c0260bac613c17b28ad87611813d766e845ca175deeba636cc194bf29",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/codex_generic_review_pr1727.txt",
+      "source_sha256": "b71cee0a20a35640c1181830ccccfa85eb1c5a985d3b51e917e5c14452211e45",
+      "candidate_sha256": "b71cee0a20a35640c1181830ccccfa85eb1c5a985d3b51e917e5c14452211e45",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/no_actionable_pr1115.txt",
+      "source_sha256": "e7f10870050df44cb8a1824f96d8608d164b3e3f951e3828e7b1fbf055198792",
+      "candidate_sha256": "e7f10870050df44cb8a1824f96d8608d164b3e3f951e3828e7b1fbf055198792",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/quota_alert_pr1115_no_stack.txt",
+      "source_sha256": "b71da3fdd51530b2da9af415ca93c28db4503472260ae7106e7752a079d827dc",
+      "candidate_sha256": "b71da3fdd51530b2da9af415ca93c28db4503472260ae7106e7752a079d827dc",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/quota_alert_pr1115_review_stack.txt",
+      "source_sha256": "525fbf76a34a29acfbff6e614d05ef826c074e970ce86630e52bf60329981631",
+      "candidate_sha256": "525fbf76a34a29acfbff6e614d05ef826c074e970ce86630e52bf60329981631",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/security_forbidden.txt",
+      "source_sha256": "fa73d8c795b651c237754d74e8fa6a58c3d2316c9558cb1fd40c684060d09048",
+      "candidate_sha256": "fa73d8c795b651c237754d74e8fa6a58c3d2316c9558cb1fd40c684060d09048",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/testdata/synthetic_non_alert_mentions_limit.txt",
+      "source_sha256": "c7bc51ccdd7c075832230306b8c08b3a35fffa40deec00eb40ba52c29a0faaa7",
+      "candidate_sha256": "c7bc51ccdd7c075832230306b8c08b3a35fffa40deec00eb40ba52c29a0faaa7",
+      "changed": false,
+      "proof": {
+        "external_fixture_bytes_exact": true
+      },
+      "exception": "Captured external review/log data and synthetic classifier inputs; byte-exact."
+    },
+    {
+      "path": ".agents/skills/pr-ai-review-loop/scripts/wait.sh",
+      "source_sha256": "b44ba0a675d618f4104f205da391a2f1af69e5aeebbfb4b4dfc85eef81bca08c",
+      "candidate_sha256": "b44ba0a675d618f4104f205da391a2f1af69e5aeebbfb4b4dfc85eef81bca08c",
+      "changed": false,
+      "proof": {
+        "only_standalone_explanatory_comment_lines_changed": true,
+        "all_commands_quoted_programs_heredocs_bytes_exact": true,
+        "shebang_exact": true,
+        "changed_comment_lines": []
+      }
+    },
+    {
+      "path": ".agents/skills/tech-doc-style-chinese/scripts/lint_copy_rules.py",
+      "source_sha256": "1171782dcaba2d0e153613afe47dd720aab18704aaa9cdcb4fdc73f765e793c2",
+      "candidate_sha256": "2a784c7b5b3678e9fec8be3094d59a0edae372ba484685a17067f053ad01ee2b",
+      "changed": true,
+      "proof": {
+        "normalized_executable_AST_identical": true,
+        "AST_sha256": "ca56bf21ad9e04e5f5b7ca327095eaff46db670d654a1a5854912dc2ca6d6329",
+        "functional_comment_directives_exact": true
+      },
+      "exception": "Executable Chinese lint patterns/suggestions, CLI messages, linguistic test inputs and expectations retained; no passive maintenance prose remains."
+    },
+    {
+      "path": ".agents/skills/tech-doc-style-chinese/scripts/unwrap_md_paragraphs.py",
+      "source_sha256": "6afb09d660aa7cb9042abb8c82123de5df9545aefd1a445fe6b54238d1ec8636",
+      "candidate_sha256": "f3bc0c36ab65c58a509e46754b938dffadc5887173cf3aa58e87b9b65edbb73c",
+      "changed": true,
+      "proof": {
+        "normalized_executable_AST_identical": true,
+        "AST_sha256": "ac55a47ac2ded772dc25e493bdea858719b1a48c3d3f9c8f8b82c475aaa08891",
+        "functional_comment_directives_exact": true
+      },
+      "exception": "Executable Chinese lint patterns/suggestions, CLI messages, linguistic test inputs and expectations retained; no passive maintenance prose remains."
+    },
+    {
+      "path": ".agents/skills/tech-doc-style-chinese/tests/test_lint_copy_rules.py",
+      "source_sha256": "8711a87cec6f28f579143ad9cc0e2e277f80c1e7e244ac39154639e721803ef9",
+      "candidate_sha256": "8711a87cec6f28f579143ad9cc0e2e277f80c1e7e244ac39154639e721803ef9",
+      "changed": false,
+      "proof": {
+        "normalized_executable_AST_identical": true,
+        "AST_sha256": "b2f93314e83571e4155080f6a77abc9b82f66c6d0bc45e3db2d98b31eb9e5479",
+        "functional_comment_directives_exact": true
+      },
+      "exception": "Executable Chinese lint patterns/suggestions, CLI messages, linguistic test inputs and expectations retained; no passive maintenance prose remains."
+    },
+    {
+      "path": ".agents/skills/tech-doc-style-chinese/tests/test_skill_structure.py",
+      "source_sha256": "2cb616e5d55ac2f40251a20008a07cf1fc2d02e40c9d359a1f138781058d4871",
+      "candidate_sha256": "2cb616e5d55ac2f40251a20008a07cf1fc2d02e40c9d359a1f138781058d4871",
+      "changed": false,
+      "proof": {
+        "normalized_executable_AST_identical": true,
+        "AST_sha256": "6c06cbad50e2d3847acc6dd1e61ff67aad05301e406788201808eff4424e407f",
+        "functional_comment_directives_exact": true
+      }
+    },
+    {
+      "path": ".agents/skills/tech-doc-style-chinese/tests/test_unwrap_md_paragraphs.py",
+      "source_sha256": "5fd9c5cadcebbcc9b60064a6a413cb2aecdaca1da6229ca30cf953253762dcc2",
+      "candidate_sha256": "3d0bcbacae0b99a6e0c696d0e7e3cd9bad5073851dcb599ed6b1a3d1edcb58aa",
+      "changed": true,
+      "proof": {
+        "normalized_executable_AST_identical": true,
+        "AST_sha256": "73cdd0583a0b04568d4099f574a0b180c1676169bd02f1906473e8adc70b906c",
+        "functional_comment_directives_exact": true
+      },
+      "exception": "Executable Chinese lint patterns/suggestions, CLI messages, linguistic test inputs and expectations retained; no passive maintenance prose remains."
+    }
+  ],
+  "consumer_trace": "Neither Python script consumes its __doc__ for CLI output; argparse descriptions/help are explicit executable strings and unchanged. Shell harnesses either extract jq definitions into local fixture tests or install gh stubs; fallback gh/curl/wget denied in PATH. Real poll/round workflow never invoked outside mocked harnesses.",
+  "checks": [
+    {
+      "command": "uv run python -m unittest discover -s .agents/skills/tech-doc-style-chinese/tests -v",
+      "result": "PASS: 88 tests"
+    },
+    {
+      "command": "bash -n for every pr-ai-review-loop/scripts/*.sh",
+      "result": "PASS"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_quota_alerts.sh",
+      "result": "PASS",
+      "pass_markers": 4,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_rest.sh",
+      "result": "PASS",
+      "pass_markers": 2,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_review_body_flags.sh",
+      "result": "PASS",
+      "pass_markers": 4,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_round.sh",
+      "result": "PASS",
+      "pass_markers": 6,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_triage_hint.sh",
+      "result": "PASS",
+      "pass_markers": 9,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_wait.sh",
+      "result": "PASS",
+      "pass_markers": 16,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    },
+    {
+      "command": "bash .agents/skills/pr-ai-review-loop/scripts/test_walkthrough_head.sh",
+      "result": "PASS",
+      "pass_markers": 17,
+      "external_network": "gh mocks or extracted jq definitions only; gh/curl/wget fallback denied"
+    }
+  ],
+  "review_status": "Candidate for independent prose review; executable and fixture preservation verified."
+}

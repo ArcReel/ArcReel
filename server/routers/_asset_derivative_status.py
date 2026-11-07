@@ -1,9 +1,9 @@
-"""衍生资产图的读取视图：图路径与过期标记。
+"""Read view for derivative asset images: image paths and stale markers.
 
-登记信息（描述、名字）本就随本体条目一起下发，唯独「这张衍生图还对不对得上本体现在的样子」
-不在 project.json 里——它是产物清单与规范状态的一次比对。比对要读文件、算内容指纹，放进
-项目读取这条最热的路径上不合算，故单列一个按角色寻址的端点，由需要它的界面按需取。
-"""
+Registration data (description, name) already accompanies the base entry. Whether a derivative image still matches
+the base’s current appearance is absent from project.json: it compares the artifact manifest with canonical state.
+Reading files and computing content fingerprints on the hot project-read path is costly, so expose a separate
+character-addressed endpoint for views to fetch on demand."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def register_derivative_status_routes(
     not_found_key: str,
     pm_getter: Callable[[], ProjectManager],
 ) -> None:
-    """把「本体名下衍生的图与过期状态」查询端点注册到该资产类型的路由上。"""
+    """Register an endpoint for derivative images and stale status under a base name on this asset type’s router."""
 
     base = f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/{DERIVATIVES_FIELD}"
 
@@ -65,8 +65,8 @@ def register_derivative_status_routes(
                         derivative_artifact_key(asset_name_comparison_key(owner_key), asset_name_comparison_key(name)),
                         artifact_path=sheet_path,
                     )
-                    # 只有「登记在案但已不等于规范状态」才是过期；缺失或被阻断另有其表现
-                    # （图根本渲染不出来），不折进同一个标记。
+                    # Only registered images differing from canonical state are stale; missing or blocked images have their own representation
+                    # (the image cannot render) and must not share this marker.
                     stale = comparison.status is ArtifactStatus.STALE
                     artifact_status = comparison.status
                 derivatives[name] = {

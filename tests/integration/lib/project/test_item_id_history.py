@@ -1,4 +1,4 @@
-"""分镜与视频单元编号只分配、不复用：用过的编号从哪里认，新编号从哪里往后取。"""
+"""Storyboard/video-unit IDs are allocated without reuse: sources of used-number history and starting points for new IDs."""
 
 from __future__ import annotations
 
@@ -109,13 +109,13 @@ def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path) -> None:
     project_dir = pm.get_project_path("demo")
     script = pm.load_script("demo", "episode_1.json")
     script["segments"] = script["segments"][:1]
-    pm.save_script("demo", script, "episode_1.json")  # 移除的 E1S02、E1S03 留下删除记录
+    pm.save_script("demo", script, "episode_1.json")  # Removed E1S02/E1S03 leave deletion records.
     timeline = project_dir / "edit_timelines" / "t1" / "timeline.json"
     _write_json(timeline, {"tracks": [{"clips": [{"id": "c1", "unit_id": "E1S04"}]}]})
     plan = {
         "episode": 1,
         "content_mode": "narration",
-        # E1S02 已删除、E1S04 只在剪辑时间线里；E1S08 从没用过，E2S01 属于别的集，E1S08 重复出现
+        # E1S02 deleted; E1S04 only in timelines; E1S08 never used; E2S01 belongs elsewhere; E1S08 appears twice.
         "segments": [_segment(i) for i in ("E1S02", "E1S08", "E1S04", "E2S01", "E1S08")],
     }
 

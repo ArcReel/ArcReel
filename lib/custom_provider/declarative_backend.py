@@ -1,9 +1,9 @@
-"""声明式 JSON 提交/轮询调用通道：媒体无关的运行时引擎，以及在其上组装的视频 backend。
+"""Declarative JSON submit/poll channels: media-independent runtime engines with assembled video backends.
 
-住在 ``lib.custom_provider`` 而非 ``lib.backends.video_backends``：本 backend 的输入是自定义调用端点
-的定义格式，读定义要用模板引擎与响应提取，而分层契约（``pyproject.toml``
-``[tool.importlinter]``）不允许 backend 层反向依赖 ``lib.custom_provider``。方向与
-``endpoints.py`` 装配各家 backend 一致——上层消费下层，下层不知道声明式定义的存在。
+Lives in ``lib.custom_provider``, not ``lib.backends.video_backends``: inputs are endpoint definitions,
+requiring templates/response extraction, while ``pyproject.toml``
+``[tool.importlinter]`` forbids backend reverse dependencies on ``lib.custom_provider``. Like
+``endpoints.py`` backend assembly, upper layers consume lower ones without lower knowledge of declarative definitions.
 """
 
 from __future__ import annotations
@@ -75,10 +75,10 @@ logger = logging.getLogger(__name__)
 
 
 def _url_without_auth_query(rendered: RenderedRequest) -> str:
-    """日志用 URL：``auth.query`` 的凭证是明文参数，写进日志前整段摘掉。
+    """Log URLs stripped of plaintext ``auth.query`` credentials.
 
-    ``format_kwargs_for_log`` 按键名遮蔽，URL 是单个字符串遮不到里面的凭证；渲染结果
-    单列了 ``auth_query``，据此把这些参数从查询串里删掉再入日志。
+    ``format_kwargs_for_log`` masks by keys, missing credentials inside URL strings; rendered
+    ``auth_query`` identifies parameters to strip before logging.
     """
     if not rendered.auth_query:
         return rendered.url
@@ -90,14 +90,14 @@ def _url_without_auth_query(rendered: RenderedRequest) -> str:
     return f"{head}?{'&'.join(kept)}" if kept else head
 
 
-#: 超过该长度且全由 base64 字符组成的字符串按素材摘要处理。真实提示词带空格与标点，不会命中。
+#: Strings above this length composed entirely of base64 become asset summaries; real prompts include spaces/punctuation.
 _BASE64_LOG_THRESHOLD = 256
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/=\r\n]+")
 
 
 def _asset_payloads(context: Mapping[str, object]) -> frozenset[str]:
-    """一次渲染编码出的素材值。日志据此按来源摘素材，不靠体积猜——一张 1×1 的 PNG 编出来
-    比任何阈值都短，按长度判会把它整串写进日志。"""
+    """Asset values encoded in one rendering. Logs remove by source, never size heuristics: 1×1 PNGs encode
+    below any threshold, otherwise leaking entire media."""
     inputs = context.get("inputs")
     if not isinstance(inputs, Mapping):
         return frozenset()
@@ -109,15 +109,15 @@ def _asset_payloads(context: Mapping[str, object]) -> frozenset[str]:
 
 
 def _body_for_log(value: object, assets: frozenset[str]) -> object:
-    """日志用请求体：``encoding: "base64"`` 的素材渲染出来是裸 base64 串，通用格式化器认不出
-    （data URI 有前缀可识别，裸串没有），截断后仍会把用户媒体的可还原前缀写进日志。
+    """Log bodies: ``encoding: "base64"`` yields bare strings unrecognized by generic
+    formatters, unlike prefixed data URIs; truncation still exposes reconstructible media prefixes.
 
-    首选按来源摘：``assets`` 是同一次渲染编码出的素材值，出现在字符串里就整段换掉，与长度无关，
-    也不要求整串相等——定义允许把素材拼进 ``"prefix{{ inputs.first_frame }}"` 这类混合文本，
-    那种形状既不等值也过不了纯 base64 兜底。长的先换，短值才不会先吃掉长值的一段。
+    Prefer source matching against same-render ``assets``, replacing entire occurrences regardless of size,
+    without requiring whole-string equality. Definitions may embed ``"prefix{{ inputs.first_frame }}"` mixed text,
+    neither equal nor pure-base64. Replace longest first, preventing shorter values consuming parts of longer ones.
 
-    形状兜底留给对不上任何素材值的串（如定义在渲染后又拼接过），真实提示词带空格与标点，
-    不会命中。"""
+    Shape fallback covers unmatched strings, such as postrender concatenation; real prompts include whitespace/punctuation,
+    avoiding matches."""
     if isinstance(value, str):
         redacted = value
         for payload in sorted(assets, key=len, reverse=True):
@@ -135,23 +135,23 @@ def _body_for_log(value: object, assets: frozenset[str]) -> object:
 
 
 def _headers_with_auth_masked(headers: Mapping[str, str], auth: Mapping[str, Any] | None) -> dict[str, str]:
-    """日志用 headers：``auth.headers`` 允许任意名字（如 ``Ocp-Apim-Subscription-Key``），
-    ``format_kwargs_for_log`` 按通用敏感词遮不到，按定义声明的键名整体遮掉。"""
+    """Log headers: ``auth.headers`` permits arbitrary names such as ``Ocp-Apim-Subscription-Key``;
+    generic ``format_kwargs_for_log`` sensitive-key matching misses them, so mask whole definition-declared names."""
     auth_names = {name.lower() for name in (auth or {}).get("headers", {})}
     return {name: "***" if name.lower() in auth_names else value for name, value in headers.items()}
 
 
-#: 定义里会渲染出 URL 的三节。
+#: Three URL-rendering sections.
 REQUEST_SECTIONS = ("submit", "poll", "result")
-#: 直接以 base_url + 显式版本段起头的 URL 模板。
+#: URL templates directly beginning base_url + explicit versions.
 _VERSIONED_BASE_URL = re.compile(r"^\s*\{\{\s*base_url\s*\}\}/v\d")
 
 
 def request_urls(definition: Mapping[str, Any]) -> list[str]:
-    """定义里三节请求各自的 URL 模板，缺席的节跳过。
+    """URL templates from three definition sections, skipping absent sections.
 
-    与 base_url 有关的判定（是否必需、要不要剥版本段）都按整份定义算：提交写死绝对地址、
-    轮询才引用 base_url 的定义是合法的，只看提交会让判定与真正发出去的 URL 脱节。
+    base_url requirements/version-stripping consider whole definitions: hardcoded submission hosts with base_url-only polling
+    are valid; submission-only inspection would disagree with actual URLs.
     """
     urls: list[str] = []
     for section in REQUEST_SECTIONS:
@@ -162,16 +162,16 @@ def request_urls(definition: Mapping[str, Any]) -> list[str]:
 
 
 def strips_base_url_version(definition: Mapping[str, Any]) -> bool:
-    """定义里有请求以 ``{{ base_url }}`` 加显式版本段起头时，配置末尾的版本段要剥掉。"""
+    """Strip trailing configured versions if any definition URL begins with ``{{ base_url }}`` plus explicit versions."""
     return any(_VERSIONED_BASE_URL.match(url) for url in request_urls(definition))
 
 
 def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any]) -> str:
-    """补协议 + 去尾斜杠；定义带显式版本路径时剥配置末尾版本段，避免拼成 ``/v1/v2``。
+    """Add schemes/remove trailing slashes; strip configured versions for explicit definition versions, avoiding ``/v1/v2``.
 
-    无 scheme 的纯域名（如 ``api.aimlapi.com``）补 ``https://``——httpx 拒收缺协议的相对
-    URL，而存量自定义供应商的 ``base_url`` 是不受约束的字符串。预览与真发共用这一份归一化：
-    分叉会让预览展示的 URL 与实际提交的不一致。
+    Schemaless hosts such as ``api.aimlapi.com`` receive ``https://`` because httpx rejects relative
+    URLs and legacy custom ``base_url`` is unconstrained. Preview/execution share normalization,
+    preventing displayed/submitted URL drift.
     """
     stripped = base_url.strip().rstrip("/")
     if stripped and "://" not in stripped:
@@ -181,12 +181,12 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
     return stripped
 
 
-#: 有覆盖的节在模板里引用的域名变量：供应商填写的原样 base_url。
+#: Raw configured base_url variable for overridden sections.
 OVERRIDE_BASE_URL = "override_base_url"
 
 
 def apply_path_overrides(definition: Mapping[str, Any], path_overrides: PathOverrides) -> Mapping[str, Any]:
-    """把有覆盖的请求节的 URL 换成「原样 base_url + 覆盖路径」，其余部分原样保留。"""
+    """Replace overridden section URLs with raw base_url + override paths, preserving all else."""
     if not path_overrides:
         return definition
     rewritten = dict(definition)
@@ -198,7 +198,7 @@ def apply_path_overrides(definition: Mapping[str, Any], path_overrides: PathOver
 
 
 class DeclarativeRuntimeError(RuntimeError):
-    """声明式定义执行失败，携带可持久化、本地化的稳定错误码。"""
+    """Declarative failures with persistent/localizable stable codes."""
 
     def __init__(self, code: str, *, detail: str | ValidationMessage) -> None:
         self.code = code
@@ -212,21 +212,21 @@ class DeclarativeRuntimeError(RuntimeError):
 
 @dataclass(frozen=True)
 class JobState:
-    """一次供应商响应按定义读出的媒体无关部分：状态、错误与二次取件 id。"""
+    """Media-independent response interpretation: status/errors/secondary-retrieval ids."""
 
     body: object
     status: ProviderJobStatus
-    #: 供应商原样回报的状态串。状态由 ``failure`` 判定或由调用方给定时为 ``None``。
+    #: Raw provider statuses; ``None`` for ``failure``-derived/caller-supplied tiers.
     provider_status: str | None
     error: str | None
     result_id: str | None
 
 
 def _failure_reason(state: JobState) -> str:
-    """供应商判负时给用户看的理由：优先取定义读出的错误信息，没有就报出供应商的原样状态。
+    """User reasons for provider failure: extracted error messages first, otherwise raw provider statuses.
 
-    状态映射会把 ``failed`` / ``cancelled`` 之类折进同一个 ``failed`` 档位，只报「供应商判负」
-    分不清是供应商拒绝还是任务被取消。
+    Mapping folds ``failed`` / ``cancelled`` into ``failed``; generic provider-failure messages
+    cannot distinguish rejection from cancellation.
     """
     if state.error:
         return state.error
@@ -237,7 +237,7 @@ def _failure_reason(state: JobState) -> str:
 
 @dataclass(frozen=True)
 class ProviderState(JobState):
-    """视频定义的判读结果：在 :class:`JobState` 之上加产物地址与计费时长。"""
+    """Video interpretations: :class:`JobState` plus artifact URLs/billed durations."""
 
     video_url: str | None
     duration_seconds: int | None
@@ -245,7 +245,7 @@ class ProviderState(JobState):
 
 @contextmanager
 def response_extract_guard() -> Generator[None]:
-    """把按 ``extract`` 读响应时的求值失败收成稳定错误码，供各媒体类型的判读函数共用。"""
+    """Normalize ``extract`` evaluation failures into stable codes shared by media interpreters."""
     try:
         yield
     except JsonPathEvaluationError as exc:
@@ -261,10 +261,10 @@ def extract_job_status(
     status_map: Mapping[str, str] | None = None,
     status: ProviderJobStatus | None = None,
 ) -> tuple[ProviderJobStatus, str | None]:
-    """按 ``extract`` 的 ``status`` / ``failure`` 读任务状态：命中 ``failure`` 一律判失败。
+    """Read ``extract`` ``status`` / ``failure``; any ``failure`` match fails.
 
-    返回状态档位与供应商原样状态串；原样状态串只在档位由它映射而来时给出。``status`` 给定时
-    （二次取件节只在轮询判成功之后才发得出去）不再读状态路径。
+    Return status tiers/raw statuses; raw strings only when mappings derive tiers from them. Given ``status``
+    skips status paths, since secondary retrieval executes only after successful polling.
     """
     failure = extract_value(extract["failure"], body) if "failure" in extract else None
     if status is not None:
@@ -283,11 +283,11 @@ def extract_provider_state(
     status_map: Mapping[str, str] | None = None,
     status: ProviderJobStatus | None = None,
 ) -> ProviderState:
-    """按视频定义的一节 ``extract`` 读一份响应体。运行时与验证响应共用的唯一判读实现。
+    """Read response bodies through video ``extract`` sections; sole runtime/validation interpretation.
 
-    验证响应之所以能替代真花钱的调用，全靠它给出的判定与运行时逐字一致；两处各读一遍
-    ``extract``，只要有一处对 ``failure`` 或状态回落的处理稍有出入，验证就会在用户最信任它的
-    场合给出反的结论。
+    Response validation can replace paid calls only by matching runtime decisions exactly. Duplicated
+    ``extract``/``failure``/status fallbacks could invert conclusions precisely when users most
+    trust validation.
     """
     with response_extract_guard():
         job_status, provider_status = extract_job_status(body, extract, status_map=status_map, status=status)
@@ -303,21 +303,21 @@ def extract_provider_state(
 
 
 def text_or_none(value: object | None) -> str | None:
-    """把取到的值收成文案：空白与缺席一律 ``None``。"""
+    """Normalize extracted text; blank/absent → ``None``."""
     if value is None:
         return None
     return str(value).strip() or None
 
 
 def extract_text(spec: object | None, body: object) -> str | None:
-    """按一条提取规则取字符串；无命中或空白一律 ``None``。"""
+    """Extract strings through one rule; absent/blank → ``None``."""
     if spec is None:
         return None
     return text_or_none(extract_value(spec, body))
 
 
 def extract_duration(spec: object | None, body: object) -> int | None:
-    """按 ``usage.duration_seconds`` 取计费时长：half-up 取整后越界即视为未回报。"""
+    """Billed ``usage.duration_seconds``; half-up rounding then out-of-range means unreported."""
     if spec is None:
         return None
     raw = extract_value(spec, body)
@@ -331,7 +331,7 @@ def extract_duration(spec: object | None, body: object) -> int | None:
 
 
 class StateReader[StateT: JobState](Protocol):
-    """按一节 ``extract`` 读响应体的判读函数，签名同 :func:`extract_provider_state`。"""
+    """Response readers for one ``extract`` section, matching :func:`extract_provider_state` signatures."""
 
     def __call__(
         self,
@@ -343,28 +343,28 @@ class StateReader[StateT: JobState](Protocol):
     ) -> StateT: ...
 
 
-#: 一次请求地址的源：``(scheme, host, port)``，见 :func:`url_origin`。
+#: Request origins ``(scheme, host, port)``, :func:`url_origin`.
 Origin = tuple[str, str, int | None]
-#: 模板素材输入：单个文件、文件列表或缺席。
+#: Template asset inputs: single/list/absent files.
 AssetPaths = Path | list[Path] | None
 
 
 @dataclass(frozen=True)
 class JobCall:
-    """一次生成调用交给引擎的媒体无关部分：轮询预算与响应留痕。"""
+    """Media-independent generation inputs: polling budgets/response evidence."""
 
     poll_timeout_seconds: float
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None
-    #: 留痕写入失败时日志里的调用标识。
+    #: Diagnostic log call identifiers when evidence persistence fails.
     label: str | None
 
 
 @dataclass(frozen=True)
 class JobOutcome[StateT: JobState]:
-    """供应商判成功后的读数。
+    """Readings after provider success.
 
-    ``result_state`` 是二次取件节的判读，定义没有 ``result`` 节时为 ``None``；``trusted_origins``
-    是本次调用带凭证访问过的请求源，产物下载据此决定是否附带凭证。
+    ``result_state`` is secondary-retrieval interpretation, ``None`` without ``result``; ``trusted_origins``
+    holds credential-visited request origins, determining artifact-download credential inclusion.
     """
 
     poll_state: StateT
@@ -373,10 +373,10 @@ class JobOutcome[StateT: JobState]:
 
 
 class DeclarativeJobEngine[StateT: JobState]:
-    """声明式定义的提交、轮询、状态映射、二次取件与产物下载，与媒体类型无关。
+    """Media-independent declarative submission/polling/status mapping/secondary retrieval/downloads.
 
-    媒体专属的部分由组装方给出：模板变量与素材、判读响应的 ``read_state``（产物字段）、产物
-    体积上限与结果对象。错误一律收成 :class:`DeclarativeRuntimeError` 的稳定错误码。
+    Assemblers provide media variables/assets, response ``read_state`` artifact fields, size
+    limits/results. All errors normalize to stable :class:`DeclarativeRuntimeError` codes.
     """
 
     def __init__(
@@ -396,8 +396,8 @@ class DeclarativeJobEngine[StateT: JobState]:
         self._base_url = normalize_declarative_base_url(base_url, definition)
         self._source_definition = definition
         self._model = model
-        # 有覆盖的节改写成相对原样 base_url 的地址，不经归一化（docs/adr/0101）；是否剥版本段
-        # 仍按原定义判定，没有覆盖的节行为不变。
+        # Override URLs use raw bases without normalization (docs/adr/0101); version stripping still follows
+        # original definitions, preserving unoverridden sections.
         self._definition = apply_path_overrides(definition, path_overrides)
         self._provider = provider
         self._read_state = read_state
@@ -405,7 +405,7 @@ class DeclarativeJobEngine[StateT: JobState]:
 
     @property
     def base_url(self) -> str:
-        """供应商配置的域名（补协议、去尾斜杠，未归一化），提交后随任务落库供续跑回放。"""
+        """Configured raw hosts with schemes/trailing slashes normalized only, persisted on submission for resume replay."""
         return self._raw_base_url
 
     def request_context(
@@ -416,23 +416,23 @@ class DeclarativeJobEngine[StateT: JobState]:
         submitted_base_url: str | None = None,
         require_declared_inputs: bool = False,
     ) -> dict[str, object]:
-        """构造模板上下文：凭证、域名与模型之外的变量和素材由组装方按媒体类型给出。
+        """Build template contexts; assemblers supply media-specific variables/assets beyond credentials/hosts/models.
 
-        ``require_declared_inputs`` 只在提交路径为真：素材是提交的输入，续跑的请求本就不带
-        素材（校验器也禁止 poll / result 模板引用 inputs），在续跑上查必需项会把每一笔
-        「必需图输入」端点的已付费任务判死在第一次轮询之前。
+        ``require_declared_inputs`` true only on submission. Resumed requests lack assets,
+        and validators forbid poll/result inputs. Required-input checks on resume would reject every
+        paid required-image endpoint before first polling.
         """
         declarations = self._definition.get("inputs") or {}
         try:
-            # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
-            # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
+            # Asset reads belong inside guards: preparation-to-execution deletions raise OSError, otherwise bypassing
+            # stable codes and persisting untranslated raw worker errors.
             loaded = {
                 name: self._assets(paths) if isinstance(paths, list) else self._asset(paths)
                 for name, paths in assets.items()
             }
             encoded = encode_inputs(declarations, loaded)
-            # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
-            # 于是供应商收到一个残缺请求、照常建任务照常计费。
+            # Missing required assets fail locally: templates remove whole-placeholder keys, otherwise sending incomplete
+            # requests that providers still create/bill.
             missing = (
                 [name for name, value in encoded.items() if declarations[name].get("required") and not value]
                 if require_declared_inputs
@@ -446,7 +446,7 @@ class DeclarativeJobEngine[StateT: JobState]:
             return build_context(
                 {
                     "api_key": self._api_key,
-                    # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
+                    # Resume replays submission hosts, None during submission; hosts are connection, not protocol dimensions.
                     "base_url": (
                         normalize_declarative_base_url(submitted_base_url, self._source_definition)
                         if submitted_base_url
@@ -494,10 +494,10 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
     def _endpoint_origin(self, section: Mapping[str, Any], context: Mapping[str, object]) -> Origin:
-        """该节渲染出的请求地址的源——凭证实际发往的那个。
+        """Origins of rendered request addresses, actual credential destinations.
 
-        取的是渲染结果而不是响应上的 URL：后者是跟随重定向之后的终点，跨源跳转时凭证早已
-        被卸掉，把它当可信源等于把凭证发给一个从没验证过的第三方主机。
+        Use rendered URLs, not response URLs after redirects, where cross-origin credentials already
+        vanished. Trusting endpoints would send credentials to unverified third-party hosts.
         """
         return url_origin(self._render(section, context).url)
 
@@ -515,7 +515,7 @@ class DeclarativeJobEngine[StateT: JobState]:
         return response
 
     async def submit(self, client: httpx.AsyncClient, context: Mapping[str, object], call: JobCall) -> str:
-        """发提交请求并取供应商任务 id。"""
+        """Submit requests and obtain provider task ids."""
         section = self._definition["submit"]
 
         async def operation() -> httpx.Response:
@@ -539,8 +539,8 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
         except (TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
-        # accept="scalar" 的定义可以命中数字或布尔，格式说明的口径是「按字符串化交给下游」；
-        # 这里按 str 收，与产物地址、result_id 的取值口径一致。
+        # accept="scalar" can match numbers/bools, contractually stringified downstream;
+        # str conversion matches artifact URLs/result_id semantics.
         task_id = str(job_id).strip() if job_id is not None and not isinstance(job_id, (list, dict)) else ""
         if not task_id:
             raise DeclarativeRuntimeError(
@@ -568,7 +568,7 @@ class DeclarativeJobEngine[StateT: JobState]:
                 }
             ),
         )
-        # 提交 / 轮询 / 二次取件都带着渲染出的 auth 节：重定向必须自己逐跳跟随，跨源卸凭证。
+        # Submission/polling/secondary retrieval carry rendered auth; manually follow redirects, dropping cross-origin credentials.
         return await request_with_scoped_credentials(
             client,
             rendered.method,
@@ -587,17 +587,17 @@ class DeclarativeJobEngine[StateT: JobState]:
         context: Mapping[str, object],
         is_resume: bool,
     ) -> JobOutcome[StateT]:
-        """轮询到供应商判成功，定义有 ``result`` 节时再二次取件。
+        """Poll until provider success; perform secondary retrieval when ``result`` exists.
 
-        供应商判失败抛 ``poll_with_retry`` 的终态错误；续跑期轮询端点 404 抛
-        :class:`ResumeExpiredError`。产物字段是否齐全由组装方判定。
+        Provider failure raises terminal ``poll_with_retry`` errors; resume polling 404 raises
+        :class:`ResumeExpiredError`. Assemblers validate artifact-field completeness.
         """
         poll_context = {**context, "task_id": job_id}
-        # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那些主机。信任集只收
-        # 真实带凭证访问的请求源：提交源进入轮询前已带凭证访问过（续跑时它同样是任务所在的
-        # 供应商源），轮询与二次取件的源在各自成功取件后加入（见 fetch）。全绝对地址定义下
-        # 配置的 base_url 可能从未被请求，凭配置信任会把凭证发给一个从没验证过的源；其余
-        # （对象存储 / CDN）裸请求。
+        # Definitions may target hosts distinct from base_url, often producing artifacts there. Trust only origins
+        # actually credential-visited: submissions before polling, also vendor origins on resume;
+        # polling/result origins enter after successful retrieval (fetch). All-absolute definitions may never request
+        # configured base_url, so configuration-based trust could leak credentials to unverified origins.
+        # Other object-storage/CDN requests carry none.
         trusted_origins = {
             url_origin(self._render({"method": "GET", "url": self._definition["submit"]["url"]}, context).url)
         }
@@ -609,11 +609,11 @@ class DeclarativeJobEngine[StateT: JobState]:
             stage: ProviderResponseStage,
             expire_on_404: bool,
         ) -> object:
-            """取件一次，失败响应一律留痕。
+            """Retrieve once, always recording failed responses.
 
-            只有轮询端点的 404 意味着「远端任务没了」：那是任务本身的地址。result 端点的
-            404 说的是产物还没就绪，续跑期把它判成过期会永久丢掉一条已经成功的付费任务，
-            它该留给取件预算去重试。
+            Polling 404 alone means remote task absence, because it addresses tasks themselves. result
+            404 means unready artifacts; resume expiry would permanently discard successful paid tasks,
+            so leave it to retrieval-budget retries.
             """
             try:
                 response = await self._send(client, section, section_context)
@@ -627,8 +627,8 @@ class DeclarativeJobEngine[StateT: JobState]:
 
         async def poll_once() -> StateT:
             return self._extract_state(
-                # 缺省 true（404=任务已不存在，续跑一击判过期）；供应商对在跑任务可能瞬时 404 的
-                # 定义写 false，按瞬态错误重试到预算耗尽。
+                # Default true: resume 404 immediately means absent tasks; definitions with transient 404 on active jobs
+                # use false, retrying to budget exhaustion.
                 await fetch(
                     self._definition["poll"],
                     poll_context,
@@ -641,8 +641,8 @@ class DeclarativeJobEngine[StateT: JobState]:
         final = await poll_with_retry(
             poll_fn=poll_once,
             is_done=lambda state: state.status is ProviderJobStatus.SUCCEEDED,
-            # 终态失败必须给出非空理由：返回 None 会让 poll_with_retry 认为任务仍在进行，
-            # 一路轮询到 max_wait 才超时，而供应商早已判负。
+            # Terminal failures require nonempty reasons; None would make poll_with_retry continue
+            # until max_wait, despite already-failed provider jobs.
             is_failed=lambda state: _failure_reason(state) if state.status is ProviderJobStatus.FAILED else None,
             max_wait=call.poll_timeout_seconds,
             retry_if=should_retry_poll,
@@ -655,10 +655,10 @@ class DeclarativeJobEngine[StateT: JobState]:
         async def fetch_result() -> object:
             return await fetch(self._definition["result"], result_context, stage="result", expire_on_404=False)
 
-        # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
-        # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成品。
-        # 预算耗尽同样落 artifact_download_failed——「重试下载」走 resume 会重跑轮询与二次
-        # 取件，恢复路径与下载失败完全一致，不必重新提交。
+        # Provider tasks already succeeded/billed: secondary retrieval/downloads share postcreation idempotent
+        # retrieval budgets, preserving paid outputs through 429/5xx/temporary 404.
+        # Exhaustion also uses artifact_download_failed: retry-download resume repeats polling/secondary
+        # retrieval, identical to download recovery without resubmission.
         try:
             result_body = await with_artifact_retry(
                 fetch_result,
@@ -691,8 +691,8 @@ class DeclarativeJobEngine[StateT: JobState]:
         try:
             body = response.json()
         except ValueError as exc:
-            # 2xx 但不是 JSON（网关的 HTML 错误页、被截断的响应）：原文先留痕再抛。诊断字段
-            # 若停在上一次轮询的响应上，正好在最需要看到这次响应的场合给出误导。
+            # Non-JSON 2xx, proxy HTML/truncated responses: record raw bodies before raising. Evidence left at previous
+            # polling responses would mislead exactly when current failures need inspection.
             await _notify(call, stage, response.text)
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed", detail="provider response was not valid JSON"
@@ -702,7 +702,7 @@ class DeclarativeJobEngine[StateT: JobState]:
 
     @staticmethod
     async def _record_response(response: httpx.Response, call: JobCall, stage: ProviderResponseStage) -> None:
-        """留痕失败响应；非 JSON 体存截断后的原文，不因此让任务多失败一种方式。"""
+        """Record failed responses, retaining truncated raw non-JSON bodies without introducing additional task failures."""
         try:
             body: object = response.json()
         except ValueError:
@@ -720,10 +720,10 @@ class DeclarativeJobEngine[StateT: JobState]:
         max_wait: float,
         trusted_origins: Collection[Origin],
     ) -> None:
-        """把产物地址下载到 ``output_path``，体积超过 ``max_bytes`` 即中止。"""
-        # 与已携带凭证访问过的某个源同源，才按 auth 节渲染凭证；其余（对象存储 / CDN 的
-        # 签名 URL）裸请求——附带凭证会破坏签名、并把 query 凭证写进第三方访问日志。
-        # 凭证的作用域取产物地址自身的源，一路带到重定向跟随处，换源即卸。
+        """Retrieve artifact URLs into ``output_path``, aborting bodies above ``max_bytes``."""
+        # Only origins already visited with credentials render auth; other signed object-storage/CDN
+        # URLs use bare requests, avoiding broken signatures/query credentials in third-party access logs.
+        # Artifact origins scope credentials throughout redirects, dropping them on origin changes.
         credential_origin = url_origin(url)
         rendered = (
             self._render({"method": "GET", "url": url}, context) if credential_origin in trusted_origins else None
@@ -747,11 +747,11 @@ class DeclarativeJobEngine[StateT: JobState]:
                 max_wait=max_wait,
             )
         except NonRetryableError:
-            # 目的地不合规、超出体积上限：重新取件结果不会变，不落可重试下载
+            # Invalid destinations/oversized bodies cannot improve through retrieval, never classify retry-download.
             raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
-        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
+        # Remux outside download budgets, preventing successful downloads timing out due to remux duration.
         await faststart_video_artifact(output_path)
 
 
@@ -760,7 +760,7 @@ async def _notify(call: JobCall, stage: ProviderResponseStage, body: object) -> 
 
 
 class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
-    """声明式视频定义的调用通道：在 :class:`DeclarativeJobEngine` 上组装视频的请求与产物语义。"""
+    """Declarative video channels assembling request/artifact semantics over :class:`DeclarativeJobEngine`."""
 
     def __init__(
         self,
@@ -796,7 +796,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        # 延迟导入：能力合成模块经 endpoints.py 反向依赖本模块，模块级导入会成环。
+        # Deferred imports avoid capability composition → endpoints.py → this-module cycles.
         from lib.custom_provider.capabilities import video_capabilities_from_definition
 
         return video_capabilities_from_definition(self._definition)
@@ -809,7 +809,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量，见 :func:`declarative_video_usage`；按定义计量，与模型和条目无关。"""
+        """Request metering through :func:`declarative_video_usage`, definition-driven independently of models/entries."""
         del model, entry
         return declarative_video_usage(self._definition, request, result)
 
@@ -817,8 +817,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._engine.submit(client, context, _job_call(request))
-            # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
-            # 把一笔已付费的任务误判成过期丢掉。
+            # Persist submission hosts for resume: changed provider base_url would query old jobs on new hosts,
+            # falsely expire/discard paid tasks.
             await self._persist_provider_job_id(
                 request, job_id, provider=self._provider, endpoint=self._engine.base_url
             )
@@ -897,12 +897,12 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 def declarative_video_usage(
     definition: Mapping[str, Any], request: VideoGenerationRequest, result: VideoGenerationResult | None = None
 ) -> Usage:
-    """声明式视频定义的一次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+    """Declarative video request metering (:mod:`lib.backends.video_backends.metering`).
 
-    分辨率取请求档位，请求没给时取定义的 ``defaults.resolution``（与模板上下文同一个补缺规则）；是否有声按定义
-    声明的音轨形态判定，开关可控时取请求值。
+    Resolution follows requests, otherwise ``defaults.resolution``, matching context fallback. Audio follows declared forms,
+    using request values when toggleable.
     """
-    # 延迟导入理由同 DeclarativeVideoBackend.video_capabilities。
+    # Same deferred-import rationale as DeclarativeVideoBackend.video_capabilities.
     from lib.custom_provider.capabilities import video_capabilities_from_definition
 
     defaults = definition.get("defaults")

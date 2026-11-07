@@ -1,9 +1,9 @@
-"""AI 规划脚本的 Web 入口。
+"""Web entry point for AI script planning.
 
-「AI 规划脚本」与 Agent 的 ``generate_script_plan`` 调用同一个服务命令：准入（本集有集原文）、按项目
-模式选择规划变体与草稿落盘都在服务内，路由只负责把结果映射成 HTTP。提交后立即返回生成批次，
-任务进度经任务事件呈现；产出的脚本规划进入内容确认。附加指令按集保存，重新生成时预填。
-"""
+AI script planning and the Agent’s ``generate_script_plan`` use the same service command: admission (episode source text exists),
+planning-variant selection by project mode, and draft persistence belong to the service; the route only maps results to HTTP.
+Submission immediately returns a generation batch; task events expose progress. The resulting script plan proceeds to content
+confirmation. Additional instructions are saved per episode and prefilled for regeneration."""
 
 from typing import Annotated
 
@@ -36,7 +36,9 @@ _Instructions = Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)]
 class ScriptPlanInstructions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    instructions: _Instructions | None = Field(default=None, description="附加指令原文；空白视同清除")
+    instructions: _Instructions | None = Field(
+        default=None, description="Original additional instructions; whitespace clears them"
+    )
 
 
 def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
@@ -64,7 +66,7 @@ async def _save(project_name: str, episode: int, instructions: str | None) -> No
 
 @router.put("/projects/{project_name}/episodes/{episode}/script-plan/instructions")
 async def save_script_plan_instructions(project_name: str, episode: int, req: ScriptPlanInstructions):
-    """只保存本集的附加指令（「交给 Agent」路径用），不提交生成。"""
+    """Save only this episode’s additional instructions for the “Hand to Agent” path, without submitting generation."""
     await _save(project_name, episode, req.instructions)
     return {"success": True}
 
@@ -77,10 +79,9 @@ async def plan_script(
     user: CurrentUser,
     _t: Translator,
 ):
-    """保存附加指令并提交 AI 规划脚本，返回生成批次。
+    """Save additional instructions and submit AI script planning, returning a generation batch.
 
-    新的脚本规划整份替换本集现有的规划与草稿；是否先向用户确认由调用方负责。
-    """
+    The new script plan replaces this episode’s entire existing plan and draft; the caller is responsible for deciding whether to confirm with the user first."""
     await _save(project_name, episode, req.instructions)
     pm = get_project_manager()
     outcome = await generate_script_plan(

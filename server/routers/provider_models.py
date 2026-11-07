@@ -1,13 +1,15 @@
-"""供应商模型 API：按供应商列出、读取单个、保存供应商设置、启用与停用、移除；内置供应商另可按 ID 添加（docs/adr/0099）。
+"""Provider-model API: list by provider, read one, save provider settings, enable/disable, and remove; built-in providers also support adding by ID (docs/adr/0099).
 
-内置与自定义供应商共用。读取单个与保存对应供应商模型 Sheet 的「供应商设置」：官方收录的模型只有启用；用户负责的
-模型（自定义供应商的模型、内置供应商下用户添加的模型）另有模型 ID、供应商模型倍率与能力覆盖；自定义供应商的模型
-另有默认、调用端点、请求地址与默认分辨率。
+Shared by built-in/custom providers. Reading/saving corresponds to the provider-model Sheet's
+Provider settings: officially listed models expose enablement only. User-managed models (custom
+providers and user-added built-in models) additionally expose model ID, provider-model multiplier,
+and capability overrides. Custom models also expose default status, endpoint, request URLs, and default resolution.
 
-Sheet 下段「模型信息」是对应到的模型条目，由所有使用它的供应商共用：读取时带上条目由谁维护、官方值与共用它的
-其他供应商；保存时与供应商设置在同一个请求里原子写入，修改存为整个条目的用户副本（docs/adr/0099）。用户负责的模型
-另可「关联其他模型」（存为条目绑定，docs/adr/0105），或手动填写目录里没有的模型的信息（新建条目并绑定）。
-"""
+The Sheet's lower Model information section is the matched model entry, shared by all providers
+using it. Reads include maintainer, official values, and other sharing providers. Saves atomically
+persist it with provider settings in one request, storing changes as a whole-entry user copy
+(docs/adr/0099). User-managed models can also associate another model (entry binding, docs/adr/0105)
+or manually describe unlisted models (create and bind a new entry)."""
 
 from __future__ import annotations
 
@@ -93,10 +95,9 @@ ModelFlag = Literal["discontinued", "retiring", "unpriced", "modified"]
 
 
 class LifecycleResponse(BaseModel):
-    """供应商模型所对应条目在今天的生命周期（UTC 日期）：状态、关停日期与官方后继（「模型厂商/官方模型名」）。
+    """Matched entry lifecycle as of today (UTC date): status, shutdown date, and official successor (model vendor/official model name).
 
-    对应不上条目的模型为 ``available``，两个日期字段为 ``null``。
-    """
+    Unmatched models are ``available`` with both date fields ``null``."""
 
     status: LifecycleStatus
     shutdown_date: date | None = None
@@ -104,7 +105,7 @@ class LifecycleResponse(BaseModel):
 
 
 class PriceSummaryItemResponse(BaseModel):
-    """一个计费项的单价范围；``per`` 是单价对应的计数量（每百万 token 为 1000000，每张、每秒为 1）。"""
+    """Unit-price range for one billing item; ``per`` is its counting quantity (1000000 per million tokens, 1 per image/second)."""
 
     meter: str
     min_price: float
@@ -118,20 +119,21 @@ class PriceSummaryResponse(BaseModel):
 
 
 class ProviderModelItem(BaseModel):
-    """供应商详情模型列表的一行。
+    """One row in a provider's model list.
 
-    - ``model_id``：设置与项目里引用这个模型的模型键；``api_model_name`` 是发给供应商的模型名。
-    - ``display_name``：对应条目的显示名（自定义供应商取用户填写的名字）；没有时为 ``null``，界面显示模型 ID。
-    - ``is_default``：实际生效的默认模型；停用或已下线的模型不标，自定义供应商存下的默认设置不因此改动。
-    - ``official``：内置供应商官方收录的模型，只能启用、停用；用户添加的与自定义供应商的模型为 ``false``。
-    - ``flags``：``discontinued`` 条目已下线；``retiring`` 条目即将下线（关停日期在 ``lifecycle``）；``unpriced`` 调用费用会记为未定价（对应不上条目或条目没有价格，
-      两级倍率之积为 0 时不计费，不标）；``modified`` 用户改过对应的条目，不再随官方更新。
-    - ``endpoint``：自定义供应商模型的调用端点键；内置供应商为 ``null``。
-    - ``lifecycle``：所对应条目在今天的生命周期。已下线的模型仍在列表里，但不进入任何候选、也不能调用。
-    - ``min_app_version``：官方收录的模型标注的最低应用版本；没有标注、或不是官方收录的模型时为 ``null``。
-    - ``min_app_version_satisfied``：应用版本达到 ``min_app_version``。不满足的模型排在列表末尾，``enabled`` 与
-      ``is_default`` 为假，不进入任何候选、不作默认模型、也不能调用；不能启用，也没有模型设置可读（docs/adr/0103）。
-    """
+    - ``model_id``: key referenced by settings/projects; ``api_model_name`` is sent to the provider.
+    - ``display_name``: matched-entry display name (user-entered for custom providers); ``null`` falls back to model ID in the UI.
+    - ``is_default``: effective default; never marked for disabled/retired models, without changing stored custom-provider defaults.
+    - ``official``: officially listed built-in models allow only enabling/disabling; user-added/custom models are ``false``.
+    - ``flags``: ``discontinued`` means retired; ``retiring`` means pending shutdown (date in ``lifecycle``);
+      ``unpriced`` means calls are recorded as unpriced (no matched entry or no price; omit when the two-level multiplier product is 0, so no billing);
+      ``modified`` means a user-edited entry no longer follows official updates.
+    - ``endpoint``: custom model call-endpoint key; ``null`` for built-in providers.
+    - ``lifecycle``: matched-entry lifecycle today. Retired models remain listed but are neither candidates nor callable.
+    - ``min_app_version``: minimum app version for officially listed models; ``null`` if unspecified or not official.
+    - ``min_app_version_satisfied``: app meets ``min_app_version``. Unsatisfied models appear last, with
+      ``enabled`` and ``is_default`` false, excluded from candidates/defaults/calls. They cannot be enabled
+      or have model settings read (docs/adr/0103)."""
 
     model_id: str
     api_model_name: str
@@ -149,23 +151,24 @@ class ProviderModelItem(BaseModel):
 
 
 class ProviderModelsResponse(BaseModel):
-    """``discoverable``：供应商可以「获取模型」（自定义供应商的 ComfyUI 协议与没有模型列表接口的内置供应商不行）。"""
+    """``discoverable``: provider supports model discovery (not custom ComfyUI or built-ins lacking model-list APIs)."""
 
     models: list[ProviderModelItem]
     discoverable: bool = False
 
 
 class ProviderModelEnabledUpdate(BaseModel):
-    """启用或停用一个供应商模型；自定义供应商的模型停用时同时取消默认。"""
+    """Enable/disable one provider model; disabling custom models also clears their default status."""
 
     model_id: str
     enabled: bool
 
 
 class AddProviderModelRequest(BaseModel):
-    """按 ID 添加：``media_type`` 用来区分两栖模型，以及给对应不上条目的模型指定媒体类型；``entry_binding`` 是
-    用户为它指定的条目（「模型厂商/官方模型名」）。``endpoint`` 是新模型的调用端点，不给时按名字推断
-    （docs/adr/0105）；内置供应商只接受它在该媒体类型下的内置调用端点，对上官方收录的模型时忽略。"""
+    """Add by ID: ``media_type`` distinguishes multimodal models and specifies type for unmatched models;
+    ``entry_binding`` is the user-selected entry (model vendor/official model name). ``endpoint`` is the
+    new model's call endpoint, inferred by name if omitted (docs/adr/0105). Built-ins accept only their
+    built-in endpoints for that media type, ignoring this field when matching an officially listed model."""
 
     model_id: Annotated[str, Field(min_length=1, max_length=128)]
     media_type: MediaType | None = None
@@ -174,15 +177,14 @@ class AddProviderModelRequest(BaseModel):
 
 
 class DiscoveredModelItem(BaseModel):
-    """获取到的一个模型。
+    """One discovered model.
 
-    - ``recognized``：自定义供应商为名字对应上了条目；内置供应商为对上了清单里官方收录的模型（API 模型名精确匹配），
-      ``model_key`` 是它的模型键，对不上时为 ``null``。
-    - ``media_type``：对应上的取条目或官方收录模型的，对应不上的按名字推断；添加时作为用户添加的模型的媒体类型。
-    - ``matched_entry``：对应到的条目摘要。
-    - ``endpoint`` 与 ``endpoint_by_media_type``：自定义供应商的默认调用端点，以及改为对应其他媒体类型的条目时
-      各媒体类型下的默认端点；内置供应商为 ``null``。
-    """
+    - ``recognized``: custom providers match an entry by name; built-ins match an officially listed model
+      by exact API model name. ``model_key`` is its model key, or ``null`` without a match.
+    - ``media_type``: matched entry/official model type, otherwise name-inferred; used as media type when adding user models.
+    - ``matched_entry``: matched-entry summary.
+    - ``endpoint`` and ``endpoint_by_media_type``: custom-provider default endpoint and defaults per
+      media type when switching to an entry of another type; ``null`` for built-ins."""
 
     model_id: str
     display_name: str
@@ -198,7 +200,7 @@ class DiscoveredModelItem(BaseModel):
 
 
 class DiscoverProviderModelsResponse(BaseModel):
-    """获取模型的结果。``not_applicable`` 为真时这个供应商没有模型列表接口，``reason`` 说明原因。"""
+    """Model-discovery result. ``not_applicable`` true means no model-list API; ``reason`` explains why."""
 
     models: list[DiscoveredModelItem] = []
     not_applicable: bool = False
@@ -206,16 +208,17 @@ class DiscoverProviderModelsResponse(BaseModel):
 
 
 class AddProviderModelResponse(BaseModel):
-    """``official`` 为真时对上了官方收录的模型，添加即启用它。"""
+    """``official`` true means an officially listed match, enabled by adding it."""
 
     model: ProviderModelItem
     official: bool
 
 
 class CapabilityViewResponse(BaseModel):
-    """「这个供应商支持的参数」：每个维度的原值（没有能力覆盖时运行时采用的值，``null`` 表示未收录）、生效的能力
-    覆盖与生效值。``editable`` 是可以修改的维度，按界面顺序；官方收录的模型为空。``displayed`` 是界面要显示的全部维度，
-    按界面顺序，不在 ``editable`` 里的只读。"""
+    """Parameters this provider supports: original values per dimension (runtime values without overrides;
+    ``null`` means unlisted), effective overrides, and effective values. ``editable`` lists modifiable
+    dimensions in UI order, empty for officially listed models. ``displayed`` lists every shown dimension
+    in UI order; dimensions outside ``editable`` are read-only."""
 
     media_type: str
     editable: list[str]
@@ -226,7 +229,7 @@ class CapabilityViewResponse(BaseModel):
 
 
 class OfficialEntryValues(BaseModel):
-    """用户改过的条目在官方数据里的值，供逐项比对与「采用」。"""
+    """Official-data values of a user-modified entry, for per-field comparison and adoption."""
 
     display_name: str
     facts: dict[str, Any]
@@ -239,16 +242,16 @@ class SharedProviderResponse(BaseModel):
 
 
 class EntryInfoResponse(BaseModel):
-    """供应商模型对应到的条目（合成后），供 Sheet 下段「模型信息」。
+    """Merged entry matched to the provider model, for the Sheet's lower Model information section.
 
-    - ``discontinued``：条目在今天（UTC 日期）是否已下线，含关停日期已到的条目。
-    - ``price``：价目表（目录数据的格式，可直接作为 ``EntryUpdate.price`` 回写）；没有价目表时为 ``null``。
-    - ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 用户新建、由用户填写。
-    - ``official``：用户改过、或用户新建的条目日后被官方数据收录时，官方数据里的值（可「恢复官方数据」「改用官方数据」）；
-      其余情况为 ``null``。
-    - ``shared_with``：同样使用这个条目的其他供应商（已配置密钥的内置供应商与自定义供应商中启用的模型），
-      修改与恢复官方数据会一起影响它们。
-    """
+    - ``discontinued``: whether retired today (UTC date), including entries whose shutdown date has arrived.
+    - ``price``: price table in catalog format, directly writable as ``EntryUpdate.price``; ``null`` without one.
+    - ``source``: ``official`` follows official updates; ``modified`` is user-edited and no longer follows;
+      ``user_created`` is created and populated by the user.
+    - ``official``: official values when user-modified entries, or user-created entries later officially
+      listed, allow restoring/switching to official data; ``null`` otherwise.
+    - ``shared_with``: other providers sharing this entry (configured-key built-ins and enabled custom
+      provider models); edits and official restoration affect them together."""
 
     maker: str
     name: str
@@ -265,8 +268,8 @@ class EntryInfoResponse(BaseModel):
 
 
 class EndpointOption(BaseModel):
-    """内置供应商下用户添加的模型可选的一个调用端点。``display_name_key`` 是界面文案的 i18n key（dashboard ns），
-    声明式端点为空串，名字取 ``display_name``。"""
+    """One selectable call endpoint for user-added built-in models. ``display_name_key`` is a dashboard
+    namespace i18n key; declarative endpoints use an empty string and take names from ``display_name``."""
 
     key: str
     display_name_key: str
@@ -274,18 +277,18 @@ class EndpointOption(BaseModel):
 
 
 class ProviderModelDetail(BaseModel):
-    """供应商模型 Sheet 的内容。
+    """Provider-model Sheet content.
 
-    - ``multiplier``：供应商模型倍率；官方收录的模型随官方数据下发、界面不显示，为 ``null``。
-    - ``provider_multiplier``：供应商倍率，界面据此提示两级相乘后的最终倍率。
-    - ``entry``：对应到的条目；对应不上时为 ``null``，调用费用记为未定价。
-    - ``entry_binding``：用户指定的条目绑定（「模型厂商/官方模型名」）；没有绑定、按名字对应时为 ``null``。官方收录的
-      模型没有绑定。
-    - 自定义供应商的模型另有 ``endpoint``、``resolution``、``path_overrides`` 与 ``requests``（调用端点可覆盖路径的
-      请求）；内置供应商为空。
-    - 内置供应商下用户添加的模型另有 ``endpoint``（挂接的内置调用端点）与 ``endpoint_options``（这个供应商在该媒体类型下
-      可选的内置调用端点，按声明顺序）；官方收录的模型两者为空，端点跟随官方。
-    """
+    - ``multiplier``: provider-model multiplier; official models receive it from official data, hidden in UI as ``null``.
+    - ``provider_multiplier``: provider multiplier, used to show the product of both levels.
+    - ``entry``: matched entry; ``null`` means unmatched and calls are recorded as unpriced.
+    - ``entry_binding``: user-selected entry (model vendor/official model name); ``null`` for name-based
+      matching without binding. Officially listed models have no binding.
+    - Custom models additionally expose ``endpoint``, ``resolution``, ``path_overrides``, and ``requests``
+      (endpoint requests whose paths can be overridden); empty for built-ins.
+    - User-added built-in models additionally expose ``endpoint`` (attached built-in endpoint) and
+      ``endpoint_options`` (this provider's selectable endpoints for that media type, in declaration order).
+      Official models leave both empty and follow official endpoints."""
 
     model: ProviderModelItem
     multiplier: float | None
@@ -301,9 +304,11 @@ class ProviderModelDetail(BaseModel):
 
 
 class EntryUpdate(BaseModel):
-    """Sheet 下段「模型信息」的修改。``maker``、``name``、``media_type`` 是 Sheet 读到的条目身份，须与这个供应商模型
-    当前对应的条目一致；``display_name``、``facts`` 与 ``price`` 没有传的不改，``facts`` 只给要改的模型事实。
-    ``price`` 是整份价目表（见 ``EntryInfoResponse.price``），整份替换；显式传 ``null`` 清除价目表，调用费用记为未定价。"""
+    """Changes to the Sheet's lower Model information section. ``maker``, ``name``, and ``media_type`` are
+    the entry identity read by the Sheet and must match the provider model's current entry. Omitted
+    ``display_name``, ``facts``, and ``price`` stay unchanged; ``facts`` includes only model facts to change.
+    ``price`` replaces the entire table (see ``EntryInfoResponse.price``); explicit ``null`` clears it,
+    recording calls as unpriced."""
 
     maker: str
     name: str
@@ -314,16 +319,16 @@ class EntryUpdate(BaseModel):
 
 
 class ProviderModelSettingsUpdate(BaseModel):
-    """保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。
+    """Save provider settings and model information from the provider-model Sheet; omitted fields stay unchanged.
 
-    - 所有供应商模型：``enabled``，以及 ``entry``（修改对应的条目，存为用户副本，条目从此不再随官方更新）。
-    - 用户负责的模型：``model_id``（改模型 ID）、``endpoint``（调用端点；内置供应商只能选它在该媒体类型下的内置调用
-      端点）、``multiplier``、``capability_overrides``（整份替换，``null`` 或
-      空对象表示清除）、``entry_binding``（关联到目录里的另一个模型，须是同媒体类型的现有条目；``null`` 解除，改回
-      按名字对应）、``new_entry``（目录里找不到时手动填写：新建条目并绑定到它，目录里已有同名模型时 422；与
-      ``entry_binding`` 同传时以 ``new_entry`` 为准）。条目与绑定都随这一次保存写入，任一步被拒则都不落库。
-    - 自定义供应商的模型：``is_default``、``path_overrides``、``resolution``。
-    """
+    - All provider models: ``enabled`` and ``entry`` (edit the matched entry as a user copy, no longer following official updates).
+    - User-managed models: ``model_id`` (change ID), ``endpoint`` (built-ins select only their own
+      endpoints for that media type), ``multiplier``, ``capability_overrides`` (whole replacement;
+      ``null`` or empty object clears), ``entry_binding`` (associate another existing same-media-type
+      catalog entry; ``null`` detaches and restores name matching), ``new_entry`` (manually describe an
+      unlisted model: create and bind; existing same-name catalog model yields 422; ``new_entry`` takes precedence over
+      simultaneous ``entry_binding``). Save entries/bindings together; refusal of any step persists neither.
+    - Custom models: ``is_default``, ``path_overrides``, ``resolution``."""
 
     enabled: bool | None = None
     is_default: bool | None = None
@@ -344,7 +349,7 @@ class ProjectReference(BaseModel):
 
 
 class ProviderModelReferences(BaseModel):
-    """引用这个供应商模型的全局设置键与项目；移除前提示用。"""
+    """Global setting keys and projects referencing this provider model, for preremoval warnings."""
 
     settings: list[str]
     projects: list[ProjectReference]
@@ -354,11 +359,10 @@ _USER_ADDED_RELOADS = LatestReadWins()
 
 
 async def reload_user_added_models(session: AsyncSession) -> None:
-    """从内置供应商模型表装入用户添加的模型，交给目录查询。应用启动时与每次写入提交之后调用。
+    """Load user-added models from built-in-provider model tables for catalog queries, at startup and after each committed write.
 
-    读目录的代码（接口、生成 worker、Agent 会话的工具）都跑在应用进程里，进程内替换即对全部读点生效；并发的两次
-    装入按开始读的先后生效。
-    """
+    Catalog readers (APIs, generation workers, Agent-session tools) run in the application process, so
+    in-process replacement affects every read site. Concurrent loads apply in their read-start order."""
     await _USER_ADDED_RELOADS.reload(
         lambda: builtin_models.list_user_added_rows(session),
         lambda rows: catalog.install_user_added_models(
@@ -443,7 +447,7 @@ async def _custom_items(session: AsyncSession, provider_id: str, db_id: int) -> 
         try:
             media_type = (await resolve_endpoint_spec(row.endpoint, endpoint_repo.get)).media_type
         except ValueError:
-            # 调用端点已被删除：这一行调用不了，也无从归组，不在列表里出现；修复经自定义供应商表单。
+            # Deleted call endpoint: the row is uncallable and ungroupable, so omit it from lists; repair through custom-provider forms.
             logger.warning("自定义供应商 %s 的模型 %s 的调用端点 %s 不存在", provider_id, row.model_id, row.endpoint)
             continue
         if media_type in MEDIA_TYPES:
@@ -463,7 +467,7 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         display_name=display_name or (entry.display_name if entry is not None else None),
         media_type=media_type,
         enabled=row.is_enabled,
-        # 与内置供应商一致：列表里的默认标记是实际生效的默认，停用或下线后不再标出（默认模型解析同样跳过它）
+        # As with built-ins, default markers show actual effective defaults; omit disabled/retired models (default resolution skips them too).
         is_default=row.is_enabled and row.is_default and not state.discontinued,
         official=False,
         flags=_flags(entry, provider_multiplier * row.multiplier, state),
@@ -495,8 +499,8 @@ def _raise_for(exc: builtin_models.BuiltinModelError, _t: Translator) -> HTTPExc
 async def _builtin_items(
     session: AsyncSession, provider_id: str, *, include_version_gated: bool = False
 ) -> list[ProviderModelItem]:
-    """内置供应商的模型行。``include_version_gated`` 时在末尾加上应用版本不够的官方收录模型：只显示所需版本，
-    不启用、不作默认（docs/adr/0103）。"""
+    """Built-in provider model rows. ``include_version_gated`` appends officially listed models requiring a
+    newer app version: display requirements only, without enabling/default status (docs/adr/0103)."""
     provider_multiplier = await get_provider_multiplier(session, provider_id)
     items = [
         _builtin_item(item, provider_multiplier)
@@ -516,7 +520,7 @@ async def list_provider_models(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelsResponse:
-    """供应商的全部供应商模型，带启用状态、状态标记与价格摘要。"""
+    """All models for a provider, with enabled state, status flags, and price summaries."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         provider = await CustomProviderRepository(session).get_provider(db_id)
@@ -539,10 +543,10 @@ async def set_provider_model_enabled(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelItem:
-    """启用或停用一个供应商模型，立即生效。
+    """Enable/disable a provider model immediately.
 
-    自定义供应商开放哪些媒体类型由已启用的模型决定，启停后与其他模型改动一样清缓存、刷新 worker 的容量表。
-    """
+    Enabled models determine custom-provider available media types; clear caches and refresh worker
+    capacity tables after changes, as with other model edits."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         repo = CustomProviderRepository(session)
@@ -584,11 +588,10 @@ async def add_provider_model(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> AddProviderModelResponse:
-    """按 ID 添加模型。
+    """Add a model by ID.
 
-    内置供应商：对上官方收录的模型即启用它，对不上的作为用户添加的模型。自定义供应商：没给调用端点时按名字推断，
-    这个媒体类型还没有默认模型时新模型成为默认。
-    """
+    Built-ins enable official matches, otherwise add user models. Custom providers infer endpoints by
+    name when omitted; new models become default if their media type has none."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         row = await add_custom_model(
@@ -627,7 +630,7 @@ async def add_provider_model(
     )
 
 
-#: 内置供应商获取模型时等待模型列表接口的上限。
+#: Timeout waiting for built-in provider model-list APIs during discovery.
 _DISCOVERY_TIMEOUT_SECONDS = 30
 
 
@@ -637,11 +640,10 @@ async def discover_provider_models(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> DiscoverProviderModelsResponse:
-    """获取模型：调用供应商的模型列表接口，返回全部模型 ID 与对应结果，由界面排除已添加的模型。
+    """Discover models through the provider's model-list API; return every ID and match, leaving exclusion of already-added models to the UI.
 
-    自定义供应商按名字对应条目并给出默认调用端点；内置供应商按清单中的 API 模型名精确匹配。获取结果不用来判断
-    模型是否可用。
-    """
+    Custom providers match entry names and supply default endpoints; built-ins match exact catalog API
+    model names. Discovery results do not establish model availability."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         found = await discover_custom_provider_models(session, db_id, _t)
@@ -675,12 +677,12 @@ async def discover_provider_models(
 
 
 async def _builtin_discovery_config(session: AsyncSession, provider_id: str) -> dict[str, str] | None:
-    """叠加了激活凭证的供应商配置；没有凭证时为 ``None``。"""
+    """Provider configuration overlaid with active credentials; ``None`` without credentials."""
     cred = await CredentialRepository(session).get_active(provider_id)
     if cred is None:
         return None
     config = await ConfigService(session).get_provider_config(provider_id)
-    # 叠加凭证时会探测 Vertex 凭证文件是否存在，放进线程
+    # Credential overlay probes Vertex credential-file existence; offload to a thread.
     await asyncio.to_thread(cred.overlay_config, config)
     if not config.get("base_url") and (meta := PROVIDER_REGISTRY.get(provider_id)) and meta.default_base_url:
         config["base_url"] = meta.default_base_url
@@ -706,8 +708,8 @@ async def remove_provider_model(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """移除用户负责的模型：自定义供应商的模型（同时清空全局设置与项目里指向它的引用），或内置供应商下用户添加的模型。
-    官方收录的模型只能停用。"""
+    """Remove user-managed models: custom models (also clearing global/project references), or user-added
+    built-in models. Officially listed models may only be disabled."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         await remove_custom_model(session, db_id, model_id, _t)
@@ -787,7 +789,7 @@ async def _custom_model_entry(row: CustomProviderModel, endpoint_repo: CustomEnd
 async def _providers_sharing(
     session: AsyncSession, entry: CatalogEntry, provider_id: str
 ) -> list[SharedProviderResponse]:
-    """同样使用这个条目的其他供应商：已配置密钥的内置供应商与自定义供应商，只算启用的模型。"""
+    """Other providers sharing this entry: configured-key built-ins and custom providers, counting enabled models only."""
     shared: list[SharedProviderResponse] = []
     configured = await CredentialRepository(session).get_active_credentials_bulk()
     for builtin_id, meta in PROVIDER_REGISTRY.items():
@@ -836,7 +838,7 @@ async def _entry_info(session: AsyncSession, entry: CatalogEntry | None, provide
 
 
 async def _builtin_binding(session: AsyncSession, provider_id: str, model_id: str, *, official: bool) -> str | None:
-    """内置供应商下用户添加的模型的条目绑定；官方收录的模型没有。"""
+    """Entry binding for user-added built-in models; absent for official models."""
     if official:
         return None
     row = await BuiltinProviderModelRepository(session).get(provider_id, model_id)
@@ -884,7 +886,7 @@ def _user_added_endpoint(provider_id: str, media_type: str, model_id: str) -> st
 
 
 def _endpoint_option(endpoint: str) -> EndpointOption:
-    """内置调用端点的界面名：与自定义供应商共用的端点取端点注册表的文案，只属于内置供应商的端点按端点名取 i18n key。"""
+    """UI name for built-in endpoints: shared custom-provider endpoints use registry wording; built-in-only endpoints use name-based i18n keys."""
     if endpoint in PROVIDER_ONLY_ENDPOINTS:
         return EndpointOption(key=endpoint, display_name_key=f"endpoint_{endpoint.replace('-', '_')}_display")
     spec = get_endpoint_spec(endpoint)
@@ -920,7 +922,7 @@ async def get_provider_model(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelDetail:
-    """读取单个供应商模型：列表行、供应商设置、对应条目，以及「这个供应商支持的参数」的生效值与原值。"""
+    """Read one provider model: list row, provider settings, matched entry, and effective/original supported-parameter values."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         return await _custom_detail(session, provider_id, db_id, model_id, _t)
@@ -934,7 +936,7 @@ _BUILTIN_SETTING_FIELDS = frozenset(
 
 
 async def _current_entry(session: AsyncSession, provider_id: str, model_id: str, _t: Translator) -> CatalogEntry | None:
-    """供应商模型当前对应到的条目（合成后）；供应商模型不存在时 404。"""
+    """Currently matched merged entry; 404 if the provider model does not exist."""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         row = await CustomProviderRepository(session).get_model_by_ids(db_id, model_id)
@@ -951,7 +953,7 @@ async def _current_entry(session: AsyncSession, provider_id: str, model_id: str,
 async def _save_entry(
     session: AsyncSession, provider_id: str, model_id: str, update: EntryUpdate, _t: Translator
 ) -> bool:
-    """把「模型信息」的修改存为条目的用户副本；返回是否写入（与当前条目相同时不写，条目照旧跟随官方）。"""
+    """Save model-information edits as an entry user copy; return whether written (identical entries are not written and keep following official updates)."""
     current = await _current_entry(session, provider_id, model_id, _t)
     if current is None or (current.maker, current.name, current.media_type) != (
         update.maker,
@@ -976,14 +978,14 @@ async def _save_entry(
 
 @dataclass(frozen=True)
 class _BindingChange:
-    """这次保存对条目绑定的修改：``ref`` 是新的绑定（``None`` 为解除），``created`` 是随之新建的条目。"""
+    """Entry-binding change in this save: ``ref`` is the new binding (``None`` detaches), ``created`` is its newly created entry."""
 
     ref: str | None
     created: CatalogEntry | None
 
 
 def _plan_binding(body: ProviderModelSettingsUpdate, _t: Translator) -> _BindingChange | None:
-    """请求里的「关联其他模型」或「手动填写」；没有传时为 ``None``。新条目在这里校验，写入见 :func:`_apply_binding`。"""
+    """Requested association or manual entry, ``None`` if omitted. Validate new entries here; :func:`_apply_binding` writes them."""
     if body.new_entry is not None:
         created = build_new_entry(body.new_entry, _t)
         return _BindingChange(created.key.ref, created)
@@ -993,7 +995,7 @@ def _plan_binding(body: ProviderModelSettingsUpdate, _t: Translator) -> _Binding
 
 
 async def _apply_binding(session: AsyncSession, change: _BindingChange, media_type: str, _t: Translator) -> None:
-    """按保存后的媒体类型核对绑定：绑定到现有条目要求条目存在且同媒体类型，新条目要求媒体类型一致；通过后写入新条目。"""
+    """Check bindings against saved media type: existing entries must exist and match type; new entries must match type. Write new entries after acceptance."""
     if change.created is not None:
         if change.created.media_type != media_type:
             raise HTTPException(
@@ -1005,7 +1007,7 @@ async def _apply_binding(session: AsyncSession, change: _BindingChange, media_ty
 
 
 def _endpoint_in_options(provider_id: str, media_type: str, endpoint: str | None) -> str | None:
-    """同一次保存里换到的端点，供按新端点核对能力覆盖；不在可选端点里的由保存时拒绝，这里按没换处理。"""
+    """Endpoint switched in this save, for validating overrides against the new endpoint; saves reject nonoptions, treated here as unchanged."""
     return endpoint if endpoint in builtin_models.endpoint_options(provider_id, media_type) else None
 
 
@@ -1073,10 +1075,10 @@ async def update_provider_model(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelDetail:
-    """保存供应商模型 Sheet 的供应商设置与模型信息，一次请求原子保存；返回保存后的 Sheet 内容。"""
+    """Atomically save provider settings and model information in one request; return the saved Sheet content."""
     if not is_custom_provider(provider_id):
         _require_builtin(provider_id, _t)
-    # 先按保存前的对应关系写条目副本：Sheet 读到的就是这个条目，同一请求里改模型 ID 不影响改哪个条目
+    # Save the entry copy using its pre-save match first: the Sheet read this entry; changing model ID in the same request must not change which entry is edited.
     entry_saved = body.entry is not None and await _save_entry(session, provider_id, model_id, body.entry, _t)
     binding = _plan_binding(body, _t)
     if is_custom_provider(provider_id):
@@ -1091,7 +1093,7 @@ async def update_provider_model(
             changes["entry_binding"] = binding.ref
         row = await update_custom_model(session, db_id, model_id, changes, _t)
         saved_model_id = row.model_id
-        # 换调用端点可能换了媒体类型：没改绑定时也按新的媒体类型核对原绑定
+        # Endpoint switches may change media type: validate existing bindings against the new type even when binding is unchanged.
         if binding is None and "endpoint" in changes and row.entry_binding:
             binding = _BindingChange(ref=row.entry_binding, created=None)
         if binding is not None:
@@ -1113,7 +1115,7 @@ async def update_provider_model(
 
 
 def _project_references(reference: str) -> list[ProjectReference]:
-    """模型设置字段引用了 ``reference`` 的项目；读不了的项目跳过。"""
+    """Projects referencing ``reference`` in model-setting fields; skip unreadable projects."""
     return [
         ProjectReference(name=project.name, title=project.title)
         for project in project_model_references()
@@ -1128,7 +1130,7 @@ async def get_provider_model_references(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelReferences:
-    """引用这个供应商模型的全局设置项与项目，供「从供应商移除」的确认框提示。"""
+    """Global settings and projects referencing this provider model, for removal-confirmation dialogs."""
     if is_custom_provider(provider_id):
         await _custom_db_id(session, provider_id, _t)
     else:

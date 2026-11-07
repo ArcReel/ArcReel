@@ -1,4 +1,4 @@
-"""资产进出项目回收站：删除、衍生删除与资产合并成为删除记录，恢复按落地规则加回，名字被占用时走改名级联加后缀。"""
+"""Project asset trash: deletions, derivative deletions and merges create records; restoration follows placement rules, cascading suffix renames on collisions."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _create(asset_client: TestClient, name: str, description: str = "少女") ->
 
 
 def _with_sheet(asset_pm: ProjectManager, asset_dir: Path, name: str, content: bytes) -> None:
-    """给角色装一张资产图，并留下两个版本（第二个是当前版本）。"""
+    """Give characters asset images and two versions, selecting the second."""
     sheet = asset_dir / "characters" / f"{name}.png"
     sheet.parent.mkdir(parents=True, exist_ok=True)
     versions = VersionManager(asset_dir)
@@ -127,7 +127,7 @@ def test_a_source_file_with_a_backslash_in_its_name_does_not_block_deletion_or_r
 
 
 def _with_reference_files(asset_pm: ProjectManager, asset_dir: Path, name: str) -> dict[str, str]:
-    """给角色装上自己名下的参考图与参考音频，返回字段 → 路径。"""
+    """Give characters owned reference images/audio, returning field → path."""
     fields = {"reference_image": f"characters/refs/{name}.png", "reference_audio": f"characters/refs_audio/{name}.wav"}
     for field, rel in fields.items():
         (asset_dir / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +156,7 @@ def test_reference_files_cannot_point_at_files_of_another_asset(asset_client, as
     )
     own = asset_client.patch(f"{CHARACTERS}/阿青", json={"reference_audio": "characters/refs_audio/阿青.mp3"})
     assert own.status_code == 200, own.text
-    # 已经指着的值原样提交不算新写入：只改描述的请求带着整份条目也能保存。
+    # Echoing existing pointers is not new writes; description-only requests may submit whole entries.
     unchanged = asset_client.patch(f"{CHARACTERS}/阿岚", json={"description": "新的", **shared})
     assert unchanged.status_code == 200, unchanged.text
 
@@ -180,7 +180,7 @@ def test_an_asset_sheet_cannot_point_at_files_of_another_asset(asset_client, ass
     assert project["characters"]["阿青"]["character_sheet"] == ""
     own = asset_client.patch(f"{CHARACTERS}/阿青", json={"character_sheet": "characters/阿青.png"})
     assert own.status_code == 200, own.text
-    # 已经指着的值原样提交不算新写入：只改描述的请求带着整份条目也能保存。
+    # Echoing existing pointers is not new writes; description-only requests may submit whole entries.
     unchanged = asset_client.patch(
         f"{CHARACTERS}/阿岚", json={"description": "新的", "character_sheet": "characters/阿岚.png"}
     )
@@ -190,9 +190,9 @@ def test_an_asset_sheet_cannot_point_at_files_of_another_asset(asset_client, ass
 def test_deleting_an_asset_whose_sheet_another_shared_leaves_the_other_sheet_in_place(
     asset_client, asset_pm, asset_dir
 ):
-    """升级前「阿青」的资产图指着「阿岚」的图（旧版 PATCH 接受任意路径）；升级时它得到自己的一份。
+    """Preupgrade 阿青 images point to 阿岚 files via legacy arbitrary PATCH; upgrades give 阿青 its own copy.
 
-    之后删除「阿岚」只带走它名下的图，「阿青」的资产图不悬空；恢复「阿岚」后两边各指自己的图。
+    Deleting 阿岚 then removes its files only, leaving 阿青 pointers valid; restoring 阿岚 leaves both owning separate files.
     """
     _create(asset_client, "阿岚")
     _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
@@ -229,10 +229,10 @@ def test_deleting_a_character_takes_its_own_reference_files(asset_client, asset_
 
 
 def test_a_character_restored_under_a_new_name_points_at_files_that_exist(asset_client, asset_pm, asset_dir):
-    """删除、新建同名、再恢复：换名恢复的资产，每个文件字段都指向随它改名加回的文件。
+    """Delete, recreate same names, restore: renamed assets' file fields point to their correspondingly renamed restored files.
 
-    升级前「阿青」共用「阿岚」的参考图与参考音频（旧版 PATCH 接受任意路径）；升级时它得到自己的一份，
-    删除「阿岚」于是带走它名下的全部文件，换名恢复时随改名级联一起改名加回。
+    Preupgrade 阿青 shares 阿岚 reference images/audio via arbitrary PATCH; upgrades give it separate copies,
+    so deleting 阿岚 takes its own files only, restored with cascade renames.
     """
     _create(asset_client, "阿岚", "旧的")
     _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
@@ -359,7 +359,7 @@ def test_recreating_a_deleted_name_points_at_the_trash_and_restore_takes_a_suffi
     assert bucket["阿岚"]["description"] == "新的阿岚"
     assert (asset_dir / "characters/阿岚.png").read_bytes() == b"new"
     assert VersionManager(asset_dir).get_versions("characters", "阿岚") == current_before
-    # 改名级联：条目、资产图、版本历史一并换成新名，原名不记成别名
+    # Rename cascades entries/images/history together, without recording original names as aliases.
     renamed = bucket["阿岚 (1)"]
     assert (renamed["description"], renamed["character_sheet"]) == ("少女", "characters/阿岚 (1).png")
     assert "阿岚" not in renamed.get("aliases", [])
@@ -422,7 +422,7 @@ def test_a_derivative_deleted_before_its_owner_restores_only_after_the_owner_is_
     asset_client.delete(f"{CHARACTERS}/阿岚")
     owner = _record_of(asset_client, kind="asset")["id"]
 
-    # 本体还在项目回收站里：衍生只能随本体恢复，不降级成未登记的文件。
+    # Bases remain trashed; derivatives restore with bases only, never degrade to unregistered files.
     too_early = asset_client.post(f"{TRASH}/{derivative}/restore")
     assert too_early.status_code == 409
     assert "阿岚" in too_early.json()["detail"]
@@ -495,7 +495,7 @@ def test_a_failed_record_leaves_the_asset_in_place(asset_client, asset_pm, asset
     _create(asset_client, "阿岚")
     _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
     before = VersionManager(asset_dir).get_versions("characters", "阿岚")
-    # 回收站目录的位置被一个文件占着：删除记录建不起来
+    # Files occupy trash-directory destinations, preventing deletion-record creation.
     project_trash.trash_dir(asset_dir).parent.mkdir(parents=True, exist_ok=True)
     project_trash.trash_dir(asset_dir).write_text("blocked")
 
@@ -510,7 +510,7 @@ def test_a_failed_record_leaves_the_asset_in_place(asset_client, asset_pm, asset
 def test_a_suffixed_restore_lands_even_when_the_snapshot_already_held_the_suffixed_name(
     asset_client, asset_pm, asset_dir
 ):
-    """删除第二个「Alice」时项目里有「Alice (1)」（条目与历史）；之后它也被删，恢复时这个名字只在临时项目里被占。"""
+    """Deleting second Alice while Alice (1) entries/history exist, then deleting those too, leaves names occupied only in temporary projects during restore."""
     _create(asset_client, "Alice", "first")
     _with_sheet(asset_pm, asset_dir, "Alice", b"first")
     asset_client.delete(f"{CHARACTERS}/Alice")
@@ -543,7 +543,7 @@ def test_a_suffixed_restore_lands_when_the_snapshot_holds_only_leftover_history_
     leftover.unlink()
     asset_client.delete(f"{CHARACTERS}/Alice")
     record = _record_of(asset_client, name="Alice")["id"]
-    # 当前项目里清掉这份残留历史，「Alice (1)」只在临时项目里被占
+    # Clear residual histories in current projects; Alice (1) remains occupied only in temporary projects.
     VersionManager(asset_dir).detach_resources([("characters", "Alice (1)")])
     _create(asset_client, "Alice", "new")
 
@@ -574,7 +574,7 @@ def _disk_full(*_args, **_kwargs):
     ids=["staging", "migration", "take-rule", "placing"],
 )
 def test_an_io_error_keeps_the_record_for_a_retry(asset_client, asset_pm, asset_dir, monkeypatch, failing_step):
-    """磁盘满等读写故障排除后重试就能按原结构恢复：哪一步出错都不降级、不消耗记录。"""
+    """After disk-full/IO failures resolve, retries restore original structures; no failure step degrades or consumes records."""
     record_id = _deleted_with_sheet(asset_client, asset_pm, asset_dir)
 
     with monkeypatch.context() as patched:
@@ -593,7 +593,7 @@ def test_an_io_error_keeps_the_record_for_a_retry(asset_client, asset_pm, asset_
 def test_a_missing_file_during_migration_still_degrades_to_restoring_the_files(
     asset_client, asset_pm, asset_dir, monkeypatch
 ):
-    """记录里的文件缺失是永久状态，重试也不会成功：仍降级，至少把还在的文件加回。"""
+    """Missing recorded files are permanent and unretryable: still degrade, restoring surviving files at least."""
     record_id = _deleted_with_sheet(asset_client, asset_pm, asset_dir)
 
     def missing(*_args, **_kwargs):

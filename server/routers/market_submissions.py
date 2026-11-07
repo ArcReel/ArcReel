@@ -1,12 +1,13 @@
-"""分享到官方市场：本地预检、经官方服务创建提交，以及本地保存的提交状态。
+"""Share to the official market: local preflight, submission through the official service, and locally saved submission state.
 
-提交的是端点已保存的定义与可选图标；本地预检不通过即 422，不出站。每个端点只记最近一次提交的令牌，
-状态列表在进入页面时向官方服务各查一次，取不回时保留上次状态并标记 ``stale``。官方服务关闭时，
-创建提交与状态列表均 409 ``official_service_disabled``，本地预检不受影响。
+Submit the endpoint’s saved definition and optional icon. Failed local preflight returns 422 without outbound requests.
+Store only the latest submission token per endpoint. On page entry, query the official service once for each status;
+retain prior status and mark ``stale`` if retrieval fails. With the official service disabled, creation and status listing
+return 409 ``official_service_disabled``; local preflight remains available.
 
-本地记录只在官方服务返回之后以单条语句写入：创建提交按端点 upsert，状态刷新只在令牌未变时生效，
-因此同一端点的并发提交与刷新不会互相覆盖，出站期间也不持有写锁。
-"""
+Write local records in a single statement only after the official response: upsert submissions by endpoint, and refresh
+state only if the token is unchanged. Concurrent submissions and refreshes cannot overwrite each other, and outbound
+requests hold no write lock."""
 
 from __future__ import annotations
 
@@ -49,7 +50,7 @@ OfficialService = Annotated[OfficialServiceGateway, Depends(get_official_service
 
 class SubmissionIcon(BaseModel):
     filename: Literal["icon.png", "icon.webp", "icon.svg"]
-    #: 标准 base64。
+    #: Standard base64.
     content: str
 
 
@@ -75,7 +76,7 @@ class CheckSubmissionResponse(BaseModel):
 
 
 SubmissionState = Literal["open", "merged", "closed"]
-#: 库里的状态写入前已按官方服务的状态集合校验。
+#: Validate database states against the official-service state set before writing.
 _STATUSES: dict[str, SubmissionState] = {"open": "open", "merged": "merged", "closed": "closed"}
 
 
@@ -87,7 +88,7 @@ class MarketSubmissionResponse(BaseModel):
     slug: str
     status: SubmissionState
     pr_url: str
-    #: 本次没能从官方服务取回状态，展示的是上次保存的值。
+    #: The official-service state could not be retrieved this time; show the last saved value.
     stale: bool
 
 
@@ -107,7 +108,7 @@ async def _files_of(session: AsyncSession, body: CheckSubmissionRequest) -> tupl
     if body.icon is not None:
         try:
             icon = (body.icon.filename, base64.b64decode(body.icon.content, validate=True))
-        # 非 ASCII 字符抛 ValueError，其余非法编码抛其子类 binascii.Error。
+        # Non-ASCII characters raise ValueError; other invalid encodings raise its subclass binascii.Error.
         except ValueError as exc:
             raise UnprocessableError("market_submission_icon_encoding_invalid") from exc
     return endpoint, submission_files(endpoint.definition, icon)
@@ -137,7 +138,7 @@ def _fields(status: SubmissionStatus) -> dict[str, str]:
 
 
 async def _record_submission(session: AsyncSession, endpoint_id: int, status: SubmissionStatus) -> None:
-    """以本次提交覆盖该端点的记录；同一端点并发提交时后写者生效。"""
+    """Replace this endpoint’s record with the current submission; concurrent submissions for one endpoint use the last writer."""
     values = {**_fields(status), "submitted_at": utc_now()}
     insert = pg_insert if session.bind.dialect.name == "postgresql" else sqlite_insert
     stmt = insert(MarketSubmission).values(custom_endpoint_id=endpoint_id, **values)
@@ -153,7 +154,7 @@ async def _record_submission(session: AsyncSession, endpoint_id: int, status: Su
 async def check(
     body: CheckSubmissionRequest, _t: Translator, session: AsyncSession = Depends(get_async_session)
 ) -> CheckSubmissionResponse:
-    """本地市场校验与疑似字面凭证检查；诊断均阻断分享，不出站。"""
+    """Run local market validation and suspected literal-credential checks; all diagnostics block sharing without outbound requests."""
     _, files = await _files_of(session, body)
     diagnostics = _diagnostics_payload(await asyncio.to_thread(check_submission, body.slug, files), _t)
     return CheckSubmissionResponse(diagnostics=[SubmissionDiagnosticResponse(**item) for item in diagnostics])
@@ -166,7 +167,7 @@ async def create_submission(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> MarketSubmissionResponse:
-    """本地预检通过后经官方服务创建提交；官方服务的错误码与状态码原样落到本地响应。"""
+    """Create a submission through the official service after local preflight passes; preserve official error and status codes in the local response."""
     endpoint, files = await _files_of(session, body)
     if diagnostics := await asyncio.to_thread(check_submission, body.slug, files):
         raise UnprocessableError("market_submission_invalid").with_diagnostic(
@@ -198,7 +199,7 @@ async def create_submission(
 async def list_submissions(
     official: OfficialService, session: AsyncSession = Depends(get_async_session)
 ) -> MarketSubmissionListResponse:
-    """本地记录的提交，按提交时间倒序；未采纳的逐个向官方服务刷新一次，官方服务不可达时不再继续出站。"""
+    """List locally recorded submissions newest first; refresh each unaccepted submission once through the official service, stopping outbound requests if it is unreachable."""
     client = await official.require()
     newest_first = (MarketSubmission.submitted_at.desc(), MarketSubmission.custom_endpoint_id.desc())
     pending = (
@@ -223,7 +224,7 @@ async def list_submissions(
             reachable = False
             stale.add(endpoint_id)
     for endpoint_id, token, status in refreshed:
-        # 刷新期间该端点已有新提交时令牌已变，旧令牌的结果不再写入。
+        # A new submission changes the token during refresh, so do not write results for the old token.
         await session.execute(
             update(MarketSubmission)
             .where(MarketSubmission.custom_endpoint_id == endpoint_id, MarketSubmission.token == token)

@@ -1,4 +1,4 @@
-"""Alembic 迁移：供应商素材关联补写云账号身份，选定唯一键改按身份；降级回到按账号记录 ID。"""
+"""Alembic: backfill cloud account identity on provider material links, switching selected uniqueness to identity; downgrade restores account-record IDs."""
 
 from __future__ import annotations
 
@@ -58,8 +58,8 @@ def test_upgrade_backfills_identity_from_matching_accounts_only(
         with engine.begin() as conn:
             _insert_account(conn, 1, "TEST-ACCOUNT-A")
             _insert_link(conn, 10, account_id=1)
-            _insert_link(conn, 11, account_id=1, project="other")  # 账号已改到别的项目
-            _insert_link(conn, 12, account_id=9)  # 账号已删除
+            _insert_link(conn, 11, account_id=1, project="other")  # Account changed to another project.
+            _insert_link(conn, 12, account_id=9)  # Account deleted.
 
         command.upgrade(cfg, revision)
 
@@ -77,7 +77,7 @@ def test_upgrade_backfills_identity_from_matching_accounts_only(
     finally:
         engine.dispose()
 
-    # 补写值必须与运行时的算法一致，否则存量关联在升级后不再被选中。
+    # Backfill must match runtime algorithms or upgraded existing links stop being selected.
     assert identities == {
         10: account_identity("volcengine", "TEST-ACCOUNT-A"),
         11: "legacy-unresolved-11",

@@ -1,4 +1,4 @@
-"""供应商产物下载入口：出站目的地校验与有上限的响应体读取。"""
+"""Provider artifact-download entry: outbound validation and bounded response reads."""
 
 from __future__ import annotations
 

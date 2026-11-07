@@ -1,8 +1,8 @@
-"""DashScopeImageBackend — 阿里百炼 Qwen-Image / 万相图像生成后端（同步）。
+"""DashScopeImageBackend: synchronous Alibaba Bailian Qwen-Image / Wan generation.
 
-走原生 multimodal-generation/generation 同步端点，T2I 与 I2I 共用同一请求体，
-只差 content 是否含 image 元素。覆盖 qwen-image-2.0 融合系列、qwen-image-edit
-编辑系列与 wan2.7-image 系列。schema 依据 docs/api-docs/providers/dashscope.md 所列一手官方文档。
+Native synchronous multimodal-generation/generation shares T2I/I2I bodies, differing only by image
+content elements. Cover unified qwen-image-2.0, qwen-image-edit, and wan2.7-image families. Official
+schema sources are indexed in docs/api-docs/providers/dashscope.md.
 """
 
 from __future__ import annotations
@@ -45,30 +45,30 @@ DEFAULT_MODEL = "qwen-image-2.0"
 
 _IMAGE_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
-# 缺分辨率时各族默认短边。比例永远来自 aspect_ratio，由 arcreel_market_core.aspect_size 在各族像素约束内
-# 算精确比例（见 docs/adr/0011），不用带比例偏差的静态像素表：
-#   - qwen 融合系列 native 默认 2048²；wan 默认 2K 档；编辑系列由 max_long_edge 自然收口。
+# Default short edges by family without resolution. aspect_ratio always supplies ratio;
+# arcreel_market_core.aspect_size solves exact dimensions under family limits (docs/adr/0011), avoiding inexact static tables.
+#   - Unified Qwen native 2048²; Wan 2K; editing naturally constrained by max_long_edge.
 _DEFAULT_WAN_BUDGET = "2K"
 _DEFAULT_SHORT_FUSION = 2048
 _DEFAULT_SHORT_WAN = 1440
 _DEFAULT_SHORT_EDIT = 2048
 
-# 标准档总像素预算（非 pro / 非文生图上限）= 2048×2048；超出须 wan2.7-image-pro 文生图（4K=4096×4096）
+# Standard total budget, nonpro/non-T2I cap, 2048×2048; excess requires wan2.7-image-pro T2I, 4K=4096×4096.
 _STANDARD_PIXEL_BUDGET = 2048 * 2048
 _FOURK_PIXEL_BUDGET = 4096 * 4096
-# 编辑系列（qwen-image-edit-plus / -max）宽高均 ∈ [512, 2048]
+# qwen-image-edit-plus / -max both dimensions [512, 2048].
 _EDIT_MAX_LONG_EDGE = 2048
-# DashScope 生成系列比例支持区间 1:8 ~ 8:1
+# DashScope generation ratios support 1:8 ~ 8:1.
 _DASHSCOPE_MAX_RATIO = 8.0
-# 编辑系列因宽高均 ∈ [512, 2048]，可表达的比例上限为 2048/512 = 4:1（比生成系列更窄）
+# Editing dimensions [512, 2048] constrain ratios to 2048/512 = 4:1, narrower than generation.
 _EDIT_MAX_RATIO = 4.0
 
 
 class DashScopeImageBackend:
-    """阿里百炼图像后端（同步 multimodal 端点）。"""
+    """Synchronous Alibaba Bailian multimodal image backend."""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：qwen 系与 wan 系的上限是模型事实，记在条目上。
+    # Channels impose no reference counts; Qwen/Wan model-specific maxima live in entries.
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -88,12 +88,11 @@ class DashScopeImageBackend:
 
     @staticmethod
     def _exceeds_standard_budget(size: str) -> bool:
-        """size 是否超出标准档总像素预算（2048×2048）。
+        """Whether size exceeds standard total pixels, 2048×2048.
 
-        docs 口径：超出 2048×2048 的输出仅 wan2.7-image-pro 文生图支持（4K 档=4096×4096）。
-        档位 "1K"/"2K" 在预算内、"4K" 超预算；像素值按"总像素 > 预算"判定，避免只认 "4K"
-        字面而让 "4096*4096" / "3000*3000" 等数字写法绕过门控（这是按比例算总像素，
-        故 "4096*512" 这类窄幅合法尺寸不会被误拒）。
+        Documentation permits excess only for wan2.7-image-pro T2I, 4K=4096×4096. Tiers 1K/2K fit,
+        4K exceeds. Numeric dimensions compare total pixels to budgets, preventing 4096*4096 / 3000*3000
+        from bypassing literal-4K checks, while correctly allowing narrow 4096*512 dimensions.
         """
         normalized = size.strip().upper()
         if normalized in ("1K", "2K"):
@@ -126,7 +125,7 @@ class DashScopeImageBackend:
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        """预估只报张数：百炼图片按张统一价，尺寸不影响费用。"""
+        """Estimate image counts only: uniform Bailian per-image pricing ignores sizes."""
         return per_image_usage(output_images=1, input_images=facts.reference_count)
 
     @with_retry_async(retry_if=should_retry_submit)
@@ -138,7 +137,7 @@ class DashScopeImageBackend:
         parameters: dict = {
             "n": 1,
             "watermark": False,
-            # ArcReel 剧本 prompt 已是 LLM 精炼描述，关闭智能改写保留原意
+            # ArcReel prompts are already LLM-refined; disable optimization to retain intent.
             "prompt_extend": False,
             "size": size,
         }
@@ -158,10 +157,10 @@ class DashScopeImageBackend:
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
-            # 同步图像生成是非幂等的「建图 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
-            # 但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复计费；>=400 落 body
-            # 日志 + 抛 HTTPStatusError（保留 status_code 供咽喉层识别 413 降档），交 should_retry_submit
-            # 按状态码分流——4xx fail-fast、5xx/429 重试。
+            # Synchronous image POST creates/bills nonidempotently. submit_post terminally converts ambiguous transport, possibly
+            # delivered requests with lost responses, into AmbiguousSubmitError, avoiding double billing. >=400 logs bodies
+            # and raises HTTPStatusError, retaining status_code for central 413 lower-tier fallback. should_retry_submit
+            # routes statuses: 4xx fail fast; 5xx/429 retry.
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",
@@ -189,21 +188,21 @@ class DashScopeImageBackend:
         )
 
     def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
-        """按「比例优先、清晰度其次」算出 宽*高。
+        """Compute width*height, prioritizing ratio over resolution.
 
-        比例永远来自 aspect_ratio；image_size（档位词 / 自定义 宽*高 / None）只决定清晰度短边，
-        自定义值剥离其自带比例（取 min）。各族按自身像素约束精确收口：
-          - wan 系：方式二像素值（接受任意、对齐 16），总像素 ≤ 标准 2048² / 4K 4096²；
-            绝不下传档位词（wan 文生图会被强制输出正方形、丢比例）。
-          - qwen-image-2.0 融合系列：总像素 ∈ [512², 2048²]，自由设宽高。
-          - qwen-image-edit-plus / -max 编辑系列：宽高均 ∈ [512, 2048]。
-        经典系列（qwen-image / -plus / -max）仅 5 固定档、不接受任意像素，未注册预设、不推荐，
-        不在本机制覆盖内（见 docs/adr/0011）。
+        aspect_ratio alone determines ratio; image_size tiers/custom width*height/None determine short-edge
+        resolution. Strip custom ratios through min dimensions, respecting family-specific pixel constraints:
+          - Wan: method-two arbitrary pixels aligned to 16, total ≤ standard 2048² / 4K 4096².
+            Never send tier labels, which force square Wan T2I and lose ratios.
+          - Unified qwen-image-2.0: total pixels [512², 2048²], free dimensions.
+          - qwen-image-edit-plus / -max: both dimensions [512, 2048].
+        Classic qwen-image / -plus / -max accept only five fixed tiers, not arbitrary pixels. Not registered
+        as presets or recommended, outside this mechanism (docs/adr/0011).
         """
         explicit = (request.image_size or "").strip()
         aspect = request.aspect_ratio
 
-        # qwen-image-2.0 融合系列
+        # Unified qwen-image-2.0 family.
         short = resolution_to_short_edge(
             explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_FUSION
         )
@@ -215,13 +214,13 @@ class DashScopeImageBackend:
     def _build_content(self, request: ImageGenerationRequest, has_refs: bool) -> list[dict]:
         content: list[dict] = []
         if has_refs:
-            # fail-loud：任一声明的参考图缺失（含目录/空串解析出的 "."）或读取失败（权限/并发删除
-            # → OSError）即中止生成并报错列出文件名，让用户感知到有图未被使用，而非静默丢弃、用子集
-            # 生成出错误结果还照常计费。
+            # Fail loudly if any declared reference is missing, including directories/empty paths resolving to ".", or unreadable
+            # through permissions/concurrent deletion OSError. List filenames so users see unused images instead of
+            # silently generating and billing incorrect output from subsets.
             data_uris: list[str] = []
             unreadable: list[str] = []
-            # names 进多语言错误模板（en/vi 也渲染），分隔符与占位用 locale 中性形式：
-            # 空路径无文件名可显示，用序号 #N 标识第几张参考图，避免中文占位漏进非中文报错。
+            # names enter multilingual en/vi error templates: use locale-neutral separators/placeholders.
+            # Empty paths lack filenames; use reference ordinal #N, never leak Chinese placeholders into other locales.
             for idx, ref in enumerate(request.reference_images, start=1):
                 path = Path(ref.path) if ref.path else None
                 if path is None or not path.is_file():
@@ -242,12 +241,12 @@ class DashScopeImageBackend:
 
 
 class DashScopeWanImageBackend(DashScopeImageBackend):
-    """Wan 任意像素请求，带参考图时只用标准像素预算。"""
+    """Wan arbitrary-pixel requests, using standard pixel budgets whenever references exist."""
 
     def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
         explicit = (request.image_size or "").strip()
         aspect = request.aspect_ratio
-        # 模型可选分辨率来自条目；带参考图的请求一律不超过标准预算。
+        # Model resolution options come from entries; referenced requests never exceed standard budgets.
         budget_word = explicit or _DEFAULT_WAN_BUDGET
         exceeds = self._exceeds_standard_budget(budget_word)
         if exceeds and has_refs:
@@ -261,7 +260,7 @@ class DashScopeWanImageBackend(DashScopeImageBackend):
 
 
 class DashScopeQwenEditImageBackend(DashScopeImageBackend):
-    """Qwen 编辑请求：宽高均不超过 2048。"""
+    """Qwen editing requests with both dimensions capped at 2048."""
 
     def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
         explicit = (request.image_size or "").strip()

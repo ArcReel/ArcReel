@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { errMsg } from "@/utils/async";
 
-/** 诊断里可以展示给使用者的原文：供应商错误码与原始消息，其余字段不展示。 */
+/** Raw diagnostics safe to display: provider error code and original message only; hide other fields. */
 function diagnosticText(error: unknown): string | null {
   if (!(error instanceof ApiRequestError)) return null;
   const raw = error.diagnostic;
@@ -18,7 +18,7 @@ function diagnosticText(error: unknown): string | null {
 }
 
 /**
- * 请求失败提示：摘要是服务端给出的本地化原因与下一步，供应商原文折叠在「详情」里。
+ * Request-failure notice: the summary uses the server's localized reason and next step, with original provider text collapsed under Details.
  */
 export function RequestErrorNotice({
   error,
@@ -26,7 +26,7 @@ export function RequestErrorNotice({
   className,
 }: {
   error: unknown;
-  /** 摘要旁的恢复动作，如「重试」。 */
+  /** Recovery action beside the summary, such as Retry. */
   action?: { label: string; onClick: () => void };
   className?: string;
 }) {

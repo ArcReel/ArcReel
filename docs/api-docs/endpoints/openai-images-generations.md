@@ -1,5 +1,5 @@
 # openai-images-generations
 
-- 协议：[Create image](https://developers.openai.com/api/reference/resources/images/methods/generate)
-- 计费：[API pricing](https://developers.openai.com/api/docs/pricing)
-- 代码：`lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["openai-images-generations"]`、`lib/backends/image_backends/openai.py::OpenAIImageBackend`
+- Protocol: [Create image](https://developers.openai.com/api/reference/resources/images/methods/generate)
+- Pricing: [API pricing](https://developers.openai.com/api/docs/pricing)
+- Code: `lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["openai-images-generations"]`, `lib/backends/image_backends/openai.py::OpenAIImageBackend`

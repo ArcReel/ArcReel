@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { isApplePlatform } from "./useShotShortcuts";
 
-/** 分镜列表底部常驻的快捷键提示。只读展示（不能保存）时不提保存。 */
+/** Persistent shortcut hint below the storyboard list; omit saving in read-only display where saving is unavailable. */
 export function ShotShortcutHint({ canSave }: { canSave: boolean }) {
   const { t } = useTranslation("dashboard");
   const modifier = isApplePlatform() ? "⌘" : "Ctrl";

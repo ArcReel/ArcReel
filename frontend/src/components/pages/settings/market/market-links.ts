@@ -1,2 +1,2 @@
-/** 官方市场源的投稿指引。 */
+/** Contribution instructions for the official market source. */
 export const MARKET_CONTRIBUTING_URL = "https://github.com/ArcReel/arcreel-market/blob/main/CONTRIBUTING.md";

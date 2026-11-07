@@ -1,4 +1,4 @@
-"""剪映草稿导出与下载的领域错误：问题码稳定，HTTP、Agent 工具与队列任务各自映射。"""
+"""Jianying export/download domain errors: stable problem codes independently mapped by HTTP, Agent tools, and queued tasks."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ type JianyingDraftErrorCode = Literal[
 
 
 class JianyingDraftError(Exception):
-    """剪映草稿无法导出、未通过验收或无法下载；``code`` 供适配器映射，``params`` 携带定位信息。"""
+    """Draft cannot export, fails acceptance, or cannot download; adapters map ``code`` and ``params`` carries location details."""
 
     def __init__(self, code: JianyingDraftErrorCode, message: str, **params: Any) -> None:
         super().__init__(message)

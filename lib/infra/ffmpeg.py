@@ -1,8 +1,9 @@
-"""随包 ffmpeg 的唯一查找器。
+"""Single resolver for bundled ffmpeg.
 
-固定使用 ``imageio-ffmpeg`` wheel 自带的 ffmpeg：不看系统 PATH、不读 ``IMAGEIO_FFMPEG_EXE``、
-不提供路径配置，所有环境用同一个构建。仓库内调用 ffmpeg 的地方都经 :func:`ffmpeg_executable`
-取用它；它不带 ffprobe，媒体探测见 :mod:`lib.infra.media_probe`。
+Use only ffmpeg shipped by the ``imageio-ffmpeg`` wheel: ignore system PATH and
+``IMAGEIO_FFMPEG_EXE`` and expose no configurable path, ensuring the same build in
+all environments. All repository callers use ``ffmpeg_executable``. It does not
+include ffprobe; see ``lib.infra.media_probe`` for probing.
 """
 
 from __future__ import annotations
@@ -25,12 +26,12 @@ VersionRunner = Callable[[Path], "subprocess.CompletedProcess[bytes]"]
 
 
 class FfmpegUnavailableError(RuntimeError):
-    """随包 ffmpeg 在当前环境不可用；消息即不可用原因。"""
+    """Bundled ffmpeg is unavailable in this environment; the message states why."""
 
 
 @dataclass(frozen=True, slots=True)
 class FfmpegStatus:
-    """随包 ffmpeg 的自检结论。``unavailable_reason`` 为 None 即可用。"""
+    """Bundled ffmpeg self-check result; ``unavailable_reason``=None means available."""
 
     executable: Path | None
     version: str | None
@@ -52,10 +53,10 @@ def _run_version(executable: Path) -> subprocess.CompletedProcess[bytes]:
 
 
 def inspect_bundled_ffmpeg(binaries_dir: Path, *, run_version: VersionRunner = _run_version) -> FfmpegStatus:
-    """在 ``binaries_dir`` 中定位随包 ffmpeg 并运行 ``-version`` 自检。
+    """Locate bundled ffmpeg in ``binaries_dir`` and self-check with ``-version``.
 
-    imageio-ffmpeg 的平台 wheel 在该目录只放当前平台的一个 ``ffmpeg-*`` 可执行文件；
-    sdist 安装或不受支持的平台没有这个文件。
+    The platform wheel places exactly one platform-specific ``ffmpeg-*`` executable
+    there; sdist installations and unsupported platforms have no such file.
     """
     candidates = sorted(entry for entry in binaries_dir.iterdir() if entry.name.startswith("ffmpeg-"))
     if len(candidates) != 1:
@@ -73,18 +74,19 @@ def inspect_bundled_ffmpeg(binaries_dir: Path, *, run_version: VersionRunner = _
 
 @functools.cache
 def ffmpeg_status() -> FfmpegStatus:
-    """随包 ffmpeg 的自检结论；首次调用时自检一次，结论在进程内固定。
+    """Bundled ffmpeg self-check, run once and cached for the process.
 
-    服务启动时先调用一次，之后的调用只读缓存；成片渲染据此报明不可用原因。
+    Startup invokes it first; later callers read the cache. Final-cut rendering
+    uses it to report why the executable is unavailable.
     """
     return inspect_bundled_ffmpeg(Path(str(importlib.resources.files(binaries))))
 
 
 def ffmpeg_executable() -> str:
-    """随包 ffmpeg 的可执行文件路径。
+    """Return the bundled ffmpeg executable path.
 
     Raises:
-        FfmpegUnavailableError: 自检未通过，消息为不可用原因。
+        FfmpegUnavailableError: Self-check failed; the message states why.
     """
     status = ffmpeg_status()
     if status.executable is None or status.unavailable_reason is not None:
@@ -93,16 +95,16 @@ def ffmpeg_executable() -> str:
 
 
 def local_file_input(path: Path) -> list[str]:
-    """把 ``path`` 作为本地文件输入的 ffmpeg 参数。
+    """ffmpeg arguments for reading ``path`` as a local file.
 
-    输入经 ``file:`` 协议打开并限定 ``-protocol_whitelist file``：媒体文件可能嵌套
-    HLS/RTMP 等播放列表引用，限定后 ffmpeg 不跟随其中的协议发起网络请求。
+    Use ``file:`` and ``-protocol_whitelist file``. Media can contain HLS/RTMP playlist
+    references; the restriction stops ffmpeg from following them with network requests.
     """
     return ["-protocol_whitelist", "file", "-i", f"file:{path}"]
 
 
 def log_ffmpeg_status() -> FfmpegStatus:
-    """执行自检并记录结论，供服务启动时调用。"""
+    """Run and log the self-check during service startup."""
     status = ffmpeg_status()
     if status.available:
         logger.info("随包 ffmpeg 可用：%s（%s）", status.version, status.executable)
@@ -112,5 +114,5 @@ def log_ffmpeg_status() -> FfmpegStatus:
 
 
 def reset_for_tests() -> None:
-    """test helper —— 清除进程级自检缓存。"""
+    """Clear the process-wide self-check cache for tests."""
     ffmpeg_status.cache_clear()

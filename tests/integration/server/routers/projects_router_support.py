@@ -1,4 +1,4 @@
-"""server.routers.projects 测试共享的替身与 helper。"""
+"""Shared server.routers.projects test fakes/helpers."""
 
 import json
 import re
@@ -94,14 +94,14 @@ class _FakePM:
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
         (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
-        # generate_overview 的名义分支目标：存在但内容有问题的项目（源目录空/供应商未配置/json 损坏）
+        # generate_overview nominal branches: existing projects with empty sources, unconfigured providers or corrupt JSON.
         (self.base / "bad").mkdir(parents=True, exist_ok=True)
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
         (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
         (self.base / "bad-schema").mkdir(parents=True, exist_ok=True)
         (self.base / "truncated").mkdir(parents=True, exist_ok=True)
         (self.base / "retired-model").mkdir(parents=True, exist_ok=True)
-        # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
+        # Postupload overview soft failure: existing projects whose generate_overview raises path-bearing exceptions.
         (self.base / "leaky").mkdir(parents=True, exist_ok=True)
         (self.base / "retired-upload").mkdir(parents=True, exist_ok=True)
 
@@ -185,7 +185,7 @@ class _FakePM:
             "episodes": [],
         }
         if content_mode == "ad":
-            # 镜像真实 ProjectManager 的 ad 形状：常量直接取自生产代码，避免第二份真相
+            # Mirror real ProjectManager ad shapes using production constants, avoiding duplicate truth.
             from lib.project.project_manager import ProjectManager
 
             payload["target_duration"] = (
@@ -226,10 +226,10 @@ class _FakePM:
         self.scripts[(name, script_file)] = payload
 
     def update_project(self, name, mutate_fn):
-        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务，
-        # 并返回迁移后的 project dict（调用方据此回前端，无需二次 load_project）。
-        # deepcopy 后再 mutate，使异常时（save 未执行）backing store 不被原地突变污染，
-        # 忠实于真实 PM「读裸 JSON、出错不写回」的语义。
+        # Mirror ProjectManager.update_project: load → mutate → save in one transaction,
+        # returning migrated project dicts for frontend responses without second load_project calls.
+        # deepcopy before mutate preserves backing stores when exceptions prevent saves,
+        # matching real PM raw-JSON reads and no writeback on errors.
         project = deepcopy(self.load_project(name))
         mutate_fn(project)
         self.save_project(name, project)
@@ -240,17 +240,17 @@ class _FakePM:
 
     @contextmanager
     def locked_script(self, name, script_file):
-        # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回。
-        # deepcopy 同上，确保 with 体内抛异常时原始存储对象保持不变。
+        # Mirror ProjectManager.locked_script: load → yield → save, skipping writeback on exceptions.
+        # deepcopy likewise preserves stored objects when with bodies raise.
         script = deepcopy(self.load_script(name, script_file))
         yield script
         self.save_script(name, script, script_file)
 
     @contextmanager
     def locked_episode_script(self, name, resolve_script_file, *, validate=True, on_commit=None):
-        # 复刻真实 ProjectManager.locked_episode_script：解析 episode→script_file →
-        # 锁内读改写脚本 → 内联把 title/script_file 镜像回 project.json episodes[]
-        # （仅当脚本含 episode int，与真实 _apply_episode_sync 触发条件一致）。
+        # Mirror ProjectManager.locked_episode_script: resolve episode→script_file →
+        # locked script read-modify-write → inline title/script_file mirror synchronization into project.json episodes[]
+        # only when scripts contain integer episode, matching real _apply_episode_sync conditions.
         script_file = resolve_script_file(self.load_project(name))
         norm = script_file[len("scripts/") :] if script_file.startswith("scripts/") else script_file
         script = deepcopy(self.load_script(name, norm))
@@ -273,28 +273,28 @@ class _FakePM:
         if name == "ready":
             return {"synopsis": "generated"}
         if name == "leaky":
-            # 模拟底层异常文本携带服务器绝对路径（如文件读写失败），
-            # 上传端点的软降级分支不得把裸 str(e) 透传给客户端。
+            # Simulate low-level exception text containing absolute server paths, such as file failures;
+            # upload soft-failure branches must never forward raw str(e) to clients.
             raise RuntimeError("open failed: /Users/secret/projects/leaky/source/novel.txt")
         if name == "no-provider":
             raise ValueError("未找到可用的 text 供应商")
         if name == "retired-upload":
             raise ModelNotInCatalogError(provider_id="ark", model_id="old-text", media_type="text")
         if name == "corrupted":
-            # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
-            # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
+            # Simulate corrupt project.json during internal provider-resolution load_project:
+            # JSONDecodeError subclasses ValueError but must not mean unconfigured providers.
             json.loads("{not valid json")
         if name == "truncated":
-            # 模拟文本模型的输出被最大输出长度截断（TextGenerator 补齐 provider_id / custom_model 后抛出）
+            # Simulate maximum-output truncation; TextGenerator fills provider_id/custom_model before raising.
             raise TextOutputTruncatedError(
                 provider="openai", model="my-llm", output_tokens=64, provider_id="custom-3", custom_model=True
             )
         if name == "retired-model":
-            # 模拟项目引用的文本模型已不在供应商清单中：同样是 ValueError 子类，不该被误判为「未配置供应商」
+            # Simulate referenced text models missing from provider catalogs; ValueError subclasses must not mean unconfigured providers.
             raise ModelNotInCatalogError(provider_id="ark", model_id="doubao-seed-1-8-251228", media_type="text")
         if name == "bad-schema":
-            # 模拟模型输出未通过 schema 校验：pydantic ValidationError 同样是 ValueError 子类，
-            # 不该被误判为「未配置供应商」
+            # Simulate model schema-validation failure: pydantic ValidationError also subclasses ValueError,
+            # never meaning unconfigured providers.
             _OverviewProbe.model_validate({})
         raise EmptySourceError("source missing")
 
@@ -430,7 +430,7 @@ class _FakeBatchEditor:
 
 
 class _FakeSummaries:
-    """项目摘要投影替身：记录列表端点是否把一次性加载的剧本 map 交给它，以及各端点选的产物口径。"""
+    """Project-summary projection fake records one-time-loaded script maps and chosen artifact policies per endpoint."""
 
     def __init__(self):
         self.last_preloaded_scripts: dict | None = None
@@ -460,7 +460,7 @@ class _FakeSummaries:
 
 
 def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_factory=None):
-    """``session_factory`` 给出时，路由经它开数据库会话（默认是生产的 ``async_session_factory``）。"""
+    """Supplied ``session_factory`` opens route DB sessions; production defaults to ``async_session_factory``."""
     use_project_manager(monkeypatch, fake_pm)
     if session_factory is not None:
         use_projects_session_factory(monkeypatch, session_factory)
@@ -478,12 +478,12 @@ def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_
 
 
 def override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
-    """给 ``build_projects_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
+    """Add dependency overrides to ``build_projects_client`` apps; ``TestClient.app`` static types expose raw ASGI callables only."""
     cast(FastAPI, client.app).dependency_overrides[dependency] = provider
 
 
 async def seed_project_records(db_factory) -> dict[str, str]:
-    """给项目 demo 留下排队中与执行中的任务各一个、一条有费用的调用记录和一个助手会话，返回两个任务的 id。"""
+    """Give demo one queued/one running task, one billed call and one assistant session; return both task IDs."""
     async with db_factory() as session:
         repo = TaskRepository(session)
         queued = await repo.enqueue(

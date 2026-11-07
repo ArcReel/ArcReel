@@ -2,20 +2,20 @@
 status: accepted
 ---
 
-# 商品一致性双层锚点：用户原图为验收锚点，标准化商品 sheet 为可选派生参考
+# Two product-fidelity anchors: user originals for acceptance, standardized product sheets as optional derived references
 
-带货成片中的商品必须忠实于真品（失真即虚假宣传风险），但用户上传的商品图常见乱背景、光线差、角度缺。现有三类资产（character/scene/prop）以 AI 生成的 sheet 为下游一致性锚点，而 AI 重绘对商品意味着 logo、包装文字、材质纹理的漂移在源头固化。决定：商品资产采用双层——用户原图必有且永远是保真验收锚点，标准化商品 sheet 为可选的净化派生参考。
+Products in commerce videos must remain faithful to the real item (distortion risks false advertising), but user-uploaded product images often have cluttered backgrounds, poor lighting, or missing angles. The existing three asset types (character/scene/prop) use AI-generated sheets as downstream consistency anchors; for products, AI redrawing would bake drift in logos, package text, and material textures into the source. Decision: use two layers for product assets. User originals are required and always remain the fidelity-acceptance anchor; standardized product sheets are optional, cleaned-up derived references.
 
-## 决定
+## Decisions
 
-- **原图为锚点**：商品资产持有多张用户上传原图（`reference_images`），是「成片商品忠实于真品」的验收标准；翻转此前「用户 ad-hoc 上传参考图为范围外」的限定，原图直接进入下游生成参考。
-- **product sheet 可选、与其余 sheet 同一生命周期**：商品图上传入口提供「生成商品资产图」勾选，触发标准化多角度 sheet 生成（走资产生成队列，资产页审核/重生成）；agent 工作流在分镜开工前安排用户过目。sheet 是产物，登记进产物清单并按同一规则判四态——描述、风格或原图变动让它变 stale，stale 仍可用、不自动重生（见 `docs/adr/0062`）。AI 重绘的漂移由「原图始终在场且是验收锚点」承载：sheet 只是净化派生参考，成片是否忠实于真品一律以原图对照。
-- **商品参考注入二元，无「弱注入」**：分镜图生视频路径下，镜头以 `products_in_shot`（按名字引用）标记，非空即商品镜头——商品参考全量注入、排序绝对优先、附高保真指令；氛围镜头零商品图。参考图是强 conditioning，「给图又求别太像」机制上自相矛盾且引发漂移；画风统一由项目级 style 机制承载，不借商品图实现。参考生视频路径（`generation_mode=reference_video`）跳过分镜，商品参考图在执行期按视频单元正文里 `@[商品名]` 的首次提及顺序解析后注入视频请求，与其余资产同规则、不排最前（见 `docs/adr/0064`）。
-- **商品一致性单层承载（分镜图生视频路径）**：分镜图生视频路径下，商品参考仅在分镜生成阶段注入并烘焙进画面，不再向视频请求二次追加商品参考图——分镜图已是商品一致性的完整锚点，视频层重复注入对该目标是冗余路径。
-- **商品为第 4 个 ASSET_SPECS 条目**：spec 抽象正式扩展列表字段能力（多张原图、卖点列表），属原则性扩展而非商品特例；暂不进入全局资产库（单图列模型不兼容，跨项目复用为后续工作）。
+- **Original images are the anchor**: product assets hold multiple user-uploaded originals (`reference_images`), the acceptance standard for "the product in the finished video is faithful to the real item." This reverses the earlier restriction that "ad-hoc user-uploaded reference images are outside scope": originals directly enter downstream generation references.
+- **Product sheets are optional and share the lifecycle of other sheets**: the product-image upload entry offers a "generate product asset image" checkbox, triggering standardized multi-angle sheet generation (using the asset-generation queue, with review/regeneration on the asset page). The agent workflow arranges for user review before storyboard work begins. A sheet is an artifact, registered in the artifact inventory and classified into the same four states: description, style, or original-image changes make it stale; stale remains usable, without automatic regeneration (see `docs/adr/0062`). Drift from AI redrawing is addressed by "originals are always present and are the acceptance anchor": sheets are only cleaned-up derived references, and fidelity of the finished product to the real item is always checked against originals.
+- **Product-reference injection is binary, without "weak injection"**: on the storyboard-image-to-video path, shots declare `products_in_shot` (references by name); a nonempty value makes it a product shot. Inject all product references with absolute ordering priority and high-fidelity instructions; atmosphere shots receive zero product images. Reference images are strong conditioning: "provide the image but ask for less similarity" is mechanically contradictory and causes drift. The project-level style mechanism provides visual-style consistency, without using product images for it. The reference-to-video path (`generation_mode=reference_video`) skips storyboards: at execution time, resolve product reference images in order of first `@[商品名]` mention in the video-unit body and inject them into the video request, following the same rules as other assets without placing them first (see `docs/adr/0064`).
+- **Product consistency is carried in one layer (storyboard-image-to-video path)**: on the storyboard-image-to-video path, inject product references only during storyboard generation, baking them into the image. Do not append product reference images again to video requests: the storyboard image is already the complete product-consistency anchor, so repeating injection at the video layer is redundant for that goal.
+- **Product is the fourth ASSET_SPECS entry**: the spec abstraction formally gains list-field support (multiple originals, selling-point lists), a principled extension rather than a product-specific exception. Products do not yet enter the global asset library (its single-image column model is incompatible; cross-project reuse is future work).
 
 ## Consequences
 
-- 这是首个以「多张用户上传图」为核心、且上传图直接进入下游参考的资产类型；上传保存时压缩（normalize_uploaded_image 的 2MB/q85 阈值）与锚点纯度的张力已按保留原件裁决：商品原图上传仅校验可解码，保留原件字节与扩展名、不做归一化压缩（`server/routers/files.py`）——注意与参考上传副本压缩（ADR 0012，发送时、视觉无损档）是两个独立环节。
-- 有 sheet 时下游注入集合为「sheet 多角度 + 原图压阵」，精确配比留给实现调优，不在设计层固定。
-- 商品资产没有独立的审批状态字段：sheet 的可用性由产物时效回答，「用户看没看过」不是数据模型里的一维。用户对 sheet 不满意的出路是在资产页重生成，或不勾选生成 sheet、只用原图。
+- This is the first asset type centered on "multiple user uploads" whose uploaded images directly enter downstream references. The tension between upload-time compression (normalize_uploaded_image's 2MB/q85 thresholds) and anchor purity is resolved in favor of preserving originals: product-original uploads validate only decodability, preserving original bytes and extensions without normalization compression (`server/routers/files.py`). Distinguish this from reference-upload-copy compression (ADR 0012, at send time, at a visually lossless tier): they are independent stages.
+- When a sheet exists, downstream injection consists of "multi-angle sheet plus originals as the final anchor"; exact proportions remain implementation tuning rather than being fixed at the design level.
+- Product assets have no separate approval-state field: artifact freshness determines sheet usability, and "whether the user has viewed it" is not a data-model dimension. Users dissatisfied with a sheet can regenerate on the asset page, or leave sheet generation unchecked and use only originals.

@@ -16,7 +16,7 @@ interface UsageRecordsCardProps {
   records: UsageRecordView[];
   inProgress: UsageRecordView[];
   loading: boolean;
-  /** 记录请求失败：不渲染「还没有记录」的空态，失败提示由区块统一给出。 */
+  /** Record request failed: do not render the “no records yet” empty state; the section provides failure feedback centrally. */
   failed?: boolean;
   total: number;
   pageIndex: number;
@@ -56,7 +56,7 @@ export function UsageRecordsCard({
   const titleOf = projectTitleResolver(summary);
   const projectLabel = (record: UsageRecordView) =>
     usageProjectLabel(record.projectName, t, i18n.language, record.projectTitle ?? titleOf(record.projectName));
-  // 筛选已固定某个项目时隐藏项目列，避免整列重复同一个值。
+  // Hide the project column when filtering by a specific project, avoiding an entire column of repeated values.
   const showProject = filters.project === null;
   const columns = showProject ? 9 : 8;
   const from = total === 0 ? 0 : pageIndex * USAGE_PAGE_SIZE + 1;

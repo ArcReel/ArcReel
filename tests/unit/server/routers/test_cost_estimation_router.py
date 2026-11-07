@@ -83,7 +83,7 @@ class TestCostEstimationRouter:
         ],
     )
     def test_rejects_the_retired_query_params(self, params, rejected):
-        """旁白交付方式与单元参数都不参与估价：旧客户端仍带着它们查询时拒收，不计算估价。"""
+        """Narration delivery and unit parameters do not affect estimates; reject legacy clients still querying with them, without estimating."""
         mock_pm = _mock_pm(
             project_exists=True,
             load_project={"episodes": [{"script_file": "ep1.json"}]},
@@ -105,12 +105,12 @@ class TestCostEstimationRouter:
         mock_service.return_value.compute.assert_not_awaited()
 
     def test_no_auth_returns_401(self, monkeypatch):
-        # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，这里就测不到拒绝。
+        # AUTH_ENABLED=false makes get_current_user return anonymous admin directly, preventing rejection tests here.
         monkeypatch.setenv("AUTH_ENABLED", "true")
         app = FastAPI()
         register_error_handlers(app)
         # Do NOT override the auth dependency — real auth should reject.
-        # 认证依赖挂在注册处，这里须与 server/app.py 的挂法一致。
+        # Authentication dependencies attach at registration; match server/app.py here.
         app.include_router(cost_estimation.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/cost-estimate")
@@ -118,7 +118,7 @@ class TestCostEstimationRouter:
 
 
 class _ArrivalSpy(RequestCoalescer):
-    """登记每个已挂上合流的请求，测试据此确认请求已到达，再放行计算。"""
+    """Register each coalesced request so tests confirm arrival before releasing computation."""
 
     def __init__(self):
         super().__init__()
@@ -134,7 +134,7 @@ class _ArrivalSpy(RequestCoalescer):
 
 
 class _GatedEstimates:
-    """费用估算替身：开算时记下输入版本，等测试开闸后返回该版本；版本为 boom 时出错。"""
+    """Cost-estimation fake: capture input versions at start, return after test release; version boom raises."""
 
     def __init__(self):
         self.gate = asyncio.Event()
@@ -159,7 +159,7 @@ class _GatedEstimates:
 
 
 class TestCostEstimationCoalescing:
-    """同一项目的并发估算请求合流：同时最多 1 份在算、1 份等待，结果不早于请求到达时刻。"""
+    """Concurrent project estimates coalesce: at most one computing and one waiting; results cannot predate request arrival."""
 
     @pytest.fixture
     def harness(self):

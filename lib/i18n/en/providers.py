@@ -13,12 +13,12 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "Kling",
     "provider_name_agnes": "Agnes",
-    # 失败文案里目录查不到的供应商（已被删除）的泛称
+    # Generic label in failure copy for deleted providers absent from the catalog.
     "deleted_provider_display_name": "Deleted provider",
     "deleted_agent_provider_display_name": "Deleted Agent provider",
-    # Provider descriptions：只写平台是什么，取自 docs/api-docs/providers/<id>.md 记录的来源；
-    # 不写模型版本与生成模态清单，能力标签由模型目录实时得出，写进描述必然过时；
-    # 模型家族名（GPT、Qwen 等）属于平台身份，可以写。
+    # Provider descriptions state only what the platform is, sourced from docs/api-docs/providers/<id>.md;
+    # omit model versions/generation-modality lists: capability tags derive live from catalogs, so descriptions would become stale;
+    # model-family names (GPT, Qwen, etc.) identify platforms and may be included.
     "provider_desc_gemini-aistudio": "Web-based IDE developed by Google for prototyping applications with generative AI models.",
     "provider_desc_gemini-vertex": "Machine learning service offered by Google Cloud, now renamed Gemini Enterprise Agent Platform.",
     "provider_desc_ark": "Large-model service platform (MaaS) from Volcengine, ByteDance's cloud, offering model fine-tuning, evaluation and inference for businesses.",

@@ -1,13 +1,13 @@
-"""供应商模型 ID 的路径段校验。
+"""Provider-model ID path-segment validation.
 
-模型 ID 会作为 URL 路径（``/models/{model_id:path}``）的一部分出现，WHATWG URL 把 ``.``、``..`` 与它们的
-百分号编码都当作点段规范化掉，``a/../b`` 会被解析成 ``b``。所以拒绝必须在服务端按 ``/`` 切分后判定，
-只在前端编码挡不住。
+Model IDs enter URL paths (``/models/{model_id:path}``). WHATWG URL normalizes ``.`` / ``..`` and their
+percent encodings as dot segments, resolving ``a/../b`` into ``b``. Reject server-side after splitting by ``/``;
+frontend encoding alone cannot prevent this.
 """
 
 from __future__ import annotations
 
 
 def has_dot_segment(model_id: str) -> bool:
-    """模型 ID 按 ``/`` 切分后有任一段等于 ``.`` 或 ``..``。``a.b``、``gpt-4.1``、``x/y`` 不受影响。"""
+    """Whether any ``/``-split model ID segment equals ``.`` / ``..``; ``a.b``, ``gpt-4.1``, and ``x/y`` are unaffected."""
     return any(segment in (".", "..") for segment in model_id.split("/"))

@@ -70,7 +70,7 @@ class TestVideoGenerationResult:
 
 
 class TestNormalizeProviderStatus:
-    """跨厂商状态串归一：OpenAI 兼容代理会把底层厂商的状态串原样透传。"""
+    """Normalize cross-provider status strings: OpenAI-compatible proxies pass underlying provider statuses unchanged."""
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -92,7 +92,7 @@ class TestNormalizeProviderStatus:
             ("generating", ProviderJobStatus.RUNNING),
             ("PENDING", ProviderJobStatus.QUEUED),
             ("submitted", ProviderJobStatus.QUEUED),
-            # 未知 / 非字符串 → 当 running 继续轮询（保守：不对未就绪任务触发下载）
+            # Unknown / nonstring: continue polling as running (conservative: do not download unready jobs)
             ("NOT_START", ProviderJobStatus.RUNNING),
             ("weird-status", ProviderJobStatus.RUNNING),
             (None, ProviderJobStatus.RUNNING),
@@ -104,7 +104,7 @@ class TestNormalizeProviderStatus:
 
     @pytest.mark.parametrize("raw", ["expired", "EXPIRED", " Expired "])
     def test_expired_is_its_own_bucket(self, raw):
-        """expired 不得折进 failed：caller 据其按 generate / resume 分流抛不同异常。"""
+        """Do not fold expired into failed: callers use it to raise different exceptions for generate / resume."""
         assert normalize_provider_status(raw) is ProviderJobStatus.EXPIRED
 
     def test_terminal_set(self):

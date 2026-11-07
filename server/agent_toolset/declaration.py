@@ -1,13 +1,8 @@
-"""Agent 工具的宿主无关声明与统一调用入口。
+"""Host-independent Agent tool declarations and shared invocation entry.
 
-一条声明给出一个工具在两宿主之间共用的全部契约：名字、中文完整描述、请求模型（schema 由它派生，
-参数说明写在字段 description 上）、迁移阻断策略、长任务标记、domain key、handler 与可选摘要。
-两个 adapter 都经 :func:`invoke_declaration`（无 scope 声明经 :func:`invoke_unscoped_declaration`）
-调用 handler，请求校验与迁移阻断因此只有一处实现。
+A declaration provides a tool’s full contract shared by both hosts: name, complete description, request model (from which schema is derived, with parameter descriptions on fields), migration-blocking policy, long-task flag, domain key, handler, and optional summary. Both adapters invoke the handler through :func:`invoke_declaration` (or :func:`invoke_unscoped_declaration` without scope), keeping request validation and migration admission in one implementation.
 
-声明分两种：作用于某个既有项目的 :class:`ToolDeclaration`，以及不作用于既有项目的
-:class:`UnscopedToolDeclaration`（列出、创建项目）。adapter 按声明类型分派。
-"""
+:class:`ToolDeclaration` acts on an existing project; :class:`UnscopedToolDeclaration` does not (listing and creating projects). Adapters dispatch by declaration type."""
 
 from __future__ import annotations
 
@@ -33,23 +28,23 @@ from server.tool_runtime import (
 
 @dataclass(frozen=True, slots=True)
 class Blocked:
-    """项目迁移裁决为失败时在入口拒绝，不调用 handler。"""
+    """Reject at entry when project migration failed, without calling the handler."""
 
 
 @dataclass(frozen=True, slots=True)
 class Exempt:
-    """迁移失败时照常放行；``reason`` 写明该入口为什么不必阻断。"""
+    """Admit despite migration failure; ``reason`` states why this entry need not be blocked."""
 
     reason: str
 
     def __post_init__(self) -> None:
         if not self.reason.strip():
-            raise ValueError("豁免迁移阻断必须写明理由")
+            raise ValueError("A migration-blocking exemption requires a reason")
 
 
 @dataclass(frozen=True, slots=True)
 class ReadCheck:
-    """只读工具自行报告迁移状态：入口放行，由 handler 在结果中返回迁移 problem。"""
+    """Read-only tools report migration state themselves: entry admits and the handler returns migration problems in its result."""
 
 
 BLOCKED = Blocked()
@@ -67,7 +62,7 @@ type UnscopedHandler[RequestT, ResultT] = Callable[
 
 
 class _UntitledJsonSchema(GenerateJsonSchema):
-    """省去 pydantic 按类名、字段名自动生成的 title；参数语义只由字段 description 表达。"""
+    """Omit Pydantic titles generated from class/field names; field descriptions alone express argument semantics."""
 
     def field_title_should_be_set(self, schema: Any) -> bool:
         del schema
@@ -80,10 +75,9 @@ class _UntitledJsonSchema(GenerateJsonSchema):
 
 
 def request_json_schema(model: type[BaseModel]) -> dict[str, Any]:
-    """由请求模型派生工具的参数 schema（顶层恒含 ``type`` 与 ``properties``）。
+    """Derive the argument schema from the request model, always with top-level ``type`` and ``properties``.
 
-    工具用途只写在声明的 description 上，请求模型的 docstring 不进入 schema。
-    """
+    Tool purpose appears only in the declaration description; request-model docstrings do not enter the schema."""
     schema = model.model_json_schema(schema_generator=_UntitledJsonSchema)
     schema.pop("description", None)
     schema.setdefault("properties", {})
@@ -92,7 +86,7 @@ def request_json_schema(model: type[BaseModel]) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class ToolImage:
-    """结果里的一张图片：两宿主都以 MCP 图片内容块交给 Agent，不交文件路径。"""
+    """A result image, delivered to the Agent as an MCP image content block on both hosts, not a file path."""
 
     data: bytes
     mime_type: str
@@ -104,15 +98,14 @@ class ToolImage:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolDeclaration[RequestT: BaseModel, ResultT]:
-    """作用于某个既有项目的 Agent 工具。
+    """An Agent tool acting on an existing project.
 
-    结果编码的三个可选钩子都作用于 handler 的成功值，两宿主共用：
+    Optional result-encoding hooks act on the handler’s success value and are shared by both hosts:
 
-    - ``summary``：人类可读的摘要文本，返回空值时不出摘要块；
-    - ``projection``：结构化结果，缺省为 ``{domain_key: 值的 JSON 投影}``；
-    - ``is_error``：值本身表示失败时（如批次全部被阻断）返回 True，缺省恒为 False；
-    - ``images``：随结果交给 Agent 看的图片，排在文本块之后，缺省没有图片。
-    """
+    - ``summary``: human-readable summary; an empty result omits the summary block.
+    - ``projection``: structured result, defaulting to ``{domain_key: JSON projection of the value}``.
+    - ``is_error``: True when the value itself represents failure (such as an entirely blocked batch); defaults to False.
+    - ``images``: images delivered to the Agent after text blocks; none by default."""
 
     name: str
     description: str
@@ -133,11 +126,10 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UnscopedToolDeclaration[RequestT: BaseModel, ResultT]:
-    """不作用于某个既有项目的 Agent 工具。
+    """An Agent tool not acting on an existing project.
 
-    handler 不接 ``ProjectScope``：内嵌宿主不注入会话项目，远程宿主的 schema 不追加 ``project``。
-    没有目标项目也就没有迁移裁决可查，因此不带迁移阻断策略。
-    """
+    The handler receives no ``ProjectScope``: the embedded host injects no session project and the remote schema adds no ``project``.
+    Without a target project there is no migration decision to query, so no migration-blocking policy is attached."""
 
     name: str
     description: str
@@ -153,17 +145,17 @@ class UnscopedToolDeclaration[RequestT: BaseModel, ResultT]:
 
 type AgentToolDeclaration = ToolDeclaration[Any, Any] | UnscopedToolDeclaration[Any, Any]
 
-MIGRATION_REFUSAL_NOTE = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
+MIGRATION_REFUSAL_NOTE = "Reject execution after project-data upgrade failure, returning project_migration_failed."
 
-#: 调用文本模型的工具共用：输出被截断时的问题码与出路。
+#: Shared by text-model tools: output-truncation problem code and recovery guidance.
 TEXT_OUTPUT_TRUNCATED_NOTE = (
-    "输出被文本模型的最大输出长度截断时返回 text_output_truncated problem，params.model 指名模型："
-    "params.custom_model 为 true 时请用户在设置里为它登记最大输出长度，否则请用户换一个文本模型；原样重试会再次截断。"
+    "If text-model output is truncated by its output limit, returns text_output_truncated, with params.model naming the model: "
+    "when params.custom_model is true, ask the user to register its maximum output length in settings; otherwise ask for a different text model. Retrying unchanged will truncate again."
 )
 
 
 def tool_description(declaration: AgentToolDeclaration) -> str:
-    """两宿主共用的工具描述：迁移阻断策略为 ``BLOCKED`` 的声明在末尾追加迁移拒绝说明。"""
+    """Shared tool description: append a migration-refusal note for declarations with ``BLOCKED`` policy."""
     if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked):
         return declaration.description + MIGRATION_REFUSAL_NOTE
     return declaration.description
@@ -196,7 +188,7 @@ async def invoke_declaration(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
-    """按声明校验请求、执行迁移阻断策略并调用 handler；两宿主共用这一个入口。"""
+    """Validate requests, enforce migration policy, and invoke the handler by declaration; both hosts share this entry."""
     request = _validated_request(declaration.request_model, arguments)
     if isinstance(request, ToolProblem):
         return ToolOutcome(problem=request)
@@ -211,7 +203,7 @@ async def invoke_unscoped_declaration(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
-    """按无 scope 声明校验请求并调用 handler；两宿主共用这一个入口。"""
+    """Validate requests and invoke the handler for unscoped declarations; both hosts share this entry."""
     request = _validated_request(declaration.request_model, arguments)
     if isinstance(request, ToolProblem):
         return ToolOutcome(problem=request)

@@ -1,17 +1,17 @@
 /**
- * 复刻 Anthropic 官方参考实现：模型在处理前把图片缩到同时满足边长与视觉 token 两条
- * 限制的最大等比尺寸。见 https://platform.claude.com/docs/en/build-with-claude/vision-coordinates
+ * Reproduce Anthropic official references: models resize to largest proportional dimensions satisfying both
+ * edge-length/vision-token limits. See https://platform.claude.com/docs/en/build-with-claude/vision-coordinates
  */
 
-/** 视觉 token 数：每 28×28 像素一块，一块 1 个 token。 */
+/** Vision tokens: one token per 28×28 pixel block. */
 function countImageTokens(width: number, height: number): number {
   return Math.ceil(width / 28) * Math.ceil(height / 28);
 }
 
 /**
- * 四舍六入五取偶（banker's rounding），与 Python 的 `round()` 一致。
- * 服务端把恰好 .5 的短边解析为偶数邻值，`Math.round` 一律进位，两者对部分图片
- * 会算出相差 1 像素的尺寸。
+ * Half-even banker's rounding, matching Python `round()`.
+ * Server exactly-.5 short edges choose even neighbors; `Math.round` always rounds upward,
+ * differing by one pixel for some images.
  */
 function roundTiesToEven(value: number): number {
   const floor = Math.floor(value);
@@ -20,9 +20,9 @@ function roundTiesToEven(value: number): number {
 }
 
 /**
- * 模型缩放（补边之前）后的像素尺寸，返回 `[width, height]`。
+ * Model-resized pixel dimensions before padding, returning `[width, height]`.
  *
- * 默认参数是标准分辨率档。已经落在两条限制内的图片原样返回。
+ * Defaults use standard resolution tiers. Images satisfying both limits return unchanged.
  */
 export function resizedSize(
   width: number,
@@ -41,10 +41,10 @@ export function resizedSize(
     return [resizedW, resizedH];
   }
 
-  // 沿长边二分：找出仍然合规的最大等比尺寸。
+  // Binary search along long edges for largest valid proportional sizes.
   const aspectRatio = width / height;
-  let lo = 1; // lo 恒合规
-  let hi = width; // hi 恒不合规
+  let lo = 1; // lo always valid.
+  let hi = width; // hi always invalid.
   while (lo + 1 < hi) {
     const mid = Math.floor((lo + hi) / 2);
     if (fits(mid, Math.max(roundTiesToEven(mid / aspectRatio), 1))) {

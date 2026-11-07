@@ -1,1 +1,1 @@
-"""用户自有对象存储的连接与客户端。"""
+"""Connections and clients for user-owned object storage."""

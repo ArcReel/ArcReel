@@ -1,4 +1,4 @@
-/** 安装量与评分聚合的查找键：同一源里 slug 唯一。 */
+/** Lookup key for aggregate installation counts and ratings: slug is unique within one source. */
 export function aggregateKey(sourceId: number, slug: string): string {
   return `${sourceId}/${slug}`;
 }

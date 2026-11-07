@@ -78,8 +78,8 @@ describe("isLinkInput", () => {
   });
 
   it("reads the __value__ wrapper as a literal whatever it wraps", () => {
-    // 包装是作者刻意声明的「这是字面数组」，与服务端 workflow.is_link 同序：先看包装再判形状。
-    // 反过来先解包，{"__value__": ["4", 0]} 会被判成连线，一个真能填值的输入就从手选里消失了。
+    // Wrappers explicitly declare literal arrays; match server workflow.is_link by checking wrappers before shapes.
+    // Unwrapping first misclassifies {"__value__": ["4", 0]} as links, hiding genuinely assignable manual inputs.
     expect(isLinkInput({ __value__: ["a", "b"] })).toBe(false);
     expect(isLinkInput({ __value__: ["4", 0] })).toBe(false);
   });
@@ -110,7 +110,7 @@ describe("literalInputText", () => {
   it("shows the current literal and truncates a long one", () => {
     const node = workflowNodes(WORKFLOW)[2];
 
-    // 字符串按原文显示，不加一层 JSON 引号；其余类型走 JSON 写法。
+    // Strings display raw without JSON quotes; other types use JSON.
     expect(literalInputText(node, "text")).toBe("a cat");
     expect(literalInputText(node, "clip")).toBe('["4",0]');
     expect(literalInputText({ ...node, inputs: { text: "x".repeat(60) } }, "text").endsWith("…")).toBe(true);
@@ -366,7 +366,7 @@ describe("saveBlockers", () => {
 
 describe("definitionFingerprint", () => {
   it("reads an empty title the same as no title at all", () => {
-    // 手选进来的条目在无标题节点上不写 title，服务端重匹配回来的那一份写的是 ""。
+    // Manually selected untitled nodes omit title, while server rematches write "".
     const picked = definition({ bindings: { prompt: [{ node: "10", input: "text", class_type: "CLIPTextEncode" }] } });
     const returned = definition({
       bindings: { prompt: [{ node: "10", input: "text", class_type: "CLIPTextEncode", title: "" }] },

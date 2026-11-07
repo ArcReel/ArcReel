@@ -1,13 +1,12 @@
-"""
-生成 API 路由
+"""Generation API routes.
 
-处理分镜图、视频、角色图、线索图的生成请求。
-所有生成请求入队到 GenerationQueue，由 GenerationWorker 异步执行。
+Handle requests for storyboard images, videos, character images, and clue images.
+All generation requests enter GenerationQueue for asynchronous GenerationWorker execution.
 
-错误处理：路由函数体只保留 happy path。领域异常（``lib.infra.api_errors``）与 lib 层异常
-（``FileNotFoundError`` / ``ScriptEditError`` / ``TaskSpecValidationError`` / 未预期异常）
-由 app 级 exception handler 统一映射为 HTTP 响应并脱敏（见 ``server/error_handlers.py``）。
-"""
+Error handling: route bodies retain only the happy path. Application-level exception handlers map
+and redact domain exceptions (``lib.infra.api_errors``) and library exceptions (``FileNotFoundError`` /
+``ScriptEditError`` / ``TaskSpecValidationError`` / unexpected exceptions) into HTTP responses
+(see ``server/error_handlers.py``)."""
 
 import asyncio
 import logging
@@ -77,7 +76,7 @@ def _resolve_request_artifact_episode(
         )
 
 
-# ==================== 请求模型 ====================
+# ==================== Request models ====================
 
 
 class GenerateStoryboardRequest(BaseModel):
@@ -86,7 +85,7 @@ class GenerateStoryboardRequest(BaseModel):
 
 
 class GenerateVideoRequest(BaseModel):
-    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
+    # Narration delivery is project configuration and does not affect video requests; reject removed per-request delivery fields as unknown.
     model_config = ConfigDict(extra="forbid")
 
     prompt: str | dict
@@ -115,7 +114,7 @@ class EditImageRequest(BaseModel):
     script_file: str | None = None
 
 
-# ==================== 分镜图生成 ====================
+# ==================== Storyboard-image generation ====================
 
 
 @router.post("/projects/{project_name}/generate/storyboard/{segment_id}")
@@ -126,11 +125,9 @@ async def generate_storyboard(
     user: CurrentUser,
     _t: Translator,
 ):
-    """
-    提交分镜图生成任务到队列，立即返回 task_id。
+    """Queue storyboard-image generation and immediately return task_id.
 
-    生成由 GenerationWorker 异步执行，状态通过 SSE 推送。
-    """
+    GenerationWorker executes asynchronously; SSE pushes status."""
 
     def _sync():
         pm_local = get_project_manager()
@@ -141,15 +138,15 @@ async def generate_storyboard(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
-        # 正式脚本的提示词才是生成依据：条目提示词待生成时拒绝，请求体里的 prompt 不能代替它。
+        # Formal script prompts alone ground generation: reject pending prompts; request-body prompt cannot replace them.
         if resolved[0].get("image_prompt") is None:
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
 
     await run_sync_transaction(_sync)
 
-    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）；
-    # 校验失败抛 TaskSpecValidationError，由 app 级 handler 映射为 400
+    # Structural validation/construction share one guard with SDK enqueue, without divergent rules;
+    # TaskSpecValidationError maps to 400 through application handlers.
     spec = TaskSpec.from_request(
         task_type="storyboard",
         media_type="image",
@@ -158,7 +155,7 @@ async def generate_storyboard(
         script_file=req.script_file,
     )
 
-    # 入队
+    # Enqueue.
     queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
@@ -179,7 +176,7 @@ async def generate_storyboard(
     }
 
 
-# ==================== 视频生成 ====================
+# ==================== Video generation ====================
 
 
 @router.post("/projects/{project_name}/generate/video/{segment_id}")
@@ -190,31 +187,29 @@ async def generate_video(
     user: CurrentUser,
     _t: Translator,
 ):
-    """
-    提交视频生成任务到队列，立即返回 task_id。
+    """Queue video generation and immediately return task_id.
 
-    需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
+    Requires a storyboard image as start frame. GenerationWorker executes asynchronously.
 
-    仅服务分镜图生视频：参考生视频没有分镜图这一步，在此拒绝并指引换入口。
-    """
+    Only for storyboard image-to-video: reference-to-video has no storyboard-image step and is rejected with guidance to the appropriate entry point."""
 
     def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
 
-        # 生成模式检查前置于分镜图存在性检查：参考生视频项目本无分镜图步骤，否则会拿到
-        # 「请先生成分镜图」的误导指引。磁盘中即使存在不适用于当前模式的分镜图也不参与判定；
-        # 生成模式以 project.json 为唯一真相源，确保请求执行与费用估算使用同一轴。
+        # Check generation mode before storyboard-image existence: reference-to-video has no storyboard step, otherwise users get
+        # misleading generate-storyboard-first guidance. Existing storyboard files inapplicable to the mode do not participate;
+        # project.json alone determines generation mode, keeping execution and estimation on the same axis.
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：分镜图只认 generated_assets.storyboard_image 的显式绑定，
-        # 不按同名文件推断。宫格项目指向 scene_{id}_first.png 时仍可正常解析。
-        # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
-        # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
-        # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
-        # handler 统一映射为脱敏响应（404 / 400）。
+        # Like workers, recognize only explicit generated_assets.storyboard_image bindings,
+        # never same-name file inference. Grid bindings to scene_{id}_first.png still resolve normally.
+        # Missing scripts (FileNotFoundError) and dirty storyboard-array keys (ScriptEditError) both
+        # fail fast, never silently default: an existing default file would cause successful submission
+        # followed by certain worker failure on script parsing, violating expectations. Application handlers
+        # map both to redacted 404 / 400 responses.
         script = pm_local.load_script(project_name, req.script_file)
         artifact_episode = _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
@@ -222,16 +217,16 @@ async def generate_video(
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
-        # worker 执行时按剧本当前的 video_prompt 生成，入队 payload 里的请求 prompt 不参与执行；
-        # 发声准入因此以盘上单元为准。
+        # Workers use current script video_prompt at execution, ignoring request prompts in enqueue payloads;
+        # speech admission therefore follows on-disk units.
         admission = admit_script_unit(resolve_script_kind(script), resolved[0])
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
-        # 同分镜图端点：按正式脚本的 video_prompt 判待生成，请求体里的 prompt 不能代替它。
+        # Like storyboard-image endpoints, determine pending authoring by formal video_prompt; request-body prompt cannot substitute.
         if resolved[0].get("video_prompt") is None:
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
-        # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
-        # 与 worker / 当前基线重建共用同一解析器。
+        # On-disk JSON fields are untrusted; path validation and explicit-binding requirements after schema activation
+        # share the worker/current-baseline reconstruction resolver.
         try:
             resolve_usable_storyboard_video_inputs(
                 project_path=project_path,
@@ -250,15 +245,15 @@ async def generate_video(
 
     project = await run_sync_transaction(_sync)
 
-    # 归桶按项目生成模式求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
-    # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
-    # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    # Evaluate buckets by project generation mode (docs/adr/0054), sharing execution lane declarations without separately hardcoding i2v.
+    # The mode check above excludes reference-to-video, so reachable projects are always i2v. Resolution preflight exposes missing capabilities/
+    # dangling references with repair guidance at submission rather than asynchronous task-panel failure.
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
     await require_video_bucket_capability(project, _video_bucket)
     await require_audio_switch_supported(project, _video_bucket)
 
-    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
-    # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。
+    # Structural validation/construction share one guard with SDK enqueue, without divergent rules.
+    # Duration is a capability dimension, validated by execution after provider resolution (ADR-0001).
     extra_payload: dict[str, object] = {
         "seed": req.seed,
         "duration_seconds": req.duration_seconds,
@@ -272,7 +267,7 @@ async def generate_video(
         extra_payload=extra_payload,
     )
 
-    # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
+    # Enqueue (services resolve providers automatically from configuration; callers need not supply one).
     result = await get_generation_queue().enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,
@@ -292,22 +287,22 @@ async def generate_video(
     }
 
 
-# ==================== 旁白配音（TTS）生成 ====================
+# ==================== Narration audio (TTS) generation ====================
 
 
 async def _require_audio_provider_configured(project: dict) -> str:
-    """未配置任何 audio 供应商时直接 400，让用户在生成入口就看到清晰提示。
+    """Return 400 immediately without a configured audio provider, giving clear guidance at generation entry.
 
-    解析失败（无全局默认且 auto-resolve 找不到 ready 的 audio 供应商）即视为未配置；
-    解析成功但凭证失效等运行期错误与图片/视频一致，留给 worker 在任务面板暴露。
-    返回解析出的 provider_id，入队时直接复用，避免每段重复解析。
-    """
+    Resolution failure (no global default and auto-resolution finds no ready audio provider) means
+    unconfigured. Successful resolution followed by invalid credentials or other runtime errors belongs
+    to workers/task panels, as with images/videos. Return resolved provider_id for enqueue reuse,
+    avoiding repeated resolution per segment."""
     from lib.db import async_session_factory
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        # Model absent from provider lists: app-level handlers return model-reselection 400 (ValueError subclass, caught before ValueError).
         raise
     except ValueError as exc:
         raise BadRequestError("audio_provider_not_configured") from exc
@@ -315,7 +310,7 @@ async def _require_audio_provider_configured(project: dict) -> str:
 
 
 def _require_project_tts(project: dict) -> str:
-    """旁白配音只为选了 TTS 配音、快照完整的项目生成；返回快照里的 provider_id 供入队复用。"""
+    """Generate narration only for TTS-selected projects with complete snapshots; return snapshot provider_id for enqueue reuse."""
 
     try:
         return require_project_tts_generation(project).provider_id
@@ -360,7 +355,7 @@ async def generate_tts(
     user: CurrentUser,
     _t: Translator,
 ):
-    """显式提交一个 narrator-owned unit 的旁白配音任务。"""
+    """Explicitly enqueue narration audio generation for one narrator-owned unit."""
 
     def _sync() -> tuple[dict, dict]:
         pm_local = get_project_manager()
@@ -409,7 +404,7 @@ async def generate_tts_batch(
     user: CurrentUser,
     _t: Translator,
 ):
-    """批量提交旁白配音任务：只入队缺少 narration_audio 的 narrator-owned 单元。"""
+    """Queue narration audio in batch: only narrator-owned units missing narration_audio."""
 
     def _sync() -> tuple[dict, list[str]]:
         pm_local = get_project_manager()
@@ -447,8 +442,8 @@ async def generate_tts_batch(
         }
 
     task_ids: list[str] = []
-    # 逐段给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一段
-    # 都等到全批落库为止；被跳过的段不进映射，调用方据此不给它们打标。
+    # Return each segment's own task rows: optimistic occupancy markers must await their own persistence, not the whole batch.
+    # Skipped segments are absent from the mapping so callers leave them unmarked.
     task_ids_by_segment: dict[str, str] = {}
     deduped_flags: list[bool] = []
     for seg_id in missing_ids:
@@ -464,7 +459,7 @@ async def generate_tts_batch(
         deduped_flags.append(bool(result.get("deduped", False)))
 
     message = _t("tts_batch_submitted", count=len(task_ids)) if task_ids else _t("tts_batch_none_missing")
-    # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才算 deduped
+    # Batch deduplication: deduped only if every enqueue matched existing tasks and no new task was created.
     return {
         "success": True,
         "task_ids": task_ids,
@@ -474,21 +469,20 @@ async def generate_tts_batch(
     }
 
 
-# ==================== 角色参考音频：TTS 试听样本 ====================
+# ==================== Character reference audio: TTS preview samples ====================
 
-# 试听文案长度粗护栏（与前端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。参考音频要求 2-10 秒，
-# 而「多少字合成出几秒」随语种与音色而变、提交前无法精确判定；此处只挡住整段粘贴导致的
-# 必然失败与无谓计费，真正的时长判定仍在执行层落盘后做。
+# Coarse preview-text length guard (same as frontend VOICE_SAMPLE_TEXT_MAX_LENGTH). Reference audio must be 2-10 seconds,
+# but text-length-to-duration varies by language/voice and cannot be predicted precisely before submission. Block only pasted paragraphs
+# certain to fail and waste billing; actual duration validation remains post-persistence in execution.
 VOICE_SAMPLE_TEXT_MAX_LENGTH = 200
 
 
 @router.get("/projects/{project_name}/audio-backend/voices")
 async def get_audio_backend_voices(project_name: str, _t: Translator):
-    """返回当前项目实际生效的 audio backend 音色枚举，供 TTS 试听弹窗选择音色。
+    """Return voices from the current project's actual effective audio backend for TTS preview selection.
 
-    未配置任何 audio 供应商时返回 configured=false + 空列表，不 400——前端据此禁用
-    生成入口而非报错，与角色卡「audio_backend 未配置该入口不可用」的口径一致。
-    """
+    Without an audio provider, return configured=false + empty list, not 400: frontend disables generation
+    rather than reporting an error, matching character-card behavior when audio_backend is unconfigured."""
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     try:
         await _require_audio_provider_configured(project)
@@ -502,9 +496,9 @@ async def get_audio_backend_voices(project_name: str, _t: Translator):
         audio=AudioLaneRequest(),
     )
     audio = ctx.audio
-    # backend 的 VoiceOption.label 对 DashScope 等携带描述性文案的供应商存的是 lib/i18n
-    # 翻译 key（不是直出文案），本层按请求 locale 渲染；无描述信息、label 本就等于 id
-    # 的供应商（如 OpenAI）_t() 找不到对应 key 时原样返回原字符串，无副作用。
+    # Backend VoiceOption.label for providers with descriptive wording (e.g. DashScope) stores lib/i18n
+    # translation keys, not direct wording. Render by request locale; providers lacking descriptions whose labels equal IDs
+    # (e.g. OpenAI) fall back to original strings when _t() finds no key, without side effects.
     return {
         "configured": True,
         "provider_id": audio.provider_model.provider_id,
@@ -521,11 +515,10 @@ async def generate_character_voice_sample(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交角色 TTS 试听样本生成任务：文本/音色显式传入，不落回全局旁白配置。
+    """Queue character TTS preview generation with explicit text/voice, never falling back to global narration settings.
 
-    生成产物是预览件，仅在 confirm 端点被显式提升为角色 reference_audio；本端点
-    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白配音完全同一套）。
-    """
+    Artifacts are previews, promoted to character reference_audio only explicitly through confirm. This
+    endpoint only enqueues, using the existing audio lane with identical concurrency/rate/accounting to narration."""
     text = req.text.strip()
     voice = req.voice.strip()
     if not text:
@@ -542,7 +535,7 @@ async def generate_character_voice_sample(
             char_name = validate_asset_name(name)
         except ValueError as exc:
             raise BadRequestError("asset_invalid_name", name=name) from exc
-        # 存量角色 key 可能是 NFD，按坐标系解析存在性
+        # Existing character keys may use NFD; resolve existence in the coordinate system.
         if resolve_asset_key(project.get("characters"), char_name) is None:
             raise NotFoundError("character_not_found", name=char_name)
         return project, char_name
@@ -584,13 +577,11 @@ async def confirm_character_voice_sample(
     req: ConfirmVoiceSampleRequest,
     _t: Translator,
 ):
-    """把已生成、已试听的 TTS 样本提升为角色 reference_audio；不确认不落资产。
+    """Promote a generated, auditioned TTS sample to character reference_audio; without confirmation, do not persist it to assets.
 
-    只信一个 task_id 指向的 voice_sample 任务结果，不接受客户端直传文件路径——
-    产物已在执行层过一遍与上传同口径的格式/时长/大小校验（见
-    ``execute_character_voice_sample_task``），此处只做「任务确属本角色、已成功」
-    的归属校验后原样落盘，不重复校验。
-    """
+    Trust only voice_sample results identified by task_id, never client-supplied paths. Execution already
+    validated format/duration/size under upload rules (see ``execute_character_voice_sample_task``).
+    Check only successful-task ownership by this character, then persist unchanged without repeating validation."""
     try:
         char_name = validate_asset_name(name)
     except ValueError as exc:
@@ -629,11 +620,11 @@ async def confirm_character_voice_sample(
         except KeyError as exc:
             raise NotFoundError("character_not_found", name=char_name) from exc
 
-        # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
-        # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动
-        # 广播刷新事件——但落盘字节确实已替换。显式带上新 mtime 指纹的 character:updated
-        # 事件，让其它已打开该项目的客户端也能对该音频文件 cache-bust，不必等到无关的
-        # 下一次项目刷新才碰巧同步。
+        # Fixed target name {char_name}.wav means reference_audio stays unchanged after regeneration/reconfirmation
+        # (same path string). project.json field diffs cannot detect changes or automatically broadcast refreshes,
+        # although persisted bytes changed. Emit character:updated explicitly with new mtime fingerprints
+        # so other open clients cache-bust the audio without waiting for an unrelated
+        # project refresh to synchronize by chance.
         try:
             emit_project_change_batch(
                 project_name,
@@ -667,10 +658,10 @@ async def confirm_character_voice_sample(
     }
 
 
-# ==================== 资产图生成（character / scene / prop / product 共用） ====================
+# ==================== Asset-sheet generation (shared by character / scene / prop / product) ====================
 
 
-# i18n key 命名差异：scene 用历史前缀 "project_scene_*"
+# i18n naming exception: scenes retain historical "project_scene_*" prefixes.
 _ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
     "character": {"not_found": "character_not_found", "submitted": "character_task_submitted"},
     "scene": {"not_found": "project_scene_not_found", "submitted": "scene_task_submitted"},
@@ -687,17 +678,16 @@ async def _enqueue_asset_generation(
     user_id: str,
     _t: Translator,
 ) -> dict:
-    """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。
+    """Shared enqueue logic for project-level asset sheets (character / scene / prop / product).
 
-    请求体没有 prompt：描述只取项目里存储的条目，执行时按当次的项目状态重读。
-    """
+    No request-body prompt: descriptions come only from stored project entries, reread from current state at execution."""
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
     def _sync() -> str:
         project = get_project_manager().load_project(project_name)
-        # 存量 key 可能是 NFD，按坐标系解析存在性并取真实落盘 key；
-        # 非 dict / 显式 null 的畸形桶由 resolve_asset_key 按空桶处理
+        # Existing keys may use NFD; resolve existence and actual persisted keys in the coordinate system;
+        # resolve_asset_key treats malformed nondict / explicit-null buckets as empty.
         resolved = resolve_asset_key(project.get(spec.bucket_key), resource_name)
         if resolved is None:
             raise NotFoundError(keys["not_found"], name=resource_name)
@@ -741,7 +731,7 @@ async def generate_character(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交角色资产图生成任务到队列，立即返回 task_id。"""
+    """Queue character asset-sheet generation and immediately return task_id."""
     return await _enqueue_asset_generation(
         asset_type="character",
         project_name=project_name,
@@ -759,12 +749,11 @@ async def generate_character_derivative(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交角色衍生资产图生成任务到队列，立即返回 task_id。
+    """Queue character derivative asset-sheet generation and immediately return task_id.
 
-    衍生图是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
-    因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。本体没有
-    资产图、或衍生还没写变化描述时在此拒绝，不建任务。
-    """
+    Derivatives edit base asset sheets using their own appearance-change descriptions plus fixed guards.
+    Thus request bodies contain no prompt; enqueue/execution read current project state, avoiding separate
+    instruction copies. Reject missing base sheets or unwritten derivative change descriptions here, without creating tasks."""
 
     def _sync() -> tuple[dict, DerivativeSheetSource]:
         project = get_project_manager().load_project(project_name)
@@ -808,7 +797,7 @@ async def generate_scene(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交场景资产图生成任务到队列，立即返回 task_id。"""
+    """Queue scene asset-sheet generation and immediately return task_id."""
     return await _enqueue_asset_generation(
         asset_type="scene",
         project_name=project_name,
@@ -825,7 +814,7 @@ async def generate_prop(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交道具资产图生成任务到队列，立即返回 task_id。"""
+    """Queue prop asset-sheet generation and immediately return task_id."""
     return await _enqueue_asset_generation(
         asset_type="prop",
         project_name=project_name,
@@ -842,7 +831,7 @@ async def generate_product(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交商品标准参考图（product sheet）生成任务到队列，立即返回 task_id。"""
+    """Queue product standard-reference-image (product sheet) generation and immediately return task_id."""
     return await _enqueue_asset_generation(
         asset_type="product",
         project_name=project_name,
@@ -852,16 +841,16 @@ async def generate_product(
     )
 
 
-# ==================== 图片指令式编辑（image edit） ====================
+# ==================== Instruction-based image editing (image edit) ====================
 
 
 async def _require_i2i_image_provider_configured(project: dict) -> str:
-    """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
+    """Return 400 without creating tasks if the project i2i slot cannot resolve an available provider.
 
-    图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 GLOSSARY.md「图片编辑」），
-    故解析前置到入队；执行层 ``generate_image_async`` 的能力 gating 保留兜底。
-    返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
-    """
+    Image editing is necessarily i2i, known at enqueue (the sole exception; see ``docs/adr/0001`` and
+    GLOSSARY.md “Image editing”), so resolve before enqueue. Execution ``generate_image_async``
+    capability gating remains as fallback. Return provider_id for enqueue reuse, routing rate-limit pools
+    and accounting precisely by i2i slot."""
     from lib.db import async_session_factory
 
     try:
@@ -869,7 +858,7 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
             project, None, generation_type="i2i"
         )
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        # Model absent from provider lists: app-level handlers return model-reselection 400 (ValueError subclass, caught before ValueError).
         raise
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc
@@ -883,11 +872,11 @@ async def edit_image(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交图片指令式编辑任务到队列，立即返回 task_id。
+    """Queue instruction-based image editing and immediately return task_id.
 
-    以当前图为唯一参考图、编辑指令为唯一 prompt 走 i2i；新图覆盖 current、旧图自动进
-    版本历史，原 image_prompt 不回写（编辑语义见 ``docs/adr/0050``）。
-    """
+    Use i2i with the current image as sole reference and editing instructions as sole prompt. New images
+    replace current, old images enter version history automatically; do not write back original image_prompt
+    (semantics in ``docs/adr/0050``)."""
     if req.resource_type not in EDITABLE_RESOURCE_TYPES:
         raise BadRequestError("image_edit_resource_type_invalid", resource_type=req.resource_type)
     instruction = req.instruction.strip()
@@ -930,7 +919,7 @@ async def edit_image(
 
     provider_id = await _require_i2i_image_provider_configured(project)
 
-    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）
+    # Structural validation/construction share one guard with SDK enqueue, without divergent rules.
     spec = TaskSpec.from_request(
         task_type="image_edit",
         media_type="image",
@@ -947,8 +936,8 @@ async def edit_image(
         media_type=spec.media_type,
         resource_id=spec.resource_id,
         script_file=spec.script_file,
-        # image_edit 跨四类资产 + storyboard 共用同一 task_type，resource_id 命名空间
-        # 不互斥（角色和道具可能同名）；纳入去重键避免跨类型误判为重复任务。
+        # image_edit shares one task_type across four asset types + storyboard, whose resource_id namespaces
+        # overlap (characters and props can share names); include resource type in dedup keys to prevent cross-type false duplicates.
         resource_type=req.resource_type,
         payload=spec.payload,
         source="webui",

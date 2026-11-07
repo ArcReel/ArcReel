@@ -3,21 +3,21 @@ import { create } from "zustand";
 import { API } from "@/api";
 import type { UsageRecord, UsageRecordDetail, UsageSummary } from "@/types";
 
-/** 悬浮层右栏「最近已结束」的条数。 */
+/** Number of recently completed calls in overlay right columns. */
 export const HEADER_RECENT_LIMIT = 10;
 
-/** 右栏只看已结束调用；进行中的那部分由左栏的任务与 pending 调用负责。 */
+/** Right columns include completed calls only; left-column tasks/pending calls cover ongoing work. */
 const FINISHED_STATUSES = ["success", "failed", "cancelled"] as const;
 
 interface UsageHeaderState {
-  /** 顶栏入口当前挂靠的项目；演示项目与无项目时为 null，此时不发请求。 */
+  /** Header entry's current project; null for demos/no project, with no requests. */
   projectName: string | null;
   summary: UsageSummary | null;
-  /** 最近 N 条已结束调用，按开始时刻倒序。 */
+  /** Latest N completed calls, descending by start time. */
   recent: UsageRecord[];
-  /** 无任务代表的 pending 调用；有任务的那部分由任务 store 提供。 */
+  /** Pending calls without task representatives; task stores supply task-bound calls. */
   pending: UsageRecord[];
-  /** 上一轮刷新里有请求失败：面板上的数据可能是旧的或缺的，界面据此给出提示与重试。 */
+  /** Prior refresh requests failed; panels may contain stale/missing data, requiring notices/retries. */
   loadFailed: boolean;
 
   detailId: number | null;
@@ -25,9 +25,9 @@ interface UsageHeaderState {
   detailLoading: boolean;
   detailFailed: boolean;
 
-  /** 切换挂靠项目：作废在途请求、清空上一项目的数据，再取一轮。 */
+  /** Switch attached projects: invalidate in-flight requests, clear old data, then fetch once. */
   setProject: (projectName: string | null) => Promise<void>;
-  /** 重取 summary、最近记录与 pending 调用。多入口共享，在途时合并为结束后再跑一轮。 */
+  /** Refetch summary/recent records/pending calls. Shared entries merge in-flight calls into one follow-up round. */
   refresh: () => Promise<void>;
   openDetail: (recordId: number) => Promise<void>;
   closeDetail: () => void;
@@ -41,9 +41,9 @@ const EMPTY_DATA = {
 };
 
 /**
- * 多入口（挂载、打开悬浮层、事件流刷新信号）共用一份刷新：在途时把新的调用合并成
- * 「当前这轮结束后再跑一轮」，各调用方各自结算，避免并发刷新交错写回。目标恒为
- * 「当前挂靠项目」，故不需要按目标分桶。
+ * Mount, overlay-open and stream-refresh entries share refreshes: merge calls arriving in flight into
+ * one follow-up round, settling each caller independently to avoid interleaved writes. Targets always follow
+ * currently attached projects, requiring no target buckets.
  */
 function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
   let running = false;
@@ -66,7 +66,7 @@ function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
         queued = [];
       }
     } finally {
-      // run 意外抛出时也要回到空闲并结算排队方，否则之后的每次刷新都只会排队、永不执行。
+      // Unexpected run errors must also return idle and settle queued callers, or later refreshes queue forever without execution.
       queued.forEach((resolve) => resolve());
       queued = [];
       running = false;
@@ -83,7 +83,7 @@ function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
         }
         void drain([resolve]);
       }),
-    /** 作废在途请求；调用方负责随后补一轮，否则界面停在上一项目的数据上。 */
+    /** Invalidate in-flight requests; callers must refetch afterward or UI retains old-project data. */
     abort: () => controller?.abort(),
   };
 }
@@ -100,8 +100,8 @@ export const useUsageHeaderStore = create<UsageHeaderState>((set, get) => {
       ).catch(() => null),
       API.getUsageRecords({ projectName, statuses: ["pending"] }, { signal }).catch(() => null),
     ]);
-    // 被接管方作废时不写回：这一轮的结果属于上一个项目，或已有更新的一轮在跑。
-    // 作废在这里就返回，故三个 null 之中不含被 abort 的那种，只代表真的失败。
+    // Superseded invalidated requests never write: results belong to previous projects or newer rounds are already running.
+    // Invalidation returns here; all three null values below mean actual failures, never aborts.
     if (signal.aborted || get().projectName !== projectName) return;
     set({
       summary: summary ?? get().summary,
@@ -124,7 +124,7 @@ export const useUsageHeaderStore = create<UsageHeaderState>((set, get) => {
     detailFailed: false,
 
     setProject: async (projectName) => {
-      // 同一项目再次登记是顶栏重新挂载（如从设置页返回）：离开期间的事件已错过，补一轮重取。
+      // Re-registering identical projects means header remounts (for example returning from settings); refetch events missed while away.
       if (get().projectName === projectName) {
         if (projectName !== null) await refresher.call();
         return;

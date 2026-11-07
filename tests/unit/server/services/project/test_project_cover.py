@@ -1,4 +1,4 @@
-"""项目封面选择器单测：验证 fallback 链的优先级与鲁棒性。"""
+"""Project-cover selector unit tests: fallback-chain priority and resilience."""
 
 from __future__ import annotations
 
@@ -13,11 +13,9 @@ from server.services.project.project_cover import resolve_project_cover
 
 
 def _mk_manager(scripts_by_file: dict[str, dict]) -> MagicMock:
-    """构造 fake ProjectManager，load_script 按文件名查表返回；缺失则抛 FileNotFoundError。
+    """Fake ProjectManager: load_script looks up filenames and raises FileNotFoundError on misses.
 
-    get_project_path 抛 FileNotFoundError，封面 URL 不带版本键，只验证挑选顺序；
-    版本键的用例用 ``_real_manager`` 走真实的项目目录查找。
-    """
+    get_project_path raises FileNotFoundError, so cover URLs lack version keys; test only selection order. Version-key cases use ``_real_manager`` for actual directory lookup."""
     mgr = MagicMock()
     mgr.get_project_path.side_effect = FileNotFoundError("proj")
 
@@ -30,7 +28,7 @@ def _mk_manager(scripts_by_file: dict[str, dict]) -> MagicMock:
     return mgr
 
 
-# 分镜图生视频的三种分镜骨架：(content_mode, 条目数组键)。
+# Three storyboard-image-to-video skeletons: (content_mode, entry-array key).
 _STORYBOARD_SKELETONS = [
     pytest.param("narration", "segments", id="narration-segments"),
     pytest.param("drama", "scenes", id="drama-scenes"),
@@ -39,7 +37,7 @@ _STORYBOARD_SKELETONS = [
 
 
 def test_returns_video_thumbnail_when_present_in_reference_mode():
-    """reference 模式已生成视频：命中 video_thumbnail 最高优先级。"""
+    """Generated reference-mode video gives video_thumbnail highest priority."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"S": {"scene_sheet": "scenes/s.png"}},
@@ -57,7 +55,7 @@ def test_returns_video_thumbnail_when_present_in_reference_mode():
 
 @pytest.mark.parametrize(("content_mode", "items_key"), _STORYBOARD_SKELETONS)
 def test_returns_video_thumbnail_in_storyboard_mode(content_mode, items_key):
-    """分镜图生视频：三种分镜骨架的条目都能命中 video_thumbnail，不落到项目级场景图。"""
+    """Storyboard-image-to-video entries in all three skeletons select video_thumbnail rather than project-level scene images."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"S": {"scene_sheet": "scenes/s.png"}},
@@ -75,8 +73,7 @@ def test_returns_video_thumbnail_in_storyboard_mode(content_mode, items_key):
 
 
 def test_video_thumbnail_beats_storyboard_image_across_all_episodes():
-    """只要任意一集有 video_thumbnail，胜过第一集的 storyboard_image ——
-    分两趟扫的关键合同（episode 顺序不锁死优先级）。"""
+    """Any episode's video_thumbnail outranks the first episode's storyboard_image: the core two-pass contract, independent of episode order."""
     project = {
         "episodes": [
             {"script_file": "scripts/episode_1.json"},
@@ -97,7 +94,7 @@ def test_video_thumbnail_beats_storyboard_image_across_all_episodes():
 
 @pytest.mark.parametrize(("content_mode", "items_key"), _STORYBOARD_SKELETONS)
 def test_falls_back_to_storyboard_image_when_no_video_thumbnail(content_mode, items_key):
-    """三种分镜骨架都没有视频首帧时，取条目上的 storyboard_image，仍优先于项目级场景图。"""
+    """Without video frames in any skeleton, select entry storyboard_image, still ahead of project-level scene images."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"S": {"scene_sheet": "scenes/s.png"}},
@@ -115,7 +112,7 @@ def test_falls_back_to_storyboard_image_when_no_video_thumbnail(content_mode, it
 
 
 def test_reference_mode_without_generated_assets_falls_back_to_scene_sheet():
-    """参考生视频未生成任何视频：用第一张场景参考图当封面。"""
+    """Reference-to-video without generated video uses the first scene reference image as cover."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
@@ -123,12 +120,12 @@ def test_reference_mode_without_generated_assets_falls_back_to_scene_sheet():
     }
     scripts = {"scripts/episode_1.json": {"video_units": [{"generated_assets": {"status": "pending"}}]}}
     url = resolve_project_cover(_mk_manager(scripts), "proj", project)
-    # scene 优先于 character
+    # scene precedes character.
     assert url == "/api/v1/files/proj/scenes/酒馆.png"
 
 
 def test_tolerates_corrupt_generated_assets():
-    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，回退到 scene_sheet，不抛异常。"""
+    """Treat malformed nondict generated_assets (such as strings) as absent; fall back to scene_sheet without raising."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
@@ -139,7 +136,7 @@ def test_tolerates_corrupt_generated_assets():
 
 
 def test_tolerates_corrupt_item_arrays():
-    """条目数组非 list、条目非 dict、资产路径非字符串的脏数据按缺失跳过，不抛异常，也不遮蔽同一剧本里的真实资产。"""
+    """Skip malformed nonlist entry arrays, nondict entries and nonstring asset paths as missing, without exceptions or hiding valid same-script assets."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
@@ -175,7 +172,7 @@ def test_returns_none_for_empty_project():
 
 
 def test_missing_script_file_does_not_break_fallback():
-    """scripts/episode_N.json 缺失 / 损坏时仍应走到资产 fallback。"""
+    """Missing/corrupt scripts/episode_N.json still reaches asset fallback."""
     project = {
         "episodes": [{"script_file": "scripts/episode_missing.json"}],
         "scenes": {"S": {"scene_sheet": "scenes/s.png"}},
@@ -185,7 +182,7 @@ def test_missing_script_file_does_not_break_fallback():
 
 
 def test_episode_without_script_file_is_skipped():
-    """episode 条目里没 script_file 键（脚本规划未完成）：跳过即可，不报错。"""
+    """Episode entries lacking script_file (planning incomplete) are skipped without error."""
     project = {
         "episodes": [{"episode": 1}],
         "characters": {"X": {"character_sheet": "characters/x.png"}},
@@ -195,10 +192,9 @@ def test_episode_without_script_file_is_skipped():
 
 
 def test_preloaded_scripts_skips_manager_load():
-    """传入 preloaded_scripts 且覆盖所有 episode 时，不应再调用 manager.load_script。
+    """If preloaded_scripts covers every episode, never call manager.load_script again.
 
-    这是 list_projects 的 hot-path 合同：与项目摘要投影共用一份剧本加载，
-    避免 cover + status 两次 JSON 解析。"""
+    list_projects hot-path contract: share script loads with project-summary projection, avoiding separate cover/status JSON parses."""
     project = {
         "episodes": [
             {"script_file": "scripts/episode_1.json"},
@@ -209,14 +205,14 @@ def test_preloaded_scripts_skips_manager_load():
         "scripts/episode_1.json": {"segments": []},
         "scripts/episode_2.json": {"segments": [{"generated_assets": {"video_thumbnail": "thumbnails/E2.jpg"}}]},
     }
-    mgr = _mk_manager({})  # 空 map：若 cover 不走预加载，会全部 FileNotFoundError
+    mgr = _mk_manager({})  # Empty map: absent preload use, every lookup would raise FileNotFoundError.
     url = resolve_project_cover(mgr, "proj", project, preloaded_scripts=preloaded)
     assert url == "/api/v1/files/proj/thumbnails/E2.jpg"
     mgr.load_script.assert_not_called()
 
 
 def test_preloaded_scripts_falls_back_to_manager_for_missing_entries():
-    """preloaded_scripts 未覆盖的集：回退 manager.load_script，保持"尽力而为"的合同。"""
+    """Episodes absent from preloaded_scripts fall back to manager.load_script, preserving best-effort behavior."""
     project = {
         "episodes": [
             {"script_file": "scripts/episode_1.json"},
@@ -226,20 +222,19 @@ def test_preloaded_scripts_falls_back_to_manager_for_missing_entries():
     preloaded = {
         "scripts/episode_1.json": {"segments": []},
     }
-    # manager 仅提供 episode_2：模拟"1 集已预加载，2 集需回源"。
+    # Manager supplies only episode_2, simulating episode 1 preloaded and episode 2 requiring source lookup.
     mgr = _mk_manager(
         {"scripts/episode_2.json": {"segments": [{"generated_assets": {"video_thumbnail": "thumbnails/E2.jpg"}}]}}
     )
     url = resolve_project_cover(mgr, "proj", project, preloaded_scripts=preloaded)
     assert url == "/api/v1/files/proj/thumbnails/E2.jpg"
-    # 预加载命中 episode_1：不应触发其 load_script；episode_2 missing from preload：回源一次。
+    # Preloaded episode_1 must not invoke load_script; episode_2 missing from preload falls back once.
     called_files = {call.args[1] for call in mgr.load_script.call_args_list}
     assert called_files == {"scripts/episode_2.json"}
 
 
 def test_mixed_segments_and_video_units_do_not_shadow_each_other():
-    """分镜图生视频剧本里混入 status:pending 空壳 video_units 时，segments 里的真实
-    video_thumbnail / storyboard_image 仍参与挑选，不被跳过而退到 scene_sheet。"""
+    """Pending shell video_units inside storyboard-image-to-video scripts must not hide real segments video_thumbnail / storyboard_image or force scene_sheet fallback."""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"选秀大殿": {"scene_sheet": "scenes/选秀大殿.png"}},
@@ -265,7 +260,7 @@ def test_mixed_segments_and_video_units_do_not_shadow_each_other():
     [None, "", 0],
 )
 def test_ignores_falsy_sheet_values(sheet_value):
-    """scene_sheet/character_sheet 可能是 None/空串/数字 0，都应被跳过不误选。"""
+    """Skip scene_sheet/character_sheet None, empty strings and numeric zero rather than selecting them."""
     project = {
         "episodes": [],
         "scenes": {"S": {"scene_sheet": sheet_value}},
@@ -276,7 +271,7 @@ def test_ignores_falsy_sheet_values(sheet_value):
 
 
 def _real_manager(tmp_path: Path, *, create: str | None = "proj") -> ProjectManager:
-    """数据根落在 tmp_path 的真实 ProjectManager；``create`` 给出要预先建好的项目名。"""
+    """Real ProjectManager with data root in tmp_path; ``create`` lists project names to prepare."""
     manager = ProjectManager(tmp_path)
     if create is not None:
         manager.create_project(create)
@@ -284,7 +279,7 @@ def _real_manager(tmp_path: Path, *, create: str | None = "proj") -> ProjectMana
 
 
 def test_cover_url_carries_mtime_version_key_when_file_exists(tmp_path: Path):
-    """封面文件在场时 URL 附 ?v=<mtime_ns>，重新生成（mtime 变化）后 URL 随之变化。"""
+    """Existing cover files append ?v=<mtime_ns>; regeneration changes mtime and therefore URL."""
     project = {"scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}}}
     manager = _real_manager(tmp_path)
     sheet = manager.get_project_path("proj") / "scenes" / "酒馆.png"
@@ -300,7 +295,7 @@ def test_cover_url_carries_mtime_version_key_when_file_exists(tmp_path: Path):
 
 
 def test_cover_url_has_no_version_key_when_file_missing(tmp_path: Path):
-    """登记了封面路径但文件不在场时不附版本键，URL 原样交给 files 路由处理。"""
+    """Registered cover paths with missing files omit version keys and pass the unchanged URL to files routes."""
     project = {"scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}}}
     url = resolve_project_cover(_real_manager(tmp_path), "proj", project)
     assert url == "/api/v1/files/proj/scenes/酒馆.png"
@@ -308,7 +303,7 @@ def test_cover_url_has_no_version_key_when_file_missing(tmp_path: Path):
 
 @pytest.mark.parametrize("project_name", ["ghost", "../escape"], ids=["missing-project", "traversal-name"])
 def test_cover_url_has_no_version_key_when_project_lookup_fails(tmp_path: Path, project_name: str):
-    """项目目录查不到（不存在或名称非法）时不抛异常，封面 URL 照常给出、不附版本键。"""
+    """Missing/invalid project-directory lookup does not raise; return cover URL without a version key."""
     project = {"scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}}}
     url = resolve_project_cover(_real_manager(tmp_path, create=None), project_name, project)
     assert url == f"/api/v1/files/{project_name}/scenes/酒馆.png"

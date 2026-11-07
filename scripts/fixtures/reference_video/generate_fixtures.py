@@ -1,4 +1,4 @@
-"""生成 SDK 验证用的纯色参考图（跨平台、无外部资产依赖）。"""
+"""Generate solid-color SDK references, cross-platform without external assets."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def generate_color_refs(
     count: int,
     size: tuple[int, int] = (512, 512),
 ) -> list[Path]:
-    """在 out_dir 下生成 count 张等间距色相的 PNG，返回路径列表。"""
+    """Generate count evenly spaced-hue PNGs under out_dir and return their paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for i in range(count):

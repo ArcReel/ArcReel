@@ -1,4 +1,4 @@
-"""产物下载接随包 ffmpeg：视频在下载预算之外做 faststart。"""
+"""Artifact downloads use bundled ffmpeg: video faststart runs outside the download budget."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ async def test_downloaded_moov_last_video_lands_as_faststart(tmp_path: Path):
 
 
 async def test_stream_to_file_stores_bytes_verbatim_inside_the_download_budget(tmp_path: Path):
-    """下载预算内的落盘只写原样字节：重封装若跑在预算里，预算到期会把已下载成功的产物一并作废。"""
+    """Within download budgets, write original bytes only; budget-expired remuxing must not invalidate already downloaded artifacts."""
     body = _moov_last_video(tmp_path)
     output = tmp_path / "out.mp4"
 
@@ -50,7 +50,7 @@ async def test_stream_to_file_stores_bytes_verbatim_inside_the_download_budget(t
 
 
 async def test_non_video_artifact_is_left_untouched(tmp_path: Path):
-    """图片等非 ISO BMFF 扩展名不进 faststart，即使内容恰好是 moov 在后的视频。"""
+    """Non-ISO-BMFF extensions such as images skip faststart, even if bytes happen to be a trailing-moov video."""
     body = _moov_last_video(tmp_path)
     output = tmp_path / "out.bin"
     output.write_bytes(body)

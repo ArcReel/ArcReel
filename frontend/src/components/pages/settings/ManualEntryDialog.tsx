@@ -18,12 +18,12 @@ type MediaType = ProviderModelItem["media_type"];
 
 const MEDIA_TYPES: readonly MediaType[] = ["text", "image", "video", "audio"];
 
-/** 手动填写时列出的模型事实：与「模型信息」可修改的一致，时长联动约束留到保存之后再设。 */
+/** Manually entered model facts match editable Model information; set duration-linked constraints after saving. */
 const FILL_IN_FACTS = (media: MediaType): CapabilityKey[] => EDITABLE_FACTS[media].filter((key) => key !== "duration_constraints");
 
 /**
- * 各媒体类型的初始取值；视频的可选时长随名字预填，见 `ManualEntryDialog`。文本的最大输出长度不预填：写入的值
- * 是文本请求的上限，不知道时留空按未登记处理。
+ * Initial values per media type; video durations prefill by name (see `ManualEntryDialog`). Text maximum output lengths never prefill:
+ * persisted values cap text requests, so unknown lengths remain uncataloged/blank.
  */
 function defaultFacts(media: MediaType): Record<string, unknown> {
   switch (media) {
@@ -41,24 +41,24 @@ function defaultFacts(media: MediaType): Record<string, unknown> {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 给了就固定媒体类型（供应商模型的调用端点已决定类型）；不给则让用户选择。 */
+  /** Supplied values fix media types already determined by provider endpoints; omitted values let users choose. */
   mediaType?: MediaType;
-  /** 可选的媒体类型（供应商支持的类型）；不给或为空则四种都可选，默认选第一个。 */
+  /** Available supported media types; omitted/empty means all four, defaulting to first. */
   mediaTypes?: readonly string[];
-  /** 模型名称的初值，一般是正在设置的模型 ID。 */
+  /** Initial model names, usually configured model IDs. */
   initialName?: string;
-  /** 再次编辑一个还没保存的新条目。 */
+  /** Reedit unsaved new entries. */
   initial?: NewCatalogEntry | null;
-  /** 填好了：调用方把它放进自己的草稿，随自己的保存一起写入；对话框不保存任何东西。 */
+  /** Completed contents enter caller drafts and save with callers; dialogs persist nothing. */
   onConfirm: (entry: NewCatalogEntry) => void;
-  /** 目录里已有同名模型时，让用户直接选择它。 */
+  /** Existing same-name catalog models let users select them directly. */
   onUseExisting?: (hit: CatalogEntryHit) => void;
 }
 
 /**
- * 「手动填写模型信息」：为目录里找不到的模型填写厂商、名称、类型与能力，价格可以不填。只产出一个新条目的内容，
- * 不写入任何东西：Sheet 把它放进草稿，随保存写入，取消则不留下条目；添加模型的对话框可以直接调用
- * `API.createCatalogEntry` 写入。
+ * Manually fill model information for uncataloged models: vendor, names, types, capabilities, optional prices. Produce new-entry contents only,
+ * never persist: Sheets keep drafts until saving, leaving no entries on cancel; add-model dialogs may directly invoke
+ * `API.createCatalogEntry` to persist.
  */
 export function ManualEntryDialog({ open, onOpenChange, ...rest }: Props) {
   const { t } = useTranslation("dashboard");
@@ -93,10 +93,10 @@ function ManualEntryForm({
   const [media, setMedia] = useState<MediaType>(initial?.media_type ?? mediaType ?? options[0] ?? "text");
   const [facts, setFacts] = useState<Record<string, unknown>>(initial?.facts ?? defaultFacts(media));
   const [price, setPrice] = useState<PriceTable>(() => priceTableOf(initial?.price));
-  // 用户自己改过可选时长之后，不再随名字预填
+  // Stop name-based duration prefill after users edit durations themselves.
   const [durationsTouched, setDurationsTouched] = useState(initial !== undefined && initial !== null);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
-  // 提示对应的是哪个名字与媒体类型：名字或类型变了以后，旧的提示不再适用
+  // Notices identify matching names/media types; changed names/types invalidate old notices.
   const [lookup, setLookup] = useState<{ key: string; existing: CatalogEntryHit | null } | null>(null);
 
   const setValidity = useCallback((key: string, valid: boolean) => {
@@ -109,7 +109,7 @@ function ManualEntryForm({
     });
   }, []);
 
-  // 目录里是否已有同名模型，以及按名字预设预填的可选时长
+  // Whether same-name catalog models exist, and name-preset duration prefill.
   const lookupName = useDebouncedValue(name.trim(), 250);
   useEffect(() => {
     if (!lookupName) return;
@@ -123,12 +123,12 @@ function ManualEntryForm({
         }
       })
       .catch(() => {
-        // 提示只是辅助：查不到时不拦用户，保存时服务端仍会核对
+        // Hints are supplementary; failed lookups never block users, and servers still verify on saving.
       });
     return () => controller.abort();
   }, [lookupName, media, durationsTouched]);
 
-  // 换类型时字段按 `${media}:${key}` 全部重新挂载，上一类型里填错的输入卸载时自己收回「不合法」
+  // Changed types remount every field by `${media}:${key}`; old invalid inputs withdraw invalid states on unmount.
   const switchMedia = (next: MediaType) => {
     setMedia(next);
     setFacts(defaultFacts(next));

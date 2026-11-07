@@ -1,8 +1,9 @@
-"""视频调用通道的契约：能力声明、请求与结果、供应商任务状态与通道协议。
+"""The video invocation channel contract: capability declarations, requests and results, provider job states, and channel protocol.
 
-本模块只依赖标准库，任何模块都可以无代价地导入。它随端点定义校验器进入本包：声明式定义的保存期
-校验与取值要用供应商任务状态、参考音频模式与音频能力判定。提交与轮询、重试判定、下载落盘、供应商
-任务 id 落库等运行支持在 ArcReel 应用侧的 ``lib.backends.backend_runtime``。
+This module depends only on the standard library and can be imported without cost by any module. It accompanies the endpoint
+definition validator into this package: save-time validation and value resolution for declarative definitions need provider job states,
+reference-audio modes, and audio-capability checks. Runtime support for submission and polling, retry decisions, downloads to disk,
+and persisting provider job IDs lives on the ArcReel application side in ``lib.backends.backend_runtime``.
 """
 
 from __future__ import annotations
@@ -13,17 +14,17 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-#: ``VideoGenerationRequest.poll_timeout_seconds`` 的缺省值，也是应用侧用户可配轮询超时的缺省值。
+#: Default for ``VideoGenerationRequest.poll_timeout_seconds`` and the application user-configurable polling timeout.
 DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS = 3600
 
 ProviderResponseStage = Literal["submit", "poll", "result"]
 
 
 class ResumeExpiredError(RuntimeError):
-    """Provider 端 job 已过期或未找到——重启自愈无法接续，须走 mark_failed。
+    """The provider job expired or was not found; restart recovery cannot resume it and must use mark_failed.
 
-    Worker finally 据 ``isinstance(exc, ResumeExpiredError)`` 给 error_message
-    加 ``[resume_expired]`` 前缀（agent-facing，i18n 豁免），运维分析可见。
+    Worker finally uses ``isinstance(exc, ResumeExpiredError)`` to prefix error_message
+    with ``[resume_expired]`` (agent-facing, exempt from i18n), visible to operations analysis.
     """
 
     def __init__(self, *, job_id: str, provider: str, message: str = "") -> None:
@@ -33,12 +34,13 @@ class ResumeExpiredError(RuntimeError):
 
 
 class ResumeEndpointChangedError(RuntimeError):
-    """提交本 job 时的 endpoint 与模型行当下的 endpoint 不同——续跑必须显式失败。
+    """The endpoint used to submit this job differs from the model row's current endpoint; resuming must fail explicitly.
 
-    endpoint 决定协议，换 endpoint 等于换 backend；拿新协议 backend 轮旧协议下创建的 job
-    会误读响应，把仍在跑仍在计费的远端 job 标成失败。ADR 0054「换身份续跑必须显式报错」在
-    endpoint 维度的落点：只拦已提交、持有 job_id 的续跑，排队未提交的任务照常按新 endpoint
-    提交。仅自定义供应商有该维度。
+    The endpoint determines the protocol, so changing endpoints changes backends. Polling a job created under the old protocol
+    with the new protocol's backend misreads responses and marks a remote job failed while it is still running and incurring charges.
+    This applies ADR 0054's requirement to fail explicitly when resuming with a changed identity to the endpoint dimension:
+    block only resumes already submitted with a job_id; queued, unsubmitted tasks submit normally through the new endpoint.
+    This dimension exists only for custom providers.
     """
 
     def __init__(self, *, job_id: str, provider: str, submitted_endpoint: str, current_endpoint: str) -> None:
@@ -52,7 +54,7 @@ class ResumeEndpointChangedError(RuntimeError):
         )
 
 
-# 图片后缀 → MIME 类型映射（多个后端共用）
+# Image suffix to MIME type mapping (shared by multiple backends)
 IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -63,12 +65,12 @@ IMAGE_MIME_TYPES: dict[str, str] = {
 
 
 class ProviderJobStatus(StrEnum):
-    """供应商异步任务状态的 canonical 分档。
+    """Canonical categories for provider asynchronous job states.
 
-    ``EXPIRED`` 独立于 ``FAILED``：OpenAI / NewAPI 两条链路据其按 generate / resume 上下文
-    分流抛 ``RuntimeError`` / ``ResumeExpiredError``，后者驱动 worker 的 ``[resume_expired]``
-    前缀与「不再尝试重启自愈」判定。折进 failed 会静默吃掉这条分流。没有过期语义的端点
-    （如流派 C ``/v2/video/generations``）在本分档之上自行折叠。
+    ``EXPIRED`` is distinct from ``FAILED``: the OpenAI / NewAPI paths use it to raise ``RuntimeError`` or
+    ``ResumeExpiredError`` according to generate / resume context. The latter drives the worker's ``[resume_expired]``
+    prefix and decision not to retry restart recovery. Folding it into failed silently loses this routing. Endpoints with no
+    expiration semantics (such as family C ``/v2/video/generations``) collapse categories above this classification.
     """
 
     QUEUED = "queued"
@@ -82,9 +84,9 @@ TERMINAL_PROVIDER_STATUSES: frozenset[ProviderJobStatus] = frozenset(
     {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
 )
 
-# 跨厂商状态同义词表（lowercase + strip 后查表）。OpenAI 兼容代理网关转发非原生型号时会把
-# 底层厂商的状态串原样透传，各后端若只认自家文档里的字面量，已就绪的任务会被当成"仍在跑"
-# 一路轮询到 max_wait —— 用户侧报超时失败，供应商侧成品已生成且已计费。
+# Cross-provider status synonyms (look up after lowercase + strip). OpenAI-compatible proxy gateways forwarding non-native models pass
+# underlying provider status strings unchanged. If backends accept only literals in their own documentation, ready jobs appear still running
+# and are polled until max_wait: users see timeout failures although the provider has produced and billed the result.
 _PROVIDER_STATUS_SYNONYMS: dict[str, ProviderJobStatus] = {
     "completed": ProviderJobStatus.SUCCEEDED,
     "succeeded": ProviderJobStatus.SUCCEEDED,
@@ -110,10 +112,11 @@ _PROVIDER_STATUS_SYNONYMS: dict[str, ProviderJobStatus] = {
 
 
 def normalize_provider_status(raw: object) -> ProviderJobStatus:
-    """任意供应商状态值 → canonical 分档（大小写与首尾空白无关）。
+    """Map any provider status to a canonical category, ignoring case and surrounding whitespace.
 
-    未登记的状态串一律当 ``RUNNING`` 继续轮询：把未知串判成终态，会让返回非标进行中状态
-    （如 ``NOT_START``）的网关触发"下载未就绪任务"。非字符串（缺字段 / None）同理。
+    Treat unregistered status strings as ``RUNNING`` and keep polling: treating unknown strings as terminal causes
+    gateways returning nonstandard in-progress statuses (such as ``NOT_START``) to download jobs before they are ready.
+    The same applies to nonstrings (missing fields / None).
     """
     if not isinstance(raw, str):
         return ProviderJobStatus.RUNNING
@@ -121,11 +124,11 @@ def normalize_provider_status(raw: object) -> ProviderJobStatus:
 
 
 class VideoCapabilityError(RuntimeError):
-    """视频后端能力不匹配（如 duration ↔ supported_durations）。
+    """Video backend capability mismatch (such as duration versus supported_durations).
 
-    与 ImageCapabilityError 对称：不携带本地化字符串，只带稳定 code + 上下文 params；
-    路由层直接 _t(code, **params) 渲染，Worker 则按 code + params 落 task.error_message，
-    文案留到读侧按 Accept-Language 渲染。
+    Symmetric with ImageCapabilityError: carries no localized text, only a stable code and context params.
+    Routes render directly with _t(code, **params); workers persist code and params to task.error_message,
+    leaving wording to the read side for rendering under Accept-Language.
     """
 
     def __init__(self, code: str, **params) -> None:
@@ -135,12 +138,12 @@ class VideoCapabilityError(RuntimeError):
 
 
 class ReferenceAudioMode(StrEnum):
-    """后端接受参考音频的运输形态。
+    """Transport forms accepted by the backend for reference audio.
 
-    ``DIRECT`` 表示随生成请求直传音频文件，模型据其复刻音色（Seedance 2.0 的
-    ``role: reference_audio`` content 条目、Wan2.7 r2v 挂在参考素材项上的
-    ``reference_voice``）。``NONE`` 表示该后端没有音色输入通道——带音频的请求在
-    ``gate_video_request`` 处硬失败，不静默丢弃。
+    ``DIRECT`` sends audio files directly with generation requests so the model can replicate voice timbre
+    (Seedance 2.0 ``role: reference_audio`` content items, or Wan2.7 r2v ``reference_voice`` attached to reference
+    material items). ``NONE`` means the backend has no voice-input channel: requests with audio fail hard at
+    ``gate_video_request`` rather than silently dropping it.
     """
 
     NONE = "none"
@@ -148,14 +151,15 @@ class ReferenceAudioMode(StrEnum):
 
 
 class VideoAudioMode(StrEnum):
-    """成片音轨与音轨开关的三态。
+    """Three states for the output audio track and its switch.
 
-    ``CONTROLLABLE`` 表示请求携带音轨开关，用户的开/关意图能抵达供应商；``ALWAYS_ON`` 表示
-    成片必然带音轨而请求里没有开关可下发（关闭意图必然落空）；``ALWAYS_OFF`` 表示该路径不产
-    音轨、也没有开关（开启意图必然落空）。
+    ``CONTROLLABLE`` means requests carry an audio-track switch and the user's on/off intent reaches the provider.
+    ``ALWAYS_ON`` means output always has audio and requests have no switch to send (off intent cannot be honored).
+    ``ALWAYS_OFF`` means this path produces no audio track and has no switch (on intent cannot be honored).
 
-    与 ``reference_audio_mode`` 是两回事：后者描述**输入**通道（能否给模型一段音色参考），本
-    枚举描述**输出**音轨。取值与前端 ``VideoAudioControl`` 字面量一一对应，两侧不各自归并。
+    This differs from ``reference_audio_mode``, which describes the **input** channel (whether a voice reference can
+    be supplied to the model). This enum describes **output** audio tracks. Values correspond one-to-one with frontend
+    ``VideoAudioControl`` literals; neither side independently merges them.
     """
 
     CONTROLLABLE = "controllable"
@@ -164,30 +168,32 @@ class VideoAudioMode(StrEnum):
 
 
 def audio_capability_pair_is_coherent(*, mode: object, count: int | None) -> bool:
-    """音频两维的合并后不变式：声明支持音色输入就必须给出正的段数上限。
+    """Post-merge invariant for the two audio dimensions: declaring voice input requires a positive clip-count limit.
 
-    两维各自合法、合起来无意义的组合只有这一种（``direct`` ⊕ 上限 0）：自定义供应商的稀疏覆盖
-    只写其中一维就能凑出——覆盖 ``reference_audio_mode=direct`` 而不动系统判定的 0，或反过来把
-    ``max_reference_audio_count`` 压成 0 而模式仍是系统判定的 ``direct``；声明式定义则可以两维
-    直接写成这个组合。反向组合（``none`` ⊕ 正上限）不算违约：模式为 ``none`` 时上限本就不参与
-    判定，且"关掉音色输入"是正当意图，判违约反会把用户明确关掉的能力顶回开启。段数上限为 ``None``
-    （两侧都没有声明段数，见 ``VideoCapabilities``）同样不算违约：不限段数，超出由上游拒绝。
+    Only one combination is valid individually but meaningless together (``direct`` with limit 0). Sparse custom-provider
+    overrides can create it by changing only one dimension: overriding ``reference_audio_mode=direct`` while retaining
+    the system-determined 0, or reducing ``max_reference_audio_count`` to 0 while the mode remains system-determined
+    ``direct``. Declarative definitions can specify this pair directly. The reverse (``none`` with a positive limit) is not
+    a violation: the limit is irrelevant when mode is ``none``, and disabling voice input is legitimate user intent;
+    declaring it invalid would reenable a capability explicitly disabled by the user. A clip-count limit of ``None``
+    (neither side declares a count, see ``VideoCapabilities``) also complies: no count limit; upstream rejects excess.
 
-    不修正这组的后果是 ``gate_video_request`` 先过模式判定、再撞上限 0，把"该模型不支持参考
-    音频"报成"最多支持 0 段参考音频"——用户按提示去减角色数量，减到零段也过不了。
+    Without correcting this pair, ``gate_video_request`` passes the mode check, then hits limit 0, reporting
+    “at most 0 reference-audio clips” instead of “this model does not support reference audio”. Users following this
+    guidance reduce character counts, but cannot pass even after reducing to zero clips.
 
-    三处消费方共用此判定，不得各写一份：自定义供应商的写入侧
-    （``server/routers/custom_providers.py``）、能力合成侧
-    （``lib/custom_provider/capabilities.py``）与声明式定义的保存期校验器
-    （``arcreel_market_core/endpoint_definition/validator.py``）。
+    Three consumers share this check and must not duplicate it: custom-provider writes
+    (``server/routers/custom_providers.py``), capability composition
+    (``lib/custom_provider/capabilities.py``), and declarative-definition save-time validation
+    (``arcreel_market_core/endpoint_definition/validator.py``).
     """
     return mode in {ReferenceAudioMode.NONE, ReferenceAudioMode.NONE.value} or count is None or count > 0
 
 
-#: 视频执行路径（任务类型桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
-#: 与 ``lib.config.resolver.VideoGenerationType`` 同一份词汇表，因分层契约（config 是最底层，
-#: backend 不得反向导入）而各层各声明一次，取值一致由
-#: ``tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py`` 的守卫锁定。
+#: Video execution paths (task-type buckets): ``i2v`` covers text-to-video and image-to-video first frames; ``r2v`` is reference-to-video.
+#: Shares the vocabulary of ``lib.config.resolver.VideoGenerationType``; layering (config is lowest-level and
+#: backend cannot import it in reverse) requires each layer to declare it once. Value equality is guarded by
+#: ``tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py``.
 VideoRoute = Literal["i2v", "r2v"]
 
 
@@ -195,67 +201,74 @@ VideoRoute = Literal["i2v", "r2v"]
 class VideoCapabilities:
     """Declares what a video backend supports.
 
-    ``text_to_video`` 表示不带任何图片素材的纯文生视频请求是否可用。默认 True 保持既有
-    backend 的兼容语义；必须带图的 model 显式声明 False。
+    ``text_to_video`` states whether pure text-to-video requests with no image assets are available. Default True
+    preserves existing backend compatibility; models requiring an image explicitly declare False.
 
-    ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
-    ``max_reference_images`` 描述参考生视频路径：后端接受 ``reference_images`` 请求字段
-    的数量上限，``0`` 即不接受参考图（调用通道的声明里表示没有实现这条路径），``None`` 表示接受
-    但没有声明数量上限（不另设布尔位——两份声明会漂移出「称支持但上限为 0」这类自相矛盾的状态）。
-    调用通道只声明它实现了什么、一次能承载多少（通道事实）；模型接受什么输入、能接受多少记在模型
-    条目上，生效能力是两侧共同约束的结果（ArcReel 的 ``lib.backends.video_capabilities``，
-    docs/adr/0104），在生效能力里 ``None`` 即两侧都没有声明的「未收录」。两条路径是否可叠加（同一请求同时带首帧与参考图）因后端而异，
-    不是统一契约：部分后端拒绝叠加（如 Agnes 抛 ``VideoCapabilityError``），部分静默叠加
-    （如 v2 中转、Grok、Sora 首帧与参考共享单槽）。调用方不应假设某种统一行为，需按具体
-    后端核实。
+    ``first_frame`` / ``last_frame`` describe first- and last-frame slots on the image-to-video path.
+    ``max_reference_images`` describes the reference-to-video path: the maximum accepted ``reference_images`` count.
+    ``0`` means reference images are not accepted (a channel declaration means that path is unimplemented); ``None``
+    means accepted without a declared count limit. There is no separate boolean: two declarations would drift into
+    contradictions such as claiming support with a limit of 0. Channels declare only what they implement and their
+    per-request capacity (channel facts); accepted model inputs and counts belong to model entries. Effective capabilities
+    combine both constraints (ArcReel ``lib.backends.video_capabilities``, docs/adr/0104), where ``None`` means neither
+    side has declared the value, so it is unrecorded. Whether both paths can combine (first frame and reference images
+    in one request) varies by backend and is not a uniform contract: some reject the combination (Agnes raises
+    ``VideoCapabilityError``), while others silently combine them (v2 proxies, Grok, and Sora share one first-frame/reference
+    slot). Callers must verify the specific backend rather than assume uniform behavior.
 
-    ``audio_track`` / ``reference_route_audio_track`` 描述**成片音轨**（有无音轨、开关是否可
-    控），是该维度的唯一真相源——与请求构造同源，backend 是否往请求体里放音轨开关就是这一位
-    的字面含义。两条执行路径各声明一次，与 ``first_frame`` / ``max_reference_images`` 把两条
-    路径摊平进同一个对象同构：``reference_route_audio_track`` 为 None 表示参考生视频路径与
-    ``audio_track`` 同形（绝大多数 backend 如此），非 None 时表示该路径的请求形态另有一套音轨
-    行为（可灵 v3-omni 的多图主体子路径原生 schema 不含音轨开关，故该路径恒无声）。默认取
-    ``CONTROLLABLE``——未声明即「无信号不收紧」，不把能力不明的 model 谎报成开关失效。
-    取值请走 :meth:`audio_track_for_route`，不要直接读字段，否则每个调用方都要重写一遍
-    「参考生视频优先」的合并规则。
+    ``audio_track`` / ``reference_route_audio_track`` describe **output audio tracks** (presence and switch control),
+    the sole source of truth for this dimension. They share the source with request construction: the literal meaning
+    is whether the backend places an audio switch in the request body. Declare each execution path once, matching
+    how ``first_frame`` / ``max_reference_images`` flatten both paths into one object. ``reference_route_audio_track``
+    of None means the reference-to-video path has the same shape as ``audio_track`` (most backends); a non-None value
+    means that path's request shape has distinct audio behavior (Kling v3-omni's multi-image subject subpath lacks an
+    audio switch in its native schema, so that path is always silent). Default ``CONTROLLABLE`` means no tightening
+    without a signal; do not falsely report a broken switch for models with unknown capabilities.
+    Resolve through :meth:`audio_track_for_route`, not direct field reads, or every caller must rewrite the
+    reference-to-video-first merge rule.
 
-    ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
-    同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束，
-    上限为 ``None`` 表示没有声明段数。上限按 backend 各自的供应商约束声明，不取各家交集。
+    ``reference_audio_mode`` / ``max_reference_audio_count`` describe reference audio, mirroring reference images:
+    a mode other than ``NONE`` accepts the ``reference_audio_files`` request field subject to the clip-count limit.
+    ``None`` means no declared clip count. Each backend declares its provider's constraints, not their intersection.
 
-    ``reference_audio_per_image``：音频是否必须逐段挂在某个具体的参考素材项上（如 wan2.7-r2v
-    的 ``reference_voice`` 字段），而非作为独立的音色输入通道（如 Seedance 2.0 的
-    ``role: reference_audio`` content 条目）。为 True 时调用方须随 ``reference_audio_files``
-    一并提供 ``VideoGenerationRequest.reference_audio_targets``，显式声明每段音频对应哪个
-    参考素材项，不能假设两个列表天然同序——参考音频的编排顺序是台词 speaker 首现顺序，
-    参考图的编排顺序是 mention 首现顺序，两者独立派生，位置对齐纯属巧合。
+    ``reference_audio_per_image``: whether every audio clip must attach to a specific reference material item
+    (such as wan2.7-r2v's ``reference_voice``), rather than a separate voice-input channel (such as Seedance 2.0's
+    ``role: reference_audio`` content items). When True, callers must supply
+    ``VideoGenerationRequest.reference_audio_targets`` with ``reference_audio_files``, explicitly identifying each clip's
+    reference material item. Do not assume both lists naturally share an order: reference audio follows first dialogue
+    speaker occurrence, while reference images follow first mention occurrence. Their orders derive independently;
+    positional alignment is coincidence.
 
-    ``max_reference_audio_total_seconds``：多段参考音频叠加的总时长上限（None = 该后端未声明
-    聚合约束，仅按 ``max_reference_audio_count`` 卡段数）。段数上限推不出总时长——两段各处于
-    单段合法区间的音频，合计仍可能超出供应商总时长上限，故需独立声明。判定需要读音频元数据，
-    调用方在 :func:`lib.backends.video_frame_slots.gate_video_request` 前置探测好总时长再传入。
+    ``max_reference_audio_total_seconds``: total-duration limit across reference-audio clips (None = no declared
+    aggregate constraint, only the ``max_reference_audio_count`` count limit). Counts do not determine total duration:
+    two individually valid clips can together exceed the provider's total limit, requiring a separate declaration.
+    Evaluation requires audio metadata; callers probe total duration before
+    :func:`lib.backends.video_frame_slots.gate_video_request` and pass it in.
 
-    ``max_prompt_chars``：提示词字符数上限（None = 该后端未声明约束）。声明的是**该 model 无论
-    走哪条端点都成立**的上限——部分供应商按端点各设更窄的值（如 Vidu 的参考生视频端点），那层
-    收窄留在 backend 组装期按实际端点 fail-loud，不塞进这个无端点上下文的静态声明里。计量口径
-    为字符数（中英文同权），与各家文档一致。超限的典型失败模式是静默截断而非报错：供应商照常
-    扣费、成片与意图不符、用户无从知情，正是 :func:`lib.backends.video_frame_slots.gate_video_request`
-    要在付费前堵住的降级。
+    ``max_prompt_chars``: prompt character limit (None = no declared backend constraint). This limit holds **for this
+    model regardless of endpoint**. Some providers impose narrower per-endpoint limits (such as Vidu's reference-to-video
+    endpoint); enforce those loudly during backend assembly using the actual endpoint, not in this static declaration
+    without endpoint context. Count characters equally for Chinese and English, matching provider documentation.
+    The typical over-limit failure is silent truncation rather than an error: the provider charges normally, output
+    diverges from intent, and the user has no notice. This is the degradation
+    :func:`lib.backends.video_frame_slots.gate_video_request` must prevent before payment.
 
-    ``first_frame_ratio_adaptive_only``：该模型的首帧（image-to-video）任务是否只接受
-    "adaptive" 比例。声明为 True 时，:func:`lib.backends.video_frame_slots.resolve_first_frame_aspect_ratio`
-    把带首帧的生成请求的 ``VideoGenerationRequest.aspect_ratio`` 改写为字面量 ``"adaptive"``；
-    不带首帧的请求（纯文生 / 仅参考图）与续接已发起 job 的 resume 路径不受影响。该字面量是供应商
-    侧的取值，只对认得它的 backend 有意义，故本位只由这类 backend 声明——别处（如
-    :func:`arcreel_market_core.aspect_size.parse_aspect_ratio`）解析不了它，会按非法值回退默认比例。
+    ``first_frame_ratio_adaptive_only``: whether this model accepts only the "adaptive" ratio for first-frame
+    (image-to-video) tasks. When True, :func:`lib.backends.video_frame_slots.resolve_first_frame_aspect_ratio` rewrites
+    ``VideoGenerationRequest.aspect_ratio`` to literal ``"adaptive"`` for generation requests with a first frame.
+    Requests without a first frame (pure text-to-video / reference-images-only) and resume paths for already submitted
+    jobs are unaffected. This is a provider value meaningful only to backends recognizing it, so only such backends
+    declare this flag. Other consumers (such as :func:`arcreel_market_core.aspect_size.parse_aspect_ratio`) cannot parse
+    it and fall back to the default ratio for invalid values.
 
-    「首帧在场时用户比例不适用」这一情形另有 backend 各自的表达方式：dashscope 与 vidu 在
-    payload 组装期直接不下发 ratio（上游忽略或拒收）。三者形状相近而取值策略不同（省略 vs 改写
-    为 adaptive），未收敛到同一开关；本位表达的是"改写为 adaptive"这一支。
+    Other backends express the case where user ratio is inapplicable with a first frame differently: dashscope and vidu
+    omit ratio during payload assembly (upstream ignores or rejects it). These three have similar shapes but different
+    value strategies (omission versus rewriting to adaptive), so they are not unified under one switch; this flag
+    represents the rewrite-to-adaptive branch.
 
-    用户的比例意图仍完整作用于分镜图生成——首帧图本就按该比例生成，"跟随首帧"与用户所选比例
-    等价；改写只影响视频请求实际下发的值，不改调用方持有的原始 ``aspect_ratio``（记账、版本
-    元数据沿用后者）。
+    The user's ratio intent still fully applies to storyboard-image generation: the first-frame image is already made
+    at that ratio, so following the first frame equals the selected ratio. Rewriting affects only the video's sent
+    request value, not the caller's original ``aspect_ratio`` (used for accounting and version metadata).
     """
 
     text_to_video: bool = True
@@ -272,10 +285,10 @@ class VideoCapabilities:
     reference_route_audio_track: VideoAudioMode | None = None
 
     def audio_track_for_route(self, route: VideoRoute) -> VideoAudioMode:
-        """该执行路径上成片音轨的实际形态。
+        """The effective output audio-track form for this execution path.
 
-        参考生视频路径未单独声明时跟随 ``audio_track``——两条路径同形是常态，逐 backend 重复
-        声明只会多出一份可漂移的副本。
+        When not separately declared, the reference-to-video path follows ``audio_track``. Both paths normally share
+        the same shape; repeating declarations per backend only creates another copy that can drift.
         """
         if route == "r2v" and self.reference_route_audio_track is not None:
             return self.reference_route_audio_track
@@ -284,7 +297,7 @@ class VideoCapabilities:
 
 @dataclass
 class VideoGenerationRequest:
-    """通用视频生成请求。各 Backend 忽略不支持的字段。"""
+    """Common video-generation request. Each backend ignores unsupported fields."""
 
     prompt: str
     output_path: Path
@@ -294,29 +307,29 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     end_image: Path | None = None  # For first_last mode
     reference_images: list[Path] | None = None  # For multi-reference mode
-    # 与 ``reference_images`` 等长同序：第 i 项非 None 时，第 i 张参考图以这个供应商素材引用
-    # （如 ``asset://<id>``）代替图片内容发出，位置与提示词里的图片编号不变。只有对参考图槽位声明了
-    # 素材引用能力的 backend 会收到非 None 项；其余 backend 不读此字段。
+    # Same length and order as ``reference_images``: a non-None item i sends reference image i using this provider asset reference
+    # (such as ``asset://<id>``) instead of image contents, preserving position and prompt image numbering. Only backends declaring
+    # asset-reference support for reference-image slots receive non-None items; other backends do not read this field.
     reference_image_asset_uris: list[str | None] | None = None
-    # 参考音频（音色复刻）。列表顺序即 prompt 中「音频N」的指认契约：编排层按该顺序拼指认
-    # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
-    # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。
+    # Reference audio (voice replication). List order is the prompt's “音频N” reference contract: orchestration builds identification
+    # text in this order and backends send in the same order; neither side may reorder or skip. Character-to-audio bindings are absent from requests
+    # because prompt text expresses them; provider APIs have no structured character-to-audio field.
     reference_audio_files: list[Path] | None = None
-    # 仅 ``VideoCapabilities.reference_audio_per_image`` 为 True 的 backend（如 wan2.7-r2v）
-    # 读取：与 ``reference_audio_files`` 等长同序，第 i 项是该段音频对应的
-    # ``reference_images`` 下标（0-based）。为 None 时这类 backend 按位置回退对齐，仅用于
-    # 未经编排层填充的调用方（如手写测试）——参考音频与参考图各自独立派生顺序，位置对齐
-    # 不构成契约，编排层（reference_video 渲染管线）必须显式提供。
+    # Read only by backends with ``VideoCapabilities.reference_audio_per_image`` True (such as wan2.7-r2v):
+    # same length and order as ``reference_audio_files``; item i is this clip's corresponding
+    # ``reference_images`` index (0-based). If None, these backends fall back to positional alignment, only for
+    # callers not populated by orchestration (such as handwritten tests). Audio and image orders derive independently; positional alignment
+    # is not a contract; orchestration (the reference_video rendering pipeline) must supply this explicitly.
     reference_audio_targets: list[int] | None = None
     generate_audio: bool = True
     poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 
-    # 项目上下文（用于构建文件服务 URL 等）
+    # Project context (for constructing file-service URLs, etc.)
     project_name: str | None = None
 
-    # Worker 路径下从 task["task_id"] 传入，让 backend submit 后经
-    # `ProviderJobIdPersistenceMixin._persist_provider_job_id` 持久化 job_id。
-    # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
+    # Passed from task["task_id"] on worker paths so the backend persists job_id after submit through
+    # `ProviderJobIdPersistenceMixin._persist_provider_job_id`.
+    # Non-worker paths (grid / direct generation / tests) keep None so the shared point skips persistence.
     task_id: str | None = None
 
     # MediaGenerator uses this one-way signal to close its compression-retry window. Resumable backends signal
@@ -324,32 +337,32 @@ class VideoGenerationRequest:
     # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
-    # 收到供应商 JSON 响应时携阶段写入诊断留痕。非账本调用保持 None。
+    # Record provider JSON responses with their stage as diagnostic traces. Non-ledger calls keep None.
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None = None
 
-    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
-    # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
-    # 保持 None。续跑比对协议读的是 checkpoint 的 endpoint_guard，不读该列。
+    # Protocol identity injected by the custom-provider wrapper (`CustomVideoBackend`) before forwarding to the protocol backend; persist with job_id
+    # to `tasks.provider_endpoint` to record this provider job's protocol. Built-in providers have no such dimension and
+    # keep None. Resume protocol comparison reads checkpoint endpoint_guard, not this column.
     execution_endpoint: str | None = None
 
-    # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从 `tasks.submitted_base_url` 回放。
-    # backend 轮询时优先用它而非当下配置解析出的域名——域名是连接维度而非协议维度，
-    # 用户在途改配置后按新域名轮旧 job 会查无（404）而被误判成过期。提交路径恒 None。
+    # Resume-only: actual request domain used to submit this job, replayed by resume_executor from `tasks.submitted_base_url`.
+    # Backend polling prefers it over the currently resolved domain: domain is a connection dimension rather than a protocol dimension;
+    # after an in-flight configuration change, polling old jobs on the new domain yields not found (404), misread as expired. Always None on submit paths.
     submitted_base_url: str | None = None
 
-    # 执行闸门判定所依据的能力（档位感知基底已叠加用户能力覆盖），由跑执行闸门的调用方（MediaGenerator、测试连接）填入。
-    # 按型号档案判定可发输入的 backend 读它而不是自身档案，让用户放宽的维度真实发出、由上游裁定；
-    # None（直接构造请求的调用方）时回落 backend 自身档案。
+    # Capabilities used by the execution gate (tier-aware base plus user overrides), supplied by its caller (MediaGenerator or connection test).
+    # Backends deciding sendable inputs from model profiles read this instead of their own profiles, actually sending user-relaxed dimensions for upstream judgment;
+    # when None (callers constructing requests directly), fall back to the backend's own profile.
     video_capabilities: VideoCapabilities | None = None
 
-    # Seedance 特有
+    # Seedance-specific
     service_tier: str = "default"
     seed: int | None = None
 
 
 @dataclass
 class VideoGenerationResult:
-    """通用视频生成结果。"""
+    """Common video-generation result."""
 
     video_path: Path
     provider: str
@@ -362,19 +375,19 @@ class VideoGenerationResult:
     task_id: str | None = None
     generate_audio: bool | None = None
 
-    # 这一次生成才确定、且要随成片一起留档的事实（如 ComfyUI 的实发 workflow 指纹）。调用方把
-    # 它并进产物版本元数据：请求侧的那份元数据在提交前就已定稿，装不下只有执行过一次才知道的值。
-    # 键名由各 backend 自己定，内容必须可 JSON 序列化——它会原样落进版本记录。
+    # Facts established only during this generation and archived with the output (such as ComfyUI's actually sent workflow fingerprint). Callers merge
+    # them into artifact-version metadata: request-side metadata is finalized before submission and cannot hold values known only after execution.
+    # Backends define their own keys; contents must be JSON-serializable because they enter version records unchanged.
     provenance: Mapping[str, Any] | None = None
 
-    # 执行期产生的非阻断提示，形状与任务 ``result.warnings`` 同为 ``{"key", "params"}``：这一次
-    # 生成是成功的，但有一件事该让用户知道（如 ComfyUI 一次产出多个文件、只取了第一个）。调用方
-    # 把它并进任务结果，由读接口按当前语言渲染；``key`` 须在 ``lib/i18n`` 的各语言表里都有一条。
+    # Nonblocking runtime notices with the same ``{"key", "params"}`` shape as task ``result.warnings``: this
+    # generation succeeded, but users should know something (such as ComfyUI producing multiple files and only the first being used). Callers
+    # merge these into task results for read interfaces to render in the current language; ``key`` must exist in every language table in ``lib/i18n``.
     warnings: tuple[Mapping[str, Any], ...] = ()
 
 
 class VideoBackend(Protocol):
-    """视频生成后端协议。"""
+    """Video-generation backend protocol."""
 
     @property
     def name(self) -> str: ...
@@ -388,10 +401,10 @@ class VideoBackend(Protocol):
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult: ...
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """接续 provider 上已发起的 job：轮询 + 下载，不重新 submit（ADR 0007）。
+        """Resume an already submitted provider job: poll and download without submitting again (ADR 0007).
 
-        未实现的 backend 抛 ``NotImplementedError``；orphan handler 据此走
-        ``[resume_unsupported]``。provider 端 job 过期/未找到抛 ``ResumeExpiredError``
-        走 ``[resume_expired]``。
+        Backends without support raise ``NotImplementedError``; the orphan handler then uses
+        ``[resume_unsupported]``. Expired or missing provider jobs raise ``ResumeExpiredError``
+        and use ``[resume_expired]``.
         """
         raise NotImplementedError

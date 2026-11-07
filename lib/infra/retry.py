@@ -1,9 +1,9 @@
-"""通用重试装饰器，带指数退避和随机抖动。
+"""General retry decorator with exponential backoff and random jitter.
 
-不依赖任何特定供应商 SDK，可被所有后端复用。
-各供应商可通过 retryable_errors 参数注入自己的可重试异常类型，
-或通过 retry_if 谓词实现精细化的条件重试。
-继承 NonRetryableError 的异常类型始终不重试，不受消息文本模式匹配影响。
+Independent of any specific provider SDK and reusable by all backends.
+Providers can inject their retryable exception types through retryable_errors,
+or use the retry_if predicate for fine-grained conditional retries.
+Exceptions inheriting NonRetryableError are never retried, regardless of message-pattern matching.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
-# 基础可重试错误（不依赖任何 SDK）
+# Base retryable errors (independent of any SDK)
 BASE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     ConnectionError,
     TimeoutError,
@@ -28,16 +28,18 @@ BASE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 
 
 class NonRetryableError(RuntimeError):
-    """标记基类：命中此类型的异常始终不重试。
+    """Marker base class: exceptions of this type are never retried.
 
-    should_retry 的字符串模式匹配（RETRYABLE_STATUS_PATTERNS）按子串比对，若异常消息
-    恰好携带一个数值型细节（如 token 数、行号）而其十进制文本包含 "429"/"500" 等子串，
-    会被误判为瞬态错误进而重试——重发同一份必然复现同一错误的请求没有意义。需要绝对不
-    可重试语义的异常类型应继承本类，在模式匹配之前短路。
+    should_retry uses substring matching (RETRYABLE_STATUS_PATTERNS). An exception
+    message containing numeric details (such as token counts or line numbers) whose
+    decimal representation includes "429"/"500" can be misclassified as transient.
+    Resending a request that inevitably reproduces the same error is pointless.
+    Exception types requiring unconditional non-retry semantics should inherit this
+    class to short-circuit before pattern matching.
     """
 
 
-# 字符串模式匹配：覆盖异常类型不在列表中但属于瞬态的情况（大小写不敏感）
+# String-pattern matching covers transient errors whose types are not listed (case-insensitive)
 RETRYABLE_STATUS_PATTERNS = (
     "429",
     "resource_exhausted",
@@ -55,16 +57,16 @@ RETRYABLE_STATUS_PATTERNS = (
     "timeout",
 )
 
-# 默认重试配置，供各后端直接引用，避免魔法数字分散在 9+ 处
+# Default retry configuration shared by backends, avoiding magic numbers scattered across 9+ locations
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8)
 
-# 下载阶段没有独立的重试配置：产物取件与轮询同属「供应商任务已建成后的幂等取件」，共用
-# lib.backends.backend_runtime.with_artifact_retry 的失败预算与退避。
+# Downloads have no separate retry configuration: artifact retrieval and polling are both idempotent
+# retrieval after provider job creation, sharing lib.backends.backend_runtime.with_artifact_retry failure budgets and backoff.
 
 
 class AsyncClock(Protocol):
-    """异步等待与单调计时的显式 seam。"""
+    """Explicit seam for asynchronous waiting and monotonic time."""
 
     def monotonic(self) -> float: ...
 
@@ -72,7 +74,7 @@ class AsyncClock(Protocol):
 
 
 class SystemClock:
-    """生产默认时钟。"""
+    """Default production clock."""
 
     def monotonic(self) -> float:
         return time.monotonic()
@@ -83,13 +85,13 @@ class SystemClock:
 
 _SYSTEM_CLOCK = SystemClock()
 
-# 未显式传 ``clock`` 时生效的时钟。按 contextvars 语义只作用于绑定它的上下文及其后派生的
-# 任务与 ``to_thread`` 线程，同进程里其他上下文仍走系统时钟。
+# Clock used when ``clock`` is not explicit. Following contextvars semantics, it applies only to the
+# bound context and tasks or ``to_thread`` threads derived from it; other contexts in the process retain the system clock.
 _bound_clock: ContextVar[AsyncClock | None] = ContextVar("lib_infra_retry_bound_clock", default=None)
 
 
 def resolve_clock(clock: AsyncClock | None) -> AsyncClock:
-    """等待方取用的时钟：显式参数优先，其次是当前上下文绑定的时钟，最后是系统时钟。"""
+    """Clock used by waiters: explicit argument first, then the current context binding, then the system clock."""
     if clock is not None:
         return clock
     bound = _bound_clock.get()
@@ -98,10 +100,11 @@ def resolve_clock(clock: AsyncClock | None) -> AsyncClock:
 
 @contextmanager
 def bind_clock(clock: AsyncClock) -> Generator[None]:
-    """在当前上下文内把未显式传 ``clock`` 的重试与轮询等待改走 ``clock``。
+    """Use ``clock`` for retry and polling waits without an explicit ``clock`` in the current context.
 
-    适用于等待方深埋在调用链里、``clock`` 参数无法逐层传到的场景。绑定只对当前上下文和在
-    绑定期间派生的任务生效，退出时恢复原值；不改动 ``time`` / ``asyncio`` 等模块级状态。
+    Useful when waiters are deep in the call chain and passing ``clock`` through every layer
+    is impractical. The binding affects only the current context and tasks derived while
+    bound; restore the previous value on exit without changing module state in ``time`` / ``asyncio``.
     """
     token = _bound_clock.set(clock)
     try:
@@ -111,7 +114,7 @@ def bind_clock(clock: AsyncClock) -> Generator[None]:
 
 
 def should_retry(exc: Exception, retryable_errors: tuple[type[Exception], ...]) -> bool:
-    """判断异常是否应当重试。"""
+    """Determine whether an exception should be retried."""
     if isinstance(exc, NonRetryableError):
         return False
     if isinstance(exc, retryable_errors):
@@ -128,13 +131,14 @@ def with_retry_async(
     clock: AsyncClock | None = None,
     jitter: Callable[[float, float], float] | None = None,
 ):
-    """异步函数重试装饰器兼容壳，等待逻辑委托给 ``retry_async``。
+    """Compatibility wrapper for the async retry decorator; delegate waiting to ``retry_async``.
 
-    等价的显式入口是 ``retry_async(operation, clock=..., jitter=...)``：装饰器在定义期就绑死
-    clock 与 jitter，调用方无法按调用现场替换，显式入口没有这一限制。
+    The equivalent explicit entry point is ``retry_async(operation, clock=..., jitter=...)``.
+    The decorator binds clock and jitter at definition time, preventing per-call replacement;
+    the explicit entry point has no such limitation.
 
-    当指定 retry_if 时，用该谓词替代默认的 should_retry 进行重试判定，
-    允许调用方精确控制哪些异常应当重试（如仅重试特定 HTTP 状态码）。
+    When supplied, retry_if replaces the default should_retry predicate, allowing callers
+    to control precisely which exceptions to retry (for example, only specific HTTP statuses).
     """
 
     predicate = retry_if if retry_if is not None else lambda e: should_retry(e, retryable_errors)
@@ -168,9 +172,9 @@ async def retry_async[T](
     clock: AsyncClock | None = None,
     jitter: Callable[[float, float], float] | None = None,
 ) -> T:
-    """执行可重试异步操作，允许显式注入时钟与随机抖动。
+    """Run a retryable async operation, allowing explicit clock and jitter injection.
 
-    未传 ``clock`` 时按 ``resolve_clock`` 取当前上下文绑定的时钟，缺省为系统时钟。
+    Without ``clock``, use ``resolve_clock`` to obtain the current context binding, defaulting to the system clock.
     """
     active_clock = resolve_clock(clock)
     predicate = retry_if if retry_if is not None else lambda e: should_retry(e, retryable_errors)
@@ -196,7 +200,7 @@ def _compute_wait(
     *,
     jitter: Callable[[float, float], float] | None = None,
 ) -> float:
-    """计算第 attempt 次重试的等待时间（含随机抖动）。"""
+    """Compute the wait for retry attempt (including random jitter)."""
     backoff_idx = min(attempt, len(backoff_seconds) - 1)
     uniform = jitter if jitter is not None else random.uniform
     return backoff_seconds[backoff_idx] + uniform(0, 2)

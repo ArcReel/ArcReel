@@ -8,17 +8,17 @@ import { Input } from "@/components/ui/input";
 
 interface EditableEpisodeTitleProps {
   title: string;
-  /** 标题为空时展示的集名（按播出位置派生的「第 N 集」），也是输入框的占位文字。 */
+  /** Episode display name derived from airing position when title is empty (Episode N), also the input placeholder. */
   placeholder?: string;
-  /** 保存回调；reject 时组件保持编辑态，错误提示由调用方负责（如 toast）。 */
+  /** Save callback; rejection preserves editing, with caller-owned error feedback such as toasts. */
   onSave: (next: string) => Promise<void>;
-  /** false 时纯展示、不暴露编辑入口（如无剧本文件的分集）。 */
+  /** False means display only without edit entry, e.g. episodes lacking script files. */
   canEdit: boolean;
 }
 
 /**
- * 集页页头的集标题：点铅笔进入行内输入，Enter 保存，Esc 取消还原；清空后保存即回到派生集名（placeholder）。
- * canEdit=false 时只显示标题。
+ * Episode-header title: pencil opens inline input, Enter saves, Esc cancels/restores; saving empty returns to derived name/placeholder.
+ * canEdit=false displays the title only.
  */
 export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: EditableEpisodeTitleProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -27,8 +27,8 @@ export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: Ed
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // draft 仅在编辑态被读取，进入编辑前必经 enterEdit/cancel 用当前 title 重新播种，
-  // 故无需 effect 跟随 title prop 同步（展示态直接渲染 title prop）。
+  // draft is read only while editing; enterEdit/cancel always reseeds from current title before editing,
+  // so no effect must synchronize title props; display mode directly renders the prop.
   useEffect(() => {
     if (isEditing) {
       inputRef.current?.focus();
@@ -59,7 +59,7 @@ export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: Ed
       await onSave(trimmed);
       setIsEditing(false);
     } catch {
-      // 失败保持编辑态，错误提示由调用方 toast
+      // Failure keeps editing; callers show error toasts.
     } finally {
       setSaving(false);
     }
@@ -82,7 +82,7 @@ export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: Ed
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder}
           onKeyDown={(e) => {
-            // 输入法组合输入中（如中文拼音）按 Enter 是在确认候选词，不应触发保存
+            // IME composition (e.g. Chinese pinyin) uses Enter to confirm candidates, not to save.
             if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter") {
               e.preventDefault();

@@ -26,7 +26,7 @@ export function ResolutionPicker({
   if (options.length === 0) return null;
 
   if (mode === "select") {
-    // null 项既是占位文案，也是列表里的「不传」选项，用户可以从弹层里清除已选档位。
+    // The null item is both placeholder copy and a Do not send option, allowing users to clear the selected tier from the overlay.
     const items = [{ value: null, label: placeholder }, ...options.map((o) => ({ value: o, label: o }))];
     return (
       <Select items={items} value={value} onValueChange={(next) => onChange(next)} disabled={disabled}>
@@ -57,10 +57,10 @@ interface ComboboxInputProps {
   disabled?: boolean;
 }
 
-/** 自定义供应商的分辨率可以自由填写，候选只作提示，所以用带 datalist 的输入框而不是下拉。 */
+/** Custom-provider resolutions allow free entry with candidate suggestions, so use a datalist input rather than a dropdown. */
 function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholder, disabled }: ComboboxInputProps) {
-  // 本地编辑态允许用户自由输入（含空格/清空）——外部 value 变化时通过 render-phase
-  // 判断同步（React 官方推荐的"派生 state from props"模式，非 effect）。
+  // Local editing permits arbitrary input, including spaces and clearing; synchronize external value changes during render,
+  // using React's recommended state-derived-from-props pattern rather than an effect.
   const [local, setLocal] = useState<string>(value ?? "");
   const [lastSync, setLastSync] = useState<string | null>(value);
   if (value !== lastSync) {
@@ -84,7 +84,7 @@ function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholde
           onChange(raw === "" ? null : raw);
         }}
         onBlur={() => {
-          // 输入后可能带首尾空格，离焦时 normalize 避免脏值流入后端查找表
+          // Input may contain leading/trailing whitespace; normalize on blur to keep dirty values out of backend lookup tables
           const trimmed = local.trim();
           if (trimmed !== local) {
             setLocal(trimmed);

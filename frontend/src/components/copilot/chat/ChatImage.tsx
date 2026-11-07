@@ -3,14 +3,14 @@ import { cn } from "cn";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 // ---------------------------------------------------------------------------
-// ChatImage — 消息里的图片附件：点开在对话框里看原图。
+// ChatImage: image attachment in a message; open a dialog to view the original.
 // ---------------------------------------------------------------------------
 
 interface ChatImageProps {
   src: string;
-  /** 在所属消息里的序号（从 1 开始），用于可访问名称。 */
+  /** Position within its message, starting at 1, for the accessible name. */
   index: number;
-  /** thumbnail：用户气泡里的固定高度缩略图；inline：Agent 正文里按原比例显示。 */
+  /** thumbnail: fixed-height thumbnail in user bubbles; inline: preserve aspect ratio in Agent message bodies. */
   variant?: "thumbnail" | "inline";
 }
 
@@ -42,7 +42,7 @@ export function ChatImage({ src, index, variant = "thumbnail" }: ChatImageProps)
         <DialogHeader>
           <DialogTitle>{alt}</DialogTitle>
         </DialogHeader>
-        {/* 原图超高时只有这里滚动，内部没有可聚焦元素，键盘靠它自身聚焦后滚动 */}
+        {/* Only this area scrolls for very tall originals; it has no focusable children, so keyboard scrolling requires focusing the area itself */}
         <DialogBody tabIndex={0} role="region" aria-label={alt}>
           <img src={src} alt={alt} className="mx-auto block h-auto max-w-full rounded-md" />
         </DialogBody>

@@ -1,7 +1,6 @@
-"""待补全工具的声明：把制作计划要求的完成事实原子记入项目，让计划继续收敛。
+"""Completion declaration: atomically record completion facts required by the production plan so it can converge.
 
-完成事实不能由文件内容推断（重建可能与旧文件逐字相同），只能由产出它的一方显式提交。
-"""
+Completion cannot be inferred from file content (a rebuild may exactly match the old file); the producing party must explicitly submit it."""
 
 from __future__ import annotations
 
@@ -11,11 +10,7 @@ from server.tool_runtime import CompleteScriptPlanRebuildRequest, complete_scrip
 COMPLETE_SCRIPT_PLAN_REBUILD = ToolDeclaration(
     name="complete_script_plan_rebuild",
     description=(
-        "stale 分集的 script_plan 重建成功后调用，原子记录重建完成事实；即使重建内容与旧 script_plan 逐字相同，"
-        "制作计划也能继续收敛。仅在制作计划 next_action.args 带 expected_stale_script_plan_revision 时使用，"
-        "该值原样传入。该集不在待重建状态（not_stale）、缺少重建基线（missing_baseline）、基线已变化（baseline_conflict）"
-        "或正式 script_plan 文件缺失（script_plan_missing）时拒绝且不写入；报冲突时刷新制作计划，不要用旧参数重试。"
-        "成功返回该集与重建后 script_plan 的 revision。"
+        "Call after successfully rebuilding a stale episode’s script_plan to atomically record completion; the production plan can converge even if the rebuilt content exactly matches the old script_plan. Use only when next_action.args includes expected_stale_script_plan_revision and pass that value unchanged. Rejects without writing if the episode is not stale (not_stale), the rebuild baseline is absent (missing_baseline), the baseline changed (baseline_conflict), or formal script_plan is absent (script_plan_missing). On conflicts, refresh the production plan rather than retrying old arguments. Success returns the episode and rebuilt script_plan revision."
     ),
     request_model=CompleteScriptPlanRebuildRequest,
     migration=BLOCKED,

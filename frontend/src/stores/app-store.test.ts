@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** 模拟刷新页面：重新加载模块，store 从 localStorage 重新读取开合记忆。 */
+/** Simulate page refresh: reload modules so stores reread open/closed state from localStorage. */
 async function reloadStore() {
   vi.resetModules();
   const { useAppStore } = await import("./app-store");

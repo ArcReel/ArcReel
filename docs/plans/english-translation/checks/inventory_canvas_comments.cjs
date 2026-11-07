@@ -1,0 +1,8 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require(process.cwd() + '/frontend/node_modules/typescript');
+const output=[];
+function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const file=path.join(dir,entry.name);if(entry.isDirectory()){walk(file);}else if(/\.tsx?$/.test(file))inspect(file);}}
+function rangesFor(file,text){const source=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true,file.endsWith('.tsx')?ts.ScriptKind.TSX:ts.ScriptKind.TS);const ranges=new Map();function visit(node){for(const position of [node.pos,node.end,node.getStart(source)]){for(const range of [...(ts.getLeadingCommentRanges(text,position)||[]),...(ts.getTrailingCommentRanges(text,position)||[])])ranges.set(range.pos+':'+range.end,range);}for(const child of node.getChildren(source))visit(child);}visit(source);const all=[...ranges.values()].sort((a,b)=>a.pos-b.pos||b.end-a.end);return all.filter((r,i)=>!all.slice(0,i).some(p=>p.pos<=r.pos&&p.end>=r.end));}
+function inspect(file){const text=fs.readFileSync(file,'utf8');const comments=rangesFor(file,text).filter(r=>/[\u3400-\u9fff]/.test(text.slice(r.pos,r.end))).map(r=>({start:r.pos,end:r.end,line:text.slice(0,r.pos).split('\n').length,text:text.slice(r.pos,r.end)}));if(comments.length)output.push({path:file,han_comment_lines:comments.reduce((n,r)=>n+r.text.split('\n').filter(l=>/[\u3400-\u9fff]/.test(l)).length,0),comments});}
+walk('frontend/src/components/canvas');fs.writeFileSync('/tmp/arcreel-canvas-comment-inventory.json',JSON.stringify(output,null,2));console.log(output.map(f=>f.comments.length+' comments / '+f.han_comment_lines+' lines '+f.path).join('\n'));console.log(output.length,'files',output.reduce((n,f)=>n+f.comments.length,0),'comments');

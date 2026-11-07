@@ -1,4 +1,4 @@
-"""AssetRepository 的衍生子表读写：方言敏感，PostgreSQL 与 SQLite 上同一套判据。"""
+"""AssetRepository derivative-table reads/writes: dialect-sensitive, with identical PostgreSQL/SQLite criteria."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def test_replace_derivatives_round_trips_name_description_and_image(async_
 
 @pytest.mark.asyncio
 async def test_replace_derivatives_drops_rows_absent_from_the_new_table(async_session) -> None:
-    """整表替换：库里不再有的衍生连同它的图片登记一起消失。"""
+    """Whole-table replacement removes absent derivatives together with their image registrations."""
     repo = AssetRepository(async_session)
     asset = await _character(async_session, "王")
     await repo.replace_derivatives(asset.id, [("战斗装", "黑甲", None), ("便装", "布衣", None)])
@@ -83,7 +83,7 @@ async def test_list_derivatives_by_asset_ids_returns_empty_for_no_ids(async_sess
 
 @pytest.mark.asyncio
 async def test_deleting_an_asset_removes_its_derivative_rows(async_session) -> None:
-    """删本体即清子表；不依赖库级外键动作，两种方言同行为。"""
+    """Deleting bases clears derivative rows without depending on DB foreign-key actions; both dialects agree."""
     repo = AssetRepository(async_session)
     asset = await _character(async_session, "王")
     survivor = await _character(async_session, "李")

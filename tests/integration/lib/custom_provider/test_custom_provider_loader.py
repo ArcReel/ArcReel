@@ -1,7 +1,8 @@
-"""自定义 backend DB 装载（lib.custom_provider.loader）单测：内存 SQLite + 真 CustomProviderRepository。
+"""Custom backend DB loading through lib.custom_provider.loader: in-memory SQLite and real CustomProviderRepository.
 
-查 provider、校验 model（存在 / 启用 / endpoint 推算 media_type 相符）、失效回退默认、委托现成
-create_custom_backend（ENDPOINT_REGISTRY 不改）。镜像 test_custom_provider_repo.py 的内存 DB 范式，不 mock repo。
+Look up providers, validate models (existence/enabled/endpoint-inferred media_type), fall back to
+defaults on invalidation, and delegate existing create_custom_backend without changing
+ENDPOINT_REGISTRY. Mirror test_custom_provider_repo.py in-memory DB patterns without mocking repos.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
 async def _seed(db_session, *, models: list[dict]) -> str:
     repo = CustomProviderRepository(db_session)
-    # display_name 列 NOT NULL：缺省补 model_id 作显示名
+    # display_name is NOT NULL; default to model_id.
     for m in models:
         m.setdefault("display_name", m["model_id"])
     provider = await repo.create_provider(
@@ -50,7 +51,7 @@ class TestLoadCustomBackend:
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_falls_back_to_default_when_model_disabled(self, mock_cls, db_session):
-        # 请求的 model 已禁用 → 回退到该 media_type 的默认启用 model
+        # Requested model disabled → use default enabled model for that media_type.
         pid = await _seed(
             db_session,
             models=[
@@ -70,7 +71,7 @@ class TestLoadCustomBackend:
             )
 
     async def test_no_default_model_for_media_fails_loud(self, db_session):
-        # 只有 image model，请求 video → 无默认 video model
+        # Only image models exist; video requests have no default video model.
         pid = await _seed(
             db_session,
             models=[{"model_id": "dall-e-3", "endpoint": "openai-images", "is_enabled": True}],
@@ -80,14 +81,14 @@ class TestLoadCustomBackend:
 
 
 class TestBucketAwareDefaultFallback:
-    """默认回退按任务类型桶挑行：image 的 t2i 与 i2i 各有一个默认，挑不出唯一那一行即 fail loud。"""
+    """Default fallback selects by task-type bucket: image t2i/i2i each have one default; inability to select a unique row fails loudly."""
 
     @staticmethod
     async def _seed_two_image_buckets(db_session) -> str:
         return await _seed(
             db_session,
             models=[
-                # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
+                # openai-images-generations declares t2i only; openai-images-edits i2i only.
                 {"model_id": "t2i-m", "endpoint": "openai-images-generations", "is_enabled": True, "is_default": True},
                 {"model_id": "i2i-m", "endpoint": "openai-images-edits", "is_enabled": True, "is_default": True},
             ],
@@ -119,7 +120,7 @@ class TestBucketAwareDefaultFallback:
             )
 
     async def test_two_defaults_in_the_same_bucket_fail_loud(self, db_session):
-        # 两行都声明 t2i + i2i：按桶过滤后 t2i 上仍有两个默认，挑哪一行都是静默换模型
+        # Both rows declaring t2i+i2i leave two t2i defaults after filtering; choosing either silently changes models.
         pid = await _seed(
             db_session,
             models=[
@@ -134,14 +135,14 @@ class TestBucketAwareDefaultFallback:
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend", new=MagicMock())
     async def test_double_default_without_bucket_still_resolves_the_named_model(self, db_session):
-        # 不带桶的调用点（文本 / 音频工厂等）不过滤：显式 model 命中时双默认不参与解析
+        # Bucketless callers (text/audio factories etc.) do not filter; explicit model hits bypass dual-default resolution.
         pid = await self._seed_two_image_buckets(db_session)
         result = await load_custom_backend(session=db_session, provider_id=pid, model_id="i2i-m", media_type="image")
         assert result.model == "i2i-m"
 
 
 class TestVideoCapabilityOverridesReachExecution:
-    """DB 的 capability_overrides 必须在装载出的 backend 上生效——执行层门控读的就是这里。"""
+    """DB capability_overrides must apply to loaded backends, the source read by execution gates."""
 
     @staticmethod
     async def _load_video_backend(
@@ -159,7 +160,7 @@ class TestVideoCapabilityOverridesReachExecution:
                 }
             ],
         )
-        # 清 identity map，逼装载重新 SELECT：覆盖字典要真经过 JSON 编解码往返才算验到 DB 语义
+        # Clear identity maps to force real SELECT; override dictionaries must round-trip JSON to verify DB semantics.
         db_session.expunge_all()
         return await load_custom_backend(session=db_session, provider_id=pid, model_id=model_id, media_type="video")
 
@@ -172,14 +173,14 @@ class TestVideoCapabilityOverridesReachExecution:
 
     @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_override_forces_capability_on(self, db_session):
-        # 对应不上条目时尾帧按保守回落为 False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
-        # endpoint 须支持尾帧（end_image_capable）覆盖才会生效，openai-video 不满足此前提
+        # Unmatched catalog entries conservatively disable last frames; forced overrides expose True and stop forwarding the wrapped backend.
+        # Overrides require endpoint end_image_capable support, which openai-video lacks.
         backend = await self._load_video_backend(
             db_session, overrides={"last_frame": True}, endpoint="ark-seedance-2", model_id="seedance-1-pro"
         )
         assert two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="seedance-1-pro").last_frame is False
         assert backend.video_capabilities.last_frame is True
-        # 未覆盖的维度跟随两侧求值：参考图上限未收录
+        # Unoverridden dimensions follow joint evaluation; reference-image limits are unrecorded.
         assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())
@@ -190,7 +191,7 @@ class TestVideoCapabilityOverridesReachExecution:
 
     @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, db_session):
-        # 存量行可能带已下线的键，装载不得失败，该维度按系统判定走
+        # Existing rows may retain retired keys; loading must succeed, leaving that dimension system-determined.
         backend = await self._load_video_backend(
             db_session,
             overrides={"retired_dimension": True, "last_frame": True},
@@ -238,7 +239,7 @@ class TestCustomModelMaxOutputTokens:
         assert (registered, bare, missing) == (8192, None, None)
 
     async def test_override_beats_the_entry_and_the_binding_picks_the_entry(self, async_session):
-        """能力覆盖 > 对应条目：没有覆盖时取条目的值，条目绑定优先于按名字对应。"""
+        """Capability overrides outrank matched entries; without overrides use entry values, prioritizing bindings over name matching."""
         pid = await _seed(
             async_session,
             models=[
@@ -273,7 +274,7 @@ class TestCustomModelMaxOutputTokens:
 
 class TestCustomImageModelCapabilities:
     async def test_factory_injects_model_side_from_overrides(self, async_session):
-        """图片后端带上模型事实一侧：能力覆盖关掉文生图后，执行层的生效能力只剩图生图。"""
+        """Image backends carry model facts: overriding text-to-image off leaves image-to-image as the only effective execution capability."""
         pid = await _seed(
             async_session,
             models=[

@@ -1,7 +1,7 @@
-"""内置供应商的「获取模型」：调用供应商的模型列表接口，只取模型 ID，按清单中的 API 模型名精确匹配（docs/adr/0105）。
+"""Built-in model discovery: fetch provider lists, taking IDs only and matching manifest API names exactly (docs/adr/0105).
 
-7 家内置供应商有可用的列表接口：gemini-aistudio、gemini-vertex 用 google 形态，openai、grok、dashscope、minimax、
-agnes 用 OpenAI 兼容形态。列表接口返回的其他元信息不读取；获取结果也不用来判断模型是否可用，它会因账号、地域而不同。
+Seven built-ins expose lists: gemini-aistudio/gemini-vertex use google shapes; openai/grok/dashscope/minimax/
+agnes use OpenAI-compatible shapes. Ignore other returned metadata; discovery never determines callability because account/region affect results.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from lib.custom_provider.endpoints import infer_media_type
 
 DiscoveryForm = Literal["google", "openai"]
 
-#: 有模型列表接口的内置供应商与接口形态。
+#: Built-in providers with model-list interfaces and their formats.
 BUILTIN_DISCOVERY_FORMS: Mapping[str, DiscoveryForm] = {
     "gemini-aistudio": "google",
     "gemini-vertex": "google",
@@ -30,12 +30,12 @@ BUILTIN_DISCOVERY_FORMS: Mapping[str, DiscoveryForm] = {
     "agnes": "openai",
 }
 
-#: xAI 的 OpenAI 兼容接口地址；grok 的调用通道走 xai_sdk，不在配置里存地址。
+#: xAI compatible API address; grok channels use xai_sdk without stored addresses.
 XAI_OPENAI_BASE_URL = "https://api.x.ai/v1"
 
 
 class BuiltinDiscoveryConfigError(ValueError):
-    """凭证缺少获取模型需要的字段（如 Vertex 凭证文件不存在或没有 project_id）。``code`` 是错误文案的 i18n key。"""
+    """Missing discovery credential fields, such as absent Vertex files/project_id. ``code`` is i18n keys."""
 
     def __init__(self, code: str, **params: object) -> None:
         super().__init__(code)
@@ -45,11 +45,11 @@ class BuiltinDiscoveryConfigError(ValueError):
 
 @dataclass(frozen=True)
 class DiscoveredBuiltinModel:
-    """获取到的一个模型。
+    """One discovered model.
 
-    ``recognized`` 为真时对上了清单里的官方收录模型，``model_key`` 是它的模型键（两栖模型的 API 模型名对上两个
-    模型键，各列一行）；对不上时 ``model_key`` 为 ``None``，``media_type`` 先看名字对应上的条目，再按名字推断，
-    添加时作为用户添加的模型的媒体类型；``entry`` 是名字对应上的条目（对应不上为 ``None``），添加后调用按它计价。
+    True ``recognized`` means official manifest matches; ``model_key`` is corresponding keys (dual-modality API names matching two
+    keys produce separate rows). Otherwise ``model_key`` is ``None``; ``media_type`` uses matching entries, then name inference,
+    serving user-added model media. ``entry`` is name-matched, ``None`` if absent; added calls price through it.
     """
 
     model_id: str
@@ -64,11 +64,11 @@ def is_discoverable(provider_id: str) -> bool:
 
 
 def match_by_name(provider_id: str, model_id: str) -> tuple[str, CatalogEntry | None]:
-    """对不上官方收录模型时，按名字对应的条目与媒体类型（docs/adr/0105）。
+    """Without official model matches, resolve name-based entries/media (docs/adr/0105).
 
-    名字直接对应上条目时取条目的媒体类型；两栖模型的名字对应不上单个条目，先按名字推断媒体类型，再在该媒体类型内
-    查一次。与添加后用户添加的模型经 ``catalog.find_entry`` 对应条目的口径一致，所以这里对应到的条目就是添加后
-    计价所依据的条目。
+    Direct entry matches supply media. Dual-modality names cannot identify one entry, so infer media by name, then query again
+    within that media. This matches added user-model ``catalog.find_entry`` semantics, ensuring discovered entries
+    are exactly those used for pricing after addition.
     """
     entry = catalog.find_entry(model_id)
     if entry is not None:
@@ -78,18 +78,18 @@ def match_by_name(provider_id: str, model_id: str) -> tuple[str, CatalogEntry | 
 
 
 def name_media_type(provider_id: str, model_id: str) -> str:
-    """对不上官方收录模型时的媒体类型：名字对应上条目取条目的，否则按名字推断（规则同自定义供应商的模型发现）。"""
+    """Without official matches, use name-matched entry media, otherwise name inference shared with custom discovery."""
     return match_by_name(provider_id, model_id)[0]
 
 
 def classify_model_ids(provider_id: str, model_ids: list[str]) -> list[DiscoveredBuiltinModel]:
-    """按清单中的 API 模型名精确匹配；结果按模型 ID 排序、去重。"""
+    """Match exact manifest API model names; sort/deduplicate by model ID."""
     official: dict[str, list[catalog.ProviderModelView]] = {}
     for view in catalog.provider_models(provider_id):
         if view.official:
             official.setdefault(view.api_model_name, []).append(view)
     result: list[DiscoveredBuiltinModel] = []
-    # 含点段的 ID 添加会被拒（见 model_id.py），不放进可添加列表
+    # Dot-segment IDs fail addition (model_id.py); exclude from addable lists.
     for model_id in sorted({m for m in model_ids if not has_dot_segment(m)}):
         views = official.get(model_id)
         if views:
@@ -104,13 +104,13 @@ def classify_model_ids(provider_id: str, model_ids: list[str]) -> list[Discovere
 
 
 def list_model_ids(provider_id: str, config: Mapping[str, str]) -> list[str]:
-    """调用内置供应商的模型列表接口，返回模型 ID；同步执行网络请求，调用方放进线程。
+    """Fetch provider lists and return IDs; synchronous network requests require caller threads.
 
-    ``config`` 是叠加了凭证的供应商配置（``api_key``、``base_url``、``credentials_path``）。
+    ``config`` overlays provider credentials (``api_key``, ``base_url``, ``credentials_path``).
 
     Raises:
-        BuiltinDiscoveryConfigError: 凭证缺少获取模型需要的字段。
-        ValueError: ``provider_id`` 没有模型列表接口。
+        BuiltinDiscoveryConfigError: Missing credential fields needed for discovery.
+        ValueError: No model-list interface for ``provider_id``.
     """
     match provider_id:
         case "gemini-aistudio":
@@ -124,7 +124,7 @@ def list_model_ids(provider_id: str, config: Mapping[str, str]) -> list[str]:
 
 
 def _openai_base_url(provider_id: str, configured: str | None) -> str:
-    """列表接口的地址；每家都返回显式地址。传 ``None`` 时 OpenAI SDK 改读 ``OPENAI_BASE_URL`` 环境变量，会把密钥发到那里。"""
+    """Explicit model-list addresses per provider. ``None`` would make OpenAI SDK read ``OPENAI_BASE_URL`` and send keys there."""
     match provider_id:
         case "grok":
             return XAI_OPENAI_BASE_URL
@@ -146,9 +146,9 @@ def _openai_base_url(provider_id: str, configured: str | None) -> str:
             return (configured or "").strip() or OFFICIAL_OPENAI_BASE_URL
 
 
-#: 模型列表接口单次请求的超时。调用方另有总时限，这里让线程随之结束，不按 SDK 默认的长超时与重试挂着。
+#: Per-list-call timeout; callers have total deadlines, so terminate threads instead of waiting for long SDK defaults/retries.
 _LIST_TIMEOUT_SECONDS = 30
-#: 同一超时按 genai SDK ``HttpOptions.timeout`` 的单位（毫秒）；不设 ``retry_options`` 时它不重试。
+#: Same timeout in genai SDK ``HttpOptions.timeout`` milliseconds; without ``retry_options``, it does not retry.
 _GENAI_LIST_TIMEOUT_MS = _LIST_TIMEOUT_SECONDS * 1000
 
 
@@ -160,7 +160,7 @@ def _list_openai(api_key: str, base_url: str) -> list[str]:
 
 
 def _short_name(name: str | None) -> str:
-    """去掉 ``models/``、``publishers/google/models/`` 这类路径前缀。"""
+    """Strip path prefixes such as ``models/`` / ``publishers/google/models/``."""
     return (name or "").rsplit("/", 1)[-1]
 
 

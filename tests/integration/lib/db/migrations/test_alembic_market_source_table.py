@@ -1,4 +1,4 @@
-"""Alembic 迁移：market_source 建表的 upgrade / downgrade。"""
+"""Alembic: market_source table upgrade / downgrade."""
 
 from __future__ import annotations
 

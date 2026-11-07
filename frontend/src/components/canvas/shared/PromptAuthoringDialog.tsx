@@ -54,13 +54,13 @@ function readPromptOverwrite(err: unknown): PromptOverwrite | null {
 interface HostProps {
   projectName: string;
   episode: number;
-  /** 本集正式脚本；尚无时不渲染。 */
+  /** Episode formal script; do not render without it. */
   script: unknown;
-  /** 本集上次保存的附加指令。 */
+  /** Last saved additional instructions for this episode. */
   savedInstructions?: string;
 }
 
-/** 集页上唯一的「编写提示词」弹窗宿主：按 {@link usePromptAuthoringStore} 的请求打开。 */
+/** Single episode-page prompt-authoring dialog host, opened through {@link usePromptAuthoringStore} requests. */
 export function PromptAuthoringHost({ projectName, episode, script, savedInstructions }: HostProps) {
   const request = usePromptAuthoringStore((s) => s.request);
   const close = usePromptAuthoringStore((s) => s.close);
@@ -72,7 +72,7 @@ export function PromptAuthoringHost({ projectName, episode, script, savedInstruc
   if (!request || request.projectName !== projectName || request.episode !== episode || !script) return null;
   return (
     <PromptAuthoringDialog
-      // 每次打开都从请求重新初始化范围与指令，不沿用上一次弹窗里未提交的状态。
+      // Reinitialize scope/instructions from each opening request instead of retaining unsubmitted state from the previous dialog.
       key={`${projectName}:${episode}:${request.scope}:${request.currentEntryId ?? ""}`}
       projectName={projectName}
       episode={episode}
@@ -89,7 +89,7 @@ interface DialogProps {
   projectName: string;
   episode: number;
   entries: PromptAuthoringEntry[];
-  /** 参考生视频单元：视觉层是单元正文，提示文案按单元说。 */
+  /** Reference-video units use their body as visual content; phrase hints in units. */
   unitMode: boolean;
   request: PromptAuthoringOpenRequest;
   savedInstructions: string;
@@ -129,7 +129,7 @@ export function PromptAuthoringDialog({
   const [overwrite, setOverwrite] = useState<PromptOverwrite | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  // 脚本在弹窗打开期间变化（条目被删）时，自选范围只算仍在脚本里的条目，按剧本顺序。
+  // If script entries disappear while open, intersect custom selection with remaining entries in script order.
   const selectedIds = useMemo(
     () => entries.filter((entry) => selectedSet.has(entry.id)).map((entry) => entry.id),
     [entries, selectedSet],
@@ -328,7 +328,7 @@ export function PromptAuthoringDialog({
       <AlertDialog
         open={overwrite !== null}
         onOpenChange={(next) => {
-          // 提交中不响应 Esc，避免请求还在途时对话框先消失
+          // Ignore Escape during submission so the dialog cannot disappear before the request completes
           if (!next && !submitting) setOverwrite(null);
         }}
       >

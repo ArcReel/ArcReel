@@ -1,7 +1,7 @@
-"""两根 Agent 记忆路由（用户记忆 / 项目记忆）的对称行为。
+"""Symmetric user/project Agent memory routes.
 
-用真实 ``ProjectManager`` 与 ``tmp_path`` 数据根穿过完整的 FastAPI 栈，断言的是 HTTP
-可观察结果：状态码、JSON 形状、正文字节与磁盘落点。
+Use real ``ProjectManager`` and ``tmp_path`` roots through full FastAPI stacks, asserting HTTP-observable
+status, JSON shapes, body bytes and disk destinations.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def client(demo_data_root, monkeypatch):
 
 @pytest.fixture(params=[USER_BASE, PROJECT_BASE], ids=["user", "project"])
 def base(request):
-    """两级记忆共用一套断言：接口形状对称是本票的核心承诺。"""
+    """Shared assertions across both memory levels: symmetric API shapes are this ticket's core promise."""
     return request.param
 
 
@@ -157,8 +157,8 @@ class TestReadWriteDelete:
             ("notes.txt", "notes.txt"),
             (".hidden.md", ".hidden.md"),
             ("-lead.md", "-lead.md"),
-            # 反斜杠不是 URL 路径分隔符，穿越形态的文件名因此能走到处理函数里被规则挡下；
-            # 它在 Windows 上是真正的分隔符，正是 safe_join 兜底的那一类。
+            # Backslashes are not URL separators, letting traversal-shaped filenames reach handler validation;
+            # they are actual Windows separators, exactly what safe_join guards.
             ("..%5Cescape.md", "..\\escape.md"),
         ],
     )
@@ -172,8 +172,8 @@ class TestReadWriteDelete:
             assert response.json()["detail"] == zh_errors.MESSAGES["memory_invalid_filename"].format(filename=decoded)
 
     def test_traversal_never_writes_outside_the_memory_directory(self, client, base, demo_data_root):
-        # 正斜杠形态在路由匹配阶段就落空（单段路径参数匹配不到带分隔符的 URL），
-        # 拒绝发生在处理函数之前，因此这里只断言「被拒且没有任何东西落在目录外」。
+        # Forward slashes fail routing first: single-segment parameters never match separator-containing URLs,
+        # so assert rejection and no out-of-directory files only, since handlers never execute.
         response = client.put(f"{base}/files/..%2F..%2Fescape.md", content=b"leak")
 
         assert response.status_code in {400, 404}
@@ -225,7 +225,7 @@ class TestProjectScoping:
         assert client.put(f"{PROJECT_BASE}/files/tone.md", content=b"next").status_code == 409
         assert client.delete(f"{PROJECT_BASE}/files/tone.md").status_code == 409
         assert client.post(f"{PROJECT_BASE}/clear").status_code == 409
-        # 用户记忆不挂该守卫：它与任何项目的迁移状态无关。
+        # User memory lacks this guard, independent of any project's migration state.
         assert client.put(f"{USER_BASE}/files/tone.md", content=b"body").status_code == 200
 
 

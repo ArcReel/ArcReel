@@ -10,7 +10,7 @@ from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names
 
-# 这些用例的项目没有剧本文件：条目找不到，位置为 None。
+# These projects lack script files: entries cannot be found, so locations are None.
 _NO_SCRIPT = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
 
 
@@ -85,8 +85,8 @@ class TestRetryArtifactDownload:
         assert worker.poll_timeouts == [3600]
 
     def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
-        # 轮询超时读的是配置库。它在翻状态之后失败就没有回滚点，任务会永久停在 running：
-        # 既不被队列认领，也不再满足 retry-download 的资格条件。故必须先读再翻。
+        # Polling timeouts read configuration DBs. Failures after status changes have no rollback, leaving tasks running forever:
+        # neither queue-claimable nor retry-download eligible. Read first, then change status.
         queue = _RetryQueue()
         worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
@@ -129,7 +129,7 @@ class _RenderQueue:
 
 
 def _display_names(request: Request) -> DisplayNames:
-    """两个供应商使用同一模型 ID，显示名按供应商区分。"""
+    """Two providers share model IDs; display names distinguish providers."""
     return make_display_names(
         get_locale(request),
         providers={"custom-2": "我的中转站", "custom-3": "另一家中转站"},
@@ -366,7 +366,7 @@ class TestTaskErrorLocalization:
 
 
 class TestTaskResourceRefs:
-    """任务的条目 ID 带集 ID：列表附上所属集的标题、播出位置与集内 ID，界面据此指称条目。"""
+    """Task entry IDs include episode IDs: lists attach episode titles, playback positions and intra-episode IDs for UI references."""
 
     def test_list_and_cancel_preview_carry_the_episode_title_and_position(self, monkeypatch, tmp_path):
         projects = ProjectManager(tmp_path / "projects")

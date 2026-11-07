@@ -1,6 +1,6 @@
-"""SDK 验证脚本：跑四家供应商的参考生视频真实能力矩阵。
+"""SDK verification: real reference-to-video capability matrix across four providers.
 
-用法:
+Usage:
     python scripts/verify_reference_video_sdks.py --provider ark --refs 9 --duration 10 --multi-shot
 """
 
@@ -35,7 +35,7 @@ class Provider(StrEnum):
 
 
 def _positive_int(value: str) -> int:
-    """argparse type：拒绝 0 / 负值，避免 --refs 0 或 --duration 0 污染报告。"""
+    """argparse type: reject 0 / negatives so --refs 0 or --duration 0 cannot contaminate reports."""
     try:
         ivalue = int(value)
     except ValueError as exc:
@@ -169,7 +169,7 @@ async def run_once(
     start = time.monotonic()
     try:
         await backend.generate(request)
-        # 防 false-positive：backend 返回成功但视频文件未落盘 / 为空时应判 FAIL
+        # Prevent false positives: backend success with absent/empty video files must report FAIL.
         if not out_path.exists() or out_path.stat().st_size == 0:
             raise RuntimeError(f"output video missing or empty: {out_path}")
         return RunResult(
@@ -190,7 +190,7 @@ async def run_once(
 
 
 def clamp_refs_for_backend(*, requested: int, caps: VideoCapabilities) -> tuple[int, str]:
-    """把 requested 夹到 backend 上限；若 backend 不支持 reference_images 则直接抛 ValueError。"""
+    """Clamp requested to backend limits; raise ValueError when reference_images is unsupported."""
     if caps.max_reference_images <= 0:
         raise ValueError("Backend does not support reference_images")
     if requested <= caps.max_reference_images:
@@ -208,15 +208,15 @@ _PROVIDER_TO_BACKEND: dict[Provider, str] = {
 
 
 def resolve_backend(provider: Provider) -> VideoBackend:
-    """直接复用 lib.backends.video_backends 的注册表——import lib.backends.video_backends 已自动注册全部后端。"""
+    """Reuse lib.backends.video_backends registry; importing that package already registers all backends."""
     return create_backend(_PROVIDER_TO_BACKEND[provider])
 
 
 def _extract_data_rows(report_lines: list[str]) -> list[str]:
-    """从已有 Markdown 报告中挑出表格数据行（跳过 header / 分隔符）。
+    """Extract Markdown report data rows, excluding headers/separators.
 
-    用行前缀精确识别表头和分隔行，避免 Result/Note 字段含 "Provider"
-    / "---" 等关键字时被误过滤（如 FAIL: "Provider timeout"）。
+    Match exact row prefixes so Result/Note values containing "Provider" / "---" are not mistakenly
+    filtered (e.g. FAIL: "Provider timeout").
     """
     return [
         ln
@@ -248,9 +248,9 @@ async def run_with_backend(
         work_dir=work_dir,
         note=note,
     )
-    report_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 -- 一次性脚本创建报告目录，本地元数据
+    report_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 -- One-shot report-directory creation; local metadata
     fname = report_dir / f"reference-video-sdks-{date.today():%Y-%m-%d}.md"
-    # 多次运行追加模式：读原文件剥离 header、合并行
+    # Repeated-run append mode: read original, strip header, merge rows.
     existing_rows: list[str] = []
     if fname.exists():
         existing = fname.read_text(encoding="utf-8").splitlines()
@@ -258,7 +258,7 @@ async def run_with_backend(
     md = render_report([result])
     if existing_rows:
         lines = md.splitlines()
-        # 把已有数据行塞回表尾
+        # Append existing data rows to the table tail.
         lines.extend(existing_rows)
         md = "\n".join(lines) + "\n"
     fname.write_text(md, encoding="utf-8")

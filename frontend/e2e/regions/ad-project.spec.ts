@@ -4,12 +4,12 @@ import { recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 广告项目：概览常驻「创作灵感」与「商品」区承担首次录入，故事设定在视频页的「故事设定」tab。
-// 录制的演示项目改成广告项目，数据全用场景内覆盖。
+// Ad projects: persistent overview Creative brief/Products handle initial input; story settings live in video-page Story settings tabs.
+// Convert recorded demos to ads, overriding all data within scenarios.
 const OVERVIEW_PATH = "/app/projects/demo";
 const SETTING_PATH = "/app/projects/demo/episodes/1?view=setting";
 const PROJECT = "GET /api/v1/projects/demo";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换的项目数据上。
+// Project events are unrecorded SSE; reject nonretryably, retaining replacement project data.
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -44,10 +44,10 @@ function adProject(project: Record<string, unknown>): ApiOverrides {
   };
 }
 
-// 刚建好的广告项目：没有创作灵感，也没有商品。
+// Newly created ads lack briefs/products.
 const NEW_AD = adProject({});
 
-// 压力变体：很长的创作灵感、自定义目标时长、十二个长名称长描述的商品，以及写成分秒脚本的长梗概。
+// Stress: long briefs/custom targets, twelve long-named/described products, and long minute/second-script synopses.
 const LONG_AD = adProject({
   title: "夏日汽水：给通勤路上的年轻人一口能喝出海风的清爽，并在三十秒里讲清楚三种口味",
   target_duration: 45,
@@ -72,7 +72,7 @@ const LONG_AD = adProject({
   },
 });
 
-// 截图用的常规数据：三个商品与一份短的故事设定。区域高过 1024×600 的视口时元素截图会拼接错位，长数据只跑探针。
+// Ordinary screenshot data: three products and short story settings. Element screenshots stitch incorrectly when regions exceed 1024×600 viewports; long-data cases run probes only.
 const REGULAR_AD = adProject({
   title: "夏日汽水",
   brief: "面向通勤年轻人，调性轻快；说清低糖、真果汁与气泡足三个卖点。",
@@ -95,7 +95,7 @@ const products = (page: Page) => page.getByRole("region", { name: "商品" });
 const storySetting = (page: Page) => page.getByRole("region", { name: "故事设定" });
 
 async function settled(page: Page) {
-  // 字体与费用响应都会改变内容高度；等真实页面加载完成再测滚动可达性。
+  // Fonts/cost responses change content height; wait for actual pages to load before testing scroll reachability.
   await page.waitForLoadState("networkidle");
   await page.evaluate(() => document.fonts.ready);
 }
@@ -189,7 +189,7 @@ defineRegionScenarios("广告项目概览与故事设定", [
       const sheet = page.getByRole("dialog");
       await sheet.waitFor();
       await waitForEntrance(sheet);
-      // 右侧 Sheet 贴着视口右边缘
+      // Right-side Sheets align with viewport right edges.
       const viewportWidth = page.viewportSize()?.width ?? 0;
       const rect = await box(sheet);
       expect(Math.round(rect.x + rect.width)).toBe(viewportWidth);

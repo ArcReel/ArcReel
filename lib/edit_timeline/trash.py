@@ -1,9 +1,10 @@
-"""剪辑时间线进出项目回收站：删除成为一条带结构快照的删除记录，恢复按落地规则加回。
+"""Editing timelines in project trash: deletion creates a deletion record with a structural snapshot; restoration follows landing rules.
 
-一条记录收时间线文档与它在 ``renders/`` 下的成片、剪映草稿（含渲染记录）。恢复时原 ID 空闲（没有同 ID 的文档，
-渲染目录也不在）就沿用，渲染产物的清单登记取自迁移后的临时项目，照常按产物时效判定；ID 被占用时发新 ID，
-渲染文件随新 ID 加回、不带登记。显示名在集内被占用时加「 (n)」后缀。
-"""
+A record holds the timeline document and final-video/Jianying-draft files under ``renders/``, including
+render records. Reuse the original ID if free (no same-ID document or render directory); take rendered
+artifact registrations from the migrated temporary project and apply normal currency checks. If the
+ID is occupied, assign a new ID, restore renders under it without registrations. Append " (n)" when
+the display name is occupied within the episode."""
 
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ _RENDER_KINDS = frozenset({ArtifactKind.EPISODE_FINAL_CUT, ArtifactKind.EPISODE_
 
 
 def delete_edit_timeline(project_dir: Path, document: EditTimelineDocument) -> project_trash.TrashRecord:
-    """把一条剪辑时间线连同它的渲染产物移进项目回收站；调用方依次持有该集的锁与项目锁。"""
+    """Move a timeline and renders into project trash; callers hold its episode lock followed by the project lock."""
     renders = timeline_renders_dir(document.episode, document.id)
     files = [document_relpath(document.episode, document.id), *_files_under(project_dir, renders)]
     record = project_trash.record_deletion(
@@ -46,14 +47,14 @@ def delete_edit_timeline(project_dir: Path, document: EditTimelineDocument) -> p
         files,
         snapshot=True,
     )
-    # 时间线 ID 不复用，成片与剪映草稿的身份挂在它上面：时间线没了，登记就没有归属。
+    # Timeline IDs are never reused; final videos/Jianying drafts belong to them. Without the timeline, registrations have no owner.
     forget_timeline_render_artifacts(project_dir, document.id)
     _remove_empty_dirs(project_dir / renders)
     return record
 
 
 def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """按时间线 ID 从迁移后的临时项目取出文档、渲染文件与它们的清单登记。"""
+    """Take a timeline document, renders, and their manifest entries from the migrated temporary project by timeline ID."""
     timeline_id = str(obj.get("id"))
     document = next(
         (
@@ -68,10 +69,10 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
     projects = ProjectManager.for_project_dir(project_dir)
 
     def require_episode() -> None:
-        # 所属的集已删除时加回的时间线打不开：集还在项目回收站里就只能随集恢复，否则按取不出对象降级。
+        # Restored timelines cannot open without their episode: if it is in project trash, restore only with that episode; otherwise degrade to object unavailable.
         require_live_episode(project_dir, document.episode, timeline_id)
 
-    # 落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
+    # Recheck under landing locks; an episode deleted meanwhile fails restoration and preserves the record.
     require_episode()
     staged_renders = timeline_renders_dir(document.episode, document.id)
     render_files = _files_under(staged, staged_renders)
@@ -103,7 +104,7 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
         for rel in render_files:
             landing.place(staged / rel, renders + rel[len(staged_renders) :], original=rel)
         if landed.id == document.id and claims:
-            # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
+            # Backfill entries from the pre-deletion (migrated) manifest, preserving basis digests; later input changes still read outdated normally.
             register_artifact_entries_atomically(
                 project_dir,
                 {key: ArtifactManifestEntry(entry.artifact_path, entry.basis_digest) for key, entry in claims.items()},
@@ -132,7 +133,7 @@ def _free_name(name: str, taken: set[str]) -> str:
 
 
 def _files_under(root: Path, rel_dir: str) -> list[str]:
-    """``rel_dir`` 下的普通文件（项目内相对 POSIX 路径），不跟随符号链接。"""
+    """Regular files under ``rel_dir`` as project-relative POSIX paths, without following symlinks."""
     found: list[str] = []
     for dirpath, _dirnames, filenames in os.walk(root / rel_dir):
         for name in filenames:
@@ -144,7 +145,7 @@ def _files_under(root: Path, rel_dir: str) -> list[str]:
 
 def _remove_empty_dirs(directory: Path) -> None:
     for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
-        # 还有没移走的条目（如符号链接）时目录留着
+        # Leave directories containing unmoved entries such as symlinks.
         with contextlib.suppress(OSError):
-            # hard-delete: derived -- 文件都已移进项目回收站，只剩空目录
+            # hard-delete: derived -- files moved to project trash, leaving only an empty directory
             os.rmdir(dirpath)

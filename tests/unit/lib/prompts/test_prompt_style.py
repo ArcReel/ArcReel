@@ -1,4 +1,4 @@
-"""各生成入口对项目风格字段的归一化口径一致：首尾空白去掉，非字符串按空处理。"""
+"""Generation entry points share style normalization: trim outer whitespace and treat nonstrings as empty."""
 
 from collections.abc import Callable
 from typing import Any

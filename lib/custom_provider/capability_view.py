@@ -1,25 +1,25 @@
-"""供应商模型 Sheet 上「这个供应商支持的参数」：每个维度的原值、能力覆盖与生效值（docs/adr/0104、0106）。
+"""Provider-model Sheet supported parameters: bases, overrides, and effective dimensions (docs/adr/0104, 0106).
 
-原值是没有能力覆盖时运行时采用的值：模型事实取对应条目，对应不上条目时取运行时回落（可选时长取按名字推断的
-预设，其余维度未收录，记为 ``None``）；通道事实取调用通道或调用端点的声明。生效值是原值叠加能力覆盖的结果，
-与执行层读到的一致。
+Bases are runtime values without overrides: matching-entry facts or runtime fallbacks (name-inferred durations,
+other unlisted dimensions ``None``); channel facts follow backend/endpoint declarations. Effective values compose bases/overrides,
+matching execution.
 
-图片的参考图上限先两侧求值，再由能力覆盖整维替换（``lib.backends.image_capabilities.image_reference_limit``），
-按生效的图生图求值：``None`` 为未收录，``0`` 为不接受参考图（条目记为 0 张，或图生图不在生效能力里）。图生图的原值
-读同一个求值结果：模型事实与调用通道都允许、且参考图上限接受参考图，与任务类型桶的候选、执行时的校验一致；条目把
-参考图上限记为 0 张时图生图为不支持。文生图的原值同样取模型事实与调用通道的交集。
+Image reference limits jointly evaluate both sides before whole-dimension overrides (``lib.backends.image_capabilities.image_reference_limit``),
+using effective image-to-image. ``None`` means unlisted; ``0`` rejects references via zero entry limits or unavailable effective I2I.
+I2I bases share evaluation with bucket candidates/execution: model/channel support plus reference acceptance;
+zero entry limits disable I2I. T2I likewise intersects model/channel facts.
 
-视频的输入模式与数量上限（文生视频、首帧、尾帧、参考图、参考音频）的原值同样是调用通道声明与模型条目两侧求值的
-结果（``lib.backends.video_capabilities``），数量上限 ``None`` 为未收录、``0`` 为不接受。ComfyUI 端点不读条目，
-输入能力只由节点绑定决定；图片同样展示文生图、图生图与参考图上限三维，只读。
+Video input/count bases (text, first/last frames, references/audio) likewise jointly evaluate channel declarations/entries
+(``lib.backends.video_capabilities``); ``None`` counts mean unlisted, ``0`` unsupported. ComfyUI ignores entries,
+deriving inputs only from bindings. Images show readonly T2I/I2I/reference-max dimensions too.
 
-只有用户负责的供应商模型可以修改：自定义供应商的模型，以及内置供应商下用户添加的模型。ComfyUI 端点只开放视频
-的可选时长，且端点驱动不了时长时这一维也不开放（docs/adr/0082）。图片的文生图、图生图只开放调用通道实现了的
-那一维：通道没实现的能力覆盖为开启也打不开。
+Only user-owned models are editable: custom models and user-added built-in models. ComfyUI exposes video durations
+only, and only when endpoints can drive duration (docs/adr/0082). Image T2I/I2I expose only implemented
+channel dimensions: overrides cannot enable unimplemented capabilities.
 
-本模块还承担内置供应商下用户添加的模型的能力覆盖写入校验与装入过滤；自定义供应商模型的写入校验在
-``server/routers/custom_providers.py``，两边的值形状判定共用 :func:`model_fact_value_matches` 与
-:func:`capability_value_matches`。
+Also owns write validation/load filtering for user-added built-in overrides; custom validation lives in
+``server/routers/custom_providers.py``, sharing value-shape predicates :func:`model_fact_value_matches` /
+:func:`capability_value_matches`.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ from lib.custom_provider.model_facts import (
 
 logger = logging.getLogger(__name__)
 
-#: 界面上的维度顺序：模型事实在前（时长联动约束紧跟可选时长），通道事实随后。
+#: UI order: model facts first, duration constraints immediately after durations, then channel facts.
 OVERRIDE_KEY_ORDER: tuple[str, ...] = (
     "image_input",
     "structured_output",
@@ -97,7 +97,7 @@ _IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
 
-#: 图片覆盖维度 → 调用通道须实现的能力，未实现时该维度不可编辑：参考图上限只对图生图路径有意义。
+#: Image override dimensions → required channel capabilities; unimplemented dimensions readonly. Reference maxima matter only for I2I.
 _IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
     **_IMAGE_CAPABILITY_BY_KEY,
     "max_reference_images": ImageCapability.IMAGE_TO_IMAGE,
@@ -106,13 +106,13 @@ _IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
 
 @dataclass(frozen=True)
 class CapabilityView:
-    """一个供应商模型的「这个供应商支持的参数」。
+    """One model's provider-supported parameters.
 
-    - ``editable``：可以修改的维度，按界面顺序；官方收录的模型为空。
-    - ``base``：每个维度的原值（没有能力覆盖时运行时采用的值），``None`` 表示未收录。
-    - ``overrides``：生效的能力覆盖（稀疏）。
-    - ``effective``：原值叠加覆盖后的生效值。
-    - ``displayed``：界面要显示的维度（``editable`` 与 ``base`` 的并集），按界面顺序。
+    - ``editable``: editable dimensions in UI order; empty for official models.
+    - ``base``: runtime dimensions without overrides; ``None`` means unlisted.
+    - ``overrides``: sparse effective overrides.
+    - ``effective``: bases plus overrides.
+    - ``displayed``: UI dimensions, ``editable`` / ``base`` union in UI order.
     """
 
     media_type: str
@@ -131,16 +131,16 @@ class CapabilityView:
 
 
 def overridable_keys(media_type: str) -> frozenset[str]:
-    """该媒体类型可以覆盖的全部维度：模型事实，视频另有通道事实。"""
+    """All overridable dimensions per media: model facts, plus video channel facts."""
     keys = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset())
     return keys | CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else keys
 
 
 def override_value_check(media_type: str, key: str, value: object) -> tuple[bool, str]:
-    """覆盖值能否整维替换该维度，以及该维度期望的值形状（写入被拒时的文案参数）。
+    """Whether values replace whole dimensions, plus expected shapes for rejected-write wording.
 
-    视频的通道事实按 ``VideoCapabilities`` 字段校验，其余按模型事实校验；图片的参考图上限与视频通道事实同名，
-    按模型事实校验。自定义供应商与内置用户添加模型的写入校验共用这一判定。
+    Video channel facts validate through ``VideoCapabilities`` fields, others through model facts; image reference maxima share video names
+    but use model-fact validation. Custom/built-in-user write validation shares this predicate.
     """
     if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
         expected = CAPABILITY_OVERRIDE_FIELDS[key]
@@ -160,7 +160,7 @@ def _constraints_json(constraints: DurationConstraints) -> dict[str, object]:
 
 
 def _channel_json(caps: VideoCapabilities, *, audio_signal: bool) -> dict[str, object]:
-    """通道事实维度的原值。``audio_signal`` 为假时（自定义供应商没有音轨覆盖）音轨形态按「假定有声、开关可控」。"""
+    """Channel bases. False ``audio_signal`` without custom audio overrides assumes audible/toggleable tracks."""
     raw = asdict(caps)
     values: dict[str, object] = {}
     for key in CHANNEL_FACT_OVERRIDE_KEYS:
@@ -175,7 +175,7 @@ def _channel_json(caps: VideoCapabilities, *, audio_signal: bool) -> dict[str, o
 
 
 def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
-    """覆盖值按生效形状回显：可选时长去重排序，时长联动约束的分辨率键小写。"""
+    """Echo effective override shapes: deduplicated/sorted durations, lowercase resolution keys in constraints."""
     result = dict(overrides)
     durations = result.get("durations")
     if isinstance(durations, list):
@@ -196,7 +196,7 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
-# 自定义供应商的模型
+# Custom-provider models.
 # ---------------------------------------------------------------------------
 
 
@@ -209,11 +209,11 @@ def custom_capability_view(
     applied_overrides: Mapping[str, object] | None,
     entry_binding: str | None,
 ) -> CapabilityView:
-    """自定义供应商模型的参数视图。``applied_overrides`` 是按写入侧同一判定过滤后的覆盖（回显用的那一份）。"""
+    """Custom parameter views; ``applied_overrides`` is write-rule-filtered values used for echoing."""
     media_type = spec.media_type
     if spec.kind == COMFYUI_KIND:
         if media_type == "image":
-            # 节点绑定决定一切：没有参考图槽位就不接受参考图，有槽位时上限就是槽位数，不读条目。
+            # Bindings determine everything: no reference slots means unsupported, otherwise maxima equal slots, ignoring entries.
             return CapabilityView(
                 media_type,
                 base=_image_base(
@@ -279,13 +279,13 @@ def custom_capability_view(
 
 
 # ---------------------------------------------------------------------------
-# 内置供应商的模型
+# Built-in-provider models.
 # ---------------------------------------------------------------------------
 
 
 def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -> dict[str, object]:
-    """内置供应商模型的目录信息（未叠加覆盖时即运行时采用的值）按维度展开；图片三维要与调用通道两侧求值，
-    由 :func:`builtin_capability_view` 给出。"""
+    """Expand built-in catalog information by dimension, runtime bases without overrides. Image dimensions require joint channel evaluation,
+    supplied by :func:`builtin_capability_view`."""
     caps = set(model.capabilities)
     match model.media_type:
         case "text":
@@ -326,11 +326,11 @@ def _image_base(
     channel_limit: int | None,
     reference_override: int | None = None,
 ) -> dict[str, object]:
-    """图片三维的原值，与任务类型桶的候选、执行时的校验读同一个求值结果（``image_reference_limit``）。
+    """Three image bases sharing bucket-candidate/execution ``image_reference_limit`` evaluation.
 
-    ``text_to_image`` / ``image_to_image`` 是模型事实一侧（条目，对应不上条目时按允许算），与调用通道实现了的
-    ``implemented`` 取交集。图生图另须参考图上限接受参考图：条目记为 0 张时为不支持。参考图上限按生效的图生图求值，
-    ``reference_override`` 在两侧求值后整维替换上限。
+    ``text_to_image`` / ``image_to_image`` are model-side facts, allowing unmatched entries, intersected with channel
+    ``implemented`` capabilities. I2I also requires reference acceptance, disabled by zero entry limits. Evaluate reference limits under effective I2I;
+    ``reference_override`` replaces whole limits after joint evaluation.
     """
 
     reference_limit = image_reference_limit(
@@ -392,7 +392,7 @@ def builtin_capability_view(
     official: bool,
     overrides: Mapping[str, object],
 ) -> CapabilityView:
-    """内置供应商模型的参数视图。官方收录的模型只读；用户添加的可以修改该媒体类型的全部维度。"""
+    """Built-in parameter views: official readonly, user additions editable across all media dimensions."""
     media_type = base_model.media_type
     base = _catalog_model_facts(provider_id, model_id, base_model)
     editable = set(overridable_keys(media_type)) if not official else set()
@@ -419,7 +419,7 @@ def builtin_capability_view(
 
 
 def user_added_runtime_overrides(media_type: str, raw: object | None, *, model_id: str = "") -> dict[str, object]:
-    """用户添加的模型装入目录查询时采用的能力覆盖：该媒体类型的维度里值合法的那些，其余丢弃并告警。"""
+    """Valid media-specific user-added overrides loaded into catalogs; discard/warn on all others."""
     if not isinstance(raw, Mapping):
         return {}
     applied = model_fact_overrides(raw, media_type, model_id=model_id)
@@ -435,7 +435,7 @@ def user_added_runtime_overrides(media_type: str, raw: object | None, *, model_i
 
 
 class OverrideRejected(Exception):
-    """能力覆盖写入被拒绝。``code`` 是错误文案的 i18n key，``params`` 是文案参数。"""
+    """Rejected override writes. ``code`` is i18n keys, ``params`` wording parameters."""
 
     def __init__(self, code: str, **params: object) -> None:
         super().__init__(code)
@@ -451,11 +451,11 @@ def check_user_added_overrides(
     *,
     endpoint: str | None = None,
 ) -> dict[str, object] | None:
-    """内置供应商下用户添加的模型的能力覆盖写入校验，通过时返回要存下的覆盖（空覆盖为 ``None``）。
+    """Validate user-added built-in overrides, returning persisted values, ``None`` for empty overrides.
 
-    与自定义供应商的写入校验同一组规则：维度须属于该媒体类型，值的形状与维度一致；图片的文生图、图生图覆盖为
-    开启时调用通道须实现了它；音频两维合起来须有意义（不足的一维取调用通道的声明）。调用通道取模型挂接的内置调用
-    端点，``endpoint`` 给出时取它（同一次保存里换了端点）。
+    Share custom-write rules: dimensions belong to media, values match shapes; enabling image T2I/I2I
+    requires implementation; paired audio dimensions must be meaningful, taking missing dimensions from channels. Use attached built-in
+    endpoints, or supplied ``endpoint`` when changing them in the same save.
     """
     if not overrides:
         return None

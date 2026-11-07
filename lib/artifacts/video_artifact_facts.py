@@ -201,7 +201,7 @@ def _canvas_is_valid(value: object) -> bool:
 
 
 def _absent_inputs_are_valid(inputs: Mapping[str, Any]) -> bool:
-    """缺席记录（``lib.artifacts.input_gap``）：键在场时是非空列表，每项带缺口码。"""
+    """Absent records (``lib.artifacts.input_gap``): when present, a nonempty list with a gap code per item."""
 
     if ABSENT_INPUTS_FIELD not in inputs:
         return True
@@ -236,14 +236,14 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
                 and _nonempty(prompt["action"])
                 and isinstance(prompt["camera_motion"], str)
             )
-            # 待生成的提示词只随缺席记录出现。
+            # Pending prompts appear only alongside absent records.
             or (has_gaps and prompt is None)
         )
         frames = inputs["frames"]
         roles = (
             [frame.get("role") for frame in frames if isinstance(frame, Mapping)] if isinstance(frames, list) else []
         )
-        # 不可用的分镜图只随缺席记录出现。
+        # Unavailable storyboards appear only alongside absent records.
         allowed_roles = [["storyboard"], ["storyboard", "end_frame"]]
         if has_gaps:
             allowed_roles += [[], ["end_frame"]]
@@ -268,7 +268,7 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
     required = {"unit_id", "visual_lines", "style", "canvas", "request_references"}
     if set(inputs) - {"style_description", ABSENT_INPUTS_FIELD} != required:
         raise ValueError("reference visual basis has invalid canonical inputs")
-    # 风格描述非空才入依据：键在场时必为非空字符串。
+    # Include only nonempty style descriptions; a present key must hold a nonempty string.
     if "style_description" in inputs and not _nonempty(inputs["style_description"]):
         raise ValueError("reference visual basis has invalid canonical inputs")
     lines = inputs["visual_lines"]
@@ -347,7 +347,7 @@ def _validate_speech_inputs(basis: ArtifactBasis) -> None:
 
 
 def _validate_blocked_speech_inputs(inputs: Mapping[str, Any]) -> None:
-    """发声准入不通过的单位的发声依据：没有唯一归属，逐条记归属，问题记为缺席。"""
+    """Speech bases for units failing speech admission: without unique attribution, record attribution per item and problems as absent."""
 
     if set(inputs) != {"mode", "utterances", ABSENT_INPUTS_FIELD} or not _absent_inputs_are_valid(inputs):
         raise ValueError("blocked video speech basis has invalid canonical inputs")

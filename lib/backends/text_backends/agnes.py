@@ -1,10 +1,11 @@
-"""AgnesTextBackend — Agnes 文本生成后端（OpenAI 兼容 /v1/chat/completions）。
+"""AgnesTextBackend: Agnes text-generation backend (OpenAI-compatible /v1/chat/completions).
 
-Agnes 经 apihub 网关提供 OpenAI 风格 Chat Completions。鉴权与 base_url 归一化复用
-agnes_shared（Bearer 单 key + host/{/v1} 后缀容错），生成流水线直接复用 OpenAITextBackend：
-原生 ``response_format`` json_schema 优先，schema 不兼容或代理未真正强制 schema 时按需降级到
-Instructor（选择性降级）。本类在构造期注入 Agnes 鉴权 / 默认模型 / provider 计费归因并裁掉
-vision 能力声明；结构化请求的原生结果先剥掉外层 Markdown JSON 代码围栏再交回父类校验。
+Agnes provides OpenAI-style Chat Completions through apihub. Authentication/base_url normalization reuse
+agnes_shared (single Bearer key + tolerant host/{/v1} suffixes); generation directly reuses OpenAITextBackend:
+prefer native ``response_format`` json_schema, selectively falling back to
+Instructor for incompatible schemas or proxies without real schema enforcement. Construction injects
+Agnes authentication/default models/provider billing attribution and removes vision capabilities;
+strip outer Markdown JSON fences from native structured results before returning them for parent validation.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ DEFAULT_MODEL = "agnes-3.0-flash"
 
 
 class AgnesTextBackend(OpenAITextBackend):
-    """Agnes 文本后端：复用 OpenAITextBackend 的原生 + Instructor 降级逻辑，替换鉴权与默认值，并剥除结构化输出的代码围栏。"""
+    """Agnes text backend: reuse OpenAITextBackend native + Instructor fallback, replacing authentication/defaults and stripping structured-output code fences."""
 
     def __init__(
         self,
@@ -32,15 +33,15 @@ class AgnesTextBackend(OpenAITextBackend):
         model: str | None = None,
         base_url: str | None = None,
     ) -> None:
-        # Bearer 单 key 在构造期校验：缺失即本地 raise，与 AgnesImageBackend 同 fail-loud，不把缺失
-        # key 拖到请求期才收上游 401。base_url 归一化为 {host}/v1，容忍用户填 host 或带 /v1 后缀。
+        # Validate the single Bearer key at construction: missing keys raise locally, matching AgnesImageBackend fail-loud behavior, rather than
+        # delaying failure until upstream 401. Normalize base_url to {host}/v1, tolerating host-only or /v1 suffix inputs.
         super().__init__(
             api_key=resolve_agnes_api_key(api_key),
             model=model or DEFAULT_MODEL,
             base_url=agnes_base_url(base_url),
             provider_name=PROVIDER_AGNES,
         )
-        # Agnes 文本模型只声明文本生成与结构化输出，不声明 VISION（父类默认含 VISION）。
+        # Agnes text models declare text generation and structured output only, without VISION (included by default in the parent).
         self._capabilities = {TextCapability.TEXT_GENERATION, TextCapability.STRUCTURED_OUTPUT}
 
     async def _generate_native(

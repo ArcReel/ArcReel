@@ -1,4 +1,4 @@
-"""Alembic 迁移：新建对象存储连接、素材库账号与绑定表，降级时删除。"""
+"""Alembic: create object-storage connections, material-library accounts, and bindings; remove on downgrade."""
 
 from __future__ import annotations
 

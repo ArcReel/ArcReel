@@ -31,8 +31,8 @@ describe("cost-store", () => {
     await useCostStore.getState().fetchCost("real-project");
     expect(useCostStore.getState().costData).not.toBeNull();
 
-    // 切到演示项目：debouncedFetch 内部有 500ms 防抖，但演示态必须立即清空，
-    // 不能让 UI 在防抖窗口期间继续读到上一个真实项目的费用缓存。
+    // Switch to demos: debouncedFetch internally waits 500ms, but demo state must clear immediately,
+    // preventing UI reads of previous real-project cost caches during debounce windows.
     useCostStore.getState().debouncedFetch(DEMO_PROJECT_NAME);
 
     expect(useCostStore.getState().costData).toBeNull();
@@ -41,15 +41,15 @@ describe("cost-store", () => {
   });
 
   it("discards a late successful response whose fetchCost call fires after the user already switched projects", async () => {
-    // project-b 先完整落地：模拟用户已经切走，且 B 自己的费用请求已经完成写入。
+    // project-b finishes first: users already switched, B cost requests completed/persisted.
     useProjectsStore.setState({ currentProjectName: "project-b" });
     vi.spyOn(API, "getCostEstimate").mockResolvedValueOnce(buildResponse("project-b"));
     await useCostStore.getState().fetchCost("project-b");
     expect(useCostStore.getState().costData?.project_name).toBe("project-b");
 
-    // project-a 页面里某个慢 PATCH 的 .then 回调在用户已经离开之后才触发，此时才发起
-    // fetchCost("project-a")——没有任何后续调用去 abort 它，只能靠落地时校验当前
-    // 项目名才能拦下。
+    // Slow project-a PATCH .then callbacks trigger only after users leave, now invoking
+    // fetchCost("project-a") without subsequent calls to abort it. Only current-project-name validation at
+    // persistence can block it.
     vi.spyOn(API, "getCostEstimate").mockResolvedValueOnce(buildResponse("project-a"));
     await useCostStore.getState().fetchCost("project-a");
 
@@ -66,8 +66,8 @@ describe("cost-store", () => {
     vi.spyOn(API, "getCostEstimate").mockRejectedValueOnce(new Error("boom"));
     await useCostStore.getState().fetchCost("project-a");
 
-    // 不应该把 error 写回 store（用户早已不在那个项目上，没有意义提示一个已经离开
-    // 的项目的错误），也不应打断已经收尾的 loading。
+    // Never write errors into stores (users already left, so departed-project failures need no notice)
+    // or disturb already-settled loading.
     expect(useCostStore.getState().error).toBeNull();
     expect(useCostStore.getState().costData?.project_name).toBe("project-b");
     expect(useCostStore.getState().loading).toBe(false);
@@ -78,11 +78,11 @@ describe("cost-store", () => {
     useProjectsStore.setState({ currentProjectName: "project-b" });
     const fetchCostSpy = vi.spyOn(useCostStore.getState(), "fetchCost").mockResolvedValue();
 
-    // project-b 排了一次防抖刷新。
+    // project-b queued one debounced refresh.
     useCostStore.getState().debouncedFetch("project-b");
 
-    // project-a 的调用在用户已经离开之后才触发（比如某个慢 PATCH 的 .then 回调），
-    // 不应清空/顶替 project-b 刚排的计时器。
+    // project-a calls trigger only after users leave (for example slow PATCH .then callbacks);
+    // never clear/replace project-b's newly queued timer.
     useCostStore.getState().debouncedFetch("project-a");
 
     vi.advanceTimersByTime(500);
@@ -92,7 +92,7 @@ describe("cost-store", () => {
   });
 
   it("does not abort the current project's in-flight request when a stale project's fetchCost fires late", async () => {
-    // project-b 的请求先发起且保持 pending（模拟仍在等待响应）。
+    // project-b requests start first, remaining pending to simulate awaiting responses.
     useProjectsStore.setState({ currentProjectName: "project-b" });
     let releaseB: (data: CostEstimateResponse) => void = () => {};
     const bSignals: (AbortSignal | undefined)[] = [];
@@ -108,8 +108,8 @@ describe("cost-store", () => {
 
     const bPromise = useCostStore.getState().fetchCost("project-b");
 
-    // project-a 的调用在用户已经离开之后才触发（比如某个慢 PATCH 的 .then 回调），
-    // 不应中止仍在合法进行中的 project-b 请求——这与"顶替同项目在途请求"是两回事。
+    // project-a calls trigger only after users leave (for example slow PATCH .then callbacks);
+    // never abort still-valid project-b requests, unlike replacing same-project in-flight requests.
     await useCostStore.getState().fetchCost("project-a");
     expect(bSignals[0]?.aborted).toBe(false);
 
@@ -140,8 +140,8 @@ describe("cost-store", () => {
     const second = useCostStore.getState().fetchCost("project-a");
     await second;
 
-    // 同一项目内被更晚的调用顶替：signal 要真的 abort（网络请求随之取消），
-    // 且被顶替的那次即便响应晚到也不回写 store。
+    // Later same-project calls replace earlier ones: actually abort signals/network requests,
+    // and late superseded responses must never write stores.
     expect(signals[0]?.aborted).toBe(true);
     releaseFirst(buildResponse("first"));
     await first;

@@ -1,4 +1,4 @@
-"""供应商倍率接口：GET / PUT /api/v1/providers/{provider_id}/multiplier，以及通用配置接口对倍率键的拒绝，绑内存库。"""
+"""In-memory provider multipliers GET/PUT /api/v1/providers/{provider_id}/multiplier and generic multiplier-key rejection."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def multiplier_client(db_factory: async_sessionmaker[AsyncSession]) -> Generator
 
 
 def test_builtin_multiplier_defaults_set_and_reset(multiplier_client: TestClient) -> None:
-    # 订阅制的 ark-agent-plan 默认 0，其余默认 1
+    # Subscription ark-agent-plan defaults 0, others 1.
     assert multiplier_client.get("/api/v1/providers/ark-agent-plan/multiplier").json() == {
         "multiplier": 0.0,
         "default": 0.0,
@@ -43,7 +43,7 @@ def test_builtin_multiplier_defaults_set_and_reset(multiplier_client: TestClient
     assert resp.json() == {"multiplier": 0.8, "default": 1.0}
     assert multiplier_client.get("/api/v1/providers/openai/multiplier").json()["multiplier"] == 0.8
 
-    # null 恢复默认值
+    # null restores defaults.
     resp = multiplier_client.put("/api/v1/providers/openai/multiplier", json={"multiplier": None})
     assert resp.json() == {"multiplier": 1.0, "default": 1.0}
 
@@ -72,7 +72,7 @@ async def test_custom_provider_multiplier_requires_existing_provider_and_valid_v
 
 @pytest.mark.parametrize("value", ["0.5", "-1", None])
 def test_generic_config_patch_rejects_multiplier_key(multiplier_client: TestClient, value: str | None) -> None:
-    # 倍率只经专用接口修改：通用配置接口不论取值合法与否都拒绝，已设置的倍率不变
+    # Multipliers change only through dedicated APIs; generic settings reject all values, preserving existing multipliers.
     multiplier_client.put("/api/v1/providers/openai/multiplier", json={"multiplier": 0.8})
 
     resp = multiplier_client.patch("/api/v1/providers/openai/config", json={"price_multiplier": value})
@@ -84,7 +84,7 @@ def test_generic_config_patch_rejects_multiplier_key(multiplier_client: TestClie
 async def test_comfyui_provider_defaults_to_zero(
     multiplier_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """ComfyUI 协议的供应商跑在用户自己的机器上，默认倍率 0；按租用算力计价时可以改成非 0。"""
+    """User-hosted ComfyUI defaults multiplier 0; rented-compute pricing may set nonzero."""
     async with db_factory() as session:
         provider = CustomProvider(
             display_name="ComfyUI", discovery_format="comfyui", base_url="http://localhost:8188", api_key=""

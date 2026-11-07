@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""统计源码目录里被 mutmut 3.7.0 装饰器规则跳过的函数与函数行占比，供挑选变异测试批次时做准入核对。
+"""Count functions and function-line shares skipped by mutmut 3.7.0 decorators for mutation-batch admission.
 
-mutmut 3.7.0 对带装饰器的 `FunctionDef` / `AsyncFunctionDef` 整棵子树不生成 mutant（仅单个
-`@staticmethod` / `@classmethod` 豁免），带装饰器的 `ClassDef` 整体跳过，嵌套在被跳过节点里的函数一并跳过。
-这是 mutmut 的设计决定，不可配置；跳过行占比过半的文件在 mutmut 下几乎不产出 mutant，不值得进批次。
+mutmut 3.7.0 generates no mutants for entire decorated `FunctionDef` / `AsyncFunctionDef` subtrees
+(except a single `@staticmethod` / `@classmethod`), skips decorated `ClassDef` entirely, and skips
+nested functions inside skipped nodes. This is unconfigurable design; files with over half their
+function lines skipped produce few mutants and are poor batch candidates.
 
-函数行数按「装饰器首行到函数末行」的唯一行号计，嵌套函数的行只算一次；嵌套函数只在外层未被跳过时单独计数，外层跳过则整体已计入外层。
-按目录汇总时以 `<根>/<一级子目录>` 为键，直接放在根目录下的文件归 `<根>`。
+Count unique line numbers from first decorator through function end; nested-function lines count once.
+Count nested functions separately only if their parent is not skipped; otherwise they are already
+included in the skipped parent. Directory summaries use `<根>/<一级子目录>` keys; root files use `<根>`.
 
-零第三方依赖。用法见 `--help`，选模块规则见 `docs/testing/mutmut-runbook.md`。
+No third-party dependencies. See `--help` and `docs/testing/mutmut-runbook.md` for module selection.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ EXEMPT_DECORATORS = frozenset({"staticmethod", "classmethod"})
 
 @dataclass
 class Tally:
-    """一个文件或目录的统计：函数数、被跳过的函数数、函数行数、被跳过的函数行数。"""
+    """File/directory counts: functions, skipped functions, function lines, and skipped function lines."""
 
     functions: int = 0
     skipped_functions: int = 0
@@ -49,7 +51,7 @@ class Tally:
 
 
 def is_skipped_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    """按 mutmut 规则判断函数自身是否因装饰器被跳过（不含从外层继承的跳过）。"""
+    """Whether a function itself is decorator-skipped under mutmut rules, excluding inherited skipping."""
     if not node.decorator_list:
         return False
     if len(node.decorator_list) == 1:
@@ -60,7 +62,7 @@ def is_skipped_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 
 
 def function_lines(node: ast.FunctionDef | ast.AsyncFunctionDef) -> range:
-    """函数占用的行号区间，从装饰器首行到函数末行。"""
+    """Function line range, from the first decorator through its final line."""
     start = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
     end = node.end_lineno if node.end_lineno is not None else node.lineno
     return range(start, end + 1)
@@ -95,7 +97,7 @@ def tally_tree(tree: ast.AST) -> Tally:
 
 
 def tally_file(path: Path) -> Tally | None:
-    """解析失败（语法错误）的文件返回 None，不计入统计。"""
+    """Return None for syntax-invalid files and exclude them from statistics."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except SyntaxError:
@@ -111,7 +113,7 @@ def group_key(root: Path, path: Path) -> str:
 
 
 def census(root: Path) -> tuple[dict[str, Tally], dict[str, Tally]]:
-    """返回 (按目录汇总, 按文件)，两者都以 posix 路径字符串为键、按路径排序。"""
+    """Return (directory totals, files), both keyed and sorted by POSIX path strings."""
     per_dir: dict[str, Tally] = {}
     per_file: dict[str, Tally] = {}
     for path in sorted(root.rglob("*.py")):
@@ -124,12 +126,12 @@ def census(root: Path) -> tuple[dict[str, Tally], dict[str, Tally]]:
 
 
 def display_width(text: str) -> int:
-    """终端显示宽度：东亚宽字符（含中文）占 2 列，其余占 1 列。"""
+    """Terminal display width: East Asian wide characters, including Chinese, occupy 2 columns; others 1."""
     return sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
 
 
 def pad(text: str, width: int, *, align_right: bool = False) -> str:
-    """按显示宽度填充空格，让含中文的表头与合计行和纯 ASCII 路径的行对齐。"""
+    """Pad by display width so Chinese headers/totals align with ASCII-path rows."""
     fill = " " * max(width - display_width(text), 0)
     return fill + text if align_right else text + fill
 

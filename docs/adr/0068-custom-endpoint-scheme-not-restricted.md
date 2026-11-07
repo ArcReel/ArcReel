@@ -2,12 +2,12 @@
 status: accepted
 ---
 
-# 自定义供应商端点不限 scheme
+# Custom-provider endpoints do not restrict schemes
 
-自定义供应商的 `base_url` 与自定义调用端点定义里的请求 URL 都不限定 scheme，`http://` 与 `https://` 一样接受。自建服务、局域网内的中转端点与 `http://localhost` 上的本地网关是明确支持的使用场景，对它们要求 TLS 会让这一类端点整体不可用。
+Neither custom-provider `base_url` nor request URLs in endpoint definitions restrict schemes: accept `http://` alongside `https://`. Self-hosted services, LAN relays, and local gateways at `http://localhost` are explicitly supported. Requiring TLS would make that endpoint class unusable.
 
-用户把凭证配给一个 `http://` 端点时，该凭证（`auth` 节渲染出的请求头或 query 参数）在链路上以明文传输。这一风险由用户对其所配置端点自担：ArcReel 不代替用户判断某个内网地址是否需要 TLS。
+Credentials assigned to an `http://` endpoint (headers or query parameters rendered by `auth`) travel in plaintext. Users accept that risk for configured endpoints; ArcReel does not decide whether a particular internal address needs TLS.
 
-行为在全产品各路径上一致——创建与更新供应商、模型发现、连接测试、声明式运行时的提交 / 轮询 / 二次取件与产物下载，都不因 scheme 而分流。不在其中任何单一路径上设闸：只在一处拒绝 `http://` 会造成「发现模型能过、真跑视频被拒」这类同一配置在不同入口给出不同结论的分裂。
+Keep behavior consistent across provider creation/update, discovery, trial runs, declarative submission/polling/secondary retrieval, and artifact downloads, without scheme-based branches. Do not gate individual paths: rejecting `http://` in only one creates contradictory results where discovery succeeds but generation fails under the same configuration.
 
-凭证的传播范围仍受同源约束：跨源重定向一律卸掉 `auth` 节渲染出的请求头与 query 凭证，产物地址只在与本次已携带凭证访问过的端点同源时才附凭证。该约束与 scheme 无关，两种 scheme 下都成立。
+Credential propagation still follows same-origin rules: strip headers/query credentials rendered by `auth` on cross-origin redirects. Attach credentials to artifact URLs only when same-origin with an endpoint already accessed with credentials in this call. These constraints are scheme-independent and apply to both.

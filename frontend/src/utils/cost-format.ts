@@ -73,8 +73,8 @@ export function formatCost(breakdown: CostBreakdown | undefined): string {
 }
 
 /**
- * 合计为空时区分真实的 0 与未知：`complete` 为假（有没计价的部分，或没有调用记录）时写「—」，
- * 否则写「0」。有金额时照常格式化，此时金额可能只是已计价的部分，由调用方另行说明。
+ * For empty totals, distinguish actual zero from unknown: show `—` when `complete` is false due to unpriced portions or no call records,
+ * otherwise 0. Format nonempty amounts normally; they may cover only priced portions, which callers explain separately.
  */
 export function formatCostTotal(breakdown: CostBreakdown | undefined, complete: boolean): string {
   if (costEntries(breakdown).length > 0) return formatCost(breakdown);
@@ -91,10 +91,10 @@ export function formatCostOrZero(breakdown: CostBreakdown | undefined): string {
 }
 
 /**
- * 当前剧本口径的合计：排除「历史支出（未归属当前剧本）」。
+ * Total for the current script, excluding historical spend not attributed to it.
  *
- * 该项是已删改条目留下的真实支出，不对应当前剧本的任何工作量。算「剩余」时若把它当作
- * 已完成部分从预估里扣掉，剩余会凭空变少——预估 $10、历史支出 $10 时会显示已无待付。
+ * Historical spend is real cost left by deleted/changed entries, not current-script work. Deducting it as completed work
+ * from remaining estimates invents a smaller balance: a $10 estimate and $10 historical spend would incorrectly show nothing left to pay.
  */
 export function currentScriptBreakdown(byType: CostByType): CostBreakdown {
   const withoutHistory: CostByType = { ...byType };

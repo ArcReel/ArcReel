@@ -1,4 +1,4 @@
-"""api_calls.duration_ms 改为 64 位整数
+"""Change api_calls.duration_ms to a 64-bit integer
 
 Revision ID: a9c3e5d17b24
 Revises: 015359a572fa
@@ -18,14 +18,14 @@ down_revision: str | Sequence[str] | None = "015359a572fa"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# PostgreSQL int4 的毫秒取值范围，上限约 24.8 天。
+# PostgreSQL int4 millisecond range, approximately 24.8 days maximum.
 _INT32_MIN = -2_147_483_648
 _INT32_MAX = 2_147_483_647
 
 
 def upgrade() -> None:
-    # int4 装不下长期停在 pending 的行被结算时的墙钟毫秒数（超过约 24.8 天即溢出）。
-    # SQLite 的整数本就是 64 位，这里只是让两种方言的声明类型对齐。
+    # int4 cannot hold settlement wall-clock milliseconds for long-pending rows (overflow beyond approximately 24.8 days).
+    # SQLite integers are already 64-bit; this aligns declared types across dialects.
     with preserve_sqlite_indexes("api_calls"), op.batch_alter_table("api_calls") as batch_op:
         batch_op.alter_column(
             "duration_ms",
@@ -36,8 +36,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 超出 int4 的耗时无法回填窄列：这些值来自长期悬停后的结算，或结算时墙钟大幅回拨产生的负值，
-    # 耗时不可信，置空后再收窄。
+    # Durations beyond int4 cannot fit the narrow column: long-pending settlement or large backward wall-clock jumps
+    # produce untrustworthy durations, including negative values. Clear them before narrowing.
     op.execute(
         sa.text(f"UPDATE api_calls SET duration_ms = NULL WHERE duration_ms NOT BETWEEN {_INT32_MIN} AND {_INT32_MAX}")
     )

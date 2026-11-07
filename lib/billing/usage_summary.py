@@ -1,8 +1,8 @@
-"""`GET /usage/summary` 的纯聚合：轻投影调用行 → KPI、日桶、构成与需要关注。
+"""Pure `GET /usage/summary` aggregation: projected call rows → KPIs, daily buckets, breakdowns, and attention items.
 
-仓储只负责按筛选取回行，切天、补零桶、主币种与两类异常判定都在这里完成——聚合不碰数据库
-也不碰 HTTP，因此边界（时区跨日、并列币种、Wilson 下界、末尾连续失败）可直接以行列表驱动。
-在 Python 侧聚合还回避了 SQLite 与 PostgreSQL 日期函数的方言差异。
+Repositories filter/fetch only; local dates, zero-filled buckets, primary currencies, and two anomaly classes belong here. No DB
+or HTTP dependencies, so row lists directly exercise timezone boundaries, currency ties, Wilson lower bounds, and trailing failures.
+Python aggregation also avoids SQLite/PostgreSQL date-function dialect differences.
 """
 
 from __future__ import annotations
@@ -15,30 +15,30 @@ from datetime import UTC, date, datetime, timedelta, tzinfo
 
 from lib.backends.providers import CallStatus
 
-# 构成表每维最多列出的行数，余量并入列表外的 other。
+# Maximum breakdown rows per dimension; remainder aggregates into unlisted other.
 MAX_BREAKDOWN_ROWS = 50
-# 需要关注列表的总条数上限。
+# Total attention-item cap.
 MAX_ATTENTION_ITEMS = 20
-# 进入需要关注所需的最少失败次数（两类异常同一门槛）。
+# Minimum failures for attention, shared by both anomaly classes.
 MIN_ATTENTION_FAILED = 2
-# 95% 双侧置信区间的标准正态分位点。
+# Standard-normal quantile for two-sided 95% intervals.
 WILSON_Z_95 = 1.959963984540054
-# 日桶里按媒体类型分列参考费用的固定键集。
+# Fixed media keys for daily reference-cost breakdowns.
 MEDIA_TYPES = ("image", "video", "text", "audio")
-# 一次响应最多铺的日桶数（约十年）。窗口由调用方的 since / until 决定，不设上界时一对
-# 跨越数千年的时刻会让服务端同步构造几百万个桶；「全部」范围的 since 取最早记录日，不受此限。
+# Maximum daily buckets per response, about ten years. Caller since/until determine windows; unbounded timestamps
+# millennia apart would synchronously allocate millions of buckets. All-time since uses earliest record dates, avoiding this limit.
 MAX_DAILY_BUCKETS = 3660
-# 金额与比率的输出精度，与仓储写侧的费用精度一致。
+# Amount/rate output precision matches repository write-cost precision.
 _ROUND_DIGITS = 6
 
 
 class UsageWindowTooWideError(ValueError):
-    """请求的 since / until 展开的日桶数超过 ``MAX_DAILY_BUCKETS``。"""
+    """Requested since/until windows exceed ``MAX_DAILY_BUCKETS`` daily buckets."""
 
 
 @dataclass(frozen=True, slots=True)
 class UsageSummaryRow:
-    """一次调用在汇总里用得到的全部字段；仓储的轻投影按此形状取行。"""
+    """All call fields needed for summaries; repository projections follow this shape."""
 
     id: int
     project_name: str
@@ -47,18 +47,18 @@ class UsageSummaryRow:
     model: str
     status: str
     started_at: datetime
-    # None 表示未定价：不计入任何金额合计。
+    # None means unpriced, excluded from all monetary totals.
     cost_amount: float | None
     currency: str
     segment_id: str | None
     error_code: str | None
-    # Agent 会话的记录（来源 assistant_session）：计入合计与构成，不参与「需要关注」。
+    # Agent assistant_session records contribute totals/breakdowns, never attention.
     agent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class UsageFilterOptions:
-    """筛选候选值：取全表 distinct，不随本次筛选变化。"""
+    """Filter candidates from whole-table distinct values, independent of current filters."""
 
     projects: list[str]
     providers: list[tuple[str, str]]
@@ -66,10 +66,10 @@ class UsageFilterOptions:
 
 
 def wilson_lower_bound(failures: int, total: int, z: float = WILSON_Z_95) -> float:
-    """失败率的 Wilson 置信下界。
+    """Wilson lower confidence bound for failure rates.
 
-    小样本上比裸失败率保守得多——3 次里失败 2 次的下界只有 0.2 左右，不会因为一两次失败就
-    把一个刚开始用的模型报成异常。
+    More conservative than raw rates with small samples: 2 failures in 3 give only about 0.2,
+    avoiding anomalies from one/two failures on newly used models.
     """
     if total <= 0:
         return 0.0
@@ -81,7 +81,7 @@ def wilson_lower_bound(failures: int, total: int, z: float = WILSON_Z_95) -> flo
 
 
 def _as_utc(value: datetime) -> datetime:
-    """无时区的时刻按 UTC 解释：SQLite 取回的 DateTime 列不带 tzinfo。"""
+    """Interpret naive times as UTC; SQLite DateTime values lack tzinfo."""
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
@@ -95,12 +95,12 @@ def _iso_utc(value: datetime) -> str:
 
 @dataclass
 class _StatsAccumulator:
-    """一个分组的计数与分币种金额；pending 行在取行时已被排除，这里不再判。"""
+    """Grouped counts/currency amounts; pending rows were already excluded on retrieval."""
 
     success: int = 0
     failed: int = 0
     cancelled: int = 0
-    # 未定价（cost_amount 为 NULL）的调用数：不进 cost，单独计数，避免被误读成「0 元」。
+    # Unpriced cost_amount=NULL calls count separately, outside cost, avoiding confusion with zero cost.
     unpriced: int = 0
     cost: dict[str, float] = field(default_factory=dict)
 
@@ -111,8 +111,8 @@ class _StatsAccumulator:
             self.failed += 1
         elif row.status == CallStatus.CANCELLED:
             self.cancelled += 1
-        # 参考费用汇总所有 cost_amount > 0 的终态行，不看状态——失败的调用一样可能被计费。
-        # NULL 即未定价：不计金额，另记次数。
+        # Reference costs sum all terminal cost_amount>0 rows regardless of status: failed calls may be billed too.
+        # NULL means unpriced: exclude amounts, count separately.
         if row.cost_amount is None:
             self.unpriced += 1
         elif row.cost_amount > 0:
@@ -129,7 +129,7 @@ class _StatsAccumulator:
             "success": self.success,
             "failed": self.failed,
             "cancelled": self.cancelled,
-            # 成功率的分母只数已判定的调用；用户取消既不算成功也不算失败。
+            # Success denominators count decided calls only; user cancellations are neither success nor failure.
             "success_rate": round(self.success / decided, _ROUND_DIGITS) if decided else None,
             "cost": {currency: round(amount, _ROUND_DIGITS) for currency, amount in sorted(self.cost.items())},
             "unpriced_calls": self.unpriced,
@@ -137,7 +137,7 @@ class _StatsAccumulator:
 
 
 def _primary_currency(cost: dict[str, float]) -> str | None:
-    """汇总金额最大的币种；并列时优先 USD，再按字母序。"""
+    """Currency with largest total; ties prefer USD, then alphabetical order."""
     if not cost:
         return None
     top = max(cost.values())
@@ -152,13 +152,13 @@ def _window(
     since: datetime | None,
     until: datetime | None,
 ) -> tuple[date, date] | None:
-    """本地日窗口 [首日, 末日]（两端含）；期间内没有可聚合的行时为 None。
+    """Inclusive local-date [first, last] windows; None without aggregatable rows.
 
-    窗口超过 ``MAX_DAILY_BUCKETS`` 天抛 ``UsageWindowTooWideError``：桶数由调用方的两个时刻
-    直接决定，不能让它无上界地摊开。两端都显式给定时先于行校验，结果不随数据有无而变。
+    Beyond ``MAX_DAILY_BUCKETS`` days raises ``UsageWindowTooWideError``: caller timestamps determine bucket counts,
+    requiring bounds. With both endpoints explicit, validate before rows, independently of data presence.
     """
     since_day = _local_date(since, tz) if since else None
-    # until 是半开区间的右端：正好落在本地日零点时不产生当天的桶。
+    # until is half-open: exactly local midnight creates no bucket for that date.
     until_day = _local_date(until - timedelta(microseconds=1), tz) if until else None
     if since_day and until_day:
         _check_bucket_count(since_day, until_day)
@@ -191,7 +191,7 @@ def _daily_buckets(
         day = _local_date(row.started_at, tz)
         if row.status in counts[day]:
             counts[day][row.status] += 1
-        # 堆叠柱只能落在一种币种上，取主币种；其余币种的金额不混进来，也不做汇率折算。
+        # Stacked bars require one primary currency; never mix/convert other currencies.
         if (
             row.cost_amount is not None
             and row.cost_amount > 0
@@ -231,7 +231,7 @@ def _breakdown_dimension(
     for row in rows:
         grouped.setdefault(key_of(row), _StatsAccumulator()).add(row)
 
-    # 调用数降序；并列按分组键排序，让分页边界与 other 的取舍稳定可复现。
+    # Descending calls, ties by group keys, make pagination/other boundaries reproducible.
     ordered = sorted(grouped.items(), key=lambda item: (-item[1].calls, item[0]))
     listed = ordered[:MAX_BREAKDOWN_ROWS]
     overflow = ordered[MAX_BREAKDOWN_ROWS:]
@@ -257,11 +257,11 @@ _GENERATION_MARK = "0"
 
 
 def _breakdown(rows: list[UsageSummaryRow]) -> dict[str, object]:
-    """三个维度的构成。
+    """Breakdowns across three dimensions.
 
-    供应商与模型两个维度里，Agent 记录各合并成一项（``agent=True``，不带具体的供应商）：它们的
-    供应商是每条 Agent 凭证一个 ``agent-<凭证 id>``，逐个列出会与生成调用的供应商混在一起，而这里
-    关心的是 Agent 整体的占比；按凭证拆开看在「Agent 会话」视图里筛选。
+    Provider/model dimensions each merge Agent records into one item (``agent=True``, no specific provider):
+    Agent providers are ``agent-<凭证 id>`` per credential, otherwise mixed with generation providers, while this view
+    concerns Agent's overall share. Per-credential inspection uses Agent-session filters.
     """
     return {
         "project": _breakdown_dimension(
@@ -285,7 +285,7 @@ def _breakdown(rows: list[UsageSummaryRow]) -> dict[str, object]:
 
 
 def _failure_rate_attention(rows: list[UsageSummaryRow]) -> list[dict[str, object]]:
-    """失败率偏高：分组失败率的 Wilson 95% 下界高于总体失败率，且分组失败 ≥ 2 次。"""
+    """Elevated failures: group Wilson 95% lower bounds exceed overall failure rates, with ≥2 group failures."""
     by_provider: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     by_model: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
     total_success = 0
@@ -331,7 +331,7 @@ def _failure_rate_attention(rows: list[UsageSummaryRow]) -> list[dict[str, objec
             "failure_rate": round(bad / (ok + bad), 6),
             "overall_failure_rate": round(overall, 6),
         }
-        # 供应商已经报了就不再报它下面的模型：同一件事说一次。
+        # Once providers are flagged, omit their models to avoid duplicate attention.
         for (provider, model), (ok, bad) in sorted(by_model.items())
         if provider not in flagged_providers and _triggered(ok, bad)
     )
@@ -339,10 +339,10 @@ def _failure_rate_attention(rows: list[UsageSummaryRow]) -> list[dict[str, objec
 
 
 def _consecutive_failure_attention(rows: list[UsageSummaryRow]) -> list[dict[str, object]]:
-    """同一目标连续失败：期间内末尾连续失败 ≥ 2 次且之后没有成功。
+    """Consecutive failures per target: ≥2 trailing failures during windows, without subsequent success.
 
-    目标键是 (项目, 媒体类型, 分镜)，没有分镜的调用不参与——「同一个分镜反复生成不出来」才是
-    用户要看的信号。已取消的调用既不计数也不打断连续段：那是用户自己的操作，不是失败证据。
+    Targets are (project, media, storyboard); exclude calls without storyboards, focusing on repeated failure to generate the same
+    storyboard. Canceled calls neither count nor interrupt streaks: user actions, not failure evidence.
     """
     grouped: dict[tuple[str, str, str], list[UsageSummaryRow]] = defaultdict(list)
     for row in rows:
@@ -382,11 +382,11 @@ def _failure_count(item: dict[str, object]) -> int:
 
 
 def _attention(rows: list[UsageSummaryRow]) -> list[dict[str, object]]:
-    # 失败率与连续失败只统计生成调用：Agent 的轮次不拉高或拉低失败率。
+    # Failure-rate/streak anomalies use generation calls only; Agent turns neither raise nor lower rates.
     rows = [row for row in rows if not row.agent]
     items = _failure_rate_attention(rows) + _consecutive_failure_attention(rows)
 
-    # 两类异常按各自的失败次数一起排序；并列时按条目内容定序，保证同一批数据的输出稳定。
+    # Sort both anomaly classes together by failure counts, then item content for stable outputs.
     return sorted(items, key=lambda item: (-_failure_count(item), repr(item)))[:MAX_ATTENTION_ITEMS]
 
 
@@ -398,9 +398,9 @@ def build_summary(
     until: datetime | None,
     filter_options: UsageFilterOptions,
 ) -> dict[str, object]:
-    """把期间内的轻投影行聚成一份 `/usage/summary` 响应体。
+    """Aggregate projected period rows into `/usage/summary` responses.
 
-    ``rows`` 已按筛选与期间取好且不含 pending；``filter_options`` 取自全表，不随筛选变化。
+    ``rows`` already match filters/windows and exclude pending; ``filter_options`` comes from whole tables, independent of filters.
     """
     kpi = _StatsAccumulator()
     for row in rows:

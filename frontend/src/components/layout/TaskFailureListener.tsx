@@ -6,8 +6,8 @@ interface TaskFailureListenerProps {
 }
 
 /**
- * 无 UI 监听组件：把任务失败与资产图批次的通知对 tasks store 的订阅隔离在叶子节点，
- * 避免直接挂在 StudioLayout 时任务列表每次更新都触发整个布局（顶栏/侧栏/面板）重渲染。
+ * Listener without UI: isolate tasks-store subscriptions for task failures and asset-image batch notifications in leaf nodes,
+ * avoiding full StudioLayout (header/sidebar/panel) rerenders whenever task lists change.
  */
 export function TaskFailureListener({ projectName }: TaskFailureListenerProps) {
   useTaskFailureNotifications(projectName);

@@ -40,17 +40,20 @@ class TestReferenceImagesDeclaration:
     def test_numbers_follow_list_position_and_group_by_type(self):
         references = [_sheet("character", "林清"), _sheet("character", "沈茹/黑化"), _sheet("scene", "书房"), _PREVIOUS]
         assert reference_images_declaration(references) == (
-            f"图1、图2为角色参考图；图3为场景参考图；图4为上一分镜图，{PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}。"
+            f"图1, 图2: character reference images; 图3: scene reference images; 图4: previous storyboard image, {PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}."
         )
 
     def test_product_images_lead_and_carry_the_fidelity_clause(self):
         references = [_product("保温杯", "sheet"), _product("保温杯", "original"), _sheet("character", "Alice")]
         assert reference_images_declaration(references) == (
-            "图1、图2为商品参考图，画面中的商品须与之完全一致；图3为角色参考图。"
+            "图1, 图2: product reference images; the product in the frame must match exactly; 图3: character reference images."
         )
 
     def test_props_and_extra_images_have_their_own_types(self):
-        assert reference_images_declaration([_sheet("prop", "怀表"), _EXTRA]) == "图1为道具参考图；图2为补充参考图。"
+        assert (
+            reference_images_declaration([_sheet("prop", "怀表"), _EXTRA])
+            == "图1: prop reference images; 图2: additional reference images."
+        )
 
     def test_empty_references_render_nothing(self):
         assert reference_images_declaration([]) == ""
@@ -119,13 +122,16 @@ class TestClampReferenceImages:
             _PREVIOUS,
         ]
         clamp = clamp_reference_images(references, 7, model="viduq2")
-        assert clamp.dropped == ("道具参考图", f"上一分镜图，{PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}")
+        assert clamp.dropped == (
+            "prop reference images",
+            f"previous storyboard image, {PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}",
+        )
 
     def test_log_names_the_model_the_limit_and_the_dropped_types(self, caplog):
         references = [_sheet("character", f"角色{i}") for i in range(7)] + [_sheet("prop", "怀表"), _PREVIOUS]
         with caplog.at_level(logging.INFO, logger="lib.prompts.reference_image_numbering"):
             clamp_reference_images(references, 7, model="viduq2")
         assert "model=viduq2" in caplog.text
-        assert "上限 7" in caplog.text
-        assert "道具参考图" in caplog.text
-        assert "上一分镜图" in caplog.text
+        assert "limit 7" in caplog.text
+        assert "prop reference images" in caplog.text
+        assert "previous storyboard image" in caplog.text

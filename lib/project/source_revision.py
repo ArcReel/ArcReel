@@ -19,10 +19,9 @@ from lib.infra.content_digest import prefixed_canonical_json_digest
 
 
 def _registered_source_paths(project: Mapping[str, Any]) -> list[str]:
-    """项目登记的全部源文：整本源文清单里的文件，加上自带原文的集的集文件。
+    """All registered project sources: whole-source-list files plus source-owning episode files.
 
-    切出集的集文件是派生物、无原文的集没有集文件，``source/`` 里未登记的文件也不算。
-    """
+    Cut-episode files are derivatives, sourceless episodes have none, and unregistered ``source/`` files do not count."""
     paths = whole_source_files(project)
     raw_episodes = project.get("episodes")
     for entry in raw_episodes if isinstance(raw_episodes, list) else []:
@@ -35,7 +34,7 @@ def _registered_source_paths(project: Mapping[str, Any]) -> list[str]:
 
 
 def _derived_episode_paths(project: Mapping[str, Any]) -> set[str]:
-    """切出集的集文件路径：它们由账本派生，不是源文。"""
+    """Cut-episode paths derived from the ledger, not source text."""
     raw_episodes = project.get("episodes")
     derived: set[str] = set()
     for entry in raw_episodes if isinstance(raw_episodes, list) else []:
@@ -48,13 +47,15 @@ def _derived_episode_paths(project: Mapping[str, Any]) -> set[str]:
 
 
 class SourceScope(BaseModel):
-    """一次源文修订计算覆盖的源文范围。"""
+    """Source scope covered by one source-revision calculation."""
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["all", "files"] = Field(description="all 为全部源文；files 为 files 列出的源文件")
+    kind: Literal["all", "files"] = Field(
+        description="all covers all source text; files covers the source files listed in files"
+    )
     files: list[str] = Field(
-        default_factory=list, description="kind=files 时的源文件路径（至少一个）；kind=all 时须为空"
+        default_factory=list, description="Source-file paths for kind=files (at least one); must be empty for kind=all"
     )
 
     @model_validator(mode="after")
@@ -97,8 +98,8 @@ class SourceRevisionResult(BaseModel):
     revision: str | None
     files: list[str] = Field(default_factory=list)
     blockers: list[SourceRevisionBlocker] = Field(default_factory=list)
-    # 本次计算读到的原文，供同一请求内的其他消费方复用，免得为同一批源文再读一遍磁盘。
-    # 只在进程内传递，故排除出任何序列化输出。
+    # Source content read by this calculation, reused by consumers in the same request instead of rereading the same files.
+    # In-process only, excluded from all serialization.
     documents: list[SourceFileRead] = Field(default_factory=list, exclude=True, repr=False)
 
 
@@ -144,7 +145,7 @@ def _all_source_paths(
     paths: list[tuple[str, Path]] = []
     for rel in _registered_source_paths(project):
         path = project_dir.joinpath(*PurePosixPath(rel).parts)
-        # 登记了、但已不在盘上的文件不进修订号：它不是能读到的源文，也不该让其余源文一并不可用
+        # Registered but absent files do not enter revisions: they are unreadable sources and must not make all other sources unavailable.
         if path.exists() or path.is_symlink():
             paths.append((unicodedata.normalize("NFC", rel), path))
     paths.sort(key=lambda item: item[1])
@@ -265,7 +266,7 @@ def compute_source_revision(
     canonical_fingerprints = sorted(reads, key=lambda item: item[0].rel_path)
     payload = {
         "files": [{"path": read.rel_path, "sha256": digest} for read, digest in canonical_fingerprints],
-        # 与项目概览同一口径：全部源文同一类型时取该类型，否则按小说
+        # Like project overviews: use a shared type if all sources match, otherwise novel.
         "source_kind": project_overview_source_kind(project),
         "source_language": project.get("source_language"),
     }

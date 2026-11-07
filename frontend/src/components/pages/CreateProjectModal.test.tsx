@@ -43,7 +43,7 @@ const mockSysConfig = {
   },
 };
 
-/** 全局默认的 TTS 设置，向导里切到 TTS 配音时应原样预填。 */
+/** Global TTS defaults, prefilled unchanged when wizards switch to TTS dubbing. */
 const narrationDefaults = {
   audio_backend: "dashscope/qwen3-tts-flash",
   narration_voice: "Cherry",
@@ -74,10 +74,10 @@ const mockProviders = {
 };
 
 /**
- * 无项目端点的替身：向导里项目尚不存在，按候选模型回时长（服务端算好的收窄结果）。
+ * Projectless endpoint fake: wizard projects do not yet exist; return candidate-model durations already narrowed by servers.
  *
- * 每个 describe 的 beforeEach 都要装一次：`restoreMocks` 会在每个用例后还原 spy，
- * 漏装的分组一旦走到第二步就会调真实 API。
+ * Install in every describe beforeEach: `restoreMocks` restores spies after each test,
+ * so missing groups call real APIs upon step two.
  */
 function stubModelVideoCapabilities() {
   vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend) => {
@@ -127,14 +127,14 @@ function installStubs(name = "demo-proj") {
 const nextButton = () => screen.getByRole("button", { name: /^(下一步|Next)$/ });
 const clickNext = () => fireEvent.click(nextButton());
 
-/** 填好第一步的必填项：标题、创作类型、生成方式。 */
+/** Complete step-one required fields: title, creation type and generation mode. */
 function fillBasics({ mode = "旁白/解说", route = "分镜图生视频" }: { mode?: string; route?: string } = {}) {
   fireEvent.change(screen.getByRole("textbox", { name: "项目标题" }), { target: { value: "demo" } });
   fireEvent.click(screen.getByRole("radio", { name: new RegExp(mode) }));
   fireEvent.click(screen.getByRole("radio", { name: new RegExp(route) }));
 }
 
-/** 从第一步走到第三步，停在「创建项目」可点的状态。 */
+/** Advance from step one through three, leaving Create project enabled. */
 async function walkToStyle() {
   clickNext();
   await waitFor(() => expect(nextButton()).toBeEnabled());
@@ -197,7 +197,7 @@ describe("CreateProjectModal", () => {
         narration_delivery: "post_production",
       }),
     );
-    // 后期配音项目不提交 TTS 快照，未填的可选时长与语速不带键
+    // Postproduction dubbing omits TTS snapshots and unset optional duration/speech-rate keys.
     for (const key of ["audio_backend", "target_duration", "episode_target_duration", "speech_rate_units_per_second"]) {
       expect(payload).not.toHaveProperty(key);
     }
@@ -295,7 +295,7 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fillBasics({ route: "参考生视频" });
     clickNext();
-    // 项目尚不存在：按全局默认解析出的候选模型走无项目端点，并带上参考图路径
+    // Projects do not exist yet; use projectless endpoints with global-default resolved candidates/reference paths.
     await waitFor(() =>
       expect(API.getModelVideoCapabilities).toHaveBeenCalledWith(
         "gemini-aistudio/veo-3",
@@ -310,7 +310,7 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fillBasics();
     fireEvent.click(screen.getByRole("switch", { name: "多宫格分镜" }));
-    // 切到参考生视频清空开关，切回来时保持关闭
+    // Switching to reference video clears switches, retaining off when switching back.
     fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
     expect(screen.queryByRole("switch", { name: "多宫格分镜" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
@@ -372,8 +372,8 @@ describe("CreateProjectModal", () => {
   });
 
   it("revalidates duration and resolution when step 1 switches the executing video model", async () => {
-    // 全局给两条视频路径指定了不同模型时，改生成模式即换执行模型：时长与分辨率都是按前一个
-    // 模型选的，不清掉会被写到新模型名下
+    // Distinct global video-path models mean generation-mode changes switch execution identities; duration/resolution chosen for previous
+    // models must clear instead of persisting beneath new models.
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       ...mockSysConfig,
       settings: {
@@ -412,13 +412,13 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fillBasics();
     clickNext();
-    // 第二步按 i2v 执行模型（veo-3）列时长与分辨率
+    // Step two lists i2v execution model veo-3 durations/resolutions.
     fireEvent.click(await screen.findByRole("radio", { name: "4 秒" }));
     fireEvent.change(screen.getByRole("combobox", { name: /分辨率/ }), { target: { value: "1080p" } });
     fireEvent.click(screen.getByRole("button", { name: "上一步" }));
     fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
     fireEvent.click(await walkToStyle());
-    // 执行模型换成 seedance：4 秒不在其支持集内、1080p 也不是它的分辨率，两者都不跟进载荷
+    // Switching execution to seedance excludes unsupported 4-second/1080p values from payloads.
     await waitFor(() =>
       expect(API.createProject).toHaveBeenCalledWith(
         expect.objectContaining({ generation_mode: "reference_video", default_duration: null }),
@@ -477,7 +477,7 @@ describe("CreateProjectModal", () => {
     const shown = preview();
     expect(shown).not.toBeNull();
     expect(revoked).not.toHaveBeenCalledWith(shown);
-    // 不再显示的预览地址都已收回，同一时刻只有正在显示的那一个
+    // All hidden preview URLs are revoked; only the displayed one exists at any moment.
     const stale = created.mock.results.map((r) => r.value as string).filter((url) => url !== shown);
     expect(revoked.mock.calls.map(([url]) => url).sort()).toEqual(stale.sort());
     created.mockRestore();
@@ -533,7 +533,7 @@ describe("CreateProjectModal ad mode", () => {
   });
 });
 
-// 供应商名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
+// Backends render provider names by Accept-Language; fakes return matching current-language translations.
 function sysConfigFor(lang: string) {
   return {
     ...mockSysConfig,
@@ -607,7 +607,7 @@ describe("CreateProjectModal language switch", () => {
       await i18n.changeLanguage("en");
     });
 
-    // 重取未完成时既有 step2 数据不被清空，向导仍显示旧目录而不是 loading
+    // Pending refetches retain existing step2 data; wizards show old catalogs rather than loading.
     expect(screen.getAllByText(/Gemini AI Studio（中文）/).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Next|下一步/ })).toBeEnabled();
 

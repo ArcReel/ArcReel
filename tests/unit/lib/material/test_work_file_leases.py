@@ -1,4 +1,4 @@
-"""工作文件的使用登记按真实路径比对：数据目录经过符号链接时，登记方与清理方的路径写法不同也认得出同一个文件。"""
+"""Work-file leases compare real paths: symlinked data directories still identify files across registration/cleanup spellings."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def test_held_file_is_kept_when_cleanup_spells_its_path_through_a_symlink(tmp_pa
     linked_file = linked_root / "projects" / "demo" / "characters" / "Alice.png"
     idle_after_write = time.time() + 60
 
-    # 导出经 get_project_path 拿到真实路径并登记；清理按数据目录的原路径枚举到同一个文件
+    # Export registers get_project_path’s real path; cleanup enumerates the same file through the original data-root spelling.
     with hold_work_file(real_file):
         assert evict_idle_work_file(linked_file, os.stat(linked_file), idle_after_write) == (0, 0, 1)
     assert real_file.is_file()

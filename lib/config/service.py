@@ -18,28 +18,28 @@ from lib.infra.schema_guards import is_int
 
 DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
-# 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目
-# 的预填值，项目创建后以 project.json 顶层的快照为准（docs/adr/0089）。
+# Default DashScope narration voices without global settings. Global voices/speeds prefill new TTS projects only;
+# after creation, project.json top-level snapshots govern (docs/adr/0089).
 _DEFAULT_NARRATION_VOICE = "Cherry"
 MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 
-# 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
-# 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
-# 与 lib/references/reference_compression.DEFAULT_* 数值一致（单测断言对齐）。
+# Conservative upload-copy request-size caps: ArcReel policy, not actual vendor limits;
+# reactive 413 fallback self-corrects. Provider configuration keys can override.
+# Match lib/references/reference_compression.DEFAULT_* values, guarded by tests.
 DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 
-# 写入层校验为正整数的容量键（与 CapacityTable 的三条 lane 一一对应）。
-# 其余 number 字段（image_rpm / video_rpm / request_gap）语义不同（允许小数），不在此列。
+# Capacity keys requiring positive integers, matching three CapacityTable lanes.
+# Other number fields image_rpm/video_rpm/request_gap permit fractions and are excluded.
 _MAX_WORKERS_KEYS = frozenset({"image_max_workers", "video_max_workers", "audio_max_workers"})
 _MAX_WORKERS_CODE = "max_workers_must_be_positive_integer"
 
 
 class ProviderConfigValueError(ValueError):
-    """provider 配置值校验失败。
+    """Invalid provider configuration values.
 
-    携带 i18n message code + 渲染参数（key 而非译文），router 层 ``_t(exc.code, **exc.params)``
-    泛化翻译为 user-facing 文案，无需感知具体校验规则。
+    Carry i18n codes/parameters, never translations; routers render ``_t(exc.code, **exc.params)``
+    generically without knowing validation rules.
     """
 
     def __init__(self, provider: str, key: str, value: str, *, code: str) -> None:
@@ -61,13 +61,13 @@ _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_default_sonnet_model": "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "claude_code_subagent_model": "CLAUDE_CODE_SUBAGENT_MODEL",
 }
-# 一致性守护：env 名单与 ANTHROPIC_ENV_KEYS 必须对齐。
+# Environment-key consistency with ANTHROPIC_ENV_KEYS.
 assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
     "_ANTHROPIC_ENV_MAP 与 lib.config.env_keys.ANTHROPIC_ENV_KEYS 漂移"
 )
 
 
-# 档位 → 环境变量名。
+# Tier → environment names.
 _TIER_ENV_KEYS: dict[Tier, str] = {
     "model": "ANTHROPIC_MODEL",
     "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -79,22 +79,22 @@ _TIER_ENV_KEYS: dict[Tier, str] = {
 
 @dataclass(frozen=True)
 class AnthropicEnv:
-    """注入 Agent 会话的 ANTHROPIC_* 环境变量，以及取自同一行凭证的计价依据（没有生效凭证时为默认值）。"""
+    """Agent-session ANTHROPIC_* variables and same-row pricing facts, defaulting without active credentials."""
 
     env: dict[str, str]
     pricing: AgentPricing
 
 
 async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
-    """从 DB 读 active credential，返回 {ENV_KEY: value} 与计价依据快照，**不写 os.environ**。
+    """Read active DB credentials, returning {ENV_KEY:value}/pricing snapshots, **never writing os.environ**.
 
-    返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到 ClaudeAgentOptions.env。凭证只读一次，
-    环境变量与计价依据（凭证 id、倍率、档位绑定）取自同一行：会话按连接时注入的凭证计价（docs/adr/0102）。
+    OptionsAssembler load_provider_env_overrides injects ClaudeAgentOptions.env. Read credentials once so
+    env/pricing id/multiplier/tier bindings share rows; sessions price connection-time credentials (docs/adr/0102).
 
-    双轨期 fallback：active credential 字段为空时从 system_settings 兜底。档位模型名的规则见
-    :func:`lib.agent.credential_tiers.tier_models`。
+    Dual-track fallback: absent active fields use system_settings. Tier naming:
+    :func:`lib.agent.credential_tiers.tier_models`.
     """
-    # 局部 import 避免循环依赖（agent_credential_repo → agent_credential model → base）
+    # Local imports avoid agent_credential_repo → agent_credential model → base cycles.
     from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
     cred = await AgentCredentialRepository(session).get_active()
@@ -109,7 +109,7 @@ async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
         }
         return AnthropicEnv(env=env, pricing=agent_pricing(cred, settings))
 
-    # 无 active credential — 回退 system_settings（双轨期兼容）
+    # No active credentials: dual-track system_settings fallback.
     return AnthropicEnv(
         env={env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()},
         pricing=AgentPricing(),
@@ -124,10 +124,10 @@ class ProviderStatus:
     media_types: list[str]
     capabilities: list[str]
     required_keys: list[str]
-    # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
+    # Credential counts, called keys in UI, for settings configured-key totals.
     credential_count: int
-    models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
-    # 不作候选的模型键（用户停用的，加上已下线的）：不出现在默认模型设置的候选里，也不被自动挑选（docs/adr/0099）。
+    models: dict[str, dict] | None = None  # model_id → CatalogModel dict shapes.
+    # Disabled/discontinued keys never appear default candidates or automatic selection (docs/adr/0099).
     disabled_models: frozenset[str] = frozenset()
 
 
@@ -151,8 +151,8 @@ class ConfigService:
         self._validate_provider(provider)
         self._validate_value(provider, key, value)
         if key in _MAX_WORKERS_KEYS:
-            # 入库统一规范化为 ASCII 数字串（int() 接受 " 5 " / "+5" / "1_0" / 全角数字等
-            # 非规范形态），保证任何读取方拿到的都是可直接解析、可在 number 输入框回显的值
+            # Persist canonical ASCII digits: int() accepts whitespace/signs/underscores/fullwidth forms,
+            # ensuring all readers receive parseable values echoable in number inputs.
             value = str(int(value))
         meta = PROVIDER_REGISTRY[provider]
         is_secret = key in meta.secret_keys
@@ -176,7 +176,7 @@ class ConfigService:
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
             status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
-            # asdict 深拷贝 list/dict 字段，返回值不与模型目录共享引用，调用方改写不会波及目录。
+            # asdict deep-copies list/dict fields; caller mutations cannot affect catalog references.
             models_dict = {mid: asdict(mi) for mid, mi in catalog.list_models(name).items()}
             statuses.append(
                 ProviderStatus(
@@ -242,19 +242,19 @@ class ConfigService:
         return self._parse_backend(raw, DEFAULT_AUDIO_BACKEND)
 
     async def get_narration_voice(self) -> str:
-        # 空白 setting 视为未配置，与项目级覆盖的 strip 语义一致，避免空音色进 TTS 请求
+        # Blank settings mean absent, matching project override strip semantics, keeping empty voices out of TTS.
         raw = await self._setting_repo.get("narration_voice", "")
         voice = raw.strip()
         return voice or _DEFAULT_NARRATION_VOICE
 
     async def get_narration_speed(self) -> float | None:
-        """旁白语速（全局 setting）。未设置/损坏值返回 None，由各 audio backend 按自身能力处理。"""
+        """Global narration speeds; None for absent/corrupt settings, handled by audio backends per capability."""
         raw = await self._setting_repo.get("narration_speed", "")
         return self.parse_narration_speed(raw)
 
     @staticmethod
     def parse_narration_speed(raw: str) -> float | None:
-        """把存储态语速字符串解析为有效正有限数；空白/非数值/非正/inf/nan 一律视为未设置。"""
+        """Parse stored speed strings as positive finite numbers; blank/nonnumeric/nonpositive/inf/nan means unset."""
         text = raw.strip()
         if not text:
             return None
@@ -273,11 +273,11 @@ class ConfigService:
 
     @staticmethod
     def _validate_value(provider: str, key: str, value: str) -> None:
-        """容量键写入校验：正整数（≥1）。留空即不写该 key（回退默认），不会走到这里。
+        """Capacity writes require positive integers ≥1. Empty keys are omitted for defaults, never reaching here.
 
-        0 不是合法用户输入——它仅作 CapacityTable 内部「不支持该 lane」哨兵，由 lane 投影
-        在内存里产生，绝不写回。坏值一旦入库，容量 reload 只能逐 key 回退默认值，配置变更
-        静默失效，因此在写入口拦下。
+        Zero is internal CapacityTable unsupported-lane sentinels only, produced in memory by projections,
+        never persisted. Dirty values force per-key reload fallback and silently ineffective configuration,
+        so reject at writes.
         """
         if key not in _MAX_WORKERS_KEYS:
             return
@@ -298,10 +298,10 @@ class ConfigService:
 
 
 async def read_video_poll_timeout_seconds() -> int:
-    """自开一个 session 读一次全局视频轮询超时。
+    """Open sessions to read global video poll timeouts once.
 
-    worker 派发与端点测试连接共用这一份：两条路径都在「即将进入一次真实生成」的时点读一次，
-    各自另写一遍就会在超时含义上分叉。口径是「派发时读一次」，不是每次轮询各读各的。
+    Workers/connection tests share this before real generation, preventing independently drifting timeout semantics.
+    Read once at dispatch, never independently on each poll.
     """
     from lib.db import safe_session_factory
 

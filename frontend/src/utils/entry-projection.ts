@@ -1,22 +1,22 @@
 /**
- * 会话事件日志投影 — entries → Turn[]。
+ * Session-event-log projection: entries → Turn[].
  *
- * 日志条目已在服务端写入点定型（tool_result 独立条目、interrupt / task 通知 /
- * AskUserQuestion 答复为 typed 条目、子智能体条目带 parent_tool_use_id、
- * stream_event 不入日志），本模块只做渲染归组：连续 assistant 条目合并、
- * tool_result 按 tool_use_id 回填、task 按 task_id 就地更新；压缩续接摘要
- * 投影为 compact_summary 块，缺锚点子智能体的推断终态挂到合成卡片上。
- * 不做内容嗅探、不做内容比对去重、不合成消息。
+ * Server write points already shape entries (standalone tool_result, typed interrupts/task notifications/
+ * AskUserQuestion answers, subagent parent_tool_use_id,
+ * stream_event excluded from logs). This module groups for rendering only: merge consecutive assistant entries,
+ * backfill tool_result by tool_use_id, update tasks in place by task_id; compaction continuation summaries
+ * become compact_summary blocks, with inferred unanchored-subagent terminal states on synthetic cards.
+ * Never sniff contents, deduplicate by contents or synthesize messages.
  *
- * 投影分两层：
- * - 内部累积态（fold）：逐条消费条目，只做追加与按 id 回填，永不回溯重放；
- *   条目块在此层做唯一一次深拷贝。
- * - 展示视图（display）：由累积态按 turn 派生——task 折叠、滞留子智能体推导
- *   完成、子智能体子时间线挂载都在这层重算；按 turn 版本缓存，只有被新
- *   条目触达的 turn 重建视图，未触达的 turn 保持引用稳定。
+ * Two projection layers:
+ * - Internal accumulation (fold): consume entries individually, appending/backfilling by ID without historical replay;
+ *   blocks receive their sole deep copies here.
+ * - Display: derive from accumulated turns, recalculating task collapse, stranded-subagent inferred
+ *   completion and sub-timeline attachments here; cache by turn versions so only newly touched
+ *   turns rebuild views, preserving untouched references.
  *
- * `projectEntriesToTurns` 是纯函数入口（空投影器全量重放）；
- * `createTimelineProjector` 是同一实现的增量入口，二者结果恒等。
+ * `projectEntriesToTurns` is the pure entry point (empty projectors replay everything);
+ * `createTimelineProjector` incrementally uses identical implementation, always yielding identical results.
  */
 
 import type {
@@ -46,9 +46,9 @@ function cloneBlock(block: ContentBlock): ContentBlock {
 }
 
 /**
- * 按 seq 合并两组日志条目（并集、升序、seq 去重）。日志 append-only 且条目
- * 按 seq 不可变，任一来源（冷读整帧 / SSE 直播 / 发送响应）先到后到均可安全
- * 并集，不存在覆盖语义。
+ * Merge entry sets by seq (ascending deduplicated union). Append-only logs have immutable
+ * per-seq entries, allowing any ordering of cold frames/SSE/live send responses
+ * without overwrite semantics.
  */
 export function mergeEntriesBySeq(
   existing: TimelineEntry[],
@@ -65,10 +65,10 @@ export function mergeEntriesBySeq(
 }
 
 // ---------------------------------------------------------------------------
-// 增量投影器
+// Incremental projectors.
 // ---------------------------------------------------------------------------
 
-/** 内部累积态的 turn：content 为可就地回填的内部块，version 是展示缓存键。 */
+/** Internal turns: content contains mutable backfill blocks; version keys display caches. */
 interface InternalTurn {
   type: Turn["type"];
   content: ContentBlock[];
@@ -77,18 +77,18 @@ interface InternalTurn {
   version: number;
 }
 
-/** tool_use 块的登记位置：跨 turn 回填与子智能体锚定都按此 O(1) 定位。 */
+/** Registered tool_use positions support O(1) cross-turn backfill/subagent anchoring. */
 interface ToolUseSite {
   fold: Fold;
   turn: InternalTurn;
   block: ContentBlock;
 }
 
-/** 一条平铺时间线（主时间线或某个子智能体组）的折叠状态。 */
+/** Fold states for flat timelines (main or individual subagent groups). */
 interface Fold {
   committed: InternalTurn[];
   cursor: InternalTurn | null;
-  /** 所属子智能体组（主时间线为 null），脏标记沿锚链向上传播用。 */
+  /** Owning subagent groups, null for main; propagate dirty marks upward along anchor chains. */
   group: SubagentGroup | null;
   version: number;
   displayVersion: number;
@@ -98,35 +98,35 @@ interface Fold {
 interface SubagentGroup {
   id: string;
   fold: Fold;
-  /** 锚点 tool_use 的位置；null 表示尚未锚定（顶层渲染合成卡片）。 */
+  /** Anchor tool_use positions; null means unanchored, rendered as top-level synthetic cards. */
   anchor: ToolUseSite | null;
 }
 
 export interface TimelineProjector {
   /**
-   * 投影 entries → Turn[]，结果与 `projectEntriesToTurns(entries)` 逐值相等。
-   * entries 须遵循事件日志契约：按 seq 升序、同 seq 条目不可变、相邻两次
-   * 调用之间集合只增不减（append-only 并集）。前缀未变时只折叠新增后缀，
-   * 否则整体重放。
+   * Project entries→Turn[], value-equal to `projectEntriesToTurns(entries)`.
+   * Entries obey log contracts: ascending seq, immutable same-seq entries, sets only
+   * expanding between calls (append-only unions). Unchanged prefixes fold new suffixes only,
+   * otherwise replay everything.
    */
   project(entries: TimelineEntry[]): Turn[];
-  /** 已增量消费的条目数（缓存规模观测，测试用）。 */
+  /** Incrementally consumed entry counts, observing cache size in tests. */
   readonly size: number;
 }
 
 export function createTimelineProjector(): TimelineProjector {
-  // 前缀指纹：source 为上次 project 的 entries 引用，count 为已折叠条目数
+  // Prefix fingerprints: source is previous project entries references; count is folded entry counts.
   let source: TimelineEntry[] = [];
   let count = 0;
 
   let versionCounter = 0;
   let main: Fold = newFold();
   let groups = new Map<string, SubagentGroup>();
-  // 尚未锚定的组：compose() 只需扫这个集合而非全部历史 groups，避免长会话
-  // 里已锚定完成的子智能体组随会话增长把每条新消息的合成卡片扫描拖成
-  // O(历史子智能体总数)。
+  // Unanchored groups: compose() scans only this set, never all historical groups, avoiding completed anchored
+  // subagents making each new long-session message scan synthetic cards with
+  // O(total historical subagents) cost.
   let pendingGroups = new Set<SubagentGroup>();
-  // 缺锚点子智能体的推断描述与终态（写入点按子时间线推断），合成卡片据此显示。
+  // Inferred unanchored-subagent descriptions/terminal states derive at write points from sub-timelines; synthetic cards display them.
   let subagentOutcomes = new Map<string, ContentBlock>();
   let toolUseSites = new Map<string, ToolUseSite>();
   let turnViewCache = new WeakMap<InternalTurn, { version: number; turn: Turn }>();
@@ -151,12 +151,12 @@ export function createTimelineProjector(): TimelineProjector {
   }
 
   /**
-   * site 所在时间线的锚链（沿既有 anchor 归属向上走）是否会绕回 targetFold。
-   * 用于锚定前判定：真实数据里子智能体嵌套是无环 DAG（parent_tool_use_id
-   * 恒指向更早、仍开放的祖先调用），环只可能来自畸形/自指条目
-   * （如 parent_tool_use_id 等于自身 tool_use id）。一旦锚定成环，该组的
-   * 展示视图会互相依赖、永远无法从主时间线触达，导致整段时间线被
-   * compose() 静默丢空——不锚定、退回既有的"合成卡片"兜底比丢空更安全。
+   * Whether site timelines anchor chains (following existing ownership upward) return to targetFold.
+   * Check before anchoring: real nested subagents form acyclic DAGs, with parent_tool_use_id
+   * always targeting earlier still-open ancestors; only malformed/self-referential entries
+   * such as self tool_use IDs can create cycles. Anchoring cycles makes group display views
+   * mutually dependent and unreachable from main timelines, silently dropping entire timelines in
+   * compose(). Keeping unanchored synthetic-card fallbacks is safer than losing contents.
    */
   function anchorCreatesCycle(anchorFold: Fold, targetFold: Fold): boolean {
     const seen = new Set<Fold>();
@@ -170,7 +170,7 @@ export function createTimelineProjector(): TimelineProjector {
     return false;
   }
 
-  /** 条目触达 turn 后：失效其展示缓存，并沿子智能体锚链逐层失效祖先 turn。 */
+  /** Touched turns invalidate display caches and ancestor turns along subagent anchor chains. */
   function touch(fold: Fold, turn: InternalTurn): void {
     composedDirty = true;
     turn.version = ++versionCounter;
@@ -194,7 +194,7 @@ export function createTimelineProjector(): TimelineProjector {
     return turn;
   }
 
-  /** 追加系统注入块：优先并入当前 assistant turn，否则开 system turn。 */
+  /** Append system-injected blocks, preferring current assistant turns, otherwise opening system turns. */
   function attachSystemBlock(fold: Fold, entry: TimelineEntry, block: ContentBlock): void {
     if (fold.cursor && fold.cursor.type === "assistant") {
       fold.cursor.content.push(block);
@@ -212,11 +212,11 @@ export function createTimelineProjector(): TimelineProjector {
   }
 
   /**
-   * 按 task_id 定位既有 task 块：先查当前 turn（常见路径），未命中回退
-   * 已 flush 的 committed turns（新近优先）——turn 边界之后到达的 task 更新
-   * 仍要归属原块就地更新，否则原块永久停在 task_started 未完成态。返回
-   * 命中块所在的 turn，供调用方 touch 到正确的缓存失效范围（可能不是
-   * fold.cursor）。
+   * Find existing task blocks by task_id: current turns first (common path), then flushed
+   * committed turns newest-first. Post-boundary task updates must still update original blocks
+   * rather than strand them forever in unfinished task_started. Return owning turns
+   * so callers touch correct cache invalidation scopes, potentially different from
+   * fold.cursor.
    */
   function findTaskSite(fold: Fold, taskId: string): { turn: InternalTurn; block: ContentBlock } | null {
     if (fold.cursor) {
@@ -248,7 +248,7 @@ export function createTimelineProjector(): TimelineProjector {
     attachSystemBlock(fold, entry, taskBlock);
   }
 
-  /** 登记 tool_use 块位置（同 id 首次登记生效），并锚定等待中的子智能体组。 */
+  /** Register tool_use positions (first registration per ID wins) and anchor waiting subagent groups. */
   function registerToolUse(fold: Fold, turn: InternalTurn, block: ContentBlock): void {
     const id = block.id;
     if (!id) return;
@@ -259,13 +259,13 @@ export function createTimelineProjector(): TimelineProjector {
       if (site && !anchorCreatesCycle(site.fold, group.fold)) {
         group.anchor = site;
         pendingGroups.delete(group);
-        // 合成卡片并回锚点：锚点 turn 展示需重建，顶层合成卡片消失
+        // Merge synthetic cards into anchors, rebuilding anchor-turn displays and removing top-level synthetic cards.
         touch(site.fold, site.turn);
       }
     }
   }
 
-  /** 取 parent_tool_use_id 对应的子时间线折叠状态，组首现时尝试锚定。 */
+  /** Resolve sub-timeline folds by parent_tool_use_id, attempting anchoring at first group appearance. */
   function groupFoldFor(parentId: string): Fold {
     let group = groups.get(parentId);
     if (!group) {
@@ -306,10 +306,10 @@ export function createTimelineProjector(): TimelineProjector {
 
     if (entry.type === "tool_result") {
       const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
-      // 回填锚点按登记索引 O(1) 定位，限定同一时间线：turn 边界之后到达的
-      // tool_result（如中断先把该 turn flush 出去）仍要能回填对应
-      // tool_use，否则其结果状态永久悬挂在未完成态（与 question_answer
-      // 回填口径一致）。
+      // Registered indexes locate anchor backfills in O(1), within identical timelines; post-boundary
+      // tool_result (e.g. turns flushed early by interruptions) must still backfill corresponding
+      // tool_use, otherwise results remain permanently unfinished, matching question_answer
+      // backfill rules.
       let site: ToolUseSite | null = null;
       if (entry.tool_use_id) {
         const hit = toolUseSites.get(entry.tool_use_id);
@@ -341,12 +341,12 @@ export function createTimelineProjector(): TimelineProjector {
         return;
       }
       if (entry.subtype === "skill_invocation") {
-        // 芯片渲染锚点是 Skill tool_use 块（input 即名与入参）；tool_use 块
-        // 已登记时不再追加，避免同一调用出现两枚芯片。按 toolUseSites 查找
-        // 而非只看 fold.cursor——登记发生在 tool_use 块本身追加时，比
-        // cursor 更持久，该 turn 若被 interrupt 等条目提前 flush 出当前
-        // turn，仍能正确判定为已锚定（限定同一时间线，与 question_answer
-        // 回填口径一致）。
+        // Skill tool_use blocks anchor chips (input carries names/arguments); already-registered blocks
+        // prevent duplicate chip appends. Look through toolUseSites rather than fold.cursor:
+        // registration occurs at tool_use append and outlives
+        // cursor; turns flushed early by interruptions/other entries still
+        // count as anchored, restricted to identical timelines and matching question_answer
+        // backfill criteria.
         const site = entry.tool_use_id != null ? toolUseSites.get(entry.tool_use_id) : null;
         const anchored = site != null && site.fold === fold;
         if (!anchored) {
@@ -406,9 +406,9 @@ export function createTimelineProjector(): TimelineProjector {
     if (entry.subtype === "question_answer") {
       const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
       const answers = entry.answers ?? undefined;
-      // 回填提问的 AskUserQuestion tool_use 块：结果状态不悬挂，问题卡可标记所选。
-      // 按登记索引 O(1) 定位，限定同一时间线（pending 提问期间若有 interrupt 之类
-      // 的条目提前把该 turn flush 出去，锚点仍要能跨 turn 找回）。
+      // Backfill AskUserQuestion tool_use: finish result states and mark selected answers on question cards.
+      // O(1) registered indexes restrict lookups to identical timelines, recovering cross-turn anchors after
+      // interruptions/other entries flush pending-question turns early.
       let site: ToolUseSite | null = null;
       if (entry.tool_use_id) {
         const hit = toolUseSites.get(entry.tool_use_id);
@@ -421,7 +421,7 @@ export function createTimelineProjector(): TimelineProjector {
         touch(site.fold, site.turn);
       }
       if (entry.is_error) {
-        // 被拒/中断的提问没有用户答复；无处回填时保留孤立结果块
+        // Rejected/interrupted questions have no user answers; retain orphaned result blocks without backfill targets.
         if (!site) {
           attachSystemBlock(fold, entry, {
             type: "tool_result",
@@ -440,7 +440,7 @@ export function createTimelineProjector(): TimelineProjector {
   }
 
   // -------------------------------------------------------------------------
-  // 展示视图 — 由累积态派生，按 turn 版本缓存
+  // Display views derive from accumulation, cached by turn versions.
   // -------------------------------------------------------------------------
 
   function foldDisplay(fold: Fold): Turn[] {
@@ -460,11 +460,11 @@ export function createTimelineProjector(): TimelineProjector {
   }
 
   /**
-   * 构建单个 turn 的展示视图：挂载子智能体子时间线、把已完成 `Agent` 调用
-   * 的滞留 task_started 推导为完成、将 task 进度折叠进锚点 tool_use（子智能体
-   * 卡片就地显示状态与进度，不渲染独立进度行；无锚点的 task 块保持原样）。
-   * 可变块（tool_use / task_progress）逐次浅拷，累积态不被展示层污染，
-   * 同一版本重复构建收敛到同一结果。
+   * Build individual turn displays: attach sub-timelines, infer stranded task_started as completed for finished `Agent`
+   * calls, collapse task progress into anchor tool_use (subagent
+   * cards show status/progress inline without separate rows; unanchored task blocks remain unchanged).
+   * Shallow-copy mutable tool_use/task_progress per construction without contaminating accumulation;
+   * repeated same-version builds converge identically.
    */
   function buildTurnView(turn: InternalTurn): Turn {
     const content: ContentBlock[] = [];
@@ -486,7 +486,7 @@ export function createTimelineProjector(): TimelineProjector {
         content.push(block);
       }
     }
-    // task_started 块对应的 Agent tool_use 已有 result 时推导为已完成
+    // Infer task_started completed when corresponding Agent tool_use already has results.
     if (completedAgentIds) {
       const completed = completedAgentIds;
       for (const block of content) {
@@ -518,9 +518,9 @@ export function createTimelineProjector(): TimelineProjector {
   function compose(): Turn[] {
     if (!composedDirty) return composed;
     const out = [...foldDisplay(main)];
-    // 仍无锚点的组（如懒生成残余组、成环被拒锚的组）：以合成锚点独立成卡，
-    // 不丢子时间线。只扫 pendingGroups（当前仍未锚定的组），不扫全部历史
-    // groups——已锚定的组不会再变回待锚定，扫描量不随会话内子智能体总数增长。
+    // Still-unanchored groups (lazy residuals/cycle-rejected anchors) use separate synthetic anchor cards,
+    // retaining sub-timelines. Scan pendingGroups only, never all historical
+    // groups; anchored groups never become pending again, so scan sizes do not follow session-total subagent counts.
     for (const group of pendingGroups) {
       const card: ContentBlock = { type: "tool_use", id: group.id, name: "Agent", input: {}, sub_turns: foldDisplay(group.fold) };
       const outcome = subagentOutcomes.get(group.id);
@@ -534,8 +534,8 @@ export function createTimelineProjector(): TimelineProjector {
 
   return {
     project(entries: TimelineEntry[]): Turn[] {
-      // 前缀不变性按端点引用判定：日志契约保证条目按 seq 不可变、集合只增
-      // 不减，端点同引用即前缀逐元素同引用（中部插入必然移动端点索引）。
+      // Endpoint references determine prefix invariance: immutable per-seq entries/expanding-only sets
+      // make identical endpoint references imply elementwise identical prefixes; middle inserts necessarily shift endpoint indexes.
       const extendsPrefix =
         entries.length >= count &&
         (count === 0 || (entries[0] === source[0] && entries[count - 1] === source[count - 1]));
@@ -552,18 +552,18 @@ export function createTimelineProjector(): TimelineProjector {
 }
 
 /**
- * 全量投影纯函数入口（entries → Turn[]）：空投影器一次性重放。
- * 增量路径 `createTimelineProjector` 与本函数结果恒等。
+ * Full-projection pure entry point (entries→Turn[]): replay once through empty projectors.
+ * Incremental `createTimelineProjector` always yields identical results.
  */
 export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
   return createTimelineProjector().project(entries);
 }
 
 // ---------------------------------------------------------------------------
-// draft 投影与增量应用
+// Draft projection/incremental application.
 // ---------------------------------------------------------------------------
 
-/** 收集已落权威 assistant 条目的 message_id 集合（draft 替换判定的派生索引）。 */
+/** Collect authoritative assistant message_id sets, derived indexes for draft replacement. */
 export function collectCommittedMessageIds(entries: TimelineEntry[]): Set<string> {
   const ids = new Set<string>();
   for (const entry of entries) {
@@ -573,8 +573,8 @@ export function collectCommittedMessageIds(entries: TimelineEntry[]): Set<string
 }
 
 /**
- * draft 是否已被权威条目替换：按身份比对（同 message_id 的 assistant 条目
- * 已落库即视为替换），不做内容比对。集合由调用方增量维护，判定 O(1)。
+ * Draft replacement compares identity, never contents: persisted assistant entries with identical
+ * message_id mean replaced. Callers incrementally maintain sets for O(1) checks.
  */
 export function isDraftReplaced(
   draft: DraftState | null,
@@ -585,9 +585,9 @@ export function isDraftReplaced(
 }
 
 /**
- * draft → Turn。replaced 为真（已被权威条目替换）时返回 null；
- * 子智能体的流式草稿不进主时间线：主线只显示折叠卡片，
- * 卡片内容随权威条目（近实时）更新。
+ * draft→Turn; return null when replaced by authoritative entries.
+ * Subagent streaming drafts never enter main timelines, which show collapsed cards only;
+ * authoritative entries update card contents near-real-time.
  */
 export function buildDraftTurn(draft: DraftState | null, replaced: boolean): Turn | null {
   if (!draft || !draft.message_id) return null;
@@ -602,7 +602,7 @@ export function buildDraftTurn(draft: DraftState | null, replaced: boolean): Tur
   };
 }
 
-/** draft → Turn 全量入口：从 entries 派生替换判定（热路径请用 buildDraftTurn）。 */
+/** Full draft→Turn entry point derives replacement from entries; hot paths use buildDraftTurn. */
 export function projectDraftToTurn(
   draft: DraftState | null,
   entries: TimelineEntry[],
@@ -610,14 +610,14 @@ export function projectDraftToTurn(
   return buildDraftTurn(draft, isDraftReplaced(draft, collectCommittedMessageIds(entries)));
 }
 
-/** 客户端 draft 镜像：content 以 block_index 为数组下标，toolJson 累积未闭合 JSON。 */
+/** Client draft mirrors: content indexed by block_index, toolJson accumulates incomplete JSON. */
 export interface DraftMirror extends DraftState {
   toolJson: Record<number, string>;
 }
 
 /**
- * 应用一条 delta（纯函数，返回新对象）。调用方须先按 rev 门槛过滤；
- * message_id 变化时另起新 draft（身份切换即上一条已由权威条目收尾）。
+ * Apply deltas purely, returning new objects. Callers first filter by rev thresholds;
+ * changed message_id starts new drafts, as identity changes mean previous drafts have authoritative completion.
  */
 export function applyDraftDelta(
   draft: DraftMirror | null,
@@ -667,7 +667,7 @@ export function applyDraftDelta(
         block.input = parsed as Record<string, unknown>;
       }
     } catch {
-      // 未闭合 JSON：继续累积
+      // Incomplete JSON: keep accumulating.
     }
     base.content[index] = block;
     return base;

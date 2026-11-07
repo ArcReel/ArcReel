@@ -1,4 +1,4 @@
-"""AgentCredentialRepository 单元测试。"""
+"""AgentCredentialRepository unit tests."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ async def test_update_partial(async_session) -> None:
     assert updated is not None
     assert updated.display_name == "A2"
     assert updated.model == "m1"
-    assert updated.api_key == "k"  # 未传不动
+    assert updated.api_key == "k"  # Omitted values remain untouched.
 
 
 @pytest.mark.asyncio

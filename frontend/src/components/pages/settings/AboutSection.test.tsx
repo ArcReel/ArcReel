@@ -29,24 +29,24 @@ describe("AboutSection diagnostics download", () => {
       filename: "arcreel-diagnostics.zip",
     });
 
-    // 先用真实定时器渲染完成，避免 findByRole/waitFor 的内部轮询与 fake timers 相互卡死
+    // Render fully with real timers first, avoiding findByRole/waitFor internal polling deadlocking against fake timers.
     render(<AboutSection />);
-    // 接口被调用时版本信息还在加载，按钮要等加载结束才渲染
+    // API calls happen while version information loads; buttons render after completion.
     const button = await screen.findByRole("button", { name: "下载诊断日志" });
 
-    // 切换到 fake timers 后再点击：click() 是同步调度，异步延续只在微任务
-    // 中运行，可精确区分「微任务已跑完」与「宏任务（setTimeout）已触发」两个时间点
+    // Switch to fake timers before clicks: click() schedules synchronously, asynchronous continuations run only in microtasks,
+    // precisely distinguishing completed microtasks from fired setTimeout macrotasks.
     vi.useFakeTimers();
     try {
       fireEvent.click(button);
-      // 仅推进微任务队列，不推进定时器：让 handleDownloadDiagnostics 的
-      // await 之后的逻辑（createObjectURL / click / setTimeout 调度）跑完
+      // Advance microtasks only, not timers, letting handleDownloadDiagnostics postawait
+      // createObjectURL / click / setTimeout scheduling finish.
       for (let i = 0; i < 5; i++) {
         await Promise.resolve();
       }
 
       expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-      // click() 触发下载后不应同步回收，否则部分浏览器下载会静默失败
+      // Never synchronously revoke after download click(), which silently fails in some browsers.
       expect(URL.revokeObjectURL).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(0);
@@ -76,9 +76,9 @@ describe("AboutSection diagnostics download", () => {
     const button = await screen.findByRole("button", { name: "下载诊断日志" });
     await user.click(button);
 
-    // 遍历全部被创建的 <a> 标签查找下载锚点，不依赖「单一可变引用最后一次写入即为目标」
-    // 的假设——组件恒渲染的 GitHub 署名锚点先于下载锚点创建；用数组可避免未来若有更多
-    // <a> 创建（例如重渲染顺序变化）时单一引用被覆盖导致测试失真。
+    // Search all created <a> elements for download anchors, never assume one mutable reference's last write is the target:
+    // always-rendered GitHub attribution links precede download anchors. Arrays prevent future extra
+    // anchors (for example changed render ordering) overwriting references and distorting tests.
     await waitFor(() => {
       const target = createdAnchors.find((a) => a.download === "custom-diagnostics.zip");
       expect(target).toBeDefined();
@@ -109,7 +109,7 @@ describe("AboutSection release notes", () => {
 
     await user.click(toggle);
 
-    // 正文可能从纯文本替换为 Markdown；同步查询并断言可见，不依赖子组件加载时序。
+    // Bodies may change from plain text to Markdown; query synchronously/assert visibility without child-loading timing dependencies.
     await waitFor(() => expect(screen.getByText(/faster exports/)).toBeVisible());
     expect(await screen.findByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
       "href",

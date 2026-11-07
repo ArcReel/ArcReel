@@ -1,4 +1,4 @@
-"""Alembic 迁移：新建供应商素材关联与对象存储中转副本表，降级时删除。"""
+"""Alembic: create provider material-link/object-storage relay-copy tables and remove on downgrade."""
 
 from __future__ import annotations
 

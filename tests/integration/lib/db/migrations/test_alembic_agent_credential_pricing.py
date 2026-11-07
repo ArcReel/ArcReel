@@ -1,4 +1,4 @@
-"""Alembic 迁移：Agent 凭证新增倍率与档位的条目绑定，存量倍率为 1、绑定为空。"""
+"""Alembic: add Agent credential multipliers and tier-entry bindings; existing multipliers become 1 and bindings remain empty."""
 
 from __future__ import annotations
 

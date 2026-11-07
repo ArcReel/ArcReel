@@ -1,10 +1,9 @@
-"""v5→v6 目录交换的命名约定、中间目录清理与磁盘预检。
+"""v5→v6 swap naming, intermediate-directory cleanup, and disk preflight.
 
-v6 迁移在同父目录 staging 树上改写，全部成功后用两次 ``os.replace`` 把项目目录换成 staging 树：
-先把原目录改名为 rollback 目录，再把 staging 树改名为项目目录。迁移器进程内的 ``finally`` 负责把
-失败的交换改回；两次改名之间进程被强杀属于非常规条件，不做自动恢复（ADR 0022），只保证清理端
-不删项目目录缺失时的 rollback 目录，留给人工改回。
-"""
+v6 transforms sibling staging trees, then swaps via two ``os.replace`` calls: original → rollback,
+staging → project. In-process ``finally`` reverses failed swaps. Force-kill between renames is abnormal,
+without automatic recovery (ADR 0022). Cleanup only guarantees preserving rollback while projects
+are absent, leaving manual restoration possible."""
 
 from __future__ import annotations
 
@@ -18,39 +17,41 @@ logger = logging.getLogger(__name__)
 
 _ROLLBACK_INFIX = ".v6-rollback-"
 _STAGING_INFIX = ".v6-"
-# 两类目录名的后缀都取自 uuid4().hex，反解端据此判定一个隐藏目录是否属于本约定。
+# Both directory suffixes use uuid4().hex, letting parsers identify hidden directories belonging to this convention.
 _SUFFIX_CHARS = "0123456789abcdef"
-_SUFFIX_LENGTH = 32  # uuid4().hex 定长；仅校验字符集会把「恰好以十六进制字符结尾的自定义目录」误判为本约定产物
+_SUFFIX_LENGTH = (
+    32  # uuid4().hex has fixed length; character-set-only checks misidentify arbitrary hex-ending user directories.
+)
 
-# staging 树是原项目目录的整树副本，交换窗口内父目录上同时存在原树与副本。
-# 预留 10% 余量（下限 32 MiB）覆盖 copytree 期间的元数据开销与并发写入。
+# Staging copies whole projects; originals/copies coexist under the parent during swapping.
+# Reserve 10% headroom, minimum 32 MiB, for copytree metadata and concurrent writes.
 _HEADROOM_PERCENT = 10
 _MIN_HEADROOM_BYTES = 32 * 1024 * 1024
 
 
 class MigrationDiskSpaceError(OSError):
-    """迁移前磁盘容量预检不通过。项目目录未被改写。
+    """Premigration disk preflight failed without changing project directories.
 
-    继承 ``OSError`` 与迁移期间真实的 ENOSPC 归为一类，导入路径既有的迁移失败处理无需分叉。"""
+    Inherit ``OSError`` to share actual ENOSPC handling without import-side failure branches."""
 
 
 def new_rollback_dir(project_dir: Path) -> Path:
-    """为一次交换生成唯一的 rollback 目录路径（不创建）。"""
+    """Generate a unique rollback path for one swap without creating it."""
     return project_dir.parent / f".{project_dir.name}{_ROLLBACK_INFIX}{uuid.uuid4().hex}"
 
 
 def new_staging_dir(project_dir: Path) -> Path:
-    """创建并返回本次交换的 staging 目录。
+    """Create/return this swap's staging directory.
 
-    名字与 rollback 目录同构（十六进制后缀），清理端才能按同一条约定反解出项目名。
-    ``mkdir`` 的独占语义顶替 ``tempfile.mkdtemp``：uuid 后缀已保证唯一，重名即异常。"""
+    Names match rollback hexadecimal suffixes for shared project-name parsing. Exclusive ``mkdir``
+    replaces ``tempfile.mkdtemp``: UUIDs already ensure uniqueness; collisions are errors."""
     staging = project_dir.parent / f".{project_dir.name}{_STAGING_INFIX}{uuid.uuid4().hex}"
     staging.mkdir(mode=0o700)
     return staging
 
 
 def _project_name_from_swap_dir(dir_name: str, infix: str) -> str | None:
-    """从交换中间目录名反解项目名；不匹配命名约定或名字不安全时返回 None。"""
+    """Decode project names from swap intermediates; None for mismatched conventions or unsafe names."""
     if not dir_name.startswith("."):
         return None
     head, separator, suffix = dir_name.rpartition(infix)
@@ -63,23 +64,23 @@ def _project_name_from_swap_dir(dir_name: str, infix: str) -> str | None:
 
 
 def rollback_project_name(dir_name: str) -> str | None:
-    """rollback 目录名 → 项目名；非 rollback 目录返回 None。"""
+    """Rollback directory → project name; None for nonrollback paths."""
     return _project_name_from_swap_dir(dir_name, _ROLLBACK_INFIX)
 
 
 def staging_project_name(dir_name: str) -> str | None:
-    """staging 目录名 → 项目名；rollback 目录与非 staging 目录返回 None。"""
+    """Staging directory → project name; None for rollback/nonstaging paths."""
     if rollback_project_name(dir_name) is not None:
         return None
     return _project_name_from_swap_dir(dir_name, _STAGING_INFIX)
 
 
 def _candidate_dirs(projects_dir: Path) -> list[Path]:
-    """projects_dir 下可参与命名反解的子目录：真目录、排除符号链接。
+    """Real, nonsymlink projects_dir children eligible for name decoding.
 
-    合法命名一律以 ``.`` 开头，字符串前缀过滤先行、短路掉非候选项的 ``is_dir``/``is_symlink``
-    系统调用——启动期无条件扫描整个 projects_dir，项目数多或文件系统慢（网络挂载、Docker
-    共享目录）时这两次 stat 调用的量级会被放大。"""
+    Valid names start with ``.``. Prefix-filter first, short-circuiting noncandidate ``is_dir``/``is_symlink``
+    system calls. Startup always scans the entire root, magnifying two stats across many projects or slow
+    filesystems (network mounts, Docker shared folders)."""
     try:
         children = sorted(projects_dir.iterdir())
     except OSError:
@@ -88,11 +89,11 @@ def _candidate_dirs(projects_dir: Path) -> list[Path]:
 
 
 def cleanup_completed_swap_dirs(projects_dir: Path, cutoff: float) -> None:
-    """删除交换已完成、且 mtime 早于 cutoff 的 rollback / staging 遗留目录。
+    """Delete completed-swap rollback/staging remnants with mtime before cutoff.
 
-    项目目录存在即视为交换已完成，此时中间目录只占磁盘；项目目录缺失时 rollback 目录是唯一的
-    项目数据，一律不删。年龄闸口既沿用备份清理
-    策略，也保证正在运行的迁移的 staging 树不会被误删。"""
+    Existing project directories mean completed swaps; intermediates only occupy disk. If projects are
+    absent, rollback is the only project data and must never be deleted. Age gates share backup policy
+    and prevent deleting running migrations' staging trees."""
     if not projects_dir.is_dir():
         return
     for child in _candidate_dirs(projects_dir):
@@ -106,13 +107,15 @@ def cleanup_completed_swap_dirs(projects_dir: Path, cutoff: float) -> None:
                 continue
         except OSError:
             continue
-        shutil.rmtree(child, ignore_errors=True)  # hard-delete: infra -- 迁移完成后的回滚与暂存交换目录
+        shutil.rmtree(
+            child, ignore_errors=True
+        )  # hard-delete: infra -- Rollback/staging directories after completed migrations.
         if child.exists():
             logger.warning("无法删除迁移中间目录：%s", child)
 
 
 def tree_size(root: Path) -> int:
-    """目录树里文件占用的字节数，不跟随符号链接；读不到的条目跳过。"""
+    """File bytes in a tree without following symlinks; skip unreadable entries."""
     total = 0
     stack = [root]
     while stack:
@@ -133,7 +136,7 @@ def tree_size(root: Path) -> int:
 
 
 def ensure_disk_headroom(project_dir: Path) -> None:
-    """迁移前预检：父目录可用空间须容得下整树副本，不足则失败且一个字节都不写。"""
+    """Premigration check: parent free space must fit a complete tree copy; otherwise fail without writing any bytes."""
     try:
         free = shutil.disk_usage(project_dir.parent).free
     except OSError:

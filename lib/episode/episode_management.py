@@ -1,9 +1,9 @@
-"""集管理：新建、调序与删除一集（ADR 0096）。
+"""Episode creation/reordering/deletion (ADR 0096).
 
-- **新建**（:func:`create_episode`）：分配新集 ID，插在指定的一集之后，缺省放在播出顺序末尾。标题留空时界面按播出位置
-  显示「第 N 集」；带原文时是自带原文的集，否则是无原文的集。
-- **调序**（:func:`move_episode`）：自带原文与无原文的集可以放到任意位置，包括两个切出集之间；落进整本源文的切出集
-  之间恒按源文位置排列，违背这一顺序的移动被拒。
+- **Create** (:func:`create_episode`): allocate IDs after specified episodes, defaulting broadcast order last. Empty titles display Episode N
+  by broadcast positions; provided sources make standalone-source episodes, otherwise sourceless.
+- **Reorder** (:func:`move_episode`): standalone/sourceless episodes can move anywhere, including between split episodes;
+  placed split episodes always retain source order, rejecting contrary moves.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class EpisodeManagementError(ValueError):
-    """集管理被拒；``code`` 是稳定的原因码，入口据此映射状态码与文案。账本不被改动。"""
+    """Rejected episode management; stable ``code`` maps entry-point statuses/wording. Ledger unchanged."""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -57,10 +57,10 @@ def create_episode(
     source_text: str | None = None,
     source_kind: SourceKind | None = None,
 ) -> int:
-    """新建一集，返回新集 ID。``after`` 是插在哪一集之后，None 时放在播出顺序末尾。
+    """Create episodes, returning IDs. ``after`` selects preceding episodes, None appending broadcast order.
 
-    ``source_text`` 去掉首尾空白后非空时写成集原文，这一集是自带原文的集，剧情演绎项目记 ``source_kind``
-    （缺省为小说）；否则是无原文的集，没有类型。
+    Nonblank trimmed ``source_text`` writes episode sources, making standalone episodes; drama projects record ``source_kind``
+    default novel. Otherwise sourceless, without kinds.
     """
     text = normalize_source_text(source_text) if source_text is not None else ""
     project_dir = pm.get_project_path(project_name)
@@ -89,13 +89,13 @@ def create_episode(
 
 
 def move_episode(pm: ProjectManager, project_name: str, episode: int, *, after: int | None) -> None:
-    """把这一集移到 ``after`` 之后，``after`` 为 None 时移到最前。落位的切出集之间须保持源文顺序。"""
+    """Move after ``after``; ``after`` = None moves first; placed split episodes must preserve source order."""
     project_dir = pm.get_project_path(project_name)
 
     def _mutate(project: dict[str, Any]) -> None:
         entries = list(_ledger(project))
         if after == episode:
-            # 移到自己之后即原地不动
+            # Moving after oneself is a no-op.
             _index_of(entries, episode)
             return
         moving = entries.pop(_index_of(entries, episode))

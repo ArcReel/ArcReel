@@ -1,4 +1,4 @@
-"""输入数量类能力的生效上限：两侧取较小值，能力覆盖整维替换，路径不通时为不支持。"""
+"""Effective input-count caps use lower channel/entry limits, whole-dimension overrides, and unsupported blocked paths."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def test_seconds_limits_take_the_same_rules():
     [(None, InputLimit.unrecorded()), (0, InputLimit.at_most(0)), (4, InputLimit.at_most(4))],
 )
 def test_from_json_reads_back_the_interface_shape(value: int | None, expected: InputLimit[int]):
-    """存成接口形状的生效值读回后判定不变：不支持与上限为 0 同为 ``0``，都不接受、不裁剪。"""
+    """Persisted API-shaped effective values preserve decisions: unsupported/zero both ``0``, rejecting without cropping."""
     limit = InputLimit.from_json(value)
     assert limit == expected
     assert limit.to_json() == value

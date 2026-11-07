@@ -3,14 +3,14 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore, type RefreshProjectResult } from "@/stores/projects-store";
 
 /**
- * 写入（即时动作与编辑单元的保存）成功后刷新项目数据。
+ * Refresh project data after successful writes, whether immediate actions or editing-unit saves.
  *
- * 写入已提交，刷新是独立的后续步骤：`refreshProject` 以结算值报告失败而不 reject。
- * 不提示的话界面停在旧数据上，看着像这次写入没生效，创作者容易重复操作。
- * `cancelled` 是项目已切走，静默。结算值原样返回，调用方据此决定后续动作是否仍可靠。
+ * The write has committed; refresh is separate, and `refreshProject` reports failure through its settled value rather than rejection.
+ * Without feedback, stale UI looks like an ineffective write and invites repeated actions.
+ * `cancelled` means the project changed; remain silent. Return settlement unchanged so callers judge whether next actions remain reliable.
  *
- * 已有专属提示的写入可以不经本函数，直接消费 `refreshProject` 的结算值并自行提示：
- * 分镜保存（经 `PartialSaveError`），以及时间线的增删分镜、改名、合并、删除。
+ * Writes with dedicated feedback may call `refreshProject` directly and handle settlement themselves:
+ * storyboard saves via `PartialSaveError`, and timeline shot additions/deletions, renames, merges and deletion.
  */
 export async function refreshAfterWrite(
   projectName: string,

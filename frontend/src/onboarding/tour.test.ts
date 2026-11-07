@@ -41,7 +41,7 @@ describe("startTour", () => {
     const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
 
     expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("欢迎");
-    // 页面上没有任何真实元素被高亮 —— driver 顶上的是自己的占位元素，气泡因此居中
+    // No real elements are highlighted; driver uses its placeholders and centers bubbles.
     expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
 
     handle.dispose();
@@ -65,7 +65,7 @@ describe("startTour", () => {
   });
 
   it("drops driver's own transitions when the user asks for reduced motion", () => {
-    // driver 把动画开关写成 body 上的 driver-fade / driver-simple 二选一
+    // driver encodes animation as body driver-fade/driver-simple alternatives.
     const matchMedia = vi.fn((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
     vi.stubGlobal("matchMedia", matchMedia);
 
@@ -104,7 +104,7 @@ describe("startTour", () => {
   });
 
   it("leaves the highlighted element's own ARIA state as it was, during the step and after", async () => {
-    // 高亮到的是带下拉菜单的触发器：driver 会写上 aria-haspopup="dialog" 等，离开时整组删掉
+    // Highlight dropdown triggers; driver adds aria-haspopup="dialog" and related attributes, deleting entire groups on departure.
     const trigger = document.createElement("button");
     trigger.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyCreateProject);
     trigger.setAttribute("aria-haspopup", "menu");
@@ -128,7 +128,7 @@ describe("startTour", () => {
     await vi.waitFor(() => expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("收尾"));
     await vi.waitFor(() => expect(trigger).toHaveAttribute("aria-haspopup", "menu"));
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    // 居中气泡顶着的占位元素是空 div，同样不带这组属性
+    // Centered-bubble placeholders are empty divs, also without these attributes.
     await vi.waitFor(() => expect(document.getElementById("driver-dummy-element")).not.toHaveAttribute("aria-expanded"));
 
     handle.dispose();
@@ -138,20 +138,20 @@ describe("startTour", () => {
   });
 
   it("moves the highlight along when content rendered above pushes the anchor down", async () => {
-    // 回到大厅时问候区晚于「示例项目」区块渲染：锚点被推下去，高亮框要跟过去
+    // Returning lobbies render greetings after Example projects, pushing anchors down; highlights must follow.
     const target = document.createElement("div");
     target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyDemoCard);
     document.body.appendChild(target);
     let top = 100;
     vi.spyOn(target, "getBoundingClientRect").mockImplementation(() => new DOMRect(40, top, 300, 200));
     const stage = () => document.querySelector(".driver-overlay path")?.getAttribute("d") ?? "";
-    // 关掉 driver 的转场，高亮框第一帧就落定；转场中的位移本来就逐帧跟着锚点走
+    // Disable driver transitions so initial highlights settle; transition movement already follows anchors frame by frame.
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
 
     const handle = startTour([{ anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" }], LABELS, {
       onExit: vi.fn(),
     });
-    // 高亮框的上沿 = 锚点上沿 - stagePadding(8)
+    // Highlight top=anchor top-stagePadding(8).
     await vi.waitFor(() => expect(stage()).toContain(",92 h"));
 
     top = 166;
@@ -174,7 +174,7 @@ describe("startTour", () => {
       { onExit: vi.fn() },
     );
     const stage = () => document.querySelector(".driver-overlay path")?.getAttribute("d") ?? "";
-    // 遮罩在第一步挂上，之后的步骤不再插入它
+    // Backdrops mount at first steps without reinsertion afterward.
     await vi.waitFor(() => expect(stage()).not.toBe(""));
     click(".driver-popover-next-btn");
 
@@ -182,7 +182,7 @@ describe("startTour", () => {
     target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyDemoCard);
     let top = 100;
     vi.spyOn(target, "getBoundingClientRect").mockImplementation(() => new DOMRect(40, top, 300, 200));
-    // 锚点挂载后 driver 立即按当时的位置摆好气泡，下一帧才落定高亮框；问候区恰好在这之间渲染
+    // After anchors mount, driver immediately positions bubbles and highlights settle next frame; greetings render between them.
     document.body.appendChild(target);
     await Promise.resolve();
     expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
@@ -190,7 +190,7 @@ describe("startTour", () => {
     document.body.prepend(document.createElement("h1"));
 
     await vi.waitFor(() => expect(stage()).toContain(",158 h"));
-    // 气泡在锚点下方，driver 写的是到视口底边的距离：视口高 -（锚点下沿 + stagePadding 8 + 默认间距 10）
+    // Bubbles sit below anchors; driver writes distances to viewport bottoms: height - (anchor bottom + stagePadding 8 + default gap 10).
     await vi.waitFor(() => expect(popover()).toHaveStyle({ bottom: `${window.innerHeight - (166 + 200 + 18)}px` }));
 
     handle.dispose();
@@ -203,14 +203,14 @@ describe("startTour", () => {
     const handle = startTour(
       [{ anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" }],
       LABELS,
-      // 等待窗口压到最短：真实值给的是跨页导航的余量，这里只想看超时之后的降级
+      // Minimize waiting windows; real values allow cross-page navigation, while this tests post-timeout fallback only.
       { onExit: vi.fn(), anchorWaitMs: 10 },
     );
 
     await vi.waitFor(() => {
       expect(document.querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
     });
-    // 讲解照常进行，丢的只是高亮 —— driver 顶上自己的占位元素，气泡回到屏幕中央
+    // Explanations continue, losing highlights only; driver placeholders return bubbles to centers.
     expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(ONBOARDING_ANCHORS.lobbyDemoCard));
 
@@ -288,13 +288,13 @@ describe("startTour", () => {
   });
 
   it("hands focus back to where it was before the tour once the tour exits", () => {
-    // 引导启动时一个对话框开着、焦点在它的输入框里：退出后焦点回到这里，而不是落到 body
+    // Tours begin with open dialogs/input focus; exiting returns focus there rather than body.
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
 
     startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
-    // 浏览器里 driver 把焦点移进气泡；jsdom 没有布局，driver 判定按钮不可见而不移，这里代它移
+    // Browsers let driver focus bubbles; layoutless jsdom considers buttons invisible, so move focus for it here.
     popover().querySelector<HTMLElement>(".driver-popover-next-btn")?.focus();
     click(".driver-popover-next-btn");
     click(".driver-popover-close-btn");
@@ -314,9 +314,9 @@ describe("startTour", () => {
   });
 
   describe("keyboard navigation", () => {
-    // driver 自带的方向键处理绕过 onNextClick/onPrevClick、不会触发 onStepChange 上报
-    // （跨页导航因此失效）——startTour 关闭了它，自己接管 Esc/方向键，这里断言键盘路径
-    // 与按钮点击走的是同一条上报逻辑。
+    // Built-in driver arrows bypass onNextClick/onPrevClick and onStepChange reporting
+    // (breaking cross-page navigation); startTour disables them and handles Esc/arrows itself. Assert keyboard paths
+    // share button-click reporting logic.
     it("advances and reports onStepChange on ArrowRight, same as clicking next", () => {
       const onStepChange = vi.fn();
       const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), onStepChange });
@@ -354,9 +354,9 @@ describe("startTour", () => {
     });
 
     it("ignores ArrowLeft on the first step instead of exiting the tour", () => {
-      // driver 的「上一步」按钮在首步会被禁用，click() 不会触发；但键盘路径没有这层禁用
-      // 态——不挡住的话 movePrevious() 在 driver.js 内部找不到上一步会直接把引导销毁掉，
-      // 表现为用户什么都没做（没跳过/没关闭/没走完）却提前退出了引导。
+      // First-step Previous buttons disable click(), but keyboard paths lack this disabled
+      // state; without interception, driver.js movePrevious() finds no prior steps and destroys tours,
+      // prematurely exiting without Skip/Close/Finish actions.
       const onExit = vi.fn();
       const onStepChange = vi.fn();
       const handle = startTour(TWO_STEPS, LABELS, { onExit, onStepChange });
@@ -393,10 +393,10 @@ describe("startTour", () => {
   });
 
   describe("peripheral isolation", () => {
-    // driver.js 只挡 pointer-events + Tab 键，屏幕阅读器的虚拟光标仍能读到底层界面；
-    // body 的既有子节点（#app-root，以及 Dialog、Sheet 这类经 Portal 挂到 body、
-    // 与 #app-root 是兄弟关系的弹层）打 inert 摘出无障碍树，
-    // 才是真正的「全程只读」。
+    // driver.js blocks pointer-events/Tab only; virtual screen-reader cursors can still read underlying UIs.
+    // Mark existing body children (#app-root plus Dialog/Sheet Portals mounted under body,
+    // siblings of #app-root) inert to remove them from accessibility trees,
+    // making entire tours truly read-only.
     function withAppRoot(): HTMLElement {
       const appRoot = document.createElement("div");
       appRoot.id = "app-root";
@@ -447,8 +447,8 @@ describe("startTour", () => {
 
     it("also inerts a dialog already portaled to body when the tour starts, and clears it on dispose", () => {
       const appRoot = withAppRoot();
-      // 模拟经 Portal 挂到 body 的对话框——
-      // 是 #app-root 的兄弟节点，不在其子树内。
+      // Simulate body-mounted Portal dialogs,
+      // siblings of #app-root rather than descendants.
       const modal = document.createElement("div");
       document.body.appendChild(modal);
 
@@ -494,13 +494,13 @@ describe("startTour", () => {
       ];
       const handle = startTour(steps, LABELS, { onExit: vi.fn() });
 
-      // interactive 步：目标元素的祖先链（含 #app-root 本身）解除 inert，才够得到目标
+      // interactive steps remove inert throughout target ancestor chains, including #app-root, to enable access.
       expect(appRoot.inert).toBe(false);
 
       click(".driver-popover-next-btn");
 
-      // 离开该步后链路应重新锁上——只复原孔的兄弟节点不够，链路节点自身也要复原，
-      // 否则 #app-root 会在后续所有步骤里持续保持可达
+      // Leaving must relock chains; restoring only hole siblings is insufficient, also restore chain nodes themselves
+      // or #app-root remains accessible throughout subsequent steps.
       expect(appRoot.inert).toBe(true);
 
       handle.dispose();

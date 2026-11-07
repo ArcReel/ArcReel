@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import { DurationParseError, parseDurationInput, type DurationParseErrorCode } from "@/utils/duration_format";
 
-/** 支持秒数解析错误码对应的提示文案。 */
+/** Hint text for supported-duration parsing error codes. */
 export const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
   empty_after_split: "supported_durations_err_empty_after_split",
   non_positive: "supported_durations_err_non_positive",
@@ -11,7 +11,7 @@ export const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
   unparseable: "supported_durations_err_unparseable",
 };
 
-/** 支持秒数的格式错误；空值或格式正确时为 null。 */
+/** Supported-duration format error; null for empty or correctly formatted input. */
 export function durationsError(t: TFunction, text: string): string | null {
   if (!text.trim()) return null;
   try {

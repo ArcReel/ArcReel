@@ -22,8 +22,8 @@ interface ProviderModelSelectProps {
   options: string[]; // ["gemini-aistudio/veo-3.1-generate-001", ...]
   providerNames: Record<string, string>; // {"gemini-aistudio": "AI Studio", ...}
   /**
-   * "provider/model" → 按当前语言成文的模型名，与 `providerNames` 同一次目录拉取。缺键的
-   * 条目（自定义供应商、后端未覆盖的组合）退回 model id，故本项可省略。
+   * "provider/model" → model names in current UI languages, fetched with `providerNames`. Missing entries
+   * (custom providers/backend-uncovered combinations) fall back to model IDs, making this optional.
    */
   modelNames?: Record<string, string>; // {"gemini-aistudio/veo-3.1-generate-001": "Veo 3.1", ...}
   onChange: (value: string) => void;
@@ -33,17 +33,17 @@ interface ProviderModelSelectProps {
   allowDefault?: boolean;
   /** Label for the default option */
   defaultLabel?: string;
-  defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
+  defaultHint?: string; // "Current: gemini-aistudio/veo-3.1-generate-001"
   /** When value is empty, show this "provider/model" as the effective fallback in the trigger */
   fallbackValue?: string;
   /**
-   * 触发按钮上生效值的前缀措辞（已 t()）。默认「跟随全局默认」；任务类型桶细分项回退的是同层
-   * 默认模型而非全局层，由调用方改写为「跟随默认」。
+   * Translated t() prefix wording for effective trigger values. Defaults to Follow global default; task-type bucket subdivisions fall back to same-layer
+   * default models rather than global layers, so callers change this to Follow default.
    */
   fallbackLabel?: string;
   /**
-   * 值与 `fallbackValue` 都为空（各层全空）时后端自动选中的 "provider/model"，触发按钮显示
-   * 「自动选择（当前：…）」；null 表示没有可用供应商、自动选择会失败。省略即显示 placeholder。
+   * Backend-auto-selected "provider/model" when both values and `fallbackValue` are empty across all layers; triggers show
+   * Automatic (current:…). Null means no usable providers and automatic selection fails. Omission shows placeholders.
    */
   autoValue?: string | null;
   /** Accessible label for the trigger button */
@@ -53,17 +53,17 @@ interface ProviderModelSelectProps {
   /** Minimum option count to actually render the search input. Defaults to 6. */
   searchThreshold?: number;
   /**
-   * 每个选项行下方的补充信息（如视频模型的能力线：时长/分辨率/音轨）。
-   * 传入 `fullValue`（"provider/model"），返回值为 null 时不渲染该行——组件本身对内容
-   * 不作视频/图像/文本假设，具体展示逻辑由调用方决定。
+   * Supplementary information below option rows (e.g. video duration/resolution/audio capabilities).
+   * Receives `fullValue` ("provider/model"); null omits rows. Components assume no video/image/text
+   * semantics; callers determine actual displays.
    */
   renderOptionMeta?: (fullValue: string) => React.ReactNode;
   /**
-   * 不在 `options` 里、但用户可能来这里找的模型，连同不能选的原因（已 t()）。列在下拉末尾的一组，
-   * 不能选中，原因写在选项行下方；搜索同样作用于它们。为空或省略即不渲染这一组。
+   * Models absent from `options` that users might seek here, with translated t() unavailability reasons. Listed last as a group,
+   * unselectable, with reasons beneath rows and searches applying equally. Empty/omitted values hide groups.
    */
   unavailable?: UnavailableOption[];
-  /** `unavailable` 那一组的组标题（已 t()）。 */
+  /** Translated t() group headings for `unavailable`. */
   unavailableLabel?: string;
 }
 
@@ -72,13 +72,13 @@ export interface UnavailableOption {
   reason: string;
 }
 
-/** 下拉里的一组：默认项单独成组（没有组标题），其余按供应商分组。 */
-// 用 type 而非 interface：Combobox 的分组类型带索引签名，interface 不能赋给它。
+/** Dropdown groups: defaults alone without headings, others grouped by provider. */
+// Use type rather than interface: Combobox grouped types have index signatures, preventing interface assignment.
 type OptionGroup = {
-  /** 供应商 id；默认项组与不能选的那一组为 null。 */
+  /** Provider IDs; null for default-option/unavailable groups. */
   provider: string | null;
   items: string[];
-  /** 不能选的那一组（`unavailable`）。 */
+  /** Unavailable groups (`unavailable`). */
   unavailable?: boolean;
 };
 
@@ -127,7 +127,7 @@ export function ProviderModelSelect({
   const [query, setQuery] = useState("");
 
   const showSearch = searchable && options.length + (unavailable?.length ?? 0) >= searchThreshold;
-  // 搜索框隐藏时不让残留的查询继续过滤，否则用户会看到一个被「隐形」过滤的列表。
+  // Hidden search inputs must not retain filtering queries, otherwise users see invisibly filtered lists.
   const activeQuery = showSearch ? query.trim().toLowerCase() : "";
 
   const groups = useMemo(() => groupByProvider(options), [options]);
@@ -140,10 +140,10 @@ export function ProviderModelSelect({
     [unavailableReasons],
   );
 
-  // 供应商名命中时保留该供应商的全部模型；否则按 model id 与译名逐项匹配——译名生效后按 id
-  // 搜索仍要命中（id 是用户在文档 / 供应商控制台里见到的那一串），反之按中文名搜也要能找到。
-  // 有查询时不显示默认项：它不是一个模型，混在结果里会被误当成匹配项。
-  // 不能选的那一组没有统一的供应商，逐项按供应商名、model id 与译名匹配。
+  // Provider-name matches preserve all provider models; otherwise match model IDs/translated names individually. Translated names must still permit ID
+  // searches (IDs appear in user documentation/provider consoles), and Chinese-name searches must also find models.
+  // Hide defaults during queries: they are not models and could be mistaken for matches.
+  // Unavailable groups lack common providers; match provider names/model IDs/translated names individually.
   const filteredGroups = useMemo(() => {
     const defaultGroup: OptionGroup[] = allowDefault && !activeQuery ? [{ provider: null, items: [""] }] : [];
     if (!activeQuery) return [...defaultGroup, ...groups, ...unavailableGroup];
@@ -174,8 +174,8 @@ export function ProviderModelSelect({
     [allowDefault, groups, unavailableGroup],
   );
 
-  // 配置值也可以是不带 model 的裸 provider id（下游按该供应商默认模型执行）。按 "provider/model"
-  // 硬拆会让它显示成空的「 · 」，故拆不出 model 时整串当作 provider 名呈现。
+  // Configurations may contain bare provider IDs without models (downstream uses provider default models). Hard-splitting "provider/model"
+  // would display empty " · ", so show entire strings as provider names when models cannot be split out.
   const describe = (fullValue: string) => {
     const idx = fullValue.indexOf("/");
     if (idx === -1) return providerNames[fullValue] || fullValue;
@@ -200,7 +200,7 @@ export function ProviderModelSelect({
     <Combobox<string>
       items={allGroups}
       filteredItems={filteredGroups}
-      // 默认项的值是空串；没有默认项时空串表示「未选择」，交给 null 显示占位文案。
+      // Default-option values are empty strings; without defaults, empty strings mean Unselected, rendered through null placeholders.
       value={value || allowDefault ? value : null}
       onValueChange={(next) => {
         if (next !== null) onChange(next);
@@ -289,7 +289,7 @@ function ModelOption({
     <ComboboxItem value={value} disabled={disabled} className="items-start">
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate">{label}</span>
-        {/* 译名与 id 不同才补 id 行：品牌名类模型（译名 = id）补一行等于重复。 */}
+        {/* Add ID rows only when translated names differ; brand-name models (translated name = ID) would otherwise repeat. */}
         {label !== modelId && <span className="truncate font-mono text-xs text-muted-foreground">{modelId}</span>}
         {meta && <span className="truncate text-xs text-muted-foreground tabular-nums">{meta}</span>}
       </span>

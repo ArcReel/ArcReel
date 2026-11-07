@@ -1,13 +1,13 @@
-"""分集账本：episodes[] 账本字段的数据模型与账本读取工具。
+"""Episode ledgers: data models and reading helpers for episodes[] ledger fields.
 
-project.json 的 episodes 列表是分集单一真相源，条目在 episode/title/script_file 之外扩展账本字段
-（source_range / hook / outline / ledger_status），并记录集原文的来源（见
-``lib.episode.episode_sources``）。切自整本源文的集的物理 ``source/episode_N.txt`` 是派生物；自带原文
-的集文件就是该集的源文。
+The project.json episodes list is the single source of truth for episodes. Entries extend episode/title/script_file with ledger fields
+(source_range / hook / outline / ledger_status) and record episode source origins (see
+``lib.episode.episode_sources``). Physical ``source/episode_N.txt`` files for episodes cut from whole sources are derived; standalone
+source episode files are their own sources.
 
-``source_range`` 是切出集唯一的位置真相：有它才能从源文重造派生文件、才能续接规划。旧拆分流程切出的
-集没有它，照常消费，但规划入口会拒绝执行并指引全量重置（见 ``lib.episode.episode_planner`` 与
-``lib.episode.episode_reset``）。
+``source_range`` is the sole positional truth for cut episodes: required to reconstruct derived files from sources or continue planning. Legacy split-flow
+episodes lack it and remain consumable, but planning refuses them and directs callers to full reset (see ``lib.episode.episode_planner`` and
+``lib.episode.episode_reset``).
 """
 
 from __future__ import annotations
@@ -31,24 +31,24 @@ _STRICT_CONFIG = ConfigDict(extra="forbid")
 
 LedgerStatus = Literal["planned", "consumed", "stale"]
 
-#: 当前状态集，供校验层识别「不在当前状态集内」的取值（容忍放行，仅记诊断日志）
+#: Current states for validation to identify out-of-set values (tolerate them, recording diagnostic logs only).
 LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
-# 仅 ASCII 数字：\d 会放行全角等 Unicode 数字，把非流水线产物误判为派生集文件
+# ASCII digits only: \d permits fullwidth/other Unicode digits, misclassifying nonpipeline files as derived episodes.
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
 _SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
 _DRAFT_DIR_RE = re.compile(r"episode_([0-9]+)")
 
-# 「什么后缀算源文本文件」的唯一定义，整本源文清单与其他源文读取方共用
+# Sole definition of source-text extensions, shared by whole-source manifests and other source readers.
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 
-# project.json 顶层源文指纹字段（源文相对路径 → 归一化文本 sha256）。账本坐标绑定
-# 具体源文内容，指纹是「原文未变」的证据；全量重置把账本清空，指纹随之失效清除。
+# Top-level project.json source fingerprints (relative source path → normalized-text sha256). Ledger coordinates bind
+# specific source content; fingerprints prove unchanged originals. Full resets clear ledgers, invalidating/clearing fingerprints too.
 SOURCE_FINGERPRINTS_KEY = "source_fingerprints"
 
 
-# 字段校验失败的原因以翻译键携带：Pydantic 只能把原因传成字符串，DataValidator 在
-# 汇总报错时据此还原为可翻译片段，用户按请求语言看到失败原因（见
+# Field-validation failures carry translation keys: Pydantic only transports reasons as strings; DataValidator
+# reconstructs translatable fragments when aggregating errors so users see reasons in requested languages (see
 # ``lib.project.data_validator._pydantic_error_summary``）。
 LEDGER_SOURCE_FILE_NOT_RELATIVE_KEY = "val_ledger_source_file_not_relative"
 LEDGER_SOURCE_FILE_ESCAPES_KEY = "val_ledger_source_file_escapes"
@@ -56,9 +56,9 @@ LEDGER_START_AFTER_END_KEY = "val_ledger_start_after_end"
 
 
 def _validate_rel_posix_path(value: str) -> str:
-    """``source_file`` 的路径语义：项目根相对 POSIX 路径，拒绝绝对路径 / ``..`` / 反斜杠。
+    """``source_file`` path semantics: project-relative POSIX paths; reject absolute paths / ``..`` / backslashes.
 
-    形状校验放行这些值会让按路径读源文的消费方越出项目目录。
+    Permitting these shapes lets path-based source readers escape project directories.
     """
     if not value or "\\" in value:
         raise ValueError(LEDGER_SOURCE_FILE_NOT_RELATIVE_KEY)
@@ -69,12 +69,12 @@ def _validate_rel_posix_path(value: str) -> str:
 
 
 class SourceRange(BaseModel):
-    """集对应的原文素材范围，可以沿整本源文的文件顺序跨文件（ADR 0097）。
+    """Episode source-material ranges spanning files in whole-source order (ADR 0097).
 
-    起点是 ``source_file`` 里的 ``start``，终点是 ``end_file`` 里的 ``end``（不含）；``end_file`` 缺省时与
-    ``source_file`` 相同。偏移量落在 ``normalize_source_text`` 的归一化坐标系内（narration 为精确切分点，
-    drama 为软素材范围），是各自文件内的下标。路径是项目根相对 POSIX 路径（如 ``source/novel.txt``）。
-    两个文件之间的先后由整本源文清单决定，这里不校验。
+    Start at ``start`` in ``source_file``, ending exclusively at ``end`` in ``end_file``; ``end_file`` defaults to
+    ``source_file``. Offsets are per-file indices in ``normalize_source_text`` coordinates, exact narration splits
+    or soft drama material ranges. Paths are project-relative POSIX, such as ``source/novel.txt``.
+    Whole-source manifests determine file order, not validated here.
     """
 
     model_config = _STRICT_CONFIG
@@ -97,7 +97,7 @@ class SourceRange(BaseModel):
 
 
 class EpisodeOutline(BaseModel):
-    """drama 分集大纲：故事节点 + 下集预告语（由规划工具产出）。"""
+    """Drama episode outlines: story beats + next-episode teasers, produced by planning tools."""
 
     model_config = _STRICT_CONFIG
 
@@ -105,22 +105,22 @@ class EpisodeOutline(BaseModel):
     next_episode_teaser: str | None = None
 
 
-#: 从这一 schema 起，下集大纲取播出顺序中紧接的那一集，且没有规划数据时退为只给标题。
-#: 更早的项目只在迁移链中出现：v15→v16 之前的激活沿用「集号 + 1、没有规划数据就不给」的
-#: 口径，由 v15→v16 按新旧口径各规划一次，改写只因下集大纲变了的脚本规划登记。
+#: From this schema onward, next outlines use immediately following broadcast-order episodes, falling back to titles without planning data.
+#: Earlier projects appear only in migration chains: activation before v15→v16 uses episode number + 1, omitting unplanned outlines;
+#: v15→v16 plans once with each rule, rewriting script-plan registrations changed solely by next-episode outlines.
 NEXT_EPISODE_OUTLINE_BY_ORDER_SCHEMA_VERSION = 16
 
 
 def episode_outline_context(
     project: Mapping[str, Any], episode: int
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """从分集账本提取 ``(本集大纲, 下集大纲)`` 作为剧本内容生成（script_plan）的规划输入。
+    """Extract ``(本集大纲, 下集大纲)`` from episode ledgers as script content-generation (script_plan) planning inputs.
 
-    大纲 dict 含 ``title`` / ``hook`` / ``story_beats`` / ``next_episode_teaser``。本集条目无任何
-    规划数据（旧式条目，规划工具尚未写入）时第一项为 None。下集取播出顺序中紧接的那一集：
-    有规划数据给大纲，没有给标题，都没有、或本集是末集时第二项为 None。
-    内容抽取前移后由 script_plan（normalize）消费——剧本内容（分镜边界 / 口播）须覆盖故事节点、
-    末场落地集尾钩子；prompt_authoring 仅出视觉、不再需要大纲。
+    Outline dicts contain ``title`` / ``hook`` / ``story_beats`` / ``next_episode_teaser``. Without any current-entry
+    planning data (legacy entries, planning tools have not written), first item is None. Next means the immediately following broadcast-order episode:
+    provide its outline if planned, otherwise title; neither present or current episode last means second item None.
+    After content extraction moved earlier, script_plan (normalize) consumes outlines: script content (storyboard boundaries / narration) must cover story beats
+    and land the ending hook in the final scene; prompt_authoring is visual-only and no longer needs outlines.
     """
 
     def _entry(ep_num: int) -> Mapping[str, Any]:
@@ -133,8 +133,8 @@ def episode_outline_context(
         raw_outline = entry.get("outline")
         outline = raw_outline if isinstance(raw_outline, Mapping) else {}
         raw_beats = outline.get("story_beats")
-        # 非 list 形状（手编损坏）按缺失处理；list 内非字符串项一并过滤——避免字符串被逐字符渲染、
-        # 或数字 / None 等脏数据原样进 script_plan prompt（与 helper 的 fail-soft 同口径）。
+        # Treat nonlist shapes (manual corruption) as missing; filter nonstring list members too, preventing characterwise string rendering
+        # or raw numbers / None reaching script_plan prompts (matching the helper's fail-soft rules).
         story_beats = [beat for beat in raw_beats if isinstance(beat, str)] if isinstance(raw_beats, list) else []
         ctx: dict[str, Any] = {
             "title": entry.get("title"),
@@ -163,30 +163,30 @@ def episode_outline_context(
 
 
 def normalize_source_text(text: str) -> str:
-    """账本坐标系的唯一归一化函数：Unicode NFC + 换行统一为 ``\\n``。
+    """Sole normalization for ledger coordinates: Unicode NFC + newlines unified to ``\\n``.
 
-    source_range 的偏移量全部落在本函数输出的坐标系内，
-    任何按偏移切片源文的消费方必须先对源文执行本函数。
+    All source_range offsets address this function's output coordinates;
+    every consumer slicing sources by offset must first apply this function.
     """
     return unicodedata.normalize("NFC", normalize_newlines(text))
 
 
 @dataclass
 class SourceDoc:
-    """整本源文的一个文件：项目根相对 POSIX 路径 + 归一化全文。"""
+    """One whole-source file: project-relative POSIX path + normalized full text."""
 
     rel_path: str
     text: str
 
 
 def parse_episode_num(value: Any) -> int | None:
-    """宽松解析条目集号：int（排除 bool——True 会与第 1 集同键碰撞）或纯数字
-    字符串（历史手编数据），其余返回 None（条目原样保留，不参与按集号的处置）。
+    """Permissively parse entry episode numbers: int (excluding bool, since True collides with episode 1 keys) or digit-only
+    strings (historical manual data); otherwise None (preserve entries unchanged, excluding number-based disposition).
 
-    ``str.isdigit()`` 认可的字符集比 ``int()`` 能转换的更宽（如上标 ``²``、
-    带圈数字 ``①``），损坏账本写入这类字符会让 ``isdigit()`` 放行但 ``int()`` 抛
-    ``ValueError``；两者不一致时同样返回 None，不能让调用方（含零前置校验的重置
-    逃生口）因此崩溃。
+    ``str.isdigit()`` recognizes more characters than ``int()`` converts (for example superscript ``²`` and
+    circled ``①``). Corrupt ledgers containing these pass ``isdigit()`` but ``int()`` raises
+    ``ValueError``. Return None for this mismatch too, preventing caller crashes (including the zero-prevalidation reset
+    escape hatch).
     """
     if isinstance(value, int) and not isinstance(value, bool):
         return value
@@ -199,21 +199,21 @@ def parse_episode_num(value: Any) -> int | None:
 
 
 def parse_positive_episode_num(value: Any) -> int | None:
-    """在 :func:`parse_episode_num` 基础上再要求正整数。
+    """Require positive integers in addition to :func:`parse_episode_num`.
 
-    0 与负数虽能被 ``parse_episode_num`` 解析，但账本消费方（如
-    ``lib.episode.episode_reset`` 的零前置校验）一律视非正集号为损坏账本，不参与正常
-    处置；判定「这是不是一条形状合法的账本条目」时须与该口径一致，否则 0/
-    负数集号的畸形条目会被误当合法条目放行。
+    Although ``parse_episode_num`` parses 0 and negatives, ledger consumers (for example zero-prevalidation
+    ``lib.episode.episode_reset``) uniformly regard nonpositive numbers as corrupt ledger data, excluding normal
+    disposition. Shape-valid ledger-entry classification must agree, or malformed entries with 0 /
+    negative numbers would incorrectly pass as valid.
     """
     num = parse_episode_num(value)
     return num if num is not None and num > 0 else None
 
 
 def well_formed_ledger_entries(project: Mapping[str, Any]) -> list[dict[str, Any]] | None:
-    """按播出顺序改写整份账本前取条目：``episodes`` 是对象列表、集 ID 都是不重复的正整数时返回其副本，否则为 None。
+    """Read entries before whole-ledger broadcast-order rewrites: return a copy if ``episodes`` is an object list with unique positive integer IDs, otherwise None.
 
-    改写方按集 ID 索引条目再按新顺序重排，集 ID 解析不了或重复的条目会在重排中丢失或重复出现。
+    Writers index entries by IDs then reorder; unparseable or duplicate IDs cause entries to disappear or repeat during reordering.
     """
     raw = project.get("episodes")
     if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
@@ -225,27 +225,27 @@ def well_formed_ledger_entries(project: Mapping[str, Any]) -> list[dict[str, Any
 
 
 def is_derived_episode_name(name: str) -> bool:
-    """文件名是否为派生集文件名 ``episode_N.txt``（仅 ASCII 数字）。"""
+    """Whether filenames are derived episode files ``episode_N.txt`` (ASCII digits only)."""
     return _EPISODE_FILE_RE.fullmatch(name) is not None
 
 
 def compute_source_fingerprints(sources: list[SourceDoc]) -> dict[str, str]:
-    """按源文件记录归一化文本的 sha256 指纹（源文相对路径 → hexdigest）。
+    """Record sha256 fingerprints of normalized texts per source file (relative source path → hexdigest).
 
-    ``sources`` 取自 ``lib.episode.episode_sources.discover_sources``，其 ``text`` 已是 ``normalize_source_text`` 输出，
-    故换行风格（CRLF/LF）差异不会体现在指纹上。
+    ``sources`` comes from ``lib.episode.episode_sources.discover_sources``; its ``text`` already passes ``normalize_source_text``,
+    so newline-style differences (CRLF/LF) do not affect fingerprints.
     """
     return {doc.rel_path: hashlib.sha256(doc.text.encode("utf-8")).hexdigest() for doc in sources}
 
 
 def mismatched_source_fingerprints(recorded: Any, sources: list[SourceDoc]) -> list[str]:
-    """比对记录指纹与当前源文，返回不一致的源文相对路径（按路径排序）。
+    """Compare recorded fingerprints with current sources; return differing relative source paths, sorted by path.
 
-    只比对「已记录」的文件：``recorded`` 非 ``Mapping`` 或某文件不在其中，视为存量项目 /
-    新源文件尚未补记指纹，不参与比对（不阻塞首次规划）。已记录文件若当前指纹不同、或该
-    文件已从整本源文中消失（被删除/移出清单），均判为不一致——账本坐标绑定的原文内容已不
-    可信，唯一出路是全量重置。记录值形状损坏（非 str）按未记录处理，不让脏数据本身崩溃
-    比对逻辑。
+    Compare recorded files only: non-``Mapping`` ``recorded`` or absent file entries mean legacy projects /
+    new source files without fingerprints, excluded from comparison (never block initial planning). Recorded files with different current fingerprints or
+    missing from whole sources (deleted/removed from manifests) mismatch: original text underlying ledger coordinates is no longer
+    trustworthy, and full reset is the only escape. Malformed recorded values (nonstr) count as unrecorded; dirty data must not crash
+    comparison logic.
     """
     if not isinstance(recorded, Mapping):
         return []
@@ -259,17 +259,17 @@ def mismatched_source_fingerprints(recorded: Any, sources: list[SourceDoc]) -> l
 
 
 def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
-    """枚举派生集文件的全部别名 source/episode_N.txt → {集号: [路径, ...]}（按文件名排序）。
+    """Enumerate all derived episode-file aliases source/episode_N.txt → {episode number: [paths, ...]} (filename-sorted).
 
-    同一集号可能因命名 padding 不同（``episode_1.txt`` / ``episode_01.txt``）产生多个
-    别名文件。大多数调用方只需其中一个代表路径（见 ``discover_episode_files``）；需要
-    完整处置某集号全部派生文件的场景（如重置清理）用本函数取全部。
+    One episode number can have multiple padded filename aliases (``episode_1.txt`` / ``episode_01.txt``).
+    Most callers need one representative path (see ``discover_episode_files``); callers disposing of every derived
+    file for a number (for example reset cleanup) use this function for all aliases.
 
-    悬空符号链接（目标不存在）同样纳入：``Path.is_file()`` 会因链接目标缺失而返回
-    False，导致这类文件对发现逻辑完全不可见——处置类调用方（如重置）因此漏清它，
-    残留的悬空链接会在下一次派生文件写入时被 ``EpisodePlanner`` 的符号链接校验硬
-    拦截。``unlink()``/``rename()`` 只作用于链接条目本身、不跟随最终一段的链接目标，
-    纳入悬空链接不会引入跟随写入的风险。
+    Include dangling symlinks too: ``Path.is_file()`` returns False when targets are missing,
+    otherwise making them invisible to discovery. Disposition callers (for example reset) then miss cleanup,
+    and residual dangling links cause ``EpisodePlanner`` symlink validation to block subsequent derived-file
+    writes. ``unlink()``/``rename()`` act only on link entries without following final-component targets;
+    including dangling links introduces no write-through risk.
     """
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
@@ -283,14 +283,14 @@ def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
 
 
 def discover_episode_files(project_dir: Path) -> dict[int, Path]:
-    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个可读的代表路径）。
+    """Enumerate derived episode files source/episode_N.txt → {episode number: path} (one readable representative per number).
 
-    代表路径只从该集号别名中选可读的普通文件；全部别名都是悬空符号链接（无真实
-    内容）时该集号整体不出现在结果里，而不是退而返回一个读不到内容的路径——
-    ``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若悬空别名
-    （如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，直接取
-    排序首个会让按内容读派生文件的调用方读到空内容，也会给纯悬空、毫无真实内容
-    的集号凭空补建一个幽灵条目。
+    Representatives come only from readable regular-file aliases. If every alias is a dangling symlink without real
+    contents, omit that episode entirely rather than returning unreadable paths.
+    ``discover_episode_file_aliases`` sorts filenames without distinguishing dangling links: if a dangling alias
+    (for example ``episode_01.txt``) sorts before a valid file (``episode_1.txt``), simply choosing the first
+    makes content-based readers see empty content and creates ghost entries for entirely dangling episode numbers
+    without any real contents.
     """
     result: dict[int, Path] = {}
     for num, paths in discover_episode_file_aliases(project_dir).items():
@@ -301,11 +301,11 @@ def discover_episode_files(project_dir: Path) -> dict[int, Path]:
 
 
 def discover_product_episode_nums(project_dir: Path) -> set[int]:
-    """枚举磁盘上有下游产物（剧本 JSON / script_plan 草稿目录）的集号，不依赖账本条目。
+    """Enumerate episode numbers with downstream artifacts on disk (script JSON / script_plan draft directories), independent of ledger entries.
 
-    账本丢失条目（写坏/手工误删）但 ``scripts/episode_N.json`` 或
-    ``drafts/episode_N/`` 仍在磁盘时，仅从账本条目与 ``source/episode_N.txt`` 取候选
-    集号会漏掉这类孤儿产物，使其消费状态判定被跳过。
+    If entries disappear (corruption/manual deletion) but ``scripts/episode_N.json`` or
+    ``drafts/episode_N/`` remain, deriving candidate numbers solely from ledger entries and ``source/episode_N.txt``
+    misses orphan artifacts and skips consumption classification.
     """
     nums: set[int] = set()
     scripts_dir = project_dir / "scripts"
@@ -318,18 +318,18 @@ def discover_product_episode_nums(project_dir: Path) -> set[int]:
     if drafts_dir.is_dir():
         for path in drafts_dir.iterdir():
             match = _DRAFT_DIR_RE.fullmatch(path.name)
-            # 目录存在不等于有产物：files.py::update_draft_content 会在校验草稿内容前
-            # 先建目录，一次被拒绝的无效保存就会留下空目录；只有真正落了 script_plan_* 才算
-            # 下游产物，与 has_downstream_products() 的口径保持一致
+            # Directory presence does not prove artifacts: files.py::update_draft_content creates directories before
+            # draft-content validation, so rejected invalid saves leave empty directories. Only persisted script_plan_* counts as
+            # downstream artifacts, matching has_downstream_products().
             if match and path.is_dir() and any(path.glob("script_plan_*")):
                 nums.add(int(match.group(1)))
     return nums
 
 
 def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
-    """该集是否已有下游产物（剧本 JSON / script_plan 中间文件；媒体必经剧本，剧本存在即覆盖）。
+    """Whether episodes have downstream artifacts (script JSON / script_plan intermediates; media requires scripts, so script presence covers it).
 
-    磁盘证据优先于账本状态：账本损坏（状态缺失/错乱）时仍能判定该集是否已被消费。
+    Disk evidence takes precedence over ledger state: consumption remains detectable despite corrupted/missing statuses.
     """
     script_file = entry.get("script_file")
     if isinstance(script_file, str) and safe_exists(project_dir, script_file):
@@ -337,18 +337,18 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     if (project_dir / episode_script_relpath(episode_num)).is_file():
         return True
     drafts_dir = episode_drafts_dir(project_dir, episode_num)
-    # script_plan_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
-    # 覆盖所有 content_mode 的 script_plan 产物：只要拆过段就算已有下游，避免被重规划覆盖。
+    # script_plan_* matches every format (structured .json / legacy .md / reference_units.md), covering script_plan artifacts
+    # across all content_mode values: any segmentation means downstream artifacts exist, preventing replanning overwrite.
     return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
 
 
 def episode_has_products(
     project_dir: Path, episode_num: int, entry: Mapping[str, Any], *, product_nums: Collection[int]
 ) -> bool:
-    """一集有产物：账本标 consumed，或磁盘上已有剧本 / script_plan（含补零的剧本文件名）。
+    """Episodes have artifacts if ledger consumed or script / script_plan exists on disk (including zero-padded script filenames).
 
-    ``product_nums`` 取自 :func:`discover_product_episode_nums`，由调用方一次算好。手工切分、重新规划与重置按同一口径
-    判定被替换的旧切出集是转为无原文的集还是直接移除。
+    ``product_nums`` comes from :func:`discover_product_episode_nums`, computed once by callers. Manual splitting, replanning and reset share this rule
+    to decide whether replaced old cut episodes become sourceless or are removed directly.
     """
     return (
         entry.get("ledger_status") == "consumed"
@@ -358,7 +358,7 @@ def episode_has_products(
 
 
 def episodes_with_products(project_dir: Path, entries: Iterable[Mapping[str, Any]]) -> set[int]:
-    """账本条目里已有产物的集 ID，逐集按 :func:`episode_has_products` 判定。"""
+    """Ledger episode IDs with artifacts, classified individually through :func:`episode_has_products`."""
     product_nums = discover_product_episode_nums(project_dir)
     found: set[int] = set()
     for entry in entries:
@@ -370,9 +370,9 @@ def episodes_with_products(project_dir: Path, entries: Iterable[Mapping[str, Any
 
 @dataclass(frozen=True)
 class SourceSpan:
-    """账本条目的原文范围坐标：起点 ``(source_file, start)``，终点 ``(end_file, end)``（不含）。
+    """Ledger source-range coordinates: start ``(source_file, start)``, exclusive end ``(end_file, end)``.
 
-    单个文件内的范围 ``end_file == source_file``。
+    Single-file ranges have ``end_file == source_file``.
     """
 
     source_file: str
@@ -386,7 +386,7 @@ class SourceSpan:
 
 
 def source_range_value(source_file: str, start: int, end_file: str, end: int) -> dict[str, Any]:
-    """原文范围写进账本的形态：终点与起点在同一个文件里时不写 ``end_file``。"""
+    """Persisted ledger source-range shape: omit ``end_file`` when endpoints are in the same file."""
     value: dict[str, Any] = {"source_file": source_file, "start": start, "end": end}
     if end_file != source_file:
         value["end_file"] = end_file
@@ -394,12 +394,12 @@ def source_range_value(source_file: str, start: int, end_file: str, end: int) ->
 
 
 def parse_source_range(entry: Mapping[str, Any]) -> SourceSpan | None:
-    """解析条目的 ``source_range`` 坐标，结构不完整时返回 None。
+    """Parse entry ``source_range`` coordinates, returning None for incomplete structure.
 
-    「这一集有没有位置记录」的唯一判据，plan 与重置两侧共用：只查字段类型
-    （``source_file`` / ``end_file`` 是 str、``start`` / ``end`` 是非 bool 的 int），不校验数值是否
-    越界——是否要求坐标落在源文界内由调用方按各自口径决定。空字典 ``{}`` 或缺字段的
-    损坏映射满足 ``isinstance(..., Mapping)`` 但没有可用坐标，一律按无坐标处理。
+    Sole predicate for episode position records, shared by planning and reset: check field types only
+    (``source_file`` / ``end_file`` str, ``start`` / ``end`` nonbool int), without validating
+    bounds. Callers decide whether coordinates must fall within sources according to their own rules. Empty dictionaries ``{}`` or mappings
+    missing fields satisfy ``isinstance(..., Mapping)`` but lack usable coordinates, so always treat as no coordinates.
     """
     source_range = entry.get("source_range")
     if not isinstance(source_range, Mapping):

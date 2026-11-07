@@ -1,23 +1,23 @@
-"""从供应商素材库选择已有图片：取回实际内容，按手动上传成品保存为图片的新版本，并建立关联。
+"""Select existing provider-library images: retrieve content, save new image versions as finished manual uploads, and establish links.
 
-资产图（四类资产）与角色衍生图都可以导入，各自走自己的手动上传成品路径：资产图经
-``install_manual_asset_sheet_upload``，衍生图经 ``install_manual_derivative_upload``（即 Web 衍生上传的
-``commit_manual_derivative_upload``）。关联的建立与回滚两者共用本模块。
+All four asset-image types and character derivatives support import through their respective manual-upload paths:
+``install_manual_asset_sheet_upload`` for assets, ``install_manual_derivative_upload`` for derivatives (Web derivative
+upload’s ``commit_manual_derivative_upload``). Both share link creation and rollback here.
 
-一次导入只有两种结果：
+Each import has only two outcomes:
 
-- 成功：图片、元数据指针、``manual_upload`` 版本、产物登记与关联记录一起生效，关联属于这次保存的
-  新内容版本，以可用状态选定；
-- 失败：查询、下载、校验或正式写入任一步失败，原选中版本与版本历史保持不变，也没有可用的关联。
+- Success: image, metadata pointer, ``manual_upload`` version, artifact registration and link take effect together.
+  The link belongs to this new content version and is selected as available.
+- Failure: any query, download, validation or formal-write failure leaves the old selection/history unchanged, with no available link.
 
-关联记录在正式写入的提交钩子里落库：钩子在图片、版本与登记都已写好之后最后执行，落库失败时
-正式写入整体回滚。落库成功后正式写入的收尾步骤仍可能失败，此时回滚后的版本历史里没有这个内容版本，
-关联指向的身份不再存在、不会被任何查询选中，这里再尽力删掉它。
+Persist links in the formal-write commit hook, last after image/version/registration writes; database failure rolls back
+the whole formal write. Finalization may still fail after database success. Then rolled-back history lacks the linked content
+identity, preventing any query from selecting it; make a best-effort attempt to delete the orphan link.
 
-保存的内容与供应商素材一致：资产图保留下载到的原始字节；衍生图的规范路径固定为 ``.png``，PNG 原样保存，
-JPEG 与 WebP 按解码后的原像素换成 PNG 封装，不缩放、不做有损压缩。新内容版本与手动上传一样经正式提交入口
-按全局存储选择保存到本地或对象存储；远端没有确认保存时不发布版本，钩子不会执行，也就不建立关联。
-"""
+Saved content matches the provider asset: asset images retain downloaded bytes. Derivative canonical paths use ``.png``;
+retain PNG unchanged, and repackage decoded JPEG/WebP pixels as PNG without resizing or lossy compression. New versions use
+formal submission and global local/object-storage settings like manual uploads. Without confirmed remote persistence,
+publish no version, run no hook and create no link."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ from server.services.currency.upload_finalize import (
 
 logger = logging.getLogger(__name__)
 
-#: 可以导入的资产图类型（版本历史里的名称）→ 资产类型。角色衍生图另见 ``CHARACTER_DERIVATIVE_RESOURCE_TYPE``。
+#: Importable asset-image version-history names → asset types. See ``CHARACTER_DERIVATIVE_RESOURCE_TYPE`` for derivatives.
 IMPORTABLE_ASSET_TYPES: dict[str, str] = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 
 _NOT_FOUND_KEYS = {
@@ -61,7 +61,7 @@ _NOT_FOUND_KEYS = {
 }
 
 type _CommitHook = Callable[[ContentVersion], None]
-#: 把取回的图片按手动上传成品写入，最后在同一次提交里调用钩子。资源在写入前被并发删除时抛 NotFoundError。
+#: Persist retrieved images as finished manual uploads, calling the hook last in the same commit; concurrent pre-write deletion raises NotFoundError.
 type _Install = Callable[[ProviderImage, _CommitHook], Awaitable[None]]
 
 
@@ -81,7 +81,7 @@ def _require_asset(manager: ProjectManager, project_name: str, asset_type: str, 
 
 
 def _derivative_png(content: bytes) -> bytes:
-    """衍生图要保存的 PNG：已是规范 PNG 时原样返回，其余格式按原像素转成 PNG，不缩放。"""
+    """PNG for derivative persistence: return canonical PNG unchanged; convert other formats at original pixel size without resizing."""
     try:
         return normalize_storyboard_upload(content, max_long_edge=None)
     except ValueError as exc:
@@ -89,7 +89,7 @@ def _derivative_png(content: bytes) -> bytes:
 
 
 def _parse_target(resource_type: str, resource_id: str) -> tuple[str, ...]:
-    """校验资源类型与名称：资产图返回 (资产名,)，衍生图返回 (本体名, 衍生名)。"""
+    """Validate resource type/name: return (asset name,) for assets or (base name, derivative name) for derivatives."""
     if resource_type != CHARACTER_DERIVATIVE_RESOURCE_TYPE and resource_type not in IMPORTABLE_ASSET_TYPES:
         raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
     try:
@@ -106,7 +106,7 @@ async def _asset_sheet_install(
     await asyncio.to_thread(_require_asset, manager, project_name, asset_type, name)
 
     async def install(image: ProviderImage, on_commit: _CommitHook) -> None:
-        # 下载边界已校验图片；保留原始字节，确保此版本与关联的供应商素材是同一内容。
+        # The download boundary validated images; retain original bytes so versions match linked provider content.
         sheet_path = f"{ASSET_SPECS[asset_type].subdir}/{name}{image.suffix}"
 
         def _install() -> ContentVersion | None:
@@ -123,7 +123,7 @@ async def _asset_sheet_install(
                     require_asset=True,
                 )
 
-        # 取图期间资产可能被删除：项目锁内复核，不存在时什么也不写。新版本按全局存储选择保存
+        # Assets may disappear during retrieval; recheck under the project lock and write nothing if absent. New versions follow global storage settings.
         async with formal_commit(project_name):
             installed = await run_sync_transaction(_install)
         if installed is None:
@@ -166,7 +166,7 @@ async def _discard_orphan(session: AsyncSession, link: ProviderAssetLink) -> Non
             await session.delete(orphan)
             await session.commit()
     except Exception:
-        # 留下的记录指向不存在的内容版本，不会被选中；只影响诊断，不影响图片与其他关联
+        # Remaining records point to nonexistent content versions and cannot be selected; only diagnostics are affected, not images or other links.
         logger.warning("导入失败后未能删除关联记录 %s", link.id, exc_info=True)
 
 
@@ -181,18 +181,17 @@ async def import_provider_asset(
     manager: ProjectManager | None = None,
     change_source: ProjectChangeSource = "webui",
 ) -> ImportedProviderAsset:
-    """把账号范围里的一张可用图片素材导入为资产图或角色衍生图的新版本，并为该版本建立可用关联。提交事务。
+    """Import an available account-scoped library image as a new asset/character-derivative version, create an available link for it, and commit.
 
-    ``resource_type`` 为版本历史里的名称；角色衍生图为 ``character_derivatives``，``resource_id`` 为
-    「本体名/衍生名」。``manager`` 缺省为进程级项目管理器；``change_source`` 标记这次正式写入的来源
-    （Web 为 ``webui``，Agent 工具为 ``worker``）。
+    ``resource_type`` uses version-history names; character derivatives use ``character_derivatives`` with base/derivative
+    ``resource_id``. ``manager`` defaults to the process-level project manager; ``change_source`` identifies formal writes
+    as ``webui`` for Web or ``worker`` for Agent tools.
 
     Raises:
-        BadRequestError: 资源类型不支持导入，或资源名无效。
-        NotFoundError: 项目、资产、衍生或素材库账号不存在。
-        UnprocessableError: 素材不是可用的图片，或内容不是可导入的图片。
-        BadGatewayError: 控制面请求失败，或取不回素材内容。
-    """
+        BadRequestError: Unsupported import resource type or invalid name.
+        NotFoundError: Missing project, asset, derivative or library account.
+        UnprocessableError: Unavailable/nonimage material or nonimportable image content.
+        BadGatewayError: Failed control-plane request or unretrievable material content."""
     names = _parse_target(resource_type, resource_id)
     account = await AssetLibraryRepository(session).get_account(account_id)
     if account is None:
@@ -221,7 +220,7 @@ async def import_provider_asset(
         recorded.append(bridge.run(_record_link(content_version)))
 
     try:
-        # 正式写入到返回一并结算，避免取消把已生效的关联送进孤儿清理。
+        # Settle formal writes through return together so cancellation cannot send an effective link into orphan cleanup.
         await run_noninterruptible_async(install(image, _on_commit))
     except BaseException:
         if recorded:

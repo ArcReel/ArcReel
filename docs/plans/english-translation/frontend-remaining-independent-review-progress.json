@@ -1,0 +1,69 @@
+{
+  "reviewer": "passive_translation",
+  "status": "Complete; superseded by frontend-remaining-independent-review.json with2961pairs and finalhashes",
+  "reviewed_pairs": {
+    "initial_capture": 2722,
+    "initial_inclusive_range": [
+      0,
+      2721
+    ],
+    "additional_capture": 94,
+    "additional_inclusive_range": [
+      0,
+      93
+    ]
+  },
+  "pair_record_hashes": {
+    "/tmp/frontend-remaining-independent-pairs.json": "ec21d2115f4e4618d9ff1c4cd13557f9b3a865680c6803b225d6a08b863f74ea",
+    "/tmp/frontend-remaining-independent-extra-pairs.json": "4b993848ddfee261bfcaff71548779faa5a4565ab72ed2d7353ebd8f6eaeaad4"
+  },
+  "excluded_authorship": [
+    {
+      "initial_index": 627,
+      "reason": "Root-authored previously accepted prospective-overwrite precision fix"
+    },
+    {
+      "initial_index": 1655,
+      "reason": "Root-authored previously accepted two-cards precision fix"
+    },
+    {
+      "initial_indices": [
+        2138,
+        2139,
+        2140
+      ],
+      "reason": "Possible earlier reviewer-owned prose; separately accepted by root in frontend-i18n-types-independent-review.json, no authorship inference"
+    }
+  ],
+  "findings": [
+    {
+      "index": 580,
+      "path": "frontend/src/api/types.ts",
+      "problem": "Episode number translated as episode ID; author reports fixed, verify final bytes."
+    },
+    {
+      "index": 1088,
+      "path": "frontend/src/components/layout/AssetSidebar.tsx",
+      "problem": "Episode management translated as planning; author notified."
+    },
+    {
+      "indices": [
+        1253,
+        1255
+      ],
+      "path": "frontend/src/components/shared/DurationTierPicker.tsx",
+      "problem": "not a positive integer should include invalid fractional/text inputs; non-positive-integer ambiguous; author notified."
+    },
+    {
+      "index": 2045,
+      "path": "frontend/src/components/workflow/WorkflowPanel.tsx",
+      "problem": "pending authoring narrowed to generic pending; author notified."
+    },
+    {
+      "index": 2427,
+      "path": "frontend/src/router.tsx",
+      "problem": "Bounded retry count translated as bounded backoff; author notified."
+    }
+  ],
+  "uncovered": "Runtime-authored English before immediate snapshot is not accepted by this review; provenance requested. Later final utils translations remain pending."
+}

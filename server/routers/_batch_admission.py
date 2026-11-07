@@ -1,4 +1,4 @@
-"""批量生成入口共用的浏览器载荷：整批准入结论与入队失败，按请求语言补上说明文字。"""
+"""Shared browser payloads for batch generation: whole-batch admission and enqueue failures, with explanations in the request language."""
 
 from __future__ import annotations
 
@@ -40,11 +40,11 @@ def localized_admission_payload(admission: BatchAdmission, _t: Translator, names
 
 
 def enqueue_failure_payload(failure: BatchTaskResult, _t: Translator) -> dict[str, Any]:
-    """一个没能入队的目标，按共享契约的问题形状转述给浏览器。
+    """Present an unenqueued target to browsers using the shared problem contract.
 
-    问题码与下一步动作与 Agent 侧同源，只多一句本地化说明。原始异常文本（`detail`）来自数据库与
-    队列层，可能带出连接串或内部拓扑，因此只落服务端日志，不进浏览器响应体——与 `localized_admission_payload`
-    只转述受控问题码的姿态一致。
+    Problem codes and next actions share the Agent source, adding only localized explanation. Raw exception text (`detail`) comes from database and
+    queue layers and may expose connection strings or internal topology; keep it in server logs, not browser responses, matching `localized_admission_payload`
+    in presenting only controlled problem codes.
     """
 
     problem = enqueue_problem(failure.error, interrupted=failure.enqueue_interrupted)

@@ -1,15 +1,15 @@
 import type { ProjectStatus, ProjectSummary } from "@/types";
 
 /**
- * 大厅的筛选维度：按集进度分「进行中 / 已完成」，另有与之正交的「待修复」
- * （项目结构升级失败）。项目没有流水线阶段。
+ * Lobby filter dimensions: episode progress splits In progress / Completed; Needs repair is orthogonal
+ * and means project-structure upgrade failure. Projects have no pipeline stages.
  */
 export type LobbyFilter = "all" | "in_progress" | "completed" | "repair";
 export const LOBBY_FILTERS = ["all", "in_progress", "completed", "repair"] as const satisfies readonly LobbyFilter[];
 
 /**
- * 项目的集进度：没有集、制作中、项目完成。不是流水线阶段。项目完成要求已有的集全部完成，且整本源文
- * 没有未规划成集的原文，与项目顶栏的「全部完成」同一口径。源文是否规划完由账本命令记进项目摘要，大厅不读源文。
+ * Project episode progress: no episodes, in production or complete. These are not pipeline stages. Completion requires all existing episodes complete and
+ * no whole-source text left unplanned, matching All complete in the project header. Ledger commands record source-planning completion in the project summary; the lobby does not read source text.
  */
 export type ProjectProgress = "empty" | "in_progress" | "completed";
 
@@ -31,7 +31,7 @@ export function matchesFilter(status: ProjectStatus | null, filter: LobbyFilter)
   return filter === "completed" ? completed : !completed;
 }
 
-/** 只有确实被阻断的项目才有原因可显示——健康项目上的残留原因不展示。 */
+/** Display reasons only for genuinely blocked projects; suppress residual reasons on healthy projects. */
 export function repairReasonOf(status: ProjectStatus | null): string | null {
   return status?.needs_repair ? (status.repair_reason ?? null) : null;
 }

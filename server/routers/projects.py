@@ -1,13 +1,11 @@
-"""
-项目管理路由
+"""Project-management routes.
 
-处理项目的 CRUD 操作，复用 lib/project/project_manager.py
+Handle CRUD through lib/project/project_manager.py.
 
-本模块多数处理器以 ``except Exception`` 兜底为 500。领域异常（``ApiError`` 及其子类）
-可以在被兜底覆盖的写盘闭包内抛出（如 backend 字段校验、脚本结构校验），因此各处理器的
-透传子句写成 ``except (HTTPException, ApiError)``——只列 ``HTTPException`` 会把这些
-4xx 静默降级成 500。
-"""
+Most handlers use ``except Exception`` fallback to 500. Domain exceptions (``ApiError`` subclasses)
+can arise inside covered persistence closures (backend-field/script-structure validation). Thus
+passthrough clauses use ``except (HTTPException, ApiError)``; catching only ``HTTPException``
+would silently downgrade these 4xx responses to 500."""
 
 from __future__ import annotations
 
@@ -27,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
-# fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
+# fastapi reexports only plural BackgroundTasks; get singular BackgroundTask from starlette.
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
@@ -137,8 +135,8 @@ from server.tool_runtime import truncation_problem
 
 router = APIRouter()
 
-# 自带认证端点：浏览器原生下载导航带不了 Authorization header，
-# 端点内 verify_download_token 校验短时效下载 token，注册时不挂 Bearer 依赖。
+# Self-authenticating endpoints: native browser downloads cannot carry Authorization headers;
+# verify_download_token checks short-lived tokens inside endpoints, without registered Bearer dependencies.
 self_auth_router = APIRouter()
 
 _project_detail_coalescer = RequestCoalescer()
@@ -158,23 +156,20 @@ WorkflowStateServiceDep = Annotated[WorkflowStateService, Depends(get_workflow_s
 def _project_status_payload(
     summary: ProjectSummary, project: dict[str, Any], translate: Callable[..., str]
 ) -> dict[str, Any]:
-    """项目级状态负载：项目摘要去掉每集明细。
+    """Project-level status: summary without individual episode details.
 
-    列表与详情的 ``status`` 都只给项目粒度——修复标记、资产计数、分集汇总。摘要里的
-    每集明细留在服务层，不让 N 个项目的列表驮上 N×集数 的对象；剧集粒度的消费方另经
-    剧集接口取。
-    """
+    List/detail ``status`` contains only repair flags, asset counts, and episode aggregates. Keep per-episode
+    details in services, avoiding N×episode objects on N-project lists; episode consumers use episode APIs."""
 
     return present_episode_diagnostics(summary.model_dump(mode="json", exclude={"episodes"}), project, translate)
 
 
 def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -> dict[str, Any]:
-    """把项目摘要的每集明细并进 ``project["episodes"]``（读时计算，不写盘）。
+    """Merge summary episode details into ``project["episodes"]`` at read time, without persistence.
 
-    每集的脚本进度、产物计数与时长只有项目摘要一个来源，口径是产物清单：可用 = current ∪
-    stale，stale 另计。剧集卡、剧集头与画布读到的数字因此与工作台同源。project.json 侧的
-    字段（title / script_file / hook / outline……）原样保留。
-    """
+    Project summaries alone provide script progress, artifact counts, and durations, using manifests:
+    available = current ∪ stale, with stale counted separately. Episode cards/headers/canvases therefore
+    share dashboard values. Preserve project.json fields (title / script_file / hook / outline, etc.) unchanged."""
 
     per_episode = {item.episode: item for item in summary.episodes}
     episodes = []
@@ -192,8 +187,8 @@ def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -
 
 
 async def get_archive_service() -> ProjectArchiveService:
-    # 在事件循环上构造：导出与导入跑在工作线程里，经捕获的事件循环收尾覆盖掉的现有项目、把导入的图片按全局设置保存，
-    # 并读写归档随带的供应商素材关联。
+    # Construct on the event loop: worker exports/imports use the captured loop to retire overwritten projects, save imported images by global settings,
+    # and read/write archived provider associations.
     bridge = EventLoopBridge.capture()
     return ProjectArchiveService(
         get_project_manager(),
@@ -211,15 +206,15 @@ def get_script_batch_editor(manager: Any | None = None) -> ScriptBatchEditor:
 
 
 def get_script_batch_editor_factory() -> Callable[[Any], ScriptBatchEditor]:
-    """批量编辑器的路由依赖；编辑器要绑处理器内解析出的 manager，故注入工厂而非实例。"""
+    """Batch-editor route dependency: inject a factory because editors bind managers resolved inside handlers."""
     return get_script_batch_editor
 
 
 ScriptBatchEditorFactoryDep = Annotated[Callable[[Any], ScriptBatchEditor], Depends(get_script_batch_editor_factory)]
 
 
-# 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
-# 值形如 provider/model 或裸 provider，空值 = 清除该层、回退下一层。
+# Project model fields validated/written individually on creation; PATCH additionally supports audio_backend.
+# Values are provider/model or bare provider; empty clears this layer and falls back to the next.
 _PROJECT_BACKEND_FIELDS = (
     "video_backend",
     "video_provider_i2v",
@@ -234,26 +229,24 @@ _PROJECT_BACKEND_FIELDS = (
 
 
 def _reject_bool_speech_rate(value: object) -> object:
-    """布尔不是语速：Pydantic 非严格模式会把 JSON ``true`` 折成 1.0、``false`` 折成 0.0。
+    """Booleans are not speech rates: nonstrict Pydantic converts JSON ``true`` to 1.0 and ``false`` to 0.0.
 
-    真相源与数据校验器都把 bool 判为脏值，写入侧若放行，落库后的 1.0 已无从辨认原本是布尔，
-    而 0.0 又会被当成「未填」跳过写入——同一类输入两种结局。在进入区间校验前直接拒。
-    """
+    Truth sources/validators reject bool. Accepting writes loses boolean provenance after 1.0 persistence,
+    while 0.0 skips writes as unset, giving one input class different outcomes. Reject before range validation."""
     if isinstance(value, bool):
         raise ValueError("speech rate must be a number, not a boolean")
     return value
 
 
-#: 创建 / PATCH 请求上的口播语速估算字段类型，两个模型共用同一把布尔守卫。
+#: Shared create/PATCH estimated speech-rate type with the same boolean guard.
 SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech_rate)]
 
 
 def _validated_episode_target_duration(value: int, _t: Translator) -> int:
-    """把创建 / PATCH 传入的单集目标时长收进硬区间，越界即 422。
+    """Constrain create/PATCH episode targets to the hard range, returning 422 outside it.
 
-    区间与 ``lib.episode.episode_target_duration`` 的读时守卫、``patch_project`` 的强制转换、
-    前端输入校验同一把尺（``is_valid_episode_target_duration``），不在这里另写边界数字。
-    """
+    Share ``is_valid_episode_target_duration`` with read guards in ``lib.episode.episode_target_duration``,
+    ``patch_project`` coercion, and frontend validation; do not duplicate boundary numbers."""
     if not is_valid_episode_target_duration(value):
         raise HTTPException(
             status_code=422,
@@ -267,11 +260,10 @@ def _validated_episode_target_duration(value: int, _t: Translator) -> int:
 
 
 def _validated_speech_rate(value: float, _t: Translator) -> float:
-    """把创建 / PATCH 传入的口播语速估算收进硬区间，越界即 422。
+    """Constrain create/PATCH estimated speech rates to the hard range, returning 422 outside it.
 
-    区间与 ``lib.speech.speech_rate`` 的读时守卫、前端输入校验同一把尺（``is_valid_speech_rate``），
-    不在这里另写边界数字。
-    """
+    Share ``is_valid_speech_rate`` with ``lib.speech.speech_rate`` read guards and frontend validation;
+    do not duplicate boundary numbers."""
     rate = float(value)
     if not is_valid_speech_rate(rate):
         raise HTTPException(
@@ -283,44 +275,44 @@ def _validated_speech_rate(value: float, _t: Translator) -> float:
 class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
-    style: str | None = ""  # 保留但不再是用户入口
+    style: str | None = ""  # Retained but no longer a user entry point.
     content_mode: ContentMode | None = "narration"
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
-    # 单集目标时长（秒）：可选软偏好，非 ad 项目适用；区间校验在 _validated_episode_target_duration。
+    # Episode target seconds: optional soft preference for non-ad projects; range checked by _validated_episode_target_duration.
     episode_target_duration: int | None = None
-    # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
-    # 数据层不硬枚举，任意正整数合法。
+    # Ad-only total target seconds. UI offers 15/30/60/90, default 60;
+    # data does not enforce enums; any positive integer is valid.
     target_duration: int | None = Field(default=None, gt=0)
-    # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
+    # Ad-only short creative brief, nullable and outside source_loader.
     brief: str | None = None
-    # 生成模式：创建时必须显式选择 storyboard 或 reference_video；缺失或旧 grid 值由
-    # Pydantic 校验返回 422。创建后不可更改（PATCH 模型结构上无此字段）。
+    # Creation requires explicit storyboard/reference_video generation mode; missing/legacy grid values
+    # return Pydantic 422. Immutable afterward, structurally absent from PATCH.
     generation_mode: Literal["storyboard", "reference_video"]
-    # 宫格分镜开关：只改变分镜图的生产方式，不是独立生成模式；仅 storyboard 生成模式有意义，
-    # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
+    # Grid storyboards change image production, not generation mode; meaningful only for storyboard,
+    # toggleable by PATCH anytime after creation. Reject enabled grids for ad.
     grid_storyboard: bool = False
-    # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech.speech_rate 的语言默认。
-    # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
+    # Estimated speech-rate override (reading units/second); empty uses lib.speech.speech_rate language defaults.
+    # Independent of TTS narration_speed provider rate; no coupling.
     speech_rate_units_per_second: SpeechRateOverride = None
     style_template_id: str | None = None
     video_backend: str | None = None
-    # 视频任务类型桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
-    # 空值 = 回退项目默认（video_backend）与全局层
+    # Project video buckets (docs/adr/0054): i2v = image-to-video/grids, r2v = reference-to-video;
+    # empty falls back to project video_backend and global layers.
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
-    # 图片任务类型桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
-    # 桶为空 = 回退项目默认（default_image_backend）与全局层
+    # Project image buckets/defaults (docs/adr/0054): t2i = text-to-image, i2i = image-to-image;
+    # empty buckets use project default_image_backend then globals.
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
-    # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 继承全局
+    # Project text tiers/default model (docs/adr/0051); empty inherits globals.
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
     default_text_backend: str | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
-    # 旁白交付方式（docs/adr/0089）：必填的项目配置，缺省后期配音。选 TTS 配音时省略的模型、音色、
-    # 配音语速以全局默认预填；写入后成为项目快照，不再继承全局默认。显式 null 语速 = 不传语速。
+    # Narration delivery (docs/adr/0089): required project configuration, default postproduction dubbing. TTS omitted model/voice/
+    # rate prefill global defaults, then become project snapshots without global inheritance. Explicit null rate omits rate.
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     audio_backend: str | None = None
     narration_voice: str | None = None
@@ -328,7 +320,7 @@ class CreateProjectRequest(BaseModel):
 
 
 class EpisodePatch(BaseModel):
-    """单集更新请求体。仅包含可写字段；未声明字段会被忽略。"""
+    """Episode update body, writable fields only; ignore undeclared fields."""
 
     model_config = ConfigDict(extra="ignore")
     episode: int
@@ -340,13 +332,13 @@ class UpdateProjectRequest(BaseModel):
     style: str | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
-    # 单集目标时长（秒）：显式 null 清除该偏好；ad 项目对字段出现本身即拒绝
+    # Episode target seconds: explicit null clears; ad rejects field presence itself.
     episode_target_duration: int | None = None
-    # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
+    # Ad-only total target seconds: any positive integer, never clearable.
     target_duration: int | None = Field(default=None, gt=0)
-    # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
+    # Ad-only brief; explicit null clears to empty string.
     brief: str | None = None
-    # 生成模式创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
+    # Generation mode is creation-fixed, structurally absent from PATCH; grid toggles remain mutable.
     grid_storyboard: bool | None = None
     video_backend: str | None = None
     video_provider_i2v: str | None = None
@@ -355,18 +347,18 @@ class UpdateProjectRequest(BaseModel):
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
     video_generate_audio: bool | None = None
-    # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
+    # Character voice binding: prompt (default, soft voice_style constraints) / reference_audio (character audio).
     character_voice_binding: str | None = None
-    # 旁白交付方式（docs/adr/0089）：随时可改，不让任何已有产物过期；不可清空
+    # Narration delivery (docs/adr/0089): mutable without staling existing artifacts; not clearable.
     narration_delivery: NarrationDelivery | None = None
-    # 旁白配音（TTS）快照：模型（provider/model）/ 音色 / 配音语速，不继承全局默认。
-    # TTS 配音项目的模型与音色不可清空；语速 null = 不向供应商传语速
+    # TTS snapshot: provider/model, voice, speech rate, without global inheritance.
+    # TTS model/voice cannot clear; null rate means omit provider rate.
     audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
-    # 口播语速估算（阅读单位 / 秒）项目级覆盖；null = 清除、回退语言默认
+    # Estimated speech rate (reading units/second) override; null clears to language defaults.
     speech_rate_units_per_second: SpeechRateOverride = None
-    # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 清除、继承全局
+    # Project text tiers/default (docs/adr/0051); empty clears to global inheritance.
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
     default_text_backend: str | None = None
@@ -377,10 +369,10 @@ class UpdateProjectRequest(BaseModel):
 
 
 def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
-    """写入旁白交付方式与 TTS 快照；改完后 TTS 配音项目仍须带完整快照，否则整次 PATCH 422。
+    """Persist narration delivery/TTS snapshots; resulting TTS projects still require complete snapshots or the whole PATCH returns 422.
 
-    交付方式不进产物的生成依据：切换交付方式不让已有产物过期，改为后期配音时 TTS 快照保留。
-    """
+    Delivery is excluded from generation basis: switching leaves artifacts current, retaining TTS snapshots
+    when switching to postproduction dubbing."""
 
     fields = req.model_fields_set
     try:
@@ -394,14 +386,14 @@ def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
                 project[TTS_BACKEND_FIELD] = validate_tts_backend(req.audio_backend)
             else:
                 project.pop(TTS_BACKEND_FIELD, None)
-        # 音色是照供应商文档填的字符串 id；空串 = 清除
+        # Voice is a string ID from provider documentation; empty clears.
         if TTS_VOICE_FIELD in fields:
             voice = (req.narration_voice or "").strip()
             if voice:
                 project[TTS_VOICE_FIELD] = voice
             else:
                 project.pop(TTS_VOICE_FIELD, None)
-        # 配音语速只做正有限数卫生校验，取值范围由各供应商约束
+        # Speech-rate hygiene: positive/finite only; providers constrain actual ranges.
         if TTS_SPEED_FIELD in fields:
             if req.narration_speed is None:
                 project.pop(TTS_SPEED_FIELD, None)
@@ -414,7 +406,7 @@ def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
 
 def _cleanup_temp_file(path: str) -> None:
     try:
-        os.unlink(path)  # hard-delete: temp -- 归档导入导出的临时文件
+        os.unlink(path)  # hard-delete: temp -- Archive import/export temporary files.
     except FileNotFoundError:
         return
 
@@ -427,16 +419,15 @@ async def import_project_archive(
     conflict_policy: str = Form("prompt"),
     confirm_report: bool = Form(False),
 ):
-    """从 ZIP 导入项目。
+    """Import projects from ZIP.
 
-    导入包升级时有调整或没能带入的内容时，未带 ``confirm_report`` 的请求以 409 返回
-    ``confirmation_required`` 与 ``migration_report``，不留下任何项目数据；用户确认后带上它重新提交。
-    """
-    # 临时文件一建好就登记路径，取消或失败时 finally 仍能清理
+    If upgrades adjust/omit content and ``confirm_report`` is absent, return 409 with
+    ``confirmation_required`` and ``migration_report``, leaving no project data. Resubmit with ``confirm_report`` after user confirmation."""
+    # Register temporary paths immediately after creation for finally cleanup on failure/cancellation.
     upload_paths: list[str] = []
     try:
-        # 使用底层 SpooledTemporaryFile 的同步句柄，建临时文件与整个写循环 offload 到线程，
-        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环
+        # Use SpooledTemporaryFile synchronous handles; offload temp creation and the entire write loop
+        # rather than mixing async reads with synchronous writes on the event loop.
         raw_file = file.file
 
         def _write_upload() -> str:
@@ -482,7 +473,7 @@ async def import_project_archive(
             },
         )
     except ApiError:
-        # 导入的图片按全局设置保存到对象存储失败（502）或未配置连接（409）：带明确原因返回，项目没有安装。
+        # Imported-image storage failure (502) or unconfigured connection (409) returns explicit reasons without installing projects.
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -504,7 +495,7 @@ async def create_export_token(
     archive_service: ArchiveServiceDep,
     scope: str = Query("full"),
 ):
-    """签发短时效下载 token，用于浏览器原生下载认证。"""
+    """Issue short-lived download tokens for authentication of native browser downloads."""
     try:
         if scope not in ("full", "current"):
             raise HTTPException(status_code=422, detail=_t("scope_invalid"))
@@ -538,11 +529,11 @@ async def export_project_archive(
     download_token: str = Query(...),
     scope: str = Query("full"),
 ):
-    """将项目导出为 ZIP。需要 download_token 认证（通过 POST /export/token 获取）。"""
+    """Export projects as ZIP; require download_token from POST /export/token."""
     if scope not in ("full", "current"):
         raise HTTPException(status_code=422, detail=_t("scope_invalid"))
 
-    # 验证 download_token
+    # Verify download_token.
     import jwt as pyjwt
 
     try:
@@ -554,8 +545,8 @@ async def export_project_archive(
     except pyjwt.InvalidTokenError as exc:
         raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
-    # zip 一落盘就登记：打包进行中被取消时返回值随之丢弃，finally 按登记回收；
-    # 交给 FileResponse 之后由响应的后台任务回收。
+    # Register ZIP paths immediately: cancellation during packaging loses returns, so finally cleans registration;
+    # after FileResponse takeover, its background task cleans.
     archive_paths: list[Path] = []
 
     def _export() -> tuple[Path, str]:
@@ -565,7 +556,7 @@ async def export_project_archive(
 
     handed_off = False
     try:
-        # 归档带远端图片的真实内容：先取回被清理的工作文件，打包期间登记使用。
+        # Archives need real remote-image content: retrieve cleaned working files and register use while packing.
         async with archive_service.export_materials_held(name, scope=scope):
             archive_path, download_name = await run_sync_transaction(_export)
         response = FileResponse(
@@ -594,7 +585,7 @@ _NO_ACTIVITY = datetime.min.replace(tzinfo=UTC)
 
 @router.get("/projects")
 async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
-    """列出所有项目，最近有活动的在前。"""
+    """List all projects, most recent activity first."""
 
     def _sync():
         manager = get_project_manager()
@@ -602,13 +593,13 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
         last_activity: dict[str, datetime] = {}
         for name in manager.list_projects():
             try:
-                # 列举之后被删除的项目不再列出
+                # Omit projects deleted after enumeration.
                 if manager.project_exists(name):
                     project = manager.load_project(name)
-                    # 一次性预加载每集剧本，喂给 cover + status 两路下游，去除重复 JSON I/O。
-                    # key 为 episode['script_file'] 原值（match resolve_project_cover /
-                    # 项目摘要投影对 key 的期望）。任何一集加载失败都不影响列表：
-                    # 仅跳过入 map，下游消费者自然按"缺失"路径兜底。
+                    # Preload each episode script once for cover/status consumers, eliminating duplicate JSON I/O.
+                    # Keys preserve episode['script_file'] (matching resolve_project_cover /
+                    # summary projection expectations). Individual episode-load failures never fail lists:
+                    # omit from maps; consumers naturally use missing fallbacks.
                     preloaded_scripts: dict[str, dict] = {}
                     for ep in project.get("episodes") or []:
                         script_file = ep.get("script_file")
@@ -617,9 +608,9 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                         try:
                             preloaded_scripts[script_file] = manager.load_script(name, script_file)
                         except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError) as load_err:
-                            # 与 resolve_project_cover / 项目摘要投影对齐：I/O 缺失 +
-                            # JSON/schema 解析失败 → 跳过此集，继续预加载其他集；
-                            # 非预期异常（RuntimeError/MemoryError 等）让其冒泡到外层 try，走 basic info 兜底行。
+                            # Match resolve_project_cover / summaries: missing I/O +
+                            # JSON/schema parsing failures skip episodes and continue others;
+                            # unexpected RuntimeError/MemoryError, etc. reach outer try and basic-info fallback rows.
                             logger.debug(
                                 "list_projects 预加载剧本失败 project=%s script=%s err=%s",
                                 name,
@@ -627,14 +618,14 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                                 load_err,
                             )
 
-                    # 封面走 resolve_project_cover fallback 链：
+                    # Cover uses resolve_project_cover fallback chain:
                     # video_thumbnail → storyboard_image → scene_sheet → character_sheet
-                    # —— 同时覆盖分镜图生视频（含宫格装配）与参考生视频。
+                    # covering storyboard image-to-video (including grids) and reference-to-video.
                     thumbnail = resolve_project_cover(manager, name, project, preloaded_scripts=preloaded_scripts)
 
-                    # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）。
-                    # 列表只看清单登记与文件在场：逐件比对规范状态要哈希每个项目的
-                    # 全部分镜图与引用图，N 个项目的列表付不起这个代价。
+                    # Stages/artifact counts always derive from read-time summaries, using manifests.
+                    # Lists check manifest registration/file presence only: canonical-state comparison would hash all storyboard/reference
+                    # images across projects, unaffordable for N-project lists.
                     status = _project_status_payload(
                         summaries.get_project_summary(
                             name,
@@ -655,8 +646,8 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                     projects.append(
                         {
                             "name": name,
-                            # title 缺失/为 None/类型异常时统一归一为空串,前端 i18n
-                            # 兜底显示「未命名项目」,确保接口契约始终返回 str。
+                            # Missing/None/invalid title becomes empty str, letting frontend i18n
+                            # show untitled-project fallback while APIs always return str.
                             "title": raw_title if isinstance(raw_title, str) else "",
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
@@ -667,13 +658,13 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                         }
                     )
             except Exception as e:
-                # 出错时返回基本信息
+                # Return basic info on errors.
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
                 projects.append(
                     {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "last_activity_at": None}
                 )
 
-        # 没有活动时间的项目排在最后，彼此保持按名字的列举顺序。
+        # Projects without activity timestamps go last, preserving name-enumeration order among them.
         projects.sort(key=lambda p: last_activity.get(p["name"], _NO_ACTIVITY), reverse=True)
         return {"projects": projects}
 
@@ -685,7 +676,7 @@ async def create_project(
     req: CreateProjectRequest,
     _t: Translator,
 ):
-    """创建新项目"""
+    """Create a project."""
     try:
         try:
             narration_fields = await new_project_narration_fields(
@@ -718,8 +709,8 @@ async def create_project(
                     )
                 style_prompt = resolve_template_prompt(req.style_template_id)
 
-            # 模式专属字段互斥：target_duration/brief 仅 ad 可用；
-            # ad 不暴露 default_duration、不开放宫格分镜
+            # Mode-exclusive fields: target_duration/brief are ad-only;
+            # ad exposes neither default_duration nor grids.
             content_mode = req.content_mode or "narration"
             if content_mode == "ad":
                 if req.default_duration is not None:
@@ -734,20 +725,20 @@ async def create_project(
                 if req.brief is not None:
                     raise HTTPException(status_code=400, detail=_t("ad_only_field", field="brief"))
 
-            # 与 update 路径对称：校验所有 backend 字段
+            # Validate all backend fields symmetrically with updates.
             for field_name in _PROJECT_BACKEND_FIELDS:
                 value = getattr(req, field_name)
                 if value:
                     validate_backend_value(value, field_name)
 
-            # 口播语速估算：可选，未填则不落盘（缺省即回退 lib.speech.speech_rate 的语言默认）。
-            # 在 create_project 之前判，越界请求不留下半成品项目目录。
+            # Optional estimated speech rates omit persistence when absent, using language defaults from lib.speech.speech_rate.
+            # Validate before create_project so invalid requests leave no partial directories.
             speech_rate = (
                 None
                 if req.speech_rate_units_per_second is None
                 else _validated_speech_rate(req.speech_rate_units_per_second, _t)
             )
-            # 单集目标时长：同理在 create_project 之前判，越界请求不留下半成品项目目录。
+            # Likewise validate episode targets before create_project to avoid partial directories.
             episode_target_duration = (
                 None
                 if req.episode_target_duration is None
@@ -761,8 +752,8 @@ async def create_project(
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
-            # 生成模式与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
-            # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
+            # Write generation mode/grid flags once via extras, avoiding postcreate load/save RMW;
+            # always persist explicit values, including grid_storyboard false, giving new projects complete v5 shape.
             extras["generation_mode"] = req.generation_mode
             extras["grid_storyboard"] = req.grid_storyboard
             if speech_rate is not None:
@@ -786,7 +777,7 @@ async def create_project(
 
         return await run_sync_transaction(_sync)
     except ValueError as e:
-        # 项目名 / duration / brief 等配置校验失败，str(e) 只进日志
+        # Project-name/duration/brief validation failures: str(e) enters logs only.
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
     except (HTTPException, ApiError):
@@ -804,25 +795,26 @@ async def get_video_capabilities(
     resolution: Annotated[str | None, Query()] = None,
     uses_reference_images: Annotated[bool | None, Query()] = None,
 ):
-    """解析当前项目视频模型能力 + 用户项目偏好。
+    """Resolve current-project video-model capabilities plus project preferences.
 
-    三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`
-    并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
-    两条生成模式（storyboard/reference_video）都可复用。
+    After three-level model selection (project > system settings > system default), read model
+    `supported_durations` and derive `max_duration`, also returning user preference
+    `project.json.default_duration`. Both storyboard/reference_video modes reuse this.
 
-    `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
-    落盘配置解析，带上则按候选模型 × 本项目的生成模式解析，使 voice_consistency 等二维派生值
-    对应用户当前选中的模型而非上一次保存的模型；候选身份先过所属桶能力闸。裸 provider（无 "/"）按其 registry
-    默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
+    `video_backend` ("provider/model") selects unsaved settings-form candidates: omitted resolves stored
+    configuration; supplied resolves candidate × project generation mode, making two-dimensional values
+    such as voice_consistency reflect current selections rather than last saves. First check candidate
+    bucket capabilities. Complete bare providers (without "/") with registry video defaults, matching
+    legacy project.json overrides (see `_parse_project_provider`).
 
-    `resolution` / `uses_reference_images` 是表单里编辑中的未保存值：`uses_reference_images` 决定
-    按哪个任务类型桶解析（缺省按项目生成模式），`resolution` 作为「覆盖分辨率」交给该桶的视频请求
-    事实求值，响应里的 `duration_constraints` 即这次求值的收窄结果与成因。缺省按项目已保存档位求值
-    （工作台）；`resolution` 传空串表示表单里选了「自动」：不回退到已保存档位，按项目未存档位解析
-    （自定义供应商仍取模型默认档）。
+    `resolution` / `uses_reference_images` are unsaved form values. `uses_reference_images` chooses task
+    bucket (default: project generation mode). Evaluate `resolution` as an override through that bucket's
+    request facts, returning the narrowed result and its causes in `duration_constraints`. Omission uses saved tiers
+    (dashboard); empty `resolution` explicitly means automatic, without fallback to saved tiers, resolving
+    as if no project tier existed (custom providers still use model defaults).
 
-    能力按项目生成模式定轴、全项目同一口径，故无需集号：生成模式创建即定、之后不可更改。
-    """
+    Project generation mode fixes capability axes throughout the project, requiring no episode number:
+    mode is immutable after creation."""
     resolver = ConfigResolver(async_session_factory)
     resolution_override = None if resolution is None else ResolutionOverride(resolution or None)
     try:
@@ -850,23 +842,23 @@ async def get_video_capabilities(
             resolution_override=resolution_override,
         )
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
-        # 内容确认页的时长按剧本规划档位选与判：确认转换用的是同一份 planning_durations。
+        # Content-confirmation durations select/check planning tiers, sharing planning_durations with conversion.
         caps["duration_constraints"]["planning"] = planning_durations(request_facts)
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:
-        # 任务类型桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
-        # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
+        # Bucket-gate errors carry errors-catalog keys/parameters: return structured 400 with repair guidance,
+        # before generic 422 catches (ValueError subclass, caught first).
         raise BadRequestError(exc.code, **exc.params) from exc
     except VideoRequestFactsError as exc:
-        # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
+        # Video-request-fact codes are errors-catalog keys (ValueError subclass, caught first).
         raise UnprocessableError(exc.code, **exc.params) from exc
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        # Unlisted model: app handlers return model-reselection 400 (ValueError subclass, caught first).
         raise
     except ValueError as exc:
-        # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
+        # Original exceptions enter logs only: interpolating str(exc) would mix untranslated English technical text into en/vi UI.
         logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)
         raise HTTPException(
             status_code=422,
@@ -899,13 +891,13 @@ class EpisodeNextSteps(BaseModel):
 
 @router.get("/projects/{name}/workflow-status/episodes", response_model=EpisodeNextSteps)
 async def get_episode_next_steps(name: str, _t: Translator):
-    """账本顺序中每一集建议的下一步，供项目层的逐集清单使用。"""
+    """Suggested next steps for every episode in ledger order, for project-level episode lists."""
 
     try:
         manager = get_project_manager()
         steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name)
         if not steps:
-            # 项目整体不可用时没有逐集下一步，也不再读一次项目。
+            # Unusable whole projects have no per-episode steps and need no second project read.
             return EpisodeNextSteps(episodes=[])
         project = await asyncio.to_thread(manager.load_project, name)
     except FileNotFoundError as exc:
@@ -942,7 +934,7 @@ async def get_project(
     summaries: WorkflowStateServiceDep,
     coalescer: Annotated[RequestCoalescer, Depends(get_project_detail_coalescer)],
 ):
-    """获取项目详情（含实时计算字段）。同一项目、同一语言的并发请求合流计算。"""
+    """Get project details including computed fields; coalesce concurrent same-project/same-language requests."""
     try:
 
         def _sync():
@@ -952,7 +944,7 @@ async def get_project(
 
             project = manager.load_project(name)
 
-            # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
+            # Stages, artifact counts, and episode details derive from read-time summaries, never persisted JSON.
             summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
             project["status"] = _project_status_payload(summary, project, _t)
@@ -972,11 +964,11 @@ async def get_project(
                     except FileNotFoundError:
                         logger.debug("剧本文件不存在，跳过: %s/%s", name, script_file)
 
-            # 衍生的「被引用」状态随读取返回、不落盘（见 docs/adr/0072）：脚本已在上面读齐，
-            # 判定只是在同一份数据上多扫一遍。
+            # Return derived reference-used status without persistence (docs/adr/0072): scripts are already loaded above,
+            # so this only scans the same data again.
             project = annotate_derivative_references(project, scripts.values())
 
-            # 计算媒体文件指纹（用于前端内容寻址缓存）
+            # Compute media fingerprints for frontend content-addressed caches.
             project_path = manager.get_project_path(name)
             fingerprints = compute_asset_fingerprints(project_path)
 
@@ -1047,14 +1039,14 @@ async def reset_agent_profile(name: str, _t: Translator):
 
 @router.patch("/projects/{name}")
 async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
-    """更新项目元数据"""
+    """Update project metadata."""
     try:
 
         def _sync():
             manager = get_project_manager()
 
             def _mutate(project: dict) -> None:
-                # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
+                # Entire RMW uses one _project_lock, preserving concurrent PATCH/task-writeback updates.
                 is_ad = project.get("content_mode") == "ad"
                 if req.title is not None:
                     project["title"] = req.title
@@ -1074,7 +1066,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("video_generate_audio", None)
                     else:
                         project["video_generate_audio"] = req.video_generate_audio
-                # 角色声音绑定方式：枚举，null / 空串 = 清除、回落默认（提示词软约束）
+                # Character voice-binding enum: null/empty clears to default soft prompt constraints.
                 if "character_voice_binding" in req.model_fields_set:
                     binding = (req.character_voice_binding or "").strip()
                     if not binding:
@@ -1084,7 +1076,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     else:
                         raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
                 _apply_narration_patch(project, req)
-                # 口播语速估算（阅读单位 / 秒）：宽松硬区间，null = 清除、回退语言默认
+                # Estimated speech rate (reading units/second): generous hard range; null clears to language defaults.
                 if "speech_rate_units_per_second" in req.model_fields_set:
                     if req.speech_rate_units_per_second is None:
                         project.pop(SPEECH_RATE_FIELD, None)
@@ -1095,11 +1087,11 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                 if "grid_storyboard" in req.model_fields_set:
                     if is_ad and req.grid_storyboard:
                         raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
-                    # null 与 false 同义：宫格关闭态落盘为显式 false，与创建路径同形态
+                    # null and false both persist explicit false grid flags, matching creation.
                     project["grid_storyboard"] = bool(req.grid_storyboard)
                 if "default_duration" in req.model_fields_set:
-                    # ad 项目对字段出现本身即拒绝（含 null）：与创建路径"禁写字段"契约一致，
-                    # 避免 null 走删除分支静默返回 200
+                    # Ad rejects field presence, including null, matching creation forbidden-field contracts
+                    # and preventing deletion branches from silently returning 200.
                     if is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
                     if req.default_duration is None:
@@ -1107,7 +1099,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     else:
                         project["default_duration"] = req.default_duration
                 if "episode_target_duration" in req.model_fields_set:
-                    # 与 default_duration 同口径：ad 项目对字段出现本身即拒绝（含 null）
+                    # Like default_duration, ad rejects field presence including null.
                     if is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_no_episode_target_duration"))
                     if req.episode_target_duration is None:
@@ -1129,7 +1121,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
                 if "style_template_id" in req.model_fields_set:
                     if req.style_template_id is None:
-                        # 取消模版选择：同时清掉展开的 style prompt，避免遗留孤儿文本
+                        # Canceling templates clears expanded style prompts too, preventing orphan text.
                         project.pop("style_template_id", None)
                         project["style"] = ""
                     else:
@@ -1140,12 +1132,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                             )
                         project["style_template_id"] = req.style_template_id
                         project["style"] = resolve_template_prompt(req.style_template_id)
-                        # 强互斥:模版与参考图二选一
+                        # Strong exclusivity: choose templates or reference images.
                         project.pop("style_image", None)
                         project.pop("style_description", None)
 
                 if req.clear_style_image:
-                    # 显式清除自定义参考图，用于"取消风格"流程
+                    # Explicitly clear custom references for cancel-style flows.
                     project.pop("style_image", None)
                     project.pop("style_description", None)
 
@@ -1156,16 +1148,16 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project["model_settings"] = req.model_settings
 
                 if "episodes" in req.model_fields_set and req.episodes is not None:
-                    # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。
-                    # 使用 model_fields_set（而非 exclude_none）判断字段是否显式出现，使得
-                    # 传 null 可用于清空对应字段。可写字段由 EpisodePatch 自身界定（extra="ignore"）：
-                    # 读时计算的每集统计字段不在模型上，请求里带了也进不来。title 同样不可写：
-                    # 它以剧本顶层 title 为唯一真相源，经 _apply_episode_sync 单向同步进
-                    # episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
+                    # Merge episodes, preserving complete existing data and updating explicit request fields only.
+                    # Use model_fields_set, not exclude_none, for presence so
+                    # null can clear fields. EpisodePatch owns writable fields (extra="ignore");
+                    # computed episode statistics cannot enter, even if sent. Title is also unwritable here:
+                    # script top-level title is authoritative, mirrored one-way via _apply_episode_sync into
+                    # episodes[].title; PATCH /episodes/{episode} owns title writes.
                     existing_list = project.get("episodes", [])
                     patch_map: dict[int, EpisodePatch] = {}
                     for ep in req.episodes:
-                        patch_map[ep.episode] = ep  # 重复编号：后者覆盖前者
+                        patch_map[ep.episode] = ep  # Duplicate numbers: later wins.
 
                     new_episodes: list[dict] = []
                     for existing_ep in existing_list:
@@ -1189,8 +1181,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     project["episodes"] = new_episodes
 
             with project_change_source("webui"):
-                # 单一 project 锁内完成字段更新与 episode 绑定所影响的 Manifest claim 清理；
-                # 返回升级后字段，无需二次 load_project。
+                # Update fields and clear episode-binding-affected Manifest claims inside one project lock;
+                # return upgraded fields without reloading project.
                 project = manager.update_project_reconciling_episode_bindings(name, _mutate)
                 return {"success": True, "project": project}
 
@@ -1206,12 +1198,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
 @router.delete("/projects/{name}")
 async def delete_project(name: str, _t: Translator):
-    """删除项目：整体移入「已删除项目」，保留期内可以恢复"""
+    """Move the entire project into deleted projects, recoverable during retention."""
     try:
         manager = get_project_manager()
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
-        # 收尾记录与移走目录在同一个事务里：移走或提交失败时记录回滚，目录移回原处。
-        # 排队任务不会在移走的目录上开跑，执行中的任务照常跑完但放弃落盘。
+        # Finalize records/move directories in one transaction; failures restore records and original directory locations.
+        # Queued tasks never start in moved directories; running tasks finish but discard persistence.
         tombstone: str | None = None
         try:
             async with retiring_project(async_session_factory, project_dir) as tombstone:
@@ -1232,7 +1224,7 @@ async def delete_project(name: str, _t: Translator):
 
 @router.get("/deleted-projects")
 async def list_deleted_projects():
-    """已删除项目，最近删除的在前"""
+    """List deleted projects, most recently deleted first."""
     entries = await asyncio.to_thread(deleted_projects.list_entries, get_project_manager().layout)
     return {
         "projects": [entry.to_dict() for entry in entries],
@@ -1242,8 +1234,8 @@ async def list_deleted_projects():
 
 @router.post("/deleted-projects/{deleted_id}/restore")
 async def restore_deleted_project(deleted_id: str):
-    """整体恢复已删除项目：原名被占用时加后缀，记录改回恢复后的名字，再走启动时的迁移链"""
-    # 整段不可中断：移出途中被取消时落点随返回值丢弃，目录已回原位而记录仍挂在墓碑名下。
+    """Restore the whole project: suffix occupied names, rename records to the restored name, then run startup migrations."""
+    # Noninterruptible: cancellation during moves loses return locations, leaving restored directories with tombstone-named records.
     project_dir = await run_noninterruptible_async(_restore_deleted_project(get_project_manager().layout, deleted_id))
     return {"name": project_dir.name}
 
@@ -1257,7 +1249,7 @@ async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> P
     except BaseException:
         await run_sync_transaction(project_dir.rename, layout.deleted_projects_dir / deleted_id)
         raise
-    # 记录先改回：迁移链按项目名查历史集 ID。
+    # Rename records first; migrations query historical episode IDs by project name.
     await run_sync_transaction(
         deleted_projects.migrate_restored,
         project_dir,
@@ -1268,10 +1260,10 @@ async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> P
 
 @router.delete("/deleted-projects/{deleted_id}", dependencies=[Depends(reject_embedded_agent)])
 async def purge_deleted_project(deleted_id: str):
-    """彻底删除已删除项目（只开放给创作者，不给 Agent 工具）"""
+    """Permanently delete already-deleted projects (creator-only, never Agent tools)."""
     await run_sync_transaction(deleted_projects.purge, get_project_manager().layout, deleted_id)
     try:
-        # 项目已彻底删除，它的正式对象引用随之撤下；失败时维护循环在保留期过后兜底
+        # Permanent deletion releases formal-object references; failures are retried by maintenance after retention.
         await release_holder(deleted_id)
     except Exception:
         logger.warning("撤下已删除项目的正式对象引用失败 deleted=%s", deleted_id, exc_info=True)
@@ -1280,7 +1272,7 @@ async def purge_deleted_project(deleted_id: str):
 
 @router.get("/projects/{name}/scripts/{script_file}")
 async def get_script(name: str, script_file: str, _t: Translator):
-    """获取剧本内容"""
+    """Get script content."""
     try:
         script = await run_sync_transaction(get_project_manager().load_script, name, script_file)
         return {"script": script, "revision": script_revision(script)}
@@ -1340,17 +1332,16 @@ async def preview_script_item_prompts(
     item_id: str,
     _t: Translator,
     names: DisplayNamesCatalog,
-    script_file: str = Query(..., description="剧本文件名"),
+    script_file: str = Query(..., description="Script filename"),
 ):
-    """渲染该条目当前会送进图像 / 视频模型的最终提示词文本。
+    """Render this item's final prompt text currently sent to image/video models.
 
-    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
-    发请求、不产生费用、不写产物清单。某一侧缺提示词或形状不合规时，该侧返回不可用原因、
-    另一侧照常渲染，半成品条目仍能看到已写好的那一半。
+    Share execution renderers, matching actual outgoing prompts verbatim. Read-only: no provider requests,
+    charges, or manifest writes. If one side lacks valid prompts, return its unavailable reason while
+    rendering the other, showing authored halves of incomplete items.
 
-    挂迁移闸门与生成入口同判据：商品参考的装配读产物清单，且被阻断的项目本就无法生成，
-    此时报「先修复」比渲染一份不会被发出的文本诚实。
-    """
+    Apply the same migration gate as generation: product-reference assembly reads manifests and blocked
+    projects cannot generate. Repair-first guidance is more accurate than text that could never be sent."""
     try:
         preview = await preview_item_prompts(name, script_file, item_id)
     except ScriptItemNotFound as exc:
@@ -1367,7 +1358,7 @@ async def preview_script_item_prompts(
             if rendered.unavailable
             else None,
             "is_text_form": rendered.is_text_form,
-            # 渲染时产生的提示（如参考图超限裁剪）与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
+            # Rendering notices (e.g. reference truncation) share task warnings and render by request language.
             "warnings": [render_message(warning["key"], warning["params"], _t, names) for warning in rendered.warnings],
         }
 
@@ -1379,12 +1370,12 @@ async def preview_script_item_prompts(
     }
 
 
-#: 可在时间线手动新增 / 移除的分镜条目形态；参考生视频单元走视频单元路由。
+#: Storyboard shapes manually addable/removable in timelines; reference units use unit routes.
 _STORYBOARD_ITEM_KINDS = frozenset({"segments", "scenes", "shots"})
 
 
 def _require_storyboard_items(script: dict, item_id: str | None) -> tuple[list, str, str]:
-    """返回分镜图生视频剧本的条目数组；形态不支持或给定 id 未命中时抛对应 API 错误。"""
+    """Return storyboard-route script items; raise corresponding API errors for unsupported shapes or missing requested IDs."""
     items, id_field, kind = resolve_items(script)
     if kind not in _STORYBOARD_ITEM_KINDS:
         raise BadRequestError("storyboard_script_required")
@@ -1397,9 +1388,9 @@ class InsertScriptItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_file: str
-    #: 新分镜插在这条分镜之后；缺省时追加到末尾，空脚本里即第一条。
+    #: Insert after this storyboard; omission appends, creating the first item in empty scripts.
     after_id: str | None = Field(default=None, min_length=1)
-    #: 旁白 / 解说分镜的正文即配音内容，新增时必填；其余形态插入空条目、忽略此字段。
+    #: Narration/commentary body is speech content and required on insertion; other shapes insert empty items and ignore it.
     novel_text: str | None = None
 
 
@@ -1413,7 +1404,7 @@ async def insert_script_item(
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``；新分镜的编号由服务端另发，取本集从没用过的号。"""
+    """Insert a pending-authoring storyboard using ``insert_after`` at current script revision; server issues an episode-unused ID."""
     try:
 
         def _sync():
@@ -1441,8 +1432,8 @@ async def insert_script_item(
                 )
             require_script_edit_result(result, operation_not_found=True)
             saved_items, _id_field, _kind = resolve_items(manager.load_script(name, req.script_file))
-            # 提交后到回读之间条目可能已被并发移除，此时 item 为 null。
-            # 批量编辑提交时由服务端发编号，blank_item_after 给的只是占位。
+            # Concurrent removal may occur between commit/reread; item is then null.
+            # Batch commits issue server IDs; blank_item_after gives only placeholders.
             inserted_id = result.affected_ids[0] if result.affected_ids else None
             inserted = next(
                 (entry for entry in saved_items if isinstance(entry, dict) and entry.get(id_field) == inserted_id),
@@ -1467,7 +1458,7 @@ async def insert_script_item(
     dependencies=[Depends(require_project_migration_ok)],
 )
 async def start_episode_blank_script(name: str, episode: int):
-    """从空白开始：本集没有正式脚本时建出空的正式脚本，弃置未确认的脚本规划。"""
+    """Start blank: create an empty formal script only if absent and discard unconfirmed planning."""
 
     def _sync():
         with project_change_source("webui"):
@@ -1495,9 +1486,9 @@ async def remove_script_item(
     item_id: str,
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
-    script_file: str = Query(..., description="剧本文件名"),
+    script_file: str = Query(..., description="Script filename"),
 ):
-    """移除分镜 ``item_id``，按当前剧本 revision 执行 ``remove``；其产物随分镜一并移除。"""
+    """Remove storyboard ``item_id`` using ``remove`` at current revision, removing its artifacts too."""
     try:
 
         def _sync():
@@ -1532,7 +1523,7 @@ class MoveScriptItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_file: str
-    #: 移到这条分镜之后；为 null 时移到最前。
+    #: Move after this storyboard; null moves first.
     after_id: str | None = Field(min_length=1)
 
 
@@ -1547,7 +1538,7 @@ async def move_script_item(
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """把分镜 ``item_id`` 移到 ``after_id`` 之后，按当前剧本 revision 执行 ``move_after``；分镜连同产物一起移动。"""
+    """Move ``item_id`` after ``after_id`` with ``move_after`` at current revision, moving artifacts with it."""
     try:
 
         def _sync():
@@ -1592,12 +1583,10 @@ async def update_scene(
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """更新剧情演绎剧本中的单个分镜（按 scene_id 定位）。
+    """Update one drama storyboard by scene_id.
 
-    路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
-    避免 FastAPI 按注册顺序优先匹配本端点导致 SceneCard 保存请求被截获、Pydantic
-    必填字段校验返回双 "Field required"。
-    """
+    Separate paths clearly from scene-asset CRUD (``/projects/{name}/scenes/{entry_name}``), preventing
+    registration-order matching from intercepting SceneCard saves and yielding two Pydantic "Field required" errors."""
     try:
 
         def _sync():
@@ -1650,8 +1639,8 @@ async def update_scene(
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
-        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
+        # Structural failures, episode mismatch, and invalid names raise ValueError (including its subclass ScriptStructureValidationError);
+        # map uniformly to 422 instead of 500 fallback.
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
@@ -1665,7 +1654,7 @@ class UpdateShotRequest(BaseModel):
     updates: dict
 
 
-# ad 分镜 PATCH 白名单：shot_id（定位键）与 generated_assets（运行时状态）不可改写。
+# Ad storyboard PATCH allowlist: shot_id identity/generated_assets runtime fields are immutable.
 _SHOT_UPDATABLE_FIELDS = (
     "section",
     "voiceover_text",
@@ -1681,23 +1670,21 @@ _SHOT_UPDATABLE_FIELDS = (
 
 
 def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
-    """断言剧本是 ad 形状（content_mode=ad 且含 shots 键），返回 shots 列表。
+    """Require ad shape (content_mode=ad with shots), returning shots.
 
-    与 update_segment 的 narration 守卫同模式：其他模式的脚本即使残留 shots 键也拒绝，
-    避免被当 ad 改写。
-    """
+    Like update_segment narration guards, reject other modes even if residual shots remain, preventing ad-style rewrites."""
     if script.get("content_mode") != "ad" or "shots" not in script:
         raise HTTPException(status_code=400, detail=_t("ad_mode_required"))
     shots = script.get("shots")
-    # 非法形状 fail loud，ValueError 由路由统一转 422。
+    # Invalid shapes fail loudly; routers map ValueError to 422.
     if not isinstance(shots, list):
         raise ValueError("ad script field 'shots' must be a list")
     if not all(isinstance(s, dict) for s in shots):
         raise ValueError("ad script field 'shots' contains non-object elements")
-    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404。
+    # Reject missing/dirty shot_id too, preventing misleading PATCH-location 404.
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
-    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项
+    # shot_id identifies storyboards; duplicates make PATCH silently change the first match.
     shot_ids = [s["shot_id"] for s in shots]
     if len(set(shot_ids)) != len(shot_ids):
         raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
@@ -1712,11 +1699,10 @@ async def update_shot(
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """更新广告/短片剧本中的单个分镜（按 shot_id 定位）。
+    """Update one ad/short-film storyboard by shot_id.
 
-    路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
-    白名单字段可改，结构合法性由写盘统一入口的「不更坏」校验兜底。
-    """
+    Align paths with ``script-scenes``; allowlist speech / section / duration / references, etc., with
+    central persistence's do-not-worsen structural validation as fallback."""
     try:
 
         def _sync():
@@ -1753,8 +1739,8 @@ async def update_shot(
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
-        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
+        # Structural failures, episode mismatch, and invalid names raise ValueError (including its subclass ScriptStructureValidationError);
+        # map uniformly to 422 instead of 500 fallback.
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
@@ -1789,9 +1775,9 @@ class UpdateEpisodeRequest(BaseModel):
 
 class UpdateEpisodeSourceRequest(BaseModel):
     text: str
-    #: 剧情演绎项目这一集原文的源文件类型；缺省时保留已有类型，没有记录时记为小说。其他创作类型忽略。
+    #: Drama episode source-file type; omission retains existing type or records novel if absent; ignored by other modes.
     source_kind: SourceKind | None = None
-    #: 已确认改类型会让本集已有的脚本规划判 stale。
+    #: Confirmed type changes that stale existing episode plans.
     confirm: bool = False
 
 
@@ -1803,7 +1789,7 @@ async def update_segment(
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """更新旁白/解说分镜"""
+    """Update a narration/commentary storyboard."""
     try:
 
         def _sync():
@@ -1862,8 +1848,8 @@ async def update_segment(
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
-        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
+        # Structural failures, episode mismatch, and invalid names raise ValueError (including its subclass ScriptStructureValidationError);
+        # map uniformly to 422 instead of 500 fallback.
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
@@ -1874,16 +1860,15 @@ async def update_segment(
 
 @router.patch("/projects/{name}/episodes/{episode}", dependencies=[Depends(require_project_migration_ok)])
 async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t: Translator):
-    """更新分集顶层元数据（当前仅标题）。
+    """Update episode top-level metadata (currently title only).
 
-    有剧本时以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
-    「脚本锁 → 项目锁」临界区内改剧本 title，并内联 _apply_episode_sync 把镜像同步回
-    project.json 的 episodes[].title，原子且无 TOCTOU。镜像由 PATCH /projects 改写的入口
-    已移除（title 不在 EpisodePatch 上），杜绝第二真相源。
+    With scripts, scripts/*.json top-level title is authoritative: locked_episode_script changes it inside
+    script-lock → project-lock critical sections and calls _apply_episode_sync inline to synchronize
+    project.json episodes[].title, atomically without TOCTOU. PATCH /projects can no longer edit the mirror (title is
+    absent from EpisodePatch), eliminating duplicate truth sources.
 
-    还没有剧本的集（新建的空集、尚未规划脚本的集）标题只记在账本条目上；之后建出的剧本以它为初值。
-    标题可以清空，空标题的集名由呈现层按播出位置派生。
-    """
+    Without scripts (new blank/unplanned episodes), store titles only in ledger entries; later scripts use
+    them initially. Titles may be cleared; presentation derives untitled episode names by broadcast position."""
     title = req.title.strip()
 
     try:
@@ -1904,7 +1889,7 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                     manager.get_project_path(name) / "scripts" / manager.normalize_script_filename(script_file)
                 )
                 if script_path.is_file():
-                    # 剧本在两次读取之间被建出：标题改由剧本承载，请调用方重试
+                    # A script appeared between reads: titles now belong to it; ask callers to retry.
                     raise HTTPException(status_code=409, detail=_t("ref_script_rebound"))
                 meta = next(e for e in project["episodes"] if e.get("episode") == episode)
                 meta["title"] = title
@@ -1916,7 +1901,7 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                 except FileNotFoundError as exc:
                     if not manager.project_exists(name):
                         raise NotFoundError("project_not_found", name=name) from exc
-                    # 这一集还没有剧本：标题记在账本条目上
+                    # No script yet: store title in ledger entries.
                     manager.update_project(name, _retitle_ledger_entry)
                 except EpisodeScriptReboundError as exc:
                     logger.info("episode script rebound during title update: %s", exc)
@@ -1926,14 +1911,14 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                         status_code=422, detail=_t("script_validation_failed", details=str(exc))
                     ) from exc
 
-            # 返回刚写入的值（前端保存后整体 refreshProject，不强依赖此返回）。
-            # 不再锁后二次 load_project：省一次读盘，且避免锁外读取被并发写者污染返回值。
+            # Return just-written values (frontend refreshProject does not strictly depend on responses).
+            # Avoid postlock load_project, saving I/O and preventing concurrent writers contaminating returns.
             return {"success": True, "episode": {"episode": episode, "title": title}}
 
         return await run_sync_transaction(_sync)
     except (HTTPException, ApiError):
-        # ApiError 与 HTTPException 并列：_sync 内部抛出的 NotFoundError 不是
-        # HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500
+        # Catch ApiError with HTTPException: _sync NotFoundError is not an
+        # HTTPException subclass and otherwise falls into except Exception as 500.
         raise
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -1944,11 +1929,10 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
 
 @router.put("/projects/{name}/episodes/{episode}/source", dependencies=[Depends(require_project_migration_ok)])
 async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourceRequest, _t: Translator):
-    """集页填写或改写本集原文：无原文的集填上后转为自带原文的集。切出集的原文由分集规划派生，这里拒绝。
+    """Enter/edit episode source on its page; filling sourceless episodes makes them source-owning. Reject cut-episode sources, derived by planning.
 
-    改类型会让本集已有的脚本规划判 stale 而 ``confirm`` 为 false 时，原文与类型都不写入，返回
-    ``needs_confirmation`` 与受影响的集 ID（``affected_episodes``）。
-    """
+    If changing type would stale existing plans and ``confirm`` is false, write neither source nor type;
+    return ``needs_confirmation`` and affected IDs (``affected_episodes``)."""
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
@@ -1978,7 +1962,7 @@ async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourc
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-# ==================== 源文件管理 ====================
+# ==================== Source-file management ====================
 
 
 @router.post("/projects/{name}/source", dependencies=[Depends(require_project_migration_ok)])
@@ -1990,14 +1974,13 @@ async def set_project_source(
     content: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ):
-    """上传小说源文件或直接提交文本内容，可选触发 AI 概述生成。
+    """Upload novel source files or submit text, optionally triggering AI overview generation.
 
-    两种输入方式（互斥，均使用 multipart/form-data）：
-    - file：上传 .txt/.md 文件，文件名取自上传文件
-    - content：直接提交文本内容，自动命名为 novel.txt
+    Two mutually exclusive multipart/form-data inputs:
+    - file: .txt/.md upload retaining its filename.
+    - content: direct text automatically named novel.txt.
 
-    最大 200000 字符（约 10 万汉字）。
-    """
+    Maximum 200000 characters (about 100000 Chinese characters)."""
     MAX_CHARS = 200_000
     ALLOWED_SUFFIXES = {".txt", ".md"}
 
@@ -2009,7 +1992,7 @@ async def set_project_source(
     try:
         manager = get_project_manager()
 
-        # 异步读取上传文件
+        # Read uploads asynchronously.
         raw: bytes | None = None
         original_name: str = "novel.txt"
         if file:
@@ -2022,7 +2005,7 @@ async def set_project_source(
             raw = await file.read()
         text_content: str = content or ""
 
-        # 同步文件 I/O 在线程中执行
+        # Synchronous file I/O runs in threads.
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
@@ -2057,15 +2040,15 @@ async def set_project_source(
                     overview = await manager.generate_overview(name)
                 result["overview"] = overview
             except ModelNotInCatalogError as ov_err:
-                # 文本模型已不在供应商清单中：回传「重新选择模型」指引，而非笼统的生成失败
+                # Unlisted text models return model-reselection guidance, not generic generation failures.
                 logger.warning("上传后概览生成失败：模型不在清单中 (%s)", ov_err)
                 result["overview"] = None
                 result["overview_error"] = render_message(
                     failure_message_key(ov_err.code, ov_err.params), ov_err.params, _t, names
                 )
             except Exception as ov_err:
-                # 概览生成是上传的可选后续步骤，失败仅降级回传提示、不影响上传成功。
-                # 裸 str(ov_err) 可能携带服务器路径等内部细节，回传翻译后的通用文案。
+                # Overview generation is optional after upload; failures return fallback notices without undoing successful upload.
+                # Bare str(ov_err) may expose server paths/internal details; return localized generic wording.
                 logger.exception("上传后概览生成失败")
                 result["overview"] = None
                 result["overview_error"] = (
@@ -2085,17 +2068,17 @@ async def set_project_source(
             await file.close()
 
 
-# ==================== 项目概述管理 ====================
+# ==================== Project-overview management ====================
 
 
 @router.post("/projects/{name}/generate-overview", dependencies=[Depends(require_project_migration_ok)])
 async def generate_overview(name: str, _t: Translator):
-    """使用 AI 生成项目概述"""
+    """Generate project overviews using AI."""
     try:
         await asyncio.to_thread(get_project_manager().get_project_path, name)
     except ValueError as e:
-        # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
-        # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」
+        # Reject invalid project names (path traversal, etc.) before generation, preventing inner provider-resolution
+        # except ValueError from misclassifying them as unconfigured providers.
         raise BadRequestError("invalid_project_name", name=name) from e
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -2106,13 +2089,13 @@ async def generate_overview(name: str, _t: Translator):
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     def _provider_not_configured(exc: ValueError) -> BadRequestError:
-        # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(exc) 只进日志
+        # Names already passed prechecks; errors here belong to provider resolution (unconfigured/unavailable); str(exc) logs only.
         logger.warning("生成概述配置错误: name=%s (%s)", name, exc)
         return BadRequestError("text_provider_not_configured")
 
     try:
-        # EmptySourceError / PydanticValidationError / ModelNotInCatalogError 都是 ValueError 子类，须放行给
-        # 下方各自的处理，不能被 domain_error_on_value_error 的通用 ValueError 处理误判为「未配置供应商」
+        # EmptySourceError / PydanticValidationError / ModelNotInCatalogError are ValueError subclasses, passed to
+        # dedicated handling below instead of domain_error_on_value_error misclassifying unconfigured providers.
         with (
             project_change_source("webui"),
             domain_error_on_value_error(
@@ -2125,12 +2108,12 @@ async def generate_overview(name: str, _t: Translator):
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except PydanticValidationError as exc:
-        # 模型输出未通过 schema 校验（后端降级仍失守时的最后防线），
-        # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
+        # Schema-rejected outputs (last defense after backend fallback fails):
+        # bare Pydantic errors include raw model-output fragments; never forward to users.
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
     except TextOutputTruncatedError as exc:
-        # 输出被最大输出长度截断：与各文本任务同一个问题票形状，前端据此给出登记输出长度或换模型的出路
+        # Max-output truncation shares text-task problem tickets, guiding frontend output-length registration or model changes.
         logger.warning("概述生成输出被截断: name=%s (%s)", name, exc)
         raise UnprocessableError(
             "text_output_truncated", provider_id=exc.provider_id or exc.provider, model=exc.model
@@ -2139,11 +2122,11 @@ async def generate_overview(name: str, _t: Translator):
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
     except json.JSONDecodeError as exc:
-        # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
+        # Provider resolution reloads project.json; corruption must not mean unconfigured providers.
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     except (HTTPException, ApiError, ModelNotInCatalogError):
-        # ModelNotInCatalogError：项目引用的文本模型已不在供应商清单中，交 app 级 handler 返回要求重新选择模型的 400
+        # ModelNotInCatalogError: unlisted project text model; app handlers return model-reselection 400.
         raise
     except Exception as exc:
         logger.exception("请求处理失败")
@@ -2152,7 +2135,7 @@ async def generate_overview(name: str, _t: Translator):
 
 @router.patch("/projects/{name}/overview")
 async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator):
-    """更新项目概述（手动编辑）"""
+    """Update project overviews manually."""
     try:
 
         def _sync():
@@ -2160,7 +2143,7 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator)
             captured: dict[str, Any] = {}
 
             def _mutate(project: dict) -> None:
-                # 整段 RMW 在单一 _project_lock 内完成，避免与并发生成的 overview 回写互相覆盖
+                # Entire RMW uses one _project_lock, preserving concurrent generated-overview writebacks.
                 if "overview" not in project:
                     project["overview"] = {}
                 if req.synopsis is not None:

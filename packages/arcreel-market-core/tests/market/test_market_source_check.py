@@ -1,4 +1,4 @@
-"""市场源目录的整体校验：六条规则各自给出定位到文件与字段的诊断。"""
+"""Whole market-source validation: six rules each produce file- and field-located diagnostics."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def _entry_for(slug: str, definition: dict[str, Any], **overrides: Any) -> dict[
 
 
 class _Source:
-    """在临时目录里搭一个市场源：逐条写入定义与旁置文件，最后写索引。"""
+    """Build a temporary market source: write definitions and sidecars one by one, then the index."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -160,7 +160,7 @@ class TestIndexRule:
         ]
 
     def test_schema_violations_stop_further_checks(self, source: _Source):
-        """结构不成立时逐文件的规则没有可靠前提，只报结构诊断。"""
+        """Invalid structure gives per-file rules no reliable foundation; report only structure diagnostics."""
         source.add("demo", {"broken": True}, min_app_version="0.31")
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].min_app_version", "min_app_version_invalid")]
@@ -204,7 +204,7 @@ class TestReferencedFilesRule:
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "symlink_not_allowed")]
 
     def test_symlinked_definition_inside_the_source_is_rejected(self, source: _Source):
-        """GitHub raw 对符号链接返回链接目标路径文本，客户端抓不到定义内容。"""
+        """GitHub raw returns symlink-target path text, so clients cannot fetch definition contents."""
         source.add("demo")
         target = source.root / "endpoints" / "demo" / "definition.json"
         real = target.with_name("real.json")
@@ -330,15 +330,15 @@ class TestProjectionRule:
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].min_app_version", "projection_mismatch")]
 
     def test_a_declarative_definition_without_media_type_projects_video(self, source: _Source):
-        """未写 ``media_type`` 的声明式定义按视频投影，索引说别的即不符。"""
+        """Declarative definitions omitting ``media_type`` project as video; other index claims conflict."""
         source.add("demo", media_type="image")
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].media_type", "projection_mismatch")]
 
     def test_a_comfyui_definition_projects_the_media_type_it_declares(self, source: _Source):
-        """一份 ComfyUI workflow 产图还是产视频由它自己声明，索引照抄那一个值。
+        """ComfyUI workflows declare image or video output themselves; indexes copy that value.
 
-        读法与端点投影、镜像列共用一份实现：对不上会让一个图像端点在市场里显示成视频。
+        Reading shares implementation with endpoint projections and mirror columns; disagreement would display an image endpoint as video.
         """
         definition = comfyui_endpoint_definition(media_type="image")
         definition["meta"] = {"name": "演示出图", "author": "ArcReel", "version": "1.0.0"}

@@ -1,0 +1,138 @@
+[
+  {
+    "path": "frontend/src/components/canvas/edit/EditTimelineMenu.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episode-page/EpisodeHead.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/EpisodePlanningPanel.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/episodes/useSourceFileChange.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/files/TrashSection.tsx",
+    "comments": 2,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetBrowseCard.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetEditorSheet.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/lorebook/AssetImageViewer.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/shared/PromptAuthoringDialog.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/ImageEditButton.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/canvas/timeline/ShotStructureActions.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/copilot/AgentComposer.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/lobby/DeletedProjectsDialog.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/lobby/ProjectDialogs.tsx",
+    "comments": 2,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/EndpointSelect.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/pages/settings/market/MarketSourceList.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  },
+  {
+    "path": "frontend/src/components/usage/RecordRow.tsx",
+    "comments": 1,
+    "exact_previously_reviewed_translation": true,
+    "comment_only_compiler_equivalence": true,
+    "line_count_equal": true,
+    "functional_directives_preserved": true
+  }
+]

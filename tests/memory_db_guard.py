@@ -1,13 +1,14 @@
-"""内存 SQLite 共享连接上的并发写检查。
+"""Detect concurrent writes on the shared in-memory SQLite connection.
 
-``sqlite+aiosqlite:///:memory:`` 走 StaticPool，所有 session 共用同一个 DBAPI 连接，各自的
-「事务」只是 SQLAlchemy 层的记账：一个任务提交会把另一个任务未提交的写一并提交，回滚则一并
-撤销，交错严重时互相卡住。需要多个任务同时写库的用例应改用文件库夹具，每个连接独立。
+``sqlite+aiosqlite:///:memory:`` uses StaticPool; all sessions share one DBAPI connection. Their
+transactions exist only in SQLAlchemy bookkeeping: one task's commit commits another's pending writes,
+and rollback undoes them together; severe interleaving can deadlock. Cases requiring simultaneous
+writes from multiple tasks must use file-database fixtures with independent connections.
 
-检查规则：某个任务在一个连接上执行写语句时，若另一个任务在别的连接上开启的写事务尚未提交
-或回滚，就判为并发写；发起写事务的任务已经结束、事务却留着没收尾的同样算。违规在写语句处
-直接抛 ``SharedMemoryDbConcurrentWrite``；被业务代码的宽泛异常捕获吞掉时，engine 关闭时
-``raise_if_violated`` 再抛一次。同一任务里嵌套打开的 session 不算并发。
+A write is concurrent when another task has an uncommitted/unrolled-back write transaction on another
+connection, including a finished task that left its transaction open. Raise ``SharedMemoryDbConcurrentWrite``
+at the write; if broad business exception handling swallows it, engine teardown's ``raise_if_violated``
+raises again. Nested sessions within the same task are not concurrent.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ _GUARDS: weakref.WeakKeyDictionary[Engine, SharedConnectionWriteGuard] = weakref
 
 
 class SharedMemoryDbConcurrentWrite(AssertionError):
-    """内存库共享连接上出现了多个任务的并发写。"""
+    """Multiple tasks wrote concurrently through the shared in-memory database connection."""
 
 
 def _current_task() -> asyncio.Task[Any] | None:
@@ -41,7 +42,7 @@ def _current_task() -> asyncio.Task[Any] | None:
 
 @dataclass
 class SharedConnectionWriteGuard:
-    """挂在内存库 engine 上的并发写检查；``file_fixture`` 是违规时建议改用的文件库夹具名。"""
+    """Concurrent-write guard attached to an in-memory engine; ``file_fixture`` names the suggested file fixture on violation."""
 
     file_fixture: str
     violations: list[str] = field(default_factory=list)
@@ -75,7 +76,7 @@ class SharedConnectionWriteGuard:
         self._dirty.pop(conn, None)
 
     def take_violations(self) -> list[str]:
-        """取走已记录的违规；用例自己断言过违规时调用，engine 关闭时不再重复报告。"""
+        """Drain recorded violations after a case asserts them, preventing duplicate reports at engine teardown."""
         taken, self.violations = self.violations, []
         return taken
 
@@ -85,7 +86,7 @@ class SharedConnectionWriteGuard:
 
 
 def install_shared_connection_write_guard(engine: AsyncEngine, *, file_fixture: str) -> SharedConnectionWriteGuard:
-    """给内存库 engine 挂上并发写检查，返回检查器供关闭时 ``raise_if_violated``。"""
+    """Attach a concurrent-write guard to an in-memory engine and return it for teardown ``raise_if_violated``."""
     guard = SharedConnectionWriteGuard(file_fixture=file_fixture)
     sync_engine = engine.sync_engine
 
@@ -106,5 +107,5 @@ def install_shared_connection_write_guard(engine: AsyncEngine, *, file_fixture: 
 
 
 def guard_for(engine: AsyncEngine) -> SharedConnectionWriteGuard:
-    """内存库夹具 engine 上挂的检查器。"""
+    """The guard attached to an in-memory fixture engine."""
     return _GUARDS[engine.sync_engine]

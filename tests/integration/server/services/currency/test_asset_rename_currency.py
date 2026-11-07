@@ -1,7 +1,6 @@
-"""资产只改名：分镜图与宫格的模型输入不含资产名，改名后保持现行；参考生视频与资产图的输入含名，改名后判过期。
+"""Name-only changes preserve storyboard/grid currency because model inputs omit asset names; reference-video and asset-image inputs include names and become stale.
 
-选角项目 fixture 见同目录 ``conftest.py``。
-"""
+The casting-project fixture is in adjacent ``conftest.py``."""
 
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ from lib.generation.generation_result import observe_artifact_status
 from lib.project.project_manager import ProjectManager
 from lib.script.grid.models import GridGeneration, ReferenceImage, build_frame_chain
 
-#: 与 ``conftest.py`` 选角项目的项目名一致。
+#: Same casting-project name as ``conftest.py``.
 PROJECT = "demo"
 
 _GRID_ID = "grid_123456789abc"
@@ -43,10 +42,10 @@ def test_renaming_a_character_keeps_its_storyboards_current_and_marks_its_refere
 
     assert _status(pm, storyboard[0], storyboard[1]) == "current"
     assert _status(pm, *derivative_storyboard) == "current"
-    # 参考生视频的声明行写作「<名称>的…」，模型输入含名：改名后过期是正确的。
+    # Reference-video declarations use “<名称>的…”, putting names in model inputs; staleness after renaming is correct.
     assert _status(pm, *video) == "stale"
     assert _status(pm, *untouched_video) == "current"
-    # 资产图的提示词含资产名，同样判过期。
+    # Asset-image prompts also contain asset names and become stale after renaming.
     assert _status(pm, ArtifactKey.asset_sheet("character", "Alicia"), "characters/Alicia.png") == "stale"
 
 
@@ -61,7 +60,7 @@ def _write_script(project_dir: Path, script: dict) -> None:
 def test_a_storyboard_that_mentions_the_renamed_character_stays_current(
     current_cast_artifacts: ProjectManager,
 ) -> None:
-    """正文的 ``@[名称]`` 发给模型时是「图N」，改名把它改写成新名也不改变模型输入。"""
+    """Body ``@[名称]`` becomes “图N” for models, so rewriting asset names does not change model inputs."""
 
     pm = current_cast_artifacts
     project_dir = pm.get_project_path(PROJECT)
@@ -79,7 +78,7 @@ def test_a_storyboard_that_mentions_the_renamed_character_stays_current(
 
 @pytest.fixture
 def current_grid(cast_projects: ProjectManager) -> ProjectManager:
-    """一张引用 Alice 的 2×2 宫格，两格已切出分镜图，宫格与切格分镜都是现行。"""
+    """A current 2×2 grid referencing Alice with two cells split into current storyboard images."""
 
     pm = cast_projects
     project_dir = pm.get_project_path(PROJECT)

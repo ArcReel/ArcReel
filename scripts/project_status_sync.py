@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""同步 org Project 看板的 Status 字段。
+"""Synchronize the organization Project board Status field.
 
-Status 由 repo 侧状态（triage 标签、assignee、关联 PR、开闭状态）单向派生，
-派生规则见 derive_status。看板上的手动改动不保留，同步时按派生结果覆盖。
+Status derives one-way from repository triage labels, assignee, linked PRs, and open/closed state;
+see derive_status. Board edits are not preserved and are overwritten by derived values.
 
-用法：
+Usage:
     GH_TOKEN=<org Projects RW token> python3 scripts/project_status_sync.py --issue 123 [456 ...]
     GH_TOKEN=... python3 scripts/project_status_sync.py --pr 789
     GH_TOKEN=... python3 scripts/project_status_sync.py --all
@@ -36,7 +36,7 @@ STATUS_OPTIONS = {
     "Done": "98236657",
 }
 
-# 带这些标签的 issue 不参与状态流转：Status 置空，视图用 filter 排除
+# Issues with these labels do not advance status: clear Status and exclude through view filters.
 OFF_BOARD_LABELS = {"Spec", "parked"}
 
 MUTATION_BATCH = 20
@@ -60,7 +60,7 @@ def gql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def derive_status(state: str, labels: set[str], has_assignee: bool, has_open_closing_pr: bool) -> str | None:
-    """按优先级派生 Status；返回 None 表示置空。"""
+    """Derive Status by priority; None means clear it."""
     if labels & OFF_BOARD_LABELS:
         return None
     if state == "CLOSED":
@@ -81,7 +81,7 @@ def derive_status(state: str, labels: set[str], has_assignee: bool, has_open_clo
 def _issue_signals(issue: dict[str, Any]) -> tuple[str, set[str], bool, bool]:
     labels = {n["name"] for n in issue["labels"]["nodes"]}
     has_assignee = issue["assignees"]["totalCount"] > 0
-    # draft PR 尚未进入审阅，不计入 In review 信号
+    # Draft PRs are not under review and do not count as In review signals.
     has_open_pr = any(
         n["state"] == "OPEN" and not n["isDraft"] for n in issue["closedByPullRequestsReferences"]["nodes"]
     )
@@ -141,7 +141,7 @@ def sync_issue(number: int) -> None:
         if state != "OPEN":
             print(f"#{number}: 已关闭且不在板上，跳过")
             return
-        # 内置 auto-add 未覆盖时补充添加
+        # Add when built-in auto-add did not cover the issue.
         added = gql(
             "mutation($pid: ID!, $cid: ID!) {"
             " addProjectV2ItemById(input: {projectId: $pid, contentId: $cid}) { item { id } } }",
@@ -257,11 +257,11 @@ def sync_all() -> None:
     changed = deleted = 0
     for item in items:
         content = item.get("content") or {}
-        # 本仓库之外的 item（含 DraftIssue）不做投影也不清除
+        # Do not project or clear items outside this repository, including DraftIssue.
         if (content.get("repository") or {}).get("nameWithOwner") != repo_full:
             continue
         if item["type"] == "PULL_REQUEST":
-            # 看板不收 PR item，对账时清除误入项
+            # The board excludes PR items; remove mistakenly included ones during reconciliation.
             parts.append(
                 f'deleteProjectV2Item(input: {{projectId: "{PROJECT_ID}", itemId: "{item["id"]}"}})'
                 " { clientMutationId }"
@@ -279,7 +279,7 @@ def sync_all() -> None:
 
     _run_mutation_parts(parts)
 
-    # auto-add 或事件同步失败时 open issue 可能不在看板上，对账时补入
+    # Add open issues omitted by failed auto-add/event synchronization during reconciliation.
     missing = _open_issue_numbers() - board_numbers
     for number in sorted(missing):
         sync_issue(number)

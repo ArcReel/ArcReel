@@ -6,8 +6,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { ConfigIssue } from "@/stores/config-status-store";
 
 /**
- * 配置问题就地提示：只出现在问题所属分区。全出血分区由设置页放在分区顶部，
- * 限宽分区由分区自己放在页头说明之后。只有一条问题时以它为标题，多条时列出全部。
+ * Show configuration problems in their own section only. Settings places notices atop full-bleed sections;
+ * width-limited sections place them after their header explanation. Use a single problem as the title, or list all problems when multiple exist.
  */
 export function ConfigIssueNotice({ issues }: { issues: ConfigIssue[] }) {
   const { t } = useTranslation("dashboard");
@@ -15,7 +15,7 @@ export function ConfigIssueNotice({ issues }: { issues: ConfigIssue[] }) {
   if (issues.length === 0) return null;
   const [only] = issues;
   return (
-    // 页面打开时就在的静态提示，不用 Alert 默认的 role="alert"，以免读屏立即打断播报
+    // This static notice exists when the page opens; avoid Alert's default role="alert" so screen readers do not interrupt immediately
     <Alert role="note" aria-labelledby={titleId}>
       <AlertTriangle aria-hidden />
       <AlertTitle id={titleId}>{t(issues.length === 1 ? only.label : "config_incomplete")}</AlertTitle>

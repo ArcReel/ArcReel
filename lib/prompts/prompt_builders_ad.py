@@ -1,15 +1,17 @@
-"""广告/短片（content_mode=ad）剧本生成 Prompt 构建器。
+"""Ad/short-film (content_mode=ad) script-generation prompt builders.
 
-分镜图生视频产出平铺 ``shots[]``，参考生视频单阶段产出自包含 ``video_units[]`` 的扁平
-引用语法正文。两种生成模式都按目标总时长选择带货八段框架的时长配比档位（15/30/60/90 秒，
-经维护者审定的配比表），非四档整数取距离最小的档位按比例适配。
-``products`` 为空时自动分流为通用短片 prompt（无带货框架）。
+Storyboard-to-video produces flat ``shots[]``; reference-to-video directly produces self-contained
+``video_units[]`` reference-syntax bodies in one stage. Both select the eight-section product-promotion
+framework's pacing tier from target duration (15/30/60/90 seconds, maintainer-approved tables);
+other integer durations proportionally adapt the nearest tier.
+Empty ``products`` automatically selects general short-film prompts without promotion structure.
 
-两条路线经内置整段模版渲染；本模块只产出槽位值：档位取整、单分镜时长约束、口播语速、
-商品信息块与候选名单。通用规则与四档配比表是 ``shared/ad_pacing`` 片段，按档位解析命名变体。
+Both paths render whole builtin templates; this module supplies only slots: rounded tiers, per-shot duration
+constraints, speech rates, product blocks, and candidates. Shared rules and four pacing tables are
+``shared/ad_pacing`` partials, resolved as tier-named variants.
 
-已有正式剧本时，待编写的分镜 / 单元由提示词编写补写：输入是整份剧本（待编写条目带标记，
-其余条目作前后文），只产出待编写条目的视觉层或正文。
+For existing formal scripts, prompt authoring fills pending shots/units: input contains the whole script
+(marking pending entries, with others as context), producing only pending entries' visual layer or body.
 """
 
 from collections.abc import Collection, Mapping
@@ -29,51 +31,51 @@ from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech.speech_rate import speech_rate_units_per_second
 
 # ---------------------------------------------------------------------------
-# 审定档位
+# Approved tiers
 # ---------------------------------------------------------------------------
 
-#: 四个审定档位（秒）。非四档整数取距离最小的档位按比例适配；
-#: 等距时取更接近默认推荐档（30 秒）的一侧。
+#: Four approved tiers in seconds. Other integers proportionally adapt the nearest tier;
+#: ties favor the side closer to the recommended 30-second default.
 AD_DURATION_TIERS: tuple[int, ...] = (15, 30, 60, 90)
 
-#: 默认推荐档（秒），档位等距 tie-break 的锚点。
+#: Recommended default seconds, anchoring equidistant-tier tie-breaking.
 AD_DEFAULT_TIER = 30
 
 
 def nearest_ad_tier(target_duration: int) -> int:
-    """取距离最小的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。"""
+    """Select the nearest approved tier; ties favor the side closer to recommended default 30 seconds."""
     return min(AD_DURATION_TIERS, key=lambda t: (abs(t - target_duration), abs(t - AD_DEFAULT_TIER)))
 
 
 # ---------------------------------------------------------------------------
-# 上下文块渲染
+# Context block rendering
 # ---------------------------------------------------------------------------
 
 
 def _format_products(products: dict) -> str:
-    """渲染商品信息块：名称 / 品牌 / 描述 / 卖点（selling_points）。"""
+    """Render product blocks: name / brand / description / selling_points."""
     lines: list[str] = []
     for name, data in products.items():
         data = data if isinstance(data, dict) else {}
         lines.append(f"### {name}")
         brand = data.get("brand")
         if brand:
-            lines.append(f"品牌：{brand}")
+            lines.append(f"Brand: {brand}")
         desc = data.get("description")
         if desc:
-            lines.append(f"描述：{desc}")
-        # 只接受字符串列表：绕过白名单写入的脏值（如整串字符串）会被逐字符迭代成碎片卖点
+            lines.append(f"Description: {desc}")
+        # Accept string lists only: malformed values bypassing allowlists (such as whole strings) would iterate into character-sized points.
         raw_points = data.get("selling_points")
         points = [p for p in raw_points if isinstance(p, str) and p.strip()] if isinstance(raw_points, list) else []
         if points:
-            lines.append("卖点：")
+            lines.append("Selling points:")
             lines.extend(f"- {point}" for point in points)
         lines.append("")
     return "\n".join(lines).strip()
 
 
 def _shot_duration_constraint(generation_mode: str | None, supported_durations: list[int] | None) -> str:
-    """渲染分镜图生视频的单分镜时长约束；参考生视频须走自包含 unit 构建器。"""
+    """Render per-shot storyboard-to-video duration constraints; reference-to-video must use the self-contained unit builder."""
     if generation_mode == "reference_video":
         raise ValueError("reference_video 路径须使用 build_ad_reference_prompt")
     if not supported_durations:
@@ -84,7 +86,7 @@ def _shot_duration_constraint(generation_mode: str | None, supported_durations: 
 def _asset_registry_slot(
     registry: Mapping[str, Mapping[str, object]] | None, characters: dict, scenes: dict, props: dict
 ) -> dict:
-    """资产表槽位：有项目资产表时带描述与别名，否则只有候选名。"""
+    """Asset-registry slot: include descriptions/aliases when available, otherwise candidate names only."""
     if registry is None:
         return project_asset_appearances(characters, scenes, props)
     return project_asset_appearances(
@@ -98,7 +100,7 @@ def _asset_registry_slot(
 
 
 def _pacing_slots(target_duration: int) -> dict[str, object]:
-    """配比段的档位轴值与适配说明所需的目标秒数；目标恰为档位时无需适配说明。"""
+    """Pacing tier axis and target seconds for adaptation notes; exact tier matches need no adaptation note."""
     if not is_int(target_duration, minimum=1):
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
     tier = nearest_ad_tier(target_duration)
@@ -128,20 +130,20 @@ def build_ad_prompt(
     instructions: str | None = None,
     asset_registry: Mapping[str, Mapping[str, object]] | None = None,
 ) -> str:
-    """构建广告/短片剧本生成 prompt。
+    """Build ad/short-film script-generation prompts.
 
-    ``products`` 非空走带货八段框架 + 审定配比表；为空自动分流通用短片 prompt
-    （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
-    （由调用方经 ``project_speech_rate_override`` 解析），None 即回退语言默认。
-    ``asset_registry`` 是项目里带描述与别名的角色 / 场景 / 道具表（键 ``characters`` / ``scenes`` /
-    ``props``），供模型认人与列出本次新增资产；缺省时只渲染候选名。
+    Nonempty ``products`` selects the eight-section promotion structure and approved pacing tables;
+    empty selects general short films without an explicit submode toggle. ``speech_rate_override`` is
+    project rate override (resolved by callers through ``project_speech_rate_override``); None uses language defaults.
+    ``asset_registry`` contains project character/scene/prop descriptions and aliases (``characters`` / ``scenes`` /
+    ``props``), enabling identity recognition and new-asset listing; omission renders candidate names only.
     """
     pacing = _pacing_slots(target_duration)
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
-    # 口播字数→时长折算从 lib.speech.speech_rate 单一真相源取（与 drama script_plan 下界、字幕派生同口径）：
-    # 项目级覆盖优先，否则按语言默认。语速表按语言代码（zh / en / vi / ru）登记；target_language 是
-    # 自由文本（默认「中文」），未登记值回退默认语速（zh 口径），量词（字 / 词）由
-    # reading_unit_noun 同源派生。
+    # Speech-size→duration conversion uses lib.speech.speech_rate (same as drama lower bounds and subtitles):
+    # project overrides take precedence, otherwise language defaults. Rates are keyed by zh / en / vi / ru;
+    # target_language is free text (default Chinese), and unknown values fall back to zh rate. Reading-unit
+    # nouns (characters / words) derive from reading_unit_noun using the same language source.
     speech_rate = speech_rate_units_per_second(target_language, speech_rate_override)
     return builtin_templates.render(
         "text/ad_storyboard_script",
@@ -184,9 +186,9 @@ def build_ad_reference_prompt(
     instructions: str | None = None,
     asset_registry: Mapping[str, Mapping[str, object]] | None = None,
 ) -> str:
-    """广告/短片的参考生视频单阶段生成 prompt；直接输出含引用语法正文的扁平 unit。
+    """Single-stage ad/short-film reference-to-video prompt, producing flat units with reference-syntax bodies.
 
-    ``asset_registry`` 同 :func:`build_ad_prompt`。
+    ``asset_registry`` follows :func:`build_ad_prompt`.
     """
     pacing = _pacing_slots(target_duration)
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
@@ -215,11 +217,11 @@ def build_ad_reference_prompt(
 
 def _names(value: object) -> str:
     names = [name for name in value if isinstance(name, str)] if isinstance(value, list) else []
-    return neutralize_tags("、".join(names) or "无")
+    return neutralize_tags("、".join(names) or "none")
 
 
 def _prompt_summary(value: object, field: str) -> str:
-    """已有提示词的一句摘要：结构化取 ``field``，文本形态取原文；供前后文参照，不求完整。"""
+    """One-sentence existing-prompt context: structured values use ``field``, text uses the original; completeness is not required."""
     if isinstance(value, Mapping):
         return str(value.get(field) or "")
     return value if isinstance(value, str) else ""
@@ -229,42 +231,42 @@ _PENDING_MARK = "【待编写】"
 
 
 def render_ad_shots_for_prompt_authoring(shots: list[dict], target_ids: Collection[str]) -> str:
-    """按播放顺序渲染整份广告分镜：待编写分镜带标记，其余分镜附已有画面与动作摘要作前后文。"""
+    """Render all ad shots in playback order: mark pending shots and show existing visual/action summaries for others as context."""
     blocks: list[str] = []
     for shot in shots:
         shot_id = str(shot.get("shot_id") or "?")
         pending = shot_id in target_ids
-        header = f"### {neutralize_tags(shot_id)}{_PENDING_MARK if pending else ''}（时长 {shot.get('duration_seconds', '?')} 秒）"
+        header = f"### {neutralize_tags(shot_id)}{_PENDING_MARK if pending else ''} (duration {shot.get('duration_seconds', '?')} seconds)"
         lines = [
             header,
-            f"段落：{neutralize_tags(str(shot.get('section') or '无'))}",
-            f"出场：角色 [{_names(shot.get('characters_in_shot'))}]、场景 [{_names(shot.get('scenes'))}]、"
-            f"道具 [{_names(shot.get('props'))}]、商品 [{_names(shot.get('products_in_shot'))}]",
+            f"Section: {neutralize_tags(str(shot.get('section') or 'none'))}",
+            f"Appearing: characters [{_names(shot.get('characters_in_shot'))}], scenes [{_names(shot.get('scenes'))}], "
+            f"props [{_names(shot.get('props'))}], products [{_names(shot.get('products_in_shot'))}]",
         ]
         voiceover = str(shot.get("voiceover_text") or "").strip()
-        lines.append(f"口播：{neutralize_tags(voiceover) if voiceover else '（无）'}")
+        lines.append(f"Speech: {neutralize_tags(voiceover) if voiceover else '(none)'}")
         if not pending:
             scene = _prompt_summary(shot.get("image_prompt"), "scene").strip()
             action = _prompt_summary(shot.get("video_prompt"), "action").strip()
             if scene:
-                lines.append(f"已有画面：{neutralize_tags(scene)}")
+                lines.append(f"Existing visuals: {neutralize_tags(scene)}")
             if action:
-                lines.append(f"已有动作：{neutralize_tags(action)}")
+                lines.append(f"Existing action: {neutralize_tags(action)}")
         blocks.append("\n".join(lines))
-    return "\n\n".join(blocks) or "（无分镜）"
+    return "\n\n".join(blocks) or "(no storyboards)"
 
 
 def render_ad_units_for_prompt_authoring(units: list[dict], target_ids: Collection[str]) -> str:
-    """按播放顺序渲染整份广告视频单元：待编写单元带标记，正文可能为空（手动新增）。"""
+    """Render all ad units in playback order: mark pending units; manually added units may have empty bodies."""
     blocks: list[str] = []
     for index, unit in enumerate(units, start=1):
         pending = str(unit.get("unit_id") or "") in target_ids
         body = str(unit.get("text") or "").strip()
         header = (
-            f"#### unit {index}{_PENDING_MARK if pending else ''}（时长 {int(unit.get('duration_seconds') or 0)}s）"
+            f"#### unit {index}{_PENDING_MARK if pending else ''} (duration {int(unit.get('duration_seconds') or 0)}s)"
         )
-        blocks.append(f"{header}\n{body or '（正文为空）'}")
-    return "\n\n".join(blocks) or "（无单元）"
+        blocks.append(f"{header}\n{body or '(empty body)'}")
+    return "\n\n".join(blocks) or "(no units)"
 
 
 def build_ad_shot_prompt_authoring_prompt(
@@ -284,7 +286,7 @@ def build_ad_shot_prompt_authoring_prompt(
     target_language: str = "中文",
     instructions: str | None = None,
 ) -> str:
-    """广告分镜的提示词编写 prompt：只为 ``target_ids`` 里的分镜产出 image_prompt / video_prompt。"""
+    """Ad shot-authoring prompt: produce image_prompt / video_prompt only for shots in ``target_ids``."""
     return builtin_templates.render(
         "text/ad_storyboard_prompt_authoring",
         target_language=target_language,
@@ -321,7 +323,7 @@ def build_ad_reference_prompt_authoring_prompt(
     target_language: str = "中文",
     instructions: str | None = None,
 ) -> str:
-    """广告参考生视频的提示词编写 prompt：只为 ``target_ids`` 里的单元按播放顺序产出正文。"""
+    """Ad reference-unit authoring prompt: produce bodies only for ``target_ids``, in playback order."""
     return builtin_templates.render(
         "text/ad_reference_video_prompt_authoring",
         target_language=target_language,

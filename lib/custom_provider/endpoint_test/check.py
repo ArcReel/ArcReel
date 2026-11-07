@@ -1,12 +1,12 @@
-"""验证响应：拿一份供应商的真实响应，逐条路径报告命中情况与最终判定，零费用。
+"""Response validation: report path matches/final interpretations from real provider responses at zero cost.
 
-逐条求值与运行时读的是同一份归一化规则（:func:`normalize_extract_spec`），最终判定则直接调运行时
-按媒体类型选用的那一份判读函数（视频 :func:`extract_provider_state`、图片
-:func:`extract_image_state`）——验证之所以能替代真花钱的调用，全靠这两处不另写一遍。
-本模块产出的报告同时是测试连接结果体里的「逐阶段提取」段。
+Path evaluation shares runtime :func:`normalize_extract_spec`; final verdicts directly call runtime
+media-specific interpreters: video :func:`extract_provider_state`, images
+:func:`extract_image_state`. Avoiding duplicated rules is what lets validation substitute for paid calls.
+Reports also populate per-stage extraction in connection-test responses.
 
-``image_b64`` 取到的是整张图的 base64，报告里只给解出的字节数（解不出图片时为 ``None``），
-不回显原串。
+``image_b64`` extracts entire image base64, but reports expose decoded byte counts only (``None`` if undecodable),
+never original payloads.
 """
 
 from __future__ import annotations
@@ -35,10 +35,10 @@ from lib.custom_provider.declarative_image_backend import ImageJobState, decode_
 
 from .errors import EndpointTestDefinitionError
 
-#: 可验证的三节。``result`` 只有定义声明了二次取件节时才存在。
+#: Three validatable sections; ``result`` exists only with declared secondary retrieval.
 STAGES = ("submit", "poll", "result")
 
-#: 媒体类型 → 运行时判读响应的函数。
+#: Media → runtime response interpreters.
 _STATE_READERS: dict[str, StateReader[Any]] = {
     "video": extract_provider_state,
     "image": extract_image_state,
@@ -47,7 +47,7 @@ _STATE_READERS: dict[str, StateReader[Any]] = {
 
 @dataclass(frozen=True)
 class PathAttempt:
-    """优先级数组里的一条路径的求值结果。"""
+    """One priority-array path evaluation."""
 
     path: str
     json_decode: bool
@@ -57,7 +57,7 @@ class PathAttempt:
 
 @dataclass(frozen=True)
 class FieldExtraction:
-    """一个 extract 键的完整报告：逐条路径 + 最终取到的值。"""
+    """Complete extract-key reports: attempted paths + final values."""
 
     key: str
     attempts: tuple[PathAttempt, ...]
@@ -66,7 +66,7 @@ class FieldExtraction:
 
 @dataclass(frozen=True)
 class StageReport:
-    """一节的验证结果。``status`` 与 ``verdict`` 取自运行时的判读实现。"""
+    """Section validation results, with runtime ``status`` / ``verdict``."""
 
     stage: str
     fields: tuple[FieldExtraction, ...]
@@ -75,7 +75,7 @@ class StageReport:
     status: str | None
     video_url: str | None
     image_url: str | None
-    #: 按 ``image_b64`` 取到的图片解码后的字节数；没取到或解不出图片为 ``None``。
+    #: Decoded bytes from ``image_b64``; ``None`` without matches/decodable images.
     image_bytes: int | None
     error: str | None
     result_id: str | None
@@ -83,7 +83,7 @@ class StageReport:
 
 
 def parse_response_body(raw: object) -> object:
-    """把粘进来的响应体归一：字符串先按 JSON 解析，解析不了就按原始字符串验证。"""
+    """Normalize pasted responses: parse strings as JSON first, otherwise validate original strings."""
     if not isinstance(raw, str):
         return raw
     try:
@@ -93,10 +93,10 @@ def parse_response_body(raw: object) -> object:
 
 
 def check_response(definition: Mapping[str, Any], stage: str, response_body: object) -> StageReport:
-    """验证一节的取值路径与状态映射。定义须已过共享校验器。
+    """Validate section extraction paths/status mapping; definitions must pass shared validation.
 
     Raises:
-        EndpointTestDefinitionError: 该节不存在，或提取规则在这份响应上无法求值。
+        EndpointTestDefinitionError: Missing sections or rules unevaluable on supplied responses.
     """
     section = definition.get(stage)
     if stage not in STAGES or not isinstance(section, Mapping):
@@ -104,8 +104,8 @@ def check_response(definition: Mapping[str, Any], stage: str, response_body: obj
     extract = section["extract"]
     fields = tuple(_field_reports(extract, response_body))
     values = {field.key: field.value for field in fields}
-    # 提交节没有状态可读：任何 2xx 都算提交成功，判据是能不能取到 task_id。二次取件节则由运行时
-    # 按「已成功」读——那一节只在轮询判成功之后才发得出去。
+    # Submission has no readable status: any 2xx means accepted, determined by extractable task_id. Runtime treats secondary retrieval
+    # as already successful because requests occur only after successful polling.
     try:
         state = _runtime_state(definition, stage, extract, response_body)
     except DeclarativeRuntimeError as exc:
@@ -128,7 +128,7 @@ def check_response(definition: Mapping[str, Any], stage: str, response_body: obj
 
 
 def stage_report_payload(report: StageReport) -> dict[str, Any]:
-    """把一节提取报告拍平成接口契约的形状。验证响应与测试连接共用同一形状。"""
+    """Flatten section reports into shared response-validation/connection-test API contracts."""
     return {
         "stage": report.stage,
         "fields": [
@@ -173,7 +173,7 @@ def _runtime_state(
 
 
 def _task_id(value: object | None) -> str | None:
-    """与运行时同一条口径：列表与对象不算命中，标量按字符串化收。"""
+    """Runtime-shared semantics: arrays/objects never match, scalars stringify."""
     if isinstance(value, (list, dict)):
         return None
     return text_or_none(value)
@@ -187,7 +187,7 @@ def _image_bytes(text: str) -> int | None:
 
 
 def _image_summary(value: object | None) -> object | None:
-    """``image_b64`` 的命中值换成字节数摘要。"""
+    """Replace matched ``image_b64`` with byte-count summaries."""
     if value is None:
         return None
     text = text_or_none(value)
@@ -221,7 +221,7 @@ def _field_report(key: str, spec: object, body: object) -> FieldExtraction:
     value: object | None = None
     for item in paths:
         try:
-            # 逐条走同一个 extract_value：优先级语义、json_decode 后缀与 accept 过滤都只有一份实现。
+            # Reuse extract_value for every path: priority semantics/json_decode suffixes/accept filtering have one implementation.
             hit = extract_value({"paths": [item], "accept": accept}, body)
         except JsonPathEvaluationError as exc:
             raise EndpointTestDefinitionError.from_render_failure(key, exc) from exc

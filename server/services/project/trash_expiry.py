@@ -1,4 +1,4 @@
-"""项目回收站与已删除项目的过期清理：应用启动时清一次，之后定期清理。"""
+"""Expired project-trash and deleted-project cleanup: sweep once at application startup, then periodically."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from lib.project import deleted_projects, project_trash
 
 logger = logging.getLogger(__name__)
 
-#: 保留期按天计，每 6 小时清一次足够及时。
+#: Retention is measured in days; a sweep every 6 hours is sufficiently timely.
 SWEEP_INTERVAL_SECONDS = 6 * 3600
 
 
@@ -25,13 +25,13 @@ async def _sweep_loop(layout: DataRootLayout) -> None:
         except Exception:
             logger.warning("项目回收站过期清理列项目失败，等下一轮", exc_info=True)
             project_dirs = []
-        # 按项目各成一个事务：关停时只等正在清理的那个项目；单个项目失败不影响其余项目。
+        # One transaction per project: shutdown waits only for the project being cleaned; one failure does not affect others.
         for project_dir in project_dirs:
             try:
                 count = await run_sync_transaction(project_trash.purge_expired, project_dir)
                 purged += count
                 if count:
-                    # 清除的记录不再持有正式对象；失败时维护循环会再重算一次
+                    # Removed records no longer retain formal objects; on failure, the maintenance loop recalculates them.
                     await reconcile_and_collect(project_dir.name, project_dir)
             except Exception:
                 logger.warning("清理项目回收站过期记录失败 project=%s", project_dir.name, exc_info=True)
@@ -50,7 +50,7 @@ async def _sweep_loop(layout: DataRootLayout) -> None:
 
 
 async def _release_deleted_project(tombstone: str) -> None:
-    """彻底删除的已删除项目不再持有正式对象；失败时维护循环在保留期过后兜底撤下。"""
+    """Permanently deleted projects no longer retain formal objects; on failure, the maintenance loop removes them after the retention period as a fallback."""
     try:
         await release_holder(tombstone)
     except Exception:
@@ -58,7 +58,7 @@ async def _release_deleted_project(tombstone: str) -> None:
 
 
 def start_trash_expiry(layout: DataRootLayout) -> asyncio.Task[None]:
-    """启动后台清理循环：立即清一次，之后每隔 :data:`SWEEP_INTERVAL_SECONDS` 一次。"""
+    """Start the background cleanup loop: sweep immediately, then every :data:`SWEEP_INTERVAL_SECONDS`."""
     return asyncio.get_running_loop().create_task(_sweep_loop(layout), name="project-trash-expiry")
 
 

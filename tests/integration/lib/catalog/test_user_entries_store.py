@@ -1,4 +1,4 @@
-"""用户条目表的装入：读不了或身份对不上的副本跳过，这些条目回到跟随官方。"""
+"""Loading user-entry tables: skip unreadable or identity-mismatched copies; those entries resume following official data."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ async def test_created_flag_is_kept_on_replace_and_loaded(db_factory: async_sess
     async with db_factory() as session:
         repo = CatalogUserEntryRepository(session)
         await repo.put(key, _GOOD, user_created=True)
-        # 后续对副本的修改整条替换，不改变条目由用户新建这件事
+        # Later copy modifications replace the entire entry without changing its user-created origin.
         await repo.put(key, {**_GOOD, "display_name": "Renamed"})
         await session.commit()
 

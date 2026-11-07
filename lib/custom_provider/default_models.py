@@ -1,16 +1,16 @@
-"""自定义供应商调用哪一个模型：请求的模型能否直接使用、默认模型的按桶解析 —— 默认回退与解析期能力闸共用一份过滤。
+"""Custom model selection: direct requested-model usability and bucketed defaults, sharing filters between fallback/capability gates.
 
-默认模型是按任务类型桶分槽的：保存期的唯一性检查（``server/routers/custom_providers.py``
-``_check_unique_defaults``）按 image 能力集判互斥，t2i 与 i2i 各设一个默认是放行的，故
-「provider + media_type」只定位到一组候选行，挑哪一行须再带上桶。桶归属一律经
-``lib.backends.generation_type_buckets.custom_model_buckets`` 判，不在此另写一份能力解读。
+Defaults have task-bucket slots: save-time uniqueness (``server/routers/custom_providers.py``
+``_check_unique_defaults``) uses image-capability disjointness, permitting separate t2i/i2i defaults. Provider + media
+therefore identifies candidates only; choosing rows requires buckets through
+``lib.backends.generation_type_buckets.custom_model_buckets``, never duplicated capability interpretation.
 
-桶未知（视频侧不定桶解析、text / audio 无桶）时不过滤：这些 media_type 的默认在保存期就是
-同一 media_type 至多一个，候选恒不超过一行。
+Unknown buckets (unbucketed video, text/audio) do not filter: saves already guarantee at most one default per media,
+so candidates never exceed one.
 
-生命周期与内置供应商共用一个读模型（``lib.catalog.lifecycle``，docs/adr/0103）：供应商模型按条目绑定或名字对应到
-条目（``lib.custom_provider.model_facts.model_entry``），条目已下线的模型不作默认、不进候选；显式引用了它就报下线错误，
-不回退到默认模型（:func:`requested_model`）。
+Lifecycle shares built-in read models (``lib.catalog.lifecycle``, docs/adr/0103): models bind/name-match entries
+(``lib.custom_provider.model_facts.model_entry``). Discontinued entries cannot default or become candidates; explicit references
+error without default substitution (:func:`requested_model`).
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ if TYPE_CHECKING:
 
 
 def model_lifecycle(model: CustomProviderModel, media_type: str) -> Lifecycle:
-    """供应商模型所对应条目在今天的生命周期；``media_type`` 取调用端点的媒体类型。对应不上条目时为可用。"""
+    """Matching-entry lifecycle today; ``media_type`` is endpoint media. Unmatched entries are available."""
     return entry_lifecycle(model_entry(model.model_id, media_type, model.entry_binding))
 
 
 def callable_models(models: list[CustomProviderModel], media_type: str) -> list[CustomProviderModel]:
-    """滤掉条目已下线的模型行，保持入参顺序：默认模型与候选只来自其余的行。"""
+    """Filter discontinued-entry models, preserving order; defaults/candidates use remaining rows only."""
     return [model for model in models if not model_lifecycle(model, media_type).discontinued]
 
 
@@ -54,15 +54,15 @@ async def requested_model(
     media_type: str,
     submitted_job: bool = False,
 ) -> CustomProviderModel | None:
-    """请求的模型行可以直接用于 ``media_type`` 时返回该行；不存在、端点解析不出或媒体类型不符、已停用时返回 ``None``，
-    由调用方回退该媒体类型（与桶）的默认模型。
+    """Return directly usable requested rows for ``media_type``; ``None`` for missing, unresolved/wrong-media endpoints, or disabled models,
+    letting callers fall back to media/bucket defaults.
 
-    对应的条目已下线时抛 ``ModelDiscontinuedError``（带下线日期与后继），停用的也一样：显式引用了已下线的模型，
-    回退等于替用户换模型，报错让用户自己重新选择。``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询、
-    不发起新的生成），不做这项检查，其余判定不变。
+    Discontinued entries raise ``ModelDiscontinuedError`` with dates/successors, even disabled: fallback would substitute user models,
+    so users reselect. True ``submitted_job`` means resuming submitted tasks, polling only,
+    bypassing discontinuation checks while retaining other decisions.
 
     Raises:
-        ModelDiscontinuedError: 模型所对应的条目今天已下线（``submitted_job`` 为假时）。
+        ModelDiscontinuedError: Matching entries discontinued today when ``submitted_job`` is false.
     """
     model = await CustomProviderRepository(session).get_model_by_ids(db_id, model_id)
     if model is None:
@@ -81,7 +81,7 @@ async def requested_model(
 
 
 async def model_buckets(session: AsyncSession, model: CustomProviderModel) -> frozenset[GenerationTypeBucket]:
-    """模型行具备的任务类型桶；端点已下线 / 解析不出时空集（候选宁缺勿滥）。"""
+    """Model task buckets; empty for retired/unresolved endpoints, preferring missing candidates over invalid ones."""
     try:
         endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
     except ValueError:
@@ -95,16 +95,16 @@ async def model_buckets(session: AsyncSession, model: CustomProviderModel) -> fr
     )
 
 
-#: 桶 → 所属媒体类型，由 ``BUCKETS_BY_MEDIA_TYPE`` 反转得到，不另列一份。
+#: Bucket → media, inverted from ``BUCKETS_BY_MEDIA_TYPE``, never independently listed.
 _MEDIA_TYPE_BY_BUCKET: dict[str, str] = {
     bucket: media_type for media_type, buckets in BUCKETS_BY_MEDIA_TYPE.items() for bucket in buckets
 }
 
 
 async def lacks_bucket(session: AsyncSession, model: CustomProviderModel, generation_type: str) -> bool:
-    """模型行确实产该媒体、但不具备该桶 —— 解析期能力闸的判据。
+    """Whether rows generate the requested media but lack buckets, for resolution capability gates.
 
-    端点解析不出、或端点已改成别的媒体类型时返回 False：那是引用失效，由默认回退接手，不是能力缺失。
+    Unresolved/wrong-media endpoints return False: invalid references belong to fallback, not capability failures.
     """
     buckets = await model_buckets(session, model)
     same_media = BUCKETS_BY_MEDIA_TYPE.get(_MEDIA_TYPE_BY_BUCKET.get(generation_type, ""), ())
@@ -116,7 +116,7 @@ async def filter_by_bucket(
     models: list[CustomProviderModel],
     generation_type: str | None,
 ) -> list[CustomProviderModel]:
-    """保留具备该桶的模型行，保持入参顺序；``generation_type`` 为 None 时原样返回。"""
+    """Keep bucket-capable models in input order; ``generation_type`` None returns unchanged."""
     if generation_type is None:
         return models
     return [model for model in models if generation_type in await model_buckets(session, model)]
@@ -130,13 +130,13 @@ async def resolve_default_model(
     media_type: str,
     generation_type: str | None = None,
 ) -> CustomProviderModel:
-    """取该供应商在该 media_type × 桶上唯一的默认已启用模型；条目已下线的默认模型跳过，按没有设默认处理。
+    """Unique enabled media×bucket defaults, skipping discontinued entries as unspecified defaults.
 
-    零行与多行都 fail loud：挑不出唯一那一行时静默取其中之一等于静默换模型，而多行只在
-    「该桶配了两个默认」这种保存期本该拦住的状态下出现。
+    Zero/multiple rows fail loudly: silently selecting would substitute models. Multiple defaults arise only when
+    save-time prevention failed to reject two defaults in one bucket.
 
     Raises:
-        ValueError: 没有默认模型，或该桶有多个默认模型。
+        ValueError: Missing or multiple bucket defaults.
     """
     candidates = await CustomProviderRepository(session).list_default_models(db_id, media_type)
     candidates = await filter_by_bucket(session, callable_models(candidates, media_type), generation_type)

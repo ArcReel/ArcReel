@@ -3,7 +3,7 @@ import { translate } from "@docusaurus/Translate";
 import { BECOME_SPONSOR_URL, getSponsors, type Sponsor } from "../../data/sponsors";
 import styles from "./styles.module.css";
 
-// 导航栏赞助位：头像一排，悬停或聚焦弹出赞助商卡片。
+// Navbar sponsor slot: a row of avatars; hover or focus opens sponsor cards.
 
 function useLabels() {
   return {
@@ -60,13 +60,13 @@ export default function SponsorsNav({
   onClick,
 }: {
   mobile?: boolean;
-  // 移动端抽屉传入的关闭回调，与内置 navbar 项一样转给链接。
+  // Forward the mobile drawer close callback to links, matching built-in navbar items.
   onClick?: () => void;
 }): ReactNode {
   const labels = useLabels();
   const sponsors = getSponsors();
 
-  // 移动端抽屉放不下浮层，退化为每家一行链接。
+  // The mobile drawer cannot fit the floating panel; fall back to one link per sponsor.
   if (mobile) {
     return sponsors.map((sponsor) => (
       <li key={sponsor.name} className="menu__list-item">

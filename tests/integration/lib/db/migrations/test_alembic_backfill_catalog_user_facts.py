@@ -1,4 +1,4 @@
-"""Alembic 迁移：用户条目副本按升级前生效的规则补齐参考图上限、视频输入方式与参考音频、图片 token 估算基数。"""
+"""Alembic: backfill user-entry copies with preupgrade reference-image limits, video inputs/reference audio, and image-token estimation bases."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _upgrade_with(
     migration_revisions: Callable[[str], tuple[str, str]],
     rows: list[tuple[dict[str, object], bool]],
 ) -> list[tuple[dict[str, object], int, str]]:
-    """在父版本写入 ``(条目, 是否用户新建)``，升到本迁移，按写入顺序读回 ``(条目, user_created, updated_at)``。"""
+    """Insert ``(条目, 是否用户新建)`` at the parent revision, upgrade, and read ``(条目, user_created, updated_at)`` in insertion order."""
     cfg, db_path = alembic_cfg
     revision, parent = migration_revisions("*_backfill_catalog_user_facts.py")
     command.upgrade(cfg, parent)
@@ -73,7 +73,7 @@ def test_seedance_2_copy_keeps_last_frame_and_reference_audio(
 
     facts = parse_entry(entry).facts
     assert isinstance(facts, VideoFacts)
-    # 未收录首帧、尾帧时实例只开首帧；升级前 Seedance 2 接受尾帧，副本上必须显式记下。
+    # Unlisted first/last frames enabled only first frames; preupgrade Seedance 2 accepted last frames, so record that explicitly in copies.
     assert (facts.text_to_video, facts.first_frame, facts.last_frame) == (True, True, True)
     assert facts.max_reference_images == 9
     assert (facts.reference_audio, facts.max_reference_audio_count, facts.max_reference_audio_total_seconds) == (
@@ -92,7 +92,7 @@ def test_gpt_image_2_copy_keeps_output_token_estimate(
 
     facts = parse_entry(entry).facts
     assert isinstance(facts, ImageFacts)
-    # 官方「Calculating costs」计算器里 gpt-image-2 的质量基数。
+    # gpt-image-2 quality bases from the official Calculating costs calculator.
     assert dict(facts.output_token_bases) == {"low": 16, "medium": 48, "high": 96}
 
 
@@ -108,13 +108,13 @@ def test_fields_the_user_filled_are_kept(
     facts = parse_entry(kept).facts
     assert isinstance(facts, VideoFacts)
     assert facts.last_frame is False
-    # 参考音频三项按一组处理：用户填过其中一项，其余两项不补，避免拼出用户没有确认过的组合。
+    # Treat three reference-audio fields as a group: if users set one, do not backfill others into an unconfirmed combination.
     assert (facts.reference_audio, facts.max_reference_audio_count, facts.max_reference_audio_total_seconds) == (
         None,
         1,
         None,
     )
     assert (facts.first_frame, facts.max_reference_images) == (True, 9)
-    # 升级前认不得的名字只有通道的统一回落，没有模型事实可补，副本保持未收录。
+    # Names unknown before upgrade have only channel fallback, no model facts to backfill; leave copies unlisted.
     assert created == unknown
     assert user_created == 1

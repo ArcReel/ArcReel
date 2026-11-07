@@ -1,4 +1,4 @@
-"""Alembic d4f8b1c73a20（tasks.submitted_base_url）双向迁移测试。"""
+"""Bidirectional Alembic d4f8b1c73a20 (tasks.submitted_base_url) migration tests."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _tasks_indexes(db_path: Path) -> set[str]:
 
 
 def test_upgrade_adds_nullable_submitted_base_url(alembic_cfg):
-    """升级加列；存量任务该列为 NULL —— 提交时未记域名，续跑退回按当下配置的域名轮询。"""
+    """Upgrade adds the column with NULL existing tasks; without recorded submission hosts, resume polls current configured hosts."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, DOWN_REVISION)
 
@@ -65,7 +65,7 @@ def test_downgrade_drops_column(alembic_cfg):
 
 
 def test_downgrade_keeps_dedupe_index(alembic_cfg):
-    """降级重建表后去重索引仍在——反射不出的表达式 partial 索引丢了等于去重闸失效。"""
+    """Downgrade table rebuild preserves deduplication indexes; losing unreflectable expression-based partial indexes would disable the deduplication gate."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, REVISION)
     assert "idx_tasks_dedupe_active" in _tasks_indexes(db_path)

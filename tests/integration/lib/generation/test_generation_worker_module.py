@@ -48,61 +48,52 @@ class TestReadIntEnv:
 
 @pytest.fixture
 async def patch_empty_db(db_factory, monkeypatch):
-    """把全局 async_session_factory 换成空内存库，隔离掉真实数据库。
+    """Replace global async_session_factory with empty memory DB, isolating real development databases.
 
-    无 project_name 的 _extract_provider 会用 worker 模块级导入的 async_session_factory 经 ConfigResolver
-    解析全局默认供应商，视频的入队派生与请求投影则在函数内晚导入 ``lib.db`` 上的全局名字；不隔离时
-    它们读真实 dev 库，本机一旦配了其它 ready 供应商，回退断言就被污染。
-    """
+    Without project_name, _extract_provider uses worker-imported async_session_factory through ConfigResolver for global defaults. Video enqueue derivation/projection late-import globals from ``lib.db``. Without isolation, locally configured ready providers would contaminate fallback assertions."""
     bind_session_factory(monkeypatch, db_factory)
     monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", db_factory)
     return db_factory
 
 
 class TestExtractProvider:
-    """_extract_provider 是解析链的薄投影：按 task_type 派发，取 .provider_id。"""
+    """_extract_provider thinly projects the resolution chain: dispatch by task_type and return .provider_id."""
 
     @pytest.mark.usefixtures("patch_empty_db")
     async def test_video_payload_identity_is_advisory_only(self):
-        """分镜视频认领忽略 enqueue payload 的旧身份；无当前配置时只回退限流默认。"""
+        """Storyboard-video claims ignore legacy payload identity; absent current configuration uses rate-limit defaults only."""
         task = {"payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}, "task_type": "video"}
         assert await _extract_provider(task) == DEFAULT_PROVIDER
 
     async def test_image_payload_provider(self):
-        """payload 携带历史 image_provider → 投影取到。"""
+        """Historical payload image_provider supplies projection."""
         task = {"payload": {"image_provider": "gemini-vertex"}, "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
     @pytest.mark.usefixtures("patch_empty_db")
     async def test_default_when_unresolvable(self):
-        """无 project、无 payload、全局未配供应商 → 回退 DEFAULT_PROVIDER（仅供限流）。
+        """Without project, payload or global configuration, use DEFAULT_PROVIDER for rate limiting only.
 
-        必须隔离全局 DB（patch_empty_db）——否则会读真实 dev 库，本机配了其它 ready 供应商时
-        auto-resolve 会返回该供应商而非 DEFAULT_PROVIDER，断言被本机环境污染。
-        """
+        Isolate global DB with patch_empty_db; otherwise ready providers in local development databases replace DEFAULT_PROVIDER via auto-resolution and contaminate assertions."""
         task = {"payload": {}}
         assert await _extract_provider(task) == DEFAULT_PROVIDER
 
     async def test_project_level_video_backend(self, monkeypatch):
-        """项目级 video_backend 优先于全局默认。"""
+        """Project video_backend outranks global defaults."""
         use_worker_project(monkeypatch, {"video_backend": "ark/doubao-seedance-2-0-260128"})
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
     async def test_project_level_image_t2i(self, monkeypatch):
-        """image 投影按代表性 generation_type=t2i 取项目级 image_provider_t2i。"""
+        """Image projection uses representative generation_type=t2i and project image_provider_t2i."""
         use_worker_project(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
     async def test_reference_video_routes_to_video_lane(self, monkeypatch):
-        """reference_video task_type 必须按 video lane 解析 video_backend，而非 image 槽。
+        """reference_video task_type resolves video_backend through video lane, never image slots.
 
-        项目同时配置了不同 provider 的 video_backend（ark）与 image_provider_t2i
-        （gemini-vertex）。reference_video 属于 video lane，认领期 provider 投影须取 ark；
-        若误判为 image lane（按 task_type != "video" 去读 image 槽），会取到纯图片
-        供应商，导致 worker 在 video 通道以 video_max==0 直接把任务标记
-        「供应商不支持 video 生成」。"""
+        Project video_backend Ark differs from image_provider_t2i gemini-vertex. Claim-time projection must choose Ark; treating task_type != "video" as image would choose an image-only provider and immediately fail video_max==0 as unsupported video generation."""
         use_worker_project(
             monkeypatch,
             {
@@ -114,7 +105,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "ark"
 
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """视频单元级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
+        """If unit-level video state cannot be read, use current r2v configuration, never payload enqueue-time pins."""
         use_worker_project(
             monkeypatch,
             {
@@ -136,8 +127,7 @@ class TestExtractProvider:
     async def test_reference_video_routes_by_hydrated_reference_bucket(
         self, tmp_path, monkeypatch, text, expected_provider
     ):
-        """reference_video 投影按 unit 当前实际可用参考图分桶：有图 → r2v 桶 provider，
-        无参考图退化镜头 → i2v 桶 provider，与执行层降级定桶同口径。"""
+        """reference_video projection buckets actual usable references: images choose r2v provider, imageless units i2v, matching execution downgrade."""
         (tmp_path / "characters").mkdir()
         (tmp_path / "characters" / "A.png").write_bytes(b"image")
         project = activate_reference_project(
@@ -210,7 +200,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "dashscope"
 
     async def test_reference_video_script_read_failure_falls_back_to_r2v(self, monkeypatch):
-        """剧本读取失败时投影回退 r2v 代表桶，不冒泡阻断认领。"""
+        """Script-read failure uses representative r2v projection without bubbling out and blocking claims."""
 
         def _load_script(self, name, filename):
             raise ScriptEditError("broken")
@@ -234,8 +224,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "dashscope"
 
     async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
-        """指向已删除/不可读项目的残留任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
-        绝不冒泡阻断认领循环（否则一个坏任务会拖垮整个 worker）。"""
+        """Residual tasks for deleted/unreadable projects fall back to DEFAULT_PROVIDER even if load_project raises; one bad task must not break the entire claim loop."""
 
         def _raising_pm():
             def _load(self, name):
@@ -253,7 +242,7 @@ class TestExtractProvider:
 
 
 class TestExtractProviderAlignsWithExecution:
-    """M5 投影对齐：worker 取到的 provider_id 与执行层解析在同一 project/payload 下一致。"""
+    """M5 projection alignment: worker provider_id matches execution resolution for identical project/payload."""
 
     async def test_image_alignment(self, monkeypatch):
         from lib.config.resolver import ConfigResolver
@@ -281,7 +270,7 @@ class TestExtractProviderAlignsWithExecution:
 
 
 class TestExecuteTaskPollTimeout:
-    """派发时读一次全局轮询超时并写进任务字典下传；只有视频两条 lane 需要它。"""
+    """Read global polling timeout once at dispatch and forward it in task dicts; only the two video lanes need it."""
 
     @pytest.fixture
     def patch_settings_db(self, db_factory, monkeypatch):
@@ -393,7 +382,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_reference_task_requeues_when_execution_provider_changes(self, monkeypatch, worker_db):
-        """执行入口解析到别的 provider 时不占旧槽提交，而是刷新投影并回队重认领。"""
+        """If execution resolves another provider, never submit under the old slot; refresh projection and requeue for reclaim."""
 
         from lib.generation.generation_queue import DispatchProviderChanged
 
@@ -435,7 +424,7 @@ class TestGenerationWorker:
             raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id="minimax")
 
         monkeypatch.setattr(stub_executors, "generation", _changed)
-        # 库里没有这行 running 记录，回队的 guarded UPDATE 命中 0 行——回队失败正是本用例的前提
+        # No running row exists; guarded requeue UPDATE affects zero rows, the premise of this case.
 
         await worker._process_task(
             {"task_id": "ref-provider-changed", "task_type": "reference_video"},
@@ -449,7 +438,7 @@ class TestGenerationWorker:
                 '[dispatch_provider_requeue_failed] {"actual_provider_id": "minimax", "claimed_provider_id": "ark"}',
             )
         ]
-        # 终态写入命中 0 行时任务保持原状，不被改判为打断
+        # Zero-row terminal writes preserve task state rather than reclassify it interrupted.
         assert queue.interrupted == []
 
     @pytest.mark.asyncio
@@ -496,10 +485,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_encodes_key_and_params(self, monkeypatch):
-        """apply_unit_video_assets 经异步任务队列（非 upload_unit_video 同步路由）抛出时，
-        error_message 落成可翻译的 [key] {params} 结构而非 str(exc) 的固定中文，任务状态
-        接口按 Accept-Language 渲染时才不会给 en/vi 用户漏出中文；params 一并落库才能在
-        渲染侧还原成完整的翻译占位符替换（如 resolve_items 的 kind/type_name）。"""
+        """If apply_unit_video_assets raises through async task queues rather than synchronous upload_unit_video, persist translatable [key] {params}, not fixed Chinese str(exc). Accept-Language rendering must serve en/vi correctly; retain params for complete placeholders such as resolve_items kind/type_name."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -526,7 +512,7 @@ class TestGenerationWorker:
         )
 
     async def test_task_whose_project_was_deleted_after_its_last_write_does_not_succeed(self, monkeypatch):
-        """执行器已写完、返回之前项目才被删除：产物随项目目录一起删掉了，任务不能报成功。"""
+        """If projects are deleted after executor writes but before return, artifacts disappear with directories and tasks cannot report success."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -543,9 +529,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_unregistered_key_falls_back(self, monkeypatch):
-        """两份登记（errors.py 的翻译 key、task_failure.FAILURE_CODE_KEYS 的 worker 编码表）
-        靠约定同步，非运行时校验——新 raise 点忘了同步登记时，encode_failure 对未登记 key
-        抛 KeyError 不能打断 mark_task_failed，否则任务会卡在 running 而非落终态。"""
+        """Translation keys in errors.py and worker FAILURE_CODE_KEYS rely on coordinated registration, not runtime validation. Missing-code encode_failure KeyError must not interrupt mark_task_failed or strand tasks running."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -565,8 +549,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_circular_params_falls_back(self, monkeypatch):
-        """params 含循环引用时 json.dumps 抛 ValueError（而非 TypeError）——同一条降级路径
-        也要接住这个分支，否则序列化失败照样打断 mark_task_failed，任务卡在 running。"""
+        """Circular params make json.dumps raise ValueError, not TypeError. Handle the same fallback or serialization errors would interrupt mark_task_failed and strand running tasks."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -592,7 +575,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_task_executor_cancelled_error_lands_cancelled(self, worker_db):
-        """执行器抛 CancelledError（进程级打断）：任务不停在 running，落 cancelled 后重新抛出。"""
+        """Executor CancelledError settles cancelled before reraising, never leaving running."""
         await seed_running_task(worker_db, "tc", task_type="storyboard", media_type="image")
 
         async def _cancelled(_task, *, claimed_provider_id):
@@ -612,8 +595,8 @@ class TestGenerationWorker:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("outcome", ["succeeded", "failed"])
     async def test_process_task_zero_row_terminal_write_leaves_task_untouched(self, worker_db, outcome: str):
-        """终态写入命中 0 行（任务已不在 running）：该写入不生效，任务不被改判为 cancelled。"""
-        # 行处于 queued：终态写入的守卫只放行 running，而打断兜底会把 queued 翻成 cancelled
+        """Zero-row terminal writes mean tasks already left running; leave state unchanged rather than reclassify cancelled."""
+        # Row is queued; terminal guards accept only running, while interruption fallback would wrongly turn queued into cancelled.
         await seed_running_task(worker_db, "t0rows", status="queued", started_at=None)
 
         async def _execute(_task, *, claimed_provider_id):
@@ -633,7 +616,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_stop_waits_for_running_task_to_finish_as_succeeded(self, concurrent_session_factory, monkeypatch):
-        """服务关停不取消在跑任务：stop 等它跑完，任务落 succeeded；关停期间一直是 running。"""
+        """Shutdown never cancels running tasks: stop awaits completion and succeeded, retaining running throughout shutdown."""
         bind_safe_session_factory(monkeypatch, concurrent_session_factory)
         worker_db = concurrent_session_factory
         await seed_running_task(worker_db, "shutdown-run", task_type="storyboard", media_type="image")
@@ -659,7 +642,7 @@ class TestGenerationWorker:
         )
         worker._slots.register("test", "image", "shutdown-run", running)
 
-        # 探针占用：关停对全部在跑执行体挂完成回调时置位，标志 stop 已进入「等在跑任务」
+        # Occupancy probe fires when stop attaches completion callbacks to all running executors, indicating the waiting phase.
         awaiting_inflight = asyncio.Event()
 
         class _InflightProbe(asyncio.Future):
@@ -693,7 +676,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_absorbs_cancelled_error(self):
-        """被打断的执行体被 drain：不抛、从台账移除，并由 drain 端兜底落终态。"""
+        """Drain interrupted executors without raising, remove occupancy and provide terminal-state fallback."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -704,19 +687,19 @@ class TestGenerationWorker:
 
         t = asyncio.create_task(_long())
         t.cancel()
-        await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
+        await asyncio.gather(t, return_exceptions=True)  # Drive to done(cancelled), consuming cancellation.
         assert t.cancelled()
         worker._slots.register("test", "video", "tid", t)
 
-        # 同步判定 .cancelled()：不 await，不抛 CancelledError，task 已被 drain 移除。
+        # Check .cancelled() synchronously, without awaiting/raising CancelledError; drain already removed the task.
         await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "video") == 0
-        # 子任务来不及自落终态时，drain 端兜底落终态。
+        # If subtasks cannot finalize themselves, drain settles terminal state.
         assert queue.interrupted == ["tid"]
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_drains_success_and_failure(self):
-        """非打断路径：成功 task 走 .result() 无异常，失败 task 走 except 分支，均不触发兜底。"""
+        """Noncancelled success reads .result(); failures enter except; neither invokes cancellation fallback."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -734,14 +717,14 @@ class TestGenerationWorker:
         worker._slots.register("test", "image", "ok", ok_t)
         worker._slots.register("test", "video", "boom", boom_t)
 
-        await worker._drain_finished_tasks()  # 不抛
+        await worker._drain_finished_tasks()  # Must not raise.
         assert worker._slots.occupied("test", "image") == 0
         assert worker._slots.occupied("test", "video") == 0
         assert queue.interrupted == []
 
     @pytest.mark.asyncio
     async def test_drain_fallback_terminal_write_failure_does_not_propagate(self):
-        """drain 端兜底落终态自身抛错时只 warning，不冒泡（不挂掉主循环）。"""
+        """If drain finalization fallback raises, warn only without breaking the main loop."""
 
         class _RaisingQueue(FakeWorkerQueue):
             async def mark_task_interrupted(self, task_id):
@@ -757,17 +740,17 @@ class TestGenerationWorker:
 
         t = asyncio.create_task(_long())
         t.cancel()
-        await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
+        await asyncio.gather(t, return_exceptions=True)  # Drive to done(cancelled), consuming cancellation.
         assert t.cancelled()
         worker._slots.register("test", "video", "tid", t)
 
-        # 兜底抛错被 except 吞掉，drain 不抛、task 仍被移除
+        # except absorbs fallback errors; drain neither raises nor retains the task.
         await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "video") == 0
 
     @pytest.mark.asyncio
     async def test_drain_lands_cancelled_when_interruption_hits_before_process_task_try(self, monkeypatch):
-        """打断落在 _process_task 进 try 之前（协程尚未开始执行）：drain 端兜底落终态。"""
+        """Cancellation before _process_task enters try, even before coroutine execution, receives drain terminal fallback."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue,
@@ -787,14 +770,14 @@ class TestGenerationWorker:
             name="generation-video-tid",
         )
         worker._slots.register("test", "video", "tid", t)
-        t.cancel()  # 协程还没被调度过，打断落在 try 之前
+        t.cancel()  # Coroutine has never been scheduled; cancellation precedes try.
 
         await worker.start()
         await asyncio.wait_for(queue.claim_after_interruption.wait(), timeout=2.0)
 
-        # _process_task 没机会落终态（打断在 try 之前）→ drain 端兜底
+        # _process_task cannot finalize before try; drain provides fallback.
         assert queue.interrupted == ["tid"]
-        # 主循环仍存活
+        # Main loop remains alive.
         assert worker._main_task is not None
         assert not worker._main_task.done()
 
@@ -802,7 +785,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_run_loop_survives_inflight_task_interruption(self, monkeypatch):
-        """单个执行体被打断：任务落终态，但 worker 主循环不退出，显式 stop 才退出。"""
+        """Interrupting one executor finalizes its task while the main loop continues until explicit stop."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -814,7 +797,7 @@ class TestGenerationWorker:
 
         async def _block(_task, **_kwargs):
             started.set()
-            await asyncio.sleep(10)  # 模拟长时间运行的生成任务
+            await asyncio.sleep(10)  # Simulate long-running generation.
 
         monkeypatch.setattr(stub_executors, "generation", _block)
 
@@ -825,14 +808,14 @@ class TestGenerationWorker:
         worker._slots.register("test", "video", "tid", t)
 
         await worker.start()
-        await started.wait()  # 确保 _process_task 已进入 execute（_extract_provider 已完成）
+        await started.wait()  # Ensure _process_task reached execute, after _extract_provider.
 
         t.cancel()
         await asyncio.wait_for(queue.claim_after_interruption.wait(), timeout=2.0)
 
-        # _process_task 自落终态后 drain 端再兜底一次，守卫保证第二次无副作用
+        # Drain retries finalization after _process_task; guards make second attempts side-effect-free.
         assert set(queue.interrupted) == {"tid"}
-        # 主循环吸收 CancelledError 后仍存活
+        # Main loop survives absorbed CancelledError.
         assert worker._main_task is not None
         assert not worker._main_task.done()
 
@@ -842,7 +825,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_run_loop_survives_consecutive_interruptions_and_keeps_claiming(self, monkeypatch):
-        """连续打断多个 inflight 执行体后，主循环仍存活并能继续 claim 新任务。"""
+        """After multiple in-flight interruptions, the loop remains alive and can claim new tasks."""
 
         class _GatedQueue(FakeWorkerQueue):
             def __init__(self):
@@ -898,24 +881,24 @@ class TestGenerationWorker:
             running.append(t)
 
         await worker.start()
-        await all_entered.wait()  # 等三个任务都进入 execute
+        await all_entered.wait()  # Await all three tasks entering execute.
 
         for t in running:
             t.cancel()
         await asyncio.gather(*running, return_exceptions=True)
 
-        # 主循环存活 + 三个任务都落终态
+        # Main loop survives and all three tasks reach terminal state.
         assert worker._main_task is not None
         assert not worker._main_task.done()
         assert set(vid_ids) <= set(queue.interrupted)
 
-        # 打断后仍能 claim 并 dispatch 新任务
+        # After interruption, continue claiming/dispatching new tasks.
         queue.allow_new = True
         await asyncio.wait_for(fresh_started.wait(), timeout=2.0)
         assert queue.new_dispatched is True
         assert "fresh-img" in worker._slots.active_task_ids()
 
-        # 收尾：放行 fresh-img 后正常停机
+        # Finalize: release fresh-img, then stop normally.
         release.set()
         await asyncio.wait_for(worker.stop(), timeout=2.0)
         assert queue.released
@@ -938,7 +921,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_run_loop_survives_lease_renewal_error_and_keeps_claiming(self):
-        """续约 lease 时连接池超时之类的错误只让这一轮失败，主循环继续续约、继续认领。"""
+        """Lease-renewal errors such as pool timeouts fail only that cycle; keep renewing and claiming."""
 
         class _FlakyLeaseQueue(FakeWorkerQueue):
             def __init__(self):
@@ -977,7 +960,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_cycle_error_after_claim_rescans_orphans_and_settles_claimed_task(self):
-        """认领之后、登记进槽位之前抛错：这条 running 行由下一次持有 lease 时的孤儿重扫收口。"""
+        """Errors after claim but before slot registration leave running rows for orphan rescanning on the next lease ownership."""
 
         class _ClaimOnceQueue(FakeWorkerQueue):
             def __init__(self):
@@ -990,7 +973,7 @@ class TestGenerationWorker:
                 if not self._pending:
                     return None
                 task = self._pending.pop()
-                # 认领即把行改成 running：之后的孤儿扫描会在库里看到它。
+                # Claim immediately marks running; orphan scans subsequently see it in DB.
                 self._orphans.append({**task, "status": "running"})
                 return task
 
@@ -1040,7 +1023,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_orphan_rescan_after_cycle_error_skips_tasks_still_active_in_slots(self):
-        """出错后的重扫排除本进程槽位里仍在执行的任务：不标失败，也不重复接续。"""
+        """Post-error rescans exclude tasks still executing in this process, without failure or duplicate resume."""
 
         class _FlakyLeaseQueue(FakeWorkerQueue):
             def __init__(self):
@@ -1083,7 +1066,7 @@ class TestGenerationWorker:
 
         worker._recovery.dispatch_resumable = _spy_dispatch
 
-        # 本进程正在执行的两条任务：库里同样是 running。
+        # Both tasks executing in this process are also running in DB.
         busy = asyncio.get_running_loop().create_future()
         worker._slots.register("test", "image", "img-busy", busy)
         worker._slots.register("test", "video", "vid-busy", busy)
@@ -1167,13 +1150,9 @@ class TestGenerationWorker:
     # _pool_full_providers
     # ------------------------------------------------------------------
     def test_pool_full_providers_sources_from_occupancy_with_cap_guard(self):
-        """池满黑名单源 = 有占用的 provider；cap==0 守卫短路降级 lane 的在跑占用。
+        """Full-pool blacklists start from occupied providers; cap==0 skips downgraded lanes' running occupancy.
 
-        新设计下黑名单源是 ``occupied_providers``，无占用的 provider 根本不会到达
-        ``cap > 0`` 守卫——所以守卫唯一可达场景是「有占用 + cap==0」（运行中 reload
-        把某 lane 降级为不支持）。这类 provider 必须 *不* 进黑名单：其在跑任务靠主循环
-        drain，新任务走 ``_claim_tasks`` 的 cap==0 fail-fast，而非被 SQL 静默 drop。
-        """
+        Only ``occupied_providers`` reach ``cap > 0``, so the guard's reachable case is occupied + zero capacity after reload disables a lane. Exclude such providers from blacklists: drain existing tasks normally; new tasks fail fast through ``_claim_tasks`` cap==0 rather than silently disappearing through SQL filters."""
         loop = asyncio.new_event_loop()
         dummy = loop.create_future()
         dummy.set_result(None)
@@ -1182,15 +1161,15 @@ class TestGenerationWorker:
             queue=FakeWorkerQueue(),
             capacity=capacity_table(
                 {
-                    "full": {"image": 1, "video": 0},  # cap=1 占 1 → 满
-                    "roomy": {"image": 2, "video": 0},  # cap=2 占 1 → 有空
-                    "downgraded": {"image": 0, "video": 0},  # 占 1 但 cap=0（被 reload 降级）
+                    "full": {"image": 1, "video": 0},  # Capacity one with occupancy one is full.
+                    "roomy": {"image": 2, "video": 0},  # Capacity two with occupancy one has room.
+                    "downgraded": {"image": 0, "video": 0},  # Occupancy one but capacity zero after reload downgrade.
                 }
             ),
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
-        # 三个 provider 在 image lane 都有占用 → 都会进入 occupied_providers，都到达守卫
+        # All three providers occupy image lanes, enter occupied_providers and reach the guard.
         worker._slots.register("full", "image", "t-full", dummy)
         worker._slots.register("roomy", "image", "t-roomy", dummy)
         worker._slots.register("downgraded", "image", "t-down", dummy)
@@ -1198,18 +1177,18 @@ class TestGenerationWorker:
         full_image = worker._pool_full_providers("image")
         assert "full" in full_image, "cap>0 且占满应进黑名单"
         assert "roomy" not in full_image, "cap>0 但有空不进黑名单"
-        # 关键：守卫真正被执行——downgraded 有占用 → 到达 cap>0 守卫 → 短路排除。
-        # 若直译旧测（无占用的 cap==0 provider），它根本不在 occupied_providers 里，
-        # 守卫一行都不会跑，测试会"假通过"。
+        # Crucial: downgraded occupancy actually reaches cap>0 and is excluded.
+        # Repeating the old case with unoccupied cap==0 would never enter occupied_providers,
+        # execute no guard line and falsely pass.
         assert "downgraded" not in full_image, "cap==0 守卫必须短路，不让降级 lane 进黑名单"
 
-        # video lane 无任何占用 → 黑名单为空（无占用就不可能"满"）
+        # No video occupancy means empty blacklist: unoccupied lanes cannot be full.
         assert worker._pool_full_providers("video") == frozenset()
         loop.close()
 
 
 class _CountingProjection:
-    """按项目现状推算 provider 的替身：返回 ``current`` 并记下被推算的任务。"""
+    """Current-project provider projection substitute returning ``current`` and recording projected tasks."""
 
     def __init__(self, current: str) -> None:
         self.current = current
@@ -1245,7 +1224,7 @@ async def _task_row(factory, task_id: str) -> dict[str, Any]:
         return {"status": row.status, "provider_id": row.provider_id, "queued_at": row.queued_at}
 
 
-# (media_type, task_type)：图片、音频、视频三种媒体类型的代表任务；视频再覆盖参考生视频。
+# (media_type, task_type) representatives for image/audio/video, plus reference-to-video coverage.
 _MEDIA_TASKS = [
     pytest.param("image", "storyboard", id="image"),
     pytest.param("audio", "tts", id="audio"),
@@ -1255,11 +1234,9 @@ _MEDIA_TASKS = [
 
 
 class _GatedExecution:
-    """执行替身：认领周期结束后才放行执行体，记录每次执行收到的认领槽。
+    """Execution substitute released only after claim cycles, recording every received claim slot.
 
-    内存库的 session 共用一条连接，执行体落库若与同一周期里的下一次认领交错，会被那次认领的回滚
-    一并撤销；放行握手让两者先后发生。``drift_to`` 给定时，认领槽与它不同即按执行入口漂移抛错。
-    """
+    Memory DB sessions share a connection; execution writes interleaved with the next claim in that cycle could be undone by its rollback. Release handshake orders them. If ``drift_to`` is supplied, differing slots raise execution-entry drift."""
 
     def __init__(self, *, drift_to: str | None = None) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -1276,7 +1253,7 @@ class _GatedExecution:
         return {"ok": True}
 
     async def cycle(self, worker: GenerationWorker, *, keep: tuple[asyncio.Future[Any], ...] = ()) -> None:
-        """跑一个认领周期，放行并等完本周期派发的执行体（``keep`` 是测试自己登记的占位占用）。"""
+        """Run one claim cycle, release and await its executors; ``keep`` is test-registered placeholder occupancy."""
         await worker._claim_tasks()
         self._released.set()
         await asyncio.gather(*[t for t in worker._slots.all_active_tasks() if t not in keep])
@@ -1285,7 +1262,7 @@ class _GatedExecution:
 
 
 class TestClaimByRecordedProvider:
-    """图片、音频、视频认领只按排队时记录的 provider 做池满过滤与槽位归属；项目现状由执行入口核对。"""
+    """Image/audio/video claiming uses queued provider records alone for full-pool filtering and slot ownership; execution checks current projects."""
 
     @staticmethod
     def _worker(queue, projection, limits: dict[str, dict[str, int]], media_type: str) -> GenerationWorker:
@@ -1390,7 +1367,7 @@ class TestClaimByRecordedProvider:
     async def test_recorded_provider_that_no_longer_supports_the_media_is_projected_once_and_recorded(
         self, monkeypatch, worker_db, media_type: str, task_type: str
     ):
-        """记录的供应商排队期间去掉了该媒体能力：按现状推算一次并写回，任务不判 provider_unsupported_media。"""
+        """If recorded providers lose media support while queued, project current state once and persist it; do not fail provider_unsupported_media."""
         execution = _GatedExecution()
         monkeypatch.setattr(stub_executors, "generation", execution)
         projection = _CountingProjection("minimax")
@@ -1412,7 +1389,7 @@ class TestClaimByRecordedProvider:
     async def test_provider_edited_while_queued_is_requeued_by_execution_entry_then_runs_on_new_slot(
         self, monkeypatch, worker_db, media_type: str, task_type: str
     ):
-        """项目改了供应商：认领仍占记录的槽，执行入口发现漂移后改记录并原位回队，下一周期走新槽。"""
+        """After project provider edits, claim under recorded slots; execution detects drift, updates records and requeues in place, taking new slots next cycle."""
         execution = _GatedExecution(drift_to="grok")
         monkeypatch.setattr(stub_executors, "generation", execution)
         projection = _CountingProjection("grok")
@@ -1422,7 +1399,7 @@ class TestClaimByRecordedProvider:
         await _seed_queued(
             worker_db, "task-edited", media_type=media_type, task_type=task_type, provider_id="ark", order=1
         )
-        # 排在它后面、已记录新供应商的任务：回队后被编辑的任务仍排在它前面，先占到新槽。
+        # A later task already records the new provider; requeued edited tasks retain earlier priority and claim that new slot first.
         await _seed_queued(
             worker_db, "task-later", media_type=media_type, task_type=task_type, provider_id="grok", order=2
         )
@@ -1451,10 +1428,10 @@ class TestClaimByRecordedProvider:
 
 
 class TestOrphanOnceAndLeaseFlap:
-    """orphan 一次性扫描 + lease flap 阈值。"""
+    """One-time orphan scanning and lease-flap threshold."""
 
     def _build_worker(self) -> tuple[GenerationWorker, FakeWorkerQueue, list[int]]:
-        """构造 worker；返回 (worker, queue, scan_count)。scan_count 记录扫描次数。"""
+        """Construct workers and return (worker, queue, scan_count), counting scans."""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
@@ -1464,7 +1441,7 @@ class TestOrphanOnceAndLeaseFlap:
         async def _spy_scan():
             scan_count.append(1)
 
-        # 替换孤儿扫描入口为 spy，便于精确断言扫描次数
+        # Replace orphan scanning with a spy for exact call-count assertions.
         worker._recovery.handle_orphans = _spy_scan
         return worker, queue, scan_count
 
@@ -1474,7 +1451,7 @@ class TestOrphanOnceAndLeaseFlap:
         worker._owns_lease = True
         worker._orphan_handled_once = False
 
-        # 模拟主循环里那段守卫
+        # Simulate the main-loop guard.
         if worker._owns_lease and not worker._orphan_handled_once:
             await worker._recovery.handle_orphans()
             worker._orphan_handled_once = True
@@ -1484,7 +1461,7 @@ class TestOrphanOnceAndLeaseFlap:
 
     @pytest.mark.asyncio
     async def test_orphan_not_rescanned_in_steady_state(self):
-        """稳定持 lease 多拍主循环：扫描仅 1 次。"""
+        """Stable lease across multiple cycles scans only once."""
         worker, _, scan_count = self._build_worker()
         worker._owns_lease = True
 
@@ -1497,26 +1474,26 @@ class TestOrphanOnceAndLeaseFlap:
 
     @pytest.mark.asyncio
     async def test_orphan_does_not_rescan_on_short_lease_flap(self):
-        """lease flap < lease_ttl：不重扫。"""
+        """Lease flap below lease_ttl never rescans."""
         worker, _, scan_count = self._build_worker()
         worker.lease_ttl = 10.0
 
-        # 首次获得 lease 扫一次
+        # First lease acquisition scans once.
         worker._owns_lease = True
         await worker._recovery.handle_orphans()
         worker._orphan_handled_once = True
 
-        # 模拟丢 lease 1 秒后又夺回（短 flap）
+        # Simulate lease loss for one second and reacquisition (short flap).
         import time as _time
 
         worker._lease_lost_monotonic = _time.monotonic() - 1.0
-        # 应用 _run_loop 中的逻辑片段
+        # Apply _run_loop logic.
         lost_duration = _time.monotonic() - worker._lease_lost_monotonic
         if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
             worker._orphan_handled_once = False
         worker._lease_lost_monotonic = None
 
-        # flap 时长远小于 30s，仍是 handled_once
+        # Flap is far below 30s, retaining handled_once.
         assert worker._orphan_handled_once is True
         if worker._owns_lease and not worker._orphan_handled_once:
             await worker._recovery.handle_orphans()
@@ -1524,7 +1501,7 @@ class TestOrphanOnceAndLeaseFlap:
 
     @pytest.mark.asyncio
     async def test_orphan_does_not_rescan_below_3x_ttl(self):
-        """lease_ttl < lost < 3×lease_ttl：仍不重扫（边界）。"""
+        """lease_ttl < lost < 3×lease_ttl still does not rescan (boundary)."""
         worker, _, scan_count = self._build_worker()
         worker.lease_ttl = 10.0
 
@@ -1534,7 +1511,7 @@ class TestOrphanOnceAndLeaseFlap:
 
         import time as _time
 
-        # lost = 15s（介于 ttl=10s 与 3×ttl=30s 之间）
+        # Lost 15s lies between TTL ten and 3×TTL thirty.
         worker._lease_lost_monotonic = _time.monotonic() - 15.0
         lost_duration = _time.monotonic() - worker._lease_lost_monotonic
         if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
@@ -1548,7 +1525,7 @@ class TestOrphanOnceAndLeaseFlap:
 
     @pytest.mark.asyncio
     async def test_orphan_rescans_after_real_lease_handoff(self):
-        """lost > 3×lease_ttl：清零开关，下次重扫。"""
+        """Lost >3×lease_ttl resets the switch and rescans next time."""
         worker, _, scan_count = self._build_worker()
         worker.lease_ttl = 10.0
 
@@ -1558,7 +1535,7 @@ class TestOrphanOnceAndLeaseFlap:
 
         import time as _time
 
-        # lost = 40s > 30s 阈值，认为另一进程曾持过 lease
+        # Lost 40s exceeds thirty, implying another process may have held the lease.
         worker._lease_lost_monotonic = _time.monotonic() - 40.0
         lost_duration = _time.monotonic() - worker._lease_lost_monotonic
         if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
@@ -1573,10 +1550,10 @@ class TestOrphanOnceAndLeaseFlap:
 
 
 class TestStartupInterruptedCallSettlement:
-    """启动收口挂在孤儿处理旁：同一 lease 内只跑一次，且跑在孤儿处理之后。"""
+    """Startup convergence runs once per lease beside orphan handling, after orphan processing."""
 
     class _CyclingQueue(FakeWorkerQueue):
-        """认领若干轮后置位事件，让测试等到主循环真的转了几圈再断言。"""
+        """After several claim cycles, set an event so assertions wait for actual main-loop iterations."""
 
         def __init__(self, cycles: int = 3):
             super().__init__()
@@ -1624,7 +1601,7 @@ class TestStartupInterruptedCallSettlement:
 
     @pytest.mark.asyncio
     async def test_rescan_after_lease_loss_keeps_taskless_calls(self):
-        """首次收口只收 worker 构造之前发起的无任务行；之后的重扫只收绑定任务的行。"""
+        """First convergence handles only taskless calls started before worker construction; later rescans handle task-bound calls only."""
         queue = self._CyclingQueue()
         seen: list[datetime | None] = []
 
@@ -1645,7 +1622,7 @@ class TestStartupInterruptedCallSettlement:
         assert seen[0] is not None
         assert before <= seen[0] <= after
 
-        # lease 丢失超过阈值后的重扫：进程仍存活，无任务身份的行可能正在本进程里跑。
+        # Rescan after threshold lease loss: this process lives, and rows without task identities may still execute here.
         worker._orphan_handled_once = False
         queue._cycles = 0
         queue.cycled.clear()
@@ -1654,7 +1631,7 @@ class TestStartupInterruptedCallSettlement:
 
     @pytest.mark.asyncio
     async def test_default_wiring_flips_orphan_pending_call_row(self, worker_db):
-        """不注入替身时走真实 Ledger，落在队列那处接线的库里：无任务身份的 pending 行翻成 failed[interrupted]。"""
+        """Without substitutes, real Ledger uses queue-wired DB and settles taskless pending rows failed[interrupted]."""
         from lib.db.repositories.usage_repo import UsageRepository
 
         async with worker_db() as session:

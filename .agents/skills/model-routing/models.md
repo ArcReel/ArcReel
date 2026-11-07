@@ -1,10 +1,10 @@
-# 模型映射
+# Model mapping
 
-Claude 模型用 Claude Code，GPT 模型用 Codex。Fable 5.5 正式可用后替换表中的 Fable 5.1。
+Use Claude Code for Claude models and Codex for GPT models. Replace Fable 5.1 in the table when Fable 5.5 becomes generally available.
 
 ## Category
 
-| Category | 模型 | Effort | Fallback |
+| Category | Model | Effort | Fallback |
 |---|---|---|---|
 | `quick` | `claude-sonnet-5-5` | medium | `gpt-6.1-terra` · medium |
 | `unspecified-low` | `claude-opus-5-5` | medium | `gpt-6.1-sol` · medium |
@@ -19,7 +19,7 @@ Claude 模型用 Claude Code，GPT 模型用 Codex。Fable 5.5 正式可用后�
 
 ## Review
 
-| 实现者 Harness | Reviewer | Effort |
+| Implementer Harness | Reviewer | Effort |
 |---|---|---|
 | Codex | Claude Code · `claude-opus-5-5` | high |
 | Claude Code | Codex · `gpt-6-astra` | high |

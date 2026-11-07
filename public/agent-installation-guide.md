@@ -1,31 +1,31 @@
-# ArcReel 外部 Agent 接入任务
+# ArcReel external Agent connection task
 
-你正在帮助用户把当前 Agent 宿主连接到 ArcReel。完成以下步骤后再结束任务；项目创作流程由安装后的 skill 与 MCP 工具说明提供。
+Help the user connect the current Agent host to ArcReel. Complete these steps before ending; installed skills and MCP tool descriptions provide subsequent creative-workflow guidance.
 
-## 1. 安装 ArcReel skills
+## 1. Install ArcReel skills
 
-在当前 Agent 的工作目录运行：
+Run in this Agent’s working directory:
 
 ```bash
 npx skills add ArcReel/skills
 ```
 
-确认安装结果同时包含 `setup-arcreel-skills` 与 `video-workflow`。
+Verify both `setup-arcreel-skills` and `video-workflow` are installed.
 
-## 2. 获取接入信息
+## 2. Obtain connection information
 
-让用户打开 [ArcReel 设置页的「访问令牌」]({{BASE_URL}}/app/settings?section=access-tokens)，创建一个 `arc-` 前缀的访问令牌（即 API Key）。完整令牌只显示一次；用户可以把它提供给其明确选择的当前 Agent。`setup-arcreel-skills` 会按宿主与工作区的本地配置惯例持久化同一连接，供后续会话与 ArcReel skills 复用。
+Ask the user to open [Access tokens in ArcReel settings]({{BASE_URL}}/app/settings?section=access-tokens) and create an `arc-` prefixed token (API key). The full token appears only once; users may provide it to the current Agent they explicitly selected. `setup-arcreel-skills` persists the same connection through host/workspace local conventions for future sessions and skills.
 
-MCP 端点：
+MCP endpoint:
 
 ```text
 {{BASE_URL}}/mcp
 ```
 
-## 3. 执行接线
+## 3. Connect
 
-安装完成后立即使用 `setup-arcreel-skills` skill，按其指引配置 MCP 端点、Bearer 访问令牌并验证连通；`video-workflow` 会在后续创作请求中按需触发。
+Immediately use `setup-arcreel-skills` after installation to configure the MCP endpoint, Bearer token, and connectivity. `video-workflow` triggers later for creative requests.
 
-## 4. 完成判据
+## 4. Completion
 
-`list_projects` 调用成功并返回结构化 `projects` 列表，且宿主 MCP 与工作区配置指向同一连接时即完成；空列表也是成功。
+`list_projects` succeeds with structured `projects`, and host MCP/workspace configuration use the same connection. An empty list is successful.

@@ -9,6 +9,6 @@ paths:
   - "**/CLAUDE.md"
 ---
 
-# 中文文案
+# Chinese copy
 
-编写或修改中文界面文案、用户文档与 Agent 文档前，用 Skill 工具调用 `tech-doc-style-chinese`，并读 `docs/standards/copy.md`；改完可用 `uv run python .agents/skills/tech-doc-style-chinese/scripts/lint_copy_rules.py <文件>` 自查。
+Only when writing or editing Chinese passages in interface copy, user documentation, or Agent documentation, invoke `tech-doc-style-chinese` with the Skill tool and read `docs/standards/copy.md`. Afterwards, you can self-check with `uv run python .agents/skills/tech-doc-style-chinese/scripts/lint_copy_rules.py <文件>`.

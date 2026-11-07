@@ -1,8 +1,7 @@
-"""新建项目的旁白交付配置（docs/adr/0089）。
+"""Narration-delivery configuration for new projects (docs/adr/0089).
 
-Web 创建向导与 Agent 建项工具共用：TTS 配音项目省略的模型、音色与配音语速以全局默认预填，
-写入 project.json 后成为项目快照，此后全局默认的变化不再影响这个项目。
-"""
+Shared by the Web creation wizard and Agent project-creation tool: fill omitted TTS model, voice and speech rate
+from global defaults. Once written to project.json, they form a project snapshot unaffected by later global changes."""
 
 from __future__ import annotations
 
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class NarrationSettingsInput:
-    """建项请求里的旁白配置。``provided`` 列出请求显式给出的 TTS 字段，其余字段按全局默认预填。"""
+    """Narration configuration in a project-creation request. ``provided`` lists explicitly supplied TTS fields; fill others from global defaults."""
 
     delivery: NarrationDelivery = POST_PRODUCTION
     audio_backend: str | None = None
@@ -43,7 +42,7 @@ class NarrationSettingsInput:
 
 
 def validate_tts_backend(value: str) -> str:
-    """TTS 模型必须是完整的 ``provider/model``，供应商已知，且注册表登记的模型是音频模型。"""
+    """The TTS model must be a complete ``provider/model`` with a known provider and an audio-model registry entry."""
 
     pair = parse_tts_backend(value)
     if pair is None:
@@ -67,18 +66,18 @@ def validate_tts_speed(value: float) -> float:
 
 
 async def _voice_for_backend(resolver: ConfigResolver, provider_id: str, model_id: str, voice: str) -> str:
-    """让全局音色与项目实际使用的 TTS 模型相符。
+    """Match the global voice to the TTS model actually used by the project.
 
-    全局音色只有一份，默认音频模型却可能按注册表顺序自动推断到另一家供应商（缺省音色 Cherry
-    只属于 DashScope）。音色不在所选内置模型的音色表中时，改用表中第一个音色。自定义供应商的
-    音色表不一定完整，音色原样保留；音色表取不到时同样原样保留，合成时照常报错。
-    """
+    There is only one global voice, but registry order may infer another provider as the default audio model
+    (the default Cherry voice belongs only to DashScope). If a voice is absent from the selected built-in model’s
+    voice list, use the first listed voice. Custom-provider lists may be incomplete, so retain their voices unchanged;
+    also retain the voice if its list cannot be obtained, allowing synthesis to report errors normally."""
     if is_custom_provider(provider_id):
         return voice
     try:
         voice_ids = await audio_backend_voice_ids(provider_id, model_id, resolver)
     except Exception as exc:
-        # 预填只是尽力而为：缺 API Key、Vertex 凭证文件不可读等构造失败都不能阻断建项
+        # Prefilling is best effort: missing API keys, unreadable Vertex credentials or other construction failures must not block project creation.
         logger.warning("读取音色表失败，旁白音色按全局设置预填 backend=%s/%s：%s", provider_id, model_id, exc)
         return voice
     if voice_ids and voice not in voice_ids:
@@ -87,10 +86,9 @@ async def _voice_for_backend(resolver: ConfigResolver, provider_id: str, model_i
 
 
 async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel, str, float | None]:
-    """新建 TTS 项目的预填值：全局默认音频模型、与之相符的旁白音色与配音语速。
+    """Prefill a new TTS project with the global default audio model, a matching narration voice, and speech rate.
 
-    未配置任何音频供应商时抛 ValueError。
-    """
+    Raise ValueError when no audio provider is configured."""
     backend, voice, speed = await resolver.default_narration_tts()
     return backend, await _voice_for_backend(resolver, backend.provider_id, backend.model_id, voice), speed
 
@@ -100,7 +98,7 @@ async def new_project_narration_fields(
     *,
     resolver: ConfigResolver,
 ) -> dict[str, object]:
-    """算出新项目要写入 project.json 的旁白配置字段。"""
+    """Compute narration configuration fields to write into the new project’s project.json."""
 
     fields: dict[str, object] = {NARRATION_DELIVERY_FIELD: value.delivery}
     backend = value.audio_backend if TTS_BACKEND_FIELD in value.provided else None
@@ -126,7 +124,7 @@ async def new_project_narration_fields(
     if backend:
         backend = fields[TTS_BACKEND_FIELD] = validate_tts_backend(backend)
         if TTS_VOICE_FIELD not in value.provided and voice is not None:
-            # 音色按实际写入的模型校正，显式给出的模型可能与全局默认模型不是同一家
+            # Match the voice to the actual persisted model; an explicit model may use a different provider from the global default.
             provider_id, model_id = backend.split("/", 1)
             voice = await _voice_for_backend(resolver, provider_id, model_id, voice)
     if voice is not None and voice.strip():

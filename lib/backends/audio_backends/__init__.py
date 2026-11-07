@@ -1,4 +1,4 @@
-"""语音合成（TTS）服务层公共 API。"""
+"""Public API for speech-synthesis (TTS) services."""
 
 from lib.backends.audio_backends.base import (
     AudioBackend,
@@ -31,7 +31,7 @@ register_backend(PROVIDER_DASHSCOPE, DashScopeAudioBackend)
 register_backend(PROVIDER_MINIMAX, MiniMaxAudioBackend)
 register_backend(PROVIDER_GEMINI, GeminiAudioBackend)
 
-#: 百炼音频的内置调用端点 → 后端类；内置供应商按端点名构造（同百炼图片、视频）。
+#: Built-in DashScope audio endpoint → backend class, constructing built-ins by endpoint name like DashScope images/videos.
 DASHSCOPE_AUDIO_BACKENDS = {
     "dashscope-tts": DashScopeAudioBackend,
     "dashscope-speech-synthesizer": DashScopeSpeechSynthesizerBackend,

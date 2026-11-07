@@ -69,7 +69,7 @@ describe("tokenizePrompt", () => {
   });
 
   it("does not read curly-brace wrapping as a mention", () => {
-    // `@{名称}` 不是引用语法；花括号照引用语法规则读成画外音记号，与后端 split_speech_line 同判。
+    // `@{名称}` is not mention syntax; braces parse as voiceover markers, matching backend split_speech_line.
     const t = tokenizePrompt("@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
@@ -90,7 +90,7 @@ describe("tokenizePrompt", () => {
     ]);
   });
 
-  // 正文里没有段落前缀语法：`镜头1：` 与 `Shot 1 (3s):` 都只是普通描述文字。
+  // No paragraph-prefix syntax: `镜头1：` and `Shot 1 (3s):` are ordinary description text.
   it("treats prefix-shaped text as plain description", () => {
     for (const src of ["镜头1：hello world", "Shot 1 (3s): hello world", "  镜头１：内景 @主角"]) {
       const t = tokenizePrompt(src, LOOKUP);
@@ -99,7 +99,7 @@ describe("tokenizePrompt", () => {
     }
   });
 
-  // 未登记的 `toString` 走原型链会取到 Object.prototype.toString，被当成已解析的类型
+  // Unregistered `toString` follows prototypes to Object.prototype.toString, misclassified as resolved types.
   it("treats prototype-chain names absent from the lookup as unresolved", () => {
     const t = tokenizePrompt("@toString 出场", LOOKUP);
     const mention = t.find((x) => x.kind === "mention");
@@ -119,17 +119,17 @@ describe("tokenizePrompt", () => {
   });
 
   it("rejects '@' following a word character (mirrors backend MENTION_RE boundary)", () => {
-    // `price@5`: `e` 是 \w 前缀 → `@5` 不算 mention
-    // `email a@b`: `a` 是 \w 前缀 → `@b` 不算 mention
+    // `price@5`: `e` is \w prefix → `@5` is not a mention
+    // `email a@b`: `a` is \w prefix → `@b` is not a mention
     const t = tokenizePrompt("price@5, email a@b", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions).toHaveLength(0);
   });
 
   it("resolves a mention typed in NFD against a lookup already normalized to NFC by the caller", () => {
-    // MentionLookup 的契约：caller 构建时先归一 key（见类型上方注释）。这里模拟 prompt 里的
-    // mention 文本本身是 NFD（输入法产出）——lookup 侧已是 NFC，两侧不同源，靠解析器输出
-    // 规范形落到同一坐标系才命中。
+    // MentionLookup requires normalized caller-built keys (type comments above). Here prompt mentions
+    // use input-method NFD while lookup is NFC; independent origins require canonical parser outputs
+    // sharing coordinates for successful matching.
     const nameNfc = "Hiếu".normalize("NFC");
     const nameNfd = "Hiếu".normalize("NFD");
     expect(nameNfc).not.toBe(nameNfd);
@@ -158,8 +158,8 @@ describe("toScriptLines", () => {
     ]);
   });
 
-  // 后端按行解析时先 strip 再判，缩进 / 行尾空白的整行台词照样是台词；
-  // 预览若因两侧空白把它降级成描述行，就与同屏的服务端派生台词列表对不上。
+  // Backend line parsing strips before classification, retaining indented/trailing-whitespace dialogue;
+  // previews downgrading it to descriptions would contradict same-screen server-derived dialogue lists.
   it("keeps a whole-line utterance padded with whitespace on its own line", () => {
     expect(toScriptLines("  @[张三]：{我来了}  ", LOOKUP)).toEqual([
       { kind: "dialogue", sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
@@ -169,14 +169,14 @@ describe("toScriptLines", () => {
     ]);
   });
 
-  // 记号与描述混写才归 `text` 行——这条与上一条共同钉住「空白不算描述」的边界。
+  // Only mixed description/markers yield `text`; together these tests lock whitespace as nondescription.
   it("keeps a line that mixes description and a speech mark as a text line", () => {
     const lines = toScriptLines("@[张三] 推门。@[张三]{我来了}", LOOKUP);
     expect(lines.map((l) => l.kind)).toEqual(["text"]);
   });
 
   it("resolves a BOM-laced speaker and renders the name without it", () => {
-    // 与后端 text_parser 同口径：BOM 在解析入口去掉，说话人名与 lookup key 同坐标系
+    // Match backend text_parser: remove BOM at parse entry, aligning speakers/lookup coordinates.
     const lines = toScriptLines(`@[张${"\uFEFF"}三]：{我来了}`, LOOKUP);
     expect(lines).toEqual([
       { kind: "dialogue", sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
@@ -185,8 +185,8 @@ describe("toScriptLines", () => {
 });
 
 describe("unicode line boundaries", () => {
-  // 后端用 Python str.splitlines() 切行，它认 U+2028/U+2029/\x85 等；前端只按 \n 切会
-  // 把这些分隔符后的台词记号与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
+  // Backend Python str.splitlines() recognizes U+2028/U+2029/\x85; frontend splitting only \n would
+  // join subsequent dialogue markers to previous lines, counting speakers as image references and diverging derivation paths.
   const LS = "\u2028";
 
   it("splits on the same boundaries the backend does", () => {

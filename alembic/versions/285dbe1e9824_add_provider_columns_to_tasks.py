@@ -35,8 +35,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema.
 
-    本迁移自己建的索引在重建表之外先删——``preserve_sqlite_indexes`` 分不清有意删除与静默丢失，
-    放在它里面会被当作丢失回放，而 provider_id 此时已不在表上，回放必然报错。
+    Delete migration-owned indexes before rebuilding: ``preserve_sqlite_indexes`` cannot distinguish
+    intentional deletion from silent loss. Inside its scope they would replay as lost after provider_id
+    is removed, necessarily failing.
     """
     op.drop_index("idx_tasks_status_provider_queued", table_name="tasks")
     with preserve_sqlite_indexes("tasks"), op.batch_alter_table("tasks", schema=None) as batch_op:

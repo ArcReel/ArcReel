@@ -1,0 +1,112 @@
+[
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{name}/episodes",
+      "post",
+      "description"
+    ],
+    "before": "新建一集：分配新集 ID，插在 ``after`` 之后（缺省放在末尾）；带原文时是自带原文的集。",
+    "after": "Create an episode: allocate a new episode ID and insert after ``after`` (default: append); supplied source text makes it an own-source episode."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{name}/episodes/{episode}/delete",
+      "post",
+      "description"
+    ],
+    "before": "删除一集（硬删除）。\n\n先不带 ``revision`` 调用，得到 ``status=confirmation_required`` 与服务端成文的丢失清单 ``impact.text``；\n创作者确认后带上 ``impact.revision`` 重新提交。清单在两次调用之间变了时再次返回确认，不删除。",
+    "after": "Delete an episode permanently.\n\nFirst call without ``revision`` for ``status=confirmation_required`` and the server-written loss list ``impact.text``.\nAfter creator confirmation, resubmit with ``impact.revision``. If the list changed between calls, request confirmation again without deleting."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{name}/episodes/{episode}/move",
+      "post",
+      "description"
+    ],
+    "before": "调整播出顺序：把这一集移到 ``after`` 之后。切出集之间保持源文顺序。",
+    "after": "Reorder broadcasting: move this episode after ``after``. Preserve source order among extracted episodes."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/drafts",
+      "get",
+      "description"
+    ],
+    "before": "本集在场的草稿摘要。",
+    "after": "Summaries of existing drafts for this episode."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}",
+      "delete",
+      "description"
+    ],
+    "before": "丢弃草稿，回到正式内容。",
+    "after": "Discard the draft and return to formal content."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}",
+      "get",
+      "description"
+    ],
+    "before": "一份草稿的呈现视图：违约与降级提示逐条目定位；Agent 的可编辑草稿不带正文。",
+    "after": "A draft presentation view with violations and degradation hints located per item; editable Agent drafts omit the body."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}",
+      "put",
+      "description"
+    ],
+    "before": "手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。",
+    "after": "Save manual repairs: the server fully revalidates, adopting as formal content when violations clear; otherwise return the refreshed draft view."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/drafts/{doc_type}/repair",
+      "post",
+      "description"
+    ],
+    "before": "提交 AI 修复，返回生成批次：只改违约所在的条目，修完照常重判，违约清零即采用。",
+    "after": "Submit AI repair and return a generation batch: modify only items with violations, revalidate normally, and adopt once violations clear."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/file-view",
+      "delete",
+      "description"
+    ],
+    "before": "把一个未引用文件移进项目回收站；其余角色在服务端一律拒绝。",
+    "after": "Move an unreferenced file to the project trash; the server rejects all other file roles."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/file-view",
+      "get",
+      "description"
+    ],
+    "before": "列出 ``path`` 目录（缺省为项目根）的直接子项。",
+    "after": "List direct children of ``path``, defaulting to the project root."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/file-view/content",
+      "get",
+      "description"
+    ],
+    "before": "预览或下载单个文件。",
+    "after": "Preview or download one file."
+  }
+]

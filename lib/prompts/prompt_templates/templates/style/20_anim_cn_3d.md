@@ -1,8 +1,8 @@
 ---
 id: style/anim_cn_3d
 category: style
-title: 国风 3D
-description: "动画画风，影视级 · 虚幻引擎。"
+title: "Chinese 3D"
+description: "Animation, cinematic · Unreal Engine."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-国风3D、影视级、虚幻引擎渲染
+Chinese-style 3D, cinematic quality, Unreal Engine rendering

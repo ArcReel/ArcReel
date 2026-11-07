@@ -1,32 +1,32 @@
-# 镜头间首尾帧自动接龙
+# Automatic first/last-frame chaining between shots
 
-ArcReel 不做「上一段视频从生成结果中抽出的真实尾帧自动作为下一段首帧」的接龙式衔接——分镜图生视频与参考生视频两种生成模式都不做；参考生视频连「衔接位帧」（首帧 / 尾帧槽位）也不引入。
+ArcReel does not automatically extract one generated video’s real last frame as the next video’s first frame, in either storyboard-to-video or reference-to-video mode. Reference-to-video also gains no first/last-frame transition slots.
 
 ## Why this is out of scope
 
-### 分镜图生视频：接龙与编排模型结构性冲突
+### Storyboard-to-video: chaining conflicts structurally with arrangement
 
-分镜图是每个分镜的视觉真相与首帧，用户在为视频付费前审阅它。接龙让链内第二个分镜起的首帧要等上一段视频生成后才知道，审阅点消失；视频生成从「整批准入、逐条独立执行」（`docs/adr/0061`）变成一条串行依赖链，墙钟时间随分镜数线性增长、单个分镜失败级联阻断后续；重生任一分镜会让其后所有分镜的依据失配（`docs/adr/0062` 的 stale 语义不会自动重生，但用户想要的连贯就静默失效了）；从生成视频抽出的尾帧常带运动模糊 / 闭眼 / 构图漂移，逐段作首帧会累积误差——分镜图存在的意义之一正是每个分镜重新锚定。
+Storyboards are each shot’s visual truth and first frame, reviewed before paying for video. Chaining makes the second and subsequent first frames unknowable until preceding videos finish, removing review checkpoints. Batch admission with independent execution (`docs/adr/0061`) becomes serial dependency: wall time grows linearly with shot count, and failures block downstream shots. Regeneration invalidates every later shot’s basis (`docs/adr/0062` stale semantics do not automatically regenerate, silently losing desired continuity). Extracted endings often contain blur, closed eyes, or composition drift, accumulating errors through chaining; reanchoring every shot is a storyboard purpose.
 
-#1289 已定首帧恒为分镜图、不开放自定义，并把「下一场景分镜图自动作尾帧」的全自动衔接列为范围外；本文件把「抽取上一段真实尾帧作下一个分镜首帧」一并划出。#2182 则以逐边界显式标注（非全自动、手动尾帧优先、仅在模型支持尾帧且用户开启时生效）重新提出「下一个分镜的分镜图作尾帧」方向，待人工实测后决定。
+#1289 fixed first frames to storyboards without customization and excluded fully automatic next-storyboard-as-last-frame continuity; this document also excludes previous-real-last-frame extraction. #2182 reopens next-storyboard-as-last-frame with explicit per-boundary marks, no full automation, manual-last-frame priority, and only model-supported/user-enabled application, pending manual tests.
 
-抽帧工具（`lib/infra/thumbnail.py` 的 `extract_video_last_frame`，当前无生产调用）与任务级顺序依赖（分镜图生成链已在用）都现成，问题不在能不能做，而在做了会破坏什么。
+`extract_video_last_frame` in `lib/infra/thumbnail.py` (currently unused in production) and task-order dependencies (already used for storyboard-image chains) exist. The issue is what this would break, not implementability.
 
-### 参考生视频：输入契约里没有帧槽位
+### Reference-to-video: no frame slots in the input contract
 
-`docs/adr/0055` 以「喂给视频模型的输入契约」区分生成模式：分镜图生视频是首帧驱动（i2v），参考生视频是参考图集合驱动（r2v），创建即锁定。视频单元没有任何图片字段，视觉输入全部由正文 `@[名称]` 读时派生（`docs/adr/0064`）；尾帧服务显式拒绝参考生视频项目，执行检查点拒绝 storyboard 媒体。给参考生视频加首帧 / 尾帧槽位等于改写生成模式的判据，而「参考图 + 首帧叠加」在后端层面因供应商而异、没有统一契约。参考生视频的定位就是「每个视频单元由参考图独立驱动」，不承担单元间画面接续。
+`docs/adr/0055` distinguishes generation modes by model inputs: first-frame-driven i2v versus reference-set-driven r2v, locked at creation. Video units have no image fields; bodies’ `@[名称]` references derive visuals on read (`docs/adr/0064`). Last-frame services explicitly reject reference-video projects; execution checkpoints reject storyboard media. Adding first/last slots changes the mode criterion, and reference+first-frame combinations vary by vendor without a unified contract. Each unit independently uses references, without inter-unit visual continuity responsibilities.
 
-### 可行的替代
+### Viable alternatives
 
-镜头连贯是**两个相邻镜头之间边界**的属性，不是制作层的全局开关。剧本条目已不带 `transition_to_next`；它现在是剪辑时间线上剪辑片段的字段，描述该片段到下一片段的转场，只作用于剪辑与出片，不影响视频生成。#2182 的方向是增加「连续」边界、视频执行期自动以下一个分镜的分镜图作尾帧（不抽帧、不串行、分镜图仍是每个分镜的锚点），它要的是视频生成前就确定的镜头边界，不能直接复用剪辑时间线上的片段边界；设计假设与验证条件记录在 #2182（parked，待人工实测）。今天可用的手动做法：镜头 A 的尾帧从本集分镜图中选镜头 B 的分镜图。
+Continuity belongs to **boundaries between adjacent shots**, not global production switches. Script entries no longer carry `transition_to_next`; timeline clips now carry it for editing/final-output transitions only, without affecting video generation. #2182 proposes continuous boundaries that use the next storyboard as the last frame during video execution: no extraction, no serial execution, each storyboard remains its shot’s anchor. It needs boundaries fixed before generation and cannot directly reuse timeline-clip boundaries. Assumptions/validation live in #2182 (parked, awaiting manual tests). Available manual approach: select shot B’s storyboard among the episode’s images as shot A’s last frame.
 
-## 重访条件
+## Revisit conditions
 
-- 某视频供应商提供原生「续写 / extend」接口（以上一段视频为输入续生成），使接龙不再依赖抽帧与首帧槽位；
-- 参考生视频：某后端明确支持「参考图 + 首帧」叠加且有真实需求量，届时需新 ADR 修订生成模式判据。
+- A provider offers native continuation / extend from the previous video, removing extraction/first-slot dependencies;
+- Reference-to-video: a backend explicitly supports reference+first-frame combinations with real demand; a new ADR must revise mode criteria.
 
 ## Prior requests
 
-- #2164 第 5 条 — 参考生视频模式增加「这段首帧衔接上段尾帧」
-- #2164 第 6 条 — 分镜图生视频自动读取上一个视频的尾帧
-- #2104 — 每一个分镜之间的转场功能（其中「自动提取上一镜真实尾帧作下一镜首帧」按本文件不做；转场类型与手动尾帧为已有能力，自动化方向在 #2182）
+- #2164 第 5 条 — 参考生视频模式增加「这段首帧衔接上段尾帧」 (item 5: connect current first frame to preceding last frame in reference-video mode)
+- #2164 第 6 条 — 分镜图生视频自动读取上一个视频的尾帧 (item 6: automatically use the preceding video’s last frame in storyboard mode)
+- #2104 — 每一个分镜之间的转场功能 (transitions between shots; automatic previous-last-frame extraction is excluded here; transition types/manual last frames already exist, automation tracked in #2182)

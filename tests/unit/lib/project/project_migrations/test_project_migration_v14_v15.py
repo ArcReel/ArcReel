@@ -1,4 +1,4 @@
-"""v14→v15：退役条目指纹与整集指纹，已确认无正式脚本的集整份转出，存量正式脚本补齐内容层与待编写标记。"""
+"""v14→v15: retire entry/whole-episode fingerprints, move out whole episodes confirmed to lack formal scripts, and backfill formal-script content layers and pending-authoring markers."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def test_only_storyboards_with_an_empty_visual_layer_are_marked_pending(
 
 
 def test_reference_units_are_never_marked_pending_by_the_migration(tmp_path: Path) -> None:
-    """参考单元的视觉层就是正文，不按「为空」判待编写。"""
+    """Reference-unit visual layers are the body; emptiness does not mark them pending authoring."""
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="reference_video")
 
@@ -158,7 +158,7 @@ def test_drama_materialization_takes_the_script_plan_title(tmp_path: Path) -> No
 def test_materialized_script_is_dated_by_the_confirmation(
     tmp_path: Path, confirmed_at: str | None, expected: str | None
 ) -> None:
-    # 剧本的 updated_at 计入项目最近活动时间：取迁移运行的时刻会把项目顶到大厅最前面。
+    # Script updated_at contributes to project activity; using migration time would push the project to the lobby front.
     project_dir = write_legacy_script_plan_project(tmp_path, variant="narration")
     project = _project(project_dir)
     review = next(entry for entry in project["episodes"] if entry["episode"] == 2)["script_plan_review"]
@@ -217,7 +217,7 @@ def test_grandfathered_episode_records_the_current_script_plan_as_its_confirmati
 
 
 def test_ledger_stale_episode_gets_no_confirmation_baseline(tmp_path: Path) -> None:
-    """账本 stale 的集要等重规划后的首次确认，迁移不替它记。"""
+    """Stale ledger episodes await first confirmation after replanning; migration does not record it for them."""
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
     project = _project(project_dir)
@@ -232,7 +232,7 @@ def test_ledger_stale_episode_gets_no_confirmation_baseline(tmp_path: Path) -> N
 def test_script_is_registered_when_a_later_schema_version_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """本步只把项目推进到 v15；链上还有后续版本时，剧本照常按 v3 依据登记。"""
+    """This step only advances the project to v15; scripts still register against v3 when later chain versions remain."""
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="narration")
     monkeypatch.setattr(project_schema, "CURRENT_PROJECT_SCHEMA_VERSION", TARGET_SCHEMA_VERSION + 1)
@@ -267,7 +267,7 @@ def test_ad_project_only_bumps_the_schema_version(tmp_path: Path) -> None:
 
 
 def test_canonical_binding_is_left_verbatim(tmp_path: Path) -> None:
-    """绑定逐字等于该集规范剧本：照常升级，账本字面不动。"""
+    """Bindings exactly equal to the episode's canonical script upgrade normally without changing ledger literals."""
 
     binding = "scripts/episode_1.json"
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
@@ -298,7 +298,7 @@ def test_canonical_binding_is_left_verbatim(tmp_path: Path) -> None:
     ],
 )
 def test_binding_that_is_not_the_canonical_script_is_rejected_with_the_episode(tmp_path: Path, binding: str) -> None:
-    """绑定字面不等于该集规范剧本：整个项目被拒，盘上一个字节都不动。"""
+    """Bindings differing literally from the episode's canonical script reject the entire project without changing disk bytes."""
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
     project = _project(project_dir)
@@ -314,9 +314,9 @@ def test_binding_that_is_not_the_canonical_script_is_rejected_with_the_episode(t
 
 
 def test_two_ledger_entries_for_the_same_episode_are_rejected_before_any_write(tmp_path: Path) -> None:
-    """同一集号两条账本条目：目标态规划按「绑定不唯一」拒绝整个项目，而那时剧本已经改写落盘。
+    """Duplicate ledger entries for one episode make target-state planning reject the project for nonunique binding, after scripts have already been rewritten.
 
-    在只读预检里拒绝，盘上一个字节都不动。
+    Reject during read-only prechecks so no disk bytes change.
     """
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
@@ -354,7 +354,7 @@ def test_second_run_is_a_no_op(tmp_path: Path) -> None:
 
 
 def test_rerun_after_a_crash_before_project_json_keeps_the_materialized_script(tmp_path: Path) -> None:
-    """剧本已落盘而 ``project.json`` 仍停在 v14：重跑按已有正式脚本处理，不转出第二份。"""
+    """With scripts written but ``project.json`` still at v14, reruns treat them as existing formal scripts without moving out a second copy."""
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
     project_before = (project_dir / "project.json").read_bytes()

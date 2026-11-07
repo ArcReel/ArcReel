@@ -1,21 +1,23 @@
-"""script_plan→prompt_authoring 内容确认的核心逻辑：适用性判定、script_plan 路径、内容指纹、确认状态派生，
-以及参考生视频正式 script_plan 的单一写盘出口（``script_plan_write_lock`` / ``write_script_plan_locked``）。
+"""Core script_plan→prompt_authoring content confirmation: applicability, script_plan paths, content fingerprints,
+confirmation-state derivation, and the sole formal reference-to-video script_plan write entry
+(``script_plan_write_lock`` / ``write_script_plan_locked``).
 
-gate 由 web router / service（结构化中间态查看 / 编辑 / 确认，确认即转为正式脚本）、Agent 确认工具与
-工作流状态消费。状态派生只依赖 script_plan 文件 + project dict
-的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
-重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 prompt_authoring 草稿清理只存在一处。
+Gate consumers include Web routers/services (view/edit/confirm structured intermediate state, converting
+confirmed content to formal scripts), Agent confirmation tools, and workflow state. State derivation is
+pure computation over script_plan files and project dictionaries. Writes additionally hold the per-path
+``ProjectManager.file_lock``. All four write paths (Web saves, resplitting, promotion, migration writes)
+converge here, centralizing locks, optimistic-concurrency checks, and prompt_authoring draft clearing.
 
-真值只存「确认指纹」于 project.json ``episodes[i].script_plan_review``；pending / confirmed 由读时
-比对 live script_plan 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
-经草稿晋升改写 script_plan、web 手改 script_plan 都会让指纹漂移、自动重新等待确认，无需各写入路径各自
-上报。
+Persist only confirmation fingerprints in project.json ``episodes[i].script_plan_review``. Derive pending /
+confirmed by comparing live script_plan fingerprints at read time, following compute-instead-of-store rules.
+Rerunning normalization, Agent draft promotion, and Web manual edits all change fingerprints and automatically
+require confirmation again, without per-write-path reporting.
 
-适用范围（拥有结构化 script_plan 中间态的三条内容/视觉两段式路径）：
-- drama / narration 的图生 / 宫格路径：script_plan_normalized_script.json / script_plan_segments.json；
-- reference_video 路径（跨 narration / drama content_mode）：script_plan_reference_units.json。
-三者的 script_plan 变体由 ``script_plan_kind`` 统一判定（reference_video 按项目生成模式优先）。ad 无 script_plan，
-不纳入 gate。
+Scope: three content/visual two-stage routes with structured script_plan intermediate state:
+- drama / narration image-to-video / grid: script_plan_normalized_script.json / script_plan_segments.json;
+- reference_video, across narration / drama content_mode: script_plan_reference_units.json.
+``script_plan_kind`` centrally determines all three variants, prioritizing reference_video generation mode.
+ad has no script_plan and stays outside the gate.
 """
 
 from __future__ import annotations
@@ -67,46 +69,46 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 内容确认状态：not_applicable=该集不走 gate；no_script_plan=适用但 script_plan 未产出；
-#: pending_review=script_plan 已产出但未经确认（或确认后内容又变）；confirmed=已确认（已转为正式脚本）。
+#: Confirmation states: not_applicable = episode outside gate; no_script_plan = applicable, not produced;
+#: pending_review = produced but unconfirmed or changed since confirmation; confirmed = confirmed and converted to formal script.
 ReviewStatus = Literal["not_applicable", "no_script_plan", "pending_review", "confirmed"]
 
-#: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
+#: Episode confirmation field: ``{"fingerprint": str, "confirmed_at": ISO8601}``.
 REVIEW_FIELD = "script_plan_review"
 
 
-#: stale 账本条目记录重规划提交时旧 script_plan 的内容指纹；live 指纹变化即证明 script_plan 已按新账本重建。
+#: Stale ledger entries record old script_plan fingerprints at replanning submission; changed live fingerprints prove rebuilding for the new ledger.
 STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 
-#: stale 分集的 script_plan 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
+#: Completion facts for rebuilding stale episodes. Fingerprints may match old content, so content change alone cannot prove execution.
 STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD = "stale_script_plan_rebuilt_revision"
 
-# ScriptPlanKind 的字面量定义在 lib.script.script_plan_entries，由本模块顶部的 import 再导出。
+# ScriptPlanKind literals live in lib.script.script_plan_entries and are reexported by this module's top-level import.
 
 
 def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
-    """项目的 script_plan 变体；无结构化 script_plan 中间态（如 ad）时返回 None。
+    """The project's script_plan variant, or None without structured intermediate state (such as ad).
 
-    reference_video 是 generation_mode 维度、跨 content_mode（narration / drama 均可），按项目
-    生成模式优先判定；否则按 content_mode 落 drama / narration。content_mode 非
-    SCRIPT_PLAN_FILENAMES 成员（ad）即无 script_plan，reference_video 亦不适用。变体由项目两轴唯一决定，
-    不随集号变化。
+    reference_video is a generation_mode across narration / drama content_mode; prioritize project
+    generation mode, otherwise select drama / narration by content_mode. content_mode outside
+    SCRIPT_PLAN_FILENAMES (ad) has no script_plan, and reference_video does not apply either.
+    The project's two axes uniquely determine its variant, independent of episode number.
     """
     content_mode = project.get("content_mode")
     if content_mode not in SCRIPT_PLAN_FILENAMES:
         return None
     if is_reference_video_project(project):
         return "reference_video"
-    return content_mode  # "drama" | "narration"（SCRIPT_PLAN_FILENAMES 成员）
+    return content_mode  # "drama" | "narration" (SCRIPT_PLAN_FILENAMES members)
 
 
 def is_applicable(project: dict[str, Any]) -> bool:
-    """gate 是否适用于该项目：拥有结构化 script_plan 变体（drama / narration / reference_video）。"""
+    """Whether the project has a structured script_plan variant (drama / narration / reference_video) and uses the gate."""
     return script_plan_kind(project) is not None
 
 
 def script_plan_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集结构化 script_plan 中间态文件路径；不适用 gate 时返回 None。"""
+    """Episode structured script_plan intermediate-file path, or None when the gate does not apply."""
     kind = script_plan_kind(project)
     if kind is None:
         return None
@@ -114,8 +116,8 @@ def script_plan_path(project_path: Path, project: dict[str, Any], episode: int) 
     return episode_drafts_dir(project_path, episode) / filename
 
 
-#: script_plan 变体 → 该变体的草稿来源。三条路线各有一位；缺席即「该变体无草稿位」，
-#: 内容确认与生成侧据此不阻塞（ad 无结构化 script_plan，本就取不到变体）。
+#: script_plan variant → draft origin. Each of three routes has one slot; absence means no draft slot,
+#: so confirmation/generation do not block (ad has no structured script_plan and therefore no variant).
 _SCRIPT_PLAN_QUARANTINE_KIND: dict[str, str] = {
     "reference_video": QUARANTINE_KIND_SCRIPT_PLAN,
     "drama": QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -124,16 +126,16 @@ _SCRIPT_PLAN_QUARANTINE_KIND: dict[str, str] = {
 
 
 def script_plan_quarantine_kind(project: dict[str, Any]) -> str | None:
-    """该项目 script_plan 变体对应的草稿来源；该变体无草稿位时返回 None。"""
+    """Draft origin for this project's script_plan variant, or None if it has no draft slot."""
     kind = script_plan_kind(project)
     return _SCRIPT_PLAN_QUARANTINE_KIND.get(kind) if kind is not None else None
 
 
 def script_plan_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集 script_plan 草稿的路径；该变体无草稿位时返回 None。
+    """Episode script_plan draft path, or None if this variant has no draft slot.
 
-    只回路径、不判存在性——存在性判断在 ``script_plan_quarantined``，两者分开是为了让调用方在
-    需要报错文案时能拿到路径。
+    Return paths without existence checks, handled by ``script_plan_quarantined``. Separating them lets
+    callers obtain paths for error messages.
     """
     quarantine_kind = script_plan_quarantine_kind(project)
     if quarantine_kind is None:
@@ -142,37 +144,40 @@ def script_plan_quarantine_path(project_path: Path, project: dict[str, Any], epi
 
 
 def script_plan_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 script_plan 是否有草稿在场——gate 与 prompt_authoring 的阻塞判据。
+    """Whether this episode has a script_plan draft, blocking the gate and prompt_authoring.
 
-    待处置草稿与「正式 script_plan 的内容指纹」相互独立：待修复草稿或可编辑草稿在场时正式文件
-    保持不变，仅检查指纹会错误放行 prompt_authoring。草稿在场因此独立阻塞。
+    Pending drafts are independent of formal script_plan content fingerprints. Repair/editable drafts
+    leave formal files unchanged, so checking fingerprints alone would incorrectly permit prompt_authoring.
+    Draft presence therefore blocks independently.
 
-    草稿按项目当前生成模式解析（见 ``script_plan_quarantine_path``）；其他生成模式的遗留草稿
-    不参与判定，否则该集会被一份没有当前写入方清理的文件永久卡死。
+    Resolve drafts by current project generation mode (``script_plan_quarantine_path``). Ignore legacy
+    drafts from other modes, or files with no current writer to clear them would permanently block episodes.
     """
     path = script_plan_quarantine_path(project_path, project, episode)
     return path is not None and path.exists()
 
 
 def content_fingerprint_of_data(data: object) -> str:
-    """已解析 JSON 对象的指纹：规范化 dump（键序 / 空白重排不改指纹）的 sha256。
+    """Fingerprint parsed JSON as sha256 of canonical dumps, insensitive to key-order/whitespace changes.
 
-    供调用方对已读入内存的对象直接取指纹（如迁移前 snapshot），不经二次磁盘读取——指纹须
-    对应调用方手里这份内容本身。与 ``content_fingerprint`` 的 JSON 分支同一套规范化逻辑，
-    仅入参从路径换成已解析对象，故对同一份内容两者取值相同。
+    Callers fingerprint already loaded objects (such as premigration snapshots) without second disk reads:
+    fingerprints must match the caller's actual content. Share canonicalization with ``content_fingerprint``'s
+    JSON branch, changing only path input to parsed objects, so identical content produces identical values.
     """
     return canonical_json_digest(data)
 
 
 def content_fingerprint(path: Path) -> str | None:
-    """script_plan 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改），
-    非 JSON 退化为原始字节 sha256；文件不存在（FileNotFoundError）时 None。
+    """Fingerprint script_plan: canonical JSON dump sha256, insensitive to key order/whitespace and changing only
+    with semantics; raw-byte sha256 for non-JSON; None for missing files (FileNotFoundError).
 
-    只把「文件不存在」降级为 None（→ no_script_plan、gate 放行）；权限不足、目录占位、短暂 I/O 等其它
-    OSError 一律向上抛，避免把真实文件系统故障静默当成「script_plan 未产出」而误放行 prompt_authoring。
+    Only missing files degrade to None (no_script_plan and gate permission). Propagate every other OSError,
+    including permissions, directory placeholders, or transient I/O, rather than silently treating filesystem
+    failures as absent script_plan and incorrectly permitting prompt_authoring.
 
-    对已读入内存的对象取指纹（如迁移前 snapshot）用 ``content_fingerprint_of_data``，不要对同一
-    文件再调一次本函数——两次独立读取之间的并发写入会被此函数的第二次读取吞掉，见其 docstring。
+    Use ``content_fingerprint_of_data`` for in-memory objects such as premigration snapshots, never read
+    the same file again here. Concurrent writes between independent reads would be swallowed by this
+    function's second read; see that function's docstring.
     """
     try:
         raw = path.read_bytes()
@@ -186,35 +191,38 @@ def content_fingerprint(path: Path) -> str | None:
 
 
 def published_revision(fingerprint: str | None) -> str | None:
-    """内容指纹对外的 revision 写法：带 ``sha256-v1:`` 前缀，与读取面其余 revision 同一种表示。
+    """Public revision representation with ``sha256-v1:`` prefix, matching other read-interface revisions.
 
-    指纹本身（落盘的基线、草稿 meta、项目记录）仍是裸 hexdigest；只在交给客户端时加前缀，
-    入参经 ``fingerprint_of_revision`` 去前缀后再与指纹比对。
+    Persisted baselines, draft metadata, and project records retain bare hexdigests. Prefix only for clients;
+    strip client input through ``fingerprint_of_revision`` before comparing fingerprints.
     """
     return prefixed(fingerprint) if fingerprint is not None else None
 
 
 def fingerprint_of_revision(revision: str | None) -> str | None:
-    """客户端传回的 revision → 内容指纹：带前缀与裸 hexdigest 两种写法都接受。"""
+    """Convert client revisions to fingerprints, accepting prefixed and bare hexdigests."""
     return unprefixed(revision) if revision is not None else None
 
 
 class _UncheckedFingerprint(enum.Enum):
-    """``write_script_plan_locked`` 的 ``expected_fingerprint`` 哨兵类型：区分「不做基线比对」与
-    「基线是 None（写入方取基线时正式文件不存在）」——两者都要能表达，``None`` 只够表达后者。"""
+    """Sentinel type for ``write_script_plan_locked``'s ``expected_fingerprint``, distinguishing skipped baseline
+    checks from None baselines (formal files absent when writers captured them). Both must be expressible;
+    ``None`` alone represents only the latter.
+    """
 
     TOKEN = 0
 
 
-#: 「不做基线比对」哨兵：写入方没有基线可言（重拆分整份覆盖、同临界区读改写）时传它。
+#: Unchecked-baseline sentinel for writers with no baseline: whole-document resplitting or same-critical-section read-modify-write.
 UNCHECKED_FINGERPRINT = _UncheckedFingerprint.TOKEN
 
 
 class ScriptPlanWriteConflict(Exception):
-    """正式 script_plan 的乐观并发冲突：写入方的基线指纹与盘上现值不一致。
+    """Optimistic-concurrency conflict: formal script_plan no longer matches the writer's baseline fingerprint.
 
-    携带盘上现值（``current_content``，非法 JSON 时 None）与两侧指纹，供编辑方渲染冲突报告、
-    对照最新内容合并——单一写盘出口在锁内比对后抛出，后写方收到本异常而非静默覆盖先写方。
+    Carry current disk content (``current_content``, None for invalid JSON) and both fingerprints for
+    editors to render conflicts and merge latest content. The single write entry raises after locked
+    comparison, preventing later writers from silently overwriting earlier ones.
     """
 
     def __init__(self, *, expected: str | None, actual: str | None, current_content: dict[str, Any] | None):
@@ -225,9 +233,9 @@ class ScriptPlanWriteConflict(Exception):
 
 
 def mark_ledger_stale(project_path: Path, project: dict[str, Any], entry: dict[str, Any], episode: int) -> None:
-    """把一集的集规划状态标为 stale，以当前 script_plan 的内容指纹为重建基线。
+    """Mark an episode's planning state stale, using current script_plan's content fingerprint as rebuild baseline.
 
-    已是 stale 的集再次被改动时重设基线，并清掉上一轮的重建完成记录。
+    Further edits to already-stale episodes reset the baseline and clear prior rebuild-completion records.
     """
     entry["ledger_status"] = "stale"
     path = script_plan_path(project_path, project, episode)
@@ -278,12 +286,13 @@ def complete_stale_script_plan_rebuild(
 
 
 def assert_base_fingerprint(path: Path, expected: str | _UncheckedFingerprint | None) -> None:
-    """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``ScriptPlanWriteConflict``、不落盘。
+    """Optimistic check: mismatched ``expected`` and current ``path`` raise ``ScriptPlanWriteConflict`` without writes.
 
-    ``expected`` 是写入方取基线时的文件指纹（``None`` 表示彼时文件不存在），
-    ``UNCHECKED_FINGERPRINT`` 跳过比对。三个 script_plan 变体共用本函数，比对语义只存在这一处。
+    ``expected`` is the file fingerprint captured by the writer (``None`` means absent then).
+    ``UNCHECKED_FINGERPRINT`` skips checking. All three variants share these centralized comparison semantics.
 
-    调用方须已持该路径的排他锁：比对与随后的写盘不在同一临界区内，比对就只是一次过期读。
+    Callers must already hold the path's exclusive lock: comparison outside the subsequent write's critical
+    section is merely a stale read.
     """
     if isinstance(expected, _UncheckedFingerprint):
         return
@@ -299,23 +308,25 @@ def assert_base_fingerprint(path: Path, expected: str | _UncheckedFingerprint | 
 
 
 def official_reference_script_plan_path(project_path: Path, episode: int) -> Path:
-    """该集参考生视频正式 script_plan 的路径（``drafts/episode_N/script_plan_reference_units.json``）。
+    """Formal reference-to-video script_plan path (``drafts/episode_N/script_plan_reference_units.json``).
 
-    与 ``script_plan_path`` 的区别：后者按项目变体判定文件名、不适用时 None；本函数是 rv 写盘出口
-    的路径真相源，不依赖 project dict。"""
+    Unlike ``script_plan_path``, which chooses filenames by project variant and returns None when
+    inapplicable, this is the rv write entry's path authority, independent of project dictionaries.
+    """
     return episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
 
 
 @contextmanager
 def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Generator[Path]:
-    """任一变体正式 script_plan 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
+    """Write critical section for any formal script_plan variant: create directories, lock per path, yield its path.
 
-    与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
-    进程间排他、不可重入）。凡要「读正式文件后据此写盘或写草稿」的操作都应整段包在本
-    临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
+    Share ``ProjectManager.file_lock`` with migration read/modify/write, Web saves, resplitting/promotion:
+    per-path, interprocess-exclusive, nonreentrant. Enclose every read-then-write operation on formal files
+    or drafts entirely here. Separate unlocked reads/writes create concurrent-overwrite windows.
 
-    路径由调用方按变体传入（``script_plan_path`` / ``official_reference_script_plan_path``）：三个 script_plan
-    变体的正式文件名不同，锁的粒度是文件本身，不能按变体各自造一把。
+    Callers supply paths by variant (``script_plan_path`` / ``official_reference_script_plan_path``).
+    Three variants have different filenames; lock granularity is the file itself, never independently
+    invented variant locks.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     pm = ProjectManager.for_project_dir(project_path)
@@ -325,7 +336,7 @@ def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Gen
 
 @contextmanager
 def script_plan_write_lock(project_path: Path, episode: int) -> Generator[Path]:
-    """参考生视频正式 script_plan 的写临界区（``formal_script_plan_lock`` 绑定该变体路径的具名入口）。"""
+    """Formal reference-to-video script_plan critical section: named ``formal_script_plan_lock`` entry bound to its path."""
     with formal_script_plan_lock(
         project_path, episode, official_reference_script_plan_path(project_path, episode)
     ) as path:
@@ -382,7 +393,7 @@ def formal_script_plan_write_transaction(
 
 
 def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> bool:
-    """把正式 script_plan 移进项目回收站，并在同一事务里撤掉它的产物登记。"""
+    """Move formal script_plan to project trash and unregister its artifact within the same transaction."""
 
     pm = ProjectManager.for_project_dir(project_path)
     with pm.file_lock(path):
@@ -393,7 +404,7 @@ def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> boo
 
 
 def trash_script_plan_locked(project_path: Path, episode: int, path: Path) -> None:
-    """:func:`delete_script_plan_file` 的锁内主体：调用方已持有该文件的 per-path 锁。"""
+    """Locked body of :func:`delete_script_plan_file`; callers already hold the file's per-path lock."""
     from lib.script.planning_draft_trash import trash_planning_draft
 
     record = None
@@ -401,7 +412,7 @@ def trash_script_plan_locked(project_path: Path, episode: int, path: Path) -> No
         with formal_script_plan_write_transaction(project_path, episode, path):
             record = trash_planning_draft(project_path, episode, path)
     except BaseException:
-        # 撤登记失败时事务已把文件按字节写回，记录随之撤掉；写回也失败时记录留着，内容不丢。
+        # On unregistration failure, transactions restored file bytes, so remove records; if restoration also fails, retain records without losing content.
         if record is not None and path.is_file():
             project_trash.purge(project_path, record.id)
         raise
@@ -418,24 +429,26 @@ def write_formal_script_plan_locked(
     clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
-    """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
-    下游草稿。返回内容是否发生变化。
+    """**Single formal script_plan write entry**, any variant: baseline OCC check → atomic write → clear invalid
+    downstream drafts when content changes. Return whether content changed.
 
-    调用方须已持有该文件的排他锁（``formal_script_plan_lock``，或同一路径的
-    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）；指定
-    ``dependent_quarantine`` 时还须先持有该草稿锁，统一锁序为「下游草稿 → 正式 script_plan」。三个变体
-    的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数。正式 script_plan
-    之所以对 Agent 写禁，正是因为写盘只发生在这一个持锁的出口。
+    Callers must already hold the file's exclusive lock (``formal_script_plan_lock`` or same-path
+    ``ProjectManager.file_lock``). Locks are nonreentrant: callers inside the critical section cannot
+    nest another. With ``dependent_quarantine``, acquire that draft's lock first; universal order is
+    downstream draft → formal script_plan. All variants' Web saves, resplitting/renormalization, promotion,
+    and migration writes converge here. Agent write bans protect this single locked write entry.
 
-    ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
-    与盘上现值不一致时抛 ``ScriptPlanWriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
-    内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
-    同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
+    ``expected_fingerprint`` is the formal fingerprint captured by the writer (``None`` means absent then).
+    Mismatched current disk content raises ``ScriptPlanWriteConflict`` without writes, letting later writers
+    merge conflict reports instead of silently overwriting earlier content. ``UNCHECKED_FINGERPRINT`` skips
+    comparison: resplitting intentionally rebuilds entire documents, while same-critical-section migration /
+    confirmation read-modify-write already has no concurrency window.
 
-    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（只有参考生视频的 prompt_authoring；
-    drama / narration script_plan 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都
-    按字节回滚，不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
-    格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
+    ``dependent_quarantine`` names downstream drafts based on this file: only reference-to-video
+    prompt_authoring, None for drama / narration with no downstream drafts. Include drafts in the same
+    transaction, restoring both byte-for-byte on failure rather than leaving old formal files with cleared
+    drafts. Invalidate only changed bases. Migration writes mechanically adopt formats, not edit content;
+    callers retain drafts with ``clear_dependent_quarantine=False``.
     """
     assert_base_fingerprint(path, expected_fingerprint)
     previous = load_json_or_none(path)
@@ -449,11 +462,11 @@ def write_formal_script_plan_locked(
         with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
             atomic_write_json(path, content)
             if changed and clear_dependent_quarantine and quarantine is not None:
-                # 内容变了才作废：草稿进项目回收站，提交后由事务按内容变化记账
+                # Invalidate only changed content: move drafts to project trash; transactions record content-change activity after commit.
                 record = trash_planning_draft(project_path, episode, quarantine)
     except BaseException:
-        # 事务已把草稿按字节写回，记录随之撤掉。
-        # shortcut: 外层另有 formal_write_transaction 包住草稿、在本函数返回后失败时，外层写回草稿而记录留着（多一条可恢复的记录，内容不丢）；需要严格时把记录建在最外层事务里。
+        # Transactions restored draft bytes, so remove corresponding records.
+        # shortcut: If an outer formal_write_transaction wraps drafts and fails after this returns, it restores drafts while records remain (extra recoverable records, no content loss); strict handling creates records in the outermost transaction.
         if record is not None and quarantine is not None and quarantine.is_file():
             project_trash.purge(project_path, record.id)
         raise
@@ -469,8 +482,9 @@ def write_script_plan_locked(
     clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
-    """参考生视频正式 script_plan 的写盘出口（``write_formal_script_plan_locked`` 绑定该变体路径与其
-    下游 prompt_authoring 草稿的具名入口）。"""
+    """Formal reference-to-video write entry: named ``write_formal_script_plan_locked`` entry bound to this
+    variant's path and downstream prompt_authoring draft.
+    """
     return write_formal_script_plan_locked(
         project_path,
         episode,
@@ -510,7 +524,7 @@ def write_script_plan(
 
 
 def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
-    """该集已存的确认记录（``episodes[i].script_plan_review``），缺失或形状坏时返回空 dict。"""
+    """Stored episode confirmation (``episodes[i].script_plan_review``), or empty dict if absent/malformed."""
     ep = find_episode(project, episode)
     review = ep.get(REVIEW_FIELD) if ep else None
     return review if isinstance(review, dict) else {}
@@ -518,7 +532,7 @@ def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class OverwrittenScriptEntry:
-    """覆盖式确认将移除的一条正式脚本条目，及其名下无法在项目内恢复的产物与归属。"""
+    """A formal entry removed by overwrite confirmation, its artifacts unrecoverable within the project, and their ownership."""
 
     entry_id: str
     has_storyboard: bool
@@ -540,11 +554,12 @@ class OverwrittenScriptEntry:
 
 @dataclass(frozen=True, slots=True)
 class FormalScriptOverwrite:
-    """内容确认将覆盖的正式脚本：确认后旧条目全部移除，产物按分镜移除的口径撤登记、连同版本历史移进项目回收站。
+    """Formal script overwritten by content confirmation: remove all old entries, unregister artifacts as for
+    storyboard removal, and move artifacts plus version histories to project trash.
 
-    ``fingerprint`` 是读取时正式脚本的内容指纹，对外作 ``revision``：调用方认可覆盖时回传它，
-    与确认时读到的正式脚本不符即视为未认可、按新清单重新拒绝；覆盖写入也以它为基线，认可只对应
-    这一份被列出的内容。
+    ``fingerprint`` captures formal content when read and is public ``revision``. Callers echo it when
+    accepting overwrite; mismatch at confirmation means unaccepted, refusing again with a new list.
+    Writes also use it as baseline, so acceptance covers only this listed content.
     """
 
     fingerprint: str
@@ -563,7 +578,7 @@ class FormalScriptOverwrite:
         }
 
 
-#: 覆盖清单里逐条目列出的产物种类：``to_dict`` 的条目键 → 文案 key。顺序即行文顺序。
+#: Per-item artifact kinds in overwrite lists: ``to_dict`` item keys → copy keys, in presentation order.
 _OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
     ("has_storyboard", "script_overwrite_kind_storyboard"),
     ("has_video", "script_overwrite_kind_video"),
@@ -572,7 +587,7 @@ _OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
     ("grid_id", "script_overwrite_kind_grid"),
 )
 
-#: 覆盖清单的汇总项：（计数键，文案 key）。计数为 0 的项不出现。
+#: Overwrite summary items: (count key, copy key). Omit zero-count items.
 _OVERWRITE_LOSS_TOTALS: tuple[tuple[str, str], ...] = (
     ("storyboard_count", "script_overwrite_loss_storyboard"),
     ("video_count", "script_overwrite_loss_video"),
@@ -583,10 +598,10 @@ _OVERWRITE_LOSS_TOTALS: tuple[tuple[str, str], ...] = (
 
 
 def render_overwrite_loss_text(overwrite: Mapping[str, Any], translate: Callable[..., str]) -> str:
-    """把 ``FormalScriptOverwrite.to_dict()`` 渲染成丢失清单文本。
+    """Render ``FormalScriptOverwrite.to_dict()`` as a textual loss inventory.
 
-    Web 确认框与 Agent 的 ``script_overwrite_required`` 回执都取这一份文本，文案只登记在 i18n key 表里；
-    调用方不再各自拼装清单。
+    Web confirmation dialogs and Agent ``script_overwrite_required`` receipts share this text, registered
+    only in i18n key tables; callers never separately assemble inventories.
     """
     entries: list[Mapping[str, Any]] = list(overwrite.get("entries") or ())
     separator = translate("script_overwrite_separator")
@@ -613,14 +628,14 @@ def render_overwrite_loss_text(overwrite: Mapping[str, Any], translate: Callable
 
 
 def overwrite_with_text(overwrite: Mapping[str, Any] | None, translate: Callable[..., str]) -> dict[str, Any] | None:
-    """覆盖清单附上渲染好的丢失清单文本（``text``）；无覆盖时 None。"""
+    """Attach rendered loss inventory ``text`` to overwrite inventories, or None without overwrite."""
     if overwrite is None:
         return None
     return {**overwrite, "text": render_overwrite_loss_text(overwrite, translate)}
 
 
 def _bound_script_filename(project: Mapping[str, Any], episode: int) -> str | None:
-    """该集 project.json 绑定的剧本文件名（归一到 ``scripts/`` 下的名字）；未绑定时 None。"""
+    """Episode project.json script binding normalized under ``scripts/``, or None without binding."""
 
     entry = find_episode(project, episode)
     binding = entry.get("script_file") if isinstance(entry, dict) else None
@@ -630,10 +645,10 @@ def _bound_script_filename(project: Mapping[str, Any], episode: int) -> str | No
 
 
 class ForeignFormalScriptError(ValueError):
-    """该集没有可读写的正式脚本位置：绑定不在盘上，而规范路径上那份文件不是本集剧本。
+    """No readable/writable formal location: the binding is absent from disk, while canonical paths hold another episode's script.
 
-    携带集 ID 与占位的文件名，供调用方给出可定位的提示。继承 ``ValueError`` 让尚未单独处置这一形态
-    的调用点也按「拒绝」而不是按「成功」收场。
+    Carry episode ID and occupying filename for actionable caller messages. Inherit ``ValueError`` so
+    callers without dedicated handling still reject rather than succeed.
     """
 
     def __init__(self, episode: int, filename: str) -> None:
@@ -645,15 +660,17 @@ class ForeignFormalScriptError(ValueError):
 
 
 def formal_script_filename(project_path: Path, project: Mapping[str, Any], episode: int) -> str:
-    """该集正式脚本在 ``scripts/`` 下的文件名。
+    """Formal episode script filename under ``scripts/``.
 
-    project.json 绑定的 ``script_file`` 指向盘上文件时取绑定；绑定缺失、越界或文件不存在时回落规范
-    文件名 ``episode_N.json``。内容确认读覆盖清单与写正式脚本都经这里，两者始终是同一份文件。
+    Use project.json ``script_file`` when its bound file exists. Missing/out-of-bounds bindings or absent
+    files fall back to canonical ``episode_N.json``. Overwrite-list reads and confirmed writes both use
+    this resolver, always identifying the same file.
 
-    回落只在规范路径空着、或那上面确是本集剧本时成立：迁移跳过的集绑着已消失的旧路径，而规范路径
-    上放着别集剧本，无条件回落会让读拿到别集内容、让写整份重建别集的在世剧本并把本集绑上去。这一
-    形态抛 ``ForeignFormalScriptError``；归属判据（读不成对象或内部集号不符）与 v14→v15 改名前的
-    那次校验一致。
+    Fallback applies only to empty canonical paths or this episode's actual scripts. Episodes skipped
+    during migration may bind vanished legacy paths while canonical paths hold another episode's script;
+    unconditional fallback would read that other content, rebuild its live script, and bind this episode
+    to it. Raise ``ForeignFormalScriptError``. Ownership checks (unreadable as an object or mismatched
+    internal episode numbers) match validation before v14→v15 renaming.
     """
     filename = _bound_script_filename(project, episode)
     if filename is not None:
@@ -664,8 +681,8 @@ def formal_script_filename(project_path: Path, project: Mapping[str, Any], episo
     canonical_path = project_path / "scripts" / canonical
     if canonical_path.is_file():
         script = load_json_or_none(canonical_path)
-        # 集号按正整数严格判：剧本是裸读进来的，JSON ``true`` 变成 Python ``True``，它既是 ``int``
-        # 又等于 ``1``，按 ``!=`` 比会让脏文件冒充第 1 集通过归属校验。
+        # Require strictly positive integer episode numbers: raw JSON ``true`` becomes Python ``True``, both an ``int``
+        # and equal to ``1``. Comparing only with ``!=`` would let dirty files impersonate episode 1 during ownership checks.
         recorded = script.get("episode") if isinstance(script, dict) else None
         if type(recorded) is not int or recorded != episode:
             raise ForeignFormalScriptError(episode, canonical)
@@ -675,13 +692,14 @@ def formal_script_filename(project_path: Path, project: Mapping[str, Any], episo
 def formal_script_overwrite(
     project_path: Path, project: Mapping[str, Any], episode: int
 ) -> FormalScriptOverwrite | None:
-    """读取内容确认将覆盖的正式脚本；该集尚无正式脚本时返回 None。
+    """Read the formal script content confirmation will overwrite; None if this episode has no formal script.
 
-    读的是 ``formal_script_filename`` 解析出的那份剧本，即确认转换将写入的文件。文件存在但读不成
-    剧本（非法 JSON、条目数组损坏）时照样算已有正式脚本、条目列表为空：覆盖它仍需认可。
+    Read ``formal_script_filename``'s resolved file, exactly where confirmation writes. Existing unreadable
+    scripts (invalid JSON or broken item arrays) still count as formal scripts with empty item lists:
+    overwriting still requires acceptance.
 
-    规范路径上是别集剧本时按无剧本返回 None——那份内容不属本集，不能列进本集的覆盖清单充数；
-    确认转换会在写盘前以 ``ForeignFormalScriptError`` 拒绝。
+    Return None when canonical paths hold another episode's script: it cannot populate this episode's
+    overwrite inventory. Confirmation rejects before writing with ``ForeignFormalScriptError``.
     """
     try:
         filename = formal_script_filename(project_path, project, episode)
@@ -723,11 +741,11 @@ def formal_script_overwrite(
 
 
 def prompt_authoring_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 prompt_authoring 产物（生成的剧本 JSON）是否已存在。
+    """Whether this episode's prompt_authoring artifact (generated script JSON) already exists.
 
-    绑定在场时只认绑定的那份文件，不走 ``formal_script_filename`` 的规范路径回落：绑定文件缺席而
-    规范路径上是别集文件，正是迁移记进报告的跳过形态，不能据那份别集文件判成「已有产出」。未绑定时
-    按规范路径判。
+    Existing bindings recognize only their own file, never ``formal_script_filename`` fallback. Absent
+    bindings' files plus another episode's canonical file are precisely migration-reported skipped cases,
+    never evidence of existing output. Without binding, check canonical paths.
     """
     filename = _bound_script_filename(project, episode) or episode_script_filename(episode)
     path = try_safe_join(project_path / "scripts", filename)
@@ -735,18 +753,19 @@ def prompt_authoring_generated(project_path: Path, project: dict[str, Any], epis
 
 
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:
-    """派生该集内容确认状态。
+    """Derive episode content-confirmation state.
 
-    - 无 script_plan（或 gate 不适用）：not_applicable / no_script_plan；
-    - 有确认指纹：与 live script_plan 内容指纹一致 → confirmed，不一致（script_plan 改过）→ pending_review；
-    - 无确认指纹：pending_review。正式脚本在场也一样——没有指纹就无从判断它出自眼前这份规划。
+    - No script_plan or inapplicable gate: not_applicable / no_script_plan;
+    - Stored confirmation matching live script_plan fingerprints: confirmed; mismatch after edits: pending_review;
+    - No confirmation fingerprint: pending_review, even with formal scripts present, whose origin cannot
+      otherwise be tied to the current plan.
     """
     path = script_plan_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
-    # 草稿在场先于指纹判定：未满足约束的产物尚未处置，无论正式文件是缺失、旧版还是已确认，
-    # 该集都还没有一份「可放行」的 script_plan。判 pending_review 而非新增状态——gate 的消费方
-    # （阻塞 prompt_authoring、web 状态展示）要的正是「未放行」这一位，加状态会波及全部消费点。
+    # Draft presence precedes fingerprint checks: invalid output still awaits handling. Whether formal files are absent,
+    # old, or confirmed, the episode has no releasable script_plan. Use pending_review instead of a new state:
+    # prompt_authoring blockers and Web displays need that same unreleased flag; a new state would affect every consumer.
     if script_plan_quarantined(project_path, project, episode):
         return "pending_review"
     live = content_fingerprint(path)
@@ -759,16 +778,17 @@ def _formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], e
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
         return stored_fingerprint == live
-    # 没有确认指纹：不知道正式脚本出自哪一份规划，眼前这份就没有被确认过。存量集的确认基线由
-    # v14→v15 迁移补记；从空白开始时确认记录被删去，同样落在这里。
+    # Without confirmation fingerprints, formal scripts cannot be tied to a plan, so the current one is unconfirmed.
+    # v14→v15 migrations backfill existing episode baselines. Starting blank deletes confirmation records and also reaches here.
     return False
 
 
 def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """正式脚本规划是否就是已确认的那一份；是则只读，内容修改改在正式脚本上做。
+    """Whether formal planning is exactly the confirmed version: read-only, with content edits made in formal scripts.
 
-    与 ``review_status`` 同一判据，但不看待修复草稿：重跑脚本规划留下的草稿在场时，正式脚本规划
-    仍是已确认的那一份，照样只读；重跑写出新内容后指纹不再一致，即恢复可编辑。
+    Match ``review_status`` but ignore repair drafts. Drafts from rerunning planning do not change the
+    confirmed formal plan, which remains read-only. New written content changes fingerprints and restores
+    editability.
     """
     path = script_plan_path(project_path, project, episode)
     if path is None:
@@ -778,17 +798,17 @@ def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], ep
 
 
 def formal_script_plan_agent_owned(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """Agent 取回的可编辑草稿在场时，正式脚本规划只读；调用方在正式规划锁内判断。"""
+    """Formal planning is read-only while Agent-retrieved editable drafts exist; callers check under its formal-plan lock."""
     kind = script_plan_quarantine_kind(project)
     draft = read_quarantine(project_path, episode, kind) if kind is not None else None
     return draft is not None and draft_owner(draft) == DRAFT_OWNER_AGENT
 
 
 def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, confirmed_at: str) -> bool:
-    """就地把确认记录写入 project ``episodes[i].script_plan_review``；集条目不存在返回 False。
+    """Write project ``episodes[i].script_plan_review`` in place; return False for missing episode entries.
 
-    供 service 层在 ProjectManager.update_project 的 RMW 回调内调用，确认指纹的持久化 shape
-    单一真相源在此。
+    Services call inside ProjectManager.update_project RMW callbacks. This is the single authority for
+    persisted confirmation-fingerprint shapes.
     """
     ep = find_episode(project, episode)
     if ep is None:
@@ -798,20 +818,21 @@ def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, 
 
 
 def carry_confirmation_through_migration(project: dict[str, Any], episode: int, before: str, after: str) -> bool:
-    """存量 script_plan 草稿的时长收编迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。
+    """Duration adoption for existing script_plan drafts mechanically changes formats, not content, but writes change fingerprints.
 
-    若该集确认指纹恰好记的是迁移前内容（``before``），就把它平移到迁移后的值（``after``），
-    避免一个早已确认的分集仅因被迁移回写就重新等待确认；指纹本就对不上（script_plan 在迁移外确实被
-    改过）时不动，返回 False，照常按待确认处理。
+    If episode confirmation matches premigration content (``before``), shift it to migrated ``after``
+    values, avoiding renewed confirmation solely due to migration. Leave already mismatched fingerprints
+    (actual edits outside migration) unchanged, return False, and retain pending confirmation.
 
-    仅适用于迁移无 warnings 的情形（纯格式收编，时长取值未被 clamp 改写）：调用方须在迁移
-    产生 warnings 时跳过本函数，让确认照常失效——那种情形下 ``after`` 携带的时长已不是用户
-    确认时看到的值，平移确认等于替用户默许了一次未经审阅的内容变更。
+    Apply only without migration warnings: pure format adoption without clamped duration changes. Callers
+    must skip this function for warnings so confirmation expires normally. Changed durations in ``after``
+    differ from what users reviewed; shifting confirmation would silently approve unreviewed content.
 
-    供调用方在 ``ProjectManager.update_project`` 的锁内回调中调用（确保比对的是加锁后重读的
-    最新 project）——``server/services/project/script_review.py`` 与 ``lib/script/script_generator.py`` 的两处
-    迁移写回入口共用本函数，不各自重复这段判断。资产改名、衍生改名与合并的级联改写同样只换名字、
-    不改内容，也经本函数平移（``ProjectManager._carry_script_plan_confirmations``）。
+    Call inside locked ``ProjectManager.update_project`` callbacks against latest reread project state.
+    Both migration write entries in ``server/services/project/script_review.py`` and
+    ``lib/script/script_generator.py`` share it rather than duplicate checks. Cascading asset/derivative
+    rename and merge rewrites also change names only, not content, and shift confirmations here through
+    ``ProjectManager._carry_script_plan_confirmations``.
     """
     stored = stored_review(project, episode)
     if stored.get("fingerprint") != before:
@@ -828,29 +849,31 @@ def migrate_script_plan_draft_in_place(
     update_project: Callable[[Callable[[dict[str, Any]], None]], dict[str, Any]],
     supported_durations: Sequence[int] | None = None,
 ) -> tuple[dict[str, Any] | None, list[ValidationMessage]]:
-    """对已读入内存的 script_plan 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
+    """Perform one-time duration adoption in an in-memory script_plan draft and write back; return ``(最新 project, warnings)``.
 
-    调用方须按「prompt_authoring 草稿 → 正式 script_plan」顺序持有两把排他锁；回写经单一写盘出口
-    ``write_script_plan_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path 锁。迁移是机械格式
-    收编、不是内容编辑，不作废 prompt_authoring 草稿；同临界区读改写也无并发窗口，不做基线比对。
-    未发生迁移时不回写，返回 ``(None, [])``。
+    Callers hold both exclusive locks in prompt_authoring draft → formal script_plan order. Use the single
+    ``write_script_plan_locked`` entry, sharing Web saves/resplitting's per-path lock. Mechanical format
+    adoption does not invalidate prompt_authoring drafts; read-modify-write inside one critical section
+    also needs no baseline check. Without migration, do not write; return ``(None, [])``.
 
-    迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
-    确认指纹平移到迁移后的值（``carry_confirmation_through_migration``），避免已确认分集仅因
-    被加载就重新等待确认。``warnings`` 非空说明迁移按档位 / 结构区间 clamp 改写了实际时长取值——
-    那是内容变更，不平移确认，已确认分集经指纹比对照常重新等待确认；从未存过指纹的集则显式记下
-    迁移前内容的指纹，使其同样失配、等待确认。
-    该标记的持久化不区分 dry-run 与真实生成：迁移幂等落盘后重试不再产生 warnings，只有落盘
-    的标记能保证后续生成仍被内容确认阻塞。
+    Usually migration changes formats mechanically and shifts fingerprints. Use locked ``update_project``
+    to shift episode confirmation through ``carry_confirmation_through_migration``, avoiding renewed review
+    solely on loading. Nonempty ``warnings`` mean tier/structural-range clamps changed actual durations:
+    content edits, so do not shift confirmation. Fingerprint comparisons make confirmed episodes await
+    review normally; episodes without stored fingerprints explicitly record premigration fingerprints,
+    likewise ensuring mismatch and review. Persist these markers for both dry-run and real generation:
+    idempotently persisted migrations emit no warnings on retries, so persisted markers alone preserve
+    content-confirmation blocking afterward.
 
-    project 侧的确认标记先落盘、草稿后落盘：两次写之间中断时草稿仍是迁移前内容，下次加载
-    重跑迁移即自愈。反序则草稿已丢失旧字段、重跑判 ``changed=False``，标记永久缺失。
+    Persist project confirmation markers before drafts. Interruptions leave premigration drafts whose
+    next load reruns migration and self-heals. Reversing order loses old fields; reruns find ``changed=False``,
+    permanently losing markers.
 
-    ``supported_durations`` 给定时（prompt_authoring 加载侧持有模型档位）收编结果直接取档；缺省
-    （web gate 侧，能力解析是 async + DB、同步拿不到档位）只做结构区间 clamp。
+    With ``supported_durations`` from prompt_authoring's model tiers, map directly to tiers. Without them
+    on Web gates (async + DB capabilities unavailable synchronously), clamp structural ranges only.
 
-    ``lib.script.script_generator.ScriptGenerator`` 与 ``server.services.project.script_review`` 的两处
-    script_plan 读取入口共用本函数，迁移与确认平移的判断不各自重复。
+    Both script_plan read entries in ``lib.script.script_generator.ScriptGenerator`` and
+    ``server.services.project.script_review`` share migration/confirmation-shifting checks here.
     """
     if not isinstance(content, dict):
         return None, []
@@ -868,8 +891,8 @@ def migrate_script_plan_draft_in_place(
     if warnings:
 
         def _invalidate_unconfirmed(p: dict[str, Any]) -> None:
-            # 已存过指纹的分集不插手：确认的是迁移前内容时指纹已自然失配，确认的是别的
-            # 内容时 review_status 本就判 pending_review。
+            # Leave episodes with existing fingerprints alone: premigration confirmations already mismatch naturally;
+            # confirmations of other content already produce pending_review in review_status.
             stored = stored_review(p, episode)
             if not stored.get("fingerprint"):
                 apply_confirmation(p, episode, before, str(stored.get("confirmed_at") or ""))

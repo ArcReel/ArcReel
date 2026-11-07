@@ -1,4 +1,4 @@
-"""fork 出的子进程能继续使用模块级 engine。"""
+"""Forked child processes can continue using module-level engines."""
 
 import asyncio
 import os
@@ -20,8 +20,8 @@ def test_forked_child_can_query_module_level_engine_after_parent_used_pool():
     assert asyncio.run(_select_one()) == 1
 
     pid = os.fork()
-    if pid == 0:  # pragma: no cover - 子进程
-        # 挂起的查询连事件循环的收尾也一并挂住，故用 SIGALRM 直接退出而非抛异常。
+    if pid == 0:  # pragma: no cover - child process
+        # Hung queries also hang event-loop shutdown; exit directly through SIGALRM instead of raising.
         signal.signal(signal.SIGALRM, lambda *_: os._exit(4))
         signal.setitimer(signal.ITIMER_REAL, 10)
         try:
@@ -35,8 +35,8 @@ def test_forked_child_can_query_module_level_engine_after_parent_used_pool():
         _, status = os.waitpid(pid, 0)
         reaped = True
     finally:
-        # 父进程侧的期限由 pytest-timeout 的 SIGALRM 打断 ``waitpid`` 提供，子进程连
-        # 自己的定时器都没跑到时也在这里被回收。
+        # Parent deadlines use pytest-timeout SIGALRM to interrupt ``waitpid`` and reap children even
+        # when they never reach their own timer.
         if not reaped:
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)

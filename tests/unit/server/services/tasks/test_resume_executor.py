@@ -1,11 +1,9 @@
-"""Resume executor 单元测试。
+"""Resume executor unit tests.
 
-关注点：
-- resume_executor 直接调 generator.resume_video_async（→ backend.resume_video），
-  而不是 generate_video_async（→ backend.generate），避免重复扣费。
-- 跳过 storyboard / reference 本地文件存在性校验——provider 端 job 已经在跑。
-- ResumeExpiredError 沿调用链上抛由 worker mark_failed 时识别。
-"""
+Focus:
+- resume_executor directly calls generator.resume_video_async (→ backend.resume_video), never generate_video_async (→ backend.generate), avoiding duplicate charges.
+- Skip storyboard/reference local-file existence validation: the provider job is already running.
+- Propagate ResumeExpiredError through the call chain for worker mark_failed recognition."""
 
 from __future__ import annotations
 
@@ -46,19 +44,19 @@ class _FakeProjectManager:
 
 
 class _FakeGenerator:
-    """模拟 MediaGenerator：resume_video_async 可控、versions 提供历史查询。"""
+    """MediaGenerator substitute: controllable resume_video_async and versions history lookup."""
 
     def __init__(self, *, raises: Exception | None = None) -> None:
         self.resume_calls: list[dict[str, Any]] = []
         self.raises = raises
-        self.versions = self  # 让 generator.versions.get_versions 走自身
+        self.versions = self  # Let generator.versions.get_versions use its own implementation.
 
     async def resume_video_async(self, **kwargs: Any) -> tuple[Path, int, Any, str | None]:
         self.resume_calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
         output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
-        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        # Production backends write artifacts in worker threads; substitutes likewise avoid blocking the event loop.
         await write_backend_output(output_path, b"paid-resume-video")
         prepare = kwargs.get("before_formal_commit")
         if prepare is not None:
@@ -179,11 +177,9 @@ def _fake_video_context(
     provider_model_id: str = "sora-2",
     backend_model_id: str = "sora-2",
 ):
-    """把 fake generator 包成 GenerationContext。
+    """Wrap the fake generator in GenerationContext.
 
-    video lane 必须声明：resume 除 generator 外还读 ``ctx.video.endpoint`` 做 endpoint 比对，
-    与生产路径（``video=VideoLaneRequest()``）一致。
-    """
+    Declare video lane: resume reads ``ctx.video.endpoint`` for endpoint comparison as well as generator, matching production ``video=VideoLaneRequest()``."""
     from lib.config.resolver import ProviderModel
     from server.services.tasks.generation_context import GenerationContext, VideoLaneResult
 
@@ -209,7 +205,7 @@ def _patch_resume_executor_deps(
     provider_model_id: str = "sora-2",
     backend_model_id: str = "sora-2",
 ) -> None:
-    """同时 patch resume_executor 的 pm/generator 来源——它从 generation_tasks 顶层 re-import。"""
+    """Patch both resume_executor pm/generator sources, reimported from generation_tasks at module level."""
     from server.services.tasks import resume_executor
 
     monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
@@ -226,10 +222,10 @@ def _patch_resume_executor_deps(
             )
         ),
     )
-    # finalize helpers 内部也通过 generation_tasks/reference_video_tasks 的 get_project_manager
+    # Finalize helpers also obtain get_project_manager through generation_tasks/reference_video_tasks.
     use_project_manager(monkeypatch, fake_pm)
 
-    # extract_video_thumbnail 真实实现走 ffmpeg 子进程；mock 成 no-op 让 finalize 不依赖外部工具
+    # Real extract_video_thumbnail uses ffmpeg subprocesses; mock no-op removes finalize's external-tool dependency.
     async def _fake_thumb(*_args, **_kwargs):
         return False
 
@@ -254,7 +250,7 @@ def _with_storyboard_identity(
 
 @pytest.mark.asyncio
 async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, fake_pm, video_task):
-    """resume_executor 调 generator.resume_video_async（间接走 backend.resume_video），而非 generate。"""
+    """resume_executor calls generator.resume_video_async (indirectly backend.resume_video), never generate."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     video_task["payload"].update(
@@ -282,7 +278,7 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["resolution"] == "720p"
     assert call["generate_audio"] is True
     assert call["formal_output"] is True
-    # 待结算调用行由 generator 按 task_id 反查，续跑不再透传调用坐标
+    # Generator locates pending settlement calls by task_id; resume no longer forwards call coordinates.
     assert "api_call_id" not in call
     assert call["execution_provider_id"] == "openai"
     assert call["execution_provider_model_id"] == "sora-2"
@@ -293,14 +289,14 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert checkpoint.artifact_currency is not None
     assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     assert call["execution_provider_media"][0]["source_locator"] == "storyboards/scene_E1S01.png"
-    # 返回结果带 file_path / resource_type，供 worker mark_succeeded
+    # Results carry file_path / resource_type for worker mark_succeeded.
     assert result["resource_type"] == "videos"
     assert result["file_path"] == "videos/scene_E1S01.mp4"
 
 
 @pytest.mark.asyncio
 async def test_execute_resume_carries_backend_warnings_into_the_result(monkeypatch, fake_pm, video_task):
-    """续跑期 backend 产生的提示要落到任务 result 上。"""
+    """Backend notices during resume reach task result."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
@@ -319,10 +315,10 @@ async def test_execute_resume_carries_backend_warnings_into_the_result(monkeypat
 
 @pytest.mark.asyncio
 async def test_execute_resume_skips_storyboard_check(monkeypatch, fake_pm, video_task):
-    """resume 路径不读 storyboard 本地文件——即使 storyboard 不存在也能成功。"""
+    """Resume does not read local storyboard files and succeeds even if the storyboard is absent."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
-    # 故意确保 storyboard 不存在
+    # Deliberately ensure the storyboard is absent.
     storyboard_dir = fake_pm.project_path / "storyboards"
     if storyboard_dir.exists():
         for f in storyboard_dir.glob("*.png"):
@@ -331,14 +327,14 @@ async def test_execute_resume_skips_storyboard_check(monkeypatch, fake_pm, video
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
 
-    # 不应抛 "storyboard not found"
+    # Must not raise "storyboard not found".
     result = await execute_resume_video_task(video_task, job_id="openai-job-1")
     assert result["file_path"] == "videos/scene_E1S01.mp4"
 
 
 @pytest.mark.asyncio
 async def test_execute_resume_writes_scene_asset(monkeypatch, fake_pm, video_task):
-    """resume 成功后写 scene asset（video_clip + video_uri）。"""
+    """Successful resume writes scene assets (video_clip + video_uri)."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -353,7 +349,7 @@ async def test_execute_resume_writes_scene_asset(monkeypatch, fake_pm, video_tas
 
 @pytest.mark.asyncio
 async def test_execute_resume_expired_propagates(monkeypatch, fake_pm, video_task):
-    """backend.resume_video raise ResumeExpiredError → resume_executor 不吞，往上抛。"""
+    """Propagate backend.resume_video ResumeExpiredError without swallowing it."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator(raises=ResumeExpiredError(job_id="openai-job-1", provider="openai"))
@@ -365,8 +361,7 @@ async def test_execute_resume_expired_propagates(monkeypatch, fake_pm, video_tas
 
 @pytest.mark.asyncio
 async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, video_task):
-    """resume_executor 只声明 video lane、不声明 image lane —— 不构造 image backend，
-    image 配置坏不影响接续（等价于旧 require_image_backend=False 的意图）。"""
+    """Declare video lane only, never image lane: do not construct image backends, so broken image configuration cannot affect resume (the former require_image_backend=False intent)."""
     from server.services.tasks import resume_executor
     from server.services.tasks.generation_context import VideoLaneRequest
     from server.services.tasks.resume_executor import execute_resume_video_task
@@ -390,7 +385,7 @@ async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, vid
 
     await execute_resume_video_task(video_task, job_id="openai-job-1")
 
-    # 只声明 video lane（VideoLaneRequest），image/audio lane 未声明 → 不构造对应 backend
+    # Declare only video lane (VideoLaneRequest); absent image/audio lanes construct no corresponding backends.
     assert isinstance(captured["kwargs"].get("video"), VideoLaneRequest)
     assert captured["kwargs"].get("image") is None
     assert captured["kwargs"].get("audio") is None
@@ -398,7 +393,7 @@ async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, vid
 
 @pytest.mark.asyncio
 async def test_execute_resume_emits_project_change_batch(monkeypatch, fake_pm, video_task):
-    """resume 成功后同步触发 emit_generation_success_batch（推 SSE 给前端）。"""
+    """Successful resume synchronously emits emit_generation_success_batch for frontend SSE."""
     from server.services.tasks import resume_executor
     from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -423,7 +418,7 @@ async def test_execute_resume_emits_project_change_batch(monkeypatch, fake_pm, v
 
 @pytest.mark.asyncio
 async def test_execute_resume_failure_does_not_emit(monkeypatch, fake_pm, video_task):
-    """resume 抛错时不应 emit batch（finalize 未跑成功）。"""
+    """Failed resume emits no batch because finalize did not succeed."""
     from server.services.tasks import resume_executor
     from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -503,7 +498,7 @@ async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm
         "payload": {"script_file": "episode_1.json", "prompt": "p", "duration_seconds": "8.0"},
         "execution_checkpoint_json": _storyboard_checkpoint_json(task_id="T-float"),
     }
-    # 不应抛 ValueError
+    # Must not raise ValueError.
     result = await execute_resume_video_task(task, job_id="openai-job-1")
     assert result["resource_type"] == "videos"
     assert fake_gen.resume_calls[0]["duration_seconds"] == 8
@@ -511,7 +506,7 @@ async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm
 
 @pytest.mark.asyncio
 async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
-    """非 video / reference_video 任务（如 storyboard）不应被派发到 resume—— image 类无 resume 路径。"""
+    """Never dispatch non-video/reference_video tasks such as storyboards to resume; images have no resume path."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -531,7 +526,7 @@ async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
         await execute_resume_video_task(image_task, job_id="x")
 
 
-#: schema v3 检查点记录的两种旁白交付事实，形状取自升级前的落库契约。
+#: Two narration-delivery facts recorded by schema v3 checkpoints, shaped by the pre-upgrade persisted contract.
 _V3_USE_TTS_NARRATION = {
     "delivery": "use_tts",
     "tts_status": "current",
@@ -549,7 +544,7 @@ _V3_POST_PRODUCTION_NARRATION = {
 
 
 def _as_schema_v3(checkpoint_json: str, narration: dict[str, Any]) -> str:
-    """把当前版本的检查点改写成升级前落库的 schema v3 形状：多一份旁白交付事实、没有供应商素材引用，摘要随之重算。"""
+    """Rewrite current checkpoints into pre-upgrade persisted schema v3: extra narration-delivery facts, no provider-material references, and recomputed digest."""
 
     raw = json.loads(checkpoint_json)
     raw.pop("request_digest")
@@ -711,10 +706,9 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
 async def test_reference_resume_without_tts_config_declares_no_audio_lane(
     monkeypatch, fake_pm, legacy_narration: dict[str, Any] | None
 ):
-    """项目没有任何 TTS 配置时，中断的视频任务照常续跑：只声明 video lane，按检查点冻结的秒数轮询。
+    """Resume interrupted video tasks normally without any project TTS configuration: declare only video lane and poll using checkpoint-frozen seconds.
 
-    升级前落库的 v3 检查点带着旁白交付事实（含 use_tts），续跑同样不声明音频 lane。
-    """
+    Pre-upgrade v3 checkpoints include narration-delivery facts such as use_tts; resume still declares no audio lane."""
     from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services.tasks import resume_executor
     from server.services.tasks.resume_executor import execute_resume_video_task
@@ -845,16 +839,14 @@ async def test_reference_resume_rejects_resolved_model_drift_before_poll(monkeyp
     assert not (fake_pm.project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media").exists()
 
 
-# ── endpoint 比对闸 ──────────────────────────────────────────────
+# ── Endpoint comparison gate ──────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_task):
-    """提交时的 endpoint 与模型行当下的 endpoint 不同 → 显式失败，绝不接续轮询。
+    """If submission endpoint differs from the model row's current endpoint, fail explicitly without polling.
 
-    换 endpoint 等于换协议：拿新协议 backend 轮旧协议下创建的 job 会误读响应，把仍在跑
-    仍在计费的远端 job 标成失败（docs/adr/0054）。
-    """
+    Changing endpoint changes protocol: a new-protocol backend polling an old-protocol job could misread responses and mark a still-running, still-billable remote job failed (docs/adr/0054)."""
     from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -867,13 +859,13 @@ async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_ta
 
     assert exc_info.value.submitted_endpoint == "openai-video"
     assert exc_info.value.current_endpoint == "minimax-video"
-    # 核心回归点：没有拿新协议 backend 去轮旧 job
+    # Core regression assertion: never poll an old job with a backend using a new protocol.
     assert fake_gen.resume_calls == []
 
 
 @pytest.mark.asyncio
 async def test_resume_proceeds_when_endpoint_unchanged(monkeypatch, fake_pm, video_task):
-    """endpoint 未变更 → 续跑行为与现状一致。"""
+    """Unchanged endpoint retains existing resume behavior."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -902,7 +894,7 @@ async def test_resume_rejects_builtin_checkpoint_when_current_backend_is_custom(
 
 @pytest.mark.asyncio
 async def test_resume_proceeds_for_builtin_provider_without_endpoint(monkeypatch, fake_pm, video_task):
-    """内置供应商无 endpoint 维度（两侧皆空）→ 闸不介入。"""
+    """Built-in providers have no endpoint dimension (both empty), so the gate does not intervene."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -913,12 +905,12 @@ async def test_resume_proceeds_for_builtin_provider_without_endpoint(monkeypatch
     assert len(fake_gen.resume_calls) == 1
 
 
-# ── 提交域名回放 ──────────────────────────────────────────────
+# ── Submission-domain replay ──────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_resume_replays_submitted_base_url_for_builtin(monkeypatch, fake_pm, video_task):
-    """内置供应商重启续跑：持久化的提交域名透传给 backend，改配置后仍轮原主机。"""
+    """Built-in provider restart resume forwards persisted submission domain into the backend; configuration changes still poll the original host."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -937,7 +929,7 @@ async def test_resume_replays_submitted_base_url_for_builtin(monkeypatch, fake_p
 
 @pytest.mark.asyncio
 async def test_resume_replays_submitted_base_url_with_uppercase_scheme(monkeypatch, fake_pm, video_task):
-    """域名形态判别不区分 scheme 大小写：用户填的 base_url 原样落库，大写 scheme 同样是域名。"""
+    """Domain-form checks ignore scheme casing: persist user base_url unchanged; uppercase schemes still count as domains."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -951,7 +943,7 @@ async def test_resume_replays_submitted_base_url_with_uppercase_scheme(monkeypat
 
 @pytest.mark.asyncio
 async def test_resume_replays_submitted_base_url_for_custom(monkeypatch, fake_pm, video_task):
-    """自定义供应商重启续跑：协议标识与域名各在其列，在途改 base_url 后仍按提交时的域名轮询。"""
+    """Custom-provider restart resume stores protocol and domain separately; base_url edits in flight still poll the submission-time domain."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -979,7 +971,7 @@ async def test_resume_replays_submitted_base_url_for_custom(monkeypatch, fake_pm
 
 @pytest.mark.asyncio
 async def test_resume_does_not_read_domain_from_endpoint_column(monkeypatch, fake_pm, video_task):
-    """协议标识列不参与域名回放：未记域名的任务回退到按当下配置的域名轮询。"""
+    """Protocol identifiers do not participate in domain replay; tasks lacking stored domains poll current configuration."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -995,7 +987,7 @@ async def test_resume_does_not_read_domain_from_endpoint_column(monkeypatch, fak
 
 @pytest.mark.asyncio
 async def test_resume_ignores_non_domain_value_in_base_url_column(monkeypatch, fake_pm, video_task):
-    """专列里躺着非域名形态的值（人工改库等来路不明的行）：不回放，退回按当下配置轮询。"""
+    """If the dedicated column contains a nondomain value (such as an unexplained manual DB edit), do not replay; poll current configuration."""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -1009,7 +1001,7 @@ async def test_resume_ignores_non_domain_value_in_base_url_column(monkeypatch, f
 
 @pytest.mark.asyncio
 async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monkeypatch, fake_pm, video_task):
-    """协议标识不一致仍显式失败——域名回放不为换协议的续跑开口子。"""
+    """Protocol mismatch still fails explicitly; domain replay does not permit cross-protocol resume."""
     from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -1033,11 +1025,9 @@ async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monk
 
 @pytest.mark.asyncio
 async def test_resume_does_not_replay_domain_across_provider_kind_switch(monkeypatch, fake_pm, video_task):
-    """任务由自定义供应商提交、模型行在途被改成内置供应商：比对闸先拦下，域名无从回放。
+    """If a custom-provider task's model row changes to built-in while in flight, the comparison gate blocks before domain replay.
 
-    落库域名属于提交时那套凭据，拿它配另一类供应商的凭据轮询只会把可归因的 404 换成认证或
-    连接错误；比对闸对内置/自定义跨类切换逐字判不等，回放分支根本到不了。
-    """
+    Stored domains belong to submission credentials; pairing another provider class's credentials would replace an attributable 404 with authentication/connection errors. Built-in/custom switches compare unequal, so replay is unreachable."""
     from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -1061,10 +1051,9 @@ async def test_resume_does_not_replay_domain_across_provider_kind_switch(monkeyp
 
 @pytest.mark.asyncio
 async def test_resume_fails_when_builtin_task_switched_to_custom_provider(monkeypatch, fake_pm, video_task):
-    """任务由内置供应商提交（无协议标识）、模型行在途被改成自定义供应商：比对闸拦下。
+    """If a built-in-provider task (without protocol identifier) changes to custom in flight, the comparison gate blocks.
 
-    宁可显式失败，也不拿新协议 backend 轮旧的供应商任务。
-    """
+    Prefer explicit failure to polling old provider jobs with new-protocol backends."""
     from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 

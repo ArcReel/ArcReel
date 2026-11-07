@@ -5,8 +5,8 @@ import { previewAspect } from "@/utils/preview-aspect";
 export type GridImageAspect = "16:9" | "9:16" | "4:3" | "3:4";
 
 /**
- * 联合图的整图比例，与后端 grid_aspect_ratio_for 同口径：方形档取视频比例的规范朝向，
- * 存量 3×2 / 2×3 记录取 4:3 / 3:4。记录未冻结视频比例时按项目画幅回退。
+ * Whole composite-image ratio, matching backend grid_aspect_ratio_for: square layouts use the video's canonical orientation;
+ * legacy 3×2 / 2×3 records use 4:3 / 3:4. Fall back to the project ratio when the record did not freeze a video ratio.
  */
 export function gridImageAspect(
   grid: Pick<GridGeneration, "rows" | "cols" | "video_aspect_ratio">,

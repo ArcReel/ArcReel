@@ -1,9 +1,10 @@
-"""ledger 直驱缝测试：直接驱动记账括号 / resume / Agent 轮次 / union 分发。
+"""Direct ledger seam tests: accounting contexts / resume / Agent turns / union dispatch.
 
-特征化矩阵（tests/test_accounting_characterization.py）从生成器公开方法端到端锁落库行为；
-本文件补齐矩阵覆盖不到的 CM 契约语义：块内 call_id 可用、漏调成功声明抛 RuntimeError、
-Exception 翻 failed（可识别的失败类别另落 error_code + error_params）后重抛、记账失败不吞原异常、
-CancelledError 结算 cancelled 后重抛。
+The characterization matrix (tests/test_accounting_characterization.py) locks generator-to-database
+behavior end to end. These tests add CM contracts it misses: block-local call_id availability;
+RuntimeError for missing success declaration; Exception settles failed (recognized errors also
+record error_code + error_params), then rethrows; accounting failure preserves the original exception;
+CancelledError settles cancelled, then rethrows.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ _HTTP_REQUEST = httpx.Request("POST", "https://provider.example/v1/videos")
 
 
 def _download_error_from_status(status: int) -> ArtifactDownloadError:
-    """产物下载失败：状态码在它包裹的下载异常上，分类沿 ``__cause__`` 取。"""
+    """Artifact-download failure status belongs to the wrapped download exception, classified through ``__cause__``."""
     exc = ArtifactDownloadError(detail=f"{status} response")
     exc.__cause__ = httpx.HTTPStatusError(
         f"{status} response",
@@ -54,7 +55,7 @@ async def _only_row(db_factory: async_sessionmaker) -> ApiCall:
 
 
 # ---------------------------------------------------------------------------
-# union 分发：两处语义转写的唯一落点
+# Union dispatch: the only location for two semantic translations.
 # ---------------------------------------------------------------------------
 
 
@@ -96,13 +97,13 @@ class TestSettlementDispatch:
         assert s.usage_tokens == 8
 
     def test_audio_reports_raw_text_and_records_character_count(self) -> None:
-        # 语义转写①：原始文本交计算器统计字符，usage_tokens 记原文字符数
+        # Translation 1: calculators count raw-text characters; usage_tokens records source-character count.
         s = _settlement_from_result("audio", _AudioResult(text="念" * 25_000))
         assert s.usage_tokens == 25_000
         assert [usage.text for usage in s.usage] == ["念" * 25_000]
 
     def test_video_transcribes_duration_to_billed(self) -> None:
-        # 语义转写②：backend 实际计费时长 → billed_duration_seconds（覆盖请求时长）
+        # Translation 2: actual backend billed duration → billed_duration_seconds, overriding request duration.
         s = _settlement_from_result("video", _VideoResult(duration_seconds=15, generate_audio=False))
         assert s.billed_duration_seconds == 15
         assert s.generate_audio is False
@@ -117,7 +118,7 @@ class TestSettlementDispatch:
         ]
 
     def test_text_fallback_reports_one_usage_per_billed_request(self) -> None:
-        # 降级链上被丢弃的请求也已计费：各次请求各出一份用量，计费时逐次落上下文档
+        # Discarded fallback requests are already billed; record usage/context tiers separately for every request.
         kept = _text_result(input_tokens=100, output_tokens=50)
         merge_billed_usage(kept, _text_result(input_tokens=70, output_tokens=10, cache_read_tokens=30))
 
@@ -135,7 +136,7 @@ class TestSettlementDispatch:
 
 
 # ---------------------------------------------------------------------------
-# 记账括号 CM 契约
+# Accounting context-manager contract.
 # ---------------------------------------------------------------------------
 
 
@@ -158,9 +159,9 @@ class TestRecordBracket:
         ledger = Ledger(session_factory=db_factory)
         with pytest.raises(RuntimeError, match=re.escape("未调用 call.success")):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
-                pass  # 正常退出但未声明成功
+                pass  # Normal exit without a success declaration.
 
-        # 未声明成功 → 未 finish，行停在 pending（不翻 success/failed）
+        # No success declaration → no finish; row stays pending, without success/failed transition.
         row = await _only_row(db_factory)
         assert row.status == "pending"
 
@@ -173,7 +174,7 @@ class TestRecordBracket:
         row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.error_message is not None
-        assert len(row.error_message) == 500  # 错误信息截断由仓储承担
+        assert len(row.error_message) == 500  # Repository handles error-text truncation.
 
     async def test_cancellation_settles_cancelled_zero_cost_and_reraises(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
@@ -186,7 +187,7 @@ class TestRecordBracket:
 
         assert caught, "expected CancelledError to propagate"
 
-        # 取消结算：零费用翻 cancelled，不留 pending 也不计入失败
+        # Cancellation settles zero-cost cancelled, without pending rows or failure counting.
         row = await _only_row(db_factory)
         assert row.status == "cancelled"
         assert row.cost_amount == 0.0
@@ -196,7 +197,7 @@ class TestRecordBracket:
     async def test_cancel_during_success_settlement_lands_the_write_then_reraises(
         self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """取消打在成功结算的写入上：写入照常落地（真实费用），取消随后传播，行不留 pending。"""
+        """Cancellation during successful settlement waits for real-cost persistence, then propagates; no pending row remains."""
         ledger = Ledger(session_factory=db_factory)
         outer = asyncio.current_task()
         assert outer is not None
@@ -207,7 +208,7 @@ class TestRecordBracket:
             nonlocal write_done
             if kwargs.get("status") is CallStatus.SUCCESS:
                 outer.cancel()
-                # 让取消先送达外层，再让写入拖一拍：外层若不等写入就重抛，下面的断言会先于写入完成。
+                # Deliver cancellation to the outer scope first, delay writing; premature rethrow would let assertions precede persistence.
                 await asyncio.sleep(0.05)
             await real_finish_call(repo, *args, **kwargs)
             write_done = True
@@ -228,7 +229,7 @@ class TestRecordBracket:
     async def test_cancel_during_open_write_settles_cancelled_then_reraises(
         self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """取消打在开账写入上（pending 行已提交、id 尚未返回）：等写入落地后按 cancelled 结算再传播取消。"""
+        """Cancellation during opening (pending committed, ID not returned) waits for persistence, settles cancelled, then propagates."""
         publisher = _RecordingPublisher()
         ledger = Ledger(session_factory=db_factory, publish_change=publisher)
         real_start_call = UsageRepository.start_call
@@ -268,7 +269,7 @@ class TestRecordBracket:
     async def test_cancellation_settlement_failure_still_reraises_cancellation(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """取消分支记账写入自身抛异常时，取消必须照常冒泡（行留 pending 交兜底处理）。"""
+        """Accounting-write failure in cancellation handling preserves cancellation propagation; pending rows await fallback cleanup."""
 
         class _BoomOnCancelRepo:
             def __init__(self, _session: Any) -> None:
@@ -312,12 +313,12 @@ class TestRecordBracket:
         assert row.purpose == "generation_task"
         assert row.session_id == "s1"
         assert row.inputs == inputs
-        assert row.prompt == "p" * 900  # 提示词全文入库，不截 500 字
+        assert row.prompt == "p" * 900  # Persist full prompts without 500-character truncation.
 
     async def test_generate_audio_stays_null_unless_the_caller_declares_it(
         self, db_factory: async_sessionmaker
     ) -> None:
-        """``generate_audio`` 只对视频有意义：调用方不声明就留空，不给非视频行填一个默认值。"""
+        """``generate_audio`` is video-only: undeclared stays unset, without defaulting non-video rows."""
         ledger = Ledger(session_factory=db_factory)
         async with ledger.record(project_name="demo", call_type="image", model="m", provider="gemini-aistudio") as call:
             call.success(_ImgResult())
@@ -375,7 +376,7 @@ class TestRecordBracket:
         assert row.status == "failed"
         assert row.error_code == expected_code
         assert row.error_params == expected_params
-        assert row.error_message == str(exc)  # 原文照落，与机器码并存
+        assert row.error_message == str(exc)  # Preserve raw text alongside machine codes.
 
     async def test_unrecognised_failure_leaves_code_and_params_empty(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
@@ -392,7 +393,7 @@ class TestRecordBracket:
     async def test_accounting_failure_does_not_swallow_original_exception(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """失败分支记账写入自身抛异常时，必须让原异常照常冒泡（不被记账错误遮蔽）。"""
+        """Accounting-write failure during exception handling must not obscure the original exception."""
 
         class _BoomOnFailRepo:
             def __init__(self, _session: Any) -> None:
@@ -413,13 +414,13 @@ class TestRecordBracket:
 
         ledger = Ledger(session_factory=lambda: _dummy_session())
 
-        # 原异常是 ValueError；记账失败分支的 RuntimeError 被吞（仅记日志），ValueError 冒泡
+        # Original ValueError propagates; settlement RuntimeError is swallowed after logging.
         with pytest.raises(ValueError, match="original"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise ValueError("original")
 
     async def test_success_write_failure_flips_failed_and_reraises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """call.success() 已声明，但成功结算写入本身抛异常时，须尝试翻 failed 而非永久留 pending。"""
+        """After call.success(), failed success-settlement writes must attempt failed settlement rather than leave pending forever."""
 
         statuses: list[str] = []
 
@@ -451,7 +452,7 @@ class TestRecordBracket:
 
 
 # ---------------------------------------------------------------------------
-# resume 补账 / Agent 轮次：语义齐备的直驱确认（端到端计费口径见特征化矩阵）
+# Resume accounting / Agent turns: direct complete-semantic checks; characterization matrix covers end-to-end billing.
 # ---------------------------------------------------------------------------
 
 
@@ -479,7 +480,7 @@ class TestResumeAndAgentTurn:
 
         row = await _only_row(db_factory)
         assert row.status == "success"
-        assert row.duration_seconds == 6  # backend 实际计费时长覆盖请求 8s
+        assert row.duration_seconds == 6  # Actual backend billed duration overrides requested 8s.
 
     async def test_resume_failed_flips_pending_zero_cost(self, db_factory: async_sessionmaker) -> None:
         call_id = await self._seed_pending_video(db_factory)
@@ -495,7 +496,7 @@ class TestResumeAndAgentTurn:
     async def test_resume_failed_lands_the_raw_message_of_the_expired_exception(
         self, db_factory: async_sessionmaker
     ) -> None:
-        """续跑过期的失败原文只有调用方手上有；不传就只剩一个裸「失败」。"""
+        """Only callers hold expired-resume failure text; omitting it leaves a bare failure label."""
         call_id = await self._seed_pending_video(db_factory)
         ledger = Ledger(session_factory=db_factory)
         expired = ResumeExpiredError(job_id="job-1", provider="ark")
@@ -506,11 +507,11 @@ class TestResumeAndAgentTurn:
         row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.error_message == str(expired)
-        # 过期异常不带 HTTP 状态也不带上游错误码，分类落空——读侧按原文显示。
+        # Expiration has no HTTP/upstream code, so classification misses; readers display raw text.
         assert (row.error_code, row.error_params) == (None, None)
 
     async def test_resume_failed_classifies_the_exception_it_is_given(self, db_factory: async_sessionmaker) -> None:
-        """认得出类别的异常在 resume 路径也落码，与记账括号同一口径。"""
+        """Recognizable resume errors record codes consistently with accounting contexts."""
         call_id = await self._seed_pending_video(db_factory)
         ledger = Ledger(session_factory=db_factory)
         exc = httpx.HTTPStatusError(
@@ -527,7 +528,7 @@ class TestResumeAndAgentTurn:
         assert row.error_message == str(exc)
 
     async def test_resume_failed_takes_a_plain_failure_text(self, db_factory: async_sessionmaker) -> None:
-        """派发前判死的出口手上没有异常，只有一段原文——照落，无码。"""
+        """Pre-dispatch failure exits have raw text only, without exceptions; preserve it without codes."""
         call_id = await self._seed_pending_video(db_factory)
         ledger = Ledger(session_factory=db_factory)
 
@@ -564,14 +565,14 @@ class TestResumeAndAgentTurn:
         ledger = Ledger(session_factory=db_factory)
         await ledger.resume_success(call_id=call_id, result=_VideoResult())
 
-        # 二次 finalize 命中 0 行（WHERE status='pending' 幂等守卫），不抛异常
+        # Second finalize matches 0 rows (idempotent WHERE status='pending'), without raising.
         affected = await ledger.resume_success(call_id=call_id, result=_VideoResult())
         assert affected == 0
 
     async def test_cancel_during_agent_turn_write_still_lands_the_rows(
         self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """取消打在 Agent 轮次的写入上：等这一轮的行落库、事件发出后再传播取消，已产生的费用不丢。"""
+        """Agent-turn cancellation waits for row/event persistence before propagating, preserving incurred cost."""
         publisher = _RecordingPublisher()
         ledger = Ledger(session_factory=db_factory, publish_change=publisher)
         real_record = UsageRepository.record_agent_turn
@@ -615,7 +616,7 @@ class TestResumeAndAgentTurn:
 
 
 def _agent_call(model: str) -> AgentModelCall:
-    """一个模型一轮一次请求、100 万未缓存输入 token。"""
+    """One request per model per turn, one million uncached input tokens."""
     return AgentModelCall(
         model=model,
         requests=(Usage(quantities=token_usage(input_tokens=1_000_000, output_tokens=0)),),
@@ -628,7 +629,7 @@ def _agent_call(model: str) -> AgentModelCall:
 
 
 class _RecordingPublisher:
-    """记下发上项目变更总线的 (project_name, changes)。"""
+    """Capture (project_name, changes) published on the project-change bus."""
 
     def __init__(self) -> None:
         self.batches: list[tuple[str, list[dict[str, Any]]]] = []
@@ -642,7 +643,7 @@ class _RecordingPublisher:
 
 
 class TestSettlementEvents:
-    """结算即项目事件：usage_record / recorded 随三种终态发出，pending 与无项目名不发。"""
+    """Settlement emits usage_record / recorded for three terminal states, not pending or missing project names."""
 
     async def test_success_emits_recorded_change_with_project(self, db_factory: async_sessionmaker) -> None:
         publisher = _RecordingPublisher()
@@ -706,7 +707,7 @@ class TestSettlementEvents:
         assert publisher.batches == []
 
     async def test_call_without_project_name_emits_nothing(self, db_factory: async_sessionmaker) -> None:
-        """端点试跑没有项目归属，事件无处可送。"""
+        """Endpoint trials have no project ownership and nowhere to send project events."""
         publisher = _RecordingPublisher()
         ledger = Ledger(session_factory=db_factory, publish_change=publisher)
 
@@ -742,7 +743,7 @@ class TestSettlementEvents:
         ]
 
     async def test_publisher_failure_does_not_break_settlement(self, db_factory: async_sessionmaker) -> None:
-        """事件只是实时性优化：发布炸了，账照样落，调用方看不见异常。"""
+        """Events only optimize freshness: publication failure preserves accounting without surfacing errors to callers."""
 
         def _boom(_project_name: str, _changes: Any) -> None:
             raise RuntimeError("bus down")
@@ -755,7 +756,7 @@ class TestSettlementEvents:
 
 
 class TestSettleInterruptedCalls:
-    """启动收口：翻掉无存活任务的 pending 行，并按项目分组发结算事件。"""
+    """Startup closure settles pending rows without live tasks and emits settlement events grouped by project."""
 
     async def _seed_pending(self, db_factory: async_sessionmaker, *, project_name: str) -> int:
         from lib.db.repositories.usage_repo import UsageRepository

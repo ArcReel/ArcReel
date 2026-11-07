@@ -4,7 +4,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页「多宫格分镜图」视图：按章节切分点分组，每组一张卡片，信息栏加联合图媒体栏。
+// Episode multigrid storyboard view: chapter-boundary groups, one card each with information/joint-image columns.
 const GRID_PATH = "/app/projects/demo/episodes/1?view=grid";
 
 
@@ -18,7 +18,7 @@ const recordedScript = project.scripts["episode_1.json"];
 
 const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 
-// 四组：9、14、4、6 个分镜。第 2 组超过单张 9 格的上限，切成两张联合图。
+// Four groups: 9,14,4,6 storyboards. Group 2 exceeds nine-cell single-image limits, splitting into two composite images.
 const GROUP_SIZES = [9, 14, 4, 6];
 const GROUPS: string[][] = [];
 {
@@ -41,7 +41,7 @@ const segments = GROUPS.flatMap((group) =>
   })),
 );
 
-// 联合图与参考图用内联 SVG：getFileUrl 原样使用 data: 地址，不发请求，截图稳定。
+// Composite/reference images use inline SVG: getFileUrl preserves data: URLs without requests for stable screenshots.
 function compositeSvg(rows: number, cols: number, hue: number) {
   const cellW = 90;
   const cellH = 160;
@@ -101,9 +101,9 @@ function grid(
 }
 
 const GRIDS = [
-  // 第 1 组：联合图已就绪、尚未切分落格，参考图多且名字长。
+  // Group 1: composite images ready but not sliced into cells, with many long-named references.
   grid("grid-a", GROUPS[0], { rows: 3, cols: 3, split_at: null, reference_images: REFERENCES }),
-  // 第 2 组：两张联合图，第二张生成失败、错误说明很长。
+  // Group 2: two composite images; second generation failed with long errors.
   grid("grid-b1", GROUPS[1].slice(0, 9), { rows: 3, cols: 3 }),
   grid("grid-b2", GROUPS[1].slice(9), {
     rows: 2,
@@ -112,12 +112,12 @@ const GRIDS = [
     grid_image_path: null,
     error_message: LONG_ERROR,
   }),
-  // 第 3 组：生成中，还没有联合图。第 4 组没有联合图。
+  // Group 3: generating without composite images yet. Group 4 lacks composite images.
   grid("grid-c", GROUPS[2], { rows: 2, cols: 2, status: "generating", grid_image_path: null }),
 ];
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
+  // Project event SSE streams are unrecorded; reject with nonretryable statuses so pages retain substituted data.
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -141,7 +141,7 @@ async function gridReady(page: Page) {
   await groupCard(page, 1).getByRole("img", { name: "联合图" }).waitFor();
 }
 
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再点卡片右侧的控件。 */
+/** Compact Agent panels cover canvas right sides; collapse before clicking card-right controls. */
 
 defineRegionScenarios("多宫格分镜图", [
   {
@@ -158,7 +158,7 @@ defineRegionScenarios("多宫格分镜图", [
       const first = groupCard(page, 1);
       await expect(first.getByText("未切分", { exact: true })).toBeVisible();
       await expect(first.getByRole("button", { name: "切分落格" })).toBeEnabled();
-      // 联合图在信息栏右侧的媒体栏里，高度不超过视图区的 70%，整张可见
+      // Composite images sit in media columns right of information, capped at 70% of view height and fully visible.
       const image = await box(first.getByRole("img", { name: "联合图" }));
       const card = await box(first);
       const view = await box(page.getByRole("tabpanel"));
@@ -185,7 +185,7 @@ defineRegionScenarios("多宫格分镜图", [
       await expect(second.getByRole("button", { name: "第 2 张联合图" })).toHaveAttribute("aria-pressed", "true");
       await expect(second.getByText(LONG_ERROR)).toBeVisible();
       await expect(second.getByText("失败", { exact: true })).toBeVisible();
-      // 没有联合图时不能切分，仍可重新生成或上传
+      // Missing composites prevent slicing, while regeneration/upload remain available.
       await expect(second.getByRole("button", { name: "切分落格" })).toBeDisabled();
       await expect(second.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
       await expect(second.getByRole("button", { name: "上传联合图" })).toBeEnabled();

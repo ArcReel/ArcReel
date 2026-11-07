@@ -14,8 +14,8 @@ describe("provider-models fetchers", () => {
     vi.restoreAllMocks();
   });
 
-  // 供应商配置可变（用户在设置页编辑模型 supported_durations），前端不得持久缓存它——
-  // 每次消费都必须重拉，否则项目设置/向导读到的时长集会陈旧（ADR 0035）。
+  // Provider settings change, for example edited supported_durations; frontend must never persistently cache them:
+  // refetch per consumption, avoiding stale project-setting/wizard durations (ADR 0035).
   it("getCustomProviderModels re-fetches on every call (no persistent cache)", async () => {
     const spy = vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
 
@@ -25,7 +25,7 @@ describe("provider-models fetchers", () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
-  // 内置供应商缓存同理：status/enabled 等可变项陈旧会让模型选择器漏显刚配好的供应商。
+  // Same for built-ins: stale status/enabled caches hide newly configured providers.
   it("getProviderModels re-fetches on every call (no persistent cache)", async () => {
     const spy = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
 
@@ -98,8 +98,8 @@ describe("lookupCatalogVideoAudio", () => {
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "no-slash")).toBeNull();
   });
 
-  // 自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model` 同口径固定假定
-  // 有声（soft）——不是「未知」，故不返回 null。
+  // Custom catalogs lack per-model declarations; match server `_resolve_video_caps_for_model` assuming
+  // audio soft, never unknown/null.
   it("assumes audible/soft for custom backends (no per-model declaration, same default as the server)", () => {
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toEqual({
       hasAudioTrack: true,
@@ -128,7 +128,7 @@ describe("lookupVideoAudioControl", () => {
           audio_track: "always_off",
           reference_route_audio_track: "always_off",
         },
-        // 可灵 v3-omni 的形状：图生子路径带音轨开关，参考生子路径的原生 schema 不含该字段。
+        // Kling v3-omni shape: image-to-video subpaths include switches, reference-video native schemas omit them.
         "route-split": {
           ...VEO_PROVIDERS[0].models["seedance-like"],
           audio_track: "controllable",
@@ -147,13 +147,13 @@ describe("lookupVideoAudioControl", () => {
     expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`, "r2v")).toBe(expected);
   });
 
-  // 逐路径取值：按模型取会让参考生视频放行一个执行期必然被丢弃的开关（用户开了音频拿到无声成片）。
+  // Per-path lookup prevents reference-to-video controls necessarily discarded at execution (audio-enabled users receiving silent outputs).
   it("reads the reference-route declaration for r2v", () => {
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "i2v")).toBe("controllable");
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "r2v")).toBe("always_off");
   });
 
-  // 自定义供应商无逐模型音轨声明：无信号不收紧，开关保持可控。
+  // Custom providers lack per-model audio declarations; do not tighten without signals, leaving toggles controllable.
   it("keeps custom backends controllable", () => {
     expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "i2v")).toBe("controllable");
     expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "r2v")).toBe("controllable");
@@ -189,7 +189,7 @@ describe("catalogDurations", () => {
       },
     ] as unknown as Parameters<typeof catalogDurations>[1];
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/relay-video")).toEqual([5, 10]);
-    // 没有覆盖时时长由模型条目给出，前端查不到
+    // Without overrides, durations come from catalog entries unavailable to frontends.
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/plain-video")).toBeNull();
   });
 });

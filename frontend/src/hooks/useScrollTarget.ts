@@ -3,7 +3,7 @@ import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import type { WorkspaceFocusTarget } from "@/types";
 
-/** 定位后跟随布局变化重新对齐的时长：跨页跳转后，新页面的布局在定位之后的几帧里才稳定。 */
+/** Realignment duration after positioning: new-page layouts settle several frames after cross-page navigation positions targets. */
 const SETTLE_MS = 1000;
 const USER_SCROLL_EVENTS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 
@@ -16,10 +16,10 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
 }
 
 /**
- * 把元素滚到视野中央，并在随后的 {@link SETTLE_MS} 内随它、所在滚动容器或容器内各块内容的尺寸变化重新对齐：
- * 跨页跳转时新页面刚挂载，滚动容器可能还没收到最终高度，只滚一次会停在按旧布局算出的位置；目标上方的内容
- * （如随状态加载变高的吸顶工具栏）变高也会把目标挤开，而目标与定高的滚动容器都不变尺寸。观察开始时的首次
- * 回调也重新对齐，因为它带的可能已是变化后的尺寸。用户开始滚动或操作时停止跟随。返回停止跟随的函数。
+ * Center elements in view, then realign for {@link SETTLE_MS} when target/container/content-block dimensions change:
+ * newly mounted pages may not have final scroll-container heights, so a single scroll stops at old-layout positions. Content above targets
+ * (for example sticky toolbars becoming taller as state loads) can push targets without resizing targets or fixed-height scroll containers.
+ * Observer initial callbacks realign too, since their sizes may already have changed. Stop following on user scrolling/interactions; return the stop function.
  */
 function scrollIntoViewUntilSettled(el: HTMLElement): () => void {
   const align = () => el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -84,7 +84,7 @@ export function useScrollTarget(
     };
   }, []);
 
-  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- 重试计时器由返回的 cleanup 清理；高亮计时器与定位跟随须活过定位后 clearScrollTarget 引起的重跑，归 hook 生命周期，下次定位时替换、卸载时由上面的 effect 释放
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- returned cleanup clears retry timers; highlight timers/position following survive reruns from postposition clearScrollTarget, belong to hook lifetimes, are replaced on next targets and released by the effect above on unmount
   useEffect(() => {
     if (!scrollTarget || scrollTarget.type !== type) return;
     const requestId = scrollTarget.request_id;

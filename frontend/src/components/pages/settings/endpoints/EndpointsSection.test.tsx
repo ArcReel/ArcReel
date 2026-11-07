@@ -84,9 +84,9 @@ describe("EndpointsSection", () => {
 
     await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
 
-    // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
+    // Raw workflows lack kind and submit unchanged for validation; returned wrappers become pending definitions.
     expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
-    // 编辑区对默认定义的防抖校验可能先于它发生，调用次序不定，只确认原始 workflow 曾被送检。
+    // Default-definition debounced checks may precede them; call order varies, so assert raw workflows were validated only.
     expect(validate.mock.calls.map(([definition]) => definition)).toContainEqual(workflow);
     expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
@@ -108,7 +108,7 @@ describe("EndpointsSection", () => {
   });
 
   it("leaves built-in image endpoints out", async () => {
-    // 本节是自定义端点的管理面；内置图像端点在这里没有可做的事。
+    // This section manages custom endpoints; built-in image endpoints have no actions here.
     renderSection();
     const list = await screen.findByRole("navigation");
     expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
@@ -193,7 +193,7 @@ describe("EndpointsSection", () => {
       }),
     );
     renderSection("section=endpoints&endpoint=ce-7");
-    // 诊断卡要等 400ms 校验防抖再发请求，默认 1s 等待在并行负载下不够。
+    // Diagnostic cards wait 400ms validation debounce; default 1s waits are insufficient under parallel load.
     expect(
       await screen.findByText("不支持递归下降语法", undefined, { timeout: 4000 }),
     ).toBeInTheDocument();
@@ -398,7 +398,7 @@ describe("EndpointsSection", () => {
       expect.stringContaining("backup-video"),
     ]);
     expect(within(rows[1]).getByText("Backup relay")).toBeInTheDocument();
-    // 二级栏第二行写的是同一份数据
+    // Secondary-sidebar second rows display the same data.
     expect(screen.getAllByRole("link", { name: /Example Video API.*2 个模型使用/ })[0]).toBeInTheDocument();
 
     await userEvent.click(within(rows[1]).getByRole("link", { name: "打开「Backup relay」中的模型 backup-video" }));

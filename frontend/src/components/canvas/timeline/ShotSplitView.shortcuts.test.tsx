@@ -5,7 +5,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { makeNarrationSegment } from "@/test/factories";
 import { ShotSplitView } from "./ShotSplitView";
 
-/** 分镜视图的切换拦截与快捷键：J / K 切换分镜，⌘S / Ctrl+S 保存当前分镜。 */
+/** Storyboard-view navigation guard/shortcuts: J / K switch shots; ⌘S / Ctrl+S saves the current shot. */
 
 const segments = [
   makeNarrationSegment({ segment_id: "E1S01", image_prompt: "雨夜街道" }),
@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function renderView(onUpdatePrompt = vi.fn().mockResolvedValue(true)) {
-  // 分镜视图展示的是项目里的正式剧本，称呼分镜时按它在剧本里的位置
+  // Storyboard view displays the project's formal script and addresses shots by their script position.
   useProjectsStore.setState({
     currentScripts: { "episode_1.json": { episode: 1, content_mode: "narration", segments } as never },
   });
@@ -91,7 +91,7 @@ describe("ShotSplitView 切换拦截与快捷键", () => {
   it("焦点在弹层里时 ⌘S 不保存分镜，但仍拦下浏览器的保存网页", () => {
     const onUpdatePrompt = renderView();
     fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "雨后的街道" } });
-    // 弹层经 Portal 渲染在分镜视图之外
+    // Portal renders the overlay outside storyboard view.
     const overlay = document.createElement("div");
     const field = document.createElement("input");
     overlay.append(field);

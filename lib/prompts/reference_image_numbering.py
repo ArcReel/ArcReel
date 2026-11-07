@@ -1,17 +1,18 @@
-"""参考图的「图N」编号：类型声明行与正文 ``@[名称]`` 的替换。
+"""Reference image numbering as “图N”: type declarations and body ``@[名称]`` replacement.
 
-分镜图与宫格图的参考图对图像模型只是一个图数组，模型能理解的指认方式是「图N」。编排层在
-最终参考图列表确定后，由本模块机械渲染两样东西：一行不带资产名的类型声明（YAML 键
-``Reference_Images``），以及正文里 ``@[名称]`` 到对应「图N」的替换。编号即列表位置（从 1
-起）；压缩层与执行时的临时复制都不改数量与顺序，故只在此处编号一次，对全部图像后端同一口径。
+Storyboard/grid references reach image models as arrays, identified as “图N”. After orchestration finalizes
+the list, this module mechanically renders a nameless type declaration (YAML key
+``Reference_Images``) and replaces body ``@[名称]`` with the corresponding “图N”. Numbers are list positions
+(starting at 1); compression and execution-time copying preserve count/order, so numbering occurs once here
+with consistent semantics across image backends.
 
-输入是与实际随请求发出的参考图严格等长同序的 :class:`ReferenceImageSlot` 序列
-（:class:`lib.artifacts.visual_artifact_provenance.VisualReference` 满足该协议）。参考图列表仍由
-条目的引用字段决定，mention 只指认、不派生参考图。
+Input is a :class:`ReferenceImageSlot` sequence exactly matching sent references in length and order
+(:class:`lib.artifacts.visual_artifact_provenance.VisualReference` satisfies the protocol). Entry reference
+fields still determine the list; mentions identify images without deriving additional references.
 
-图像后端各有参考图数量上限，超限的尾部由后端自己丢弃。编排层须先经
-:func:`clamp_reference_images` 按后端上限裁剪、再进本模块编号，声明行才不会指认没发出的图；
-裁剪判定同时给出与任务 ``result.warnings`` 同形的 warning，用户与 Agent 由此得知有参考图被丢弃。
+Each image backend limits reference count and discards excess trailing images. Orchestration must first
+apply :func:`clamp_reference_images` for that limit, then number here, so declarations never identify unsent images.
+Clamping also returns a warning matching task ``result.warnings``, informing users and Agents of dropped references.
 """
 
 from __future__ import annotations
@@ -26,31 +27,31 @@ from lib.script.reference_video.text_parser import render_mentions
 
 logger = logging.getLogger(__name__)
 
-#: 类型声明行的 YAML 键，插在 ``Style`` 与 ``Scene`` 之间。
+#: YAML key for the type declaration, inserted between ``Style`` and ``Scene``.
 REFERENCE_IMAGES_KEY = "Reference_Images"
 
-#: 上一分镜图在参考图证据里的角色名。
+#: Previous storyboard role in reference evidence.
 PREVIOUS_STORYBOARD_ROLE = "previous_storyboard"
 
-#: 上一分镜图的约束句，随类型声明行发给模型。
-PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = "只参考构图与色调"
+#: Previous storyboard constraint sent to the model with its type declaration.
+PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = "use only composition and color"
 
-#: 参考图超限被去尾时的 warning key，与参考生视频路线共用同一条 i18n 文案。
+#: Warning key for dropped trailing references, sharing i18n copy with reference-to-video.
 REFERENCE_IMAGES_CLAMPED_WARNING = "ref_too_many_images"
 
-#: 按资产类型的类型说明；商品条目并入保真要求。
+#: Type descriptions by asset type; product entries include fidelity requirements.
 _TYPE_DESCRIPTIONS: dict[str, str] = {
-    "product": "商品参考图，画面中的商品须与之完全一致",
-    "character": "角色参考图",
-    "scene": "场景参考图",
-    "prop": "道具参考图",
+    "product": "product reference images; the product in the frame must match exactly",
+    "character": "character reference images",
+    "scene": "scene reference images",
+    "prop": "prop reference images",
 }
-_PREVIOUS_STORYBOARD_DESCRIPTION = f"上一分镜图，{PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}"
-_EXTRA_DESCRIPTION = "补充参考图"
+_PREVIOUS_STORYBOARD_DESCRIPTION = f"previous storyboard image, {PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}"
+_EXTRA_DESCRIPTION = "additional reference images"
 
 
 class ReferenceImageSlot(Protocol):
-    """一张实际随请求发出的参考图：角色名与逻辑身份，不含路径。"""
+    """One reference actually sent with a request: role and logical identity, without paths."""
 
     @property
     def role(self) -> str: ...
@@ -63,7 +64,7 @@ class ReferenceImageSlot(Protocol):
 
 
 def reference_image_label(position: int) -> str:
-    """参考图在请求数组中的位置（从 0 起）对应的「图N」。"""
+    """The “图N” label for a reference's zero-based position in the request array."""
     return f"图{position + 1}"
 
 
@@ -76,21 +77,21 @@ def _describe(slot: ReferenceImageSlot) -> str:
 
 
 def reference_images_declaration(references: Sequence[ReferenceImageSlot]) -> str:
-    """``Reference_Images`` 行的值：按类型分组的编号声明；无参考图时为空串。"""
+    """Value for ``Reference_Images``: numbered declarations grouped by type, or empty with no references."""
     groups: dict[str, list[str]] = {}
     for position, slot in enumerate(references):
         groups.setdefault(_describe(slot), []).append(reference_image_label(position))
     if not groups:
         return ""
-    return "；".join(f"{'、'.join(labels)}为{description}" for description, labels in groups.items()) + "。"
+    return "; ".join(f"{', '.join(labels)}: {description}" for description, labels in groups.items()) + "."
 
 
 @dataclass(frozen=True)
 class ReferenceImageClamp:
-    """一次按图像后端参考图上限的裁剪判定：保留前 ``kept`` 张、去尾（与后端内截断同序）。
+    """One clamping decision for the image backend's limit: retain first ``kept`` and drop the tail (same order as backend truncation).
 
-    ``dropped`` 是被丢弃参考图的类型说明（去重、按序位），只供日志；对外的 warning 走
-    :meth:`warning`，与参考生视频路线的超限 warning 同形。
+    ``dropped`` lists dropped type descriptions (deduplicated in order) for logging only; outward warnings use
+    :meth:`warning`, matching reference-to-video overflow warnings.
     """
 
     total: int
@@ -101,11 +102,11 @@ class ReferenceImageClamp:
 
     @property
     def clamped(self) -> bool:
-        """是否真的丢弃了参考图。"""
+        """Whether any references were actually dropped."""
         return self.kept < self.total
 
     def warning(self) -> dict[str, Any] | None:
-        """``{"key", "params"}`` 形态的 warning；未裁剪时为 ``None``。"""
+        """Warning shaped as ``{"key", "params"}``, or ``None`` when not clamped."""
         if not self.clamped:
             return None
         return {
@@ -120,13 +121,13 @@ def clamp_reference_images(
     *,
     model: str,
 ) -> ReferenceImageClamp:
-    """按图像后端的参考图上限判定应保留的张数：保留前 N 张、去尾。
+    """Determine the retained count from the image backend limit: keep first N, drop the tail.
 
-    ``max_reference_images`` 是参考图上限生效值给出的裁剪上限（``InputLimit.clamp_bound``），``None`` 表示不裁剪、
-    全量保留。调用方用 ``kept`` 同时截断
-    发给供应商的参考图与本模块编号所依据的 slot 序列，两者才继续等长同序——否则声明行会
-    指认后端已经丢弃、并未随请求发出的图。裁剪信息经 :meth:`ReferenceImageClamp.warning`
-    进任务结果与预览响应，日志只作排障对照。
+    ``max_reference_images`` is the effective clamping limit (``InputLimit.clamp_bound``); ``None`` retains
+    all references. The caller truncates both sent references and numbering slots using ``kept`` so they
+    remain equal-length and ordered; otherwise declarations identify images the backend discarded and never sent.
+    Clamping details enter task results and previews through :meth:`ReferenceImageClamp.warning`;
+    logs serve only as troubleshooting evidence.
     """
     total = len(references)
     if max_reference_images is None or total <= max_reference_images:
@@ -137,7 +138,7 @@ def clamp_reference_images(
         if description not in dropped:
             dropped.append(description)
     logger.info(
-        "参考图数量 %d 超过 model=%s 上限 %d，裁剪后编号；丢弃：%s",
+        "Reference count %d exceeds model=%s limit %d; clamped before numbering; dropped: %s",
         total,
         model,
         max_reference_images,
@@ -153,7 +154,7 @@ def clamp_reference_images(
 
 
 def mention_replacements(references: Sequence[ReferenceImageSlot]) -> dict[str, str]:
-    """引用名（比对坐标系）→ 该资产首张参考图的「图N」。上一分镜图与补充参考图没有可指认的名字。"""
+    """Reference name (comparison space) → first asset reference “图N”. Previous storyboard and extra references have no addressable names."""
     replacements: dict[str, str] = {}
     for position, slot in enumerate(references):
         if slot.role == PREVIOUS_STORYBOARD_ROLE or slot.logical_id is None:
@@ -163,7 +164,7 @@ def mention_replacements(references: Sequence[ReferenceImageSlot]) -> dict[str, 
 
 
 def render_reference_mentions(text: str, references: Sequence[ReferenceImageSlot]) -> str:
-    """把正文的 ``@[名称]`` 换成对应「图N」；对不上参考图的 mention 渲染为裸名。"""
+    """Replace body ``@[名称]`` with matching “图N”; unmatched mentions render as bare names."""
     replacements = mention_replacements(references)
     return render_mentions(text, lambda name: replacements.get(name, name))
 

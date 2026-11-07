@@ -1,68 +1,68 @@
-# Reviewer 协议
+# Reviewer protocols
 
-本文处理各家 reviewer 的触发、覆盖、发现读取与反馈。脚本输出的标志字段是定位线索，不是代码裁决；定性与收敛以 [SKILL.md](../SKILL.md) 为准。审查完成后仍可能有发现，通过标记也不能覆盖尚未处置的发现。
+This document covers reviewer triggers, coverage, finding retrieval, and feedback. Script flag fields are navigation clues, not code judgments; classification and convergence follow [SKILL.md](../SKILL.md). Completed reviews may still have findings, and a pass marker cannot override undisposed findings.
 
-## 身份与触发
+## Identity and triggering
 
-| Reviewer | 快照 login | REST login | 自动审查 | 手动触发 |
+| Reviewer | Snapshot login | REST login | Automatic review | Manual trigger |
 |---|---|---|---|---|
-| CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened、后续 push | `@coderabbitai resume` / `@coderabbitai review` |
-| Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened、修复 push 后续审 | `@codex review`，仅首次未启动时兜底 |
-| CodeQL | — | `github-advanced-security[bot]` | 每次 push 后分析 | 无 |
+| CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened, subsequent push | `@coderabbitai resume` / `@coderabbitai review` |
+| Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened, continued review after fix pushes | `@codex review`, fallback only when initial review has not started |
+| CodeQL | None | `github-advanced-security[bot]` | Analysis after every push | None |
 
-同一 HEAD 的同种触发只发一次，命令单独置于评论开头；用 `own_trigger_comments` 与 `last_push_at` 核对。CodeRabbit 的触发时机按其 `walkthrough.updated_at` 判断，见下文「CodeRabbit」。纯指标 bot（如 Codecov）不参与此循环。
+Send each trigger type only once per HEAD, placing the command alone at the start of a comment; reconcile using `own_trigger_comments` and `last_push_at`. Use CodeRabbit's `walkthrough.updated_at` for trigger timing, as described below. Pure metrics bots such as Codecov do not participate in this loop.
 
-CodeRabbit、Codex 自动跟随 push，按各自的完成信号核对当前 HEAD。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
+CodeRabbit and Codex automatically follow pushes; reconcile current HEAD using their respective completion signals. If only replying without changing HEAD, confirmed coverage remains valid.
 
-## 读取
+## Reading
 
-从 `is_new` 定位新正文，经 `query.sh ... details <id>...` 批量读取。严重度用于排序，定性按 SKILL.md「工程判断」；致谢与已确认的撤回不构成阻塞。标志字段与预览或正文冲突时读全文。
+Locate new bodies via `is_new` and batch-read them with `query.sh ... details <id>...`. Severity determines ordering; classification follows “Engineering judgment” in SKILL.md. Thanks and confirmed withdrawals are not blockers. If flags conflict with previews or bodies, read the full text.
 
-`query.sh ... history` / `unacked` 用于查漏，不是「未 ack 就必须修改」的队列。快照不含非 bot 的 inline 回复；核实在案处置时，用 `gh api 'repos/<owner>/<repo>/pulls/<pr>/comments?per_page=100&page=<N>'` 从第 1 页逐页读到不满 100 条，按 `in_reply_to_id` 关联。不用 `--paginate`：它跟随的下一页链接是数字 ID 路径，只放行 REST 的会话会拒绝。顶层处置说明从 `repos/<owner>/<repo>/issues/<pr>/comments` 读取。
+Use `query.sh ... history` / `unacked` to find omissions, not as a queue requiring modifications for every unacknowledged item. Snapshots omit non-bot inline replies. To verify recorded dispositions, use `gh api 'repos/<owner>/<repo>/pulls/<pr>/comments?per_page=100&page=<N>'` from page 1 until a page contains fewer than 100 entries, linking by `in_reply_to_id`. Do not use `--paginate`: next-page links it follows use numeric-ID paths, rejected by REST-only sessions. Read top-level disposition comments from `repos/<owner>/<repo>/issues/<pr>/comments`.
 
-## 处置写回
+## Write back dispositions
 
-每条发现的处置都要在案。缺陷以修复在案，bot 会按新 HEAD 自行确认，无需回复；其余在原 inline 线程回复定性与依据，没有 inline id 的发现在 PR 顶层回复并注明来源 id。各家的官方反馈渠道见下文各节「反馈」。
+Record a disposition for every finding. For defects, the fix itself is the record and the bot confirms against the new HEAD; no reply is needed. For others, reply in the original inline thread with classification and evidence. For findings without an inline ID, reply at PR top level and identify the source ID. See “Feedback” in each reviewer section for official feedback channels.
 
 ## CodeRabbit
 
-**触发。** `walkthrough.is_paused == true` 且其 `updated_at` 后尚未发送 resume 时，发送 `@coderabbitai resume`。`walkthrough.is_review_skipped == true`（draft、bot 作者等跳过审查的通知）且其 `updated_at` 后尚未发送 review 时，发送 `@coderabbitai review`。其他时候等待自动审查。暂停、限流和跳过后的静默都不是完成。
+**Trigger.** If `walkthrough.is_paused == true` and no resume was sent after its `updated_at`, send `@coderabbitai resume`. If `walkthrough.is_review_skipped == true` (a skipped-review notice for drafts, bot authors, etc.) and no review was sent after its `updated_at`, send `@coderabbitai review`. Otherwise wait for automatic review. Silence after pause, rate limiting, or skipping is not completion.
 
-**覆盖完成。** `reviewed_current_head == true`，且 `is_in_progress == false`、`is_paused == false`。限流与跳过审查时的 walkthrough 更新时间不算审查，脚本已通过 `is_rate_limited`、`is_review_skipped` 排除。
+**Coverage complete.** `reviewed_current_head == true`, `is_in_progress == false`, and `is_paused == false`. Walkthrough updates during rate limiting or skipped reviews do not count as reviews; the script excludes them using `is_rate_limited` and `is_review_skipped`.
 
-**发现入口。** 读取新 inline 和新 review body；`has_outside_diff` 提示正文含 diff 外发现，这类发现没有 inline id。`is_ok`、`actionable_count` 是 bot 的摘要，不能替代这些正文。增量审查返回 `Already reviewed` 时，两者可能残留上一轮值，以本轮正文和实际处置为准。所有实质发现已处置即可收敛，不要求 `actionable_count` 归零。
+**Finding entry points.** Read new inline comments and review bodies. `has_outside_diff` indicates outside-diff findings in the body, which have no inline ID. `is_ok` and `actionable_count` are bot summaries and cannot replace those bodies. When incremental review returns `Already reviewed`, both values may remain from the previous round; use this round's body and actual dispositions. Convergence requires all substantive findings disposed, not `actionable_count` reaching zero.
 
-**反馈。** CodeRabbit 从线程对话学习，learnings 作用于此后整个仓库的审查。回复留在 inline 线程内，不 `@coderabbitai`，以免为单个 PR 的判断生成全仓 learning。同一类噪声反复出现、且 `docs/standards/` 尚未覆盖时，按 [lessons.md](../../../../docs/agents/lessons.md) 提为 `lesson-candidate`，由规范收录；CodeRabbit 与 Codex 都从规范读取审查规则。
+**Feedback.** CodeRabbit learns from thread conversations, and learnings affect later reviews throughout the repository. Keep replies in inline threads without `@coderabbitai`, avoiding repository-wide learnings from one PR's judgment. If the same noise recurs and `docs/standards/` does not cover it, propose a `lesson-candidate` under [lessons.md](../../../../docs/agents/lessons.md) for inclusion in standards; both CodeRabbit and Codex read review rules from standards.
 
 ## Codex
 
-**触发。** PR 创建不足 5 分钟时等待。超过 5 分钟，仍无 review、inline、reaction 或 `has_started`，才发送一次 `@codex review`。出现启动信号或已经参审后，后续 push 等待自动续审；超时按 [faults.md](faults.md) 处理。
+**Trigger.** Wait if the PR is less than 5 minutes old. After 5 minutes, send one `@codex review` only if there is still no review, inline, reaction, or `has_started`. Once a start signal appears or review participation begins, wait for automatic continued review after subsequent pushes; handle timeouts under [faults.md](faults.md).
 
-**覆盖完成。** 当前 HEAD 上出现以下任一完成信号：带 `### 💡 Codex Review` 的 review；空 body 的 `COMMENTED` review 且本轮无新 inline；`has_pass_marker` 且 `reviewed_current_head == true` 的顶层通过评论；或可确认属于本 HEAD 的 `+1` reaction（新信号由 `is_new` 标示）。新 push 后的 `eyes` 表示正在重审，上一 HEAD 的 `+1` 不能沿用。
+**Coverage complete.** Any of these completion signals appears for the current HEAD: a review containing `### 💡 Codex Review`; an empty-body `COMMENTED` review with no new inline comments this round; a top-level pass comment with `has_pass_marker` and `reviewed_current_head == true`; or a `+1` reaction confirmed to belong to this HEAD (new signals are marked `is_new`). After a new push, `eyes` means rereview is underway; the previous HEAD's `+1` cannot be reused.
 
-**发现入口。** 读取非 ack inline，以及 `has_body_finding == true` 的 review body。P0/P1 优先处理。
+**Finding entry points.** Read non-ack inline comments and review bodies with `has_body_finding == true`. Prioritize P0/P1.
 
-**反馈。** 每条 inline 发现末尾写有 `Useful? React with 👍 / 👎.`，reaction 是 Codex 收集有用性的渠道。定性后给该 inline 加 reaction：缺陷与存量（发现成立）用 `+1`，YAGNI、nitpick 与误报用 `-1`；reaction 不替代回复。review body 里的发现没有 reaction 入口，只在 PR 顶层回复。
+**Feedback.** Each inline finding ends with `Useful? React with 👍 / 👎.`; reactions are Codex's usefulness-feedback channel. After classification, react to the inline: use `+1` for defects and preexisting issues (valid findings), and `-1` for YAGNI, nitpicks, and false positives. Reactions do not replace replies. Review-body findings have no reaction entry point; reply only at PR top level.
 
 ```bash
 gh api -X POST repos/<owner>/<repo>/pulls/comments/<id>/reactions -f content=-1
 ```
 
-## CodeQL 安全退出门槛
+## CodeQL security exit threshold
 
-CodeQL 不读 inline 回复，修复后由分析更新告警；尚未修复的告警也不一定再次评论。每次核对 `security_alerts.open_introduced`，而不只检查本轮新评论。
+CodeQL does not read inline replies; analysis updates alerts after fixes. Unfixed alerts may not produce another comment. Check `security_alerts.open_introduced` every time, rather than only new comments this round.
 
-退出须同时满足：
+Exit requires both:
 
-- `codeql_checks.all_ok == true`：当前 HEAD 分析完成且成功。`total == 0`、pending 或失败都不是通过。
-- `security_alerts.available == true`，且 `open_introduced` 为空，或仅剩经核实并在案的误报。该列表已排除 base 存量，check-run 标题中的 `N new alerts` 不能替代它。
+- `codeql_checks.all_ok == true`: analysis for current HEAD is complete and successful. `total == 0`, pending, and failed are not passes.
+- `security_alerts.available == true`, with `open_introduced` empty or containing only verified, recorded false positives. This list excludes preexisting base alerts; `N new alerts` in check-run titles cannot replace it.
 
-新告警按 SKILL.md「证据」核实。核实为误报的，按 alert number 在 PR 顶层评论写明污点链终点与结论，即纳入在案清单；证据不足以定论的交委派方裁决。dismiss 只由用户执行，退出汇报列出待 dismiss 的告警。
+Verify new alerts under “Evidence” in SKILL.md. For confirmed false positives, record the taint-chain endpoint and conclusion by alert number in a top-level PR comment; this adds them to the recorded list. Refer inconclusive evidence to the delegator. Only the user dismisses alerts; list alerts awaiting dismissal in the exit report.
 
-**已有授权的误报家族。** `py/path-injection` 的污点链止于 `ProjectManager.get_project_path()` 返回路径本身，且内部 `safe_join` 对 `project_name` 的保护仍成立时，可直接核实并在案。返回值之后又拼接未校验的 `filename` 等污点，不属于此例外。记录 alert number 与实际污点终点；已有记录的前提未变时沿用结论。
+**Previously authorized false-positive family.** For `py/path-injection`, if the taint chain ends at the path returned by `ProjectManager.get_project_path()` itself and its internal `safe_join` protection of `project_name` still holds, verify and record directly. A tainted, unvalidated `filename` or similar concatenated after that return value is outside this exception. Record the alert number and actual taint endpoint; reuse existing conclusions when their premises remain unchanged.
 
-在案清单从 PR 顶层评论按 alert number 核对；`query.sh ... history` 不含这些人工顶层说明。权限不足也可能返回 404，不能据此判定仓库未接入。若分析全程为 0、alerts 不可用且从无该 bot 评论，仅说明疑似未接入，须委派方确认后才能跳过，并在汇报中标明未核对；其他分析或权限故障见 [faults.md](faults.md)。
+Reconcile the recorded list by alert number from top-level PR comments; `query.sh ... history` does not include these manual top-level explanations. Insufficient permissions may also return 404, so this does not establish the repository lacks integration. If analysis remains 0 throughout, alerts are unavailable, and that bot has never commented, this only suggests missing integration: obtain delegator confirmation before skipping and report it as unchecked. See [faults.md](faults.md) for other analysis or permission failures.
 
-## 现场查询
+## Live queries
 
-优先使用 query.sh。确需直接查快照时，先用已知非空查询验证字段路径。`gh` 偶尔截断输出却仍返回 0；写回 PR 正文等远端内容前，确认读到的是完整原文。
+Prefer query.sh. If direct snapshot queries are necessary, first validate field paths with a known nonempty query. `gh` occasionally truncates output while returning 0; confirm you have the complete original before writing back remote content such as PR bodies.

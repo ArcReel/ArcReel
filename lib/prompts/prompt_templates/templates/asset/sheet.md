@@ -1,8 +1,8 @@
 ---
 id: asset/sheet
 category: asset
-title: 资产图
-description: 角色、角色衍生、场景、道具与商品资产图的完整提示词。
+title: "Asset sheet"
+description: "Complete prompts for character, character-derivative, scene, prop, and product asset sheets."
 stage: asset_sheet
 invoked_by:
   kind: generation_task
@@ -15,11 +15,11 @@ applies_to:
   - prop
   - product
 slots:
-  asset_type: 资产类型
-  name: 资产名称，衍生为空
-  description: 外观描述或相对本体的变化
-  style: 项目画风
-  style_description: 项目风格描述
+  asset_type: "Asset type"
+  name: "Asset name; empty for derivatives"
+  description: "Appearance description or changes relative to the base"
+  style: "Project visual style"
+  style_description: "Project style description"
 protected: false
 ---
 {{ variant("asset/sheet/style", asset_type) }}
@@ -32,4 +32,4 @@ protected: false
 
 {{ variant("asset/sheet/guard", asset_type) }}
 
-Avoid: {{ variant("asset/sheet/exclusions", asset_type) }}{{ partial("shared/image_avoid") }}
+Avoid:{{ variant("asset/sheet/exclusions", asset_type) }} {{ partial("shared/image_avoid") }}

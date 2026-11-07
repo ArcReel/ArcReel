@@ -13,7 +13,7 @@ const MEDIA_GROUP_LABEL_KEY: Record<MediaType, string> = {
   audio: "endpoint_audio_group",
 };
 
-// 分组顺序派生自上表的声明顺序，新增媒体类型只需在上方加一条
+// Group order derives from declarations above; new media types require one new declaration only.
 const MEDIA_ORDER = Object.keys(MEDIA_GROUP_LABEL_KEY) as MediaType[];
 
 function imageCapabilityKey(caps: ImageCap[]): string {
@@ -22,26 +22,26 @@ function imageCapabilityKey(caps: ImageCap[]): string {
 }
 
 interface EndpointSelectProps {
-  /** 触发按钮的 id，供字段标签用 `htmlFor` 关联。 */
+  /** Trigger button ID for the field label's `htmlFor` association. */
   id?: string;
-  /** 没有可见字段标签时（如列表行内）触发按钮的无障碍名称。 */
+  /** Accessible trigger names without visible labels, for example inline rows. */
   "aria-label"?: string;
   value: EndpointKey;
   onChange: (next: EndpointKey) => void;
   /**
-   * 宿主供应商的模型发现协议。ComfyUI 端点与 ComfyUI 协议供应商互为对方的唯一对手方
-   * （服务端双向校验，见 docs/adr/0081），选择器据此只列得上的那一半——否则用户要撞上
-   * 保存时的 422 才知道这条挂不上去。
+   * Host provider discovery protocols. ComfyUI endpoints/providers exclusively pair with ComfyUI protocols
+   * (bidirectional server validation, docs/adr/0081), so selectors list compatible halves only; otherwise users discover
+   * incompatible associations only through save-time 422s.
    */
   protocol: DiscoveryFormat;
   disabled?: boolean;
-  /** 窄位置（列表行内）：触发按钮只显示端点名称，请求路径留在下拉选项里。 */
+  /** Narrow inline positions: triggers show endpoint names only, keeping request paths in dropdown options. */
   compact?: boolean;
 }
 
 /**
- * 自定义供应商模型的「调用端点」选择器：按媒体类型分组，每项显示端点名称、请求方法与路径，
- * 图片端点另标文生图 / 图生图能力。选项全部来自端点目录（后端单一真相源）。
+ * Custom-provider model endpoint selectors: group by media, showing names/methods/paths,
+ * plus text-to-image/image-to-image flags for images. All options come from endpoint catalogs, the backend sole truth.
  */
 export function EndpointSelect({
   id,
@@ -59,7 +59,7 @@ export function EndpointSelect({
   const fetchCatalog = useEndpointCatalogStore((s) => s.fetch);
   const refreshCatalog = useEndpointCatalogStore((s) => s.refresh);
 
-  // 目录未就绪时取一次；store 自身有短路，重复挂载安全。取过一次仍未就绪即取失败，才给重试入口
+  // Fetch unready catalogs once; stores short-circuit, making repeated mounts safe. Still unready after fetch means failure, then show retries.
   const [attempted, setAttempted] = useState(false);
   useEffect(() => {
     if (!initialized) void fetchCatalog().finally(() => setAttempted(true));
@@ -79,10 +79,10 @@ export function EndpointSelect({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <Select<EndpointKey>
-        // 空值是「这一行还没有端点」（宿主切到 ComfyUI 协议却无端点可挂），显示占位文字
+        // Empty values mean rows lack endpoints (hosts switched to ComfyUI without compatible endpoints); display placeholders.
         value={value === "" ? null : value}
         onValueChange={(next) => {
-          // 同值重选不算变化：调用方按端点是否变化决定是否作废未保存的能力覆盖
+          // Reselecting identical values is unchanged; callers invalidate unsaved overrides based on actual endpoint changes.
           if (next !== null && next !== value) onChange(next);
         }}
         disabled={disabled || groups.length === 0}
@@ -104,7 +104,7 @@ export function EndpointSelect({
                   )}
                 </span>
               ) : (
-                // 已存的端点不在当前目录里（数据漂移或后端临时移除）：显示原始 key，不冒充第一项
+                // Saved endpoints missing from catalogs (drift/temporary backend removal) show original keys, never impersonate first options.
                 <span className="truncate font-mono">{value}</span>
               )
             }
@@ -132,7 +132,7 @@ export function EndpointSelect({
           ))}
         </SelectContent>
       </Select>
-      {/* 目录取失败时选择器没有选项可列，给出重试入口；store.refresh 对在途请求短路 */}
+      {/* Failed catalogs leave selectors without options; show retries, with store.refresh short-circuiting in-flight requests. */}
       {attempted && !initialized && !loading && (
         <Button variant="link" size="sm" className="self-start" onClick={() => void refreshCatalog()}>
           {t("endpoint_catalog_retry")}

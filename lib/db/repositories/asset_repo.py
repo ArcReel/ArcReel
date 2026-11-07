@@ -1,4 +1,4 @@
-"""AssetRepository: 全局资产库条目与其衍生子表的异步 CRUD。"""
+"""AssetRepository: asynchronous CRUD for global asset-library entries and their derivative child table."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from lib.db.repositories.base import BaseRepository
 
 
 def _match_name[S: Select](stmt: S, q: str | None) -> S:
-    """列表与计数共用的搜索条件：名称按字面包含 ``q``，不区分普通 Unicode 字母大小写。
+    """Search predicate shared by listing and counting: names literally contain ``q``, case-insensitive for ordinary Unicode letters.
 
-    ``icontains`` 在 PostgreSQL 上编译为 ILIKE、在 SQLite 上比较两侧的 lower()，
-    SQLite 连接注册 Unicode lower；locale 特殊折叠仍可能不同。
-    ``autoescape`` 让 ``%``、``_`` 按字面字符匹配。
+    ``icontains`` compiles to ILIKE on PostgreSQL and compares lower() on both sides in
+    SQLite. SQLite connections register Unicode lower; locale-specific folding may still
+    differ. ``autoescape`` matches ``%`` and ``_`` as literal characters.
     """
     return stmt.where(Asset.name.icontains(q, autoescape=True)) if q else stmt
 
@@ -36,9 +36,10 @@ class AssetRepository(BaseRepository):
         asset_id: str | None = None,
         **image_fields: Any,
     ) -> Asset:
-        """新建一条资产；``image_fields`` 是 ``image_path`` 之外的图片内容列（摘要、内容身份、远端定位）。
+        """Create an asset; ``image_fields`` supplies image-content columns beyond ``image_path`` (digest, content identity, remote locator).
 
-        ``asset_id`` 缺省时生成；图片先于条目保存、引用要登记在条目名下的调用方预先定下它。
+        Generate ``asset_id`` when omitted; callers saving images before the entry and
+        registering references under the entry must allocate it beforehand.
         """
         asset = Asset(
             id=asset_id or str(uuid.uuid4()),
@@ -79,12 +80,12 @@ class AssetRepository(BaseRepository):
         stmt = _match_name(select(Asset), q)
         if type:
             stmt = stmt.where(Asset.type == type)
-        # id 作次序键：更新时间相同的条目在多次查询间顺序不变，offset 分页才不会重复或漏掉
+        # Use id as a tie-breaker so equal update times retain stable ordering across queries, preventing offset-pagination duplicates or omissions
         stmt = stmt.order_by(Asset.updated_at.desc(), Asset.id.desc()).limit(limit).offset(offset)
         return list((await self.session.execute(stmt)).scalars())
 
     async def count_by_type(self, *, q: str | None) -> dict[str, int]:
-        """按类型统计名称匹配 ``q`` 的条目数；没有匹配条目的类型不出现在结果里。"""
+        """Count entries whose names match ``q`` by type; omit types with no matches."""
         stmt = _match_name(select(Asset.type, func.count()), q).group_by(Asset.type)
         return dict((await self.session.execute(stmt)).tuples().all())
 
@@ -100,8 +101,8 @@ class AssetRepository(BaseRepository):
     async def delete(self, asset_id: str) -> None:
         asset = await self.get_by_id(asset_id)
         if asset:
-            # 显式删衍生行而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上
-            # 生效，应用引擎虽统一开启（engine.py），脚本或外部工具直连时不保证。
+            # Delete derivative rows explicitly rather than relying on FK CASCADE: it requires foreign_keys
+            # pragma. The application engine enables it (engine.py), but direct script/external connections may not.
             await self.session.execute(delete(AssetDerivative).where(AssetDerivative.asset_id == asset_id))
             await self.session.delete(asset)
             await self.session.flush()
@@ -110,14 +111,14 @@ class AssetRepository(BaseRepository):
         return await self.get_by_type_name(type, name) is not None
 
     async def list_derivatives(self, asset_id: str) -> list[AssetDerivative]:
-        """按登记名排序读出一条资产的全部衍生。"""
+        """Read all derivatives for one asset, sorted by registered name."""
         stmt = select(AssetDerivative).where(AssetDerivative.asset_id == asset_id).order_by(AssetDerivative.name)
         return list((await self.session.execute(stmt)).scalars())
 
     async def list_derivatives_by_asset_ids(self, asset_ids: Sequence[str]) -> dict[str, list[AssetDerivative]]:
-        """一次查出多条资产的衍生，按 ``asset_id`` 归组；没有衍生的资产不出现在结果里。
+        """Fetch derivatives for multiple assets in one query, grouped by ``asset_id``; omit assets without derivatives.
 
-        列表页一屏可能有上百条资产，逐条查会退化成 N+1 次往返。
+        A list page may show hundreds of assets; querying each would degrade into N+1 round trips.
         """
         if not asset_ids:
             return {}
@@ -137,12 +138,14 @@ class AssetRepository(BaseRepository):
         derivatives: Sequence[tuple[str, str, str | None]],
         image_fields: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> list[AssetDerivative]:
-        """把一条资产的衍生整表换成给定的 ``(名, 描述, 图片相对路径)`` 序列。
+        """Replace an asset's entire derivative table with the supplied ``(名, 描述, 图片相对路径)`` sequence.
 
-        ``image_fields`` 按衍生名给出图片路径之外的图片内容列（摘要、内容身份、远端定位）。
+        ``image_fields`` maps derivative names to image-content columns beyond image paths
+        (digest, content identity, remote locator).
 
-        衍生随本体整套进出资产库，没有逐条增删的入口；覆盖入库即整表替换。删除旧行留给
-        调用方在同一事务里提交，旧行指向的图片文件由调用方在 commit 后清理。
+        Derivatives enter and leave the library with their base, without per-item add/remove
+        entry points; overwrite ingestion replaces the whole table. Callers commit old-row
+        deletions in the same transaction and clean up their image files after commit.
         """
         await self.session.execute(delete(AssetDerivative).where(AssetDerivative.asset_id == asset_id))
         rows = [

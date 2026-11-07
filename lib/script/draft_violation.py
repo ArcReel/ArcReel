@@ -1,14 +1,14 @@
-"""产出违约的条目类型与报告渲染，三条 script_plan 路线共用。
+"""Output-contract violation types and reporting shared by all three script_plan routes.
 
-违约是「机器产物没过内容约束」这一件事的通用形状：一条 ``code``（违约类的机读标识）、一个
-``label``（定位前缀，如 ``unit E1U02`` / ``segment E1S03``）、一段面向 Agent 的消息，外加可选的
-行号与发声准入定位。参考生视频、drama、narration 的判定各不相同，但条目形状与「一次判定收齐多条
-再渲染成报告」的口径完全相同，故收在本模块——路线中立层（``lib`` 顶层）。
+Violations represent machine output failing content constraints: ``code`` (machine-readable category),
+``label`` (location prefix, such as ``unit E1U02`` / ``segment E1S03``), an Agent-facing message, and optional
+line/speech-admission locations. Reference-video, drama, and narration decide differently but share the same
+entry shape and collect-many-then-render reporting, centralized here at the route-neutral ``lib`` layer.
 
-草稿信封（``lib.script.draft_quarantine``）与三条路线都无关，却要落盘与渲染违约条目；类型住在
-参考生视频子包里会让它反向依赖一条具体路线。本模块是这些类型的定义处，各路线的校验器与信封
-都只依赖它；``lib.script.reference_video.draft_validation`` 原样再导出这些名字，参考生视频的既有导入
-路径不变。
+Draft envelopes (``lib.script.draft_quarantine``) are route-independent but persist/render violations; putting
+types in reference-video would make them depend on a particular route. Define types here for all route validators
+and envelopes; ``lib.script.reference_video.draft_validation`` re-exports them unchanged, retaining existing
+reference-video import paths.
 """
 
 from __future__ import annotations
@@ -21,24 +21,25 @@ from pydantic import ValidationError
 
 
 class DraftViolation(ValueError):
-    """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
-    判定同走这个类型。消息含定位与修复出路，供工具错误信封原样回传给 Agent。
+    """Draft-output contract violation. Reference-syntax misuse is only one category: source anchors, speech quantity,
+    fidelity, and additional generation checks use this type too. Messages carry locations and repair guidance,
+    returned unchanged to Agents through tool error envelopes.
 
-    ``code`` 是违约类的机读标识，``label`` 是定位前缀（``unit E1U02`` / ``segment E1S03`` 一类）：
-    消息本身面向 Agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——
-    异常在校验器外被构造时（如生成侧的补充判定）只有消息。
+    ``code`` is machine-readable category; ``label`` locates items (such as ``unit E1U02`` / ``segment E1S03``).
+    Agent-facing wording may change; report grouping and category assertions must not depend on it. Both may be
+    empty when constructed outside validators (such as additional generation checks), supplying only a message.
 
-    ``line`` 是该单元正文内 0-based 的原始行号（``text.splitlines()`` 坐标系，与前端
-    ``toScriptLines`` 的 ``sourceLine`` 同一坐标系），仅在校验发生于具体某一行时才有意义
-    （如语法误用）；单元级、无自然行归属的违约（台词量超载、引用未登记等）留空，供呈现层
-    区分「行内锚定」与「落卡内聚合区」两条路径。
+    ``line`` is a zero-based original body line (``text.splitlines()``, matching frontend ``toScriptLines``
+    ``sourceLine``), meaningful only for line-specific checks such as syntax misuse. Unit-level violations
+    without a natural line (speech overload, unregistered references) leave it empty, letting presentation
+    distinguish inline anchors from card-level aggregation.
 
-    ``item_index`` 是违约所在条目在草稿正文条目数组（``units`` / ``scenes`` / ``segments``）里的
-    0-based 下标，``item_id`` 是该条目的 ID（参考单元 ``unit_id``、分镜 ``segment_id`` 等）；呈现层
-    按下标把违约挂到对应条目上，不解析 ``label``。两者都为空即整集层面的违约。
+    ``item_index`` is the zero-based draft-array index (``units`` / ``scenes`` / ``segments``); ``item_id``
+    is its ID (``unit_id``, ``segment_id``, etc.). Presentation attaches violations by index, never parses
+    ``label``. Both empty means episode-level violations.
 
-    ``params`` 非空表示 ``code`` 是问题码文案 key（视频请求事实一类的配置问题），呈现层按问题码与
-    参数本地化，不展示面向 Agent 的消息。
+    Nonempty ``params`` means ``code`` is a localized problem key (such as request-fact configuration problems);
+    presentation localizes code/parameters rather than showing Agent-facing messages.
     """
 
     def __init__(
@@ -70,7 +71,7 @@ class DraftViolation(ValueError):
 def schema_violations(
     exc: ValidationError, content: dict[str, Any], root: str, id_field: str | None = None
 ) -> list[DraftViolation]:
-    """将 schema 字段错误按原始条目定位；顶层或数组整体错误保留为整集违约。"""
+    """Locate schema errors on original entries; retain top-level/whole-array errors as episode-level violations."""
     items = content.get(root)
     violations: list[DraftViolation] = []
     for error in exc.errors():
@@ -96,10 +97,10 @@ def schema_violations(
 
 
 class DraftViolations(DraftViolation):
-    """一次校验收集到的多条违约。消息即逐条报告，``items`` 保留结构化条目。
+    """Multiple violations collected in one validation. Message is the report; ``items`` retains structured entries.
 
-    继承 :class:`DraftViolation` 而非另立类型：既有调用方按 ``DraftViolation`` 捕获与断言，
-    聚合体走同一分支才不会在「一条」与「多条」之间分叉出两套处置路径。
+    Inherit :class:`DraftViolation` rather than creating another type: existing callers catch/assert ``DraftViolation``;
+    aggregates must share the same branch rather than diverging single/multiple handling.
     """
 
     def __init__(self, items: Sequence[DraftViolation]):
@@ -108,23 +109,23 @@ class DraftViolations(DraftViolation):
 
 
 def violation_items(exc: DraftViolation) -> list[DraftViolation]:
-    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与待修复草稿落盘取用。"""
+    """Flatten individual/aggregate violations into entries for report rendering and repair-draft persistence."""
     return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
 
 
 def collect_violations(
     checks: Iterable[Callable[[], Any]], *, item_index: int | None = None, item_id: str | None = None
 ) -> list[DraftViolation]:
-    """依次执行各校验，收集 :class:`DraftViolation` 而不在首个违约处中断。
+    """Run checks in order, collecting :class:`DraftViolation` rather than stopping at the first violation.
 
-    单个校验函数内部仍是首个违约即抛（各判定共用一次遍历、后续判定以前面的结论为前提），
-    故一次调用最多贡献一条；把每个单元的各个判定入口分别传进来，报告就能覆盖到所有单元而
-    不是停在第一个坏单元上——Agent 一轮就能看全要改什么。
+    Individual checks still raise on first failure (shared traversal, later checks depend on earlier conclusions),
+    contributing at most one violation per call. Pass each unit's separate checks so reports cover every unit
+    instead of stopping at the first bad one, showing Agents all needed fixes in one round.
 
-    只吞 ``DraftViolation``：其余异常（解析器内部错误、脏数据引发的类型错误）照常上抛，
-    不被伪装成一条内容违约。
+    Catch only ``DraftViolation``; parser errors and malformed-data type failures propagate normally,
+    never disguised as content violations.
 
-    ``item_index`` / ``item_id`` 给出时，把这批校验收到的违约定位到该条目（已自带定位的不改）。
+    Supplied ``item_index`` / ``item_id`` locates this batch's violations, preserving existing locations.
     """
     found: list[DraftViolation] = []
     for check in checks:
@@ -140,7 +141,7 @@ def collect_violations(
 def locate_violations(
     violations: Iterable[DraftViolation], *, item_index: int | None = None, item_id: str | None = None
 ) -> None:
-    """给尚未定位的违约补上条目定位；已带定位的保持原值。"""
+    """Fill absent item locations on violations, preserving existing values."""
     for violation in violations:
         if violation.item_index is None and item_index is not None:
             violation.item_index = item_index
@@ -149,7 +150,7 @@ def locate_violations(
 
 
 def locate_violations_by_id(violations: Iterable[DraftViolation], item_ids: Sequence[str]) -> None:
-    """按 ``item_id`` 在条目 ID 序列里的位置补上 ``item_index``。"""
+    """Fill ``item_index`` from ``item_id`` positions in an item-ID sequence."""
     positions = {item_id: index for index, item_id in enumerate(item_ids)}
     for violation in violations:
         if violation.item_index is None and violation.item_id in positions:
@@ -157,7 +158,7 @@ def locate_violations_by_id(violations: Iterable[DraftViolation], item_ids: Sequ
 
 
 def render_violation_report(violations: Sequence[DraftViolation]) -> str:
-    """把违约条目渲染成逐条编号的报告文本（一行一条，带违约类标注）。"""
+    """Render numbered report text, one violation per line with category annotation."""
     lines: list[str] = []
     for index, violation in enumerate(violations, start=1):
         suffix = f"[{violation.code}] " if violation.code else ""

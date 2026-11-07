@@ -1,21 +1,21 @@
 # Per-Model Output Token Limits
 
-ArcReel 不维护独立的「按模型的输出 token 上限表」，也不在运行期把请求的 `max_tokens` clamp 到模型条目登记的最大输出 token。
+ArcReel does not maintain a separate per-model output-token-limit table or runtime-clamp requested `max_tokens` to catalog maximum output facts.
 
 ## Why this is out of scope
 
-请求示例（PR #405）：为 `TextGenerator` 增加各模型 `max_output_tokens` 常量表（如 `doubao-seed-1-8-251228 → 8192`），生成前取 `min(requested, model_limit)`，超出时静默分块。
+Example request (PR #405): add a `TextGenerator` per-model `max_output_tokens` table (e.g. `doubao-seed-1-8-251228 → 8192`), use `min(requested, model_limit)` before generation, and silently split oversized requests.
 
-ADR 0044（`docs/adr/0044-text-output-token-nonbinding-ceiling.md`）已选定另一条路：`lib/backends/text_backends/base.py` 的 `DEFAULT_MAX_OUTPUT_TOKENS = 64000` 作为单一**非约束**安全阀（ADR 用语：它仍按原值下传为请求的 `max_tokens`，「非约束」指的是它不是按任务压低的功能预算，只防模型退化性 runaway），各 backend 在结构化输出被截断时通过 `check_truncation()` 抛 `TextOutputTruncatedError`，由用户显式换输出能力更高的模型；自由文本维持 log-only 告警。ADR「明确不采用」中逐条否掉了：
+ADR 0044 (`docs/adr/0044-text-output-token-nonbinding-ceiling.md`) chose otherwise: `DEFAULT_MAX_OUTPUT_TOKENS = 64000` in `lib/backends/text_backends/base.py` is one **nonbinding** safety valve. It still passes unchanged as request `max_tokens`; nonbinding means it is not a lowered functional task budget, only runaway protection. Backends detect structured-output truncation through `check_truncation()`, raising `TextOutputTruncatedError` so users explicitly choose more capable models; free text stays log-only. The ADR explicitly rejects:
 
-- **按模型上限表**：要为所有内置与自定义供应商补外部数据并持续维护，是一个易过时的第二真相源。#1847 正文（2026-08）记录了一个实例：火山方舟官方文档对 `doubao-seed-1-8-251228` 的最大输出声明已从旧版约 8192 更新为 64K，而 PR #405 写死的正是 `8192`——合入即把该模型正常长输出砍掉 8 倍。
-- **截断即自适应降级**：静默缩批量与「显式失败、用户做主」相悖。
+- **Per-model limit tables**: external data for all built-in/custom providers requires ongoing maintenance, creating a stale-prone second truth source. #1847 (2026-08) records Ark’s `doubao-seed-1-8-251228` limit changing from about 8192 to 64K, while PR #405 hardcodes `8192`, cutting legitimate output 8-fold immediately.
+- **Adaptive degradation on truncation**: silent batch shrinking conflicts with explicit failure and user control.
 
-模型条目的 `max_output_tokens` 是可选的能力事实，现在只用于分集规划按它定批次（见 `docs/adr/0044` 文末修订），不作为请求 `max_tokens` 的约束，这是刻意的。
+Entry `max_output_tokens` is an optional capability fact, currently used only to size episode-planning batches (ADR `docs/adr/0044` final revision), intentionally not constraining request `max_tokens`.
 
-重开条件（来自 #1847 关闭意见）：某个当前可选模型出现**真实、可复现**的不兼容，此时按具体 provider/model 单独开票，而非引入通用表。
+Reopen condition from #1847’s closing comment: **real, reproducible** incompatibility in a currently selectable model; file a specific provider/model issue rather than introduce a general table.
 
 ## Prior requests
 
-- #1847 — Spec「按模型输出 token 上限」，2026-08-13 按 YAGNI 关闭
+- #1847 — Spec「按模型输出 token 上限」 (per-model output-token limits), closed as YAGNI on 2026-08-13
 - PR #405 — feat(ai): add token limit awareness to text generator

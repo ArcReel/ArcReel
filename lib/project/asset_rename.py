@@ -1,16 +1,13 @@
-"""资产级联重命名的纯函数层：剧本/草稿引用改写、关联文件迁移规划与结果报告。
+"""Pure cascading-rename layer: script/draft references, file-relocation plans, and result reports.
 
-资产以 name 为身份（见 docs/adr/0057），重命名是一次级联事务：资产桶 key、全部剧集剧本
-与 script_plan 草稿里的名称引用（引用数组 / speaker / ``@[名称]`` mention）、按名命名的关联文件
-（不变式「文件 stem = 资产名」）须一次改齐。本模块承载其中**无副作用**的部分——引用改写
-（就地改 dict、返回改写数）与文件迁移规划（返回 (src, dst) 列表）——供 ProjectManager 的
-编排入口在锁内先扫描（dry-run 预览与执行共用同一套扫描）再落盘。删除资产前的引用预览
-（:class:`AssetDeletionPreview`）复用同一套扫描。
+Assets use name identity (docs/adr/0057). Cascades atomically update bucket keys, all script/plan
+references (arrays/speaker/``@[名称]``), and named files (stem = asset name). **Side-effect-free**
+portions here mutate dict references/return counts and plan (src,dst) relocations, letting ProjectManager
+scan under locks before persistence, sharing dry-run/execution scans. :class:`AssetDeletionPreview`
+shares the same reference scans.
 
-名字引用判等一律走比对坐标系（strip + NFC，见
-:func:`lib.project.asset_types.asset_name_comparison_key`）：正文与引用数组可能带两端空白或以 NFD
-形式存量落盘，按字节比对会漏改同一资产的引用。文件 stem 仍只做 NFC，避免改变路径语义。
-"""
+Compare names by strip + NFC (:func:`lib.project.asset_types.asset_name_comparison_key`), since
+padded/NFD bodies and arrays otherwise miss references. Stems normalize NFC only, preserving path semantics."""
 
 from __future__ import annotations
 
@@ -33,11 +30,11 @@ from lib.script.script_references import iter_reference_sites
 
 
 class AssetRenameNotFoundError(KeyError):
-    """旧名在资产桶中不存在。message 含恢复导向提示（可能上次重命名已成功）。"""
+    """Old names are absent from asset buckets; messages include recovery guidance because previous renames may already have succeeded."""
 
 
 class AssetRenameConflictError(ValueError):
-    """目标名与既有同类型资产归一化判定冲突，整体拒绝、不落盘。"""
+    """Normalized target conflicts with existing same-type assets; reject wholly without persistence."""
 
     def __init__(self, conflict_name: str):
         super().__init__(f"目标名与既有资产 {conflict_name!r} 冲突（按 NFC 归一判定），请换一个名字或先处理既有资产")
@@ -45,11 +42,10 @@ class AssetRenameConflictError(ValueError):
 
 
 class AssetRenameFileCollisionError(ValueError):
-    """迁移目标文件已被占用，整体拒绝、不落盘。
+    """Destination files occupied; reject wholly without persistence.
 
-    占用者是无对应资产的孤儿文件（有资产时先被 :class:`AssetRenameConflictError` 拦下），
-    落盘处的 ``os.replace`` 会静默销毁它。
-    """
+    Occupants are assetless orphan files (assets already trigger :class:`AssetRenameConflictError`);
+    ``os.replace`` would silently destroy them."""
 
     def __init__(self, destination: Path):
         super().__init__(f"迁移目标文件已存在: {destination}，请先移除该文件或换一个名字")
@@ -57,11 +53,10 @@ class AssetRenameFileCollisionError(ValueError):
 
 
 class AssetRenameHistoryCollisionError(ValueError):
-    """新名下已有保留的版本历史，整体拒绝、不落盘。
+    """Retained history under new names; reject wholly without persistence.
 
-    早先的资产删除只删资产桶 key，版本记录与快照留在项目里：迁移过去会覆盖这份
-    历史且不可恢复。与孤儿文件同口径——宁可 fail loud 让用户先处理，也不静默销毁。
-    """
+    Earlier asset deletion removed bucket keys only, leaving history/snapshots. Relocating would overwrite
+    unrecoverably. Like orphan files, fail loudly for user handling instead of silent destruction."""
 
     def __init__(self, resource_id: str):
         super().__init__(f"新名 {resource_id!r} 下已有保留的版本历史，请先清理该历史或换一个名字")
@@ -70,7 +65,7 @@ class AssetRenameHistoryCollisionError(ValueError):
 
 @dataclass(frozen=True)
 class AssetRenameReport:
-    """级联重命名的影响报告。dry-run 预览与实际执行共用同一次扫描，数字必然一致。"""
+    """Cascade impact report; dry-run/execution share one scan and necessarily identical counts."""
 
     table: str
     old_name: str
@@ -83,7 +78,7 @@ class AssetRenameReport:
 
 @dataclass(frozen=True)
 class AssetEpisodeReferences:
-    """一集里指向某资产的引用处数。"""
+    """Episode reference-site counts for one asset."""
 
     episode: int
     references: int
@@ -91,11 +86,9 @@ class AssetEpisodeReferences:
 
 @dataclass(frozen=True)
 class AssetDeletionPreview:
-    """删除资产前的引用预览：与重命名同一套扫描，删除后这些引用会悬空。
+    """Predeletion references sharing rename scans; deletion would leave them dangling.
 
-    ``references`` 是全部引用处数，与同一资产的重命名预览一致；``episodes`` 按集号升序列出
-    其中能归到某一集的部分。
-    """
+    ``references`` is total sites, matching rename previews; ``episodes`` lists attributable subsets by ascending ID."""
 
     table: str
     name: str
@@ -103,38 +96,35 @@ class AssetDeletionPreview:
     episodes: tuple[AssetEpisodeReferences, ...]
 
 
-#: 各资产类型在剧本/草稿骨架里的「名称列表」引用字段。列表内只有 str 元素才是名称引用——
-#: drama 顶层 ``scenes`` 是分镜 dict 列表，与 narration 分镜里的场景名列表同 key 不同形，
-#: 按元素类型即可区分，无需骨架特例。
+#: Name-list fields by asset type; only str elements count as references.
+#: Drama top-level ``scenes`` contains storyboard dicts, while narration uses the same key for scene names;
+#: distinguish by element type without skeleton special cases.
 _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
     asset_type: frozenset(spec.reference_list_fields) for asset_type, spec in ASSET_SPECS.items()
 }
 
 
 def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, new_name: str) -> int:
-    """就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。
+    """Rewrite *old_name* to *new_name* in script/draft payload references in place, returning count.
 
-    落点集合由 :func:`lib.script.script_references.iter_reference_sites` 定义（引用数组、
-    ``speaker`` 字段、单元正文与分镜画面描述里的 ``@[名称]`` 记号）；``character`` 另有旧式剧本内嵌的顶层
-    ``characters`` 镜像 dict 要 re-key + 同步路径字段。
+    :func:`lib.script.script_references.iter_reference_sites` defines arrays, ``speaker``, bodies/visual
+    ``@[名称]``. ``character`` also rekeys legacy embedded top-level ``characters`` mirrors and updates paths.
 
-    *old_name* 可以是 ``角色/衍生`` 形态（衍生改名）：命中判定由
-    :func:`lib.references.reference_catalog.renamed_reference` 统一给出——本体改名连带改写其下全部
-    衍生引用，衍生改名只动该角色的那一套。``speaker`` 只承载本体名，故衍生改名扫到它时
-    自然不命中。
+    *old_name* may be ``角色/衍生``. :func:`lib.references.reference_catalog.renamed_reference` centralizes
+    matching: base renames include all derivatives; derivative renames affect only that character's set.
+    ``speaker`` carries bases only, naturally never matching derivative renames.
 
-    只识别骨架结构、不校验语义：结构校验由写盘统一入口的「不更坏」守卫兜底。
-    """
+    Recognize skeletons without semantic validation; centralized do-not-worsen persistence guards handle structure."""
     list_fields = _LIST_FIELDS_BY_TYPE[asset_type]
     count = 0
 
     if asset_type == "character" and not split_derivative_reference(asset_name_comparison_key(old_name))[1]:
-        # 旧式剧本把角色表镜像内嵌在顶层 characters dict（update_character_sheet 写入路径），
-        # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。衍生改名不动本体的 key。
+        # Legacy scripts embed top-level character mirrors through update_character_sheet;
+        # rekey/update sheet paths, preventing old-name mirrors. Derivative renames leave base keys unchanged.
         embedded = payload.get("characters")
         if isinstance(embedded, dict):
-            # 无条件收编：胜出 key 恰好已是新名（纯改编码形式的改名）时，另一条等价 key
-            # 仍带着旧路径，不能因为胜出 key 看起来没变就跳过。计数看 key 是否真的变了。
+            # Always adopt: even if winning keys already use new names for encoding-only renames, equivalent keys
+            # may retain old paths. Never skip by apparent winning-name equality; count only actual key changes.
             keys_before = list(embedded)
             entry = rekey_equivalent_entries(embedded, old_name, new_name)
             if entry is not None:
@@ -164,14 +154,12 @@ def rewrite_grid_reference_images(
     new_name: str,
     path_rewrites: Mapping[str, str],
 ) -> int:
-    """就地把宫格记录冻结的参考图里指向 *old_name* 的条目改写为 *new_name*，返回改写数。
+    """Rewrite frozen grid references from *old_name* to *new_name* in place, returning count.
 
-    宫格记录冻结的是生成那一刻实际发出的参考图（路径、名字、类型），宫格与切格分镜的依据
-    按它重放；改名搬走了资产图却不改记录，重放就读不到图，宫格因此误判过期。名字按
-    :func:`renamed_reference` 判定（本体改名连带衍生），路径只在命中 *path_rewrites*
-    （本次改名实际迁移的文件，键与值都是项目相对路径）时改写——不是按名命名的文件不会被搬走，
-    原路径仍然有效。
-    """
+    Grids freeze actual outgoing paths/names/types for basis replay. Moving sheets without record updates
+    would make replay lose images and falsely stale grids. :func:`renamed_reference` matches names,
+    including base descendants. Rewrite paths only in *path_rewrites*, the files actually relocated by
+    this rename, with project-relative keys/values. Unnamed files stay in place and retain valid paths."""
     count = 0
     for reference in references:
         if reference.ref_type != asset_type:
@@ -188,18 +176,16 @@ def rewrite_grid_reference_images(
 
 
 def renamed_file_stem(stem: str, old_name: str, new_name: str, *, allow_sequence: bool = False) -> str | None:
-    """按「文件 stem = 资产名」不变式推导改名后的 stem；与旧名无关时返回 None。
+    """Derive stems under filename = asset-name invariants; None when unrelated to old names.
 
-    默认只认 stem 归一后**精确等于**旧名（sheet / 参考图 / 参考音频）。``allow_sequence``
-    表示该位置的文件全部按 ``名_{序号}`` 机械命名（product 多图序列，见
-    server/routers/files.py 的 sequenced 命名），此时**只**认 ``旧名_{序号}``，不再认 stem
-    恰好等于旧名的文件：资产名本身允许下划线加数字（``validate_asset_name`` 不禁），
-    商品 ``Cup_1`` 与 ``Cup`` 并存时，``Cup`` 的第 1 张原图 ``Cup_1.png`` 的 stem 恰好等于
-    ``Cup_1``，按精确同名认会把它当成 ``Cup_1`` 自己的文件。普通目录不要开 ``allow_sequence``，
-    否则兄弟资产「旧名_2」的文件会被一并卷走、路径字段改成悬空。
+    Default normalized stems must **exactly** match old names (sheets/image/audio references).
+    ``allow_sequence`` means all files here mechanically use ``名_{序号}`` (product references, sequenced
+    uploads in server/routers/files.py). Then accept **only** ``旧名_{序号}``, not exact old stems.
+    ``validate_asset_name`` permits underscore-number suffixes: with products ``Cup_1`` and ``Cup``,
+    ``Cup``'s first ``Cup_1.png`` would otherwise appear to belong to ``Cup_1``. ``Cup_1`` is therefore ambiguous. Never enable
+    ``allow_sequence`` for ordinary directories, or sibling “旧名_2” files move and references dangle.
 
-    比对与拼接都在归一坐标系上进行——macOS 落盘的文件名可能是 NFD。
-    """
+    Compare/construct in normalized coordinates, as macOS filenames may be NFD."""
     normalized = normalize_asset_name(stem)
     target = normalize_asset_name(old_name)
     if not allow_sequence:
@@ -211,7 +197,7 @@ def renamed_file_stem(stem: str, old_name: str, new_name: str, *, allow_sequence
 
 
 def renamed_relpath(rel: str, old_name: str, new_name: str, *, allow_sequence: bool = False) -> str | None:
-    """把路径字段值中的文件 stem 从旧名改为新名；stem 与旧名无关时返回 None。"""
+    """Rename path-field stems; None if unrelated to old names."""
     path = PurePosixPath(rel.replace("\\", "/"))
     new_stem = renamed_file_stem(path.stem, old_name, new_name, allow_sequence=allow_sequence)
     if new_stem is None:
@@ -220,14 +206,12 @@ def renamed_relpath(rel: str, old_name: str, new_name: str, *, allow_sequence: b
 
 
 def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: str) -> int:
-    """就地同步资产 entry 内按名命名的路径字段（sheet / 参考图 / 参考音频 / 多图序列），返回改写数。
+    """Update named entry paths (sheet/image/audio/multiple-reference sequence) in place, returning count.
 
-    改写范围与 :func:`plan_asset_file_renames` 的迁移范围逐维对齐，两侧用同一个谓词：只动
-    落在该资产类型目录本级及其 ``refs`` / ``refs_audio`` 子目录下、且 stem 命中旧名的值；
-    ``旧名_{序号}`` 形态只在多图序列资产的 ``refs`` 子目录放行，其余位置一律精确同名。
-    用户手动指到别处的路径（如 ``thumbnails/旧名.png``）不动——那里的文件不在迁移范围内，
-    改了字段就会把一条原本有效的引用指成空。
-    """
+    Share predicates with :func:`plan_asset_file_renames` per dimension: only asset-root/``refs`` /
+    ``refs_audio`` paths with matching stems. Permit ``旧名_{序号}`` only in sequence-asset ``refs``;
+    require exact names elsewhere. Preserve user-directed other paths such as ``thumbnails/旧名.png``:
+    those files do not move, so rewriting would break valid references."""
     base = PurePosixPath(spec.subdir)
     migrated_dirs = {base, base / "refs", base / "refs_audio"}
     sequenced_refs = "reference_images" in spec.extra_list_fields
@@ -260,7 +244,7 @@ def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: s
 
 
 def _named_file_layout(spec: AssetSpec) -> tuple[tuple[PurePosixPath, bool], ...]:
-    """按名命名的资产文件所在的目录（项目相对），及该目录是否放行 ``名字_{序号}`` 形态。"""
+    """Project-relative named-file directories and whether each accepts ``名字_{序号}``."""
     base = PurePosixPath(spec.subdir)
     sequenced_refs = "reference_images" in spec.extra_list_fields
     return ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False))
@@ -271,12 +255,12 @@ def _named_file_dirs(project_dir: Path, spec: AssetSpec) -> list[tuple[Path, boo
     return [(directory, allow_sequence) for directory, allow_sequence in candidates if directory.is_dir()]
 
 
-#: 资产条目里登记上传原件的路径字段（参考图、参考音频、多图序列），按名归属。
+#: Uploaded-original reference fields (images/audio/sequences), owned by name.
 REFERENCE_FILE_FIELDS = ("reference_image", "reference_audio", "reference_images")
 
 
 def named_file_fields(spec: AssetSpec) -> tuple[str, ...]:
-    """该类型条目里按名归属的文件字段：资产图字段，与该类型登记的参考文件字段。"""
+    """Name-owned entry fields: sheet plus type-registered reference fields."""
     return (
         spec.sheet_field,
         *(
@@ -288,11 +272,10 @@ def named_file_fields(spec: AssetSpec) -> tuple[str, ...]:
 
 
 def owns_named_file(spec: AssetSpec, name: str, rel: str) -> bool:
-    """项目相对路径 *rel* 是 *name* 名下的文件，与 :func:`asset_files_named` 同一判据。
+    """Whether relative *rel* belongs to *name*, matching :func:`asset_files_named`.
 
-    资产图、参考图与参考音频按名归属、不跨资产共用：改名只迁移、删除只带走、恢复只加回本资产名下的文件，
-    指向别处的字段在这些操作之后可能悬空，所以写入时只接受本资产名下的路径。
-    """
+    Sheets/references/audio belong by name, never cross-asset shared. Rename/delete/restore touch only
+    owned files; foreign fields could dangle afterward, so writes accept owned paths only."""
     path = PurePosixPath(rel.replace("\\", "/"))
     for directory, allow_sequence in _named_file_layout(spec):
         if path.parent == directory:
@@ -301,7 +284,7 @@ def owns_named_file(spec: AssetSpec, name: str, rel: str) -> bool:
 
 
 def asset_files_named(project_dir: Path, spec: AssetSpec, name: str) -> list[Path]:
-    """该资产类型落盘目录里以 *name* 命名的文件（资产图、原图、参考音频），与改名迁移同一范围。"""
+    """Files named by *name* in this asset type (sheets/originals/audio), matching rename scope."""
     return [
         file
         for directory, allow_sequence in _named_file_dirs(project_dir, spec)
@@ -313,33 +296,30 @@ def asset_files_named(project_dir: Path, spec: AssetSpec, name: str) -> list[Pat
 def plan_asset_file_renames(
     project_dir: Path, spec: AssetSpec, old_name: str, new_name: str
 ) -> list[tuple[Path, Path]]:
-    """扫描该资产类型的落盘目录，规划 stem 命中旧名的文件迁移，返回 ``(src, dst)`` 列表。
+    """Scan asset directories for matching stems and plan ``(src, dst)`` relocations.
 
-    覆盖资产图目录本级与其上传子目录（``refs`` / ``refs_audio``），版本快照另由
-    VersionManager 迁移。按目录扫描而非只信 entry 路径字段：生成中间产物可能已按旧名
-    落盘而字段未写，旧名文件不应残留。
+    Cover sheet roots and uploaded ``refs`` / ``refs_audio``; VersionManager handles snapshots.
+    Scan directories, not only entry fields, because intermediate outputs may exist before fields are
+    written and must not remain under old names.
 
-    不按文件名前缀排除隐藏文件：命中与否只由 stem 是否等于资产名决定，这已足以排除杂物
-    （``.DS_Store`` 的 stem 就是 ``.DS_Store``，原子写的临时文件形如 ``tmpXXXX.tmp``），
-    而前导点是合法资产名，一刀切跳过会让名为 ``.甲`` 的资产改名后留下失效的路径字段。
+    Do not exclude hidden filenames: stem equality already excludes clutter (``.DS_Store`` stem stays
+    ``.DS_Store``; atomic temps resemble ``tmpXXXX.tmp``). Leading dots are valid names; blanket
+    skipping would leave invalid paths after renaming ``.甲``.
 
-    ``旧名_{序号}`` 形态只在多图序列资产（entry 带 ``reference_images``）的 ``refs``
-    子目录放行——那里的文件名由上传侧按序号机械生成，不会是别的资产的名字；其余目录
-    一律精确同名，否则兄弟资产「旧名_2」的资产图会被一并卷走。
+    Permit ``旧名_{序号}`` only in ``refs`` for sequences (``reference_images``), where upload naming
+    is mechanical and cannot be sibling names. Else require exact names, avoiding sibling “旧名_2” sheets.
 
-    目标已被占用时抛 :class:`AssetRenameFileCollisionError`：规划早于任何写入，因此整体
-    拒绝、不落盘。占用有两种来源，都要拦：磁盘上已有的孤儿文件，以及同批两个源文件（如
-    NFC / NFD 两种编码的同名文件）撞到同一个目标——后者若放行，第二次 ``os.replace``
-    会吃掉第一次的成果。
+    Occupied destinations raise :class:`AssetRenameFileCollisionError` before writes, rejecting wholly.
+    Guard both disk orphans and same-batch collisions (e.g. NFC/NFD equivalent sources), where a second
+    ``os.replace`` would erase the first result.
 
-    大小写不敏感或归一化不敏感的文件系统（APFS / NTFS）上，仅改大小写或仅改编码形式的
-    改名会让目标解析回源文件自身，那不是占用，按 ``samefile`` 豁免。
+    Case/normalization-insensitive APFS/NTFS can resolve case/encoding-only destinations to sources;
+    these are not occupied, exempt via ``samefile``.
 
-    这不影响「中途失败重跑收敛」——已完成的迁移其 ``src`` 已不存在，扫描不会再把它规划进来。
+    Interrupted retries still converge: completed ``src`` files are absent and no longer scanned.
 
     Raises:
-        AssetRenameFileCollisionError: 某个迁移目标路径已被他人占用或被同批另一次迁移占用。
-    """
+        AssetRenameFileCollisionError: destinations occupied on disk or by another planned relocation."""
     moves: list[tuple[Path, Path]] = []
     planned: set[Path] = set()
     for directory, allow_sequence in _named_file_dirs(project_dir, spec):
@@ -361,10 +341,9 @@ def plan_asset_file_renames(
 def foreign_named_file_field(
     spec: AssetSpec, name: str, entry: Mapping[str, object], values: Mapping[str, object]
 ) -> str | None:
-    """*values* 新写进按名归属的文件字段的路径里有不在 *name* 名下的，返回第一个这样的字段；都在则为 ``None``。
+    """First *values* newly written named-file field whose path is not owned by *name*, otherwise ``None``.
 
-    只看新写入的值：条目里已有的值原样提交不算新写入。
-    """
+    Only new values count; unchanged resubmission of existing paths is not a new write."""
     for field in named_file_fields(spec):
         value, current = values.get(field), entry.get(field)
         written = value if isinstance(value, list) else [value]

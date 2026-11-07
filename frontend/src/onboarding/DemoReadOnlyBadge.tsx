@@ -3,8 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
- * 演示工作台顶栏项目标题旁的「演示 · 只读」徽标，悬停或聚焦时说明写操作都不可用。
- * 说明同时以 sr-only 文字写进徽标，读屏不依赖提示弹层。不可用的按钮仍各自就地说明「演示中不可用」。
+ * The “Demo · Read-only” badge beside the project title in the demo workspace header explains on hover or focus that all writes are unavailable.
+ * The explanation is also sr-only text inside the badge, so screen readers do not depend on the tooltip. Disabled buttons still individually explain “Unavailable in demo” in place.
  */
 export function DemoReadOnlyBadge() {
   const { t } = useTranslation("onboarding");

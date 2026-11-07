@@ -14,7 +14,7 @@ import type { ReferenceDurationPrecheck } from "@/types";
 import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 import { advisoryProblems } from "./advisory-problems";
 
-/** 需确认的单元及其取档结果。 */
+/** Units requiring confirmation and their chosen duration tiers. */
 export interface DurationConfirmItem {
   unitId: string;
   precheck: ReferenceDurationPrecheck;
@@ -27,13 +27,13 @@ interface Props {
   onCancel: () => void;
 }
 
-/** 一行「剧本档位 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
+/** Script-tier → requested-tier row, with monospace seconds for vertical alignment. */
 function DurationRow({
   showUnit,
   item,
   diffText,
 }: {
-  /** 批量确认时逐行指认单元；单个确认不重复。 */
+  /** Batch confirmation identifies units per row; single-unit confirmation does not repeat labels. */
   showUnit: boolean;
   item: DurationConfirmItem;
   diffText: string;
@@ -54,14 +54,14 @@ function DurationRow({
 }
 
 /**
- * 视频入队前的确认：模型只接受离散时长档位，申请档位一旦偏离剧本档位，就在入队前讲清楚
- * 档位，由用户决定是否继续；预检的
- * 非阻断问题（参考图取前 N 张）与取档偏离同等触发本弹窗，列在时长对照行之下——它们改变
- * 成片内容却不拦截入队，事后界面上没有任何展示面。
+ * Preenqueue confirmation: models accept discrete duration tiers. If requested tiers differ from script tiers, explain
+ * before enqueue and let users choose whether to proceed. Preflight
+ * nonblocking reference truncation (first N images) also triggers this dialog, beneath duration comparisons: it changes
+ * final contents without blocking enqueue and has no later UI display surface.
  *
- * 整个弹窗只覆盖一个单元时直接陈述两个秒数与后果；覆盖多个时逐行列出并带上单元标签，每行
- * 自带更长/更短的差值，混合方向也能一次看清。列表超出高度即滚动而不折叠计数：被折叠的行里
- * 可能有成片更短的单元，而用户是在看不到它的情况下为它拍板。
+ * Single-unit dialogs state both durations/consequences directly; multiple units list labels per row, each
+ * with longer/shorter differences so mixed directions remain clear. Scroll long lists without collapsing counts:
+ * collapsed rows could hide shortened results while users decide on them.
  */
 export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCancel }: Props) {
   const { t } = useTranslation("dashboard");
@@ -82,8 +82,8 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
       : t("reference_duration_diff_longer", { value: seconds(diff) });
   };
 
-  // 单元标签的有无按整个弹窗覆盖的单元数决定，不按分区各自的条数：时长行不带标签而
-  // 告知行带标签，读者无从判断两处说的是不是同一个单元。
+  // Unit labels depend on total dialog units, not per-section counts: unlabeled duration rows but
+  // labeled notices would leave readers unable to tell whether both refer to the same unit.
   const single = items.length === 1 && durationItems.length === 1 ? durationItems[0] : null;
 
   const durationSection = single ? (
@@ -120,7 +120,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
         <ul className="space-y-1">
           {advisoryItems.flatMap(({ unitId, problems }) =>
             problems.map((problem, index) => (
-              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 单元内的提示由服务端算出、没有 ID，确认框打开期间只读不变、行内无状态
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- Server-computed unit notices have no IDs, remain read-only while confirmation is open, and carry no row state
               <li
                 key={`${unitId}-${index}`}
                 className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
@@ -134,7 +134,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
       </div>
     ) : null;
 
-  // 没有告知分区时不套间距容器：单一分区自带内部间距，多包一层只会多出一处空白
+  // Without notices omit spacing wrappers; individual sections already provide spacing, so extras create blank gaps.
   const description =
     advisorySection === null ? (
       durationSection
@@ -160,7 +160,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {/* 多单元的对照行可能很长，正文可以用键盘滚动 */}
+        {/* Multi-unit comparison rows may be long; body supports keyboard scrolling. */}
         <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
           <AlertDialogDescription render={<div />}>{description}</AlertDialogDescription>
         </AlertDialogBody>

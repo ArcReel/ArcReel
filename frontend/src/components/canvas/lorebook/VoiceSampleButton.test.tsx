@@ -31,7 +31,7 @@ describe("VoiceSampleButton", () => {
     expect(button).toBeDisabled();
     expect(screen.getByText("请先在设置中配置音频供应商")).toBeInTheDocument();
 
-    // 入口禁用即不打开弹窗，也不为每个角色预取音色列表
+    // Disabled entries neither open dialogs nor prefetch voices per character.
     fireEvent.click(button);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
@@ -54,7 +54,7 @@ describe("VoiceSampleButton", () => {
     await waitFor(() => {
       expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
-    // 默认文案按界面语言预填，且可编辑
+    // Prefill editable default copy by UI language.
     expect(screen.getByDisplayValue(/这是一段声音示例/)).toBeInTheDocument();
   });
 
@@ -85,13 +85,13 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
-    // 点击「生成」提交样本 A，taskId 落定为 task-1。
+    // Generate sample A, settling taskId to task-1.
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
     await waitFor(() => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    // 样本 A 成功，播放它——isPreviewPlaying 置 true。
+    // Sample A succeeds and plays, setting isPreviewPlaying true.
     useTasksStore.setState({
       tasks: [
         {
@@ -113,8 +113,8 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "暂停" })).toBeInTheDocument();
     });
 
-    // 点击「重新生成」：taskId 清空、旧 <audio> 卸载，isPreviewPlaying 须同步复位，
-    // 否则新样本挂载后仍显示「暂停」，用户无法播放它。
+    // Regenerate clears taskId/unmounts old <audio>; reset isPreviewPlaying simultaneously,
+    // or new samples display pause and cannot start.
     fireEvent.click(screen.getByRole("button", { name: /重新生成/ }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "暂停" })).not.toBeInTheDocument();
@@ -166,8 +166,8 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "暂停" })).toBeInTheDocument();
     });
 
-    // 关闭弹窗(不经「重新生成」)再重新打开:isPreviewPlaying 须同样复位,否则重开后
-    // 尚未播放的新会话会因这个陈旧的 true 值渲染成「暂停」。
+    // Close/reopen without regeneration must also reset isPreviewPlaying, or new unplayed sessions
+    // would show pause from stale true state.
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
@@ -183,8 +183,8 @@ describe("VoiceSampleButton", () => {
       model: "qwen3-tts-flash",
       voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
     });
-    // 手动控制 resolve 时机：模拟 enqueue 请求已成功返回、但下一次轮询把真实任务行
-    // 写进 tasks-store 之前的那段空窗。
+    // Manually resolve enqueue success while real task rows have not yet arrived
+    // through the next tasks-store poll.
     let resolveEnqueue: (value: { taskIds: string[]; deduped: boolean }) => void;
     const enqueuePromise = new Promise<{ taskIds: string[]; deduped: boolean }>((resolve) => {
       resolveEnqueue = resolve;
@@ -202,9 +202,9 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
     });
 
-    // enqueue 请求 resolve：taskId 落定为 task-1，但 tasks-store 里还没有这一行——
-    // 空窗期间「取消」仍须保持禁用，否则用户可以关闭弹窗、丢失一个仍在合成且已计费
-    // 任务的追踪入口。
+    // Enqueue resolves taskId task-1 without a tasks-store row yet;
+    // cancel stays disabled during this window, preventing dialog close/lost tracking for still-synthesizing,
+    // already-billed tasks.
     resolveEnqueue!({ taskIds: ["task-1"], deduped: false });
     await Promise.resolve();
     await Promise.resolve();
@@ -272,8 +272,8 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
     });
 
-    // 用 Cherry 生成成功后改选 Serena：Confirm 此时仍指向 Cherry 合成的旧字节，继续显示
-    // 会诱导用户以为确认的是当前选中的 Serena——须随选择变化一并隐藏，逼用户重新生成。
+    // After Cherry succeeds, selecting Serena leaves Confirm pointing at Cherry bytes; leaving it visible
+    // implies confirming Serena. Hide on selection changes, requiring regeneration.
     await userEvent.click(screen.getByRole("combobox", { name: "音色" }));
     await userEvent.click(await screen.findByRole("option", { name: "苏瑶 · 温柔女声" }));
     expect(screen.queryByRole("button", { name: "确认并保存" })).not.toBeInTheDocument();
@@ -300,8 +300,8 @@ describe("VoiceSampleButton", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
-    // 提交 Cherry/默认文案的合成尚未完成时，音色与文案须锁定，避免用户中途改选后 Confirm
-    // 出现时挂着「界面显示新选择、实际保存的却是旧合成结果」的错配。
+    // While Cherry/default-text synthesis is unfinished, lock voice/text so later Confirm cannot
+    // mismatch newly displayed selections with old synthesis results actually saved.
     await waitFor(() => {
       expect(screen.getByLabelText("音色")).toBeDisabled();
     });
@@ -350,7 +350,7 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    // 任务行先落地为 running。
+    // Task row first arrives running.
     useTasksStore.setState({
       tasks: [
         {
@@ -368,9 +368,9 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
     });
 
-    // 大量新任务把这一行挤出 tasks-store 的最新 200 条快照——最后一次观察到的状态仍是
-    // running，很可能服务端仍在跑，须继续按占用处理；放行会丢失一个仍在计费任务的追踪，
-    // 或让随后的新提交被 dedupe 误合并进这个客户端已经看不到的任务。
+    // New tasks evict it from the latest 200-row snapshot; latest observation remains
+    // running and likely active server-side, so preserve occupancy/tracking for still-billing tasks
+    // and avoid deduplicating new submissions into client-invisible tasks.
     useTasksStore.setState({ tasks: [] });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
@@ -417,8 +417,8 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
     });
 
-    // 成功后被挤出快照：已到终态，缓存的最后一次观察结果仍然有效，不应变回锁死态，
-    // Confirm 依旧可点（复用已校验过的产物，不因快照裁剪而丢失）。
+    // Eviction after success is terminal; cached observations remain valid without relocking.
+    // Confirm stays enabled, reusing validated artifacts despite snapshot trimming.
     useTasksStore.setState({ tasks: [] });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();

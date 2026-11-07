@@ -11,7 +11,7 @@ const STATUS_DOT_CLS: Record<MarketSourceStatus, string> = {
   unsupported_schema: "bg-destructive",
 };
 
-/** 市场源状态点：刷新中显示转圈；停用的源显示为空心点，读屏读「已停用」。 */
+/** Market-source status dot: spinner while refreshing; hollow when disabled, with a localized disabled screen-reader label. */
 export function SourceStatusDot({ source, refreshing }: { source: MarketSourceInfo; refreshing: boolean }) {
   const { t } = useTranslation("dashboard");
   if (refreshing) {

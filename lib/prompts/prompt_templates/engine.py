@@ -1,15 +1,16 @@
-"""以目录为依赖的整段提示词模版。
+"""Whole-prompt templates backed by a directory.
 
-换行由引用处决定：片段文件只写措辞本身，不带前导空行，也不带尾换行（引擎按 ``rstrip``
-去尾）。块与块之间的行距写在模版正文的引用处。块级引用（表达式独占一行）渲染为空或判重后无剩余
-内容时，这一行连同行尾换行一起消失，连续列表里的空变体因此不留空行；整段渲染完成后，模版自身产生的连续三个
-及以上换行塌缩为两个、首尾换行去掉。槽位值不参与塌缩，其中的空行与首尾换行逐字保留。
+References control line spacing: partials contain wording only, without leading blank lines or trailing newlines
+(the engine applies ``rstrip``). Templates specify spacing between blocks at reference sites. When a block reference
+(an expression alone on its line) renders empty or has no content after deduplication, its entire line disappears.
+Empty variants therefore leave no gaps in consecutive lists. After rendering, template-origin runs of three or more
+newlines collapse to two, and outer newlines are trimmed. Slot newlines, including outer ones, remain verbatim.
 
-幂等去重由 frontmatter ``idempotent: true`` 显式开启，只给存在纯文本回贴形态的模版用；未开启
-的模版从不跳过任何片段。开启后只有块级引用参与判重，且逐行判定：片段渲染结果中已在正文或
-先前注入的片段里以完整行出现的行跳过，其余行照常注入，风格块里一行取值变化不会让另一行重复。
-行内引用一律注入，短措辞不会被正文里偶然同形的字串吞掉；``lists/`` 目录下的列表片段承载数据，
-在任何模版里都不判重。
+Frontmatter ``idempotent: true`` explicitly enables deduplication only for templates with plain-text round trips.
+Other templates never skip partials. When enabled, only block references deduplicate, line by line: skip complete
+lines already present in the body or earlier partials, injecting the rest. Changing one style line cannot duplicate another.
+Inline references always inject, so coincidentally matching body substrings never swallow short phrases. List partials
+under ``lists/`` carry data and never deduplicate in any template.
 """
 
 import re
@@ -26,14 +27,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class TemplateError(ValueError):
-    """模版加载或渲染失败。"""
+    """Template loading or rendering failed."""
 
 
-#: 模版可声明的全部轴；设置页按轴名取显示文案，未列出的键在加载期 fail loud。
+#: All declarable template axes; settings resolve labels by axis name. Unlisted keys fail loudly at load time.
 TemplateAxis = Literal["content_mode", "generation_mode", "source_kind", "asset_type", "ad_duration_tier"]
 
 
-#: 模版所属的制作步骤；设置页按取值显示步骤名，未列出的取值在加载期 fail loud。
+#: Production steps for templates; settings label these values. Unlisted values fail loudly at load time.
 TemplateStage = Literal[
     "source_overview",
     "episode_plan",
@@ -55,7 +56,7 @@ class _Trigger(BaseModel):
 
 
 class AgentToolTrigger(_Trigger):
-    """Agent 调用 MCP 工具时渲染；``name`` 是工具名。"""
+    """Render on Agent MCP calls; ``name`` is the tool name."""
 
     kind: Literal["agent_tool"]
     name: Literal[
@@ -66,20 +67,20 @@ class AgentToolTrigger(_Trigger):
 
 
 class UserActionTrigger(_Trigger):
-    """用户在界面上的一次操作直接触发渲染；``name`` 是操作名，``agent_session`` 指发起或恢复 Agent 会话。"""
+    """Render directly from a UI operation; ``name`` is its name, and ``agent_session`` means starting/resuming a session."""
 
     kind: Literal["user_action"]
     name: Literal["source_overview", "style_analysis", "style_selection", "agent_session", "draft_repair"]
 
 
 class GenerationTaskTrigger(_Trigger):
-    """生成任务执行时渲染；``name`` 是任务类型，``asset`` 合指角色、场景、道具、商品与角色衍生五种资产图任务。"""
+    """Render during generation execution; ``name`` is task type, and ``asset`` covers character, scene, prop, product, and derivative images."""
 
     kind: Literal["generation_task"]
     name: Literal["asset", "storyboard", "video", "reference_video", "grid"]
 
 
-#: 模版的触发方，三类各带一个具体名，取值封闭。
+#: Template triggers: three closed categories, each with a concrete name.
 TemplateTrigger = Annotated[
     AgentToolTrigger | UserActionTrigger | GenerationTaskTrigger,
     Field(discriminator="kind"),
@@ -109,7 +110,7 @@ class _PartialHeader(BaseModel):
 
 
 class PartialEntry(BaseModel):
-    """片段清单条目：去掉 frontmatter 的正文、锁定标记与引用它的模版 id（按注册顺序）。"""
+    """Partial inventory entry: body without frontmatter, protection flag, and referencing template IDs in registration order."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -187,7 +188,7 @@ class PromptTemplates:
                 text = self._partials[name].render({**context.get_all(), **kwargs}).rstrip("\n")
             finally:
                 depth -= 1
-            # 嵌套片段就地展开，只有正文里的引用带标记参与块级判定。
+            # Expand nested partials in place; only body references carry markers for block-level decisions.
             if depth:
                 return _Fragment(text)
             dedupe = _DEDUPE if metadata.idempotent and "lists" not in name.split("/") else _INJECT
@@ -198,7 +199,7 @@ class PromptTemplates:
             return partial(context, f"{family}/{axis_value}", **kwargs)
 
         try:
-            # 第一遍只投影正文数据，第二遍据此判断块级片段是否已经在正文里。
+            # First project body data only; second use it to determine whether block partials already occur in the body.
             body = template.render({**slots, "partial": _blank, "variant": _blank})
             rendered = template.render({**slots, "partial": partial, "variant": variant})
         except JinjaError as exc:
@@ -216,12 +217,12 @@ class PromptTemplates:
         return [metadata.model_copy(deep=True) for metadata, _, _ in self._registry.values()]
 
     def read_source(self, template_id: str) -> tuple[str, list[PartialEntry]]:
-        """模版正文与它引用的片段清单，按首次引用顺序；变体族展开为全部轴值。"""
+        """Template body and referenced partial inventory in first-reference order; expand variant families across all axis values."""
         _, body, _ = self._get(template_id)
         return body, [self._partial_entry(name) for name in self._sources[template_id]]
 
     def read_partial(self, name: str) -> PartialEntry:
-        """按片段名取单个清单条目；只认得被至少一份模版引用的片段。"""
+        """Get one inventory entry by partial name; only partials referenced by at least one template are known."""
         if name not in self._partial_sources:
             raise TemplateError(f"未知片段: {name}")
         return self._partial_entry(name)
@@ -232,7 +233,7 @@ class PromptTemplates:
         return PartialEntry(name=name, source=source, protected=protected, referenced_by=referenced_by)
 
     def _protect_newlines(self, value: Any) -> Any:
-        """槽位值里的换行换成占位符，塌缩与块级判定只看模版自身的换行，渲染末尾再还原。"""
+        """Replace slot newlines with placeholders so collapsing/block detection sees only template newlines; restore after rendering."""
         if isinstance(value, str) and not isinstance(value, _Fragment):
             return value.replace("\n", self._newline_marker)
         return value
@@ -252,7 +253,7 @@ class PromptTemplates:
         return path
 
     def _read_partial(self, name: str) -> str:
-        """读取片段正文；文件以 frontmatter 开头时只取其中的 ``protected``。"""
+        """Read partial bodies; if frontmatter exists, read only its ``protected`` flag."""
         if name not in self._partial_sources:
             raw = self._partial_path(name).read_text(encoding="utf-8")
             protected = False
@@ -341,7 +342,7 @@ class PromptTemplates:
 
 
 class _Fragment(str):
-    """片段的渲染结果，已由片段内部保护过槽位换行，输出时不再处理。"""
+    """Rendered partial with internally protected slot newlines; do not process again on output."""
 
 
 _DEDUPE = "+"
@@ -349,15 +350,15 @@ _INJECT = "-"
 
 
 def _blank(*_args: Any, **_kwargs: Any) -> str:
-    """第一遍渲染里片段一律为空，只留槽位投影出的正文。"""
+    """Partials are empty in the first pass, retaining only slot-projected body text."""
     return ""
 
 
 def _inject_fragments(rendered: str, opening: str, closing: str, body: str, newline_marker: str) -> str:
-    """去掉片段标记，块级引用按需逐行判重，渲染为空的块级引用整行删去。
+    """Remove partial markers, deduplicate block references linewise as needed, and remove whole empty block-reference lines.
 
-    ``seen`` 是还原了槽位换行的正文，并累积已注入的片段；判重只对照本片段之前的内容，
-    片段内部的同形行不互相吞掉。
+    ``seen`` contains body text with restored slot newlines and accumulated injected partials. Deduplicate only
+    against content preceding this partial; identical lines within the partial do not swallow each other.
     """
     parts: list[str] = []
     seen = body
@@ -383,7 +384,7 @@ def _inject_fragments(rendered: str, opening: str, closing: str, body: str, newl
 
 
 def _unseen_lines(seen: str, text: str, newline_marker: str) -> str:
-    """去掉 *text* 中已以完整行出现在 *seen* 里的行；空白行保留作行距，首尾空行去掉。"""
+    """Remove *text* lines already appearing as whole lines in *seen*; preserve spacing blank lines, trimming outer blanks."""
     kept = [
         line
         for line in text.split("\n")
@@ -397,7 +398,7 @@ def _unseen_lines(seen: str, text: str, newline_marker: str) -> str:
 
 
 def _holds_full_lines(haystack: str, needle: str) -> bool:
-    """*needle* 是否以完整行的形式出现在 *haystack* 里。"""
+    """Whether *needle* appears as a complete line in *haystack*."""
     start = haystack.find(needle)
     while start != -1:
         end = start + len(needle)
@@ -408,7 +409,7 @@ def _holds_full_lines(haystack: str, needle: str) -> bool:
 
 
 def _collapse_blank_lines(rendered: str) -> str:
-    """模版行距里多余的空行在这里消失；槽位换行此时仍是占位符，不受影响。"""
+    """Remove excess template spacing here; slot newlines remain placeholders and are unaffected."""
     return re.sub(r"\n{3,}", "\n\n", rendered).strip("\n")
 
 

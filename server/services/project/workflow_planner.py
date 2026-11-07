@@ -306,14 +306,14 @@ class WorkflowPlanner:
         queue: GenerationQueue,
         config_resolver: ConfigResolver | None,
     ) -> dict[str, Any] | None:
-        """预告这一批真提交时的准入结论；正在生成的单元与 Web 批量入口一样不算目标，不作为在途冲突报出。"""
+        """Preview admission for this batch if actually submitted; as in the Web batch entry point, units already generating are excluded from targets rather than reported as in-flight conflicts."""
 
         if status.project.generation_mode == "reference_video":
             units = facts.script.get("video_units")
             if isinstance(units, list):
                 units = [unit for unit in units if not (isinstance(unit, dict) and unit.get("unit_id") in in_flight)]
             screened, malformed = screen_script_entries(units, requested_ids=None)
-            # 读产物清单（含等清单锁）与内容摘要，只读，放进工作线程。
+            # Read the artifact manifest (including waiting for its lock) and content digest in a worker thread; read only.
             targets, selection, _states = await asyncio.to_thread(
                 resolve_reference_batch_targets,
                 units=screened,
@@ -342,11 +342,11 @@ class WorkflowPlanner:
             )
             return admission.to_payload()
 
-        # 计划要预告的是「这一批真提交时会得到什么结论」，所以走的是提交侧同一条缝：
-        # spec 由 build_storyboard_video_specs 构造（发声准入、输入可用性、prompt 组装
-        # 与逐 ID 拒绝票都在其中），准入由 admit_storyboard_video_request 给出（音频闸门
-        # 与投影缺口折在同一批票里）。自行挑目标并把视觉提示词留空，会让计划按另一套
-        # 视觉基准判断已付费产物能否复用，与真正提交时的结论分叉。
+        # Planning previews the outcome of actually submitting this batch, so it uses the same submission path:
+        # build_storyboard_video_specs builds specs (speech admission, input availability, prompt assembly
+        # and per-ID rejection tickets); admit_storyboard_video_request handles admission (audio gating
+        # and projection gaps share the batch tickets). Selecting targets separately with empty visual prompts would
+        # assess reuse of paid artifacts against a different visual baseline, diverging from actual submission.
         requested = set(status.next_action.requested_ids) - in_flight
         if not requested:
             return None

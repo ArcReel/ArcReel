@@ -1,15 +1,14 @@
-"""重生一张资产图的连带影响：会有多少张分镜图、多少段视频、多少张衍生资产图转为过期。
+"""Impact of regenerating an asset image: counts of storyboard images, videos and derivative asset images that would become stale.
 
-资产图重生后字节变了，以它为参考图的现行产物的登记依据随之对不上，由现行转为过期。这里只数
-**现在是现行**、且生成输入里带着这张资产图的产物——已经过期的不重复计入：
+Regeneration changes asset-image bytes, invalidating the recorded basis of current artifacts using it as a reference. Count only artifacts
+that are **currently current** and include this image in generation input; do not count already stale artifacts again:
 
-- 分镜图：分镜的引用字段（``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``）
-  写到了这个名字。衍生引用 ``本体/衍生`` 用的是衍生自己的资产图，不算引用本体。
-- 视频：只有参考生视频直接以资产图为参考；分镜图生视频的输入是分镜图，资产图重生不会
-  直接让它过期。参考生视频单元的引用取正文 ``@[名称]`` 与引用字段。
-- 衍生资产图：本体资产图是生成的衍生资产图唯一的输入，本体重生后它的现行生成衍生图全部过期。
-  上传或从资产库带入的衍生资产图是成品，依据只由图字节决定，不随本体重生过期，不计入。
-"""
+- Storyboards: the name appears in reference fields (``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``).
+  A derivative reference ``本体/衍生`` uses its own asset image, not the base image.
+- Videos: only reference-to-video directly references asset images. Storyboard-to-video uses storyboard images, so asset regeneration
+  does not directly make those videos stale. Reference-video units use body ``@[名称]`` and reference fields.
+- Derivative asset images: the base image is the sole input for generated derivatives; regenerating it makes all current generated derivatives stale.
+  Uploaded or library-imported derivatives are finished images whose basis depends only on image bytes; base regeneration does not make them stale, so exclude them."""
 
 from __future__ import annotations
 
@@ -55,7 +54,7 @@ def _is_current(resolver: ArtifactCurrencyResolver, key: ArtifactKey, artifact_p
 
 
 def _follows_owner_sheet(resolver: ArtifactCurrencyResolver, key: ArtifactKey, artifact_path: object) -> bool:
-    """这张衍生资产图现行、且依据含本体资产图：作为成品带入的衍生图按图字节判定，本体重生不影响它。"""
+    """Whether this derivative image is current with a basis including the base image; imported finished derivatives depend on image bytes and are unaffected by base regeneration."""
     if not _is_current(resolver, key, artifact_path):
         return False
     basis = resolver.resolve_basis(key)
@@ -86,7 +85,7 @@ def asset_regeneration_impact(
     *,
     derivative_name: str | None = None,
 ) -> AssetRegenerationImpact:
-    """这张本体或衍生资产图此刻是否过期，以及重生它会让多少件现行产物过期；资产不存在抛 ``KeyError``。"""
+    """Whether this base or derivative image is stale now, and how many current artifacts regeneration would make stale; raise ``KeyError`` for a missing asset."""
 
     spec = ASSET_SPECS[asset_type]
     project = projects.load_project(project_name)

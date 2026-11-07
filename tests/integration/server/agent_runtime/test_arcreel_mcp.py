@@ -1,4 +1,4 @@
-"""会话 in-process MCP server 的装配：工具目录与会话项目根。"""
+"""Session in-process MCP assembly: tool catalogs and session project roots."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ async def test_create_project_writes_tts_snapshot(tmp_path: Path) -> None:
 
 
 def test_generate_narration_audio_registered() -> None:
-    """旁白配音工具必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
+    """Narration voiceover tools must enter MCP tool IDs too, supporting frontend chip validation in three languages."""
     assert "generate_narration_audio" in ARCREEL_MCP_TOOL_IDS
 
 

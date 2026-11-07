@@ -1,0 +1,139 @@
+{
+  "status": "complete: translation/static verification/related tests passed",
+  "scope": "tests/integration/server/services/project/** passive comments and leading module/class/function docs only",
+  "snapshot": "/tmp/arcreel-root-integration-services-before",
+  "spans_translated": 323,
+  "changed_files": 13,
+  "scope_modules": 14,
+  "preservation": [
+    "Executable AST equals immediate snapshot after stripping leading docstrings only, preserving every fixture/input/assertion/default/error/schema value and all helper implementations.",
+    "Double-backtick docstring literal multisets exactly equal in all files.",
+    "Functional noqa markers retained, translations confined to prose.",
+    "Proper derivative names 战斗装/旧装 and mention grammar @[名称] preserved intentionally."
+  ],
+  "static_validation": {
+    "ruff_check": "passed",
+    "ruff_format_check": "14 modules already formatted",
+    "executable_ast": "13 files exact",
+    "double_backtick_doc_literals": "exact multisets"
+  },
+  "test": {
+    "command": ".venv/bin/python -m pytest tests/integration/server/services/project -q",
+    "log": "/tmp/integration-project-passive-tests.log",
+    "result": "361 passed, 2 warnings in 66.80s",
+    "log_sha256": "cf132e8b34c57bea495410c991b8e82f09d7ef5164f21400d3dbbc0fc62b20b8"
+  },
+  "remaining": [
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_reference_video.py",
+      "line": 432,
+      "kind": "comment",
+      "text": "# Body @[名称] mentions derive references at execution; unregistered mentions only omit these references,"
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_service_applied_sheets.py",
+      "line": 121,
+      "kind": "doc",
+      "text": "Existing generated 战斗装/旧装 derivatives: overwrite selects imported 战斗装 versions, retaining generated 旧装."
+    },
+    {
+      "path": "tests/integration/server/services/project/test_script_review.py",
+      "line": 95,
+      "kind": "doc",
+      "text": "Structured reference_video script_plan intermediate state (``script_plan_reference_units.json`` shape).\n\n    Unit bodies are sole content truth; derive references from ``@[名称]`` on reads, never persist.\n    "
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/integration/server/services/project/test_episode_display.py",
+      "changed": true,
+      "before_sha256": "7f282aa202408f869438dfaac0569ab195adc56b09ff020d863f34ac1f551753",
+      "after_sha256": "68b6e18072c4965d5dc247e1d64af9eabfa522b8df25308c17c6955f4550d795",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_episode_drafts.py",
+      "changed": true,
+      "before_sha256": "a042f7b838354dbfec7f01f4ac3a6fbe2ca4ec259fec9126e08566d6e7a27355",
+      "after_sha256": "c41e325d232368053cd6839114126aabc19af8a93610863077ee08f1c1fb9d15",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_episode_instructions.py",
+      "changed": true,
+      "before_sha256": "423f072da9a66149f7a689055e02e4ce966c89c8cc7b95e97247010b06504190",
+      "after_sha256": "ea6a42a0f364d7b60b29a84041a11b62bc671ba443f362736bb69236aaceb9be",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_reference_video.py",
+      "changed": true,
+      "before_sha256": "db8a2129ba188760225e791c60aaef945de18102ca3e006fb88e5300c92597d8",
+      "after_sha256": "a595d06f871476ff4b719648895bd147d42d91f682ad143ef0c5974c5c75beeb",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_service.py",
+      "changed": true,
+      "before_sha256": "64726770af9b106dfb7b7040a7f9c3b71ff0235b7eff09363debb04de3dd0890",
+      "after_sha256": "777e485f1d779e4e7dfde15dd1e305f6b6793ee2cdb3facc973acaca408e8c24",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_service_applied_sheets.py",
+      "changed": true,
+      "before_sha256": "0a73f61f4564aa25e1f1705fc698db865b929fbf29fe9f36ed5dac7277b2d32b",
+      "after_sha256": "73a0c18d05a9c8d3f4f3cf124260ebe23c9458a29573073b61c2ca88a5750615",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_service_current_scope.py",
+      "changed": true,
+      "before_sha256": "68f786ab543a03d7a6c4cb09eb9edf6b417a2bb2f2c562eb1a1488e6fcb82b7e",
+      "after_sha256": "e6a8e001ddf130a9560c09ff800049ccf2a13642c1f1cd76c323b4cdaf306668",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_service_uploaded_sheets.py",
+      "changed": true,
+      "before_sha256": "dc48dd8020fb5dcfb12f1346e0a0cf332903b3913f98020661a6ee507cd3afe5",
+      "after_sha256": "532a55ed390ebc2b48dff1195f9077521d22fe0a05ba706102be4354bde099dd",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_archive_unselected_presentation.py",
+      "changed": true,
+      "before_sha256": "ae675f329f80230e7118a98cbd632fe6e2fb4f39f711d6c007a0664f1fddd065",
+      "after_sha256": "08411a6ec097b289b71f8da1b342e6812d806620d89a6c01788ce45b94613f30",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_project_events_service.py",
+      "changed": true,
+      "before_sha256": "a08836d9abb1b25e6f90b4ceacf3be0a19ba74b30b4fc948dafbbdca82b2cf4a",
+      "after_sha256": "0e6a6fa55272d5443aeb88b5dac1fbea3cb763633cd9a4e12b8e4bbcb242c663",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_script_review.py",
+      "changed": true,
+      "before_sha256": "525c0309619723edfef6b50041634c654ed8aa77a66917d7b42a4c0d6338a169",
+      "after_sha256": "6ef03dba3c90da3f1227414f021170ea86c833753e513824ded6de52ac55a4b3",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_script_review_new_assets.py",
+      "changed": true,
+      "before_sha256": "f1add884d2b42c49f96f9e8d05e161b23b4dfb32db1c4c692688fca34ebc95de",
+      "after_sha256": "0c627929ecbcfb1873b965c832e487dc09a231eb3305dc8e4f257b082a374f6f",
+      "executable_ast_equal": true
+    },
+    {
+      "path": "tests/integration/server/services/project/test_workflow_planner.py",
+      "changed": true,
+      "before_sha256": "ccb2c79bfb6980a05e98da75fc5279ec1a011bc02b16920ae510634c1e5b30c2",
+      "after_sha256": "99b9fa26f2c741288f20b851062df3a074cd89df2a9b4ead7d7abd0ed36cefcb",
+      "executable_ast_equal": true
+    }
+  ]
+}

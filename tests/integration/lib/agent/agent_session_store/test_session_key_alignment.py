@@ -1,4 +1,4 @@
-"""数据根换了绝对路径后启动：会话的 Agent 上下文记录对齐到当前项目目录派生的存储键，续聊照常；键已一致时不写任何东西。"""
+"""After moving the data root, startup aligns Agent session context with storage keys derived from current project directories; resumption works, and already-aligned keys cause no writes."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ async def _create_session(session_factory, project_name: str, sid: str) -> None:
 
 
 class _WriteCounter:
-    """数一个引擎上发出的 INSERT / UPDATE / DELETE 语句。"""
+    """Count INSERT / UPDATE / DELETE statements emitted by an engine."""
 
     def __init__(self, session_factory) -> None:
         self.statements: list[str] = []
@@ -121,7 +121,7 @@ async def test_moved_data_root_sessions_resume_under_the_new_key(tmp_path, sessi
         assert materialized is not None
         await materialized.cleanup()
 
-    # 再次启动：键已一致，不发任何写语句
+    # Restart again: aligned keys cause no write statements.
     counter = _WriteCounter(session_factory)
     try:
         again = await align_session_keys(
@@ -153,7 +153,7 @@ async def test_retired_sessions_follow_the_original_name_so_restore_still_finds_
         session_factory, projects_dir=new_projects, sdk_config_dir=tmp_path / "cfg", store_enabled=True
     )
 
-    # 已删除项目恢复时按「当前数据根下的原目录」找旧键，所以挂墓碑名的会话对齐到原名目录的键
+    # Deleted-project restoration finds old keys by the original directory under the current data root, so tombstoned sessions align with original-name directory keys.
     assert result.rewritten == {RETIRED_SID}
     restore_source_key = make_project_key(new_projects / "demo")
     assert len(await store.load({"project_key": restore_source_key, "session_id": RETIRED_SID}) or []) == 2
@@ -181,7 +181,7 @@ async def test_sessions_with_records_under_the_current_key_are_left_alone(tmp_pa
 
 
 async def test_store_off_moves_local_transcripts_of_a_moved_data_root(tmp_path, monkeypatch, session_factory):
-    """``ARCREEL_SDK_SESSION_STORE=off`` 时数据库里没有镜像，SDK 只读本地 jsonl，它们移到新键目录下。"""
+    """With ``ARCREEL_SDK_SESSION_STORE=off``, no DB mirror exists; SDK reads local jsonl only, relocated into new-key directories."""
     sdk_config_dir = tmp_path / "cfg"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(sdk_config_dir))
     old_projects = _make_project_dirs(tmp_path / "A", "demo")

@@ -1,4 +1,4 @@
-"""新建项目的旁白配置：TTS 项目缺省字段以全局默认预填，写入项目后成为快照。"""
+"""New-project narration settings: prefill missing TTS fields from global defaults, becoming snapshots after project persistence."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ async def _set_api_keys(db_factory, *providers: str) -> None:
 
 @pytest.fixture(autouse=True)
 def _clear_backend_cache():
-    """音色表经 backend 缓存读取，缓存是模块级进程内状态。"""
+    """Voice lists use backend cache, a module-level process state."""
     generation_context.invalidate_backend_cache()
     yield
     generation_context.invalidate_backend_cache()
@@ -117,7 +117,7 @@ async def test_non_positive_speed_is_rejected(db_factory):
 
 
 async def test_tts_project_prefills_a_voice_the_default_model_supports(db_factory):
-    """全局音色不在默认内置模型的音色表中（缺省 Cherry 只属于 DashScope）：预填表中第一个音色。"""
+    """If global voice is absent from the default built-in model's list (default Cherry belongs only to DashScope), prefill the list's first voice."""
     await _set_api_keys(db_factory, "gemini-aistudio")
     await _set_globals(db_factory, default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts")
     fields = await new_project_narration_fields(
@@ -128,7 +128,7 @@ async def test_tts_project_prefills_a_voice_the_default_model_supports(db_factor
 
 
 async def test_omitted_voice_follows_the_explicitly_chosen_model(db_factory):
-    """显式选了 DashScope、全局默认却是 Gemini：音色按实际写入的模型校正，Cherry 保留。"""
+    """Explicit DashScope with global Gemini default corrects voice against the model actually written, retaining Cherry."""
     await _set_api_keys(db_factory, "gemini-aistudio", "dashscope")
     await _set_globals(db_factory, default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts")
     fields = await new_project_narration_fields(
@@ -144,7 +144,7 @@ async def test_omitted_voice_follows_the_explicitly_chosen_model(db_factory):
 
 
 async def test_voice_is_kept_when_the_model_cannot_be_constructed(db_factory, monkeypatch):
-    """取不到音色表（SDK 构造失败）时不阻断建项，全局音色原样预填。"""
+    """If voice lookup fails (SDK construction), allow project creation and prefill the global voice unchanged."""
 
     def _broken_client(**_kwargs):
         raise OSError("credentials unreadable")
@@ -159,7 +159,7 @@ async def test_voice_is_kept_when_the_model_cannot_be_constructed(db_factory, mo
 
 
 async def test_custom_provider_default_keeps_the_global_voice(db_factory):
-    """自定义供应商的音色表不一定完整：不按音色表改写全局音色。"""
+    """Custom-provider voice lists may be incomplete; never rewrite the global voice based on them."""
     await _set_globals(db_factory, default_audio_backend="custom-3/relay-tts", narration_voice="relay-voice")
     fields = await new_project_narration_fields(
         NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)

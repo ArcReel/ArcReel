@@ -9,70 +9,72 @@ paths:
   - "**/CLAUDE.md"
 ---
 
-# 中文文案
+# Chinese copy
 
-写法、事实保真和排版以 `tech-doc-style-chinese` skill 为准，本文件只记录 ArcReel 在此基础上的覆盖和补充。文案类别按段落区分，同一份文件里可以同时有界面文案、用户文档和 Agent 文档。i18n 包的标点由 `frontend/src/i18n/locale-wording.test.ts` 和 `tests/unit/lib/i18n/test_locale_wording.py` 检查，审查标点时只需关注测试覆盖不到的文档正文。
+These rules apply to Chinese passages in localized resources, Chinese-first public documentation, and retained Chinese examples. Internal maintenance documentation and Agent instructions follow the [English maintenance-language policy](../../AGENTS.md#maintenance-language). Existing workflow requirements for generated-content languages remain unchanged.
 
-## 通用
+Use the `tech-doc-style-chinese` skill for writing, factual fidelity, and typography. This file contains only ArcReel-specific overrides and additions. Classify copy by paragraph: one file may contain interface, user-documentation, and Agent-documentation copy. `frontend/src/i18n/locale-wording.test.ts` and `tests/unit/lib/i18n/test_locale_wording.py` check i18n-pack punctuation; review punctuation only in document prose outside their coverage.
 
-### 领域概念使用 `GLOSSARY.md` 中的中文术语，`_Avoid_` 列出的说法不出现在界面上
+## General
 
-同一概念用了不同叫法，用户会以为是两个不同的功能，去找并不存在的另一个入口；各语言的译文也会随之不一致。
+### Use the glossary's Chinese domain terms; never display synonyms listed under `_Avoid_`
 
-### 数值范围用「～」连接，单位相同时只写一次，百分数两端都写
+Different names for one concept make users think they are different features and search for nonexistent entry points; translations also become inconsistent. Use the Chinese labels in `GLOSSARY.md`.
 
-例如 `2～10 秒`、`10%～20%`。连字符容易与负号、连接号混淆。
+### Join numeric ranges with ～; write a shared unit once and percentages at both ends
 
-放行条件：需要用户原样输入的语法保持不变，例如时长档位的区间简写 `3-15`。
+Examples: `2～10 秒`, `10%～20%`. Hyphens are easily confused with minus or joining signs.
 
-### 占位符前的字段名和引号内的原始取值保持原样
+Exception: preserve syntax users must enter literally, such as duration-tier shorthand `3-15`.
 
-例如 `{field}: 引用路径越界：{path}` 中的 `{field}:`，以及 `'{value}'` 两侧的引号。这些内容是数据中的字段名和原始值，用户和开发者需要据此对照项目文件；改用全角标点后，就难以分辨哪些是原文。
+### Preserve field names before placeholders and quoted raw values
 
-### 用户文档和 Agent 文档使用书面中文，避开翻译腔、口语化和 AI 腔
+Examples include `{field}:` in `{field}: 引用路径越界：{path}` and the quotes around `'{value}'`. These are data field names and raw values used to compare with project files; full-width substitutions obscure what is original.
 
-- **翻译腔**：照搬英文结构的句式，如名词化堆叠、抽象名词作主语、「对……进行……」、被字句连用、层层叠加的「的」。改成以动词为主干的中文短句，例如「保留机器字面量的写法」改为「保持原样」，「多占一次注意力」改为「增加阅读负担」。
-- **口语化**：聊天式的说法，例如「换着叫」「不进界面」，改为「用不同叫法」「不出现在界面上」。
-- **AI 腔**：没有实际信息、只是读起来像样的套路，如四字词排比、以「随着……的发展」开头、套话收尾、滥用粗体、装饰性标题。删掉套路，直接陈述信息。
+### Use written Chinese for user and Agent documents, avoiding translationese, colloquialisms, and AI filler
 
-套用写作原则时同样保持常规中文：`writing-for-agents` 的正向表述等原则在符合中文表达习惯的前提下适用，「不加句号」这类常规说法照常使用。
+- **Translationese**: copied English structures, noun piles, abstract-noun subjects, 对……进行……, consecutive passive constructions, and stacked 的. Use short verb-centered Chinese sentences; for example, replace 保留机器字面量的写法 with 保持原样 and 多占一次注意力 with 增加阅读负担.
+- **Colloquialisms**: conversational expressions such as 换着叫 or 不进界面; use 用不同叫法 or 不出现在界面上.
+- **AI filler**: polished-sounding patterns without information, such as four-character parallelisms, openings like 随着……的发展, formulaic conclusions, excessive bold, or decorative headings. Remove the pattern and state the information.
 
-放行条件：四字词、被动句和正式语境中的「进行」本身都不算错误，原文清楚时不必修改；改写时不能丢掉事实、条件和确定程度。界面文案篇幅短、语气可以偏口语，不适用本条。
+Apply writing principles in natural Chinese. Positive phrasing from `writing-for-agents`, for example, remains subject to normal Chinese expression; ordinary instructions such as 不加句号 remain valid.
 
-## 界面文案
+Exceptions: four-character words, passive sentences, and formal 进行 are not inherently wrong. Clear source wording need not change. Rewriting must preserve facts, conditions, and certainty. Short interface copy may be more conversational and is outside this rule.
 
-适用于用户在操作过程中快速浏览的文字，包括按钮、标签、提示、状态、错误和事件消息，位于 `frontend/src/i18n/zh` 和 `lib/i18n/zh`。好的界面文案让用户一眼看懂下一步该做什么，翻译成其他语言后意思不变。
+## Interface copy
 
-### 默认省略主语，需要指明由谁操作时称用户为「你」
+For text skimmed during operation: buttons, labels, hints, states, errors, and events in `frontend/src/i18n/zh` and `lib/i18n/zh`. Good copy makes the next action obvious and preserves its meaning in translation.
 
-例如写「保存后生效」，不写「你保存后生效」。操作者默认就是用户，写出主语反而增加阅读负担。需要区分用户和系统时再写主语，例如「你取消了任务」「系统已取消任务」。称呼用户统一用「你」，与英文界面的 you 对应。
+### Omit the subject by default; address the user as 你 when an actor must be identified
 
-### 只在要求用户执行操作、且省略后语气生硬时使用「请」
+Write 保存后生效 rather than 你保存后生效. Users are the implied actor; explicit subjects add reading burden. Distinguish users from systems when needed, such as 你取消了任务 or 系统已取消任务. Use 你 consistently, corresponding to English you.
 
-占位符、Tooltip、空状态和状态文字直接陈述，例如占位符写「输入项目名称」。如果每句都带「请」，真正需要用户操作的提示反而不够醒目。
+### Use 请 only when requesting an action would otherwise sound abrupt
 
-### 按钮、标签、Tooltip 和输入框提示不加句号
+Placeholders, tooltips, empty states, and status copy state information directly, such as 输入项目名称. Repeating 请 in every sentence makes genuine action requests less visible.
 
-这些位置的文字是名称或简短指令，加句号只会增加视觉干扰。由多个句子组成的说明和错误消息照常使用句号。
+### Buttons, labels, tooltips, and input hints have no final period
 
-### 确认按钮直接写出操作结果
+These name things or give short instructions; a period adds visual noise. Multi-sentence explanations and errors retain periods.
 
-确认框的主按钮使用「删除」「发布」「覆盖」这类表示结果的词。用户只看按钮就能知道点击后会发生什么，危险操作尤其需要这样写。
+### Confirmation buttons state the result directly
 
-### 操作无法完成时用「无法…」表述，「抱歉」只用于 ArcReel 自身造成的问题
+Use 删除, 发布, or 覆盖 on the primary button, so users understand the outcome from the button alone, especially for dangerous actions.
 
-「无法连接供应商」说明了当前状态，也自然引出下一步操作；用户输入不符合要求时，直接说明要求即可。失败提示的结构见 `general.md` 中「失败提示先说原因和下一步，原文折叠」一条。
+### Use 无法… when an operation cannot complete; reserve 抱歉 for ArcReel-caused problems
 
-放行条件：「生成失败」这类任务状态名属于状态标签，照常使用。
+无法连接供应商 states the condition and naturally leads to a next step. For invalid user input, state the requirement directly. Failure-message structure is covered by “Failure summaries state the cause and next step first, with raw text collapsed” in `general.md`.
 
-### 进行中的状态和需要继续输入的菜单项使用单个「…」
+Exception: task-state labels such as 生成失败 remain valid.
 
-例如「生成中…」「导出…」。界面中不使用 skill 规定的「……」：单个字符不会在行中断开，占用的空间也更小。
+### Ongoing states and menu items requiring more input use one …
 
-## 用户文档
+Examples: 生成中… and 导出…. Do not use the skill's …… in the interface: a single character cannot break across lines and uses less space.
 
-适用于用户带着任务或问题来查阅的段落，位于 `website/docs`、README 和 CONTRIBUTING。好的用户文档让读者能找到所需内容、照着步骤能完成操作、完成后能确认结果，对能力的描述不超出产品实际。称呼方式与界面文案相同。
+## User documentation
 
-## Agent 文档
+For paragraphs users consult with a task or question, in `website/docs`, README, and CONTRIBUTING. Good documentation is findable, actionable, verifiable after completion, and does not claim capabilities beyond the product. Address readers as in interface copy.
 
-适用于开发者或 Agent 据以做决策的段落，位于 `docs/**` 和各级 `CLAUDE.md`。写法以 `writing-for-agents` skill 为准。
+## Agent documentation
+
+For paragraphs developers or Agents use to make decisions, in `docs/**` and `CLAUDE.md` files at every level. Follow `writing-for-agents`.

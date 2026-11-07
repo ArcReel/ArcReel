@@ -1,4 +1,4 @@
-"""GrokTextBackend — xAI Grok 文本生成后端。"""
+"""GrokTextBackend: xAI Grok text-generation backend."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# xai_sdk 的 Response.finish_reason 返回 FinishReason 枚举名；"length" 留给按 OpenAI 兼容形态返回的响应
+# xai_sdk Response.finish_reason returns FinishReason enum names; retain "length" for OpenAI-compatible response shapes.
 _TRUNCATION_REASONS = ("length", "REASON_MAX_LEN", "REASON_MAX_CONTEXT")
 
 DEFAULT_MODEL = "grok-4.3"
 
 
 class GrokTextBackend:
-    """xAI Grok 文本生成后端。"""
+    """xAI Grok text-generation backend."""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
         self._client = create_grok_client(api_key=api_key)
@@ -97,8 +97,8 @@ class GrokTextBackend:
             ),
         )
 
-        # 结构化输出也走 sample()，先判截断、再自行校验：chat.parse() 在 SDK 内部直接 model_validate_json，
-        # 截断的 JSON 会先抛 pydantic ValidationError，截断判定就执行不到。
+        # Structured output also uses sample(): detect truncation before validation. chat.parse() calls model_validate_json inside SDK,
+        # so truncated JSON would raise pydantic ValidationError before truncation detection could execute.
         response = await chat.sample()
         text = response.content if hasattr(response, "content") else str(response)
 
@@ -111,9 +111,9 @@ class GrokTextBackend:
             usage = response.usage
             input_tokens = getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None)
             output_tokens = getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None)
-            # prompt_tokens 是总输入，缓存命中的部分在 cached_prompt_text_tokens。
+            # prompt_tokens is total input; cache hits are in cached_prompt_text_tokens.
             cache_read_tokens = getattr(usage, "cached_prompt_text_tokens", None)
-            # completion_tokens 不含推理 token；推理 token 另报在 reasoning_tokens，按输出价计费。
+            # completion_tokens excludes reasoning tokens, separately reported in reasoning_tokens and charged at output prices.
             reasoning_tokens = getattr(usage, "reasoning_tokens", None)
 
         finish_reason = getattr(response, "finish_reason", None)
@@ -147,7 +147,7 @@ class GrokTextBackend:
 
 def _response_model(response_schema: dict | type) -> type[BaseModel]:
     if isinstance(response_schema, type):
-        # xai_sdk 自行调用 model_json_schema() 生成下发的 schema，不经 resolve_schema
+        # xai_sdk generates sent schemas through model_json_schema(), bypassing resolve_schema.
         return model_facing_response_model(response_schema)
     return _schema_to_pydantic(resolve_schema(response_schema))
 

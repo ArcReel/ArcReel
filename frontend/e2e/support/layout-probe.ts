@@ -1,23 +1,23 @@
-// 溢出探针：找出「内容溢出但用户够不到」的元素，以及没有声明却出现的横向滚动。
-// inspectLayout 经 page.evaluate 序列化到浏览器里执行，函数体必须自包含：
-// 不引用模块级变量，辅助函数全部写在函数内部。
+// Overflow probes identify inaccessible overflow and undeclared horizontal scrolling.
+// inspectLayout serializes through page.evaluate into browsers, requiring self-contained bodies:
+// no module-level references; all helpers live inside functions.
 
 export interface ClippedOverflow {
-  /** 裁切内容的元素（overflow 为 hidden 或 clip）的选择器路径。 */
+  /** Selector paths for elements clipping contents through hidden/clip overflow. */
   path: string;
   axis: "x" | "y" | "xy";
   client: { width: number; height: number };
   scroll: { width: number; height: number };
-  /** 越出裁切框的最深后代，用于定位真正撑大内容的元素。 */
+  /** Deepest descendants exceeding clipping bounds, locating actual oversized contents. */
   culprit: string | null;
 }
 
 export interface StrayScrollX {
-  /** 出现横向滚动、却没有声明横向滚动的元素的选择器路径。 */
+  /** Selector paths for horizontal scrolling without declared horizontal scroll intent. */
   path: string;
   client: { width: number };
   scroll: { width: number };
-  /** 越出右缘的最深后代，用于定位真正撑宽内容的元素。 */
+  /** Deepest descendants exceeding right edges, locating width-expanding content. */
   culprit: string | null;
 }
 
@@ -28,21 +28,21 @@ export interface LayoutReport {
   documentScrollHeight: number;
   clipped: ClippedOverflow[];
   /**
-   * 只写了纵向滚动（如 `overflow-y-auto`，弹层正文都是这样）的元素，浏览器把它的 overflow-x 也算成 auto：
-   * 宽内容不会被裁切，而是让它横向滚动，clipped 查不到。这类横向滚动是缺陷，内容应当折行或限宽；
-   * 确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto` 声明。
+   * Vertical-only scrolling (for example `overflow-y-auto` overlay bodies) also computes overflow-x auto:
+   * wide content scrolls rather than clips, invisible to clipped probes. Such horizontal scrolling is defective; wrap/constrain contents.
+   * Genuine horizontal regions (timeline tracks/code/tabs) declare `overflow-x-auto`.
    */
   strayScrollX: StrayScrollX[];
 }
 
 export function inspectLayout(): LayoutReport {
-  // 布局取整误差。
+  // Layout-rounding tolerance.
   const TOLERANCE = 1;
   const CLIPPING = new Set(["hidden", "clip"]);
-  // 豁免必须写明原因：空值不算豁免。
+  // Exemptions require reasons; empty values are not exemptions.
   const EXEMPT = '[data-overflow-ok]:not([data-overflow-ok=""])';
   const SCROLLING = new Set(["auto", "scroll"]);
-  // 声明横向滚动的工具类，含响应式与状态前缀。
+  // Declared horizontal-scroll utility classes, including responsive/state prefixes.
   const SCROLL_X_CLASS = /^(?:[\w-]+:)*overflow-(?:x-)?(?:auto|scroll)$/;
 
   function describe(el: Element): string {
@@ -118,13 +118,13 @@ export function inspectLayout(): LayoutReport {
     const clipX = CLIPPING.has(style.overflowX);
     const clipY = CLIPPING.has(style.overflowY);
     if (!clipX && !clipY) continue;
-    // sr-only 与折叠态元素。
+    // sr-only and collapsed elements.
     if (el.clientWidth <= 1 || el.clientHeight <= 1) continue;
     const overX = clipX && el.scrollWidth - el.clientWidth > TOLERANCE;
     const overY = clipY && el.scrollHeight - el.clientHeight > TOLERANCE;
     if (!overX && !overY) continue;
     if (overX && !overY && style.textOverflow === "ellipsis") continue;
-    // 单行输入框的长值随光标横向滚动，键盘与指针都能到达。
+    // Long single-line input values scroll horizontally with carets, reachable by keyboard/pointer.
     if (overX && !overY && el instanceof HTMLInputElement) continue;
     const lineClamp = style.getPropertyValue("-webkit-line-clamp");
     if (overY && !overX && lineClamp !== "" && lineClamp !== "none") continue;

@@ -1,7 +1,6 @@
-"""AgentAccessPolicy 纯规则测试：构造参数喂入，断言 allow/deny，无 env/私有方法 monkeypatch。
+"""AgentAccessPolicy pure-rule tests: constructor arguments and allow/deny assertions without environment/private-method monkeypatches.
 
-路径裁决四规则：数据根外敏感文件拒 + 数据根默认读拒 + cwd 外写拒 + 代码扩展名拒。
-"""
+Four path rules: deny sensitive files outside the data root, default-deny data-root reads, deny writes outside cwd, deny code extensions."""
 
 from __future__ import annotations
 
@@ -14,12 +13,12 @@ from lib.agent.agent_memory_paths import project_memory_dir
 from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
-#: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
+#: Current user ID supplied per call (production obtains it from SessionManager CurrentUser context).
 _USER_ID = "default"
 
 
 def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
-    """以 tmp 根路径纯构造 policy：repo 布局与旧 SessionManager fixture 一致。"""
+    """Pure policy construction from temporary roots; repository layout matches the old SessionManager fixture."""
     project_root = (tmp_path / "repo").resolve()
     kwargs: dict[str, object] = {
         "project_root": project_root,
@@ -50,12 +49,12 @@ def _cwd(policy: AgentAccessPolicy) -> Path:
 
 
 # ============================================================
-# 构造纯度：假根路径可构造，不 import SDK
+# Construction purity: fake roots suffice; no SDK imports.
 # ============================================================
 
 
 def test_pure_construction_with_fake_roots() -> None:
-    """假根路径（磁盘上不存在）+ sandbox_enabled 即可纯构造，裁决照常工作。"""
+    """Fake nonexistent roots plus sandbox_enabled suffice for pure construction and working decisions."""
     fake = Path("/nonexistent/fake-root")
     policy = AgentAccessPolicy(
         project_root=fake / "repo",
@@ -75,14 +74,14 @@ def test_pure_construction_with_fake_roots() -> None:
 
 
 def test_policy_module_does_not_import_sdk_types() -> None:
-    """规则真相源不 import SDK 类型——SDK 封皮（权限结果类型、hook 签名）留在 adapter。"""
+    """Rule source imports no SDK types; SDK wrapper permission-result types and hook signatures stay in the adapter."""
     module = sys.modules[AgentAccessPolicy.__module__]
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert "claude_agent_sdk" not in source
 
 
 # ============================================================
-# 路径读写裁决（原 test_path_isolation_hook.py 断言搬家）
+# Path read/write decisions (assertions moved from test_path_isolation_hook.py).
 # ============================================================
 
 
@@ -102,7 +101,7 @@ def test_read_other_project_denied(policy: AgentAccessPolicy) -> None:
 
 
 def test_read_lib_passes(policy: AgentAccessPolicy) -> None:
-    """cwd 外的非 projects 路径允许读（用于 Agent 查 docs/lib 等参考资料）。"""
+    """Allow reading cwd-external non-projects paths for Agent reference material such as docs/lib."""
     cwd = _cwd(policy)
     allowed, _ = policy.check_path_access(str(policy.project_root / "lib" / "foo.py"), "Read", cwd, user_id=_USER_ID)
     assert allowed
@@ -135,7 +134,7 @@ def test_write_cwd_internal_data_ext_allowed(policy: AgentAccessPolicy) -> None:
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize("relative", ["scripts/episode_1.json", "scripts/episode_10.json", "project.json"])
 def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """scripts/*.json 与 project.json 不可用 Write/Edit 直改，报错指向 MCP 工具。"""
+    """Write/Edit cannot directly change scripts/*.json or project.json; errors direct callers to MCP tools."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -145,7 +144,7 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize("relative", ["edit_timelines/episode_1/tl-0000abcd.json", "edit_timelines/notes.md"])
 def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """剪辑时间线只能经剪辑时间线工具写入，报错指向工具。"""
+    """Editing timelines can only be written through timeline tools; errors name those tools."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -158,7 +157,7 @@ def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relati
     "relative", [".arcreel/trash/20261025T000000Z-0000abcd/record.json", ".arcreel/trash/x/files/notes.txt"]
 )
 def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """项目回收站只经回收站模块增删，Agent 直写会绕过「清空只开放给创作者」；项目记忆不受影响。"""
+    """Only the trash module adds/removes project-trash entries; direct Agent writes would bypass creator-only emptying. Project memory is unaffected."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -183,7 +182,7 @@ def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str)
     ],
 )
 def test_write_media_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """媒体只经生成与编辑工具写入，Agent 直写或删除会绕过项目回收站；报错指向回收站删除工具。"""
+    """Only generation/editing tools write media; direct Agent writes or deletes bypass project trash. Errors direct callers to the trash-deletion tool."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -191,8 +190,7 @@ def test_write_media_denied(policy: AgentAccessPolicy, tool: str, relative: str)
 
 
 def test_protected_media_covers_every_public_media_location() -> None:
-    """写保护表从媒体的唯一定义处枚举：公开端点可读的每个媒体目录与项目根目录的媒体文件，
-    都在 Agent 写保护里。新增媒体位置只登记到公开端点时，Agent 能绕过项目回收站直接覆盖或删除它。"""
+    """Enumerate write protections from the sole media definitions: every publicly readable media directory and project-root media file is protected. Registering a new location only at public endpoints would let Agents overwrite/delete it outside trash."""
     from lib.project.data_validator import DataValidator
     from server.agent_runtime.agent_access_policy import AGENT_PROTECTED_MEDIA_DIRS, AGENT_PROTECTED_MEDIA_FILES
     from server.routers.files import PUBLIC_MEDIA_DIRS, is_public_media_path
@@ -206,7 +204,7 @@ def test_protected_media_covers_every_public_media_location() -> None:
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize("relative", ["versions/versions.json", "versions/storyboards/scene_E1S01_v1_20261025.png"])
 def test_write_version_history_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """版本历史只经版本管理维护，Agent 直写或删除会绕过项目回收站。"""
+    """Only version management maintains version history; direct Agent writes/deletes bypass project trash."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -218,7 +216,7 @@ def test_write_version_history_denied(policy: AgentAccessPolicy, tool: str, rela
     "relative", ["source/novel.txt", "source/episode_1.txt", "source/snapshots/novel.txt", "source/new.md"]
 )
 def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """source/ 只能经服务命令写入，报错指向上传与编辑源文的工具。"""
+    """Only service commands write source/; errors direct callers to source upload/editing tools."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -242,9 +240,7 @@ def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str
     ],
 )
 def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """三条路线的正式 script_plan 都不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的写入路径
-    （迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
-    报错要指向取回草稿的工具，否则 Agent 只知被拒、不知改道哪里。"""
+    """Write/Edit cannot directly change formal script_plan in any route. Other writers (migration / Web saves / promotion) share a per-path lock unavailable to sandboxed tools; direct changes create lost-update windows. Errors must name draft-checkout tools so the Agent knows the alternative."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -254,8 +250,7 @@ def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, r
 
 
 def test_protected_script_plan_filenames_match_shared_constant() -> None:
-    """写禁清单只认 lib.episode.episode_paths 那一份常量：判定表与文件名真相源分开声明时，
-    改名或新增变体会只落到其中一处，留出「文件已换名、写禁还拦旧名」的静默旁路。"""
+    """Write-denial paths use only lib.episode.episode_paths constants. Separate filename and decision tables would let renames/new variants update only one and silently bypass protections."""
     from lib.episode.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 
     assert (
@@ -277,7 +272,7 @@ def test_protected_script_plan_filenames_match_shared_constant() -> None:
     ],
 )
 def test_write_near_formal_script_plan_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """写禁不外溢到未注册的同目录邻居。"""
+    """Write denials do not spill onto unregistered sibling files in the same directory."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"
@@ -303,8 +298,7 @@ def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, rel
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """`scripts/` 目录路径本身（不带 trailing sep）也该拒：defense-in-depth，
-    不依赖 OS 兜底 Agent 把目录名当文件路径的 typo。"""
+    """Reject the `scripts/` directory path itself without a trailing separator, as defense in depth rather than relying on OS handling of directory-as-file typos."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / "scripts"), tool, cwd, user_id=_USER_ID)
     assert not allowed
@@ -318,8 +312,7 @@ def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, to
     ["scripts/episode_1.bak", "scripts/notes.md", "scripts/.tmp", "scripts/subdir/anything.txt"],
 )
 def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """`scripts/` 下任意文件类型都该拒（不只 .json）：sandbox denyWrite 把整个 scripts/ 列入
-    内核级 deny，hook 层须保持一致，避免 Agent 用 Write 污染剧本目录。"""
+    """Reject all file types under `scripts/`, not only .json: sandbox denyWrite protects the entire directory, so hooks must match and prevent Write contamination."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -333,9 +326,7 @@ def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool
     ["PROJECT.JSON", "Project.Json", "scripts/EPISODE_1.JSON", "Scripts/episode_1.json"],
 )
 def test_write_protected_case_variants_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """大小写变体（PROJECT.JSON / Scripts/x.json）在 Windows NTFS / macOS APFS 默认卷
-    上指向同一物理文件，Path 字符串比较 case-sensitive 会漏判——`_is_protected_project_json`
-    用 casefold 比较后这类变体也应被拒，否则 Agent 可改大小写绕过收口。"""
+    """Case variants (PROJECT.JSON / Scripts/x.json) identify the same physical files on default Windows NTFS / macOS APFS volumes. Case-sensitive Path comparison would miss them; `_is_protected_project_json` casefold must reject these bypasses."""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -345,8 +336,7 @@ def test_write_protected_case_variants_denied(policy: AgentAccessPolicy, tool: s
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 def test_write_protected_via_symlink_project_json_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """`project.json` 本身被做成项目内 symlink（指向另一个项目内文件）时，仍须拒——
-    防止"把入口换成 symlink"绕过 protected 区判定。仅靠 resolve 后路径比较会失配。"""
+    """Reject `project.json` even when it is an intra-project symlink to another file. Resolving only the target would miss the protected entry and allow a symlink substitution bypass."""
     cwd = _cwd(policy)
     real = cwd / "other.json"
     real.write_text("{}", encoding="utf-8")
@@ -360,7 +350,7 @@ def test_write_protected_via_symlink_project_json_denied(policy: AgentAccessPoli
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 def test_write_protected_via_symlink_scripts_dir_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """`scripts/` 整个目录被做成项目内 symlink 时，对其下 .json 的写入仍须拒。"""
+    """Reject writes to .json under `scripts/` even when the directory itself is an intra-project symlink."""
     cwd = _cwd(policy)
     real_dir = cwd / "data"
     real_dir.mkdir()
@@ -377,18 +367,16 @@ def test_write_protected_via_symlink_scripts_dir_denied(policy: AgentAccessPolic
 def test_write_protected_with_symlinked_project_cwd_denied(
     policy: AgentAccessPolicy, tmp_path: Path, tool: str
 ) -> None:
-    """project_cwd 本身是个 symlink 指向真实项目目录时(macOS /var↔/private/var、Linux
-    symlinked 项目根),`_is_protected_project_json` 要把 base 也按 resolve 一次再拼接 protected
-    路径,避免 resolved target 与 raw base 字符串不等 → bypass。"""
-    # 真实项目目录在 tmp 根的另一处,通过 symlink 暴露
+    """When project_cwd is a symlink (macOS /var↔/private/var or Linux project-root links), `_is_protected_project_json` also resolves base before joining protected paths, avoiding bypass from resolved-target/raw-base inequality."""
+    # Real project directory lies elsewhere under tmp and is exposed through a symlink.
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
     link_cwd = _projects_dir(policy) / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
-    # caller 把 symlinked cwd 传入,check_path_access 内 logical.resolve() 会展开 symlink,
-    # 然后 _check_write_access 把 resolved target 与原始 link_cwd 比较——若不把 base 也
-    # resolve,就会因为字符串不等漏判。
+    # Caller supplies symlinked cwd; check_path_access expands it with logical.resolve(),
+    # then _check_write_access compares resolved target against raw link_cwd. Resolve the base too,
+    # or unequal path strings would miss the match.
     allowed, reason = policy.check_path_access(str(link_cwd / "project.json"), tool, link_cwd, user_id=_USER_ID)
     assert not allowed, "symlinked project_cwd 下 project.json 写入应被拒"
     assert reason
@@ -403,40 +391,36 @@ def test_write_protected_with_symlinked_project_cwd_denied(
 
 
 def test_protected_json_predicate_normalizes_nfd_and_case() -> None:
-    """NFC/NFD 与大小写混合形式都须命中：macOS HFS+ 按 NFD 存储文件名，resolve
-    返回的 target 与 NFC 形式的 base 即使 casefold 后仍是不同字符串——受保护
-    比对须先做 NFC 归一化，再做大小写不敏感比较。"""
-    base_nfc = Path("/data/projects/café")  # café（NFC 单码位）
-    target_nfd = Path("/data/projects/café/project.json")  # café（NFD 组合字符）
+    """Match combined NFC/NFD and case variants. HFS+ stores filenames as NFD; resolved targets and NFC bases remain unequal after casefold, so protected comparisons normalize NFC before case-insensitive matching."""
+    base_nfc = Path("/data/projects/café")  # café (NFC single code point)
+    target_nfd = Path("/data/projects/café/project.json")  # café (NFD combining characters)
     assert AgentAccessPolicy._is_protected_project_json(target_nfd, [base_nfc])
 
-    # 大小写变体 + NFD 叠加
+    # Combined case variant + NFD
     target_mixed = Path("/data/projects/CAFÉ/SCRIPTS/EPISODE_1.JSON")
     assert AgentAccessPolicy._is_protected_project_json(target_mixed, [base_nfc])
 
-    # 反向：base 是 NFD（HFS+ 磁盘形式）、target 是 NFC（用户输入形式）
+    # Reverse: base is NFD (HFS+ disk form), target NFC (user-input form).
     base_nfd = Path("/data/projects/café")
     target_nfc = Path("/data/projects/café/scripts/episode_1.json")
     assert AgentAccessPolicy._is_protected_project_json(target_nfc, [base_nfd])
 
-    # 归一化不引入 over-match：其他项目路径不受影响
+    # Normalization must not overmatch other project paths.
     other = Path("/data/projects/cafe_other/project.json")
     assert not AgentAccessPolicy._is_protected_project_json(other, [base_nfc])
 
 
 def test_normalize_path_for_protected_compare_strips_windows_extended_prefix() -> None:
-    """Windows ``\\\\?\\`` 扩展长度前缀（resolve 在长路径/UNC 下返回）与常规形态
-    须归一化为同一比较键，否则 bases 混入两种形式时 startswith 失配。
-    helper 级单测；实机 Windows 端到端验证另行跟踪。"""
+    """Windows ``\\\\?\\`` extended-length prefixes (returned by resolve for long/UNC paths) and ordinary forms normalize to one comparison key; mixed bases must not cause startswith mismatches. Helper-level unit test only; real Windows end-to-end validation is tracked separately."""
     norm = AgentAccessPolicy._normalize_path_for_protected_compare
     assert norm("\\\\?\\C:\\data\\projects\\demo") == norm("C:\\data\\projects\\demo")
     assert norm("\\\\?\\UNC\\server\\share\\proj") == norm("\\\\server\\share\\proj")
-    # 常规路径不受影响
+    # Ordinary paths are unaffected.
     assert norm("/data/projects/demo") == norm("/data/projects/demo")
 
 
 def test_write_drafts_still_allowed(policy: AgentAccessPolicy) -> None:
-    """合法的草稿写入不受影响（drafts/*.md、scripts 外的 .json）。"""
+    """Legitimate draft writes remain allowed (drafts/*.md and .json outside scripts)."""
     cwd = _cwd(policy)
     for relative in ("drafts/episode_1/script_plan_segments.md", "config_data.json"):
         allowed, _ = policy.check_path_access(str(cwd / relative), "Write", cwd, user_id=_USER_ID)
@@ -453,9 +437,9 @@ def test_write_drafts_still_allowed(policy: AgentAccessPolicy) -> None:
 )
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
 def test_sensitive_file_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """敏感文件无论 Read 还是 Write 一律拒，且报错信息包含"敏感文件"。"""
+    """Deny both Read and Write for sensitive files; errors include "敏感文件"."""
     cwd = _cwd(policy)
-    # 文件实际存在与否不影响 deny 判断（resolve() 对不存在路径仍返回绝对路径）
+    # Actual file existence does not affect denial (resolve() returns absolute paths even for missing files).
     target = policy.project_root / relative
     target.parent.mkdir(parents=True, exist_ok=True)
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -466,7 +450,7 @@ def test_sensitive_file_denied(policy: AgentAccessPolicy, tool: str, relative: s
 
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
 def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """敏感判断对准构造时传入的 agent_profile_root，而不是源码根的硬编码路径。"""
+    """Sensitive-file checks use the constructor's agent_profile_root rather than a hardcoded source-root path."""
     cwd = _cwd(policy)
     target = policy.agent_profile_root / ".claude" / "settings.json"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -477,9 +461,9 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
 
 
 def test_read_host_file_outside_project_root_denied(policy: AgentAccessPolicy, tmp_path: Path) -> None:
-    """project_root 外的 host 文件（~/.ssh、/etc 等）不允许 Read/Glob/Grep。"""
+    """Host files outside project_root (~/.ssh, /etc, etc.) cannot be read through Read/Glob/Grep."""
     cwd = _cwd(policy)
-    # tmp_path 在 policy.project_root 之外（project_root = tmp_path / "repo"）
+    # tmp_path lies outside policy.project_root (project_root = tmp_path / "repo").
     outside = tmp_path / "host_fake_ssh"
     outside.mkdir()
     (outside / "id_rsa").write_text("secret", encoding="utf-8")
@@ -491,7 +475,7 @@ def test_read_host_file_outside_project_root_denied(policy: AgentAccessPolicy, t
 
 
 def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) -> None:
-    """`.env.*` 不能误伤 `.environment` 这种命名的合法目录/文件。"""
+    """`.env.*` must not accidentally reject legitimate files/directories named `.environment`."""
     cwd = _cwd(policy)
     legal = policy.project_root / ".environment"
     legal.parent.mkdir(parents=True, exist_ok=True)
@@ -500,14 +484,13 @@ def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) ->
 
 
 # ============================================================
-# 数据根默认拒读：只放行当前项目与当前用户的记忆
+# Data-root reads default to denied: allow only current project and current user's memory.
 # ============================================================
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])
 def test_read_of_data_root_outside_current_project_and_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """数据根位于仓库根内（开发默认布局）时，数据根里的条目不因「仓库根内参考资料」被放行：
-    布局登记的系统条目、旧布局残留、布局未登记的条目、根下与项目目录下的直放文件一律拒。"""
+    """When data root is inside repository root (default development layout), reference-material allowance must not admit its entries: deny registered system entries, old-layout remnants, unregistered entries and loose files under root/project directories."""
     layout = DataRootLayout(policy.data_root)
     assert policy.data_root.is_relative_to(policy.project_root)
     entries = [entry for entry in layout.top_level_entries if entry != layout.projects_dir]
@@ -524,41 +507,41 @@ def test_read_of_data_root_outside_current_project_and_memory_denied(policy: Age
 
 
 # ============================================================
-# 内核 settings 编译投影（原 sandbox settings 测试断言搬家）
+# Kernel settings compilation (assertions moved from sandbox settings tests).
 # ============================================================
 
 
 def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
-    """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
+    """sandbox_enabled=False (Windows fallback) returns only {"enabled": False}."""
     policy = _make_policy(tmp_path, sandbox_enabled=False)
     cwd = _projects_dir(policy) / "demo"
     assert policy.build_sandbox_settings(cwd) == {"enabled": False}
 
 
 def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
-    """sandbox_enabled=True 时出站与 loopback 均显式放行，文件围栏保持完整。"""
+    """sandbox_enabled=True explicitly allows outbound and loopback access while retaining complete file boundaries."""
     policy = _make_policy(tmp_path, sandbox_enabled=True)
     cwd = _projects_dir(policy) / "demo"
     settings = policy.build_sandbox_settings(cwd)
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
     assert settings["allowUnsandboxedCommands"] is False
-    # 省略 network 键等于零预放行（出站全断），全放行必须显式写 ``*``；
-    # loopback 另由 allowLocalBinding 控制，allowedDomains 覆盖不到。
+    # Omitting network means zero preapprovals (all outbound blocked); explicitly use ``*`` to allow all.
+    # allowLocalBinding controls loopback separately; allowedDomains cannot cover it.
     assert settings["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
     assert "denyRead" in settings["filesystem"]
     assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
 
 
 def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) -> None:
-    """in_docker 透传到 enableWeakerNestedSandbox；非 Docker 默认 False。"""
+    """Forward in_docker into enableWeakerNestedSandbox; default False outside Docker."""
     cwd = _projects_dir(_make_policy(tmp_path)) / "demo"
     assert _make_policy(tmp_path).build_sandbox_settings(cwd)["enableWeakerNestedSandbox"] is False
     assert _make_policy(tmp_path, in_docker=True).build_sandbox_settings(cwd)["enableWeakerNestedSandbox"] is True
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
-    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/、source/、.arcreel/trash/、媒体目录与 versions/（Bash 子进程内核级封堵）。"""
+    """With sandbox enabled, denyWrite covers scripts/, project.json, edit_timelines/, drafts/, source/, .arcreel/trash/, media directories and versions/ at the Bash subprocess kernel layer."""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd)
     deny_write = settings["filesystem"]["denyWrite"]
@@ -576,9 +559,7 @@ def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccess
 
 
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:
-    """``drafts/`` 按整目录 deny，不逐文件枚举——清单在会话装配期一次性构造，而集是运行时
-    增删的：「同集会话内先拆分出第 N 集、再改它」这条主流程上，逐文件枚举必然落空。
-    与 hook 层刻意不对称（hook 只拒正式 script_plan，草稿留给内置 Edit）。"""
+    """Deny all of ``drafts/`` rather than enumerating files: the list is compiled at session assembly, while episodes change at runtime. Per-file lists miss the main flow of planning episode N and editing it in the same session. Deliberately asymmetric with hooks, which deny formal script_plan only and leave drafts editable by built-in Edit."""
     cwd = _cwd(policy)
     deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
     assert str(cwd / "drafts") in deny_write
@@ -586,10 +567,7 @@ def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: 
 
 
 def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: AgentAccessPolicy, tmp_path: Path) -> None:
-    """project_cwd 是 symlink 入口时（macOS /var↔/private/var、Linux symlinked
-    项目根），denyWrite 须同时枚举 raw 与 resolved 两种形式——sandbox 实现若按
-    字符串路径比对，仅注册 raw 形式会在 Bash 子进程经 symlink 解析后写 resolved
-    路径时失配。与 _check_write_access 的 bases 同口径。"""
+    """For symlink project_cwd (macOS /var↔/private/var or Linux project roots), denyWrite enumerates raw and resolved forms. String-based sandbox matching of raw only would miss Bash writes after symlink resolution. Match _check_write_access bases."""
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
     link_cwd = _projects_dir(policy) / "selfproj_link"
@@ -599,19 +577,19 @@ def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: Agent
     deny_write = settings["filesystem"]["denyWrite"]
     resolved_cwd = link_cwd.resolve()
     assert resolved_cwd != link_cwd
-    # raw 与 resolved 两种形式都注册
+    # Register both raw and resolved forms.
     assert str(link_cwd / "scripts") in deny_write
     assert str(link_cwd / "project.json") in deny_write
     assert str(link_cwd / "drafts") in deny_write
     assert str(resolved_cwd / "scripts") in deny_write
     assert str(resolved_cwd / "project.json") in deny_write
     assert str(resolved_cwd / "drafts") in deny_write
-    # raw == resolved 的常规路径不重复注册
+    # Do not duplicate ordinary paths whose raw == resolved.
     assert len(deny_write) == len(set(deny_write))
 
 
 def test_sandbox_denies_read_of_existing_sensitive_files_outside_data_root(tmp_path: Path) -> None:
-    """数据根外的敏感文件按当前实际存在的逐个进 denyRead，不存在的跳过。"""
+    """Add individually existing sensitive files outside data root to denyRead, skipping missing ones."""
     root = tmp_path / "repo"
     root.mkdir()
     (root / ".env").write_text("X=1", encoding="utf-8")
@@ -630,8 +608,7 @@ def test_sandbox_denies_read_of_existing_sensitive_files_outside_data_root(tmp_p
 
 
 def test_sandbox_denies_read_of_every_data_root_entry_but_projects(policy: AgentAccessPolicy) -> None:
-    """Bash 不经读 hook：数据根里项目目录以外的顶层条目——含旧布局残留与布局未登记的条目——
-    都在 denyRead 里；项目目录不在，Bash 照常读写当前项目。"""
+    """Bash bypasses read hooks: denyRead includes every top-level data-root entry outside project directories, including old/unregistered entries. Exclude the project directory so Bash reads/writes the current project normally."""
     root = policy.data_root
     (root / "arcreel.db").write_bytes(b"db")
     (root / ".arcreel.db-wal").write_bytes(b"wal")
@@ -649,8 +626,7 @@ def test_sandbox_denies_read_of_every_data_root_entry_but_projects(policy: Agent
 
 
 def test_sandbox_denies_system_dirs_created_after_session_start(policy: AgentAccessPolicy) -> None:
-    """CLI 跳过不存在的 deny 路径，而围栏只在会话启动时编译一次：会话启动时还不存在的
-    系统目录（全新安装上别的用户的记忆、首次上传的凭证）会先被建出来，deny 从一开始就生效。"""
+    """CLI skips missing deny paths and boundaries compile only at session startup. Precreate initially absent system directories (other users' memory on fresh installs, first uploaded credentials) so denial works from the start."""
     system_dirs = DataRootLayout(policy.data_root).system_dirs
     assert not any(system_dir.exists() for system_dir in system_dirs)
 
@@ -662,7 +638,7 @@ def test_sandbox_denies_system_dirs_created_after_session_start(policy: AgentAcc
 
 
 def test_filter_allowed_tools_strips_bash_family_when_sandbox_disabled(tmp_path: Path) -> None:
-    """sandbox 关闭时剥离 Bash/BashOutput/KillBash（落到 can_use_tool 白名单），启用时保留。"""
+    """Strip Bash/BashOutput/KillBash when sandbox is disabled (can_use_tool allowlist); retain when enabled."""
     base = ["Skill", "Bash", "BashOutput", "KillBash", "Read"]
     enabled = _make_policy(tmp_path, sandbox_enabled=True)
     assert enabled.filter_allowed_tools(base) == base
@@ -671,15 +647,15 @@ def test_filter_allowed_tools_strips_bash_family_when_sandbox_disabled(tmp_path:
 
 
 # ============================================================
-# Bash 密钥剥离（env scrub）纯变换
+# Bash secret stripping (env scrub), pure transformation
 # ============================================================
 
 
 def test_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    """unset 清单除了固定名单还要动态命中 *_API_KEY / *_AUTH_TOKEN 等模式。"""
+    """Beyond the fixed list, unset dynamically matched *_API_KEY / *_AUTH_TOKEN and similar patterns."""
     monkeypatch.setenv("GEMINI_CLI_IDE_AUTH_TOKEN", "abc")
     monkeypatch.setenv("RANDOM_VENDOR_API_KEY", "def")
-    monkeypatch.setenv("PATH", "/usr/bin")  # 不应命中
+    monkeypatch.setenv("PATH", "/usr/bin")  # Must not match.
 
     AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
     AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
@@ -688,7 +664,7 @@ def test_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch
         assert "GEMINI_CLI_IDE_AUTH_TOKEN" in keys
         assert "RANDOM_VENDOR_API_KEY" in keys
         assert "PATH" not in keys
-        # 固定清单
+        # Fixed list.
         assert "ANTHROPIC_API_KEY" in keys
         assert "ARK_API_KEY" in keys
     finally:
@@ -697,23 +673,23 @@ def test_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch
 
 
 def test_wrap_bash_command_unsets_provider_keys(tmp_path: Path) -> None:
-    """POSIX（sandbox 启用）：command 包装成 ``env -u ANTHROPIC_* sh -c '<orig>'``。"""
+    """POSIX with sandbox enabled wraps command as ``env -u ANTHROPIC_* sh -c '<orig>'``."""
     from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 
     policy = _make_policy(tmp_path)
     wrapped = policy.wrap_bash_command_for_env_scrub("env | grep ANTHROPIC")
 
     assert wrapped is not None
-    # 每个 ANTHROPIC_* key 都被 unset
+    # Unset every ANTHROPIC_* key.
     for key in ANTHROPIC_ENV_KEYS:
         assert f"-u {key}" in wrapped
-    # 原命令被 shlex.quote 包到 sh -c 内
+    # shlex.quote wraps the original command inside sh -c.
     assert "sh -c " in wrapped
     assert "'env | grep ANTHROPIC'" in wrapped
 
 
 def test_wrap_bash_command_preserves_short_lived_arcreel_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """skill 脚本可从 Bash 子进程读取专用短期 JWT，其余 secret-like env 仍剥离。"""
+    """Skill scripts may read their dedicated short-lived JWT in Bash subprocesses; strip other secret-like environment variables."""
     monkeypatch.setenv("ARCREEL_API_TOKEN", "session-jwt")
     monkeypatch.setenv("RANDOM_VENDOR_AUTH_TOKEN", "provider-secret")
     AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
@@ -729,39 +705,36 @@ def test_wrap_bash_command_preserves_short_lived_arcreel_token(tmp_path: Path, m
 
 
 def test_wrap_bash_command_skips_when_sandbox_disabled(tmp_path: Path) -> None:
-    """Windows 回退：``env -u``/``sh -c`` 是 POSIX 机制，原生 Windows 不可执行；
-    且包装后的命令以 ``env -u`` 开头，会让白名单永远匹配不上——返回 None 表示
-    不包装，原始命令落到 can_use_tool 做白名单匹配。"""
+    """Windows fallback: ``env -u``/``sh -c`` are POSIX-only and wrapping would start with ``env -u``, never matching the allowlist. Return None for no wrapping; can_use_tool matches the raw command."""
     policy = _make_policy(tmp_path, sandbox_enabled=False)
     assert policy.wrap_bash_command_for_env_scrub("python .claude/skills/x/scripts/run.py") is None
 
 
 def test_wrap_bash_command_handles_single_quotes(tmp_path: Path) -> None:
-    """命令含单引号时不能破坏 shell 引号闭合。"""
+    """Single quotes in commands must not break shell quote closure."""
     policy = _make_policy(tmp_path)
     wrapped = policy.wrap_bash_command_for_env_scrub("echo 'hello world'")
     assert wrapped is not None
-    # shlex.quote 把 'hello world' 转义为 'echo '"'"'hello world'"'"''
+    # shlex.quote escapes  'hello world'  as  'echo '"'"'hello world'"'"''
     assert wrapped.endswith("'\"'\"'hello world'\"'\"''")
 
 
 def test_wrap_bash_command_passthrough_when_no_command(tmp_path: Path) -> None:
-    """空 command 时不做包装。"""
+    """Do not wrap empty commands."""
     policy = _make_policy(tmp_path)
     assert policy.wrap_bash_command_for_env_scrub(None) is None
     assert policy.wrap_bash_command_for_env_scrub("   ") is None
 
 
 # ============================================================
-# 受保护写路径规则表：hook 与 sandbox denyWrite 同表投影
+# Protected-write rule table: hooks and sandbox denyWrite project the same table.
 # ============================================================
 
 
 def test_protected_write_rules_project_new_rule_in_both_layers(
     policy: AgentAccessPolicy, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """新增一类受保护路径只需在 PROTECTED_WRITE_RULES 加一行：hook 拒绝与 sandbox denyWrite
-    都从同一张表投影、随之同步生效——分散声明时漏掉任一处都会留出单层旁路。"""
+    """Add a protected path category with one PROTECTED_WRITE_RULES row: hook denial and sandbox denyWrite project the same table and synchronize. Separate declarations could leave a bypass in one layer."""
     from server.agent_runtime.agent_access_policy import ProtectedWriteRule
 
     def _matches_meta_lock(target: Path, bases: list[Path]) -> bool:
@@ -778,28 +751,27 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
     )
 
     cwd = _cwd(policy)
-    # hook 层：新规则立即生效
+    # Hook layer: new rule immediately effective.
     allowed, reason = policy.check_path_access(str(cwd / "meta.lock"), "Write", cwd, user_id=_USER_ID)
     assert not allowed
     assert reason == synthetic.deny_message
-    # sandbox 层：denyWrite 投影同表同步
+    # Sandbox layer: denyWrite synchronizes from the same table.
     deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
     assert str(cwd / "meta.lock") in deny_write
-    # 既有规则不受影响
+    # Existing rules unaffected.
     assert str(cwd / "project.json") in deny_write
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "drafts") in deny_write
 
 
 # ============================================================
-# 两级记忆目录围栏（ADR 0074）
+# Two-level memory-directory boundaries (ADR 0074).
 # ============================================================
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
 def test_user_memory_dir_allowed_for_all_path_tools(policy: AgentAccessPolicy, tool: str) -> None:
-    """用户记忆目录在 cwd 外、且落在数据根下——五个工具都要显式放行，
-    否则读被跨项目隔离拒、写被 cwd 外拒。"""
+    """User memory is outside cwd and within data root: explicitly allow all five tools, or cross-project read isolation and cwd-external write denial would reject it."""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "MEMORY.md"
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -808,7 +780,7 @@ def test_user_memory_dir_allowed_for_all_path_tools(policy: AgentAccessPolicy, t
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
 def test_user_memory_subdirectory_allowed(policy: AgentAccessPolicy, tool: str) -> None:
-    """放行按子树而非单文件：记忆索引之外的笔记文件同样可读写。"""
+    """Allow the subtree rather than a single file; notes beyond the memory index also remain readable/writable."""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "notes" / "style.md"
     allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -817,7 +789,7 @@ def test_user_memory_subdirectory_allowed(policy: AgentAccessPolicy, tool: str) 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
 def test_other_users_memory_dir_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """放行只覆盖当前 user_id 的子树；别人的记忆目录仍拒。"""
+    """Allow only current user_id's subtree; deny other users' memory."""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).user_memory_dir("someone-else") / "MEMORY.md"
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -827,7 +799,7 @@ def test_other_users_memory_dir_denied(policy: AgentAccessPolicy, tool: str) -> 
 
 @pytest.mark.parametrize("tool", ["Read", "Write"])
 def test_users_namespace_root_outside_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """放行的是 ``<user_id>/memory/``，同用户目录下的其它子树不在放行内。"""
+    """Allow ``<user_id>/memory/`` only, excluding other subtrees under the same user."""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).users_dir / _USER_ID / "secrets" / "x.md"
     allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -836,7 +808,7 @@ def test_users_namespace_root_outside_memory_denied(policy: AgentAccessPolicy, t
 
 @pytest.mark.parametrize("tool", ["Read", "Write"])
 def test_data_root_other_paths_still_denied_with_memory_allowance(policy: AgentAccessPolicy, tool: str) -> None:
-    """记忆放行不外溢到数据根下的其它路径：别的项目目录仍拒。"""
+    """Memory allowance does not spill into other data-root paths; deny other project directories."""
     cwd = _cwd(policy)
     allowed, _ = policy.check_path_access(str(_projects_dir(policy) / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
     assert not allowed
@@ -844,7 +816,7 @@ def test_data_root_other_paths_still_denied_with_memory_allowance(policy: AgentA
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
 def test_project_memory_dir_allowed(policy: AgentAccessPolicy, tool: str) -> None:
-    """项目记忆是 ``<cwd>/.arcreel/memory/``，由 cwd 围栏放行，五个工具都可读写。"""
+    """Project memory is ``<cwd>/.arcreel/memory/``, allowed by cwd boundaries for all five tools."""
     cwd = _cwd(policy)
     target = project_memory_dir(cwd) / "MEMORY.md"
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -852,7 +824,7 @@ def test_project_memory_dir_allowed(policy: AgentAccessPolicy, tool: str) -> Non
 
 
 def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> None:
-    """记忆装的是笔记：放宽扩展名等于给 sandbox 内的 Bash 递可执行脚本。"""
+    """Memory contains notes: relaxing extensions would hand executable scripts to sandboxed Bash."""
     cwd = _cwd(policy)
     for target in (
         project_memory_dir(cwd) / "hack.sh",
@@ -865,7 +837,7 @@ def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> 
 
 @pytest.mark.parametrize("bad_user_id", ["", "..", "../other", "a/b", "\x00"])
 def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPolicy, bad_user_id: str) -> None:
-    """user_id 不是单个路径段时 fail-closed：不放行任何记忆路径，也不逃出数据根。"""
+    """Fail closed for user_id that is not a single path segment: allow no memory paths and never escape the data root."""
     cwd = _cwd(policy)
     escaped = DataRootLayout(policy.data_root).user_memory_dir("victim") / "MEMORY.md"
     allowed, _ = policy.check_path_access(str(escaped), "Write", cwd, user_id=bad_user_id)
@@ -877,11 +849,9 @@ def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPo
     [pytest.param(False, id="macos-seatbelt-or-linux-bwrap"), pytest.param(True, id="docker-linux-bwrap")],
 )
 def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Path, in_docker: bool) -> None:
-    """内核沙箱层不给用户记忆目录开任何口子，Bash 读写都被拒，两个平台的编译结果相同。
+    """Kernel sandbox opens no user-memory exceptions: Bash reads and writes are denied, identically compiled on both platforms.
 
-    bwrap 把 ``allowWrite`` 编成可写绑定挂载，会盖掉 ``users/`` 的 ``denyRead``；Seatbelt
-    则读拒写放。内置 Read/Write/Edit/Glob/Grep 不经内核沙箱，由 hook 层放行记忆目录。
-    """
+    bwrap compiles ``allowWrite`` into writable bind mounts overriding ``users/`` ``denyRead``; Seatbelt denies reads but allows writes. Built-in Read/Write/Edit/Glob/Grep run outside the kernel sandbox; hooks allow memory directories."""
     policy = _make_policy(tmp_path, in_docker=in_docker)
     cwd = _cwd(policy)
     layout = DataRootLayout(policy.data_root)
@@ -889,7 +859,7 @@ def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Pa
 
     assert "allowWrite" not in filesystem
     assert str(layout.users_dir) in filesystem["denyRead"]
-    # 内置工具照常读写用户记忆
+    # Built-in tools read/write user memory normally.
     memory_file = layout.user_memory_dir(_USER_ID) / "MEMORY.md"
     for tool in ("Read", "Write", "Edit", "Glob", "Grep"):
         allowed, reason = policy.check_path_access(str(memory_file), tool, cwd, user_id=_USER_ID)
@@ -897,7 +867,7 @@ def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Pa
 
 
 # ============================================================
-# 数据根默认拒读：大小写变体与包含数据根的搜索根
+# Data-root default read denial: case variants and search roots containing the data root.
 # ============================================================
 
 
@@ -907,7 +877,7 @@ def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Pa
     ["PROJECTS/vertex_keys/key.json", "Projects/users/bob/memory/a.md", "PROJECTS/projects/other/project.json"],
 )
 def test_read_of_data_root_case_variant_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """大小写不敏感卷上 ``<仓库根>/PROJECTS`` 就是数据根：大小写变体不因「仓库根内参考资料」被放行。"""
+    """On case-insensitive volumes, ``<仓库根>/PROJECTS`` is data root; repository-reference allowance must not admit case variants."""
     target = policy.project_root / relative
     allowed, reason = policy.check_path_access(str(target), tool, _cwd(policy), user_id=_USER_ID)
     assert not allowed
@@ -916,7 +886,7 @@ def test_read_of_data_root_case_variant_denied(policy: AgentAccessPolicy, tool: 
 
 @pytest.mark.parametrize("tool", ["Glob", "Grep"])
 def test_search_rooted_above_data_root_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """数据根位于仓库根内时，以仓库根为搜索根会递归扫进数据根，须拒；仓库内其他参考资料目录照常可搜。"""
+    """When data root is inside repository root, reject repository-root searches that recursively enter it; other repository reference directories remain searchable."""
     for search_root in (policy.project_root, policy.project_root / "."):
         allowed, reason = policy.check_path_access(str(search_root), tool, _cwd(policy), user_id=_USER_ID)
         assert not allowed

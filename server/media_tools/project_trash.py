@@ -29,22 +29,24 @@ from server.tool_runtime import CallerContext, NoArguments, ProjectScope, Servic
 class DeleteProjectFileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    path: str = Field(min_length=1, description="项目内相对路径（正斜杠），如 storyboards/scene_E1S02.png")
+    path: str = Field(
+        min_length=1, description="Project-relative path (forward slashes), for example storyboards/scene_E1S02.png"
+    )
 
 
 class RestoreTrashRecordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     record_id: str = Field(
-        min_length=1, description="删除记录 ID，取自 list_trash_records 或 delete_project_file 的结果"
+        min_length=1, description="Deletion record ID from list_trash_records or delete_project_file results"
     )
 
 
 async def _run(operation: str, write: bool, func: Callable[[], Any]) -> ToolOutcome[Any]:
-    """在线程里执行回收站操作；领域异常按默认语言转述，问题码沿用异常的 i18n key。"""
+    """Run trash operations in a thread; relay domain exceptions in the default language, retaining their i18n keys as problem codes."""
 
     def guarded() -> Any:
-        # 与生成工具同一来源标签：Agent 发起的变更不显示成外部文件改动，删除记录的发起方记为 Agent。
+        # Use the generation-tool origin: Agent changes are not shown as external file changes; deletion records identify the Agent as initiator.
         with project_change_source("worker"):
             return func()
 
@@ -83,7 +85,7 @@ async def delete_project_file(
         return {"record": record.to_dict()}
 
     try:
-        # 缓存已清理的远端历史版本先取回，删除记录带着内容本身（与文件视图同一入口）
+        # Retrieve remote historical versions after cache cleanup so deletion records retain content, using the same entry point as file views.
         async with local_file(project_dir, path, deleting=True):
             return await _run("delete_project_file", True, delete)
     except ApiError as exc:
@@ -117,7 +119,7 @@ async def restore_trash_record(
 
     def restore() -> dict[str, Any]:
         project_dir = services.projects.get_project_path(scope.project_name)
-        # 摘要要对比删除时与恢复后的对象描述，才能说明换了名或换了编号。
+        # Compare object descriptions at deletion and restoration to explain changed names or IDs.
         original = dict(project_trash.require_record(project_dir, record_id).object)
         return {**project_trash.restore(project_dir, record_id).to_dict(), "original_object": original}
 
@@ -130,7 +132,7 @@ def delete_project_file_summary(value: dict[str, Any]) -> str:
 
 
 def _identity_notes(value: dict[str, Any]) -> list[str]:
-    """对象恢复后换了名或编号时的说明；降级时对象没有按原结构恢复，不说。"""
+    """Explain changed names or IDs after object restoration; omit this for degraded restorations that do not preserve original structure."""
     original, landed = value.get("original_object", {}), value["object"]
     notes = [
         f"{label}已换：{original[key]} → {landed[key]}"

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "cn";
 
-/** 资产图缩略：16:9 底框，图片完整显示不裁切；没有图时显示占位。 */
+/** Asset thumbnail: 16:9 backing frame, showing the entire image without cropping; show a placeholder when absent. */
 export function AssetThumb({
   imageUrl,
   alt,
@@ -9,7 +9,7 @@ export function AssetThumb({
   className,
 }: {
   imageUrl: string | null | undefined;
-  /** 旁边已有资产名时传空串，读屏不重复读名称。 */
+  /** Pass an empty string when the asset name is already adjacent, avoiding duplicate screen-reader announcements. */
   alt: string;
   fallback: ReactNode;
   className?: string;

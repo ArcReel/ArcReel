@@ -1,17 +1,17 @@
-/** 项目资产图（本体与衍生）的状态、批量生成与重生影响。 */
+/** Status, batch generation, and regeneration impact of project asset sheets (bases and derivatives). */
 
 import type { CostBreakdown } from "./cost";
 
 export type AssetSheetType = "character" | "scene" | "prop" | "product";
 
-/** 产物清单对一张资产图的判定：missing 即待生成（含登记了文件却读不到）。 */
+/** Artifact manifest status for an asset sheet: missing means awaiting generation, including a registered file that cannot be read. */
 export type AssetSheetStatus = "current" | "stale" | "missing" | "blocked";
 
 export interface AssetSheetRef {
-  /** `<类型>/<名字>`；衍生为 `<类型>/<本体>/<衍生>`。 */
+  /** `<type>/<name>`; derivatives use `<type>/<base>/<derivative>`. */
   unit_id: string;
   asset_type: AssetSheetType;
-  /** 本体名；衍生时是其本体的名字。 */
+  /** Base name; for a derivative, the name of its base. */
   name: string;
   derivative: string | null;
 }
@@ -22,7 +22,7 @@ export interface AssetSheetStatusRow extends AssetSheetRef {
   image_to_image: boolean;
 }
 
-/** 批量生成的范围：画廊类型页或集层，二选一。 */
+/** Batch generation scope: either a gallery type page or an episode. */
 export type AssetSheetBatchScope = { asset_type: AssetSheetType } | { episode_id: number };
 
 export type AssetSheetSkipReason = "generating" | "missing_description" | "owner_sheet_missing" | "unavailable";
@@ -30,9 +30,9 @@ export type AssetSheetSkipReason = "generating" | "missing_description" | "owner
 export interface AssetSheetBatchPreview {
   targets: (AssetSheetRef & { depends_on: string | null })[];
   skipped: (AssetSheetRef & { reason: AssetSheetSkipReason })[];
-  /** 只合计已定价的部分；一项都没有定价时为 `null`。 */
+  /** Totals only priced items; `null` when no items are priced. */
   estimated_cost: CostBreakdown | null;
-  /** 价目表算不出价、未计入 `estimated_cost` 的项数。 */
+  /** Number of items that cannot be priced by the price table and are excluded from `estimated_cost`. */
   unpriced_count: number;
 }
 
@@ -49,7 +49,7 @@ export interface AssetSheetBatchSubmitted {
 }
 
 export interface AssetRegenerationImpact {
-  /** 服务端此刻对这张资产图的判定是否为过期。 */
+  /** Whether the server currently considers this asset sheet stale. */
   stale: boolean;
   storyboards: number;
   videos: number;

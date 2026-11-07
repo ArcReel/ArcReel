@@ -2,19 +2,19 @@
 status: accepted
 ---
 
-# 认证要求由路由注册处单点声明
+# Declare authentication requirements once at router registration
 
-端点是否需要登录，唯一真相源是 `server/app.py` 的路由注册区块：需要认证的 router 在 `include_router` 时挂 `dependencies=[Depends(get_current_user)]`，公开端点与自带认证端点不挂。端点签名里出现 `CurrentUser` 只表示处理函数要读取用户对象，不表示该端点要求认证——只有真正使用 `user` 的处理函数才声明它。此前认证靠每个端点在签名里各自声明 `_user: CurrentUser`，供应商配置与凭证路由整组漏声明后无人察觉，未登录即可读写凭证并借自定义 Base URL 劫持生成后端。
+The sole source of truth for whether an endpoint requires login is the router-registration block in `server/app.py`: protected routers attach `dependencies=[Depends(get_current_user)]` when calling `include_router`; public endpoints and endpoints with their own authentication do not. `CurrentUser` in an endpoint signature means only that the handler needs to read the user object, not that the endpoint requires authentication; only handlers that actually use `user` declare it. Previously, each endpoint individually declared `_user: CurrentUser` in its signature for authentication. Entire provider-configuration and credential route groups omitted that declaration unnoticed, allowing unauthenticated credential reads/writes and generation-backend hijacking through a custom Base URL.
 
-放行面按 router 对象切分而非按端点：同一个路由模块内可以定义第二个 router 对象承载不挂依赖的端点（`public_router` 承载匿名可达的登录入口与静态媒体，`self_auth_router` 承载自带认证端点），文件仍按领域组织。注册区块因此同时是认证要求的声明处和公开面的清单，读一屏即可回答"哪些 URL 不需要登录"。
+Divide exemptions by router object rather than endpoint: a route module can define a second router object for endpoints without the dependency (`public_router` carries anonymously accessible login entry points and static media; `self_auth_router` carries endpoints with their own authentication), while files remain organized by domain. The registration block is therefore both the authentication declaration and a public-surface inventory, answering "which URLs do not require login" in one screen.
 
-这一形态是 FastAPI 的惯用法，漏挂依赖仍会让整个 router 裸奔——即 fail-open。保证由 `tests/integration/server/test_auth_enforcement.py` 提供：它从 `app.openapi()` 枚举全部 API 操作，对豁免清单之外的每一个发未认证请求并断言 401，新增 router 自动纳入，漏挂在 CI 暴露而非上线后成为漏洞。豁免清单里的端点跳过该遍历，因此每一条都另有正面断言证明其并非不设防：公开端点断言匿名可达，自带认证端点断言匿名请求仍被拒。
+This is idiomatic FastAPI, but omitting a dependency still exposes the entire router: it fails open. Enforcement comes from `tests/integration/server/test_auth_enforcement.py`: it enumerates every API operation from `app.openapi()`, sends unauthenticated requests to each operation outside the exemption list, and asserts 401. New routers are automatically included, exposing omissions in CI rather than as production vulnerabilities. Exempt endpoints skip this traversal, so each also has a positive assertion proving that it is not unprotected: public endpoints assert anonymous accessibility, while self-authenticating endpoints assert that anonymous requests are still rejected.
 
-认证不再随端点签名走，自行组装 `FastAPI()` 的路由测试因此要复刻注册处的挂法，否则测到的是一个无认证的应用：受保护 router 挂 `tests/auth_deps.AUTH_DEPENDENCIES`，需要放行的用例调同模块的 `override_auth`。这类测试多数用 `dependency_overrides` 绕过认证，少挂一层不会失败，只有专门断言 401 的用例会暴露；`test_auth_enforcement.py` 只覆盖生产应用，这条路径无兜底。
+Authentication no longer follows endpoint signatures, so route tests assembling their own `FastAPI()` must reproduce registration dependencies, or they test an unauthenticated application: protected routers attach `tests/auth_deps.AUTH_DEPENDENCIES`; cases requiring access call `override_auth` from the same module. Most such tests bypass authentication through `dependency_overrides`, so a missing layer does not fail; only cases specifically asserting 401 expose it. `test_auth_enforcement.py` covers only the production application, leaving no fallback for this path.
 
-## 明确不采用
+## Explicitly rejected
 
-- **app 级全局依赖 + 端点豁免表**。运行时 fail-closed，漏挂也安全，但 FastAPI 不提供豁免机制，实现它需要遍历 `include_router` 留下的惰性包装对象——把认证的正确性绑在框架私有表示上，框架升级可能让豁免判定错乱。同样的遍历只出现在测试里时，最坏后果是 CI 失败而非生产行为异常。该方案还需要为框架自挂载的 SPA fallback 单独开特例，并因绕开 FastAPI 的依赖缓存而对每个受保护请求重复解码一次 JWT。
-- **端点侧装饰器标记公开面**。豁免分散进业务路由文件，审计"全部公开面"要全仓搜索，且新增豁免的改动混在功能 diff 里不显眼。
-- **把公开与自带认证合并成一个概念**。两者在注册处的写法相同（都不挂依赖），但自带认证端点拦得住匿名请求，公开端点拦不住；合并命名会让前者被误读为敞开。
-- **统一三处浏览器直发请求的认证机制**。SSE、导出下载与静态媒体成因相同而答案各异，收敛方向另议，不与本次的注册形态调整合并。
+- **An application-wide global dependency plus an endpoint exemption table**. This fails closed at runtime and remains safe when attachment is omitted, but FastAPI provides no exemption mechanism. Implementing one requires traversing lazy wrapper objects left by `include_router`, binding authentication correctness to private framework representations that upgrades could change and disrupt exemption decisions. When that traversal exists only in tests, the worst result is CI failure instead of abnormal production behavior. This approach also needs a special case for the framework-mounted SPA fallback and decodes JWTs once again for every protected request by bypassing FastAPI's dependency cache.
+- **Endpoint-side decorators marking the public surface**. Exemptions scatter across business-route files, requiring repository-wide searches to audit "the complete public surface," while new exemptions become inconspicuous within feature diffs.
+- **Combining public and self-authenticating into one concept**. Registration looks the same for both (neither attaches the dependency), but self-authenticating endpoints block anonymous requests and public endpoints do not; combined naming would misrepresent the former as open.
+- **Unifying authentication for the three browser-direct request mechanisms**. SSE, export downloads, and static media have the same cause but different answers. Their convergence direction is a separate discussion, outside this registration-structure change.

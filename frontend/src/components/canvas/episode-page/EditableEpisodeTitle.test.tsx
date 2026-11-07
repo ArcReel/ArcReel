@@ -58,7 +58,7 @@ describe("EditableEpisodeTitle", () => {
     fireEvent.click(screen.getByRole("button", { name: "编辑分集标题" }));
     const input = screen.getByRole("textbox", { name: "编辑分集标题" });
     fireEvent.change(input, { target: { value: "拼音确认中" } });
-    // 中文输入法按 Enter 确认候选词时 isComposing 为 true，不应触发保存
+    // Chinese IME Enter confirms a candidate with isComposing true and must not trigger saving.
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
 
     expect(onSave).not.toHaveBeenCalled();

@@ -177,8 +177,8 @@ class SystemConfigManager:
             raw = self.paths.config_path.read_text(encoding="utf-8")
             data = json.loads(raw)
         except (OSError, json.JSONDecodeError) as exc:
-            # TODO(multi-user): JSONDecodeError 可能在消息中包含 config 文件片段（含 API key），
-            # 多用户场景需 sanitize 日志内容。
+            # TODO(multi-user): JSONDecodeError messages may include configuration excerpts with API keys;
+            # sanitize logs for multi-user scenarios.
             logger.warning("Failed to read system config, using empty overrides: %s", exc)
             return {"version": 1, "updated_at": None, "overrides": {}}, False
 
@@ -208,7 +208,7 @@ class SystemConfigManager:
             overrides.pop("storyboard_max_workers", None)
             migrated = True
 
-        # Migration: AI Studio 旧 001 后缀 -> preview（001 仅 Vertex 使用）
+        # Migration: legacy AI Studio 001 suffix → preview; 001 belongs to Vertex only.
         _model_migration = {
             "veo-3.1-generate-001": "veo-3.1-generate-preview",
             "veo-3.1-fast-generate-001": "veo-3.1-fast-generate-preview",
@@ -246,8 +246,8 @@ class SystemConfigManager:
             tmp_path = Path(tmp.name)
 
         os.replace(tmp_path, self.paths.config_path)
-        # chmod 0o600 在 Windows 上只会清/设只读位，无法限制其他用户访问；
-        # Windows 凭证文件权限交给文件系统 ACL（用户级 %LOCALAPPDATA%）兜底。
+        # Windows chmod 0o600 toggles readonly only, never restricting other users;
+        # filesystem ACLs under user %LOCALAPPDATA% protect credential files.
         if os.name == "posix":
             try:
                 os.chmod(self.paths.config_path, 0o600)
@@ -295,8 +295,8 @@ class SystemConfigManager:
     def apply(self) -> dict[str, Any]:
         """Load overrides (and migrate). Returns overrides.
 
-        Provider 密钥不再写 os.environ — 真相源是 DB，调用方通过
-        ``lib.config.service`` 显式拿值。
+        Never write provider keys to os.environ; DB is authoritative, read explicitly through
+        ``lib.config.service`` by callers.
         """
         with self._lock:
             data, migrated = self._load_file()

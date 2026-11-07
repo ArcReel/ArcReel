@@ -29,7 +29,7 @@ function page(items: Asset[], overrides: Partial<AssetListPage> = {}): AssetList
   return { items, total: items.length, counts: { character: items.length, scene: 0, prop: 0 }, ...overrides };
 }
 
-/** jsdom 没有 IntersectionObserver：记下观察者，由用例模拟哨兵进入可视区。 */
+/** jsdom lacks IntersectionObserver; retain observers so tests simulate visible sentinels. */
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
   private readonly callback: IntersectionObserverCallback;
@@ -50,8 +50,8 @@ class FakeIntersectionObserver {
 }
 
 /**
- * 滚到底触发下一页。findBy 在 DOM 更新后即返回，此时哨兵的 effect 可能还没挂上观察器，
- * 直接触发会落空；加载中观察器都已断开，所以有已连接的观察器即说明哨兵已就绪。
+ * Scrolling to bottom fetches next pages. findBy returns after DOM updates, before sentinel effects may register observers;
+ * triggering immediately can miss. Loading disconnects observers, so connected observers prove sentinel readiness.
  */
 async function reachBottomWhenArmed() {
   await waitFor(() => expect(FakeIntersectionObserver.instances.some((o) => o.connected)).toBe(true));
@@ -70,8 +70,8 @@ function renderPage(path = "/app/assets") {
   return location;
 }
 
-// 每条用例要渲染一到两页（60–121 张）卡片，jsdom 里单次渲染就要数百毫秒到数秒，
-// 机器负载高时默认 5 秒的上限不够；真正卡住的用例仍会在 15 秒时失败。
+// Each case renders one/two pages (60–121 cards), taking hundreds of milliseconds to seconds in jsdom;
+// default 5-second limits are insufficient under load; genuinely stuck tests still fail at 15 seconds.
 describe("AssetLibraryPage", { timeout: 15_000 }, () => {
   beforeEach(() => {
     FakeIntersectionObserver.instances = [];
@@ -137,7 +137,7 @@ describe("AssetLibraryPage", { timeout: 15_000 }, () => {
     expect(await screen.findByRole("button", { name: "李四" })).toBeInTheDocument();
     await act(async () => pending.resolve({ asset: { ...asset, description: "白衣少年修改" } }));
 
-    // 关闭动画在 jsdom 中不结束，Sheet 仍让背景对读屏隐藏。
+    // Close animations never finish in jsdom; Sheets keep backgrounds hidden from screen readers.
     expect(screen.getByRole("tab", { name: /角色\s*1/, hidden: true })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "王小明", hidden: true })).not.toBeInTheDocument();
   });
@@ -182,8 +182,8 @@ describe("AssetLibraryPage", { timeout: 15_000 }, () => {
     await reachBottomWhenArmed();
     await act(() => started.promise);
 
-    // 页面上已有 60 张卡片：按角色在整页查询每次都要遍历全部节点，高负载下单条查询就要一两秒，
-    // 对话框内的查询限定在对话框里，整页只按文本查。
+    // Sixty cards already render: whole-page role queries traverse every node and take one or two seconds under load,
+    // so scope dialog queries to dialogs; use text queries only across whole pages.
     fireEvent.click(screen.getAllByText("新增资产")[0]);
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "新角色" } });

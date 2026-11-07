@@ -6,20 +6,20 @@ import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef"
 
 interface Props {
   staleIds: string[];
-  /** 跳到画布上的该单元；那里已经有预览与版本历史。 */
+  /** Navigate to canvas units with existing previews/version history. */
   onView?: (unitId: string) => void;
-  /** 显式重生。没有回调时只陈述状态，不长出一个点了没反应的按钮。 */
+  /** Explicit regeneration; absent callbacks state statuses without creating unresponsive buttons. */
   onRegenerate?: (unitIds: string[]) => void;
-  /** 重生请求在途；同一步骤的兄弟控件同步禁用。 */
+  /** Pending regeneration disables sibling controls within the same step. */
   busy?: boolean;
 }
 
 /**
- * 已过时但仍然可用的产物。
+ * Stale but still usable artifacts.
  *
- * 这一段的立场是「保留是默认，重做要你亲自点」：过时只说明产物比当前内容旧，文件还在、
- * 还照常参与成片，也不挡着这一集走到导出。所以这里既不自动重生，也不把它算进缺口，
- * 只把「去看看」和「确实要重做」两个入口摆出来——后者要花钱，必须是用户按下去的。
+ * Retention is default; regeneration requires personal clicks. Stale means artifacts precede current content, while files remain
+ * usable in finished outputs without blocking episode export. Never automatically regenerate or count them as gaps;
+ * offer Inspect and Deliberately redo entries only, the latter costing money and requiring user clicks.
  */
 export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) {
   const { t } = useTranslation("workflow");

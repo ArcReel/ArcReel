@@ -1,16 +1,19 @@
-"""公开媒体端点的按需图片缩略图（``?w=``）。
+"""On-demand image thumbnails for public media endpoints (``?w=``).
 
-契约：
-- 只对栅格图（.png / .jpg / .jpeg / .webp）生效；宽度档位见 :data:`THUMBNAIL_WIDTHS`，
-  其余正整数向上吸附到最近档位（封顶 1280），非法值视同未传。
-- 原图（按 EXIF 方向矫正后）不宽于目标宽度时不生成，调用方直接返回原图字节。
-- 产物为 WebP，等比缩放到目标宽度。
+Contract:
+- Raster images only (.png / .jpg / .jpeg / .webp); tiers are in :data:`THUMBNAIL_WIDTHS`.
+  Round other positive integers up to the next tier, capped at 1280; invalid values mean absent.
+- If the EXIF-corrected original is no wider than the target, callers return its original bytes.
+- Output is WebP, scaled proportionally to the target width.
 
-磁盘缓存：``<cache_root>/<缓存命名空间>/<源路径摘要>/w<宽度>-<源 mtime_ns>-<源 size>.webp``。
-源文件任一属性变化都会落到新的文件名；同一源路径写入新版本时顺手删掉该路径下的旧版本，
-所以每个源路径最多保留各档位的当前版本。并发请求可能拿着源文件被替换前的 stat：发布前
-复核源文件版本，清理时保留源文件此刻的版本，旧请求既不按旧版本键发布新内容，也不删掉新版本。
-源文件或项目被删除后，对应缓存目录留在原处（缓存根整目录删除即可回收，不影响正确性）。
+Disk cache: ``<cache_root>/<缓存命名空间>/<源路径摘要>/w<宽度>-<源 mtime_ns>-<源 size>.webp``.
+Any source-attribute change produces a new filename. Writing a new version also
+removes old versions for that source path, retaining at most the current version
+per width. Concurrent requests may hold stat from before replacement: recheck
+source identity before publishing and preserve the current source version during
+cleanup. Old requests neither publish new content under an old key nor delete
+new versions. Deleted source/project cache directories remain until the cache
+root is removed; this does not affect correctness.
 """
 
 from __future__ import annotations
@@ -30,25 +33,25 @@ from lib.infra.image_utils import MAX_UPLOAD_PIXELS
 
 logger = logging.getLogger(__name__)
 
-#: 允许的缩略图宽度档位（升序）
+#: Allowed thumbnail-width tiers in ascending order.
 THUMBNAIL_WIDTHS: tuple[int, ...] = (160, 320, 640, 1280)
-#: 可生成缩略图的源文件扩展名（小写）
+#: Thumbnail source extensions, lowercase.
 THUMBNAIL_SOURCE_EXTENSIONS: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 
 _WEBP_QUALITY = 80
 _THUMBNAIL_SUFFIX = ".webp"
-# EXIF Orientation 取 5–8 时图像需要转置，矫正后宽高互换
+# EXIF orientations 5-8 require transposition, swapping corrected width and height.
 _EXIF_ORIENTATION = 0x0112
 _TRANSPOSED_ORIENTATIONS = frozenset({5, 6, 7, 8})
 
 
 def snap_thumbnail_width(raw: str | None) -> int | None:
-    """把 ``?w=`` 的原始值吸附到档位；缺省、非数字或非正数返回 None（按未传处理）。"""
+    """Snap raw ``?w=`` to a tier; absent, nonnumeric or nonpositive values return None as if omitted."""
     if not raw or not raw.isascii() or not raw.isdigit():
         return None
     try:
         requested = int(raw)
-    except ValueError:  # 超长数字串超过 int 转换位数上限
+    except ValueError:  # An excessively long digit string exceeds the int conversion limit.
         return THUMBNAIL_WIDTHS[-1]
     if requested <= 0:
         return None
@@ -56,7 +59,7 @@ def snap_thumbnail_width(raw: str | None) -> int | None:
 
 
 def is_thumbnail_source(path: Path) -> bool:
-    """该文件是否可以按 ``?w=`` 生成缩略图（只看扩展名）。"""
+    """Whether the file extension supports ``?w=`` thumbnails."""
     return path.suffix.lower() in THUMBNAIL_SOURCE_EXTENSIONS
 
 
@@ -70,7 +73,7 @@ def _version_prefix(source_stat: os.stat_result) -> str:
 
 
 def thumbnail_cache_path(cache_dir: Path, source_key: str, source_stat: os.stat_result, width: int) -> Path:
-    """缓存文件位置；``source_key`` 是源文件在缓存命名空间内的唯一标识（如项目内相对路径）。"""
+    """Cache location; ``source_key`` uniquely identifies the source within its namespace, such as a project-relative path."""
     return _source_dir(cache_dir, source_key) / f"w{width}-{_version_prefix(source_stat)}{_THUMBNAIL_SUFFIX}"
 
 
@@ -82,15 +85,16 @@ def ensure_image_thumbnail(
     source_key: str,
     width: int,
 ) -> tuple[Path, os.stat_result] | None:
-    """返回 ``width`` 宽缩略图的缓存路径与 stat；应直接返回原图时返回 None。
+    """Return cache path and stat for a ``width`` thumbnail, or None to serve the original.
 
-    同步阻塞（解码与编码），调用方放进工作线程。返回 None 的情形：原图不宽于目标宽度、
-    像素总数超出 ``MAX_UPLOAD_PIXELS``、源文件无法解码，或缓存写不进去。
+    Decoding/encoding blocks synchronously; callers use a worker thread. Return None
+    when the original is no wider, exceeds ``MAX_UPLOAD_PIXELS``, cannot be decoded,
+    or the cache cannot be written.
 
-    缓存写入走同目录临时文件 + ``os.replace``：并发请求同一缓存键时各写各的临时文件，
-    最终文件始终是某一次完整的编码结果。缓存文件的 mtime 对齐源文件 mtime，
-    使重新生成的同一缓存键得到相同的 ETag。编码期间源文件被替换时返回 None，
-    由调用方按原图处理。
+    Use a same-directory temporary file + ``os.replace``. Concurrent requests write
+    separate temporary files, so the published file is always a complete encoding.
+    Match its mtime to the source so regenerating a key gives the same ETag. If the
+    source is replaced during encoding, return None for the caller to serve the original.
     """
     target = thumbnail_cache_path(cache_dir, source_key, source_stat, width)
     cached_stat = _regular_file_stat(target)
@@ -108,13 +112,15 @@ def ensure_image_thumbnail(
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(target, encoded, mtime_ns=source_stat.st_mtime_ns)
     except OSError:
-        # 缓存目录不可写等情形：缩略图只是优化，回退原图而不让请求失败
+        # Unwritable cache, etc.: thumbnails are an optimization; serve the original rather than failing.
         logger.warning("写入图片缩略图缓存失败，回退原图: %s", target, exc_info=True)
         return None
     _remove_stale_versions(target.parent, keep={version, _current_version(source)})
 
     cached_stat = _regular_file_stat(target)
-    if cached_stat is None:  # 写入后被并发的旧版本清理删掉（源文件刚好在此期间变化）
+    if (
+        cached_stat is None
+    ):  # Concurrent old-version cleanup removed it after writing because the source changed in between.
         return None
     return target, cached_stat
 
@@ -138,7 +144,7 @@ def _oriented_width(image: Image.Image) -> int:
 
 
 def _encode_thumbnail(source: Path, width: int) -> bytes | None:
-    """解码源图并编码为 ``width`` 宽的 WebP；不需要或无法缩放时返回 None。"""
+    """Decode and encode a ``width``-wide WebP; return None if resizing is unnecessary or impossible."""
     try:
         with Image.open(source) as image:
             if image.width * image.height > MAX_UPLOAD_PIXELS:
@@ -146,7 +152,7 @@ def _encode_thumbnail(source: Path, width: int) -> bytes | None:
             oriented_width = _oriented_width(image)
             if oriented_width <= width:
                 return None
-            # JPEG 可在解码阶段按 1/2、1/4、1/8 降采样，draft 保证结果不小于请求尺寸
+            # JPEG can downsample by 1/2, 1/4 or 1/8 during decode; draft keeps dimensions at least as requested.
             scale = width / oriented_width
             image.draft("RGB", (max(1, round(image.width * scale)), max(1, round(image.height * scale))))
             oriented = ImageOps.exif_transpose(image)
@@ -172,18 +178,18 @@ def _atomic_write(target: Path, data: bytes, *, mtime_ns: int) -> None:
         try:
             os.replace(tmp_path, target)
         except PermissionError:
-            # Windows：目标正被另一请求读取时不能替换；已有的同键文件内容相同，沿用即可
+            # Windows cannot replace a target being read; reuse an existing same-key file with identical content.
             if not target.exists():
                 raise
     finally:
         with contextlib.suppress(OSError):
-            tmp_path.unlink()  # hard-delete: temp -- 缩略图原子写的临时文件
+            tmp_path.unlink()  # hard-delete: temp -- temporary file for atomic thumbnail publication
 
 
 def _remove_stale_versions(source_dir: Path, *, keep: set[str | None]) -> None:
-    """删掉同一源路径下 ``keep`` 以外版本（mtime / size 不同）的缓存；清理失败不影响本次请求。"""
+    """Delete cached versions with other mtime/size values than ``keep``; cleanup failure does not fail the request."""
     for entry in source_dir.glob(f"w*{_THUMBNAIL_SUFFIX}"):
         version = entry.stem.split("-", 1)[1] if "-" in entry.stem else ""
         if version not in keep:
             with contextlib.suppress(OSError):
-                entry.unlink()  # hard-delete: derived -- 旧版本缩略图缓存
+                entry.unlink()  # hard-delete: derived -- cached thumbnail of an older version

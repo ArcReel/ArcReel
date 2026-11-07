@@ -1,0 +1,243 @@
+{
+  "scope": "Exact 604 bilingual review pairs only: 603 passive-prose translations plus restoration of proper name 酒馆. No claim to prior frontend batches.",
+  "pairs_file": "docs/plans/english-translation/frontend-parser-repair-review-pairs.json",
+  "pairs_sha256": "a18ab5535858f986eefca536021c94cdbe5bc8b603b7a05b205c25a4c6dfa678",
+  "reviewed_pairs": 604,
+  "reviewed_files": 56,
+  "method": "Independently read every original/candidate pair in ranges0-159,160-269,270-389,390-499,500-603; additionally reread78-83 after output truncation. Review obligations/conditions/exceptions/numbers/examples/paths/field names and suppression-directive prefixes. All candidate strings are present in current files.",
+  "semantic_findings": [],
+  "result": "Accepted within exact pair scope; no material semantic omission, inversion, or unauthorized literal/directive change found. Awkward pluralized English does not alter constraints.",
+  "historical_inconsistency_retained": {
+    "pair254": "Original says seven keys while enumerating six categories; candidate preserves count and inventory rather than correcting historical text."
+  },
+  "proper_name_restoration": {
+    "pair603": "酒馆 restored as fixture scene name; not translated into tavern."
+  },
+  "current_file_hashes": [
+    {
+      "path": "frontend/src/components/pages/AssetLibraryPage.test.tsx",
+      "sha256": "388733b1cbb39ec473d725b27f0e05d29bccdc30a8e72873e008537e2db1a103"
+    },
+    {
+      "path": "frontend/src/components/pages/CreateProjectModal.test.tsx",
+      "sha256": "28039df5f590d3e517091ff7fda0058644f725871e3493103834c5a002960c2b"
+    },
+    {
+      "path": "frontend/src/components/pages/CreateProjectModal.tsx",
+      "sha256": "936e8de407abd8767f4e0c63c6ce23538423e7b87cff80c1c2f6f99f47ff0506"
+    },
+    {
+      "path": "frontend/src/components/pages/CredentialList.test.tsx",
+      "sha256": "28f290cb0519f96eeb18c02a360fad01d25194b3f46c1b0fa63e0c35a11dc8bb"
+    },
+    {
+      "path": "frontend/src/components/pages/CredentialList.tsx",
+      "sha256": "5a034df9dcdb11c452c2db3ea167c083e3f34e5d6aacb1abf6e0bd7ce958ecb9"
+    },
+    {
+      "path": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+      "sha256": "5c49c09e1c13faede3f4475d6022d92cfed9afaeddcf268babda845a5ebd1d06"
+    },
+    {
+      "path": "frontend/src/components/pages/ProjectsPage.test.tsx",
+      "sha256": "05303ba45c636b4d862d06a0f58e9e3251ed519e2c01d8e176c9d3c002e61593"
+    },
+    {
+      "path": "frontend/src/components/pages/ProjectsPage.tsx",
+      "sha256": "afd295d15e8b83f626c557e13c544bf87931a75e75067f2b1c7594e4ebbb2942"
+    },
+    {
+      "path": "frontend/src/components/pages/ProviderSection.tsx",
+      "sha256": "cce8fb6508ce3a8cb767accc441cad708f5ea0a9a39efa444e88df33c9bc581f"
+    },
+    {
+      "path": "frontend/src/components/pages/create-project/WizardStepBasics.tsx",
+      "sha256": "ec888f7a9b5b0b7a2e95379ba31bdc9253f9d20c3fc2d41994b48f1adc0ea8e3"
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/ProjectCard.tsx",
+      "sha256": "b6dd7b5dffd4d5e0ceec85c95346017d2ff24d8c24f5fa15858c72bc4caa57d7"
+    },
+    {
+      "path": "frontend/src/components/pages/lobby/useProjectImport.tsx",
+      "sha256": "b2892918a92af5e24c6fff331fcbca59c4427267ecf4d291e2109a9eaaca579b"
+    },
+    {
+      "path": "frontend/src/components/pages/project-settings/StyleTab.tsx",
+      "sha256": "f9e049f424fd04d8f3181530c2434e479f90ed706b5d20cd0d851c59f752023c"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/AddModelDialog.tsx",
+      "sha256": "726e644b01ec0b4886caf5f4d859bbb55e06d77124442939314e2bd8a3de23b6"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/CapabilityOverrideRow.tsx",
+      "sha256": "4213f3e7c982540a376d1560e32a546cc8eb7d191530bea22119a1c319138207"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/CustomProviderForm.billing.test.tsx",
+      "sha256": "2ef7920a3e4dc83597b5c1043baa4da745a813ee8ec61bb30befe3bcb107a31f"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/CustomProviderForm.tsx",
+      "sha256": "7d6d3136c03ae59cb6ea12b689eb58b8b79578f7d69c821726a6521da12a0e89"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/CustomProviderModelTable.tsx",
+      "sha256": "c35b6e138b21ca5e3494d4ecdae9b65a41f9371148db7f2c702e0a21e3f66c0d"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/FetchModelsDialog.tsx",
+      "sha256": "ca94b2293236ab5badeabf4c6641ce543cd11240b436f746d4bc03e9e5d3ed72"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ManualEntryDialog.tsx",
+      "sha256": "7d9acc91c914484149fdae6b63fdcca7d88165ab3339a927ede69a6ab375184a"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/PromptTemplateList.tsx",
+      "sha256": "a39a245e2585132302cc9b776fa2093c393ac306fdc755ec5de6fa734c62b555"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ProviderCapabilityOverrides.tsx",
+      "sha256": "0e53693afb2e9c7322b162201d3f897928adb8e3d11365e3044a37d42e676c29"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ProviderModelEntryInfo.tsx",
+      "sha256": "f3110759b37895cc83280acd2ede54aab7adc8ef3d74dcbc0037807cf9d4542c"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ProviderModelList.tsx",
+      "sha256": "f6f703d3c00b618e23eaf11e52fb838f680816c579d74bb08f555c8beec3c7ef"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/ProviderModelSheet.tsx",
+      "sha256": "be6c97218d1e797e81b2fa65347cf26ed7c67be73578f0c6048b10cab9f9334c"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/RequestAddresses.test.tsx",
+      "sha256": "e0e40bab8ca0c122e2e22c6248e0199e6f2089e4af68bce7637c2da75a89cf1d"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/RequestAddresses.tsx",
+      "sha256": "3f8a51f6493278520da3fed7573e9938322cf32f980285d63c113019e18fdfe9"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/agent-access/ExternalAgentSection.test.tsx",
+      "sha256": "b026caf4408ffbab5b0122b1351959ed3f96912fab6d87f5a23e59d4a862ae79"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/asset-library/AssetLibraryAccountsBlock.tsx",
+      "sha256": "a35bd4587d5e59c69dcf5580c099e9344b5e41c6e9ae3eadb955511c2adad9bc"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/customProviderFormState.ts",
+      "sha256": "85be9ed27dd4fec07301d5a089d8d8659cf30a80f1a64dc1b0758d408f3e36da"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/customProviderHelpers.ts",
+      "sha256": "ed261130f7372d47dab83a36d5990f8fc9aa87283a8d87442594f7eed6c4b65b"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ComfyuiBindingTable.tsx",
+      "sha256": "3105d0901056f1046118ebd50f26e30b468dc8f2304fcd2ad56f9c8ef0af8d1c"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.test.tsx",
+      "sha256": "c02a0c650b99410e38ec902ff32e29ab7c3a4bab6f20b35e91d24a1ab398b81d"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointDetail.tsx",
+      "sha256": "a1003dc31088b00fcdc8fd259da7110d0330e51efa0a5ec91de7364beb439c13"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ComfyuiEndpointTestSection.tsx",
+      "sha256": "62a39cb4270c320d4195d9ac3556e4b6ce60bb05f1925fca52b732d737cf08cd"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointDetail.tsx",
+      "sha256": "7b0fc3a59d4afc69c0365528cba69ce5fe8c33e7c19a33117929efb9dffcada8"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointForm.tsx",
+      "sha256": "9f88416d15aba3c7fd7cac1674547fbd2d343d2c170e7d9eab7b84b8698a1f80"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointImportDialog.tsx",
+      "sha256": "69bf08e68066be29640995de6170fc898fc5afebbd694d6eabf25e92e83a48f0"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointTestSection.tsx",
+      "sha256": "6c7355845e347093f0f3304dda39fe0f7d736d683906b6abe8455d00417c31bd"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointsSection.comfyui.test.tsx",
+      "sha256": "16887ca6012f64aed8b1c4d5deae70802febfd3744c95546a1ee70be71afe282"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointsSection.share.test.tsx",
+      "sha256": "24b0454c292e4c24e192e05941234509511d48614b6dad228b1ecbbb0835c4aa"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/EndpointsSection.tsx",
+      "sha256": "6d7a6309e6ec251996109949e4d2c548750bd9157f23c2f0270592f38f2b6ef2"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/ShareToMarketDialog.tsx",
+      "sha256": "241afa88755cb61f3868d264a7a2e5b14b3e24654297a295a7a69b81ad157e42"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/comfyui-bindings.ts",
+      "sha256": "f47a7b6059c998ff55ec0bfa681332bbeccec221b9783dc77b924add8521a677"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/endpoint-definition-draft.ts",
+      "sha256": "2f76572580623cb04d31cf62925274692d8ea2582346e3d857124f95887f382d"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/endpoints/endpoint-form-primitives.tsx",
+      "sha256": "ac13ef62367b0681aca77e631d867876d5fc2f7882cae8489530a6cf79c096b0"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketBrowseTab.tsx",
+      "sha256": "138a253a6a4710edb547e6575bd4461ada228a2fbae35a0c2e0ddf0f18420fae"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketInstallDialog.tsx",
+      "sha256": "e80960342b6469998867ca1ca86a73ba2caaa48f8404610d3075abd884f933d0"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketSection.test.tsx",
+      "sha256": "2290eec292953be3003d4a6200525f61f04ce13726393b4eaf6e58f2ac97ffd8"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/market/MarketSourceList.tsx",
+      "sha256": "0b3040f5e50a409b37ca16c97acbb815affb6332a7abd53e69bce6aca78b3642"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/price-editor/PriceEditor.tsx",
+      "sha256": "58fbdbd969c2452f109c08e2e9a657a36e42d4031fcc644d1cb9f67fa6841684"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/price-editor/priceLabels.ts",
+      "sha256": "09cab30dfc76da2dc37abdab304ac259a34ac06719ec9a825892520fe6a7e609"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/promptTemplateSchema.ts",
+      "sha256": "3f1ec8e4e22bf7b5364493ddf70aa028c366abd26860b227985c9381e807e020"
+    },
+    {
+      "path": "frontend/src/components/pages/settings/useRowIds.ts",
+      "sha256": "de21489ea8d100371cb007bddf969f369f05f5b48238e291fa6809b5bb6288ca"
+    },
+    {
+      "path": "frontend/src/hooks/useAssistantSession.test.tsx",
+      "sha256": "ad4527cc689b39f76b786e502769c4e87eb5a6cb6bf51d409ced05384b536b6e"
+    },
+    {
+      "path": "frontend/src/hooks/useProjectEventsSSE.test.tsx",
+      "sha256": "c52d62b7d581b77149c0e8a1e5eae5e35fdd11855b7749b8341df97619173fc9"
+    }
+  ],
+  "structural_evidence": "frontend-parser-repair-passive-proof.json owns TypeScript parser/code equivalence; this separate review covers semantic fidelity of supplied pairs."
+}

@@ -1,8 +1,8 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
 /**
- * 本会话已因加载失败整页刷新过的 chunk（按导出名记录），防止新入口仍拉不到时无限刷新。
- * 按 chunk 记录：别的 chunk 加载成功不代表失败的那个已经恢复，不能借此解除它的刷新限制。
+ * Chunks already causing whole-page refreshes this session, keyed by exports, preventing infinite refreshes when new entrypoints still fail.
+ * Per-chunk records: unrelated successes cannot prove failed chunks recovered, never lifting their refresh limits.
  */
 const RELOAD_MARK = "arcreel:lazy-chunk-reload";
 
@@ -23,23 +23,23 @@ function markReloaded(name: string, reloaded: boolean) {
   else sessionStorage.removeItem(RELOAD_MARK);
 }
 
-/** 发起刷新后页面仍未离开、判定刷新被拦下的等待时长。 */
+/** Wait after reload requests before unchanged pages mean blocked refreshes. */
 const RELOAD_BLOCKED_AFTER_MS = 3000;
 
 interface LazyNamedOptions {
-  /** 整页刷新的实现，测试替换；默认 `window.location.reload()`。 */
+  /** Whole-page reload implementation, replaceable in tests, default `window.location.reload()`. */
   reload?: () => void;
-  /** 发起刷新后等待多久仍未离开页面，即视为刷新被拦下；测试缩短。 */
+  /** Wait for page departures before classifying reloads blocked; tests shorten this. */
   reloadBlockedAfterMs?: number;
 }
 
 /**
- * 发起整页刷新并判断它是否真的会发生。
+ * Request whole-page reloads and determine whether they occur.
  *
- * 有未保存修改时离开拦截会在 `beforeunload` 里 preventDefault，浏览器弹出离开确认，
- * 用户可以选择留下，刷新就不会发生。这里在刷新前最后注册一个 `beforeunload` 监听：
- * 事件未被拦下说明页面正在离开，返回 true；被拦下或事件未触发时等待一段时间，
- * 页面仍在则返回 false。确认框会阻塞主线程，计时器在用户作答之后才会到期。
+ * Unsaved-change guards preventDefault in `beforeunload`, opening browser confirmations;
+ * users choosing Stay block reloads. Register the last `beforeunload` listener immediately before reload:
+ * unprevented events mean departure, returning true; prevented/absent events wait briefly,
+ * returning false if pages remain. Confirmation blocks main threads, so timers expire only after user answers.
  */
 async function reloadAndConfirm(reload: () => void, blockedAfterMs: number): Promise<boolean> {
   let unloading = false;
@@ -57,18 +57,18 @@ async function reloadAndConfirm(reload: () => void, blockedAfterMs: number): Pro
 }
 
 /**
- * 按命名导出懒加载组件，配合 `<Suspense>` 把非首屏页面拆进独立 chunk。
+ * Lazy-load named exports with `<Suspense>`, splitting noninitial pages into separate chunks.
  *
- * chunk 拉取失败多发生在新版本部署之后：页面仍是旧入口，引用的带 hash 文件名已被替换，
- * 请求返回 404。此时整页刷新一次换上新入口；同一会话内该 chunk 刷新后仍失败，错误照常抛给
- * React，不再刷新。该 chunk 之后加载成功即清除它的标记，下次部署后的失败仍可刷新一次。刷新被
- * 离开确认拦下（用户为保护未保存修改选择留下）时同样抛出错误并清除标记。
+ * Chunk failures commonly follow deployments: old entries reference replaced hash filenames,
+ * returning 404. Refresh whole pages once for new entries; same-session repeated failures propagate to
+ * React without another reload. Later successful loads clear this chunk's marker, allowing next-deployment refreshes. Reloads blocked by
+ * leave confirmations protecting unsaved edits also throw and clear markers.
  *
- * 抛出的错误由外层 `LazyBoundary`（`components/shared/LazyBoundary`）接住，显示加载失败与
- * 「重新加载」；使用处必须包在它里面，否则错误会卸载整个应用根节点。
+ * Outer `LazyBoundary` (`components/shared/LazyBoundary`) catches failures, showing errors/
+ * Reload. Call sites must wrap boundaries or errors unmount whole application roots.
  *
- * 返回值额外带 `preload()`：已知马上要进入该页面时（如引导即将跨到设置页）提前拉取 chunk，
- * 与渲染时的加载共用同一个请求；预取失败不报错，留给渲染时按上述规则处理。
+ * Returned `preload()` fetches chunks before imminent navigation (onboarding crossing to settings),
+ * sharing render requests. Prefetch failures stay silent, deferring handling to rendering rules above.
  */
 export function lazyNamed<K extends string, P extends object>(
   load: () => Promise<Record<K, ComponentType<P>>>,
@@ -78,7 +78,7 @@ export function lazyNamed<K extends string, P extends object>(
   let pending: Promise<Record<K, ComponentType<P>>> | null = null;
   const loadOnce = () =>
     (pending ??= load().catch((err: unknown) => {
-      // 失败的请求不缓存，下次渲染或预取重新发起
+      // Never cache failed requests; later renders/prefetches try again.
       pending = null;
       throw err;
     }));
@@ -91,10 +91,10 @@ export function lazyNamed<K extends string, P extends object>(
       if (reloadedChunks().has(name)) throw err;
       markReloaded(name, true);
       if (await reloadAndConfirm(reload, reloadBlockedAfterMs)) {
-        // 刷新期间保持挂起，界面停在 Suspense 的占位上，不闪错误
+        // Remain suspended during reloads, retaining Suspense placeholders without error flashes.
         return new Promise<never>(() => {});
       }
-      // 刷新被拦下，本页不会换新：清除标记，让之后的失败仍能刷新，错误交给边界显示
+      // Blocked refreshes retain old pages; clear markers for later refresh attempts, displaying errors through boundaries.
       markReloaded(name, false);
       throw err;
     }

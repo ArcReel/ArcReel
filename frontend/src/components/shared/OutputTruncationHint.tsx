@@ -5,8 +5,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { customModelSettingsPath, type OutputTruncation } from "@/utils/output-truncation";
 
 /**
- * 文本任务输出被截断时的出路：自定义供应商的模型给「去登记最大输出长度」链接，跳到设置里这个模型的条目；
- * 内置模型提示换一个文本模型。各文本任务的失败反馈共用这一处。
+ * Recovery from truncated text-task output: for custom-provider models, link to the model's settings entry to register its maximum output length;
+ * for built-in models, suggest switching text models. Failure feedback for all text tasks shares this component.
  */
 export function OutputTruncationHint({ truncation }: { truncation: OutputTruncation }) {
   const { t } = useTranslation("dashboard");

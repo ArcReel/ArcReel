@@ -1,4 +1,4 @@
-"""剧本载荷里引用名的落点遍历与「被引用」判定。"""
+"""Traverse reference-name locations in script payloads and determine referenced status."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class TestPayloadReferenceNames:
         assert payload_reference_names(payload) == {"阿岚", "阿岚/战斗装", "茶楼", "玉佩", "阿岚/兽化"}
 
     def test_speaker_slot_mentions_count_as_references(self):
-        """说话人位不进参考图，但它写下的名字确实写在剧本里——改名要改它，被引用要数它。"""
+        """Speakers do not enter reference images, but their names are written in scripts; rename and referenced-status checks must include them."""
         payload = {"video_units": [{"unit_id": "E1U1", "text": "@[阿岚/战斗装]{我来了}"}]}
 
         assert payload_reference_names(payload) == {"阿岚/战斗装"}
@@ -51,7 +51,7 @@ class TestPayloadReferenceNames:
         assert payload_reference_names(payload) == {"阿岚"}
 
     def test_new_asset_targets_of_merges_and_derivatives_count_as_references(self):
-        """并入项与衍生项的 ``target`` 写的是资产名：改名要改它，被引用要数它；其余决定的不算。"""
+        """Merged/derivative ``target`` values are asset names, included in renaming/reference counts; other decisions are not."""
         payload = {
             "new_assets": [
                 {"type": "character", "name": "小岚", "decision": "merge", "target": "阿岚"},
@@ -87,7 +87,7 @@ class TestAnnotateDerivativeReferences:
         assert derivatives["便装"]["referenced"] is False
 
     def test_input_payload_is_left_untouched(self):
-        """读时计算：写盘路径与读取路径共用载荷时，就地改写会把它带进 project.json。"""
+        """Compute on read; mutating payloads shared with write paths would persist derived values into project.json."""
         annotate_derivative_references(PROJECT, [_drama_script()])
 
         assert "referenced" not in PROJECT["characters"]["阿岚"]["derivatives"]["战斗装"]

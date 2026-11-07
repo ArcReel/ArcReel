@@ -1,4 +1,4 @@
-"""新会话在流里只有 system 消息（init / api_retry）时也要拿到 sdk_session_id。"""
+"""New sessions obtain sdk_session_id even when streams contain only system messages (init / api_retry)."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _api_retry_frame(attempt: int) -> dict:
 
 
 def test_system_message_serializes_session_id_under_data() -> None:
-    """真实 SDK 的 SystemMessage 序列化后 session_id 只在 data 里，顶层没有。"""
+    """Real SDK SystemMessage serialization puts session_id only inside data, never at top level."""
     msg = message_to_dict(SystemMessage(subtype="init", data={"subtype": "init", "session_id": SDK_ID}))
     assert "session_id" not in msg
     assert msg["data"]["session_id"] == SDK_ID

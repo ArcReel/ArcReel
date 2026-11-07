@@ -29,7 +29,7 @@ describe("parseDurationInput", () => {
     expect(parseDurationInput("   ")).toBeNull();
   });
 
-  // 用工具函数：先 .toThrow 强断言确实抛错，再捕获验证 code/params
+  // Helpers first strongly assert .toThrow, then capture/verify code/params.
   const expectErr = (input: string, code: string) => {
     expect(() => parseDurationInput(input)).toThrow(DurationParseError);
     let caught: DurationParseError | null = null;
@@ -43,7 +43,7 @@ describe("parseDurationInput", () => {
   };
 
   it("仅含分隔符的输入抛 empty_after_split", () => {
-    // 防止 "," / ", ," 等被静默解析为 []
+    // Prevent "," / ", ," silently parsing as [].
     for (const c of [",", ", ,", " , , ", ",,,"]) {
       expectErr(c, "empty_after_split");
     }
@@ -65,7 +65,7 @@ describe("parseDurationInput", () => {
   it("拒绝超出单值上限 60 秒", () => {
     expectErr("99999", "exceeds_max");
     expectErr("4, 100", "exceeds_max");
-    // 99 - 4 = 95 > MAX_RANGE_SPAN(30)，range_too_large 优先
+    // 99 - 4 = 95 > MAX_RANGE_SPAN(30), so range_too_large takes precedence.
     expect(() => parseDurationInput("4-99")).toThrow(DurationParseError);
     let caught: DurationParseError | null = null;
     try {

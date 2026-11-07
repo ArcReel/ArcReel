@@ -1,9 +1,8 @@
-"""v3→v4 迁移：旧任务级文本 backend 键 → 任务档位键（docs/adr/0051）。
+"""v3→v4: legacy task-specific text backends → task tiers (docs/adr/0051).
 
-映射：text_backend_script → text_backend_complex；text_backend_overview / text_backend_style
-→ text_backend_simple，两者都有值时取 style 的值（style 任务需要 vision，反向会让风格分析
-换到可能不支持图像输入的模型）。迁移后删除旧键。
-"""
+Map text_backend_script → text_backend_complex; text_backend_overview / text_backend_style →
+text_backend_simple. If both exist, style wins because style tasks require vision; the reverse could
+select a model lacking image inputs. Delete old keys after migration."""
 
 from __future__ import annotations
 
@@ -15,18 +14,17 @@ _LEGACY_TEXT_TASK_KEYS = ("text_backend_script", "text_backend_overview", "text_
 
 
 def _clean_str(value: object) -> str | None:
-    """非空字符串原样返回，其余（缺失 / null / 空串 / 非字符串脏值）视为未设置。"""
+    """Return nonempty strings unchanged; missing/null/empty/nonstring values count as unset."""
     if isinstance(value, str) and value.strip():
         return value
     return None
 
 
 def migrate_project_dict(project: dict) -> dict:
-    """纯函数：把 v3 形态的 project dict 转为 v4 形态。幂等。
+    """Pure, idempotent v3→v4 project-dict conversion.
 
-    档位键已有值时不覆盖（避免重试时回退用户后配的新值）。
-    不改 schema_version（由文件级 migrate 提交时写入）。
-    """
+    Preserve existing tier values so retries do not revert later user configuration.
+    Leave schema_version to file-level commit."""
     data = dict(project)
 
     script = _clean_str(data.get("text_backend_script"))
@@ -44,12 +42,12 @@ def migrate_project_dict(project: dict) -> dict:
 
 
 def migrate_v3_to_v4(project_dir: Path) -> None:
-    """v3→v4 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。"""
+    """File-level v3→v4 migration: one atomic write, retryable after crashes with old/new values and no partial state."""
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = load_json(pj)
-    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
+    # Match runner int normalization: legacy project.json may store version strings.
     if int(data.get("schema_version") or 0) >= 4:
         return
     migrated = migrate_project_dict(data)

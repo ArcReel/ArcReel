@@ -1,8 +1,8 @@
-"""参考生视频单元正文的贯穿验收：v8 项目 → v9 迁移 → 两条写路径 → 真实生成请求投影。
+"""Reference-body end-to-end acceptance: v8 → v9 migration → two write paths → real generation projection.
 
-覆盖一条完整的缝：磁盘上的旧形状（``shots[]`` + ``references[]``）迁到正文形态后，REST 与
-Agent 剧本工具读写的是同一份正文，而参考图集合按正文里 ``@[名称]`` 的首次提及顺序在投影时
-派生——落盘里没有任何一份可以与正文分叉的引用列表。
+Cover complete seams: old ``shots[]`` + ``references[]`` disk shapes migrate to bodies; REST/
+Agent tools read/write identical bodies, while projection derives images by first ``@[名称]`` mention order;
+no persisted reference list can diverge from bodies.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ _TINY_PNG = (
 _SCRIPT_FILE = "episode_1.json"
 _UNIT_ID = "E1U1"
 _UNIT_DURATION = 8
-#: 供应商能力替身的档位含单元编排时长，投影因此不产生改档确认类问题。
+#: Fake provider tiers include unit durations, avoiding change-tier-confirmation projection problems.
 _SUPPORTED_DURATIONS = (4, 8, 12)
 
 
@@ -51,7 +51,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 class _Acceptance:
-    """一个已迁到 v9 的参考生视频项目，连同它的 REST 客户端与 Agent 工具上下文。"""
+    """v9-migrated reference projects with REST clients/Agent contexts."""
 
     def __init__(
         self,
@@ -101,7 +101,7 @@ class _Acceptance:
         return outcome.value
 
     async def project_request(self, unit_id: str = _UNIT_ID):
-        """按磁盘上的当前正文投影一次真实生成请求（仅替换供应商能力查询）。"""
+        """Project actual generation requests from current disk bodies, replacing capability queries only."""
         projector = fake_reference_request_projector(durations=_SUPPORTED_DURATIONS)
         return await projector(
             project=self.pm.load_project("demo"),
@@ -154,14 +154,14 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
             "陆沉": {"description": "旧友", "character_sheet": "characters/陆沉.png"},
         }
         project["products"] = {
-            # 无资产图的商品：执行期注入它登记的全部原图，且不因类型排到最前。
+            # Products without sheets inject all registered originals at execution, without type-based promotion to first place.
             "灵犀手环": {
                 "description": "银色腕表",
                 "reference_images": ["products/手环_正面.png", "products/手环_侧面.png"],
             },
         }
         project["episodes"] = [{"episode": 1, "title": "雨夜", "script_file": f"scripts/{_SCRIPT_FILE}"}]
-        # 迁移入口按落盘版本决定是否改写，故把项目退回旧形态再跑整条链。
+        # Migration checks persisted versions; revert old shapes before full-chain execution.
         project["schema_version"] = 8
 
     pm.update_project("demo", _seed)
@@ -185,7 +185,7 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
         },
     )
     _write_json(
-        # v8 项目的草稿仍是 v9→v10 改名前的名字。
+        # v8 drafts still use names predating v9→v10 renames.
         episode_drafts_dir(project_dir, 1) / "step1_reference_units.json",
         {
             "episode": 1,
@@ -225,7 +225,7 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
 
 
 def test_migrated_body_is_the_only_shape_rest_serves(acceptance: _Acceptance) -> None:
-    """迁移后剧本与草稿都只剩正文，REST 读到的正是磁盘上那一段。"""
+    """Migrated scripts/drafts contain bodies only; REST reads exact disk bodies."""
     project = _read_json(acceptance.project_dir / "project.json")
     assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
 
@@ -244,7 +244,7 @@ def test_migrated_body_is_the_only_shape_rest_serves(acceptance: _Acceptance) ->
 
 
 async def test_rest_and_agent_tool_write_the_same_body(acceptance: _Acceptance) -> None:
-    """两条写路径读写同一份正文：后写的覆盖先写的，落盘与 REST 始终同形。"""
+    """Both paths share bodies: later writes overwrite earlier; disk/REST shapes always match."""
     rest_body = "@[陆沉] 收伞进门"
     patched = acceptance.patch_body_over_rest(rest_body)
     assert patched["text"] == rest_body
@@ -316,7 +316,7 @@ async def test_body_shape_drives_the_reference_images_of_the_real_request(
 async def test_unresolved_mention_warns_in_the_editor_but_blocks_the_generation(
     acceptance: _Acceptance,
 ) -> None:
-    """未登记的 ``@[名称]`` 在编辑器仍只警告，到生成入口阻断并列出名称。"""
+    """Unregistered ``@[名称]`` warns in editors but blocks generation with names."""
     body = "@[无名氏] 从巷口走过，@[阿离] 回头"
     acceptance.patch_body_over_rest(body)
 
@@ -327,5 +327,5 @@ async def test_unresolved_mention_warns_in_the_editor_but_blocks_the_generation(
     blockers = [problem for problem in projection.problems if problem.blocking]
     assert [problem.code for problem in blockers] == ["reference_asset_unregistered"]
     assert blockers[0].parameters()["missing_text"] == "无名氏"
-    # 其余提及照常解析：阻断的是这次请求，不是把已登记的引用一并丢掉。
+    # Other mentions resolve normally; block requests, never drop registered references together.
     assert [asset.path.name for asset in projection.request_assets] == ["阿离.png"]

@@ -236,7 +236,7 @@ def build_video_speech_basis(
 
 
 def speech_preparation_gaps(preparation: SpeechPreparation) -> tuple[InputGap, ...]:
-    """发声准入的问题按缺口记：问题码指向单位，逐项去重。"""
+    """Record speech-admission problems as gaps: problem codes identify units, deduplicated item by item."""
 
     return tuple(
         dict.fromkeys(InputGap(problem.code.value, name=problem.unit_id or None) for problem in preparation.problems)
@@ -244,10 +244,12 @@ def speech_preparation_gaps(preparation: SpeechPreparation) -> tuple[InputGap, .
 
 
 def build_blocked_video_speech_basis(preparation: SpeechPreparation) -> ArtifactBasis:
-    """发声准入不通过的单位的视频发声依据（``docs/adr/0098``）。
+    """Video speech basis for units that fail speech admission (``docs/adr/0098``).
 
-    没有唯一发声归属（``mode`` 为空），逐条记发声归属、说话人与文本，准入问题记为缺席。
-    混合发声单位因此照常投影依据；改好单位后归属定下来，依据随之变化。
+    Without a unique speech ownership mode (``mode`` is empty), record speech ownership,
+    speaker and text per utterance, representing admission problems as absent inputs.
+    Mixed-speech units therefore still project a basis; once the unit is corrected and
+    ownership resolved, its basis changes accordingly.
     """
 
     gaps = speech_preparation_gaps(preparation)
@@ -266,10 +268,11 @@ def build_blocked_subtitle_basis(
     narration_audio: SelectedMediaEvidence | None = None,
     timing_policy: Mapping[str, object] = _DEFAULT_SUBTITLE_TIMING_POLICY,
 ) -> ArtifactBasis:
-    """发声准入不通过的单位的机械字幕依据（``docs/adr/0098``）：不切句、不定时间轴。
+    """Mechanical subtitle basis for units that fail speech admission (``docs/adr/0098``): no sentence splitting or timeline assignment.
 
-    与 :func:`build_blocked_video_speech_basis` 同一口径记发声归属，准入问题记为缺席；带旁白版本
-    有旁白配音时以它为外边界，否则以视频为外边界。
+    Record speech ownership using the same rules as :func:`build_blocked_video_speech_basis`,
+    representing admission problems as absent inputs. For the narration variant, use
+    narration audio as the outer boundary when available, otherwise use the video.
     """
 
     gaps = speech_preparation_gaps(preparation)
@@ -349,7 +352,7 @@ def build_mechanical_subtitle_basis(
     )
 
 
-#: 呈现模型依据从这一 schema 起不记脚本条目上的转场。
+#: From this schema onward, presentation bases exclude transitions on script entries.
 PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION = 16
 _PRESENTATION_BASIS_KIND = "artifact-speech/presentation"
 _PRESENTATION_BASIS_VERSION = 3
@@ -391,10 +394,11 @@ def build_presentation_basis(
 
 
 def build_legacy_transition_presentation_basis(presentation: ArtifactBasis, transition_to_next: str) -> ArtifactBasis:
-    """schema 低于 16 的项目持久化的呈现模型依据：输入比当前依据多一项脚本条目上的转场。
+    """Persisted presentation basis for projects below schema 16: inputs include a script-entry transition in addition to the current basis.
 
-    只在迁移链中出现：v15→v16 之前各步的整份激活按它核对存量呈现模型文件，v15→v16 再把文件与
-    清单登记改写到当前依据。
+    Appears only in the migration chain: whole-project activation in steps before v15→v16
+    uses it to check existing presentation files; v15→v16 then rewrites the files and
+    manifest registrations to the current basis.
     """
 
     if presentation.kind != _PRESENTATION_BASIS_KIND or presentation.kind_version != _PRESENTATION_BASIS_VERSION:

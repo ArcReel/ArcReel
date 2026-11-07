@@ -24,7 +24,7 @@ def test_resolve_reference_assets_maps_sheets(tmp_path: Path):
 
 
 def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
-    """商品与其它资产同一条规则：有资产图就只用资产图，且不排到提及顺序之前。"""
+    """Products follow ordinary asset rules: if sheets exist, use only sheets and never move products before body mention order."""
     proj_dir = write_project(tmp_path)
     project, _unit = load_project_and_unit(proj_dir, "E1U1")
     products_dir = proj_dir / "products"
@@ -48,7 +48,7 @@ def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
 
 
 def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
-    """超上限时按正文提及顺序截断：商品资产图不因类型排到先被提及的资产之前。"""
+    """Over-limit truncation follows body mention order; product sheets never outrank earlier-mentioned asset types."""
     proj_dir = write_project(tmp_path)
     project, _unit = load_project_and_unit(proj_dir, "E1U1")
     products_dir = proj_dir / "products"
@@ -66,7 +66,7 @@ def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
 
 
 def test_product_reference_with_original_only_is_executable(tmp_path: Path):
-    """尚无标准 sheet 的商品仍以实拍原图作为保真锚点，不被误判为缺图。"""
+    """Products lacking standard sheets still use photographed originals as fidelity anchors rather than falsely missing references."""
     proj_dir = write_project(tmp_path)
     project, _unit = load_project_and_unit(proj_dir, "E1U1")
     refs_dir = proj_dir / "products" / "refs"
@@ -86,7 +86,7 @@ def test_product_reference_with_original_only_is_executable(tmp_path: Path):
 
 
 def test_character_with_original_only_resolves_to_nothing(tmp_path: Path):
-    """角色原图只是生成资产图的输入，不顶替资产图进视频请求（ADR 0073）。"""
+    """Character originals only generate sheets; never substitute them into video requests (ADR 0073)."""
     proj_dir = write_project(tmp_path)
     project, _ = load_project_and_unit(proj_dir, "E1U1")
     refs_dir = proj_dir / "characters" / "refs"
@@ -110,7 +110,7 @@ def test_resolve_reference_assets_ignores_an_unregistered_mention(tmp_path: Path
 
 
 def test_resolve_reference_assets_resolves_nfd_registered_name_by_nfc_mention(tmp_path: Path):
-    """资产以 NFD key 登记、正文写的是解析器归一后的 NFC 名字：解析须仍能命中。"""
+    """Assets registered under NFD keys still resolve NFC names normalized by the parser."""
     import unicodedata
 
     name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -127,7 +127,7 @@ def test_resolve_reference_assets_resolves_nfd_registered_name_by_nfc_mention(tm
 
 
 def test_resolve_reference_assets_dedupes_a_repeated_mention(tmp_path: Path):
-    """同一资产在正文里被提及两次只占一个参考图名额，不给 provider 发重复图片。"""
+    """Repeated body mentions consume one reference-image slot, never sending duplicate images."""
     import unicodedata
 
     name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -144,7 +144,7 @@ def test_resolve_reference_assets_dedupes_a_repeated_mention(tmp_path: Path):
 
 
 def _register_derivative(proj_dir: Path, owner: str, derivative: str) -> dict:
-    """给已登记角色加一个带资产图的衍生，落盘并登记进产物清单。"""
+    """Add a registered character derivative with an asset image, persist and register it in manifests."""
     derivatives_dir = proj_dir / "characters" / "derivatives" / owner
     derivatives_dir.mkdir(parents=True, exist_ok=True)
     (derivatives_dir / f"{derivative}.png").write_bytes((proj_dir / "characters" / f"{owner}.png").read_bytes())
@@ -165,7 +165,7 @@ def test_derivative_reference_injects_the_derivative_sheet(tmp_path: Path):
 
 
 def test_ontology_and_derivative_together_each_inject_one_sheet(tmp_path: Path):
-    """同现不设限：本体与衍生是两个引用名、两张图，按提及顺序各注入一张。"""
+    """Base and derivative together are unrestricted: distinct names/images each inject once in mention order."""
     proj_dir = write_project(tmp_path)
     project = _register_derivative(proj_dir, "张三", "劲装")
 
@@ -181,7 +181,7 @@ def test_several_derivatives_of_one_character_each_inject_one_sheet(tmp_path: Pa
 
 
 def test_a_derivative_without_a_sheet_produces_no_candidate(tmp_path: Path):
-    """衍生还没出图：不回退到本体图，由准入报出 `character: 张三/劲装`（ADR 0073）。"""
+    """Derivatives without images never fall back to base sheets; admission reports `character: 张三/劲装` (ADR 0073)."""
     proj_dir = write_project(tmp_path)
     project, _ = load_project_and_unit(proj_dir, "E1U1")
     project["characters"]["张三"]["derivatives"] = {"劲装": {"description": "变化", "character_sheet": ""}}

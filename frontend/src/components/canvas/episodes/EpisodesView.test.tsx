@@ -60,7 +60,7 @@ const VIEW: EpisodesViewData = {
   external_changes: [],
 };
 
-/** 测试里的 IntersectionObserver：记下观察的元素，由测试手动报告哪些元素进入了视口上沿一带。 */
+/** Test IntersectionObserver records observed elements; tests manually report intersections with viewport-top bands. */
 let observer: { callback: IntersectionObserverCallback; targets: Element[] } | null = null;
 
 class FakeIntersectionObserver {
@@ -89,14 +89,14 @@ function reportIntersecting(target: Element) {
 const findManuscript = () => screen.findByRole("region", { name: "整本源文" });
 const findOutline = () => screen.findByRole("navigation", { name: "集目录" });
 
-/** 打开集目录里一集的「⋯」菜单并选一项。 */
+/** Open an episode directory ⋯ menu and select an item. */
 async function chooseEpisodeAction(episodeName: string, action: string) {
   const outline = await findOutline();
   fireEvent.click(within(outline).getByRole("button", { name: `「${episodeName}」的操作` }));
   fireEvent.click(await screen.findByRole("menuitem", { name: action }));
 }
 
-/** 打开页头的「AI 规划分集」弹层。 */
+/** Open header AI episode-planning popover. */
 async function openPlanning(label: string) {
   fireEvent.click(await screen.findByRole("button", { name: label }));
   return within(await screen.findByRole("dialog"));
@@ -198,10 +198,10 @@ describe("EpisodesView", () => {
     vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
     const { location } = renderView("/episodes?upload=episode");
 
-    // 打开对话框的状态在渲染期间从地址参数写入，与正文加载是两次独立的渲染，要等它出现。
+    // Dialog state derives from URL parameters during rendering, independently of body loading; wait until it appears.
     expect(await screen.findByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /逐集原文/ })).toBeChecked();
-    // 模态对话框打开期间背景对辅助技术隐藏（含之后才加载出的正文），按 hidden 查询确认正文照常加载。
+    // Open modal hides backgrounds from accessibility, including later-loaded bodies; query hidden to verify normal loading.
     expect(await screen.findByRole("region", { name: "整本源文", hidden: true })).toBeInTheDocument();
     await waitFor(() => expect(location.history?.at(-1)).toBe("/episodes"));
   });
@@ -345,7 +345,7 @@ describe("EpisodesView", () => {
       const outline = await findOutline();
 
       fireEvent.click(within(outline).getByRole("button", { name: "「转折」的操作" }));
-      // 转折是最后一个切出集：后面没有可合并或清除的集
+      // 转折 is the last cut episode, without following episodes to merge/clear.
       expect(await screen.findByRole("menuitem", { name: "与下一集合并" })).toHaveAttribute("aria-disabled", "true");
       expect(screen.getByRole("menuitem", { name: "清除之后的分集" })).toHaveAttribute("aria-disabled", "true");
       expect(screen.getByRole("menuitem", { name: "从这一集开始重新规划" })).not.toHaveAttribute("aria-disabled");
@@ -561,7 +561,7 @@ describe("EpisodesView", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "开始重新规划" }));
 
       await waitFor(() => expect(start).toHaveBeenCalledWith("demo", 2, "节奏放慢"));
-      // 原文滚到重新规划的起点
+      // Source scrolls to the replan start.
       await waitFor(() => expect(scroll).toHaveBeenCalled());
       expect(scroll.mock.contexts.at(-1)).toHaveTextContent("转折");
     });
@@ -580,7 +580,7 @@ describe("EpisodesView", () => {
       renderView();
 
       const manuscript = await findManuscript();
-      // 14 落在第 2 集那一行中间，20 是第 2 集的结尾、新方案在这里不分集
+      // 14 lies mid-episode-2 line, 20 at its end; candidate does not split there.
       await waitFor(() => expect(manuscript.querySelectorAll("[data-replan-diff]")).toHaveLength(2));
       expect(within(manuscript).getAllByText("新旧分界不同")).toHaveLength(2);
       expect(manuscript.querySelectorAll('[data-replan-lane="new"]').length).toBeGreaterThan(0);
@@ -680,7 +680,7 @@ describe("EpisodesView", () => {
       expect(within(panel).getByText("番外（第 3 → 4 集）")).toBeInTheDocument();
       expect(within(panel).getByText("节奏放慢")).toBeInTheDocument();
       expect(within(panel).getByText("与「转折」的原文相同")).toBeInTheDocument();
-      // 新方案在时集目录让位给方案栏，页头的规划入口不可用
+      // Candidates replace episode directories with candidate panels, disabling header planning.
       expect(screen.queryByRole("navigation", { name: "集目录" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "有新的分集方案" })).toBeDisabled();
       expect(screen.queryByText(/重置/)).not.toBeInTheDocument();

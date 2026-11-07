@@ -1,44 +1,44 @@
-// 区域场景注册：每个页面区域在 e2e/regions/ 下用 defineRegionScenarios 登记自己的场景，
-// 每个场景在全部验收视口上跑溢出探针与 axe。场景以会改变可用高度的状态为主：
-// 打开页面、展开会撑高的面板、打开弹层（弹层先打开再探测）。
+// Regional scenario registration: each e2e/regions/ area registers through defineRegionScenarios,
+// running overflow/axe on all acceptance viewports. Focus on available-height-changing states:
+// open pages, expand height-changing panels and open overlays before probing.
 import type { Locator, Page } from "@playwright/test";
 import { isDefaultOrigin } from "./origin.ts";
 import { waitForEntrance } from "./region-helpers.ts";
 import { RECORDED_ACCESS_TOKEN } from "./recorded.ts";
 import { expect, expectAccessible, expectReachableLayout, test, type ApiOverrides } from "./test.ts";
 
-// 截图只在这些视口拍，和溢出探针的视口清单分开维护。浅色只抽样，拍一个视口。
+// Screenshot viewports are maintained separately from overflow lists. Light mode samples one viewport only.
 const SCREENSHOT_PROJECTS = new Set(["1024x600", "1440x900", "2560x1440"]);
 const LIGHT_SCREENSHOT_PROJECTS = new Set(["1440x900"]);
 
 export interface RegionScenario {
   name: string;
-  /** 打开的路由。 */
+  /** Opened routes. */
   path: string;
-  /** 默认已登录。 */
+  /** Authenticated by default. */
   auth?: "signed-in" | "signed-out";
-  /** 系统明暗，默认深色；主题偏好保持默认的「跟随系统」。 */
+  /** System theme defaults dark; preferences retain Follow system defaults. */
   colorScheme?: "light" | "dark";
-  /** 替换录制的接口响应，用于长文本、多条目等压力变体。 */
+  /** Override recorded APIs for long-text/many-item stress variants. */
   api?: ApiOverrides;
-  /** 等到区域渲染完成，例如等待标志性元素可见。 */
+  /** Await regional rendering, for example visible landmark elements. */
   ready: (page: Page) => Promise<void>;
-  /** 把页面带到要探测的状态，例如展开面板、打开弹层。 */
+  /** Reach probed states, for example expanded panels/open overlays. */
   act?: (page: Page) => Promise<void>;
   /**
-   * 场景本身很重（如渲染 500 条列表再整页跑 axe）时设为 true，超时放宽为三倍：
-   * 本机多 worker 并行时这类场景会超过默认的 30 秒。
+   * Heavy scenarios (for example 500-item rendering plus whole-page axe) set true for triple timeouts:
+   * local parallel workers can exceed default 30 seconds.
    */
   slow?: boolean;
   /**
-   * 区域截图，是回归闸门：CI 的 frontend-e2e 设置 E2E_SCREENSHOTS=1，比对出差异或缺少基线即失败。
-   * 基线在官方 Playwright 镜像里渲染（pnpm e2e:remote），宿主机的字体渲染与之不同，
-   * 所以只在连容器运行时设置该变量。优先截区域而非整页。
+   * Region screenshots are regression gates: CI frontend-e2e sets E2E_SCREENSHOTS=1, failing differences/missing baselines.
+   * Baselines render in official Playwright images (pnpm e2e:remote), differing from host fonts,
+   * so set this variable for container connections only. Prefer regions over whole pages.
    */
   screenshot?: {
     name: string;
     target?: (page: Page) => Locator;
-    /** 截图里有 `window.location.origin` 拼出的地址：基线按默认端口生成，换端口运行时这张不比对。 */
+    /** Screenshots containing `window.location.origin` addresses use default-port baselines; skip comparisons on alternate ports. */
     showsOrigin?: boolean;
   };
 }
@@ -58,7 +58,7 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
         await scenario.ready(page);
         await scenario.act?.(page);
 
-        // 布局与 axe 都检查最终可见状态，包含弹层遮罩与背景中的有限入场动画。
+        // Layout/axe inspect final visible states, including finite overlay-mask/background entrance animations.
         await waitForEntrance(page.locator("body"));
         await expectReachableLayout(page);
         await expectAccessible(page);
@@ -70,7 +70,7 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
             testInfo.annotations.push({ type: "screenshot", description: `${screenshot.name}：非默认端口，不比对` });
             return;
           }
-          // toHaveScreenshot 自带等待 document.fonts.ready 与连续两帧一致。
+          // toHaveScreenshot already waits for document.fonts.ready and two consecutive identical frames.
           await expect(screenshot.target?.(page) ?? page).toHaveScreenshot(`${screenshot.name}.png`);
         }
       });

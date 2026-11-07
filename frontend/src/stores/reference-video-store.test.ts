@@ -56,7 +56,7 @@ describe("reference-video-store", () => {
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"]).toHaveLength(2);
-    // 逐单元的桶与档位结论随列表一起落地，画布只读这份服务端结果。
+    // Unit bucket/tier results persist with lists; canvases read server results only.
     expect(state.unitCapabilitiesByEpisode["proj::1"].E1U2.hydrated_capability).toBe("r2v");
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
@@ -75,8 +75,8 @@ describe("reference-video-store", () => {
   });
 
   it("loadUnits 丢弃迟到响应，不让旧结果盖住新结果", async () => {
-    // 画布 effect 与任务完成失效可能在同一 key 上叠出两次 loadUnits：先发的那次若后返回，
-    // 会把新响应里已经生成的成片盖成旧数据，界面停在「无成片」直到下一次失效。
+    // Canvas effects and task-completion invalidation may overlap two same-key loadUnits calls. Earlier calls returning later
+    // overwrite generated-video newer data with old, leaving no-video displays until the next invalidation.
     const releases: Array<(units: ReferenceVideoUnit[]) => void> = [];
     vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
       () => new Promise((resolve) => releases.push((units) => resolve({ units, unit_capabilities: {} }))),
@@ -87,7 +87,7 @@ describe("reference-video-store", () => {
     await act(async () => {
       first = useReferenceVideoStore.getState().loadUnits("proj", 1);
       second = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      // 后发的先返回（带成片），先发的迟到（无成片）。
+      // Later requests return first with videos; earlier requests arrive late without.
       releases[1]([mkUnit("E1U1", { generated_assets: { ...mkUnit("E1U1").generated_assets, video_clip: "v.mp4" } })]);
       releases[0]([mkUnit("E1U1")]);
       await Promise.all([first, second]);
@@ -98,8 +98,8 @@ describe("reference-video-store", () => {
   });
 
   it("迟到的加载不撤销加载期间落定的增删改排序", async () => {
-    // 写入口读到的是写入之后的列表，在途的那次 GET 读的是写入之前的。迟到响应若照样写回，
-    // 用户刚做的编辑会在界面上被撤销，直到下一次失效才复原。
+    // Write entries read postwrite lists; in-flight GET read prewrite state. Late writes would undo
+    // fresh user edits visually until the next invalidation restores them.
     const releases: Array<(units: ReferenceVideoUnit[]) => void> = [];
     vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
       () => new Promise((resolve) => releases.push((units) => resolve({ units, unit_capabilities: {} }))),
@@ -118,7 +118,7 @@ describe("reference-video-store", () => {
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"].map((u) => u.unit_id)).toEqual(["E1U9"]);
-    // 被作废的那次加载直接丢弃、不再自己复位，写入口不结算的话画布会一直停在加载态。
+    // Invalidated loads discard without resetting; unless writes settle loading, canvases remain stuck.
     expect(state.loading).toBe(false);
   });
 
@@ -178,7 +178,7 @@ describe("reference-video-store", () => {
     });
 
     expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("updated");
-    // 正文改动可能改变可用参考图，桶与档位随 PATCH 回包同步刷新。
+    // Body edits may change available references; PATCH responses synchronize buckets/tiers.
     expect(useReferenceVideoStore.getState().unitCapabilitiesByEpisode["proj::1"].E1U1).toMatchObject({
       hydrated_capability: "r2v",
       allowed_durations: [8],

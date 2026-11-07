@@ -1,18 +1,18 @@
-"""mutmut 拉起的 pytest 会话的进程隔离：私有 basetemp，且不触碰 macOS 的系统代理发现。
+"""Isolate mutmut-launched pytest sessions: private basetemp and no macOS system-proxy discovery.
 
-只由 ``pyproject.toml`` 的 ``[tool.mutmut] pytest_add_cli_args`` 以 ``-p tests.mutmut_plugin``
-加载，本地与 CI 的 pytest 不加载它。
+Loaded only by ``pyproject.toml`` ``[tool.mutmut] pytest_add_cli_args`` through ``-p tests.mutmut_plugin``;
+normal local and CI pytest runs do not load it.
 
-mutmut 按 mutant fork 出多个 pytest 会话并行跑。两处 fork 相关的处理：
+mutmut forks parallel pytest sessions per mutant. Two fork-related measures:
 
-- 会话收尾时它们会同时清理共享根下的 ``pytest-current`` 软链，竞争抛出的 ``FileNotFoundError``
-  从 ``pytest.main`` 冒出，让子进程走正常退出路径、退出码 1 记成 killed。显式给定的 basetemp
-  不登记任何清理，收尾时无事可做；目录由本会话在 unconfigure 时自己回收。
-- macOS 上 ``urllib.request.getproxies()`` 在环境里没有 ``*_proxy`` 变量时会经 ``_scproxy``
-  调 SystemConfiguration 读系统代理，而该框架在 fork 出的多线程子进程里直接段错误。任何构造
-  ``openai.OpenAI`` / ``httpx.Client`` 的用例都会走到这里，整批 mutant 记成 −11。这里把两个
-  macOS 专属入口换成「无系统代理」的常量实现：测试从不依赖真实系统代理，环境变量给的代理
-  仍按原路生效。
+- At teardown they otherwise clean the shared-root ``pytest-current`` symlink simultaneously. Racing
+  ``FileNotFoundError`` escapes ``pytest.main``, making children exit normally with code 1 counted as killed.
+  Explicit basetemp registers no cleanup; this session removes its own directory during unconfigure.
+- On macOS, ``urllib.request.getproxies()`` without ``*_proxy`` environment variables reaches ``_scproxy``
+  and SystemConfiguration for system proxies. That framework segfaults in forked multithreaded children.
+  Cases constructing ``openai.OpenAI`` / ``httpx.Client`` all encounter this, recording whole mutant batches
+  as −11. Replace both macOS-specific entry points with constant no-system-proxy implementations: tests
+  never rely on actual system proxies, while environment-provided proxies remain effective through their original path.
 """
 
 from __future__ import annotations
@@ -34,9 +34,9 @@ def _never_bypass_by_system_settings(host: str) -> bool:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config: pytest.Config) -> None:
-    """``tryfirst`` 使赋值先于 pytest 自带 tmpdir 插件读取 ``config.option.basetemp``。
+    """``tryfirst`` assigns before pytest's tmpdir plugin reads ``config.option.basetemp``.
 
-    该选项经命令行解析后是 str，xdist 派给 worker 的也是 str，这里保持同一类型。
+    The parsed option and xdist worker assignment are both str; preserve that type here.
     """
     if hasattr(urllib.request, "getproxies_macosx_sysconf"):
         urllib.request.getproxies_macosx_sysconf = _no_system_proxies

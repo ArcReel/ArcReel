@@ -1,4 +1,4 @@
-"""CustomTextBackend / CustomImageBackend / CustomVideoBackend / CustomAudioBackend 单元测试。"""
+"""Unit tests for CustomTextBackend / CustomImageBackend / CustomVideoBackend / CustomAudioBackend."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class TestCustomTextBackend:
         assert backend.capabilities == {TextCapability.TEXT_GENERATION}
 
     def test_capabilities_delegated(self):
-        """capabilities 属性直接来自 delegate。"""
+        """The capabilities property comes directly from the delegate."""
         delegate = AsyncMock()
         delegate.capabilities = {
             TextCapability.TEXT_GENERATION,
@@ -71,7 +71,7 @@ class TestCustomTextBackend:
         delegate.generate.assert_awaited_once_with(request)
 
     async def test_generate_passes_request_unchanged(self):
-        """generate() 不修改请求对象，原样传给 delegate。"""
+        """generate() passes the request unchanged to the delegate without modifying it."""
         delegate = AsyncMock()
         delegate.generate = AsyncMock(return_value=TextGenerationResult(text="ok", provider="x", model="y"))
         delegate.capabilities = set()
@@ -107,7 +107,7 @@ class TestCustomImageBackend:
         assert backend.capabilities is delegate.capabilities
 
     def test_reference_image_limit_delegated(self):
-        # 通道一侧的上限即被包装的 backend 声明的那一个，与条目两侧求值后供编排层裁剪。
+        # Channel limits are the wrapped backend declaration, evaluated with entries for orchestration trimming.
         delegate = AsyncMock()
         delegate.capabilities = {ImageCapability.IMAGE_TO_IMAGE}
         delegate.reference_image_limit = AsyncMock(return_value=16)
@@ -131,7 +131,7 @@ class TestCustomImageBackend:
         request = ImageGenerationRequest(prompt="A mountain landscape", output_path=output_path)
         result = await backend.generate(request)
 
-        # 调用通道自己带的计量原样保留，补上张数供按张计价的条目查价
+        # Preserve the channel's own metering; add image count for entries priced per image.
         assert result.image_path == expected_result.image_path
         assert result.usage == Usage(quantities={"output_images": 1, "input_images": 0, "output_tokens": 1290})
         delegate.generate.assert_awaited_once_with(request)
@@ -184,7 +184,7 @@ class TestCustomVideoBackend:
         delegate.metered_usage.assert_called_once_with("seedance", request, None, entry=None)
 
     def test_metered_usage_hands_the_delegate_its_catalog_entry(self, tmp_path: Path):
-        """结算经 ``backend_metered_usage`` 计量时，被包装的调用通道按工厂交给它的条目认定模型。"""
+        """When settlement uses ``backend_metered_usage``, the wrapped channel identifies models using the entry supplied by the factory."""
         from lib.backends.video_backends.registry import backend_metered_usage
 
         entry = cast(Any, object())
@@ -255,9 +255,9 @@ class TestCustomVideoBackend:
         assert call_args[0] is request
 
     async def test_generate_injects_execution_endpoint(self, tmp_path: Path):
-        """记住 endpoint 的实例在转发前注入 request，让下游 backend 与 job_id 一并持久化。
+        """An instance retaining endpoint injects it into the request before forwarding, so the downstream backend persists it with job_id.
 
-        注入走 replace 而非就地改写：request 由调用方持有，包装层不留副作用。
+        Use replace rather than in-place modification: the caller owns request, and the wrapper leaves no side effects.
         """
         output_path = tmp_path / "vid.mp4"
         delegate = AsyncMock()
@@ -274,9 +274,9 @@ class TestCustomVideoBackend:
         assert request.execution_endpoint is None
 
     def test_video_capabilities_for_tier_delegates_when_delegate_supports_it(self):
-        """delegate 实现 tier-aware 查询（如 Kling）时，按请求档位透传其结果，而不是回落
-        context-free 的 video_capabilities——否则 media_generator 的 getattr 探测会命中一个
-        总是保守拒绝的空壳方法,起不到收窄效果。"""
+        """When delegates implement tier-aware queries (such as Kling), forward results for the requested tier instead of falling back
+        to context-free video_capabilities; otherwise media_generator getattr finds a shell method that always
+        conservatively rejects and provides no effective narrowing."""
         pro_caps = VideoCapabilities(first_frame=True, last_frame=True)
         delegate = AsyncMock()
         delegate.video_capabilities_for_tier = MagicMock(return_value=pro_caps)
@@ -288,7 +288,7 @@ class TestCustomVideoBackend:
         delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution="1080p")
 
     def test_video_capabilities_for_tier_falls_back_without_tier_support(self):
-        """delegate 未实现 tier-aware 查询时,回落到 context-free 的 video_capabilities。"""
+        """Without delegate tier-aware queries, fall back to context-free video_capabilities."""
         static_caps = VideoCapabilities(first_frame=True, last_frame=False)
         delegate = AsyncMock(spec=["video_capabilities", "capabilities"])
         delegate.video_capabilities = static_caps
@@ -299,9 +299,9 @@ class TestCustomVideoBackend:
         assert result is static_caps
 
     def test_video_capabilities_for_tier_ignores_full_injected_capabilities(self):
-        """工厂注入的完整合成能力（`with_video_capabilities` 不带 overrides,如 factory.py 未
-        配置用户覆盖时的调用形状）不得短路档位查询——那是 context-free 的系统判定,对 Kling 等
-        档位敏感 backend 是保守声明;短路会让本方法在生产环境等价于未实现档位感知。"""
+        """Factory-injected fully composed capabilities (`with_video_capabilities` without overrides, as used by factory.py
+        without user overrides) must not short-circuit tier queries: context-free system judgments are conservative
+        for tier-sensitive backends such as Kling. Short-circuiting would make production effectively lack tier awareness."""
         static_merged = VideoCapabilities(first_frame=True, last_frame=False)
         pro_caps = VideoCapabilities(first_frame=True, last_frame=True)
         delegate = AsyncMock()
@@ -317,9 +317,9 @@ class TestCustomVideoBackend:
         delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution="1080p")
 
     def test_video_capabilities_for_tier_merges_sparse_override_onto_delegate_base(self):
-        """稀疏用户覆盖（`with_video_capabilities` 的 `overrides` 参数）叠加到 delegate 的档位
-        感知基底上,未覆盖字段跟随基底——覆盖必须能翻转执行层看到的能力,但不能整体替换基底,
-        否则档位切换时未覆盖字段会冻结在覆盖注入时刻的值。"""
+        """Sparse user overrides (`overrides` on `with_video_capabilities`) overlay the delegate's tier-aware base, leaving
+        untouched fields following that base. Overrides must change execution-visible capabilities without replacing the whole base,
+        which would freeze untouched fields at injection-time values when tiers change."""
         base_caps = VideoCapabilities(first_frame=True, last_frame=False)
         delegate = AsyncMock()
         delegate.video_capabilities_for_tier = MagicMock(return_value=base_caps)

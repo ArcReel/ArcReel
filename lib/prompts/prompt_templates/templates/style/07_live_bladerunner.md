@@ -1,8 +1,8 @@
 ---
 id: style/live_bladerunner
 category: style
-title: 银翼杀手
-description: "真人画风，极简野蛮 · 赛博粒子。"
+title: "Blade Runner"
+description: "Live action, minimal brutalism · cyberpunk particles."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-银翼杀手2049风格，极简野蛮主义赛博朋克，只用一种颜色来统治画面，粗野主义巨物建筑，气象级的环境粒子，留白
+Blade Runner 2049 style, minimalist brutalist cyberpunk, a single color dominating the frame, monumental brutalist architecture, atmospheric-scale environmental particles, negative space

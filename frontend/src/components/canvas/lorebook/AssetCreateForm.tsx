@@ -25,7 +25,7 @@ const DESCRIPTION_PLACEHOLDER = {
   product: "dashboard:product_desc_placeholder",
 } as const satisfies Record<AssetSheetType, string>;
 
-/** 从项目回收站恢复同名资产：原名已被刚建的资产占用，恢复结果带后缀，可以再合并。 */
+/** Restore same-name assets from project trash: newly created assets occupy originals, so restored names get suffixes and can merge later. */
 async function restoreFromTrash(projectName: string, recordId: string, t: TFunction): Promise<void> {
   const { pushToast } = useAppStore.getState();
   try {
@@ -39,8 +39,8 @@ async function restoreFromTrash(projectName: string, recordId: string, t: TFunct
 }
 
 /**
- * 详情 Sheet 的新建模式：空白的详情表单，「创建」即保存。创建后由调用方切到这个资产的详情，
- * 原图、参考音频与别名在那里补充。填了内容再关闭会经离开拦截询问。
+ * Detail Sheet creation mode: blank form, creation saves. Callers switch to created asset details afterward,
+ * where originals/audio/aliases are added. Closing filled forms invokes leave guards.
  */
 export function AssetCreateForm({
   projectName,
@@ -52,9 +52,9 @@ export function AssetCreateForm({
   projectName: string;
   assetType: AssetSheetType;
   onCancel: () => void;
-  /** 创建成功、项目数据已刷新后调用。 */
+  /** Called after successful creation and project-data refresh. */
   onCreated: (name: string) => void;
-  /** 创建请求在途时 Sheet 不响应关闭。 */
+  /** Creation in flight prevents Sheet closing. */
   onSubmittingChange: (submitting: boolean) => void;
 }) {
   const { t } = useTranslation(["assets", "dashboard", "common"]);
@@ -64,15 +64,15 @@ export function AssetCreateForm({
   const brandId = useId();
   const sellingPointsId = useId();
 
-  // 在途状态在发起创建的地方上报：创建成功时在请求结算前就切到详情，表单卸载后 finally 仍会落下
+  // Report occupancy where creation begins: success switches to details before settlement; form-unmounted finally still runs.
   const save = useCallback(
     async (fields: NewAssetFields) => {
       onSubmittingChange(true);
       try {
         const created = await createAsset(projectName, assetType, fields);
-        // 刷新失败时已提示；新资产不在数据里，Sheet 随即关闭，不会停在可重复提交的表单
+        // Refresh failures are reported; new assets remain absent from data, so close Sheet instead of leaving a repeat-submittable form.
         await refreshAfterWrite(projectName, t);
-        // 后端按 strip + NFC 落盘，按真名选中新资产
+        // Backend persists strip + NFC; select new assets by their actual normalized names.
         const name = normalizeAssetName(fields.name);
         onCreated(name);
         const recordId = created.trash_record_id;

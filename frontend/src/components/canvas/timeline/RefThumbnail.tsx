@@ -30,7 +30,7 @@ const KIND_META: Record<ThumbnailAssetKind, KindMeta> = {
 
 type BadgeKey = KindMeta["badgeKey"] | "segment_refs_badge_character_derivative";
 
-/** 引用名带衍生段时改用衍生徽标：浮层里显示的是这套外观，不是本体那条资产。 */
+/** Use a derivative badge when the reference name includes a derivative segment: the overlay shows that appearance, not the base asset. */
 function badgeKeyFor(kind: ThumbnailAssetKind, name: string): BadgeKey {
   if (kind === "character" && splitDerivativeReference(name)[1]) {
     return "segment_refs_badge_character_derivative";
@@ -47,7 +47,7 @@ function getSheetPath(
   return typeof value === "string" ? value : undefined;
 }
 
-/** 悬停时的资产预览：资产图、名称、类型与描述首行。 */
+/** Hover asset preview: asset image, name, type and first description line. */
 function RefPreview({
   kind,
   name,
@@ -95,8 +95,8 @@ function RefPreview({
 }
 
 /**
- * 引用的缩略头像：有资产图时显示资产图，否则显示名称首字；悬停显示资产预览。
- * 常放在可点击的引用摘要里，自身不进入 Tab 顺序，名称由图片的替代文本或外层按钮提供。
+ * Reference avatar: show the asset image when present, otherwise the first character of its name; show asset preview on hover.
+ * Usually embedded in clickable reference summaries; omit itself from tab order, with naming supplied by image alt text or the outer button.
  */
 export function RefThumbnail({
   kind,

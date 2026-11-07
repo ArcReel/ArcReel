@@ -1,7 +1,7 @@
 import type enOnboarding from '@/i18n/en/onboarding';
 
 export default {
-  // 引导步骤
+  // Onboarding steps.
   'welcome_title': '欢迎使用 [[brand]]',
   'welcome_body': '[[brand]] 把小说或剧本制作成短视频。制作由 Agent（智能体）执行，每一步都可以人工调整。本引导介绍主要界面和基本流程。',
   'lobby_create_title': '新建项目',
@@ -27,7 +27,7 @@ export default {
   'finish_title': '开始你的第一个项目',
   'finish_body': '新建项目并上传小说或剧本，然后让 Agent 开始制作。本引导可以随时在「设置 → 通用」中重新查看。',
 
-  // 引导控件
+  // Onboarding controls.
   'next': '下一步',
   'prev': '上一步',
   'done': '完成',
@@ -35,29 +35,29 @@ export default {
   'close': '关闭引导',
   'progress': '第 {{current}} 步，共 {{total}} 步',
 
-  // 引导期间大厅里的「示例项目」区块
+  // Lobby Example projects during onboarding.
   'demo_section_title': '示例项目',
   'demo_section_note': '仅在引导期间显示',
   'demo_project_title': '爱丽丝梦游仙境',
   'demo_project_style': '水彩绘本',
 
-  // 只读演示工作台：顶栏项目标题旁的徽标与说明
+  // Readonly demo workbenches: header badges/explanations beside project titles.
   'demo_badge': '演示 · 只读',
   'demo_badge_hint': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
   'demo_action_unavailable': '演示中不可用',
   'demo_episode_placeholder': '演示内容只到第 {{position}} 集：这一集只有标题，没有脚本和分镜。',
 
-  // 演示工作台 Agent 面板的静态对话：用户发起制作 → Agent 汇报推进；中间的工序行用资产名称拼出
+  // Static demo Agent conversations: user starts production → Agent reports progress; intermediate work rows use asset names.
   'demo_chat_user_start': '开始制作',
   'demo_chat_agent_progress': '角色形象图和场景图已生成。接下来逐集生成分镜图和视频，进度会在这里汇报。',
 
-  // 演示项目概述
+  // Demo project overviews.
   'demo_overview_synopsis': '一个闷热的下午，爱丽丝追着一只穿马甲、掏怀表的白兔跳进洞里，落进一个尺寸、礼节和逻辑都不作数的地方。她一路变大变小，跟毛毛虫、疯帽子和红心女王周旋，最后在一场荒唐的审判上把整座纸牌宫廷掀翻。',
   'demo_overview_genre': '童话 · 奇幻冒险',
   'demo_overview_theme': '秩序的荒谬，与一个孩子不肯照规矩来的固执',
   'demo_overview_world': '维多利亚时代的河岸午后通向仙境：兔子洞底一排锁着的门、永远停在下午茶的花园、以槌球和砍头治国的纸牌宫廷。水彩绘本质感，纸纹可见，边缘晕染。',
 
-  // 演示分集标题
+  // Demo episode titles.
   'demo_episode_1_title': '掉进兔子洞',
   'demo_episode_2_title': '眼泪池塘',
   'demo_episode_3_title': '毛毛虫的忠告',
@@ -67,7 +67,7 @@ export default {
   'demo_episode_7_title': '素甲鱼的故事',
   'demo_episode_8_title': '谁偷了馅饼',
 
-  // 演示角色
+  // Demo characters.
   'demo_character_1_name': '爱丽丝',
   'demo_character_1_desc': '七岁的英国女孩，蓝裙配白围裙，浅金色头发用黑发带束起。好奇心比谨慎多：遇上荒唐事先讲道理，讲不通就自己往前走。',
   'demo_character_1_voice': '清亮的童声，语速偏快，好奇多于害怕',
@@ -81,7 +81,7 @@ export default {
   'demo_character_4_desc': '纸牌宫廷的统治者，红黑心形长裙，手握权杖。判决只有一句：砍掉她的头。',
   'demo_character_4_voice': '洪亮急躁的女声，一开口就是命令',
 
-  // 演示场景
+  // Demo scenes.
   'demo_scene_1_name': '河岸柳树下',
   'demo_scene_1_desc': '闷热午后的草坡，柳枝垂到水面，河水缓而亮，一本摊开的书里既没有图画也没有对话。',
   'demo_scene_2_name': '兔子洞长廊',
@@ -89,7 +89,7 @@ export default {
   'demo_scene_3_name': '疯茶会花园',
   'demo_scene_3_desc': '大树下一张长桌，杯碟一路挤到桌尾，椅子多得没人坐。所有钟都停在六点，茶永远是刚倒上的。',
 
-  // 演示道具
+  // Demo props.
   'demo_prop_1_name': '白兔的怀表',
   'demo_prop_1_desc': '黄铜怀表，链子磨得发亮，表盖内侧刻着字。指针走得比任何钟都快，白兔一路盯着它喊迟到。',
   'demo_prop_2_name': '「喝我」小瓶',
@@ -97,7 +97,7 @@ export default {
   'demo_prop_3_name': '火烈鸟球杆',
   'demo_prop_3_desc': '夹在腋下当槌球杆用的火烈鸟。脖子刚摆正就自己扭回来，每打一杆都得先跟它商量。',
 
-  // 演示分镜 — 第 1 集
+  // Demo storyboards, episode 1.
   'demo_shot_1_text': '那个下午很热。爱丽丝和姐姐并坐在河岸上，姐姐读的书里既没有图画也没有对话，她开始困得睁不开眼。',
   'demo_shot_1_image': '夏日河岸，爱丽丝穿蓝裙白围裙在草坡上打盹，姐姐在一旁读书，柳枝垂到水面。水彩绘本质感，边缘柔和晕染，纸纹可见。',
   'demo_shot_1_lighting': '午后侧逆光，草地上落着斑驳树影',
@@ -135,7 +135,7 @@ export default {
   'demo_shot_6_video': '镜头随她缩小而拉远，裙子塌落，视角从平视转为仰看矮门。',
   'demo_shot_6_audio': '咽下的一声，衣料滑动，空瓶轻放在地',
 
-  // 设置 → 通用 的入口
+  // Settings → General entry.
   'replay_title': '使用引导',
   'replay_desc': '重看首次使用引导，了解主要界面和基本流程。',
   'replay_action': '重看引导',

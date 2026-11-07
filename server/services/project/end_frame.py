@@ -1,45 +1,52 @@
-"""分镜尾帧快照的设置与清除服务层。
+"""Service layer for setting and clearing storyboard end-frame snapshots.
 
-尾帧是分镜的用户意图持久属性（``end_frame_image``），不是运行时产出，故不进
-``generated_assets``。设置的两条通道（上传任意图片 / 指定项目内已有图片的相对路径）
-在这里汇成同一落点：归一为 PNG 后快照复制到 ``end_frames/scene_{id}.png``，剧本条目
-只存该固定相对路径。源图与快照就此彻底解耦——源图重生成、版本回滚、删除都动不到
-已定尾帧，结构上不存在悬空引用。
+An end frame is persistent user intent on a storyboard (``end_frame_image``), not runtime output, so
+it is excluded from ``generated_assets``. Both setting channels (uploading any image / specifying a
+relative path to an existing project image) converge here: normalize to PNG and copy a snapshot to
+``end_frames/scene_{id}.png``; the script entry stores only that fixed relative path. Source image and
+snapshot are completely decoupled: regeneration, version rollback, or deletion of the source cannot
+change the chosen end frame, structurally preventing dangling references.
 
-设置写快照文件 + 写字段、清除把快照文件移进项目回收站 + 置空字段，各自整段落在同一把剧本锁
-（`ProjectManager.locked_script`）临界区内完成，与对方互斥——不会出现一方写完文件、
-对方抢在字段写回前把文件删掉的交错，结构上杜绝悬空引用。临界区内因目标分镜
-mid-flight 被删除而失败时跳过整段写回，不留半截状态。
+Setting writes snapshot + field; clearing moves the snapshot into project trash + nulls the field.
+Each entire operation stays within the same script-lock critical section (`ProjectManager.locked_script`),
+mutually excluding the other. One cannot finish writing a file only for the other to delete it before
+field writeback, structurally preventing dangling references. If the target storyboard is deleted
+mid-flight and the critical section fails, skip the entire writeback without partial state.
 
-`locked_script` 在锁内完成剧本持久化，校验/落盘异常向调用方传出前锁已释放，故文件
-系统副作用（写快照 / 删快照）不能靠锁外的 try/except 直接回滚——那样回滚本身会跟同
-一间隙内另一个成功落盘的并发请求打架。补偿改为重新过锁并按「本分镜的操作代次是否仍是
-失败前那一次」做条件回滚（见 `_restore_after_persist_failure`），只撤销自己的效果、不
-覆盖旁人已落盘的成果。代次而非文件内容——内容比对有退化值问题：并发的另一次清除同样会
-让文件落到「不存在」，与「无人接手」的期望内容（None）无法区分，会把并发清除的结果误判
-为无人接手，回滚出不该存在的孤儿文件。代次在临界区内随每次进入自增，无论那次操作最终
-成功与否，只要有人在本次失败到回滚重新过锁之间进入过临界区，代次必然前移，据此可靠判定
-是否跳过。孤儿快照文件（如进程在文件写完、锁释放前被杀）仍可能残留，无害，与 storyboards
-现状一致，不做清理机制。
+`locked_script` persists the script inside the lock, but releases it before validation/persistence
+exceptions reach the caller. Thus filesystem side effects (snapshot writes / deletions) cannot simply
+roll back in an outer try/except: rollback would race with another concurrent request successfully
+persisted in the same gap. Instead reacquire the lock and roll back conditionally on whether this
+storyboard's operation generation still matches the failed operation (see `_restore_after_persist_failure`).
+Undo only its own effects, never overwrite another request's persisted result. Use generations rather
+than file contents: content comparison has degenerate values. Another concurrent clear also leaves
+the file absent, indistinguishable from the expected untouched value (None), wrongly appearing
+untaken-over and restoring an orphan file. Increment the generation on every critical-section entry,
+regardless of ultimate success. Any entry between failure and rollback reacquisition advances it,
+reliably indicating whether to skip. Orphan snapshots (e.g. process killed after writing but before
+lock release) can remain; they are harmless, like existing storyboards, and no cleanup mechanism is added.
 
-代次键须按 `ProjectManager.normalize_script_filename` 归一化剧本文件名——`episode_1.json`
-与 `scripts/episode_1.json` 是同一剧本的合法别名，不归一的话两个别名各自生成一把代次键，
-用不同别名操作同一分镜的并发请求就互相看不见。归一化调用 `ProjectManager` 的公开入口而非
-在本文件复刻其内部规则，避免上游改动（如支持新别名形式）时两处静默漂移、代次键重新分裂。
+Normalize script filenames in generation keys with `ProjectManager.normalize_script_filename`:
+`episode_1.json` and `scripts/episode_1.json` are valid aliases of one script. Otherwise aliases get
+separate generation keys and concurrent requests using different aliases for one storyboard cannot
+see each other. Use the public `ProjectManager` entry point rather than duplicating internal rules,
+avoiding silent drift and split keys when upstream adds alias forms.
 
-回滚基线（`old_bytes`）须在取得剧本锁之后、mutation 之前读取，不能在锁外预读——锁外预读的话，
-若本次操作前还有一次并发写入抢先成功落盘，读到的就是比"操作前"更早的陈旧内容，失败时会用
-它覆盖那次已成功的写入，即便代次判定本身没有问题。
+Read the rollback baseline (`old_bytes`) after acquiring the script lock and before mutation, never
+before locking. Otherwise a concurrent write that successfully persists ahead of this operation makes
+the preread older than the actual pre-operation state; failure would overwrite that successful write
+even with correct generation checks.
 
-标记"可补偿"（`entered`）须在基线读取*成功之后*才置位，不能在读之前——读之前置位的话，
-读基线本身失败（权限 / 临时 IO 错误）时 `old_bytes` 仍是初始的 `None`，补偿会把"读失败"
-误判成"目标文件原本不存在"，进而 unlink 一个从未被本次操作触碰过的既有快照。
+Set the compensatable marker (`entered`) only *after* successfully reading the baseline. Setting it
+beforehand leaves `old_bytes` at initial `None` if reading fails (permissions / transient I/O), so
+compensation mistakes read failure for an originally absent target and unlinks an existing snapshot
+this operation never touched.
 
-操作代次的推进（`_advance_shot_generation`）须放在分镜匹配成功、紧邻首次文件 mutation
-之前，不能在此之前就推进——提前推进的话，一次因分镜未找到而空手退出的请求也会让代次
-前移，导致同一时间段内另一个真正持久化失败、正在等待重新过锁补偿的请求，把这次空手
-退出误判成"已被接管、自身状态自洽"而跳过回滚，把它自己失败前的半截效果留在磁盘上。
-"""
+Advance the operation generation (`_advance_shot_generation`) only after matching the storyboard,
+immediately before the first filesystem mutation. Advancing earlier lets requests exiting empty-handed
+because no storyboard was found advance it too. Another request genuinely awaiting compensation after
+persistence failure would mistake that empty exit for takeover and a consistent state, skip rollback,
+and leave its own partial effects on disk."""
 
 from __future__ import annotations
 
@@ -74,9 +81,9 @@ def _current_shot_generation(key: _ShotKey) -> int:
 
 
 def _advance_shot_generation(key: _ShotKey) -> int:
-    """推进该分镜的操作代次，返回新值。在临界区内、mutation 之前调用——无论后续
-    是否失败，都代表「一次操作进入过临界区」，供失败一方的补偿回滚据此判断有无被接手。
-    """
+    """Advance this storyboard's operation generation and return it. Call inside the critical section before
+    mutation: regardless of later failure, it records an operation entering the critical section so failed
+    operations can determine whether compensation rollback has been taken over."""
     with _generation_lock:
         generation = _shot_generations.get(key, 0) + 1
         _shot_generations[key] = generation
@@ -84,7 +91,7 @@ def _advance_shot_generation(key: _ShotKey) -> int:
 
 
 class EndFrameError(Exception):
-    """尾帧操作的领域错误。路由层按 (status_code, key, params) 翻译为 HTTP 响应。"""
+    """Domain error for end-frame operations. Routers translate (status_code, key, params) into HTTP responses."""
 
     def __init__(self, key: str, *, status_code: int = 400, **params: object):
         super().__init__(key)
@@ -94,13 +101,12 @@ class EndFrameError(Exception):
 
 
 def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
-    """校验该分镜可设尾帧，返回项目绝对路径；不可设时抛领域错误。
+    """Validate that this storyboard can have an end frame and return the absolute project path; otherwise raise a domain error.
 
-    参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生成模式
-    （``is_reference_video_project``）作出，不看剧本级 ``generation_mode`` 戳——ad 创作类型的
-    剧本骨架不携带该戳（见 ``script_generator``），只看剧本会放过「ad + 参考生视频」组合，让用户
-    设下一个生成时永不被消费的尾帧。各创作类型共用这一口径。
-    """
+    Reference-to-video has no first/end-frame concept and is always rejected. Use project.json generation
+    mode (``is_reference_video_project``), not the script-level ``generation_mode`` stamp: ad script
+    skeletons lack that stamp (see ``script_generator``), so script-only checks allow “ad + reference-to-video”
+    and let users set an end frame never consumed by generation. All content modes share this rule."""
     manager = get_project_manager()
     try:
         project_path = manager.get_project_path(project_name)
@@ -109,8 +115,8 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     except ValueError as exc:
         raise EndFrameError("invalid_project_name", status_code=400, name=project_name) from exc
 
-    # 剧本文件损坏（JSON 语法错误或非 UTF-8 字节）不能误判为「非法 script_file」，
-    # 交由 _translated_errors 的兜底分支收口为 500
+    # Corrupted script files (invalid JSON syntax or non-UTF-8 bytes) must not be mistaken for invalid script_file;
+    # let the _translated_errors fallback return 500.
     with domain_error_on_value_error(
         lambda _exc: EndFrameError("invalid_script_file", status_code=400, name=script_file),
         extra_passthrough=(UnicodeDecodeError,),
@@ -131,7 +137,7 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
 
 
 def _snapshot_target(project_path: Path, shot_id: str) -> tuple[Path, str]:
-    """返回尾帧快照的 (绝对路径, 项目内相对路径)；shot_id 拼出的路径越界时抛领域错误。"""
+    """Return the end-frame snapshot (absolute path, project-relative path); raise a domain error if the path built from shot_id escapes the boundary."""
     relative = resource_relative_path(END_FRAME_RESOURCE_TYPE, shot_id)
     try:
         target = safe_join(project_path, relative)
@@ -141,14 +147,14 @@ def _snapshot_target(project_path: Path, shot_id: str) -> tuple[Path, str]:
 
 
 class _RollbackDone(Exception):
-    """哨兵：标记补偿分支已跑完，用于跳过 `locked_script` 退出时的正常剧本写回。
+    """Sentinel indicating compensation completed, skipping normal script writeback on `locked_script` exit.
 
-    `locked_script` 基于 `@contextmanager`：`with` 体内无论正常落出还是 `return`，生成器都
-    会在 `yield` 之后继续跑 `_write_script_unlocked`。补偿只改快照文件，从不读改 `script`，
-    正常落出会触发一次多余落盘（附带更新 `metadata["updated_at"]`、触发项目同步与变更事件，
-    失败时还会被这里的 `except Exception` 误记成"回滚失败"）。抛这个哨兵异常换生成器在
-    `yield` 处直接重新抛出，绕过写回；下面的 `except _RollbackDone: pass` 吞掉它。
-    """
+    `locked_script` uses `@contextmanager`: whether the `with` body exits normally or via `return`, the
+    generator resumes after `yield` and runs `_write_script_unlocked`. Compensation changes only the
+    snapshot file, never reads/modifies `script`. Normal exit would trigger redundant persistence
+    (updating `metadata["updated_at"]`, triggering project synchronization/change events, and on failure
+    being mislogged by this `except Exception` as rollback failure). Throwing this sentinel instead makes
+    the generator rethrow at `yield`, bypassing writeback; `except _RollbackDone: pass` below swallows it."""
 
 
 def _restore_after_persist_failure(
@@ -160,14 +166,15 @@ def _restore_after_persist_failure(
     key: _ShotKey,
     expected_generation: int,
 ) -> None:
-    """剧本持久化失败后的补偿：在新的一次剧本锁临界区内条件回滚快照文件。
+    """Compensate for script persistence failure: conditionally roll back the snapshot in a new script-lock critical section.
 
-    补偿本身必须重新过锁——`locked_script` 在锁内完成持久化，异常向上传播前锁已释放，
-    若在锁外直接按调用方持有的旧字节回写，会跟同一间隙内另一个成功落盘的并发请求打架。
-    回滚前用 `expected_generation` 复核该分镜的操作代次是否仍是本次失败前那一次：仍是
-    则说明这段时间无人进入过临界区，安全回滚；已前移则说明并发操作已经接管（不论其
-    自身成败），当前状态可能已自洽，回滚只会用陈旧字节覆盖它的成果，直接跳过。
-    """
+    Compensation must reacquire the lock: `locked_script` persists inside it but releases before exceptions
+    propagate. Directly rewriting caller-held old bytes outside the lock races with concurrent requests
+    successfully persisted in the same gap. Before rollback, check `expected_generation` against this
+    storyboard's operation generation before failure. If unchanged, nobody entered the critical section
+    meanwhile and rollback is safe. If advanced, a concurrent operation took over (regardless of its own
+    success), potentially making current state consistent; rollback would overwrite its result with stale
+    bytes, so skip it."""
     try:
         with manager.locked_script(project_name, script_file):
             if _current_shot_generation(key) != expected_generation:
@@ -175,7 +182,9 @@ def _restore_after_persist_failure(
             if old_bytes is not None:
                 write_bytes_atomic(old_bytes, target)
             else:
-                target.unlink(missing_ok=True)  # hard-delete: rollback -- 设置尾帧失败时移除本次新建的快照
+                target.unlink(
+                    missing_ok=True
+                )  # hard-delete: rollback -- Remove the snapshot created by this operation when setting the end frame fails.
             raise _RollbackDone
     except _RollbackDone:
         pass
@@ -196,14 +205,13 @@ def _write_snapshot_and_field(
     png_bytes: bytes,
     relative: str,
 ) -> None:
-    """在剧本锁临界区内完成「写快照文件 + 写字段」，与清除操作互斥。
+    """Write snapshot + field within the script-lock critical section, mutually excluding clearing.
 
-    剧本持久化失败（校验/落盘异常）时把快照文件还原成操作前状态——否则字段写入
-    虽被回滚，快照文件的旧内容已被静默替换，调用方收到失败响应却看不出内容已丢失。
-    读旧字节须在取得剧本锁之后、写入之前——锁外预读的话，若排在本次操作之前还有一次
-    并发写入抢先成功落盘，预读到的就是比"操作前"更早的陈旧内容，失败时会用它把那次
-    已成功的写入覆盖掉。
-    """
+    If script persistence fails (validation/write error), restore the snapshot to its pre-operation state:
+    otherwise field writeback rolls back but old snapshot contents are silently replaced, leaving callers
+    with a failure response and unnoticed content loss. Read old bytes after acquiring the script lock and
+    before writing. Prereading outside it can capture stale bytes if a concurrent write persists first;
+    rollback would then overwrite that successful write."""
     manager = get_project_manager()
     key = (project_name, ProjectManager.normalize_script_filename(script_file), shot_id)
     generation = 0
@@ -229,12 +237,11 @@ def _write_snapshot_and_field(
 
 
 def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str, target: Path) -> None:
-    """在剧本锁临界区内完成「置空字段 + 把快照文件移进项目回收站」，与设置操作互斥。
+    """Null the field + move the snapshot to project trash within the script-lock critical section, mutually excluding setting.
 
-    快照文件在剧本写回之后才移进回收站，剧本持久化失败时它仍在原处；补偿照旧按代次
-    条件回写，保证字段回滚后不指向缺失的文件。读旧字节须在取得剧本锁之后，理由同
-    `_write_snapshot_and_field`。
-    """
+    Move the snapshot only after script writeback; on persistence failure it remains in place. Compensation
+    still rewrites conditionally by generation so a rolled-back field never points to a missing file. Read
+    old bytes only after acquiring the script lock, for the same reason as `_write_snapshot_and_field`."""
     manager = get_project_manager()
     key = (project_name, ProjectManager.normalize_script_filename(script_file), shot_id)
     generation = 0
@@ -243,7 +250,7 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     trash = False
 
     def prepare_trash(script: dict) -> Callable[[Path], None] | None:
-        # 删除记录在剧本写回之后、同一把项目锁内建立：任一步失败时剧本回滚、快照留在原处。
+        # Create the deletion record after script writeback within the same project lock: any failure rolls back the script and leaves the snapshot in place.
         if not trash:
             return None
 
@@ -275,14 +282,13 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
 
 
 def read_project_image(project_path: Path, source_path: str) -> bytes:
-    """读取项目内已有图片的字节；路径越界、文件缺失或超限时抛领域错误。
+    """Read an existing project image's bytes; raise a domain error for out-of-bounds paths, missing files, or size-limit violations.
 
-    不限定来源子目录——分镜图 / 角色 / 场景 / 宫格切图都可直接选用，越界防护
-    由 ``safe_join`` 统一负责（与 data_validator 的路径字段校验同口径）。
+    Do not restrict source subdirectories: storyboard / character / scene / grid-cell images are all directly
+    selectable. ``safe_join`` centralizes boundary protection (as in data_validator path-field validation).
 
-    读取按上传通道同一上限（``UPLOAD_IMAGE_MAX_BYTES``）有界读取，不整读入内存——
-    项目内合法存在的大文件（如视频）被当作选图源时不至于无界内存占用。
-    """
+    Use bounded reads with the upload-channel limit (``UPLOAD_IMAGE_MAX_BYTES``), rather than loading
+    the whole file, preventing unbounded memory use if a legitimate large project file (e.g. video) is selected as an image."""
     normalized = source_path.strip().replace("\\", "/")
     if not normalized:
         raise EndFrameError("invalid_end_frame_source", path=source_path)
@@ -309,10 +315,9 @@ async def _apply_snapshot(
     shot_id: str,
     content: bytes,
 ) -> str:
-    """两条设置通道的共同落点：归一为 PNG → 写固定路径 → 写回字段，返回相对路径。
+    """Shared destination for both setting channels: normalize to PNG → write fixed path → write back field; return relative path.
 
-    换图即原地覆盖同一路径：字段值不变，前端靠资产指纹 cache-bust。
-    """
+    Replacing an image overwrites the same path: the field is unchanged, and the frontend cache-busts with asset fingerprints."""
     target, relative = _snapshot_target(project_path, shot_id)
 
     try:
@@ -333,7 +338,7 @@ async def set_end_frame_from_bytes(
     shot_id: str,
     content: bytes,
 ) -> str:
-    """上传通道：把上传的图片字节落成该分镜的尾帧快照。"""
+    """Upload channel: save uploaded image bytes as this storyboard's end-frame snapshot."""
     project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
     return await _apply_snapshot(
         project_path=project_path,
@@ -351,10 +356,10 @@ async def set_end_frame_from_project_image(
     shot_id: str,
     source_path: str,
 ) -> str:
-    """项目内选图通道：读源图字节后走与上传完全相同的归一 + 快照落点。
+    """Project-image selection channel: read source bytes, then use exactly the same normalization and snapshot destination as uploads.
 
-    源图是缓存已清理的远端内容版本时，读取前先从对象存储取回并校验摘要；尾帧快照本身始终保存在本地。
-    """
+    For remote content versions with cleared caches, retrieve from object storage and verify the digest
+    before reading; the end-frame snapshot itself always remains local."""
     project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
     async with local_work_files(project_path, [source_path.strip().replace("\\", "/")]):
         content = await asyncio.to_thread(read_project_image, project_path, source_path)
@@ -368,7 +373,7 @@ async def set_end_frame_from_project_image(
 
 
 async def clear_end_frame(*, project_name: str, script_file: str, shot_id: str) -> None:
-    """清除分镜尾帧：在同一剧本锁临界区内把字段置空并把快照文件移进项目回收站，与设置操作互斥。"""
+    """Clear a storyboard end frame: null the field and move the snapshot into project trash within one script-lock critical section, mutually excluding setting."""
     project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
     target, _ = _snapshot_target(project_path, shot_id)
     await run_sync_transaction(_clear_snapshot_and_field, project_name, script_file, shot_id, target)

@@ -1,23 +1,27 @@
-"""方舟 Seedance 端点按代际拆成三个，已有模型回填为升级前实际使用的那一代
+"""Split Ark Seedance endpoints into three generations; backfill the actual pre-upgrade generation
 
 Revision ID: e5b1c9a3d7f2
 Revises: c4e8a1f7b3d2
 Create Date: 2026-11-04 18:00:00.000000
 
-``ark-seedance`` 拆成 ``ark-seedance-1``、``ark-seedance-2``、``ark-seedance-2-5``：三代共用创建任务与轮询接口，请求体
-（是否带 ``service_tier``、首帧比例约束）、计量（视频 token 像素表、服务档）与素材引用契约不同。拆分前通道按名字认定
-代际，拆分后由模型挂接的端点决定。
+``ark-seedance`` becomes ``ark-seedance-1``, ``ark-seedance-2``, ``ark-seedance-2-5``. All share task
+creation/polling, but differ in request bodies (``service_tier``, first-frame ratios), metering
+(video-token pixel tables, service tiers), and asset-reference contracts. Previously names selected
+generations; now the model’s endpoint determines them.
 
-回填复现升级前通道实际依据的输入：优先取有效绑定的条目，否则按官方名、别名及归一化名字对应条目，
-再按条目的官方名与别名、API 模型名认定代际。出厂条目名字冻结在迁移内，与已同步数据按版本合并，
-用户条目副本整条覆盖；不读取随以后版本变化的应用快照或名字规则。
+Reproduce actual pre-upgrade inputs: prefer a valid bound entry, otherwise match by official name,
+aliases, and normalized names; determine generation from entry official names/aliases and API model
+name. Freeze shipped entry names, merge synced data by version, and overlay entire user copies.
+Do not read future application snapshots or name rules.
 
-改写两处：自定义供应商挂 ``ark-seedance`` 的模型，与内置方舟、方舟 Agent Plan 下记了 ``ark-seedance`` 的用户添加
-模型。升级前提交、检查点冻结了 ``ark-seedance`` 的任务不改写，续跑时按协议等价映射到后继端点
-（``lib.backends.resume_guard.RETIRED_ENDPOINT_SUCCESSORS``）。名字规则在此冻结一份字面量，不 import 应用代码：迁移是
-时点快照，日后选端点的规则改了也不该改写已迁移过的行。
+Rewrite custom-provider models on ``ark-seedance`` and user-added built-in Ark / Ark Agent Plan models
+recording ``ark-seedance``. Preserve previously submitted task checkpoints frozen to ``ark-seedance``;
+resume maps them to equivalent successors (``lib.backends.resume_guard.RETIRED_ENDPOINT_SUCCESSORS``).
+Freeze name-rule literals without application imports: this is a point-in-time snapshot; later routing
+changes must not rewrite migrated rows.
 
-降级把三个端点改回 ``ark-seedance``。降级后，升级期间提交的任务检查点里的新端点名不再被认得，续跑会被拒绝。
+Downgrade returns all three to ``ark-seedance``. New endpoint names in checkpoints submitted during
+the upgrade are unknown after downgrade, so resume is rejected.
 """
 
 from __future__ import annotations
@@ -108,7 +112,7 @@ def _names(model: str, binding: str | None, entries: dict[str, tuple[str, ...]])
 
 
 def _generation_endpoint(name: str) -> str | None:
-    """升级前通道认定 Seedance 代际的名字规则（``_is_seedance_2_5`` / ``_is_seedance_2``，原样抄录）。"""
+    """Pre-upgrade Seedance generation name rules (``_is_seedance_2_5`` / ``_is_seedance_2``, copied verbatim)."""
     lowered = name.lower()
     if "seedance-2-5" in lowered or "seedance-2.5" in lowered:
         return "ark-seedance-2-5"

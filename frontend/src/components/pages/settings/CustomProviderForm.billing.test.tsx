@@ -13,10 +13,10 @@ import type {
 import { CustomProviderForm } from "./CustomProviderForm";
 
 // ---------------------------------------------------------------------------
-// CustomProviderForm —— 计费相关：模型对应的条目、模型倍率与供应商倍率
+// CustomProviderForm billing: matching model entries, model multipliers and provider multipliers.
 // ---------------------------------------------------------------------------
-// 模型不带价格：计价取对应条目的价目表，乘供应商倍率与模型倍率。新建表单的模型表显示对应结果、
-// 编辑模型倍率；已保存的供应商只编辑供应商倍率，模型在模型列表与 Sheet 里逐个保存。
+// Models carry no prices; matched entry tables multiply provider/model factors. Creation model tables show matches
+// and edit model multipliers; saved providers edit provider multipliers only, models saving separately in lists/Sheets.
 
 const CHAT_ENDPOINT: EndpointDescriptor = {
   key: "openai-chat",
@@ -90,13 +90,13 @@ function provider(models: CustomProviderModelInfo[]): CustomProviderInfo {
   };
 }
 
-/** 渲染已保存的供应商，并等端点目录就绪：目录未到时保存会被「端点目录还没加载完」拦下。 */
+/** Render saved providers and await catalogs; unready endpoints block saves with catalog-not-loaded errors. */
 async function renderExisting(existing: CustomProviderInfo, providerMultiplier?: ProviderMultiplierInfo) {
   render(<CustomProviderForm existing={existing} providerMultiplier={providerMultiplier} onSaved={vi.fn()} />);
   await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
 }
 
-/** 新建表单：填好名称、接口地址与密钥。 */
+/** New forms: fill names/API addresses/secrets. */
 function renderNew(onSaved = vi.fn()) {
   render(<CustomProviderForm onSaved={onSaved} />);
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
@@ -105,7 +105,7 @@ function renderNew(onSaved = vi.fn()) {
   return onSaved;
 }
 
-/** 新建表单里手动添加一行模型并填上模型 ID；新加的行默认展开。 */
+/** Manually add model rows/IDs in creation forms; new rows expand by default. */
 function addModelRow(modelId: string) {
   fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
   fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: modelId } });
@@ -169,7 +169,7 @@ describe("CustomProviderForm（计费）", () => {
       renderNew();
 
       fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
-      // 对应不上条目的模型默认不勾选
+      // Unmatched-entry models default unchecked.
       fireEvent.click(await screen.findByRole("checkbox", { name: /relay-only/ }));
       fireEvent.click(screen.getByRole("button", { name: "添加 2 个模型" }));
 
@@ -290,7 +290,7 @@ describe("CustomProviderForm（计费）", () => {
       save();
 
       expect(await screen.findByRole("alert")).toHaveTextContent("供应商已保存，供应商倍率未保存：网关拒绝");
-      // 未保存的只剩倍率：输入保留，保存按钮仍可用
+      // Only multipliers remain unsaved; retain inputs and enabled save buttons.
       expect(providerMultiplierInput()).toHaveValue("0.5");
       expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
     });
@@ -329,7 +329,7 @@ describe("CustomProviderForm（计费）", () => {
 
       save();
 
-      // 供应商已经建好：照常交给宿主切过去，倍率失败另行提示，不能让用户再点一次保存建出第二个
+      // Providers already created: let hosts navigate normally, reporting multiplier failure separately, preventing duplicate creation saves.
       await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 12 })));
       expect(useAppStore.getState().toast?.text).toBe(
         "供应商已创建，供应商倍率未保存：网关拒绝。请在供应商详情里重新填写。",

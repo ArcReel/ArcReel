@@ -88,7 +88,7 @@ def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: 
 
 
 def test_validator_accepts_unregistered_mention(tmp_path: Path):
-    """未登记的 `@[名称]` 不是结构错误：参考图执行期派生，未解析的提及只在渲染侧警告。"""
+    """Unregistered `@[名称]` is not structural corruption; references derive at execution and unresolved mentions only warn while rendering."""
 
     _write(tmp_path, "project.json", _reference_project(with_assets=False))
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
@@ -126,7 +126,7 @@ def test_validator_rejects_non_string_unit_text(tmp_path: Path):
 def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
-    script["video_units"][0]["duration_seconds"] = 9999  # 超出结构合理性区间
+    script["video_units"][0]["duration_seconds"] = 9999  # Outside structural plausibility bounds.
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 
@@ -166,8 +166,8 @@ def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
 
 
 def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
-    """content_mode 严格只允许 narration / drama；reference_video 属于 generation_mode
-    维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。
+    """content_mode strictly permits narration / drama; reference_video belongs to generation_mode.
+    UI cannot produce this value, so reject directly without compatibility migration.
     """
     project = {
         "title": "T",

@@ -1,0 +1,20 @@
+# Independent bilingual review of media tool and nested timeline descriptions
+
+Baseline: 7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250, immutable source snapshot under /tmp/arcreel-english-7b4f781/source. Reviewer did not author these translations. Source-only review; no paid API or real-model evaluation.
+
+Compared all 65 before/after entries in /tmp/arcreel-media-schema-prose-review.json, the additional shared description constants in server/media_tools/assets.py, provider_assets.py and edit_timelines.py, the dynamically formatted frame-budget description in video_review.py, all 32 Field descriptions in lib/edit_timeline/operations.py, TransitionType's schema-visible class documentation in lib/edit_timeline/model.py, and the two descriptions in lib/workflow/workflow_plan.py. Read full changed clauses against the baseline rather than accepting structural equality as semantic evidence.
+
+One terminology issue found and reported: InsertClip.source_volume translated 无人声单位 as 'silent units', potentially implying absence of all audio. Coordinator corrected this to 'dialogue units and units without speech'. This preserves ambient sound and music while retaining original volume defaults 0.3 and 1.0. No other actionable omission or altered constraint found in reviewed deltas.
+
+Preserved constraints checked explicitly:
+
+- Provider-library upload requires the user's explicit request; generation refusal, agent belief that upload helps, or merely asking about the library do not authorize the tool. Provider asset/link/account ID provenance and recheck polling=false/unresolved condition remain explicit.
+- Omitted asset selectors preserve missing-only selection, episode scope includes derivatives and bases, selector mutual exclusions and character/scene/prop/product order remain explicit. Image edit batch deduplication still keeps only the first item per ID.
+- Grid dry-run remains immediate, without queueing, payment or pollable batch. Explicit storyboard IDs preserve regeneration selection; omitted IDs preserve missing-only generation.
+- Video episode/all selection preserves reuse of current usable videos; force remains scene/selected only. Cross-tier confirmation remains user-accepted, reference-only, does not freeze source/references/provider, and requires renewed consent if the current projection changes tier. Per-unit confirmations override scalar confirmation, preserve original target set as one batch, and retain the warning about splitting calls spending money prematurely. Preflight uses formal admission and does not queue.
+- Inspection version defaults remain per-item current, shared explicit versions apply to every listed item. Dynamic video-review frame budget still prioritizes one frame per shot, raising count up to the same maximum.
+- Timeline source copies keep whole clips/hard cuts for script mode and the same episode for timeline mode. Episode ID remains distinct from ordinal. Revision provenance, latest-at-submission semantics, unique names, ordered atomic batch edits, and rollback revision selection are intact.
+- Timeline trim bounds, nullable cancel/clear semantics, omitted no-change updates, insertion positioning, repeated video-unit insertion, voiceover-specific narration placement/removal, hard-cut defaults, volume/hold limits, BGM ID provenance, normalized -16 LUFS, volume 0.25 and fade durations remain present. Non-VIP Jianying/ffmpeg transition mapping remains explicit.
+- Final-cut/Jianying narration variants remain TTS-only for with_narration, preserving omitted defaults and subtitle toggle. Workflow-plan duration confirmations remain limited to admission in that plan; omitted episode selection remains broadcast-order selection.
+
+Limits: this reviews translation meaning in the listed descriptions only. Coordinator's machine contract capture and tests cover structure separately; this note does not claim universal behavioral equivalence, real-model validation, provider execution, UI verification or review of every other runtime instruction.

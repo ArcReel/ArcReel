@@ -1,8 +1,9 @@
 """Grid prompt builder for grid-image-to-video feature.
 
-整段提示词由 ``storyboard/grid`` 模版渲染，本模块产出各格槽位值。
-参考图与分镜图同一口径：prompt 首行为 ``Reference_Images`` 类型声明，各格正文里的 ``@[登记名]``
-按最终参考图列表的序位换成「图N」（见 :mod:`lib.prompts.reference_image_numbering`）。
+The ``storyboard/grid`` template renders the complete prompt; this module produces cell slot values.
+References follow the same rules as storyboard images: the first prompt line is a ``Reference_Images``
+type declaration, and ``@[登记名]`` in each cell body becomes “图N” according to the final reference
+list order (see :mod:`lib.prompts.reference_image_numbering`).
 """
 
 from __future__ import annotations
@@ -20,10 +21,10 @@ from lib.prompts.reference_image_numbering import (
 
 
 def pending_grid_prompt_ids(scenes: Sequence[Mapping[str, object]], id_field: str) -> list[str]:
-    """一张联合图里提示词待生成（``None``）或为空的格子 id，按剧本顺序。
+    """IDs of cells whose prompts are pending (``None``) or empty, in script order.
 
-    联合图的提示词由每格的 ``image_prompt`` 拼成，任一格缺失整张图都出不了；REST 路由与
-    Agent 工具在入队计费前共用这一判定。
+    Composite prompts combine every cell's ``image_prompt``; one missing cell prevents generation
+    of the entire image. REST routes and Agent tools share this check before enqueueing and charging.
     """
 
     return [str(scene.get(id_field)) for scene in scenes if not scene.get("image_prompt")]
@@ -32,8 +33,9 @@ def pending_grid_prompt_ids(scenes: Sequence[Mapping[str, object]], id_field: st
 def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
     """Project grid image semantics into the canonical provider/basis shape.
 
-    ``None`` 是机械转换后的待生成态，没有可渲染、可取证的内容，与
-    :func:`lib.prompts.prompt_utils.project_storyboard_image_prompt` 同样拒绝，不能变成字面量 ``"None"``。
+    ``None`` is the pending state after mechanical conversion, without renderable or attributable
+    content. Reject it like :func:`lib.prompts.prompt_utils.project_storyboard_image_prompt`,
+    rather than converting it to the literal ``"None"``.
     """
 
     if image_prompt is None:
@@ -98,12 +100,12 @@ def _extract_action(scene: dict) -> str:
 
 
 def _compute_panel_aspect(grid_aspect_ratio: str, rows: int, cols: int) -> str:
-    """从整体宫格比例推算单格比例。
+    """Derive the aspect ratio of one cell from the complete grid ratio.
 
-    例：grid 4:3, 3行2列 → panel (4/2):(3/3) = 2:1
+    Example: grid 4:3, 3 rows and 2 columns → panel (4/2):(3/3) = 2:1
     """
     gw, gh = (int(x) for x in grid_aspect_ratio.split(":"))
-    pw = gw * rows  # 交叉相乘避免浮点
+    pw = gw * rows  # Cross-multiply to avoid floating point
     ph = gh * cols
     g = gcd(pw, ph)
     return f"{pw // g}:{ph // g}"
@@ -140,11 +142,11 @@ def build_grid_prompt(
     total = rows * cols
     n_scenes = len(scenes)
     if n_scenes > total:
-        # 超员场景在成图中没有对应画格，切格回填会按位置错配——调用方应先按
-        # max_cell_count 切块（见 lib.script.grid.layout.plan_grid_chunks），此处 fail loud。
+        # Excess scenes have no output cells, causing positional mismatches during split backfill.
+        # Callers must first chunk by max_cell_count (lib.script.grid.layout.plan_grid_chunks); fail loudly here.
         raise ValueError(f"分镜数 {n_scenes} 超过 {rows}×{cols} 宫格的画格数 {total}，分组应先切块再构建 prompt")
 
-    # 格0 是首个分镜的开场，格1..n-1 是相邻分镜的过渡，其余格为占位。
+    # Cell 0 opens the first storyboard; cells 1..n-1 connect adjacent storyboards; remaining cells are placeholders.
     effective_grid_ar = grid_aspect_ratio or aspect_ratio
     first = scenes[0]
     transitions = [

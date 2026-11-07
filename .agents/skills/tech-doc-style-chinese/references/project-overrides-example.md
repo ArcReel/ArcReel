@@ -1,47 +1,47 @@
-# 项目覆盖模板
+# Project override template
 
-本文件只是模板，不是任何目标项目的默认规则。复制到目标项目后，删除无关章节并填写经过确认的内容。
+This file is only a template, not default rules for any target project. After copying it to the target project, remove irrelevant sections and fill in confirmed content.
 
-## 适用范围
+## Scope
 
-- 项目：待填写
-- 文档范围：待填写
-- 目标读者：待填写
-- 地区和语言：待填写
+- Project: to fill in
+- Documentation scope: to fill in
+- Target readers: to fill in
+- Region and language: to fill in
 
-## 事实来源
+## Factual sources
 
-- 产品能力来源：待填写
-- 版本和兼容性来源：待填写
-- SLA、价格和限制来源：待填写
-- 无法确认时的处理方式：标记待确认，不自行补充
+- Product capability sources: to fill in
+- Version and compatibility sources: to fill in
+- SLA, pricing, and constraint sources: to fill in
+- When unconfirmed: mark pending confirmation; do not fill gaps yourself
 
-## 首选术语
+## Preferred terminology
 
-| 概念 | 首选术语 | 避免词 | 允许例外 |
+| Concept | Preferred term | Avoid | Allowed exceptions |
 | --- | --- | --- | --- |
-| 示例概念 | 待填写 | 待填写 | 待填写 |
+| Example concept | To fill in | To fill in | To fill in |
 
-## 产品与版本写法
+## Product and version notation
 
-- 产品正式名称：待填写
-- 版本展示方式：待填写
-- 路径、字段和枚举值保持原样
+- Official product name: to fill in
+- Version display format: to fill in
+- Keep paths, fields, and enum values unchanged
 
-## 语气和称呼
+## Tone and address
 
-- 品牌语气：待填写
-- 是否允许第二人称：待填写
-- 引号和标点规范：待填写
+- Brand voice: to fill in
+- Whether second person is allowed: to fill in
+- Quotation and punctuation conventions: to fill in
 
-## 信息架构
+## Information architecture
 
-- 入口页结构：待填写
-- API 文档结构：待填写
-- 故障排查结构：待填写
+- Entry-page structure: to fill in
+- API documentation structure: to fill in
+- Troubleshooting structure: to fill in
 
-## 必须保留的内容
+## Content that must be preserved
 
-- 法律或合规文本：待填写
-- 安全警告：待填写
-- 兼容性和弃用说明：待填写
+- Legal or compliance text: to fill in
+- Safety warnings: to fill in
+- Compatibility and deprecation notes: to fill in

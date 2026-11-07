@@ -1,4 +1,4 @@
-"""官方服务实例标识在并发首次请求之间保持一致。"""
+"""Official-service instance IDs stay consistent across concurrent initial requests."""
 
 import asyncio
 from types import TracebackType
@@ -26,7 +26,7 @@ async def test_concurrent_first_requests_keep_the_first_committed_instance_id(
         ) -> None:
             await super().__aexit__(exc_type, exc_val, exc_tb)
             if asyncio.current_task() is first_open and not read_finished.is_set():
-                # 在空标识的读取会话关闭后暂停，让另一请求先提交标识。
+                # Pause after closing the empty-ID read session so another request commits its ID first.
                 read_finished.set()
                 await resume.wait()
 
@@ -73,14 +73,14 @@ async def test_first_request_regenerates_when_the_winning_instance_id_is_reset_m
         ) -> None:
             await super().__aexit__(exc_type, exc_val, exc_tb)
             if asyncio.current_task() is first_open and not read_finished.is_set():
-                # 空标识的读取会话关闭后暂停，让另一请求先提交标识。
+                # Pause after closing the empty-ID read session so another request commits its ID first.
                 read_finished.set()
                 await resume_insert.wait()
 
         async def rollback(self) -> None:
             await super().rollback()
             if asyncio.current_task() is first_open and not rolled_back.is_set():
-                # 插入冲突回滚后、重读之前暂停，让先提交的标识被重置删除。
+                # Pause after insert-conflict rollback but before rereading, allowing reset to delete the first committed ID.
                 rolled_back.set()
                 await resume_reread.wait()
 

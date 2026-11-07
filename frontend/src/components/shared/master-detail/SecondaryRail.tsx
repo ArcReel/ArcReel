@@ -7,47 +7,47 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface SecondaryRailItem {
-  /** 在整个二级栏内唯一，与 `activeId` 比较。 */
+  /** Unique across entire secondary rails, compared with `activeId`. */
   id: string;
   label: string;
-  /** 第二行：状态或数量，如「已配置 2 个密钥」「3 个模型」。 */
+  /** Second lines: states/counts, e.g. 2 configured keys or 3 models. */
   description?: string;
-  /** 标准档放在名称左侧，紧凑档是唯一可见的内容。尺寸由调用方给（`size-4`）。 */
+  /** Left of names in standard mode, sole visible content in compact mode. Callers set sizes (`size-4`). */
   icon: ReactNode;
-  /** 选中这一项的地址。选中项记在地址里，切换经路由，离开拦截因此覆盖切换。 */
+  /** Entry-selection URLs; selections live in URLs and switching uses routes, allowing leave guards to cover switches. */
   href: string;
 }
 
 export interface SecondaryRailGroup {
   id: string;
-  /** 多组时是 Tab 名；紧凑档是这一组列表的可访问名称。 */
+  /** Tab names for multiple groups; accessible group-list names in compact mode. */
   label: string;
   items: SecondaryRailItem[];
-  /** 组末尾的动作条目，如「添加自定义供应商」。不计入 Tab 上的数量。 */
+  /** Actions at group ends, e.g. Add custom provider; excluded from tab counts. */
   action?: SecondaryRailItem;
-  /** 组内没有条目时的说明，只在标准档显示。 */
+  /** Empty-group explanations, standard mode only. */
   emptyText?: string;
 }
 
 interface SecondaryRailProps {
-  /** 导航区的可访问名称，如「供应商列表」。 */
+  /** Navigation accessible names, e.g. Provider lists. */
   label: string;
   groups: SecondaryRailGroup[];
   activeId: string | null;
-  /** 切换时替换当前历史记录，浏览器「后退」不在条目之间来回。 */
+  /** Replace current history on switches so browser Back never traverses entries. */
   replace?: boolean;
 }
 
 /**
- * 全出血主从布局的二级栏（供应商、调用端点、Agent 记忆共用），自己滚动。
+ * Independently scrolling secondary rails for full-bleed master/detail layouts, shared by providers/API endpoints/Agent memory.
  *
- * 按 `@container/page` 的宽度切换两种形态，不读视口：
- * - 标准档（内容区不窄于 64rem）：264px，条目两行（名称；状态或数量）。多组时顶部是 Tab，每次只列一组，
- *   Tab 带数量；没有手动切换过时 Tab 跟随选中项所在的组，手动切换后记住。
- * - 紧凑档：56px 图标栏，悬停或聚焦显示名称与第二行，多组上下叠放。
+ * Two forms follow `@container/page` widths rather than viewports:
+ * - Standard (content ≥64rem): 264px, two-line entries (names; states/counts). Multiple groups use top tabs showing one group at a time,
+ *   with counts; tabs follow selected-entry groups until manually switched, then remember choices.
+ * - Compact: 56px icon rails, revealing names/second lines on hover/focus; multiple groups stack vertically.
  *
- * 两种形态都在 DOM 里，靠容器查询只显示一种；被隐藏的那份是 `display: none`，不进入可访问树。
- * jsdom 不计算样式，Vitest 中两份都可见：按条目查询时限定在 `getByRole("tabpanel")` 内，或用 `getAllBy*`。
+ * Both forms exist in DOM, container queries showing only one; hidden forms use `display: none` and leave accessibility trees.
+ * jsdom computes no styles, so Vitest sees both: scope entry queries within `getByRole("tabpanel")`, or use `getAllBy*`.
  */
 export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRailProps) {
   const [chosenTab, setChosenTab] = useState<string | null>(null);
@@ -103,8 +103,8 @@ export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRai
 }
 
 /**
- * 标准档的条目列表：两行条目（名称；状态或数量）加组末尾的动作条目，自身不滚动。
- * 限宽页里放不下二级栏时（如项目设置的「项目记忆」），单独用它列出条目，由页面主体滚动。
+ * Standard entry lists: two-line entries (names; states/counts) followed by group-end actions, without independent scrolling.
+ * Use standalone lists when width-limited pages cannot fit rails (e.g. project-settings Project memory), scrolling page bodies instead.
  */
 export function SecondaryRailList({
   group,
@@ -171,7 +171,7 @@ function CompactItem({ item, active, replace }: { item: SecondaryRailItem; activ
         <span aria-hidden className="flex">
           {item.icon}
         </span>
-        {/* 图标栏只显示图标，名称与第二行留给读屏 */}
+        {/* Icon rails show only icons; names/second lines remain for screen readers. */}
         <span className="sr-only">{item.label}</span>
         {item.description && <span className="sr-only"> {item.description}</span>}
       </TooltipTrigger>

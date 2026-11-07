@@ -39,13 +39,13 @@ logger = logging.getLogger(__name__)
 
 PROJECT_EVENTS_POLL_SECONDS = 0.5
 
-# 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
+# Termination event broadcast after project-directory deletion; the stream then ends normally (see stream_events._iter).
 PROJECT_DELETED_EVENT = "project_deleted"
-# 项目下的 Agent 会话因 CLI 自主开启新一轮（后台任务完成后唤醒）回到 running；
-# 打开着的会话面板经常驻的 entry 流收到这一轮；会话列表等其他视图凭此得知状态变化。
+# Project Agent sessions return to running when the CLI autonomously starts a turn (wake-up after background task completion);
+# open session panels receive it through resident entry streams; session lists and other views learn status changes here.
 ASSISTANT_SESSION_RESUMED_EVENT = "assistant_session_resumed"
 
-#: 读取一个项目当前状态的读盘入口；在线程池中调用。项目目录不存在时抛 ``FileNotFoundError``。
+#: Disk-read entry point for current project state; called in a thread pool. Raise ``FileNotFoundError`` if the project directory is absent.
 ProjectStateReader = Callable[[str], ProjectState]
 
 
@@ -54,11 +54,10 @@ def _utc_now_iso() -> str:
 
 
 def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
-    """可能在场的草稿文件（状态键 → 路径）；各集各来源都列出，文件是否存在由调用方判定。
+    """Potential draft files (state key → path): list every episode/source; callers determine existence.
 
-    只处理 ``drafts/`` 下名为 ``episode_<数字>`` 的目录；路径沿用磁盘真实目录名（``episode_007`` 不规范化成
-    ``episode_7``），状态键里的集号才取整数值。
-    """
+    Handle only directories named ``episode_<数字>`` under ``drafts/``. Preserve actual on-disk directory
+    names (do not normalize ``episode_007`` to ``episode_7``); only state-key episode numbers become integers."""
     drafts_root = project_path / "drafts"
     paths: list[tuple[str, Path]] = []
     if not drafts_root.is_dir():
@@ -76,7 +75,7 @@ def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
 
 
 def _read_draft_digests(project_path: Path) -> dict[str, str]:
-    """在场草稿的文件内容摘要；信封损坏的草稿同样在场，按字节摘要比对。"""
+    """Content digests of present drafts; malformed envelopes still count as present and are compared by byte digest."""
     digests: dict[str, str] = {}
     for key, path in _draft_paths(project_path):
         try:
@@ -88,7 +87,7 @@ def _read_draft_digests(project_path: Path) -> dict[str, str]:
 
 
 def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
-    """只读加载项目状态：不回写剧本迁移、不同步集索引，无法解析的剧本跳过。"""
+    """Load project state read-only: do not persist script migrations or synchronize episode indexes; skip unparseable scripts."""
     project_path = pm.get_project_path(project_name)
     scripts_dir = project_path / "scripts"
     project = pm.load_project(project_name)
@@ -102,8 +101,8 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     return ProjectState(project=project, scripts=scripts, drafts=_read_draft_digests(project_path))
 
 
-#: 项目状态全部输入文件的 stat 标识：(相对项目目录的路径, (设备, inode, 大小, 纳秒 mtime)) 按路径排序；
-#: 不在场的文件不入列。
+#: Stat identities for all project-state input files: (project-relative path, (device, inode, size, nanosecond mtime)), sorted by path;
+#: exclude absent files.
 ProjectInputStamp = tuple[tuple[str, FileIdentity], ...]
 
 
@@ -115,12 +114,11 @@ def _file_stat(path: Path) -> FileIdentity | None:
 
 
 def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputStamp:
-    """:func:`read_project_state` 读取的全部输入文件的 stat 标识：``project.json``、``scripts/*.json``
-    与在场草稿。只做 stat，不读内容；项目目录不存在时抛 ``FileNotFoundError``。
+    """Stat identities of all inputs read by :func:`read_project_state`: ``project.json``, ``scripts/*.json``,
+    and present drafts. Only stat, without reading content; raise ``FileNotFoundError`` if the project directory is absent.
 
-    标识不变就说明输入没变，轮询据此跳过重新解析与重建。读盘入口新增输入文件时须同步纳入这里，
-    否则那类变更不会被轮询发现。
-    """
+    Unchanged stamps mean unchanged inputs, letting polling skip parsing/reconstruction. Add new inputs
+    here whenever the reader gains input files, or polling will miss their changes."""
     project_path = pm.get_project_path(project_name)
     candidates = [(ProjectManager.PROJECT_FILE, project_path / ProjectManager.PROJECT_FILE)]
     scripts_dir = project_path / "scripts"
@@ -135,20 +133,19 @@ def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputSt
     return tuple(stamp)
 
 
-# 同一件事在发布方与快照差分两侧的 action 命名差异：参考生视频任务完成时，发布方按 task_type
-# 映射为 ``reference_video_ready``（见 generation_tasks._SKELETON_DRIVEN_TASK_ACTIONS），而快照
-# 差分表示为 ``video_ready``。两侧 entity_type/entity_id 相同，
-# 只有 action 不同，不归一会让同一次完成广播成两条。
+# Publisher and snapshot-diff action names differ for one event: reference-to-video task completion maps task_type to
+# ``reference_video_ready`` in publishers (generation_tasks._SKELETON_DRIVEN_TASK_ACTIONS), while snapshot
+# diffs use ``video_ready``. Both sides share entity_type/entity_id;
+# only action differs, so without normalization one completion broadcasts twice.
 _EQUIVALENT_ACTIONS: dict[str, str] = {"reference_video_ready": "video_ready"}
 
 
 def _change_identity(change: dict[str, Any]) -> tuple[Any, Any, Any]:
-    """变更去重身份。
+    """Change deduplication identity.
 
-    只取 entity_type/action/entity_id：script_file 与 episode 由发布方按 task_type 选择性
-    附带，纳入身份会让同一件事因一侧为 None 而判成两条。action 经 ``_EQUIVALENT_ACTIONS``
-    归一，抹平发布方与快照差分对同一件事的命名差异。
-    """
+    Use only entity_type/action/entity_id: publishers attach script_file and episode selectively by task_type,
+    so including them would split one event when one side is None. Normalize action with
+    ``_EQUIVALENT_ACTIONS`` to reconcile publisher and snapshot-diff names for the same event."""
     action = change.get("action")
     if isinstance(action, str):
         action = _EQUIVALENT_ACTIONS.get(action, action)
@@ -160,17 +157,17 @@ class _ProjectChannel:
     sse: SseChannel
     ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     scan_now: asyncio.Event = field(default_factory=asyncio.Event)
-    # 串行化「读盘 → 结算基线 → 广播」这段读-改-写：轮询扫描与显式重建并发时，读盘耗时
-    # 不同会让先读到旧盘的一方后结算，把陈旧快照写回基线并 diff 出反向变更（实际存在的
-    # 实体被广播成 deleted）。不重置该锁——重建 task 可能跨 watch task 重启仍持有它。
+    # Serialize disk read → baseline settlement → broadcast as one read-modify-write. Concurrent polling and explicit rebuilds
+    # can read at different speeds, letting an older reader settle later, overwrite baseline with a stale snapshot, and emit reverse changes
+    # (existing entities reported deleted). Never reset this lock: rebuild tasks may retain it across watch-task restarts.
     rebuild_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # 已发布、尚未广播的显式批次各自描述的变更身份。重建读盘会捎带其它批次已落盘的产物，
-    # 补扫需把它们让给自己那一批去广播，否则同一件事先被补扫发一次、再被本批发一次。
+    # Change identities described by explicit batches published but not yet broadcast. Rebuild reads include artifacts persisted by
+    # other batches; sweeps must leave them to their own batches, or one event broadcasts first in a sweep and again in its batch.
     inflight_batch_identities: Counter[tuple[Any, Any, Any]] = field(default_factory=Counter)
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
     task: asyncio.Task | None = None
     snapshot: ProjectSnapshot | None = None
-    # ``snapshot`` 读盘前的输入 stat 标识，与 ``snapshot`` 同时更新；轮询据此在输入未变时跳过重建。
+    # Input stat stamp before the ``snapshot`` read, updated together with ``snapshot``; polling skips reconstruction when unchanged.
     input_stamp: ProjectInputStamp | None = None
 
 
@@ -183,10 +180,10 @@ class ProjectEventService:
         poll_interval: float = PROJECT_EVENTS_POLL_SECONDS,
         read_state: ProjectStateReader | None = None,
     ):
-        """``read_state`` 缺省为 :func:`read_project_state`（经本服务的 ``pm`` 只读加载）。"""
+        """``read_state`` defaults to :func:`read_project_state` (read-only loading through this service's ``pm``)."""
         self.project_root = Path(project_root or PROJECT_ROOT)
-        # 显式传入 ``data_root`` 时优先使用（生产入口传配置的数据根），
-        # 否则取默认数据根（仓库根下的 ``projects/``）兼容测试 fixture。
+        # Prefer explicit ``data_root`` (production passes the configured root);
+        # otherwise use the default (repository ``projects/``) for test-fixture compatibility.
         resolved_data_root = (
             Path(data_root).resolve(strict=False) if data_root is not None else self.project_root / "projects"
         )
@@ -227,7 +224,7 @@ class ProjectEventService:
         self._loop = None
 
     def _create_channel(self, project_name: str) -> _ProjectChannel:
-        """构造项目通道：溢出策略「移除订阅者」，首/末订阅者钩子启停后台扫描。"""
+        """Construct a project channel: remove subscribers on overflow; first/last subscriber hooks start/stop background scanning."""
         sse = SseChannel(
             overflow=DropSubscriber(
                 on_removed=lambda count: logger.warning(
@@ -242,11 +239,10 @@ class ProjectEventService:
         return _ProjectChannel(sse=sse)
 
     def _start_watch(self, project_name: str) -> None:
-        """首订阅者钩子：启动（或重启已自行退出的）后台扫描任务。
+        """First-subscriber hook: start background scanning, or restart a task that exited by itself.
 
-        溢出移除掉最后一个订阅者时 watch task 经 ``while has_subscribers`` 自行
-        退出而通道仍留在注册表，故重启条件是「任务不在跑」而非仅「首次订阅」。
-        """
+        If overflow removes the last subscriber, the watch task exits through ``while has_subscribers`` while
+        the channel remains registered, so restart when the task is not running, not only on first subscription."""
         channel = self._channels.get(project_name)
         if channel is None:
             return
@@ -261,12 +257,11 @@ class ProjectEventService:
         )
 
     async def _stop_watch(self, project_name: str) -> None:
-        """末订阅者钩子：停止后台扫描任务并注销通道。
+        """Last-subscriber hook: stop background scanning and unregister the channel.
 
-        先从注册表摘除通道再 await watch task 退出——摘除与取回之间无让出点，
-        摘的正是当前通道。收尾期间让出事件循环时，并发进入的新订阅者取不到这个
-        将死通道，会新建独立通道注册入表，不会被本次收尾的删除连带摘掉。
-        """
+        Remove the channel from the registry before awaiting watch-task exit. No yield occurs between removal
+        and retrieval, so it is the current channel. During teardown yields, concurrent new subscribers cannot
+        get this dying channel; they register an independent new one that teardown will not accidentally remove."""
         channel = self._channels.pop(project_name, None)
         if channel is None:
             return
@@ -287,17 +282,17 @@ class ProjectEventService:
             channel = self._create_channel(project_name)
             self._channels[project_name] = channel
 
-        # 队列在首次扫描启动前注册(首订阅者钩子在注册后触发)，否则会漏掉
-        # 扫描完成到注册之间广播的事件。
+        # Register queues before initial scanning (the first-subscriber hook runs after registration), or miss events
+        # broadcast between scan completion and registration.
         queue = channel.sse.subscribe()
 
         try:
             await channel.ready_event.wait()
         except BaseException:
-            # 客户端在首次扫描期间断开会取消这里:此时 _subscribe 尚未返回 queue,
-            # stream_events 的 try/finally 进不去。同步清理掉刚注册的订阅者(空闲项目
-            # 下 watch task 不会自愈),不 await 以免取消重入——绕过异步末位钩子，
-            # 收尾自理。
+            # Client disconnect during initial scanning cancels here before _subscribe returns queue,
+            # so stream_events cannot enter try/finally. Synchronously remove the new subscriber (idle-project
+            # watch tasks do not self-heal), without await to avoid cancellation reentry; bypass the async last-subscriber hook
+            # and handle teardown ourselves.
             if channel.sse.unsubscribe_nowait(queue) and channel.task is not None:
                 channel.task.cancel()
                 self._channels.pop(project_name, None)
@@ -338,7 +333,7 @@ class ProjectEventService:
             yield ("snapshot", snapshot)
             async for item in sse.iterate(queue, idle_timeout=idle_timeout):
                 yield {"type": "_idle"} if item is IDLE else item
-                # 项目已被删除：终止事件之后流正常结束，不再等待下一条广播或空闲心跳。
+                # Project deleted: end normally after termination, without waiting for another broadcast or idle heartbeat.
                 if isinstance(item, tuple) and item[0] == PROJECT_DELETED_EVENT:
                     return
 
@@ -348,7 +343,7 @@ class ProjectEventService:
             await self._unsubscribe(project_name, queue)
 
     def publish_assistant_session_resumed(self, project_name: str, session_id: str) -> None:
-        """向项目订阅者广播会话回到 running；没有订阅者时丢弃。须在事件循环线程调用。"""
+        """Broadcast a session returning to running to project subscribers; discard without subscribers. Must run on the event-loop thread."""
         channel = self._channels.get(project_name)
         if channel is None:
             return
@@ -417,11 +412,11 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
-        # 在册时机必须早于本批重建读盘，其它批次的补扫才让得掉这些身份
+        # Register before this batch rebuild reads disk, letting other batches' sweeps reserve these identities.
         identities = Counter(_change_identity(change) for change in changes)
         channel.inflight_batch_identities.update(identities)
 
-        # 文件 I/O 下沉到线程池，状态更新和广播留在事件循环
+        # Offload file I/O to the thread pool; retain state updates and broadcasts in the event loop.
         task = asyncio.create_task(
             self._async_rebuild_and_broadcast(project_name, channel, source, changes, identities),
             name=f"batch-rebuild-{project_name}",
@@ -437,12 +432,12 @@ class ProjectEventService:
         changes: tuple[ProjectChangeBatch, ...],
         identities: Counter[tuple[Any, Any, Any]],
     ) -> None:
-        """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
+        """Run file I/O in a thread, with state updates and broadcasts on the event-loop thread."""
         try:
             async with channel.rebuild_lock:
-                # 读盘前在册的来源标记整体换出：读盘期间新增的 hint 落进新集合，参与本轮结算，
-                # 同时留给下一轮扫描。若改为读盘后减去旧集合，同一来源在窗口内重复到达会被一并
-                # 减掉，那条新变更会在下一轮扫描被 _resolve_batch_source 误标成 filesystem。
+                # Swap out the whole registered source-marker set before reading: hints arriving during I/O enter a new set, join this settlement,
+                # and remain for the next scan. Subtracting the old set after reading would also remove repeated arrivals from the same source
+                # within the window, making _resolve_batch_source mislabel the new change as filesystem on the next scan.
                 covered_sources = channel.pending_sources
                 channel.pending_sources = set()
                 try:
@@ -458,7 +453,7 @@ class ProjectEventService:
                     logger.exception("构建显式项目事件快照失败 project=%s", project_name)
                     return
 
-                # 以下在事件循环线程中执行，线程安全
+                # The following runs on the event-loop thread and is thread-safe.
                 previous = channel.snapshot
                 channel.snapshot = snapshot
                 channel.input_stamp = stamp
@@ -473,9 +468,9 @@ class ProjectEventService:
 
                 swept = self._sweep_uncovered_changes(previous, snapshot, channel.inflight_batch_identities)
                 if swept:
-                    # 补扫的变更不属于本批，来源按自己的 hint 标记解析，与轮询扫描同一口径：
-                    # 沿用本批 source 会让 WebUI 自身的编辑被标成 worker（前端据此弹通知并自动
-                    # 导航），或反之漏掉 worker 产物的通知。
+                    # Sweep changes do not belong to this batch; resolve their own source hints as polling does.
+                    # Reusing this batch's source would mark WebUI edits as worker (triggering frontend notifications and automatic
+                    # navigation), or conversely suppress worker-artifact notifications.
                     self._broadcast_changes(
                         project_name,
                         channel,
@@ -495,7 +490,7 @@ class ProjectEventService:
         source: ProjectChangeSource,
         changes: list[dict[str, Any]],
     ) -> None:
-        """向订阅者广播一批变更（轮询扫描与显式重建两条路径共用同一 payload 形状）。"""
+        """Broadcast a change batch to subscribers (poll scanning and explicit reconstruction share one payload shape)."""
         payload = {
             "project_name": project_name,
             "batch_id": uuid.uuid4().hex,
@@ -512,48 +507,47 @@ class ProjectEventService:
         snapshot: ProjectSnapshot,
         covered: Counter[tuple[Any, Any, Any]],
     ) -> list[dict[str, Any]]:
-        """新快照相对基线多出、而任何在途显式批次都未描述的变更。
+        """Changes added by the new snapshot relative to baseline, not described by any in-flight explicit batch.
 
-        重建读盘会捎带任何已落盘的变更，而本批 changes 只描述发布方自己那一件事。
-        新快照被无条件写回基线，捎带进来的变更若不在本次广播里，后续扫描与基线已无
-        差异，就再没有任何机制为它补发——故在此对基线做一次 diff 补发未覆盖的部分。
+        Reconstruction reads include any persisted changes, while this batch's changes describe only its
+        publisher's own event. The new snapshot unconditionally replaces the baseline. If incidental changes
+        are not broadcast now, later scans have no difference from baseline and no mechanism remains to
+        send them; diff against the baseline here to broadcast uncovered changes.
 
-        ``covered`` 是在途批次身份登记表（含本批自己），这些身份让给各自那一批广播，
-        免得同一件事被补扫先发一次、再被它自己的批次发一次。残留窗口：某批次的产物已
-        落盘、而它的 emit 调用晚于本次读盘返回，此时该身份尚未在册，仍会重复一次。
-        """
+        ``covered`` registers in-flight batch identities (including this batch); reserve them for their own
+        broadcasts to avoid sending once in the sweep and again in their batch. A residual window remains:
+        if artifacts are persisted but their emit call occurs after this read returns, their identity is not yet
+        registered, so one duplicate remains possible."""
         if previous is None:
             return []
         return [change for change in diff_snapshots(previous, snapshot) if _change_identity(change) not in covered]
 
     def _rebuild_snapshot(self, project_name: str) -> tuple[ProjectInputStamp, ProjectSnapshot]:
-        """同步方法（在线程池中执行）：只读加载项目状态并归一成快照，连同读盘前的输入标识。
+        """Synchronous method (thread pool): load project state read-only and normalize to a snapshot, with its pre-read input stamp.
 
-        标识取在读盘之前：读盘期间落盘的变更只会让下一轮标识比对判为已变，多重建一次，
-        不会把更新的盘面误记成旧标识下的快照。
-        """
+        Take the stamp before reading: changes persisted during reading only make the next stamp comparison
+        report changed, causing one extra rebuild, never misrecording newer disk state under an old stamp."""
         stamp = project_input_stamp(self.pm, project_name)
         return stamp, build_snapshot(self._read_state(project_name))
 
     def _poll_snapshot(
         self, project_name: str, known_stamp: ProjectInputStamp | None
     ) -> tuple[ProjectInputStamp, ProjectSnapshot | None]:
-        """同步方法（在线程池中执行）：轮询用的重建——输入标识与 ``known_stamp`` 一致时跳过，快照返回 ``None``。"""
+        """Synchronous polling rebuild (thread pool): skip when inputs match ``known_stamp``, returning ``None`` for the snapshot."""
         stamp = project_input_stamp(self.pm, project_name)
         if stamp == known_stamp:
             return stamp, None
         return stamp, build_snapshot(self._read_state(project_name))
 
     def _project_directory_gone(self, project_name: str) -> bool:
-        """判定项目目录当前是否确已不存在（``get_project_path`` 语义）。
+        """Determine whether the project directory really is currently absent (``get_project_path`` semantics).
 
-        供扫描 / hint 重建路径捕获 ``FileNotFoundError`` 后做一次独立的现状复核，
-        与「project.json 等深层文件缺失但目录仍在」区分——后者维持现状，按通用
-        异常兜底记 ERROR，不触发终止流程。用复核而非扫描起点的一次性判断，是因为
-        目录删除（如 ``shutil.rmtree``）本身非原子：扫描可能在删除过程中的任意
-        中间状态命中 ``FileNotFoundError``（如 project.json 先于目录本身被移除），
-        起点检查会误判为「未删除」；复核反映的是异常发生后的当前实况。
-        """
+        After scanning/hint reconstruction catches ``FileNotFoundError``, independently recheck current state
+        to distinguish missing deeper files such as project.json with the directory still present. For those,
+        preserve current state and log ERROR through generic fallback, without termination. Recheck rather
+        than testing once at scan start because directory deletion (e.g. ``shutil.rmtree``) is non-atomic:
+        scanning may hit ``FileNotFoundError`` at any intermediate stage (e.g. project.json removed before
+        the directory), making an initial check falsely report not deleted. Rechecking reflects reality after the exception."""
         try:
             self.pm.get_project_path(project_name)
         except FileNotFoundError:
@@ -561,12 +555,11 @@ class ProjectEventService:
         return False
 
     def _handle_project_deleted(self, project_name: str, channel: _ProjectChannel) -> None:
-        """项目目录已被删除：终止该通道——广播终止事件、移出注册表、取消 watch task。
+        """Project directory deleted: terminate the channel by broadcasting termination, unregistering, and canceling its watch task.
 
-        轮询扫描与 hint 重建两条路径都可能独立探测到同一次删除并落到本方法；
-        按「本通道是否仍是注册表现行通道」判定是否为首次终止，避免重复广播/
-        重复日志，也避免误杀同名项目重建后已注册的新通道。
-        """
+        Polling and hint reconstruction may independently detect the same deletion and reach here. Check
+        whether this channel is still the current registered one to identify first termination, preventing
+        duplicate broadcasts/logs and avoiding killing a new channel registered after recreating the same project name."""
         if self._channels.get(project_name) is not channel:
             return
         self._channels.pop(project_name, None)
@@ -579,12 +572,12 @@ class ProjectEventService:
     async def _handle_scan_file_not_found(
         self, project_name: str, channel: _ProjectChannel, *, log_message: str
     ) -> bool:
-        """扫描 / hint 重建路径捕获 ``FileNotFoundError`` 后的统一处理：复核目录是否确已
-        消失，是则终止通道并返回 ``True``；否则维持现状按 ERROR 兜底并返回 ``False``。
+        """Shared handling after scanning/hint reconstruction catches ``FileNotFoundError``: recheck directory
+        absence, terminating the channel and returning ``True`` if gone; otherwise preserve state, log ERROR,
+        and return ``False``.
 
-        供 :meth:`_async_rebuild_and_broadcast` 与 :meth:`_watch_project` 两条独立路径
-        共用，避免各自维护一份相同判定逻辑、日后修改判定条件时漏改其中一处。
-        """
+        Shared by independent :meth:`_async_rebuild_and_broadcast` and :meth:`_watch_project` paths to avoid
+        duplicate decision logic and missing one side when conditions later change."""
         if await asyncio.to_thread(self._project_directory_gone, project_name):
             self._handle_project_deleted(project_name, channel)
             return True
@@ -592,27 +585,27 @@ class ProjectEventService:
         return False
 
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
-        # 首轮与 hint 唤醒的扫描照常读盘重建；只有定时轮询才凭输入标识不变而跳过。
+        # Initial and hint-woken scans read/rebuild normally; only timed polls skip on unchanged input stamps.
         forced = True
         try:
             while channel.sse.has_subscribers:
                 try:
                     async with channel.rebuild_lock:
                         known_stamp = None if forced or channel.snapshot is None else channel.input_stamp
-                        # 与显式重建同一口径：读盘前在册的来源标记换出，由本轮结算消费；读盘期间
-                        # 到达的 hint 落进新集合，参与本轮结算并留给下一轮。读盘可能早于那次写入，
-                        # 随本轮清掉的话，下一轮读到这次写入时已没有标记，会被标成 filesystem。
+                        # As in explicit rebuilds, swap out preread source markers for this settlement. Hints arriving during I/O
+                        # enter a new set, participate in this settlement, and remain for the next round. Reading may precede their write;
+                        # clearing them now would leave no marker when the next scan sees the write, mislabeling it as filesystem.
                         covered_sources = channel.pending_sources
                         channel.pending_sources = set()
                         try:
-                            # 仅文件 I/O 在线程中执行
+                            # Run only file I/O in the thread.
                             stamp, snapshot = await asyncio.to_thread(self._poll_snapshot, project_name, known_stamp)
                         except BaseException:
                             channel.pending_sources |= covered_sources
                             raise
-                        # 输入未变时快照沿用，换出的来源标记随之结算（与无差异的扫描同一口径）
+                        # Reuse snapshots for unchanged inputs and settle swapped-out source markers (as in scans with no differences).
                         if snapshot is not None:
-                            # 状态更新和广播在事件循环线程中执行（线程安全）
+                            # State updates and broadcasts run on the event-loop thread (thread-safe).
                             channel.input_stamp = stamp
                             self._apply_scan_result(project_name, channel, snapshot, covered_sources)
                 except asyncio.CancelledError:
@@ -630,7 +623,7 @@ class ProjectEventService:
                 try:
                     await asyncio.wait_for(channel.scan_now.wait(), timeout=self.poll_interval)
                 except TimeoutError:
-                    # 超时取消等待之后、本协程恢复之前到达的 hint 只留下置位的事件，同样按 hint 重建。
+                    # Hints arriving after timeout cancellation but before this coroutine resumes leave a set event; rebuild as hint-triggered too.
                     forced = channel.scan_now.is_set()
                 else:
                     forced = True
@@ -646,7 +639,7 @@ class ProjectEventService:
         snapshot: ProjectSnapshot,
         covered_sources: set[ProjectChangeSource],
     ) -> None:
-        """在事件循环线程中更新 channel 状态并广播变更。"""
+        """Update channel state and broadcast changes on the event-loop thread."""
         previous = channel.snapshot
         channel.snapshot = snapshot
         source = self._settled_source(channel, covered_sources)
@@ -680,7 +673,7 @@ class ProjectEventService:
     def _settled_source(
         cls, channel: _ProjectChannel, covered_sources: set[ProjectChangeSource]
     ) -> ProjectChangeSource:
-        """一轮读盘的来源：读盘前换出的标记，加上读盘期间已送达、仍留给下一轮的标记。"""
+        """Source for one disk read: markers swapped out before reading plus markers delivered during reading and retained for the next round."""
         return cls._resolve_batch_source(covered_sources | channel.pending_sources)
 
     @staticmethod

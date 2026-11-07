@@ -1,4 +1,4 @@
-"""Alembic api_calls.duration_ms 扩为 64 位整数迁移的双向测试。"""
+"""Bidirectional Alembic tests widening api_calls.duration_ms to 64-bit integers."""
 
 from __future__ import annotations
 

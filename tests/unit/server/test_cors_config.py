@@ -1,4 +1,4 @@
-"""``CORS_ORIGINS`` 的解析规则；应用中间件与远程 MCP 挂载共用这一份结果。"""
+"""``CORS_ORIGINS`` parsing is shared by application middleware/remote MCP mounts."""
 
 from __future__ import annotations
 
@@ -31,6 +31,6 @@ class TestCorsOriginsParsing:
         assert resolve_cors_policy("http://a,,http://b,") == (["http://a", "http://b"], True)
 
     def test_mixed_wildcard_with_specific_origin_collapses_to_wildcard(self):
-        """`*` 出现在白名单里时，整体降级为通配 + credentials=False，
-        避免 Starlette `RuntimeError` (CORS spec 禁止通配 + credentials 共存)。"""
+        """A `*` within allowlists downgrades the whole list to wildcard + credentials=False,
+        avoiding Starlette `RuntimeError` because CORS forbids wildcard credentials."""
         assert resolve_cors_policy("http://localhost:5173, *") == (["*"], False)

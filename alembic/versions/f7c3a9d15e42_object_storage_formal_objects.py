@@ -1,11 +1,12 @@
-"""对象存储正式素材对象与引用表
+"""Formal object-storage objects and reference tables
 
 Revision ID: f7c3a9d15e42
 Revises: e3b9c4d27a61
 Create Date: 2026-11-03 20:00:00.000000
 
-正式素材对象记录远端内容版本所在的对象，引用表记录哪些项目的内容版本、哪些进行中的正式提交在使用它，
-失败补偿与连接变更保护都按这两张表判断。两张都是新表，存量实例为空。
+Formal objects record remote content-version objects; references record project content versions and
+in-progress formal commits using them. Both tables drive failure compensation and connection-change
+protection. New tables are empty on existing instances.
 """
 
 from __future__ import annotations

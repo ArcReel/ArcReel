@@ -12,8 +12,8 @@ import type { TaskItem } from "@/types";
 import { GridPreviewPanel } from "./GridPreviewPanel";
 import { gridImageAspect } from "./grid-preview-model";
 
-// useActiveResourceIds 默认包裹真实实现，仅在个别用例里用 mockReturnValue 模拟
-// "响应式信号尚未追上真实 store"的场景，验证提交 handler 不依赖它、独立新鲜读 store。
+// useActiveResourceIds wraps real implementations by default; individual mockReturnValue cases simulate
+// reactive signals lagging real stores, proving submit handlers independently reread stores.
 const mockHolder = vi.hoisted(() => ({
   real: undefined as unknown as typeof import("@/stores/tasks-store").useActiveResourceIds,
 }));
@@ -97,7 +97,7 @@ describe("GridPreviewPanel regenerate", () => {
     });
   });
 
-  /** 对第 1 张联合图发起重新生成，请求在途时切到第 2 张（已完成），返回结算请求的句柄。 */
+  /** Regenerate composite 1, switch to completed composite 2 while pending, and return request-settlement handles. */
   async function regenerateThenSwitch() {
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
     vi.spyOn(API, "getGrid").mockImplementation((_project, id) =>
@@ -206,7 +206,7 @@ describe("GridPreviewPanel occupancy", () => {
       expect(pushToast).toHaveBeenCalledWith("该多宫格分镜正在生成中，请稍后再试", "error");
     });
     expect(regenerateSpy).not.toHaveBeenCalled();
-    // 拒绝提示不得替换面板内容：宫格图与重新生成按钮仍在
+    // Rejection feedback must not replace panels: grid images/regeneration buttons remain.
     expect(screen.getByText("重新生成")).toBeInTheDocument();
   });
 });
@@ -231,10 +231,10 @@ describe("GridPreviewPanel split", () => {
     await waitFor(() => {
       expect(API.splitGrid).toHaveBeenCalledWith("demo", "grid-1");
       expect(useProjectsStore.getState().assetFingerprints["storyboards/scene_SCN-1.png"]).toBe(42);
-      // 单槽 toast：有跳过分镜时警示后发、留在最终态；只报数量，不露出条目 ID
+      // Single-slot toast: skipped-shot warning arrives last and remains; counts only, never entry IDs.
       expect(useAppStore.getState().toast?.text).toBe("2 个分镜已不在脚本中，已跳过");
     });
-    // 切分完成后「未切分」提示消失
+    // Split completion removes the unsplit notice.
     expect(screen.queryByText("未切分")).not.toBeInTheDocument();
   });
 
@@ -327,8 +327,8 @@ describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
 
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1", "grid-2"]} />);
 
-    // grid-1 的版本列表请求发出后不解析，切到 grid-2 并读到它自己的版本；
-    // 保护来自切换时的 setGrid(null) 卸载，改成加载期间留旧数据渲染即回归
+    // grid-1 version requests remain unresolved; switch to grid-2 and read its own versions;
+    // setGrid(null) unmounting on switch protects this; retaining old data while loading would regress.
     fireEvent.click(await screen.findByLabelText("版本"));
     await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1", { signal: expect.any(AbortSignal) }));
     fireEvent.click(screen.getByRole("button", { name: "第 2 张联合图" }));
@@ -352,7 +352,7 @@ describe("GridPreviewPanel 图片地址版本", () => {
 
     const { container } = render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
-    // 断言当前显示的图片：期间若有重拉，面板会回到加载态再重新挂载图片，先前取到的节点已脱离文档
+    // Assert currently displayed images; refetch may unmount/remount after loading, detaching previously captured nodes.
     const referenceSrc = () =>
       container.querySelector<HTMLImageElement>('img[src*="characters/"]')?.getAttribute("src");
 

@@ -6,11 +6,9 @@ import pytest
 
 
 def test_apply_unit_video_assets_distinguishes_failures():
-    """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。
+    """Malformed structure and absent units raise different exceptions so restoration distinguishes dirty-script warnings from normal skips.
 
-    结构损坏的两类异常会经 upload_unit_video 路由回传终端用户，故须带具体 i18n key
-    （默认兜底 key 会让 en/vi 用户只看到无信息的通用句）。
-    """
+    upload_unit_video exposes both structural errors to users, so they need specific i18n keys; generic fallback would show uninformative failures to en/vi users."""
     from lib.script.script_editor import ScriptEditError
     from server.services.tasks.reference_video_tasks import apply_unit_video_assets
 
@@ -41,7 +39,7 @@ def test_apply_unit_video_assets_distinguishes_failures():
 
 
 def test_apply_unit_video_assets_stamps_video_generated_at():
-    """每次写回 video_clip 都机械戳 video_generated_at（存量过渡横幅的计数依据）。"""
+    """Every video_clip write mechanically stamps video_generated_at for legacy transition-banner counts."""
     from server.services.tasks.reference_video_tasks import apply_unit_video_assets
 
     script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
@@ -50,7 +48,7 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
     assert isinstance(first_stamp, str)
     assert first_stamp
 
-    # 重新生成（第二次写回）必须刷新时间戳，不能沿用旧值
+    # Regeneration's second writeback refreshes timestamps rather than reusing old values.
     apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
     second_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
     assert isinstance(second_stamp, str)
@@ -58,7 +56,7 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
 
 
 def test_apply_unit_video_assets_preserves_legacy_source_signature_without_reading_it():
-    """遗留来源签名只是历史资产键；生成写回应原样保留，不能再新增、比较或清理它。"""
+    """Legacy source signatures are historical asset keys only; generation preserves them unchanged without adding, comparing or clearing them."""
     from server.services.tasks.reference_video_tasks import apply_unit_video_assets
 
     script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {"source_signature": "legacy"}}]}
@@ -68,7 +66,7 @@ def test_apply_unit_video_assets_preserves_legacy_source_signature_without_readi
 
 
 def test_apply_unit_video_assets_honors_explicit_generated_at():
-    """版本还原传入被还原版本的原始入库时间，不把旧内容洗成「刚生成」。"""
+    """Version restoration uses the original version-ingestion timestamp, never relabeling old content as newly generated."""
     from server.services.tasks.reference_video_tasks import apply_unit_video_assets
 
     script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}

@@ -1,4 +1,4 @@
-"""广告/短片剧本生成 prompt 构建器测试。"""
+"""Ad/short-film script-generation prompt builders."""
 
 import pytest
 
@@ -35,10 +35,10 @@ class TestTierSelection:
     @pytest.mark.parametrize(
         ("target", "expected_tier"),
         [
-            (20, 15),  # 距 15 更近
+            (20, 15),  # Closer to 15.
             (25, 30),
-            (45, 30),  # 等距 30/60，取更接近默认推荐档 30 的一侧
-            (75, 60),  # 等距 60/90，取更接近 30 的 60
+            (45, 30),  # Equidistant 30/60: choose 30, closer to default recommendation 30.
+            (75, 60),  # Equidistant 60/90: choose 60, closer to 30.
             (100, 90),
             (8, 15),
         ],
@@ -74,31 +74,31 @@ class TestProductsInjection:
     def test_every_empty_asset_block_is_kept(self, products):
         prompt = _build(characters={}, scenes={}, props={}, products=products)
         for tag in ("characters", "scenes", "props"):
-            assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+            assert f"<{tag}>\n(none yet)\n</{tag}>" in prompt
 
     def test_brief_injected(self):
         prompt = _build()
         assert "突出速干卖点，面向通勤人群" in prompt
 
     def test_voiceover_rate_injected_from_single_source(self):
-        """口播字数→时长折算语速由 lib.speech.speech_rate 注入，不写死数字；带货与通用短片两分支同源。"""
-        # 默认 target_language「中文」不在语言代码表内 → 回退默认语速（zh 口径，量词「字」）
+        """Spoken-text duration rates inject from lib.speech.speech_rate, never hardcoded; commerce/general short-film branches share this source."""
+        # Default target_language 中文 is not a language code, so use default zh rate and 字 units.
         default_rate = speech_rate_units_per_second(None)
         for prompt in (_build(), _build(products={})):
-            assert f"约 {default_rate:g} 字/秒" in prompt
-        # 语速与量词随 target_language 切换（en 计词），证明是注入而非写死
+            assert f"approximately {default_rate:g} 字/second" in prompt
+        # Rates/units follow target_language (en counts words), proving injection rather than hardcoding.
         en_rate = speech_rate_units_per_second("en")
         assert en_rate != default_rate
-        assert f"约 {en_rate:g} 词/秒" in _build(target_language="en")
+        assert f"approximately {en_rate:g} 词/second" in _build(target_language="en")
 
     def test_project_override_wins_over_language_default(self):
-        """项目级语速覆盖生效时注入覆盖值；量词仍随语言。"""
-        assert "约 7.5 字/秒" in _build(speech_rate_override=7.5)
-        assert "约 7.5 词/秒" in _build(target_language="en", speech_rate_override=7.5)
+        """Effective project-rate overrides inject overridden values, while units still follow language."""
+        assert "approximately 7.5 字/second" in _build(speech_rate_override=7.5)
+        assert "approximately 7.5 词/second" in _build(target_language="en", speech_rate_override=7.5)
 
 
 class TestGenericFallback:
-    """products 为空 → 通用短片 prompt 自动分流（无带货框架，不设显式子模式开关）。"""
+    """Empty products automatically routes to general short-film prompts without commerce frameworks or explicit submode switches."""
 
     def test_no_products_drops_selling_framework(self):
         generic_prompt = _build(products={})
@@ -142,7 +142,7 @@ class TestDurationConstraint:
         )
 
         assert '"duration_seconds": 7' in prompt
-        assert "取 7-91 的整数" in prompt
+        assert "an integer from 7 to 91" in prompt
 
 
 class TestEpisodeConstraint:
@@ -180,45 +180,50 @@ class TestPacingTiers:
     @pytest.mark.parametrize("tier", [15, 30, 60, 90])
     def test_tier_target_renders_its_table_without_adaptation_note(self, build, tier):
         prompt = build(target_duration=tier)
-        assert "通用规则（适用于全部档位）" in prompt
-        assert f"\n{tier} 秒档（" in prompt
-        assert [t for t in (15, 30, 60, 90) if f"\n{t} 秒档（" in prompt] == [tier]
-        assert "不在审定档位内" not in prompt
+        assert "General rules (all tiers)" in prompt
+        assert f"\n{tier}-second tier (" in prompt
+        assert [t for t in (15, 30, 60, 90) if f"\n{t}-second tier (" in prompt] == [tier]
+        assert "outside the approved tiers" not in prompt
 
     @pytest.mark.parametrize("build", [_build, _build_reference])
     def test_off_tier_target_adapts_nearest_table(self, build):
         prompt = build(target_duration=45)
-        assert "\n30 秒档（" in prompt
-        assert "目标总时长 45 秒不在审定档位内，按距离最小的档位 30 秒的配比模板按比例适配到 45 秒：" in prompt
+        assert "\n30-second tier (" in prompt
+        assert (
+            "The target total duration of 45 seconds is outside the approved tiers. Proportionally adapt the nearest tier’s allocation template (30 seconds) to 45 seconds:"
+            in prompt
+        )
 
     def test_generic_reference_prompt_drops_pacing_tables(self):
         prompt = _build_reference(products={}, target_duration=45)
-        assert "按开场、发展、高潮、收束组织内容。" in prompt
-        assert "通用规则（适用于全部档位）" not in prompt
-        assert "（无商品，按通用短片创作）" in prompt
+        assert "Organize content as opening, development, climax, and conclusion." in prompt
+        assert "General rules (all tiers)" not in prompt
+        assert "(no products; create a general short film)" in prompt
 
 
 class TestSharedWording:
     def test_reference_route_uses_shared_writing_syntax(self):
         prompt = _build_reference()
-        assert "同一地点的连续单元**逐条重复引用**同一个场景资产" in prompt
+        assert "Consecutive units at the same location must **repeat the same scene reference in every unit**" in prompt
 
     @pytest.mark.parametrize("build", [_build, _build_reference])
     def test_both_routes_use_converged_action_guide(self, build):
         prompt = build()
-        assert "带这些词会把参考生视频误判成视频编辑或视频延长。" in prompt
-        assert "任务已排队、已计费" not in prompt
+        assert (
+            "these words can cause reference-video generation to be mistaken for video editing or extension." in prompt
+        )
+        assert "the task is queued and billed" not in prompt
 
     @pytest.mark.parametrize("products", [{}, {"速干杯": {"description": "x"}}])
     @pytest.mark.parametrize("instructions", [None, "", "全片用第一人称口播"])
     def test_storyboard_instructions_are_an_optional_section(self, products, instructions):
         prompt = _build(products=products, instructions=instructions)
         if instructions:
-            assert prompt.endswith("\n\n# 附加指令\n全片用第一人称口播")
-            assert "\n\n\n# 附加指令" not in prompt
-            assert prompt.count("# 附加指令") == 1
+            assert prompt.endswith("\n\n# Additional instructions\n全片用第一人称口播")
+            assert "\n\n\n# Additional instructions" not in prompt
+            assert prompt.count("# Additional instructions") == 1
         else:
-            assert "# 附加指令" not in prompt
+            assert "# Additional instructions" not in prompt
             assert not prompt.endswith("\n")
         assert "None" not in prompt
 
@@ -226,8 +231,8 @@ class TestSharedWording:
     def test_reference_instructions_are_an_optional_section(self, instructions):
         prompt = _build_reference(instructions=instructions)
         if instructions:
-            assert prompt.endswith("\n\n# 附加指令\n节奏再快一点")
-            assert "\n\n\n# 附加指令" not in prompt
+            assert prompt.endswith("\n\n# Additional instructions\n节奏再快一点")
+            assert "\n\n\n# Additional instructions" not in prompt
         else:
-            assert "# 附加指令" not in prompt
+            assert "# Additional instructions" not in prompt
         assert "None" not in prompt

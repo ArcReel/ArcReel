@@ -1,1 +1,1 @@
-{% if names %}{{ names | join(", ") }}{% else %}（暂无）{% endif %}
+{% if names %}{{ names | join(", ") }}{% else %}(none yet){% endif %}

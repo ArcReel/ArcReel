@@ -28,15 +28,16 @@ logging.getLogger("sqlalchemy.pool.impl").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 _SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm")
-#: 旧布局的默认 SQLite 主文件名（位于数据根下）。
+#: Legacy default SQLite main filename (under the data root).
 _LEGACY_SQLITE_DB_NAME = ".arcreel.db"
 
 
 def _adopt_legacy_sqlite_db(db_path: Path, legacy: Path) -> None:
-    """数据根里只有旧名默认库 ``legacy`` 时，连同 ``-wal`` / ``-shm`` 改名为 ``db_path``。
+    """When only the old default database ``legacy`` exists in the data root, rename it and ``-wal`` / ``-shm`` to ``db_path``.
 
-    ``-wal`` / ``-shm`` 先改、主文件最后改：旧主文件还在就说明没搬完，中途崩溃后下次
-    解析时接着搬，WAL 不会留在旧文件名下。新旧主文件都在时不动，只记告警。
+    Rename ``-wal`` / ``-shm`` first and the main file last: an old main file means the move
+    is incomplete, so the next resolution resumes after a crash without leaving WAL under
+    the old filename. If both main files exist, leave them untouched and only warn.
     """
     if not legacy.exists():
         return
@@ -44,7 +45,7 @@ def _adopt_legacy_sqlite_db(db_path: Path, legacy: Path) -> None:
         logger.warning("默认数据库 %s 已存在，旧库 %s 保持原位未启用", db_path, legacy)
         return
     for suffix in _SQLITE_SIDECAR_SUFFIXES:
-        # 并发进程（应用与 alembic）可能已先搬走同一个文件。
+        # A concurrent process (application or Alembic) may already have moved this file.
         with contextlib.suppress(FileNotFoundError):
             legacy.with_name(legacy.name + suffix).replace(db_path.with_name(db_path.name + suffix))
     with contextlib.suppress(FileNotFoundError):
@@ -55,8 +56,9 @@ def _adopt_legacy_sqlite_db(db_path: Path, legacy: Path) -> None:
 def get_database_url() -> str:
     """Resolve DATABASE_URL from environment or default to SQLite.
 
-    默认 SQLite 路径解析时顺带把旧布局的库文件改名过来；应用、alembic 与脚本都经过这里，
-    不会有一方先在新文件名下建出空库。显式设置 ``DATABASE_URL`` 时不改名。
+    Default SQLite path resolution also adopts the old-layout database filename. The application,
+    Alembic and scripts all use this path, preventing any from creating an empty database
+    under the new name first. An explicit ``DATABASE_URL`` disables renaming.
     """
     url = os.environ.get("DATABASE_URL", "").strip()
     if url:
@@ -75,9 +77,9 @@ def is_sqlite_backend() -> bool:
 
 
 def register_sqlite_functions(dbapi_conn) -> None:
-    """SQLite 内置 lower 只折叠 ASCII；搜索普通 Unicode 字母与 PostgreSQL 一致。
+    """SQLite built-in lower folds only ASCII; make ordinary Unicode-letter searches agree with PostgreSQL.
 
-    不模拟 PostgreSQL locale 的特殊折叠（如希腊尾 sigma、土耳其 İ）。
+    Do not emulate PostgreSQL locale-specific folding (such as Greek final sigma or Turkish İ).
     """
     dbapi_conn.create_function(
         "lower", 1, lambda value: str(value).lower() if value is not None else None, deterministic=True

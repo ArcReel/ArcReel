@@ -2,48 +2,48 @@
 status: accepted
 ---
 
-# 正式对象由引用方持有引用来保留，失去全部引用后统一回收
+# Holders retain formal objects through references; collect centrally after all references are lost
 
-[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 用引用记录正式对象的归属，并把「对象失去全部引用后是否删除」留给各生命周期操作决定。版本删除、项目回收站、项目删除和跨项目应用都会改变引用，如果各自决定删除时机，每个消费者都要维护一套删除规则。决定如下。
+[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) records formal-object ownership through references, leaving lifecycle operations to decide whether to delete unreferenced objects. Version deletion, project recycle bins, project deletion, and cross-project application all change references; independent deletion decisions would require every consumer to maintain its own rules. Decisions follow.
 
-**引用方**：引用记在引用方名下（`object_storage_formal_object_ref.project_name`）。引用方有两类：
+**Holders**: references belong to holders (`object_storage_formal_object_ref.project_name`), of two types:
 
-- 项目，用项目名。项目整体删除或被覆盖导入替换后，引用随任务、调用记录与供应商素材关联一起改挂到墓碑名，恢复时改回。进行中提交的占用不改挂：覆盖导入先在项目名下提交新图片、再收尾旧项目，结算须把新图片的引用记在项目名下。为此，收尾在改挂前、同一事务里先按旧项目此刻的版本历史与回收站补齐它实际持有的引用（读取在项目锁与版本锁内）。已发布、尚未结算的提交此时只有占用，它用到的对象由补登的引用随墓碑保留；占用之后由该提交结算，项目目录已不在或已换成新项目时撤下。收尾先登记这个项目目录、再在锁内读取，直到收尾提交或回滚，这个目录上的新远端图片保存都在上传前失败（`material_project_retiring`），墓碑里的远端版本因此都有补登的引用持有。这道检查在版本锁内进行，不需要跨目录改名持有锁。
-- 不是项目的消费者（如全局资产库），用带冒号的键（如 `asset-library:<id>`）。项目名只允许字母、数字与中划线，墓碑名带 `#`，带冒号的键不会与它们重名。
-- 入库任务直接为正式对象签发下载地址时，签发前以 `ingest:<任务 ID>` 登记引用，自签发起按中转副本的保留期（[ADR 0111](0111-asset-upload-job-and-link-share-one-record.md)）持有：任务有结果后至少 1 小时，一直没有结果、已解除、账号不可用或任务记录已不在时到地址过期后 1 小时，由入库循环到期撤下。来源版本在供应商取图期间被彻底清除，对象也不会被回收。
+- Projects use project names. Whole-project deletion or replacement by overwrite import reassigns references to tombstone names along with tasks, call records, and provider-material links, restoring names on recovery. Do not reassign in-progress commit holds: overwrite import commits new images under the project name before retiring the old project, and settlement must reference new images under that name. Before reassignment in the same transaction, retirement therefore backfills references actually held by the old project's current version history/recycle bin (read under project/version locks). Published but unsettled commits have only holds; backfilled references preserve their objects under tombstones. Their commits later settle holds, removing them if project directories have disappeared or been replaced. Retirement registers the directory before locked reads; until retirement commits or rolls back, new remote-image saves in it fail before upload (`material_project_retiring`). Tombstone remote versions thus all have backfilled references. This check runs under version locks, without holding locks across directory renames.
+- Non-project consumers (such as global asset libraries) use colon-bearing keys (such as `asset-library:<id>`). Project names allow only letters, digits, and hyphens; tombstone names contain `#`, so colon-bearing keys cannot collide with either.
+- When registration tasks directly issue formal-object download URLs, register references as `ingest:<任务 ID>` before issuance, retaining them from issuance under intermediary-copy retention ([ADR 0111](0111-asset-upload-job-and-link-share-one-record.md)): at least 1 hour after results; if results never arrive, links are removed, accounts become unavailable, or task records disappear, until 1 hour after URL expiry. The registration loop releases expired references. Objects survive permanent source-version deletion while providers retrieve images.
 
-**项目持有的引用**：按项目此刻的状态计算，不按操作逐条增减。
+**Project-held references**: compute from current project state instead of incrementally adjusting per operation.
 
-- 版本历史中的远端内容版本记为 `active`。
-- 项目回收站中仍可恢复的远端内容版本记为 `trashed`，包括删除的历史版本，以及结构删除记录快照里的版本历史。快照收的是删除前的整份版本历史，多算的版本只会让对象多保留到记录清除。
+- Remote content versions in version history are `active`.
+- Recoverable remote content versions in project recycle bins are `trashed`, including deleted historical versions and version histories in structural-deletion snapshots. Snapshots hold the full pre-deletion version history; extra versions merely retain objects until records are cleared.
 
-`reconcile_project_references` 在项目锁与版本锁内同时读取版本历史与回收站并改写引用，因此内容版本从版本历史搬进回收站的途中，它的引用不会被撤下。正式提交的结算与启动补做也按同一口径：在项目锁与版本锁内读取版本历史与回收站，在锁内把占用改成 `active` 或 `trashed` 引用，发布之后、结算之前删进回收站的内容版本因此仍有引用。项目目录、版本历史或回收站快照读不出时放弃本次重算，不撤下引用；结算读不出回收站时占用原样保留，下次启动补做。
+`reconcile_project_references` reads version history and recycle bins together under project/version locks and rewrites references, preventing reference removal while versions move into recycle bins. Formal-commit settlement and startup recovery follow the same basis: read history/bins under both locks, converting holds into `active` or `trashed` references inside them. Versions deleted into bins after publication but before settlement retain references. If project directories, version histories, or bin snapshots are unreadable, abandon recalculation without removing references; settlement unable to read recycle bins preserves holds for the next startup.
 
-**统一回收**：对象失去全部引用（含进行中提交的占用）后，按同一条规则转为待删除并立即尝试删除。生命周期操作经 `collect_unreferenced_objects` 回收已保存的对象；正式提交结算撤下占用后也按这条规则回收，并且是唯一回收未确认上传的地方。删除失败记下原因，由维护循环按退避重试；连接已换桶时记 `connection_changed`，不删除。触发点只有引用被撤下的地方：
+**Centralized collection**: once objects lose all references (including in-progress commit holds), mark pending deletion under one rule and immediately attempt deletion. Lifecycle operations collect saved objects through `collect_unreferenced_objects`; formal-commit settlement likewise collects after removing holds and is the sole place collecting unconfirmed uploads. Record deletion failures and retry with backoff in maintenance; changed connection buckets produce `connection_changed` without deletion. Trigger only where references are removed:
 
-- 项目回收站彻底删除、清空与过期清理之后，重算该项目的引用并回收（`reconcile_and_collect`）。
-- 已删除项目彻底删除之后，撤下墓碑名下的全部引用并回收（`release_holder`）。
-- 跨项目消费者不再使用某个内容版本时 `remove_reference`，整体消失时 `release_holder`。使用前照旧 `add_reference`。
-- 入库循环每一轮撤下保留期已过的入库任务引用（`release_ingest_holds`）。
-- 维护循环每小时对所有项目重算一遍兜底。超过保留期一天、目录也已不在的已删除项目，撤下它仍挂在墓碑名下的引用，覆盖显式撤下失败的情况。
+- After permanent deletion, emptying, or expiration cleanup in project recycle bins, recalculate project references and collect (`reconcile_and_collect`).
+- After permanent deletion of deleted projects, remove all tombstone-holder references and collect (`release_holder`).
+- Cross-project consumers call `remove_reference` when no longer using content versions, and `release_holder` when disappearing entirely; retain `add_reference` before use.
+- Every registration-loop round releases expired registration-task references (`release_ingest_holds`).
+- Hourly maintenance recalculates every project as fallback. For deleted projects whose retention expired a day ago and whose directories are absent, release remaining tombstone references, covering explicit-release failures.
 
-删除进项目回收站、从回收站恢复、版本切换都不撤下引用，不触发回收。正式提交结算撤下占用后按上述规则回收（ADR 0116）。供应商素材关联与中转副本不属于正式对象引用，回收从不碰它们。
+Deletion into project recycle bins, restoration, and version switching do not remove references or trigger collection. Formal-commit settlement collects after removing holds under the rules above (ADR 0116). Provider-material links and intermediary copies are not formal-object references; collection never touches them.
 
-**恢复保持内容版本**：回收站里的远端历史版本恢复时沿用原内容版本身份与原持久定位，不重新上传。删除记录保留版本摘要，加回的字节与摘要一致才沿用原定位，否则按本地版本保存。
+**Restoration preserves content versions**: restored remote historical versions retain original content identities and persistent locations without re-upload. Deletion records retain version digests; reuse original locations only when restored bytes match, otherwise save as local versions.
 
 ## Considered Options
 
-- **各生命周期操作自行决定零引用对象何时删除**（ADR 0116 原先的安排）：版本删除、回收站清除、项目删除、全局资产库各写一套，规则会漂移，漏掉一处就会误删或泄漏。
-- **回收站记录逐条登记与撤下引用**：每类删除与恢复路径都要接一次，记录在降级恢复、迁移或中断时容易与引用表不一致。按项目此刻的状态重算只有一个入口，也能自愈漂移。
-- **维护循环发现墓碑目录不在就撤下引用**：已删除项目恢复时先移回目录、再改回引用，中间有一个目录不在而引用仍挂在墓碑名下的窗口，在这时撤下会删除可恢复项目的对象。因此改为在彻底删除处显式撤下，兜底只处理超过保留期的墓碑。
-- **删除记录不保留本地副本、恢复时从对象存储取回**：回收站不占本地空间，但恢复需要网络。现有删除路径已经把本地文件移进记录，恢复不依赖对象存储，这里沿用。
+- **Letting lifecycle operations decide when to delete zero-reference objects** (ADR 0116's original arrangement): separate rules for version deletion, recycle-bin clearing, project deletion, and global libraries drift; omissions cause deletion mistakes or leaks.
+- **Registering/removing references per recycle-bin record**: every deletion/restoration path needs wiring, and degraded recovery, migration, or interruption can desynchronize records and references. Recalculation from current project state has one entry and heals drift.
+- **Releasing references when maintenance finds tombstone directories absent**: restoring projects first moves directories back, then reassigns references, leaving a window with absent tombstone directories and tombstone-held references; release then would delete recoverable objects. Instead release explicitly at permanent deletion; fallback handles only expired tombstones.
+- **No local copies in deletion records; retrieve from object storage on restoration**: saves local recycle-bin space but requires network restoration. Existing deletion paths already move local files into records, enabling restoration without object storage; retain that.
 
 ## Consequences
 
-- 取代 ADR 0116 Consequences 中「对象失去全部引用后是否删除，由该操作按自己的保留规则决定；本决定只让失败补偿删除对象」一句。
-- 新增的跨项目或长时间使用远端内容的消费者只需维护自己名下的引用，不实现删除规则。
-- 已删除项目彻底删除时，若显式撤下失败，对象最多在保留期后多留一天。
-- 维护循环每小时为每个项目取一次项目锁并读取版本历史与回收站记录，代价与工作文件清理相当。
-- 文件视图在工作文件清理后仍按版本记录列出远端图片，标记为未在本地；列出不下载，预览或删除可删除的历史版本时先取回并登记使用。
+- Supersedes ADR 0116 Consequences' sentence "the operation decides whether to delete objects losing all references under its own retention rules; this decision only lets failure compensation delete objects."
+- New cross-project or long-lived remote-content consumers maintain only their own references, without deletion rules.
+- If explicit reference release fails at permanent project deletion, objects remain at most one extra day beyond retention.
+- Hourly maintenance takes each project's lock once and reads history/bin records, at a cost comparable to working-file cleanup.
+- File views still list remote images from version records after working-file cleanup, marking them absent locally. Listing downloads nothing; preview or deletion of deletable historical versions first retrieves files and registers use.
 
-范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+For scope and acceptance, see [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559).

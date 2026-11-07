@@ -1,7 +1,7 @@
-"""Alembic collapse_image_backend_buckets_to_default 迁移测试：存量键组合穷举。
+"""Alembic collapse_image_backend_buckets_to_default: exhaustive existing-key combinations.
 
-图片 t2i / i2i 由强制槽位降级为可选覆盖桶后，默认层 default_image_backend 升为用户可见
-配置。本文件按「默认层 × t2i × i2i」的取值形态穷举存量组合，锁定迁移后的键状态与解析结果。
+Once image t2i / i2i mandatory slots become optional override buckets, default_image_backend becomes user-visible.
+Enumerate existing default × t2i × i2i value shapes to pin postmigration keys and resolution.
 """
 
 from __future__ import annotations
@@ -46,11 +46,11 @@ def _read_image_settings(engine: sa.Engine) -> dict[str, str]:
     return {row.key: row.value for row in rows}
 
 
-# (用例名, 迁移前键状态, 迁移后键状态)
+# (case name, premigration keys, postmigration keys).
 #
-# 语义变更只发生在「桶无有效值 + 默认层有配置」的两行（empty_buckets_with_default、
-# mixed_empty_bucket 的 i2i 侧）：迁移前空桶表示「跟随自动推断」，迁移后回退默认层。
-# 其余各行迁移前后解析结果一致，迁移只做键形态归一。
+# Semantics change only in the two rows with invalid/empty buckets plus configured defaults: empty_buckets_with_default and
+# mixed_empty_bucket i2i. Empty buckets previously selected automatic inference; afterward they fall back to defaults.
+# Every other row resolves identically before/after; migration only normalizes key shapes.
 _CASES = [
     ("all_absent", {}, {}),
     (
@@ -155,7 +155,7 @@ def test_upgrade_exhausts_legacy_key_combinations(alembic_cfg, name, before, aft
     assert _read_image_settings(engine) == after
 
 
-# 迁移后各组合的生效模型（t2i, i2i）；None = 无配置可落、留给自动推断。
+# Effective postmigration models (t2i, i2i); None leaves automatic selection because no configuration applies.
 _RESOLVED_AFTER: dict[str, tuple[str | None, str | None]] = {
     "all_absent": (None, None),
     "default_only": ("grok/grok-2-image", "grok/grok-2-image"),
@@ -164,10 +164,10 @@ _RESOLVED_AFTER: dict[str, tuple[str | None, str | None]] = {
     "equal_buckets_diverging_from_default": ("openai/gpt-image-2", "openai/gpt-image-2"),
     "distinct_buckets_without_default": ("openai/gpt-image-2", "ark/kolors-img2img"),
     "distinct_buckets_with_default": ("openai/gpt-image-2", "ark/kolors-img2img"),
-    # 语义变更行：迁移前空桶跟随自动推断，迁移后落默认层
+    # Changed semantics: previously automatic empty buckets now use defaults.
     "empty_buckets_with_default": ("grok/grok-2-image", "grok/grok-2-image"),
     "empty_buckets_without_default": (None, None),
-    # 语义变更行：i2i 侧同上
+    # Changed semantics: same for i2i.
     "mixed_empty_bucket": ("openai/gpt-image-2", "grok/grok-2-image"),
     "empty_default_with_equal_buckets": ("openai/gpt-image-2", "openai/gpt-image-2"),
     "bucket_without_slash_dropped": ("grok/grok-2-image", "grok/grok-2-image"),
@@ -176,7 +176,7 @@ _RESOLVED_AFTER: dict[str, tuple[str | None, str | None]] = {
 
 @pytest.mark.parametrize(("name", "before", "after"), _CASES, ids=[case[0] for case in _CASES])
 async def test_resolution_after_upgrade(name, before, after):
-    """迁移产物经真实解析骨架求值，锁定各组合升级后的生效模型。"""
+    """Evaluate migrated output through the real resolution skeleton to pin effective upgraded models for each combination."""
     resolver = ConfigResolver.__new__(ConfigResolver)
 
     class _Settings:
@@ -185,8 +185,8 @@ async def test_resolution_after_upgrade(name, before, after):
 
     for generation_type, expected in zip(("t2i", "i2i"), _RESOLVED_AFTER[name], strict=True):
         if expected is None:
-            # 无配置可落：解析必然走自动推断（需真实供应商表，此处不求值），
-            # 断言其前提——迁移后该桶与默认层都无有效值
+            # No applicable configuration must reach automatic selection, requiring real provider tables not evaluated here;
+            # assert its prerequisite: no valid bucket/default value after migration.
             assert not any("/" in after.get(key, "") for key in (f"default_image_backend_{generation_type}", _KEYS[0]))
             continue
         resolved = await resolver._resolve_layered_backend(
@@ -199,7 +199,7 @@ async def test_resolution_after_upgrade(name, before, after):
 
 
 def test_downgrade_restores_buckets_from_default(alembic_cfg):
-    """降级把默认层复制回两桶，还原「桶即权威」形态。"""
+    """Downgrade copies defaults into both buckets, restoring bucket-authoritative shapes."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "head")
     engine = _sync_engine(db_path)
@@ -215,9 +215,9 @@ def test_downgrade_restores_buckets_from_default(alembic_cfg):
 
 
 def test_downgrade_restores_default_over_emptied_bucket(alembic_cfg):
-    """升级后经配置面清空的桶（留下空串行）在降级时不算有效覆盖，仍还原默认层。
+    """Buckets cleared after upgrade, leaving empty-string rows, are not valid downgrade overrides; restore defaults.
 
-    否则旧语义会把这个空桶当权威、跳过默认层，该能力静默落到自动推断。
+    Otherwise old semantics treat empty buckets as authoritative, skip defaults, and silently select automatically.
     """
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "head")
@@ -240,7 +240,7 @@ def test_downgrade_restores_default_over_emptied_bucket(alembic_cfg):
 
 
 def test_downgrade_keeps_existing_buckets(alembic_cfg):
-    """已有桶配置时降级不覆盖。"""
+    """Downgrade must not overwrite configured buckets."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "head")
     engine = _sync_engine(db_path)

@@ -1,4 +1,4 @@
-"""声明式图片定义的校验：变量、素材来源、能力与产物提取按媒体类型分集合，越界即报错。"""
+"""Declarative-image validation: variables, asset sources, capabilities, and artifact extraction use media-type sets; report out-of-scope values."""
 
 from __future__ import annotations
 

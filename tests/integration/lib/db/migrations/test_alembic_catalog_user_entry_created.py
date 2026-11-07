@@ -1,4 +1,4 @@
-"""Alembic 迁移：用户条目表新增「用户新建」列，存量副本取假（都是改过官方条目产生的），降级时删除。"""
+"""Alembic: add user-created to user entries; existing copies are false, all originating from edited official entries; remove on downgrade."""
 
 from __future__ import annotations
 

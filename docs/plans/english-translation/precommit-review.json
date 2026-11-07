@@ -1,0 +1,85 @@
+{
+  "baseline": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "candidate": "Uncommitted working tree, not HEAD-only diff. No commit or staging performed.",
+  "status": "Review complete; one delivery gap corrected; no remaining actionable finding in the reviewed scope.",
+  "standards": {
+    "reviewer": "final_standards, independent",
+    "findings": [],
+    "coverage": "Read AGENTS, CONTRIBUTING, all seven indexed standards, ADR0121, new audit/three Python tests and capture/comparison helpers. Compared translated standards/exception/localization boundaries. Screened all1611changedtrackedPythonfiles with string-normalizedAST and inspected12flaggedfiles. Independently accepted exact ADR ignore exception.",
+    "limits": "String-normalized AST is a structural screen, not proof of literal fidelity. Does not re-certify every translated comment/prompt; prior per-span reviews remain separate."
+  },
+  "spec": {
+    "reviewer": "final_spec, independent",
+    "findings": [],
+    "coverage": "Actual source/consumer review of exact legacy Avoid-line compatibility and dedup, complete prompt_builders_script diff, substantial tool_runtime/toolset descriptions, selected drama/reference-video variants, shared writing/asset rules, selected runtime profile and changed assertions, eval prompts/outcome obligations.",
+    "checked_invariants": [
+      "Default/outputlanguage policies",
+      "Schema/tool identities and parser markers",
+      "Verbatim source/speech exceptions and overwrite consent",
+      "Negative constraints, duration hierarchy, availability tiers and mandatory scene references",
+      "Legacy rendering changes only local output; custom lines and stored input preserved"
+    ],
+    "limits": "Bounded inspection, not fresh semantic certification of all3039changedfiles or real-model evaluation."
+  },
+  "corrected_findings": [
+    {
+      "severity": "P2",
+      "category": "delivery/inclusion",
+      "path": ".gitignore",
+      "line": 105,
+      "consumer": "AGENTS.md:26 references the new ADR0121; ordinary Git untracked discovery omitted it under a machine-level global ignore.",
+      "plan_requirement": "Deliver the maintenance ADR and reconciled inventory without hidden missing artifacts.",
+      "fix": "Exact repository .gitignore negation for this one ADR; global ignores and other ADR behavior unchanged.",
+      "independent_review": "final_standards accepted exact scope and verified git ls-files output.",
+      "validation": {
+        "normal_untracked_listing": [
+          "docs/adr/0121-english-maintenance-language-preserves-localization-and-contracts.md"
+        ],
+        "git_check_ignore_quiet_exit": 1,
+        "index_unchanged_and_empty": true,
+        "gitignore_sha256": "0eabe3d77031845e23a3e6ad782bfaadaae8d3bf12c1961a6d5b232e9edc4628",
+        "adr_sha256": "22b829e8cfb54bab9e63abeb51e03dd87374a8f2c96772c4168e6bea0e1c2d7a"
+      }
+    }
+  ],
+  "tests": [
+    {
+      "command": "uv run python -m pytest tests/unit/scripts/test_audit_translation.py tests/unit/scripts/test_audit_conventions.py tests/unit/lib/agent/test_profile_manifest.py tests/unit/lib/agent/test_profile_translation_lifecycle.py tests/unit/lib/project/project_migrations/test_translation_legacy_style_contract.py tests/unit/lib/prompts/test_prompt_builders.py tests/unit/lib/prompts/test_prompt_builders_ad.py tests/unit/lib/prompts/test_prompt_builders_script.py tests/unit/lib/prompts/test_prompt_builders_script_duration.py tests/unit/lib/prompts/test_prompt_builders_reference.py",
+      "passed": 322,
+      "warnings": 1,
+      "exit_code": 0,
+      "log": "logs/precommit-review-related-tests.log"
+    },
+    {
+      "command": "uv run python scripts/gate.py tests conventions",
+      "exit_code": 0,
+      "log": "logs/precommit-review-gates.log"
+    },
+    {
+      "command": "uv run python scripts/lint_agent_runtime_profile.py",
+      "exit_code": 0,
+      "log": "logs/precommit-review-profile-lint.log"
+    },
+    {
+      "command": "pnpm --dir frontend exec vite build (Node24.12.0)",
+      "exit_code": 0,
+      "log": "logs/precommit-review-frontend-build.log"
+    },
+    {
+      "command": "node docs/plans/english-translation/checks/compare_emitted_asset_graph.cjs /tmp/arcreel-english-7b4f781/evidence/official-tested-dist frontend/dist /tmp/arcreel-english-7b4f781/evidence/precommit-review-emitted-assets.json",
+      "raw_files_identical": 161,
+      "raw_different_or_missing_or_added": 0,
+      "normalization_needed": false,
+      "record": "precommit-review-emitted-assets.json"
+    }
+  ],
+  "test_scope": "This review changed only repository ignore visibility and evidence documents. Product/backend/frontend executable source, prompts and assertions are unchanged. The prior complete backend/frontend/browser/documentation gates remain evidence of those same runtime bytes; no claim that they were newly rerun here.",
+  "unchanged_boundaries": [
+    "No commit/staging/push/publication",
+    "No global Git configuration change",
+    "No unrelated untracked user content read or edited",
+    "No real-project synchronization or paid calls",
+    "Real-model behavior/compaction/file reload/token variability evaluation still pending"
+  ],
+  "prior_full_validation": "final-local-validation.json"
+}

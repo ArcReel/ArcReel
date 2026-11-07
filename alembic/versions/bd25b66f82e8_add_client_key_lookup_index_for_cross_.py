@@ -4,9 +4,9 @@ Revision ID: bd25b66f82e8
 Revises: 3b841838ac16
 Create Date: 2026-07-07 13:14:23.784371
 
-client_key 唯一索引按 (session_id, client_key) 分区，覆盖不到 session_id
-尚不存在的新会话受理去重；跨会话按 client_key 的兜底查询需要以 client_key
-打头的检索索引。部分索引（client_key IS NOT NULL）避免为占多数的空键行建项。
+The unique (session_id, client_key) index cannot deduplicate new-session admission before session_id
+exists. Cross-session client_key fallback lookup needs an index beginning with client_key. The partial
+client_key IS NOT NULL index avoids entries for the majority of rows with empty keys.
 
 """
 

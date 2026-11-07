@@ -1,8 +1,6 @@
-"""SessionManager sandbox 接线测试：options 装配、hook 返回格式、权限链顺序。
+"""SessionManager sandbox wiring tests: option assembly, hook return shape and permission-chain order.
 
-纯规则断言（路径裁决 / settings 编译 / 白名单谓词 / 密钥剥离变换）已搬家至
-tests/agent_runtime/test_agent_access_policy.py；本文件只测 SDK 封皮侧的接线。
-"""
+Pure rule assertions (path decisions / settings compilation / allowlist predicates / secret stripping) moved to tests/agent_runtime/test_agent_access_policy.py; this file tests only SDK-wrapper wiring."""
 
 from __future__ import annotations
 
@@ -17,7 +15,7 @@ from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import use_provider_env
 
-#: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
+#: Current user ID supplied per call (production obtains it from SessionManager CurrentUser context).
 _USER_ID = "default"
 
 
@@ -48,24 +46,22 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox is not None
     assert opts.sandbox.get("enabled") is True
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
-    # 非 Docker 默认 weakerNested=False
+    # Outside Docker, weakerNested defaults to False.
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
-    # 出站显式全放行：省略 network 键等于零预放行，无人值守会话里新域名会被直接拒。
-    # loopback 单列开关——skill 脚本调同源 ArcReel API 必须经 loopback，
-    # 而 allowedDomains 无论写 * 还是写 127.0.0.1 都覆盖不到它。
+    # Explicitly allow all outbound domains: omitting network gives zero preapprovals, so unattended sessions deny new domains.
+    # Loopback has its own switch: skill scripts must use it to call the same-origin ArcReel API;
+    # allowedDomains covers neither * nor 127.0.0.1 as loopback permission.
     assert opts.sandbox["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
-    # 禁 unsandboxed fallback 与文件围栏不受网络放开影响
+    # Unsandboxed fallback remains forbidden and file boundaries remain intact when network access opens.
     assert opts.sandbox.get("allowUnsandboxedCommands") is False
-    # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
+    # filesystem.denyRead injection: kernel-level file-read denial in the sandbox profile.
     deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
     assert str(proj_dir / "project.json") in opts.sandbox["filesystem"]["denyWrite"]
 
 
 def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """SessionManager 负责 env 解析（ARCREEL_PROFILE_DIR / data_root 参数），把 resolve
-    后的根路径喂给 AgentAccessPolicy——用户把数据/profile 目录搬到任意位置（含 repo 外）
-    时，deny 必须跟着指过去；日志在 ``<数据根>/logs``，ARCREEL_LOG_DIR 不影响 deny 范围。"""
+    """SessionManager resolves environment (ARCREEL_PROFILE_DIR / data_root arguments) and supplies resolved roots to AgentAccessPolicy. Denial must follow relocated data/profile directories, even outside the repository. Logs are at ``<数据根>/logs``; ARCREEL_LOG_DIR does not change denial scope."""
     repo = tmp_path / "repo"
     repo.mkdir()
     external_data = tmp_path / "external_data" / "projects"
@@ -86,21 +82,20 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     assert policy.agent_profile_root == external_profile.resolve()
     assert policy.data_root == external_data.resolve()
     assert policy.project_root == repo.resolve()
-    # 端到端：数据根下的日志对内置读工具与 Bash（内核 denyRead）都不可读
+    # End-to-end: data-root logs are unreadable to built-in read tools and Bash (kernel denyRead).
     cwd = sm.layout.projects_dir / "demo"
     allowed, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
     assert not allowed
     deny_read = policy.build_sandbox_settings(cwd)["filesystem"]["denyRead"]
     assert str(data_logs.resolve()) in deny_read
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
-    # ARCREEL_LOG_DIR 指向的目录与 repo/logs 都不是日志位置，不进 denyRead
+    # Neither ARCREEL_LOG_DIR nor repo/logs is the log location; exclude both from denyRead.
     assert str(stale_logs.resolve()) not in deny_read
     assert str((repo / "logs").resolve()) not in deny_read
 
 
 def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
-    """startup 期注入平台事实：整体换新 policy 而非戳改私有属性，
-    后续 settings 编译 / hook 裁决立即消费新规则。"""
+    """Inject platform facts during startup by replacing the entire policy instead of mutating private attributes; subsequent settings compilation and hook decisions immediately use the new rules."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
     cwd = sm.layout.projects_dir / "demo"
     assert sm.access_policy.build_sandbox_settings(cwd)["enabled"] is True
@@ -114,10 +109,7 @@ def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_bash_env_scrub_hook_wraps_command_with_env_unset(fs_session_manager: SessionManager) -> None:
-    """hook 把 policy 的包装结果塞进 ``updatedInput.command``，且不返回
-    permissionDecision——PreToolUse hook 是权限链第 1 步，allow 会短路后续所有步骤。
-    包装内容（``env -u <keys> sh -c '<orig>'``）由 test_agent_access_policy.py 的
-    ``test_wrap_bash_command_unsets_provider_keys`` 覆盖，此处只验接线。"""
+    """The hook puts the policy wrapper into ``updatedInput.command`` without permissionDecision: PreToolUse is permission-chain step 1 and allow would short-circuit all later steps. ``test_wrap_bash_command_unsets_provider_keys`` in test_agent_access_policy.py covers wrapper contents (``env -u <keys> sh -c '<orig>'``); only verify wiring here."""
     result = await fs_session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "env | grep ANTHROPIC"}},
         None,
@@ -127,17 +119,15 @@ async def test_bash_env_scrub_hook_wraps_command_with_env_unset(fs_session_manag
     out = result.get("hookSpecificOutput")
     assert out is not None
     assert out["hookEventName"] == "PreToolUse"
-    # 不携带权限决策，让权限链继续走到 allow 规则 / can_use_tool
+    # Return no permission decision so the permission chain continues to allow rules / can_use_tool.
     assert "permissionDecision" not in out
-    # policy 的包装结果被穿进 updatedInput.command（包装形态由 policy 测试断言）
+    # Forward the policy wrapper into updatedInput.command (policy tests assert its exact shape).
     assert out["updatedInput"]["command"].startswith("env -u ")
 
 
 @pytest.mark.asyncio
 async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Path) -> None:
-    """Windows 回退：``env -u``/``sh -c`` 是 POSIX 机制，原生 Windows 不可执行；
-    hook 不包装也不给权限决策，原始命令落到 _can_use_tool 做白名单匹配
-    （包装后命令以 ``env -u`` 开头，会让白名单永远匹配不上）。"""
+    """Windows fallback: ``env -u``/``sh -c`` are POSIX mechanisms unavailable on native Windows. The hook neither wraps nor decides permissions; _can_use_tool matches the raw command against its allowlist. Wrapping would start with ``env -u`` and never match."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     result = await sm._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "python .claude/skills/x/scripts/run.py"}},
@@ -149,7 +139,7 @@ async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_bash_env_scrub_hook_passthrough_when_no_command(fs_session_manager: SessionManager) -> None:
-    """空 command 时直接放行，不做包装。"""
+    """Allow empty commands directly without wrapping."""
     result = await fs_session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {}},
         None,
@@ -159,7 +149,7 @@ async def test_bash_env_scrub_hook_passthrough_when_no_command(fs_session_manage
 
 
 # ============================================================
-# Windows 沙箱回退：sandbox_enabled=False 分支（权限链接线）
+# Windows sandbox fallback: sandbox_enabled=False branch (permission-chain wiring).
 # ============================================================
 
 
@@ -179,7 +169,7 @@ def _make_session_manager(tmp_path: Path, *, sandbox_enabled: bool) -> SessionMa
 async def test_build_options_bash_in_allowed_tools_by_sandbox(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sandbox_enabled: bool
 ) -> None:
-    """sandbox 关闭时剥离 Bash/BashOutput/KillBash，启用时保留。"""
+    """Strip Bash/BashOutput/KillBash when sandbox is disabled; retain them when enabled."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=sandbox_enabled)
     proj_dir = sm.layout.projects_dir / "test_proj"
     proj_dir.mkdir(parents=True, exist_ok=True)
@@ -208,9 +198,9 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
             "python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate",
             "PermissionResultAllow",
         ),
-        # `..` 在文件名内部（非路径段）不触发穿越拦截，合法命令照常放行
+        # `..` inside a filename, rather than a path segment, does not trigger traversal blocking; allow legitimate commands.
         ("python .claude/skills/adapt-custom-endpoint/scripts/my..script.py validate", "PermissionResultAllow"),
-        # 归一化容错：带引号的脚本路径、Windows 反斜杠分隔符的合法命令不误拒
+        # Normalization tolerance: do not reject legitimate quoted script paths or Windows backslash separators.
         (
             'python ".claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py" validate',
             "PermissionResultAllow",
@@ -221,21 +211,21 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         ),
         ("cat /etc/passwd", "PermissionResultDeny"),
         ("ls -la", "PermissionResultDeny"),
-        # ffmpeg / ffprobe 不在白名单：Agent 经 Bash 跑不了，媒体处理走工具集
+        # ffmpeg / ffprobe are not allowlisted: Agents cannot run them through Bash; use the toolset for media processing.
         ("ffmpeg -i in.mp4 out.mp4", "PermissionResultDeny"),
         ("ffprobe in.mp4", "PermissionResultDeny"),
         ("ffmpeg", "PermissionResultDeny"),
     ],
 )
 async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, command: str, expected: str) -> None:
-    """sandbox 关闭时白名单 prefix 放行，其余拒；deny 文案派生自 WINDOWS_BASH_PREFIX_WHITELIST。"""
+    """With sandbox disabled, allow allowlisted prefixes and deny others; derive denial wording from WINDOWS_BASH_PREFIX_WHITELIST."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     callback = await sm._build_can_use_tool_callback("test_sid", [None])
     result = await callback("Bash", {"command": command}, None)
     assert type(result).__name__ == expected
     if expected == "PermissionResultDeny":
         assert "Bash 白名单" in result.message
-        # deny 文案必须包含所有白名单 prefix（单一真相源）
+        # Denial wording must include every allowlist prefix (single source of truth).
         for prefix in AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST:
             assert prefix in result.message
 
@@ -251,8 +241,8 @@ def test_windows_bash_whitelist_has_no_media_tool_prefixes() -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        # 白名单前缀 + metachar 链：尾部命令在 Windows 上无 sandbox denyWrite
-        # 兜底，可直写 protected JSON，必须整串拒
+        # Allowlisted prefix plus metacharacter chain: Windows has no sandbox denyWrite fallback for the trailing command,
+        # which could directly write protected JSON; reject the whole string.
         'python .claude/skills/manage-project/scripts/peek_split_point.py; python -c "evil"',
         "python .claude/skills/x/scripts/run.py && python -c \"open('project.json','w')\"",
         "python .claude/skills/x/scripts/run.py | tee scripts/episode_1.json",
@@ -261,22 +251,22 @@ def test_windows_bash_whitelist_has_no_media_tool_prefixes() -> None:
         "python .claude/skills/x/scripts/run.py > scripts/episode_1.json",
         "python .claude/skills/x/scripts/run.py < secret.txt",
         "python .claude/skills/x/scripts/run.py\npython -c evil",
-        # 命令名前缀碰撞：python3 不是 python
+        # Command-name prefix collision: python3 is not python.
         "python3 .claude/skills/x/scripts/run.py",
-        # 路径穿越：满足 python .claude/skills/ 前缀且不含 metachar，但 .. 逃出
-        # skills 目录跑任意脚本——Windows 回退无 sandbox 兜底，必须拒
+        # Path traversal: matches python .claude/skills/ with no metacharacters, but .. escapes
+        # the skills directory to run arbitrary scripts. Windows fallback has no sandbox protection, so reject it.
         "python .claude/skills/../../../tmp/evil.py",
         "python .claude/skills/../../arcreel_secrets_dumper.py",
         "python .claude/skills/x/scripts/run.py ../../other_project/secret.json",
-        # 路径穿越混淆绕过：shell 会把 ".." / .\. 还原成 ..，归一化后必须拒
+        # Obfuscated traversal: shells restore ".." / .\. to ..; reject after normalization.
         'python .claude/skills/dir/".."/".."/evil.py',
         "python .claude/skills/dir/'..'/'..'/evil.py",
         "python .claude/skills/dir/.\\./.\\./evil.py",
         'python .claude/skills/x/scripts/run.py ".."/".."/secret.json',
-        # Windows 反斜杠分隔符下的 .. 穿越同样要拒（归一化后 ../ 命中）
+        # Likewise reject .. traversal with Windows backslash separators (normalized ../ matches).
         "python .claude\\skills\\..\\..\\evil.py",
-        # python 入口必须是 <skill>/scripts/<script>.py：skills 目录下任意其它
-        # 文件（无 scripts/ 段、非 .py、或直接挂在 skill 根）一律不放行
+        # Python entry points must be <skill>/scripts/<script>.py; reject all other files under skills,
+        # including paths lacking scripts/, non-.py files, or scripts directly under the skill root.
         "python .claude/skills/evil.py",
         "python .claude/skills/adapt-custom-endpoint/custom_endpoint.py validate",
         "python .claude/skills/adapt-custom-endpoint/scripts/data.json",
@@ -284,8 +274,7 @@ def test_windows_bash_whitelist_has_no_media_tool_prefixes() -> None:
     ],
 )
 async def test_windows_bash_whitelist_blocks_metachar_chains(tmp_path: Path, command: str) -> None:
-    """白名单前缀 + shell metachar（; && | $() ` 重定向 换行）的复合命令必须拒；
-    命令名按 token 边界匹配，挡 python3 这类前缀碰撞；.. 路径穿越整串拒。"""
+    """Reject compound commands combining allowlisted prefixes with shell metacharacters (; && | $() ` redirection newline). Match command names at token boundaries to block collisions such as python3; reject entire strings containing .. traversal."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     callback = await sm._build_can_use_tool_callback("test_sid", [None])
     result = await callback("Bash", {"command": command}, None)
@@ -295,7 +284,7 @@ async def test_windows_bash_whitelist_blocks_metachar_chains(tmp_path: Path, com
 
 @pytest.mark.asyncio
 async def test_windows_bash_management_tools_allowed(tmp_path: Path) -> None:
-    """BashOutput / KillBash 是 Bash 管理工具，回退模式下直接放行。"""
+    """BashOutput / KillBash manage Bash and are directly allowed in fallback mode."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     callback = await sm._build_can_use_tool_callback("test_sid", [None])
     for tool in ("BashOutput", "KillBash"):
@@ -304,7 +293,7 @@ async def test_windows_bash_management_tools_allowed(tmp_path: Path) -> None:
 
 
 def _init_message(auto_dir: str | None) -> dict[str, object]:
-    """CLI init 系统消息的最小形状；``memory_paths`` 落在 SystemMessage.data 里。"""
+    """Minimal CLI init system-message shape; ``memory_paths`` belongs in SystemMessage.data."""
     data: dict[str, object] = {"subtype": "init", "session_id": "sdk-1"}
     if auto_dir is not None:
         data["memory_paths"] = {"auto": auto_dir}
@@ -318,7 +307,7 @@ def _managed_for(project_name: str) -> ManagedSession:
 def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """init 上报的 auto memory 目录与预期不符：记 error，消息不被改写、会话照开。"""
+    """If CLI init reports unexpected auto-memory directories, log an error without rewriting the message or preventing session startup."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
     proj_dir = sm.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True, exist_ok=True)
@@ -338,7 +327,7 @@ def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
     "auto_dir_factory",
     [
         pytest.param(lambda proj_dir: str(project_memory_dir(proj_dir)), id="exact"),
-        # CLI 2.1.259 上报带尾斜杠；比较按 resolve 后的路径做，不按字符串
+        # CLI 2.1.259 reports trailing slashes; compare resolved paths, not strings.
         pytest.param(lambda proj_dir: f"{project_memory_dir(proj_dir)}/", id="trailing-slash"),
         pytest.param(lambda _proj_dir: None, id="field-absent"),
     ],
@@ -346,7 +335,7 @@ def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
 def test_init_auto_memory_match_logs_nothing(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, auto_dir_factory
 ) -> None:
-    """路径一致或 CLI 未上报 memory_paths（旧版本 / auto memory 关闭）时不告警。"""
+    """No warning for matching paths or absent CLI memory_paths (older versions / auto memory disabled)."""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
     proj_dir = sm.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True, exist_ok=True)

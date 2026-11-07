@@ -17,7 +17,7 @@ import {
 
 const STARTED_AT = "2026-04-20T00:00:00Z";
 
-/** 后端附上的条目指称：「雨夜」这一集里排第 `position` 位的分镜。 */
+/** Backend entry references: storyboard at `position` in episode “雨夜”. */
 function itemRef(itemId: string, position: number): EpisodeItemRef {
   return {
     episode_title: "雨夜",

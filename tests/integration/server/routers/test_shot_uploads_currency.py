@@ -1,4 +1,4 @@
-"""上传的分镜图与视频即成品：清单按上传字节登记，时效不随提示词与引用资产变化。"""
+"""Uploaded storyboards/videos are finished outputs, claimed by bytes independent of prompts/reference changes."""
 
 import asyncio
 from io import BytesIO
@@ -70,7 +70,7 @@ def _write_thumbnail(thumbnail_path: Path, content: bytes) -> None:
 
 
 async def _fake_thumbnail(_video_path: Path, thumbnail_path: Path):
-    # 生产的抽帧由 ffmpeg 子进程落盘，不占事件循环；替身同样在工作线程里写。
+    # Production ffmpeg subprocesses write outside event loops; fakes likewise write in worker threads.
     await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"jpg")
     return thumbnail_path
 
@@ -116,9 +116,9 @@ def _upload(client: TestClient, kind: str, filename: str, content: bytes) -> Non
 async def _upload_with_test_sessions(
     client: TestClient, monkeypatch, session_factory, kind: str, filename: str, content: bytes
 ) -> None:
-    """异步用例里上传：上传经正式提交读取全局设置，改走本用例的数据库，并在本用例的事件循环上发请求。
+    """Async uploads read global settings through formal commits; use test DBs/loops for requests.
 
-    PostgreSQL 连接绑定建立它的事件循环；进程级引擎与 TestClient 自己的事件循环都会取到别的循环建的连接。
+    PostgreSQL connections bind creation loops; process engines/TestClient loops would retrieve connections from other loops.
     """
     bind_session_factory(monkeypatch, session_factory)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=client.app), base_url="http://test") as http:

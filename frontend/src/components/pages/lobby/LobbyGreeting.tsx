@@ -11,8 +11,8 @@ interface LobbyGreetingProps {
 }
 
 /**
- * 问候区：问候句加紫色状态句，下一行次要色写完成情况。打字机每个会话只播放一次，减少动态效果时直接显示全文。
- * 没有项目时状态句引向第一部作品，不写完成情况。
+ * Greeting area: greeting plus purple status, then completion details in secondary color. Play typing once per session, or show all text with reduced motion.
+ * Without projects, the status points toward the first work and omits completion details.
  */
 export function LobbyGreeting({
   projectCount,

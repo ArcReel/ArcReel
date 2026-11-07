@@ -18,7 +18,7 @@ describe("UsageRecordsSection detail", () => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
-    // 进行中区的取数不带时间范围，只有记录表的那一次返回行。
+    // Running-region fetches omit time ranges; only record-table requests return rows.
     vi.spyOn(API, "getUsageRecords").mockImplementation(async (query) =>
       query?.since === undefined
         ? { items: [], next_cursor: null, total: 0 }
@@ -46,7 +46,7 @@ describe("UsageRecordsSection detail", () => {
 
     renderUsageRecordsSection("section=usage&record=42");
 
-    // 标题以位置角标开头，后接集名与正文摘录，不露条目 ID。
+    // Titles start with positional badges, followed by episode titles/body excerpts without entry IDs.
     const dialog = await screen.findByRole("dialog", { name: /第 1 集 · 推门而入/ });
     expect(within(dialog).getByRole("img", { name: "分镜 3" })).toBeInTheDocument();
     expect(dialog).not.toHaveAccessibleName(/S10/);
@@ -137,7 +137,7 @@ describe("UsageRecordsSection detail", () => {
 
     const valueOf = (label: string) =>
       (dialog.getByText(label, { selector: "span, button" }).closest("div") as HTMLElement).textContent?.replace(label, "");
-    // 记录里的总输入 1000 含缓存命中 600 与缓存写入 150，「输入」只剩没缓存的 250。
+    // Total input 1000 includes 600 cache hits/150 cache writes, leaving 250 uncached Input.
     expect(valueOf("输入")).toBe("250");
     expect(valueOf("缓存命中")).toBe("600");
     expect(valueOf("缓存写入")).toBe("150");
@@ -246,7 +246,7 @@ describe("UsageRecordsSection detail", () => {
     renderUsageRecordsSection("section=usage&record=42");
     await screen.findByRole("dialog");
 
-    // 输入与产出两组都无数据：显示「无记录」而不是消失或报错。
+    // Both input/output groups lack data: show No records instead of disappearing/errors.
     expect(screen.getAllByText("无记录")).toHaveLength(2);
   });
 

@@ -1,23 +1,23 @@
-# 广告/短片不接入 script_plan→prompt_authoring 内容确认
+# Advertising/short films do not use script_plan→prompt_authoring content confirmation
 
-ad（广告/短片）创作类型不接入 script_plan→prompt_authoring 两段式剧本流水线与阻塞式 Web 内容确认。内容确认适用于 drama / narration 的全部结构化 script_plan 变体，包括参考生视频的 `script_plan_reference_units.json`；ad 因没有 script_plan 而不适用。
+The ad (advertising/short-film) content type does not use the two-stage script_plan→prompt_authoring pipeline or blocking Web content confirmation. Confirmation applies to every structured drama / narration script_plan variant, including reference-to-video `script_plan_reference_units.json`; ad has no script_plan, so it does not apply.
 
 ## Why this is out of scope
 
-script_plan→prompt_authoring 内容确认（docs/adr/0041）解决的两个核心问题在 ad 结构性不成立：
+The two core problems addressed by script_plan→prompt_authoring confirmation (docs/adr/0041) are structurally absent from ad:
 
-- **二次转写失真**：drama / narration 的逐字口播内容要穿过 script_plan→prompt_authoring 两段生成，存在跨段改写风险；ad 剧本单次生成直接产出最终结构（平铺 `shots[]` + 一等口播文案 `voiceover_text`），不存在两段边界，也就没有跨段转写。
-- **中间态不可审**：drama / narration 在 script_plan 完成、prompt_authoring 未跑之间用户在 web 端无感知；ad 剧本直接写入 `scripts/episode_1.json`，web 时间线全程可见可改。
+- **Distortion during a second transcription**: verbatim drama / narration speech crosses two generation stages, risking rewrites between them. ad generates its final structure in one call (flat `shots[]` + first-class spoken copy `voiceover_text`), without a two-stage transcription boundary.
+- **Unreviewable intermediate state**: Web users cannot see drama / narration after script_plan finishes but before prompt_authoring runs. ad writes directly to `scripts/episode_1.json`, visible and editable in the Web timeline throughout.
 
-唯一部分成立的「昂贵视觉生成前缺硬检查点」由两点覆盖：ad 恒单集、分镜数少（成片 15–90 秒），费用爆炸半径远小于 drama 一集；Agent 工作流已有逐阶段确认约定——剧本生成后向用户呈现分镜列表与口播文案、`product_sheet` 软门禁、分镜生成后商品保真审核（在产生视频费用前拦截）。
+The partly applicable concern, no hard checkpoint before expensive visuals, is covered in two ways: ad is always one episode with few shots (15–90-second final cuts), limiting cost exposure compared with a drama episode; the Agent workflow already requires stage confirmations, presenting shots/spoken copy after script generation, a soft `product_sheet` gate, and product-fidelity review after storyboard generation before video costs.
 
-「ad 剧本一键生成不走 script_plan 中间文件」是 ADR 0033 的有意设计，GLOSSARY.md 词条「广告/短片模式（ad）」记录了该契约。为 gate 对称性给 ad 单独构建一条两段式流水线，收益不成比例。
+Generating ad scripts in one step without intermediate script_plan is intentional in ADR 0033, recorded by GLOSSARY.md’s advertising/short-film mode (ad) entry. Building a separate two-stage ad pipeline merely for gate symmetry does not offer benefits proportionate to its cost.
 
-## 重访条件
+## Revisit conditions
 
-- ad 出现真实保真痛点：用户在 brief 中提供的逐字广告文案被 LLM 改写且无法定位源头；
-- ad 剧本生成因其他原因演进为两段式——届时 gate 同步接入（script_plan 文件名注册表收敛后仅需登记一处，见 #985）。
+- Real ad fidelity problems: LLMs rewrite verbatim brief copy and users cannot trace where it changed;
+- ad script generation evolves into two stages for another reason; connect the gate then (the unified filename registry requires one registration, see #985).
 
 ## Prior requests
 
-- #987 — 广告/短片未接入 script_plan→prompt_authoring 内容确认（契约空白）
+- #987 — 广告/短片未接入 script_plan→prompt_authoring 内容确认（契约空白） (ad does not use script_plan→prompt_authoring confirmation, leaving a contract gap)

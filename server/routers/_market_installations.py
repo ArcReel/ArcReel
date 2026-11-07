@@ -1,4 +1,4 @@
-"""安装记录的响应投影，供市场与端点 API 共用。"""
+"""Installation-record response projections shared by market and endpoint APIs."""
 
 from collections.abc import Iterable
 from datetime import UTC
@@ -23,7 +23,7 @@ class EntryInstallationResponse(BaseModel):
     endpoint_key: str
     endpoint_display_name: str
     installed_version: str
-    #: 条目就在眼前，市场轴只会是 current / update_available。
+    #: The entry is present, so the market axis is only current / update_available.
     state: Literal["current", "update_available"]
     modified: bool
 
@@ -32,7 +32,7 @@ class EndpointInstallationResponse(BaseModel):
     source_key: str
     source_id: int | None
     source_display_name: str | None
-    #: 来源已删除时为空。
+    #: Empty when the source has been deleted.
     source_enabled: bool | None
     slug: str
     installed_version: str
@@ -53,10 +53,9 @@ def _status(record: MarketInstallation, endpoint: CustomEndpoint, entry: MarketI
 async def entry_installations(
     session: AsyncSession, entries: Iterable[SourcedEntry]
 ) -> dict[tuple[str, str], EntryInstallationResponse]:
-    """按条目所在源的 ``(canonical_key, slug)`` 索引给定条目的安装记录；没有记录的条目不出现。
+    """Index installation records for supplied entries by their source’s ``(canonical_key, slug)``; omit entries without records.
 
-    记录按来源身份归属，源被删除后以大小写不同的 GitHub 地址重新添加仍能接上。
-    """
+    Records belong to source identity; deleting and readding a source with differently cased GitHub addresses still reconnects them."""
     by_identity = {
         (source_identity(item.source.canonical_key), item.entry.slug): (item.source.canonical_key, item.entry)
         for item in entries
@@ -94,7 +93,7 @@ async def entry_installation(session: AsyncSession, sourced: SourcedEntry) -> En
 async def endpoint_installations(
     session: AsyncSession, where: ColumnElement[bool] | None = None
 ) -> dict[int, EndpointInstallationResponse]:
-    """按端点 id 索引；``where`` 缺省时取全部记录。源被删除时来源字段为空、市场轴为 unavailable。"""
+    """Index by endpoint ID; omit ``where`` to fetch all records. Deleted sources have empty source fields and an unavailable market axis."""
     rows = (
         await session.execute(
             select(MarketInstallation, CustomEndpoint).join(CustomEndpoint).where(true() if where is None else where)
@@ -118,7 +117,7 @@ async def endpoint_installations(
             source_enabled=source.is_enabled if source else None,
             slug=record.slug,
             installed_version=record.installed_version,
-            # SQLite 读回的时间不带时区，库内一律按 UTC 存。
+            # SQLite returns timezone-naive timestamps; all database timestamps are stored as UTC.
             installed_at=(
                 record.installed_at if record.installed_at.tzinfo else record.installed_at.replace(tzinfo=UTC)
             ).isoformat(),

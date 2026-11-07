@@ -1,12 +1,12 @@
-"""自定义供应商调用按用量契约上报的计量（docs/adr/0100）。
+"""Custom-provider measurements under usage contracts (docs/adr/0100).
 
-自定义供应商的调用通道大多复用内置调用通道的实现，计量就取那条通道的声明：视频取 ``metered_usage``，图片的
-预估取 ``estimate_usage``，结算时图片通道自己在结果里带 ``usage``。声明式视频端点按定义上报。其余通道（ComfyUI、
-声明式图片、OpenAI Chat 出图）没有声明，按通用口径上报：视频报发出的时长、分辨率与是否有声，图片报一张输出与
-参考图张数；图片通道有声明时也补上这两项张数。计量项的单价由对应条目的价目表决定，价目表不按它计价的计数类
-计量项不计费。
+Most custom channels reuse built-ins and their declarations: video ``metered_usage``, image
+``estimate_usage``, with images supplying settlement ``usage`` in results. Declarative videos use definitions. Others (ComfyUI,
+declarative images, OpenAI Chat images) lack declarations and use generic metering: sent video duration/resolution/audio; one output
+image and reference counts. Declared image channels also receive these counts. Matching entry price tables determine rates;
+count measurements absent from tables are uncharged.
 
-结算与预估走同一组函数，两边口径一致。
+Settlement/estimation share functions and semantics.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class VideoMetering(Protocol):
-    """视频调用通道的计量声明：``(API 模型名, 请求, 结果, entry=模型对应的条目)``，见 :mod:`lib.backends.video_backends.metering`。"""
+    """Video-channel declarations: ``(API 模型名, 请求, 结果, entry=模型对应的条目)``; :mod:`lib.backends.video_backends.metering`."""
 
     def __call__(
         self,
@@ -49,7 +49,7 @@ class VideoMetering(Protocol):
 
 
 def generic_video_usage(request: VideoGenerationRequest, result: VideoGenerationResult | None = None) -> Usage:
-    """没有声明计量的视频通道按通用口径上报：发出的时长、分辨率档位与是否有声。"""
+    """Generic undeclared video metering: sent duration, resolution tiers, audio."""
     return video_usage(
         request,
         result,
@@ -60,16 +60,16 @@ def generic_video_usage(request: VideoGenerationRequest, result: VideoGeneration
 
 
 def generic_image_usage(reference_count: int | None) -> Usage:
-    """没有声明计量的图片通道按通用口径上报：一张输出与参考图张数（不知道几张时不报）。"""
+    """Generic undeclared image metering: one output plus references, omitting unknown counts."""
     return per_image_usage(output_images=1, input_images=reference_count)
 
 
 def with_image_counts(usage: Usage | None, reference_count: int | None) -> Usage:
-    """在调用通道上报的图片用量上补齐通用口径的张数：通道已报的计量项原样保留。
+    """Supplement generic image counts without changing channel-reported measurements.
 
-    同一个调用通道上挂的模型可能按 token 计价（如 gpt-image-2），也可能按张计价（如中转站经 OpenAI Images
-    协议转发的 Seedream）。补上张数后按张计价的条目查得到用量；按 token 计价的条目里没有张数这类计数计量项，
-    不计费。
+    One channel may host token-priced gpt-image-2 or image-priced relayed Seedream over OpenAI Images.
+    Counts supply image-priced tables; token-priced tables lack count measurements,
+    leaving them uncharged.
     """
     counts = generic_image_usage(reference_count)
     if usage is None:
@@ -82,7 +82,7 @@ def with_image_counts(usage: Usage | None, reference_count: int | None) -> Usage
 
 
 def video_metering_for(metering_backend: object | None, definition: object | None) -> VideoMetering | None:
-    """端点的视频计量函数：内置调用通道类上的 ``metered_usage``，或声明式定义；都没有时为 ``None``。"""
+    """Endpoint video functions: built-in ``metered_usage`` or declarative definitions; ``None`` without either."""
     if metering_backend is not None:
         metered = getattr(metering_backend, "metered_usage", None)
         if callable(metered):
@@ -115,10 +115,10 @@ def custom_video_usage(
     *,
     entry: CatalogEntry | None = None,
 ) -> Usage:
-    """一次自定义视频请求的计量：调用通道认得这个模型时取它的声明，认不得（抛 ``ValueError``）或没有声明时取通用口径。
+    """Custom-video request measurements: channel declarations for recognized models; generic if unknown (``ValueError``) or undeclared.
 
-    ``entry`` 是模型对应的条目（条目绑定优先，见 :func:`lib.custom_provider.model_facts.model_entry`），调用通道按它
-    认定模型，与能力和请求构造同一个；请求里仍是 API 模型名 ``model``。
+    ``entry`` is corresponding entries, bindings first (:func:`lib.custom_provider.model_facts.model_entry`), identifying models
+    consistently with capabilities/construction; requests still send API ``model`` names.
     """
     if metering is not None:
         try:
@@ -129,8 +129,8 @@ def custom_video_usage(
 
 
 def custom_image_estimate(metering_backend: object | None, facts: ImageRequestFacts) -> Usage:
-    """一次自定义图片请求的预估用量：调用通道有 ``estimate_usage`` 时取它并补齐张数（见 :func:`with_image_counts`），
-    否则取通用口径。"""
+    """Custom-image estimates: use channel ``estimate_usage`` plus counts (:func:`with_image_counts`)
+    when declared, otherwise generic measurements."""
     estimate = getattr(metering_backend, "estimate_usage", None) if metering_backend is not None else None
     usage: Usage | None = None
     if callable(estimate):
@@ -145,20 +145,20 @@ def custom_image_estimate(metering_backend: object | None, facts: ImageRequestFa
 
 @dataclass(frozen=True, slots=True)
 class CustomPriceSource:
-    """自定义供应商模型报价要读库的两项：模型行的计价依据（倍率、条目绑定），调用端点的计量声明。
+    """Two DB-backed custom-model pricing inputs: model factors/bindings and endpoint metering declarations.
 
-    ``endpoint_spec`` 为 ``None`` 表示模型行或端点解析不出，计量按通用口径。
+    ``endpoint_spec`` = ``None`` means unresolved model rows/endpoints, using generic metering.
     """
 
     pricing: CustomModelPricing
     endpoint_spec: EndpointSpec | None = None
 
     def video_usage(self, model: str, request: VideoGenerationRequest) -> Usage:
-        """一次视频请求的预估用量，与结算同一组计量声明。
+        """Video-request estimates through settlement-shared declarations.
 
-        请求没带能力时补上系统判定叠加用户覆盖后的能力，与执行时 ``CustomVideoBackend`` 注入的那份同源；
-        系统判定不可得时按不带能力计量。调用通道按模型对应的条目（条目绑定优先）认定模型，与执行时工厂交给
-        调用通道的条目同一个。
+        Missing request capabilities receive system + user overrides from execution ``CustomVideoBackend`` sources;
+        unavailable system declarations leave capabilities absent. Channels identify models through corresponding entries,
+        bindings first, identical to execution factory entries.
         """
         spec = self.endpoint_spec
         if spec is None:
@@ -186,7 +186,7 @@ class CustomPriceSource:
         )
 
     def image_usage(self, facts: ImageRequestFacts) -> Usage:
-        """一次图片请求的预估用量。调用通道按模型对应的条目（条目绑定优先）估算，与执行时工厂交给调用通道的条目同一个。"""
+        """Image-request estimates from matching entries, bindings first, identical to execution factory entries."""
         from lib.custom_provider.model_facts import model_entry
 
         facts = replace(facts, entry=model_entry(facts.model, "image", self.pricing.entry_binding))
@@ -195,7 +195,7 @@ class CustomPriceSource:
     def price(
         self, *, model: str, media_type: str, requests: Sequence[Usage], provider_multiplier: float, estimate: bool
     ) -> Cost:
-        """按所对应条目的价目表与两级倍率计价，见 :func:`lib.billing.catalog_pricing.price_custom_call`。"""
+        """Price matching entry tables × two multipliers; :func:`lib.billing.catalog_pricing.price_custom_call`."""
         return price_custom_call(
             model=model,
             media_type=media_type,
@@ -208,7 +208,7 @@ class CustomPriceSource:
 
 
 async def load_custom_price_source(session: AsyncSession, provider_id: str, model_id: str) -> CustomPriceSource | None:
-    """读一个自定义供应商模型的报价来源，与结算同一组读取；不是自定义供应商时为 ``None``。"""
+    """Read custom model pricing sources through settlement-shared reads; ``None`` for noncustom providers."""
     if not is_custom_provider(provider_id):
         return None
     from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec

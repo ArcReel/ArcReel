@@ -278,7 +278,7 @@ class TestBuildOptionsCustomModels:
 
 class TestBuildOptionsProviderNames:
     async def test_returns_provider_names_for_custom_providers(self, session_with_factory):
-        """provider_names 应包含自定义供应商的 ID→display_name 映射。"""
+        """provider_names must include custom-provider ID→display_name mappings."""
         db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
@@ -353,7 +353,7 @@ class TestBuildOptionsProviderNames:
         assert options["provider_names"] == {}
 
     async def test_disabled_models_provider_not_in_names(self, session_with_factory):
-        """如果供应商所有模型都被禁用，则不出现在 provider_names 中。"""
+        """Providers with all models disabled must not appear in provider_names."""
         db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         await repo.create_provider(
@@ -380,7 +380,7 @@ class TestBuildOptionsProviderNames:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _build_options 的名字按语言成文
+# Tests: _build_options names follow languages.
 # ---------------------------------------------------------------------------
 
 
@@ -394,7 +394,7 @@ class TestBuildOptionsLocalizedNames:
 
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
-        # 模型显示名取目录条目，不分语言；型号从目录取，免得随出厂快照更新失效
+        # Catalog model display names are language-independent; read catalog models to survive factory-snapshot updates.
         model_id = catalog.default_model("ark", "text")
         assert model_id is not None
         model = catalog.get_model("ark", model_id)
@@ -403,7 +403,7 @@ class TestBuildOptionsLocalizedNames:
         assert en["model_names"][f"ark/{model_id}"] == model.display_name
 
     async def test_model_names_key_every_listed_backend(self, session_with_factory):
-        """每个候选都能查到名字——缺键会让下拉退回 model id、译名形同虚设。"""
+        """Every candidate has a name; absent keys make dropdowns fall back to model IDs, defeating translated names."""
         db_session, _factory = session_with_factory
         mock_svc = _make_mock_svc(ready_providers=["ark", "openai"])
 

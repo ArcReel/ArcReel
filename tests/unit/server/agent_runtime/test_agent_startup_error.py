@@ -1,15 +1,11 @@
-"""AgentStartupError 透传 SDK stderr 的回归覆盖。
+"""Regression coverage for AgentStartupError forwarding SDK stderr.
 
-修这条路径的动机：SDK 子进程退出非 0 时 ProcessError.stderr 写死为占位符，
-之前 ArcReel 没传 stderr 回调，前端只看到 "Check stderr output for details"。
-此处覆盖：
-  1. AgentStartupError __str__ 自动拼 message + stderr，所有 except Exception:
-     str(exc) 路径都能透传；
-  2. _build_options 把 stderr 回调透传到 ClaudeAgentOptions；
-  3. send_new_session 在 actor.start 失败时收集 stderr 并包装为
-     AgentStartupError；
-  4. router 把 AgentStartupError 翻译成 502 + 结构化故障观测。
-"""
+Motivation: on nonzero SDK subprocess exit, ProcessError.stderr is a hardcoded placeholder; ArcReel previously supplied no stderr callback, so frontend showed only "Check stderr output for details".
+Coverage:
+  1. AgentStartupError __str__ joins message + stderr for every except Exception: str(exc) path.
+  2. _build_options forwards the stderr callback into ClaudeAgentOptions.
+  3. send_new_session collects stderr and wraps actor.start failures as AgentStartupError.
+  4. Router translates AgentStartupError into 502 and structured failure observations."""
 
 from __future__ import annotations
 
@@ -28,11 +24,9 @@ from tests.fakes import use_provider_env, use_sdk_client
 
 
 class _RecordingClient:
-    """假 SDK 客户端：只记住这轮装配好的 options。
+    """Fake SDK client retaining this round's assembled options.
 
-    actor 收到的是闭包着 options 的 ``client_factory``，调用一次即可取出其中的
-    stderr 回调——被测的正是「装配器把回调挂进 options」这一步，不能替换掉它。
-    """
+    The actor receives a ``client_factory`` closing over options; one call exposes the stderr callback. Do not replace the assembler's callback registration, which is the step under test."""
 
     def __init__(self, options: Any) -> None:
         self.options = options
@@ -46,7 +40,7 @@ def test_agent_startup_error_str_includes_stderr() -> None:
     rendered = str(exc)
     assert "Command failed with exit code 1" in rendered
     assert "Git for Windows" in rendered
-    # message 与 stderr 之间应留空行，方便前端展示
+    # Separate message and stderr with a blank line for frontend display.
     assert "\n\n" in rendered
 
 
@@ -71,7 +65,7 @@ def seeded_session_manager(tmp_path: Path) -> SessionManager:
 async def test_build_options_forwards_stderr_callback(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """_build_options 必须把 stderr 回调透传给 ClaudeAgentOptions。"""
+    """_build_options forwards the stderr callback to ClaudeAgentOptions."""
 
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
@@ -86,7 +80,7 @@ async def test_build_options_forwards_stderr_callback(
     opts = await seeded_session_manager._build_options("demo", stderr=collector)
     assert opts.stderr is collector
 
-    # 模拟 SDK 透传一行 stderr
+    # Simulate one stderr line forwarded by the SDK.
     opts.stderr("hello from claude.exe")
     assert captured == ["hello from claude.exe"]
 
@@ -97,7 +91,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """actor.start() 抛错时应收集 stderr 并包装为 AgentStartupError 抛出。"""
+    """Collect stderr and raise wrapped AgentStartupError when actor.start() fails."""
 
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
@@ -114,7 +108,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
             captured_stderr_cb.append(client_factory().options.stderr)
 
         async def start(self):
-            # 模拟 SDK 在 connect 阶段先喷 stderr 再退出
+            # Simulate SDK stderr followed by exit during connect.
             cb = captured_stderr_cb[0]
             cb("Claude Code on Windows requires either Git for Windows (for bash) or PowerShell.")
             cb("Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location.")
@@ -134,7 +128,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     err = exc_info.value
     assert "Git for Windows" in err.sdk_stderr
     assert "CLAUDE_CODE_GIT_BASH_PATH" in err.sdk_stderr
-    # __str__ 必须把两段拼出来，给 router/前端直接看
+    # __str__ must join both parts for direct router/frontend display.
     text = str(err)
     assert "Command failed with exit code 1" in text
     assert "Git for Windows" in text
@@ -155,7 +149,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
 async def test_send_new_session_no_stderr_still_wraps(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """即使 SDK 没产生 stderr，actor.start 失败也应包装为 AgentStartupError（保留原因链）。"""
+    """Wrap actor.start failure as AgentStartupError even without SDK stderr, preserving its cause chain."""
 
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
@@ -179,7 +173,7 @@ async def test_send_new_session_no_stderr_still_wraps(
 
     assert exc_info.value.sdk_stderr == ""
     assert "ENOENT" in str(exc_info.value)
-    # 原因链保留，便于 logger.exception 看到底层异常
+    # Preserve the cause chain for logger.exception inspection of the underlying error.
     assert isinstance(exc_info.value.__cause__, OSError)
 
 
@@ -187,7 +181,7 @@ async def test_send_new_session_no_stderr_still_wraps(
 async def test_send_new_session_wraps_option_assembly_failure(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 凭证注入失败是 options 装配失败的真实来源，异常须原样浮到 send_new_session
+    # Credential injection is a real options-assembly failure source; propagate it unchanged to send_new_session.
     use_provider_env(monkeypatch, AsyncMock(side_effect=LookupError("credential missing")))
 
     with pytest.raises(AgentStartupError) as exc_info:
@@ -205,11 +199,9 @@ async def test_send_new_session_wraps_option_assembly_failure(
 async def test_get_or_connect_wraps_actor_failure_with_stderr(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """恢复历史会话路径同样要把 actor.start 失败包装为 AgentStartupError。
+    """Historical-session recovery also wraps actor.start failure as AgentStartupError.
 
-    ``get_or_connect`` 与 ``send_new_session`` 是两条独立路径，单独覆盖避免
-    其中一条回归没人发现。
-    """
+    ``get_or_connect`` and ``send_new_session`` are independent paths; cover both so neither can regress unnoticed."""
     from tests.factories import make_session_meta
 
     async def fake_env():
@@ -243,7 +235,7 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     err = exc_info.value
     assert "resume-failed" in err.sdk_stderr
     assert "Command failed with exit code 1" in str(err)
-    # 失败后会话不应残留在内存里
+    # Failed sessions must not remain in memory.
     assert "resumed-session" not in seeded_session_manager.sessions
 
 
@@ -251,7 +243,7 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
 async def test_startup_stderr_is_not_truncated(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """启动阶段实际收到的 stderr 必须完整进入故障观测，不做行数裁剪。"""
+    """Include all startup stderr in failure observations without clipping line count."""
 
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}

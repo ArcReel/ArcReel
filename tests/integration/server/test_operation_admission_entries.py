@@ -1,4 +1,4 @@
-"""AI 操作入口与制作状态共用一份准入：同一条件下，入口的拒绝理由码等于状态里该操作的理由码。"""
+"""AI operation entries and production state share admission: identical conditions yield identical operation rejection codes."""
 
 from __future__ import annotations
 

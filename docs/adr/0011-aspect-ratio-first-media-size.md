@@ -2,35 +2,35 @@
 status: accepted
 ---
 
-# 媒体尺寸：比例由 aspect_ratio 唯一决定、永远优先；分辨率仅决定清晰度
+# Media dimensions: aspect_ratio alone determines ratio and always takes priority; resolution determines clarity only
 
-分镜图/视频的输出尺寸（宽×高）此前由各后端各自的「(分辨率档位, 比例) → 像素」静态表，或直接把「分辨率值」当尺寸下传得出。问题在于**尺寸自带比例**：只要分辨率值携带了比例信息（硬编码表里的错值、或用户填的自定义值如 `1920x1080`），就会压过项目的 `aspect_ratio`，产出比例错误的图。逐层排查（8 个图片后端 + 8 个视频后端 + 自定义分辨率值）确认这不是单点 bug，而是**机制缺陷**：
+Storyboard-image/video output dimensions (width×height) previously came from backend-specific static "(resolution tier, ratio) → pixels" tables or directly passing "resolution values" as dimensions. The problem is **dimensions carry ratios**: any ratio information in resolution values (incorrect hardcoded table entries or custom values such as `1920x1080`) can override project `aspect_ratio`, producing wrong-ratio images. Layer-by-layer investigation (8 image backends + 8 video backends + custom resolution values) confirmed a **mechanism defect**, not an isolated bug:
 
-- OpenAI 图片 `OPENAI_IMAGE_SIZE_MAP` 把 1K 的 `3:4`/`4:3` 错赋成相邻比例 9:16/16:9 的像素（方向对、幅度错 ±25~31%）；I2I 路径（`images.edit`）完全不传 size，比例由上游默认决定（用户实测正是此路径出图比例错）。
-- DashScope qwen 的 registry `resolutions` 是带比例的像素值（如 16:9 的 `2688*1536`），项目设 9:16 时旧逻辑 `if explicit: return explicit` 原样下传，比例丢失。
-- OpenAI/NewAPI 视频表含 dall-e 风格的 4:7 值与不被整除的 1080，且未知/自定义值原样透传可能非法。
+- OpenAI image `OPENAI_IMAGE_SIZE_MAP` incorrectly assigned 1K `3:4`/`4:3` the pixels of adjacent 9:16/16:9 ratios (correct orientation, wrong proportions by ±25~31%). I2I (`images.edit`) omitted size entirely, leaving ratios to upstream defaults (the user's observed wrong-ratio images came from this path).
+- DashScope qwen registry `resolutions` are ratio-bearing pixel values (such as 16:9 `2688*1536`). With project 9:16, old `if explicit: return explicit` passed them unchanged, losing the ratio.
+- OpenAI/NewAPI video tables contained dall-e-style 4:7 values and indivisible 1080, while unchanged unknown/custom values could be invalid.
 
-确立的产品级原则：**`aspect_ratio` 是输出比例的唯一真相源、永远优先；分辨率（预设档位或自定义值）只决定清晰度规模，不决定比例；在各后端尺寸约束内做到尽量精确的比例；缺分辨率但必需尺寸来控制比例时，兜底默认 720P。比例错的产物不可用。**
+Product principle: **`aspect_ratio` is the sole output-ratio source of truth and always takes priority. Resolution (preset tiers or custom values) determines only clarity scale, never ratio. Match ratios as exactly as backend dimension constraints allow; when resolution is missing but dimensions are required to control ratio, default to 720P. Wrong-ratio artifacts are unusable.**
 
 ## Considered Options
 
-- **逐后端修各自的静态表** —— 否决：错值散落多处、新增比例/后端仍要重抄表，且不解决「分辨率值携带比例压过 aspect_ratio」的根因。
-- **统一尺寸机制 `lib/backends/aspect_size.py`** —— 采纳。比例与短边算精确尺寸：合法尺寸 = `(aw·round_to·t, ah·round_to·t)`（`aw:ah` 为约简比例），天然零比例偏差 + 被 `round_to` 整除；各后端按自身像素约束（`max_long_edge` / `max_total_pixels`）夹取。分辨率统一规范化成「短边」：档位查表、自定义 `WxH` 取 `min` 剥离比例、`None` 兜底 720。
+- **Fix each backend's static tables**: rejected. Errors are scattered; new ratios/backends still require copying tables, without fixing the root cause of ratio-bearing resolution values overriding aspect_ratio.
+- **Unified dimension mechanism `lib/backends/aspect_size.py`**: accepted. Derive exact dimensions from ratio and short edge: legal dimensions = `(aw·round_to·t, ah·round_to·t)` (`aw:ah` is the reduced ratio), inherently without ratio deviation and divisible by `round_to`. Backends clamp to their pixel constraints (`max_long_edge` / `max_total_pixels`). Normalize resolution to "short edge": tiers use a lookup, custom `WxH` uses `min` to strip ratio, and `None` falls back to 720.
 
 ## Consequences
 
-- **① 自定义分辨率值剥离比例**：用户填 `1920x1080`（16:9）但项目要 9:16，只取 `min=1080` 当短边、比例仍走 9:16。前端 `ResolutionPicker` 仍允许自由输入，规范化在后端（唯一强制点）。
-- **② 统一机制取代各后端静态表**：废弃 `OPENAI_IMAGE_SIZE_MAP`、DashScope 的 `_SIZE_BY_RATIO`/`_WAN_PIXELS_BY_BUDGET`/`_EDIT_SIZE_BY_RATIO`；接受任意像素的后端（gpt-image-2、DashScope qwen-image-2.0 融合系列与 wan 方式二像素、qwen-edit-plus/max）零比例偏差。OpenAI 图片 I2I 与 T2I 对称下传 size。
-- **③ 计费与输出尺寸解耦**：OpenAI 图片主路径按 token 计费（覆盖绝大多数），删除计费兜底里的 `(resolution, aspect_ratio) → size` 反查。**代价**：SDK 不返回 usage 的兜底从此丧失按尺寸区分成本（落默认 `1024x1024` 档）——刻意不为兜底引入额外尺寸真相源，主路径不受影响。
-- **④ 统一短边档位（2K=1440、4K=2160）改变多个像素后端既有输出**（均为精确比例）：
-  - OpenAI 图片 2K：9:16 从约 `2048×3584`（4:7）→ `1440×2560`，像素约减半、成本下降；
-  - DashScope wan 4K：9:16 从 `3072×5376`（长边超 4K）→ `2160×3840`（长边 3840 才是名副其实的 4K）、像素约减半；
-  - DashScope wan/qwen 2K：9:16 从 `1536×2688`（4:7 偏差）→ `1440×2560`（精确、略缩）；
-  - DashScope wan 1K：9:16 从 `768×1344` → `1008×1792`（增大）。
-- **⑤ 个别后端有不可消除的固有约束，作正当例外**：
-  - **sora 视频**：size 是固定档枚举，**不接受任意 WxH**。故视频不走 `aspect_size`，改为**吸附比例最接近的合法档**。合法档按 model 分级（官方模型页确权，openai SDK `VideoSize` Literal 滞后）：sora-2（base）仅 720p 精确档（`720x1280`/`1280x720`），清晰度封顶 720 级（清晰度让位比例，符合原则）；sora-2-pro 另有 1080p 精确档（`1080x1920`/`1920x1080`）。dall-e 风格的 4:7 档（`1024x1792`/`1792x1024`）违背比例优先，已移除（`lib/backends/video_backends/openai.py`）。NewAPI 视频是通用 width/height 聚合端口，走 `aspect_size`（对齐 8 的倍数，得 `1920×1080` 等标准尺寸）。
-  - **ark Seedream 2K**：因总像素下限（≥3.68M）保留约 0.1% 比例偏移，保留现有精确表（迁移会回退精度）。
-  - **DashScope qwen 经典系列**（`qwen-image`/`-plus`/`-max`）仅 5 固定档、不接受任意像素：未注册预设、官方不推荐，不在本机制覆盖内。
-- **比例独立的字符串后端无需改尺寸逻辑**：Gemini/Grok/Vidu/ark/DashScope 视频把 `aspect_ratio`/`ratio` 作为独立 SDK 字段下传，与 `resolution` 正交（context7 核实 Veo 的 `aspect_ratio` 与 `resolution` 为各自独立字段；Grok 同形），不把比例压进像素 size，本就无尺寸 bug；仅补比例独立性守护测试与注释。
+- **① Strip ratio from custom resolution values**: if users enter `1920x1080` (16:9) but projects require 9:16, take only `min=1080` as short edge and retain 9:16. Frontend `ResolutionPicker` still permits free input; backend normalization is the sole enforcement point.
+- **② Replace backend static tables with the unified mechanism**: retire `OPENAI_IMAGE_SIZE_MAP` and DashScope `_SIZE_BY_RATIO`/`_WAN_PIXELS_BY_BUDGET`/`_EDIT_SIZE_BY_RATIO`. Backends accepting arbitrary pixels (gpt-image-2, DashScope qwen-image-2.0 fusion series and wan method-two pixels, qwen-edit-plus/max) have zero ratio deviation. OpenAI image I2I passes size symmetrically with T2I.
+- **③ Decouple billing from output dimensions**: OpenAI image primary paths bill by token (the vast majority); remove `(resolution, aspect_ratio) → size` reverse lookup from billing fallbacks. **Cost**: when SDK usage is absent, fallback costs can no longer distinguish dimensions (using default `1024x1024`). Intentionally avoid another dimension source of truth for fallback; primary paths are unaffected.
+- **④ Unified short-edge tiers (2K=1440, 4K=2160) change several pixel backends' existing outputs** (all with exact ratios):
+  - OpenAI image 2K, 9:16: approximately `2048×3584` (4:7) → `1440×2560`, approximately halving pixels and lowering cost;
+  - DashScope wan 4K, 9:16: `3072×5376` (long edge beyond 4K) → `2160×3840` (3840 long edge genuinely corresponds to 4K), approximately halving pixels;
+  - DashScope wan/qwen 2K, 9:16: `1536×2688` (4:7 deviation) → `1440×2560` (exact, slightly smaller);
+  - DashScope wan 1K, 9:16: `768×1344` → `1008×1792` (larger).
+- **⑤ Some backends have irreducible inherent constraints and are legitimate exceptions**:
+  - **Sora video**: size is a fixed enumeration, **not arbitrary WxH**. Video therefore bypasses `aspect_size` and **snaps to the legal tier with nearest ratio**. Legal tiers vary by model (verified by official model pages; openai SDK `VideoSize` Literals lag): sora-2 (base) has only exact 720p tiers (`720x1280`/`1280x720`), capping clarity at 720-class (clarity yields to ratio, consistent with the principle); sora-2-pro adds exact 1080p tiers (`1080x1920`/`1920x1080`). Dall-e-style 4:7 tiers (`1024x1792`/`1792x1024`) violate ratio priority and were removed (`lib/backends/video_backends/openai.py`). NewAPI video is a generic width/height aggregation endpoint using `aspect_size` (aligned to multiples of 8, producing standard dimensions such as `1920×1080`).
+  - **Ark Seedream 2K**: retain approximately 0.1% ratio deviation due to minimum total pixels (≥3.68M), preserving existing exact tables (migration would reduce precision).
+  - **DashScope qwen classic series** (`qwen-image`/`-plus`/`-max`): only five fixed tiers, no arbitrary pixels; no registered presets and not officially recommended, so outside this mechanism.
+- **String-based backends with independent ratios need no dimension-logic changes**: Gemini/Grok/Vidu/ark/DashScope video pass `aspect_ratio`/`ratio` as independent SDK fields orthogonal to `resolution` (context7 verified Veo's independent `aspect_ratio` and `resolution`; Grok has the same shape). They do not encode ratio into pixel size and already have no dimension bug; add only ratio-independence guard tests and comments.
 
-与 `docs/adr/0001` 同属「执行时解析生成参数」一类——尺寸同样在执行层按比例+分辨率精确推导，不预先冻结。
+Like `docs/adr/0001`, this is "resolve generation parameters at execution": dimensions likewise derive exactly from ratio+resolution in the execution layer, without advance freezing.

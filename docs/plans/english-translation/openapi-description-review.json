@@ -1,0 +1,92 @@
+[
+  {
+    "path": [
+      "paths",
+      "/api/v1/official-service/instance-id/reset",
+      "post",
+      "description"
+    ],
+    "before": "删除实例标识；下次请求官方服务时生成新的，与此前的上报和评分不再关联。",
+    "after": "Delete the instance identifier; the next official-service request creates a new one, no longer associated with earlier reports or ratings."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/onboarding/seen",
+      "post",
+      "description"
+    ],
+    "before": "标记引导已看过。幂等 —— 跳过/看完/关闭三条退出路径都打到这里。",
+    "after": "Mark onboarding as seen. Idempotent: skip, finish, and close exit paths all call this endpoint."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/onboarding/status",
+      "get",
+      "description"
+    ],
+    "before": "引导是否已看过。未设置视为未看过 —— 前端据此决定是否自动弹出。",
+    "after": "Whether onboarding has been seen. Unset means unseen; the frontend uses this to decide whether to open it automatically."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/ad-script",
+      "post",
+      "description"
+    ],
+    "before": "提交广告/短片整份生成，返回生成批次。\n\n``regenerate`` 时已有正式脚本而未带（或带了过期的）``overwrite_revision`` 返回 409，诊断里的\n``script_overwrite`` 列出将被移除的条目与产物、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。",
+    "after": "Submit full ad / short-film generation, returning a generation batch.\n\nIf ``regenerate`` encounters an existing formal script and ``overwrite_revision`` is absent or stale, return 409 without\nsubmitting tasks. Diagnostic ``script_overwrite`` lists entries and artifacts to remove, rendered ``text``, and the\nacceptance token ``revision``."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/prompt-authoring",
+      "post",
+      "description"
+    ],
+    "before": "保存附加指令并提交提示词编写，返回生成批次。\n\n显式重写会替换已有视觉层内容而未带（或带了过期的）``overwrite_revision`` 时 409，诊断里的\n``prompt_overwrite`` 列出将被覆盖的条目与字段、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。",
+    "after": "Save additional instructions and submit prompt authoring, returning a generation batch.\n\nWhen explicit rewriting would replace existing visual content and ``overwrite_revision`` is absent or stale, return 409\nwithout submitting tasks. Diagnostic ``prompt_overwrite`` lists entries and fields to overwrite, rendered ``text``, and\nthe acceptance token ``revision``."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/prompt-authoring/instructions",
+      "put",
+      "description"
+    ],
+    "before": "只保存本集的附加指令（「交给 Agent」路径用），不提交生成。",
+    "after": "Save only this episode’s additional instructions for the “Hand to Agent” path, without submitting generation."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/script-plan",
+      "post",
+      "description"
+    ],
+    "before": "保存附加指令并提交 AI 规划脚本，返回生成批次。\n\n新的脚本规划整份替换本集现有的规划与草稿；是否先向用户确认由调用方负责。",
+    "after": "Save additional instructions and submit AI script planning, returning a generation batch.\n\nThe new script plan replaces this episode’s entire existing plan and draft; the caller is responsible for deciding whether to confirm with the user first."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/projects/{project_name}/episodes/{episode}/script-plan/instructions",
+      "put",
+      "description"
+    ],
+    "before": "只保存本集的附加指令（「交给 Agent」路径用），不提交生成。",
+    "after": "Save only this episode’s additional instructions for the “Hand to Agent” path, without submitting generation."
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/system/logs/download",
+      "get",
+      "description"
+    ],
+    "before": "打包返回 logs/ 目录所有文件 + diagnostics.txt。",
+    "after": "Return a package containing all files in logs/ plus diagnostics.txt."
+  }
+]

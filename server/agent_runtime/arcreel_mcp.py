@@ -1,8 +1,8 @@
-"""ArcReel Agent 会话的 in-process MCP server。
+"""In-process MCP server for ArcReel Agent sessions.
 
-工具 handler 跑在服务端主进程（不在 Agent sandbox 内），因此能读 ArcReel 数据库、调用供应商 HTTP，
-而不必在 ``filesystem.denyRead`` / 网络白名单上开口子。每个会话以自己的项目建一个 server；工具全部来自
-Agent 工具集声明，由内嵌 adapter 暴露。
+Tool handlers run in the server main process, outside the Agent sandbox, so they can access ArcReel databases and provider HTTP
+without exceptions in ``filesystem.denyRead`` or network whitelists. Each session builds a server for its project; all tools come from
+Agent toolset declarations, exposed through the embedded adapter.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def build_arcreel_mcp_server(
     data_root: Path,
     user_id: str = DEFAULT_USER_ID,
 ) -> McpSdkServerConfig:
-    """以会话项目构建暴露全部 ArcReel 工具的 in-process MCP server；生成类工具等到批次终态再返回。"""
+    """Build an in-process MCP server exposing all ArcReel tools for the session project; generation tools wait for terminal batch state before returning."""
     return embedded_server(
         AGENT_TOOLSET,
         name="arcreel",

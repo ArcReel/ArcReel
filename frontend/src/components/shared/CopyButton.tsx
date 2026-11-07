@@ -7,14 +7,14 @@ import { copyText } from "@/utils/clipboard";
 
 interface CopyButtonProps {
   text: string;
-  /** 覆盖未复制状态的按钮无障碍名称。 */
+  /** Override the button's accessible name before copying. */
   label?: string;
-  /** 覆盖复制成功后的按钮无障碍名称。 */
+  /** Override the button's accessible name after successful copying. */
   copiedLabel?: string;
   className?: string;
 }
 
-/** 图标按钮：颜色随所在的行，复制成功后图标短暂变为品牌色对勾。 */
+/** Icon button inherits its row's color; successful copying briefly changes the icon to a brand-color checkmark. */
 export function CopyButton({ text, label, copiedLabel, className }: CopyButtonProps) {
   const { t } = useTranslation("dashboard");
   const [copied, setCopied] = useState(false);
@@ -39,7 +39,7 @@ export function CopyButton({ text, label, copiedLabel, className }: CopyButtonPr
             className={className}
             aria-label={title}
             onClick={() => {
-              // 复制成功才给对勾：非安全上下文走 execCommand 兜底，兜底也失败时不假报成功
+              // Show the checkmark only on success: insecure contexts fall back to execCommand; do not falsely report success if that also fails
               void copyText(text).then(
                 () => setCopied(true),
                 () => undefined,

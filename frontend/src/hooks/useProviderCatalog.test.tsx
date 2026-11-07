@@ -60,7 +60,7 @@ describe("useProviderCatalog", () => {
   });
 
   it("does not write back a read that a later one took over", async () => {
-    // 首拉与保存后的重取共用一个取消域：慢的那次回来时写下的是过期目录，必须被丢弃。
+    // Initial/post-save refetches share cancellation domains; late slower catalogs are stale and discarded.
     const stale = createDeferred<{ providers: ProviderInfo[] }>();
     let call = 0;
     vi.spyOn(API, "getProviders").mockImplementation(() => {

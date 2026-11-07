@@ -7,7 +7,7 @@ export type FilePreviewKind = "image" | "video" | "audio" | "text";
 
 export function canDeleteFile(entry: FileViewEntry): boolean {
   if (entry.type !== "file") return false;
-  // 当前版本快照由服务端标出，删除会被拒绝
+  // The server identifies the current version snapshot; deleting it is rejected
   return (entry.role === "history" && !entry.is_current) || (entry.role === "unreferenced" && entry.owner?.kind !== "source");
 }
 
@@ -35,7 +35,7 @@ const PREVIEW_KINDS: Record<string, FilePreviewKind> = {
   log: "text",
 };
 
-/** 文本预览的上限：更大的文件只提供下载，不把整份文本塞进页面。 */
+/** Text-preview limit: larger files offer download only, without inserting their entire text into the page. */
 export const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024;
 
 export function previewKind(name: string): FilePreviewKind | null {
@@ -43,7 +43,7 @@ export function previewKind(name: string): FilePreviewKind | null {
   return dot < 0 ? null : (PREVIEW_KINDS[name.slice(dot + 1).toLowerCase()] ?? null);
 }
 
-/** 「跳到所属界面」的去处：`href` 是项目工作区内的地址（项目设置以 `~` 开头），`focus` 是到达后要定位的对象。 */
+/** Destination for jumping to the owning view: `href` is a project-workspace address (project settings start with `~`); `focus` identifies the object to locate on arrival. */
 export interface OwnerTarget {
   href: string;
   labelKey: string;

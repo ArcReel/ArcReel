@@ -25,7 +25,7 @@ type ConflictPolicy = "skip" | "overwrite" | "rename";
 
 const CONFLICT_POLICIES: readonly ConflictPolicy[] = ["skip", "rename", "overwrite"];
 
-/** 后端按条目返回的失败原因，未知原因落到通用文案。 */
+/** Per-entry backend failure reasons; unknown reasons use generic copy. */
 const FAILURE_KEYS: Record<string, string> = {
   not_found: "apply_failed_not_found",
   image_missing: "apply_failed_image_missing",
@@ -35,7 +35,7 @@ const FAILURE_KEYS: Record<string, string> = {
 };
 
 /**
- * 把资产库里的一个资产复制到某个项目。项目里已有同名资产时，按所选方式跳过、另起新名或覆盖。
+ * Copy a library asset into a project. If its name already exists, skip, choose a new name or overwrite according to the selected mode.
  */
 export function ApplyToProjectDialog({ asset, onClose }: { asset: Asset | null; onClose: () => void }) {
   const [applying, setApplying] = useState(false);
@@ -46,7 +46,7 @@ export function ApplyToProjectDialog({ asset, onClose }: { asset: Asset | null; 
     <Dialog
       open={asset !== null}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免结果还没回来对话框先消失
+        // Ignore Escape and backdrop clicks while the request is in flight, preventing dismissal before results arrive
         if (!next && !applying) onClose();
       }}
     >

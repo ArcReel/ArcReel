@@ -1,8 +1,8 @@
-"""供应商返回之后的落盘遇上取消：观测取消与写盘线程的交错。
+"""Cancellation during post-provider writes: observe task/write-thread interleavings.
 
-规则见 docs/standards/backend.md「供应商返回之后的落账段不可中断」：取消落在写盘期间时，写盘线程照常
-写完、取消随之消失，调用方后续的转码与产物提交继续执行。用例把写盘卡在闸门上，在写盘期间取消任务，
-再放行，断言任务正常结束且后续步骤照常执行。
+Per docs/standards/backend.md post-provider noninterruptible settlement rules, writes complete
+and cancellation is consumed, allowing later transcoding/commits. Gate write threads, cancel
+during writes, then release and assert normal completion plus subsequent work.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 class WriteGate:
-    """写盘线程的闸门：线程进入写盘即置 ``started``，等到 ``release`` 才继续。"""
+    """Write-thread gate sets ``started`` on entry, continuing only after ``release``."""
 
     def __init__(self) -> None:
         self.started = threading.Event()
@@ -27,9 +27,9 @@ class WriteGate:
 
 
 class GatedWritePath(type(Path())):
-    """``write_bytes`` 被闸门挡住的 ``output_path``。
+    """``output_path`` whose ``write_bytes`` is gated.
 
-    作为请求的输入对象注入，不 patch 生产符号。
+    Inject as request input objects, never patch production symbols.
     """
 
     def attach(self, gate: WriteGate) -> GatedWritePath:
@@ -45,10 +45,10 @@ class GatedWritePath(type(Path())):
 
 
 async def cancel_during_write(operation: Callable[[], Awaitable[object]], gate: WriteGate) -> list[str]:
-    """运行 ``operation``，在它的写盘线程卡住期间取消任务，放行后返回后续步骤的执行记录。
+    """Run ``operation``, cancel while its write thread is gated, then release and return subsequent-step records.
 
-    ``operation`` 之后追加一个“后续步骤”标记，代表调用方的转码与产物提交。取消若穿透了落盘段，
-    任务以 ``CancelledError`` 结束，这里随之抛出，后续步骤记录也不会出现。
+    Append after ``operation`` a subsequent-step marker representing caller transcoding/commits. If cancellation
+    escapes persistence, tasks end with ``CancelledError``, propagated here without that marker.
     """
     steps: list[str] = []
 
@@ -60,7 +60,7 @@ async def cancel_during_write(operation: Callable[[], Awaitable[object]], gate: 
     try:
         assert await asyncio.to_thread(gate.started.wait, 5), "写盘线程未启动"
         task.cancel()
-        # 线程往返把控制权交还事件循环，可中断的实现会在此结束
+        # Thread round trips return control to loops; interruptible implementations end here.
         await asyncio.to_thread(lambda: None)
         assert not task.done(), "取消不得在写盘结算前结束任务"
     finally:

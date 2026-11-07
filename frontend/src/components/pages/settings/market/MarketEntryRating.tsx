@@ -8,8 +8,8 @@ import { errMsg } from "@/utils/async";
 const STARS = [1, 2, 3, 4, 5] as const;
 
 /**
- * 1–5 星评分，经本地服务端代理到官方服务，可随时改评。只有本地有安装记录时可用；
- * 官方服务没有本实例的安装记录等拒绝原因原样显示在控件旁。
+ * A 1–5 star rating, proxied through the local server to the official service; users can change it at any time. Available only when a local installation record exists;
+ * rejection reasons, such as no installation record for this instance on the official service, appear unchanged beside the control.
  */
 export function MarketEntryRating({
   sourceId,

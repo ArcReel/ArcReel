@@ -22,16 +22,16 @@ interface CharacterDerivativesFieldProps {
   projectName: string;
   characterName: string;
   derivatives: Record<string, CharacterDerivative>;
-  /** 本体资产图路径；没有时衍生不能生成。 */
+  /** Base-sheet path; derivatives cannot generate without it. */
   ownerSheet?: string;
   readOnly: boolean;
-  /** 详情里其他写入或本体生成占用中。 */
+  /** Other detail writes/base generation occupy the asset. */
   busy: boolean;
 }
 
 /**
- * 角色详情的「衍生」区块：逐条列出衍生，区块头有「新增衍生」。新增、改名、删除立即执行；
- * 每条的外观变化是独立的编辑单元，在所在行保存。写请求经详情编辑器的写入登记计入占用态。
+ * Character-detail derivatives: individual rows plus add-derivative header. Add/rename/delete execute immediately;
+ * each appearance-change draft is an independent editing unit saved in its row. Detail-editor write registration tracks occupancy.
  */
 export function CharacterDerivativesField({
   projectName,
@@ -43,12 +43,12 @@ export function CharacterDerivativesField({
 }: CharacterDerivativesFieldProps) {
   const { t } = useTranslation(["assets", "common"]);
   const ownerFp = useProjectsStore((s) => (ownerSheet ? s.getAssetFingerprint(ownerSheet) : null));
-  // 登记或本体图变化时重新读取衍生图状态（过期判定依赖二者）
+  // Reread derivative state after registration/base-image changes, both needed for currency.
   const revision = `${JSON.stringify(derivatives)}#${ownerSheet ?? ""}#${ownerFp ?? ""}`;
   const entries = Object.entries(derivatives);
   const { statuses, refresh } = useCharacterDerivativeSheets(projectName, characterName, revision, entries.length > 0);
-  // 行标识与衍生名无关：改名后新名称沿用原来那一行，行内未保存的外观变化不丢；
-  // 旧名之后被新衍生复用时另发标识，两行不会撞在一起
+  // Row identities are independent of names: renames retain rows and unsaved appearance changes;
+  // future new derivatives reusing old names get new identities, avoiding collisions.
   const [rowKeys, setRowKeys] = useState<{ byName: Record<string, string>; next: number }>({ byName: {}, next: 0 });
   if (entries.some(([name]) => !(name in rowKeys.byName))) {
     setRowKeys((prev) => {
@@ -58,7 +58,7 @@ export function CharacterDerivativesField({
       return { byName, next };
     });
   }
-  // 关闭动画期间标题沿用上一张图
+  // Closing-animation titles retain the previous image.
   const [viewing, setViewing] = useState<{ src: string; alt: string; title: string; open: boolean } | null>(null);
 
   const handleRenamed = useCallback((from: string, to: string) => {
@@ -68,7 +68,7 @@ export function CharacterDerivativesField({
     });
   }, []);
 
-  // 每条衍生独立保留：外部删除或改名只替换无修改的行，其他行继续接收真实数据。
+  // Retain each derivative separately: external deletion/rename replaces only clean rows; other rows keep receiving live data.
   const liveRows = new Map(
     entries.flatMap(([name, derivative]) => {
       const key = rowKeys.byName[name];
@@ -129,7 +129,7 @@ export function CharacterDerivativesField({
   );
 }
 
-/** 保留结束或原本无修改的移除行从区块登记中清退。 */
+/** Remove deleted rows from section registration after retention ends or when initially clean. */
 function RemovedRow({ rowKey, onRemoved }: { rowKey: string; onRemoved: (key: string) => void }) {
   useEffect(() => onRemoved(rowKey), [rowKey, onRemoved]);
   return null;
@@ -193,9 +193,9 @@ function AddDerivative({
     <Popover
       open={open}
       onOpenChange={(next) => {
-        // 提交中不响应关闭，请求在途时输入不丢
+        // Ignore closing during submission, preserving input during requests.
         if (!next && submitting) return;
-        // 打开时复核占用：渲染之后到点击之间，本体可能刚被别处占用
+        // Recheck on opening: another action may occupy the base after render and before click.
         if (next && rejectIfAssetBusy("character", projectName, characterName, t, "assets:derivative_busy_hint")) return;
         setOpen(next);
         if (!next) reset();

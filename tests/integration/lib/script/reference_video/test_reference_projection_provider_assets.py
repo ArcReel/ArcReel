@@ -1,8 +1,6 @@
-"""请求投影里的供应商素材关联核对：读侧（接收任务、批量预览、报价共用的投影）与执行侧对同一份配置得出同一结论。
+"""Provider-asset link verification in request projection: shared read projection for task acceptance/batch preview/quotes agrees with execution on identical configuration.
 
-真实数据库（凭证、素材库账号与绑定、关联、自定义供应商）、真实版本记录与生产装配（``assemble_backend``）；
-只有视频请求事实用构造好的结果对象。不发出任何网络请求。
-"""
+Use real DB credentials, library accounts/bindings/links/custom providers, real version records and production ``assemble_backend``. Only video-request facts use constructed value objects. No network requests."""
 
 from __future__ import annotations
 
@@ -58,7 +56,7 @@ class _World:
         return ConfigResolver(self.sessions)
 
     async def link(self, *, state: str, **extra: Any) -> int:
-        """为张三的当前内容版本在素材库账号里建一条选定的关联。"""
+        """Create a selected library-account association for 张三's current content version."""
         async with self.sessions() as session:
             account = await AssetLibraryRepository(session).get_account(self.account_id)
             assert account is not None
@@ -113,7 +111,7 @@ class _World:
             return provider.id
 
     async def read_side(self, provider_id: str, model_id: str) -> ReferenceUnitRequestProjection:
-        """接收任务、批量预览与报价共用的投影：素材关联按当前配置装配的调用通道核对。"""
+        """Acceptance/batch-preview/quote projection verifies links using current-config-assembled backends."""
         return await project_reference_unit_request(
             project=self.project,
             script=_SCRIPT,
@@ -126,7 +124,7 @@ class _World:
         )
 
     async def execution_side(self, provider_id: str, model_id: str) -> ReferenceUnitRequestProjection:
-        """执行侧的投影：素材关联按 lane 实际构造的调用通道核对（执行器交给投影的就是这一份）。"""
+        """Execution projection verifies links using actual lane-constructed backends supplied by executors."""
         backend = await assemble_backend(
             provider_id=provider_id, media_type="video", model_id=model_id, resolver=self.resolver
         )
@@ -196,7 +194,7 @@ def _link_problems(projection: ReferenceUnitRequestProjection) -> list[dict[str,
 
 
 async def test_precheck_and_execution_report_the_same_unusable_link_for_builtin_ark(world: _World):
-    """内置方舟：适用关联处理中时，读侧投影与执行侧投影报同一个阻断问题，点名提示词里的图片编号；可用后都不阻断。"""
+    """Built-in Ark: applicable ingesting links produce identical read/execution blockers naming prompt-image indices; available links block neither."""
     async with world.sessions() as session:
         credential = await CredentialRepository(session).create(
             provider="ark", name="主 Key", api_key="TEST-ark-inference-key-0001"
@@ -232,8 +230,7 @@ async def test_precheck_and_execution_report_the_same_unusable_link_for_builtin_
 async def test_custom_endpoint_asset_support_comes_from_the_endpoint(
     world: _World, model: str, endpoint: str, applies: bool
 ):
-    """自定义供应商的 Seedance 端点：是否发素材引用由模型挂接的端点决定（2.0 / 2.5 有素材引用契约，1.x 没有），
-    与型号名无关；读侧与执行侧结论一致。"""
+    """Custom-provider Seedance asset references depend on bound endpoints (2.0/2.5 support,1.x does not), never model names; read/execution conclusions agree."""
     db_id = await world.custom_provider([{"model_id": model, "is_default": True, "endpoint": endpoint}])
     await world.bind("custom", db_id)
     await world.link(state="failed", error_code="DownloadFailed", error_message="cannot fetch")
@@ -248,7 +245,7 @@ async def test_custom_endpoint_asset_support_comes_from_the_endpoint(
 
 
 async def _configured_projection(world: _World, provider_id: str, model_id: str) -> ReferenceUnitRequestProjection:
-    """生产读侧投影：请求事实按项目配置与真实能力解析，不替换。"""
+    """Production read projection resolves project-config request facts through real capabilities without substitutes."""
     project = {**world.project, "video_provider_r2v": f"{provider_id}/{model_id}"}
     return await project_reference_unit_request(
         project=project, script=_SCRIPT, unit=_UNIT, project_path=world.project_path, resolver=world.resolver
@@ -256,8 +253,7 @@ async def _configured_projection(world: _World, provider_id: str, model_id: str)
 
 
 async def test_opaque_custom_model_bound_to_seedance_gets_the_entry_video_capabilities(world: _World):
-    """不透明模型 ID 绑定 Seedance 2.0 条目：参考生视频可选，两张参考图都不被裁掉，素材关联核对随之生效；
-    执行时调用通道按同一条目声明能力，请求里仍是原模型 ID。"""
+    """Opaque IDs bound to Seedance2.0 permit reference-video, retain both images and verify asset links. Execution declares capabilities from the same entry, preserving original API IDs."""
     db_id = await world.custom_provider(
         [{"model_id": OPAQUE_MODEL, "is_default": True, "entry_binding": "bytedance/doubao-seedance-2.0"}]
     )
@@ -284,10 +280,7 @@ async def test_opaque_custom_model_bound_to_seedance_gets_the_entry_video_capabi
 
 
 async def test_opaque_custom_model_without_binding_keeps_the_conservative_capabilities(world: _World):
-    """未绑定条目的不透明模型 ID 按保守回落：尾帧与参考音频不开；参考图上限只受通道约束（docs/adr/0104）。
-
-    方舟通道实现了参考图且不设上限，参考生视频因而可选，上限为未收录：执行时不裁剪，超出部分由上游拒绝。
-    """
+    """Unbound opaque IDs conservatively omit end frames/reference audio; image limits depend only on backend constraints (docs/adr/0104). Ark supports unrestricted reference images, so reference-video remains selectable with unlisted limits: execution does not clip and upstream rejects excess."""
     db_id = await world.custom_provider([{"model_id": OPAQUE_MODEL, "is_default": True}])
     provider_id = make_provider_id(db_id)
 
@@ -305,7 +298,7 @@ async def test_opaque_custom_model_without_binding_keeps_the_conservative_capabi
 
 
 async def test_explicit_capability_override_still_wins_over_the_bound_entry(world: _World):
-    """用户的能力覆盖优先于绑定条目给出的通道能力。"""
+    """User capability overrides outrank backend capabilities derived from bound entries."""
     db_id = await world.custom_provider(
         [
             {
@@ -327,7 +320,7 @@ async def test_explicit_capability_override_still_wins_over_the_bound_entry(worl
 
 
 async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_capabilities(world: _World):
-    """内置方舟下用户添加的不透明模型 ID 绑定 Seedance 2.0 条目：读侧与执行侧都按条目取得参考图能力。"""
+    """User-added opaque IDs under built-in Ark bound to Seedance2.0 use entry image capabilities on reads and execution."""
     async with world.sessions() as session:
         await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-inference-key-0001")
         await session.commit()
@@ -339,7 +332,7 @@ async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_c
         backend = await assemble_backend(
             provider_id="ark", media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
         )
-        # 执行闸门同一口径：调用通道的声明与绑定条目两侧求值
+        # Match execution gates: evaluate both backend declarations and bound entries.
         executed = effective_builtin_video_capabilities(resolve_video_capabilities(backend), "ark", OPAQUE_MODEL)
     finally:
         catalog.install_user_added_models(())

@@ -1,16 +1,16 @@
 /**
- * 集页视图路由：当前视图记在地址的 `?view=` 上，取值与可用条件只在这里定义。
+ * Episode view routing: URL `?view=` stores the current view; define all values/availability only here.
  *
- * | 取值 | 视图 | 何时出现 |
+ * | Value | View | Availability |
  * | --- | --- | --- |
- * | `setting` | 故事设定（广告项目的梗概、类型、主题与世界观） | 只在广告项目出现，排第一 |
- * | `plan` | 脚本规划（内容确认页；剧本未生成时是集原文确认） | 非广告项目，有脚本规划中间稿、集原文待确认，或参考生视频项目 |
- * | `grid` | 多宫格分镜图 | 分镜图生视频且开启宫格；集原文待确认时不可选 |
- * | `board` | 分镜（参考生视频项目称「视频单元」） | 恒有；有脚本规划却还没有正式剧本时不可选 |
- * | `edit` | 剪辑 | 有正式剧本的非演示项目 |
+ * | `setting` | Story settings (ad synopsis, genre, theme, world) | Ads only, first tab |
+ * | `plan` | Script planning (content confirmation; source confirmation before scripts) | Non-ads with intermediate plans, pending source confirmation, or reference-to-video |
+ * | `grid` | Grid storyboards | Storyboard-image-to-video with grids enabled; unavailable during source confirmation |
+ * | `board` | Storyboards (video units for reference-to-video) | Always present; unavailable with plans but no formal script |
+ * | `edit` | Editing | Non-demo projects with formal scripts |
  *
- * 缺省视图：有正式剧本时是 `board`，否则有脚本规划时是 `plan`。地址只在所选视图不是缺省视图时
- * 写 `view`，剧本生成后停在缺省视图上的页面因此自动落到分镜。取值无效或当前不可选时按缺省视图显示。
+ * Default is `board` with formal scripts, otherwise `plan` with script plans. Write
+ * `view` only for nondefault selections, so pages on defaults automatically reach storyboards after generation. Invalid/unavailable values display defaults.
  */
 import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM } from "@/app-routes";
 import type { EpisodeMeta, ProjectData } from "@/types";
@@ -19,38 +19,38 @@ import type { GenerationRoute } from "@/utils/generation-mode";
 
 export const EPISODE_VIEWS = ["setting", "plan", "grid", "board", EPISODE_VIEW_EDIT] as const;
 export type EpisodeView = (typeof EPISODE_VIEWS)[number];
-/** 画布承担的视图；故事设定与剪辑视图替换整个画布。 */
+/** Canvas-owned views; story settings/editing replace the whole canvas. */
 export type CanvasView = Exclude<EpisodeView, "setting" | "edit">;
 
-/** 决定集页有哪些视图的事实，由路由层按项目与这一集算出。 */
+/** Facts determining episode views, computed by routing from project/episode state. */
 export interface EpisodeViewFacts {
   isAd: boolean;
   route: GenerationRoute;
-  /** 分镜图生视频且开启了宫格分镜图。 */
+  /** Storyboard-image-to-video with grid storyboards enabled. */
   grid: boolean;
-  /** 已有正式剧本。 */
+  /** Formal script exists. */
   hasScript: boolean;
-  /** 已有脚本规划中间稿（`script_status` 为 segmented 或 generated）。 */
+  /** Script-plan intermediate exists (`script_status` segmented or generated). */
   hasDraft: boolean;
-  /** 剧本与中间稿都没有，脚本规划视图显示集原文确认。 */
+  /** Neither script nor intermediate exists; planning displays source confirmation. */
   sourceReview: boolean;
-  /** 演示项目：没有剪辑视图。 */
+  /** Demo project: no editing view. */
   demo: boolean;
 }
 
-/** 视图 tab 的元素 id，视图区以它作为无障碍名。 */
+/** View-tab element id supplying its view region's accessible name. */
 export function episodeViewTabId(view: EpisodeView): string {
   return `episode-view-tab-${view}`;
 }
 
-/** 本集已有中间稿：分段稿或生成好的剧本草稿。 */
+/** Intermediate exists: segmented draft or generated-script draft. */
 export function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
   return meta?.script_status === "segmented" || meta?.script_status === "generated";
 }
 
 /**
- * 脚本规划视图呈现集原文：已选集，但正式剧本与中间稿都没有。
- * 广告/短片恒单集、演示项目没有源文可切，走各自画布。
+ * Planning view shows source when an episode is selected without formal script/intermediate.
+ * Ad/short films are single-episode; demos have no sources to split. Both use their own canvases.
  */
 export function showsEpisodeSource(
   projectData: ProjectData | null,
@@ -72,14 +72,14 @@ function planAvailable(facts: EpisodeViewFacts): boolean {
   return facts.sourceReview || facts.hasDraft || (facts.route === "reference_video" && facts.hasScript);
 }
 
-/** 集页页头的视图 tab，按显示顺序排列。 */
+/** Episode-header view tabs in display order. */
 export function episodeViewTabs(facts: EpisodeViewFacts): EpisodeViewTab[] {
   const plan = planAvailable(facts);
   const tabs: EpisodeViewTab[] = [];
   if (facts.isAd) tabs.push({ view: "setting", disabled: false });
   if (plan) tabs.push({ view: "plan", disabled: false });
   if (facts.grid) tabs.push({ view: "grid", disabled: facts.sourceReview });
-  // 参考生视频的单元列表在中间稿阶段就可查看；分镜图生视频要等正式剧本。没有脚本规划时分镜是唯一视图。
+  // Reference-to-video unit lists are viewable at intermediate stage; storyboard-image-to-video waits for formal scripts. Without plans, storyboards are the sole view.
   const boardEnabled =
     facts.hasScript || !plan || (facts.route === "reference_video" && !facts.sourceReview);
   tabs.push({ view: "board", disabled: !boardEnabled });
@@ -92,15 +92,15 @@ export function defaultEpisodeView(facts: EpisodeViewFacts): EpisodeView {
   return planAvailable(facts) ? "plan" : "board";
 }
 
-/** 地址上的取值落到哪个视图：无效或不可选时按缺省视图。 */
+/** Resolve URL values to views, falling back to default for invalid/unavailable values. */
 export function resolveEpisodeView(requested: string | null, facts: EpisodeViewFacts): EpisodeView {
   const tab = episodeViewTabs(facts).find((entry) => entry.view === requested);
   return tab && !tab.disabled ? tab.view : defaultEpisodeView(facts);
 }
 
 /**
- * 切到 `next` 后的查询参数：缺省视图不写 `view`，其余参数原样保留。返回新对象、不改动传入的参数——
- * 跳转被离开拦截挡下时，当前地址的参数不能已经变了。
+ * Query parameters after switching to `next`: omit `view` for defaults, preserving all other parameters. Return a new object without mutating inputs;
+ * leave-guard rejection must not already change current URL parameters.
  */
 export function withEpisodeView(params: URLSearchParams, next: EpisodeView, facts: EpisodeViewFacts): URLSearchParams {
   const result = new URLSearchParams(params);
@@ -110,12 +110,12 @@ export function withEpisodeView(params: URLSearchParams, next: EpisodeView, fact
 }
 
 /**
- * 应用内跳转 `to` 之后是否仍停留在当前视图：同一集，且地址上的 `view` 按上面的规则落到同一个视图。
+ * Whether in-app `to` navigation stays in the current view: same episode and URL `view` resolves to the same view above.
  *
- * 脚本规划、多宫格分镜图与分镜之间切换时画布实例不卸载，但画布里的编辑单元只挂在其中一个视图下
- * （分镜详情、视频单元正文只在分镜视图渲染）：画布实例不卸载不等于编辑单元不卸载。编辑单元把它作为
- * `allowNavigation`，只有不会卸载自己的跳转才不询问；去别的视图、剪辑视图或别的集都照常拦截。
- * `to` 与 `here` 都带嵌套路由的 base，`view` 缺省时按 `facts` 算出的缺省视图判断。
+ * Switching planning/grids/storyboards retains the canvas instance, but editing units mount only under one view
+ * (shot details/unit bodies only in storyboards). Retained canvas does not imply retained editing units. They use this as
+ * `allowNavigation`, bypassing questions only for navigation that retains themselves; other views, editing, or episodes still guard.
+ * `to` and `here` include nested-routing bases; omitted `view` uses defaults computed from `facts`.
  */
 export function staysInEpisodeView(to: string, here: string, facts: EpisodeViewFacts): boolean {
   const current = new URL(here, "http://episode-view.invalid");

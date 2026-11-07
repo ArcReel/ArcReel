@@ -1,4 +1,4 @@
-"""分镜画面描述里 ``@[登记名]`` 的绑定检查。"""
+"""Binding checks for storyboard visual-description ``@[登记名]`` mentions."""
 
 from __future__ import annotations
 

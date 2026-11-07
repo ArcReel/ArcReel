@@ -1,9 +1,8 @@
-"""供应商素材关联的操作编排：查看图片当前版本的关联与入库状态、上传、解除关联、刷新状态，以及浏览素材库。
+"""Provider asset-link orchestration: inspect links and ingestion state for an image’s current version, upload, unlink, refresh state, and browse the library.
 
-Web 路由与 Agent 工具共用这里的编排与结果形状；关联与账号判断在 ``lib.asset_library.links``，
-本模块不另做判断。上传与刷新只改记录并唤醒后台循环，立即返回，不等待供应商处理。
-结果只含状态事实，不含控制面密钥、中转对象或供应商的签名下载地址。
-"""
+Web routes and Agent tools share this orchestration and result shape. ``lib.asset_library.links`` handles link/account decisions;
+this module does not duplicate them. Upload and refresh only update records and wake the background loop, returning immediately
+without waiting for provider processing. Results contain only state facts, never control-plane secrets, relay objects or signed provider download URLs."""
 
 from __future__ import annotations
 
@@ -37,7 +36,7 @@ class LinkResponse(BaseModel):
     content_version_id: str
     version: int
     account_id: int
-    #: 提交或导入时的调用范围；与 :class:`AccountSummary` 的同名字段相等才表示同一范围。
+    #: Call scope at submission/import; it matches a scope only when equal to the same field in :class:`AccountSummary`.
     scope_key: str
     site: str
     region: str
@@ -49,7 +48,7 @@ class LinkResponse(BaseModel):
     error_code: str | None
     error_message: str | None
     check_error: str | None
-    #: 后台仍会自动查询；为 false 且状态未定时，由用户手动刷新。
+    #: Background polling remains automatic; when false and the state is unresolved, the user refreshes manually.
     polling: bool
     created_at: str | None
     submitted_at: str | None
@@ -58,7 +57,7 @@ class LinkResponse(BaseModel):
 
 class AccountSummary(BaseModel):
     id: int
-    #: 账号按当前内容覆盖的范围；账号换成另一个云账号的 Access Key 后随之变化，旧关联不再与它相等。
+    #: Scope covered by current account content; changing to another cloud account’s Access Key changes it, so old links no longer match.
     scope_key: str
     name: str
     site: str
@@ -125,7 +124,7 @@ def check_resource_type(resource_type: str) -> None:
 
 
 def _current_record(project_path: Path, resource_type: str, resource_id: str) -> dict[str, Any] | None:
-    """资源当前选中的版本记录；只读，不为早期记录补写身份。"""
+    """The resource’s currently selected version record; read only, without backfilling identities for early records."""
     info = VersionManager(project_path).get_versions(resource_type, resource_id)
     current = info.get("current_version", 0)
     return next((v for v in info.get("versions", []) if v.get("version") == current), None)
@@ -134,7 +133,7 @@ def _current_record(project_path: Path, resource_type: str, resource_id: str) ->
 async def load_link_panel(
     session: AsyncSession, *, project_path: Path, project_name: str, resource_type: str, resource_id: str
 ) -> LinkPanelResponse:
-    """图片当前选中版本在各个素材库范围里的关联与入库状态。改选另一版本后，返回的是那个版本的关联。"""
+    """Links and ingestion state of the image’s selected version within each library scope; selecting another version returns that version’s links."""
     check_resource_type(resource_type)
     record = await asyncio.to_thread(_current_record, project_path, resource_type, resource_id)
     content_version: ContentVersionInfo | None = None
@@ -182,7 +181,7 @@ async def start_upload(
     resource_id: str,
     account_id: int,
 ) -> LinkResponse:
-    """把图片当前选中的版本上传到账号对应的素材库：创建入库任务并提交事务，立即返回任务状态。"""
+    """Upload the image’s selected version to the account’s library: create an ingestion job, commit the transaction, and immediately return job state."""
     check_resource_type(resource_type)
     target = await link_service.resolve_upload_target(project_path, resource_type, resource_id)
     link = await link_service.request_upload(session, project_name=project_name, target=target, account_id=account_id)
@@ -192,7 +191,7 @@ async def start_upload(
 
 
 async def release(session: AsyncSession, *, project_name: str, link_id: int) -> LinkResponse:
-    """解除关联：只解除当前关系，不删除 ArcReel 图片或供应商素材。已解除的关联原样返回。"""
+    """Unlink only the current relationship without deleting the ArcReel image or provider asset. Return already unlinked relationships unchanged."""
     link = await link_service.get_link(session, project_name=project_name, link_id=link_id)
     await link_service.release_link(session, link)
     await session.commit()
@@ -200,7 +199,7 @@ async def release(session: AsyncSession, *, project_name: str, link_id: int) -> 
 
 
 async def recheck(session: AsyncSession, *, project_name: str, link_id: int) -> LinkResponse:
-    """请后台立即重新查询状态；已可用或已失败的关联原样返回。"""
+    """Ask the background worker to recheck state immediately; return available or failed links unchanged."""
     link = await link_service.get_link(session, project_name=project_name, link_id=link_id)
     await link_service.request_recheck(session, link)
     await session.commit()
@@ -211,7 +210,7 @@ async def recheck(session: AsyncSession, *, project_name: str, link_id: int) -> 
 async def browse_provider_assets(
     session: AsyncSession, *, account_id: int, page: int, page_size: int
 ) -> ProviderAssetListResponse:
-    """按账号的站点、区域与项目范围分页列出供应商素材库里的素材，不含签名下载地址。"""
+    """Page through provider-library assets within the account’s site, region and project scope, excluding signed download URLs."""
     account = await AssetLibraryRepository(session).get_account(account_id)
     if account is None:
         raise NotFoundError("asset_library_account_not_found")

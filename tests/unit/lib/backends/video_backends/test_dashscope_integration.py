@@ -1,4 +1,4 @@
-"""DashScope 跨层集成测试：文本记账 provider、目录计价、自定义 endpoint 派发、能力 fallthrough。"""
+"""DashScope cross-layer text attribution/catalog pricing/custom-endpoint dispatch/capability fallthrough."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> M
 
 
 class TestTextProviderBilling:
-    """隐患 3 回归：dashscope 文本复用 OpenAI 后端必须以 'dashscope' 记账，否则计费命中 USD。"""
+    """Risk 3 regression: DashScope text reusing OpenAI backends must account as dashscope, never USD pricing."""
 
     def test_provider_name_override(self):
         with captured_openai_clients():
@@ -57,7 +57,7 @@ class TestTextProviderBilling:
 
 class TestCatalogPricing:
     def test_text_cny(self):
-        # qwen-plus 按单次请求的输入量分档，10 万输入落在首档：输入 0.8、输出 2 元/百万 token。
+        # qwen-plus tiers per-request input; 100000 uses first-tier input 0.8/output 2 CNY per million.
         amount, cur = builtin_price(
             PROVIDER_DASHSCOPE,
             "qwen-plus",
@@ -84,7 +84,7 @@ class TestCatalogPricing:
 
     @pytest.mark.parametrize("model", ["happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"])
     def test_happyhorse_11_pricing_covers_three_resolutions(self, model: str):
-        """三档分辨率都要有价：任一档缺价会让该档的调用记为未定价。"""
+        """All three resolutions need prices; omissions make those calls unpriced."""
         for resolution, expected in (("480p", 4.5), ("720p", 9.0), ("1080p", 12.0)):
             amount, cur = builtin_price(
                 PROVIDER_DASHSCOPE, model, "video", {"output_seconds": 10}, {"resolution": resolution}
@@ -122,7 +122,7 @@ class TestCustomEndpointDispatch:
 
 
 class TestEndpointFallthrough:
-    """endpoint 不声明 video_max_reference_images → resolver fallthrough 到 backend caps（#677）。"""
+    """Endpoints omitting video_max_reference_images fall through to backend caps (#677)."""
 
     def test_async_video_endpoint_declares_none(self):
         from lib.custom_provider.endpoints import get_endpoint_spec
@@ -130,7 +130,7 @@ class TestEndpointFallthrough:
         assert get_endpoint_spec("dashscope-video").video_max_reference_images is None
 
     def test_entry_supplies_real_limit(self):
-        """通道不设参考图上限，自定义供应商下按名字对应的条目给出真实上限（两侧求值，docs/adr/0104）。"""
+        """Channels declare unlimited references; custom-provider name-matched entries supply actual joint-evaluated caps (docs/adr/0104)."""
         from lib.custom_provider.capabilities import two_sided_video_capabilities
 
         def limit(model: str) -> int | None:

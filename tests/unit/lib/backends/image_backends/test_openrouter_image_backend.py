@@ -1,9 +1,9 @@
-"""OpenRouterImageBackend 单元测试（respx 拦 transport，不打真实 HTTP）。
+"""OpenRouterImageBackend transport-level respx tests, no real HTTP.
 
-尺寸参数契约按 supported_parameters 自适应，测试分三组覆盖：
-- 模型未收录 / 目录失败 → 退回 OpenAI 同款 size；
-- 声明 resolution（gemini 系）→ aspect_ratio + resolution，绝不带 size（互斥 400）；
-- 只声明 aspect_ratio（gpt-image 系）→ size + aspect_ratio（+ quality）。
+Adapt size parameters to supported_parameters, covering three groups:
+- Unknown models/catalog failures fall back to OpenAI-style size;
+- Declared resolution (Gemini family) sends aspect_ratio + resolution, never incompatible size causing 400;
+- aspect_ratio-only GPT-image families send size + aspect_ratio, plus quality.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.providers import PROVIDER_OPENROUTER
 from tests.http_capture import capture_http, only_request, request_json
 
-# 1x1 PNG 头部若干字节，够 save_image_from_response_item 写盘断言用
+# Minimal 1x1 PNG header bytes suffice for save_image_from_response_item persistence assertions.
 _PNG_1PX = base64.b64encode(
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
 ).decode("ascii")
@@ -53,7 +53,7 @@ def _enum(name: str, *values: str) -> dict:
     return {name: {"type": "enum", "values": list(values)}}
 
 
-# 与 OpenRouter 目录返回同构的 supported_parameters 样本
+# supported_parameters fixtures match OpenRouter catalog response structure.
 _GEMINI_LIKE = {
     "id": "google/gemini-3.1-flash-image",
     "supported_parameters": {
@@ -133,34 +133,34 @@ def _ref_range(model_id: str, low: int, high: int) -> dict:
         pytest.param((_ref_range("m", 0, 20),), 200, 16, id="declared-above-endpoint-cap"),
         pytest.param((), 200, 16, id="model-not-in-catalog"),
         pytest.param((), 500, 16, id="catalog-unavailable"),
-        # 收录却没声明参考图：不报 0（0 = 不裁剪），由 generate 按不支持图生图报错
+        # Catalog models without references never report 0, meaning no cropping; generate raises unsupported i2i.
         pytest.param(({"id": "m", "supported_parameters": {}},), 200, 16, id="no-input-references"),
     ],
 )
 def test_reference_image_limit_follows_the_model_declaration(catalog, status, expected):
-    """上限按模型在目录里声明的 input_references 给出，封顶端点的 16 张。"""
+    """Use catalog input_references caps, bounded by endpoint maximum 16."""
     assert _limit("m", *catalog, status=status) == expected
 
 
 def test_unknown_model_falls_back_to_size(tmp_path: Path):
-    """目录不含该模型 → 退回 OpenAI 同款 size（WxH），不带声明式参数。"""
+    """Unknown catalog models use OpenAI-style WxH size, without declared parameters."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response())
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path))
     req_json = request_json(only_request(route))
     assert req_json["model"] == "openai/gpt-image-2"
-    assert req_json["size"] == "1008x1792"  # 1K 档短边 1024、9:16，取比例零偏差的最近对齐解
+    assert req_json["size"] == "1008x1792"  # 1K short edge 1024; exact 9:16, nearest aligned size.
     assert "resolution" not in req_json
     assert "aspect_ratio" not in req_json
-    # 没有声明依据的参数不带：quality 也不发（1K 档在 OpenAI 口径下本会映射出 quality）
+    # Omit undeclared parameters, including quality even though OpenAI 1K would map it.
     assert "quality" not in req_json
-    # 纯 T2I 不带参考图字段
+    # Pure T2I omits reference fields.
     assert "input_references" not in req_json
 
 
 def test_discovery_failure_falls_back_to_size(tmp_path: Path):
-    """目录查询失败只影响参数精化：生成按 size 兜底照常走，不中断。"""
+    """Catalog failures affect parameter refinement only; generation continues with size fallback."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=httpx.Response(500))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
@@ -170,20 +170,20 @@ def test_discovery_failure_falls_back_to_size(tmp_path: Path):
 
 
 def test_resolution_model_sends_ar_and_resolution_never_size(tmp_path: Path):
-    """gemini 系声明 resolution：aspect_ratio + resolution 下发，size 绝不出现（互斥 400）。"""
+    """Gemini resolution declarations send aspect_ratio/resolution, never mutually incompatible size causing 400."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(_GEMINI_LIKE))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path, image_size="2K"), model="google/gemini-3.1-flash-image")
     req_json = request_json(only_request(route))
     assert req_json["aspect_ratio"] == "9:16"
-    # 2K 档短边 1440 → 枚举里 ≥ 请求值的最小档 2K
+    # 2K short edge 1440 selects smallest enum tier ≥ requested, 2K.
     assert req_json["resolution"] == "2K"
     assert "size" not in req_json
 
 
 def test_seed_sent_only_when_declared_or_model_unlisted(tmp_path: Path):
-    """seed 只发给声明了它的模型；目录未收录该模型时照常带上。"""
+    """Send seed only when declared; unknown catalog models still receive it."""
     seeded = {"id": "vendor/seeded", "supported_parameters": {"seed": {"type": "boolean"}}}
     unseeded = {"id": "vendor/unseeded", "supported_parameters": {}}
     with capture_http() as router:
@@ -198,7 +198,7 @@ def test_seed_sent_only_when_declared_or_model_unlisted(tmp_path: Path):
 
 
 def test_model_declaring_both_size_and_resolution_takes_resolution(tmp_path: Path):
-    """size 与 resolution 同时声明时走 resolution 通道：两者同传会被 400 拒掉，size 不下发。"""
+    """If size/resolution are both declared, choose resolution only; sending both causes 400."""
     model = {
         "id": "vendor/both-sizing",
         "supported_parameters": {
@@ -218,22 +218,22 @@ def test_model_declaring_both_size_and_resolution_takes_resolution(tmp_path: Pat
 
 
 def test_resolution_model_nearest_ratio_and_omit_low_quality(tmp_path: Path):
-    """比例不在声明枚举取数值最近档；grok 系 quality 枚举不含 high，档位映射不上即省略。"""
+    """Choose nearest numeric ratio when outside enums; Grok quality lacking high omits unmapped tiers."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(_GROK_LIKE))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path, aspect_ratio="2:3", image_size="4K"), model="x-ai/grok-imagine-image-2.0")
     req_json = request_json(only_request(route))
-    # 2:3≈0.667：1:1=1.0 差 0.333，9:16≈0.563 差 0.104 → 取 9:16
+    # 2:3≈0.667 differs 0.333 from 1:1 and 0.104 from 9:16≈0.563, so choose 9:16.
     assert req_json["aspect_ratio"] == "9:16"
-    # 4K 档短边 2160 超出枚举（最高 2K）→ 不降档原则失败后取最大档 2K
+    # 4K short edge 2160 exceeds max 2K; after no-downgrade preference fails, choose maximum 2K.
     assert req_json["resolution"] == "2K"
     assert "quality" not in req_json
     assert "size" not in req_json
 
 
 def test_ratio_model_sends_size_ar_and_quality(tmp_path: Path):
-    """gpt-image 系只声明 aspect_ratio：size 撑清晰度 + aspect_ratio 锁比例 + quality 叠加。"""
+    """GPT-image aspect_ratio-only declarations combine size resolution, ratio locking, and quality."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(_GPT_IMAGE_LIKE))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
@@ -246,10 +246,10 @@ def test_ratio_model_sends_size_ar_and_quality(tmp_path: Path):
 
 
 def test_size_computed_from_selected_ratio_not_request_ratio(tmp_path: Path):
-    """请求比例不在枚举时：size 必须按「选中档」算，与 aspect_ratio 同源不自相矛盾。
+    """Ratios outside enums require size derived from the selected ratio, consistent with aspect_ratio.
 
-    请求 2:3、枚举只有 1:1 / 9:16 / 21:9 → 选中 9:16，size 也须按 9:16 算（1008x1792），
-    不能按 2:3 算出 688x1024 再配上 aspect_ratio=9:16——两个参数互相矛盾。
+    Requested 2:3 among 1:1/9:16/21:9 selects 9:16; size must also use 9:16 (1008x1792), never
+    requested 2:3 size 688x1024 paired with aspect_ratio=9:16, which contradicts itself.
     """
     model = {
         "id": "openai/gpt-image-2",
@@ -268,7 +268,7 @@ def test_size_computed_from_selected_ratio_not_request_ratio(tmp_path: Path):
 
 
 def test_known_model_without_sizing_declarations_omits_all(tmp_path: Path):
-    """收录但 size / aspect_ratio / resolution 一概不声明：省略全部尺寸参数，信任模型默认。"""
+    """Known models declaring no size/aspect_ratio/resolution omit all dimensions, trusting defaults."""
     model = {"id": "meta/muse-image", "supported_parameters": {}}
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
@@ -282,7 +282,7 @@ def test_known_model_without_sizing_declarations_omits_all(tmp_path: Path):
 
 
 def test_models_query_cached_on_the_backend_instance(tmp_path: Path):
-    """目录结果缓存在 backend 实例上：同一实例两次生成只查一次；按新配置构造的实例重新查询。"""
+    """Catalogs cache per backend instance: two generations query once; newly configured instances query again."""
     backend = OpenRouterImageBackend(api_key="sk-or-test", model="openai/gpt-image-2", base_url=_BASE_URL)
     with capture_http() as router:
         models_route = router.get(_MODELS_URL).mock(return_value=_models_response(_GPT_IMAGE_LIKE))
@@ -321,7 +321,7 @@ def test_missing_ref_files_raise_rather_than_silent_t2i(tmp_path: Path):
 
 
 def test_partial_missing_refs_fail_loud_without_submitting(tmp_path: Path):
-    """多张参考图中一张缺失：跳过会让后续图前移、「图N」错指，须报错且不发出 /images 请求。"""
+    """One missing reference would shift later 图N labels; raise without /images calls rather than skip it."""
     refs = [
         _make_ref(tmp_path, "a.png"),
         ReferenceImage(path=str(tmp_path / "ghost.png")),
@@ -338,7 +338,7 @@ def test_partial_missing_refs_fail_loud_without_submitting(tmp_path: Path):
 
 
 def test_refs_over_declared_max_rejected_without_submitting(tmp_path: Path):
-    """参考图多于模型上限（编排层按另一份目录读数编了号）：报错且不发 /images，不截断后照常计费。"""
+    """References exceeding model limits, numbered from another orchestration catalog read, fail without /images calls, never truncate and bill."""
     refs = [_make_ref(tmp_path, f"ref-{i}.png") for i in range(5)]
     model = _ref_range("x-ai/grok-imagine-image-2.0", 0, 3)
     with capture_http() as router:
@@ -352,7 +352,7 @@ def test_refs_over_declared_max_rejected_without_submitting(tmp_path: Path):
 
 
 def test_edit_only_model_rejects_text_to_image(tmp_path: Path):
-    """模型声明 input_references 下限 1（只做改图）却没带参考图：报不支持文生图，不发 /images 请求。"""
+    """Declared input_references minimum 1 means edit-only; no references rejects text-to-image without /images requests."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(_ref_range("krea/k3-edit", 1, 8)))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
@@ -363,7 +363,7 @@ def test_edit_only_model_rejects_text_to_image(tmp_path: Path):
 
 
 def test_fractional_resolution_tier_is_the_smallest_non_downgrading(tmp_path: Path):
-    """1.5K 这类小数档也认得：2K 请求（短边 1440）选 1.5K，而不是跳到 2K。"""
+    """Recognize fractional 1.5K tiers: requested 2K short edge 1440 selects 1.5K rather than skipping to 2K."""
     model = {
         "id": "tencent/hy-image",
         "supported_parameters": {**_enum("resolution", "1K", "1.5K", "2K", "4K"), **_enum("aspect_ratio", "9:16")},
@@ -376,7 +376,7 @@ def test_fractional_resolution_tier_is_the_smallest_non_downgrading(tmp_path: Pa
 
 
 def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Path):
-    """目录查询失败短暂缓存：窗口内的下一次生成不再查目录，窗口过后再查。"""
+    """Briefly cache catalog failures; next generations inside windows skip queries, then retry afterward."""
     now = [1000.0]
     backend = OpenRouterImageBackend(
         api_key="sk-or-test", model="openai/gpt-image-2", base_url=_BASE_URL, clock=lambda: now[0]
@@ -394,7 +394,7 @@ def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Pa
 
 
 def test_concurrent_first_lookups_query_the_catalog_once():
-    """同一实例上并发的首次查询串行化：只查一次目录，各方拿到同一份结果。"""
+    """Serialize concurrent first queries per instance, fetching catalogs once and sharing results."""
     backend = OpenRouterImageBackend(api_key="sk-or-test", model="m", base_url=_BASE_URL)
 
     async def both() -> list[int]:
@@ -414,7 +414,7 @@ def _image_bytes(fmt: str) -> bytes:
 
 
 def test_non_png_raster_output_is_stored_as_png(tmp_path: Path):
-    """模型返回 JPEG：按 PNG 落盘，产物格式与固定的 .png 路径一致。"""
+    """Returned JPEGs save as PNG, matching fixed .png artifact paths."""
     jpeg = base64.b64encode(_image_bytes("JPEG")).decode("ascii")
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response())
@@ -427,7 +427,7 @@ def test_non_png_raster_output_is_stored_as_png(tmp_path: Path):
 
 
 def test_url_output_is_downloaded_and_stored_as_png(tmp_path: Path):
-    """响应只带产物地址：下载后同样转成 PNG 落盘。"""
+    """URL-only outputs also convert downloaded contents to PNG."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response())
         router.post(_IMAGES_URL).mock(
@@ -442,7 +442,7 @@ def test_url_output_is_downloaded_and_stored_as_png(tmp_path: Path):
 
 
 def test_vector_output_raises_structured_failure(tmp_path: Path):
-    """模型返回 SVG：转不成位图，报带稳定 code 的错误，不留错标格式的产物。"""
+    """SVG cannot become bitmap output; raise stable-code errors without mislabeled artifacts."""
     svg = base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg"/>').decode("ascii")
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response())
@@ -457,7 +457,7 @@ def test_vector_output_raises_structured_failure(tmp_path: Path):
 
 
 def test_vector_only_model_rejected_before_the_billed_request(tmp_path: Path):
-    """目录声明只出 SVG：产物注定转不成 PNG，不发出计费的生成请求。"""
+    """SVG-only catalog output can never become PNG, so do not issue billed generation calls."""
     model = {"id": "recraft/recraft-v4-vector", "supported_parameters": {**_enum("output_format", "svg")}}
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
@@ -478,7 +478,7 @@ def test_png_output_format_requested_when_declared(tmp_path: Path):
 
 
 def test_path_overrides_change_the_urls_actually_sent(tmp_path: Path):
-    """路径覆盖（docs/adr/0101）：生成与目录查询都按覆盖路径接在供应商填写的 base_url 之后发出。"""
+    """Path overrides (docs/adr/0101) append generation/catalog override paths to user base_url."""
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
     provider = SimpleNamespace(provider_id="custom-or", base_url="https://relay.example/api/v1", api_key="sk")
@@ -509,7 +509,7 @@ def test_refs_within_declared_max_all_sent(tmp_path: Path):
 
 
 def test_n_sent_only_when_declared_or_model_unlisted(tmp_path: Path):
-    """n 与 seed 同口径：收录却未声明不下发，声明了或未收录照常带 n=1。"""
+    """n follows seed rules: omit for known undeclared models, otherwise send n=1."""
     with_n = {"id": "vendor/with-n", "supported_parameters": {"n": {"type": "range", "min": 1, "max": 4}}}
     without_n = {"id": "vendor/without-n", "supported_parameters": {}}
     with capture_http() as router:
@@ -521,7 +521,7 @@ def test_n_sent_only_when_declared_or_model_unlisted(tmp_path: Path):
 
 
 def test_declared_size_enum_picks_closest_declared_value(tmp_path: Path):
-    """声明 WxH 枚举：选比例最接近、短边不低于请求档位的那一档，不合成枚举外的值。"""
+    """Declared WxH enums choose nearest ratios with short edges at least requested tiers; never synthesize out-of-enum dimensions."""
     model = {
         "id": "vendor/size-enum",
         "supported_parameters": {**_enum("size", "1024x1024", "1024x1792", "1792x1024", "auto")},
@@ -534,7 +534,7 @@ def test_declared_size_enum_picks_closest_declared_value(tmp_path: Path):
 
 
 def test_size_enum_with_only_auto_sends_auto(tmp_path: Path):
-    """size 枚举只有 auto：发声明的 auto，不合成枚举外的 WxH。"""
+    """auto-only size enums send declared auto, never synthesize WxH."""
     model = {"id": "vendor/size-auto", "supported_parameters": {**_enum("size", "auto")}}
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
@@ -544,7 +544,7 @@ def test_size_enum_with_only_auto_sends_auto(tmp_path: Path):
 
 
 def test_listed_model_without_input_references_rejects_i2i(tmp_path: Path):
-    """目录收录了该模型却没声明 input_references：带参考图即报不支持图生图，不发 /images 请求。"""
+    """Known models without input_references reject references as unsupported i2i, without /images calls."""
     model = {"id": "vendor/t2i-only", "supported_parameters": {**_enum("aspect_ratio", "1:1", "9:16")}}
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
@@ -556,7 +556,7 @@ def test_listed_model_without_input_references_rejects_i2i(tmp_path: Path):
 
 
 def test_zero_ref_model_rejects_i2i_fail_loud(tmp_path: Path):
-    """声明 input_references 上限 0 还带参考图：fail-loud 而非静默丢图照常计费。"""
+    """References with input_references cap 0 fail loudly, never silently drop images and bill."""
     model = {
         "id": "inclusionai/ming-image-0.1-design",
         "supported_parameters": {"input_references": {"type": "range", "min": 0, "max": 0}},
@@ -590,7 +590,7 @@ def test_auth_header_carries_api_key(tmp_path: Path):
     "body", [b'{"data": []}', b"null", b'{"data": [{}]}'], ids=["empty-data", "null-body", "no-image"]
 )
 def test_response_without_image_raises_structured_failure(tmp_path: Path, body):
-    """成功响应没带回图片：抛带稳定 code 的错误，文案由读侧按语言渲染。"""
+    """Successful responses without images raise stable-code errors, localized at read boundaries."""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response())
         router.post(_IMAGES_URL).mock(

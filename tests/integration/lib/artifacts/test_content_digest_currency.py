@@ -1,7 +1,8 @@
-"""内容摘要缓存对产物时效结论的影响：摘要仍是内容哈希，缓存只省重复的读。
+"""Content-digest cache effects on artifact currency: digests remain content hashes; caching only avoids repeat reads.
 
-断言的是外部结论（依赖资产设计图的产物判 stale / current）；只有「stat 不变时同一文件只哈希一次」
-这条性能约定例外：在文件系统边界上按 inode 记录产物内容被整读的次数。
+Assert external outcomes (artifacts depending on asset sheets become stale / current), except
+for one performance contract: unchanged stat hashes a file only once. At the filesystem boundary,
+count full reads of artifact content by inode.
 """
 
 from __future__ import annotations
@@ -35,14 +36,14 @@ def fresh_digest_cache() -> None:
 
 
 def _age(path: Path, *, seconds: int = 3600) -> None:
-    """把 mtime 拨到足够久以前：刚写的文件不入摘要缓存，要观察缓存行为得先让它「老」。"""
+    """Move mtime far enough into the past: freshly written files are not cached, so age them before observing caching."""
 
     aged = time.time_ns() - seconds * 1_000_000_000
     os.utime(path, ns=(aged, aged))
 
 
 def _storyboard_project(tmp_path: Path) -> tuple[ProjectManager, Path]:
-    """一张角色设计图 + 一张引用它的分镜图，已补录进产物清单，两张图的 mtime 都已「老」。"""
+    """One character sheet and one referencing storyboard image, both adopted into the artifact manifest with aged mtimes."""
 
     pm, project_path = _make_project(tmp_path, "ad")
     _write_artifact(project_path, SHEET)
@@ -72,8 +73,8 @@ def _storyboard_state(pm: ProjectManager) -> dict[str, list[str]]:
 
 
 def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dict[str, int]:
-    """在文件系统边界上数 ``targets`` 的内容合计被整读几次：按路径打开（流式哈希）一次算一次，
-    按描述符读的则只算读到超过 1 字节的描述符（在场探针只读 1 字节，不是哈希）。"""
+    """Count full reads of ``targets`` content at the filesystem boundary: each path open for streaming hashing counts once;
+    descriptor reads count only when more than one byte is read (presence probes read one byte, not a hash)."""
 
     identities = {(target.stat().st_dev, target.stat().st_ino) for target in targets}
     counts = {"content_reads": 0}
@@ -124,7 +125,7 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dic
 
 @pytest.mark.parametrize("replacement", [b"ARTIFACT", b"a redrawn design sheet"], ids=["same-size", "different-size"])
 def test_replaced_design_sheet_stales_the_storyboard_that_uses_it(tmp_path: Path, replacement: bytes) -> None:
-    """先让摘要缓存装进旧图，再替换图内容：不论大小是否碰巧相同，下游都判 stale。"""
+    """Cache the old image digest, then replace its content: downstream becomes stale regardless of coincidentally equal sizes."""
 
     pm, project_path = _storyboard_project(tmp_path)
     assert _storyboard_state(pm)["current_ids"] == ["E1S01"]
@@ -141,17 +142,17 @@ def test_replaced_design_sheet_stales_the_storyboard_that_uses_it(tmp_path: Path
 def test_a_copy_that_changes_the_mtime_keeps_the_storyboard_current(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """复制、导入、恢复会改 mtime（有时连 inode 一起换）：重新哈希，内容没变就仍是 current。"""
+    """Copy/import/restore changes mtime (sometimes inode too): hash again; unchanged content stays current."""
 
     pm, project_path = _storyboard_project(tmp_path)
     sheet = project_path / SHEET
     assert _storyboard_state(pm)["current_ids"] == ["E1S01"]
 
-    # 原地改 mtime
+    # Change mtime in place.
     _age(sheet, seconds=1800)
     assert _storyboard_state(pm)["current_ids"] == ["E1S01"]
 
-    # 换一个新 inode 的同内容副本
+    # Replace with a same-content copy on a new inode.
     duplicate = sheet.with_name("Alice.copy.png")
     shutil.copyfile(sheet, duplicate)
     _age(duplicate, seconds=900)
@@ -162,7 +163,7 @@ def test_a_copy_that_changes_the_mtime_keeps_the_storyboard_current(
 
 
 def test_unchanged_stat_hashes_the_design_sheet_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """性能约定：stat 不变时，反复读产物状态也只整读一次设计图；stat 变了才再读。"""
+    """Performance contract: unchanged stat means repeated artifact-status reads fully read the sheet only once; read again only after stat changes."""
 
     pm, project_path = _storyboard_project(tmp_path)
     sheet = project_path / SHEET

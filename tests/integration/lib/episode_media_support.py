@@ -1,4 +1,4 @@
-"""多集项目夹具：每集一个分镜，分镜图与视频齐备并补录进产物清单。"""
+"""Multiepisode project fixtures: one shot per episode with storyboard/video present and backfilled into artifact manifests."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from tests.integration.lib.workflow.test_workflow_state import (
 
 
 def episodes_with_media(pm: ProjectManager, project_path: Path, count: int) -> None:
-    """``count`` 集，每集一个分镜，分镜图与视频齐备（视频带版本记录）并补录进清单。"""
+    """``count`` episodes, each with one shot, storyboard, video with version records, and manifest backfill."""
 
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)

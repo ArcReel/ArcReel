@@ -96,7 +96,7 @@ describe("useImageAttachments", () => {
   });
 
   it("rejects a GIF whose MIME type claims it is a PNG", async () => {
-    // 扩展名与 MIME 都能改名伪装，文件头不能：伪装的 GIF 解码后只剩首帧，动画被静默丢弃。
+    // Extensions/MIME are spoofable by renaming, signatures are not; disguised GIF decoding silently loses animation after first frames.
     const canvas = stubImageCanvas();
     const { result } = renderHook(() => useImageAttachments());
 
@@ -129,13 +129,13 @@ describe("useImageAttachments", () => {
       await canvas.decodes[0].finish({ width: 800, height: 600 });
     });
 
-    // 面板已经关掉：排队中的第二张不该再占着解码与内存
+    // Closed panels must not decode/retain second queued images.
     expect(canvas.decodes).toHaveLength(1);
   });
 
   it("does not wedge the queue when the browser has no createImageBitmap", async () => {
-    // 老浏览器上 createImageBitmap 未定义，调用是同步抛错；逃出转码函数就再也没人
-    // 复位在途计数，附件控件会永久停在「读取中」。
+    // Old browsers lack createImageBitmap, throwing synchronously; escaping transcoding leaves nobody to
+    // reset in-flight counts, permanently showing Reading attachments.
     const { result } = renderHook(() => useImageAttachments());
 
     act(() => {

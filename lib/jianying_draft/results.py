@@ -1,4 +1,4 @@
-"""剪映草稿导出的结果形态：导出前检查、登记下来的草稿与产物现状；服务、HTTP 与 Agent 工具共用。"""
+"""Jianying export result shapes shared by services, HTTP, and Agent tools: prechecks, registered drafts, and artifact status."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from lib.jianying_draft.basis import DraftNarration
 
 
 class JianyingDraftCheck(BaseModel):
-    """导出前检查通过：将要导出的修订，以及不阻断导出的 issues。"""
+    """Passed pre-export check: the revision to export, plus issues that do not block export."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -23,7 +23,7 @@ class JianyingDraftCheck(BaseModel):
 
 
 class JianyingDraftRender(BaseModel):
-    """一次导出登记下来的剪映草稿。"""
+    """A Jianying draft registered by one export."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -39,7 +39,7 @@ class JianyingDraftRender(BaseModel):
 
 
 class JianyingDraftStatus(BaseModel):
-    """一个剪映草稿产物身份的现状；``status`` 为 missing 时没有版本与导出时间。"""
+    """Current state of a Jianying-draft artifact identity; when ``status`` equals ``missing``, there is no version or export timestamp."""
 
     model_config = ConfigDict(frozen=True)
 

@@ -28,7 +28,7 @@ interface LobbyHeaderProps {
   onOpenDeleted: () => void;
 }
 
-/** 大厅顶栏：品牌与搜索靠左；资产库、外部 Agent 接入、已删除项目、「新建项目」分体按钮与设置靠右。 */
+/** Lobby header: brand/search left; library, external Agent access, deleted projects, new-project split button and settings right. */
 export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importing, onOpenDeleted }: LobbyHeaderProps) {
   const { t } = useTranslation(["dashboard", "common", "assets"]);
   const configComplete = useConfigStatusStore((s) => s.isComplete);
@@ -157,7 +157,7 @@ function IconLink({
             href={href}
             aria-label={label}
             data-onboarding={onboardingAnchor}
-            // eslint-disable-next-line shadcn/require-static-classes -- 链接借用 buttonVariants 的 ghost/icon 外观；Button 渲染为链接会被 Base UI 加上 role="button"，故不能换成 render={<Button />}，TooltipTrigger 自身不带样式（见 eslint.config.js 的 UNSTYLED_PRIMITIVES）
+            // eslint-disable-next-line shadcn/require-static-classes -- Link uses buttonVariants ghost/icon styling; rendering Button as a link adds role="button" through Base UI, so render={<Button />} is unsuitable; TooltipTrigger is unstyled (eslint.config.js UNSTYLED_PRIMITIVES)
             className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
           />
         }

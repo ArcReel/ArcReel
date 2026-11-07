@@ -1,12 +1,12 @@
 /**
- * 应用内链接（Agent 回复里的「跳到这里看」）的格式与解析。链接是普通的应用内路径，新开标签页、复制地址都照常可用：
+ * In-app links for Agent reply navigation, ordinary application paths supporting new tabs/copied addresses:
  *
- * - 剪辑视图：`/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`
- *   `tl` 与 `t` 均可省略；`t` 是该剪辑时间线上的全局时间（秒），落在哪个片段由时间线决定。
- * - 视频单元预览：`/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`
- *   打开该单元的预览；带 `t` 时从 `t` 开始播放。`t` 可省略，是该单元视频自身的时间（秒，从视频开头算起）；单元 ID 即脚本里的 `segment_id` / `shot_id` / `scene_id` / `unit_id`。
+ * - Edit views: `/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`
+ *   `tl` / `t` are optional; `t` is global timeline seconds, with timelines choosing clips.
+ * - Video-unit previews: `/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`
+ *   Open unit previews, with `t`, starting at `t`. Optional `t` is seconds from that unit video's beginning; IDs are script `segment_id` / `shot_id` / `scene_id` / `unit_id`.
  *
- * 集 ID 是项目详情 `episodes[].episode`，不是播出位置。项目名按路径段做 URL 编码。两种格式不要混写：带 `view=edit` 时 `unit` 不生效，`t` 按剪辑时间线上的全局时间处理。
+ * Episode IDs come from project-detail `episodes[].episode`, never broadcast positions. Encode project names as URL segments. Never mix formats: `view=edit` ignores `unit`, interpreting `t` as global timeline time.
  */
 import {
   EPISODE_VIEW_EDIT,
@@ -23,22 +23,22 @@ export const LINK_UNIT_PARAM = "unit";
 const EPISODE_PATH = new RegExp(`^${ROUTE_APP}/projects/[^/]+/${WORKSPACE_ROUTE_EPISODES}/[^/]+$`, "i");
 
 export interface AppLink {
-  /** 规范化后的完整站内地址（以 `/` 开头，含原有查询参数），用作 `<a href>`，新开标签页也落到同一处。 */
+  /** Normalized complete application URLs (starting `/`, preserving queries), used for `<a href>` so new tabs reach the same locations. */
   href: string;
-  /** 要跳转的路径与查询。单元链接的 `unit`、`t` 在这里已去掉：它们是一次性的定位指令，不留在地址栏里。 */
+  /** Target paths/queries; unit-link `unit`/`t` are removed here as one-shot location commands never retained in address bars. */
   to: string;
-  /** 链接指向的视频单元；起始时间缺省为 null。`project` 是链接所在项目的名称（已解码），项目名无法解码时为 null。 */
+  /** Linked video units; omitted start times are null. `project` is decoded project names, null when decoding fails. */
   unit: { id: string; seconds: number | null; project: string | null } | null;
 }
 
-/** 非负的十进制秒数；其余写法（负数、科学计数法、空串）一律视为没有写。 */
+/** Nonnegative decimal seconds; all other forms (negative, scientific notation, empty) count as omitted. */
 export function parseSeconds(value: string | null): number | null {
   if (value === null || !/^\d+(\.\d+)?$/.test(value)) return null;
   const seconds = Number(value);
   return Number.isFinite(seconds) ? seconds : null;
 }
 
-/** 取集页路径 `/app/projects/{项目名}/...` 里的项目名并解码；解码失败返回 null。 */
+/** Extract/decode project names from episode paths `/app/projects/{项目名}/...`; return null on decode failures. */
 function decodeProjectSegment(pathname: string): string | null {
   const segment = pathname.split("/")[3] ?? "";
   try {
@@ -48,7 +48,7 @@ function decodeProjectSegment(pathname: string): string | null {
   }
 }
 
-/** 同源且在 `/app` 之下的链接才算应用内链接；其余（含协议相对地址、其他域名）返回 null，由调用方按外链处理。 */
+/** Only same-origin links under `/app` are in-app; others (including protocol-relative/other domains) return null for caller external-link handling. */
 export function parseAppLink(href: string, origin: string): AppLink | null {
   let url: URL;
   try {

@@ -2,44 +2,44 @@
 status: accepted
 ---
 
-# 归档带图片的真实内容与可用的供应商素材关联，不带存储定位，导入按目标实例的全局设置重新保存
+# Archives carry image content and usable provider-material links, not storage locations; imports resave under target-instance global settings
 
-[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 让远端内容版本的版本记录记下写入时的对象存储连接、桶与 key，本地文件只是可清理的工作文件。归档要能在另一个实例独立导入，所以带的必须是内容本身。决定如下。
+[ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) records write-time object-storage connections, buckets, and keys on remote content versions; local files are cleanable working files. Archives must import independently on other instances, so they must carry content itself. Decisions follow.
 
-**导出**：当前版本与完整归档按既有范围语义打包，先取回这次要带的远端内容版本工作文件（正式文件，以及范围内的版本快照），打包期间登记使用，清理不会删除它们。取回按摘要校验；打包后再核对快照里每个远端版本快照都在场、与摘要一致。任何一项失败，导出返回明确错误，不产出归档。包里的 `versions.json` 去掉 `storage` 字段，归档里没有源实例的连接 ID、桶、key、签名地址或凭证。
+**Export**: current-version and full archives retain existing scope semantics. First retrieve working files for included remote content versions (formal files and in-scope version snapshots), registering use during packaging so cleanup cannot remove them. Verify retrieval by digest; after packaging, verify every remote version snapshot in the snapshot is present and matches its digest. Any failure returns an explicit export error without an archive. Strip `storage` from packaged `versions.json`; archives contain no source-instance connection IDs, buckets, keys, signed URLs, or credentials.
 
-**导入**：包里任何版本记录上的 `storage` 字段一律去掉，不按包里的定位读取目标实例的桶。目标实例的全局设置 `material_storage_target` 为本地时，导入结果就是本地内容版本；为对象存储时，确定目标项目名之后、安装之前，把暂存目录里的图片版本经正式提交入口保存为目标实例的正式对象，再写下定位。
+**Import**: strip `storage` from every packaged version record, never reading target-instance buckets through packaged locations. If target global `material_storage_target` is local, imported content versions are local. If object storage, after choosing the target project name and before installation, save staged image versions through formal commits as target-instance formal objects, then record locations.
 
-- 早于内容版本身份的记录先补写身份与摘要。快照与记录的摘要不符的版本照旧本地保存。
-- 仅当前版本的包裁掉了生成图片（资产图、衍生图、分镜与宫格）的版本记录，只带当前正式文件。这些图片先补登一条内容版本，再按上面的方式保存。导入到本地时不补登，仅当前版本的范围语义不变。尾帧不经存储选择，不补登。
-- 保存失败时什么也不安装。本次新建、没有任何版本引用的对象由结算补偿删除。
-- 结算读取安装后的项目目录。覆盖导入失败、旧项目原样还原时，结算按旧项目的版本历史判断引用。
+- Backfill identity and digests for records predating content-version identity. Versions whose snapshots disagree with recorded digests remain local as before.
+- Current-version-only archives remove generated-image version records (asset, derivative, storyboard, grid), carrying only current formal files. First register content versions for these images, then save as above. Local imports do not register them, preserving current-version-only scope semantics. End frames bypass storage selection and are not registered.
+- Install nothing on save failure. Settlement compensation deletes newly created objects without any version references.
+- Settlement reads the installed project directory. If overwrite import fails and restores the old project unchanged, settle references against its version history.
 
-工作线程里的同步导入经 `formal_commit_on` 使用正式提交入口：进出时投回事件循环，块内显式调用 `ObjectContentStorage.store`，再用 `track` 指明结算读取的项目。
+Synchronous import in worker threads enters formal commits through `formal_commit_on`: dispatch entry/exit to the event loop, explicitly call `ObjectContentStorage.store` inside, then use `track` to identify the settlement-read project.
 
-**可用的供应商素材关联随归档**：关联是实例数据库里的记录，键是项目名加内容版本身份（[ADR 0111](0111-asset-upload-job-and-link-share-one-record.md)、[ADR 0115](0115-provider-asset-link-scope-frozen-by-cloud-account-identity.md)）。导出时，包里每条版本记录所属内容版本的可用关联写进归档信封的 `provider_asset_links`，摘要须与版本记录一致；仅当前版本的包按既有规则裁剪版本历史，没进包的版本记录不带关联。
+**Usable provider-material links travel with archives**: links are instance-database records keyed by project name plus content-version identity ([ADR 0111](0111-asset-upload-job-and-link-share-one-record.md), [ADR 0115](0115-provider-asset-link-scope-frozen-by-cloud-account-identity.md)). Export usable links for every packaged version record's content version into archive-envelope `provider_asset_links`, with digests matching records. Current-version-only packages trim history under existing rules; versions absent from packages carry no links.
 
-- 只带选定且可用的关联。等待上传、提交中、处理中与结果待确认的任务依赖源实例的中转副本或后台查询，失败的任务没有素材，已解除的关系不再生效，都不带。
-- 关联原样冻结云账号身份、站点、区域、供应商项目与 origin，连同供应商素材 ID 与素材组。不带账号记录 ID、密钥、签名地址、中转副本或源实例的连接定位：账号记录 ID 只在源实例里有意义，导入后记为 `0`，不与任何账号记录相等。
-- 导入时逐条核对：内容版本身份须对应包里的版本记录，记录的摘要与快照的实际内容都须等于关联的摘要。对不上的关联丢弃，图片照常导入。核对过的关联在项目安装之后以目标项目名写入，规则同全局资产库的关联复制（[ADR 0120](0120-global-asset-library-entries-hold-content-references-and-link-copies.md)）：以可用状态选定，同一范围已有选定关联时保留已有的。写入失败不撤销导入，导入结果带一条警告。
-- 导入实例按推理凭证实际绑定的素材库账号选用（[ADR 0113](0113-generation-selects-provider-assets-by-actual-inference-credential.md)）。账号身份一致时，生成以素材引用发出；不一致时关联保留但选不中，照常发送图片内容。图片的预览、编辑与恢复版本都不受影响。
+- Include only selected, usable links. Tasks awaiting upload, submitting, processing, or awaiting result confirmation depend on source-instance intermediary copies/background queries; failed tasks lack materials and removed links no longer apply, so exclude them all.
+- Freeze cloud-account identity, site, region, provider project, and origin unchanged alongside provider-material IDs/groups. Exclude account-record IDs, secrets, signed URLs, intermediary copies, and source-instance connection locations. Account-record IDs have meaning only in the source instance; import records `0`, matching no account record.
+- Validate each imported link: content-version identity must match a packaged version record, and both recorded digest and actual snapshot content must match the link digest. Discard mismatches while importing images normally. Write verified links under target project names after installation, using global-library link-copy rules ([ADR 0120](0120-global-asset-library-entries-hold-content-references-and-link-copies.md)): select them as usable, preserving an already selected link in the same scope. Write failures do not undo imports; return a warning in import results.
+- Target instances select by material-library accounts actually bound to inference credentials ([ADR 0113](0113-generation-selects-provider-assets-by-actual-inference-credential.md)). Matching account identities send material references; mismatches preserve but do not select links, sending image content normally. Image preview, editing, and version restoration are unaffected.
 
-素材 ID 能否使用，由供应商按账号鉴权。ArcReel 的账号身份匹配只负责选中正确的关联，不适用时回落普通图片，不另外授予使用资格：目标实例登记了同一个云账号，本来就能在素材库里选到这些素材。
+Providers authenticate material-ID usability by account. ArcReel account-identity matching only selects correct links, falling back to ordinary images when inapplicable without granting additional eligibility: target instances registering the same cloud accounts already can select these materials in their libraries.
 
 ## Considered Options
 
-- **归档保留 `storage`，导入时按包里的定位读取**：导入实例没有源实例的桶与凭证；更糟的是，手工改过的包可以借此读取目标实例桶里的任意对象。
-- **归档里放签名地址，由导入方下载**：地址会过期，也把源实例的访问能力带出实例。
-- **关联不随归档，导入后重新上传或从素材库选择**：本 ADR 最初的选择。理由是「导入实例登记同一个云账号就自动取得使用资格」，可这份资格本来就由供应商按账号授予，ArcReel 不随归档带关联只是让用户重复入库。
-- **带上全部状态的关联**：入库中的任务要靠源实例的中转副本与后台查询推进，导入实例既没有副本，也无法用自己的账号记录续查；失败与已解除的记录对生成没有用处。
-- **导入时按目标实例的账号改写范围**：会把一个云账号的素材 ID 贴到另一个云账号的范围上，违反 ADR 0115。
+- **Keeping `storage` in archives and reading packaged locations at import**: target instances lack source buckets/credentials; worse, manually modified packages could read arbitrary objects from target buckets.
+- **Including signed URLs for importers to download**: URLs expire and export source-instance access capabilities.
+- **Excluding links, then re-uploading or selecting from material libraries after import**: this ADR's initial choice, justified as "registering the same cloud account automatically grants use." Providers already grant that eligibility by account; omitting links merely forces repeated registration.
+- **Including links in every state**: in-progress registration depends on source intermediary copies/background queries, absent from target instances, which also cannot continue queries using their own account records. Failed/removed records provide no generation value.
+- **Rewriting scopes to target accounts on import**: attaches one cloud account's material IDs to another's scope, violating ADR 0115.
 
 ## Consequences
 
-- 导出远端图片较多、工作文件已清理的项目时，导出前要先下载这些图片，并发上限 4。取回的文件留作工作文件，之后由清理入口回收。
-- 导入到对象存储时，上传在导入请求内同步进行，图片多时请求耗时随之增长。同字节的版本共用一个对象，只上传一次。
-- 仅当前版本的包里，生成的资产图等图片不带版本记录，也就不带关联。导入到对象存储时为它们补登的是新的内容版本，与源实例的关联对不上；需要素材时在目标项目里重新上传或从素材库选择。
-- 覆盖导入时，旧项目的关联随收尾改挂墓碑名，导入的项目只持有包里带来的关联。
-- 覆盖导入时，被替换项目成为已删除项目。收尾在同一事务里先补齐它此刻实际持有的正式对象引用，再随墓碑改挂，对象保留到彻底删除已删除项目（[ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md)）。导入的新图片的占用留在项目名下，结算后记为新项目的引用，彻底删除墓碑不影响它们。
+- Exports with many remote images and cleaned working files first download them, with concurrency capped at 4. Retrieved files remain working files for subsequent cleanup.
+- Object-storage imports upload synchronously within requests, increasing duration with image count. Byte-identical versions share objects and upload only once.
+- Current-version-only archives omit version records for generated asset images and similar images, therefore omitting links. Object-storage import registers new content versions that cannot match source links; re-upload or select materials in target projects when needed.
+- During overwrite import, old-project links move to tombstone names on retirement; imported projects hold only archived links.
+- Overwrite import turns replaced projects into deleted projects. Retirement first backfills actually held formal-object references within the same transaction, then reassigns them to tombstones, retaining objects until permanent project deletion ([ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md)). New-image holds remain under project names and settle into new-project references, unaffected by permanent tombstone deletion.
 
-范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
+For scope and acceptance, see [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559).

@@ -1,4 +1,4 @@
-"""文件视图接口：按目录懒加载、标角色、隐藏基础设施文件，鉴权预览与下载不跟随符号链接。"""
+"""File views lazily load directories/mark roles/hide infrastructure; authenticated preview/download never follows symlinks."""
 
 from __future__ import annotations
 

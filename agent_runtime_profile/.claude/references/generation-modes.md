@@ -1,65 +1,65 @@
-# 生成模式参考
+# Generation-mode reference
 
-ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`content_mode` 严格表达**内容类型**（narration / drama），`generation_mode` 表达**视频来源 / 生成路径**（storyboard / reference_video）。二者均由 `project.json` 顶层字段唯一决定，项目创建后不可更改，不存在集级覆盖。组合上可枚举如下；参考生视频路径下内容类型仅作画面比例 / 默认时长等次级决策。
+ArcReel separates “what content” from “how video is generated”. `content_mode` strictly expresses **content type** (narration / drama), while `generation_mode` expresses **video source / generation path** (storyboard / reference_video). Both are determined solely by top-level `project.json` fields, immutable after creation, with no episode overrides. Combinations are below; for reference video, content type affects secondary decisions such as ratio/default duration.
 
-宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关（由用户在设置页开关，Agent 无对应写入权限），决定分镜图步骤走单图还是宫格图，不影响其余步骤的分派。
+Grids are not another generation mode: `grid_storyboard` is an independent boolean effective only for `generation_mode="storyboard"` (toggled by users in settings, without Agent write permission), selecting single-image/grid storyboard assembly without affecting other step dispatch.
 
-## 模式矩阵
+## Mode matrix
 
-| generation_mode | content_mode | 数据主结构 | 脚本规划子智能体 | script_plan 中间文件 | 脚本 schema | 视觉参考来源 |
+| generation_mode | content_mode | Main structure | Planning subagent | Intermediate script_plan | Script schema | Visual-reference source |
 |---|---|---|---|---|---|---|
-| `storyboard` | `narration` | `segments[]` | split-narration-segments | `script_plan_segments.json` | NarrationEpisodeScript | 每分镜一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
-| `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `script_plan_normalized_script.json` | DramaNormalizedScript（script_plan）→ DramaVisualScript（prompt_authoring）→ DramaEpisodeScript（合并） | 每个分镜一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
-| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `script_plan_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
+| `storyboard` | `narration` | `segments[]` | split-narration-segments | `script_plan_segments.json` | NarrationEpisodeScript | One storyboard first frame per shot (split grid panels when `grid_storyboard=true`) |
+| `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `script_plan_normalized_script.json` | DramaNormalizedScript (script_plan) → DramaVisualScript (prompt_authoring) → DramaEpisodeScript (merged) | One storyboard first frame per shot (split grid panels when `grid_storyboard=true`) |
+| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `script_plan_reference_units.json` | ReferenceVideoScript | Character / scene / prop sheets directly as `reference_images` |
 
-> drama 走两段式（见 ADR 0041）：script_plan（normalize-drama-script）产出**结构化内容** `script_plan_normalized_script.json`（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；prompt_authoring（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 写回正式脚本 `DramaEpisodeScript`。内容确认时脚本规划整集转为正式脚本，之后内容修改在正式脚本上经 `patch_episode_script` 进行。
+> Drama has two stages (ADR 0041): script_plan (normalize-drama-script) produces **structured content** `script_plan_normalized_script.json` (boundaries / assets / verbatim utterances / source_text anchors / visual adaptation descriptions); prompt_authoring (create-episode-script) outputs only `DramaVisualScript` (scene_id + image_prompt + video_prompt), written by scene_id into formal `DramaEpisodeScript`. Confirmation converts the whole plan to formal content; later edits use formal `patch_episode_script`.
 >
-> script_plan 中间文件统一位于 `drafts/episode_{N}/`。状态检测与内容确认**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `script_plan_*` 文件属历史残留，既不作为脚本规划已完成的依据，也不能当作内容确认的代替输入。drama 旧项目残留的 `script_plan_normalized_script.md`（结构化前自由文本稿）不算有效 script_plan，须重跑 normalize 产出 `.json`。
+> Intermediates live under `drafts/episode_{N}/`. State and confirmation recognize **only the file matching current project generation_mode**: other `script_plan_*` files are historical residue, neither completion evidence nor substitute confirmation input. Legacy drama `script_plan_normalized_script.md` is not valid planning; rerun normalization to produce `.json`.
 
-## 步骤适用性由计划表达
+## The plan expresses step applicability
 
-**本文档不再复述一张按创作类型或生成模式展开的步骤表。** 哪些步骤适用、顺序如何、当前停在哪一步、
-脚本规划该 dispatch 哪个子智能体，一律读 `mcp__arcreel__get_workflow_plan` 的 `steps[]` 与
-`next_action`（`prepare_script_plan` 的 `next_action.args.preprocessor` 就是权威的脚本规划子智能体名）。
-读法见 [workflow-plan.md](workflow-plan.md)。
+**This document does not duplicate a content/generation-mode step table.** Applicable steps, order, current stage,
+and script-planning subagent all come from `mcp__arcreel__get_workflow_plan` `steps[]` and
+`next_action` (`prepare_script_plan` `next_action.args.preprocessor` is the authoritative subagent name).
+See [workflow-plan.md](workflow-plan.md).
 
-上表只解释**数据结构与 schema 的差异**：同一步骤在不同组合下操作的是哪种主结构、哪个中间文件、
-哪份 schema、视觉参考从哪来。两条生成模式的差别落在这里，不落在「跳过哪一步」上。
+The matrix explains only **data structures and schemas**: which main structure, intermediate file,
+schema, and references the same step uses in each combination. Mode differences belong here, not in a skipped-step table.
 
-几条不由计划表达、需要在这里说清的事实：
+Additional facts not expressed by the plan:
 
-- `reference_video` **只跳过分镜图**这一步。TTS 配音项目在两种生成模式下都能生成旁白配音，
-  只是参考生视频没有按段批量 TTS 的入口（无 `segments[]`）。
-- 视频入队按项目 `generation_mode` 定生成模式，剧本骨架只作校验；失配（如 storyboard 项目里残留
-  `video_units[]` 旧剧本）直接拒绝入队，正解是按项目当前生成模式重跑脚本规划与剧本生成，而非指望旧剧本被执行。
-- 正式脚本不跟随脚本规划变化：内容修改在正式脚本上经 `patch_episode_script` 进行；只有整集重做才重跑脚本规划，重跑后须重新确认，确认会整份覆盖现有正式脚本（先经覆盖确认）。
+- `reference_video` **skips only storyboard images**. TTS projects can generate narration under both modes,
+  but reference video has no segment-batch TTS entry (no `segments[]`).
+- Queueing dispatches by project `generation_mode`; script skeleton is validation only. Mismatches, such as residual
+  `video_units[]` in storyboard projects, reject queueing. Rerun planning/generation for the current project mode instead of expecting old scripts to execute.
+- Formal scripts do not follow planning changes automatically: use formal `patch_episode_script` for content; rerun planning only for whole-episode redo, then reconfirm, overwriting existing formal content after overwrite agreement.
 
-## 视频规格
+## Video specifications
 
-- **分辨率**：图片 1K，视频 1080p
-- **单分镜时长**（storyboard，含 grid_storyboard）：取值必须在模型 `supported_durations` 内；项目 `default_duration` 非 null 时作默认值（项目创建时按 content_mode 写入 project.json），为 null 时由脚本规划按内容节奏自行取值
-- **单集目标时长**（非 ad 项目）：项目 `episode_target_duration` 非 null 时，脚本规划据它决定本集拆多少个分镜 / 视频单元；未显式设 `episode_target_units` 时，分集规划也按它经口播语速折算出每集塞多少原文。两处均为软目标，内容不足宁少拆、内容确实需要可超出，超出只提示不阻断
-- **单个视频单元时长**（参考生视频）：视频单元是一次生成调用的单元，一个视频单元一个时长——取值必须在该视频单元**引用状态对应**的生效档位内（`get_video_capabilities` 返回的 `reference_unit_durations.with_references` / `.without_references`；部分型号对带参考图的生成另有时长限制）；内容装不下所选档位时重拆视频单元，不违约时长。具体数值由子智能体在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**。已有正式视频单元实际落的桶与档位以同一返回里 `reference_unit_durations.units[unit_id]` 的服务端判定为准：它按此刻可用的参考图定桶，登记了资产却没有资产图的引用不算带图，并在 `problems` / `unavailable_references` 里点名
-- **剪辑与出片**：全部模式按 `edit-video` skill 在剪辑时间线上衔接并出成片；Veo extend 仅用于**单片段延长**，不串联不同镜头
-- **BGM**：生成端已在视频 prompt 末尾自动追加 `Avoid: BGM、文字字幕、水印`，无需手动追加，prompt 里也不要描述 BGM / 配乐
+- **Resolution**: images 1K, video 1080p
+- **Shot duration** (storyboard, including grid_storyboard): must belong to model `supported_durations`; non-null project `default_duration` is the default (written to project.json by content_mode at creation), while null lets planning choose by pacing
+- **Episode target duration** (non-ad): non-null `episode_target_duration` guides shot/unit count; unless `episode_target_units` is explicit, planning also converts it to source volume via speaking rate. Both are soft: fewer units for insufficient content, overruns for necessary content, warnings without blocking
+- **Reference-video unit duration**: one unit is one generation call and duration, chosen from effective tiers **matching its reference state** (`get_video_capabilities` `reference_unit_durations.with_references` / `.without_references`; some models restrict image-backed duration). Resplit content that cannot fit; never violate duration. Subagents query `mcp__arcreel__get_video_capabilities` at execution; **do not freeze values here**. Existing units follow server `reference_unit_durations.units[unit_id]`, based on currently available images; registered assets without sheets are not image-backed and appear in `problems` / `unavailable_references`
+- **Editing/final cuts**: all modes join/render via `edit-video` timelines; Veo extend is only **single-clip extension**, not joining shots
+- **BGM**: generation appends `Avoid: BGM、文字字幕、水印` to video prompts automatically; do not append manually or describe BGM / scores
 
-## Prompt 语言
+## Prompt language
 
-- 图片/视频生成 prompt 使用**中文**
-- 采用叙事式描述，不使用关键词罗列
-- 参考生视频额外规则：用 `@[角色]/@[场景]/@[道具]` 引用资产；**禁止**描写外貌、服装、场景细节（由参考图提供）
+- Image/video prompts use **Chinese**
+- Use narrative descriptions, not keyword lists
+- Reference video additionally uses `@[角色]/@[场景]/@[道具]` to reference assets; **never** describe appearance, clothing, or scene details supplied by references
 
-## 目录差异
+## Directory differences
 
-> 下面的目录树仅说明项目结构，session cwd 已在 `projects/{name}/`，**调用工具时使用相对 cwd 的路径**（如 `videos/`、`reference_videos/`），不可带 `projects/{name}/` 前缀。
+> This tree only illustrates project layout; session cwd is already `projects/{name}/`. **Use cwd-relative paths in tool calls** (such as `videos/`, `reference_videos/`), never the `projects/{name}/` prefix.
 
 ```text
-projects/{name}/          # ← session cwd 已在此
-├── storyboards/          # 分镜图生视频分镜图（grid_storyboard=true 时存宫格切割出的起始分镜图）
-├── grids/                # 分镜图生视频且 grid_storyboard=true（宫格大图）
-├── reference_videos/     # 参考生视频产物
-├── videos/               # 分镜图生视频产物
-└── audio/                # 旁白音频（仅旁白/解说，首次生成时创建）
+projects/{name}/          # ← session cwd is here
+├── storyboards/          # Storyboard images (split grid first frames when grid_storyboard=true)
+├── grids/                # Composite grids for storyboard + grid_storyboard=true
+├── reference_videos/     # Reference-video artifacts
+├── videos/               # Storyboard-video artifacts
+└── audio/                # Narration audio (narration/commentary only, created on first generation)
 ```
 
-> 参考 [Gemini 图像生成官方指南](https://ai.google.dev/gemini-api/docs/image-generation)的 prompting strategies。
+> See prompting strategies in the [official Gemini image-generation guide](https://ai.google.dev/gemini-api/docs/image-generation).

@@ -1,4 +1,4 @@
-"""api_calls.generate_audio 去掉服务端默认，非视频行留空
+"""Remove api_calls.generate_audio server default; leave non-video rows unset
 
 Revision ID: b66f6d617e3f
 Revises: 23c60be146cc
@@ -19,8 +19,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # generate_audio 只对视频调用有意义；服务端默认 true 会让调用方没有声明的非视频行也被填成
-    # 「有声」。去掉默认后未声明即 NULL，并把历史上被默认填过的非视频行清空。
+    # generate_audio matters only for video calls; server default true incorrectly labels undeclared non-video calls
+    # as audible. Removing the default leaves undeclared values NULL and clears historically defaulted non-video rows.
     with op.batch_alter_table("api_calls") as batch_op:
         batch_op.alter_column("generate_audio", server_default=None)
     op.execute(sa.text("UPDATE api_calls SET generate_audio = NULL WHERE call_type != 'video'"))

@@ -1,4 +1,4 @@
-"""Alembic 迁移：api_calls.last_provider_response 加列与回退。"""
+"""Alembic: add/revert api_calls.last_provider_response."""
 
 from collections.abc import Callable
 from pathlib import Path

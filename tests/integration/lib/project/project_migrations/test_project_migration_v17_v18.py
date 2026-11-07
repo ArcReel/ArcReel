@@ -1,4 +1,4 @@
-"""v17→v18 迁移：剪辑时间线修订删去 Agent 轮次字段；补录此前因生成缺口跳过的产物。"""
+"""v17→v18: remove Agent-turn fields from editing revisions and backfill outputs previously skipped for generation gaps."""
 
 from __future__ import annotations
 
@@ -59,15 +59,15 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
         **legacy,
         "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image",
         "image_provider_i2i": "gemini-vertex/gemini-3-pro-image",
-        # 已下线而没有后继的模型原样保留，运行时报错由用户重新选择
+        # Delisted models without successors remain unchanged; runtime errors require user reselection.
         "video_backend": "openai/sora-2",
-        # 按旧 ID 存的分辨率跟到后继 ID 下；后继 ID 已有设置时以它为准，旧键原样留下
+        # Old-ID resolution follows successor IDs, whose existing settings win; retain the old key unchanged.
         "model_settings": {
             "gemini-aistudio/gemini-3.1-flash-image": {"resolution": "4K"},
             "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
             "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
         },
-        # v18→v19 记下本集用过的最大分镜号（样本剧本到 E1S02）
+        # v18→v19 records highest used shot IDs; the sample ends at E1S02.
         "episodes": [{**entry, "item_id_high_water": 2} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
@@ -179,7 +179,7 @@ def _manifest_entries(project_dir: Path) -> dict[str, Any]:
 def test_artifacts_skipped_for_generation_input_gaps_are_backfilled_without_touching_registered_entries(
     tmp_path: Path,
 ) -> None:
-    """v17 项目里空描述的场景图没有登记：这一步只补录它，已登记条目逐字节不变，报告不再列它。"""
+    """A v17 empty-description scene image is unregistered; backfill only it, preserving registered entries byte-for-byte and omitting it from reports."""
     project_dir = write_legacy_unregistrable_asset_sheet_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
     scene_key = ArtifactKey.asset_sheet("scene", "祠堂").encode()
@@ -202,7 +202,7 @@ def test_artifacts_skipped_for_generation_input_gaps_are_backfilled_without_touc
 
 
 def test_a_mixed_speech_stock_video_is_registered_but_its_unit_still_needs_replanning(tmp_path: Path) -> None:
-    """说书片段同时写了原文和角色台词：存量视频登记为 current，单位仍报混合发声、生成仍被拒。"""
+    """Narration segments with source text plus character dialogue register legacy videos current, still report mixed speech, and still reject generation."""
     project_dir = write_legacy_storyboard_project(tmp_path / "projects")
     script_path = project_dir / "scripts" / "episode_1.json"
     script = _read_json(script_path)
@@ -224,7 +224,7 @@ def test_a_mixed_speech_stock_video_is_registered_but_its_unit_still_needs_repla
 
 
 def test_a_stock_video_of_a_unit_marked_for_replanning_over_mixed_speech_is_registered(tmp_path: Path) -> None:
-    """机器产出的混合发声片段落盘时带 needs_replan：存量视频照样登记，片段的分镜图仍不算正式产物。"""
+    """Machine-generated mixed-speech segments persist needs_replan; register legacy videos anyway, while storyboard images remain nonformal artifacts."""
     project_dir = write_legacy_storyboard_project(tmp_path / "projects")
     script_path = project_dir / "scripts" / "episode_1.json"
     script = _read_json(script_path)
@@ -251,7 +251,7 @@ def test_a_stock_video_of_a_unit_marked_for_replanning_over_mixed_speech_is_regi
 
 
 def test_a_stock_video_whose_storyboard_is_gone_still_depends_on_its_end_frame(tmp_path: Path) -> None:
-    """分镜图已不在、尾帧还在：补录的视频依据只把分镜图记为缺席，之后换掉尾帧视频读作 stale。"""
+    """With missing storyboard but existing last frame, video backfill bases mark only the storyboard absent; changing the last frame later makes video stale."""
     project_dir = write_legacy_storyboard_project(tmp_path / "projects")
     script_path = project_dir / "scripts" / "episode_1.json"
     script = _read_json(script_path)
@@ -281,7 +281,7 @@ def test_a_stock_video_whose_storyboard_is_gone_still_depends_on_its_end_frame(t
 def test_a_stock_video_whose_storyboard_cannot_be_opened_is_registered_with_the_storyboard_absent(
     tmp_path: Path,
 ) -> None:
-    """分镜图在盘上却打不开：分镜图进「未能带入」，存量视频照常补录，依据把分镜图记为缺席。"""
+    """Unreadable disk storyboards enter not-carried-over reports, while legacy videos backfill normally with storyboard absence in their bases."""
     project_dir = write_legacy_storyboard_project(tmp_path / "projects")
     storyboard = project_dir / "storyboards" / "scene_E1S1.png"
     storyboard.chmod(0)
@@ -310,7 +310,7 @@ def test_a_stock_video_whose_storyboard_cannot_be_opened_is_registered_with_the_
 def test_projects_without_generation_input_gaps_plan_identically_under_both_gap_rules(
     tmp_path: Path, write_project: Any
 ) -> None:
-    """输入完整的项目两种缺口口径规划出同一份目标态：这一步不碰它们的清单。"""
+    """Complete-input projects plan identical target states under both gap policies; this step leaves their manifests untouched."""
     project_dir = write_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
     before = _manifest_entries(project_dir)
@@ -325,7 +325,7 @@ def test_projects_without_generation_input_gaps_plan_identically_under_both_gap_
 
 
 def test_a_grid_whose_reference_sheet_is_gone_is_backfilled_with_the_reference_recorded_absent(tmp_path: Path) -> None:
-    """宫格记录冻结的参考图已读不到，原先联合图与切格分镜都没登记：补录后读作 current，依据记下缺席的参考。"""
+    """Unreadable frozen grid references previously prevented combined/split-image registration; backfill makes them current with absent references recorded in bases."""
     project_dir = write_undescribed_style_bases_project(tmp_path / "projects", "grid", route="grid")
     advance_project_schema(project_dir, to_version=17)
     grid_path = project_dir / "grids" / "grid_123456789abc.json"
@@ -355,7 +355,7 @@ def test_a_grid_whose_reference_sheet_is_gone_is_backfilled_with_the_reference_r
 
 
 def test_turning_a_presented_unit_into_mixed_speech_reads_its_media_layers_stale(tmp_path: Path) -> None:
-    """已登记的单位改成混合发声：字幕与呈现模型的当前依据照常投影（准入问题记为缺席），全部读作 stale。"""
+    """Registered units changed to mixed speech still project current subtitle/presentation bases, recording admission problems as absence; all read stale."""
     project_dir = write_legacy_presentation_project(tmp_path / "projects")
     assert migrate_project_dir(project_dir) is True
     keys = (
@@ -389,7 +389,7 @@ _CONTENT_FACT_FIELDS = ("content_digest", "content_size", "content_mtime_ns")
 
 
 def _media_currency(project_dir: Path) -> tuple[Any, ...]:
-    """用户看到的视频与配音时效：项目摘要的视频计数，加上制作状态里视频与配音的分组。"""
+    """User-visible video/voiceover currency: project-summary video counts plus production-status video/voiceover groups."""
 
     projects = ProjectManager(project_dir.parent.parent)
     service = WorkflowStateService(projects)
@@ -422,7 +422,7 @@ def _assert_content_recorded(project_dir: Path, key: ArtifactKey, resource_type:
 
 
 def test_stock_videos_and_narration_audio_get_content_digests_across_the_whole_chain(tmp_path: Path) -> None:
-    """v7 存量项目一路迁到当前版本：正式文件与选中快照一致的视频和配音，清单条目与版本记录都补上内容指纹。"""
+    """Migrate v7 projects through current: video/voiceover formal files matching selected snapshots receive content fingerprints in both manifest entries and version records."""
     project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
 
     assert migrate_project_dir(project_dir) is True
@@ -432,12 +432,12 @@ def test_stock_videos_and_narration_audio_get_content_digests_across_the_whole_c
         _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, unit_id), "audio")
     videos, groups = _media_currency(project_dir)
     assert (videos.total, videos.available, videos.stale) == (2, 2, 0)
-    # 项目 TTS 设置取最后一条配音的设置，第一条配音本就 stale，补录不改变它。
+    # Project TTS settings use the last voiceover; the first was already stale, unchanged by backfill.
     assert groups["audio"] == (["E1S2"], ["E1S1"], [])
 
 
 def _strip_content_digests(project_dir: Path) -> None:
-    """抹掉这一步补录的内容指纹，把项目还原成没有补录时的样子。"""
+    """Erase content fingerprints added by this step, restoring the project's prebackfill shape."""
 
     manifest_path = project_dir / MANIFEST_FILENAME
     manifest = _read_json(manifest_path)
@@ -452,9 +452,9 @@ def _strip_content_digests(project_dir: Path) -> None:
 
 
 def test_media_that_cannot_be_proven_identical_to_its_selected_snapshot_is_not_backfilled(tmp_path: Path) -> None:
-    """正式视频被换掉、配音快照损坏：两者都不补录，判 stale，与按「正式文件 = 选中快照」比对的结论相同。
+    """Replaced formal video and corrupt voiceover snapshots both skip backfill and read stale, matching formal-file/selected-snapshot comparisons.
 
-    v17 项目由不记内容事实的旧版本写成，迁移前先抹掉夹具在激活时记下的事实。
+    Old code writing v17 projects stored no content facts; remove fixture activation facts before migration.
     """
     project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
@@ -482,7 +482,7 @@ def test_media_that_cannot_be_proven_identical_to_its_selected_snapshot_is_not_b
 def test_a_step_that_fails_after_the_backfill_committed_reruns_to_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """补录已提交、提升 schema 时写盘失败：重跑认得已写好的指纹，迁移照常完成。"""
+    """Backfill commits but schema promotion fails writing: reruns recognize existing fingerprints and complete normally."""
     project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
 
@@ -503,7 +503,7 @@ def test_a_step_that_fails_after_the_backfill_committed_reruns_to_completion(
 
 
 def test_a_failed_content_digest_backfill_leaves_nothing_half_written_and_reruns(tmp_path: Path) -> None:
-    """清单提交失败：版本记录回到改写前、项目停在 17；重跑补录完整。"""
+    """Manifest commit failure restores prior version records and keeps schema 17; rerunning completes backfill."""
     project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
     versions_before = (project_dir / "versions" / "versions.json").read_bytes()

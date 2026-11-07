@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Static integrity checks for the materialized Agent Runtime Profile.
 
-校验范围限于能对照代码真相源的结构：frontmatter 与变体身份、按创作类型物化后的
-Markdown 指针可达性、`mcp__arcreel__*` 工具名是否已注册、eval id 是否唯一，以及 eval 点名的
-skill 与工具是否仍存在。
-档案散文本身不做措辞校验——越界行为（如直改正式 script_plan）由 ``AgentAccessPolicy``
-在工具边界上拒绝，不靠对散文做黑名单。
+Check only structures verifiable against code sources of truth: frontmatter and variant
+identity, Markdown-pointer reachability after materialization by content mode, registration
+of `mcp__arcreel__*` tool names, unique eval IDs, and existence of skills/tools named by evals.
+Do not lint profile prose wording itself: ``AgentAccessPolicy`` rejects out-of-bounds behavior
+(such as direct formal script_plan edits) at tool boundaries, without prose blacklists.
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def _skill_names(profile_dir: Path) -> set[str]:
 
 
 def _validate_eval_targets(label: str, record: dict[str, object], skills: set[str], tools: set[str]) -> list[str]:
-    """eval 是验收资产：点名的 skill 或工具已退役时，按它验收就是在验一份不存在的契约。"""
+    """Evals are acceptance assets: testing retired named skills or tools would validate a nonexistent contract."""
     errors: list[str] = []
     target_skills = record.get("target_skills", [])
     if isinstance(target_skills, list):

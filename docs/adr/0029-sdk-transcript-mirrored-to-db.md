@@ -2,11 +2,11 @@
 status: accepted
 ---
 
-# SDK transcript 镜像入自有 DB，默认 eager flush；idle 会话从内存驱逐、可恢复不丢历史
+# Mirror SDK transcripts into DB with eager flush; evict/resume idle sessions without losing history
 
-SDK 自带的 jsonl transcript 绑定本机文件系统，与「运行时状态统一进单一 async ORM DB」（`docs/adr/0020`）的部署形态（多用户/PostgreSQL）不匹配。决定实现自定义 SessionStore 把 transcript 逐 entry 镜像写入 DB（`agent_session_entries` + 会话摘要表），由 `ARCREEL_SDK_SESSION_STORE` 控制（默认 `db`，`off` 回退 SDK jsonl），启动钩子一次性把本地历史 jsonl 迁移入库；flush 模式默认 eager——逐条写入数据库，以换取崩溃后 SDK resume 不丢上下文。transcript 只服务 SDK resume，UI 时间线的读源是会话事件日志（见 `docs/adr/0048`）。
+SDK jsonl transcripts are tied to a local filesystem and conflict with the single-async-ORM deployment model (`docs/adr/0020`), including multiple users/PostgreSQL. Implement a custom SessionStore mirroring entries into DB (`agent_session_entries` and session-summary tables), controlled by `ARCREEL_SDK_SESSION_STORE` (default `db`; `off` falls back to SDK jsonl). A startup hook migrates local historical jsonl once. Default eager flush writes every entry to preserve SDK-resume context after crashes. Transcripts serve only SDK resume; UI timelines read session event logs (see `docs/adr/0048`).
 
 ## Consequences
 
-- 闲置会话在延迟后（`agent_session_cleanup_delay_seconds`，默认 300 秒，另有定期巡检兜底）从内存驱逐（关闭 actor/SDK 子进程）以约束常驻内存。未空闲的会话不驱逐（关闭子进程会中止在途轮次、连带杀掉在途子智能体，完成后的自主轮次也不会发生），容量不足时宁可拒绝新会话；CLI 报 idle 后重新计时。判据就是会话状态：会话在 CLI 报 `idle` 之前一直是 running（子智能体存活、或其完成后还欠一轮时 CLI 持续报 running），与 SDK 判定 run 是否结束的口径一致。同样不设兜底上限：CLI 不报 idle，会话就一直保留到进程重启。正因 transcript 已入库，驱逐不丢历史：再次访问时按 sdk_session_id 以 SDK resume 重建 actor 续聊。
-- eager flush 有写放大；SDK 在慢 store 下会自行合并帧。`off` 模式只适合单机开发。
+- Evict idle sessions from memory after a delay (`agent_session_cleanup_delay_seconds`, default 300 seconds, with periodic sweep fallback), closing actor/SDK subprocesses to bound memory. Never evict active sessions: closing subprocesses interrupts turns, kills in-flight subagents, and prevents later autonomous turns. Prefer refusing new sessions under capacity pressure; restart the timer after CLI reports idle. Session state is the criterion: sessions remain running until CLI `idle`, including live subagents or another turn owed after completion, matching SDK completion semantics. There is no fallback maximum: without CLI idle, retain the session until process restart. DB transcripts preserve history through eviction; access rebuilds the actor with SDK resume by sdk_session_id.
+- Eager flush amplifies writes; SDK coalesces frames with slow stores. `off` is suitable only for single-machine development.

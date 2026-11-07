@@ -1,4 +1,4 @@
-"""剪辑时间线命令：HTTP 与 Agent 工具共用的新建、列出与读取入口。"""
+"""Editing-timeline commands: creation, listing, and read entry points shared by HTTP and Agent tools."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ _TIMELINE_NAME = TypeAdapter(TimelineName)
 
 
 class TimelineSummary(BaseModel):
-    """列表里的一条剪辑时间线；``updated_*`` 描述最新修订。"""
+    """One timeline in a list; ``updated_*`` describes the latest revision."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -74,7 +74,7 @@ class TimelineSummary(BaseModel):
 
 
 class RevisionSummary(BaseModel):
-    """修订历史里的一条：谁在什么时候为什么改，以及改动了哪些片段（旧修订没有记录时为 null）。"""
+    """Revision-history entry: who changed what clips, when, and why (changed-clip information is null for old revisions lacking it)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -89,7 +89,7 @@ class RevisionSummary(BaseModel):
 
 
 class RevisionHistory(BaseModel):
-    """一条剪辑时间线的修订历史，按修订号从旧到新排列。"""
+    """One timeline's revision history in ascending revision order."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -99,7 +99,7 @@ class RevisionHistory(BaseModel):
 
 
 class ConcurrentRevision(BaseModel):
-    """写入所依据的修订之后、本次写入之前由他人追加的修订。"""
+    """Revision appended by someone else after the write's base revision and before this write."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -109,12 +109,12 @@ class ConcurrentRevision(BaseModel):
 
 
 class EditTimelineWriteResult(BaseModel):
-    """一批编辑的写入结果：只含受影响片段的新状态与更新后的 issues，不含整份时间线。
+    """Write result for one edit batch: only affected clips' new states and updated issues, without the whole timeline.
 
-    ``clips`` 按播放顺序列出本批点名或改动过的片段（含新插入的片段、跟随相邻关系恢复硬切的
-    片段与旁白改挂到的片段）；``bgm`` 按起点列出本批点名或改动过的 BGM 片段；``deleted_clip_ids``
-    是本批删除的剪辑片段与 BGM 片段。
-    """
+    ``clips`` lists clips named or changed by this batch in playback order, including newly inserted clips,
+    clips reset to hard cuts after adjacency changes, and clips receiving reassigned narration. ``bgm`` lists
+    BGM clips named or changed in start-time order; ``deleted_clip_ids`` contains editing and BGM clips
+    deleted by this batch."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -144,7 +144,7 @@ def _utc_now() -> str:
 
 
 def mechanical_content(script: EpisodeScriptUnits) -> EditTimelineContent:
-    """按当前脚本顺序排列每个视频单元：整段使用、全部硬切，旁白挂在该单元的第一个片段上。"""
+    """Arrange every video unit in current script order, using entire clips and hard cuts, with narration attached to each unit's first clip."""
     return EditTimelineContent(
         clips=tuple(
             EditClip(
@@ -166,7 +166,7 @@ def _normalized_name(name: str) -> str:
 
 
 def _ensure_name_free(store: EditTimelineStore, episode: int, name: str, *, excluding: str | None = None) -> None:
-    """显示名在集内不重名；``excluding`` 是正在改名的时间线自己。"""
+    """Ensure episode-unique display names; ``excluding`` identifies the timeline being renamed."""
     if any(
         existing.id != excluding and existing.name.casefold() == name.casefold()
         for existing in store.list_documents(episode)
@@ -190,7 +190,7 @@ def _new_document(
     next_clip_number: int,
     next_bgm_number: int = 1,
 ) -> EditTimelineDocument:
-    """以 ``content`` 为修订 1 的新剪辑时间线，ID 随机生成。"""
+    """New timeline with ``content`` as revision 1 and a random ID."""
     now = _utc_now()
     return EditTimelineDocument(
         id=f"tl-{secrets.token_hex(4)}",
@@ -262,7 +262,7 @@ class EditTimelineService:
         name: str,
         author: RevisionAuthor,
     ) -> EditTimelineReadout:
-        """按当前脚本机械新建一条剪辑时间线，返回它的第一个修订的读取结果。"""
+        """Mechanically create a timeline from the current script; return the readout of its first revision."""
         normalized = _normalized_name(name)
         document = await run_sync_transaction(self._create_from_script_sync, project_name, episode, normalized, author)
         return await self._readout(project_name, document, document.latest.number)
@@ -302,10 +302,10 @@ class EditTimelineService:
         revision: int | None = None,
         author: RevisionAuthor,
     ) -> EditTimelineReadout:
-        """把一条剪辑时间线的指定修订（缺省为最新修订）复制成同一集的新时间线，返回新时间线的第一个修订。
+        """Copy a specified revision (latest by default) into a new timeline in the same episode; return its first revision.
 
-        内容原样复制，包括原声音量、截取与转场；片段编号保持不变，编号分配器一并带过去，之后新建的片段不会撞号。
-        """
+        Copy contents unchanged, including source volume, trim, and transitions. Preserve clip IDs and carry
+        their allocators so later new clips cannot collide."""
         normalized = _normalized_name(name)
         document = await run_sync_transaction(self._copy_sync, project_name, timeline_id, revision, normalized, author)
         return await self._readout(project_name, document, document.latest.number)
@@ -323,7 +323,7 @@ class EditTimelineService:
         return renamed
 
     async def rename(self, project_name: str, timeline_id: str, *, name: str) -> TimelineSummary:
-        """改显示名。显示名不属于剪辑内容，改名不产生修订，成片与剪映草稿也不因此过期。"""
+        """Change the display name, which is outside editing content: no new revision or final-video/Jianying-draft invalidation."""
         document = await run_sync_transaction(self._rename_sync, project_name, timeline_id, _normalized_name(name))
         return _summarize(document)
 
@@ -400,10 +400,10 @@ class EditTimelineService:
         revision: int,
         author: RevisionAuthor,
     ) -> EditTimelineWriteResult:
-        """回滚：以旧修订的内容追加一个新修订，历史不改写。
+        """Roll back by appending old revision content as a new revision, without rewriting history.
 
-        回滚总是作用在最新修订上，不做乐观并发判定：它整段替换内容，被还原掉的修订仍在历史里，可以再回滚回去。
-        """
+        Always act on the latest revision without optimistic-concurrency checks: replace the entire content.
+        Replaced revisions remain in history and can be restored again."""
         document = await asyncio.to_thread(lambda: self._store(project_name).find(timeline_id))
         target = self._base_revision(document, revision)
         script = await asyncio.to_thread(load_episode_script_units, self._projects, project_name, document.episode)
@@ -419,7 +419,7 @@ class EditTimelineService:
         return await self._write_result(project_name, script, sources, unit_ids, written, message)
 
     def _delete_sync(self, project_name: str, timeline_id: str) -> None:
-        # 回收站接入依赖产物登记，后者依赖剪辑时间线的模型（经 jianying_draft.basis），模块顶层导入会成环。
+        # Trash integration depends on artifact registration, which depends on timeline models via jianying_draft.basis; top-level import would cycle.
         from lib.edit_timeline.trash import delete_edit_timeline
 
         store = self._store(project_name)
@@ -432,10 +432,9 @@ class EditTimelineService:
         store.changed(episode)
 
     async def delete(self, project_name: str, timeline_id: str) -> None:
-        """把一条剪辑时间线及其成片与剪映草稿（``renders/`` 下的文件）移进项目回收站，并撤掉渲染产物的登记。
+        """Move a timeline and its final-video/Jianying-draft files under ``renders/`` into project trash and unregister its rendered artifacts.
 
-        调用方负责确认没有以它为对象的渲染任务仍在排队或执行。
-        """
+        Callers must confirm no render tasks targeting it remain queued or running."""
         await run_sync_transaction(self._delete_sync, project_name, timeline_id)
 
     async def edit(
@@ -448,11 +447,10 @@ class EditTimelineService:
         operations: Sequence[TimelineOperation],
         author: RevisionAuthor,
     ) -> EditTimelineWriteResult:
-        """按 ``base_revision`` 解读一批操作，原子追加一个修订。
+        """Interpret an operation batch against ``base_revision`` and atomically append one revision.
 
-        ``base_revision`` 已不是最新修订时：本批点名或会改动的片段在那之后都没被改过就照常应用到
-        最新修订上，否则以 ``revision_conflict`` 拒绝并给出冲突片段。
-        """
+        If ``base_revision`` is no longer latest, apply to the latest revision if none of this batch's named
+        or affected clips changed afterward; otherwise reject with ``revision_conflict`` and conflicting clips."""
         normalized_summary = summary.strip()
         if not normalized_summary or len(normalized_summary) > REVISION_SUMMARY_MAX_LENGTH:
             raise EditTimelineError(
@@ -593,12 +591,11 @@ class EditTimelineService:
         operations: Sequence[TimelineOperation],
         sources: EpisodeSources,
     ) -> AppliedBatch:
-        """本批在基准修订上点名或会改动的片段，与基准修订之后他人改动过的片段不能相交。
+        """Clips named or affected by this batch on the base revision must not intersect clips changed by others afterward.
 
-        本批设置转场的片段，在基准修订与最新修订上应用本批后必须接着同一个片段：转场描述的是
-        调用方在基准修订上看到的那个切点。两次预演只判断冲突、不校验转场窗口；窗口按最新修订在最后的
-        完整应用中校验。
-        """
+        Clips receiving transitions must have the same following clip after applying this batch to base and
+        latest revisions: transitions describe the cut callers saw on the base revision. Both previews only
+        check conflicts, not transition windows; validate windows against the latest revision in final full application."""
         since_base: set[str] = set()
         for previous, revision in zip(
             document.revisions[base.number - 1 : -1], document.revisions[base.number :], strict=True
@@ -664,7 +661,7 @@ class EditTimelineService:
         return tuple(_summarize(document) for document in await asyncio.to_thread(load))
 
     async def read(self, project_name: str, timeline_id: str, *, revision: int | None = None) -> EditTimelineReadout:
-        """读取一条剪辑时间线的指定修订（缺省为最新修订）。"""
+        """Read a specified timeline revision, latest by default."""
         document = await asyncio.to_thread(lambda: self._store(project_name).find(timeline_id))
         return await self._readout(project_name, document, revision if revision is not None else document.latest.number)
 

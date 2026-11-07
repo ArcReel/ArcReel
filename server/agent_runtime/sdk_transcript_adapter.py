@@ -81,8 +81,8 @@ class SdkTranscriptAdapter:
         # SDK 0.1.71 SessionMessage has no timestamp field — backfill from the
         # store payload we wrote in append() (preserves SDK's payload.timestamp
         # verbatim). This keeps optimistic-turn dedup stable across rounds.
-        # toolUseResult（CLI 的结构化工具结果，如 AskUserQuestion 的答案）
-        # 同样只存在于 payload，一并按 uuid 回填。
+        # toolUseResult, structured CLI results such as AskUserQuestion answers,
+        # likewise exists only in payloads; backfill it by uuid too.
         payload_by_uuid = await self._load_payload_index_from_store(sdk_session_id, project_cwd)
         return [self._adapt(msg, payload_by_uuid) for msg in (messages or [])]
 
@@ -132,10 +132,9 @@ class SdkTranscriptAdapter:
         reconstruct SessionMessage objects that lack the per-entry timestamp /
         toolUseResult fields. We re-fetch raw payloads via store.load() and join
         on uuid so downstream consumers keep getting stable timestamps and
-        structured tool results (e.g. AskUserQuestion 的 answers) without
+        structured tool results (e.g. AskUserQuestion answers) without
         touching SDK private APIs. Works for both the main transcript
-        (subpath="") and subagent subpaths.
-        """
+        (subpath="") and subagent subpaths."""
         payloads = await self._load_raw_payloads(sdk_session_id, project_cwd, subpath)
         index: dict[str, dict[str, Any]] = {}
         for entry in payloads:
@@ -149,14 +148,11 @@ class SdkTranscriptAdapter:
         sdk_session_id: str | None,
         project_cwd: Path | str | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
-        """读取 subagent 子时间线，按主线 Task tool_use id 锚定归组。
+        """Read subagent timelines grouped by mainline Task tool_use ID anchors.
 
-        锚定依据主 transcript 原始载荷中 Task tool_result 的
-        ``toolUseResult.agentId`` 与同载荷 tool_result 块的 ``tool_use_id``。
-        文件系统回退路径（``ARCREEL_SDK_SESSION_STORE=off``）的公开读取接口
-        不携带该元数据，无法锚定，降级为不合并（子时间线仍在 transcript 中，
-        不丢数据）。
-        """
+        Anchors come from Task tool_result raw payload ``toolUseResult.agentId`` and the same payload’s tool_result
+        ``tool_use_id``. Public filesystem fallback readers (``ARCREEL_SDK_SESSION_STORE=off``) lack this metadata,
+        so degrade to no merging without anchors; timelines remain in the transcript, preserving data."""
         if not sdk_session_id or not SDK_AVAILABLE:
             return {}
         if self._store is None:
@@ -181,8 +177,8 @@ class SdkTranscriptAdapter:
                 exc_info=True,
             )
             return {}
-        # 各 subagent 的 store 读取相互独立，并发拉取避免 N 个 subagent 时
-        # 冷读路径按 N 次网络/磁盘往返的延迟串行叠加。
+        # Subagent store reads are independent; fetch concurrently to avoid cold reads with N subagents
+        # serially accumulating N network/disk round-trip delays.
         results = await asyncio.gather(
             *(
                 self._read_one_subagent_timeline(sdk_session_id, project_cwd, agent_id, anchors.get(agent_id))
@@ -198,7 +194,7 @@ class SdkTranscriptAdapter:
         agent_id: str,
         tool_use_id: str | None,
     ) -> tuple[str | None, list[dict[str, Any]] | None]:
-        """读取单个 subagent 的子时间线；无锚点或读取失败时返回 (None, None)。"""
+        """Read one subagent timeline; return (None, None) for missing anchors or read failures."""
         if not tool_use_id:
             logger.debug("Subagent %s has no Task tool_use anchor; skipped", agent_id)
             return None, None
@@ -232,12 +228,11 @@ class SdkTranscriptAdapter:
         project_cwd: Path | str | None,
         tool_use_ids: Collection[str],
     ) -> dict[str, str]:
-        """主线原始载荷里子代理调用参数的 ``description``，按 tool_use id 取。
+        """Subagent-call ``description`` from raw mainline payloads, keyed by tool_use ID.
 
-        压缩续接后主线沿 ``parentUuid`` 链只从续接摘要开始，摘要之前发起的
-        子代理调用不在主线里；原始载荷仍保留这些调用，缺锚点的子代理据此拿到
-        父代理写下的描述。找不到时不含该 id。
-        """
+        After compaction continuation, the ``parentUuid`` chain starts at the continuation summary, excluding earlier
+        subagent calls from the mainline. Raw payloads retain them, letting unanchored subagents retrieve parent-written
+        descriptions. Omit IDs that cannot be found."""
         if not sdk_session_id or self._store is None or not tool_use_ids:
             return {}
         wanted = set(tool_use_ids)
@@ -257,7 +252,7 @@ class SdkTranscriptAdapter:
         sdk_session_id: str,
         project_cwd: Path | str | None,
     ) -> dict[str, str]:
-        """agent_id → 主线 Task tool_use id 锚定映射。"""
+        """agent_id → mainline Task tool_use ID anchor mapping."""
         payloads = await self._load_raw_payloads(sdk_session_id, project_cwd)
         anchors: dict[str, str] = {}
         for entry in payloads:
@@ -328,7 +323,7 @@ class SdkTranscriptAdapter:
         if isinstance(tool_use_result, dict):
             result["tool_use_result"] = tool_use_result
 
-        # 压缩续接摘要的结构化标记只在原始载荷上，写入点据此给条目打标记。
+        # Structured compaction-continuation markers exist only in raw payloads; persistence uses them to mark entries.
         if payload is not None and payload.get("isCompactSummary") is True:
             result["is_compact_summary"] = True
 
@@ -340,7 +335,7 @@ class SdkTranscriptAdapter:
 
 
 def _content_blocks(entry: dict[str, Any]) -> list[dict[str, Any]]:
-    """原始载荷 ``message.content`` 里的块；字符串正文或缺字段时为空。"""
+    """Blocks in raw ``message.content`` payloads; empty for string bodies or missing fields."""
     message = entry.get("message")
     if not isinstance(message, dict):
         return []

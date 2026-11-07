@@ -89,7 +89,7 @@ async function openAsset(user: ReturnType<typeof userEvent.setup>, name: string)
   return screen.findByRole("dialog", { name });
 }
 
-/** 服务端改写一份数据：后续刷新拿到的就是它。 */
+/** Replace server data; subsequent refreshes receive this value. */
 function patchServer(type: AssetSheetType, name: string, patch: Record<string, unknown>) {
   const bucket = server[BUCKET[type]] as unknown as Record<string, Record<string, unknown>>;
   bucket[name] = { ...bucket[name], ...patch };
@@ -235,7 +235,7 @@ describe("资产详情 Sheet", () => {
 
   it("confirms the knock-on impact before saving and generating, and saves nothing when cancelled", async () => {
     const user = userEvent.setup();
-    // 服务端此刻仍判资产图为最新；改了描述，保存后它就会过期
+    // Server still considers the sheet current; editing its description makes it outdated after saving.
     vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({
       stale: false,
       storyboards: 2,
@@ -542,7 +542,7 @@ describe("资产详情 Sheet", () => {
 
     await act(async () => creating.reject(new Error("网络错误")));
     expect(await within(form).findByRole("alert")).toHaveTextContent("网络错误");
-    // 请求结算后关闭请求重新生效：表单有未保存内容，经离开拦截询问
+    // Closing works again after request settlement: unsaved form content triggers the leave guard.
     await user.keyboard("{Escape}");
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
   });
@@ -567,7 +567,7 @@ describe("资产详情 Sheet", () => {
     const sheet = await openAsset(user, "林夕");
     await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，佩剑");
 
-    // Agent 删除了这个角色，推送后的项目数据里已经没有它
+    // Agent deleted this character; pushed project data no longer contains it.
     const { 林夕: _removed, ...rest } = server.characters;
     server.characters = rest;
     act(() => useProjectsStore.setState({ currentProjectData: structuredClone(server) }));
@@ -643,7 +643,7 @@ describe("资产详情 Sheet", () => {
     await screen.findByRole("dialog", { name: "林汐" });
     await waitFor(() => expect(useProjectsStore.getState().currentProjectData?.characters).toHaveProperty("林汐"));
 
-    // 之后 Agent 删除了林汐，又新建了一个同名旧名「林夕」：与正在查看的林汐无关
+    // Agent later deleted 林汐 and created an unrelated character with the old name 林夕; it is not the viewed 林汐.
     const { 林汐: _removed, ...rest } = server.characters;
     server.characters = { ...rest, 林夕: { description: "新来的说书人" } };
     act(() => useProjectsStore.setState({ currentProjectData: structuredClone(server) }));
@@ -728,7 +728,7 @@ describe("资产详情 Sheet", () => {
 
     await user.click(within(sheet).getByRole("button", { name: "删除音频样本" }));
     const confirm = await screen.findByRole("alertdialog", { name: "删除参考音频？" });
-    // 打开确认框之后，角色被 Agent 入队占用
+    // After confirmation opens, an Agent queues a task occupying the character.
     act(() =>
       useTasksStore.setState({
         tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],

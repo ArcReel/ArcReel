@@ -1,7 +1,8 @@
-"""一集的剪辑概况：制作进度面板「剪辑」行陈述的现状与提醒。
+"""Episode editing overview: current state and reminders in the production-progress editing row.
 
-剪辑时间线条数、最近修改那条的问题数（与剪辑时间线读取结果的 issues 同一份），以及成片已落后于
-剪辑时间线的那几条：渲染过的任一版本落后就算。从未出片的剪辑时间线不算落后。
+Report timeline count, latest-modified timeline issue count (the same issues returned by timeline
+reads), and timelines whose final cuts lag behind edits. Any previously rendered variant lagging
+counts; timelines never rendered do not count as behind.
 """
 
 from __future__ import annotations
@@ -34,9 +35,9 @@ class EpisodeEditOverview(BaseModel):
 
     episode: int
     timeline_count: int
-    #: 最近修改的那条；该集还没有剪辑时间线时为 None。
+    #: Latest modified timeline, or None if the episode has no editing timelines.
     latest: LatestTimeline | None
-    #: 成片已落后于剪辑时间线的那几条，按创建顺序。
+    #: Timelines with final cuts behind edits, ordered by creation.
     stale_final_cuts: tuple[TimelineRef, ...]
 
 
@@ -62,7 +63,7 @@ async def episode_edit_overview(projects: ProjectManager, project_name: str, epi
     stale: list[TimelineRef] = []
     for summary in summaries:
         for variant in FINAL_CUT_VARIANTS:
-            # 只比对渲染过的版本：没有文件的版本读 missing，不必为它重建依据。
+            # Compare rendered variants only: fileless variants are missing and do not need rebuilt bases.
             if (summary.id, variant) not in rendered:
                 continue
             status = await final_cuts.status(

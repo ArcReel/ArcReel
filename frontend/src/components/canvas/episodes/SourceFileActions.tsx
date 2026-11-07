@@ -43,11 +43,11 @@ interface SourceFileActionsProps {
 type Editor = "edit" | "replace" | "delete" | null;
 
 /**
- * 文件条上的整本源文文件操作：上移、下移、编辑原文、替换为新文件、删除文件。
+ * Whole-source file-bar actions: move up/down, edit text, replace with new file, delete.
  *
- * 波及切出集的改动先呈现服务端成文的受影响集清单，确认后才执行；没有受影响的集时直接执行。
- * 删除一个不含切出集的文件不波及任何集，改由本地确认框提醒删除不可恢复。
- * 文件在 ArcReel 之外被改动过、还没有更新分集账本时，只有删除可用。执行结果直接体现在原文里，不另行提示。
+ * Changes affecting cut episodes show the server-written affected list first and execute after confirmation; no affected episodes means direct execution.
+ * Deleting files without cut episodes affects none, so a local confirmation instead warns deletion is irreversible.
+ * External source edits without ledger updates permit only deletion. Results appear directly in source text, without extra notices.
  */
 export function SourceFileActions({ projectName, file, index, total }: SourceFileActionsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -56,7 +56,7 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
   const hasEpisodes = file.segments.some((segment) => segment.kind === "episode");
   const paused = change.busy || file.changed_outside;
 
-  /** 跑一次改动；执行后刷新项目，返回是否已执行。 */
+  /** Run one mutation, refresh project afterward, return whether executed. */
   const perform = async (
     title: string,
     confirmLabel: string,
@@ -180,7 +180,7 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
   );
 }
 
-/** 编辑整本源文文件的全文。保存时波及切出集的，先确认受影响集清单；执行后关闭。 */
+/** Edit complete whole-source file text; confirm affected cut episodes before saving, close after execution. */
 function EditSourceFileDialog({
   open,
   projectName,
@@ -199,7 +199,7 @@ function EditSourceFileDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 保存在途时不响应 Esc 与遮罩点击
+        // Ignore Esc/backdrop clicks while saving is in flight.
         if (!next && !busy) onClose();
       }}
     >
@@ -310,7 +310,7 @@ function EditSourceFileForm({
   );
 }
 
-/** 用新文件替换整本源文文件：保留文件名与位置。剧情演绎项目可以改源文件类型，预填为原类型。 */
+/** Replace whole-source files while preserving filename/position. Drama projects may change source kind, prefilled with the original kind. */
 function ReplaceSourceFileDialog({
   open,
   file,
@@ -356,7 +356,7 @@ function ReplaceSourceFileForm({
   const formId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [upload, setUpload] = useState<File | null>(null);
-  // react-doctor-disable-next-line react-doctor/no-derived-useState -- 表单随对话框打开挂载，源文件类型是这次替换的草稿初值，打开期间不随外部刷新回写
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- Form mounts on dialog opening; source kind is this replacement draft's initial value, not rewritten by external refreshes while open
   const [sourceKind, setSourceKind] = useState<SourceKind | null>(file.source_kind);
 
   const submit = async () => {

@@ -1,9 +1,8 @@
-"""一集草稿的 Web 读写：列出在场草稿、读取呈现视图、手修保存（违约清零即采用）、丢弃。
+"""Web reads/writes for episode drafts: list existing drafts, read presentation views, save manual repairs (adopting once violations clear), and discard.
 
-写入走 ``server.draft_workflow.DraftWorkflow``，与 Agent 的草稿工具同一套命令；本层只补 Web 呈现
-需要的视图：脚本规划草稿的视图由内容确认服务按产出口径读时重算，参考生视频提示词编写草稿的视图
-取草稿里的违约快照（每次生成、晋升与手修保存都会按现值刷新它），并按正式剧本给出条目 ID。
-"""
+Writes use ``server.draft_workflow.DraftWorkflow``, sharing commands with Agent draft tools. This layer adds only Web presentation views:
+content confirmation recalculates script-planning draft views on read using output rules. Reference-video prompt-authoring draft views
+use stored violation snapshots refreshed against current values on every generation, promotion and manual save, with item IDs from the formal script."""
 
 from __future__ import annotations
 
@@ -40,7 +39,7 @@ from server.text_generation import (
 
 
 class EpisodeDraftService:
-    """一集草稿的 Web 读写入口；错误以 ``DraftWorkflowError`` 抛出，由 router 映射为 HTTP 响应。"""
+    """Web entry point for episode-draft reads/writes; raise ``DraftWorkflowError`` for router mapping to HTTP responses."""
 
     def __init__(self, pm: ProjectManager, *, config_resolver: ConfigResolver | None = None):
         self.pm = pm
@@ -77,7 +76,7 @@ class EpisodeDraftService:
         return project, kind
 
     async def list_drafts(self, project_name: str, episode: int) -> list[dict[str, Any]]:
-        """本集在场的草稿摘要（``doc_type`` / ``editable_by`` / ``violation_count``），不做读时重算。"""
+        """Summaries of existing episode drafts (``doc_type`` / ``editable_by`` / ``violation_count``), without recalculation on read."""
         project = await asyncio.to_thread(self.pm.load_project, project_name)
 
         def _summaries() -> list[dict[str, Any]]:
@@ -91,7 +90,7 @@ class EpisodeDraftService:
                     {
                         "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[kind],
                         "editable_by": draft_owner(draft) if draft is not None else DRAFT_OWNER_USER,
-                        # 信封损坏本身就是一条待处置的违约。
+                        # A corrupt envelope is itself a violation requiring handling.
                         "violation_count": len(draft.violations) if draft is not None else 1,
                     }
                 )
@@ -100,7 +99,7 @@ class EpisodeDraftService:
         return await asyncio.to_thread(_summaries)
 
     async def get_draft(self, project_name: str, episode: int, doc_type: str) -> dict[str, Any]:
-        """一份草稿的呈现视图；形状见 ``ScriptReviewService.get_quarantine_info``，另带 ``item_ids``。"""
+        """A draft presentation view, shaped like ``ScriptReviewService.get_quarantine_info`` with additional ``item_ids``."""
         project, kind = await self._resolve_kind(project_name, doc_type)
         if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
             view = await self._prompt_authoring_view(project_name, project, episode)
@@ -117,7 +116,7 @@ class EpisodeDraftService:
     async def save_draft(
         self, project_name: str, episode: int, doc_type: str, content: dict[str, Any], base_revision: str
     ) -> dict[str, Any]:
-        """手修保存：写入后按晋升口径全量重判，违约清零即采用，否则返回刷新后的草稿视图。"""
+        """Save manual repairs: fully revalidate using promotion rules after writing; adopt if no violations remain, otherwise return the refreshed draft view."""
         result = await self._workflow(project_name).save(episode, doc_type, content, base_revision)
         if result["adopted"]:
             return {"episode": episode, "doc_type": doc_type, "adopted": True, "draft": None}
@@ -129,7 +128,7 @@ class EpisodeDraftService:
         }
 
     async def discard_draft(self, project_name: str, episode: int, doc_type: str, base_revision: str) -> dict[str, Any]:
-        """丢弃草稿，回到正式内容；Agent 的可编辑草稿同样可以丢弃。"""
+        """Discard the draft and return to formal content; editable Agent drafts can also be discarded."""
         return await self._workflow(project_name).discard(episode, doc_type, base_revision)
 
     async def _prompt_authoring_view(
@@ -200,7 +199,7 @@ class EpisodeDraftService:
 
 
 def _prompt_authoring_item_ids(draft: QuarantinedDraft, formal: dict[str, Any] | None) -> list[str] | None:
-    """草稿正文 ``units[i]`` 对应的正式剧本单元 ID：生成留下的草稿记在 ``meta.unit_ids``，整份取回的对应全部单元。"""
+    """Formal-script unit IDs corresponding to draft ``units[i]``: generated drafts store them in ``meta.unit_ids``; full retrieval corresponds to all units."""
     recorded = draft.meta.get("unit_ids")
     if isinstance(recorded, list):
         return [str(unit_id) for unit_id in recorded]

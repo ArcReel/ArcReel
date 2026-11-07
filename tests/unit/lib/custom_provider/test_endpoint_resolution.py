@@ -1,4 +1,4 @@
-"""端点键的前缀分流：内置查表、``ce-`` 读库现构造，以及定义到 spec 的投影。"""
+"""Endpoint-key prefix routing: built-in lookup, dynamic DB construction for ``ce-``, and definition-to-spec projection."""
 
 from __future__ import annotations
 
@@ -42,13 +42,13 @@ async def _store(session: AsyncSession, definition: dict) -> int:
 
 class TestBuiltinRegistryInvariant:
     def test_no_builtin_key_uses_custom_prefix(self):
-        """内置键占用 ce- 前缀会让前缀分流失去唯一性，import 期不变式守住这一条。"""
+        """Built-in keys occupying ce- would destroy unique prefix routing; import invariants prevent this."""
         assert not [key for key in ENDPOINT_REGISTRY if is_custom_endpoint(key)]
 
 
 class TestSpecFromRow:
-    """用户定义与随版定义共用 declarative_endpoint_spec 那一份投影（定义→spec 的能力缺省、家族、
-    路径剥离等由 test_builtin_endpoint_definitions 覆盖），此处只守住 ce- 行独有的那几位。"""
+    """User and shipped definitions share declarative_endpoint_spec projection (definition-to-spec defaults, family, path stripping,
+    etc. are covered by test_builtin_endpoint_definitions); only guard ce--specific fields here."""
 
     async def test_projects_identity_and_source(self, db_session: AsyncSession):
         endpoint_id = await _store(db_session, custom_endpoint_definition())
@@ -59,15 +59,15 @@ class TestSpecFromRow:
 
         assert spec.key == f"ce-{endpoint_id}"
         assert spec.media_type == "video"
-        # 来源决定 catalog 分组与「可否编辑删除」；家族不取键首段（那会得到 "ce"），
-        # 用户定义的协议由定义自身描述、没有可归属的外部家族。
+        # Source controls catalog grouping and edit/delete availability; do not derive family from the key's first segment ("ce").
+        # User-defined protocols describe themselves in definitions and belong to no external family.
         assert spec.source == "custom"
         assert spec.family == "custom"
         assert spec.kind == "declarative"
         assert spec.display_name == "示例端点"
         assert spec.display_name_key == ""
         assert spec.request_method == "POST"
-        # base_url 由 provider 提供，目录展示的是接口路径
+        # Providers supply base_url; the catalog displays API paths.
         assert spec.request_path_template == "/v1/video/create"
 
     async def test_capabilities_reach_the_spec(self, db_session: AsyncSession):
@@ -91,7 +91,7 @@ class TestSpecFromRow:
 
 
 class TestDeclarativeImageProjection:
-    """图片定义投影成图片端点：媒体类型与能力都读定义的显式声明，装出图片通道。"""
+    """Project image definitions as image endpoints: explicit definition media/capabilities construct an image channel."""
 
     def test_mirror_columns_carry_the_declared_image_media_type(self):
         assert derive_mirror_columns(image_endpoint_definition()).media_type == "image"
@@ -131,7 +131,7 @@ class TestDeclarativeImageProjection:
 
 
 class TestKindDispatch:
-    """定义的 ``kind`` 决定投影走谁；名录外的 kind 在投影层就拒，不靠某一种 kind 的规则兜底。"""
+    """Definition ``kind`` selects projection; reject unknown kinds at projection instead of using another kind's rules as fallback."""
 
     def test_mirror_columns_take_kind_and_media_type_from_the_definition(self):
         mirror = derive_mirror_columns(custom_endpoint_definition())
@@ -147,7 +147,7 @@ class TestKindDispatch:
         assert mirror.media_type == media_type
 
     def test_spec_from_a_comfyui_row_reads_the_definition(self):
-        """ComfyUI 行投影成 spec：键由行 id 派生，媒体类型与 kind 读定义，来源标为 custom。"""
+        """Project ComfyUI rows to specs: derive keys from row IDs, read media_type/kind from definitions, and mark source custom."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
@@ -159,7 +159,7 @@ class TestKindDispatch:
         assert spec.display_name == "示例 ComfyUI 端点"
 
     def test_a_comfyui_spec_reads_its_capabilities_off_the_bindings(self):
-        """夹具没有任何图绑定：纯文生视频，首尾帧与参考图都不支持。"""
+        """This fixture has no image bindings: pure text-to-video, without first/last-frame or reference-image support."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
@@ -173,7 +173,7 @@ class TestKindDispatch:
         assert spec.reference_audio_capable is False
 
     def test_the_dimensions_the_bindings_say_nothing_about_stay_unclaimed(self):
-        """绑定表里没有对应语义键的维度保持 ``VideoCapabilities`` 的默认值，不凭空声明。"""
+        """Dimensions without matching binding semantic keys retain ``VideoCapabilities`` defaults rather than invent declarations."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
@@ -207,7 +207,7 @@ class TestKindDispatch:
         assert endpoint_spec_from_row(cast("CustomEndpoint", SimpleNamespace(id=7, definition=one_sided))).size_fixed
 
     def test_the_duration_dimension_is_fixed_when_frames_are_unbound(self):
-        """``duration_fixed`` 与 ``duration_tier_optional`` 是两件事：前者说用户编不编得动档位。"""
+        """``duration_fixed`` differs from ``duration_tier_optional``; the former determines whether users can edit tiers."""
         fixed = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
         drivable = comfyui_endpoint_definition()
         drivable["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
@@ -218,13 +218,13 @@ class TestKindDispatch:
         assert spec.duration_tier_optional is True
 
     def test_all_three_ways_of_having_no_tier_report_the_same_empty_bit(self):
-        """界面的只读 / 禁用判据是「档位为空」，三支都要为真；另两位只挑文案说哪一句。"""
+        """UI read-only/disabled state depends on empty tiers and must hold for all three branches; the other flags only select copy."""
         unbound = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
         no_fps = comfyui_endpoint_definition()
         no_fps["workflow"]["5"]["inputs"]["length"] = 81
         no_fps["bindings"].pop("fps")
         no_fps["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
-        # 50 帧 @ 16fps：帧率读得到，但折成 3 秒再写回是 49 帧，这一档报不出来。
+        # 50 frames @ 16fps: frame rate is readable, but 3-second conversion writes back 49 frames; no valid tier.
         no_whole_second = comfyui_endpoint_definition()
         no_whole_second["workflow"]["5"]["inputs"]["length"] = 50
         no_whole_second["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
@@ -247,10 +247,10 @@ class TestKindDispatch:
         assert get_endpoint_spec("openai-video").duration_frame_rate_missing is False
 
     def test_a_native_duration_that_cannot_round_trip_is_no_tier_at_all(self):
-        """81 帧 @ 24fps 折成 3 秒，而选中 3 秒会让构造层把帧数改写成 73。
+        """81 frames @ 24fps converts to 3 seconds, but selecting 3 seconds makes construction write 73 frames.
 
-        一个名为「原生」、选中却改掉原图的档位比没有档位更坏，故这一维照「不由 ArcReel 驱动」
-        对待。同一份帧数配 16fps 恰好回得去，仍报 5 秒。
+        A native tier that modifies the original graph when selected is worse than no tier, so treat this dimension as not driven
+        by ArcReel. The same frame count at 16fps round-trips exactly and still reports 5 seconds.
         """
         off = comfyui_endpoint_definition()
         off["workflow"]["5"]["inputs"]["length"] = 81
@@ -267,13 +267,13 @@ class TestKindDispatch:
         assert spec_of(exact).endpoint_durations == [5]
 
     def test_the_native_resolution_borrows_a_tier_word_only_on_an_exact_hit(self):
-        """夹具的字面宽高是 832 × 480，短边 480 恰好是视频档位表里的 480p。"""
+        """Fixture literal dimensions are 832 × 480; short side 480 exactly matches video tier 480p."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution == "480p"
 
     def test_a_short_edge_off_the_tiers_is_reported_as_pixels(self):
-        """848 既不是 720p 也不是 1080p：报最近的档位会让人以为选中它得到的是同一份画面。"""
+        """848 is neither 720p nor 1080p; reporting the nearest tier falsely suggests selecting it produces the same image."""
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["width"] = 848
         definition["workflow"]["5"]["inputs"]["height"] = 1504
@@ -290,10 +290,10 @@ class TestKindDispatch:
         assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution is None
 
     def test_a_one_sided_size_binding_reports_no_native_resolution(self):
-        """只绑一侧时尺寸整维判为固定，构造层压根走不到「字面短边」那一步。
+        """Binding only one side fixes the whole size dimension; construction never reaches literal-short-side handling.
 
-        读得到的那个字面值也未必是短边：把 832 的长边说成「原生 832px」，用户会以为不选档位就
-        得到一张短边 832 的画面。这一支的占位文案改由 ``size_fixed`` 那一位给出。
+        The readable literal may not even be the short side: calling long side 832 native 832px implies that omitting a tier
+        gives a short side of 832. This branch instead takes placeholder copy from ``size_fixed``.
         """
         definition = comfyui_endpoint_definition()
         definition["bindings"].pop("height")
@@ -304,20 +304,20 @@ class TestKindDispatch:
         assert (spec.size_fixed, spec.native_resolution) == (True, None)
 
     def test_a_declarative_endpoint_declares_no_fixed_dimension(self):
-        """尺寸与时长「被端点固定」只是 ComfyUI 的形态，其余端点由请求参数决定。"""
+        """Endpoint-fixed size/duration is specific to ComfyUI; other endpoints follow request parameters."""
         spec = get_endpoint_spec("openai-video")
 
         assert (spec.size_fixed, spec.duration_fixed, spec.native_resolution) == (False, False, None)
 
     def test_only_a_comfyui_spec_lets_its_duration_tier_be_empty(self):
-        """ADR 0018 的空集 fail loud 对其余端点不变，判据挂在 spec 上供能力解析层直读。"""
+        """ADR 0018 empty-set fail-loud behavior remains for other endpoints; the spec exposes the criterion directly to capability resolution."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         assert endpoint_spec_from_row(cast("CustomEndpoint", row)).duration_tier_optional is True
         assert get_endpoint_spec("openai-video").duration_tier_optional is False
 
     def test_the_model_name_does_not_enter_the_derivation(self):
-        """一份 workflow 恰是一个型号：模型行换名字不改它能做什么。"""
+        """One workflow is exactly one model; renaming model rows does not change its capabilities."""
         definition = comfyui_endpoint_definition()
         definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
         row = SimpleNamespace(id=7, definition=definition)
@@ -331,7 +331,7 @@ class TestKindDispatch:
         assert caps_fn("wan-t2v", None).text_to_video is False
 
     def test_the_end_frame_binding_reaches_the_end_image_transport_bit(self):
-        """``end_image_capable`` 与声明式端点同处理：从 caps 反推，不另写一份判据。"""
+        """Handle ``end_image_capable`` like declarative endpoints: derive from caps without separate criteria."""
         definition = comfyui_endpoint_definition()
         definition["bindings"]["end_image"] = [{"node": "12", "input": "image", "class_type": "LoadImage"}]
         row = SimpleNamespace(id=7, definition=definition)
@@ -348,7 +348,7 @@ class TestKindDispatch:
         assert spec.video_caps_for_model is None
 
     def test_a_comfyui_spec_builds_the_comfyui_video_backend(self):
-        """投影按 kind 分叉产出 Python 实现的 ComfyUI backend，仍走自定义供应商的包装层。"""
+        """Projection branches by kind to Python ComfyUI backends, retaining the custom-provider wrapper."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
         provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")
 
@@ -360,7 +360,7 @@ class TestKindDispatch:
         assert backend.model == "wan-t2v"
 
     def test_building_a_comfyui_backend_without_a_base_url_is_refused(self):
-        """没有地址就无处提交：与「端点不存在」同一出口，让上游按既有分流吞掉这一条。"""
+        """Without an address, submission has no destination; use the nonexistent-endpoint exit so upstream handles it through existing routing."""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
         provider = SimpleNamespace(provider_id="custom-1", base_url="", api_key="")
 
@@ -370,7 +370,7 @@ class TestKindDispatch:
             spec.build_backend(cast("Any", provider), "wan-t2v")
 
     def test_building_a_backend_for_a_comfyui_image_spec_gives_the_image_channel(self):
-        """媒体类型决定走哪条通道：图像定义装出图像 backend 的包装，不是视频那一条。"""
+        """Media type selects the channel: image definitions construct image-backend wrappers, not video wrappers."""
         from lib.custom_provider.backends import CustomImageBackend
 
         definition = comfyui_endpoint_definition(media_type="image")
@@ -384,13 +384,13 @@ class TestKindDispatch:
         assert (backend.name, backend.model) == ("custom-1", "flux")
 
     def test_building_a_backend_for_an_out_of_range_media_type_says_the_runtime_is_missing(self):
-        """schema 只放行 image / video：走到第三个值意味着手工改过库。
+        """Schemas allow only image / video; a third value implies manual DB modification.
 
-        抛带失败码的 ComfyuiError、不与「端点不认识」混同；码进 ``FAILURE_CODE_KEYS``，worker 据此
-        落结构化失败、读侧按语言渲染——落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
+        Raise ComfyuiError with a failure code, distinct from unknown endpoints. Add the code to ``FAILURE_CODE_KEYS`` so the worker
+        persists structured failure and reads render by language; plain text would show a Chinese sentence to non-Chinese users in task lists.
         """
         definition = comfyui_endpoint_definition(media_type="image")
-        # 绕过 schema 直接改库才会出现的形状，故不过 validate_definition。
+        # This shape requires bypassing schemas through direct DB modification; do not call validate_definition.
         definition["media_type"] = "audio"
         row = SimpleNamespace(id=7, definition=definition)
         provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")
@@ -405,7 +405,7 @@ class TestKindDispatch:
         assert caught.value.code in FAILURE_CODE_KEYS
 
     def test_spec_from_a_row_of_an_unsupported_kind_is_refused(self):
-        """库里的 kind 是本层没有投影实现的那种：抛 ValueError，与「端点不存在」同一出口。"""
+        """The stored kind lacks a projection implementation here: raise ValueError through the same exit as nonexistent endpoints."""
         row = SimpleNamespace(id=7, definition=custom_endpoint_definition(kind="unregistered"))
 
         with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
@@ -426,7 +426,7 @@ class TestResolveEndpointSpec:
         assert spec.display_name == "示例端点"
 
     async def test_updated_definition_resolves_to_new_spec(self, db_session: AsyncSession):
-        """原地更新立即对新解析生效：不做启动时全量装载，也没有进程内注册表缓存。"""
+        """In-place updates immediately affect new resolutions; neither startup-wide loading nor in-process registry caching applies."""
         endpoint_id = await _store(db_session, custom_endpoint_definition())
         repo = CustomEndpointRepository(db_session)
         renamed = custom_endpoint_definition(meta={"name": "改名后", "author": "ArcReel", "version": "0.2.0"})

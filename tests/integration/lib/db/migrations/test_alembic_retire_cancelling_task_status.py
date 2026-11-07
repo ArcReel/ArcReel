@@ -75,7 +75,7 @@ def test_upgrade_converges_cancelling_rows_and_narrows_dedup_index(alembic_cfg, 
 
 
 def test_upgrade_cascades_cancelling_rows_to_queued_descendants(alembic_cfg, migration_revisions) -> None:
-    """存量 cancelling 父行收敛时，排队中的下游（含孙辈）同步级联取消，不留永远认领不到的 queued。"""
+    """Converging legacy cancelling parent rows also cancels queued descendants, including grandchildren, leaving no permanently unclaimable queued tasks."""
     cfg, db_path = alembic_cfg
     revision, down_revision = migration_revisions(MIGRATION_GLOB)
     command.upgrade(cfg, down_revision)

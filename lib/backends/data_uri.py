@@ -1,11 +1,12 @@
-"""出站请求侧的 base64 data URI 编码。
+"""Base64 data URI encoding for outbound requests.
 
-各供应商的图像/视频接口普遍接受 `data:<mime>;base64,<内容>` 形态的内联素材，走 data URI
-可以免掉一层文件服务。编码动作本身各家一致，差异只在「哪些扩展名映射到哪个 MIME」——
-表由各供应商模块自己持有并传入，本模块不持有任何供应商口径。
+Provider image/video APIs commonly accept inline `data:<mime>;base64,<内容>` materials, avoiding a file
+service layer. Encoding is identical across providers; only extension-to-MIME mappings differ.
+Providers own/pass their tables; this module owns no provider-specific rules.
 
-与 `lib/infra/image_utils.py` / `lib/speech/audio_utils.py` 的分工：那两个模块守的是入站上传侧
-（尺寸压缩、时长与格式校验），本模块只负责把已落盘的素材编成出站请求体里的字段。
+Unlike `lib/infra/image_utils.py` / `lib/speech/audio_utils.py`, which guard inbound uploads through
+size compression, duration/format checks, this module only encodes persisted materials into outbound
+request-body fields.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ _DEFAULT_IMAGE_MIME = "image/png"
 
 
 def _image_mime_from_bytes(content: bytes) -> str | None:
-    """从常见图片格式的文件头识别 MIME，无法识别时交由扩展名兼容回退。"""
+    """Detect common image MIME types from headers; unknown formats use extension-based compatibility fallback."""
     if content.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if content.startswith(b"\xff\xd8\xff"):
@@ -37,16 +38,16 @@ def _image_mime_from_bytes(content: bytes) -> str | None:
 
 
 def file_to_data_uri(path: Path, mime: str) -> str:
-    """本地文件 → base64 data URI；读不到时 OSError 向上冒泡由调用方决定语义。"""
+    """Local file → base64 data URI; propagate unreadable-file OSError for callers to interpret."""
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
 
 
 def image_to_data_uri(image_path: Path, mime_types: Mapping[str, str]) -> str:
-    """本地图片 → base64 data URI，优先按实际字节识别 MIME。
+    """Local image → base64 data URI, preferring MIME detection from actual bytes.
 
-    文件名可能在上传、生成或压缩过程中未随实际编码格式同步更新；若按扩展名声明 MIME，
-    供应商会将这种 Data URL 作为格式伪造而拒绝。无法从文件头识别时，保留按供应商
-    `mime_types` 查扩展名、未登记回落 PNG 的既有兼容行为。
+    Uploads/generation/compression may leave filenames out of sync with encoding. Extension-declared
+    MIME would cause providers to reject such Data URLs as format forgery. When headers are unrecognized,
+    retain provider `mime_types` extension lookup and PNG fallback for unregistered extensions.
     """
     content = image_path.read_bytes()
     mime = _image_mime_from_bytes(content) or mime_types.get(image_path.suffix.lower(), _DEFAULT_IMAGE_MIME)

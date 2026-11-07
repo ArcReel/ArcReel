@@ -1,67 +1,67 @@
-# 生成结果契约
+# Generation-result contract
 
-所有生成工具（分镜图、宫格、视频、资产图、旁白配音、图片编辑）返回同一个结构，
-读结构、不要读文本：文本只是这个结构的一份人读投影。
+All generation tools (storyboard images, grids, videos, asset sheets, narration, image editing) return one structure.
+Read structure, not prose: text is only its human-readable projection.
 
-## 选择：显式 ID 还是补缺
+## Selection: explicit IDs or gap filling
 
-| 传法 | 语义 |
+| Arguments | Meaning |
 |---|---|
-| 传 ID 列表（`target.ids` / `segment_ids` / `scene_ids` / `names` / `edits[].id`） | 显式选择；视频须另传 `force: true` 才强制重做，其余工具点名即强制 |
-| 不传 ID | 只补缺（missing-only）：只做产物缺失的单元 |
-| 传空数组 `[]` | 非法：不等于「全部」，请求会被拒绝；想补缺就别传这个参数 |
+| ID list (`target.ids` / `segment_ids` / `scene_ids` / `names` / `edits[].id`) | Explicit selection; video additionally requires `force: true` for forced redo, while other tools force by naming |
+| No IDs | Missing-only: generate only units without artifacts |
+| Empty `[]` | Invalid, not “all”; requests reject. Omit the parameter to fill gaps |
 
-`generate_videos(target.scope="episode")` 是整集补缺入口，它从不强制重做已有片段；
-要重做点名镜头，使用 `scene` / `selected` scope 并显式传 ID 与 `force: true`。
+`generate_videos(target.scope="episode")` fills episode gaps and never forces existing clips;
+redo named shots with `scene` / `selected` scope, explicit IDs, and `force: true`.
 
-**已失效但仍可用的旧产物（stale）会被复用，不会自动重生**——它照样能看、能导出。
-用户要求更新时才用显式 ID 点名重做。产物状态读不出来（blocked）的单元报为独立缺口，
-绝不当作缺失去重新生成，因为那会把一次损坏变成一次重复计费。
+**Stale but usable old artifacts are reused, never automatically regenerated**; they remain viewable/exportable.
+Redo by explicit IDs only when the user requests updates. Unreadable artifact state (blocked) is an independent gap,
+never treated as missing for regeneration, which would turn corruption into duplicate charges.
 
-## 结果：逐 ID 分账
+## Results: per-ID accounting
 
 ```
-requested = succeeded ∪ failed ∪ blocked   （三者互斥）
-skipped                                     （复用旧产物，不在 requested 内）
+requested = succeeded ∪ failed ∪ blocked   (mutually exclusive)
+skipped                                    (reuse; outside requested)
 ```
 
-- **succeeded** — 已做成
-- **failed** — 已入队执行过（可能已计费）后失败；也包括入队本身没成的目标，它们的
-  `task_state` 是 `not_queued`，从未创建任务、也从未计费
-- **blocked** — 请求根本没走到入队（不计费），例如缺依赖、请求不合法、产物状态不可读
+- **succeeded**: completed
+- **failed**: failed after queueing/execution (possibly charged); also includes targets whose enqueue failed,
+  with `task_state` equal to `not_queued`, no task ever created, and no charge
+- **blocked**: never reached queueing (free), such as missing dependencies, invalid requests, unreadable artifact state
 
-批量入队中途中断时，**已经创建的任务不会被撤销**：它们是准入通过的完整付费单元，照常
-执行、照常出成片。没轮到的目标带「入队中断」问题码报 `failed`，下次补缺正好只做这些——
-不要建议用户重跑整批，那会为已经在跑的单元重复付费。
+If batch enqueue is interrupted, **already created tasks are not cancelled**: these admitted complete paid units
+execute and produce outputs normally. Unreached targets report `failed` with an enqueue-interrupted problem; the next gap-fill
+handles just those. Do not recommend rerunning the whole batch and paying again for units already running.
 
-`items` 里每个 `failed` / `blocked` 项都带：
+Each `failed` / `blocked` entry in `items` contains:
 
-- `problem.code` — 稳定问题码
-- `problem.action` — 闭集的下一步动作（`retry` / `fix_input` / `generate_dependency` /
-  `replan_unit` / `configure_provider` / `confirm_request_duration` / …）
-- `unit_id` 与（若有）`artifact_key`、`artifact_path`
+- `problem.code`: stable problem code
+- `problem.action`: closed-set next action (`retry` / `fix_input` / `generate_dependency` /
+  `replan_unit` / `configure_provider` / `confirm_request_duration` / …)
+- `unit_id`, plus `artifact_key` / `artifact_path` when present
 
-宫格按**分镜 ID** 记账：同一分组的分镜共享一张宫格联合图，这张图的入队与任务结果投影到
-它覆盖的每个分镜。宫格生成只产出联合图：成功分镜的 `artifact_path` 是 `grids/<grid_id>.png`，
-分镜图要等用户审阅同意后经 `split_grids` 切分落格才写入。
+Grids account by **shot ID**: grouped shots share one composite, whose enqueue/task results project to
+all covered shots. Grid generation produces only composites; successful `artifact_path` is `grids/<grid_id>.png`.
+Storyboard images are written only after user review/agreement and splitting through `split_grids`.
 
-**按 `code` 与 `action` 决定下一步，不要解析文本判断能不能重试。**
+**Decide next actions by `code` / `action`, never parse prose to determine retryability.**
 
-## 四条状态轴分开读
+## Read four state axes separately
 
-workflow 步骤状态（`plan.steps[].state`）、`task_state`（队列任务）、
-`provider_checkpoint`（供应商是否已提交）、`artifact_status`（产物 current/stale/missing/blocked）
-互相独立，**分开陈述，不要互相翻译**：
+Workflow-step state (`plan.steps[].state`), queue `task_state`,
+`provider_checkpoint` (whether submitted), and `artifact_status` (current/stale/missing/blocked)
+are independent. **Report separately; never translate one into another**:
 
-- 任务成功 ≠ 产物匹配当前依据
-- 产物缺失 ≠ 任务失败：可能根本没入队（`blocked`，不计费）
-- `provider_checkpoint.submitted` 为真表示供应商侧已提交、很可能已计费；`task_state` 为
-  `interrupted` 表示没有供应商裁决，盲目重试可能重复计费——一律按 `problem.action` 决定，
-  该情形通常交回 `wait_for_task`（任务可能仍在跑并正常落地），不要自行改成 `retry`
-- 产物落盘失败时该 ID 记为 `failed`，旧的付费产物原样保留，绝不在文件真正落定前标成就位
+- Task success ≠ artifact matches current basis
+- Missing artifact ≠ task failure: it may never have queued (`blocked`, free)
+- `provider_checkpoint.submitted` means submitted and likely charged; `task_state` equal to
+  `interrupted` means no provider verdict. Blind retries may duplicate charges; always follow `problem.action`,
+  usually `wait_for_task` because work may still finish normally. Do not independently change it to `retry`
+- Artifact-persistence failure marks that ID `failed`, preserving old paid artifacts; never mark ready before the file is committed
 
-产物历史另成一轴：`current` 是当前选中的产物，`stale` 是依据已变但仍在的旧产物，历史版本是此前
-付费产出的其它版本。Agent 不得自动删除、覆盖或重生任何已付费产物与历史版本——重做由用户明确决定。
+Artifact history is another axis: `current` is selected, `stale` has changed basis but still exists, and history holds
+other previously paid versions. Never automatically delete, overwrite, or regenerate paid artifacts/history; users explicitly decide redo.
 
-用户问「做完了没有」时，回答落在这四轴上，而不是压成一句「成功了」。计划整体的读法见
-[workflow-plan.md](workflow-plan.md)。
+Answer “is it done?” across these four axes, not a single “success”. See
+[workflow-plan.md](workflow-plan.md) for the overall plan.

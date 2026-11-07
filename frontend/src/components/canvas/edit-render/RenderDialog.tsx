@@ -40,18 +40,18 @@ interface RenderDialogProps {
   projectName: string;
   timelineId: string;
   timelineName: string;
-  /** 当前修订的 issues；按所选旁白版本筛出阻断，对话框打开期间出现阻断时，出片按钮随之不可点。 */
+  /** Current-revision issues filtered by narration variant; new blocking issues while open immediately disable rendering. */
   issues: readonly EditTimelineIssueRef[];
-  /** 项目用 TTS 配音时可以选旁白版本；否则只出不带旁白版本。 */
+  /** TTS projects can select narration variants; otherwise render without narration only. */
   narrationAvailable: boolean;
 }
 
 /**
- * 「出片 · <剪辑时间线名称>」对话框：以剪辑视图当前标签的剪辑时间线为准，
- * 选成片或剪映草稿及其版本，查看已有产物的时效，直接下载或重新渲染，提交后显示任务进度。
+ * Render · <timeline name> dialog uses the selected editing tab's timeline;
+ * choose final video/Jianying draft and variants, inspect currency, download/rerender, then show task progress.
  *
- * 旁白版本默认带旁白（TTS 配音项目），成片默认烧入字幕；各版本是独立的产物。
- * 提交请求或下载请求在途时忽略关闭请求；任务开始后可以关掉，再打开时接回同一产物的在途任务。
+ * Default includes narration for TTS projects, burns subtitles into final video; each variant is an independent artifact.
+ * Ignore closing during submit/download requests; once tasks start, allow closing and reconnect to the same artifact's active task on reopen.
  */
 export function RenderDialog({
   open,
@@ -64,7 +64,7 @@ export function RenderDialog({
 }: RenderDialogProps) {
   const { t } = useTranslation("dashboard");
   const [kind, setKind] = useState<RenderKind>("final_cut");
-  // 草稿目录与剪映版本跨交付物切换保留；下载时才写回 localStorage。
+  // Preserve draft directories/Jianying versions across deliverable changes; write localStorage only on download.
   const [draftPath, setDraftPath] = useState(() => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) ?? "");
   const [jianyingVersion, setJianyingVersion] = useState<JianyingVersion>(() =>
     localStorage.getItem(JIANYING_VERSION_STORAGE_KEY) === "5" ? "5" : "6",
@@ -114,7 +114,7 @@ export function RenderDialog({
   );
 }
 
-/** 对话框的 Body 与 Footer：按交付物与版本重新挂载，产物现状与任务进度不跨版本残留。 */
+/** Dialog Body/Footer remount per deliverable/variant, preventing artifact state/progress leaking across variants. */
 function RenderPanel({
   projectName,
   timelineId,
@@ -137,7 +137,7 @@ function RenderPanel({
   timelineName: string;
   kind: RenderKind;
   onKindChange: (kind: RenderKind) => void;
-  /** 所选旁白版本；项目不能选旁白版本时为 null，按不带旁白版本出片。 */
+  /** Selected narration variant, null when unselectable, rendering without narration. */
   narration: TimelineNarration | null;
   onNarrationChange: (narration: TimelineNarration) => void;
   burnSubtitles: boolean;
@@ -147,13 +147,13 @@ function RenderPanel({
   jianyingVersion: JianyingVersion;
   onJianyingVersionChange: (version: JianyingVersion) => void;
   blockedReason: string | null;
-  /** 提交或下载请求在途与否，对话框据此忽略关闭请求。 */
+  /** Whether submit/download requests are in flight; dialogs ignore closing accordingly. */
   onBusyChange: (busy: boolean) => void;
 }) {
   const { t, i18n } = useTranslation("dashboard");
   const draftPathId = useId();
   const draftHintId = useId();
-  // 两张交付物卡片共用一个 name 才是同一组原生单选：方向键在组内切换，Tab 只停一次
+  // Both deliverable cards share one name for native radio grouping: arrows switch within it, Tab stops once.
   const kindGroupName = useId();
   const state = useRenderArtifact(
     projectName,
@@ -168,10 +168,10 @@ function RenderPanel({
 
   const busy = requesting || downloading;
   useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent, react-doctor/no-prop-callback-in-effect -- 在途状态来自按版本 key 重新挂载的面板与其 useRenderArtifact，父级无法持有；父级只需据此忽略关闭请求，卸载时由下方 cleanup 复位
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent, react-doctor/no-prop-callback-in-effect -- In-flight state belongs to version-keyed remounted panels/useRenderArtifact, unavailable to parents; parents only ignore closing accordingly, with cleanup resetting on unmount
     onBusyChange(busy);
   }, [busy, onBusyChange]);
-  // 换版本重新挂载或对话框关闭时，上一份面板的在途状态不再拦住关闭。
+  // Version remounts/dialog closes remove previous panels' in-flight closing restrictions.
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   const isDraft = kind === "jianying_draft";
@@ -213,7 +213,7 @@ function RenderPanel({
   const renderLabel = hasFile
     ? t(isDraft ? "edit_render_reexport_draft" : "edit_render_rerender_final_cut")
     : t(isDraft ? "edit_render_export_draft" : "edit_render_render_final_cut");
-  // 已是最新时下载是主动作；过时或没有产物时（重新）出片是主动作。
+  // Current artifacts make download primary; outdated/missing artifacts make render/rerender primary.
   const downloadIsPrimary = artifact?.status === "current";
 
   const downloadButton = (
@@ -392,14 +392,14 @@ function KindOption({
       <span className={cn("mt-0.5 shrink-0", selected ? "text-primary" : "text-muted-foreground")}>{icon}</span>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="text-sm leading-tight font-medium text-foreground">{title}</span>
-        {/* 选中项浅底上用中间档文字，保证对比度 */}
+        {/* Use middle-emphasis text on pale selected backgrounds for contrast. */}
         <span className={cn("text-xs", selected ? "text-subtle-foreground" : "text-muted-foreground")}>{hint}</span>
       </span>
     </label>
   );
 }
 
-/** 两三个互斥选项的一行单选：旁白版本、剪映版本。 */
+/** Single-row radios for two/three exclusive choices: narration/Jianying versions. */
 function ChoiceRow({
   label,
   value,

@@ -1,8 +1,8 @@
-"""剧本编辑核心（纯函数）测试。
+"""Script editing core pure-function tests.
 
-只断言外部行为：喂入纯 dict + 操作，断言返回 dict 的数组/id/资产结果，或非法操作抛
-`ScriptEditError`。逐条覆盖三种模式的 patch/insert/remove/split 与模式 dispatch，不 patch
-私有方法。fixture 形态与 `tests/test_script_structure_validator.py` 一致。
+Assert external behavior only: supply plain dicts plus operations and check returned arrays/IDs/assets, or
+`ScriptEditError` for invalid operations. Cover patch/insert/remove/split and dispatch in all three modes, without patching
+private methods. Fixtures match `tests/test_script_structure_validator.py`.
 """
 
 from __future__ import annotations
@@ -108,18 +108,18 @@ class TestResolveItems:
         assert len(script["segments"]) == 3
 
     def test_missing_key_is_empty_list(self):
-        # 内容数组键缺失 → 空列表（合法的「空草稿」），不报错
+        # Missing content-array key → empty list, a valid empty draft, without error.
         items, _id, kind = resolve_items({"content_mode": "narration"})
         assert kind == "segments"
         assert items == []
 
     def test_non_list_items_fail_loud(self):
-        # 键存在但类型非 list（数据损坏）→ fail-loud，而非静默降级为 []
+        # Existing nonlist key means corruption: fail loudly instead of silently returning [].
         with pytest.raises(ScriptEditError):
             resolve_items({"content_mode": "narration", "segments": "oops"})
 
     def test_present_but_null_fails_loud(self):
-        # 键存在但值为 null（损坏数据）→ fail-loud，不与「键缺失」混为空草稿
+        # Existing null key means corruption: fail loudly, distinct from absent-key empty drafts.
         with pytest.raises(ScriptEditError):
             resolve_items({"content_mode": "narration", "segments": None})
 
@@ -142,22 +142,22 @@ class TestPatchField:
         assert script["video_units"][1]["note"] == "备注"
 
     def test_patch_unknown_leaf_field_succeeds_at_set_nested_layer(self):
-        # _set_nested 单元层面允许叶子写入——dict 操作不查 schema。
-        # 但这里写的是 video_prompt.note(VideoPrompt 实际无 note 字段),
-        # 是个 hallucinated 字段——在 _set_nested 这层确实写进 dict,但经
-        # _write_script_unlocked 的 _guard_no_worse 会被 Pydantic extra="forbid" 拒,
-        # 真实工具链不允许落盘(见 test_patch_unknown_leaf_blocked_at_write_throat)。
+        # _set_nested permits leaf writes at unit level; dict operations do not check schemas.
+        # But video_prompt.note is nonexistent in VideoPrompt,
+        # a hallucinated field written into the dict by _set_nested, then rejected
+        # by Pydantic extra="forbid" through _write_script_unlocked / _guard_no_worse.
+        # Real tools cannot persist it; see test_patch_unknown_leaf_blocked_at_write_throat.
         script = patch_field(_narration(), "E1S01", "video_prompt.note", "新增备注")
         assert script["segments"][0]["video_prompt"]["note"] == "新增备注"
 
     def test_patch_optional_leaf_present_in_schema_succeeds(self):
-        # 合法的「补 LLM 漏写的 optional 字段」:NarrationSegment.note 是 schema 内的
-        # SkipJsonSchema[str | None] 字段,允许通过 patch 补;此路径既在 _set_nested
-        # 写入成功,也能通过 _guard_no_worse 校验(字段是合法 schema 字段)。
-        # 但 _narration() fixture 默认带 note=None,需要先 strip 再测「补」语义——
-        # 退而求其次,改测「写入 schema 合法字段」本身。
+        # Valid backfill of an LLM-omitted optional field: NarrationSegment.note is a schema
+        # SkipJsonSchema[str | None] field, patchable through both _set_nested writes
+        # and _guard_no_worse validation because the schema field is legitimate.
+        # However, _narration() defaults note=None; strip it first to test backfill,
+        # or, as a fallback, test writing a valid schema field itself.
         script = _narration()
-        # 删 segment.note 模拟 LLM 漏写
+        # Delete segment.note to simulate LLM omission.
         for seg in script["segments"]:
             seg.pop("note", None)
         script = patch_field(script, "E1S01", "note", "补全的备注")
@@ -173,26 +173,26 @@ class TestPatchField:
 
     @pytest.mark.parametrize("id_field", ["segment_id", "scene_id", "unit_id"])
     def test_patch_id_field_rejected(self, id_field):
-        # 三类 id 字段（segment/scene/unit）均不可直改：id 由 insert/split 派生，agent 改 id
-        # 会让其他依赖 id 定位的 helper 回写到错误分镜，或产生重复 id 歧义。
+        # All segment/scene/unit ID fields reject direct edits; insert/split derive IDs. Agent changes
+        # would misdirect other ID-based writeback helpers or create duplicate-ID ambiguity.
         with pytest.raises(ScriptEditError, match="不可改分镜 id"):
             patch_field(_narration(), "E1S01", id_field, "X")
 
     def test_patch_end_frame_image_rejected(self):
-        # 尾帧字段只由尾帧设置/清除端点写入：patch 放行等于让 agent 原样写任意字符串，
-        # 绕过快照复制并重新引入悬空引用与越界路径。
+        # Only last-frame set/clear endpoints write last-frame fields; allowing patch would permit arbitrary strings,
+        # bypassing snapshot copying and reintroducing dangling references/out-of-bounds paths.
         with pytest.raises(ScriptEditError, match="不可改 end_frame_image"):
             patch_field(_narration(), "E1S01", "end_frame_image", "../../../etc/passwd")
 
     def test_patch_pending_authoring_rejected(self):
-        # 待编写只由新增条目置位、提示词编写清除；patch 放行会让 Agent 手改这条陈述。
+        # Only adding items sets pending-authoring, and prompt authoring clears it; patch must not let Agents edit this statement.
         with pytest.raises(ScriptEditError, match="不可改 pending_authoring"):
             patch_field(_narration(), "E1S01", "pending_authoring", False)
 
     @pytest.mark.parametrize("field", ["image_prompt", "video_prompt"])
     def test_patch_cannot_clear_a_prompt_to_none(self, field):
-        # None 是提示词的「待生成」态，只由脚本规划机械转换写入；剧本模型接受 None 之后，
-        # patch 是把已有提示词清空的唯一入口，须在这里拒绝。
+        # None means pending prompt generation, written only by mechanical script-plan conversion; after script models allow None,
+        # patch becomes the only entry for clearing existing prompts and must reject that here.
         with pytest.raises(ScriptEditError, match="清成 null"):
             patch_field(_narration(), "E1S01", field, None)
         with pytest.raises(ScriptEditError, match="清成 null"):
@@ -222,7 +222,7 @@ class TestInsertSegment:
         assert script["segments"][1]["generated_assets"] == {}
 
     def test_insert_drops_end_frame_image(self):
-        # 新 id 名下还没有快照，agent 自带的值只会指向锚点的快照或不存在的路径。
+        # New IDs have no snapshots; Agent-supplied values would reference anchor snapshots or nonexistent paths.
         new_item = _segment("X") | {"end_frame_image": "end_frames/scene_E1S01.png"}
         script = insert_segment(_narration(), "E1S01", new_item)
         assert script["segments"][1].get("end_frame_image") is None
@@ -264,23 +264,23 @@ class TestSplitSegment:
         assert ids == ["E1S01", "E1S03", "E1S04", "E1S02"]
 
     def test_split_issues_numbers_after_the_floor(self):
-        # floor 是本集用过的最大号（含已删除的编号），拆出的新分镜从它之后取号
+        # floor is the episode maximum ever used, including deleted IDs; new split shots number after it.
         script = split_segment(_narration(), "E1S01", [_segment("a"), _segment("b")], floor=7)
         assert [s["segment_id"] for s in script["segments"]] == ["E1S01", "E1S08", "E1S02"]
 
     def test_split_keeps_anchor_assets_clears_new_parts(self):
-        # 锚点(parts[0],保留原 id)的 generated_assets 不动,与 insert_segment 的「锚点资产
-        # 不动」语义对齐;其余 parts(新派生 id)清空 generated_assets 退回 pending 待重生。
-        # 即便 agent 在 parts[0] 自带了 generated_assets 也以原分镜实际值为准,不让 agent
-        # 凭空写资产路径。
+        # Keep anchor parts[0] generated_assets under its original ID, matching insert_segment anchor preservation;
+        # clear generated_assets on other newly derived parts, returning them to pending regeneration.
+        # Even if Agents provide generated_assets in parts[0], retain actual original-shot values rather than letting Agents
+        # invent asset paths.
         anchor_assets = _narration()["segments"][0]["generated_assets"]
         script = split_segment(_narration(), "E1S01", [_segment("a"), _segment("b")])
         assert script["segments"][0]["generated_assets"] == anchor_assets
         assert script["segments"][1]["generated_assets"] == {}
 
     def test_split_keeps_anchor_end_frame_clears_new_parts(self):
-        # 尾帧快照按镜头 id 命名：锚点保留原 id 故快照仍归它；新派生 id 名下没有快照，
-        # 且以原分镜实际值为准，不让 agent 在 parts[0] 凭空改写快照路径。
+        # Last-frame snapshots key by shot ID; anchors retain IDs and snapshots, while newly derived IDs have none.
+        # Retain actual original-shot values instead of letting Agents invent snapshot paths in parts[0].
         script_in = _narration()
         script_in["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
         parts = [_segment("a") | {"end_frame_image": "end_frames/forged.png"}, _segment("b")]
@@ -306,17 +306,17 @@ class TestSplitSegment:
         script = split_segment(_reference(), "E1U1", [_unit("a"), _unit("b")])
         ids = [u["unit_id"] for u in script["video_units"]]
         assert ids == ["E1U1", "E1U3", "E1U2"]
-        # 锚点 video_unit 保留原 generated_assets,新派生 unit 清空
+        # Anchor video_unit retains generated_assets; newly derived units clear them.
         assert script["video_units"][0]["generated_assets"] == anchor_assets
         assert script["video_units"][1]["generated_assets"] == {}
 
     def test_split_warns_when_anchor_assets_dirty_non_dict(self, caplog):
-        """锚点 generated_assets 形态异常(非 dict 的脏数据)时退化为空 dict,
-        但必须 warning——符合 ADR-0003 增补「禁止零信号成功」原则。anchor_assets is None
-        视为合法初始态不 warn,只对 list / str / int 等真正脏数据 warn。"""
+        """Malformed nondict anchor generated_assets degrades to an empty dict,
+        but must warn under ADR-0003's no-zero-signal-success addendum. anchor_assets=None
+        is a valid initial state without warning; warn only for genuinely invalid list / str / int values."""
         import logging
 
-        # 脏数据:generated_assets 是 list 而非 dict
+        # Corrupt generated_assets is list, not dict.
         script_dirty = _narration([_segment("E1S01"), _segment("E1S02")])
         script_dirty["segments"][0]["generated_assets"] = ["unexpected_list_form"]
 
@@ -327,11 +327,11 @@ class TestSplitSegment:
         assert any("E1S01" in m and "list" in m for m in warnings), warnings
 
     def test_split_no_warn_when_anchor_assets_none(self, caplog):
-        """anchor generated_assets is None / 缺失是合法初始态(未生成),不应 warning。"""
+        """anchor generated_assets=None / absent is a valid ungenerated initial state and must not warn."""
         import logging
 
         script_clean = _narration([_segment("E1S01"), _segment("E1S02")])
-        script_clean["segments"][0].pop("generated_assets", None)  # 模拟初始态缺失
+        script_clean["segments"][0].pop("generated_assets", None)  # Simulate an absent initial state.
 
         with caplog.at_level(logging.WARNING, logger="lib.script.script_editor"):
             split_segment(script_clean, "E1S01", [_segment("a"), _segment("b")])

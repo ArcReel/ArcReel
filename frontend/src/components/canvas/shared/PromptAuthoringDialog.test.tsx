@@ -10,7 +10,7 @@ import { PromptAuthoringHost } from "./PromptAuthoringDialog";
 
 const ACCEPTED = { batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.authorPrompts>>;
 
-// 条目 ID 里的数字与位置错开（E1S04 是分镜 2），界面只按位置称呼条目。
+// Entry-ID numbers differ from positions (E1S04 is shot 2); the UI addresses entries only by position.
 const SCRIPT = {
   episode: 1,
   segments: [
@@ -44,7 +44,7 @@ describe("编写提示词", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "编写提示词" });
     const list = within(dialog).getByRole("list", { name: "自选多条" });
-    // 默认勾选待编写的分镜 1、分镜 3；再勾上分镜 2，去掉分镜 1。条目按位置与正文摘录指认
+    // Shots 1/3 pending authoring start checked; check shot 2 and uncheck shot 1. Identify entries by position/body excerpts.
     expect(within(list).queryByText(/E1S0\d/)).not.toBeInTheDocument();
     await user.click(within(list).getByRole("checkbox", { name: /^分镜 2雨夜无人/ }));
     await user.click(within(list).getByRole("checkbox", { name: /^分镜 1城门洞开/ }));

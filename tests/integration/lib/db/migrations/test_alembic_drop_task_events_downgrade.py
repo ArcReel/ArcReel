@@ -1,8 +1,8 @@
-"""Alembic 迁移 3649100774fa（drop task_events）的降级回归测试。
+"""Downgrade regression for Alembic 3649100774fa, dropping task_events.
 
-该迁移的 downgrade 需重建 task_events，且 FK 必须与建表迁移同名
-（``fk_task_events_task_id``）：更早一级迁移 b942e8c5d545 的 downgrade 按名 drop 该约束，
-名字对不上时整条下行链断在那里，而只测 ``upgrade head`` 的用例发现不了。
+Downgrade must recreate task_events with the original named foreign key
+(``fk_task_events_task_id``): earlier migration b942e8c5d545 drops that constraint by name on downgrade.
+Mismatches break the whole downward chain, invisible to ``upgrade head``-only tests.
 """
 
 from __future__ import annotations
@@ -14,15 +14,15 @@ from alembic.config import Config
 
 from alembic import command
 
-#: 建表迁移 b942e8c5d545 使用的 FK 约束名，downgrade 重建时必须一致。
+#: FK name from creation migration b942e8c5d545; downgrade recreation must match.
 _FK_NAME = "fk_task_events_task_id"
 
-#: b942e8c5d545 的父 revision——下行到这里就跨过了按名 drop 约束的那一步。
+#: Parent revision of b942e8c5d545; reaching it crosses the named constraint-drop step.
 _BELOW_FK_MIGRATION = "ecbb53758daa"
 
 
 def test_downgrade_rebuilds_task_events_with_named_fk(alembic_cfg: tuple[Config, Path]):
-    """降级重建的 task_events 带具名 FK，且能继续下行跨过按名 drop 约束的迁移。"""
+    """Recreated task_events has the named FK and can continue downward through the migration dropping it by name."""
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "head")
 
@@ -41,9 +41,9 @@ def test_downgrade_rebuilds_task_events_with_named_fk(alembic_cfg: tuple[Config,
     finally:
         engine.dispose()
 
-    # 继续下行跨过 b942e8c5d545（按名 drop 该 FK）——名字对不上时这里抛
+    # Continue below b942e8c5d545, which drops the FK by name; mismatches raise here.
     # ValueError: No such constraint。
     command.downgrade(cfg, _BELOW_FK_MIGRATION)
 
-    # 重新升到 head 不应因重建过的表残留报错
+    # Reupgrade to head must not fail on leftover recreated tables.
     command.upgrade(cfg, "head")

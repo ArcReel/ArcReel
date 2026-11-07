@@ -42,8 +42,8 @@ type LoadState =
 type TestState = { status: "idle" } | { status: "testing" } | { status: "ok" } | { status: "failed"; error: unknown };
 
 /**
- * 「对象存储」块：查看、配置、测试与删除实例唯一的 TOS 连接，并选择新增图片的保存位置。
- * 连接在对话框里提交；保存位置选中即保存。两者都立即生效。
+ * Object storage: inspect/configure/test/delete the instance's sole TOS connection and select new-image storage locations.
+ * Connections submit through dialogs; location selections save immediately. Both apply at once.
  */
 export function ObjectStorageBlock() {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -69,12 +69,12 @@ export function ObjectStorageBlock() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉取连接配置后回写，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- write fetched connection configuration after mount as controlled initialization
     void fetchConnection();
     return () => loadController.current?.abort();
   }, [fetchConnection]);
 
-  // 连接被替换或删除后，在途的测试结果属于旧连接，不再落地
+  // Replaced/deleted connections invalidate in-flight test results belonging to old connections.
   const testGeneration = useRef(0);
   const resetTest = useCallback(() => {
     testGeneration.current += 1;
@@ -185,7 +185,7 @@ export function ObjectStorageBlock() {
   );
 }
 
-/** 已配置连接的摘要：桶、Endpoint、区域与掩码后的 Access Key ID，以及测试、编辑与删除入口。 */
+/** Connection summaries: bucket, Endpoint, region, masked Access Key ID, plus test/edit/delete entries. */
 function ConnectionCard({
   connection,
   test,
@@ -243,8 +243,8 @@ function ConnectionCard({
 }
 
 /**
- * 新增图片保存位置：选中即保存，只影响之后提交的图片内容版本。没有连接时不能选对象存储
- * （只配置连接用于中转，不等于启用远端保存）。
+ * New-image storage locations save on selection, affecting subsequently submitted image-content versions only. Without connections, object storage is unavailable;
+ * configuring connections for transit alone never enables remote persistence.
  */
 function NewImageTargetField({
   target,
@@ -285,7 +285,7 @@ function NewImageTargetField({
       value: "object_storage",
       title: t("new_image_target_object_storage"),
       hint: connectionConfigured ? t("new_image_target_object_storage_hint") : t("new_image_target_needs_connection"),
-      // 已选中时保持可见可读：连接在别处被删掉的少见情况下，仍能看出当前设置并改回本地
+      // Keep selected settings readable if connections are deleted elsewhere, allowing users to recognize settings and revert local.
       disabled: !connectionConfigured && target !== "object_storage",
     },
   ];
@@ -306,7 +306,7 @@ function NewImageTargetField({
         className="@md:grid-cols-2"
       >
         {options.map((option) => (
-          // eslint-disable-next-line jsx-a11y/label-has-associated-control -- 控件是嵌套的 RadioGroupItem（Base UI 单选），规则识别不到
+          // eslint-disable-next-line jsx-a11y/label-has-associated-control -- nested RadioGroupItem (Base UI radio) is unrecognized by the rule
           <label
             key={option.value}
             className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-fast hover:bg-muted/50 has-data-checked:border-primary has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60 has-data-disabled:hover:bg-transparent"
@@ -327,8 +327,8 @@ function NewImageTargetField({
   );
 }
 
-/** 尚未清理的中转副本提示：更换桶或 Endpoint、删除连接后，这些副本不再自动清理。 */
-/** 桶里尚未清理、更换桶或 Endpoint 与删除连接后不再自动删除的对象：中转副本与没有引用的待删除图片对象。 */
+/** Uncleaned transit-copy notices: replacing buckets/Endpoints or deleting connections stops their automatic cleanup. */
+/** Bucket objects no longer automatically deleted after bucket/Endpoint changes or connection deletion: transit copies and unreferenced images pending deletion. */
 interface UncleanedObjects {
   relay: number;
   images: number;
@@ -399,7 +399,7 @@ function ObjectStorageDialog({
     }
   }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, onSaved]);
 
-  // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
+  // Register unsaved inputs with leave guards, including dialog closure; never silently discard.
   useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
   const confirmLeave = useConfirmLeave();
   const requestClose = () => {

@@ -1,9 +1,9 @@
-"""Gemini Interactions API 的视频调用通道（Gemini Omni）。
+"""Gemini Interactions API video channel (Gemini Omni).
 
-与 Veo 的 ``generate_videos`` 长任务是两套协议：提交 ``interactions.create(background=True)`` 拿到 interaction ID，
-按 ID 轮询 ``interactions.get`` 到终态，成片以 base64 内联在最后一个 ``model_output`` 步骤里。AI Studio 与 Vertex 共用
-同一组 SDK 调用，差别只在客户端的凭证与域名（见 :class:`GeminiVideoBackend` 的构造）。官方文档入口见
-``docs/api-docs/providers/gemini-aistudio.md`` 与 ``gemini-vertex.md``。
+A protocol separate from Veo ``generate_videos`` long-running operations: submit ``interactions.create(background=True)`` for interaction IDs,
+poll ``interactions.get`` by ID to terminal state, and retrieve base64 video inline in the last ``model_output`` step. AI Studio/Vertex share
+SDK calls, differing only in client credentials/hosts (:class:`GeminiVideoBackend` construction). Official documentation entry points:
+``docs/api-docs/providers/gemini-aistudio.md`` and ``gemini-vertex.md``.
 """
 
 from __future__ import annotations
@@ -40,10 +40,10 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
-#: 仍在生成的状态；其余状态都是终态，``completed`` 之外的终态按失败处理。
+#: Still-generating states; all others are terminal, with non-``completed`` terminals treated as failures.
 _RUNNING_STATUSES = frozenset({"in_progress", "queued"})
 
-#: 每秒成片的视频 token 数，按分辨率档位（Gemini API 定价页）；没发分辨率时按服务端缺省 720p 估算。
+#: Output video tokens per second by resolution tier (Gemini API pricing); estimate server-default 720p if resolution is unsent.
 _VIDEO_TOKENS_PER_SECOND = {"360p": 1931, "720p": 5792, "1080p": 8688, "4k": 17376}
 _DEFAULT_RESOLUTION = "720p"
 
@@ -57,17 +57,17 @@ _IMAGE_MIME_TYPES = {
 
 
 class GeminiInteractionsVideoBackend(GeminiVideoBackend):
-    """经 Interactions API 调用 Gemini Omni 生成视频（AI Studio 凭证）。
+    """Generate Gemini Omni videos through Interactions API with AI Studio credentials.
 
-    成片恒有声：请求里没有音轨开关，只能用提示词描述想要的声音。输入图片不带角色标记，按 ``video_config.task``
-    与提示词区分首尾帧和参考图，所以首尾帧与参考图不能在同一个请求里混用，也发不出单独的尾帧。
+    Output always has audio: no request audio switch, only desired-sound prompt descriptions. Images have no role markers; ``video_config.task``
+    and prompts distinguish first/last frames from references, so they cannot mix in one request and lone last frames cannot be sent.
     """
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
 
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """通道实现文生视频、首帧、尾帧与参考图四条路径；参考图张数是模型事实，由条目给出。"""
+        """Channel implements text, first-frame, last-frame, and reference-image routes; entries provide model-specific reference counts."""
         del model, entry
         return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
 
@@ -77,7 +77,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
 
     @staticmethod
     def estimate_video_tokens(*, resolution: str | None, seconds: int) -> int | None:
-        """按分辨率档位的每秒 token 数换算成片的视频 token；不认识的档位算不出，为 ``None``。"""
+        """Convert output duration through resolution-tier tokens per second; ``None`` for unknown/uncomputable tiers."""
         rate = _VIDEO_TOKENS_PER_SECOND.get((resolution or _DEFAULT_RESOLUTION).lower())
         return None if rate is None else rate * seconds
 
@@ -89,10 +89,10 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         *,
         entry: CatalogEntry | None = None,
     ) -> Usage:
-        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`），与型号名和条目无关。
+        """This request's measurements (:mod:`lib.backends.video_backends.metering`), independent of model names/entries.
 
-        视频 token 结算取供应商回报的输出视频 token（``result.usage_tokens``），预估按分辨率档位的每秒 token 数换算。
-        成片恒有声，音轨维度固定为有声。
+        Settle video tokens from provider-reported output video tokens (``result.usage_tokens``); estimate from resolution-tier tokens per second.
+        Output always has audio, fixing the audio dimension to enabled.
         """
         del model, entry
         tokens = (
@@ -112,12 +112,12 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         )
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """提交 interaction 后轮询到终态并取件；提交失败的重试由 SDK 按状态码完成。"""
+        """Submit interactions, poll to terminal states, and retrieve outputs; SDK retries submission failures by status."""
         self._reject_unsendable(request)
         interaction = await self._create_interaction(request)
         interaction_id = getattr(interaction, "id", None)
         if not interaction_id:
-            # 没有 ID 就无法持久化 provider_job_id，进程中断后会走重新提交，造成重复扣费。
+            # Without IDs, provider_job_id cannot persist; process interruption would cause resubmission/duplicate billing.
             raise RuntimeError("Gemini Interactions 提交成功但未返回 interaction ID，无法持久化 provider_job_id")
         await self._persist_provider_job_id(
             request, interaction_id, provider=PROVIDER_GEMINI, endpoint=self._request_base_url
@@ -126,9 +126,9 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         return await self._collect_interaction(done, request)
 
     async def _resume_on_current_client(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """按 interaction ID 轮询到终态并取件，不重新提交。
+        """Poll interaction IDs to terminal state and retrieve outputs without resubmission.
 
-        查询 interaction 收到 404 时归为过期（服务端按保留期删除了记录）；interaction 完成后的取件失败照原样上抛。
+        Query 404 means expiry (server deleted records under retention policy); retrieval failures after completion propagate unchanged.
         """
         try:
             interaction = await self._get_interaction(job_id)
@@ -140,7 +140,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         return await self._collect_interaction(done, request)
 
     def _reject_unsendable(self, request: VideoGenerationRequest) -> None:
-        """请求体表达不了的输入在付费前拒绝，不静默丢弃（能力被用户覆盖放宽时也会走到这里）。"""
+        """Reject inputs unrepresentable in request bodies before billing, never silently discard (including user-relaxed capability overrides)."""
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
         if not request.generate_audio:
@@ -162,7 +162,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         else:
             images, task = [], "text_to_video"
         parts: list[dict[str, Any]] = list(await asyncio.gather(*[asyncio.to_thread(_image_part, i) for i in images]))
-        # 反向提示词由调用方文本化注入 prompt，跨通道一致；文本放在图片之后。
+        # Callers inject textual negative prompts consistently across channels; text follows images.
         parts.append({"type": "text", "text": request.prompt})
 
         response_format: dict[str, Any] = {
@@ -198,10 +198,10 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         return interaction
 
     async def _refresh_vertex_token(self) -> None:
-        """Vertex 的访问令牌过期时在线程里刷新。
+        """Refresh expired Vertex access tokens in threads.
 
-        Interactions 的异步客户端取令牌是同步调用，令牌过期时会在事件循环线程上发起 OAuth 刷新请求；
-        先在线程里刷新好，SDK 取到的就是有效令牌。AI Studio 用 API Key，没有令牌。
+        Async Interactions clients obtain tokens synchronously; expiry would trigger OAuth refresh on event-loop threads.
+        Refresh in threads first so SDK sees valid tokens. AI Studio uses API Keys, without tokens.
         """
         credentials = self._credentials
         if credentials is None or credentials.valid:
@@ -215,7 +215,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         return await self._client.aio.interactions.get(interaction_id)
 
     async def _poll_interaction(self, interaction: Any, request: VideoGenerationRequest) -> Any:
-        """轮询到终态；``completed`` 之外的终态抛 ``RuntimeError``，瞬态错误只重试当次查询。"""
+        """Poll until terminal; terminals other than ``completed`` raise ``RuntimeError``; retry transient errors for the individual query only."""
         interaction_id = interaction.id
         if interaction.status in _RUNNING_STATUSES:
             interaction = await poll_with_retry(
@@ -242,7 +242,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             raise RuntimeError("视频生成失败: API 未返回视频数据")
 
         await run_noninterruptible_sync(request.output_path.parent.mkdir, parents=True, exist_ok=True)
-        # 字节已在内存里：解码与写盘不可中断，落盘经 .part 再改名。
+        # Bytes are already in memory: decoding/writing is noninterruptible, persisted through .part then rename.
         await run_noninterruptible_sync(
             write_atomically, request.output_path, lambda target: target.write_bytes(base64.b64decode(data))
         )
@@ -259,7 +259,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
 
 
 class VertexInteractionsVideoBackend(GeminiInteractionsVideoBackend):
-    """以 Vertex 服务账号经 Interactions API 调用 Gemini Omni；成片同样恒有声。"""
+    """Gemini Omni through Interactions API with Vertex service accounts; output likewise always has audio."""
 
     default_backend_type = "vertex"
 
@@ -283,7 +283,7 @@ def _failure_message(interaction: Any) -> str | None:
 
 
 def _output_video_tokens(interaction: Any) -> int | None:
-    """供应商回报的输出视频 token；没有按模态拆分时取输出 token 总数。"""
+    """Provider-reported output video tokens; use total output tokens without modality splits."""
     usage = interaction.usage
     if usage is None:
         return None
@@ -294,19 +294,19 @@ def _output_video_tokens(interaction: Any) -> int | None:
 
 
 def _interactions_status_code(exc: BaseException) -> int | None:
-    """Interactions SDK 错误携带的 HTTP 状态码。
+    """HTTP status codes on Interactions SDK errors.
 
-    这组错误不是 ``google.genai.errors.APIError``：状态码在 ``status_code`` 上（Veo 路径是 ``code``），
-    错误类也不在公开模块里，按属性读取。
+    These are not ``google.genai.errors.APIError``: codes live in ``status_code`` (``code`` for Veo),
+    and error classes are not public, so read attributes.
     """
     status = getattr(exc, "status_code", None)
     return status if isinstance(status, int) else None
 
 
 def _should_retry_interactions_poll(exc: Exception) -> bool:
-    """有状态码的按状态码判定（404 不重试，续跑据此认出过期），其余按幂等轮询口径。
+    """Use status predicates when present (never retry 404; resume recognizes expiry), otherwise idempotent polling rules.
 
-    SDK 把 httpx 的传输错误包成自己的连接错误类、原错误放在 ``__cause__``，按原错误判定。
+    SDK wraps httpx transport errors in connection classes, storing originals in ``__cause__``; classify original errors.
     """
     status = _interactions_status_code(exc)
     if status is not None:

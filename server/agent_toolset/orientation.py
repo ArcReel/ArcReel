@@ -1,4 +1,4 @@
-"""定向工具的声明：制作计划、视频能力与提示词预览，供决定下一步之前读取。"""
+"""Orientation declarations: production plan, video capabilities, and prompt preview, read before deciding the next action."""
 
 from __future__ import annotations
 
@@ -15,12 +15,7 @@ from server.tool_runtime import (
 GET_WORKFLOW_PLAN = ToolDeclaration(
     name="get_workflow_plan",
     description=(
-        "读取项目的权威制作计划：内容现状、各 AI 操作的准入 status.operations、有序步骤、阻断原因、数据问题、"
-        "活动任务观测、视频准入与建议的下一动作 next_action。每一步动手前先读它：用户点名的操作在 "
-        "operations 里为 admitted 就执行，refused 时转述 reason；用户说继续时按 next_action 行动，"
-        "next_alternatives 非空时由用户在并列选项中选。confirmed_request_durations "
-        "只作用于本次计划，不写入项目。只读，无副作用。"
-        "项目数据升级失败时计划只含这一条 project_migration_failed 问题，下一动作指向修复。"
+        "Read the project’s authoritative production plan: current content, admission for each AI action in status.operations, ordered steps, blocking reasons, data issues, active-task observations, video admission, and suggested next_action. Read it before every action: execute a user-named operation when operations marks it admitted, relay its reason when refused; when the user says continue, follow next_action, and let the user choose among parallel options when next_alternatives is nonempty. confirmed_request_durations applies only to this plan and is not persisted. Read-only, no side effects. If project-data upgrade failed, the plan contains only project_migration_failed and the next action points to repair."
     ),
     request_model=WorkflowPlanRequest,
     migration=READ_CHECK,
@@ -31,13 +26,12 @@ GET_WORKFLOW_PLAN = ToolDeclaration(
 GET_VIDEO_CAPABILITIES = ToolDeclaration(
     name="get_video_capabilities",
     description=(
-        "查询项目当前视频模型的能力（model 粒度：供应商、模型、支持的时长等）与项目偏好，并给出按项目生成模式"
-        "定轴的时长约束 duration_constraints；全项目同一口径，无需指定剧集。参考生视频项目另含 "
-        "reference_unit_durations（带图与无图的档位、各桶 endpoint_fixed 标志及成因；无图不可解析时附 problem）。"
-        "只读，不向供应商发请求。视频模型未配置或能力无法解析时返回相应 problem。"
+        "Query the current project video model’s capabilities (at model level: provider, model, supported durations, etc.) and project preferences, including duration_constraints whose axes follow the project generation mode. This is project-wide and requires no episode. Reference-video projects also include reference_unit_durations (tiers with and without images, endpoint_fixed flags and causes for each bucket; a problem when no-image tiers cannot be resolved). Read-only; no provider request. Returns the corresponding problem if the video model is unconfigured or capabilities cannot be resolved."
     ),
     request_model=NoArguments,
-    migration=Exempt("只读：查询模型能力与项目偏好，不读写产物清单、不签发写入凭据；迁移失败时仍须可用，供规划修复。"),
+    migration=Exempt(
+        "Read-only model capabilities and project preferences; no artifact-manifest access or write credentials. Must remain available for repair planning after migration failure."
+    ),
     domain_key="video_capabilities",
     handler=get_video_capabilities,
 )
@@ -45,9 +39,7 @@ GET_VIDEO_CAPABILITIES = ToolDeclaration(
 GET_PROMPT_PREVIEW = ToolDeclaration(
     name="get_prompt_preview",
     description=(
-        "读取一个分镜条目最终会送进图像 / 视频模型的提示词文本，与执行路径同一渲染出口，逐字等于生成时实际"
-        "发出的提示词；某一侧提示词尚待生成或为空时，该侧带稳定的 unavailable 原因码而不是文本。"
-        "只读：不向供应商发请求、不产生费用。项目数据升级失败时返回 project_migration_failed problem。"
+        "Read the final prompt text that a storyboard entry will send to the image / video model. It uses the same rendering exit as execution and exactly matches the prompt actually sent during generation. If either side’s prompt is pending or empty, that side contains a stable unavailable reason code instead of text. Read-only: no provider request or charges. Returns project_migration_failed if project-data upgrade failed."
     ),
     request_model=PromptPreviewRequest,
     migration=READ_CHECK,

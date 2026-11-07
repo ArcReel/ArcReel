@@ -1,9 +1,9 @@
-"""提示词编写的 Web 入口。
+"""Web entry point for prompt authoring.
 
-「AI 编写 / AI 重写」与 Agent 的 ``generate_episode_script`` 调用同一个服务命令：补缺与显式重写的
-对象选择、覆盖确认与草稿落盘都在服务内，路由只负责把结果映射成 HTTP。提交后立即返回生成批次，
-任务进度经任务事件呈现。附加指令按集保存，下次打开弹窗时预填。
-"""
+AI authoring / rewriting and the Agent’s ``generate_episode_script`` use the same service command: target selection for
+gap filling or explicit rewriting, overwrite confirmation, and draft persistence belong to the service; the route only maps
+results to HTTP. Submission immediately returns a generation batch; task events expose progress. Additional instructions
+are saved per episode and prefilled the next time the dialog opens."""
 
 from typing import Annotated
 
@@ -37,16 +37,22 @@ _Instructions = Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)]
 class PromptAuthoringInstructions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    instructions: _Instructions | None = Field(default=None, description="附加指令原文；空白视同清除")
+    instructions: _Instructions | None = Field(
+        default=None, description="Original additional instructions; whitespace clears them"
+    )
 
 
 class AuthorPromptsRequest(PromptAuthoringInstructions):
     entry_ids: list[Annotated[str, Field(min_length=1)]] | None = Field(
-        default=None, min_length=1, description="编写范围（分镜 / 单元 id）；省略时为全部待编写条目，给出时至少一条"
+        default=None,
+        min_length=1,
+        description="Authoring scope (storyboard / unit IDs); omit for all pending entries; an explicit selection requires at least one entry",
     )
-    rewrite: bool = Field(default=False, description="显式重写范围内条目的全部视觉层；省略时补缺")
+    rewrite: bool = Field(
+        default=False, description="Explicitly rewrite all visual layers of entries in scope; omit to fill gaps"
+    )
     overwrite_revision: str | None = Field(
-        default=None, description="认可覆盖的正式脚本版本，取自 prompt_overwrite.revision"
+        default=None, description="Formal-script revision accepted for overwrite, from prompt_overwrite.revision"
     )
 
 
@@ -69,7 +75,7 @@ def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
 
 @router.put("/projects/{project_name}/episodes/{episode}/prompt-authoring/instructions")
 async def save_prompt_authoring_instructions(project_name: str, episode: int, req: PromptAuthoringInstructions):
-    """只保存本集的附加指令（「交给 Agent」路径用），不提交生成。"""
+    """Save only this episode’s additional instructions for the “Hand to Agent” path, without submitting generation."""
     await run_sync_transaction(
         save_episode_instructions,
         get_project_manager(),
@@ -89,11 +95,11 @@ async def author_prompts(
     user: CurrentUser,
     _t: Translator,
 ):
-    """保存附加指令并提交提示词编写，返回生成批次。
+    """Save additional instructions and submit prompt authoring, returning a generation batch.
 
-    显式重写会替换已有视觉层内容而未带（或带了过期的）``overwrite_revision`` 时 409，诊断里的
-    ``prompt_overwrite`` 列出将被覆盖的条目与字段、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。
-    """
+    When explicit rewriting would replace existing visual content and ``overwrite_revision`` is absent or stale, return 409
+    without submitting tasks. Diagnostic ``prompt_overwrite`` lists entries and fields to overwrite, rendered ``text``, and
+    the acceptance token ``revision``."""
     pm = get_project_manager()
     await run_sync_transaction(
         save_episode_instructions,

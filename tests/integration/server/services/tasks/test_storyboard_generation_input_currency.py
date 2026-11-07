@@ -1,4 +1,4 @@
-"""分镜图任务执行：引用衍生、商品与上一分镜图的分镜图生成后判 current；生成输入不成立时在付费前失败。"""
+"""Storyboard execution: derivatives, products and previous-storyboard references yield current images after generation; invalid generation inputs fail before paid calls."""
 
 import json
 

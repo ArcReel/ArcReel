@@ -7,19 +7,19 @@ import { WorkRow, useSessionDone } from "./WorkRow";
 import { SUBAGENT_ICON, segmentWorkBlocks, type WorkStatus } from "./work-label";
 
 // ---------------------------------------------------------------------------
-// SubagentCard – 子智能体（Agent/Task tool_use）的工序行，默认收起：描述加运行中的用量。
-// 展开后是子时间线（按 parent_tool_use_id 归组的内部消息，工序同样是单行工序），
-// 末尾是子智能体结论。实时与历史回放走同一投影，呈现一致。终态取 task_info.task_status 的
-// completed / failed / stopped；合成卡片的描述在 task_info.description，结论在 task_info.summary。
+// SubagentCard: subagent (Agent/Task tool_use) work rows, initially collapsed with descriptions/live usage.
+// Expand sub-timelines (internal messages grouped by parent_tool_use_id, also using single-line work rows),
+// ending in subagent conclusions. Live/history share projections/presentation. Terminal states use task_info.task_status
+// completed/failed/stopped; synthetic-card descriptions use task_info.description, conclusions task_info.summary.
 // ---------------------------------------------------------------------------
 
 function deriveStatus(block: ContentBlock, sessionDone: boolean): WorkStatus {
   const task = block.task_info;
   if (task?.task_status === "failed" || block.is_error) return "error";
   if (task?.task_status === "completed" || block.result !== undefined) return "ok";
-  // 缺锚点子智能体的推断终态：子时间线停在工具调用中途
+  // Inferred terminal states for unanchored subagents: sub-timelines stop midway through tool calls.
   if (task?.task_status === "stopped") return "stopped";
-  // 会话终结且子智能体无终态时显示已停止，避免运行状态悬挂。
+  // Finished sessions with nonterminal subagents display Stopped, avoiding dangling Running states.
   return sessionDone ? "stopped" : "running";
 }
 
@@ -39,13 +39,13 @@ export function SubagentCard({ block }: { block: ContentBlock }) {
   const arrived = useArrivedFailures();
   const subTurns = block.sub_turns ?? [];
   const subBlocks = subTurns.flatMap((turn) => (Array.isArray(turn.content) ? turn.content : []));
-  // 查看期间新到达的子时间线失败播报；展开卡片看到的既有失败不播报
+  // Announce newly arriving sub-timeline failures while viewing; existing failures revealed by expansion stay silent.
   const announced = new Set(
     subTurns.flatMap((turn) =>
       turn.uuid !== undefined && arrived.has(turn.uuid) && Array.isArray(turn.content) ? turn.content : [],
     ),
   );
-  // 合成卡片（压缩续接后缺锚点的子智能体）没有 result，结论在 task_info.summary
+  // Synthetic cards (unanchored subagents after compaction resumption) lack result; conclusions use task_info.summary.
   const conclusion = (typeof block.result === "string" ? block.result : (block.task_info?.summary ?? "")).trim();
   const tokens = status === "running" ? block.task_info?.usage?.total_tokens : undefined;
   const summary = [deriveDescription(block), tokens != null ? t("subagent_tokens", { count: tokens }) : ""]
@@ -71,7 +71,7 @@ export function SubagentCard({ block }: { block: ContentBlock }) {
   );
 }
 
-/** 子时间线：内部消息的正文与工序依次排列，连续的工序排成紧凑的一列。 */
+/** Sub-timelines order internal bodies/work sequentially, compacting consecutive work rows into columns. */
 function SubTimeline({ blocks, announced }: { blocks: ContentBlock[]; announced: ReadonlySet<ContentBlock> }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5 text-xs text-subtle-foreground">

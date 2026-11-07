@@ -1,4 +1,4 @@
-"""上传内容落盘：视频改名到位前接随包 ffmpeg 做 faststart；内存字节原子写入目标路径。"""
+"""Upload finalization: bundled ffmpeg applies faststart before moving video into place; atomically write in-memory bytes to target paths."""
 
 from __future__ import annotations
 

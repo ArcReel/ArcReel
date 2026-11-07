@@ -3,75 +3,75 @@ paths:
   - "**"
 ---
 
-# 通用
+# General
 
-## 代码与文档
+## Code and documentation
 
-### 注释只陈述代码现在的行为与约束
+### Comments describe only current behavior and constraints
 
-读注释的人手里只有这份代码。变更原因、issue 与 PR 编号、「最近」「本次」「实测」这类时间性措辞属于 commit message 与 PR 描述；写进注释后，代码一改它就变成错误陈述，而且没有人会去更新它。修改文件时，顺手把已有的这类引用改写成对当前行为的陈述。
+Readers have only the code in front of them. Reasons for changes, issue/PR numbers, and temporal wording such as “recently,” “this change,” or “tested” belong in commit messages and PR descriptions. In comments they become false when the code changes, and no one updates them. When modifying a file, rewrite existing references of this kind as statements about current behavior.
 
-放行条件：这条规则约束代码与测试中的注释；`docs/` 下的专题文档（ADR、runbook 等）之间可以互相引用 spec 编号。
+Exception: this rule applies to comments in code and tests; topical documents under `docs/` (ADRs, runbooks, etc.) may cross-reference spec numbers.
 
-### 防御只针对常规可达的场景
+### Defend only against normally reachable scenarios
 
-常规可达指程序在常规操作下能走到：产品界面与 Agent 的正常流程；受支持的部署形态，包括并发请求与优雅停止后的重启；可预期的外部失败，如网络、供应商报错与限流、磁盘写满。只在任意时刻强杀、断电、用户手改项目文件或权限、硬件故障时才走到的路径，不为它加检查、兜底或补偿；审查意见以此驳回时，回复写明它依赖哪一种非常规条件。每条防御都是要维护和测试的分支，审查循环也会围着同一类意见往复。
+Normally reachable means possible during regular operation: normal product UI and Agent flows; supported deployments, including concurrent requests and restarts after graceful shutdown; predictable external failures such as network errors, provider errors/rate limits, and full disks. Do not add checks, fallbacks, or compensation for paths reachable only through arbitrary force-kill, power loss, user edits to project files or permissions, or hardware failures. When rejecting a review finding on this basis, state the abnormal condition it depends on. Every defensive branch requires maintenance and tests, and review loops repeatedly revisit the same class of finding.
 
-放行条件：在已有的单一边界从根源保证、不新增分支，例如原子写入时补 fsync。
+Exception: guarantees at an existing single boundary without adding branches, such as fsync on atomic writes.
 
-### 工具报出的问题改代码；豁免只给确认过的工具误报
+### Fix gate findings in code; exempt only confirmed tool false positives
 
-这条规则适用于闸门里的工具：lint、类型检查、依赖检查和 audit 脚本。它们报错时修改代码，不加 baseline、计数阈值，也不关闭整条规则；这些做法会把以后同类的真实问题一并放过。豁免只用于确认过的误报。行内豁免是否在同一行写了理由，由 `scripts/audit_conventions.py` 的 `SUPPRESSION-REASON` 检查；review 只判断理由是否成立。审查机器人附带的文风或语法提示（如 LanguageTool）不属于闸门工具，不按这条规则处理。
+This rule covers gate tools: lint, type checking, dependency checks, and audit scripts. Fix code for their findings rather than adding baselines, count thresholds, or disabling entire rules; those approaches also hide future real problems. Exemptions are only for confirmed false positives. `SUPPRESSION-REASON` in `scripts/audit_conventions.py` checks for a reason on the same line as an inline suppression; review judges whether it is valid. Style or grammar suggestions from review bots (such as LanguageTool) are not gate tools and are outside this rule.
 
-行内语法不可用时，豁免写在配置条目旁，每个条目旁用一行注释写明理由：
+When inline syntax is unavailable, put a one-line reason beside each configuration entry:
 
-- actionlint：写在 `.github/actionlint.yaml` 的 `paths.<文件>.ignore`，按错误消息正则精确匹配。
-- deptry 的 `DEP002` / `DEP004`：写在 `[tool.deptry.per_rule_ignores]`，按包名逐项列出。
-- ESLint 的文件级关闭：经 `eslint.config.js` 的 `files` override。
+- actionlint: exact error-message regexes under `paths.<文件>.ignore` in `.github/actionlint.yaml`.
+- deptry `DEP002` / `DEP004`: per-package entries in `[tool.deptry.per_rule_ignores]`.
+- ESLint file-wide disable: a `files` override in `eslint.config.js`.
 
-策略阈值类的发现（如 Dependabot 冷却期天数）按工具要求调整配置，同样不走豁免。
+For policy-threshold findings, such as Dependabot cooldown days, adjust configuration as the tool requires rather than adding an exemption.
 
-理由要说明「为什么这里工具判错了」或「为什么这里只能这样写」。「太麻烦」「暂时这样」「later fix」不成立；「React setter 引用稳定」「mount-only 初始化」「第三方库未提供类型」成立。
+Reasons explain why the tool is wrong here or why this form is necessary. “Too much trouble,” “temporarily,” and “later fix” are invalid; “React setter references are stable,” “mount-only initialization,” and “third-party package has no types” are valid.
 
-放行条件：import-linter 的 `ignore_imports`（`[tool.importlinter]`）是存量违规的 baseline。每条 ignore 都让分层契约在这一处失效，同方向的依赖会沿着它继续增加，所以新增条目前先尝试消除对应的依赖边；确实无法消除时才允许新增，并在条目上方用注释写明原因或对应的 ADR。
+Exception: import-linter `ignore_imports` (`[tool.importlinter]`) is a baseline for existing violations. Each ignore disables the layer contract there and encourages same-direction dependencies. Try removing the dependency edge before adding an entry; if impossible, add a comment above it explaining why or citing an ADR.
 
-### 功能变更与对应文档在同一个 PR 里
+### Feature changes and their documentation belong in the same PR
 
-下列变更同步修改 `website/docs/` 中的对应页面（各页职责见 `CONTRIBUTING.md`「各页职责」）。文档落后于代码的那段时间里，用户按文档操作会失败。
+Update corresponding pages in `website/docs/` for these changes (page responsibilities are in `CONTRIBUTING.md`'s “各页职责”). Users following stale documentation fail while it lags behind code.
 
-- 新增创作类型或生成模式。
-- 新增供应商或媒体能力。
-- 部署目录、端口、环境变量变化。
-- 数据目录、备份方式、迁移行为变化。
-- 对外 API、许可证或商业使用方式变化。
-- 外部 Agent 的安装方式变化：同步 `public/agent-installation-guide.md`。
+- New content modes or generation modes.
+- New providers or media capabilities.
+- Deployment directories, ports, or environment variables.
+- Data directories, backup procedures, or migration behavior.
+- Public APIs, licenses, or commercial-use terms.
+- External Agent installation: also update `public/agent-installation-guide.md`.
 
-### 预填与默认值从实际生效的上下文中取合法值
+### Prefills and defaults use valid values from their effective context
 
-默认值只对某个供应商、模型或类型成立时（如音色只属于某个语音模型，媒体类型只在部分供应商可用），按它实际生效的那个上下文取值并校验：最终写入的模型、当前选中的供应商，而不是全局默认或一份固定集合。它依附的值可能被自动推断或由用户改成别家，固定默认值在那里必然无效：新建项目写入合成必失败的组合，或表单提交在后端第二步失败、留下孤立条目。
+If a default is valid only for one provider, model, or type (a voice belonging to one speech model, a media type available only on some providers), derive and validate it in the context where it actually applies: the final saved model or currently selected provider, not a global default or fixed set. The parent choice may be inferred or changed by the user. A fixed default then becomes invalid: creating a project saves a combination guaranteed to fail, or a form succeeds initially and fails at the backend's second step, leaving an orphan entry.
 
-### 改变某个能力维度的来源或处理口径时，列出全部读点一起改
+### When changing a capability dimension's source or handling, list and update every read site
 
-同一能力维度在多处被读取：各后端的请求载荷构造、执行期闸门、测试连接、提交前费用预估（内置与自定义供应商各一条路径）和结算计量。把能力来源切换为叠加用户覆盖后的有效能力，或把一类处理口径统一改掉（如静默丢弃改为报错）时，先按维度名搜出全部读点，在 PR 里列明，再一起改。只改显眼的几处，其余读点仍按旧口径工作：缺失的首帧或参考图被跳过后照常出片计费，用户收窄的能力在测试连接里放行并真实扣费，按无声预估、按有声结算让费用准入放过超预算请求。
+One capability dimension is read in multiple places: backend request construction, execution gates, connectivity tests, pre-submission cost estimates (both built-in and custom-provider paths), and settlement metering. When switching its source to effective capabilities with user overrides, or changing its handling (such as turning silent omission into an error), first search for every read site, list them in the PR, and update them together. Changing only visible sites leaves others on old rules: missing first frames or references are skipped while paid generation proceeds, user-restricted capabilities pass a trial run and incur charges, or silent-video estimates admit an over-budget sound request.
 
-放行条件：PR 有意只改一部分读点时，写明其余读点保持旧口径的理由与负责的 issue。
+Exception: if a PR intentionally changes only some read sites, explain why the others retain old behavior and identify the responsible issue.
 
-### 一个值的格式或取值范围只在一处定义，产出方、校验方与消费方都引用它
+### Define a value's format or range once; producers, validators, and consumers reference it
 
-同一个值往往被几方各自解读：发号或输出函数产出它，schema 与违约检查校验它，请求构造、能力解析、比较逻辑与界面消费它。各方各写一份口径（正则位数、整数类型、算法前缀、条目种类）时，改动一方后其余几方仍按旧口径工作：服务端发出的编号被自己的校验拒绝；校验放行 `1.0`，能力解析仍只认整数；读取出口加了前缀，回传入口仍按裸值比较，判成并发冲突；允许分享新类型的条目，安装弹窗仍只认旧类型。新增或改动这类值时，各方引用同一处定义（常量、类型或解析函数）；做不到时在 PR 里列出全部读写点，并加一条往返测试，用产出方在边界上的真实输出驱动每个校验方与消费方。
+A value is often interpreted by several parties: allocation/output functions, schemas and violation checks, request construction, capability resolution, comparisons, and UI. Independent definitions (regex widths, integer types, algorithm prefixes, entry kinds) drift when one changes: a server rejects its own IDs; validation accepts `1.0` while resolution accepts integers only; a read endpoint adds a prefix while writes compare bare values and report conflicts; installation dialogs fail to recognize newly shareable entry types. For new or changed values, reference one definition (constant, type, or parser). If impossible, list every read/write site in the PR and add a round-trip test driving every validator and consumer with actual producer boundary output.
 
-### 按名称或路径匹配的静态守卫，用例覆盖到达同一目标的每种写法
+### Name/path guards test every spelling that reaches the same target
 
-lint 规则与 `scripts/audit_conventions.py` 这类守卫按源码文本识别被拦的模块或函数，而同一个目标往往有多种写法：导入路径有 `@/` 别名、相对路径、`..` 段与转导出；删除函数有 `from os import remove as rm`、`import os as fs` 与 `aiofiles.os`。守卫只认一种写法时，其余写法照样到达目标，还让人以为已经拦住。新增或修改守卫时，列出能到达目标的全部写法，每种写法各有一条应当报错的用例。
+Lint rules and guards such as `scripts/audit_conventions.py` identify forbidden modules or functions from source text, but targets have multiple spellings: `@/` aliases, relative paths, `..` segments, and re-exports; deletion functions such as `from os import remove as rm` and `import os as fs`, plus `aiofiles.os`. Recognizing only one spelling lets others bypass the guard while giving false confidence. When adding or changing a guard, list every spelling reaching the target and test that each is reported.
 
-## 文案
+## Copy
 
-### 用户可见文本写成翻译 key，覆盖全部已支持语言
+### User-visible text uses translation keys in every supported language
 
-前端界面文本写进 `frontend/src/i18n/`，后端返回给用户的错误、事件等消息写进 `lib/i18n/`，各自的语言目录就是语言清单。写死在代码里的文本会在其他语言的界面里原样显示，用户看到混杂的语言。各语言 key 集合是否一致由 typecheck 与 `tests/unit/lib/i18n/` 校验，review 只判断这段文本该不该走翻译 key。
+Frontend UI text belongs in `frontend/src/i18n/`; backend errors, events, and other user messages belong in `lib/i18n/`. Language directories define the supported languages. Hardcoded text appears unchanged in other locales, mixing languages. Type checking and `tests/unit/lib/i18n/` enforce key-set consistency; review judges whether the text should use a translation key.
 
-放行条件：只给开发者看的日志与异常消息；模型显示名等来自目录数据的名称以数据条目为准，不建翻译 key。
+Exceptions: developer-only logs and exceptions; data-driven names such as model display names come from catalog entries, without translation keys.
 
-### 失败提示先说原因和下一步，原文折叠
+### Failure summaries state the cause and next step first, with raw text collapsed
 
-摘要用本地化文案说明原因与出路，不出现问题码、内部 ID 或服务端原文；原文放进可展开的详情。没有已知原因可说时，原文就是摘要。
+Use localized summaries explaining the cause and way forward, without problem codes, internal IDs, or raw server text. Put raw text in expandable details. If no cause is known, the raw text is the summary.

@@ -212,7 +212,7 @@ async def test_remote_mcp_always_rejects_anonymous(remote_server, monkeypatch, a
 
 @pytest.mark.parametrize("path", ["/mcp", "/mcp/"])
 async def test_remote_mcp_serves_endpoint_without_redirect(remote_server, path: str) -> None:
-    """规范端点 ``/mcp`` 与兼容入口 ``/mcp/`` 都直接处理：不跟随 POST 重定向的客户端也能接入。"""
+    """Both canonical ``/mcp`` and compatible ``/mcp/`` handle directly, supporting clients that do not follow POST redirects."""
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),
@@ -231,7 +231,7 @@ async def test_remote_mcp_serves_endpoint_without_redirect(remote_server, path: 
     "metadata_path", ["/.well-known/oauth-protected-resource/mcp", "/mcp/.well-known/oauth-protected-resource"]
 )
 async def test_remote_mcp_does_not_advertise_oauth_discovery(remote_server, metadata_path: str) -> None:
-    """只认静态 arc- API Key、没有授权服务器：401 是普通 Bearer challenge，也不提供受保护资源元数据。"""
+    """Only static arc- API Keys, no authorization server: 401 uses an ordinary Bearer challenge, without protected-resource metadata."""
     app = _mounted(remote_server)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:
         challenge = await client.post(
@@ -258,7 +258,7 @@ _INITIALIZE_REQUEST = {
 
 
 async def test_remote_mcp_accepts_non_loopback_host_header(remote_server) -> None:
-    """任意 Host 都能到达端点：边界由每请求强制的 arc- API Key 承担，不由 Host 白名单承担。"""
+    """Any Host reaches the endpoint: mandatory per-request arc- API Keys enforce the boundary, not a Host allowlist."""
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),
@@ -287,10 +287,10 @@ async def test_remote_mcp_accepts_non_loopback_host_header(remote_server) -> Non
 async def test_remote_mcp_mount_inherits_app_cors_allowlist(
     remote_server, monkeypatch, origin: str, allowed: bool
 ) -> None:
-    """浏览器型客户端的跨源防护由应用级 CORSMiddleware 单点承担，``/mcp`` 挂载被一并覆盖。
+    """Application CORSMiddleware centrally protects browser cross-origin access, including the ``/mcp`` mount.
 
-    MCP 的 POST 带 Authorization 与 JSON body，浏览器必先发预检；不在 ``CORS_ORIGINS`` 里的
-    Origin 在预检阶段即被拒，实际请求不会发出。
+    MCP POST carries Authorization and JSON, requiring browser preflight; Origins outside ``CORS_ORIGINS``
+    fail preflight and never send actual requests.
     """
     monkeypatch.setenv("CORS_ORIGINS", "https://arcreel.example.com")
     host = RemoteMCPHost(server_factory=lambda: remote_server)
@@ -525,7 +525,7 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 ) -> None:
     project = remote_projects.load_project("demo")
     project["grid_storyboard"] = True
-    # 预览渲染按集定位的宫格记录：剧本须已绑定集号
+    # Preview grids are episode-addressed: the script must already be bound to an episode number.
     project["episodes"] = [{"episode": 1, "script_file": "episode_1.json"}]
     remote_projects.save_project("demo", project)
 
@@ -556,7 +556,7 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 async def test_remote_media_runtime_validates_shared_schema_and_forwards_nested_instruction(
     remote_batch_server, remote_projects: ProjectManager
 ) -> None:
-    """远程 adapter 按共享 schema 校验，并把嵌套编辑指令完整转发给 handler。"""
+    """Remote adapters validate shared schemas and forward complete nested edit instructions to handlers."""
     remote_batch_server, queue = remote_batch_server
     instruction = "把头发改成红色，保留原有发型"
     args = {
@@ -870,7 +870,7 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert refused.isError
     assert refused_problem["code"] == "script_overwrite_required"
     assert refused_problem["params"]["script_overwrite"]["entries"] == []
-    # 回执正文就是服务端生成的丢失清单，与 params 里的文本同一份。
+    # Receipt text is the server-generated loss inventory, identical to the text in params.
     assert refused_problem["params"]["script_overwrite"]["text"] in refused_problem["detail"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
@@ -1020,7 +1020,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
-    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
+    # No formal script yet: script plan remains unconfirmed, so an editable copy is available.
     (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (
@@ -1063,7 +1063,7 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
 
 @pytest.mark.usefixtures("video_request_facts")
 async def test_remote_mcp_draft_errors_name_only_project_relative_paths(remote_server, remote_projects) -> None:
-    """违约报告会原样回给远程 Agent：只指名项目内相对路径，不带服务端目录（含解析符号链接后的写法）。"""
+    """Violation reports pass unchanged to remote Agents: project-relative paths only, no server directories, including resolved symlink forms."""
     (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     project_dir = remote_projects.get_project_path("demo")
     app = _mounted(remote_server)
@@ -1119,7 +1119,7 @@ def _plant_migration_failure(project_dir: Path, origin: str) -> None:
             ),
             encoding="utf-8",
         )
-    else:  # 判定记录本身读不出：OSError 文本带着记录文件的绝对路径
+    else:  # The decision record itself cannot be read: OSError text includes its absolute path.
         (project_dir / MIGRATION_FAILURE_FILENAME).mkdir()
 
 
@@ -1127,7 +1127,7 @@ def _plant_migration_failure(project_dir: Path, origin: str) -> None:
 async def test_remote_workflow_plan_names_migration_failures_by_project_relative_path(
     remote_projects: ProjectManager, origin: str
 ) -> None:
-    """迁移失败原因经成功返回值回给远程 Agent：只带项目内相对路径，仍能定位问题文件。"""
+    """Migration failure reasons reach remote Agents in successful values, using project-relative paths that still identify problem files."""
     project_dir = remote_projects.get_project_path("demo")
     _plant_migration_failure(project_dir, origin)
 

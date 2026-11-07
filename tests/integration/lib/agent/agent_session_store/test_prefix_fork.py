@@ -1,8 +1,8 @@
-"""前缀分叉的 store 缝往返测试：写入后经 SDK 公开 helper 读回。
+"""Prefix-fork store seam round trip: write, then read through public SDK helpers.
 
-链完整性两条腿都验：SDK helper 读回满足「SDK 能读回」这一外部行为，但
-``SessionMessage`` 丢弃了 ``parentUuid``——链无悬空、tool_use / tool_result
-配对完整这两条要回到 ``store.load`` 的原始行上断言。
+Verify both chain-integrity aspects: reading through SDK helpers establishes the external behavior
+that the SDK can read the session, but ``SessionMessage`` drops ``parentUuid``. Assert absence of
+dangling links and complete tool_use / tool_result pairing against raw ``store.load`` rows.
 """
 
 from __future__ import annotations
@@ -39,11 +39,12 @@ def _entry(uuid: str, parent: str | None, entry_type: str, session_id: str, **ex
 
 
 def _build_transcript(session_id: str) -> tuple[list[dict], list[dict], str]:
-    """一段有子智能体的三轮 transcript，返回 (主线, 子时间线, 末轮用户消息 uuid)。
+    """A three-turn transcript with a subagent; return (main timeline, child timeline, final user-message UUID).
 
-    首轮是不派子智能体的纯对话，次轮派出 Task 子智能体并完整收尾，末轮的
-    用户消息即分叉锚点。三轮各自对应一类锚点位置：首轮之前（空前缀）、次轮
-    之前（有对话但子智能体尚未派出）、末轮之前（子智能体应随行）。
+    Turn one is plain conversation without subagents; turn two dispatches a Task subagent and fully
+    completes it; the final user message anchors the fork. The three turns cover anchor positions
+    before the first turn (empty prefix), before the second (conversation but no subagent dispatched),
+    and before the final turn (the subagent must accompany the fork).
     """
     u0, a0, u1, a1, r1, a2, u2, a3 = (f"m{i}-{uuid4().hex[:8]}" for i in range(8))
     main = [
@@ -86,7 +87,7 @@ def _build_transcript(session_id: str) -> tuple[list[dict], list[dict], str]:
 
 @pytest.fixture
 async def seeded(session_factory, tmp_path):
-    """把一段 transcript 写进 store，返回复制所需的上下文。"""
+    """Write a transcript into the store and return the context needed for copying."""
     store = DbSessionStore(session_factory)
     project_key = project_key_for_directory(str(tmp_path))
     session_id = str(uuid4())
@@ -117,13 +118,13 @@ async def test_prefix_stops_before_anchor(seeded):
     copied = await store.load({"project_key": project_key, "session_id": new_id})
 
     assert copied is not None
-    # 锚点及其后的 Agent 回复都不进前缀。
+    # Neither the anchor nor subsequent Agent replies enter the prefix.
     assert [e["type"] for e in copied] == ["user", "assistant", "user", "assistant", "user", "assistant"]
     assert all(e["sessionId"] == new_id for e in copied)
 
 
 async def test_sdk_reads_back_the_full_chain(seeded):
-    """AC：新会话经 SDK 公开 helper 读回为完整链，含子智能体子时间线。"""
+    """AC: public SDK helpers read the new session as a complete chain including child subagent timelines."""
     _, _, _, _, tmp_path = seeded
     store, _, _, _, _ = seeded
     new_id, result = await _copy(seeded)
@@ -174,7 +175,7 @@ async def test_tool_use_and_tool_result_stay_paired(seeded):
 
 
 async def test_subagent_metadata_entry_is_carried(seeded):
-    """``agent_metadata`` 行随子时间线同行，SDK 物化时靠它写 .meta.json 旁车。"""
+    """``agent_metadata`` rows accompany child timelines; SDK materialization uses them to write .meta.json sidecars."""
     store, project_key, _, _, _ = seeded
     new_id, _ = await _copy(seeded)
 
@@ -183,7 +184,7 @@ async def test_subagent_metadata_entry_is_carried(seeded):
     metadata = [e for e in sub if e["type"] == "agent_metadata"]
     assert len(metadata) == 1
     assert metadata[0]["sessionId"] == new_id
-    # transcript 行才带溯源标记，旁车文件不该多出字段。
+    # Only transcript rows carry provenance markers; sidecar files must not gain fields.
     assert "forkedFrom" not in metadata[0]
 
 
@@ -197,7 +198,7 @@ async def test_origin_session_is_untouched(seeded):
 
 
 async def test_empty_prefix_copies_nothing(seeded):
-    """AC：编辑第一条消息 → 空前缀 = 新会话。"""
+    """AC: editing the first message gives an empty prefix, equivalent to a new session."""
     store, project_key, session_id, _, _ = seeded
     main = await store.load({"project_key": project_key, "session_id": session_id})
     assert main is not None
@@ -211,7 +212,7 @@ async def test_empty_prefix_copies_nothing(seeded):
 
 
 async def test_leading_metadata_rows_do_not_count_as_a_prefix(session_factory, tmp_path):
-    """transcript 开头的元数据行不构成前缀——空看的是会话条目，不是行数。"""
+    """Opening transcript metadata rows do not form a prefix; emptiness concerns conversation entries, not row counts."""
     store = DbSessionStore(session_factory)
     project_key = project_key_for_directory(str(tmp_path))
     session_id = str(uuid4())
@@ -238,11 +239,11 @@ async def test_leading_metadata_rows_do_not_count_as_a_prefix(session_factory, t
 
 
 async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
-    """锚点之后才派出的子智能体不随行——它属于被丢弃的分支。"""
+    """A subagent dispatched after the anchor does not accompany the fork: it belongs to the discarded branch."""
     store, project_key, session_id, _, _ = seeded
     main = await store.load({"project_key": project_key, "session_id": session_id})
     assert main is not None
-    # 次轮的用户消息：前缀有首轮对话，但 Task 尚未发出。
+    # Second-turn user message: the prefix contains turn-one conversation, but Task has not been issued.
     new_id, result = await _copy(seeded, anchor=main[2]["uuid"])
 
     assert result.entries_copied == 2
@@ -251,7 +252,7 @@ async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
 
 
 async def test_nested_subagent_subpath_is_carried(session_factory, tmp_path):
-    """SDK 的子智能体子路径可嵌套在 ``subagents/workflows/<runId>/`` 下，同样随行。"""
+    """SDK subagent paths may nest under ``subagents/workflows/<runId>/`` and still accompany the fork."""
     store = DbSessionStore(session_factory)
     project_key = project_key_for_directory(str(tmp_path))
     session_id = str(uuid4())
@@ -290,7 +291,7 @@ async def test_assistant_entry_is_not_a_valid_anchor(seeded):
 
 
 async def test_an_entry_carrying_tool_results_is_not_a_valid_anchor(seeded):
-    """工具回执也写成 type:"user"；以它作锚点会把配对的 tool_use 留在前缀末尾悬空。"""
+    """Tool results also use type:"user"; anchoring one would leave its paired tool_use dangling at the prefix end."""
     store, project_key, session_id, _, _ = seeded
     main = await store.load({"project_key": project_key, "session_id": session_id})
     assert main is not None
@@ -319,7 +320,7 @@ async def test_an_entry_carrying_tool_results_is_not_a_valid_anchor(seeded):
 
 
 async def test_legacy_entry_with_non_string_type_does_not_break_the_fork(session_factory, tmp_path):
-    """历史 payload 里 type 可能不是字符串，分叉时按非会话条目处理。"""
+    """Historical payload type values may be nonstrings; treat them as non-conversation entries during forking."""
     store = DbSessionStore(session_factory)
     project_key = project_key_for_directory(str(tmp_path))
     session_id = str(uuid4())

@@ -1,8 +1,8 @@
-"""文本 backend 工厂。
+"""Text backend factory.
 
-provider/model 解析仍在此（resolver.text_backend_for_task），backend 构造收口到统一缝
-assemble_backend（media_type=text）：内置文本 provider 全部经 ProviderSpec 表，
-自定义 provider 经下移到 lib 的 load_custom_backend，文本侧不再各写一份命令式构造与自定义解析。
+Provider/model resolution remains here (resolver.text_backend_for_task), while backend construction converges on
+assemble_backend (media_type=text): all built-in text providers use ProviderSpec tables,
+custom providers use load_custom_backend moved into lib, eliminating duplicated imperative construction/custom resolution in text code.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ async def create_text_backend_for_task(
     task_type: TextTaskType,
     project_name: str | None = None,
 ) -> tuple[TextBackend, str]:
-    """从 DB 配置创建文本 backend，随 backend 返回解析层 registry provider_id。
+    """Create text backends from DB configuration, returning resolution-layer registry provider_id alongside each backend.
 
-    provider_id 是记账 provider 的单一真相源，与 backend 成对交付；调用方（TextGenerator）
-    据此记账，backend.name 不再作为记账输入。
+    provider_id is the sole billing-provider authority, delivered with the backend; callers (TextGenerator)
+    account using it, never backend.name.
     """
     resolver = ConfigResolver(async_session_factory)
 
@@ -37,7 +37,7 @@ async def create_text_backend_for_task(
 
 
 async def text_model_output_limit(provider_id: str, model_id: str) -> OutputLimitFacts:
-    """读取文本模型登记的最大输出长度，并标明它是否由自定义供应商提供。"""
+    """Read a text model's registered maximum output length and whether it comes from a custom provider."""
     return await output_limit_facts(
         provider_id=provider_id, model_id=model_id, resolver=ConfigResolver(async_session_factory)
     )

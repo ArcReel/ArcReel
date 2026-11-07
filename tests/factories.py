@@ -34,12 +34,12 @@ def make_display_names(
     providers: Mapping[str, str] | None = None,
     models: Mapping[tuple[str, str], str] | None = None,
 ) -> DisplayNames:
-    """内置注册表名称加上给定的自定义供应商与模型名称组成的显示名目录，不经数据库。"""
+    """Display-name directory combining built-in registry names with supplied custom-provider/model names, without database access."""
     return build_display_names(locale, custom_providers=providers or {}, custom_models=models or {})
 
 
 def wav_bytes(duration_seconds: float, sample_rate: int = 8000, *, tone_hz: float | None = None) -> bytes:
-    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg）：默认静音；给出 ``tone_hz`` 时是该频率的正弦音，供需要听得见的用例使用。"""
+    """Generate wav bytes with stdlib only (no ffmpeg): silence by default, or a sine tone at ``tone_hz`` for audible cases."""
     frames = int(duration_seconds * sample_rate)
     if tone_hz is None:
         samples = b"\x00\x00" * frames
@@ -58,7 +58,7 @@ def wav_bytes(duration_seconds: float, sample_rate: int = 8000, *, tone_hz: floa
 
 
 def run_bundled_ffmpeg(*args: str) -> None:
-    """用随包 ffmpeg 现场合成测试素材；失败即抛 CalledProcessError。"""
+    """Synthesize test materials with bundled ffmpeg; raise CalledProcessError on failure."""
     subprocess.run(
         [ffmpeg_executable(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *args],
         capture_output=True,
@@ -67,7 +67,7 @@ def run_bundled_ffmpeg(*args: str) -> None:
 
 
 def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> None:
-    """使用随包 ffmpeg 生成极短测试视频（64x64 像素）"""
+    """Generate a very short test video (64x64 pixels) with bundled ffmpeg."""
     path.parent.mkdir(parents=True, exist_ok=True)
     run_bundled_ffmpeg(
         "-f",
@@ -83,7 +83,7 @@ def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> 
 
 
 def make_test_clip(path: Path, *, size: str, fps: int, seconds: float, tone: bool) -> None:
-    """用随包 ffmpeg 现场合成一段低分辨率测试画面（``testsrc``），``tone`` 时带一条等长正弦音轨。"""
+    """Synthesize low-resolution test footage (``testsrc``) with bundled ffmpeg, adding an equal-length sine track with ``tone``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     audio = ("-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:a", "aac") if tone else ()
     run_bundled_ffmpeg(
@@ -102,9 +102,9 @@ def make_test_clip(path: Path, *, size: str, fps: int, seconds: float, tone: boo
 
 
 def make_signal_clip(path: Path) -> None:
-    """用随包 ffmpeg 合成 25 fps、320x180、共 5 秒的带信号素材。
+    """Synthesize 25 fps, 320x180, 5-second signal material with bundled ffmpeg.
 
-    0–1 s 运动画面，1–2 s 纯黑，2–3 s 另一段运动画面，3–5 s 定格；镜头切换点在 1、2、3 s。
+    Motion at 0–1 s, black at 1–2 s, another motion segment at 2–3 s, freeze at 3–5 s; cuts at 1, 2, 3 s.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     run_bundled_ffmpeg(
@@ -125,7 +125,7 @@ def make_signal_clip(path: Path) -> None:
 
 
 def install_current_video(project_path: Path, resource_type: str, unit_id: str, source: Path) -> int:
-    """把 ``source`` 登记为视频单元的新 current 版本并放到正式路径上；返回版本号。"""
+    """Register ``source`` as a video unit's new current version, place it at its formal path, and return its version number."""
     import shutil
 
     from lib.artifacts.version_manager import VersionManager
@@ -139,7 +139,7 @@ def install_current_video(project_path: Path, resource_type: str, unit_id: str, 
 
 
 def install_uploaded_video(project_path: Path, resource_type: str, unit_id: str, *, seconds: float) -> None:
-    """把一段现场合成的测试画面（带音轨）作为视频单元的手动上传版本，放到正式路径上。"""
+    """Place synthesized test footage with audio at a video unit's formal path as a manually uploaded version."""
     from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
     from lib.project.resource_paths import resource_relative_path
 
@@ -162,7 +162,7 @@ def make_test_video_with_audio_tail(
     audio_duration_sec: float = 1.5,
     fps: int = 30,
 ) -> None:
-    """生成音轨/容器尾部比视频轨更长的极短 MP4。"""
+    """Generate a very short MP4 whose audio/container tail extends beyond its video track."""
     path.parent.mkdir(parents=True, exist_ok=True)
     run_bundled_ffmpeg(
         "-f",
@@ -203,7 +203,7 @@ def make_session_meta(**overrides) -> SessionMeta:
 def make_sdk_transcript_entry(
     uuid: str, parent: str | None, entry_type: str, session_id: str, text: str
 ) -> dict[str, Any]:
-    """一条 SDK 形态的 transcript 条目，供前缀分叉相关的测试搭建原会话历史。"""
+    """One SDK-shaped transcript entry for original session histories in prefix-fork tests."""
     return {
         "uuid": uuid,
         "parentUuid": parent,
@@ -215,9 +215,10 @@ def make_sdk_transcript_entry(
 
 
 def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
-    """最小可用的声明式调用端点定义：单张首帧、提交 + 轮询、扁平取值，校验零错误零警告。
+    """Minimal valid declarative endpoint: one first frame, submit + poll, flat extraction, zero validation errors/warnings.
 
-    用例就地改出反例或补上可选构造；``overrides`` 覆盖顶层键（如换 ``meta`` 造重复血统）。
+    Cases modify it into counterexamples or add optional constructs; ``overrides`` replaces top-level keys
+    (e.g. replacing ``meta`` to create duplicate lineage).
     """
     definition: dict[str, Any] = {
         "kind": "declarative",
@@ -250,10 +251,10 @@ def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
 
 
 def image_endpoint_definition(**overrides: Any) -> dict[str, Any]:
-    """最小可用的声明式图片定义：文生图、提交 + 轮询、取图片 URL，校验零错误零警告。
+    """Minimal valid declarative image definition: text-to-image, submit + poll, image URL extraction, zero errors/warnings.
 
-    协议形状取「OpenAI 风格路径 + 异步任务」一类供应商：提交返回 ``data[0].task_id``，轮询读
-    ``data.status``，取图 ``data.result.images[0].url[0]``。用例就地改出反例。
+    Protocol shape follows OpenAI-style paths with asynchronous tasks: submission returns ``data[0].task_id``,
+    polling reads ``data.status``, and images use ``data.result.images[0].url[0]``. Cases modify counterexamples in place.
     """
     definition: dict[str, Any] = {
         "kind": "declarative",
@@ -295,10 +296,10 @@ def image_endpoint_definition(**overrides: Any) -> dict[str, Any]:
 
 
 def comfyui_api_workflow() -> dict[str, Any]:
-    """最小可用的 ComfyUI「Export (API)」导出物：文生视频一条链路，节点 id 与真实导出同为数字串。
+    """Minimal valid ComfyUI Export (API): one text-to-video chain, with numeric-string node ids like real exports.
 
-    每类字段各有一例：字面值（``6.text``）、连线（``6.clip``）、可绑的数值（``5.width``、``3.seed``）、
-    产物节点（``9``）。用例就地改出反例。
+    One example per field kind: literal (``6.text``), link (``6.clip``), bindable numbers (``5.width``, ``3.seed``),
+    and artifact node (``9``). Cases modify counterexamples in place.
     """
     return {
         "3": {
@@ -327,10 +328,10 @@ def comfyui_api_workflow() -> dict[str, Any]:
 
 
 def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
-    """最小可用的 ComfyUI 端点定义：绑定齐备、校验零错误。
+    """Minimal valid ComfyUI endpoint definition: complete bindings, zero validation errors.
 
-    ``overrides`` 覆盖顶层键；改 ``bindings`` 或 ``media_type`` 即可造出各类反例。
-    ``media_type="image"`` 且未自带 ``bindings`` 时不含 ``fps`` 绑定：图像端点没有帧率这一维。
+    ``overrides`` replaces top-level keys; change ``bindings`` or ``media_type`` for counterexamples.
+    With ``media_type="image"`` and no supplied ``bindings``, omit the ``fps`` binding: images have no frame-rate dimension.
     """
     definition: dict[str, Any] = {
         "kind": "comfyui",
@@ -355,9 +356,10 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
 
 
 async def seed_endpoint_fixed_video_model(db_factory, *, reference_images: bool = False) -> str:
-    """在测试库里建一个时长由端点固定的 ComfyUI 视频模型（端点没绑定帧数，可选时长为空集），返回 ``provider/model``。
+    """Create a ComfyUI video model with endpoint-fixed duration (no frame-count binding, empty duration choices); return ``provider/model``.
 
-    端点绑定首帧输入，``reference_images=True`` 时再绑定参考图输入，使该模型同时满足 i2v 与 r2v 桶的能力闸。
+    The endpoint binds a first-frame input; ``reference_images=True`` also binds reference images,
+    making the model satisfy capability gates for both i2v and r2v buckets.
     """
     from lib.custom_provider import make_provider_id
     from lib.db.models.custom_endpoint import CustomEndpoint
@@ -392,7 +394,7 @@ async def seed_endpoint_fixed_video_model(db_factory, *, reference_images: bool 
 
 
 def make_video_request_facts(**overrides: Any):
-    """分镜路线、Veo 3.1、未设分辨率的视频请求事实；消费方测试按需覆盖字段，不手搭能力 dict。"""
+    """Storyboard-route Veo 3.1 video-request facts without a resolution; consumers override fields instead of hand-building capability dicts."""
     from lib.generation.video_request_facts import VideoRequestFacts
 
     fields: dict[str, Any] = {
@@ -421,10 +423,11 @@ def make_video_request_facts(**overrides: Any):
 
 
 def activate_reference_project(project_dir: Path, project: dict[str, Any]) -> dict[str, Any]:
-    """把 v7 形态的参考生视频项目写盘并迁到当前 schema，返回迁移后的项目字典。
+    """Write a v7-shaped reference-video project, migrate to the current schema, and return its project dictionary.
 
-    迁移时已登记路径、带 ``description`` 且文件在盘上的资产图由补录认领进产物清单；此后再登记的
-    资产图即使文件在盘上，清单也不认领它。``project`` 的键覆盖缺省骨架；``scripts/episode_1.json`` 不存在时写一份空单元剧本。
+    During migration, backfill claims existing registered asset images with ``description`` into the manifest;
+    images registered afterward are not claimed even if present on disk. ``project`` keys override the default skeleton;
+    write an empty-unit script when ``scripts/episode_1.json`` is absent.
     """
     import json
 
@@ -462,7 +465,7 @@ def add_typed_video_version(
     *,
     content: bytes = b"typed-video",
 ) -> int:
-    """给一个视频单元追加一个带完整取证描述的版本（可还原），当前文件内容即 ``content``；返回版本号。"""
+    """Append a restorable video-unit version with complete forensic description; current file bytes equal ``content``; return its number."""
     from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
     from lib.artifacts.version_manager import VersionManager
     from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
@@ -527,9 +530,9 @@ def register_project_sources(
     whole_source: dict[str, str] | None = None,
     own_episodes: tuple[str, ...] = (),
 ) -> list[int]:
-    """经登记命令放入源文：``whole_source`` 是文件名到全文的整本源文，``own_episodes`` 逐集登记为自带原文的集。
+    """Register source text through commands: ``whole_source`` maps filenames to complete book text; ``own_episodes`` registers episodes with their own source.
 
-    返回自带原文的集分配到的集 ID。
+    Return IDs allocated to episodes with their own source.
     """
     from lib.episode.episode_source_commands import add_own_source_episode, register_whole_source_file
 

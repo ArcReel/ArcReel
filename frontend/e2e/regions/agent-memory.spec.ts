@@ -3,14 +3,14 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { waitForEntrance } from "../support/region-helpers.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 记忆编辑器：全局设置「Agent 记忆」（全出血档，二级栏列文件、详情栏是编辑器，两栏各自滚动）
-// 与项目设置「项目记忆」分页（限宽页里的文件列表加同一个编辑器，随页面主体滚动）。
-// 每个文件是一个编辑单元，未保存修改显示在编辑框下方的内联提示条里。
+// Memory editors: global Agent memory uses full-bleed secondary file rails/detail editors, independently scrolling;
+// project memory tabs use constrained-width file lists/shared editors, scrolling with page bodies.
+// Each file is an edit unit, showing unsaved changes in inline bars below editors.
 
 const USER_MEMORY = "/api/v1/agent/memory";
 const PROJECT_MEMORY = "/api/v1/projects/demo/agent-memory";
 
-// 压力变体：索引超出行数上限，三十个记忆文件，名称与说明都很长；索引正文三百行，含很长的行。
+// Stress: over-limit indices, thirty long-named/described memory files, three-hundred-line index bodies with long lines.
 const TOPICS = Array.from({ length: 30 }, (_, i) => ({
   name: `feedback-${String(i + 1).padStart(2, "0")}-keep-the-original-plot-and-character-voices-when-revising.md`,
   size: 640,
@@ -47,7 +47,7 @@ const PROJECT_FILES = manyFiles(PROJECT_MEMORY, "/home/creator/.arcreel/data/pro
 
 const editor = (page: Page) => page.getByRole("textbox", { name: "MEMORY.md" });
 
-/** 二级栏（标准档或紧凑档，只有一份可见）。 */
+/** Secondary rails (standard/compact modes; only one is visible). */
 const rail = (page: Page) => page.getByRole("navigation", { name: "记忆文件" });
 
 async function scrollToBottom(locator: Locator) {
@@ -87,7 +87,7 @@ defineRegionScenarios("Agent 记忆", [
       await expect(nav.getByRole("link", { name: /新建记忆文件/ }).filter({ visible: true })).toBeInViewport({
         ratio: 1,
       });
-      // 列表滚到底不带动编辑框，编辑框滚到底也不带动列表
+      // Scrolling lists to bottoms must not scroll editors, and vice versa.
       expect(await box.evaluate((el) => el.scrollTop)).toBe(0);
       await scrollToBottom(box);
       expect(await nav.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
@@ -168,7 +168,7 @@ defineRegionScenarios("项目记忆", [
     act: async (page) => {
       await editIndex(page);
       await expect(page.getByRole("button", { name: "保存" })).toBeVisible();
-      // 记忆文件自己保存，外壳底行不出现项目设置的保存栏
+      // Memory files save themselves; shell bottom rows show no project-settings save bars.
       await expect(page.getByRole("button", { name: "保存" })).toHaveCount(1);
       await waitForEntrance(page.locator("body"));
       await page.getByRole("main").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));

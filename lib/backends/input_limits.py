@@ -1,15 +1,17 @@
-"""输入数量类能力的生效上限：条目与通道两侧取较小值，再由能力覆盖整维替换（docs/adr/0104）。
+"""Effective input-count limits: minimum entry/channel values, then whole-dimension capability overrides (docs/adr/0104).
 
-参考图上限这类维度有三种情况，用 :class:`InputLimit` 一种表示区分：
+Represent three cases for reference-image and similar limits with :class:`InputLimit`:
 
-- **不支持**：这条输入路径走不通（图片的图生图不在生效能力里、视频的通道没有实现参考生视频），数量无从谈起；
-- **未收录**：条目与通道都没有声明数量，执行时不裁剪，超出部分由上游拒绝；
-- **上限 N**：至少一侧声明了数量，取较小的那个；``N`` 可以为 ``0``，即条目显式记录「不接受」。
+- **Unsupported**: the input path cannot operate (image-to-image unavailable in effective image capabilities,
+  or video channels without reference-to-video); counts are inapplicable.
+- **Unlisted**: neither entry nor channel declares a count. Do not clip; upstream rejects excess inputs.
+- **Maximum N**: at least one side declares counts; take the smaller. ``N`` may be ``0``, explicitly refusing inputs.
 
-``0`` 只表示「上限为 0」，不表示「不裁剪」。上限为 0 与不支持都不接受这类输入：候选不列、执行时拒绝，
-编排层不把它们裁成 0 张后静默改走别的路径。
+``0`` means maximum zero, never no clipping. Both zero and unsupported reject inputs: omit candidates
+and reject at execution, never clip to zero and silently switch orchestration paths.
 
-本模块只依赖标准库，图片与视频的能力求值共用，候选、执行时的校验、编排层的裁剪与设置页都读同一个求值结果。
+Standard-library dependencies only. Image/video capability evaluation share this; candidates, execution
+validation, orchestration clipping, and settings all read the same evaluated result.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ class LimitState(StrEnum):
 
 @dataclass(frozen=True)
 class InputLimit[N: (int, float)]:
-    """一类输入的生效上限。``maximum`` 只在 ``BOUNDED`` 时有值。"""
+    """Effective limit for one input kind; ``maximum`` exists only when ``BOUNDED``."""
 
     state: LimitState
     maximum: N | None = None
@@ -52,34 +54,36 @@ class InputLimit[N: (int, float)]:
 
     @classmethod
     def from_json(cls, value: N | None) -> InputLimit[N]:
-        """:meth:`to_json` 的逆：``None`` 为未收录，其余为上限（``0`` 即不接受）。
+        """Inverse of :meth:`to_json`: ``None`` means unlisted; other values bound counts (``0`` refuses inputs).
 
-        读已按接口形状存下的生效值（如视频能力 ``VideoCapabilities`` 的参考图与参考音频上限）时用它，
-        不支持与上限为 0 在这一形状里同为 ``0``，读回后的判定（候选、执行时的校验、编排层的裁剪）相同。
+        Use for effective values already stored in interface shapes, such as ``VideoCapabilities`` image/audio
+        limits. Unsupported and zero bounds both serialize as ``0`` and give identical candidate/execution /
+        clipping decisions after reading.
         """
         return cls.unrecorded() if value is None else cls.at_most(value)
 
     @property
     def accepts_input(self) -> bool:
-        """能不能带上这类输入：未收录，或上限大于 0。"""
+        """Whether this input kind may be supplied: unlisted or maximum greater than zero."""
         if self.state == LimitState.UNRECORDED:
             return True
         return self.maximum is not None and self.maximum > 0
 
     def clamp_bound(self) -> N | None:
-        """编排层裁剪用的上限：正数上限原样给出；``None`` 表示不裁剪。
+        """Orchestration clipping bound: return positive maxima unchanged; ``None`` means do not clip.
 
-        不接受这类输入时同样不裁剪：输入原样交给执行时的校验拒绝，不裁成 0 张后静默改走别的路径。
+        Also skip clipping for refused inputs: retain them for execution rejection, never clip to zero and
+        silently switch paths.
         """
         if self.state == LimitState.BOUNDED and self.maximum is not None and self.maximum > 0:
             return self.maximum
         return None
 
     def to_json(self) -> N | int | None:
-        """接口与界面上的形状：未收录为 ``None``，不接受（上限为 0 或不支持）为 ``0``，其余为上限。
+        """Interface/UI shape: unlisted ``None``, refused (zero maximum or unsupported) ``0``, otherwise maximum.
 
-        不支持与上限为 0 在界面上同显「不接受」；输入路径本身是否走得通由对应的维度表达（图片的图生图、
-        视频的参考生视频）。
+        UI displays unsupported/zero as refused; corresponding image-to-image or reference-to-video dimensions
+        separately express whether the underlying input path operates.
         """
         if self.state == LimitState.UNRECORDED:
             return None
@@ -91,11 +95,12 @@ class InputLimit[N: (int, float)]:
 def effective_input_limit[N: (int, float)](
     *, path_supported: bool, declared: Iterable[N | None], override: N | None = None
 ) -> InputLimit[N]:
-    """一类输入的生效上限。
+    """Effective limit for one input kind.
 
-    - ``path_supported`` 为假：不支持，能力覆盖也打不开（路径本身由它自己的维度决定）；
-    - ``override`` 不为 ``None``：能力覆盖整维替换两侧求值的结果；
-    - 否则取 ``declared``（条目值、通道值，``None`` 表示这一侧没有声明）中较小的那个，都没有声明时为未收录。
+    - False ``path_supported``: unsupported, even with capability overrides; its own dimension determines the path.
+    - Non-``None`` ``override``: replace the entire two-sided evaluated dimension.
+    - Otherwise minimum ``declared`` entry/channel values, with ``None`` meaning undeclared on that side;
+      neither declared means unlisted.
     """
     if not path_supported:
         return InputLimit.unsupported()

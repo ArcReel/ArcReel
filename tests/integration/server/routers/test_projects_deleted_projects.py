@@ -1,4 +1,4 @@
-"""删除的项目成为已删除项目：整体恢复时记录改回项目名，原名被占用时换名；彻底删除后不可恢复。"""
+"""Deleted projects restore whole with renamed records, suffixing occupied names; purged projects cannot restore."""
 
 import asyncio
 import threading
@@ -52,7 +52,7 @@ async def test_restored_project_takes_a_new_name_when_the_original_is_taken(tmp_
     assert (manager.get_project_path("demo-2") / "source" / "chapter.txt").read_text(encoding="utf-8") == "old text"
     async with db_factory() as session:
         tasks = TaskRepository(session)
-        # 记录随项目改回到恢复后的名字；删除时排队的任务仍是已取消
+        # Records return to restored project names; deletion-cancelled queued tasks remain cancelled.
         assert (await tasks.get(old["queued"]) or {})["project_name"] == "demo-2"
         assert (await tasks.get(old["queued"]) or {})["status"] == "cancelled"
         assert (await tasks.list_tasks(project_name="demo"))["total"] == 0
@@ -81,7 +81,7 @@ def _files_size(root) -> int:
 
 
 async def test_deleted_projects_report_the_space_they_take(tmp_path, monkeypatch, db_factory):
-    """列表给出每个已删除项目目录占用的字节数，包括里面的子目录。"""
+    """Deleted-project lists include directory bytes recursively."""
     manager = ProjectManager(tmp_path)
     _create(manager, "Old")
     project_dir = manager.get_project_path("demo")
@@ -97,7 +97,7 @@ async def test_deleted_projects_report_the_space_they_take(tmp_path, monkeypatch
 
 
 async def test_deleted_project_sizes_are_counted_off_the_event_loop(tmp_path, monkeypatch, db_factory):
-    """统计目录大小是阻塞的磁盘遍历，不在事件循环线程上执行。"""
+    """Directory-size traversal blocks disk IO, never event-loop threads."""
     manager = ProjectManager(tmp_path)
     _create(manager, "Old")
     with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
@@ -120,7 +120,7 @@ async def test_deleted_project_sizes_are_counted_off_the_event_loop(tmp_path, mo
 
 
 async def test_restore_cancelled_while_moving_out_still_finishes(tmp_path, monkeypatch, db_factory):
-    """目录移出途中请求被取消：恢复照常做完，记录改回、迁移照跑，不会只留下移回的目录。"""
+    """Cancellation during directory moves still finishes restoration/record renaming/migration, never leaves only moved directories."""
     manager = ProjectManager(tmp_path)
     _create(manager, "Old")
     old = await seed_project_records(db_factory)
@@ -157,7 +157,7 @@ async def test_restore_cancelled_while_moving_out_still_finishes(tmp_path, monke
 
 
 async def test_project_stays_in_place_when_its_records_cannot_be_retired(tmp_path, monkeypatch, db_factory):
-    """目录已移走而记录提交失败时，目录移回原处，记录仍挂在原项目名下。"""
+    """Failed record commits after directory moves restore original locations and original-name records."""
     manager = ProjectManager(tmp_path)
     _create(manager, "Old")
     old = await seed_project_records(db_factory)
@@ -188,14 +188,14 @@ async def test_purged_project_cannot_be_restored(tmp_path, monkeypatch, db_facto
         missing = client.post(f"{DELETED}/{quote(entry['id'], safe='')}/restore")
         assert missing.status_code == 404
         assert missing.json()["detail"].startswith("已删除项目里没有这个项目")
-        # 不是已删除项目 ID 的输入一律按不存在处理，不会解析到数据根里的其他位置
+        # Nondeleted-project IDs count missing, never resolve elsewhere under data roots.
         assert client.delete(f"{DELETED}/projects").status_code == 404
 
     assert list(manager.layout.deleted_projects_dir.iterdir()) == []
 
 
 async def test_embedded_agent_token_cannot_purge_a_deleted_project(tmp_path, monkeypatch, db_factory):
-    """内嵌 Agent 持有本地服务的令牌：彻底删除已删除项目在服务端拒绝它，恢复照常可用。"""
+    """Servers reject embedded local-token Agent purges of deleted projects while allowing restoration."""
     manager = ProjectManager(tmp_path)
     _create(manager, "Old")
 

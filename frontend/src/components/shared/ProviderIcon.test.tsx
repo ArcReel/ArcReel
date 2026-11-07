@@ -20,9 +20,9 @@ describe("ProviderIcon", () => {
     expect(screen.getByText("z")).toBeInTheDocument();
   });
 
-  // 回归测试：守住已接线的内置 provider 图标不退化。
-  // 注意这不是覆盖保证——图标库没有的内置 provider（如 Agnes）合法地走字母徽章，
-  // 故本表只列「已接线」的 id，新增无图标 provider 不会、也不该让它变红。
+  // Regression: preserve wired built-in provider icons.
+  // This never guarantees coverage: providers absent from icon libraries (e.g. Agnes) validly use letter badges,
+  // so list wired IDs only; adding iconless providers must not fail these tests.
   const WIRED_BUILTIN_PROVIDER_IDS = [
     "gemini-aistudio",
     "gemini-vertex",
@@ -40,7 +40,7 @@ describe("ProviderIcon", () => {
     expect(screen.getByTestId("lobehub-stub-icon")).toBeInTheDocument();
   });
 
-  // 守住 Array.from 回退：首字符为星平面（非 BMP）字符时取整字，而非半个代理对。
+  // Preserve Array.from fallback: astral-plane non-BMP initial characters stay whole rather than half-surrogate pairs.
   it("renders the full first Unicode character in the monogram fallback", () => {
     render(<ProviderIcon providerId="𠮷-provider" />);
     expect(screen.queryByTestId("lobehub-stub-icon")).not.toBeInTheDocument();

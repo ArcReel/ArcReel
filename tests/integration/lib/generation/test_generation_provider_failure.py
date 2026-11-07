@@ -1,4 +1,4 @@
-"""解析模型失败时，任务记录仍属于用户指定的供应商。"""
+"""Failed model resolution still attributes tasks to the user's requested provider."""
 
 import asyncio
 

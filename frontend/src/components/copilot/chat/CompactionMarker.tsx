@@ -6,8 +6,8 @@ import { Marker, MarkerContent } from "@/components/ui/marker";
 import { TextBlock } from "./TextBlock";
 
 // ---------------------------------------------------------------------------
-// CompactionMarker — 上下文压缩后的续接摘要：一条「上下文已压缩」分隔线，点开看摘要。
-// 摘要由 CLI 生成、以用户消息的形态注入，不是创作者写的消息，不显示为气泡。
+// CompactionMarker: continuation summary after context compaction, with an expandable context-compacted separator.
+// The CLI generates this summary and injects it as a user message; it is not creator-authored and is not shown as a bubble.
 // ---------------------------------------------------------------------------
 
 export function CompactionMarker({ summary }: Readonly<{ summary?: string }>) {

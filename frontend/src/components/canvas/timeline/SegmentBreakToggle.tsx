@@ -5,14 +5,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 interface SegmentBreakToggleProps {
   checked: boolean;
-  /** 写入新值；resolve 后开关才可再次操作。 */
+  /** Write the new value; the toggle becomes operable again only after resolution. */
   onChange: (next: boolean) => void | Promise<void>;
   disabled?: boolean;
 }
 
 /**
- * 章节切分点开关，不弹确认。悬停或聚焦时说明它对分镜图参考链和宫格分组的影响。
- * 分镜详情里它写进分镜的未保存修改；脚本规划页里写进规划草稿。
+ * Section-break toggle without confirmation. Explain its effect on storyboard-image reference chains and grid grouping on hover or focus.
+ * Storyboard details write to unsaved shot edits; script-planning pages write to the planning draft.
  */
 export function SegmentBreakToggle({ checked, onChange, disabled = false }: SegmentBreakToggleProps) {
   const { t } = useTranslation("dashboard");

@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useHandoffTipStore } from "./useHandoffTip";
 
 /**
- * 故事设定区底部的一次性提示：故事设定已提炼完成，接下来向 Agent 发送「开始制作」。
- * 点「知道了」或在这个项目里向 Agent 发出消息后消失，不再出现；提示出现之前已发过消息的项目不显示。
+ * One-time hint below story settings: settings are extracted; next send the start-production request to the Agent.
+ * Dismiss permanently after acknowledgement or sending an Agent message in this project; omit for projects that already sent a message before the hint appeared.
  */
 export function HandoffTip({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");

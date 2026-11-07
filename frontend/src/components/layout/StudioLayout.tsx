@@ -38,7 +38,7 @@ import {
   useCompactTier,
 } from "./workspace-layout";
 
-// 调宽手柄在文档流里占 1px（分隔线本身）。
+// Resize handles occupy 1px in document flow (the separator itself).
 const HANDLE_WIDTH = 1;
 
 interface StudioLayoutProps {
@@ -46,26 +46,26 @@ interface StudioLayoutProps {
 }
 
 /**
- * 项目工作区外壳：顶栏横跨全宽，下方是「侧栏 | 画布 | Agent 面板」三栏，三栏之间用调宽手柄分隔。
+ * Project workspace shell: a full-width header above sidebar | canvas | Agent panel columns, separated by resize handles.
  *
- * - 外壳是唯一按视口切换档位的地方（1280）。标准档的 Agent 面板挤压画布，画布至少保留 480px；
- *   紧凑档的 Agent 面板是覆盖在画布右侧的非模态层，焦点在面板内时 Esc 收起，侧栏收为图标栏。
- * - 侧栏在单集页与分集视图自动收为图标栏，可临时展开，换页后恢复；离开这些页面后回到用户自己的选择。
- * - Agent 面板的开合与宽度在 `app-store`；收起时内容保持挂载，输入中的文字与会话连接不受影响。
- * - 尺寸容器：侧栏 `@container/sidebar`，画布 `@container/canvas`（宽度查询），Agent 面板
- *   `@container-size/agent`（宽高都可查询，输入框的 `40cqh` 按面板高度计算）。
+ * - Only the shell switches modes by viewport (1280). Standard-mode Agent panels squeeze the canvas, preserving at least 480px;
+ *   compact-mode Agent panels are nonmodal overlays on the right of the canvas; Esc collapses them when focused inside, and sidebars become icon rails.
+ * - Sidebars automatically collapse on episode pages and episode-list views; temporary expansion resets on page changes, and leaving restores user choices.
+ * - Agent panel opening and width live in `app-store`; collapsed contents remain mounted, preserving typed text and session connections.
+ * - Size containers: sidebar `@container/sidebar`, canvas `@container/canvas` (width queries), Agent panel
+ *   `@container-size/agent` (width/height queries; input `40cqh` is relative to panel height).
  */
 export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
   const [location] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
-  // 演示项目在后端不存在：任务 / 项目事件流和 Agent 都是真实写路径，演示态下整条都不接
+  // Demo projects do not exist on the backend: tasks/project event streams and Agent are real write paths, all disconnected in demos.
   const demoMode = useDemoWorkbench();
 
-  // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
-  // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目建一次必然失败的 SSE 连接。
-  // useTaskRefresh 的 projectName=null 语义是「不按项目过滤」而非「停用」，enabled 必须
-  // 同步这一判定，否则该帧会退化成对全局任务的轮询而非真正停用。
+  // demoMode becomes false before stores during demo→real transitions; separately check currentProjectName
+  // to cover frames still reading old demo names, avoiding guaranteed-failing SSE connections to nonexistent demo projects.
+  // useTaskRefresh projectName=null means no project filtering, rather than disabled; enabled must
+  // mirror this check, otherwise this frame polls global tasks instead of actually disabling refresh.
   const isEffectivelyDemo = demoMode || isDemoProject(currentProjectName);
   const sseProjectName = isEffectivelyDemo ? null : currentProjectName;
   useTaskRefresh(sseProjectName, !isEffectivelyDemo);
@@ -75,11 +75,11 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const storeOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
   const agentWidth = useAppStore((s) => s.assistantPanelWidth);
-  // 演示面板不可收起，也不覆盖画布：引导后面几步要在画布上高亮
+  // Demo panels cannot collapse or cover the canvas: later tour steps highlight canvas elements.
   const agentOpen = demoMode || storeOpen;
   const overlay = compact && !demoMode;
 
-  // ---- 侧栏折叠：有自动折叠的原因时默认折叠、可临时展开，原因或页面变化后复位 ----
+  // ---- Sidebar collapse: automatic reasons default to collapsed; temporary expansion resets when reasons/pages change ----
   const collapseReason = sidebarAutoCollapseReason(location, compact);
   const [userCollapsed, setUserCollapsed] = useState(readSidebarCollapsed);
   const [tempExpanded, setTempExpanded] = useState(false);
@@ -102,12 +102,12 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     [collapseReason],
   );
 
-  // ---- 面板尺寸：开合与折叠由状态驱动面板库，拖动等用户操作的结果再写回状态 ----
+  // ---- Panel sizes: state drives library opening/collapse; results of dragging and other user operations return to state ----
   const shellRef = useRef<HTMLDivElement>(null);
   const agentFrameRef = useRef<HTMLElement>(null);
   const sidebarPanelRef = usePanelRef();
   const agentPanelRef = usePanelRef();
-  // 记住的侧栏宽度只在命令式调宽时读取，不参与渲染，更新时不重绘外壳
+  // Remembered sidebar widths are read only for imperative resizing, not rendering; updates do not rerender shells.
   const [initialSidebarWidth] = useState(readSidebarWidth);
   const sidebarWidthRef = useRef(initialSidebarWidth);
   const latest = useRef({ sidebarCollapsed, agentOpen, agentWidth });
@@ -115,7 +115,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     latest.current = { sidebarCollapsed, agentOpen, agentWidth };
   });
 
-  // 面板的 defaultSize 是双击手柄复位到的默认宽度；挂载时与之后的开合、折叠都在这里按记住的宽度落到面板上。
+  // Panel defaultSize is the double-click reset width; remembered widths are applied here at mount and subsequent opening/collapse.
   useLayoutEffect(() => {
     const panel = sidebarPanelRef.current;
     if (!panel) return;
@@ -126,7 +126,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   useLayoutEffect(() => {
     const panel = agentPanelRef.current;
     if (!panel) return;
-    // 开合时宽度瞬时切换，不做宽度动画：给宽度做动画会让画布逐帧重新排版
+    // Opening/collapse changes widths instantly: width animation would relayout the canvas every frame.
     if (agentOpen) panel.resize(latest.current.agentWidth);
     else panel.collapse();
   }, [agentOpen, agentPanelRef]);
@@ -143,8 +143,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     store.persistAssistantPanelWidth();
   }, []);
 
-  // 键盘调宽与双击复位都经库的命令式接口完成，库同步通知布局变化，但不标记为用户操作；
-  // 调整期间记下「用户在调宽」，结果就和拖动一样被记住，不会被拉回原来的宽度。
+  // Keyboard resizing and double-click resets use imperative library APIs; layout changes notify synchronously without marking user operations;
+  // mark user resizing during adjustment so results are remembered like dragging, rather than reverting to previous widths.
   const userResizingRef = useRef(false);
   const resizeByKeyboard = (panelRef: typeof sidebarPanelRef, width: number) => {
     const panel = panelRef.current;
@@ -156,7 +156,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       userResizingRef.current = false;
     }
   };
-  // 双击由库在 document 的捕获阶段处理，window 的捕获阶段先于它
+  // The library handles double-clicks in document capture; window capture runs first.
   useEffect(() => {
     let resetTimer: ReturnType<typeof setTimeout> | undefined;
     const handleDoubleClick = () => {
@@ -178,7 +178,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     const agent = agentPanelRef.current;
     const current = latest.current;
     if (meta.isUserInteraction || userResizingRef.current) {
-      // 拖动、键盘或双击让库折叠、展开了面板时，同步回开合状态，并记住调出来的宽度
+      // When drag, keyboard or double-click operations collapse/expand panels, synchronize opening state and remember resulting widths.
       if (sidebar) {
         const collapsed = sidebar.isCollapsed();
         if (collapsed !== current.sidebarCollapsed) setSidebarCollapsed(collapsed);
@@ -191,8 +191,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       }
       return;
     }
-    // 其余变化来自视口与档位：库按变化前的百分比缩放面板，或为画布的最小宽度挤窄面板。展开着的面板回到记住的
-    // 像素宽度；放不下时库把结果夹在约束内，布局不变也就不会再次触发。
+    // Other changes come from viewport/mode switches: the library scales panels using previous percentages or squeezes them for canvas minimums. Expanded panels return to remembered
+    // pixel widths; when they cannot fit, the library clamps within constraints, and unchanged layouts do not trigger again.
     if (sidebar && !current.sidebarCollapsed && !sidebar.isCollapsed()) {
       const sidebarWidth = sidebarWidthRef.current;
       if (Math.abs(sidebar.getSize().inPixels - sidebarWidth) > 1) sidebar.resize(sidebarWidth);
@@ -202,13 +202,13 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     }
   };
 
-  // 覆盖模式下画布按「画布栏 + Agent 面板」的宽度排版，被面板盖住而不是被挤窄
+  // Overlay-mode canvases lay out at canvas-column + Agent-panel width, covered by panels instead of squeezed.
   const handleAgentResize = (size: PanelSize) => {
     const covered = size.inPixels > 0 ? size.inPixels + HANDLE_WIDTH : 0;
     shellRef.current?.style.setProperty("--workspace-agent-width", `${covered}px`);
   };
 
-  // 焦点在面板内时收起面板，焦点回到顶栏的「Agent」开关，不落到页面开头
+  // Collapsing focused panels returns focus to header Agent toggles, rather than the page beginning.
   const restoreFocusRef = useRef(false);
   useEffect(
     () =>
@@ -225,12 +225,12 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     document.getElementById(AGENT_PANEL_TOGGLE_ID)?.focus();
   }, [agentOpen]);
 
-  // 紧凑档的覆盖层是非模态的：焦点在面板内时 Esc 收起面板。监听挂在 document 的冒泡阶段，面板内的控件先处理自己的 Esc
+  // Compact overlays are nonmodal: Esc collapses when focused inside. Listen in document bubble so panel controls handle their own Esc first.
   useEffect(() => {
     if (!overlay || !agentOpen) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // 只认 DOM 上在面板内的按键；从面板里打开的对话框经 Portal 渲染，按 Esc 关的是对话框
+      // Only recognize keys inside panel DOM; dialogs opened there render through Portals, and Esc closes those dialogs.
       if (!(event.target instanceof Node) || !agentFrameRef.current?.contains(event.target)) return;
       event.preventDefault();
       useAppStore.getState().toggleAssistantPanel();
@@ -240,7 +240,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   }, [overlay, agentOpen]);
 
   return (
-    // 外壳根节点是定位元素，文档本身不滚动；滚动只发生在侧栏、画布与 Agent 面板各自的区域里。
+    // Shell roots are positioned; documents do not scroll. Scrolling occurs within separate sidebar, canvas and Agent regions.
     <div ref={shellRef} className="relative flex h-dvh flex-col overflow-hidden text-foreground">
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
@@ -268,9 +268,9 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         <ResizablePanel
           id="workspace-canvas"
           minSize={overlay ? 0 : CANVAS_MIN_WIDTH}
-          // 库在面板内层写死 overflow: auto，只能经 style 覆盖：画布各视图自己滚动；
-          // 覆盖模式下画布要伸到 Agent 面板底下，不能被这一层裁掉。
-          // eslint-disable-next-line shadcn/no-inline-styles -- 覆盖库写在内层的内联 overflow
+          // The library hardcodes overflow: auto on inner panels, requiring style overrides; canvas views handle their own scrolling;
+          // overlay canvases extend beneath Agent panels and must not be clipped by this layer.
+          // eslint-disable-next-line shadcn/no-inline-styles -- Override the library inner inline overflow
           style={{ overflow: overlay ? "visible" : "hidden" }}
         >
           <main
@@ -282,7 +282,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
             {children}
           </main>
         </ResizablePanel>
-        {/* 面板收起时手柄贴在分栏右缘，命中区会伸出外壳，因此隐藏；手柄仍留在 DOM 里并禁用，库就不在这条边界上生成拖动区域 */}
+        {/* Collapsed handles sit at column right edges and their hit areas extend outside shells, so hide them; keep disabled handles in DOM so the library creates no drag region at this boundary. */}
         <WorkspaceResizeHandle
           panelRef={agentPanelRef}
           panelSide="after"
@@ -301,8 +301,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
           defaultSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
           groupResizeBehavior="preserve-pixel-size"
           onResize={handleAgentResize}
-          // 收起后宽度为 0，内容保持最小宽度挂载在原处、不可见，由这一层裁掉
-          // eslint-disable-next-line shadcn/no-inline-styles -- 覆盖库写在内层的内联 overflow
+          // Collapsed width is 0; contents stay mounted at minimum width, invisible in place and clipped by this layer.
+          // eslint-disable-next-line shadcn/no-inline-styles -- Override the library inner inline overflow
           style={{ overflow: "hidden" }}
         >
           <aside

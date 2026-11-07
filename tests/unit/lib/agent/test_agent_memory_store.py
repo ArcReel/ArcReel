@@ -113,7 +113,7 @@ class TestOverview:
         }
 
     def test_index_stats_measure_the_stripped_body(self, store):
-        """统计口径同装配时的截断：首尾空行不占加载额度。"""
+        """Statistics match assembly truncation; leading/trailing blank lines consume no loading budget."""
         store.write(INDEX_FILENAME, b"\n- notes.md\n- tone.md\n\n\n")
 
         index = store.overview()["index"]
@@ -121,7 +121,7 @@ class TestOverview:
         assert (index["line_count"], index["byte_size"]) == (2, len(b"- notes.md\n- tone.md"))
 
     def test_index_stats_are_zero_when_the_index_is_not_utf8(self, store):
-        """索引不是 UTF-8：装配读不进它，统计也不报磁盘上的规模。"""
+        """Non-UTF-8 indexes cannot load during assembly, so statistics omit on-disk size too."""
         store.write(INDEX_FILENAME, "- 说明\n".encode("gbk"))
 
         assert store.overview()["index"] == {
@@ -145,7 +145,7 @@ class TestOverview:
         assert store.overview()["index"]["over_limit"] is over_limit
 
     def test_entry_vanishing_after_enumeration_is_skipped(self, store, monkeypatch):
-        """枚举之后条目被删除（另一个标签页的删除或清空）：跳过它，其余照常列出。"""
+        """Entries deleted after enumeration (another tab deletes/clears) are skipped; others still list normally."""
         store.write("gone.md", b"body")
         store.write("notes.md", b"body")
         real_stat = Path.stat
@@ -278,7 +278,7 @@ class TestClear:
 
 
 class TestProjectActivity:
-    """项目记忆的增删与清空推进项目的最近活动时间；删掉最新的记忆文件后不回退。"""
+    """Project-memory additions/deletions/clearing advance recent activity; deleting newest files does not move it backward."""
 
     STALE = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
 
@@ -321,7 +321,7 @@ class TestProjectActivity:
 
 
 class TestProjectMemoryTrash:
-    """项目记忆的删除与清空进项目回收站；恢复时原名被占用则换成仍可见的新名。"""
+    """Deleted/cleared project memories enter project trash; restore occupied names under new visible names."""
 
     def test_long_memory_name_remains_readable_after_conflict_restore(self, tmp_path):
         project_store = AgentMemoryStore.for_project(tmp_path)

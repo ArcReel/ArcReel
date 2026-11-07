@@ -15,7 +15,7 @@ describe("ScriptHighlight", () => {
     const container = renderScript("@张三 在 @酒馆 举起 @长剑，@王五 旁观。");
     const classFor = (name: string) =>
       [...container.querySelectorAll("span")].find((el) => el.textContent === `@${name}`)?.className ?? "";
-    // 三类资产各一种配色，未登记的提及另用一种
+    // Three asset categories have separate colors; unregistered mentions use another.
     const classes = ["张三", "酒馆", "长剑", "王五"].map(classFor);
     expect(classes.every(Boolean)).toBe(true);
     expect(new Set(classes).size).toBe(4);
@@ -25,7 +25,7 @@ describe("ScriptHighlight", () => {
     renderScript("中景。\n@[张三]：{我来了}");
     expect(screen.getByText("张三")).toBeInTheDocument();
     expect(screen.getByText("我来了")).toBeInTheDocument();
-    // 花括号与冒号是书写语法，解析视图里不再出现
+    // Braces/colons are authoring syntax, absent from parsed views.
     expect(screen.queryByText(/\{我来了\}/)).not.toBeInTheDocument();
   });
 
@@ -35,7 +35,7 @@ describe("ScriptHighlight", () => {
     expect(screen.getByText("那年冬天格外冷")).toBeInTheDocument();
   });
 
-  // 正文没有行前缀语法：写成前缀样子的文字就是描述文字，逐字照原样呈现。
+  // Bodies have no line-prefix syntax: prefix-like text is description text, shown unchanged character by character.
   it("treats prefix-shaped text as ordinary description", () => {
     const container = renderScript("镜头1：中景。");
     const rows = [...container.querySelectorAll<HTMLElement>(":scope > div")];
@@ -45,7 +45,7 @@ describe("ScriptHighlight", () => {
   });
 
   it("leaves a blank speaker slot as plain text instead of a dialogue row", () => {
-    // speaker 位空白不成记号（同后端：dialogue utterance 必须带非空 speaker）
+    // Empty speaker positions form no tokens, matching backend nonempty dialogue utterance speaker requirements.
     renderScript("中景。\n@[ ]：{我来了}");
     expect(screen.getByText(/\{我来了\}/)).toBeInTheDocument();
   });
@@ -57,7 +57,7 @@ describe("ScriptHighlight", () => {
   });
 
   it("highlights an inline speech mark in place, keeping the line's own wording", () => {
-    // 记号与描述混写的行按描述行渲染，记号在行内就地着色——预览要与作者写的那一行对得上。
+    // Mixed token/description lines render as descriptions with inline token colors, matching authored lines.
     const container = renderScript("@张三 推门。@[张三]{我来了}");
     const mark = [...container.querySelectorAll("span")].find((el) => el.textContent === "@[张三]{我来了}");
     expect(mark).toBeTruthy();

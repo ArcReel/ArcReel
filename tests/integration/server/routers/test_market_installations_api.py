@@ -1,4 +1,4 @@
-"""真实安装事务、来源绑定、原地覆盖与卸载的 HTTP 契约。"""
+"""HTTP contracts for real install transactions, source bindings, in-place replacement and uninstall."""
 
 from collections.abc import AsyncIterator
 from typing import Any
@@ -27,7 +27,7 @@ URL = "https://example.com/endpoints/example/definition.json"
 
 
 def _install_body(definition: dict[str, Any], overwrite_endpoint_id: int | None = None) -> dict[str, Any]:
-    """确认页核对过的就是 ``definition``。"""
+    """``definition`` is exactly what confirmation pages reviewed."""
     body: dict[str, Any] = {"definition_digest": definition_digest(definition)}
     if overwrite_endpoint_id is not None:
         body["overwrite_endpoint_id"] = overwrite_endpoint_id

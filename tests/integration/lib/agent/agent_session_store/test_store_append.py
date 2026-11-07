@@ -34,7 +34,7 @@ async def test_append_dedups_by_uuid(session_factory):
     store = DbSessionStore(session_factory, user_id="u1")
     entry = {"type": "user", "uuid": "dup", "timestamp": "t"}
     await store.append(KEY, [entry])
-    await store.append(KEY, [entry])  # 重放：必须幂等
+    await store.append(KEY, [entry])  # Replay must be idempotent.
 
     async with session_factory() as session:
         count = len((await session.execute(select(AgentSessionEntry))).scalars().all())
@@ -43,7 +43,7 @@ async def test_append_dedups_by_uuid(session_factory):
 
 @pytest.mark.asyncio
 async def test_append_does_not_dedup_when_uuid_missing(session_factory):
-    """SDK 协议：无 uuid 的 entries（titles/tags/mode markers）不去重。"""
+    """SDK protocol: entries without UUIDs (titles/tags/mode markers) are not deduplicated."""
     store = DbSessionStore(session_factory, user_id="u1")
     e = {"type": "tag", "tag": "demo"}
     await store.append(KEY, [e])
@@ -57,7 +57,7 @@ async def test_append_does_not_dedup_when_uuid_missing(session_factory):
 @pytest.mark.asyncio
 async def test_append_empty_is_noop(session_factory):
     store = DbSessionStore(session_factory, user_id="u1")
-    await store.append(KEY, [])  # 不应抛、不应建空行
+    await store.append(KEY, [])  # Must neither raise nor create empty rows.
 
     async with session_factory() as session:
         count = len((await session.execute(select(AgentSessionEntry))).scalars().all())
@@ -66,7 +66,7 @@ async def test_append_empty_is_noop(session_factory):
 
 @pytest.mark.asyncio
 async def test_append_stores_non_string_type_and_uuid_as_absent(session_factory):
-    """本地 JSONL 导入不校验条目：非字符串的 type / uuid 不能让写入失败。"""
+    """Local JSONL import does not validate entries: nonstring type / uuid values must not fail writes."""
     store = DbSessionStore(session_factory, user_id="u1")
     await store.append(KEY, [{"type": ["user"], "uuid": {"v": 1}}])
 

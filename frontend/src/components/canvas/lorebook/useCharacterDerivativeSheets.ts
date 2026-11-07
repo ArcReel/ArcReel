@@ -4,11 +4,11 @@ import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { CharacterDerivativeStatus } from "@/types";
 
 /**
- * 拉取一个角色名下全部衍生的资产图与过期标记。
+ * Fetch all derivative asset images and staleness flags for one character.
  *
- * 过期是产物清单与规范状态的一次比对（读文件、算指纹），不随项目数据下发；没有衍生时不请求。`revision` 变化（登记或本体图
- * 变了）、衍生生成任务的占用数变化（有任务刚结束）或调用 `refresh` 时重新读取。上一轮在途请求由
- * AbortSignal 作废，取不到时保留上一次的值：过期标记宁可暂时旧，也好过闪回「没有图」。
+ * Staleness compares artifact manifests with canonical state by reading files and computing fingerprints; it is not sent with project data. Skip requests without derivatives. Refetch when `revision`
+ * changes after registration/base-image changes, derivative-task occupancy changes after task completion, or `refresh` is called.
+ * AbortSignal invalidates the previous in-flight request; retain previous values on failure, preferring briefly old flags to flashing no image.
  */
 export function useCharacterDerivativeSheets(
   projectName: string,
@@ -29,7 +29,7 @@ export function useCharacterDerivativeSheets(
         if (!controller.signal.aborted) setStatuses(res.derivatives ?? {});
       })
       .catch(() => {
-        /* 读取失败（含被作废）保留上一次的状态，衍生的登记与写入不受影响 */
+        /* Read failures, including aborted requests, retain previous state without affecting derivative registration or writes */
       });
     return () => controller.abort();
   }, [enabled, projectName, characterName, revision, activeCount, reloadToken]);

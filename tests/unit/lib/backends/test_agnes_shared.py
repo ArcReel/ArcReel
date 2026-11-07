@@ -1,4 +1,4 @@
-"""lib.backends.agnes_shared 纯函数单元测试（不打真实 HTTP）。"""
+"""Pure lib.backends.agnes_shared tests, without real HTTP."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class TestBaseUrlDerivation:
         assert AGNES_BASE_URL == "https://apihub.agnes-ai.com/v1"
 
     def test_host_only_gets_v1_suffix(self):
-        # 用户只填 host，派生时补 /v1
+        # Host-only URLs gain /v1.
         assert agnes_base_url("https://apihub.agnes-ai.com") == "https://apihub.agnes-ai.com/v1"
 
     def test_full_v1_base_is_idempotent(self):
@@ -33,14 +33,14 @@ class TestBaseUrlDerivation:
         assert agnes_base_url("https://relay.example.com") == "https://relay.example.com/v1"
 
     def test_whitespace_falls_back_to_default(self):
-        # 纯空白 base_url 是真值会绕过 or，须 strip 后回落默认 host，
-        # 不能 strip 成空串派生出 "/v1" 这类非法相对 URL
+        # Truthy whitespace base_url bypasses or; strip then fall back to default hosts,
+        # never derive invalid relative /v1 from empty strings.
         assert agnes_base_url("   ") == AGNES_BASE_URL
 
 
 class TestHostDerivation:
-    """agnes_host 与 agnes_base_url 同源归一化，差别只在不带 /v1——网关的成片查询端点
-    /agnesapi 挂在 host 根下，拼接需要这个形态。"""
+    """agnes_host shares agnes_base_url normalization but omits /v1; gateway output queries use
+    root-level /agnesapi and require that host form."""
 
     def test_default_host(self):
         assert agnes_host(None) == "https://apihub.agnes-ai.com"
@@ -66,7 +66,7 @@ class TestApiKeyResolution:
             resolve_agnes_api_key(None)
 
     def test_blank_raises(self):
-        # 不走 env fallback：缺失即明确报错
+        # No environment fallback; missing values fail explicitly.
         with pytest.raises(ValueError, match=r"请到系统配置页填写 Agnes API Key"):
             resolve_agnes_api_key("   ")
 
@@ -78,10 +78,10 @@ class TestHeaders:
         assert h["Content-Type"] == "application/json"
 
     def test_strips_whitespace_key(self):
-        # 复用 resolve_agnes_api_key：构造头前先归一化，不把首尾空白带进 Bearer
+        # Reuse resolve_agnes_api_key before headers, trimming Bearer outer whitespace.
         assert agnes_headers("  sk-abc  ")["Authorization"] == "Bearer sk-abc"
 
     def test_blank_key_raises(self):
-        # 空白 key 本地即 raise，不拼出 "Bearer " 拖到请求期才 401
+        # Whitespace keys fail locally, never produce empty Bearer and defer 401 until requests.
         with pytest.raises(ValueError, match=r"请到系统配置页填写 Agnes API Key"):
             agnes_headers("   ")

@@ -10,10 +10,10 @@ export interface TtsModelCapabilities {
 }
 
 /**
- * 所选 TTS 模型（provider/model）的能力与音色表；查询中、查询失败或未选模型时为 null。
+ * Selected TTS model's capabilities and voice list (provider/model); null while loading, on query failure or without a selected model.
  *
- * 音色表取自该模型所用调用端点的后端，同一供应商的不同端点各有一份。音色标签由后端按 Accept-Language
- * 成文，换语言即重取；重取期间沿用同一模型的上一份结果，不让候选列表闪空。
+ * Get voices from the backend of the model's endpoint; different endpoints of one provider each have their own list. The backend localizes labels by Accept-Language;
+ * refetch on language changes, retaining the previous result for the same model during refetch so the candidate list does not flash empty.
  */
 export function useTtsModelCapabilities(backend: string): TtsModelCapabilities | null {
   const { i18n } = useTranslation();
@@ -28,7 +28,7 @@ export function useTtsModelCapabilities(backend: string): TtsModelCapabilities |
         if (controller.signal.aborted) return;
         setAnswer({ backend, capabilities: { supportsSpeed: res.supports_speed, voices: res.voices } });
       } catch {
-        // 查不到能力时不置灰、不列音色：语速仍由供应商自行决定是否生效，音色照常手填
+        // If capabilities are unavailable, do not disable or list voices: the provider still determines whether speech rate applies, and voices remain manually enterable
       }
     })());
     return () => controller.abort();

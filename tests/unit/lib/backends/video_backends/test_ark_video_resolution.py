@@ -1,4 +1,4 @@
-"""测试方舟视频通道对 resolution=None 的处理。"""
+"""Ark video resolution=None handling."""
 
 from unittest.mock import MagicMock
 
@@ -37,7 +37,7 @@ async def test_resolution_none_not_in_create_params(tmp_path):
         await backend._create_task(req)
 
     assert "resolution" not in captured
-    # 其他关键字段仍然透传
+    # Other critical fields still forward.
     assert captured["ratio"] == "9:16"
     assert captured["duration"] == 5
 
@@ -63,6 +63,6 @@ async def test_resolution_passed_when_set(tmp_path):
     with pytest.raises(RuntimeError):
         await backend._create_task(req)
 
-    # 比例独立性守护：resolution 与 ratio 同传时彼此正交，resolution 不覆盖/不改写比例
+    # resolution/ratio remain orthogonal when sent together; resolution never rewrites ratios.
     assert captured["resolution"] == "720p"
     assert captured["ratio"] == "9:16"

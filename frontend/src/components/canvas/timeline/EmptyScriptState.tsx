@@ -2,8 +2,8 @@ import { useTranslation } from "react-i18next";
 import { InsertShotButton, type InsertShotHandler } from "./ShotStructureActions";
 
 /**
- * 正式脚本里一条分镜都没有时的空状态：说明现状，并给出「新增第一个分镜」。
- * 不给新增入口（演示态等只读场景）时只显示说明。
+ * Empty state when the formal script has no storyboards: explain the state and offer adding the first storyboard.
+ * Show only the explanation when adding is unavailable, such as read-only demos.
  */
 export function EmptyScriptState({
   contentMode,

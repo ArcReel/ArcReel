@@ -54,7 +54,7 @@ class TestSetupLogging:
         setup_logging()
         setup_logging()
         httpx_logger = logging.getLogger("httpx")
-        # 重复调用不叠加过滤器
+        # Repeated calls never duplicate filters.
         assert len([f for f in httpx_logger.filters if type(f).__name__ == "_StripUrlQueryFilter"]) == 1
         url = httpx.URL("https://assets.example/a.png?X-Tos-Signature=TEST-SIGNATURE")
         with caplog.at_level(logging.INFO, logger="httpx"):
@@ -63,7 +63,7 @@ class TestSetupLogging:
         assert "TEST-SIGNATURE" not in caplog.text
 
     def teardown_method(self):
-        """每个测试后清理 root logger handlers。"""
+        """Clear root-logger handlers after each test."""
         root = logging.getLogger()
         root.handlers = [h for h in root.handlers if not getattr(h, _HANDLER_ATTR, False)]
         root.setLevel(logging.WARNING)

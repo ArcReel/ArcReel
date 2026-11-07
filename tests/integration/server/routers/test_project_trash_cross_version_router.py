@@ -1,6 +1,6 @@
-"""跨版本恢复：升级前写下的删除记录经临时项目的迁移链恢复；迁移失败时降级为只恢复文件，结构文件只能下载。
+"""Cross-version restoration migrates old deletion records through temporary projects; failures restore files only, leaving structural files download-only.
 
-删除记录用旧形态项目样本在旧 schema 下构造，再把当前项目升级到最新 schema，模拟「删除后应用升级」。
+Construct records from old-shape/schema samples, then upgrade current projects to simulate postdeletion application upgrades.
 """
 
 from __future__ import annotations
@@ -47,10 +47,10 @@ def cross_version_client(projects_dir: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 def _old_record(project_dir: Path, files: list[str], *, schema_version: int) -> str:
-    """在旧 schema 的项目里删除一条剪辑时间线，记录标成当时的 schema 版本。"""
+    """Delete timelines in old-schema projects, recording then-current schema versions."""
     obj = {"kind": "edit_timeline", "id": TIMELINE, "episode": 1, "name": "初剪"}
     record = project_trash.record_deletion(project_dir, obj, files, snapshot=True)
-    # 与删除路径一样撤掉只剩空壳的渲染目录
+    # Remove empty render-directory shells like deletion paths.
     for rel in files:
         if rel.startswith("renders/"):
             (project_dir / rel).parent.rmdir()
@@ -61,7 +61,7 @@ def _old_record(project_dir: Path, files: list[str], *, schema_version: int) -> 
 
 
 def _break_snapshot_script(project_dir: Path, record_id: str) -> None:
-    """删除前的剧本已经读不出：临时项目的迁移链必然失败。"""
+    """Predeletion scripts are unreadable, guaranteeing temporary-project migration failures."""
     script = project_trash.trash_dir(project_dir) / record_id / "snapshot" / "scripts" / "episode_1.json"
     script.write_text('{"episode": 1, "segments": [', encoding="utf-8")
 
@@ -84,7 +84,7 @@ def test_a_record_from_an_older_schema_is_migrated_and_restored(
 ) -> None:
     project_dir = _timeline_project(projects_dir)
     record_id = _old_record(project_dir, [DOCUMENT, RENDER], schema_version=17)
-    migrate_project_dir(project_dir)  # 应用升级
+    migrate_project_dir(project_dir)  # Apply upgrades.
 
     restored = cross_version_client.post(f"/api/v1/projects/{project_dir.name}/trash/{record_id}/restore")
 
@@ -97,7 +97,7 @@ def test_a_record_from_an_older_schema_is_migrated_and_restored(
         "初剪",
     )
     document = json.loads((project_dir / DOCUMENT).read_text(encoding="utf-8"))
-    # 修订按当前 schema 落回：v17→v18 去掉了 Agent 轮次字段
+    # Restore revisions under current schemas; v17→v18 removes Agent-round fields.
     assert all("agent_turn" not in revision for revision in document["revisions"])
     assert read_timeline_document(project_dir, 1, TIMELINE) is not None
     assert (project_dir / RENDER).read_bytes() == b"final-cut"
@@ -143,7 +143,7 @@ def test_a_record_whose_migration_fails_restores_its_files_and_keeps_structure_f
 def test_a_degraded_restore_lands_files_where_the_migration_moved_them(
     cross_version_client: TestClient, projects_dir: Path
 ) -> None:
-    # 迁移链里会搬动媒体的只有 v0→v1（线索图分流到 scenes/、props/）与 v5→v6：用 v0 样本构造记录。
+    # Only v0→v1 clue-image scenes/props routing and v5→v6 move media; construct records from v0 samples.
     project_dir = write_legacy_storyboard_project(projects_dir, schema_version=0)
     project_file = project_dir / "project.json"
     project = json.loads(project_file.read_text(encoding="utf-8"))
@@ -163,5 +163,5 @@ def test_a_degraded_restore_lands_files_where_the_migration_moved_them(
     assert body["download_only"] == []
     assert (project_dir / "scenes" / "古庙.png").read_bytes() == b"temple"
     assert not (project_dir / "clues" / "古庙.png").exists()
-    # 没有只能下载的结构文件：记录随之消失
+    # Without download-only structural files, records disappear too.
     assert _trash(cross_version_client, project_dir.name) == []

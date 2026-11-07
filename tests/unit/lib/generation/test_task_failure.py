@@ -113,13 +113,13 @@ class TestRenderKnownCodes:
             ),
             ({"shutdown_date": "2026-11-24"}, "该模型已于 2026-11-24 下线；"),
             ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，官方建议改用 GPT-5.6 Sol；"),
-            # 目录里查不到后继条目时，回退为条目引用
+            # Missing catalog successor entries fall back to entry references.
             ({"successor": "acme/never-registered"}, "该模型已下线，官方建议改用 acme/never-registered；"),
             ({}, "该模型已下线；"),
         ],
     )
     def test_discontinued_model_omits_what_the_entry_does_not_record(self, params, expected):
-        """下线报错写明下线日期与后继（条目显示名）；条目没有登记的那一句整句省去，不留空占位。"""
+        """Discontinuation errors name dates/successor display names; omit entire sentences for unregistered facts, never leave empty placeholders."""
         encoded = encode_failure(
             "model_discontinued", provider="ark", model="doubao-seedream-5-0-lite-260128", **params
         )
@@ -194,7 +194,7 @@ class TestCascadeBlockedDependency:
             for locale in ("zh", "en", "vi")
         }
         for locale, text in rendered.items():
-            # 嵌套 reason 必须跟随外层同一 locale 渲染，而不是回落到别的语言。
+            # Nested reasons render in the outer locale, never falling back to another language.
             assert render_failure(inner, _translator(locale), make_display_names(locale)) in text
             assert "task-1" in text
             assert "[" not in text
@@ -338,7 +338,7 @@ def _aio_rpc_error(code, details: str):
 
 
 def test_grpc_invalid_argument_encodes_as_provider_rejection():
-    """xAI 走 gRPC：确定性拒绝按 HTTP 等价状态码结构化落库，不落 AioRpcError 的调试表示。"""
+    """xAI gRPC deterministic rejections persist HTTP-equivalent structured statuses, never AioRpcError debug representations."""
     import grpc
 
     exc = _aio_rpc_error(grpc.StatusCode.INVALID_ARGUMENT, "`reference_images` is not supported for this model.")
@@ -356,7 +356,7 @@ def test_grpc_invalid_argument_encodes_as_provider_rejection():
 
 
 def test_grpc_unauthenticated_drops_details():
-    """认证失败的详情可能回显凭证，与 HTTP 401 同口径只落状态码。"""
+    """Authentication details may echo credentials; persist status only, matching HTTP 401."""
     import grpc
 
     stored = encode_task_failure_message(_aio_rpc_error(grpc.StatusCode.UNAUTHENTICATED, "bad key xai-SECRET"))
@@ -366,7 +366,7 @@ def test_grpc_unauthenticated_drops_details():
 
 
 def test_grpc_transient_error_is_not_classified_as_rejection():
-    """瞬态码（限流、不可用）不是确定性拒绝，不套 provider_rejected 的「修改输入」。"""
+    """Transient rate-limit/unavailability codes are not deterministic rejections and never receive provider_rejected modify-input advice."""
     import grpc
 
     stored = encode_task_failure_message(_aio_rpc_error(grpc.StatusCode.UNAVAILABLE, "Socket closed"))

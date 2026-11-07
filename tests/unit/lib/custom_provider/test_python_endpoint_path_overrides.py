@@ -1,4 +1,4 @@
-"""Python 端点的路径覆盖：经端点注册表构造调用通道，respx 捕获 transport 层改写后的真实请求。"""
+"""Python endpoint path overrides: construct channels through the endpoint registry; respx captures actual transport-rewritten requests."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
                 200, json={"output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.example/tasks/r.mp4"}}
             )
         )
-        # 取自响应的下载地址不属于任何请求，原样发出
+        # Response-derived download URLs belong to no request override; send unchanged.
         download = router.get("https://cdn.example/tasks/r.mp4").mock(return_value=httpx.Response(200, content=b"v"))
         await backend.generate(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="w-1")
@@ -41,7 +41,7 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
 
 
 async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands_the_model():
-    # 方舟 SDK 走同步 httpx 客户端；有覆盖的提交不再补 /api/v3
+    # Ark SDK uses synchronous httpx; overridden submissions no longer append /api/v3.
     backend = ENDPOINT_REGISTRY["ark-seedance-2"].build_backend(
         _PROVIDER, "seedance-x", {"submit": "/ark/{{ model }}/tasks?async=1"}
     )
@@ -51,7 +51,7 @@ async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands
         )
         with contextlib.suppress(Exception):
             await backend.generate(VideoGenerationRequest(prompt="p", output_path=Path("unused.mp4")))
-        # 400 会被重试；未声明路由的请求会抛错并被吞掉，所以比对总请求数
+        # 400 retries; undeclared-route requests raise and are swallowed, so compare total request counts.
         assert submit.called
         assert router.calls.call_count == submit.call_count
 

@@ -1,8 +1,8 @@
 ---
 id: style/anim_felt
 category: style
-title: 羊毛毡
-description: "动画画风，定格 · 真实光影。"
+title: "Felt Stopmotion"
+description: "Animation, stop motion · realistic lighting."
 stage: style
 invoked_by:
   kind: user_action
@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-羊毛毡风格，定格动画，真实光影，极致细节，氛围感，故事感，大师级构图
+Wool-felt style, stop-motion animation, realistic lighting, extreme detail, atmosphere, storytelling, masterful composition

@@ -9,9 +9,9 @@ import { useStaysInEpisodeView } from "./EpisodeViewScope";
 const NO_GENERATE = () => {};
 
 /**
- * 广告项目视频页的「故事设定」视图：梗概、类型、主题与世界观是 AI 生成脚本的输入，在这里作为一个编辑单元修改，
- * 保存后已生成的脚本由服务端按产物过期规则标记。广告项目没有原文，不提供「从原文生成」。
- * 视图不往页头放动作，其他视图的批量动作在这里随之隐藏。
+ * Story-settings view on ad-project video pages: synopsis, genre, theme and worldbuilding form one editing unit and feed AI script generation.
+ * After saving, the server marks existing scripts according to artifact-staleness rules. Ad projects have no source text and offer no generation from source.
+ * This view adds no header actions, hiding other views' batch actions here.
  */
 export function StorySettingView({
   projectName,
@@ -27,7 +27,7 @@ export function StorySettingView({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto p-6 [scrollbar-gutter:stable] @3xl/canvas:p-8">
       <div className="flex w-full max-w-190 shrink-0 flex-col">
-        {/* 故事设定不随这一集的脚本变化：脚本生成或删除时不必为它保留集页的旧内容 */}
+        {/* Story settings do not change with this episode's script; script generation/deletion need not retain old episode-page content for them */}
         <EditUnitRetentionContext.Provider value={null}>
           <StorySetting
             key={projectName}

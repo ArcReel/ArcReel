@@ -1,4 +1,4 @@
-"""项目事件流对草稿的实时推送：Agent 写入、采用、丢弃草稿时，订阅方收到对应的草稿事件。"""
+"""Project streams push draft events on Agent writes/adoption/discard."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class _ConnectedRequest:
 
 @pytest.fixture
 async def project_stream(tmp_path: Path):
-    """已订阅 demo 项目事件流的旁白项目：返回 (Agent 的草稿命令, 事件流)。"""
+    """Subscribed demo narration projects return Agent draft commands and event streams."""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")

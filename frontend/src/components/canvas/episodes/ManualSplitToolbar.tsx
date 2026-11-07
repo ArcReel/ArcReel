@@ -23,7 +23,7 @@ interface ManualSplitToolbarProps {
 }
 
 /**
- * 插入光标下方的浮动操作条：预览分出的体量，确认或取消。←/→ 微调与 Enter / Esc 由视图统一接管。
+ * Floating toolbar below the insertion caret: preview the split volume, confirm or cancel. The view owns ←/→ adjustments and Enter / Esc handling.
  */
 export function ManualSplitToolbar({
   view,
@@ -41,7 +41,7 @@ export function ManualSplitToolbar({
   const iconCls = cn("size-3.5 shrink-0", tinted === null ? "text-primary" : "text-episode");
   const ref = useRef<HTMLSpanElement>(null);
 
-  // 操作条默认从光标左侧 24px 起；靠近行首或行尾时夹在原文列之内，确认与取消按钮始终可见
+  // Position 24px left of the caret by default; clamp within the source column near line ends so confirm/cancel remain visible
   useLayoutEffect(() => {
     const el = ref.current;
     const anchor = el?.parentElement;

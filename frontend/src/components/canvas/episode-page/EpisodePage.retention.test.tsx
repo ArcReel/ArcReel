@@ -49,7 +49,7 @@ describe("EpisodePage 外部替换编辑器", () => {
     fireEvent.change(await screen.findByRole("textbox", { name: "本集原文" }), { target: { value: "未保存原文" } });
     await userEvent.click(screen.getByRole("button", { name: "这一集的更多操作" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
-    // 不带 revision 只取丢失清单，服务端不删除
+    // Without revision, fetch only the loss list; the server deletes nothing.
     const deletion = await screen.findByRole("alertdialog");
     expect(deletion).toHaveTextContent("集原文会一并删除");
     expect(remove).toHaveBeenCalledWith("demo", 1);

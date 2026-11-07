@@ -6,7 +6,7 @@ from lib.infra.json_io import atomic_write_json
 
 
 def test_atomic_write_json_fsyncs_temp_file_before_replace(tmp_path, monkeypatch):
-    """替换前临时文件必须已落盘：断电时目标不会被换成空文件或半截文件。"""
+    """Flush temporary files before replacement so power failure never installs empty/partial targets."""
     target = tmp_path / "project.json"
     target.write_text('{"old": true}', encoding="utf-8")
     events: list[str] = []

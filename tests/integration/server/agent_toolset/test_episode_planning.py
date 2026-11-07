@@ -1,6 +1,6 @@
-"""分集规划工具（plan_episodes / reset_episode_planning）经声明入口的 ``ToolOutcome``。
+"""Episode planning tools plan_episodes / reset_episode_planning return declaration-entry ``ToolOutcome``.
 
-规划器与重置器经 handler 的关键字参数注入替身；请求校验与迁移阻断走两宿主共用的声明入口。
+Inject planner/reset substitutes through handler keywords; request validation and migration blocking use the shared declaration entry for both hosts.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from tests.integration.server.agent_tool_support import ToolHarness, run_declare
 
 
 def _fake_planner_cls(result: PlanResult | BaseException, captured: dict[str, Any] | None = None) -> Any:
-    """EpisodePlanner 替身：create() 工厂 + plan() 返回预置结果或抛出预置异常。"""
+    """EpisodePlanner substitute: create() factory plus plan() returning preset results or raising preset exceptions."""
 
     class _FakePlanner:
         @classmethod
@@ -73,7 +73,7 @@ def _episode(episode: int, title: str = "第一章", **overrides: Any) -> Episod
 
 @pytest.fixture(autouse=True)
 def whole_source(request: pytest.FixtureRequest) -> None:
-    """分集规划的准入要求整本源文：用到 ``fake_ctx`` 的用例都先放一份。"""
+    """Planning admission requires whole sources; every ``fake_ctx`` case installs one first."""
     if "fake_ctx" in request.fixturenames:
         ctx: ToolHarness = request.getfixturevalue("fake_ctx")
         _write_whole_source(ctx.project_path)
@@ -91,7 +91,7 @@ def _register_whole_source(ctx: ToolHarness) -> None:
 
 
 def _seed_ledger(ctx: ToolHarness, *episodes: tuple[int, str]) -> None:
-    """按播出顺序写入账本条目（集 ID, 标题）。"""
+    """Write ledger (episode ID, title) entries in broadcast order."""
 
     ctx.pm.project_payload["episodes"] = [
         {"episode": num, "title": title, "source_origin": "whole_source"} for num, title in episodes
@@ -192,7 +192,7 @@ async def test_plan_episodes_rejects_bad_instructions_before_planning(fake_ctx: 
     ("raised", "code"),
     [
         pytest.param(EpisodePlanningError("校验耗尽"), "episode_planning_failed", id="planning-error"),
-        # 供应商未配置、模型调用失败等规划器内部的异常不是入参问题，与规划失败同码，界面按用户语言成文。
+        # Internal planner errors, such as unconfigured providers/model failures, are not bad arguments; share planning-failure codes rendered by user language.
         pytest.param(ValueError("未找到可用的 text 供应商"), "episode_planning_failed", id="provider-error"),
         pytest.param(RuntimeError("HTTP 429"), "episode_planning_failed", id="model-error"),
     ],
@@ -243,7 +243,7 @@ async def test_plan_episodes_attaches_global_volume_review_when_the_source_is_ex
 
 
 async def test_plan_episodes_marks_a_target_volume_derived_from_duration(fake_ctx: ToolHarness) -> None:
-    """折算而来的目标体量在核对材料里标明来源：主 Agent 不能把估算值当成用户给的硬指标。"""
+    """Review materials identify converted target-volume sources; main Agents must not treat estimates as hard user requirements."""
     volume = EpisodeTargetVolume(units=450, unit_noun="字", source="duration", seconds=90, units_per_second=5.0)
     stats = LedgerStats(total_episodes=30, smallest=[], median_units=812, target_volume=volume)
     result = PlanResult(episodes=[], cursor=None, source_exhausted=True, ledger_stats=stats)
@@ -405,7 +405,7 @@ async def test_reset_episode_planning_reports_a_failed_partial_precheck(fake_ctx
 @pytest.mark.parametrize(
     ("arguments", "field"),
     [
-        # confirm_consumed 是确认安全边界：非布尔值必须拒绝而非真值化。
+        # confirm_consumed is a confirmation boundary; reject nonbools instead of coercing truthiness.
         pytest.param({"confirm_consumed": "true"}, "confirm_consumed", id="string-confirm"),
         pytest.param({"episode_id": 0}, "episode_id", id="zero"),
         pytest.param({"episode_id": -1}, "episode_id", id="negative"),

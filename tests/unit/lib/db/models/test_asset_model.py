@@ -1,4 +1,4 @@
-"""Asset ORM 模型结构测试。"""
+"""Asset ORM structure tests."""
 
 import pytest
 from sqlalchemy import select

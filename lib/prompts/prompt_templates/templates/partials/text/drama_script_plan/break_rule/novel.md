@@ -1,1 +1,1 @@
-改编时自行判断：地点 / 时间跳转或场景切换后的第一个分镜标「是」，同一时空内的后续分镜标「否」。
+Use your judgment during adaptation: mark the first shot after a location / time jump or scene change “是”, and subsequent shots in the same time and space “否”.

@@ -1,7 +1,7 @@
 """
-API Key 认证分流单元测试
+API Key authentication routing unit tests.
 
-测试 auth 模块中的 API Key 路径：哈希计算、缓存逻辑、认证分流。
+Cover auth-module API Key hashing, caches, and authentication dispatch.
 """
 
 import hashlib
@@ -18,7 +18,7 @@ from tests.fakes import bind_session_factory
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    """每次测试前清空 API Key 缓存。"""
+    """Clear API Key caches before each test."""
     auth_module._api_key_cache.clear()
     yield
     auth_module._api_key_cache.clear()
@@ -26,10 +26,10 @@ def clear_cache():
 
 @pytest.fixture
 def api_key_db(db_factory, monkeypatch):
-    """把 API Key 查库路径绑到内存库。
+    """Bind API Key lookups to in-memory databases.
 
-    ``verify_api_key`` 在函数内 import ``lib.db.async_session_factory``，缓存未命中时
-    真的落库查询；绑内存库后过期判定与缓存写入这两步都按真实数据跑。
+    ``verify_api_key`` imports ``lib.db.async_session_factory`` inside functions and genuinely
+    queries on misses. In-memory binding exercises expiry/cache writes against real data.
     """
     bind_session_factory(monkeypatch, db_factory)
     return db_factory
@@ -91,11 +91,11 @@ class TestApiKeyCache:
         assert not hit
 
     def test_cache_hit_skips_db(self):
-        """缓存命中时不应查询数据库（通过 verify_api_key 的分支逻辑验证）。"""
+        """Cache hits bypass DB queries, verified through verify_api_key branches."""
         key = "arc-cached-key"
         key_hash = auth_module.hash_api_key(key)
         auth_module._set_api_key_cache(key_hash, {"sub": "apikey:cached", "via": "apikey"})
-        # 若命中缓存则返回缓存值；True means hit
+        # Return cached values on hits; True means hit.
         hit, payload = auth_module._get_cached_api_key_payload(key_hash)
         assert hit
         assert payload["sub"] == "apikey:cached"
@@ -104,20 +104,20 @@ class TestApiKeyCache:
 class TestVerifyAndGetPayloadAsync:
     @pytest.mark.asyncio
     async def test_jwt_path_success(self):
-        """非 arc- 前缀走 JWT 路径，成功返回 payload。"""
+        """Non-arc- prefixes use JWT paths, returning payloads on success."""
         with patch("server.auth.verify_token", return_value={"sub": "admin"}):
             result = await auth_module._verify_and_get_payload_async("some.jwt.token")
         assert result == {"sub": "admin"}
 
     @pytest.mark.asyncio
     async def test_jwt_invalid_raises_401(self):
-        """非 arc- 前缀但 JWT 验证失败，抛出 401。"""
+        """Invalid non-arc- JWTs raise 401."""
         with patch("server.auth.verify_token", return_value=None), pytest.raises(HTTPException) as exc_info:
             await auth_module._verify_and_get_payload_async("invalid.jwt.token")
         assert exc_info.value.status_code == 401
 
     async def test_api_key_path_success(self, api_key_db):
-        """arc- 前缀走 API Key 路径：查库命中后返回 payload 并写入缓存。"""
+        """arc- prefixes use API Keys; successful DB matches return/cache payloads."""
         await _seed_api_key(api_key_db, "mykey", "arc-validkey")
 
         result = await auth_module._verify_and_get_payload_async("arc-validkey")
@@ -129,13 +129,13 @@ class TestVerifyAndGetPayloadAsync:
         assert cached == result
 
     async def test_api_key_not_found_raises_401(self, api_key_db):
-        """arc- 前缀但库里没有该 key，抛出 401。"""
+        """Unknown arc- keys raise 401."""
         with pytest.raises(HTTPException) as exc_info:
             await auth_module._verify_and_get_payload_async("arc-badkey")
         assert exc_info.value.status_code == 401
 
     async def test_api_key_expired_raises_401(self, api_key_db):
-        """库里有该 key 但 expires_at 已过，抛出 401 并落负缓存。"""
+        """Existing expired keys raise 401 and populate negative caches."""
         await _seed_api_key(
             api_key_db,
             "expiredkey",

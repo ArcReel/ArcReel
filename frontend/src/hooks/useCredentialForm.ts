@@ -16,7 +16,7 @@ export interface CredentialForm {
   sonnetModel: string;
   opusModel: string;
   subagentModel: string;
-  /** 倍率输入框的原文；合法性见 multiplierInvalid。 */
+  /** Raw multiplier input; see multiplierInvalid for validity. */
   multiplierText: string;
   multiplierInvalid: boolean;
   setApiKey: (v: string) => void;
@@ -28,11 +28,11 @@ export interface CredentialForm {
   setOpusModel: (v: string) => void;
   setSubagentModel: (v: string) => void;
   setMultiplierText: (v: string) => void;
-  /** 切预设：清空 model 字段；预设带 base_url+display_name 覆盖；自定义则清空。 */
+  /** Switch presets: clear model; preset base_url+display_name override existing values, while custom clears them. */
   setPreset: (id: string) => void;
-  /** 与 initial 比对，判断是否有可保存的变更（apiKey 任意非空即视为脏）。 */
+  /** Compare with initial for saveable changes; any nonempty apiKey counts as dirty. */
   isDirty: (initial: Partial<CreateAgentCredentialRequest> | undefined) => boolean;
-  /** 拼装提交 payload。 */
+  /** Assemble the submission payload. */
   buildRequest: () => CreateAgentCredentialRequest;
 }
 

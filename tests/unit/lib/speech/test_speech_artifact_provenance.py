@@ -359,7 +359,7 @@ def test_use_tts_subtitle_and_presentation_require_narration_audio() -> None:
 
 @pytest.mark.parametrize("invalid", [True, False, "8", None])
 def test_selected_media_evidence_rejects_non_number_duration(invalid: object) -> None:
-    """时长从磁盘 JSON 重建，bool 与字符串都不是可接受的秒数。"""
+    """Rebuild duration from disk JSON; bool and strings are invalid seconds."""
 
     with pytest.raises(ValueError, match="positive and finite"):
         SelectedMediaEvidence(
@@ -380,7 +380,7 @@ def test_selected_media_evidence_rejects_non_digest_content_digest(invalid: obje
 
 
 def _mixed_speech(narration_text: str = "旁白正文") -> SpeechPreparation:
-    """说书片段里同时写了原文旁白和角色台词：准入不通过，没有唯一发声归属。"""
+    """Narration segments containing source narration and character dialogue fail admission without unique speech ownership."""
     preparation = admit_script_unit(
         "segments",
         {
@@ -395,7 +395,7 @@ def _mixed_speech(narration_text: str = "旁白正文") -> SpeechPreparation:
 
 
 def test_admitted_video_speech_keeps_the_digest_from_before_gaps_were_recorded() -> None:
-    """准入通过的单位不写缺席键，视频发声依据与缺口改为记录之前的固定样本相同。"""
+    """Admitted units omit absent keys; video-speech provenance/gaps match fixed samples from before recording changed."""
     preparation = admit_script_unit(
         "scenes",
         {"scene_id": "E1S1", "utterances": [{"kind": "dialogue", "speaker": "张三", "text": "你好"}]},
@@ -410,7 +410,7 @@ def test_admitted_video_speech_keeps_the_digest_from_before_gaps_were_recorded()
 
 
 def test_video_speech_basis_keeps_the_speaker_as_written() -> None:
-    """资产名判重不区分大小写，发声依据里的说话人仍保留原样大小写；定值锁住摘要。"""
+    """Asset uniqueness is case-insensitive, but speech-provenance speakers retain original case; fixed values lock the digest."""
     preparation = admit_script_unit(
         "scenes",
         {"scene_id": "E1S1", "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Hello"}]},
@@ -424,7 +424,7 @@ def test_video_speech_basis_keeps_the_speaker_as_written() -> None:
 
 
 def test_blocked_speech_bases_record_ownership_and_the_admission_problem() -> None:
-    """混合发声单位照常投影视频发声与字幕依据：逐条记归属，准入问题记为缺席；改文本让依据变化。"""
+    """Mixed-speech units still project video/subtitle provenance by ownership; admission problems mark absence, text edits change provenance."""
     video = _media("test/video", "v1", content="a", duration=8.0)
     preparation = _mixed_speech()
 

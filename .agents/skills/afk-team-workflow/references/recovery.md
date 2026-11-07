@@ -1,10 +1,10 @@
-# 接管未收尾批次
+# Take over an unfinished batch
 
-只在新 team-lead 需从持久事实接管，或用户明确要求恢复 / 重新对账时读本页。同一会话的续跑直接沿用当前运行上下文。
+Read this page only when a new team-lead must take over from durable facts, or the user explicitly requests recovery / reconciliation. Continuations in the same session use the current runtime context directly.
 
-1. 读 `.afk/<batch-id>.jsonl` 取回 scope，并查询远程 issues、stage PR 与 branch；issue labels 是暂停状态的 remote truth，ledger 只补充原因。
-2. 停止旧 agents，清理本批 stale local worktrees / branches 与未集成 handoff 文件。
-3. 以 remote truth 续接：merged stage 进入下一 stage；open PR 从其远程 HEAD 重建 stage worktree 并续接 review loop；其余从远程 stage branch 的 `Refs #<N>` commits 得到已完成 issues，远程没有的改动均视为未完成。
-4. 前任 transcript 中的合并授权与费用预算不可继承；新 team-lead 在首次合并前重新请求未完成 stage 的合并授权，部署冒烟前重新请求预算。
+1. Read `.afk/<batch-id>.jsonl` to recover scope and query remote issues, stage PRs, and branches. Issue labels are the remote truth for pause status; the ledger only supplements reasons.
+2. Stop old agents and clean up this batch's stale local worktrees / branches and unintegrated handoff files.
+3. Resume from remote truth: advance to the next stage after merged stages; rebuild a stage worktree from an open PR's remote HEAD and resume its review loop; otherwise derive completed issues from `Refs #<N>` commits on the remote stage branch. Treat all changes absent from the remote as unfinished.
+4. Merge authorization and cost budgets in the predecessor's transcript cannot be inherited. The new team-lead must request merge authorization again for unfinished stages before the first merge, and request a new budget before deployment smoke testing.
 
-用户选择重开时，关闭在途 stage PR，停止本批 agents，清理本批 workspace / worktrees / branches，append `closed`，然后从 SKILL.md 第 1 节重新计划新批次。
+If the user chooses to restart, close in-flight stage PRs, stop this batch's agents, clean up its workspace / worktrees / branches, append `closed`, then plan a new batch from section 1 of SKILL.md.

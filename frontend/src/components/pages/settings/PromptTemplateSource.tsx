@@ -8,22 +8,22 @@ type SourceProps = {
   text: string;
   template: PromptTemplateMeta;
   partials: PromptTemplatePartial[];
-  /** 点展开处的片段名进入片段详情。 */
+  /** Click expanded fragment names to open fragment details. */
   onOpenPartial: (name: string) => void;
 };
 
 const MARKER_PATTERN = /(\{#[\s\S]*?#\}|\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/;
 const SLOT_PATTERN = /^[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*$/;
-// ponytail: 只展开直接片段调用，带过滤器的表达式保留原文；语法扩展后再接解析器。
+// ponytail: expand direct fragment calls only; preserve filtered expressions as source, introducing parsers after syntax extensions.
 const PARTIAL_PATTERN =
   /^\{\{-?\s*(?<kind>partial|variant)\s*\(\s*(["'])(?<name>[^"']+)\2\s*(?:,\s*(?<axis>[a-zA-Z_]\w*))?[^()]*\)\s*-?\}\}$/;
 
-/** 展示模版语法与片段原文，不执行 Jinja 或填充项目数据。 */
+/** Display template syntax/fragment sources without executing Jinja or filling project data. */
 export function PromptTemplateSource(props: SourceProps) {
   const { t } = useTranslation("dashboard");
   return (
-    // 正文里不一定有片段按钮：代码块自身可聚焦，键盘才能横向滚动折不开的长串
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
+    // Bodies may lack fragment buttons; code blocks must focus for keyboard horizontal scrolling of unwrappable strings.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Read-only scroll regions require keyboard focus for scrolling
     <div tabIndex={0} role="region" aria-label={t("prompt_templates_source")} className={SOURCE_BLOCK_CLS}>
       <SourceContent {...props} />
     </div>
@@ -36,7 +36,7 @@ type SourceNode =
       opening: string;
       condition: string;
       children: SourceNode[];
-      /** `else` / `elif` 标记及其后到 `endif` 前的原文，不属于「仅当」标签覆盖的范围。 */
+      /** `else` / `elif` markers and following source before `endif` are outside Only when label coverage. */
       alternate: SourceNode[];
       closing: string;
     };
@@ -75,7 +75,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
         ? t("prompt_templates_optional_slot", { slot: part.condition })
         : t("prompt_templates_optional_condition", { condition: part.condition });
       return (
-        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节点由只读原文一次性解析而来，原文随模版换而整体重挂载，不重排不增删，位置即身份
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- nodes parse readonly source once; template changes fully remount, without reorder/add/remove, so positions are identities
         <span key={index} className="my-2 block border-l-2 border-border pl-3">
           <span role="group" aria-label={label}>
             <span className="mb-1 block font-sans text-xs text-muted-foreground">{label}</span>
@@ -90,7 +90,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
     const reference = PARTIAL_PATTERN.exec(part)?.groups;
     if (reference) {
       return (
-        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节点由只读原文一次性解析而来，原文随模版换而整体重挂载，不重排不增删，位置即身份
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- nodes parse readonly source once; template changes fully remount, without reorder/add/remove, so positions are identities
         <PartialReference
           key={index}
           marker={part}
@@ -118,7 +118,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
       }
     }
     return /^\{[{%#]/.test(part) ? (
-      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节点由只读原文一次性解析而来，原文随模版换而整体重挂载，不重排不增删，位置即身份
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- nodes parse readonly source once; template changes fully remount, without reorder/add/remove, so positions are identities
       <mark key={index} className="rounded-sm bg-muted px-0.5 text-muted-foreground">
         {part}
       </mark>

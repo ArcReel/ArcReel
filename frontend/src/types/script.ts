@@ -84,20 +84,20 @@ export interface Dialogue {
 export type UtteranceKind = "dialogue" | "voiceover";
 
 /**
- * Drama 分镜级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
- * 约束编码进类型：dialogue 必带非空 speaker、voiceover 不得带 speaker。非法组合（dialogue 缺
- * speaker、voiceover 带 speaker）编译期即被拒，与后端 Utterance 契约一致。
+ * Ordered storyboard-level speech entries for drama. A discriminated union narrows by kind and encodes the kind ⇄ speaker
+ * constraint in the type: dialogue requires a nonempty speaker; voiceover must not carry one. Invalid combinations (dialogue without
+ * speaker, voiceover with a speaker) are rejected at compile time, matching the backend Utterance contract.
  */
 export interface DialogueUtterance {
   kind: "dialogue";
-  /** 角色台词必带非空说话人。 */
+  /** Character dialogue requires a nonempty speaker. */
   speaker: string;
   text: string;
 }
 
 export interface VoiceoverUtterance {
   kind: "voiceover";
-  /** 无说话人画外音：speaker 恒为 null 或缺省。 */
+  /** Voiceover without a speaker: speaker is always null or absent. */
   speaker?: null;
   text: string;
 }
@@ -105,9 +105,9 @@ export interface VoiceoverUtterance {
 export type Utterance = DialogueUtterance | VoiceoverUtterance;
 
 /**
- * script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端 lib/script/script_models.py 的
- * DramaSceneContent / DramaNormalizedScript 与 NarrationScriptPlanSegment / NarrationScriptPlanDraft：
- * script_plan 已定内容层，prompt_authoring 视觉生成（image_prompt / video_prompt）由用户确认后才触发。
+ * Structured script_plan intermediate state (reviewable/editable at content confirmation). Maps to backend lib/script/script_models.py:
+ * DramaSceneContent / DramaNormalizedScript and NarrationScriptPlanSegment / NarrationScriptPlanDraft.
+ * script_plan defines the content layer; prompt_authoring visual generation (image_prompt / video_prompt) starts only after user confirmation.
  */
 export interface DramaSceneContent {
   scene_id: string;
@@ -116,38 +116,38 @@ export interface DramaSceneContent {
   characters_in_scene: string[];
   scenes: string[];
   props: string[];
-  /** 视觉改编自由文本（供 prompt_authoring 生成画面，不内嵌口播）。 */
+  /** Free-form visual adaptation text (for prompt_authoring to generate visuals, without embedded speech). */
   scene_description: string;
-  /** 分镜级有序发声序列：台词 / 画外音按时序排列（内容确认的富编辑对象）。 */
+  /** Ordered storyboard-level speech sequence: dialogue / voiceover in temporal order (a rich editing object at content confirmation). */
   utterances: Utterance[];
-  /** 逐字原文摘录（追溯锚，不朗读、不出音）。 */
+  /** Verbatim source excerpt (traceability anchor, not read aloud or voiced). */
   source_text: string;
 }
 
-/** 本集新增资产的类型：只有角色、场景、道具会在规划里新增。 */
+/** Types of new episode assets: only characters, scenes, and props can be added during planning. */
 export type NewAssetType = "character" | "scene" | "prop";
 
-/** 新增项的处理决定：登记为新资产 / 归到已有资产 / 登记为角色衍生 / 不登记。 */
+/** Decision for a new item: register as a new asset / merge into an existing asset / register as a character derivative / skip registration. */
 export type NewAssetDecision = "register" | "merge" | "derivative" | "skip";
 
 /**
- * 脚本规划带出的一项本集新增资产。映射后端 lib/script/script_models.py 的 PlanNewAsset：
- * 规划条目里的引用写 `name`，确认时按 `decision` 改写并登记。
+ * One new episode asset produced by script planning. Maps to PlanNewAsset in backend lib/script/script_models.py:
+ * planned entries reference `name`; confirmation rewrites and registers it according to `decision`.
  */
 export interface PlanNewAsset {
   type: NewAssetType;
-  /** 规划条目里写的称呼。 */
+  /** Name used in the planned entry. */
   name: string;
   decision: NewAssetDecision;
-  /** AI 给出的一句依据。 */
+  /** One-sentence rationale from the AI. */
   reason: string;
-  /** register：外观描述；derivative：相对本体的变化描述。 */
+  /** register: appearance description; derivative: description of changes relative to the owner. */
   description: string;
-  /** register：原文中的其他称呼。 */
+  /** register: other names in the source. */
   aliases: string[];
-  /** merge：归入的同类资产名或本集另一新增项的称呼；derivative：本体角色名。 */
+  /** merge: name of the same-type asset or another new episode item to merge into; derivative: owner character name. */
   target: string;
-  /** register：登记名；derivative：衍生名；为空时取 `name`。 */
+  /** register: registered name; derivative: derivative name; uses `name` when empty. */
   asset_name: string;
 }
 
@@ -159,7 +159,7 @@ export interface DramaNormalizedScript {
 
 export interface NarrationScriptPlanSegment {
   segment_id: string;
-  /** 小说原文（逐字保留，内容确认的可编辑对象）。 */
+  /** Original novel text (preserved verbatim, editable at content confirmation). */
   novel_text: string;
   duration_seconds: number;
   segment_break: boolean;
@@ -180,20 +180,20 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/** 内容确认将覆盖的正式脚本条目，及其名下无法在项目内恢复的产物与归属。 */
+/** Formal script entries overwritten by content confirmation, including their artifacts that cannot be recovered within the project and their ownership. */
 export interface ScriptOverwriteEntry {
   id: string;
   has_storyboard: boolean;
   has_video: boolean;
   has_narration_audio: boolean;
   has_end_frame: boolean;
-  /** 所属宫格（联合图）ID；不在任何宫格内为 null。 */
+  /** Owning grid (composite image) ID; null when not in a grid. */
   grid_id: string | null;
 }
 
-/** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下无法恢复的产物。 */
+/** Formal script overwritten by content confirmation: all old storyboards are removed, listing unrecoverable artifacts for each. */
 export interface ScriptOverwrite {
-  /** 被列出的这份正式脚本的版本；认可覆盖时原样回传，正式脚本之后又有变化则按新清单再次拒绝。 */
+  /** Revision of the listed formal script; return unchanged to acknowledge overwriting. Subsequent formal script changes cause another refusal with a new list. */
   revision: string;
   entries: ScriptOverwriteEntry[];
   storyboard_count: number;
@@ -202,11 +202,11 @@ export interface ScriptOverwrite {
   end_frame_count: number;
   grid_member_count: number;
   grid_count: number;
-  /** 服务端生成的丢失清单文本（已按请求语言成文）；确认框原样呈现，Agent 收到同一份。 */
+  /** Server-generated loss list text (rendered in the request language); displayed unchanged in the confirmation dialog and sent identically to the Agent. */
   text: string;
 }
 
-/** script_plan→prompt_authoring 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
+/** Content confirmation state for script_plan→prompt_authoring (GET response from backend server/routers/script_review.py). */
 export interface ScriptReviewState {
   episode: number;
   content_mode: string | null;
@@ -214,31 +214,31 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft | null;
-  /** 草稿在场时非 null（三条 script_plan 路线都可能出现），否则 null。 */
+  /** Non-null when a draft exists (possible for all three script_plan routes), null otherwise. */
   quarantine: ScriptReviewQuarantine | null;
-  /** 正式参考规划的逐单元降级提示，只提示、不阻断。 */
+  /** Per-unit degradation notices for the formal reference plan; informational, not blocking. */
   soft_violations?: DraftSoftViolation[];
   /**
-   * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
-   * null，呈现层退回只读秒数）。与后端读时迁移收编所用的是同一份档位表——结构区间全集，不
-   * 含分辨率 / 参考图联动约束。
+   * Selectable unit duration tiers, non-null only for reference_video (also
+   * null when no configured project video model can be resolved, falling back to read-only seconds). Uses the same tier table as backend read-time migration: the full structural interval set, excluding
+   * coupled resolution / reference-image constraints.
    */
   supported_durations: number[] | null;
   /**
-   * 按「是否带参考图」收窄后的逐 unit 生效档位，与 prompt_authoring 落盘前的校验同一把尺；无法解析型号
-   * 时为 null。
+   * Effective per-unit tiers narrowed by reference-image presence, using the same criteria as prompt_authoring validation before persistence; null when the model
+   * cannot be resolved.
    */
   duration_tiers: {
     with_references: number[];
-    /** 逐 unit 的服务端定桶结论（按可用参考图），面板据此取档与判越档，不按已登记引用自判。 */
+    /** Server bucket results per unit (from usable reference images), used by the panel for tier selection and overrun checks instead of inferring from registered references. */
     units: ReferenceUnitCapabilityMap;
   } | null;
   /**
-   * 项目级「单集目标时长」偏好（秒），未设时 null。审核面板据它渲染「本集合计 / 目标」对比；
-   * 超出目标只提示，不阻断确认与后续生成。
+   * Project-level target episode duration preference (seconds), null when unset. The review panel uses it to compare episode total / target;
+   * exceeding the target produces a notice without blocking confirmation or subsequent generation.
    */
   episode_target_duration: number | null;
-  /** 确认将覆盖的正式脚本；该集尚无正式脚本时 null。非 null 时确认须带其 `revision` 认可覆盖。 */
+  /** Formal script to overwrite on confirmation; null when none exists for the episode. When non-null, confirmation must include its `revision` to acknowledge overwriting. */
   script_overwrite: ScriptOverwrite | null;
 }
 
@@ -281,18 +281,18 @@ export interface NarrationSegment {
   characters_in_segment: string[];
   scenes?: string[];
   props?: string[];
-  /** `null` = 待编写：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
+  /** `null` = pending authoring: the formal script produced by content confirmation has only content, with prompts not yet authored. */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   note?: string;
   /**
-   * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
-   * 只由 /end-frame 的设置/清除端点写入——通用剧本 PATCH 刻意不接受该字段，
-   * 避免绕过快照复制写出悬空引用（见 server/routers/end_frames.py）。
+   * Last-frame snapshot path (project-relative). The video starts from the storyboard image and transitions to this image at its end.
+   * Written only by the /end-frame set/clear endpoints; generic script PATCH deliberately rejects this field
+   * to prevent dangling references that bypass snapshot copying (see server/routers/end_frames.py).
    */
   end_frame_image?: string | null;
   generated_assets?: GeneratedAssets;
-  /** 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回后清除，只读。 */
+  /** Pending authoring: prompt authoring has not filled in the visual layer. Set on new entries and cleared after prompt authoring writes back; read-only. */
   pending_authoring?: boolean;
 }
 
@@ -303,27 +303,27 @@ export interface DramaScene {
   characters_in_scene: string[];
   scenes?: string[];
   props?: string[];
-  /** `null` = 待编写：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
+  /** `null` = pending authoring: the formal script produced by content confirmation has only content, with prompts not yet authored. */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   /**
-   * 分镜级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
-   * 存量 drama 走后端读时迁移，前端读到时此字段可能缺省。
+   * Ordered storyboard-level speech: character dialogue and voiceover in temporal order. New structure (drama);
+   * legacy drama uses backend read-time migration, so this field may be absent when read by the frontend.
    */
   utterances?: Utterance[];
-  /** 画面描述：内容确认时从脚本规划透传；手动新增的分镜为空或缺省。 */
+  /** Visual description: forwarded from script planning at content confirmation; empty or absent for manually added storyboards. */
   scene_description?: string;
-  /** 对应原文：内容确认时从脚本规划透传，时间线只读；手动新增的分镜为空或缺省。 */
+  /** Corresponding source text: forwarded from script planning at content confirmation and read-only in the timeline; empty or absent for manually added storyboards. */
   source_text?: string;
   note?: string;
   /**
-   * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
-   * 只由 /end-frame 的设置/清除端点写入——通用剧本 PATCH 刻意不接受该字段，
-   * 避免绕过快照复制写出悬空引用（见 server/routers/end_frames.py）。
+   * Last-frame snapshot path (project-relative). The video starts from the storyboard image and transitions to this image at its end.
+   * Written only by the /end-frame set/clear endpoints; generic script PATCH deliberately rejects this field
+   * to prevent dangling references that bypass snapshot copying (see server/routers/end_frames.py).
    */
   end_frame_image?: string | null;
   generated_assets?: GeneratedAssets;
-  /** 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回后清除，只读。 */
+  /** Pending authoring: prompt authoring has not filled in the visual layer. Set on new entries and cleared after prompt authoring writes back; read-only. */
   pending_authoring?: boolean;
 }
 
@@ -351,7 +351,7 @@ export interface DramaEpisodeScript {
   scenes: DramaScene[];
 }
 
-/** 带货框架 section 八值引导（与后端审定配比表用词一致；不硬枚举，允许自定义值）。 */
+/** Eight suggested section values for the sales framework (matching the backend-approved ratio table; not a strict enum, allowing custom values). */
 export const AD_SECTION_VALUES = [
   "hook",
   "pain_point",
@@ -363,31 +363,31 @@ export const AD_SECTION_VALUES = [
   "cta",
 ] as const;
 
-/** 广告/短片分镜（平铺 shots[]，口播文案一等）。 */
+/** Ad/short-film storyboard (flat shots[], with spoken copy as a first-class field). */
 export interface AdShot {
   shot_id: string;
-  /** 带货框架段落标签（hook/pain_point/... 八值引导，不硬枚举）。 */
+  /** Sales framework section label (eight suggestions such as hook/pain_point/..., not a strict enum). */
   section: string;
   duration_seconds: DurationSeconds;
-  /** 口播文案，字幕导出与后续配音的唯一来源。 */
+  /** Spoken copy, the sole source for subtitle export and subsequent dubbing. */
   voiceover_text: string;
   characters_in_shot?: string[];
   scenes?: string[];
   props?: string[];
-  /** 商品名称引用，非空即商品分镜。 */
+  /** Product name references; nonempty means a product storyboard. */
   products_in_shot?: string[];
-  /** 待编写分镜（手动新增）为 null，由提示词编写补出。 */
+  /** Null for a storyboard pending authoring (manually added), to be filled by prompt authoring. */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   note?: string;
   /**
-   * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
-   * 只由 /end-frame 的设置/清除端点写入——通用剧本 PATCH 刻意不接受该字段，
-   * 避免绕过快照复制写出悬空引用（见 server/routers/end_frames.py）。
+   * Last-frame snapshot path (project-relative). The video starts from the storyboard image and transitions to this image at its end.
+   * Written only by the /end-frame set/clear endpoints; generic script PATCH deliberately rejects this field
+   * to prevent dangling references that bypass snapshot copying (see server/routers/end_frames.py).
    */
   end_frame_image?: string | null;
   generated_assets?: GeneratedAssets;
-  /** 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回后清除，只读。 */
+  /** Pending authoring: prompt authoring has not filled in the visual layer. Set on new entries and cleared after prompt authoring writes back; read-only. */
   pending_authoring?: boolean;
 }
 
@@ -402,7 +402,7 @@ export interface AdEpisodeScript {
 
 export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript | AdEpisodeScript;
 
-/** 提示词编写的请求：范围（省略为全部待编写）、是否显式重写、附加指令与覆盖令牌。 */
+/** Prompt authoring request: scope (all pending entries when omitted), explicit rewrite flag, additional instructions, and overwrite token. */
 export interface AuthorPromptsRequest {
   entry_ids?: string[] | null;
   rewrite?: boolean;
@@ -410,7 +410,7 @@ export interface AuthorPromptsRequest {
   overwrite_revision?: string | null;
 }
 
-/** 显式重写将覆盖的已有视觉层内容；`text` 是服务端渲染的丢失清单，`revision` 是认可令牌。 */
+/** Existing visual content overwritten by an explicit rewrite; `text` is the server-rendered loss list, and `revision` is the acknowledgment token. */
 export interface PromptOverwrite {
   revision: string | null;
   entries: { id: string; fields: string[] }[];
@@ -421,50 +421,50 @@ export interface AuthorPromptsResponse {
   batch: { batch_id: string; members: { unit_id: string; task_id: string | null; deduped?: boolean }[] };
 }
 
-/** AI 规划脚本的请求：附加指令（随请求按集保存）。 */
+/** AI script planning request: additional instructions (saved per episode with the request). */
 export interface PlanScriptRequest {
   instructions?: string | null;
 }
 
-/** 提交后立即返回的生成批次，形状同提示词编写。 */
+/** Generation batch returned immediately after submission, with the same shape as prompt authoring. */
 export type PlanScriptResponse = AuthorPromptsResponse;
 
-/** 广告/短片「AI 生成脚本」的请求：附加指令只随本次提交；整份重做时带上认可覆盖的令牌。 */
+/** Ad/short-film AI script generation request: additional instructions apply only to this submission; a full regeneration includes the overwrite acknowledgment token. */
 export interface GenerateAdScriptRequest {
   instructions?: string | null;
   regenerate?: boolean;
   overwrite_revision?: string | null;
 }
 
-/** 广告/短片整份生成任务成功时的结果：本次登记的新资产（衍生名写作「本体/衍生」）。 */
+/** Successful full ad/short-film generation result: newly registered assets (derivative names use owner/derivative). */
 export interface AdScriptTaskResult {
   message?: string;
   new_assets?: { type: "character" | "scene" | "prop"; name: string }[];
 }
 
-/** AI 修复待修复草稿：提交后立即返回的生成批次，形状同提示词编写。 */
+/** AI repair of a draft awaiting repair: generation batch returned immediately after submission, with the same shape as prompt authoring. */
 export type DraftRepairResponse = AuthorPromptsResponse;
 
-/** AI 修复任务成功时的结果：违约清零即已采用；未采用时草稿里还剩的违约数。 */
+/** Successful AI repair result: adopted when no violations remain; otherwise gives the remaining draft violation count. */
 export interface DraftRepairTaskResult {
   adopted: boolean;
   violation_count: number;
 }
 
 /**
- * 一侧提示词的最终渲染结果。`text` 与 `unavailable` 恰有一个非 null；
- * `unavailable` 已是后端按请求语言渲染的成品文案，前端不再二次翻译。
+ * Final rendering of one prompt side. Exactly one of `text` and `unavailable` is non-null;
+ * `unavailable` is already rendered by the backend in the request language and is not translated again by the frontend.
  */
 export interface RenderedPromptPreview {
   text: string | null;
   unavailable: string | null;
-  /** 该条目的这一侧提示词当前是文本形态。 */
+  /** This entry's prompt on this side is currently in text form. */
   is_text_form: boolean;
-  /** 渲染这份文本时产生的提示（如参考图超出后端上限被裁剪），已由后端按请求语言渲染成成品文案。 */
+  /** Notices produced while rendering this text (such as reference images trimmed to the backend limit), already rendered by the backend in the request language. */
   warnings: string[];
 }
 
-/** 条目最终提示词预览：与执行期同一渲染出口，逐字等于实际发给模型的文本。 */
+/** Final prompt preview for an entry: uses the same rendering exit as execution and exactly matches the text sent to the model. */
 export interface ItemPromptPreview {
   item_id: string;
   content_mode: "narration" | "drama" | "ad";

@@ -1,77 +1,77 @@
-# 大项目性能基准
+# Large-project performance benchmarks
 
-在合成的参考生视频大项目上测量聚合接口的耗时：空闲时、服务重启后第一次打开时，以及生成高峰期。手动运行，不进 CI 闸门。项目只含合成数据。
+Measure aggregate-endpoint latency on a large synthetic reference-to-video project: idle, first open after restart, and peak generation load. Run manually, outside CI gates. Projects contain synthetic data only.
 
-## 一条命令跑完
+## Run everything with one command
 
-在仓库根目录运行：
+From repository root:
 
 ```bash
 uv run python -m scripts.perf.bench all
 ```
 
-依次执行三步：
+Runs three steps in order:
 
-1. 构建 90 集 × 28 单元的项目，退回 schema 17 的形态后按服务启动的方式跑一遍项目迁移，由 v17→v18 补录给存量视频写入内容指纹，并记录迁移耗时。参数与上次相同时复用已有项目。
-2. 空闲测量。
-3. 高峰模拟。
+1. Build 90 episodes × 28 units, return the project to schema 17, then run startup-style migration. v17→v18 backfills content fingerprints for existing videos and records migration time. Reuse the project when parameters match the previous build.
+2. Measure idle performance.
+3. Simulate peak load.
 
-最后打印汇总表，并写入 `<数据目录>/out/summary-<tag>.md`。在 8 核 Apple M3 上，一次完整运行约需 11 分钟：构建约 40 秒，空闲测量约 1 分钟，高峰模拟固定 4 分钟，再加上排空时间。改动前的基线排空会达到 5 分钟上限。
+Print a summary table and write `<数据目录>/out/summary-<tag>.md`. On an 8-core Apple M3, a full run takes about 11 minutes: roughly 40 seconds building, 1 minute idle measurements, a fixed 4-minute peak simulation, plus draining. The pre-change baseline reaches the 5-minute drain limit.
 
-数据目录默认为 `$TMPDIR/arcreel-perf-bench`，可以用 `--data-root` 指定；重建会清空其中的 `projects`，所以只接受空目录或基准建过的目录。多个 worktree 同时跑基准时，每个 worktree 使用各自的数据目录。基准在进程内驱动 ASGI 应用，不监听端口。
+Default data directory is `$TMPDIR/arcreel-perf-bench`, overridden by `--data-root`. Rebuilding clears its `projects`, so only empty or benchmark-created directories are accepted. Concurrent worktrees must use separate data directories. The benchmark drives an in-process ASGI application without listening on a port.
 
-## 只测某个接口或某一步
+## Run one endpoint or step
 
-| 命令 | 作用 |
+| Command | Effect |
 |---|---|
-| `bench build` | 只构建项目，`--rebuild` 强制重建 |
-| `bench idle --only cost` | 只做空闲测量：重启后首开一次，清缓存后请求一次，再连续请求 `--reps` 次（默认 5 次） |
-| `bench peak --only cost` | 高峰模拟中只重拉指定接口，探针照常运行 |
-| `bench profile --only project` | 用 cProfile 剖析一次清缓存后的请求和一次热请求，`.prof` 写入 `out/` |
-| `bench all --only project cost` | 完整流程，限定接口 |
+| `bench build` | Build only; `--rebuild` forces rebuilding |
+| `bench idle --only cost` | Idle only: one first-after-restart request, one after clearing caches, then `--reps` consecutive requests (default 5) |
+| `bench peak --only cost` | Refetch only the selected endpoint during peak load; probes run normally |
+| `bench profile --only project` | cProfile one cache-cleared request and one warm request; write `.prof` to `out/` |
+| `bench all --only project cost` | Full flow, restricted endpoints |
 
-接口名：`project`（项目详情）、`cost`（费用估算）、`wf_status`（制作状态）、`wf_plan`（工作流规划）、`units`（参考单元列表，集号由 `--ep` 指定，默认第 45 集）。
+Endpoint names: `project` (project details), `cost` (cost estimation), `wf_status` (production status), `wf_plan` (workflow planning), `units` (reference-unit list; episode from `--ep`, default episode 45).
 
-改动前后对比时，在改动前和改动后的检出上分别运行，用 `--tag before` / `--tag after` 区分输出文件。高峰模拟会给项目追加视频版本，所以对比的两次都加 `--rebuild`，从同一份初始项目开始。
+For before/after comparisons, run each checkout with `--tag before` / `--tag after` to distinguish outputs. Peak simulation appends video versions, so use `--rebuild` for both runs to start from identical projects.
 
-## 常用参数
+## Common parameters
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Meaning |
 |---|---|---|
-| `--episodes` / `--units` / `--assets` | 90 / 28 / 30 | 集数、每集单元数、资产设计图数 |
-| `--video-kb` / `--sheet-kb` | 128 / 512 | 每个视频和每张设计图的字节数（KB） |
-| `--video-ratio` | 0.9 | 已出片单元的比例。每条视频另有一份版本快照 |
-| `--duration` | 240 | 高峰期写入持续的秒数 |
-| `--interval` | 2 5 | 两次视频完成之间的间隔范围（秒） |
-| `--drain` | 300 | 停止写入后最多等待排空的秒数 |
+| `--episodes` / `--units` / `--assets` | 90 / 28 / 30 | Episodes, units per episode, asset design images |
+| `--video-kb` / `--sheet-kb` | 128 / 512 | Size of each video and design image (KB) |
+| `--video-ratio` | 0.9 | Proportion of completed units; each video also has a version snapshot |
+| `--duration` | 240 | Seconds of writes during peak load |
+| `--interval` | 2 5 | Range of seconds between video completions |
+| `--drain` | 300 | Maximum seconds to drain after writing stops |
 
-## 输出与验收口径
+## Outputs and acceptance criteria
 
-| 汇总项 | 含义 |
+| Summary item | Meaning |
 |---|---|
-| 重启后首开 | 每个接口在新进程里的第一次请求，不计模块导入。对应「服务重启后的第一次打开，单独记录」 |
-| 空闲 p95 | 热态下连续 `--reps` 次请求的 p95 |
-| 高峰 p95 | 高峰期所有请求在服务端的耗时 p95，包括被前端放弃的请求。`peak-<tag>.json` 中另有 `delivered_p95`，只统计未被放弃的请求 |
-| 高峰/空闲 | 与硬件无关的口径：不超过 2 倍 |
-| 同时在算最大份数 | 项目详情和费用估算统计计算函数的并发数（见 `harness.COMPUTE_MARKERS`），与请求是否合流无关；其余接口统计在途请求数 |
-| 排空时间 | 停止写入后，所有在途请求完成所用的时间。达到 `--drain` 上限时注明尚未完成的请求 |
-| 轻量请求 p95 | `media_range`：对一条视频发 `Range: bytes=0-65535` 请求；`auth_verify`：带真实 JWT 的鉴权校验。每 0.2 秒一次 |
-| 启动迁移 | 构建时 v17→v18 迁移的耗时（进程内缓存已清，操作系统页缓存是热的），以及迁移后带内容指纹的视频条目数。复用已有项目时沿用上次构建的记录 |
-| 热态读取媒体内容 | 热态打开项目详情时，读出视频或音频内容的次数与字节数。只读 1 字节的可读性探测不计入。验收要求为 0 |
+| First open after restart | First request per endpoint in a fresh process, excluding module imports; separately records first open after service restart |
+| Idle p95 | p95 of `--reps` consecutive warm requests |
+| Peak p95 | Server latency p95 across all peak requests, including abandoned frontend requests. `peak-<tag>.json` also has `delivered_p95`, excluding abandoned requests |
+| Peak/idle | Hardware-independent criterion: no greater than 2× |
+| Maximum simultaneous computations | Project details and cost estimates count concurrent compute-function executions (see `harness.COMPUTE_MARKERS`), independent of coalescing; other endpoints count in-flight requests |
+| Drain time | Time for all in-flight requests to finish after writes stop; identify unfinished requests at the `--drain` limit |
+| Lightweight-request p95 | `media_range`: video `Range: bytes=0-65535`; `auth_verify`: authentication with a real JWT. Every 0.2 seconds |
+| Startup migration | Build-time v17→v18 migration latency (process caches cleared, OS page cache warm), and resulting fingerprinted-video count. Reused projects retain the previous build record |
+| Warm media-content reads | Video/audio content-read count and bytes while opening warm project details. One-byte readability probes excluded. Acceptance requires 0 |
 
-`idle-<tag>.json` 和 `peak-<tag>.json` 保存全部原始数字，包括每次请求的线程跳数、线程池排队时间、清单锁等待时间，以及每 0.5 秒一次的采样。
+`idle-<tag>.json` and `peak-<tag>.json` contain all raw numbers, including per-request thread hops, pool queueing, manifest-lock waits, and samples every 0.5 seconds.
 
-## 高峰模拟的行为
+## Peak-simulation behavior
 
-- **写入方：**每隔 `--interval` 完成一条视频，与生产提交路径一致：先暂存，在版本提交时登记产物清单，再把产物写回剧本。基准不直接修改清单。登记会记下视频的内容指纹，`peak-<tag>.json` 的 `video_facts_after` 记录高峰结束时带指纹的视频条目数，应与视频条目总数相同。
-- **客户端：**沿用前端当前的重拉习惯。每完成一次写入，先到实体变更批次：重拉项目详情、制作状态、工作流规划和该集的单元列表，费用估算防抖 0.5 秒后重拉；再到任务终态批次：不重拉项目详情，重拉单元列表、制作状态和工作流规划。同一接口的新请求会取代旧请求，旧请求被放弃，但服务端仍会把它算完。
-- 开始前，每个接口先预热一次，预热请求不计入统计。
+- **Writer:** complete one video each `--interval`, following production commits: stage, register the artifact manifest during version commit, then write the artifact back to the script. The benchmark never edits the manifest directly. Registration records video fingerprints; `peak-<tag>.json` `video_facts_after` counts fingerprinted entries at peak end and should equal total video entries.
+- **Client:** follow current frontend refetches. Each write first emits an entity-change batch: refetch project details, production status, workflow plan, and episode units; debounce cost estimates 0.5 seconds. Then the task-terminal batch refetches units, production status, and workflow plan, without project details. New same-endpoint requests replace old ones; abandoned requests still finish computing server-side.
+- Warm each endpoint once before starting; exclude warmup requests from statistics.
 
-## 维护
+## Maintenance
 
-基准直接调用生产函数。以下函数改名或移动后，需要同步修改：
+The benchmark calls production functions directly. Update these when functions move or change names:
 
-- `harness.COMPUTE_MARKERS`：找不到时，基准启动即报错。
-- `harness.commit_video`：写入方的提交路径。
-- `harness.build`：项目构建器。
-- `harness.downgrade_to_v17`：项目 schema 升级、或内容指纹字段改名时同步修改。
+- `harness.COMPUTE_MARKERS`: missing functions fail immediately at benchmark startup.
+- `harness.commit_video`: writer commit path.
+- `harness.build`: project builder.
+- `harness.downgrade_to_v17`: update when project schema or content-fingerprint field names change.

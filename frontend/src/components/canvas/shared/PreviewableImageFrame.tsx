@@ -11,8 +11,8 @@ interface PreviewableImageFrameProps {
 }
 
 /**
- * 给缩略图加「查看大图」：右上角的放大按钮在悬停或聚焦时出现（触屏上常显），点开后用占满视口的
- * 查看器显示原图。
+ * Add full-size viewing to thumbnails: the top-right enlargement button appears on hover or focus (always visible on touchscreens), opening
+ * a viewport-filling viewer of the original image.
  */
 export function PreviewableImageFrame({ src, alt, children }: PreviewableImageFrameProps) {
   const { t } = useTranslation("dashboard");
@@ -42,7 +42,7 @@ export function PreviewableImageFrame({ src, alt, children }: PreviewableImageFr
 
       {src && (
         <Dialog open={open} onOpenChange={setOpen}>
-          {/* 看图区域固定深色：浅底会干扰对画面明暗的判断 */}
+          {/* Keep the viewing area dark: light backgrounds interfere with judgments of image brightness */}
           <DialogContent size="viewer" className="dark">
             <DialogHeader>
               <DialogTitle>{alt}</DialogTitle>

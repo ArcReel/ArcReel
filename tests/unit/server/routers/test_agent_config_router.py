@@ -1,4 +1,4 @@
-"""Agent config 路由测试。"""
+"""Agent config router tests."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _make_app(session_factory) -> FastAPI:
             await session.commit()
 
     app.dependency_overrides[get_async_session] = override_session
-    # 认证依赖挂在注册处，mini app 须与 server/app.py 的挂法一致，否则测不到真实的鉴权行为。
+    # Authentication dependencies attach at registration; mini apps must match server/app.py to test real authorization behavior.
     app.include_router(agent_config.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
@@ -41,7 +41,7 @@ async def agent_config_client(db_factory):
 @pytest_asyncio.fixture
 async def unauth_client(db_factory, monkeypatch):
     """No dependency override → real auth applies → expects 401/403."""
-    # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，本 fixture 就测不到拒绝。
+    # AUTH_ENABLED=false returns anonymous admin directly from get_current_user, preventing rejection tests in this fixture.
     monkeypatch.setenv("AUTH_ENABLED", "true")
     app = _make_app(db_factory)
     transport = ASGITransport(app=app)
@@ -101,7 +101,7 @@ async def test_create_with_preset(agent_config_client) -> None:
     assert cred["display_name"] == "DeepSeek"
     assert cred["api_key_masked"].startswith("sk-")
     assert cred["icon_key"] == "DeepSeek"
-    # 第一条凭证应自动 active
+    # First credentials should become active automatically.
     assert cred["is_active"] is True
 
 
@@ -129,7 +129,7 @@ async def test_create_custom_with_base_url(agent_config_client) -> None:
 
 @pytest.mark.asyncio
 async def test_create_normalizes_full_messages_endpoint(agent_config_client) -> None:
-    """预设凭证覆盖 base_url 时，整条 messages 端点归一为调用根后入库。"""
+    """Preset credentials overriding base_url normalize complete messages endpoints into invocation roots before persistence."""
     body = {
         "preset_id": "deepseek",
         "base_url": "https://proxy.internal/anthropic/v1/messages",
@@ -151,7 +151,7 @@ async def test_create_normalizes_full_messages_endpoint(agent_config_client) -> 
     ],
 )
 async def test_create_rejects_unsupported_base_url(agent_config_client, base_url: str) -> None:
-    """保存入口拒绝带 query / fragment / userinfo 或缺 scheme 的地址，文案不回显 query 值。"""
+    """Saves reject query / fragment / userinfo or missing schemes; messages never echo query values."""
     resp = await agent_config_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "__custom__", "base_url": base_url, "api_key": "sk"},
@@ -162,7 +162,7 @@ async def test_create_rejects_unsupported_base_url(agent_config_client, base_url
 
 @pytest.mark.asyncio
 async def test_update_normalizes_full_messages_endpoint(agent_config_client) -> None:
-    """PATCH 的 base_url 与 POST 走同一归一：整条 messages 端点入库为调用根。"""
+    """PATCH base_url shares POST normalization: complete messages endpoints persist as invocation roots."""
     cred = (
         await agent_config_client.post(
             "/api/v1/agent/credentials",
@@ -195,7 +195,7 @@ async def test_update_rejects_unsupported_base_url(agent_config_client) -> None:
 
 @pytest.mark.asyncio
 async def test_test_connection_rejects_unsupported_base_url(agent_config_client) -> None:
-    """测试连接入口同样在探测前 422，不发任何出站请求。"""
+    """Connection tests also return 422 before probing, making no outbound requests."""
     resp = await agent_config_client.post(
         "/api/v1/agent/test-connection",
         json={"preset_id": "__custom__", "api_key": "sk", "base_url": "https://x/a?api_key=sk-x"},
@@ -225,7 +225,7 @@ async def _stored_credential(db_factory, cred_id: int):
 
 @pytest.mark.asyncio
 async def test_create_from_custom_provider_copies_its_key_and_base_url(agent_config_client, db_factory) -> None:
-    """从自定义供应商导入：服务端复制该供应商的 base_url 与 api_key，响应只含掩码。"""
+    """Custom-provider imports copy provider base_url/api_key server-side; responses contain masks only."""
     provider_id = await _seed_custom_provider(
         db_factory, base_url="https://relay.example.com/anthropic", api_key="sk-provider-secret"
     )
@@ -244,7 +244,7 @@ async def test_create_from_custom_provider_copies_its_key_and_base_url(agent_con
 
 @pytest.mark.asyncio
 async def test_create_from_custom_provider_prefers_request_base_url(agent_config_client, db_factory) -> None:
-    """请求显式给出 base_url 时以请求为准，密钥仍取自供应商。"""
+    """Explicit request base_url takes precedence; secrets still come from providers."""
     provider_id = await _seed_custom_provider(db_factory, base_url="https://relay.example.com", api_key="sk-p")
     resp = await agent_config_client.post(
         "/api/v1/agent/credentials",
@@ -292,7 +292,7 @@ async def test_create_from_unknown_custom_provider_returns_404(agent_config_clie
 
 @pytest.mark.asyncio
 async def test_create_from_custom_provider_without_key_rejected(agent_config_client, db_factory) -> None:
-    """未配置密钥的供应商不能作为 Agent 凭据来源。"""
+    """Providers without configured secrets cannot supply Agent credentials."""
     provider_id = await _seed_custom_provider(db_factory, base_url="https://relay.example.com", api_key="")
     resp = await agent_config_client.post(
         "/api/v1/agent/credentials",
@@ -327,7 +327,7 @@ async def test_patch_credential(agent_config_client) -> None:
     assert resp.json()["display_name"] == "Renamed"
 
 
-# ── 倍率与档位定价状态 ─────────────────────────────────────────
+# ── Multipliers and tier pricing status ─────────────────────────────────────────
 
 
 def _tiers(cred: dict) -> dict[str, dict]:
@@ -350,7 +350,7 @@ async def test_saved_credential_reports_multiplier_and_the_pricing_status_of_eac
         "binding_stale": False,
         "priced": True,
     }
-    # 非官方预设留空的档位用主模型；对应不到条目的档位未定价
+    # Empty nonofficial preset tiers use main models; unmatched tiers remain unpriced.
     assert _tiers(cred) == {
         "model": main,
         "haiku": {
@@ -391,7 +391,7 @@ async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_
         )
     ).json()
     async with db_factory() as session:
-        # 指向已不在目录里的条目的绑定不生效，回到按模型名对应
+        # Bindings to removed catalog entries are ineffective, falling back to model-name matching.
         await AgentCredentialRepository(session).update(
             created["id"], tier_bindings={"model": "anthropic/claude-haiku-4-5", "opus": "acme/gone"}
         )
@@ -406,12 +406,12 @@ async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_
         "binding_stale": False,
         "priced": True,
     }
-    # 失效绑定回到按模型名对应，但绑定还存着，状态里标出来让界面能解除
+    # Invalid bindings fall back to name matching but remain stored, flagged in status so UI can unlink them.
     assert tiers["opus"]["manually_bound"] is False
     assert tiers["opus"]["binding_stale"] is True
 
 
-# ── 档位手动绑定 ──────────────────────────────────────────────
+# ── Manual tier bindings ──────────────────────────────────────────────
 
 
 async def _create_gateway_credential(client, **extra) -> dict:
@@ -447,7 +447,7 @@ async def test_binding_a_catalog_entry_prices_an_unpriced_tier_and_unbinding_rev
         "binding_stale": False,
         "priced": True,
     }
-    # 只绑了主模型；其余档位用主模型名，没有绑定，仍按名字对应
+    # Bind main models only; other tiers use main-model names without bindings, still matching by name.
     assert tiers["haiku"]["manually_bound"] is False
     assert tiers["haiku"]["priced"] is False
     (listed,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
@@ -497,7 +497,7 @@ async def test_saving_a_credential_can_submit_tier_bindings(agent_config_client)
     assert tiers["opus"]["entry_display_name"] == "Claude Sonnet 4.6"
     assert tiers["haiku"]["manually_bound"] is False
 
-    # 更新按档位合并：给出的档位改绑，null 的档位解除，没给出的档位保持不变
+    # Merge updates by tier: supplied tiers rebind, null unlinks, omitted tiers remain unchanged.
     resp = await agent_config_client.patch(
         f"/api/v1/agent/credentials/{created['id']}",
         json={"tier_bindings": {"opus": None, "sonnet": "anthropic/claude-haiku-4-5"}},
@@ -523,7 +523,7 @@ async def test_saving_a_credential_with_an_unknown_binding_is_rejected_without_c
 async def test_a_stale_binding_to_a_delisted_entry_can_still_be_unbound(agent_config_client, db_factory) -> None:
     created = await _create_gateway_credential(agent_config_client)
     async with db_factory() as session:
-        # 绑定存着，所绑条目已从目录下架
+        # Bindings remain stored after bound entries leave catalogs.
         await AgentCredentialRepository(session).update(created["id"], tier_bindings={"model": "acme/gone"})
         await session.commit()
 
@@ -531,7 +531,7 @@ async def test_a_stale_binding_to_a_delisted_entry_can_still_be_unbound(agent_co
     assert _tiers(listed)["model"]["manually_bound"] is False
     assert _tiers(listed)["model"]["binding_stale"] is True
 
-    # 与这条绑定无关的编辑不被它堵住
+    # Unrelated edits must not be blocked by this binding.
     assert (
         await agent_config_client.patch(f"/api/v1/agent/credentials/{created['id']}", json={"multiplier": 2})
     ).status_code == 200
@@ -577,12 +577,12 @@ async def test_delete_nonexistent_returns_404(agent_config_client) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_inactive_returns_204(agent_config_client) -> None:
-    # 第一条自动 active
+    # First credentials activate automatically.
     await agent_config_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "deepseek", "api_key": "sk-A"},
     )
-    # 第二条显式 activate=False，可删
+    # Second credentials explicitly activate=False, allowing deletion.
     second = (
         await agent_config_client.post(
             "/api/v1/agent/credentials",
@@ -631,7 +631,7 @@ async def test_activate_unknown_id(agent_config_client) -> None:
 
 @pytest.mark.asyncio
 async def test_test_connection_draft_calls_run_test(agent_config_client, monkeypatch) -> None:
-    """POST /agent/test-connection 调 run_test 并把结果序列化为 JSON。"""
+    """POST /agent/test-connection invokes run_test and serializes results as JSON."""
     from unittest.mock import AsyncMock
 
     from lib.config import anthropic_probe as probe_mod

@@ -1,9 +1,9 @@
-"""路由测试自行组装 FastAPI() 时复刻生产注册处的认证挂法。
+"""Reproduce production authentication wiring when router tests assemble FastAPI() themselves.
 
-``server/app.py`` 给受保护 router 挂 ``dependencies=[Depends(get_current_user)]``，
-端点签名里不再声明 ``CurrentUser``。mini app 少挂这一层，测到的就是一个无认证的
-应用——多数用例用 ``dependency_overrides`` 绕过认证，因而不会失败，只有断言 401
-的用例会暴露。
+``server/app.py`` attaches ``dependencies=[Depends(get_current_user)]`` to protected routers;
+endpoint signatures no longer declare ``CurrentUser``. Omitting this layer from a mini app tests an
+unauthenticated application. Most cases bypass authentication through ``dependency_overrides``
+and therefore pass; only cases asserting 401 expose the omission.
 """
 
 from fastapi import Depends, FastAPI
@@ -14,8 +14,8 @@ AUTH_DEPENDENCIES = [Depends(get_current_user)]
 
 
 def override_auth(app: FastAPI) -> None:
-    """放行 mini app 的认证，等价于测试用户已登录。
+    """Allow mini-app authentication, equivalent to the test user being logged in.
 
-    给不关心认证、只测业务行为的用例用；断言 401 的用例不要调它。
+    For cases testing business behavior without caring about authentication; do not call in cases asserting 401.
     """
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

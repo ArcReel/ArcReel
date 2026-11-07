@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// CI 一致性闸门：update-docs 页面库存 / 孤儿译文 / 上站文档标题显式锚点 / UI JSON key 齐全性。
-// 任一命中即非零退出；缺译/滞后清单不在本脚本范围（translation-lock.mjs status 已覆盖，
-// 由 workflow 单独一步写入 step summary，不阻断构建）。
+// CI consistency gate: update-docs page inventory / orphan translations / explicit published-heading anchors / complete UI JSON keys.
+// Any violation exits nonzero. Missing/stale translations are outside this script (translation-lock.mjs status covers them,
+// written to step summary by a separate workflow step without blocking builds).
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,13 +18,13 @@ function toPosix(path) {
   return path.split(sep).join("/");
 }
 
-// ---- 1. update-docs 页面库存与 CONTRIBUTING 各页职责清单 ----
+// ---- 1. update-docs page inventory and CONTRIBUTING page-responsibility list ----
 
 function checkDocInventory() {
   return checkUpdateDocsInventory(repoRoot).problems;
 }
 
-// ---- 2. 孤儿译文：委托给翻译 skill 的唯一真相源（.claude/skills/translate-docs/），不重复实现。 ----
+// ---- 2. Orphan translations: delegate to the translation skill’s single source of truth (.claude/skills/translate-docs/), without reimplementation. ----
 
 function checkOrphanTranslations() {
   const lockScript = resolve(repoRoot, ".claude/skills/translate-docs/scripts/translation-lock.mjs");
@@ -32,27 +32,27 @@ function checkOrphanTranslations() {
     encoding: "utf8",
   });
   const orphans = JSON.parse(output).filter((item) => item.state === "orphan");
-  // 孤儿有两种来源：lockfile 里源已删的登记项，以及反向扫描发现的未登记译文文件。
-  // 后者的 source 是按目标路径反推的、未必存在的源，所以措辞不断言「已不存在」。
+  // Orphans come from lockfile entries whose source was deleted, or unregistered translation files discovered by reverse scans.
+  // The latter infer a possibly nonexistent source from the target path, so wording must not assert that the source no longer exists.
   return orphans.map((item) => `孤儿译文：${item.target}（源 ${item.source} 未登记或已不存在）`);
 }
 
-// ---- 3. 上站文档标题缺显式锚点 ----
+// ---- 3. Published headings missing explicit anchors ----
 //
-// 全部标题须带 `{#id}`（各 locale 共用锚点作为链接目标）。译文与源同结构、受同一套规则约束：
-// 只扫源的话，译文漏写 `{#id}` 只有在恰好有链接指向该锚点时才会被 build 期 onBrokenAnchors 拦下。
+// Every heading needs `{#id}` (locales share anchors as link targets). Translations share source structure and rules:
+// scanning only sources would let translated headings without `{#id}` escape until a build-time onBrokenAnchors check happens to find a link targeting them.
 //
-// index.mdx 的首页卡片标题是 JSX `<h2>`，`{#id}` 语法在 JSX 里不生效，无法补锚点。这里显式登记
-// 豁免文件，而不是让扫描器对 JSX 标题沉默：新增 .mdx 若引入未登记的 JSX 标题会在此处 fail，逼
-// 审查者显式决定豁免还是改回 Markdown 标题；已登记文件若不再含 JSX 标题也会 fail（登记项过期，
-// 须及时摘除）。登记路径相对文档根，源与各 locale 译文里的同名副本一并豁免。
+// Homepage card headings in index.mdx use JSX `<h2>`, where `{#id}` syntax cannot add anchors. Explicitly register
+// exempt files rather than silently ignoring JSX headings: new .mdx files with unregistered JSX headings fail here, requiring
+// reviewers to choose exemption or Markdown headings. Registered files without JSX headings also fail (stale entries
+// must be removed). Paths are relative to document roots; matching source and locale copies share exemptions.
 const JSX_HEADING_EXEMPT_DOCS = new Set(["index.mdx"]);
 
 const ANCHOR_SUFFIX = /\{#([a-z0-9-]+)\}$/;
 
 const TRANSLATION_DOCS_SUFFIX = "docusaurus-plugin-content-docs/current";
 
-// 文档根：中文源目录，加 i18n 下每个 locale 的译文目录。新增 locale 自动纳入，无需登记。
+// Document roots: Chinese sources and each locale translation directory under i18n. New locales are included automatically.
 function docRoots() {
   const i18nDir = resolve(websiteDir, "i18n");
   if (!existsSync(i18nDir)) return ["docs"];
@@ -124,11 +124,11 @@ function checkAnchors() {
   return problems;
 }
 
-// ---- 4. UI JSON key 齐全性（比照 write-translations 输出比对） ----
+// ---- 4. Complete UI JSON keys (compare against write-translations output) ----
 //
-// footer.json 的 `copyright` 键会把 write-translations 运行那一刻的年份写死进英文译文，
-// 而站点配置按当前年份动态求值版权文案——两者逐年错开。故意不提交该键，让其在渲染期
-// 回退到源语言的动态求值，不计入完整性校验。
+// footer.json `copyright` freezes the year at write-translations execution in English translations,
+// while site configuration evaluates copyright dynamically for the current year, causing annual drift. Intentionally omit that key so rendering
+// falls back to the dynamically evaluated source-language value; exclude it from completeness validation.
 const UI_JSON_FILES = [
   "i18n/en/code.json",
   "i18n/en/docusaurus-theme-classic/navbar.json",
@@ -146,9 +146,9 @@ function readKeys(relativePath) {
 function checkUiJsonKeys() {
   const problems = [];
   const before = new Map(UI_JSON_FILES.map((file) => [file, readKeys(file)]));
-  // write-translations 会就地改写委托文件。恢复用内存快照按字节写回，而不是 git checkout：
-  // 后者会连同工作区里尚未提交的译文编辑一起抹掉（本地跑这个检查的正是刚编辑完 UI JSON 的人），
-  // 且原本不存在、被 write-translations 新建的文件也无法靠 checkout 清除。
+  // write-translations rewrites delegated files in place. Restore byte-for-byte from in-memory snapshots rather than git checkout:
+  // checkout would also discard uncommitted translation edits (local callers just edited UI JSON),
+  // and cannot remove files newly created by write-translations that did not exist before.
   const snapshots = new Map(
     UI_JSON_FILES.map((file) => {
       const path = resolve(websiteDir, file);

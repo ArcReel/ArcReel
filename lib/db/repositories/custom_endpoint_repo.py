@@ -1,4 +1,4 @@
-"""自定义调用端点仓储：定义本体 CRUD 与模型行引用查询。"""
+"""Custom invocation-endpoint repository: definition CRUD and model-reference queries."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from lib.db.repositories.base import BaseRepository
 
 
 class EndpointReference(NamedTuple):
-    """一条引用该调用端点的模型行，连同它所属的供应商。"""
+    """A model row referencing this invocation endpoint, together with its provider."""
 
     provider_id: int
     provider_display_name: str
@@ -22,10 +22,11 @@ class EndpointReference(NamedTuple):
 
 
 class EndpointAttachment(NamedTuple):
-    """一条引用该调用端点的模型行，连同它所属供应商声明的模型发现协议。
+    """A model row referencing this invocation endpoint, with its provider's declared model-discovery protocol.
 
-    与 :class:`EndpointReference` 分开：那一条是给用户看的引用清单，这一条是判「端点 × 供应商
-    协议」配对用的事实，多带一个协议字段就得改动 409 响应的公开形状。
+    Separate from :class:`EndpointReference`: that is a user-facing reference list; this
+    supplies facts for endpoint/provider-protocol pairing. Adding a protocol field there
+    would change the public 409 response shape.
     """
 
     provider_id: int
@@ -34,11 +35,12 @@ class EndpointAttachment(NamedTuple):
 
 
 class CustomEndpointRepository(BaseRepository):
-    """``custom_endpoint`` 表的读写。
+    """Read/write access to the ``custom_endpoint`` table.
 
-    镜像列（``kind`` / ``schema_version`` / ``media_type`` / ``display_name``）由调用方在写入
-    前从 ``definition`` 派生后一并传入，本层不解析定义：派生规则属格式层，落在
-    ``lib.custom_provider.endpoint_resolution``，仓储只负责持久化。
+    Callers derive mirror columns (``kind`` / ``schema_version`` / ``media_type`` /
+    ``display_name``) from ``definition`` before writing and pass them together. This layer
+    does not parse definitions: format-level derivation belongs to
+    ``lib.custom_provider.endpoint_resolution``; the repository only persists values.
     """
 
     async def create(
@@ -58,7 +60,7 @@ class CustomEndpointRepository(BaseRepository):
             display_name=display_name,
         )
         self.session.add(endpoint)
-        await self.session.flush()  # 取回自增 id：端点键 ce-<id> 由它派生
+        await self.session.flush()  # Retrieve the auto-incremented id; endpoint key ce-<id> derives from it
         return endpoint
 
     async def get(self, endpoint_id: int) -> CustomEndpoint | None:
@@ -81,7 +83,7 @@ class CustomEndpointRepository(BaseRepository):
         media_type: str,
         display_name: str,
     ) -> CustomEndpoint | None:
-        """原地整份替换定义与镜像列，保留 id（即端点键）与模型行挂接。不存在时返回 None。"""
+        """Replace the whole definition and mirror columns in place, retaining id (the endpoint key) and model attachments; return None when absent."""
         endpoint = await self.get(endpoint_id)
         if endpoint is None:
             return None
@@ -94,10 +96,10 @@ class CustomEndpointRepository(BaseRepository):
         return endpoint
 
     async def delete(self, endpoint_id: int) -> None:
-        """连同安装记录一起删除。
+        """Delete together with installation records.
 
-        显式删除安装记录而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上生效，
-        残留记录会让同一市场条目再也装不上。
+        Explicitly delete installation records rather than relying on FK CASCADE, which
+        requires foreign_keys pragma; leftover records prevent reinstalling the same market entry.
         """
         await self.session.execute(
             delete(MarketInstallation).where(MarketInstallation.custom_endpoint_id == endpoint_id)
@@ -105,13 +107,14 @@ class CustomEndpointRepository(BaseRepository):
         await self.session.execute(delete(CustomEndpoint).where(CustomEndpoint.id == endpoint_id))
         await self.session.flush()
 
-    # ── 引用完整性 ────────────────────────────────────────────────
+    # ── Referential integrity ────────────────────────────────────────────────
 
     async def list_attachments(self, endpoint_key: str) -> list[EndpointAttachment]:
-        """按 ``endpoint`` 键字面量列出引用它的模型行及其供应商协议。
+        """List referencing model rows and provider protocols by literal ``endpoint`` key.
 
-        整份替换定义时用来判断新的容器类型还挂不挂得住：配对规则本身在
-        ``lib.custom_provider.discovery_formats``，本层只取事实。
+        When replacing the whole definition, use these facts to check whether the new
+        container kind remains attachable. Pairing rules belong to
+        ``lib.custom_provider.discovery_formats``; this layer only retrieves facts.
         """
         stmt = (
             select(
@@ -127,10 +130,11 @@ class CustomEndpointRepository(BaseRepository):
         return [EndpointAttachment(*row) for row in result.all()]
 
     async def list_references(self, endpoint_key: str) -> list[EndpointReference]:
-        """按 ``endpoint`` 键字面量列出引用它的模型行，供 409 响应说明「谁还在用」。
+        """List referencing model rows by literal ``endpoint`` key so 409 responses identify remaining users.
 
-        引用完整性靠本查询而非 FK：409 要回引用清单，FK 约束只能抛一个 IntegrityError，
-        而删除路径本就要先查引用（docs/adr/0067）。
+        This query, not a foreign key, enforces referential integrity: 409 must return a
+        reference list, while FK constraints only raise IntegrityError. Deletion already
+        must query references first (docs/adr/0067).
         """
         stmt = (
             select(

@@ -1,9 +1,9 @@
-"""广告/短片「AI 生成脚本」的 Web 入口。
+"""Web entry point for ad / short-film AI script generation.
 
-与 Agent 的 ``generate_episode_script`` 调用同一个服务命令：准入（创作灵感与商品至少一项）、整份重做的
-覆盖确认、新增资产的登记都在服务内，路由只负责把结果映射成 HTTP。提交后立即返回生成批次，任务进度
-经任务事件呈现；结果直接写成正式脚本，不经过内容确认。附加指令只随本次提交，不保存。
-"""
+Use the same service command as the Agent’s ``generate_episode_script``: admission (at least creative inspiration or products),
+overwrite confirmation for full redos, and new asset registration belong to the service; the route only maps results to HTTP.
+Submission immediately returns a generation batch; task events expose progress. Results become formal scripts directly,
+without content confirmation. Additional instructions apply only to this submission and are not saved."""
 
 from typing import Annotated
 
@@ -35,11 +35,11 @@ class AdScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instructions: Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)] | None = Field(
-        default=None, description="附加指令原文；只随本次生成，不保存"
+        default=None, description="Original additional instructions; apply only to this generation, without saving"
     )
-    regenerate: bool = Field(default=False, description="整份重做，替换已有的正式脚本")
+    regenerate: bool = Field(default=False, description="Redo the whole script, replacing the existing formal script")
     overwrite_revision: str | None = Field(
-        default=None, description="认可覆盖的正式脚本版本，取自 script_overwrite.revision"
+        default=None, description="Formal-script revision accepted for overwrite, from script_overwrite.revision"
     )
 
 
@@ -68,11 +68,11 @@ async def generate_ad_script(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交广告/短片整份生成，返回生成批次。
+    """Submit full ad / short-film generation, returning a generation batch.
 
-    ``regenerate`` 时已有正式脚本而未带（或带了过期的）``overwrite_revision`` 返回 409，诊断里的
-    ``script_overwrite`` 列出将被移除的条目与产物、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。
-    """
+    If ``regenerate`` encounters an existing formal script and ``overwrite_revision`` is absent or stale, return 409 without
+    submitting tasks. Diagnostic ``script_overwrite`` lists entries and artifacts to remove, rendered ``text``, and the
+    acceptance token ``revision``."""
     pm = get_project_manager()
     outcome = await generate_episode_script(
         ToolRequest(

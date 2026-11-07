@@ -1,10 +1,10 @@
-"""预设 Anthropic 兼容供应商目录。
+"""Preset Anthropic-compatible provider catalog.
 
-每条 PresetProvider 提供 messages_url + discovery_url + 「获取 API Key」链接，
-让用户在 UI 上选 chip 即填好 URL。`default_model` 仅作为输入框 placeholder
-提示，不再自动预填到表单。
+Each PresetProvider supplies messages_url + discovery_url + a Get API Key link, filling URLs
+when users select UI chips. `default_model` is input placeholder guidance only, no longer
+automatically prefilled into forms.
 
-新增 entries 在此文件添加；前端 ICON_LOADERS 通过 icon_key 与 @lobehub/icons 对齐。
+Add entries here; frontend ICON_LOADERS aligns icon_key with @lobehub/icons.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ CUSTOM_SENTINEL_ID = "__custom__"
 class PresetProvider:
     id: str
     display_name: str
-    icon_key: str  # @lobehub/icons 子组件名 (如 "DeepSeek")
+    icon_key: str  # @lobehub/icons subcomponent name (e.g. "DeepSeek")
     messages_url: str
     discovery_url: str | None
     default_model: str
@@ -157,7 +157,7 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         api_key_pattern=r"^sk-[A-Za-z0-9]+$",
         is_recommended=False,
     ),
-    # 模型清单与 Base URL 来源：https://www.volcengine.com/docs/82379/1928262 「模型配置」
+    # Model list/Base URL source: https://www.volcengine.com/docs/82379/1928262 “模型配置” (model configuration)
     "ark-coding-plan": PresetProvider(
         id="ark-coding-plan",
         display_name="Volcengine Ark Coding Plan",
@@ -183,8 +183,8 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         api_key_pattern=None,
         is_recommended=False,
     ),
-    # Base URL 来源：https://www.volcengine.com/docs/82379/2373740 「配置 Claude Code」
-    # 模型清单来源：https://www.volcengine.com/docs/82379/2366394 「支持模型及 Harness」
+    # Base URL source: https://www.volcengine.com/docs/82379/2373740 “配置 Claude Code” (configure Claude Code)
+    # Model list source: https://www.volcengine.com/docs/82379/2366394 “支持模型及 Harness” (supported models/Harnesses)
     "ark-agent-plan": PresetProvider(
         id="ark-agent-plan",
         display_name="Volcengine Ark Agent Plan",
@@ -214,7 +214,7 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
 }
 
 
-# 显示顺序：显式定义,Anthropic Official 永远第一,ArcReel 第二,其余按区域归组
+# Explicit display order: Anthropic Official always first, ArcReel second, others grouped by region.
 PRESET_ORDER: tuple[str, ...] = (
     "anthropic-official",
     "arcreel",

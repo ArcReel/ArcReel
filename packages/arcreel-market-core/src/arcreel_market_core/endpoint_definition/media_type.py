@@ -1,4 +1,4 @@
-"""读一份定义的媒体类型：索引投影、端点投影与镜像列共用这一份实现。"""
+"""Read a definition's media type, sharing one implementation across index projections, endpoint projections, and mirror columns."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from typing import Any
 
 from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
 
-#: 声明式定义不写 ``media_type`` 时的媒体类型。不写该字段的已有定义与随版定义都是视频定义，
-#: 缺省必须是视频。
+#: Media type when a declarative definition omits ``media_type``. Existing and bundled definitions without this field are video definitions,
+#: so the default must be video.
 DEFAULT_DECLARATIVE_MEDIA_TYPE = "video"
 
-#: ``kind`` → 从定义读媒体类型。两种 kind 都由定义自己声明，ComfyUI 定义必须写。
+#: ``kind`` to media-type reader. Both kinds declare media type in the definition; ComfyUI requires it explicitly.
 _MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
     DECLARATIVE_KIND: lambda definition: str(definition.get("media_type", DEFAULT_DECLARATIVE_MEDIA_TYPE)),
     COMFYUI_KIND: lambda definition: str(definition["media_type"]),
@@ -19,11 +19,11 @@ _MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
 
 
 def definition_media_type(definition: Mapping[str, Any]) -> str:
-    """读一份**已过校验**的定义的媒体类型，按 ``kind`` 取。
+    """Read media type from a **validated** definition according to ``kind``.
 
     Raises:
-        KeyError: 定义缺 ``kind``，或 ComfyUI 定义缺 ``media_type``。
-        ValueError: 定义的 ``kind`` 没有媒体类型读法。
+        KeyError: Definition lacks ``kind``, or a ComfyUI definition lacks ``media_type``.
+        ValueError: Definition ``kind`` has no media-type reader.
     """
     kind = str(definition["kind"])
     read = _MEDIA_TYPE_BY_KIND.get(kind)

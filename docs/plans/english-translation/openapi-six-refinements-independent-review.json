@@ -1,0 +1,68 @@
+{
+  "status": "accepted",
+  "reviewer": "passive_translation, independent of root author",
+  "original_pairs": "/tmp/arcreel-openapi-unmatched-pairs.json",
+  "original_indexes": [
+    85,
+    89,
+    90,
+    118,
+    119,
+    170
+  ],
+  "method": "Compared original Chinese clauses with actual refined source docstrings, retaining full neighboring conditions.",
+  "findings": [],
+  "accepted_precision": [
+    "duration_constraints retains both narrowed results and causes.",
+    "Permanent deletion explicitly targets already-deleted projects, retaining creator-only exclusion.",
+    "Short-lived tokens authenticate native browser downloads.",
+    "ZIP import retry explicitly resubmits confirm_report after user confirmation, retaining 409/no-data behavior.",
+    "Episode-title synchronization calls _apply_episode_sync inline under script/project locks rather than implying serialization of code into JSON.",
+    "409 explicitly means official service disabled, with third-party exclusion preserved."
+  ],
+  "actual_descriptions": [
+    {
+      "path": "server/routers/projects.py",
+      "function": "import_project_archive",
+      "line": 415,
+      "description": "Import projects from ZIP.\n\nIf upgrades adjust/omit content and ``confirm_report`` is absent, return 409 with\n``confirmation_required`` and ``migration_report``, leaving no project data. Resubmit with ``confirm_report`` after user confirmation.",
+      "file_sha256": "3d4aeb5036bf955ada8a768dfff0ac1e74698c412d65df4123e8cf763f4a806e"
+    },
+    {
+      "path": "server/routers/projects.py",
+      "function": "create_export_token",
+      "line": 491,
+      "description": "Issue short-lived download tokens for authentication of native browser downloads.",
+      "file_sha256": "3d4aeb5036bf955ada8a768dfff0ac1e74698c412d65df4123e8cf763f4a806e"
+    },
+    {
+      "path": "server/routers/projects.py",
+      "function": "get_video_capabilities",
+      "line": 791,
+      "description": "Resolve current-project video-model capabilities plus project preferences.\n\nAfter three-level model selection (project > system settings > system default), read model\n`supported_durations` and derive `max_duration`, also returning user preference\n`project.json.default_duration`. Both storyboard/reference_video modes reuse this.\n\n`video_backend` (\"provider/model\") selects unsaved settings-form candidates: omitted resolves stored\nconfiguration; supplied resolves candidate × project generation mode, making two-dimensional values\nsuch as voice_consistency reflect current selections rather than last saves. First check candidate\nbucket capabilities. Complete bare providers (without \"/\") with registry video defaults, matching\nlegacy project.json overrides (see `_parse_project_provider`).\n\n`resolution` / `uses_reference_images` are unsaved form values. `uses_reference_images` chooses task\nbucket (default: project generation mode). Evaluate `resolution` as an override through that bucket's\nrequest facts, returning the narrowed result and its causes in `duration_constraints`. Omission uses saved tiers\n(dashboard); empty `resolution` explicitly means automatic, without fallback to saved tiers, resolving\nas if no project tier existed (custom providers still use model defaults).\n\nProject generation mode fixes capability axes throughout the project, requiring no episode number:\nmode is immutable after creation.",
+      "file_sha256": "3d4aeb5036bf955ada8a768dfff0ac1e74698c412d65df4123e8cf763f4a806e"
+    },
+    {
+      "path": "server/routers/projects.py",
+      "function": "purge_deleted_project",
+      "line": 1262,
+      "description": "Permanently delete already-deleted projects (creator-only, never Agent tools).",
+      "file_sha256": "3d4aeb5036bf955ada8a768dfff0ac1e74698c412d65df4123e8cf763f4a806e"
+    },
+    {
+      "path": "server/routers/projects.py",
+      "function": "update_episode",
+      "line": 1862,
+      "description": "Update episode top-level metadata (currently title only).\n\nWith scripts, scripts/*.json top-level title is authoritative: locked_episode_script changes it inside\nscript-lock → project-lock critical sections and calls _apply_episode_sync inline to synchronize\nproject.json episodes[].title, atomically without TOCTOU. PATCH /projects can no longer edit the mirror (title is\nabsent from EpisodePatch), eliminating duplicate truth sources.\n\nWithout scripts (new blank/unplanned episodes), store titles only in ledger entries; later scripts use\nthem initially. Titles may be cleared; presentation derives untitled episode names by broadcast position.",
+      "file_sha256": "3d4aeb5036bf955ada8a768dfff0ac1e74698c412d65df4123e8cf763f4a806e"
+    },
+    {
+      "path": "server/routers/market.py",
+      "function": "list_entry_aggregates",
+      "line": 414,
+      "description": "Official-service install counts and ratings for enabled official-source entries; never send third-party entries to the official service. Return 409 when the official service is disabled.",
+      "file_sha256": "f05460bed22f818a759e57864c83abdf5d6a46a1485924f480789137dd459ff7"
+    }
+  ],
+  "limits": "Six requested refinements only; no duplicate review of other 172 pairs or independent integration rerun."
+}

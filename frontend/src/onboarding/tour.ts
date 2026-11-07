@@ -1,45 +1,45 @@
 /**
- * driver.js 薄适配层。
+ * Thin driver.js adapter.
  *
- * 存在的理由是把「引导步骤」这个业务概念与 driver.js 的 API 隔开：步骤只描述锚点名和
- * 文案，锚点→选择器的映射、按钮文案、皮肤、退出路径收口都在这里一次性给定。后续段落
- * 新增步骤时只写 TourStep，不碰 driver 配置。
+ * Separate business onboarding steps from driver.js APIs: steps describe anchors/copy;
+ * anchor→selector mappings, labels, skins and exit convergence are configured once here. Additional
+ * steps declare TourStep without touching driver configuration.
  *
- * 锚点约定：`anchor` 取自 `anchors.ts` 的注册表，映射到 `[data-onboarding="<名字>"]`；
- * 为 null 时该步不高亮任何元素，driver 渲染居中气泡（开场与收尾用这个形态）。锚点当下
- * 不在 DOM 里（跨页导航后目标尚未渲染、或元素被改没了）时，等 `anchorWaitMs` 后降级
- * 成居中气泡继续讲，不跳步、不中止，同时 `console.warn` 留线索。
+ * `anchor` comes from `anchors.ts`, mapping to `[data-onboarding="<名字>"]`;
+ * null means centered popovers without highlights, used for opening/closing. Anchors absent
+ * from DOM after navigation or removal wait `anchorWaitMs`, then degrade
+ * to centered explanations without skipping/stopping, recording `console.warn` evidence.
  */
 
 import { driver, type Driver, type DriveStep, type PopoverDOM } from "driver.js";
 import type { OnboardingAnchor } from "./anchors";
 
 export interface TourStep {
-  /** 锚点名 → `[data-onboarding="…"]`；null = 居中气泡，不高亮元素 */
+  /** Anchor names → `[data-onboarding="…"]`; null centers popovers without highlights. */
   anchor: OnboardingAnchor | null;
   title: string;
   body: string;
   /**
-   * 该步所需的路由，调用方自行定义、这里不解释语义——纯粹原样透传，供调用方在
-   * `onStepChange` 里比对是否需要导航。省略 = 不要求特定路由，留在当前页继续讲
-   * （开场欢迎气泡以外的居中步通常这样用）。
+   * Required routes are caller-defined and uninterpreted here, passed unchanged for
+   * `onStepChange` navigation checks. Omission stays on current pages without route requirements,
+   * commonly for centered steps beyond welcomes.
    */
   route?: string;
   /**
-   * 该步所需的查询参数。与 `route` 一样原样透传、这里不解释语义——供调用方在同一
-   * pathname 下按查询参数切换页面内分区（如设置页的 `section`）时比对与导航。
+   * Required query parameters, passed unchanged like `route` without interpretation; callers compare/navigate sections
+   * sharing pathnames, such as settings `section`.
    */
   query?: Record<string, string>;
   /**
-   * 该步是否允许点击高亮元素本身。默认继承全局 `disableActiveInteraction: true`
-   * （防止讲到哪点到哪，意外触发生成动作）。仅当该步的落点动作就是导航（如点进演示
-   * 工作台）而非写操作时才置 true——否则高亮元素在整个引导期间都点不到。
+   * Whether highlighted elements accept clicks; defaults inherit global `disableActiveInteraction: true`,
+   * preventing explanations accidentally triggering generation. True only for navigational actions such as demo
+   * entry, never writes; otherwise highlights remain unclickable throughout onboarding.
    */
   interactive?: boolean;
   /**
-   * `interactive` 步点击锚点后会落到的路由（前缀，含其子路由）。调用方自行定义、这里
-   * 不解释语义——原样透传，供调用方区分「用户顺着这一步的入口走了」与「跑到了别处」，
-   * 前者把引导顺势推进到下一步，后者仍按强制导航拽回。只在 `interactive` 为真时有意义。
+   * Destination prefixes including subroutes after `interactive` anchor clicks, caller-defined and
+   * uninterpreted here. Passed unchanged to distinguish following intended entries from unrelated navigation;
+   * former advances naturally, latter forces return. Meaningful only for true `interactive`.
    */
   interactiveTarget?: string;
 }
@@ -50,30 +50,30 @@ export interface TourLabels {
   done: string;
   skip: string;
   close: string;
-  /** 进度的无障碍文本，如「第 1 步，共 2 步」 */
+  /** Accessible progress text, for example Step 1 of 2. */
   progress: (current: number, total: number) => string;
 }
 
 export interface TourHandle {
-  /** 当前停在第几步（0 基）。用于重建时接着讲，而不是退回开头。 */
+  /** Current zero-based indices, resuming after reconstruction instead of restarting. */
   currentIndex: () => number;
-  /** 主动收起（组件卸载等）。不触发 onExit。 */
+  /** Proactively dispose, for example unmount; never invoke onExit. */
   dispose: () => void;
 }
 
 /**
- * 遮罩与 Dialog、Sheet 共用 `--scrim` token（颜色与不透明度都在 token 里）。driver 把它写进
- * SVG 路径的内联 `fill`，内联样式可以引用 CSS 变量，因此透明度固定为 1，不再另算一份。
+ * Share Dialog/Sheet `--scrim` color/opacity tokens. Drivers write inline SVG
+ * `fill`, which supports CSS variables; fix opacity 1 without duplicate calculation.
  */
 const OVERLAY_FILL = "var(--scrim)";
 
-/** 遮罩与气泡的淡入时长，与 `duration-base` 一致；driver 默认 400ms，超出动效时长上限。 */
+/** Mask/popover fade duration matches `duration-base`; driver 400ms defaults exceed motion limits. */
 const FADE_MS = 200;
 
 /**
- * 锚点缺席时的等待上限（毫秒）。driver 在这段时间里挂 MutationObserver 等元素出现，
- * 等到就正常高亮，等不到就降级居中气泡。够跨页导航后目标组件挂载完，又不至于让用户
- * 对着空遮罩发呆。
+ * Missing-anchor maximum waits in milliseconds. Driver MutationObserver waits for elements,
+ * highlighting arrivals or centering popovers on timeout. Long enough for cross-page mounts,
+ * without leaving users staring at empty masks.
  */
 const ANCHOR_WAIT_MS = 1500;
 
@@ -82,46 +82,46 @@ export function anchorSelector(anchor: OnboardingAnchor): string {
 }
 
 /**
- * driver 自带的高亮框位移与气泡淡入是元素级动画，写在它自己的样式里，`.arc-tour` 皮肤
- * 覆盖不到。声明了 reduced motion 的用户整场引导会看到 11 次跨页大幅位移，这里直接关掉
- * driver 的动画开关，改为逐步瞬间就位——讲解内容一字不少。
+ * Driver highlight movement/popover fades are element animations in its own styles, beyond `.arc-tour`
+ * skin overrides. Reduced-motion users otherwise see eleven large cross-page movements; disable
+ * driver animations entirely, instantly positioning each step without losing any explanation.
  *
- * `matchMedia` 在测试环境（jsdom 未 stub 时）可能缺席，取不到就按「不减弱」处理。
+ * `matchMedia` may be absent in unstubbed jsdom; absent means normal motion.
  */
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**
- * driver.js 只用 `pointer-events: none` 和一个仅拦截 Tab 键的焦点陷阱隔离底层界面，
- * 不触及无障碍树——屏幕阅读器的虚拟光标导航能绕开这两者，在引导期间直接读到并激活
- * 底层工作台的控件。这里显式给 body 的既有子节点打 `inert`，把它们从无障碍树摘除，
- * 引导退出时复原。
+ * driver.js isolates underlying UI only through `pointer-events: none` and Tab-only focus traps,
+ * never accessibility trees; screen-reader virtual cursors bypass both, reading/activating
+ * underlying controls during onboarding. Explicitly mark existing body children `inert`, removing them
+ * from accessibility trees and restoring on exit.
  *
- * 不止 `#app-root`（挂载点见 main.tsx）：Dialog、Sheet 等弹层经 Portal
- * 直接挂到 `document.body`，是 `#app-root` 的兄弟节点而非子孙，只
- * 打 `#app-root` 的 inert 罩不住"引导启动时已有弹窗开着"这种情形。这里改为在调用
- * 时刻快照 body 的直接子节点、逐个打 inert。
+ * Beyond `#app-root` (main.tsx), Dialog/Sheet portals attach
+ * directly to `document.body`, siblings rather than descendants of `#app-root`;
+ * `#app-root`-only inert misses already-open overlays. Snapshot direct body children at invocation
+ * and inert each instead.
  *
- * 隔离只在引导启动/结束时整体施加/解除一次，`interactive` 步不整体解除——那样会
- * 把 `#app-root` 里「新建项目」、其他真实项目卡片、设置入口等一并开放，不只是目标
- * 元素。`interactive` 步改由 `openInteractiveHole` 单独凿一个只通向目标元素的孔
- * （见下方），driver 自己的 overlay/popover 因为一直被排除在快照之外，不受影响。
+ * Apply/remove whole isolation once at start/end. Never globally lift for `interactive` steps,
+ * which would expose New project/other real cards/settings across `#app-root`, not only targets.
+ * Use `openInteractiveHole` for target-only paths (below); drivers' overlay/popover remain
+ * outside snapshots and unaffected.
  */
 const DRIVER_PORTAL_SELECTOR = ".driver-overlay, .driver-popover, #driver-dummy-element";
 
 let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
-/** 当前是否已施加隔离——避免 `interactive` 步之间来回切换时重复快照，把「已因上次
- *  隔离而变 inert」的状态误当作原始值记下，导致复原时回不去。 */
+/** Whether isolation is active, preventing repeated snapshots between `interactive` steps from recording prior
+ *  inert states as originals and making restoration impossible. */
 let isolationApplied = false;
 
 /**
- * `inert` 摘不掉底层弹窗自己挂在 `document`/`window` 上的全局键盘监听——Esc 关闭、
- * Enter 提交这类监听不看谁在无障碍树里，
- * 引导期间照样会被触发，在遮罩后台悄悄关弹窗、甚至提交表单。逐个让每个监听器自行
- * 判断引导状态属于挂一漏万，这里改为统一拦截：引导激活期间在 document 的捕获阶段
- * 拦下所有 `keydown`（`Tab` 除外，放行给 driver 自己的焦点陷阱）。driver 自己的
- * Esc/方向键处理挂在 `keyup` 而非 `keydown`，不受影响。
+ * `inert` cannot remove underlying overlays' global `document`/`window` keyboard listeners; Esc/Enter
+ * handlers ignore accessibility membership,
+ * silently closing overlays or submitting forms behind masks. Individual listener checks invite omissions;
+ * centrally capture document keyboard events while active,
+ * blocking all `keydown` except `Tab` for drivers' focus traps. Drivers' own
+ * Esc/arrow handlers use `keyup`, not `keydown`, remaining unaffected.
  */
 let suspendKeyboard: (() => void) | null = null;
 
@@ -156,18 +156,18 @@ function setPeripheralIsolation(hidden: boolean): void {
 let interactiveHoleElements: Array<{ el: HTMLElement; prevInert: boolean }> = [];
 
 /**
- * 为 `interactive` 步凿一个只通向目标元素的孔。`inert` 不能被后代自行覆盖（同上），
- * 因此要把目标元素到 `document.body` 祖先链上每一层节点自身的 `inert` 解除；同时
- * 把链上每层的其余兄弟节点显式打成 `inert`（多数已因整体隔离而是 `inert`，这里只
- * 处理链路本身此前未被顶层快照覆盖到的中间层），确保只有目标元素这一条路径可达，
- * 而不是连带打开整个 `#app-root`。链路节点自身原始的 `inert` 值也要记下——不记的话
- * `closeInteractiveHole` 只会复原兄弟节点，链路节点（含 `#app-root`）会一直停留在
- * `inert = false`，直到整场引导结束才被 `setPeripheralIsolation(false)` 顺带修正，
- * 期间的后续步骤都会误留这条路径可达。
+ * Open target-only paths for `interactive` steps. Descendants cannot override `inert` (above),
+ * so lift `inert` on every ancestor node from targets to `document.body`, while explicitly
+ * marking sibling nodes `inert` at each level (most already `inert` through global isolation; handle
+ * intermediate levels beyond top snapshots). Only target paths remain reachable,
+ * never whole `#app-root`. Preserve ancestor-original `inert` values too, or
+ * `closeInteractiveHole` restores siblings only and ancestors including `#app-root` remain
+ * `inert = false` until `setPeripheralIsolation(false)` at tour end,
+ * incorrectly retaining paths in subsequent steps.
  *
- * 打兄弟节点 inert 时同样要排除 `DRIVER_PORTAL_SELECTOR`——链路一路往上走到
- * `document.body` 时，`#app-root` 的兄弟节点里就包含 driver 自己的 overlay/popover/
- * dummy-element，不排除的话会连自己的 Next/Previous/Close 按钮一起锁死。
+ * Exclude `DRIVER_PORTAL_SELECTOR` while marking siblings: at
+ * `document.body`, `#app-root` siblings include driver overlay/popover/
+ * dummy-element; including them locks Next/Previous/Close too.
  */
 function openInteractiveHole(target: HTMLElement): void {
   let node: HTMLElement | null = target;
@@ -200,14 +200,14 @@ function closeInteractiveHole(): void {
 }
 
 /**
- * driver 给高亮元素写 `aria-haspopup="dialog"`、`aria-expanded`、`aria-controls`，离开时把这三个
- * 属性整组删掉。这组属性写在 div、section 这类非交互元素上不合法（axe 的 aria-allowed-attr），
- * 删除时还会抹掉触发器自己的同名属性（如「新建项目」的下拉按钮）。引导期间界面整体是 inert，
- * 这组属性没有读屏可以宣读的对象，因此每次高亮前快照原值，driver 写完或删完后还原。
+ * Drivers add `aria-haspopup="dialog"`, `aria-expanded`, `aria-controls` to highlights, deleting all three
+ * on departure. Invalid for div/section (axe aria-allowed-attr), and deletion erases preexisting trigger
+ * attributes such as New project dropdowns. Inert underlying UI offers no screen-reader consumers,
+ * so snapshot originals before highlights and restore after driver writes/deletes.
  */
 const DRIVER_ARIA = ["aria-haspopup", "aria-expanded", "aria-controls"] as const;
 
-/** 居中气泡时 driver 高亮的占位元素，回调里拿不到它，按 id 取。 */
+/** Driver placeholders for centered popovers, unavailable in callbacks and queried by id. */
 const DRIVER_DUMMY_ID = "driver-dummy-element";
 
 function snapshotAria(snapshots: Map<Element, (string | null)[]>, el: Element): void {
@@ -227,9 +227,9 @@ function restoreAria(snapshots: Map<Element, (string | null)[]>): void {
 }
 
 /**
- * 页面结构变化时（增删节点、改文字）在下一帧回调一次。driver 只在窗口缩放与滚动时重新对齐
- * 高亮框；锚点高亮之后，排在它上方的内容才渲染出来（如从设置页回到大厅，问候区晚于「示例项目」
- * 区块出现），会把锚点推开，高亮框却留在原位。不观察属性变化：driver 自己对齐时只写属性。
+ * After structural/text changes, invoke once next frame. Drivers realign highlights only on resize/scroll;
+ * newly rendered preceding content (lobby greetings appearing after Example projects when returning from settings)
+ * pushes anchors without highlights following. Ignore attribute changes: driver alignment writes attributes only.
  */
 function observeLayoutChanges(onChange: () => void): () => void {
   let frame = 0;
@@ -247,7 +247,7 @@ function observeLayoutChanges(onChange: () => void): () => void {
   };
 }
 
-/** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
+/** Decorative progress perforation tracks; sibling sr-only text carries semantics. */
 function renderProgress(progress: HTMLElement, current: number, total: number, label: string): void {
   progress.replaceChildren();
 
@@ -269,15 +269,15 @@ function renderProgress(progress: HTMLElement, current: number, total: number, l
 }
 
 /**
- * 启动引导。
+ * Start onboarding.
  *
- * @param onExit 任一退出路径（跳过 / 关闭 / 走完）都会调用一次；`dispose()` 不调用。
- * @param startIndex 从第几步开始（0 基）。默认 0；重建时传入上一次的 `currentIndex()`。
- * @param anchorWaitMs 锚点缺席时的等待上限，默认 `ANCHOR_WAIT_MS`。
- * @param onStepChange 「下一步/上一步」被触发时（按钮点击与方向键都走同一条内部回调，
- *   见 `onNextClick`/`onPrevClick`）、在 driver 实际切换高亮之前，同步上报即将停靠的
- *   步号。调用方可以据此在 driver 尝试高亮新步骤的锚点之前先行导航——两者天然存在的
- *   时间差由 driver 自己的 `waitForElement` 轮询吸收，不需要额外的等待逻辑。
+ * @param onExit Called once for skip/close/completion; `dispose()` never calls it.
+ * @param startIndex Zero-based starting indices, default 0; rebuild from previous `currentIndex()`.
+ * @param anchorWaitMs Missing-anchor maximum waits, default `ANCHOR_WAIT_MS`.
+ * @param onStepChange Next/Previous button/arrow actions share internal callbacks,
+ *   see `onNextClick`/`onPrevClick`; synchronously report upcoming indices
+ *   before driver highlight changes. Callers navigate before new-anchor lookup;
+ *   driver `waitForElement` absorbs natural timing differences without extra waits.
  */
 export function startTour(
   steps: TourStep[],
@@ -298,8 +298,8 @@ export function startTour(
   let exited = false;
   let disposing = false;
   const ariaSnapshots = new Map<Element, (string | null)[]>();
-  // 高亮框是否已停在当前锚点上。转场途中 driver 自己逐帧移动高亮框，这时不重新对齐，
-  // 途中的页面变化留到落定时一并对齐（见 onHighlighted）。
+  // Whether highlights settled on current anchors. During driver framewise movements, avoid realignment;
+  // defer intermediate page changes until settled onHighlighted.
   let highlightSettled = false;
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
@@ -318,19 +318,19 @@ export function startTour(
     overlayOpacity: 1,
     stagePadding: 8,
     stageRadius: 10,
-    // 全程只读：driver 的 `.driver-active *{pointer-events:none}` 已经封死了底层界面，
-    // 这里再关掉高亮元素本身的交互，杜绝"讲到哪就能点到哪"意外触发生成动作。
+    // Readonly throughout: driver `.driver-active *{pointer-events:none}` blocks underlying UI;
+    // additionally disable highlighted interactions, preventing explanatory steps accidentally starting generation.
     disableActiveInteraction: true,
     showProgress: true,
     showButtons: ["next", "previous", "close"],
-    // 锚点缺席时先等一会儿（driver 内部挂 MutationObserver），超时后不跳过这一步 ——
-    // 讲解本身仍然成立，丢的只是高亮，driver 会退回自己的占位元素、把气泡摆到屏幕中央。
+    // Missing anchors wait through driver MutationObserver before fallback, never skipping:
+    // explanations remain valid without highlights; driver placeholders center popovers.
     waitForElement: anchorWaitMs,
     skipMissingElement: false,
-    // driver 自带的方向键切步直接调 moveNext()/movePrevious()，不经过下面的
-    // onNextClick/onPrevClick——跨页导航的 onStepChange 上报会被绕过。这里关闭它，
-    // 改由本文件末尾的 keyup 监听统一接管 Esc/方向键，确保键盘路径与按钮路径走同一条
-    // 上报逻辑。
+    // Native arrow steps call moveNext()/movePrevious() directly, bypassing
+    // onNextClick/onPrevClick and cross-page onStepChange. Disable those handlers,
+    // taking over Esc/arrows in final keyup listeners so keyboard/button paths share
+    // reporting.
     allowKeyboardControl: false,
     nextBtnText: labels.next,
     prevBtnText: labels.prev,
@@ -341,12 +341,12 @@ export function startTour(
       renderProgress(popover.progress, current, total, labels.progress(current + 1, total));
       decorateSkip(popover, instance.isLastStep(), labels.skip);
     },
-    // 高亮到的元素是 driver 的占位元素时，回调收到的 element 是 undefined。步骤本来就
-    // 声明了锚点却落到这里，说明锚点在页面上找不到 —— 降级已经发生，这里只负责留线索。
+    // Highlight callbacks receive undefined for driver placeholders. Declared-but-missing anchors
+    // prove degradation already occurred; record evidence only here.
     //
-    // 每次切换先收起上一步可能凿开的孔，`interactive` 步再针对当前目标元素重新凿一个——
-    // 只让目标元素可达，`#app-root` 里其余内容（新建项目、其他项目卡片、设置入口等）
-    // 仍保持隔离，不因为这一步是 interactive 就整体开放。
+    // Close prior holes on every transition; `interactive` steps reopen current-target-only paths,
+    // leaving other `#app-root` contents (New project/other project cards/settings)
+    // isolated rather than globally exposing `interactive` steps.
     onHighlightStarted: (element, step) => {
       const anchor = step.data?.anchor as OnboardingAnchor | undefined;
       if (anchor && !element) {
@@ -359,26 +359,26 @@ export function startTour(
       if (element) snapshotAria(ariaSnapshots, element);
       highlightSettled = false;
     },
-    // driver 此时已给当前元素写上、给上一个元素删掉那组 aria 属性，两者都还原。
-    // 气泡在转场开始时（有动画时在半程）按锚点当时的位置摆好，落定时 driver 只重算高亮框：
-    // 锚点在这之间被推开（问候区晚于「示例项目」区块渲染），气泡会压在锚点上，所以落定后再对齐一次。
+    // Driver already wrote current/deleted prior aria groups; restore both.
+    // Popovers position at transition starts or animation midpoints; completion recalculates highlights only.
+    // Anchors pushed by late greetings could overlap popovers, so realign again after settlement.
     onHighlighted: () => {
       restoreAria(ariaSnapshots);
       highlightSettled = true;
       instance.refresh();
     },
-    // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
-    // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy
-    // 与无 DOM 帧的环境下会静默漏掉回调。改走「按钮 + 主动收起」这两个我们自己掌握的
-    // 入口，退出必然被记一次。
+    // Converge exits here, never onDestroyed: that only fires after drivers write highlighted elements
+    // into state through requestAnimationFrame; synchronous destroy or DOM-frameless
+    // environments silently lose callbacks. Own button/proactive-dispose
+    // entries guarantee every exit records once.
     onNextClick: () => handleNext(),
     onPrevClick: () => handlePrev(),
     onCloseClick: () => finish(),
-    // Esc 与点击遮罩走 driver 内部的收起流程，在真正拆掉之前回调这里。
+    // Esc/mask clicks enter driver disposal, calling here before teardown.
     onDestroyStarted: () => finish(),
   });
 
-  /** 下一步：按钮点击与 `ArrowRight` 键共用，保证跨页上报一致。 */
+  /** Next shared by buttons/`ArrowRight`, preserving cross-page reporting. */
   function handleNext(): void {
     if (instance.isLastStep()) {
       finish();
@@ -389,9 +389,9 @@ export function startTour(
   }
 
   /**
-   * 上一步：按钮点击与 `ArrowLeft` 键共用，保证跨页上报一致。首步无上一步可退——
-   * 按钮此时被 driver 禁用不会触发，但键盘路径没有这层禁用态，不挡住的话
-   * `instance.movePrevious()` 会在 driver.js 内部找不到上一步时把整个引导销毁掉。
+   * Previous shared by buttons/`ArrowLeft`, preserving reporting. First steps have no predecessors;
+   * driver disables buttons but keyboard paths lack that disabled state. Without guards,
+   * `instance.movePrevious()` destroys entire tours when driver.js finds no preceding steps.
    */
   function handlePrev(): void {
     if (instance.isFirstStep()) return;
@@ -399,7 +399,7 @@ export function startTour(
     instance.movePrevious();
   }
 
-  /** 记一次退出并收起。重复调用只记一次。 */
+  /** Record exits/dispose once, idempotently. */
   function finish(): void {
     if (!exited && !disposing) {
       exited = true;
@@ -411,15 +411,15 @@ export function startTour(
     setPeripheralIsolation(false);
     instance.destroy();
     restoreAria(ariaSnapshots);
-    // driver 把焦点还给最后一步开始时的焦点元素，那是已移除的气泡按钮，焦点于是落到 body。
-    // 引导启动前开着模态对话框时，从 body 按 Tab 会越过对话框的焦点陷阱进到背景页面，
-    // 这里还给引导启动前的焦点元素；它已随换页卸载时不处理。
+    // Drivers restore focus to start-of-last-step elements, removed popover buttons, landing on body.
+    // With modals already open before tours, Tab from body bypasses modal traps into backgrounds;
+    // restore pretour focus unless navigation unmounted original elements.
     if (focusBeforeTour instanceof HTMLElement && focusBeforeTour.isConnected) focusBeforeTour.focus();
   }
 
-  // allowKeyboardControl 关闭后 driver 不再自行处理 Esc/方向键，这里接管：Esc 走 finish()
-  // （与 driver 默认的 allowClose 行为一致，本文件未覆盖该配置，其默认值即为 true）；
-  // 方向键复用 handleNext/handlePrev，与按钮点击走同一条上报路径。
+  // Disabled allowKeyboardControl stops native Esc/arrows; take over: Esc finish()
+  // matches driver-default allowClose true, never overridden here;
+  // arrows reuse handleNext/handlePrev, sharing button reporting.
   function onKeyUp(e: KeyboardEvent): void {
     if (e.key === "Escape") {
       finish();
@@ -430,7 +430,7 @@ export function startTour(
     }
   }
 
-  // 隔离会让焦点所在的元素变 inert 而失焦，先记下
+  // Isolation makes focused nodes inert and blurs them; record first.
   const focusBeforeTour = document.activeElement;
   setPeripheralIsolation(true);
   window.addEventListener("keyup", onKeyUp);
@@ -453,7 +453,7 @@ export function startTour(
   };
 }
 
-/** 「跳过」按钮 —— 最后一步没有可跳过的内容，只留「完成」 */
+/** Skip buttons: final steps have nothing to skip, showing Done only. */
 function decorateSkip(popover: PopoverDOM, isLastStep: boolean, label: string): void {
   popover.footer.querySelector(".arc-tour-skip-btn")?.remove();
   if (isLastStep) return;

@@ -1,4 +1,4 @@
-"""请求级显示名目录：路由依赖加载失败时退回内置名称，不改变路由自身的响应。"""
+"""Request-scoped display-name directory: dependency-loading failures fall back to built-in names without changing route responses."""
 
 from collections.abc import AsyncIterator
 

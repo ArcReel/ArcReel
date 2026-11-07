@@ -1,4 +1,4 @@
-"""Alembic 迁移：视频请求端点回填保留绑定、用户别名与用户选过的其他端点。"""
+"""Alembic: video-endpoint backfill preserves bindings, user aliases, and other user-selected endpoints."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.agnes import AGNES_VIDEO_BACKENDS
 from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
 
-#: 自定义供应商模型：(model_id, endpoint, entry_binding)
+#: Custom-provider models: (model_id, endpoint, entry_binding).
 _CUSTOM_MODELS = [
     ("opaque-25", "agnes-video", "agnes/agnes-video-2.5"),
     ("opaque-alias", "agnes-video", "mine/relay"),

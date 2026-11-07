@@ -1,9 +1,9 @@
-"""草稿信封与违约收集的单元测试。
+"""Unit tests for draft envelopes and violation collection.
 
-覆盖的是「产物不丢弃」这条机制的底座：信封读写往返、坏 JSON 的降级口径、多条违约的收集与
-报告渲染。上层闭环（拆分 / 晋升 / gate 阻塞）的测试在 ``tests/integration/server/
-agent_toolset/test_draft_tools.py``、``tests/integration/lib/script/test_script_generator_reference_branch.py``
-与 ``tests/integration/server/services/project/test_script_review.py``。
+Cover the foundation of preserving outputs: envelope round-trips, malformed-JSON degradation, collecting multiple violations, and
+report rendering. Higher-level split/promotion/gate-blocking tests live in ``tests/integration/server/
+agent_toolset/test_draft_tools.py``, ``tests/integration/lib/script/test_script_generator_reference_branch.py``,
+and ``tests/integration/server/services/project/test_script_review.py``.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class TestEnvelope:
         assert draft.meta == {"source": "source/episode_3.txt"}
 
     def test_write_creates_missing_drafts_dir(self, tmp_path: Path):
-        """该集从未产出过 script_plan 时目录还不存在——首次拆分就违约是常态，不能因此写不下去。"""
+        """An episode without prior script_plan output has no directory; initial splitting violations are normal and must not prevent writing."""
         assert not (tmp_path / "drafts").exists()
         write_quarantine(
             tmp_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": []}, violations=[_violation()]
@@ -87,8 +87,8 @@ class TestEnvelope:
         )
 
     def test_broken_json_reads_as_none_but_still_counts_as_present(self, tmp_path: Path):
-        """Agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「无草稿」
-        而放行 gate 与 prompt_authoring。"""
+        """Agent-edited malformed JSON is an expected intermediate state; unreadable content must not count as no draft,
+        allowing gates and prompt_authoring to pass."""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True)
         path.write_text("{不是 JSON", encoding="utf-8")
@@ -103,7 +103,7 @@ class TestEnvelope:
         assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is None
 
     def test_envelope_with_non_numeric_episode_reads_as_none(self, tmp_path: Path):
-        """episode 被手改成非数字与 content 形状坏同口径：返回 None 而非抛出，exists 仍为真。"""
+        """Nonnumeric hand-edited episode matches malformed content semantics: return None without raising, while exists remains true."""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True)
         path.write_text(
@@ -126,10 +126,10 @@ class TestEnvelope:
         ids=["kind_mismatch", "episode_mismatch", "kind_missing", "episode_missing"],
     )
     def test_envelope_identity_must_match_requested_draft(self, tmp_path: Path, envelope: dict):
-        """kind / episode 对不上或缺失按形状坏处理，不退回请求值。
+        """Mismatched/missing kind or episode is malformed shape; do not fall back to requested values.
 
-        不校验就等于把这两个字段解析出来又丢掉：一份从别集拷过来的信封会带着它自己的
-        meta.source 过原文锚校验，再按本集的 unit_id 重建、覆盖本集的正式 script_plan。
+        Without validation, both parsed fields are effectively discarded: an envelope copied from another episode could validate
+        its own meta.source anchors, rebuild under this episode's unit_id values, and overwrite this episode's formal script_plan.
         """
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,10 +145,10 @@ class TestEnvelope:
 
 
 class TestSchemaVersion:
-    """信封的版本位：写侧固定盖章、读侧缺失即 v1，且不改变任何现有键的语义。"""
+    """Envelope version: writes stamp a fixed value, absent read values mean v1, and existing-key semantics stay unchanged."""
 
     def _envelope_with_meta(self, tmp_path: Path, meta: dict) -> Path:
-        """按给定的 meta 原值写一份草稿信封，绕开写侧的盖章。"""
+        """Write a draft envelope with exact supplied meta, bypassing write-side stamping."""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -180,7 +180,7 @@ class TestSchemaVersion:
         assert envelope["meta"]["source"] == "source/episode_1.txt"
 
     def test_write_stamps_current_version_over_a_stale_one_carried_in_meta(self, tmp_path: Path):
-        """从读回的草稿改一改再写回时，写出去的这份就是本代码这一版；沿用读到的旧值等于给旧版本贴新语义。"""
+        """Editing and rewriting a read draft produces this code version's envelope; preserving old version values would assign new semantics to old versions."""
         path = write_quarantine(
             tmp_path,
             1,
@@ -192,7 +192,7 @@ class TestSchemaVersion:
         assert json.loads(path.read_text(encoding="utf-8"))["meta"]["schema_version"] == QUARANTINE_SCHEMA_VERSION
 
     def test_roundtrip_exposes_version_as_field_not_as_meta_key(self, tmp_path: Path):
-        """消费方读解析结果，不去 meta 里摸裸键——版本位不留在 meta 上，meta 只剩重判上下文。"""
+        """Consumers read parsed results, not raw meta keys; remove the version from meta, retaining only reevaluation context."""
         write_quarantine(
             tmp_path,
             1,
@@ -207,7 +207,7 @@ class TestSchemaVersion:
         assert draft.meta == {"source": "source/episode_1.txt"}
 
     def test_legacy_envelope_without_version_reads_as_v1_unchanged(self, tmp_path: Path):
-        """不带版本位的信封解析为 v1，其余字段照常读出：它与盖过章的信封走同一条读路。"""
+        """Unversioned envelopes parse as v1 and read other fields normally, following the same read path as stamped envelopes."""
         self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt"})
         draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         assert draft is not None
@@ -217,8 +217,8 @@ class TestSchemaVersion:
         assert draft.violations == []
 
     def test_version_bit_does_not_shift_the_optimistic_concurrency_token(self, tmp_path: Path):
-        """同一份内容盖章前后 revision 相同：版本位若进入令牌，持有未盖章草稿 revision 的 Agent
-        会被判 revision_conflict。"""
+        """Identical content has identical revision before/after stamping; including version in tokens would reject Agents holding unstamped draft revisions
+        with revision_conflict."""
         self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt"})
         legacy = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         write_quarantine(
@@ -240,8 +240,8 @@ class TestSchemaVersion:
         ids=["str", "float", "bool", "null", "list", "dict", "zero", "negative"],
     )
     def test_unusable_version_reads_as_v1(self, tmp_path: Path, raw: object):
-        """版本位不可信时唯一确定的事实是「它不是本代码写出来的」，而只有 v1 一种语义：
-        为此拒读会把一份仍能被 Agent 改好再晋升的草稿变成「无草稿」。"""
+        """An untrusted version establishes only that this code did not write it, with only v1 semantics available;
+        rejecting reads would turn an Agent-repairable/promotable draft into no draft."""
         self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt", "schema_version": raw})
         draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         assert draft is not None
@@ -249,7 +249,7 @@ class TestSchemaVersion:
         assert resolve_schema_version({"schema_version": raw}) == 1
 
     def test_future_version_is_returned_as_is_and_still_readable(self, tmp_path: Path):
-        """未来版本原值返回、不夹取也不拒读：本模块不做迁移框架，夹取会把新版草稿伪装成当前版本。"""
+        """Return future versions unchanged, without clamping or rejecting reads; this is not a migration framework, and clamping would disguise newer drafts as current."""
         future = QUARANTINE_SCHEMA_VERSION + 7
         self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt", "schema_version": future})
         draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
@@ -258,7 +258,7 @@ class TestSchemaVersion:
         assert draft.content == {"units": [{"text": "镜头1：门开了"}]}
 
     def test_missing_meta_object_reads_as_v1_with_empty_context(self, tmp_path: Path):
-        """meta 整个缺失（或被改成非对象）与版本位缺失同口径，不抛错。"""
+        """Absent or nonobject meta follows missing-version semantics without raising."""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -273,7 +273,7 @@ class TestSchemaVersion:
 
 class TestReport:
     def test_report_names_draft_field_and_promote_tool(self, tmp_path: Path):
-        """处置指引要写「改哪个文件的哪个字段、改完调什么」——Agent 不知道产物还在盘上就会重抽。"""
+        """Recovery guidance states which file/field to edit and what to call afterward; Agents unaware outputs remain on disk would regenerate."""
         path = quarantine_path(tmp_path, 2, QUARANTINE_KIND_SCRIPT_PLAN)
         text = render_report(path, QUARANTINE_KIND_SCRIPT_PLAN, [_violation()], episode=2)
         assert str(path) in text
@@ -288,8 +288,8 @@ class TestReport:
         assert text.splitlines()[1].startswith("2. [too_many_shots] ")
 
     def test_drama_script_plan_report_points_at_scene_fields(self, tmp_path: Path):
-        """drama 草稿改的是分镜内容表，不是参考生视频的 units——指引里报错字段路径写错，
-        Agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
+        """Drama drafts edit storyboard content tables, not reference-to-video units; wrong field paths in guidance
+        make Agents edit nonexistent fields and attempt promotion, wasting a round."""
         path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         text = render_report(path, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, [_violation()], episode=3)
 
@@ -299,8 +299,8 @@ class TestReport:
         assert 'promote_draft({"episode_id": 3, "doc_type": "drama_script_plan", "base_revision":' in text
 
     def test_narration_script_plan_report_points_at_segment_fields(self, tmp_path: Path):
-        """narration 草稿改的是分镜表：指引里的字段路径写错，Agent 会照着改一个不存在的字段
-        再晋升，白跑一轮。"""
+        """Narration drafts edit storyboard tables; incorrect guidance paths make Agents edit nonexistent fields
+        and attempt promotion, wasting a round."""
         path = quarantine_path(tmp_path, 4, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         text = render_report(path, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, [_violation()], episode=4)
 
@@ -311,8 +311,8 @@ class TestReport:
         assert 'promote_draft({"episode_id": 4, "doc_type": "narration_script_plan", "base_revision":' in text
 
     def test_each_script_plan_variant_has_its_own_draft_file(self, tmp_path: Path):
-        """三条路线的 script_plan 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
-        残留的草稿被当成本路线的待处置件读进来。"""
+        """All three script_plan draft routes coexist in one directory without overwriting; a shared filename could make route-switched projects
+        read leftover drafts as pending work for their current route."""
         names = {
             quarantine_path(tmp_path, 1, kind).name
             for kind in (
@@ -324,7 +324,7 @@ class TestReport:
         assert len(names) == 3
 
     def test_prompt_authoring_report_only_points_at_text(self, tmp_path: Path):
-        """prompt_authoring 的 unit 只有正文可改：时长与原文锚是 script_plan 已确认的内容契约，不在这一层修。"""
+        """Only prompt_authoring unit bodies are editable; duration/source anchors are script_plan-confirmed contracts, outside repairs at this layer."""
         text = render_report(tmp_path / "d.json", QUARANTINE_KIND_PROMPT_AUTHORING, [_violation()], episode=1)
         assert "content.units[i].text" in text
         assert "source_text" not in text
@@ -347,7 +347,7 @@ class TestCollectViolations:
         assert [v.code for v in found] == ["a", "b"]
 
     def test_non_violation_errors_are_not_swallowed(self):
-        """解析器内部错误 / 脏数据引发的类型错误照常上抛，不被伪装成一条内容违约。"""
+        """Internal parser errors / corruption-triggered type errors propagate normally, without masquerading as content violations."""
 
         def boom():
             raise TypeError("脏数据")
@@ -360,7 +360,7 @@ class TestCollectViolations:
         assert [v.code for v in violation_items(aggregate)] == ["a", "b"]
         assert "[a]" in str(aggregate)
         assert "[b]" in str(aggregate)
-        # 聚合体仍是 DraftViolation：调用方不必在「一条」与「多条」之间分叉出两套处置路径
+        # Aggregates remain DraftViolation; callers need no separate single/multiple handling paths.
         assert isinstance(aggregate, DraftViolation)
 
     def test_single_violation_flattens_to_itself(self):
@@ -369,7 +369,7 @@ class TestCollectViolations:
 
 
 class TestProjectActivity:
-    """草稿的写入与清除推进项目的最近活动时间：草稿 JSON 的修改时间不计入活动。"""
+    """Draft writes/clears advance project activity; draft JSON mtime does not count toward activity."""
 
     STALE = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
 

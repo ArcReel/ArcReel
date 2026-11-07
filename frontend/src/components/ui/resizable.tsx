@@ -21,8 +21,8 @@ function ResizablePanel({ ...props }: ResizablePrimitive.PanelProps) {
   return <ResizablePrimitive.Panel data-slot="resizable-panel" {...props} />
 }
 
-// 相对生成代码的改动：手柄的分隔线在悬停、拖动与键盘聚焦时用品牌色标出（库在 data-separator 上写当前状态），
-// 键盘聚焦时另把两侧的命中区染色：1px 的线上画不出可见的聚焦环。
+// Changes from generated code: highlight the handle separator with the brand color on hover, drag, and keyboard focus (the library writes its current state to data-separator),
+// also color the hit areas on both sides for keyboard focus: a visible focus ring cannot be drawn on a 1px line.
 function ResizableHandle({
   withHandle,
   className,

@@ -1,16 +1,16 @@
 /**
- * 改序的锚点换算：后端 move 接口把条目移到锚点之后，锚点为 null 时移到最前。
- * 返回 undefined 表示这次操作不移动。
+ * Reorder-anchor conversion: backend move places entries after an anchor, or first when the anchor is null.
+ * Return undefined if this operation does not move anything.
  */
 
-/** 把第 source 条拖到第 target 条上松手：向下拖落在目标之后，向上拖落在目标之前（即目标前一条之后）。 */
+/** Drop source onto target: downward moves land after target, upward moves before it, meaning after the preceding entry. */
 export function dropAnchor<T>(ids: readonly T[], source: number, target: number): T | null | undefined {
   if (source === target || source < 0 || target < 0) return undefined;
   if (source < target) return ids[target];
   return target > 0 ? ids[target - 1] : null;
 }
 
-/** 前移或后移一位：前移落到前两条之后（第二条前移即移到最前），后移落到下一条之后。 */
+/** Move one position earlier/later: earlier lands after the entry two positions before (second moves to first); later lands after the next entry. */
 export function stepAnchor<T>(
   ids: readonly T[],
   index: number,

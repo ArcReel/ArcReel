@@ -1,12 +1,11 @@
-"""角色衍生资产图的上传替换路由（见 ``docs/adr/0072``）。
+"""Routes for replacing character-derivative asset images by upload (``docs/adr/0072``).
 
-上传的图是成品：落到衍生的规范路径 ``characters/derivatives/{角色}/{衍生}.png``，作为一条选中的
-手动上传版本进入版本历史，清单按图字节登记（``docs/adr/0062``），本体资产图与变化描述都不参与。
-上传只替换资产图，不作为再编辑生成的底图；变化描述保持不变。
+Uploads are finished images: save to canonical ``characters/derivatives/{角色}/{衍生}.png`` as a selected manually uploaded
+version in history. The manifest records image bytes (``docs/adr/0062``), independent of the base image or change description.
+Uploads replace only the asset image, not the base for subsequent edit generation; the change description remains unchanged.
 
-与本体资产图的上传（``files.py`` 的 ``UPLOAD_SPECS``）分开：衍生的坐标是「本体/衍生」两段，落盘
-扩展名固定为 ``.png``，提交走衍生资产图生成与图片编辑共用的正式活化回调。
-"""
+Separate from base-image uploads (``files.py`` ``UPLOAD_SPECS``): derivative coordinates have two components, base/derivative,
+and persist with fixed ``.png`` extensions. Submission uses the formal activation callback shared with derivative generation and image editing."""
 
 from __future__ import annotations
 
@@ -42,22 +41,21 @@ async def upload_derivative_sheet(
     _t: Translator,
     file: UploadFile = File(...),
 ):
-    """上传一张图替换角色衍生的资产图，成为该衍生的当前版本。
+    """Upload an image to replace a character derivative’s asset image as its current version.
 
-    不要求本体已有资产图：上传的图是成品，不以本体资产图为输入。
-    """
+    No base asset image is required: the upload is a finished image, not generated from the base image."""
     try:
         max_bytes = validate_upload(file.filename, file.size, kind="image")
         upload = await run_sync_transaction(
             resolve_derivative_upload_target, get_project_manager(), project_name, char_name, derivative_name
         )
 
-        # 限定读入内存的字节数：Content-Length 缺失或被绕过时不至于 OOM
+        # Bound bytes read into memory to prevent OOM when Content-Length is absent or bypassed.
         content = await file.read(max_bytes + 1)
         if len(content) > max_bytes:
             raise UploadTooLargeError(max_bytes)
         try:
-            # 规范路径固定为 .png，任何输入格式都归一成 PNG
+            # Canonical paths use .png; normalize all input formats to PNG.
             png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
@@ -82,6 +80,6 @@ async def upload_derivative_sheet(
     except (HTTPException, ApiError):
         raise
     except Exception as e:
-        # 不回传 str(e)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
+        # Never return str(e): unexpected errors may contain server paths or other internals; log the traceback only.
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from e

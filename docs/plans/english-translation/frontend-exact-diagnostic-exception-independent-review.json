@@ -1,0 +1,129 @@
+{
+  "reviewer": "passive_translation, independent from root helper author",
+  "status": "Accepted optional exactdiagnosticexpectation exception; no source edits by reviewer.",
+  "helper_sha256": "a10679c03e34e3f9d547091aa1daa3e7ee5c07ffa35ca9ffb523cd805723b1e5",
+  "allowed_path": "frontend/src/lint-class-guards.test.ts",
+  "allowed_occurrences": 17,
+  "allowlist": [
+    {
+      "literal_ordinal": 4,
+      "before": "禁用 motion-safe: / motion-reduce: 前缀",
+      "after": "Do not use motion-safe: / motion-reduce: prefixes",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 5,
+      "before": "滚动容器（overflow-auto",
+      "after": "Scroll containers (overflow-auto",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 6,
+      "before": "禁止在组件里写滚动条样式",
+      "after": "Do not write scrollbar styles in components",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 15,
+      "before": "禁止视口高度",
+      "after": "Do not use viewport heights",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 17,
+      "before": "禁止手写 fixed inset-0 浮层",
+      "after": "Do not handwrite fixed inset-0 overlays",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 19,
+      "before": "禁止读写 scrollHeight",
+      "after": "Do not read or write scrollHeight",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 21,
+      "before": "业务组件禁用视口断点前缀",
+      "after": "Business components must not use viewport breakpoint prefixes",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 23,
+      "before": "调用处不写数值层级",
+      "after": "Do not write numeric stacking levels at call sites",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 25,
+      "before": "调用处不写数值层级",
+      "after": "Do not write numeric stacking levels at call sites",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 27,
+      "before": "不使用背景模糊",
+      "after": "Do not use backdrop blur",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 29,
+      "before": "时长与缓动只用 token",
+      "after": "Use tokens only for duration and easing",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 31,
+      "before": "时长与缓动只用 token",
+      "after": "Use tokens only for duration and easing",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 33,
+      "before": "全局提示统一用 useAppStore 的 pushToast",
+      "after": "Use useAppStore pushToast for global notices",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 35,
+      "before": "全局提示统一用 useAppStore 的 pushToast",
+      "after": "Use useAppStore pushToast for global notices",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 37,
+      "before": "全局提示统一用 useAppStore 的 pushToast",
+      "after": "Use useAppStore pushToast for global notices",
+      "parent_kind": "PropertyAssignment"
+    },
+    {
+      "literal_ordinal": 95,
+      "before": "不要丢弃 refreshProject 的结算值",
+      "after": "Do not discard refreshProject settlement results",
+      "parent_kind": "CallExpression"
+    },
+    {
+      "literal_ordinal": 105,
+      "before": "多行输入用 components/ui/textarea 的 Textarea",
+      "after": "Use components/ui/textarea Textarea",
+      "parent_kind": "CallExpression"
+    }
+  ],
+  "reviewed_guards": [
+    "Optional exception applies only to fixed lint-class-guards.test.ts path.",
+    "Candidate SHA256 must exactly match reviewed record; exactly17pairs required.",
+    "Duplicate ordinal rejects; originalbaseline string value and parent SyntaxKind checked for each occurrence.",
+    "Every reviewedordinal must be found.",
+    "Transform rewrites only approvedordinalnodes; full TypeScriptprintercomparison then checks all other executabletokens, fixturestrings, identifiers, assertions and test names.",
+    "No broad literal masking. Normal noexceptionfiles retain original removeComments equality."
+  ],
+  "trust_and_scope_limits": [
+    "Approval of the JSON is external to this helper: a different attacker-supplied17pairJSONcould authorize different values. Freeze reviewedrecord hash and provenance with finalcapture; helper is a checker of supplied exactallowlist, not a source of independent semantic approval.",
+    "Helper discovers changed tracked .ts/.tsx only. It does not certify eslint.config.js20translateddiagnostics; separate exactordinalJSproof is required.",
+    "Comments removed by printer include functionaldirectives; separate comment/directive/parserproof remainsnecessary.",
+    "The baseline is resolved via git and originalsource compared. Immediatebefore hashes in diagnosticrecord are not used forbaselinecomparison, because commentschanged earlier; originalvalue/ordinal/context are verifiedagainstactualgitbaseline."
+  ],
+  "independent_crosscheck": "Separately recomputed207+142stringliteral inventories and exactordinalASTsubstitution for both diagnosticfiles. Allotherliteralvalues and executableASTexact. This review does not rerun all919filecapture; coordinatorowns finalcapture against frozenrecord.",
+  "candidate_record_path": "docs/plans/english-translation/frontend-eslint-diagnostic-review.json",
+  "candidate_record_sha256_at_review": "156e60c473dedfb65511d6606ae835c43a69157f4882e37f5007af869b45cb50",
+  "narrow_refresh": "Final authorrecord hash refreshed after one ESLint JS message change at ordinal68; exact17TSexpectationallowlist and testfilehash unchanged, helperguards unchanged."
+}

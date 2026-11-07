@@ -1,4 +1,4 @@
-"""显示名目录：内置名称按请求语言翻译，自定义名称取用户填写的值。"""
+"""Display-name catalog: translate built-ins by request language; custom names use user-entered values."""
 
 from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -37,5 +37,5 @@ async def test_catalog_names_agent_providers_by_credential_and_marks_deleted_one
 
         assert names.provider(f"agent-{credential.id}") == "我的 DeepSeek"
         assert names.provider(f"agent-{credential.id + 1}") == _("deleted_agent_provider_display_name", locale=locale)
-        # 不是 agent-<数字> 的未知 id 仍是泛称「已删除的供应商」
+        # Unknown IDs outside agent-<数字> still use the generic deleted-provider label.
         assert names.provider("agent-plan") == _("deleted_provider_display_name", locale=locale)

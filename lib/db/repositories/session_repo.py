@@ -72,7 +72,7 @@ class SessionRepository(BaseRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        # 被分叉取代的会话不进列表；数据整行保留，按 sdk_session_id 仍可 get 到。
+        # Exclude fork-superseded sessions from lists; retain entire rows, still accessible by sdk_session_id.
         stmt = select(AgentSession).where(AgentSession.superseded_by.is_(None))
         if project_name:
             stmt = stmt.where(AgentSession.project_name == project_name)
@@ -94,7 +94,7 @@ class SessionRepository(BaseRepository):
         return rowcount(result) > 0
 
     async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
-        """标记会话已被取代；已有指针时不改写，返回 False 让调用方按分叉冲突处理。"""
+        """Mark a session superseded; never overwrite an existing pointer, returning False for callers to handle a fork conflict."""
         now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
@@ -105,7 +105,7 @@ class SessionRepository(BaseRepository):
         return rowcount(result) > 0
 
     async def clear_superseded(self, session_id: str, superseded_by: str) -> bool:
-        """撤回指向 ``superseded_by`` 的取代指针；指针已指向别的会话时不动。"""
+        """Retract the supersession pointer to ``superseded_by``; leave it unchanged if already pointing elsewhere."""
         now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
@@ -116,9 +116,10 @@ class SessionRepository(BaseRepository):
         return rowcount(result) > 0
 
     async def delete(self, session_id: str) -> bool:
-        # 指向被删会话的取代指针改指它自己的后继：删的是链中间时前身继续指向仍然
-        # 活着的末端，删的是链尾时后继为空、前身随之回到会话列表。不接手则前身会
-        # 带着一个指向不存在会话的指针，永久留在列表之外。
+        # Redirect pointers targeting the deleted session to its own successor: deleting a middle link
+        # keeps predecessors pointing toward the surviving end; deleting the tail yields no successor,
+        # returning predecessors to the session list. Otherwise a dangling pointer would permanently
+        # exclude predecessors from that list.
         successor = await self.session.scalar(
             select(AgentSession.superseded_by).where(AgentSession.sdk_session_id == session_id)
         )

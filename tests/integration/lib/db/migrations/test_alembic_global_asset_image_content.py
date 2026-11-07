@@ -1,4 +1,4 @@
-"""Alembic 迁移：全局资产与衍生新增图片内容列，存量行保持为空，降级时删除。"""
+"""Alembic: add image-content columns to global assets/derivatives, leave existing rows empty, and remove on downgrade."""
 
 from __future__ import annotations
 

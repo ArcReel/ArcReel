@@ -1,0 +1,1233 @@
+{
+  "baseline_snapshot": "/tmp/arcreel-hidden-passive-before",
+  "scope": "Passive comments only in root configs/Dockerfile, .github, deploy, website/src and website/scripts; no workflow/deployment execution. PRODUCT is reviewed separately.",
+  "files": [
+    {
+      "path": ".env.example",
+      "source_sha256": "5ee9f9e8a8d24e63480b3c5a34db873fb38a47b5446a64a74ba7bb7b7d36849e",
+      "candidate_sha256": "d6a6070b5bd06ca10e918d18850187be5d8b97ff0717302424d789bae1914a8a",
+      "translated_comment_lines": 36,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": ".gitattributes",
+      "source_sha256": "756b1454dd32d66f5fea5030b98404df5c2a4238c572a82c931641b7cdcd28db",
+      "candidate_sha256": "c736c390fdfabce428ac5f367592d4461f046fa23610620ce31d488141c83207",
+      "translated_comment_lines": 1,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": ".github/CODEOWNERS",
+      "source_sha256": "c0a26a0e31ff49e79881446a69ac771b76935af92973494f4c115cacaec67499",
+      "candidate_sha256": "927142bfaf2ddba702780496561fa2ca70087cd0c09df37bb83396e0909c3aab",
+      "translated_comment_lines": 2,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": ".github/actionlint.yaml",
+      "source_sha256": "ac9d7595b539172123ee0832622074a3e222b3f1a025f24d044eb0f6c6aaef1f",
+      "candidate_sha256": "bc8fd052c1ef5aaf302903bc6661a92043c11b02caab6193d4f4ad43dcfc0e35",
+      "translated_comment_lines": 4,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/actions/domain-filter/action.yml",
+      "source_sha256": "76c2bd986059504424522d1e3ed9347484844807403f5b536d1b0418c0356a1b",
+      "candidate_sha256": "a96250c4cb292fc0e2343dde22f72ab25777bc3b8d2f1961ff87952fdd46268b",
+      "translated_comment_lines": 11,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/codeql/codeql-config.yml",
+      "source_sha256": "b4892967dce3644dfec8102aa4a315308f9cd333a64e575d895304d823cc5962",
+      "candidate_sha256": "57ee1dbbdd6a525235140d3999c77829f5882aa2cf9b140733d456efff1e11eb",
+      "translated_comment_lines": 3,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/dependabot.yml",
+      "source_sha256": "8940b69072c77b6d197e90c59fcfece859d5924a74c5cfb2df2f9b00fad75c5f",
+      "candidate_sha256": "0bec15c42f2a86f715be3c16ec3b6561051f15101db59acaf0b8c84d211e6eab",
+      "translated_comment_lines": 23,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/codeql.yml",
+      "source_sha256": "4f128c908613c394fe164db3ea7f1bfd7b767bd00dcadd7434f875542e719312",
+      "candidate_sha256": "a7f863d3e0369d3f8d94ea7ab94277218d8095cc0c892c0e870ab2e5a3b5269a",
+      "translated_comment_lines": 2,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/docker-edge.yml",
+      "source_sha256": "139a5ef14a0e50792405a31cb7f291fe1a363b876ec960c0aa33558a8e4b44ae",
+      "candidate_sha256": "d097e5f7a067441cb00be189c52211f1a60954284f97bbbd4e4f4e67afaa61fc",
+      "translated_comment_lines": 7,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/docker-release.yml",
+      "source_sha256": "1a4240e9d933fa8e18fc09aabd580a203e0f26774ffed7b4483b4cc9b146ebca",
+      "candidate_sha256": "428a5e8a0e8cafbc9400c37ec37417ac9aacdce116f0542797deba478039734a",
+      "translated_comment_lines": 20,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/dockerhub-description.yml",
+      "source_sha256": "9e9195561dc142d386bf75a9465c1cfbdfb1d4be98b65437c5ca3d0fd3420683",
+      "candidate_sha256": "e361cbd0d013a09125e6f8b7ee9138140d6607b3a940bdad5e5b74a631afa57a",
+      "translated_comment_lines": 6,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/market-publish-index.yml",
+      "source_sha256": "9dbedcd707bb6abc2235aa19fd8a748807d2fcc4696e3b9552639f097b9cf720",
+      "candidate_sha256": "ad1493954c66c22acda155baf021132c46bd60b609c62cb545370203bf3b7386",
+      "translated_comment_lines": 16,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/market-validate.yml",
+      "source_sha256": "ca6663a27b8cfa016cc3f6df1b5fd9e27cd1dc4cb73e85dfce0f83bb2c5ae2c0",
+      "candidate_sha256": "0c422dc6f128b445c26daeae5625a896aa9aa74184dd0bf5ef12d14b34c59d25",
+      "translated_comment_lines": 11,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/nightly-full.yml",
+      "source_sha256": "a57ae40ad098d652342cbae304b9aab0310da4f1709c62e4d25eb9105cae31e5",
+      "candidate_sha256": "a95f502cb1327a428abeb367d04804a190c2276fc7d55362aef4f39e49ceaa3c",
+      "translated_comment_lines": 6,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/project-status-sync.yml",
+      "source_sha256": "5f4172017cdc53f5f33f739e870f0644f5b1fcd081771f962d946d6075f5ec25",
+      "candidate_sha256": "d38b477e211b3a1e9b5c5290f2d6afc629d81af4d9354673c8817bf8123020d4",
+      "translated_comment_lines": 13,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true,
+        "zizmor_directive_exact": true
+      }
+    },
+    {
+      "path": ".github/workflows/react-doctor.yml",
+      "source_sha256": "b1f1b03f9b53050e5cc39c1032a3ebe3f67feff320ff0eae3d4831e1f60ae1c9",
+      "candidate_sha256": "58859a551cbb456dcf545decc14433bb2f2591183394557bbcb8b278fa016354",
+      "translated_comment_lines": 3,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/release-please.yml",
+      "source_sha256": "910f006f1eb06f1fe12939897bd5bb52046131f4c6b6344c7a1cb8fea6d73d5f",
+      "candidate_sha256": "41b93d32192d66a5e7bd1efa869456cf6a399f3dfa492718cf465eef985c7fce",
+      "translated_comment_lines": 13,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/sync-public-skills.yml",
+      "source_sha256": "3215584f8bbc3d0731a0c85a23d671efdc28e73f860f69b8edcd95f6487e1908",
+      "candidate_sha256": "d70490b2168873881fa0bb9123a5f8d96f522955969858b0b2b138ce8af56ebb",
+      "translated_comment_lines": 2,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".github/workflows/test.yml",
+      "source_sha256": "8cf262dc32b42fbdc75be07de5df4ebaa92c6656dd29872191e8dd3af243ab90",
+      "candidate_sha256": "cb0cc4f21283a096d3ecdc89c64eef5380368c1a5cf49c0bdea45940fcc5e9a7",
+      "translated_comment_lines": 70,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".gitignore",
+      "source_sha256": "1f23b81b31c411fc3a3a882ed3a4e30589f153b91f101f5c58611890f2bdec67",
+      "candidate_sha256": "55f567b040081b4131a26cc9d5e40f2b9b3177ad7998676d52cafdb7641b29b5",
+      "translated_comment_lines": 6,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": ".pre-commit-config.yaml",
+      "source_sha256": "6cf0ad060bd42af12ba9ee8412968a13c55966ce06f69b9f764cf9c075f50d60",
+      "candidate_sha256": "2a35abd6abc61691558c70d06a00ae1daef1118cc833917522a238fe07fae518",
+      "translated_comment_lines": 5,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": ".worktreeinclude",
+      "source_sha256": "12e3b8775f3d6a165685d9f1a890dfd0b1d3c513eae6ba083f00ddb36baacb35",
+      "candidate_sha256": "c09c2fc5faef6b646354fe4fa6d5d013f4274c9e061dec2d6ce295e565dcbcd8",
+      "translated_comment_lines": 6,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": "Dockerfile",
+      "source_sha256": "f02987a0f5e6293e8ab81bade80d2dbcae862db2acbcae8125da07663580ec1e",
+      "candidate_sha256": "c69099165f04c86a9d9479db39c247314db23d5b9af73afc78398dde8206faa0",
+      "translated_comment_lines": 22,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": "deploy/.env.example",
+      "source_sha256": "d3877eb88b4221f81ba25612721000b89fa1c19d00d9181869fd75842af2ec09",
+      "candidate_sha256": "25dc87c059cf3bc30930f791825161a07812d9ed424254f2a738ef452f2ef509",
+      "translated_comment_lines": 10,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": "deploy/docker-compose.yml",
+      "source_sha256": "c08f188d32c9723dc83e1ba8569d3d6063360aa5781b6c489d685839c31a0278",
+      "candidate_sha256": "62f6bb5a57b6b5c5638e65c09fc4066db2e5d07cc1d39c7e26b2db934876cba6",
+      "translated_comment_lines": 6,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": "deploy/production/.env.example",
+      "source_sha256": "1832054345a7fe5455657c87ee09d829cb124ec63da215dabdf26e2fc6894425",
+      "candidate_sha256": "d0f11af9159c9f50d877d8df1b416feaa7c25ac48c121f66d99999d95db5c090",
+      "translated_comment_lines": 14,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": "deploy/production/docker-compose.yml",
+      "source_sha256": "a8cc9066cbd8b4eabfabc87c2ae2b4efc612fcc884f4fbb73417b7fb135e08ea",
+      "candidate_sha256": "93033506b4074eb2feafea04f768cf4b4cf709961830dfa0757ada703ea8fc21",
+      "translated_comment_lines": 5,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "yaml_values_equal_after_run_shell_comment_tokenization": true
+      }
+    },
+    {
+      "path": "pyproject.toml",
+      "source_sha256": "820c605287eb6a6ef9c57c4fb0e75c4371c6cc4ea7e0b22759de63a51ee5a021",
+      "candidate_sha256": "114641f675481f9f96dc22f7714836dd3e8bccdc83e25abf3153e57202ee142e",
+      "translated_comment_lines": 113,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "parsed_toml_exactly_equal": true
+      }
+    },
+    {
+      "path": "website/scripts/check-consistency.mjs",
+      "source_sha256": "fd633f266ce2a66a70c5e58bdae3776775acd94e92b266c3015dec48cca90e10",
+      "candidate_sha256": "56b502a5a8787c6dffb56ba0e62d58c8a92b9037a5b9c470db8701d870c9afa2",
+      "translated_comment_lines": 22,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "only_standalone_comment_lines_changed": true,
+        "removeComments_output_identical": true
+      }
+    },
+    {
+      "path": "website/scripts/markdown-scan.mjs",
+      "source_sha256": "1b5e72758d378b756a57ba2cde376ef22b059eb7abb346c8b0250691aef28ef0",
+      "candidate_sha256": "08e82a79eeccaf2851b649fbba871ffd4f9b28075e7bc507fab845069b52631f",
+      "translated_comment_lines": 20,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "only_standalone_comment_lines_changed": true,
+        "removeComments_output_identical": true
+      }
+    },
+    {
+      "path": "website/scripts/sync-contributing.mjs",
+      "source_sha256": "cd2604c0842e73b25c36ff30ead9b35e5594eba92feb6e480d6bbd050e0838ca",
+      "candidate_sha256": "2ed8a66dc47f07d40bd5190b542c2230f5b9de7de7256e24c286f02f90c705d4",
+      "translated_comment_lines": 10,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "only_standalone_comment_lines_changed": true,
+        "removeComments_output_identical": true
+      }
+    },
+    {
+      "path": "website/scripts/update-docs-inventory.mjs",
+      "source_sha256": "22cdb1e1e058a9e479efa2c3848b4a10611e73e3d8670d75705dad5e7547970c",
+      "candidate_sha256": "fd665c58e900e9ef957b8602a0375f98437fcd6ba97837ebca95cdb2c171ca9a",
+      "translated_comment_lines": 3,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "only_standalone_comment_lines_changed": true,
+        "removeComments_output_identical": true
+      }
+    },
+    {
+      "path": "website/src/components/SponsorsNav/index.tsx",
+      "source_sha256": "b0cde4befc3699218104473259592bdd6a54422c86867606e043fa7628f4311d",
+      "candidate_sha256": "e1307b84317f2db3d7c7bc0aea12994bd607906b088f86ed4b657b3e91d54e69",
+      "translated_comment_lines": 3,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "only_standalone_comment_lines_changed": true,
+        "removeComments_output_identical": true
+      }
+    },
+    {
+      "path": "website/src/components/SponsorsNav/styles.module.css",
+      "source_sha256": "60962867fb010a9c956ebea503191c6fecbfec090c0883175de63e0311166af7",
+      "candidate_sha256": "86f7e68eff0ff76e37bbbc9ad4d673f49cd74ea9f8915f85ed24dbb0d85747a9",
+      "translated_comment_lines": 1,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true
+      }
+    },
+    {
+      "path": "website/src/data/sponsors.tsx",
+      "source_sha256": "80434455fed240adb64f3456e074693c5a046bdb14d4d6ea3526a874a2e2fe21",
+      "candidate_sha256": "2cac8424c52dd5bf1987d268f8a83d496f1282b8b56ed6f1df8558ede78e1d31",
+      "translated_comment_lines": 4,
+      "proof": {
+        "only_reviewed_comment_lines_changed": true,
+        "inline_executable_prefixes_preserved": true,
+        "only_standalone_comment_lines_changed": true,
+        "removeComments_output_identical": true
+      }
+    }
+  ],
+  "translated_comment_lines": 499,
+  "exceptions": [
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.yml",
+      "source_sha256": "d6be214f3bfa9e4c8cd41d7cf8da1d98b4621149bf13576955032fe0369c853c",
+      "candidate_sha256": "d6be214f3bfa9e4c8cd41d7cf8da1d98b4621149bf13576955032fe0369c853c",
+      "reason": "GitHub issue-form fields/labels and contact content control existing public Chinese-language behavior; executable YAML values preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 1,
+          "text": "name: 缺陷报告 (Bug)"
+        },
+        {
+          "line": 2,
+          "text": "description: 报告一个系统错误或异常现象"
+        },
+        {
+          "line": 9,
+          "text": "      label: ArcReel 版本"
+        },
+        {
+          "line": 10,
+          "text": "      description: 打开「设置 → 关于」即可看到版本号。"
+        },
+        {
+          "line": 11,
+          "text": "      placeholder: 例如：0.22.0"
+        },
+        {
+          "line": 18,
+          "text": "      label: 部署方式"
+        },
+        {
+          "line": 21,
+          "text": "        - 源码运行 - macOS"
+        },
+        {
+          "line": 22,
+          "text": "        - 源码运行 - Linux"
+        },
+        {
+          "line": 23,
+          "text": "        - 源码运行 - Windows"
+        },
+        {
+          "line": 25,
+          "text": "        - 其他"
+        },
+        {
+          "line": 32,
+          "text": "      label: 涉及的供应商与模型"
+        },
+        {
+          "line": 33,
+          "text": "      description: 问题涉及哪家供应商、哪个模型？请写具体的模型名称；与供应商无关则填「无」。"
+        },
+        {
+          "line": 34,
+          "text": "      placeholder: 例如：可灵 kling-v3-omni / 火山方舟 doubao-seedance / 自定义供应商 xxx / 无"
+        },
+        {
+          "line": 41,
+          "text": "      label: 问题描述与复现步骤"
+        },
+        {
+          "line": 42,
+          "text": "      description: 请说明你在哪个操作环节遇到问题、做了什么、看到了什么。步骤越具体，定位越快。"
+        },
+        {
+          "line": 44,
+          "text": "        例如："
+        },
+        {
+          "line": 45,
+          "text": "        1. 在项目「xxx」中打开分镜页"
+        },
+        {
+          "line": 46,
+          "text": "        2. 点击第 3 集第 2 个分镜的「生成视频」"
+        },
+        {
+          "line": 47,
+          "text": "        3. 任务失败，提示「…」"
+        },
+        {
+          "line": 54,
+          "text": "      label: 期望表现"
+        },
+        {
+          "line": 55,
+          "text": "      description: 你期望发生什么？（如果不言自明可留空）"
+        },
+        {
+          "line": 62,
+          "text": "      label: 错误信息、日志与截图"
+        },
+        {
+          "line": 64,
+          "text": "        请至少提供报错原文或报错截图。**强烈建议附上诊断日志包**：打开「设置 → 关于 → 下载诊断日志」，将得到的 ZIP 文件直接拖拽到此输入框上传（日志已自动脱敏，不含 API Key 等敏感信息）。供应商返回的具体拒绝原因通常只在日志里，附上它能省去多轮追问。"
+        },
+        {
+          "line": 65,
+          "text": "      placeholder: 把报错原文贴在这里，截图和诊断日志 ZIP 直接拖拽进来。"
+        },
+        {
+          "line": 72,
+          "text": "      label: 提交前确认"
+        },
+        {
+          "line": 74,
+          "text": "        - label: 我已搜索过现有 issue，没有找到重复的报告"
+        }
+      ]
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/config.yml",
+      "source_sha256": "9eb74477011769264e2291b8cfee648bcf67e15eef8619757b785a2435144085",
+      "candidate_sha256": "9eb74477011769264e2291b8cfee648bcf67e15eef8619757b785a2435144085",
+      "reason": "GitHub issue-form fields/labels and contact content control existing public Chinese-language behavior; executable YAML values preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 3,
+          "text": "  - name: 使用咨询与求助（Discussions）"
+        },
+        {
+          "line": 5,
+          "text": "    about: 怎么用、效果不理想、配置求助等非缺陷问题，请到 Discussions 交流。"
+        },
+        {
+          "line": 6,
+          "text": "  - name: 飞书交流群"
+        },
+        {
+          "line": 7,
+          "text": "    url: https://github.com/ArcReel/ArcReel#交流群"
+        },
+        {
+          "line": 8,
+          "text": "    about: 扫码加群，获取帮助和最新动态。"
+        }
+      ]
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feature_request.yml",
+      "source_sha256": "c7c97d7f0ed0338acf6d2acee17bb8145543427ce6faafbee1eff203d6b420f5",
+      "candidate_sha256": "c7c97d7f0ed0338acf6d2acee17bb8145543427ce6faafbee1eff203d6b420f5",
+      "reason": "GitHub issue-form fields/labels and contact content control existing public Chinese-language behavior; executable YAML values preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 1,
+          "text": "name: 新功能 (Feature)"
+        },
+        {
+          "line": 2,
+          "text": "description: 提出一个新的功能想法或需求"
+        },
+        {
+          "line": 9,
+          "text": "      label: 想解决的问题 / 使用场景"
+        },
+        {
+          "line": 10,
+          "text": "      description: 请先描述你遇到的问题或场景，而不是直接给出方案——了解背后的问题才能设计出合适的功能。"
+        },
+        {
+          "line": 11,
+          "text": "      placeholder: 例如：我在做 xxx 时，需要 yyy，但目前 zzz，导致……"
+        },
+        {
+          "line": 18,
+          "text": "      label: 期望的功能或方案"
+        },
+        {
+          "line": 19,
+          "text": "      description: 你希望 ArcReel 提供什么样的能力来解决上面的问题？"
+        },
+        {
+          "line": 26,
+          "text": "      label: 目前的替代做法"
+        },
+        {
+          "line": 27,
+          "text": "      description: 在没有这个功能的情况下，你现在是如何处理这个需求的？如果没有可行的办法，留空即可。"
+        },
+        {
+          "line": 34,
+          "text": "      label: 提交前确认"
+        },
+        {
+          "line": 36,
+          "text": "        - label: 我已搜索过现有 issue，没有找到重复的请求"
+        }
+      ]
+    },
+    {
+      "path": ".github/actions/domain-filter/action.yml",
+      "source_sha256": "76c2bd986059504424522d1e3ed9347484844807403f5b536d1b0418c0356a1b",
+      "candidate_sha256": "a96250c4cb292fc0e2343dde22f72ab25777bc3b8d2f1961ff87952fdd46268b",
+      "reason": "Workflow/action input/secret/output descriptions or emitted GitHub issue/warning/summary/commit text are executable YAML/shell strings, preserved under scope. Inline command example placeholders remain exact.",
+      "remaining_Han_lines": [
+        {
+          "line": 3,
+          "text": "  按变更域裁剪 CI：输出 workflow / backend / frontend / docker / website 五个域是否"
+        },
+        {
+          "line": 4,
+          "text": "  被本次变更命中。workflow 域（CI 配置本身）变更时另外四个域保守全量触发；full 输入"
+        },
+        {
+          "line": 5,
+          "text": "  为 true 时跳过路径过滤，所有域视为已变更（供 nightly 全量与 schedule 事件使用——"
+        },
+        {
+          "line": 6,
+          "text": "  paths-filter 不支持 schedule 事件的变更比对）。"
+        },
+        {
+          "line": 10,
+          "text": "    description: 为 true 时跳过路径过滤，所有域视为已变更"
+        },
+        {
+          "line": 16,
+          "text": "    description: CI 配置域（.github/、.codecov.yml、.gitignore）是否变更"
+        },
+        {
+          "line": 19,
+          "text": "    description: 后端域（server/lib/tests/alembic/workspace 子包/依赖文件/agent_runtime_profile）是否变更"
+        },
+        {
+          "line": 22,
+          "text": "    description: 前端域（frontend/）是否变更"
+        },
+        {
+          "line": 25,
+          "text": "    description: 镜像装配域（Dockerfile/.dockerignore 及不属于代码域的 COPY 源）是否变更"
+        },
+        {
+          "line": 28,
+          "text": "    description: 文档站域（website/、CONTRIBUTING.md、两个 README 及翻译 skill）是否变更"
+        }
+      ]
+    },
+    {
+      "path": ".github/dependabot.yml",
+      "source_sha256": "8940b69072c77b6d197e90c59fcfece859d5924a74c5cfb2df2f9b00fad75c5f",
+      "candidate_sha256": "0bec15c42f2a86f715be3c16ec3b6561051f15101db59acaf0b8c84d211e6eab",
+      "reason": "Workflow/action input/secret/output descriptions or emitted GitHub issue/warning/summary/commit text are executable YAML/shell strings, preserved under scope. Inline command example placeholders remain exact.",
+      "remaining_Han_lines": [
+        {
+          "line": 198,
+          "text": "      # `pnpm exec shadcn add <组件> --diff` on installed components and merge manually (see docs/agents/dependencies.md)."
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/market-publish-index.yml",
+      "source_sha256": "9dbedcd707bb6abc2235aa19fd8a748807d2fcc4696e3b9552639f097b9cf720",
+      "candidate_sha256": "ad1493954c66c22acda155baf021132c46bd60b609c62cb545370203bf3b7386",
+      "reason": "Workflow/action input/secret/output descriptions or emitted GitHub issue/warning/summary/commit text are executable YAML/shell strings, preserved under scope. Inline command example placeholders remain exact.",
+      "remaining_Han_lines": [
+        {
+          "line": 34,
+          "text": "        description: 推送索引提交用的 GitHub App client id；须与 MARKET_APP_PRIVATE_KEY 同时配置，缺省使用 GITHUB_TOKEN"
+        },
+        {
+          "line": 37,
+          "text": "        description: 推送索引提交用的 GitHub App private key；须与 MARKET_APP_CLIENT_ID 同时配置，缺省使用 GITHUB_TOKEN"
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/nightly-full.yml",
+      "source_sha256": "a57ae40ad098d652342cbae304b9aab0310da4f1709c62e4d25eb9105cae31e5",
+      "candidate_sha256": "a95f502cb1327a428abeb367d04804a190c2276fc7d55362aef4f39e49ceaa3c",
+      "reason": "Workflow/action input/secret/output descriptions or emitted GitHub issue/warning/summary/commit text are executable YAML/shell strings, preserved under scope. Inline command example placeholders remain exact.",
+      "remaining_Han_lines": [
+        {
+          "line": 45,
+          "text": "          title=\"Nightly full CI 失败\""
+        },
+        {
+          "line": 51,
+          "text": "                --body \"Nightly 全量 CI 再次失败：$RUN_URL\""
+        },
+        {
+          "line": 54,
+          "text": "                --body \"Nightly 全量 CI 失败，运行详情：$RUN_URL\""
+        },
+        {
+          "line": 58,
+          "text": "              --comment \"Nightly 全量 CI 已恢复：$RUN_URL\""
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/release-please.yml",
+      "source_sha256": "910f006f1eb06f1fe12939897bd5bb52046131f4c6b6344c7a1cb8fea6d73d5f",
+      "candidate_sha256": "41b93d32192d66a5e7bd1efa869456cf6a399f3dfa492718cf465eef985c7fce",
+      "reason": "Workflow/action input/secret/output descriptions or emitted GitHub issue/warning/summary/commit text are executable YAML/shell strings, preserved under scope. Inline command example placeholders remain exact.",
+      "remaining_Han_lines": [
+        {
+          "line": 88,
+          "text": "            echo \"::warning title=目录快照未更新::抓取目录数据失败，出厂快照保持不变\""
+        },
+        {
+          "line": 92,
+          "text": "            echo \"::warning title=目录快照未更新::目录数据未通过校验器，出厂快照保持不变\""
+        },
+        {
+          "line": 96,
+          "text": "            echo \"::notice title=目录快照::出厂快照已是最新\""
+        },
+        {
+          "line": 103,
+          "text": "          git commit -m \"chore(catalog): 更新出厂快照\""
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/test.yml",
+      "source_sha256": "8cf262dc32b42fbdc75be07de5df4ebaa92c6656dd29872191e8dd3af243ab90",
+      "candidate_sha256": "cb0cc4f21283a096d3ecdc89c64eef5380368c1a5cf49c0bdea45940fcc5e9a7",
+      "reason": "Workflow/action input/secret/output descriptions or emitted GitHub issue/warning/summary/commit text are executable YAML/shell strings, preserved under scope. Inline command example placeholders remain exact.",
+      "remaining_Han_lines": [
+        {
+          "line": 10,
+          "text": "        description: 忽略路径裁剪，全量运行所有 job"
+        },
+        {
+          "line": 15,
+          "text": "        description: Codecov 上传令牌；缺失时覆盖率上传步骤不阻断"
+        },
+        {
+          "line": 241,
+          "text": "            echo \"::group::$(basename \"$f\") 最后的进展\""
+        },
+        {
+          "line": 250,
+          "text": "          sudo dmesg --ctime | grep -iE 'out of memory|oom|killed process|segfault' || echo \"内核日志里没有 OOM 或段错误记录\""
+        },
+        {
+          "line": 519,
+          "text": "            echo \"### 文档翻译滞后清单\""
+        },
+        {
+          "line": 637,
+          "text": "            echo \"发布 PR 含版本产物白名单外的文件，请检查 release-please 配置：\""
+        },
+        {
+          "line": 641,
+          "text": "          echo \"发布 PR 变更文件均在白名单内\""
+        }
+      ]
+    },
+    {
+      "path": ".release-please-config.json",
+      "source_sha256": "302623cfc0d28f48ce31116d7380b685b0d9d4bc269571270c213c4df241388d",
+      "candidate_sha256": "302623cfc0d28f48ce31116d7380b685b0d9d4bc269571270c213c4df241388d",
+      "reason": "Release section labels are release-please configuration controlling public changelog headings; executable JSON values preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 20,
+          "text": "        { \"type\": \"feat\", \"section\": \"✨ 新功能\", \"hidden\": false },"
+        },
+        {
+          "line": 21,
+          "text": "        { \"type\": \"fix\", \"section\": \"🐛 Bug 修复\", \"hidden\": false },"
+        },
+        {
+          "line": 22,
+          "text": "        { \"type\": \"perf\", \"section\": \"⚡ 性能优化\", \"hidden\": false },"
+        },
+        {
+          "line": 23,
+          "text": "        { \"type\": \"refactor\", \"section\": \"♻️ 重构\", \"hidden\": false },"
+        },
+        {
+          "line": 24,
+          "text": "        { \"type\": \"docs\", \"section\": \"📚 文档\", \"hidden\": false },"
+        },
+        {
+          "line": 25,
+          "text": "        { \"type\": \"revert\", \"section\": \"↩️ 回滚\", \"hidden\": false },"
+        }
+      ]
+    },
+    {
+      "path": "CHANGELOG.md",
+      "source_sha256": "d5a04b827b84a54c5c64112e5030f18d9ade19bd0f53ab687e46597e70264236",
+      "candidate_sha256": "d5a04b827b84a54c5c64112e5030f18d9ade19bd0f53ab687e46597e70264236",
+      "reason": "Immutable release history or legal/third-party notice; exact bytes preserved.",
+      "remaining_Han_line_count": 1648
+    },
+    {
+      "path": "NOTICE",
+      "source_sha256": "8b131d59033fb5ab158ed834c4a36c276c28d3c224fdbdb64198a0b2c82c5375",
+      "candidate_sha256": "8b131d59033fb5ab158ed834c4a36c276c28d3c224fdbdb64198a0b2c82c5375",
+      "reason": "Immutable release history or legal/third-party notice; exact bytes preserved.",
+      "remaining_Han_line_count": 18
+    },
+    {
+      "path": "deploy/production/docker-compose.yml",
+      "source_sha256": "a8cc9066cbd8b4eabfabc87c2ae2b4efc612fcc884f4fbb73417b7fb135e08ea",
+      "candidate_sha256": "93033506b4074eb2feafea04f768cf4b4cf709961830dfa0757ada703ea8fc21",
+      "reason": "Compose interpolation failure message is executable/public diagnostic text, preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 6,
+          "text": "      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}"
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "source_sha256": "820c605287eb6a6ef9c57c4fb0e75c4371c6cc4ea7e0b22759de63a51ee5a021",
+      "candidate_sha256": "114641f675481f9f96dc22f7714836dd3e8bccdc83e25abf3153e57202ee142e",
+      "reason": "pytest marker descriptions, import-linter contract names and lint diagnostic messages are executable TOML values; preserved. Chinese marker examples remain literal documentation examples.",
+      "remaining_Han_lines": [
+        {
+          "line": 108,
+          "text": "    \"unit: 快速、隔离的测试；可只读访问仓库内已提交的文件，写文件只落在 tmp_path，不触达真实 DB、子进程、网络或外部服务\","
+        },
+        {
+          "line": 109,
+          "text": "    \"integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）\","
+        },
+        {
+          "line": 110,
+          "text": "    \"e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过\","
+        },
+        {
+          "line": 111,
+          "text": "    \"sqlite_only: 仅适用于 SQLite 的测试（依赖 SQLite 特定 fixture / 行为，PG CI job 会跳过）\","
+        },
+        {
+          "line": 112,
+          "text": "    \"uses_db: 触达真实数据库的测试（repo/DAO/ORM/迁移）；PG job 用 `-m uses_db` 选集合。由 conftest 根据 fixture 使用自动注入\","
+        },
+        {
+          "line": 113,
+          "text": "    \"local_port: 绑定 127.0.0.1 端口的测试；在禁止绑定本地端口的环境（如 Agent 沙箱）中由 conftest 跳过并给出原因\","
+        },
+        {
+          "line": 145,
+          "text": "name = \"lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 分层契约\""
+        },
+        {
+          "line": 197,
+          "text": "name = \"ComfyUI 端点实现不依赖声明式运行时\""
+        },
+        {
+          "line": 212,
+          "text": "name = \"arcreel_market_core 不依赖主仓\""
+        },
+        {
+          "line": 220,
+          "text": "name = \"arcreel_catalog_core 不依赖主仓\""
+        },
+        {
+          "line": 232,
+          "text": "# payload locations uses body @[名称] markers, and only this parser recognizes them."
+        },
+        {
+          "line": 234,
+          "text": "name = \"路线中立层不依赖参考生视频子包\""
+        },
+        {
+          "line": 247,
+          "text": "name = \"视频请求事实不依赖参考生视频子包\""
+        },
+        {
+          "line": 257,
+          "text": "name = \"核心库不依赖服务端\""
+        },
+        {
+          "line": 265,
+          "text": "name = \"核心库不依赖 HTTP 框架\""
+        },
+        {
+          "line": 274,
+          "text": "name = \"Agent 工具集声明不依赖宿主 SDK\""
+        },
+        {
+          "line": 353,
+          "text": "\"os.O_NOFOLLOW\".msg = \"Windows 上不存在。用 getattr(os, \\\"<名>\\\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」\""
+        },
+        {
+          "line": 354,
+          "text": "\"os.O_DIRECTORY\".msg = \"Windows 上不存在。用 getattr(os, \\\"<名>\\\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」\""
+        },
+        {
+          "line": 355,
+          "text": "\"os.O_NONBLOCK\".msg = \"Windows 上不存在。用 getattr(os, \\\"<名>\\\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」\""
+        },
+        {
+          "line": 356,
+          "text": "\"asyncio.create_subprocess_shell\".msg = \"命令经 shell 解析，Windows 上行为不同且有注入风险。改用 asyncio.create_subprocess_exec 并传 list 参数\""
+        }
+      ]
+    },
+    {
+      "path": "website/scripts/check-consistency.mjs",
+      "source_sha256": "fd633f266ce2a66a70c5e58bdae3776775acd94e92b266c3015dec48cca90e10",
+      "candidate_sha256": "56b502a5a8787c6dffb56ba0e62d58c8a92b9037a5b9c470db8701d870c9afa2",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 37,
+          "text": "  return orphans.map((item) => `孤儿译文：${item.target}（源 ${item.source} 未登记或已不存在）`);"
+        },
+        {
+          "line": 88,
+          "text": "          problems.push(`${file}:${index + 1} 标题缺少显式锚点 {#id}：${line.trim()}`);"
+        },
+        {
+          "line": 93,
+          "text": "          problems.push(`${file} 锚点 id「${anchor}」在同页内重复`);"
+        },
+        {
+          "line": 102,
+          "text": "          `${root}/${docPath} 含 JSX 标题标签但 ${docPath} 未登记在 check-consistency.mjs 的 ` +"
+        },
+        {
+          "line": 103,
+          "text": "            \"JSX_HEADING_EXEMPT_DOCS 中——要么改回带 {#id} 的 Markdown 标题，要么显式登记豁免\","
+        },
+        {
+          "line": 112,
+          "text": "          `${root}/${docPath} 已不含 JSX 标题标签，若各 locale 副本均已如此，请从 JSX_HEADING_EXEMPT_DOCS 摘除 ${docPath}`,"
+        },
+        {
+          "line": 120,
+          "text": "      problems.push(`${docPath} 登记在 JSX_HEADING_EXEMPT_DOCS 中但源与各 locale 译文均无此文件，登记项已过期，请摘除`);"
+        },
+        {
+          "line": 169,
+          "text": "        problems.push(`${file} 缺少 write-translations 生成的 key：${missing.join(\", \")}`);"
+        },
+        {
+          "line": 186,
+          "text": "  console.error(\"一致性检查未通过：\");"
+        },
+        {
+          "line": 190,
+          "text": "  console.log(\"一致性检查通过：文档库存一致、无孤儿译文、标题锚点齐全且唯一、UI JSON key 齐全。\");"
+        }
+      ]
+    },
+    {
+      "path": "website/scripts/sync-contributing.mjs",
+      "source_sha256": "cd2604c0842e73b25c36ff30ead9b35e5594eba92feb6e480d6bbd050e0838ca",
+      "candidate_sha256": "2ed8a66dc47f07d40bd5190b542c2230f5b9de7de7256e24c286f02f90c705d4",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 17,
+          "text": "// Keys combine hash prefixes and heading text, allowing equal titles (e.g. two “工作流程” headings) at different levels to register separately."
+        },
+        {
+          "line": 19,
+          "text": "  [\"# 贡献指南\", \"contributing\"],"
+        },
+        {
+          "line": 20,
+          "text": "  [\"## 本地开发环境\", \"local-development\"],"
+        },
+        {
+          "line": 21,
+          "text": "  [\"### 文档站\", \"docs-site\"],"
+        },
+        {
+          "line": 22,
+          "text": "  [\"## 测试\", \"testing\"],"
+        },
+        {
+          "line": 23,
+          "text": "  [\"### 前端页面级测试\", \"frontend-page-tests\"],"
+        },
+        {
+          "line": 24,
+          "text": "  [\"## 代码质量\", \"code-quality\"],"
+        },
+        {
+          "line": 25,
+          "text": "  [\"### 依赖管理\", \"dependency-management\"],"
+        },
+        {
+          "line": 26,
+          "text": "  [\"## 文档维护\", \"docs-maintenance\"],"
+        },
+        {
+          "line": 27,
+          "text": "  [\"### 各页职责\", \"page-responsibilities\"],"
+        },
+        {
+          "line": 28,
+          "text": "  [\"### 写作约定\", \"writing-conventions\"],"
+        },
+        {
+          "line": 29,
+          "text": "  [\"## 工作流程\", \"workflow\"],"
+        },
+        {
+          "line": 30,
+          "text": "  [\"### 分支策略（trunk-based）\", \"branching-strategy\"],"
+        },
+        {
+          "line": 31,
+          "text": "  [\"### 分支命名约定\", \"branch-naming\"],"
+        },
+        {
+          "line": 32,
+          "text": "  [\"### 短分支寿命\", \"short-lived-branches\"],"
+        },
+        {
+          "line": 34,
+          "text": "  [\"## 提交规范\", \"commit-convention\"],"
+        },
+        {
+          "line": 35,
+          "text": "  [\"## 发版流程\", \"release-process\"],"
+        },
+        {
+          "line": 36,
+          "text": "  [\"### 工作流程\", \"release-workflow\"],"
+        },
+        {
+          "line": 37,
+          "text": "  [\"### commit type → 版本步进\", \"commit-type-version-bump\"],"
+        },
+        {
+          "line": 38,
+          "text": "  [\"### commit 示例\", \"commit-examples\"],"
+        },
+        {
+          "line": 53,
+          "text": "        `CONTRIBUTING.md 的标题「${key}」没有登记锚点 ID，请在 website/scripts/sync-contributing.mjs 的 ANCHORS 中补上`,"
+        },
+        {
+          "line": 58,
+          "text": "      throw new Error(`锚点 ID「${anchor}」被多个标题共用（最后一处是「${key}」），请在 ANCHORS 中改成唯一值`);"
+        },
+        {
+          "line": 67,
+          "text": "    throw new Error(`ANCHORS 中登记了 CONTRIBUTING.md 里已不存在的标题：${stale.join(\"、\")}`);"
+        },
+        {
+          "line": 76,
+          "text": "  \"title: 贡献指南\","
+        }
+      ]
+    },
+    {
+      "path": "website/scripts/update-docs-inventory.mjs",
+      "source_sha256": "22cdb1e1e058a9e479efa2c3848b4a10611e73e3d8670d75705dad5e7547970c",
+      "candidate_sha256": "fd665c58e900e9ef957b8602a0375f98437fcd6ba97837ebca95cdb2c171ca9a",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 2,
+          "text": "// Published-page inventory for update-docs: frontmatter declares coverage tiers; CONTRIBUTING’s “各页职责” must match the inventory."
+        },
+        {
+          "line": 21,
+          "text": "    if (sectionStart === null && hashes === \"###\" && text === \"各页职责\") {"
+        },
+        {
+          "line": 57,
+          "text": "      problems.push(`${entry.path} 未声明 frontmatter 的 update_docs（可选 full / fact-check / none）`);"
+        },
+        {
+          "line": 60,
+          "text": "        `${entry.path} 的 frontmatter update_docs 值「${entry.updateDocs}」无效（可选 full / fact-check / none）`,"
+        },
+        {
+          "line": 70,
+          "text": "    problems.push(\"CONTRIBUTING.md 缺少「### 各页职责」章节\");"
+        },
+        {
+          "line": 76,
+          "text": "    if (missing.length > 0) problems.push(`CONTRIBUTING.md 各页职责缺少：${missing.join(\"、\")}`);"
+        },
+        {
+          "line": 77,
+          "text": "    if (stale.length > 0) problems.push(`CONTRIBUTING.md 各页职责多出：${stale.join(\"、\")}`);"
+        },
+        {
+          "line": 92,
+          "text": "    else throw new Error(`未知参数：${args[index]}`);"
+        },
+        {
+          "line": 94,
+          "text": "  if (format !== \"check\" && format !== \"tsv\") throw new Error(`未知输出格式：${format}`);"
+        },
+        {
+          "line": 102,
+          "text": "    console.error(\"update-docs 文档库存检查未通过：\");"
+        },
+        {
+          "line": 110,
+          "text": "    console.log(`update-docs 文档库存检查通过：${entries.length} 个上站页面均已声明覆盖档位且各页职责清单一致。`);"
+        }
+      ]
+    },
+    {
+      "path": "website/scripts/update-docs-inventory.test.mjs",
+      "source_sha256": "39e4774add81704bcef5544975f2b566cb1cb629fe9cdd1171914b4302d34b89",
+      "candidate_sha256": "39e4774add81704bcef5544975f2b566cb1cb629fe9cdd1171914b4302d34b89",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 29,
+          "text": "### 各页职责"
+        },
+        {
+          "line": 31,
+          "text": "| 页面 | 应该包含 | 不应该包含 |"
+        },
+        {
+          "line": 35,
+          "text": "### 写作约定"
+        },
+        {
+          "line": 75,
+          "text": "            \"website/docs/typo.md 的 frontmatter update_docs 值「engine-a」无效（可选 full / fact-check / none）\","
+        },
+        {
+          "line": 92,
+          "text": "        (error) => error.stderr.includes(\"website/docs/undeclared.md 未声明 frontmatter 的 update_docs\"),"
+        },
+        {
+          "line": 108,
+          "text": "          assert.match(error.stderr, /各页职责缺少：website\\/docs\\/actual\\.md/);"
+        },
+        {
+          "line": 109,
+          "text": "          assert.match(error.stderr, /各页职责多出：website\\/docs\\/stale\\.md/);"
+        },
+        {
+          "line": 122,
+          "text": "        \"\\n### 写作约定\","
+        },
+        {
+          "line": 123,
+          "text": "        \"\\n```md\\n| `website/docs/example-only.md` | yes | no |\\n```\\n\\n### 写作约定\","
+        }
+      ]
+    },
+    {
+      "path": "website/src/components/SponsorsNav/index.tsx",
+      "source_sha256": "b0cde4befc3699218104473259592bdd6a54422c86867606e043fa7628f4311d",
+      "candidate_sha256": "e1307b84317f2db3d7c7bc0aea12994bd607906b088f86ed4b657b3e91d54e69",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 10,
+          "text": "    sponsor: translate({ id: \"sponsors.label\", message: \"赞助商\", description: \"Label of the navbar sponsors area\" }),"
+        },
+        {
+          "line": 13,
+          "text": "      message: \"成为赞助商\","
+        },
+        {
+          "line": 18,
+          "text": "      message: \"访问官网 →\","
+        }
+      ]
+    },
+    {
+      "path": "website/src/data/sponsors.tsx",
+      "source_sha256": "80434455fed240adb64f3456e074693c5a046bdb14d4d6ea3526a874a2e2fe21",
+      "candidate_sha256": "2cac8424c52dd5bf1987d268f8a83d496f1282b8b56ed6f1df8558ede78e1d31",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 43,
+          "text": "        message: \"专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，一套异步 API 通吃图片与视频。\","
+        },
+        {
+          "line": 53,
+          "text": "        message: \"一个 API 接入 GPT、Claude、Gemini 等 100+ 模型，支持 Seedance 视频与 Nano Banana 图像。\","
+        }
+      ]
+    },
+    {
+      "path": "website/src/i18n/siteMetadata.ts",
+      "source_sha256": "ee006991075b2eb4e0d6f8328817f42e2846c9d5264b3b733a36251ddb5d4bb2",
+      "candidate_sha256": "ee006991075b2eb4e0d6f8328817f42e2846c9d5264b3b733a36251ddb5d4bb2",
+      "reason": "Executable script messages/selectors, public Chinese-first source headings, UI translations, fixtures, or exact inline historical Chinese tokens; existing behavior preserved.",
+      "remaining_Han_lines": [
+        {
+          "line": 6,
+          "text": "    message: \"ArcReel 文档中心\","
+        },
+        {
+          "line": 14,
+          "text": "    message: \"开源、自托管的 AI 视频创作平台\","
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "yaml_shell_run_tokens_exact": true,
+    "toml_values_exact": true,
+    "unmodified_exception_files_byte_exact": true,
+    "nested_paths_filter_yaml_values_exact": true,
+    "js_ts_parser_removeComments_output_exact": true
+  },
+  "checks": [
+    {
+      "command": "pnpm --dir website check",
+      "result": "PASS: sync, typecheck, eslint, Prettier, consistency"
+    },
+    {
+      "command": "pnpm --dir website build",
+      "result": "PASS: zh-Hans and en production builds"
+    },
+    {
+      "command": "node --test website/scripts/*.test.mjs",
+      "result": "PASS: 7 tests"
+    },
+    {
+      "command": "uv run python scripts/audit_conventions.py --check",
+      "result": "PASS"
+    },
+    {
+      "command": "uv run pre-commit run --all-files zizmor",
+      "result": "PASS"
+    },
+    {
+      "command": "uv run pre-commit run --all-files actionlint",
+      "result": "PASS"
+    },
+    {
+      "command": "uv run pytest tests/unit/scripts/test_gate.py tests/unit/scripts/test_audit_conventions.py -q",
+      "result": "PASS: 39 tests; 1 existing SQLite expression-index reflection warning"
+    }
+  ],
+  "subsequent_authorized_config_annotation_batch": {
+    "artifact": "developer-lint-messages-review.json",
+    "independent_review": "developer-config-independent-review.json",
+    "scope": "Exactly19 developer-only parsed TOML human values:4Ruff diagnostics,6pytest marker descriptions preserving prefixes,9import-linter display names preserving IDs/structure. Earlier parsed-TOML-equality statements apply to passive-comment batch snapshot only.",
+    "current_pyproject_sha256": "c7fd65509b58001847dff69ffad31426f1920e01b0b31cad5c13c59e9a69acd6"
+  }
+}

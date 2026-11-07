@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** 分页页头：只显示分页名，可选一行说明。 */
+/** Tab header: only the tab name, optionally with one explanatory line. */
 export function TabHeader({ title, description }: { title: string; description?: ReactNode }) {
   return (
     <header className="flex flex-col gap-1">
@@ -10,7 +10,7 @@ export function TabHeader({ title, description }: { title: string; description?:
   );
 }
 
-/** 分页里的一个分区：标题、可选说明与内容，相邻分区之间一条细线。 */
+/** Section within a tab: title, optional explanation and content, with a thin divider between adjacent sections. */
 export function SettingsBlock({
   title,
   titleId,
@@ -19,10 +19,10 @@ export function SettingsBlock({
   children,
 }: {
   title: string;
-  /** 内容需要以标题作可访问名称时（如单选组的 `aria-labelledby`）传入。 */
+  /** Supply when content needs the title as its accessible name, such as a radio group's `aria-labelledby`. */
   titleId?: string;
   description?: ReactNode;
-  /** 标题行右侧的标记，如「创建后不可更改」。 */
+  /** Marker at the title row's right, such as Cannot change after creation. */
   aside?: ReactNode;
   children: ReactNode;
 }) {

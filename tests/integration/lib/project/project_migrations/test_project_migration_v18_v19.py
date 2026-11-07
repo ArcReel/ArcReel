@@ -1,4 +1,4 @@
-"""v18→v19 迁移：每集记下条目编号用过的最大号，此后的新增不再取回删掉的编号；分镜图与宫格的依据平移到不记资产名的口径，时效不变。"""
+"""v18→v19: record per-episode highest used item IDs so additions never reuse deleted numbers; translate storyboard/grid bases to omit asset names without changing currency."""
 
 from __future__ import annotations
 
@@ -47,14 +47,14 @@ async def test_schema_18_project_records_the_highest_number_without_renaming_any
 
     assert _read_json(project_dir / "project.json") == {
         **legacy,
-        # 剧本到 E1S2，版本历史到 E1S5，删除记录到 E1S7，剪辑时间线的片段到 E1S9
+        # Scripts reach E1S2, version history E1S5, deletion records E1S7, and timeline clips E1S9.
         "episodes": [{**entry, "item_id_high_water": 9} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     assert _structure_bytes(project_dir) == files_before
 
     pm = ProjectManager(tmp_path)
-    # 样本剧本按当前模型自检不过，批量编辑会拒绝；直接走同一取号规则追加一条（批量编辑的发号见其测试）
+    # Sample scripts fail current model validation, so batch edits reject; append directly using the same ID rule, tested separately for batch issuance.
     with pm.locked_script(project_dir.name, "episode_1.json", validate=False) as script:
         floor = pm.item_id_floor(pm.load_project(project_dir.name), script, 1)
         added = {**script["segments"][-1], "segment_id": new_item_id(script, floor=floor), "generated_assets": {}}
@@ -76,7 +76,7 @@ def test_rerunning_the_step_keeps_the_recorded_number(tmp_path: Path) -> None:
     assert (project_dir / "project.json").read_bytes() == migrated
 
 
-# —— 分镜图与宫格的依据不再记资产名 ——
+# Storyboard/grid bases no longer record asset names.
 
 _GRID = ArtifactKey.episode_grid(1, "grid_123456789abc")
 _GRID_MEMBERS = (ArtifactKey.episode_storyboard(1, "E1S01"), ArtifactKey.episode_storyboard(1, "E1S02"))
@@ -94,7 +94,7 @@ def _status(project_dir: Path, key: ArtifactKey) -> str:
 
 
 def _is_current_before_migration(project_dir: Path, key: ArtifactKey) -> bool:
-    """迁移前的时新性判定。读模型只服务当前 schema 的项目，此处直接比对登记与目标态。"""
+    """Premigration currency; read models serve only current schemas, so directly compare registration and target state here."""
     return _entries(project_dir).get(key) == TargetStatePlanner(project_dir).plan().entries.get(key)
 
 
@@ -130,7 +130,7 @@ def test_storyboards_and_grids_keep_their_currency_across_the_upgrade(tmp_path: 
         assert _status(project_dir, key) == "current"
     summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
     assert (summary.episodes[0].storyboards.available, summary.episodes[0].storyboards.stale) == (3, 0)
-    # 播放器与版本恢复读冻结依据：选中与未选中的版本都改写到新口径，且不再含资产名。
+    # Player/version restoration reads frozen bases; rewrite selected and unselected versions alike to omit asset names.
     frozen = _frozen_bases(project_dir)
     assert "阿离" not in json.dumps(list(frozen.values()), ensure_ascii=False)
     for bucket, resource_id, key in (("grids", "grid_123456789abc", _GRID), ("storyboards", "E1S03", _STORYBOARD)):

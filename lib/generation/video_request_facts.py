@@ -1,16 +1,16 @@
-"""视频请求事实：一次视频生成请求的执行事实，每次请求只求值一次（``docs/adr/0086``）。
+"""Video request facts: execution facts for one video-generation request, evaluated once per request (``docs/adr/0086``).
 
-求值维度是「项目 × 路线 × 任务类型桶 × 身份来源」。读侧（报价、预检、界面、Agent）以当前配置
-解析出的执行模型为身份，执行侧以 lane 实际构造的 backend 身份为准（``docs/adr/0049`` ③）；除身份
-来源外两侧求值完全相同，消费方直接读取求值结果中的分辨率、档位与音轨。
+Evaluation dimensions are project × route × task-type bucket × identity source. Readers (quotes, preflight, UI, Agent) use execution models
+resolved from current configuration; execution uses actual lane-constructed backend identities (``docs/adr/0049`` ③). Apart from identity
+sources, evaluation is identical on both sides; consumers read resolutions, tiers and audio tracks directly from results.
 
-- 分辨率未设置即不下发：请求分辨率就是时长联动约束所用的分辨率，没有兜底档位。
-- 收窄严格：约束收成空集是失败，不回退到未收窄的全集。
-- 失败只带类型（问题码、参数与修复指引），不降级、不回退，由消费方按阶段处理。
+- Unset resolutions are not sent: request resolutions are those used in duration-linked constraints, without fallback tiers.
+- Narrow strictly: empty intersections fail, never fall back to unrestricted sets.
+- Failures carry types only (issue codes, parameters and remediation), without degradation/fallback; consumers handle them by stage.
 
-本模块是路线中立层：不依赖参考生视频子包，也不依赖服务端（``pyproject.toml`` import-linter 契约）；
-不在模块级绑定数据库 session，调用方注入 resolver——执行期传入 GenerationContext 已绑定 session
-的那一个。
+This layer is route-neutral: no reference-video subpackage or server dependencies (``pyproject.toml`` import-linter contract).
+Never bind database sessions at module level; callers inject resolvers. Execution injects the resolver already bound to GenerationContext's
+session.
 """
 
 from __future__ import annotations
@@ -33,25 +33,25 @@ from lib.config.resolver import (
     apply_duration_constraints,
 )
 
-#: 视频路线：分镜（首帧驱动）与参考生视频。问题码按路线分族，已记录的码不改名。
+#: Video routes: storyboard (first-frame-driven) and reference video. Issue codes form route-specific families; never rename recorded codes.
 VideoRoute = Literal["storyboard", "reference_video"]
 
-#: 求值失败的修复指引：都指向视频模型配置。
+#: Evaluation-failure remediation: all points to video-model configuration.
 CONFIGURE_VIDEO_MODEL_ACTION = "configure_video_model"
 
-#: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。
+#: Duration tiers borrowed for script planning when model-row durations are endpoint-fixed.
 #:
-#: 这不是「这个模型支持几秒」——那一维不由 ArcReel 驱动，成片多长以 workflow 为准。它只是剧本
-#: 规划需要的「一个分镜大概多长」的篇幅依据：没有它，分镜拆不出来。借用只发生在规划内部
-#: （:func:`planning_durations`），界面与 Agent 载荷拿到的仍是空集加端点固定标志。取值与
-#: ``lib.custom_provider.duration_presets.DEFAULT_FALLBACK`` 同为 ``[4, 8]``，但语义不同（后者是
-#: 自定义供应商写入层的保守默认），不从那里 import。
+#: These do not mean supported model seconds: ArcReel does not drive that dimension; workflow determines output length. They only provide script
+#: planning volume guidance for approximate shot length; without it, storyboards cannot split. Borrow only within planning
+#: (:func:`planning_durations`); UI and Agent payloads still receive empty sets plus endpoint-fixed flags. Values match
+#: ``lib.custom_provider.duration_presets.DEFAULT_FALLBACK`` at ``[4, 8]``, with different semantics (the latter is the
+#: conservative custom-provider write-layer default), so do not import from there.
 ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
 
-#: 单元未写时长、项目也无偏好时长时的规划基准：取剧本规划借用档位里最长的一档。
+#: Planning baseline when neither unit duration nor project preferred duration exists: longest borrowed script-planning tier.
 #:
-#: 不代表任何模型的可选档位。它与 :data:`ENDPOINT_FIXED_PLANNING_DURATIONS` 同源，端点固定的
-#: 单元在分镜与参考两条路线、TTS 与非 TTS 两条路径上因此按同一个篇幅规划。
+#: Not any model's available tier. Shared origins with :data:`ENDPOINT_FIXED_PLANNING_DURATIONS` make endpoint-fixed
+#: units plan the same volume across storyboard/reference routes and TTS/non-TTS paths.
 DEFAULT_PLANNED_DURATION_SECONDS = max(ENDPOINT_FIXED_PLANNING_DURATIONS)
 
 _FailureKind = Literal["missing", "invalid", "incompatible", "unavailable"]
@@ -74,12 +74,12 @@ _ROUTE_FAILURE_CODES: dict[VideoRoute, dict[_FailureKind, str]] = {
 
 @dataclass(frozen=True)
 class ConfiguredVideoIdentity:
-    """读侧身份：按当前配置解析该桶的执行模型（过桶能力闸）。"""
+    """Reader identity: resolve bucket execution models from current configuration, passing bucket-capability gates."""
 
 
 @dataclass(frozen=True)
 class ExecutionVideoIdentity:
-    """执行侧身份：lane 实际构造的 backend 的规范 ``provider_id`` 与实际 ``.model``。"""
+    """Execution identity: canonical ``provider_id`` and actual ``.model`` of lane-constructed backends."""
 
     provider_id: str
     model_id: str
@@ -92,9 +92,9 @@ VideoRequestIdentity = ConfiguredVideoIdentity | ExecutionVideoIdentity
 
 @dataclass(frozen=True)
 class ResolutionOverride:
-    """预览尚未保存的分辨率：取代项目已保存的档位（``None`` = 表单选了「自动」，按项目未存档位解析）。
+    """Preview unsaved resolutions, replacing persisted project tiers (``None`` = form Auto, resolved as no saved project tier).
 
-    只供设置页与创建向导预览编辑中的配置；执行侧与其他读侧不传，求值按已保存配置进行。
+    Only settings pages and creation wizards preview edited configuration; execution and other readers omit this, evaluating persisted configuration.
     """
 
     resolution: str | None
@@ -102,20 +102,20 @@ class ResolutionOverride:
 
 @dataclass(frozen=True)
 class VideoRequestFacts:
-    """一次视频请求的执行事实。
+    """Execution facts for one video request.
 
-    ``resolution`` 为 None 表示请求不携带分辨率参数。``supported_durations`` 是模型声明的全集，
-    ``allowed_durations`` 是按请求分辨率与参考图收窄后的档位，``excluded_durations`` 给出全集中
-    每个被排除秒数的成因。时长由端点固定时（``docs/adr/0082``）三者都是合法空集。
+    None ``resolution`` means no request resolution parameter. ``supported_durations`` is the full model-declared set;
+    ``allowed_durations`` narrows by request resolution and reference images; ``excluded_durations`` explains every
+    excluded duration. With endpoint-fixed durations (``docs/adr/0082``), all three are valid empty sets.
 
-    音轨四项：``requested_generate_audio`` 是用户的音频开关，``generate_audio`` 是计价口径的
-    有无音轨，``has_audio_track`` 是成片有无音轨，``audio_switch_controllable`` 是开关是否可控。
-    计价所需的事实是执行模型、``resolution``、请求秒数与 ``generate_audio``。
+    Four audio facts: ``requested_generate_audio`` is the user switch; ``generate_audio`` indicates audio-track presence for
+    pricing; ``has_audio_track`` indicates output audio-track presence; ``audio_switch_controllable`` indicates switch control.
+    Pricing requires execution models, ``resolution``, requested seconds and ``generate_audio``.
 
-    请求形态能力取自同一次能力合成，请求组装与投影直接读取：``max_reference_images`` 是每请求
-    参考图上限的生效值（None = 未收录，不裁剪；0 = 不接受），``text_to_video`` / ``first_frame`` 是无图请求的能力位，
-    ``voice_consistency`` 是声音一致性档位，``max_reference_audio_count`` 与
-    ``reference_audio_per_image`` 描述参考音频的段数上限（None = 未收录）与是否逐段挂在参考图上。
+    Request-shape capabilities come from the same capability composition, read directly by assembly/projection: ``max_reference_images`` is the effective
+    per-request reference-image limit (None = uncataloged, no trimming; 0 = refused); ``text_to_video`` / ``first_frame`` govern imageless requests;
+    ``voice_consistency`` is the voice-consistency tier; ``max_reference_audio_count`` and
+    ``reference_audio_per_image`` describe reference-audio segment limits (None = uncataloged) and whether segments attach to reference images individually.
     """
 
     route: VideoRoute
@@ -141,11 +141,11 @@ class VideoRequestFacts:
 
 @dataclass(frozen=True, slots=True)
 class VideoRequestCostFacts:
-    """报价共用的供应商请求坐标：一份视频请求事实，加上这次申请的秒数与请求形态。
+    """Shared quote provider-request coordinates: video request facts plus requested seconds and request shape.
 
-    ``aspect_ratio`` 是项目的视频宽高比；``has_first_frame`` 表示请求带首帧（分镜图生视频），
-    ``reference_image_count`` 是发出的参考图张数（参考生视频）。三者与执行时构造的请求同源，提交前预估据此
-    还原一份设想的供应商请求（:meth:`provider_request`），交给调用通道按用量契约给出计量。
+    ``aspect_ratio`` is project video aspect ratio; ``has_first_frame`` indicates requests carry first frames (storyboard image-to-video);
+    ``reference_image_count`` counts sent reference images (reference video). All three share execution request sources; presubmission estimates
+    reconstruct hypothetical provider requests (:meth:`provider_request`), passed to channels for usage-contract metering.
     """
 
     request_facts: VideoRequestFacts
@@ -155,11 +155,11 @@ class VideoRequestCostFacts:
     reference_image_count: int = 0
 
     def provider_request(self) -> VideoGenerationRequest:
-        """执行时会发给调用通道的请求的设想形态：图片只占位，不读文件，只用于求计量。
+        """Hypothetical request shape sent to channels at execution: images are placeholders, without file reads, for metering only.
 
-        分镜图生视频的首帧是按项目宽高比生成的分镜图；要求首帧时宽高比交给上游自适应的通道
-        （``first_frame_ratio_adaptive_only``），成片宽高比即分镜图的宽高比，这里因此直接写项目宽高比。
-        成片有音轨而开关不可控时，上游恒出有声成片，音频开关按开着写。
+        Storyboard image-to-video first frames are storyboard images generated at project aspect ratios. Channels requiring upstream first-frame
+        aspect-ratio adaptation (``first_frame_ratio_adaptive_only``) output that storyboard-image ratio, so use project ratios here directly.
+        With output audio tracks but uncontrollable switches, upstream always outputs sound; write the audio switch as enabled.
         """
         facts = self.request_facts
         return VideoGenerationRequest(
@@ -193,7 +193,7 @@ class VideoRequestCostFacts:
 
 @dataclass(frozen=True)
 class VideoRequestFactsFailure:
-    """求值失败：问题码、渲染参数与修复指引。参数键名属持久化契约，只增不改。"""
+    """Evaluation failure: issue codes, rendering parameters and remediation. Parameter keys are persisted contracts; append only, never change."""
 
     code: str
     params: tuple[tuple[str, object], ...] = ()
@@ -203,17 +203,17 @@ class VideoRequestFactsFailure:
         return dict(self.params)
 
     def summary(self) -> str:
-        """问题码与渲染参数的单行摘要（``code（k=v, …）``），供 Agent 回执与草稿违约文案引用。"""
+        """One-line issue-code/rendering-parameter summary (``code（k=v, …）``), for Agent receipts and draft-contract violation copy."""
         params = ", ".join(f"{key}={value}" for key, value in self.params)
         return f"{self.code}（{params}）" if params else self.code
 
     def problem_payload(self) -> dict[str, object]:
-        """读侧问题信封：问题码、渲染参数与修复指引，Web 与 Agent 载荷同形。"""
+        """Reader issue envelopes: issue codes, rendering parameters and remediation, identical in Web and Agent payloads."""
         return {"code": self.code, "params": self.parameters(), "action": self.action}
 
 
 class VideoRequestFactsError(ValueError):
-    """消费方在需要成功事实的阶段拿到失败时抛出；``code`` / ``params`` 可直接进结构化错误与失败编码。"""
+    """Raised when consumers requiring successful facts receive failures; ``code`` / ``params`` feed structured errors and failure encoding directly."""
 
     def __init__(self, failure: VideoRequestFactsFailure) -> None:
         self.failure = failure
@@ -229,7 +229,7 @@ class VideoRequestFactsError(ValueError):
 
 
 def require_video_request_facts(result: VideoRequestFacts | VideoRequestFactsFailure) -> VideoRequestFacts:
-    """取出成功事实；失败即抛 :class:`VideoRequestFactsError`。"""
+    """Extract successful facts; failures raise :class:`VideoRequestFactsError`."""
 
     if isinstance(result, VideoRequestFactsFailure):
         raise VideoRequestFactsError(result)
@@ -237,11 +237,11 @@ def require_video_request_facts(result: VideoRequestFacts | VideoRequestFactsFai
 
 
 def planning_durations(facts: VideoRequestFacts) -> list[int]:
-    """剧本规划可选的时长档位：收窄后的档位；时长由端点固定时借 :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`。
+    """Available script-planning duration tiers: narrowed tiers; endpoint-fixed durations borrow :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`.
 
-    成功事实的 ``allowed_durations`` 只在端点固定时为空（收成空集是失败），本函数因此对成功事实
-    恒返回非空档位。分镜路线的剧本规划、参考路线的拆分与提示词编写都读这一处，与预检、执行同一份
-    收窄结果；借用只发生在规划内部，界面与 Agent 载荷仍拿空集加端点固定标志。
+    Successful facts have empty ``allowed_durations`` only for endpoint-fixed durations (empty intersections fail), so this function always returns
+    nonempty tiers for successful facts. Storyboard script planning and reference-route segmentation/prompt authoring all read here, sharing narrowed
+    results with preflight/execution. Borrowing is internal to planning; UI and Agent payloads still receive empty sets plus endpoint-fixed flags.
     """
 
     if facts.allowed_durations:
@@ -255,9 +255,9 @@ def reference_migration_durations(
     with_references: VideoRequestFacts | VideoRequestFactsFailure,
     without_references: VideoRequestFacts | VideoRequestFactsFailure,
 ) -> list[int] | None:
-    """参考路线草稿结构收编用的时长全集：r2v 与 i2v 两桶声明全集的并集；任一桶解析不出时为 None。
+    """Full duration set for reference-route draft structural adoption: union of r2v/i2v bucket declarations; None if either bucket cannot resolve.
 
-    内容确认转换与 web 内容确认两个在线入口共用这一处，谁先迁移落盘都得到同一组档位成员。
+    Both online entries, content-confirmation conversion and Web content confirmation, share this, yielding identical tier members regardless of migration write order.
     """
 
     if isinstance(with_references, VideoRequestFacts) and isinstance(without_references, VideoRequestFacts):
@@ -266,7 +266,7 @@ def reference_migration_durations(
 
 
 def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure | None:
-    """用户关闭音频但该桶的模型成片恒有声时，返回共同的问题码。"""
+    """Return the shared issue code when users disable audio but bucket models always output sound."""
 
     if not facts.requested_generate_audio and facts.has_audio_track and not facts.audio_switch_controllable:
         return VideoRequestFactsFailure(
@@ -277,11 +277,11 @@ def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure 
 
 
 def video_audio_model_facts(audio_track: str | None, *, voice_consistency: str) -> tuple[bool, bool]:
-    """按该桶的成片音轨形态返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
+    """Return model-level ``(has_audio_track, audio_switch_controllable)`` facts from bucket output-track shapes.
 
-    音轨形态按执行子路径分叉，须按落入的桶取值（可灵 v3-omni 这类「图生可控、参考生无开关」的
-    型号），见 :meth:`ConfigResolver.video_audio_track`。没有信号（``None``：未登记模型、没有覆盖音轨形态的
-    自定义供应商模型）时按无信号不收紧。
+    Track shapes branch by execution subpath, so read the actual bucket (models like Kling v3-omni with controllable image-to-video but no reference-video
+    switch); see :meth:`ConfigResolver.video_audio_track`. Absent signals (``None``: unregistered models or custom-provider models without
+    audio-track shape coverage) remain absent without narrowing.
     """
 
     if audio_track is None:
@@ -299,11 +299,11 @@ async def evaluate_video_request_facts(
     resolution_override: ResolutionOverride | None = None,
     builtin_endpoint: str | None = None,
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
-    """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。
+    """Evaluate execution facts for one video request; unresolved values return typed failures without raising or falling back.
 
-    ``resolution_override`` 只供预览未保存的分辨率（见 :class:`ResolutionOverride`）；缺省时按
-    项目已保存配置解析请求分辨率。``builtin_endpoint`` 传执行侧构造后端时选定的端点，
-    能力、音轨与音频计价按它求值；缺省时读当前配置。
+    ``resolution_override`` only previews unsaved resolutions (see :class:`ResolutionOverride`); absent overrides resolve
+    persisted project configuration. ``builtin_endpoint`` supplies the endpoint chosen during execution backend construction;
+    evaluate capabilities, audio tracks and audio pricing against it, otherwise read current configuration.
     """
 
     codes = _ROUTE_FAILURE_CODES[route]
@@ -348,14 +348,14 @@ async def evaluate_video_request_facts(
     if resolution_override is not None and resolution_override.resolution is not None:
         resolution = resolution_override.resolution
     else:
-        # 覆盖为「自动」即项目不存档位：以空 project 解析，自定义供应商仍落到模型默认档。
+        # Auto overrides mean no persisted project tier: resolve with empty projects; custom providers still use model-default tiers.
         saved_settings = project if resolution_override is None else {}
         try:
             resolution = await resolver.resolve_resolution(saved_settings, provider_id, model_id)
         except (ValueError, SQLAlchemyError):
             return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
 
-    # 参考图约束随桶生效：单元按可用参考图定桶，落 r2v 即带参考图、落 i2v 即不带。
+    # Reference-image constraints follow buckets: available references determine unit buckets; r2v carries references, i2v does not.
     uses_reference_images = generation_type == "r2v"
     try:
         constraints = await resolver.video_duration_constraints(provider_id, model_id)
@@ -374,7 +374,7 @@ async def evaluate_video_request_facts(
             codes["incompatible"],
             (*identity_params, ("resolution", resolution), ("capability", generation_type)),
         )
-    # 两条约束都排除同一秒数时报参考图：改分辨率救不回它。
+    # If both constraints exclude the same duration, report references: changing resolution cannot restore it.
     reference_allowed = (
         apply_duration_constraints(list(supported), constraints, uses_reference_images=True)
         if uses_reference_images
@@ -419,7 +419,7 @@ async def evaluate_video_request_facts(
 
 
 def _optional_count(value: object) -> int | None:
-    """能力 dict 里的数量上限：``None`` 为未收录，其余按整数读（读不出时按 0，即不接受）。"""
+    """Count limits from capability dicts: ``None`` means uncataloged; otherwise read integers (unreadable means 0, refused)."""
     if value is None:
         return None
     return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0

@@ -1,4 +1,4 @@
-"""自定义供应商调用按所对应条目的价目表计价（docs/adr/0100、0105、0106）。"""
+"""Custom calls use matched-entry price lists (docs/adr/0100, 0105, 0106)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _price(model: str, *, binding: str | None = None, provider: float = 1.0, mod
 
 
 def test_a_relay_name_that_normalizes_to_an_entry_is_charged_at_the_entry_price_times_both_multipliers():
-    # gpt-5.4 标准档、上下文不足 272k：输入 2.5、输出 15（每百万 token）→ 0.5 + 1.5 = 2.0 USD，再乘 0.8 × 1.5
+    # gpt-5.4 standard, below 272k context: input 2.5/output 15 per million → 0.5 + 1.5 = 2.0 USD, then ×0.8 ×1.5.
     cost = _price("openai/GPT-5.4", provider=0.8, model_multiplier=1.5)
 
     assert isinstance(cost, Priced)
@@ -73,12 +73,12 @@ def test_a_video_call_on_a_custom_channel_is_charged_per_second_at_the_sent_reso
         model_multiplier=1.0,
     )
 
-    # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒
+    # Kling 2.6: 1080p silent 0.5 CNY/second × 5 seconds.
     assert cost == Priced(pytest.approx(2.5), "CNY")
 
 
 def test_custom_video_quote_carries_overridden_capabilities():
-    """预估请求不带能力时补上系统判定叠加用户覆盖后的能力：包装可灵并覆盖为恒有声时按有声计量。"""
+    """Estimates without capabilities add system facts plus user overrides: always-audio Kling wrappers meter audio."""
     from lib.custom_provider.endpoints import get_endpoint_spec
     from lib.custom_provider.metering import CustomPriceSource
     from lib.db.repositories.custom_provider_repo import CustomModelPricing
@@ -97,7 +97,7 @@ def test_custom_video_quote_carries_overridden_capabilities():
 
 
 def test_custom_image_quote_estimates_output_tokens_from_the_bound_entry(monkeypatch: pytest.MonkeyPatch):
-    """不透明的模型 ID 绑定条目后，按条目上的质量档基数估输出 token，与内置同条目的模型一致。"""
+    """Opaque IDs bound to entries estimate output tokens from entry quality bases, matching built-ins on the same entry."""
     from lib.backends.image_backends.base import ImageRequestFacts
     from lib.catalog import query
     from lib.custom_provider.endpoints import get_endpoint_spec

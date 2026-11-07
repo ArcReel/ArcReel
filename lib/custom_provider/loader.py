@@ -1,10 +1,10 @@
-"""自定义供应商 backend 的 DB 装载。
+"""Custom-provider backend DB loading.
 
-查 provider、校验请求的 model（存在 / 启用 / endpoint 推算 media_type 相符），失效则回退该
-media_type × 任务类型桶上唯一的默认启用 model，最后委托现成 create_custom_backend
-（ENDPOINT_REGISTRY 不改）。所对应条目已下线的 model 不回退、直接报下线错误，默认 model 也跳过已下线的
-（``lib.custom_provider.default_models``）。
-装载落在 lib 让媒体路径与文本工厂共用一份自定义解析，且 lib 不反向依赖 server。
+Find providers, validate requested models (existence/enabled/endpoint media), falling back when invalid to unique
+media_type × task-bucket enabled defaults, then delegate existing create_custom_backend
+without changing ENDPOINT_REGISTRY. Discontinued-entry models error without fallback; defaults skip discontinued models too
+(``lib.custom_provider.default_models``).
+Library loading shares custom resolution between media/text factories without reverse dependencies on server.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 async def custom_model_max_output_tokens(*, session: AsyncSession, provider_id: str, model_id: str) -> int | None:
-    """自定义供应商模型的最大输出长度：能力覆盖 > 对应条目；都没有时 None。"""
+    """Custom maximum output lengths: overrides > matching entries, otherwise None."""
     row = await CustomProviderRepository(session).get_model_by_ids(parse_provider_id(provider_id), model_id)
     if row is None:
         return None
@@ -50,22 +50,22 @@ async def select_custom_model(
     generation_type: str | None = None,
     submitted_job: bool = False,
 ) -> tuple[CustomProvider, CustomProviderModel]:
-    """这次调用实际使用的自定义供应商与模型行，不构造 backend。
+    """Resolve actual custom-provider/model rows without backend construction.
 
-    请求 model 不存在 / 已禁用 / 媒体类型不符 → 视为失效并回退该 media_type 的默认启用 model；
-    请求 model 所对应的条目已下线 → 报下线错误，不回退（停用的也一样）。生命周期按当天日期判定：复用 backend
-    实例的调用方在取缓存前也经它检查（``lib.backends.backend_assembly.callable_model_key``）。
+    Missing/disabled/wrong-media requested models fall back to enabled media defaults;
+    discontinued matching entries error without fallback, even disabled. Check lifecycle by current dates; backend reuse callers
+    also pass here before caches (``lib.backends.backend_assembly.callable_model_key``).
 
-    ``generation_type`` 是调用点所属的任务类型桶，只作用于回退：默认模型按桶分槽（image 的 t2i
-    与 i2i 各有一个默认），带桶才挑得出唯一那一行，见 ``lib.custom_provider.default_models``。
-    调用点不承诺桶时传 None、不过滤。
+    ``generation_type`` buckets affect fallback only: separate defaults per bucket (image t2i
+    and i2i), required to uniquely select rows; ``lib.custom_provider.default_models``.
+    Callers without bucket promises pass None, without filtering.
 
-    ``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询、不发起新的生成）：请求 model 已下线也照常使用
-    （``lib.custom_provider.default_models.requested_model``）。
+    True ``submitted_job`` resumes already-submitted vendor tasks (polling, never new generation), permitting discontinued requested models
+    (``lib.custom_provider.default_models.requested_model``).
 
     Raises:
-        ModelDiscontinuedError: 请求 model 所对应的条目已下线（``submitted_job`` 为假时）。
-        ValueError: provider 不存在，或该 media_type × 桶上未下线的默认启用 model 不唯一（零个或多个）。
+        ModelDiscontinuedError: Discontinued requested entries when ``submitted_job`` is false.
+        ValueError: Missing providers or nonunique nondiscontinued enabled media×bucket defaults, zero or multiple.
     """
     db_id = parse_provider_id(provider_id)
     provider = await CustomProviderRepository(session).get_provider(db_id)
@@ -108,14 +108,14 @@ async def load_custom_backend(
     generation_type: str | None = None,
     submitted_job: bool = False,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
-    """装载并构造自定义供应商 backend：按 :func:`select_custom_model` 定下供应商与模型行，再委托工厂构造。
+    """Load/construct custom backends: resolve provider/models through :func:`select_custom_model`, then delegate factories.
 
-    media_type 用于校验请求 model 的 endpoint 是否相符、以及回退默认时分组；实际派发以 model.endpoint
-    为准。``submitted_job`` 的含义同 :func:`select_custom_model`。
+    media_type validates requested endpoint media and groups fallback defaults; actual dispatch uses model.endpoint.
+    ``submitted_job`` follows :func:`select_custom_model`.
 
     Raises:
-        ModelDiscontinuedError: 请求 model 所对应的条目已下线（``submitted_job`` 为假时）。
-        ValueError: provider 不存在，或该 media_type × 桶上未下线的默认启用 model 不唯一（零个或多个）。
+        ModelDiscontinuedError: Discontinued requested entries when ``submitted_job`` is false.
+        ValueError: Missing providers or nonunique nondiscontinued enabled media×bucket defaults, zero or multiple.
     """
     from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 

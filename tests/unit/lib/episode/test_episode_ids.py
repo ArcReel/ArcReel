@@ -1,4 +1,4 @@
-"""集名的派生：空标题的集按当下播出位置成文，插集或调序后跟随位置。"""
+"""Untitled episode names derive from current airing positions and follow insertion/reordering."""
 
 from functools import partial
 

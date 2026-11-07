@@ -1,4 +1,4 @@
-"""ComfyUI 定义的 JSON Schema 契约：自身合法，与名录同步，且与声明式定义共用同一批 $defs。"""
+"""ComfyUI JSON Schema contract: valid itself, synchronized with catalogs, and sharing $defs with declarative definitions."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from arcreel_market_core.comfyui.validator import CURRENT_SCHEMA_VERSION, load_s
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition import load_schema as load_declarative_schema
 
-#: 两份 schema 逐字共用的构件：同一个 ``meta`` 决定「同一份定义」，同一个 ``auth`` 决定凭证怎么写。
+#: Components shared identically by both schemas: ``meta`` defines identity; ``auth`` defines credential syntax.
 SHARED_DEFS = ("semver", "meta", "auth", "headerMap", "queryMap", "template")
 
 
@@ -26,18 +26,18 @@ def test_schema_id_carries_the_current_version():
 
 
 def test_kind_const_matches_the_dispatch_name():
-    """schema 里的 kind 与分派表的键必须是同一个串，否则过了校验的定义分派不到实现。"""
+    """Schema kind and dispatch-map keys must be identical strings, or validated definitions cannot dispatch to implementations."""
     assert load_schema()["properties"]["kind"]["const"] == COMFYUI_KIND
 
 
 @pytest.mark.parametrize("name", SHARED_DEFS)
 def test_shared_defs_are_identical_to_the_declarative_schema(name: str):
-    """共用构件两边逐字相同：漂移会让同一份 meta 在两种 kind 上判出不同结果。"""
+    """Shared components are identical word for word; drift would validate the same meta differently across kinds."""
     assert load_schema()["$defs"][name] == load_declarative_schema()["$defs"][name]
 
 
 def test_binding_keys_are_the_closed_set_in_the_schema():
-    """schema 的 bindings 键集就是视频端点的语义键名录，图像白名单是它的子集。"""
+    """Schema bindings keys equal the video semantic-key catalog; the image whitelist is its subset."""
     assert set(load_schema()["$defs"]["bindings"]["properties"]) == set(VIDEO_BINDING_KEYS)
     assert set(IMAGE_BINDING_KEYS) < set(VIDEO_BINDING_KEYS)
 

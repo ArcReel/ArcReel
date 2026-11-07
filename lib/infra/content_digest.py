@@ -1,8 +1,10 @@
-"""内容摘要原语：文件字节与规范 JSON 的 sha256 单一实现。
+"""Content-digest primitives: one sha256 implementation for file bytes and canonical JSON.
 
-产物清单、依据、检查点、profile 物化都要对「同一份内容」取同一个摘要，实现分散会让
-口径悄悄漂移（chunk 大小、前缀、是否带长度）。本模块只提供最小原语，语义策略（比如带不带
-``sha256-v1:`` 前缀、要不要连带文件长度）由各薄包装表达，读字节与哈希的循环只此一处。
+Artifact manifests, provenance, checkpoints and profile materialization must give
+the same content the same digest. Separate implementations can drift in chunk
+size, prefixes or included lengths. This module supplies minimal primitives;
+thin wrappers own semantic policy, such as whether to include ``sha256-v1:`` or
+file size. The byte-reading and hashing loop is defined only here.
 """
 
 from __future__ import annotations
@@ -19,24 +21,24 @@ from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 
-# 摘要算法标识：带此前缀的摘要串出现在产物清单、依据与项目修订号里，跨进程持久化。
+# Algorithm identifier: prefixed digests persist across processes in manifests, provenance and project revisions.
 HASH_ALGORITHM = "sha256-v1"
-# 裸 hexdigest（内容摘要）与带算法前缀的摘要串各自的合法形态。
+# Valid forms of bare content hexdigests and algorithm-prefixed digests.
 CONTENT_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 PREFIXED_DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 
-# 流式读取粒度：大文件不整体载入内存；取值只影响 I/O 次数，不影响摘要值。
+# Streaming chunk size: never load entire large files; this affects I/O count, not the digest.
 CHUNK_BYTES = 1024 * 1024
 
 
 def prefixed(hexdigest: str) -> str:
-    """把裸 hexdigest 包成带算法前缀的摘要串。"""
+    """Wrap a bare hexdigest with the algorithm prefix."""
 
     return f"{HASH_ALGORITHM}:{hexdigest}"
 
 
 def unprefixed(digest: str) -> str:
-    """去掉合法的算法前缀，得到裸 hexdigest；不带合法前缀的输入原样返回，由调用方的比对判为不一致。"""
+    """Remove a valid algorithm prefix; otherwise return the input unchanged so caller comparisons detect a mismatch."""
 
     if PREFIXED_DIGEST_RE.match(digest):
         return digest[len(HASH_ALGORITHM) + 1 :]
@@ -48,10 +50,10 @@ def digest_stream(
     *,
     collect_content: bool = False,
 ) -> tuple[str, int, bytes | None]:
-    """按块消费 ``read`` 直到 EOF，返回 (hexdigest, 字节数, 可选原字节)。
+    """Consume ``read`` in chunks until EOF; return (hexdigest, byte count, optional original bytes).
 
-    ``read`` 让调用方自带字节来源——已打开的文件对象、原始 fd 都可以，因此需要在读取期间
-    额外校验（如 fd 版本比对）的调用方不必自己重写哈希循环。
+    Callers provide their byte source, including an open file or raw fd, so extra
+    ``read``-time checks such as fd-version comparison do not require another hash loop.
     """
 
     digest = hashlib.sha256()
@@ -66,9 +68,10 @@ def digest_stream(
 
 
 class TextModeDigest:
-    """流式复现 Windows C 运行时文本模式读同一份字节得到的 sha256：CRLF 折叠为 LF，读到首个 0x1A 为止。
+    """Stream the sha256 Windows C-runtime text mode would produce: collapse CRLF to LF and stop at the first 0x1A.
 
-    按块喂入 ``update``，块边界上的 ``\\r`` 会留到下一块再决定是否折叠，结果与整体读取一致。
+    Feed chunks through ``update``. Retain a boundary ``\\r`` until the next chunk
+    determines whether to collapse it, matching a whole-file read.
     """
 
     def __init__(self) -> None:
@@ -97,29 +100,29 @@ class TextModeDigest:
         return digest.hexdigest()
 
 
-# 文件摘要缓存的容量上限（条目数）。每条只存一个 64 字符摘要与大小，满了淘汰最久未用的一条。
-# 估算：90 集分镜模式最坏情况的文件数 × 每条约 250 字节，65536 条约 16MB，按序扫描不会反复冲刷。
+# Cache capacity in entries. Store only a 64-character digest and size; evict the least recently used entry.
+# Estimate: worst-case files for 90 storyboard episodes at about 250 bytes each; 65536 entries use about 16MB without repeated sequential-scan eviction.
 FILE_DIGEST_CACHE_CAPACITY = 65536
-# 刚被写过的文件不入缓存：mtime 距「读完」不足此窗口时，同一时间戳下的再次写入可能不改变任何一项
-# stat 标识（粗粒度文件系统的时间戳精度可达数毫秒到 2 秒），缓存会把「写了两次」当成「没变」。
-# 超过窗口之后再哈希的文件才入缓存，窗口内的读取照常哈希。
+# Do not cache recently written files: within this window after reading, another write may leave every
+# stat identity unchanged (coarse timestamps range from milliseconds to 2 seconds), hiding a second write.
+# Cache only hashes computed after the window; reads inside it still hash normally.
 FILE_DIGEST_RACY_WINDOW_NS = 3_000_000_000
 
-# stat 时这些错误码说明路径上没有可读的常规文件（与 ``Path.is_file`` 忽略的错误码一致）。
+# These stat errnos mean no readable regular file, matching errors ignored by Path.is_file.
 _ABSENT_PATH_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
 
-#: 文件的 stat 标识：(st_dev, st_ino, st_size, st_mtime_ns)。
+#: File stat identity: (st_dev, st_ino, st_size, st_mtime_ns).
 FileIdentity = tuple[int, int, int, int]
 
 
 def file_identity(file_stat: os.stat_result) -> FileIdentity:
-    """文件摘要缓存的键：设备、inode、大小、纳秒 mtime。"""
+    """File-digest cache key: device, inode, size and nanosecond mtime."""
 
     return file_stat.st_dev, file_stat.st_ino, file_stat.st_size, file_stat.st_mtime_ns
 
 
 class _FileDigestCache:
-    """进程内、有容量上限的文件摘要缓存（LRU）；线程安全，调用方可能在工作线程里取摘要。"""
+    """Bounded, process-local LRU file-digest cache; thread-safe because callers may hash in worker threads."""
 
     def __init__(self, capacity: int) -> None:
         self._capacity = capacity
@@ -153,15 +156,16 @@ _FILE_DIGEST_CACHE = _FileDigestCache(FILE_DIGEST_CACHE_CAPACITY)
 
 
 def cached_file_digest(file_stat: os.stat_result) -> str | None:
-    """按 stat 标识取已缓存的内容摘要；标识没见过或已变则返回 ``None``。"""
+    """Return the cached content digest for a stat identity, or ``None`` if unseen or changed."""
 
     return _FILE_DIGEST_CACHE.get(file_identity(file_stat))
 
 
 def remember_file_digest(file_stat: os.stat_result, hexdigest: str) -> None:
-    """登记「读取前后 stat 一致」的那次哈希结果；mtime 过新的文件不入缓存（见 ``FILE_DIGEST_RACY_WINDOW_NS``）。
+    """Cache a hash only after confirming unchanged pre/post-read stat; exclude recent mtimes (``FILE_DIGEST_RACY_WINDOW_NS``).
 
-    ``file_stat`` 必须是读取开始前取得的，且调用方已确认读取结束后标识未变。
+    ``file_stat`` must have been captured before reading, and the caller must have
+    verified the identity did not change by the end of the read.
     """
 
     if time.time_ns() - file_stat.st_mtime_ns < FILE_DIGEST_RACY_WINDOW_NS:
@@ -170,23 +174,25 @@ def remember_file_digest(file_stat: os.stat_result, hexdigest: str) -> None:
 
 
 def reset_file_digest_cache_for_tests() -> None:
-    """清空文件摘要缓存（测试隔离用）。"""
+    """Clear the file-digest cache for test isolation."""
 
     _FILE_DIGEST_CACHE.clear()
 
 
 def sha256_file_with_size(path: Path) -> tuple[str, int]:
-    """流式取文件摘要与字节数；路径不是常规文件时抛 ``FileNotFoundError``。
+    """Stream the file digest and byte count; raise ``FileNotFoundError`` for a non-regular-file path.
 
-    摘要按 stat 标识（设备、inode、大小、纳秒 mtime）缓存：标识不变直接复用，变了重新哈希。
-    摘要值始终是内容哈希，复制、导入、恢复改变 mtime 只会触发一次重算，内容相同则摘要相同。
+    Cache by stat identity (device, inode, size, nanosecond mtime): reuse unchanged
+    identities and rehash changed ones. Digests always represent content. Copy,
+    import or restore mtime changes trigger one recalculation; equal content still
+    has an equal digest.
     """
 
     try:
         file_stat = path.stat()
     except OSError as exc:
-        # 与 ``Path.is_file`` 同一口径：路径不存在、上级不是目录、符号链接成环判为不在场；
-        # 权限不足等其它错误照常抛出，不冒充「文件不存在」。
+        # Match Path.is_file: absent paths, non-directory parents and symlink loops count as absent;
+        # propagate other errors such as permission denial rather than pretending the file is missing.
         if exc.errno in _ABSENT_PATH_ERRNOS:
             raise FileNotFoundError(path) from None
         raise
@@ -208,42 +214,43 @@ def sha256_file_with_size(path: Path) -> tuple[str, int]:
 
 
 def sha256_file(path: Path) -> str:
-    """文件内容的裸 hexdigest。"""
+    """Bare hexdigest of file contents."""
 
     return sha256_file_with_size(path)[0]
 
 
 def prefixed_sha256_file(path: Path) -> str:
-    """文件内容摘要，带算法前缀。"""
+    """File-content digest with its algorithm prefix."""
 
     return prefixed(sha256_file(path))
 
 
 def canonical_json(value: object, *, allow_nan: bool = True) -> str:
-    """规范化 JSON 序列化：键序与空白不影响结果，语义变更才影响。
+    """Serialize canonical JSON: key order and whitespace do not affect it; semantic changes do.
 
-    ``allow_nan`` 决定非有限浮点（NaN / Infinity）的待遇：产物依据一类要求输入可被任何
-    JSON 实现原样复现，故拒绝；项目与剧本快照沿用 ``json`` 默认的接受口径，避免一份能被
-    ``json.loads`` 读进来的文件反而算不出修订号。
+    ``allow_nan`` governs non-finite floats (NaN / Infinity). Artifact provenance
+    rejects them so any JSON implementation can reproduce inputs. Project/script
+    snapshots retain ``json``'s default acceptance, avoiding files that ``json.loads`` can
+    read but for which a revision cannot be computed.
     """
 
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=allow_nan)
 
 
 def canonical_json_bytes(value: object, *, allow_nan: bool = True) -> bytes:
-    """规范化 JSON 的 UTF-8 字节，供既要摘要又要留存原文的调用方使用。"""
+    """UTF-8 canonical JSON bytes for callers needing both a digest and retained source."""
 
     return canonical_json(value, allow_nan=allow_nan).encode("utf-8")
 
 
 def canonical_json_digest(value: object, *, allow_nan: bool = True) -> str:
-    """规范化 JSON 的裸 hexdigest。"""
+    """Bare hexdigest of canonical JSON."""
 
     return hashlib.sha256(canonical_json_bytes(value, allow_nan=allow_nan)).hexdigest()
 
 
 def prefixed_canonical_json_digest(value: object, *, allow_nan: bool = True) -> str:
-    """规范化 JSON 摘要，带算法前缀。"""
+    """Canonical JSON digest with its algorithm prefix."""
 
     return prefixed(canonical_json_digest(value, allow_nan=allow_nan))
 

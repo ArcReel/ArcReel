@@ -5,9 +5,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-// 与页面库存、锚点扫描共用同一个遍历器，三道 CI 闸门对「哪些文件算文档」给同一答案。
-// 该模块零 npm 依赖，本脚本仍可用 node 直接运行；代价是耦合仓库文件布局——本脚本
-// 本就硬编码 website/i18n 等仓库路径，不追求脱库复用。
+// Share the page-inventory and anchor-scan walker so all three CI gates agree on which files are documents.
+// The module has no npm dependencies, so this script still runs directly with node. It couples to repository layout,
+// which is intentional: website/i18n and other repository paths are already hardcoded; standalone reuse is not a goal.
 import { walkMarkdownFiles } from "../../../../website/scripts/markdown-scan.mjs";
 
 const I18N_ROOT = "website/i18n";

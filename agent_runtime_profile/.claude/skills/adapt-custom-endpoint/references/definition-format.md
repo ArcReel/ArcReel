@@ -1,10 +1,10 @@
-# ArcReel 自定义调用端点定义格式
+# ArcReel custom-endpoint definition format
 
-服务端共享 validator 是保存、预览请求、验证响应和测试连接的最终判据。当前完整 JSON Schema 位于
-[`packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json`](https://github.com/ArcReel/ArcReel/blob/main/packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json)；
-先写最小定义，再根据 `validate` 返回的字段路径与错误码修正。
+The shared server validator is authoritative for saving, request previews, response checks, and connection tests. The complete current JSON Schema is at
+[`packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json`](https://github.com/ArcReel/ArcReel/blob/main/packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json);
+start with a minimal definition, then correct the field paths and error codes returned by `validate`.
 
-## 最小形状
+## Minimal shape
 
 ```json
 {
@@ -37,45 +37,45 @@
 }
 ```
 
-## 约束
+## Constraints
 
-- `auth` 可为空；非空时至少一处引用 `{{ api_key }}`，凭证只能出现在 `auth.headers` 或
-  `auth.query`。普通 request headers、body 与 URL 不得另写凭证。
-- 视频定义的模板变量包括 `base_url`、`api_key`（仅 auth）、`model`、`prompt`、`duration`、
-  `duration_seconds`、`aspect_ratio`、`resolution`、`generate_audio`、`seed`、`width`、`height`、
-  `task_id`、`result_id` 与 `inputs.<name>`。整串单占位符保留原类型；值为 null 时删除所在字段。
-- 素材在 `inputs` 声明，`source` 取 `start_image`、`end_image`、`reference_images` 或
-  `reference_audio_files`，`encoding` 取 `data_uri` 或 `base64`。列表素材用 `$each` 展开；可选对象
-  用 `$when` 守卫。`capabilities` 必须与 submit 实际引用的素材双向一致。
-- `enum_maps` 把 ArcReel 参数值映射到供应商值；`defaults` 只为可选参数填 ArcReel 侧缺省值。
-- `extract` 是按优先级排列的 JSONPath 数组。路径从 `$` 开始，只用 child segment 与简单过滤；
-  不用递归下降、联合、带 step 的切片或函数。响应字段包含 JSON 字符串时使用
-  `{"path":"$.data","json_decode":true,"then":["$.id"]}`。
-- `status_map` 的目标只取 `queued`、`running`、`succeeded`、`failed`。若成功后还需二次取件，
-  在 poll 提取 `result_id`，并增加 `result` 节从 `task_id` / `result_id` 获取 `video_url`。
-- 图片定义写 `"media_type": "image"`，不写即视频。图片定义的模板变量只有 `base_url`、`api_key`（仅 auth）、
-  `model`、`prompt`、`aspect_ratio`、`resolution`、`seed`、`width`、`height`、`task_id` 与 `result_id`；
-  `capabilities` 至少声明 `text_to_image` 或 `image_to_image` 之一，两者可同时声明；取图路径写在 `image_url`（图片地址）
-  或 `image_b64`（响应内联的 base64，裸串与 `data:image/...;base64,` 都认），至少写一项，两者都写时先取地址；
-  有 `result` 节时写在 `result.extract`。图片定义里出现时长、音频、首尾帧、`usage` 等视频专用项时校验失败。
-- 图片定义的素材只接受 `source: "reference_images"`，编码为 `data_uri` 或 `base64`，在 submit 里经 `$each` 展开。
-  声明 `image_to_image` 须同时写正数 `max_reference_images`，并在 submit 引用参考图素材；
-  同时声明 `text_to_image` 时参考图输入不能设为必需。图片编辑的编辑指令随 `prompt` 下发。
+- `auth` may be empty; otherwise it must reference `{{ api_key }}` at least once, with credentials only in `auth.headers` or
+  `auth.query`. Ordinary request headers, body, and URL must not contain additional credentials.
+- Video template variables include `base_url`, `api_key` (auth only), `model`, `prompt`, `duration`,
+  `duration_seconds`, `aspect_ratio`, `resolution`, `generate_audio`, `seed`, `width`, `height`,
+  `task_id`, `result_id`, and `inputs.<name>`. A whole-string single placeholder preserves its original type; null removes the containing field.
+- Declare materials in `inputs`; `source` is `start_image`, `end_image`, `reference_images`, or
+  `reference_audio_files`; `encoding` is `data_uri` or `base64`. Expand lists with `$each`; guard optional objects
+  with `$when`. `capabilities` must match materials actually referenced in submit in both directions.
+- `enum_maps` maps ArcReel values to provider values; `defaults` fills only optional ArcReel-side parameters.
+- `extract` is a priority-ordered JSONPath array. Paths start at `$`, using only child segments and simple filters;
+  no recursive descent, unions, stepped slices, or functions. For response fields containing JSON strings, use
+  `{"path":"$.data","json_decode":true,"then":["$.id"]}`.
+- `status_map` targets only `queued`, `running`, `succeeded`, `failed`. If success requires another retrieval,
+  extract `result_id` in poll and add `result` to obtain `video_url` from `task_id` / `result_id`.
+- Image definitions set `"media_type": "image"`; omission means video. Their variables are only `base_url`, `api_key` (auth only),
+  `model`, `prompt`, `aspect_ratio`, `resolution`, `seed`, `width`, `height`, `task_id`, and `result_id`;
+  `capabilities` must declare at least one of `text_to_image` / `image_to_image`, and may declare both. Image retrieval uses `image_url` (URL)
+  or `image_b64` (inline base64, accepting bare strings and `data:image/...;base64,`), at least one, preferring URL if both exist;
+  when `result` exists, put these in `result.extract`. Duration, audio, first/last frames, `usage`, and other video-only fields invalidate image definitions.
+- Image materials accept only `source: "reference_images"`, with `data_uri` or `base64` encoding, expanded in submit using `$each`.
+  Declaring `image_to_image` also requires positive `max_reference_images` and submit references to those images;
+  if `text_to_image` is also declared, reference input cannot be required. Image-edit instructions are sent through `prompt`.
 
-## 测试输入
+## Test inputs
 
-`parameters.json` 与 API 同名，例如：
+`parameters.json` uses API field names, for example:
 
 ```json
 {"model":"provider-model","prompt":"short test","duration_seconds":5,"aspect_ratio":"9:16","generate_audio":false}
 ```
 
-`credentials-ref.json` 优先只引用已保存的供应商：
+Prefer references to saved providers in `credentials-ref.json`:
 
 ```json
 {"provider_id":"custom-1"}
 ```
 
-素材参数与 multipart 字段一一对应：`--start-image` → `start_image`、`--end-image` →
-`end_image`、`--reference-images` → `reference_images`、`--reference-audio-files` →
-`reference_audio_files`。后两项可重复传入多个文件；预览请求与测试连接使用同一组参数。
+Material arguments map one-to-one to multipart fields: `--start-image` → `start_image`, `--end-image` →
+`end_image`, `--reference-images` → `reference_images`, `--reference-audio-files` →
+`reference_audio_files`. The last two accept repeated files; previews and connection tests use identical material arguments.

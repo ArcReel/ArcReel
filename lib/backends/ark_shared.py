@@ -1,13 +1,12 @@
-"""
-Ark (火山方舟) 共享工具模块
+"""Shared Ark (Volcengine Ark) utilities.
 
-供 text_backends / image_backends / video_backends / providers 复用。
+Reused by text_backends / image_backends / video_backends / providers.
 
-包含：
-- ARK_BASE_URL — 火山方舟 API 基础 URL
-- resolve_ark_api_key — API Key 解析（缺失即 raise，不再走 env fallback）
-- ark_base_url — 归一化用户输入（strip + 去尾斜杠），缺省回落 ARK_BASE_URL
-- create_ark_client — Ark 客户端工厂
+Includes:
+- ARK_BASE_URL: Volcengine Ark API base URL.
+- resolve_ark_api_key: API key resolution, raising when missing without environment fallback.
+- ark_base_url: strip whitespace/trailing slashes, defaulting to ARK_BASE_URL.
+- create_ark_client: Ark client factory.
 """
 
 from __future__ import annotations
@@ -26,13 +25,13 @@ def resolve_ark_api_key(api_key: str | None = None) -> str:
 
 
 def ark_base_url(configured: str | None = None) -> str:
-    """归一化用户填入的 base_url：strip + 去尾斜杠，缺省回落 ARK_BASE_URL。
+    """Normalize user base_url by stripping whitespace/trailing slashes; default to ARK_BASE_URL.
 
-    不像 dashscope/minimax/agnes 那样按已知后缀做 host 派生再重建——ark 的 backend 会传入
-    非标准变体路径（如 ark-agent-plan 用的 /api/plan/v3），按后缀重建会把这类路径拼坏，
-    所以只做保守的空白/尾斜杠归一化，不改写路径结构。
+    Unlike dashscope/minimax/agnes, never derive hosts/rebuild paths from known suffixes. Ark backends
+    pass nonstandard paths such as ark-agent-plan /api/plan/v3; suffix reconstruction would corrupt
+    them. Conservatively normalize whitespace/trailing slashes without rewriting path structure.
     """
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后。
+    # Strip before checking emptiness: whitespace-only strings are truthy and bypass or, so fall back after stripping.
     base = (configured or "").strip()
     return base.rstrip("/") if base else ARK_BASE_URL
 
@@ -40,9 +39,9 @@ def ark_base_url(configured: str | None = None) -> str:
 def create_ark_client(
     *, api_key: str | None = None, base_url: str | None = None, transport_layer: TransportLayer | None = None
 ):
-    """创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3），经 ark_base_url 归一化。
+    """Create Ark clients with ARK_BASE_URL (/api/v3) defaults, normalized through ark_base_url.
 
-    SDK 是同步客户端，``transport_layer`` 叠在同步 httpx 客户端之上。
+    The SDK client is synchronous; ``transport_layer`` layers over synchronous httpx clients.
     """
     from volcenginesdkarkruntime import Ark
 

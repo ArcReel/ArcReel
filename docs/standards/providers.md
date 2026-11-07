@@ -10,30 +10,30 @@ paths:
   - "docs/api-docs/**"
 ---
 
-# 供应商能力与契约
+# Provider capabilities and contracts
 
-## 能力数据
+## Capability data
 
-### 每个能力维度只认一个来源，不在别处另写一份能力数值
+### Each capability dimension has one source; never duplicate its values elsewhere
 
-能力按维度划分来源（`docs/adr/0104`）：
+Capability sources differ by dimension (`docs/adr/0104`):
 
-- 模型事实记在模型目录条目上，包括可选时长、分辨率、时长与分辨率及参考图之间的联动约束，文本与图片能力位，图片与视频的参考图上限，以及视频接受的输入（文生视频、首帧、尾帧、参考音频）与参考音频段数、总时长上限。这些输入能力与通道声明两侧求值：是否支持类取两侧都满足的部分，数值类取较小值。图片的求值只在 `lib/backends/image_capabilities.py`，视频的只在 `lib/backends/video_capabilities.py`，调用通道不按型号名另写这些能力。`supported_durations` 缺失时直接报错，不做隐式回退（`docs/adr/0018`）。
-- 通道事实由调用通道或调用端点在代码中声明，与请求构造、执行期判定同源（`docs/adr/0054`、`docs/adr/0056`）。这类事实包括通道实现了哪些视频输入路径、一次请求能承载的参考图与参考音频数量、提示词长度上限和音轨形态。
-- 渠道限制只用用户负责的供应商模型上的能力覆盖表达，不修改条目。
+- Model facts belong to catalog entries: supported durations, resolutions, duration/resolution/reference-image constraints, text/image capability flags, image/video reference-image limits, and supported video inputs (text-to-video, first frame, end frame, reference audio), audio-segment counts, and total audio duration limits. Evaluate input capabilities against both catalog and backend declarations: intersect support flags and take the smaller numeric limit. Evaluate images only in `lib/backends/image_capabilities.py` and videos only in `lib/backends/video_capabilities.py`; backends do not restate these by model name. Missing `supported_durations` is an error, without implicit fallback (`docs/adr/0018`).
+- Backend facts are declared in code by backends or endpoints, sharing the source used for request construction and execution decisions (`docs/adr/0054`, `docs/adr/0056`). They include implemented video-input paths, per-request reference-image/audio counts, prompt-length limits, and audio-track form.
+- Channel restrictions use only user-owned capability overrides on provider models; do not modify entries.
 
-以下写法都是在来源之外另写一份能力数值：另起常量重复某个档位；调用方或配置界面在来源缺值时自行补默认值；调用通道再写一份与条目重复的时长或分辨率检查；`agent_runtime_profile/` 与 `lib/prompts/` 的模板硬编码时长、分辨率档位，而不是由编排层从上述来源注入。供应商或目录数据调整后，两份数据迟早不一致：用户能选的档位与实际请求不符，或者 Agent 按旧档位规划出执行期申请不到的时长。
+Duplicates include constants repeating a tier, callers/settings UIs inventing defaults when source values are absent, backends repeating catalog duration or resolution checks, and templates in `agent_runtime_profile/` or `lib/prompts/` hardcoding duration/resolution tiers instead of receiving them from orchestration. Provider/catalog updates eventually make copies disagree: UI choices differ from actual requests, or the Agent plans durations the execution path cannot request.
 
-放行条件：
+Exceptions:
 
-- ADR 明列的例外：`docs/adr/0018` 的 Vidu 端点级时长校正，`docs/adr/0104` 与 `docs/adr/0105` 规定的不认识模型保守回落、新建条目时按模型名预填时长预设。
-- 过渡期保留的副本：有一致性测试锁定两份数据，且 PR 写明负责删除它的 issue。
-- 提示词里描述节奏的经验秒数（如「全片平均 3–5 秒/分镜」）不是能力档位。
+- Explicit ADR exceptions: Vidu endpoint duration correction in `docs/adr/0018`; conservative fallback for unknown models and duration-prefill presets for new entries in `docs/adr/0104` and `docs/adr/0105`.
+- Transitional duplicates guarded by consistency tests, with the deletion issue identified in the PR.
+- Empirical pacing guidance in prompts (such as an average 3–5 seconds per storyboard item) is not a capability tier.
 
-## 续跑
+## Resumption
 
-### 续跑已提交的任务按提交时冻结的上下文执行，新增的调用前判定区分新调用与续跑
+### Resume submitted jobs with frozen submission context; distinguish new-call checks from resumption
 
-续跑只向厂商取回已提交任务的结果，不发起新的生成，却与新调用共用解析、装配与请求链。链上按当下状态做的判定或改写会一起作用到续跑上：模型下线拦截把关停前已提交的任务拦下；按当下 base 路径识别请求的路径覆盖认不出续跑请求。两种情况下，用户已付费的结果都取不回。
+Resumption retrieves already-submitted results without generating again, but shares resolution, assembly, and request chains with new calls. Decisions based on current state also affect resumes: model-retirement gates block paid jobs submitted before shutdown, and path overrides matching current base paths fail to recognize resumed requests. Both prevent retrieval of paid results.
 
-给共用链路新增调用前拦截、或按当下配置改写请求时，由续跑入口显式声明调用性质，声明下按 payload 锁定的提交时身份与上下文判定；新提交不带声明，照常拦截。参考 `server/services/tasks/generation_context.py` 的 `VideoLaneRequest.submitted_job` 及其传到 `assemble_backend` 的同名参数，以及 `lib/custom_provider/path_overrides.py` 按提交时的 base 匹配。同时补一条续跑用例，覆盖提交之后生命周期或配置改变的情形。
+When adding pre-call gates or current-configuration request rewriting to a shared chain, the resume entry point explicitly declares the call's nature. Under that declaration, evaluate the identity and context frozen in the payload at submission; new submissions omit it and retain normal checks. See `VideoLaneRequest.submitted_job` in `server/services/tasks/generation_context.py`, passed to `assemble_backend`, and submission-time base matching in `lib/custom_provider/path_overrides.py`. Add a resume case covering lifecycle or configuration changes after submission.

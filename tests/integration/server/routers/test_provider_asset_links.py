@@ -1,8 +1,8 @@
-"""供应商素材库与内容版本关联：上传入库、状态查询、中转副本清理，以及从素材库选择已有图片导入。
+"""Provider libraries/content associations: ingestion uploads/status/transit cleanup and importing selected existing images.
 
-真实编排：资产图经文件路由上传成版本，入库经关联路由或 Agent 工具创建，后台处理直接调用 ``ingest.run_once``。
-只替换外部边界：控制面请求与素材下载经 respx 拦截（控制面按 Action 分派），TOS SDK 在 ``create_sdk_client``
-换成内存桶，素材地址的主机解析换成固定的公网地址。
+Real orchestration uploads versions through file routes, creates ingestion via association routes/Agent tools, processes directly with ``ingest.run_once``.
+Replace external boundaries only: respx intercepts control-plane requests/material downloads, dispatching Actions; ``create_sdk_client``
+uses in-memory TOS buckets, and material-host resolution returns fixed public addresses.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ LINKS = "/api/v1/projects/demo/provider-asset-links"
 
 
 class MemoryTos:
-    """TOS SDK 客户端替身：对象存在内存里，可以让写入或删除失败。"""
+    """TOS fake stores in memory with configurable write/delete failures."""
 
     def __init__(self, bucket_state: dict[str, Any]) -> None:
         self.state = bucket_state
@@ -126,7 +126,7 @@ def bucket(monkeypatch) -> dict[str, Any]:
 
 @dataclass
 class ControlPlane:
-    """按 Action 应答的控制面替身；``asset_status`` 依次作为 GetAsset 的结果。"""
+    """Action-based control-plane fake; ``asset_status`` supplies successive GetAsset results."""
 
     asset_status: list[dict[str, Any]] = field(default_factory=list)
     create_error: Exception | dict[str, Any] | None = None
@@ -259,7 +259,7 @@ async def _run(sessions, control: ControlPlane, at: datetime) -> None:
 
 
 async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessions, bucket, caplog):
-    """完整入库：中转上传 A 的内容 → CreateAsset → 处理中 → 可用；期间改选 B，结果仍归属 A。"""
+    """Full ingestion: frozen A transit → CreateAsset → processing → usable; changing selection to B retains A ownership."""
     account_id = await _configure(sessions)
     image_a = solid_png_bytes((200, 10, 10), size=(400, 400))
     image_b = solid_png_bytes((10, 200, 10), size=(400, 400))
@@ -270,10 +270,10 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     assert job["state"] == "pending"
     assert job["usable"] is False
     assert job["content_version_id"] == version_a["id"]
-    # 取得素材 ID 之前，选定的入库任务已可查询
+    # Selected ingestion tasks are queryable before material IDs exist.
     assert [link["state"] for link in _panel(api)["links"]] == ["pending"]
 
-    # 入库期间改选到 B：B 不继承 A 的入库任务
+    # Switching to B during ingestion never inherits A tasks.
     _upload_sheet(api, image_b)
     panel_b = _panel(api)
     assert panel_b["content_version"]["id"] != version_a["id"]
@@ -285,7 +285,7 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     t0 = utc_now()
     await _run(sessions, control, t0)
 
-    # 中转上传的是提交时冻结的 A，不是此刻选中的 B
+    # Transit uploads use submission-frozen A, not currently selected B.
     assert list(bucket["objects"].values()) == [image_a]
     (relay_key, expires) = bucket["presigned"][0]
     assert relay_key.startswith("arcreel-relay/")
@@ -301,7 +301,7 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     link = await _link(sessions, job["id"])
     assert (link.state, link.provider_asset_id) == ("processing", "asset-20261103-a")
 
-    # 刚取得素材 ID：中转副本不能删
+    # Newly acquired material IDs cannot delete transit copies yet.
     await _run(sessions, control, t0 + timedelta(minutes=1))
     assert (await _link(sessions, job["id"])).state == "processing"
     assert bucket["delete_calls"] == []
@@ -310,9 +310,9 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     link = await _link(sessions, job["id"])
     assert link.state == "active"
     assert link.selected is True
-    assert bucket["delete_calls"] == []  # 定论后仍保留到最短保留期
+    assert bucket["delete_calls"] == []  # Retain copies through minimum retention even after final outcomes.
 
-    # 生成侧按内容版本与调用范围查到 A 的可用关联；B 没有
+    # Generation finds usable A associations by version/scope; B has none.
     async with sessions() as session:
         account = await AssetLibraryRepository(session).get_account(account_id)
         assert account is not None
@@ -325,27 +325,27 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     assert found_a.id == job["id"]
     assert found_b is None
 
-    # 切回 A：面板显示 A 仍可用的关联
+    # Switching to A shows still-usable associations.
     resp = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
     assert resp.status_code == 200, resp.text
     [shown] = _panel(api)["links"]
     assert (shown["id"], shown["state"], shown["usable"]) == (job["id"], "active", True)
     assert shown["provider_asset_id"] == "asset-20261103-a"
 
-    # 最短保留期过后实际清理中转副本，正式图片与版本快照不受影响
+    # After minimum retention, actually clean transit copies without affecting formal images/snapshots.
     await _run(sessions, control, t0 + timedelta(hours=2))
     assert bucket["delete_calls"] == [relay_key]
     assert bucket["objects"] == {}
     [relay] = await _relays(sessions)
     assert relay.state == "deleted"
     assert _panel(api)["content_version"]["id"] == version_a["id"]
-    # 签名地址与控制面密钥不进日志
+    # Logs exclude signed URLs/control-plane secrets.
     assert "X-Tos-Signature" not in caplog.text
     assert SK not in caplog.text
 
 
 async def test_formal_object_is_presigned_directly_and_never_swept_as_relay(api, sessions, bucket, monkeypatch):
-    """远端保存的正式图片入库时直接为固定内容版本签发地址：不写中转副本，中转清理也不会删除它。"""
+    """Remote formal images sign fixed versions directly for ingestion without transit copies; transit cleanup never deletes them."""
     bind_session_factory(monkeypatch, sessions)
     account_id = await _configure(sessions)
     async with sessions() as session:
@@ -368,7 +368,7 @@ async def test_formal_object_is_presigned_directly_and_never_swept_as_relay(api,
     assert (await _link(sessions, job["id"])).state == "active"
     assert bucket["delete_calls"] == []
     assert list(bucket["objects"]) == [("relay-bucket", formal_key)]
-    # 保留期过后入库任务撤下自己的引用，项目仍在使用，对象保留
+    # After retention, ingestion releases its references; project references retain objects.
     assert await _holders(sessions) == {("demo", "active")}
 
 
@@ -380,7 +380,7 @@ async def _holders(sessions) -> set[tuple[str, str]]:
 async def test_processing_ingest_keeps_its_signed_formal_object_after_the_source_is_purged(
     api, sessions, bucket, monkeypatch
 ):
-    """入库任务处理中，来源资产被删除并彻底清除：签名的正式对象由入库任务的引用保留到地址过期之后，再统一回收。"""
+    """Deleting/purging source assets during ingestion retains signed objects through task references until after URL expiry, then unified collection."""
     bind_session_factory(monkeypatch, sessions)
     account_id = await _configure(sessions)
     async with sessions() as session:
@@ -404,7 +404,7 @@ async def test_processing_ingest_keeps_its_signed_formal_object_after_the_source
     assert bucket["delete_calls"] == []
     assert list(bucket["objects"]) == [("relay-bucket", formal_key)]
 
-    # 地址过期再过宽限期，供应商已无法取图：撤下入库任务的引用，对象失去全部引用后回收
+    # After URL expiry plus grace, providers cannot fetch images; release ingestion references and collect unreferenced objects.
     await _run(sessions, control, t0 + ingest.RELAY_URL_TTL + timedelta(hours=1, minutes=1))
     assert await _holders(sessions) == set()
     assert bucket["delete_calls"] == [formal_key]
@@ -414,7 +414,7 @@ async def test_processing_ingest_keeps_its_signed_formal_object_after_the_source
 async def test_relay_read_of_a_remote_version_is_not_evicted_between_fetch_and_read(
     api, sessions, bucket, project, monkeypatch
 ):
-    """远端图片回落中转上传时，取回工作文件到读出字节之间登记使用，同时发生的缓存清理跳过它，入库照常提交。"""
+    """Remote-image transit fallback registers usage between working-file retrieval/byte reads; concurrent cleanup skips it and ingestion submits normally."""
     bind_session_factory(monkeypatch, sessions)
     account_id = await _configure(sessions)
     async with sessions() as session:
@@ -423,7 +423,7 @@ async def test_relay_read_of_a_remote_version_is_not_evicted_between_fetch_and_r
     _upload_sheet(api, solid_png_bytes((90, 30, 60), size=(400, 400)))
 
     async def _unavailable(*_args: Any, **_kwargs: Any) -> bool:
-        return False  # 正式对象此刻不能签名，入库回落中转副本
+        return False  # Currently unsignable formal objects force transit fallback.
 
     fetch = ingest.ensure_content_version_file
     cleanups: list[Any] = []
@@ -451,7 +451,7 @@ async def test_unlink_releases_only_the_relation_and_late_result_does_not_restor
     _upload_sheet(api, solid_png_bytes((1, 2, 3), size=(400, 400)))
     job = _start_upload(api, account_id)
 
-    # 同一范围已有选定任务时不能重复上传
+    # Existing selected same-scope tasks prevent duplicate upload.
     resp = api.post(LINKS, json={"resource_type": "characters", "resource_id": "Alice", "account_id": account_id})
     assert resp.status_code == 409
 
@@ -461,22 +461,22 @@ async def test_unlink_releases_only_the_relation_and_late_result_does_not_restor
     assert api.delete(f"{LINKS}/{job['id']}").status_code == 204
     assert _panel(api)["links"] == []
 
-    # 迟到的可用结果只更新事实，不恢复关系
+    # Late usable results update facts only, never restore relationships.
     await _run(sessions, control, t0 + timedelta(minutes=1))
     link = await _link(sessions, job["id"])
     assert (link.state, link.selected) == ("active", False)
     assert _panel(api)["links"] == []
-    # 解除关联不删除供应商素材，也不删 ArcReel 图片
+    # Unlinking deletes neither provider materials nor ArcReel images.
     assert control.actions("DeleteAsset") == []
     assert _panel(api)["content_version"] is not None
 
-    # 解除后可以重新上传，得到新的入库任务
+    # After unlinking, uploads create fresh ingestion tasks.
     again = _start_upload(api, account_id)
     assert again["id"] != job["id"]
 
 
 async def test_pending_upload_reads_the_content_version_after_its_resource_is_renamed(api, sessions, bucket, project):
-    """入库在途时资源改名：快照随版本历史移到新路径，任务按内容版本身份读到原内容，不判为内容不可用。"""
+    """Resource renames during ingestion move version snapshots; tasks read original version identities without content-unavailable failures."""
     account_id = await _configure(sessions)
     image = solid_png_bytes((40, 80, 120), size=(400, 400))
     _upload_sheet(api, image)
@@ -522,7 +522,7 @@ async def test_uncertain_submission_is_recovered_by_name_without_recreating(api,
     panel = _panel(api)["links"][0]
     assert (panel["state"], panel["usable"]) == ("uncertain", False)
 
-    # 下一轮按提交时的名称查回素材 ID，不再发 CreateAsset
+    # Next rounds recover IDs by submission names, never repeat CreateAsset.
     control.listed_assets = [
         {"Id": "asset-recovered", "Name": link.submit_name, "Status": "Processing"},
         {"Id": "asset-other", "Name": f"{link.submit_name}-copy", "Status": "Active"},
@@ -557,7 +557,7 @@ INFERENCE_KEY = "TEST-inference-key-0003"
 
 
 def _switch_account_key(api: TestClient, account_id: int) -> None:
-    """经设置页接口把账号记录原地换成另一个云账号的 Access Key。"""
+    """Replace account records in place with other cloud Access Keys through settings APIs."""
     resp = api.patch(
         f"{ACCOUNTS}/{account_id}",
         json={"access_key_id": "TEST-CONTROL-PLANE-AK-OTHER", "secret_access_key": "TEST-SECRET-OTHER"},
@@ -578,7 +578,7 @@ async def _bound_scope(sessions, credential_id: int):
 
 
 async def test_reconfirmed_binding_after_key_change_does_not_select_the_old_accounts_asset(api, sessions, bucket):
-    """账号记录换成另一个云账号的 Key 并重新确认绑定后，旧账号的素材 ID 不再被选中；旧关联保留原范围。"""
+    """Replaced cloud Keys/reconfirmed bindings stop selecting old material IDs; old associations retain original scopes."""
     account_id = await _configure(sessions)
     async with sessions() as session:
         credential = await CredentialRepository(session).create(provider="ark", name="TEST-ark", api_key=INFERENCE_KEY)
@@ -606,13 +606,13 @@ async def test_reconfirmed_binding_after_key_change_does_not_select_the_old_acco
             await selected_link(session, project_name="demo", content_version_id=content_version_id, scope=scope_b)
             is None
         )
-        # 旧关联不删除、不改写，仍属于原账号身份的范围
+        # Old associations remain unmodified under original account-identity scopes.
         kept = await selected_link(session, project_name="demo", content_version_id=content_version_id, scope=scope_a)
     assert kept is not None
     assert kept.id == job["id"]
     assert scope_of(kept) == scope_a
 
-    # 面板把旧关联单列为另一范围，账号行可以为新身份重新上传
+    # Panels list old associations separately; account rows can reupload under new identities.
     panel = _panel(api)
     [shown] = panel["links"]
     [account] = panel["accounts"]
@@ -622,7 +622,7 @@ async def test_reconfirmed_binding_after_key_change_does_not_select_the_old_acco
 
 
 async def test_tasks_submitted_under_the_old_key_are_not_advanced_with_the_new_key(api, sessions, bucket):
-    """处理中与待提交的任务都不能用换过的 Key 推进：不建素材、不查询，也不把新账号的结果写进旧关联。"""
+    """Processing/pending tasks cannot advance using replaced Keys: no creation/query or new-account results written into old associations."""
     account_id = await _configure(sessions)
     _upload_sheet(api, solid_png_bytes((70, 80, 90), size=(400, 400)))
     processing = _start_upload(api, account_id)
@@ -665,14 +665,14 @@ async def test_provider_rejection_keeps_reason_and_relay_is_cleaned_with_retry(a
     assert shown["error_code"] == "InputImageSensitiveContentDetected"
     assert shown["error_message"] == "image rejected"
 
-    # 删除失败保留定位与原因，退避后重试成功
+    # Failed deletion retains locations/reasons; backoff retries succeed.
     bucket["fail_delete"] = True
     await _run(sessions, control, t0 + timedelta(hours=2))
     [relay] = await _relays(sessions)
     assert (relay.state, relay.last_error, relay.delete_attempts) == ("retained", "provider:InternalError", 1)
     await _run(sessions, control, t0 + timedelta(hours=2, minutes=1))
-    assert len(bucket["delete_calls"]) == 1  # 退避期内不重试
-    # 删除重试次数累积很多后，退避仍停在上限，不因溢出中断整轮处理
+    assert len(bucket["delete_calls"]) == 1  # Never retry during backoff.
+    # Large deletion retry counts retain capped backoff, never overflow and abort processing.
     async with sessions() as session:
         stored = await session.get(RelayObject, relay.id)
         assert stored is not None
@@ -692,7 +692,7 @@ async def test_provider_rejection_keeps_reason_and_relay_is_cleaned_with_retry(a
 
 
 async def test_long_running_status_backoff_stays_capped_instead_of_overflowing(api, sessions, bucket):
-    """状态查询次数累积很多后，退避仍停在上限，不因溢出中断整轮处理。"""
+    """Large status-query counts retain capped backoff without overflow aborting processing."""
     account_id = await _configure(sessions)
     _upload_sheet(api, solid_png_bytes((9, 9, 9), size=(400, 400)))
     job = _start_upload(api, account_id)
@@ -736,7 +736,7 @@ async def test_definite_create_failure_and_relay_upload_failure(api, sessions, b
 
 
 async def test_overlong_provider_error_code_still_settles_the_submission(api, sessions, bucket):
-    """供应商返回超过列宽的错误码：截断后落账，任务不停在 submitting。"""
+    """Oversized provider error codes truncate before accounting; tasks never stick submitting."""
     account_id = await _configure(sessions)
     _upload_sheet(api, solid_png_bytes((2, 2, 2), size=(400, 400)))
     job = _start_upload(api, account_id)
@@ -747,7 +747,7 @@ async def test_overlong_provider_error_code_still_settles_the_submission(api, se
 
 
 async def test_concurrent_upload_of_the_same_version_is_a_conflict(api, sessions, bucket, monkeypatch):
-    """先查后写之间另一请求已选定同一范围：唯一索引拦下的写入报 409，不是服务器错误。"""
+    """Same-scope selection races between checks/writes hit unique indexes and return 409, never server errors."""
     account_id = await _configure(sessions)
     _upload_sheet(api, solid_png_bytes((3, 3, 3), size=(400, 400)))
     first = _start_upload(api, account_id)
@@ -803,7 +803,7 @@ async def test_upload_requires_an_image_and_object_storage(api, sessions, bucket
     assert _panel(api)["links"] == []
 
 
-# ── 从素材库选择已有图片 ─────────────────────────────────────────────
+# ── Select existing library images ─────────────────────────────────────────────
 
 ASSET_URL = "https://ark-asset.cn-beijing.volcengine.example/asset-20261103-b.png"
 ASSET_SIGNATURE = "X-Tos-Signature=TEST-SIGNATURE-0003"
@@ -812,7 +812,7 @@ IMPORT = f"{LINKS}/import"
 
 @pytest.fixture
 def public_dns(monkeypatch) -> None:
-    """素材地址的主机解析到公网地址；不发真实 DNS 查询。"""
+    """Resolve material hosts to public addresses without real DNS."""
 
     async def _resolve(host: str, port: int) -> list[str]:
         return ["93.184.216.34"]
@@ -854,9 +854,9 @@ async def _all_links(sessions) -> list[ProviderAssetLink]:
 async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
     api, sessions, project, public_dns, caplog, large_original
 ):
-    """导入闭环：取回素材原图保存为成品新版本，关联属于这个版本且可用；切回旧版本不继承关联。"""
+    """Import originals as finished new versions with usable owned associations; old selected versions inherit none."""
     caplog.set_level(logging.INFO)
-    account_id = await _configure(sessions, object_storage=False)  # 导入不经对象存储中转
+    account_id = await _configure(sessions, object_storage=False)  # Imports bypass object-storage transit.
     image_a = solid_png_bytes((200, 10, 10), size=(400, 400))
     image_b = solid_png_bytes((10, 10, 200), size=(400, 400))
     if large_original:
@@ -874,12 +874,12 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
         resp = _import(api, account_id)
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    # 只按 GetAsset 返回的地址取图，查询带账号的供应商项目
+    # Fetch only GetAsset URLs, querying accounts' provider projects.
     assert [b["ProjectName"] for b in control.actions("GetAsset")] == ["film"]
     assert download.call_count == 1
     assert ASSET_SIGNATURE in str(download.calls.last.request.url)
 
-    # 正式内容是素材原图，按手动上传成品记入版本历史
+    # Actual originals become formal content, recorded as manual-upload finished versions.
     sheet = project.get_project_path("demo") / "characters" / "Alice.png"
     assert sheet.read_bytes() == image_b
     history = _versions(api)
@@ -888,7 +888,7 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
     assert record["source"] == "manual_upload"
     assert record["content_version_id"] == body["content_version"]["id"] != version_a["id"]
 
-    # 关联属于新内容版本，保留账号范围，可用于生成
+    # Associations belong to new versions, retaining usable account scopes.
     link = body["link"]
     assert (link["state"], link["usable"], link["provider_asset_id"]) == ("active", True, "asset-20261103-b")
     assert (link["site"], link["region"], link["provider_project_name"]) == ("volcengine", "cn-beijing", "film")
@@ -904,13 +904,13 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
     assert found is not None
     assert found.id == link["id"]
 
-    # 切回 A：A 没有关联；再切回导入的版本，关联仍在
+    # A has no association on switching back; imported versions retain theirs on reselection.
     assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/1").status_code == 200
     assert _panel(api)["links"] == []
     assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2").status_code == 200
     assert [shown["id"] for shown in _panel(api)["links"]] == [link["id"]]
 
-    # 签名地址与控制面密钥不进响应与日志
+    # Responses/logs exclude signed URLs/control-plane secrets.
     assert ASSET_SIGNATURE not in resp.text
     assert "TEST-SIGNATURE" not in caplog.text
     assert SK not in caplog.text
@@ -924,7 +924,7 @@ def _fail_claim(monkeypatch) -> None:
 
 
 def _fail_after_link(monkeypatch) -> None:
-    """关联已落库之后，正式写入的收尾步骤失败。"""
+    """Finalization fails after association persistence."""
 
     def _raise(*_args, **_kwargs):
         raise RuntimeError("activity failed")
@@ -955,7 +955,7 @@ def _fail_after_link(monkeypatch) -> None:
 async def test_import_that_cannot_get_real_content_is_refused(
     api, sessions, public_dns, status, download, status_code, detail, downloaded
 ):
-    """取不回实际内容或素材不可用：拒绝导入，原选中版本不变，不留下关联。"""
+    """Unavailable materials/content reject imports, retaining selections and leaving no associations."""
     account_id = await _configure(sessions, object_storage=False)
     _upload_sheet(api, solid_png_bytes((1, 2, 3), size=(400, 400)))
     before = _versions(api)
@@ -974,7 +974,7 @@ async def test_import_that_cannot_get_real_content_is_refused(
 
 
 async def test_import_refuses_a_hostname_that_resolves_to_a_private_address(api, sessions, monkeypatch):
-    """素材地址的主机名解析到私网地址：不发下载请求，拒绝导入，原选中版本不变，不留下关联。"""
+    """Private material-host addresses block downloads/import, preserving selections without associations."""
 
     async def _resolve(host: str, port: int) -> list[str]:
         return ["10.0.0.1"]
@@ -1000,7 +1000,7 @@ async def test_import_refuses_a_hostname_that_resolves_to_a_private_address(api,
 async def test_import_commit_failure_keeps_selected_version_and_no_link(
     api, sessions, project, public_dns, monkeypatch, fail
 ):
-    """正式提交失败：资产图、版本历史保持原样，不显示导入成功，也不留下关联。"""
+    """Failed formal commits retain images/history, report no success and leave no associations."""
     account_id = await _configure(sessions, object_storage=False)
     image_a = solid_png_bytes((5, 5, 5), size=(400, 400))
     _upload_sheet(api, image_a)
@@ -1022,7 +1022,7 @@ async def test_import_commit_failure_keeps_selected_version_and_no_link(
 
 
 async def test_import_into_an_asset_deleted_during_download_writes_nothing(api, sessions, project, public_dns):
-    """取图期间资产被删除：导入报不存在，不在原路径留下图片，资产从回收站恢复时仍落回原名。"""
+    """Assets deleted during fetch return missing; no original-path image remains, and trash restoration retains names."""
     account_id = await _configure(sessions, object_storage=False)
     sheet = project.get_project_path("demo") / "characters" / "Alice.png"
     assert not sheet.exists()
@@ -1045,7 +1045,7 @@ async def test_import_into_an_asset_deleted_during_download_writes_nothing(api, 
 async def test_import_follows_the_storage_choice_and_keeps_the_original_bytes(
     api, sessions, project, bucket, public_dns, monkeypatch
 ):
-    """存储选择为对象存储时，导入的原图作为正式对象保存，关联属于这个远端版本；保存失败不发布版本、不留关联。"""
+    """Object-storage imports save originals as formal objects/remote-version associations; failures publish neither versions nor associations."""
     bind_session_factory(monkeypatch, sessions)
     account_id = await _configure(sessions)
     async with sessions() as session:
@@ -1090,9 +1090,9 @@ async def test_import_follows_the_storage_choice_and_keeps_the_original_bytes(
     assert [kept.id for kept in await _all_links(sessions)] == [link.id]
 
 
-# ── 角色衍生图 ───────────────────────────────────────────────────────
-# 衍生图走自己的手动上传成品路径（规范路径固定为 .png），关联编排与资产图共用；
-# 这里只覆盖衍生特有的部分：落盘与版本、PNG 封装下的原像素保真、关联可用与解除，以及提交钩子的回滚。
+# ── Character derivative images ───────────────────────────────────────────────────────
+# Derivatives use their own manual-finished-image paths, canonical .png, sharing base-image association orchestration;
+# cover derivative persistence/versions, PNG-wrapped original pixel fidelity, usable/unlinked associations and commit-hook rollback only.
 
 DERIVATIVE = {"resource_type": "character_derivatives", "resource_id": "Alice/战斗装"}
 DERIVATIVE_SHEET = Path("characters") / "derivatives" / "Alice" / "战斗装.png"
@@ -1148,7 +1148,7 @@ def _jpeg_bytes() -> bytes:
 async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_active_link(
     api, sessions, project, derivative, public_dns, original_format
 ):
-    """衍生图导入闭环：素材内容成为衍生的手动上传新版本，关联属于这个版本且可用；解除后图片保留。"""
+    """Derivative imports create finished manual versions with usable owned associations; unlinking retains images."""
     account_id = await _configure(sessions, object_storage=False)
     _upload_derivative(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
     version_a = _derivative_panel(api)["content_version"]
@@ -1162,7 +1162,7 @@ async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_
     assert resp.status_code == 201, resp.text
     body = resp.json()
 
-    # 衍生规范路径是 .png：PNG 原样保存，JPEG 只换封装，像素与素材一致
+    # Canonical derivative .png: retain PNG bytes, rewrap JPEG with identical material pixels.
     saved = (project.get_project_path("demo") / DERIVATIVE_SHEET).read_bytes()
     if original_format == "png":
         assert saved == original
@@ -1180,7 +1180,7 @@ async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_
     assert [shown["id"] for shown in _derivative_panel(api)["links"]] == [link["id"]]
     assert ASSET_SIGNATURE not in resp.text
 
-    # 切回旧版本不继承关联；回到导入的版本后解除，只解除关系，图片仍在
+    # Old versions inherit no association; unlink imported versions without deleting images.
     assert api.post("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装/restore/1").status_code == 200
     assert _derivative_panel(api)["links"] == []
     assert api.post("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装/restore/2").status_code == 200
@@ -1194,7 +1194,7 @@ async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_
 async def test_import_cancellation_after_link_preserves_committed_image_and_link(
     api, sessions, project, derivative, public_dns, monkeypatch, is_derivative
 ):
-    """正式提交后的取消不能把已经生效的关联当作孤儿删除。"""
+    """Postcommit cancellation must not remove effective associations as orphans."""
     account_id = await _configure(sessions, object_storage=False)
     original = solid_png_bytes((10, 10, 200), size=(400, 400))
     entered = asyncio.Event()
@@ -1246,7 +1246,7 @@ async def test_import_cancellation_after_link_preserves_committed_image_and_link
 async def test_derivative_import_failing_after_link_keeps_selected_version_and_no_link(
     api, sessions, project, derivative, public_dns, monkeypatch
 ):
-    """衍生的正式提交在关联落库后失败：衍生图与版本历史保持原样，也不留下关联。"""
+    """Derivative commits failing after association persistence preserve images/history without associations."""
     account_id = await _configure(sessions, object_storage=False)
     image_a = solid_png_bytes((5, 5, 5), size=(400, 400))
     _upload_derivative(api, image_a)
@@ -1267,9 +1267,9 @@ async def test_derivative_import_failing_after_link_keeps_selected_version_and_n
     assert await _all_links(sessions) == []
 
 
-# ── Agent 工具 ───────────────────────────────────────────────────────
-# 工具经两宿主的真实 adapter 调用，与 Web 共用同一组关联记录；领域规则已由上面的 Web 用例覆盖，
-# 这里只验证明确指令、立即返回、两宿主结果一致，以及结果里不带密钥与签名。
+# ── Agent tools ───────────────────────────────────────────────────────
+# Real host adapters share Web associations; Web tests above cover domain rules,
+# leaving explicit instructions/immediate returns/host equality/no secrets or signatures here.
 
 
 @pytest.fixture
@@ -1321,12 +1321,12 @@ def _tool_text(result: types.CallToolResult) -> str:
 
 
 async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(api, sessions, bucket, agent_services):
-    """上传必须带用户明确要求；工具立即返回入库任务，两宿主与 Web 看到同一条关联，解除后两侧内容都在。"""
+    """Uploads require explicit requests; tools immediately return ingestion tasks, hosts/Web share associations, unlink retains both contents."""
     account_id = await _configure(sessions)
     _upload_sheet(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
     target = {"resource_type": "character", "resource_id": "Alice", "account_id": account_id}
 
-    # 没有用户明确要求（例如只是生成被拒）时，入口拒绝，不创建入库任务
+    # Without explicit user requests, such as generation rejection alone, reject without ingestion tasks.
     refused, refused_json = await _embedded(agent_services, "upload_to_provider_asset_library", target)
     assert refused.isError is True
     assert refused_json["problem"]["code"] == "invalid_request"
@@ -1337,11 +1337,11 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
     )
     assert started.isError is False
     job = started_json["provider_asset_link"]
-    # 不等待供应商：后台尚未推进，返回的是待上传的任务
+    # Never await providers; return pending-upload tasks before background progress.
     assert (job["state"], job["usable"], job["polling"]) == ("pending", False, True)
     assert [link["id"] for link in _panel(api)["links"]] == [job["id"]]
 
-    # 同一范围重复上传：沿用领域层的冲突判断与错误码
+    # Repeated same-scope uploads retain domain conflicts/error codes.
     again = await _remote(agent_services, "upload_to_provider_asset_library", {**target, "user_requested": True})
     assert again.isError is True
     assert again.structuredContent is not None
@@ -1373,7 +1373,7 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
     assert _panel(api)["content_version"] is not None
     assert control.actions("DeleteAsset") == []
 
-    # 工具结果不带控制面密钥、对象存储密钥或签名地址
+    # Tool results exclude control-plane/storage secrets and signed URLs.
     for result in (started, again, embedded, remote, released):
         text = _tool_text(result)
         assert SK not in text
@@ -1382,7 +1382,7 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
 
 
 async def test_agent_selects_an_existing_library_image_as_a_new_version(api, sessions, public_dns, agent_services):
-    """浏览素材库后选择已有图片：保存实际内容为新版本并建立可用关联；结果不含签名地址。"""
+    """Browse/select existing images, persist actual new-version contents/usable associations; results exclude signed URLs."""
     account_id = await _configure(sessions, object_storage=False)
     _upload_sheet(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
     image_b = solid_png_bytes((10, 10, 200), size=(400, 400))
@@ -1424,7 +1424,7 @@ async def test_agent_selects_an_existing_library_image_as_a_new_version(api, ses
 async def test_agent_selects_a_library_image_for_a_character_derivative(
     api, sessions, derivative, public_dns, agent_services
 ):
-    """Agent 也能为角色衍生图选择已有素材，与 Web 共用同一导入路径与关联。"""
+    """Agents select existing derivative materials through identical Web import/association paths."""
     account_id = await _configure(sessions, object_storage=False)
     control = ControlPlane(asset_status=[_active_image()])
     with capture_http() as router:
@@ -1452,7 +1452,7 @@ async def test_agent_selects_a_library_image_for_a_character_derivative(
     assert "TEST-SIGNATURE" not in _tool_text(selected)
 
 
-#: 前端按码给出本地化原因的码表，前端测试核对同一份文件。
+#: Frontend-localized reason codes; frontend tests verify this same file.
 _LOCAL_FAILURES_CONTRACT = (
     Path(__file__).resolve().parents[4]
     / "frontend"

@@ -1,7 +1,7 @@
-"""共享 fixtures：尽量在运行期构造测试样本，避免二进制入库。
+"""Shared fixtures: construct samples at runtime where possible to avoid committed binaries.
 
-例外：PDF 因 pdf_oxide 暂无稳定的 Python 创建 API，改用 data/ 下预生成的
-真实 PDF（来源详见 data/SOURCES.md）。
+Exception: pdf_oxide lacks a stable Python creation API, so PDFs use pregenerated real files
+under data/ (sources in data/SOURCES.md).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ _PDF_DATA_DIR = Path(__file__).parent / "data"
 
 @pytest.fixture
 def docx_factory(tmp_path: Path):
-    """构造一个含两段文本的 .docx；无 python-docx 时跳过。"""
+    """Construct a two-paragraph .docx; skip without python-docx."""
     docx_mod = pytest.importorskip("docx", reason="需要 python-docx 构造 fixture")
 
     def _make(paragraphs: list[str], filename: str = "sample.docx") -> Path:
@@ -33,12 +33,12 @@ def docx_factory(tmp_path: Path):
 
 @pytest.fixture
 def epub_factory(tmp_path: Path):
-    """构造一个含 N 章的 .epub，直接按 OCF/OPF 规范写 zip。
+    """Construct an N-chapter .epub by writing an OCF/OPF-compliant zip directly.
 
-    - ``toc``：目录来源，``"ncx+nav"``（默认）、``"ncx"``、``"nav"`` 或 ``None``（无目录）。
-    - ``toc_entries``：覆盖目录条目，元素为 ``(标题, 相对 OPF 目录的 href)``；默认每章一条。
-    - ``nav_id``：nav 文档的 manifest id；nav 文档总是放进 spine，验证它会被排除。
-    - ``opf_dir``：OPF 所在目录，章节、NCX、nav 与它同目录。
+    - ``toc``: table-of-contents source, ``"ncx+nav"`` (default), ``"ncx"``, ``"nav"``, or ``None`` (no TOC).
+    - ``toc_entries``: override TOC entries as ``(标题, 相对 OPF 目录的 href)``; default one per chapter.
+    - ``nav_id``: nav-document manifest ID; always include nav in spine to verify exclusion.
+    - ``opf_dir``: OPF directory, shared by chapters, NCX, and nav.
     """
 
     def _make(
@@ -122,7 +122,7 @@ def epub_factory(tmp_path: Path):
 
 
 class _PdfFactory:
-    """调用得到文本 PDF，``scanned()`` 得到扫描件 PDF。"""
+    """Calling yields a text PDF; ``scanned()`` yields a scanned PDF."""
 
     def __call__(self) -> Path:
         return _PDF_DATA_DIR / "sample_text.pdf"
@@ -133,5 +133,5 @@ class _PdfFactory:
 
 @pytest.fixture
 def pdf_factory() -> _PdfFactory:
-    """返回预生成的 PDF fixture 路径（来自真实 PDF，见 data/SOURCES.md）。"""
+    """Return pregenerated real-PDF fixture paths; see data/SOURCES.md."""
     return _PdfFactory()

@@ -9,8 +9,8 @@ import { errMsg } from "@/utils/async";
 import { episodeMoveCheck } from "@/utils/episode-order";
 
 /**
- * 调整播出顺序：把一集移到 `after` 之后（null 为最前）。切出集之间违背源文顺序的移动不提交，提示原因；
- * 服务端按落位后的原文范围复核，拒绝时同样提示。
+ * Reorder broadcasting by moving an episode after `after` (null means first). Do not submit extracted-episode moves that violate source order; explain why;
+ * the server rechecks source ranges after placement and its rejection is also displayed.
  */
 export function useMoveEpisode(projectName: string | null) {
   const { t } = useTranslation("dashboard");

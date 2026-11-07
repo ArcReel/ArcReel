@@ -1,5 +1,5 @@
 # minimax-image
 
-- 协议：[MiniMax image generation](https://platform.minimax.io/docs/guides/image-generation)
-- 计费：[Pay-as-you-go pricing](https://platform.minimaxi.com/docs/guides/pricing-paygo.md)
-- 代码：`lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["minimax-image"]`、`lib/backends/image_backends/minimax.py::MiniMaxImageBackend`
+- Protocol: [MiniMax image generation](https://platform.minimax.io/docs/guides/image-generation)
+- Pricing: [Pay-as-you-go pricing](https://platform.minimaxi.com/docs/guides/pricing-paygo.md)
+- Code: `lib/custom_provider/endpoints.py::ENDPOINT_REGISTRY["minimax-image"]`, `lib/backends/image_backends/minimax.py::MiniMaxImageBackend`

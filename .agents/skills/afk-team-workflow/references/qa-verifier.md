@@ -1,34 +1,34 @@
-# QA verifier 契约
+# QA verifier contract
 
-你以用户身份验收改动，向 team-lead 交付每条验收项的结论与证据。你只运行和观察应用，代码修复归 fixer。
+Accept changes as a user and deliver a conclusion and evidence for every acceptance item to the team-lead. Only run and observe the application; code fixes belong to the fixer.
 
-输入：模式（全量 / 复验 / 冒烟）、目标 commit、Spec（仅 Spec 批次）、本次范围的 issues、batch handoff 目录、证据目录绝对路径。全量与复验另给 stage worktree 与 stage handoff 绝对路径；复验另给待验项或 commit 范围；冒烟另给费用预算与各 stage 的待部署验证项。
+Inputs: mode (full / recheck / smoke), target commit, Spec (Spec batches only), issues in the current scope, batch handoff directory, and absolute evidence directory path. Full and recheck also receive the stage worktree and absolute stage handoff path; recheck also receives items to verify or a commit range; smoke also receives the cost budget and each stage's pending deployment verification items.
 
-## 1. 列出验收项
+## 1. List acceptance items
 
-读 Spec、issues 正文与评论及 handoff，把验收标准落成验收项：用户从哪里进入、做什么、应看到什么。只约束内部实现、用户路径上观察不到的标准归 stage-reviewer 审查，不列为验收项。
+Read the Spec, issue bodies and comments, and handoffs. Turn acceptance criteria into items: where the user enters, what they do, and what they should see. Criteria constraining only internal implementation, unobservable on a user path, belong to stage-reviewer review; do not list them as acceptance items.
 
-- **全量**：本 stage 的全部验收标准。
-- **复验**：给定待验项时只验这些项（fixer 修复后）；给定 commit 范围时验范围内改动波及的项（审查循环后）。
-- **冒烟**：全批跨 stage 的主路径，加上各 stage 的待部署验证项。
+- **Full**: all acceptance criteria for this stage.
+- **Recheck**: verify only supplied items (after fixer repairs), or items affected by changes in the supplied commit range (after the review loop).
+- **Smoke**: the batch's main paths across stages, plus every stage's pending deployment verification items.
 
-## 2. 准备环境
+## 2. Prepare the environment
 
-**本地实例**（全量、复验）：确认 stage worktree 位于目标 commit。在 worktree 构建 `frontend/dist`，后端会在自身端口托管它；dev server 的代理目标固定为 1241，与其他实例冲突，所以不用它。用临时 `ARCREEL_DATA_DIR`、空闲端口和临时登录账号启动后端。需要真实生成的验收项记为「待部署验证」，交给冒烟。
+**Local instance** (full, recheck): confirm the stage worktree is at the target commit. Build `frontend/dist` in the worktree for the backend to serve on its own port. Do not use the dev server: its fixed proxy target of 1241 conflicts with other instances. Start the backend with a temporary `ARCREEL_DATA_DIR`, a free port, and a temporary login account. Mark acceptance items requiring real generation “pending deployment verification” and leave them for smoke testing.
 
-**部署实例**（冒烟）：地址与登录凭据在 `~/.config/arcreel-qa/env`（`ARCREEL_QA_URL`、`ARCREEL_QA_USERNAME`、`ARCREEL_QA_PASSWORD`）。轮询 `/health`，返回的构建 commit 等于目标 commit 后开始；文件缺失或 60 分钟内未就绪时，全部冒烟项记为无法验证（环境故障）。新建项目以 `batch-id` 开头命名，全局设置保持原样，需要改全局设置的项记为无法验证。真实生成每项只做一次，选最便宜的模型与最小规格，失败不重试；累计费用以预算为上限。
+**Deployed instance** (smoke): URL and login credentials are in `~/.config/arcreel-qa/env` (`ARCREEL_QA_URL`, `ARCREEL_QA_USERNAME`, `ARCREEL_QA_PASSWORD`). Poll `/health` and start when its returned build commit equals the target commit. If the file is missing or the instance is not ready within 60 minutes, mark every smoke item unverifiable (environment failure). Prefix new project names with `batch-id`, leave global settings unchanged, and mark items requiring global-setting changes unverifiable. Perform real generation only once per item, choosing the cheapest model and smallest specification; do not retry failures. Cap cumulative costs at the budget.
 
-## 3. 验收
+## 3. Verify
 
-先使用 Skill 工具调用 `agent-browser`，像用户一样在网页端完成每条验收项；只有接口层的验收项用登录会话执行 `curl -i`。每项给出一个结论，证据存进证据目录：
+First invoke `agent-browser` through the Skill tool. Complete every acceptance item through the web UI as a user would; only interface-layer acceptance items use `curl -i` with the authenticated session. Give each item one conclusion and save evidence in the evidence directory:
 
-- **通过**：指向一份本次运行在目标 commit 上产生的证据，如截图、录屏、`curl -i` 输出或命令日志。测试结果与代码阅读只用来定位，结论来自用户路径上的实际运行。
-- **失败**：证据，加上可复现步骤、期望与实际。
-- **无法验证**：原因类别取其一，即待部署验证、超出预算、需外部客户端或平台、主观判断、环境故障，并写一句具体原因。
+- **Pass**: point to evidence produced by this run on the target commit, such as a screenshot, recording, `curl -i` output, or command log. Tests and code reading only help locate issues; derive conclusions from actual execution on user paths.
+- **Fail**: evidence plus reproducible steps, expected behavior, and actual behavior.
+- **Unverifiable**: select one reason category: pending deployment verification, over budget, external client or platform required, subjective judgment, or environment failure. Add a specific one-sentence reason.
 
-## 4. 交付
+## 4. Deliver
 
-1. 停止本次启动的全部进程，释放端口。
-2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，其余项与历史证据保持原样。
-3. 全量与复验按 [handoff.md](handoff.md) 在 stage handoff 追加「QA」段。
-4. 向 team-lead 回报 `results.md` 路径与三类结论的计数，然后停止。
+1. Stop every process started during this run and release ports.
+2. Write one line per item in the evidence directory's `results.md`, including identifier, conclusion, acceptance-criterion source (issue number), target commit, evidence filename or reproduction steps, and actual cost. Create this file for full and smoke modes; for rechecks, update verified items by identifier and leave other items and historical evidence unchanged.
+3. In full and recheck modes, append a “QA” section to the stage handoff under [handoff.md](handoff.md).
+4. Report the `results.md` path and counts of the three conclusion types to the team-lead, then stop.

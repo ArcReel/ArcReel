@@ -1,4 +1,4 @@
-"""v2→v3 迁移：纯版本盖章；episodes 逐字不变、版本守卫、幂等、余文保留。"""
+"""v2→v3: version stamping only; byte-identical episodes, version guards, idempotency, and remainder preservation."""
 
 import json
 from pathlib import Path
@@ -31,7 +31,7 @@ def _load(d: Path) -> dict:
 
 
 def test_bumps_schema_version_only(tmp_path: Path):
-    """只写 schema_version：episodes 逐字不变，不补账本字段、不推导 planning_cursor。"""
+    """Write only schema_version: preserve episodes exactly, adding no ledger fields and deriving no planning_cursor."""
     episodes = [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}]
     d = _write(tmp_path, {"schema_version": 2, "episodes": episodes})
     migrate_v2_to_v3(d)
@@ -42,11 +42,11 @@ def test_bumps_schema_version_only(tmp_path: Path):
 
 
 def test_upgraded_project_passes_consumer_side_validation(tmp_path: Path):
-    """升级后的项目对消费链路照常有效：无位置记录的账本条目不被判损坏。
+    """Upgraded projects remain valid for consumers; ledger entries lacking position records are not corrupt.
 
-    盖章迁移刻意留下没有 ``source_range`` / ``ledger_status`` 的条目，这是老项目升级后的
-    常态。校验器是所有消费链路（剧本 / 媒体 / 状态 / 导出）的入口守卫，它放行才谈得上
-    「升级后照常工作」——规划入口另有门禁拒绝这类条目，见 ``test_episode_planner``。
+    Stamping intentionally leaves entries without ``source_range`` / ``ledger_status``, normal after legacy upgrades.
+    The validator guards all consumers (scripts / media / status / export); its acceptance establishes continued operation
+    after upgrade. Planning separately rejects these entries; see ``test_episode_planner``.
     """
     d = _write(
         tmp_path,
@@ -61,15 +61,15 @@ def test_upgraded_project_passes_consumer_side_validation(tmp_path: Path):
             "episodes": [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}],
         },
     )
-    # 校验器按最新 schema 形态断言（如 generation_mode 必填），消费链路入口前项目
-    # 必然已走完整迁移链，这里同口径跑到当前版本再校验
+    # Validation requires current schema shapes (such as mandatory generation_mode); projects entering consumers
+    # have completed the full migration chain, so likewise upgrade to current before validating here.
     migrate_project_dir(d)
     result = DataValidator(projects_dir=str(tmp_path)).validate_project_payload(_load(d))
     assert result.errors == []
 
 
 def test_existing_ledger_fields_preserved_verbatim(tmp_path: Path):
-    """已带账本字段的 v2 项目（手工或旧版本写入）原样保留，迁移不改写。"""
+    """Preserve existing ledger fields in v2 projects, whether manually or previously written; migration does not rewrite them."""
     episodes = [
         {
             "episode": 1,
@@ -88,10 +88,10 @@ def test_existing_ledger_fields_preserved_verbatim(tmp_path: Path):
 
 @pytest.fixture
 def no_write_guard(monkeypatch: pytest.MonkeyPatch):
-    """守卫生效的判据是「一次盘都没写」。
+    """A functioning guard means no disk writes at all.
 
-    盖章迁移只写 schema_version，对已是 v3 的项目即便守卫失效、迁移照跑一遍，落盘内容
-    也与原文件一致——只断言字段/内容不变无法证伪，必须直接盯写入本身。
+    Stamping writes only schema_version; if the guard fails and remigrates an existing v3 project, written content
+    still matches the original. Unchanged field/content assertions cannot disprove the bug; observe actual writes.
     """
     calls: list[Path] = []
 
@@ -115,7 +115,7 @@ def test_version_guard_skips_already_v3(tmp_path: Path, no_write_guard: list[Pat
 
 
 def test_string_schema_version_is_normalized(tmp_path: Path):
-    """历史 project.json 可能存字符串版本号，守卫做 int 归一化而非抛 TypeError。"""
+    """Historical project.json may store string versions; guards normalize with int instead of raising TypeError."""
     d = _write(tmp_path, {"schema_version": "2", "episodes": []})
     migrate_v2_to_v3(d)
     assert _load(d)["schema_version"] == 3
@@ -142,14 +142,14 @@ def test_double_run_idempotent_at_file_level(tmp_path: Path):
 
 
 def test_remaining_file_preserved(tmp_path: Path):
-    """余文文件保留：迁移只碰 project.json，不动 source/ 下任何文件。"""
+    """Preserve remainder files: migration touches only project.json, never files under source/."""
     d = _write(tmp_path, {"schema_version": 2, "episodes": []})
     migrate_v2_to_v3(d)
     assert (d / "source" / "_remaining.txt").read_text(encoding="utf-8") == NOVEL[len(EP1) :]
 
 
 def test_missing_project_json_is_noop(tmp_path: Path):
-    """没有 project.json 的目录：迁移既不抛错，也不得凭空造出任何文件。"""
+    """Without project.json, migration neither raises nor creates any files."""
     empty = tmp_path / "empty"
     empty.mkdir()
 

@@ -8,7 +8,7 @@ import {
   withDurationsOverride,
 } from "./customProviderHelpers";
 
-// 测试 fixture：模拟从 endpoint-catalog-store 派生的 endpoint→media map。
+// Test fixture simulating endpoint→media maps derived from endpoint-catalog-store.
 const ENDPOINT_TO_MEDIA: Record<string, MediaType> = {
   "openai-chat": "text",
   "gemini-generate": "text",
@@ -74,8 +74,8 @@ describe("toggleDefaultReducer", () => {
   });
 
   it("treats two image endpoints that declare no capabilities as colliding", () => {
-    // ComfyUI 端点的能力集是空的（能力推导未落地）：两个这样的默认分不开彼此，服务端会拒。
-    // 两边判据不一致，界面就会放行一份存不下的配置。
+    // ComfyUI endpoint capabilities are empty before inference exists; two defaults cannot distinguish slots, so servers reject them.
+    // Divergent predicates would permit unsaveable configurations in UI.
     const rows = [
       { key: "a", endpoint: "ce-1", is_default: true },
       { key: "b", endpoint: "ce-2", is_default: false },
@@ -94,8 +94,8 @@ describe("toggleDefaultReducer", () => {
   });
 
   it("falls back to single-row toggle when catalog map is empty (catalog not loaded)", () => {
-    // 回归：catalog 未加载时 endpointToMediaType={}，所有行 mediaType 都是 undefined。
-    // 必须降级为单行 toggle，不能因 undefined === undefined 把不同媒体类型行当作同组互斥。
+    // Regression: unloaded catalogs mean endpointToMediaType={}, all rows have undefined mediaType.
+    // Degrade to single-row toggles, never treat different-media rows as mutually exclusive through undefined === undefined.
     const rows = [
       { key: "a", endpoint: "openai-chat", is_default: true },
       { key: "b", endpoint: "openai-images", is_default: true },
@@ -123,7 +123,7 @@ describe("toggleDefaultReducer", () => {
       { key: "e", endpoint: "openai-images-edits", is_default: true },
     ];
     const result = toggleDefaultReducer(rows, "g", ENDPOINT_TO_MEDIA, ENDPOINT_TO_CAPS);
-    // -generations 设为 default，不应清掉 -edits（capability 不交叠）
+    // -generations defaults must not clear -edits; capabilities do not overlap.
     expect(result.find((r) => r.key === "g")?.is_default).toBe(true);
     expect(result.find((r) => r.key === "e")?.is_default).toBe(true);
   });
@@ -151,8 +151,8 @@ describe("toggleDefaultReducer", () => {
   });
 
   it("disabling an existing default does NOT clear other capability-overlapping defaults", () => {
-    // 回归：取消 wildcard image 默认时，不应把同样作为默认的 split-edits 也清掉
-    // （wildcard 与 -edits 在 I2I 槽 overlap，但用户并未启用新默认，不该触发互斥清理）
+    // Regression: disabling wildcard image defaults must not clear default split-edits too
+    // (wildcard/-edits overlap I2I, but users enabled no new defaults, so no exclusion cleanup).
     const rows = [
       { key: "w", endpoint: "openai-images", is_default: true },
       { key: "e", endpoint: "openai-images-edits", is_default: true },
@@ -181,8 +181,8 @@ describe("mergeDiscoveredModels", () => {
   });
 
   it("keeps existing default and drops discovered default in same media_type (regression)", () => {
-    // 既存 provider：文本默认 = z-chat。上游新增排序更靠前的 a-chat，发现接口把首项 a-chat 标默认。
-    // 朴素合并会得到两个 text 默认 → 保存被后端 default_model_conflict 拒绝。消解后只保留既存默认。
+    // Existing text default z-chat; upstream adds earlier-sorting a-chat, marked default by discovery.
+    // Naive merging makes two text defaults, rejected as default_model_conflict; resolution preserves existing defaults only.
     const prev = [row("z-chat", "openai-chat", true)];
     const discovered = [row("a-chat", "openai-chat", true), row("z-chat", "openai-chat", false)];
     const merged = mergeDiscoveredModels(prev, discovered, ENDPOINT_TO_MEDIA);
@@ -190,7 +190,7 @@ describe("mergeDiscoveredModels", () => {
   });
 
   it("lets a discovered default fill an empty media slot", () => {
-    // 既存仅文本默认；发现新增视频模型 → 视频槽空 → 允许补默认
+    // Existing text defaults only; new discovered videos fill vacant video defaults.
     const prev = [row("z-chat", "openai-chat", true)];
     const discovered = [row("z-chat", "openai-chat", false), row("v1", "newapi-video", true)];
     const merged = mergeDiscoveredModels(prev, discovered, ENDPOINT_TO_MEDIA);
@@ -207,7 +207,7 @@ describe("mergeDiscoveredModels", () => {
   });
 
   it("keeps disjoint-capability image defaults (split generations vs edits)", () => {
-    // 既存 -edits(I2I) 默认；发现 -generations(T2I) 标默认 → capability 不交叠 → 两者都保留
+    // Existing -edits I2I default plus discovered -generations T2I default: no overlap, retain both.
     const prev = [row("e", "openai-images-edits", true)];
     const discovered = [
       row("g", "openai-images-generations", true),
@@ -219,7 +219,7 @@ describe("mergeDiscoveredModels", () => {
   });
 
   it("makes a discovered wildcard-image default yield to an overlapping existing default", () => {
-    // 既存 -edits(I2I) 默认；发现 wildcard image(T2I+I2I) 标默认 → I2I 槽已占 → wildcard 让出
+    // Existing -edits I2I default plus wildcard T2I+I2I default: occupied I2I makes wildcard yield.
     const prev = [row("e", "openai-images-edits", true)];
     const discovered = [row("w", "openai-images", true), row("e", "openai-images-edits", false)];
     const merged = mergeDiscoveredModels(prev, discovered, ENDPOINT_TO_MEDIA, ENDPOINT_TO_CAPS);
@@ -238,7 +238,7 @@ describe("mergeDiscoveredModels", () => {
   });
 
   it("does not reconcile when catalog is unloaded (unknown endpoints never claim slots)", () => {
-    // catalog 未加载 → 所有 endpoint media 未知 → 不消解（与 toggleDefaultReducer 的降级一致）
+    // Unloaded catalogs mean unknown endpoint media; skip resolution, matching toggleDefaultReducer degradation.
     const prev = [row("z-chat", "openai-chat", true)];
     const discovered = [row("a-chat", "openai-chat", true), row("z-chat", "openai-chat", false)];
     const merged = mergeDiscoveredModels(prev, discovered, {});
@@ -249,8 +249,8 @@ describe("mergeDiscoveredModels", () => {
   });
 
   it("keeps multiple manually-added rows with empty model_id (no Map key collision)", () => {
-    // 用户连点「手动添加」加了两行未填 model_id（都为 ""），再点获取模型。
-    // 若用 model_id 建 Map 去重，两空行键冲突会静默丢一行；修复后两行都应保留。
+    // Users manually add two empty model_id rows (both ""), then fetch models.
+    // model_id Map deduplication collides empty keys, silently losing rows; fixes preserve both.
     const prev = [
       row("", "openai-chat", false),
       row("", "newapi-video", false),
@@ -259,13 +259,13 @@ describe("mergeDiscoveredModels", () => {
     const discovered = [row("z-chat", "openai-chat", false), row("a-chat", "openai-chat", true)];
     const merged = mergeDiscoveredModels(prev, discovered, ENDPOINT_TO_MEDIA);
     expect(merged.filter((m) => m.model_id === "").length).toBe(2);
-    // 既存默认仍受保护，发现的同 media_type 默认让出
+    // Existing defaults remain protected; discovered same-media_type defaults yield.
     expect(merged.filter((m) => m.is_default).map((m) => m.model_id)).toEqual(["z-chat"]);
   });
 
   it("create-mode passthrough does not reconcile discovery defaults", () => {
-    // create 模式原样透传 discovery 响应、不做槽位消解：实际 discovery 每个 media_type 至多
-    // 一个默认（不会冲突），此处用人造的重叠默认锁定「不改写 discovery」契约，冲突交后端校验。
+    // Create mode passes discovery responses unchanged, without slot resolution. Real discovery emits at most one default
+    // per media_type; artificial overlap locks unchanged-discovery contracts, leaving conflicts for backend validation.
     const discovered = [row("w", "openai-images", true), row("e", "openai-images-edits", true)];
     const merged = mergeDiscoveredModels([], discovered, ENDPOINT_TO_MEDIA, ENDPOINT_TO_CAPS);
     expect(merged.filter((m) => m.is_default).map((m) => m.model_id)).toEqual(["w", "e"]);

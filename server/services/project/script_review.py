@@ -1,12 +1,13 @@
-"""script_plan→prompt_authoring web 内容确认的服务层：确认状态读取、结构化中间态编辑、确认动作。
+"""Service layer for script_plan→prompt_authoring Web content confirmation: read confirmation state, edit structured intermediate content, and confirm.
 
-纯 gate 逻辑（适用性 / 指纹 / 状态派生）在 ``lib.script.script_review``；本层叠加 ProjectManager
-持久化（确认指纹落 project.json ``episodes[i].script_plan_review``）与结构化内容的 Pydantic 校验、落盘。
+Pure gate logic (applicability / fingerprints / derived state) lives in ``lib.script.script_review``.
+This layer adds ProjectManager persistence (confirmation fingerprint in project.json
+``episodes[i].script_plan_review``), Pydantic structural validation, and content persistence.
 
-确认即把脚本规划整份机械转为正式脚本（全部条目待编写），并与确认记录同一次写入落盘；该集已有
-正式脚本时确认就是覆盖，须调用方显式认可。提示词编写（剧本视觉生成）由 Agent 的
-``generate_episode_script`` 工具执行，只读正式脚本，不经内容确认门禁。
-"""
+Confirmation mechanically converts the entire script plan to a formal script (all entries pending
+authoring), persisted together with confirmation records. Existing formal scripts are overwritten only
+with explicit caller approval. The Agent's ``generate_episode_script`` tool performs prompt authoring
+(script visual generation), reads only the formal script, and does not pass through the content-confirmation gate."""
 
 from __future__ import annotations
 
@@ -54,10 +55,10 @@ from server.text_generation import fetch_reference_split_caps, reference_soft_vi
 
 logger = logging.getLogger(__name__)
 
-#: 结构化 script_plan 中间态的校验模型（按 script_plan 变体 ``script_review.script_plan_kind``）。编辑保存按此做结构校验：
-#: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
-#: narration 为 NarrationScriptPlanDraft（结构化 novel_text 分镜），reference_video 为 ReferenceScriptPlanDraft
-#: （units → 正文 + 编排时长）。
+#: Structured script_plan intermediate-validation models (by ``script_review.script_plan_kind`` variant). Validate saved edits with these:
+#: drama uses content-layer DramaNormalizedScript (utterances / source_text / scene_description);
+#: narration uses NarrationScriptPlanDraft (structured novel_text storyboards); reference_video uses ReferenceScriptPlanDraft
+#: (units → body + planned duration).
 _SCRIPT_PLAN_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,
     "narration": NarrationScriptPlanDraft,
@@ -66,7 +67,7 @@ _SCRIPT_PLAN_CONTENT_MODEL: dict[str, type[BaseModel]] = {
 
 
 class ScriptReviewError(Exception):
-    """gate 操作的领域错误。``code`` 供 router 映射 HTTP 状态与 i18n key；``message`` 为技术细节。"""
+    """Domain error for gate operations. Routers map ``code`` to HTTP status and i18n key; ``message`` contains technical details."""
 
     def __init__(
         self,
@@ -83,13 +84,13 @@ class ScriptReviewError(Exception):
         self.code = code
         self.message = message
         self.admission = admission
-        #: ``video_request_facts`` 携带视频请求事实的失败对象，router 按其问题码与参数回给用户。
+        #: ``video_request_facts`` carries a video-request-fact failure; routers return its problem code and parameters to users.
         self.problem = problem
-        #: ``overwrite_required`` 携带将被覆盖的正式脚本（``FormalScriptOverwrite.to_dict()``）。
+        #: ``overwrite_required`` carries the formal script to overwrite (``FormalScriptOverwrite.to_dict()``).
         self.overwrite = overwrite
-        #: ``foreign_formal_script`` 携带占着本集规范路径的那份文件名。
+        #: ``foreign_formal_script`` carries the filename occupying this episode's canonical path.
         self.script_filename = script_filename
-        #: ``duration_off_tier`` 携带越档单元的界面位置、现时长与可选档位，router 按此渲染文案。
+        #: ``duration_off_tier`` carries off-tier unit UI positions, current duration, and selectable tiers for router wording.
         self.params: dict[str, object] = dict(params or {})
 
 
@@ -126,43 +127,42 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
 
 
 class ScriptReviewService:
-    """封装 script_plan→prompt_authoring 内容确认的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
+    """Encapsulate script_plan→prompt_authoring content-confirmation reads/writes. Routers and tests operate the gate here, without direct file / project.json access."""
 
     def __init__(self, pm: ProjectManager, *, config_resolver: ConfigResolver | None = None):
         self.pm = pm
         self.config_resolver = config_resolver
 
     def _resolve_script_plan_model(self, project: dict[str, Any], episode: int) -> tuple[str, type[BaseModel]]:
-        """该集 script_plan 变体 + 结构校验模型；不适用 gate（无结构化 script_plan）时抛 not_applicable。
+        """Episode script_plan variant and structural-validation model; raise not_applicable when the gate does not apply (no structured script_plan).
 
-        变体判定单一真相源在 ``script_review.script_plan_kind``（reference_video 按项目生成模式优先，
-        跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供调用方按变体分流。
-        """
+        ``script_review.script_plan_kind`` is the sole source for variant selection (project generation mode
+        prioritizes reference_video across content_mode). Select the Pydantic model from it and return the
+        variant name for caller dispatch."""
         kind = script_review.script_plan_kind(project)
         if kind is None:
             raise ScriptReviewError("not_applicable")
         return kind, _SCRIPT_PLAN_CONTENT_MODEL[kind]
 
     def _require_episode(self, project_name: str, project: dict[str, Any], episode: int) -> dict[str, Any]:
-        """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回 project。
+        """When the gate applies, require registration in project.json ``episodes[]`` and return the project.
 
-        与 ``confirm`` 的写入前置一致：避免 ``get_state`` 把未登记分集误报成 no_script_plan、
-        ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 script_plan 文件。
-        集只经显式登记进入账本，``source/`` 里有同名集文件不算登记。
-        """
+        Use the same write prerequisite as ``confirm``: prevent ``get_state`` reporting unregistered episodes
+        as no_script_plan and ``save_content`` writing orphan script_plan files that can never link to
+        project.json. Only explicit registration adds episodes to the ledger; same-named episode files in ``source/`` do not count."""
         if script_review.find_episode(project, episode) is None:
             raise ScriptReviewError("episode_not_found")
         return project
 
     async def _resolve_supported_durations(self, project: dict[str, Any]) -> list[int] | None:
-        """结构收编用的时长全集：参考路线取 r2v 与 i2v 两桶视频请求事实声明全集的并集。
+        """Full duration set for structural adoption: reference routes use the union declared by r2v and i2v video request facts.
 
-        任一桶解析不出时为 None——读时迁移只做结构区间 clamp、不按另一桶的档位改写用户秒数，
-        gate 面板也不提供可选档位；档位偏移由随后的逐单元事实校验阻断。
+        Return None if either bucket cannot resolve. Read-time migration only clamps to structural ranges,
+        never rewrites user seconds using the other bucket's tiers; the gate panel also offers no selectable
+        tiers. Subsequent per-unit fact validation blocks tier drift.
 
-        调用方须在取 ``self.pm.file_lock`` **之前** await 本方法：那把锁是阻塞式文件锁，跨
-        await 持有会连带把事件循环上的其它协程挡在锁外。
-        """
+        Callers must await this method **before** acquiring ``self.pm.file_lock``: it is a blocking file lock,
+        and holding it across await also blocks other event-loop coroutines outside the lock."""
         if script_review.script_plan_kind(project) != "reference_video":
             return None
         request_facts = reference_request_facts_lookup(project, self.config_resolver)
@@ -177,23 +177,26 @@ class ScriptReviewService:
         project_path: Path,
         supported_durations: list[int] | None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        """读结构化 script_plan，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
+        """Read structured script_plan and apply one-time reference-to-video draft duration migration; return ``(内容, 最新 project)``.
 
-        草稿是 gate 的三个入口（读状态 / 保存 / 确认）唯一的内容来源，而收编后的
-        ``ReferenceScriptPlanUnit`` 要求 unit 级 ``duration_seconds`` 且不接受多余字段：存量草稿若不在
-        读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
-        剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
+        Drafts are the sole content source for all three gate entry points (state / save / confirm). Adopted
+        ``ReferenceScriptPlanUnit`` requires unit-level ``duration_seconds`` and rejects extra fields. Without
+        read-time migration of existing drafts, saving and confirmation fail structural validation, leaving users
+        unable to edit or confirm in the gate. Episode-script migration lives in ``ProjectManager.load_script``;
+        draft migration is here, sharing the same migrator.
 
-        ``supported_durations`` 由调用方经 ``_resolve_supported_durations`` 解析后传入（本函数
-        跑在锁内，不能自行 await），与 prompt_authoring 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧
-        口径不一致时先跑的内容确认会把落在结构区间内但非档位成员的秒数固化到盘上，prompt_authoring 的枚举
-        schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
-        退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
+        Callers resolve ``supported_durations`` through ``_resolve_supported_durations`` and pass it in
+        (this function runs under lock and cannot await), sharing prompt_authoring generation's source.
+        Migration is idempotent and one-time, so the first path determines persisted results. If criteria differ,
+        content confirmation running first could persist structurally valid but off-tier seconds, then
+        prompt_authoring's enum schema rejects them, leaving the gate unable to reveal or fix the issue.
+        None (no configured project video model) falls back to structural-range clamping: missing configuration
+        must not block draft loading; execution-tier selection still guards drift.
 
-        调用方须已持有 ``self.pm.file_lock(path)``；reference_video 还须先持 prompt_authoring 草稿锁，
-        统一锁序为「下游草稿 → 正式 script_plan」。本函数只做读改写，不自行加锁，避免与调用方
-        （如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
-        """
+        Callers must hold ``self.pm.file_lock(path)``; reference_video additionally requires the prompt_authoring
+        draft lock first. Shared lock order: downstream draft → formal script_plan. This function only reads,
+        modifies, and writes, acquiring no locks itself to avoid same-thread deadlock on a lock already held
+        by callers such as ``confirm``."""
         content = _read_json(path)
         if content is None or script_review.script_plan_kind(project) != "reference_video":
             return content, project
@@ -208,17 +211,17 @@ class ScriptReviewService:
         return content, updated or project
 
     async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
-        """返回该集内容确认状态 + 结构化中间态内容（供 web 渲染）。
+        """Return episode content-confirmation state + structured intermediate content for Web rendering.
 
-        ``content`` 为解析后的结构化 script_plan（drama: {title, scenes[]}；narration: {segments[]}；
-        reference_video: {units[]}）；不适用 gate 或 script_plan 缺失 / 损坏时为 None。
+        ``content`` is parsed structured script_plan (drama: {title, scenes[]}; narration: {segments[]};
+        reference_video: {units[]}), or None if the gate does not apply or script_plan is missing/corrupted.
 
-        ``supported_durations`` 是参考路线读时迁移的结构档位全集；i2v 未知时为 None，
-        不借用 r2v 档位改写秒数。界面可选档位由 ``get_reference_duration_tiers`` 按桶提供。
+        ``supported_durations`` is the full structural tier set for reference-route read-time migration.
+        Unknown i2v means None; do not rewrite seconds using r2v tiers. ``get_reference_duration_tiers``
+        provides selectable UI tiers by bucket.
 
-        档位解析先于落盘读写完成，其余同步 I/O 整段卸到线程：``file_lock`` 是阻塞式文件锁，
-        不能跨 await 持有，而档位解析本身要 await 视频能力查询。
-        """
+        Resolve tiers before disk reads/writes, then offload all remaining synchronous I/O to a thread:
+        ``file_lock`` blocks and cannot span await, while tier resolution awaits video-capability queries."""
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         supported_durations = await self._resolve_supported_durations(project)
         state = await run_sync_transaction(self._get_state_sync, project_name, project, episode, supported_durations)
@@ -240,7 +243,7 @@ class ScriptReviewService:
                     project,
                     episode=episode,
                     voice=caps.voice,
-                    # 正式 script_plan 的单元带着落盘时发出的编号，提示按它定位
+                    # Formal script_plan units carry their persisted IDs; locate notices with those IDs.
                     unit_ids=unit_ids if len(unit_ids) == len(units) else None,
                 )
             )
@@ -253,22 +256,21 @@ class ScriptReviewService:
         episode: int,
         supported_durations: list[int] | None,
     ) -> dict[str, Any]:
-        """``get_state`` 的同步主体：分集自愈、读时迁移、状态与指纹派生，全部在一个线程内完成。
+        """Synchronous ``get_state`` body: episode self-healing, read-time migration, and state/fingerprint derivation in one thread.
 
-        ``project`` 与 ``supported_durations`` 由 ``get_state`` 预先取好传入——迁移不改动视频
-        型号配置，档位表在迁移前后描述的是同一件事，无需在锁内重算。
-        """
+        ``get_state`` preloads ``project`` and ``supported_durations``. Migration does not alter video-model
+        configuration, so tiers describe the same facts before/after migration and need not be recomputed under lock."""
         project_path = self.pm.get_project_path(project_name)
         path = script_review.script_plan_path(project_path, project, episode)
         if path is not None:
-            # 适用 gate（drama / narration 非 reference_video）才要求分集已登记；
-            # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
+            # Require episode registration only when the gate applies (drama / narration, not reference_video);
+            # not_applicable (ad / reference_video) is independent of episode existence and returns unchanged.
             project = self._require_episode(project_name, project, episode)
         content: dict[str, Any] | None = None
         fingerprint: str | None = None
         if path is not None:
-            # 迁移可能回写 script_plan 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
-            # 同一份落盘内容派生——锁外取则并发 save_content 会让指纹描述另一份内容。
+            # Migration may persist script_plan and confirmation records. Derive fingerprints/state after migration under the same lock,
+            # sharing one persisted content basis; outside-lock reads could describe different content after concurrent save_content.
             prompt_authoring_lock = (
                 self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
                 if script_review.script_plan_kind(project) == "reference_video"
@@ -290,29 +292,30 @@ class ScriptReviewService:
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
             "supported_durations": supported_durations,
-            # 项目级「单集目标时长」偏好（秒），未设时 None。审核面板据它渲染「本集合计 / 目标」
-            # 对比；随 state 一起回传而非让前端另发一次项目请求，面板拿到的合计与目标出自同一次读取。
+            # Project-level target episode duration in seconds, None when unset. Review panels compare episode total / target;
+            # return with state rather than requiring another project request, so total and target come from one read.
             "episode_target_duration": project_episode_target_duration(project),
-            # 确认将覆盖的正式脚本（无则 None）：内容确认页据此把确认渲染为 danger 并列出后果。
+            # Formal script overwritten on confirmation (None if absent): confirmation pages render danger and consequences from this.
             "script_overwrite": _overwrite_dict(project_path, project, episode) if path is not None else None,
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
-        """本集 script_plan 草稿的呈现视图（供内容确认页展示与手修），不适用 / 无草稿时 None。
+        """Presentation view of this episode's script_plan draft for confirmation-page display/manual repair; None if inapplicable or absent.
 
-        视图字段：``doc_type``、``revision``（手修保存与丢弃的并发令牌；信封损坏时为 None）、
-        ``editable_by``（``user`` 为待修复草稿，``agent`` 为 Agent 的可编辑草稿）、``content``（草稿正文
-        原样，供创作者就地修改；Agent 的可编辑草稿不展示内容，为 None）、``violations``、
-        ``soft_violations``（逐条目定位的降级提示）与 ``formal_exists``（丢弃后是否有正式脚本规划可回）。
+        Fields: ``doc_type``, ``revision`` (concurrency token for manual save/discard, None for malformed
+        envelopes), ``editable_by`` (``user`` for repair-needed drafts, ``agent`` for Agent-editable drafts),
+        ``content`` (verbatim draft body for creator edits; None for Agent-editable drafts, whose content is
+        hidden), ``violations``, ``soft_violations`` (per-entry fallback notices), and ``formal_exists``
+        (whether a formal script plan remains after discard).
 
-        违约读时按产出时那套校验器全量重算（``revalidate_script_plan_draft`` 按 kind 分派到该变体的
-        重判器，晋升工具同一份代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或
-        模型配置可能已变，报告要对现值负责。meta 被改坏以致无从重算时，把「无法重算」本身作为一条
-        违约返回，而不是退回草稿里那份上一轮快照。可编辑草稿归 Agent 处置，不重算。
+        Recompute violations fully on read using production-time validators (``revalidate_script_plan_draft``
+        dispatches by kind to the variant revalidator, the same code as promotion). Do not trust the previous
+        ``violations`` snapshot: source/model configuration may change while drafts exist, and reports must
+        reflect current values. If damaged meta prevents recalculation, report inability itself as a violation
+        instead of reverting to old snapshots. Agent-editable drafts belong to the Agent and are not revalidated.
 
-        本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内合并两者的返回。项目 /
-        草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程，避免源文较大时占用事件循环。
-        """
+        This method and ``get_state`` read independently; routers combine results in one request. Offload
+        synchronous project/draft reads with ``asyncio.to_thread`` to avoid occupying the event loop for large sources."""
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         quarantine_kind = script_review.script_plan_quarantine_kind(project)
         if quarantine_kind is None:
@@ -341,13 +344,13 @@ class ScriptReviewService:
         draft = await asyncio.to_thread(read_quarantine, project_path, episode, quarantine_kind)
         if draft is None:
             if not await asyncio.to_thread(quarantine_path.exists):
-                # 存在性检查与读取之间的窗口内，Agent 的晋升/重拆分工具把文件清掉了（正式内容
-                # 已写入、待处置草稿已清除）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
-                # 草稿」处理，不误报损坏。
+                # Between existence check and read, Agent promotion/resplitting removed the file (formal content written, pending draft cleared).
+                # This is not envelope corruption: the read crossed the clearing instant. Treat as no draft
+                # rather than falsely reporting corruption.
                 return None
-            # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
-            # 按「无草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），
-            # 但呈现层不能照单全收——那会让面板看起来「干净」，实际草稿仍在阻塞确认。
+            # File exists but envelope is malformed (invalid JSON / nonobject top level / nonobject content). `read_quarantine`
+            # returns None as no draft under its own reading contract (confirm existence checks still block),
+            # but presentation must not accept this blindly or panels look clean while the draft still blocks confirmation.
             view["violations"] = [_unreadable_violation("草稿文件已损坏或格式不符，无法解析")]
             return view
         view["revision"] = draft_revision(draft)
@@ -355,7 +358,7 @@ class ScriptReviewService:
         if view["editable_by"] == DRAFT_OWNER_AGENT:
             return view
         view["content"] = draft.content
-        # 延迟导入避免模块级循环依赖：draft_workflow 复用本服务的持锁写入能力。
+        # Lazy import avoids module-level cycles: draft_workflow reuses this service's locked-write capability.
         from server.draft_workflow import revalidate_script_plan_draft
 
         try:
@@ -367,8 +370,8 @@ class ScriptReviewService:
                 config_resolver=self.config_resolver,
             )
         except VideoRequestFactsError as exc:
-            # 视频请求事实解析不出是配置问题而非草稿损坏：按事实的问题码与参数报成一条无条目归属的
-            # 违约，message 由 router 按问题码的文案 key 与参数成文。
+            # Unresolved video request facts are configuration problems, not corrupted drafts. Report one unlocated violation
+            # with fact problem codes/parameters; routers compose message from the corresponding wording key and parameters.
             view["violations"] = [
                 {
                     "code": exc.code,
@@ -380,8 +383,8 @@ class ScriptReviewService:
             ]
             return view
         except ValueError as exc:
-            # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条整集层面的违约。异常文本含
-            # draft.path，只记日志、不回传给调用方——面向用户的 message 不能带内部路径。
+            # Damaged drafts, e.g. missing meta.source: report recalculation failure itself as an episode-level violation. Exception text contains
+            # draft.path; log only, never return to callers, because user-facing messages must not contain internal paths.
             logger.warning("草稿重算失败 project=%s episode=%s：%s", project_name, episode, exc)
             view["violations"] = [_unreadable_violation("草稿的产出上下文缺失或损坏，无法重新校验")]
             return view
@@ -392,12 +395,12 @@ class ScriptReviewService:
     async def get_reference_duration_tiers(
         self, project_name: str, episode: int, units: Sequence[dict[str, Any]] = ()
     ) -> dict | None:
-        """返回参考路线带参考图的生效档位与逐单元定桶结论。
+        """Return effective reference-route tiers with reference images and per-unit bucket conclusions.
 
-        ``units`` 是本集脚本规划的单元：``units`` 键按 ``unit_id`` 给出每个单元按可用参考图
-        所落的桶、该桶档位与声明引用的分裂情况，面板据此取档。
-        非参考路线或 r2v 桶的视频请求事实解析不出时返回 None，呈现层保持只读。项目文件读取卸到线程，避免阻塞请求循环。
-        """
+        ``units`` are this episode's script-plan units; the ``units`` key maps ``unit_id`` to the bucket selected
+        by available reference images, its tiers, and splits in declared references, for panel tier selection.
+        Return None for non-reference routes or unresolved r2v request facts, leaving presentation read-only.
+        Offload project-file reads to a thread to avoid blocking the request loop."""
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.script_plan_kind(project) != "reference_video":
             return None
@@ -420,26 +423,27 @@ class ScriptReviewService:
     async def save_content(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None = None
     ) -> dict[str, Any]:
-        """校验并落盘编辑后的结构化中间态（手动或 Agent 编辑后回写），返回最新状态（重新等待确认）。
+        """Validate/persist edited structured intermediate content (manual or Agent writeback), returning latest state awaiting confirmation again.
 
-        内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
-        已确认的脚本规划只读，保存抛 ``script_plan_confirmed``、不落盘；重跑脚本规划写出新内容后恢复可保存。
-        Agent 的可编辑草稿在场时，正式规划也只读，保存抛 ``draft_agent_owned``。
+        Content changes shift fingerprints, so ``get_state`` returns to pending_review automatically: saving
+        requires renewed confirmation. Confirmed plans are read-only; saving raises ``script_plan_confirmed``
+        without writing. Rerunning script planning with new content permits saving again. Formal plans are
+        also read-only while Agent-editable drafts exist; saving raises ``draft_agent_owned``.
 
-        ``base_fingerprint`` 是编辑方读取内容（``get_state``）时拿到的指纹：给定时在锁内与盘上
-        现值比对，不一致（编辑期间另一写入方已改过 script_plan）抛 ``conflict``、不落盘——后写方拿
-        409 冲突提示去刷新合并，先写方的内容不被静默覆盖。``None`` 不比对（无基线的直连调用）。
+        ``base_fingerprint`` is the editor's fingerprint from reading content (``get_state``). If supplied,
+        compare under lock against disk; mismatch (another writer changed script_plan during editing) raises
+        ``conflict`` without persistence. The later writer receives 409 to refresh/merge instead of silently
+        overwriting earlier content. ``None`` skips comparison (direct calls without a baseline).
 
-        落盘本身全同步（不做时长收编，无需档位表），整段卸到线程；随后的 ``get_state`` 自行
-        解析档位表，保存的响应与 GET 首次加载因此同源。
-        """
+        Persistence is fully synchronous (no duration migration or tier table), offloaded as one block. The
+        subsequent ``get_state`` resolves its own tiers, so save responses share the initial GET-loading source."""
         await run_sync_transaction(self._save_content_sync, project_name, episode, content, base_fingerprint)
         return await self.get_state(project_name, episode)
 
     def _save_content_sync(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None
     ) -> None:
-        """``save_content`` 的同步主体：结构校验、基线比对、落盘。"""
+        """Synchronous ``save_content`` body: structural validation, baseline comparison, persistence."""
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         path = script_review.script_plan_path(project_path, project, episode)
@@ -458,12 +462,12 @@ class ScriptReviewService:
                     scene.pop("needs_replan", None)
         if not validated.get(NEW_ASSETS_FIELD):
             validated.pop(NEW_ASSETS_FIELD, None)
-        # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
-        # 两者在此一次性转换，三个变体共用同一个 expected。
+        # Input None means caller has no baseline, skip comparison. Comparison-semantic None instead means the file was absent at baseline read;
+        # convert once here, sharing expected across all three variants.
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
         try:
             if kind == "reference_video":
-                # 写盘经单一出口：锁、基线比对、prompt_authoring 草稿清理都在 write_script_plan_locked 一处。
+                # Single write exit: write_script_plan_locked centralizes locks, baseline checks, and prompt_authoring draft cleanup.
                 prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
                 with (
                     self.pm.file_lock(prompt_authoring_path),
@@ -475,10 +479,10 @@ class ScriptReviewService:
                         project_path, episode, validated, expected_fingerprint=expected
                     )
             else:
-                # 与 _read_script_plan_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
-                # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉；比对先于
-                # 台词准入判定，让基线过期的保存拿到 conflict 而不是一条它改不动的准入意见。
-                # 比对既已在此做过，落盘出口不再重复比对（默认 UNCHECKED）。
+                # Share the per-path lock with _read_script_plan_migrated, mutually excluding save and migration read-modify-write.
+                # Baseline comparison uses assert_base_fingerprint as rv does, without divergent conflict criteria. Compare before
+                # dialogue admission so stale saves receive conflict instead of unfixable admission advice.
+                # Already compared here, so the persistence exit does not repeat it (default UNCHECKED).
                 with script_review.formal_script_plan_lock(project_path, episode, path):
                     self._reject_readonly_script_plan(project_name, project_path, episode)
                     script_review.assert_base_fingerprint(path, expected)
@@ -488,7 +492,7 @@ class ScriptReviewService:
             raise ScriptReviewError("conflict", str(exc)) from exc
 
     def _reject_readonly_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
-        """持正式规划锁按最新确认记录与 Agent 草稿归属拒绝只读规划的保存。"""
+        """Under the formal-plan lock, reject saving read-only plans using current confirmation records and Agent draft ownership."""
         project = self.pm.load_project(project_name)
         if script_review.formal_script_plan_agent_owned(project_path, project, episode):
             raise ScriptReviewError("draft_agent_owned")
@@ -498,16 +502,17 @@ class ScriptReviewService:
     async def confirm(
         self, project_name: str, episode: int, *, overwrite_revision: str | None = None
     ) -> dict[str, Any]:
-        """确认该集 script_plan：整份转为正式脚本，并在同一次写入里记录确认指纹，放行 prompt_authoring。
+        """Confirm episode script_plan: convert the entire plan into a formal script and record its confirmation fingerprint in one write, admitting prompt_authoring.
 
-        无 script_plan / 不适用 / 集条目缺失 / script_plan 内容结构非法 / 有草稿待处置 / 转换准入
-        不满足时抛 ScriptReviewError，由 router 映射 4xx。该集已有正式脚本时，``overwrite_revision``
-        须等于其覆盖清单的 ``revision``（调用方认可覆盖的正是这一份）；缺失或不符时抛
-        ``overwrite_required``，携带当前的覆盖清单，不写正式脚本与确认记录。
+        Raise ScriptReviewError for missing script_plan / inapplicability / missing episode entry / invalid
+        content structure / pending drafts / failed conversion admission; routers map to 4xx. With an existing
+        formal script, ``overwrite_revision`` must match the overwrite manifest's ``revision`` (the exact version
+        whose overwrite the caller approved). Missing/mismatched values raise ``overwrite_required`` with
+        the current manifest, writing neither formal script nor confirmation record.
 
-        档位表先于加锁解析（同 ``get_state``）：确认路径同样要对存量草稿做一次读时收编，收编
-        用的档位表须与 gate 面板呈现的那份同源，否则确认会把面板上选不到的秒数固化到盘上。
-        """
+        Resolve tiers before locking (as in ``get_state``): confirmation also migrates existing drafts on read.
+        Migration must use the same tier source as gate-panel presentation, or confirmation could persist
+        seconds unavailable in the panel."""
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         supported_durations = await self._resolve_supported_durations(project)
 
@@ -532,7 +537,7 @@ class ScriptReviewService:
     async def _materialize(
         self, project_path: Path, episode: int, *, plan_fingerprint: str, script_fingerprint: str | None
     ) -> None:
-        """整集转换与确认记录一起落盘；转换期间脚本规划或正式脚本被改过即按冲突拒绝。"""
+        """Persist whole-episode conversion with confirmation records; reject as conflict if the plan or formal script changes during conversion."""
         confirmed_at = datetime.now(UTC).isoformat()
 
         def _record_confirmation(project: dict[str, Any]) -> None:
@@ -552,19 +557,19 @@ class ScriptReviewService:
         except (ScriptWriteConflict, script_review.ScriptPlanWriteConflict) as exc:
             raise ScriptReviewError("conversion_conflict", str(exc)) from exc
         except VideoRequestFactsError as exc:
-            # 视频请求事实解析不出（未配置模型、档位缺失 / 无效、收成空集）：按事实的问题码与参数
-            # 回给用户，与预检、执行同码。
+            # Unresolved video request facts (unconfigured model, missing/invalid tiers, empty narrowed set): return the fact problem code
+            # and parameters to users, matching preflight and execution.
             raise ScriptReviewError("video_request_facts", exc.code, problem=exc.failure) from exc
         except script_review.ForeignFormalScriptError as exc:
-            # 先于下面的 ValueError 分支：绑定失联而规范路径上是别集剧本时，转换在写盘前被拒，
-            # 既不重建那一集的剧本也不改本集的绑定，提示要指向可操作的那一处。
+            # Before the ValueError branch below: if binding is lost and another episode's script occupies the canonical path, reject before writing,
+            # neither rebuilding that episode's script nor changing this episode's binding. Point guidance at the actionable location.
             raise ScriptReviewError("foreign_formal_script", str(exc), script_filename=exc.filename) from exc
         except NewAssetsError as exc:
             raise ScriptReviewError("invalid_new_assets", str(exc)) from exc
         except UnregisteredReferencesError as exc:
             raise ScriptReviewError("unregistered_references", str(exc)) from exc
         except UnitDurationOffTier as exc:
-            # 先于下面的 ValueError 分支：已确认时长被收窄出局，按脚本规划的单元位置给出现时长与可选档位。
+            # Before the ValueError branch below: when confirmed duration is excluded by narrowing, report current duration and selectable tiers by script-plan unit position.
             params = {
                 "position": exc.position,
                 "duration_seconds": exc.duration_seconds,
@@ -581,21 +586,21 @@ class ScriptReviewService:
         episode: int,
         supported_durations: list[int] | None,
     ) -> str:
-        """``confirm`` 的同步前半：待处置草稿校验、读时收编、结构校验，返回待确认内容的指纹。"""
+        """Synchronous first half of ``confirm``: pending-draft checks, read-time migration, structural validation; return the content fingerprint for confirmation."""
         project_path = self.pm.get_project_path(project_name)
         path = script_review.script_plan_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        # 草稿在场时拒绝确认：正式 script_plan 此刻仍是上一版（或不存在），确认它等于替用户
-        # 认可一份他没看过的内容，而刚产出的那份违约正文还在草稿里等 Agent 处置。校验
-        # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判待处置草稿是否在场。
+        # Reject confirmation while drafts exist: formal script_plan is still the previous version (or absent), so confirming would approve
+        # content the user has not seen while newly produced violating content awaits Agent handling in a draft. Validation follows
+        # generation's rules: promotion uses the production-time validators; here only check pending-draft presence.
         quarantine = script_review.script_plan_quarantine_path(project_path, project, episode)
         if quarantine is not None and quarantine.exists():
             raise ScriptReviewError("quarantined", f"script_plan 草稿待处置: {quarantine}")
-        # 存量草稿先做时长收编再校验：Agent / 直连调用可能不经 get_state 就确认。同一把
-        # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
-        # save_content 或迁移的写入插队——_read_script_plan_migrated 要求调用方已持锁。
+        # Migrate existing draft durations before validation: Agent/direct calls may confirm without get_state. One per-path
+        # lock covers the whole read-modify-write (including the reference_video branch's write below), preventing intervening
+        # save_content or migration writes; _read_script_plan_migrated requires the caller to hold the lock.
         kind, model = self._resolve_script_plan_model(project, episode)
         prompt_authoring_lock = (
             self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
@@ -608,8 +613,8 @@ class ScriptReviewService:
             )
             if content is None and not path.exists():
                 raise ScriptReviewError("no_script_plan")
-            # 确认前按 script_plan 变体模型校验 script_plan 结构：content 为 None（非法 JSON / 非对象）同样会
-            # 在此被 model_validate 拒绝为 invalid_content，不会被仅凭「文件存在」放行。
+            # Validate script_plan structure with its variant model before confirming. None content (invalid JSON / nonobject) is also
+            # rejected here by model_validate as invalid_content; file presence alone cannot admit it.
             try:
                 validated = model.model_validate(content)
             except ValidationError as exc:
@@ -632,19 +637,19 @@ class ScriptReviewService:
                     raise ScriptReviewError("speech_admission", admission=admission)
 
             if kind == "reference_video":
-                # 指纹按刚写盘的这份对象直接算，确认记录与实际写入内容一致。
+                # Fingerprint the object just persisted directly, keeping confirmation records consistent with actual written content.
                 dumped = validated.model_dump()
                 for unit in dumped["units"]:
                     admission = admit_script_unit("video_units", unit)
                     if not admission.allowed:
                         raise ScriptReviewError("speech_admission", admission=admission)
-                # 单一写盘出口（已持同一把 per-path 锁，不再套 script_plan_write_lock）；同临界区
-                # 读改写无并发窗口，不做基线比对。内容真的变了时，prompt_authoring 草稿的基底随之
-                # 失效，由出口按变更清理。
+                # Single persistence exit (already holding the same per-path lock; do not wrap script_plan_write_lock again).
+                # No concurrency window exists in this critical-section read-modify-write, so skip baseline comparison. Real content changes
+                # invalidate prompt_authoring draft bases, and the exit cleans them up accordingly.
                 script_review.write_script_plan_locked(project_path, episode, dumped)
                 fingerprint = script_review.content_fingerprint_of_data(dumped)
             else:
-                # 指纹从校验通过的 content 派生，不二次读盘：确认记录须对应这里校验过的内容。
+                # Derive fingerprints from validated content without rereading disk: confirmation records must match content validated here.
                 fingerprint = script_review.content_fingerprint_of_data(content)
         return fingerprint
 
@@ -655,15 +660,14 @@ def _overwrite_dict(project_path: Path, project: Mapping[str, Any], episode: int
 
 
 def _unreadable_violation(message: str) -> dict[str, Any]:
-    """草稿无从重算时的那条整集层面违约；router 按 ``quarantine_unreadable`` 的文案 key 本地化。"""
+    """Episode-level violation when draft recalculation is impossible; routers localize using the ``quarantine_unreadable`` message key."""
     return {"code": "quarantine_unreadable", "label": "", "message": message, "line": None}
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
-    """读取并解析结构化 script_plan 文件；缺失 / 非法 JSON / 非对象时返回 None（状态另由指纹派生兜底）。
+    """Read/parse a structured script_plan file; return None for missing / invalid JSON / nonobjects (fingerprint-derived state handles fallback separately).
 
-    容错读取复用 ``lib.infra.json_io.load_json_or_none``（OSError / JSON / 编码错误归 None），与项目
-    其余 JSON 读取同口径；本函数再叠加「顶层须为对象」守卫，非对象同样返回 None。
-    """
+    Reuse ``lib.infra.json_io.load_json_or_none`` for tolerant reading (OSError / JSON / encoding errors →
+    None), consistently with other project JSON reads. Add a top-level-object guard here, returning None for nonobjects too."""
     data = load_json_or_none(path)
     return data if isinstance(data, dict) else None

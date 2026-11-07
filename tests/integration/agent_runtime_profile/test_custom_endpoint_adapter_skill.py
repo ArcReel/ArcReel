@@ -1,4 +1,4 @@
-"""公开 custom endpoint skill 的 HTTP CLI 契约。"""
+"""HTTP CLI contract of the public custom endpoint skill."""
 
 from __future__ import annotations
 

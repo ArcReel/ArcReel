@@ -1,1 +1,1 @@
-画面中没有人物出镜。
+No people appear in the image.

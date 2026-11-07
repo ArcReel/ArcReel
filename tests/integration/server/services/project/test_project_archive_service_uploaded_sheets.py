@@ -1,4 +1,4 @@
-"""带上传版本记录的资产图与衍生资产图：迁移补录与各种归档导入得出同一时效结论，无上传记录的存量结论不变。"""
+"""Uploaded-version base/derivative images: migration/import variants agree on currency; unversioned legacy conclusions remain unchanged."""
 
 import asyncio
 import json
@@ -34,8 +34,8 @@ from tests.integration.server.derivative_sheet_support import (
     write_two_tone_png,
 )
 
-#: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录，Dave 描述为空——
-#: 生成缺口只拦生成（ADR 0098），Dave 照常补录；Eve 描述为空且没有资产图。
+#: Alice uploads empty descriptions; Bob changes descriptions after uploading; Carol/Dave images lack upload versions, with Dave descriptions empty;
+#: generation gaps block generation only (ADR 0098), so Dave backfills normally; Eve lacks descriptions/images.
 _EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "current", "Eve": "missing"}
 
 _ADD_ASSET = {
@@ -57,7 +57,7 @@ def _statuses(project_dir: Path, names) -> dict[str, str]:
 
 
 def _backfilled_project(pm: ProjectManager) -> Path:
-    """建项目、上传资产图、放无记录的资产图，再退回 v7 走整条迁移链补录。"""
+    """Create projects/upload images/place unrecorded images, revert to v7 and backfill through full migrations."""
 
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -143,12 +143,12 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
         project["style_description"] = "胶片颗粒"
 
     pm.update_project("demo", _edit)
-    # Dave 按生成输入补录，依据含项目画风，画风描述一改即过期。
+    # Dave backfills generation inputs with project styles; style-description changes invalidate currency.
     assert _statuses(imported_dir, _EXPECTED) == {**_EXPECTED, "Carol": "stale", "Dave": "stale"}
 
 
 def test_envelope_without_a_claim_for_a_gapped_sheet_backfills_it_and_keeps_the_other_claims(tmp_path):
-    """较早导出的归档没有为空描述的 Dave 留 claim：导入按生成缺口补录口径登记它，其余 claim 原样恢复。"""
+    """Older archives lack empty-description Dave claims; import backfills generation-gap registrations while restoring other claims unchanged."""
     pm = ProjectManager(tmp_path / "projects")
     project_dir = _backfilled_project(pm)
     archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope="full")
@@ -263,7 +263,7 @@ def test_uploaded_derivative_sheet_survives_archive_round_trip_as_finished_conte
     imported_dir = pm.get_project_path("demo")
     assert (imported_dir / sheet_path).read_bytes() == uploaded
     assert ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=sheet_path).status.value == "current"
-    # 本体资产图换了字节、变化描述改写：上传的衍生图是成品，两者都不让它过期。
+    # Changed base-image bytes/derivative descriptions never invalidate uploaded derivative images, which are finished outputs.
     write_two_tone_png(imported_dir / "characters/阿岚.png", left=(10, 10, 10), right=(240, 240, 240))
     pm.update_asset_entry(
         "character", "demo", "阿岚", lambda entry: entry["derivatives"]["战斗装"].update(description="银色轻甲")

@@ -40,7 +40,7 @@ function buildIndexes(data: CostEstimateResponse): {
 let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let _abortController: AbortController | null = null;
 
-/** 用户是否已切到别的项目——成功/失败两条路径共用同一份判断，避免各自维护出偏差。 */
+/** Whether users switched projects, shared by success/failure paths to prevent divergent predicates. */
 function isStaleProject(projectName: string): boolean {
   return useProjectsStore.getState().currentProjectName !== projectName;
 }
@@ -53,14 +53,14 @@ export const useCostStore = create<CostState>((set, get) => ({
   _episodeIndex: new Map(),
 
   fetchCost: async (projectName: string) => {
-    // 过期调用不得中止当前项目的在途请求：debouncedFetch 的定时器在触发时不会重新
-    // 校验过期（只在排期时查过一次），public 方法也可能被直接调用，晚到执行时项目
-    // 可能已经切走——此时若仍无条件 abort，会错误中止一个不相干、真正需要跑完的
-    // 当前项目请求。直接返回，不动 loading（不是它开的，也不该由它收）。
+    // Stale calls must not abort current-project requests: debouncedFetch timers never recheck staleness on firing
+    // (only once at scheduling), and public methods may be called directly. By late execution, projects
+    // may have switched; unconditional abort would wrongly interrupt unrelated, genuinely necessary
+    // current-project requests. Return directly without touching loading, which this call neither started nor owns cleanup for.
     if (isStaleProject(projectName)) return;
-    // 使切入前尚在途的请求作废：无论接下来走哪条分支，这次调用都取代它
+    // Invalidate requests still in flight before entry: this call replaces them regardless of following branches.
     _abortController?.abort();
-    // 引导演示项目在后端不存在，费用估算无从计算，界面按「未估算」显示
+    // Onboarding demos do not exist in backends; costs cannot estimate, so display unestimated.
     if (isDemoProject(projectName)) {
       _abortController = null;
       get().clear();
@@ -71,11 +71,11 @@ export const useCostStore = create<CostState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const data = await API.getCostEstimate(projectName, { signal: controller.signal });
-      // 请求期间又发起了新请求，这份响应已作废：loading 收尾交给取代它的那次调用
+      // New requests invalidated this response; successor calls own loading cleanup.
       if (controller.signal.aborted) return;
-      // 用户已切到别的项目：不能用这份数据覆盖当前项目的显示（单例 costData 不分项目
-      // 存储，两个项目的 segment_id 还可能撞名），但 loading 要收尾——不会再有同 key
-      // 请求替它复位，放着不收会一直卡在加载态
+      // Users switched projects: never overwrite current displays (singleton costData is not project-partitioned,
+      // and segment_id may collide), but settle loading: no same-key successor will
+      // reset it, otherwise loading sticks forever.
       if (isStaleProject(projectName)) {
         set({ loading: false });
         return;
@@ -92,9 +92,9 @@ export const useCostStore = create<CostState>((set, get) => ({
   },
 
   debouncedFetch: (projectName: string) => {
-    // 演示项目立即清空，不等 500ms 防抖窗口——否则切入演示项目后的这段窗口期，
-    // UI 仍会读到上一个真实项目残留在 store 里的费用数据。这一支不判过期：演示项目
-    // 本身就是当前项目，不存在「切走了还调它」的场景。
+    // Clear demos immediately, before 500ms debounce; otherwise UI reads old real-project cost data
+    // remaining in stores throughout that window after demo entry. No staleness check here: demos
+    // are already current, with no departed-project calls.
     if (isDemoProject(projectName)) {
       if (_debounceTimer) clearTimeout(_debounceTimer);
       _debounceTimer = null;
@@ -103,17 +103,17 @@ export const useCostStore = create<CostState>((set, get) => ({
       get().clear();
       return;
     }
-    // 已不是当前项目的调用不动共享的防抖计时器：debouncedFetch(A) 若在用户已切到
-    // B 之后才落地（如某个慢请求的 .then 回调），清掉/顶替计时器会连带取消 B 刚排的、
-    // 真正需要跑的那次刷新——响应落地时的过期检查只能丢弃 A 自己的结果，救不回被它
-    // 顶掉的 B。
+    // Departed-project calls never touch shared debounce timers: debouncedFetch(A) arriving after users switch
+    // to B (for example slow-request .then callbacks) must not clear/replace B's newly scheduled,
+    // necessary refresh. Response-time staleness checks discard A results only, never restore B timers
+    // it replaced.
     //
-    // 这一支丢弃后不补拉，靠的是「切到新项目后必有一次以 currentProjectName 为
-    // 依赖的调用」：AssetSidebar 无条件挂在工作台布局里，其刷新 effect 的依赖就是
-    // currentProjectName，项目名落地的那一帧必然补发一次。各画布的 effect 依赖的是
-    // 路由参数 projectName，会先于路由层写入 currentProjectName 触发（React 子组件
-    // effect 先于父组件），那一次调用注定被这里丢掉。新增费用刷新入口时保持这条链：
-    // 要么依赖 currentProjectName，要么确保有后续 effect 重跑。
+    // No follow-up fetch after discarding here relies on guaranteed currentProjectName-dependent calls
+    // after project switches: AssetSidebar always mounts in workbench layouts, and refresh effects depend on
+    // currentProjectName, necessarily refetching on project-name persistence. Canvas effects depend on
+    // route projectName and run before route-level currentProjectName writes (React child effects precede
+    // parent effects); those calls are necessarily discarded here. New cost-refresh entries must preserve this chain:
+    // depend on currentProjectName or guarantee later effect reruns.
     if (isStaleProject(projectName)) return;
     if (_debounceTimer) clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(() => {

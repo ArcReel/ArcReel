@@ -79,7 +79,7 @@ export default {
   'lorebook': '设定集',
   'no_episodes_yet': '暂无剧集',
   'confirm_delete_file': '确定要删除「{{name}}」吗？',
-  // 全局设置侧栏
+  // Global-settings sidebar.
   'settings_group_generation': '生成',
   'settings_group_agent': 'Agent',
   'settings_group_system': '系统',
@@ -217,10 +217,10 @@ export default {
   'subagent_card_label': '子智能体',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': '任务进行中',
-  // 故事设定提炼完成后的一次性就地提示
+  // One-time inline tips after story-setting extraction.
   'overview_handoff_tip': '故事设定已提炼完成。接下来在右侧向 Agent 发送「开始制作」。',
   'overview_handoff_dismiss': '知道了',
-  // 项目概览与空项目欢迎页
+  // Project overviews and empty-project welcome pages.
   'overview_meta_episodes_one': '{{count}} 集',
   'overview_meta_episodes_other': '{{count}} 集',
   'overview_meta_no_episodes': '还没有集',
@@ -307,7 +307,7 @@ export default {
   'pause_audio_sample': '暂停',
   'delete_audio_sample': '删除音频样本',
 
-  // TTS 生成参考音频样本
+  // TTS reference-audio samples.
   'voice_sample_action': '用 TTS 生成参考音频',
   'voice_sample_not_configured_hint': '请先在设置中配置音频供应商',
   'voice_sample_modal_title': '生成语音参考样本',
@@ -338,7 +338,7 @@ export default {
   'generate_design': '生成资产图',
   'regenerate_design': '重新生成资产图',
 
-  // 图片指令式编辑
+  // Instruction-driven image editing.
   'image_edit_action': '局部修改',
   'image_edit_no_image_hint': '先生成或上传图片后再编辑',
   'image_edit_modal_title': '局部修改',
@@ -538,7 +538,7 @@ export default {
   'draft_path_default_mac': '/Users/<你的用户名>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
   'draft_path_default_windows': String.raw`C:\Users\<你的用户名>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
 
-  // 任务状态与取消流程
+  // Task states and cancellation.
   'generating_status': '生成中…',
   'queued_status': '排队中',
   'completed_status': '已完成',
@@ -560,8 +560,8 @@ export default {
   'cancelling': '取消中…',
   'confirm_cancel': '确认取消',
   'go_back': '返回',
-  // task_type display names（后端 task_type 无集中枚举，散落在各入队调用点字面量 +
-  // lib/project/asset_types.ASSET_SPECS 的 key；词表外未知值前端兜底显示原始串）
+  // task_type display names (no centralized backend enum: enqueue-site literals +
+  // lib/project/asset_types.ASSET_SPECS keys; unknown vocabulary values display raw strings).
   'task_type_image_edit': '图片编辑',
   'task_type_storyboard': '分镜图',
   'task_type_video': '视频',
@@ -786,14 +786,14 @@ export default {
 
   // WelcomeCanvas
 
-  // WorkspaceNotificationsDrawer 标题
+  // WorkspaceNotificationsDrawer titles.
   'workspace_notifications_title': '工作区通知',
   'notifications_trigger_unread': '工作区通知，未读 {{count}} 条',
 
   // MediaModelSection
   'save_failed': '保存失败：{{message}}',
 
-  // 顶栏用量入口与悬浮层
+  // Header usage entries/overlays.
   'usage_entry_aria': '使用记录 · 参考费用 {{cost}}',
   'usage_entry_aria_active': '使用记录 · 参考费用 {{cost}} · {{count}} 个任务进行中',
   'usage_close_panel': '关闭使用记录面板',
@@ -1011,7 +1011,7 @@ export default {
   'agent_profile_reset_confirm': '确认重置',
   'agent_profile_resetting': '正在重置…',
   'agent_profile_reset_failed': '重置 Agent 配置失败：{{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
+  // Project settings: sidebar tabs, style dialogs and model-channel origins.
   'project_settings_group_project': '项目',
   'project_settings_group_agent': 'Agent',
   'project_settings_tab_basics': '基础',
@@ -1124,7 +1124,7 @@ export default {
   'image_edit_task_failed': '「{{id}}」编辑失败：{{reason}}',
   'script_plan_task_failed': '「{{episode}}」AI 规划脚本失败：{{reason}}',
   'task_failed_provider_reason_suffix': '（供应商拒因：{{reason}}）',
-  // ========== 参考生视频编辑器 ==========
+  // ========== Reference-video editors ==========
   'reference_editor_view_aria': '编辑器视图',
   'reference_editor_view_script': '文稿',
   'reference_editor_view_parse': '解析预览',
@@ -1417,7 +1417,7 @@ export default {
   'pm_multiplier_help': '费用按官方价格乘以倍率计算，例如 0.8 表示八折。',
   'pm_multiplier_help_subscription': '订阅制套餐，默认为 0，不计算费用。',
   'pm_multiplier_save_failed': '高级配置已保存，倍率未保存：{{message}}',
-  // 供应商模型 Sheet
+  // Provider model Sheets.
   'pm_sheet_provider_settings': '供应商设置',
   'pm_sheet_model_info': '模型信息',
   'pm_sheet_enabled': '启用',
@@ -1653,7 +1653,7 @@ export default {
   'supported_durations_err_range_too_large': "片段 '{{seg}}' 区间过大（>{{max_span}}）",
   'supported_durations_err_range_inverted': "片段 '{{seg}}' 区间右端必须 ≥ 左端",
   'supported_durations_err_unparseable': "无法解析片段 '{{seg}}'",
-  // 能力覆盖（模型行内三态控件，首批仅 last_frame）
+  // Capability overrides (inline three-state rows, initially last_frame only).
   'cap_override_last_frame_label': '尾帧',
   'cap_override_group_label': '尾帧能力覆盖',
   'cap_override_follow': '跟随判定',
@@ -1668,7 +1668,7 @@ export default {
   'cap_override_badge': '已覆盖',
   'cap_override_effective': '生效值：{{effective}}（判定：{{detected}}）',
   'cap_override_on_unavailable': '该接口不下传尾帧，无法强制开启。',
-  // 全局桶引用提示（能力编辑时展示，非阻塞）
+  // Global bucket-reference notices during capability edits, nonblocking.
   'global_bucket_label_default_video_backend': '默认视频模型',
   'global_bucket_label_default_video_backend_i2v': '图生视频（i2v）',
   'global_bucket_label_default_video_backend_r2v': '参考生视频（r2v）',
@@ -1845,7 +1845,7 @@ export default {
   'reference_tab_preview': '视频',
   'reference_tab_aria': '编辑与预览切换',
 
-  // ArcReel 工作台 v3 — 参考生视频
+  // ArcReel workbench v3: reference video.
   'no_episode_search_results': '没有匹配的分集',
   'episode_collapsed_button_label': '{{position}} · {{title}}',
   'reference_batch_nothing_to_do': '所有视频单元都已生成或正在生成中',
@@ -2031,7 +2031,7 @@ export default {
   'line_placeholder': '台词',
   'add_dialogue': '添加对话',
   'dialogue_remove': '删除对话',
-  // script_plan → prompt_authoring 内容确认
+  // script_plan → prompt_authoring content confirmation.
   'utterance_kind_dialogue': '台词',
   'utterance_kind_voiceover': '画外音',
   'utterance_toggle_kind': '在台词与画外音间切换',
@@ -2071,7 +2071,7 @@ export default {
   'review_confirm_failed': '确认失败，请重试',
   'review_load_failed': '无法加载脚本规划结果',
   'review_retry': '重试',
-  // 待修复草稿 / Agent 的可编辑草稿（DraftStatus）
+  // Repair drafts / Agent editable drafts (DraftStatus).
   'draft_prompt_authoring_title': '提示词编写草稿待修复',
   'draft_status_invalid': '待修复草稿',
   'draft_violation_count_one': '{{count}} 处违约',
@@ -2128,7 +2128,7 @@ export default {
   'review_structure_hint': '确认后可在时间线增删、调整顺序',
   'review_video_model_unresolved_action': '前往项目设置',
 
-  // ReferenceScriptPlanPreviewPanel（reference_video 变体 script_plan 按集预览）
+  // ReferenceScriptPlanPreviewPanel, per-episode reference_video script_plan previews.
   'reference_script_plan_source_text_label': '原文',
   'reference_script_plan_source_anchor_broken': '非源文逐字子串',
   'reference_script_plan_edit_text': '编辑文稿',
@@ -2336,7 +2336,7 @@ export default {
   'shot_detail_prev': '上一镜',
   'shot_detail_next': '下一镜',
   'eyebrow_segment_refs': '引用',
-  // Agent 工序行（工具调用、子智能体、Skill、后台任务）
+  // Agent work rows: tools, subagents, Skills, background tasks.
   'tool_call_input_label': '参数',
   'tool_call_result_label': '结果',
   'work_status_running': '运行中',
@@ -2373,14 +2373,14 @@ export default {
   'tool_summary_project_overview': '项目概述',
   'tool_summary_project_settings': '项目设置',
   // ToolCallWithResult
-  // 时间线 typed 条目（interrupt / AskUserQuestion 答复）
+  // Typed timeline entries: interrupts / AskUserQuestion replies.
   'chat_interrupt_notice': '已停止，这一轮的回复没有完成',
   'chat_compacted_label': '上下文已压缩',
-  // Agent 消息流
+  // Agent message streams.
   'chat_transcript_label': '对话记录',
   'chat_code_block_label': '代码块',
   'chat_table_label': '表格',
-  // Markdown 正文里代码块、表格、图表与链接的工具条（Streamdown translations）
+  // Markdown code/table/chart/link toolbars (Streamdown translations).
   'chat_md_close': '关闭',
   'chat_md_copied': '已复制',
   'chat_md_copy_code': '复制代码',
@@ -2406,7 +2406,7 @@ export default {
   'chat_image_enlarge': '放大图片附件 {{index}}',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
   // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
-  // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)
+  // Missing entries are validated; new backend tools require synchronized zh/en/vi additions.)
   'tool_name_list_pending_assets': '查询待生成资产',
   'tool_name_list_projects': '列出项目',
   'tool_name_create_project': '创建项目',
@@ -2469,7 +2469,7 @@ export default {
   'tool_name_merge_asset': '合并资产',
   'tool_name_retry_project_migration': '重试数据升级',
 
-  // 顶栏状态条（ProjectStatusBar）：集进度、项目层的下一步与数据升级失败形态
+  // Header ProjectStatusBar: episode progress/project next steps/upgrade failures.
   'guide_hand_to_agent': '交给 Agent',
   'guide_alt_create_episode': '新建一集',
   'guide_alt_agent': '交给 Agent：{{step}}',
@@ -2524,7 +2524,7 @@ export default {
   'migration_repair_title': '本项目需要修复',
   'migration_repair_body': '数据升级没有完成，生成功能暂时关闭。已有的脚本与画面照常可以查看。点「重试」重新运行数据升级。',
   'migration_repair_prefill': '这个项目的数据升级失败了，请按失败明细逐条说明是哪一集、哪个文件、违了什么约，用 patch_project / patch_episode_meta / rename_asset 修好后调用 retry_project_migration 重试升级。',
-  // 数据升级报告：项目页的一次性提示与导入前的确认窗
+  // Upgrade reports: one-time project notices/preimport confirmation.
   'migration_report_notice_one': '本次升级调整了 {{count}} 项内容',
   'migration_report_notice_other': '本次升级调整了 {{count}} 项内容',
   'migration_report_dismiss': '关闭升级提示',
@@ -2572,7 +2572,7 @@ export default {
   'import_confirm_description': '导入包升级到当前版本时做了下列调整。确认后项目才会出现在项目列表里；取消则不保留任何数据。',
   'import_confirm_action': '确认导入',
   // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
-  // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
+  // Skills with user-invocable: true; tests/test_frontend_skill_i18n.py validates all three languages.)
   'skill_name_video_workflow': '视频创作工作流',
   'skill_name_generate_storyboard': '生成分镜图',
   'skill_name_generate_grid': '生成多宫格分镜图',
@@ -2814,7 +2814,7 @@ export default {
   'trash_purge_description': "{{name}} 将被彻底删除，无法恢复。",
   'trash_action_failed': "操作失败：{{message}}",
 
-  // ---- 项目大厅 ----
+  // ---- Project lobby ----
   'lobby_search_placeholder': '搜索项目',
   'lobby_search_kbd': '⌘K',
   'lobby_hero_greeting_morning': '早上好，导演。',
@@ -2877,7 +2877,7 @@ export default {
   'lobby_no_filter_match': '没有匹配的项目',
   'lobby_no_filter_match_hint': '清除筛选或换个关键词试试。',
   'lobby_clear_filters': '清除筛选',
-  // 外部 Agent 接入与访问令牌
+  // External Agent access and access tokens.
   'ext_agent_desc': '外部 Agent 通过公开 skills 与远程 MCP 使用 [[brand]] 的创作能力。按以下三步完成接入。',
   'ext_agent_steps': '接入步骤',
   'ext_agent_step_skills_title': '安装公开 skills',
@@ -2990,7 +2990,7 @@ export default {
   'diagnosis_network': '网络无法访问，检查 URL 与防火墙',
   'diagnosis_timeout': '上游响应超时，服务可达但模型在限定时间内未返回；可直接保存后重试',
   'diagnosis_unknown': '未知错误，请查看原始错误信息',
-  // ==================== 分镜尾帧 ====================
+  // ==================== Storyboard ending frames ====================
   'end_frame_title': '尾帧',
   'end_frame_description': '视频以分镜图开场、过渡到这张图片收尾。重新生成视频时沿用。',
   'end_frame_choose': '选择图片',
@@ -3029,7 +3029,7 @@ export default {
   'script_edit_commit_failed': '无法安全保存脚本，请重试。',
   'script_edit_rejected': '脚本编辑被拒绝，请检查对应操作后重试。',
 
-  // 自定义调用端点
+  // Custom endpoints.
   'ce_section_title': '调用端点',
   'ce_rail_label': '调用端点列表',
   'ce_rail_mine_empty': '还没有自定义端点。',
@@ -3383,7 +3383,7 @@ export default {
   'ce_download_policy_image': '图片地址与 base64 都配置时，优先取地址。获得图片地址后自动下载，下载地址与接口地址同源时携带密钥，跨源不携带。base64 支持裸串与 data URI 两种形态，解码后直接保存。',
   'cp_no_api_key': '该供应商无需密钥',
   'cp_no_api_key_conflict': '以下模型使用的端点需要密钥：{{models}}。它们的请求将不携带凭证。',
-  // ---- 市场 ----
+  // ---- Market ----
   'market_section_title': '市场',
   'market_refresh_all': '全部刷新',
   'market_sources_desc': '按列表顺序显示各市场源的条目。停用的市场源保留在列表中，不显示条目。',
@@ -3907,16 +3907,16 @@ export default {
   'edit_transition_radial': '放射',
   'edit_transition_gradient_wipe': '渐变擦除',
   'edit_transition_squeeze': '压缩',
-  // 广告项目概览与「故事设定」tab
+  // Ad project overviews/Story settings tabs.
   'episode_view_setting': '故事设定',
   'ad_setting_hint': 'AI 生成脚本时会参考这里的设定。保存修改后，已生成的脚本会标为过期。',
   'ad_brief_title': '创作灵感',
   'ad_brief_placeholder': '描述你想要的视频：目标人群、风格调性、重点卖点、行动号召…',
   'ad_products_view_all': '查看全部',
   'ad_products_empty_hint': '添加商品图和卖点，AI 生成脚本时会围绕商品来写。没有商品时，也可以只凭创作灵感生成。',
-  // 共享组件：缩略图的查看大图
+  // Shared components: thumbnail image zoom.
   'image_fullscreen_preview': '查看「{{name}}」的大图',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
+  // Shared components: model-catalog pickers, using conventional vendor brand names.
   'catalog_picker_title': '从模型目录选择',
   'catalog_picker_description': '搜索模型目录并选择一个模型。',
   'catalog_picker_search': '搜索模型名称',

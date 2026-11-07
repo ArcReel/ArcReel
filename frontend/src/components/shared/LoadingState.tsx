@@ -2,10 +2,10 @@ import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 /**
- * 加载占位：转圈加「加载中」，`role="status"` 供读屏播报。
+ * Loading placeholder: spinner and Loading, with `role="status"` for screen-reader announcements.
  *
- * - `screen`：占满视口，用于登录态未确定、整页懒加载的 chunk 未到达。
- * - `pane`：占满父容器，用于工作区画布等局部区域的懒加载。
+ * - `screen`: fills the viewport while authentication is unresolved or a whole-page lazy chunk has not arrived.
+ * - `pane`: fills the parent container for lazy loading of local regions such as workspace canvases.
  */
 export function LoadingState({ variant }: { variant: "screen" | "pane" }) {
   const { t } = useTranslation("common");

@@ -1,1 +1,1 @@
-把作者写下的运镜、景别、舞台提示、视觉场面转写为画面视觉描述。**台词 / 画外音不要写进这里**——逐字落在 utterances；排版符号（markdown、△、各类标签、表格、emoji）一律剥离，只留干净文本。
+Convert camera movement, shot sizes, stage directions, and visual scenes written by the author into a visual shot description. **Do not put dialogue / off-screen speech here**; copy it verbatim into utterances. Strip formatting symbols (Markdown, △, all kinds of tags, tables, emoji), leaving only clean text.

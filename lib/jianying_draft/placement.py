@@ -1,13 +1,16 @@
-"""把剪辑时间线的一个修订摆成片段：纯函数，时间一律是整数微秒。剪映草稿与成片共用这份摆放。
+"""Place one timeline revision into clips: pure functions with integer-microsecond times, shared by Jianying drafts/final cuts.
 
-剪辑片段首尾相接排在主视频轨上，截取只对其依据的视频版本有效；定格延长以出点帧静帧接在片段之后。
-转场挂在前一片段上，只保留到下一个参与导出的片段之间的切点：最后一个参与导出的片段上的转场没有效果。
-旁白从承载片段的起点开始；字幕在带旁白的单元上跟随旁白，否则按源素材时间保留、只显示落在入出点之内的部分。
-BGM 按 :func:`lib.edit_timeline.bgm.place_bgm` 摆放，音量是登记时缓存的响度增益乘以片段音量。
-旁白与字幕如实保留彼此的重叠，只把超出时间线末尾的部分截断；剪映草稿用 :func:`stack_tracks` 把重叠的
-分到不同的轨上，成片里重叠的旁白同时响起、字幕交给 libass 推开。
-剪辑视图预览的字幕摆放（frontend/src/components/canvas/edit/preview-tracks.ts ``placeSubtitles``）取同一组字幕，
-同一时刻只显示一条，改动摆放规则时一并修改。
+Arrange clips consecutively on the main track. Trims apply only to their underlying video version;
+hold extensions append out-point frozen frames. Transitions attach to preceding clips and survive
+only cuts before the next exported clip; the final exported clip’s transition has no effect.
+Narration starts at host-clip starts. Subtitles follow narration on narration variants, otherwise
+retain source times and display only portions within in/out points.
+Place BGM through :func:`lib.edit_timeline.bgm.place_bgm`, with registration-cached gain × clip volume.
+Preserve narration/subtitle overlaps, truncating only beyond timeline end. Jianying drafts distribute
+overlaps across tracks via :func:`stack_tracks`; final-cut overlapping narration sounds simultaneously
+and libass separates colliding subtitles.
+Editing previews (frontend/src/components/canvas/edit/preview-tracks.ts ``placeSubtitles``) use
+the same subtitle set but display only one at a time; update them together when placement rules change.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from lib.jianying_draft.basis import DraftNarration, DraftUnitBasis
 
 @dataclass(frozen=True, slots=True)
 class UnitCue:
-    """素材层里的一条字幕：时间相对旁白起点（跟随旁白时）或视频源起点。"""
+    """Material-layer subtitle, timed relative to narration start when following narration, otherwise source-video start."""
 
     start_us: int
     duration_us: int
@@ -38,9 +41,10 @@ class UnitCue:
 
 @dataclass(frozen=True, slots=True)
 class UnitMaterial:
-    """一个视频单元作为剪辑片段素材层的事实，取自它当前的呈现模型。
+    """Unit facts used as clip material layers, taken from current presentation models.
 
-    ``source_gain`` 是供应商原声的开关（生成时未带原声为 0）；``narration_*`` 只在该单元按带旁白版本呈现时给出。
+    ``source_gain`` switches provider audio (0 when generation had none); ``narration_*`` exists
+    only when this unit uses the narration variant.
     """
 
     unit_id: str
@@ -59,14 +63,14 @@ class UnitMaterial:
 
 @dataclass(frozen=True, slots=True)
 class UnitMaterials:
-    """一个修订引用的各视频单元的素材层，以及进生成依据的素材层指纹。"""
+    """Material layers for units referenced by a revision, plus their fingerprints entering generation bases."""
 
     materials: Mapping[str, UnitMaterial]
     bases: tuple[DraftUnitBasis, ...]
 
 
 class UnitMaterialUnavailableError(Exception):
-    """某个视频单元当前投影不出素材层（如视频没有可证明的来源）。"""
+    """A unit currently has no projectable material layer, e.g. video lacks provable provenance."""
 
     def __init__(self, unit_id: str, message: str) -> None:
         super().__init__(message)
@@ -74,9 +78,9 @@ class UnitMaterialUnavailableError(Exception):
 
 
 class UnitMaterialSource(Protocol):
-    """按旁白版本取一个修订引用的视频单元的素材层；取不出时抛 :class:`UnitMaterialUnavailableError`。
+    """Get revision-referenced unit material layers by narration variant; raise :class:`UnitMaterialUnavailableError` if unavailable.
 
-    素材层取自各单元当前的呈现模型，由服务端实现并注入。
+    Layers derive from current unit presentation models; the server implements/injects this source.
     """
 
     async def __call__(
@@ -86,7 +90,7 @@ class UnitMaterialSource(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class PlacedClip:
-    """主视频轨上的一个剪辑片段；``hold_us`` 大于 0 时其后接一段出点帧静帧，``transition_to_next`` 是到下一片段的转场。"""
+    """Main-track clip; positive ``hold_us`` appends out-point frozen frames, and ``transition_to_next`` leads to the next clip."""
 
     clip_id: str
     unit_id: str
@@ -132,7 +136,7 @@ class PlacedSubtitle:
 
 @dataclass(frozen=True, slots=True)
 class PlacedBgmAudio:
-    """BGM 轨上实际出声的一段：``volume`` 已是响度增益乘以片段音量，淡入淡出以微秒计。"""
+    """Audible BGM span; ``volume`` already combines loudness gain × clip volume, with microsecond fades."""
 
     clip_id: str
     audio_path: str
@@ -154,7 +158,7 @@ class DraftPlacement:
 
 
 def _source_window(clip: EditClip, unit: UnitMaterial) -> tuple[int, int]:
-    """截取后的源素材区间 ``[in, out)``：current 已不是截取所依据的版本时整段使用。"""
+    """Trimmed source range ``[in, out)``; use the full source if current no longer matches the trim’s underlying version."""
     return effective_source_range_us(clip, unit.video_version, unit.video_duration_us)
 
 
@@ -173,7 +177,7 @@ def _clip_subtitles(clip: PlacedClip, unit: UnitMaterial, *, carries: bool) -> l
 
 
 def _within_timeline[T: (PlacedNarration, PlacedSubtitle)](items: list[T], duration_us: int) -> tuple[T, ...]:
-    """按起点排列，超出时间线末尾的部分截断，截成空的丢弃；彼此的重叠保留。"""
+    """Order by start, truncate beyond timeline end, discard empty results, and retain overlaps."""
     kept: list[T] = []
     for item in sorted(items, key=lambda item: item.start_us):
         end = min(item.end_us, duration_us)
@@ -183,7 +187,7 @@ def _within_timeline[T: (PlacedNarration, PlacedSubtitle)](items: list[T], durat
 
 
 def stack_tracks[T: (PlacedNarration, PlacedSubtitle)](items: Sequence[T]) -> tuple[tuple[T, ...], ...]:
-    """把可能重叠的片段分到尽量少的轨上，每条轨内不重叠：按起点依次放进第一条已空出的轨，都不空就新开一条。"""
+    """Distribute overlapping clips over as few nonoverlapping tracks as possible: in start order, use the first free track or create one if none is free."""
     tracks: list[list[T]] = []
     for item in sorted(items, key=lambda item: item.start_us):
         track = next((track for track in tracks if track[-1].end_us <= item.start_us), None)
@@ -199,9 +203,9 @@ def place_timeline(
     units: Mapping[str, UnitMaterial],
     bgm_sources: Mapping[str, BgmSource] | None = None,
 ) -> DraftPlacement:
-    """按修订内容摆放片段；``units`` 里没有的视频单元（已从脚本删除）渲染时跳过。
+    """Place clips from revision content; skip units missing from ``units`` because scripts deleted them.
 
-    ``bgm_sources`` 是 BGM 轨所引用的 BGM；不在其中的 BGM 片段不摆放（出片前的检查已拒绝这种时间线）。
+    ``bgm_sources`` contains track-referenced BGM; omit clips absent from it (pre-render checks already rejected such timelines).
     """
     clips: list[PlacedClip] = []
     narrations: list[PlacedNarration] = []

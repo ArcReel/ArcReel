@@ -1,4 +1,4 @@
-"""条目写回 JSON：用户修改存下的条目副本经 ``dump_entry`` 落库，再经 ``parse_entry`` 读回，必须原样还原。"""
+"""Entry JSON round-trip: user-modified copies stored with ``dump_entry`` and read with ``parse_entry`` must restore exactly."""
 
 from __future__ import annotations
 

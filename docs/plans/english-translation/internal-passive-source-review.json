@@ -1,0 +1,1102 @@
+{
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "scope": "alembic/** and scripts/** passive comments/docstrings excluding coordinator-owned gate.py, audit_conventions.py, lint_agent_runtime_profile.py and audit_translation.py; specific shell/translation-flow comment files; generated-price exception separately recorded.",
+  "translated_python_passive_spans": 355,
+  "verified_python_files": 99,
+  "changed_python_files": 59,
+  "python_files": [
+    {
+      "path": "alembic/env.py",
+      "source_sha256": "152e32c8b04d44801621c1e1360e36c5a1199d17488728f8757714fb201fedb9",
+      "candidate_sha256": "e9a23d5a3f59d16e7f1df945a23047cd4a3e5525637e0dfab90359766b8353b2",
+      "normalized_executable_AST_sha256": "6d1650dbbd76080389ae19cc354c23cd18fd9f8eba46646481a34a184aea165d",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/015359a572fa_enable_autoincrement_on_custom_provider.py",
+      "source_sha256": "43700412b04a60f5c8eee87de8039673bbb0e2ba28de67cc70cafef5d1f96e71",
+      "candidate_sha256": "3ccdcad5ae771e2505aba5ab9f184e79a796f193fddef41f679b17fea034d97e",
+      "normalized_executable_AST_sha256": "5fd987ac4527c21ea2df4428d0416d064f05244bd2252621439a1b737a5da1d4",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/0426_endpoint_refactor.py",
+      "source_sha256": "e30730dd884a5f8b8b41a5e2b501db8e5cb3b3bea3132362e3593937c86c887d",
+      "candidate_sha256": "9fcb76ca40fa8a36cd943cae5f94984e19e8f97d0562339beab2aa0329221753",
+      "normalized_executable_AST_sha256": "fc95fd264e31911a7aed77272ec9d92541d05ac28094bc977281f8f75b883623",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 10,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/13dcd54b4a4d_add_input_tokens_and_output_tokens_to_.py",
+      "source_sha256": "9db7e4c1f49179dd9b4561e5c05c778cb86e3ff63447878a266314c11b7fba2b",
+      "candidate_sha256": "9db7e4c1f49179dd9b4561e5c05c778cb86e3ff63447878a266314c11b7fba2b",
+      "normalized_executable_AST_sha256": "d5d6ca8c7d99f960ce9ab0c97921ee022e13cabf64ac112adac3c7c886ecd6f2",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/156fe0aa0414_initial_schema.py",
+      "source_sha256": "f9f64a9b99244e52221a8fa44eeb5d3b5ae3b5cfc214f6d06cb9938d7b2e339a",
+      "candidate_sha256": "f9f64a9b99244e52221a8fa44eeb5d3b5ae3b5cfc214f6d06cb9938d7b2e339a",
+      "normalized_executable_AST_sha256": "83ed8716fcec7d347ff99ad0928c58b84a41edfc83b1f8478c9f6ce4015a0cd9",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/23c60be146cc_retire_cancelling_task_status.py",
+      "source_sha256": "ddc3c1242d344b84aeb375ac26c3f8fc8eb27406db79a08fffe9dfae587418ba",
+      "candidate_sha256": "7b916f50ac86ef6483e7123e7d1787446c4eead5e5db4a84ca29edd0d98cd130",
+      "normalized_executable_AST_sha256": "30642ed3dfe9ef3fa670ccdc73b295083c63e94ed162e7ce9fccdca62d731e60",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/26c2f9d11c8e_add_generation_batches.py",
+      "source_sha256": "abe396459c4f3c9c334be917eb50506010bda6f08a414bced70d2e2a1b15152d",
+      "candidate_sha256": "abe396459c4f3c9c334be917eb50506010bda6f08a414bced70d2e2a1b15152d",
+      "normalized_executable_AST_sha256": "34422f83fd9f16b0a90129d20fdcc2a739f2f3cf9d51a17a4c1da1947770844e",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/285dbe1e9824_add_provider_columns_to_tasks.py",
+      "source_sha256": "65856c681600d51162c8ec92f097215a5e9318d542eb37009b07b2793cf5729d",
+      "candidate_sha256": "9535d36c3aaa24fd0ca847f3c2db58be6d2b7e7b238152e85093f9875af3fc4c",
+      "normalized_executable_AST_sha256": "dc0642984fa7f605bc773b537f475bf7ed5c5af603575dc3d522b0c88dc51066",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/2c57c41eca74_add_provider_credential_table.py",
+      "source_sha256": "cc9d5d4dace29e1f328dc0b67c651644be7c2cc1fa92a35007c179027d33fca2",
+      "candidate_sha256": "2fb9e9f9418798ef69b86f92193aeef5ab1ad61cc8cac2ec1428bf4d648a9838",
+      "normalized_executable_AST_sha256": "4aade8b4cce3c06ec1a5fda3a9eeaf1539ca3ee1b121a4188e89b8413e0a0528",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/3649100774fa_drop_task_events_table.py",
+      "source_sha256": "913594fa9b738f786b128c5f0221f06fded0c02e7a686db36ec43afb3fd4b717",
+      "candidate_sha256": "6c4359e8564df63932029aa9345825147747063615d018f7d20934c8067f7c0e",
+      "normalized_executable_AST_sha256": "909365e9f438f24b8b15555d7b605fac6a7d6f0c53b1e3bd09915776bf096a21",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/3b7c921d5e44_add_last_provider_response.py",
+      "source_sha256": "4d2027749a59b72a43958ab97620322ea44542bc349f696dcb04d8f6d32403f3",
+      "candidate_sha256": "4d2027749a59b72a43958ab97620322ea44542bc349f696dcb04d8f6d32403f3",
+      "normalized_executable_AST_sha256": "bfa44205071282ab0c0ab027719174ad10d65b967f3dd10342c5f693d20a2383",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/3b841838ac16_rebuild_session_event_log_for_typed_.py",
+      "source_sha256": "e458e4cd2fe057145366da39318a293a6ea8f32e53396d253ff48682cf52dc79",
+      "candidate_sha256": "e7062a86abc22b3248be31c75e493bd99acb30f084a06d1a51acbd2a0f1fb4a4",
+      "normalized_executable_AST_sha256": "f278231303f30eef79c0de3c77e4a764680cfeeae18c28021e089afd358c3bf4",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/3c6d6152046e_rename_seedance_provider_to_ark.py",
+      "source_sha256": "406b7f694ca0e7265e88620a05f5cc6e94671de335ac41dae9f7e2b54e4f29b5",
+      "candidate_sha256": "406b7f694ca0e7265e88620a05f5cc6e94671de335ac41dae9f7e2b54e4f29b5",
+      "normalized_executable_AST_sha256": "0564d65b7286de34673bc6e844d34efaf7049d99b65ec432028d47fa452b0a7e",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/3c8b0ae43345_fix_truncated_datetime_values.py",
+      "source_sha256": "e02a50a95fb752504e9273ae863b419b1fa43f5785d12d7dc8a2ca2e3bb227c2",
+      "candidate_sha256": "e02a50a95fb752504e9273ae863b419b1fa43f5785d12d7dc8a2ca2e3bb227c2",
+      "normalized_executable_AST_sha256": "7dd5caea6a146cf6cb1eb2193402458b9e194e7b8ccf7f0aa3133ad785635a00",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/4c643f3ff5b9_backfill_custom_model_durations.py",
+      "source_sha256": "2280171d876e25c7d889339739c3e8132838763cfd2ed6324ff772da6d517af4",
+      "candidate_sha256": "317988d1126260052376217ba1df836276d41155cbb44e2808fdfc5d73d431e5",
+      "normalized_executable_AST_sha256": "166369663d3b7f8c948ee7720c8387ca95d25ce5355cda0cf4b93a58c26fefb0",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 4,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/5105eceaf7cb_add_custom_provider_tables.py",
+      "source_sha256": "f014d0181249081dfc551f262f0f388f2b480988d8845ab9dfcaccc6ea5e01c7",
+      "candidate_sha256": "f014d0181249081dfc551f262f0f388f2b480988d8845ab9dfcaccc6ea5e01c7",
+      "normalized_executable_AST_sha256": "7b74c483b0b5f0d3adea22836889fdd9dd9c88f955875c6ea8e4d7b8b4b94eb6",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/538db5c3ec76_add_agent_session_superseded_by_pointer.py",
+      "source_sha256": "384ad50a8eed8a1fb0f67d8796cd1e32342b1f60aebdadd4d1a5d8ab19be5c3b",
+      "candidate_sha256": "384ad50a8eed8a1fb0f67d8796cd1e32342b1f60aebdadd4d1a5d8ab19be5c3b",
+      "normalized_executable_AST_sha256": "2c5f71bed8241a360a8b9cdf8ad4341379b67cc7d78a34aa6439e6b2a19550c5",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/548f6ca3e91c_add_cancelled_by_to_tasks.py",
+      "source_sha256": "b21072196cda8da1ad5a5d43b4d8bf09dd258710c733f97ccb2513c9f4c96cfd",
+      "candidate_sha256": "b21072196cda8da1ad5a5d43b4d8bf09dd258710c733f97ccb2513c9f4c96cfd",
+      "normalized_executable_AST_sha256": "76bdb35b661277b096fc452ab8ca499adf188264b12342604ef93a3ac0b628e8",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/5b87accc10dd_split_default_image_backend_setting_.py",
+      "source_sha256": "be57596929cd543dc158383df64d3c74b35805087bc67337e13a92779667ea7b",
+      "candidate_sha256": "15ba1f1efd0afb8264cc64158a283a0264f578e5589afc4e6258503971a12a7e",
+      "normalized_executable_AST_sha256": "22fad00c15bdb659ba292d9baa02e873291859a3f36421016f23a72d0f97909c",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/6a89c9ef8803_add_agent_session_user_message_link_.py",
+      "source_sha256": "bf5392b34c0b8313d51eaa1084471d70511f8b6ead0f7f5db435a5aa60c01e3a",
+      "candidate_sha256": "bf5392b34c0b8313d51eaa1084471d70511f8b6ead0f7f5db435a5aa60c01e3a",
+      "normalized_executable_AST_sha256": "51e492c21169a5bc1a6a36257ea17ab3cc31fa785eec9f2d7480d0aade2fc910",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/6cb95261c2b7_add_provider_currency_usage_tokens_.py",
+      "source_sha256": "34aecf139d38cda55aa519403fc765e1f45bd77b565ea7593c9e6c4f454d5fd8",
+      "candidate_sha256": "34aecf139d38cda55aa519403fc765e1f45bd77b565ea7593c9e6c4f454d5fd8",
+      "normalized_executable_AST_sha256": "19c2beb7354c91f10b09ee7a0b25dbdc3c0c1aa80c37d6bb477485476e2696ee",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/7c1e5b93a204_add_usage_record_columns_to_api_calls.py",
+      "source_sha256": "1768fe9f3d40990a12d64bac514c0942ad1c279cdd415ab82208dc0b470d02af",
+      "candidate_sha256": "c9341515dfcad6bb912fd870ec5a8366122b78d00cda1cb361c4a510ec4b7e71",
+      "normalized_executable_AST_sha256": "16cf0811c830ed5b500c87c6b9ceaa38de1649ea1b0e8d18f9f721eedd73eb64",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/7f2c4d8a91b3_scope_task_dedup_by_user.py",
+      "source_sha256": "90ebafa8a391cfb60d31e6d50a7a4aa071c165d5105459d48497ea34ccfed8f0",
+      "candidate_sha256": "90ebafa8a391cfb60d31e6d50a7a4aa071c165d5105459d48497ea34ccfed8f0",
+      "normalized_executable_AST_sha256": "7315adfe161da6db96602f2a0f2938aefe4ceb2eb52a50a5ccea7bcfb5b5d156",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/7fb52d06b50e_add_access_key_secret_key_to_provider_.py",
+      "source_sha256": "085e1709c8b1c296f046f81f9bc9b00b51f8dc24307b5329d4cb5d22fb9d53eb",
+      "candidate_sha256": "085e1709c8b1c296f046f81f9bc9b00b51f8dc24307b5329d4cb5d22fb9d53eb",
+      "normalized_executable_AST_sha256": "e06b367d3b9bec5bc7a4ebcccabc690c75e3bcc29d447e7785b5a765441062c1",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/802fa55d8aff_sdk_session_id_upgrade_to_unique_not_.py",
+      "source_sha256": "9f7cb9a83ee3c3493cd1d554012114c4e6c51ec852d228225179949c96010196",
+      "candidate_sha256": "5322417f205febd2a4b5da9e9dba5ea0ed48ec3c5ec9544de3fcaf4def06853a",
+      "normalized_executable_AST_sha256": "dff4bb186bd2205c7c716a8af879c6c050474e39c159a6caf3b018421c5eebc0",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/8b1e8a1290ca_add_agent_anthropic_credentials.py",
+      "source_sha256": "f9fe176bf47813dc05776b7e771ac8fbae66f9cb061699b73530a86322082a50",
+      "candidate_sha256": "d60829c5aa056bf6345c1ab7638bc7339d1bb5e2bb720b5aabf5b5d0763b1ad1",
+      "normalized_executable_AST_sha256": "fb53c11aa84db65e30e2ae3d26cf3d62dc9e4973a96934e19b7901bc19d34de8",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 8,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/8c2b1e7d4a90_split_minimax_video_endpoints.py",
+      "source_sha256": "22e68b4afcbcc1b66b66a9478c1109f27c4d6e27412b34ff5d185ebb35acdb28",
+      "candidate_sha256": "8c048afeac4d93023a55234fccd68a6e42fac884daeaf593c026822e85781624",
+      "normalized_executable_AST_sha256": "9adae7f6ee5c7bff5c2171cb2e137b0d5a8b41375f93679bdd88a4140eb52918",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/96f747fa47d5_add_foreign_key_to_custom_provider_model.py",
+      "source_sha256": "f104417b9572f2bd5930a4b815ff7c0afe3f5ebade38a333483ccc9021c0d3b4",
+      "candidate_sha256": "f104417b9572f2bd5930a4b815ff7c0afe3f5ebade38a333483ccc9021c0d3b4",
+      "normalized_executable_AST_sha256": "c038f3b88ab6a161ceb54741e6ce77b333128ba96044d87daad9d955f9ef6abe",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/9c41ad2f7be5_add_agent_session_fork_lineage.py",
+      "source_sha256": "352aa31607bfef9a69d5d3928b47e23fe6679a61833458217c43b31b10919388",
+      "candidate_sha256": "352aa31607bfef9a69d5d3928b47e23fe6679a61833458217c43b31b10919388",
+      "normalized_executable_AST_sha256": "7c7768ad0c81190836f80b02df1dcde2d704f8369ad458156aa9204b48e44396",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/9f3c7a52d1b4_create_asset_derivatives_table.py",
+      "source_sha256": "4d35bc4ceb4e00512ccd6c3904bbb839a930d64e6cfe61f9f0b3f8059354690a",
+      "candidate_sha256": "4d35bc4ceb4e00512ccd6c3904bbb839a930d64e6cfe61f9f0b3f8059354690a",
+      "normalized_executable_AST_sha256": "c78feb06381422f94ff692f55e362f496bced49f76a337a20a1d41443b201f63",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a1c7e94f0d23_create_custom_endpoint_table.py",
+      "source_sha256": "07f3bdc5326e593b267d984002b82ab3817d941dffcddf0cfbf689fddcf38844",
+      "candidate_sha256": "07f3bdc5326e593b267d984002b82ab3817d941dffcddf0cfbf689fddcf38844",
+      "normalized_executable_AST_sha256": "3c500e55d4fb0461be2683742ee285f61c6abf777d87de93bb9ea26bb52ca596",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a205678752dc_add_openai_image_token_columns_to_api_.py",
+      "source_sha256": "3bef08af1e46978462ce7a0d0cb485e649e2d147358de7472c7e9c2b9ab0971d",
+      "candidate_sha256": "3bef08af1e46978462ce7a0d0cb485e649e2d147358de7472c7e9c2b9ab0971d",
+      "normalized_executable_AST_sha256": "f28b46c83d20611e603b1a7ed85993824dabded06bb1397d0a011795479ade5a",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a3f1c9b27e54_extend_dedup_to_cancelling.py",
+      "source_sha256": "76e3724e30a79ee9d48f625c7bc84b6fc4ee09ac5b9212e0ad74b21a86dad2c8",
+      "candidate_sha256": "ab83252accc5c5fd87bccc788208119c0126d44b1215d0bd61206a07a839b688",
+      "normalized_executable_AST_sha256": "75c869332cdadb48f939f2fe7f161226979e76cba5ac6468bb1108c0e5e11420",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a7a9749a1ae0_add_max_workers_columns_to_custom_.py",
+      "source_sha256": "4c50ebd8348742b14f2e8798e4b44b267d7ea02f8f9563af95949c5dbfa4d78c",
+      "candidate_sha256": "4c50ebd8348742b14f2e8798e4b44b267d7ea02f8f9563af95949c5dbfa4d78c",
+      "normalized_executable_AST_sha256": "7671deb2325bdbd51a4545bf2d5745e8f1c9bf1b54589d29a6ae8111a464424a",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a7c3e91d4b58_catalog_user_entry_created.py",
+      "source_sha256": "5f64e97b932e2eba28ef426d84529ceac622dd5817f738ed039f0975a2902c17",
+      "candidate_sha256": "1c6623f15e9336aaebe4f6d0bb1ce65b8543412c797efd76126165b6782d40e9",
+      "normalized_executable_AST_sha256": "921c82e08af48952030fef1b70ab0c250bbefab306a24b06d000add3f7695564",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a89021f43d52_add_resolution_to_custom_provider_model.py",
+      "source_sha256": "4a4b79172ed1a33ed89f9a6ac238732423aeb1a6a7a7006b28502ba3768bb334",
+      "candidate_sha256": "4a4b79172ed1a33ed89f9a6ac238732423aeb1a6a7a7006b28502ba3768bb334",
+      "normalized_executable_AST_sha256": "038025606f6b6a396cfc5af76062592782b1bf941673bf38f7e7fdca8615f6d8",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a98bcf8749b2_drop_capability_overrides_on_comfyui.py",
+      "source_sha256": "7db6f073045ea376d8a29a3e38acbdc403896bdd717e7c9c8a90e3f8d27207b7",
+      "candidate_sha256": "89fecfb7e7de0b64aa23fd6e246167f29d724c53448628e470797d2ee9a990a3",
+      "normalized_executable_AST_sha256": "9ff809911de9fe8932a4aef50dfa7ee62afe0901005a3a7537be6292e3729e2d",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/a9c3e5d17b24_api_calls_duration_ms_bigint.py",
+      "source_sha256": "00e6c8e7fbb5258db2c871d65605774e01b8aed62fdde04b8942429e2589f6a8",
+      "candidate_sha256": "2b335cc647ea760b7970067ee7a4eb7f6c6bfa4aefa58bec818e41e4ae1b5262",
+      "normalized_executable_AST_sha256": "1cfcd68302528fb6e080c875f514ce4eda265dbaa99198303dea99c88cda6a60",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 6,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/aefa137b10ad_provider_asset_link_and_relay_object.py",
+      "source_sha256": "65561bf1050090d7d06827e09c9becdc25a2b4cf86acac3c38259214ff9eaec9",
+      "candidate_sha256": "43a51c5c2245c6f8b1bcbb48525dada89effdf4c72fa3a9a787f555bf5de889d",
+      "normalized_executable_AST_sha256": "1bf0dd901d1d2b0a296eb357bdc8098685692462b2143aa2f562156846198fb7",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b25cfcfb8bad_agent_credential_pricing.py",
+      "source_sha256": "66b8541acc68d543ec2816f1b9ebdd1488f122ca315912ea249eb42edd786efa",
+      "candidate_sha256": "b0be424de59c74394e62c2c1701f91e74d346afad329b6fc4f2370d641e01326",
+      "normalized_executable_AST_sha256": "87075cfcc85af7f28e5a06f05edd81ade451a6662f7e5c3b7443aaadd61a87fc",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b3f9c07ae214_split_task_endpoint_and_base_url.py",
+      "source_sha256": "7fc7583751f23f3607b2186350b7ea214af2d08e0026428c685380e0f8d71d08",
+      "candidate_sha256": "c5287cd4bd76cb575a76f5dfd2bfe507155132baa3d09c1235567d8039254e15",
+      "normalized_executable_AST_sha256": "e38adaf6a2125ff56feb401eff283c83c84958e8fb2d28285079db2c31b01cfb",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 11,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b41d7c5e9a02_add_capability_overrides_to_custom_.py",
+      "source_sha256": "f61a5d24b685a93f96d0c572601c84b47502035090422578cd5d20c22bd1f1d5",
+      "candidate_sha256": "98f11f35c32d6ee162d0d4b846429cc9e9aa8659e651beeaf1975a7ecac15ae6",
+      "normalized_executable_AST_sha256": "8653fbc3bf4f373935d947a21328a772717474a26d3e8969a1eb5e16a3d6d340",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b4d8e2a6c931_global_asset_image_content.py",
+      "source_sha256": "5fd5ad783537d1313a5cebed8acd64841cddf32aa81b7a325bfd8c641842b6d4",
+      "candidate_sha256": "490256007b46d832e2eff15e73b1ad78df15b89d267b78a4034e3f060bfd0f89",
+      "normalized_executable_AST_sha256": "dd4a2b0206995a3b132dce745518ba318df93a3e88cdecb10d057f9d373f1de8",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b4e8d2c61a57_create_market_source_table.py",
+      "source_sha256": "da8b2fb3ce3a091551c20d9d58da84f00a5ad6ea334145640dd2242d14105ed1",
+      "candidate_sha256": "da8b2fb3ce3a091551c20d9d58da84f00a5ad6ea334145640dd2242d14105ed1",
+      "normalized_executable_AST_sha256": "5b769168799a2be0915563dd61839a41e7898f8b780f6ce9058f915dd3fc1bb3",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b5d1e8f3a627_catalog_official_sync.py",
+      "source_sha256": "845c8673943e4ab9f204fd48583d81789846445239a16d4955501d3e80a17adc",
+      "candidate_sha256": "e2605d8ac9ded5647951e72fa691787ee67eca121b0b8b28a510538d2d95bffc",
+      "normalized_executable_AST_sha256": "eb093434dbb3828b7be86498f45992192f3b258ce86e11738f69c85363b24374",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b66f6d617e3f_api_calls_generate_audio_no_default.py",
+      "source_sha256": "8b903208b20f162973968b504b279c03382853da8b4bf7f23f64f7da78683b2d",
+      "candidate_sha256": "3d46fdcf84396130e841a081eceee24f7b8630bf6193d384ec72370079586e1e",
+      "normalized_executable_AST_sha256": "48bcab8c4609fe6e9c888b8cf91f5a71207e8b4853660cd9d46a48ff74b90f68",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b7f2a6d91c40_backfill_catalog_user_facts.py",
+      "source_sha256": "828e85fe4cdef9cbf1c91098f44ec4fb649f569a4014bf16652f8aa91daabc9b",
+      "candidate_sha256": "b8437996d80e3e02785dacd1ae231c395da5f343b3e8408107acf6126cce6d86",
+      "normalized_executable_AST_sha256": "ae5165643734a76aff8ac9a44f7e44728b379cad27522d9d82f1b882d66986dc",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 16,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b7f2c41d9a30_collapse_image_backend_buckets_to_default.py",
+      "source_sha256": "ccff609f36857982125a224783dad44553d53ed3f1af5e7271836bac4d54f8d0",
+      "candidate_sha256": "3b735fe951986913b0b35c0105f891708581a85de3c548415a89dd158d6e1a3c",
+      "normalized_executable_AST_sha256": "81a47883fcb9e7d47a76b876d2d7a7cd2906ca6165585cb40b70d2fe7e97a013",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/b942e8c5d545_unify_timestamps_and_add_fk.py",
+      "source_sha256": "6a718ff6b50b91581003a9541017c48a55e73cf439d978e568faacd7721ca1d5",
+      "candidate_sha256": "6a718ff6b50b91581003a9541017c48a55e73cf439d978e568faacd7721ca1d5",
+      "normalized_executable_AST_sha256": "8ec56997ef34c4c8563fef086263c3e22175257f86192a2a23ffdec442939d8e",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/bd25b66f82e8_add_client_key_lookup_index_for_cross_.py",
+      "source_sha256": "2e6da94bc7e316f0354db6cb81f9ad722a672b85d9c048ee6bae0fafa695a79d",
+      "candidate_sha256": "9fdeeb5a5ec428a8c083ec5a18e3dc030cbe8ccddb21d3d257efeb6540e85467",
+      "normalized_executable_AST_sha256": "3445d3c7b5e3d0d9d119a31d7c5bd332794c31f691d039a8cb2825bc5098a81d",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/bda1ff338ff3_add_segment_id_to_api_calls.py",
+      "source_sha256": "07988ef5bff36358d015c5d6fa0ac11c21e39838110fad244321ed18264dd6d9",
+      "candidate_sha256": "07988ef5bff36358d015c5d6fa0ac11c21e39838110fad244321ed18264dd6d9",
+      "normalized_executable_AST_sha256": "07db6259825441f1df394994bf116f1a510c6b5d688aa5d8ac755be6ae2b5e07",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c4a91f7d2b18_add_provider_endpoint_to_tasks.py",
+      "source_sha256": "bff3c1ee219dd36ce1cbd83eec7eb37cf9ae9e62406a6ce08edd53d81d7319db",
+      "candidate_sha256": "bff3c1ee219dd36ce1cbd83eec7eb37cf9ae9e62406a6ce08edd53d81d7319db",
+      "normalized_executable_AST_sha256": "afc6c3466aa0a0b2e23ed1bcb35ec2f43cf06e020c3d87a840763c421e28ee06",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c4e8a1f7b3d2_builtin_model_endpoint.py",
+      "source_sha256": "b1964df736f67a6eb9c25c325482ddbc0e9f36bbff32c0428b378ac6a744bef4",
+      "candidate_sha256": "9dbd7771b431f5d2aebe8cea07e82fe427b3fc50df77d22089b28285b7b2b836",
+      "normalized_executable_AST_sha256": "b008bf159083f848a0f8047b35937de735cfa5502bd1e4d5ffa983873b5af923",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c5a819b247de_create_market_installation_table.py",
+      "source_sha256": "c571be6243eb90ddf0ba68e9bf0ee278bc9da3301ed1c67fa4fdfc5b17901c52",
+      "candidate_sha256": "c571be6243eb90ddf0ba68e9bf0ee278bc9da3301ed1c67fa4fdfc5b17901c52",
+      "normalized_executable_AST_sha256": "ff2403fa42bb891c7069ff810e07d41f86084893d0887ff833b6492746be40b2",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c5f2a8d61e93_add_path_overrides_to_custom_provider_model.py",
+      "source_sha256": "c29823db84dda2b88217fee606d86d902557cf4793ccf6329f111b28399d810c",
+      "candidate_sha256": "d79d7f17a2451651d193306964994ffda79a4eb5f1ac073cab12a6312852d313",
+      "normalized_executable_AST_sha256": "50410b1e1f193f0ef118fabec8bf996f16f438c6571e69d0432f7904a2146c16",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c7e2a9d4b6f1_custom_model_catalog_pricing.py",
+      "source_sha256": "931638795982740d135a34ff7febb6b1e6cfca62488b3c7a8ccf2808d307c1b3",
+      "candidate_sha256": "4ac6425dad8f748fca9254b31a532d2744abca666c904591cdb083961128a335",
+      "normalized_executable_AST_sha256": "d9ccbb9c3d41b000308b498e889befcb7babbad6f2c81b8224823382ef52b5f4",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 6,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c8e2a4f61b93_object_storage_and_asset_library.py",
+      "source_sha256": "15ab73dc352169357d5d84701051726e4122903a2638f98ffa9e18c0cd765221",
+      "candidate_sha256": "91b311a93722e6527dcf7ddc6633720acc336eb264b3b25178a3c94f819ca3e5",
+      "normalized_executable_AST_sha256": "1f9ed6737e6ffe7d7dad34b295f24f3daac7c10e4beb46dfa000c136d4baaabc",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c9b24204c0de_add_supported_durations_to_custom_.py",
+      "source_sha256": "a2041d583ee1b28f804dbc59a811f439955b985840412ab432b79aa317b9fd5a",
+      "candidate_sha256": "a2041d583ee1b28f804dbc59a811f439955b985840412ab432b79aa317b9fd5a",
+      "normalized_executable_AST_sha256": "42ccfc10120ac3ae4455fc73d0b86d0d97c00cb9caa003a3a89582329a577ee9",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/c9fcbd98e62c_normalize_agent_credential_base_url.py",
+      "source_sha256": "d80d8bf5d9cd9c86bfa170db6608cfce054e7af32bfe43e1d6a35e9a4ebcff00",
+      "candidate_sha256": "30a0373cb43e01e6bebc818a5eebcbdfb239c42afb83314bab8e8725fa0d6ec1",
+      "normalized_executable_AST_sha256": "a0a7aa95be3ecb4f251266ad6f3520ba2a097f87f7fc4a57b6afd7a0cd4a07f3",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/d10f1df40f96_add_audio_path_to_assets.py",
+      "source_sha256": "7a482dc29046e67105534211d2d07b414c401bdd9dfae99788dbb13c145d5da9",
+      "candidate_sha256": "7a482dc29046e67105534211d2d07b414c401bdd9dfae99788dbb13c145d5da9",
+      "normalized_executable_AST_sha256": "e65858a53c0b3dcdf59ecdadb6f8d4a706eb8ac500117ba3d0d6e99cc270e310",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/d4e8a1f6c392_api_calls_nullable_cost_and_cache_columns.py",
+      "source_sha256": "a71caa069e58d77ef21f5abb9b11e3b0ba5dfba62ca55a9309ce48fef17e99da",
+      "candidate_sha256": "ebe538c19fe1f426ecf6ef347d04915d2e08652b7cc6349a8ee6ae231bafa4ed",
+      "normalized_executable_AST_sha256": "486578ac455cf497a8fed7ca5956ae135b91b206f1fb5138f2b40e3a040fbb58",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 4,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/d4f8b1c73a20_add_submitted_base_url_to_tasks.py",
+      "source_sha256": "38be83839a6cd5dc7a04b1b79471c8d43c7034565430a445101331c880e5fd1e",
+      "candidate_sha256": "38be83839a6cd5dc7a04b1b79471c8d43c7034565430a445101331c880e5fd1e",
+      "normalized_executable_AST_sha256": "6d72bb9e7fd577420d1265b2895d5233a47bfcf2a58c78c998055546f825f0b6",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/d5a9c3e71f28_object_storage_connection_singleton.py",
+      "source_sha256": "2eaff15950e459ebf4d6dec3409b3997c35f720386ad744394be5be38b0c538d",
+      "candidate_sha256": "ab96c5691e8ac7faa84a9037beb5031147ce4a8857423832c594b3633bb69106",
+      "normalized_executable_AST_sha256": "c89c2bda3dccc41133921fa9e8dd90464c206d752216d646bb1e3aa737c4045b",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/d67efd76058f_create_assets_table.py",
+      "source_sha256": "8a10405381e6ff4b83b32a5631aac8f07104b3f9fe51f7cebb498e3c71828844",
+      "candidate_sha256": "8a10405381e6ff4b83b32a5631aac8f07104b3f9fe51f7cebb498e3c71828844",
+      "normalized_executable_AST_sha256": "c957e94b6a43f1c246582944034cd4b7aeddc4992e12481a17bf8964026f291f",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/d7e4a2c95b10_create_market_submission_table.py",
+      "source_sha256": "fb1c7a0061414d717480e50957b9b41cd73fdd4136f3a7ee39e69484515c3dbf",
+      "candidate_sha256": "fb1c7a0061414d717480e50957b9b41cd73fdd4136f3a7ee39e69484515c3dbf",
+      "normalized_executable_AST_sha256": "2cc17f12bc817757f22ac81a593d6508bd37e229d5d2c82500fe198532b0aa16",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/e13e987e2170_add_provider_config_and_system_setting_.py",
+      "source_sha256": "e2ebea8a52e223d3ad8c562e55b8d32a124f901617474d35202383b0065e4222",
+      "candidate_sha256": "e2ebea8a52e223d3ad8c562e55b8d32a124f901617474d35202383b0065e4222",
+      "normalized_executable_AST_sha256": "62170f7625d99eb5c5ba8cebb0a044d445ad39fb0f3c9791e1990b115c9c3b76",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/e167b56a3e79_add_resource_type_column_to_tasks_for_.py",
+      "source_sha256": "74cbea7957399cc6a52e40fa09b04ed25f73b2cfba5786067855855d96b35d40",
+      "candidate_sha256": "60bdce2367722f9b6d19870be5fcb1722ebcd25c73bd46932f0f75022a93ea9d",
+      "normalized_executable_AST_sha256": "cfba290d55344e16777bb7e59ef17ef8f37a2065cab8f13ac36bdfc40307bc65",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/e3a7c91f5d24_builtin_provider_model.py",
+      "source_sha256": "f9a78603a0719db60cd457d5ba7a2d317c47a584801776101475a58b706ee3aa",
+      "candidate_sha256": "a3de1ebcdd1db85a6ec9e2839daa825aa3b508843090b30f4ffc23b6fce7b6e9",
+      "normalized_executable_AST_sha256": "de25f865c15d56f82c5f3e36f71f0d579e48f3eb9627f7bdff9e2f6564388dac",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/e3b81f6c4a27_add_max_output_tokens_to_custom_provider_model.py",
+      "source_sha256": "f90ecb7a12704d80cc291e0a61044a534e9f3dfccdefce0e8a529767e4f5854a",
+      "candidate_sha256": "f90ecb7a12704d80cc291e0a61044a534e9f3dfccdefce0e8a529767e4f5854a",
+      "normalized_executable_AST_sha256": "70030cce5b19da6bd08c9f74c766d2e4e82b18260bbcdc1d58c66bce8249d14c",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/e3b9c4d27a61_provider_asset_link_account_identity.py",
+      "source_sha256": "0e39b1909322045b57639c0eb6c8b753e78c6ecf200aee845b4b1423ccf00c76",
+      "candidate_sha256": "84479a3407ab1a1f510973de4c79e77b2480e8aaa5fab482134ac58d386bb0a5",
+      "normalized_executable_AST_sha256": "62924cb824003e17d5af2a5896c8416b963f9dffa905958be7259c70a9b96ba8",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 4,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/e5b1c9a3d7f2_split_seedance_endpoints.py",
+      "source_sha256": "f0fbe193bd0d4d8f4b87e7570f2c4a220e00b2b0dfa02f740fde79b870a711e8",
+      "candidate_sha256": "a78a74a76f36a0afb93be529d24db7294f902a1c153f27183d5ea16fd3647efa",
+      "normalized_executable_AST_sha256": "e187c906f17028cd3218a8469823ad6dda54f2406c5caf6f0afffeeeb66e6aaa",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/ea2e1a477bbf_add_users_table_and_user_id_to_models.py",
+      "source_sha256": "95ac676ec5a41557135a62a40b7170e0b0171dd49da2f853f05a0da71cddee4f",
+      "candidate_sha256": "a907801676e5fbb7d9a8a69ddebd4cc8cbe7076987627f63a5c6e802eb3a8655",
+      "normalized_executable_AST_sha256": "7be176766876b14a9ce29f7552a5a505d37812f7bb6faa3ae4b48910430f02a4",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/ecbb53758daa_add_api_keys_table.py",
+      "source_sha256": "d06ae42fd37ea0e34744a484a3ba6e69a05be3007450d0d88a068fa2fca94f39",
+      "candidate_sha256": "d06ae42fd37ea0e34744a484a3ba6e69a05be3007450d0d88a068fa2fca94f39",
+      "normalized_executable_AST_sha256": "d01394e97a9e6550eea684e8863dde53738d67002cb788e10e88ac68d86af11f",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/eedf0aa985e6_add_session_store_tables.py",
+      "source_sha256": "037aed204919a1d72845e78462b92eea60f3ba7cabe6fa7ab022194fff492f47",
+      "candidate_sha256": "037aed204919a1d72845e78462b92eea60f3ba7cabe6fa7ab022194fff492f47",
+      "normalized_executable_AST_sha256": "711a15894a5e014e593a8967c586505a1751988b787d5511c657cc62ee4c4272",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f3d21ac90b17_add_session_event_log_table.py",
+      "source_sha256": "333f37393d5e51900494ae11bcdb17a2d14b9c9351e56b0b49b187807ddf4a9e",
+      "candidate_sha256": "333f37393d5e51900494ae11bcdb17a2d14b9c9351e56b0b49b187807ddf4a9e",
+      "normalized_executable_AST_sha256": "8a1d41f6c0281dfe27641f7426f971272acc982656e22b9d8c9f2495da585bb4",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f4b8d2a6c913_catalog_user_entry.py",
+      "source_sha256": "7fd28be9551a9da0d83f02521df625b23783c8a229c4f87bd6bfae7034fd62bb",
+      "candidate_sha256": "8b0740d147538a320bbc48a5e2ae11ac39715fbad44ab20df2b65dee281add93",
+      "normalized_executable_AST_sha256": "de96335339b45db6e0b450238d89f1817e111a69e4cb857c9fbe139e74dc10de",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f6a2d8c4b901_split_image_endpoints.py",
+      "source_sha256": "74c26c1fb0eef9d831d68d54c41d85ab63d34a899aeed58e908c967e68a0761b",
+      "candidate_sha256": "1dbc1f0c6381ce302e1993abe1738e994a9a055de9331f71e66522585ef78392",
+      "normalized_executable_AST_sha256": "fbc813d00d43808b2652f8ee1eb407fdc238ebd4e29cae2c85620ea9fc08ead5",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f6a41746c0de_add_execution_checkpoint_to_tasks.py",
+      "source_sha256": "5110134550af066c9b5f0979b46f5952b87e50b3b8c2805e2015c362827237c6",
+      "candidate_sha256": "5110134550af066c9b5f0979b46f5952b87e50b3b8c2805e2015c362827237c6",
+      "normalized_executable_AST_sha256": "32a8fb7bfeacede6967f5c4a681a354af42b5002ca9b208cb199f6edd331a752",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f6c2d8a4b901_split_video_request_profiles.py",
+      "source_sha256": "601286961cd582699d9d554516450fa86dfcff85466460f253fd04a2e3a70140",
+      "candidate_sha256": "c4ac6fef714aa92fc31bf2b96ce7a9947317dae5b1ab08d2402f99b1281e2a07",
+      "normalized_executable_AST_sha256": "5d28d8e10e0e393f7270153ed876fe9d3f4caa502f388f95a6e856491a16f13c",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f6d2a8c4b931_split_video_request_endpoints.py",
+      "source_sha256": "00b9e09f3f6008125507797d5a4aea5db79308837402f6ec03aac00b94a86936",
+      "candidate_sha256": "3df111f326a4f6b4c1e55a33303b5eb00ac0704f3f79871f4c3c7fc33327a060",
+      "normalized_executable_AST_sha256": "ef13f2446dc8bc936841158ba967a25948e33c46cf4eb3f99d3b36bfe5c54a62",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "alembic/versions/f7c3a9d15e42_object_storage_formal_objects.py",
+      "source_sha256": "95112688be87aed45728457daff36a0b2bac89a243bea1daadb1573188a4e917",
+      "candidate_sha256": "e5066aa13b11c18688ff2aa6ebbd9b604af619504e6039ad5cbe67fafbdf6e3f",
+      "normalized_executable_AST_sha256": "497f210f622eef09aae61957a795d57fe3587f24dbb6d9ec0543739a711d3b68",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": null
+    },
+    {
+      "path": "scripts/__init__.py",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normalized_executable_AST_sha256": "ad2e13b69c4fc1fda46413f740f426fc1793cfc6d6da8d226ba619f1aef48be7",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "scripts/audit_tests.py",
+      "source_sha256": "6b5a185807b7feaeb9b18bfd04107f61b5cdb80c44dca5378bb693230df724cd",
+      "candidate_sha256": "0a9bfc80a8b1a52a56cf398f42090eb3a6ee319438e6b2db99bc6589e5746220",
+      "normalized_executable_AST_sha256": "fe79e7537de5085d16f1350599839bbf9a0a56f0340dc8a11ca42b4be1ae833c",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 94,
+      "exception": null
+    },
+    {
+      "path": "scripts/decorator_census.py",
+      "source_sha256": "6a8c7d767c2093c14c5bec89fc167be1c1957237b026638518a71613cd99694b",
+      "candidate_sha256": "916166d2ff7fd39e0462cb642666568963a0090275ae15cb84118e07d09e68e5",
+      "normalized_executable_AST_sha256": "93321f356eb5d14877f942c248a824f0cf5d36b31d47a71b6965b9a9b8993955",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 8,
+      "exception": null
+    },
+    {
+      "path": "scripts/fixtures/reference_video/__init__.py",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normalized_executable_AST_sha256": "ad2e13b69c4fc1fda46413f740f426fc1793cfc6d6da8d226ba619f1aef48be7",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "scripts/fixtures/reference_video/generate_fixtures.py",
+      "source_sha256": "4e712122d096a95a015c98148210a6f6ea711b5d7e91757384ba0b77811f0777",
+      "candidate_sha256": "9fa21a5c58d64a907e6ceacbed0d11386600f94dbad4abb581c9b82a42fde756",
+      "normalized_executable_AST_sha256": "cace68f7770ed50115a0cf90aeddc22843c09f777325ede96582774d9ae32099",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "scripts/generate_price_vocabulary.py",
+      "source_sha256": "40a139414af0175ce045dece95e5cb4c6af0b375dfdee96136585add7d2f5b7e",
+      "candidate_sha256": "705a0352034b9ccf5cf97c10924ca07288fda9238cd872f34a3f3f62bcc1e82f",
+      "normalized_executable_AST_sha256": "48d5b0871cdec1561f154b55948499cfce94fb58a0db246c75a20047c46b81bf",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 1,
+      "exception": "Four traced generated-comment literals normalized separately"
+    },
+    {
+      "path": "scripts/generate_style_thumbnails.py",
+      "source_sha256": "5eb659f7457b8fb4f391eb3400bdcc8f31123af8145269b82e34ea57aeb3648d",
+      "candidate_sha256": "f06c60a248c76b63557392c8e03dbd74f39fc15b60737e011299ea3d8263a9bc",
+      "normalized_executable_AST_sha256": "fc6f6de247b42899de0e9808072ab3dbdfb919687cbb351aa49529692f94f5d6",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "scripts/market.py",
+      "source_sha256": "611dfb06c4777b1ea2d9190eae344d0afde2ca9a7952e578d788829da7f8bd6a",
+      "candidate_sha256": "83a05283971e82f662c96d7fb14bcaf280cc1c748ee30f966f18f15bc0963e49",
+      "normalized_executable_AST_sha256": "dffced193e9448673cec85b4fe8183b5b1c723520f9eee9d6653487e5affbc5b",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 2,
+      "exception": null
+    },
+    {
+      "path": "scripts/migrate_clean_redundant_fields.py",
+      "source_sha256": "aab1de6456172d0416e39e2e477e5d45abae7adc1968a3ba4b96e08e03c346ce",
+      "candidate_sha256": "ea16ba5d3a1a7ecbf80d666fa7f50215cacd010c5c0404376b25ed8816b0f11a",
+      "normalized_executable_AST_sha256": "0a70432205e0e106d0f08a343ea5214b675bcc2b84dd84c3b336b6b283119207",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 8,
+      "exception": null
+    },
+    {
+      "path": "scripts/migrate_sqlite_to_orm.py",
+      "source_sha256": "a40517a2540254590d0df9e62803bffc98feed394db303119cca17fda41aa195",
+      "candidate_sha256": "a40517a2540254590d0df9e62803bffc98feed394db303119cca17fda41aa195",
+      "normalized_executable_AST_sha256": "acd329aed508ca18485daceaabb8e370fcebd518233dda14b5a2a9592eebbcf6",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "scripts/migrate_to_project_json.py",
+      "source_sha256": "331710296b953e780855aee892de0f1f9a96b63a1acc0dea1c893b023e4c04ce",
+      "candidate_sha256": "389f232c977fa8c5f4da5a6b71e92a9b2de836bb4ebe62135be3f7626bec877f",
+      "normalized_executable_AST_sha256": "43a79c568ed701fad0c19a1958c5c466127686e17e1b5a9d0e023a6a6c00c551",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 20,
+      "exception": null
+    },
+    {
+      "path": "scripts/mutmut_compare.py",
+      "source_sha256": "b88a73b188202203be2e091fc68ebc3409ad9b1b6fce691740344b8a2617da2b",
+      "candidate_sha256": "bf4878fbae7b4ecdd22fb8528856713d4974407f828d772fc0782436da34707d",
+      "normalized_executable_AST_sha256": "dd2deca6b7fa5870cd3ad8667cbc34f9b0f50b5e38e724c598d6668a6901d28f",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 7,
+      "exception": null
+    },
+    {
+      "path": "scripts/perf/__init__.py",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normalized_executable_AST_sha256": "ad2e13b69c4fc1fda46413f740f426fc1793cfc6d6da8d226ba619f1aef48be7",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 0,
+      "exception": null
+    },
+    {
+      "path": "scripts/perf/bench.py",
+      "source_sha256": "a85da1976d10ff5f088e3214bc0f803a38a1e43219e638ce51fe3aa586f870cc",
+      "candidate_sha256": "a3a679178919208a7a84c040c4f13a5f07841c424ef2cdfd1f551b90522357c1",
+      "normalized_executable_AST_sha256": "6fcafb6141a92b7c4143c09b50432a3b439e36bb4c7829472953676154feecad",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 23,
+      "exception": null
+    },
+    {
+      "path": "scripts/perf/harness.py",
+      "source_sha256": "ffa4dd6767d2fdf4c7c7df801eecba092f3894784b2d4a1bbf161cc334a1b65c",
+      "candidate_sha256": "c3187c0ec347e3e66e89983006c8aff6f4c8f1b6f8a655cb1b4b8f1166ac8521",
+      "normalized_executable_AST_sha256": "c236bd79c4c2f594c2aac9109610bc6bfe43be15992b16ce5bbdbe9ad387a619",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 33,
+      "exception": null
+    },
+    {
+      "path": "scripts/probe_smoke.py",
+      "source_sha256": "db2daa85bc5e8ea6b3ad6a0382ed4cb2a70108a9957900755106905afc326e86",
+      "candidate_sha256": "d8b6901512997041e1f10f7a69820a7a3187d57d1c259a32c5cb0ddcb8b0ce2e",
+      "normalized_executable_AST_sha256": "327abb5c79175a223825261459ffe380348b3acd25a178d55bb394518f00201b",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 3,
+      "exception": null
+    },
+    {
+      "path": "scripts/project_status_sync.py",
+      "source_sha256": "750aeb9e21fbe250fd32c93686adcf827b28ec2fdbdef2505b1ee717313f50aa",
+      "candidate_sha256": "496187d75b883df15fe7a48b3be154a0c11a05f80a9139b7c9e139a90641ee67",
+      "normalized_executable_AST_sha256": "ee3baa3400dedf903b9d91a6c8539ad1c0c52a1df35369246bcc114e823e5aeb",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 8,
+      "exception": null
+    },
+    {
+      "path": "scripts/verify_reference_video_sdks.py",
+      "source_sha256": "70d2040749e6b94eb23c0a0fda6207bad8c2c813537e6bbb22acbdb0e5f58de8",
+      "candidate_sha256": "63930adf312e23aa0fd8ecd44d68f8c91873f391f956ea0b480ef16048da1021",
+      "normalized_executable_AST_sha256": "7b59d5165866491e1405ba147b3213840972e65e23e547b77fc86bd6b51342bb",
+      "executable_AST_equal": true,
+      "functional_comment_directives_equal": true,
+      "translated_passive_spans": 9,
+      "exception": null
+    }
+  ],
+  "shell_JS_files": [
+    {
+      "path": ".agents/skills/update-docs/scripts/collect-changes.sh",
+      "source_sha256": "810dcedf7276da35025a3162097c67276d535f1643f52fb717abf1754c17fa11",
+      "candidate_sha256": "a1c9d473a690064898a7faf0d0bc70069adcc6684890e4d948ec4740a913f3be",
+      "noncomment_lines_sha256": "6afa7a701e10ba006400c08a258c066a1f68e36cf2ee3b205915f02029e23825",
+      "noncomment_lines_equal": true,
+      "functional_directives_preserved": true
+    },
+    {
+      "path": ".claude/skills/translate-docs/scripts/translation-lock.mjs",
+      "source_sha256": "42cf1703747b5618e9cfd1d042821acc1cd03eed3277638e609d6214e73f4454",
+      "candidate_sha256": "e23fa0134c0142ee5c44b1bed61cfa63bbbf25cf1a6a64f405dc96e81526d3a1",
+      "noncomment_lines_sha256": "42e2bb3f55204ab89a7466cf766163212f6c5549b4dbf70263869081d41e3fae",
+      "noncomment_lines_equal": true,
+      "functional_directives_preserved": true
+    }
+  ],
+  "preserved_passive_Han_exceptions": [
+    {
+      "path": "alembic/versions/e167b56a3e79_add_resource_type_column_to_tasks_for_.py",
+      "line": 33,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "alembic/versions/e167b56a3e79_add_resource_type_column_to_tasks_for_.py",
+      "line": 69,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "scripts/audit_tests.py",
+      "line": 2,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "scripts/audit_tests.py",
+      "line": 993,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "scripts/decorator_census.py",
+      "line": 2,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "scripts/migrate_to_project_json.py",
+      "line": 2,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "scripts/perf/bench.py",
+      "line": 159,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    },
+    {
+      "path": "scripts/perf/harness.py",
+      "line": 419,
+      "classification": "preserved_literal_example_or_placeholder",
+      "reason": "Original cultural asset name, machine/path/command placeholder, or inline diagnostic/patch-target example; surrounding prose is English."
+    }
+  ],
+  "executable_Han_strings": "Preserved under explicit assignment invariant; includes CLI messages, historic compatibility values, locales and test fixtures. These are not claimed translated.",
+  "tests": [
+    {
+      "command": "uv run pytest tests/integration/lib/db/migrations/ -q",
+      "result": "130 passed, 122 warnings in 89.43s",
+      "warning": "Existing unsupported expression-index reflection warnings."
+    },
+    {
+      "command": "uv run pytest tests/unit/scripts/test_mutmut_compare.py tests/unit/scripts/test_decorator_census.py tests/unit/scripts/test_market.py tests/unit/scripts/test_audit_tests.py tests/unit/scripts/test_project_status_sync.py tests/unit/scripts/test_generate_price_vocabulary.py tests/unit/scripts/test_verify_reference_video_sdks.py -q",
+      "result": "129 passed, 1 warning in 3.35s"
+    },
+    {
+      "command": "node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs .claude/skills/translate-docs/scripts/ui-messages.test.mjs",
+      "result": "21 passed"
+    },
+    {
+      "command": "bash -n .agents/skills/update-docs/scripts/collect-changes.sh",
+      "result": "passed"
+    },
+    {
+      "command": "uv run ruff check alembic scripts",
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run ruff format --check alembic scripts",
+      "result": "104 files already formatted"
+    }
+  ],
+  "paid_or_real_project_actions": "No migration scripts, benchmark, probes, media generators, uploads, remote syncs, or external messaging executed; tests use isolated fixtures.",
+  "additional_document": {
+    "path": "scripts/perf/README.md",
+    "source_sha256": "34e7322f1474e9aac891874c705d0e201762d9f6aa47e175905ccee1bec8038d",
+    "candidate_sha256": "00de186e7a9a5335a62119b8bada0e56cbf903b8864fe34b73cb6a3cccff5d7f",
+    "inline_literals_and_heading_list_table_paragraph_counts_equal": true
+  }
+}

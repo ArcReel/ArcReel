@@ -1,4 +1,4 @@
-"""lib.backends.ark_shared 纯函数单元测试（不打真实 HTTP）。"""
+"""Pure lib.backends.ark_shared tests, without real HTTP."""
 
 from __future__ import annotations
 
@@ -26,15 +26,15 @@ class TestBaseUrlNormalization:
         assert ark_base_url(ARK_BASE_URL) == ARK_BASE_URL
 
     def test_whitespace_falls_back_to_default(self):
-        # 纯空白 base_url 是真值会绕过 or，须 strip 后回落默认值
+        # Truthy whitespace base_url strips before default fallback.
         assert ark_base_url("   ") == ARK_BASE_URL
 
     def test_surrounding_whitespace_stripped(self):
         assert ark_base_url("  https://ark.cn-beijing.volces.com/api/v3/  ") == ARK_BASE_URL
 
     def test_non_standard_path_preserved(self):
-        # ark-agent-plan 走 /api/plan/v3 这类非标准路径，只去尾斜杠，不按已知后缀重建，
-        # 否则会拼出 .../api/plan/v3/api/v3 这种错误 URL。
+        # ark-agent-plan uses nonstandard /api/plan/v3; trim trailing slashes without rebuilding known suffixes,
+        # avoiding duplicated .../api/plan/v3/api/v3 URLs.
         custom = "https://ark.cn-beijing.volces.com/api/plan/v3"
         assert ark_base_url(custom) == custom
         assert ark_base_url(custom + "/") == custom
@@ -55,7 +55,7 @@ class TestApiKeyResolution:
 
 @contextmanager
 def _recorded_ark_sdk() -> Generator[list[dict[str, Any]]]:
-    """Ark SDK 类构造的记录器：收下建客户端的参数，回一个空替身。"""
+    """Ark SDK constructor recorder captures arguments and returns empty substitutes."""
     created: list[dict[str, Any]] = []
 
     def _create(**kwargs: Any) -> Any:

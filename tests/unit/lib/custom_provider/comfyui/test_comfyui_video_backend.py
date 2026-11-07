@@ -1,4 +1,4 @@
-"""ComfyUI 视频通道：上传、提交、轮询、产物入库、续跑、叫停远端与八个失败码。"""
+"""ComfyUI video channel: upload, submit, poll, artifact ingestion, resume, remote interruption, and eight failure codes."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _video_output(filename: str = "final_00001.mp4") -> dict[str, Any]:
 
 
 def _entry(status: Any, outputs: dict[str, Any] | None = None) -> dict[str, Any]:
-    """一条终态记录，``status`` 原样放进去（``None`` 也是一种现实形状）。"""
+    """A terminal record preserving ``status`` unchanged (``None`` is also a real-world shape)."""
     return {"status": status, "outputs": outputs if outputs is not None else {}}
 
 
@@ -88,16 +88,16 @@ def _messages(*events: Any) -> dict[str, Any]:
 
 
 def _cancel_here(_request: httpx.Request) -> httpx.Response:
-    """让这一条路由的请求撞上一次任务取消。
+    """Make a request on this route encounter task cancellation.
 
-    ``CancelledError`` 继承 ``BaseException``，respx 的异常型 ``side_effect`` 只收 ``Exception``，
-    故经可调用的那一路抛。
+    ``CancelledError`` inherits ``BaseException``; exception-valued respx ``side_effect`` accepts only ``Exception``,
+    so raise through its callable path.
     """
     raise asyncio.CancelledError
 
 
 def _queue(*, running: Sequence[str] = (), pending: Sequence[str] = ()) -> dict[str, Any]:
-    """``/queue`` 的形状：条目是 ``[序号, prompt_id, prompt, 待执行节点, 额外数据]``。"""
+    """``/queue`` shape: entries are ``[序号, prompt_id, prompt, 待执行节点, 额外数据]``."""
     return {
         "queue_running": [[index, job, {}, [], {}] for index, job in enumerate(running)],
         "queue_pending": [[index, job, {}, [], {}] for index, job in enumerate(pending)],
@@ -105,7 +105,7 @@ def _queue(*, running: Sequence[str] = (), pending: Sequence[str] = ()) -> dict[
 
 
 def _with_image_bindings() -> dict[str, Any]:
-    """在最小定义上补首帧与两个参考图格子，把上传那一段带进来。"""
+    """Add a first frame and two reference-image slots to the minimal definition to include upload coverage."""
     definition = comfyui_endpoint_definition()
     definition["workflow"]["10"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
     definition["workflow"]["11"] = {"class_type": "LoadImage", "inputs": {"image": "ref-a.png"}}
@@ -120,15 +120,15 @@ def _with_image_bindings() -> dict[str, Any]:
 
 
 class TestDeclaredCapabilities:
-    """backend 自己那份能力声明，以及生成前的能力闸门读到的是哪一份。"""
+    """The backend's own capability declaration and the declaration read by the pre-generation capability gate."""
 
     @staticmethod
     def _gate(definition: dict[str, Any], *, has_image: bool) -> VideoCapabilities:
-        """照生产那条路取能力：工厂建包装层 → 档位查询 → 闸门。
+        """Obtain capabilities as production does: factory-built wrapper, tier query, then gate.
 
-        包装层的档位查询刻意不短路回工厂注入的合成结果，而是以被包装 backend 的声明为基底
-        （``CustomVideoBackend.video_capabilities_for_tier``）。backend 少宣称一位，闸门就会在请求
-        到达 ``generate`` 之前把它挡掉。
+        Wrapper tier queries intentionally avoid short-circuiting to factory-injected combined results, instead using the wrapped backend
+        declaration as their base (``CustomVideoBackend.video_capabilities_for_tier``). If the backend omits a flag, the gate blocks
+        the request before it reaches ``generate``.
         """
         spec = endpoint_spec_from_row(cast("Any", SimpleNamespace(id=7, definition=definition)))
         provider = SimpleNamespace(provider_id="custom-1", base_url=BASE_URL, api_key="")
@@ -165,7 +165,7 @@ class TestDeclaredCapabilities:
 
 class TestGenerate:
     async def test_a_generation_uploads_submits_polls_and_stores_the_artifact(self, tmp_path: Path):
-        """端到端一条：素材回填 → 提交 → 轮询 → 产物落到 output_path，溯源随结果回来。"""
+        """End-to-end: fill materials, submit, poll, and write the artifact to output_path; return provenance with the result."""
         definition = _with_image_bindings()
         start = tmp_path / "first.png"
         start.write_bytes(b"png-bytes")
@@ -188,7 +188,7 @@ class TestGenerate:
                     httpx.Response(200, json={"p-1": _history({"9": _video_output()})}),
                 ]
             )
-            # 空态那一轮顺手确认这次执行还在队列上，否则一台重启过的 ComfyUI 只会让轮询空转到超时。
+            # On an empty round, also confirm the execution remains queued; otherwise a restarted ComfyUI would only poll emptiness until timeout.
             queue = router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json=_queue(pending=["p-1"])))
             view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
@@ -201,7 +201,7 @@ class TestGenerate:
         assert upload.call_count == 2
         assert history.call_count == 2
         assert queue.call_count == 1
-        # 引用值取响应里的 subfolder / name，不是请求里的——服务端会为重名改名。
+        # Use response subfolder / name, not request values; the server renames collisions.
         submitted = request_json(submit.calls.last.request)["prompt"]
         assert submitted["10"]["inputs"]["image"] == "arcreel/task-7-start_image.png"
         assert submitted["11"]["inputs"]["image"] == "arcreel/task-7-reference_images-1.jpg"
@@ -218,7 +218,7 @@ class TestGenerate:
         ]
 
     async def test_the_version_metadata_gets_the_actual_seed_and_the_workflow_fingerprint(self, tmp_path: Path):
-        """两者都只有生成过一次才知道：种子是提交那一刻现随机的，指纹是那份实发 workflow 的。"""
+        """Both become known only after generation: randomize the seed at submission and fingerprint the actual submitted workflow."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             submit = router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -233,7 +233,7 @@ class TestGenerate:
         assert result.provenance == {"workflow_sha256": workflow_sha256(sent)}
 
     async def test_an_unbound_duration_is_forwarded_untouched(self, tmp_path: Path):
-        """``frames`` 未绑定即时长不由 ArcReel 驱动：照常提交，帧数保持 workflow 字面值。"""
+        """Without a ``frames`` binding, ArcReel does not drive duration: submit normally and preserve the workflow's literal frame count."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             submit = router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -274,7 +274,7 @@ class TestGenerate:
         assert not router.calls
 
     async def test_a_root_level_history_entry_is_accepted(self, tmp_path: Path):
-        """两种形状都得认：不同版本与代理各回一种，只认包裹那种会让另一半部署永远等不到终态。"""
+        """Recognize both shapes returned by different versions/proxies; recognizing only the wrapped shape leaves other deployments waiting forever for terminal state."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -309,7 +309,7 @@ class TestGenerate:
             assert route.calls.last.request.headers["authorization"] == "Bearer k-1"
 
     async def test_query_credentials_ride_every_route_too(self, tmp_path: Path):
-        """按 query 传凭证的反代同样要认：拼进每一条路由的 URL，不只是头那一张表。"""
+        """Support reverse proxies passing credentials in query parameters: add them to every route URL, not only the header table."""
         definition = _definition(auth={"query": {"token": "{{api_key}}"}})
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -323,15 +323,15 @@ class TestGenerate:
 
         for route in (submit, history, view):
             assert route.calls.last.request.url.params["token"] == "k-1"
-        # 产物地址自己的三个参数不被凭证挤掉。
+        # Credentials must not displace the artifact URL's own three parameters.
         assert view.calls.last.request.url.params["filename"] == "final_00001.mp4"
 
     @pytest.mark.parametrize("route", ["upload", "submit", "history", "view"])
     async def test_a_cross_origin_redirect_never_takes_the_credential_along(self, tmp_path: Path, route: str):
-        """反代把某条路由 302 到别处时凭证不许跟过去。
+        """Credentials must not follow a reverse proxy's 302 redirect to another destination.
 
-        httpx 的 follow_redirects 跨源只摘 ``Authorization``，而 auth 节允许任意头名——交给它
-        自动跟随，一次指向对象存储的 ``/view`` 跳转就会把 ``X-API-Key`` 送进第三方的访问日志。
+        httpx follow_redirects removes only ``Authorization`` across origins, while auth allows arbitrary header names. Automatic
+        following would send ``X-API-Key`` into third-party access logs on a ``/view`` redirect to object storage.
         """
         definition = _with_image_bindings()
         definition["auth"] = {"headers": {"X-API-Key": "{{api_key}}"}}
@@ -376,7 +376,7 @@ class TestGenerate:
         followed = moved_post if route in {"upload", "submit"} else moved_get
         assert followed.call_count == 1
         assert "x-api-key" not in followed.calls.last.request.headers
-        # 同源那一跳仍要带上，否则套了反代的部署一条都发不出去。
+        # Same-origin redirects still need credentials, or reverse-proxy deployments cannot send any requests.
         assert upload.calls.last.request.headers["x-api-key"] == "secret"
 
     async def test_view_redirect_to_a_link_local_address_is_not_followed(self, tmp_path: Path):
@@ -412,7 +412,7 @@ class TestGenerate:
         assert not request.output_path.exists()
 
     async def test_a_same_origin_redirect_keeps_the_query_credential(self, tmp_path: Path):
-        """``Location`` 整串替换查询串，凭证不补回就会在一次 ``/view`` → ``/view/`` 规范化跳转上丢掉。"""
+        """``Location`` replaces the whole query string; reapply credentials or lose them on a ``/view`` → ``/view/`` normalization redirect."""
         definition = _definition(auth={"query": {"token": "{{api_key}}"}})
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -430,7 +430,7 @@ class TestGenerate:
         assert moved.calls.last.request.url.params["token"] == "k-1"
 
     async def test_an_empty_api_key_leaves_the_auth_section_unrendered(self, tmp_path: Path):
-        """ComfyUI 原生无鉴权：发一个空的 ``Bearer `` 只会让反代以 401 拒掉本该放行的请求。"""
+        """Native ComfyUI has no auth: an empty ``Bearer `` only makes reverse proxies reject otherwise allowed requests with 401."""
         definition = _definition(auth={"headers": {"Authorization": "Bearer {{api_key}}"}})
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -462,7 +462,7 @@ class TestFailures:
         assert submit.call_count == 0
 
     async def test_node_errors_on_a_200_fail_the_task_without_polling(self, tmp_path: Path):
-        """图提交上去了、节点参数却过不了校验：进轮询只会等到超时。"""
+        """The graph was submitted but node parameters failed validation; entering polling would only wait until timeout."""
         node_errors = {
             "3": {"class_type": "KSampler", "errors": [{"message": "value 4096 out of range"}]},
             "4": {"class_type": "CheckpointLoaderSimple", "errors": [{"message": "model not found"}]},
@@ -483,7 +483,7 @@ class TestFailures:
         assert persisted == []
 
     async def test_a_400_carries_the_same_failure_code(self, tmp_path: Path):
-        """400 与 200 带 node_errors 同因，摘要取用户在画布上看到的那个标题。"""
+        """400 and 200 with node_errors have the same cause; summaries use the title users see on the canvas."""
         body = {"error": {"message": "Prompt has no outputs"}, "node_errors": {"6": {"class_type": "CLIPTextEncode"}}}
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -507,7 +507,7 @@ class TestFailures:
         assert caught.value.params == {"nodes": 0, "summary": "prompt outputs failed validation"}
 
     async def test_a_failed_job_id_persistence_stops_before_polling(self, tmp_path: Path):
-        """job_id 没落库就进轮询，进程一重启这笔已在跑的任务就再也找不回来。"""
+        """Polling before persisting job_id makes an already running task unrecoverable after process restart."""
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids(fail=RuntimeError("db is down")):
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
@@ -530,7 +530,7 @@ class TestFailures:
         assert caught.value.params == {"nodes": "9"}
 
     async def test_temp_artifacts_do_not_count_as_output(self, tmp_path: Path):
-        """``temp`` 是中间预览、服务端随时会清掉它；只认 ``type == "output"``。"""
+        """``temp`` means intermediate previews, which the server may clear anytime; accept only ``type == "output"``."""
         outputs = {"9": {"gifs": [{"filename": "preview.mp4", "subfolder": "", "type": "temp"}]}}
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -543,7 +543,7 @@ class TestFailures:
         assert caught.value.code == "comfyui_output_missing"
 
     async def test_artifacts_of_an_unbound_node_are_not_taken(self, tmp_path: Path):
-        """旁支的 ``PreviewImage`` 同样会往 history 写产物，扫全图会把预览图当成成片取走。"""
+        """A side-branch ``PreviewImage`` also writes history artifacts; scanning the whole graph would retrieve a preview as final video."""
         outputs = {"99": _video_output("preview.mp4")}
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -570,7 +570,7 @@ class TestFailures:
 
     @pytest.mark.parametrize("filename", ["final_00001.mov", "final_00001.m4v", "FINAL.MP4"])
     async def test_the_iso_bmff_family_is_accepted(self, tmp_path: Path, filename: str):
-        """三个允许的扩展名同属 ISO BMFF，与参考视频上传收的那三个同一份口径。"""
+        """All three allowed extensions belong to ISO BMFF, matching the three accepted for reference-video uploads."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -583,7 +583,7 @@ class TestFailures:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_webm_artifact_is_refused_with_the_allowed_suffixes_in_the_copy(self, tmp_path: Path):
-        """``.webm`` 的字节装进规范 ``.mp4`` 路径后扩展名与下发 MIME 都在说谎，故按类型不符拒收。"""
+        """Putting ``.webm`` bytes in the canonical ``.mp4`` path misrepresents both extension and sent MIME; reject as a type mismatch."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -603,7 +603,7 @@ class TestFailures:
         assert "h264-mp4" in rendered
 
     async def test_webm_bytes_under_an_mp4_name_are_refused_and_nothing_is_left_on_disk(self, tmp_path: Path):
-        """扩展名只是 history 里的一个字符串：保存节点可以把别的容器写进 ``.mp4`` 的名字。"""
+        """An extension is only a history string: save nodes can write another container under an ``.mp4`` name."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -623,7 +623,7 @@ class TestFailures:
         assert ".m4v / .mov / .mp4" in rendered
 
     async def test_still_image_iso_bmff_bytes_under_an_mp4_name_are_refused(self, tmp_path: Path):
-        """``ftyp`` 只说这是 ISO BMFF 家族：HEIC / AVIF 同用这一层，放行它们会留下一份放不出的成片。"""
+        """``ftyp`` only establishes ISO BMFF membership, also used by HEIC / AVIF; admitting them leaves an unplayable final video."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -655,13 +655,13 @@ class TestFailures:
     )
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
     def test_every_failure_code_renders_in_every_locale(self, code: str, params: dict[str, Any], locale: str):
-        """落库只存机器码，读侧按 Accept-Language 渲染；三语缺一就有用户看到裸码。
+        """Persist machine codes only, rendering on read by Accept-Language; any missing language among the three exposes raw codes to users.
 
-        编码这一步同时钉住 worker 认得这个异常：``encode_task_failure_message`` 认不出的异常
-        会降级成一段裸文本，读侧就再也翻译不了。
+        Encoding also pins worker recognition of this exception: exceptions unknown to ``encode_task_failure_message``
+        degrade to plain text, which read-side translation can no longer translate.
 
-        渲染结果里不留 ``{``：``lib.i18n`` 在格式化抛错时退回未填值的模板，占位符对不上的模板
-        会带着一串 ``{name}`` 直接显示给用户。
+        Rendered results must contain no ``{``: ``lib.i18n`` falls back to unfilled templates on formatting errors, so mismatched
+        placeholders would expose ``{name}`` directly to users.
         """
         message = encode_task_failure_message(ComfyuiError(code, **params))
 
@@ -673,7 +673,7 @@ class TestFailures:
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
     def test_the_mismatch_text_lists_the_allowed_extensions(self, locale: str):
-        """扩展名清单在读侧按落库的 ``media_type`` 现算，落库参数只有文件名与媒体类型。"""
+        """The read side calculates allowed extensions from persisted ``media_type``; stored parameters contain only filename and media type."""
         message = encode_task_failure_message(
             ComfyuiError("comfyui_output_type_mismatch", filename="a.png", media_type="video")
         )
@@ -705,16 +705,16 @@ class TestMultipleArtifacts:
 
         assert only_request(view).url.params["filename"] == "final_00001.mp4"
         assert "共 2 个" in caplog.text
-        # 日志只有运维看得到；这一条要一路走到任务结果上，用户才知道自己拿到的是其中一个。
+        # Only operators see logs; this notice must reach task results so users know they received one of several outputs.
         assert result.warnings == (
             {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}},
         )
 
     async def test_a_thumbnail_beside_the_video_does_not_pass_for_the_result(self, tmp_path: Path):
-        """同一个绑定节点既写缩略图又写成片时，取的是成片。
+        """When one bound node writes a thumbnail and final video, select the final video.
 
-        ``_output_artifacts`` 的次序是 ``images`` / ``gifs`` / ``audio`` 这三个键自己的次序，与
-        「哪个是成片」无关；照次序取第一个会把一次成功的出片报成产物类型不符。
+        ``_output_artifacts`` follows the order of its ``images`` / ``gifs`` / ``audio`` keys, not which output
+        is final video; choosing the first would misreport a successful generation as an artifact-type mismatch.
         """
         outputs = {
             "9": {
@@ -749,7 +749,7 @@ class TestMultipleArtifacts:
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
     def test_the_warning_renders_in_every_locale(self, locale: str):
-        """任务结果里的 warning 与失败原因同样按当前语言渲染，三语缺一就有用户看到裸 key。"""
+        """Task-result warnings render in the current language like failure reasons; missing any of three languages exposes raw keys to users."""
         rendered = make_translator(locale)("comfyui_multiple_outputs", count=2, filename="final_00001.mp4")
 
         assert rendered
@@ -758,7 +758,7 @@ class TestMultipleArtifacts:
 
 class TestDiagnostics:
     async def test_the_recorded_history_keeps_only_the_status_and_the_output_node(self, tmp_path: Path):
-        """整份 history 带着每个节点的全部产出，一条留痕就能把诊断列撑到几百 KB。"""
+        """Full history contains every node's outputs; one trace can inflate the diagnostic column to hundreds of KB."""
         recorded: list[tuple[ProviderResponseStage, object]] = []
 
         async def _record(stage: ProviderResponseStage, body: object) -> None:
@@ -779,7 +779,7 @@ class TestDiagnostics:
 
 
 class TestTerminalStates:
-    """一条终态记录说的是成功还是失败，判据是 ``status.messages`` 的末尾事件。"""
+    """The final event in ``status.messages`` determines whether a terminal record means success or failure."""
 
     async def test_a_node_exception_is_reported_with_its_node_and_summary(self, tmp_path: Path):
         event = [
@@ -802,11 +802,11 @@ class TestTerminalStates:
                 await _backend().generate(_request(tmp_path))
 
         assert caught.value.code == "comfyui_execution_error"
-        # traceback 有上百行而失败原因整条落库，摘要只取类型与消息两项。
+        # Tracebacks have hundreds of lines and failure reasons persist whole; summarize only exception type and message.
         assert caught.value.params == {"node": "KSampler", "detail": "torch.OutOfMemoryError: CUDA out of memory"}
 
     async def test_an_interrupted_execution_has_its_own_code(self, tmp_path: Path):
-        """有人在 ComfyUI 上按了取消：这一次没跑完，本身不说明这份 workflow 有问题。"""
+        """Someone canceled in ComfyUI: this incomplete execution does not itself imply a faulty workflow."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -820,7 +820,7 @@ class TestTerminalStates:
         assert caught.value.params == {}
 
     async def test_only_the_last_event_decides(self, tmp_path: Path):
-        """报错的节点后面还有节点照跑完是常态；按「出现过 error」判会把成片说成失败。"""
+        """Nodes commonly finish after another node errors; any-error detection would label a completed video as failed."""
         events = (
             ["execution_error", {"node_type": "UpscaleImage", "exception_message": "skipped"}],
             ["execution_success", {"prompt_id": "p-1"}],
@@ -838,7 +838,7 @@ class TestTerminalStates:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_null_status_without_outputs_falls_back_to_execution_error(self, tmp_path: Path):
-        """无从判起的那一格按执行失败兜底：说成「产物节点没出东西」会把环境问题栽给绑定。"""
+        """Unknown state falls back to execution failure; claiming the output node produced nothing would blame bindings for an environment problem."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_entry(None)))
@@ -850,7 +850,7 @@ class TestTerminalStates:
         assert caught.value.params["node"] == "-"
 
     async def test_a_null_status_with_outputs_is_still_a_success(self, tmp_path: Path):
-        """部分版本与代理不回 status；有产出就当它跑完了，否则这些部署一次片都出不了。"""
+        """Some versions/proxies omit status; outputs imply completion, or those deployments could never produce a video."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -863,7 +863,7 @@ class TestTerminalStates:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_finished_run_without_artifacts_stays_output_missing(self, tmp_path: Path):
-        """末尾事件说跑成功了、绑定的节点却没出文件——这一格才是绑定的问题。"""
+        """The final event says success, but the bound node produced no file; only this case is a binding issue."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -877,7 +877,7 @@ class TestTerminalStates:
 
 
 class TestJobLost:
-    """history 一直空着的时候，这次执行到底还在不在这台机器上。"""
+    """When history stays empty, determine whether this execution still exists on this machine."""
 
     async def test_an_id_in_neither_queue_is_reported_lost(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -890,7 +890,7 @@ class TestJobLost:
 
         assert caught.value.code == "comfyui_job_lost"
         assert caught.value.params == {"prompt_id": "p-1"}
-        # 第一轮就判死：确认过队列没有它之后再查一次 history，两次之后不再空转。
+        # Detect loss in the first round: after confirming queue absence, recheck history; stop spinning after those two checks.
         assert history.call_count == 2
 
     @pytest.mark.parametrize("lane", ["running", "pending"])
@@ -911,7 +911,7 @@ class TestJobLost:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_run_that_finished_between_the_two_requests_is_not_lost(self, tmp_path: Path):
-        """队列与 history 是两次独立请求：执行恰好在两次之间走完时它两边都不在。"""
+        """Queue and history require separate requests; completion between them can make execution absent from both."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -928,11 +928,11 @@ class TestJobLost:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_broken_queue_route_never_fails_a_healthy_run(self, tmp_path: Path):
-        """只挡掉 ``/queue`` 的反向代理：任务本身的地址好着，别拿辅助判据把出片中的执行判死。"""
+        """A proxy blocking only ``/queue`` leaves task URLs usable; do not let an auxiliary criterion declare a running generation lost."""
         rounds = itertools.count()
 
         def _history_route(_request: httpx.Request) -> httpx.Response:
-            # 一次真实的长生成在产物就绪之前会一直空态，故这条辅助判据每一轮都要走一遍。
+            # A real long generation stays empty until its artifact is ready, so run this auxiliary check every round.
             if next(rounds) < VIDEO_POLL_MAX_CONSECUTIVE_FAILURES:
                 return httpx.Response(200, json={})
             return httpx.Response(200, json=_history({"9": _video_output()}))
@@ -948,7 +948,7 @@ class TestJobLost:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_an_unreadable_queue_never_declares_a_loss(self, tmp_path: Path):
-        """代理重启期回一页 HTML：读不出这张表不等于队列是空的。"""
+        """HTML returned during proxy restart means unreadable queue, not empty queue."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -965,7 +965,7 @@ class TestJobLost:
         assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_json_body_without_the_two_lists_is_unreadable_too(self, tmp_path: Path):
-        """代理重启期回 ``{"error": "restarting"}``：解得出 JSON 不代表读得到队列。"""
+        """A restarting proxy returning ``{"error": "restarting"}`` yields parseable JSON, not a readable queue."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(
@@ -984,7 +984,7 @@ class TestJobLost:
 
 
 class TestResume:
-    """``provider_job_id`` 就是 ``prompt_id``：接续的是同一次执行，不重传也不重提交。"""
+    """``provider_job_id`` is ``prompt_id``: resume the same execution without reupload or resubmission."""
 
     async def test_a_resume_goes_straight_to_polling(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
@@ -1001,14 +1001,14 @@ class TestResume:
         assert result.task_id == "p-1"
         assert upload.call_count == 0
         assert submit.call_count == 0
-        # 提交发生在上一个进程里，这一次没有新的 job_id 要落库。
+        # Submission happened in the previous process; no new job_id needs persistence now.
         assert persisted == []
 
     async def test_a_resume_polls_the_host_the_job_was_submitted_to(self, tmp_path: Path):
-        """供应商的 base_url 可以在提交之后被改，而这一笔活在原来那台 ComfyUI 上。
+        """Provider base_url may change after submission, while this execution lives on the original ComfyUI.
 
-        照当前域名去问，问的是另一台机器，它答「没有这个 prompt_id」——一次仍在出片的执行会被
-        判成丢失，用户的显卡还在为它转。
+        Querying the current host asks a different machine, which reports no such prompt_id. A still-running generation
+        would be marked lost while occupying the user's GPU.
         """
         submitted = "https://old-comfy.test"
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
@@ -1025,7 +1025,7 @@ class TestResume:
         assert view.call_count == 1
 
     async def test_a_resume_carries_no_seed_or_fingerprint(self, tmp_path: Path):
-        """两者只在提交那一次的构造里存在；这条路不构造，故一起缺席而不是各给一个假值。"""
+        """Both exist only in submission-time construction; this path performs no construction, so omit both rather than invent values."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
@@ -1038,7 +1038,7 @@ class TestResume:
         assert result.provenance is None
 
     async def test_a_resume_reads_the_output_binding_as_it_stands_now(self, tmp_path: Path):
-        """用户在续跑之前改过绑定：按新绑定取产物，取不到即 output_missing。"""
+        """If users change bindings before resume, retrieve artifacts by the new bindings; failure means output_missing."""
         definition = comfyui_endpoint_definition()
         definition["bindings"]["output"] = [{"node": "9", "class_type": "SaveVideo"}]
         assert validate_definition(definition).valid
@@ -1059,7 +1059,7 @@ class TestResume:
         assert caught.value.params == {"nodes": "77"}
 
     async def test_a_lost_job_on_resume_becomes_resume_expired(self, tmp_path: Path):
-        """续跑期的丢失归 resume_expired：worker 据此标失败并结算那条 pending 的调用行。"""
+        """Loss during resume becomes resume_expired; the worker marks failure and settles the pending call row accordingly."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json={}))
             router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json=_queue()))
@@ -1071,7 +1071,7 @@ class TestResume:
 
 
 class TestStoppingTheRemote:
-    """本地这一侧被取消或等超时的时候，别把一个没人要的执行扔在用户的显卡上。"""
+    """On local cancellation or timeout, do not abandon an unwanted execution on the user's GPU."""
 
     @staticmethod
     def _polling_cancelled(router: Any) -> None:
@@ -1094,7 +1094,7 @@ class TestStoppingTheRemote:
                 await _backend().generate(_request(tmp_path))
 
         assert cancel.call_count == 1
-        # 一个动作同时覆盖排队中与执行中，不必再查队列。
+        # One action covers queued and running states without another queue query.
         assert queue.call_count == 0
 
     async def test_an_older_server_deletes_a_pending_entry(self, tmp_path: Path):
@@ -1126,7 +1126,7 @@ class TestStoppingTheRemote:
         assert drop.call_count == 0
 
     async def test_someone_elses_run_is_never_interrupted(self, tmp_path: Path):
-        """``/interrupt`` 打断的是「当前正在执行的那一个」、不认 id。"""
+        """``/interrupt`` stops the currently executing task and does not accept an ID."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             self._polling_cancelled(router)
             self._version(router, "0.25.14")
@@ -1141,7 +1141,7 @@ class TestStoppingTheRemote:
         assert drop.call_count == 0
 
     async def test_an_unreadable_version_takes_the_older_path(self, tmp_path: Path):
-        """老版本与部分代理不回这一字段；据此走新路会打在一个 404 上、什么都没停掉。"""
+        """Older versions and some proxies omit this field; selecting the new path would get 404 and stop nothing."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             self._polling_cancelled(router)
             router.get(f"{BASE_URL}/system_stats").mock(return_value=httpx.Response(500, text="boom"))
@@ -1154,7 +1154,7 @@ class TestStoppingTheRemote:
         assert drop.call_count == 1
 
     async def test_a_failed_stop_leaves_the_local_outcome_alone(self, tmp_path: Path):
-        """叫停是 best-effort：远端拒了只记日志，抛出去的仍是取消本身。"""
+        """Interruption is best-effort: log remote rejection but still propagate the original cancellation."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             self._polling_cancelled(router)
             self._version(router, "0.26.1")
@@ -1166,7 +1166,7 @@ class TestStoppingTheRemote:
         assert cancel.call_count == 1
 
     async def test_the_remote_is_stopped_before_a_timeout_surfaces(self, tmp_path: Path):
-        """全局超时同样叫停：跑到一半没人要的执行照样占着卡。"""
+        """Global timeout also interrupts remote work: an unwanted half-finished execution still occupies the GPU."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json={}))
@@ -1180,7 +1180,7 @@ class TestStoppingTheRemote:
         assert cancel.call_count == 1
 
     async def test_nothing_is_stopped_when_the_job_was_never_submitted(self, tmp_path: Path):
-        """提交之前没有 prompt_id 可停，也没有任何执行在跑。"""
+        """Before submission there is neither a prompt_id to stop nor a running execution."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(side_effect=_cancel_here)
             stats = router.get(f"{BASE_URL}/system_stats")
@@ -1191,7 +1191,7 @@ class TestStoppingTheRemote:
         assert stats.call_count == 0
 
     async def test_a_missing_version_field_takes_the_older_path(self, tmp_path: Path):
-        """``/system_stats`` 可达但不回版本号：与读不到同一处置。"""
+        """A reachable ``/system_stats`` without a version gets the same handling as an unreadable response."""
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             self._polling_cancelled(router)
             self._version(router, None)

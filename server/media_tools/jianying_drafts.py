@@ -28,17 +28,18 @@ _OPERATION = "export_jianying_draft"
 class ExportJianyingDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    timeline: str = Field(min_length=1, description="剪辑时间线 ID（如 tl-3f9a0c21），取自 list_timelines 的结果")
+    timeline: str = Field(
+        min_length=1, description="Edit timeline ID (for example tl-3f9a0c21) from list_timelines results"
+    )
     revision: int | SkipJsonSchema[None] = Field(
         default=None,
         ge=1,
-        description="导出哪个修订；省略时取提交时的最新修订",
+        description="Revision to export; when omitted, use the latest revision at submission time",
     )
     narration: DraftNarration | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "旁白版本：without_narration 不带旁白轨；with_narration 带旁白轨，只对 TTS 配音项目开放。"
-            "省略时 TTS 配音项目取 with_narration，其余取 without_narration"
+            "Narration variant: without_narration excludes the narration track; with_narration includes it and is available only for TTS projects. When omitted, TTS projects use with_narration and others use without_narration"
         ),
     )
 
@@ -59,7 +60,7 @@ async def export_jianying_draft(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[JianyingDraftToolValue]:
-    # 剪映草稿服务依赖 pyJianYingDraft 与呈现模型读侧，调用时才导入。
+    # Jianying draft services depend on pyJianYingDraft and the presentation-model read side; import only on invocation.
     from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 
     value = request.value

@@ -2,10 +2,10 @@
 status: accepted
 ---
 
-# 远程 MCP 直接信任现有 API Key，不另建细粒度授权层
+# Remote MCP trusts existing API Keys directly, without another fine-grained authorization layer
 
-远程 MCP 始终要求并只接受现有 `arc-` API Key；即使 WebUI 配置为关闭认证，也不接受匿名调用、会话 JWT 或下载 token。API Key 在当前单用户产品中继续代表完全受信任的高权限自动化主体：不增加 project allowlist、能力 scope、Key 级任务所有权、配额或独立确认凭据，工具调用沿用 `DEFAULT_USER_ID`，任务来源记为 `mcp`。
+Remote MCP always requires and accepts only existing `arc-` API Keys. Even with WebUI authentication disabled, it rejects anonymous calls, session JWTs, and download tokens. In the current single-user product, an API Key remains a fully trusted high-privilege automation identity: do not add project allowlists, capability scopes, key-level task ownership, quotas, or separate confirmation credentials. Tools retain `DEFAULT_USER_ID`, and tasks record origin `mcp`.
 
-远程工具清单排除供应商、Agent、API Key、系统凭证配置与删除项目，也不向工具结果返回 secret，但这只是 MCP 的创作能力边界，不是 API Key 的安全权限边界。同一 Key 仍保有现有 REST API 的广泛权限，只应交给受信任的外部 Agent；细粒度 API Key 权限若成为需求，另行设计。远程工具必须继续复用项目参数校验、事务式写入口、revision 并发校验和迁移门禁等既有服务端不变量。
+Remote tools exclude provider, Agent, API Key, and system-credential configuration and project deletion, and return no secrets. This is MCP's creation-capability boundary, not the Key's security-permission boundary. The same Key retains broad existing REST API access and should go only to trusted external Agents. Design fine-grained permissions separately if needed. Tools continue sharing project validation, transactional write entries, revision concurrency checks, migration gates, and other existing server invariants.
 
-审核、计费档位和有损内容操作保持与内置 Agent 相同的确认体验：skill 手册负责展示影响并征得用户同意，用户显式授权全自主时可以继续；服务端沿用现有确认参数，不验证额外的人类凭据。任意有效 API Key 可查询或取消任意项目的任务；带 `project` 的任务工具只校验任务确属该项目，并沿用现有全局队列、并发准入和费用记录。
+Review, pricing tiers, and lossy-content actions keep the embedded Agent's confirmation experience: skills explain impacts and obtain consent; explicitly authorized full autonomy may continue. Servers retain existing confirmation parameters without verifying extra human credentials. Any valid Key may query/cancel any project's tasks. Task tools with `project` verify actual membership and retain existing global queues, concurrency admission, and cost records.

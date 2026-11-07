@@ -1,0 +1,248 @@
+{
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "commands": [
+    {
+      "label": "baseline",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "--no-sync",
+        "python",
+        "/tmp/arcreel-final-contract-capture/verified_capture.py",
+        "/tmp/arcreel-english-7b4f781/source",
+        "/tmp/arcreel-final-contract-capture/baseline.json",
+        "/Users/pablo.carminatti.br/Projects/ArcReelBR/docs/plans/english-translation/checks/capture_contracts.py",
+        "/tmp/arcreel-final-contract-capture/baseline-imports.json"
+      ],
+      "exit_code": 0,
+      "stdout": "61 tools; 38 script models\n",
+      "stderr": ""
+    },
+    {
+      "label": "candidate",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "--no-sync",
+        "python",
+        "/tmp/arcreel-final-contract-capture/verified_capture.py",
+        "/Users/pablo.carminatti.br/Projects/ArcReelBR",
+        "/tmp/arcreel-final-contract-capture/candidate.json",
+        "/Users/pablo.carminatti.br/Projects/ArcReelBR/docs/plans/english-translation/checks/capture_contracts.py",
+        "/tmp/arcreel-final-contract-capture/candidate-imports.json"
+      ],
+      "exit_code": 0,
+      "stdout": "61 tools; 38 script models\n",
+      "stderr": ""
+    }
+  ],
+  "environment": {
+    "uv_flags": "--frozen --no-sync; same existing project .venv interpreter, no dependency resolution/install",
+    "dotenv": "PYTHON_DOTENV_DISABLED=1",
+    "data_root": "separate disposable temporary directories",
+    "network_connections": "socket connect/connect_ex/create_connection blocked before imports",
+    "application_lifespan": "never started",
+    "model_provider_media_calls": 0
+  },
+  "import_proofs": {
+    "baseline": {
+      "python_executable": "/Users/pablo.carminatti.br/Projects/ArcReelBR/.venv/bin/python",
+      "python_version": "3.12.16 (main, Oct 26 2026, 13:59:40) [Clang 23.1.3 ]",
+      "import_paths": {
+        "lib.script.script_models": "/private/tmp/arcreel-english-7b4f781/source/lib/script/script_models.py",
+        "lib.project.project_manager": "/private/tmp/arcreel-english-7b4f781/source/lib/project/project_manager.py",
+        "lib.project.source_revision": "/private/tmp/arcreel-english-7b4f781/source/lib/project/source_revision.py",
+        "server.agent_toolset.toolset": "/private/tmp/arcreel-english-7b4f781/source/server/agent_toolset/toolset.py",
+        "arcreel_market_core": "/private/tmp/arcreel-english-7b4f781/source/packages/arcreel-market-core/src/arcreel_market_core/__init__.py",
+        "arcreel_catalog_core": "/private/tmp/arcreel-english-7b4f781/source/packages/arcreel-catalog-core/src/arcreel_catalog_core/__init__.py"
+      },
+      "network_connections": "blocked",
+      "dotenv": "disabled",
+      "application_lifespan": "never entered"
+    },
+    "candidate": {
+      "python_executable": "/Users/pablo.carminatti.br/Projects/ArcReelBR/.venv/bin/python",
+      "python_version": "3.12.16 (main, Oct 26 2026, 13:59:40) [Clang 23.1.3 ]",
+      "import_paths": {
+        "lib.script.script_models": "/Users/pablo.carminatti.br/Projects/ArcReelBR/lib/script/script_models.py",
+        "lib.project.project_manager": "/Users/pablo.carminatti.br/Projects/ArcReelBR/lib/project/project_manager.py",
+        "lib.project.source_revision": "/Users/pablo.carminatti.br/Projects/ArcReelBR/lib/project/source_revision.py",
+        "server.agent_toolset.toolset": "/Users/pablo.carminatti.br/Projects/ArcReelBR/server/agent_toolset/toolset.py",
+        "arcreel_market_core": "/Users/pablo.carminatti.br/Projects/ArcReelBR/packages/arcreel-market-core/src/arcreel_market_core/__init__.py",
+        "arcreel_catalog_core": "/Users/pablo.carminatti.br/Projects/ArcReelBR/packages/arcreel-catalog-core/src/arcreel_catalog_core/__init__.py"
+      },
+      "network_connections": "blocked",
+      "dotenv": "disabled",
+      "application_lifespan": "never entered"
+    }
+  },
+  "capture_script": {
+    "path": "docs/plans/english-translation/checks/capture_contracts.py",
+    "sha256": "396dfcf7d3c89a6933f7b1d36b55ddbcc3d42f2c97c02cf6639b81a671be8aad"
+  },
+  "wrapper": {
+    "path": "/tmp/arcreel-final-contract-capture/verified_capture.py",
+    "sha256": "c2e7ae2239ffb9ca9b71dd40048ee3eab36a47e517caff46b457a0de8278ada5"
+  },
+  "captures": [
+    {
+      "label": "baseline",
+      "path": "/tmp/arcreel-final-contract-capture/baseline.json",
+      "sha256": "30e5284f162e3dfce54133318d1fff567961d61d8d75308d19742c987890df68"
+    },
+    {
+      "label": "candidate",
+      "path": "/tmp/arcreel-final-contract-capture/candidate.json",
+      "sha256": "30e5284f162e3dfce54133318d1fff567961d61d8d75308d19742c987890df68"
+    }
+  ],
+  "identical": true,
+  "counts": {
+    "additional_models": 2,
+    "dynamic_models": 25,
+    "models": 38,
+    "tools": 61
+  },
+  "contract_invariants": "Full captured schema structure, property names (including description properties), enums, required fields, limits/defaults/discriminators, tool IDs/domain keys/handlers/long-task/migration metadata identical. Only description metadata at known schema nodes omitted by capture.",
+  "limitations": "Bounded declaration matrix, not universal behavioral equivalence. Prompts and description fidelity require independent review and real-model release assessment.",
+  "profile_lint": {
+    "repository_prescribed_invocation_source": ".github/workflows/test.yml:122",
+    "command": "uv run python scripts/lint_agent_runtime_profile.py",
+    "exit_code": 0,
+    "stdout": "Agent Runtime Profile lint passed: agent_runtime_profile\n",
+    "stderr": "",
+    "script_sha256": "b651a0c4e68ca8b562b7e3447f973f0cc23a9527923de73b766282a73ecc44ba",
+    "pending_derived_files_exposed": [],
+    "scope": "Linter validates metadata/frontmatter, runtime variant projections for every supported content mode, Markdown pointers, registered MCP tools, and eval targets/IDs. It is read-only and exposes no pending derived files; no manual patching/regeneration performed.",
+    "tracked_profile_file_hashes": [
+      {
+        "path": "agent_runtime_profile/.claude/agents/create-episode-script.md",
+        "sha256": "ebc656fb501b4fce2d157e40df250e255d64493def03798f3109ff7c6ee4cfa5"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/agents/generate-assets.md",
+        "sha256": "9fb4e44b1655a832914bfe368737e91695d7abef342957b4861a45b3cc79bd0f"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/agents/normalize-drama-script.md",
+        "sha256": "f88f790af5671e2f07d8231e9630672b97ff72b0b29f214a71a0822bc92fa005"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/agents/review-footage.md",
+        "sha256": "fb6b96286f0e3a402eee944e6eb2d12091649e80f31e6cda6e331bce5c80322c"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/agents/review-images.md",
+        "sha256": "47b16a70dbf4a8efcac744dfa445a773484d6983f5dc77754f0483a979e1c1fb"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/agents/split-narration-segments.md",
+        "sha256": "212619f098e9bd58773762228d705c7d0dd73b3564c99ae62b52c94d8b1e2d55"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/agents/split-reference-video-units.md",
+        "sha256": "5cb5fb0d91f4829344d214544bfad2e7607d147231e8509cf2a4fff6051bce42"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/references/generation-modes.md",
+        "sha256": "7847087306fa995407826426b7bab7a99a4782a1cb901c980394f2067e51f030"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/references/generation-results.md",
+        "sha256": "4329c6d520ebdec435e20b85c916c8bf31e0c75cb08658799bff13f968b7ea09"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/references/workflow-plan.md",
+        "sha256": "dafb1857d2b08080913df4269527e02f80ebba0ea640b3d43eefd748a796f813"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/settings.json",
+        "sha256": "16d05e34a1f809ee0f4d144694b470e6285b055138d417870a440bccb6f41a02"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/adapt-custom-endpoint/SKILL.md",
+        "sha256": "c9783b23cd93abb0d60b9be1b908f83101f1dcb33d729b0d6c8f9fa4a4e97c90"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/adapt-custom-endpoint/references/definition-format.md",
+        "sha256": "2b6cb5082ed51755106559d38d941c600d2efff4342cb0fe7fef36d4354ccc14"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py",
+        "sha256": "695bdaa12dd485def146bf8ff1706c0354307470d5a6728a701fd53a537bc69a"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/edit-video/SKILL.md",
+        "sha256": "2a8aaa78ba31b2eb61c2067d9646d5357b69845ae3937a61adfd91b107c550c8"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-assets/SKILL.md",
+        "sha256": "d33af015d1f28e13a8e077e6048d34c59fc6c39c357e79de0c07fdd323f4ff69"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-grid/SKILL.md",
+        "sha256": "fd2771bfba0c6b59691335cdf7b4db5725b061f26015abcf646762218cca06c5"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-narration-audio/SKILL.md",
+        "sha256": "8f7ec55649c17b2f8c619de62b6a52509638bc8d1f707f109ebcc5505ad02051"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-script/SKILL.md",
+        "sha256": "2ceab581ff1a3ebd3918db2d58f6d32d2f4b5aecbed12952cf61c5ee28e764f3"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-storyboard/SKILL.md",
+        "sha256": "782947069429afe25998b0936b2870c4925bb5bd843299219521296268849cac"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-video/SKILL.md",
+        "sha256": "fb7bb530c9380e14566820b5f94e8451bff45d07402683d79d47fb7323a628d5"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/generate-video/references/veo_prompts.md",
+        "sha256": "11ce575cc95a8286ecc7eea83bbf483547b57e9f0e2cf6eca0fb2b8f445f2082"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/manage-project/SKILL.md",
+        "sha256": "ea24d7a24ede3f2ff9212778a3a98768ed08badc687c6026084585c1b5caf23f"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/video-workflow/SKILL.ad.md",
+        "sha256": "a1a24621c0499ea3711d3b887b2a2ec59e66d0459e392608ca9eb1296bb4fb0a"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/video-workflow/SKILL.drama.md",
+        "sha256": "7ce4a4c0098ef528ce25afb6055f0a4cbe37566879134016dac52c573ab8faee"
+      },
+      {
+        "path": "agent_runtime_profile/.claude/skills/video-workflow/SKILL.narration.md",
+        "sha256": "5eec84f9ccef1a3af1149614a57a0845638ebd892807970671059dfcf346707c"
+      },
+      {
+        "path": "agent_runtime_profile/CLAUDE.ad.md",
+        "sha256": "fd034bf1368fdfc8fdf6c639bc1029360d7338911dae0da9808e9f1f23390892"
+      },
+      {
+        "path": "agent_runtime_profile/CLAUDE.drama.md",
+        "sha256": "54b28472067cbcc8b0600a9a86138ec0df8c81e10bcde4cc396e0c441a052ef3"
+      },
+      {
+        "path": "agent_runtime_profile/CLAUDE.narration.md",
+        "sha256": "9572c490170198ca32a9523cb11062cdd577438b335f452a5e940ab85541f02d"
+      },
+      {
+        "path": "agent_runtime_profile/skill-optimization-workspace/evals/evals.json",
+        "sha256": "6036acdcdd478203a824a3848a46cb9cdfd8bbbc6c74923b25fb1edbb7cf76a8"
+      },
+      {
+        "path": "agent_runtime_profile/skill-optimization-workspace/video-workflow-trigger-eval.json",
+        "sha256": "9750963a9053fd0e5120a9fb46948b79bf68490d63160c62d1de61dc6705fab8"
+      }
+    ]
+  },
+  "lockfile_sha256": "adaee7ad059a63772df31d6bc0eeb825834279b49a5eda0bc293147823f1e463",
+  "no_source_edits": true
+}

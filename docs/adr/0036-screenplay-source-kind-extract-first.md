@@ -2,33 +2,33 @@
 status: accepted
 ---
 
-# 剧本源：源文件类型随源文件记录，提取优先复用全链路，逐字仅锚可听内容
+# Screenplay sources: record source kind per file, reuse the full extraction-first pipeline, and preserve verbatim only audible content
 
-剧情演绎默认把源文当小说，由分集规划、脚本规划、提示词编写从散文**创作**出剧本；但有用户直接上传自带分集、场次、台词、画外音、人物的成品剧本，「改编式」链路会把它**二次改写**——重切作者的分集、改编台词、丢掉画外音。决定引入源文件类型（`source_kind`：`novel` 默认 / `screenplay`），作为与创作类型、生成模式都正交的第三轴；`screenplay` 下链路从「创作」翻为「提取优先」，且逐字保真只锚「可听见的内容」。
+Drama normally treats source text as a novel, **creating** scripts from prose through episode planning, script planning, and prompt writing. Some users instead upload completed screenplays with their own episodes, scenes, dialogue, voiceovers, and characters; the adaptation pipeline **rewrites them again**, recutting the author's episodes, adapting dialogue, and losing voiceovers. Introduce source-file kind (`source_kind`: default `novel` / `screenplay`) as a third axis orthogonal to content type and generation mode. For `screenplay`, switch the pipeline from "creation" to "extraction first," anchoring verbatim fidelity only to "audible content."
 
-## 源文件类型随源文件记录
+## Record source kind with each source file
 
-一个项目可以同时有多份原文（整本源文的多个文件、自带原文的集），「小说正片 + 剧本番外」是正常形态，所以源文件类型随源文件记录：整本源文的每个文件各记一份，自带原文的集记在分集账本条目上，切出集取原文范围起点所在文件的类型、不另存，无原文的集没有类型。类型在上传或填写原文时与「整本源文 / 逐集原文」一并选择，缺省为小说，之后随时可改。
+A project may contain several sources (multiple whole-source files and episodes with their own source text); "novel main story + screenplay extra" is normal, so record source kind with the source file: once per whole-source file, or on the episode-ledger entry for an episode with its own source. Split episodes inherit the kind of the file containing their source-range start without storing another copy; episodes without source have no kind. Select kind alongside "whole source / per-episode source" when uploading or entering source text, defaulting to novel and allowing changes afterward at any time.
 
-- 只有剧情演绎有源文件类型，分镜图生视频与参考生视频两种生成模式都按它切「改编 / 提取」口径。旁白/解说的源文本就逐字进入旁白，写好的解说稿直接作源文上传；广告/短片没有源文，写好的稿子走「从空白开始」手写。
-- 类型不是原文内容：改类型不改源文指纹，不触发切出集的重映射，分集账本不动；已切出的集保留按旧类型规划的切分，要按新类型重切由创作者发起重新规划。以旧类型产出的脚本规划按产物时效判为 stale；正式脚本不以脚本规划为依据（见 `docs/adr/0080`），不受影响。是否按新类型重新规划脚本由创作者决定。
-- 一次 AI 分集规划的窗口遇到类型切换即截断，一个窗口内只有一种类型。
-- 项目概览在全部源文同一类型时按该类型，混合时按小说口径。
+- Only drama has source-file kind; both storyboard-image-to-video and reference-to-video generation modes use it to choose adaptation / extraction. Narration/commentary source text already enters narration verbatim, so finished commentary scripts are uploaded directly as source; ads/short films have no source, and finished copy is entered manually through "start from blank."
+- Kind is not source content: changing it does not change source fingerprints, remap split episodes, or alter episode ledgers. Existing splits retain planning under the old kind; creators initiate replanning to re-split under the new kind. Script plans produced under the old kind become stale under artifact freshness; formal scripts do not depend on script plans (see `docs/adr/0080`) and remain unaffected. Creators decide whether to replan scripts under the new kind.
+- An AI episode-planning window stops at a kind change, containing only one kind.
+- Project overviews use that kind when all source text shares it; mixed sources use the novel basis.
 
-## 提取优先，逐字仅锚可听内容
+## Extraction first; preserve verbatim only audible content
 
-提取优先**不另造剧本解析器**，而是铺在分集规划、脚本规划、项目概览现有每个环节——LLM 先用作者已写的（任意形态、不写死标记正则），缺了才生成，贴合「按集惰性消费」架构（脚本可达 10 万字），各环节独立降级（有人物表无分集标记 → 人物逐字提取 + 分集语义规划）。**分集永不机械切**：分集规划仍是语义规划，剧本自带分集（任意形态）则照用其边界、标题、钩子与大纲，没有则按完整剧情弧选切分点——机械按长度切会切碎剧情弧。**逐字保真只锚「可听见的内容」**：严格不改写、不丢、不润色的仅限角色台词文字与画外音文字两类，排版与标签、运镜与舞台提示、视觉描述、泛指群演由 LLM 裁量转写或剥离（硬逐字会把舞台提示、群演、排版符号强行灌进结构化字段）。
+Extraction first **does not introduce a separate screenplay parser**: it spans every existing episode-planning, script-planning, and project-overview stage. LLMs first use what authors already wrote (in any form, without hardcoded marker regexes), generating only what is missing, fitting the "lazy per-episode consumption" architecture (screenplays can reach 100,000 characters). Stages degrade independently (a character list without episode markers → verbatim character extraction + semantic episode planning). **Never split episodes mechanically**: episode planning remains semantic. If the screenplay supplies episodes in any form, use their boundaries, titles, hooks, and outlines; otherwise choose split points at complete story arcs. Mechanical length-based splits break arcs. **Verbatim fidelity anchors only to "audible content"**: strictly preserve without rewriting, dropping, or polishing only character-dialogue text and voiceover text. LLMs may transcribe or strip formatting and labels, camera/stage directions, visual descriptions, and generic extras; strict verbatim handling would force stage directions, extras, and formatting symbols into structured fields.
 
-逐字提取的台词与画外音落在 `utterances`（台词 `kind=dialogue` 带 speaker、画外音 `kind=voiceover` 无 speaker，按出现顺序；模型见 `docs/adr/0040`）。泛指 speaker（`老人甲` / `年轻人乙`）照填原文称呼，但不登记为角色资产、不进出场角色——泛指与命名角色由 LLM 在提示词层判定，「speaker 必须是出场角色」只是提示词指令、无机械校验，剧本下放松。提取出的骨架（分集 + 人物）由分集规划的候选审阅（调整走重新规划，见 `docs/adr/0032`）与脚本规划的内容确认兜住 LLM 在野格式上的误判，不另设机制。
+Verbatim extracted dialogue and voiceovers enter `utterances` (dialogue `kind=dialogue` with speaker, voiceover `kind=voiceover` without speaker, in occurrence order; see the model in `docs/adr/0040`). Generic speakers (`老人甲` / `年轻人乙`) retain their source labels but are not registered as character assets or included in appearing characters. LLMs distinguish generic from named characters at the prompt layer; "speaker must be an appearing character" is only a prompt instruction without mechanical validation, relaxed for screenplays. Candidate review in episode planning (adjustments use replanning; see `docs/adr/0032`) and content confirmation in script planning cover LLM misinterpretations of arbitrary formats in extracted skeletons (episodes + characters), without a separate mechanism.
 
 ## Considered Options
 
-- **一把专用大解析器**：要把 10 万字塞进单次调用、把全部工作前置到上传时，与「按集惰性消费」架构对着干，且对千奇百怪的格式写死结构假设易脆；提取优先铺在现有环节，每个环节在自己的切片上用 LLM 语义识别，缺哪补哪。
-- **项目级、创建即定**：表达不了混合来源；Web 上先建项目、后上传源文，创建时还没见过源文就要定类型，选错只能重建项目。
-- **项目级但可改**：解决了选错，仍表达不了混合来源；而下游本来就按规划窗口与集读取类型，只有项目概览需要全项目视角。
+- **One dedicated large parser**: placing 100,000 characters into one call and front-loading all work at upload contradicts "lazy per-episode consumption"; hardcoded structural assumptions for diverse formats are brittle. Extraction first spans existing stages, with each stage using LLM semantic recognition on its own slice and filling only what is missing.
+- **Project-level, fixed at creation**: cannot express mixed sources. Web creates projects before uploading sources, requiring kind selection before seeing the source and project recreation after a wrong choice.
+- **Project-level but mutable**: fixes wrong choices but still cannot express mixed sources; downstream already reads kind by planning window and episode, with only project overviews needing a whole-project view.
 
 ## Consequences
 
-- 提示词模版按源文件类型轴拆命名变体（见 `docs/adr/0077`）：分集规划、剧情演绎两种生成模式的脚本规划、项目概览各有 `novel` / `screenplay` 两个变体。
-- 数据校验只接受 `novel` / `screenplay` 两个值，拦截 `screen_play` 等非法值；项目顶层不再有 `source_kind`。
-- 「画外音/台词配音」（drama-TTS）属配音与合成阶段，不在本决策范围。
+- Prompt templates split into named variants along the source-kind axis (see `docs/adr/0077`): episode planning, script planning for both drama generation modes, and project overviews each have `novel` / `screenplay` variants.
+- Data validation accepts only `novel` / `screenplay`, rejecting invalid values such as `screen_play`; project top level no longer has `source_kind`.
+- "Voiceover/dialogue dubbing" (drama-TTS) belongs to dubbing and composition, outside this decision.

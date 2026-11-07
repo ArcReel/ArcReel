@@ -1,4 +1,4 @@
-"""inspect_images：经声明入口调用，断言结果信封里的结构化结果与图片内容块。"""
+"""inspect_images through declarations: assert structured envelopes and image content blocks."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _harness(tmp_path: Path) -> ToolHarness:
 def _install(
     ctx: ToolHarness, resource_type: str, resource_id: str, color: str, *, size: tuple[int, int] = (160, 90)
 ) -> int:
-    """把一张纯色 PNG 登记为资源的新 current 版本；返回版本号。"""
+    """Register solid-color PNG as a new current resource version; return its number."""
     staged = ctx.project_path / ".staging" / f"{resource_type}-{color}.png"
     staged.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", size, color).save(staged)

@@ -1,8 +1,8 @@
-"""控制面签名 V4：沿用官方示例请求，以虚构凭证核对固定签名向量。
+"""Control-plane V4 signatures: official example requests with fake credentials and fixed signature vectors.
 
-示例来源：https://docs.volcengine.com/docs/6369/67269 （ListBill，signed headers 为 host;x-date）。
+Example: https://docs.volcengine.com/docs/6369/67269 (ListBill; signed headers host;x-date).
 
-AK 与 SK 均使用 TEST- 前缀，避免样例命中 secret scanning；期望签名按 V4 标准 HMAC 推导。
+AK/SK use TEST- prefixes to avoid secret-scanning hits; expected signatures derive from standard V4 HMAC.
 """
 
 from __future__ import annotations

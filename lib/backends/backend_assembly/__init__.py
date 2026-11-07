@@ -1,9 +1,9 @@
-"""backend_assembly — 「provider config + model → backend」的统一构造缝。
+"""backend_assembly: unified construction seam from provider config + model → backend.
 
-暴露唯一入口 assemble_backend，内部按 is_custom_provider 分流到内置 / 自定义两族；复用 backend 实例的调用方
-取缓存前另用 callable_model_key 按今天的生命周期检查。
-两族共享入口、不共享表结构（见 docs/adr/0039）：内置侧用 ProviderSpec 闭包表（specs.py），
-自定义侧委托现成 ENDPOINT_REGISTRY（lib/custom_provider/endpoints.py）。
+Expose only assemble_backend, routing built-in/custom families through is_custom_provider. Callers reusing backend
+instances separately check callable_model_key against the current lifecycle before fetching cached instances.
+The families share an entry point, not table structures (docs/adr/0039): built-ins use ProviderSpec closure tables (specs.py),
+while custom providers delegate to existing ENDPOINT_REGISTRY (lib/custom_provider/endpoints.py).
 """
 
 from __future__ import annotations

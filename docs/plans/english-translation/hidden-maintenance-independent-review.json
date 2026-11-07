@@ -1,0 +1,320 @@
+{
+  "baseline_commit": "7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250",
+  "files": [
+    {
+      "path": ".out-of-scope/ad-script-plan-prompt-authoring-review-gate.md",
+      "source_sha256": "c7445d1352d290cc7cbd8f3dc099ffeb7ace74c5d5bfc272cf71713689e924eb",
+      "candidate_sha256": "e2d2ef9c99896ba6e5fdf7051c119eaf13bb6f16c914ca003a2070f8e967abe0",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 23,
+          "text": "- #987 — 广告/短片未接入 script_plan→prompt_authoring 内容确认（契约空白） (ad does not use script_plan→prompt_authoring confirmation, leaving a contract gap)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/alternative-agent-runtime-backends.md",
+      "source_sha256": "e56448b9023bc0da58e42d94a2eefb20f7c73741499fe1bd2937414b50bfd4a5",
+      "candidate_sha256": "9b61ea3259e88169772d6f346303011a3a6161bd172a7db36bf217dfed80d05b",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 20,
+          "text": "- #1231 — 「Agent 请求增加 Codex 支持」 (“request Codex support”; reasons: frequent GPT use and lower cost)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/commercial-service-promotion.md",
+      "source_sha256": "7a69b9c4f6266b377d875e0d641e57e3202881f9730a1f3ecfdc1424b36f015d",
+      "candidate_sha256": "80068717f41454171c8bbaf82d35021ce1a24070d289ac4cf30776e3a46fee45",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 16,
+          "text": "- PR #3311、#1445 等 — octo-patch’s MiniMax PRs (12 in ArcReel; only #1298, fixing an existing provider, merged); the account submits MiniMax integrations in bulk across GitHub",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 18,
+          "text": "- PR #3419 — feat(backends): 内置 Higgsfield 供应商，接入 Soul 2 / Qwen Image 3 图片与可灵 3.0 / 可灵 O3 / Seedance 2.5 视频 (built-in Higgsfield: Soul 2 / Qwen Image 3 images and Kling 3.0 / Kling O3 / Seedance 2.5 video; accompanying catalog data at ArcReel/arcreel-catalog#2)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/default-ui-language-override.md",
+      "source_sha256": "dcbd2fd59669a4a765a9838e6441333fede173d92c41f45fb22f1dc3ad89c390",
+      "candidate_sha256": "57a9787c7478816a159917be8486d9a86c51127dc638c0c9ea34f4a01077fe6d",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/forced-english-visual-prompts.md",
+      "source_sha256": "e5d83a01a3ceb707698340a0419ab541937e43b082a84869baa38364623b3436",
+      "candidate_sha256": "e3c81a8ab9ad95497d585bea070a385818c1cd6f08fe67c88ed582bdb10b7bca",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 9,
+          "text": "- **One body would mix languages**: reference-video bodies embed verbatim speech with `@[角色]{台词}`, which must retain project language. English visuals would mix two languages in one body, harming verbatim fidelity/readability.",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/local-inference-protocol-proxy.md",
+      "source_sha256": "c63b86fc7f3fda83f6f12101725fee5fe2ba962ccca12f72bc0a9fe6d3be24e5",
+      "candidate_sha256": "bbbcc6a723a0c1e73d376489634c3964382f4189a4e0589ecd8ef22b909e1d16",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/narration-via-video-model-voice.md",
+      "source_sha256": "2050802d0283884f46081b05d4ce6878b34918255c3099430948c1c588284e29",
+      "candidate_sha256": "d320f144a6870bd59be55eddc8ad67c339b59d1d9b9cace170767f0564cc551a",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 3,
+          "text": "Narration has only post-production dubbing and current-TTS delivery. Do not add a third option, referencing character voice cards for video-model narration from reference audio. Unattributed narration (bare `{台词}` voiceover in the body, called narrative narration below) also stays out of video prompts as a voice constraint.",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 11,
+          "text": "- **The narration is really a character speaking** (offscreen explanation, inner monologue): use character speech, `@[角色]{台词}` in reference-video bodies, or speaker-tagged speech entries in drama storyboard-to-video. Models supporting native audio references reproduce that character’s voice (Spec #1486); others use soft `voice_style` prompt constraints. #2180 will make prompt constraints the project default and audio references optional enhancement, without adding narration to video prompts.",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 17,
+          "text": "- Character offscreen speech cannot be expressed with `@[角色]{台词}` or speaker-tagged speech entries.",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 21,
+          "text": "- #2164 第 3 条 — 旁白交付增加「@角色集下面的角色声音卡」 (item 3: add character voice cards under the character set to narration delivery)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/per-frame-subtitle-timing.md",
+      "source_sha256": "3a5a69c845ffbd285be2859ae106000ddbf30ce4b9b6cc8872dd88870e6bd2a2",
+      "candidate_sha256": "d9369895449bbe2f4579fae5dac54293a22528082fe9676ad8fa4caf364024a8",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 13,
+          "text": "- #3334 — 字幕烧入时间自定义，可以放到指定帧显示 (custom subtitle burn-in timing at specific frames)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/per-model-output-token-limits.md",
+      "source_sha256": "06bb9061d08e0872541254cae60a76346da3b0977da8e61a1fa165ac216767aa",
+      "candidate_sha256": "5b3263e5a6d1ace02bf1da1493d37375ea90be4439ed6b900955bd599a57d9e2",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 20,
+          "text": "- #1847 — Spec「按模型输出 token 上限」 (per-model output-token limits), closed as YAGNI on 2026-08-13",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/product-enforced-creative-limits.md",
+      "source_sha256": "d4dbd2c7499fcefaa4c664458727b3169a6a9ff3d03f444274280f9a68ddeddb",
+      "candidate_sha256": "bf1ce7d47ff972f2d5f5612dea41219d8abc34c1f4f32c28614ca07b00190c7b",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 19,
+          "text": "- #947 — 「建议把单分镜人物控制在 ≤2 降低宫格/分镜图抽卡率」 (suggest ≤2 characters per shot to reduce grid/storyboard retries)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".out-of-scope/video-unit-frame-chaining.md",
+      "source_sha256": "6adbecbbc7b7632524028394a1d70805edff72128b08c152a6e6b49a5e197e36",
+      "candidate_sha256": "5ee279c0233e279eee38d87cfd03b432d43023e1d70abb7c035c337248620cff",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 17,
+          "text": "`docs/adr/0055` distinguishes generation modes by model inputs: first-frame-driven i2v versus reference-set-driven r2v, locked at creation. Video units have no image fields; bodies’ `@[名称]` references derive visuals on read (`docs/adr/0064`). Last-frame services explicitly reject reference-video projects; execution checkpoints reject storyboard media. Adding first/last slots changes the mode criterion, and reference+first-frame combinations vary by vendor without a unified contract. Each unit independently uses references, without inter-unit visual continuity responsibilities.",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 30,
+          "text": "- #2164 第 5 条 — 参考生视频模式增加「这段首帧衔接上段尾帧」 (item 5: connect current first frame to preceding last frame in reference-video mode)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 31,
+          "text": "- #2164 第 6 条 — 分镜图生视频自动读取上一个视频的尾帧 (item 6: automatically use the preceding video’s last frame in storyboard mode)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        },
+        {
+          "line": 32,
+          "text": "- #2104 — 每一个分镜之间的转场功能 (transitions between shots; automatic previous-last-frame extraction is excluded here; transition types/manual last frames already exist, automation tracked in #2182)",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "source_sha256": "529357664814f544eed06b6911c6f11421457d36eac240c227f669a520374aae",
+      "candidate_sha256": "d6041d8017087d7db9a2502f41e40a5ea48ebc0347e612ef85e06337281d6942",
+      "status": "translated_candidate",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": ".agents/skills/break-ui/CATALOG.md",
+      "source_sha256": "7358efcc6bb48e35187be1c064cf60022dcb18c72c18fab58b606dfc5f421f15",
+      "candidate_sha256": "7358efcc6bb48e35187be1c064cf60022dcb18c72c18fab58b606dfc5f421f15",
+      "status": "already_English_with_preserved_multilingual_fixture",
+      "inline_code_multiset_preserved": true,
+      "link_destinations_preserved": true,
+      "heading_list_paragraph_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "line": 20,
+          "text": "| `王秀英` | CJK, no spaces; \"first + last word\" initials logic finds one word, and CJK breaks anywhere |",
+          "reason": "Original historical request title, raw user wording, machine mention placeholder, or CJK UI stress-test fixture, retained with English explanation where needed."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    },
+    {
+      "path": "PRODUCT.md",
+      "source_sha256": "5b5867e0200ca06d609bfda6b97ea4c301dbf1df2da991685701ae6eb644ce33",
+      "candidate_sha256": "79baa6b0265a50723bcf3baa0d3524a4c15e4e9d16875f9f76872dc4118f82c8",
+      "status": "translated_candidate_pending_independent_review",
+      "inline_code_multiset_preserved": true,
+      "heading_list_counts_preserved": true,
+      "Han_exceptions": [
+        {
+          "text": "Agent 驱动的 AI 视频创作工作台",
+          "reason": "Current BRAND.tagline default product fact preserved verbatim, with English gloss; no UI/default change."
+        }
+      ],
+      "independent_review": {
+        "reviewer": "root",
+        "status": "PASS",
+        "scope": "All changed maintenance clauses compared with source. Three policy-scope/terminology corrections and the earlier rewrite/transcribe correction rechecked. Unchanged catalog independently byte-compared; raw historical wording and tagline remain intentional exceptions."
+      }
+    }
+  ],
+  "consumer_trace": {
+    "PR_template": "GitHub human/Agent authoring template; no code consumers found for old headings; Conventional Commit syntax and Closes # marker preserved.",
+    "break_ui_catalog": ".agents/skills/break-ui/SKILL.md Phase 1 loads CATALOG.md; prose already English and all realistic raw multilingual data kept byte-identical.",
+    "out_of_scope": "Maintenance scope/triage decisions, not implementation authorization. Historical issue/PR references and raw request titles preserved; no feature behavior changed."
+  },
+  "independent_review": "Coordinator pending, including AI-facing PR template and catalog."
+}

@@ -1,6 +1,6 @@
-"""从资产库应用的资产图与衍生资产图：迁移补录与各种归档导入得出与源项目相同的时效结论。
+"""Library-applied base/derivative images: migration backfills and archive imports preserve original-project currency conclusions.
 
-归档导入的校验要求资产描述非空，描述为空的本体只出现在补录用例里。
+Archive imports require nonempty asset descriptions; empty-description bases appear only in backfill tests.
 """
 
 import json
@@ -37,7 +37,7 @@ def library_client(assets_env) -> tuple[TestClient, ProjectManager]:
 def _applied_project(
     client: TestClient, pm: ProjectManager, *, owner_description: str, conflict_policy: str = "skip"
 ) -> Path:
-    """把带两个衍生资产图的库角色应用到项目 demo；demo 不存在时新建。"""
+    """Apply library characters with two derivative images to demo, creating demo if absent."""
 
     asset_id = store_character_with_derivatives(client, pm, owner_description=owner_description)
     if not pm.project_exists("demo"):
@@ -118,7 +118,7 @@ def test_archive_import_reaches_the_source_conclusion(library_client, tmp_path, 
 def test_current_package_carries_only_the_selected_applied_derivatives_and_keeps_the_source_conclusion(
     library_client,
 ):
-    """项目里已有生成的衍生「战斗装」与「旧装」，覆盖应用后战斗装选中带入的版本，旧装仍是生成的。"""
+    """Existing generated 战斗装/旧装 derivatives: overwrite selects imported 战斗装 versions, retaining generated 旧装."""
 
     client, pm = library_client
     pm.create_project("demo")

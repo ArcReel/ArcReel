@@ -1548,7 +1548,7 @@ def test_project_adapter_hashes_content_through_a_binary_descriptor(
         name = os.path.basename(os.fsdecode(path))
         if name in open_flags:
             open_flags[name].append(flags)
-        # 假标志位只用于观察请求，真实 POSIX open 不认识它。
+        # The fake flag is for observing requests only; real POSIX open does not recognize it.
         return original_open(path, flags & ~fake_binary_flag, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr("lib.artifacts.artifact_manifest.os.open", record_open)

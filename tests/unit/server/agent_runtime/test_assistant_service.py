@@ -21,7 +21,7 @@ class _FakePM:
 
 
 class _MultiProjectPM:
-    """接受多个合法项目名的 PM，用于跨项目会话隔离测试。"""
+    """ProjectManager accepting multiple valid project names for cross-project session-isolation tests."""
 
     def __init__(self, valid_projects):
         self.valid_projects = set(valid_projects)
@@ -47,7 +47,7 @@ class _FakeMetaStore:
 
 
 class _FakeEventLogService:
-    """No-op 事件日志：单测聚焦 service 编排，不触达真实 DB。"""
+    """No-op event log: unit tests cover service orchestration without touching a real DB."""
 
     def __init__(self):
         self.backfilled = []
@@ -252,8 +252,7 @@ class TestAssistantService:
 
     @pytest.mark.asyncio
     async def test_send_or_create_concurrent_same_client_key_creates_one_session(self, tmp_path):
-        """同一 client_key 的并发新建请求应在 send_new_session 完成前互斥等待，
-        不因在途窗口各自建会话、重复执行同一 prompt。"""
+        """Concurrent new-session requests sharing client_key wait mutually exclusively until send_new_session completes, avoiding duplicate sessions and execution of the same prompt during the in-flight window."""
         service = AssistantService(project_root=tmp_path)
         sm = _FakeSessionManager()
         service.pm = _FakePM(valid_project="demo")
@@ -284,24 +283,25 @@ class TestAssistantService:
         task1 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
         await asyncio.wait_for(entered.wait(), timeout=0.2)
         task2 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
-        await asyncio.sleep(0)  # 让 task2 跑到锁等待处挂起
+        await asyncio.sleep(0)  # Let task2 suspend while awaiting the lock.
         release.set()
 
         result1 = await task1
         result2 = await task2
 
-        assert len(sm.new_sessions) == 1  # 只建了一个会话，未因在途窗口重复投递
+        assert (
+            len(sm.new_sessions) == 1
+        )  # Only one session created; the in-flight window did not cause duplicate delivery.
         assert result1["session_id"] == result2["session_id"] == "sdk-new-id"
 
     @pytest.mark.asyncio
     async def test_send_or_create_recovers_client_key_mapping_from_db_after_restart(self, tmp_path, db_factory):
-        """进程内幂等映射重启丢失后，受理已落库（新会话首条条目 seq 0 携带
-        client_key）的重试应经 DB 兜底命中既有会话，不再重复建会话。"""
+        """After restart loses the in-process mapping, retry an already persisted acceptance (new-session first entry seq 0 contains client_key) through DB fallback to the existing session, without duplicate creation."""
         from server.agent_runtime.event_log import EventLogStore, build_user_entry
 
         store = EventLogStore(session_factory=db_factory)
 
-        # 首次受理（重启前）：新会话首条用户条目已随 client_key 落库
+        # First acceptance (before restart): persist the new session's first user entry with client_key.
         accepted_entry = build_user_entry([{"type": "text", "text": "hello"}])
         await store.append("sdk-prev", [accepted_entry], client_key="ck-restart")
 
@@ -312,20 +312,20 @@ class TestAssistantService:
         service.meta_store = _FakeMetaStore([])
         service.event_log = _FakeEventLogService()
         service.event_log_store = store
-        assert service._new_session_client_keys == {}  # 重启后进程内映射为空
+        assert service._new_session_client_keys == {}  # In-process mapping is empty after restart.
 
         result = await service.send_or_create("demo", "hello", client_key="ck-restart")
 
-        assert sm.new_sessions == []  # 未重复建会话
+        assert sm.new_sessions == []  # No duplicate session created.
         assert result["session_id"] == "sdk-prev"
         assert result["entry"] is not None
         assert result["entry"]["uuid"] == accepted_entry["uuid"]
-        # 命中后回填进程内映射，后续重试走快路径
+        # Backfill the in-process mapping on a hit; subsequent retries use the fast path.
         assert service._new_session_client_keys["ck-restart"] == "sdk-prev"
 
     @pytest.mark.asyncio
     async def test_send_or_create_recovers_client_key_after_lru_eviction(self, tmp_path, db_factory):
-        """进程内 LRU 淘汰旧键后，同键重试经 DB 兜底命中原会话。"""
+        """After LRU eviction of an old key, same-key retries find the original session through DB fallback."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -339,7 +339,7 @@ class TestAssistantService:
         service.event_log_store = store
         service._new_session_client_keys_max = 1
 
-        # 模拟 SessionManager 的受理落库：新会话首条条目随 client_key 写入
+        # Simulate SessionManager acceptance persistence: write first entry with client_key.
         async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
             sid = f"sdk-{len(sm.new_sessions)}"
             sm.new_sessions.append((project_name, prompt))
@@ -351,16 +351,16 @@ class TestAssistantService:
 
         first = await service.send_or_create("demo", "hello", client_key="ck-a")
         await service.send_or_create("demo", "another", client_key="ck-b")
-        assert "ck-a" not in service._new_session_client_keys  # LRU 已淘汰
+        assert "ck-a" not in service._new_session_client_keys  # Evicted from LRU.
 
         retry = await service.send_or_create("demo", "hello", client_key="ck-a")
 
-        assert len(sm.new_sessions) == 2  # 重试未新建第三个会话
+        assert len(sm.new_sessions) == 2  # Retry did not create a third session.
         assert retry["session_id"] == first["session_id"] == "sdk-0"
 
     @staticmethod
     def _make_project_scoped_service(tmp_path, store, sm, meta_store):
-        """装配一个跨项目 send_new_session 会落地 meta + 事件日志的 service。"""
+        """Assemble a service whose cross-project send_new_session persists meta and event logs."""
         service = AssistantService(project_root=tmp_path)
         service.pm = _MultiProjectPM({"proj_a", "proj_b"})
         service.session_manager = sm
@@ -381,9 +381,7 @@ class TestAssistantService:
 
     @pytest.mark.asyncio
     async def test_new_session_client_key_project_scoped_via_map_hit(self, tmp_path, db_factory):
-        """项目 A 已受理的新会话 client_key，用相同 client_key 对项目 B 调
-        send_or_create（无 session_id）→ 返回项目 B 下新建的会话，而非静默接回 A
-        的会话。覆盖进程内映射命中的快路径。"""
+        """For a client_key accepted in project A, send_or_create without session_id in project B returns a newly created B session rather than silently reconnecting A. Cover the in-process mapping fast path."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -394,21 +392,20 @@ class TestAssistantService:
 
         first = await service.send_or_create("proj_a", "hello", client_key="ck-shared")
         assert first["session_id"] == "sdk-0"
-        # 映射已就绪：项目 B 的调用会先走进程内映射命中的快路径
+        # Mapping ready: project B first takes the in-process hit fast path.
         assert service._new_session_client_keys["ck-shared"] == "sdk-0"
 
         second = await service.send_or_create("proj_b", "hello", client_key="ck-shared")
 
-        assert second["session_id"] == "sdk-1"  # 项目 B 新建，非接回 A
+        assert second["session_id"] == "sdk-1"  # Create project B session instead of reconnecting A.
         assert meta_store.metas["sdk-1"].project_name == "proj_b"
         assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
-        # 映射被本项目会话覆盖，后续同项目重试命中 B
+        # Overwrite mapping with this project's session; subsequent same-project retries hit B.
         assert service._new_session_client_keys["ck-shared"] == "sdk-1"
 
     @pytest.mark.asyncio
     async def test_new_session_client_key_project_scoped_via_db_fallback(self, tmp_path, db_factory):
-        """清空进程内映射（模拟重启）后，DB 兜底恢复路径同样按项目隔离：
-        项目 A 的 client_key 对项目 B 恢复时视为未命中，在 B 下新建会话。"""
+        """After clearing the mapping to simulate restart, DB fallback remains project-isolated: A's client_key misses in B and creates a B session."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -419,18 +416,17 @@ class TestAssistantService:
 
         first = await service.send_or_create("proj_a", "hello", client_key="ck-shared")
         assert first["session_id"] == "sdk-0"
-        service._new_session_client_keys.clear()  # 模拟重启：进程内映射丢失
+        service._new_session_client_keys.clear()  # Simulate restart: in-process mapping lost.
 
         second = await service.send_or_create("proj_b", "hello", client_key="ck-shared")
 
-        assert second["session_id"] == "sdk-1"  # DB 兜底命中 A 会话但项目不符 → 新建 B
+        assert second["session_id"] == "sdk-1"  # DB fallback finds A but project differs; create B.
         assert meta_store.metas["sdk-1"].project_name == "proj_b"
         assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
 
     @pytest.mark.asyncio
     async def test_new_session_client_key_same_project_retry_still_idempotent(self, tmp_path, db_factory):
-        """同项目内幂等语义不回归：相同 client_key 在同一项目重发，仍命中原会话、
-        不重复建会话（分别经映射快路径与 DB 兜底路径）。"""
+        """Preserve same-project idempotency: resending the same client_key finds the original session without duplication through both mapping and DB fallback."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -442,21 +438,20 @@ class TestAssistantService:
         first = await service.send_or_create("proj_a", "hello", client_key="ck-same")
         assert first["session_id"] == "sdk-0"
 
-        # 映射快路径命中
+        # Mapping fast-path hit.
         hit = await service.send_or_create("proj_a", "hello", client_key="ck-same")
         assert hit["session_id"] == "sdk-0"
         assert len(sm.new_sessions) == 1
 
-        # 清空映射后 DB 兜底路径同样命中原会话
+        # After clearing the mapping, DB fallback also finds the original session.
         service._new_session_client_keys.clear()
         recovered = await service.send_or_create("proj_a", "hello", client_key="ck-same")
         assert recovered["session_id"] == "sdk-0"
-        assert len(sm.new_sessions) == 1  # 全程未重复建会话
+        assert len(sm.new_sessions) == 1  # No duplicate session created throughout.
 
     @pytest.mark.asyncio
     async def test_send_or_create_hit_refreshes_lru_position(self, tmp_path, db_factory):
-        """命中进程内映射时刷新 LRU 位置：被频繁重试命中的 key 不因插入顺序
-        在先，被之后新到达但只访问一次的 key 挤出缓存（退化为 FIFO）。"""
+        """Refresh LRU position on mapping hits: frequently retried keys must not be evicted by later one-off keys merely because they were inserted earlier (FIFO degeneration)."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -483,25 +478,23 @@ class TestAssistantService:
         await service.send_or_create("demo", "hello-b", client_key="ck-b")
         assert list(service._new_session_client_keys) == ["ck-a", "ck-b"]
 
-        # 命中 ck-a（幂等重试，不新建会话）：应把 ck-a 刷新到最近使用端
+        # Hit ck-a (idempotent retry, no new session): move ck-a to most recently used.
         hit = await service.send_or_create("demo", "hello-a", client_key="ck-a")
         assert hit["session_id"] == "sdk-0"
         assert list(service._new_session_client_keys) == ["ck-b", "ck-a"]
 
-        # 第三个 key 到达挤出缓存：应淘汰最久未使用的 ck-b，而非刚被命中的 ck-a
+        # Third key evicts the least recently used ck-b rather than just-hit ck-a.
         await service.send_or_create("demo", "hello-c", client_key="ck-c")
 
         assert "ck-a" in service._new_session_client_keys
         assert "ck-b" not in service._new_session_client_keys
-        assert len(sm.new_sessions) == 3  # a/b/c 三次真正新建，命中未重复建会话
+        assert len(sm.new_sessions) == 3  # a/b/c each truly create a session; hits create no duplicates.
 
     @pytest.mark.asyncio
     async def test_send_or_create_hit_survives_concurrent_eviction_during_db_lookup(
         self, tmp_path, monkeypatch, db_factory
     ):
-        """命中路径在 `await find_by_client_key(...)` 期间，该 key 被其他并发
-        请求的淘汰逻辑移除：刷新 LRU 位置的收尾步骤须安全处理键已不存在的
-        情形（不能直接 move_to_end 抛 KeyError 把幂等命中打成未处理异常）。"""
+        """If another request evicts a key during `await find_by_client_key(...)`, LRU refresh must safely handle its absence rather than move_to_end raising KeyError and turning an idempotent hit into an unhandled error."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -529,7 +522,7 @@ class TestAssistantService:
         original_find_by_client_key = store.find_by_client_key
 
         async def find_by_client_key_with_concurrent_eviction(session_id, client_key):
-            # 模拟另一并发请求在本次 DB 查询期间把该 key 挤出缓存。
+            # Simulate another concurrent request evicting this key during the DB lookup.
             service._new_session_client_keys.pop(client_key, None)
             return await original_find_by_client_key(session_id, client_key)
 
@@ -538,14 +531,12 @@ class TestAssistantService:
         retry = await service.send_or_create("demo", "hello", client_key="ck-a")
 
         assert retry["session_id"] == first["session_id"] == "sdk-0"
-        assert len(sm.new_sessions) == 1  # 未因异常或键缺失而重复建会话
-        assert service._new_session_client_keys["ck-a"] == "sdk-0"  # 命中后已安全重新记入
+        assert len(sm.new_sessions) == 1  # Neither an exception nor missing key causes duplicate creation.
+        assert service._new_session_client_keys["ck-a"] == "sdk-0"  # Safely recorded again after hit.
 
     @pytest.mark.asyncio
     async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path, db_factory):
-        """进程内映射指向的会话条目已不存在（如会话被删除后映射未清）时，
-        不应把幽灵 "accepted" 响应（entry=None）返回给调用方——应清掉失效
-        映射并按正常路径新建会话，而不是让调用方连接一个不存在的会话。"""
+        """If a mapped session entry no longer exists (for example, deletion left a stale mapping), do not return a ghost "accepted" response with entry=None. Clear the invalid mapping and create normally rather than directing callers to a nonexistent session."""
         from server.agent_runtime.event_log import EventLogStore
 
         store = EventLogStore(session_factory=db_factory)
@@ -557,23 +548,20 @@ class TestAssistantService:
         service.meta_store = _FakeMetaStore([])
         service.event_log = _FakeEventLogService()
         service.event_log_store = store
-        # 模拟会话已被删除但进程内映射未清（delete_session 不感知该映射）。
+        # Simulate a deleted session with stale in-process mapping (delete_session does not know that mapping).
         service._new_session_client_keys["ck-stale"] = "sdk-deleted"
 
         result = await service.send_or_create("demo", "hello", client_key="ck-stale")
 
-        assert len(sm.new_sessions) == 1  # 未拿到幽灵响应，走了正常新建路径
+        assert len(sm.new_sessions) == 1  # No ghost response; take normal creation path.
         assert result["session_id"] == "sdk-new-id"
         assert result["session_id"] != "sdk-deleted"
-        # 映射已刷新为新会话，不再指向已删除的会话
+        # Mapping refreshed to the new session, no longer pointing at the deleted one.
         assert service._new_session_client_keys["ck-stale"] == "sdk-new-id"
 
     @pytest.mark.asyncio
     async def test_ghost_mapping_cleanup_does_not_clobber_concurrent_fresh_mapping(self, tmp_path):
-        """幽灵映射清理在 `await find_by_client_key(...)` 期间该 key 被其他
-        并发请求写入了新的有效映射：清理不应无条件 pop，否则会误删并发
-        写入的新映射（即便 DB 兜底之后仍能查回正确会话，也不应制造这层
-        可避免的抖动窗口）。"""
+        """If another request writes a new valid mapping during `await find_by_client_key(...)`, ghost cleanup must not unconditionally pop it. Even if later DB fallback recovers the correct session, avoid this unnecessary instability window."""
         service = AssistantService(project_root=tmp_path)
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = _FakeSessionManager()
@@ -581,12 +569,12 @@ class TestAssistantService:
         service.event_log = _FakeEventLogService()
 
         async def find_by_client_key(session_id, client_key):
-            # 模拟另一并发请求在本次查询期间把该 key 更新为新的有效映射。
+            # Simulate another concurrent request writing a new valid mapping for this key during lookup.
             service._new_session_client_keys[client_key] = "sdk-fresh"
-            return  # 旧会话（sdk-deleted）条目已不存在
+            return  # The old session's sdk-deleted entry is already absent.
 
         async def find_new_session_by_client_key(client_key):
-            return None  # 本测试只关心清理分支，不需要真的兜底恢复
+            return None  # This test covers only cleanup; no actual fallback recovery needed.
 
         service.event_log_store = SimpleNamespace(
             find_by_client_key=find_by_client_key,
@@ -596,14 +584,12 @@ class TestAssistantService:
 
         result = await service._find_accepted_new_session("ck-a", "demo")
 
-        assert result is None  # 本测试的兜底查询返回 None，不影响本次断言重点
-        assert service._new_session_client_keys["ck-a"] == "sdk-fresh"  # 未被误删
+        assert result is None  # Fallback lookup returns None without affecting the assertion under test.
+        assert service._new_session_client_keys["ck-a"] == "sdk-fresh"  # Not incorrectly deleted.
 
     @pytest.mark.asyncio
     async def test_recovered_mapping_does_not_overwrite_concurrent_fresher_mapping(self, tmp_path):
-        """DB 兜底恢复在 `await find_new_session_by_client_key(...)` 期间该 key
-        已被其他并发请求记入更新的映射：不应用本次查到的（较旧）session_id
-        覆盖并发写入的映射。"""
+        """If another request writes a newer mapping during `await find_new_session_by_client_key(...)`, DB fallback must not overwrite it with the older session_id found by this call."""
         service = AssistantService(project_root=tmp_path)
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = _FakeSessionManager()
@@ -614,7 +600,7 @@ class TestAssistantService:
             return None
 
         async def find_new_session_by_client_key(client_key):
-            # 模拟另一并发请求在本次查询期间已经建好新会话并记入映射。
+            # Simulate another concurrent request creating and mapping a new session during lookup.
             service._new_session_client_keys[client_key] = "sdk-fresh"
             return "sdk-old", {"seq": 0, "type": "user"}
 
@@ -626,8 +612,8 @@ class TestAssistantService:
         result = await service._find_accepted_new_session("ck-b", "demo")
 
         assert result is not None
-        assert result["session_id"] == "sdk-old"  # 本次调用仍返回自己查到的权威条目
-        # 但不应覆盖并发写入的更新映射
+        assert result["session_id"] == "sdk-old"  # This call still returns its own authoritative lookup result,
+        # but must not overwrite the newer concurrent mapping.
         assert service._new_session_client_keys["ck-b"] == "sdk-fresh"
 
     @pytest.mark.asyncio

@@ -1,13 +1,11 @@
-"""Agent 记忆的两根对称 REST 路由：用户记忆与项目记忆。
+"""Two symmetric REST route groups for Agent memory: user memory and project memory.
 
-两级记忆的接口形状完全一致，差别只在记忆目录从哪里派生：用户记忆由
-``CurrentUser.id`` 派生（URL 不带 user_id，当前恒为 ``default``），项目记忆由项目
-目录派生。两组端点因此共用同一份处理逻辑，只各自提供一个 ``AgentMemoryStore``。
+Both have identical interfaces, differing only in directory derivation: user memory uses ``CurrentUser.id``
+(no user_id in the URL, currently always ``default``), while project memory uses the project directory.
+Share handlers between both groups, each supplying its own ``AgentMemoryStore``.
 
-拆成两个 APIRouter 而不是一个：项目记忆的写方法要挂 ``require_project_migration_ok``，
-而该依赖从路由的 ``project_name`` 路径参数取项目，挂到不带该参数的用户记忆路由上会
-直接抛 RuntimeError。
-"""
+Use two APIRouter instances: project-memory writes require ``require_project_migration_ok``, which resolves projects
+from the ``project_name`` path parameter. Attaching it to user-memory routes without that parameter would raise RuntimeError."""
 
 from __future__ import annotations
 
@@ -26,8 +24,8 @@ from server.auth import CurrentUser, CurrentUserInfo
 user_router = APIRouter(prefix="/agent/memory")
 project_router = APIRouter(prefix="/projects/{project_name}/agent-memory")
 
-#: 记忆正文的媒体类型。写入端不校验 Content-Type：正文是 Markdown 纯文本，
-#: 客户端标 text/markdown 还是 text/plain 都不改变落盘内容。
+#: Memory-body media type. Writes do not validate Content-Type: the body is plain Markdown text,
+#: and text/markdown versus text/plain does not affect persisted content.
 _TEXT_MEDIA_TYPE = "text/plain; charset=utf-8"
 
 
@@ -47,7 +45,7 @@ def _project_store(project_name: str) -> AgentMemoryStore:
 
 
 async def _run(build_store: Callable[[], AgentMemoryStore], action: Callable[[AgentMemoryStore], Any]) -> Any:
-    """在线程里完成建 store 与磁盘操作：项目目录解析与记忆读写都是阻塞 I/O。"""
+    """Construct stores and perform disk operations in a thread: project-directory resolution and memory reads/writes are blocking I/O."""
     return await run_sync_transaction(lambda: action(build_store()))
 
 
@@ -57,19 +55,19 @@ def _text_response(content: bytes) -> Response:
 
 @user_router.get("")
 async def list_user_memory(user: CurrentUser):
-    """列出当前用户的记忆目录内容。"""
+    """List the current user’s memory-directory contents."""
     return await _run(lambda: _user_store(user), lambda store: store.overview())
 
 
 @user_router.get("/files/{filename}")
 async def read_user_memory_file(filename: str, user: CurrentUser):
-    """读取当前用户的单个记忆文件。"""
+    """Read one memory file for the current user."""
     return _text_response(await _run(lambda: _user_store(user), lambda store: store.read(filename)))
 
 
 @user_router.put("/files/{filename}")
 async def write_user_memory_file(filename: str, request: Request, user: CurrentUser):
-    """幂等写入当前用户的单个记忆文件。"""
+    """Idempotently write one memory file for the current user."""
     content = await request.body()
     await _run(lambda: _user_store(user), lambda store: store.write(filename, content))
     return {"name": filename}
@@ -77,33 +75,33 @@ async def write_user_memory_file(filename: str, request: Request, user: CurrentU
 
 @user_router.delete("/files/{filename}")
 async def delete_user_memory_file(filename: str, user: CurrentUser):
-    """删除当前用户的单个记忆文件。"""
+    """Delete one memory file for the current user."""
     await _run(lambda: _user_store(user), lambda store: store.delete(filename))
     return {"name": filename}
 
 
 @user_router.post("/clear")
 async def clear_user_memory(user: CurrentUser):
-    """清空当前用户的整个记忆目录。"""
+    """Clear the current user’s entire memory directory."""
     await _run(lambda: _user_store(user), lambda store: store.clear())
     return {"cleared": True}
 
 
 @project_router.get("")
 async def list_project_memory(project_name: str):
-    """列出项目的记忆目录内容。"""
+    """List the project’s memory-directory contents."""
     return await _run(lambda: _project_store(project_name), lambda store: store.overview())
 
 
 @project_router.get("/files/{filename}")
 async def read_project_memory_file(project_name: str, filename: str):
-    """读取项目的单个记忆文件。"""
+    """Read one project-memory file."""
     return _text_response(await _run(lambda: _project_store(project_name), lambda store: store.read(filename)))
 
 
 @project_router.put("/files/{filename}")
 async def write_project_memory_file(project_name: str, filename: str, request: Request):
-    """幂等写入项目的单个记忆文件。"""
+    """Idempotently write one project-memory file."""
     content = await request.body()
     await _run(lambda: _project_store(project_name), lambda store: store.write(filename, content))
     return {"name": filename}
@@ -111,13 +109,13 @@ async def write_project_memory_file(project_name: str, filename: str, request: R
 
 @project_router.delete("/files/{filename}")
 async def delete_project_memory_file(project_name: str, filename: str):
-    """删除项目的单个记忆文件。"""
+    """Delete one project-memory file."""
     await _run(lambda: _project_store(project_name), lambda store: store.delete(filename))
     return {"name": filename}
 
 
 @project_router.post("/clear")
 async def clear_project_memory(project_name: str):
-    """清空项目的整个记忆目录。"""
+    """Clear the project’s entire memory directory."""
     await _run(lambda: _project_store(project_name), lambda store: store.clear())
     return {"cleared": True}

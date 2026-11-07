@@ -6,10 +6,10 @@ paths:
   - "CONTRIBUTING.md"
 ---
 
-# 用户文档
+# User documentation
 
-### 供应商相关文档写能力与配置方式，具体型号、单价与接口参数以设置页和供应商官方文档为准
+### Provider documentation explains capabilities and configuration; settings and official provider docs own model names, prices, and API parameters
 
-README 与上站页面说明 ArcReel 覆盖哪些媒体类型、如何统一配置、不同能力怎么选、具体信息去哪里确认。逐个罗列型号、单价或接口参数的段落会随供应商每次更新而过期，而且先于代码过期：代码里的模型目录改了，文档里的清单没人回头改，用户照着去配置一个已不存在的选项。README 面向第一次访问仓库的人，这类信息放在首页过期得最显眼。
+README and site pages explain supported media types, unified configuration, choosing capabilities, and where to verify details. Lists of model names, unit prices, or API parameters go stale with provider updates, often before code does: catalog changes land while nobody revisits the prose, and users try to configure nonexistent options. README is the first page visitors see, making stale information especially visible there.
 
-放行：说明某个模型特有的行为或计费规则时可以点名该模型，例如按视频 token 计费的换算公式；README 的赞助商区块不属于供应商文档。
+Exceptions: name a model when explaining its specific behavior or billing, such as video-token pricing conversion. README sponsorship sections are not provider documentation.

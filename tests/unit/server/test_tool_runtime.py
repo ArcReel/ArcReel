@@ -670,14 +670,14 @@ def test_draft_locator_rejects_unknown_document_types() -> None:
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])
 def test_text_generation_request_rejects_non_string_entry_ids(entry_ids: tuple[object, ...]) -> None:
-    """entry_ids 经队列 payload JSON 往返回来，元素类型必须真的校验。"""
+    """Validate actual entry_ids element types after queue payload JSON round trips."""
 
     with pytest.raises(ValueError, match="entry_ids must be non-empty strings"):
         shared_text_generation.TextGenerationRequest(episode=1, entry_ids=entry_ids)
 
 
 def test_source_language_accepts_russian() -> None:
-    """source_language 白名单包含 ru，俄语项目可保存；未登记语言仍被拒。"""
+    """source_language allows ru so Russian projects save; unregistered languages still reject."""
     from server.tool_runtime import _SOURCE_LANGUAGE_VALUES, _coerce_setting_value
 
     assert "ru" in _SOURCE_LANGUAGE_VALUES

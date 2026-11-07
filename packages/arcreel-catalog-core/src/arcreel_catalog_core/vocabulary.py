@@ -1,7 +1,7 @@
-"""目录数据的封闭集合：媒体类型、币种、计量项与选择维度。
+"""Closed catalog vocabularies: media types, currencies, meters, and selection dimensions.
 
-这些集合由代码定义，目录数据不能自创。实例侧遇到集合之外的计量项、选择维度或币种时，
-所在价目表按未定价处理；构建侧直接拒绝。
+These sets are code-defined; catalog data cannot introduce its own. When instances encounter unknown meters, selection dimensions, or currencies,
+the containing price table is treated as unpriced; builds reject it outright.
 """
 
 from __future__ import annotations
@@ -20,21 +20,21 @@ CURRENCIES: Final[tuple[Currency, ...]] = ("USD", "CNY")
 _PER_MILLION: Final = 1_000_000
 _PER_TEN_THOUSAND: Final = 10_000
 
-#: 计量项的类别，决定上报了用量、价目表却没有这个计量项时怎样处理：
+#: Meter kind, determining what happens when usage is reported for a meter absent from the price table:
 #:
-#: - ``token``：一份 token 总量按互不重叠的计量项拆开上报（如未缓存输入与缓存读），缺了哪一项的单价，
-#:   这部分 token 的费用就无从得知，整笔记为未定价。
-#: - ``count``：按次数、时长、张数、字符数这类可数的量计，各是一条独立的计费轴（如视频的秒数与参考图
-#:   张数）。价目表没有这一项，表示厂商不按它收费，这一项不计费。
+#: - ``token``: total tokens are reported as disjoint meters (such as uncached input and cache reads); if any meter lacks a price,
+#:   the cost of those tokens is unknown and the entire call is recorded as unpriced.
+#: - ``count``: counted quantities such as requests, duration, images, and characters are independent billing axes (such as video seconds and reference image
+#:   count). Absence from the price table means the maker does not charge for that meter, so it is not billed.
 MeterKind = Literal["token", "count"]
 
 
 @dataclass(frozen=True)
 class MeterSpec:
-    """一个计量项的定义。
+    """Definition of one meter.
 
-    ``quantity_per_price`` 是单价对应的计数量：token 类按每百万 token 标价，字符数按每万字标价，
-    其余按每张、每秒、每次标价。免费额度按计数单位本身计，与这个换算无关。``kind`` 是计量项的类别，见
+    ``quantity_per_price`` is the quantity per unit price: per million tokens for token meters, per ten thousand characters for character counts,
+    and otherwise per image, second, or request. Free allowances use counting units directly, independent of this conversion. ``kind`` is the meter kind; see
     :data:`MeterKind`。
     """
 
@@ -51,36 +51,36 @@ def _count(media_types: tuple[MediaType, ...], quantity_per_price: int = 1) -> M
     return MeterSpec(frozenset(media_types), quantity_per_price, "count")
 
 
-#: 计量项的封闭集合。各计量项的用量互不重叠：未缓存输入、缓存读与两档缓存写之和等于总输入。
+#: Closed meter set. Usage does not overlap: uncached input, cache reads, and both cache-write tiers sum to total input.
 METERS: Final[Mapping[str, MeterSpec]] = MappingProxyType(
     {
-        # token：文本模型的主计量；图片与音频模型的文字输入也按它计。
+        # Tokens: the primary meter for text models; also used for text input to image and audio models.
         "uncached_input_tokens": _token(("text", "image", "audio")),
         "cache_read_tokens": _token(("text", "image")),
         "cache_write_5m_tokens": _token(("text",)),
         "cache_write_1h_tokens": _token(("text",)),
         "output_tokens": _token(("text", "image")),
         "audio_input_tokens": _token(("text",)),
-        # 图片
+        # Images
         "output_images": _count(("image",)),
         "input_images": _count(("image", "video")),
         "uncached_image_input_tokens": _token(("image",)),
         "image_cache_read_tokens": _token(("image",)),
         "image_output_tokens": _token(("image",)),
-        # 视频。视频 token 由输出秒数与画面尺寸换算而来，与秒数是同一条计费轴的两种量法，归计数类：
-        # 按秒计价的条目不收它，按 token 计价的条目不收秒数。
+        # Video. Video tokens derive from output seconds and frame dimensions, measuring the same billing axis as seconds, so they are count meters:
+        # entries priced per second do not charge video tokens, and entries priced per token do not charge seconds.
         "output_seconds": _count(("video",)),
         "video_tokens": _count(("video",), _PER_MILLION),
         "input_video_seconds": _count(("video",)),
-        # 音频
+        # Audio
         "characters": _count(("audio",), _PER_TEN_THOUSAND),
         "audio_output_tokens": _token(("audio",)),
-        # 通用
+        # General
         "requests": _count(MEDIA_TYPES),
     }
 )
 
-#: 唯一可以带「汉字计 2」的计量项。
+#: The only meter allowed to count each Han character as two.
 CJK_DOUBLE_METER: Final = "characters"
 
 ServiceTier = Literal["standard", "flex", "fast"]
@@ -88,16 +88,16 @@ SERVICE_TIERS: Final[tuple[ServiceTier, ...]] = ("standard", "flex", "fast")
 
 DimensionKind = Literal["tier", "label", "flag", "seconds", "service_tier"]
 
-#: 选择维度的封闭集合与取值形态。取值来自真正发给供应商的请求字段。
+#: Closed selection dimension set and value shapes. Values come from request fields actually sent to the provider.
 #:
-#: - ``context_tier``（上下文档）：取值为该档的下界（不含），非负整数，首档写 0。单次请求的
-#:   输入 token 总量（含缓存读写）大于某个取值、且不大于价目表中下一个更大的取值时落入该档，
-#:   整个请求的各计量项都按这一档取单价。
-#: - ``resolution``（分辨率）、``quality``（质量档）：非空字符串。
-#: - ``audio``（是否有声）、``input_video``（输入形态：是否含输入视频）、``reference_to_video``（输入形态：
-#:   是否是参考生视频，即以参考图作主体参考，而不是首尾帧或纯文本）：布尔值。
-#: - ``duration``（时长档）：正整数秒。
-#: - ``service_tier``（服务档）：``standard`` / ``flex`` / ``fast``。
+#: - ``context_tier``: the exclusive lower bound of the tier, a nonnegative integer, with 0 for the first tier. A request's
+#:   total input tokens (including cache reads and writes) fall in the tier when above its bound and no greater than the next larger bound in the price table;
+#:   all meters in the request use prices from this tier.
+#: - ``resolution``, ``quality``: nonempty strings.
+#: - ``audio`` (audio present), ``input_video`` (input includes video), ``reference_to_video`` (input form:
+#:   reference video using images as subject references rather than first/last frames or text only): booleans.
+#: - ``duration``: positive integer seconds.
+#: - ``service_tier``: ``standard`` / ``flex`` / ``fast``.
 DIMENSIONS: Final[Mapping[str, DimensionKind]] = MappingProxyType(
     {
         "context_tier": "tier",
@@ -111,9 +111,9 @@ DIMENSIONS: Final[Mapping[str, DimensionKind]] = MappingProxyType(
     }
 )
 
-#: 选择维度适用的媒体类型：编辑价目表时「按条件分价」只列出条目媒体类型可用的维度。维度的取值来自真正发给
-#: 供应商的请求字段，所以哪种媒体类型有这个字段，就适用于哪种媒体类型。这是编辑时的引导，不是格式约束：构建侧
-#: 与实例侧读入不按它拒收。
+#: Media types eligible for selection dimensions: conditional pricing in the price-table editor lists only dimensions available for the entry's media type. Values come from actual
+#: provider request fields, so a dimension applies to media types with that field. This is editor guidance rather than a format constraint: neither builds
+#: nor instance readers reject data on this basis.
 DIMENSION_MEDIA_TYPES: Final[Mapping[str, frozenset[MediaType]]] = MappingProxyType(
     {
         "context_tier": frozenset({"text", "image", "audio"}),
@@ -129,7 +129,7 @@ DIMENSION_MEDIA_TYPES: Final[Mapping[str, frozenset[MediaType]]] = MappingProxyT
 
 
 def is_valid_dimension_value(dimension: str, value: object) -> bool:
-    """``value`` 是否是已知选择维度 ``dimension`` 的合法取值。"""
+    """Whether ``value`` is valid for the known selection dimension ``dimension``."""
     match DIMENSIONS.get(dimension):
         case "tier":
             return type(value) is int and value >= 0

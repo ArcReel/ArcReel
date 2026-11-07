@@ -1,1 +1,1 @@
-"""剪映草稿：由剪辑时间线摆放片段、写成占位符形态的产物，并在下载时代入本机草稿目录与剪映版本。"""
+"""Jianying drafts: arrange timeline clips into placeholder artifacts, substituting local draft directories/Jianying versions at download."""

@@ -1,4 +1,4 @@
-"""用户修改的条目副本：在当前条目上改显示名与模型事实，其余字段原样带上，不合法的修改被拒绝。"""
+"""User copies edit display names/model facts on current entries, preserving other fields and rejecting invalid edits."""
 
 import pytest
 

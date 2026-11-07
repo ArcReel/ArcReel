@@ -1,27 +1,29 @@
-"""视频任务续跑的协议守卫：提交时冻结调用端点，续跑时比对，端点拆分改名后协议等价的仍可续跑。
+"""Video-task resume protocol guard: freeze submission endpoints, compare at resume, allow protocol-equivalent split successors.
 
-守卫值写进执行检查点的 ``endpoint_guard``（见 ``lib.script.reference_video.execution_checkpoint``），取值两种：
+Execution checkpoints store ``endpoint_guard`` (``lib.script.reference_video.execution_checkpoint``) as:
 
-- 自定义供应商：调用端点键，有路径覆盖时连同覆盖（``lib.custom_provider.path_overrides.endpoint_guard``）；
-- 内置供应商：``builtin:`` 加模型挂接的内置调用端点名（:func:`builtin_endpoint_guard`）。升级前提交的内置任务没有
-  守卫（``None``），兼容放行当前内置端点；旧任务完成前更换端点可能导致续跑失败。
+- Custom providers: endpoint keys with any path overrides (``lib.custom_provider.path_overrides.endpoint_guard``).
+- Built-in providers: ``builtin:`` plus the model-bound endpoint name (:func:`builtin_endpoint_guard`).
+  Preupgrade built-in tasks lack guards (``None``) and compatibly permit current built-in endpoints;
+  switching endpoints before old tasks complete may still break resume.
 
-续跑只轮询并取回结果，所以判据是「当下的端点能否按提交时的协议查到这个任务」：端点相同，或提交时的端点已经拆分
-退役、当下的端点是它协议等价的后继（:data:`RETIRED_ENDPOINT_SUCCESSORS`）。其余情况视为换了协议，拒绝续跑。
+Resume only polls/retrieves results, so ask whether current endpoints can find tasks under submission
+protocols. Allow identical endpoints or protocol-equivalent successors of split/retired submitted endpoints
+(:data:`RETIRED_ENDPOINT_SUCCESSORS`). Otherwise reject changed protocols.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-#: 内置供应商守卫的前缀：与自定义供应商的端点键区分开，内置与自定义之间切换不会因端点同名而放行。
+#: Built-in guard prefix distinguishes custom endpoint keys, preventing same-name built-in/custom switches from passing.
 BUILTIN_GUARD_PREFIX = "builtin:"
 
-# 自定义守卫里路径覆盖部分的分隔，与 lib.custom_provider.path_overrides.endpoint_guard 一致。
+# Path-override separator in custom guards, matching lib.custom_provider.path_overrides.endpoint_guard.
 _PATHS_SEPARATOR = " paths="
 
-#: 拆分后退役的端点名 → 协议等价的后继端点。后继共用创建任务与轮询接口，只是请求体与计量不同，提交时挂旧端点的
-#: 任务经任一后继都能取回结果。拆分一个端点时在这里登记一行；后继之间互换不在此列，仍按换了端点拒绝。
+#: Retired split endpoints → protocol-equivalent successors sharing create/poll APIs, differing only in bodies/metering.
+#: Old-endpoint tasks can retrieve through any successor. Register one row per split; switching between successors still rejects changed endpoints.
 RETIRED_ENDPOINT_SUCCESSORS: Mapping[str, frozenset[str]] = {
     "grok-video": frozenset({"grok-video-classic", "grok-video-mixed"}),
     "vidu-video": frozenset(
@@ -61,23 +63,23 @@ RETIRED_ENDPOINT_SUCCESSORS: Mapping[str, frozenset[str]] = {
 
 
 def builtin_endpoint_guard(endpoint: str) -> str:
-    """内置供应商经 ``endpoint`` 提交的视频任务的守卫值。"""
+    """Guard for built-in video tasks submitted through ``endpoint``."""
     return f"{BUILTIN_GUARD_PREFIX}{endpoint}"
 
 
 def _split(guard: str) -> tuple[str, str, str]:
-    """守卫拆成（内置前缀、端点名、路径覆盖部分）；没有的部分为空串。"""
+    """Split guards into built-in prefix, endpoint name, path-override portion; absent portions are empty strings."""
     prefix = BUILTIN_GUARD_PREFIX if guard.startswith(BUILTIN_GUARD_PREFIX) else ""
     endpoint, separator, paths = guard.removeprefix(prefix).partition(_PATHS_SEPARATOR)
     return prefix, endpoint, separator + paths
 
 
 def resume_guard_accepts(submitted: str | None, current: str | None) -> bool:
-    """提交时冻结的守卫 ``submitted`` 下的任务能否经当下的守卫 ``current`` 续跑。
+    """Whether tasks frozen under ``submitted`` can resume through current ``current`` guards.
 
-    - 两者相同：放行。
-    - ``submitted`` 为 ``None``：升级前提交的内置任务，当下仍是内置供应商时放行，换成自定义供应商时拒绝。
-    - 提交时的端点已拆分退役：当下的端点是它的后继，且内置与自定义的归属、路径覆盖都没变时放行。
+    - Equal guards: allow.
+    - ``submitted`` is ``None``: preupgrade built-in tasks allow current built-in providers, rejecting custom providers.
+    - Split/retired submitted endpoints: allow successors only if built-in/custom ownership and path overrides remain unchanged.
     """
     if submitted == current:
         return True

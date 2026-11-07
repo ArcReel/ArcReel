@@ -1,4 +1,4 @@
-"""剪辑时间线读取与新建所依据的一集素材事实：按脚本顺序的视频单元、发声归属与 current 媒体。"""
+"""Episode media facts for timeline reads/creation: script-ordered video units, speech attribution, and current media."""
 
 from __future__ import annotations
 
@@ -23,10 +23,9 @@ from lib.speech.speech_composition import SpeechMode, admit_script_unit
 
 @dataclass(frozen=True, slots=True)
 class ScriptUnit:
-    """脚本里的一个视频单元及其发声归属；归属判不出（混合发声、待重新规划）时为 None。
+    """A script video unit and its speech attribution, None when unresolved (mixed speech / pending replanning).
 
-    ``subtitle_text`` 是该单元台词与画外音的原文，字幕草稿由它切分而来。
-    """
+    ``subtitle_text`` is verbatim dialogue/voiceover text, split to form subtitle drafts."""
 
     unit_id: str
     speech_mode: SpeechMode | None
@@ -47,7 +46,7 @@ class EpisodeScriptUnits:
 
 @dataclass(frozen=True, slots=True)
 class UnitMedia:
-    """视频单元的 current 媒体：没有可用视频时 ``video_version`` 为 None；时长探测不出时为 None。"""
+    """Current media for a video unit: ``video_version`` is None without usable video; duration is None if probing fails."""
 
     video_version: int | None
     video_duration_us: int | None
@@ -56,7 +55,7 @@ class UnitMedia:
 
 @dataclass(frozen=True, slots=True)
 class BgmMedia:
-    """项目里一首已上传、文件在场的 BGM。"""
+    """An uploaded BGM in the project with its file present."""
 
     name: str
     duration_us: int
@@ -64,10 +63,9 @@ class BgmMedia:
 
 @dataclass(frozen=True, slots=True)
 class EpisodeSources:
-    """``tts_narration`` 为项目的旁白交付方式是否为 TTS 配音；后期配音项目不检查旁白。
+    """``tts_narration`` indicates TTS narration delivery; post-production-voiceover projects skip narration checks.
 
-    ``bgm`` 是项目里已上传、文件在场的 BGM，按 BGM ID 索引。
-    """
+    ``bgm`` indexes uploaded BGM with files present by BGM ID."""
 
     script: EpisodeScriptUnits
     media: Mapping[str, UnitMedia]
@@ -89,7 +87,7 @@ def _episode_script_file(project: Mapping[str, Any], episode: int) -> str:
 
 
 def load_episode_script_units(projects: ProjectManager, project_name: str, episode: int) -> EpisodeScriptUnits:
-    """按当前脚本顺序列出一集的视频单元。"""
+    """List an episode's video units in current script order."""
     project = projects.load_project(project_name)
     script_file = _episode_script_file(project, episode)
     try:
@@ -133,7 +131,7 @@ async def _duration_us(path: Path | None, *, video: bool) -> int | None:
         return None
     probe = probe_existing_video_duration_seconds if video else probe_existing_audio_duration_seconds
     seconds = await probe(path)
-    # 实测时长保留微秒精度，输出时再规整为秒，避免逐段舍入累积漂移。
+    # Keep measured durations in microseconds, rounding to seconds only on output to avoid per-clip accumulated drift.
     return round(seconds * MICROSECONDS_PER_SECOND) if seconds is not None and seconds > 0 else None
 
 
@@ -157,7 +155,7 @@ _PROBE_CONCURRENCY = 4
 async def load_episode_sources(
     projects: ProjectManager, project_name: str, script: EpisodeScriptUnits, unit_ids: set[str]
 ) -> EpisodeSources:
-    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音，项目的旁白交付方式，以及项目里的 BGM。"""
+    """Read current video/narration for ``unit_ids`` still in the script, project narration delivery, and project BGM."""
 
     def snapshot() -> tuple[Path, dict[str, Any], VersionManager]:
         project_path = projects.get_project_path(project_name)

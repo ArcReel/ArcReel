@@ -1,7 +1,6 @@
-"""带旁白与烧入字幕的成片：素材层取自呈现模型，用随包 ffmpeg 真实渲染后检查画面与声音。
+"""Final cuts with narration and burned subtitles use presentation-model media, render with bundled ffmpeg and inspect picture/sound.
 
-共用项目的视频是没有音轨的黑屏、旁白配音是正弦音，所以画面里有亮像素即烧入了字幕，音频有声即混入了旁白。
-"""
+Shared videos are silent black frames and narration is sine audio; bright pixels prove burned subtitles and audible audio proves narration mixing."""
 
 from __future__ import annotations
 
@@ -38,7 +37,7 @@ def _decode(path: Path, *args: str) -> bytes:
 
 
 def _bright_pixels(path: Path, at: float) -> tuple[int, int]:
-    """``at`` 秒那一帧上半幅、下半幅的亮像素数。"""
+    """Bright-pixel counts in the upper/lower halves of the frame at ``at`` seconds."""
     frame = _decode(path, "-ss", f"{at}", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray")
     assert len(frame) == _WIDTH * _HEIGHT
     half = _WIDTH * _HEIGHT // 2
@@ -46,7 +45,7 @@ def _bright_pixels(path: Path, at: float) -> tuple[int, int]:
 
 
 def _peak(path: Path, start: float, end: float) -> int:
-    """音频在 ``[start, end)`` 秒内的峰值（16 位采样）。"""
+    """Audio peak within ``[start, end)`` seconds (16-bit samples)."""
     samples = array("h", _decode(path, "-vn", "-ac", "1", "-ar", str(_SAMPLE_RATE), "-f", "s16le"))
     window = samples[round(start * _SAMPLE_RATE) : round(end * _SAMPLE_RATE)]
     return max((abs(sample) for sample in window), default=0)
@@ -68,7 +67,7 @@ async def test_burned_and_clean_final_cuts_are_separate_artifacts_and_only_one_s
         assert (rendered.version, rendered.acceptance.expected_duration) == (1, 3.0)
         status = await service.status("demo", timeline_id, narration=rendered.narration, subtitles=rendered.subtitles)
         assert status.status is ArtifactStatus.CURRENT
-    # 不带旁白版本的字幕按源素材时间显示：0.5 秒处是 S01 的「旁白一句」，烧在画面下方。
+    # Without narration, subtitles follow source-media time: S01 “旁白一句” at 0.5s burns below the frame.
     upper, lower = _bright_pixels(project_path / burned.artifact_path, 0.5)
     assert (upper, lower > 500) == (0, True)
     assert _bright_pixels(project_path / clean.artifact_path, 0.5) == (0, 0)
@@ -84,13 +83,13 @@ async def test_narrated_final_cut_mixes_each_narration_from_its_carrying_clip_an
     narrated = await service.render("demo", timeline_id, narration="with_narration", subtitles="no_subtitles")
     silent = await service.render("demo", timeline_id, narration="without_narration", subtitles="no_subtitles")
 
-    # S02 的 2 秒旁白从 1.5 秒起、超出 3 秒的时间线末尾：如实渲染，随成片截止，时长仍与剪辑时间线一致。
+    # S02's two-second narration starts at 1.5s and extends beyond the three-second timeline; render faithfully and cut with final output, retaining timeline duration.
     assert [(issue.code, issue.params.get("cause")) for issue in narrated.warnings] == [
         ("narration_overrun", "timeline_end")
     ]
     assert narrated.acceptance.audio_duration == narrated.acceptance.expected_duration == 3.0
     narrated_path = project_path / narrated.artifact_path
-    # S01 的 1.2 秒旁白从 0 秒起，S02 的旁白从 c2 的起点 1.5 秒起，中间留空。
+    # S01's 1.2s narration starts at zero; S02 starts at c2's 1.5s start, leaving a gap.
     assert _peak(narrated_path, 0.1, 1.1) > 3000
     assert _peak(narrated_path, 1.27, 1.43) < 300
     assert _peak(narrated_path, 1.6, 2.9) > 3000

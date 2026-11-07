@@ -1,7 +1,8 @@
-"""参考生视频正文解析器：引用语法记号（``@[名称]`` 引用、台词与画外音）的识别原语。
+"""Reference-video body parser: recognition primitives for ``@[名称]`` references, dialogue, and narration markers.
 
-视频单元只持久化正文，参考图与发声归属都由本模块从正文读时派生（见 ADR 0064）：解析结果
-不落盘，改正文即改一切派生物。"""
+Units persist only bodies; this module derives images and speech ownership on read (ADR 0064). Parse results
+are never persisted; editing the body changes every derivation.
+"""
 
 from __future__ import annotations
 
@@ -18,30 +19,30 @@ from lib.references.reference_catalog import (
 )
 from lib.script.script_models import ReferenceResource
 
-#: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
-#: 不认它（``"﻿".isspace()`` 为 False）。不归一会让带 BOM 的记号在前端认、
-#: 在后端不认——同一份正文在编辑器与执行期派生出不同的参考图。
-#: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
+#: BOM / ZWNBSP. Frontend JS ``\s`` recognizes U+FEFF as leading whitespace; Python ``str.strip()``
+#: does not (``"﻿".isspace()`` is False). Without normalization, BOM markers parse differently in frontend/backend,
+#: deriving different references for identical bodies.
+#: BOMs have no body semantics; remove once at parser entry to align both paths.
 _BOM = "﻿"
 
-#: 说话人 mention 与 ``{`` 之间允许出现的分隔冒号（中英各一）。只允许一个：写了第二个
-#: 就说明这不是「``@[角色]：{台词}``」的形态，此时宁可不成记号，也不静默降级成画外音。
+#: Allowed Chinese/English separator colons between speaker mentions and ``{``. Permit only one:
+#: a second is not ``@[角色]：{台词}``; prefer nonrecognition over silently degrading to narration.
 _SPEAKER_SEPARATORS = "：:"
 
 
 def _normalize_source(text: str) -> str:
-    """引用语法文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。
+    """Normalize reference-syntax input: remove all U+FEFF and converge encoding to Unicode NFC.
 
-    两者同一性质——屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
-    BOM 不止出现在文档开头：粘贴拼接会把它带到任意行首，而分叉是按行发生的。NFC 则是
-    资产名比对的坐标系（见 :func:`lib.project.asset_types.asset_name_comparison_key`）：说话人位与
-    ``@[名称]`` 引用都要与资产表的 key 判等，正文以 NFD 落盘、资产表以 NFC 登记时两者
-    肉眼同字却判不相等。
+    Both are invisible byte differences that diverge byte-level decisions, so handle them together. BOMs
+    may appear at any pasted line beginning, not just document starts, and divergence is line-based. NFC
+    is asset-name comparison space (:func:`lib.project.asset_types.asset_name_comparison_key`): speakers
+    and ``@[名称]`` must equal registry keys; NFD bodies and NFC registry entries otherwise look identical
+    but compare unequal.
 
-    归一落在三个行级原语（``split_speech_line`` / ``leading_mention_before_colon`` /
-    ``find_malformed_mention``）上——它们各自与前端同名函数互为镜像，单独调用时也须同判。
-    名字提取出口再经比对 helper 去除两端空白；因此说话人名与 mention 名一律已 strip + NFC，
-    台词文本已是 NFC。
+    Normalize at three line primitives (``split_speech_line`` / ``leading_mention_before_colon`` /
+    ``find_malformed_mention``), mirroring frontend functions and requiring identical decisions when used alone.
+    Name extraction additionally trims through the comparison helper; speaker/mention names are strip + NFC,
+    and dialogue text is NFC.
     """
     stripped = text.replace(_BOM, "") if _BOM in text else text
     return unicodedata.normalize("NFC", stripped)
@@ -110,51 +111,51 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
 
 @dataclass(frozen=True)
 class SpeechMark:
-    """行内一段发声记号的解析结果。
+    """One parsed inline speech marker.
 
-    ``speaker`` 为空串即画外音（``{台词}``），非空即该角色说这句话（``@[角色]{台词}``）；
-    名称已归一到资产名比对坐标系。``text`` 是花括号内的逐字台词。
+    Empty ``speaker`` means narration (``{台词}``); nonempty means character speech (``@[角色]{台词}``).
+    Names use normalized asset comparison space; ``text`` is verbatim dialogue inside braces.
 
-    ``raw`` 是该记号在归一后原行里占据的整段原文（含说话人 mention 与其后的空白 / 冒号）：
-    「从不删字」的渲染路径（未登记说话人）据此原样回填，无须再回原行按偏移取。
+    ``raw`` is the complete original span in the normalized line (including speaker mention and following
+    whitespace/colon), enabling lossless unregistered-speaker rendering without slicing original offsets again.
 
-    说话人位写 ``@[角色/衍生]`` 时 ``speaker`` 仍是本体名、``derivative`` 记下那个衍生名
-    （见 ``docs/adr/0072``）：声音属于身份，衍生共享本体的参考音频与音色；写下的那套外观
-    由 :attr:`speaker_reference` 承载，供登记判定与级联改名使用。
+    For ``@[角色/衍生]``, ``speaker`` stays the base name and ``derivative`` records the derivative
+    (``docs/adr/0072``). Voices belong to identities; derivatives share base audio/voice style.
+    :attr:`speaker_reference` carries written appearance for registration checks and cascade renaming.
     """
 
     speaker: str
     text: str
     raw: str
-    #: 说话人位写下的衍生名；裸本体名与画外音为空串。
+    #: Written speaker derivative; empty for bare base names and narration.
     derivative: str = ""
 
     @property
     def speaker_reference(self) -> str:
-        """说话人位写下的引用名：裸本体名，或 ``本体名/衍生名``；画外音为空串。"""
+        """Written speaker reference: base name or ``本体名/衍生名``; empty for narration."""
         return f"{self.speaker}/{self.derivative}" if self.derivative else self.speaker
 
 
 def split_speech_line(line: str) -> list[str | SpeechMark]:
-    """把一行拆成「画面描述片段」与「发声记号」的有序序列（记号可出现在行内任意位置）。
+    """Split a line into ordered visual-description strings and speech markers, appearing anywhere inline.
 
-    发声记号有两种，语言无关：``{台词}`` 是画外音；紧接在 ``@[角色]`` 之后（中间允许空白
-    或一个中英冒号）的 ``{台词}`` 是该角色说这句话。``@[角色]：{台词}`` 独占一行是后者的
-    一个特例，同样合法。
+    Two language-independent markers: ``{台词}`` is narration; ``{台词}`` immediately following ``@[角色]``
+    with optional whitespace or one Chinese/English colon is character speech. Standalone
+    ``@[角色]：{台词}`` is a valid special case.
 
-    说话人只认「紧贴花括号之前的那个 mention」，不做「行内最近 mention 猜 speaker」式
-    启发式——推断错误会把台词静默绑到错误角色的参考音频上。以下三种一律不成记号，花括号
-    留在描述片段里，由调用侧按各自严格度出 warning 或判违约：
+    Recognize only the mention immediately before braces, never guess the nearest inline mention as
+    speaker: mistakes silently bind dialogue to another character's reference audio. The following never
+    form markers; retain braces in descriptions for caller-specific warnings or violations:
 
-    - 空台词（``{}`` / ``{   }``）：``Utterance`` 要求 text 非空，放行会派生出没有内容的发声。
-    - 说话人位为空白（``@[ ]{台词}``）或只写了衍生（``@[/劲装]{台词}``）：dialogue 要求非空
-      speaker，而声音绑的是本体，本体名缺席时没有可绑的身份。
-    - 说话人位写坏（``@[]{台词}``、``@[李明{台词}``、``@[张三]：：{台词}``）：花括号前是 ``]``
-      或又一个分隔冒号、却没有可用 mention 时不降级成画外音——作者写的是「某人说」，静默改成
-      画外音比不识别更难发现。
+    - Empty dialogue (``{}`` / ``{   }``): ``Utterance`` requires nonempty text; acceptance would derive empty speech.
+    - Blank speaker (``@[ ]{台词}``) or derivative-only (``@[/劲装]{台词}``): dialogue requires a nonempty
+      speaker; without a base name, there is no identity to bind audio to.
+    - Malformed speakers (``@[]{台词}``, ``@[李明{台词}``, ``@[张三]：：{台词}``): a preceding ``]``
+      or extra colon without a usable mention never degrades to narration. The author intended a speaker;
+      silent conversion to narration is harder to detect than an unrecognized marker.
 
-    拼接结果（描述片段 + 各记号的 ``raw``）逐字等于归一后的原行，故 ``strip_speech_marks``
-    是无损切分的另一半，不会吞字。
+    Descriptions plus each marker's ``raw`` concatenate verbatim to the normalized source line; ``strip_speech_marks``
+    is the other half of lossless splitting and never swallows text.
     """
     text = _normalize_source(line)
     mentions = list(_iter_mentions(text))
@@ -170,7 +171,7 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
             break
         inner = text[open_index + 1 : close_index]
         if "{" in inner:
-            # 嵌套 / 漏闭合：外层 ``{`` 不成记号，从内层重新扫描。
+            # Nested/unclosed braces: outer ``{`` forms no marker; scan again from inside.
             scan = open_index + 1
             continue
         if not inner.strip():
@@ -213,36 +214,36 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
 
 
 def line_speech_marks(line: str) -> list[SpeechMark]:
-    """一行里按出现顺序排列的发声记号。"""
+    """Speech markers on a line in occurrence order."""
     return [part for part in split_speech_line(line) if isinstance(part, SpeechMark)]
 
 
 def speech_line_description(parts: Iterable[str | SpeechMark]) -> str:
-    """``split_speech_line`` 结果里记号之外的残余文本，即这一行的画面描述。
+    """Residual nonmarker text in ``split_speech_line``, representing that line's visuals.
 
-    收在此处而不是各调用侧就地 join：同时要记号与残余的调用方（预览派生、发声准入、草稿
-    校验）只能切一次再各取一半，否则「什么算描述」会在三处各写一遍、日后随记号语法一起漂移。
+    Centralize rather than join independently: previews, speech admission, and draft validation needing both
+    markers and descriptions should split once and take each part, avoiding three divergent definitions
+    of description as marker syntax evolves.
     """
     return "".join(part for part in parts if isinstance(part, str))
 
 
 def strip_speech_marks(line: str) -> str:
-    """去掉全部发声记号后剩下的画面描述文本（归一形）。
+    """Normalized visual text after removing all speech markers.
 
-    参考图派生与产物依据都按此文本判定：只在花括号前出现的角色只绑声音、不进画面参考，
-    而同一行里写在记号之外的 ``@[名称]`` 照常进参考图。
+    Both reference derivation and artifact basis use this: characters appearing only before dialogue braces
+    bind audio without images, while same-line ``@[名称]`` outside markers still derives references.
     """
     return speech_line_description(split_speech_line(line))
 
 
 def leading_mention_before_colon(line: str) -> str | None:
-    """行首为 ``@[名称]：`` 形态时返回该名称，否则返回 ``None``（只看名称与冒号，不判花括号）。
+    """Return the name for leading ``@[名称]：``, otherwise ``None``; inspect names/colons, not braces.
 
-    与「这行首是不是一个发声记号」的严判之差即「本想写台词但写坏了」：漏花括号、花括号不
-    成对、说话人位空白。机器产物校验据此把这类行判违约，而不是让它以画面描述的身份放行
-    （说话人会被派生成参考图、台词则整句消失）。返回名称而不是布尔，是因为这一形态还要看
-    名称是不是角色——场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）是合法的画面描述写法，
-    不能与漏花括号的台词混为一谈。
+    Difference from strict speech-marker recognition identifies intended but malformed dialogue: missing/
+    unmatched braces or blank speakers. Machine validation rejects those instead of treating them as visuals
+    (which would derive speaker images while dropping dialogue). Return a name, not bool, because ownership
+    matters: scene/prop headings (``@[酒馆]：木门被风吹开``) are valid visuals, not malformed dialogue.
     """
     stripped = _normalize_source(line).strip()
     if not stripped.startswith("@"):
@@ -257,14 +258,14 @@ def leading_mention_before_colon(line: str) -> str | None:
 
 
 def find_malformed_mention(line: str) -> str | None:
-    """返回行内首个写坏的 ``@[`` 引用片段（如 ``@[李明`` / ``@[]``）；没有则返回 ``None``。
+    """Return the first malformed ``@[`` token (such as ``@[李明`` / ``@[]``), or ``None``.
 
-    ``_iter_mentions`` 对这类 token 静默不产出 mention，正文里的坏 token 因此既不进
-    references，又会被 ``render_mentions_as_subjects`` 原样带进供应商请求（它只替换认得的
-    mention、从不删字）。左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 ``_iter_mentions`` 同口径。
+    ``_iter_mentions`` silently ignores these, omitting references while ``render_mentions_as_subjects``
+    retains unknown text in provider requests (it replaces recognized mentions, never deletes). Skip tokens
+    preceded by ASCII word characters as email/ID fragments, matching ``_iter_mentions``.
 
-    全角形（``＠[李明]`` / ``@［李明］``）一并算坏 token：中文输入法下模型很容易写出，而语法只认
-    半角，静默放行的后果同样是那张参考图从视频请求里消失。
+    Fullwidth forms (``＠[李明]`` / ``@［李明］``) are malformed too: models often emit these with Chinese
+    input methods, but syntax accepts halfwidth only; silent acceptance likewise loses reference images.
     """
     text = _normalize_source(line)
     for index, char in enumerate(text):
@@ -281,14 +282,14 @@ def find_malformed_mention(line: str) -> str | None:
 
 
 def extract_mentions(text: str) -> list[str]:
-    """提取正文中的 ``@`` 引用名（保持首次出现顺序、去重）。
+    """Extract deduplicated ``@`` names in first-mention order.
 
-    顺序即执行期参考图的编号顺序：正文是唯一真相，没有另一份可以与它分叉的引用列表。
+    Order determines execution reference-image numbers; bodies are authoritative, with no independent reference list to drift.
 
-    **发声记号内的说话人位不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
-    ``@[角色]{台词}`` 的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。只在记号前
-    出现过的角色因此没有参考图，但台词与音色声明照常；同一行写在记号之外的 ``@[名称]``
-    照常进参考图。
+    **Exclude speaker positions in speech markers**: giving offscreen speakers images encourages rendering them
+    on screen. ``@[角色]{台词}`` speakers drive only voice declarations/utterances, not images. Characters
+    mentioned only there have no images but retain speech/voice declarations; same-line ``@[名称]``
+    outside markers derives images normally.
     """
     seen: set[str] = set()
     result: list[str] = []
@@ -303,11 +304,11 @@ def extract_mentions(text: str) -> list[str]:
 
 
 def mention_names(text: str) -> list[str]:
-    """正文里出现的全部 ``@`` 引用名（保持首次出现顺序、去重），**含发声记号的说话人位**。
+    """All body ``@`` names, deduplicated in first-occurrence order, **including speech-marker speakers**.
 
-    与 :func:`extract_mentions` 问的是两个问题：那个函数问「哪些名字要进参考图」，故排除
-    说话人位；本函数问「这份正文里写下了哪些引用名」，级联改名（:func:`rewrite_mentions`
-    改的正是这一集合）与「这条资产/衍生被脚本引用了吗」的判定据此成立。
+    Unlike :func:`extract_mentions`, which asks which names need images and excludes speakers, this asks
+    which reference names were written. Cascade renaming (:func:`rewrite_mentions` rewrites precisely this
+    set) and asset/derivative usage detection depend on it.
     """
     seen: set[str] = set()
     result: list[str] = []
@@ -321,10 +322,10 @@ def mention_names(text: str) -> list[str]:
 
 
 def speech_speaker_references(text: str) -> list[str]:
-    """台词记号的说话人位写下的引用名（保持首现顺序、去重），可能是 ``本体名/衍生名``。
+    """Written dialogue-speaker reference names in first-occurrence order, deduplicated; may be ``本体名/衍生名``.
 
-    与 ``dialogue_speakers`` 的本体名列表互补：那一份回答「这句台词绑谁的声音」，本函数
-    回答「作者在说话人位写下的是哪套外观」，衍生是否登记据此判定。
+    Complements ``dialogue_speakers`` base names: that asks whose voice binds; this asks which appearance
+    the author wrote, determining whether derivatives are registered.
     """
     seen: set[str] = set()
     result: list[str] = []
@@ -338,17 +339,16 @@ def speech_speaker_references(text: str) -> list[str]:
 
 
 def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]:
-    """把文本中指向 *old_name* 的 @ 引用改写为 ``@[new_name]``，返回 ``(新文本, 改写数)``。
+    """Rewrite @ references to *old_name* as ``@[new_name]``, returning ``(新文本, 改写数)``.
 
-    资产重命名的正文改写原语：与 ``_iter_mentions`` 同口径识别 mention（含旧式裸 ``@名字``，
-    改写时一并升格为包裹形式），命中与改写后的名字都由
-    :func:`lib.references.reference_catalog.renamed_reference` 判定——角色改名连带改写 ``@[旧角色/衍生]``，
-    衍生改名（*old_name* 传 ``角色/旧衍生``）只动该角色下的那一套。名字判等走比对坐标系
-    （NFC），正文以 NFD 落盘的同名 mention 也会被命中改写。不做其他归一（不去 BOM、不整体
-    NFC），未命中的字符原样保留：重命名只该改名字本身，不该顺带改写正文的编码形式。已经是
-    目标形式的 mention 不计入改写数。
+    Body primitive for asset renaming; recognize mentions like ``_iter_mentions``, including legacy bare ``@名字``
+    upgraded to wrapped form. :func:`lib.references.reference_catalog.renamed_reference` decides matches and
+    replacements: character rename cascades ``@[旧角色/衍生]``; derivative rename (*old_name* ``角色/旧衍生``)
+    touches only that appearance. NFC comparison also matches NFD-persisted names. Perform no other
+    normalization: never strip BOMs or normalize the whole body to NFC. Unmatched characters stay verbatim;
+    renaming changes names only, never body encoding. Already-target-form mentions do not count as rewrites.
 
-    说话人位的 mention 一并改写：``@[旧角色/衍生]{台词}`` 里的旧名同样是这次改名的引用。
+    Rewrite speaker mentions too: ``@[旧角色/衍生]{台词}`` contains a reference to the renamed identity.
     """
     pieces: list[str] = []
     last = 0
@@ -371,11 +371,11 @@ def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]
 
 
 def remap_mentions(text: str, remap: Callable[[str, bool], str | None]) -> str:
-    """按 *remap* 一次改写正文里的 ``@`` 引用，返回新正文。
+    """Rewrite body ``@`` references in one pass through *remap*, returning the new body.
 
-    *remap* 收到引用名（比对坐标系）与「是否在发声记号的说话人位」，返回替换这个引用的整段文本
-    （如 ``@[新名]``，或退为纯文本的名字），返回 ``None`` 保持原样。多个名字在一次遍历里同时改写，
-    互不串改。只重建有改动的行：重建的行经解析器入口归一，未改动的行逐字保留。
+    *remap* receives normalized names and whether they occupy speech-speaker positions, returning complete
+    replacements (such as ``@[新名]`` or a plain name), or ``None`` to preserve them. Rewrite multiple names
+    together without cascading replacements. Rebuild only changed lines through parser normalization; preserve unchanged lines verbatim.
     """
     pieces: list[str] = []
     for raw_line in text.splitlines(keepends=True):
@@ -415,27 +415,27 @@ def _remap_line(line: str, remap: Callable[[str, bool], str | None]) -> str | No
 def derive_references_from_text(
     text: str, project: dict, *, catalog: ReferenceCatalog | None = None
 ) -> tuple[list[ReferenceResource], list[str]]:
-    """引用语法正文 → ``(references, missing)`` 的唯一派生入口。
+    """Sole derivation from reference-syntax bodies to ``(references, missing)``.
 
-    参考图是纯派生物、不落盘：机器产物校验（``lib.script.reference_video.draft_validation
-    .validate_unit_text``）、编辑器预览与执行期请求投影都经本函数从同一份正文派生。三者的
-    **严格度**按「产物来源是否有作者意图可保护」分流——机器产物对 ``missing`` 与能力上限一律拒，
-    人写产物只警告、照常生成——但**派生本身**必须同一套：分成多处各自 ``extract_mentions`` +
-    ``resolve_references`` 时，任一侧的口径调整（如台词记号的说话人位不计入参考图）都会让同一份
-    正文在编辑器与生成侧派生出不同的 ``图N`` 编号。
+    Images are pure nonpersistent derivations. Machine validation (``lib.script.reference_video.draft_validation
+    .validate_unit_text``), editor previews, and execution projection share this function. **Strictness** depends
+    on author intent: machine outputs reject ``missing`` and capability overflow; human-authored content
+    only warns and still generates. **Derivation itself** must match: independent ``extract_mentions`` +
+    ``resolve_references`` implementations would let changes such as excluding speech speakers produce different
+    ``图N`` numbers in the editor and generation.
 
-    ``catalog`` 是调用方已从同一份 ``project`` 构造的引用目录，批量派生时传入以免逐条重建。
+    ``catalog`` is already built by callers from the same ``project``; batch callers supply it to avoid rebuilding per unit.
     """
     return resolve_references(extract_mentions(text), project, catalog=catalog)
 
 
 def render_mentions(text: str, render: Callable[[str], str]) -> str:
-    """把正文中每个 ``@[X]`` / ``@X`` 就地换成 ``render(X)`` 的返回值。
+    """Replace each body ``@[X]`` / ``@X`` in place with ``render(X)``.
 
-    名字先归一到比对坐标系再交给 ``render``（NFD 落盘的 ``@[名称]`` 与 NFC 登记的同一个
-    名字因此同判）；mention 之外的文本一个字节都不动——没有记号的正文原样返回，格式写坏而
-    解析不出的记号也原样保留。分镜图 / 宫格图路线用它把 ``@[名称]`` 换成参考图编号，
-    :func:`render_mentions_as_subjects` 则是参考生视频路线的主体记号形态。
+    Normalize names to comparison space before ``render``, so NFD ``@[名称]`` matches NFC registration.
+    Never change any bytes outside mentions; return unmarked bodies and unparseable malformed markers
+    unchanged. Storyboard/grid routes replace ``@[名称]`` with image numbers;
+    :func:`render_mentions_as_subjects` produces reference-video subject markers.
     """
     if "@" not in text:
         return text
@@ -452,7 +452,7 @@ def render_mentions(text: str, render: Callable[[str], str]) -> str:
 
 
 def render_matched_mentions(text: str, render: Callable[[str], str | None]) -> str:
-    """同 :func:`render_mentions`，但 ``render`` 返回 ``None`` 的 mention 原样保留（含 ``@`` 与括号）。"""
+    """Like :func:`render_mentions`, but ``render`` returning ``None`` retains the mention, including ``@`` and brackets."""
     if "@" not in text:
         return text
     parts: list[str] = []
@@ -471,15 +471,14 @@ def render_matched_mentions(text: str, render: Callable[[str], str | None]) -> s
 
 
 def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
-    """把 prompt 中的 ``@[X]`` / ``@X`` 替换为三段论的主体记号 ``<X>``。
+    """Replace prompt ``@[X]`` / ``@X`` with three-part subject markers ``<X>``.
 
-    ``names`` 是资产表里已登记的名字——``<X>`` 是画面主体记号、不指向参考图编号，故不随
-    能力上限裁剪收窄。不在其中的 mention 原样保留、从不删字（据此「拼接文本去空白后为空」
-    等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
+    ``names`` contains registered assets. ``<X>`` means visual subject, not image number, so capability
+    clamping never narrows this set. Retain unknown mentions unchanged without deleting text; thus empty
+    joined/trimmed input equals empty rendering, enabling lossless enqueue-side blank-prompt checks.
 
-    正文与 ``names`` 都归一到比对坐标系后再判成员：不归一时，NFD 落盘的 ``@[名称]`` 与 NFC
-    登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个引用语法
-    记号就直接漏进了供应商请求。
+    Normalize both bodies and ``names`` before membership checks. Otherwise NFD ``@[名称]`` fails to
+    match NFC registration, retaining the supposedly unregistered ``@[名称]`` marker directly in provider requests.
     """
     normalized_names = {asset_name_comparison_key(name) for name in names}
     text = _normalize_source(text)
@@ -501,19 +500,19 @@ def resolve_references(
     *,
     catalog: ReferenceCatalog | None = None,
 ) -> tuple[list[ReferenceResource], list[str]]:
-    """按引用目录把 mention 名字分派成 ReferenceResource。
+    """Dispatch mention names into ReferenceResource through the reference catalog.
 
-    已登记判定与归属决议（含新项目共享名称空间之前的存量重复名，按商品→角色→场景→道具）
-    都由 :func:`lib.references.reference_catalog.build_reference_catalog` 定义，本函数只做顺序与去重。
+    :func:`lib.references.reference_catalog.build_reference_catalog` defines registration/ownership, including
+    legacy duplicate names predating shared namespaces (product→character→scene→prop). Only order and deduplication live here.
 
-    产出的 ``ReferenceResource.name`` 与 ``missing`` 一律是比对坐标系
-    （:func:`lib.project.asset_types.asset_name_comparison_key`）下的形式：下游拿它回查资产表、
-    与说话人判等、在正文里替换成主体记号 ``<X>``，三处都要与这里的判定同形，否则「这里判已
-    登记、下游查不到」。入参 ``names`` 通常已出自本模块的解析器（已归一），归一是幂等的补齐，
-    覆盖直接传外部名字的调用方。
+    ``ReferenceResource.name`` and ``missing`` always use asset comparison space
+    (:func:`lib.project.asset_types.asset_name_comparison_key`). Downstream asset lookups, speaker equality,
+    and body ``<X>`` replacements must match this normalization or registered names become unfindable.
+    Input ``names`` usually comes normalized from this parser; idempotent normalization additionally covers
+    callers supplying external names directly.
 
     Returns:
-        (refs, missing): refs 保持入参顺序；missing 是目录里没有的名字
+        (refs, missing): refs preserve input order; missing contains names absent from the catalog.
     """
     if catalog is None:
         catalog = build_reference_catalog(project)
@@ -527,7 +526,7 @@ def resolve_references(
         seen.add(name)
         entry = catalog.resolve(name)
         if entry is not None:
-            refs.append(ReferenceResource(type=entry.asset_type, name=name))  # type: ignore[arg-type]  # 目录条目的 asset_type 取自 ASSET_SPECS 的键，恒为四种资产类型之一，但以 str 承载
+            refs.append(ReferenceResource(type=entry.asset_type, name=name))  # type: ignore[arg-type]  # Catalog asset_type comes from ASSET_SPECS keys, always one of four asset types, but is carried as str
         else:
             missing.append(name)
     return refs, missing

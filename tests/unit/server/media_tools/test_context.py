@@ -13,7 +13,7 @@ import pytest
     "bad",
     [
         "",
-        "scripts/episode_1.json",  # 任何分隔符都拒（包括 scripts/ 前缀）
+        "scripts/episode_1.json",  # Reject every separator, including a scripts/ prefix.
         "../etc/passwd",
         "sub/dir/file.json",
         "a\\b.json",
@@ -30,7 +30,7 @@ def test_validate_script_filename_rejects_paths(bad: str) -> None:
 
 @pytest.mark.parametrize("bad", [1, None, ["episode_1.json"], {"name": "episode_1.json"}])
 def test_validate_script_filename_rejects_non_string_agent_args(bad: object) -> None:
-    """Agent 传来的是原始 JSON 值，非字符串同样要落成 ValueError。"""
+    """The Agent supplies raw JSON values; nonstrings must also become ValueError."""
 
     from server.media_tools.context import validate_script_filename
 

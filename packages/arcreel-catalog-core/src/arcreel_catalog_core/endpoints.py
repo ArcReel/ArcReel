@@ -1,7 +1,7 @@
-"""内置调用端点清单：目录数据里的端点声明按它校验，最低应用版本按它推导。
+"""Built-in endpoint list: validates catalog endpoint declarations and derives minimum app versions.
 
-调用端点是代码事实，随 ArcReel 发版；这里是它的一份副本，供不依赖 ArcReel 应用的目录数据仓库读取。ArcReel
-仓库用测试保证它与应用代码里的端点注册表和内置供应商端点声明一致。修改方式与起始版本的填写规则见
+Endpoints are code facts released with ArcReel; this copy is read by the catalog data repository without depending on the app. ArcReel
+repository tests ensure it matches the app endpoint registry and built-in provider declarations. Editing and initial-version rules are in
 ``docs/adr/0103``。
 """
 
@@ -18,7 +18,7 @@ from .vocabulary import MediaType
 
 @dataclass(frozen=True)
 class BuiltinEndpoint:
-    """一个内置调用端点。``since`` 是起始版本，即第一个带这个端点的应用版本；基线端点不带起始版本。"""
+    """One built-in endpoint. ``since`` is the first app version containing it; baseline endpoints have no initial version."""
 
     media_type: MediaType
     since: str | None = None
@@ -26,7 +26,7 @@ class BuiltinEndpoint:
 
 @dataclass(frozen=True)
 class ProviderEndpointOptions:
-    """一个内置供应商在一个媒体类型下可挂接的内置调用端点与默认端点。"""
+    """Eligible built-in endpoints and default endpoint for one built-in provider and media type."""
 
     endpoints: tuple[str, ...]
     default: str
@@ -40,7 +40,7 @@ def _single(endpoint: str) -> ProviderEndpointOptions:
     return ProviderEndpointOptions((endpoint,), endpoint)
 
 
-#: 内置供应商可挂接的内置调用端点：端点名 → 媒体类型与起始版本。清单首次发布时已有的端点都是基线端点。
+#: Built-in endpoints eligible for built-in providers: endpoint name → media type and initial version. Endpoints predating the first list release are baseline endpoints.
 BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
     {
         **_baseline(
@@ -112,7 +112,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
 _SEEDREAM = ProviderEndpointOptions(("ark-seedream-3", "ark-seedream-4"), "ark-seedream-4")
 _SEEDANCE = ProviderEndpointOptions(("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5"), "ark-seedance-2")
 
-#: 内置供应商 → 媒体类型（``MEDIA_TYPES`` 之一）→ 可选端点与默认端点。官方收录的供应商模型只能挂接所在供应商这一媒体类型的可选端点。
+#: Built-in provider → media type (one of ``MEDIA_TYPES``) → eligible and default endpoints. Officially listed models may attach only eligible endpoints for their provider and media type.
 BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOptions]]] = MappingProxyType(
     {
         "agnes": {
@@ -207,19 +207,19 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
     }
 )
 
-#: 实例开始读取端点声明的应用版本。在此之前的实例按 API 模型名选端点。
+#: App version at which instances began reading endpoint declarations. Earlier instances select endpoints by API model name.
 ENDPOINT_DECLARATIONS_SINCE: str | None = "0.35.1"
 
 _APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")
 
 
 def is_app_version(value: str) -> bool:
-    """``value`` 是否是形如 ``0.34.0`` 的应用版本。"""
+    """Whether ``value`` is an app version such as ``0.34.0``."""
     return _APP_VERSION.fullmatch(value) is not None
 
 
 def app_version_key(value: str) -> tuple[int, int, int]:
-    """应用版本的数字比较键；省略的次版本、补丁号按 0 计，格式不合法时抛 ``ValueError``。"""
+    """Numeric comparison key for app versions; omitted minor and patch numbers count as 0, and invalid format raises ``ValueError``."""
     if not is_app_version(value):
         raise ValueError(f"invalid application version: {value!r}")
     major, minor, patch = (*map(int, value.split(".")), 0, 0)[:3]
@@ -227,19 +227,19 @@ def app_version_key(value: str) -> tuple[int, int, int]:
 
 
 def provider_endpoint_options(provider_id: str, media_type: str) -> ProviderEndpointOptions | None:
-    """内置供应商在这个媒体类型下的可选端点与默认端点；供应商或媒体类型没有声明时为 None。"""
+    """Eligible and default endpoints for a built-in provider and media type; None when the provider or media type is undeclared."""
     return BUILTIN_PROVIDER_ENDPOINTS.get(provider_id, {}).get(media_type)
 
 
 def endpoint_version_floor(
     provider_id: str, media_type: str, endpoint: str, *, include_declaration_version: bool = True
 ) -> str | None:
-    """挂接这个端点的官方收录供应商模型由端点决定的最低应用版本；没有下限时为 None。
+    """Endpoint-derived minimum app version for an officially listed provider model using this endpoint; None when no lower bound exists.
 
-    取两项中较高的那个：端点的起始版本；该供应商在这个媒体类型下有多个可选端点时，实例开始读取端点声明的版本。
-    后者与模型是否挂默认端点无关：读取端点声明之前的实例按名字选端点，新模型可能被路由到别的端点。手写的最低应用版本
-    由目录构建处理。已逐条核验的首发模型传 ``include_declaration_version=False`` 豁免声明读取版本，
-    仍计入端点起始版本。
+    Take the higher of the endpoint's initial version and, when this provider has multiple eligible endpoints for the media type, the version that began reading endpoint declarations.
+    The latter applies regardless of whether the model uses the default endpoint: earlier instances select by name and may route new models elsewhere. Manually specified minimum app versions
+    are handled by catalog builds. Individually verified launch models use ``include_declaration_version=False`` to exclude the declaration-reading version,
+    while still including the endpoint's initial version.
     """
     declared = BUILTIN_ENDPOINTS.get(endpoint)
     options = provider_endpoint_options(provider_id, media_type)

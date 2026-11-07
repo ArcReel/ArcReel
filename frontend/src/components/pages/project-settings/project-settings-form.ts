@@ -13,7 +13,7 @@ import type {
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 
-/** 全局各层的已配置值，原样带入、不折叠回退，穿透演算由模型选择字段族按解析链推导。 */
+/** Raw configured global layers, without collapsing fallbacks; model-selection field families derive effective values through resolution chains. */
 export interface GlobalModelDefaults {
   video: string;
   videoI2V: string;
@@ -24,46 +24,46 @@ export interface GlobalModelDefaults {
   textDefault: string;
   textSimple: string;
   textComplex: string;
-  /** 各层全空时后端自动选中的模型（与执行期同口径）；拉取失败即缺席，演算退回「算不出」。 */
+  /** Backend automatic models when all layers are empty, matching execution; fetch failures leave inference unresolved. */
   auto?: AutoBackendsResponse | null;
 }
 
-/** 项目的风格：模版与参考图二选一，也可以都不设。 */
+/** Project styles: templates/references mutually exclusive, or neither. */
 export type ProjectStyle =
   | { kind: "none" }
   | { kind: "template"; templateId: string }
   | {
       kind: "image";
-      /** 已保存的参考图地址，或待上传文件的 blob: 地址。 */
+      /** Saved reference URLs, or blob: URLs for pending uploads. */
       preview: string;
-      /** 服务端分析出的风格描述；待上传时为空。 */
+      /** Server-analyzed style descriptions, empty before upload. */
       description: string;
-      /** 待上传的新参考图；null 表示参考图已保存。 */
+      /** New references awaiting uploads; null means references already saved. */
       file: File | null;
     };
 
-/** 项目设置四个表单分页（基础、风格、模型、配音）共用的一个编辑单元。 */
+/** One edit unit shared by basics/style/model/dubbing project-setting tabs. */
 export interface ProjectSettingsForm {
   aspectRatio: string;
   gridStoryboard: boolean;
-  /** 口播语速估算（阅读单位 / 秒）；null 按项目语言的默认速度估算。 */
+  /** Estimated speaking rates in reading units/second; null uses project-language defaults. */
   speechRate: number | null;
   episodeTargetDuration: number | null;
-  /** 广告项目的目标总时长（秒）；自定义输入不是正整数时为 null，拦住保存。 */
+  /** Ad target total seconds; nonpositive/noninteger custom inputs mean null, blocking saves. */
   adTargetDuration: number | null;
   style: ProjectStyle;
-  /** 模型通道；`videoResolution` 按执行模型从 `videoResolutions` 现取，不单独保存。 */
+  /** Model lanes; `videoResolution` derives from execution-model `videoResolutions`, never separately saved. */
   models: Omit<ModelConfigValue, "videoResolution"> & {
-    /** 「生成有声视频」：null 跟随全局。 */
+    /** Generate audio; null follows globals. */
     generateAudio: boolean | null;
   };
   narration: NarrationDeliveryValue;
   voiceBinding: CharacterVoiceBinding;
-  /** 项目已保存的 `model_settings` 全表，保存分辨率时在它上面合并。 */
+  /** Full saved project `model_settings`, merged when saving resolutions. */
   modelSettings: Record<string, { resolution: string | null }>;
 }
 
-/** 属于各表单分页的字段，用于在侧栏标出有修改的分页。 */
+/** Fields by form tab, marking edited sidebar tabs. */
 export const FORM_TAB_FIELDS = {
   basics: ["aspectRatio", "gridStoryboard", "speechRate", "episodeTargetDuration", "adTargetDuration"],
   style: ["style"],
@@ -79,7 +79,7 @@ export function isFormTab(tab: ProjectSettingsTab): tab is FormTab {
 
 function sameStyle(a: ProjectStyle, b: ProjectStyle): boolean {
   if (a.kind === "image" && b.kind === "image") {
-    // File 序列化为空对象，按引用比较
+    // File serializes as empty objects; compare references.
     return a.preview === b.preview && a.file === b.file && a.description === b.description;
   }
   return JSON.stringify(a) === JSON.stringify(b);
@@ -113,16 +113,16 @@ export function tabDirty(tab: FormTab, value: ProjectSettingsForm, saved: Projec
 }
 
 /**
- * 已保存参考图的地址。参考图文件名固定（style_reference.*），换图不换路径，
- * `version` 带上文件版本（资产指纹或上传时刻）才能让浏览器换掉旧图；确实没有版本时传 null。
+ * Saved-reference URLs. Filenames stay fixed (style_reference.*), so image replacements retain paths;
+ * `version` carries fingerprints/upload instants to replace browser caches; null only without actual versions.
  */
 export function styleImageUrl(projectName: string, styleImage: string, version: number | string | null): string {
   return API.getFileUrl(projectName, styleImage, version);
 }
 
 /**
- * 项目 PATCH 不改参考图文件，响应也不带资产指纹：参考图仍是已保存的那张时，沿用已保存地址里的版本，
- * 预览不会因为一次保存换成不带版本的地址。
+ * Project PATCH changes no reference files and returns no fingerprints; references remaining saved reuse versions from saved URLs,
+ * preventing saves from replacing previews with unversioned addresses.
  */
 export function keepSavedStylePreview(next: ProjectSettingsForm, saved: ProjectSettingsForm): ProjectSettingsForm {
   if (next.style.kind !== "image" || saved.style.kind !== "image" || saved.style.file) return next;
@@ -140,8 +140,8 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 /**
- * 从项目数据读出表单的已保存内容。
- * `fingerprints` 是项目详情响应里的资产指纹（路径 → mtime_ns），给参考图地址带版本；响应没带时传 null。
+ * Read saved form contents from project data.
+ * `fingerprints` are detail-response asset fingerprints (path → mtime_ns), versioning reference URLs; null when omitted.
  */
 export function deriveForm(
   projectData: ProjectData,
@@ -163,9 +163,9 @@ export function deriveForm(
     textBackendComplex: str(project.text_backend_complex),
   };
 
-  // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与保存一致：
-  // 后端按执行模型查这张表，键位对不上，用户选的分辨率会被静默忽略。视频另有一条兼容回退：
-  // 读 legacy video_model_settings。
+  // model_settings keys use execution models (subtiers ‖ project defaults ‖ global subtiers ‖ global defaults), matching saves:
+  // backends query by execution identities; mismatched keys silently lose user resolutions. Video additionally falls back to
+  // legacy video_model_settings.
   const executingVb = executingVideoModel(models, globals, route === "reference_video");
   const executingI2V = executingVideoModel(models, globals, false);
   const executingIb = executingImageModel(models, globals);
@@ -186,7 +186,7 @@ export function deriveForm(
   const templateId = str(project.style_template_id);
 
   return {
-    // 后端 get_aspect_ratio() 未设置时按 9:16 生成，这里显示实际生效的比例
+    // Unset backend get_aspect_ratio() generates 9:16; show effective ratios here.
     aspectRatio: str(project.aspect_ratio) || "9:16",
     gridStoryboard: project.grid_storyboard === true,
     speechRate: finiteOrNull(project.speech_rate_units_per_second),
@@ -225,14 +225,14 @@ export interface ProjectFacts {
   generationRoute: GenerationRoute;
 }
 
-/** 宫格是分镜图生视频内的装配选项；参考生视频与不支持宫格的广告项目既不呈现也不参与保存。 */
+/** Grids are storyboard image-to-video assembly options; reference video/unsupported ad projects neither display nor save them. */
 export function gridToggleVisible(facts: ProjectFacts): boolean {
   return facts.generationRoute === "storyboard" && facts.contentMode !== "ad";
 }
 
 type ProjectPatch = Partial<ProjectData> & { clear_style_image?: boolean };
 
-/** 表单值对应的全部 PATCH 键；风格键只在与已保存风格不同时出现。 */
+/** All PATCH keys for form values; style keys appear only when differing from saved styles. */
 function fullProjectPatch(
   value: ProjectSettingsForm,
   saved: ProjectSettingsForm,
@@ -241,7 +241,7 @@ function fullProjectPatch(
 ): ProjectPatch {
   const { models, narration } = value;
 
-  // resolution 的 key 用执行模型，与读侧一致
+  // Resolution keys use execution models, matching readers.
   const executingImage = executingImageModel(models, globals);
   const modelSettings: Record<string, { resolution: string | null }> = { ...value.modelSettings };
   for (const [model, resolution] of Object.entries(models.videoResolutions ?? {})) {
@@ -267,21 +267,21 @@ function fullProjectPatch(
     video_generate_audio: models.generateAudio,
     narration_delivery: narration.delivery,
     audio_backend: narration.audioBackend || null,
-    // 音色与后端 .strip() 对齐，保存时去首尾空白
+    // Trim voice names on saves, matching backend .strip().
     narration_voice: narration.narrationVoice.trim() || null,
     narration_speed: narration.narrationSpeed,
-    // 绑定方式只在参考生视频路线上有效，其余路线该键与项目无关，不写
+    // Binding modes apply only to reference video; other routes omit unrelated keys.
     ...(facts.generationRoute === "reference_video" ? { character_voice_binding: value.voiceBinding } : {}),
-    // null 即清除项目级覆盖、回退语言默认
+    // null clears project overrides, falling back to language defaults.
     speech_rate_units_per_second: value.speechRate,
     default_text_backend: models.textBackendDefault || null,
     text_backend_simple: models.textBackendSimple || null,
     text_backend_complex: models.textBackendComplex || null,
     aspect_ratio: value.aspectRatio || undefined,
-    // 生成方式创建后不可更改，不在 PATCH 面上；宫格只在开关可见时写，广告项目对 true 返回 400
+    // Generation modes cannot change after creation, outside PATCH; grids write only when visible, ads reject true with 400.
     ...(gridToggleVisible(facts) ? { grid_storyboard: value.gridStoryboard } : {}),
-    // 广告项目写目标总时长（正整数秒，不可清空），后端对 default_duration 与 episode_target_duration
-    // 出现本身返回 400；非广告项目反之，两者恒写，null 即清除
+    // Ads write positive-integer total target seconds, never clearable; mere presence of default_duration / episode_target_duration
+    // returns backend 400. Nonads do the reverse, always writing both, null clearing.
     ...(facts.contentMode === "ad"
       ? value.adTargetDuration !== null
         ? { target_duration: value.adTargetDuration }
@@ -298,9 +298,9 @@ function sameModelSettings(a: Record<string, ModelSettingEntry>, b: Record<strin
 }
 
 /**
- * 生成项目 PATCH 的请求体：只含与已保存内容不同的键，`model_settings` 整体比较、有变化时整表写入。
- * 未改动的键不回写，避免覆盖别处刚保存的设置；旧项目可能留着裸供应商的音频后端，原样回写也会被快照校验拒绝。
- * 风格选了模版或被清除时一并写入；选了新参考图时不在这里，由随后的参考图上传写入（上传同时清掉模版）。
+ * Build project PATCH bodies with changed keys only; compare whole `model_settings`, writing full tables when changed.
+ * Never rewrite unchanged keys, avoiding overriding external saves; old bare-provider audio settings fail snapshot validation even when echoed unchanged.
+ * Selected/cleared templates write style here; new reference images instead upload afterward, clearing templates during upload.
  */
 export function buildProjectPatch(
   value: ProjectSettingsForm,
@@ -321,7 +321,7 @@ export function buildProjectPatch(
   return patch;
 }
 
-/** 是否有待上传的新参考图。 */
+/** Whether new references await upload. */
 export function pendingStyleUpload(value: ProjectSettingsForm, saved: ProjectSettingsForm): File | null {
   return value.style.kind === "image" && value.style.file && !sameStyle(value.style, saved.style)
     ? value.style.file

@@ -1,13 +1,17 @@
-"""成片命令：渲染前检查、渲染并登记、读取已有成片的时效；渲染任务、HTTP 与 Agent 工具共用。
+"""Final-cut commands shared by render tasks, HTTP, and Agent tools: precheck, render/register, and read existing currency.
 
-渲染按「依据快照 → 临时文件 → 验收 → 原子替换并登记」进行（:mod:`lib.artifacts.rendered_artifact`）：
-依据按任务开始时的指定修订（缺省为最新修订；HTTP 与 Agent 工具提交时已解析成具体修订）取快照，渲染期间剪辑时间线被改动、或显式渲染旧修订时，
-成片一出来就如实判为 stale。
+Render as basis snapshot → temporary file → acceptance → atomic replacement/registration
+(:mod:`lib.artifacts.rendered_artifact`). Snapshot the specified revision at task start (latest
+by default; HTTP/Agent submissions already resolve concrete revisions). Editing during rendering,
+or explicitly rendering an old revision, truthfully makes the result stale immediately.
 
-BGM 按片段起点混入整集音频，音量是登记时缓存的响度增益乘以片段音量，超出成片末尾的部分截断并在截断处淡出。
+Mix BGM from clip starts at registration-cached loudness gain × clip volume; truncate portions
+beyond final-cut end and fade them out at truncation.
 
-带旁白或烧入字幕的版本另取各视频单元的素材层（:class:`~lib.jianying_draft.placement.UnitMaterialSource`，由服务端注入），
-与剪映草稿用同一份摆放：旁白从承载片段的起点整段混入，越界如实渲染；字幕跟随旁白或按源素材时间烧入。
+Narration/burned-subtitle variants additionally obtain unit material layers
+(:class:`~lib.jianying_draft.placement.UnitMaterialSource`, server-injected), sharing Jianying
+placement: whole voiceovers mix from host-clip starts, preserving overruns; subtitles follow
+voiceovers or source-media times.
 """
 
 from __future__ import annotations
@@ -80,7 +84,7 @@ from lib.speech.narration_delivery import USE_TTS
 
 
 class FinalCutCheck(BaseModel):
-    """渲染前检查通过：将要渲染的修订与版本，以及该版本里不阻断出片的 issues。"""
+    """Passed pre-render check: the revision and variant to render, plus issues in that variant that do not block final-cut production."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -98,7 +102,7 @@ class FinalCutCheck(BaseModel):
 
 
 class FinalCutRender(BaseModel):
-    """一次渲染登记下来的成片。"""
+    """A final cut registered by one render."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -115,7 +119,7 @@ class FinalCutRender(BaseModel):
 
 
 class FinalCutStatus(BaseModel):
-    """一个成片产物身份的现状；``status`` 为 missing 时没有版本与渲染时间。"""
+    """Current state of a final-cut artifact identity; when ``status`` equals ``missing``, there is no version or render timestamp."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -130,7 +134,7 @@ class FinalCutStatus(BaseModel):
 
 
 def _verify_snapshots(versions: VersionManager, resource_type: str, snapshot_paths: set[str]) -> None:
-    """渲染直接读取的版本快照先对照版本记录里的内容指纹校验，快照损坏就阻断渲染并指明是哪个单元的哪个版本。"""
+    """Verify render-read snapshots against version-record fingerprints first; corrupted snapshots block rendering and identify the unit/version."""
     try:
         versions.verify_snapshots(resource_type, snapshot_paths)
     except VersionSnapshotCorruptedError as exc:
@@ -159,7 +163,7 @@ class _Checked:
 
 
 class FinalCutService:
-    """``unit_materials`` 是带旁白或烧入字幕的版本取素材层的来源；只做检查与读取时效的调用方可以不给。"""
+    """``unit_materials`` provides layers for narration/burned-subtitle variants; check-only/currency-read callers may omit it."""
 
     def __init__(
         self,
@@ -248,10 +252,10 @@ class FinalCutService:
         narration: DraftNarration | None = None,
         subtitles: SubtitleMode | None = None,
     ) -> FinalCutCheck:
-        """渲染前检查：剪辑时间线与修订存在、旁白版本可选、没有适用于该版本的阻断级 issue、内容可渲染、随包 ffmpeg 可用。
+        """Pre-render checks: timeline/revision exist, narration variant is selectable, no applicable blocking issues, renderable content, and available bundled ffmpeg.
 
-        省略的旁白版本与字幕方式按 :func:`~lib.final_cut.basis.resolve_final_cut_variant` 补齐，
-        结果的 ``narration`` / ``subtitles`` 是实际检查的版本。
+        Fill omitted narration/subtitle options through :func:`~lib.final_cut.basis.resolve_final_cut_variant`;
+        returned ``narration`` / ``subtitles`` describe the variant actually checked.
         """
         return (await self._checked(project_name, timeline_id, revision, narration, subtitles)).check
 
@@ -336,7 +340,7 @@ class FinalCutService:
             )
         except UnitMaterialUnavailableError as exc:
             if checked.check.variant.with_narration:
-                # 选中的旁白配音快照损坏时，取材料就已失败；先认出损坏，报出是哪一版。
+                # Selected corrupt voiceover snapshots already fail material resolution; detect corruption first and identify the version.
                 await asyncio.to_thread(self._verify_selected_narration, project_name, exc.unit_id)
             raise FinalCutError(
                 "final_cut_presentation_unavailable",
@@ -351,7 +355,7 @@ class FinalCutService:
         _verify_snapshots(versions, "audio", selected)
 
     def _placement(self, checked: _Checked, materials: UnitMaterials, media: dict[str, RenderMedia]) -> DraftPlacement:
-        """按渲染实测的视频时长摆放旁白与字幕，片段起点因此与渲染规划的片段边界一致。"""
+        """Place voiceovers/subtitles using render-measured video durations so clip starts match render-plan boundaries."""
         measured = {
             unit_id: replace(
                 material, video_version=media[unit_id].video_version, video_duration_us=media[unit_id].duration_us
@@ -378,7 +382,7 @@ class FinalCutService:
 
     @staticmethod
     def _bgm(project_dir: Path, inputs: FinalCutInputs, total_us: int) -> tuple[BgmInput, ...]:
-        """按成片实际时长摆放 BGM；音量是 BGM 的响度增益乘以片段音量。"""
+        """Place BGM by actual final-cut duration; volume combines BGM loudness gain and clip volume."""
         items: list[BgmInput] = []
         for placed in place_bgm(inputs.bgm, total_us):
             source = inputs.bgm_sources[placed.bgm_id]
@@ -412,7 +416,7 @@ class FinalCutService:
         narration: DraftNarration | None = None,
         subtitles: SubtitleMode | None = None,
     ) -> FinalCutRender:
-        """把剪辑时间线的指定修订（缺省为最新修订）渲染成成片并登记；省略的选项按项目补齐，同 :meth:`check`。"""
+        """Render/register the specified timeline revision (latest by default); fill omitted options from project settings as :meth:`check` does."""
         checked = await self._checked(project_name, timeline_id, revision, narration, subtitles)
         variant = checked.check.variant
         inputs = await asyncio.to_thread(self._snapshot, project_name, checked)
@@ -487,7 +491,7 @@ class FinalCutService:
         narration: DraftNarration | None = None,
         subtitles: SubtitleMode | None = None,
     ) -> FinalCutStatus:
-        """一个成片产物身份的时效：current、stale（仍可下载）或 missing；省略的选项按项目补齐，同 :meth:`check`。"""
+        """Currency of one final-cut identity: current, stale (still downloadable), or missing; resolve omitted options from the project as :meth:`check` does."""
 
         def resolve() -> FinalCutStatus:
             project_dir = self._project_dir(project_name)

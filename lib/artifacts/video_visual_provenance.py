@@ -62,7 +62,7 @@ def build_storyboard_video_visual_basis(
 ) -> ArtifactBasis:
     """Describe the request facts that determine one storyboard video prompt and frames."""
 
-    # 与执行路径共用同一渲染出口：摘要收的就是实发文本本身，两者不各写一份。
+    # Share the execution renderer: digest the actual sent text, without separate implementations.
     provider_prompt = render_storyboard_video_prompt(
         prompt,
         {"utterances": utterances} if has_utterances else None,

@@ -20,25 +20,25 @@ import { stepAnchor } from "@/utils/move-anchor";
 import { EpisodeCard } from "./EpisodeCard";
 
 interface SidebarEpisodeListProps {
-  /** 完整账本（播出顺序）。 */
+  /** Complete broadcast-order ledgers. */
   episodes: EpisodeMeta[];
-  /** 搜索过滤后要显示的集与它们的播出位置。 */
+  /** Search-filtered episodes/positions. */
   shown: { ep: EpisodeMeta; position: number }[];
   wholeSourceFiles: readonly { source_file: string }[];
   activeEp: number | null;
   route: GenerationRoute;
-  /** 搜索过滤时只显示部分集，不能调整顺序。 */
+  /** Partial search results cannot reorder episodes. */
   reorderable: boolean;
   onOpen: (episode: number) => void;
   onCreateAfter: (episode: number) => void;
-  /** 把一集移到 `after` 之后（null 为最前）；提交与刷新完成后 resolve，失败时由调用方提示。 */
+  /** Move episodes after `after`, null first; resolve after commit/refresh, callers notify failures. */
   onMove: (episode: number, after: number | null) => Promise<void>;
   onDelete: (episode: number) => void;
 }
 
 /**
- * 侧栏的集列表：拖动把手，或聚焦把手后用空格与方向键调整播出顺序；菜单里有前移、后移、
- * 在这一集之后新建和删除这一集。切出集之间按源文位置排列，违背这一顺序的落点不接受拖放。
+ * Episode rails: drag handles, or focus then Space/arrows to reorder; menus offer forward/back,
+ * create-after/delete. Cut episodes retain source order, rejecting incompatible drops.
  */
 export function SidebarEpisodeList({
   episodes,
@@ -53,8 +53,8 @@ export function SidebarEpisodeList({
   onDelete,
 }: SidebarEpisodeListProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 移动提交到刷新完成之间先按新顺序显示，松手后条目不会弹回原处再跳过去。这段时间里不接受新的
-  // 移动：校验与提交仍按 store 里的旧顺序，叠加的移动会算错落点。把手不禁用，键盘放下后焦点留在原处。
+  // Display new order between submission/refetch to avoid snap-back then jumps. Reject further moves
+  // while stores still hold old order. Keep handles enabled so keyboard-drop focus stays put.
   const [pendingOrder, setPendingOrder] = useState<number[] | null>(null);
   const moving = pendingOrder !== null;
   const byId = new Map(episodes.map((ep) => [ep.episode, ep]));
@@ -78,7 +78,7 @@ export function SidebarEpisodeList({
       const at = after === null ? 0 : rest.indexOf(after) + 1;
       setPendingOrder([...rest.slice(0, at), episode, ...rest.slice(at)]);
     }
-    // 不可行的移动同样交给调用方：它会提示切出集为什么不能移到这里
+    // Invalid moves still reach callers, explaining cut-episode placement refusals.
     void onMove(episode, after).finally(() => setPendingOrder(null));
   };
 
@@ -109,7 +109,7 @@ export function SidebarEpisodeList({
               className="group/episode relative flex items-center rounded-md bg-background data-dragging:shadow-overlay"
             >
               {reorderable && (
-                // 把手盖在集序号上，悬停或聚焦时出现
+                // Handles overlay episode positions, appearing on hover/focus.
                 <span className="absolute top-1/2 left-2.5 -translate-y-1/2 rounded-md bg-muted opacity-0 transition-opacity group-hover/episode:opacity-100 focus-within:opacity-100 group-data-dragging/episode:opacity-100 pointer-coarse:opacity-100">
                   <SortableHandle label={t("dashboard:episode_reorder", { name })} />
                 </span>

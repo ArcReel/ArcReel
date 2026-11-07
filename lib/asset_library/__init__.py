@@ -1,1 +1,1 @@
-"""供应商素材库：控制面账号、与推理凭证的绑定，以及只读的素材浏览。"""
+"""Provider asset libraries: control-plane accounts, inference-credential bindings, and read-only browsing."""

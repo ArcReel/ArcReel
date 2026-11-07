@@ -1,4 +1,4 @@
-"""arcreel-market-core 的诊断经应用翻译目录渲染：嵌套翻译键、约束细节与抓取失败原因按请求语言成文。"""
+"""Render arcreel-market-core diagnostics through application catalogs: nested keys, constraints, and fetch errors use requested locale."""
 
 from __future__ import annotations
 

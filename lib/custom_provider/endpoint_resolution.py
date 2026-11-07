@@ -1,16 +1,16 @@
-"""按端点键分流的 spec 解析：内置查表，``ce-`` 前缀读库现构造。
+"""Endpoint-key spec resolution: built-ins use lookups, ``ce-`` loads DB definitions on demand.
 
-``get_endpoint_spec`` 保持同步纯查表（内置注册表是 import 期就位的常量），需要同时看到两个
-命名空间的调用方改走本模块的 :func:`resolve_endpoint_spec`。顺序完全由前缀决定，不存在「先自
-定义后内置」的兜底——两个命名空间同域但永不重叠（内置键禁用 ``ce-`` 前缀，见
-``lib.custom_provider.endpoints``）。
+``get_endpoint_spec`` remains sync pure lookup over import-time constants. Callers needing both namespaces
+use :func:`resolve_endpoint_spec`. Prefixes alone determine routing, never custom-then-built-in
+fallback: disjoint namespaces share domains, with built-ins forbidden from ``ce-`` prefixes
+(``lib.custom_provider.endpoints``).
 
-定义本体是唯一真相源，spec 与镜像列都是它的投影，两者都按定义的 ``kind`` 分派到该 kind 的投影
-实现：媒体类型一律由定义决定，端点键不蕴含任何媒体类型。某一种 kind 的投影实现本身不在本模块——
-两种 kind 各有一份，都落在 ``endpoints``（``EndpointSpec`` 与它的不变式在那里），声明式的那份
-另与随版定义共用，用户定义与随版定义本就是同一种东西；本模块只管「读库取行 → 按 kind 找投影」。
-装载走 async（读库）、构造是纯函数，两段分明
-（``docs/adr/0039``）；不做启动时全量加载进内存注册表——定义原地更新须立即对新任务生效。
+Definitions alone are authoritative; specs/mirror columns project through definition ``kind`` implementations.
+Definitions determine media, never endpoint keys. Projection implementations live outside this module:
+both kinds in ``endpoints`` with ``EndpointSpec``/invariants; declarative projections also serve bundled definitions,
+because user/bundled definitions are identical concepts. Here only load rows → select projections by kind.
+Async loading and pure construction stay separate
+(``docs/adr/0039``). Never preload entire definitions into in-memory registries: in-place updates must immediately affect new tasks.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class MirrorColumns:
-    """写入时由定义派生的只读镜像列，供 DB 层不解析 JSON 就能过滤与展示。"""
+    """Readonly write-derived mirror columns for DB filtering/display without JSON parsing."""
 
     kind: str
     schema_version: str
@@ -42,7 +42,7 @@ class MirrorColumns:
     display_name: str
 
 
-#: ``kind`` → 把定义投影成 spec 的实现。
+#: ``kind`` → definition-to-spec projection implementations.
 _SPEC_BY_KIND: Mapping[str, Callable[[str, Mapping[str, Any]], EndpointSpec]] = {
     DECLARATIVE_KIND: lambda key, definition: declarative_endpoint_spec(key, definition, source="custom"),
     COMFYUI_KIND: comfyui_endpoint_spec,
@@ -58,10 +58,10 @@ def _dispatch[T](table: Mapping[str, T], definition: Mapping[str, Any]) -> T:
 
 
 def derive_mirror_columns(definition: Mapping[str, Any]) -> MirrorColumns:
-    """从一份**已过校验**的定义派生镜像列。
+    """Derive mirrors from **validated** definitions.
 
-    校验保证了 ``kind`` / ``schema_version`` / ``meta.name`` 存在且是字符串，故此处直接取值：
-    在未过校验的定义上派生只会把残缺结构写进库。
+    Validation guarantees string ``kind`` / ``schema_version`` / ``meta.name``, so read directly;
+    deriving unvalidated definitions would persist incomplete structures.
     """
     meta: Mapping[str, Any] = definition["meta"]
     return MirrorColumns(
@@ -73,10 +73,10 @@ def derive_mirror_columns(definition: Mapping[str, Any]) -> MirrorColumns:
 
 
 def endpoint_spec_from_row(row: CustomEndpoint) -> EndpointSpec:
-    """按库里的行构造 spec；键由行的自增 id 派生，来源标为 ``custom``。
+    """Construct specs from DB rows; derive keys from autoincrement ids, mark source ``custom``.
 
     Raises:
-        ValueError: 行上定义的 ``kind`` 在本层没有投影实现。
+        ValueError: Definition ``kind`` lacks projection implementations here.
     """
     definition: Mapping[str, Any] = row.definition
     return _dispatch(_SPEC_BY_KIND, definition)(make_endpoint_key(row.id), definition)
@@ -86,10 +86,10 @@ async def resolve_endpoint_spec(
     endpoint: str,
     get_custom_endpoint: Callable[[int], Awaitable[CustomEndpoint | None]],
 ) -> EndpointSpec:
-    """按端点键取 spec：``ce-`` 前缀读 ``custom_endpoint`` 表，其余委托内置查表。
+    """Resolve specs: ``ce-`` reads ``custom_endpoint``, all others delegate built-in lookups.
 
     Raises:
-        ValueError: 键不存在（内置注册表查无此键，或自定义端点已被删除）
+        ValueError: Missing keys, absent built-ins or deleted custom endpoints.
     """
     if not is_custom_endpoint(endpoint):
         return get_endpoint_spec(endpoint)

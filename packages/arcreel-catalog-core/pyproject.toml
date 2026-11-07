@@ -20,6 +20,6 @@ packages = ["src/arcreel_catalog_core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# 测试目录不是包：辅助模块经 pythonpath 导入，用例按文件路径导入，互不撞名。
+# The test directory is not a package: helpers import through pythonpath, tests by file path, avoiding name collisions.
 pythonpath = ["tests"]
 addopts = "--strict-markers --import-mode=importlib"

@@ -1,6 +1,6 @@
 /**
- * 顶层应用路由常量 —— 唯一真相源，`router.tsx` 的 `<Switch>` 路由表与
- * `OnboardingTour` 的主界面判断都从这里取值，避免两处字面量各自维护、悄悄漂移。
+ * Sole top-level app route constants, shared by `router.tsx` `<Switch>` and
+ * `OnboardingTour` main-screen predicates, avoiding independent drifting literals.
  */
 
 export const ROUTE_APP = "/app";
@@ -8,7 +8,7 @@ export const ROUTE_APP_PROJECTS = "/app/projects";
 export const ROUTE_APP_SETTINGS = "/app/settings";
 export const ROUTE_APP_ASSETS = "/app/assets";
 
-/** 全局设置的分区，即地址参数 `section` 的取值，顺序同侧栏；缺省或无法识别时落在 `providers`。 */
+/** Global-setting `section` values in sidebar order; absent/unrecognized defaults to `providers`. */
 export const SETTINGS_SECTIONS = [
   "providers",
   "default-models",
@@ -27,30 +27,30 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /**
- * 全局设置某个分区的地址；`params` 是该分区自己的定位参数，如使用记录的 `record`。
- * 分区名由 `SettingsSection` 校验，分区改名时 typecheck 报出全部旧链接。
- * 在嵌套路由里跳转时在前面加 `~`：`` `~${settingsSectionPath("usage")}` ``。
- * 供应商与调用端点的地址用 `providerSettingsPath` 与 `endpointSettingsPath`，不手拼查询参数。
+ * Global-section paths; `params` supplies section locators such as usage `record`.
+ * `SettingsSection` checks names, reporting old links on renames at typecheck.
+ * Prefix nested-route navigation with `~`: `` `~${settingsSectionPath("usage")}` ``.
+ * Providers/endpoints use `providerSettingsPath` / `endpointSettingsPath`, never handcrafted queries.
  */
 export function settingsSectionPath(section: SettingsSection, params: Record<string, string> = {}): string {
   return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
 }
 
-/** 市场分区的 Tab；「浏览」是默认 Tab，地址里不写。 */
+/** Market-section tabs; Browse is the default and omitted from URLs. */
 export type MarketTab = "browse" | "shared" | "settings";
 
-/** 市场「浏览」Tab 可按媒体类型筛选的取值，即地址参数 `media` 的取值。 */
+/** Media-type filters for Market Browse tabs, the values of URL parameter `media`. */
 export const MARKET_MEDIA_TYPES = ["image", "video"] as const;
 export type MarketMediaType = (typeof MARKET_MEDIA_TYPES)[number];
 
-/** 地址参数 `media` 解析出的媒体类型；缺省或无法识别时为 null。 */
+/** Media types parsed from URL parameter `media`; null when missing/unrecognized. */
 export function parseMarketMedia(value: string | null | undefined): MarketMediaType | null {
   return MARKET_MEDIA_TYPES.find((media) => media === value) ?? null;
 }
 
 /**
- * 全局设置「市场」分区某个 Tab 的地址（`tab=`）。
- * 传 `media` 时写成 `media=<媒体类型>`，「浏览」打开时按它预设媒体类型筛选；市场没有的媒体类型（文本、音频）不写。
+ * Global-settings Market tab URLs (`tab=`).
+ * Passing `media` writes `media=<媒体类型>`, presetting Browse media filters; omit media types absent from markets (text/audio).
  */
 export function marketSettingsPath(tab: MarketTab = "browse", options: { media?: string | null } = {}): string {
   const params: Record<string, string> = tab === "browse" ? {} : { tab };
@@ -60,19 +60,19 @@ export function marketSettingsPath(tab: MarketTab = "browse", options: { media?:
 }
 
 /**
- * 「供应商」分区里要定位的对象，对应的地址参数：
- * - `{ preset, model? }` → `provider=<预置供应商 id>`；
- * - `{ custom, model? }` → `custom=<自定义供应商 id>`；
- *   两者带 `model=<模型 ID>` 时打开这个模型的 Sheet；
- * - `{ newCustom }` → `custom=new`，可带 `endpoint=<端点 key>` 与 `base_url=<接口地址>` 预填新建表单
- *   （调用端点的「新建供应商并使用」）。
+ * Targets within Providers sections and corresponding URL parameters:
+ * - `{ preset, model? }` → `provider=<预置供应商 id>`;
+ * - `{ custom, model? }` → `custom=<自定义供应商 id>`;
+ *   either opens model Sheets when carrying `model=<模型 ID>`;
+ * - `{ newCustom }` → `custom=new`, optionally `endpoint=<端点 key>` and `base_url=<接口地址>` to prefill new-provider forms
+ *   (the endpoint Create provider and use action).
  */
 export type ProviderTarget =
   | { preset: string; model?: string }
   | { custom: number; model?: string }
   | { newCustom: { endpoint?: string; baseUrl?: string } };
 
-/** 全局设置「供应商」分区中某个供应商（或某个自定义模型）的地址。 */
+/** Global-settings URLs for providers (or custom models) in Providers sections. */
 export function providerSettingsPath(target: ProviderTarget): string {
   if ("preset" in target) {
     const params: Record<string, string> = { provider: target.preset };
@@ -91,9 +91,9 @@ export function providerSettingsPath(target: ProviderTarget): string {
 }
 
 /**
- * 全局设置「调用端点」分区中某个端点的地址：`endpoint=<端点 key>`。
- * 从自定义供应商跳来时传 `fromCustomProvider`，写成 `from=<自定义供应商 id>`：端点页据此在顶部显示
- * 「返回『供应商名』」，返回地址是 `providerSettingsPath({ custom: from })`。
+ * Global-settings endpoint URLs in API endpoints sections: `endpoint=<端点 key>`.
+ * Pass `fromCustomProvider` when arriving from custom providers, writing `from=<自定义供应商 id>`: endpoint pages then show
+ * Return to provider name above, targeting `providerSettingsPath({ custom: from })`.
  */
 export function endpointSettingsPath(endpointKey?: string, options: { fromCustomProvider?: number } = {}): string {
   const params: Record<string, string> = {};
@@ -102,24 +102,24 @@ export function endpointSettingsPath(endpointKey?: string, options: { fromCustom
   return settingsSectionPath("endpoints", params);
 }
 
-/** 无子路由的单页顶层路由——精确匹配，前缀不算数。 */
+/** Single-page top-level routes without subroutes: exact matches, never prefixes. */
 export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, ROUTE_APP_ASSETS] as const;
 
 /**
- * `/app/projects/:projectName` 下的路由段常量——`router.tsx`（项目设置页）与
- * `StudioCanvasRouter`（内层 `<Switch>`）的 `<Route path>` 都从这里取值，
- * `APP_PROJECT_WORKSPACE_PATTERN` 同样由它们拼出，新增/改名路由只需改这一处。
+ * Route-segment constants beneath `/app/projects/:projectName`: `router.tsx` (project settings) and
+ * `StudioCanvasRouter` (inner `<Switch>`) both source `<Route path>` values here;
+ * `APP_PROJECT_WORKSPACE_PATTERN` also combines them, so adding/renaming routes changes only this location.
  */
 export const WORKSPACE_ROUTE_SETTINGS = "settings";
 
-/** 项目设置的分页，即地址参数 `tab` 的取值，顺序同侧栏；缺省或无法识别时落在 `basics`。 */
+/** Project-settings tabs, URL parameter `tab` values in sidebar order; missing/unrecognized values use `basics`. */
 export const PROJECT_SETTINGS_TABS = ["basics", "style", "models", "voice", "memory", "agent"] as const;
 export type ProjectSettingsTab = (typeof PROJECT_SETTINGS_TABS)[number];
 
 /**
- * 项目设置某个分页的地址（顶层路由的绝对路径）。不传 `tab` 时落在默认的「基础」。
- * `params` 是分页自己的地址参数，如项目记忆选中的文件（`file=`）。
- * 在项目工作区的嵌套路由里跳转时在前面加 `~`。
+ * Project-settings tab URLs (absolute top-level paths). Omitting `tab` selects default Basics.
+ * `params` contains tab-specific URL parameters, such as selected project-memory files (`file=`).
+ * Prefix `~` when navigating from nested project-workspace routes.
  */
 export function projectSettingsPath(
   projectName: string,
@@ -138,20 +138,20 @@ export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 export const WORKSPACE_ROUTE_FILES = "files";
 
-/** 集页的视图查询参数：`?view=edit` 打开剪辑视图，缺省为分镜视图；`tl` 指定打开哪条剪辑时间线。 */
+/** Episode-view query parameters: `?view=edit` opens editing, default storyboard; `tl` selects editing timelines. */
 export const EPISODE_VIEW_PARAM = "view";
 export const EPISODE_VIEW_EDIT = "edit";
 export const EPISODE_VIEW_TIMELINE_PARAM = "tl";
 
-/** 项目工作区内打开某集（集 ID）剪辑视图的相对路径；给出 `timelineId` 时切到那条剪辑时间线。 */
+/** Workspace-relative episode-ID editing paths; `timelineId` selects that editing timeline. */
 export function episodeEditViewPath(episode: number, timelineId?: string): string {
   const query = new URLSearchParams({ [EPISODE_VIEW_PARAM]: EPISODE_VIEW_EDIT });
   if (timelineId) query.set(EPISODE_VIEW_TIMELINE_PARAM, timelineId);
   return `/${WORKSPACE_ROUTE_EPISODES}/${episode}?${query.toString()}`;
 }
 
-/** 无子路径、直接匹配的工作区叶子路由段。`episodes` 除了「分集」视图本身还接受 `/:episodeId`（集页），
- *  在下面的正则里额外拼一条 `episodes/[^/]+` 分支覆盖后者。 */
+/** Directly matched workspace leaf-route segments without subpaths. `episodes` accepts `/:episodeId` (episode pages) as well as episode-list views;
+ *  the regex below adds an `episodes/[^/]+` branch for those pages. */
 const WORKSPACE_STATIC_LEAF_ROUTES = [
   WORKSPACE_ROUTE_SETTINGS,
   WORKSPACE_ROUTE_EPISODES,
@@ -163,13 +163,13 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
 ] as const;
 
 /**
- * `/app/projects/:projectName` 下真正有路由承接的子路径——`.../settings`
- * 是 router.tsx 里独立注册的 `ProjectSettingsPage` 全屏路由；其余是
- * `StudioCanvasRouter`（nest 路由）内层 `<Switch>` 实际注册的路由集合。
- * 内层 `<Switch>` 的兜底路由在画布内显示空状态；新手引导据此判断地址是否落在主界面内，
- * 未注册的子路径不算。
- * wouter 底层 regexparam 编译路由时带 `i` 标志（大小写不敏感），这里同步加
- * 上 `i`，否则大小写变体的合法路径会被本模式误判为未注册子路径。
+ * Actual registered subpaths beneath `/app/projects/:projectName`: `.../settings`
+ * is the separately registered full-screen `ProjectSettingsPage` in router.tsx; the rest are
+ * routes actually registered within the nested `StudioCanvasRouter` `<Switch>`.
+ * Inner `<Switch>` fallbacks show empty canvas states; onboarding uses this to determine whether URLs fall within the main UI,
+ * excluding unregistered subpaths.
+ * wouter's underlying regexparam compiler uses the `i` flag (case-insensitive); mirror it
+ * with `i` here, otherwise this pattern wrongly classifies valid case variants as unregistered subpaths.
  */
 export const APP_PROJECT_WORKSPACE_PATTERN = new RegExp(
   `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,

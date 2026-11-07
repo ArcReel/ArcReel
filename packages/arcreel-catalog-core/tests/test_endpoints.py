@@ -1,4 +1,4 @@
-"""端点清单自洽，最低应用版本的下限按清单推导。"""
+"""Consistent endpoint catalog; derive minimum application-version floors from it."""
 
 from __future__ import annotations
 

@@ -1,18 +1,17 @@
-"""引用索引：按项目数据的引用关系给项目内任意路径定角色（文件视图、未引用校验、Agent 删除共用）。
+"""Reference index: derive roles for arbitrary project paths from data references, shared by file views, unreferenced checks, and Agent deletion.
 
-角色只由引用关系判定，不由路径推断。数据源：
+Roles follow references, not inferred paths. Sources:
 
-- 产物清单（current 正式文件）、版本历史（历史版本）；
-- ``project.json``（资产图、参考图、参考音频、风格参考图、BGM、分集账本、整本源文清单）；
-- 剧本（分镜条目与视频单元的媒体、尾帧、宫格）。
+- Manifests (current formal files), history (historical versions).
+- ``project.json`` (sheets, image/audio references, style references, BGM, episode ledger, whole-source lists).
+- Scripts (storyboard/unit media, end frames, grids).
 
-例外是目录本身就是存储的内容：剪辑时间线按 ``edit_timelines/episode_N/<id>.json`` 存放，项目记忆在
-``.arcreel/memory/``；Agent 配置是 profile 物化的落点 ``CLAUDE.md`` 与 ``.claude/``，项目独有、未登记进
-物化清单的 skill 同样算 Agent 配置，所以不必读物化清单。
-点前缀路径、迁移备份这类基础设施文件归 :attr:`FileRole.INFRASTRUCTURE`，文件视图不返回。
+Exceptions are directory-owned content: timelines at ``edit_timelines/episode_N/<id>.json``, memory at
+``.arcreel/memory/``, materialized Agent configuration at ``CLAUDE.md`` / ``.claude/``. Project-specific
+unmanifested skills are also configuration, so no materialization-manifest read is needed. Dot-prefixed
+paths/migration backups are :attr:`FileRole.INFRASTRUCTURE`, excluded from file views.
 
-索引是构建那一刻的只读快照，不取锁；要据此删除的调用方在项目锁内重建一次再判定。
-"""
+The index is an unlocked read-only construction-time snapshot. Deletion callers rebuild under project locks before decisions."""
 
 from __future__ import annotations
 
@@ -54,7 +53,7 @@ __all__ = ["FileOwner", "FileReference", "FileRole", "ReferenceIndex", "is_infra
 
 
 class FileRole(StrEnum):
-    """文件在项目中的角色。"""
+    """A file's role within a project."""
 
     STRUCTURE = "structure"
     REFERENCED = "referenced"
@@ -66,7 +65,7 @@ class FileRole(StrEnum):
     INFRASTRUCTURE = "infrastructure"
 
 
-#: 同一路径被多处引用时取优先级最高的角色。
+#: Highest-priority role wins for multiply referenced paths.
 _ROLE_PRIORITY = {
     FileRole.STRUCTURE: 4,
     FileRole.REFERENCED: 3,
@@ -77,12 +76,11 @@ _ROLE_PRIORITY = {
 
 @dataclass(frozen=True, slots=True)
 class FileOwner:
-    """文件所属的界面对象，供「跳到所属界面」使用。
+    """UI object owning a file, for navigation to its owning screen.
 
-    ``kind``：``asset``（``asset_type`` + ``id`` 为资产名）、``segment`` / ``reference_unit``
-    （``episode`` + ``id`` 为条目 ID）、``grid``、``episode``、``timeline``（``id`` 为时间线 ID）、
-    ``source``（分集视图处理）、``memory``（``id`` 为记忆文件名）、``project``（项目设置）。
-    """
+    ``kind``: ``asset`` (``asset_type`` + ``id`` is asset name), ``segment`` / ``reference_unit``
+    (``episode`` + ``id`` is item ID), ``grid``, ``episode``, ``timeline`` (``id`` is timeline ID),
+    ``source`` (episode view), ``memory`` (``id`` is memory filename), ``project`` (project settings)."""
 
     kind: str
     id: str | None = None
@@ -106,7 +104,7 @@ class FileOwner:
 class FileReference:
     role: FileRole
     owner: FileOwner | None = None
-    #: 历史版本快照里的当前版本：版本管理拒绝删除它。
+    #: Current selected history snapshot; version management refuses its deletion.
     current: bool = False
 
 
@@ -118,12 +116,12 @@ _AGENT_CONFIG = FileReference(FileRole.AGENT_CONFIG)
 
 _TIMELINE_PATH_RE = re.compile(r"^edit_timelines/episode_[1-9]\d*/(tl-[0-9a-f]{8})\.json$")
 _RENDER_RECORD_SUFFIX = ".render.json"
-#: 剧本条目数组与各自的 ID 字段；参考生视频的条目是视频单元。
+#: Script item arrays and ID fields; reference-to-video items are units.
 _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "shot_id"), ("video_units", "unit_id"))
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
 _ASSET_RESOURCE_TYPES = frozenset({*_ASSET_TYPE_BY_BUCKET, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
-#: 每集草稿目录里由工作流持有的文件：隔离草稿，以及分集视图会读取的脚本规划（含旧版 ``.md``）。
+#: Workflow-owned episode drafts: quarantine and episode-view-read plans, including legacy ``.md``.
 _EPISODE_DRAFT_FILENAMES = tuple(
     dict.fromkeys(
         (
@@ -137,10 +135,10 @@ _EPISODE_DRAFT_FILENAMES = tuple(
 
 
 def is_infrastructure_path(rel: str) -> bool:
-    """锁、迁移备份、清单与内部元数据：文件视图隐藏它们。
+    """Locks, migration backups, manifests, and internal metadata hidden from file views.
 
-    ``CLAUDE.md`` / ``.claude/`` 是 Agent 配置，``.arcreel/memory/`` 是项目记忆，其余点前缀路径一律算基础设施。
-    """
+    ``CLAUDE.md`` / ``.claude/`` are Agent configuration; ``.arcreel/memory/`` is project memory.
+    All other dot-prefixed paths are infrastructure."""
     parts = PurePosixPath(rel).parts
     if not parts:
         return False
@@ -152,7 +150,7 @@ def is_infrastructure_path(rel: str) -> bool:
 
 
 def _normalize(value: object) -> str | None:
-    """项目数据里记下的相对路径；外部 URL、绝对路径、点段与脏数据一律丢弃。"""
+    """Registered project-relative paths; discard external URLs, absolute paths, dot segments, and dirty values."""
     if not isinstance(value, str) or not value or "\\" in value or "://" in value:
         return None
     path = PurePosixPath(value.removeprefix("./"))
@@ -168,7 +166,7 @@ def _read_json(path: Path) -> Any:
 
 
 class ReferenceIndex:
-    """一个项目的引用快照：:meth:`role_of` 对任意项目内相对路径给出角色，:meth:`contains_resource` 判资源是否仍在。"""
+    """Project reference snapshot: :meth:`role_of` identifies arbitrary relative paths; :meth:`contains_resource` checks continued resource existence."""
 
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = project_dir
@@ -176,12 +174,12 @@ class ReferenceIndex:
         self._refs: dict[str, FileReference] = {}
         self._resources: set[tuple[str, str]] = set()
         self._item_episodes: dict[str, int] = {}
-        #: 整本源文文件名主体 → 角色；上传时保留的原始文件 ``source/raw/<主体>.<原扩展名>`` 跟随它。
+        #: Whole-source filename stem → role; preserved ``source/raw/<主体>.<原扩展名>`` uploads follow it.
         self._source_stems: dict[str, FileReference] = {}
 
     @classmethod
     def build(cls, project_dir: Path) -> ReferenceIndex:
-        """读取项目数据构建索引。项目数据损坏时照常抛出：宁可拒绝，不把在用文件误判为未引用。"""
+        """Build from project data; propagate corrupt data instead of misclassifying used files as unreferenced."""
         index = cls(project_dir)
         project = _read_json(project_dir / "project.json") or {}
         index._mark("project.json", FileRole.STRUCTURE, _PROJECT)
@@ -194,10 +192,10 @@ class ReferenceIndex:
         index._index_grid_records(project_dir)
         return index
 
-    # ------------------------------------------------------------------ 查询
+    # ------------------------------------------------------------------ Queries
 
     def reference_of(self, rel: str) -> FileReference:
-        """项目内相对 POSIX 路径（文件）的角色与所属对象。"""
+        """Role/owner of a project-relative POSIX file path."""
         rel = self._canonical(rel)
         if is_infrastructure_path(rel):
             return _INFRASTRUCTURE
@@ -216,15 +214,15 @@ class ReferenceIndex:
                 FileRole.STRUCTURE, FileOwner("timeline", id=PurePosixPath(timeline).stem, episode=episode)
             )
         if parts[:2] == ("source", "raw") and len(parts) == 3:
-            # 原始上传件随规范化文本一起增删；对应的源文件未纳入整本源文时同样交给分集视图。
+            # Original uploads follow normalized texts on add/delete; episode views also handle originals outside whole source.
             return self._source_stems.get(PurePosixPath(rel).stem, FileReference(FileRole.UNREFERENCED, _SOURCE))
         if is_whole_source_file_path(rel):
-            # 未纳入整本源文、也不是任何一集原文的源文件：由分集视图处理。
+            # Unregistered source files belonging to neither whole source nor episodes are handled by episode views.
             return FileReference(FileRole.UNREFERENCED, _SOURCE)
         return _UNREFERENCED
 
     def _storage_path(self, rel: str) -> str:
-        """存储目录用标准拼写识别；只接受文件系统确认属于同一目录的别名。"""
+        """Recognize canonical storage directory spellings and only filesystem-confirmed same-directory aliases."""
         parts = PurePosixPath(rel).parts
         for prefix in ("source/raw", "source", ".claude", f"{ARCREEL_DIRNAME}/{MEMORY_DIRNAME}"):
             expected = PurePosixPath(prefix).parts
@@ -236,15 +234,15 @@ class ReferenceIndex:
         return self.reference_of(rel).role
 
     def contains_resource(self, resource_type: str, resource_id: str) -> bool:
-        """资源（``lib/project/resource_paths`` 的资源类型 + 资源 ID）是否仍在项目数据中；资产名按 NFC 比对。"""
+        """Whether resources (``lib/project/resource_paths`` type + ID) remain in project data; compare asset names with NFC."""
         if resource_type in _ASSET_RESOURCE_TYPES:
             resource_id = normalize_asset_name(resource_id)
         return (resource_type, resource_id) in self._resources
 
-    # ------------------------------------------------------------------ 构建
+    # ------------------------------------------------------------------ Construction
 
     def _canonical(self, rel: str) -> str:
-        """采用磁盘上的实际名称，统一大小写及 Unicode 别名，不合并独立存在的文件。"""
+        """Use actual disk names to unify case/Unicode aliases, never merge independently existing files."""
         normalized = _normalize(rel)
         if normalized is None:
             return rel
@@ -341,7 +339,7 @@ class ReferenceIndex:
                 self._item_episodes[item_id] = episode
                 if array_key == "video_units":
                     owner = FileOwner("reference_unit", id=item_id, episode=episode)
-                    # 视频单元也有自己的旁白配音。
+                    # Video units also own narration audio.
                     self._resources.update({("reference_videos", item_id), ("audio", item_id)})
                 else:
                     owner = FileOwner("segment", id=item_id, episode=episode)
@@ -350,7 +348,7 @@ class ReferenceIndex:
                 for field in ("storyboard_image", "storyboard_last_image", "video_clip", "narration_audio"):
                     self._mark(assets.get(field), FileRole.REFERENCED, owner)
                 self._mark(item.get("end_frame_image"), FileRole.REFERENCED, owner)
-                # 缩略图由视频派生，可重新生成。
+                # Video-derived thumbnails are regenerable.
                 self._mark(assets.get("video_thumbnail"), FileRole.DERIVED, owner)
                 grid_id = assets.get("grid_id")
                 if isinstance(grid_id, str) and grid_id:
@@ -363,7 +361,7 @@ class ReferenceIndex:
         self._mark(f"grids/{grid_id}.png", FileRole.REFERENCED, owner)
 
     def _index_grid_records(self, project_dir: Path) -> None:
-        """排队中或失败的宫格记录还没有产物登记与剧本引用，也由宫格流程持有；放在最后，已知所属集的引用优先。"""
+        """Queued/failed grids lacking registrations/script references still belong to grid workflows; index last so known-episode references win."""
         for record in sorted((project_dir / "grids").glob("grid_*.json")):
             self._index_grid(record.stem, None)
 
@@ -378,7 +376,7 @@ class ReferenceIndex:
             if origin is SourceOrigin.NONE:
                 continue
             owner = FileOwner("episode", episode=entry["episode"])
-            # 切出集的集文件由账本派生；自带原文的集文件就是该集的源文。
+            # Cut-episode files derive from ledgers; source-owning episode files are their actual source.
             role = FileRole.DERIVED if origin is SourceOrigin.WHOLE_SOURCE else FileRole.STRUCTURE
             self._mark(episode_source_relpath(entry["episode"]), role, owner)
 

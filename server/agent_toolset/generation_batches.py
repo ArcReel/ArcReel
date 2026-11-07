@@ -1,4 +1,4 @@
-"""生成批次查询与取消工具的声明。"""
+"""Generation-batch query and cancellation declarations."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from server.tool_runtime import GenerationBatchToolRequest, cancel_generation_ba
 GET_GENERATION_BATCH = ToolDeclaration(
     name="get_generation_batch",
     description=(
-        "查询一个生成批次：成员逐个的任务状态、计数、建议轮询间隔 poll_after_seconds、是否已终结 done，"
-        "终结后另附终态 generation_result（逐 ID 的成功 / 失败 / 阻断结局）。未终结时按 poll_after_seconds "
-        "间隔再次调用，直到 done=true。批次不属于本项目或不存在时返回 generation_batch_not_found。只读，无副作用。"
+        "Query a generation batch: task state for each member, counts, suggested poll_after_seconds, and terminal flag done. Once terminal, includes generation_result (success / failure / blocked outcomes by ID). Until done=true, call again at poll_after_seconds intervals. Returns generation_batch_not_found when absent or not owned by this project. Read-only, no side effects."
     ),
     request_model=GenerationBatchToolRequest,
-    migration=Exempt("只读：批次状态存于任务队列而非项目产物；迁移失败前已提交的批次仍须可查询。"),
+    migration=Exempt(
+        "Read-only batch state from the task queue, not project artifacts. Batches submitted before migration failure must remain queryable."
+    ),
     domain_key="generation_batch",
     handler=get_generation_batch,
 )
@@ -21,12 +21,12 @@ GET_GENERATION_BATCH = ToolDeclaration(
 CANCEL_GENERATION_BATCH = ToolDeclaration(
     name="cancel_generation_batch",
     description=(
-        "取消生成批次中仍在排队的成员，返回已取消（cancelled）、因已开始执行而跳过（skipped_running）与已终结"
-        "而跳过（skipped_terminal）的任务 id。已开始执行的成员不可取消，照常跑完；重复调用安全。"
-        "批次不属于本项目或不存在时返回 generation_batch_not_found。"
+        "Cancel members of a generation batch that are still queued. Returns task IDs cancelled, skipped_running because execution began, and skipped_terminal because already terminal. Running members cannot be cancelled and finish normally; repeated calls are safe. Returns generation_batch_not_found when absent or not owned by this project."
     ),
     request_model=GenerationBatchToolRequest,
-    migration=Exempt("只撤销排队中的任务，不写项目产物；迁移失败时须能止损取消此前提交的批次。"),
+    migration=Exempt(
+        "Cancels only queued tasks, writing no project artifacts. Must permit cancelling previously submitted batches after migration failure to limit further cost."
+    ),
     domain_key="generation_batch_cancellation",
     handler=cancel_generation_batch,
 )

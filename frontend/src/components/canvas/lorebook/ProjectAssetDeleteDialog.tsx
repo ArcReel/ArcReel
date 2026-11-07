@@ -29,11 +29,11 @@ interface ProjectAssetDeleteDialogProps {
   projectName: string;
   assetType: AssetSheetType;
   name: string;
-  /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中 / 版本恢复中）。 */
+  /** Disabled state shared by sibling card controls (generating/uploading/version restoration). */
   busy: boolean;
-  /** 删除请求在途与否，供卡片同步禁用兄弟控件。 */
+  /** Deletion-request occupancy lets cards disable siblings together. */
   onDeletingChange: (deleting: boolean) => void;
-  /** 「改为并入…」：有引用时提供，转入合并流程。不可合并的类型不传。 */
+  /** Switch to merge when references exist; omit for unmergeable types. */
   onMergeInstead?: () => void;
 }
 
@@ -43,12 +43,12 @@ type PreviewState =
   | { phase: "failed"; message: string };
 
 /**
- * 删除项目资产的确认框。打开时先以 dry_run 查询脚本里的引用：有引用时写明被哪些集引用、删除后
- * 这些分镜在生成时会被拦下，并提供「改为并入…」；没有引用时只写明不可恢复。删除不改写引用，
- * 也不因有引用而禁止。查询请求随关闭或卸载经 AbortSignal 作废；只有查询就绪后才能确认。
+ * Asset-delete confirmation queries script references with dry_run on opening. Referenced assets list episodes and explain generation
+ * will block these shots afterward, offering merge instead; unreferenced assets state irreversibility only. Deletion neither rewrites
+ * references nor forbids referenced assets. Close/unmount abort queries via AbortSignal; confirm only when ready.
  *
- * 离开拦截包住确认动作，不包住打开确认框：取消删除时未保存修改原样保留。删除动作返回是否成功，
- * 请求失败或提交时资产已被占用，离开拦截同样保留修改。
+ * Leave guards wrap confirmation, not dialog opening: canceled deletion preserves unsaved edits. Deletion returns success;
+ * request failures or submit-time occupancy also preserve edits through leave guards.
  */
 export function ProjectAssetDeleteDialog({
   open,
@@ -67,7 +67,7 @@ export function ProjectAssetDeleteDialog({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 每次打开都重新查询，并清掉上一次的错误。
+  // Refetch and clear previous errors on every opening.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -103,7 +103,7 @@ export function ProjectAssetDeleteDialog({
     try {
       await API.deleteProjectAsset(projectName, assetType, name);
       onOpenChange(false);
-      // 删除已提交，刷新是独立的后续步骤：卡片随刷新消失，刷新失败时它会停在页面上。
+      // Deletion committed; refresh is separate. Cards disappear on refresh, remaining on-page if refresh fails.
       const refreshed = await useProjectsStore.getState().refreshProject(projectName);
       if (refreshed === "failed") {
         useAppStore.getState().pushToast(t("assets:gallery_delete_refresh_failed"), "warning");
@@ -146,7 +146,7 @@ export function ProjectAssetDeleteDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // 删除在途时不响应 Esc，避免请求还在途时对话框先消失
+        // Ignore Esc during deletion so dialogs remain until requests finish.
         if (!next && !deleting) onOpenChange(false);
       }}
     >

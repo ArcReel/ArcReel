@@ -1,16 +1,16 @@
-"""Smoke 测试：真实跑 probe，看每种错误 status / 错误体 / 诊断映射。
+"""Smoke-check real probes: error status/body/diagnostic mappings.
 
-⚠️ 开发期手动工具，不是 CI 测试，**不应**加入 pytest 套件。
-依赖外部服务可用性（anthropic.com / deepseek.com）是预期：上游协议或错误
-格式变化时正是需要这个脚本来手动复现 + 沉淀新的 fixture。
+⚠️ Manual development tool, not CI; **do not** add it to pytest suites.
+External availability (anthropic.com / deepseek.com) is expected: upstream protocol/error changes
+are exactly when this script helps reproduce issues and capture new fixtures.
 
-只测安全路径（不发任何真付费请求；错 key 立即被上游拒绝）：
-1. 故意错的 key 打真 anthropic → 看 AUTH_FAILED 抓不抓到
-2. 不存在的 host → 看 NETWORK 抓不抓到
-3. 完全不带 anthropic 子路径的 OpenAI 兼容 host → 看 OPENAI_COMPAT / 404 路径
-4. 带 query 的地址 → 看入口校验抓不抓到
+Safe paths only (no paid requests; wrong keys are immediately rejected):
+1. Wrong key against real anthropic → verify AUTH_FAILED.
+2. Nonexistent host → verify NETWORK.
+3. OpenAI-compatible host without anthropic subpath → inspect OPENAI_COMPAT / 404.
+4. URL with query → verify entry validation.
 
-跑法：uv run python scripts/probe_smoke.py
+Run: uv run python scripts/probe_smoke.py
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 async def case(label: str, **kw):
     print(f"\n{'═' * 78}")
     print(f"  {label}")
-    # 脱敏 api_key：一旦本地把 fake key 换成真 key 跑，原样 print 会留进
-    # 终端历史/会话日志。
+    # Mask api_key: if someone substitutes a real key for the fake one, raw printing would persist it
+    # in terminal history/session logs.
     safe_kw = {**kw, "api_key": "***REDACTED***"} if kw.get("api_key") else kw
     print(f"  args: {safe_kw}")
     print("─" * 78)

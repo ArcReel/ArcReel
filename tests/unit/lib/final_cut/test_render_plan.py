@@ -1,4 +1,4 @@
-"""成片渲染规划：剪辑片段如何落到输出帧网格上、如何展开转场、如何按硬切分段。"""
+"""Final render plans: map clips onto output-frame grids, expand transitions, and split at hard cuts."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def test_clip_boundaries_round_on_the_cumulative_frame_grid() -> None:
 
     plan = plan_render(clips, PROFILE)
 
-    # 5 × 1.02 秒 = 5.1 秒 = 153 帧；逐段舍入会得到 155 帧。
+    # 5 × 1.02 seconds = 5.1 seconds = 153 frames; rounding each segment would yield 155.
     assert plan.total_frames == 153
     assert [planned.start_frame for planned in plan.clips] == [0, 31, 61, 92, 122]
     assert plan.duration_seconds == 5.1
@@ -69,7 +69,7 @@ def test_hard_cuts_and_fades_split_segments_while_overlapping_transitions_keep_n
         ["c2", "c3"],
         ["c4"],
     ]
-    # 0.5 秒 = 15 帧，切点之前 7 帧、之后 8 帧；窗口起点相对段起点（第 30 帧）。
+    # 0.5 seconds = 15 frames: 7 before the cut, 8 after; window start relative to segment start (frame 30).
     assert [segment.crossfades for segment in plan.segments] == [(), (Crossfade("fade", 60 - 7 - 30, 15),), ()]
     assert plan.total_frames == 120
 
@@ -90,7 +90,7 @@ def test_overlapping_transition_borrows_half_a_window_of_source_on_each_side() -
 
     first, second = plan_render(clips, PROFILE).clips
 
-    # 0.4 秒 = 12 帧：前一片段在出点之后借 6 帧，后一片段在入点之前借 6 帧，片段边界不变。
+    # 0.4 seconds = 12 frames: borrow 6 after the preceding out-point and 6 before the next in-point, preserving boundaries.
     assert (first.start_frame, first.frames, first.trail, first.lead) == (0, 30, Extension(6, 0), Extension())
     assert (second.start_frame, second.frames, second.lead) == (30, 30, Extension(6, 0))
     assert (first.stream_frames, second.stream_frames) == (36, 36)
@@ -112,7 +112,7 @@ def test_borrowing_beyond_the_source_is_made_up_with_freeze_frames() -> None:
 
     first, second = plan_render(clips, PROFILE).clips
 
-    # 出点之后只剩 0.1 秒（3 帧）源素材、入点之前也只有 3 帧，各缺 3 帧用定格补齐。
+    # Only 0.1 seconds (3 frames) remain after out and 3 before in; freeze frames fill each 3-frame shortage.
     assert first.trail == Extension(source_frames=3, freeze_frames=3)
     assert second.lead == Extension(source_frames=3, freeze_frames=3)
 
@@ -136,7 +136,7 @@ def test_a_clip_ending_in_a_hold_continues_the_still_into_the_transition() -> No
 
     assert (first.source_frames, first.hold_frames) == (30, 15)
     assert first.trail == Extension(source_frames=0, freeze_frames=3)
-    # 整段使用的片段入点在 0，没有可借的源素材。
+    # Entire-source clip begins at 0, leaving no source handles to borrow.
     assert second.lead == Extension(source_frames=0, freeze_frames=3)
 
 

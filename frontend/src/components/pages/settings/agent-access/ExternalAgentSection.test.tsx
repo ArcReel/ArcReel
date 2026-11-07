@@ -40,7 +40,7 @@ describe("ExternalAgentSection", () => {
       "配置远程 MCP",
       "准备访问令牌",
     ]);
-    // setup skill 明文保存令牌，第三步提醒把配置文件排除在版本控制之外
+    // setup skills store plaintext tokens; step three reminds users to exclude configuration files from version control.
     expect(within(steps[2]).getByText(/加入 \.gitignore/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "复制安装命令" }));
@@ -48,7 +48,7 @@ describe("ExternalAgentSection", () => {
     await user.click(screen.getByRole("button", { name: "复制 MCP 端点" }));
     expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/mcp`);
     await user.click(screen.getByRole("button", { name: "复制提示词" }));
-    // 提示词只给安装指引地址，不夹带任何令牌
+    // Prompts include installation-guide addresses only, never tokens.
     expect(writeText).toHaveBeenLastCalledWith(
       `帮我接入 ArcReel。请阅读并执行 ${window.location.origin}/agent-installation-guide.md`,
     );
@@ -66,7 +66,7 @@ describe("ExternalAgentSection", () => {
   });
 
   it("在第三步创建的令牌出现在「访问令牌」分区的列表里", async () => {
-    // 有状态的接口替身：创建写入、列表读出，模拟同一个后端
+    // Stateful API fakes persist creations and read lists, simulating one backend.
     const issued: ApiKeyInfo[] = [];
     vi.spyOn(API, "listApiKeys").mockImplementation(() => Promise.resolve([...issued]));
     vi.spyOn(API, "createApiKey").mockImplementation((name) => {
@@ -82,7 +82,7 @@ describe("ExternalAgentSection", () => {
       return Promise.resolve({ ...token, key: "arc-ext-full-secret" });
     });
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    // 设置页挂载时会拉取配置状态，这里让它拿到空结果
+    // Settings mount fetches configuration status; return empty results here.
     vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getSystemConfig").mockRejectedValue(new Error("not needed"));

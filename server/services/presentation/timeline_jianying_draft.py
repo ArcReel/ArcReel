@@ -1,10 +1,10 @@
-"""由剪辑时间线生成剪映草稿，落盘登记为产物，并按本机草稿目录与剪映版本打包下载。
+"""Generate Jianying drafts from timelines, persist/register artifacts, and package downloads using local draft directories and Jianying versions.
 
-导出在 ``render`` 车道上执行：:meth:`TimelineJianyingDraftService.check` 在入队前按所选旁白版本检查阻断级 issue；
-任务开始时 :meth:`TimelineJianyingDraftService.prepare` 取好生成依据快照与片段摆放，得到一个 :class:`JianyingDraftJob`，
-再经 :func:`~lib.artifacts.rendered_artifact.commit_rendered_artifact` 渲染到临时文件、验收、原子替换正式文件并用快照依据登记。
-视频单元的画面、旁白配音与字幕草稿都取自它当前的呈现模型；BGM 取自项目里登记的 BGM，音量是响度增益乘以片段音量。
-"""
+Export uses the ``render`` lane. :meth:`TimelineJianyingDraftService.check` checks blocking issues for the selected narration
+variant before enqueueing. At task start, :meth:`TimelineJianyingDraftService.prepare` snapshots basis and clip placement
+into :class:`JianyingDraftJob`. :func:`~lib.artifacts.rendered_artifact.commit_rendered_artifact` renders temporary files,
+accepts them, atomically replaces formal files and registers snapshot basis. Unit visuals, narration and subtitle drafts
+come from current presentation models; project-registered BGM volume is loudness gain multiplied by clip volume."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ _WINDOWS_UNSAFE_NAME_CHARACTERS = str.maketrans(dict.fromkeys('<>:"/\\|?*', "_")
 
 
 def _applicable_issues(issues: tuple[TimelineIssue, ...], narration: DraftNarration) -> tuple[TimelineIssue, ...]:
-    """所选旁白版本适用的 issue：只影响带旁白版本的，在不带旁白版本里不计。"""
+    """Issues applicable to the selected narration variant; narrated-only issues do not count for nonnarrated output."""
     return tuple(issue for issue in issues if issue.applies_to is IssueScope.ALL or narration == WITH_NARRATION)
 
 
@@ -82,8 +82,8 @@ def draft_folder_name(
     narration: DraftNarration,
     translate: Callable[..., str] = translate_default,
 ) -> str:
-    """剪映草稿文件夹名：``{两位播出位置}_{集名}`` 与剪辑时间线显示名，集不在账本里时以项目标题代替集；
-    带旁白版本另加后缀，两个版本可以并存。空标题的集名按 ``translate`` 的语言成文。"""
+    """Jianying draft folder name combines ``{两位播出位置}_{集名}`` and timeline display name, using project title if the episode is absent from the ledger.
+    Narrated variants add a suffix so both coexist. Empty episode titles use the language selected by ``translate``."""
     base = episode_file_label(project, episode, translate)
     if base is None:
         raw_title = project.get("title")
@@ -95,11 +95,10 @@ def draft_folder_name(
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JianyingDraftJob:
-    """一次剪映草稿渲染：开始时取好的依据快照与片段摆放。
+    """One Jianying render with basis and clip placement snapshotted at start.
 
-    登记流程依次调用 :meth:`render` 与 :meth:`accept`，验收通过后原子替换 ``artifact_path`` 并用 ``basis`` 登记。
-    渲染期间剪辑时间线或素材被改动，登记后的产物如实读作过期。
-    """
+    Registration calls :meth:`render`, then :meth:`accept`, atomically replacing ``artifact_path`` and registering ``basis``
+    after acceptance. Timeline/material changes during rendering correctly make the registered artifact stale."""
 
     project_dir: Path
     episode: int
@@ -114,7 +113,7 @@ class JianyingDraftJob:
     warnings: tuple[TimelineIssue, ...]
 
     async def render(self, output: Path, workspace: Path) -> None:
-        """把剪映草稿产物写到 ``output``；定格静帧、草稿目录与素材暂存都放在 ``workspace`` 下。"""
+        """Write the Jianying artifact to ``output``; place freeze frames, draft directories and staged materials under ``workspace``."""
         hold_frames: dict[str, Path] = {}
         held_clips = [clip for clip in self.placement.clips if clip.hold_us > 0]
         videos = await asyncio.to_thread(
@@ -145,7 +144,7 @@ class JianyingDraftJob:
         )
 
     async def accept(self, output: Path) -> None:
-        """验收：素材路径都是占位符且来源可解析，主视频轨时长等于剪辑时间线时长。"""
+        """Accept only placeholder material paths with resolvable sources and a main-video-track duration equal to timeline duration."""
         try:
             await asyncio.to_thread(
                 verify_jianying_draft,
@@ -215,16 +214,15 @@ class TimelineJianyingDraftService:
         narration: DraftNarration | None = None,
         revision: int | None = None,
     ) -> JianyingDraftCheck:
-        """导出前检查：剪辑时间线与修订存在、旁白版本可选、没有适用于该版本的阻断级 issue。
+        """Pre-export checks: timeline/revision exist, narration variant is selectable, and no applicable blocking issues exist.
 
-        ``narration`` 省略时按项目取默认旁白版本，结果的 ``narration`` 是实际检查的版本。
-        """
+        Omitted ``narration`` uses the project default; result ``narration`` identifies the variant actually checked."""
         return (await self._checked(project_name, timeline_id, revision, narration)).check
 
     async def prepare(
         self, project_name: str, timeline_id: str, *, narration: DraftNarration, revision: int | None = None
     ) -> JianyingDraftJob:
-        """按指定修订（缺省为最新）检查后取依据快照与片段摆放，并物化各单元的呈现模型。"""
+        """Check the specified revision (latest by default), snapshot basis/clip placement, and materialize unit presentation models."""
         checked = await self._checked(project_name, timeline_id, revision, narration)
         episode, number = checked.check.episode, checked.check.revision
         document = await asyncio.to_thread(lambda: EditTimelineStore(self._projects, project_name).find(timeline_id))
@@ -290,7 +288,7 @@ class TimelineJianyingDraftService:
     async def render(
         self, project_name: str, timeline_id: str, *, narration: DraftNarration, revision: int | None = None
     ) -> JianyingDraftRender:
-        """把剪辑时间线的指定修订（缺省为最新修订）导出为剪映草稿并登记。"""
+        """Export/register a Jianying draft for the specified timeline revision, latest by default."""
         job = await self.prepare(project_name, timeline_id, narration=narration, revision=revision)
         rendered = await commit_rendered_artifact(
             job.project_dir,
@@ -315,10 +313,9 @@ class TimelineJianyingDraftService:
     async def status(
         self, project_name: str, timeline_id: str, *, narration: DraftNarration | None = None
     ) -> JianyingDraftStatus:
-        """剪映草稿产物的时效：current、stale（已落后于剪辑时间线，仍可下载）或 missing（从未导出，或正式文件已不在）。
+        """Jianying artifact currency: current, stale (behind the timeline but downloadable), or missing (never exported or formal file absent).
 
-        ``narration`` 省略时按项目取默认旁白版本。
-        """
+        Omitted ``narration`` uses the project default."""
         document = await asyncio.to_thread(lambda: EditTimelineStore(self._projects, project_name).find(timeline_id))
 
         def resolve() -> JianyingDraftStatus:
@@ -357,10 +354,9 @@ class TimelineJianyingDraftService:
         jianying_version: JianyingVersion,
         translate: Callable[..., str] = translate_default,
     ) -> tuple[Path, str]:
-        """把已登记的剪映草稿代入本机草稿目录与剪映版本打包；过期的草稿照常可下载。
+        """Package a registered Jianying draft with the local draft directory/version; stale drafts remain downloadable.
 
-        ``narration`` 省略时按项目取默认旁白版本。返回临时目录里的 zip 与草稿文件夹名；调用方用完删除 zip 所在的临时目录。
-        """
+        Omitted ``narration`` uses the project default. Return a temporary zip and draft folder name; callers delete the zip’s temporary directory after use."""
         status = await self.status(project_name, timeline_id, narration=narration)
         narration = status.narration
         if status.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
@@ -401,7 +397,7 @@ class TimelineJianyingDraftService:
             output = await run_sync_transaction(_package)
         except BaseException as exc:
             for temp_dir in temp_dirs:
-                # hard-delete: temp -- 打包的临时目录
+                # hard-delete: temp -- temporary packaging directory
                 await run_noninterruptible_sync(shutil.rmtree, temp_dir, ignore_errors=True)
             if isinstance(exc, JianyingDraftArchiveError):
                 raise JianyingDraftError("jianying_draft_invalid", str(exc), timeline_id=timeline_id) from exc

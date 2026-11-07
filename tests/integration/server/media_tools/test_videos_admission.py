@@ -1,4 +1,4 @@
-"""generate_videos 的整批准入：全有或全无、逐单元结论与按调用方隔离的在途任务。"""
+"""Whole-batch generate_videos admission: all-or-nothing, per-unit outcomes, and caller-isolated in-flight tasks."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def storyboard_request_facts(set_admission_video_request_facts) -> None:
 
 _EPISODE_1 = {"scope": "episode", "episode_id": 1}
 _ALL = {"scope": "all"}
-# 越出项目根的成片路径：清单无从检查这份产物，它的状态既不是「缺失」也不是「可用」。
+# Outside-project final paths cannot be manifest-checked; their state is neither missing nor usable.
 _UNREADABLE_CLIP = "../outside/E1S02.mp4"
 
 
@@ -45,7 +45,7 @@ def _admission_codes(out: ToolOutcome[Any]) -> dict[str, list[str]]:
 async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit_is_occupied(
     idle_fake_ctx: ToolHarness, concurrent_session_factory
 ) -> None:
-    """在途任务冲突拦下整批：一个都不入队，其余 unit 报告自己是被谁扣下的。"""
+    """In-flight conflicts block every batch task; other units name the blocker preventing their submission."""
     fake_ctx = idle_fake_ctx
     fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
@@ -103,7 +103,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert codes["E1S01"] == "generation_batch_admission_withheld"
 
 
-_WEB_SCRIPT_FILE = "scripts/episode_1.json"  # Web 路由传账本原值；Agent 工具传纯文件名
+_WEB_SCRIPT_FILE = "scripts/episode_1.json"  # Web passes original ledger values; Agent tools pass bare filenames.
 
 
 def _enqueue_reference_video_as_web(fake_ctx: ToolHarness) -> Any:
@@ -121,7 +121,7 @@ def _enqueue_reference_video_as_web(fake_ctx: ToolHarness) -> Any:
 async def test_generate_reference_videos_refuses_a_unit_the_web_route_already_queued(
     idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Web 先入队同一单元：Agent 整集生成在准入处被「已在队列中」拦下，不再入队计费。"""
+    """Web-first same-unit enqueue blocks whole-episode Agent admission as already queued, without duplicate tasks/charges."""
     fake_ctx = idle_fake_ctx
     use_reference_projection(monkeypatch, fake_reference_projection())
     use_reference_route(fake_ctx)
@@ -145,7 +145,7 @@ async def test_generate_reference_videos_refuses_a_unit_the_web_route_already_qu
 async def test_web_route_enqueue_dedupes_to_the_task_the_agent_tool_already_queued(
     idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Agent 先入队同一单元：Web 路由随后的入队落在同一个任务上，只产生一个任务。"""
+    """Agent-first same-unit enqueue lets later Web submissions reuse that same task, creating only one."""
     fake_ctx = idle_fake_ctx
     use_reference_projection(monkeypatch, fake_reference_projection())
     use_reference_route(fake_ctx)
@@ -178,7 +178,7 @@ async def test_web_route_enqueue_dedupes_to_the_task_the_agent_tool_already_queu
 async def test_generate_reference_videos_ignores_narration_audio_state(
     idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """TTS 配音项目里旁白配音缺失或正在生成，都不影响参考生视频的准入与入队。"""
+    """Missing/in-progress TTS narration does not affect reference-video admission/enqueue."""
     fake_ctx = idle_fake_ctx
     use_reference_projection(monkeypatch, fake_reference_projection())
     use_reference_route(fake_ctx)
@@ -223,7 +223,7 @@ async def test_generate_reference_videos_ignores_narration_audio_state(
 async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_state_is_unreadable(
     fake_ctx: ToolHarness,
 ) -> None:
-    """产物状态读不出的场景属于这次请求：它带着自己的问题进准入，整批停下，健康的场景不入队计费。"""
+    """Unreadable artifact-state scenes belong to the request and carry their own admission problems, stopping the batch without charging healthy scenes."""
     fake_ctx.pm.script_payload["segments"].append(
         {
             "segment_id": "E1S02",
@@ -250,7 +250,7 @@ async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_st
 async def test_generate_videos_all_scope_blocks_a_reference_gap_and_withholds_the_batch(
     fake_ctx: ToolHarness,
 ) -> None:
-    """图生视频的整批准入与单条提交同判：引用有缺口的场景阻断，整批一个都不入队。"""
+    """Image-to-video batch admission matches singles: reference gaps block scenes and prevent every batch enqueue."""
 
     fake_ctx.pm.script_payload["segments"].append(
         {
@@ -282,7 +282,7 @@ async def test_generate_videos_all_scope_blocks_a_reference_gap_and_withholds_th
 async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_scenes(
     fake_ctx: ToolHarness,
 ) -> None:
-    """narration 数据落在 scenes 键的历史剧本按实际骨架做发声准入，不被整批判成解析失败。"""
+    """Legacy narration under scenes uses actual-skeleton speech admission instead of whole-batch parse failures."""
 
     fake_ctx.pm.script_payload = {
         "content_mode": "narration",
@@ -327,7 +327,7 @@ async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_sc
 async def test_generate_videos_all_scope_reports_an_all_unreadable_selection_as_blocked(
     fake_ctx: ToolHarness,
 ) -> None:
-    """全部目标的产物状态都读不出时不能报成空的成功：那会把每一条状态问题都藏起来。"""
+    """All-unreadable artifact states must not become empty success hiding every issue."""
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = _UNREADABLE_CLIP
     enqueue = AsyncMock(return_value=([], []))
 
@@ -341,7 +341,7 @@ async def test_generate_videos_all_scope_reports_an_all_unreadable_selection_as_
 async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
     fake_ctx: ToolHarness,
 ) -> None:
-    """整集参考生成遇到非标量 unit_id：它按位置记名拒收，健康的兄弟条目不会独自入队计费。"""
+    """Nonscalar unit_id rejects by position during whole-episode reference generation; healthy siblings cannot enqueue/pay alone."""
 
     use_reference_route(fake_ctx)
     script = reference_video_script()
@@ -361,7 +361,7 @@ async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
 async def test_generate_reference_units_refuses_a_duplicated_named_unit(
     fake_ctx: ToolHarness,
 ) -> None:
-    """点名的 unit 在剧本里有两份：无从判定要做哪一条，整批停在建任务之前。"""
+    """Duplicate named units are ambiguous; stop whole batches before task creation."""
 
     use_reference_route(fake_ctx)
     script = reference_video_script()

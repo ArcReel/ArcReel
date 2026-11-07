@@ -18,58 +18,58 @@ import { isComfyuiEndpoint, withDurationsOverride, type DiscoveryFormat } from "
 import type { FetchSelection } from "./FetchModelsDialog";
 
 // ---------------------------------------------------------------------------
-// 自定义供应商表单的编辑单元内容：已保存的供应商与未保存修改都按这份形状比较。
+// Custom-provider edit-unit contents; saved providers and unsaved changes compare using this shape.
 // ---------------------------------------------------------------------------
 
 export interface ModelRow {
-  /** 行的稳定标识，随机生成。 */
+  /** Randomly generated stable row identities. */
   key: string;
   model_id: string;
   display_name: string;
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  resolution: string; // 空串 = null
-  // 可选时长的原始文本，只有 ComfyUI 视频行可编辑：提交时写回能力覆盖的 durations 键，空串 = 去掉该键、
-  // 跟随 workflow 原生时长。加载时取自覆盖，其余行只是原样带着，提交时不读它。
+  resolution: string; // Empty strings = null.
+  // Raw duration text, editable only for ComfyUI video rows: submissions write capability durations overrides; empty removes keys,
+  // following workflow-native durations. Load from overrides; other rows retain raw values but ignore them on submission.
   durations_text: string;
-  // 供应商模型倍率的原始文本，提交前 parse；必须是非负有限数。
+  // Raw provider-model multipliers, parsed before submission; finite nonnegative numbers required.
   multiplier_text: string;
-  // 条目绑定「模型厂商/官方模型名」：获取模型时为未识别的模型选了对应模型才有。
+  // Entry bindings vendor/official model name, present when discovery matches unrecognized models through user selections.
   entry_binding: string | null;
-  // 服务端按 (model_id, 媒体类型, 条目绑定) 对应到的条目；null = 对应不上（未定价），
-  // undefined = 还不知道（手动新增、选了对应模型或改过模型 ID 与端点的行，保存后才知道）。
+  // Server entries matched by (model_id, media type, entry bindings); null = unmatched/unpriced,
+  // undefined = unknown (new manual rows, selected matches, changed IDs/endpoints, known only after saves).
   matched_entry: MatchedCatalogEntry | null | undefined;
   capability_overrides: CapabilityOverrides | null;
-  // 请求地址修改（请求名 → 路径）；null = 全部按端点默认。
+  // Request-address overrides (request name → path); null follows all endpoint defaults.
   path_overrides: PathOverrides | null;
-  // 行创建时的模型 ID 与端点：获取模型时服务端给出的对应条目只对这一组合有效，改过任一项即按「还不知道」处理。
+  // Row-creation IDs/endpoints: discovered matches apply only to this pair; changing either makes results unknown.
   original_model_id: string;
   original_endpoint: EndpointKey;
 }
 
 export interface CustomProviderFormValue {
   displayName: string;
-  /** 用户选过的协议。「还没选过」与「选了 openai」不是一回事：只有前者才让接线过来的端点定协议。 */
+  /** User-selected protocols. Never-selected differs from selected openai; only former lets wired endpoints determine protocols. */
   pickedFormat: DiscoveryFormat | null;
   baseUrl: string;
-  /** 新输入的密钥；编辑已有供应商时留空表示保留现有密钥。 */
+  /** Newly entered secrets; blank edits retain existing secrets. */
   apiKey: string;
-  /** 「该供应商无需密钥」：本地部署等无凭证接口保存空密钥，同时解除新建时的必填校验。 */
+  /** No key required: local/no-credential APIs save empty keys, disabling required creation validation. */
   noApiKey: boolean;
   models: ModelRow[];
   imageMaxWorkers: string;
   videoMaxWorkers: string;
   audioMaxWorkers: string;
-  /** 供应商倍率；空串 = 默认值（保存时提交 null）。 */
+  /** Provider multipliers; empty means defaults, submitting null on save. */
   providerMultiplier: string;
 }
 
-//: 新模型行默认挂的端点；协议从 ComfyUI 切走时，挂不住的行也退回它。
+//: Default endpoints for new rows; switching away from ComfyUI resets incompatible rows here too.
 export const DEFAULT_ENDPOINT = "openai-chat" as EndpointKey;
 
-//: 「这一行还没有端点」。切进 ComfyUI 协议而一个 ComfyUI 端点都还没有时，挂不住的行停在这里：
-//: 选择器显示未选择，保存被拦下，直到用户导入端点并为它选一个。
+//: Rows without endpoints. Switching to ComfyUI without any compatible endpoints leaves rows here:
+//: selectors show unselected, blocking saves until users import/select endpoints.
 export const UNSET_ENDPOINT = "" as EndpointKey;
 
 export function newModelRow(partial?: Partial<ModelRow>): ModelRow {
@@ -93,8 +93,8 @@ export function newModelRow(partial?: Partial<ModelRow>): ModelRow {
 }
 
 /**
- * 「获取模型」对话框里勾选的模型变成新建表单的一行。选了对应模型的行存为条目绑定，对应结果要等保存后由服务端算，
- * 按「还不知道」处理；`isDefault` 由调用方按媒体类型给出。
+ * Checked Fetch models entries become new form rows. Selected matching models store bindings, whose server-resolved results remain
+ * unknown until saving; callers supply `isDefault` per media type.
  */
 export function fetchedToRow(selection: FetchSelection, isDefault: boolean): ModelRow {
   const { model, endpoint, binding } = selection;
@@ -109,7 +109,7 @@ export function fetchedToRow(selection: FetchSelection, isDefault: boolean): Mod
   });
 }
 
-/** 新建表单的模型发现结果转成「获取模型」对话框的行；自定义供应商以名字对应上条目为已识别。 */
+/** Convert creation-form discovery results into Fetch models rows; name-matched custom-provider entries count as recognized. */
 export function discoveredToFetched(m: DiscoveredModel, mediaOf: (endpoint: EndpointKey) => MediaType | undefined): FetchedProviderModel {
   return {
     model_id: m.model_id,
@@ -124,28 +124,28 @@ export function discoveredToFetched(m: DiscoveredModel, mediaOf: (endpoint: Endp
   };
 }
 
-// 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。
+// Concurrency limits use controlled numeric strings; empty means unset (null/global defaults).
 function workersToStr(n?: number | null): string {
   return n != null ? String(n) : "";
 }
 
-/** 自定义供应商没有设置倍率时的值；新建表单还取不到服务端的默认值，按它显示。 */
+/** Unset provider multipliers; creation forms lacking server defaults display this value. */
 export const DEFAULT_PROVIDER_MULTIPLIER: ProviderMultiplierInfo = { multiplier: 1, default: 1 };
 
 /**
- * 新建供应商还没有 id、取不到服务端的默认倍率，按协议给出同一份默认值：ComfyUI 协议为 0，其余为 1
- * （与 lib/billing/multipliers.py 的 default_provider_multiplier 一致）。
+ * New providers lack IDs/server multiplier defaults; mirror protocol defaults: ComfyUI 0, others 1
+ * (matching default_provider_multiplier in lib/billing/multipliers.py).
  */
 export function newProviderDefaultMultiplier(isComfyui: boolean): number {
   return isComfyui ? 0 : DEFAULT_PROVIDER_MULTIPLIER.default;
 }
 
-// 供应商倍率：等于默认值时显示为空，表示「跟随默认」；保存空串即恢复默认。
+// Default-equivalent provider multipliers display blank to follow defaults; saving blank restores defaults.
 function providerMultiplierToStr(info: ProviderMultiplierInfo): string {
   return info.multiplier === info.default ? "" : String(info.multiplier);
 }
 
-/** 已保存的供应商对应的表单内容。已保存的模型在模型列表与模型 Sheet 里逐个保存，不进表单。 */
+/** Saved-provider form contents; existing models save individually in lists/Sheets, never enter forms. */
 export function formFromProvider(
   provider: CustomProviderInfo,
   multiplier: ProviderMultiplierInfo = DEFAULT_PROVIDER_MULTIPLIER,
@@ -164,7 +164,7 @@ export function formFromProvider(
   };
 }
 
-/** 新建表单的初始内容；从「调用端点」接线过来时预填接口地址，并按所选端点起一行模型。 */
+/** Initial creation forms prefill API addresses from wired Endpoints, creating one row for selected endpoints. */
 export function newProviderForm(initialBaseUrl?: string, initialEndpoint?: EndpointKey): CustomProviderFormValue {
   return {
     displayName: "",
@@ -180,9 +180,9 @@ export function newProviderForm(initialBaseUrl?: string, initialEndpoint?: Endpo
   };
 }
 
-// 空串 = 未设置（null）；否则必须是正整数（≥1）。返回 undefined 表示非法
-// 输入（0、小数、科学计数、负号、含非数字字符），由保存拦截并提示——不再用 parseInt
-// 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。0 不是合法用户输入。
+// Empty means unset (null); otherwise require positive integers (≥1). undefined indicates invalid
+// inputs (0, fractions, scientific notation, negatives, nondigits), blocked/explained on save; never parseInt
+// silently truncating "1.5"→1 or "1e3"→1 into incorrect settings. Zero is invalid user input.
 export function parsePositiveInt(s: string): number | null | undefined {
   const trimmed = s.trim();
   if (!trimmed) return null;
@@ -191,29 +191,29 @@ export function parsePositiveInt(s: string): number | null | undefined {
   return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
 }
 
-/** 供应商倍率：空串 = 恢复默认（null）；否则同 parseMultiplier，非法输入返回 undefined。 */
+/** Provider multipliers: blank restores defaults (null); otherwise parseMultiplier, returning undefined for invalid inputs. */
 export function parseOptionalMultiplier(s: string): number | null | undefined {
   return s.trim() ? parseMultiplier(s) : null;
 }
 
 /**
- * 行在当前编辑下对应到的条目。条目由服务端按模型 ID 与端点的媒体类型对应，改过这两项的行
- * 对应结果要重新算，前端不猜，按「还不知道」（undefined）处理；改回原值即取回加载时的结果。
+ * Entries matching current row edits. Servers match model IDs and endpoint media types; changing either
+ * requires reevaluation. Frontend never guesses, reporting unknown (undefined); reverting restores loaded results.
  */
 export function matchedEntryFor(row: ModelRow): MatchedCatalogEntry | null | undefined {
   return row.model_id === row.original_model_id && row.endpoint === row.original_endpoint ? row.matched_entry : undefined;
 }
 
 export interface RowToInputOptions {
-  /** 这一行的可选时长可编辑（ComfyUI 视频端点、档位给得出来）：此时由 durations_text 写回覆盖。 */
+  /** Editable durations for ComfyUI video endpoints with available tiers write overrides from durations_text. */
   durationsEditable: boolean;
 }
 
 export function rowToInput(r: ModelRow, { durationsEditable }: RowToInputOptions): CustomProviderModelInput {
   let overrides = r.capability_overrides;
   if (durationsEditable) {
-    // 失败时直接抛 DurationParseError；保存在调用前应已拦截，故此处只负责诚实地把字符串
-    // 转成 list[int] 而不静默降级（无效输入被当成空串，会把用户的档位悄悄换回原生时长）
+    // Raise DurationParseError directly; presave validation already blocks invalid input, so only convert strings honestly
+    // into list[int], never silently degrade invalid inputs into blanks, which would replace user tiers with native durations.
     overrides = withDurationsOverride(overrides, parseDurationInput(r.durations_text) ?? undefined);
   }
   return {
@@ -223,25 +223,25 @@ export function rowToInput(r: ModelRow, { durationsEditable }: RowToInputOptions
     is_default: r.is_default,
     is_enabled: r.is_enabled,
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
-    // 其余行的覆盖（含升级迁移写入的 durations、max_output_tokens）原样回传：整表 PUT 省略即清空
+    // Echo other overrides unchanged, including migrated durations/max_output_tokens; full-table PUT omissions clear values.
     capability_overrides: overrides,
     path_overrides: r.path_overrides,
-    // 保存前已拦截非法倍率，这里的回退值不会生效
+    // Presave validation rejects invalid multipliers; fallback values here never take effect.
     multiplier: parseMultiplier(r.multiplier_text) ?? 1,
     entry_binding: r.entry_binding,
   };
 }
 
 /**
- * 行挂不挂得住当前协议是一路派生下来的，不是切协议那一刻改写一遍行就算数：ComfyUI 端点只挂得上
- * ComfyUI 供应商，反之亦然（docs/adr/0081 的双向配对），而这份判断要查端点目录——目录是异步取的，
- * 切协议那一刻它可能还没回来，回来之后也不会有人再重算一遍。留着挂不住的旧值，那一行在端点选择器
- * 里是隐着的（选择器按协议过滤），用户看不见它，保存时才吃一个 422。
+ * Protocol compatibility is continuously derived, never a one-time row rewrite on switches: ComfyUI endpoints pair only with
+ * ComfyUI providers and vice versa (docs/adr/0081). This requires endpoint catalogs, fetched asynchronously and potentially absent
+ * during switches; without derivation nobody reevaluates on arrival. Incompatible old endpoints hide in protocol-filtered
+ * selectors, invisible to users until save-time 422.
  *
- * 改挂的去处：切进 ComfyUI 取第一个 ComfyUI 端点，切走退回新行的默认端点；一个 ComfyUI 端点都
- * 还没有时没有去处，行落在 UNSET_ENDPOINT 上——用户看得见、保存拦得住，比留个隐形的旧端点强。
- * 派生而非改写还带来一点：切走再切回来，原先手选的那个端点自己回来了，models 里存的始终是用户
- * 最后一次显式选择。目录还没回来时（`catalog` 为 null）一行都判不了，原样返回。
+ * Reassign to first ComfyUI endpoints when entering, new-row default endpoints when leaving. Without ComfyUI endpoints,
+ * use UNSET_ENDPOINT: visible and save-blocking rather than invisible old endpoints.
+ * Derivation also restores previously selected endpoints after switching away/back: models always store users' last
+ * explicit choices. Before catalogs arrive (`catalog` null), no row can be classified; return unchanged.
  */
 export function effectiveModelRows(
   models: ModelRow[],
@@ -254,8 +254,8 @@ export function effectiveModelRows(
     const descriptor = catalog.find((item) => item.key === row.endpoint);
     if (descriptor !== undefined && isComfyuiEndpoint(descriptor) === isComfyui) return row;
     const endpoint = (isComfyui ? firstComfyui : DEFAULT_ENDPOINT) ?? UNSET_ENDPOINT;
-    // 换了一路，默认标记、能力覆盖与请求地址修改随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，
-    // 而 ComfyUI 协议整个关闭覆盖（服务端 _check_protocol_constraints），留着必被拒。
+    // Route changes invalidate defaults, capabilities and request-address overrides: validity binds to (endpoint, model_id),
+    // and ComfyUI disables overrides entirely (server _check_protocol_constraints), so retaining them guarantees rejection.
     return { ...row, endpoint, is_default: false, capability_overrides: null, path_overrides: null };
   });
 }

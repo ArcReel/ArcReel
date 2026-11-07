@@ -1,7 +1,7 @@
 import { useCallback, useContext, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { EditUnitRetentionContext } from "./edit-unit-retention";
 
-/** 外部事件要替换正在编辑的单元时，继续显示当前内容；保存/放弃后再采用真实状态。 */
+/** When an external event would replace the unit being edited, retain current content until save/discard, then adopt actual state. */
 export function RetainedEditUnit<T>({
   identity, value, message, children,
 }: {

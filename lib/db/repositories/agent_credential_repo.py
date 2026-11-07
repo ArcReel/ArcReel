@@ -1,4 +1,4 @@
-"""Agent Anthropic 凭证 Repository。"""
+"""Agent Anthropic credential repository."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from lib.db.repositories.base import BaseRepository
 
 
 class AgentCredentialRepository(BaseRepository):
-    """凭证 CRUD + active 互斥切换。
+    """Credential CRUD and mutually exclusive active switching.
 
-    NOTE: 调用方需在合适的边界 commit。本类只 flush，不 commit。
+    NOTE: Callers must commit at appropriate boundaries. This class only flushes, never commits.
     """
 
     async def create(
@@ -87,7 +87,7 @@ class AgentCredentialRepository(BaseRepository):
     async def merge_tier_bindings(
         self, cred_id: int, changes: Mapping[Tier, str | None]
     ) -> AgentAnthropicCredential | None:
-        """按档位合并条目绑定：值为 ``None`` 的档位解除绑定，其余档位保持不变。凭证不存在时返回 ``None``。"""
+        """Merge entry bindings by tier: ``None`` unbinds that tier; other tiers remain unchanged. Return ``None`` if the credential is absent."""
         cred = await self.get(cred_id)
         if cred is None:
             return None
@@ -97,21 +97,21 @@ class AgentCredentialRepository(BaseRepository):
                 merged.pop(tier, None)
             else:
                 merged[tier] = ref
-        # JSON 列不跟踪原地修改，整体换成新字典；全部解除时存 NULL，与「没有绑定」同一形状。
+        # JSON columns do not track in-place changes; replace the whole dictionary. Store NULL when all bindings are removed, matching no bindings.
         cred.tier_bindings = merged or None
         await self.session.flush()
         return cred
 
     async def set_active(self, cred_id: int, user_id: str = DEFAULT_USER_ID) -> None:
-        """互斥切 active：先把同 user 全置 False，再把目标置 True。
+        """Switch active exclusively: set all credentials for the user to False, then the target to True.
 
         Raises:
-            ValueError: cred_id 不存在或不属于该 user
+            ValueError: cred_id is absent or does not belong to the user
         """
         cred = await self.get(cred_id)
         if cred is None or cred.user_id != user_id:
             raise ValueError(f"credential id={cred_id} not found")
-        # SQLite 的 partial unique index 在同事务内中间态可能违反，所以先全清再设
+        # Intermediate states in one transaction may violate SQLite partial uniqueness; clear all before setting the target
         await self.session.execute(
             update(AgentAnthropicCredential)
             .where(
@@ -125,13 +125,13 @@ class AgentCredentialRepository(BaseRepository):
         await self.session.flush()
 
     async def delete(self, cred_id: int) -> bool:
-        """删除非 active 凭证。
+        """Delete an inactive credential.
 
         Returns:
-            True: 删除成功；False: 凭证不存在。
+            True: Deleted successfully; False: Credential absent.
 
         Raises:
-            ValueError: 试图删除当前 active 凭证。
+            ValueError: Attempted to delete the currently active credential.
         """
         cred = await self.get(cred_id)
         if cred is None:

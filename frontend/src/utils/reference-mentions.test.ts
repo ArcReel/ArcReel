@@ -15,12 +15,12 @@ import {
 } from "./reference-mentions";
 import type { ProjectData } from "@/types";
 
-/** 记号断言的短写法：`[speaker, text]`，speaker 为空串即画外音。 */
+/** Marker-assertion shorthand: `[speaker, text]`, empty speakers mean voiceover. */
 function marks(line: string): [string, string][] {
   return lineSpeechMarks(line).map((mark) => [mark.speaker, mark.text]);
 }
 
-/** 判定路径的输入来自已归一的 `splitScriptLines`；直测原语时补同一道归一。 */
+/** Predicate inputs come from normalized `splitScriptLines`; direct primitive tests apply identical normalization. */
 function normalize(text: string): string {
   return splitScriptLines(text)[0] ?? "";
 }
@@ -72,8 +72,8 @@ describe("extractMentions", () => {
 });
 
 describe("parser output is normalized", () => {
-  // 解析器承诺输出规范形（NFC + 去 BOM），与后端 text_parser._normalize_source 同口径：
-  // 调用方拿到的名字可直接与已归一的资产表 key 判等，不再各自补归一。
+  // Parser outputs guarantee NFC/BOM-removed canonical names, matching backend text_parser._normalize_source:
+  // callers directly compare normalized asset keys, never normalize independently again.
   const nameNfc = "Hiếu".normalize("NFC");
   const nameNfd = "Hiếu".normalize("NFD");
   const BOM = "\uFEFF";
@@ -95,7 +95,7 @@ describe("parser output is normalized", () => {
   });
 
   it("strips BOM from inside a mention name", () => {
-    // `@[名<BOM>称]` 类粘贴产物：后端解析入口去 BOM，前端不去就会判未登记，预览与生成结果不一致
+    // Pasted `@[名<BOM>称]`: backends remove BOM at parser entry; failure to mirror would mark names unregistered and split previews/generation.
     expect(extractMentions(`@[张${BOM}三] 抬眼`)).toEqual(["张三"]);
     expect(extractMentions(`${BOM}@[张三] 抬眼`)).toEqual(["张三"]);
   });
@@ -110,7 +110,7 @@ describe("parser output is normalized", () => {
   });
 
   it("keeps a BOM-laced speaker slot out of mention extraction", () => {
-    // BOM 让前端判规范行、后端判描述行时，说话人是否进参考图两侧结论相反
+    // BOM causing frontend token/backend description classification reverses speaker reference-image inclusion.
     expect(extractMentions(`@[张${BOM}三]：{我来了}`)).toEqual([]);
   });
 
@@ -239,7 +239,7 @@ describe("inline speech marks", () => {
   });
 
   it("keeps speaker slots out of mention extraction", () => {
-    // 与后端 text_parser.extract_mentions 同口径：给画外说话的角色附参考图会诱导它入画
+    // Match backend text_parser.extract_mentions; referencing offscreen speakers visually would coax them onscreen.
     expect(extractMentions("@酒馆 内景。\n@张三：{我来了}\n@张三 抬眼。")).toEqual([
       "酒馆",
       "张三",
@@ -252,18 +252,18 @@ describe("inline speech marks", () => {
   });
 
   it("does not treat a blank speaker slot as a speech mark", () => {
-    // 同后端 split_speech_line：speaker 位全为空白不成记号，否则会派生出非法 utterance
+    // Match backend split_speech_line: whitespace-only speakers form no tokens, preventing invalid utterances.
     expect(marks("@[ ]：{我来了}")).toEqual([]);
     expect(extractMentions("@[ ]：{我来了}")).toEqual([""]);
   });
 
   it("does not fall back to voiceover when the speaker slot is malformed", () => {
-    // 作者写的是「某人说」，静默改判画外音比不识别更难发现
+    // Authors wrote Someone speaks; silently turning it into voiceover is harder to detect than nonrecognition.
     expect(marks("@[]：{我来了}")).toEqual([]);
   });
 
   it("does not fall back to voiceover when the separator colon is repeated", () => {
-    // 同后端 split_speech_line：只吞一个分隔冒号，剩下的冒号说明这不是台词形态
+    // Match backend split_speech_line: consume only one separator colon; remaining colons mean non-dialogue.
     expect(marks("@[张三]：：{我来了}")).toEqual([]);
     expect(stripSpeechMarks("@[张三]：：{我来了}")).toBe("@[张三]：：{我来了}");
     expect(marks("门开了。@[张三]:: {我来了}")).toEqual([]);
@@ -275,19 +275,19 @@ describe("inline speech marks", () => {
   });
 
   it("counts the unit separator as inline whitespace like Python", () => {
-    // JS 的 `\s` 不含 U+001F 而 Python 的 str.isspace() 含：少这一个字符，
-    // 说话人会在后端绑定、在前端派生成参考图
+    // JS `\s` excludes U+001F, unlike Python str.isspace(); omitting this character
+    // binds speakers server-side but derives image references frontend-side.
     expect(marks("@[张三]\u001f{我来了}")).toEqual([["张三", "我来了"]]);
     expect(extractMentions("@[张三]\u001f{我来了}")).toEqual([]);
   });
 
   it("does not read nested braces as one mark", () => {
-    // 同后端 split_speech_line：外层 `{` 不成记号，从内层重新扫描
+    // Match backend split_speech_line: outer `{` forms no token; resume scanning inside.
     expect(marks("{外层 {内层}}")).toEqual([["", "内层"]]);
   });
 
   it("does not treat blank braces as an utterance", () => {
-    // 同后端：utterance 的 text 必须非空，空台词不派生
+    // Match backend nonempty utterance text; empty dialogue derives nothing.
     expect(marks("{}")).toEqual([]);
     expect(marks("{   }")).toEqual([]);
     expect(marks("@[张三]：{}")).toEqual([]);
@@ -300,7 +300,7 @@ describe("inline speech marks", () => {
 });
 
 describe("splitScriptLines", () => {
-  // 与 Python str.splitlines() 逐例对齐：末尾换行不多出空行，行中间的空行照常保留
+  // Match Python str.splitlines() casewise: final breaks add no lines, interior empty lines remain.
   it.each([
     ["", []],
     ["a", ["a"]],

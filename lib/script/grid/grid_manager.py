@@ -17,7 +17,7 @@ from lib.script.grid.models import GridGeneration
 
 logger = logging.getLogger(__name__)
 
-# 与 lib/script/grid/models.py::GridGeneration.create 的生成格式一致
+# Match the generated format in lib/script/grid/models.py::GridGeneration.create
 _GRID_ID_RE = re.compile(r"grid_[0-9a-f]{12}")
 
 
@@ -30,19 +30,19 @@ class GridManager:
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, grid_id: str, suffix: str = ".json") -> Path:
-        """grids/ 下的记录路径。grid_id 来自 URL 路径参数，先卡格式白名单再过越界校验。
+        """Record path under grids/. grid_id comes from a URL path parameter; apply the format allowlist before boundary validation.
 
-        用 ``fullmatch`` 而非 ``match()`` + ``$``：``$`` 会匹配字符串末尾换行符之前的
-        位置，``grid_xxxxxxxxxxxx\\n`` 这类带尾随换行的输入能骗过 ``match()``，让换行符
-        混入最终文件名。
+        Use ``fullmatch`` rather than ``match()`` + ``$``: ``$`` also matches before a trailing
+        newline, letting inputs such as ``grid_xxxxxxxxxxxx\\n`` fool ``match()`` and introduce
+        a newline into the final filename.
         """
         if _GRID_ID_RE.fullmatch(grid_id) is None:
             raise ValueError(f"非法宫格 ID: {grid_id!r}")
         return safe_join(self._dir, f"{grid_id}{suffix}")
 
     def image_path(self, grid_id: str) -> Path:
-        """grids/ 下的联合图路径。调用方一律经此取路径，不自行拼接，
-        否则 ID 白名单与越界校验会被绕过。"""
+        """Composite-image path under grids/. Every caller must use this accessor instead of assembling
+        paths itself, which would bypass the ID allowlist and boundary checks."""
         return self._path(grid_id, ".png")
 
     def save(self, grid: GridGeneration) -> None:
@@ -73,7 +73,7 @@ class GridManager:
         with self._record_lock(path), formal_write_transaction(path):
             try:
                 grid = self._get_unlocked(path)
-            except Exception:  # best-effort：可选恢复语义只作用于读取
+            except Exception:  # best-effort: optional recovery semantics apply only to reading
                 if not ignore_invalid:
                     raise
                 if on_miss is not None:
@@ -131,7 +131,7 @@ class GridManager:
             yield
 
     def move_to_trash(self, grid_id: str) -> bool:
-        """把一条宫格记录连同联合图、版本历史与清单登记移进项目回收站；记录不在时返回 False。"""
+        """Move a grid record, composite image, version history, and manifest registration into project trash; return False if absent."""
         path = self._path(grid_id)
         with project_metadata_lock(self._project_dir), self._record_lock(path):
             if not path.exists():
@@ -139,8 +139,8 @@ class GridManager:
             try:
                 grid = self._get_unlocked(path)
             except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
-                grid = None  # 读不出的旧记录没有可证明的清单登记
-            # 回收站的落地规则依赖 ProjectManager，顶层导入会成环。
+                grid = None  # Unreadable legacy records have no provable manifest registration
+            # Trash persistence rules depend on ProjectManager; a top-level import would create a cycle.
             from lib.project.media_trash import trash_grid
 
             trash_grid(self._project_dir, grid_id, grid.episode if grid is not None else None)

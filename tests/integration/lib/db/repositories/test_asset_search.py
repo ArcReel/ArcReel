@@ -1,6 +1,6 @@
-"""AssetRepository 的名称搜索：方言敏感，PostgreSQL 与 SQLite 上同一套判据。
+"""AssetRepository name search: dialect-sensitive, with identical PostgreSQL/SQLite criteria.
 
-搜索词按字面子串匹配、不区分普通 Unicode 字母大小写；``%``、``_`` 与转义字符不作通配符。
+Match literal substrings case-insensitively for ordinary Unicode letters; ``%``, ``_``, and escape characters are not wildcards.
 """
 
 from __future__ import annotations

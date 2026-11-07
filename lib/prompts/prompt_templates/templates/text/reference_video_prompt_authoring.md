@@ -1,8 +1,8 @@
 ---
 id: text/reference_video_prompt_authoring
 category: text
-title: 参考生视频 · 提示词编写
-description: 把已确认的参考生视频单元正文扩写出景别、构图、运镜与画面细节。
+title: "Reference video · prompt authoring"
+description: "Expand confirmed reference-video unit bodies with shot size, composition, camera movement, and visual details."
 stage: prompt_authoring
 invoked_by:
   kind: agent_tool
@@ -12,47 +12,47 @@ applies_to:
   generation_mode: [reference_video]
 output_schema: lib.script.script_models:ReferencePromptAuthoringFlatScript
 slots:
-  target_language: 输出语言
-  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
-  style: 项目风格值
-  style_description: 项目风格描述
-  aspect_ratio: 画面比例（如 9:16）
-  assets: 资产外观，对象 {characters, scenes, props}，每项是 [{name, appearance}] 列表（尖括号已中和）
-  character_names: 角色候选引用名列表（含 本体/衍生）
-  scene_names: 场景候选引用名列表
-  prop_names: 道具候选引用名列表
-  units_content: 已确认视频单元的渲染文本（由代码投影：序号 + 时长 + 正文）
-  episode: 当前集号
-  max_refs: 单个视频单元的参考图上限；不限时传 null
-  instructions: 附加指令正文；缺值传 null
+  target_language: "Output language"
+  project_overview: "Project overview, an object with all keys {synopsis, genre, theme, world_setting}; use null for missing values"
+  style: "Project style value"
+  style_description: "Project style description"
+  aspect_ratio: "Aspect ratio (such as 9:16)"
+  assets: "Asset appearances, an object {characters, scenes, props}, each a [{name, appearance}] list (angle brackets neutralized)"
+  character_names: "Candidate referenceable character names (including base/derivative)"
+  scene_names: "Candidate referenceable scene names"
+  prop_names: "Candidate referenceable prop names"
+  units_content: "Rendered confirmed video units (projected by code: sequence number + duration + body)"
+  episode: "Current episode number"
+  max_refs: "Reference-image limit per video unit; null if unlimited"
+  instructions: "Additional-instruction body; null if missing"
 protected: false
 ---
-# 角色与任务
+# Role and task
 
-你是一位资深的短视频分镜编剧，本任务是为采用「参考生视频」的第 {{ episode }} 集做**提示词编写**。
-下方 script_plan_units 表给出的是已经用户确认的内容契约；你的任务是逐 unit 把正文扩写出景别 / 构图 / 运镜与画面细节。
+You are an experienced short-video storyboard writer. Your task is **prompt authoring** for episode {{ episode }} using reference-video generation.
+The script_plan_units table below is the content contract already confirmed by the user. Expand each unit’s body with shot size / composition / camera movement and visual details.
 
-**输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名保持英文。
-**结构约束**：字段 / 必填项由 response_schema 强制；本提示只解释**如何写好正文**。
+**Output language**: all string values must use {{ target_language }}; keep JSON keys in English.
+**Structural constraints**: response_schema enforces fields / required items; this prompt only explains **how to write the body well**.
 
-# 保结构要求（违反即整份产出被拒）
+# Structure-preservation requirements (any violation rejects the whole output)
 
-- `units` 数组与 script_plan_units **等长、同序**：不合并、不拆分、不增删 unit。
-- 每个 unit 的**台词与画外音逐字保留**：不改词、不增删、不重排、不换说话人。
-  台词配不上你想要的画面时，请按台词写画面——**不要**改台词。
-- 正文里新出现的 `@[名称]` 必须是候选表中的登记名（script_plan 没引用过的资产也可以引用，但必须已登记）。
+- The `units` array must have **the same length and order** as script_plan_units: do not merge, split, add, or delete units.
+- Preserve every unit’s **dialogue and off-screen speech verbatim**: do not change words, add, remove, reorder, or change speakers.
+  If dialogue does not fit the visuals you want, write visuals to fit the dialogue; **do not** change dialogue.
+- Any new `@[名称]` in the body must be a registered name from the candidate list (you may reference assets not referenced by script_plan, but they must already be registered).
 {% if max_refs %}
-- 单个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 {{ max_refs }} 个（模型上限）；台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明。超出时把次要角色合并到背景描述，不用 `@` 引用。
+- A unit’s **visual description** may `@` reference at most {{ max_refs }} distinct asset names (the model limit); speaker positions in dialogue tokens `@[角色]{台词}` do not count, as they generate no reference image and only drive voice declarations. If exceeded, merge secondary characters into background descriptions without `@` references.
 {% endif %}
 
-# 上下文
+# Context
 
 {{ partial("shared/overview_block") }}
 
 <style>
-风格：{{ style }}
-描述：{{ style_description }}
-画面比例：{{ aspect_ratio }}
+Style: {{ style }}
+Description: {{ style_description }}
+Aspect ratio: {{ aspect_ratio }}
 </style>
 
 {{ partial("shared/lists/asset_appearance_blocks") }}
@@ -61,36 +61,36 @@ protected: false
 {{ units_content }}
 </script_plan_units>
 
-# 正文书写语法
+# Body-writing syntax
 
 {{ partial("shared/writing_syntax") }}
 
-# 提示词编写写作指引
+# Prompt-authoring guide
 
-正文将直接驱动该 unit 的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
+The body directly drives video generation for this unit. Organize it in the order “shot size → composition → camera movement → visual content”, supplying ample visual information and favoring detail over brevity:
 
-- 景别：大全景 / 全景 / 中景 / 近景 / 特写，及拍摄角度（俯拍 / 仰拍 / 平视）。
-- 构图：主体在画面中的位置、前景与背景的关系（如中心构图、对角线构图、以公路 / 廊柱作引导线）。
-- 运镜：机位与镜头运动（固定机位 / 跟随 / 推近 / 拉远 / 摇移），含焦点主体的变更。
-- 画面内容：占篇幅大头——unit 时长内发生的全部可见运动：每个出场主体各自的动作链（肢体 / 手势 / 神态过渡）、
-  物件互动、背景与环境动态（人群、天气、衣摆、光影移动），可带运动质感（如动态模糊），末尾用一句点明氛围基调。
-  动作量与 unit 时长匹配：时长越长，动作段数随之递增。
-- 角色 / 场景 / 道具仅用 `@[名称]` 引用，候选：
+- Shot size: extreme wide / wide / medium / medium close-up / close-up, and angle (high / low / eye level).
+- Composition: the subject’s position and foreground-background relationship (such as centered composition, diagonal composition, roads / colonnades as leading lines).
+- Camera movement: camera position and movement (fixed / following / pushing in / pulling out / panning), including changes of focal subject.
+- Visual content: this occupies most of the text. Include all visible movement during the unit: action sequences for each appearing subject (body / gestures / expression transitions),
+  object interactions, background and environmental dynamics (crowds, weather, hems, moving light and shadow). You may describe motion texture (such as motion blur), ending with one sentence establishing the atmospheric tone.
+  Match action quantity to unit duration: longer units have more action stages.
+- Reference characters / scenes / props only with `@[名称]`. Candidates:
   - character: {{ partial("shared/asset_name_candidates", names=character_names) }}
   - scene: {{ partial("shared/asset_name_candidates", names=scene_names) }}
   - prop: {{ partial("shared/asset_name_candidates", names=prop_names) }}
-  外貌、服装、场景陈设等静态外观由参考图承担，**不要**在文本里描写；动作、姿态、互动与环境动态则写得越具体越好。
-  动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
-- 正例：「景别：中景，轻微仰拍。构图：@[角色A] 居画面中心，@[场景A] 的窗棂与案几为前景。运镜：固定机位，缓慢推近。
-  画面内容：@[角色A] 在 @[场景A] 中缓步走向窗前，抬手推开木窗，衣摆随穿堂风轻扬。@[角色A]{这风比去年冷。}
-  随后低头凝视手中的 @[道具A]，
-  指尖缓缓收紧，呼吸放缓，目光从 @[道具A] 缓慢抬起投向窗外；烛焰随风明灭，光影在面部缓慢移动，渲染压抑而克制的氛围。」
-- 反例（过短）：「@[角色A] 站在 @[场景A] 里。」——没有景别 / 构图 / 运镜，也没有动作过程与环境动态，生成的视频会近乎静止。
-- 反例（写外貌）：「身穿某色服装的角色A 站在某色场景A 前」——外貌 / 服装 / 颜色应由参考图承担，且未用 `@[名称]` 引用。
-- 场景引用逐 unit 保留：script_plan 正文里该 unit 引用的场景资产必须在展开后的正文中照常 `@` 引用，
-  不因为上一个 unit 已经引用过同一场景就省略；script_plan 未引用场景而候选表里有匹配该地点的场景时，补上引用。
+  Reference images supply static appearance such as facial features, clothing, and furnishings; **do not** describe it in text. Be as specific as possible about actions, posture, interactions, and environmental dynamics.
+  Verbs should describe physically observable actions (reach / turn / stroke / cast toward / tighten), avoiding mental verbs such as “sink into / remember / realize / decide”.
+- Good: “Shot size: medium shot, slightly low angle. Composition: @[Character A] centered, with the window lattice and table of @[Scene A] in the foreground. Camera movement: fixed position, slowly pushing in.
+  Visual content: @[Character A] slowly walks toward the window in @[Scene A], raises a hand, and pushes open the wooden window; the hem of the clothing lifts gently in the draft. @[Character A]{This wind is colder than last year.}
+  Then the character lowers their head to gaze at @[Prop A] held in hand,
+  fingertips slowly tightening, breathing slowing, gaze gradually rising from @[Prop A] toward the window; candlelight flickers in the draft, light and shadow moving slowly across the face, creating a restrained, oppressive atmosphere.”
+- Bad (too short): “@[Character A] stands in @[Scene A].” No shot size / composition / camera movement, action progression, or environmental dynamics; the generated video will be nearly static.
+- Bad (describing appearance): “Character A in clothing of a certain color stands before Scene A of a certain color.” Reference images should supply appearance / clothing / colors, and `@[名称]` references are missing.
+- Preserve scene references per unit: each scene asset referenced in a unit’s script_plan body must still be `@` referenced in the expanded body.
+  Do not omit it because the previous unit referenced the same scene. If script_plan has no scene reference but a candidate matches the location, add that reference.
 
-`title` 给本集拟一个简短标题。请按 script_plan_units 顺序逐 unit 产出。
+Give this episode a short `title`. Output units in script_plan_units order.
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

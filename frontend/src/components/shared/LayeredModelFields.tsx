@@ -1,13 +1,13 @@
 /**
- * LayeredModelFields —— 「默认模型 + 按用途指定模型」的同源交互形态（docs/adr/0054）。
+ * LayeredModelFields: shared Default model + Specify models by use interactions (docs/adr/0054).
  *
- * 文本档位、图片任务类型桶、视频任务类型桶三处共用：一个常驻的默认主下拉，下方一个默认收起的
- * 折叠区收纳细分项。全局设置、项目设置两层复用同一组件，创建向导不传 subFields 即只剩默认层。
+ * Shared by text tiers, image task-type buckets and video task-type buckets: persistent primary default selects with initially collapsed
+ * subdivisions beneath. Global/project settings reuse components; creation wizards omit subFields, leaving default layers only.
  *
- * 细分项留空时触发按钮显示穿透演算后的最终生效模型，用户不展开也能看到会真正执行的模型；
- * 各层全空时显示后端自动选中的模型。演算结果由调用方按各层键位算好传入，本组件不持有层级知识。
+ * Empty subdivisions show fully resolved effective models on triggers, exposing actual execution models without expansion;
+ * all-empty layers show backend automatic selections. Callers precompute resolution by layer keys; components know no layer hierarchy.
  *
- * 界面文案统一用「按用途指定模型」，不出现「能力」「桶」字样（见 GLOSSARY.md 任务类型桶词条）。
+ * UI copy consistently says Specify models by use, never Capability/Bucket (see GLOSSARY.md task-type bucket).
  */
 
 import { useMemo, useState } from "react";
@@ -22,7 +22,7 @@ import { ModelLifecycleNotice, type ModelLifecycleNotices } from "@/components/s
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import type { BucketDimension, FilteredCandidate, GenerationTypeBucket } from "@/types/system";
 
-/** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
+/** Shared task-type bucket UI labels/coverage explanations for image/video callers. */
 export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { label: string; caption?: string }> {
   const { t } = useTranslation("templates");
   return useMemo(
@@ -38,69 +38,69 @@ export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { 
 
 export interface LayeredSubField {
   key: string;
-  /** 已 t() 的细分项标签，以生成路径命名（文生图 / 图生图 / 图生视频 / 参考生视频）。 */
+  /** Translated t() subdivision labels named after generation paths (text-to-image/image-to-image/image-to-video/reference-to-video). */
   label: string;
-  /** 已 t() 的覆盖范围说明，展示在下拉下方；仅在覆盖范围不可从标签自明时提供。 */
+  /** Translated t() coverage explanations beneath selects, supplied only when labels do not explain coverage themselves. */
   caption?: string;
   value: string;
-  /** 该细分项的候选（细分层按能力过滤）。 */
+  /** Subdivision candidates filtered by capabilities at subdivision layers. */
   options: string[];
-  /** 留空时的最终生效模型（provider/model）；演算不出即省略。 */
+  /** Effective models when empty (provider/model); omit when unresolved. */
   effective?: string;
-  /** 各层全空时自动选中的模型，语义同 `ProviderModelSelect` 的 `autoValue`。 */
+  /** Automatic models when all layers are empty, matching `ProviderModelSelect` `autoValue` semantics. */
   auto?: string | null;
-  /** 细分项对应的任务类型桶，下线提示据此取这一处的切换目标；文本档位不传，按默认层取。 */
+  /** Subdivision task-type buckets determine retirement-switch candidates; text tiers omit this and use default layers. */
   bucket?: GenerationTypeBucket;
-  /** 默认层里有、这一项因能力不满足而没有列出的模型及原因（候选接口的 `filtered`），列在下拉末尾、不能选。 */
+  /** Default-layer models absent here for inadequate capabilities, with candidate `filtered` reasons, listed last and unselectable. */
   filtered?: FilteredCandidate[];
   onChange: (next: string) => void;
 }
 
 export interface LayeredModelFieldsProps {
-  /** 默认层下拉的无障碍标签；视觉标签由外层卡片标题承担。 */
+  /** Default-select accessible labels; outer card titles provide visual labels. */
   defaultLabel: string;
   defaultValue: string;
-  /** 默认层候选，不过滤——默认层不承诺能力，能力不满足由解析闸报错兜底。 */
+  /** Unfiltered default candidates: default layers promise no capabilities; resolution gates reject inadequate capabilities. */
   defaultOptions: string[];
   onDefaultChange: (next: string) => void;
-  /** 默认层空值选项的标签：全局设置为「自动选择」，项目设置为「使用全局默认」。 */
+  /** Empty default-option labels: Automatic globally, Use global default for projects. */
   emptyLabel: string;
   emptyHint?: string;
-  /** 默认层留空时的生效模型（项目层 = 全局默认层）；全局层是基准、不传。 */
+  /** Effective empty-default models (project layer = global default); global layers are baselines and omit this. */
   defaultEffective?: string;
   /**
-   * 默认层与其继承来源全空时自动选中的模型，语义同 `ProviderModelSelect` 的 `autoValue`。
-   * 仅在 `defaultEffective` 之外再无继承层时传入：继承链上任一层有值时，自动选择不会发生。
+   * Auto-selected models when default layers/all inheritance sources are empty, matching `ProviderModelSelect` `autoValue`.
+   * Supply only without inheritance beyond `defaultEffective`: any nonempty inherited layer prevents automatic selection.
    */
   defaultAuto?: string | null;
   providerNames: Record<string, string>;
-  /** "provider/model" → 当前语言下的模型名，与 `providerNames` 同源；缺键退回 model id。 */
+  /** "provider/model" → current-language names sharing `providerNames` sources; missing keys fall back to model IDs. */
   modelNames?: Record<string, string>;
   /**
-   * 下拉选项行的补充信息。第二个参数是发起该下拉的细分项 `key`；默认层不传——它跨全部用途，
-   * 没有单一生成路径。同屏的默认层与各细分项共用一个渲染器，路径相关的取值必须按此参数分流，
-   * 否则一个下拉的路径会被当成全部下拉的路径。
+   * Supplementary option-row information. Second arguments are originating subdivision `key` values; defaults omit them because they span all uses
+   * without single generation paths. Default/subdivision selects share renderers; route path-dependent values by this argument,
+   * otherwise one select path would incorrectly apply to all selects.
    */
   renderOptionMeta?: (fullValue: string, subFieldKey?: string) => React.ReactNode;
-  /** 默认层下拉与折叠区之间的附加内容（模型规格条、分辨率、时长等）。 */
+  /** Additional contents between default selects/collapsible regions (model specs/resolution/duration, etc.). */
   children?: React.ReactNode;
-  /** 细分项；省略或空数组即不渲染折叠区（创建向导只暴露默认层）。 */
+  /** Subdivisions; omitted/empty arrays hide collapsible regions (creation wizards expose defaults only). */
   subFields?: LayeredSubField[];
   /**
-   * 细分项候选拉取失败态：非空即渲染折叠区（哪怕一个细分项都没有）并在其中给出错误文案与
-   * 重试入口，文案由本组件维护、调用方只传重试回调，两处调用点因而措辞一致。
+   * Subdivision-candidate fetch failures: nonempty values render collapsible regions even without subdivisions, with error copy/
+   * Retry. Components own copy and callers pass retry callbacks only, keeping wording identical across both call sites.
    *
-   * 只对应「拉取失败」；候选仍在加载、或成功但为空都不传此项——那两种情况下折叠区按
-   * `subFields` 自身的有无渲染，不出现错误叙事。
+   * Fetch failures only; omit while loading or after empty success. Those cases render collapsible regions according to
+   * `subFields` presence, without error narratives.
    */
   subFieldsError?: {
     onRetry: () => void;
-    /** 重试在途；置位时按钮灰化，避免慢响应下点击毫无反馈。 */
+    /** Retries pending; disable buttons to provide feedback during slow responses. */
     retrying?: boolean;
   };
-  /** 折叠区之后常驻的补充说明（如文本档位的 Agent 边界）。 */
+  /** Persistent explanations after collapsible regions (e.g. text-tier Agent boundaries). */
   footnote?: React.ReactNode;
-  /** 下线提示（候选接口的 `lifecycle`）：默认层与各细分项选中的模型即将下线或已下线时，在各自下拉下方提示。 */
+  /** Retirement notices from candidate `lifecycle`, beneath default/subdivision selects when selected models retire or have retired. */
   lifecycle?: ModelLifecycleNotices;
 }
 
@@ -131,13 +131,13 @@ export function LayeredModelFields({
   const configuredCount = fields.filter((f) => !!f.value).length;
   const hasError = !!subFieldsError;
 
-  // 默认收起；但已指定过细分项时初始展开——收起会让已生效的覆盖完全不可见，
-  // 用户改默认模型时会误以为改动即刻生效。挂载后由用户自行开合。
+  // Initially collapsed unless subdivisions are already configured; otherwise active overrides would be invisible,
+  // misleading users into expecting default-model edits to apply immediately. Users control opening after mount.
   const [open, setOpen] = useState(() => fields.some((f) => !!f.value) || hasError);
 
-  // 候选拉取失败通常发生在挂载之后（异步请求才回来），初始 state 已算过的 open 赶不上；
-  // 错误从无到有时强制展开一次，确保用户不必先展开折叠区才能看到失败提示。之后允许用户
-  // 手动收起——不在 hasError 保持 true 期间反复重开，重试按钮已给出下一步。
+  // Fetch failures usually arrive asynchronously after mount, too late for initial open state;
+  // force expansion once when errors first appear, exposing failures without requiring manual expansion. Then permit
+  // manual collapse without repeatedly reopening while hasError remains true; Retry already provides next steps.
   const [prevHasError, setPrevHasError] = useState(hasError);
   if (hasError !== prevHasError) {
     setPrevHasError(hasError);
@@ -155,8 +155,8 @@ export function LayeredModelFields({
         allowDefault
         defaultLabel={emptyLabel}
         defaultHint={emptyHint}
-        // 全层皆空且自动选择预览也缺席时，触发按钮落到 placeholder。这里给的是空值语义本身
-        // （「自动选择」/「使用全局默认」），否则通用的「选择模型」会读成这项必须选。
+        // With all-empty layers and absent automatic-selection previews, triggers fall back to placeholders. Show empty-value semantics
+        // (Automatic/Use global default), otherwise generic Select model would wrongly imply required selection.
         placeholder={emptyLabel}
         fallbackValue={defaultEffective}
         autoValue={defaultAuto}

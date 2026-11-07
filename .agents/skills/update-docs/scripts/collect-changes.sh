@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# update-docs 缺漏扫描（gap finder）的确定性部分：算 baseline、列出全量候选 commit 标题、列出待核对文档。
-# 输出供 SKILL.md 的 LLM 步骤消费（agent-facing，无需 i18n）。
+# Deterministic update-docs gap finder: compute baseline, list all candidate commit titles, and list documents to verify.
+# Output feeds the LLM steps in SKILL.md (Agent-facing; no i18n required).
 set -eu
 
-# 非 Docusaurus 根目录文档保留少量枚举；website/docs 的覆盖档位由各页 frontmatter 派生。
+# Keep a small enumeration for non-Docusaurus root documents; website/docs coverage tiers derive from page frontmatter.
 FULL_ROOT_DOCS=(
   "README.md"
 )
 
-# README 翻译对：英文版是中文版的镜像，不单独扫描，改完后由主 agent 全文核对一致性。
+# README translation pair: English mirrors Chinese, is not scanned separately, and receives full-pair consistency review by the main Agent after edits.
 README_SOURCE="README.md"
 README_MIRROR="README.en.md"
 
-# 非 Docusaurus 根目录中仅事实核对覆盖的文档。
+# Non-Docusaurus root documents covered only by fact checking.
 FACT_CHECK_ONLY_ROOT_DOCS=(
   "CONTRIBUTING.md"
 )
@@ -28,7 +28,7 @@ while IFS=$'\t' read -r tier doc; do
     full) FULL_DOCS+=("${doc}") ;;
     fact-check) FACT_CHECK_ONLY_DOCS+=("${doc}") ;;
     none) ;;
-    # 覆盖档位取值的真相源在 update-docs-inventory.mjs；新增取值而漏改这里时报错，不静默漏覆盖。
+    # update-docs-inventory.mjs defines coverage tiers; unknown new values must error rather than silently lose coverage.
     *)
       echo "collect-changes: ${doc} 的覆盖档位「${tier}」本脚本不认识，需同步 case 分支" >&2
       exit 1
@@ -36,23 +36,23 @@ while IFS=$'\t' read -r tier doc; do
   esac
 done <<< "${inventory}"
 
-# baseline：全量组文档中最近一次提交时间的最早者。
-# 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。
+# Baseline: the earliest latest-commit timestamp among full-coverage documents.
+# Use git commit timestamps, not filesystem mtime, which becomes inaccurate after fresh clones.
 
-# 文档的新鲜度点：最近一次改动过正文的提交。只动 frontmatter 的提交要跳过——
-# 档位迁移、title / sidebar_position 调整都是元数据编辑，算作新鲜会把 baseline
-# 推到该次编辑，使编辑之前那段区间的能力变更永远不再进入缺漏扫描。
-# 判定方式是比较提交前后剥离 frontmatter 的正文，而非匹配 diff 行：
-# 逐行正则枚举不尽 frontmatter 字段，漏枚举的字段会被误判成正文。
+# Document freshness: latest commit that changed the body. Skip frontmatter-only commits:
+# tier migrations and title / sidebar_position changes are metadata. Counting them as fresh advances
+# the baseline to that edit, permanently excluding earlier capability changes from gap scans.
+# Compare bodies before/after stripping frontmatter, rather than matching diff lines:
+# line regexes cannot enumerate every frontmatter field; missed fields would look like body changes.
 
-# 剥掉文件开头的 frontmatter 块（首行 `---` 到下一个 `---`，含两条分隔符），只留正文。
+# Strip initial frontmatter (first --- through next ---, including delimiters), keeping only body.
 strip_frontmatter() {
   awk 'NR == 1 && $0 == "---" { fm = 1; next } fm { if ($0 == "---") fm = 0; next } { print }'
 }
 
-# 输出 <rev>:<path> 的文件内容；该版本没有这个文件（含 root commit 取不到父提交）时输出空。
-# 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
-# 对象库不完整导致的 git show 失败会伪装成「该版本没有正文」。
+# Output <rev>:<path> contents; output empty if that revision lacks the file (including root commits without parents).
+# Check exit status explicitly rather than relying on set -e, which is ineffective inside command substitutions;
+# git show failures from an incomplete object database would otherwise masquerade as missing bodies.
 blob_content() {
   local blob
   if ! blob="$(git rev-parse -q --verify "$1" 2>/dev/null)"; then
@@ -124,9 +124,9 @@ echo "## baseline（仅基于全量组文档）"
 echo "最早被改动的全量组文档：${baseline_doc}（${baseline_cs}）"
 echo "扫描区间：${baseline_sha:0:9}..HEAD"
 
-# 全量候选 commit：区间内所有非 merge commit，每条仅 sha + 标题。
-# 不做 type/scope 过滤——Conventional Commits 在本项目是约定而非强制，
-# 基于它的过滤不可靠；相关性判断交由缺漏扫描 subagent 在语义层完成。
+# All candidate commits: every non-merge commit in the interval, SHA + title only.
+# Do not filter type/scope: Conventional Commits are convention rather than enforcement here,
+# so filtering is unreliable; leave semantic relevance to the gap-scan subagent.
 echo
 echo "## 候选 commit（baseline..HEAD 全量，每条 sha + 标题）"
 count=0
@@ -140,7 +140,7 @@ echo
 echo "## 候选 commit 总数：${count}"
 [ "${count}" -eq 0 ] && echo "（区间内无候选改动，全量组文档可能已是最新）"
 
-# 事实核对全量清单：所有 in-scope 文档都要核对。
+# Full fact-check list: verify every in-scope document.
 echo
 echo "## 事实核对文档清单（每篇派一个只读 subagent）"
 for doc in "${FULL_DOCS[@]}" "${FACT_CHECK_ONLY_DOCS[@]}"; do

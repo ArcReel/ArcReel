@@ -34,7 +34,7 @@ class TestProjectManagerCompatibility:
         assert pm.load_script("demo", "episode_1.json")["episode"] == 1
 
     def test_save_script_backfills_missing_metadata_skeleton(self, pm_env):
-        """缺 metadata 的剧本落盘后补齐时间戳与状态；条目数与总时长不落盘（读时由项目摘要计算）。"""
+        """Saving scripts without metadata backfills timestamps/status; do not persist item counts or total duration, calculated by project summaries on read."""
         pm, project_name = pm_env
         script = {
             "title": "Episode 1",
@@ -45,7 +45,7 @@ class TestProjectManagerCompatibility:
             ],
         }
 
-        pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
+        pm.save_script(project_name, script, "episode_1.json", validate=False)  # Omit fields to test metadata fill.
         saved = pm.load_script(project_name, "episode_1.json")
 
         assert "created_at" in saved["metadata"]

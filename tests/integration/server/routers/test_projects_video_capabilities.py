@@ -1,4 +1,4 @@
-"""projects 路由的 video-capabilities 查询。"""
+"""Projects video-capabilities queries."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,7 +26,7 @@ class TestGetVideoCapabilities:
     """GET /projects/{name}/video-capabilities"""
 
     def _patch_resolver(self, monkeypatch, side_effect=None, return_value=None):
-        """用 MagicMock 替换 ConfigResolver 类，让其 instance.video_capabilities_for_project() 返回指定行为。"""
+        """Mock ConfigResolver classes so instance.video_capabilities_for_project() returns specified behavior."""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
@@ -61,12 +61,12 @@ class TestGetVideoCapabilities:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 422
             detail = resp.json()["detail"]
-            # 异常原文只进日志，不进用户可见响应（en/vi 界面不能混入未译英文原文）
+            # Raw exceptions enter logs only, never user responses; en/vi interfaces must not mix untranslated English exceptions.
             assert "model not found" not in detail
             assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
 
     def test_provider_without_catalog_model_returns_unsupported_media_400(self, tmp_path, monkeypatch):
-        """项目裸写的内置供应商没有视频模型：返回「该供应商不支持这类生成」的 400，不被通用 422 吞掉。"""
+        """Bare built-in providers without video models return unsupported-generation 400, never generic 422."""
         self._patch_resolver(
             monkeypatch, side_effect=ModelNotInCatalogError(provider_id="openai", model_id="", media_type="video")
         )
@@ -77,7 +77,7 @@ class TestGetVideoCapabilities:
         assert "does not support video generation" in resp.json()["detail"]
 
     def test_capability_bucket_error_returns_localized_400(self, tmp_path, monkeypatch):
-        """任务类型桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""
+        """Bucket-resolution errors become structured 400 with recovery guidance, never generic 422 copy."""
         from lib.config.resolver import VideoBucketCapabilityError
 
         self._patch_resolver(
@@ -100,9 +100,9 @@ class TestGetVideoCapabilities:
 
 
 class TestRealResolverResponse:
-    """成功路径走真实 ConfigResolver + registry + 内存 DB，覆盖响应体经 JSON 序列化后的实际形状。"""
+    """Success uses real ConfigResolver/registry/in-memory DBs, testing actual JSON-serialized response shapes."""
 
-    #: registry 里声明了「1080p 只剩 8 秒」「参考图路径只剩 8 秒」的型号。
+    #: Registry models declaring 1080p/reference paths restricted to 8 seconds.
     VEO = "gemini-vertex/veo-3.1-generate-001"
 
     @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
@@ -126,7 +126,7 @@ class TestRealResolverResponse:
         body = response.json()
         assert body["duration_endpoint_fixed"] is (fixed_bucket == "r2v")
         assert body["duration_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
-        # 档位空集只给时间线；内容确认按剧本规划借用的档位选时长，与确认转换同一口径。
+        # Empty tiers go to timelines only; confirmation borrows planning tiers like conversion.
         constraints = body["duration_constraints"]
         assert constraints["allowed"] == ([] if fixed_bucket == "r2v" else [8])
         assert constraints["planning"] == (ENDPOINT_FIXED_PLANNING_DURATIONS if fixed_bucket == "r2v" else [8])
@@ -142,14 +142,14 @@ class TestRealResolverResponse:
         )
 
     def test_saved_resolution_narrows_durations_with_reasons(self, client):
-        """缺省上下文按项目已保存档位收窄；supported_durations 仍是型号声明全集。"""
+        """Default context narrows saved project tiers; supported_durations remains full model declarations."""
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
         assert resp.status_code == 200
         body = resp.json()
         assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
-        # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
+        # Python excluded keys are integers; JSON keys become strings, queried with String(duration).
         assert body["duration_constraints"] == {
             "resolution": "1080p",
             "uses_reference_images": False,
@@ -170,7 +170,7 @@ class TestRealResolverResponse:
         )
 
     def test_explicit_auto_resolution_does_not_fall_back_to_saved(self, client):
-        """``resolution`` 传空串是表单里的「自动」：不回退到已保存的 1080p，全集都可选。"""
+        """Empty ``resolution`` means form Auto, never fallback to saved 1080p; all declarations remain selectable."""
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities", params={"resolution": ""})
         assert resp.status_code == 200
@@ -180,7 +180,7 @@ class TestRealResolverResponse:
         assert constraints["excluded"] == {}
 
     def test_reference_context_overrides_project_generation_mode(self, client):
-        """显式 ``uses_reference_images`` 压过项目生成模式，按 r2v 桶求值，成因报 reference。"""
+        """Explicit ``uses_reference_images`` overrides modes, evaluating r2v and reporting reference causes."""
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -223,9 +223,9 @@ class TestRealResolverResponse:
 
 
 class TestDurationConstraintsMatchRequestFacts:
-    """``duration_constraints`` 与同一配置落盘后的视频请求事实给出同一组收窄结果。
+    """``duration_constraints`` matches narrowed video-request facts after persisting identical settings.
 
-    预览未保存的分辨率（``resolution`` 查询参数）与把该分辨率存进项目后按事实求值，结果一致。
+    Unsaved ``resolution`` previews equal fact evaluation after saving those resolutions into projects.
     """
 
     VEO = "gemini-vertex/veo-3.1-generate-001"
@@ -288,7 +288,7 @@ class TestDurationConstraintsMatchRequestFacts:
     async def test_facts_failure_reports_its_problem_code(
         self, tmp_path, db_engine, monkeypatch, set_video_request_facts
     ):
-        """该桶的视频请求事实解析不出时，按问题码返回本地化 422，不给出档位。"""
+        """Unresolved bucket facts return localized problem-code 422 without tiers."""
         set_video_request_facts(
             VideoRequestFactsFailure(
                 "video_supported_durations_incompatible",
@@ -310,7 +310,7 @@ class TestDurationConstraintsMatchRequestFacts:
     async def test_reference_project_i2v_preview_reports_the_i2v_tier(
         self, tmp_path, db_engine, monkeypatch, candidate
     ):
-        """参考生视频项目按 i2v 桶预览未保存分辨率时，档位就是这次 i2v 求值本身的结果。"""
+        """Reference projects previewing unsaved i2v resolutions receive tiers from actual i2v evaluation."""
         pm = _FakePM(tmp_path)
         pm.project_data["ready"].update(
             {

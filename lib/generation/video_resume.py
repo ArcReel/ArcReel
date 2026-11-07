@@ -1,7 +1,7 @@
-"""视频任务续跑：按已持久化的 provider job 接续，不重新提交供应商任务。
+"""Resume persisted provider video jobs without resubmission.
 
-续跑由重启自愈（``lib.generation.restart_recovery``）派发：进程重启后接续被打断的视频任务，
-或用户对产物下载失败的任务发起「重试下载」。续跑执行器由应用装配处注入。
+``lib.generation.restart_recovery`` dispatches interrupted videos after restart,
+or user retry-download tasks. Application assembly injects resume executors.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResumeExecutor(Protocol):
-    """续跑执行器：按 ``job_id`` 接续供应商任务并完成产物落盘，返回任务结果。"""
+    """Resume ``job_id``, persist artifacts, return task results."""
 
     def __call__(self, task: dict[str, Any], *, job_id: str) -> Awaitable[dict[str, Any]]: ...
 
@@ -73,20 +73,20 @@ async def cleanup_video_staging(task: dict[str, Any]) -> None:
 
 
 async def fail_task_of_deleted_project(queue: GenerationQueue, task: dict[str, Any]) -> None:
-    """执行期间项目被删除的任务以 ``project_deleted_during_task`` 失败，并清掉按旧名补建出的空目录。"""
+    """Fail deleted-project tasks as ``project_deleted_during_task``, removing empty directories recreated under old names."""
 
     task_id = task["task_id"]
     logger.warning("任务 %s 执行期间项目 %s 已删除，放弃落盘", task_id, task.get("project_name"))
     await asyncio.shield(queue.mark_task_failed(task_id, encode_failure("project_deleted_during_task")))
     try:
-        # 取项目管理器本身也会碰文件系统（首次构造建目录），整体放进工作线程；删目录是写正式文件。
+        # Getting project managers touches filesystems through initial directory creation; thread the whole operation. Deletion writes formal files.
         await run_sync_transaction(lambda: get_project_manager().remove_project_directory_residue(task["project_name"]))
     except Exception:
         logger.warning("已删除项目的残余目录清理失败 task_id=%s", task_id, exc_info=True)
 
 
 class VideoResumeRunner:
-    """把一个续跑任务跑到终态，并结算它那条 pending 的调用行。"""
+    """Run resume tasks to terminals, settling associated pending calls."""
 
     def __init__(
         self,
@@ -100,19 +100,19 @@ class VideoResumeRunner:
         self._provider_projection = provider_projection
 
     async def run(self, task: dict[str, Any]) -> None:
-        """重启自愈入口：直接调续跑执行器，绕过常规执行流水线。
+        """Restart-recovery entry directly calls resume executors, bypassing normal pipelines.
 
-        两种视频生成模式都在 worker 开始时按最新状态物化，并在 provider 提交前写入不可变
-        execution checkpoint。重启后只从 checkpoint 构造固定的解析请求，不从当前项目
-        配置或 enqueue payload 重算执行身份。
+        Both video modes materialize latest states at worker start and persist immutable
+        execution checkpoints before provider submission. After restart, construct fixed resolved requests from checkpoints only,
+        never recompute identities from current projects/enqueue payloads.
 
-        非视频媒体退到把持久化的 ``task["provider_id"]`` 注入 payload 的 ``image_provider``
-        字段（只锁 provider、锁不住 model）。孤儿扫描只把 video 交到这里，image / audio 孤儿
-        在扫描期即落 ``[restart_lost]``，该分支因而只在 media_type 为脏数据时可达。
+        Nonvideo fallback injects persisted ``task["provider_id"]`` into payload ``image_provider``,
+        locking providers, not models. Orphan scans dispatch videos only; images/audio already
+        receive ``[restart_lost]``, so only dirty media_type reaches this branch.
 
-        续跑与常规执行一样在任务对项目的认领下进行，项目在续跑期间被删除时任务以
-        ``project_deleted_during_task`` 失败。项目在重启前已删除时，任务挂在墓碑名下、解析不出
-        项目目录，同样以这个失败码收口。
+        Resume retains normal project claims. Deletion during resume fails
+        ``project_deleted_during_task``; prerestart deletions leave tombstone project names/unresolvable directories,
+        producing the same code.
         """
         project_name = task.get("project_name")
         if isinstance(project_name, str) and is_deleted_project_name(project_name):
@@ -151,13 +151,13 @@ class VideoResumeRunner:
 
         job_id = task.get("provider_job_id") or ""
         if not job_id:
-            # 防御：本不该被派发到这里（孤儿扫描已 mark_failed [restart_lost]）
+            # Defensive: orphan scans already mark_failed [restart_lost], so dispatch here is unexpected.
             await asyncio.shield(self._queue.mark_task_failed(task_id, encode_failure("restart_lost_resume_no_job_id")))
             await cleanup_video_staging(task)
             return
 
-        # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 已提交视频任务的身份走 checkpoint，不在此注入——注入只覆盖 provider、盖不住 model。
+        # Nonvideos freeze persisted providers into payload, resolver priority payload>project>defaults.
+        # Submitted video identities use checkpoints, never injection which freezes providers only, not models.
         persisted_provider_id = checkpoint.provider_id if checkpoint is not None else task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:
@@ -183,13 +183,13 @@ class VideoResumeRunner:
                 if checkpoint is not None:
                     await asyncio.shield(cleanup_video_staging(task))
 
-        # 续跑不开新的记账括号（账是提交时记的），任何终态出口都要顺手结算那条 pending 的
-        # ApiCall，否则用量报表里留下永不终态的行。「重试下载」把调用重开成 pending 之后，
-        # 下面每一条出口都变得可达。resume 结算带 WHERE status='pending'，重复调用无副作用。
+        # Resume has no new accounting scope; all terminal exits settle original pending
+        # ApiCall rows. Retry-download reopens pending, making every exit below reachable.
+        # WHERE status=pending guards make repeat resume settlement harmless.
         try:
             result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:
-            # 进程级打断：落终态并把 pending 调用行结算为 cancelled。
+            # Process interruption: finalize tasks and settle pending calls cancelled.
             await asyncio.shield(self._queue.mark_task_interrupted(task_id))
             await asyncio.shield(self.settle_unresumable_call(task, cancelled=True))
             raise
@@ -234,24 +234,24 @@ class VideoResumeRunner:
         logger.info("重启自愈完成 %s", task_id)
 
     def _ledger(self) -> Ledger:
-        """续跑侧的记账入口：与队列共用同一处 session factory，不另接全局引擎。
+        """Resume accounting shares queue session factories, never separate global engines.
 
-        任务行与它的调用行必须落在同一个库里——队列注入了别的 session factory（测试库、
-        独立 schema）时，记账若仍走全局引擎，会翻错库里的行，还会跨事件循环持有连接。
+        Task/call rows must share DBs. Injected test/independent-schema factories paired with global accounting
+        would finalize wrong rows and hold cross-event-loop connections.
         """
         return Ledger(session_factory=self._queue.session_factory)
 
     async def settle_unresumable_call(
         self, task: dict[str, Any], *, cancelled: bool = False, failure: BaseException | str | None = None
     ) -> None:
-        """把无法继续的 pending ApiCall 按任务终态结算为 failed / cancelled（零费用）。
+        """Finalize unresumable pending ApiCall as task failed/cancelled, zero cost.
 
-        续跑路径不开新的记账括号——账是提交时记的。派发侧终态失败若只翻任务不结算调用，
-        那条 pending 会永久留在用量报表里；重试下载尤其明显：它刚把调用重开成 pending。
+        Resume opens no new accounting scopes because submission already accounted. Dispatch terminal failures must settle
+        calls too, or permanently pending usage remains, especially retry-download reopening calls.
 
-        ``failure`` 是把这次续跑判死的那个异常，由调用方从自己的 except 分支传下来：任务侧
-        的失败编码是任务的，调用行的失败原文与机器码只能从这里落。派发前判死时没有异常对象，
-        改传一段失败原文。取消出口不传——已取消的行没有失败原因可写。
+        ``failure`` is caller except-branch exceptions that made resume terminal: task encoding belongs to tasks,
+        while call raw text/codes persist here only. Predispatch failures without objects pass raw text.
+        Cancellation omits failures because canceled rows have no failure reasons.
         """
         task_id = task.get("task_id")
         if not isinstance(task_id, str) or not task_id:

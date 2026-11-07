@@ -27,7 +27,7 @@ from tests.fakes import (
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
-#: Web 画布新增视频单元时发出的请求体，前端组件测试逐字比对同一份文件。
+#: Web new-unit request fixture, compared byte-for-byte by frontend component tests.
 _ADD_UNIT_CONTRACT = (
     Path(__file__).resolve().parents[4] / "frontend" / "src" / "test" / "contracts" / "reference-unit-add-requests.json"
 )
@@ -35,7 +35,7 @@ _ADD_UNIT_CONTRACT = (
 
 @pytest.fixture
 def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # 重定向 projects_root 到 tmp_path
+    # Redirect projects_root to tmp_path.
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
     proj_dir = projects_root / "demo"
@@ -82,13 +82,13 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     migrate_v7_to_v8(proj_dir)
     migrate_project_dir(proj_dir)
 
-    # Patch project_manager 的根目录
+    # Patch project_manager roots.
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(tmp_path)
     use_project_manager(monkeypatch, custom_pm)
-    # 公共 request projection 的 resolver 需要 DB；路由测试注入 in-process 能力适配器。
+    # Shared request-projection resolvers need DBs; inject in-process capabilities for route tests.
     use_reference_projection(monkeypatch, _projection_with_durations([3, 6, 9]))
 
     app = FastAPI()
@@ -148,7 +148,7 @@ def test_added_unit_written_by_the_user_is_not_pending_authoring(reference_video
 
 
 def test_add_unit_refuses_a_blank_body(reference_videos_client: TestClient):
-    """正文是单元的唯一内容真相：空正文的单元不可执行，创建时即以 needs_replan 拒绝。"""
+    """Bodies are sole unit truth; empty bodies cannot execute and creation rejects needs_replan immediately."""
     response = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "", "duration_seconds": 3},
@@ -163,9 +163,9 @@ def test_add_unit_refuses_a_blank_body(reference_videos_client: TestClient):
 
 
 def test_add_unit_accepts_the_request_bodies_the_web_canvas_sends(reference_videos_client: TestClient):
-    """画布新增单元的请求体：前端组件测试逐字比对同一份契约，这里证明它能通过后端校验。
+    """Canvas creation fixtures are byte-compared by frontend contracts; prove backend admission here.
 
-    两边各自通过、契约却相反的回归（前端发空正文、后端拒绝空正文）由这对测试一起挡住。
+    Together prevent independently passing but opposing contracts, such as frontend empty bodies rejected by backend.
     """
     contract = json.loads(_ADD_UNIT_CONTRACT.read_text(encoding="utf-8"))
     url = "/api/v1/projects/demo/reference-videos/episodes/1/units"
@@ -182,7 +182,7 @@ def test_add_unit_accepts_the_request_bodies_the_web_canvas_sends(reference_vide
 
 
 def test_add_unit_rejects_a_stored_reference_list(reference_videos_client: TestClient):
-    """正文是参考图的唯一来源；仍带 ``references`` 的旧客户端须拿到 422 而非被静默忽略。"""
+    """Bodies alone derive references; legacy ``references`` submissions must return 422, never silently ignore."""
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
@@ -204,7 +204,7 @@ def test_patch_unit_rejects_a_stored_reference_list(reference_videos_client: Tes
 
 
 def test_unit_writes_reject_transition_and_leave_the_script_unchanged(reference_videos_client: TestClient):
-    """转场不再是单元字段：带它的新增与修改按未知字段拒绝，不写回剧本。"""
+    """Transitions are no longer unit fields; creation/edits reject unknown fields without script writes."""
     uid = _seed_unit(reference_videos_client)
     before = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
 
@@ -224,7 +224,7 @@ def test_unit_writes_reject_transition_and_leave_the_script_unchanged(reference_
 def test_add_unit_without_duration_falls_back_to_model_slot(
     reference_videos_client: TestClient, set_video_request_facts
 ):
-    """请求不给时长 → 取项目能力解析出的档位首项（与执行层解析申请秒数的回退序同源）。"""
+    """Omitted durations use first project-capability tiers, matching execution requested-seconds fallback."""
     set_video_request_facts(
         make_video_request_facts(
             route="reference_video", generation_type="r2v", supported_durations=(6, 9), allowed_durations=(6, 9)
@@ -254,7 +254,7 @@ def test_add_unit_default_duration_follows_the_bucket_of_its_available_images(
     bucket: str,
     expected: int,
 ):
-    """默认时长按可用参考图定桶，与同一响应的逐单元结论同桶：登记了却缺图的引用落 i2v 档。"""
+    """Default durations use available-reference buckets like response per-unit facts; registered-but-missing images use i2v."""
     set_video_request_facts(_bucket_facts())
     _register_character_without_sheet(tmp_path, "李四")
 
@@ -271,7 +271,7 @@ def test_add_unit_default_duration_follows_the_bucket_of_its_available_images(
 
 @pytest.mark.parametrize("duration_seconds", [0, -1])
 def test_add_unit_rejects_non_positive_duration(reference_videos_client: TestClient, duration_seconds: int):
-    """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
+    """Explicit nonpositive durations reject at boundaries, never silently become one second."""
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "镜头1：@张三 推门", "duration_seconds": duration_seconds},
@@ -303,7 +303,7 @@ def _seed_unit(reference_videos_client: TestClient) -> str:
 
 
 def _derived_references(reference_videos_client: TestClient, unit: dict[str, Any]) -> list[tuple[str, str]]:
-    """执行期会用到的参考图引用：正文的唯一派生出口，不落盘。"""
+    """Execution references derive through sole body outlet without persistence."""
     from lib.script.reference_video.request_projection import unit_reference_declarations
     from server.routers import reference_videos as router_mod
 
@@ -312,7 +312,7 @@ def _derived_references(reference_videos_client: TestClient, unit: dict[str, Any
 
 
 def test_patch_unit_prompt_keeps_duration(reference_videos_client: TestClient):
-    """时长与正文互不牵连；正文换掉后参考图按新正文重新派生。"""
+    """Durations/bodies are independent; new bodies rederive references."""
     uid = _seed_unit(reference_videos_client)
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
@@ -348,7 +348,7 @@ def test_three_reference_route_web_manual_edits_atomically_reject_mixed_speech_o
     uid = _seed_unit(reference_videos_client)
     before = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
     before["generated_assets"] = {"video_clip": f"reference_videos/{uid}.mp4", "status": "completed"}
-    # 模拟已有付费生成历史；人工正文修改失败时 locked_script 不得写回任何候选字段。
+    # Simulate paid generation history; failed body edits must leave all candidate fields unpersisted through locked_script.
     from server.routers import reference_videos as router_mod
 
     pm = router_mod.get_project_manager()
@@ -395,7 +395,7 @@ def test_patch_allows_unchanged_legacy_mixed_prompt(reference_videos_client: Tes
 
 
 def test_patch_unit_duration_only(reference_videos_client: TestClient):
-    """只改时长：正文原样保留。"""
+    """Duration-only edits preserve bodies unchanged."""
     uid = _seed_unit(reference_videos_client)
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
@@ -409,7 +409,7 @@ def test_patch_unit_duration_only(reference_videos_client: TestClient):
 
 @pytest.mark.parametrize("duration_seconds", [0, -1])
 def test_patch_unit_rejects_non_positive_duration(reference_videos_client: TestClient, duration_seconds: int):
-    """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
+    """Explicit nonpositive durations reject at boundaries, never silently become one second."""
     uid = _seed_unit(reference_videos_client)
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
@@ -429,7 +429,7 @@ def test_add_nonblank_unit_derives_registered_references_from_text(reference_vid
 
 
 def test_patch_unit_derives_nfc_reference_for_nfd_registered_name(reference_videos_client: TestClient):
-    """资产以 NFD 形式登记、正文写的是 NFC 名字：派生须按归一形式比对判「已登记」。"""
+    """NFD asset registration/NFC body names match canonical forms as registered."""
     from server.routers import reference_videos as router_mod
 
     name_nfd = unicodedata.normalize("NFD", "Hiếu")
@@ -550,7 +550,7 @@ def test_generate_unit_enqueues_task(reference_videos_client: TestClient, monkey
     assert enqueued[0]["task_type"] == "reference_video"
     assert enqueued[0]["media_type"] == "video"
     assert enqueued[0]["resource_id"] == uid
-    # 当前文本只作结构守卫，任务只保定位与请求选项；worker 执行前重读最新剧本。
+    # Current text guards structure only; tasks retain locations/options, workers reread newest scripts before execution.
     assert "prompt" not in enqueued[0]["payload"]
     assert enqueued[0]["payload"]["reference_request_options"] == {}
 
@@ -658,7 +658,7 @@ def test_generate_unit_rejects_the_retired_narration_delivery_field(
 def test_generate_unit_bucket_capability_error_returns_400(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """公共投影返回 r2v 能力 blocker 时提交入口不入队。"""
+    """Shared-projection r2v blockers prevent submission enqueue."""
     from lib.i18n import _ as i18n_message
     from lib.script.reference_video.request_projection import ProjectionProblem
 
@@ -726,7 +726,7 @@ def test_generate_unit_bucket_capability_error_returns_400(
 def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
     reference_videos_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """无参考图退化 unit 的入队预检按降级后的 i2v 桶过解析闸，与执行侧分流同口径。"""
+    """Referenceless units use downgraded i2v bucket resolution before enqueue, matching execution routing."""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["video_units"] = [{"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3}]
@@ -782,7 +782,7 @@ def test_generate_unit_rejects_text_only_request_for_image_only_model(
 
 
 def test_generate_unit_rejects_blank_prompt(reference_videos_client: TestClient, tmp_path: Path):
-    """正文全空白的 unit 在入队时被守卫点拒绝（400），不漏到执行层失败。"""
+    """Whitespace-only bodies fail enqueue guards with 400, never reach execution failures."""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["video_units"] = [{"unit_id": "E1U1", "text": "  ", "duration_seconds": 3}]
@@ -815,8 +815,8 @@ def _precheck(reference_videos_client: TestClient, unit_id: str):
 def test_precheck_slot_member_needs_no_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """总时长本身是档位成员 → 直接入队，无确认。"""
-    uid = _seed_unit(reference_videos_client)  # shots 求和 = 3s
+    """Tier-member totals enqueue directly without confirmation."""
+    uid = _seed_unit(reference_videos_client)  # shots sum = 3s
     _patch_supported_durations(monkeypatch, [3, 6, 9])
 
     body = _precheck(reference_videos_client, uid).json()
@@ -842,7 +842,7 @@ def test_precheck_slot_member_needs_no_confirmation(
 def test_precheck_rounds_up_and_needs_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """总时长非档位成员且有档位能装下 → 需确认，申请能装下它的最小档位。"""
+    """Nontier totals fitting available tiers require confirmation of the smallest fitting tier."""
     uid = _seed_unit(reference_videos_client)  # 3s
     _patch_supported_durations(monkeypatch, [4, 8, 12])
 
@@ -867,7 +867,7 @@ def test_precheck_is_identical_for_tts_and_post_production_projects(
     monkeypatch: pytest.MonkeyPatch,
     durations: list[int],
 ) -> None:
-    """项目的旁白交付方式不参与视频请求：同一 unit 的申请档位与确认要求只由计划时长决定。"""
+    """Narration delivery never affects video tiers/confirmation; planned duration alone determines both."""
 
     uid = _seed_unit(reference_videos_client)  # 3s
     _patch_supported_durations(monkeypatch, durations)
@@ -908,7 +908,7 @@ def test_precheck_rejects_the_retired_narration_delivery_query(
 def test_precheck_over_largest_slot_requires_replan(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """总时长超过最大档位时不得截断，返回结构化重新规划 blocker。"""
+    """Totals exceeding maximum tiers never truncate; return structured replan blockers."""
     uid = _seed_unit(reference_videos_client)  # 3s
     _patch_supported_durations(monkeypatch, [1, 2])
 
@@ -923,7 +923,7 @@ def test_precheck_over_largest_slot_requires_replan(
 def test_precheck_empty_duration_metadata_returns_structured_blocker(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """档位集为空时 fail loud，不返回伪可执行的 unconstrained 结果。"""
+    """Empty tier sets fail loudly, never invent executable unconstrained results."""
     from lib.i18n import _ as i18n_message
 
     uid = _seed_unit(reference_videos_client)
@@ -969,7 +969,7 @@ def test_precheck_missing_unit_returns_404(reference_videos_client: TestClient):
 
 
 def test_add_unit_stale_script_file_returns_404(reference_videos_client: TestClient, tmp_path: Path):
-    """project.json 残留指向已删除文件的 script_file 时，写端点应返回 404 而非 500。"""
+    """project.json stale script_file pointing to deleted files returns write 404, never 500."""
     (tmp_path / "projects" / "demo" / "scripts" / "episode_1.json").unlink()
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -995,7 +995,7 @@ def test_add_unit_unknown_episode_returns_404(reference_videos_client: TestClien
 
 
 def test_write_endpoint_rejects_non_reference_video_mode(reference_videos_client: TestClient, tmp_path: Path):
-    """episode 非 参考生视频时，写端点应返回 409。"""
+    """Nonreference episodes return write 409."""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["generation_mode"] = "image"
@@ -1013,7 +1013,7 @@ def test_write_endpoint_rejects_non_reference_video_mode(reference_videos_client
 
 
 def test_patch_unit_duration_override_without_header(reference_videos_client: TestClient):
-    """无 header 的 prompt → override=True，duration_seconds 直接生效。"""
+    """Headerless prompts imply override=True, applying duration_seconds directly."""
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "@张三 推门", "duration_seconds": 5},
@@ -1022,7 +1022,7 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
     uid = resp.json()["unit"]["unit_id"]
     assert resp.json()["unit"]["duration_seconds"] == 5
 
-    # 仅改 duration_seconds（无 prompt）：走 elif 分支按已有 override 直接覆盖时长
+    # duration_seconds-only without prompts uses elif to overwrite existing override durations.
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
         json={"duration_seconds": 8, "note": "hi"},
@@ -1032,7 +1032,7 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
     assert unit["duration_seconds"] == 8
     assert unit["note"] == "hi"
 
-    # 带无 header 的新 prompt + duration_seconds：走 prompt 分支并对单镜头 override 时长
+    # Headerless new prompt + duration_seconds uses prompt branches and single-shot duration overrides.
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
         json={"prompt": "@张三 转身离开", "duration_seconds": 7},
@@ -1042,12 +1042,12 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
 
 
 def test_add_unit_concurrent_rebind_returns_409(reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """加锁前后 episode→script_file 被并发改绑 → 写端点返回 409（前端可重试）。"""
+    """Concurrent episode→script_file rebinding across locks returns retryable 409."""
     from server.routers import reference_videos as router_mod
 
     pm = router_mod.get_project_manager()
 
-    # 模拟并发 PATCH 改绑：持锁复核读到 episode 1 已指向另一个脚本
+    # Simulate concurrent binding PATCH; locked rechecks find episode 1 pointing elsewhere.
     def _rebound(_project_name: str) -> dict:
         return {
             "generation_mode": "reference_video",
@@ -1063,7 +1063,7 @@ def test_add_unit_concurrent_rebind_returns_409(reference_videos_client: TestCli
     assert resp.status_code == 409, resp.text
 
 
-# ============ 解析预览 ============
+# ============ Parse previews ============
 
 
 def _patch_video_caps(monkeypatch: pytest.MonkeyPatch, caps: dict) -> None:
@@ -1082,7 +1082,7 @@ def _preview(reference_videos_client: TestClient, prompt: str):
 def test_script_preview_derives_utterances_in_reading_order(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """预览只回发声派生：utterances 按正文顺序 1-based 编号，另加降级 warning。"""
+    """Previews return speech derivations only: body-order 1-based utterances plus downgrade warnings."""
     _patch_video_caps(monkeypatch, {})
     body = _preview(reference_videos_client, "镜头1：@[酒馆] 内景。\n@[张三]：{我来了}\n{那年冬天格外冷}").json()
 
@@ -1106,7 +1106,7 @@ def test_script_preview_returns_localized_warnings(
 def test_script_preview_warns_when_unit_references_no_scene(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """项目登记了场景而单元没引用：画面地点由模型自由决定，读时就要说。"""
+    """Registered scenes unused by units leave locations to models; explain on read."""
     _patch_video_caps(monkeypatch, {})
     body = _preview(reference_videos_client, "镜头1：中景，推门。").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_unit_without_scene"]
@@ -1125,7 +1125,7 @@ def test_script_preview_uses_project_voice_capabilities(
 def test_script_preview_warns_when_episode_is_silent(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """本集设为无声视频时，预览面板告知声音一致性不生效（模型仍是 A 类）。"""
+    """Silent episodes warn preview voice consistency is ineffective, even with class-A models."""
     _patch_video_caps(
         monkeypatch,
         {
@@ -1138,7 +1138,7 @@ def test_script_preview_warns_when_episode_is_silent(
     body = _preview(reference_videos_client, "镜头1：@[酒馆] 开场。\n@[张三]：{我来了}").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_episode"]
     assert body["warnings"][0]["message"] != "ref_warn_silent_episode"
-    # 台词照常派生：无声只影响参考音频，不影响下发给供应商的台词文本
+    # Dialogue still derives; silent affects reference audio only, never provider dialogue text.
     assert [u["text"] for u in body["utterances"]] == ["我来了"]
 
 
@@ -1152,14 +1152,14 @@ def test_script_preview_404_for_unknown_episode(reference_videos_client: TestCli
 
 
 # ---------------------------------------------------------------------------
-# 整批准入判定：整批要么全建、要么零任务
+# Whole-batch admission: create all or zero tasks.
 # ---------------------------------------------------------------------------
 
 BATCH_ENDPOINT = "/api/v1/projects/demo/reference-videos/episodes/1/units/generate-batch"
 
 
 def _record_finished_clip(unit_id: str) -> None:
-    """把一个 unit 的成片落成生产里的完整形态：落盘 + 剧本登记 + 清单登记冻结依据。"""
+    """Persist complete production unit outputs: files/script claims/manifests with frozen bases."""
 
     from lib.artifacts.artifact_manifest import (
         ArtifactKey,
@@ -1217,11 +1217,11 @@ def _patch_batch_admission(
     quote_amount: float | None = None,
     fail_enqueue_after: int | None = None,
 ) -> list[dict[str, object]]:
-    """把整批准入判定的当前状态查询接到进程内替身，返回入队记录。
+    """Inject in-process batch-current-state queries, returning enqueue records.
 
-    准入要读任务库与报价；路由测试不带这些依赖，逐个注入替身。
+    Admission needs task DBs/pricing; router tests inject dependencies individually.
 
-    ``fail_enqueue_after`` 让第 N 次之后的入队抛错，用来复现顺序入队中途中断。
+    ``fail_enqueue_after`` raises after enqueue N, reproducing interrupted sequential enqueue.
     """
 
     from server.services.admission import video_batch_admission as admission_mod
@@ -1270,13 +1270,13 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
     body = resp.json()
     assert body["decision"] == "admitted"
     assert len(body["task_ids"]) == 2
-    # 逐 unit 的任务行让调用方各等各的，不必等到全批落库。
+    # Per-unit task rows let callers await individually before whole-batch persistence.
     assert sorted(body["task_ids_by_unit"]) == sorted([first, second])
     assert sorted(body["task_ids_by_unit"].values()) == sorted(body["task_ids"])
     assert [item["unit_id"] for item in body["units"]] == [first, second]
     assert all(item["admitted"] for item in body["units"])
     assert [call["resource_id"] for call in enqueued] == [first, second]
-    # 请求只落定位与本次选项：执行内容由 worker 起跑时重读最新剧本。
+    # Requests persist locations/current options only; workers reread newest scripts at start.
     assert enqueued[0]["payload"] == {
         "script_file": "scripts/episode_1.json",
         "reference_request_options": {},
@@ -1287,9 +1287,9 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
 def test_generate_batch_keeps_created_tasks_when_the_enqueue_is_interrupted(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。
+    """Interrupted enqueue never revokes created tasks: admitted complete paid units execute normally.
 
-    没轮到的 unit 逐 ID 报出来，界面据此只释放它自己的占用标记。
+    Report unreached units by ID so UI releases only their occupancy markers.
     """
 
     first = _seed_unit(reference_videos_client)
@@ -1314,7 +1314,7 @@ def test_generate_batch_keeps_created_tasks_when_the_enqueue_is_interrupted(
 def test_generate_batch_after_an_interruption_only_queues_what_never_reached_the_queue(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """下次「缺失即生成」只补没入队的那个：已建任务产出的成片是现行产物，不重复付费。"""
+    """Next missing-only generation fills unqueued units; created-task outputs are current, avoiding repeat payment."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1323,7 +1323,7 @@ def test_generate_batch_after_an_interruption_only_queues_what_never_reached_the
     interrupted = reference_videos_client.post(BATCH_ENDPOINT, json={}).json()
     assert [entry["unit_id"] for entry in interrupted["enqueue_failures"]] == [second]
 
-    # 第一个 unit 的任务照常跑完并落盘，第二个从未创建任务、也从未计费。
+    # First units finish/persist normally; second tasks never exist or bill.
     _record_finished_clip(first)
 
     retried = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
@@ -1340,7 +1340,7 @@ def test_generate_batch_after_an_interruption_only_queues_what_never_reached_the
 def test_generate_batch_creates_zero_tasks_when_one_unit_is_blocked(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """一个单元有问题即整批不成立，另一个单元如实报告是被谁扣下的。"""
+    """One problematic unit blocks entire batches; healthy units truthfully identify blockers."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1365,7 +1365,7 @@ def test_generate_batch_creates_zero_tasks_when_one_unit_is_blocked(
 def test_generate_batch_reports_every_gap_not_only_the_first(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """UI 要一次看到全部缺口；只报第一个会让用户逐轮试错。"""
+    """UI needs all gaps at once; first-only reporting forces repeated trial/error."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1384,7 +1384,7 @@ def test_generate_batch_reports_every_gap_not_only_the_first(
     assert codes["E9U9"] == ["generation_unit_not_found"]
     assert codes[second] == ["generation_active_task_conflict"]
     assert codes[first] == ["generation_batch_admission_withheld"]
-    # 每条缺口都带已本地化的可读原因，调用方不必自己拼文案。
+    # Every gap includes localized readable reasons, requiring no caller copy assembly.
     assert all(problem["message"] for item in body["units"] for problem in item["problems"])
 
 
@@ -1418,7 +1418,7 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["decision"] == "admitted"
     assert [call["resource_id"] for call in enqueued] == [first, second]
-    # 确认只对本次请求有效，不冻结执行内容。
+    # Confirmations apply to current requests only, never freeze execution content.
     options = cast(dict[str, Any], enqueued[0]["payload"])["reference_request_options"]
     assert options == {"confirmed_request_duration_seconds": 4}
 
@@ -1429,7 +1429,7 @@ PREVIEW_ENDPOINT = f"{BATCH_ENDPOINT}/preview"
 def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creating_tasks(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """确认框读的是提交会给出的同一份结论，外加已定价部分的合计；预览一个任务也不建。"""
+    """Confirmation previews share submission conclusions plus priced totals, creating zero tasks."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1463,7 +1463,7 @@ def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creatin
 def test_preview_batch_awaiting_consent_totals_the_cost_at_the_tiers_to_accept(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """需确认的档位与提交时同一份分组，合计按待确认的档位报价，确认框据此一次拍板。"""
+    """Confirmable tiers share submission groupings; quote pending tiers for one confirmation decision."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1496,7 +1496,7 @@ def test_preview_batch_counts_units_without_a_quote_instead_of_guessing(
 def test_preview_batch_reports_a_blocked_batch_and_skipped_clips(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """受阻与已有成片的跳过项在预览里就说清，用户不必先提交一次才知道。"""
+    """Previews explain blocked/already-generated skipped units before submission."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1528,7 +1528,7 @@ def test_preview_batch_rejects_an_empty_selection(reference_videos_client: TestC
 def test_generate_batch_rejects_non_positive_confirmed_duration(
     reference_videos_client: TestClient, invalid: object
 ) -> None:
-    """确认的档位是秒数，0 / 负数在边界拒绝，不落到请求选项构造里变成 500。"""
+    """Confirmed seconds must reject zero/negative at boundaries, never request-option construction 500s."""
 
     first = _seed_unit(reference_videos_client)
 
@@ -1540,7 +1540,7 @@ def test_generate_batch_rejects_non_positive_confirmed_duration(
 def test_generate_batch_partial_consent_still_creates_nothing(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """只确认了一半的档位不算通过：剩下那个仍在等用户拍板。"""
+    """Half-confirmed tiers remain unapproved; remaining tiers still need user decisions."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1557,7 +1557,7 @@ def test_generate_batch_partial_consent_still_creates_nothing(
 def test_generate_batch_repeating_an_admitted_request_reports_dedup(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """重复提交不产生第二批任务：队列去重命中即如实报告。"""
+    """Repeated submissions create no second batch; report queue dedupe truthfully."""
 
     _seed_unit(reference_videos_client)
     _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
@@ -1579,7 +1579,7 @@ def test_generate_batch_repeating_an_admitted_request_reports_dedup(
 
 
 def test_generate_batch_rejects_an_empty_selection(reference_videos_client: TestClient) -> None:
-    """空数组不是「全部」：它是一次没有目标的请求，静默按全集处理会超出用户本意。"""
+    """Empty arrays mean no targets, never All; silent whole-set expansion exceeds user intentions."""
 
     resp = reference_videos_client.post(BATCH_ENDPOINT, json={"unit_ids": []})
 
@@ -1590,7 +1590,7 @@ def test_generate_batch_rejects_an_empty_selection(reference_videos_client: Test
 def test_generate_batch_skips_units_that_already_have_a_clip(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """陈旧但可用的旧产物不自动重生：缺失即生成的语义里它本就不是目标。"""
+    """Stale usable artifacts never autoregenerate; missing-only excludes them."""
 
     first = _seed_unit(reference_videos_client)
     second = _seed_second_unit(reference_videos_client)
@@ -1609,10 +1609,10 @@ def test_generate_batch_skips_units_that_already_have_a_clip(
 def test_generate_batch_regenerates_a_unit_whose_recorded_clip_is_gone(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """旧 schema 项目里剧本仍登记着成片路径、文件却已被删：该 unit 判为缺失重新入队。
+    """Old schemas retain deleted output paths; classify units missing and reenqueue.
 
-    这条腿上「另一条可复用的判定」（手动上传/登记路径可用）同样要过存在性核实：
-    登记路径指向的文件已删时该 unit 不算可复用，否则整批永远补不回它。
+    Alternate reusable checks for manual uploads/registered paths also verify existence:
+    deleted registered files are not reusable, or whole batches never fill them.
     """
 
     first = _seed_unit(reference_videos_client)
@@ -1628,7 +1628,7 @@ def test_generate_batch_regenerates_a_unit_whose_recorded_clip_is_gone(
         if unit["unit_id"] == first:
             unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
     pm.save_script("demo", script, "scripts/episode_1.json")
-    # 登记了路径但目录里没有这个文件——正是用户在文件系统里删掉成片后的形态。
+    # Registered paths with absent files model users deleting outputs through filesystems.
     assert not (pm.get_project_path("demo") / "reference_videos" / f"{first}.mp4").exists()
 
     resp = reference_videos_client.post(BATCH_ENDPOINT, json={})
@@ -1642,7 +1642,7 @@ def test_generate_batch_regenerates_a_unit_whose_recorded_clip_is_gone(
 def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """产物状态读不出的 unit 属于这次请求：它带着自己的问题进准入，整批停下，健康的 unit 不计费。"""
+    """Unresolved artifact states belong to requests; include their admission problems, blocking batches without billing healthy units."""
 
     from lib.artifacts.artifact_manifest import ArtifactBlocker, ArtifactStatus
     from lib.generation.generation_result import GenerationCandidate, GenerationTargetState
@@ -1682,7 +1682,7 @@ def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable
 
 
 def test_reference_unit_task_spec_rejects_a_non_string_text() -> None:
-    """脏值正文报可入队性问题，而不是在读正文时把整批打成 500。"""
+    """Dirty bodies report enqueueability problems, never whole-batch read 500s."""
 
     from server.services.admission.video_batch_admission import reference_unit_task_spec
 
@@ -1693,7 +1693,7 @@ def test_reference_unit_task_spec_rejects_a_non_string_text() -> None:
 def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """缺 id、重复 id、脏 duration 的 unit 都进结论：把它们丢出目标集合，健康的 unit 会独自计费。"""
+    """Missing/duplicate IDs and dirty durations enter conclusions; excluding them would bill healthy units alone."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1710,7 +1710,7 @@ def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
         {**healthy},
         {**healthy, "unit_id": "E1U9", "duration_seconds": "abc"},
     ]
-    # 直接写盘：脏数据是外部编辑或 Agent 裸写产生的，写入校验本就不会放它过去。
+    # Write directly: external/Agent raw edits create dirty values, which validated writers would reject.
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -1732,7 +1732,7 @@ def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
 def test_generate_batch_explicit_ids_ignore_unrelated_malformed_units(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """点名重做的目标集合由调用方给定：剧本别处的坏条目不参与判定，不否决这次点名。"""
+    """Explicit redo targets come from callers; unrelated malformed script entries neither participate nor veto."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1758,7 +1758,7 @@ def test_generate_batch_explicit_ids_ignore_unrelated_malformed_units(
 def test_generate_batch_reports_non_object_units_instead_of_dropping_them(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """非对象条目同样成不了目标：它被记名报告，健康的 unit 不会独自入队计费。"""
+    """Nondict entries cannot target; report named problems so healthy units never enqueue/bill alone."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1787,7 +1787,7 @@ def test_generate_batch_reports_non_object_units_instead_of_dropping_them(
 def test_generate_batch_reports_a_non_scalar_unit_id(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """unit_id 是对象/数组时在入队前拒收：它能混过字符串化进队列，执行期比对原值才找不到 unit。"""
+    """Object/array unit_id rejects before queues; stringification could enqueue but execution cannot match raw IDs."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1817,7 +1817,7 @@ def test_generate_batch_reports_a_non_scalar_unit_id(
 def test_generate_batch_reports_a_duplicated_unit_id(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """同一个 unit_id 出现两次时无从判定要做哪一条：整批拒收，不默认拿第一份去计费。"""
+    """Duplicate unit_id cannot identify which unit; reject all, never bill first matches."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1846,7 +1846,7 @@ def test_generate_batch_reports_a_duplicated_unit_id(
 def test_generate_batch_rejects_the_retired_narration_delivery_field(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch, delivery: str
 ) -> None:
-    """旁白交付方式不再是视频请求的一部分：旧客户端带着它提交时整批拒收，不入队。"""
+    """Narration delivery no longer belongs to video requests; legacy submissions reject whole batches without enqueue."""
 
     _seed_unit(reference_videos_client)
     enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
@@ -1863,7 +1863,7 @@ def test_generate_batch_rejects_the_retired_narration_delivery_field(
 def test_generate_batch_reports_a_numeric_unit_id(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """数字 unit_id 同样在入队前拒收：字符串化后执行期按原值比对找不到 unit。"""
+    """Numeric unit_id also rejects before enqueue, avoiding stringified/raw execution mismatches."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1892,7 +1892,7 @@ def test_generate_batch_reports_a_numeric_unit_id(
 def test_a_duplicate_marker_never_shadows_a_requested_id(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """点名了一个剧本里没有的名字时，重复条目的诊断名不能与它撞上：两条结论各占一行。"""
+    """Explicit nonexistent names must not collide with duplicate-entry diagnostic names; retain separate conclusions."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1924,7 +1924,7 @@ def test_a_duplicate_marker_never_shadows_a_requested_id(
 def test_a_duplicate_marker_never_shadows_a_real_unit_id(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """重复条目按 `id#序号` 记名，剧本里恰好有同名 unit 时另起一个名字。"""
+    """Duplicate entries use `id#序号`; existing same-name units require fresh diagnostic names."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1955,7 +1955,7 @@ def test_a_duplicate_marker_never_shadows_a_real_unit_id(
 def test_generate_batch_refuses_a_path_like_unit_id_before_enqueue(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """unit_id 带路径片段的条目在建任务之前拒收：交给 worker 拼路径时才拒，健康的兄弟已经在跑并计费。"""
+    """Path-fragment unit IDs reject before tasks; delaying until worker path construction would already bill healthy siblings."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -1983,7 +1983,7 @@ def test_generate_batch_refuses_a_path_like_unit_id_before_enqueue(
 def test_generate_batch_reports_a_non_list_video_units_container(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """video_units 不是数组时报成结构问题：遍历它会把请求打成 500，假值又会被当作空批次报成通过。"""
+    """Nonarray video_units reports structural problems; iteration would 500, falsy values could falsely pass empty batches."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -2008,7 +2008,7 @@ def test_generate_batch_reports_a_non_list_video_units_container(
 
 
 def test_generate_unit_rejects_a_path_like_unit_id(reference_videos_client: TestClient, tmp_path: Path):
-    """unit_id 带路径分隔符时当场拒绝（400），不漏到执行层拼产物路径时才失败。"""
+    """Separator-containing unit_id rejects immediately 400, never deferred output-path failures."""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["video_units"] = [{"unit_id": "a\\b", "text": "镜头平移", "duration_seconds": 3}]
@@ -2021,7 +2021,7 @@ def test_generate_unit_rejects_a_path_like_unit_id(reference_videos_client: Test
 def test_generate_batch_reports_a_falsy_video_units_container(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """video_units 是假值（如 false）时同样报成结构问题，不被当作空批次报成通过。"""
+    """Falsy video_units such as false still reports structure problems, never successful empty batches."""
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -2157,15 +2157,15 @@ def test_prompt_preview_binds_only_available_audio_from_projected_voice_capabili
     assert response.status_code == 200
     body = response.json()
     assert "<张三>@图片1" in body["text"]
-    assert "<张三>说 {进来吧}" in body["text"]
-    assert "声音特征：低沉" in body["text"]
+    assert "<张三> says {进来吧}" in body["text"]
+    assert "Voice characteristics: 低沉" in body["text"]
     assert "暖色电影质感" in body["text"]
     assert ("@音频1" in body["text"]) is audio_exists
     assert any("音频当前不可用" in warning for warning in body["warnings"]) is not audio_exists
 
 
 def _bucket_facts() -> dict[str, Any]:
-    """两桶配置不同的视频请求事实：读侧逐单元档位必须随所落的桶变化。"""
+    """Different bucket video facts require per-unit read tiers following actual buckets."""
     return {
         "i2v": make_video_request_facts(
             route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
@@ -2186,7 +2186,7 @@ def _register_character_without_sheet(tmp_path: Path, name: str) -> None:
 def test_list_units_reports_the_server_side_bucket_of_each_unit(
     reference_videos_client: TestClient, tmp_path: Path, set_video_request_facts
 ):
-    """画布按服务端逐单元结果取档：有可用图落 r2v，登记了却缺图的落 i2v 并点名不可用引用。"""
+    """Canvas uses server per-unit tiers: usable images r2v, registered missing images i2v with unavailable names."""
     set_video_request_facts(_bucket_facts())
     _register_character_without_sheet(tmp_path, "李四")
     unit_ids = [
@@ -2217,7 +2217,7 @@ def test_list_units_reports_the_server_side_bucket_of_each_unit(
 
 
 def test_unit_writes_return_the_refreshed_capability(reference_videos_client: TestClient, set_video_request_facts):
-    """新建与改正文的响应带回该单元的最新定桶结论，画布无需重拉列表即可换档位。"""
+    """Creation/body-edit responses return latest bucket facts, allowing canvas tier changes without list refetches."""
     set_video_request_facts(_bucket_facts())
     created = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",

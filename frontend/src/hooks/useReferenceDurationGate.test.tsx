@@ -12,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** 预检对参考图取前 N 张的非阻断告知；后端已把 message 渲染成当前语言。 */
+/** Nonblocking preflight notice that references use the first N images; backend messages already use current languages. */
 const clampedProblem = {
   code: "reference_images_clamped",
   blocking: false,
@@ -161,7 +161,7 @@ describe("useReferenceDurationGate", () => {
 
     await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
     expect(commit.mock.calls[0]![0]).toEqual(["E1U1"]);
-    // 没有取档偏离要拍板，就不替用户声明一个已确认档位
+    // Without tier deviations requiring decisions, never declare user-confirmed tiers on their behalf.
     expect([...commit.mock.calls[0]![1]]).toEqual([]);
   });
 

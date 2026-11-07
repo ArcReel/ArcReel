@@ -1,7 +1,7 @@
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch"
 import { cn } from "cn"
 
-// 相对上游：降低 input 填充不透明度以保持浅底层级；失败态用完整红色描边与较强光晕。
+// Upstream customization: lower input-fill opacity for light-background hierarchy; failures use a full red border and stronger glow.
 function Switch({
   className,
   size = "default",

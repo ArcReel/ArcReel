@@ -13,7 +13,7 @@ import type { EpisodeScript, ProjectData } from "@/types";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import { stubMediaElementPlayback } from "@/test/media-element";
 
-// 剪辑视图本体不 mock：这里验证路由层把空状态与出片按钮接到它的两个挂载点上。
+// Do not mock the editing view itself: verify routing connects its empty state and render button to both mount points.
 vi.mock("@/components/workflow/WorkflowPanel", () => ({
   WorkflowPanel: () => <div data-testid="workflow-panel" />,
 }));
@@ -174,7 +174,7 @@ describe("StudioCanvasRouter edit view mounts", () => {
 
     const renderButton = await screen.findByRole("button", { name: "出片" });
     expect(renderButton).toBeDisabled();
-    // 本集唯一的分镜 E1S03 以位置称呼
+    // Address this episode's sole storyboard E1S03 by position.
     expect(renderButton.parentElement).toHaveAttribute(
       "title",
       "当前剪辑时间线有 1 个问题阻断出片，涉及 分镜 1，处理后才能出片",

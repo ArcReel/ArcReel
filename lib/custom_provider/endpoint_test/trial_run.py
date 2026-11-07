@@ -1,16 +1,16 @@
-"""测试连接：真实提交一次生成并轮询到终态，会产生费用。
+"""Connection tests: submit real generation and poll to terminals, incurring costs.
 
-视频与图像两类端点共用这一条路径：差别只在构造哪种生成请求、记哪种 ``call_type``、产物落成哪个
-文件名，而「提交、轮询、取件、记账、写盘、取消」这六件事与产的是图还是片无关。
+Images/videos share paths, differing only in request types, ``call_type``, and artifact
+filenames. Submission/polling/retrieval/accounting/writes/cancellation are media-independent.
 
-跑的是生产那一条路——同一个 backend 类、同一个 ``poll_with_retry``（视频侧全局
-``video_poll_timeout_seconds``、连续失败预算、退避与 ``Retry-After``）、同一个下载路径。只有承载
-不同：进程内 asyncio 任务，不走 tasks/worker 队列，产物不进项目也不进资产库。这样「测试连接通过」
-才等价于「这个模型行真的能用」，而不是等价于「另一条只在测试里存在的路径能用」。
+Use production backends, ``poll_with_retry`` (video global
+``video_poll_timeout_seconds``, consecutive-failure budgets/backoff/``Retry-After``), and download paths. Only carriers differ:
+process asyncio tasks, outside worker queues; artifacts enter neither projects nor libraries. Passing tests therefore
+means actual model-row usability, not another test-only path succeeding.
 
-状态只在内存里活到终态，终态一到写盘（``DataRootLayout.trial_runs_dir/{id}/``）并从内存移除，读接口
-一律读盘；24 小时后整目录清掉。取消停的是本地轮询，记账按失败结算——远端叫不叫得停由 backend 自己在
-它的取消路径上决定，与结算无关：钱可能已经花了，账本不能因为用户点了取消就假装没发生。
+State lives in memory until terminals, then persists to ``DataRootLayout.trial_runs_dir/{id}/`` and leaves memory; readers
+use disk. Delete whole directories after 24h. Cancellation stops local polling and settles failed; remote stopping belongs to backend
+cancellation paths, independent of settlement, because costs may already exist and cannot be erased by user cancellation.
 """
 
 from __future__ import annotations
@@ -66,22 +66,22 @@ from .modes import EndpointTestMode, supports_test_mode
 
 logger = logging.getLogger(__name__)
 
-#: 结果目录的存活时长。清理时机是进程启动与每次新建，不挂定时器。
+#: Result-directory TTL, cleaned at startup/creation without timers.
 TRIAL_RUN_TTL_SECONDS = 24 * 3600
 
-#: 结果体里保留的轮询响应条数。
+#: Poll-response count retained in results.
 MAX_POLL_RESPONSES = 20
 
-#: 结果体给出的四段状态点：前三段是运行时留痕的三个阶段，第四段是产物落盘。
+#: Four result stages: three runtime evidence phases, then artifact persistence.
 TRIAL_RUN_STAGES = ("submit", "poll", "result", "artifact")
 
 _RESULT_FILE = "result.json"
 
-#: ``media_type`` → 产物落盘的文件名。扩展名不是装饰：读接口按落盘字节声明 MIME 之外，两类产物
-#: 在同一个结果目录里也要分得开。
+#: ``media_type`` → artifact filenames. Extensions distinguish both media in shared result directories,
+#: alongside read-side MIME determined from bytes.
 _ARTIFACT_FILE_BY_MEDIA_TYPE: Mapping[str, str] = {"video": "artifact.mp4", "image": "artifact.png"}
 
-#: ``start`` 生成的 run_id 形状（``uuid4().hex``）。
+#: ``start`` run_id form (``uuid4().hex``).
 _RUN_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
 
 
@@ -93,37 +93,37 @@ class TrialRunStatus(StrEnum):
 
 
 class TrialRunBusyError(Exception):
-    """该用户已有一个测试连接在跑。"""
+    """Users already have running connection tests."""
 
 
 @dataclass(frozen=True)
 class TrialRunTarget:
-    """一次测试连接的目标：记账身份 + backend 构造方式。
+    """Connection-test targets: accounting identities + backend construction.
 
-    内联定义与模型行两条入口在这里汇合成同一个值对象，之后的记账、轮询、写盘与取消对两者完全
-    一致——「内置与自定义同一资源、同一结果体、同一记账」就是这个汇合点的直接结果。
-    ``definition`` 在目标是声明式端点（内联定义，或模型行挂着自定义 / 内置声明式端点）时才有，
-    它决定结果体里能不能给出渲染后的请求与逐阶段提取；Python 实现的端点两段为空。
+    Inline definitions/model rows converge into identical values, sharing accounting/polling/writes/cancellation.
+    This convergence directly yields shared resources/results/accounting for built-ins/custom providers.
+    ``definition`` exists only for declarative targets, inline or model-attached custom/built-in definitions,
+    enabling rendered requests/per-stage extraction; Python endpoints leave both sections empty.
     """
 
     provider: str
     model: str
     build_backend: Callable[[], Awaitable[Any]]
     definition: Mapping[str, Any] | None = None
-    #: 这个端点产的是视频还是图像：决定构造哪种生成请求、记哪种 call_type、产物落成哪个文件名。
-    #: 声明式与 ComfyUI 端点都由定义自己声明，经 ``definition_media_type`` 读取。
+    #: Endpoint video/image type determines request/call_type/artifact filename.
+    #: Declarative/ComfyUI definitions declare media through ``definition_media_type``.
     media_type: str = "video"
-    #: 提交前跑不跑生产那道能力闸。付费通道一律跑（声明的违约在付费前拒绝）；ComfyUI 端点费用
-    #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
-    #: 说成一条能力拒绝——而用户点测试连接正是为了看 ComfyUI 自己怎么说。
+    #: Whether to run production presubmission gates: all paid channels do, rejecting violations before payment. ComfyUI costs
+    #: fixed zero and derives capabilities from bindings unavailable to inline entries; gates would mislabel missing first-frame
+    #: bindings as capability rejections, while users test precisely to see ComfyUI's own response.
     gate_capabilities: bool = True
-    #: 解析出的视频能力是否按内置供应商模型求生效值：与模型条目两侧求值，用户添加的模型再叠加能力覆盖
-    #: （docs/adr/0104）。只有内置供应商的模型行为真；自定义供应商由 CustomVideoBackend 自己求值，内联定义没有模型行。
+    #: Whether video capabilities use built-in effective evaluation with entries/user-added overrides
+    #: (docs/adr/0104). True for built-in model rows only; CustomVideoBackend evaluates custom models, inline definitions lack rows.
     builtin_model_row: bool = False
 
 
 def _as_float(value: object) -> float | None:
-    """读盘字段按声明类型收口：坏值抛出后由 ``get`` 归入受控失败路径（读接口 404，不是 500）。"""
+    """Enforce declared disk-field types; ``get`` maps invalid values to controlled 404 failures, never 500."""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
@@ -147,25 +147,25 @@ def _as_str(value: object) -> str | None:
 
 @dataclass
 class TrialRun:
-    """一次测试连接的完整结果体。运行中只有前几个字段有值。"""
+    """Complete connection-test results; running states populate initial fields only."""
 
     id: str
     status: TrialRunStatus
     provider: str
     model: str
     created_at: float
-    #: 这一笔产的是视频还是图像。读侧据此决定产物按播放器还是按图展示。
+    #: Video/image result media, selecting player versus image readers.
     media_type: str = "video"
     finished_at: float | None = None
     api_call_id: int | None = None
-    #: 供应商给这笔调用的 id（ComfyUI 的 ``prompt_id``、声明式端点的 ``task_id``）。
+    #: Provider ids: ComfyUI ``prompt_id``, declarative ``task_id``.
     provider_job_id: str | None = None
-    #: 渲染并脱敏后的提交请求；无定义可渲（Python 实现的端点、ComfyUI 端点）为 None。
+    #: Rendered/redacted submissions; None without renderable definitions, Python/ComfyUI endpoints.
     request: dict[str, Any] | None = None
     submit_response: object | None = None
     poll_responses: list[object] = field(default_factory=list)
     result_response: object | None = None
-    #: 逐阶段提取，键取自 :data:`check.STAGES`；无定义可读（Python 实现的端点）为空。
+    #: Per-stage extraction with :data:`check.STAGES` keys; empty for Python endpoints without readable definitions.
     extractions: dict[str, Any] = field(default_factory=dict)
     video_url: str | None = None
     duration_seconds: int | None = None
@@ -196,13 +196,13 @@ class TrialRun:
         }
 
     def stage_states(self) -> dict[str, str]:
-        """四段状态点：到达过的段 ``done``，没到达的段终态上是 ``skipped``、运行中是 ``pending``。
+        """Four stages: reached ``done``, unreached ``skipped`` on terminals / ``pending`` while running.
 
-        不猜「失败落在哪一段」。提交被拒时留痕里已经有一条提交响应，按「第一个没到达的段」标红
-        会把错指到轮询上；哪一段失败由 ``error`` 的失败码自己说。
+        Never guess failure stages. Rejected submissions already have captured submission responses; marking first unreached
+        stages red would blame polling. ``error`` failure codes identify failures.
 
-        由 ``to_payload`` 现算而不是存字段：四段的依据全在同一个结果体上，存一份只会多出一处
-        可能与它不一致的副本，读盘回来的老结果也能照当前口径重算。
+        Compute in ``to_payload``, never duplicate stored state: all evidence is already in results,
+        permitting old persisted results to recompute under current semantics.
         """
         reached = {
             "submit": self.submit_response is not None,
@@ -240,7 +240,7 @@ class TrialRun:
 
 
 class _ResponseCapture:
-    """按运行时标记的阶段收供应商响应，每条按账本诊断列的 64 KiB 上限收口。"""
+    """Capture runtime-labeled responses by stage, bounding each to ledger diagnostic 64 KiB."""
 
     def __init__(self) -> None:
         self.submit: object | None = None
@@ -258,7 +258,7 @@ class _ResponseCapture:
 
 
 class TrialRunManager:
-    """进程内测试连接的登记处：并发闸、后台任务、终态写盘与 TTL 清理。"""
+    """Process-local connection-test registry: concurrency gates/tasks/terminal persistence/TTL cleanup."""
 
     def __init__(
         self,
@@ -273,9 +273,9 @@ class TrialRunManager:
         self._runs: dict[str, TrialRun] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._owners: dict[str, str] = {}  # run_id -> user_id
-        self._staging: dict[str, Path] = {}  # run_id -> 素材临时目录
-        self._response_writes: dict[str, set[asyncio.Task[None]]] = {}  # run_id -> 在途诊断写入
-        self._settling: set[str] = set()  # 已拿到结局、正在收尾的 run，取消不再打断它们
+        self._staging: dict[str, Path] = {}  # run_id → temporary assets.
+        self._response_writes: dict[str, set[asyncio.Task[None]]] = {}  # run_id → in-flight diagnostics.
+        self._settling: set[str] = set()  # Known-outcome finishing runs resist cancellation.
 
     @property
     def root(self) -> Path:
@@ -284,11 +284,11 @@ class TrialRunManager:
         return root
 
     def purge_expired(self, *, now: float | None = None) -> int:
-        """清掉过了 TTL 的结果目录，返回清理条数。进程启动与每次新建各扫一遍。"""
+        """Remove TTL-expired result directories, returning counts; scan at startup/every creation."""
         return self._purge_expired(frozenset(self._runs), now if now is not None else time.time())
 
     def _purge_expired(self, active: Collection[str], moment: float) -> int:
-        """``purge_expired`` 的扫描本体。在跑的 run 由调用方在事件循环上取快照传入，供线程里调用。"""
+        """``purge_expired`` scan body for threads, with active-run snapshots supplied by event-loop callers."""
         removed = 0
         for entry in self.root.iterdir():
             if not entry.is_dir() or entry.name in active:
@@ -304,10 +304,10 @@ class TrialRunManager:
         return removed
 
     def _expired(self, run_id: str) -> bool:
-        """结果是否过了 TTL。清理与读取共用这一条判定。
+        """Whether TTL expired, shared by reads/cleanup.
 
-        清理只在进程启动与每次新建时扫，读接口自己判：一台长时间没有新 run 的服务器上，
-        「24 小时后结果不可读」不能取决于恰好有没有人再发一次测试连接。
+        Cleanup scans only startup/creation; readers check independently so 24h expiry on quiet servers
+        never depends on another user starting tests.
         """
         try:
             return _expired(self.root / run_id, time.time())
@@ -324,10 +324,10 @@ class TrialRunManager:
         staging: Path | None = None,
         request_preview: dict[str, Any] | None = None,
     ) -> TrialRun:
-        """派发一次测试连接。同一用户已有在跑的 run 时拒绝。
+        """Dispatch tests, rejecting users with active runs.
 
         Raises:
-            TrialRunBusyError: 该用户已有一个测试连接在跑。
+            TrialRunBusyError: Users already have running tests.
         """
         if user_id in self._owners.values():
             raise TrialRunBusyError(user_id)
@@ -345,9 +345,9 @@ class TrialRunManager:
         self._owners[run_id] = user_id
         if staging is not None:
             self._staging[run_id] = staging
-        # 名额与素材目录先占后建目录：建目录失败（盘满、只读挂载）时占位不还，后续测试永远
-        # 被拒成 busy，而取消又因 task 尚未登记而 404——与结算失败那条路同一种死锁。
-        # 占位也必须在第一次 await 之前：并发闸靠的是「查 busy」与「占位」之间没有让出点。
+        # Reserve slots/assets before creating directories: failures such as full disks/readonly mounts would leave occupied slots,
+        # permanently busy tests, while cancellation sees 404 without registered tasks, like settlement-failure deadlocks.
+        # Reserve before first await: no yielding between busy checks/reservations underpins concurrency gates.
         try:
             run_dir = await run_sync_transaction(self._prepare_run_dir, run_id, frozenset(self._runs))
             task = asyncio.create_task(self._execute(run, run_dir, target, parameters, assets or {}))
@@ -359,26 +359,26 @@ class TrialRunManager:
         return run
 
     def get(self, run_id: str) -> TrialRun | None:
-        """读一次 run：运行中读内存，终态读盘。取消或重启中断的 run 没有结果文件。"""
+        """Read active runs from memory, terminal runs from disk; canceled/restart-interrupted runs lack result files."""
         if run_id in self._runs:
             return self._runs[run_id]
-        # run_id 是调用方传入的路径段，读盘前先按生成格式校验，防 ".."（Windows 上还有反斜杠）越出 root。
+        # Caller-supplied run_id path segments validate against generated formats before disk reads, preventing ".."/Windows backslashes escaping roots.
         if _RUN_ID_PATTERN.fullmatch(run_id) is None:
             return None
         if self._expired(run_id):
             return None
         path = self.root / run_id / _RESULT_FILE
         try:
-            # 反序列化与读盘同属一条受控失败路径：读不出一个可用的 run 一律 None。
+            # Deserialization/disk reads share controlled failures: unusable runs always mean None.
             return TrialRun.from_payload(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, KeyError, TypeError, ValueError):
             return None
 
     async def wait(self, run_id: str) -> TrialRun | None:
-        """等一次 run 停下并返回它的终态。已经终态或不存在的 run 立即返回。
+        """Wait for stopped runs/terminal results; already terminal/missing returns immediately.
 
-        产品路径靠 ``GET`` 轮询，不靠这里；它服务的是「必须等这一笔跑完」的场合——进程关停前
-        排空、以及测试。
+        Product paths use ``GET`` polling; this supports mandatory completion waits,
+        shutdown draining and tests.
         """
         task = self._tasks.get(run_id)
         if task is not None:
@@ -387,7 +387,7 @@ class TrialRunManager:
         return await asyncio.to_thread(self.get, run_id)
 
     def artifact_path(self, run_id: str) -> Path | None:
-        """这次 run 落盘的产物；两类各有自己的文件名，读接口不必先读一遍结果体才知道找哪个。"""
+        """Persisted artifacts with media-specific names, avoiding initial result reads just to find files."""
         if _RUN_ID_PATTERN.fullmatch(run_id) is None:
             return None
         if self._expired(run_id):
@@ -399,13 +399,13 @@ class TrialRunManager:
         return None
 
     async def cancel(self, run_id: str) -> bool:
-        """停本地轮询并按取消结算。
+        """Stop local polling and settle cancellation.
 
-        远端叫不叫得停不在这一层：backend 的生成路径自己接住这次取消（ComfyUI 据 ``prompt_id``
-        叫停一次），而停不下来的通道远端任务照跑、钱照花，故结算一律按取消走。
+        Remote stops belong to backends: ComfyUI stops through ``prompt_id``; unstoppable channels keep running/charging,
+        while settlement always follows cancellation.
 
-        已拿到结局（供应商成功返回，或已判定失败）的 run 拒绝晚到的取消、返回 False：账本已按
-        结局结算，此时再删目录只会丢掉一笔已经计费的结果。
+        Runs with known outcomes, provider success or determined failure, reject late cancellation with False:
+        accounting already settled; directory deletion would lose billed results.
         """
         task = self._tasks.get(run_id)
         run = self._runs.get(run_id)
@@ -414,19 +414,19 @@ class TrialRunManager:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-        # backend 的产物落盘可能吞掉取消并成功返回；等任务结束后重新核验，不能再删掉已结算的结果。
+        # Artifact persistence may consume cancellation and return success; recheck after task completion, never delete settled results.
         if run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED):
             return False
-        # 被 shield 保护的诊断写入在任务停下后可能还在跑：结算前等它写完，否则 resume_cancelled
-        # 会与它并发写同一行，关停路径还可能在写入未完时就关库。
+        # Shielded diagnostic writes may outlive stopped tasks. Wait before settlement, avoiding resume_cancelled
+        # concurrently updating the same row or shutdown closing DB before writes finish.
         for write in list(self._response_writes.get(run_id, ())):
             with contextlib.suppress(Exception):
                 await write
-        # 记账括号自己会把取消结算成 cancelled，这里是它没结算成（写入失败、循环已关停）时的
-        # 兜底：``resume_cancelled`` 带 ``status='pending'`` 守卫，已结算的行不会被改写。pending 行
-        # 绝不能留给一笔用户已经放弃的调用。
-        # 结算抛错也要把名额与盘上目录还掉——任务已经停了，占位留下去会把后续测试永远拒成 busy，
-        # 而重试取消又因 task 已移除而 404，死锁只能重启解。
+        # Scopes already settle cancellation; this handles failures from writes/closed loops.
+        # ``resume_cancelled`` guards ``status='pending'``, leaving settled rows unchanged. Pending
+        # cannot remain for user-abandoned calls.
+        # Even settlement exceptions release slots/directories: stopped tasks leaving reservations cause permanent busy,
+        # while repeat cancellation gets 404 after task removal, recoverable only by restart.
         try:
             if run.api_call_id is not None:
                 await self._ledger.resume_cancelled(call_id=run.api_call_id)
@@ -446,19 +446,19 @@ class TrialRunManager:
         run.status = TrialRunStatus.RUNNING
         try:
             poll_timeout = await self._poll_timeout()
-            # backend 先装配再开账：装配失败（模型行不存在、供应商配错）时一个字节都没发出去，
-            # 记一笔 pending 再翻成 failed 会让账本上多一条根本没打过的调用。
+            # Assemble backends before opening accounting: assembly failures (missing model rows/provider misconfiguration) send no bytes;
+            # pending→failed rows would invent calls that never happened.
             backend = await target.build_backend()
             is_video = target.media_type == "video"
-            # 能力闸与比例覆盖共用一份按本次请求档位解析的能力，与生产同源：声明了
-            # ``video_capabilities_for_tier`` 的端点按分辨率收窄，读未收窄的属性会比生产放得更宽。
-            # 测试请求不带 ``service_tier``，下发的就是请求缺省档，解析也取缺省档。
+            # Capability gates/ratio overrides share production request-tier-resolved capabilities: endpoints declaring
+            # ``video_capabilities_for_tier`` narrow by resolution; unnarrowed properties would overpermit versus production.
+            # Tests omit ``service_tier``, sending/evaluating default tiers.
             video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
-            # 与生产执行闸门同一口径：求得的生效能力既过闸，也随请求带给后端。
+            # Match production gates: effective capabilities both gate and travel with backend requests.
             if video_caps is not None and target.builtin_model_row:
                 video_caps = effective_builtin_video_capabilities(video_caps, target.provider, target.model)
-            # 生产路径在记账括号前跑同一道能力闸（声明的违约在付费前拒绝，不发给供应商）；
-            # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
+            # Production gates before accounting reject declared violations without paid submissions;
+            # connection tests share gates. Exempt targets: ``TrialRunTarget.gate_capabilities``.
             if target.gate_capabilities:
                 if video_caps is None:
                     await gate_image_request(
@@ -466,8 +466,8 @@ class TrialRunManager:
                     )
                 else:
                     await _gate_trial_video_request(video_caps, target, parameters, assets)
-            # 声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上只接受 adaptive；
-            # 下发值与记账值分离，账本记的仍是用户填的比例意图（与生产同一分工）。
+            # first_frame_ratio_adaptive_only endpoints accept only adaptive when first frames exist;
+            # sent/accounted values differ: ledger retains requested ratio intent, matching production responsibilities.
             request_aspect_ratio = resolve_first_frame_aspect_ratio(
                 caps=video_caps,
                 aspect_ratio=parameters.aspect_ratio,
@@ -480,9 +480,9 @@ class TrialRunManager:
                 provider=target.provider,
                 prompt=parameters.prompt,
                 resolution=parameters.resolution,
-                # 时长与成片音轨是视频这一维的事，图像这一笔按「没有」记：记一个 5 秒会让用量页上
-                # 出现一个不存在的时长，而图像请求的形状里根本没有音轨这一维（``ImageGenerationRequest``
-                # 不带它），照抄表单上那个视频开关只会让这一行说自己出了声。
+                # Duration/audio belong to video; image accounting records neither. A fabricated 5s would show nonexistent duration,
+                # while image request shapes lack audio (``ImageGenerationRequest``); copying video form switches
+                # would falsely claim audible image outputs.
                 duration_seconds=parameters.duration_seconds if is_video else None,
                 aspect_ratio=parameters.aspect_ratio,
                 generate_audio=parameters.generate_audio if is_video else False,
@@ -506,11 +506,11 @@ class TrialRunManager:
                     )
                 )
                 result = await backend.generate(request)
-                # 供应商已成功返回：从这里起取消不再打断这次 run，结局按成功收尾（见 ``cancel``）。
+                # Provider success received: runs now resist cancellation, finishing successfully (``cancel``).
                 self._settling.add(run.id)
                 call.success(result)
                 run.provider_job_id = getattr(result, "task_id", None)
-                # 产物在供应商那儿的地址：两类结果各叫一个名字，落进同一格。
+                # Provider artifact URLs have media-specific names, converging into one result field.
                 run.video_url = getattr(result, "video_uri", None) or getattr(result, "image_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
                 run.has_artifact = await run_noninterruptible_sync(_artifact_file(run_dir, target.media_type).is_file)
@@ -518,8 +518,8 @@ class TrialRunManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # 两种运行时与两道能力闸的失败载体同形（稳定 code + 可序列化 params），编码成失败码后
-            # 读侧按同一条路径本地化；其余异常没有稳定码可编，原样留字符串。
+            # Both runtimes/gates share stable code + serializable params; encode for common
+            # localized read paths, leaving other exceptions as raw strings.
             structured = isinstance(
                 exc, DeclarativeRuntimeError | ComfyuiError | VideoCapabilityError | ImageCapabilityError
             )
@@ -530,17 +530,17 @@ class TrialRunManager:
     def _response_writer(
         self, run: TrialRun, capture: _ResponseCapture, call_id: int
     ) -> Callable[[ProviderResponseStage, object], Awaitable[None]]:
-        """供应商响应的诊断回调：并进结果体并写进账本的诊断列。两种请求形状共用这一个。"""
+        """Shared response diagnostic callbacks merge results/write ledger diagnostics across request types."""
 
         async def on_provider_response(stage: ProviderResponseStage, body: object) -> None:
             capture.add(stage, body)
-            # 边收边并进结果体：四段状态点读的是这三个字段，只在终态并一次的话，运行中的 GET
-            # 看到的永远是四个空点。
+            # Merge captures incrementally: four stages derive from these three fields; terminal-only merging would leave running GET
+            # with four empty indicators forever.
             _merge_capture(run, capture)
-            # 用户随时可能取消，而取消可能正落在这次写入中间。诊断留痕的写入被拦腰截断会留下
-            # 一个半开的事务，随后的失败结算就得在一条坏掉的连接上做——shield 让这次写入自己跑完，
-            # 取消照常传给调用它的那一层。写入任务登记在 run 名下：shield 只保护协程不被取消，
-            # 外层任务停下后它还在跑，取消方结算前要等它（见 ``cancel``）。
+            # Users may cancel during diagnostics. Interrupted writes leave half-open transactions,
+            # forcing failed settlement on broken connections. Shield lets writes finish while
+            # cancellation propagates outward. Register writes per run because shield protects coroutines only;
+            # they outlive outer tasks, so cancellation waits before settlement (``cancel``).
             write = asyncio.ensure_future(self._ledger.record_provider_response(call_id=call_id, body=body))
             writes = self._response_writes.setdefault(run.id, set())
             writes.add(write)
@@ -587,11 +587,11 @@ class TrialRunManager:
         aspect_ratio: str,
         on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]],
     ) -> ImageGenerationRequest:
-        """图像端点这一笔的请求。
+        """Image test requests.
 
-        首尾帧与参考音频落不进这个形状：图像端点没有这几个语义键（见 ``comfyui.bindings``），
-        界面也不为它渲这几个格子。轮询上限同样不在请求里——图像通道用自己的定值
-        （``comfyui_image_backend.IMAGE_POLL_TIMEOUT_SECONDS``），不读视频那个设置项。
+        No first/last frames/audio references: image definitions lack these semantic keys (``comfyui.bindings``),
+        and UI omits controls. Poll limits likewise absent: image channels use fixed
+        ``comfyui_image_backend.IMAGE_POLL_TIMEOUT_SECONDS``, never video settings.
         """
         reference_images = assets.get("reference_images")
         return ImageGenerationRequest(
@@ -621,8 +621,8 @@ class TrialRunManager:
         capture: _ResponseCapture,
         status: TrialRunStatus,
     ) -> None:
-        """终态标记、写盘、让出名额。调用方用 ``run_noninterruptible_async`` 把它整段收进不可中断区间：
-        取消落在中间会留下「内存里已终态、盘上没有结果」的 run。"""
+        """Mark terminal/persist/release slots. Callers wrap entirely in ``run_noninterruptible_async``:
+        midflight cancellation would leave terminal memory without disk results."""
         run.status = status
         run.finished_at = time.time()
         _merge_capture(run, capture)
@@ -630,32 +630,32 @@ class TrialRunManager:
             run.provider_job_id = _submitted_prompt_id(capture.submit)
         run.extractions = _stage_reports(target.definition, capture)
         payload = json.dumps(run.to_payload(), ensure_ascii=False, default=str)
-        # 先写盘再让出内存里的 run：读接口在内存里查不到才读盘，倒过来会有一段读成 404。
+        # Persist before releasing memory: readers fall back to disk after absent memory, otherwise temporary 404 windows appear.
         await run_sync_transaction(_settle_files, run_dir / _RESULT_FILE, payload, self._staging.get(run.id))
         self._release(run.id)
 
     async def shutdown(self) -> None:
-        """进程关停：停掉所有在跑的 run 并按取消结算。
+        """Shutdown stops all active runs and settles cancellation.
 
-        任务随事件循环消亡时没有进程会回来翻账，故由关停方走取消那条路径：先停任务（记账括号
-        据此结算 cancelled），再兜底翻掉没结算成的 pending 行。
+        Event-loop destruction leaves no process for later accounting, so shutdown uses cancellation: stop tasks, whose scopes
+        settle cancelled, then finalize any remaining pending rows.
 
-        单条 run 结算失败（如库已不可用）不中断这趟排空：异常穿透出去会让后面的 run 一条都
-        不停，关停流程里排在本步之后的关 HTTP 客户端与关库也一起跳过。
+        Individual settlement failures, such as unavailable DB, cannot abort draining: propagated exceptions would leave
+        later runs active and skip subsequent HTTP-client/DB shutdown.
 
-        已在收尾的 run 拒绝取消，关停等它写完结果：之后关库，收尾段里的记账写入就没处落。
+        Already-finishing runs reject cancellation; shutdown waits for results before closing DB, preserving final accounting writes.
         """
         for run_id in list(self._tasks):
             task = self._tasks.get(run_id)
             try:
                 if not await self.cancel(run_id) and task is not None:
-                    # ``asyncio.wait`` 不把任务自己的异常抛给关停方，关停方自己被取消时照常传出去。
+                    # ``asyncio.wait`` does not propagate task exceptions to shutdown; cancellation of shutdown itself still propagates.
                     await asyncio.wait([task])
             except Exception:
                 logger.warning("关停时结算测试连接失败：%s", run_id, exc_info=True)
 
     def _release(self, run_id: str) -> Path | None:
-        """让出用户的并发名额，交回素材临时目录由调用方删——素材用完即丢，不留在盘上。"""
+        """Release user slots and hand temporary assets to caller cleanup; discard after use, never retain on disk."""
         self._runs.pop(run_id, None)
         self._owners.pop(run_id, None)
         self._response_writes.pop(run_id, None)
@@ -663,14 +663,14 @@ class TrialRunManager:
         return self._staging.pop(run_id, None)
 
     def _prepare_run_dir(self, run_id: str, active: Collection[str]) -> Path:
-        """新建前扫一遍过期目录，再建这次 run 的结果目录。线程里跑。"""
+        """Purge expired directories before creating run results, in threads."""
         self._purge_expired(active, time.time())
         run_dir = self.root / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
 
     def _discard(self, run_id: str, staging: Path | None) -> None:
-        """删掉一次没跑到终态的 run 在盘上的素材临时目录与结果目录。线程里跑。"""
+        """Remove temporary assets/results of unterminated runs, in threads."""
         if staging is not None:
             _remove_tree(staging)
         _remove_tree(self.root / run_id)
@@ -681,7 +681,7 @@ def _artifact_file(run_dir: Path, media_type: str) -> Path:
 
 
 def _settle_files(result_file: Path, payload: str, staging: Path | None) -> None:
-    """终态落盘：写结果体并删掉素材临时目录。线程里跑。"""
+    """Persist terminal results and remove temporary assets, in threads."""
     try:
         result_file.write_text(payload, encoding="utf-8")
     except OSError:
@@ -696,15 +696,15 @@ async def _gate_trial_video_request(
     parameters: EndpointTestParameters,
     assets: Mapping[str, Path | list[Path] | None],
 ) -> None:
-    """提交前跑生产那道视频能力闸，``caps`` 是按本次请求档位解析好的能力。"""
+    """Production presubmission video gate using request-tier-resolved ``caps``."""
     from lib.backends.video_frame_slots import gate_video_request, plan_frame_slots
     from lib.speech.audio_utils import probe_reference_audio_total_seconds
 
     reference_images = assets.get("reference_images")
     reference_audio = assets.get("reference_audio_files")
     audio_files = list(reference_audio) if isinstance(reference_audio, list) else None
-    # 与生产路径同一探测：只在能力声明了总时长约束时探；探不出（随包 ffmpeg 不可用）传 None，
-    # 闸按未知跳过该项而非拒绝。
+    # Production-shared probing only for declared total-duration constraints. Probe failures, such as unavailable bundled ffmpeg, yield None,
+    # letting gates skip unknown dimensions instead of rejecting.
     total_seconds = (
         await probe_reference_audio_total_seconds(audio_files)
         if audio_files and caps.max_reference_audio_total_seconds is not None
@@ -712,8 +712,8 @@ async def _gate_trial_video_request(
     )
     images = list(reference_images) if isinstance(reference_images, list) else None
     end_image = _single(assets.get("end_image"))
-    # has_image 取整份槽位计划，与生产同源：参考图驱动的端点（如 S2V）没有首帧但带参考图，
-    # 只看首帧会把每一次合法请求都判成纯文生、按 text_to_video=false 拒掉。
+    # has_image uses complete production-shared slot plans: reference-driven S2V may lack first frames but contain references;
+    # first-frame-only checks falsely classify every valid request text-only and reject text_to_video=false.
     slot_plan = plan_frame_slots(
         start_image=_single(assets.get("start_image")),
         end_image=end_image,
@@ -740,11 +740,11 @@ def declarative_target(
     *,
     provider: str | None = None,
 ) -> TrialRunTarget:
-    """内联定义的目标：按定义声明的媒体类型直接构造声明式视频或图片 backend。
+    """Inline targets construct declarative image/video backends directly by definition media.
 
-    ``provider`` 缺省取 ``base_url`` 的 host——内联凭证没有供应商身份，而账本必须落一个能让用户
-    日后认出这笔钱花在哪里的值。三节 URL 都写死绝对地址的定义没有 base_url 可取，退而取提交
-    地址的 host：那正是这笔钱实际打给谁。
+    ``provider`` defaults to ``base_url`` hosts: inline credentials lack provider identities, while accounting must
+    identify expenses. Definitions hardcoding all three URLs lack base_url, so use submission
+    hosts, the actual payment destination.
     """
     label = provider or provider_from_base_url(credentials.base_url) or _definition_host(definition)
     media_type = definition_media_type(definition)
@@ -776,12 +776,12 @@ def model_ref_target(
     definition: Mapping[str, Any] | None = None,
     media_type: str = "video",
 ) -> TrialRunTarget:
-    """模型行的目标：经生产那道构造缝装配 backend，内置与自定义供应商同一入口。
+    """Model-row targets use production assembly shared by built-ins/custom providers.
 
-    ``definition`` 在模型行解析出声明式定义（自定义调用端点或内置声明式端点）时由调用方带上，
-    用来在结果体里给出渲染后的请求与逐阶段提取；Python 实现的端点两段留空。
+    Callers supply ``definition`` for custom/built-in declarative endpoints, enabling rendered requests/per-stage extraction;
+    Python endpoints leave both empty.
 
-    ``media_type`` 决定装配走哪一侧的注册表：模型行自己说它是图像行还是视频行，装配层照它取。
+    ``media_type`` selects registries from model-row image/video declarations.
     """
 
     async def build() -> Any:
@@ -802,11 +802,11 @@ def model_ref_target(
 
 
 def artifact_media_type(path: Path) -> str:
-    """一份落盘产物的 MIME，按文件头判。
+    """Persisted artifact MIME from headers.
 
-    不按扩展名：产物名是本层按 ``media_type`` 起的，而真实容器由供应商那一侧的导出设置决定，
-    同族里换一个（mp4 / mov）名字不会跟着变。认不出的字节给通用二进制类型，让读侧自己去认——
-    声明一个错的 MIME 会让浏览器按那个类型去解，比不声明更难排查。
+    Never extensions: this layer chooses names by ``media_type``, while provider export settings determine containers;
+    same-family mp4/mov changes do not rename artifacts. Unknown bytes use generic binary, letting readers inspect;
+    wrong MIME forces browsers to decode incorrectly and complicates diagnosis more than no declaration.
     """
     try:
         with open(path, "rb") as handle:
@@ -834,17 +834,17 @@ def _single(value: Path | list[Path] | None) -> Path | None:
 
 
 def _merge_capture(run: TrialRun, capture: _ResponseCapture) -> None:
-    """把这一刻收到的供应商响应并进结果体。"""
+    """Merge newly received responses into results."""
     run.submit_response = capture.submit
     run.poll_responses = list(capture.polls)
     run.result_response = capture.result
 
 
 def _submitted_prompt_id(submit: object) -> str | None:
-    """失败在提交之后时，从提交响应里捡回供应商的 id。
+    """Recover provider ids from submission responses after postsubmission failure.
 
-    只认 ``prompt_id`` 这一个键（ComfyUI 的提交响应只有它）：声明式端点的 id 键随定义而变，
-    那一侧由 ``result.task_id`` 给出，在这里猜键名只会把某个同名的无关字段当成 job id。
+    Recognize only ``prompt_id``, ComfyUI's sole submission key. Declarative ids vary by definition and come through
+    ``result.task_id``; guessing here could misidentify unrelated same-name fields as job ids.
     """
     if isinstance(submit, Mapping):
         prompt_id = str(submit.get("prompt_id") or "").strip()
@@ -853,10 +853,10 @@ def _submitted_prompt_id(submit: object) -> str | None:
 
 
 def _stage_reports(definition: Mapping[str, Any] | None, capture: _ResponseCapture) -> dict[str, Any]:
-    """按运行时阶段生成逐节提取报告。没有可读的取值路径时返回空。
+    """Per-stage extraction reports; empty without readable paths.
 
-    闸门与「验证响应」同一条：逐阶段提取就是那个模式的机器，这种 kind 答不上「响应这样回我时
-    我读成了什么」，这里也就没有可报的——ComfyUI 端点的产物提取是固定代码，不是可配路径。
+    Same gate as response-validation mode, which these reports implement. Kinds unable to explain response interpretation
+    cannot report here either: ComfyUI extraction is fixed code, not configurable paths.
     """
     if definition is None or not supports_test_mode(str(definition.get("kind", "")), EndpointTestMode.CHECK_RESPONSE):
         return {}
@@ -885,14 +885,16 @@ def _expired(entry: Path, now: float) -> bool:
 
 
 def _remove_tree(path: Path) -> None:
-    shutil.rmtree(path, ignore_errors=True)  # hard-delete: out-of-scope -- 端点测试的试跑目录，在数据根下而非项目内
+    shutil.rmtree(
+        path, ignore_errors=True
+    )  # hard-delete: out-of-scope -- endpoint trial directories under data roots, outside projects
 
 
 _manager: TrialRunManager | None = None
 
 
 def trial_run_manager() -> TrialRunManager:
-    """进程内唯一的登记处。首次取用时扫一遍过期目录（重启中断的 run 没有结果文件，一并清掉）。"""
+    """Sole process registry; first access purges expired directories, including restart-interrupted runs without results."""
     global _manager
     if _manager is None:
         _manager = TrialRunManager()
@@ -901,6 +903,6 @@ def trial_run_manager() -> TrialRunManager:
 
 
 async def shutdown_trial_runs() -> None:
-    """进程关停入口：登记处从未被取用时不为关停凭空建一台。"""
+    """Shutdown entry without creating never-accessed registries merely for shutdown."""
     if _manager is not None:
         await _manager.shutdown()

@@ -1,7 +1,7 @@
-"""duration_seconds 枚举硬约束：剧本生成时把每个分镜时长卡在视频模型 supported_durations 内。
+"""Hard duration_seconds enums constrain generated storyboard durations to video-model supported_durations.
 
-剧本生成器把 supported_durations 作为 response_schema 的 enum 下发，LLM 结构化输出层即被
-卡死，且 model_validate 时强制成员校验——而非仅靠 prompt 文字软约束 + 执行层晚失败。
+The generator supplies supported_durations as response_schema enum, constraining LLM structured output,
+and model_validate enforces membership instead of relying only on soft prompt text and late execution failure.
 """
 
 import pytest
@@ -11,7 +11,7 @@ from lib.script.script_models import build_episode_script_model
 
 
 def _duration_enum(model: type[BaseModel]) -> list[int] | None:
-    """从模型 JSON schema 的 $defs 里取出 duration_seconds 的 enum（无则 None）。"""
+    """Extract duration_seconds enum from model JSON-schema $defs, or None if absent."""
     schema = model.model_json_schema()
     for definition in schema.get("$defs", {}).values():
         props = definition.get("properties", {})
@@ -43,7 +43,7 @@ class TestBuildEpisodeScriptModel:
         assert _duration_enum(model) == [4, 6, 8]
 
     def test_enum_replaces_open_range(self):
-        """约束后的 schema 不应再带原 ge/le 区间（minimum/maximum）。"""
+        """Constrained schemas must no longer contain old ge/le ranges (minimum/maximum)."""
         field_schema = _duration_field_schema(build_episode_script_model("narration", [4, 6, 8]))
         assert "minimum" not in field_schema
         assert "maximum" not in field_schema
@@ -54,7 +54,7 @@ class TestBuildEpisodeScriptModel:
 
     def test_single_value_uses_const(self):
         field_schema = _duration_field_schema(build_episode_script_model("narration", [8]))
-        # 单值集 Pydantic 渲染为 const（仍是硬约束）
+        # Pydantic renders singleton sets as const, still a hard constraint.
         assert field_schema.get("const") == 8 or field_schema.get("enum") == [8]
 
     def test_empty_supported_durations_raises(self):
@@ -93,14 +93,14 @@ class TestConstrainedValidation:
         assert validated.segments[0].duration_seconds == 6
 
     def test_out_of_set_duration_rejected(self):
-        """5 在 [1,60] 区间内但不是 supported_durations 成员——旧 ge/le 约束会放过，枚举约束必须拒。"""
+        """5 lies within [1,60] but outside supported_durations; old ge/le allowed it, while enums must reject it."""
         model = build_episode_script_model("narration", [4, 6, 8])
         with pytest.raises(ValidationError):
             model.model_validate(self._narration_payload(5))
 
     def test_digit_string_duration_coerced_to_int(self):
-        """Gemini responseSchema 通道的 enum 仅支持字符串，时长枚举 wire 层转为字符串枚举，
-        约束解码下模型输出 "6"——解析/复验侧机械强转恢复 int 并命中 Literal。"""
+        """Gemini responseSchema supports string enums only; wire conversion makes duration enums strings,
+        so constrained decoding returns "6" and parsing/revalidation mechanically restores int to match Literal."""
         model = build_episode_script_model("narration", [4, 6, 8])
         payload = self._narration_payload(6)
         payload["segments"][0]["duration_seconds"] = "6"
@@ -108,7 +108,7 @@ class TestConstrainedValidation:
         assert validated.segments[0].duration_seconds == 6
 
     def test_out_of_set_digit_string_rejected(self):
-        """强转仅是类型恢复，不放宽成员约束：字符串 "5" 强转后仍被枚举拒绝。"""
+        """Coercion restores types only, not relaxed membership; converted string "5" remains rejected by the enum."""
         model = build_episode_script_model("narration", [4, 6, 8])
         payload = self._narration_payload(6)
         payload["segments"][0]["duration_seconds"] = "5"
@@ -149,7 +149,7 @@ class TestConstrainedValidation:
             model.model_validate(payload)
 
     def test_ad_out_of_set_duration_rejected(self):
-        """ad 走 storyboard 路径时同样按 supported_durations 硬枚举，不落 drama 形状。"""
+        """Ad storyboard paths also enforce supported_durations enums without falling into drama shapes."""
         model = build_episode_script_model("ad", [4, 6, 8])
         payload = {
             "title": "短片",
@@ -180,7 +180,7 @@ class TestConstrainedValidation:
 
 
 class TestReferenceUnitsScriptPlanModel:
-    """build_reference_units_script_plan_model：扁平产出 + unit 时长枚举硬约束。"""
+    """build_reference_units_script_plan_model: flat output plus hard unit-duration enums."""
 
     def _model(self):
         from lib.script.script_models import build_reference_units_script_plan_model
@@ -196,7 +196,7 @@ class TestReferenceUnitsScriptPlanModel:
         schema = self._model().model_json_schema()
         unit_def = next(d for d in schema.get("$defs", {}).values() if "text" in d.get("properties", {}))
         assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
-        # 机械可派生的字段一律不进 LLM 输出 schema
+        # Keep mechanically derivable fields out of LLM output schemas.
         assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "text"}
 
     def test_member_duration_accepted(self):

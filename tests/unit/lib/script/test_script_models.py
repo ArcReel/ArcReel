@@ -96,13 +96,13 @@ class TestScriptModels:
         assert not hasattr(scene, "clues_in_scene")
 
     def test_drama_video_prompt_has_no_dialogue_field(self):
-        """drama 用无-dialogue 变体：video_prompt 不携带 dialogue 字段（台词迁入 utterances）。"""
+        """Drama uses the nondialogue variant: video_prompt has no dialogue field, moved into utterances."""
         assert "dialogue" not in DramaVideoPrompt.model_fields
-        # narration / ad 共享的 VideoPrompt 仍保留 dialogue
+        # Narration / ad shared VideoPrompt retains dialogue.
         assert "dialogue" in VideoPrompt.model_fields
 
     def test_drama_scene_utterances_defaults_empty(self):
-        """未提供 utterances 时默认空数组（无口播场景）。"""
+        """Absent utterances defaults to an empty array for scenes without speech."""
         scene = DramaScene(
             scene_id="E1S01",
             characters_in_scene=["王"],
@@ -112,7 +112,7 @@ class TestScriptModels:
         assert scene.utterances == []
 
     def test_drama_scene_utterances_round_trips_ordered(self):
-        """utterances 按时序接受 dialogue / voiceover 混合条目并 round-trip 不丢、不重排。"""
+        """utterances accepts chronological dialogue / voiceover mixes and round-trips without loss or reordering."""
         utterances = [
             Utterance(kind="voiceover", text="多年以后，她仍记得那个夜晚。"),
             Utterance(kind="dialogue", speaker="王", text="你来了。"),
@@ -134,24 +134,24 @@ class TestScriptModels:
         assert DramaScene.model_validate(dumped).utterances == utterances
 
     def test_utterance_dialogue_requires_speaker(self):
-        """kind ⇄ speaker：dialogue 必带非空 speaker，缺失 / 空白则校验失败。"""
+        """kind ⇄ speaker: dialogue requires a nonempty speaker; absent/whitespace values fail validation."""
         with pytest.raises(ValidationError):
             Utterance(kind="dialogue", text="台词无说话人")
         with pytest.raises(ValidationError):
             Utterance(kind="dialogue", speaker="   ", text="空白说话人")
 
     def test_utterance_voiceover_rejects_speaker(self):
-        """kind ⇄ speaker：voiceover 不得带 speaker。"""
+        """kind ⇄ speaker: voiceover must not carry a speaker."""
         with pytest.raises(ValidationError):
             Utterance(kind="voiceover", speaker="王", text="画外音不该有说话人")
 
     def test_utterance_voiceover_blank_speaker_normalized_to_none(self):
-        """voiceover 的空白 speaker 归一为 None（既可写 null 也可写 ""）。"""
+        """Whitespace voiceover speakers normalize to None, accepting null or ""."""
         assert Utterance(kind="voiceover", speaker="", text="旁白").speaker is None
         assert Utterance(kind="voiceover", text="旁白").speaker is None
 
     def test_drama_scene_migrates_legacy_dialogue_and_voiceover(self):
-        """存量 drama 读时迁移：旧 video_prompt.dialogue + voiceover 合成 utterances 并剥离旧字段。"""
+        """Read-time legacy drama migration combines video_prompt.dialogue and voiceover into utterances and removes old fields."""
         legacy = {
             "scene_id": "E1S01",
             "characters_in_scene": ["王"],
@@ -168,17 +168,17 @@ class TestScriptModels:
             "voiceover": ["多年以后，她仍记得那个夜晚。"],
         }
         scene = DramaScene.model_validate(legacy)
-        # dialogue 段在前、voiceover 段在后（确定性 best-effort）
+        # Dialogue precedes voiceover, deterministic best-effort ordering.
         assert scene.utterances == [
             Utterance(kind="dialogue", speaker="王", text="你来了。"),
             Utterance(kind="voiceover", text="多年以后，她仍记得那个夜晚。"),
         ]
-        # 旧字段被剥离：video_prompt 无 dialogue、场景无 voiceover 属性
+        # Strip legacy fields: no video_prompt dialogue or scene voiceover attribute.
         assert not hasattr(scene, "voiceover")
         assert "dialogue" not in scene.video_prompt.model_dump()
 
     def test_drama_scene_migrates_speakerless_legacy_dialogue_to_voiceover(self):
-        """缺说话人的旧台词归为无说话人 voiceover（保内容、不编造 speaker、不致校验失败）。"""
+        """Legacy dialogue without speakers becomes speakerless voiceover, retaining content without inventing speakers or failing validation."""
         legacy = {
             "scene_id": "E1S01",
             "characters_in_scene": ["王"],
@@ -197,7 +197,7 @@ class TestScriptModels:
         assert scene.utterances == [Utterance(kind="voiceover", text="无主台词")]
 
     def test_drama_scene_rejects_dialogue_in_video_prompt_for_new_data(self):
-        """新数据（utterances 已在）不再迁移：video_prompt 残留 dialogue 触发 extra='forbid'。"""
+        """Do not migrate new data with utterances already present; leftover video_prompt dialogue triggers extra='forbid'."""
         with pytest.raises(ValidationError):
             DramaScene.model_validate(
                 {
@@ -218,7 +218,7 @@ class TestScriptModels:
             )
 
     def test_drama_scene_rejects_unknown_field(self):
-        """extra='forbid' 守卫仍生效：utterances 不放松未知字段拒绝。"""
+        """extra='forbid' still guards unknown fields; utterances does not relax rejection."""
         with pytest.raises(ValidationError):
             DramaScene.model_validate(
                 {
@@ -235,10 +235,10 @@ class TestScriptModels:
             )
 
     def test_duration_accepts_any_positive_int_within_range(self):
-        """duration_seconds 接受 1-60 范围内任意整数。"""
+        """duration_seconds accepts any integer within 1-60."""
         segment = NarrationSegment(
             segment_id="E1S01",
-            duration_seconds=10,  # 之前会被 DurationSeconds 拒绝
+            duration_seconds=10,  # Previously rejected by DurationSeconds.
             novel_text="原文",
             characters_in_segment=["姜月茴"],
             image_prompt=ImagePrompt(
@@ -250,7 +250,7 @@ class TestScriptModels:
         assert segment.duration_seconds == 10
 
     def test_duration_rejects_out_of_range(self):
-        """duration_seconds 拒绝范围外的值。"""
+        """duration_seconds rejects out-of-range values."""
         with pytest.raises(ValidationError):
             NarrationSegment(
                 segment_id="E1S01",
@@ -277,7 +277,7 @@ class TestScriptModels:
             )
 
     def test_drama_scene_default_duration_is_8(self):
-        """DramaScene 的默认 duration_seconds 仍为 8。"""
+        """DramaScene duration_seconds still defaults to 8."""
         scene = DramaScene(
             scene_id="E1S01",
             characters_in_scene=["姜月茴"],
@@ -311,7 +311,7 @@ class TestScriptModels:
 
 
 class TestNarrationVisualLayerHasNoDialogue:
-    """旁白/解说片段不写台词（ADR 0089）：提示词编写的视觉层不能产出非空 dialogue。"""
+    """Narration/commentary segments contain no dialogue (ADR 0089); prompt-authoring visuals cannot produce nonempty dialogue."""
 
     @staticmethod
     def _visual_segment(**video_prompt_overrides) -> dict:
@@ -347,7 +347,7 @@ class TestNarrationVisualLayerHasNoDialogue:
         assert segment.model_dump()["video_prompt"]["dialogue"] == []
 
     def test_stored_narration_segment_still_loads_existing_dialogue(self):
-        """存量带台词的片段照常读入，由发声准入判 mixed_speech，不在模型层丢弃。"""
+        """Read legacy segments containing dialogue normally; speech admission classifies mixed_speech instead of discarding content at model level."""
         segment = NarrationSegment.model_validate(
             {
                 "segment_id": "E1S01",
@@ -362,7 +362,7 @@ class TestNarrationVisualLayerHasNoDialogue:
 
 
 class TestAdScriptModels:
-    """广告/短片剧本骨架：平铺 shots[]，口播文案一等。"""
+    """Ad/short-film skeleton: flat shots[] with first-class spoken copy."""
 
     def test_ad_shot_carries_section_and_voiceover(self):
         shot = AdShot(
@@ -394,7 +394,7 @@ class TestAdScriptModels:
             )
 
     def test_pending_ad_shot_may_omit_prompts(self):
-        """待编写分镜（手动新增）不带提示词字段也能校验通过；非待编写分镜仍须两侧齐备。"""
+        """Manually added pending-authoring storyboards validate without prompt fields; other storyboards still require both prompts."""
         base = {"shot_id": "E1S02", "section": "demo", "duration_seconds": 4, "voiceover_text": "口播"}
 
         pending = AdShot.model_validate({**base, "pending_authoring": True})
@@ -442,11 +442,11 @@ class TestAdScriptModels:
 
 
 class TestItemDurationCoercion:
-    """剧本条目时长的脏数据归一——单一真相源，读时计算/写盘重算/落盘估算三处共用。
+    """Normalize invalid script-item durations through one source shared by read calculation, persistence recomputation, and stored estimates.
 
-    校验失败降级保存的原始 dict 会把 None/bool/负数/字符串/缺失等脏值带到读路径，
-    历史上三份兜底表 + 三套守卫互异（读时计算侧缺 None 守卫致 sum() TypeError、
-    项目列表 API 5xx）。此处穷举脏值矩阵 × 四骨架，锁定单点化后的统一口径。
+    Raw dicts saved after validation degradation can bring None/bool/negative/string/absent values to reads. Historically,
+    three fallback tables and guards differed: missing None guards caused sum() TypeError and project-list API 5xx.
+    Enumerate invalid-value matrices × four skeletons to pin unified behavior after consolidation.
     """
 
     def test_fallback_table_covers_four_skeletons(self):
@@ -460,29 +460,29 @@ class TestItemDurationCoercion:
     @pytest.mark.parametrize(
         "dirty",
         [
-            {},  # 缺失
+            {},  # Missing.
             {"duration_seconds": None},  # None
-            {"duration_seconds": True},  # bool（int 子类，须排除）
+            {"duration_seconds": True},  # bool is an int subclass and must be excluded.
             {"duration_seconds": False},
-            {"duration_seconds": 0},  # 非正数
-            {"duration_seconds": -5},  # 负数
-            {"duration_seconds": "6"},  # 数字字符串
-            {"duration_seconds": "six"},  # 非数字字符串
-            {"duration_seconds": 4.5},  # 浮点
+            {"duration_seconds": 0},  # Nonpositive.
+            {"duration_seconds": -5},  # Negative.
+            {"duration_seconds": "6"},  # Numeric string.
+            {"duration_seconds": "six"},  # Nonnumeric string.
+            {"duration_seconds": 4.5},  # Float.
         ],
     )
     def test_dirty_values_fall_back_by_kind(self, kind: str, dirty: dict):
-        # 缺失与所有脏值一律回退到骨架兜底时长（shots/video_units 兜底为 0）。
+        # Missing and invalid values use skeleton fallback durations (0 for shots/video_units).
         assert item_duration(kind, dirty) == _ITEM_FALLBACK_DURATIONS[kind]
 
     @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
     def test_non_dict_item_counts_zero(self, kind: str):
-        # 非 dict 条目无时长语义，恒按 0 计，不挪用骨架兜底。
+        # Nondict items have no duration semantics; always count 0 without borrowing skeleton fallback.
         for junk in ("junk", 5, None, ["x"]):
             assert item_duration(kind, junk) == 0
 
     def test_script_total_sums_mixed_dirty_items(self):
-        # 混合脏条目求和不抛：5(有效) + 0(非 dict) + 4(缺失) + 4(None) + 4(负数) = 17。
+        # Mixed invalid items sum without raising: 5 valid + 0 nondict + 4 missing + 4 None + 4 negative = 17.
         items = [
             {"duration_seconds": 5},
             "junk_not_a_dict",
@@ -493,24 +493,24 @@ class TestItemDurationCoercion:
         assert script_duration_total("segments", items) == 17
 
     def test_script_total_video_units_missing_is_zero(self):
-        # 口径拍板：video_units 缺时长统一按 0 计（不再沿历史 8 秒 else 兜底）。
+        # Pin video_units missing-duration fallback to 0, replacing the historical 8-second else fallback.
         assert script_duration_total("video_units", [{}, {"duration_seconds": None}]) == 0
         assert script_duration_total("video_units", [{"duration_seconds": 6}, {}]) == 6
 
     @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
     def test_script_total_non_list_is_zero(self, kind: str):
-        # items 为 null / 真值标量（降级保存脏值）按空处理返回 0、不抛。
+        # Treat null / truthy-scalar items from degraded persistence as empty; return 0 without raising.
         for junk in (None, "segments", 5, {"a": 1}):
             assert script_duration_total(kind, junk) == 0
 
 
 class TestEnumDriftNormalization:
-    """非约束解码通道（代理网关等）下的枚举风格漂移归一。
+    """Normalize enum style drift on unconstrained-decoding channels, such as proxy gateways.
 
-    schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/兼容通道放任模型
-    自由发挥时，枚举值会漂移成大写/小写蛇形（MEDIUM_SHOT / medium_shot）甚至
-    词表外近义词（wide_shot / dolly_in / orbit）。校验层做机械归一 + 别名映射 +
-    未知值降级默认，避免可挽救的风格漂移让整集剧本生成失败。
+    Schema enum is hard only when providers enforce constrained decoding. Gateways/compatible channels permitting
+    free output can drift into upper/lower snake case (MEDIUM_SHOT / medium_shot) or out-of-vocabulary
+    synonyms (wide_shot / dolly_in / orbit). Validation mechanically normalizes, maps aliases, and
+    defaults unknown values, preventing recoverable style drift from failing whole-episode generation.
     """
 
     @staticmethod
@@ -556,7 +556,7 @@ class TestEnumDriftNormalization:
 
     @pytest.mark.parametrize("drifted", ["WIDE_SHOT", "第一视角特写"])
     def test_out_of_vocab_shot_type_falls_back_to_default_with_warning(self, caplog, drifted: str):
-        """词表外值不做语义近义映射（穷举不全），一律降级默认并 warn 保留原值。"""
+        """Do not semantically map unknown synonyms, which cannot be exhaustively listed; default all unknown values and warn with the original."""
         with caplog.at_level("WARNING", logger="lib.script.script_models"):
             comp = Composition.model_validate(self._composition(drifted))
         assert comp.shot_type == "Medium Shot"
@@ -586,7 +586,7 @@ class TestEnumDriftNormalization:
         assert vp.dialogue == []
 
     def test_llm_schema_still_declares_enum(self):
-        """BeforeValidator 不得改变 LLM 侧 schema：enum 仍是约束解码通道的硬约束。"""
+        """BeforeValidator must not change LLM schemas; enum remains hard for constrained-decoding channels."""
         comp_schema = Composition.model_json_schema()
         assert comp_schema["properties"]["shot_type"]["enum"] == [
             "Extreme Close-up",
@@ -621,10 +621,10 @@ class TestEnumDriftNormalization:
 
 
 class TestLLMSchemaExclusion:
-    """LLM 看到的 JSON schema 必须排除 note / generated_assets / duration_override / 顶层 duration_seconds。"""
+    """LLM-visible JSON schemas must exclude note / generated_assets / duration_override / top-level duration_seconds."""
 
     def _walk(self, obj, *, path=""):
-        """遍历 schema 树，yield (path, key) 对所有 properties 键。"""
+        """Traverse schema trees, yielding (path, key) for every properties key."""
         if isinstance(obj, dict):
             if "properties" in obj and isinstance(obj["properties"], dict):
                 for key in obj["properties"]:
@@ -644,7 +644,7 @@ class TestLLMSchemaExclusion:
         keys = self._all_keys(NarrationEpisodeScript.model_json_schema())
         for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys, f"{forbidden} 不应出现在 LLM schema 中"
-        # 顶层 duration_seconds 由 caller 重算
+        # Callers recompute top-level duration_seconds.
         assert "duration_seconds" not in NarrationEpisodeScript.model_json_schema()["properties"]
 
     def test_drama_schema_excludes_runtime_fields(self):
@@ -654,7 +654,7 @@ class TestLLMSchemaExclusion:
         for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys
         assert "duration_seconds" not in DramaEpisodeScript.model_json_schema()["properties"]
-        # utterances 是 LLM 可见的一等字段（drama 口播序列的落点），取代旧 voiceover
+        # utterances is first-class and LLM-visible for drama speech sequences, replacing old voiceover.
         assert "utterances" in keys
         assert "voiceover" not in keys
 
@@ -674,7 +674,7 @@ class TestLLMSchemaExclusion:
         assert "duration_seconds" not in ReferenceVideoScript.model_json_schema()["properties"]
 
     def test_runtime_fields_still_validate_in_python(self):
-        """虽然 LLM 看不到，但 Python 端仍能 model_validate 含这些字段的旧数据（向后兼容）。"""
+        """Despite LLM invisibility, Python model_validate still accepts old data with these fields for backward compatibility."""
         from lib.script.script_models import NarrationSegment
 
         seg = NarrationSegment.model_validate(
@@ -696,7 +696,7 @@ class TestLLMSchemaExclusion:
         assert seg.generated_assets.status == "completed"
 
     def test_schema_excludes_scene_type_summary_content_mode_novel(self):
-        """LLM 不该看到 scene_type / summary / content_mode / novel：由 _add_metadata 注入或彻底无消费。"""
+        """LLMs must not see scene_type / summary / content_mode / novel, injected by _add_metadata or entirely unused."""
         from lib.script.script_models import (
             DramaEpisodeScript,
             NarrationEpisodeScript,
@@ -713,8 +713,8 @@ class TestLLMSchemaExclusion:
             assert "scene_type" not in keys, f"{model.__name__} 不应有 scene_type"
 
     def test_schema_excludes_hook_and_teaser_including_derived_models(self):
-        """hook / next_episode_teaser 由分集账本注入，LLM 不该看到——
-        含 build_*_script_model 动态约束子类（response_schema 实际取自它们）。"""
+        """Episode ledgers inject hook / next_episode_teaser, hidden from LLMs,
+        including dynamic build_*_script_model constrained subclasses actually used as response_schema."""
         from lib.script.script_models import (
             DramaEpisodeScript,
             NarrationEpisodeScript,
@@ -736,10 +736,10 @@ class TestLLMSchemaExclusion:
 
 
 class TestRuntimeBackwardCompat:
-    """LLM schema 隐藏的字段在 Python 端 model_validate 时仍能接受旧数据,并由 default 兜底。"""
+    """LLM-hidden schema fields still accept legacy Python model_validate input and have default fallbacks."""
 
     def test_drama_scene_accepts_legacy_scene_type_field(self):
-        """存量项目里残留 scene_type 字段不该让 model_validate 炸。"""
+        """Legacy scene_type must not break model_validate."""
         scene = DramaScene.model_validate(
             {
                 "scene_id": "E1S01",
@@ -757,7 +757,7 @@ class TestRuntimeBackwardCompat:
         assert not hasattr(scene, "scene_type")
 
     def test_narration_segment_accepts_legacy_clues_in_segment_field(self):
-        """v0→v1 migration 删的 clues_in_segment 残留时 model_validate 不该炸。"""
+        """Remaining clues_in_segment, removed by v0→v1 migration, must not break model_validate."""
         segment = NarrationSegment.model_validate(
             {
                 "segment_id": "E1S01",
@@ -776,7 +776,7 @@ class TestRuntimeBackwardCompat:
         assert not hasattr(segment, "clues_in_segment")
 
     def test_drama_scene_accepts_legacy_clues_in_scene_field(self):
-        """v0→v1 migration 删的 clues_in_scene 残留时 model_validate 不该炸。"""
+        """Remaining clues_in_scene, removed by v0→v1 migration, must not break model_validate."""
         scene = DramaScene.model_validate(
             {
                 "scene_id": "E1S01",
@@ -794,7 +794,7 @@ class TestRuntimeBackwardCompat:
         assert not hasattr(scene, "clues_in_scene")
 
     def test_episode_models_validate_without_optional_fields(self):
-        """LLM 不写 content_mode / novel / summary 时,model_validate 仍应成功并用 default 兜底。"""
+        """Without LLM-written content_mode / novel / summary, model_validate still succeeds using defaults."""
         drama = DramaEpisodeScript.model_validate(
             {
                 "title": "第一集",
@@ -825,7 +825,7 @@ class TestRuntimeBackwardCompat:
         assert narration.novel.title == ""
 
     def test_segment_rejects_transition(self):
-        """转场不属于脚本条目：带 transition_to_next 的分镜按未知字段拒绝。"""
+        """Transitions do not belong to script items; reject transition_to_next as an unknown storyboard field."""
         with pytest.raises(ValidationError):
             NarrationSegment.model_validate(
                 {
@@ -844,25 +844,25 @@ class TestRuntimeBackwardCompat:
 
 
 class TestGeneratedAssetsTemplateContract:
-    """GeneratedAssets 模型与 create_generated_assets() dict 模板必须保持字段一致。
+    """GeneratedAssets and create_generated_assets() dict templates must agree on fields.
 
-    模型开 extra="forbid" 后,运行时回写若出现模型未声明的字段,会被 _guard_no_worse
-    在 before/after 差集中检测为 extra_forbidden 拒整集写盘——例如视频生成完成后
-    reference_video_tasks 在 ga 上写 "video_thumbnail" 时整集拒。本测试守住「模板
-    写入字段⊆模型声明字段」契约。
+    With extra="forbid", runtime writeback of undeclared fields becomes extra_forbidden in _guard_no_worse
+    before/after differences, rejecting whole-episode persistence. For example, video completion could fail when
+    reference_video_tasks writes "video_thumbnail" into ga. Guard the contract that template-written
+    fields are a subset of model declarations.
     """
 
     def test_template_dict_validates_against_generated_assets_model(self):
         from lib.project.project_manager import ProjectManager
         from lib.script.script_models import GeneratedAssets
 
-        # template 任何 key 不在模型字段集时 extra="forbid" 会抛；断验出来的对象带齐 template 的键
+        # extra="forbid" raises for any undeclared template key; assert the validated object contains every template key.
         for template in (ProjectManager.create_generated_assets(), ProjectManager.create_generated_assets("drama")):
             validated = GeneratedAssets.model_validate(template)
             assert set(template) <= set(validated.model_dump())
 
     def test_video_thumbnail_runtime_write_passes_strict_validation(self):
-        """reference_video_tasks 在视频生成后会写 ga['video_thumbnail'],模型必须接受。"""
+        """reference_video_tasks writes ga['video_thumbnail'] after video generation; the model must accept it."""
         from lib.script.script_models import GeneratedAssets
 
         validated = GeneratedAssets.model_validate(
@@ -879,8 +879,8 @@ class TestGeneratedAssetsTemplateContract:
 
 
 class TestResolveContentMode:
-    """episode/剧本级 content_mode 缺失时回退到项目级配置，与
-    lib.project.data_validator._validate_episode_payload 已校验通过的既定口径一致。"""
+    """Absent episode/script content_mode falls back to project configuration, matching
+    existing semantics already accepted by lib.project.data_validator._validate_episode_payload."""
 
     def test_episode_level_wins_when_present(self):
         assert resolve_content_mode({"content_mode": "drama"}, {"content_mode": "narration"}) == "drama"

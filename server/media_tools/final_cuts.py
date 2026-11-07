@@ -28,27 +28,31 @@ _OPERATION = "render_final_cut"
 
 
 def final_cut_download_url(project_name: str, artifact_path: str, version: int) -> str:
-    """成片的下载地址；``v`` 随版本变化，旧版本的缓存不会遮住新文件。"""
+    """Final-cut download URL; ``v`` changes with the version so old cached versions cannot hide the new file."""
     return f"/api/v1/files/{quote(project_name, safe='')}/{quote(artifact_path)}?v={version}"
 
 
 class RenderFinalCutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    timeline: str = Field(min_length=1, description="剪辑时间线 ID（如 tl-3f9a0c21），取自 list_timelines 的结果")
+    timeline: str = Field(
+        min_length=1, description="Edit timeline ID (for example tl-3f9a0c21) from list_timelines results"
+    )
     revision: int | SkipJsonSchema[None] = Field(
         default=None,
         ge=1,
-        description="渲染哪个修订；省略时取提交时的最新修订",
+        description="Revision to render; when omitted, use the latest revision at submission time",
     )
     narration: DraftNarration | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "旁白版本：without_narration 不混入旁白配音；with_narration 混入旁白配音，只对 TTS 配音项目开放。"
-            "省略时 TTS 配音项目取 with_narration，其余取 without_narration"
+            "Narration variant: without_narration excludes narration audio from the mix; with_narration includes it and is available only for TTS projects. When omitted, TTS projects use with_narration and others use without_narration"
         ),
     )
-    burn_subtitles: bool = Field(default=True, description="是否把字幕烧进画面；false 得到不带字幕的干净画面")
+    burn_subtitles: bool = Field(
+        default=True,
+        description="Whether to burn subtitles into the image; false produces clean video without subtitles",
+    )
 
 
 class FinalCutToolResult(BaseModel):

@@ -1,8 +1,8 @@
-"""参考生视频剧本的并发读-改-写竞态防护测试。
+"""Concurrent read-modify-write protection for reference-to-video scripts.
 
-覆盖 `ProjectManager.locked_script` 在两类并发写者同时操作 `video_units` 时不丢更新：
-  1. 追加新 unit（对应 router 的 add_unit）
-  2. 回写已有 unit 的 generated_assets（对应执行器的 _update_unit_assets）
+Verify `ProjectManager.locked_script` preserves updates when two kinds of concurrent writer modify `video_units`:
+  1. Append new units (router add_unit).
+  2. Write generated_assets into existing units (executor _update_unit_assets).
 """
 
 from __future__ import annotations
@@ -16,13 +16,13 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 
 def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -> None:
-    """创建项目 + 一个 参考生视频的 episode_1 剧本，预置 n_units 个 unit。"""
+    """Create a project with one reference-to-video episode_1 script, prefilled with n_units units."""
     pm.create_project(name)
     pm.save_project(
         name,
         {
             "name": name,
-            # 生产项目一律处于当前 schema：剧本保存会把产物登记进清单。
+            # Production projects always use current schemas; script saves register artifacts in manifests.
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [],
             "metadata": {"created_at": "2025-01-01", "updated_at": "2025-01-01"},
@@ -43,26 +43,26 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
             for i in range(1, n_units + 1)
         ],
     }
-    pm.save_script(name, script, "episode_1.json", validate=False)  # 测并发 RMW 用简化替身 unit
+    pm.save_script(name, script, "episode_1.json", validate=False)  # Simple units for concurrent RMW.
 
 
 class TestReferenceVideoConcurrentRMW:
     def test_concurrent_append_and_asset_writeback_preserve_all(self, tmp_path: Path) -> None:
-        """并发追加新 unit 与回写已有 unit 资产，二者都不丢。"""
+        """Concurrent unit appends and existing-unit asset writebacks preserve both updates."""
         pm = ProjectManager(tmp_path)
         name = "proj-refvid-rmw"
         n_existing = 12
         _seed_reference_video_project(pm, name, n_existing)
 
-        appenders = 12  # 追加 E1U13..E1U24
+        appenders = 12  # Append E1U13..E1U24.
         total = n_existing + appenders
         barrier = threading.Barrier(total)
 
         def _append(idx: int) -> None:
-            """模拟 add_unit：locked_script 内 fresh-load → append → save。"""
+            """Simulate add_unit: fresh-load, append, and save inside locked_script."""
             barrier.wait()
             with pm.locked_script(name, "episode_1.json", validate=False) as script:
-                # 直接按 schema 访问，缺字段即报错（fail-loud），不用 setdefault 掩盖损坏
+                # Access schema fields directly, failing loudly when absent; do not hide corruption with setdefault.
                 script["video_units"].append(
                     {
                         "unit_id": f"E1U{idx}",
@@ -73,7 +73,7 @@ class TestReferenceVideoConcurrentRMW:
                 )
 
         def _writeback(unit_id: str) -> None:
-            """模拟执行器的 _update_unit_assets：定位 unit 写 generated_assets。"""
+            """Simulate executor _update_unit_assets: locate the unit and write generated_assets."""
             barrier.wait()
             with pm.locked_script(name, "episode_1.json", validate=False) as script:
                 for u in script["video_units"]:
@@ -92,12 +92,12 @@ class TestReferenceVideoConcurrentRMW:
         loaded = pm.load_script(name, "episode_1.json")
         units = {u["unit_id"]: u for u in loaded["video_units"]}
 
-        # 所有追加的 unit 都在
+        # All appended units remain.
         assert len(units) == total, f"期望 {total} 个 unit，实际 {sorted(units)}"
         for i in range(n_existing + 1, total + 1):
             assert f"E1U{i}" in units, f"追加的 E1U{i} 丢失"
 
-        # 所有已有 unit 的资产回写都生效
+        # All existing-unit asset writebacks take effect.
         for i in range(1, n_existing + 1):
             ga = units[f"E1U{i}"].get("generated_assets") or {}
             assert ga.get("video_clip") == f"reference_videos/E1U{i}.mp4", f"E1U{i} 资产回写丢失：{ga}"

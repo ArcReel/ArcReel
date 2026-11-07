@@ -1,4 +1,4 @@
-"""脚本规划带出的新增资产：登记名与项目里已有资产或本次另一项新增只差大小写时视为重名。"""
+"""New script-plan assets collide when names differ only in case from existing project assets or another new item."""
 
 from __future__ import annotations
 

@@ -8,14 +8,14 @@ import type { EpisodeItemKind } from "@/utils/episode-item";
 interface ItemPositionOfTotalProps {
   itemId: string;
   kind: EpisodeItemKind;
-  /** 本集数组里的当前位置，从 1 起。 */
+  /** Current position in this episode's array, starting at 1. */
   position: number;
   total: number;
   className?: string;
 }
 
 /**
- * 详情页头的「5 / 24」。条目 ID 只在这里的悬停提示里出现，可复制，供排查问题用。
+ * The “5 / 24” in the detail header. Item IDs appear only in this hover tooltip and can be copied for troubleshooting.
  */
 export function ItemPositionOfTotal({ itemId, kind, position, total, className }: ItemPositionOfTotalProps) {
   const { t } = useTranslation("common");

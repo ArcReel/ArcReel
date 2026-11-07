@@ -1,8 +1,8 @@
-"""剪辑视图预览用的素材层：剪辑时间线最新修订引用的每个视频单元的旁白配音与字幕条目，以及 BGM 轨引用的 BGM 文件。
+"""Material layers for edit-view previews: narration audio and subtitle entries for every unit referenced by the latest timeline revision, plus files referenced by the BGM track.
 
-旁白版本取项目默认值（TTS 配音项目带旁白），字幕取自各单元当前的呈现模型，与剪映草稿同一份切分结果。
-条目时间相对单元：跟随旁白的字幕从旁白起点算起，其余按视频源素材时间。按剪辑片段摆到全局时间由前端完成。
-"""
+Use the project’s default narration variant (with narration for TTS projects). Subtitles come from each unit’s current presentation model,
+sharing segmentation with Jianying drafts. Entry times are unit-relative: narration-following subtitles use the narration start, others use
+video-source time. The frontend places them on global time according to edit clips."""
 
 from __future__ import annotations
 
@@ -41,18 +41,17 @@ class PreviewCue(_View):
 
 
 class PreviewNarrationAudio(_View):
-    """旁白配音 current 文件的项目内路径与版本号。"""
+    """Project-relative path and version number of the current narration-audio file."""
 
     path: str
     version: int
 
 
 class PreviewUnitMedia(_View):
-    """``narration_audio`` 只在该单元按带旁白版本呈现时给出；呈现模型物化不出时 ``subtitles`` 为空。
+    """Include ``narration_audio`` only when this unit uses the narrated presentation variant; ``subtitles`` is empty if the presentation model cannot materialize.
 
-    ``provider_audio`` 是 current 视频生成时的供应商原声开关，与成片同口径：为 False 时视频文件里即使带音轨，
-    预览也按静音播放；预览音量是片段原声音量乘以这个开关。
-    """
+    ``provider_audio`` is the provider-audio switch used when generating the current video, matching final-cut rules: False mutes
+    the preview even if the file contains an audio track. Preview volume is the clip’s original-audio volume multiplied by this switch."""
 
     unit_id: str
     provider_audio: bool
@@ -62,7 +61,7 @@ class PreviewUnitMedia(_View):
 
 
 class PreviewBgm(_View):
-    """BGM 文件的项目内路径与响度静态增益（线性倍数）；预览音量是片段音量乘以这个增益。"""
+    """Project-relative BGM path and static loudness gain (linear multiplier); preview volume is clip volume multiplied by this gain."""
 
     bgm_id: str
     path: str
@@ -70,7 +69,7 @@ class PreviewBgm(_View):
 
 
 class TimelinePreviewMedia(_View):
-    """``bgm`` 只含 BGM 轨引用且文件在项目里的 BGM。"""
+    """``bgm`` includes only BGM referenced by the BGM track whose files exist in the project."""
 
     timeline_id: str
     revision: int
@@ -107,7 +106,7 @@ class TimelinePreviewService:
         self._presentations = presentation_reader or PresentationReadModelService(projects)
 
     async def media(self, project_name: str, timeline_id: str) -> TimelinePreviewMedia:
-        """按最新修订取素材层；已从脚本删除的视频单元不在结果里。"""
+        """Retrieve material layers for the latest revision; exclude video units deleted from the script."""
         document = await asyncio.to_thread(lambda: EditTimelineStore(self._projects, project_name).find(timeline_id))
         project = await asyncio.to_thread(self._projects.load_project, project_name)
         project_dir = await asyncio.to_thread(self._projects.get_project_path, project_name)

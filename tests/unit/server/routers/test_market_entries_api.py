@@ -1,4 +1,4 @@
-"""市场条目 API：启用源条目合并、版本门槛、条目详情不抓定义、定义原文与 icon 代理的状态码与缓存头。"""
+"""Market-entry API: enabled-source merging, version gates, details without definition fetches, raw definitions/icon proxy status and cache headers."""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def _png() -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# 列表与详情
+# Lists and details
 # ---------------------------------------------------------------------------
 
 
@@ -198,7 +198,7 @@ def test_entry_detail_not_found(entries_client: TestClient, catalog: None, url: 
 
 
 # ---------------------------------------------------------------------------
-# 定义原文
+# Original definitions
 # ---------------------------------------------------------------------------
 
 

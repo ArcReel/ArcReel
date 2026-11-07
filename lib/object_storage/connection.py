@@ -1,4 +1,4 @@
-"""从已保存的连接配置得到对象存储客户端。"""
+"""Obtain object-storage clients from saved connection configuration."""
 
 from __future__ import annotations
 
@@ -21,6 +21,6 @@ def config_from_connection(conn: ObjectStorageConnection) -> ObjectStorageConfig
 
 
 async def load_object_storage_client(session: AsyncSession) -> ObjectStorageClient | None:
-    """实例当前的对象存储客户端；没有配置连接时返回 None，调用方按未启用对象存储处理。"""
+    """Current instance object-storage client, or None with no configured connection; callers treat that as disabled storage."""
     conn = await ObjectStorageConnectionRepository(session).get()
     return ObjectStorageClient(config_from_connection(conn)) if conn else None

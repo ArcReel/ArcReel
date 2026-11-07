@@ -1,6 +1,6 @@
-"""SourceLoader 异常体系。
+"""SourceLoader exception hierarchy.
 
-路由层根据异常类型映射到不同 HTTP 状态：
+Routes map exception types to HTTP statuses:
 - UnsupportedFormatError → 400
 - SourceDecodeError      → 422
 - CorruptFileError       → 422

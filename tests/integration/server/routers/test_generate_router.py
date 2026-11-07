@@ -38,8 +38,8 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
-            # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定——
-            # 产物清单是读取已生成产物的唯一口径，二者缺一都不是真实形态。
+            # Production projects always use current schemas with episodes-bound scripts;
+            # manifests alone determine generated artifacts; both are required for realistic projects.
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
             "generation_mode": "storyboard",
@@ -128,16 +128,16 @@ class _FakePM:
         }
 
     def sync_disk(self):
-        """把内存态项目与剧本落盘——产物清单按磁盘上的真实项目做比对。"""
+        """Persist in-memory projects/scripts; manifests compare real disk projects."""
 
         (self.project_path / "scripts").mkdir(parents=True, exist_ok=True)
         (self.project_path / "project.json").write_text(json.dumps(self.project), encoding="utf-8")
         (self.project_path / "scripts" / "episode_1.json").write_text(json.dumps(self.script), encoding="utf-8")
 
     def register_storyboards(self) -> None:
-        """把已落盘的资产图与分镜图依次登记进产物清单——未登记的产物不被生产准入。
+        """Register persisted asset images before storyboards; unregistered artifacts fail production admission.
 
-        资产图先于分镜图：分镜图的依据引用资产图，引用的资产图未登记时分镜图不成立。
+        Storyboard bases reference images, so absent reference claims invalidate storyboard artifacts.
         """
 
         self.sync_disk()
@@ -193,18 +193,18 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user
     use_project_manager(monkeypatch, fake_pm)
     monkeypatch.setattr("lib.generation.generation_queue.get_generation_queue", lambda: fake_queue)
     use_generation_queue(monkeypatch, fake_queue)
-    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
+    # Video-bucket preflight needs system_settings DBs; router units lack DBs, so capability behavior lives in
+    # test_config_resolver/test_validators_video_bucket, keeping happy-path admission here.
     monkeypatch.setattr(generate, "require_video_bucket_capability", _noop_bucket_precheck)
-    # 音频开关预检同理，行为由 test_validators_audio_switch 覆盖
+    # Likewise audio preflight behavior lives in test_validators_audio_switch.
     monkeypatch.setattr(generate, "require_audio_switch_supported", _noop_bucket_precheck)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id=user_id, sub="testuser", role="admin")
     app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
-    # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
+    # raise_server_exceptions=False: app Exception handlers form 500 responses, then
+    # Starlette reraises; defaults would raise into tests instead of returning responses.
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -241,7 +241,7 @@ class TestGenerateRouter:
             assert call["source"] == "webui"
 
     def test_storyboard_refuses_a_pending_image_prompt_before_enqueue(self, tmp_path, monkeypatch):
-        """正式剧本里该分镜的 image_prompt 尚未填写（None）：单条端点 409，不入队。"""
+        """Formal image_prompt None returns single-entry 409 without enqueue."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][1]["image_prompt"] = None
@@ -303,7 +303,7 @@ class TestGenerateRouter:
             assert call["payload"]["duration_seconds"] == 5
 
     def test_video_payload_is_identical_for_tts_and_post_production_projects(self, tmp_path, monkeypatch):
-        """项目的旁白交付方式不参与视频请求：入队的请求时长与请求事实只取自请求与剧本。"""
+        """Narration delivery never enters video requests; queued durations/facts derive only from requests/scripts."""
         payloads = []
         for index, narration in enumerate(
             (
@@ -451,7 +451,7 @@ class TestGenerateRouter:
     def test_narrator_video_request_admits_the_saved_unit_not_the_request_prompt(
         self, tmp_path, monkeypatch, content_mode, root, id_field, narrator_field
     ):
-        """worker 按盘上 video_prompt 执行：盘上单元只有旁白时，请求 prompt 里的角色台词不拦截入队。"""
+        """Workers use disk video_prompt; request-prompt dialogue never blocks enqueue when disk units contain voiceover only."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = content_mode
@@ -523,7 +523,7 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     def test_video_enqueue_bucket_capability_error_returns_400(self, tmp_path, monkeypatch):
-        """i2v 桶预检失败（如默认模型缺首帧能力）→ 提交入口 400 + 修复指引，不入队。"""
+        """Failed i2v preflight, such as default models lacking first frames, returns submission 400/recovery guidance without enqueue."""
         from lib.infra.api_errors import BadRequestError
 
         project_path = _prepare_files(tmp_path)
@@ -551,9 +551,9 @@ class TestGenerateRouter:
 
     @pytest.mark.parametrize("delivery", ["post_production", "use_tts"])
     def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch, delivery):
-        """恒有声模型遇到「关闭音频」的配置 → 提交入口 400，不入队（无声裁剪不得带着不可能实现的意图执行）。
+        """Always-audible models with audio-off return submission 400 without enqueue; impossible silent-crop intentions must not execute.
 
-        项目的旁白交付方式不改变这道闸：两种项目走同一条预检。
+        Narration delivery never changes this gate; both project types share preflight.
         """
         from lib.infra.api_errors import BadRequestError
 
@@ -587,7 +587,7 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     def test_video_enqueue_grid_mode_uses_first_frame(self, tmp_path, monkeypatch):
-        """宫格模式：storyboard 写入 _first.png 并记录于 generated_assets，路由应识别该路径。"""
+        """Grid modes write storyboard _first.png into generated_assets; routes must recognize it."""
         project_path = _prepare_files(tmp_path)
         (project_path / "storyboards" / "scene_E1S02_first.png").write_bytes(b"png")
 
@@ -608,8 +608,8 @@ class TestGenerateRouter:
             assert video.json()["success"] is True
 
     def test_video_generated_assets_non_dict_is_refused_without_attribute_error(self, tmp_path, monkeypatch):
-        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「没有登记的分镜图」
-        拒绝，而不是抛未捕获 AttributeError（脏数据非 dict 上没有 .get()）。"""
+        """Nondict externally corrupted generated_assets, such as lists, reject as missing registered storyboards,
+        never uncaught AttributeError from absent .get()."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = ["bad"]
@@ -680,7 +680,7 @@ class TestGenerateRouter:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
-        # 分镜图在盘上，但没有进产物清单——准入口径是产物清单登记。
+        # Disk storyboard images without manifest claims fail admission, which requires registration.
         client = _client(monkeypatch, fake_pm, fake_queue, register_storyboards=False)
 
         with client:
@@ -712,8 +712,8 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     def test_video_storyboard_image_non_string_returns_400(self, tmp_path, monkeypatch):
-        """storyboard_image 是剧本 JSON 里的脏数据（非字符串）时应 400 可读失败，
-        而不是让 `project_path / storyboard_rel` 抛未处理 TypeError 变成 500。"""
+        """Nonstrings in script storyboard_image produce readable 400,
+        never unhandled TypeError/500 from `project_path / storyboard_rel`."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": 123}
@@ -730,7 +730,7 @@ class TestGenerateRouter:
             assert fake_queue.calls == []
 
     def test_video_storyboard_image_absolute_path_returns_400(self, tmp_path, monkeypatch):
-        """storyboard_image 是绝对路径时应 400 可读失败，不越权引用项目外文件。"""
+        """Absolute storyboard_image paths produce readable 400 without unauthorized external references."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "/etc/passwd"}
@@ -747,7 +747,7 @@ class TestGenerateRouter:
             assert fake_queue.calls == []
 
     def test_video_storyboard_image_path_traversal_returns_400(self, tmp_path, monkeypatch):
-        """storyboard_image 含 `..` 越出项目目录时应 400 可读失败，不越权引用项目外文件。"""
+        """storyboard_image `..` escaping projects produces readable 400 without external references."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "../../outside.png"}
@@ -764,12 +764,12 @@ class TestGenerateRouter:
             assert fake_queue.calls == []
 
     def test_video_dirty_script_fail_fast_400(self, tmp_path, monkeypatch):
-        """脏脚本(分镜数组键损坏)时,/generate/video 应在路由层 4xx 失败,
-        而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
-        先收到「提交成功」,worker 解析脚本时再确定失败,撕裂提交-执行预期。
+        """Corrupted storyboard-array keys make /generate/video fail at routes with 4xx,
+        never silently use default images and enqueue, which reports successful submission
+        before inevitable worker script failure, breaking submission/execution expectations.
 
-        本测试保 default `storyboards/scene_E1S01.png` 存在(否则会被 line 192 的
-        「先生成分镜图」分支挡住,无法暴露 surprise 路径)。
+        Keep default `storyboards/scene_E1S01.png` present so line 192's generate-storyboards-first
+        branch cannot hide this unexpected route.
         """
         from lib.script.script_editor import ScriptEditError
 
@@ -793,23 +793,23 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 400, video.text
-            # detail 走 i18n 不直接暴露内部 str(e)
+            # Localized detail never exposes internal str(e).
             assert (
                 "segments" not in video.json()["detail"]
                 or "script" in video.json()["detail"].lower()
                 or "kịch bản" in video.json()["detail"]
                 or "损坏" in video.json()["detail"]
             )
-            # 任务未入队
+            # Tasks not enqueued.
             assert fake_queue.calls == []
 
     def test_video_missing_script_fail_fast_404(self, tmp_path, monkeypatch):
-        """剧本文件缺失（FileNotFoundError）时,/generate/video 应 404 fail-fast,
-        而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
-        先收到「提交成功」,worker 解析脚本时再确定失败,撕裂提交-执行预期。
+        """Missing scripts FileNotFoundError makes /generate/video fail fast with 404,
+        never silently default to storyboards and enqueue, reporting success
+        before worker failure, breaking submission/execution expectations.
 
-        本测试保 default `storyboards/scene_E1S01.png` 存在（旧宫格项目遗留场景），
-        验证即使 default 文件恰好存在，脚本缺失也不能被悄悄放过。
+        Keep default `storyboards/scene_E1S01.png`, a legacy-grid case,
+        proving existing defaults cannot silently bypass missing scripts.
         """
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -833,16 +833,16 @@ class TestGenerateRouter:
             )
             assert video.status_code == 404, video.text
             assert str(missing_script_path) not in video.text
-            # 任务未入队
+            # Tasks not enqueued.
             assert fake_queue.calls == []
 
     def test_video_missing_segment_404(self, tmp_path, monkeypatch):
-        """segment_id 在脚本中根本不存在时,/generate/video 应 404,而不是
-        悄悄走 default storyboard 路径——即使 default 文件恰好存在(如与旧
-        数据撞名),也不能把不存在的 segment 当成校验通过而入队。
+        """Absent segment_id returns /generate/video 404 rather than silently
+        using default storyboards; existing defaults, such as legacy filename collisions,
+        never validate/enqueue nonexistent segments.
         """
         project_path = _prepare_files(tmp_path)
-        # default 路径恰好存在的场景：撞上一个不存在 segment 的默认文件名
+        # Existing default-path collision with nonexistent segments' default filenames
         (project_path / "storyboards" / "scene_E1S99.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
@@ -858,7 +858,7 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 404, video.text
-            # 任务未入队
+            # Tasks not enqueued.
             assert fake_queue.calls == []
 
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
@@ -880,7 +880,7 @@ class TestGenerateRouter:
             assert call["task_type"] == "character"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
-            # 描述只取存储的条目，入队不带 prompt 快照。
+            # Descriptions come from stored entries only; enqueue carries no prompt snapshots.
             assert call["payload"] == {}
 
     @pytest.mark.parametrize(
@@ -909,8 +909,8 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     def test_character_enqueue_resolves_nfd_registered_key(self, tmp_path, monkeypatch):
-        """路径参数与桶 key 形态可以不同：登记闸口落 NFC 后，仍须能按 NFD 原文发起生成，
-        且入队的 resource_id 用真实落盘 key，不新造一种编码形式。"""
+        """Path parameters may differ from stored keys: NFC registration still allows NFD generation,
+        enqueueing actual persisted resource_id keys without new encoding variants."""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1076,12 +1076,12 @@ class TestGenerateRouter:
 
 
 class TestUnexpectedErrorMapsTo500:
-    """未预期异常 → 通用 500 且不泄露内部异常细节。
+    """Unexpected exceptions → generic 500 without internal detail leaks.
 
-    每个端点最早调用 get_project_manager()（storyboard/video/tts 在 _sync 内，
-    character/scene/prop/product 经 _enqueue_asset_generation 的 _sync 内），将其 monkeypatch
-    成抛 RuntimeError。RuntimeError 绕过 FileNotFoundError/ScriptEditError 等专属处理器，
-    落到 app 级 Exception handler，断言 500 且哨兵串不出现在响应体。
+    Monkeypatch earliest get_project_manager calls (storyboard/video/tts inside _sync;
+    character/scene/prop/product through _enqueue_asset_generation _sync)
+    to raise RuntimeError, bypassing FileNotFoundError/ScriptEditError handlers
+    into app Exception handlers. Assert 500 without response sentinels.
     """
 
     def _client_with_leak(self, monkeypatch, sentinel: str) -> TestClient:
@@ -1173,13 +1173,13 @@ class TestUnexpectedErrorMapsTo500:
 
 
 class TestVideoRouteGate:
-    """逐条视频生成端点按项目生成模式定轴：参考生视频在提交入口即拒绝。"""
+    """Individual video endpoints follow project generation modes, rejecting reference video at submission."""
 
     def _reference_pm(self, project_path: Path, *, storyboard_script: bool = False) -> _FakePM:
-        """参考生视频项目。
+        """Reference-video projects.
 
-        ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟与当前生成模式
-        不匹配的存量剧本与分镜图产物。
+        True ``storyboard_script`` retains ``_FakePM`` storyboard-family defaults, simulating legacy
+        scripts/images inconsistent with current generation modes.
         """
         fake_pm = _FakePM(project_path)
         fake_pm.project["generation_mode"] = "reference_video"
@@ -1192,7 +1192,7 @@ class TestVideoRouteGate:
         return fake_pm
 
     def test_reference_route_rejected_with_route_guidance(self, tmp_path, monkeypatch):
-        """参考生视频：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
+        """Reference video rejects with reference-video workflow guidance, never generate-storyboards-first."""
         project_path = _prepare_files(tmp_path)
         fake_pm = self._reference_pm(project_path)
         fake_queue = _FakeQueue()
@@ -1208,9 +1208,9 @@ class TestVideoRouteGate:
         assert fake_queue.calls == []
 
     def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
-        """残留分镜图不改变判定：生成模式以 project.json 为唯一真相源，不按磁盘产物换路径。"""
+        """Residual storyboards never alter decisions: project.json modes alone determine routes, not disk artifacts."""
         project_path = _prepare_files(tmp_path)
-        # 分镜图产物 scene_E1S01.png 由 _prepare_files 写入
+        # _prepare_files writes storyboard artifact scene_E1S01.png.
         fake_pm = self._reference_pm(project_path, storyboard_script=True)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
@@ -1225,7 +1225,7 @@ class TestVideoRouteGate:
         assert fake_queue.calls == []
 
     def test_storyboard_route_enqueues_with_i2v_bucket(self, tmp_path, monkeypatch):
-        """分镜图生视频：行为不变，桶预检仍按 i2v。"""
+        """Storyboard image-to-video behavior unchanged; bucket preflight remains i2v."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["generation_mode"] = "storyboard"
@@ -1250,7 +1250,7 @@ class TestVideoRouteGate:
 
 
 class TestReferenceAdmissionAtGenerationEntries:
-    """分镜图与图生视频的提交入口：引用有缺口即拒绝并列名，不建任务、不计费。"""
+    """Storyboard/image-to-video submission rejects missing references by name without tasks or charges."""
 
     @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
     def test_unregistered_reference_blocks_and_names_it(self, tmp_path, monkeypatch, endpoint: str):
@@ -1272,7 +1272,7 @@ class TestReferenceAdmissionAtGenerationEntries:
 
     @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
     def test_deleted_asset_leaves_a_blocking_reference(self, tmp_path, monkeypatch, endpoint: str):
-        """删除资产后残留的引用与从未登记的名字同一出路，不被静默丢弃。"""
+        """Deleted-asset references share never-registered-name recovery, never silent omission."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         del fake_pm.project["scenes"]["祠堂"]
@@ -1291,7 +1291,7 @@ class TestReferenceAdmissionAtGenerationEntries:
 
     @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
     def test_character_without_sheet_blocks_even_with_an_original(self, tmp_path, monkeypatch, endpoint: str):
-        """原图只是生成资产图的输入，不顶替资产图放行这次生成。"""
+        """Originals only feed asset-image generation; they never substitute missing asset images for admission."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["Alice"]["character_sheet"] = ""
@@ -1309,7 +1309,7 @@ class TestReferenceAdmissionAtGenerationEntries:
         assert fake_queue.calls == []
 
     def test_product_without_sheet_still_enqueues(self, tmp_path, monkeypatch):
-        """商品原图是保真验收锚点，没有资产图不阻断（ADR 0034）。"""
+        """Product originals anchor fidelity acceptance; missing sheets never block (ADR 0034)."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["products_in_shot"] = ["保温杯"]
@@ -1327,7 +1327,7 @@ class TestReferenceAdmissionAtGenerationEntries:
 
 
 class TestAdStoryboardRegeneration:
-    """ad 剧本（平铺 shots[]）沿用既有分镜生成/重生成端点——人工审核后重生成同一入口。"""
+    """Flat shots[] ad scripts retain existing storyboard generation/regeneration endpoints, shared after manual review."""
 
     def _ad_pm(self, project_path: Path) -> _FakePM:
         fake_pm = _FakePM(project_path)
@@ -1387,10 +1387,10 @@ class TestAdStoryboardRegeneration:
 
 
 class TestNoServerPathLeak:
-    """404/400/500 响应形状：detail 不得含服务器绝对路径片段。
+    """404/400/500 response detail excludes absolute server-path fragments.
 
-    lib 层 FileNotFoundError 的消息携带绝对路径（如 load_script 的
-    「剧本文件不存在: /abs/path」），app 级 handler 必须脱敏为通用 404 文案。
+    Library FileNotFoundError messages contain absolute paths, such as load_script
+    missing-script /abs/path; app handlers redact to generic localized 404.
     """
 
     _PATH_SENTINELS = ("/Users", "/var", "/private", "\\Users")
@@ -1403,7 +1403,7 @@ class TestNoServerPathLeak:
             assert sentinel not in detail, f"detail 泄露路径片段 {sentinel!r}: {detail}"
 
     def _client_project_missing(self, tmp_path, monkeypatch) -> TestClient:
-        """load_project 抛携带服务器绝对路径的 FileNotFoundError（各端点第一步都会触发）。"""
+        """load_project raises absolute-path FileNotFoundError, triggered first by every endpoint."""
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
 
         def _raise(*args, **kwargs):
@@ -1432,7 +1432,7 @@ class TestNoServerPathLeak:
                 self._assert_no_path(resp)
 
     def test_script_file_not_found_404_hides_path(self, tmp_path, monkeypatch):
-        """load_script 的 FileNotFoundError 是原始泄漏源（消息含绝对路径）。"""
+        """load_script FileNotFoundError is the original absolute-path leak source."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
 
@@ -1451,7 +1451,7 @@ class TestNoServerPathLeak:
             self._assert_no_path(resp)
 
     def test_bad_prompt_400_shape(self, tmp_path, monkeypatch):
-        """TaskSpecValidationError → app 级 handler 翻译为 400，无路径片段。"""
+        """TaskSpecValidationError maps through app handlers to localized path-free 400."""
         project_path = _prepare_files(tmp_path)
         client = _client(monkeypatch, _FakePM(project_path), _FakeQueue())
 
@@ -1464,7 +1464,7 @@ class TestNoServerPathLeak:
             self._assert_no_path(resp)
 
     def test_unexpected_error_500_hides_path(self, tmp_path, monkeypatch):
-        """未预期异常消息含路径时，500 响应仍为通用文案。"""
+        """Unexpected path-bearing errors still yield generic 500 text."""
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
 
         def _raise(*args, **kwargs):
@@ -1484,7 +1484,7 @@ class TestNoServerPathLeak:
 
 
 class _FakeDedupeHitQueue(_FakeQueue):
-    """模拟 dedupe 索引命中：返回既有任务行而非新建。"""
+    """Simulate dedupe hits returning existing task rows, never new tasks."""
 
     async def enqueue_task(self, **kwargs):
         self.calls.append(kwargs)
@@ -1492,7 +1492,7 @@ class _FakeDedupeHitQueue(_FakeQueue):
 
 
 class TestDedupedPassthrough:
-    """入队响应透出队列层的 deduped 事实，供前端识别「本次未新建任务」。"""
+    """Enqueue responses expose queue deduped facts so frontend identifies no-new-task submissions."""
 
     def test_fresh_enqueue_reports_deduped_false(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

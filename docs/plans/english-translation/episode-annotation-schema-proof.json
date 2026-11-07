@@ -1,0 +1,22 @@
+{
+  "models": [
+    "NarrationEpisodeDraft",
+    "DramaEpisodeDraft",
+    "NarrationPlanDraft",
+    "DramaPlanDraft",
+    "SourceRange",
+    "EpisodeOutline"
+  ],
+  "direct_schema_non_description_exact_equal": true,
+  "actual_model_facing_schema_exact_equal_including_descriptions": true,
+  "consumers": {
+    "planner": "EpisodePlanner._generate_window response_schema=draft_model → TextGenerator → backend resolve_schema with class-doc exclusion",
+    "ledger": "Only lib.project.data_validator imports SourceRange/EpisodeOutline, model_validate at339/352; no server/OpenAPI/export consumers found"
+  },
+  "model_calls": 0,
+  "independent_review": {
+    "reviewer": "root",
+    "result": "PASS",
+    "scope": "All eight changed annotation occurrences compared, covering six model docs plus two nested definitions. Exact anchors, story beats/teasers, whole-arc window conditions, exclusive end offsets, normalized per-file coordinates and unvalidated file ordering preserved. Actual model-facing schemas remain byte-equivalent as JSON values including descriptions."
+  }
+}

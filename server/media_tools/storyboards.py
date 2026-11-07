@@ -82,10 +82,10 @@ class _FailureRecorder:
 class GenerateStoryboardsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: ScriptFilename = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    script: ScriptFilename = Field(description="Script filename only (no directory), for example episode_1.json")
     segment_ids: RequestedIds | SkipJsonSchema[None] = Field(
         default=None,
-        description="要生成或重生的分镜 ID（segment_id / scene_id）列表；省略则只选缺分镜图的分镜",
+        description="Storyboard IDs (segment_id / scene_id) to generate or regenerate; omit to select only storyboards missing images",
     )
 
 
@@ -106,15 +106,15 @@ async def generate_storyboards(
             try:
                 project_data = services.projects.load_project(scope.project_name)
             except FileNotFoundError:
-                # project.json 缺失时允许降级到空 dict（style 走默认值）；
-                # JSON 损坏 / 权限错误等其他异常应该让外层 tool_error 暴露出来，
-                # 否则会用空 style 静默继续入队，丢掉了配置。
+                # Missing project.json may degrade to an empty dict, using default style;
+                # let outer tool_error expose corrupt JSON, permission errors and other exceptions,
+                # otherwise enqueueing silently continues with empty style and loses configuration.
                 project_data = {}
 
             if project_data:
-                # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去
-                # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无生成模式可依，
-                # 沿用上面的降级放行。
+                # Reject mismatched scripts here: missing required storyboard-to-video arrays would otherwise
+                # yield false success with empty results, hiding the cause. With no project.json there is no generation mode,
+                # so retain the fallback above.
                 ensure_route_skeleton(
                     script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
                 )
@@ -138,7 +138,7 @@ async def generate_storyboards(
             )
             return project_dir, resolver, plan
 
-        # 读项目与剧本、建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
+        # Project/script reads, currency-resolver construction and content-based currency checks use synchronous file I/O and hashing.
         project_dir, resolver, plan = await run_sync_transaction(plan_batch)
         by_id = plan.states
         specs = plan.task_specs(source=caller.source)
@@ -157,8 +157,8 @@ async def generate_storyboards(
             return generation_batch_submission_outcome(submitted.batch)
         if specs:
             recorder = _FailureRecorder(project_dir / "storyboards")
-            # narration → segment_id / drama → scene_id：``id_field`` 是脚本里
-            # 的规范字段名，``"segment"`` / ``"scene"`` 是对应的资源类型。
+            # narration → segment_id / drama → scene_id: ``id_field`` is the canonical
+            # script field name; ``"segment"`` / ``"scene"`` are the corresponding resource types.
             resource_type = "segment" if plan.id_field == "segment_id" else "scene"
             for br in submitted.failures:
                 recorder.record(br.resource_id, resource_type, br.error or "unknown")

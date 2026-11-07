@@ -1,0 +1,218 @@
+{
+  "scope": "Seven late-discovered maintenance configuration files;35 explanatory comment lines only. Explicitly authorized narrow source batch after inventory detected gaps.",
+  "snapshot": "/tmp/arcreel-final-config-comments-before/",
+  "pairs": [
+    {
+      "path": "frontend/.env.example",
+      "before_sha256": "608277712498303422f80385db80807228c5b2f371f67a0d4484ae0a1a93f450",
+      "after_sha256": "eae1bc9abde73df3478098f3db56a1152e4c370c026989fce1137aa0df353824",
+      "pairs": [
+        {
+          "before": "# Frontend build-time environment / 前端构建期变量",
+          "after": "# Frontend build-time environment / Build-time frontend variables"
+        },
+        {
+          "before": "# 这些变量由 Vite 在构建/开发时从 `frontend/.env*` 加载（`pnpm dev` /",
+          "after": "# Vite loads these variables from `frontend/.env*` at build/dev time (`pnpm dev` /"
+        },
+        {
+          "before": "# `pnpm build`），不会从仓库根目录的 `.env` 读取。",
+          "after": "# `pnpm build`), never from the repository-root `.env`."
+        },
+        {
+          "before": "# 把本文件复制为 `frontend/.env`（已被 gitignore），按需调整。",
+          "after": "# Copy this file to `frontend/.env` (gitignored) and adjust as needed."
+        },
+        {
+          "before": "# Brand / 品牌",
+          "after": "# Brand / Branding"
+        },
+        {
+          "before": "# 覆盖 UI 中显示的产品名、副标题与 <meta description>。留空则使用上游默认值。",
+          "after": "# Override the UI product name, tagline, and <meta description>. Leave blank for upstream defaults."
+        },
+        {
+          "before": "# 影响浏览器标签标题、meta 描述、登录页 Logo 文案、项目大厅顶部等所有用户可见",
+          "after": "# Affects browser tab titles, meta descriptions, login-page logo text, project-lobby headers, and all user-visible"
+        },
+        {
+          "before": "# 位置（包括 i18n 里 `[[brand]]` 占位符）— 详见 frontend/src/branding.ts。",
+          "after": "# locations (including the i18n `[[brand]]` placeholder); see frontend/src/branding.ts."
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "noncomment_content_preserved": true
+    },
+    {
+      "path": "frontend/knip.jsonc",
+      "before_sha256": "08a79cab1cd87ede719d66b93eabf9e93010c8f0cba2ac92a0214b656ca27e4d",
+      "after_sha256": "ebfec7a4b79b6649ac74cc154b319ec7a17cabf643163eadbc6f1b7b2e51384e",
+      "pairs": [
+        {
+          "before": "// shadcn 原语模块按成套 API 导出子组件（如 TooltipTrigger、DialogFooter），暂无调用方也要保留，",
+          "after": "// shadcn primitive modules export complete subcomponent APIs (e.g. TooltipTrigger, DialogFooter); retain unused exports,"
+        },
+        {
+          "before": "// 否则下次 `shadcn add --diff` 合并上游时会被当作本地删改。只豁免导出类问题；",
+          "after": "// or the next upstream merge through `shadcn add --diff` treats them as local deletions/edits. Exempt export issues only;"
+        },
+        {
+          "before": "// 未使用的原语文件与依赖照常报告，组件按需安装。",
+          "after": "// unused primitive files and dependencies are still reported; install components on demand."
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "parsed_JSONC_equal": true
+    },
+    {
+      "path": "website/.gitignore",
+      "before_sha256": "29fc46185268493d05ff1bac1d48f0f56d4b18f3d758a09876ebb32450071058",
+      "after_sha256": "2af3ecaf93756015455639c397ad90e8313afe9c8b39f3e8dcae2599f7b8131e",
+      "pairs": [
+        {
+          "before": "# Docusaurus 构建产物与缓存",
+          "after": "# Docusaurus build outputs and caches"
+        },
+        {
+          "before": "# 构建时从仓库根 CONTRIBUTING.md 复制而来（scripts/sync-contributing.mjs），真相源在仓库根",
+          "after": "# Copied at build time from repository-root CONTRIBUTING.md (scripts/sync-contributing.mjs); the root is authoritative."
+        },
+        {
+          "before": "# 依赖工具产物",
+          "after": "# Dependency-tool outputs"
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "noncomment_content_preserved": true
+    },
+    {
+      "path": "website/.prettierignore",
+      "before_sha256": "9fefabe2998cab94d694e3d0ff63ad0c2f60ac171dc42be102927296cae56833",
+      "after_sha256": "06bb57a018453abe8ec1679512fee2956eb9bb7163fef535c118f07c0c6d5ca6",
+      "pairs": [
+        {
+          "before": "# 文档正文与译文不参与格式化：",
+          "after": "# Exclude document bodies and translations from formatting:"
+        },
+        {
+          "before": "# - 重排会改写 translate-docs lockfile 记录的源文件哈希，把全部已完成译文误标为滞后",
+          "after": "# - Reflow changes source hashes recorded by the translate-docs lockfile, incorrectly marking all completed translations stale"
+        },
+        {
+          "before": "# - prettier 的 mdx parser 仍停留在 MDX v1 语义，可能改坏 Docusaurus 3 的 MDX v3 写法",
+          "after": "# - prettier still parses mdx with MDX v1 semantics and may damage Docusaurus 3 MDX v3 syntax"
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "noncomment_content_preserved": true
+    },
+    {
+      "path": "website/tsconfig.json",
+      "before_sha256": "81faf06fb6db117caacf246d28c5d8894a00ac3ce3725c18864fb1b5f175ca69",
+      "after_sha256": "b199b0b43a1bf88c680bd7c741377e799667f4ea9e1b4bc28aa9728915b3e807",
+      "pairs": [
+        {
+          "before": "// @docusaurus/tsconfig 在 compilerOptions 里设置 baseUrl，该选项自 TypeScript 6.0",
+          "after": "// @docusaurus/tsconfig sets baseUrl in compilerOptions; TypeScript 6.0"
+        },
+        {
+          "before": "// 起被标记为弃用（TS5101），不显式豁免则 typecheck 直接报错。",
+          "after": "// deprecates that option (TS5101), so typecheck fails without an explicit exemption."
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "parsed_JSONC_equal": true
+    },
+    {
+      "path": "website/eslint.config.mjs",
+      "before_sha256": "6da604918153b1f7314acaa88d6315f572e5df0fb1b709f28953f7962d360d71",
+      "after_sha256": "08619ebac66a1fd24f90dfd8acaac72bb21ab957b9d004ef8f0855c35daf94f4",
+      "pairs": [
+        {
+          "before": "// 与 frontend/eslint.config.js 规则集同构但刻意不共用：website 是独立包根，",
+          "after": "// Mirrors frontend/eslint.config.js rules but deliberately does not share them: website has an independent package root,"
+        },
+        {
+          "before": "// 其 typescript 钉在 5.x（见 .github/dependabot.yml 的说明），两边无法共享同一份",
+          "after": "// with typescript pinned to 5.x (see .github/dependabot.yml), so the two cannot share"
+        },
+        {
+          "before": "// 依赖与 tsconfig。改动规则时两份配置需要各自维护。",
+          "after": "// dependencies or tsconfig. Maintain both configurations separately when changing rules."
+        },
+        {
+          "before": "// TypeScript + typed linting（站点配置、sidebars 与 src/ 下的 swizzle 组件）",
+          "after": "// TypeScript + typed linting (site configuration, sidebars, and swizzled components under src/)"
+        },
+        {
+          "before": "// 构建脚本走 .mjs，不在上面那个 projectService 配置块的 files 范围内，拿不到类型",
+          "after": "// Build scripts use .mjs outside the preceding projectService files scope and lack type"
+        },
+        {
+          "before": "// 信息，typed 规则只会整片报错，故关闭。disableTypeChecked 自带 languageOptions，",
+          "after": "// information, causing blanket typed-rule errors; disable them. disableTypeChecked supplies languageOptions,"
+        },
+        {
+          "before": "// 必须与 globals 分成两个配置块，否则后者会被整体替换掉。",
+          "after": "// so keep it separate from globals or the latter is replaced entirely."
+        },
+        {
+          "before": "// swizzle 组件消费 @theme/* 与 @docusaurus/theme-common/internal。typed linting 对这两个",
+          "after": "// Swizzled components consume @theme/* and @docusaurus/theme-common/internal. Typed linting infers these two"
+        },
+        {
+          "before": "// 模块的推导不稳定：组件签名推导链路上的参数与返回值退化成 any，而 tsc 对同一段代码解析",
+          "after": "// modules unstably: parameters and returns along component-signature inference degrade to any, while tsc resolves the same code"
+        },
+        {
+          "before": "// 完整。于是 no-unsafe-* 在本目录只会产出假阳性——类型正确性由 typecheck 那道闸保证。",
+          "after": "// fully. Thus no-unsafe-* produces only false positives here; the typecheck gate verifies type correctness."
+        },
+        {
+          "before": "// 项目惯例：_ 前缀变量/参数视为有意忽略，不报 unused-vars",
+          "after": "// Repository convention: _-prefixed variables/parameters are intentionally ignored, without unused-vars errors"
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "TypeScript_printer_removeComments_equal": true,
+      "code_without_comments_sha256": "159906454057906f6f2bb80ea3202a96fd34af835f6b494784b32b1ea0be4c1f"
+    },
+    {
+      "path": "website/docusaurus.config.ts",
+      "before_sha256": "c5f41d99c44ac45df292d8b58ee642260506a7bd776bd588575902977cea6aa3",
+      "after_sha256": "5ddea57a47e9a2658c05a74afe0dd0b7f28c9207bc34e20d9abb720dcd2f6003",
+      "pairs": [
+        {
+          "before": "// .md 按 CommonMark 解析，只有 .mdx 走 MDX：文档正文里的 `<1.0.0`、`<域名>` 等",
+          "after": "// Parse .md as CommonMark and only .mdx as MDX: angle-bracket fragments such as `<1.0.0` and `<域名>` in documents"
+        },
+        {
+          "before": "// 尖括号片段在 MDX 下会被当成 JSX 而编译失败，且 CONTRIBUTING.md 还要在 GitHub 上原样可读",
+          "after": "// become JSX and fail MDX compilation; CONTRIBUTING.md must also remain readable unchanged on GitHub"
+        },
+        {
+          "before": "// 配合 @docusaurus/theme-mermaid，把 ```mermaid 围栏渲染成图",
+          "after": "// Render ```mermaid fences as diagrams with @docusaurus/theme-mermaid"
+        },
+        {
+          "before": "// docs-only 模式：文档直接挂在站点根，因此 src/pages/index.* 不能存在（路由冲突）",
+          "after": "// docs-only mode mounts documents at the site root, so src/pages/index.* must not exist (route conflict)"
+        },
+        {
+          "before": "// docs-only 模式下须与 docs 的 routeBasePath 一致，否则索引为空",
+          "after": "// In docs-only mode, match the docs routeBasePath or the index is empty"
+        }
+      ],
+      "noncomment_lines_and_commented_env_assignments_exact": true,
+      "TypeScript_printer_removeComments_equal": true,
+      "code_without_comments_sha256": "f477f2c527ec544e7eff32a2e6f21f0787979046250013d9a5f1d42ee503c976"
+    }
+  ],
+  "exceptions": [
+    "frontend/.env.example commented VITE brand/tagline/description sample assignments preserved byte-for-byte, including Chinese sample values.",
+    "Docusaurus title/tagline/navbar/footer/locale/default-language values unchanged.",
+    "All ignore globs and JSONC values unchanged.",
+    "Existing English prose retained, even where translated Chinese repeats it."
+  ],
+  "status": "Structural verification passed; independent semantic review pending; website gate rerun coordinator-owned."
+}

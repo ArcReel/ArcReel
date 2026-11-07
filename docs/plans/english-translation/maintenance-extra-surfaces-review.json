@@ -1,0 +1,26 @@
+{
+  "files": {
+    ".coderabbit.yaml": {
+      "classification": "comment-only English translation",
+      "parsed_yaml_equal": true,
+      "sha256": "88d168934c65251392ea42d3e5e0d935174e5c23372e374ca1b260c318e4697d"
+    },
+    ".claude/skills/translate-docs/SKILL.md": {
+      "classification": "already English; preserved product names, historical/literal Chinese examples",
+      "baseline_byte_equal": true,
+      "sha256": "2247a8c5aa46b109876e968e00f817465d7da58c48240c10eef0fa8eec159cdb"
+    }
+  },
+  "consumers": [
+    "CodeRabbit repository configuration with inheritance=true and no local language override",
+    "scripts/audit_conventions.py generated standards block",
+    ".claude/skills/translate-docs/scripts/translation-lock.mjs forward targetForSource mapping",
+    "website sync-contributing and Docusaurus locale/build pipeline"
+  ],
+  "public_pipeline": "Chinese sources remain canonical, English targets derived forward; no workflow execution, writes to translation locks, push, PR, or messaging",
+  "independent_review": {
+    "reviewer": "root",
+    "result": "PASS",
+    "scope": "All three changed YAML comments compared with original; generated block and parsed configuration preserved. Translation skill independently byte-compared with Git baseline, retaining the original English instructions and Chinese fixtures."
+  }
+}

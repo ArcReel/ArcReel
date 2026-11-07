@@ -85,7 +85,7 @@ describe("ProviderAssetUploadDialog", () => {
     expect(await screen.findByText("可用")).toBeInTheDocument();
     expect(screen.getByText("素材 ID：asset-1")).toBeInTheDocument();
     const calls = getLinks.mock.calls.length;
-    // 有定论后不再轮询
+    // Stop polling after conclusive outcomes.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LINK_POLL_INTERVAL_MS * 2);
     });
@@ -146,7 +146,7 @@ describe("ProviderAssetUploadDialog", () => {
     );
 
     renderDialog();
-    // 摘要只说原因与出路，供应商原文折叠在详情里
+    // Summaries explain causes/remedies only; provider originals collapse into details.
     expect(await screen.findByText("供应商未完成入库。解除关联后可以重新上传。")).toBeInTheDocument();
     expect(screen.queryByText(/InputImageSensitiveContentDetected/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "详情" }));

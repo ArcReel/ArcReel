@@ -2,19 +2,19 @@
 status: accepted
 ---
 
-# 文本 backend 按任务档位配置：简单 / 复杂两档 + 默认回退
+# Configure text backends by task tier: simple / complex with default fallback
 
-文本管道（TextGenerator）的调用点覆盖剧本生成、分集规划、script_plan 内容抽取 / 拆分（drama / narration / reference_video）、项目概述、风格图分析，且随功能演进持续新增。若模型设置项与调用点一一对应，配置面随调用点线性膨胀，新增调用点要么再开一项、要么落在既有设置之外成为用户不可见的模型来源。决定按**任务档位**配置：每个调用点在代码里固定归属 **简单** / **复杂** 一档（简单 = 项目概述、风格图分析；复杂 = 剧本生成、分集规划、全部 script_plan），用户只配置「每档用哪个文本 backend」+ 一个「默认模型」兜底；档位未设置回退默认模型，默认模型未设置走自动推断。解析顺序**项目优先**：项目档位 > 项目默认模型 > 全局档位 > 全局默认模型 > 自动推断——「项目默认模型」读作「本项目整体用它」，可被更具体的项目档位覆盖，但遮蔽全局配置。
+Text-pipeline (TextGenerator) call sites cover script generation, episode planning, script_plan content extraction / splitting (drama / narration / reference_video), project overviews, and style-image analysis, and continue growing as features evolve. If model settings correspond one-to-one to call sites, the configuration surface grows linearly: each new call site either adds a setting or becomes a model source outside existing settings and invisible to users. Configure by **task tier** instead: code fixes each call site to either **simple** or **complex** (simple = project overviews and style-image analysis; complex = script generation, episode planning, and all script_plan tasks). Users configure only "which text backend each tier uses" plus a fallback "default model"; an unset tier falls back to the default model, and an unset default model uses automatic inference. Resolution is **project-first**: project tier > project default model > global tier > global default model > automatic inference. "Project default model" means "use this for this project as a whole": a more specific project tier can override it, but it shadows global configuration.
 
-## 明确不采用
+## Explicitly rejected
 
-- **按任务类型逐键配置**：设置项随调用点增多失控；实践中新增调用点并不会同步开设置项，最终漂移为部分调用点模型来源不可配置、不可见。
-- **简单 / 中等 / 复杂三档**：现有调用点在「中等」与「复杂」之间没有稳定的区分度，两档已覆盖全部实际决策需要；档位数本身就是配置面，从紧不从宽。
-- **档位同时映射 Claude Agent SDK 的模型**：Agent SDK 仅接受 Anthropic 协议兼容凭证，而档位可指向任意 text_backends 供应商，二者合并会产生「档位选了 agent 用不了的模型」的非法状态。Agent 对话与 subagent 推理的模型仍由 Agent 供应商配置决定（见 `docs/adr/0017`），设置页在文本档位旁注明这一边界。
-- **维度优先的解析顺序**（项目档位 > 全局档位 > 项目默认 > 全局默认）：全局档位一旦配置齐全，项目默认模型永远不生效，该字段形同虚设。
+- **Configuring separate keys by task type**: settings grow uncontrollably with call sites; in practice, new call sites do not receive settings in step, eventually leaving some call sites with invisible, unconfigurable model sources.
+- **Three tiers: simple / medium / complex**: current call sites have no stable distinction between "medium" and "complex," and two tiers cover all actual decision needs. The number of tiers is itself configuration surface, so keep it constrained.
+- **Mapping tiers to Claude Agent SDK models as well**: Agent SDK accepts only Anthropic-protocol-compatible credentials, whereas tiers can point to any text_backends provider. Combining them would create the invalid state "the tier selects a model the agent cannot use." Agent-conversation and subagent-reasoning models remain determined by agent-provider configuration (see `docs/adr/0017`); the settings page explains this boundary beside text tiers.
+- **Dimension-first resolution** (project tier > global tier > project default > global default): once global tiers are fully configured, the project default model never takes effect, making that field meaningless.
 
 ## Consequences
 
-- 档位映射是代码事实、用户不可改：新增文本调用点必须显式归档（TextTaskType → 档位映射带穷举校验），不允许出现绕过档位解析的文本生成调用。
-- 简单档承载风格图分析，该档模型须支持图像输入（vision）；解析时能力不满足直接报错，不做静默换模型。
-- 每档覆盖的调用点清单在设置页以常驻说明呈现（全局设置 / 项目设置 / 创建向导三处同源组件）；覆盖范围变更须同步更新说明文案（zh / en / vi）。
+- Tier mappings are code facts that users cannot change: every new text call site must explicitly belong to a tier (the TextTaskType → tier mapping has exhaustiveness checks). Text-generation calls must not bypass tier resolution.
+- The simple tier handles style-image analysis, so its model must support image input (vision). Fail immediately during resolution if capability is insufficient; do not silently switch models.
+- Settings pages display a persistent explanation listing the call sites covered by each tier (a shared-source component in global settings / project settings / the creation wizard). Coverage changes must update the explanatory copy in step (zh / en / vi).

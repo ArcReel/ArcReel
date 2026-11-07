@@ -8,8 +8,8 @@ const INCOMPATIBLE_KEY: Record<DurationOutOfRangeReason, string> = {
 };
 
 /**
- * 时长不在档位内的说明。文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图
- * 路径的联动约束收窄掉时说清是哪一条，用户据此改对应设置。
+ * Explain unsupported duration tiers by cause: say the model does not support a value only when absent from its complete tier set; when resolution/reference
+ * constraints narrow it out, identify the constraint so users can change the corresponding setting.
  */
 export function durationIncompatibleLabel(
   t: TFunction,

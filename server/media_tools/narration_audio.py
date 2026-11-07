@@ -1,10 +1,9 @@
 """Host-neutral tool for narration audio (TTS) generation.
 
-工具返回文本是 agent-facing（免 i18n）；显示名在 ``ARCREEL_MCP_TOOL_IDS`` 注册、补三语。
+Tool response text is Agent-facing, without i18n; register display names in ``ARCREEL_MCP_TOOL_IDS`` with all three translations.
 
-missing-only 选择只服务于用户显式要求生成旁白配音的这个入口：后期配音的视频请求
-不经过这里，缺少 TTS 在那条路径上既不自动补齐，也不算工作流缺口。
-"""
+Missing-only selection serves this entry point for explicit user requests for narration audio. Post-production-voiceover
+video requests do not pass here; missing TTS is neither filled automatically nor treated as a workflow gap on that path."""
 
 from __future__ import annotations
 
@@ -130,10 +129,10 @@ def _candidates(
 class GenerateNarrationAudioRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: ScriptFilename = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    script: ScriptFilename = Field(description="Script filename only (no directory), for example episode_1.json")
     segment_ids: RequestedIds | SkipJsonSchema[None] = Field(
         default=None,
-        description="当前剧本骨架的单元 ID 列表；省略则只选缺旁白配音的 narrator 单元",
+        description="Unit IDs in the current script skeleton; omit to select only narrator units missing narration audio",
     )
 
 
@@ -173,7 +172,7 @@ async def generate_narration_audio(
         )
 
         def select_targets() -> tuple[ArtifactCurrencyResolver, GenerationSelection, dict[str, GenerationProblem]]:
-            # 建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
+            # Currency-resolver construction and content-based currency checks use synchronous file I/O and hashing.
             resolver = active_artifact_currency_resolver(
                 services.projects.get_project_path(scope.project_name), project
             )

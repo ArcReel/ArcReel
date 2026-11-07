@@ -1,0 +1,38 @@
+[
+  {
+    "path": "lib/script/grid/grid_resolution.py",
+    "candidate_sha256": "d27d3d213533df19a00df980f6e96c8c52095926d5930f0bd0571feb1b729fba",
+    "executable_ast_equal": true,
+    "scope": "Residual function docstrings and maintenance comments, no model schemas or tool descriptions"
+  },
+  {
+    "path": "lib/script/reference_video/execution_checkpoint.py",
+    "candidate_sha256": "2bffe41b5e297d7cb6af356a4b95834311c4ced60d73aa62eeeeab59ec2f4bbe",
+    "executable_ast_equal": true,
+    "scope": "Residual function docstrings and maintenance comments, no model schemas or tool descriptions"
+  },
+  {
+    "path": "lib/script/reference_video/provider_asset_links.py",
+    "candidate_sha256": "d543f047034fbee5436cb473cad9795116edf7ac95adacbd36244043ef283987",
+    "executable_ast_equal": true,
+    "scope": "Residual function docstrings and maintenance comments, no model schemas or tool descriptions"
+  },
+  {
+    "path": "lib/script/reference_video/text_parser.py",
+    "candidate_sha256": "54e8e0e7fba119af9e628a5e17e9deb2c9bdc99f117c5e01f888383fb85e29f8",
+    "executable_ast_equal": true,
+    "scope": "Residual function docstrings and maintenance comments, no model schemas or tool descriptions"
+  },
+  {
+    "path": "lib/script/reference_video/unit_capabilities.py",
+    "candidate_sha256": "5a1ea717282e3fc85a9994872846824ffefcba7fe25769a38ec15b0792e44a2c",
+    "executable_ast_equal": true,
+    "scope": "Residual function docstrings and maintenance comments, no model schemas or tool descriptions"
+  },
+  {
+    "path": "lib/script/source_loader/epub.py",
+    "candidate_sha256": "ae6414e1ace8581014cdde87f146651853a1b8078c1ac9301241d9ee15c61691",
+    "executable_ast_equal": true,
+    "scope": "Residual function docstrings and maintenance comments, no model schemas or tool descriptions"
+  }
+]

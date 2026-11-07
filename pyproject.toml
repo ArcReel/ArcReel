@@ -8,12 +8,12 @@ requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.2.153",
     "fastapi>=0.138.2",
-    # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
+    # ASGI types and MutableHeaders / FormData / UploadFile not re-exported by fastapi come directly from starlette.
     "starlette>=1.8.0",
     "google-genai>=2.21.0",
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
-    # pydantic 未 re-export 的 ErrorDetails / PydanticCustomError 直接取自 pydantic-core。
+    # ErrorDetails / PydanticCustomError not re-exported by pydantic come directly from pydantic-core.
     "pydantic-core>=2.46.4",
     "PyYAML>=6.0.3",
     "python-dotenv>=1.2.1",
@@ -47,9 +47,9 @@ dependencies = [
     "jinja2>=3.1.6",
     "arcreel-market-core",
     "arcreel-catalog-core",
-    # 随包分发的 ffmpeg，经 lib/infra/ffmpeg.py 的查找器取用；不依赖系统 ffmpeg / ffprobe。
+    # Bundled ffmpeg, accessed through the lib/infra/ffmpeg.py locator; no system ffmpeg / ffprobe dependency.
     "imageio-ffmpeg>=0.6.0",
-    # 1.x 改用 httpx2，respx 与基于 httpx 的自定义 transport 拦截不到；约束见 docs/agents/dependencies.md。
+    # 1.x uses httpx2, bypassing respx and httpx-based custom transports; constraints: docs/agents/dependencies.md.
     "anthropic>=0.125.0,<1",
     "tos>=2.9.3",
 ]
@@ -72,8 +72,8 @@ dev = [
     "blockbuster>=1.5.29",
     "anyio>=4.14.2",
 ]
-# 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
-# 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
+# Mutation-testing tool, outside dev: install with `uv sync --group mutation` only for batch mutmut runs.
+# A separate group pins its version in uv.lock for dependabot visibility; process: docs/testing/mutmut-runbook.md.
 mutation = [
     "mutmut==3.7.0",
 ]
@@ -96,21 +96,21 @@ packages = ["lib", "server"]
 testpaths = ["tests"]
 addopts = "--strict-markers --durations=25"
 asyncio_mode = "auto"
-# 卡死保护，不是耗时预算：当前最慢用例 30s，留 4 倍余量。个别用例需要更大预算时用
-# `@pytest.mark.timeout(N)` 单独放宽，不抬全局值。
+# Hang protection, not a runtime budget: the slowest current test takes 30s; allow 4x headroom. If an individual test
+# needs more, relax it with `@pytest.mark.timeout(N)` rather than raising the global value.
 timeout = 120
-# signal 法对 async 与 sync 用例均生效，超时表现为普通 failure（会话继续、teardown
-# 正常、可归因）；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash。
+# signal works for async and sync tests; timeouts are ordinary failures (session continues, teardown
+# runs normally, attribution remains possible). thread hard-kills with os._exit, equivalent to worker crashes under xdist.
 timeout_method = "signal"
-# 并行不写进 addopts，只在 CI 命令里显式开（-n 4 --dist loadfile）：小选集并行更慢，
-# 每 worker 重新 import server.app 的固定开销吃掉全部收益，而本地调试几乎都是小选集。
+# Keep parallelism out of addopts; enable it explicitly only in CI (-n 4 --dist loadfile). Small selections are slower in parallel:
+# each worker reimports server.app, whose fixed cost consumes all benefit; local debugging mostly uses small selections.
 markers = [
-    "unit: 快速、隔离的测试；可只读访问仓库内已提交的文件，写文件只落在 tmp_path，不触达真实 DB、子进程、网络或外部服务",
-    "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
-    "e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过",
-    "sqlite_only: 仅适用于 SQLite 的测试（依赖 SQLite 特定 fixture / 行为，PG CI job 会跳过）",
-    "uses_db: 触达真实数据库的测试（repo/DAO/ORM/迁移）；PG job 用 `-m uses_db` 选集合。由 conftest 根据 fixture 使用自动注入",
-    "local_port: 绑定 127.0.0.1 端口的测试；在禁止绑定本地端口的环境（如 Agent 沙箱）中由 conftest 跳过并给出原因",
+    "unit: Fast, isolated tests; may read committed repository files; writes stay in tmp_path, without real databases, subprocesses, networks, or external services",
+    "integration: Real collaboration across modules; do not mock the tested module's public entry points (that would test the mock itself)",
+    "e2e: End-to-end tests requiring real external resources (remote APIs, model calls, heavy ffmpeg, etc.); skipped by default in CI",
+    "sqlite_only: SQLite-specific tests (requiring SQLite-specific fixtures/behavior); skipped by the PostgreSQL CI job",
+    "uses_db: Tests accessing real databases (repositories/DAOs/ORM/migrations); PostgreSQL jobs select them with `-m uses_db`. Automatically injected by conftest based on fixture use",
+    "local_port: Tests binding 127.0.0.1 ports; conftest skips these with a reason where local port binding is forbidden (e.g. Agent sandboxes)",
 ]
 
 [tool.coverage.run]
@@ -126,23 +126,23 @@ exclude_lines = [
 ]
 
 [tool.importlinter]
-# server 进入分析范围，「核心库不依赖服务端」才看得见跨包的边；arcreel_market_core 进入分析范围，
-# 「子包不依赖主仓」才看得见它指向 lib / server 的边。外部包只作叶子节点计入，供「核心库不依赖
-# HTTP 框架」点名 fastapi / starlette。
+# Include server in analysis to expose cross-package edges for the core-library/server boundary; include arcreel_market_core
+# to expose its edges to lib / server for the subpackage/main-repository boundary. External packages count only as leaves,
+# allowing the core-library/HTTP-framework rule to name fastapi / starlette.
 root_packages = ["lib", "server", "arcreel_market_core", "arcreel_catalog_core"]
 include_external_packages = true
 
-# lib.config < lib.backends.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
-# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market（市场的客户端侧：
-# 源登记、条目服务、安装记录）把条目装成自定义端点，位于最上层。四层都在 arcreel_market_core 之上，
-# 子包是最底层，见下方「arcreel_market_core 不依赖主仓」。四个 backend 包为同层 sibling（`:` 分隔），彼此引用
-# 契约（如图像通道取 video_backends.base 的 IMAGE_MIME_TYPES）不算方向违规；共用的运行支持在
-# lib.backends.backend_runtime，不属于任何一层。
-# ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
-# （project_manager / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
-# 新增条目前先确认该边无法就地清零；清零一条即删一行。
+# lib.config < lib.backends.*_backends < lib.custom_provider < lib.market: config is the configuration-parsing base; backends
+# assembles provider implementations above it; custom_provider assembles custom providers above backends; market (client-side
+# source registration, entry services, installation records) assembles entries into custom endpoints at the top. All four layers sit above arcreel_market_core,
+# the bottommost subpackage; see its no-main-repository dependency rule below. The four backend packages are sibling layers (`:` separated); references to
+# sibling contracts (e.g. image channels using video_backends.base IMAGE_MIME_TYPES) do not violate direction. Shared runtime support lives in
+# lib.backends.backend_runtime, outside all layers.
+# ignore_imports records existing violations; each exemption cuts the **terminal edge of the violating chain**, not its first hop, so
+# later reverse dependencies in intermediate modules (project_manager / usage_repo etc.) remain blocked by the contract.
+# Before adding an entry, confirm the edge cannot be eliminated locally; remove each line as its violation is eliminated.
 [[tool.importlinter.contracts]]
-name = "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 分层契约"
+name = "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market layering contract"
 type = "layers"
 layers = [
     "market",
@@ -152,30 +152,30 @@ layers = [
 ]
 containers = ["lib"]
 ignore_imports = [
-    # lib.config.resolver 直接向上引用自定义供应商装配层（函数体内延迟导入，静态分析仍计入）
+    # lib.config.resolver directly references the custom-provider assembly layer above it (lazy function-body imports still count in static analysis).
     "lib.config.resolver -> lib.custom_provider",
     "lib.config.resolver -> lib.custom_provider.capabilities",
     "lib.config.resolver -> lib.custom_provider.default_models",
     "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     "lib.config.resolver -> lib.custom_provider.model_facts",
-    # lib.config.resolver 直接向上引用 backend 层
+    # lib.config.resolver directly references the backend layer above it.
     "lib.config.resolver -> lib.backends.text_backends.base",
-    # 中间模块把 backend 层拉回 config 之下的可达范围
+    # Intermediate modules make the backend layer reachable from below config.
     "lib.backends.backend_assembly.specs -> lib.backends.audio_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.image_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.text_backends.registry",
-    # 声明式内置端点的装配接缝（ADR 0039）：spec 行按 registry_backend="declarative" 从
-    # 随版定义读能力与构造 backend，spec 表因此同时够到 backend 层与 custom_provider 层。
+    # Declarative built-in endpoint assembly seam (ADR 0039): spec rows with registry_backend="declarative" read
+    # capabilities and construct backends from shipped definitions, so the spec table reaches both backend and custom_provider layers.
     "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.declarative_backend",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.endpoints",
-    # 内置供应商下用户添加的模型叠加通道事实的能力覆盖，与自定义供应商共用同一个合并点（docs/adr/0104）
+    # Capability overrides combining user-added models under built-in providers with channel facts share the custom-provider merge point (docs/adr/0104).
     "lib.backends.backend_assembly.specs -> lib.custom_provider.capabilities",
     "lib.project.project_manager -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.factory",
-    # 中间模块反向引用 custom_provider（provider_id 解析与自定义供应商记账）
+    # Intermediate modules reference custom_provider in reverse (provider_id resolution and custom-provider accounting).
     "lib.backends.backend_assembly.assembler -> lib.custom_provider",
     "lib.backends.backend_assembly.assembler -> lib.custom_provider.loader",
     "lib.billing.multipliers -> lib.custom_provider",
@@ -186,15 +186,15 @@ ignore_imports = [
     "lib.db.models.custom_provider -> lib.custom_provider",
 ]
 
-# ComfyUI 端点定义不经声明式运行时（docs/adr/0081）：两种 kind 的定义不同构，共用的只有诊断载体、
-# 诊断翻译与 kind 常量三件事。comfyui 一侧一旦够到声明式的模板引擎、取值路径或它的校验实现，就是把
-# 「JSON in/out + 提交 / 轮询」的假设搬进节点图这一侧，保存期与填值期从此各说各话。反向也不许：
-# 分派表在 endpoint_definition.validator，它 import comfyui.validator 是唯一允许的方向。
-# comfyui 一侧有两处：定义契约与保存期判定在 arcreel_market_core.comfyui，客户端、执行与两条调用通道
-# 在 lib.custom_provider.comfyui。连间接依赖一起查：它们用到的调用通道运行支持
-# （lib.backends.backend_runtime）与视频契约（arcreel_market_core.video_backend_contract）都够不到声明式运行时。
+# ComfyUI endpoint definitions bypass the declarative runtime (docs/adr/0081): the two kinds have different structures, sharing only diagnostic
+# carriers, diagnostic translation, and kind constants. If comfyui reaches the declarative template engine, value paths, or its validator,
+# it imports the JSON in/out + submit/poll assumptions into node graphs, making save-time and fill-time judgments diverge. Reverse dependencies are forbidden too:
+# endpoint_definition.validator owns the dispatch table; its import of comfyui.validator is the only allowed direction.
+# The comfyui side has two parts: definition contracts/save-time decisions in arcreel_market_core.comfyui, and client/execution/two call channels
+# in lib.custom_provider.comfyui. Check indirect dependencies too: their channel runtime support
+# (lib.backends.backend_runtime) and video contracts (arcreel_market_core.video_backend_contract) must not reach the declarative runtime.
 [[tool.importlinter.contracts]]
-name = "ComfyUI 端点实现不依赖声明式运行时"
+name = "ComfyUI endpoint implementations do not depend on the declarative runtime"
 type = "forbidden"
 source_modules = ["lib.custom_provider.comfyui", "arcreel_market_core.comfyui"]
 forbidden_modules = [
@@ -205,33 +205,33 @@ forbidden_modules = [
     "arcreel_market_core.endpoint_definition.jsonpath_subset",
 ]
 
-# arcreel_market_core 是最底层：市场源工具与端点定义校验器被市场源仓库的 CI 与官方服务单独安装，
-# 装不到 ArcReel 应用的其余部分。子包需要应用侧能力（翻译目录、共享 HTTP 客户端）时由调用方以参数
-# 注入，主仓依赖子包，反向一律不许。
+# arcreel_market_core is bottommost: market-source tools and endpoint-definition validators are installed separately by market-source CI and the official service,
+# which cannot install the rest of the ArcReel application. When the subpackage needs application capabilities (translation catalogs, shared HTTP clients), callers
+# inject them as parameters. The main repository depends on the subpackage; the reverse direction is always forbidden.
 [[tool.importlinter.contracts]]
-name = "arcreel_market_core 不依赖主仓"
+name = "arcreel_market_core does not depend on the main repository"
 type = "forbidden"
 source_modules = ["arcreel_market_core"]
 forbidden_modules = ["lib", "server"]
 
-# arcreel_catalog_core 同为最底层：目录数据的格式与校验器被目录数据仓库的 CI 单独安装，
-# 只依赖标准库，主仓依赖子包，反向一律不许。
+# arcreel_catalog_core is also bottommost: catalog-data formats and validators are installed separately by catalog-data repository CI;
+# it depends only on the standard library. The main repository depends on the subpackage; the reverse direction is always forbidden.
 [[tool.importlinter.contracts]]
-name = "arcreel_catalog_core 不依赖主仓"
+name = "arcreel_catalog_core does not depend on the main repository"
 type = "forbidden"
 source_modules = ["arcreel_catalog_core"]
 forbidden_modules = ["lib", "server", "arcreel_market_core"]
 
-# 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
-# （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
-# 构造入口（reference_catalog）对 drama / narration / reference_video 一视同仁，任一处
-# import lib.script.reference_video 都是把三条路线共用的机制绑在其中一条上。
-# lib.script.script_review 不在列：它另有一条 lib.script.reference_video.duration_migration 的依赖（参考
-# 生视频专属的时长收编），纳入就要加 baseline 掩盖，那等于让契约声明一件它此刻并不成立的事。
-# lib.script.script_references 同理不在列：它按设计依赖 lib.script.reference_video.text_parser——「引用名落在
-# 载荷哪些位置」里有一类是正文的 @[名称] 记号，识别它的解析器只此一份。
+# Route-neutral layers must not depend on one specific route subpackage. Violation-entry types (draft_violation), draft envelopes
+# (draft_quarantine), formal script_plan paths/write-deny lists (episode_paths), and registered-reference-name
+# constructors (reference_catalog) treat drama / narration / reference_video equally. Any
+# import lib.script.reference_video ties mechanisms shared by all three routes to just one.
+# lib.script.script_review is excluded: it separately depends on lib.script.reference_video.duration_migration (reference-to-video
+# duration adoption); including it would require a masking baseline, making the contract declare something currently untrue.
+# lib.script.script_references is likewise excluded: it intentionally depends on lib.script.reference_video.text_parser; one category of reference-name
+# payload locations uses body @[名称] markers, and only this parser recognizes them.
 [[tool.importlinter.contracts]]
-name = "路线中立层不依赖参考生视频子包"
+name = "Route-neutral layer does not depend on the reference-video subpackage"
 type = "forbidden"
 source_modules = [
     "lib.script.draft_violation",
@@ -241,37 +241,37 @@ source_modules = [
 ]
 forbidden_modules = ["lib.script.reference_video"]
 
-# 视频请求事实是两条视频路线共用的求值入口（docs/adr/0086），不得直接 import 参考生视频子包。
-# 本契约只检查直接依赖，不检查经 lib.config.resolver → lib.project.project_manager 的间接项目加载链。
+# Video request facts are the shared evaluation entry point for both video routes (docs/adr/0086); they must not directly import the reference-to-video subpackage.
+# This contract checks direct dependencies only, not the indirect project-loading chain through lib.config.resolver → lib.project.project_manager.
 [[tool.importlinter.contracts]]
-name = "视频请求事实不依赖参考生视频子包"
+name = "Video-request facts do not depend on the reference-video subpackage"
 type = "forbidden"
 source_modules = ["lib.generation.video_request_facts"]
 forbidden_modules = ["lib.script.reference_video"]
 allow_indirect_imports = true
 
-# 核心库与服务端的分界（website/docs/dev/architecture.md「核心库与服务端的分界」）：核心库是领域逻辑与
-# 基础设施，服务端是交付层与多入口共用的用例编排，依赖只能由服务端指向核心库。核心库需要服务端的
-# 能力时（如生成 Worker 的任务执行器与续跑执行器），由应用装配处（server/app.py）注入。
+# Core-library/server boundary (website/docs/dev/architecture.md, core-library/server boundary): the core library owns domain logic and
+# infrastructure; the server owns delivery and use-case orchestration shared by multiple entry points. Dependencies run only from server to core library. When core needs server
+# capabilities (e.g. generation Worker task/resume executors), inject them at application assembly (server/app.py).
 [[tool.importlinter.contracts]]
-name = "核心库不依赖服务端"
+name = "Core library does not depend on the server"
 type = "forbidden"
 source_modules = ["lib"]
 forbidden_modules = ["server"]
 
-# 核心库不知道 HTTP 的存在：请求级的语言解析、依赖注入等框架胶水归服务端（server.i18n 等）。
-# 只查核心库自己写下的 import——经由服务端间接够到框架的链已由上一条契约拦住。
+# The core library knows nothing about HTTP: request-language resolution, dependency injection, and other framework glue belong to the server (server.i18n etc.).
+# Check only imports written by the core library itself; the preceding contract already blocks indirect framework access through server.
 [[tool.importlinter.contracts]]
-name = "核心库不依赖 HTTP 框架"
+name = "Core library does not depend on HTTP frameworks"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["lib"]
 forbidden_modules = ["fastapi", "starlette"]
 
-# Agent 工具集的声明、信封与 handler 宿主无关（docs/adr/0087）：宿主 SDK 只出现在内嵌与远程两个 adapter 里。
-# 只查这些模块自己写下的 import。
+# Agent tool declarations, envelopes, and handlers are host-independent (docs/adr/0087); host SDKs appear only in embedded and remote adapters.
+# Check only imports written by these modules themselves.
 [[tool.importlinter.contracts]]
-name = "Agent 工具集声明不依赖宿主 SDK"
+name = "Agent toolset declarations do not depend on the host SDK"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
@@ -303,39 +303,39 @@ source_modules = [
 forbidden_modules = ["claude_agent_sdk", "mcp"]
 
 [tool.deptry]
-# 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
-# exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录。
+# Match basedpyright include: core library, server, migration infrastructure, scripts, and tests.
+# exclude takes deptry defaults minus tests (test imports also undergo dependency hygiene checks), plus worktree directories.
 exclude = ["venv", "\\.venv", "\\.direnv", "\\.git", "setup\\.py", "\\.worktrees", "\\.claude/worktrees"]
 known_first_party = ["lib", "server", "alembic", "scripts", "tests"]
 
 [tool.deptry.per_rule_ignores]
-# DEP002（声明了但无 import）——全部是靠 entry point / 后端注册被运行时加载的插件，
-# 源码里不会出现 import。
+# DEP002 (declared but not imported): all are plugins loaded at runtime through entry points / backend registration;
+# no import appears in source.
 DEP002 = [
-    "aiosqlite",        # SQLAlchemy 的 sqlite+aiosqlite 异步驱动
-    "asyncpg",          # SQLAlchemy 的 postgresql+asyncpg 异步驱动
-    "python-multipart", # Starlette 解析 multipart/form-data 的后端
-    "socksio",          # httpx 的 SOCKS 代理传输后端
-    "lxml",             # BeautifulSoup 的 lxml / lxml-xml 解析器后端
-    "mutmut",           # 变异测试 CLI，源码不 import 它；变异后的模块只在 mutants/ 副本里 import
-    "pytest-testmon",   # pytest 插件，经 entry point 加载；按改动选测试，用法见 docs/agents/testing.md
+    "aiosqlite",        # SQLAlchemy sqlite+aiosqlite async driver
+    "asyncpg",          # SQLAlchemy postgresql+asyncpg async driver
+    "python-multipart", # Starlette multipart/form-data parsing backend
+    "socksio",          # httpx SOCKS proxy transport backend
+    "lxml",             # BeautifulSoup lxml / lxml-xml parser backend
+    "mutmut",           # Mutation-test CLI, not imported by source; mutated modules import it only in mutants/ copies
+    "pytest-testmon",   # Entry-point-loaded pytest plugin; selects tests by changes; usage: docs/agents/testing.md
 ]
-# DEP004（import 了 dev 依赖）——tests/ 与 scripts/ 在扫描范围内，deptry 无法按目录区分
-# dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
+# DEP004 (importing dev dependencies): tests/ and scripts/ are scanned; deptry cannot distinguish dev from production files
+# by directory, so explicitly list their legitimate testing-framework imports. Other dev dependencies remain protected.
 DEP004 = [
-    "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
-    "pytest",         # 测试框架
-    "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
-    "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
-    "respx",          # httpx 的测试替身
-    "blockbuster",    # 事件循环阻塞检测，tests/blocking_guard 护栏的拦截点来源
+    "anyio",          # Regression tests directly construct the anyio cancellation scopes used by httpx
+    "pytest",         # Test framework
+    "_pytest",        # pytest internals; root conftest reuses its selection-argument parser
+    "pytest_asyncio", # pytest asyncio plugin; tests directly use @pytest_asyncio.fixture (this rule matches module names)
+    "respx",          # httpx test double
+    "blockbuster",    # Event-loop blocking detection; source of tests/blocking_guard interception points
 ]
 
 [tool.ruff]
 line-length = 120
-# 子包是 src 布局：列进 src 让 isort 把 arcreel_market_core、arcreel_catalog_core 识别为第一方。
+# Subpackages use src layouts: include them in src so isort recognizes arcreel_market_core and arcreel_catalog_core as first-party.
 src = [".", "packages/arcreel-market-core/src", "packages/arcreel-catalog-core/src"]
-# .agents/skills 是按 skills-lock.json 安装的外部 skill，随上游更新，不套本仓规则。
+# .agents/skills contains external skills installed according to skills-lock.json, updated from upstream and exempt from repository rules.
 exclude = [".worktrees", ".claude/worktrees", ".agents/skills"]
 
 [tool.ruff.lint]
@@ -343,26 +343,26 @@ select = [
     "E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC",
     "TID251", "PLW1514", "S108", "S602", "S604", "S605", "S607",
 ]
-# RUF001-003：中文注释与文案里的全角标点被判为「易混淆 unicode」，对中文仓库是纯噪音。
+# RUF001-003 treat full-width punctuation in Chinese comments/copy as confusable Unicode, producing only noise for Chinese text.
 ignore = ["E402", "E501", "RUF001", "RUF002", "RUF003"]
-# PLW1514 只在 preview 中提供，explicit-preview-rules 保证其他规则不受 preview 影响。
+# PLW1514 is preview-only; explicit-preview-rules keeps other rules unaffected by preview.
 preview = true
 explicit-preview-rules = true
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"os.O_NOFOLLOW".msg = "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」"
-"os.O_DIRECTORY".msg = "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」"
-"os.O_NONBLOCK".msg = "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」"
-"asyncio.create_subprocess_shell".msg = "命令经 shell 解析，Windows 上行为不同且有注入风险。改用 asyncio.create_subprocess_exec 并传 list 参数"
+"os.O_NOFOLLOW".msg = "Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\"."
+"os.O_DIRECTORY".msg = "Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\"."
+"os.O_NONBLOCK".msg = "Unavailable on Windows. Read values with getattr(os, \"<名>\", 0); for untrusted paths without O_NOFOLLOW, see docs/standards/backend.md, \"Without `O_NOFOLLOW`, verify file identity after opening untrusted paths\"."
+"asyncio.create_subprocess_shell".msg = "Commands are parsed by the shell, behave differently on Windows, and carry injection risks. Use asyncio.create_subprocess_exec with list arguments instead."
 
 [tool.ruff.lint.per-file-ignores]
-# 测试里的 /tmp 是假路径字符串，测试调用 git 依赖 PATH 是预期行为。
+# /tmp in tests is a fake path string; test git calls intentionally depend on PATH.
 "tests/**" = ["S108", "S607"]
-# 子包测试与主仓 tests/ 同一口径。
+# Apply the same rules to subpackage tests as main-repository tests/.
 "packages/*/tests/**" = ["S108", "S607"]
 
 [tool.ruff.lint.flake8-bugbear]
-# FastAPI 依赖注入以「参数默认值处调用」为惯用法，B008 对其属误报；登记后无需逐处 noqa。
+# FastAPI conventionally calls dependencies in parameter defaults, making B008 a false positive; registration avoids per-site noqa.
 extend-immutable-calls = [
     "fastapi.Body",
     "fastapi.Cookie",
@@ -412,8 +412,8 @@ reportUnusedImport = "warning"
 reportUnusedVariable = "warning"
 reportUnusedClass = "warning"
 reportUnusedFunction = "warning"
-# reportUnreachable 在回调赋值上会误报：basedpyright 不跟踪回调里的赋值，`x: T | None = None` 配 `nonlocal` 会让外层的空值判定被当成恒真、随后的分支被判不可达。
-# 这类告警改用单元素列表当信箱（`box: list[T] = []`，回调里 append，外层读 box[0]），不要删除被误判的分支，也不要加忽略注释。
+# reportUnreachable produces false positives for callback assignments: basedpyright does not track them; `x: T | None = None` plus `nonlocal` makes the outer null check appear always true and the next branch unreachable.
+# Use a single-element list as a mailbox instead (`box: list[T] = []`, append in the callback, read box[0] outside); do not delete the falsely flagged branch or add ignore comments.
 reportUnreachable = "warning"
 reportDeprecated = "warning"
 
@@ -436,9 +436,9 @@ reportPrivateUsage = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownVariableType = "none"
-# 以下规则在测试域不做闸门：测试里 repo/manager 调用通常断言式访问，narrow 噪声大；
-# mock 返回也常被 subscript。闸门跑 `basedpyright --warnings` 后 warning 即阻断，
-# 故这批降级写成 none 才是「测试域不做闸门」这一既有决策的诚实表达。
+# These rules do not gate tests: repo/manager calls typically use assertion-based access, producing noisy narrowing warnings;
+# mock returns are often subscripted too. The gate runs `basedpyright --warnings`, so warnings block;
+# setting these downgrades to none honestly expresses the existing decision not to gate the test domain.
 reportArgumentType = "none"
 reportAttributeAccessIssue = "none"
 reportOptionalSubscript = "none"
@@ -447,7 +447,7 @@ reportOptionalIterable = "none"
 reportOperatorIssue = "none"
 reportOptionalCall = "none"
 
-# 子包测试与主仓 tests/ 同一口径；辅助模块经 pytest 的 pythonpath 导入，这里同样列进 extraPaths。
+# Apply main-repository tests/ rules to subpackage tests; helper modules import through pytest pythonpath, so include them in extraPaths here too.
 [[tool.basedpyright.executionEnvironments]]
 root = "packages/arcreel-market-core/tests"
 extraPaths = ["packages/arcreel-market-core/tests"]
@@ -469,11 +469,11 @@ extraPaths = ["packages/arcreel-catalog-core/tests"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "alembic"
-# alembic 模板里的 `from alembic import context` 等运行期注入符号静态不可解析，此域不做闸门
+# Runtime-injected symbols such as `from alembic import context` in alembic templates cannot be resolved statically; this domain does not gate.
 reportMissingImports = "none"
 
-# scripts/ 是一次性辅助脚本（迁移、生成 fixture、烟雾测试），
-# 不值得花大力气做类型，但 tests/scripts/ 会 import 它们，所以必须可解析
+# scripts/ contains one-off helpers (migrations, fixture generation, smoke tests),
+# not worth extensive typing effort, but tests/scripts/ imports them, so they must resolve.
 [[tool.basedpyright.executionEnvironments]]
 root = "scripts"
 reportArgumentType = "none"
@@ -490,25 +490,25 @@ reportPossiblyUnboundVariable = "none"
 reportGeneralTypeIssues = "none"
 reportCallIssue = "none"
 reportIndexIssue = "none"
-# 脚本用 sys.path 注入后再 import，静态不可解析，此域不做闸门
+# Scripts import after injecting sys.path, which cannot be resolved statically; this domain does not gate.
 reportMissingImports = "none"
 
-# 变异测试（mutmut 3.7.0）。不进 dev 依赖，按需 `uv run --with mutmut==3.7.0 mutmut run`。
-# 变异得分是信号不是闸门：不为杀死变异体补写测试，只用存活 mutant 筛选待审查的测试。
+# Mutation testing (mutmut 3.7.0), outside dev dependencies; run on demand with `uv run --with mutmut==3.7.0 mutmut run`.
+# Mutation score is a signal, not a gate: do not add tests merely to kill mutants; use survivors only to select tests for review.
 [tool.mutmut]
-# 操作流程（跑一批、超时复核、三层验收、已知陷阱）见 docs/testing/mutmut-runbook.md；这里只写配置项的取舍。
-# 必须显式写：不写时 mutmut 只推断出 lib/，漏掉 server/
+# Operations (batch runs, timeout rechecks, three-layer acceptance, known traps): docs/testing/mutmut-runbook.md. Only configuration tradeoffs belong here.
+# Must be explicit: otherwise mutmut infers only lib/, omitting server/.
 source_paths = ["lib", "server"]
-# 按批次填写待变异模块；留空则变异 source_paths 全域（一轮数小时，不实用）
+# Fill in modules to mutate per batch; empty means the entire source_paths scope (hours per round, impractical).
 # only_mutate = ["lib/speech/speech_rate.py"]
-# tests.mutmut_plugin 给每个 mutmut 会话一个私有 basetemp，让并行子进程收尾时不再竞争共享根下的软链；
-# 它只在这里加载，本地与 CI 的 pytest 不带它。
-# tests/integration/lib/generation/test_task_failure_capability.py 里三个用例用 ast 扫 lib/ server/ 源码里的 capability code
-# 字面量并与登记表比对；mutants/ 里的源文件同时含全部字符串 mutant 变体（XXcodeXX / CODE），扫描必报「未登记」，
-# stats 阶段直接失败。凡读源码文本而非 import 模块的用例都要这样按 nodeid --deselect，不整文件 --ignore：
-# 同文件其余用例是 bound_reason / collapse_cascade_reason / 级联渲染的行为测试，其中部分路径由它们独家覆盖，
-# 整文件排除会让 lib/generation/task_failure.py 的真变异体记成存活。
-# 只排除扫描用例同样只会多出假存活：它们独家能杀的只有 code 字面量的变体，而各 backend 用例都断言 exc.code。
+# tests.mutmut_plugin gives each mutmut session a private basetemp so parallel subprocess teardown no longer races over symlinks under a shared root;
+# load it only here, never in local or CI pytest.
+# Three tests in tests/integration/lib/generation/test_task_failure_capability.py scan lib/ server/ source with ast for capability-code
+# literals and compare them against the registry. Source in mutants/ contains every string-mutant variant (XXcodeXX / CODE), inevitably reporting unregistered codes
+# and failing during stats. Deselect such source-text-reading tests by nodeid --deselect, not whole-file --ignore:
+# other tests in that file check bound_reason / collapse_cascade_reason / cascade-rendering behavior, some exclusively covering their paths;
+# excluding the whole file would falsely mark real lib/generation/task_failure.py mutants as survivors.
+# Excluding only the scanning tests also adds only false survivors: their exclusive kills are code-literal variants, while backend tests all assert exc.code.
 pytest_add_cli_args = [
     "-p",
     "tests.mutmut_plugin",
@@ -516,10 +516,10 @@ pytest_add_cli_args = [
     "--deselect=tests/integration/lib/generation/test_task_failure_capability.py::test_no_unscannable_capability_construction_sites",
     "--deselect=tests/integration/lib/generation/test_task_failure_capability.py::test_capability_construction_sites_supply_every_template_param",
 ]
-# pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
-# 但存活集合约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
-# timeout_multiplier / timeout_constant 保持默认（15 / 1.0），不要调小。
-# 预算按关联用例的运行时长外推，调小只会让慢用例上的真存活记成超时（⏰），每个都得新进程复核。
+# Leave pytest_add_cli_args_test_selection unset: use full testpaths. tests/unit alone is 5.5x faster,
+# but about 45% of survivors are false; each needs a full-suite recheck, increasing total cost.
+# Keep timeout_multiplier / timeout_constant defaults (15 / 1.0); do not reduce them.
+# Budgets extrapolate from related-test runtimes; reducing them classifies real survivors in slow tests as timeouts (⏰), each requiring a new-process recheck.
 also_copy = [
     "agent_runtime_profile",
     "alembic",

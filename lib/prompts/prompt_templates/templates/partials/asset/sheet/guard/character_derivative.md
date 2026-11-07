@@ -1,1 +1,1 @@
-保持原图的三视图版式（正面 / 正侧 / 背面水平排列）、构图、比例、取景与纯白背景不变；除上述变化外，角色的面部与头部特征、毛发或发型、体表花纹、体型及其余外观一律与原图保持一致。
+Keep the original three-view layout (front / exact side / rear arranged horizontally), composition, proportions, framing, and pure white background unchanged. Apart from the changes above, keep the character’s facial and head features, fur or hairstyle, body markings, body shape, and all other appearance exactly the same as the original image.

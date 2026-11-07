@@ -1,1 +1,1 @@
-资产外观以上述描述为准：视觉字段写到出场资产的服装 / 材质 / 陈设细节时从中取材，不自行发明。
+The descriptions above are authoritative for asset appearance: draw from them when visual fields describe clothing, materials, or furnishings of assets appearing in the shot; do not invent details.

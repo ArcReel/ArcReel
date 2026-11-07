@@ -1,1 +1,1 @@
-你的任务是从作者已写好的剧本中**提取**结构化的分镜内容：逐字保留台词与画外音（落在 utterances）、摘录原文锚 source_text、把视觉层转写为分镜视觉描述，用于后续 AI 视频生成。这是成品剧本、不是待加工的素材——只做提取、不做再创作。
+Your task is to **extract** structured shot content from the author’s finished screenplay: preserve dialogue and off-screen speech verbatim in utterances, quote source anchors source_text, and convert the visual layer into visual shot descriptions for subsequent AI video generation. This is a finished screenplay, not raw material to develop: extract only, do not create anew.

@@ -7,7 +7,7 @@ export interface TypewriterSegment {
   after?: ReactNode;
 }
 
-/** 吐字完成后光标继续闪烁的时长，与 index.css 的 `--animate-caret-linger`（1.4s × 3 次）一致。 */
+/** Caret blinking after text completes, matching index.css `--animate-caret-linger` (1.4s × 3). */
 const CARET_LINGER_MS = 1400 * 3;
 
 interface TypewriterProps {
@@ -17,7 +17,7 @@ interface TypewriterProps {
   startDelay?: number;
   segmentGap?: number;
   caret?: boolean;
-  /** 同一 once key 同会话内只播放一次；后续 mount 直接显示完成态 */
+  /** Same once keys play once per session; later mounts show completion directly. */
   once?: string;
   className?: string;
   onDone?: () => void;
@@ -32,8 +32,8 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * 打字机吐字效果，按 segments 串行播放；首段尾部插入 `after`（如 <br />）后再起第二段。
- * 标点和段落边界自动延长停顿，节奏贴近电影编辑机。
+ * Typewriter effect plays segments sequentially; append `after` (for example <br />) after first segments before starting second ones.
+ * Punctuation/paragraph boundaries automatically lengthen pauses, with cinematic editing-machine pacing.
  */
 export function Typewriter({
   segments,
@@ -54,8 +54,8 @@ export function Typewriter({
 
   const [pos, setPos] = useState(skip ? totalLen : 0);
   const [phase, setPhase] = useState<"typing" | "linger" | "done">(skip ? "done" : "typing");
-  // 文案 / skip 变化时立即重置进度，避免新文案被截断或卡在 done
-  // (React 19 推荐的 render-time setState 模式：snapshot prev，发现 diff 时同步 setState 触发重渲)
+  // Reset progress immediately on copy/skip changes, preventing new text truncation or stuck done.
+  // (React 19 recommended render-time setState: snapshot prev, synchronously setState on differences to rerender.)
   const [prevSnapshot, setPrevSnapshot] = useState({ fullText, skip });
   if (prevSnapshot.fullText !== fullText || prevSnapshot.skip !== skip) {
     setPrevSnapshot({ fullText, skip });
@@ -67,9 +67,9 @@ export function Typewriter({
     onDoneRef.current = onDone;
   }, [onDone]);
 
-  // segments 抓在 ref 里：调用方常常内联构造 segments，每次重渲都生成新引用；
-  // 若把 segments 写进 effect 依赖，父组件无关重渲就会清旧定时器、重新 tick(0)，
-  // 后续 setPos(next) 会把 pos 倒退回首字。fullText 才是真正的内容键。
+  // Capture segments in refs: callers often construct inline, creating new references on every render;
+  // effect dependencies on segments make unrelated parent rerenders clear timers and restart tick(0),
+  // with later setPos(next) moving pos back to first characters. fullText is the true content key.
   const segmentsRef = useRef(segments);
   useEffect(() => {
     segmentsRef.current = segments;
@@ -137,7 +137,7 @@ export function Typewriter({
     const segEnd = consumed + seg.text.length;
     const visibleEnd = Math.max(consumed, Math.min(pos, segEnd));
     visibleNodes.push(
-      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- segments 是固定顺序的文案片段，不重排不增删，位置即身份，文本可能重复不能作 key
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- fixed-order text segments never reorder/add/remove; positions are identities, repeated text cannot be keys
       <span key={`tw-s-${i}`} className={seg.className}>
         {seg.text.slice(0, visibleEnd - consumed)}
       </span>,

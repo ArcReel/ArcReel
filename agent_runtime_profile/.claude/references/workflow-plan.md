@@ -1,194 +1,194 @@
-# 工作流计划契约
+# Workflow plan contract
 
-`mcp__arcreel__get_workflow_plan` 是编排的**唯一权威入口**。它返回一份只读计划：内容现状、
-各 AI 操作此刻能否执行（准入）、有序步骤、活动任务、视频整批准入判定，以及建议的下一步。
+`mcp__arcreel__get_workflow_plan` is the **sole authoritative orchestration entry point**. It returns a read-only plan: current content,
+whether each AI operation may execute now (admission), ordered steps, active tasks, whole-batch video admission, and a suggested next action.
 
-**不要在 profile 里另建一张按创作类型或生成模式展开的步骤表。** 六种模式组合（narration /
-drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序如何、当前停在哪一步，全部由
-计划的 `steps[]` 表达；Agent 只负责执行计划交回的受控动作。
+**Do not create another step table in the profile expanded by content type or generation mode.** Applicability, order, and current position across the six combinations (narration /
+drama / ad × storyboard / reference_video) are entirely expressed by
+plan `steps[]`; the Agent only executes controlled actions returned by the plan.
 
-## 查询
+## Query
 
 ```text
 mcp__arcreel__get_workflow_plan({
-  "episode_id": X,                               // 可选：用户指定某一集时传该集的集 ID
-  "confirmed_request_durations": {"E1U1": 8}    // 可选：用户已确认的逐视频单元申请档位（键是 unit ID）
+  "episode_id": X,                               // Optional: specified episode's episode ID
+  "confirmed_request_durations": {"E1U1": 8}    // Optional: user-confirmed per-unit request tiers (keys are unit IDs)
 })
 ```
 
-两个字段都只属于**这一次查询**，服务端不会持久化。因此每次重新查询都要把仍然成立的选择原样
-带上；漏带等于把选择撤回。旁白交付方式是项目配置，计划直接读项目，查询里没有这个字段。
+Both fields belong only to **this query** and are not persisted. Include still-valid choices unchanged on every subsequent
+query; omission withdraws them. Narration delivery is project configuration, read directly by the plan, with no query field.
 
-调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子智能体完成之后**。
-`Read` / `Glob` 只用于取执行已选定动作所需的内容，不用于另建一套状态机。不得根据空资产 bucket、
-文件名、旧文件存在性或对话记忆覆盖服务端结论。
+Call on workflow entry, on “continue / next step / check progress”, and **after every tool or subagent completes**.
+`Read` / `Glob` only retrieves content needed for the already-chosen action; never build another state machine. Do not override server conclusions from empty asset buckets,
+filenames, old-file existence, or conversational memory.
 
-## 点名与继续
+## Named operations versus continue
 
-准入属于 AI 操作，不属于流水线位置：一个操作能否执行只看它自己的输入是否成立，与建议的下一步
-是不是它无关。据此分两种请求：
+Admission belongs to AI operations, not pipeline positions: an operation is executable when its own inputs are valid, regardless of whether it is
+the recommended next action. Distinguish two request types:
 
-- **用户点名一个操作**（如「生成第 2 集的脚本规划」「编写提示词」）：查计划后看
-  `plan.status.operations[操作]`。`state == "admitted"` 就执行，即使 `next_action` 指向别处；
-  `refused` 时把 `reason` 转述给用户（缺什么、怎样补上），不执行；`not_applicable` 时说明本项目
-  没有这个操作。`operations` 只陈述列出的操作；生成类操作的准入维持各入口自身判定
-  （ADR 0073），被拒时转述入口返回的理由。
-  工具入口用同一份判定：被拒时返回 `operation_not_admitted`，`params.reason` 与计划里的理由码相同。
-- **用户说「继续 / 下一步」**：执行 `next_action`。`next_alternatives` 非空表示此处是**分岔**
-  （如没有集原文时「手写脚本」与「补集原文后 AI 规划」并列）：把 `next_action` 与各备选讲给用户，
-  由用户选定再执行，不替用户挑。
+- **The user names an operation** (such as generating episode 2's script plan or authoring prompts): query the plan and inspect
+  `plan.status.operations[操作]`. Execute when `state == "admitted"`, even if `next_action` points elsewhere;
+  for `refused`, relay `reason` (what is missing and how to supply it) without executing; for `not_applicable`, explain that this project
+  has no such operation. `operations` describes only listed operations; generation admission remains determined by each entry point
+  (ADR 0073); relay that entry point's rejection reason.
+  Tools share the same decision: rejection returns `operation_not_admitted`, with `params.reason` matching the plan's reason code.
+- **The user says “continue / next step”**: execute `next_action`. Nonempty `next_alternatives` means a **branch**
+  (such as manual script writing versus supplying episode source for AI planning): explain `next_action` and alternatives,
+  let the user choose, then execute; never choose for them.
 
-## 读计划
+## Read the plan
 
-| 字段 | 含义 |
+| Field | Meaning |
 |---|---|
-| `steps[]` | 有序步骤。`id` 是稳定步骤名，`state` ∈ `completed` / `ready` / `active` / `blocked` / `pending` / `skipped`，`required=false` 表示该步骤在本项目模式组合下不适用 |
-| `steps[].action` | 该步骤自己的受控动作（可能为 null） |
-| `steps[].artifacts` | 该步骤的产物时效快照：`current_ids` / `stale_ids` / `missing_ids` 三个 ID 桶，外加集合级 `state`（`current` / `stale` / `partial` / `missing` / `blocked` / `not_applicable`）。`blocked` 是集合级状态，**没有**逐 ID 的 blocked 桶 |
-| `steps[].tasks[]` | 该步骤排队中与运行中的任务，每条含 `unit_id`、`task_id`、`status` 与 `provider_checkpoint`（只有 `submitted`）。进行中的任务是进度，不是问题 |
-| `steps[].admission` | 视频步骤的整批准入判定（见下） |
-| `steps[].problems[]` | 该步骤的逐条问题，带稳定问题码 `code`、闭集 `action`、所属单元 `unit_id` 与文案参数 `params`；每条只在所属步骤出现一次。视频整批准入的逐单元问题只在 `steps[].admission.units[]` 里 |
-| `problems[]` | 不属于任何步骤的项目级问题（目前只有数据升级失败），不重复步骤里的问题 |
-| `blockers[]` | 项目整体不可用（数据升级失败、project.json 或产物清单读不出、创作类型或生成模式非法），含 `code` / `path` / `reason` |
-| `status.issues[]` | 内容本身的数据问题（剧本读不出、字段非法、资产定义损坏等），同样含 `code` / `path` / `reason`；只阻止依赖该内容的操作 |
-| `status.content` | 内容现状：集数、整本源文与集原文在不在、目标集的草稿、正式脚本（`present` / `absent` / `invalid`）与条目数、待编写条目、需重新规划的视频单元、被引用却没有资产图的资产；`episode_plan_stale` 为真表示该集集规划 stale、脚本规划待重建 |
-| `status.operations` | 列出的 AI 操作的结构准入，键是动作名，值为 `state`（`admitted` / `refused` / `not_applicable`）与稳定理由码 `reason`（见「点名与继续」） |
-| `next_action` | 建议的下一步。用户说「继续」时按它路由，不要自己从 `steps[]` 里挑一个更靠前的动作抢跑 |
-| `next_alternatives[]` | 分岔处与 `next_action` 并列的备选；非空时由用户选 |
+| `steps[]` | Ordered steps. `id` is a stable step name; `state` ∈ `completed` / `ready` / `active` / `blocked` / `pending` / `skipped`; `required=false` means inapplicable for this project's mode combination |
+| `steps[].action` | This step's controlled action (possibly null) |
+| `steps[].artifacts` | Step artifact freshness snapshot: ID buckets `current_ids` / `stale_ids` / `missing_ids`, plus aggregate `state` (`current` / `stale` / `partial` / `missing` / `blocked` / `not_applicable`). `blocked` is aggregate only; there is **no** per-ID blocked bucket |
+| `steps[].tasks[]` | Queued/running tasks for this step, each with `unit_id`, `task_id`, `status`, and `provider_checkpoint` (only `submitted`). In-flight tasks represent progress, not problems |
+| `steps[].admission` | Whole-batch admission for the video step (below) |
+| `steps[].problems[]` | Per-step problems with stable `code`, closed-set `action`, owning `unit_id`, and copy parameters `params`; each appears once in its owning step. Per-unit video admission problems appear only in `steps[].admission.units[]` |
+| `problems[]` | Project-level problems belonging to no step (currently only data migration failure), without duplicating step problems |
+| `blockers[]` | Entire project unavailable (migration failure, unreadable project.json or artifact manifest, invalid content type or generation mode), with `code` / `path` / `reason` |
+| `status.issues[]` | Content data issues (unreadable scripts, invalid fields, corrupted asset definitions, etc.), also with `code` / `path` / `reason`; block only operations dependent on that content |
+| `status.content` | Current content: episode count, whole/episode source presence, target episode draft, formal script (`present` / `absent` / `invalid`) and entry count, entries awaiting authoring, units needing replanning, referenced assets lacking images; true `episode_plan_stale` means this episode's plan is stale and its script plan needs rebuilding |
+| `status.operations` | Structural admission for listed AI operations; keyed by action, with `state` (`admitted` / `refused` / `not_applicable`) and stable `reason` (see “Named operations versus continue”) |
+| `next_action` | Suggested next action. Route here on “continue”; never pick an earlier `steps[]` action yourself to run ahead |
+| `next_alternatives[]` | Branch alternatives alongside `next_action`; when nonempty, the user chooses |
 
-`blockers` 非空时：向用户展示 blockers，**停止一切变更**。`next_action.type == "none"` 且 `steps` 中
-`edit` 为 `completed` 表示工作流已走完：查询范围内的每一集都至少有一条剪辑时间线。其余
-`next_action.type == "none"` 而 `blockers` 为空的情况，把 `status.issues` 与 `status.content` 讲给用户
-（如该集脚本读不出、集规划 stale 待重建、剪辑时间线读不出），用户点名的、准入成立的操作照常可以执行。
+When `blockers` is nonempty, show blockers and **stop all mutations**. `next_action.type == "none"` with
+`edit` marked `completed` in `steps` means the workflow is complete: every episode in query scope has at least one editing timeline. For other
+`next_action.type == "none"` cases with empty `blockers`, explain `status.issues` and `status.content`
+(such as unreadable episode scripts, stale episode planning awaiting rebuild, or unreadable timelines); explicitly named operations whose admission passes can still execute.
 
-## 数据升级失败：修复 → 重试
+## Data migration failure: repair → retry
 
-项目的数据升级（含产物补录）没跑完时，该项目整体阻断。此时计划只交回一件事：
+An incomplete data migration (including artifact backfill) blocks the entire project. The plan then returns only:
 
-- `blockers[]` 里只有一条 `code == "project_migration_failed"`，`reason` 是升级失败的原文；
-- `problems[]` 里只有一条同码问题，`action == "retry_project_migration"`，
-  `params.details[]` 逐条给出 `episode`（集 ID）/ `file` / `violation` —— 哪一集、哪个文件、违了什么约；
-- `next_action.type == "retry_project_migration"`，`args.details` 同上。
+- One `blockers[]` entry, `code == "project_migration_failed"`, whose `reason` is the original failure text;
+- One `problems[]` entry with the same code and `action == "retry_project_migration"`,
+  with `params.details[]` identifying `episode` (episode ID) / `file` / `violation`: which episode, which file, which contract violation;
+- `next_action.type == "retry_project_migration"`, with `args.details` as above.
 
-所有生成工具与正式写入工具在这个状态下一律返回同一条问题、不做任何事，也不计费。项目本身
-仍可读：`Read` 脚本、看画布上已有的图和视频照常。
+All generation and formal-write tools return the same problem in this state, doing nothing and incurring no charge. The project remains
+readable: `Read` scripts and inspect existing canvas images/videos normally.
 
-处理顺序：
+Handling order:
 
-1. 把 `details[]` 逐条讲给用户：哪一集（按项目详情 `episodes[]` 换成标题与播出位置）的哪个文件、违了什么约，
-   不要压成一句「升级失败」。
-2. 阻断期仍可用的写入工具只有 `mcp__arcreel__patch_project`、`mcp__arcreel__patch_episode_meta`、
-   `mcp__arcreel__rename_asset`、`mcp__arcreel__merge_asset`；`mcp__arcreel__patch_episode_script` 与所有生成
-   工具一律被拒。按明细用这几个工具能修的先修，够不着的（如剧本正文类违约）按第 4 步如实告知用户。
-   **没有裸文件写入这条路**，也不要用 `Edit` 直接改正式脚本。
-3. 调用 `mcp__arcreel__retry_project_migration` 重跑升级链。它幂等，重复调用不会造成损失。
-4. 成功时工具返回新的制作计划，项目解除阻断，照常按 `next_action` 继续；失败时返回新的结构化
-   明细，回到第 1 步。修不动时如实告诉用户卡在哪里，不要反复空跑重试。
+1. Explain every `details[]` entry: which episode (resolve title and broadcast position through project details `episodes[]`), which file, and which violation;
+   never compress this to “migration failed”.
+2. The only writable tools while blocked are `mcp__arcreel__patch_project`, `mcp__arcreel__patch_episode_meta`,
+   `mcp__arcreel__rename_asset`, and `mcp__arcreel__merge_asset`; `mcp__arcreel__patch_episode_script` and all generation
+   tools are rejected. Repair what these tools can reach according to details; accurately report unreachable issues (such as script-body violations) under step 4.
+   **There is no raw-file-write path**; do not `Edit` formal scripts directly.
+3. Call `mcp__arcreel__retry_project_migration` to rerun the migration chain. It is idempotent; repeating it causes no loss.
+4. On success, the tool returns a new production plan and unblocks the project; continue with `next_action`. Failure returns new structured
+   details; return to step 1. If repair is impossible, explain the blocker honestly instead of repeatedly retrying without changes.
 
-用户在 Web 项目页点「重试迁移」时，请求文本会被填进对话输入框由用户自己发送——收到它就走上面
-这条路径。
+When the user clicks “Retry migration” on the Web project page, request text enters the conversation input for the user to send themselves. On receipt,
+follow this path.
 
-## 受控动作表
+## Controlled action table
 
-按 `next_action.type` 路由，把 `target.episode`、`next_action.args` 与 `requested_ids` 带入对应动作。
-计划模型总会序列化 `requested_ids`：非空数组表示显式点名；`[]` 表示计划未点名。映射到工具的可选
-ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` 原样传给工具（工具入参的显式空数组非法）。
-`plan.status.target` 提供 `episode`（目标集的集 ID）、`script`、`script_filename`、`source`。工具的
-`episode_id` 参数一律取 `next_action.args.episode_id` 或 `target.episode`。两个剧本字段不可互换：
-`script` 是相对项目根的剧本路径（`scripts/episode_{集 ID}.json`），用 Read 读剧本内容时用它；
-`script_filename` 是剥掉 `scripts/` 前缀的裸文件名，所有 `mcp__arcreel__*` 工具的 `script` 参数用它。
+Route by `next_action.type`, passing `target.episode`, `next_action.args`, and `requested_ids` into the action.
+The plan always serializes `requested_ids`: a nonempty array means explicit IDs; `[]` means none named. For optional tool
+ID parameters, pass the former and **omit the parameter** for the latter; never forward `[]` unchanged (explicit empty arrays are invalid tool inputs).
+`plan.status.target` supplies `episode` (target episode ID), `script`, `script_filename`, and `source`. Tool
+`episode_id` always comes from `next_action.args.episode_id` or `target.episode`. The two script fields are not interchangeable:
+`script` is project-root-relative (`scripts/episode_{集 ID}.json`), used with Read for script content;
+`script_filename` is the bare filename without `scripts/`, used by the `script` parameter of all `mcp__arcreel__*` tools.
 
-| `next_action.type` | 执行入口 |
+| `next_action.type` | Execution entry point |
 |---|---|
-| `collect_project_input` | 引导用户在 Web 端补齐项目输入（上传整本源文；ad 填创作灵感或登记商品） |
-| `create_episode` | 引导用户在 Web 端新建一集 |
-| `draft_selling_points` | 用户要求时起草卖点，经 `mcp__arcreel__patch_project` 写回（ad） |
-| `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 原样传参（无 `episode_id` 即全量重置） |
+| `collect_project_input` | Guide Web input completion (upload whole source; for ads, enter creative brief or register products) |
+| `create_episode` | Guide the user to create an episode in Web |
+| `draft_selling_points` | Draft on user request and write through `mcp__arcreel__patch_project` (ad) |
+| `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`, forwarding `next_action.args` unchanged (no `episode_id` means full reset) |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `resolve_draft` | 目标集上有草稿（`args.draft_kind`）：`args.needs_repair` 为真时是写入失败留下的待修复草稿，向用户说明并按其对应操作重跑；为假时是 Agent 的可编辑草稿，按对应 skill 接着完成 |
-| `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
-| `start_blank_script` | 引导用户在 Web 集页点「从空白开始」，在时间线上逐条手写这一集的正式脚本 |
-| `provide_episode_source` | 引导用户为这一集补上集原文（`source/episode_{集 ID}.txt`），之后即可 AI 规划脚本 |
+| `resolve_draft` | Target episode has a draft (`args.draft_kind`): true `args.needs_repair` means a repair draft from a failed write; explain and rerun the corresponding operation. False means an Agent-editable draft; finish through its skill |
+| `prepare_script_plan` | Dispatch the subagent named by `next_action.args.preprocessor` |
+| `start_blank_script` | Guide the user to “Start from blank” on the Web episode page and handwrite formal script entries on the timeline |
+| `provide_episode_source` | Guide the user to supply episode source (`source/episode_{集 ID}.txt`), enabling AI script planning |
 | `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
-| `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
-| `add_script_items` | 正式脚本为空：引导用户在 Web 端添加条目，或经 `mcp__arcreel__patch_episode_script` 插入 |
-| `author_prompts` | 正式剧本里有待编写条目，`requested_ids` 列出这些条目：调 `mcp__arcreel__generate_episode_script`，不传 `entry_ids`，即编写全部待编写条目（见 generate-script skill） |
-| `generate_asset_sheets` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_assets({"episode_id": <args.episode_id>})` 一次生成本集引用、仍缺资产图的资产。因缺少 description 记为 `blocked` 的资产（`fix_input`）：依据原文写好描述，经 `mcp__arcreel__patch_project` 补上后重跑同一调用；原文没有依据时向用户确认描述，或请用户在 Web 端上传资产图。衍生报 `generation_dependency_failed` / `derivative_owner_sheet_missing` 时先解决本体资产图 |
-| `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
-| `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid`，不传 `scene_ids`（缺失即生成）；联合图就绪后经用户审阅同意，再调 `mcp__arcreel__split_grids` |
-| `repair_video_units` | `mcp__arcreel__get_episode_script` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
-| `patch_episode_script` | 计划注入：`next_action.args` 已给 `base_revision` 与逐条 `problems`，一次批量改完 |
-| `confirm_request_duration` | 计划注入：见「整批准入判定」 |
-| `generate_videos` | 视频生成工具（见 `generate-video` skill） |
-| `wait_for_task` | 计划注入：有活动任务，不入队新任务；等待并复查计划 |
-| `create_edit_timeline` | 本集视频已齐、还没有剪辑时间线：`mcp__arcreel__create_timeline`（`episode` 取 `next_action.args.episode_id`，`from: "script"`）按脚本机械新建一条，至少有一条剪辑时间线，「剪辑」一步即完成；之后按 `edit-video` skill 剪辑 |
-| `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
-| `none` | `blockers` 非空时展示并停止变更；`steps` 中 `edit` 为 `completed` 时工作流已走完；其余情况讲 `status.issues` 与 `status.content` |
+| `generate_script` | Dispatch `create-episode-script` (for ads call `mcp__arcreel__generate_episode_script` directly) |
+| `add_script_items` | Formal script empty: guide the user to add entries in Web, or insert through `mcp__arcreel__patch_episode_script` |
+| `author_prompts` | Formal script has entries awaiting authoring, listed by `requested_ids`: call `mcp__arcreel__generate_episode_script` without `entry_ids` to author all pending entries (see generate-script) |
+| `generate_asset_sheets` | Dispatch `generate-assets`, calling `mcp__arcreel__generate_assets({"episode_id": <args.episode_id>})` once for episode-referenced assets missing images. For assets `blocked` by missing description (`fix_input`), write source-grounded descriptions via `mcp__arcreel__patch_project` and repeat the call; without source evidence, confirm descriptions or ask for Web image uploads. For derivative `generation_dependency_failed` / `derivative_owner_sheet_missing`, resolve base images first |
+| `generate_storyboards` | Dispatch `generate-assets`, call `mcp__arcreel__generate_storyboards` with `segment_ids` |
+| `generate_grid` | Dispatch `generate-assets`, call `mcp__arcreel__generate_grid` without `scene_ids` (missing-only); after composite review and user consent, call `mcp__arcreel__split_grids` |
+| `repair_video_units` | `mcp__arcreel__get_episode_script` + one `mcp__arcreel__patch_episode_script` for all changes, then explicitly regenerate |
+| `patch_episode_script` | Plan-injected: `next_action.args` supplies `base_revision` and per-entry `problems`; fix all in one batch |
+| `confirm_request_duration` | Plan-injected: see “Whole-batch admission” |
+| `generate_videos` | Video generation tool (see `generate-video`) |
+| `wait_for_task` | Plan-injected: active tasks exist; enqueue nothing new, wait and recheck the plan |
+| `create_edit_timeline` | Episode videos complete, no editing timeline: `mcp__arcreel__create_timeline` (`episode` from `next_action.args.episode_id`, `from: "script"`) mechanically creates one from the script. “Editing” completes once at least one exists; then edit using `edit-video` |
+| `retry_project_migration` | Incomplete project migration: repair per details, then `mcp__arcreel__retry_project_migration` (see “Data migration failure”) |
+| `none` | Show nonempty `blockers` and stop mutations; `edit` marked `completed` in `steps` means completion; otherwise explain `status.issues` and `status.content` |
 
-`next_action.args.preprocessor` 是权威的脚本规划子智能体名，**不要自己按创作类型×
-`generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
+`next_action.args.preprocessor` is the authoritative script-planning subagent name. **Do not infer it yourself from content type ×
+`generation_mode`**: the server derives it from the same rule table; repeating that inference creates a second source of truth.
 
-### 整批被拒时交回的逐问题动作
+### Per-problem actions returned on batch rejection
 
-视频整批准入判定被拒时，计划把**第一个问题的 `action`** 直接当成 `next_action.type` 交回，
-`next_action.args.admission` 带完整准入结论。因此上表之外还可能收到下面这些动作——它们与
-`problems[].action` 同一个闭集，逐视频单元的处理方式一律读各自的 `problems[].action`，不要按
-`code` 自己猜：
+When whole-batch video admission rejects, the plan returns the **first problem's `action`** as `next_action.type`,
+with the complete admission conclusion in `next_action.args.admission`. Thus actions below may also appear beyond the table above; they share
+`problems[].action`'s closed set. Always read each unit's own `problems[].action` for handling, never guess from
+`code`:
 
-| `next_action.type` | 执行入口 |
+| `next_action.type` | Execution entry point |
 |---|---|
-| `fix_input` | 剧本/声明本身不合法：按 `admission.units[].problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
-| `replan_unit` | 视频单元需要重新规划：走 `repair_video_units` 那一行的改法 |
-| `generate_dependency` | 缺上游产物（资产图等参考图）：先补齐依赖再重查 |
-| `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
-| `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
-| `retry` | 可安全重发同一请求 |
-| `retry_artifact_download` | 产物已在供应商侧生成、只是没取回来：调 `POST /tasks/{id}/retry-download` 接续取件，**不要重发生成请求**——那会再建一个付费任务 |
+| `fix_input` | Invalid script/declaration: locate via `admission.units[].problems[].detail`, correct with `mcp__arcreel__patch_episode_script`, then recheck |
+| `replan_unit` | Unit needs replanning: follow the `repair_video_units` row |
+| `generate_dependency` | Missing upstream artifacts (asset/reference images): fill dependencies, then recheck |
+| `configure_provider` | Current provider or tier does not support the request: identify the setting to change; **retrying the same request yields the same rejection** |
+| `repair_artifact_state` | Unreadable artifact state: report as a separate gap, never treat as missing and regenerate |
+| `retry` | Safe to resend the same request |
+| `retry_artifact_download` | Provider generated the artifact but retrieval failed: use `POST /tasks/{id}/retry-download` to resume retrieval; **never resubmit generation**, which creates another paid task |
 
-`retry` 与 `configure_provider` 在不入队新批次之前，先把动作原因说给用户；
-凡是会产生新费用的动作，取得用户明确同意再执行。
+For `retry` and `configure_provider`, explain the reason before enqueueing a new batch;
+obtain explicit user consent for any action incurring new charges.
 
-## 旁白交付
+## Narration delivery
 
-旁白交付方式（`post_production` 后期配音 / `use_tts` TTS 配音）是项目配置，在项目设置里修改；工作流
-里没有交付选择这一步。视频请求与它无关：两种方式下视频的申请档位、准入与费用完全相同。
+Narration delivery (`post_production` post-production voiceover / `use_tts` TTS voiceover) is project configuration, changed in project settings; the workflow
+has no delivery-choice step. Video requests are independent: requested tiers, admission, and costs are identical under both methods.
 
-旁白配音不是视频生成的前置条件。`plan.status.artifacts.audio` 只在 TTS 配音项目里报告哪些旁白
-配音缺失或 stale；后期配音项目为 `not_applicable`。TTS 项目在首轮自动剪辑时按缺失补齐配音，
-项目选择 TTS 即已授权，无需另行确认；用户也可随时要求用 `generate-narration-audio` 生成。
-stale 配音仅在用户要求重合成时重新生成。
+Narration audio is not a video-generation prerequisite. `plan.status.artifacts.audio` reports missing/stale narration
+only for TTS projects; post-production voiceover projects return `not_applicable`. TTS projects fill missing audio during the first automatic editing round;
+selecting TTS already authorizes this, with no separate confirmation. Users may also request `generate-narration-audio` at any time.
+Regenerate stale voiceover only on a user resynthesis request.
 
-## 整批准入判定
+## Whole-batch admission
 
-视频整批请求是**全有或全无**：`steps[].admission.decision` 为 `admitted` 时整批入队；为
-`blocked` 或 `confirmation_required` 时**一个任务都不入队**。Web 与 Agent 走同一套准入和同一套
-请求选择语义（视频点名须另传 `force: true` 才强制重做 / 不传即只补缺 / 空数组非法），不存在 Agent 专属的宽松通道。
+Video batch requests are **all or nothing**: `steps[].admission.decision` of `admitted` enqueues the whole batch;
+`blocked` or `confirmation_required` **enqueues no tasks**. Web and Agent share admission and
+request-selection semantics (explicit video IDs need additional `force: true` for regeneration / omission fills only gaps / empty arrays are invalid); there is no relaxed Agent-only path.
 
-`decision != "admitted"` 时：
+When `decision != "admitted"`:
 
-- 逐视频单元报告 `admission.units[]`：`unit_id`、是否 `admitted`、`problems[].code`、
-  `problems[].action`（下一步动作）。通过的视频单元会带 `generation_batch_admission_withheld`，
-  其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
-- `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
-  视频单元与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations` 重查计划；`generate_videos` 重发时带上同一份 `confirmed_request_durations`。
-- **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
-  已经付过费的视频单元。修掉被拒的视频单元，整批重来。
+- Report `admission.units[]` per unit: `unit_id`, whether `admitted`, `problems[].code`,
+  and `problems[].action` (next action). Eligible units carry `generation_batch_admission_withheld`,
+  whose `blocked_unit_ids` identifies blockers. Explain this causality accurately, rather than implying their own inputs are invalid.
+- For `decision == "confirmation_required"`, `admission.confirmation.tiers[]` gives units and costs grouped by requested tier.
+  After user confirmation, fill confirmed tiers into `confirmed_request_durations` and requery; include the same `confirmed_request_durations` when resubmitting `generate_videos`.
+- **Never split the batch to “run the passing half first”.** That bypasses all-or-nothing admission and resubmits already-paid units
+  after dependencies are filled. Fix rejected units and retry the whole batch.
 
-## 四条状态轴分开报告
+## Report four status axes separately
 
-计划里这四轴的字段分别是 `steps[].state`（步骤进度）、`steps[].tasks[].status`（队列任务）、
-`steps[].tasks[].provider_checkpoint`（供应商是否已提交）与 `steps[].artifacts`
-（`current_ids` / `stale_ids` / `missing_ids` 与集合级 `state`）。四轴互相独立、分开陈述、
-不要互相翻译——读法与逐轴含义见
-[generation-results.md](generation-results.md)。
+The four plan axes are `steps[].state` (step progress), `steps[].tasks[].status` (queue tasks),
+`steps[].tasks[].provider_checkpoint` (provider submission), and `steps[].artifacts`
+(`current_ids` / `stale_ids` / `missing_ids` plus aggregate `state`). They are independent: report separately,
+never translate one into another. Interpretations and meanings are in
+[generation-results.md](generation-results.md).
 
-## stale 与历史
+## Stale artifacts and history
 
-- **stale 产物照常可预览、可导出、可参与成片**，服务端会复用它，不会自动重生。
-- 是否重做由**用户明确决定**。Agent 不得自动删除、覆盖或重生任何已付费产物，也不得因为
-  「看起来旧」就点名重做——视频必须同时点名并传 `force: true` 才强制重做且必然产生费用。
-- 产物状态读不出来（`blocked`）的单元报为独立缺口，绝不当作缺失去重新生成：那会把一次损坏
-  变成一次重复计费。
-- 恢复中断的任务由服务端接回原请求，不重新提交已在供应商侧落定的请求。
+- **Stale artifacts remain previewable, exportable, and usable in final cuts**; the server reuses them without automatic regeneration.
+- **The user explicitly decides** whether to redo them. The Agent must not automatically delete, overwrite, or regenerate paid artifacts, nor explicitly regenerate merely because
+  they “look old”. Video regeneration requires both explicit IDs and `force: true`, and always incurs charges.
+- Report unreadable artifact state (`blocked`) as a separate gap; never treat it as missing and regenerate, turning corruption
+  into a duplicate charge.
+- The server resumes interrupted tasks through their original request, never resubmitting requests already finalized at the provider.
 
-逐 ID 结果结构、选择语义与问题码清单见 [generation-results.md](generation-results.md)。
+See [generation-results.md](generation-results.md) for per-ID result structure, selection semantics, and problem codes.

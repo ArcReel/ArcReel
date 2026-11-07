@@ -1,8 +1,8 @@
 /**
- * 剪辑视图里视频轨以外的三条轨道：把读取结果与预览素材层摆到全局时间上。全部是纯函数。
+ * Three non-video editing tracks: place readouts/preview media layers on global time. Pure functions.
  *
- * 字幕的摆放与剪映草稿同口径（lib/jianying_draft/placement.py）：跟随旁白的字幕只挂在承载旁白的片段上，
- * 其余字幕按视频源素材时间保留、只显示落在入出点之内的部分；同一时刻只显示一条，后一条开始时前一条截止。
+ * Subtitle placement matches Jianying drafts (lib/jianying_draft/placement.py): narration subtitles attach only to carrier clips;
+ * others retain source-video time and show only within in/out points. One subtitle at a time, ending when the next starts.
  */
 
 import type { EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
@@ -10,11 +10,11 @@ import type { PreviewAspect } from "@/utils/preview-aspect";
 
 import type { PlaybackPlan } from "./playback-schedule";
 
-/** 一段按全局时间播放的音频：全局区间 `[start, end)`，在 `start` 时刻对应源音频的 `sourceIn`。 */
+/** Globally scheduled audio: `[start, end)`, with `start` corresponding to source-audio `sourceIn`. */
 export interface AudioPlacement {
   id: string;
   kind: "narration" | "bgm";
-  /** 旁白为视频单元 ID，BGM 为 BGM ID。 */
+  /** Video-unit ID for narration, BGM ID for BGM. */
   sourceId: string;
   start: number;
   end: number;
@@ -22,13 +22,13 @@ export interface AudioPlacement {
   volume: number;
   fadeIn: number;
   fadeOut: number;
-  /** BGM 的名称，BGM 已不在项目里时为 null；旁白不带。 */
+  /** BGM name, null if removed from project; absent for narration. */
   name?: string | null;
 }
 
 /**
- * 旁白轨上的一段旁白。TTS 项目没有旁白配音时按承载片段的长度占位，`missingAudio` 为 true；
- * 后期配音项目的旁白不在预览里出声，也不检查配音，一律按 `postProduction` 占位，`missingAudio` 恒为 false。
+ * Narration-track segment. Missing TTS audio uses carrier-duration placeholders with `missingAudio` true;
+ * post-production narration is silent in previews, skips audio checks, always uses `postProduction` placeholders with `missingAudio` false.
  */
 export interface NarrationSpan {
   clipId: string;
@@ -37,7 +37,7 @@ export interface NarrationSpan {
   end: number;
   missingAudio: boolean;
   postProduction: boolean;
-  /** 与前面的旁白重叠时下移一行，0 起。 */
+  /** Move down one row if overlapping previous narration, zero-based. */
   lane: number;
 }
 
@@ -62,8 +62,8 @@ function lanesFor<T extends { start: number; end: number }>(items: readonly T[])
 }
 
 /**
- * 旁白按读取结果的实际起止显示，可以延伸到后续片段上；超出时间线末尾的部分不画。
- * `ttsNarration` 为项目的旁白交付方式是否为 TTS 配音，与读取结果的问题列表同口径：后期配音项目不报缺配音。
+ * Show actual narration boundaries from readouts, possibly extending onto later clips; omit portions beyond timeline end.
+ * `ttsNarration` indicates project TTS delivery, matching readout issues: post-production projects do not report missing audio.
  */
 export function narrationSpans(readout: EditTimelineReadout, ttsNarration: boolean): NarrationSpan[] {
   const spans = readout.clips.flatMap((clip) => {
@@ -91,7 +91,7 @@ function unitMediaOf(media: EditTimelinePreviewMedia | null) {
   return new Map((media?.units ?? []).map((unit) => [unit.unit_id, unit]));
 }
 
-/** 有旁白配音、且按带旁白版本呈现的旁白才出声；旁白之间重叠时如实叠放。 */
+/** Only narration with audio in with-narration variants plays; preserve actual overlaps. */
 export function narrationPlacements(
   readout: EditTimelineReadout,
   media: EditTimelinePreviewMedia | null,
@@ -120,8 +120,8 @@ export function narrationPlacements(
 }
 
 /**
- * BGM 片段按读取结果的实际起止与淡入淡出摆放（截断与淡入淡出的收缩由服务端算好，与成片、剪映草稿同一份摆放）。
- * 音量是片段音量乘以 BGM 的响度增益；预览素材层还没有这首 BGM 时按片段音量摆放，只显示在轨上、不出声。
+ * Place BGM using readout boundaries/fades: server computes truncation/fade shortening, sharing placement with final videos/Jianying drafts.
+ * Volume is clip volume × BGM loudness gain; without preview BGM layers use clip volume, displaying tracks silently.
  */
 export function bgmPlacements(
   readout: EditTimelineReadout,
@@ -147,7 +147,7 @@ export function bgmPlacements(
   });
 }
 
-/** 字幕摆到全局时间。只有可播放视频的片段带字幕；呈现模型物化不出的单元没有字幕条目。 */
+/** Place subtitles in global time, only for clips with playable video; unmaterializable unit presentations have no subtitle entries. */
 export function placeSubtitles(
   readout: EditTimelineReadout,
   plan: PlaybackPlan,
@@ -187,24 +187,24 @@ export function placeSubtitles(
   });
 }
 
-/** 全局时间 `t` 上显示的字幕；没有时为 null。 */
+/** Displayed subtitle at global `t`, null if none. */
 export function subtitleAt(subtitles: readonly PlacedSubtitle[], t: number): PlacedSubtitle | null {
   return subtitles.find((item) => t >= item.start && t < item.end) ?? null;
 }
 
 export interface SubtitleLayout {
-  /** 字号，以画面短边的百分比计。 */
+  /** Font size as percentage of picture short edge. */
   fontSizePercentOfShortSide: number;
-  /** 字幕中心距画面顶部的百分比。 */
+  /** Subtitle-center distance from picture top, in percent. */
   centerFromTopPercent: number;
-  /** 最大行宽，以画面宽度的百分比计。 */
+  /** Maximum line width as percentage of picture width. */
   maxWidthPercent: number;
 }
 
 /**
- * 字幕在预览画面上的近似位置与字号，按剪映草稿的字幕样式（lib/jianying_draft/archive.py `_subtitle_style`）换算：
- * 竖屏字号 12、横屏字号 8，剪映字号 1 约等于 1080 短边上的 5px；纵向偏移 -0.75 / -0.8 是相对画面中心、以半高为单位；
- * 行宽 0.82 / 0.6 是画面宽度的比例。字体用系统黑体粗体近似。
+ * Approximate subtitle position/size from Jianying draft styles (lib/jianying_draft/archive.py `_subtitle_style`):
+ * portrait size 12, landscape 8; Jianying size 1 approximates 5px on a 1080 short edge. Vertical offsets -0.75 / -0.8 use picture-center half-height units;
+ * line widths 0.82 / 0.6 are picture-width proportions. Approximate fonts with system bold sans-serif.
  */
 export function subtitleLayout(aspect: PreviewAspect): SubtitleLayout {
   const portrait = aspect === "9:16";

@@ -1,4 +1,4 @@
-"""一集的剪辑概况：剪辑时间线条数、最近修改那条的问题数，以及成片落后于剪辑时间线的那几条。"""
+"""Episode editing overview: timeline count, issue count in the most recently modified timeline, and final cuts behind their timelines."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ async def test_latest_is_the_most_recently_modified_timeline_with_its_issue_coun
     assert overview.timeline_count == 2
     assert overview.latest is not None
     assert (overview.latest.id, overview.latest.name) == (first, "完整版")
-    # E1U2 还没有视频：它的片段报一条缺视频。
+    # E1U2 has no video; its clip reports one missing-video issue.
     assert overview.latest.issue_count == 1
 
 
@@ -81,5 +81,5 @@ async def test_only_final_cuts_behind_their_timeline_are_listed(
     await _touch(timeline_project, never_rendered, base_revision=1)
 
     behind = await episode_edit_overview(timeline_project, "demo", 1)
-    # 从未出片的那条不算落后。
+    # A timeline never rendered does not count as behind.
     assert [(item.id, item.name) for item in behind.stale_final_cuts] == [(rendered, "完整版")]

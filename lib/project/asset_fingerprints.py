@@ -1,9 +1,9 @@
-"""资产文件指纹计算 — 基于 mtime 的内容寻址缓存支持"""
+"""Asset-file fingerprints: mtime-based content-addressed cache support."""
 
 from pathlib import Path
 
-# 扫描的媒体子目录：与公开媒体端点（``server.routers.files.PUBLIC_MEDIA_DIRS``）对齐，
-# 只差 ``renders/``——成片按版本键定址，不参与 cache-bust。
+# Scanned media subdirectories match public endpoints (``server.routers.files.PUBLIC_MEDIA_DIRS``),
+# except ``renders/``: finished cuts use version keys, without cache-busting.
 _MEDIA_SUBDIRS = (
     "storyboards",
     "end_frames",
@@ -19,22 +19,21 @@ _MEDIA_SUBDIRS = (
     "bgm",
 )
 
-# 根目录下的已知媒体文件（如风格参考图）
+# Known root-level media (e.g. style reference).
 _ROOT_MEDIA_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".webp", ".mp4"))
 
-#: 版本快照桶的目录名。快照落在项目根的 ``versions/{subdir}/``（见
-#: ``lib.project.resource_paths.version_snapshot_dir``），本就不在 ``_MEDIA_SUBDIRS`` 里；这条跳过
-#: 管的是媒体子目录内的同名目录。快照按版本号定址、不参与 cache-bust，扫到只是白算。
+#: Snapshot bucket name. Snapshots already live outside ``_MEDIA_SUBDIRS`` at root ``versions/{subdir}/``
+#: (``lib.project.resource_paths.version_snapshot_dir``); this exclusion
+#: covers same-named directories within media. Version-addressed snapshots need no cache-busting; scanning wastes work.
 _VERSIONS_DIR = "versions"
 
 
 def _scan_media_tree(prefix: str, dir_path: Path, fingerprints: dict[str, int]) -> None:
-    """递归扫描一个媒体子目录下的全部文件，跳过任意层级的 ``versions/`` 与目录软链。
+    """Recursively scan all files in a media subtree, skipping ``versions/`` and directory symlinks at every depth.
 
-    深度不设限：角色衍生资产图落在 ``characters/derivatives/{本体}/{衍生}.png`` 这样的第三级。
-    目录软链不下探——链接目标不是项目自己的媒体，且指向祖先时会一路递归到操作系统的软链
-    解析上限才停；与 ``lib.agent.profile_manifest`` 的 ``os.walk(followlinks=False)`` 同口径。
-    """
+    Unlimited depth covers third-level derivative sheets such as ``characters/derivatives/{本体}/{衍生}.png``.
+    Do not descend directory links: targets are not project-owned media, and ancestor links would recurse
+    until OS symlink-resolution limits. Match ``lib.agent.profile_manifest`` ``os.walk(followlinks=False)``."""
     for entry in dir_path.iterdir():
         if entry.is_file():
             fingerprints[f"{prefix}/{entry.name}"] = entry.stat().st_mtime_ns
@@ -43,22 +42,20 @@ def _scan_media_tree(prefix: str, dir_path: Path, fingerprints: dict[str, int]) 
 
 
 def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
-    """
-    扫描项目目录下所有媒体文件，返回 {相对路径: mtime_ns_int} 映射。
+    """Scan project media, returning {relative path: mtime_ns_int}.
 
-    mtime_ns 为纳秒级整数，用作 URL cache-bust 参数，精度高于秒级。
-    对约 50 个文件，耗时 <1ms（仅读文件系统元数据）。
-    """
+    Nanosecond integer mtime_ns provides finer URL cache-busting precision than seconds.
+    About 50 files take <1ms, reading filesystem metadata only."""
     fingerprints: dict[str, int] = {}
 
     for subdir in _MEDIA_SUBDIRS:
         dir_path = project_path / subdir
-        # 软链在这一层与树内各层同口径跳过：`is_dir()` 跟随软链，媒体子目录自身是软链时
-        # 会把链接目标的文件写成本项目的指纹键并遍历整棵外部目录。
+        # Skip symlinks here like nested levels: `is_dir()` follows links, so a symlinked media directory would
+        # register external files as project fingerprints and traverse external trees.
         if dir_path.is_dir() and not dir_path.is_symlink():
             _scan_media_tree(subdir, dir_path, fingerprints)
 
-    # 根目录下的媒体文件（如 style_reference.png）
+    # Root-level media (e.g. style_reference.png).
     for f in project_path.iterdir():
         if f.is_file() and f.suffix.lower() in _ROOT_MEDIA_SUFFIXES:
             fingerprints[f.name] = f.stat().st_mtime_ns

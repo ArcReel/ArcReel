@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PreviewedRequest } from "@/types";
 
-/** 端点测试的一张卡。`badge` 用于「产生一次调用费用」「占用 GPU」这类代价提示。 */
+/** One endpoint-test card. `badge` indicates costs such as one billable call or GPU occupancy. */
 export function TestCard({
   title,
   badge,
@@ -31,7 +31,7 @@ export function TestCard({
   );
 }
 
-/** 端点测试的一个字段：标签在上，控件在下。`htmlFor` 指向控件的 id。 */
+/** One endpoint-test field: label above control, with `htmlFor` pointing to its ID. */
 export function TestField({
   label,
   htmlFor,
@@ -57,7 +57,7 @@ export interface TestSelectItem {
   disabled?: boolean;
 }
 
-/** 端点测试的下拉选择：标签与触发器以 `aria-labelledby` 关联，读屏与测试都按标签找到它。 */
+/** Endpoint-test dropdown: associate label and trigger with `aria-labelledby`, allowing screen readers and tests to find it by label. */
 export function TestSelect({
   label,
   value,
@@ -99,7 +99,7 @@ export function TestSelect({
   );
 }
 
-/** 渲染并脱敏后的一节请求，按它真发出去的样子逐行摆开。长地址与请求体在自身框内滚动，不撑宽页面。 */
+/** One rendered, redacted request section, laid out line by line as actually sent. Long URLs/bodies scroll within their frames without widening the page. */
 export function RequestPreview({ label, request }: { label: string; request: PreviewedRequest }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">

@@ -2,27 +2,27 @@
 status: accepted
 ---
 
-# 迁移与导入尽量保持原样：生成缺口只拦生成、不阻止补录，整个项目只因读不出或不安全被拒
+# Preserve content during migration/import: input gaps block generation, not backfill; reject whole projects only for unreadable or unsafe data
 
-升级与归档导入时，补录曾用当前的生成输入审查存量产物：描述为空、引用的资产没有资产图、单位里台词与画外音混在一起，都会让依据投影不出来，产物于是不登记、读作 missing；各迁移步也各自决定哪些结构异常要拒整个项目。结果是业务上完全可用、用户已付过费的产物在升级后「消失」，过去正常流程产出的数据形态让整个项目被阻断，而迁移报告只在接口里、用户看不到。规则本身卡住了不影响业务的数据。
+Backfill formerly judged old artifacts by current generation inputs. Empty descriptions, missing referenced sheets, or mixed speech prevented basis projection and registration, making paid usable content missing after upgrades. Migration steps independently rejected structural anomalies, while reports stayed inaccessible in APIs. Rules blocked data harmless to actual use.
 
-决定：
+Decision:
 
-- **范围。** 迁移与导入只保证过去标准流程产出的数据能走通；用户手改造成的异常不专门防，但也不让它拖垮整个项目。
-- **生成缺口只拦生成这个动作，依据总能投影。** 缺的输入在依据里记为缺席，输入完整时依据不变，已登记的产物不受影响。升级补录时，文件可用的正式产物一律登记、判 current；归档导入沿用归档里有效的冻结依据（`docs/adr/0062`）。之后补齐缺口让依据变化，产物按常规判 stale。混合发声单位（`docs/adr/0089`）的存量视频同样补录，单位本身仍需重新规划。缺少合成时 TTS 设置的旧旁白音频不属于缺口：发声参数是它的交付内容，记录里没有就确实算不出（`docs/adr/0075`），仍不登记。
-- **不删除、不丢弃用户内容。** 读不出的文件原地保留、不登记；能按确定规则修复的结构缺陷就修复，修不了的原样保留。
-- **过去正常流程产出的旧形态由迁移规整，不拒绝。** 规整有取舍时，另一份保留为备份。导入时剧本引用了未定义的资产，补占位。
-- **因数据拒绝整个项目只限两类：** 项目文件、剧本、版本记录或产物清单读不出（不是合法 JSON，或缺了创作类型这类决定其形态的内容）；导入包不安全。迁移本身没能做完（磁盘空间不足、写入失败等）不是对数据的裁决，照旧阻断，项目原样保留，排除故障后重试（`docs/adr/0022`）。
-- **迁移报告只记迁移改变了什么、丢了什么：** 规整的取舍、补的占位、没能带入的产物。生成缺口不进报告，用户去生成时会被拒并看到原因；需要重新规划的单位也不进报告，它已有持久状态。报告非空时，升级后告知用户一次，导入前请用户确认一次。
+- **Scope.** Support data written by prior normal flows. Do not specially defend user-edited anomalies, but do not let them collapse whole projects.
+- **Gaps block generation only; basis still projects.** Record missing inputs as absent, preserving complete-input basis and existing entries. Register usable formal files as current during upgrades; imports preserve valid frozen claims (`docs/adr/0062`). Filling gaps later makes them stale normally. Backfill mixed-speech videos too (`docs/adr/0089`) while retaining replanning state. Missing historical TTS settings are not gaps: they define delivered audio and cannot be computed (`docs/adr/0075`), so remain unregistered.
+- **Never delete/discard user content.** Retain unreadable files without registration; repair deterministic structural defects, leaving unrepairable content intact.
+- **Normalize normal historical shapes rather than reject.** Preserve displaced alternatives as backups. Add placeholders for undefined imported assets.
+- **Whole-project data rejection has only two classes:** unreadable project/script/version/manifest data (invalid JSON or missing shape-defining content such as content mode), and unsafe archives. Incomplete migration from disk/write failures is not a data verdict: retain blocking, preserve projects, and retry after repair (`docs/adr/0022`).
+- **Reports contain only changed/lost content:** normalization choices, placeholders, and artifacts not carried over. Exclude generation gaps (generation explains them) and persistent replanning states. Nonempty upgrade reports notify once; imports request informed confirmation once.
 
-## 明确不采用
+## Rejected alternatives
 
-- **存量生成的资产图按图本身登记（与上传图同等）**：之后改描述永远不判 stale，丢掉了时效追踪，还多出一条按来源分叉的规则；依据总能投影已经让这些图正常登记。
-- **补录后标 stale，或引入「待确认」状态**：`docs/adr/0062` 否决的理由仍然成立——缺口不等于「旧」，而每个读取状态的地方都得多一条分支。
-- **报告逐条确认或逐条修改**：导入只需要一次知情同意；逐条操作会把迁移变成一段工作流。
-- **报告列出全部生成缺口**：大多数升级会弹出一长串用户此刻无需处理的条目，真正改变了内容的条目反而被淹没。
+- **Register generated sheets by bytes like uploads**: loses description-based currency and adds source branches; projectable basis already restores normal registration.
+- **Mark backfills stale or awaiting confirmation**: `docs/adr/0062`'s rejection remains; gaps are not age, and all readers need another branch.
+- **Per-item report confirmation/editing**: imports need one consent, not another workflow.
+- **List all gaps**: lengthy irrelevant upgrade lists bury actual content changes.
 
 ## Consequences
 
-- 收窄 `docs/adr/0062`：依据投影不出而不登记，只剩依据确实算不出的情形；补录失败阻断整个项目，只剩迁移没能做完的情形。取代 `docs/adr/0075` 中「投影失败的进迁移报告、由用户决定重生」，旧旁白音频的规则不变；取代 `docs/adr/0073` 中「有缺口时时效判定不投影期望依据」，生成时的拒绝不变；取代 `docs/adr/0004` 中「缺资产定义则拦截导入」；收窄 `docs/adr/0064` 中「任一文件损坏即落需要修复裁决」，损坏的草稿原样保留。
-- 已经迁移过的项目里，原先因缺口被跳过的产物需要再补录一次；已登记的条目不动。
+- Narrow `docs/adr/0062`: unregistered projection means genuinely uncomputable basis; whole-project backfill blocking means incomplete migrations only. Supersede `docs/adr/0075`'s user-decided regeneration for projection failures, retaining old-audio rules; supersede `docs/adr/0073`'s missing expected basis under gaps, retaining generation rejection; supersede `docs/adr/0004`'s undefined-asset import rejection; narrow `docs/adr/0064`'s any-corrupt-file verdict, preserving corrupt drafts.
+- Previously migrated projects need one additional backfill for gap-skipped artifacts, without changing existing entries.

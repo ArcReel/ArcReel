@@ -1,6 +1,6 @@
-"""``python -m arcreel_market_core check|generate <dir>``：市场仓 CI 与维护者本地使用的命令行入口。
+"""``python -m arcreel_market_core check|generate <dir>``: CLI entry point for market-repository CI and local maintainer use.
 
-本包不携带翻译目录：默认诊断与汇总按 code + params 输出；应用边界可注入 translator 渲染自然语言。
+This package carries no translation catalogs: diagnostics and summaries default to code + params; application boundaries can inject a translator for natural-language rendering.
 """
 
 from __future__ import annotations

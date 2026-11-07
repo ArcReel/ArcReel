@@ -1,7 +1,7 @@
-"""按目录校验一个市场源（全部六条规则）。
+"""Validate a market source directory (all six rules).
 
-校验以索引为准逐条展开，目录约定只体现在「slug 等于定义所在目录名」这一条上；结构不成立（规则 ①
-不过）时不再跑逐文件规则。
+Validation expands entries from the index; directory conventions apply only to the rule that slug equals the definition directory name. If structure is invalid (rule ①
+fails), do not run per-file rules.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, joi
 
 
 def read_json_file(path: Path) -> Any:
-    """读一份 UTF-8 JSON 文件；读不到或解析不了（含嵌套过深）时抛 ``ValueError``，消息即原因。"""
+    """Read a UTF-8 JSON file; on read or parse failure (including excessive nesting), raise ``ValueError`` with the reason as its message."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -27,7 +27,7 @@ def read_json_file(path: Path) -> Any:
 
 
 def read_index_document(root: Path) -> Any:
-    """读 ``root`` 下的索引。索引是生成物、应为普通文件：符号链接不跟随，否则会读入链接指向的任意文件。"""
+    """Read the index under ``root``. As a generated artifact it must be a regular file: do not follow symlinks, which could read arbitrary target files."""
     path = root / INDEX_FILENAME
     if path.is_symlink():
         raise ValueError(f"{INDEX_FILENAME} is a symbolic link")
@@ -35,7 +35,7 @@ def read_index_document(root: Path) -> Any:
 
 
 def check_source(root: Path) -> list[MarketIssue]:
-    """校验 ``root`` 下的市场源，返回全部诊断；空列表即合规。"""
+    """Validate the market source under ``root`` and return all diagnostics; an empty list means compliance."""
     try:
         document = read_index_document(root)
     except ValueError as exc:
@@ -44,7 +44,7 @@ def check_source(root: Path) -> list[MarketIssue]:
 
 
 def check_source_document(root: Path, document: object) -> list[MarketIssue]:
-    """校验已读取的索引及其引用文件，供 ``check`` 与生成器共用往返闸门。"""
+    """Validate the already-read index and referenced files, sharing a round-trip gate between ``check`` and the generator."""
     try:
         index = parse_index(document)
     except UnsupportedIndexSchemaError as exc:
@@ -96,10 +96,10 @@ def check_source_document(root: Path, document: object) -> list[MarketIssue]:
 
 
 def _find_symlink(root: Path, relative: str) -> str | None:
-    """``relative`` 沿途（含自身）第一个是符号链接的路径段，以相对 ``root`` 的 POSIX 路径返回；没有则 None。
+    """Return the first symlink along ``relative`` (including itself) as a POSIX path relative to ``root``, or None if absent.
 
-    客户端经 GitHub raw 抓取文件，raw 对符号链接返回链接目标路径文本而非目标内容，所以市场源里被引用的
-    文件及其所在目录都必须是实体。
+    Clients fetch files via GitHub raw, which returns a symlink target's path text rather than its content, so referenced
+    files and their containing directories in market sources must be real entries.
     """
     current = root
     for part in PurePosixPath(relative).parts:
@@ -112,7 +112,7 @@ def _find_symlink(root: Path, relative: str) -> str | None:
 def _referenced_file(
     root: Path, root_resolved: Path, relative: str, location: str, issues: list[MarketIssue]
 ) -> Path | None:
-    """解析索引引用的仓内文件；沿途有符号链接、越出市场源、不存在或解析不了时记诊断并返回 None。"""
+    """Parse an in-repository file referenced by the index; diagnose and return None on symlinks along the path, escape from the market source, absence, or parse failure."""
     if (link := _find_symlink(root, relative)) is not None:
         issues.append(_index_issue(location, MarketIssueCode.SYMLINK_NOT_ALLOWED, value=link))
         return None

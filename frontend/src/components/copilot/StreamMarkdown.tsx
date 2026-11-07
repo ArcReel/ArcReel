@@ -30,7 +30,7 @@ async function loadStreamdownComponent(): Promise<LoadedStreamdown | null> {
       if (!Comp) return null;
       return {
         Component: Comp as ComponentType<Record<string, unknown>>,
-        // 引用保持稳定：Streamdown 按引用比较插件，变了会让已渲染的块全部重算。
+        // Stable references: Streamdown compares plugins by reference; changes recompute all rendered blocks.
         remarkPlugins: [...Object.values(mod.defaultRemarkPlugins), remarkAppLinks],
         rehypePlugins: buildRehypePlugins(mod.defaultRehypePlugins),
       };
@@ -44,9 +44,9 @@ async function loadStreamdownComponent(): Promise<LoadedStreamdown | null> {
 }
 
 // ---------------------------------------------------------------------------
-// 应用内链接：Streamdown 把所有链接渲染成「确认后新窗口打开」的按钮，站内链接要改成应用内跳转。
-// 它没有导出默认的链接组件可供包装，所以由 remark 插件把站内链接节点换成自定义元素 `app-link`，
-// 其余链接仍走 Streamdown 自己的渲染与外链确认。
+// In-app links: Streamdown renders links as confirmation/new-window buttons; replace internal links with application navigation.
+// No exported default link components to wrap; remark replaces internal link nodes with custom `app-link` elements,
+// while other links retain Streamdown rendering/external-link confirmation.
 // ---------------------------------------------------------------------------
 
 const APP_LINK_TAG = "app-link";
@@ -74,7 +74,7 @@ function AppLink({ href, children }: { href?: string; children?: ReactNode }) {
   const link = href ? parseAppLink(href, window.location.origin) : null;
   if (!href || !link) return <span>{children}</span>;
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    // 带修饰键或非左键时保留浏览器默认行为（新标签页打开等）。
+    // Modified/non-left clicks retain default browser behavior, e.g. new tabs.
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
@@ -96,12 +96,12 @@ function AppLink({ href, children }: { href?: string; children?: ReactNode }) {
 const COMPONENTS = { [APP_LINK_TAG]: AppLink };
 
 // ---------------------------------------------------------------------------
-// 键盘可达的横向滚动区：代码块与表格放不下时横向滚动，没有可聚焦的子元素，键盘用户要能
-// 聚焦后用方向键滚动。Streamdown 把代码块 `code` 元素上的属性透传给外层的滚动容器，
-// 标成可聚焦的区域；表格的滚动容器是它外层的包裹元素，属性只能落在表格上，因此只让
-// 表格可聚焦（保留表格语义），聚焦后方向键滚动的是最近的滚动祖先。
-// 排在默认插件之后，不会被清洗掉。区域名称作为插件参数随界面语言传入；Streamdown 外层的
-// memo 不比较 rehypePlugins，所以切换语言时以语言作 key 重新挂载，已渲染的块随之换成新名称。
+// Keyboard-accessible horizontal scrolling: overflowing code blocks/tables lack focusable children; keyboard users need
+// focus for arrow-key scrolling. Streamdown forwards `code` element attributes to outer scroll containers,
+// marking them focusable regions; table scroll containers wrap tables, so attributes can only attach to tables, making only
+// tables focusable while preserving table semantics; arrow keys then scroll nearest scrollable ancestors.
+// Run after default plugins to survive sanitization. Region names enter plugin arguments by UI language; Streamdown outer
+// memo ignores rehypePlugins, so remount using language keys to update rendered block names.
 // ---------------------------------------------------------------------------
 
 interface HastNode {
@@ -132,8 +132,8 @@ interface SanitizeSchema {
   attributes?: Record<string, unknown>;
 }
 
-// 传入自定义 rehypePlugins 后，Streamdown 不再把 allowedTags 合进清洗白名单（只在默认插件时合并），
-// 这里照它的做法补上：raw → 放行 app-link 的 sanitize → harden；滚动区标记随语言在渲染时接上。
+// Custom rehypePlugins stop Streamdown merging allowedTags into sanitization allowlists (done only with default plugins);
+// mirror that here: raw → sanitize allowing app-link → harden; attach localized scroll-region markers during rendering.
 function buildRehypePlugins(defaults: Record<string, unknown>): unknown[] {
   const { raw, sanitize, harden } = defaults;
   const [rehypeSanitize, schema] = sanitize as [unknown, SanitizeSchema];
@@ -146,9 +146,9 @@ function buildRehypePlugins(defaults: Record<string, unknown>): unknown[] {
 }
 
 // ---------------------------------------------------------------------------
-// 代码块的焦点：Streamdown 的代码块主体按需加载，分块到达时整块替换先渲染的占位节点，
-// 此前聚焦在代码块上的焦点会落回 body。记下聚焦的是第几个代码块，节点被替换后把焦点
-// 交给同一位置的新节点；焦点已经移到别处时不抢回。
+// Code-block focus: Streamdown lazily loads code bodies, replacing initial placeholders entirely when chunks arrive;
+// existing block focus then falls back to body. Remember focused block indexes and transfer focus
+// to same-position replacement nodes, without reclaiming focus already moved elsewhere.
 // ---------------------------------------------------------------------------
 
 const CODE_BLOCK_BODY = '[data-streamdown="code-block-body"]';
@@ -166,7 +166,7 @@ function useKeepCodeBlockFocus(root: HTMLElement | null): void {
         : null;
     };
     const onFocusOut = () => {
-      // 节点被移除时不算离开：替换后的恢复由下面的观察者处理
+      // Removed nodes do not count as departure; observers below restore after replacement.
       queueMicrotask(() => {
         if (focused?.node.isConnected) focused = null;
       });
@@ -192,7 +192,7 @@ function useKeepCodeBlockFocus(root: HTMLElement | null): void {
 
 interface StreamMarkdownProps {
   content: string;
-  /** compact 用于工序行展开区（子时间线、子智能体结论），与工序行同为小字号。 */
+  /** compact applies to work-row expanded regions (sub-timelines/subagent conclusions), sharing small work-row fonts. */
   size?: "default" | "compact";
 }
 
@@ -203,13 +203,13 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
   useKeepCodeBlockFocus(root);
   const codeLabel = t("chat_code_block_label");
   const tableLabel = t("chat_table_label");
-  // 引用只随加载与名称变化：Streamdown 按引用比较插件，变了会让已渲染的块全部重算。
+  // References change only with loading/names; Streamdown compares plugin references, with changes recomputing all rendered blocks.
   const rehypePlugins = useMemo(
     () => streamdown && [...streamdown.rehypePlugins, [rehypeScrollRegions, { code: codeLabel, table: tableLabel }]],
     [streamdown, codeLabel, tableLabel],
   );
 
-  // 工具条按钮与外链确认框的文字（含无障碍名称）。格式名 SVG、CSV 等不翻译，沿用 Streamdown 默认值。
+  // Toolbar/external-link-confirmation copy including accessible names. Format names SVG/CSV remain untranslated Streamdown defaults.
   const translations = useMemo(
     () => ({
       close: t("chat_md_close"),
@@ -260,7 +260,7 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
   }
 
   return (
-    // 只为监听焦点与节点替换，不参与排版
+    // Observe focus/node replacement only, without affecting layout.
     <div ref={setRoot} className="contents">
       <streamdown.Component
         key={i18n.resolvedLanguage}

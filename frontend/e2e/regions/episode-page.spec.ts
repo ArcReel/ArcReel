@@ -4,9 +4,9 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页页头：集头与制作进度入口一行，视图 tab 与当前视图的批量动作一行。
+// Episode headers: title/progress entries on one row, view tabs/current-view batch actions on another.
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+// Project events are unrecorded SSE; reject with nonretryable statuses, retaining recorded project data.
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -56,7 +56,7 @@ function runningTask(resourceId: string) {
   };
 }
 
-// 压力变体：长集名、条目多、计划里缺很多分镜图且有两张正在生成、配音走配音合成、费用多币种。
+// Stress variant: long episode names/many entries, many missing storyboard images with two generating, synthesized speech, and multicurrency costs.
 const STRESS: ApiOverrides = {
   ...API,
   "GET /api/v1/projects/demo": {
@@ -118,8 +118,8 @@ const LONG_MESSAGE =
   "这个单元的参考图里有两位角色共用同一个名字，模型无法区分说话的人；请在分镜详情里给其中一位改名，或者删掉多余的参考图后再生成";
 const BLOCKED_VIDEOS = ids(40).slice(4);
 
-// 制作进度的内容压力：结构问题、正在生成的分镜图与大量过期产物、整批被拒的四十个视频单元。
-// 剧本放进这四十个分镜，问题按分镜在本集的当前位置指称。
+// Production-progress content stress: structural issues, generating storyboards/many stale artifacts, and forty batch-rejected video units.
+// Scripts contain these forty storyboards; problems use their current episode positions.
 const stressProject = (STRESS["GET /api/v1/projects/demo"] as { body: RecordedProject }).body;
 const PROGRESS_STRESS: ApiOverrides = {
   ...STRESS,
@@ -208,7 +208,7 @@ const PROGRESS_STRESS: ApiOverrides = {
   },
 };
 
-// 录制的集还没有脚本规划，脚本规划视图显示空态。
+// Recorded episodes lack script plans; script-planning views show empty states.
 const NO_SCRIPT_PLAN: ApiOverrides = {
   ...API,
   "GET /api/v1/projects/demo/episodes/1/script-review": {
@@ -229,7 +229,7 @@ const NO_SCRIPT_PLAN: ApiOverrides = {
   },
 };
 
-// 两行页头：44px 与 40px 两行加 1px 底边。
+// Two-row headers: 44px and 40px rows plus 1px bottom borders.
 const HEADER_HEIGHT = 85;
 
 const viewTabs = (page: Page) => page.getByRole("tablist", { name: "集视图" });
@@ -240,17 +240,17 @@ const progressPopover = (page: Page) => page.getByRole("dialog", { name: "制作
 
 
 
-/** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
+/** Wait for entry animations before measurements/axe; do not wait for ongoing spinners or other loops. */
 
 async function pageReady(page: Page) {
   await viewTabs(page).waitFor();
   await progress(page).waitFor();
-  // 任务列表到达后，防抖 250ms 还会再刷新一次计划，刷新期间按钮置灰、结束后 150ms 淡回；
-  // 等它落定再操作，免得 axe 在淡入途中取色
+  // Task arrival triggers another plan refresh after 250ms debounce; buttons disable during refresh and fade back over 150ms afterward;
+  // wait for stabilization before interactions so axe never samples colors midway through fades.
   await page.waitForLoadState("networkidle");
 }
 
-/** 紧凑档 Agent 面板盖在画布右侧，页头行尾的入口在它底下：先收起再操作。 */
+/** Compact Agent panels cover canvas right sides and header-end entries; collapse before interaction. */
 
 defineRegionScenarios("集页页头", [
   {
@@ -264,11 +264,11 @@ defineRegionScenarios("集页页头", [
     act: async (page) => {
       expect((await box(header(page))).height).toBeCloseTo(HEADER_HEIGHT, 0);
       await expect(viewTabs(page).getByRole("tab", { name: "分镜" })).toHaveAttribute("aria-selected", "true");
-      // 缺 36 张、2 张正在生成：只补剩下的 34 张
+      // Missing 36 images, 2 generating: generate only the remaining 34.
       await expect(page.getByRole("button", { name: "补齐分镜图 · 34" })).toBeEnabled();
       await expect(page.getByRole("button", { name: "视频已齐" })).toBeDisabled();
       await expect(page.getByRole("button", { name: "补齐旁白配音 · 148" })).toBeEnabled();
-      // 批量动作不在 tab 列表里
+      // Batch actions stay outside tab lists.
       await expect(viewTabs(page).getByRole("button")).toHaveCount(0);
     },
     screenshot: { name: "episode-page-header", target: header },
@@ -319,12 +319,12 @@ defineRegionScenarios("集页页头", [
       const script = popover.getByTestId("workflow-row-script");
       await expect(popover.getByText("这个单元同时有角色台词和旁白，需要拆开。")).toHaveCount(1);
       await expect(script.getByRole("img", { name: "分镜 2" })).toBeVisible();
-      // 正在生成的分镜图是进度，不是问题；不露出任务号与供应商
+      // Generating storyboards are progress, not problems; expose no task numbers/providers.
       const boards = popover.getByTestId("workflow-row-boards");
       await expect(boards.getByText("已提交给供应商，重试可能再次计费。")).toBeVisible();
       await expect(popover.getByText(/0f3c9a7e/)).toHaveCount(0);
       await expect(popover.getByText(LONG_MESSAGE)).toHaveCount(1);
-      // 弹层不超出视口
+      // Popovers stay within viewports.
       const rect = await box(popover);
       expect(rect.width).toBeLessThanOrEqual(560);
       expect(rect.height).toBeLessThanOrEqual(640);
@@ -355,7 +355,7 @@ defineRegionScenarios("集页页头", [
     act: async (page) => {
       await expect(viewTabs(page).getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
       await expect(page.getByRole("tabpanel", { name: "脚本规划" })).toBeVisible();
-      // 脚本规划视图没有分镜的批量动作
+      // Script-planning views have no storyboard batch actions.
       await expect(page.getByRole("button", { name: /^补齐|已齐$/ })).toHaveCount(0);
     },
   },

@@ -1,4 +1,4 @@
-"""AI 修复的范围判定与回复合并：条目模式只放回违约条目，整集模式只接受原草稿已有的字段。"""
+"""AI-repair scope/merge: item mode restores only violations, episode mode accepts only original-draft fields."""
 
 from __future__ import annotations
 

@@ -68,7 +68,7 @@ import {
   type ModelRow,
 } from "./customProviderFormState";
 
-/** 供应商配置接口里自定义供应商的 id。 */
+/** Custom-provider IDs in provider-configuration APIs. */
 function customProviderKey(id: number): string {
   return `custom-${id}`;
 }
@@ -80,27 +80,27 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
 ];
 
 interface CustomProviderFormProps {
-  /** 已保存的供应商；不传时是新建表单。 */
+  /** Saved providers; omission means creation forms. */
   existing?: CustomProviderInfo | null;
-  /** 已保存的供应商倍率，与 `existing` 一起取回；新建表单与未传时按默认值 1。 */
+  /** Saved provider multipliers, fetched with `existing`; creation/omission defaults to 1. */
   providerMultiplier?: ProviderMultiplierInfo;
-  /** 从「调用端点」接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
+  /** Prefilled API addresses wired from Endpoints (definition meta.hints.base_url). */
   initialBaseUrl?: string;
-  /** 接线时预选的调用端点：新建表单据此起一行模型。 */
+  /** Preselected wired endpoints create initial model rows in new forms. */
   initialEndpoint?: EndpointKey;
-  /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
+  /** Deep-linked model IDs open their Sheets immediately. */
   focusModelId?: string;
-  /** 保存成功后调用，带回保存后的供应商（新建时是刚创建的供应商，调用方据此选中它）。 */
+  /** Called after save success with saved providers; newly created providers let callers select them. */
   onSaved: (provider?: CustomProviderInfo) => void;
-  /** 删除成功后调用。 */
+  /** Called after successful deletion. */
   onDeleted?: () => void;
 }
 
 /**
- * 自定义供应商详情：打开即是表单，没有只读态。页头显示协议与接口地址，「删除供应商」在更多操作菜单；
- * 名称、接口地址、密钥、并发上限与供应商倍率是一个编辑单元，由详情栏底部的保存栏统一提交。
- * 已保存的供应商的模型是模型列表：启用开关立即生效，其余设置在模型 Sheet 里逐个保存，不随这个编辑单元提交，
- * 因此整份保存不会覆盖在列表里做的修改。新建表单里模型随供应商一起创建。
+ * Custom-provider details open as forms, without readonly states. Headers show protocols/API addresses; More menus contain Delete provider.
+ * Names, API addresses, secrets, concurrency limits and provider multipliers share one edit unit submitted by bottom save bars.
+ * Saved-provider models use lists: enablement applies immediately, other settings save individually in Sheets, outside this edit unit,
+ * so whole saves never overwrite list edits. Creation forms create models with providers.
  */
 export function CustomProviderForm({
   existing,
@@ -113,7 +113,7 @@ export function CustomProviderForm({
 }: CustomProviderFormProps) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
 
-  // 端点目录（后端单一真相源）：媒体类型、默认互斥分组与协议配对都从这里读。
+  // Endpoint catalogs are sole backend truth for media types, mutually exclusive defaults and protocol pairing.
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
   const catalogEndpoints = useEndpointCatalogStore((s) => s.endpoints);
@@ -123,18 +123,18 @@ export function CustomProviderForm({
     void fetchEndpointCatalog();
   }, [fetchEndpointCatalog]);
 
-  // 已保存的内容：新建表单在挂载时定下，此后保持同一个引用
+  // Saved contents: creation forms establish these at mount and retain the same reference afterward.
   const [newForm] = useState(() => newProviderForm(initialBaseUrl, initialEndpoint));
-  // 供应商倍率不在供应商详情里，单独读写：保存后以 PUT 的回显为准，供应商重取不会带回它
+  // Provider details exclude multipliers, read/written separately; saved PUT echoes are authoritative, provider refetches never carry them.
   const [savedMultiplier, setSavedMultiplier] = useState(providerMultiplier ?? DEFAULT_PROVIDER_MULTIPLIER);
   const source = useMemo(
     () => (existing ? formFromProvider(existing, savedMultiplier) : newForm),
     [existing, savedMultiplier, newForm],
   );
 
-  // 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），
-  // 让用户自己去把协议改过来就是先让他撞一次保存失败。端点目录是异步取的，因此这里取派生值：
-  // 目录到齐后协议随之落定。
+  // Wired endpoints determine protocols: ComfyUI endpoints pair only with ComfyUI providers (docs/adr/0081 bidirectional pairing),
+  // so making users switch protocols themselves first forces save failures. Catalogs load asynchronously; derive values here
+  // so protocols settle when catalogs arrive.
   const wiredFormat: DiscoveryFormat | null = useMemo(() => {
     const descriptor = catalogEndpoints.find((item) => item.key === initialEndpoint);
     return descriptor && isComfyuiEndpoint(descriptor) ? "comfyui" : null;
@@ -153,8 +153,8 @@ export function CustomProviderForm({
     [catalogInitialized, catalogEndpoints, formatOf],
   );
 
-  // 删除后离开：供应商已不存在，未保存的修改无处可存，这次跳转不经离开拦截询问。
-  // （新建后跳到新供应商不需要放行：跳转发生在保存在途时，拦截会等保存落定、修改清空后放行。）
+  // Depart after deletion without guards: providers no longer exist, so unsaved edits have nowhere to persist.
+  // (Postcreation navigation needs no bypass: while saves run, guards await completion and cleared edits before allowing.)
   const deletedRef = useRef(false);
   const allowNavigation = useCallback(() => deletedRef.current, []);
 
@@ -167,27 +167,27 @@ export function CustomProviderForm({
       const keyOptional = value.noApiKey || isComfyuiProtocol(discoveryFormat);
       const models = deriveModels(value);
       const enabledModels = models.filter((m) => m.is_enabled);
-      // 保存失败的原因显示在保存栏上：先说用户自己填漏的字段，再说要等的端点目录
+      // Save bars explain failures: user-missing fields first, then endpoint catalogs still loading.
       const fail = (message: string): never => {
         throw new Error(message);
       };
       if (!value.displayName.trim()) fail(t("fill_provider_name"));
       if (!value.baseUrl.trim()) fail(t("fill_base_url"));
       if (!existing && !keyOptional && !value.apiKey.trim()) fail(t("fill_api_key"));
-      // 已保存的供应商不在表单里编辑模型（value.models 恒为空），以下模型校验只对新建表单起作用
+      // Saved providers never edit models in forms (value.models always empty); following model checks apply to creation only.
       if (!existing && enabledModels.length === 0) fail(t("enable_one_model"));
       if (enabledModels.some((m) => !m.model_id.trim())) fail(t("enabled_model_needs_id"));
-      // 目录没取回来时行挂不挂得住当前协议判不了：接线端点还没解析出来，协议就回退成了 openai，
-      // 那一行照样吃 422。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。
+      // Unloaded catalogs cannot assess protocol compatibility; unresolved wired endpoints fall back to openai,
+      // still yielding row 422. Without either condition, forms retain default protocols/endpoints and need no catalog lookup.
       const catalogPending =
         !catalogInitialized &&
         value.models.length > 0 &&
         (initialEndpoint !== undefined || value.pickedFormat !== null);
       if (catalogPending) fail(t("cp_endpoint_catalog_pending"));
-      // 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库
+      // Rows with unselected endpoints: servers validate pairings per row; one absent endpoint blocks the whole configuration.
       if (models.some((m) => !m.endpoint)) fail(t("cp_model_endpoint_unselected"));
       if (models.some((m) => parseMultiplier(m.multiplier_text) === undefined)) fail(t("cp_model_multiplier_invalid"));
-      // 可选时长只在 ComfyUI 视频行上编辑，且档位给得出来时才写回覆盖；其余行的覆盖原样回传
+      // Edit durations only for ComfyUI video rows, writing overrides only with derivable tiers; echo other row overrides unchanged.
       const durationsEditable = (endpoint: EndpointKey) => {
         const descriptor = catalogEndpoints.find((item) => item.key === endpoint);
         return descriptor !== undefined && isComfyuiVideoEndpoint(descriptor) && !descriptor.duration_tier_empty;
@@ -210,14 +210,14 @@ export function CustomProviderForm({
 
       const workers = { image_max_workers: imageMax ?? null, video_max_workers: videoMax ?? null, audio_max_workers: audioMax ?? null };
       if (existing) {
-        // 只更新供应商本身：不带 models，模型保持在列表与 Sheet 里保存的样子
+        // Update providers only, omitting models and retaining list/Sheet saved models.
         await API.fullUpdateCustomProvider(existing.id, {
           display_name: value.displayName,
           base_url: value.baseUrl,
           ...(value.noApiKey ? { api_key: "" } : value.apiKey ? { api_key: value.apiKey } : {}),
           ...workers,
         });
-        // 供应商倍率是另一份配置，改了才写；失败时供应商已经落库，按部分保存报告
+        // Provider multipliers are separate settings, written only when changed; failures after provider persistence report partial saves.
         let multiplierInfo = savedMultiplier;
         let multiplierError: unknown = null;
         if (value.providerMultiplier !== savedValue.providerMultiplier) {
@@ -227,14 +227,14 @@ export function CustomProviderForm({
             multiplierError = e;
           }
         }
-        // 入库内容以重取结果为准；重取失败不算保存失败
+        // Refetched values define persisted state; refetch failure is not save failure.
         let updated: CustomProviderInfo | undefined;
         try {
           updated = await API.getCustomProvider(existing.id);
         } catch {
           updated = undefined;
         }
-        // 与供应商一起交出去，两份已保存内容在同一次渲染里更新，不会先拼出一份新倍率配旧供应商的中间态
+        // Return with providers so both saved values update in one render, without new-multiplier/old-provider intermediate states.
         setSavedMultiplier(multiplierInfo);
         onSaved(updated);
         const savedForm = updated
@@ -262,8 +262,8 @@ export function CustomProviderForm({
         ...workers,
       });
       useCapabilitiesStore.getState().invalidate();
-      // 倍率挂在供应商 id 上，只能在创建之后写。供应商已经建好，倍率写失败不回退：
-      // 提示后照常切到新供应商，在那里重新填写即可
+      // Multipliers reference provider IDs and write only after creation. Failed multiplier writes never undo created providers;
+      // notify then navigate normally to new providers, where users can reenter them.
       if (multiplier != null && multiplier !== newProviderDefaultMultiplier(isComfyuiProtocol(discoveryFormat))) {
         try {
           await API.setProviderMultiplier(customProviderKey(created.id), multiplier);
@@ -290,15 +290,15 @@ export function CustomProviderForm({
     [setValue],
   );
 
-  // 用户改动以派生后的行为基准写回，派生结果就此坐实。否则那些由派生兜底改写的字段（改挂的端点、
-  // 随之作废的默认标记）会在下一次派生里被同一条规则再改一遍，用户的改动看不见效果。
+  // User edits write from derived rows, settling derived results. Otherwise fallback-reassigned endpoints and invalidated
+  // default markers get rewritten by the same rule on later derivation, hiding user edits' effects.
   const updateModels = useCallback(
     (change: (rows: ModelRow[]) => ModelRow[]) =>
       setValue((prev) => ({ ...prev, models: change(deriveModels(prev)) })),
     [setValue, deriveModels],
   );
 
-  // 展开的模型行（只有新建表单有）：接线带来的行还没填模型 ID，默认展开
+  // Expanded model rows exist only in creation forms; wired rows without IDs expand by default.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(source.models.map((m) => m.key)));
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -310,7 +310,7 @@ export function CustomProviderForm({
   }, []);
 
   const comfyuiEndpoints = useMemo(() => catalogEndpoints.filter(isComfyuiEndpoint), [catalogEndpoints]);
-  // ComfyUI 协议下新行必须挂 ComfyUI 端点：没有可挂的端点时按钮禁用并给出去处
+  // New ComfyUI rows require compatible endpoints; without any, disable buttons and show where to configure them.
   const noComfyuiEndpointYet = isComfyui && comfyuiEndpoints.length === 0;
   const addModel = () => {
     const endpoint = isComfyui ? comfyuiEndpoints[0]?.key : undefined;
@@ -319,21 +319,21 @@ export function CustomProviderForm({
     setExpanded((prev) => new Set(prev).add(row.key));
   };
 
-  // --- 测试连接与获取模型：用表单当前内容，不经保存 ---
+  // --- Test connection/fetch models: current form contents, without saving ---
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
 
-  // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新密钥走明文路径，
-  // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
+  // Changed base_url versus stored values requires UI addresses/new secrets through plaintext paths,
+  // or by-id endpoints use old DB base_url, diverging from newly saved addresses.
   const baseUrlChanged = !!existing && value.baseUrl.trim() !== existing.base_url.trim();
-  // 编辑时未输入新密钥且接口地址未变，用已存储凭证（by-id 端点）；新建或接口地址变更时必须明文
-  // 密钥。勾选「无需密钥」后保存写入的是空密钥，测试与发现须同样走明文空密钥路径。
+  // Unchanged API addresses without newly entered secrets use stored credentials (by-id); creation/address changes require plaintext
+  // secrets. No key required saves empty keys, so tests/discovery must likewise use plaintext empty-key paths.
   const useStoredCredential = !!existing && !value.apiKey && !baseUrlChanged && !value.noApiKey;
-  // ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节（docs/adr/0081），密钥留空是常态。
+  // ComfyUI itself has no auth; proxy credential templates live in definition auth (docs/adr/0081), so empty secrets are normal.
   const keyOptional = value.noApiKey || isComfyui;
 
-  /** 测试连接与获取模型列表的前置检查；不满足时提示并返回 false。 */
+  /** Connection-test/model-fetch preflight: notify and return false when unmet. */
   const checkConnectionInputs = () => {
     if (!value.baseUrl) {
       showError(t("fill_base_url_first"));
@@ -346,7 +346,7 @@ export function CustomProviderForm({
     return true;
   };
 
-  // 获取模型：连接信息在打开对话框时定下，对话框里的列表不随表单之后的输入重取
+  // Model fetch connection details freeze when dialogs open; later form edits never refetch their lists.
   const [fetchConnection, setFetchConnection] = useState<{
     discovery_format: DiscoveryFormat;
     base_url: string;
@@ -360,7 +360,7 @@ export function CustomProviderForm({
     async (signal: AbortSignal): Promise<FetchProviderModelsResponse> => {
       if (!fetchConnection) return { models: [], not_applicable: false, reason: null };
       const res = await API.discoverModels(fetchConnection, { signal });
-      // 用 getState 读最新目录映射：目录在挂载时异步拉取，打开对话框时可能还没到
+      // Read latest catalog mappings through getState: async mount fetches may remain pending when dialogs open.
       const mediaMap = useEndpointCatalogStore.getState().endpointToMediaType;
       return { ...res, models: res.models.map((m) => discoveredToFetched(m, (endpoint) => mediaMap[endpoint])) };
     },
@@ -374,7 +374,7 @@ export function CustomProviderForm({
     (selections: FetchSelection[]) => {
       const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
         useEndpointCatalogStore.getState();
-      // 每种媒体类型勾选的第一个模型标为默认，与已有行的默认冲突时由合并让出
+      // First checked model per media type defaults; merging yields when existing-row defaults conflict.
       const seenMedia = new Set<string>();
       const rows = selections.map((selection) => {
         const media = selection.endpoint ? mediaMap[selection.endpoint] : undefined;
@@ -389,7 +389,7 @@ export function CustomProviderForm({
   );
 
   const handleTest = async () => {
-    // 先清空上一次结果：校验失败直接返回时也不残留旧的成功或失败提示
+    // Clear prior results first; failed validation returning early must retain no old success/failure notices.
     setTestResult(null);
     if (!checkConnectionInputs()) return;
     setTesting(true);
@@ -410,9 +410,9 @@ export function CustomProviderForm({
     }
   };
 
-  // 勾选「无需密钥」后才需要知道哪些端点其实要密钥，因而只在那时拉一次自定义端点列表。
-  // 内置端点一律按需要密钥处理：它们的定义都带 auth 节，无凭证接口只可能是用户自建的。
-  // null 表示尚未成功拉到列表：此时不计算冲突提示——空 Set 会把全部模型行误报成需要密钥。
+  // Only No key required needs endpoint credential requirements, so fetch custom endpoint lists once then.
+  // Built-ins always require keys: their definitions contain auth; credential-free APIs can only be user-created.
+  // null means lists have not loaded successfully; skip conflict hints, since empty Sets falsely flag every model as needing keys.
   const [authFreeEndpoints, setAuthFreeEndpoints] = useState<Set<string> | null>(null);
   useEffect(() => {
     if (!value.noApiKey) return;
@@ -433,7 +433,7 @@ export function CustomProviderForm({
           );
         })
         .catch(() => {
-          // 拉不到时不提示：联动提示是辅助信息，缺失好过误报。
+          // Failed reads show no hints; supplementary guidance is better absent than incorrect.
         }),
     );
     return () => controller.abort();
@@ -445,7 +445,7 @@ export function CustomProviderForm({
           .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
           .map((m) => m.model_id);
 
-  // 模型 Sheet 保存或移除之后重取供应商：删除确认里的模型数与「无需密钥」的冲突提示都读它
+  // Refetch providers after model Sheet saves/removal; delete-confirmation model counts and credential-conflict hints depend on them.
   const refreshAfterModelChange = useCallback(() => {
     if (!existing) return;
     voidCall(
@@ -455,7 +455,7 @@ export function CustomProviderForm({
     );
   }, [existing, onSaved]);
 
-  // --- 删除供应商 ---
+  // --- Delete provider ---
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -465,7 +465,7 @@ export function CustomProviderForm({
     setDeleteError(null);
     try {
       await API.deleteCustomProvider(existing.id);
-      // 该供应商上的模型与能力覆盖随之消失，项目会退回解析别的模型；这同样不落任何项目字段。
+      // Provider models/overrides disappear together, making projects resolve other models without changing any project fields.
       useCapabilitiesStore.getState().invalidate();
       deletedRef.current = true;
       setConfirmDelete(false);
@@ -494,7 +494,7 @@ export function CustomProviderForm({
 
   const header = (
     <div className="flex items-start gap-3">
-      {/* 自定义供应商不按名称猜品牌图标：中转站与协议无关，统一用名称首字 */}
+      {/* Never infer custom-provider brand icons from names; relay sites are protocol-independent, so use initials. */}
       <span
         aria-hidden
         className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-sm text-subtle-foreground"
@@ -646,7 +646,7 @@ export function CustomProviderForm({
               {t("cp_no_api_key")}
             </label>
           </FieldRow>
-          {/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */}
+          {/* Proxy custom-header auth may block ComfyUI probes; explain this criterion in advance. */}
           {isComfyui && <p className="text-sm text-muted-foreground">{t("cp_comfyui_connectivity_hint")}</p>}
           {testResult && (
             <Alert variant={testResult.success ? "default" : "destructive"}>
@@ -656,7 +656,7 @@ export function CustomProviderForm({
           )}
         </section>
 
-        {/* 供应商设置在模型列表之上：接口地址与倍率经页面保存栏保存 */}
+        {/* Provider settings precede model lists; page save bars save API addresses/multipliers. */}
         <section aria-labelledby={billingHeadingId} className="flex max-w-178 flex-col gap-4">
           <div className="flex flex-col gap-1">
             <h3 id={billingHeadingId} className="text-base font-medium">
@@ -717,7 +717,7 @@ export function CustomProviderForm({
                 {t("add_model_manually")}
               </Button>
             </div>
-            {/* comfyui 没有模型发现，用说明替代按钮 */}
+            {/* comfyui lacks model discovery; explanatory text replaces buttons. */}
             {isComfyui && <p className="text-sm text-muted-foreground">{t("discovery_not_applicable")}</p>}
             {hasUnsetEndpoint && <p className="text-sm text-warn">{t("cp_model_endpoint_unselected")}</p>}
             {models.length > 0 ? (
@@ -800,7 +800,7 @@ export function CustomProviderForm({
         <AlertDialog
           open={confirmDelete}
           onOpenChange={(open) => {
-            // 删除请求在途时不响应 Esc
+            // In-flight deletion ignores Esc.
             if (!open && !deleting) setConfirmDelete(false);
           }}
         >

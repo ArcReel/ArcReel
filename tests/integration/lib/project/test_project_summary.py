@@ -1,8 +1,8 @@
-"""项目摘要投影：广度视图（项目列表、卡片、全局头）读到的集进度与产物计数。
+"""Project-summary projection: episode progress/output counts for broad views (lists, cards, global headers).
 
-断言的是投影的外部输出——各集进度、可用 / stale 计数、分集汇总，以及它与工作台
-制作状态同用一份产物清单这件事，不断言内部调用顺序。两种产物口径各有一组：
-``verified`` 与工作台逐件同数，``registered`` 只看登记与在场、不读产物内容。
+Assert projected external output: per-episode progress, usable/stale counts, episode aggregation, and shared
+artifact manifests with workbench production status, not internal call order. Two artifact policies have separate groups:
+``verified`` matches workbench per-item counts; ``registered`` checks registration/presence without reading artifact content.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def _add_character_with_sheet(pm: ProjectManager, project_path: Path, name: str 
 def _episode_with_media(
     pm: ProjectManager, project_path: Path, source_text: str = "完整原文", *, edit_timeline: bool = True
 ) -> None:
-    """把项目推到「一集脚本已生成、分镜与视频齐备」的状态；``edit_timeline`` 时再按脚本新建一条剪辑时间线。"""
+    """Create one episode with generated script, storyboards, and videos; ``edit_timeline`` additionally creates a timeline from its script."""
 
     _plan_one_episode(pm, project_path, source_text)
     _write_script_plan(project_path)
@@ -113,8 +113,8 @@ def _episode_with_media(
 
 
 def _count_artifact_opens(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> dict[str, int]:
-    """在文件系统边界上记录：产物图被按路径打开（哈希）的次数、单个产物描述符上读到的最大字节数、
-    产物清单与版本历史被打开的次数。"""
+    """At filesystem boundaries, count artifact path opens for hashing, maximum bytes read from one artifact descriptor,
+    and manifest/version-history opens."""
 
     counts = {"artifact_bytes": 0, "artifact_max_read": 0, "manifest_opens": 0, "versions_opens": 0}
     root = project_path.resolve()
@@ -241,7 +241,7 @@ def test_script_without_media_reports_a_scripted_episode(tmp_path: Path) -> None
 
 
 def test_item_count_reports_the_storyboard_count_on_the_storyboard_route(tmp_path: Path) -> None:
-    """分镜图生视频报分镜数——广告/短片的 shots 与旁白/解说的 segments 同一口径。"""
+    """Storyboard-image-to-video reports storyboard counts, sharing semantics for ad/short-film shots and narration segments."""
 
     pm, project_path = _make_project(tmp_path, "ad")
     source_text = "完整原文"
@@ -265,7 +265,7 @@ def test_item_count_reports_the_storyboard_count_on_the_storyboard_route(tmp_pat
 
 
 def test_item_count_reports_the_video_unit_count_on_the_reference_route(tmp_path: Path) -> None:
-    """参考生视频报视频单元数，且该生成模式没有分镜图这一档产物。"""
+    """Reference-to-video reports video-unit counts and has no storyboard-image artifact tier."""
 
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "完整原文"
@@ -311,7 +311,7 @@ def test_all_artifacts_usable_reports_completed(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("currency", ["verified", "registered"])
 def test_episode_with_all_videos_completes_only_once_it_has_an_edit_timeline(tmp_path: Path, currency: str) -> None:
-    """一集完成 = 视频齐全且至少有一条剪辑时间线；视频齐全、还没剪辑的集仍在制作中。"""
+    """Episode completion requires all videos plus at least one editing timeline; complete videos without editing remain in production."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -331,7 +331,7 @@ def test_episode_with_all_videos_completes_only_once_it_has_an_edit_timeline(tmp
 
 
 def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tmp_path: Path) -> None:
-    """列表页与工作台同用产物清单：删掉一张资产图，两处一起从「可用」里掉出来。"""
+    """Lists/workbench share manifests; deleting one asset image removes it from usable counts in both."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -369,7 +369,7 @@ def test_deleting_a_video_drops_the_episode_out_of_completed(tmp_path: Path) -> 
 
 
 def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -> None:
-    """重新规划使该集原文范围失效：脚本仍在盘上，但该集回到待脚本规划，不计入已生成。"""
+    """Replanning invalidates episode source ranges; existing disk scripts no longer count as generated, returning to pending planning."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -389,7 +389,7 @@ def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -
 
 
 def test_stale_episode_counts_as_complete_only_after_its_script_plan_is_rebuilt(tmp_path: Path) -> None:
-    """大厅与顶栏对 stale 集同一口径：未重建时两处都不算完成，重建后两处都按常规进度算完成。"""
+    """Lobby/header stale-episode semantics agree: incomplete before rebuilding, then ordinary progress determines completion afterward."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     _one_complete_episode(pm, project_path)
@@ -440,11 +440,11 @@ def test_stale_artifacts_stay_available_and_are_counted_separately(tmp_path: Pat
 
 
 def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """列出 N 个项目不该读 N 份小说：整本源文与源文修订号都不进本投影。
+    """Listing N projects must not read N novels; neither whole sources nor source revisions enter this projection.
 
-    分集原文（``source/episode_N.txt``）只是 script_plan 基线的输入；本投影计数的剧本与媒体产物
-    都不以 script_plan 为依据，因此同样不读。一旦有人为了算进度又去读整本源文、分集原文，
-    或为了修订号做全量 sha256，它就会红。
+    Episode sources (``source/episode_N.txt``) only feed script_plan baselines; counted scripts/media do not depend
+    on script_plan, so do not read them either. Adding whole/episode source reads for progress, or full sha256
+    for revisions, makes this fail.
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -463,7 +463,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
     assert summary.episodes_summary.completed == 1
-    # 整本源文、分集原文（source/ 直下全部文件）一次不读，修订号也不算。
+    # Never read whole/episode sources (all direct source/ files) or compute revisions.
     assert revision_calls == []
     assert source_reads == {}
 
@@ -483,13 +483,13 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
 
     assert summary.needs_repair is True
     assert summary.repair_reason == failure.reason
-    # 产物清单对未升级的数据不可读，一件产物都不报可用；集数照常列出，项目不从列表里消失。
+    # Unupgraded manifests are unreadable and yield no usable artifacts; still list episodes/projects.
     assert summary.episodes_summary.total == len(summary.episodes)
     assert all(episode.videos.available == 0 for episode in summary.episodes)
 
 
 def test_deleting_a_storyboard_keeps_the_episode_completed(tmp_path: Path) -> None:
-    """一集完成只看视频与剪辑时间线：删掉一张分镜图，该集仍完成，补分镜图作为集内建议的下一步。"""
+    """Completion checks only videos/timelines; deleting a storyboard leaves episodes complete, recommending storyboard completion within the episode."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -512,10 +512,10 @@ def test_deleting_a_storyboard_keeps_the_episode_completed(tmp_path: Path) -> No
 
 
 def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) -> None:
-    """剧集卡读的每集计数与工作台读的产物清单是同一份数字。
+    """Episode cards and workbench manifests yield identical episode counts.
 
-    剧集卡拿 ``get_project_summary``、工作台拿 ``get_status``：同一个项目上两处必须给出
-    相同的可用数与 stale 数，否则用户在侧栏与画布之间会看到互相矛盾的进度。
+    Cards call ``get_project_summary``, workbench calls ``get_status``; usable/stale counts for one project must
+    agree or users see contradictory progress between sidebar and canvas.
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -524,7 +524,7 @@ def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) 
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
 
-    # 改写该镜的画面 prompt：分镜图还在盘上、仍可用，但已比当前内容旧。
+    # Change shot visual prompts; disk storyboards remain usable but older than current content.
     script_path = project_path / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["segments"][0]["image_prompt"] = "改过的画面描述"
@@ -541,13 +541,13 @@ def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) 
             len(workbench["current_ids"]) + len(workbench["stale_ids"]) + len(workbench["missing_ids"])
         ), label
 
-    # 夹具本身要有区分力：两侧全 0 相等不构成证据。
+    # Fixtures must discriminate; equal all-zero counts are no evidence.
     assert episode.storyboards.stale == 1
     assert episode.storyboards.available == 1
 
 
 def test_registered_currency_counts_stale_artifacts_as_current(tmp_path: Path) -> None:
-    """列表口径不比对规范状态：登记在案且文件在场的产物一律可用，产物比对不产生 stale。"""
+    """List policy does not compare canonical state: registered/present artifacts are usable, without comparison-derived stale counts."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -566,12 +566,12 @@ def test_registered_currency_counts_stale_artifacts_as_current(tmp_path: Path) -
 
     assert verified.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 1}
     assert registered.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 0}
-    # 分集汇总不因口径而异：可用数相同，只是不再区分新旧。
+    # Episode aggregation is policy-independent: equal usable counts, without distinguishing age.
     assert registered.episodes_summary == verified.episodes_summary
 
 
 def test_registered_currency_still_requires_registration_and_presence(tmp_path: Path) -> None:
-    """列表口径仍以清单为准：落盘未登记不算可用，登记后删掉文件也不算。"""
+    """List policy still follows manifests: unregistered disk files and deleted registered files are not usable."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -580,7 +580,7 @@ def test_registered_currency_still_requires_registration_and_presence(tmp_path: 
     service = WorkflowStateService(pm)
     assert service.get_project_summary("demo", currency="registered").episodes_summary.completed == 1
 
-    # 补录之后才写入的资产图：清单里没有它。
+    # Asset images written after backfill are absent from manifests.
     _add_character_with_sheet(pm, project_path, name="小红")
     (project_path / resource_relative_path("videos", "E1S01")).unlink()
 
@@ -594,11 +594,11 @@ def test_registered_currency_still_requires_registration_and_presence(tmp_path: 
 
 
 def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """列出 N 个项目不该哈希 N 个项目的图：列表口径不按路径打开任何产物、单个产物描述符上
-    最多读一个字节（在场探针），清单每项目只读一次。
+    """Listing N projects must not hash N projects' images: list policy never opens artifact paths, reads at most
+    one byte per artifact descriptor for presence probes, and reads manifests once per project.
 
-    ``verified`` 口径在同一夹具上会整读产物内容，用来证明夹具有区分力；它逐件比对时清单
-    仍至多整份解析一次。
+    ``verified`` reads full content in the same fixture, proving discrimination; per-item comparisons
+    still parse the whole manifest at most once.
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -626,7 +626,7 @@ def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkey
 
 
 def _episode_with_storyboards(pm: ProjectManager, project_path: Path, count: int) -> None:
-    """一集 ``count`` 个分镜，分镜图与视频齐备并补录进清单。"""
+    """One episode with ``count`` storyboards, complete images/videos, and manifest backfill."""
 
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
@@ -649,9 +649,9 @@ def _episode_with_storyboards(pm: ProjectManager, project_path: Path, count: int
 def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lock_file: bool
 ) -> None:
-    """完整口径逐件比对产物，但清单整份解析的次数与产物件数无关：分镜数翻倍，解析次数不变。
+    """Full policy compares every artifact, but whole-manifest parsing is independent of artifact count; doubling storyboards keeps parses unchanged.
 
-    读取不拿清单锁；写入方建过锁文件的项目与从未建锁的项目都要成立。
+    Reads take no manifest locks, both for projects with writer-created locks and those never locked.
     """
 
     parses: dict[int, int] = {}
@@ -678,9 +678,9 @@ def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
 
 
 def test_verified_summary_opens_each_formal_video_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """完整口径判一条视频的时效只打开正式文件一次：准入、比对与内容事实证明共用同一次观察。
+    """Full-policy video currency opens formal files once; admission/comparison/content-fact proof share that observation.
 
-    项目详情逐件比对上千条视频，每多开一次文件就多一轮逐级打开目录的系统调用。
+    With thousands of detail-view videos, every extra open adds directory-by-directory system calls.
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -705,7 +705,7 @@ def test_verified_summary_opens_each_formal_video_once(tmp_path: Path, monkeypat
 
 
 def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(tmp_path: Path) -> None:
-    """写入方持有清单锁期间，项目摘要照常返回：读取不拿清单锁，不等待也不失败。"""
+    """Project summaries return normally while writers hold manifest locks; reads never acquire/wait/fail on those locks."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     _episode_with_storyboards(pm, project_path, 2)
@@ -716,7 +716,7 @@ def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(t
     with (project_path / LOCK_FILENAME).open("ab") as lock_handle:
         portalocker.lock(lock_handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
         try:
-            # 旧协议下读取要拿这把锁，会在锁超时后报错；能拿到与无锁时相同的结果即说明读取不拿锁。
+            # Old reads acquired this lock and timed out; identical locked/unlocked results prove reads do not acquire it.
             summary = service.get_project_summary("demo")
         finally:
             portalocker.unlock(lock_handle)
@@ -725,7 +725,7 @@ def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(t
 
 
 def test_one_resolver_answers_every_comparison_from_one_manifest_snapshot(tmp_path: Path) -> None:
-    """一次请求只读一份清单快照：请求中途清单被替换，不影响这次请求的判定结果。"""
+    """One request reads one manifest snapshot; midrequest replacement does not change its conclusions."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     _episode_with_storyboards(pm, project_path, 1)
@@ -748,17 +748,17 @@ def test_one_resolver_answers_every_comparison_from_one_manifest_snapshot(tmp_pa
 def test_video_swapped_after_admission_is_judged_by_the_newer_observation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swap: str, expected: ArtifactStatus
 ) -> None:
-    """准入看到正式视频之后、完整比对之前，文件被删或换成指向项目外的符号链接：按完整比对读到的
-    新观察判 MISSING 或 BLOCKED，不沿用准入时的观察判成 STALE。
+    """After admission sees formal video but before full comparison, deletion or outside-project symlink replacement uses the new
+    observation to classify MISSING/BLOCKED, not old admission observations as STALE.
 
-    项目外的文件是正式文件的副本：证明若跟随了链接，指纹会对上并判成 CURRENT。
+    Outside files copy formal bytes; following the link would match fingerprints and classify CURRENT.
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
     _episode_with_storyboards(pm, project_path, 1)
     key = ArtifactKey.episode_video(1, "E1S01")
     video_path = resource_relative_path("videos", "E1S01")
-    # 清单 mtime 早于登记的视频 mtime，同一时间戳内的改写无从排除，证明退化为完整比对。
+    # Manifest mtime predates registered video mtime; same-timestamp rewriting is possible, so proof falls back to full comparison.
     os.utime(project_path / MANIFEST_FILENAME, ns=(0, 0))
     outside = tmp_path / "outside.mp4"
     shutil.copyfile(project_path / video_path, outside)
@@ -784,7 +784,7 @@ def test_video_swapped_after_admission_is_judged_by_the_newer_observation(
 def test_verified_versions_parses_do_not_grow_with_the_episode_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """完整口径按集比对产物，但版本历史整份解析的次数与集数无关：集数从 1 到 3，解析次数不变。"""
+    """Full-policy per-episode comparisons parse whole version history independently of episode count; counts 1 to 3 leave parses unchanged."""
 
     parses: dict[int, int] = {}
     for count in (1, 3):
@@ -802,7 +802,7 @@ def test_verified_versions_parses_do_not_grow_with_the_episode_count(
 
 
 def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path) -> None:
-    """上传视频按上传字节登记：被外部替换后完整口径判 stale 仍可用，列表口径不比对内容。"""
+    """Uploaded videos register bytes; external replacement makes full policy stale but usable, while list policy never compares content."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -820,9 +820,9 @@ def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path)
 
 
 def test_source_remaining_follows_ledger_commands_like_the_workbench(tmp_path: Path) -> None:
-    """列表口径「源文还有未规划的原文」由账本命令记下，与工作台「继续分集规划」同一判定。
+    """Ledger commands record list-side unplanned-source conclusions, matching workbench continuation-planning judgments.
 
-    项目列表不读源文，靠写账本的命令把结论写进 project.json；每一步都与按源文现算的制作状态一致。
+    Lists do not read sources; ledger-writing commands persist conclusions in project.json, matching live-source production status at every step.
     """
 
     from lib.episode.episode_manual_split import cut_unsplit_source
@@ -858,16 +858,16 @@ def test_ad_project_never_reports_remaining_source(tmp_path: Path) -> None:
 
 
 def _registered_video_files(pm: ProjectManager, project_path: Path) -> tuple[Path, Path]:
-    """一集一个视频的项目，返回正式视频与它选中版本的快照。
+    """One-video-per-episode project returning formal video and its selected-version snapshot.
 
-    两者的 mtime 都拨到很久以前再重新登记：登记的内容事实早于清单文件自身的修改时间，不在粗粒度
-    时间戳的 racy 窗口里。
+    Backdate both mtimes before reregistering: recorded content facts precede manifest modification time, outside coarse-timestamp
+    racy windows.
     """
 
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
-    # 导入校验要求集有标题。
+    # Import validation requires episode titles.
     pm.update_project("demo", lambda project: project["episodes"][0].update(title="第一集"))
     video = project_path / resource_relative_path("videos", "E1S01")
     versions = VersionManager(project_path).get_versions("videos", "E1S01")
@@ -886,7 +886,7 @@ def _video_counts(pm: ProjectManager, name: str = "demo") -> dict[str, int]:
 def test_unchanged_video_is_current_without_reading_any_video_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """字节数与修改时间都和登记时一致，就认定是登记的那个版本：重启后（摘要缓存为空）也不读正式视频与版本快照。"""
+    """Matching registered byte lengths/mtimes establish the registered version; even after restart with empty summary caches, never read formal videos/snapshots."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     video, snapshot = _registered_video_files(pm, project_path)
@@ -900,7 +900,7 @@ def test_unchanged_video_is_current_without_reading_any_video_content(
 
 
 def test_a_copied_video_with_a_new_mtime_stays_current(tmp_path: Path) -> None:
-    """复制、导入会换 inode 和 mtime：重新取指纹，与登记的一致就仍是 current。"""
+    """Copies/imports change inode/mtime; rehashing matching content still yields current."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     video, _snapshot = _registered_video_files(pm, project_path)
@@ -914,12 +914,12 @@ def test_a_copied_video_with_a_new_mtime_stays_current(tmp_path: Path) -> None:
 
 
 def test_a_same_size_rewrite_within_the_manifest_timestamp_is_still_caught(tmp_path: Path) -> None:
-    """mtime 不早于清单自身的 mtime 时，同一时间戳下的改写可能 stat 全同：退化为完整比对，照样判 stale。"""
+    """mtime at/after manifest mtime can hide rewriting under equal stats within one timestamp; fall back to full comparison and still classify stale."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     video, _snapshot = _registered_video_files(pm, project_path)
     recorded = video.stat()
-    # 摘要缓存不收刚写过的文件；这里把 mtime 拨回旧值来模拟同一时间戳，先清掉夹具留下的缓存。
+    # Do not cache freshly written files; backdate mtime to simulate the same timestamp and clear fixture caches first.
     reset_file_digest_cache_for_tests()
     os.utime(project_path / MANIFEST_FILENAME, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
 
@@ -930,7 +930,7 @@ def test_a_same_size_rewrite_within_the_manifest_timestamp_is_still_caught(tmp_p
 
 
 def _without_artifact_envelope(archive_path: Path, rewritten: Path) -> Path:
-    """把官方导出改写成没有清单信封的旧归档。"""
+    """Rewrite official exports into legacy archives without manifest envelopes."""
 
     with zipfile.ZipFile(archive_path) as source, zipfile.ZipFile(rewritten, "w") as target:
         for info in source.infolist():
@@ -944,7 +944,7 @@ def _without_artifact_envelope(archive_path: Path, rewritten: Path) -> Path:
 
 
 def _drop_selected_video_record_digest(project_path: Path) -> None:
-    """把选中的视频版本记录改成没有内容指纹的旧记录（早于版本记录指纹的版本被切回选中）。"""
+    """Remove content fingerprints from selected video-version records, simulating selection of versions predating fingerprints."""
 
     path = project_path / "versions" / "versions.json"
     versions = json.loads(path.read_text(encoding="utf-8"))
@@ -963,7 +963,7 @@ def _drop_selected_video_record_digest(project_path: Path) -> None:
 def test_an_unchanged_video_stays_current_after_export_and_import(
     tmp_path: Path, envelope: bool, legacy_version_record: bool
 ) -> None:
-    """导入换了 inode 与 mtime：内容没变的视频导入后仍是 current，不论归档带不带清单信封、选中版本记录有没有指纹。"""
+    """Imports change inode/mtime but unchanged videos stay current, with/without archive manifest envelopes or selected-version fingerprints."""
 
     pm, project_path = _make_project(tmp_path, "narration")
     _registered_video_files(pm, project_path)

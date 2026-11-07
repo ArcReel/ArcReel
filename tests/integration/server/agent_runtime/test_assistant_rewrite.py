@@ -1,8 +1,8 @@
-"""消息改写的编排：中断、分叉、派发一气呵成，以及每种拒绝与幂等。
+"""Message rewrite orchestration: interruption, branching, dispatch, rejection cases, and idempotency.
 
-用真实 DB fixture（transcript 镜像 + 会话元数据 + 事件日志同库）与一个替身
-运行时——断言的是编排的外部行为：改写后落在哪个会话、原会话怎么了、日志里
-留下什么、失败时撤回到什么状态。
+Use real DB fixtures sharing transcript mirrors, session metadata, and event logs, plus a substitute runtime.
+Assert external orchestration behavior: destination sessions, original-session state, logged records,
+and rollback state on failure.
 """
 
 from __future__ import annotations
@@ -39,11 +39,11 @@ SECOND_USER_ENTRY = "user-second"
 
 
 class FakeSessionManager:
-    """运行时替身：只保留改写编排真正依赖的那几件事。
+    """Runtime substitute retaining only rewrite-orchestration dependencies.
 
-    ``send_message`` 复刻真实实现里与编排相关的两步——消息先成为排队消息（含同 client_key
-    命中即不重复投递），被 Agent 接纳（``accept``）时才写入事件日志——因此幂等与日志顺序的
-    断言测的是真行为，而不是替身的记账。
+    ``send_message`` reproduces two relevant production steps: queue messages first, deduplicating matching client_key,
+    then log only on Agent ``accept``. Thus idempotency/log-order assertions cover real behavior
+    rather than substitute bookkeeping.
     """
 
     def __init__(self, event_log_store: EventLogStore) -> None:
@@ -118,14 +118,14 @@ class FakeSessionManager:
         return {"queued_message": self._queued_payload(user_entry)}
 
     async def accept(self, session_id: str) -> None:
-        """CLI 开始处理排队消息：写入事件日志并移出排队列表。"""
+        """CLI begins queued-message processing: append event logs and remove from queued messages."""
         for entry, client_key in self.queued.pop(session_id, []):
             await self._event_log_store.append_user_entry(session_id, entry, client_key=client_key)
 
 
 @pytest.fixture
 async def rewriting(session_factory, tmp_path):
-    """一个有两轮对话、两条用户消息都已建立身份映射的原会话 + 装好替身运行时的服务。"""
+    """Original two-round session with identities for both user messages, plus a service with substitute runtime installed."""
     project_cwd = DataRootLayout(tmp_path).projects_dir / PROJECT_NAME
     project_cwd.mkdir(parents=True)
 
@@ -193,7 +193,7 @@ class TestRewriteHappyPath:
         assert result["session_id"] != session_id
         assert result["origin_session_id"] == session_id
         assert result["queued_message"] is not None
-        # 改写后的消息作为新会话的输入被派发出去，无需用户再操作一步。
+        # Dispatch rewritten messages as new-session input without another user action.
         assert [d["session_id"] for d in runtime.dispatched] == [result["session_id"]]
         assert runtime.dispatched[0]["prompt"] == "只改第 3 集"
 
@@ -210,9 +210,9 @@ class TestRewriteHappyPath:
         assert result["session_id"] in listed
 
     async def test_new_session_timeline_is_the_prefix_followed_by_the_rewrite(self, rewriting):
-        """新会话的事件日志 = 改写点之前的历史 + 改写后的消息，顺序与 seq 都对。
+        """New logs contain prerewrite history plus rewritten messages with correct order/seq.
 
-        SSE 与冷读共用这份日志、按 seq 发号，时间线正确即断线重连的续传点正确。
+        SSE/cold reads share these seq-numbered logs; correct timelines imply correct reconnection continuation points.
         """
         service, runtime, session_id, project_cwd = rewriting
 
@@ -223,11 +223,11 @@ class TestRewriteHappyPath:
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]
         assert [e["seq"] for e in entries] == [0, 1, 2]
         assert entries[-1]["uuid"] == result["queued_message"]["id"]
-        # 被丢弃的分支不进新会话：原会话第二轮的回复不在时间线里。
+        # Discarded branches do not enter new sessions; original round-two replies stay outside the timeline.
         assert not any("批量改好了" in str(e) for e in entries)
 
     async def test_rewriting_the_first_message_starts_a_fresh_session(self, rewriting):
-        """空前缀分支没有历史可 resume，派发时须告知运行时以预指定 id 起新会话。"""
+        """Empty-prefix branches have no resumable history; dispatch must tell runtimes to start with prespecified IDs."""
         service, runtime, session_id, _ = rewriting
 
         result = await _rewrite(service, session_id, FIRST_USER_ENTRY)
@@ -238,7 +238,7 @@ class TestRewriteHappyPath:
         assert [e["type"] for e in entries] == ["user"]
 
     async def test_running_session_is_interrupted_before_branching(self, rewriting):
-        """AC：会话 running 时改写——中断、等终态、分叉、派发一气呵成。"""
+        """AC: rewrite running sessions through interruption, terminal wait, branching, and dispatch together."""
         service, runtime, session_id, _ = rewriting
         runtime.statuses[session_id] = "running"
 
@@ -257,7 +257,7 @@ class TestRewriteHappyPath:
         assert runtime.dispatched
 
     async def test_attachments_ride_along_into_the_branch_first_input(self, rewriting):
-        """AC：改写带图消息——分支会话首条用户消息含原图与编辑后文本，agent 可见图片。"""
+        """AC: image-message rewrites preserve images with edited text in the branch's first user message, visible to Agents."""
         service, runtime, session_id, project_cwd = rewriting
 
         result = await _rewrite(
@@ -267,13 +267,13 @@ class TestRewriteHappyPath:
             images=[_image("AAAA"), _image("BBBB", "image/jpeg")],
         )
 
-        # 派发给 CLI 的是多模态内容，与普通带图发送同构：图在前、文本在后
+        # CLI dispatch is multimodal like ordinary image sends: images first, text last.
         assert runtime.dispatched[0]["prompt"] == [
             _image_block("AAAA"),
             _image_block("BBBB", "image/jpeg"),
             {"type": "text", "text": "只改第 3 集"},
         ]
-        # 被接纳后落库的权威条目同样带图，刷新后时间线仍能渲染出这两张图
+        # Accepted authoritative rows also retain images so refreshed timelines render both.
         await runtime.accept(result["session_id"])
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert entries[-1]["content"] == [
@@ -284,7 +284,7 @@ class TestRewriteHappyPath:
         assert entries[-1]["uuid"] == result["queued_message"]["id"]
 
     async def test_text_only_rewrite_stays_a_plain_string_prompt(self, rewriting):
-        """不带附件的改写不因附件透传而改变形态。"""
+        """Attachment passthrough does not change attachment-free rewrite shapes."""
         service, runtime, session_id, _ = rewriting
 
         await _rewrite(service, session_id, SECOND_USER_ENTRY, images=[])
@@ -294,7 +294,7 @@ class TestRewriteHappyPath:
 
 class TestRewriteIdempotency:
     async def test_same_client_key_resubmitted_yields_one_branch(self, rewriting):
-        """AC：同一 client_key 重复提交只产生一个分支会话。"""
+        """AC: repeated client_key submission creates only one branch."""
         service, runtime, session_id, _ = rewriting
 
         first = await _rewrite(service, session_id, SECOND_USER_ENTRY)
@@ -310,7 +310,7 @@ class TestRewriteIdempotency:
         assert listed == {first["session_id"]}
 
     async def test_a_different_rewrite_of_a_superseded_session_is_refused(self, rewriting):
-        """已被取代的会话不再是当前分支，对它发起新的改写应明确拒绝而非再分叉。"""
+        """Superseded sessions are no longer current branches; reject fresh rewrites instead of branching again."""
         service, _, session_id, _ = rewriting
         await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
@@ -339,11 +339,11 @@ class TestRewriteRejections:
         assert runtime.interrupted == [], "被拒的请求不该已经打断用户的轮次"
 
     async def test_anchor_without_a_transcript_copy_is_refused_as_a_bad_anchor(self, rewriting):
-        """锚点已在事件日志里、transcript 副本却还没落成：切片拒绝，理由仍是「锚点非法」。
+        """Anchors present in event logs but not transcript mirrors reject slicing with recognizable invalid-anchor reasons.
 
-        改写一条刚受理、SDK 尚未回放的用户消息就会走到这里——身份映射还没落表，
-        恒等回退给出一个 transcript 查无此条的 uuid。这条路径过了编排层的预检，
-        必须在分叉那一步保住可辨识性，而不是退化成一句「请稍后重试」。
+        This occurs for newly accepted users before SDK replay/identity mappings: identity fallback yields a uuid absent
+        from transcripts. Orchestration prechecks have passed, so branching must preserve the specific diagnosis
+        instead of degrading to generic try-later messages.
         """
         service, runtime, session_id, project_cwd = rewriting
         await service.event_log.ensure_backfilled(session_id, project_cwd)
@@ -360,7 +360,7 @@ class TestRewriteRejections:
         assert origin.superseded_by is None
 
     async def test_pending_question_blocks_the_rewrite(self, rewriting):
-        """AC：未决问答卡片存在 → 拒绝且错误可辨识（问答优先）。"""
+        """AC: unresolved question cards reject with recognizable errors, prioritizing Q&A."""
         service, runtime, session_id, _ = rewriting
         runtime.pending_questions[session_id] = [{"question_id": "aq_1"}]
 
@@ -373,7 +373,7 @@ class TestRewriteRejections:
         assert runtime.interrupted == []
 
     async def test_queued_messages_block_the_rewrite(self, rewriting):
-        """排队消息还没进入对话 → 拒绝，原会话不被中断、不被取代。"""
+        """Queued messages outside conversations reject without interrupting or superseding original sessions."""
         service, runtime, session_id, _ = rewriting
         await runtime.send_message(session_id, "第 5 镜删掉", user_entry=service._build_user_log_entry("第 5 镜删掉"))
 
@@ -395,7 +395,7 @@ class TestRewriteRejections:
         assert runtime.dispatched == []
 
     async def test_empty_content_with_attachments_is_accepted(self, rewriting):
-        """改写把正文清空的带图消息仍是有内容的消息——附件即内容。"""
+        """Image messages with rewritten-empty bodies remain nonempty because attachments are content."""
         service, runtime, session_id, _ = rewriting
 
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY, content="   ", images=[_image("AAAA")])
@@ -436,7 +436,7 @@ class TestRewriteRejections:
 
 class TestRewriteAdmission:
     async def test_a_send_during_the_interrupt_waits_and_is_refused_once_the_origin_is_superseded(self, rewriting):
-        """改写等中断结算期间另一端发来的消息不排进原会话：等分支发布后按「已被取代」拒绝。"""
+        """Concurrent sends during interruption settlement do not queue in old sessions; after branch publication, reject as superseded."""
         service, runtime, session_id, _ = rewriting
         runtime.statuses[session_id] = "running"
         runtime.settle_after_interrupt = False
@@ -453,7 +453,7 @@ class TestRewriteAdmission:
         rewrite = asyncio.create_task(_rewrite(service, session_id, SECOND_USER_ENTRY))
         await interrupted.wait()
 
-        # 发送读会话元数据的那一步在受理锁内：读没读过，判别它是否停在锁上
+        # Send reads session metadata under admission locks; whether it has read proves lock blocking.
         meta_reads: list[str] = []
         get_meta = service.meta_store.get
 
@@ -463,7 +463,7 @@ class TestRewriteAdmission:
 
         service.meta_store.get = _get_meta
         send = asyncio.create_task(service.send_or_create(PROJECT_NAME, "第 5 镜删掉", session_id=session_id))
-        # 让发送跑到它的第一个挂起点
+        # Advance sending to its first suspension point.
         await asyncio.sleep(0)
         assert meta_reads == []
         assert not send.done()
@@ -479,7 +479,7 @@ class TestRewriteAdmission:
 
 class TestRewriteDispatchFailure:
     async def test_failed_dispatch_discards_the_branch_and_frees_the_origin(self, rewriting):
-        """派发失败即整次改写失败：分支整体撤回，原会话回到可再改写的状态。"""
+        """Dispatch failure fails the whole rewrite, retracting branches and restoring original rewrite eligibility."""
         service, runtime, session_id, project_cwd = rewriting
         runtime.send_failure = RuntimeError("SDK 起不来")
 
@@ -492,7 +492,7 @@ class TestRewriteDispatchFailure:
         listed = {meta.id for meta in await service.meta_store.list(project_name=PROJECT_NAME)}
         assert listed == {session_id}, "撤回后不留下顶替原会话的空转分支"
 
-        # 撤回后重试可以正常改写，用户不被卡死。
+        # Retry after rollback succeeds without trapping users.
         runtime.send_failure = None
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
         assert result["session_id"] != session_id
@@ -501,7 +501,7 @@ class TestRewriteDispatchFailure:
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]
 
     async def test_failed_prefix_backfill_discards_the_branch_too(self, rewriting):
-        """补偿范围覆盖分支发布之后的每一步，不止派发那一句。"""
+        """Compensation covers every postpublication step, not only dispatch."""
         service, runtime, session_id, project_cwd = rewriting
         original_backfill = service.event_log.ensure_backfilled
 

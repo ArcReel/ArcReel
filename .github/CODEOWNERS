@@ -1,7 +1,7 @@
-# 默认所有者
+# Default owners
 *                       @Pollo3470
 
-# 关键路径细化
+# More specific ownership for critical paths
 /.github/               @Pollo3470
 /lib/                   @Pollo3470
 /server/                @Pollo3470

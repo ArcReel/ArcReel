@@ -13,7 +13,7 @@ describe("TaskElapsedReadout", () => {
   });
 
   afterEach(() => {
-    // 先还原 spy 再切回真实定时器：反过来会把 spy 捕获的假 setInterval 重新装回全局
+    // Restore spies before real timers; reversing would reinstall spy-captured fake setInterval globally.
     vi.restoreAllMocks();
     vi.useRealTimers();
   });

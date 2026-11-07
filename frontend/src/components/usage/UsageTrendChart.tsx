@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-// react-doctor-disable-next-line react-doctor/prefer-dynamic-import -- 本模块由 UsageTrendCard 经 lazyNamed 按需加载，recharts 随它进独立 chunk
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import -- UsageTrendCard lazyNamed loads this module on demand, placing recharts in its separate chunk
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
@@ -9,21 +9,21 @@ import { formatRatio } from "./usage-record-format";
 import type { TrendBucket, TrendMetric, TrendSeries } from "./usage-trend";
 import { bucketSuccessRate, bucketTotal, seriesFor, shortDay, trendTicks } from "./usage-trend";
 
-/** 柱宽上限与顶端圆角。 */
+/** Bar-width caps/top corner radii. */
 const MAX_BAR_WIDTH = 24;
 const BAR_RADIUS = 4;
 
 export interface UsageTrendChartProps {
   buckets: TrendBucket[];
   metric: TrendMetric;
-  /** 图表的可读名称，同时作为表格替代的标题。 */
+  /** Human-readable chart names, also alternative-table titles. */
   name: string;
   formatValue: (value: number) => string;
-  /** 桶的区间文案；按天时是单个日期，按周时是「M/D – M/D」。 */
+  /** Bucket-interval copy; daily single dates, weekly M/D – M/D. */
   bucketLabel: (bucket: TrendBucket) => string;
 }
 
-/** 一根柱的数据行：各序列的值按序列 key 展开，另带原桶供提示使用。 */
+/** Bar rows expand series values by keys and retain original buckets for hints. */
 type TrendRow = Record<string, number | string | TrendBucket> & { from: string; bucket: TrendBucket };
 
 function TrendTooltip({
@@ -67,8 +67,8 @@ function TrendTooltip({
 }
 
 /**
- * 按天（或按周）堆叠的柱图。图本身对辅助技术是一张带名字的图片，等价数据由紧随其后的
- * 表格替代承担——屏幕阅读器读表比读柱子的坐标可靠得多。
+ * Daily/weekly stacked bars. Assistive technology sees named images; immediately following tables provide equivalent
+ * data, more reliably read by screen readers than bar coordinates.
  */
 export function UsageTrendChart({ buckets, metric, name, formatValue, bucketLabel }: UsageTrendChartProps) {
   const { t, i18n } = useTranslation("dashboard");
@@ -136,7 +136,7 @@ export function UsageTrendChart({ buckets, metric, name, formatValue, bucketLabe
                 stackId="trend"
                 fill={entry.color}
                 maxBarSize={MAX_BAR_WIDTH}
-                // 只有最上面一段带圆角；中间段方角，段与段之间不出现缺口。
+                // Round only top segments; square middle segments preserve gapless stacks.
                 radius={index === series.length - 1 ? [BAR_RADIUS, BAR_RADIUS, 0, 0] : 0}
                 isAnimationActive={false}
               />

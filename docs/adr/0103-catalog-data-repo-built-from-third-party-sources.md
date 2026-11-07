@@ -2,79 +2,79 @@
 status: accepted
 ---
 
-# 模型目录数据由自有公开仓库从第三方数据源自动构建，实例全自动同步，不经官方服务
+# Build model catalogs automatically from third-party inputs in a public repository; instances synchronize fully automatically without official services
 
-元信息改成同步，是为了让价格和新模型跟上厂商的节奏，而不是等发版。但没有一个第三方数据源能单独承担这件事：文本模型覆盖很好，国内厂商的图片、视频和 TTS 基本没有，各家格式也不同。我们决定由一个公开的目录数据仓库发布 ArcReel 自己格式的目录数据，作为官方同步的唯一来源，出厂快照也取自它。仓库定时从第三方数据源自动构建，再叠加人工维护的数据；实例自动检查并应用新数据。这样文本模型的及时性等于上游的及时性，人工只维护第三方没有的部分。
+Synchronizing metadata lets prices/new models follow vendors without waiting for releases. No third-party source alone suffices: text coverage is good, Chinese-vendor image/video/TTS coverage scarce, and formats differ. Publish ArcReel-format data from a public catalog-data repository, the sole official synchronization/factory-snapshot source. Scheduled builds combine third-party inputs with manual data; instances automatically check/apply updates. Text freshness follows upstream, while people maintain only missing portions.
 
-## 规则
+## Rules
 
-- 第三方数据源只作为构建输入，实例不直接读取。人工维护的数据优先于自动构建的结果。
-- 文本模型的内置供应商清单按「上游供应商 → 内置供应商」的映射自动生成，人工只维护过滤规则与少量增删；媒体模型的清单由人工维护。
-- 构建时为条目生成模型别名：价格与能力都与主名相同的日期快照名，以及第三方数据源中各中转站的命名。模型名怎样对应到条目，见 `docs/adr/0105`。
-- 构建结果须通过主仓的同一份校验器才发布，失败不发布。
-- 实例只经 raw 地址抓取，复用市场的 GitHub raw 代理前缀，请求不携带实例标识（见 `docs/adr/0078`、`docs/adr/0093`）。官方服务不在同步链路上，关闭官方服务不影响同步。
-- 实例发现更新的数据集版本就自动整批应用，不需要用户确认；关闭官方同步的模型条目跳过。
-- 容错按参考费用的标准处理：不认识的字段忽略，价格依赖不认识的选择维度时按 `docs/adr/0100` 记为未定价，整份数据无法解析时拒收这一次。不设 schema 版本号。
-- 官方收录的供应商模型可以带最低应用版本，标记需要新版调用通道才能调用的模型。低于这个版本的实例在设置页列出模型并标注所需版本，但不启用、不进入候选，也不装配或调用；官方数据把它指定为默认模型时，这些实例按没有指定默认模型处理。已发布的旧版本仍会隐藏这些模型。实例会忽略不认识的字段，所以最低应用版本字段从第一版数据格式起就要有，这样所有能同步的实例都会执行版本限制。
-- 官方收录的供应商模型声明自己挂接的内置调用端点。请求结构是代码事实，随版本发布；模型挂哪个端点是数据，随同步下发。
-  - 人工维护的构建输入可以省略端点，由构建补成该供应商在这一媒体类型下的默认端点。发布的数据每条都显式带端点，严格校验要求必填。
-  - 实例开始读取端点声明之前，仍按 API 模型名选端点。
-- 端点清单放在 `arcreel_catalog_core` 中，是代码里调用端点的一份副本。目录数据仓库不依赖 ArcReel 应用，靠它校验与推导。清单包括：
-  - 内置供应商可挂接的每个内置调用端点的名称、媒体类型和可选的起始版本；
-  - 每个内置供应商按媒体类型列出的可选端点和默认端点；
-  - 实例开始读取端点声明的应用版本。
+- Third-party sources are build inputs only, never read directly by instances. Manual data overrides automatic results.
+- Generate built-in text-provider lists through upstream→built-in mappings; manually maintain only filters/few additions/removals. Maintain media lists manually.
+- Build aliases for dated snapshots sharing primary prices/capabilities and intermediary names in third-party data. Matching rules: `docs/adr/0105`.
+- Publish only after the main repository's shared validator passes; failed builds publish nothing.
+- Instances fetch raw URLs only, reusing market GitHub proxy prefixes without instance identifiers (`docs/adr/0078`, `docs/adr/0093`). Official services are outside synchronization; disabling them has no effect.
+- Apply newer dataset versions automatically as whole batches without confirmation; skip entries whose official synchronization is disabled.
+- Tolerate data under reference-cost standards: ignore unknown fields; pricing depending on unknown selection dimensions becomes unpriced under `docs/adr/0100`; reject wholly unparseable datasets for that attempt. No schema version.
+- Official provider models may declare minimum application versions for newer channels. Older instances list them with required versions but never enable, nominate, assemble, or invoke them; defaults pointing at them are treated as unspecified. Previously released old versions still hide them. Because unknown fields are ignored, minimum-version fields must exist from the first data format so every synchronizing instance enforces them.
+- Official provider models declare attached built-in endpoints. Request structures are release-time code facts; model→endpoint bindings are synchronized data.
+  - Manual build inputs may omit endpoints, filled with provider/media defaults. Published rows explicitly require endpoints under strict validation.
+  - Before endpoint-declaration support, instances still select by API model names.
+- Endpoint catalogs live in `arcreel_catalog_core` as copies of code endpoints, enabling application-independent catalog builds/validation. Include:
+  - Every attachable built-in endpoint's name, media type, optional introduction version;
+  - Per-provider/media available/default endpoints;
+  - Application version introducing endpoint-declaration reading.
 
-  ArcReel 仓库用测试保证清单与端点注册表、内置供应商的端点声明一致。严格校验检查端点声明的四项：发布的供应商模型声明了端点，端点名在清单里，端点的媒体类型与条目相同，端点是该供应商这一媒体类型的可选端点。实例侧照常读入缺失或不认识的端点名。
-- 发布的供应商模型的最低应用版本由构建推导，取以下几项中最高的那个：
-  - 所挂端点的起始版本；
-  - 手写值；
-  - 实例开始读取端点声明的版本。只要该供应商在这一媒体类型下有多个可选端点，这一项就计入，不管模型挂的是不是默认端点。读取端点声明之前的实例按名字选端点，新型号即使声明了默认端点，也可能被旧逻辑路由到别的端点。
+  ArcReel tests enforce consistency with registries/provider declarations. Strict validation checks four things: published models declare endpoints; names exist; media matches entries; endpoints are available for that provider/media. Instances still accept missing/unrecognized names normally.
+- Derive published models' minimum versions as the maximum of:
+  - Attached endpoints' introduction versions;
+  - Manual values;
+  - Endpoint-declaration-reading version whenever provider/media has multiple endpoint choices, regardless of default selection. Old name-based logic may misroute even newly declared defaults.
 
-  清单首次发布时已有的端点都是基线端点，不带起始版本：旧实例在这些端点上的行为本来就正确。清单首次发布时已有的模型，在核对过按名字选择的结果和声明一致后，豁免第三项。
-- 起始版本填合入 main 时 `.release-please-manifest.json` 记录的版本的下一个补丁号。例如清单记录 `0.35.0` 时填 `0.35.1`。实例开始读取端点声明的版本按同一规则填写。
-  - 合入时下一个版本号还不知道：release-please 在合入之后按提交类型决定升补丁号还是次版本号。但任何后续版本都不低于下一个补丁号，所有已发布的版本又都低于它，所以这个值把不带这个端点的已发布版本全部排除，又不会挡住第一个带它的版本。
-  - 从 main 构建的预览镜像仍报告上一个发布版本，不能启用挂新端点的模型，这是保守的一侧。
-  - 起始版本不随后续发版改写。合入前有新版本发布时，按新的清单版本重填。ArcReel 的测试拦下高于下一个补丁号的值，拦不下发版后没有重填的旧值，这一项由合入前的审查确认。
-- 官方数据按 ArcReel 的发布版本放出，不跟随 ArcReel main。构建读取 ArcReel 最新发布版本（`ArcReel/ArcReel` 的 latest release），推导出的最低应用版本高于它的供应商模型这次暂缓发布，等于或低于的照常发布。这样，已是最新发布版的实例不会被提示升级到一个还下载不到的版本。
-  - 读不到最新发布版本时，构建失败，上一次的发布数据保持不变，暂缓的模型不会放出。
-  - 被暂缓的是供应商的默认模型时，构建同样失败并列出原因，不换用其他默认模型。目录数据仓库的 PR 检查对这种情况只提示、不判失败；数据合入后，发布构建要等 ArcReel 发布对应版本才会成功。
-  - ArcReel 的发版流程在镜像发布成功后触发一次构建，放出随这个版本可用的模型。选在镜像发布之后触发，是为了不出现「数据已放出、镜像还没就绪」的空档。
-  - 从 main 构建的预览镜像同样要等发版后才拿到这些模型。这是已接受的代价：它报告上一个发布版本，按最低应用版本本来也不能启用这些模型。
-- 对已发布端点原地扩展：只增加合法取值（如在 `enum_maps` 里加一档分辨率）的调整，直接改既有端点，不新增端点，也不填起始版本。起始版本只用于把旧实例上调不通的模型挡在外面，取值扩展不属于这种情况。旧版本实例选到新取值时，按该端点在旧版本的实现处理，升级即可解决：
-  - 声明式端点：参数经 `enum_maps` 映射时，旧版本的映射表没有新取值，提交前以 `ENUM_MAP_VALUE_MISSING` 报错，请求没有发出，不扣费。参数不经映射、由模板直接传递时，旧实例照常提交新取值，由上游判定是否接受，接受即扣费。
-  - Python 端点：合法取值表随代码发布，旧实例按旧表处理。例如旧版 Vidu 把不在合法集合内的时长校正到最近值后提交，请求照常扣费。原地扩展不改变旧实例的这一行为。
-- 生命周期记在条目上：上线日期、关停日期，以及厂商官方指定的后继模型。它表示模型厂商层面的退役，对所有供应商都适用，包括自定义供应商。关停日期按 UTC 日期判断，关停当天即视为已下线；构建在关停日期不晚于构建当天时置真 `discontinued`，不认识关停日期的旧版实例因此也能认出已下线的模型。
-- 官方收录的供应商模型因厂商退役而失效时，不立即删除：关停未满 90 天的，条目和清单项照常发布；满 90 天后由构建停止发布，上游仍然保留它时也不再引入。纠正收录错误的删除不受此限。
-- 实例只提示，不替用户切换：引用即将下线或已下线模型的地方给出关停日期和官方后继，改不改由用户决定，费用和画面风格的变化都不会在用户不知情时发生。
-- 同步不删除模型条目，上游已删除的条目在本地保留最后一个版本；内置供应商下官方收录的供应商模型整份跟随数据；用户添加的不受影响，直到官方数据收录同一 API 模型名（见 `docs/adr/0099`）。
+  Endpoints present at catalog introduction are baselines without introduction versions because old behavior was already correct. Existing models are exempt from the third condition after verifying name-based selection matches declarations.
+- Introduction versions use the next patch after `.release-please-manifest.json` at main merge, such as `0.35.1` when manifest is `0.35.0`. Endpoint-declaration support uses the same rule.
+  - Actual next versions are unknown before merge: release-please chooses patch/minor by commits afterward. Every later release is at least next patch and every current release below it, excluding all unsupported releases without blocking the first supporting one.
+  - Main preview images still report previous releases and cannot enable new-endpoint models, conservatively.
+  - Never rewrite introduction versions on later releases. If releases occur before merge, refill from updated manifests. Tests reject values above next patch but cannot catch stale values not updated after releases; premerge review must.
+- Official data follows published ArcReel versions, not main. Builds read `ArcReel/ArcReel` latest release, holding models whose derived minimum exceeds it and releasing the rest, avoiding prompts to upgrade beyond downloadable releases.
+  - Unreadable latest releases fail builds and preserve prior data, without releasing held models.
+  - Holding provider defaults also fails builds with reasons, without substitution. Catalog PR checks warn only; after merge, publication waits for corresponding ArcReel releases.
+  - ArcReel releases trigger builds after successful image publication, avoiding released data before ready images.
+  - Main previews likewise await releases, an accepted cost since their previous-version reporting already prevents enabling new models.
+- Extend published endpoints in place when only adding legal values (such as `enum_maps` resolutions), without new endpoints/introduction versions. Versions exclude models uncallable on old instances; value extensions differ. Old implementations handle new choices until upgrades:
+  - Declarative mapped parameters missing old `enum_maps` fail before submission with `ENUM_MAP_VALUE_MISSING`, without charges. Direct template parameters submit normally, upstream accepts/rejects, charging accepted requests.
+  - Python legal-value tables ship with code. Old Vidu, for example, snaps unsupported durations to nearest legal values and submits normally with charges. In-place expansion does not change old behavior.
+- Entries record release dates, shutdown dates, and vendor-official successors: vendor-level retirement applies to every provider, including custom ones. Evaluate shutdown by UTC date, retired from that day. Builds set `discontinued` when shutdown dates are no later than build day, enabling old date-unaware instances to recognize retirement.
+- Do not immediately remove officially listed models retired by vendors: publish entries/list rows until 90 days after shutdown, then stop even if upstream retains them. Corrections of erroneous listings are exempt.
+- Notify, never switch for users: references to retiring/retired models show dates/successors; users decide, without unknown cost/style changes.
+- Synchronization never deletes entries; retain last versions removed upstream. Official built-in provider lists fully follow data; user additions remain until official data includes identical API names (`docs/adr/0099`).
 
 ## Considered Options
 
-- **实例直接读取第三方数据源**：省掉一个仓库，但上游一改格式，所有已发布的客户端会同时失效；中国大陆的可达性也不确定。媒体模型仍然没有来源。
-- **经官方服务下发**：可以做增量和按版本过滤，但官方服务一关，同步也就停了，还会让官方服务得知每个实例的同步行为。`docs/adr/0078` 已经为市场选择了「零服务端 + raw 地址」，这里沿用同一条路。
-- **ArcReel 全部手工维护**：数据最可控，但文本模型更新最频繁，靠人跟进就回到了「数据不及时」的老问题。
-- **手动同步，或自动检查后由用户确认**：new-api 就是这样做的，但不点按钮的用户只能拿到发版时的数据。用户改过的条目已经由自动关闭同步保护，全自动不会覆盖它们。
-- **逐字段预览勾选（new-api 的做法）**：用户可以只接收部分字段，但条目会变成一半来自上游、一半来自用户，与 `docs/adr/0099` 的整条副本规则冲突。
-- **schema 版本号加条目级校验**：能拦住旧客户端看不懂的数据。但看不懂的价格用未定价兜底就够了，费用只是参考；真正会让调用失败的，只有旧调用通道不会编码的新模型，用供应商模型上的最低应用版本单独拦住即可，不必让整份数据带版本。
-- **最低应用版本在数据里逐条手写，不由端点推导**：格式更简单，但维护者要记住每个模型挂的端点何时发布，读取端点声明之前还要判断旧实例按名字会选到哪个端点，容易标错。推导之后，手写值只用来表达端点之外的原因。
-- **起始版本交给 release-please 的版本注释（`x-release-please-version`）自动写入**：不用人工换算版本号，但 release-please 每次发版都会改写带注释的行，值不能停在端点首次发布的那个版本。
-- **起始版本填预计的下一个版本号**：读起来更直观，但发布的是补丁版本还是次版本，要到合入之后才由提交类型决定。猜高了，第一个带这个端点的版本看不到挂它的模型。
-- **不设最低应用版本，靠目录数据仓库不列入旧通道调不通的模型**：数据格式更简单。但列入的时机只能二选一：早列入，旧实例调用失败；晚列入，新实例迟迟用不上。把新模型设为默认模型时，没有设置默认模型的旧实例会全部失败。
-- **供应商模型合入目录数据仓库就放出，不等 ArcReel 发版**：新模型放出得更早，但挂在未发布端点上的模型，已是最新发布版的实例看不到；实例改为提示所需版本时，提示的版本还下载不到。
-- **默认模型被暂缓时自动换用其他模型作默认**：构建不会因此失败，但实例的默认模型会在没人确认的情况下改变。
-- **只收录当前可用的模型，厂商宣布弃用就删除**：清单始终干净，但厂商通常提前一到三个月公告，模型在关停前仍可调用。删掉之后，引用它的设置提前失效，报错只能说「不在清单中」，既看不出原因，也不知道该换成什么。
-- **退役模型全部收录、永不删除**：引用多久以后都能看到下线说明，但目录随时间无限膨胀。实例本地已经保留收到过的最后一个条目版本，曾经收到过生命周期信息的实例，过了保留期照样能提示。
-- **调用时自动改用后继模型**：用户不用手动处理，但后继的价格和画面风格常常与原模型不同，这些变化会在用户不知情时发生。
-- **渠道级的生命周期**：能表达某个供应商比模型厂商更早下架，但目前没有这样的真实用例，先不增加数据形状，等出现再加。
-- **纯机械巡检，只读机器可读的数据源**：不依赖 Agent，但后继模型没有机器可读的来源，国内厂商的关停日期也只写在公告里，机械任务读不出来。所以巡检由 Agent 阅读厂商的官方页面完成。
-- **同步时删除上游已删除的条目**：目录更干净，但仍引用这些条目的供应商模型会失去所引用的条目，之后的调用全部记为未定价。
+- **Instances reading third parties directly**: avoids repositories, but upstream format changes break all released clients together, mainland-China reachability is uncertain, and media sources remain missing.
+- **Official-service distribution**: enables incremental/version-filtered data but disables sync with services and exposes instance sync behavior. Reuse `docs/adr/0078`'s zero-server/raw market route.
+- **Fully manual ArcReel maintenance**: most control, but frequent text updates recreate stale-data problems.
+- **Manual sync or confirmation after checks**: new-api does this, but users not clicking retain release-time data. Edited entries already automatically disable sync, protecting them from full automation.
+- **Per-field preview selection (new-api)**: produces half-upstream/half-user entries, contradicting `docs/adr/0099` whole-copy rules.
+- **Schema versions with entry validation**: rejects unreadable data, but unpriced fallbacks suffice for reference costs. Only unsupported new request encoding causes real invocation failures, handled by provider-model minimum versions without versioning whole datasets.
+- **Manually specifying every minimum without endpoint derivation**: simpler format, but maintainers must remember endpoint releases and old name-based routing, inviting mistakes. Manual values after derivation cover nonendpoint causes only.
+- **release-please `x-release-please-version` introduction annotations**: avoids manual arithmetic, but every release rewrites annotated lines instead of preserving first-release versions.
+- **Expected next-release versions as introductions**: intuitive, but patch/minor is determined only after merge; overestimates hide models from their first supporting release.
+- **No minimum versions, delaying incompatible catalog models instead**: simpler data, but early publication breaks old instances, late publication delays new ones. New defaults break every old instance lacking explicit defaults.
+- **Publishing immediately on catalog merge**: earlier models, but latest-release instances cannot see models on unreleased endpoints; with version prompts, they are asked to upgrade to an unavailable version.
+- **Substituting defaults while originals are held**: avoids build failures but changes instance defaults without consent.
+- **Only currently usable models, removed on deprecation announcements**: tidy catalogs, but announcements commonly precede shutdown by 1–3 months. Early removal invalidates still-usable settings with uninformative "not listed" errors, hiding reasons/successors.
+- **Never removing retired models**: perpetual explanations but unlimited catalog growth. Instances already retain latest received entries and can still explain retirement after retention ends.
+- **Automatically using successors on calls**: avoids user action but silently changes prices/visual styles.
+- **Channel-level lifecycles**: could express earlier provider-specific removals, but no real use case yet; add shapes only when needed.
+- **Mechanical machine-readable-only inspections**: no Agents, but successors lack machine-readable sources and Chinese shutdowns appear only in announcements; Agents therefore inspect vendor-official pages.
+- **Deleting upstream-removed entries on sync**: cleaner catalogs, but referencing provider models lose entries and all future calls become unpriced.
 
 ## Consequences
 
-- 内置模型的价格与元信息改动，不再需要改代码和发版。
-- 收录沿用已有请求结构的新型号只改目录数据；需要新请求结构的型号要等新增内置调用端点的版本发布，旧版本实例不会错误调用它。
-- 新增或调整内置调用端点时，要同步修改 `arcreel_catalog_core` 的端点清单，否则 ArcReel 的一致性测试失败。新增端点要填写起始版本；只增加合法取值的原地扩展不填写，也不改动既有端点的起始版本。
-- 挂在新端点上的模型要等 ArcReel 发版后才放出。发版 PR 取到的出厂快照不含这些模型，实例要等同步到发版后构建的数据才拿到。
-- 默认模型的最低应用版本高于最新发布版本时，目录数据仓库的发布构建在 ArcReel 发版前持续失败，其他数据改动（如价格）也一起等到发版后才发布。
-- 新增维护项：上游格式变化会让构建失败，需要修改转换逻辑。
-- 官方服务不再需要模型信息接口。
+- Built-in prices/metadata change without code edits/releases.
+- New models reusing request structures need only catalog data; new shapes await built-in-endpoint releases, preventing wrong old-client calls.
+- Endpoint additions/changes must update `arcreel_catalog_core` catalogs or consistency tests fail. New endpoints require introduction versions; legal-value-only expansions neither add nor rewrite them.
+- New-endpoint models publish only after ArcReel releases. Release-PR factory snapshots omit them; instances obtain them from post-release synchronization builds.
+- Defaults requiring versions above latest release keep catalog publication failing until releases, delaying unrelated updates such as prices too.
+- New maintenance: upstream format changes fail builds and require converter updates.
+- Official services no longer need model-information endpoints.

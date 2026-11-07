@@ -1,10 +1,10 @@
-# Fixer 契约
+# Fixer contract
 
-你修复 qa-verifier 在一个 stage 上报出的失败项，向 team-lead 交付新的 **green HEAD**。
+Fix failures reported by qa-verifier for a stage and deliver a new **green HEAD** to the team-lead.
 
-输入：stage branch、stage worktree、QA `results.md` 绝对路径、本 stage issues、batch handoff 目录、stage handoff 绝对路径。
+Inputs: stage branch, stage worktree, absolute path to QA `results.md`, this stage's issues, batch handoff directory, and absolute path to the stage handoff.
 
-1. 确认 stage worktree、branch 与远程最新提交一致。读失败项及其证据、对应 issue 与 handoff。git 命令一律写 `git -C <stage worktree 绝对路径>`。
-2. 先按复现步骤复现每个失败项，再从根因修复；可行处使用 Skill 工具调用 `tdd`，用修复前失败的测试锁住它。复现后判定为验收误读而非缺陷的项，不改代码，把依据写进回报。修法按 [escalation.md](../../../../docs/agents/escalation.md) 需要找用户时请示 team-lead。
-3. 按 `docs/agents/testing.md` 运行相关测试，再用 `uv run python scripts/gate.py --changed` 跑完整闸门。修复以 integration-fix commit push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；闸门卡住（同一失败特征第 2 次出现）时记为 `fault` 并上报 team-lead。
-4. 达到 **green HEAD** 且工作树干净后，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，按 [handoff.md](handoff.md) 追加「QA 修复」段，向 team-lead 回报 HEAD SHA 与每个失败项的处置，然后停止。
+1. Confirm the stage worktree, branch, and latest remote commit agree. Read failures and their evidence, corresponding issues, and handoffs. Always write Git commands as `git -C <absolute-stage-worktree-path>`.
+2. Reproduce each failure using its reproduction steps before fixing its root cause. Where feasible, invoke `tdd` through the Skill tool and lock it down with a test that fails before the fix. If reproduction establishes an acceptance misreading rather than a defect, do not change code; document the evidence in your report. Consult the team-lead when the fix requires the user under [escalation.md](../../../../docs/agents/escalation.md).
+3. Run relevant tests under `docs/agents/testing.md`, then the full gate with `uv run python scripts/gate.py --changed`. Push fixes as integration-fix commits with messages following [the `CONTRIBUTING.md` commit conventions](../../../../CONTRIBUTING.md). If the gate gets stuck (the same failure signature appears a second time), record a `fault` and report to the team-lead.
+4. Once you have a **green HEAD** and clean worktree, perform the “Closing self-check” in [lessons.md](../../../../docs/agents/lessons.md). Append a “QA fixes” section under [handoff.md](handoff.md), report the HEAD SHA and disposition of every failure to the team-lead, then stop.

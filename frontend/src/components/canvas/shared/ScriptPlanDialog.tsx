@@ -20,11 +20,11 @@ import { useScriptPlanStore, type ScriptPlanOpenRequest } from "@/stores/script-
 interface HostProps {
   projectName: string;
   episode: number;
-  /** 本集上次保存的附加指令。 */
+  /** Last saved additional instructions for this episode. */
   savedInstructions?: string;
 }
 
-/** 集页上唯一的「重新规划脚本」对话框宿主：按 {@link useScriptPlanStore} 的请求打开。 */
+/** Single episode-page script-replanning dialog host, opened through {@link useScriptPlanStore} requests. */
 export function ScriptPlanHost({ projectName, episode, savedInstructions }: HostProps) {
   const request = useScriptPlanStore((s) => s.request);
   const close = useScriptPlanStore((s) => s.close);
@@ -32,7 +32,7 @@ export function ScriptPlanHost({ projectName, episode, savedInstructions }: Host
   if (!request || request.projectName !== projectName || request.episode !== episode) return null;
   return (
     <ScriptPlanDialog
-      // 每次打开都从请求与已保存的指令重新初始化，不沿用上一次对话框里未提交的输入。
+      // Reinitialize each opening from the request and saved instructions, never previous unsubmitted dialog input.
       key={`${projectName}:${episode}:${request.replaces}`}
       request={request}
       savedInstructions={savedInstructions ?? ""}
@@ -48,15 +48,15 @@ interface DialogProps {
 }
 
 /**
- * 「重新规划脚本」：替换本集已有的规划、待修复草稿或正式脚本。首次规划在集页起步区里完成，
- * 两处共用 {@link useScriptPlanSubmit} 的提交逻辑。提交中忽略关闭请求。
+ * Replan script replaces current episode planning, repairable drafts or formal scripts. Initial planning uses the episode start area;
+ * both share {@link useScriptPlanSubmit}. Ignore close requests during submission.
  */
 function ScriptPlanDialog({ request, savedInstructions, onClose }: DialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const fieldId = useId();
   const { projectName, episode, replaces } = request;
   const regenerate = replaces !== "formal_script";
-  // 未确认的规划与待修复草稿没有版本历史，整份替换即丢失，对话框本身就是替换前的确认。
+  // Unconfirmed plans/repairable drafts have no version history and are lost on whole replacement; the dialog itself confirms replacement first.
   const lossText =
     replaces === "pending_plan"
       ? t("script_plan_replace_pending_warning")

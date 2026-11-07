@@ -41,11 +41,11 @@ describe("AgentFailureCard", () => {
     const card = screen.getByRole("region", { name: "这一轮没有完成" });
     expect(card).toHaveTextContent("这一轮没有完成");
     expect(card).toHaveTextContent("模型服务拒绝了这次请求。");
-    // 原始错误码与消息不在默认层
+    // Raw error codes/messages stay outside default layers.
     expect(card).not.toHaveTextContent("sdk_assistant");
     expect(card).not.toHaveTextContent("403");
     expect(card).not.toHaveTextContent("gpt-5.6-sol");
-    // 轮次失败不重放
+    // Turn failures never replay.
     expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "详情" }));

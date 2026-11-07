@@ -1,4 +1,4 @@
-"""Alembic 迁移：custom_provider_model.max_output_tokens 的 upgrade / downgrade。"""
+"""Alembic: custom_provider_model.max_output_tokens upgrade / downgrade."""
 
 from __future__ import annotations
 

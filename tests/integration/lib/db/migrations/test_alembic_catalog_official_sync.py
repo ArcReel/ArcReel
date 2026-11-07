@@ -1,4 +1,4 @@
-"""Alembic 迁移：新建官方同步表，降级时删除。"""
+"""Alembic: create official-sync tables and remove them on downgrade."""
 
 from __future__ import annotations
 

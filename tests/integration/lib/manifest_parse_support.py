@@ -1,4 +1,4 @@
-"""产物清单与版本历史整份解析次数的观测：在 JSON 解码边界上按各自的顶层结构识别。"""
+"""Observe whole-manifest/version-history parsing counts, identifying each by top-level shape at JSON decoding boundaries."""
 
 from __future__ import annotations
 
@@ -14,13 +14,13 @@ _VERSIONS_TOP_LEVEL_FIELDS = frozenset(RESOURCE_TYPES)
 
 
 def count_manifest_parses(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
-    """记录被解码文本的顶层恰好是清单三字段对象的次数；产物身份键、项目文件等其余解码不计入。"""
+    """Count decoded text whose top level is exactly the three-field manifest object; exclude artifact identity keys, project files, and other decodes."""
 
     return _count_parses(monkeypatch, _MANIFEST_TOP_LEVEL_FIELDS)
 
 
 def count_versions_parses(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
-    """记录被解码文本的顶层恰好是版本历史各资源类型桶的次数；其余解码不计入。"""
+    """Count decoded text whose top level is exactly version-history resource-type buckets; exclude other decodes."""
 
     return _count_parses(monkeypatch, _VERSIONS_TOP_LEVEL_FIELDS)
 

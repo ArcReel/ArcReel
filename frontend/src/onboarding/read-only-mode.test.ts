@@ -3,8 +3,8 @@ import { API, ReadOnlyModeError, setApiReadOnly } from "@/api";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 
 /**
- * 只读闸门的结构性保证：`withAuth()` 是全部 fetch 的唯一出口，闸门落在那里，
- * 所以「哪个按钮忘了禁用」不会变成一次真实写请求。
+ * Structural readonly guarantees: `withAuth()` is the sole fetch exit, carrying gates,
+ * so missed disabled buttons never become real write requests.
  */
 
 function okResponse(): Response {
@@ -57,9 +57,9 @@ describe("read-only demo mode", () => {
   });
 
   it("does not block writes aimed at a different, real project", async () => {
-    // 真实项目发起的多请求写操作，若在两次请求之间导航进了演示工作台，
-    // 闸门此时是全局态而非按请求目标判定——但只要请求本身写的不是演示项目，
-    // 就不该被这个兜底拦下，否则会留下部分完成的真实项目写入。
+    // Real-project multirequest writes may navigate into demos between requests;
+    // gates are then global rather than target-scoped, but requests not writing demos
+    // must bypass fallback blocking to avoid partially completed real-project writes.
     await API.request("/projects/real-project/characters/hero", {
       method: "PATCH",
       body: "{}",
@@ -68,8 +68,8 @@ describe("read-only demo mode", () => {
   });
 
   it("blocks the demo project under any casing, matching isDemoProject", async () => {
-    // 闸门与 isDemoProject 必须同一口径：后者大小写不敏感，闸门若做精确比较，
-    // 大小写不同的演示项目名就会被判成「另一个真实项目」而放行写请求
+    // Gates must match case-insensitive isDemoProject; exact comparisons would classify
+    // case-variant demo names as other real projects and permit writes.
     await expect(
       API.request(`/projects/${DEMO_PROJECT_NAME.toUpperCase()}/characters/hero`, {
         method: "PATCH",
@@ -80,9 +80,9 @@ describe("read-only demo mode", () => {
   });
 
   it("does not treat a project literally named 'import' as project-less", async () => {
-    // ProjectManager.normalize_project_name 允许 "import" 作为合法项目名，归档导入
-    // 也会直接采用该名——只有精确的 /projects/import 静态归档端点本身该被排除，
-    // 不能连带把「项目名恰好叫 import」的写请求也判成无归属而拦下
+    // ProjectManager.normalize_project_name permits "import", also directly accepted by archive imports;
+    // exclude only exact static /projects/import endpoints themselves,
+    // never misclassify writes to projects named import as unowned and block them.
     await API.request("/projects/import/characters/hero", {
       method: "PATCH",
       body: "{}",
@@ -98,7 +98,7 @@ describe("read-only demo mode", () => {
   });
 
   it("blocks task enqueueing", async () => {
-    // 入队端点一律是 POST，所以闸门对它们的覆盖和对普通写操作一样
+    // All enqueue endpoints are POST, giving gates identical coverage to ordinary writes.
     await expect(
       API.request(`/projects/${DEMO_PROJECT_NAME}/generate/storyboard/E1S1`, {
         method: "POST",
@@ -114,15 +114,15 @@ describe("read-only demo mode", () => {
   });
 
   it("exempts the onboarding-seen system endpoint from the gate", async () => {
-    // 引导 tour 退出时会在仍处于演示路由（apiReadOnly 尚未复位）期间写这条已看过标记，
-    // 它不写任何项目数据，不该被「无项目归属即拦截」的默认规则连带挡下
+    // Exiting tours writes seen markers while still on demo routes before apiReadOnly resets;
+    // they write no project data and must bypass default unowned-request blocking.
     await API.request("/onboarding/seen", { method: "POST" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("lets the tour mark itself seen from inside the demo workbench", async () => {
-    // 工作台四步就跑在只读态里，那里按「跳过」或「完成」写的正是这条标记——
-    // 走真实的 API 方法而不是手写 endpoint，方法改路径时这条也跟着失败。
+    // Four workbench steps run read-only; Skip/Finish writes precisely these markers.
+    // Exercise actual API methods rather than handwritten endpoints so method-path changes also fail tests.
     await API.markOnboardingSeen();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

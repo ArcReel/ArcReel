@@ -33,7 +33,7 @@ import { errMsg } from "@/utils/async";
 import { dismissOnEscape, dismissOnFocusLeave, keepFocusInside } from "@/utils/inline-confirm";
 import { cn } from "cn";
 
-/** 有入库任务仍在推进时的轮询间隔。 */
+/** Polling interval while library-ingestion tasks still progress. */
 export const LINK_POLL_INTERVAL_MS = 4000;
 
 const IN_FLIGHT: ReadonlySet<ProviderAssetLinkState> = new Set(["pending", "submitting", "processing", "uncertain"]);
@@ -56,14 +56,14 @@ export interface ProviderAssetUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  /** 版本历史里的资源类型，如 `characters`。 */
+  /** Version-history resource types, e.g. `characters`. */
   resourceType: string;
   resourceId: string;
 }
 
 /**
- * 上传到供应商素材库：展示图片当前选中版本在各素材库账号里的关联与入库状态，发起上传、解除关联与刷新。
- * 上传立即返回入库任务，供应商审核期间按状态轮询，关闭对话框不影响后台入库。
+ * Upload to provider material libraries: show associations/ingestion states for current selected image versions across accounts; upload, unlink and refresh.
+ * Uploads immediately return ingestion tasks; poll status during provider review, and closing dialogs does not interrupt backend ingestion.
  */
 export function ProviderAssetUploadDialog({
   open,
@@ -91,7 +91,7 @@ export function ProviderAssetUploadDialog({
   );
 }
 
-// 范围由服务端按云账号身份、站点、区域与项目计算：账号记录换成另一个云账号的 Access Key 后，旧关联不再属于它
+// Servers derive scopes from cloud-account identity/site/region/project; changing account Access Keys to other cloud accounts removes ownership of old associations.
 function sameScope(link: ProviderAssetLink, account: ProviderAssetLinkAccount): boolean {
   return link.scope_key === account.scope_key;
 }
@@ -113,7 +113,7 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
         setState({ status: "ready", panel });
       } catch (error) {
         if (controller.signal.aborted) return;
-        // 轮询中的失败保留已显示的状态，下一轮再取；首次加载失败才换成错误提示
+        // Poll failures preserve visible states until next polls; only initial failures replace content with errors.
         setState((current) => initial ? { status: "error", error } : { ...current });
       }
     },
@@ -125,7 +125,7 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
     return () => controllerRef.current?.abort();
   }, [fetchPanel]);
 
-  // 有入库任务仍由后台推进时轮询，全部有定论或停止自动查询后不再请求
+  // Poll while backend ingestion tasks still progress; stop requests once all settle or automatic queries stop.
   const polling = state.status === "ready" && state.panel.links.some((link) => IN_FLIGHT.has(link.state) && link.polling);
   useEffect(() => {
     if (!polling) return;
@@ -234,14 +234,14 @@ interface LinkRowProps {
   title: string;
   subtitle: string;
   site: ProviderAssetLink["site"];
-  /** 可以向它上传的账号；账号范围已变的历史关联为 null。 */
+  /** Accounts accepting uploads; historical associations whose account scopes changed return null. */
   accountId: number | null;
   link: ProviderAssetLink | null;
   canUpload: boolean;
   onChanged: () => void;
 }
 
-/** 关联状态的说明；供应商给出的失败原文（错误码与消息）单独返回，折叠在详情里。 */
+/** Association-state explanations; raw provider failures (codes/messages) return separately, collapsed in details. */
 function linkDetail(
   link: ProviderAssetLink,
   t: (key: string, options?: Record<string, unknown>) => string,
@@ -281,7 +281,7 @@ function LinkRow({
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
-      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- 在途时按钮禁用，同一行不会有并发请求共享这个标志；错误走提示
+      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- Buttons disable during requests; no concurrent same-row requests share this flag; errors use notifications
       setBusy(false);
     }
   };
@@ -373,7 +373,7 @@ function LinkSummary({ title, subtitle, link }: { title: string; subtitle: strin
   );
 }
 
-/** 「解除关联」的行内确认：确认态焦点落在「取消」上，取消或 Esc 退出时焦点交还触发按钮，焦点离开确认区域也退出。 */
+/** Inline unlink confirmations: initially focus Cancel; cancel/Esc returns focus to triggers, and leaving confirmation regions also exits. */
 function UnlinkControl({ busy, onConfirm }: { busy: boolean; onConfirm: () => void }) {
   const { t } = useTranslation(["assets", "common"]);
   const [confirming, setConfirming] = useState(false);

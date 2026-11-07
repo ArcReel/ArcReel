@@ -1,14 +1,14 @@
-# 供应商 API 文档索引维护
+# Maintaining the provider API documentation index
 
-本目录只保存导航：官方来源链接、ArcReel 依赖的主题和稳定代码入口。运行时事实仍归 registry、backend 与 endpoint 声明，不从索引反向加载。
+This directory stores navigation only: official source links, topics ArcReel depends on, and stable code entry points. Runtime facts belong to registry, backend and endpoint declarations; the runtime never loads them from this index.
 
-「简介来源」一项是例外，它支撑 `lib/i18n/<locale>/providers.py` 的 `provider_desc_<id>`：简介只写平台是什么，来源优先取 Wikipedia 或 Wikidata 词条，词条缺失或过时时改用官方页面。
+The description-source entry is an exception: it supports `provider_desc_<id>` in `lib/i18n/<locale>/providers.py`. Describe only what the platform is. Prefer Wikipedia or Wikidata entries; use official pages when those entries are missing or outdated.
 
-## 修改流程
+## Change procedure
 
-1. 以 `PROVIDER_REGISTRY` / `ENDPOINT_REGISTRY` 的规范 id 定位对应文件；一个 id 一个文件。
-2. 用官方公开页面核对接口、能力与参数约束、计费。普通抓取不可用时依次尝试 Jina Reader、`agent-browser` 或用户浏览器，来源仍保持官方。
-3. 更新本 id 的官方入口、ArcReel 实际依赖页面和代码 `path::symbol`。共享文档可重复链接，不复制页面内容或数值。
-4. 新增或删除 registry 条目时同步更新本目录对应 README；完成标准是每个规范 id 都能从 README 到达一份同名索引，且索引能到达官方来源和实际消费代码。
+1. Locate the file by the canonical ID in `PROVIDER_REGISTRY` / `ENDPOINT_REGISTRY`; keep one file per ID.
+2. Verify interfaces, capabilities, parameter constraints and billing against official public pages. If ordinary fetching fails, try Jina Reader, `agent-browser`, then the user browser, in that order. Sources must remain official.
+3. Update the official entry point, pages ArcReel actually depends on, and code `path::symbol` references for this ID. Shared documents may be linked repeatedly; do not copy page contents or numeric values.
+4. When adding or removing registry entries, update the corresponding README here. Completion means every canonical ID is reachable from the README through a same-name index, which links to official sources and the actual consuming code.
 
-保存测试所需的最小请求/响应 fixture 属于代码契约，不属于文档镜像；保持 fixture 最小并附来源。仓库不保存第三方文档正文、完整参数/价格表或用于重建镜像的下载脚本。
+Minimal request/response fixtures needed by tests are code contracts, not documentation mirrors. Keep them minimal and include their source. The repository does not store third-party document bodies, full parameter/pricing tables or download scripts for rebuilding mirrors.

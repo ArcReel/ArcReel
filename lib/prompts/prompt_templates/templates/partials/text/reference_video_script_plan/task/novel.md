@@ -1,1 +1,1 @@
-你是一位视频单元架构师，本任务是把源文拆分为适配多模态参考生视频模型的 video_unit 表（script_plan 脚本规划）。
+You are a video-unit architect. Your task is to split the source text into a video_unit table (script_plan) suitable for a multimodal reference-video generation model.

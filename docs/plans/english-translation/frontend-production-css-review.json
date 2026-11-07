@@ -1,0 +1,18 @@
+{
+  "baseline_css": [
+    {
+      "path": "assets/index-D4iHU1rK.css",
+      "bytes": 221969,
+      "sha256": "9ccaff6f33408e088c34e47e624c6be8683e5f55884357757c88b29a074db2c7"
+    }
+  ],
+  "candidate_css": [
+    {
+      "path": "assets/index-D4iHU1rK.css",
+      "bytes": 221969,
+      "sha256": "9ccaff6f33408e088c34e47e624c6be8683e5f55884357757c88b29a074db2c7"
+    }
+  ],
+  "stylesheet_content_multisets_identical": true,
+  "scope": "CSS bytes only, built with the same frozen dependencies and configuration. Does not certify runtime/model behavior."
+}

@@ -6,14 +6,14 @@ import type { GenerationRoute } from "@/utils/generation-mode";
 import { ROUTE_META } from "./generation-route-meta";
 
 /**
- * 生成模式二选一卡（创建向导）。
+ * Two generation-mode selection cards (creation wizards).
  *
- * 无预选、必选：生成模式创建后不可更改，让这个不可逆决策以对比形态呈现。
- * 卡内图示画的是两个生成模式各自喂给视频模型的输入契约——分镜图生视频是单张分镜图（I2V），
- * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分生成模式的判据。
+ * Required without preselection: modes cannot change after creation; present this irreversible decision comparatively.
+ * Diagrams show video-model input contracts for each mode: single storyboard images for storyboard image-to-video (I2V),
+ * character/scene/prop reference-image sets for reference-to-video (R2V), the criterion distinguishing generation modes.
  */
 
-/** 「创建后不可更改」琥珀锁形徽章。与区块标题同行，设置页只读展示复用。 */
+/** Amber Cannot change after creation lock badges, beside section headings and reused read-only in settings. */
 export function RouteLockBadge() {
   const { t } = useTranslation("dashboard");
   return (
@@ -41,7 +41,7 @@ function frameClass(active: boolean): string {
   return active ? "border-primary/50 bg-primary/10" : "border-border bg-background/60";
 }
 
-/** 输入契约图示：单张分镜图 → 视频。 */
+/** Input-contract diagrams: single storyboard images → videos. */
 function StoryboardDiagram({ active }: { active: boolean }) {
   return (
     <span aria-hidden className="flex items-center gap-2.5">
@@ -54,7 +54,7 @@ function StoryboardDiagram({ active }: { active: boolean }) {
   );
 }
 
-/** 输入契约图示：角色、场景、道具参考图叠放 → 视频。 */
+/** Input-contract diagrams: stacked character/scene/prop references → videos. */
 function ReferenceDiagram({ active }: { active: boolean }) {
   const iconCls = cn("size-4", active ? "text-primary" : "text-muted-foreground");
   const chip = (icon: ReactNode, key: string) => (
@@ -75,17 +75,17 @@ function ReferenceDiagram({ active }: { active: boolean }) {
   );
 }
 
-/** 呈现顺序：分镜图生视频在左（默认路径），参考生视频在右。 */
+/** Display order: storyboard image-to-video left (default path), reference-to-video right. */
 const ROUTE_CARDS: readonly { route: GenerationRoute; Diagram: (props: { active: boolean }) => ReactNode }[] = [
   { route: "storyboard", Diagram: StoryboardDiagram },
   { route: "reference_video", Diagram: ReferenceDiagram },
 ];
 
 export interface GenerationRouteCardsProps {
-  /** null = 未选。必选：未选时向导不放行。 */
+  /** null means unselected; required, so wizards cannot advance without selection. */
   value: GenerationRoute | null;
   onChange: (next: GenerationRoute) => void;
-  /** 装配条等从属内容，仅分镜图生视频选中时由调用方传入。 */
+  /** Subordinate contents such as assembly bars, supplied only when storyboard image-to-video is selected. */
   children?: ReactNode;
 }
 
@@ -129,7 +129,7 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
               />
               <Diagram active={selected} />
               <span className="text-sm font-medium text-foreground">{t(meta.nameKey)}</span>
-              {/* 选中项浅底上用中间档文字，保证对比度 */}
+              {/* Use mid-tier text on pale selected backgrounds for contrast. */}
               <span className={cn("text-xs", selected ? "text-subtle-foreground" : "text-muted-foreground")}>
                 {t(meta.descKey)}
               </span>

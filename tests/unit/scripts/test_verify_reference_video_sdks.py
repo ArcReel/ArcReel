@@ -128,7 +128,7 @@ class _FakeBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         type(self)._calls.append(request)
-        # 模拟落盘：写入非空 dummy 字节，让 run_once 的落盘校验通过
+        # Simulate persistence with nonempty dummy bytes, passing run_once file checks.
         await write_backend_output(request.output_path, b"\x00fake-video-payload")
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -139,10 +139,10 @@ class _FakeBackend:
 
 
 class _NoWriteFakeBackend(_FakeBackend):
-    """模拟：backend 返回成功但未落盘文件，用于 false-positive 校验。"""
+    """Backend reports success without creating a file, testing false-positive protection."""
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 不写 output_path
+        # Do not write output_path.
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=self.name,
@@ -172,7 +172,7 @@ async def test_run_once_success(tmp_path: Path):
     assert result.refs == 3
     assert result.duration == 5
     assert result.error is None
-    # Fake backend 收到 3 张 ref
+    # Fake backend receives 3 references.
     req = _FakeBackend._calls[-1]
     assert req.reference_images is not None
     assert len(req.reference_images) == 3
@@ -196,7 +196,7 @@ async def test_run_once_multi_shot_prompt(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_run_once_flags_missing_output_as_failure(tmp_path: Path):
-    """backend.generate 成功返回但文件未落盘 → 应判 FAIL 而非 false-PASS。"""
+    """backend.generate success without a persisted file must produce FAIL, not false-PASS."""
     result = await run_once(
         provider=Provider.ARK,
         backend=_NoWriteFakeBackend(),
@@ -250,7 +250,7 @@ def test_clamp_refs_backend_without_reference_support():
 
 
 def test_resolve_backend_delegates_to_create_backend(monkeypatch):
-    """resolve_backend 应把 Provider 映射到 lib.backends.video_backends 名称并调用 create_backend。"""
+    """resolve_backend maps Provider to lib.backends.video_backends names and calls create_backend."""
     called: list[str] = []
     monkeypatch.setattr(mod, "create_backend", lambda name: called.append(name) or _FakeBackend())
 
@@ -296,7 +296,7 @@ async def test_run_with_backend_returns_2_on_failure(tmp_path: Path, monkeypatch
         work_dir=tmp_path / "work",
     )
     assert code == 2
-    # 失败时也应写报告（记录错误）
+    # Failures must also write reports containing the error.
     reports = list((tmp_path / "reports").glob("reference-video-sdks-*.md"))
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
@@ -304,14 +304,14 @@ async def test_run_with_backend_returns_2_on_failure(tmp_path: Path, monkeypatch
 
 
 class _CappedFakeBackend(_FakeBackend):
-    """max_reference_images=2，会触发 clamp note 分支。"""
+    """max_reference_images=2 triggers the clamp-note branch."""
 
     video_capabilities = VideoCapabilities(max_reference_images=2)
 
 
 @pytest.mark.asyncio
 async def test_run_with_backend_note_written_when_clamped(tmp_path: Path, monkeypatch):
-    """请求 5 refs 但 backend max=2，note 应被写入报告。"""
+    """Requesting 5 references with backend max=2 must record the note in the report."""
     monkeypatch.setattr(mod, "resolve_backend", lambda p: _CappedFakeBackend())
     code = await mod.run_with_backend(
         provider=mod.Provider.ARK,
@@ -328,12 +328,12 @@ async def test_run_with_backend_note_written_when_clamped(tmp_path: Path, monkey
 
 @pytest.mark.asyncio
 async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatch):
-    """第二次运行时，旧数据行应被保留（追加模式）。"""
+    """Second runs preserve existing data rows in append mode."""
     monkeypatch.setattr(mod, "resolve_backend", lambda p: _FakeBackend())
     report_dir = tmp_path / "reports"
     work_dir = tmp_path / "work"
 
-    # 第一次跑
+    # First run.
     await mod.run_with_backend(
         provider=mod.Provider.ARK,
         refs=3,
@@ -342,7 +342,7 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
         report_dir=report_dir,
         work_dir=work_dir,
     )
-    # 第二次跑（同一天，会追加）
+    # Second run, same day, appending.
     await mod.run_with_backend(
         provider=mod.Provider.GROK,
         refs=3,
@@ -354,7 +354,7 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
     reports = list(report_dir.glob("reference-video-sdks-*.md"))
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
-    # 第一次和第二次的 provider 行都应存在
+    # Both runs’ provider rows must remain.
     assert "| ark |" in content
     assert "| grok |" in content
 
@@ -375,7 +375,7 @@ def test_extract_data_rows_skips_header_and_separator():
 
 
 def test_extract_data_rows_keeps_error_with_provider_keyword():
-    """回归：Result 字段含 'Provider' 关键字的数据行不应被误过滤。"""
+    """Regression: Result containing 'Provider' must not cause a data row to be filtered."""
     lines = [
         "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
         "|---|---|---|---|---|---|---|---|---|",
@@ -387,7 +387,7 @@ def test_extract_data_rows_keeps_error_with_provider_keyword():
 
 
 def test_extract_data_rows_keeps_note_with_dashes():
-    """回归：Note 字段含 '---' 的数据行不应被误过滤。"""
+    """Regression: Note containing '---' must not cause a data row to be filtered."""
     lines = [
         "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
         "|---|---|---|---|---|---|---|---|---|",

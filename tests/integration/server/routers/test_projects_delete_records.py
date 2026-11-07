@@ -1,4 +1,4 @@
-"""删除项目后，数据库里的旧记录与同名新项目断开关联，费用统计仍按已删除项目保留。"""
+"""Deletion disconnects old DB records from same-name recreated projects, retaining costs under deleted identities."""
 
 from lib.asset_library.bindings import AssetLibraryScope
 from lib.asset_library.links import selected_link
@@ -51,16 +51,16 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
         tasks = TaskRepository(session)
         assert (await tasks.list_tasks(project_name="demo"))["total"] == 0
         assert (await tasks.get(old["queued"]) or {})["status"] == "cancelled"
-        # 删除时排队的任务不再被 worker 领走
+        # Workers never claim tasks queued before deletion.
         assert await tasks.claim_next("image") is None
 
-        # 同一资源的新请求另起任务，不并到仍在执行的旧任务上
+        # New same-resource requests create tasks, never merge with old running jobs.
         fresh = await tasks.enqueue(project_name="demo", task_type="video", media_type="video", resource_id="E1S02")
         assert fresh["deduped"] is False
         assert fresh["task_id"] != old["running"]
 
         assert await SessionRepository(session).list(project_name="demo") == []
-        # 导入的同名项目带着相同的内容版本身份，也不继承旧项目的供应商素材关联
+        # Same-name imports with identical content-version identities never inherit old provider-material associations.
         assert await selected_link(session, project_name="demo", content_version_id="cv-1", scope=scope) is None
 
         usage = UsageRepository(session)

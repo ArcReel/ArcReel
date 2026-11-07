@@ -1,15 +1,15 @@
-"""引用模型的设置字段名：全局 ``system_settings`` 与项目 ``project.json`` 各自哪些键的值是 ``provider/model``。"""
+"""Model-reference setting keys: which global ``system_settings`` / project ``project.json`` values are ``provider/model``."""
 
 from __future__ import annotations
 
-#: 全局 system_settings 与项目 project.json 同名的文本 backend 字段。
+#: Shared global/project text-backend keys.
 TEXT_BACKEND_SETTING_KEYS: tuple[str, ...] = (
     "default_text_backend",
     "text_backend_simple",
     "text_backend_complex",
 )
 
-#: 全局 system_settings 里所有引用模型的设置项。
+#: All model-reference global system_settings keys.
 GLOBAL_MODEL_SETTING_KEYS: tuple[str, ...] = (
     *TEXT_BACKEND_SETTING_KEYS,
     "default_image_backend",
@@ -21,7 +21,7 @@ GLOBAL_MODEL_SETTING_KEYS: tuple[str, ...] = (
     "default_audio_backend",
 )
 
-#: 项目 project.json 里所有引用模型的字段。
+#: All model-reference project.json keys.
 PROJECT_MODEL_SETTING_KEYS: tuple[str, ...] = (
     *TEXT_BACKEND_SETTING_KEYS,
     "default_image_backend",
@@ -33,7 +33,7 @@ PROJECT_MODEL_SETTING_KEYS: tuple[str, ...] = (
     "audio_backend",
 )
 
-#: 引用模型的设置字段（全局与项目）→ 所引模型的媒体类型。写入时据此校验模型的媒体类型，读出引用时据此对应条目。
+#: Global/project model-reference keys → media, validating writes and matching entries on reads.
 MODEL_SETTING_MEDIA_TYPES: dict[str, str] = {
     "video_backend": "video",
     "video_provider_i2v": "video",

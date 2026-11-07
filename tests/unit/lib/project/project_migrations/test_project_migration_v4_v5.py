@@ -1,4 +1,4 @@
-"""v4→v5 迁移：生成模式二值化与宫格开关重编码；版本守卫、幂等、集级字段剔除。"""
+"""v4→v5: binary generation modes and grid-switch recoding; version guards, idempotency, and episode-field removal."""
 
 import json
 from pathlib import Path
@@ -32,7 +32,7 @@ class TestMigrateProjectDict:
 
     @pytest.mark.parametrize("dirty", [None, "", "single", 42, [], {}, {"value": "grid"}])
     def test_dirty_mode_backfilled_as_storyboard(self, dirty):
-        """非二值脏值（含不可哈希值）一律落显式 storyboard，不抛异常中断迁移。"""
+        """All invalid nonbinary values, including unhashable ones, become explicit storyboard without interrupting migration."""
         after = migrate_project_dict({"generation_mode": dirty})
         assert after["generation_mode"] == "storyboard"
         assert after["grid_storyboard"] is False
@@ -105,7 +105,7 @@ class TestMigrateV4ToV5File:
         d = _write(tmp_path, {"schema_version": 5, "generation_mode": "grid"})
         migrate_v4_to_v5(d)
         data = _load(d)
-        # 已是 v5：不动（该形态不应存在，但守卫职责只看版本号）
+        # Already v5: no change; although this shape should not exist, the guard checks only version.
         assert data["generation_mode"] == "grid"
 
     def test_missing_project_json_is_noop(self, tmp_path: Path):
@@ -115,7 +115,7 @@ class TestMigrateV4ToV5File:
         assert not (d / "project.json").exists()
 
     def test_string_schema_version_is_normalized(self, tmp_path: Path):
-        """历史 project.json 可能存字符串版本号，守卫做 int 归一化而非抛 TypeError。"""
+        """Historical project.json may store string versions; guards normalize with int instead of raising TypeError."""
         d = _write(tmp_path, {"schema_version": "4", "generation_mode": "grid"})
         migrate_v4_to_v5(d)
         data = _load(d)

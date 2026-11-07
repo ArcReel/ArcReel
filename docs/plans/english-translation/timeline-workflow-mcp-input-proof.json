@@ -1,0 +1,165 @@
+{
+  "scope": "Actual AGENT_TOOLSET input_schema values for all exposed MCP tools, including nested $defs. Output DTO descriptions are outside this equality claim and are reviewed separately.",
+  "tools": 61,
+  "tools_names": [
+    "cancel_generation_batch",
+    "complete_script_plan_rebuild",
+    "confirm_script_review",
+    "create_project",
+    "create_timeline",
+    "delete_project_file",
+    "discard_draft",
+    "edit_images",
+    "edit_source_text",
+    "edit_timeline",
+    "export_jianying_draft",
+    "generate_assets",
+    "generate_episode_script",
+    "generate_grid",
+    "generate_narration_audio",
+    "generate_script_plan",
+    "generate_storyboards",
+    "generate_videos",
+    "get_episode_script",
+    "get_generation_batch",
+    "get_project_content",
+    "get_prompt_preview",
+    "get_provider_asset_links",
+    "get_script_plan_content",
+    "get_source_text",
+    "get_video_capabilities",
+    "get_workflow_plan",
+    "inspect_images",
+    "inspect_video_units",
+    "list_bgm",
+    "list_pending_assets",
+    "list_project_files",
+    "list_projects",
+    "list_provider_library_assets",
+    "list_revisions",
+    "list_source_files",
+    "list_timelines",
+    "list_trash_records",
+    "merge_asset",
+    "open_draft",
+    "patch_draft",
+    "patch_episode_meta",
+    "patch_episode_script",
+    "patch_project",
+    "plan_episodes",
+    "promote_draft",
+    "read_project_file",
+    "read_timeline",
+    "release_provider_asset_link",
+    "rename_asset",
+    "rename_timeline",
+    "render_final_cut",
+    "reset_episode_planning",
+    "restore_revision",
+    "restore_trash_record",
+    "retry_project_migration",
+    "select_provider_library_asset",
+    "select_video_version",
+    "split_grids",
+    "upload_source",
+    "upload_to_provider_asset_library"
+  ],
+  "full_json_values_identical": true,
+  "capture_bytes_identical": true,
+  "exact_differences": [],
+  "before": {
+    "path": "/tmp/arcreel-timeline-workflow-mcp-before-final.json",
+    "sha256": "d04a4485a02504773cbac7c77b46fd8da1aff21b8846cea9f8eba1b9db274ad7"
+  },
+  "after": {
+    "path": "/tmp/arcreel-timeline-workflow-mcp-after-final.json",
+    "sha256": "d04a4485a02504773cbac7c77b46fd8da1aff21b8846cea9f8eba1b9db274ad7"
+  },
+  "capture": {
+    "path": "/tmp/capture_timeline_workflow_mcp.py",
+    "sha256": "f46b5e1e06cf4e4d2725371e65d8caeff702cadf82ca18bb80a1d9259cdecee9",
+    "mechanism": "Separate fresh Python processes. Before installs an importlib MetaPathFinder intercepting ONLY lib.edit_timeline and lib.workflow and their submodules, loading the immediate-candidate snapshot captured before this worker prose batch. Other dependencies and server.agent_toolset.toolset are current candidate for both processes. After uses normal current imports. Each reads every real AGENT_TOOLSET descriptor input_schema; no descriptions/keys are stripped. No repository mutation to construct the before state."
+  },
+  "snapshot_sources": [
+    {
+      "module": "lib/edit_timeline/__init__.py",
+      "before_sha256": "1f7d68ab34df3723207872f76fa6caab42e15ceb043ac4bf77b30fd6ef8996e9",
+      "after_sha256": "64e5f69d43c74d370f5763a542eaa96f9dcdad0cf18cd58f7a269102f567899a"
+    },
+    {
+      "module": "lib/edit_timeline/bgm.py",
+      "before_sha256": "c50ee18f724c794cd9872f717117e6e4e2ced94e5196d368e0e609ffc348df0f",
+      "after_sha256": "338b147803b211b0732907b51fb51e5a66fad4f8e4c8e95c5ce11f5cad689522"
+    },
+    {
+      "module": "lib/edit_timeline/errors.py",
+      "before_sha256": "77fdd5b0bd943ac6c38b9594fe5701fef8845a296ec6a11f9f247b8e7c388465",
+      "after_sha256": "c817d21254d03960b53956f090417df3256a7508872177710463a918ce4330a1"
+    },
+    {
+      "module": "lib/edit_timeline/model.py",
+      "before_sha256": "3b4356c4894f5163042c7dab36d56e94b739518c44425b29747b521f47c1f80a",
+      "after_sha256": "8a1cc90d6fa005ef6e37849e8665342d6e41dadacf572d65b50a16de48362acd"
+    },
+    {
+      "module": "lib/edit_timeline/operations.py",
+      "before_sha256": "52dfa3b81b24d95353921a862689b7f83e4a6b4c88550e4671f02bf1d9d66f04",
+      "after_sha256": "7cac51397a8adbcf6cb5c3d231091c9e6dcd51057dbcf0576e1e191ec3874e58"
+    },
+    {
+      "module": "lib/edit_timeline/readout.py",
+      "before_sha256": "8b4905bc3ae6be5f70257dcfcf6af326ef0669ac2e28c3b14ad9c5797c665281",
+      "after_sha256": "9536d223a7873e6b3753727611024a00caf42ace1051a36c70f52e030e843ad2"
+    },
+    {
+      "module": "lib/edit_timeline/service.py",
+      "before_sha256": "40c6c579eb7f4ef5732d2faf0aa299aa0aab7c7c5bdbb228332237de5593ae1a",
+      "after_sha256": "b509a5ad1b45704c1cf71a516ffabc820f0cb11a4e05ce1cb582ba7d5076608d"
+    },
+    {
+      "module": "lib/edit_timeline/sources.py",
+      "before_sha256": "4b57d46e2c205bebfcca35a6c025d3be13d576e34046c76cc5b6f8eac6d4d615",
+      "after_sha256": "1289a8618b9706e4fa509ddf3993961d4022c10c98ecd41afa8b6193b0f7ea1b"
+    },
+    {
+      "module": "lib/edit_timeline/store.py",
+      "before_sha256": "c2dc68866393b0dbf7d11a4e53e13e0ad6bcba28057381d76f435dc46838cb64",
+      "after_sha256": "6ff7c3a70170f3aaeaa5b93c0b96b5222c738e1e22b615b3917e53f104f8e3ca"
+    },
+    {
+      "module": "lib/edit_timeline/transitions.py",
+      "before_sha256": "fa4310cf95be64b9699818db97ce9ad3c8e23b113520bdfe5b814423ac0a3c56",
+      "after_sha256": "8a27c57f6e4496ea00c632858ce5789ade9ca69137c850a092c2b77f21051563"
+    },
+    {
+      "module": "lib/edit_timeline/trash.py",
+      "before_sha256": "372572027b679366110367ef08ee33b1ccd3a9ed219db41418ff4c6667147c55",
+      "after_sha256": "1c2263a121bc6e308e43e1c26990d69500e69ec542b65b13927ed267a279c687"
+    },
+    {
+      "module": "lib/workflow/__init__.py",
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "module": "lib/workflow/operation_admission.py",
+      "before_sha256": "02a2f84cb80a991508092c839d1e3e2e81eb5046f36e108e258eb5bf12a2c98c",
+      "after_sha256": "2297d1f8ad17871861073a29f16a28f335824f2d7d001bc39f4b33f422cc16b2"
+    },
+    {
+      "module": "lib/workflow/workflow_plan.py",
+      "before_sha256": "5828ede4d26c84fa90bef5fc4d3edf89253b482e91686782d6fc2f93b4c1058c",
+      "after_sha256": "7bd50079133e8202ac64756e40ebc0cd849c853b6d676ab5dc76cf6594af9521"
+    },
+    {
+      "module": "lib/workflow/workflow_rules.py",
+      "before_sha256": "baae28ac9a14676fe9a11a90c2456ffea2fb6d9bcec6f3dac90af11ff90fb5f1",
+      "after_sha256": "baae28ac9a14676fe9a11a90c2456ffea2fb6d9bcec6f3dac90af11ff90fb5f1"
+    },
+    {
+      "module": "lib/workflow/workflow_state.py",
+      "before_sha256": "8c36d5f7d92fd1061c76f7a6586db656f2313c5dc223f6f1145d0fef6e64ae62",
+      "after_sha256": "5a1d4a9bb3ceb81193d26b6f608621c6227b0633d7cc2402705e0c8022ad4ba8"
+    }
+  ]
+}

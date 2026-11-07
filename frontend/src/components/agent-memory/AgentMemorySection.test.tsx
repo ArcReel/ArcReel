@@ -53,7 +53,7 @@ function renderSection(search = "section=agent-memory") {
   return location;
 }
 
-/** 二级栏标准档的文件列表（jsdom 不跑容器查询，紧凑档的同名列表也在 DOM 里）。 */
+/** Standard secondary-rail file lists; jsdom skips container queries, retaining same-named compact lists in DOM too. */
 async function fileList() {
   const [standard] = await screen.findAllByRole("list", { name: "记忆文件" });
   return standard;
@@ -221,7 +221,7 @@ describe("AgentMemorySection", () => {
     fireEvent.change(input, { target: { value: "aspect-ratio.md" } });
     fireEvent.click(create);
     expect(await screen.findByRole("alert")).toHaveTextContent("已存在同名文件");
-    // 默认不区分大小写的文件系统上，只差大小写的文件名指向同一个文件
+    // Default case-insensitive filesystems map case-only filename differences to the same file.
     fireEvent.change(input, { target: { value: "memory.md" } });
     fireEvent.click(create);
     expect(await screen.findByRole("alert")).toHaveTextContent("已存在同名文件");

@@ -1,7 +1,7 @@
-"""一次已提交的 ComfyUI 执行：叫停远端那一路的出站目的地校验。
+"""One submitted ComfyUI execution: outbound destination validation on remote interruption.
 
-轮询、取件与叫停的行为由两个 backend 的用例经各自通道覆盖；这里只放经 backend 触发不到的格子——
-生成路径与叫停共用同一个 base URL，base URL 落在被拒网段时提交就先被拦下，走不到叫停。
+Backend cases cover polling, retrieval, and interruption through their respective channels; this file covers otherwise unreachable cases.
+Generation and interruption share a base URL: a denied network blocks submission first, preventing interruption from being reached.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ METADATA_BASE_URL = "http://169.254.169.254"
 
 
 async def test_a_stop_toward_a_metadata_address_is_never_sent():
-    """叫停与生成路径同一道目的地校验；被拒时按 best-effort 口径只记日志，不向外抛。"""
+    """Interruption shares generation destination validation; best-effort denial logs only and does not propagate an exception."""
     definition = comfyui_endpoint_definition()
     execution = ComfyuiExecution(
         client=ComfyuiClient(base_url=METADATA_BASE_URL, api_key="", definition=definition),

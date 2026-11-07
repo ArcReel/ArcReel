@@ -1,4 +1,4 @@
-"""随包 ffmpeg 真实抽取首帧缩略图与尾帧。"""
+"""Bundled ffmpeg actually extracts first-frame thumbnails and last frames."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from tests.factories import run_bundled_ffmpeg
 
 @pytest.fixture
 def red_then_blue_video(tmp_path: Path) -> Path:
-    """前 1 秒纯红、后 1 秒纯蓝的 64x64 视频：首帧红、尾帧蓝。"""
+    """64x64 video, solid red for the first second and solid blue for the next: red first frame, blue last frame."""
     path = tmp_path / "red_then_blue.mp4"
     run_bundled_ffmpeg(
         "-filter_complex",

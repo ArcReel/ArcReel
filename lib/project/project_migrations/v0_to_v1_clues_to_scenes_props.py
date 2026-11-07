@@ -1,4 +1,4 @@
-"""v0→v1 迁移：拆分 clues → scenes + props；删除 importance；级联剧本 JSON。"""
+"""v0→v1: split clues into scenes + props, remove importance, and cascade script JSON."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _split_clues(clues: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dic
         new_item: dict[str, Any] = {
             "description": data.get("description", ""),
         }
-        # 保留生成图路径但换字段名
+        # Preserve generated-image paths under renamed fields.
         sheet = data.get("clue_sheet")
         if clue_type == "location":
             if sheet:
@@ -48,14 +48,14 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
             if src.exists():
                 shutil.move(str(src), str(target / f"{name}.{ext}"))
 
-    # 清理空 clues 目录（即使有残余未知文件也保留，避免误删）；
-    # 注意不能在失败时 return—— 下方 versions/clues 迁移与此目录的可删性无关，
-    # 必须无条件继续执行，否则 schema_version 升 1 后永久遗失版本文件。
-    # 目录非空（有残余未知文件）则保留，不视为迁移失败
+    # Remove empty clues directories, retaining unknown remnants to avoid data loss;
+    # never return on failure: versions/clues migration below is independent of directory removability
+    # and must always continue, or advancing schema_version to 1 permanently loses version files.
+    # Retain nonempty directories without treating them as migration failures.
     with contextlib.suppress(OSError):
-        clues_dir.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
+        clues_dir.rmdir()  # hard-delete: infra -- Empty directories after migration relocation.
 
-    # versions/clues 同样按原 clue type 分流
+    # Route versions/clues by original clue types too.
     versions_clues = project_dir / "versions" / "clues"
     if versions_clues.exists():
         for name, data in old_clues.items():
@@ -64,13 +64,13 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
             target_versions.mkdir(parents=True, exist_ok=True)
             for file in versions_clues.glob(f"{name}*"):
                 shutil.move(str(file), str(target_versions / file.name))
-        # versions/clues 非空（有未归类文件）则保留，不视为迁移失败
+        # Retain nonempty versions/clues containing unclassified files without failing migration.
         with contextlib.suppress(OSError):
-            versions_clues.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
+            versions_clues.rmdir()  # hard-delete: infra -- Empty directories after migration relocation.
 
 
 def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
-    """把剧本里每条 scene/segment 的 clues[] 拆为 scenes[] + props[]"""
+    """Split clues[] in every script scene/segment into scenes[] + props[]."""
     scripts_dir = project_dir / "scripts"
     if not scripts_dir.exists():
         return
@@ -87,8 +87,8 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
         if (data.get("schema_version") or 0) >= 1:
             continue
 
-        # v0 剧本中线索引用历史字段：clues / clues_in_segment / clues_in_scene。
-        # 三者都可能并存，需要合并后再拆为 scenes/props。
+        # Legacy script clue references: clues / clues_in_segment / clues_in_scene.
+        # All may coexist; merge before splitting into scenes/props.
         legacy_fields = ("clues", "clues_in_segment", "clues_in_scene")
         for bucket_key in ("scenes", "segments"):
             items = data.get(bucket_key) or []
@@ -117,11 +117,10 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
 
 
 def _reconstruct_old_clues_from_v1(data: dict) -> dict[str, dict]:
-    """从 v1 schema 反推 old_clues（用于半迁移项目的自愈补跑）。
+    """Reconstruct old_clues from v1 for healing partially migrated projects.
 
-    scene → type=location，prop → type=prop；clue_sheet 字段无法恢复（已删除），但
-    _relocate_clue_files 仅依赖 name + type 分流文件，不依赖 clue_sheet。
-    """
+    scene → type=location, prop → type=prop. Removed clue_sheet cannot be recovered, but
+    _relocate_clue_files routes only by name/type and does not need it."""
     old: dict[str, dict] = {}
     for name in data.get("scenes") or {}:
         old[name] = {"type": "location"}
@@ -131,19 +130,18 @@ def _reconstruct_old_clues_from_v1(data: dict) -> dict[str, dict]:
 
 
 def migrate_v0_to_v1(project_dir: Path) -> None:
-    """v0→v1 迁移。幂等 + 半迁移自愈。
+    """Idempotent v0→v1 migration with partial-migration healing.
 
-    顺序：先搬文件 → 再改剧本 → 最后升 schema_version。这样任一步崩溃时
-    schema_version 仍是 0，下次启动会重新尝试（不会因"已升版本"而跳过丢图）。
-    """
+    Move files, cascade scripts, then advance schema_version. Crashes keep version 0 until final commit,
+    so startup retries rather than skipping missing images as already upgraded."""
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = load_json(pj)
-    # or 0：显式 null 与字段缺失同义（v0），直接比较 None >= 1 会 TypeError
+    # or 0: explicit null equals absent (v0); None >= 1 would raise TypeError.
     current_version = data.get("schema_version") or 0
 
-    # 自愈：schema_version>=1 但 clues/ 仍存在 → 补跑文件/剧本迁移
+    # Heal schema_version>=1 with residual clues/ by rerunning file/script migration.
     if current_version >= 1:
         clues_dir = project_dir / "clues"
         if clues_dir.is_dir() and any(clues_dir.iterdir()):
@@ -154,15 +152,15 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
 
     old_clues: dict[str, dict] = data.get("clues") or {}
 
-    # 1. 先搬文件（任一步失败时 schema_version 仍为 0，重启会重试）
+    # 1. Move files first; failures keep schema_version 0 for restart retries.
     _relocate_clue_files(project_dir, old_clues)
 
-    # 2. 级联剧本
+    # 2. Cascade scripts.
     _migrate_scripts(project_dir, old_clues)
 
-    # 3. 最后更新 project.json（原子写，schema_version 升级作为"提交"标志）
-    # 仅在 clues 实际有数据时改写 scenes/props；否则保留新项目已有的字段，
-    # 避免"schema_version 缺失 + 无 clues + 已有 scenes/props"被误清空。
+    # 3. Atomically update project.json last, using schema_version as commit marker.
+    # Rewrite scenes/props only with actual clues data; otherwise preserve existing fields,
+    # avoiding clearing projects with missing schema_version, no clues, but existing scenes/props.
     if old_clues:
         scenes, props = _split_clues(old_clues)
         data["scenes"] = scenes

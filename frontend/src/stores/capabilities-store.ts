@@ -1,21 +1,21 @@
 import { create } from "zustand";
 
 // ---------------------------------------------------------------------------
-// CapabilitiesStore —— 模型能力的失效信号。
+// CapabilitiesStore: model-capability invalidation signals.
 //
-// 能力生效值（含用户覆盖）由后端 /video-capabilities 解析，前端不缓存它的内容，
-// 只缓存「当前这一版还作不作数」。项目级模型 / 视频后端写在项目字段上，改动经项目数据
-// 回流即可让能力重新解析；其余会改变解析结果的写入都不落任何项目字段——能力覆盖与自定义
-// 供应商本身写在供应商配置上，全局默认后端写在系统设置上——改完没有任何 props 会变，
-// 需要一个显式信号把在用的能力查询整体作废。
+// Backends resolve effective capabilities (including user overrides) through /video-capabilities; frontend never caches contents,
+// only whether the current revision remains valid. Project models/video backends live in project fields, whose changes return
+// through project data to re-resolve capabilities. Other writes affecting results change no project fields: capability overrides/custom
+// providers live in provider configuration, global default backends in system settings. No props change after such writes,
+// requiring explicit signals to invalidate all active capability queries.
 //
-// revision 单调递增，消费方把它纳入请求依赖：+1 即触发重取。
+// revision increases monotonically; consumers include it in request dependencies, so +1 refetches.
 // ---------------------------------------------------------------------------
 
 interface CapabilitiesState {
-  /** 能力数据版本号；每次 invalidate 自增。 */
+  /** Capability-data revision, incremented on every invalidate. */
   revision: number;
-  /** 作废当前能力数据，触发所有在用查询重取。上述任一类写入成功后调用。 */
+  /** Invalidate current capabilities, refetching all active queries. Call after any successful write category above. */
   invalidate: () => void;
 }
 

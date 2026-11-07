@@ -1,22 +1,24 @@
-"""对象存储连接在数据库层保证单例
+"""Enforce object-storage connection singleton at database level
 
 Revision ID: d5a9c3e71f28
 Revises: b4d8e2a6c931
 Create Date: 2026-11-04 10:00:00.000000
 
-新增可为空的 ``slot`` 列与它的唯一索引：当前连接 ``slot = 1``，同一时刻只能有一行；``slot`` 为空的行是
-退役连接，只为保留仍被引用的连接定位而存在，不会被当作当前连接读出。
+Add nullable ``slot`` and its unique index: current connection has ``slot = 1``, allowing one row.
+Rows with null ``slot`` are retired connections retained only for still-referenced locators; never read
+as current connections.
 
-此前保存连接是先查后插，并发首次保存可能留下多条记录。迁移前已存在多条记录时按以下规则处理：
+Previously query-then-insert allowed concurrent first saves to leave duplicates. Handle existing duplicates:
 
-- ID 最小的一条成为当前连接。此前读取连接一直取 ID 最小的那条，正式对象、中转副本与连接变更保护
-  按它解释，迁移不改变这一点。
-- 其余记录中，仍被未删除的正式素材对象或中转副本引用的保留为退役连接（``slot`` 为空），定位与凭证
-  原样留存；它们此前就不是当前连接，引用它们的对象照旧按连接不一致处理。
-- 其余没有任何未删除对象引用的记录删除。连接 ID 不回收，删除不会让旧定位指向另一个桶。
+- Lowest ID becomes current, matching prior reads and formal-object/relay-copy/connection-change
+  protection interpretation; migration does not change this.
+- Keep other rows referenced by undeleted formal objects or relay copies as retired (null ``slot``),
+  preserving locators/credentials. They were already noncurrent; referring objects still see mismatched connections.
+- Delete remaining rows with no undeleted-object references. IDs are not recycled; old locators cannot
+  thereby point to another bucket.
 
-列与索引都用原生 ``ALTER TABLE ADD COLUMN`` / ``CREATE INDEX``，SQLite 上不重建表，保留表的 AUTOINCREMENT。
-降级删除索引与列；退役连接仍保留，降级后按 ID 最小取当前连接，与迁移前的读取规则一致。
+Use native ``ALTER TABLE ADD COLUMN`` / ``CREATE INDEX`` without rebuilding SQLite, preserving AUTOINCREMENT.
+Downgrade removes index/column but keeps retired rows, selecting lowest-ID current as before migration.
 """
 
 from __future__ import annotations

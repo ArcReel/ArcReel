@@ -1,1 +1,1 @@
-"""项目级 BGM：上传、按字节登记为产物、实测响度并缓存静态增益。"""
+"""Project BGM: upload, register byte-based artifacts, measure loudness, and cache static gain."""

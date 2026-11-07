@@ -1,6 +1,6 @@
-"""市场路由与官方服务的 HTTP 契约：安装上报、评分代理与聚合代理。
+"""Market/official-service HTTP contracts: install reports, rating proxies and aggregate proxies.
 
-官方服务出站由 respx 在 transport 层拦截；安装上报是后台任务，ASGI 传输下随响应一并完成。
+respx intercepts official transport; background install reports finish with responses under ASGI transport.
 """
 
 import json
@@ -73,7 +73,7 @@ def _source(source_id: int, *, kind: str, canonical_key: str, index_url: str, sl
 
 @pytest.fixture
 async def market_client_factory(session_factory: async_sessionmaker[AsyncSession]) -> ClientFactory:
-    """官方市场源 1 与第三方源 2 各列出 ``example``；``base_url`` 为官方服务地址（空串即关闭）。"""
+    """Official source 1 and third-party source 2 both list ``example``; ``base_url`` is official-service URL, empty disabling it."""
     async with session_factory() as session:
         session.add(
             _source(
@@ -348,7 +348,7 @@ async def test_aggregates_only_query_official_entries(market_client_factory: Cli
                 ("other", {"installs": 0, "rating_count": -1, "rating_average": None}),
                 ("other", {"installs": 0, "rating_count": 3, "rating_average": 0.5}),
                 ("other", {"installs": 0, "rating_count": 3, "rating_average": 5.01}),
-                # 数量对得上但条目身份不符：不能把别的条目的数字挂到请求的条目上。
+                # Counts match but entry identities differ; never attach other entries' numbers to requested entries.
                 ("example", {"installs": 0, "rating_count": 0, "rating_average": None}),
             )
         ),

@@ -1,56 +1,56 @@
-// Endpoint key 使用 string 别名；后端 ENDPOINT_REGISTRY 是真相源，前端通过
-// GET /api/v1/custom-providers/endpoints 读取运行时 catalog，因此 endpoint 扩展
-// 无需同步修改前端联合类型。
+// Endpoint keys use a string alias; backend ENDPOINT_REGISTRY is the source of truth. The frontend reads
+// the runtime catalog through GET /api/v1/custom-providers/endpoints, so extending endpoints
+// does not require updating a frontend union type.
 export type EndpointKey = string;
 
 export type MediaType = "text" | "image" | "video" | "audio";
 
 export type ImageCap = "text_to_image" | "image_to_image";
 
-/** 模型发现协议：决定「模型发现」与「连通性检查」按哪套接口进行，不决定模型的调用协议。
- *  comfyui 取值下模型发现不适用，只做连通性检查。 */
+/** Model discovery protocol: determines the interfaces used for model discovery and connection checks, not the model invocation protocol.
+ *  For comfyui, model discovery is not applicable; only connection checking is performed. */
 export type DiscoveryFormat = "openai" | "google" | "comfyui";
 
 export interface EndpointDescriptor {
   key: string;
   media_type: MediaType;
   family: string;
-  /** 实现形态：python = backend 代码，declarative = 声明式定义，comfyui = 一份 ComfyUI workflow。 */
+  /** Implementation form: python = backend code, declarative = a declarative definition, comfyui = a ComfyUI workflow. */
   kind: "python" | "declarative" | "comfyui";
-  /** 归属：builtin = 随版发布、只读，custom = 用户自建，可编辑删除。 */
+  /** Ownership: builtin = bundled and read-only, custom = user-created and editable/deletable. */
   source: "builtin" | "custom";
   display_name_key: string;
-  /** 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 null，取 display_name_key 的文案。 */
+  /** Display name of a declarative endpoint (meta.name in the definition; proper names are not translated); null for Python built-ins, which use display_name_key. */
   display_name: string | null;
   request_method: string;
   request_path_template: string;
-  /** image 类 endpoint 填能力数组，其他媒体类型为 null。 */
+  /** Capability array for image endpoints; null for other media types. */
   image_capabilities: ImageCap[] | null;
-  /** 执行层是否真的下传尾帧约束；仅 video 类有意义，其余恒为 false。 */
+  /** Whether execution actually forwards the last-frame constraint; meaningful only for video and always false otherwise. */
   end_image_capable: boolean;
-  /** 尺寸由端点固定（ComfyUI 端点上宽高不是两侧都绑了节点）：比例与分辨率选择对它无效。 */
+  /** Size is fixed by the endpoint (a ComfyUI endpoint does not bind nodes for both width and height): aspect ratio and resolution selections have no effect. */
   size_fixed: boolean;
-  /** 时长由端点固定（ComfyUI 端点上 frames 未绑定节点）：决定只读态的文案说哪一句。 */
+  /** Duration is fixed by the endpoint (frames has no bound node on a ComfyUI endpoint): determines which read-only wording is shown. */
   duration_fixed: boolean;
-  /** 档位为空的成因是读不到帧率来源（frames 绑了却既无 fps 绑定也没手填帧率）：同样只决定文案。 */
+  /** Tiers are empty because no frame rate source can be read (frames is bound, but neither fps nor a manual frame rate is present): also controls wording only. */
   duration_frame_rate_missing: boolean;
-  /** 档位根本给不出来（frames 未绑定、没有帧率来源，或帧率有但换算不出整秒档位）：档位不可编辑，时长这一维不由 ArcReel 驱动。 */
+  /** No tiers can be provided (frames is unbound, no frame rate source exists, or the frame rate cannot yield whole-second tiers): tiers are not editable, and ArcReel does not drive duration. */
   duration_tier_empty: boolean;
-  /** 不选分辨率档位时这份 workflow 实际会出的那一档；非 ComfyUI 端点或读不出字面尺寸时为 null。 */
+  /** The resolution this workflow actually produces when no resolution tier is selected; null for non-ComfyUI endpoints or unreadable literal dimensions. */
   native_resolution: string | null;
-  /** 可修改请求地址的请求；空数组 = 该端点不开放修改。 */
+  /** Requests whose URLs may be overridden; an empty array means this endpoint does not allow overrides. */
   requests: EndpointRequest[];
 }
 
-/** 调用端点发出的一条可修改地址的请求（docs/adr/0101）。 */
+/** One endpoint request with an overridable URL (docs/adr/0101). */
 export interface EndpointRequest {
-  /** 请求名，模型的 path_overrides 按它记录。 */
+  /** Request name, used as a key in the model's path_overrides. */
   name: string;
   display_name_key: string;
-  /** 归一化后的 base_url 之后的默认路径，可含 {{ model }}、{{ task_id }} 等占位符。 */
+  /** Default path after the normalized base_url, possibly containing placeholders such as {{ model }} and {{ task_id }}. */
   default_path: string;
   placeholders: string[];
-  /** 没有覆盖时 base_url 的归一化方式，界面据此还原最终地址；有覆盖时一律相对原样值。 */
+  /** How base_url is normalized without overrides, used by the UI to reconstruct the final URL; overrides always resolve against the original value. */
   base_url_rule:
     | "as_is"
     | "strip_version"
@@ -62,7 +62,7 @@ export interface EndpointRequest {
     | "strip_messages";
 }
 
-/** 请求名 → 整条替换的路径。 */
+/** Request name → complete replacement path. */
 export type PathOverrides = Record<string, string>;
 
 export interface CustomProviderInfo {
@@ -73,7 +73,7 @@ export interface CustomProviderInfo {
   api_key_masked: string;
   models: CustomProviderModelInfo[];
   created_at: string;
-  /** 各 lane 并发上限；null = 未设置（走全局默认）。 */
+  /** Concurrency limit per lane; null means unset (uses the global default). */
   image_max_workers: number | null;
   video_max_workers: number | null;
   audio_max_workers: number | null;
@@ -87,23 +87,23 @@ export interface CustomProviderModelInfo {
   is_default: boolean;
   is_enabled: boolean;
   resolution: string | null;
-  /** 供应商模型倍率：与供应商倍率相乘，作用在这个模型的参考费用上。 */
+  /** Provider model multiplier: multiplied by the provider multiplier and applied to this model's reference cost. */
   multiplier: number;
-  /** 条目绑定「模型厂商/官方模型名」；null = 按模型名对应条目。整表保存时必须原样回传。 */
+  /** Entry binding "model maker/official model name"; null means match by model name. Must be returned unchanged when saving the entire table. */
   entry_binding: string | null;
-  /** 对应到的模型条目；null = 对应不上条目，这个模型的调用记为未定价。 */
+  /** Matched catalog entry; null means no matching entry, so calls to this model are recorded as unpriced. */
   matched_entry: MatchedCatalogEntry | null;
-  /** 系统判定的视频能力（全字段）；非视频模型为 null。 */
+  /** System-resolved video capabilities (all fields); null for non-video models. */
   system_capabilities: VideoCapabilityFlags | null;
-  /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
+  /** Sparse user overrides, merged with system_capabilities to obtain effective values; null when there are no overrides. */
   capability_overrides: CapabilityOverrides | null;
-  /** 生效的请求地址修改；无修改为 null。 */
+  /** Effective request URL overrides; null when none exist. */
   path_overrides: PathOverrides | null;
-  /** 当前端点可修改地址的请求。 */
+  /** Requests on the current endpoint whose URLs may be overridden. */
   requests: EndpointRequest[];
 }
 
-/** 供应商模型对应到的模型条目摘要。`priced` 为 false 时条目没有可用的价目表，调用同样记为未定价。 */
+/** Summary of the catalog entry matched to a provider model. When `priced` is false, the entry has no usable price table and calls are also recorded as unpriced. */
 export interface MatchedCatalogEntry {
   maker: string;
   name: string;
@@ -112,14 +112,14 @@ export interface MatchedCatalogEntry {
   priced: boolean;
 }
 
-/** 后端接受参考音频的运输形态；none 表示该模型没有音色输入通道。 */
+/** Reference audio transport accepted by the backend; none means the model has no voice input channel. */
 export type ReferenceAudioMode = "none" | "direct";
 
-/** 后端 VideoCapabilities 中界面用得到的子集（后端另有 reference_audio_per_image、
- *  max_reference_audio_total_seconds、max_prompt_chars 等纯执行期维度，不在此声明）。
- *  取值是调用端点声明与模型条目两侧求值的结果。参考图路径以 max_reference_images 表达：0 为不接受，
- *  null 为接受但两侧都没有声明张数（未收录）；不另设布尔位——两份声明会漂移出「称支持但上限为 0」这类
- *  自相矛盾的状态。参考音频段数上限同理。 */
+/** Subset of backend VideoCapabilities used by the UI (the backend also has execution-only dimensions such as reference_audio_per_image,
+ *  max_reference_audio_total_seconds, and max_prompt_chars, not declared here).
+ *  Values are evaluated from both endpoint declarations and catalog entries. Reference image support is expressed by max_reference_images: 0 means not accepted,
+ *  null means accepted but neither side declares a count (unrecorded); no separate boolean is used, because duplicate declarations could drift into
+ *  contradictions such as claiming support with a zero limit. The same applies to reference audio count limits. */
 export interface VideoCapabilityFlags {
   first_frame: boolean;
   last_frame: boolean;
@@ -128,10 +128,10 @@ export interface VideoCapabilityFlags {
   max_reference_audio_count: number | null;
 }
 
-/** 成片音轨形态：可控 / 恒有声 / 恒无声。 */
+/** Output audio track mode: controllable / always on / always off. */
 export type VideoAudioMode = "controllable" | "always_on" | "always_off";
 
-/** 能力覆盖中视频的通道事实维度（输入模式、参考上限、提示词长度上限、音轨形态）。 */
+/** Video channel fact dimensions in capability overrides (input modes, reference limits, prompt length limit, audio track mode). */
 export interface VideoChannelFactOverrides extends VideoCapabilityFlags {
   text_to_video: boolean;
   max_reference_audio_total_seconds: number | null;
@@ -140,7 +140,7 @@ export interface VideoChannelFactOverrides extends VideoCapabilityFlags {
   reference_route_audio_track: VideoAudioMode | null;
 }
 
-/** 能力覆盖中的模型事实维度，按媒体类型开放：文本、图片、视频各自一组。 */
+/** Model fact dimensions in capability overrides, exposed by media type: separate groups for text, image, and video. */
 export interface ModelFactOverrides {
   image_input: boolean;
   structured_output: boolean;
@@ -155,11 +155,11 @@ export interface ModelFactOverrides {
   };
 }
 
-/** 稀疏覆盖字典：键缺席 = 该维度跟随条目与调用通道声明，出现即整维替换。 */
+/** Sparse override dictionary: an absent key follows the entry and backend declarations; a present key replaces the entire dimension. */
 export type CapabilityOverrides = Partial<VideoChannelFactOverrides & ModelFactOverrides>;
 
-/** 模型发现的返回。``not_applicable`` 为真时 ``models`` 恒空，``reason`` 是可直接展示的说明：
- *  该协议本就没有这一步，不是一次「什么都没发现」的失败。 */
+/** Model discovery response. When ``not_applicable`` is true, ``models`` is always empty and ``reason`` is a ready-to-display explanation:
+ *  this protocol has no such step; it is not a failed discovery that found nothing. */
 export interface DiscoverModelsResponse {
   models: DiscoveredModel[];
   not_applicable: boolean;
@@ -172,15 +172,15 @@ export interface DiscoveredModel {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  /** 发现接口给出的最大输出长度（目前只有 Google 协议的文本模型）；拿不到为 null。供应商表单不读它。 */
+  /** Maximum output length from discovery (currently only text models using the Google protocol); null when unavailable. The provider form does not read it. */
   max_output_tokens?: number | null;
-  /** 按模型名对应到的模型条目；null = 对应不上，调用记为未定价。 */
+  /** Catalog entry matched by model name; null means no match, and calls are recorded as unpriced. */
   matched_entry?: MatchedCatalogEntry | null;
-  /** 调用端点的媒体类型。 */
+  /** Media type of the endpoint. */
   media_type?: MediaType;
-  /** 对应上了条目（已识别）。 */
+  /** A catalog entry was matched (recognized). */
   recognized?: boolean;
-  /** 改为对应其他媒体类型的条目时，各媒体类型下的默认调用端点。 */
+  /** Default endpoint for each media type when switching to an entry of another media type. */
   endpoint_by_media_type?: Record<MediaType, EndpointKey> | null;
 }
 
@@ -190,7 +190,7 @@ export interface CustomProviderCreateRequest {
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];
-  /** 各 lane 并发上限；省略或 null = 未设置（走全局默认）。 */
+  /** Concurrency limit per lane; omitted or null means unset (uses the global default). */
   image_max_workers?: number | null;
   video_max_workers?: number | null;
   audio_max_workers?: number | null;
@@ -200,10 +200,10 @@ export interface CustomProviderFullUpdateRequest {
   display_name: string;
   base_url: string;
   api_key?: string;
-  /** 不传时不改模型：详情页的模型经供应商模型接口逐个保存，整表回传会覆盖其间单行的启停与设置。 */
+  /** Omission leaves models unchanged: the detail page saves models individually through the provider model API; returning the full table would overwrite intervening row-level enablement and settings. */
   models?: CustomProviderModelInput[];
-  /** PUT 为并发上限权威来源：必填，null 即清除（走全局默认）。省略字段会被服务端当作
-   *  清空，故类型上设为必填，防止调用方静默漏传意外清掉已有配置。 */
+  /** PUT is authoritative for concurrency limits: required, with null clearing the limit (using the global default). The server treats omitted fields as
+   *  cleared, so the type makes them required to prevent accidental deletion of existing configuration through silent omission. */
   image_max_workers: number | null;
   video_max_workers: number | null;
   audio_max_workers: number | null;
@@ -216,17 +216,17 @@ export interface CustomProviderModelInput {
   is_default: boolean;
   is_enabled: boolean;
   resolution?: string | null;
-  /** 保存模型列表是整体替换语义：省略该字段会清空已有覆盖，编辑既有模型时必须原样回传。 */
+  /** Saving the model list replaces it entirely: omitting this field clears existing overrides, so it must be returned unchanged when editing existing models. */
   capability_overrides?: CapabilityOverrides | null;
-  /** 请求地址修改，与 capability_overrides 同为整体替换语义，编辑既有模型时必须原样回传。 */
+  /** Request URL overrides, with the same full-replacement semantics as capability_overrides; must be returned unchanged when editing existing models. */
   path_overrides?: PathOverrides | null;
-  /** 供应商模型倍率，非负有限数；省略为 1。 */
+  /** Provider model multiplier, a finite nonnegative number; defaults to 1 when omitted. */
   multiplier?: number;
-  /** 条目绑定；与覆盖同理，编辑既有模型时必须原样回传。 */
+  /** Entry binding; like overrides, must be returned unchanged when editing existing models. */
   entry_binding?: string | null;
 }
 
-/** 供应商倍率：`multiplier` 是生效值，`default` 是没有设置时的值。 */
+/** Provider multiplier: `multiplier` is the effective value, and `default` applies when unset. */
 export interface ProviderMultiplierInfo {
   multiplier: number;
   default: number;

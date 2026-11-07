@@ -1,4 +1,4 @@
-"""参考生视频 unit 定桶判据与查找（lib/script/reference_video/units.py）。"""
+"""Reference-to-video unit bucket criteria and lookup (lib/script/reference_video/units.py)."""
 
 from lib.script.reference_video.units import find_reference_unit, reference_video_bucket
 

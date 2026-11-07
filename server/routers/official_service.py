@@ -1,8 +1,7 @@
-"""官方服务设置 API：总开关、市场页首次告知标记与实例标识重置。
+"""Official-service settings API: master switch, first-notice marker on the market page, and instance-identifier reset.
 
-与 ``/system/config`` 分开：开关由设置页与市场页的告知条即时生效，不走配置面板的草稿保存。
-官方服务地址为空时 ``available`` 为 false，开关存值但不生效。
-"""
+Separate from ``/system/config``: settings-page and market-notice switches take effect immediately rather than using
+configuration-panel draft saves. An empty official-service address makes ``available`` false; the switch value is stored but ineffective."""
 
 from __future__ import annotations
 
@@ -19,12 +18,12 @@ Gateway = Annotated[OfficialServiceGateway, Depends(get_official_service_gateway
 
 
 class OfficialServiceStateResponse(BaseModel):
-    #: 官方服务地址非空。
+    #: The official-service address is nonempty.
     available: bool
-    #: 地址非空且总开关为开；为 false 时前端不展示任何官方服务元素。
+    #: The address is nonempty and the master switch is on; false hides all official-service elements in the frontend.
     enabled: bool
     notice_seen: bool
-    #: 随请求发往官方服务的实例标识；尚未生成时为 null。
+    #: Instance identifier sent with official-service requests; null until generated.
     instance_id: str | None
 
 
@@ -51,5 +50,5 @@ async def update_official_service(body: UpdateOfficialServiceRequest, gateway: G
 
 @router.post("/instance-id/reset", response_model=OfficialServiceStateResponse)
 async def reset_instance_id(gateway: Gateway) -> OfficialServiceStateResponse:
-    """删除实例标识；下次请求官方服务时生成新的，与此前的上报和评分不再关联。"""
+    """Delete the instance identifier; the next official-service request creates a new one, no longer associated with earlier reports or ratings."""
     return _response(await gateway.reset_instance_id())

@@ -1,15 +1,14 @@
-"""项目回收站：项目内一切删除的唯一出口（``docs/adr/0107``）。
+"""Project trash: sole exit for every project-local deletion (``docs/adr/0107``).
 
-对外只有这几个操作：:func:`record_deletion` 记一次删除、:func:`list_records` 列出、:func:`restore` 恢复、
-:func:`purge` 彻底删除、:func:`empty` 清空、:func:`purge_expired` 过期清理。删除记录是
-``<项目>/.arcreel/trash/<记录 ID>/``：``record.json`` 记对象描述、被删文件、schema 版本、删除时间、发起方与
-占用字节数，被删文件按原相对路径放在 ``files/`` 下；结构删除另把删除前的项目结构文件（:func:`structure_files`）
-按原相对路径复制在 ``snapshot/`` 下，恢复时由 :mod:`lib.project.trash_restore` 的流水线处理。流水线降级恢复后，
-记录只剩无法加回的结构文件，成为只能下载的记录（``download_only``）。目录在项目私有区，
-因此不入归档、不入数据校验、文件视图也不列出；已删除项目整体移动时随项目一起走。
+Public operations: :func:`record_deletion`, :func:`list_records`, :func:`restore`, :func:`purge`,
+:func:`empty`, and :func:`purge_expired`. Records live in ``<项目>/.arcreel/trash/<记录 ID>/``:
+``record.json`` stores object descriptions, files, schema, deletion time, initiator, and byte size.
+Deleted files retain relative paths under ``files/``; structural deletions additionally copy predeletion
+:func:`structure_files` under ``snapshot/`` for :mod:`lib.project.trash_restore`. Degraded restoration
+leaves unrestorable structures as ``download_only`` records. Private directories are absent from
+archives/validation/file views and move with whole deleted projects.
 
-这里是项目数据真正被删掉的地方，``scripts/audit_conventions.py`` 的硬删除检查豁免本模块。
-"""
+Actual permanent project-data deletion happens here, exempt from ``scripts/audit_conventions.py`` hard-delete checks."""
 
 from __future__ import annotations
 
@@ -63,9 +62,9 @@ __all__ = [
 ]
 
 TRASH_DIRNAME = "trash"
-#: 删除记录按删除时间保留 30 天。
+#: Retain records 30 days from deletion.
 RETENTION = timedelta(days=30)
-#: 删除记录本身的格式版本；与项目 schema 版本（``schema_version``）无关。
+#: Record-format version, independent of project ``schema_version``.
 RECORD_FORMAT = 1
 
 _RECORD_FILE = "record.json"
@@ -75,7 +74,7 @@ _RECORD_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
 Origin = Literal["user", "agent"]
 
-#: 回收站变化的项目变更条目：与任务终态、记账结算一样是刷新信号，不进通知与聚焦。
+#: Trash project-change entries are refresh signals like terminal tasks/accounting settlement, never notifications/focus.
 TRASH_ENTITY_TYPE = "trash"
 
 
@@ -85,7 +84,7 @@ def trash_dir(project_dir: Path) -> Path:
 
 @dataclass(frozen=True, slots=True)
 class TrashRecord:
-    """一条删除记录。``object`` 是对象描述，至少含 ``kind``；``files`` 是被删文件删除前的项目内相对路径。"""
+    """One deletion record: ``object`` includes at least ``kind``; ``files`` holds predeletion project-relative paths."""
 
     id: str
     object: Mapping[str, Any]
@@ -95,7 +94,7 @@ class TrashRecord:
     origin: Origin
     size: int
     has_snapshot: bool = False
-    #: 降级恢复后剩下的结构文件只能下载，不能再恢复。
+    #: Remaining structures after degradation are download-only, never restorable.
     download_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -114,7 +113,7 @@ class TrashRecord:
 
 @dataclass(frozen=True, slots=True)
 class RestoredFile:
-    """被恢复的一个文件落在哪里：``as_history`` 为真时它成了 ``resource`` 的一条历史版本。"""
+    """One restored file location: ``as_history`` means a historical version of ``resource``."""
 
     original: str
     path: str
@@ -126,10 +125,10 @@ class RestoredFile:
 
 @dataclass(frozen=True, slots=True)
 class RestoreResult:
-    """一次恢复的结果。``object`` 是加回后的对象描述（换了名或 ID 时与记录里的不同）。
+    """One restoration result. ``object`` is the restored description, differing after rename/reidentification.
 
-    ``degraded`` 为真时对象无法按原结构恢复，只加回了其中的文件；``download_only`` 是留在记录里、只能下载的结构文件。
-    """
+    ``degraded`` means files-only restoration instead of original structures; ``download_only`` contains
+    structure files retained in records for download."""
 
     object: Mapping[str, Any]
     restored: list[RestoredFile]
@@ -145,11 +144,11 @@ class RestoreResult:
         }
 
 
-# ---------------------------------------------------------------- 记录
+# ---------------------------------------------------------------- Records
 
-#: 结构快照收的单个文件：``project.json``、产物清单与版本历史记录。
+#: Individual snapshot files: ``project.json``, manifests, history.
 _STRUCTURE_FILES = ("project.json", ".arcreel_artifacts.json", "versions/versions.json")
-#: 结构快照收的目录与其中的文件后缀：剧本、规划草稿、剪辑时间线与源文文本。
+#: Snapshot directories/extensions: scripts, planning drafts, timelines, source text.
 _STRUCTURE_TREES: Mapping[str, frozenset[str]] = {
     "scripts": frozenset({".json"}),
     "drafts": frozenset({".json", ".md", ".txt"}),
@@ -159,7 +158,7 @@ _STRUCTURE_TREES: Mapping[str, frozenset[str]] = {
 
 
 def is_structure_file(rel: str) -> bool:
-    """项目内相对 POSIX 路径 ``rel`` 是否属于结构文件（与 :func:`structure_files` 同一口径）。"""
+    """Whether project-relative POSIX ``rel`` is structural, matching :func:`structure_files`."""
     if rel in _STRUCTURE_FILES:
         return True
     top, *rest = rel.split("/")
@@ -173,10 +172,9 @@ def is_structure_file(rel: str) -> bool:
 
 
 def structure_files(project_dir: Path) -> list[str]:
-    """项目当前的结构文件（项目内相对 POSIX 路径）：结构快照的内容，不含其余媒体。
+    """Current structural files as project-relative POSIX paths, for snapshots excluding other media.
 
-    只收普通文件，不跟随符号链接；以 ``.`` 开头的锁与隐藏文件不收。
-    """
+    Regular files only, without symlinks or ``.``-prefixed locks/hidden files."""
     found = [rel for rel in _STRUCTURE_FILES if _is_plain_file(project_dir / rel)]
     for top, suffixes in _STRUCTURE_TREES.items():
         root = project_dir / top
@@ -200,15 +198,15 @@ def record_deletion(
     sources: Mapping[str, Path] | None = None,
     before: Mapping[str, bytes] | None = None,
 ) -> TrashRecord:
-    """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
+    """Move ``files`` (regular project-relative POSIX files) into a new deletion record.
 
-    调用方持有项目锁，并已在同一临界区里确认这些文件可以删除；发起方取当前的变更来源。``snapshot``
-    为真时先把删除前的结构文件复制进记录（结构删除用；被删文件本身不重复复制），恢复时按身份从中取出对象。
-    文件实际不在该路径上时（例如生成结果的暂存文件），``sources`` 给出它的位置，记录里仍记原路径。
-    调用方已在同一临界区里改写过的结构文件（如删集时的 ``project.json``），由 ``before`` 给出删除前的内容。
-    结构删除的对象可以没有被删文件（它只存在于结构文件里）。
-    任一文件移动失败时已移走的文件搬回原处，不留下半条记录；记录建立后提交失败时用 :func:`withdraw` 撤回。
-    """
+    Callers hold project locks and established deletability in the same critical section. Initiators use
+    current change sources. ``snapshot`` first copies predeletion structures for identity-based extraction,
+    without duplicating deleted files. ``sources`` locates files not yet at recorded paths (e.g. generated
+    staging output), retaining original paths in records. For structures already changed there, such as
+    ``project.json`` on episode deletion, ``before`` supplies pre-edit bytes. Structural-only objects need no
+    files. Any move failure restores moved files without partial records; after creation, failed commit
+    compensates through :func:`withdraw`."""
     if "kind" not in obj or not (files or snapshot):
         raise ValueError("删除记录需要对象类型与至少一个被删文件")
     record_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
@@ -217,10 +215,12 @@ def record_deletion(
     moved: list[tuple[Path, Path]] = []
     try:
         size = 0
-        stored.mkdir(parents=True)  # 没有被删文件的结构删除也有这个目录：恢复流水线从这里铺设
+        stored.mkdir(
+            parents=True
+        )  # Structural-only deletions also create this directory for restoration materialization.
         if snapshot:
             deleted = set(files)
-            # 最后一条登记被移除时清单文件会消失，删除前的结构文件仍须进入快照。
+            # Last deregistration removes manifests, but predeletion structures must still enter snapshots.
             for rel in sorted(set(structure_files(project_dir)).union(before or ())):
                 if rel not in deleted and is_structure_file(rel):
                     target = record_dir / SNAPSHOT_DIRNAME / rel
@@ -249,7 +249,7 @@ def record_deletion(
             size=size,
             has_snapshot=snapshot,
         )
-        # record.json 最后写：没有它的目录不算记录，列出时跳过。
+        # Write record.json last; directories without it are not records and are skipped.
         atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **record.to_dict()})
     except BaseException:
         for target, source in reversed(moved):
@@ -262,7 +262,7 @@ def record_deletion(
 
 
 def withdraw(project_dir: Path, record_id: str) -> None:
-    """撤回同一临界区里刚建立的删除记录：被删文件搬回原处，记录消失。删除提交失败时补偿用；调用方持有项目锁。"""
+    """Withdraw just-created records in the same critical section, returning files and removing records; compensates failed commits under caller-held project locks."""
     record = require_record(project_dir, record_id)
     record_dir = trash_dir(project_dir) / record.id
     for rel in record.files:
@@ -274,7 +274,7 @@ def withdraw(project_dir: Path, record_id: str) -> None:
 
 
 def list_records(project_dir: Path) -> list[TrashRecord]:
-    """全部删除记录，新删除的在前。读不出的记录跳过。"""
+    """All records, newest first; skip unreadable records."""
     root = trash_dir(project_dir)
     if not root.is_dir():
         return []
@@ -282,20 +282,19 @@ def list_records(project_dir: Path) -> list[TrashRecord]:
     return sorted(records, key=lambda record: record.deleted_at, reverse=True)
 
 
-# ---------------------------------------------------------------- 恢复与清理
+# ---------------------------------------------------------------- Restoration and cleanup
 
 
 def restore(project_dir: Path, record_id: str) -> RestoreResult:
-    """把一条删除记录加回项目，成功后记录消失；失败时项目与记录都保持恢复前的样子。
+    """Restore records, consuming on success; failure preserves projects/records unchanged.
 
-    带结构快照的记录走恢复流水线（:mod:`lib.project.trash_restore`），对象无法按原结构恢复时降级为只加回文件。
-    只涉及文件的记录按 :func:`land_files` 的规则加回。只能下载的记录不能恢复。
-    """
+    Structural snapshots use :mod:`lib.project.trash_restore`, degrading to files-only when objects cannot
+    restore original structure. Files-only records use :func:`land_files`; download-only records cannot restore."""
     record = require_record(project_dir, record_id)
     if record.download_only:
         raise ConflictError("trash_restore_download_only", id=record.id)
     if record.has_snapshot:
-        # 恢复流水线经各对象的落地规则依赖领域模块，顶层导入会成环。
+        # Pipeline landing rules depend on domain modules; top-level imports would cycle.
         from lib.project.trash_restore import restore_structural
 
         result = restore_structural(project_dir, record)
@@ -317,11 +316,11 @@ def restore(project_dir: Path, record_id: str) -> RestoreResult:
 def land_files(
     project_dir: Path, files: Sequence[tuple[Path, str]], obj: Mapping[str, Any], *, then: Callable[[], None]
 ) -> list[RestoredFile]:
-    """把 ``(待加回的文件, 项目内相对路径)`` 逐个加回项目，全部成功后执行 ``then``；调用方持有项目锁。
+    """Restore ``(待加回的文件, 项目内相对路径)`` individually, then ``then`` after all succeed; callers hold project locks.
 
-    原路径空闲则回原路径；原路径已有文件时，它是某个资源的当前文件就作为该资源的历史版本加回，否则换一个新文件名。
-    从不覆盖现有文件。任一步失败时已落回的文件搬回原处，项目回到加回之前。
-    """
+    Use free original paths. Occupied paths belonging to current resources restore as history; other
+    collisions use new filenames. Never overwrite existing files. Any failure moves additions back,
+    returning projects to pre-restoration state."""
     for _source, rel in files:
         check_restore_target(project_dir, rel)
     moved: list[tuple[Path, Path]] = []
@@ -337,7 +336,7 @@ def land_files(
 
 
 def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -> None:
-    """降级恢复后把记录改成只剩 ``files``（记录里的结构文件）、只能下载；调用方持有项目锁。"""
+    """After degraded restoration, retain only ``files`` (record structures) as download-only; callers hold project locks."""
     record = require_record(project_dir, record_id)
     record_dir = trash_dir(project_dir) / record.id
     stored = record_dir / FILES_DIRNAME
@@ -348,7 +347,7 @@ def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -
         has_snapshot=False,
         download_only=True,
     )
-    # record.json 先改：之后清理中断时，记录照样只列出剩下的文件。
+    # Update record.json first, so interrupted cleanup still lists only remaining files.
     atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **kept.to_dict()})
     shutil.rmtree(record_dir / SNAPSHOT_DIRNAME, ignore_errors=True)
     for rel in record.files:
@@ -357,8 +356,8 @@ def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -
 
 
 def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[BinaryIO, os.stat_result]:
-    """以不跟随符号链接的方式打开记录里的一个被删文件，供下载；调用方负责关闭句柄。"""
-    # 文件视图依赖本模块，顶层导入会成环。
+    """Open deleted-record files for download without symlinks; callers close handles."""
+    # File views depend on this module; top-level imports would cycle.
     from lib.project.file_view import open_project_file
 
     record = require_record(project_dir, record_id)
@@ -371,12 +370,12 @@ def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[Binar
 
 
 def consume(project_dir: Path, record_id: str) -> None:
-    """恢复流水线落地成功后删去记录；调用方持有项目锁。记录已被并发的恢复或清理拿走时抛 ``trash_record_not_found``。"""
+    """Remove records after successful pipeline landing under project locks; concurrent consumption/cleanup raises ``trash_record_not_found``."""
     shutil.rmtree(trash_dir(project_dir) / require_record(project_dir, record_id).id)
 
 
 def purge(project_dir: Path, record_id: str) -> None:
-    """彻底删除一条记录。"""
+    """Permanently delete a record."""
     with project_metadata_lock(project_dir):
         record = require_record(project_dir, record_id)
         shutil.rmtree(trash_dir(project_dir) / record.id)
@@ -384,7 +383,7 @@ def purge(project_dir: Path, record_id: str) -> None:
 
 
 def empty(project_dir: Path) -> int:
-    """清空项目回收站，返回删掉的记录数。"""
+    """Empty project trash and return removed-record count."""
     with project_metadata_lock(project_dir):
         records = list_records(project_dir)
         shutil.rmtree(trash_dir(project_dir), ignore_errors=True)
@@ -393,7 +392,7 @@ def empty(project_dir: Path) -> int:
 
 
 def purge_expired(project_dir: Path, *, now: datetime | None = None) -> int:
-    """清除删除时间早于保留期的记录，返回清除数。"""
+    """Remove records older than retention and return count."""
     if not trash_dir(project_dir).is_dir():
         return 0
     cutoff = (now or datetime.now(UTC)) - RETENTION
@@ -406,15 +405,15 @@ def purge_expired(project_dir: Path, *, now: datetime | None = None) -> int:
     return len(expired)
 
 
-# ---------------------------------------------------------------- 内部
+# ---------------------------------------------------------------- Internal
 
 
 def _notify(project_dir: Path) -> None:
-    """广播回收站变化，并先替被删或加回的项目文件发一次同来源的 hint。
+    """Broadcast trash changes after sending same-source hints for deleted/restored project files.
 
-    这批只描述回收站自身；被删文件引起的项目变更（草稿消失、登记变化）由事件服务读盘补扫或轮询发现，
-    来源按读盘前已到达的 hint 结算。hint 要先于这批送达，否则 Web 端的删除会被补扫成外部改动。
-    """
+    This batch describes trash only; event-service sweeps/polls discover file-related changes (drafts,
+    registrations), attributing source from preread hints. Hints must precede batches, or Web deletions
+    would appear as external changes in sweeps."""
     emit_project_change_hint(project_dir.name)
     change = {"entity_type": TRASH_ENTITY_TYPE, "action": "updated", "entity_id": "trash", "label": "trash"}
     emit_project_change_batch(project_dir.name, [{**change, "focus": None, "important": False}])
@@ -448,7 +447,7 @@ def _load(record_dir: Path) -> TrashRecord | None:
 
 
 def require_record(project_dir: Path, record_id: str) -> TrashRecord:
-    """按 ID 读一条删除记录，不存在时抛 ``trash_record_not_found``。"""
+    """Read records by ID; absent raises ``trash_record_not_found``."""
     record = _load(trash_dir(project_dir) / record_id) if _RECORD_ID_RE.match(record_id) else None
     if record is None:
         raise NotFoundError("trash_record_not_found", id=record_id)
@@ -460,20 +459,20 @@ def _is_plain_file(path: Path) -> bool:
 
 
 def check_restore_target(project_dir: Path, rel: str) -> None:
-    """恢复落点 ``rel`` 的途经目录不能是符号链接，否则抛 ``trash_restore_target_blocked``。"""
+    """Landing ``rel`` parent directories must not be symlinks; otherwise raise ``trash_restore_target_blocked``."""
     target = project_dir / rel
     if any(parent.is_symlink() for parent in target.parents if parent.is_relative_to(project_dir)):
-        # 删除之后有人把途经的目录换成了符号链接：不跟着它写到别处。
+        # Parent directories replaced with symlinks after deletion must not redirect restoration writes.
         raise ConflictError("trash_restore_target_blocked", path=rel)
 
 
 def _land_file(
     project_dir: Path, stored: Path, rel: str, obj: Mapping[str, Any], moved: list[tuple[Path, Path]]
 ) -> RestoredFile:
-    """加回一个文件；搬出记录的 ``(记录内位置, 落点)`` 追加到 ``moved``，供失败时搬回。"""
+    """Restore one file, appending ``(记录内位置, 落点)`` to ``moved`` for rollback."""
     target = project_dir / rel
     if obj.get("kind") == "version" and obj.get("resource_type") in VersionManager.RESOURCE_TYPES:
-        # 被删的历史版本重新登记进版本历史：只把快照放回原路径，版本历史里不会有它。
+        # Reregister deleted history: returning snapshots alone would leave them absent from version records.
         resource_type, resource_id = str(obj["resource_type"]), str(obj["resource_id"])
         path = VersionManager(project_dir).add_history_version(
             resource_type,
@@ -498,7 +497,7 @@ def _land_file(
         suffix = f" ({n}){path.suffix}"
         stem = path.stem
         if obj.get("kind") == "memory":
-            # 记忆存储依赖回收站，文件名约束在落地时读取，避免顶层循环依赖。
+            # Memory storage depends on trash; read landing filename constraints lazily to avoid import cycles.
             from lib.agent.agent_memory_store import FILENAME_MAX_LENGTH
 
             stem = stem[: FILENAME_MAX_LENGTH - len(suffix)]

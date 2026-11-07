@@ -1,4 +1,4 @@
-"""条目与其定义的一致性（规则 ④⑤）：定义过共享校验器，索引条目等于定义 ``meta`` 的投影。"""
+"""Entry/definition consistency (rules ④⑤): definitions pass shared validation and index entries equal the projection of definition ``meta``."""
 
 from __future__ import annotations
 
@@ -11,19 +11,19 @@ from arcreel_market_core.endpoint_definition import definition_media_type, valid
 from .index import ENDPOINT_ENTRY_TYPE, MarketIndexEntry
 from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, join_path
 
-#: 从定义 ``meta`` 投影进索引条目的字段，顺序即生成器写出的顺序。
+#: Fields projected from definition ``meta`` into index entries, in generator output order.
 PROJECTED_META_FIELDS = ("name", "author", "version", "description", "homepage", "min_app_version")
 
 
 def project_meta(definition: Mapping[str, Any]) -> dict[str, Any]:
-    """一份定义在索引条目里的投影：``meta`` 里出现的那些字段，加上定义声明的媒体类型。
+    """A definition's projection into an index entry: fields present in ``meta``, plus its declared media type.
 
-    媒体类型不是固定值：定义自己声明产图还是产视频，声明式定义不写时为视频。读法与端点投影、
-    镜像列共用 ``definition_media_type`` 一份实现——市场索引上的 ``media_type`` 就是这份定义装进库
-    以后镜像列会写下的那个值，两处对不上会让一个图像端点在市场里显示成视频。
+    Media type is not fixed: definitions declare image or video output; declarative definitions default to video when omitted. Reading shares
+    one ``definition_media_type`` implementation with endpoint projections and mirror columns. Market-index ``media_type`` is the value written to the mirror column after
+    the definition is stored; disagreement would display an image endpoint as video in the market.
 
-    ``kind`` 缺失或本版本不认得时投影里没有 ``media_type``：那份定义本身不合法，
-    :func:`validate_definition` 已在同一次检查里说了这件事，这里再猜一个值只会掩盖它。
+    If ``kind`` is missing or unknown to this version, omit ``media_type`` from the projection: the definition itself is invalid,
+    :func:`validate_definition` already reports it in the same check; guessing a value here would hide it.
     """
     meta: Mapping[str, Any] = definition.get("meta") or {}
     projection = {field: meta[field] for field in PROJECTED_META_FIELDS if field in meta}
@@ -39,7 +39,7 @@ def check_entry_definition(
     definition_file: str,
     entry_path: str = ROOT_PATH,
 ) -> list[MarketIssue]:
-    """规则 ④⑤。``definition_file`` 与 ``entry_path`` 只用于诊断定位。"""
+    """Rules ④⑤. ``definition_file`` and ``entry_path`` serve only diagnostic locations."""
     issues = [
         MarketIssue(
             definition_file,
